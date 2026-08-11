@@ -11,6 +11,7 @@ import {
   type TesterTarget,
 } from './tester.js';
 import type { AgentAdapter, HeadlessResult, RunHeadlessOpts } from '../../agent/adapter.js';
+import { GATE_LANE_HEADLESS_TIMEOUT_MS } from '../../agent/headlessSpawn.js';
 
 const now = () => '2026-08-08T10:00:00.000Z';
 
@@ -136,6 +137,22 @@ describe('runUatTester', () => {
       status: 'failed',
     });
     expect(listUatFindings(store, ticketId)).toEqual([]);
+  });
+
+  // The tester is asked to RUN the repo's tests and exercise the acceptance
+  // criteria — a chat-tuned model needs many minutes of tool calls for that,
+  // so the lane's own deadline is the generous gate-lane bound, never the
+  // 15-minute quick-call backstop that killed UAT testing mid-run.
+  it('defaults the headless deadline to the gate-lane bound, so a tester exercising the repo is not cut off', async () => {
+    const { adapter, calls } = rawAdapter('[]');
+    await runUatTester(store, opts({ adapter }), { now });
+    expect(calls[0]!.timeoutMs).toBe(GATE_LANE_HEADLESS_TIMEOUT_MS);
+  });
+
+  it('honors an explicit headless deadline from the caller', async () => {
+    const { adapter, calls } = rawAdapter('[]');
+    await runUatTester(store, opts({ adapter, timeoutMs: 42_000 }), { now });
+    expect(calls[0]!.timeoutMs).toBe(42_000);
   });
 
   it('a Stop aborts the run as interrupted, never a verdict', async () => {
@@ -313,6 +330,71 @@ describe('runUatTester', () => {
     expect(listUatFindings(store, ticketId).map((f) => f.title)).toEqual(['h0', 'h1']);
   });
 
+  it('emits debug lines at entry, per target, and at exit — never the prompt text', async () => {
+    const lines: string[] = [];
+    const { adapter } = rawAdapter(
+      JSON.stringify([{ severity: 'high', title: 'login is broken', detail: '' }]),
+    );
+    const res = await runUatTester(
+      store,
+      opts({ adapter, debug: (m) => lines.push(m) }),
+      { now },
+    );
+    expect(res).toEqual({ kind: 'observed', findingIds: [1] });
+    // Entry: what is being attempted — targets and the execution cap.
+    expect(lines.some((l) => l.includes('uat tester ticket') && l.includes('1 target(s)'))).toBe(
+      true,
+    );
+    // Per-target: which repository was asked and what it came back with.
+    expect(lines.some((l) => l.includes('asking target /web'))).toBe(true);
+    expect(lines.some((l) => l.includes('/web returned 1 observation(s)'))).toBe(true);
+    // Exit: the outcome.
+    expect(lines.some((l) => l.includes('recorded 1 finding(s)'))).toBe(true);
+    // Debug lines never carry the prompt (ticket prose) — only lengths/counts.
+    for (const line of lines) {
+      expect(line).not.toContain('Act as the UAT tester');
+    }
+  });
+
+  it('debug lines name a cap truncation and an execution failure when they happen', async () => {
+    // Each response is parse-capped at `maxObservations` (5), so two targets
+    // returning 20 each collect 10 — which is where the execution-wide cut
+    // actually bites: 10 → 5.
+    const many = JSON.stringify(
+      Array.from({ length: 20 }, (_, i) => ({ severity: 'info' as const, title: `o${i}`, detail: '' })),
+    );
+    const lines: string[] = [];
+    await runUatTester(
+      store,
+      opts({
+        adapter: rawAdapter(many).adapter,
+        maxObservations: 5,
+        targets: [
+          { repo: '/web', worktreePath: '/wt/web' },
+          { repo: '/api', worktreePath: '/wt/api' },
+        ],
+        debug: (m) => lines.push(m),
+      }),
+      { now },
+    );
+    expect(lines.some((l) => l.includes('capped 10 → 5 observation(s)'))).toBe(true);
+
+    const failed: string[] = [];
+    await runUatTester(
+      store,
+      opts({
+        adapter: fakeAdapter(async () => {
+          throw new Error('spawn ENOENT');
+        }).adapter,
+        debug: (m) => failed.push(m),
+      }),
+      { now },
+    );
+    expect(failed.some((l) => l.includes('execution-failed') && l.includes('spawn ENOENT'))).toBe(
+      true,
+    );
+  });
+
   it('supersedes a still-running Tester run of the same process as stale the moment a fresh one opens', async () => {
     // A run still `running` when a second one opens is exactly the
     // destroyed-run case a host restart produces: the driver single-flights,
@@ -332,6 +414,23 @@ describe('runUatTester', () => {
     expect(runs[0]).toMatchObject({ id: orphaned.id, status: 'stale' });
     expect(runs[1]).toMatchObject({ processId: 'tester', status: 'passed', resultKind: 'observed' });
   });
+
+  it('threads the assignment instructions into the prompt it sends', async () => {
+    const { adapter, calls } = rawAdapter('[]');
+    const res = await runUatTester(
+      store,
+      opts({
+        adapter,
+        assignment: { ...ASSIGNMENT, instructions: 'Focus on API endpoint behavior.' },
+      }),
+      { now },
+    );
+    expect(res.kind).toBe('observed');
+    expect(calls[0]!.prompt).toContain('Focus on API endpoint behavior.');
+    expect(calls[0]!.prompt).toContain('Output rules (strict):');
+    // The instructed run's output still parses ([] → zero findings recorded).
+    expect(listUatFindings(store, ticketId)).toHaveLength(0);
+  });
 });
 
 describe('buildTesterPrompt', () => {
@@ -347,5 +446,32 @@ describe('buildTesterPrompt', () => {
     const prompt = buildTesterPrompt({ repo: '/web', worktreePath: '/wt/web' });
     expect(prompt).not.toContain('undefined');
     expect(prompt).toContain('its base branch.');
+  });
+
+  it('replaces the role/strategy lines with user instructions, keeping the target context and output rules', () => {
+    const prompt = buildTesterPrompt(
+      TARGETS[0]!,
+      'Focus on API endpoint behavior.\nTest edge cases around authentication and rate limiting.',
+    );
+    expect(prompt).toContain(
+      'Focus on API endpoint behavior.\nTest edge cases around authentication and rate limiting.',
+    );
+    // The facts the agent needs survive — repo, base branch, service context.
+    expect(prompt).toContain('Repository: /web');
+    expect(prompt).toContain('develop');
+    expect(prompt).toContain('npm run dev');
+    // The default role/strategy lines are replaced...
+    expect(prompt).not.toContain('Act as the UAT tester');
+    expect(prompt).not.toContain('Try to BREAK');
+    // ...but the structured-output contract is non-negotiable.
+    expect(prompt).toContain('Output rules (strict):');
+    expect(prompt).toContain('JSON array');
+    expect(prompt).toContain('OBSERVATIONS, not verdicts');
+  });
+
+  it('treats blank or whitespace instructions as absent', () => {
+    const blank = buildTesterPrompt(TARGETS[0]!, '   ');
+    expect(blank).toContain('Act as the UAT tester');
+    expect(blank).toContain('Try to BREAK');
   });
 });

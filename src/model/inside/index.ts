@@ -147,6 +147,12 @@ export function scopeProcesses(
   const ran = cell.status !== 'pending';
   const rowTime = (at: string | null | undefined): string =>
     at ? formatTime(at) : '';
+  // WHEN the scope run happened, as its rows date themselves. `confirmScope`
+  // creates the worktrees and passes the stage in one act, and the ticket may
+  // never have been stamped as STARTED at scope (it is not a gate — nothing
+  // opens it), so a run that only recorded its end still dates its rows
+  // instead of silently dropping every timestamp (869egdr2u-fu2).
+  const scopeStamp = cell.startedAt ?? cell.endedAt ?? null;
 
   const hotSet: InsideProcessView = {
     id: 'hot-set',
@@ -162,9 +168,9 @@ export function scopeProcesses(
       ? {
           duration: formatDuration(cell.startedAt, cell.endedAt ?? now),
           durationExact: formatExactDuration(cell.startedAt, cell.endedAt ?? now),
-          time: formatTime(cell.startedAt),
         }
       : {}),
+    ...(scopeStamp ? { time: formatTime(scopeStamp) } : {}),
     // The hot set's evidence is WHICH services it names. Without it the row
     // stated a count and offered no way to read the list behind it — the one
     // process on the stage whose whole content is an enumeration.
@@ -175,9 +181,9 @@ export function scopeProcesses(
           status: ran ? 'pass' : 'pending',
           label: repo,
           detail: ran ? 'selected' : 'to validate',
-          // Each row dates from the scope run that selected it — the stage's
-          // own start; there is no per-repo selection stamp.
-          ...(ran && cell.startedAt ? { time: rowTime(cell.startedAt) } : {}),
+          // Each row dates from the scope run that selected it; there is no
+          // per-repo selection stamp.
+          ...(ran && scopeStamp ? { time: rowTime(scopeStamp) } : {}),
         }),
       ),
     },
@@ -189,7 +195,7 @@ export function scopeProcesses(
         // The worktree's own registration stamp when the record has one; the
         // scope stage's start is the fallback for pre-v13 rows. An absent
         // stamp omits the time entirely — never an empty cell.
-        const time = rowTime(w.createdAt ?? cell.startedAt);
+        const time = rowTime(w.createdAt ?? scopeStamp);
         return {
           status: 'pass',
           label: 'worktree',
@@ -239,9 +245,9 @@ export function scopeProcesses(
         ? {
             duration: formatDuration(cell.startedAt, cell.endedAt ?? now),
             durationExact: formatExactDuration(cell.startedAt, cell.endedAt ?? now),
-            time: formatTime(cell.startedAt),
           }
         : {}),
+      ...(scopeStamp ? { time: formatTime(scopeStamp) } : {}),
       evidence: { kind: 'rows', rows },
     },
   ];

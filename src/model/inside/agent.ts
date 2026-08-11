@@ -260,7 +260,11 @@ function timelineEvents(
       row: {
         status: 'pass',
         label: 'done',
-        detail: `implementation marked done · ${formatTime(run.endedAt)}`,
+        // The stamp belongs to the row's own time cell and NOWHERE else: this
+        // row carried it twice — once in the description and again, canonically,
+        // at the end of the row — so the same moment was stated to the reader
+        // in two formats side by side.
+        detail: 'implementation marked done',
         time: formatShortTime(run.endedAt),
         role: 'phase',
       },

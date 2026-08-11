@@ -157,7 +157,9 @@ export function buildNowLine(
      * 'waiting'`). The ticket is blocked on the user RIGHT NOW, so the sentence
      * must say so — claiming the agent is "running" beside an amber "Needs you"
      * rail is the contradiction this branch prevents. Mirrors `railNeeds`'
-     * precedence: the live question outranks stage narration.
+     * precedence: the live question outranks stage narration — except over a
+     * RUNNING ship, where the hooks that set `waiting` fire inside ship's own
+     * headless run and the line must keep saying it is shipping (869ed7bpd).
      */
     agentWaiting?: boolean;
   } = {},
@@ -177,7 +179,11 @@ export function buildNowLine(
 
   if (!cell) return session ? { text: NOT_STARTED, action: session } : { text: NOT_STARTED };
 
-  if (ctx.agentWaiting) {
+  // A RUNNING ship is the exception to the waiting branch: ship is the driver's
+  // own headless agent work (committing, pushing, opening PRs), and the hook
+  // that set `waiting` fired inside that run — the waiting sentence would
+  // contradict the shipping in progress (869ed7bpd).
+  if (ctx.agentWaiting && !(cell.stageKey === 'ship' && cell.status === 'running')) {
     const line: NowLine = {
       text: 'Now: the agent is waiting — it asked for your input.',
     };

@@ -718,6 +718,102 @@ describe('ticket-form webview.html — UI-RULES.md remediation', () => {
   });
 });
 
+describe('ticket-form webview.html — selects, buttons, positioning fixes', () => {
+  it('defines --chevron so the agent-core trigger paints its dropdown arrow', () => {
+    // The trigger's `.chev` uses var(--chevron) but the page never defined the
+    // variable (settings does, in its own :root) — the custom select rendered
+    // as a plain button with no affordance. The data URI is the one accepted
+    // UI-R04 exception (a data-URI SVG cannot consume a custom property).
+    expect(HTML).toMatch(/:root\{[^}]*--chevron:url\("data:image\/svg\+xml/);
+  });
+
+  it('strips the OS arrow from native selects and paints the shared chevron (UI-R04)', () => {
+    // settings does this; the ticket form's selects (#agentSelect/#modelSelect/
+    // #typeSelect/#searchStatus) kept the raw OS arrow, whose placement drifts
+    // between platforms/renderers and reads as a different widget from the
+    // custom Agent-core trigger beside them.
+    const [main] = styleBlocks();
+    const rule = main!.match(/select\.k-input\{[^}]*\}/)?.[0] ?? '';
+    expect(rule).toContain('appearance:none;-webkit-appearance:none');
+    expect(rule).toContain('background-image:var(--chevron)');
+    expect(rule).toContain('padding-right:calc(var(--k-space-8) + var(--k-space-4))');
+    expect(rule).toContain('background-position:right var(--k-space-5) center');
+  });
+
+  it('closes the agent-core menu and repaints the trigger on pick (create mode has no state push)', () => {
+    // In create mode the host's set-provider is a no-op (no ticket to persist),
+    // so nothing re-renders the trigger until submit — the pick must update the
+    // trigger + option states and close the menu locally, exactly as settings'
+    // selectAgent does. Before the fix the menu stayed open and the trigger
+    // kept showing the previous core.
+    const fnMatch = HTML.match(/function selectProvider\([^)]*\)\s*{([\s\S]*?)\n {2}}/);
+    expect(fnMatch, 'selectProvider() not found').toBeTruthy();
+    const body = fnMatch![1]!;
+    expect(body).toContain("trigger.innerHTML = agentBadgeHtml(");
+    expect(body).toContain("menu.classList.add('hidden')");
+    expect(body).toContain("trigger.setAttribute('aria-expanded', 'false')");
+    expect(body).toContain('aria-selected');
+  });
+
+  it('suppresses the k-btn press-scale and the pending/success flashes on the dropdown trigger', () => {
+    // The trigger composes .k-btn (UI-R07), but it is a DROPDOWN control, not
+    // an action button: the primitive's scale-on-active squishes it on every
+    // menu open/close, its aria-busy spinner is injected into the flex row
+    // (shifting the badge), and the settle flash turns it green with a check
+    // — all on a widget whose pick repaints itself. Same call
+    // designComponents.ts makes for .k-btn--row: a trigger is not a button.
+    const [main] = styleBlocks();
+    expect(main).toMatch(/\.agentselect-trigger:active:not\(:disabled\)\{[^}]*transform:none/);
+    expect(main).toMatch(/\.agentselect-trigger\[aria-busy="true"\]::before\{[^}]*content:none/);
+    expect(main).toMatch(/\.agentselect-trigger\.is-success[^{]*::before\{[^}]*content:none/);
+  });
+
+  it('re-renders the model picker for the picked provider from the last catalog', () => {
+    // The Model select sits right below the agent-core picker and must follow
+    // it. In create mode the host no-ops set-provider (no state push follows),
+    // so selectProvider has to re-filter the models locally from the catalog
+    // the state push carried — otherwise the Model select keeps the previous
+    // agent core's models until the next full render.
+    const fn = functionSource('selectProvider');
+    expect(fn).toContain('renderModelPicker(');
+    expect(fn).toContain('modelsForProvider(');
+    expect(fn).toContain('lastDefaultProvider');
+    // The cascade needs the pushed default + session lock to render honestly.
+    const render = functionSource('render');
+    expect(render).toContain('lastModelCatalog = state.modelCatalog');
+    expect(render).toContain('lastDefaultModel = state.defaultModel');
+  });
+
+  it('Cancel closes the form instead of posting a dead request-state', () => {
+    // requestState re-pushes state, and render() refuses to clobber non-empty
+    // fields — so the old Cancel visibly did nothing in both modes. The panel
+    // has its own close affordance; Cancel now means "discard and close".
+    const start = HTML.indexOf("el('cancelBtn').addEventListener");
+    const end = HTML.indexOf("el('analyzeBtn').addEventListener");
+    const cancel = HTML.slice(start, end);
+    expect(cancel).toContain("post({ type: 'close-form' })");
+    expect(cancel).not.toContain('request-state');
+  });
+
+  it('styles the attach-row caption as a caption, not body text', () => {
+    // The "or paste a screenshot into the prompt" hint had no rule at all, so
+    // it rendered at full size/opacity while every other caption uses .sub.
+    const [main] = styleBlocks();
+    const rule = main!.match(/\.hint\{[^}]*\}/)?.[0] ?? '';
+    expect(rule).toContain('font-size:var(--k-text-sm)');
+    expect(rule).toContain('opacity:.6');
+  });
+
+  it('centres the step rail under the dots so the spine lines up with them', () => {
+    // The dot is --k-space-9 (26px) wide → its centre sits 13px into the card.
+    // margin-left:--k-space-5 (10px) put the 2px rail's centre at 11px — the
+    // spine ran 2px left of every dot it joins. --k-space-6 (12px) centres it.
+    const [main] = styleBlocks();
+    const rule = main!.match(/\.stepbody\{[^}]*\}/)?.[0] ?? '';
+    expect(rule).toContain('margin-left:var(--k-space-6)');
+  });
+});
+
 describe('legacy busy channel watchdog', () => {
   /**
    * `fetch`/`suggest`/`submit`/`analyze`/`save` settle through the host's

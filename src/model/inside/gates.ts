@@ -14,6 +14,7 @@ import {
   formatDuration,
   formatExactDuration,
   formatTime,
+  insideSeverity,
   type EvidenceRow,
   type InsideProcessView,
   type InsideStatus,
@@ -141,20 +142,33 @@ const FINDING_DETAIL_MAX = 200;
  * `repo` is deliberately not shown per-row — every row here already belongs
  * to one ticket's one review run, and `file` (when present) is the more
  * useful location.
+ *
+ * The location is returned SEPARATELY rather than folded into `detail`: it is
+ * the resource identifier, so it is the row's link (UI-R09c), and a link
+ * cannot be cut out of a sentence the webview is forbidden to parse.
  */
-function findingOp(finding: Finding): StageOp {
-  const location = finding.file
-    ? finding.line
-      ? `${finding.file}:${finding.line}`
-      : finding.file
-    : null;
+function findingOp(finding: Finding): StageOp & { location: string | null } {
   const title = collapseDiagnostic(finding.title, FINDING_DETAIL_MAX);
   return {
     status: BLOCKING_STATUS_SEVERITIES.has(finding.severity) ? 'fail' : 'note',
     name: finding.severity,
-    detail: location ? `${title} — ${location}` : title,
+    detail: title,
     duration: '',
+    location: findingLocation(finding.file, finding.line),
   };
+}
+
+/**
+ * `path/to/file.ts:302` — the form the design asks the row to show and open.
+ * A finding with no file names no location; a file with no line names the
+ * file alone, because a fabricated `:0` would open the wrong place.
+ */
+function findingLocation(
+  file: string | null | undefined,
+  line: number | null | undefined,
+): string | null {
+  if (!file) return null;
+  return line ? `${file}:${line}` : file;
 }
 
 /**
@@ -207,6 +221,14 @@ export interface QualityProcessesInput {
    * stating that they resolve when the stage runs.
    */
   resolvedGates?: readonly { name: string; disabled: boolean }[];
+  /**
+   * The manifest repository NAME for a recorded repo value. `gate_runs.repo`
+   * is a repository PATH, and a path is not what the settings call this thing
+   * — the gate rows name the service the way Settings → Repositories names it,
+   * exactly like the ship rows do. A repo the host cannot map falls back to
+   * the raw recorded value rather than rendering nothing.
+   */
+  repoNameFor?: (repo: string) => string | undefined;
 }
 
 /** The latest invocation of a process, by its explicit run id. */
@@ -302,7 +324,12 @@ function gatesProcess(
   stageKey: StageKey,
   now: string,
   resolved: readonly { name: string; disabled: boolean }[] = [],
+  repoNameFor?: (repo: string) => string | undefined,
 ): InsideProcessView {
+  // One mapping, used by BOTH the per-gate rows and the failure sentence: a
+  // row that named the service while the summary above it named the path
+  // would read as two different repositories.
+  const repoLabel = (repo: string): string => repoNameFor?.(repo) ?? repo;
   const batch = latestBatch(runs, stageKey).filter((r) => r.gateName !== CHANGES_GATE);
   let passed = 0;
   let failed = 0;
@@ -345,7 +372,7 @@ function gatesProcess(
             label: op.name,
             detail: op.detail,
             duration: op.duration,
-            ...(op.repo ? { repo: op.repo } : {}),
+            ...(op.repo ? { repo: repoLabel(op.repo) } : {}),
             ...(op.durationExact ? { durationExact: op.durationExact } : {}),
             // Each recorded gate row dates from its own start — the
             // timestamp on every expanded row.
@@ -366,7 +393,9 @@ function gatesProcess(
   const firstFailed = batch.find((r) => !r.skipped && r.exitCode !== null && r.exitCode !== 0);
   const answered = passed + failed;
   const where = (r: GateRun): string =>
-    r.repo ? `${r.repo} / ${stripRepoDecoration(r.gateName)}` : stripRepoDecoration(r.gateName);
+    r.repo
+      ? `${repoLabel(r.repo)} / ${stripRepoDecoration(r.gateName)}`
+      : stripRepoDecoration(r.gateName);
   let detail: string | undefined;
   let count: string | undefined;
   if (batch.length > 0 && failed === 0 && answered > 0) {
@@ -481,17 +510,24 @@ function testerProcess(input: QualityProcessesInput): InsideProcessView {
     ? input.uatFindings.filter((f) => f.processRunId === run.id)
     : [];
   const boundedRows = bounded(
+    // Rendered by the SAME blueprint the Review findings use — severity key,
+    // title, linked location — because a reader must not have to learn which
+    // stage they are looking at to read a level or open a file.
     observations.map((f): EvidenceRow => {
-      const location = f.filePath ? (f.line ? `${f.filePath}:${f.line}` : f.filePath) : null;
+      const location = findingLocation(f.filePath, f.line);
       const title = collapseDiagnostic(f.title, FINDING_DETAIL_MAX);
       return {
         status: 'note',
         label: f.severity,
-        detail: location ? `${title} — ${location}` : title,
-        ...actionFor(input.attach, {
-          kind: 'open-file',
-          evidence: { source: 'uat-finding', id: f.id },
-        }),
+        detail: title,
+        ...(insideSeverity(f.severity) ? { severity: insideSeverity(f.severity)! } : {}),
+        ...(location ? { location } : {}),
+        ...(location
+          ? actionFor(input.attach, {
+              kind: 'open-file',
+              evidence: { source: 'uat-finding', id: f.id },
+            })
+          : {}),
       };
     }),
     FINDINGS_EVIDENCE_LIMIT,
@@ -522,7 +558,10 @@ function testerProcess(input: QualityProcessesInput): InsideProcessView {
                     : undefined,
         }
       : {}),
-    evidence: { kind: 'rows', rows },
+    // The SAME evidence kind the Review process emits: one blueprint renders
+    // both stages' levels and locations, so `high` looks like `high` wherever
+    // it is read. Observations are advisory, so nothing here blocks.
+    evidence: { kind: 'findings', rows, blocking: 0 },
   };
 }
 
@@ -543,10 +582,16 @@ function reviewProcess(input: QualityProcessesInput): InsideProcessView {
         status: op.status,
         label: op.name,
         detail: op.detail,
-        ...actionFor(input.attach, {
-          kind: 'open-file',
-          evidence: { source: 'review-finding', id: f.id },
-        }),
+        ...(insideSeverity(f.severity) ? { severity: insideSeverity(f.severity)! } : {}),
+        // The location is the row's own control; the "Open file" button it
+        // replaces was a second, weaker way to reach the same place.
+        ...(op.location ? { location: op.location } : {}),
+        ...(op.location
+          ? actionFor(input.attach, {
+              kind: 'open-file',
+              evidence: { source: 'review-finding', id: f.id },
+            })
+          : {}),
       };
     }),
     FINDINGS_EVIDENCE_LIMIT,
@@ -590,7 +635,14 @@ function reviewProcess(input: QualityProcessesInput): InsideProcessView {
 /** The uat stage's processes: gates, services, tester — plus a causal fix. */
 export function uatProcesses(input: QualityProcessesInput): InsideProcessView[] {
   const processes = [
-    gatesProcess(input.cell, input.gateRuns, 'uat', input.now, input.resolvedGates ?? []),
+    gatesProcess(
+      input.cell,
+      input.gateRuns,
+      'uat',
+      input.now,
+      input.resolvedGates ?? [],
+      input.repoNameFor,
+    ),
     servicesProcess(input.cell, input.services),
     testerProcess(input),
   ];
@@ -604,7 +656,14 @@ export function uatProcesses(input: QualityProcessesInput): InsideProcessView[] 
 /** The review stage's processes: gates, services, review — plus a causal fix. */
 export function reviewProcesses(input: QualityProcessesInput): InsideProcessView[] {
   const processes = [
-    gatesProcess(input.cell, input.gateRuns, 'review', input.now, input.resolvedGates ?? []),
+    gatesProcess(
+      input.cell,
+      input.gateRuns,
+      'review',
+      input.now,
+      input.resolvedGates ?? [],
+      input.repoNameFor,
+    ),
     servicesProcess(input.cell, input.services),
     reviewProcess(input),
   ];

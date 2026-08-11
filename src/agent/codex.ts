@@ -170,7 +170,12 @@ let input = '';
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', (chunk) => {
   input += chunk;
-  if (input.length > 64 * 1024) finish(1, 'input-too-large');
+  // A tool output rides the hook input and can legitimately be large; the
+  // bridge only needs the small fields, so an oversized input is DECLINED,
+  // never a failure — exit 0 keeps the agent from rendering a hook error,
+  // and the decline is logged for the diagnostic report. Mirrors the hook
+  // endpoint's oversized-body contract (MAX_HOOK_BODY_BYTES = 1 MiB).
+  if (input.length > 1024 * 1024) finish(0, 'input-too-large');
 });
 process.stdin.on('end', () => {
   let raw;
@@ -699,6 +704,9 @@ export class CodexAdapter implements AgentAdapter {
         ...(opts.cliPhasePrefix
           ? { phaseCommand: opts.cliPhasePrefix }
           : {}),
+        ...(opts.cliGuidePrefix
+          ? { guideCommand: opts.cliGuidePrefix }
+          : {}),
       });
       const destination = writeSkill(
         opts.sessionDir,
@@ -740,6 +748,7 @@ export class CodexAdapter implements AgentAdapter {
     );
     const result = await this.spawnHeadless(CODEX_BIN, args, opts.cwd, {
       signal: opts.signal,
+      timeoutMs: opts.timeoutMs,
       onDebug: opts.debug,
     });
     if (result.exitCode !== 0) {

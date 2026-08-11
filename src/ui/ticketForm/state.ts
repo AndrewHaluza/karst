@@ -108,6 +108,15 @@ export interface TicketFormState {
   selectedAgent: string | null;
   /** The curated launch models offered in the picker. */
   models: ModelOption[];
+  /**
+   * Every provider's models, not just the current one's. The webview re-filters
+   * the Model select LOCALLY when the agent core changes — in create mode the
+   * host's set-provider is a no-op (no ticket to persist), so no state push
+   * follows the pick and the flattened `models` list alone would leave the
+   * previous core's models on screen. Same whole-catalog shape the settings
+   * page carries for its General-tab picker.
+   */
+  modelCatalog: ModelCatalog;
   /** Per-ticket model id; null = inherit the manifest default. */
   selectedModel: string | null;
   /** Manifest default model, for the "Inherit (settings: …)" label; null = none. */
@@ -254,6 +263,7 @@ export function buildTicketFormState(
       agents,
       selectedAgent: null,
       models: [...modelsForProvider(defaultAgentProvider, modelCatalog)],
+      modelCatalog,
       selectedModel: null,
       defaultModel: manifest.defaultModel ?? null,
       agentProviders: [...IMPLEMENTED_PROVIDERS],
@@ -300,6 +310,7 @@ export function buildTicketFormState(
     models: [
       ...modelsForProvider(resolveProvider(ticket.agentProvider, manifest.agentProvider), modelCatalog),
     ],
+    modelCatalog,
     selectedModel: ticket.model ?? null,
     defaultModel: manifest.defaultModel ?? null,
     agentProviders: [...IMPLEMENTED_PROVIDERS],

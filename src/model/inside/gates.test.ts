@@ -844,3 +844,119 @@ describe('reviewProcesses', () => {
     expect(rows.at(-1)!.detail).toContain('2');
   });
 });
+
+// ── 869egdr2u-fu2: the quality stages share ONE blueprint ─────────────────
+// A reader must not have to learn which stage they are looking at to read a
+// repository name, a finding level or a file location.
+describe('quality evidence names the SERVICE, never the repository path', () => {
+  const repoNameFor = (repo: string) =>
+    ({ '/wt/web': 'web', '/wt/api': 'api' })[repo];
+
+  it('labels each gate row with the manifest repository name', () => {
+    const views = reviewProcesses(
+      qualityInput({
+        cell: cell('review', 'passed'),
+        gateRuns: [
+          run('review', 'lint (/wt/web)', 0, { repo: '/wt/web' }),
+          run('review', 'test (/wt/api)', 0, { repo: '/wt/api' }),
+        ],
+        repoNameFor,
+      }),
+    );
+    expect(rowsOf(views[0]!).map((r) => r.repo)).toEqual(['web', 'api']);
+  });
+
+  it('names the service in the failure sentence too, so the row and the summary agree', () => {
+    const views = reviewProcesses(
+      qualityInput({
+        cell: cell('review', 'failed', { attempt: 2 }),
+        gateRuns: [
+          run('review', 'lint (/wt/web)', 0, { repo: '/wt/web' }),
+          run('review', 'test (/wt/web)', 1, { repo: '/wt/web' }),
+        ],
+        repoNameFor,
+      }),
+    );
+    expect(views[0]!.detail).toBe('attempt 2 failed · web / test');
+    expect(views[0]!.detail).not.toContain('/wt/');
+  });
+
+  it('falls back to the recorded value for a repo the host cannot map', () => {
+    const views = reviewProcesses(
+      qualityInput({
+        cell: cell('review', 'passed'),
+        gateRuns: [run('review', 'lint', 0, { repo: '/wt/unknown' })],
+        repoNameFor,
+      }),
+    );
+    expect(rowsOf(views[0]!)[0]!.repo).toBe('/wt/unknown');
+  });
+});
+
+describe('finding rows carry a level key and a linkable location', () => {
+  it('splits the review finding location out of its title', () => {
+    const views = reviewProcesses(
+      qualityInput({
+        cell: cell('review', 'failed'),
+        findings: [finding('high', { title: 'SQL injection', file: 'src/db/query.ts', line: 41 })],
+        processRuns: [processRun({ stageKey: 'review', processId: 'review', resultKind: 'blocking' })],
+      }),
+    );
+    expect(rowsOf(views[2]!)[0]).toMatchObject({
+      label: 'high',
+      severity: 'high',
+      detail: 'SQL injection',
+      location: 'src/db/query.ts:41',
+    });
+  });
+
+  it('names the file alone when no line was recorded, never a fabricated :0', () => {
+    const views = reviewProcesses(
+      qualityInput({
+        cell: cell('review', 'failed'),
+        findings: [finding('low', { title: 't', file: 'src/a.ts', line: null })],
+        processRuns: [processRun({ stageKey: 'review', processId: 'review' })],
+      }),
+    );
+    expect(rowsOf(views[2]!)[0]!.location).toBe('src/a.ts');
+  });
+
+  it('attaches no open-file action to a finding that names no file', () => {
+    const views = reviewProcesses(
+      qualityInput({
+        cell: cell('review', 'failed'),
+        findings: [finding('critical', { title: 't' })],
+        processRuns: [processRun({ stageKey: 'review', processId: 'review' })],
+        attach: () => ({ actionId: 'a', kind: 'open-file' }),
+      }),
+    );
+    const row = rowsOf(views[2]!)[0]!;
+    expect(row.location).toBeUndefined();
+    expect(row.action).toBeUndefined();
+  });
+
+  it('renders UAT observations through the SAME findings blueprint', () => {
+    const testerRun = processRun({ id: 900 });
+    const views = uatProcesses(
+      qualityInput({
+        processRuns: [testerRun],
+        uatFindings: [
+          uatFinding('medium', {
+            processRunId: 900,
+            title: 'flaky timeout',
+            filePath: 'src/auth.ts',
+            line: 19,
+          }),
+        ],
+      }),
+    );
+    const tester = views[2]!;
+    expect(tester.evidence?.kind).toBe('findings');
+    expect(rowsOf(tester)[0]).toMatchObject({
+      label: 'medium',
+      severity: 'medium',
+      detail: 'flaky timeout',
+      location: 'src/auth.ts:19',
+    });
+  });
+});

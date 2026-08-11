@@ -417,6 +417,9 @@ export function buildDashboardState(
         tokens: tokensFor('tester'),
         attach,
         resolvedGates: resolvedGates?.uat ?? [],
+        // The gate rows name the service the way Settings names it, never the
+        // path the evidence table keys by — the same injection ship uses.
+        repoNameFor,
       }),
       now,
     ),
@@ -436,6 +439,7 @@ export function buildDashboardState(
         tokens: tokensFor('review'),
         attach,
         resolvedGates: resolvedGates?.review ?? [],
+        repoNameFor,
       }),
       now,
     ),
@@ -477,6 +481,7 @@ export function buildDashboardState(
         // cells the strip's rail reads, so the receipt and the strip can
         // never disagree about how long a stage took.
         stages: stepper,
+        repoNameFor,
       }),
       now,
     ),
@@ -522,6 +527,11 @@ export function buildDashboardState(
         ? railNeeds({
             stage: ticket.stageCurrent,
             agentWaiting: (ticket.agentState ?? 'none') === 'waiting',
+            // A RUNNING ship is the driver's own work, so the agent-waiting
+            // banner must not outrank it (869ed7bpd). `needsUser` already
+            // excludes that case — this is the rail's own guard, belt and
+            // braces with the same exception.
+            shipStatus: cellOf('ship').status,
             shipAwaitingMerge:
               stepper.find((c) => c.stageKey === 'ship')?.blocked?.kind === 'awaiting-merge',
             mergeGate,

@@ -233,6 +233,31 @@ describe('resolveProcessAssignment', () => {
       'ticket-analysis': 'Ticket Analysis Agent',
     });
   });
+
+  it('resolves instructions verbatim from the process config', () => {
+    const manifest: Manifest = {
+      ...BASE,
+      processes: {
+        uatTester: { instructions: 'Focus on API endpoints.\nIgnore UI.' },
+        review: { instructions: 'Check for regression patterns.' },
+      },
+    };
+    expect(resolveProcessAssignment(manifest, 'uat-tester')).toMatchObject({
+      instructions: 'Focus on API endpoints.\nIgnore UI.',
+    });
+    expect(resolveProcessAssignment(manifest, 'review')?.instructions).toBe(
+      'Check for regression patterns.',
+    );
+  });
+
+  it('carries no instructions key when none are configured', () => {
+    expect(resolveProcessAssignment(BASE, 'uat-tester')).toEqual({
+      agentName: 'UAT Agent',
+      provider: 'codex',
+      model: 'gpt-5.6-sol',
+    });
+    expect('instructions' in (resolveProcessAssignment(BASE, 'uat-tester') ?? {})).toBe(false);
+  });
 });
 
 describe('process_runs snapshot immutability', () => {

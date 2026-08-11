@@ -250,6 +250,7 @@ export class ClaudeAdapter implements AgentAdapter {
           ...(opts.cliContextPrefix ? { contextCommand: opts.cliContextPrefix } : {}),
           ...(opts.cliStagePrefix ? { stageCommand: opts.cliStagePrefix } : {}),
           ...(opts.cliPhasePrefix ? { phaseCommand: opts.cliPhasePrefix } : {}),
+          ...(opts.cliGuidePrefix ? { guideCommand: opts.cliGuidePrefix } : {}),
         });
         writeFileSync(join(karstCommands, `${orchestratorCommandBasename(opts.pkg.id)}.md`), body);
         owned.push(karstDir);
@@ -300,6 +301,7 @@ export class ClaudeAdapter implements AgentAdapter {
     );
     const r = await this.spawnHeadless(CLAUDE_BIN, args, opts.cwd, {
       signal: opts.signal,
+      timeoutMs: opts.timeoutMs,
       onDebug: opts.debug,
     });
     if (r.exitCode !== 0) {

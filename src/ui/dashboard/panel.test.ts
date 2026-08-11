@@ -6,7 +6,10 @@ import { openStore, type Store } from '../../store/db.js';
 import { createTicket, updateTicketFields } from '../../store/tickets.js';
 import { setStage } from '../../store/stages.js';
 import { manifest, processes, runnableRepo } from '../../manifest/fixtures.js';
+import { openProcessRun, finishProcessRun } from '../../store/processRuns.js';
 import { DashboardManager, type PanelHost, type FakePanel } from './panel.js';
+import { LIVE_TICK_MS } from './liveTick.js';
+import { ACTION_GRACE_MS } from './panel.js';
 import type { WorktreeStats, WorktreeStatsLoader } from './worktreeStats.js';
 
 const PANEL_SOURCE = readFileSync(
@@ -35,6 +38,7 @@ function fakeHost(): { host: PanelHost; panels: FakePanel[] } {
         createdPreserveFocus: preserveFocus,
         revealedPreserveFocus: [],
         disposed: false,
+        visible: true,
         posted: [],
         icons: [],
         messageHandlers,
@@ -44,6 +48,7 @@ function fakeHost(): { host: PanelHost; panels: FakePanel[] } {
           panel.revealedPreserveFocus.push(keepFocus);
         },
         setIcon: (p) => panel.icons.push(p),
+        isVisible: () => panel.visible,
         postMessage: (m) => panel.posted.push(m),
         onDidReceiveMessage: (h) => messageHandlers.push(h),
         onDidChangeViewState: (h) => viewStateHandlers.push(h),
@@ -722,6 +727,286 @@ describe('DashboardManager', () => {
 
       expect(panels[0]!.createdPreserveFocus).toBeUndefined();
       expect(panels[0]!.revealedPreserveFocus).toEqual([undefined]);
+    });
+  });
+
+  describe('live snapshot ticks', () => {
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => vi.useRealTimers());
+
+    const states = (panel: FakePanel): unknown[] =>
+      panel.posted.filter((m) => (m as { type?: string }).type === 'state');
+
+    it('re-pushes the snapshot every second while a process is running', () => {
+      // The inside block reads store rows nothing pushes when they OPEN — a
+      // tester run, a findings lane, a running gate. Without this tick the
+      // panel shows the state it had when the stage last moved.
+      const t = createTicket(store, { key: 'A', title: 'a' });
+      setStage(store, t.id, 'uat', { status: 'running', startedAt: new Date().toISOString() });
+      openProcessRun(store, {
+        ticketId: t.id,
+        stageKey: 'uat',
+        processId: 'tester',
+        attempt: 1,
+        startedAt: new Date().toISOString(),
+      });
+      const { host, panels } = fakeHost();
+      const mgr = new DashboardManager(store, host, () => ({}) as never);
+
+      mgr.openDashboard(t.id);
+      const initial = states(panels[0]!).length;
+      vi.advanceTimersByTime(LIVE_TICK_MS * 3);
+
+      expect(states(panels[0]!).length).toBe(initial + 3);
+    });
+
+    it('stops ticking once nothing is running', () => {
+      const t = createTicket(store, { key: 'A', title: 'a' });
+      const run = openProcessRun(store, {
+        ticketId: t.id,
+        stageKey: 'uat',
+        processId: 'tester',
+        attempt: 1,
+        startedAt: new Date().toISOString(),
+      });
+      const { host, panels } = fakeHost();
+      const mgr = new DashboardManager(store, host, () => ({}) as never);
+
+      mgr.openDashboard(t.id);
+      finishProcessRun(store, run.id, 'passed', new Date().toISOString());
+      vi.advanceTimersByTime(LIVE_TICK_MS);
+      const settled = states(panels[0]!).length;
+      vi.advanceTimersByTime(LIVE_TICK_MS * 5);
+
+      expect(states(panels[0]!).length).toBe(settled);
+    });
+
+    it('never ticks a settled ticket at all', () => {
+      const t = createTicket(store, { key: 'A', title: 'a' });
+      const { host, panels } = fakeHost();
+      const mgr = new DashboardManager(store, host, () => ({}) as never);
+
+      mgr.openDashboard(t.id);
+      const initial = states(panels[0]!).length;
+      vi.advanceTimersByTime(LIVE_TICK_MS * 10);
+
+      expect(states(panels[0]!).length).toBe(initial);
+    });
+
+    it('is a snapshot repaint only — it never re-runs the git/filesystem loaders', async () => {
+      // The supplemental loaders spawn `git` per worktree and walk the repo
+      // for gate scripts. Re-running them once a second (aborting the previous
+      // one each time) would spawn a child process per second that never gets
+      // to finish — the repaint reads the store and nothing else.
+      const t = createTicket(store, { key: 'A', title: 'a' });
+      openProcessRun(store, {
+        ticketId: t.id,
+        stageKey: 'uat',
+        processId: 'tester',
+        attempt: 1,
+        startedAt: new Date().toISOString(),
+      });
+      const { host } = fakeHost();
+      const loadStats: WorktreeStatsLoader = vi.fn().mockResolvedValue([]);
+      const loadGateOptions = vi.fn().mockResolvedValue({ uat: [], review: [] });
+      const mgr = new DashboardManager(
+        store, host, () => ({}) as never,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        undefined, undefined, undefined, loadStats, undefined, loadGateOptions,
+      );
+
+      mgr.openDashboard(t.id);
+      const statsCalls = (loadStats as ReturnType<typeof vi.fn>).mock.calls.length;
+      const gateCalls = loadGateOptions.mock.calls.length;
+      vi.advanceTimersByTime(LIVE_TICK_MS * 5);
+
+      expect((loadStats as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(statsCalls);
+      expect(loadGateOptions.mock.calls).toHaveLength(gateCalls);
+    });
+
+    it('stops repainting a panel nobody can see, and catches up when it returns', () => {
+      // Visibility, not activation: a dashboard watched beside a terminal the
+      // user types in is visible and inactive, and that is the whole scenario.
+      const t = createTicket(store, { key: 'A', title: 'a' });
+      openProcessRun(store, {
+        ticketId: t.id,
+        stageKey: 'uat',
+        processId: 'tester',
+        attempt: 1,
+        startedAt: new Date().toISOString(),
+      });
+      const { host, panels } = fakeHost();
+      const mgr = new DashboardManager(store, host, () => ({}) as never);
+
+      mgr.openDashboard(t.id);
+      panels[0]!.visible = false;
+      panels[0]!.emitViewState(false);
+      const hidden = states(panels[0]!).length;
+      vi.advanceTimersByTime(LIVE_TICK_MS * 5);
+      expect(states(panels[0]!).length).toBe(hidden);
+
+      panels[0]!.visible = true;
+      panels[0]!.emitViewState(false); // visible again, still not the active tab
+      expect(states(panels[0]!).length).toBe(hidden + 1);
+      vi.advanceTimersByTime(LIVE_TICK_MS);
+      expect(states(panels[0]!).length).toBe(hidden + 2);
+    });
+
+    it('marks a repaint `live` so the webview can defer it, and a real push not', () => {
+      const t = createTicket(store, { key: 'A', title: 'a' });
+      openProcessRun(store, {
+        ticketId: t.id,
+        stageKey: 'uat',
+        processId: 'tester',
+        attempt: 1,
+        startedAt: new Date().toISOString(),
+      });
+      const { host, panels } = fakeHost();
+      const mgr = new DashboardManager(store, host, () => ({}) as never);
+
+      mgr.openDashboard(t.id);
+      vi.advanceTimersByTime(LIVE_TICK_MS);
+      const pushed = states(panels[0]!) as Array<{ live?: boolean }>;
+
+      expect(pushed[0]!.live).toBeUndefined();
+      expect(pushed[1]!.live).toBe(true);
+    });
+
+    it('keeps a superseded id dispatchable for the grace WINDOW, not for one tick', () => {
+      // The window has to cover a webview→host round trip. Tying it to "the
+      // previous snapshot" made its real length the tick period.
+      const t = createTicket(store, { key: 'A', title: 'a' });
+      store.db.prepare("UPDATE tickets SET stage_current = 'done' WHERE id = ?").run(t.id);
+      store.db
+        .prepare(
+          `INSERT INTO prs (ticket_id, repo, number, url, status, merged_at)
+           VALUES (?, ?, ?, ?, 'merged', ?)`,
+        )
+        .run(t.id, '/repo/a', 12, 'https://github.com/o/r/pull/12', new Date().toISOString());
+      openProcessRun(store, {
+        ticketId: t.id,
+        stageKey: 'uat',
+        processId: 'tester',
+        attempt: 1,
+        startedAt: new Date().toISOString(),
+      });
+      const { host, panels } = fakeHost();
+      const mgr = new DashboardManager(
+        store, host, () => ({}) as never,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        undefined, undefined, undefined, undefined, undefined, undefined,
+        { openPr: () => {} } as never,
+      );
+
+      mgr.openDashboard(t.id);
+      const actionId = /"actionId":"(snapshot-1:action-\d+)"/.exec(
+        JSON.stringify(panels[0]!.posted),
+      )?.[1];
+      expect(actionId).toBeDefined();
+
+      // Three repaints later — more than one generation back — it still works.
+      vi.advanceTimersByTime(LIVE_TICK_MS * 3);
+      expect(mgr.dispatchInsideAction(t.id, actionId!)).toMatchObject({ ok: true });
+
+      // Past the window it is gone, however few snapshots have replaced it.
+      vi.advanceTimersByTime(ACTION_GRACE_MS);
+      expect(mgr.dispatchInsideAction(t.id, actionId!)).toMatchObject({ ok: false });
+    });
+
+    it('a disposed panel stops its tick — no timer outlives the panel', () => {
+      const t = createTicket(store, { key: 'A', title: 'a' });
+      openProcessRun(store, {
+        ticketId: t.id,
+        stageKey: 'uat',
+        processId: 'tester',
+        attempt: 1,
+        startedAt: new Date().toISOString(),
+      });
+      const { host, panels } = fakeHost();
+      const mgr = new DashboardManager(store, host, () => ({}) as never);
+
+      mgr.openDashboard(t.id);
+      const atDispose = states(panels[0]!).length;
+      panels[0]!.dispose();
+      vi.advanceTimersByTime(LIVE_TICK_MS * 5);
+
+      expect(states(panels[0]!).length).toBe(atDispose);
+    });
+  });
+
+  describe('view activation reporting', () => {
+    it('reports the ticket active as soon as a focus-taking open creates the panel', () => {
+      // Creation focuses the panel and fires no `onDidChangeViewState` (that
+      // event only fires on CHANGES), so the manager must report the
+      // activation it just caused itself.
+      const t = createTicket(store, { key: 'A', title: 'a' });
+      const { host, panels } = fakeHost();
+      const seen: Array<[number, boolean]> = [];
+      const mgr = new DashboardManager(
+        store, host, () => ({}) as never,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        (ticketId, active) => seen.push([ticketId, active]),
+      );
+
+      mgr.openDashboard(t.id);
+      expect(seen).toEqual([[t.id, true]]);
+
+      panels[0]!.emitViewState(true); // the (possibly redundant) real event
+      expect(seen).toEqual([[t.id, true], [t.id, true]]);
+    });
+
+    it('does NOT report a preserve-focus reveal as activation', () => {
+      // A preserve-focus reveal makes the panel VISIBLE, not active (the
+      // terminal binding relies on that distinction) — so it must not light
+      // the sidebar highlight either.
+      const t = createTicket(store, { key: 'A', title: 'a' });
+      const { host } = fakeHost();
+      const seen: Array<[number, boolean]> = [];
+      const mgr = new DashboardManager(
+        store, host, () => ({}) as never,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        (ticketId, active) => seen.push([ticketId, active]),
+      );
+
+      mgr.openDashboard(t.id, { preserveFocus: true });
+      mgr.openDashboard(t.id, { preserveFocus: true });
+      expect(seen).toEqual([]);
+    });
+
+    it('reports a focus-taking reveal of an existing panel', () => {
+      const t = createTicket(store, { key: 'A', title: 'a' });
+      const { host, panels } = fakeHost();
+      const seen: Array<[number, boolean]> = [];
+      const mgr = new DashboardManager(
+        store, host, () => ({}) as never,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        (ticketId, active) => seen.push([ticketId, active]),
+      );
+
+      mgr.openDashboard(t.id);
+      panels[0]!.emitViewState(false); // user moved away
+      mgr.openDashboard(t.id); // plain re-open takes focus again
+      expect(seen).toEqual([[t.id, true], [t.id, false], [t.id, true]]);
+    });
+
+    it('reports the ACTIVE panel losing focus when it is disposed (closing the focused tab)', () => {
+      const t = createTicket(store, { key: 'A', title: 'a' });
+      const { host, panels } = fakeHost();
+      const seen: Array<[number, boolean]> = [];
+      const mgr = new DashboardManager(
+        store, host, () => ({}) as never,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        (ticketId, active) => seen.push([ticketId, active]),
+      );
+
+      mgr.openDashboard(t.id);
+      panels[0]!.dispose();
+
+      expect(seen).toEqual([[t.id, true], [t.id, false]]);
     });
   });
 });

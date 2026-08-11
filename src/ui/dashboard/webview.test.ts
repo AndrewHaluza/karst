@@ -2402,7 +2402,11 @@ describe('inside render round trip (executed in a VM)', () => {
   it('renders findings evidence with severity rows and their status words (B2)', () => {
     const html = openEvidence('review', 'review');
     expect(html).toContain('class="findings"');
-    expect(html).toContain('<span class="sev">critical</span>');
+    // The level is coloured per LEVEL, from the host's closed severity key —
+    // every level rendered in one amber before this (869egdr2u-fu2).
+    expect(html).toContain('<span class="sev sev-critical">critical</span>');
+    expect(html).toContain('<span class="sev sev-high">high</span>');
+    expect(html).toContain('<span class="sev sev-medium">medium</span>');
     expect(html).toContain('class="finding-title"');
   });
 
@@ -2644,8 +2648,8 @@ describe('inside render round trip (executed in a VM)', () => {
     // survives a theme that ignores colour (UI-R06).
     expect(openEvidence('uat', 'gates')).toContain('<span class="glyph pass" aria-label="passed"></span>');
     const findings = openEvidence('review', 'review');
-    expect(findings).toContain('<span class="sev">critical</span>');
-    expect(findings).toContain('<span class="sev">medium</span>');
+    expect(findings).toContain('>critical</span>');
+    expect(findings).toContain('>medium</span>');
     // Ship's rich bodies carry their state as the recorded provenance pill and
     // the PR state pill — both host-supplied words, never colour alone.
     expect(openEvidence('ship', 'commit')).toContain('<span class="commit-origin ship">created by ship</span>');
@@ -2680,17 +2684,20 @@ describe('inside render round trip (executed in a VM)', () => {
     expect(openEvidence('scope', 'worktrees')).toContain('<span class="ev-key">worktree</span>');
   });
 
-  it('places row actions in the trailing action cluster (Task 5)', () => {
-    // Findings carry the open-file action the reducer ships: the button is the
-    // LAST cell of its row, inside `.eact`, posting only the opaque id.
+  it('makes a finding location its own link, not an Open file button (fu2)', () => {
+    // UI-R09c: the visible resource identifier IS the control. The "Open file"
+    // button beside inert location text was a second, weaker way to reach the
+    // same place, and it is gone from BOTH quality stages.
     const findings = openEvidence('review', 'review');
     expect(findings).toMatch(
-      /<span class="ev-tail"><button[^>]*data-act="inside-action"[^>]*>Open file<\/button><\/span>/,
+      /<a class="obj-link file-link" href="#" data-act="inside-action"[^>]*>src\/db\/query\.ts:41<\/a>/,
     );
     expect(findings).toContain('data-action-id="fixture:open-file:1"');
-    // Tester observations (uat, kind rows) keep their open-file actions too.
+    expect(findings).not.toContain('>Open file</button>');
+    // Tester observations render through the SAME findings blueprint.
     const uat = openEvidence('uat', 'tester');
-    expect(uat).toMatch(/<span class="ev-tail"><button[^>]*>Open file<\/button><\/span>/);
+    expect(uat).toMatch(/<a class="obj-link file-link"[^>]*data-act="inside-action"/);
+    expect(uat).not.toContain('>Open file</button>');
   });
 
   it('orders UAT Gates → causal Fix → Services → Tester (Task 5)', () => {
@@ -3055,6 +3062,92 @@ describe('inside render round trip (executed in a VM)', () => {
 });
 
 describe('inside block issues p3 renderings (869egdr2u)', () => {
+  it('makes a delivery line\'s PR number its own link, with the state chip beside it (fu2)', () => {
+    const state = renderStateFor('done');
+    const done: InsideStageView = {
+      stageKey: 'done',
+      title: 'Done',
+      dot: 'done',
+      clock: '',
+      blurb: '',
+      processes: [
+        {
+          id: 'delivery-receipt',
+          kind: 'delivery-receipt',
+          label: 'Delivery receipt',
+          status: 'pass',
+          detail: '1 current pull request merged',
+          evidence: {
+            kind: 'receipt',
+            rows: [
+              {
+                status: 'pass',
+                label: 'web',
+                detail: '#412',
+                prState: 'merged',
+                time: '09:58:01',
+                action: { actionId: 'snap:open-pr:1', kind: 'open-pr' },
+              },
+            ],
+            hero: { title: 'Delivered', summary: '1 repository · 1 pull request merged', time: '' },
+            blocks: [],
+          },
+        },
+      ],
+    };
+    const html = renderWith({ ...state, insideViews: { ...state.insideViews, done } });
+    expect(html).toMatch(
+      /<a class="obj-link pr-link" href="#" data-act="inside-action" data-action-id="snap:open-pr:1"[^>]*>#412<\/a>/,
+    );
+    expect(html).toContain('<span class="pr-status merged">merged</span>');
+    // The row keeps its stamp: the link replaced the BUTTON, not the tail.
+    expect(html).toContain('<span class="ev-time">09:58:01</span>');
+    expect(html).not.toContain('>Open PR</button>');
+  });
+
+  it('dates each expanded pull-request row (fu2)', () => {
+    const state = renderStateFor('ship');
+    const ship: InsideStageView = {
+      stageKey: 'ship',
+      title: 'Ship',
+      dot: 'done',
+      clock: '',
+      blurb: '',
+      processes: [
+        {
+          id: 'pr',
+          kind: 'pr',
+          label: 'Pull request',
+          status: 'pass',
+          detail: '1 created',
+          time: '10:04:00',
+          evidence: {
+            kind: 'prs',
+            rows: [],
+            open: 1,
+            merged: 0,
+            branches: [
+              {
+                repo: 'web',
+                number: '#412',
+                prState: 'open',
+                steps: [{ label: 'PR opened', state: 'done' }],
+                note: 'PR #412 was created in this ship run.',
+                current: false,
+                time: '10:04:12',
+              },
+            ],
+          },
+        },
+      ],
+    };
+    const html = renderWith({ ...state, insideViews: { ...state.insideViews, ship } });
+    expect(html).toContain('<span class="pr-time" title="pull-request step started 10:04:12">10:04:12</span>');
+    // …and the process row itself states when the step ran, which a per-repo
+    // row can never answer for the process as a whole.
+    expect(html).toContain('<span class="op-time">10:04:00</span>');
+  });
+
   it('renders the scope prefill process with AI chip, identity and token pill', () => {
     const state = renderStateFor('scope');
     const scope: InsideStageView = {
@@ -3266,7 +3359,11 @@ describe('inside block issues p3 renderings (869egdr2u)', () => {
     expect(html).toContain('<div class="done-hero">');
     expect(html).toContain('<div class="receipt-grid">');
     expect(html).toContain('<div class="receipt-label">Validated</div>');
-    expect(html).toContain('2 current pull requests merged');
+    // ONE delivered header: the green hero. The process summary above it
+    // ("Delivery receipt · 2 current pull requests merged") said the same
+    // thing a second time and is gone (869egdr2u-fu2).
+    expect(html).not.toContain('2 current pull requests merged');
+    expect(html).not.toContain('>Delivery receipt<');
     expect(html).toMatch(/<span class="done-state"><span class="ev-time">09:58:01<\/span> · passed<\/span>/);
   });
 });
@@ -3474,5 +3571,133 @@ describe('artifacts render round trip (executed in a VM)', () => {
     // Back from a ticket-origin detail returns to the ticket.
     h.click('[data-art]', { art: 'back' });
     expect(h.bodyClasses).not.toContain('art-nav');
+  });
+});
+
+/**
+ * The repaint's focus rule, run as the webview's OWN functions against element
+ * doubles — a snapshot push once a second rebuilds every section by innerHTML
+ * assignment, and an unrestored focus would take the keyboard away from the
+ * user roughly as often as they could press a key.
+ */
+describe('focus across a repaint', () => {
+  /** The webview's OWN focus helpers, run against element doubles. */
+  function focusApi(doc: unknown) {
+    const src = `${/function focusMark[\s\S]*?\n  \}/.exec(HYDRATED)?.[0]}\n${
+      /function restoreFocus[\s\S]*?\n  \}/.exec(HYDRATED)?.[0]
+    }`;
+    if (src.includes('undefined')) throw new Error('focus helpers not found in the webview script');
+    const run = new Function('document', `${src}\n;return { focusMark, restoreFocus };`) as (
+      document: unknown,
+    ) => { focusMark: () => unknown; restoreFocus: (m: unknown) => void };
+    return run(doc);
+  }
+
+  interface FakeControl {
+    id: string;
+    act: string;
+    selectionStart?: number;
+    selectionEnd?: number;
+    getAttribute(name: string): string | null;
+    focus(): void;
+    setSelectionRange?(start: number, end: number): void;
+  }
+
+  function control(id: string, act: string, focused: string[], caret?: number): FakeControl {
+    const el: FakeControl = {
+      id,
+      act,
+      getAttribute: (name) => (name === 'data-act' ? act || null : null),
+      focus: () => focused.push(id || act),
+    };
+    if (caret !== undefined) {
+      el.selectionStart = caret;
+      el.selectionEnd = caret;
+      el.setSelectionRange = (start, end) => {
+        el.selectionStart = start;
+        el.selectionEnd = end;
+      };
+    }
+    return el;
+  }
+
+  function repaint(before: FakeControl[], after: FakeControl[], activeIndex: number) {
+    let controls = before;
+    const doc = {
+      get activeElement() {
+        return controls[activeIndex];
+      },
+      querySelectorAll: () => controls.filter((c) => c.act),
+      getElementById: (id: string) => controls.find((c) => c.id === id) ?? null,
+    };
+    const api = focusApi(doc);
+    const mark = api.focusMark();
+    controls = after;
+    api.restoreFocus(mark);
+    return mark;
+  }
+
+  it('returns the keyboard to the same control after the page is rebuilt', () => {
+    const focused: string[] = [];
+    repaint(
+      [control('', 'edit-ticket', focused), control('', 'inside-action', focused)],
+      [control('', 'edit-ticket', focused), control('', 'inside-action', focused)],
+      1,
+    );
+    expect(focused).toEqual(['inside-action']);
+  });
+
+  it('never moves focus onto a DIFFERENT control when the page shape changed', () => {
+    const focused: string[] = [];
+    repaint(
+      [control('', 'edit-ticket', focused), control('', 'inside-action', focused)],
+      [control('', 'edit-ticket', focused), control('', 'merge-pr', focused)],
+      1,
+    );
+    expect(focused).toEqual([]);
+  });
+
+  it('restores a control that carries no action at all, with its caret', () => {
+    // The services filter input is rebuilt with the panel and has no
+    // `data-act`: a repaint mid-typing took the keyboard away and dropped the
+    // caret, and a controls-only rule could not even see it.
+    const focused: string[] = [];
+    const after = control('srvFilter', '', focused, 0);
+    repaint([control('srvFilter', '', focused, 3)], [after], 0);
+    expect(focused).toEqual(['srvFilter']);
+    expect(after.selectionStart).toBe(3);
+  });
+});
+
+describe('deferring a live repaint', () => {
+  function safeWith(opts: { busy?: boolean; selecting?: boolean }): boolean {
+    const src = /function liveRepaintSafe[\s\S]*?\n  \}/.exec(HYDRATED)?.[0];
+    if (!src) throw new Error('liveRepaintSafe not found in the webview script');
+    const doc = { querySelector: (sel: string) => (opts.busy && sel.includes('#inside') ? {} : null) };
+    const win = {
+      getSelection: () => ({ rangeCount: opts.selecting ? 1 : 0, isCollapsed: !opts.selecting }),
+    };
+    const run = new Function('document', 'window', `${src}\n;return liveRepaintSafe();`) as (
+      document: unknown,
+      window: unknown,
+    ) => boolean;
+    return run(doc, win);
+  }
+
+  it('repaints when the user is doing nothing', () => {
+    expect(safeWith({})).toBe(true);
+  });
+
+  it('holds while an inside action is in flight — its pending state is element-keyed', () => {
+    expect(safeWith({ busy: true })).toBe(false);
+  });
+
+  it('holds while a text selection is being made — a repaint would collapse it', () => {
+    expect(safeWith({ selecting: true })).toBe(false);
+  });
+
+  it('defers only a LIVE push; a push that carries news always renders', () => {
+    expect(HTML).toMatch(/msg\.live && !liveRepaintSafe\(\)/);
+    expect(HTML).toContain('if (!msg.live) worktreeStats = {};');
   });
 });

@@ -24,6 +24,7 @@ import type { Store } from '../../store/db.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
 import type { ProcessAssignmentSnapshot } from '../../agent/processAssignment.js';
 import type { Severity } from '../../manifest/types.js';
+import { GATE_LANE_HEADLESS_TIMEOUT_MS } from '../../agent/headlessSpawn.js';
 import { openProcessRun, finishProcessRun } from '../../store/processRuns.js';
 import { stageAttempt } from '../../store/stages.js';
 import { recordUatFindings, type UatFindingInput } from '../../store/uatFindings.js';
@@ -60,7 +61,24 @@ export interface RunUatTesterOpts {
   attempt?: number;
   /** One signal for the whole run, so Stop reaches a call already in flight. */
   signal?: AbortSignal;
+  /**
+   * The hard deadline for EACH headless call, in milliseconds. Absent → the
+   * generous gate-lane bound (`GATE_LANE_HEADLESS_TIMEOUT_MS`): the Tester is
+   * asked to RUN the repo's tests and exercise the acceptance criteria, which
+   * a chat-tuned model spends many minutes of tool calls on — the 15-minute
+   * quick-call default killed UAT testing mid-run and left zero observations.
+   */
+  timeoutMs?: number;
   warn?: WarnFn;
+  /**
+   * Verbose decision-point logging (§ debug logging), prefixed `[gate]` — the
+   * Tester is part of the UAT stage flow, so its lines ride the same stream
+   * the stage's own debug lines use. Absent → no debug lines; the stage
+   * threads its `RunUatOpts.debug` here, and the host binds that to
+   * `Logger.debug` (a no-op unless the manifest's `debug` flag is on).
+   * The prompt is never logged — only counts, names and outcomes.
+   */
+  debug?: (message: string) => void;
   /**
    * ONE cap for the whole execution, across every target (Finding 13) —
    * observations beyond it are truncated by severity exactly like review's
@@ -107,18 +125,35 @@ export interface TesterDeps {
  * missing/null ref falls back to the generic wording rather than ever
  * interpolating the literal string "undefined". The service context is
  * host-known and read-only — the Tester is told what it MAY stand up, never
- * asked to invent one.
+ * asked to invent one. `instructions` (optional) replaces the role/strategy
+ * lines with the author's own — the target context and the strict output
+ * rules always remain.
  */
-export function buildTesterPrompt(target: TesterTarget): string {
+export function buildTesterPrompt(target: TesterTarget, instructions?: string): string {
   const baseClause = target.baseRef
     ? `against its base branch, \`${target.baseRef}\` (compare against \`origin/${target.baseRef}\` when available, otherwise the local \`${target.baseRef}\`).`
     : `against its base branch.`;
   const serviceClause = target.service?.start
     ? `\nThe repository's service starts with: \`${target.service.start}\`. You may stand it up to observe behavior.`
     : '';
+  // User instructions REPLACE the role/strategy block (the ticket's
+  // precedence: user override → built-in default). The target context is
+  // kept — repo, base branch and service are facts the agent needs whatever
+  // the strategy — and the output rules below are never replaced.
+  const instructionsText = instructions?.trim() ?? '';
+  const strategy =
+    instructionsText.length > 0
+      ? [
+          instructionsText,
+          `Repository: ${target.repo} ${baseClause}${serviceClause}`,
+          '',
+        ]
+      : [
+          `Act as the UAT tester for the changes in this worktree (repository: ${target.repo}) ${baseClause}`,
+          `Try to BREAK the changes: run them, exercise the acceptance criteria, and report what you observe.${serviceClause}`,
+        ];
   return [
-    `Act as the UAT tester for the changes in this worktree (repository: ${target.repo}) ${baseClause}`,
-    `Try to BREAK the changes: run them, exercise the acceptance criteria, and report what you observe.${serviceClause}`,
+    ...strategy,
     `Output rules (strict):`,
     `- Output ONLY a JSON array, nothing else: no preamble, no markdown fence, no commentary.`,
     `- Each element: {"severity": "critical"|"high"|"medium"|"low"|"info", "title": string, "detail": string, "file"?: string, "line"?: number}.`,
@@ -164,14 +199,25 @@ export async function runUatTester(
 
   const cap = opts.maxObservations ?? DEFAULT_MAX_TESTER_OBSERVATIONS;
   const collected: UatFindingInput[] = [];
+  const debug = opts.debug;
+  debug?.(
+    `[gate] uat tester ticket ${opts.ticketId}: starting — ${opts.targets.length} target(s), ` +
+      `cap ${cap}, assignment ${opts.assignment.agentName ?? '?'}/${opts.assignment.provider}` +
+      (opts.assignment.model ? `/${opts.assignment.model}` : ''),
+  );
   try {
     for (const target of opts.targets) {
       if (opts.signal?.aborted) break;
+      debug?.(
+        `[gate] uat tester ticket ${opts.ticketId}: asking target ${target.repo} ` +
+          `(worktree ${target.worktreePath})`,
+      );
       const result = await opts.adapter.runHeadless({
-        prompt: buildTesterPrompt(target),
+        prompt: buildTesterPrompt(target, opts.assignment.instructions),
         cwd: target.worktreePath,
         model: opts.assignment.model,
         signal: opts.signal,
+        timeoutMs: opts.timeoutMs ?? GATE_LANE_HEADLESS_TIMEOUT_MS,
         tracking: {
           callSite: 'uat-tester',
           ticketId: opts.ticketId,
@@ -199,15 +245,26 @@ export async function runUatTester(
         line: f.line,
         title: f.title,
       }));
+      debug?.(
+        `[gate] uat tester ticket ${opts.ticketId}: target ${target.repo} returned ` +
+          `${parsed.length} observation(s)`,
+      );
       collected.push(...parsed);
     }
     if (opts.signal?.aborted) {
+      debug?.(`[gate] uat tester ticket ${opts.ticketId}: stopped — interrupted`);
       close('interrupted', 'interrupted');
       return { kind: 'interrupted' };
     }
     // The execution-wide cap is applied ONCE over everything every target
     // contributed, ranked by severity (critical first) and stable — ties keep
     // their original target/observation order — before the single slice.
+    if (collected.length > cap) {
+      debug?.(
+        `[gate] uat tester ticket ${opts.ticketId}: capped ${collected.length} → ${cap} ` +
+          `observation(s) by severity`,
+      );
+    }
     const observations = collected
       .map((finding, order) => ({ finding, order }))
       .sort(
@@ -224,19 +281,27 @@ export async function runUatTester(
       createdAt: now(),
     });
     close('passed', 'observed');
+    debug?.(
+      `[gate] uat tester ticket ${opts.ticketId}: recorded ${findingIds.length} finding(s) — observed`,
+    );
     return { kind: 'observed', findingIds };
   } catch (error) {
     // Abort can surface as a rejected adapter promise instead of a fulfilled
     // result. Stop is terminal in either shape: it must not turn into an
     // execution failure merely because the adapter observed the signal first.
     if (opts.signal?.aborted) {
+      debug?.(`[gate] uat tester ticket ${opts.ticketId}: stopped — interrupted`);
       close('interrupted', 'interrupted');
       return { kind: 'interrupted' };
     }
     // See the doc comment: a crash is reported, never thrown — the ordinary
     // UAT gates must decide the run whatever the Tester did.
     const message = error instanceof Error ? error.message : String(error);
+    const collapsed = collapseDiagnostic(message);
+    debug?.(
+      `[gate] uat tester ticket ${opts.ticketId}: adapter call failed — execution-failed (${collapsed})`,
+    );
     close('failed', 'execution-failed');
-    return { kind: 'execution-failed', message: collapseDiagnostic(message) };
+    return { kind: 'execution-failed', message: collapsed };
   }
 }

@@ -105,6 +105,34 @@ describe('validateProcessAssignments', () => {
     expect(result?.uatTester).toEqual({ enabled: true });
   });
 
+  it('parses an instructions string into the typed config, preserving newlines', () => {
+    const result = validateProcessAssignments(
+      {
+        uatTester: {
+          instructions: 'Focus on API endpoint behavior.\nTest edge cases around authentication.',
+        },
+        review: { instructions: 'Check for regression patterns.' },
+      },
+      AGENTS,
+    );
+    expect(result?.uatTester).toEqual({
+      instructions: 'Focus on API endpoint behavior.\nTest edge cases around authentication.',
+      enabled: true,
+    });
+    expect(result?.review).toEqual({ instructions: 'Check for regression patterns.', enabled: true });
+  });
+
+  it('rejects a non-string instructions value, naming the field', () => {
+    expect(() =>
+      validateProcessAssignments({ uatTester: { instructions: ['security'] } }, AGENTS),
+    ).toThrow('processes.uatTester.instructions must be a string');
+  });
+
+  it('normalizes a blank instructions to unset, like agentName', () => {
+    const result = validateProcessAssignments({ uatTester: { instructions: '   ' } }, AGENTS);
+    expect(result?.uatTester).toEqual({ enabled: true });
+  });
+
   it('accepts an agent declared in the agents block', () => {
     const result = validateProcessAssignments({ reviewFix: { agent: 'reviewer' } }, AGENTS);
     expect(result?.reviewFix?.agent).toBe('reviewer');

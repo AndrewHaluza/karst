@@ -7,6 +7,7 @@ import { openWritableStore } from './writableStore.js';
 import { parseContextArgs, runContextCommand } from './context.js';
 import { runStageCommand } from './stage.js';
 import { runPhaseCommand } from './phase.js';
+import { runGuideCommand } from './guide.js';
 import { resolveTicketByKey } from './resolveTicket.js';
 
 /**
@@ -52,6 +53,9 @@ function loadProjectSlug(manifestPath: string | undefined): string | undefined {
  *             its declared workflow. A separate parse path that never produces a
  *             `Verdict` and never touches the machine: a mark records an event,
  *             it cannot move a ticket (see parsePhaseArgs).
+ *   guide:    `… guide`
+ *             the agent-facing manual (how Karst works, the flow, the verbs,
+ *             the marker rules) — no flags, no ticket, no DB (see guide.ts).
  *
  * Self-contained: every path it needs is passed as a flag, so it does no
  * workspace discovery.
@@ -154,8 +158,14 @@ export function runCli(argv: string[]): string {
     }
   }
 
+  // The guide is static karst-authored content: no DB, no manifest, no ticket.
+  // Read-only by construction (it never opens the store at all).
+  if (subcommand === 'guide') {
+    return runGuideCommand(rest);
+  }
+
   throw new Error(
-    `unknown command '${subcommand ?? ''}' (want 'context', 'stage' or 'phase')`,
+    `unknown command '${subcommand ?? ''}' (want 'context', 'stage', 'phase' or 'guide')`,
   );
 }
 

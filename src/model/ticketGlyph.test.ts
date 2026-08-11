@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { TicketWithStages } from '../store/tickets.js';
-import { ticketGlyph } from './ticketGlyph.js';
+import { needsUser, ticketGlyph } from './ticketGlyph.js';
 
 function ticket(over: Partial<TicketWithStages>): TicketWithStages {
   return {
@@ -66,6 +66,19 @@ describe('ticketGlyph', () => {
         }),
       ),
     ).toBe('blue');
+  });
+
+  it('a waiting agent at a RUNNING ship is not a needs-you — ship is the driver’s work', () => {
+    // The hook that set 'waiting' fired inside ship's own headless run: the
+    // ticket is moving, not parked, so neither the derivation nor the glyph
+    // may read it as blocked on the user (869ed7bpd).
+    const t = ticket({
+      stageCurrent: 'ship',
+      agentState: 'waiting',
+      stages: [{ stageKey: 'ship', status: 'running' } as never],
+    });
+    expect(needsUser(t)).toBe(false);
+    expect(ticketGlyph(t)).toBe('blue');
   });
 
   it('pending/idle → gray', () => {

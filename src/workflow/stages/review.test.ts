@@ -123,6 +123,26 @@ describe('runReview', () => {
     expect(new Set(listGateRuns(store, id).map((r) => r.runAt)).size).toBe(1);
   });
 
+  it('threads the stage debug callback into the findings lane, so the reviewer’s decision points land in the stream', async () => {
+    const lines: string[] = [];
+    const res = await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, debug: (m) => lines.push(m) },
+      deps(),
+    );
+    expect(res).toEqual({ kind: 'advanced', next: 'ship' });
+    // The lane ran (findings default to enabled) and its per-target and exit
+    // decision points reached the stage's debug stream.
+    expect(lines.some((l) => l.includes('review findings ticket') && l.includes('asking target /wt/web'))).toBe(
+      true,
+    );
+    expect(lines.some((l) => l.includes('ran with 0 finding(s)'))).toBe(true);
+    // The lane's own stream never carries the prompt it sent.
+    for (const line of lines) {
+      expect(line).not.toContain('Report findings about the DIFF ONLY');
+    }
+  });
+
   // Every other test in this file either supplies no `manifest.review` at all
   // or overrides only `uat`, so none of them would notice a regression that
   // disconnected `manifest.review` from what review actually runs — the pure

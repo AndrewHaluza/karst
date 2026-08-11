@@ -64,6 +64,18 @@
      second translucent layer stacking on top of the first. */
   .row:has(.rowopen.is-success){background:var(--k-surface-selected)}
   .rowopen.is-success{background:transparent}
+  /* The row whose ticket view (dashboard/edit/diffs) is the window's ACTIVE
+     view. "Currently active" is its own meaning, deliberately NOT the
+     selection wash (STYLE-GUIDE §10): `--k-surface-selected` says "this item
+     is selected", so the active row instead uses the focus color — a left
+     rail as the shape carrier (the state is never color-only) over a faint
+     focus tint. Outranks the transient open-flash wash (same specificity,
+     later in the file) and `.row:hover` (higher specificity), so the
+     highlight survives both. */
+  .ticket.active .row{background:color-mix(in srgb,var(--k-focus) 9%,transparent)}
+  .ticket.active .row::before{content:"";position:absolute;left:0;top:var(--k-space-2);
+    bottom:var(--k-space-2);width:calc(var(--k-border-w) * 2);
+    border-radius:var(--k-radius-pill);background:var(--k-focus)}
   /* The pending spinner replaces only the status dot — not the whole glyph —
      so the karst mark stays visible and the row never shifts. The dot hides
      and a same-size spinner takes its place (same absolute position). */
@@ -125,8 +137,12 @@
   .g-gray{color:var(--k-pending)}
 
   .name{flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:var(--k-text-md)}
-  /* Follow-up marker: says "this is a sub-task of <key>" without stealing row width. */
-  .parentref{font-size:var(--k-text-2xs);color:var(--k-text-dim);flex:0 0 auto;margin-left:var(--k-space-2)}
+  /* Follow-up marker: says "this is a sub-task of <key>" without stealing row
+     width. Capped at a share of the row with its own ellipsis — a long parent
+     key must trim itself (full key stays in the tooltip), never starve the
+     title's flex:1 remainder to near zero. */
+  .parentref{font-size:var(--k-text-2xs);color:var(--k-text-dim);flex:0 1 auto;max-width:40%;
+    overflow:hidden;white-space:nowrap;text-overflow:ellipsis;margin-left:var(--k-space-2)}
   /* The stage pill carries the shared stg-<stage> token (model/stagePalette),
      so its text IS the stage color and its fill is that color washed out — the
      same token the dashboard rail paints with. Uppercase + tracking so the chip
@@ -167,6 +183,44 @@
     font-family:var(--k-font-mono);margin:var(--k-space-2) 0 var(--k-space-1);word-break:break-word}
 
   .actions{display:flex;gap:var(--k-space-3);margin-top:var(--k-space-4)}
+
+  /* Section headers (CURRENT · N / RECENTLY DONE · N): lightweight uppercase
+     labels, not cards — the list reads as one continuous scroll surface. */
+  .sec{display:flex;align-items:baseline;gap:var(--k-space-2);
+    margin:var(--k-space-4) var(--k-space-4) var(--k-space-1);
+    font-size:var(--k-text-2xs);font-weight:var(--k-weight-semibold);letter-spacing:.08em;
+    text-transform:uppercase;color:var(--k-text-faint)}
+  .sec-n{font-family:var(--k-font-mono);color:var(--k-text-faint);opacity:.8}
+
+  /* Completed rows (Recently Done / Older Completed / the Done facet) are
+     quieter than Current: tighter padding, muted title, check indicator, and
+     NO stage pill — the section header already says these are done, so a
+     second DONE badge would only add weight. */
+  .ticket.done .row{padding-top:var(--k-space-1);padding-bottom:var(--k-space-1)}
+  .ticket.done .name{font-size:var(--k-text-sm);color:var(--k-text-dim)}
+  /* Older Completed is the quietest level: even tighter row, fainter title. */
+  .ticket.older .row{padding-top:0;padding-bottom:0}
+  .ticket.older .name{color:var(--k-text-faint)}
+  /* Relative completion time on Recently Done rows ("4m ago"). */
+  .time{flex:0 0 auto;font-size:var(--k-text-2xs);color:var(--k-text-faint);white-space:nowrap}
+  /* The completed-row marker: a check inside a ring, tinted by the shared
+     status class (g-green). The CHECK SHAPE is the non-color carrier for
+     Done (UI-R28) — decoration only, the section header carries the meaning,
+     so it is aria-hidden in the template. */
+  .glyph.chk svg{display:block}
+
+  /* The Older Completed disclosure — the whole row is the control (UI-R09).
+     Built on the ghost variant (hairline border, dim text) with the row
+     geometry applied locally: a bordered quiet row like the prototype's
+     "› 37 more completed · history", not a large saturated card. */
+  .hist{display:flex;align-items:center;gap:var(--k-space-2);margin:var(--k-space-2);
+    padding:var(--k-space-2) var(--k-space-3);border-radius:var(--k-radius-md);
+    background:var(--k-surface);font-weight:var(--k-weight-semibold)}
+  .hist:hover{background:var(--k-surface-hover);color:var(--k-text-dim);text-decoration:none}
+  .hist .sp{flex:1}
+  .hist-side{font-size:var(--k-text-2xs);color:var(--k-text-faint);text-transform:uppercase;letter-spacing:.06em}
+  .hist-chev{display:inline-flex;flex:0 0 auto;transition:transform var(--k-dur-fast) var(--k-ease-standard)}
+  .hist[aria-expanded="true"] .hist-chev{transform:rotate(90deg)}
 </style>
 
 <div class="toolbar">
@@ -209,8 +263,19 @@
 
   // Current state snapshot + which rows are expanded (kept across re-renders).
   // `facets` is the multi-select selection (lit chips); `['all']` = no filter.
-  let state = { facets:['all'], filter:'', counts:{}, rows:[] };
+  // The All view renders `sections` (Current / Recently Done / Older
+  // Completed); the Done facet renders `done`; every other facet renders the
+  // flat `rows`. A pre-upgrade snapshot has no `sections` — `renderAll` falls
+  // back to `rows` until the fresh state lands.
+  let state = { facets:['all'], filter:'', counts:{}, sections:{current:[],recentlyDone:[],olderDone:[]}, done:[], rows:[] };
   const open = new Set();
+  // The Older Completed disclosure is VIEW state, never ticket data: the host
+  // neither knows nor persists it. `histUser` separates an explicit click
+  // (which sticks across searches and re-renders) from the automatic search
+  // reveal (which must reset to the default collapsed state when the query
+  // clears — the doc's "unless the user explicitly expanded history" rule).
+  let histOpen = false;
+  let histUser = false;
 
   const chev = '<svg aria-hidden="true" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 4l4 4-4 4"/></svg>';
   const ic = {
@@ -278,82 +343,165 @@
     return tokens.join(' · ');
   }
 
-  function renderList() {
-    const L = el('list');
-    if (!state.rows.length) {
-      if (state.filter) {
-        L.innerHTML = '<div class="k-empty"><div class="k-empty-title">No tickets match</div></div>';
-      } else if ((state.facets || []).includes('archived')) {
-        L.innerHTML = '<div class="k-empty"><div class="k-empty-title">No archived tickets</div></div>';
-      } else {
-        L.innerHTML = '<div class="k-empty"><div class="k-empty-title">No tickets yet</div>'
-          + '<div class="k-empty-hint"><button type="button" class="k-btn k-btn--link" data-act="create">Create ticket</button></div></div>';
-      }
+  // One ticket row. `compact` switches to the completed-row treatment: check
+  // indicator instead of the status glyph, muted title, no stage pill (the
+  // section context already says "done"), and — for Recently Done only —
+  // the relative completion time. The expanded body, the hover actions and
+  // the open/active marks are identical either way: selecting a completed
+  // ticket behaves exactly like selecting a Current one.
+  function rowHtml(row, opts) {
+    opts = opts || {};
+    const compact = !!opts.compact;
+    const isOpen = open.has(row.ticketId);
+    // A restored snapshot (vscode.getState) can predate stageLabel, so fall
+    // back rather than render an empty pill on the first paint after upgrade.
+    const stageText = row.stageLabel || row.description || '—';
+    // The chip states the STAGE (colored by the shared stg-* token, matching
+    // the dashboard rail); the full phrase moves to the tooltip. A pre-upgrade
+    // snapshot lacks stageChip/stageClass, so fall back to the phrase + a
+    // neutral class rather than render blank.
+    const stageChip = row.stageChip || stageText;
+    const stageClass = row.stageClass || 'stg-unknown';
+    // The session button states which of the two it does — "Continue" a
+    // captured interactive session, or "Start" a fresh one. A pre-upgrade
+    // snapshot has no sessionAction, so fall back to "Start" rather than an
+    // empty verb. The single, always-visible returning-user entry point.
+    const sessVerb = (row.sessionAction && row.sessionAction.label) || 'Start';
+    const glyphWord = GLYPH_WORD[row.glyph] || 'Unknown';
+    const toggleLabel = isOpen ? 'Collapse ticket details' : 'Expand ticket details';
+
+    const acts = row.archived
+      ? `<button type="button" class="k-iconbtn" data-act="unarchive" data-id="${row.ticketId}" aria-label="Restore ticket to the active list" title="Restore ticket to the active list">${ic.unarch}</button>`
+        + `<button type="button" class="k-iconbtn k-iconbtn--danger" data-act="delete" data-id="${row.ticketId}" aria-label="Delete ticket permanently" title="Delete ticket permanently">${ic.del}</button>`
+      : `<button type="button" class="k-iconbtn" data-act="spin" data-id="${row.ticketId}" aria-label="Spin up worktree and dev servers" title="Spin up worktree and dev servers">${ic.spin}</button>`
+        + `<button type="button" class="k-iconbtn" data-act="open-session" data-id="${row.ticketId}" aria-label="${sessVerb} session" title="${sessVerb} session">${ic.sess}</button>`
+        + `<button type="button" class="k-iconbtn" data-act="edit" data-id="${row.ticketId}" aria-label="Edit ticket" title="Edit ticket">${ic.edit}</button>`
+        + `<button type="button" class="k-iconbtn k-iconbtn--danger" data-act="archive" data-id="${row.ticketId}" aria-label="Archive ticket, hiding it from the active list" title="Archive ticket, hiding it from the active list">${ic.arch}</button>`;
+    const bodyActs = row.archived
+      ? `<button type="button" class="k-btn k-btn--secondary" data-act="unarchive" data-id="${row.ticketId}" title="Restore ticket to the active list">${ic.unarch} Unarchive</button>`
+        + `<button type="button" class="k-btn k-btn--danger" data-act="delete" data-id="${row.ticketId}" title="Delete ticket permanently">${ic.del} Delete</button>`
+      : `<button type="button" class="k-btn k-btn--primary" data-act="open-dashboard" data-id="${row.ticketId}" title="Open the ticket dashboard">${ic.dash} Open dashboard</button>`
+        + `<button type="button" class="k-btn k-btn--secondary" data-act="open-session" data-id="${row.ticketId}" title="${sessVerb} the ticket session">${ic.sess} ${sessVerb} session</button>`;
+
+    // Decorative content of the row's main click target — never another
+    // interactive control (UI-R09; see the `.rowopen` comment in <style>).
+    // Completed rows swap the karst mark + status dot for a check-in-ring
+    // (aria-hidden — the section header carries the "done" meaning) and
+    // drop the stage pill; the check SHAPE is the non-color carrier
+    // (UI-R28) and `g-<glyph>` keeps the shared status color.
+    const glyphHtml = compact
+      ? `<span class="glyph chk g-${esc(row.glyph)}" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="6.2"/><path d="M5.1 8.3l2 2 3.8-4.4"/></svg></span>`
+      : `<span class="glyph g-${esc(row.glyph)}" role="img" aria-label="${esc(glyphWord)}" title="${esc(row.description)}">${ic.mark}<span class="sdot" aria-hidden="true"></span><span class="sdot-spin" aria-hidden="true"></span></span>`;
+    const rowContent = glyphHtml
+      + `<span class="name">${esc(row.label)}</span>`
+      + (row.parentKey ? `<span class="parentref" title="Follow-up of ${esc(row.parentKey)}">↳ ${esc(row.parentKey)}</span>` : '')
+      + (compact
+        ? (opts.time ? `<span class="time">${esc(relTime(row.lastActiveAt))}</span>` : '')
+        : `<span class="stage ${esc(stageClass)}" title="${esc(stageText)}">${esc(stageChip)}</span>`);
+    // Archived tickets have no dashboard action, so the wrapper is a plain,
+    // non-interactive span rather than a button with nothing to do.
+    const openControl = row.archived
+      ? `<span class="rowopen">${rowContent}</span>`
+      : `<button type="button" class="k-btn k-btn--link k-btn--row rowopen" data-open="${row.ticketId}" title="Open ticket dashboard">${rowContent}</button>`;
+
+    return `<div class="ticket${isOpen ? ' open' : ''}${row.archived ? ' arch' : ''}${row.isActive ? ' active' : ''}${compact ? ' done' : ''}${opts.older ? ' older' : ''}" data-id="${row.ticketId}">`
+      + `<div class="row">`
+      + `<button type="button" class="k-iconbtn chev" data-toggle="${row.ticketId}" aria-expanded="${isOpen}" aria-label="${toggleLabel}" title="${toggleLabel}">${chev}</button>`
+      + openControl
+      + `<span class="rowacts">${acts}</span>`
+      + `</div>`
+      + `<div class="body">`
+      + (() => { const b = row.blocker; if (!b) return '';
+          // Only the failure REASON is new — the status ("failed") is already the
+          // row's left glyph color, so we never repeat it here.
+          const txt = b.reason ? esc(b.reason) : '';
+          const att = b.attempt ? `<span class="att">attempt ${b.attempt}</span>` : '';
+          if (!txt && !att) return '';
+          return `<div class="nextact warn">⚠ ${txt}${att}</div>`; })()
+      + `<div class="activity">${activityLine(row)}</div>`
+      + (() => { const m = metaLine(row); return m ? `<div class="meta">${m}</div>` : ''; })()
+      + `<div class="actions">${bodyActs}</div>`
+      + `</div></div>`;
+  }
+
+  // Lightweight section header: "CURRENT · 7" (uppercased + letter-spaced in
+  // CSS). The count is what is rendered BELOW it — the host already filtered
+  // each section by the query, so the header never promises hidden rows.
+  function secHtml(name, count) {
+    return `<div class="sec" role="presentation"><span class="sec-name">${esc(name)}</span><span class="sec-n">· ${count}</span></div>`;
+  }
+
+  // The Older Completed disclosure. The whole row is the button (UI-R09); the
+  // chevron rotates to ⌄ when open (a separate state model from the ticket
+  // chevrons — it controls only this section). `aria-controls` names the
+  // expanded list only while it exists.
+  function histToggle(expanded, n) {
+    return `<button type="button" class="k-btn k-btn--ghost hist" data-history="1" aria-expanded="${expanded}"${expanded ? ' aria-controls="histlist"' : ''}><span class="hist-chev">${chev}</span><span>${n} more completed</span><span class="sp"></span><span class="hist-side">history</span></button>`;
+  }
+
+  function emptyHtml(view) {
+    if (state.filter) return '<div class="k-empty"><div class="k-empty-title">No tickets match</div></div>';
+    if (view === 'archived') return '<div class="k-empty"><div class="k-empty-title">No archived tickets</div></div>';
+    if (view === 'done') return '<div class="k-empty"><div class="k-empty-title">No done tickets</div></div>';
+    return '<div class="k-empty"><div class="k-empty-title">No tickets yet</div>'
+      + '<div class="k-empty-hint"><button type="button" class="k-btn k-btn--link" data-act="create">Create ticket</button></div></div>';
+  }
+
+  // The All view: Current (full treatment, canonical order) → Recently Done
+  // (≤3, compact) → Older Completed behind the disclosure. Empty sections are
+  // omitted entirely (a list with no Current tickets starts at Recently Done
+  // rather than promoting history into primary weight), and the section
+  // headers render only where their section does.
+  function renderAll(L) {
+    const cur = (state.sections && state.sections.current) || state.rows || [];
+    const recent = (state.sections && state.sections.recentlyDone) || [];
+    const older = (state.sections && state.sections.olderDone) || [];
+    if (!cur.length && !recent.length && !older.length) {
+      L.innerHTML = emptyHtml('');
       return;
     }
-    L.innerHTML = state.rows.map((row) => {
-      const isOpen = open.has(row.ticketId);
-      // A restored snapshot (vscode.getState) can predate stageLabel, so fall
-      // back rather than render an empty pill on the first paint after upgrade.
-      const stageText = row.stageLabel || row.description || '—';
-      // The chip states the STAGE (colored by the shared stg-* token, matching
-      // the dashboard rail); the full phrase moves to the tooltip. A pre-upgrade
-      // snapshot lacks stageChip/stageClass, so fall back to the phrase + a
-      // neutral class rather than render blank.
-      const stageChip = row.stageChip || stageText;
-      const stageClass = row.stageClass || 'stg-unknown';
-      // The session button states which of the two it does — "Continue" a
-      // captured interactive session, or "Start" a fresh one. A pre-upgrade
-      // snapshot has no sessionAction, so fall back to "Start" rather than an
-      // empty verb. The single, always-visible returning-user entry point.
-      const sessVerb = (row.sessionAction && row.sessionAction.label) || 'Start';
-      const glyphWord = GLYPH_WORD[row.glyph] || 'Unknown';
-      const toggleLabel = isOpen ? 'Collapse ticket details' : 'Expand ticket details';
+    const q = (state.filter || '').trim();
+    // Auto-reveal: a query that matches Older Completed expands the section so
+    // the match is visible, but that is NOT the user's explicit choice —
+    // clearing the search restores the default collapsed state (histUser).
+    const expanded = histUser ? histOpen : (q !== '' && older.length > 0);
+    const html = [];
+    if (cur.length) {
+      html.push(secHtml('Current', cur.length));
+      html.push(cur.map((r) => rowHtml(r, {})).join(''));
+    }
+    if (recent.length) {
+      html.push(secHtml('Recently done', recent.length));
+      html.push(recent.map((r) => rowHtml(r, { compact: true, time: true })).join(''));
+    }
+    if (older.length) {
+      html.push(histToggle(expanded, older.length));
+      if (expanded) {
+        html.push(`<div class="histlist" id="histlist">${older.map((r) => rowHtml(r, { compact: true, older: true })).join('')}</div>`);
+      }
+    }
+    L.innerHTML = html.join('');
+  }
 
-      const acts = row.archived
-        ? `<button type="button" class="k-iconbtn" data-act="unarchive" data-id="${row.ticketId}" aria-label="Restore ticket to the active list" title="Restore ticket to the active list">${ic.unarch}</button>`
-          + `<button type="button" class="k-iconbtn k-iconbtn--danger" data-act="delete" data-id="${row.ticketId}" aria-label="Delete ticket permanently" title="Delete ticket permanently">${ic.del}</button>`
-        : `<button type="button" class="k-iconbtn" data-act="spin" data-id="${row.ticketId}" aria-label="Spin up worktree and dev servers" title="Spin up worktree and dev servers">${ic.spin}</button>`
-          + `<button type="button" class="k-iconbtn" data-act="open-session" data-id="${row.ticketId}" aria-label="${sessVerb} session" title="${sessVerb} session">${ic.sess}</button>`
-          + `<button type="button" class="k-iconbtn" data-act="edit" data-id="${row.ticketId}" aria-label="Edit ticket" title="Edit ticket">${ic.edit}</button>`
-          + `<button type="button" class="k-iconbtn k-iconbtn--danger" data-act="archive" data-id="${row.ticketId}" aria-label="Archive ticket, hiding it from the active list" title="Archive ticket, hiding it from the active list">${ic.arch}</button>`;
-      const bodyActs = row.archived
-        ? `<button type="button" class="k-btn k-btn--secondary" data-act="unarchive" data-id="${row.ticketId}" title="Restore ticket to the active list">${ic.unarch} Unarchive</button>`
-          + `<button type="button" class="k-btn k-btn--danger" data-act="delete" data-id="${row.ticketId}" title="Delete ticket permanently">${ic.del} Delete</button>`
-        : `<button type="button" class="k-btn k-btn--primary" data-act="open-dashboard" data-id="${row.ticketId}" title="Open the ticket dashboard">${ic.dash} Open dashboard</button>`
-          + `<button type="button" class="k-btn k-btn--secondary" data-act="open-session" data-id="${row.ticketId}" title="${sessVerb} the ticket session">${ic.sess} ${sessVerb} session</button>`;
+  // The Done facet: the user explicitly asked for completed work, so no
+  // hierarchy and no history control — every completed ticket at once,
+  // newest first (Recently Done and Older Completed are conceptually merged).
+  function renderDone(L) {
+    const rows = state.done || [];
+    if (!rows.length) { L.innerHTML = emptyHtml('done'); return; }
+    L.innerHTML = secHtml('Done', rows.length)
+      + rows.map((r) => rowHtml(r, { compact: true, time: true })).join('');
+  }
 
-      // Decorative content of the row's main click target — never another
-      // interactive control (UI-R09; see the `.rowopen` comment in <style>).
-      const rowContent = `<span class="glyph g-${esc(row.glyph)}" role="img" aria-label="${esc(glyphWord)}" title="${esc(row.description)}">${ic.mark}<span class="sdot" aria-hidden="true"></span><span class="sdot-spin" aria-hidden="true"></span></span>`
-        + `<span class="name">${esc(row.label)}</span>`
-        + (row.parentKey ? `<span class="parentref" title="Follow-up of ${esc(row.parentKey)}">↳ ${esc(row.parentKey)}</span>` : '')
-        + `<span class="stage ${esc(stageClass)}" title="${esc(stageText)}">${esc(stageChip)}</span>`;
-      // Archived tickets have no dashboard action, so the wrapper is a plain,
-      // non-interactive span rather than a button with nothing to do.
-      const openControl = row.archived
-        ? `<span class="rowopen">${rowContent}</span>`
-        : `<button type="button" class="k-btn k-btn--link k-btn--row rowopen" data-open="${row.ticketId}" title="Open ticket dashboard">${rowContent}</button>`;
-
-      return `<div class="ticket${isOpen ? ' open' : ''}${row.archived ? ' arch' : ''}" data-id="${row.ticketId}">`
-        + `<div class="row">`
-        + `<button type="button" class="k-iconbtn chev" data-toggle="${row.ticketId}" aria-expanded="${isOpen}" aria-label="${toggleLabel}" title="${toggleLabel}">${chev}</button>`
-        + openControl
-        + `<span class="rowacts">${acts}</span>`
-        + `</div>`
-        + `<div class="body">`
-        + (() => { const b = row.blocker; if (!b) return '';
-            // Only the failure REASON is new — the status ("failed") is already the
-            // row's left glyph color, so we never repeat it here.
-            const txt = b.reason ? esc(b.reason) : '';
-            const att = b.attempt ? `<span class="att">attempt ${b.attempt}</span>` : '';
-            if (!txt && !att) return '';
-            return `<div class="nextact warn">⚠ ${txt}${att}</div>`; })()
-        + `<div class="activity">${activityLine(row)}</div>`
-        + (() => { const m = metaLine(row); return m ? `<div class="meta">${m}</div>` : ''; })()
-        + `<div class="actions">${bodyActs}</div>`
-        + `</div></div>`;
-    }).join('');
+  function renderList() {
+    const L = el('list');
+    const sel = new Set(state.facets || ['all']);
+    if (sel.size === 1 && sel.has('all')) { renderAll(L); return; }
+    if (sel.size === 1 && sel.has('done')) { renderDone(L); return; }
+    // Archived facet + derived-status unions: the flat list, as before.
+    const rows = state.rows || [];
+    if (!rows.length) { L.innerHTML = emptyHtml(sel.has('archived') ? 'archived' : ''); return; }
+    L.innerHTML = rows.map((r) => rowHtml(r, {})).join('');
   }
 
   // ---- interactions ----
@@ -373,7 +521,7 @@
   // and the watchdog (UI-R11–R14). `data-facet`/`data-toggle` stay immediate —
   // their "settlement" is simply the next `state` push, not a tracked request.
   document.addEventListener('click', (e) => {
-    const t = e.target.closest('[data-act],[data-open],[data-facet],[data-toggle]');
+    const t = e.target.closest('[data-act],[data-open],[data-facet],[data-toggle],[data-history]');
     if (!t) return;
     if (t.dataset.act || t.dataset.open) {
       e.stopPropagation();
@@ -390,6 +538,14 @@
       post({ type:'toggle-facet', facet: t.dataset.facet });
       return;
     }
+    if (t.dataset.history) {
+      // Explicit click: this choice STICKS (survives searches and re-renders);
+      // the automatic search reveal never sets this flag.
+      histUser = true;
+      histOpen = !histOpen;
+      renderList();
+      return;
+    }
     if (t.dataset.toggle) {
       e.stopPropagation();
       const id = Number(t.dataset.toggle);
@@ -404,8 +560,15 @@
     if (msg.type === 'state') {
       state = msg.state;
       vscode.setState(state);
-      // Prune expanded ids that no longer exist so the set can't grow unbounded.
-      const ids = new Set(state.rows.map((r) => r.ticketId));
+      // Prune expanded ids that no longer exist so the set can't grow
+      // unbounded — across every section (current, recently/older done, the
+      // done facet and the flat views).
+      const ids = new Set((state.rows || []).map((r) => r.ticketId));
+      for (const r of state.done || []) ids.add(r.ticketId);
+      const secs = state.sections || {};
+      for (const list of [secs.current, secs.recentlyDone, secs.olderDone]) {
+        for (const r of list || []) ids.add(r.ticketId);
+      }
       for (const id of [...open]) if (!ids.has(id)) open.delete(id);
       // Keep the search box in sync only when the host changed the filter.
       if (el('search').value !== state.filter) el('search').value = state.filter;

@@ -4,25 +4,57 @@ import { railNeeds } from './railNeeds.js';
 describe('railNeeds', () => {
   it('says the agent is waiting, and names the way back to it', () => {
     expect(
-      railNeeds({ stage: 'impl', agentWaiting: true, shipAwaitingMerge: false, mergeGate: null }),
+      railNeeds({
+        stage: 'impl',
+        agentWaiting: true,
+        shipStatus: 'pending',
+        shipAwaitingMerge: false,
+        mergeGate: null,
+      }),
     ).toEqual({
       detail: 'the agent asked you something',
       action: 'Open session',
     });
   });
 
-  it('lets the waiting agent outrank the stage — it is the live question', () => {
-    // A waiting agent at ship is a question on screen right now; the confirm
-    // will still be there afterwards.
+  it('lets the waiting agent outrank a PARKED ship — it is the live question', () => {
+    // A waiting agent at a parked ship is a question on screen right now; the
+    // confirm will still be there afterwards.
     expect(
-      railNeeds({ stage: 'ship', agentWaiting: true, shipAwaitingMerge: false, mergeGate: null })
-        ?.action,
+      railNeeds({
+        stage: 'ship',
+        agentWaiting: true,
+        shipStatus: 'pending',
+        shipAwaitingMerge: false,
+        mergeGate: null,
+      })?.action,
     ).toBe('Open session');
+  });
+
+  it('does NOT outrank a RUNNING ship — ship is shipping, not asking', () => {
+    // Ship is the driver's own agent work: the hooks that set the waiting state
+    // fire inside the run itself, so "the agent asked you something" would
+    // contradict the shipping in progress (869ed7bpd).
+    expect(
+      railNeeds({
+        stage: 'ship',
+        agentWaiting: true,
+        shipStatus: 'running',
+        shipAwaitingMerge: false,
+        mergeGate: null,
+      }),
+    ).toBeNull();
   });
 
   it('names the confirm at ship', () => {
     expect(
-      railNeeds({ stage: 'ship', agentWaiting: false, shipAwaitingMerge: false, mergeGate: null }),
+      railNeeds({
+        stage: 'ship',
+        agentWaiting: false,
+        shipStatus: 'pending',
+        shipAwaitingMerge: false,
+        mergeGate: null,
+      }),
     ).toEqual({
       detail: 'ready to open the PRs',
       action: 'Confirm ship',
@@ -34,6 +66,7 @@ describe('railNeeds', () => {
       railNeeds({
         stage: 'ship',
         agentWaiting: false,
+        shipStatus: 'passed',
         shipAwaitingMerge: true,
         mergeGate: { kind: 'awaiting', repos: ['a', 'b'] },
       }),
@@ -45,6 +78,7 @@ describe('railNeeds', () => {
       railNeeds({
         stage: 'ship',
         agentWaiting: false,
+        shipStatus: 'passed',
         shipAwaitingMerge: true,
         mergeGate: { kind: 'awaiting', repos: ['a'] },
       })?.detail,
@@ -58,6 +92,7 @@ describe('railNeeds', () => {
       railNeeds({
         stage: 'ship',
         agentWaiting: false,
+        shipStatus: 'passed',
         shipAwaitingMerge: true,
         mergeGate: { kind: 'conflicted', repos: ['a'], pending: [] },
       }),
@@ -69,6 +104,7 @@ describe('railNeeds', () => {
       railNeeds({
         stage: 'ship',
         agentWaiting: false,
+        shipStatus: 'passed',
         shipAwaitingMerge: true,
         mergeGate: { kind: 'conflicted', repos: ['a', 'b'], pending: [] },
       })?.detail,
@@ -80,6 +116,7 @@ describe('railNeeds', () => {
       railNeeds({
         stage: 'ship',
         agentWaiting: false,
+        shipStatus: 'passed',
         shipAwaitingMerge: true,
         mergeGate: { kind: 'merged', repos: ['a'] },
       }),
@@ -88,6 +125,7 @@ describe('railNeeds', () => {
       railNeeds({
         stage: 'ship',
         agentWaiting: false,
+        shipStatus: 'passed',
         shipAwaitingMerge: true,
         mergeGate: { kind: 'nothing-to-merge' },
       }),
@@ -98,16 +136,34 @@ describe('railNeeds', () => {
     // Absence of a probe is not a state to word; the segment falls back to its
     // stage status rather than inventing one.
     expect(
-      railNeeds({ stage: 'ship', agentWaiting: false, shipAwaitingMerge: true, mergeGate: null }),
+      railNeeds({
+        stage: 'ship',
+        agentWaiting: false,
+        shipStatus: 'passed',
+        shipAwaitingMerge: true,
+        mergeGate: null,
+      }),
     ).toBeNull();
   });
 
   it('has nothing to say at a stage that is not parked on anyone', () => {
     expect(
-      railNeeds({ stage: 'impl', agentWaiting: false, shipAwaitingMerge: false, mergeGate: null }),
+      railNeeds({
+        stage: 'impl',
+        agentWaiting: false,
+        shipStatus: 'pending',
+        shipAwaitingMerge: false,
+        mergeGate: null,
+      }),
     ).toBeNull();
     expect(
-      railNeeds({ stage: null, agentWaiting: false, shipAwaitingMerge: false, mergeGate: null }),
+      railNeeds({
+        stage: null,
+        agentWaiting: false,
+        shipStatus: 'pending',
+        shipAwaitingMerge: false,
+        mergeGate: null,
+      }),
     ).toBeNull();
   });
 });

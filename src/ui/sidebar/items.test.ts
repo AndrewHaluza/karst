@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildTicketNodes, filterTickets } from './items.js';
+import { buildTicketNodes, filterTickets, isDoneTicket, completedAt } from './items.js';
 import type { TicketWithStages } from '../../store/tickets.js';
 
 function ticket(over: Partial<TicketWithStages> = {}): TicketWithStages {
@@ -242,5 +242,64 @@ describe('filterTickets', () => {
     expect(filterTickets(tickets, 'proj-2').map((t) => t.id)).toEqual([2]);
     expect(filterTickets(tickets, 'LOGIN').map((t) => t.id)).toEqual([1]);
     expect(filterTickets(tickets, 'log').map((t) => t.id)).toEqual([1, 2]);
+  });
+});
+
+describe('isDoneTicket', () => {
+  it('is true when the ticket sits at the terminal done stage', () => {
+    expect(isDoneTicket(ticket({ stageCurrent: 'done' }))).toBe(true);
+  });
+
+  it('is false for every other stage', () => {
+    expect(isDoneTicket(ticket({ stageCurrent: 'impl' }))).toBe(false);
+    expect(isDoneTicket(ticket({ stageCurrent: 'ship' }))).toBe(false);
+    expect(isDoneTicket(ticket({ stageCurrent: null }))).toBe(false);
+  });
+});
+
+describe('completedAt', () => {
+  function doneStage(over: { endedAt: string | null; startedAt?: string | null }): TicketWithStages['stages'][number] {
+    return {
+      ticketId: 1,
+      stageKey: 'done',
+      status: 'passed',
+      attempt: 0,
+      verdict: 'passed',
+      artifactPath: null,
+      startedAt: over.startedAt ?? null,
+      endedAt: over.endedAt,
+      blockedKind: null,
+      blockedReason: null,
+      blockedAt: null,
+    };
+  }
+
+  it('is the done stage endedAt when present', () => {
+    const t = ticket({ stageCurrent: 'done', stages: [doneStage({ endedAt: '2026-08-11T12:00:00Z' })] });
+    expect(completedAt(t)).toBe('2026-08-11T12:00:00Z');
+  });
+
+  it('falls back to the done stage startedAt when endedAt is missing', () => {
+    const t = ticket({
+      stageCurrent: 'done',
+      stages: [doneStage({ endedAt: null, startedAt: '2026-08-11T12:00:00Z' })],
+    });
+    expect(completedAt(t)).toBe('2026-08-11T12:00:00Z');
+  });
+
+  it('falls back to the ticket updatedAt when no done stage row exists', () => {
+    const t = ticket({ stageCurrent: 'done', stages: [], updatedAt: '2026-08-11T11:00:00Z' });
+    expect(completedAt(t)).toBe('2026-08-11T11:00:00Z');
+  });
+
+  it('normalizes a SQLite space-form updatedAt so it compares correctly against ISO stage times', () => {
+    // `datetime('now')` writes "2026-08-11 23:59:59"; unnormalized it would
+    // sort BEFORE "2026-08-11T00:00:00Z" despite being the later instant.
+    const t = ticket({ stageCurrent: 'done', stages: [], updatedAt: '2026-08-11 23:59:59' });
+    expect(completedAt(t)).toBe('2026-08-11T23:59:59Z');
+  });
+
+  it('is null when no timestamp exists anywhere', () => {
+    expect(completedAt(ticket({ stageCurrent: 'done', stages: [], updatedAt: null }))).toBeNull();
   });
 });

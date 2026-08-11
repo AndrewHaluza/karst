@@ -326,9 +326,11 @@ function commitProcess(input: ShipProcessesInput): InsideProcessView {
     ...(repos.length > 0
       ? { detail: commitDetail(repos, input.evidence) }
       : { detail: noEvidenceDetail(input) }),
-    // The kind-specific aggregate (B4): created-by-ship commits only — a
-    // pre-existing commit is not delivery. Omitted when none were created.
-    ...(total > 0 ? { aggregate: `${total} commits` } : {}),
+    // NO count chip here: the description already says how many repositories
+    // are commit-ready and how many the ship created, so a "2 commits" pill
+    // beside it repeated the row's own sentence in a second, terser voice.
+    // `total` still rides the evidence, where the body renders it per repo.
+    ...stepSpan(input, (repo) => input.evidence.repos[repo]!.steps.commit),
     evidence: {
       kind: 'commits',
       rows,
@@ -336,6 +338,37 @@ function commitProcess(input: ShipProcessesInput): InsideProcessView {
       ...(blocks.shown.length > 0 ? { repos: blocks.shown } : {}),
       ...(blocks.overflow ? { overflow: blocks.overflow } : {}),
     },
+  };
+}
+
+/**
+ * The PROCESS's own span across every repository it touched: the earliest
+ * recorded start to the latest recorded end.
+ *
+ * The per-repo rows already date themselves, and that is exactly why the
+ * process row needs its own stamp — a per-repo time answers "when did THIS
+ * repository push", never "when did the push finish". A step still running
+ * measures to `now`, so the row's elapsed time is as fresh as the last state
+ * push; a process whose steps recorded no start states no time at all.
+ */
+function stepSpan(
+  input: ShipProcessesInput,
+  step: (repo: string) => ShipRepoStepEvidence | undefined,
+): Pick<InsideProcessView, 'time' | 'duration' | 'durationExact'> {
+  let firstStart: string | undefined;
+  let lastEnd: string | undefined;
+  for (const repo of Object.keys(input.evidence.repos)) {
+    const recorded = step(repo);
+    if (!recorded?.startedAt) continue;
+    if (firstStart === undefined || recorded.startedAt < firstStart) firstStart = recorded.startedAt;
+    const end = recorded.endedAt ?? input.now;
+    if (lastEnd === undefined || end > lastEnd) lastEnd = end;
+  }
+  if (firstStart === undefined) return {};
+  return {
+    time: formatTime(firstStart),
+    duration: formatDuration(firstStart, lastEnd),
+    durationExact: formatExactDuration(firstStart, lastEnd),
   };
 }
 
@@ -396,6 +429,7 @@ function pushProcess(input: ShipProcessesInput): InsideProcessView {
     ...(recorded.length > 0
       ? { detail: `${pushed}/${recorded.length} pushed` }
       : { detail: noEvidenceDetail(input) }),
+    ...stepSpan(input, (repo) => input.evidence.repos[repo]!.steps.push),
     evidence: { kind: 'rows', rows },
   };
 }
@@ -471,6 +505,14 @@ function prBranchView(
     steps,
     note,
     current: step?.status === 'running' || step?.status === 'failed',
+    // Every expanded row dates itself: the PR step's own start, else the
+    // describe step that preceded it. A row karst recorded no start for
+    // carries none — absence stated by omission (869egdr2u-fu2).
+    ...(step?.startedAt
+      ? { time: formatTime(step.startedAt) }
+      : describe?.startedAt
+        ? { time: formatTime(describe.startedAt) }
+        : {}),
     // The number is the open-PR control: it carries the opaque capability the
     // host resolves through the CURRENT prs row it minted it from.
     ...(number && pr?.id
@@ -545,15 +587,10 @@ function prProcess(input: ShipProcessesInput): InsideProcessView {
   );
   const merged = current.filter(isMerged).length;
   const open = current.length - merged;
-  // The kind-specific aggregate (B4): the CURRENT PRs, counted — "1 merged ·
-  // 2 open". An unknown PR state is UNMERGED, so it lands in `open`, the same
-  // reading the merge process gives it. Omitted when no current PR exists.
-  const aggregate =
-    current.length === 0
-      ? undefined
-      : [merged > 0 ? `${merged} merged` : '', open > 0 ? `${open} open` : '']
-          .filter(Boolean)
-          .join(' · ');
+  // NO merged/open chip on this row. The Merge process directly beneath it
+  // exists to answer "has this landed", and it already states `1/2 merged` —
+  // two rows claiming the same landing count is the duplication being removed.
+  // The counts still ride the evidence, which is where the bodies read them.
   // The recorded path, counted from the STEPS (never from detail prose): how
   // many PRs this ship CREATED vs ADOPTED ("1 created · 1 adopted") — the
   // row's description, like Commit's and Push's. Absent while nothing recorded.
@@ -578,7 +615,7 @@ function prProcess(input: ShipProcessesInput): InsideProcessView {
     status: recorded.length > 0 ? aggregateStatus(recorded) : ranStatus(input),
     ...(recorded.length === 0 ? { detail: noEvidenceDetail(input) } : {}),
     ...(detail ? { detail } : {}),
-    ...(aggregate ? { aggregate } : {}),
+    ...stepSpan(input, (repo) => input.evidence.repos[repo]!.steps.pr),
     // The AI identity that wrote the descriptions — recorded at ship time,
     // never the current settings.
     ...(describeRun?.provider ? { execution: executionView(describeRun.provider, describeRun.model) } : {}),
@@ -652,6 +689,17 @@ function mergeProcess(input: ShipProcessesInput): InsideProcessView {
   const conflicted = recorded.filter((r) => r.label.endsWith(' · conflict')).length;
   const merged = recorded.filter((r) => r.status === 'pass').length;
   const rows = boundedRepoRows(input, 'Ship · Merge', recorded);
+  // The process's own stamp: the LAST landing fact it read — the newest merge
+  // stamp once everything landed, otherwise the newest merge check. The merge
+  // process runs nothing, so it has no span; it has a moment, and that moment
+  // is when the answer it states was last true.
+  let latest: string | undefined;
+  for (const pr of current) {
+    const at = isMerged(pr)
+      ? (pr.mergedAt ?? null)
+      : (checksByRepo.get(pr.repo)?.checkedAt ?? null);
+    if (at && (latest === undefined || at > latest)) latest = at;
+  }
   return {
     id: 'merge',
     kind: 'merge',
@@ -671,6 +719,7 @@ function mergeProcess(input: ShipProcessesInput): InsideProcessView {
           // "2/2 merged" (869egdr2u-fu1: the row had no description at all).
           // An unknown PR status is UNMERGED, so it reads in the open half.
           : { detail: `${merged}/${recorded.length} merged` }),
+    ...(latest ? { time: formatTime(latest) } : {}),
     evidence: { kind: 'rows', rows },
   };
 }

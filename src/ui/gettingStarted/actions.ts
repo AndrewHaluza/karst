@@ -39,7 +39,7 @@ export function buildGettingStartedActions(deps: GettingStartedActionsDeps): Get
       deps.runCommand('karst.openSettings');
     },
     createTicket(): void {
-      deps.runCommand('karst.createTicket');
+      deps.runCommand('karst.openTicketForm');
     },
     // A jump-off point, never a second reporting path: `karst.reportIssue`
     // owns the whole flow (collect → redact → review → finalize → GitHub

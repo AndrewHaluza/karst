@@ -40,8 +40,10 @@ interface FakePanel extends TicketFormPanel {
   posted: unknown[];
   icons: string[];
   handlers: Array<(m: unknown) => void | Promise<void>>;
+  viewStateHandler?: (active: boolean) => void;
   disposeHandler?: () => void;
   emit(m: unknown): Promise<void>;
+  emitViewState(active: boolean): void;
   dispose(): void;
 }
 
@@ -60,10 +62,12 @@ function fakeHost(): { host: TicketFormPanelHost; panels: FakePanel[] } {
         toWebviewUri: (p: string) => `webview://${p}`,
         postMessage: (m) => panel.posted.push(m),
         onDidReceiveMessage: (h) => panel.handlers.push(h),
+        onDidChangeViewState: (h) => (panel.viewStateHandler = h),
         onDidDispose: (h) => (panel.disposeHandler = h),
         emit: async (m) => {
           await Promise.all(panel.handlers.map((h) => h(m)));
         },
+        emitViewState: (active) => panel.viewStateHandler?.(active),
         dispose: () => panel.disposeHandler?.(),
       };
       panels.push(panel);
@@ -102,6 +106,7 @@ function recordingFactory(
       submit: () => {},
       save: () => {},
       requestState: () => ctx.pushState(),
+      closeForm: () => ctx.close(),
       ...overrides,
     };
   };
@@ -271,6 +276,21 @@ describe('TicketFormManager', () => {
     panels[0]!.emit({ type: 'request-state' });
     const pushed = panels[0]!.posted.at(-1) as { type: string };
     expect(pushed.type).toBe('state');
+  });
+
+  it('routes a close-form message to ctx.close, which disposes the panel (Cancel)', () => {
+    const { host, panels } = fakeHost();
+    const { factory } = recordingFactory();
+    const mgr = new TicketFormManager(store, () => MANIFEST, host, factory);
+
+    mgr.openCreate();
+    expect(mgr.isCreateOpen()).toBe(true);
+    panels[0]!.emit({ type: 'close-form' });
+    // ctx.close disposes the panel; the dispose handler unregisters its key.
+    expect(mgr.isCreateOpen()).toBe(false);
+    // A later open is a fresh panel — the old one is gone, not revealed.
+    mgr.openCreate();
+    expect(panels).toHaveLength(2);
   });
 
   it('awaits a rejected attachment action and reports it inline', async () => {
@@ -472,5 +492,87 @@ describe('attachment URI mapping', () => {
 
     manager.openCreate();
     expect(stateAttachments(panels[0]!)).toEqual([]);
+  });
+});
+
+describe('view activation reporting', () => {
+  let store: Store;
+  beforeEach(() => (store = openStore(':memory:')));
+
+  it('reports activation for an edit panel: on open, on focus changes, and on dispose', () => {
+    const t = createTicket(store, { key: 'P-ACT', title: 'edit' });
+    const seen: Array<[number, boolean]> = [];
+    const { host, panels } = fakeHost();
+    const { factory } = recordingFactory();
+    const mgr = new TicketFormManager(
+      store, () => MANIFEST, host, factory,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      (ticketId, active) => seen.push([ticketId, active]),
+    );
+
+    // Opening focuses the panel and fires no `onDidChangeViewState` (that
+    // event only fires on CHANGES), so the open itself reports the activation.
+    mgr.openEdit(t.id);
+    expect(seen).toEqual([[t.id, true]]);
+
+    panels[0]!.emitViewState(true); // the (possibly redundant) real event
+    panels[0]!.emitViewState(false);
+    expect(seen).toEqual([[t.id, true], [t.id, true], [t.id, false]]);
+  });
+
+  it('reports a focus-taking re-open (reveal) of an existing edit panel', () => {
+    const t = createTicket(store, { key: 'P-ACT1', title: 'edit' });
+    const seen: Array<[number, boolean]> = [];
+    const { host, panels } = fakeHost();
+    const { factory } = recordingFactory();
+    const mgr = new TicketFormManager(
+      store, () => MANIFEST, host, factory,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      (ticketId, active) => seen.push([ticketId, active]),
+    );
+    mgr.openEdit(t.id);
+    panels[0]!.emitViewState(false); // user moved away
+    mgr.openEdit(t.id); // plain re-open takes focus again
+    expect(seen).toEqual([[t.id, true], [t.id, false], [t.id, true]]);
+  });
+
+  it('reports the ACTIVE edit panel losing focus when it is disposed (closing the focused tab)', () => {
+    const t = createTicket(store, { key: 'P-ACT2', title: 'edit' });
+    const seen: Array<[number, boolean]> = [];
+    const { host, panels } = fakeHost();
+    const { factory } = recordingFactory();
+    const mgr = new TicketFormManager(
+      store, () => MANIFEST, host, factory,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      (ticketId, active) => seen.push([ticketId, active]),
+    );
+    mgr.openEdit(t.id);
+
+    panels[0]!.dispose();
+    expect(seen).toEqual([[t.id, true], [t.id, false]]);
+  });
+
+  it('reports nothing while a create panel is unbound, then its ticket once bound while active', () => {
+    const t = createTicket(store, { key: 'P-ACT3', title: 'draft' });
+    const seen: Array<[number, boolean]> = [];
+    const { host, panels } = fakeHost();
+    const { factory, seen: ctxs } = recordingFactory();
+    const mgr = new TicketFormManager(
+      store, () => MANIFEST, host, factory,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      (ticketId, active) => seen.push([ticketId, active]),
+    );
+    mgr.openCreate(); // focus-taking, but no ticket yet
+    expect(seen).toEqual([]);
+
+    panels[0]!.emitViewState(true);
+    expect(seen).toEqual([]);
+
+    // Binding while the panel is the ACTIVE view reports the ticket.
+    ctxs[0]!.bindTicket(t.id);
+    expect(seen).toEqual([[t.id, true]]);
+
+    panels[0]!.emitViewState(false);
+    expect(seen).toEqual([[t.id, true], [t.id, false]]);
   });
 });

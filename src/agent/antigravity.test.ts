@@ -95,6 +95,20 @@ describe('AntigravityAdapter', () => {
       expect(seenOpts?.signal).toBe(controller.signal);
     });
 
+    it('forwards the headless deadline into the spawn', async () => {
+      let seenOpts: { timeoutMs?: number } | undefined;
+      const spawner: SpawnHeadless = async (_cmd, _args, _cwd, opts) => {
+        seenOpts = opts;
+        return { stdout: 'success', stderr: '', exitCode: 0 };
+      };
+      await new AntigravityAdapter(spawner).runHeadless({
+        prompt: 'do',
+        cwd: '/test',
+        timeoutMs: 456_789,
+      });
+      expect(seenOpts?.timeoutMs).toBe(456_789);
+    });
+
     it('spawns agy -p and returns output', async () => {
       const spawner = vi.fn(fakeSpawn({ stdout: 'success', exitCode: 0 }));
       const adapter = new AntigravityAdapter(spawner);

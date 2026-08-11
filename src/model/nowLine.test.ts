@@ -151,6 +151,16 @@ describe('buildNowLine', () => {
     });
   });
 
+  it('keeps saying it is shipping when the agent state reads waiting during the run', () => {
+    // The hooks that set 'waiting' fire inside ship's own headless run, so the
+    // waiting sentence would contradict the shipping in progress (869ed7bpd).
+    expect(
+      buildNowLine(cell({ stageKey: 'ship', status: 'running' }), { agentWaiting: true }),
+    ).toEqual({
+      text: 'Now: shipping — committing, pushing, and opening PRs for each hot repo.',
+    });
+  });
+
   it('says the PRs did not open when ship failed, and offers a retry', () => {
     // Ship has no failed edge, so the ticket parks here. Without this the user saw
     // a ticket sitting at ship with the gh error only in the output channel.

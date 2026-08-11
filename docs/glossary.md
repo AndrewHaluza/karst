@@ -424,8 +424,13 @@ agent states, hook events) are defined once in `src/model/types.ts` and
 
 - **`karst` CLI** — the agent-facing command line (`dist/cli/main.js`),
   invoked by agents via plain `node`, so it uses `node:sqlite`, never the
-  Electron-ABI addon. Three verbs: `context` (read), `stage` and `phase`
-  (write).
+  Electron-ABI addon. Four verbs: `context` (read), `stage` and `phase`
+  (write), and `guide` (the agent manual — static content, no DB).
+- **`guide`** — prints the agent manual: how Karst works, the stage flow, the
+  verbs, and the marker rules. It is the ONE agent-facing document, and
+  `cli/guide.test.ts` pins it to the real CLI — a new verb, marker stage, or
+  flow change fails `npm test` until the guide mentions it (869edmcme). The
+  launch seed carries a one-line pointer to it, never the full text.
 - **`context`** — renders the ticket context brief (header, stage, evidence,
   worktrees) for the invoking session. Both `context` and `stage` fall back to
   an unscoped ticket lookup when no project bound the key.

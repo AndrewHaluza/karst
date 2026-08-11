@@ -32,34 +32,8 @@
   h2{font-size:var(--k-text-base);text-transform:uppercase;letter-spacing:.04em;opacity:.7;margin:var(--k-space-0) var(--k-space-0) var(--k-space-4)}
   .hidden{display:none !important}
 
-  /* ---- layout: left nav + content ---- */
-  .nav{
-    width:calc(var(--k-space-8) * 7.5);flex:0 0 auto;padding:var(--k-space-7) var(--k-space-4);
-    border-right:var(--k-border-w) solid var(--vscode-panel-border);
-  }
-  /* A tab list, not a general action button — no k- primitive covers this
-     shape, so it stays a local, unprefixed component (§ STYLE-GUIDE.md 2).
-     Its values are still tokens throughout. */
-  .nav button{
-    display:block;position:relative;width:100%;text-align:left;margin-bottom:var(--k-space-1);
-    background:transparent;color:var(--k-text);border:none;
-    border-radius:var(--k-radius-sm);padding:var(--k-space-3) var(--k-space-8) var(--k-space-3) var(--k-space-5);
-    font-size:var(--k-text-sm);cursor:pointer;
-  }
   /* Per-tab marker: unsaved changes, or (red, and it wins) a validation error on
      that tab. Without it, tab-scoped Save would hide unsaved work behind a tab. */
-  .nav button.has-changes::after,.nav button.has-error::after{
-    content:'';position:absolute;right:var(--k-space-5);top:50%;transform:translateY(-50%);
-    width:var(--k-space-2);height:var(--k-space-2);border-radius:var(--k-radius-circle);
-    background:var(--k-attention);
-  }
-  .nav button.has-error::after{background:var(--k-failed)}
-  .nav button:hover{background:var(--k-surface-hover)}
-  .nav button:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
-  .nav button.active{
-    background:var(--vscode-list-activeSelectionBackground,var(--k-surface-hover));
-    color:var(--vscode-list-activeSelectionForeground,var(--k-text));
-  }
   .main{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;height:100vh}
 
   /* ---- top bar ---- */
@@ -204,6 +178,11 @@
   .agentselect-trigger:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
   .agentselect-trigger .chev{flex:none;width:var(--k-space-6);height:var(--k-space-6);margin-left:var(--k-space-4);
     background:var(--chevron) no-repeat center/var(--k-space-6)}
+  /* The trigger composes .k-btn (UI-R07) but is a DROPDOWN control, not an
+     action button — suppress the primitive's scale-on-active that squishes it
+     on every menu open/close (same call designComponents makes for
+     .k-btn--row; same rule as ticketForm/webview.html, which must not drift). */
+  .agentselect-trigger:active:not(:disabled){transform:none}
   .agentselect-menu{position:absolute;top:calc(100% + var(--k-space-2));left:0;right:0;z-index:var(--k-z-drawer);
     background:var(--vscode-dropdown-background,var(--k-bg));
     border:var(--k-border-w) solid var(--vscode-dropdown-border,var(--vscode-panel-border));
@@ -359,6 +338,10 @@
     color:var(--k-text);font-size:var(--k-text-md);flex:1 1 auto;min-width:0;
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
   }
+  .roster-card .approach-desc{
+    color:var(--k-text-dim);font-size:var(--k-text-sm);line-height:var(--k-leading-normal);
+    margin-top:var(--k-space-3);max-width:calc(var(--k-space-8) * 38);
+  }
   .roster-card .approach-actions{display:flex;align-items:center;gap:var(--k-space-5);margin-left:auto;flex:0 0 auto}
   .roster-card .approach-lines{display:flex;flex-direction:column;gap:var(--k-space-3);margin-top:var(--k-space-5)}
   .roster-card .approach-line{display:flex;gap:var(--k-space-5);align-items:center}
@@ -434,6 +417,7 @@
   .proc-row .spacer{flex:1}
   .proc-row .proc-fields{display:flex;flex-wrap:wrap;gap:var(--k-space-4);margin-top:var(--k-space-3)}
   .proc-row .proc-field{flex:1 1 calc(var(--k-space-8) * 8);min-width:0}
+  .proc-row .proc-field-wide{flex:1 1 100%}
   .proc-row .proc-field label{margin:var(--k-space-0) var(--k-space-0) var(--k-space-1);
     font-size:var(--k-text-2xs);opacity:.7}
   .proc-row .proc-hint{display:block;font-size:var(--k-text-2xs);color:var(--k-text-dim);
@@ -491,6 +475,7 @@
      (UI-R30): nothing here carries information motion alone. */
   @media (prefers-reduced-motion:reduce){
     .drawer,.card-toggle .chevron{transition:none}
+    .reload-btn .reload-icon{animation:none}
   }
 
   textarea{
@@ -498,16 +483,439 @@
     border:var(--k-border-w) solid var(--vscode-input-border,var(--vscode-panel-border));border-radius:var(--k-radius-sm);
     padding:var(--k-space-4);font-family:var(--k-font-mono);font-size:var(--k-text-md);width:100%;resize:vertical;min-height:calc(var(--k-space-8) * 8);
   }
+
+  /* ═══ v7 redesign: shell ═══════════════════════════════════════════════════
+     Screen-local composition geometry (UI-R04/R05): the sidebar, label column
+     and control height are settings-page decisions, expressed with tokens only. */
+  .app{display:grid;grid-template-columns:calc(var(--k-space-8) * 9.4) minmax(0,1fr);min-height:100%}
+  .sidebar{
+    display:flex;flex-direction:column;gap:var(--k-space-4);
+    padding:var(--k-space-7) var(--k-space-4);overflow-y:auto;
+    border-right:var(--k-border-w) solid var(--vscode-panel-border);
+    background:var(--vscode-sideBar-background,var(--k-bg));
+  }
+  .brand{display:flex;align-items:center;gap:var(--k-space-3);padding:var(--k-space-0) var(--k-space-3) var(--k-space-4)}
+  .brandmark{
+    width:var(--k-space-8);height:var(--k-space-8);flex:0 0 auto;display:grid;place-items:center;
+    border-radius:var(--k-radius-sm);font-weight:700;font-size:var(--k-text-sm);
+    background:var(--vscode-badge-background);color:var(--vscode-badge-foreground);
+  }
+  .brand .brand-name{font-size:var(--k-text-md);font-weight:600;letter-spacing:.01em}
+  .nav-group{margin-top:var(--k-space-3)}
+  .nav-caption{
+    padding:var(--k-space-0) var(--k-space-5) var(--k-space-2);
+    font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.08em;color:var(--k-text-faint);
+  }
+  .nav-btn{
+    display:block;position:relative;width:100%;text-align:left;margin-bottom:var(--k-space-1);
+    background:transparent;color:var(--k-text);border:none;
+    border-radius:var(--k-radius-sm);padding:var(--k-space-3) var(--k-space-8) var(--k-space-3) var(--k-space-5);
+    font-size:var(--k-text-sm);cursor:pointer;font-family:inherit;
+  }
+  .nav-btn:hover{background:var(--k-surface-hover)}
+  .nav-btn:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+  .nav-btn.active{
+    background:var(--vscode-list-activeSelectionBackground,var(--k-surface-hover));
+    color:var(--vscode-list-activeSelectionForeground,var(--k-text));
+  }
+  .nav-btn.has-changes::after,.nav-btn.has-error::after{
+    content:'';position:absolute;right:var(--k-space-5);top:50%;transform:translateY(-50%);
+    width:var(--k-space-2);height:var(--k-space-2);border-radius:var(--k-radius-circle);
+    background:var(--k-attention);
+  }
+  .nav-btn.has-error::after{background:var(--k-failed)}
+  .sidebar-foot{
+    margin-top:auto;padding:var(--k-space-5) var(--k-space-3) var(--k-space-0);
+    border-top:var(--k-border-w) solid var(--vscode-panel-border);
+  }
+  .sidebar-project-label{
+    font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.08em;color:var(--k-text-faint);
+    margin-bottom:var(--k-space-3);
+  }
+  .project-identity{
+    width:100%;display:grid;grid-template-columns:var(--k-space-8) minmax(0,1fr) auto;gap:var(--k-space-3);align-items:center;
+    padding:var(--k-space-3);border-radius:var(--k-radius-sm);text-align:left;
+    background:transparent;border:none;color:inherit;font:inherit;cursor:pointer;
+  }
+  .project-identity:hover{background:var(--k-surface-hover)}
+  .project-identity:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+  .project-icon{
+    width:var(--k-space-8);height:var(--k-space-8);flex:0 0 auto;display:grid;place-items:center;
+    border-radius:var(--k-radius-sm);font-weight:700;font-size:var(--k-text-sm);
+    background:var(--vscode-badge-background);color:var(--vscode-badge-foreground);
+  }
+  .project-copy{min-width:0;display:flex;flex-direction:column;gap:var(--k-space-1)}
+  .project-id{font-family:var(--k-font-mono);font-weight:600;font-size:var(--k-text-sm);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .project-version{font-size:var(--k-text-2xs);color:var(--k-text-faint)}
+  .project-more{color:var(--k-text-faint);font-size:var(--k-text-2xs);letter-spacing:.1em}
+  .manifest-btn{
+    width:100%;display:grid;grid-template-columns:var(--k-space-6) minmax(0,1fr) auto;gap:var(--k-space-3);align-items:center;
+    margin-top:var(--k-space-2);padding:var(--k-space-3);border-radius:var(--k-radius-sm);text-align:left;
+    background:transparent;border:none;color:inherit;font:inherit;cursor:pointer;
+  }
+  .manifest-btn:hover{background:var(--k-surface-hover)}
+  .manifest-btn:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+  .manifest-icon{color:var(--k-text-faint);font-size:var(--k-text-xs)}
+  .manifest-name{font-family:var(--k-font-mono);font-size:var(--k-text-xs);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--k-text-dim)}
+  .manifest-open{font-size:var(--k-text-2xs);color:var(--k-link);white-space:nowrap}
+  .project-info-pop{
+    position:fixed;z-index:var(--k-z-tooltip);width:min(calc(var(--k-space-8) * 15),92vw);
+    display:none;padding:var(--k-space-6);border-radius:var(--k-radius-lg);
+    background:var(--k-surface);border:var(--k-border-w) solid var(--k-border-strong);box-shadow:var(--k-elev-3);
+  }
+  .project-info-pop.open{display:block}
+  .project-info-title{font-size:var(--k-text-md);font-weight:600;margin-bottom:var(--k-space-4)}
+  .project-info-row{display:grid;grid-template-columns:calc(var(--k-space-8) * 4.4) minmax(0,1fr);gap:var(--k-space-4);padding:var(--k-space-2) var(--k-space-0);font-size:var(--k-text-xs)}
+  .project-info-row span{color:var(--k-text-dim)}
+  .project-info-row strong{font-weight:500;min-width:0;overflow-wrap:anywhere}
+  .project-info-row .mono{font-family:var(--k-font-mono)}
+  .mobile-project-btn{
+    display:none;width:var(--k-space-8);height:var(--k-space-8);flex:0 0 auto;
+    border-radius:var(--k-radius-sm);font-weight:700;cursor:pointer;
+    background:var(--vscode-badge-background);color:var(--vscode-badge-foreground);
+    border:var(--k-border-w) solid transparent;
+  }
+  .mobile-project-btn:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+
+  /* Top bar: one live save-state region (handoff §5.5). */
+  .topbar{position:sticky;top:var(--k-space-0);z-index:var(--k-z-scrim);background:var(--vscode-sideBar-background,var(--k-bg))}
+  .topbar h1{display:flex;align-items:center;gap:var(--k-space-3);min-width:0;flex:1 1 auto;font-size:var(--k-text-xl)}
+  .save-state{font-size:var(--k-text-sm);color:var(--k-text-dim);white-space:nowrap;flex:0 0 auto}
+  .save-state.is-error{color:var(--k-danger)}
+
+  /* Page structure: fewer containers, stronger hierarchy (handoff §2.3). */
+  .content{padding:var(--k-space-8) var(--k-space-9) calc(var(--k-space-8) * 4)}
+  .section{max-width:calc(var(--k-space-8) * 58)}
+  .page-header{margin-bottom:var(--k-space-8)}
+  .page-title{font-size:var(--k-text-2xl);font-weight:700;line-height:var(--k-leading-tight);margin:var(--k-space-0)}
+  .page-desc{margin-top:var(--k-space-3);color:var(--k-text-dim);line-height:var(--k-leading-normal);max-width:calc(var(--k-space-8) * 39)}
+  .section-block{padding:var(--k-space-7) var(--k-space-0);border-top:var(--k-border-w) solid var(--vscode-panel-border)}
+  .section-block:first-of-type{border-top:none;padding-top:var(--k-space-2)}
+  .section-head{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--k-space-6);margin-bottom:var(--k-space-6)}
+  .section-title{font-size:var(--k-text-lg);font-weight:600;margin:var(--k-space-0)}
+  .section-desc{margin-top:var(--k-space-2);color:var(--k-text-dim);font-size:var(--k-text-md);line-height:var(--k-leading-normal);max-width:calc(var(--k-space-8) * 38)}
+  .section-side{flex:0 0 auto;display:flex;align-items:center;gap:var(--k-space-3)}
+  .page-actions{display:flex;gap:var(--k-space-3);margin-top:var(--k-space-5)}
+
+  /* Aligned form grammar: label column + control column (handoff §7.1). */
+  .form-grid{display:grid;grid-template-columns:calc(var(--k-space-8) * 10.4) minmax(0,1fr);gap:var(--k-space-4) var(--k-space-8);align-items:start}
+  .form-grid > .field-label{grid-column:1}
+  .form-grid > .field-control{grid-column:2;min-width:0}
+  .form-grid > .field-label, .form-grid > .field-control{grid-column:auto}
+  .field-label{display:flex;align-items:center;min-height:var(--k-space-8);font-size:var(--k-text-md);opacity:.8;margin:var(--k-space-0)}
+  .field-control{min-width:0}
+  .field-help{font-size:var(--k-text-xs);color:var(--k-text-dim);line-height:var(--k-leading-normal);margin-top:var(--k-space-2)}
+  .form-grid label{margin:var(--k-space-0)}
+
+  /* Template rows: input, then Preview + helper link on one line (handoff §7.3). */
+  .template-form-row{
+    display:grid;grid-template-columns:calc(var(--k-space-8) * 10.4) minmax(0,1fr);gap:var(--k-space-4) var(--k-space-8);
+    align-items:start;padding:var(--k-space-5) var(--k-space-0);
+  }
+  .template-form-row + .template-form-row{border-top:var(--k-border-w) solid var(--vscode-panel-border)}
+  .template-meta{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--k-space-4);margin-top:var(--k-space-3)}
+  .template-preview{margin:var(--k-space-0);font-size:var(--k-text-xs);color:var(--k-text-dim);white-space:pre-wrap;min-width:0}
+  .template-preview .lp-val{font-family:var(--k-font-mono);color:var(--k-text)}
+  .template-help-link{
+    flex:0 0 auto;background:none;border:none;color:var(--k-link);cursor:pointer;font:inherit;
+    font-size:var(--k-text-xs);padding:var(--k-space-1) var(--k-space-0);text-decoration:none;
+  }
+  .template-help-link:hover{text-decoration:underline}
+  .template-help-link:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+
+  /* Contextual template helper popup (handoff §8): variables + transforms. */
+  .helper-pop{
+    position:fixed;z-index:var(--k-z-toast);width:min(calc(var(--k-space-8) * 26),92vw);
+    display:none;padding:var(--k-space-6);border-radius:var(--k-radius-lg);
+    background:var(--k-surface);border:var(--k-border-w) solid var(--k-border-strong);box-shadow:var(--k-elev-3);
+  }
+  .helper-pop.open{display:block}
+  .helper-title{font-size:var(--k-text-md);font-weight:600;margin-bottom:var(--k-space-4)}
+  .helper-section + .helper-section{margin-top:var(--k-space-5)}
+  .helper-label{font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.07em;color:var(--k-text-faint);margin-bottom:var(--k-space-3)}
+  .token-grid{display:flex;flex-wrap:wrap;gap:var(--k-space-2)}
+  .token-btn{
+    font-family:var(--k-font-mono);font-size:var(--k-text-xs);cursor:pointer;
+    background:var(--vscode-input-background);color:var(--vscode-input-foreground);
+    border:var(--k-border-w) solid var(--vscode-input-border,var(--vscode-panel-border));
+    border-radius:var(--k-radius-sm);padding:var(--k-space-1) var(--k-space-3);
+  }
+  .token-btn:hover{border-color:var(--k-focus)}
+  .token-btn:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+  .token-btn.is-active{background:var(--k-focus);border-color:transparent;color:var(--vscode-editor-background)}
+  .helper-example{margin-top:var(--k-space-4);font-size:var(--k-text-xs);color:var(--k-text-dim);line-height:var(--k-leading-normal)}
+  .helper-example code,.helper-example .mono{font-family:var(--k-font-mono)}
+
+  /* ═══ shared select/combobox trigger (handoff §6.1) ═══════════════════════ */
+  .select-shell{position:relative;min-width:0}
+  .select-trigger{
+    width:100%;min-height:calc(var(--k-space-8) * 1.7);display:flex;align-items:center;gap:var(--k-space-3);
+    padding:var(--k-space-2) calc(var(--k-space-8) + var(--k-space-3)) var(--k-space-2) var(--k-space-4);
+    text-align:left;position:relative;cursor:pointer;overflow:hidden;
+    background:var(--vscode-input-background);color:var(--vscode-input-foreground);
+    border:var(--k-border-w) solid var(--vscode-input-border,var(--vscode-panel-border));border-radius:var(--k-radius-sm);
+    font:inherit;font-size:var(--k-text-base);
+  }
+  .select-trigger:hover{border-color:var(--vscode-inputOption-activeBorder,var(--k-focus))}
+  .select-trigger:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+  .select-trigger .chev{
+    position:absolute;right:var(--k-space-4);top:50%;transform:translateY(-50%);
+    width:var(--k-space-6);height:var(--k-space-6);flex:none;margin:var(--k-space-0);
+    background:var(--chevron) no-repeat center/var(--k-space-6);
+  }
+  .select-trigger .sel-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .select-trigger.is-invalid{border-color:var(--vscode-inputValidation-errorBorder,var(--k-danger))}
+  .select-trigger.is-unavailable{color:var(--k-text-dim)}
+  .select-shell.is-open{z-index:var(--k-z-scrim)}
+  .dropdown{
+    position:absolute;top:calc(100% + var(--k-space-2));left:var(--k-space-0);right:var(--k-space-0);
+    min-width:calc(var(--k-space-8) * 10);z-index:var(--k-z-drawer);display:none;
+    background:var(--vscode-dropdown-background,var(--k-bg));
+    border:var(--k-border-w) solid var(--vscode-dropdown-border,var(--vscode-panel-border));
+    border-radius:var(--k-radius-md);padding:var(--k-space-2);box-shadow:var(--k-elev-2);
+  }
+  .dropdown.open{display:block}
+  .drop-item{
+    display:flex;align-items:center;gap:var(--k-space-3);padding:var(--k-space-3) var(--k-space-4);
+    border-radius:var(--k-radius-sm);cursor:pointer;font-size:var(--k-text-base);
+  }
+  .drop-item:hover{background:var(--k-surface-hover)}
+  .drop-item.active,.drop-item[aria-selected="true"]{background:var(--vscode-list-activeSelectionBackground,var(--k-surface-hover))}
+  .drop-item.is-disabled{opacity:.5;cursor:not-allowed}
+  .drop-item .mono{font-family:var(--k-font-mono)}
+  .drop-divider{height:var(--k-border-w);background:var(--vscode-panel-border);margin:var(--k-space-2) var(--k-space-0)}
+
+  /* Identity option: [icon] name (handoff §6.2). */
+  .identity{display:inline-flex;align-items:center;gap:var(--k-space-3);min-width:0}
+  .identity .ident-icon{flex:0 0 auto}
+  .identity .ident-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .identity .ident-meta{font-size:var(--k-text-2xs);color:var(--k-text-faint);flex:0 0 auto}
+
+  /* Searchable model picker (handoff §6.3). */
+  .model-pop{
+    position:absolute;top:calc(100% + var(--k-space-2));left:var(--k-space-0);right:var(--k-space-0);
+    min-width:calc(var(--k-space-8) * 14);z-index:var(--k-z-drawer);display:none;overflow:hidden;
+    background:var(--vscode-dropdown-background,var(--k-bg));
+    border:var(--k-border-w) solid var(--vscode-dropdown-border,var(--vscode-panel-border));
+    border-radius:var(--k-radius-md);box-shadow:var(--k-elev-2);
+  }
+  .model-pop.open{display:block}
+  .model-search{padding:var(--k-space-3);border-bottom:var(--k-border-w) solid var(--vscode-panel-border)}
+  .model-search input{width:100%}
+  .model-scroll{max-height:calc(var(--k-space-8) * 15);overflow:auto}
+  .model-group-label{
+    padding:var(--k-space-4) var(--k-space-4) var(--k-space-2);font-size:var(--k-text-2xs);
+    text-transform:uppercase;letter-spacing:.07em;color:var(--k-text-faint);
+  }
+  .model-item{
+    display:grid;grid-template-columns:minmax(0,1fr) auto;gap:var(--k-space-4);align-items:center;
+    padding:var(--k-space-3) var(--k-space-4);cursor:pointer;
+  }
+  .model-item:hover{background:var(--k-surface-hover)}
+  .model-item.active,.model-item[aria-selected="true"]{background:var(--vscode-list-activeSelectionBackground,var(--k-surface-hover))}
+  .model-item .model-name{font-weight:500;font-size:var(--k-text-base)}
+  .model-item .model-sub{font-size:var(--k-text-xs);color:var(--k-text-dim);margin-top:var(--k-space-1)}
+  .model-item .model-tag{font-size:var(--k-text-2xs);color:var(--k-text-faint);flex:0 0 auto}
+  .model-empty{padding:var(--k-space-5) var(--k-space-4);font-size:var(--k-text-sm);color:var(--k-text-dim)}
+  .model-warning{display:none;margin-top:var(--k-space-2);font-size:var(--k-text-xs);color:var(--k-danger)}
+  .model-warning.visible{display:block}
+
+  /* Fixed-size reload icon button (handoff §6.4). */
+  .reload-btn{
+    width:calc(var(--k-space-8) * 1.7);height:calc(var(--k-space-8) * 1.7);flex:0 0 auto;display:grid;place-items:center;
+    padding:var(--k-space-0);border-radius:var(--k-radius-sm);cursor:pointer;
+    background:var(--vscode-input-background);color:var(--vscode-input-foreground);
+    border:var(--k-border-w) solid var(--vscode-input-border,var(--vscode-panel-border));
+  }
+  .reload-btn:hover{border-color:var(--k-focus)}
+  .reload-btn:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+  .reload-btn .reload-icon{
+    width:var(--k-space-6);height:var(--k-space-6);flex:none;
+    animation:reload-spin var(--k-dur-spin) linear infinite;animation-play-state:paused;
+  }
+  .reload-btn.is-pending .reload-icon{animation-play-state:running}
+  @keyframes reload-spin{to{transform:rotate(360deg)}}
+
+  /* Compact object roster (handoff §6.5 / §10). */
+  .roster{display:flex;flex-direction:column;overflow:hidden;border-radius:var(--k-radius-lg);border:var(--k-border-w) solid var(--vscode-panel-border)}
+  .roster-head,.roster-row{display:grid;align-items:center;gap:var(--k-space-4);padding:var(--k-space-4) var(--k-space-5)}
+  .roster-head{font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.07em;color:var(--k-text-faint);background:var(--k-surface-hover)}
+  .roster-row{border-top:var(--k-border-w) solid var(--vscode-panel-border);cursor:pointer}
+  .roster-row:hover{background:var(--k-surface-hover)}
+  .roster-row.is-selected{background:var(--vscode-list-inactiveSelectionBackground,var(--k-surface-hover))}
+  .roster-row .cell-name{font-weight:600;font-size:var(--k-text-base);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .roster-row .cell-path,.roster-row .cell-meta{font-size:var(--k-text-xs);color:var(--k-text-dim);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .roster-row .cell-path{font-family:var(--k-font-mono)}
+  .roster-row .cell-actions{display:flex;align-items:center;justify-content:flex-end;gap:var(--k-space-3)}
+  .repo-cols{grid-template-columns:minmax(calc(var(--k-space-8) * 6),1fr) minmax(calc(var(--k-space-8) * 9),1.6fr) minmax(calc(var(--k-space-8) * 4),.7fr) auto}
+  .repo-detail{
+    display:none;border-top:var(--k-border-w) solid var(--vscode-panel-border);
+    padding:var(--k-space-6);background:var(--vscode-editorWidget-background,transparent);
+  }
+  .repo-detail.open{display:block}
+  .detail-grid{display:grid;grid-template-columns:calc(var(--k-space-8) * 10.4) minmax(0,1fr);gap:var(--k-space-4) var(--k-space-8);align-items:start}
+  .detail-grid > *{min-width:0}
+
+  /* Process-assignment matrix (handoff §13): CSS grid, aligned columns. */
+  .matrix{display:flex;flex-direction:column;overflow:visible}
+  .matrix-head,.matrix-row{display:grid;align-items:center;gap:var(--k-space-4);padding:var(--k-space-3) var(--k-space-5)}
+  .matrix-head{font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.07em;color:var(--k-text-faint)}
+  .matrix-group{
+    display:flex;align-items:center;padding:var(--k-space-2) var(--k-space-5);margin-top:var(--k-space-5);
+    font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.08em;color:var(--k-text-dim);
+    background:var(--k-surface-hover);border-radius:var(--k-radius-sm);
+  }
+  .matrix-row{border-top:var(--k-border-w) solid var(--vscode-panel-border)}
+  .matrix-row .cell-actions{display:flex;align-items:center;gap:var(--k-space-3)}
+  .proc-name{font-size:var(--k-text-base);font-weight:var(--k-weight-medium)}
+  .proc-desc{font-size:var(--k-text-xs);color:var(--k-text-dim)}
+  .proc-advanced-link{
+    background:none;border:none;color:var(--k-text-faint);cursor:pointer;font:inherit;
+    font-size:var(--k-text-2xs);padding:var(--k-space-1) var(--k-space-0);text-align:left;
+  }
+  .proc-advanced-link:hover{color:var(--k-link);text-decoration:underline}
+  .proc-advanced-link:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+  .matrix-cols{grid-template-columns:minmax(calc(var(--k-space-8) * 6),1fr) minmax(calc(var(--k-space-8) * 7),1.1fr) minmax(calc(var(--k-space-8) * 6),.9fr) minmax(calc(var(--k-space-8) * 9),1.4fr) auto}
+  .matrix-row .proc-cell-wide{grid-column:1 / -1}
+  .matrix-row .proc-row-wrap{min-width:0}
+
+  /* Context / overflow menu (handoff §6.7). */
+  .ctx-menu{
+    position:fixed;z-index:var(--k-z-toast);display:none;min-width:calc(var(--k-space-8) * 9);
+    padding:var(--k-space-2);border-radius:var(--k-radius-md);
+    background:var(--k-surface);border:var(--k-border-w) solid var(--k-border-strong);box-shadow:var(--k-elev-3);
+  }
+  .ctx-menu.open{display:block}
+  .ctx-item{
+    display:block;width:100%;text-align:left;padding:var(--k-space-3) var(--k-space-4);
+    border-radius:var(--k-radius-sm);cursor:pointer;font:inherit;font-size:var(--k-text-base);
+    background:transparent;color:var(--k-text);border:none;
+  }
+  .ctx-item:hover{background:var(--k-surface-hover)}
+  .ctx-item:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+  .ctx-item.danger{color:var(--k-danger)}
+  .more-btn{
+    width:var(--k-space-8);height:var(--k-space-8);flex:0 0 auto;display:grid;place-items:center;
+    padding:var(--k-space-0);border-radius:var(--k-radius-sm);cursor:pointer;letter-spacing:.05em;
+    background:transparent;color:var(--k-text-dim);border:none;font:inherit;
+  }
+  .more-btn:hover{background:var(--k-surface-hover);color:var(--k-text)}
+  .more-btn:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+
+  /* Overlay stacking: the shell, row and panel elevate only while a menu is open
+     (handoff §17) — local elevation, never a blanket global z-index. */
+  .select-shell.is-open{z-index:var(--k-z-scrim)}
+  .row.has-open-menu,.matrix-row.has-open-menu,.q-row.has-open-menu,.lifecycle-row.has-open-menu,
+  .roster-row.has-open-menu,.override-row.has-open-menu,.gate-row.has-open-menu{
+    position:relative;z-index:var(--k-z-scrim)
+  }
+  .panel.has-open-menu{position:relative;z-index:calc(var(--k-z-scrim) - 1)}
+  .drawer .ctx-menu{position:fixed}
+
+  /* Quality policy panels (handoff §16). */
+  .quality-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:var(--k-space-7);align-items:start}
+  .quality-panel{
+    border:var(--k-border-w) solid var(--vscode-panel-border);border-radius:var(--k-radius-lg);
+    padding:var(--k-space-6);background:var(--vscode-editorWidget-background,transparent);
+  }
+  .quality-panel .q-title{font-size:var(--k-text-base);font-weight:600;margin:var(--k-space-0)}
+  .quality-panel .q-desc{margin-top:var(--k-space-2);font-size:var(--k-text-md);color:var(--k-text-dim);line-height:var(--k-leading-normal)}
+  .q-row{display:grid;grid-template-columns:minmax(calc(var(--k-space-8) * 8),1fr) minmax(calc(var(--k-space-8) * 9),1fr);gap:var(--k-space-6);align-items:center;padding:var(--k-space-4) var(--k-space-0);border-top:var(--k-border-w) solid var(--vscode-panel-border)}
+  .q-row:first-of-type{border-top:none}
+  .q-row label{margin:var(--k-space-0)}
+  .gate-section + .gate-section{margin-top:var(--k-space-8)}
+  .override-block{margin-top:var(--k-space-5);padding-top:var(--k-space-5);border-top:var(--k-border-w) solid var(--vscode-panel-border)}
+  .override-note{font-size:var(--k-text-xs);color:var(--k-text-dim);margin:var(--k-space-4) var(--k-space-0)}
+  .override-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:var(--k-space-3);align-items:center;padding:var(--k-space-4);border:var(--k-border-w) solid var(--vscode-panel-border);border-radius:var(--k-radius-md);margin-bottom:var(--k-space-4)}
+  .override-editor-note{margin-bottom:var(--k-space-5);padding:var(--k-space-4);border:var(--k-border-w) solid var(--vscode-panel-border);border-radius:var(--k-radius-md);background:var(--k-surface-hover);color:var(--k-text-dim);font-size:var(--k-text-sm);line-height:var(--k-leading-normal)}
+
+  /* Ticketing lifecycle rows (handoff §15.3). */
+  .lifecycle-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:var(--k-space-4);align-items:center;padding:var(--k-space-5) var(--k-space-0);border-top:var(--k-border-w) solid var(--vscode-panel-border)}
+  .lifecycle-row:first-of-type{border-top:none}
+  .lifecycle-copy{min-width:0}
+  .lifecycle-status{grid-column:1 / -1;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:var(--k-space-3);align-items:center;padding-left:var(--k-space-5);border-left:calc(var(--k-border-w) * 2) solid var(--vscode-panel-border)}
+  .lifecycle-status.off{display:none}
+  .lifecycle-status .full{grid-column:1 / -1}
+
+  /* Drawer/modals: same primitives as before, plus a shared focus ring. */
+  .drawer .drawer-body.form label{display:block;margin:var(--k-space-5) var(--k-space-0) var(--k-space-2)}
+  .drawer .drawer-body.form .toggle label{margin:var(--k-space-0)}
+
+  /* Name-override drawer: a single field, no chrome. */
+  .name-override-form{display:flex;flex-direction:column;gap:var(--k-space-4)}
+  .name-override-form .field-help{margin:var(--k-space-0)}
+
+  /* Agent profile create drawer: keep the same form grammar as the roster. */
+  .agent-drawer-form{display:flex;flex-direction:column;gap:var(--k-space-4)}
+
+  /* Skeleton state: model picker trigger mirrors native select height. */
+  .model-trigger{min-height:calc(var(--k-space-8) * 1.7)}
+
+  /* Badge: restrained (handoff §25). */
+  .badge{
+    display:inline-flex;align-items:center;gap:var(--k-space-2);
+    padding:var(--k-space-1) var(--k-space-3);border-radius:var(--k-radius-lg);
+    border:var(--k-border-w) solid var(--vscode-panel-border);font-size:var(--k-text-2xs);color:var(--k-text-dim);
+    white-space:nowrap;flex:0 0 auto;
+  }
+  .badge.good{color:var(--k-success);border-color:var(--k-success)}
+  .badge.warn{color:var(--k-attention);border-color:var(--k-attention)}
+  .badge.bad{color:var(--k-danger);border-color:var(--k-danger)}
 </style>
 
-<nav class="nav">
-  <button class="nav-btn active" data-section="general">General</button>
-  <button class="nav-btn" data-section="git">Git</button>
-  <button class="nav-btn" data-section="services">Repositories</button>
-  <button class="nav-btn" data-section="approaches">Approaches</button>
-  <button class="nav-btn" data-section="agents">Agents</button>
-  <button class="nav-btn" data-section="ticketing">Ticketing</button>
-  <button class="nav-btn" data-section="quality">Quality</button>
+<div class="app">
+<nav class="sidebar" aria-label="Settings sections">
+  <div class="brand">
+    <span class="brandmark">K</span>
+    <span class="brand-name">Karst settings</span>
+  </div>
+
+  <div class="nav-group">
+    <div class="nav-caption">Project</div>
+    <button class="nav-btn active" data-section="general">General</button>
+    <button class="nav-btn" data-section="git">Git</button>
+    <button class="nav-btn" data-section="services">Repositories</button>
+  </div>
+
+  <div class="nav-group">
+    <div class="nav-caption">Workflow</div>
+    <button class="nav-btn" data-section="approaches">Approaches</button>
+    <button class="nav-btn" data-section="agents">Agents</button>
+    <button class="nav-btn" data-section="quality">Quality</button>
+  </div>
+
+  <div class="nav-group">
+    <div class="nav-caption">Integrations</div>
+    <button class="nav-btn" data-section="ticketing">Ticketing</button>
+  </div>
+
+  <!-- Compact project identity footer (handoff §5.2): read-only context, kept
+       out of the editable pages. Full details open on demand; the manifest
+       opens through the existing host action. -->
+  <div class="sidebar-foot">
+    <div class="sidebar-project-label">Project</div>
+    <button type="button" class="project-identity" id="projectInfoBtn"
+            aria-expanded="false" aria-haspopup="dialog">
+      <span class="project-icon" id="footProjectIcon">K</span>
+      <span class="project-copy">
+        <span class="project-id" id="footProjectId">(unresolved)</span>
+        <span class="project-version" id="footProjectVersion"></span>
+      </span>
+      <span class="project-more" aria-hidden="true">&#8942;</span>
+    </button>
+    <button type="button" class="manifest-btn" id="footOpenManifest">
+      <span class="manifest-icon" aria-hidden="true">Y</span>
+      <span class="manifest-name" id="footManifestName">karst.yml</span>
+      <span class="manifest-open">Open &#8599;</span>
+    </button>
+    <div class="project-info-pop hidden" id="projectInfoPop" role="dialog" aria-label="Project information">
+      <div class="project-info-title">Project information</div>
+      <div class="project-info-row"><span>Project ID</span><strong class="mono" id="popProjectId"></strong></div>
+      <div class="project-info-row"><span>ID source</span><strong id="popIdSource"></strong></div>
+      <div class="project-info-row"><span>Version</span><strong class="mono" id="popVersion"></strong></div>
+      <div class="project-info-row"><span>Manifest</span><strong class="mono" id="popManifestPath"></strong></div>
+    </div>
+  </div>
 </nav>
 
 <div class="main">
@@ -516,8 +924,11 @@
     <!-- Names the tab Save now acts on — the scope of the button is not obvious
          from a bare "Settings" heading. -->
     <h1>Settings <span class="topbar-section" id="topbarSection"></span></h1>
-    <span class="saved-msg hidden" id="savedMsg" role="status" aria-live="polite">Saved</span>
+    <button class="mobile-project-btn" id="mobileProjectBtn" type="button"
+            aria-label="Project information" title="Project information">K</button>
     <span class="spacer"></span>
+    <span class="save-state" id="saveState" role="status" aria-live="polite">All changes saved</span>
+    <span class="saved-msg hidden" id="savedMsg" role="status" aria-live="polite">Saved</span>
     <span class="unsaved-hint hidden" id="unsavedHint"></span>
     <button class="k-btn k-btn--secondary" id="discardBtn" disabled>Discard</button>
     <button class="k-btn k-btn--primary" id="saveBtn" disabled>Save</button>
@@ -528,191 +939,338 @@
 
     <!-- General -->
     <div class="section" id="section-general">
-      <div class="card open">
-        <div class="card-body" style="display:block;padding-top:14px">
-          <label for="f-host">Host</label>
-          <input type="text" id="f-host" placeholder="localhost" />
+      <div class="page-header">
+        <div class="page-title">General</div>
+        <div class="page-desc">Project-wide defaults. Read-only project facts live in the sidebar footer, so this page holds settings only.</div>
+      </div>
 
-          <label id="portRangeLabel">Port range</label>
-          <div class="row" role="group" aria-labelledby="portRangeLabel">
-            <input type="number" id="f-portMin" placeholder="min" aria-label="Port range minimum" />
-            <input type="number" id="f-portMax" placeholder="max" aria-label="Port range maximum" />
+      <div class="section-block">
+        <div class="section-head">
+          <div>
+            <div class="section-title">Project defaults</div>
+            <div class="section-desc">Used unless a more specific repository or process setting overrides them.</div>
+          </div>
+        </div>
+
+        <div class="form-grid">
+          <div class="field-label" id="hostLabel">Host</div>
+          <div class="field-control">
+            <input type="text" id="f-host" placeholder="localhost" aria-labelledby="hostLabel" />
           </div>
 
-          <label for="f-baseline">Baseline branch</label>
-          <input type="text" id="f-baseline" placeholder="main" />
-
-          <label for="f-wtDisplay">Worktree path display</label>
-          <select id="f-wtDisplay">
-            <option value="relative">relative</option>
-            <option value="absolute">absolute</option>
-          </select>
-
-          <label for="f-labelTemplate">Ticket label template</label>
-          <input type="text" id="f-labelTemplate" placeholder="{key} — {title}" />
-          <div class="label-preview" id="labelPreview"></div>
-          <div class="label-vars" id="labelVars"></div>
-
-          <label for="f-terminalTemplate">Terminal name template</label>
-          <input type="text" id="f-terminalTemplate" placeholder="Karst: {key} — {title}" />
-          <div class="label-preview" id="terminalPreview"></div>
-
-          <label>Agent provider</label>
-          <div class="agentselect" id="agentSelectWrap">
-            <button type="button" class="agentselect-trigger k-btn" id="agentTrigger"
-              aria-label="Agent provider" aria-haspopup="listbox" aria-expanded="false"></button>
-            <div class="agentselect-menu hidden" id="agentMenu" role="listbox"></div>
+          <div class="field-label" id="portRangeLabel">Port range</div>
+          <div class="field-control">
+            <div class="row" role="group" aria-labelledby="portRangeLabel">
+              <input type="number" id="f-portMin" placeholder="min" aria-label="Port range minimum" />
+              <span class="fixed muted">to</span>
+              <input type="number" id="f-portMax" placeholder="max" aria-label="Port range maximum" />
+            </div>
+            <div class="field-help">Pool Karst may allocate when starting services.</div>
           </div>
 
-          <label for="f-defaultModel">Default model</label>
-          <select id="f-defaultModel"></select>
-
-          <label for="f-archiveDoneAfterDays">Archive done tickets after</label>
-          <input type="number" id="f-archiveDoneAfterDays" min="1" step="1" />
-          <div class="convention-hint" id="archiveHint">
-            Days a ticket stays visible at <code>done</code> before Karst archives it
-            automatically. The archive runs on a periodic sweep, so the delay is
-            approximate. Blank = the 3-day default; a done ticket is never archived
-            immediately.
+          <div class="field-label" id="baselineLabel">Baseline branch</div>
+          <div class="field-control">
+            <input type="text" id="f-baseline" placeholder="main" aria-labelledby="baselineLabel" />
           </div>
 
-          <label for="f-debug">Debug logging</label>
-          <input type="checkbox" id="f-debug" aria-describedby="debugHint" />
-          <div class="convention-hint" id="debugHint">
-            Verbose <code>[driver]</code>/<code>[gate]</code>/<code>[agent]</code>/
-            <code>[runtime]</code> lines in the Karst output channel, kept in memory
-            for issue reports. Off by default; off means <code>logger.debug()</code>
-            is a no-op. Debug entries are redacted like every other log line.
+          <div class="field-label" id="wtDisplayLabel">Worktree path display</div>
+          <div class="field-control">
+            <select id="f-wtDisplay" aria-labelledby="wtDisplayLabel">
+              <option value="relative">relative</option>
+              <option value="absolute">absolute</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div class="section-block">
+        <div class="section-head">
+          <div>
+            <div class="section-title">Default implementation agent</div>
+            <div class="section-desc">Used for normal implementation sessions. Inside process assignments are configured on the Agents page.</div>
+          </div>
+        </div>
+
+        <div class="form-grid">
+          <div class="field-label" id="agentProviderLabel">Agent provider</div>
+          <div class="field-control">
+            <div class="agentselect" id="agentSelectWrap">
+              <button type="button" class="agentselect-trigger k-btn" id="agentTrigger"
+                aria-label="Agent provider" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="agentProviderLabel"></button>
+              <div class="agentselect-menu hidden" id="agentMenu" role="listbox"></div>
+            </div>
           </div>
 
-          <div class="field-group" id="projectFacts">
-            <label>This project</label>
-            <dl class="facts">
-              <dt>Manifest</dt>
-              <dd><code id="factManifestPath"></code>
-                <button type="button" class="k-btn k-btn--secondary k-btn--sm fixed"
-                        id="openManifestBtn"
-                        aria-label="Open karst.yml in an editor"
-                        title="Open karst.yml in an editor">Open karst.yml</button></dd>
-              <dt>Project id</dt>
-              <dd><code id="factProjectSlug"></code>
-                <span class="chip" id="factSlugDerived" hidden
-                      title="No id: in karst.yml — derived from the workspace path, changes if it moves">derived</span></dd>
-              <dt>Version</dt>
-              <dd><code id="factVersion"></code></dd>
-            </dl>
+          <div class="field-label" id="defaultModelLabel">Default model</div>
+          <div class="field-control">
+            <div class="select-shell" id="modelShell">
+              <button type="button" class="select-trigger model-trigger" id="modelTrigger"
+                aria-haspopup="listbox" aria-expanded="false"
+                aria-label="Default model" aria-labelledby="defaultModelLabel"></button>
+              <div class="model-pop" id="modelPop" role="listbox" aria-labelledby="defaultModelLabel">
+                <div class="model-search">
+                  <input type="text" id="modelSearch" placeholder="Search models…" aria-label="Search models" />
+                </div>
+                <div class="model-scroll" id="modelList"></div>
+              </div>
+              <!-- The native select stays the VALUE carrier — the same change
+                   listener the plain control had still owns the draft write. -->
+              <select id="f-defaultModel" class="hidden"></select>
+            </div>
+            <div class="model-warning" id="modelWarning"></div>
+            <div class="field-help" id="modelHelp">Optional — “No default” lets the provider choose. The list is grouped by provider and searchable.</div>
           </div>
+        </div>
+      </div>
+
+      <div class="section-block">
+        <div class="section-head">
+          <div>
+            <div class="section-title">Display templates</div>
+            <div class="section-desc">Template help is available at the point of use without permanently expanding the page.</div>
+          </div>
+        </div>
+
+        <div class="template-form-row">
+          <div class="field-label" id="labelTemplateLabel">Ticket label template</div>
+          <div class="field-control">
+            <input type="text" id="f-labelTemplate" placeholder="{key} — {title}" aria-labelledby="labelTemplateLabel" />
+            <div class="template-meta">
+              <div class="template-preview" id="labelPreview"></div>
+              <button type="button" class="template-help-link" data-template-help="label">Variables &amp; transforms</button>
+            </div>
+            <div class="label-vars hidden" id="labelVars"></div>
+          </div>
+        </div>
+
+        <div class="template-form-row">
+          <div class="field-label" id="terminalTemplateLabel">Terminal name template</div>
+          <div class="field-control">
+            <input type="text" id="f-terminalTemplate" placeholder="Karst: {key} — {title}" aria-labelledby="terminalTemplateLabel" />
+            <div class="template-meta">
+              <div class="template-preview" id="terminalPreview"></div>
+              <button type="button" class="template-help-link" data-template-help="label">Variables &amp; transforms</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section-block">
+        <div class="form-grid">
+          <div class="field-label" id="archiveLabel">Archive done tickets after</div>
+          <div class="field-control">
+            <input type="number" id="f-archiveDoneAfterDays" min="1" step="1" aria-labelledby="archiveLabel" />
+            <div class="field-help" id="archiveHint">
+              Days a ticket stays visible at <code>done</code> before Karst archives it
+              automatically. The archive runs on a periodic sweep, so the delay is
+              approximate. Blank = the 3-day default; a done ticket is never archived
+              immediately.
+            </div>
+          </div>
+
+          <div class="field-label" id="debugLabel">Debug logging</div>
+          <div class="field-control">
+            <div class="toggle">
+              <input type="checkbox" id="f-debug" aria-describedby="debugHint" />
+              <label for="f-debug">Enabled</label>
+            </div>
+            <div class="field-help" id="debugHint">
+              Verbose <code>[driver]</code>/<code>[gate]</code>/<code>[agent]</code>/
+              <code>[runtime]</code> lines in the Karst output channel, kept in memory
+              for issue reports. Off by default; off means <code>logger.debug()</code>
+              is a no-op. Debug entries are redacted like every other log line.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section-block">
+        <div class="section-head">
+          <div>
+            <div class="section-title">This project</div>
+            <div class="section-desc">Read-only facts about the manifest this Settings page edits. Also shown compactly in the sidebar.</div>
+          </div>
+        </div>
+        <div class="field-group" id="projectFacts">
+          <dl class="facts">
+            <dt>Manifest</dt>
+            <dd><code id="factManifestPath"></code>
+              <button type="button" class="k-btn k-btn--secondary k-btn--sm fixed"
+                      id="openManifestBtn"
+                      aria-label="Open karst.yml in an editor"
+                      title="Open karst.yml in an editor">Open karst.yml</button></dd>
+            <dt>Project id</dt>
+            <dd><code id="factProjectSlug"></code>
+              <span class="chip" id="factSlugDerived" hidden
+                    title="No id: in karst.yml — derived from the workspace path, changes if it moves">derived</span></dd>
+            <dt>Version</dt>
+            <dd><code id="factVersion"></code></dd>
+          </dl>
         </div>
       </div>
     </div>
 
     <!-- Git -->
     <div class="section hidden" id="section-git">
-      <div class="card open">
-        <div class="card-body" style="display:block;padding-top:14px">
-          <h2>Branch, commit &amp; pull request conventions</h2>
-          <p class="convention-intro">
-            Templates for the git artifacts Karst creates itself: the ticket branch,
-            the fallback commit, and new pull requests. Leave a field empty to keep
-            Karst's current behavior, or start from a preset and edit it.
-          </p>
+      <div class="page-header">
+        <div class="page-title">Git</div>
+        <div class="page-desc">Conventions Karst applies only to artifacts it creates. Existing human-authored branches, commits, and pull requests remain untouched.</div>
+      </div>
 
-          <div class="row" style="align-items:flex-end">
-            <div style="flex:1 1 auto">
-              <label for="f-conventionPreset">Preset</label>
-              <select id="f-conventionPreset"></select>
+      <div class="section-block">
+        <div class="section-head">
+          <div>
+            <div class="section-title">Branch, commit &amp; pull request conventions</div>
+            <div class="section-desc">Templates for the git artifacts Karst creates itself. Leave a field empty to keep current behavior, or start from a preset and edit it.</div>
+          </div>
+        </div>
+
+        <div class="form-grid">
+          <div class="field-label" id="presetLabel">Preset</div>
+          <div class="field-control">
+            <div class="row">
+              <div style="flex:1 1 auto;min-width:0">
+                <select id="f-conventionPreset" aria-labelledby="presetLabel"></select>
+              </div>
+              <button class="k-btn k-btn--secondary fixed" id="applyPresetBtn" type="button">Apply preset</button>
             </div>
-            <button class="k-btn k-btn--secondary fixed" id="applyPresetBtn" type="button">Apply preset</button>
-          </div>
-          <div class="convention-hint" id="presetHint">
-            Fills the fields below for review — nothing is written until you press Save.
-          </div>
-
-          <label for="f-branchNameTemplate">Branch name template</label>
-          <input class="convention-control" type="text" id="f-branchNameTemplate"
-            placeholder="karst/{type}/{slug}"
-            aria-describedby="branchNameHint branchNameVars branchNamePreview branchNameError" />
-          <div class="convention-hint" id="branchNameHint">
-            Rendered once, when a ticket's worktree is created; existing worktrees keep their branch.
-            Must include {slug}, {key} or {id} so two tickets cannot share a branch.
-          </div>
-          <div class="convention-vars" id="branchNameVars"></div>
-          <div class="convention-preview" id="branchNamePreview"></div>
-          <div class="convention-error hidden" id="branchNameError" role="alert"></div>
-
-          <label for="f-defaultType">Default ticket type</label>
-          <select id="f-defaultType" aria-describedby="defaultTypeHint"></select>
-          <div class="convention-hint" id="defaultTypeHint">
-            Used for {type} when a ticket carries none of its own.
+            <div class="field-help" id="presetHint">
+              Fills the fields below for review — nothing is written until you press Save.
+            </div>
           </div>
 
-          <label for="f-commitMessageTemplate">Commit message template</label>
-          <input class="convention-control" type="text" id="f-commitMessageTemplate"
-            placeholder="{title}"
-            aria-describedby="commitMessageHint commitMessageVars commitMessagePreview commitMessageError" />
-          <div class="convention-hint" id="commitMessageHint">
-            Used only when Karst creates a fallback commit for a dirty worktree.
+          <div class="field-label" id="defaultTypeLabel">Default ticket type</div>
+          <div class="field-control">
+            <select id="f-defaultType" aria-labelledby="defaultTypeLabel" aria-describedby="defaultTypeHint"></select>
+            <div class="field-help" id="defaultTypeHint">
+              Used for {type} when a ticket carries none of its own.
+            </div>
           </div>
-          <div class="convention-vars" id="commitMessageVars"></div>
-          <div class="convention-preview" id="commitMessagePreview"></div>
-          <div class="convention-error hidden" id="commitMessageError" role="alert"></div>
+        </div>
 
-          <label for="f-prTitleTemplate">Pull request title template</label>
-          <input class="convention-control" type="text" id="f-prTitleTemplate"
-            placeholder="{title}"
-            aria-describedby="prTitleHint prTitleVars prTitlePreview prTitleError" />
-          <div class="convention-hint" id="prTitleHint">
-            Used when Karst creates a new pull request; an existing pull request is not renamed.
+        <div class="template-form-row">
+          <div class="field-label" id="branchNameLabel">Branch name template</div>
+          <div class="field-control">
+            <input class="convention-control" type="text" id="f-branchNameTemplate"
+              placeholder="karst/{type}/{slug}"
+              aria-labelledby="branchNameLabel"
+              aria-describedby="branchNameHint branchNameVars branchNamePreview branchNameError" />
+            <div class="field-help" id="branchNameHint">
+              Rendered once, when a ticket's worktree is created; existing worktrees keep their branch.
+              Must include {slug}, {key} or {id} so two tickets cannot share a branch.
+            </div>
+            <div class="template-meta">
+              <div class="template-preview" id="branchNamePreview"></div>
+              <button type="button" class="template-help-link" data-template-help="branch">Variables &amp; transforms</button>
+            </div>
+            <div class="convention-vars hidden" id="branchNameVars"></div>
+            <div class="convention-error hidden" id="branchNameError" role="alert"></div>
           </div>
-          <div class="convention-vars" id="prTitleVars"></div>
-          <div class="convention-preview" id="prTitlePreview"></div>
-          <div class="convention-error hidden" id="prTitleError" role="alert"></div>
+        </div>
 
-          <label for="f-prDescriptionTemplate">Pull request description template</label>
-          <textarea class="convention-control convention-description"
-            id="f-prDescriptionTemplate" rows="6"
-            placeholder="## Summary&#10;{description}&#10;&#10;Ticket: {key}&#10;Repository: {repo}"
-            aria-describedby="prDescriptionHint prDescriptionVars prDescriptionPreview prDescriptionError"></textarea>
-          <div class="convention-hint" id="prDescriptionHint">
-            Use {description} to include Karst's generated summary. Without it, no summary is generated.
+        <div class="template-form-row">
+          <div class="field-label" id="commitMessageLabel">Commit message template</div>
+          <div class="field-control">
+            <input class="convention-control" type="text" id="f-commitMessageTemplate"
+              placeholder="{title}"
+              aria-labelledby="commitMessageLabel"
+              aria-describedby="commitMessageHint commitMessageVars commitMessagePreview commitMessageError" />
+            <div class="field-help" id="commitMessageHint">
+              Used only when Karst creates a fallback commit for a dirty worktree.
+            </div>
+            <div class="template-meta">
+              <div class="template-preview" id="commitMessagePreview"></div>
+              <button type="button" class="template-help-link" data-template-help="common">Variables &amp; transforms</button>
+            </div>
+            <div class="convention-vars hidden" id="commitMessageVars"></div>
+            <div class="convention-error hidden" id="commitMessageError" role="alert"></div>
           </div>
-          <div class="convention-vars" id="prDescriptionVars"></div>
-          <div class="convention-preview" id="prDescriptionPreview"></div>
-          <div class="convention-error hidden" id="prDescriptionError" role="alert"></div>
+        </div>
+
+        <div class="template-form-row">
+          <div class="field-label" id="prTitleLabel">Pull request title template</div>
+          <div class="field-control">
+            <input class="convention-control" type="text" id="f-prTitleTemplate"
+              placeholder="{title}"
+              aria-labelledby="prTitleLabel"
+              aria-describedby="prTitleHint prTitleVars prTitlePreview prTitleError" />
+            <div class="field-help" id="prTitleHint">
+              Used when Karst creates a new pull request; an existing pull request is not renamed.
+            </div>
+            <div class="template-meta">
+              <div class="template-preview" id="prTitlePreview"></div>
+              <button type="button" class="template-help-link" data-template-help="common">Variables &amp; transforms</button>
+            </div>
+            <div class="convention-vars hidden" id="prTitleVars"></div>
+            <div class="convention-error hidden" id="prTitleError" role="alert"></div>
+          </div>
+        </div>
+
+        <div class="template-form-row">
+          <div class="field-label" id="prDescriptionLabel">Pull request description template</div>
+          <div class="field-control">
+            <textarea class="convention-control convention-description"
+              id="f-prDescriptionTemplate" rows="6"
+              placeholder="## Summary&#10;{description}&#10;&#10;Ticket: {key}&#10;Repository: {repo}"
+              aria-labelledby="prDescriptionLabel"
+              aria-describedby="prDescriptionHint prDescriptionVars prDescriptionPreview prDescriptionError"></textarea>
+            <div class="field-help" id="prDescriptionHint">
+              Use {description} to include Karst's generated summary. Without it, no summary is generated.
+            </div>
+            <div class="template-meta">
+              <div class="template-preview" id="prDescriptionPreview"></div>
+              <button type="button" class="template-help-link" data-template-help="description">Variables &amp; transforms</button>
+            </div>
+            <div class="convention-vars hidden" id="prDescriptionVars"></div>
+            <div class="convention-error hidden" id="prDescriptionError" role="alert"></div>
+          </div>
         </div>
       </div>
     </div>
 
     <!-- Repositories -->
     <div class="section hidden" id="section-services">
-      <div id="serviceCards"></div>
-      <div class="footer-row">
-        <button class="k-btn k-btn--secondary" id="addServiceBtn">+ Add repository</button>
+      <div class="page-header">
+        <div class="page-title">Repositories</div>
+        <div class="page-desc">Compact at rest; runtime, ports, dependencies, bindings, migrations and signals appear when a repository is opened.</div>
+        <div class="page-actions">
+          <button class="k-btn k-btn--secondary" id="addServiceBtn">+ Add repository</button>
+        </div>
       </div>
+      <div id="serviceCards"></div>
     </div>
 
     <!-- Approaches -->
     <div class="section hidden" id="section-approaches">
-      <div class="card open">
-        <div class="card-body" style="display:block;padding-top:14px">
-          <div id="approachList"></div>
-          <div class="footer-row">
-            <button class="k-btn k-btn--secondary" id="addApproachBtn">+ Add approach</button>
-          </div>
+      <div class="page-header">
+        <div class="page-title">Approaches</div>
+        <div class="page-desc">Installed, available and built-in approaches stay distinguishable without turning every item into a card.</div>
+        <div class="page-actions">
+          <button class="k-btn k-btn--secondary" id="addApproachBtn">+ Add approach</button>
         </div>
       </div>
+      <div id="approachList"></div>
     </div>
 
     <!-- Agents -->
     <div class="section hidden" id="section-agents">
-      <div class="card open">
-        <div class="card-body" style="display:block;padding-top:14px">
-          <div id="agentHero"></div>
-          <div id="agentList"></div>
-          <div class="footer-row">
-            <input type="text" id="newAgentName" placeholder="agent name" aria-label="New agent name" style="width:180px;margin-right:8px" />
-            <button class="k-btn k-btn--secondary" id="addAgentBtn">+ Add agent</button>
+      <div class="page-header">
+        <div class="page-title">Agents</div>
+        <div class="page-desc">Define reusable agent profiles first, then assign those profiles to Inside processes. This keeps “what an agent is” separate from “where it runs”.</div>
+      </div>
+
+      <div class="section-block">
+        <div class="section-head">
+          <div>
+            <div class="section-title">Agent profiles</div>
+            <div class="section-desc">Compact roster. Open an editor only when you need to change a prompt.</div>
           </div>
+        </div>
+        <div id="agentHero"></div>
+        <div id="agentList"></div>
+        <div class="footer-row">
+          <input type="text" id="newAgentName" placeholder="agent name" aria-label="New agent name" style="width:180px;margin-right:8px" />
+          <button class="k-btn k-btn--secondary" id="addAgentBtn">+ Add agent</button>
         </div>
       </div>
 
@@ -724,49 +1282,74 @@
            karst.yml and must survive a Save (see updateProcessAssignment).
            Every label and validation-state string arrives in host-computed
            views (state.processAssignments / process-assignment-views). -->
-      <div class="card open">
-        <div class="card-head"><span class="card-title">Inside process assignments</span></div>
-        <div class="card-body form">
-          <p class="cap">Which agent profile, core and model launch each inside AI process.
-            A blank field keeps the role default; the choices and validation states below
-            are computed from this project's manifest and catalogs.</p>
-          <div id="processAssignments"></div>
+      <div class="section-block">
+        <div class="section-head">
+          <div>
+            <div class="section-title">Inside process assignments</div>
+            <div class="section-desc">Which agent profile, core and model launch each inside AI process.
+              A blank field keeps the role default; the choices and validation states below
+              are computed from this project's manifest and catalogs.</div>
+          </div>
         </div>
+        <div id="processAssignments"></div>
       </div>
     </div>
 
     <!-- Ticketing -->
     <div class="section hidden" id="section-ticketing">
+      <div class="page-header">
+        <div class="page-title">Ticketing</div>
+        <div class="page-desc">The board Karst reads tickets from and writes statuses to. Manual keeps every lifecycle step a local no-op.</div>
+      </div>
+
+      <!-- Custom dropdown (not a native <select>): the branded [ICON] Brand
+           badge can't render inside a native <option>, so the trigger and
+           each option render the shared provider-identity badge instead. -->
       <div class="card open unclipped">
         <div class="card-body" style="display:block;padding-top:14px">
-          <label id="ticketProviderLabel">Provider</label>
-          <!-- Custom dropdown (not a native <select>): the branded [ICON] Brand
-               badge can't render inside a native <option>, so the trigger and
-               each option render the shared provider-identity badge instead. -->
-          <div class="provselect" id="provSelectWrap">
-            <button type="button" class="provselect-trigger" id="providerTrigger"
-              aria-label="Ticketing provider"
-                    aria-haspopup="listbox" aria-expanded="false" aria-labelledby="ticketProviderLabel"></button>
-            <div class="provselect-menu hidden" id="providerMenu" role="listbox" aria-labelledby="ticketProviderLabel"></div>
+          <div class="form-grid">
+            <div class="field-label" id="ticketProviderLabel">Provider</div>
+            <div class="field-control">
+              <div class="provselect" id="provSelectWrap">
+                <button type="button" class="provselect-trigger" id="providerTrigger"
+                  aria-label="Ticketing provider"
+                        aria-haspopup="listbox" aria-expanded="false" aria-labelledby="ticketProviderLabel"></button>
+                <div class="provselect-menu hidden" id="providerMenu" role="listbox" aria-labelledby="ticketProviderLabel"></div>
+              </div>
+            </div>
           </div>
 
           <!-- ClickUp-specific fields; hidden unless provider === clickup -->
           <div id="clickupFields">
-            <label for="f-ticketTeamId">Team ID <span class="installed-tag">(ClickUp workspace, for custom task ids)</span></label>
-            <input type="text" id="f-ticketTeamId" placeholder="e.g. 9001" />
+            <div class="form-grid">
+              <div class="field-label" id="teamIdLabel">Team ID</div>
+              <div class="field-control">
+                <input type="text" id="f-ticketTeamId" placeholder="e.g. 9001" aria-labelledby="teamIdLabel" />
+                <div class="field-help">(ClickUp workspace, for custom task ids)</div>
+              </div>
 
-            <label for="f-ticketList">List <span class="installed-tag">(the ClickUp list to advance tickets in)</span></label>
-            <div class="row" style="align-items:center">
-              <select id="f-ticketList"></select>
-              <button class="k-btn k-btn--secondary k-btn--sm fixed icon-btn" id="refreshListsBtn" title="Reload lists from ClickUp"><svg class="btn-ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M13.4 8a5.4 5.4 0 1 1-1.5-3.8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M13.7 2.6v3h-3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>Reload lists</button>
-            </div>
-            <div id="listHint" class="field-hint" role="status" aria-live="polite"></div>
+              <div class="field-label" id="listLabel">List</div>
+              <div class="field-control">
+                <div class="row" style="align-items:center">
+                  <select id="f-ticketList" aria-labelledby="listLabel"></select>
+                  <button class="reload-btn fixed" id="refreshListsBtn" type="button"
+                          title="Reload lists from ClickUp" aria-label="Reload lists from ClickUp">
+                    <svg class="reload-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M13.4 8a5.4 5.4 0 1 1-1.5-3.8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M13.7 2.6v3h-3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                  </button>
+                </div>
+                <div id="listHint" class="field-hint" role="status" aria-live="polite"></div>
+                <div class="field-help">(the ClickUp list to advance tickets in)</div>
+              </div>
 
-            <label>API token <span class="installed-tag">(stored in your OS keychain — never in karst.yml)</span></label>
-            <div class="row" style="align-items:center">
-              <span id="tokenStatus" class="status-pill off"><span class="dot"></span><span class="txt">No token</span></span>
-              <button class="k-btn k-btn--secondary fixed" id="setTokenBtn">Set token</button>
-              <button class="k-btn k-btn--secondary fixed" id="clearTokenBtn">Clear token</button>
+              <div class="field-label" id="tokenLabel">API token</div>
+              <div class="field-control">
+                <div class="row" style="align-items:center">
+                  <span id="tokenStatus" class="status-pill off"><span class="dot"></span><span class="txt">No token</span></span>
+                  <button class="k-btn k-btn--secondary fixed" id="setTokenBtn">Set token</button>
+                  <button class="k-btn k-btn--secondary fixed" id="clearTokenBtn">Clear token</button>
+                </div>
+                <div class="field-help">(stored in your OS keychain — never in karst.yml)</div>
+              </div>
             </div>
           </div>
         </div>
@@ -776,11 +1359,16 @@
            `manual` has no board to search. On by default. -->
       <div class="card open hidden" id="searchCard">
         <div class="card-body" style="display:block;padding-top:14px">
-          <div class="toggle">
-            <input type="checkbox" id="f-searchEnabled" />
-            <label for="f-searchEnabled">Search tickets in the Add/Edit ticket page</label>
+          <div class="form-grid">
+            <div class="field-label">Search</div>
+            <div class="field-control">
+              <div class="toggle">
+                <input type="checkbox" id="f-searchEnabled" />
+                <label for="f-searchEnabled">Search tickets in the Add/Edit ticket page</label>
+              </div>
+              <div class="field-help">The Key field becomes a dropdown that searches this list's tickets — filtered by status (default: the list's TODO) and sorted by priority.</div>
+            </div>
           </div>
-          <div class="field-hint">The Key field becomes a dropdown that searches this list's tickets — filtered by status (default: the list's TODO) and sorted by priority.</div>
         </div>
       </div>
 
@@ -788,16 +1376,23 @@
            statuses to list, and advancing a local no-op record means nothing. -->
       <div class="card open hidden" id="startAdvanceCard">
         <div class="card-body" style="display:block;padding-top:14px">
-          <div class="toggle">
-            <input type="checkbox" id="f-advanceOnStart" />
-            <label for="f-advanceOnStart">Set the ticket status when work starts</label>
+          <div class="lifecycle-row">
+            <div class="lifecycle-copy">
+              <div class="toggle">
+                <input type="checkbox" id="f-advanceOnStart" />
+                <label for="f-advanceOnStart">Set the ticket status when work starts</label>
+              </div>
+            </div>
           </div>
 
           <div id="startAdvanceStatusRow" class="hidden" style="margin-top:10px">
             <label for="f-startStatus">Status at start of work</label>
             <div class="row" style="align-items:center">
               <select id="f-startStatus"></select>
-              <button class="k-btn k-btn--secondary k-btn--sm fixed icon-btn" id="refreshStartStatusesBtn" title="Reload statuses for this list"><svg class="btn-ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M13.4 8a5.4 5.4 0 1 1-1.5-3.8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M13.7 2.6v3h-3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>Reload statuses</button>
+              <button class="reload-btn fixed" id="refreshStartStatusesBtn" type="button"
+                      title="Reload statuses for this list" aria-label="Reload statuses for this list">
+                <svg class="reload-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M13.4 8a5.4 5.4 0 1 1-1.5-3.8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M13.7 2.6v3h-3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </button>
             </div>
             <div id="startStatusHint" class="field-hint" role="status" aria-live="polite"></div>
           </div>
@@ -808,16 +1403,23 @@
            statuses to list, and advancing a local no-op record means nothing. -->
       <div class="card open hidden" id="advanceCard">
         <div class="card-body" style="display:block;padding-top:14px">
-          <div class="toggle">
-            <input type="checkbox" id="f-advanceOnShip" />
-            <label for="f-advanceOnShip">Set the ticket status when karst ships</label>
+          <div class="lifecycle-row">
+            <div class="lifecycle-copy">
+              <div class="toggle">
+                <input type="checkbox" id="f-advanceOnShip" />
+                <label for="f-advanceOnShip">Set the ticket status when karst ships</label>
+              </div>
+            </div>
           </div>
 
           <div id="advanceStatusRow" class="hidden" style="margin-top:10px">
             <label for="f-shipStatus">Status after ship</label>
             <div class="row" style="align-items:center">
               <select id="f-shipStatus"></select>
-              <button class="k-btn k-btn--secondary k-btn--sm fixed icon-btn" id="refreshStatusesBtn" title="Reload statuses for this list"><svg class="btn-ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M13.4 8a5.4 5.4 0 1 1-1.5-3.8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M13.7 2.6v3h-3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>Reload statuses</button>
+              <button class="reload-btn fixed" id="refreshStatusesBtn" type="button"
+                      title="Reload statuses for this list" aria-label="Reload statuses for this list">
+                <svg class="reload-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M13.4 8a5.4 5.4 0 1 1-1.5-3.8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M13.7 2.6v3h-3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </button>
             </div>
             <div id="statusHint" class="field-hint" role="status" aria-live="polite"></div>
           </div>
@@ -839,45 +1441,100 @@
          render (uat.secrets, uat.env, ...) — writeGates() spreads the
          existing block. -->
     <div class="section hidden" id="section-quality">
-      <div class="card open">
-        <div class="card-head"><span class="card-title">UAT</span></div>
-        <div class="card-body form">
-          <label for="f-uatMaxFix">Max fix attempts</label>
-          <input type="number" min="1" id="f-uatMaxFix" />
-          <div class="field-hint">Fix→UAT→fix retries before the ticket parks. UAT only.</div>
+      <div class="page-header">
+        <div class="page-title">Quality</div>
+        <div class="page-desc">Deterministic gates and the policies that decide when a ticket passes, parks, or recovers. AI process assignments live on the Agents page, not here.</div>
+      </div>
+
+      <div class="section-block">
+        <div class="quality-grid">
+          <div class="quality-panel">
+            <div class="section-head">
+              <div>
+                <div class="section-title">UAT policy</div>
+                <div class="section-desc">Deterministic UAT gates; the Tester remains advisory.</div>
+              </div>
+            </div>
+            <div class="q-row">
+              <div>
+                <label for="f-uatMaxFix">Max fix attempts</label>
+                <div class="field-help">Fix→UAT→fix retries before the ticket parks. UAT only.</div>
+              </div>
+              <input type="number" min="1" id="f-uatMaxFix" />
+            </div>
+          </div>
+
+          <div class="quality-panel">
+            <div class="section-head">
+              <div>
+                <div class="section-title">Review policy</div>
+                <div class="section-desc">Structured evidence review and its fix loop.</div>
+              </div>
+            </div>
+            <div class="q-row">
+              <div>
+                <label for="f-reviewMaxFix">Max fix attempts</label>
+              </div>
+              <input type="number" min="1" id="f-reviewMaxFix" />
+            </div>
+            <div class="q-row">
+              <div>
+                <div class="toggle">
+                  <input type="checkbox" id="f-reviewIndependent" />
+                  <label for="f-reviewIndependent">Require independent signal</label>
+                </div>
+                <div class="field-help">A pass needs evidence beyond the agent's own claim.</div>
+              </div>
+              <div></div>
+            </div>
+            <div class="q-row">
+              <div>
+                <div class="toggle">
+                  <input type="checkbox" id="f-reviewOpenChanges" />
+                  <label for="f-reviewOpenChanges">Open changes panel after review</label>
+                </div>
+                <div class="field-help">Off by default. When on, a finished review reveals the
+                  ticket's Changes panel for every affected repository.</div>
+              </div>
+              <div></div>
+            </div>
+            <div class="q-row">
+              <div>
+                <div class="toggle">
+                  <input type="checkbox" id="f-findingsEnabled" />
+                  <label for="f-findingsEnabled">Agent findings</label>
+                </div>
+              </div>
+              <div></div>
+            </div>
+            <div class="q-row">
+              <div>
+                <label for="f-findingsSeverity">Blocking severity</label>
+                <div class="field-help">Findings at or above this severity fail review to <code>fix</code>.
+                  <code>none</code> makes them advisory.</div>
+              </div>
+              <select id="f-findingsSeverity"></select>
+            </div>
+            <div class="q-row">
+              <div>
+                <label for="f-findingsMax">Max findings</label>
+              </div>
+              <input type="number" min="1" id="f-findingsMax" />
+            </div>
+          </div>
         </div>
       </div>
-      <div class="card open">
-        <div class="card-head"><span class="card-title">Review</span></div>
-        <div class="card-body form">
-          <label for="f-reviewMaxFix">Max fix attempts</label>
-          <input type="number" min="1" id="f-reviewMaxFix" />
-          <div class="toggle" style="margin-top:10px">
-            <input type="checkbox" id="f-reviewIndependent" />
-            <label for="f-reviewIndependent">Require independent signal</label>
+
+      <div class="section-block">
+        <div class="section-head">
+          <div>
+            <div class="section-title">Gates</div>
+            <div class="section-desc">One editor for UAT and Review gates. A repository override <strong>replaces</strong> the global list for that repository.</div>
           </div>
-          <div class="field-hint">A pass needs evidence beyond the agent's own claim.</div>
-          <div class="toggle" style="margin-top:10px">
-            <input type="checkbox" id="f-reviewOpenChanges" />
-            <label for="f-reviewOpenChanges">Open changes panel after review</label>
-          </div>
-          <div class="field-hint">Off by default. When on, a finished review reveals the
-            ticket's Changes panel for every affected repository.</div>
-          <div class="toggle" style="margin-top:10px">
-            <input type="checkbox" id="f-findingsEnabled" />
-            <label for="f-findingsEnabled">Agent findings</label>
-          </div>
-          <label for="f-findingsSeverity">Blocking severity</label>
-          <select id="f-findingsSeverity"></select>
-          <div class="field-hint">Findings at or above this severity fail review to <code>fix</code>.
-            <code>none</code> makes them advisory.</div>
-          <label for="f-findingsMax">Max findings</label>
-          <input type="number" min="1" id="f-findingsMax" />
         </div>
-      </div>
-      <div class="card open">
-        <div class="card-head"><span class="card-title">Gates</span></div>
-        <div class="card-body" id="qualityGates"></div>
+        <div class="card open">
+          <div class="card-body" id="qualityGates"></div>
+        </div>
       </div>
     </div>
   </div>
@@ -993,6 +1650,40 @@
     </div>
   </div>
 </div>
+
+<!-- Name-override drawer (Agents tab, handoff §13.3): a single small editor
+     for one process assignment's `agentName` display snapshot. The field value
+     lives in draft.processes[key].agentName; the write goes through the same
+     updateProcessAssignment path the inline field used. -->
+<div class="drawer" id="nameOverrideDrawer" role="dialog" aria-modal="true" aria-labelledby="nameOverrideTitle">
+  <div class="drawer-head">
+    <span class="card-title" id="nameOverrideTitle">Name override</span>
+    <span class="spacer"></span>
+    <button class="k-iconbtn" id="nameOverrideClose" aria-label="Close this panel" title="Close this panel">&times;</button>
+  </div>
+  <div class="drawer-body form">
+    <div class="name-override-form">
+      <div>
+        <label for="nameOverrideInput">Display name</label>
+        <input type="text" id="nameOverrideInput" data-proc-field="agentName"
+          placeholder="Snapshot name (blank = role default)" />
+        <div class="field-help">An optional display-name snapshot for this process. Blank keeps the role default.</div>
+      </div>
+    </div>
+    <div class="footer-row">
+      <button class="k-btn k-btn--secondary" id="nameOverrideCancel">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Shared context/overflow menu (handoff §6.7): rebuilt per open with real
+     buttons carrying the same data attributes the page's delegated handlers
+     own, so a menu action takes the exact same path as an inline one. -->
+<div class="ctx-menu hidden" id="ctxMenu" role="menu"></div>
+
+<!-- Template helper popup (handoff §7.3/§8): contextual variables + transforms
+     at the point of use, filled by openTemplateHelper(). -->
+<div class="helper-pop hidden" id="helperPop" role="dialog" aria-label="Template variables and transforms"></div>
 
 <script>
   /*KARST_DS_JS*/
@@ -1452,6 +2143,18 @@
     discardBtn.disabled = !scopedDirty;
     discardBtn.title = 'Discard the unsaved changes on ' + label;
     el('dirtyDot').classList.toggle('hidden', !scopedDirty);
+    // One live status region (handoff §5.5): the topbar reads as a single
+    // sentence — saved / unsaved / in flight / failed. It stays truthful: no
+    // optimistic "Saved" before the host acks.
+    const status = el('saveState');
+    if (status) {
+      const pending = karstIsPending(saveBtn);
+      status.textContent = !scopedDirty && !pending ? 'All changes saved'
+        : pending ? 'Saving…'
+        : !valid ? 'Unsaved changes — fix the error to save'
+        : 'Unsaved changes';
+      status.classList.toggle('is-error', !valid && scopedDirty);
+    }
     renderNavMarkers();
     renderUnsavedHint();
   }
@@ -1686,6 +2389,8 @@
     const modelSelect = el('f-defaultModel');
     modelSelect.innerHTML = renderModelOptions(provider, draft.defaultModel);
     modelSelect.value = draft.defaultModel || '';
+    renderModelPickerTrigger();
+    renderModelPickerPopup();
   }
 
   function renderGeneral() {
@@ -1991,7 +2696,13 @@
       el('serviceCards').innerHTML = '<div class="empty">No repositories configured.</div>';
       return;
     }
-    el('serviceCards').innerHTML = names.map((name) => renderServiceCard(name)).join('');
+    // Roster head: Repository | Path | Baseline | Runtime | Actions (§10). The
+    // head is part of the table so the columns align with every row.
+    el('serviceCards').innerHTML =
+      `<div class="roster-head repo-cols">`
+      + `<div>Repository</div><div>Path</div><div>Baseline</div><div>Runtime</div><div></div>`
+      + `</div>`
+      + names.map((name) => renderServiceCard(name)).join('');
     // The rebuild threw away the previous inline error nodes; re-apply against
     // the fresh DOM so a touched field keeps its message across a re-render.
     applyFieldValidationUI(lastValidationError);
@@ -2028,13 +2739,25 @@
     // accordion was entirely unusable by keyboard. The enable switch and
     // Remove are SIBLINGS of the toggle button, never descendants, so no
     // interactive control ever nests inside another.
-    return `<div class="card ${isOpen ? 'open' : ''}" data-card="${esc(name)}">`
-      + `<div class="card-head">`
+    //
+    // The head doubles as the roster row (handoff §10): Repository | Path |
+    // Baseline | Runtime | Actions in the same grid as the roster head, with
+    // the toggle as the row opener and the detail editor below. The selected
+    // (open) row keeps its highlight while details are shown.
+    const runtimeBadge = svc
+      ? '<span class="badge good">service</span>'
+      : '<span class="badge">worktree only</span>';
+    return `<div class="card ${isOpen ? 'open is-selected' : ''}" data-card="${esc(name)}">`
+      + `<div class="card-head roster-row repo-cols">`
       + `<button type="button" class="card-toggle" data-toggle="${esc(name)}"`
       + ` aria-expanded="${isOpen ? 'true' : 'false'}" aria-controls="${bodyId}">`
       + `<span class="chevron" aria-hidden="true">&#9656;</span>`
       + `<span class="card-title">${esc(name)}</span>`
       + `</button>`
+      + `<span class="cell-path" title="${esc(repo.repoPath || '')}">${esc(repo.repoPath || '—')}</span>`
+      + `<span class="cell-meta mono">${esc(repo.baselineBranch || draft.baselineBranch || 'main')}</span>`
+      + `<span class="cell-meta">${runtimeBadge}</span>`
+      + `<span class="cell-actions">`
       + (repo.enabled === false ? `<span class="chip">Draft</span>` : '')
       + (svc ? '' : `<span class="field-hint" style="margin:0 0 0 8px">no service</span>`)
       + `<button type="button" class="k-switch" role="switch" aria-checked="${isEnabled ? 'true' : 'false'}"`
@@ -2045,6 +2768,7 @@
       + `</button>`
       + `<button type="button" class="k-btn k-btn--danger k-btn--sm" data-remove-service="${esc(name)}"`
       + ` title="Remove ${esc(name)} from the manifest">Remove</button>`
+      + `</span>`
       + `</div>`
       + `<div class="card-body" id="${bodyId}">`
       + `<label for="${nameFieldId}">Name</label>`
@@ -2567,8 +3291,11 @@
 
   document.addEventListener('input', (e) => {
     const t = e.target;
-    if (!t.dataset || t.dataset.procField !== 'agentName') return;
-    updateProcessAssignment(t.dataset.procKey, { agentName: t.value }, { rerender: false });
+    // agentName and instructions commit per keystroke WITHOUT a re-render, so
+    // the field being typed into never loses focus; the `change` listener
+    // above still commits them on blur.
+    if (!t.dataset || (t.dataset.procField !== 'agentName' && t.dataset.procField !== 'instructions')) return;
+    updateProcessAssignment(t.dataset.procKey, { [t.dataset.procField]: t.value }, { rerender: false });
   });
 
   document.addEventListener('keydown', (e) => {
@@ -2600,6 +3327,10 @@
     el('cmdDrawerTitle').textContent = command;
     el('cmdDrawerBody').textContent = body;
     el('cmdDrawer').classList.add('open');
+    // Initial focus inside the drawer (UI-R09b/§19.3): the close button is the
+    // stable, non-destructive control.
+    const close = el('cmdDrawerClose');
+    if (close && typeof close.focus === 'function') close.focus();
   }
   function closeDrawer() {
     el('cmdDrawer').classList.remove('open');
@@ -2664,6 +3395,7 @@
       + `<span class="approach-label">${esc(a.label)}</span>`
       + `<span class="approach-actions">${toggle}${editBtn}${approachInstallAffordance(a)}</span>`
       + `</div>`
+      + (a.description ? `<div class="approach-desc">${esc(a.description)}</div>` : '')
       + (isInstalled ? renderApproachCommands(a.id) : '')
       + (source ? `<div class="approach-foot">${source}</div>` : '')
       + `</div></div>`
@@ -2726,8 +3458,10 @@
   // Install/uninstall affordance for one approach row, keyed on `a.id` against
   // the disk-state `installedIds` set (independent of the dirty draft):
   // - blank id (freshly-added, unsaved row) -> nothing
-  // - installed -> Uninstall button (the button + the "Installed" group header
-  //   already signal installed state; a separate "Installed" tag is redundant)
+  // - installed -> ••• overflow menu carrying the Uninstall action (the button
+  //   + the "Installed" group header already signal installed state; the menu
+  //   item keeps the same data attribute + danger variant the inline button
+  //   had, so the delegated handler takes the identical path)
   // - not installed, no `source` -> "Built-in" tag (nothing to fetch)
   // - not installed, has `source`:
   //   - git -> Install button (posts immediately)
@@ -2735,8 +3469,8 @@
   function approachInstallAffordance(a) {
     if (!a.id) return '';
     if (installedIds.includes(a.id)) {
-      return `<button type="button" class="k-btn k-btn--danger k-btn--sm approach-install" data-uninstall="${esc(a.id)}"`
-        + ` title="Uninstall ${esc(a.id)} and remove its files">Uninstall</button>`;
+      return `<button type="button" class="more-btn" data-more="approach" data-approach-id="${esc(a.id)}"`
+        + ` aria-label="More actions for ${esc(a.id)}" title="More actions">&#8943;</button>`;
     }
     if (!a.source) {
       return `<span class="approach-install builtin-tag">Built-in</span>`;
@@ -2834,6 +3568,11 @@
     el('approachDrawerDelete').disabled = isInstalled;
 
     el('approachFormDrawer').classList.add('open');
+    // Initial focus inside the drawer (§19.3): the id field on ADD, the label
+    // on EDIT (id is read-only there) — never the destructive Delete.
+    const focusId = mode === 'edit' ? 'af-label' : 'af-id';
+    const first = el(focusId);
+    if (first && typeof first.focus === 'function') first.focus();
   }
 
   function closeApproachDrawer() {
@@ -3039,9 +3778,11 @@
       + `</button>`;
   }
 
-  // File agent: editable — name + switch + Delete on the roster row, an
-  // always-open body editor (textarea value set post-render, see above) with
-  // Save below it.
+  // File agent: editable — name + switch + overflow menu (Delete) on the
+  // roster row, an always-open body editor (textarea value set post-render,
+  // see above) with Save below it. Delete lives in the ••• menu so the row
+  // stays scannable; the menu item carries the same data attribute + danger
+  // variant the inline button did.
   function renderFileAgentRow(a) {
     const on = !!a.enabled;
     return `<div class="agent-roster-row${on ? ' on' : ''}${on ? '' : ' is-disabled'}">`
@@ -3049,8 +3790,8 @@
       + `<span class="nm">${esc(a.name)}</span>`
       + `<span class="spacer"></span>`
       + agentToggle(a)
-      + `<button type="button" class="k-btn k-btn--danger k-btn--sm" data-delete-agent="${esc(a.name)}"`
-      + ` title="Delete the ${esc(a.name)} agent file">Delete</button>`
+      + `<button type="button" class="more-btn" data-more="agent" data-agent-name="${esc(a.name)}"`
+      + ` aria-label="More actions for ${esc(a.name)}" title="More actions">&#8943;</button>`
       + `</div>`
       + `<div class="agent-editor">`
       + `<textarea aria-label="${esc(a.name)} body" data-agent-body="${esc(a.name)}"></textarea>`
@@ -3117,6 +3858,11 @@
   // only the draft-bound field VALUES are read from draft.processes, so a
   // change reflects instantly while the states follow on the round trip.
   const PROCESS_KEYS = ['uatTester', 'uatFix', 'review', 'reviewFix', 'prDescription', 'ticketAnalysis'];
+  // The two roles whose prompts consume `processes.<key>.instructions` (UAT
+  // Tester / Review findings); the other roles keep their own fixed prompt
+  // paths, so they offer no Instructions control (no dead field). Mirrored
+  // from the consumption sites — pinned by webview.test.ts (UI-R34).
+  const PROCESS_KEYS_WITH_INSTRUCTIONS = ['uatTester', 'review'];
 
   /** Index the host's row views by process key for O(1) row lookup. */
   function indexProcessViews(rows) {
@@ -3125,13 +3871,23 @@
     return byKey;
   }
 
+  // Matrix column header (handoff §13): Process | Profile | Core | Model | State.
+  // Rendered above the rows; the rows themselves carry the same 5-column grid.
+  const MATRIX_HEAD = '<div class="matrix-head matrix-cols">'
+    + '<div>Process</div><div>Agent profile</div><div>Agent core</div><div>Model</div><div>State</div>'
+    + '</div>';
+
   function renderProcessAssignments() {
     const block = el('processAssignments');
-    block.innerHTML = PROCESS_KEYS
+    block.innerHTML = MATRIX_HEAD + PROCESS_KEYS
       .map((key) => renderProcessAssignmentRow(key, (draft.processes && draft.processes[key]) || {}, processAssignmentViews[key]))
       .join('');
   }
 
+  // Presentation-level grouping (handoff §13): the same closed PROCESS_KEYS
+  // vocabulary, grouped into the approved UAT/Review/Ship sections. Defined
+  // INSIDE the row renderer so the standalone test sandbox (which loads only
+  // this function) stays self-contained.
   function renderProcessAssignmentRow(key, cfg, view) {
     const v = view || {};
     const enabled = cfg.enabled !== false;
@@ -3170,37 +3926,49 @@
     const modelOpts = knownCore
       ? renderModelOptions(knownCore, v.state === 'unknown-provider' ? '' : model)
       : renderModelOptions('', '');
-    return `<div class="proc-row${enabled ? ' on' : ' is-disabled'}">`
-      + `<div class="proc-head">`
+    // The one matrix group per section, emitted only on its FIRST row.
+    const GROUP_OF = { uatTester: 'UAT', review: 'Review', prDescription: 'Ship' };
+    const groupHtml = GROUP_OF[key]
+      ? `<div class="matrix-group">${esc(GROUP_OF[key])}</div>`
+      : '';
+    return groupHtml
+      + `<div class="proc-row matrix-row matrix-cols${enabled ? ' on' : ' is-disabled'}" data-proc-key="${key}">`
+      + `<div class="proc-cell proc-cell-name">`
       + `<span class="proc-name">${esc(label)}</span>`
       + (v.description ? `<span class="proc-desc">${esc(v.description)}</span>` : '')
-      + `<span class="spacer"></span>`
-      + `<button type="button" class="k-switch" role="switch" aria-checked="${enabled ? 'true' : 'false'}"`
-      + ` data-proc-enabled="${key}" aria-label="${toggleLabel}" title="${toggleLabel}">`
-      + `<span class="k-switch-track"></span></button>`
+      + `<button type="button" class="proc-advanced-link" data-name-override="${key}">Name override</button>`
       + `</div>`
-      + `<div class="proc-fields">`
-      + `<div class="proc-field">`
+      + `<div class="proc-cell">`
       + `<label for="proc-${key}-profile">Agent profile</label>`
       + `<select id="proc-${key}-profile" class="proc-select" data-proc-field="agent" data-proc-key="${key}"${describedBy}${invalid('agent')}>${profileOpts}</select>`
       + (v.profileHint ? `<span class="proc-hint">${esc(v.profileHint)}</span>` : '')
       + `</div>`
-      + `<div class="proc-field">`
+      + `<div class="proc-cell">`
       + `<label for="proc-${key}-provider">Agent core</label>`
       + `<select id="proc-${key}-provider" class="proc-select" data-proc-field="provider" data-proc-key="${key}"${describedBy}${invalid('provider')}>${coreOpts}</select>`
       + (v.coreHint ? `<span class="proc-hint">${esc(v.coreHint)}</span>` : '')
       + `</div>`
-      + `<div class="proc-field">`
+      + `<div class="proc-cell">`
       + `<label for="proc-${key}-model">Model</label>`
       + `<select id="proc-${key}-model" class="proc-select" data-proc-field="model" data-proc-key="${key}"${describedBy}${invalid('model')}`
       + `${knownCore ? '' : ` disabled title="${esc(msg)}"`}>${modelOpts}</select>`
       + (v.modelHint ? `<span class="proc-hint">${esc(v.modelHint)}</span>` : '')
       + `</div>`
-      + `<div class="proc-field">`
+      + `<div class="proc-cell proc-cell-state">`
+      + `<button type="button" class="k-switch" role="switch" aria-checked="${enabled ? 'true' : 'false'}"`
+      + ` data-proc-enabled="${key}" aria-label="${toggleLabel}" title="${toggleLabel}">`
+      + `<span class="k-switch-track"></span></button>`
+      + `</div>`
+      + `<div class="proc-cell proc-cell-wide">`
       + `<label for="proc-${key}-name">Display name</label>`
       + `<input id="proc-${key}-name" type="text" class="proc-input" data-proc-field="agentName" data-proc-key="${key}"`
       + ` value="${esc(cfg.agentName || '')}" placeholder="Snapshot name (blank = role default)" aria-label="${esc(label)} — display name" />`
       + `</div>`
+      + (PROCESS_KEYS_WITH_INSTRUCTIONS.includes(key) ? `<div class="proc-cell proc-cell-wide">`
+        + `<label for="proc-${key}-instructions">Instructions</label>`
+        + `<textarea id="proc-${key}-instructions" class="proc-input" data-proc-field="instructions" data-proc-key="${key}" rows="4" aria-label="${esc(label)} — instructions" placeholder="Blank = the built-in prompt">${esc(cfg.instructions || '')}</textarea>`
+        + `<span class="proc-hint">Blank = the built-in prompt. Replaces the role/strategy section; the JSON output rules stay fixed.</span>`
+        + `</div>` : '')
       + `</div>`
       + (msg ? `<div class="proc-msg ${v.stateTone === 'error' ? 'is-error' : 'is-note'}" id="${msgId}" role="alert">${esc(msg)}</div>` : '')
       + `</div>`;
@@ -3952,6 +4720,7 @@
     renderProcessAssignments();
     renderTicketing();
     renderQuality();
+    renderProjectFooter();
   }
 
   function refreshModelCatalog(models, compatibility) {
@@ -4008,6 +4777,604 @@
         line.classList.add('hidden');
       }
     }
+  }
+
+  // ═══ v7 shared primitives ═════════════════════════════════════════════════
+  // One dropdown/combobox system for every custom picker (handoff §6.1): a
+  // trigger button inside .select-shell with a sibling .dropdown/.model-pop.
+  // - single open menu at a time; outside click / Escape closes
+  // - ArrowUp/Down move, Enter picks, Home/End jump, focus returns to trigger
+  // - .is-open on the shell + .has-open-menu on the row/panel that hosts it,
+  //   so overlays elevate above following rows (handoff §17)
+  let openMenuShell = null;
+
+  function menuItemsOf(shell) {
+    return Array.from(shell.querySelectorAll('[role="option"]'))
+      .filter((n) => !n.classList.contains('is-disabled'));
+  }
+
+  function setMenuActive(shell, item, focus) {
+    const items = menuItemsOf(shell);
+    for (const it of items) it.classList.toggle('active', it === item);
+    if (item && typeof item.scrollIntoView === 'function') item.scrollIntoView({ block: 'nearest' });
+    if (focus && item && typeof item.focus === 'function') item.focus();
+  }
+
+  function openShellMenu(shell) {
+    if (openMenuShell && openMenuShell !== shell) closeMenuShell(openMenuShell, false);
+    openMenuShell = shell;
+    shell.classList.add('is-open');
+    const menu = shell.querySelector('.dropdown, .model-pop');
+    if (menu) menu.classList.add('open');
+    const trigger = shell.querySelector('.select-trigger');
+    if (trigger) {
+      trigger.setAttribute('aria-expanded', 'true');
+      const active = shell.querySelector('[aria-selected="true"], .active');
+      setMenuActive(shell, active || menuItemsOf(shell)[0], false);
+    }
+    // Elevate the containing row/panel only while open (handoff §17).
+    const row = shell.closest('.row, .matrix-row, .q-row, .lifecycle-row, .roster-row, .override-row, .gate-row, .repo-detail, .quality-panel, .ticket-panel, .card');
+    if (row) row.classList.add('has-open-menu');
+  }
+
+  function closeMenuShell(shell, returnFocus) {
+    if (!shell) return;
+    if (openMenuShell === shell) openMenuShell = null;
+    shell.classList.remove('is-open');
+    const menu = shell.querySelector('.dropdown, .model-pop');
+    if (menu) menu.classList.remove('open');
+    const trigger = shell.querySelector('.select-trigger');
+    if (trigger) {
+      trigger.setAttribute('aria-expanded', 'false');
+      if (returnFocus && typeof trigger.focus === 'function') trigger.focus();
+    }
+    const row = shell.closest('.row, .matrix-row, .q-row, .lifecycle-row, .roster-row, .override-row, .gate-row, .repo-detail, .quality-panel, .ticket-panel, .card');
+    if (row) row.classList.remove('has-open-menu');
+  }
+
+  function toggleMenuShell(shell) {
+    if (openMenuShell === shell) { closeMenuShell(shell, true); return; }
+    openMenuShell && closeMenuShell(openMenuShell, false);
+    openShellMenu(shell);
+    shell.classList.add('is-open');
+    const menu = shell.querySelector('.dropdown, .model-pop');
+    if (menu) menu.classList.add('open');
+    const trigger = shell.querySelector('.select-trigger');
+    if (trigger) {
+      trigger.setAttribute('aria-expanded', 'true');
+      setMenuActive(shell, menuItemsOf(shell)[0] || null, false);
+    }
+    const row = shell.closest('.row, .matrix-row, .q-row, .lifecycle-row, .roster-row, .override-row, .gate-row, .repo-detail, .quality-panel, .ticket-panel, .card');
+    if (row) row.classList.add('has-open-menu');
+  }
+
+  // Generic trigger binding: any .select-trigger whose shell carries data-menu
+  // (the menu's options are rendered by the page's render functions).
+  document.addEventListener('click', (e) => {
+    const trigger = e.target.closest && e.target.closest('.select-trigger');
+    if (trigger) {
+      const shell = trigger.closest('.select-shell');
+      if (shell) { e.preventDefault(); toggleMenuShell(shell); return; }
+    }
+    if (openMenuShell && !(e.target.closest && e.target.closest('.select-shell'))) {
+      closeMenuShell(openMenuShell, false);
+    }
+  });
+
+  // Keyboard navigation inside an open menu (combobox/listbox semantics).
+  document.addEventListener('keydown', (e) => {
+    if (!openMenuShell) return;
+    const shell = openMenuShell;
+    const items = menuItemsOf(shell);
+    if (items.length === 0) { if (e.key === 'Escape') closeMenuShell(shell, true); return; }
+    const activeIdx = items.findIndex((n) => n.classList.contains('active'));
+    const move = (delta) => {
+      e.preventDefault();
+      const next = items[(activeIdx + delta + items.length) % items.length];
+      setMenuActive(shell, next, true);
+    };
+    switch (e.key) {
+      case 'ArrowDown': move(1); break;
+      case 'ArrowUp': move(-1); break;
+      case 'Home': e.preventDefault(); setMenuActive(shell, items[0], true); break;
+      case 'End': e.preventDefault(); setMenuActive(shell, items[items.length - 1], true); break;
+      case 'Enter': case ' ':
+        if (activeIdx >= 0) {
+          e.preventDefault();
+          items[activeIdx].click();
+        }
+        break;
+      case 'Escape':
+        e.preventDefault();
+        closeMenuShell(shell, true);
+        break;
+    }
+  });
+
+  // ═══ Searchable grouped model picker (handoff §6.3) ═══════════════════════
+  // Host truth is `modelCatalog` + `modelCompatibility` (never a literal list).
+  // The picker groups by provider label (presentation-level only), keeps a
+  // saved model that left the catalog visible as "unavailable", and never
+  // substitutes silently. The hidden native <select> is the VALUE carrier —
+  // the same change listener the native control had still owns the draft write.
+  const MODEL_GROUP_LABELS = { claude: 'Claude Code', codex: 'Codex', antigravity: 'Antigravity', opencode: 'OpenCode' };
+
+  function modelLabelFor(provider, id) {
+    if (!id) return '';
+    const found = (modelCatalog[provider] || []).find((m) => m.id === id);
+    return found ? found.label : id;
+  }
+
+  function renderModelPickerPopup() {
+    const shell = el('modelShell');
+    if (!shell) return;
+    const provider = draft.agentProvider || 'claude';
+    const saved = typeof draft.defaultModel === 'string' ? draft.defaultModel : '';
+    const list = modelCatalog[provider] || [];
+    const groupLabel = MODEL_GROUP_LABELS[provider] || provider;
+    // The "No default" row is always first: it is how the picker expresses an
+    // explicit none (handoff §7.2), and picking it clears the saved model.
+    let html = '<div class="model-item' + (saved === '' ? ' active' : '') + '" role="option"'
+      + ' data-model-id="" aria-selected="' + (saved === '' ? 'true' : 'false') + '">'
+      + '<div><div class="model-name">No default (agent picks)</div>'
+      + '<div class="model-sub">Let the provider choose.</div></div>'
+      + (saved === '' ? '<span class="model-tag">saved</span>' : '')
+      + '</div>';
+    if (list.length === 0) {
+      html += '<div class="model-empty">No models listed for ' + esc(groupLabel) + '.</div>';
+    } else {
+      html += '<div class="model-group-label">' + esc(groupLabel) + '</div>';
+      for (const m of list) {
+        html += '<div class="model-item' + (m.id === saved ? ' active' : '') + '" role="option"'
+          + ' data-model-id="' + esc(m.id) + '" aria-selected="' + (m.id === saved ? 'true' : 'false') + '">'
+          + '<div><div class="model-name">' + esc(m.label) + '</div>'
+          + '<div class="model-sub">' + esc(m.id) + '</div></div>'
+          + (m.id === saved ? '<span class="model-tag">saved</span>' : '')
+          + '</div>';
+      }
+    }
+    if (saved && !list.some((m) => m.id === saved)) {
+      html += '<div class="model-group-label">Saved model (unavailable)</div>'
+        + '<div class="model-item active" role="option" data-model-id="' + esc(saved) + '" aria-selected="true">'
+        + '<div><div class="model-name">' + esc(saved) + '</div>'
+        + '<div class="model-sub">Not in the current ' + esc(groupLabel) + ' catalog.</div></div>'
+        + '<span class="model-tag">unavailable</span></div>';
+    }
+    const listEl = el('modelList');
+    if (listEl) listEl.innerHTML = html;
+    const warning = el('modelWarning');
+    if (warning) {
+      warning.classList.toggle('visible', Boolean(saved) && !list.some((m) => m.id === saved));
+      warning.textContent = saved && !list.some((m) => m.id === saved)
+        ? 'Saved model is not available for ' + esc(groupLabel) + ' — choose another model.'
+        : '';
+    }
+  }
+
+  function renderModelPickerTrigger() {
+    const trigger = el('modelTrigger');
+    if (!trigger) return;
+    const provider = draft.agentProvider || 'claude';
+    const saved = typeof draft.defaultModel === 'string' ? draft.defaultModel : '';
+    const label = saved ? modelLabelFor(provider, saved) : 'No default (agent picks)';
+    trigger.innerHTML = '<span class="sel-label">' + esc(label) + '</span><span class="chev" aria-hidden="true"></span>';
+    trigger.classList.toggle('is-unavailable', Boolean(saved) && !(modelCatalog[provider] || []).some((m) => m.id === saved));
+  }
+
+  // The search filter runs over the CURRENT provider's list (presentation only).
+  function bindModelPickerSearch() {
+    const input = el('modelSearch');
+    if (!input) return;
+    input.addEventListener('input', () => {
+      const q = input.value.trim().toLowerCase();
+      const provider = draft.agentProvider || 'claude';
+      const list = modelCatalog[provider] || [];
+      const saved = typeof draft.defaultModel === 'string' ? draft.defaultModel : '';
+      const listEl = el('modelList');
+      if (!listEl) return;
+      if (!q) { renderModelPickerPopup(); return; }
+      // "No default" always survives the filter — it is the picker's way to
+      // express an explicit none, not a model to match.
+      let html = '<div class="model-item' + (saved === '' ? ' active' : '') + '" role="option"'
+        + ' data-model-id="" aria-selected="' + (saved === '' ? 'true' : 'false') + '">'
+        + '<div class="model-name">No default (agent picks)</div></div>';
+      html += '<div class="model-group-label">' + esc(MODEL_GROUP_LABELS[provider] || provider) + '</div>';
+      for (const m of list) {
+        const hay = (m.label + ' ' + m.id).toLowerCase();
+        if (hay.includes(q)) {
+          html += '<div class="model-item' + (m.id === saved ? ' active' : '') + '" role="option"'
+            + ' data-model-id="' + esc(m.id) + '" aria-selected="' + (m.id === saved ? 'true' : 'false') + '">'
+            + '<div><div class="model-name">' + esc(m.label) + '</div>'
+            + '<div class="model-sub">' + esc(m.id) + '</div></div></div>';
+        }
+      }
+      if (saved && !list.some((m) => m.id === saved) && (saved.toLowerCase().includes(q) || !q)) {
+        html += '<div class="model-group-label">Saved model (unavailable)</div>'
+          + '<div class="model-item active" role="option" data-model-id="' + esc(saved) + '" aria-selected="true">'
+          + '<div class="model-name">' + esc(saved) + '</div></div>';
+      }
+      if (html.indexOf('model-item') === -1) {
+        html = '<div class="model-item" role="option" data-model-id="" aria-selected="false">'
+          + '<div class="model-name">No default (agent picks)</div></div>'
+          + '<div class="model-empty">No models match "' + esc(input.value) + '".</div>';
+      }
+      listEl.innerHTML = html;
+    });
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && openMenuShell) { closeMenuShell(openMenuShell, true); }
+    });
+  }
+
+  // Picking a model writes the hidden select and lets its change listener own
+  // the draft update (one write path, same as the old native control).
+  function bindModelPickerPick() {
+    const shell = el('modelShell');
+    if (!shell) return;
+    shell.addEventListener('click', (e) => {
+      const item = e.target.closest && e.target.closest('[data-model-id]');
+      if (!item) return;
+      const sel = el('f-defaultModel');
+      sel.value = item.dataset.modelId || '';
+      sel.dispatchEvent(new Event('change'));
+      renderModelPickerTrigger();
+      closeMenuShell(shell, true);
+    });
+  }
+
+  // ═══ Template helper popup (handoff §7.3 / §8) ════════════════════════════
+  // Contextual variables + transforms at the point of use. Inserting a
+  // variable drops it at the caret; a transform applies to the `{variable}`
+  // the caret is inside (never blindly appended at the end).
+  function templateVocabulary(kind) {
+    if (kind === 'label') return LABEL_VARS;
+    if (kind === 'branch') return BRANCH_CONVENTION_VARS;
+    if (kind === 'description') return DESCRIPTION_CONVENTION_VARS;
+    return COMMON_CONVENTION_VARS;
+  }
+
+  const TRANSFORM_EXAMPLES = {
+    slice: '{key|slice:-4}',
+    truncate: '{title|truncate:40,…}',
+    upper: '{title|upper}',
+    lower: '{title|lower}',
+    kebab: '{title|kebab}',
+    snake: '{title|snake}',
+    trim: '{title|trim}',
+    default: '{status|default:idle}',
+  };
+
+  let helperTarget = null;
+  let helperKind = 'common';
+
+  function openTemplateHelper(btn, kind) {
+    const pop = el('helperPop');
+    if (!pop) return;
+    helperKind = kind || 'common';
+    helperTarget = btn.closest('.template-form-row, .form-grid')
+      ? (btn.closest('.template-form-row, .form-grid').querySelector('input, textarea') || null)
+      : null;
+    const vocab = templateVocabulary(helperKind);
+    const varsHtml = vocab.map((v) =>
+      `<button type="button" class="token-btn" data-insert-var="{${esc(v)}}">{${esc(v)}}</button>`,
+    ).join('');
+    const transformsHtml = TRANSFORM_NAMES.map((t) =>
+      `<button type="button" class="token-btn" data-insert-transform="${esc(t)}">${esc(t)}</button>`,
+    ).join('');
+    const examplesHtml = TRANSFORM_NAMES.map((t) =>
+      `<div>${esc(t)} — <code>${esc(TRANSFORM_EXAMPLES[t] || '{key|' + t + '}')}</code></div>`,
+    ).join('');
+    pop.innerHTML = ''
+      + '<div class="helper-title">Variables &amp; transforms</div>'
+      + '<div class="helper-section"><div class="helper-label">Variables</div><div class="token-grid">' + varsHtml + '</div></div>'
+      + '<div class="helper-section"><div class="helper-label">Transforms</div><div class="token-grid">' + transformsHtml + '</div></div>'
+      + '<div class="helper-section"><div class="helper-label">Examples</div><div class="helper-example">' + examplesHtml + '</div></div>'
+      + (helperTarget
+        ? '<div class="helper-example" id="helperHint">Click a variable to insert it at the cursor. '
+          + 'Place the cursor inside a <code>{variable}</code> and click a transform to apply it there.</div>'
+        : '<div class="helper-example" id="helperHint">Click a variable to insert it.</div>');
+    pop.classList.add('open');
+    const r = btn.getBoundingClientRect();
+    const w = pop.offsetWidth || 420;
+    pop.style.left = Math.max(8, Math.min(r.left, window.innerWidth - w - 8)) + 'px';
+    pop.style.top = (r.bottom + 8) + 'px';
+    const first = pop.querySelector('.token-btn');
+    if (first && typeof first.focus === 'function') first.focus();
+  }
+
+  function closeTemplateHelper(returnFocus) {
+    const pop = el('helperPop');
+    if (!pop || !pop.classList.contains('open')) return;
+    pop.classList.remove('open');
+    if (returnFocus && helperTarget && typeof helperTarget.focus === 'function') helperTarget.focus();
+    helperTarget = null;
+  }
+
+  function insertTextAtCaret(input, text) {
+    if (!input) return false;
+    input.focus();
+    const start = input.selectionStart != null ? input.selectionStart : input.value.length;
+    const end = input.selectionEnd != null ? input.selectionEnd : input.value.length;
+    input.value = input.value.slice(0, start) + text + input.value.slice(end);
+    const pos = start + text.length;
+    input.setSelectionRange(pos, pos);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
+  }
+
+  // The variable the caret sits inside, or null. A transform only ever applies
+  // to a real {variable} — never appended at an arbitrary position (§8.2).
+  function variableAtCaret(input) {
+    const value = input.value;
+    const pos = input.selectionStart != null ? input.selectionStart : value.length;
+    const open = value.lastIndexOf('{', pos - 1);
+    if (open < 0) return null;
+    const close = value.indexOf('}', open);
+    if (close < 0 || close < pos - 1) return null;
+    const body = value.slice(open + 1, close);
+    const pipe = body.indexOf('|');
+    const name = pipe === -1 ? body : body.slice(0, pipe);
+    return { name, open, close };
+  }
+
+  function applyTransformAtCaret(input, transform) {
+    if (!input) return;
+    const at = variableAtCaret(input);
+    if (!at) {
+      const hint = el('helperHint');
+      if (hint) hint.textContent = 'Place the cursor inside a {variable} first — a transform must apply to one.';
+      return;
+    }
+    const value = input.value;
+    const body = value.slice(at.open + 1, at.close);
+    const next = body.includes('|') ? body + '|' + transform : body + '|' + transform;
+    input.value = value.slice(0, at.open + 1) + next + value.slice(at.close);
+    const pos = at.open + 1 + next.length;
+    input.setSelectionRange(pos, pos);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
+  function bindTemplateHelper() {
+    document.addEventListener('click', (e) => {
+      const btn = e.target.closest && e.target.closest('[data-template-help]');
+      if (btn) {
+        e.preventDefault();
+        e.stopPropagation();
+        openTemplateHelper(btn, btn.dataset.templateHelp);
+        return;
+      }
+      const insert = e.target.closest && e.target.closest('[data-insert-var]');
+      if (insert && helperTarget) {
+        insertTextAtCaret(helperTarget, insert.dataset.insertVar);
+        return;
+      }
+      const tf = e.target.closest && e.target.closest('[data-insert-transform]');
+      if (tf && helperTarget) {
+        applyTransformAtCaret(helperTarget, tf.dataset.insertTransform);
+        return;
+      }
+      if (!(e.target.closest && e.target.closest('#helperPop'))) {
+        closeTemplateHelper(false);
+      }
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeTemplateHelper(true);
+    });
+  }
+
+  // ═══ Context / overflow menu (handoff §6.7) ════════════════════════════════
+  // A single shared menu, rebuilt per open. Items are real buttons carrying
+  // the SAME data attributes the page's delegated handlers already own (with
+  // the danger variant class on destructive ones, UI-R10b), so a Delete /
+  // Uninstall in the menu takes the exact same path as an inline one.
+  let ctxMenuAnchor = null;
+
+  function openContextMenu(anchor, items) {
+    const menu = el('ctxMenu');
+    if (!menu) return;
+    ctxMenuAnchor = anchor;
+    menu.innerHTML = items.join('');
+    menu.classList.add('open');
+    const r = anchor.getBoundingClientRect();
+    const w = menu.offsetWidth || 180;
+    const left = Math.min(r.left, Math.max(8, window.innerWidth - w - 8));
+    const bottom = window.innerHeight - r.bottom;
+    menu.style.left = left + 'px';
+    menu.style.top = (bottom > 240 ? r.bottom + 4 : Math.max(8, r.top - menu.offsetHeight - 4)) + 'px';
+    const first = menu.querySelector('.ctx-item');
+    if (first && typeof first.focus === 'function') first.focus();
+  }
+
+  function closeContextMenu(returnFocus) {
+    const menu = el('ctxMenu');
+    if (!menu || !menu.classList.contains('open')) return;
+    menu.classList.remove('open');
+    menu.innerHTML = '';
+    if (returnFocus && ctxMenuAnchor && typeof ctxMenuAnchor.focus === 'function') ctxMenuAnchor.focus();
+    ctxMenuAnchor = null;
+  }
+
+  function bindContextMenu() {
+    document.addEventListener('click', (e) => {
+      const more = e.target.closest && e.target.closest('[data-more]');
+      if (more) {
+        e.preventDefault();
+        e.stopPropagation();
+        const kind = more.dataset.more;
+        // Menu items carry the REAL data attributes (data-delete-agent /
+        // data-uninstall) plus the danger variant, so the existing delegated
+        // click handler processes the action without any indirection here.
+        if (kind === 'agent') {
+          const name = more.dataset.agentName;
+          openContextMenu(more, [
+            `<button type="button" class="ctx-item k-btn--danger" data-delete-agent="${esc(name)}"`
+            + ` title="Delete the ${esc(name)} agent file">Delete</button>`,
+          ]);
+        } else if (kind === 'approach') {
+          const id = more.dataset.approachId;
+          openContextMenu(more, [
+            `<button type="button" class="ctx-item k-btn--danger" data-uninstall="${esc(id)}">Uninstall</button>`,
+          ]);
+        }
+        return;
+      }
+      // Any click inside the menu closes it WITHOUT swallowing the event: the
+      // delegated action handler (registered earlier) already processed the
+      // item's data attribute, so the menu only tidies itself here.
+      if (e.target.closest && e.target.closest('#ctxMenu')) {
+        closeContextMenu(false);
+        return;
+      }
+      closeContextMenu(false);
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeContextMenu(true);
+    });
+  }
+
+  // ═══ Name-override drawer (handoff §13.3) ══════════════════════════════════
+  // One small shared drawer; the row's "Name override" action opens it with
+  // that process's key. Writing goes through the same updateProcessAssignment
+  // path the inline input used (spread, never rebuild). The drawer input keeps
+  // `data-proc-field="agentName"` + a data-proc-key set on open, so the page's
+  // existing delegated input listener already owns the draft write — this
+  // binding only manages open/close and focus.
+  let nameOverrideAnchor = null;
+
+  function openNameOverride(key, anchor) {
+    const input = el('nameOverrideInput');
+    if (!input) return;
+    nameOverrideAnchor = anchor || null;
+    input.dataset.procKey = key;
+    input.value = ((draft.processes && draft.processes[key]) || {}).agentName || '';
+    const title = el('nameOverrideTitle');
+    if (title) {
+      const view = processAssignmentViews[key] || {};
+      title.textContent = 'Name override — ' + (view.roleLabel || key);
+    }
+    const drawer = el('nameOverrideDrawer');
+    if (drawer) {
+      drawer.classList.add('open');
+      input.focus();
+    }
+  }
+
+  function closeNameOverride(returnFocus) {
+    const drawer = el('nameOverrideDrawer');
+    if (!drawer || !drawer.classList.contains('open')) return;
+    drawer.classList.remove('open');
+    if (returnFocus && nameOverrideAnchor && typeof nameOverrideAnchor.focus === 'function') {
+      nameOverrideAnchor.focus();
+    }
+    nameOverrideAnchor = null;
+  }
+
+  function bindNameOverride() {
+    document.addEventListener('click', (e) => {
+      const btn = e.target.closest && e.target.closest('[data-name-override]');
+      if (btn) {
+        e.preventDefault();
+        openNameOverride(btn.dataset.nameOverride, btn);
+        return;
+      }
+      if (e.target.closest && (e.target.closest('#nameOverrideClose') || e.target.closest('#nameOverrideCancel'))) {
+        closeNameOverride(true);
+      }
+    });
+    // The drawer input's own change listener is a safety net for Enter/blur —
+    // the delegated `input` listener (data-proc-field="agentName") already
+    // wrote on every keystroke with { rerender: false }, so this only needs to
+    // be idempotent, never a second re-render.
+    const input = el('nameOverrideInput');
+    if (input) {
+      input.addEventListener('change', () => {
+        if (!input.dataset.procKey) return;
+        updateProcessAssignment(input.dataset.procKey, { agentName: input.value }, { rerender: false });
+      });
+    }
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && el('nameOverrideDrawer').classList.contains('open')) {
+        closeNameOverride(true);
+      }
+    });
+  }
+
+  // ═══ Drawer/modal focus trap (handoff §19.3) ═══════════════════════════════
+  function trapFocus(container, ev) {
+    const focusables = container.querySelectorAll(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+    );
+    if (focusables.length === 0) return;
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    if (ev.shiftKey && document.activeElement === first) { ev.preventDefault(); last.focus(); }
+    else if (!ev.shiftKey && document.activeElement === last) { ev.preventDefault(); first.focus(); }
+  }
+
+  function wireFocusTraps() {
+    for (const id of ['cmdDrawer', 'approachFormDrawer', 'nameOverrideDrawer']) {
+      const node = el(id);
+      if (node) node.addEventListener('keydown', (e) => { if (e.key === 'Tab') trapFocus(node, e); });
+    }
+    const modal = el('leaveModal');
+    if (modal) modal.addEventListener('keydown', (e) => { if (e.key === 'Tab') trapFocus(modal, e); });
+  }
+
+  // ═══ Project identity footer (handoff §5.2) ════════════════════════════════
+  function renderProjectFooter() {
+    const id = el('footProjectId');
+    if (id) id.textContent = projectSlug.value || '(unresolved)';
+    const ver = el('footProjectVersion');
+    if (ver) ver.textContent = extensionVersion ? 'v' + extensionVersion : '';
+    const name = el('footManifestName');
+    if (name) name.textContent = manifestPath ? manifestPath.split(/[\\/]/).pop() : 'karst.yml';
+    const pop = el('projectInfoPop');
+    if (pop) {
+      const set = (elId, v) => { const n = el(elId); if (n) n.textContent = v; };
+      set('popProjectId', projectSlug.value || '(unresolved)');
+      set('popIdSource', projectSlug.derived ? 'Derived from workspace path' : 'Explicit (manifest id:)');
+      set('popVersion', extensionVersion || '—');
+      set('popManifestPath', manifestPath || '(unresolved)');
+    }
+  }
+
+  function toggleProjectPop(anchor) {
+    const pop = el('projectInfoPop');
+    if (!pop) return;
+    const open = pop.classList.toggle('open');
+    el('projectInfoBtn').setAttribute('aria-expanded', String(open));
+    if (open) {
+      const r = anchor.getBoundingClientRect();
+      // On narrow widths the responsive block anchors the pop to the viewport
+      // edge; inline left/top would override it, so only set them when there
+      // is room for the full pop to the right of the anchor.
+      if (window.innerWidth >= 640) {
+        pop.style.left = (r.right + 8) + 'px';
+        pop.style.top = Math.max(8, r.bottom - pop.offsetHeight) + 'px';
+      } else {
+        pop.style.left = '';
+        pop.style.top = '';
+      }
+    }
+  }
+
+  function bindProjectFooter() {
+    const btn = el('projectInfoBtn');
+    if (btn) btn.addEventListener('click', () => toggleProjectPop(btn));
+    const mobile = el('mobileProjectBtn');
+    if (mobile) mobile.addEventListener('click', () => toggleProjectPop(mobile));
+    const footOpen = el('footOpenManifest');
+    if (footOpen) footOpen.addEventListener('click', () => postAction(footOpen, 'open-manifest'));
+    document.addEventListener('click', (e) => {
+      if (e.target.closest && (e.target.closest('#projectInfoPop') || e.target.closest('#projectInfoBtn') || e.target.closest('#mobileProjectBtn'))) return;
+      const pop = el('projectInfoPop');
+      if (pop && pop.classList.contains('open')) { pop.classList.remove('open'); el('projectInfoBtn').setAttribute('aria-expanded', 'false'); }
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        const pop = el('projectInfoPop');
+        if (pop && pop.classList.contains('open')) { pop.classList.remove('open'); el('projectInfoBtn').setAttribute('aria-expanded', 'false'); }
+      }
+    });
   }
 
   window.addEventListener('message', (e) => {
@@ -4140,6 +5507,11 @@
         // it — the user stays on the tab whose error they have to fix.
         navigateAfterSave = null;
         showError(msg.message);
+        const status = el('saveState');
+        if (status) {
+          status.textContent = 'Save failed';
+          status.classList.add('is-error');
+        }
         // `action-result` alone cannot tell a rejected save from a written one
         // (the `save` action never throws on a validation failure — it posts
         // this message and returns), so the topbar Save and the approach
@@ -4168,6 +5540,11 @@
         el('savedMsg').textContent = savedLabel ? savedLabel + ' saved' : 'Saved';
         el('savedMsg').classList.remove('hidden');
         setTimeout(() => el('savedMsg').classList.add('hidden'), 2000);
+        const status = el('saveState');
+        if (status) {
+          status.textContent = 'All changes saved';
+          status.classList.remove('is-error');
+        }
         updateSaveEnabled();
         if (topbarSaveRequestId) {
           karstSettle(topbarSaveRequestId, true);
@@ -4225,7 +5602,85 @@
   }
   // Label the tab-scoped buttons even when there is no restored state to render.
   updateSaveEnabled();
+  // Wire the shared primitives once (dropdowns, model picker, template helper,
+  // context menu, name-override drawer, focus traps, project footer).
+  bindModelPickerSearch();
+  bindModelPickerPick();
+  bindTemplateHelper();
+  bindContextMenu();
+  bindNameOverride();
+  wireFocusTraps();
+  bindProjectFooter();
   post({ type: 'request-state' });
 </script>
+
+<style>
+  /* Responsive breakpoints (handoff §18): kept in their OWN style block because
+     the first <style> must stay literal-free (UI-R04) and these queries need
+     real widths. Breakpoints follow the Inside design work: 980 (stack the
+     form grid + matrix), 640 (sidebar collapses to horizontal nav), then the
+     430/360/300 narrow-webview tiers. EM units, not px — the UI-R04 literal
+     budget explicitly exempts em as relative typography (conformance.test.ts),
+     so these queries stay within the zero-literal budget. */
+  @media (max-width: 61.25em){
+    .form-grid,.detail-grid,.template-form-row{grid-template-columns:minmax(0,1fr);gap:var(--k-space-3)}
+    .quality-grid{grid-template-columns:minmax(0,1fr)}
+    .matrix-head{display:none}
+    .matrix-cols{grid-template-columns:minmax(0,1fr)}
+    .matrix-row .proc-cell{padding:var(--k-space-2) var(--k-space-0)}
+    .matrix-row .proc-cell-name{grid-column:1 / -1}
+    .matrix-row .proc-cell-state{grid-column:1 / -1;justify-self:start}
+    .repo-cols{grid-template-columns:minmax(0,1fr) auto}
+    .roster-head{display:none}
+    .roster-row .cell-meta{display:none}
+    .override-editor-row{grid-template-columns:minmax(0,1fr)}
+    .subtable-head{display:none}
+    .subtable-row{grid-template-columns:minmax(0,1fr)}
+    .dependency-head,.bind-row{grid-template-columns:minmax(0,1fr)}
+  }
+  @media (max-width: 40em){
+    .app{grid-template-columns:minmax(0,1fr)}
+    .sidebar{
+      position:static;flex-direction:row;align-items:center;gap:var(--k-space-4);
+      padding:var(--k-space-3) var(--k-space-4);overflow-x:auto;border-right:none;
+      border-bottom:var(--k-border-w) solid var(--vscode-panel-border);
+    }
+    .brand{display:none}
+    .nav-group{display:flex;gap:var(--k-space-2);margin:var(--k-space-0);white-space:nowrap}
+    .nav-caption{display:none}
+    .nav-btn{margin:var(--k-space-0);white-space:nowrap}
+    .sidebar-foot{display:none}
+    .topbar{padding:var(--k-space-3) var(--k-space-4);gap:var(--k-space-3)}
+    .topbar h1{font-size:var(--k-text-base)}
+    .save-state{display:none}
+    .mobile-project-btn{display:grid;place-items:center}
+    .content{padding:var(--k-space-5) var(--k-space-5) calc(var(--k-space-8) * 3)}
+    .page-actions{margin-top:var(--k-space-3)}
+    .object-row,.agent-roster-row{flex-wrap:wrap}
+    .agent-hero{flex-wrap:wrap;gap:var(--k-space-3)}
+    .project-info-pop{left:auto;right:var(--k-space-4);top:auto;bottom:calc(var(--k-space-8) * 2.5)}
+    .template-meta{flex-direction:column;align-items:flex-start}
+    .lifecycle-status{grid-template-columns:minmax(0,1fr)}
+  }
+  @media (max-width: 26.875em){
+    .content{padding:var(--k-space-4) var(--k-space-4) calc(var(--k-space-8) * 3)}
+    .page-title{font-size:var(--k-text-xl)}
+    .q-row{grid-template-columns:minmax(0,1fr)}
+    .matrix-row .proc-cell{grid-column:1 / -1}
+    .gate-row{flex-direction:column;align-items:stretch}
+    .override-row{grid-template-columns:minmax(0,1fr)}
+  }
+  @media (max-width: 22.5em){
+    .topbar .saved-msg,.topbar .unsaved-hint{display:none}
+    .roster-row .cell-path{display:none}
+    .approach-card,.approach-actions{flex-wrap:wrap}
+    .footer-row{flex-wrap:wrap;justify-content:stretch}
+  }
+  @media (max-width: 18.75em){
+    .topbar .discardBtn,.topbar #discardBtn{display:none}
+    .section-head{flex-direction:column;align-items:flex-start}
+    .chips{flex-wrap:wrap}
+  }
+</style>
 
 <style>/*KARST_PALETTE*/</style>

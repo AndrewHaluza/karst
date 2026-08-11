@@ -28,6 +28,7 @@ import type { InsideActionResult } from './messages.js';
 import type { WorktreeStatsLoader } from './worktreeStats.js';
 import type { GateOptions, GateOptionsLoader } from './gateOptions.js';
 import { readRequestId, reportAction } from '../../model/actionResult.js';
+import { hasLiveWork, LIVE_TICK_MS } from './liveTick.js';
 
 /**
  * The subset of a `vscode.WebviewPanel` the manager touches. Modeling it as an
@@ -51,6 +52,14 @@ export interface DashboardPanel {
    */
   onDidChangeViewState(handler: (active: boolean) => void): void;
   onDidDispose(handler: () => void): void;
+  /**
+   * Whether the panel's webview is on screen at all (real: `panel.visible`) —
+   * unlike `active`, which is true only when the user is ON it. A dashboard
+   * watched beside a terminal the user is typing in is VISIBLE and inactive,
+   * which is the live tick's main scenario, so visibility is what gates the
+   * repaint. Absent → assume visible, which is exactly the pre-tick behavior.
+   */
+  isVisible?(): boolean;
   /** Update the tab icon (real: `panel.iconPath = Uri.file(path)`). */
   setIcon(path: string): void;
 }
@@ -69,6 +78,8 @@ export interface FakePanel extends DashboardPanel {
   /** The `preserveFocus` argument of every `reveal`, in order. */
   revealedPreserveFocus: Array<boolean | undefined>;
   disposed: boolean;
+  /** Whether the fake reports itself on screen — drives `isVisible`. */
+  visible: boolean;
   posted: unknown[];
   /** Every `setIcon` path, in order — the live-tint assertion surface. */
   icons: string[];
@@ -93,6 +104,16 @@ export interface DashboardBinding {
 
 /** Resolve the daemon actions for a ticket (lets the host bind live services). */
 export type ActionsFactory = (ticketId: number) => DashboardActions;
+
+/**
+ * How long a superseded snapshot's action ids stay dispatchable — the window a
+ * click already in flight when a repaint landed has to survive. Sized for a
+ * webview→host round trip, not for the repaint cadence.
+ */
+export const ACTION_GRACE_MS = 5000;
+
+/** Memory bound on the grace list; the time window above is what actually decides. */
+const MAX_GRACE_DEPTH = 10;
 
 /** Content equality for `GateOptions` — a fresh resolution is a new object every time. */
 function sameGateOptions(a: GateOptions, b: GateOptions): boolean {
@@ -128,7 +149,31 @@ export class DashboardManager {
   private readonly gateOptionsCache = new Map<number, GateOptions>();
   /** The CURRENT snapshot-scoped action registry per ticket (host-only targets). */
   private readonly registries = new Map<number, InsideActionRegistry>();
+  /**
+   * The registries of superseded snapshots, newest last, with the moment each
+   * was superseded — the grace window for a click already in flight when a
+   * repaint replaced the render it was posted from.
+   *
+   * Bounded by TIME (`ACTION_GRACE_MS`), not by a generation count: what the
+   * window has to cover is one webview→host round trip, and tying it to "the
+   * previous snapshot" made its real length the tick period — so a faster tick
+   * would silently shorten it and a slower one stretch it. `MAX_GRACE_DEPTH`
+   * is the memory bound only.
+   */
+  private readonly priorRegistries = new Map<
+    number,
+    Array<{ registry: InsideActionRegistry; supersededAt: number }>
+  >();
   private readonly generations = new Map<number, number>();
+  /**
+   * The pending live-snapshot timer per ticket (§ liveTick.ts). A self-
+   * rescheduling `setTimeout` rather than an interval: a push that finds
+   * nothing running simply does not schedule the next one, so a settled ticket
+   * costs nothing and there is no timer to remember to stop. Dies with the
+   * panel — a timer that outlives its panel is a store read for a window
+   * nobody is looking at.
+   */
+  private readonly liveTicks = new Map<number, ReturnType<typeof setTimeout>>();
 
   /**
    * `pathContext` is a getter (optional) so worktree paths render per the current
@@ -210,6 +255,12 @@ export class DashboardManager {
      * anything that is not a karst checkout.
      */
     private readonly launchCheckout?: (path: string) => boolean,
+    /**
+     * Reports raw panel activation — including LOSING it — so the host can
+     * track which ticket's view is the window's ACTIVE view (sidebar
+     * highlight). Called alongside the terminal binding; absent → no report.
+     */
+    private readonly onViewActivated?: (ticketId: number, active: boolean) => void,
   ) {}
 
   /**
@@ -221,6 +272,10 @@ export class DashboardManager {
     const existing = this.panels.get(ticketId);
     if (existing) {
       existing.reveal(opts?.preserveFocus);
+      // A focus-taking reveal makes the panel the ACTIVE view; `onDidChangeViewState`
+      // fires on changes, so the reveal that caused this one must be reported here
+      // (idempotent and order-safe — a later event can only correct it).
+      if (opts?.preserveFocus !== true) this.onViewActivated?.(ticketId, true);
       return;
     }
 
@@ -282,11 +337,38 @@ export class DashboardManager {
         }
       });
     });
-    panel.onDidChangeViewState((active) => this.binding?.onDidActivate(ticketId, active));
+    panel.onDidChangeViewState((active) => {
+      this.binding?.onDidActivate(ticketId, active);
+      this.onViewActivated?.(ticketId, active);
+      // A hidden panel stops its live tick, so coming back needs one catch-up
+      // repaint — that push re-arms the loop. Guarded on there being live work
+      // (`scheduleLiveTick` decides), and harmless otherwise: it is the same
+      // snapshot every other push builds.
+      if (panel.isVisible?.() === false) {
+        // Going hidden cancels the tick already armed — the repaint it would
+        // run is for a webview nobody can see.
+        const armed = this.liveTicks.get(ticketId);
+        if (armed) clearTimeout(armed);
+        this.liveTicks.delete(ticketId);
+        return;
+      }
+      if (this.liveTicks.has(ticketId)) return; // still ticking; nothing to catch up
+      try {
+        this.pushSnapshot(ticketId, false);
+      } catch (err) {
+        this.logError('karst: dashboard visibility repaint failed', err);
+      }
+    });
     panel.onDidDispose(() => {
       if (this.panels.get(ticketId) !== panel) return;
+      // The ACTIVE view can be closed while focused; the dispose is the only
+      // signal that the focus is gone, so report it exactly like a deactivation.
+      this.onViewActivated?.(ticketId, false);
       this.statsControllers.get(ticketId)?.abort();
       this.gateControllers.get(ticketId)?.abort();
+      const tick = this.liveTicks.get(ticketId);
+      if (tick) clearTimeout(tick);
+      this.liveTicks.delete(ticketId);
       this.panels.delete(ticketId);
       this.statsRequests.delete(ticketId);
       this.statsControllers.delete(ticketId);
@@ -297,12 +379,17 @@ export class DashboardManager {
       // must never dispatch against a later snapshot.
       this.registries.get(ticketId)?.dispose();
       this.registries.delete(ticketId);
+      for (const entry of this.priorRegistries.get(ticketId) ?? []) entry.registry.dispose();
+      this.priorRegistries.delete(ticketId);
       this.generations.delete(ticketId);
     });
 
     this.refreshIcon(ticketId, panel);
     this.pushState(ticketId);
     this.postBind(panel);
+    // Same explicit report as the reveal path: creation focuses the panel, and
+    // `onDidChangeViewState` fires on changes, not on the initial activation.
+    if (opts?.preserveFocus !== true) this.onViewActivated?.(ticketId, true);
   }
 
   /**
@@ -321,6 +408,23 @@ export class DashboardManager {
 
   /** Push a fresh state snapshot to a ticket panel; no-op if not open. */
   pushState(ticketId: number): void {
+    this.pushSnapshot(ticketId, true);
+  }
+
+  /**
+   * Build and post one snapshot.
+   *
+   * `supplemental` is what separates a real push from a live repaint. The
+   * async loaders beside the state — worktree Git totals (`git` per worktree)
+   * and the resolved gate names (a walk of every scoped repo) — answer
+   * questions that change when the WORKTREE or the MANIFEST changes, not when
+   * a gate advances a second. Re-running them on every tick would abort and
+   * respawn a child process per second and never let one finish; the repaint
+   * is a store read and a `postMessage`, nothing else. The tab icon is skipped
+   * for the same reason: the glyph it tints changes with the ticket's status,
+   * and every status change arrives on a real push.
+   */
+  private pushSnapshot(ticketId: number, supplemental: boolean): void {
     const panel = this.panels.get(ticketId);
     if (!panel) return;
     // A fresh action registry PER SNAPSHOT: every state push is authoritative,
@@ -329,7 +433,19 @@ export class DashboardManager {
     const generation = (this.generations.get(ticketId) ?? 0) + 1;
     this.generations.set(ticketId, generation);
     const registry = new InsideActionRegistry(generation, ticketId);
-    this.registries.get(ticketId)?.dispose();
+    // The snapshot the user was LOOKING AT stays dispatchable for a short
+    // WALL-CLOCK window. A click is posted against the ids of the render on
+    // screen, and with a repaint every second that render can be superseded
+    // while the message is in flight — rejecting it would report "no longer
+    // available" for a button the user just pressed. Bounded and short: a
+    // capability must still die promptly.
+    const superseded = this.registries.get(ticketId);
+    if (superseded) {
+      const grace = this.priorRegistries.get(ticketId) ?? [];
+      grace.push({ registry: superseded, supersededAt: Date.now() });
+      this.priorRegistries.set(ticketId, grace);
+    }
+    this.pruneGrace(ticketId);
     this.registries.set(ticketId, registry);
     const state = buildDashboardState(
       this.store,
@@ -350,10 +466,82 @@ export class DashboardManager {
       // tables key by — the manifest's name for a recorded repoPath.
       (repo) => this.repoNameFor(repo),
     );
-    panel.postMessage({ type: 'state', state });
-    this.pushWorktreeStats(ticketId, panel, state.worktrees);
-    this.refreshIcon(ticketId, panel);
-    this.pushGateOptions(ticketId, panel);
+    // `live` marks a REPAINT of data the panel already had, as opposed to a
+    // push that reports something happening. The webview defers a live repaint
+    // while the user is mid-interaction (an action in flight, a text selection
+    // being made) — a snapshot pushed once a second must never redraw over
+    // what someone is doing, and only the sender knows which kind it is.
+    panel.postMessage({ type: 'state', state, ...(supplemental ? {} : { live: true }) });
+    if (supplemental) {
+      this.pushWorktreeStats(ticketId, panel, state.worktrees);
+      this.refreshIcon(ticketId, panel);
+      this.pushGateOptions(ticketId, panel);
+    }
+    this.scheduleLiveTick(ticketId, state);
+  }
+
+  /**
+   * Keep the snapshot moving while the ticket is moving.
+   *
+   * The host pushes state when a stage transitions and when a gate completes,
+   * but the inside block is process-led: a tester run, a findings lane, a
+   * pr-description call and a running gate all open their store rows and then
+   * take minutes, during which nothing pushed and the panel showed the world as
+   * it was when the stage last moved. The `inside-progress` overlay narrates
+   * only the ONE operation the driver knows about; every other row, and every
+   * running row's elapsed time, needs the authoritative snapshot to be re-read.
+   *
+   * Re-armed from the state it just pushed (`hasLiveWork`), so it stops itself
+   * the moment nothing is running — a settled or parked ticket schedules no
+   * timer at all. A panel disposed between two ticks drops the push in the same
+   * `pushState` guard every other caller relies on.
+   *
+   * A panel that is not VISIBLE stops the loop entirely rather than repainting
+   * a webview nobody can see; `onDidChangeViewState` restarts it with one
+   * catch-up repaint the moment the panel comes back. Visibility, never
+   * activation: the dashboard's whole purpose is to be watched beside a
+   * terminal the user is typing in, which is visible and inactive.
+   */
+  private scheduleLiveTick(ticketId: number, state: DashboardState): void {
+    const pending = this.liveTicks.get(ticketId);
+    if (pending) {
+      clearTimeout(pending);
+      this.liveTicks.delete(ticketId);
+    }
+    if (!hasLiveWork(state)) return;
+    const panel = this.panels.get(ticketId);
+    if (!panel) return;
+    if (panel.isVisible?.() === false) return;
+    const timer = setTimeout(() => {
+      this.liveTicks.delete(ticketId);
+      if (!this.panels.has(ticketId)) return;
+      try {
+        this.pushSnapshot(ticketId, false);
+      } catch (err) {
+        // A tick is a repaint, never a mutation: a failed read (a deleted
+        // ticket, a locked DB) must not take the extension host down, and it
+        // must not re-arm — the next real push restarts the loop.
+        this.logError('karst: dashboard live tick failed', err);
+      }
+    }, LIVE_TICK_MS);
+    // Never hold the host's event loop open for a repaint.
+    (timer as { unref?: () => void }).unref?.();
+    this.liveTicks.set(ticketId, timer);
+  }
+
+  /**
+   * Drop every superseded registry past the grace window (or past the depth
+   * bound), disposing it — a capability that outlives its window is exactly
+   * what the snapshot scoping exists to prevent.
+   */
+  private pruneGrace(ticketId: number): void {
+    const grace = this.priorRegistries.get(ticketId);
+    if (!grace) return;
+    const cutoff = Date.now() - ACTION_GRACE_MS;
+    while (grace.length > 0 && (grace[0]!.supersededAt < cutoff || grace.length > MAX_GRACE_DEPTH)) {
+      grace.shift()!.registry.dispose();
+    }
+    if (grace.length === 0) this.priorRegistries.delete(ticketId);
   }
 
   /**
@@ -505,14 +693,28 @@ export class DashboardManager {
    * acknowledged as success.
    */
   dispatchInsideAction(ticketId: number, actionId: string): InsideActionResult {
+    // Current snapshot first, then the ONE it superseded: an id only ever
+    // resolves against its own generation, so trying both is a grace window,
+    // not a widening of what a given id can reach.
     const registry = this.registries.get(ticketId);
     if (!registry) return { ok: false, message: 'This action is no longer available.' };
-    const outcome = dispatchInsideAction(this.store, registry, actionId, {
-      host: this.insideHost ?? NOOP_INSIDE_HOST,
-      worktreeForRepo: (repo) =>
-        listWorktreesByTicket(this.store, ticketId).find((w) => w.repo === repo)?.path,
-      fs: { existsSync, realpathSync },
-    });
+    const dispatchAgainst = (target: InsideActionRegistry): ReturnType<typeof dispatchInsideAction> =>
+      dispatchInsideAction(this.store, target, actionId, {
+        host: this.insideHost ?? NOOP_INSIDE_HOST,
+        worktreeForRepo: (repo) =>
+          listWorktreesByTicket(this.store, ticketId).find((w) => w.repo === repo)?.path,
+        fs: { existsSync, realpathSync },
+      });
+    let outcome = dispatchAgainst(registry);
+    if (outcome.outcome === 'unknown') {
+      this.pruneGrace(ticketId);
+      // Newest first: an id resolves only against its own generation, so this
+      // is a grace window, never a widening of what a given id can reach.
+      const grace = this.priorRegistries.get(ticketId) ?? [];
+      for (let i = grace.length - 1; i >= 0 && outcome.outcome === 'unknown'; i -= 1) {
+        outcome = dispatchAgainst(grace[i]!.registry);
+      }
+    }
     if (outcome.outcome === 'rejected') {
       this.logError(`karst: inside action rejected: ${outcome.reason}`, undefined);
       // The reason is host diagnostic prose and may name a path — never send it
