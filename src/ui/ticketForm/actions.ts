@@ -721,7 +721,7 @@ export function buildTicketFormActions(
           ctx.post({
             type: 'error',
             message:
-              'Ticket analysis is disabled in Settings — enable it to prefill the prompt.',
+              'Ticket analysis is disabled in Settings — enable it to improve the prompt.',
           });
           return;
         }

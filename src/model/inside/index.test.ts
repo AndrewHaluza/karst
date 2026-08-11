@@ -264,7 +264,7 @@ describe('scopeProcesses', () => {
       const prefill = processes[0]!;
       expect(prefill.kind).toBe('prefill');
       expect(prefill.status).toBe('pass');
-      expect(prefill.detail).toContain('prompt prefilled');
+      expect(prefill.detail).toContain('prompt improved');
       expect(prefill.execution).toMatchObject({ provider: 'claude', model: 'claude-opus-4-8' });
       expect(prefill.tokens?.state).toBe('measured');
       expect(prefill.time).toBe(formatTime('2026-07-20T11:30:00.000Z'));

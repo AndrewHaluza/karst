@@ -670,6 +670,25 @@ describe('ticket-form webview.html — UI-RULES.md remediation', () => {
     );
   });
 
+  /**
+   * The inline control runs an AI analysis — it IMPROVES the prompt, it never
+   * copies one from the provider. Its copy must say so ("Improve with AI" /
+   * "Auto-improve"), never the old "Prefill"/"Auto-prefill" vocabulary that
+   * read as a plain copy of the fetched brief (the "misspelling" the ticket
+   * names is a wrong WORD, not a wrong letter).
+   */
+  it('names the AI action honestly — improve, never pre-fill (UI-R35)', () => {
+    expect(HTML).toContain('id="autoImprove"');
+    expect(HTML).toContain('>Auto-improve');
+    expect(HTML).toContain('Improve the prompt with AI automatically after a fetch');
+    expect(HTML).toContain('>Improve with AI</span>');
+    expect(HTML).toContain("el('analyzeLbl').textContent = analyzed ? 'Improve again' : 'Improve with AI';");
+    expect(HTML).toContain('Improve the prompt with AI — also suggests the approach and repositories');
+    // The misleading vocabulary is retired from the control's copy.
+    expect(HTML).not.toContain('Auto-prefill');
+    expect(HTML).not.toMatch(/'Prefill'|'Regenerate'/);
+  });
+
   it('the busy vocabulary is closed and every member (including "suggest") is handled (UI-R16)', () => {
     const script = scriptBlock();
     const fnMatch = script.match(/function setBusy\([^)]*\)\s*{([\s\S]*?)\n {2}}/);
