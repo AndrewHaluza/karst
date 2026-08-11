@@ -125,8 +125,12 @@
   .g-gray{color:var(--k-pending)}
 
   .name{flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:var(--k-text-md)}
-  /* Follow-up marker: says "this is a sub-task of <key>" without stealing row width. */
-  .parentref{font-size:var(--k-text-2xs);color:var(--k-text-dim);flex:0 0 auto;margin-left:var(--k-space-2)}
+  /* Follow-up marker: says "this is a sub-task of <key>" without stealing row
+     width. Capped at a share of the row with its own ellipsis — a long parent
+     key must trim itself (full key stays in the tooltip), never starve the
+     title's flex:1 remainder to near zero. */
+  .parentref{font-size:var(--k-text-2xs);color:var(--k-text-dim);flex:0 1 auto;max-width:40%;
+    overflow:hidden;white-space:nowrap;text-overflow:ellipsis;margin-left:var(--k-space-2)}
   /* The stage pill carries the shared stg-<stage> token (model/stagePalette),
      so its text IS the stage color and its fill is that color washed out — the
      same token the dashboard rail paints with. Uppercase + tracking so the chip

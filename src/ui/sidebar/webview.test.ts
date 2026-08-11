@@ -161,6 +161,21 @@ describe('sidebar webview.html', () => {
     expect(HTML).toContain('class="parentref"');
   });
 
+  it('caps the follow-up badge so the title keeps its share of the row (balance fix)', () => {
+    // A long parent key used to take as much width as it needed (`flex:0 0
+    // auto`, no max-width), so the title's flex:1 share shrank toward nothing.
+    // The badge now caps at a share of the row and trims with its own ellipsis
+    // (the full key stays in the tooltip), leaving the title the remainder.
+    const parentref = HTML.match(/\.parentref\s*\{[^}]*\}/)?.[0] ?? '';
+    expect(parentref, parentref).toContain('flex:0 1 auto');
+    expect(parentref, parentref).toContain('max-width:40%');
+    expect(parentref, parentref).toContain('overflow:hidden');
+    expect(parentref, parentref).toContain('white-space:nowrap');
+    expect(parentref, parentref).toContain('text-overflow:ellipsis');
+    // The title stays the flex-1 remainder that trims last — never flex:0.
+    expect(HTML).toMatch(/\.name\{[^}]*flex:1/);
+  });
+
   it('keeps the injection markers — each fails silently when lost', () => {
     for (const marker of ['<!--KARST_CSP-->', '/*KARST_PALETTE*/']) {
       expect(HTML).toContain(marker);
