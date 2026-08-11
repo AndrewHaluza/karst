@@ -6,6 +6,18 @@ export const DEFAULT_HEADLESS_TIMEOUT_MS = 15 * 60 * 1_000;
 export const DEFAULT_HEADLESS_MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
 export const DEFAULT_HEADLESS_TERMINATION_GRACE_MS = 5_000;
 
+/**
+ * The deadline for the gate lanes whose agent is asked to DO WORK in the
+ * worktree — the UAT tester ("run them, exercise the acceptance criteria")
+ * and the review findings lane when it verifies a suspicion against the repo.
+ * A chat-tuned model spends many minutes on tool calls there (test suites,
+ * typecheck, reads), so the 15-minute `DEFAULT_HEADLESS_TIMEOUT_MS` — a
+ * quick-call bound for classify / PR description — killed the tester mid-run
+ * and left UAT with zero observations. Still a hard backstop: a genuinely
+ * hung core is SIGKILLed after this deadline instead of spinning forever.
+ */
+export const GATE_LANE_HEADLESS_TIMEOUT_MS = 60 * 60 * 1_000;
+
 export interface HeadlessSpawnResult {
   stdout: string;
   stderr: string;

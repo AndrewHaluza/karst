@@ -67,7 +67,7 @@ describe('SidebarViewManager', () => {
     mgr.bind(host);
     const view = resolve();
     expect(view.posted).toHaveLength(1);
-    expect(view.posted[0]!.rows.map((r) => r.label)).toEqual(['A-1 — one']);
+    expect(view.posted[0]!.sections.current.map((r) => r.label)).toEqual(['A-1 — one']);
   });
 
   it('toggleFacet / setFilter / refresh each re-push and getFacets reflects the pick', () => {
@@ -235,5 +235,26 @@ describe('SidebarViewManager', () => {
     expect(() => view.emit({ type: 'evil' })).not.toThrow();
     expect(spin).toHaveBeenCalledWith(3);
     expect(logError).not.toHaveBeenCalled();
+  });
+
+  it('marks the row whose ticket view is the ACTIVE view, read live from the injected getter', () => {
+    const t = createTicket(store, { key: 'A-1', title: 'one' });
+    let active: number | null = null;
+    const mgr = new SidebarViewManager(
+      store, () => stubActions(), undefined, undefined, undefined, undefined, undefined,
+      () => active,
+    );
+    const { host, resolve } = fakeHost();
+    mgr.bind(host);
+    const view = resolve();
+    expect(view.posted[0]!.sections.current[0]!.isActive).toBe(false);
+
+    active = t.id;
+    mgr.refresh();
+    expect(view.posted.at(-1)!.sections.current[0]!.isActive).toBe(true);
+
+    active = null;
+    mgr.refresh();
+    expect(view.posted.at(-1)!.sections.current[0]!.isActive).toBe(false);
   });
 });

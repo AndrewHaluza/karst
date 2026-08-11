@@ -1222,6 +1222,31 @@ describe('runUat — Tester and verifier (Task 8)', () => {
     expect(listRecoveryRounds(store, id)).toEqual([]);
   });
 
+  it('threads the stage debug callback into the Tester and the verifier, so their lines land in the same stream', async () => {
+    const lines: string[] = [];
+    const res = await runUat(
+      store,
+      {
+        ticketId: id,
+        cwd: '/wt/web',
+        artifactDir,
+        debug: (m) => lines.push(m),
+        manifest: manifest({}, { uat: uatConfig({ testerVerifier: { name: 'verify', kind: 'command', command: 'verify.sh' } }) }),
+      },
+      testerDeps({ runVerifier: verifierRun({ kind: 'completed', exitCode: 0, output: '' }) }),
+    );
+    expect(res).toEqual({ kind: 'advanced', next: 'review' });
+    // The Tester's own decision points reached the stage's debug stream…
+    expect(lines.some((l) => l.includes('uat tester ticket') && l.includes('asking target /web'))).toBe(
+      true,
+    );
+    expect(lines.some((l) => l.includes('recorded 0 finding(s)'))).toBe(true);
+    // …and so did the verifier's.
+    expect(lines.some((l) => l.includes('uat tester verifier') && l.includes('passed (exit 0)'))).toBe(
+      true,
+    );
+  });
+
   it('threads the opened Tester process id into token attribution at the stage seam', async () => {
     const runHeadless = vi.fn(async () => ({ sessionId: '', verdict: null, raw: '[]' }));
     const seen: (unknown)[] = [];

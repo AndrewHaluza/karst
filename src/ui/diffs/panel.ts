@@ -18,6 +18,12 @@ export interface ChangesPanel {
   viewColumn(): number | undefined;
   postMessage(message: ChangesHostMessage): void;
   onDidReceiveMessage(handler: (message: unknown) => void): void;
+  /**
+   * The panel gained or lost activation (real: `onDidChangeViewState`, reading
+   * `e.webviewPanel.active`). `active` is true only when the user is actually
+   * on this panel.
+   */
+  onDidChangeViewState(handler: (active: boolean) => void): void;
   onDidDispose(handler: () => void): void;
 }
 
@@ -66,12 +72,21 @@ export class TicketChangesManager {
     private readonly warn: (message: string) => void,
     private readonly logError: LogError = (message, error) => console.error(message, error),
     private readonly writeClipboard: (text: string) => void = () => {},
+    /**
+     * Reports raw panel activation — including LOSING it — so the host can
+     * track which ticket's view is the window's ACTIVE view (sidebar
+     * highlight). Absent → no report.
+     */
+    private readonly onViewActivated?: (ticketId: number, active: boolean) => void,
   ) {}
 
   open(ticketId: number): void {
     const existing = this.sessions.get(ticketId);
     if (existing) {
       existing.panel.reveal();
+      // Focus-taking, like the create path below: `onDidChangeViewState` fires
+      // on changes, so the reveal that focused the panel must be reported here.
+      this.onViewActivated?.(ticketId, true);
       this.refresh(ticketId, existing);
       return;
     }
@@ -106,7 +121,11 @@ export class TicketChangesManager {
       };
       void reportAction(requestId, (m) => panel.postMessage(m), () => this.runAction(msg, actions));
     });
+    panel.onDidChangeViewState((active) => this.onViewActivated?.(ticketId, active));
     panel.onDidDispose(() => {
+      // The ACTIVE view can be closed while focused; the dispose is the only
+      // signal that the focus is gone, so report it exactly like a deactivation.
+      this.onViewActivated?.(ticketId, false);
       session.disposed = true;
       session.refreshQueued = false;
       session.snapshot = null;
@@ -116,6 +135,9 @@ export class TicketChangesManager {
     });
 
     this.refresh(ticketId, session);
+    // Creation focuses the panel, and `onDidChangeViewState` fires on changes,
+    // not on the initial activation — report it so the sidebar highlights it.
+    this.onViewActivated?.(ticketId, true);
   }
 
   isOpen(ticketId: number): boolean {

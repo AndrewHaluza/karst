@@ -139,6 +139,24 @@ describe('buildTicketFormState — create mode', () => {
     ]);
   });
 
+  it('carries the whole model catalog so the webview can re-filter on an agent-core switch', () => {
+    // Create mode: the host no-ops set-provider (no ticket to persist), so no
+    // state push follows a provider pick. The page must be able to re-render
+    // the Model select locally, which needs every provider's models — the
+    // flattened `models` list alone (current provider only) cannot answer a
+    // switch to a different core.
+    const s = buildTicketFormState(
+      store,
+      MANIFEST,
+      () => [],
+      () => [],
+      undefined,
+      undefined,
+      REMOTE_MODELS,
+    );
+    expect(s.modelCatalog).toEqual(REMOTE_MODELS);
+  });
+
   it('offers installed sourced approaches plus built-in (sourceless) ones', () => {
     // rpi installed; tdd sourced-but-not-installed (dropped); direct built-in (always).
     const s = buildTicketFormState(store, MANIFEST, () => ['rpi'], () => []);
@@ -313,6 +331,20 @@ describe('buildTicketFormState — edit mode', () => {
 
     expect(s.selectedModel).toBe('codex-preview-removed');
     expect(s.models.map((model) => model.id)).toEqual(['codex-remote']);
+  });
+
+  it('carries the whole model catalog in edit mode too', () => {
+    const t = createTicket(store, { key: 'P-CAT', title: 'catalog' });
+    const s = buildTicketFormState(
+      store,
+      MANIFEST,
+      () => [],
+      () => [],
+      t.id,
+      undefined,
+      REMOTE_MODELS,
+    );
+    expect(s.modelCatalog).toEqual(REMOTE_MODELS);
   });
 
   it('marks previously selected repos as selected', () => {

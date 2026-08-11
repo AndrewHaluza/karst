@@ -25,6 +25,12 @@ export interface TicketFormPanel {
   reveal(): void;
   postMessage(message: TicketFormHostMessage): void;
   onDidReceiveMessage(handler: (message: unknown) => void | Promise<void>): void;
+  /**
+   * The panel gained or lost activation (real: `onDidChangeViewState`, reading
+   * `e.webviewPanel.active`). `active` is true only when the user is actually
+   * on this panel.
+   */
+  onDidChangeViewState(handler: (active: boolean) => void): void;
   onDidDispose(handler: () => void): void;
   /** Close the tab. Fires `onDidDispose`, which unregisters the panel here. */
   dispose(): void;
@@ -137,6 +143,13 @@ export class TicketFormManager {
     private readonly modelCatalog: () => ModelCatalog = bundledModelCatalog,
     /** Global storage root used to construct attachment paths for state pushes. */
     private readonly storageDir?: string,
+    /**
+     * Reports raw panel activation — including LOSING it — for the ticket the
+     * panel is bound to, so the host can track which ticket's view is the
+     * window's ACTIVE view (sidebar highlight). A create-mode panel reports
+     * nothing until `bindTicket` gives it a ticket. Absent → no report.
+     */
+    private readonly onViewActivated?: (ticketId: number, active: boolean) => void,
   ) {}
 
   /**
@@ -157,6 +170,9 @@ export class TicketFormManager {
     const existing = this.panels.get(key);
     if (existing) {
       existing.reveal();
+      // Focus-taking, like the create path below: `onDidChangeViewState` fires
+      // on changes, so the reveal that focused the panel must be reported here.
+      if (ticketId !== undefined) this.onViewActivated?.(ticketId, true);
       return;
     }
 
@@ -176,6 +192,10 @@ export class TicketFormManager {
     // Flipped by dispose (user-closed OR ctx.close). Gates every post so an
     // in-flight action resolving after the tab is gone is silently dropped.
     let disposed = false;
+    // The panel's live activation, tracked so `bindTicket` can report a bound
+    // create panel that is ALREADY the active view (creation fires no
+    // `onDidChangeViewState`, so the flag is the only memory of it).
+    let panelActive = false;
     // Mutable alongside `boundId`: a bound create panel is re-keyed to its
     // ticket id, and the dispose handler must drop the key it ended up under.
     let panelKey = key;
@@ -231,6 +251,10 @@ export class TicketFormManager {
           this.panels.set(id, panel);
           panelKey = id;
         }
+        // A create panel bound mid-life is the ticket's ACTIVE view if it was
+        // created focus-taking and the user never moved away — creation fires
+        // no view-state event, so the tracked flag is the only way to know.
+        if (panelActive) this.onViewActivated?.(id, true);
       },
       close: () => {
         if (disposed) return;
@@ -278,14 +302,29 @@ export class TicketFormManager {
         }
       });
     });
+    // Live `boundId` is read at report time: a create panel flipped into edit
+    // mode via `bindTicket` becomes its ticket's edit view mid-life, and a
+    // still-unbound create panel has no ticket to highlight.
+    panel.onDidChangeViewState((active) => {
+      panelActive = active;
+      if (boundId !== undefined) this.onViewActivated?.(boundId, active);
+    });
     panel.onDidDispose(() => {
       disposed = true;
       this.panels.delete(panelKey);
       this.ticketByPanel.delete(panel);
       this.modelRefreshers.delete(pushState);
+      // The ACTIVE view can be closed while focused; the dispose is the only
+      // signal that the focus is gone, so report it exactly like a deactivation.
+      if (boundId !== undefined) this.onViewActivated?.(boundId, false);
     });
 
     pushState();
+    // Creation focuses the panel, and `onDidChangeViewState` fires on changes,
+    // not on the initial activation — report it so the sidebar highlights it
+    // (a create panel reports nothing until it has a ticket).
+    panelActive = true;
+    if (boundId !== undefined) this.onViewActivated?.(boundId, true);
   }
 
   /** Push the current catalog to every ticket-form panel that is still live. */

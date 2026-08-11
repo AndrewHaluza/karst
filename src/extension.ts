@@ -15,6 +15,7 @@ import { describeStoreOpenFailure } from './extension/storeOpenFailure.js';
 import { watchExternalChanges } from './store/externalChanges.js';
 import { SidebarViewManager } from './ui/sidebar/panel.js';
 import { makeSidebarViewHost, SIDEBAR_VIEW_ID } from './ui/sidebar/host.js';
+import { ActiveTicketTracker } from './ui/activeTicket.js';
 import { FACETS, facetCounts } from './ui/sidebar/facets.js';
 import { openTicketFromList } from './ui/sidebar/navigation.js';
 import { DashboardManager, type DashboardPanel, type PanelHost } from './ui/dashboard/panel.js';
@@ -497,6 +498,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   let modelCatalog = bundledModelCatalog();
   const modelCatalogCache = makeMementoCatalogCache(context.globalState);
 
+  // Which ticket's view (dashboard/edit/diffs) is the window's ACTIVE view —
+  // the sidebar highlights that ticket's row. The three per-ticket panel
+  // managers report raw activation into it (each reports LOSING it too); the
+  // sidebar re-pushes on change and reads the current answer at push time.
+  const activeTicket = new ActiveTicketTracker();
+  activeTicket.onDidChange(() => provider.refresh());
+
   // Sidebar ticket list — an HTML webview view (replaces the native tree). The
   // manager holds facet/filter + re-pushes state; its action factory maps webview
   // messages to the existing karst.* commands (executeCommand passthrough) so the
@@ -506,7 +514,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     setFilter: (query) => mgr.setFilter(query),
     refresh: () => mgr.refresh(),
     requestState: () => mgr.refresh(),
-    create: () => void vscode.commands.executeCommand('karst.createTicket'),
+    create: () => void vscode.commands.executeCommand('karst.openTicketForm'),
     openSettings: () => void vscode.commands.executeCommand('karst.openSettings'),
     openTicket: (id) => openTicketFromList(localStore, id, {
       edit: (ticketId) => vscode.commands.executeCommand('karst.editTicket', ticketId),
@@ -523,7 +531,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     delete: (id) => void vscode.commands.executeCommand('karst.deleteTicket', id),
   }), () => worktreePathContext(currentManifest(), logger.warn, logger.info), () => currentManifest()?.ticketLabelTemplate, logError,
     () => currentProject()?.id,
-    () => currentManifest()?.agentProvider);
+    () => currentManifest()?.agentProvider,
+    () => activeTicket.get());
   const { host: sidebarHost, provider: sidebarProvider, badge: sidebarBadge } =
     makeSidebarViewHost(context);
   provider.bind(sidebarHost);
@@ -1488,6 +1497,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     tabIconFor,
     () => modelCatalog,
     context.globalStorageUri.fsPath,
+    (ticketId, active) => activeTicket.set(ticketId, active),
   );
 
   // Full agent-pool rows for the Settings "Agents" tab. Unlike `listAgents`
@@ -1816,6 +1826,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     (message) => void vscode.window.showWarningMessage(message),
     logError,
     (text) => void vscode.env.clipboard.writeText(text),
+    (ticketId, active) => activeTicket.set(ticketId, active),
   );
   shutdownTicketChanges = () => changes.dispose();
   context.subscriptions.push(changes);
@@ -2110,6 +2121,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // (and refused) unless karst.launchWorktreeDev.enabled is true AND the
     // worktree is a karst checkout.
     launchableCheckout,
+    // Reports the panel's raw activation (including losing it, and including
+    // dispose-while-focused) so the sidebar can highlight this ticket's row.
+    (ticketId, active) => activeTicket.set(ticketId, active),
   );
 
   // A karst.yml edit made OUTSIDE karst (hand edit in the editor, a teammate's
@@ -2923,7 +2937,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
 
   // Shared entry: resolve the manifest, remember it for ticket-form actions, and
-  // open the create-mode page. Used by both createTicket and the ticket-form command.
+  // open the create-mode page. Backs the ticket-form command and the deprecated
+  // onboarding alias.
   const openTicketFormCreate = async (): Promise<void> => {
     const manifest = await resolveManifest(logger.info);
     if (!manifest) return; // no folder / scaffolded / invalid — message shown
@@ -3422,7 +3437,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     // "Add ticket" opens the ticket form (create mode). A manifest is
     // resolved first so the classify-gate + repo picker have services to show.
-    vscode.commands.registerCommand('karst.createTicket', () => openTicketFormCreate()),    vscode.commands.registerCommand('karst.openTicketForm', () => openTicketFormCreate()),
+    vscode.commands.registerCommand('karst.openTicketForm', () => openTicketFormCreate()),
     // Deprecated alias. A command id is externally consumable — a user's
     // keybindings.json or another extension may already invoke it — so the old
     // `onboarding` spelling stays registered and simply forwards. It is hidden
@@ -4170,6 +4185,12 @@ function makeChangesPanelHost(
         onDidReceiveMessage: (handler) => {
           listeners.add(panel.webview.onDidReceiveMessage(handler));
         },
+        onDidChangeViewState: (handler) =>
+          panel.onDidChangeViewState(
+            (e) => handler(e.webviewPanel.active),
+            undefined,
+            context.subscriptions,
+          ),
         onDidDispose: (handler) => {
           listeners.add(panel.onDidDispose(() => {
             try {

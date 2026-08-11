@@ -5,6 +5,7 @@ import { listProcessRuns } from '../../store/processRuns.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
 import type { AggregateEntry } from './aggregate.js';
 import { buildFindingsPrompt, planAndRunFindingsLane, runFindingsLane } from './findingsLane.js';
+import { GATE_LANE_HEADLESS_TIMEOUT_MS } from '../../agent/headlessSpawn.js';
 
 function adapter(raw: string | (() => Promise<string>)): AgentAdapter {
   return {
@@ -43,6 +44,78 @@ describe('runFindingsLane', () => {
     });
     expect(outcome).toEqual({ kind: 'not-run' });
     expect(runHeadless).not.toHaveBeenCalled();
+  });
+
+  it('emits debug lines at entry, per target, and at exit — never the prompt text', async () => {
+    const lines: string[] = [];
+    const outcome = await runFindingsLane({
+      config: CONFIG,
+      adapter: adapter(JSON.stringify([{ severity: 'medium', title: 'x', detail: 'y' }])),
+      targets: [TARGET],
+      ticketId: 1,
+      debug: (m) => lines.push(m),
+    });
+    expect(outcome.kind).toBe('ran');
+    // Entry: how many targets the lane is about to ask.
+    expect(lines.some((l) => l.includes('review findings ticket 1') && l.includes('1 target(s)'))).toBe(
+      true,
+    );
+    // Per-target: which repository was asked and what it came back with.
+    expect(lines.some((l) => l.includes('asking target /web'))).toBe(true);
+    expect(lines.some((l) => l.includes('/web returned 1 finding(s)'))).toBe(true);
+    // Exit: the outcome.
+    expect(lines.some((l) => l.includes('ran with 1 finding(s)'))).toBe(true);
+    // Debug lines never carry the prompt (ticket prose) — only counts.
+    for (const line of lines) {
+      expect(line).not.toContain('Review the uncommitted and committed changes');
+    }
+  });
+
+  it('debug lines name a rejected call and a stop when they happen', async () => {
+    const lines: string[] = [];
+    const outcome = await runFindingsLane({
+      config: CONFIG,
+      adapter: adapter(() => Promise.reject(new Error('boom'))),
+      targets: [TARGET],
+      ticketId: 1,
+      debug: (m) => lines.push(m),
+    });
+    expect(outcome).toEqual({ kind: 'ran', findings: [], crashes: ['boom'] });
+    expect(lines.some((l) => l.includes('/web call failed') && l.includes('boom'))).toBe(true);
+
+    const stopped: string[] = [];
+    const controller = new AbortController();
+    controller.abort();
+    await runFindingsLane({
+      config: CONFIG,
+      adapter: adapter('[]'),
+      targets: [TARGET],
+      ticketId: 1,
+      signal: controller.signal,
+      debug: (m) => stopped.push(m),
+    });
+    expect(stopped.some((l) => l.includes('stopped'))).toBe(true);
+  });
+
+  it('debug lines name the not-run and capability-missing decisions', async () => {
+    const disabled: string[] = [];
+    await runFindingsLane({
+      config: DISABLED,
+      adapter: adapter('[]'),
+      targets: [TARGET],
+      ticketId: 1,
+      debug: (m) => disabled.push(m),
+    });
+    expect(disabled.some((l) => l.includes('disabled — not run'))).toBe(true);
+
+    const missing: string[] = [];
+    await runFindingsLane({
+      config: CONFIG,
+      targets: [TARGET],
+      ticketId: 1,
+      debug: (m) => missing.push(m),
+    });
+    expect(missing.some((l) => l.includes('capability-missing'))).toBe(true);
   });
 
   it('reports capability-missing when no adapter is available', async () => {
@@ -84,6 +157,40 @@ describe('runFindingsLane', () => {
     });
     expect(runHeadless).toHaveBeenCalledTimes(1);
     expect(capturedPrompt).toContain('develop');
+  });
+
+  // A deep review verifies suspicions against the repo (test runs, typecheck),
+  // so the lane's own deadline is the generous gate-lane bound, never the
+  // 15-minute quick-call backstop that kills a working review mid-lane.
+  it('defaults the headless deadline to the gate-lane bound, so a deep diff review is not cut off', async () => {
+    let seenTimeout: number | undefined;
+    const runHeadless = vi.fn(async (headlessOpts: { timeoutMs?: number }) => {
+      seenTimeout = headlessOpts.timeoutMs;
+      return { sessionId: '', verdict: null, raw: '[]' };
+    });
+    await runFindingsLane({
+      config: CONFIG,
+      adapter: { ...adapter('[]'), runHeadless },
+      targets: [TARGET],
+      ticketId: 1,
+    });
+    expect(seenTimeout).toBe(GATE_LANE_HEADLESS_TIMEOUT_MS);
+  });
+
+  it('honors an explicit headless deadline from the caller', async () => {
+    let seenTimeout: number | undefined;
+    const runHeadless = vi.fn(async (headlessOpts: { timeoutMs?: number }) => {
+      seenTimeout = headlessOpts.timeoutMs;
+      return { sessionId: '', verdict: null, raw: '[]' };
+    });
+    await runFindingsLane({
+      config: CONFIG,
+      adapter: { ...adapter('[]'), runHeadless },
+      targets: [TARGET],
+      ticketId: 1,
+      timeoutMs: 77_000,
+    });
+    expect(seenTimeout).toBe(77_000);
   });
 
   it('runs the Review process with its configured assignment model', async () => {

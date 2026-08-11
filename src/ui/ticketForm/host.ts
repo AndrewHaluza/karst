@@ -57,6 +57,12 @@ export function makeTicketFormPanelHost(
         postMessage: (message) => void panel.webview.postMessage(message),
         onDidReceiveMessage: (handler) =>
           panel.webview.onDidReceiveMessage(handler, undefined, context.subscriptions),
+        onDidChangeViewState: (handler) =>
+          panel.onDidChangeViewState(
+            (e) => handler(e.webviewPanel.active),
+            undefined,
+            context.subscriptions,
+          ),
         onDidDispose: (handler) => panel.onDidDispose(handler, undefined, context.subscriptions),
         dispose: () => panel.dispose(),
         setIcon: (p: string) => {
