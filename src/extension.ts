@@ -94,6 +94,10 @@ import {
   interruptActiveFixExecution,
   reconcileStrandedFixRounds,
   describeStrandedFixRound,
+  parkFixStage,
+  hasFixingRound,
+  FIX_PARKED_PROCESS_UNAVAILABLE,
+  FIX_PARKED_NO_EXECUTION,
 } from './store/recoveryRounds.js';
 import type { AgentAdapter, Materialized } from './agent/adapter.js';
 import { bundledModelCatalog } from './agent/modelCatalog.js';
@@ -719,6 +723,27 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
       } catch (err) {
         logError(`karst: interrupting the fix execution for ticket ${ticketId} failed`, err);
+      }
+      // A fix that NEVER had an execution (a launch that died before its
+      // SessionStart, or a resume that never launched) is parked the moment its
+      // session closes — the same crash the interrupt above covers for a round
+      // already `fixing`, decided from the same terminal-close signal so it
+      // works for every agent core (a closed terminal needs no hook channel).
+      // The park is guarded, so the interrupt's own re-stamp (or a live fixing
+      // round) makes it a no-op.
+      try {
+        const at = new Date().toISOString();
+        if (
+          !hasFixingRound(localStore, ticketId) &&
+          parkFixStage(localStore, ticketId, FIX_PARKED_NO_EXECUTION, at)
+        ) {
+          logger.info(
+            `stage driver: ticket ${ticketId} fix parked — its session closed with no fix ` +
+              `execution in flight; the ticket rests at fix for a human`,
+          );
+        }
+      } catch (err) {
+        logError(`karst: parking the fix stage for ticket ${ticketId} failed`, err);
       }
       provider.refresh();
       dashboard.pushState(ticketId);
@@ -2355,11 +2380,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // Task 3: a configured-ABSENT Fix process (enabled: false) never reaches
     // the session manager — no launch, no nudge, no fabricated process
     // evidence. The pending recovery round is left for a human, exactly as the
-    // driver's fix block reads it.
+    // driver's fix block reads it, and the stage row parks so it stops reading
+    // as if the agent were still fixing.
     if (process === null) {
       logger.info(
         `configured Fix process disabled — ticket ${ticketId} left at fix for a human (${gate} round ${roundId ?? 'untracked'})`,
       );
+      try {
+        if (parkFixStage(localStore, ticketId, FIX_PARKED_PROCESS_UNAVAILABLE, new Date().toISOString())) {
+          logger.info(
+            `stage driver: ticket ${ticketId} fix parked — the configured Fix process is disabled`,
+          );
+        }
+      } catch (err) {
+        logError(`karst: parking the fix stage for ticket ${ticketId} failed`, err);
+      }
       return;
     }
     const t = getTicket(localStore, ticketId);
@@ -2412,7 +2447,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         });
       },
     });
-    if (outcome === 'unavailable') return;
+    if (outcome === 'unavailable') {
+      // The configured Fix core could not be proven ready (missing binary,
+      // unprobeable CLI): nothing launched and nothing will — the ticket is
+      // parked for a human, and the stage row must read that way.
+      try {
+        if (parkFixStage(localStore, ticketId, FIX_PARKED_PROCESS_UNAVAILABLE, new Date().toISOString())) {
+          logger.info(
+            `stage driver: ticket ${ticketId} fix parked — the configured Fix core is not available`,
+          );
+        }
+      } catch (err) {
+        logError(`karst: parking the fix stage for ticket ${ticketId} failed`, err);
+      }
+      return;
+    }
     logger.info(
       `stage driver: ticket ${ticketId} → ${outcome === 'nudged' ? 'nudged live session to fix' : 'resuming agent to fix'} (attempt ${attempts})`,
     );

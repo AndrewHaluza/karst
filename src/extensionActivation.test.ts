@@ -269,6 +269,20 @@ describe('extension activation', () => {
     expect(source).toContain('resolveAdapter(options.assignment.provider)');
   });
 
+  // A fix that can never start (disabled process, unprobeable core) or a fix
+  // whose session died without the marker must park the fix STAGE ROW — the
+  // machine enters fix `running`, and nothing re-read it before, so a ticket
+  // resting at fix for a human kept claiming the agent was actively fixing.
+  it('parks the fix stage row whenever the host leaves a ticket at fix with no execution', () => {
+    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+
+    expect(source).toContain('parkFixStage(localStore, ticketId, FIX_PARKED_PROCESS_UNAVAILABLE');
+    expect(source).toContain("!hasFixingRound(localStore, ticketId) &&\n          parkFixStage(localStore, ticketId, FIX_PARKED_NO_EXECUTION");
+    expect(source).toContain('the configured Fix process is disabled');
+    expect(source).toContain('the configured Fix core is not available');
+    expect(source).toContain('its session closed with no fix');
+  });
+
   it('delegates configured Fix compatibility so only replacement paths probe before disposal or launch', () => {
     const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
     const fixStart = source.indexOf('function resumeFixSession(');

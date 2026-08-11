@@ -419,19 +419,70 @@ describe('driveTicket', () => {
     expect(outcome.stage).toBe('fix');
     expect(resumed).toEqual([]);
     expect(logs.some((l) => l.includes('at the cap of 1'))).toBe(true);
+    // The fix stage row parks with the budget spent — it must not keep reading
+    // as if the agent were still fixing (the stuck-stage bug this closes).
+    const fixStage = getTicket(store, id).stages.find((s) => s.stageKey === 'fix')!;
+    expect(fixStage.status).toBe('failed');
+    expect(fixStage.verdict).toBe('fix attempts exhausted');
+    expect(fixStage.endedAt).not.toBeNull();
   });
 
   it('says so, and resumes nothing, when a ticket rests at fix with no failed gate', async () => {
     transition(store, id, 'uat', { kind: 'passed' }); // -> review
     transition(store, id, 'review', { kind: 'failed', reason: 'x' }); // -> fix
-    // Clear the only failure so the stage rows no longer explain the fix.
-    store.db.prepare("UPDATE stages SET status = 'passed' WHERE ticket_id = ?").run(id);
+    // Clear the gate failures so the stage rows no longer explain the fix — the
+    // fix row itself stays running (the machine entered it that way), which is
+    // exactly the parked-but-lying state the park must fix.
+    store.db.prepare("UPDATE stages SET status = 'passed' WHERE ticket_id = ? AND stage_key IN ('uat','review')").run(id);
 
     const outcome = await driveTicket(deps(), id);
 
     expect(outcome.stage).toBe('fix');
     expect(resumed).toEqual([]);
     expect(logs.some((l) => l.includes('no failed gate'))).toBe(true);
+    const fixStage = getTicket(store, id).stages.find((s) => s.stageKey === 'fix')!;
+    expect(fixStage.status).toBe('failed');
+    expect(fixStage.verdict).toBe('fix parked — no failed gate to resume');
+  });
+
+  it('parks the fix stage row when the only round is terminal — the ticket rests at fix for a human', async () => {
+    const round = openRecoveryRound(store, {
+      ticketId: id, sourceStage: 'uat', sourceProcessId: 'gates',
+      sourceStageRunId: null, sourceProcessRunId: null,
+      triggerKind: 'gate-failure', triggerDetail: 'exit 1', maxRounds: 3,
+      startedAt: '2026-08-01T10:00:00.000Z',
+    });
+    store.db.prepare("UPDATE recovery_rounds SET status = 'interrupted', ended_at = ? WHERE id = ?").run('2026-08-01T11:00:00.000Z', round.id);
+    transition(store, id, 'uat', { kind: 'failed', reason: 'exit 1' }); // -> fix
+
+    const outcome = await driveTicket(deps(), id);
+
+    expect(outcome.stage).toBe('fix');
+    expect(resumed).toEqual([]);
+    expect(logs.some((l) => l.includes('only terminal recovery rounds'))).toBe(true);
+    const fixStage = getTicket(store, id).stages.find((s) => s.stageKey === 'fix')!;
+    expect(fixStage.status).toBe('failed');
+    expect(fixStage.verdict).toBe('fix parked — no resumable recovery round');
+  });
+
+  it('leaves the fix stage row running while a fix execution is in flight', async () => {
+    const round = openRecoveryRound(store, {
+      ticketId: id, sourceStage: 'uat', sourceProcessId: 'gates',
+      sourceStageRunId: null, sourceProcessRunId: null,
+      triggerKind: 'gate-failure', triggerDetail: 'exit 1', maxRounds: 3,
+      startedAt: '2026-08-01T10:00:00.000Z',
+    });
+    store.db.prepare("UPDATE recovery_rounds SET status = 'fixing' WHERE id = ?").run(round.id);
+    transition(store, id, 'uat', { kind: 'failed', reason: 'exit 1' }); // -> fix
+
+    const outcome = await driveTicket(deps(), id);
+
+    expect(outcome.stage).toBe('fix');
+    expect(logs.some((l) => l.includes('already in flight'))).toBe(true);
+    // A live execution means the row legitimately reads running — never parked.
+    const fixStage = getTicket(store, id).stages.find((s) => s.stageKey === 'fix')!;
+    expect(fixStage.status).toBe('running');
+    expect(fixStage.endedAt).toBeNull();
   });
 
   it('aborts the gate in flight when the host signal fires', async () => {
