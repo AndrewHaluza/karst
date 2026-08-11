@@ -2425,6 +2425,19 @@ describe('settings agents tab — process assignments', () => {
 
 // ═══ v7 redesign: shell + primitives (869efqhmh) ════════════════════════════
 
+describe('settings v7 script integrity', () => {
+  it('parses the webview script as valid JavaScript', () => {
+    // A syntax error in the big inline script would load a dead page that still
+    // passes every string pin above — the one class of defect strings cannot
+    // catch. `new Function` compiles without executing.
+    const m = HTML.match(/<script>([\s\S]*?)<\/script>/);
+    expect(m, 'no inline script block').toBeTruthy();
+    const src = m![1]!.replace(/\/\*KARST_[A-Z_]*\*\//g, '/*stub*/');
+    expect(() => new Function(src)).not.toThrow();
+  });
+});
+
+
 describe('settings v7 shell', () => {
   it('groups the sidebar nav into Project / Workflow / Integrations with captions', () => {
     expect(HTML).toContain('<nav class="sidebar"');

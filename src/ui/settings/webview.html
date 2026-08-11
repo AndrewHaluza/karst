@@ -4774,7 +4774,7 @@
     if (focus && item && typeof item.focus === 'function') item.focus();
   }
 
-  function openMenuShell(shell) {
+  function openShellMenu(shell) {
     if (openMenuShell && openMenuShell !== shell) closeMenuShell(openMenuShell, false);
     openMenuShell = shell;
     shell.classList.add('is-open');
@@ -4809,7 +4809,7 @@
   function toggleMenuShell(shell) {
     if (openMenuShell === shell) { closeMenuShell(shell, true); return; }
     openMenuShell && closeMenuShell(openMenuShell, false);
-    openMenuShell = shell;
+    openShellMenu(shell);
     shell.classList.add('is-open');
     const menu = shell.querySelector('.dropdown, .model-pop');
     if (menu) menu.classList.add('open');
@@ -5289,8 +5289,16 @@
     el('projectInfoBtn').setAttribute('aria-expanded', String(open));
     if (open) {
       const r = anchor.getBoundingClientRect();
-      pop.style.left = (r.right + 8) + 'px';
-      pop.style.top = Math.max(8, r.bottom - pop.offsetHeight) + 'px';
+      // On narrow widths the responsive block anchors the pop to the viewport
+      // edge; inline left/top would override it, so only set them when there
+      // is room for the full pop to the right of the anchor.
+      if (window.innerWidth >= 640) {
+        pop.style.left = (r.right + 8) + 'px';
+        pop.style.top = Math.max(8, r.bottom - pop.offsetHeight) + 'px';
+      } else {
+        pop.style.left = '';
+        pop.style.top = '';
+      }
     }
   }
 
