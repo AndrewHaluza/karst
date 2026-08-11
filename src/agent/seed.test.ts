@@ -77,4 +77,27 @@ describe('buildSessionSeed', () => {
     expect(buildSessionSeed(CONTEXT, null)).toBe(CONTEXT);
     expect(buildSessionSeed(CONTEXT, null, undefined, undefined)).toBe(CONTEXT);
   });
+
+  it('places the guide instruction after the method and before the marker', () => {
+    const seed = buildSessionSeed(
+      CONTEXT,
+      'do the thing',
+      undefined,
+      'RUN THE MARKER',
+      'READ THE GUIDE',
+    );
+    expect(seed).toBeDefined();
+    const methodIdx = seed!.indexOf('do the thing');
+    const guideIdx = seed!.indexOf('READ THE GUIDE');
+    const markerIdx = seed!.indexOf('RUN THE MARKER');
+    expect(methodIdx).toBeGreaterThanOrEqual(0);
+    expect(guideIdx).toBeGreaterThan(methodIdx);
+    expect(markerIdx).toBeGreaterThan(guideIdx);
+  });
+
+  it('is unchanged when no guide instruction is given (5th arg absent)', () => {
+    expect(buildSessionSeed(CONTEXT, 'do the thing', undefined, 'RUN THE MARKER')).toBe(
+      buildSessionSeed(CONTEXT, 'do the thing', undefined, 'RUN THE MARKER', undefined),
+    );
+  });
 });

@@ -61,6 +61,21 @@ describe('renderWorkflowCommand', () => {
     const body = renderWorkflowCommand({ id: 'rpi', label: 'RPI', phases: rpiPhases });
     expect(body).not.toContain('stage impl pass');
   });
+  it('adds one guide clause when a guideCommand is given', () => {
+    const body = renderWorkflowCommand({
+      id: 'rpi',
+      label: 'RPI',
+      phases: rpiPhases,
+      guideCommand: 'node "/ext/dist/cli/main.js" guide',
+    });
+    expect(body).toContain('node "/ext/dist/cli/main.js" guide');
+    expect(body).toContain('To understand how Karst works');
+  });
+  it('omits the guide clause without a guideCommand', () => {
+    const body = renderWorkflowCommand({ id: 'rpi', label: 'RPI', phases: rpiPhases });
+    expect(body).not.toContain(' guide`');
+    expect(body).not.toContain('To understand how Karst works');
+  });
 
   describe('phase markers', () => {
     const phaseCommand = (name: string): string =>

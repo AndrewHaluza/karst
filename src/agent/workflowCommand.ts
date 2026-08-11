@@ -88,8 +88,15 @@ export function renderWorkflowCommand(input: {
    * accept marks must not be told to run a command that does not exist.
    */
   phaseCommand?: (phaseName: string) => string;
+  /**
+   * When given, the load instruction gains ONE clause pointing the agent at
+   * the manual: run `<guideCommand>` to learn how Karst works, what the flow
+   * is, and what the CLI can do. One short clause on purpose — the guide is
+   * pulled on demand, never embedded in the command body.
+   */
+  guideCommand?: string;
 }): string {
-  const { id, label, phases, contextCommand, stageCommand, phaseCommand } = input;
+  const { id, label, phases, contextCommand, stageCommand, phaseCommand, guideCommand } = input;
   const loadInstruction = contextCommand
     ? 'This command receives a ticket key as its argument, available in `$ARGUMENTS`. ' +
       `First, load the ticket's full context by running \`${contextCommand} $ARGUMENTS\` ` +
@@ -98,10 +105,13 @@ export function renderWorkflowCommand(input: {
     : 'This command receives a ticket key as its argument, available in `$ARGUMENTS`. ' +
       'First, read and describe the ticket identified by `$ARGUMENTS` so you understand ' +
       'what is being asked before proceeding.';
+  const guideClause = guideCommand
+    ? ` To understand how Karst works and what this CLI can do, run \`${guideCommand}\`.`
+    : '';
   const lines: string[] = [
     `# ${label}`,
     '',
-    loadInstruction,
+    loadInstruction + guideClause,
     '',
     ...(phaseCommand
       ? [
