@@ -127,6 +127,18 @@ function receiptInput(extra: Partial<DoneReceiptInput> = {}): DoneReceiptInput {
   };
 }
 
+/**
+ * The delivery lines — the merged-PR rows. They are selected by their `pass`
+ * status, not by a constant label: the row's key column names the REPOSITORY
+ * now (the design's `api  #412 (merged)`), so a label match would pin the
+ * fixture's repo names into every assertion.
+ */
+function deliveryRows(
+  view: Extract<DoneReceiptView, { status: 'complete' }>,
+): readonly EvidenceRow[] {
+  return rowsOf(view).filter((r) => r.status === 'pass');
+}
+
 function rowsOf(view: Extract<DoneReceiptView, { status: 'complete' }>): readonly EvidenceRow[] {
   const evidenceKind = view.evidence;
   if (evidenceKind?.kind === 'receipt') return evidenceKind.rows;
@@ -153,9 +165,9 @@ describe('doneReceipt', () => {
     ) as Extract<DoneReceiptView, { status: 'complete' }>;
     expect(view.delivered).toEqual({ repos: 1, prs: 1, commits: 0 });
     const rows = rowsOf(view);
-    expect(rows.filter((r) => r.label === 'merged')).toHaveLength(1);
-    expect(rows.find((r) => r.label === 'merged')!.detail).toContain('#40');
-    expect(rows.find((r) => r.label === 'merged')!.detail).not.toContain('#41');
+    expect(deliveryRows(view)).toHaveLength(1);
+    expect(deliveryRows(view)[0]).toMatchObject({ label: '/web', detail: '#40', prState: 'merged' });
+    expect(rows.some((r) => r.detail === '#41')).toBe(false);
   });
 
   it('counts only ship-created commits — pre-existing ones are legacy facts, omitted', () => {
@@ -250,7 +262,7 @@ describe('doneReceipt', () => {
         receiptInput({ prs: [pr('/web', { number: 40, status: 'open', mergedAt: NOW })] }),
       ) as Extract<DoneReceiptView, { status: 'complete' }>;
       expect(view.delivered).toEqual({ repos: 0, prs: 0, commits: 0 });
-      expect(rowsOf(view).filter((r) => r.label === 'merged')).toHaveLength(0);
+      expect(deliveryRows(view)).toHaveLength(0);
     });
 
     it('keeps the delivery pending for a merge-stamped unknown PR', () => {
@@ -258,7 +270,7 @@ describe('doneReceipt', () => {
         receiptInput({ prs: [pr('/web', { number: 41, status: 'unknown', mergedAt: NOW })] }),
       ) as Extract<DoneReceiptView, { status: 'complete' }>;
       expect(view.delivered).toEqual({ repos: 0, prs: 0, commits: 0 });
-      expect(rowsOf(view).filter((r) => r.label === 'merged')).toHaveLength(0);
+      expect(deliveryRows(view)).toHaveLength(0);
     });
 
     it('counts a PR with literal merged status as delivered, stamp or no stamp', () => {
@@ -266,7 +278,7 @@ describe('doneReceipt', () => {
         receiptInput({ prs: [pr('/web', { number: 40, status: 'merged' })] }),
       ) as Extract<DoneReceiptView, { status: 'complete' }>;
       expect(view.delivered).toEqual({ repos: 1, prs: 1, commits: 0 });
-      expect(rowsOf(view).filter((r) => r.label === 'merged')).toHaveLength(1);
+      expect(deliveryRows(view)).toHaveLength(1);
     });
   });
 
@@ -291,7 +303,7 @@ describe('doneReceipt', () => {
         }),
       ) as Extract<DoneReceiptView, { status: 'complete' }>;
       const rows = rowsOf(view);
-      const repositoryRows = rows.filter((row) => row.label === 'merged' || row.label === 'more');
+      const repositoryRows = rows.filter((row) => row.status === 'pass' || row.label === 'more');
 
       expect(view.delivered).toEqual({ repos: count, prs: count, commits: 0 });
       expect(repositoryRows).toHaveLength(7);
@@ -321,7 +333,7 @@ describe('doneReceipt', () => {
       }),
     ) as Extract<DoneReceiptView, { status: 'complete' }>;
 
-    expect(rowsOf(view).filter((row) => row.label === 'merged')).toHaveLength(6);
+    expect(deliveryRows(view)).toHaveLength(6);
     expect(rowsOf(view).find((row) => row.label === 'more')).toBeUndefined();
     expect(attach).not.toHaveBeenCalled();
   });
@@ -438,6 +450,32 @@ describe('done receipt process-row description and timestamps (Task 869egdr2u)',
     expect(view.detail).toBe('no pull requests merged');
   });
 
+  it('names the service and makes the PR number the row\'s own link (fu2)', () => {
+    const view = doneReceipt(
+      receiptInput({
+        prs: [pr('/wt/web', { id: 7, number: 412, status: 'merged', mergedAt: NOW })],
+        repoNameFor: (repo) => (repo === '/wt/web' ? 'web' : undefined),
+        attach: (target) => ({ actionId: `a:${target.kind}`, kind: target.kind }),
+      }),
+    ) as Extract<DoneReceiptView, { status: 'complete' }>;
+    expect(deliveryRows(view)[0]).toMatchObject({
+      label: 'web',
+      detail: '#412',
+      prState: 'merged',
+      action: { kind: 'open-pr' },
+    });
+  });
+
+  it('renders the number as plain text when no PR id was recorded to open', () => {
+    const view = doneReceipt(
+      receiptInput({
+        prs: [pr('/web', { number: 412, status: 'merged', mergedAt: NOW })],
+        attach: (target) => ({ actionId: `a:${target.kind}`, kind: target.kind }),
+      }),
+    ) as Extract<DoneReceiptView, { status: 'complete' }>;
+    expect(deliveryRows(view)[0]!.action).toBeUndefined();
+  });
+
   it('dates each merged row from its own merge stamp', () => {
     const view = doneReceipt(
       receiptInput({
@@ -445,7 +483,7 @@ describe('done receipt process-row description and timestamps (Task 869egdr2u)',
         ship: evidence({ repos: { '/web': repoEvidence('/web', { commits: [shipCommit('created-by-ship')] }) } }),
       }),
     ) as Extract<DoneReceiptView, { status: 'complete' }>;
-    const mergedRow = rowsOf(view).find((r) => r.label === 'merged')!;
+    const mergedRow = deliveryRows(view)[0]!;
     expect(mergedRow.time).toBe(formatTime('2026-07-20T12:05:00.000Z'));
   });
 });

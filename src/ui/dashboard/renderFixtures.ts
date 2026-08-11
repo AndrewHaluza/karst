@@ -357,23 +357,32 @@ function reviewView(n: RenderRepoCount): InsideStageView {
     ),
     { status: 'skip', label: 'smoke', detail: 'Skipped — disabled by user' },
   ];
+  // The level rides its own closed `severity` key (the ramp's styling input)
+  // and the location rides `location` (the row's link) — neither is parsed out
+  // of the title, which is untrusted agent prose (869egdr2u-fu2).
   const findings: EvidenceRow[] = [
     {
       status: 'fail',
       label: 'critical',
-      detail: `${HOSTILE_TITLE} — ${LONG_PATH}`,
+      severity: 'critical',
+      detail: HOSTILE_TITLE,
+      location: LONG_PATH,
       action: fixtureAction('open-file', 1),
     },
     {
       status: 'fail',
       label: 'high',
-      detail: 'SQL injection in query builder — src/db/query.ts:41',
+      severity: 'high',
+      detail: 'SQL injection in query builder',
+      location: 'src/db/query.ts:41',
       action: fixtureAction('open-file', 2),
     },
     {
       status: 'note',
       label: 'medium',
-      detail: 'N+1 query in ticket list — src/store/tickets.ts:88',
+      severity: 'medium',
+      detail: 'N+1 query in ticket list',
+      location: 'src/store/tickets.ts:88',
       action: fixtureAction('open-file', 3),
     },
   ];
@@ -543,17 +552,23 @@ function uatView(n: RenderRepoCount): InsideStageView {
       { status: 'pass', label: 'test', detail: 'exit 0' },
     ],
   );
+  // Tester observations render through the SAME findings blueprint the Review
+  // findings use — one reading of a level, one way to open a file.
   const observations: EvidenceRow[] = [
     {
       status: 'note',
-      label: 'warning',
-      detail: `flaky timeout in auth flow — ${LONG_PATH}:19`,
+      label: 'high',
+      severity: 'high',
+      detail: 'flaky timeout in auth flow',
+      location: `${LONG_PATH}:19`,
       action: fixtureAction('open-file', 4),
     },
     {
       status: 'note',
-      label: 'info',
-      detail: 'deprecated fetch API — src/http/client.ts:8',
+      label: 'low',
+      severity: 'low',
+      detail: 'deprecated fetch API',
+      location: 'src/http/client.ts:8',
       action: fixtureAction('open-file', 5),
     },
   ];
@@ -617,7 +632,7 @@ function uatView(n: RenderRepoCount): InsideStageView {
         duration: '38.4s',
         execution: { ...CODEX_EXECUTION },
         tokens: { ...ESTIMATED_TOKENS },
-        evidence: { kind: 'rows', rows: observations },
+        evidence: { kind: 'findings', rows: observations, blocking: 0 },
       },
     ],
     blurb: STAGE_BLURBS.uat,

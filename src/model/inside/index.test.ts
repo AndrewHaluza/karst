@@ -44,6 +44,40 @@ describe('scopeProcesses', () => {
     return { stageKey: 'scope', status, ...extra };
   }
 
+  // 869egdr2u-fu2: `confirmScope` creates the worktrees and passes the stage in
+  // one act, so a scope cell may carry an END and no START. Dating the rows off
+  // `startedAt` alone dropped every scope timestamp on exactly the tickets that
+  // took the ordinary path.
+  describe('dates its rows from the scope run even when only its end was stamped', () => {
+    const endedOnly = scopeCell('passed', { endedAt: '2026-07-20T12:10:00.000Z' });
+
+    it('stamps the hot-set row and each selected service', () => {
+      const [hotSet] = scopeProcesses(endedOnly, ['api'], [], NOW);
+      expect(hotSet!.time).toBe(formatTime('2026-07-20T12:10:00.000Z'));
+      const rows = (hotSet!.evidence as { rows: readonly EvidenceRow[] }).rows;
+      expect(rows[0]).toMatchObject({ label: 'api', time: formatTime('2026-07-20T12:10:00.000Z') });
+    });
+
+    it('stamps the worktrees row, and each worktree from its own record when it has one', () => {
+      const [, worktrees] = scopeProcesses(
+        endedOnly,
+        ['api'],
+        [worktree('api', 'karst/t-1', '2026-07-20T12:09:00.000Z'), worktree('web', 'karst/t-1')],
+        NOW,
+      );
+      expect(worktrees!.time).toBe(formatTime('2026-07-20T12:10:00.000Z'));
+      const rows = (worktrees!.evidence as { rows: readonly EvidenceRow[] }).rows;
+      expect(rows[0]!.time).toBe(formatTime('2026-07-20T12:09:00.000Z'));
+      expect(rows[1]!.time).toBe(formatTime('2026-07-20T12:10:00.000Z'));
+    });
+
+    it('states no time at all for a scope run that recorded neither stamp', () => {
+      const [hotSet] = scopeProcesses(scopeCell('pending'), ['api'], [], NOW);
+      expect(hotSet!.time).toBeUndefined();
+      expect((hotSet!.evidence as { rows: readonly EvidenceRow[] }).rows[0]!.time).toBeUndefined();
+    });
+  });
+
   const ran = scopeCell('passed', { startedAt: NOW, endedAt: NOW });
 
   it('emits exactly two process rows — hot-set then worktrees — whatever the repo count', () => {

@@ -193,7 +193,7 @@ describe('shipProcesses', () => {
     expect(rowsOf(views[0]!)[0]!.detail).toContain('nothing to commit');
   });
 
-  it('ships the created-commit total as the commit process-row aggregate (B4)', () => {
+  it('carries the created-commit total on the evidence, never as a row chip (fu2)', () => {
     const views = shipProcesses(
       shipInput({
         evidence: evidence({
@@ -208,9 +208,14 @@ describe('shipProcesses', () => {
         }),
       }),
     );
-    // Host-computed (B4): the webview concatenates nothing; total is the
-    // created-by-ship count, pre-existing commits are not delivery.
-    expect(views[0]!.aggregate).toBe('3 commits');
+    // The count rides the EVIDENCE, which renders it per repository. The row
+    // itself carries no chip: its description already says how many
+    // repositories are commit-ready and how many the ship created, and the
+    // chip repeated that sentence in a terser voice (869egdr2u-fu2).
+    const commit = views[0]!;
+    expect(commit.aggregate).toBeUndefined();
+    expect(commit.detail).toBe('2 repositories commit-ready · 2 created in Ship');
+    expect(commit.evidence).toMatchObject({ kind: 'commits', total: 3 });
   });
 
   it('omits the commit aggregate when nothing was created by ship (B4)', () => {
@@ -224,7 +229,7 @@ describe('shipProcesses', () => {
     expect(views[0]!.aggregate).toBeUndefined();
   });
 
-  it('aggregates current PR open/merged counts on the pr process row (B4)', () => {
+  it('keeps the landing counts on the pr evidence, never as a row chip (fu2)', () => {
     const views = shipProcesses(
       shipInput({
         prs: [
@@ -234,13 +239,19 @@ describe('shipProcesses', () => {
         ],
       }),
     );
+    // The Merge process directly beneath states the landing count; a second
+    // "1 merged" chip on the PR row said it twice (869egdr2u-fu2). The counts
+    // still ride the evidence, where the bodies read them.
     const prProcess = views[2]!;
-    expect(prProcess.aggregate).toBe('1 merged · 2 open');
+    expect(prProcess.aggregate).toBeUndefined();
+    expect(prProcess.evidence).toMatchObject({ kind: 'prs', merged: 1, open: 2 });
+    expect(views[3]!.detail).toBe('1/3 merged');
   });
 
   it('omits the pr aggregate when no current PR exists (B4)', () => {
     const views = shipProcesses(shipInput({ prs: [] }));
     expect(views[2]!.aggregate).toBeUndefined();
+    expect(views[2]!.evidence).toMatchObject({ kind: 'prs', merged: 0, open: 0 });
   });
 
   it('states a conflicted merge in the handoff §11 copy on the process row (B9)', () => {
@@ -822,6 +833,8 @@ describe('ship pr evidence: the per-repository branch path', () => {
       ],
       note: 'PR #412 was created in this ship run.',
       current: false,
+      // Every expanded row dates itself, like the commit blocks beside it.
+      time: formatTime('2026-07-20T12:00:00.000Z'),
     });
   });
 
@@ -1139,5 +1152,83 @@ describe('ship process rows: descriptions and identity (Task 869egdr2u)', () => 
       }),
     );
     expect(rowsOf(open[3]!)[0]!.time).toBe(formatTime('2026-07-20T12:06:00.000Z'));
+  });
+});
+
+// ── 869egdr2u-fu2: every ship process dates ITSELF ────────────────────────
+// A per-repo row answers "when did THIS repository push"; only the process
+// row can answer "when did the push finish".
+describe('ship process rows carry their own span', () => {
+  const spanned = () =>
+    shipProcesses(
+      shipInput({
+        evidence: evidence({
+          repos: {
+            '/web': repoEvidence('/web', {
+              steps: {
+                commit: step('commit', {
+                  startedAt: '2026-07-20T12:00:00.000Z',
+                  endedAt: '2026-07-20T12:00:20.000Z',
+                }),
+                push: step('push', {
+                  startedAt: '2026-07-20T12:00:30.000Z',
+                  endedAt: '2026-07-20T12:00:40.000Z',
+                }),
+                pr: step('pr', {
+                  startedAt: '2026-07-20T12:01:00.000Z',
+                  endedAt: '2026-07-20T12:01:30.000Z',
+                  number: 5,
+                }),
+              },
+            }),
+            '/api': repoEvidence('/api', {
+              steps: {
+                push: step('push', {
+                  repo: '/api',
+                  startedAt: '2026-07-20T12:00:35.000Z',
+                  endedAt: '2026-07-20T12:01:05.000Z',
+                }),
+              },
+            }),
+          },
+        }),
+        prs: [pr('/web', { number: 5, status: 'merged', mergedAt: '2026-07-20T12:20:00.000Z' })],
+      }),
+    );
+
+  it('spans push from the earliest start to the latest end across repositories', () => {
+    const push = spanned()[1]!;
+    expect(push.time).toBe(formatTime('2026-07-20T12:00:30.000Z'));
+    // 12:00:30 → 12:01:05, the LAST repository to finish.
+    expect(push.durationExact).toBe('35.000s');
+  });
+
+  it('spans commit and pull request the same way', () => {
+    const [commit, , prProcess] = spanned();
+    expect(commit!.time).toBe(formatTime('2026-07-20T12:00:00.000Z'));
+    expect(commit!.durationExact).toBe('20.000s');
+    expect(prProcess!.time).toBe(formatTime('2026-07-20T12:01:00.000Z'));
+    expect(prProcess!.durationExact).toBe('30.000s');
+  });
+
+  it('dates merge from the landing fact it read, not from a step it never ran', () => {
+    const merge = spanned()[3]!;
+    expect(merge.time).toBe(formatTime('2026-07-20T12:20:00.000Z'));
+    // Merge runs nothing, so it has a moment and no span.
+    expect(merge.duration).toBeUndefined();
+  });
+
+  it('states no time at all when no step recorded a start', () => {
+    const views = shipProcesses(
+      shipInput({
+        evidence: evidence({
+          repos: {
+            '/web': repoEvidence('/web', { steps: { push: step('push', { startedAt: undefined }) } }),
+          },
+        }),
+      }),
+    );
+    expect(views[1]!.time).toBeUndefined();
+    expect(views[1]!.duration).toBeUndefined();
   });
 });
