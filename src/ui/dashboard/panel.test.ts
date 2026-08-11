@@ -7,7 +7,7 @@ import { createTicket, updateTicketFields } from '../../store/tickets.js';
 import { setStage } from '../../store/stages.js';
 import { manifest, processes, runnableRepo } from '../../manifest/fixtures.js';
 import { openProcessRun, finishProcessRun } from '../../store/processRuns.js';
-import { DashboardManager, type PanelHost, type FakePanel } from './panel.js';
+import { DashboardManager, type PanelHost, type FakePanel, type StageLogReader } from './panel.js';
 import { LIVE_TICK_MS } from './liveTick.js';
 import { ACTION_GRACE_MS } from './panel.js';
 import type { WorktreeStats, WorktreeStatsLoader } from './worktreeStats.js';
@@ -1007,6 +1007,84 @@ describe('DashboardManager', () => {
       panels[0]!.dispose();
 
       expect(seen).toEqual([[t.id, true], [t.id, false]]);
+    });
+  });
+
+  describe('stage log requests', () => {
+    const makeHarness = (opts: { stageLogReader?: StageLogReader }): {
+      manager: DashboardManager;
+      posts: (ticketId: number) => unknown[];
+    } => {
+      // Ticket ids are minted sequentially from 1, so seven creations make 7
+      // a real ticket the panel can open for.
+      for (let i = 0; i < 7; i += 1) {
+        createTicket(store, { key: `SLOG-${i + 1}`, title: `ticket ${i + 1}` });
+      }
+      const { host } = fakeHost();
+      const byTicket = new Map<number, FakePanel>();
+      const hostWithIds: PanelHost = {
+        createPanel: (title, ticketId, preserveFocus) => {
+          const panel = host.createPanel(title, ticketId, preserveFocus) as FakePanel;
+          byTicket.set(ticketId, panel);
+          return panel;
+        },
+      };
+      const manager = new DashboardManager(
+        store,
+        hostWithIds,
+        () => ({}) as never,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        undefined, undefined, undefined,
+        opts.stageLogReader,
+      );
+      manager.openDashboard(7);
+      return { manager, posts: (ticketId) => byTicket.get(ticketId)?.posted ?? [] };
+    };
+
+    it('posts the reader result as a stage-log message to the ticket panel', () => {
+      const { manager, posts } = makeHarness({
+        stageLogReader: (ticketId, stage) =>
+          ticketId === 7 && stage === 'uat'
+            ? { kind: 'ok', content: 'gate output', truncated: false }
+            : { kind: 'error', message: 'no log' },
+      });
+      manager.requestStageLog(7, 'uat');
+      expect(posts(7)).toContainEqual({
+        type: 'stage-log',
+        stage: 'uat',
+        result: { kind: 'ok', content: 'gate output', truncated: false },
+      });
+    });
+
+    it('posts a reader error result verbatim (UI-R13: the answer is the outcome)', () => {
+      const { manager, posts } = makeHarness({
+        stageLogReader: () => ({ kind: 'error', message: 'The recorded log file is no longer available.' }),
+      });
+      manager.requestStageLog(7, 'review');
+      expect(posts(7)).toContainEqual({
+        type: 'stage-log',
+        stage: 'review',
+        result: { kind: 'error', message: 'The recorded log file is no longer available.' },
+      });
+    });
+
+    it('is a no-op for a ticket with no open panel, and never throws', () => {
+      const { manager, posts } = makeHarness({
+        stageLogReader: () => ({ kind: 'ok', content: 'x', truncated: false }),
+      });
+      expect(() => manager.requestStageLog(999, 'uat')).not.toThrow();
+      expect(posts(999)).toEqual([]);
+    });
+
+    it('degrades to a named refusal when no reader is configured', () => {
+      const { manager, posts } = makeHarness({});
+      manager.requestStageLog(7, 'uat');
+      expect(posts(7)).toContainEqual({
+        type: 'stage-log',
+        stage: 'uat',
+        result: { kind: 'error', message: 'No console log source is configured.' },
+      });
     });
   });
 });

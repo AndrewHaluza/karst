@@ -23,6 +23,7 @@ import type { DashboardActions } from './ui/dashboard/messages.js';
 import { makeWorktreeActions } from './ui/dashboard/worktreeActions.js';
 import { loadWorktreeStats } from './ui/dashboard/worktreeStats.js';
 import { buildGateOptionsLoader } from './ui/dashboard/gateOptions.js';
+import { readStageLog } from './ui/dashboard/stageLogReader.js';
 import {
   TicketChangesManager,
   type ChangesPanel,
@@ -164,7 +165,7 @@ import {
   selectLaunchableWorktrees,
 } from './commands/launchWorktree.js';
 import { parseLaunchWorktreeConfig } from './commands/launchWorktreeConfig.js';
-import { getDisabledGates, setDisabledGates } from './store/ticketGates.js';
+import { getDisabledGates, setDisabledGates, type GateStage } from './store/ticketGates.js';
 import { latestFindingBatch } from './store/reviewFindings.js';
 import { defaultGhRunnerAsync } from './integrations/github.js';
 import { syncPrStatuses } from './workflow/prSync.js';
@@ -2082,6 +2083,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         (id) => maybeDrive(id, 'stage-resume'),
         (path) => void launchWorktreeDevWindow(path),
         () => launchWorktreeConfig(),
+        // The stage key arrives from the webview; the manager resolves the read
+        // through the injected reader and posts the answer to this ticket's
+        // panel (the postInsideProgress pattern).
+        (stage) => dashboard.requestStageLog(ticketId, stage),
       ),
     () => worktreePathContext(currentManifest(), logger.warn, logger.info),
     () => currentManifest()?.ticketLabelTemplate,
@@ -2149,6 +2154,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // Reports the panel's raw activation (including losing it, and including
     // dispose-while-focused) so the sidebar can highlight this ticket's row.
     (ticketId, active) => activeTicket.set(ticketId, active),
+    // The terminal view's log source: resolve the stage row's recorded
+    // artifactPath and read it bounded (the webview names only a stage key).
+    (ticketId, stage) =>
+      readStageLog(localStore, ticketId, stage, (path) => readFileSync(path, 'utf8'), (m) =>
+        logger.debug(m),
+      ),
   );
 
   // A karst.yml edit made OUTSIDE karst (hand edit in the editor, a teammate's
@@ -4559,6 +4570,10 @@ function makeDashboardActions(
   // when the switch is off — a crafted message must not launch what the user
   // disabled.
   launchConfig: () => ReturnType<typeof parseLaunchWorktreeConfig>,
+  // Resolve one gate stage's console log via the dashboard manager, which owns
+  // the ticket panel: the stage key arrives from the webview, the read stays
+  // host-side.
+  requestStageLog: (stage: GateStage) => void,
 ): DashboardActions {
   const worktreeActions = makeWorktreeActions(
     {
@@ -4703,11 +4718,10 @@ function makeDashboardActions(
         }
       })();
     },
-    // The message protocol seam (Task 3); the host-side read + `stage-log`
-    // push lands with the terminal "detailed mode" view. The webview cannot
-    // post this message yet, so this placeholder satisfies the interface and
-    // nothing else.
-    requestStageLog: () => undefined,
+    // A `stage-log-request` for the terminal "detailed mode" view: the manager
+    // owns the ticket panel, so the read (store + fs, bounded) happens here and
+    // the `stage-log` answer is posted to the panel that asked.
+    requestStageLog: (stage) => requestStageLog(stage),
     // Open one artifact resource in a normal VS Code editor — the deliberate
     // escape from the semantic artifact UI into the file model (spec §12). The
     // webview names ONLY the artifact id and a resource index, so this re-reads
