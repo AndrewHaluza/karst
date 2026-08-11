@@ -1,4 +1,9 @@
+# Both forms on purpose: the trailing slash matches only a DIRECTORY, so a
+# machine-local `node_modules` SYMLINK slipped past it and was committed — and
+# a symlink whose target is its own path is an infinite loop that takes every
+# node tool in the checkout down with it.
 node_modules/
+node_modules
 dist/
 coverage/
 # karst config lives at .karst/karst.yml and is committed; only the generated

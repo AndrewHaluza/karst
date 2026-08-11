@@ -9,6 +9,7 @@ import { manifest, processes, runnableRepo } from '../../manifest/fixtures.js';
 import { openProcessRun, finishProcessRun } from '../../store/processRuns.js';
 import { DashboardManager, type PanelHost, type FakePanel } from './panel.js';
 import { LIVE_TICK_MS } from './liveTick.js';
+import { ACTION_GRACE_MS } from './panel.js';
 import type { WorktreeStats, WorktreeStatsLoader } from './worktreeStats.js';
 
 const PANEL_SOURCE = readFileSync(
@@ -37,6 +38,7 @@ function fakeHost(): { host: PanelHost; panels: FakePanel[] } {
         createdPreserveFocus: preserveFocus,
         revealedPreserveFocus: [],
         disposed: false,
+        visible: true,
         posted: [],
         icons: [],
         messageHandlers,
@@ -46,6 +48,7 @@ function fakeHost(): { host: PanelHost; panels: FakePanel[] } {
           panel.revealedPreserveFocus.push(keepFocus);
         },
         setIcon: (p) => panel.icons.push(p),
+        isVisible: () => panel.visible,
         postMessage: (m) => panel.posted.push(m),
         onDidReceiveMessage: (h) => messageHandlers.push(h),
         onDidChangeViewState: (h) => viewStateHandlers.push(h),
@@ -821,14 +824,58 @@ describe('DashboardManager', () => {
       expect(loadGateOptions.mock.calls).toHaveLength(gateCalls);
     });
 
-    it('keeps the SUPERSEDED snapshot dispatchable for one generation', () => {
-      // A repaint mints a new registry every second, so a click posted against
-      // the snapshot the user was actually looking at could land after it was
-      // replaced and be rejected as stale. One generation of grace covers the
-      // in-flight click; two generations back is still gone.
+    it('stops repainting a panel nobody can see, and catches up when it returns', () => {
+      // Visibility, not activation: a dashboard watched beside a terminal the
+      // user types in is visible and inactive, and that is the whole scenario.
       const t = createTicket(store, { key: 'A', title: 'a' });
-      // A merged PR gives the done receipt its `open-pr` rows; the running
-      // tester run is what keeps the repaint ticking.
+      openProcessRun(store, {
+        ticketId: t.id,
+        stageKey: 'uat',
+        processId: 'tester',
+        attempt: 1,
+        startedAt: new Date().toISOString(),
+      });
+      const { host, panels } = fakeHost();
+      const mgr = new DashboardManager(store, host, () => ({}) as never);
+
+      mgr.openDashboard(t.id);
+      panels[0]!.visible = false;
+      panels[0]!.emitViewState(false);
+      const hidden = states(panels[0]!).length;
+      vi.advanceTimersByTime(LIVE_TICK_MS * 5);
+      expect(states(panels[0]!).length).toBe(hidden);
+
+      panels[0]!.visible = true;
+      panels[0]!.emitViewState(false); // visible again, still not the active tab
+      expect(states(panels[0]!).length).toBe(hidden + 1);
+      vi.advanceTimersByTime(LIVE_TICK_MS);
+      expect(states(panels[0]!).length).toBe(hidden + 2);
+    });
+
+    it('marks a repaint `live` so the webview can defer it, and a real push not', () => {
+      const t = createTicket(store, { key: 'A', title: 'a' });
+      openProcessRun(store, {
+        ticketId: t.id,
+        stageKey: 'uat',
+        processId: 'tester',
+        attempt: 1,
+        startedAt: new Date().toISOString(),
+      });
+      const { host, panels } = fakeHost();
+      const mgr = new DashboardManager(store, host, () => ({}) as never);
+
+      mgr.openDashboard(t.id);
+      vi.advanceTimersByTime(LIVE_TICK_MS);
+      const pushed = states(panels[0]!) as Array<{ live?: boolean }>;
+
+      expect(pushed[0]!.live).toBeUndefined();
+      expect(pushed[1]!.live).toBe(true);
+    });
+
+    it('keeps a superseded id dispatchable for the grace WINDOW, not for one tick', () => {
+      // The window has to cover a webview→host round trip. Tying it to "the
+      // previous snapshot" made its real length the tick period.
+      const t = createTicket(store, { key: 'A', title: 'a' });
       store.db.prepare("UPDATE tickets SET stage_current = 'done' WHERE id = ?").run(t.id);
       store.db
         .prepare(
@@ -843,24 +890,26 @@ describe('DashboardManager', () => {
         attempt: 1,
         startedAt: new Date().toISOString(),
       });
-      const opened: number[] = [];
       const { host, panels } = fakeHost();
       const mgr = new DashboardManager(
         store, host, () => ({}) as never,
         undefined, undefined, undefined, undefined, undefined, undefined, undefined,
         undefined, undefined, undefined, undefined, undefined, undefined,
-        { openPr: (_id: number, prId: number) => void opened.push(prId) } as never,
+        { openPr: () => {} } as never,
       );
 
       mgr.openDashboard(t.id);
-      const first = JSON.stringify(panels[0]!.posted);
-      const actionId = /"actionId":"(snapshot-1:action-\d+)"/.exec(first)?.[1];
+      const actionId = /"actionId":"(snapshot-1:action-\d+)"/.exec(
+        JSON.stringify(panels[0]!.posted),
+      )?.[1];
       expect(actionId).toBeDefined();
 
-      vi.advanceTimersByTime(LIVE_TICK_MS); // generation 2 supersedes it
+      // Three repaints later — more than one generation back — it still works.
+      vi.advanceTimersByTime(LIVE_TICK_MS * 3);
       expect(mgr.dispatchInsideAction(t.id, actionId!)).toMatchObject({ ok: true });
 
-      vi.advanceTimersByTime(LIVE_TICK_MS); // generation 3 — the grace is spent
+      // Past the window it is gone, however few snapshots have replaced it.
+      vi.advanceTimersByTime(ACTION_GRACE_MS);
       expect(mgr.dispatchInsideAction(t.id, actionId!)).toMatchObject({ ok: false });
     });
 

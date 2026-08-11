@@ -52,6 +52,14 @@ export interface DashboardPanel {
    */
   onDidChangeViewState(handler: (active: boolean) => void): void;
   onDidDispose(handler: () => void): void;
+  /**
+   * Whether the panel's webview is on screen at all (real: `panel.visible`) —
+   * unlike `active`, which is true only when the user is ON it. A dashboard
+   * watched beside a terminal the user is typing in is VISIBLE and inactive,
+   * which is the live tick's main scenario, so visibility is what gates the
+   * repaint. Absent → assume visible, which is exactly the pre-tick behavior.
+   */
+  isVisible?(): boolean;
   /** Update the tab icon (real: `panel.iconPath = Uri.file(path)`). */
   setIcon(path: string): void;
 }
@@ -70,6 +78,8 @@ export interface FakePanel extends DashboardPanel {
   /** The `preserveFocus` argument of every `reveal`, in order. */
   revealedPreserveFocus: Array<boolean | undefined>;
   disposed: boolean;
+  /** Whether the fake reports itself on screen — drives `isVisible`. */
+  visible: boolean;
   posted: unknown[];
   /** Every `setIcon` path, in order — the live-tint assertion surface. */
   icons: string[];
@@ -94,6 +104,16 @@ export interface DashboardBinding {
 
 /** Resolve the daemon actions for a ticket (lets the host bind live services). */
 export type ActionsFactory = (ticketId: number) => DashboardActions;
+
+/**
+ * How long a superseded snapshot's action ids stay dispatchable — the window a
+ * click already in flight when a repaint landed has to survive. Sized for a
+ * webview→host round trip, not for the repaint cadence.
+ */
+export const ACTION_GRACE_MS = 5000;
+
+/** Memory bound on the grace list; the time window above is what actually decides. */
+const MAX_GRACE_DEPTH = 10;
 
 /** Content equality for `GateOptions` — a fresh resolution is a new object every time. */
 function sameGateOptions(a: GateOptions, b: GateOptions): boolean {
@@ -130,11 +150,20 @@ export class DashboardManager {
   /** The CURRENT snapshot-scoped action registry per ticket (host-only targets). */
   private readonly registries = new Map<number, InsideActionRegistry>();
   /**
-   * The registry of the snapshot the current one SUPERSEDED — the grace window
-   * for a click already in flight when a repaint replaced the render it was
-   * posted from. Exactly one generation deep; disposed with the panel.
+   * The registries of superseded snapshots, newest last, with the moment each
+   * was superseded — the grace window for a click already in flight when a
+   * repaint replaced the render it was posted from.
+   *
+   * Bounded by TIME (`ACTION_GRACE_MS`), not by a generation count: what the
+   * window has to cover is one webview→host round trip, and tying it to "the
+   * previous snapshot" made its real length the tick period — so a faster tick
+   * would silently shorten it and a slower one stretch it. `MAX_GRACE_DEPTH`
+   * is the memory bound only.
    */
-  private readonly priorRegistries = new Map<number, InsideActionRegistry>();
+  private readonly priorRegistries = new Map<
+    number,
+    Array<{ registry: InsideActionRegistry; supersededAt: number }>
+  >();
   private readonly generations = new Map<number, number>();
   /**
    * The pending live-snapshot timer per ticket (§ liveTick.ts). A self-
@@ -298,7 +327,27 @@ export class DashboardManager {
         }
       });
     });
-    panel.onDidChangeViewState((active) => this.binding?.onDidActivate(ticketId, active));
+    panel.onDidChangeViewState((active) => {
+      this.binding?.onDidActivate(ticketId, active);
+      // A hidden panel stops its live tick, so coming back needs one catch-up
+      // repaint — that push re-arms the loop. Guarded on there being live work
+      // (`scheduleLiveTick` decides), and harmless otherwise: it is the same
+      // snapshot every other push builds.
+      if (panel.isVisible?.() === false) {
+        // Going hidden cancels the tick already armed — the repaint it would
+        // run is for a webview nobody can see.
+        const armed = this.liveTicks.get(ticketId);
+        if (armed) clearTimeout(armed);
+        this.liveTicks.delete(ticketId);
+        return;
+      }
+      if (this.liveTicks.has(ticketId)) return; // still ticking; nothing to catch up
+      try {
+        this.pushSnapshot(ticketId, false);
+      } catch (err) {
+        this.logError('karst: dashboard visibility repaint failed', err);
+      }
+    });
     panel.onDidDispose(() => {
       if (this.panels.get(ticketId) !== panel) return;
       this.statsControllers.get(ticketId)?.abort();
@@ -316,7 +365,7 @@ export class DashboardManager {
       // must never dispatch against a later snapshot.
       this.registries.get(ticketId)?.dispose();
       this.registries.delete(ticketId);
-      this.priorRegistries.get(ticketId)?.dispose();
+      for (const entry of this.priorRegistries.get(ticketId) ?? []) entry.registry.dispose();
       this.priorRegistries.delete(ticketId);
       this.generations.delete(ticketId);
     });
@@ -367,16 +416,19 @@ export class DashboardManager {
     const generation = (this.generations.get(ticketId) ?? 0) + 1;
     this.generations.set(ticketId, generation);
     const registry = new InsideActionRegistry(generation, ticketId);
-    // The snapshot the user was LOOKING AT stays dispatchable for exactly one
-    // more generation. A click is posted against the ids of the render on
+    // The snapshot the user was LOOKING AT stays dispatchable for a short
+    // WALL-CLOCK window. A click is posted against the ids of the render on
     // screen, and with a repaint every second that render can be superseded
     // while the message is in flight — rejecting it would report "no longer
-    // available" for a button the user just pressed. One generation of grace,
-    // never more: a capability must still die promptly.
-    this.priorRegistries.get(ticketId)?.dispose();
+    // available" for a button the user just pressed. Bounded and short: a
+    // capability must still die promptly.
     const superseded = this.registries.get(ticketId);
-    if (superseded) this.priorRegistries.set(ticketId, superseded);
-    else this.priorRegistries.delete(ticketId);
+    if (superseded) {
+      const grace = this.priorRegistries.get(ticketId) ?? [];
+      grace.push({ registry: superseded, supersededAt: Date.now() });
+      this.priorRegistries.set(ticketId, grace);
+    }
+    this.pruneGrace(ticketId);
     this.registries.set(ticketId, registry);
     const state = buildDashboardState(
       this.store,
@@ -397,7 +449,12 @@ export class DashboardManager {
       // tables key by — the manifest's name for a recorded repoPath.
       (repo) => this.repoNameFor(repo),
     );
-    panel.postMessage({ type: 'state', state });
+    // `live` marks a REPAINT of data the panel already had, as opposed to a
+    // push that reports something happening. The webview defers a live repaint
+    // while the user is mid-interaction (an action in flight, a text selection
+    // being made) — a snapshot pushed once a second must never redraw over
+    // what someone is doing, and only the sender knows which kind it is.
+    panel.postMessage({ type: 'state', state, ...(supplemental ? {} : { live: true }) });
     if (supplemental) {
       this.pushWorktreeStats(ticketId, panel, state.worktrees);
       this.refreshIcon(ticketId, panel);
@@ -421,6 +478,12 @@ export class DashboardManager {
    * the moment nothing is running — a settled or parked ticket schedules no
    * timer at all. A panel disposed between two ticks drops the push in the same
    * `pushState` guard every other caller relies on.
+   *
+   * A panel that is not VISIBLE stops the loop entirely rather than repainting
+   * a webview nobody can see; `onDidChangeViewState` restarts it with one
+   * catch-up repaint the moment the panel comes back. Visibility, never
+   * activation: the dashboard's whole purpose is to be watched beside a
+   * terminal the user is typing in, which is visible and inactive.
    */
   private scheduleLiveTick(ticketId: number, state: DashboardState): void {
     const pending = this.liveTicks.get(ticketId);
@@ -429,7 +492,9 @@ export class DashboardManager {
       this.liveTicks.delete(ticketId);
     }
     if (!hasLiveWork(state)) return;
-    if (!this.panels.has(ticketId)) return;
+    const panel = this.panels.get(ticketId);
+    if (!panel) return;
+    if (panel.isVisible?.() === false) return;
     const timer = setTimeout(() => {
       this.liveTicks.delete(ticketId);
       if (!this.panels.has(ticketId)) return;
@@ -445,6 +510,21 @@ export class DashboardManager {
     // Never hold the host's event loop open for a repaint.
     (timer as { unref?: () => void }).unref?.();
     this.liveTicks.set(ticketId, timer);
+  }
+
+  /**
+   * Drop every superseded registry past the grace window (or past the depth
+   * bound), disposing it — a capability that outlives its window is exactly
+   * what the snapshot scoping exists to prevent.
+   */
+  private pruneGrace(ticketId: number): void {
+    const grace = this.priorRegistries.get(ticketId);
+    if (!grace) return;
+    const cutoff = Date.now() - ACTION_GRACE_MS;
+    while (grace.length > 0 && (grace[0]!.supersededAt < cutoff || grace.length > MAX_GRACE_DEPTH)) {
+      grace.shift()!.registry.dispose();
+    }
+    if (grace.length === 0) this.priorRegistries.delete(ticketId);
   }
 
   /**
@@ -610,8 +690,13 @@ export class DashboardManager {
       });
     let outcome = dispatchAgainst(registry);
     if (outcome.outcome === 'unknown') {
-      const prior = this.priorRegistries.get(ticketId);
-      if (prior) outcome = dispatchAgainst(prior);
+      this.pruneGrace(ticketId);
+      // Newest first: an id resolves only against its own generation, so this
+      // is a grace window, never a widening of what a given id can reach.
+      const grace = this.priorRegistries.get(ticketId) ?? [];
+      for (let i = grace.length - 1; i >= 0 && outcome.outcome === 'unknown'; i -= 1) {
+        outcome = dispatchAgainst(grace[i]!.registry);
+      }
     }
     if (outcome.outcome === 'rejected') {
       this.logError(`karst: inside action rejected: ${outcome.reason}`, undefined);

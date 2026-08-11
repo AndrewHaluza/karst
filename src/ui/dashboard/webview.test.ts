@@ -3328,46 +3328,123 @@ describe('inside block issues p3 renderings (869egdr2u)', () => {
  * user roughly as often as they could press a key.
  */
 describe('focus across a repaint', () => {
-  function focusHarness(before: string[], after: string[]) {
+  /** The webview's OWN focus helpers, run against element doubles. */
+  function focusApi(doc: unknown) {
     const src = `${/function focusMark[\s\S]*?\n  \}/.exec(HYDRATED)?.[0]}\n${
       /function restoreFocus[\s\S]*?\n  \}/.exec(HYDRATED)?.[0]
     }`;
     if (src.includes('undefined')) throw new Error('focus helpers not found in the webview script');
-    const focused: string[] = [];
-    const mk = (act: string) => ({
-      getAttribute: (name: string) => (name === 'data-act' ? act : null),
-      focus: () => focused.push(act),
-    });
-    let controls = before.map(mk);
-    const active = () => controls[1];
+    const run = new Function('document', `${src}\n;return { focusMark, restoreFocus };`) as (
+      document: unknown,
+    ) => { focusMark: () => unknown; restoreFocus: (m: unknown) => void };
+    return run(doc);
+  }
+
+  interface FakeControl {
+    id: string;
+    act: string;
+    selectionStart?: number;
+    selectionEnd?: number;
+    getAttribute(name: string): string | null;
+    focus(): void;
+    setSelectionRange?(start: number, end: number): void;
+  }
+
+  function control(id: string, act: string, focused: string[], caret?: number): FakeControl {
+    const el: FakeControl = {
+      id,
+      act,
+      getAttribute: (name) => (name === 'data-act' ? act || null : null),
+      focus: () => focused.push(id || act),
+    };
+    if (caret !== undefined) {
+      el.selectionStart = caret;
+      el.selectionEnd = caret;
+      el.setSelectionRange = (start, end) => {
+        el.selectionStart = start;
+        el.selectionEnd = end;
+      };
+    }
+    return el;
+  }
+
+  function repaint(before: FakeControl[], after: FakeControl[], activeIndex: number) {
+    let controls = before;
     const doc = {
       get activeElement() {
-        return active();
+        return controls[activeIndex];
       },
-      querySelectorAll: () => controls,
+      querySelectorAll: () => controls.filter((c) => c.act),
+      getElementById: (id: string) => controls.find((c) => c.id === id) ?? null,
     };
-    const run = new Function(
-      'document',
-      'setControls',
-      `${src}\n;return { focusMark, restoreFocus };`,
-    ) as (
-      document: unknown,
-      setControls: unknown,
-    ) => { focusMark: () => unknown; restoreFocus: (m: unknown) => void };
-    const api = run(doc, null);
+    const api = focusApi(doc);
     const mark = api.focusMark();
-    controls = after.map(mk);
+    controls = after;
     api.restoreFocus(mark);
-    return focused;
+    return mark;
   }
 
   it('returns the keyboard to the same control after the page is rebuilt', () => {
-    expect(focusHarness(['edit-ticket', 'inside-action'], ['edit-ticket', 'inside-action'])).toEqual([
-      'inside-action',
-    ]);
+    const focused: string[] = [];
+    repaint(
+      [control('', 'edit-ticket', focused), control('', 'inside-action', focused)],
+      [control('', 'edit-ticket', focused), control('', 'inside-action', focused)],
+      1,
+    );
+    expect(focused).toEqual(['inside-action']);
   });
 
   it('never moves focus onto a DIFFERENT control when the page shape changed', () => {
-    expect(focusHarness(['edit-ticket', 'inside-action'], ['edit-ticket', 'merge-pr'])).toEqual([]);
+    const focused: string[] = [];
+    repaint(
+      [control('', 'edit-ticket', focused), control('', 'inside-action', focused)],
+      [control('', 'edit-ticket', focused), control('', 'merge-pr', focused)],
+      1,
+    );
+    expect(focused).toEqual([]);
+  });
+
+  it('restores a control that carries no action at all, with its caret', () => {
+    // The services filter input is rebuilt with the panel and has no
+    // `data-act`: a repaint mid-typing took the keyboard away and dropped the
+    // caret, and a controls-only rule could not even see it.
+    const focused: string[] = [];
+    const after = control('srvFilter', '', focused, 0);
+    repaint([control('srvFilter', '', focused, 3)], [after], 0);
+    expect(focused).toEqual(['srvFilter']);
+    expect(after.selectionStart).toBe(3);
+  });
+});
+
+describe('deferring a live repaint', () => {
+  function safeWith(opts: { busy?: boolean; selecting?: boolean }): boolean {
+    const src = /function liveRepaintSafe[\s\S]*?\n  \}/.exec(HYDRATED)?.[0];
+    if (!src) throw new Error('liveRepaintSafe not found in the webview script');
+    const doc = { querySelector: (sel: string) => (opts.busy && sel.includes('#inside') ? {} : null) };
+    const win = {
+      getSelection: () => ({ rangeCount: opts.selecting ? 1 : 0, isCollapsed: !opts.selecting }),
+    };
+    const run = new Function('document', 'window', `${src}\n;return liveRepaintSafe();`) as (
+      document: unknown,
+      window: unknown,
+    ) => boolean;
+    return run(doc, win);
+  }
+
+  it('repaints when the user is doing nothing', () => {
+    expect(safeWith({})).toBe(true);
+  });
+
+  it('holds while an inside action is in flight — its pending state is element-keyed', () => {
+    expect(safeWith({ busy: true })).toBe(false);
+  });
+
+  it('holds while a text selection is being made — a repaint would collapse it', () => {
+    expect(safeWith({ selecting: true })).toBe(false);
+  });
+
+  it('defers only a LIVE push; a push that carries news always renders', () => {
+    expect(HTML).toMatch(/msg\.live && !liveRepaintSafe\(\)/);
+    expect(HTML).toContain('if (!msg.live) worktreeStats = {};');
   });
 });
