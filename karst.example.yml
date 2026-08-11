@@ -210,6 +210,8 @@ agents:
 # meant). `agentName` overrides the display snapshot; blanks keep the defaults.
 # `provider`/`model` beat the ticket and manifest defaults; `enabled: false`
 # turns the assignment off.
+# `instructions` (uatTester / review only) replaces the built-in role/strategy
+# prompt section; the JSON output rules stay fixed.
 #
 # processes:
 #   uatTester:
@@ -217,6 +219,9 @@ agents:
 #     agentName: My UAT Agent
 #     provider: codex
 #     model: gpt-5.6-sol
+#     instructions: |          # optional; blank/absent keeps the built-in prompt
+#       Focus on API endpoint behavior. Test edge cases around
+#       authentication and rate limiting. Ignore UI concerns.
 #   uatFix: { provider: codex }
 #   review: { agent: review, provider: antigravity }
 #   reviewFix: { provider: antigravity }

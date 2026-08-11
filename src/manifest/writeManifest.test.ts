@@ -603,6 +603,9 @@ processes:
     agentName: My UAT Agent
     provider: codex
     model: gpt-5.6-sol
+    instructions: |
+      Focus on API endpoint behavior.
+      Test edge cases around authentication.
 `);
     try {
       const m = loadManifest(path);
@@ -611,6 +614,8 @@ processes:
           agentName: 'My UAT Agent',
           provider: 'codex',
           model: 'gpt-5.6-sol',
+          // A `|` block scalar keeps its single trailing newline (js-yaml clip).
+          instructions: 'Focus on API endpoint behavior.\nTest edge cases around authentication.\n',
           enabled: true,
         },
       });
