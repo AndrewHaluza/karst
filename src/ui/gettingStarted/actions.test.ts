@@ -43,7 +43,7 @@ describe('buildGettingStartedActions', () => {
     actions.openSettings();
     actions.createTicket();
     expect(runCommand).toHaveBeenCalledWith('karst.openSettings');
-    expect(runCommand).toHaveBeenCalledWith('karst.createTicket');
+    expect(runCommand).toHaveBeenCalledWith('karst.openTicketForm');
   });
 
   it('reportIssue runs the existing report-issue command rather than a second reporting path', () => {
