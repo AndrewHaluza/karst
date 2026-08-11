@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { basename, dirname, join } from 'node:path';
 
 import { openStore, type Store } from './store/db.js';
+import { describeStoreOpenFailure } from './extension/storeOpenFailure.js';
 import { watchExternalChanges } from './store/externalChanges.js';
 import { SidebarViewManager } from './ui/sidebar/panel.js';
 import { makeSidebarViewHost, SIDEBAR_VIEW_ID } from './ui/sidebar/host.js';
@@ -442,7 +443,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const storageDir = context.globalStorageUri.fsPath;
   mkdirSync(storageDir, { recursive: true });
   const dbPath = join(storageDir, 'karst.db');
-  store = openStore(dbPath);
+  try {
+    store = openStore(dbPath);
+  } catch (err) {
+    // An ABI-mismatched better-sqlite3 addon makes `openStore` throw on the
+    // FIRST `new Database()`, killing activation with a raw dlopen error and a
+    // dead extension. Name the fix instead of dying silently (the modal is the
+    // only surface left — the output channel is created below the store open).
+    const fault = describeStoreOpenFailure(err);
+    console.error('karst: activation aborted — store open failed', err);
+    void vscode.window.showErrorMessage(
+      fault.fixHint ? `${fault.message}\n\n${fault.fixHint}` : fault.message,
+    );
+    return;
+  }
   const localStore = store;
 
   // One "Karst" output channel is the sink for every caught error (§ todo-5).
