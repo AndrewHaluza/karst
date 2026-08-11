@@ -15,8 +15,15 @@ import type {
 } from '../diagnostics/hookChannel.js';
 import { serveCreateTicketRequest, type TicketApiOptions } from './ticketApi.js';
 
-/** Cap the accepted hook body — a local sender can't grow host memory unbounded. */
-const MAX_BODY_BYTES = 64 * 1024;
+/**
+ * Cap the accepted hook body. A tool result rides the hook payload
+ * (PostToolUse `tool_response` is the full tool result and can legitimately be
+ * large), so the cap is generous; a body over it is a normal event karst
+ * declines to ingest, never a fault of the sender (see `onData`).
+ */
+export const MAX_HOOK_BODY_BYTES = 1024 * 1024;
+/** Cap for the /tickets API — ticket bodies are small (title + description). */
+const MAX_TICKET_BODY_BYTES = 64 * 1024;
 const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
 const LAUNCH_ID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -67,6 +74,9 @@ export interface HookEndpointOptions {
    * that story, so every request outcome is counted for the issue report.
    */
   recorder?: HookChannelRecorder;
+  /** Debug callback (the host binds `logger.debug`). Best-effort — a defect
+   * must never change the hook contract. */
+  debug?: (message: string) => void;
   /**
    * Ticket-creation API (§ create ticket from the extension): when present,
    * `POST /tickets` is served alongside `/hooks`. Requests are never counted
@@ -127,7 +137,7 @@ export function startHookEndpoint(
         serveCreateTicketRequest(req, res, {
           store,
           options: options.ticketApi,
-          maxBodyBytes: MAX_BODY_BYTES,
+          maxBodyBytes: MAX_TICKET_BODY_BYTES,
           requestTimeoutMs,
         });
         return;
@@ -143,7 +153,16 @@ export function startHookEndpoint(
 
       let body = '';
       let settled = false;
+      /** True once a body crossed the cap — the 204 was sent, the rest drains. */
+      let oversized = false;
       const deadline = setTimeout(() => {
+        if (settled || oversized) {
+          // The response was already sent (a 2xx, or the 204 of a declined
+          // oversized body); a sender that still holds the socket is
+          // disconnected here so a slow upload cannot leak the connection.
+          if (!req.destroyed) req.destroy();
+          return;
+        }
         observe('timeout');
         finish(408, true);
       }, requestTimeoutMs);
@@ -177,20 +196,55 @@ export function startHookEndpoint(
       function onAborted(): void {
         if (settled) return;
         settled = true;
+        if (oversized) {
+          // The 204 was already sent; the sender's socket went away (or the
+          // drain deadline disconnected it). Nothing was left to answer —
+          // record nothing.
+          cleanup();
+          return;
+        }
         observe('aborted');
         cleanup();
       }
 
       function onData(chunk: Buffer | string): void {
+        if (oversized) return;
         body += chunk.toString();
-        if (body.length > MAX_BODY_BYTES) {
+        if (body.length > MAX_HOOK_BODY_BYTES) {
+          // A body over the ingest cap is a normal event karst declines to
+          // ingest, never a fault of the sender: tool responses ride hook
+          // payloads and can legitimately be large, and the agent renders any
+          // non-2xx as a hook failure. Answer 204 (accepted), release the
+          // buffer, and drain the rest so the sender never sees a failure.
+          oversized = true;
+          body = '';
           observe('too-large');
-          finish(413, true);
+          try {
+            options.debug?.(
+              `[hooks] declined oversized hook body (>${MAX_HOOK_BODY_BYTES} bytes)`,
+            );
+          } catch {
+            // Diagnostics are best-effort.
+          }
+          try {
+            res.writeHead(204);
+            res.end();
+          } catch {
+            // Socket already gone — nothing to answer.
+          }
+          req.resume();
         }
       }
 
       function onEnd(): void {
         if (settled) return;
+        if (oversized) {
+          // The body was declined and the drain finished; the 204 was already
+          // sent. Nothing more to do.
+          settled = true;
+          cleanup();
+          return;
+        }
 
         // Parse + validate is the only step we treat as "malformed → ignore".
         let payload;
