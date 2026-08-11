@@ -496,10 +496,9 @@
     background:var(--vscode-sideBar-background,var(--k-bg));
   }
   .brand{display:flex;align-items:center;gap:var(--k-space-3);padding:var(--k-space-0) var(--k-space-3) var(--k-space-4)}
+  /* The approved #35 mark itself — no badge box behind it (869egvp46-fu2). */
   .brandmark{
-    width:var(--k-space-8);height:var(--k-space-8);flex:0 0 auto;display:grid;place-items:center;
-    border-radius:var(--k-radius-sm);font-weight:700;font-size:var(--k-text-sm);
-    background:var(--vscode-badge-background);color:var(--vscode-badge-foreground);
+    width:var(--k-space-8);height:var(--k-space-8);flex:0 0 auto;display:block;
   }
   .brand .brand-name{font-size:var(--k-text-md);font-weight:600;letter-spacing:.01em}
   .nav-group{margin-top:var(--k-space-3)}
@@ -887,7 +886,24 @@
 <div class="app">
 <nav class="sidebar" aria-label="Settings sections">
   <div class="brand">
-    <span class="brandmark">K</span>
+    <!-- Approved #35 mark, inline like the Getting Started splash (CSP forbids
+         external assets). Gradient ids are page-scoped so no webview clashes. -->
+    <svg class="brandmark" aria-hidden="true" viewBox="0 0 215 215">
+      <defs>
+        <linearGradient id="setLeft" x1="0.22" y1="0.12" x2="0.78" y2="0.92">
+          <stop offset="0%" stop-color="#7D48E9"/><stop offset="43%" stop-color="#7D3CEE"/><stop offset="100%" stop-color="#4A71D7"/>
+        </linearGradient>
+        <linearGradient id="setRight" x1="0.18" y1="0.10" x2="0.82" y2="0.90">
+          <stop offset="0%" stop-color="#00B7C9"/><stop offset="55%" stop-color="#00AFC0"/><stop offset="100%" stop-color="#00B1C4"/>
+        </linearGradient>
+        <linearGradient id="setCore" x1="0.20" y1="0.18" x2="0.82" y2="0.86">
+          <stop offset="0%" stop-color="#6647DE"/><stop offset="48%" stop-color="#5660D9"/><stop offset="100%" stop-color="#3586D6"/>
+        </linearGradient>
+      </defs>
+      <path d="M 96 20 L 25 67 L 25 156 L 98 203 L 98 180 L 44 145 L 44 78 L 97 44 Z" fill="url(#setLeft)"/>
+      <path d="M 151 42 L 138 58 L 170 78 L 170 144 L 138 165 L 150 180 L 188 156 L 188 67 Z" fill="url(#setRight)"/>
+      <circle cx="106.5" cy="111.5" r="26.5" fill="url(#setCore)"/>
+    </svg>
     <span class="brand-name">Karst settings</span>
   </div>
 
