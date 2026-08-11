@@ -9,6 +9,17 @@
 <style>
   /*KARST_DS_CSS*/
 
+  :root{
+    /* One chevron for every dropdown (native <select> + the custom agent-core
+       trigger) so placement and size read the same. A data-URI SVG cannot
+       consume a CSS custom property, so its stroke colour cannot resolve to a
+       --k-* token the way every other colour in this file does — this is the
+       one accepted UI-R04 exception, forced by the encoding, not by choice.
+       Mid-gray shows on light and dark input chrome alike. (Same definition
+       as settings/webview.html — the two pages must not drift.) */
+    --chevron:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.5 6 7.5 9 4.5' fill='none' stroke='%238a8a8a' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  }
+
   *{box-sizing:border-box}
   body{
     margin:var(--k-space-0);padding:var(--k-space-8) var(--k-space-9);
@@ -29,7 +40,14 @@
   label{display:block;font-size:var(--k-text-md);opacity:.8;margin:var(--k-space-5) var(--k-space-0) var(--k-space-2)}
   textarea.k-input{width:100%;resize:vertical;min-height:calc(var(--k-space-8) * 3.2)}
   input.k-input[type=text]{width:100%}
-  select.k-input{width:100%}
+  /* Drop the OS arrow and paint our own, vertically centered with room reserved
+     via padding — the native arrow's placement drifts between platforms/renderers,
+     and the custom Agent-core trigger below paints the SAME --chevron, so every
+     dropdown on the page reads as one widget (same treatment as settings). */
+  select.k-input{width:100%;appearance:none;-webkit-appearance:none;
+    padding-right:calc(var(--k-space-8) + var(--k-space-4));
+    background-image:var(--chevron);background-repeat:no-repeat;
+    background-position:right var(--k-space-5) center}
   .row{display:flex;gap:var(--k-space-4);align-items:center}
   .row input[type=text]{flex:1}
 
@@ -57,6 +75,10 @@
   .empty{opacity:.5;font-size:var(--k-text-md);padding:var(--k-space-3) var(--k-space-2)}
 
   .attachrow{display:flex;align-items:center;gap:var(--k-space-4);margin-top:var(--k-space-3)}
+  /* Caption beside a control (the "or paste…" hint next to Attach…) — the
+     secondary-text treatment `.sub` gives page-level notes, without its
+     bottom margin (this rides a flex row). */
+  .hint{font-size:var(--k-text-sm);opacity:.6;margin:var(--k-space-0)}
   .attachstrip{display:flex;flex-wrap:wrap;gap:var(--k-space-4);margin-top:var(--k-space-4)}
   .attachstrip:empty{display:none}
   .attachtile{position:relative;width:calc(var(--k-space-8) * 6.6);border-radius:var(--k-radius-sm);overflow:hidden;
@@ -176,9 +198,12 @@
   .step.pending .st{opacity:.55;font-weight:var(--k-weight-medium)}
   .step .stcount{margin-left:var(--k-space-3);font-weight:var(--k-weight-medium);opacity:.6;font-size:var(--k-text-sm)}
   .step .stright{margin-left:auto;display:flex;align-items:center;gap:var(--k-space-4)}
-  /* The rail: a left border joining each step body to the next dot. */
+  /* The rail: a left border joining each step body to the next dot.
+     margin-left centers it under the dots: the dot's centre sits halfway
+     through --k-space-9, so the rail's left edge must sit at --k-space-6 —
+     the old --k-space-5 margin ran the spine left of every dot it joins. */
   .stepbody{border-left:calc(var(--k-border-w) * 2) solid var(--k-border);
-    margin-left:var(--k-space-5);padding:var(--k-space-1) var(--k-space-0) var(--k-space-7) var(--k-space-8)}
+    margin-left:var(--k-space-6);padding:var(--k-space-1) var(--k-space-0) var(--k-space-7) var(--k-space-8)}
   .stepbody.last{border-left-color:transparent;padding-bottom:var(--k-space-0)}
 
   /* Repos as `.k-chip` toggle buttons — a real button element carrying aria-pressed (UI-R09,
@@ -849,8 +874,12 @@
   // plus the implemented providers pushed in `state.agentProviders`. Mirrors
   // renderModelPicker exactly, including the session-open lock — the adapter is
   // baked into the terminal at spawn, same as the model.
+  // Last default pushed, so a pick can repaint the trigger locally in create
+  // mode (the host no-ops set-provider there — no state push follows).
+  let lastDefaultProvider = 'claude';
   function renderProviderPicker(providers, selectedProvider, defaultProvider, sessionOpen) {
     const list = providers || [];
+    lastDefaultProvider = defaultProvider || 'claude';
     const sel = draft.selectedAgentProvider ?? selectedProvider ?? '';
     const current = sel || defaultProvider || 'claude';
     el('agentTrigger').innerHTML = agentBadgeHtml(current) + '<span class="chev" aria-hidden="true"></span>';
@@ -1525,7 +1554,11 @@
   // Auto-prefill above.
   el('pullBase').addEventListener('click', () => setPullBase(!pullBaseOn));
 
-  el('cancelBtn').addEventListener('click', () => post({ type: 'request-state' }));
+  // Cancel discards the form and closes the panel. It used to post
+  // request-state — but render() refuses to clobber non-empty fields, so the
+  // re-push visibly did NOTHING in both modes. The webview cannot dispose its
+  // own panel, so this is the host's job (close-form → ctx.close).
+  el('cancelBtn').addEventListener('click', () => post({ type: 'close-form' }));
 
   el('analyzeBtn').addEventListener('click', () => {
     // Explicit run: analyze the current prompt/brief. The result overwrites the
@@ -1617,6 +1650,20 @@
   const menu = el('agentMenu');
   function selectProvider(p) {
     draft.selectedAgentProvider = p || null;
+    // Repaint the trigger and the option states LOCALLY: in create mode the
+    // host's set-provider is a no-op (no ticket to persist), so no state push
+    // follows — without this the trigger kept showing the previous core and
+    // the menu stayed open until the next full render (same local update
+    // settings' selectAgent performs).
+    const current = p || lastDefaultProvider;
+    trigger.innerHTML = agentBadgeHtml(current) + '<span class="chev" aria-hidden="true"></span>';
+    menu.querySelectorAll('.agentselect-opt').forEach((opt) => {
+      const v = opt.getAttribute('data-value');
+      opt.classList.toggle('selected', v === p);
+      opt.setAttribute('aria-selected', String(v === p));
+    });
+    menu.classList.add('hidden');
+    trigger.setAttribute('aria-expanded', 'false');
     const requestId = karstRequestId();
     karstBeginPending(trigger, requestId);
     post({ type: 'set-provider', id: p, requestId });

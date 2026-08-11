@@ -89,7 +89,11 @@ export type TicketFormMessage =
   // Persists the ticket like `submit`, but never calls startTicket — no
   // worktrees, no agent launch. The "save without a run" path.
   | ({ type: 'save' } & TicketDraftFields)
-  | { type: 'request-state' };
+  | { type: 'request-state' }
+  // Cancel: discard the form and close the panel. The webview cannot dispose
+  // its own panel — the host owns it — so this is the one message whose whole
+  // job is to trigger the host's `ctx.close()`.
+  | { type: 'close-form' };
 
 /**
  * The busy vocabulary is a CLOSED union (UI-R16), not `string`: the host used to
@@ -178,6 +182,8 @@ export interface TicketFormActions {
   submit: (input: SubmitFields) => void | Promise<void>;
   save: (input: TicketDraftFields) => void | Promise<void>;
   requestState: () => void | Promise<void>;
+  /** Cancel: discard the form and close the panel (ctx.close in panel.ts). */
+  closeForm: () => void | Promise<void>;
 }
 
 function isStringArray(v: unknown): v is string[] {
@@ -337,6 +343,8 @@ export function parseTicketFormMessage(raw: unknown): TicketFormMessage | null {
     }
     case 'request-state':
       return { type: 'request-state' };
+    case 'close-form':
+      return { type: 'close-form' };
     default:
       return null;
   }
@@ -440,6 +448,9 @@ export function routeTicketFormAction(
       return;
     case 'request-state':
       actions.requestState();
+      return;
+    case 'close-form':
+      actions.closeForm();
       return;
   }
 }

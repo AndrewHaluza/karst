@@ -73,6 +73,9 @@ describe('parseTicketFormMessage', () => {
       parseTicketFormMessage({ type: 'open-ticket-link', url: 'https://app.clickup.com/t/CU-1' }),
     ).toEqual({ type: 'open-ticket-link', url: 'https://app.clickup.com/t/CU-1' });
     expect(parseTicketFormMessage({ type: 'request-state' })).toEqual({ type: 'request-state' });
+    // Cancel: the panel's own close affordance (the webview cannot dispose
+    // itself — the host owns the panel).
+    expect(parseTicketFormMessage({ type: 'close-form' })).toEqual({ type: 'close-form' });
     expect(
       parseTicketFormMessage({ type: 'submit', key: 'P-1', title: 't', description: 'd' }),
     ).toEqual({
@@ -285,6 +288,7 @@ describe('routeTicketFormAction', () => {
       submit: vi.fn(),
       save: vi.fn(),
       requestState: vi.fn(),
+      closeForm: vi.fn(),
     };
   }
 
@@ -305,6 +309,7 @@ describe('routeTicketFormAction', () => {
     routeTicketFormAction({ type: 'set-type', id: 'fix' }, actions);
     routeTicketFormAction({ type: 'open-ticket-link', url: 'https://app.clickup.com/t/CU-1' }, actions);
     routeTicketFormAction({ type: 'create-provider-ticket' }, actions);
+    routeTicketFormAction({ type: 'close-form' }, actions);
     expect(actions.fetchSource).toHaveBeenCalledWith('CU-1');
     expect(actions.searchTickets).toHaveBeenCalledWith('pay', 'to do');
     expect(actions.searchStatuses).toHaveBeenCalled();
@@ -319,6 +324,7 @@ describe('routeTicketFormAction', () => {
     expect(actions.setType).toHaveBeenCalledWith('fix');
     expect(actions.openTicketLink).toHaveBeenCalledWith('https://app.clickup.com/t/CU-1');
     expect(actions.createProviderTicket).toHaveBeenCalled();
+    expect(actions.closeForm).toHaveBeenCalled();
     // set-provider must not also drive setType (a missing `return` in the
     // switch made a provider pick write the provider id as the ticket TYPE).
     expect(actions.setType).toHaveBeenCalledTimes(1);
@@ -382,6 +388,7 @@ describe('attachment messages', () => {
       submit: vi.fn(),
       save: vi.fn(),
       requestState: vi.fn(),
+      closeForm: vi.fn(),
       attachPick: vi.fn(),
       attachBytes: vi.fn(),
       detachAttachment: vi.fn(),
