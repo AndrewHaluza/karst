@@ -132,6 +132,80 @@ export interface WorkflowPhase {
 }
 
 /**
+ * The built-in graph runtime's planner declaration: which execution profile the
+ * bootstrap planner runs under, and which packaged prompt artifact feeds it.
+ */
+export interface GraphPlannerConfig {
+  /** Profile id from `profiles`, e.g. "expert". */
+  profile: string;
+  /** Packaged prompt artifact (relative path under the approach package). */
+  prompt?: { artifact: string };
+}
+
+/**
+ * One named execution profile: the provider/model/effort an agent node
+ * resolving to this profile launches with. Generated graphs may reference a
+ * profile id, never a provider/model/effort (karst owns routing).
+ */
+export interface GraphProfileConfig {
+  provider: AgentProvider;
+  model: string;
+  effort?: string;
+}
+
+/**
+ * One trusted command definition a `CommandNode` may reference. `command` is
+ * the executable name (resolved to an absolute host path at compile time),
+ * `args` the fixed argv — never shell-interpolated. `cwd`/`access` use the
+ * closed vocabularies; `env` is a bounded map of `NAME: value` string pairs
+ * merged onto the minimal host environment.
+ */
+export interface GraphCommandConfig {
+  command: string;
+  args: string[];
+  cwd: 'repository' | 'worktreeRoot';
+  access: 'read' | 'write';
+  timeoutSeconds: number;
+  env?: Record<string, string>;
+}
+
+/**
+ * The graph runtime's budget block (`limits`, deliberately not named `graph`
+ * so `graph.graph` never occurs). Every numeric field is a finite safe integer
+ * inside its explicit inclusive range; product hard ceilings are enforced at
+ * manifest validation and cannot be raised by project configuration.
+ */
+export interface GraphLimits {
+  confirmGeneratedGraph: boolean;
+  maxParallel: number;
+  maxNodeRuns: number;
+  maxExpertRuns: number;
+  maxReplans: number;
+  maxActivations: number;
+  maxGraphWallSeconds: number;
+  maxAgentWallSeconds: number;
+  maxAgentIdleSeconds: number;
+  maxArtifactBytes: number;
+  maxLogBytes: number;
+  maxAggregateArtifactBytes: number;
+  maxAggregateWorkspaceBytes: number;
+}
+
+/**
+ * The nested `graph:` block on an approach entry (Decision 4): `planner`,
+ * `profiles`, `commands` and `limits`, NOT hoisted to the top level — one
+ * nested key keeps `SECTION_FIELDS.approaches` unchanged and confines the
+ * validator work to one function. A block on a non-built-in approach id
+ * validates and is inert (accepted, consumed by no runtime).
+ */
+export interface GraphApproachConfig {
+  planner: GraphPlannerConfig;
+  profiles: Record<string, GraphProfileConfig>;
+  commands: Record<string, GraphCommandConfig>;
+  limits: GraphLimits;
+}
+
+/**
  * A development approach offered on the ticket form (§ ticket form). `id` is
  * the stable key persisted on a ticket; `recommended` marks the default pick
  * (at most one). `source` is absent for hand-authored/custom approaches (no fetch).
@@ -146,6 +220,8 @@ export interface ApproachDef {
   recommended?: boolean;
   workflow?: WorkflowPhase[];
   enabled?: boolean; // default true
+  /** Nested graph-runtime configuration; present only on graph approaches. */
+  graph?: GraphApproachConfig;
 }
 
 /**
