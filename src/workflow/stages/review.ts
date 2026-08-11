@@ -491,6 +491,9 @@ export async function runReview(
           startedAt: runAt,
         }
       : undefined,
+    // The lane's own decision points (which target was asked, what came back,
+    // a rejected call, the outcome) ride the stage's debug stream.
+    debug: opts.debug,
     // F2 — persisted the INSTANT each target's call returns, inside the lane,
     // before any aggregation rule reads them. These are completed model output
     // the user has already paid for (a single lane has cost 1.3M tokens), and

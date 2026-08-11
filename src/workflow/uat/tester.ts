@@ -62,6 +62,15 @@ export interface RunUatTesterOpts {
   signal?: AbortSignal;
   warn?: WarnFn;
   /**
+   * Verbose decision-point logging (§ debug logging), prefixed `[gate]` — the
+   * Tester is part of the UAT stage flow, so its lines ride the same stream
+   * the stage's own debug lines use. Absent → no debug lines; the stage
+   * threads its `RunUatOpts.debug` here, and the host binds that to
+   * `Logger.debug` (a no-op unless the manifest's `debug` flag is on).
+   * The prompt is never logged — only counts, names and outcomes.
+   */
+  debug?: (message: string) => void;
+  /**
    * ONE cap for the whole execution, across every target (Finding 13) —
    * observations beyond it are truncated by severity exactly like review's
    * `maxFindings`. The cap is applied ONCE, after every configured target has
@@ -164,9 +173,19 @@ export async function runUatTester(
 
   const cap = opts.maxObservations ?? DEFAULT_MAX_TESTER_OBSERVATIONS;
   const collected: UatFindingInput[] = [];
+  const debug = opts.debug;
+  debug?.(
+    `[gate] uat tester ticket ${opts.ticketId}: starting — ${opts.targets.length} target(s), ` +
+      `cap ${cap}, assignment ${opts.assignment.agentName ?? '?'}/${opts.assignment.provider}` +
+      (opts.assignment.model ? `/${opts.assignment.model}` : ''),
+  );
   try {
     for (const target of opts.targets) {
       if (opts.signal?.aborted) break;
+      debug?.(
+        `[gate] uat tester ticket ${opts.ticketId}: asking target ${target.repo} ` +
+          `(worktree ${target.worktreePath})`,
+      );
       const result = await opts.adapter.runHeadless({
         prompt: buildTesterPrompt(target),
         cwd: target.worktreePath,
@@ -199,15 +218,26 @@ export async function runUatTester(
         line: f.line,
         title: f.title,
       }));
+      debug?.(
+        `[gate] uat tester ticket ${opts.ticketId}: target ${target.repo} returned ` +
+          `${parsed.length} observation(s)`,
+      );
       collected.push(...parsed);
     }
     if (opts.signal?.aborted) {
+      debug?.(`[gate] uat tester ticket ${opts.ticketId}: stopped — interrupted`);
       close('interrupted', 'interrupted');
       return { kind: 'interrupted' };
     }
     // The execution-wide cap is applied ONCE over everything every target
     // contributed, ranked by severity (critical first) and stable — ties keep
     // their original target/observation order — before the single slice.
+    if (collected.length > cap) {
+      debug?.(
+        `[gate] uat tester ticket ${opts.ticketId}: capped ${collected.length} → ${cap} ` +
+          `observation(s) by severity`,
+      );
+    }
     const observations = collected
       .map((finding, order) => ({ finding, order }))
       .sort(
@@ -224,19 +254,27 @@ export async function runUatTester(
       createdAt: now(),
     });
     close('passed', 'observed');
+    debug?.(
+      `[gate] uat tester ticket ${opts.ticketId}: recorded ${findingIds.length} finding(s) — observed`,
+    );
     return { kind: 'observed', findingIds };
   } catch (error) {
     // Abort can surface as a rejected adapter promise instead of a fulfilled
     // result. Stop is terminal in either shape: it must not turn into an
     // execution failure merely because the adapter observed the signal first.
     if (opts.signal?.aborted) {
+      debug?.(`[gate] uat tester ticket ${opts.ticketId}: stopped — interrupted`);
       close('interrupted', 'interrupted');
       return { kind: 'interrupted' };
     }
     // See the doc comment: a crash is reported, never thrown — the ordinary
     // UAT gates must decide the run whatever the Tester did.
     const message = error instanceof Error ? error.message : String(error);
+    const collapsed = collapseDiagnostic(message);
+    debug?.(
+      `[gate] uat tester ticket ${opts.ticketId}: adapter call failed — execution-failed (${collapsed})`,
+    );
     close('failed', 'execution-failed');
-    return { kind: 'execution-failed', message: collapseDiagnostic(message) };
+    return { kind: 'execution-failed', message: collapsed };
   }
 }

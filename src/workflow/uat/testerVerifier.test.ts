@@ -80,6 +80,36 @@ describe('runTesterVerifier', () => {
     expect(seen).toBe(controller.signal);
   });
 
+  it('threads the debug callback into the gate runner so the process lifecycle lands in the stream', async () => {
+    let seenOnDebug: ((message: string) => void) | undefined;
+    const run: TesterGateRunner = async (_command, _args, _cwd, options) => {
+      seenOnDebug = options?.onDebug;
+      return completed(0);
+    };
+    const debug = (m: string): void => undefined as void;
+    await runTesterVerifier({ gate: commandGate('v'), cwd: '/wt', onDebug: debug }, { run });
+    expect(seenOnDebug).toBe(debug);
+  });
+
+  it('emits debug lines at entry and at exit, naming the verifier and the outcome', async () => {
+    const lines: string[] = [];
+    await runTesterVerifier(
+      { gate: commandGate('verify.sh', ['--fast']), cwd: '/wt', onDebug: (m) => lines.push(m) },
+      { run: async () => completed(0) },
+    );
+    expect(lines.some((l) => l.includes('uat tester verifier') && l.includes('verify.sh --fast'))).toBe(
+      true,
+    );
+    expect(lines.some((l) => l.includes('passed (exit 0)'))).toBe(true);
+
+    const failed: string[] = [];
+    await runTesterVerifier(
+      { gate: commandGate('verify.sh'), cwd: '/wt', onDebug: (m) => failed.push(m) },
+      { run: async () => spawnFailed('ENOENT') },
+    );
+    expect(failed.some((l) => l.includes('execution-failed') && l.includes('ENOENT'))).toBe(true);
+  });
+
   it('a missing runner is an execution failure — the stage must park, never guess', async () => {
     expect(await runTesterVerifier({ gate: commandGate('v'), cwd: '/wt' }, {})).toEqual({
       kind: 'execution-failed',
