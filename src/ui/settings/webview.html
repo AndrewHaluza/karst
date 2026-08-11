@@ -333,6 +333,10 @@
     color:var(--k-text);font-size:var(--k-text-md);flex:1 1 auto;min-width:0;
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
   }
+  .roster-card .approach-desc{
+    color:var(--k-text-dim);font-size:var(--k-text-sm);line-height:var(--k-leading-normal);
+    margin-top:var(--k-space-3);max-width:calc(var(--k-space-8) * 38);
+  }
   .roster-card .approach-actions{display:flex;align-items:center;gap:var(--k-space-5);margin-left:auto;flex:0 0 auto}
   .roster-card .approach-lines{display:flex;flex-direction:column;gap:var(--k-space-3);margin-top:var(--k-space-5)}
   .roster-card .approach-line{display:flex;gap:var(--k-space-5);align-items:center}
@@ -465,6 +469,7 @@
      (UI-R30): nothing here carries information motion alone. */
   @media (prefers-reduced-motion:reduce){
     .drawer,.card-toggle .chevron{transition:none}
+    .reload-btn .reload-icon{animation:none}
   }
 
   textarea{
@@ -3376,6 +3381,7 @@
       + `<span class="approach-label">${esc(a.label)}</span>`
       + `<span class="approach-actions">${toggle}${editBtn}${approachInstallAffordance(a)}</span>`
       + `</div>`
+      + (a.description ? `<div class="approach-desc">${esc(a.description)}</div>` : '')
       + (isInstalled ? renderApproachCommands(a.id) : '')
       + (source ? `<div class="approach-foot">${source}</div>` : '')
       + `</div></div>`
