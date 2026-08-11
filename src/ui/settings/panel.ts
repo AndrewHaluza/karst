@@ -1,4 +1,4 @@
-import type { Manifest } from '../../manifest/types.js';
+import type { Manifest, ApproachDef } from '../../manifest/types.js';
 import {
   parseSettingsMessage,
   routeSettingsAction,
@@ -66,6 +66,8 @@ export class SettingsManager {
     }),
     /** Extension version from package.json (§ state.ts `version`). */
     private readonly version: () => string = () => '',
+    /** Packaged built-in approach definitions (§ state.ts `packagedApproaches`). */
+    private readonly packagedApproaches: () => ApproachDef[] = () => [],
   ) {}
 
   async open(): Promise<void> {
@@ -147,6 +149,7 @@ export class SettingsManager {
         this.manifestPath(),
         this.projectSlug(),
         this.version(),
+        this.packagedApproaches(),
       ),
     });
   }

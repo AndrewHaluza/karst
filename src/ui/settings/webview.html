@@ -1882,6 +1882,14 @@
   // approachCommands: per installed approach id -> its command file basenames.
   let agentRows = [];
   let approachCommands = {};
+  // packagedApproaches: the packaged built-in definitions, host-computed and
+  // pushed alongside `state`. The webview mirrors the host's Settings-write
+  // delta rule against these (UI-R34): Save serializes only the delta vs the
+  // packaged definition, never the merged effective object — otherwise a Save
+  // resurrects the whole built-in into the manifest (the stale-baseline/clobber
+  // class). The webview cannot import the host's TS, so webview.test.ts pins
+  // this mirror against the host's approachDelta.
+  let packagedApproaches = [];
   // tokenConfigured: disk/keychain state pushed alongside `state`, independent
   // of the dirty draft. The raw token never reaches the webview — only this flag.
   let tokenConfigured = false;
@@ -3596,6 +3604,78 @@
   // invisible precisely because this logic lived inside an event handler.
   // `fields` is what the drawer read: {id, label, description, entrypoint,
   // sourceType, recommended, source?}.
+  // MIRROR of the host's approachDelta (src/approaches/withBuiltInApproaches.ts,
+  // UI-R34): reduce an effective approaches list to the project-written delta
+  // against `packagedApproaches`. For an entry with a packaged counterpart only
+  // fields differing from the packaged definition survive — an entry identical
+  // to packaged reduces to absence (dropped), a disable is the small
+  // `{id, label, enabled:false}` tombstone. Non-built-in entries pass through
+  // untouched. The host applies the SAME rule at save; this mirror keeps the
+  // webview's own draft/roster honest and is pinned against the host by
+  // webview.test.ts.
+  function toApproachDeltas(approaches, packaged) {
+    const packagedById = {};
+    for (const p of packaged || []) packagedById[p.id] = p;
+    const out = [];
+    for (const entry of approaches || []) {
+      const p = packagedById[entry.id];
+      if (!p) { out.push(entry); continue; }
+      // A never-touched built-in IS the packaged definition — nothing to write.
+      if (deepEq(entry, p)) continue;
+      const delta = { id: entry.id, label: entry.label || p.label };
+      for (const key of ['description', 'entrypoint', 'source', 'recommended', 'workflow']) {
+        if (!deepEq(entry[key], p[key])) delta[key] = entry[key];
+      }
+      // graph: keep only the sub-blocks that differ.
+      if (entry.graph !== undefined || p.graph !== undefined) {
+        const sub = {};
+        let subDiffers = false;
+        for (const block of ['planner', 'profiles', 'commands', 'limits']) {
+          const ev = entry.graph ? entry.graph[block] : undefined;
+          const pv = p.graph ? p.graph[block] : undefined;
+          if (deepEq(ev, pv)) continue;
+          if (ev === undefined) continue;
+          sub[block] = ev;
+          subDiffers = true;
+        }
+        if (subDiffers) delta.graph = sub;
+      }
+      // enabled: kept when it differs from the packaged default (an explicit
+      // state change) OR when the entry is the minimal tombstone {id,label,
+      // enabled} — the toggle's own write, which must survive a packaged
+      // default flip (Slice 3). A merged entry that merely rode the overlaid
+      // draft keeps no default-matching enabled the user never chose.
+      const explicitEnabled = entry.enabled !== p.enabled;
+      const minimal = Object.keys(entry).every((k) => k === 'id' || k === 'label' || k === 'enabled');
+      if (explicitEnabled || minimal) delta.enabled = entry.enabled === undefined ? true : entry.enabled;
+      out.push(delta);
+    }
+    return out;
+  }
+
+  // Structural equality for plain-JSON approach shapes (mirror of the host's).
+  function deepEq(a, b) {
+    if (a === b) return true;
+    if (typeof a !== typeof b) return false;
+    if (Array.isArray(a) !== Array.isArray(b)) return false;
+    if (Array.isArray(a)) {
+      if (a.length !== b.length) return false;
+      for (let i = 0; i < a.length; i += 1) if (!deepEq(a[i], b[i])) return false;
+      return true;
+    }
+    if (typeof a === 'object' && a !== null && typeof b === 'object' && b !== null) {
+      const ka = Object.keys(a).sort();
+      const kb = Object.keys(b).sort();
+      if (ka.length !== kb.length) return false;
+      for (let i = 0; i < ka.length; i += 1) {
+        if (ka[i] !== kb[i]) return false;
+        if (!deepEq(a[ka[i]], b[ka[i]])) return false;
+      }
+      return true;
+    }
+    return false;
+  }
+
   function rebuildApproachFromDrawer(existing, fields) {
     const approach = {
       // Spread the existing entry first so keys this drawer does not render —
@@ -3691,7 +3771,14 @@
     // validation failure with nowhere to render, behind an already-closed
     // drawer. See the `saved`/`error` cases in the `message` handler below,
     // which close it on success and render the failure inline on failure.
-    approachDrawerRequestId = postAction(el('approachDrawerSave'), 'save', { manifest: draft, section: 'approaches' });
+    // The posted draft carries the delta vs the packaged built-in definition
+    // (mirrored rule, UI-R34) — an entry the drawer left packaged-identical is
+    // absent, and a built-in edit is an explicit override, never a resurrected
+    // packaged body.
+    approachDrawerRequestId = postAction(el('approachDrawerSave'), 'save', {
+      manifest: { ...draft, approaches: toApproachDeltas(draft.approaches, packagedApproaches) },
+      section: 'approaches',
+    });
   }
 
   // Blocked when the id is installed (an installed package would be orphaned)
@@ -3705,7 +3792,12 @@
     // mutation must reach the manifest file, not linger as an unsaved draft
     // (869e836xh, defect 1), and scoped to the one field the drawer owns. Stays
     // open, Delete pending, until the ack (UI-R14b) — see the message handler.
-    approachDrawerRequestId = postAction(el('approachDrawerDelete'), 'save', { manifest: draft, section: 'approaches' });
+    // Delta-reduced like the drawer save (UI-R34): deleting a built-in entry
+    // posts the reduced list, never a draft carrying the packaged body.
+    approachDrawerRequestId = postAction(el('approachDrawerDelete'), 'save', {
+      manifest: { ...draft, approaches: toApproachDeltas(draft.approaches, packagedApproaches) },
+      section: 'approaches',
+    });
   }
 
   el('approachDrawerClose').addEventListener('click', closeApproachDrawer);
@@ -4706,6 +4798,14 @@
 
   function saveCurrentSection() {
     if (!valid || !currentSectionDirty()) return;
+    // Mirror the host's delta rule: the approaches roster ships the OVERLAID
+    // manifest (packaged built-in included), so the posted draft must be
+    // reduced to the delta vs the packaged definition before it can reach the
+    // file — the host re-applies the same reduction at save (belt and braces,
+    // UI-R34 pins the two together).
+    if (currentSection === 'approaches') {
+      draft.approaches = toApproachDeltas(draft.approaches, packagedApproaches);
+    }
     topbarSaveRequestId = postAction(el('saveBtn'), 'save', { manifest: draft, section: currentSection });
   }
 
@@ -5399,6 +5499,7 @@
         processAssignmentViews = indexProcessViews(msg.state.processAssignments || []);
         agentRows = msg.state.agents || [];
         approachCommands = msg.state.approachCommands || {};
+        packagedApproaches = msg.state.packagedApproaches || [];
         manifestPath = msg.state.manifestPath || '';
         projectSlug = msg.state.projectSlug || { value: '', derived: true };
         extensionVersion = msg.state.version || '';

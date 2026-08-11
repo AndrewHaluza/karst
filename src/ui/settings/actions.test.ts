@@ -6,6 +6,7 @@ import { manifest as buildManifest, runnableRepo, slot } from '../../manifest/fi
 import type { TicketingProvider } from '../../integrations/ticketing.js';
 import type { TicketingConfig } from '../../manifest/types.js';
 import type { ModelCatalog } from '../../agent/modelCatalog.js';
+import { BUILT_IN_APPROACHES } from '../../approaches/builtIn.js';
 
 const APPROACH_A: ApproachDef = { id: 'a', label: 'Approach A' };
 /** A sourced (git) approach: enabling it requires an installed package. */
@@ -179,19 +180,20 @@ describe('settings actions — save', () => {
   });
 });
 
+/** Capture what actually reached disk, not just that a write happened. */
+function writeSpy() {
+  const writes: Manifest[] = [];
+  return {
+    writes,
+    harness: (base: Manifest) =>
+      harness({
+        loadState: () => ({ manifest: base, error: null }),
+        writeManifest: (_p, m) => { writes.push(m); },
+      }),
+  };
+}
+
 describe('settings actions — section-scoped save', () => {
-  /** Capture what actually reached disk, not just that a write happened. */
-  function writeSpy() {
-    const writes: Manifest[] = [];
-    return {
-      writes,
-      harness: (base: Manifest) =>
-        harness({
-          loadState: () => ({ manifest: base, error: null }),
-          writeManifest: (_p, m) => { writes.push(m); },
-        }),
-    };
-  }
 
   it('writes only the named section, leaving other tabs as the file has them', async () => {
     const { writes, harness: h } = writeSpy();
@@ -241,6 +243,87 @@ describe('settings actions — section-scoped save', () => {
 
     expect(writes[0]!.host).toBe('0.0.0.0');
     expect(writes[0]!.worktreePathDisplay).toBe('absolute');
+  });
+
+  it('Save writes a DELTA for the built-in, never the merged effective object', async () => {
+    // The webview draft carries the OVERLAID manifest (built-in present with
+    // the full packaged body). Saving it must write only the delta — here an
+    // explicit enable — and an untouched built-in must reduce to absence.
+    const { writes, harness: h } = writeSpy();
+    const { actions } = h({ ...VALID, approaches: [] });
+    const overlaid = {
+      ...VALID,
+      approaches: [
+        ...BUILT_IN_APPROACHES, // packaged body, as the state push seeded it
+        { id: 'karst-graph-engineering', label: 'Graph Engineering', enabled: true },
+      ],
+    };
+    await actions.save(overlaid, 'approaches');
+
+    expect(writes).toHaveLength(1);
+    expect(writes[0]!.approaches).toEqual([
+      { id: 'karst-graph-engineering', label: 'Graph Engineering', enabled: true },
+    ]);
+  });
+
+  it('a Save from a webview loaded before another tab\'s write does not revert it', async () => {
+    // Another tab's write (an out-of-band setApproachEnabled enable) landed on
+    // disk after this webview loaded its draft. The draft's approaches still
+    // carry the packaged body alongside the enable it was seeded with; the
+    // save must keep the on-disk override and never resurrect the packaged
+    // definition or drop the enable.
+    const onDisk: Manifest = {
+      ...VALID,
+      approaches: [{ id: 'karst-graph-engineering', label: 'Graph Engineering', enabled: true }],
+    };
+    const { writes, harness: h } = writeSpy();
+    const { actions } = h(onDisk);
+    const staleDraft = {
+      ...VALID,
+      approaches: [
+        ...BUILT_IN_APPROACHES,
+        { id: 'karst-graph-engineering', label: 'Graph Engineering', enabled: true },
+      ],
+    };
+    await actions.save(staleDraft, 'approaches');
+
+    expect(writes).toHaveLength(1);
+    expect(writes[0]!.approaches).toEqual([
+      { id: 'karst-graph-engineering', label: 'Graph Engineering', enabled: true },
+    ]);
+  });
+});
+
+describe('settings actions — built-in enable/disable', () => {
+  it('enables a built-in absent from the manifest (writes the delta, not the body)', async () => {
+    const { writes, harness: h } = writeSpy();
+    const { actions, posted } = h({ ...VALID, approaches: [] });
+    await actions.setApproachEnabled('karst-graph-engineering', true);
+
+    expect(writes).toHaveLength(1);
+    expect(writes[0]!.approaches).toEqual([
+      { id: 'karst-graph-engineering', label: 'Graph Engineering', enabled: true },
+    ]);
+    expect(posted.some((m) => m.type === 'state')).toBe(true);
+  });
+
+  it('disables a built-in as the small tombstone with the packaged label', async () => {
+    const { writes, harness: h } = writeSpy();
+    const { actions } = h({ ...VALID, approaches: [] });
+    await actions.setApproachEnabled('karst-graph-engineering', false);
+
+    expect(writes[0]!.approaches).toEqual([
+      { id: 'karst-graph-engineering', label: 'Graph Engineering', enabled: false },
+    ]);
+  });
+
+  it('a tombstone for an id with no packaged definition and no prior entry is refused', async () => {
+    const { writes, harness: h } = writeSpy();
+    const { actions, posted } = h({ ...VALID, approaches: [] });
+    await actions.setApproachEnabled('ghost-approach', false);
+
+    expect(writes).toEqual([]);
+    expect((posted.find((m) => m.type === 'error') as any).message).toMatch(/Unknown approach "ghost-approach"/);
   });
 });
 

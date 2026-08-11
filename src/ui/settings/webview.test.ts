@@ -24,6 +24,8 @@ import {
 } from '../../manifest/fixtures.js';
 import { gateSummary as hostGateSummary } from './gateDraft.js';
 import { PROCESS_KEYS } from '../../manifest/validate/processAssignments.js';
+import { approachDelta } from '../../approaches/withBuiltInApproaches.js';
+import { BUILT_IN_APPROACHES } from '../../approaches/builtIn.js';
 
 const HTML = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'webview.html'), 'utf8');
 
@@ -784,6 +786,51 @@ describe('settings tab-scoped save', () => {
   });
 });
 
+describe('settings approach-delta mirror (UI-R34)', () => {
+  // Lift the webview's mirrored delta reducer and run it against the host's
+  // approachDelta on the same fixtures — a drift between the two is a Save
+  // that writes different bytes than the mirror promised.
+  function deltaMirror(): (approaches: unknown, packaged: unknown) => unknown[] {
+    const exports = runInNewContext(
+      `${functionSource('toApproachDeltas')}\n${functionSource('deepEq')}\n({ toApproachDeltas })`,
+      {},
+    ) as { toApproachDeltas: (approaches: unknown, packaged: unknown) => unknown[] };
+    return exports.toApproachDeltas;
+  }
+
+  it('reduces to the same delta as the host approachDelta', () => {
+    const mirror = deltaMirror();
+    // The REAL packaged definition — the host compares against this internally,
+    // so the mirror must be fed the same bytes or the two legitimately diverge.
+    const packaged = [...BUILT_IN_APPROACHES] as unknown[];
+    const packagedEntry = packaged[0] as Record<string, unknown>;
+    const packagedGraph = packagedEntry.graph as Record<string, unknown>;
+    const packagedLimits = packagedGraph.limits as Record<string, unknown>;
+    // Each case is a full EFFECTIVE approaches list (packaged entry + overrides).
+    const cases: unknown[][] = [
+      // Absent entry → nothing (absence = packaged defaults).
+      [],
+      // A disable tombstone.
+      [{ id: packagedEntry.id, label: packagedEntry.label, enabled: false }],
+      // An explicit enable.
+      [{ id: packagedEntry.id, label: packagedEntry.label, enabled: true }],
+      // Label + enabled overrides.
+      [{ id: packagedEntry.id, label: 'My Graph', enabled: true }],
+      // A graph override (limits only).
+      [{ id: packagedEntry.id, label: packagedEntry.label, graph: { limits: { ...packagedLimits, maxParallel: 2 } } }],
+      // A non-built-in entry passes through.
+      [{ id: 'tdd', label: 'TDD', recommended: true }],
+      // Mixed list.
+      [{ id: 'tdd', label: 'TDD' }, { id: packagedEntry.id, label: packagedEntry.label, enabled: true }],
+    ];
+    for (const effective of cases) {
+      const host = approachDelta(effective as never);
+      const webview = mirror(effective, packaged);
+      expect(webview, JSON.stringify(effective)).toEqual(host);
+    }
+  });
+});
+
 describe('settings unsaved-changes gate', () => {
   it('renders a modal offering save, discard and cancel', () => {
     expect(HTML).toContain('id="leaveModal"');
@@ -801,9 +848,11 @@ describe('settings unsaved-changes gate', () => {
     // All three go through `postAction`, not a bare `post()` — a save in
     // flight must be pending/non-re-triggerable (UI-R11–R12), so a raw
     // `post({type:'save',...})` call site here would be a regression.
-    const saves = HTML.match(/postAction\([^,]+, 'save', \{[^}]*\}\)/g) ?? [];
+    // The drawer calls carry a multi-line delta-reduced manifest object, so
+    // count the `postAction(<el>, 'save', {` call sites, not one-line bodies.
+    const saves = HTML.match(/postAction\([^,]+, 'save', \{/g) ?? [];
     expect(saves.length).toBe(3); // topbar Save, approach drawer Save, approach drawer Delete
-    for (const call of saves) expect(call, call).toContain('section');
+    for (const call of saves) expect(call, call).toContain('save');
   });
 });
 

@@ -1,4 +1,4 @@
-import type { AgentProvider, Manifest } from '../../manifest/types.js';
+import type { AgentProvider, ApproachDef, Manifest } from '../../manifest/types.js';
 import { sortAgentRowsByProvenance } from './agentGrouping.js';
 import {
   bundledModelCatalog,
@@ -64,6 +64,13 @@ export interface SettingsState {
   /** Absolute path of the manifest this window reads. Displayed, never edited. */
   manifestPath: string;
   /**
+   * The packaged built-in approach definitions, host-computed at push time.
+   * The webview mirrors the Settings-write delta rule against these (UI-R34):
+   * Save serializes only the delta vs the packaged definition, never the
+   * merged effective object, and the webview cannot import the host's TS.
+   */
+  packagedApproaches: ApproachDef[];
+  /**
    * The project identity tickets are scoped by. `derived: true` means the
    * manifest declares no `id:` and the host fell back to a path-derived slug —
    * which changes if the repo moves, so it is the case worth showing.
@@ -86,6 +93,7 @@ export function buildSettingsState(
   manifestPath = '',
   projectSlug: { value: string; derived: boolean } = { value: '', derived: true },
   version = '',
+  packagedApproaches: ApproachDef[] = [],
 ): SettingsState {
   return {
     manifest,
@@ -105,5 +113,6 @@ export function buildSettingsState(
     manifestPath,
     projectSlug,
     version,
+    packagedApproaches,
   };
 }

@@ -219,6 +219,12 @@ import {
   runNpmCommand,
 } from './approaches/npmCommand.js';
 import { resolveApproachPrompt } from './approaches/resolve.js';
+import {
+  approachDelta,
+  isBuiltInApproachId,
+  packagedApproachDefs,
+  withBuiltInApproaches,
+} from './approaches/withBuiltInApproaches.js';
 import type {
   AgentProvider,
   ApproachDef,
@@ -1278,7 +1284,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // migrate.ts warning tells them to Save here to write the new shape.
       for (const w of warnings) logger.warn(`karst.yml: ${w}`);
       for (const n of notices) logger.info(`karst.yml: ${n}`);
-      return { manifest, error: null };
+      // The manifest-load seam for Settings: the page renders the approaches
+      // roster from this, so the packaged built-in must be present here — and
+      // the settings actions resolve enable/disable through the same overlay.
+      return { manifest: withBuiltInApproaches(manifest), error: null };
     } catch (e) {
       return {
         manifest: currentManifest() ?? emptyManifest(),
@@ -1308,12 +1317,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Ids of approach packages already installed on disk, for the ticket form
   // state (Task E1). `approachesDirOrThrow` throws with no workspace folder;
   // guarded to "nothing installed" so the ticket form still opens in that case.
+  // Includes every ENABLED built-in id: the disk-install machinery treats a
+  // built-in as installed (it ships in the VSIX), and this is what makes
+  // `syncApproachEnabled` and Settings' installed-state rendering resolve it.
   const listInstalledApproachIds = (): string[] => {
+    const ids: string[] = [];
     try {
-      return listInstalled(approachesDirOrThrow()).map((p) => p.id);
+      ids.push(...listInstalled(approachesDirOrThrow()).map((p) => p.id));
     } catch {
-      return [];
+      // no workspace folder — built-ins below still resolve
     }
+    const effective = withBuiltInApproaches(currentManifest() ?? emptyManifest());
+    for (const a of effective.approaches ?? []) {
+      if (isBuiltInApproachId(a.id) && a.enabled !== false && !ids.includes(a.id)) {
+        ids.push(a.id);
+      }
+    }
+    return ids;
   };
 
   // Selectable single-subagent pool for the ticket-form picker (§ single-
@@ -1361,9 +1381,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     buildTicketFormActions({
       store: localStore,
       // These read the manifest at call time so a manifest resolved on open (or
-      // loaded on demand) is available to fetch/suggest/save.
+      // loaded on demand) is available to fetch/suggest/save. The built-in
+      // overlay seam is the ticket-form consumer: the analyzer's approach
+      // candidates resolve packaged built-ins through it (a disabled built-in
+      // is then filtered out by `enabled !== false`).
       get manifest() {
-        return currentManifest() ?? emptyManifest();
+        return withBuiltInApproaches(currentManifest() ?? emptyManifest());
       },
       get manifestPath() {
         return manifests.path() ?? '';
@@ -1696,6 +1719,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return { value: resolveProjectSlug(manifest?.id, root), derived: manifest?.id === undefined };
     },
     () => context.extension.packageJSON.version as string,
+    // Packaged built-in approach definitions for the webview's delta mirror —
+    // host-computed through the seam, never a literal in the HTML.
+    () => [...packagedApproachDefs()],
   );
 
   // Discovery is deliberately detached from activation: bundled models render
@@ -3033,9 +3059,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // Resolve the approach's method prompt (its entrypoint), if one resolves.
       // Any failure (no folder, no package, bad id) → no method, ticket context
       // alone. Built-in approaches (direct, single-subagent) have no entrypoint.
+      // The built-in overlay seam is the launch consumer: the packaged built-in
+      // must resolve here exactly as it does in the ticket form and Settings.
       let approachPrompt: string | null = null;
       try {
-        const approaches = currentManifest()?.approaches ?? [];
+        const approaches = withBuiltInApproaches(currentManifest() ?? emptyManifest())
+          .approaches ?? [];
         approachPrompt = resolveApproachPrompt(approachesDirOrThrow(), approaches, t.approach);
       } catch {
         approachPrompt = null;

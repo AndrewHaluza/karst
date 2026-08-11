@@ -17,6 +17,7 @@ import {
   bundledModelCatalog,
   type ModelCatalog,
 } from '../../agent/modelCatalog.js';
+import { withBuiltInApproaches } from '../../approaches/withBuiltInApproaches.js';
 
 /**
  * Serializable state for the ticket form (§ ticket form). One surface serves
@@ -205,6 +206,12 @@ export function buildTicketFormState(
    */
   storageDir?: string,
 ): TicketFormState {
+  // The built-in overlay seam: the ticket form resolves packaged built-ins
+  // ONLY through `withBuiltInApproaches` (design, Selection and Enablement).
+  // A disabled built-in (`enabled: false` until Slice 3) is filtered out by
+  // `toApproachRows` below, so it never appears in the picker or analyzer
+  // candidates — presence in the manifest alone is not offerability.
+  manifest = withBuiltInApproaches(manifest);
   const approaches = toApproachRows(manifest.approaches ?? [], listInstalledIds);
   const agents = listAgents();
   const unclassified = unclassifiedRepos(manifest);
