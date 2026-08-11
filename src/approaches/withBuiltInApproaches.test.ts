@@ -180,6 +180,7 @@ describe('approachDelta (Settings Save serializes the delta, never the merged ob
     const project: ApproachDef = {
       id: builtInId,
       label: 'Graph Engineering',
+      enabled: false,
       graph: { limits: { ...graphApproachConfig().limits, maxParallel: 2 } } as ApproachDef['graph'],
     };
     const effective = withBuiltInApproaches(baseManifest([project]));
@@ -189,12 +190,30 @@ describe('approachDelta (Settings Save serializes the delta, never the merged ob
     expect(delta![0]!.graph!.planner).toBeUndefined(); // packaged planner not resurrected
     expect(delta![0]!.graph!.profiles).toBeUndefined();
     expect(delta![0]!.graph!.commands).toBeUndefined();
+    // enabled is always carried: a reloaded entry without it defaults to true.
+    expect(delta![0]!.enabled).toBe(false);
   });
 
   it('passes non-built-in entries through untouched', () => {
     const custom = { id: 'tdd', label: 'TDD', recommended: true };
     const effective = withBuiltInApproaches(baseManifest([custom]));
     expect(approachDelta(effective.approaches!)).toContainEqual(custom);
+  });
+
+  it('the overlay can never create a second recommended entry (packaged ships false)', () => {
+    // A project entry may mark the built-in recommended…
+    const project = { id: builtInId, label: 'Graph Engineering', recommended: true };
+    const effective = withBuiltInApproaches(baseManifest([project]));
+    // …and the packaged definition carries recommended: false, so the merged
+    // list still has exactly one recommended entry. validateApproaches throws
+    // on two at load; the packaged flag makes the overlay incapable of
+    // introducing a second one after validation (design, Selection).
+    const recommended = effective.approaches!.filter((a) => a.recommended === true);
+    expect(recommended).toHaveLength(1);
+    expect(recommended[0]!.id).toBe(builtInId);
+    // The delta carries the project's explicit flag.
+    const delta = approachDelta(effective.approaches!);
+    expect(delta![0]!.recommended).toBe(true);
   });
 });
 

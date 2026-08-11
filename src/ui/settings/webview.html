@@ -3626,6 +3626,10 @@
       for (const key of ['description', 'entrypoint', 'source', 'recommended', 'workflow']) {
         if (!deepEq(entry[key], p[key])) delta[key] = entry[key];
       }
+      // enabled is ALWAYS carried: a reloaded entry without it defaults to true
+      // (validateApproaches), so dropping a disable's enabled:false would flip
+      // the built-in back on at the next load.
+      delta.enabled = entry.enabled === undefined ? true : entry.enabled;
       // graph: keep only the sub-blocks that differ.
       if (entry.graph !== undefined || p.graph !== undefined) {
         const sub = {};
@@ -3640,14 +3644,6 @@
         }
         if (subDiffers) delta.graph = sub;
       }
-      // enabled: kept when it differs from the packaged default (an explicit
-      // state change) OR when the entry is the minimal tombstone {id,label,
-      // enabled} — the toggle's own write, which must survive a packaged
-      // default flip (Slice 3). A merged entry that merely rode the overlaid
-      // draft keeps no default-matching enabled the user never chose.
-      const explicitEnabled = entry.enabled !== p.enabled;
-      const minimal = Object.keys(entry).every((k) => k === 'id' || k === 'label' || k === 'enabled');
-      if (explicitEnabled || minimal) delta.enabled = entry.enabled === undefined ? true : entry.enabled;
       out.push(delta);
     }
     return out;

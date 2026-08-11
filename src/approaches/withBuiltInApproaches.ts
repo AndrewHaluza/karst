@@ -157,16 +157,14 @@ export function withBuiltInApproaches(manifest: Manifest): Manifest {
 /** The project-written delta for one approach, or undefined when it equals the
  *  packaged definition (absence represents it).
  *
- *  The `enabled` rule is the load-bearing part. It is kept when it DIFFERS
- *  from the packaged default (an explicit state change), OR when the entry is
- *  a MINIMAL tombstone `{id, label, enabled}` — the toggle's own write, which
- *  carries no packaged body. A minimal tombstone keeps `enabled` even when it
- *  equals today's packaged default: a packaged upgrade may flip that default
- *  (Slice 3), and a project that explicitly disabled the built-in must stay
- *  disabled across the flip. A merged entry that merely rode the overlaid
- *  draft (packaged body present) with a default-matching `enabled` is not a
- *  tombstone — its label-only or graph-only overrides survive without pinning
- *  an `enabled` the user never chose. */
+ *  `enabled` is kept ALWAYS once the entry differs at all. That is load-bearing
+ *  in both directions: an entry without an explicit `enabled` reloads as `true`
+ *  (validateApproaches defaults it), so a delta that dropped a disable's
+ *  `enabled: false` would flip the built-in back on at the next load — and a
+ *  packaged upgrade may flip the default (Slice 3), so a project that
+ *  explicitly disabled the built-in must stay disabled across the flip. Only
+ *  the never-touched case reduces to absence, and it is detected by the
+ *  deep-equal check: the overlaid packaged entry IS the packaged definition. */
 function deltaForEntry(entry: ApproachDef, packaged: ApproachDef): ApproachDef | undefined {
   // A never-touched built-in IS the packaged definition — nothing to write.
   if (deepEqual(entry, packaged)) return undefined;
@@ -180,6 +178,7 @@ function deltaForEntry(entry: ApproachDef, packaged: ApproachDef): ApproachDef |
       (delta as unknown as Record<string, unknown>)[key] = entry[key];
     }
   }
+  (delta as unknown as Record<string, unknown>).enabled = entry.enabled ?? true;
 
   // graph: keep only the sub-blocks that differ, per profile/command key.
   const entryGraph = entry.graph;
@@ -199,16 +198,6 @@ function deltaForEntry(entry: ApproachDef, packaged: ApproachDef): ApproachDef |
     if (subDiffers) {
       delta.graph = sub as unknown as ApproachDef['graph'];
     }
-  }
-
-  const explicitEnabled = entry.enabled !== packaged.enabled;
-  // A minimal tombstone carries ONLY id/label/enabled (the toggle's write, or
-  // a save of one) — nothing else is explicit, so `enabled` is the statement.
-  const minimal = Object.keys(entry).every((k) =>
-    k === 'id' || k === 'label' || k === 'enabled',
-  );
-  if (explicitEnabled || minimal) {
-    (delta as unknown as Record<string, unknown>).enabled = entry.enabled ?? true;
   }
 
   return delta;
