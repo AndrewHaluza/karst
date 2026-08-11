@@ -2626,6 +2626,87 @@ describe('settings v7 project footer rendering', () => {
   });
 });
 
+describe('settings v7 matrix groups', () => {
+  it('prepends a group header only on the first row of each group', () => {
+    // PROCESS_KEYS order: uatTester, uatFix, review, reviewFix, prDescription,
+    // ticketAnalysis — so headers appear for uatTester (UAT), review (Review),
+    // prDescription (Ship); ticketAnalysis is ungrouped.
+    const CATALOG = {
+      claude: [{ id: 'c', label: 'C', providers: ['claude'] }],
+      codex: [], antigravity: [], opencode: [],
+    };
+    const load = (key) => runInNewContext(`
+      const KNOWN_AGENT_PROVIDERS = ['claude', 'codex', 'antigravity', 'opencode'];
+      const AGENT_PROVIDER_LABELS = {
+        claude: 'Claude Code', codex: 'Codex', antigravity: 'Antigravity', opencode: 'OpenCode',
+      };
+      ${functionSource('renderModelOptions')}
+      ${functionSource('renderProcessAssignmentRow')}
+      renderProcessAssignmentRow(${JSON.stringify(key)}, {}, {})
+    `, {
+      modelCatalog: CATALOG,
+      esc: (v: unknown) => String(v ?? '').replace(/[&<>"]/g, (c) =>
+        ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' } as Record<string, string>)[c] ?? c),
+    }) as string;
+
+    expect(load('uatTester')).toContain('<div class="matrix-group">UAT</div>');
+    expect(load('uatFix')).not.toContain('matrix-group');
+    expect(load('review')).toContain('<div class="matrix-group">Review</div>');
+    expect(load('reviewFix')).not.toContain('matrix-group');
+    expect(load('prDescription')).toContain('<div class="matrix-group">Ship</div>');
+    expect(load('ticketAnalysis')).not.toContain('matrix-group');
+  });
+
+  it('keeps the Name override link per row, opening the shared drawer', () => {
+    const CATALOG = {
+      claude: [{ id: 'c', label: 'C', providers: ['claude'] }],
+      codex: [], antigravity: [], opencode: [],
+    };
+    const html = runInNewContext(`
+      const KNOWN_AGENT_PROVIDERS = ['claude', 'codex', 'antigravity', 'opencode'];
+      const AGENT_PROVIDER_LABELS = {
+        claude: 'Claude Code', codex: 'Codex', antigravity: 'Antigravity', opencode: 'OpenCode',
+      };
+      ${functionSource('renderModelOptions')}
+      ${functionSource('renderProcessAssignmentRow')}
+      renderProcessAssignmentRow('review', { agentName: 'My Review' }, {})
+    `, {
+      modelCatalog: CATALOG,
+      esc: (v: unknown) => String(v ?? '').replace(/[&<>"]/g, (c) =>
+        ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' } as Record<string, string>)[c] ?? c),
+    }) as string;
+    expect(html).toContain('data-name-override="review"');
+    expect(html).toContain('Name override');
+    expect(HTML).toContain('id="nameOverrideDrawer"');
+    expect(HTML).toContain('id="nameOverrideInput"');
+  });
+});
+
+describe('settings v7 model picker no-default', () => {
+  it('leads the popup with a No default row that clears the saved model', () => {
+    const source = `
+      const MODEL_GROUP_LABELS = { claude: 'Claude Code', codex: 'Codex', antigravity: 'Antigravity', opencode: 'OpenCode' };
+      const modelCatalog = {
+        codex: [{ id: 'gpt-x', label: 'GPT X', providers: ['codex'] }],
+        claude: [], antigravity: [], opencode: [],
+      };
+      let draft = { agentProvider: 'codex', defaultModel: 'gpt-x' };
+      const elements = {};
+      function el(id) {
+        if (!elements[id]) elements[id] = { innerHTML: '', classList: { toggle() {} } };
+        return elements[id];
+      }
+      ${functionSource('renderModelPickerPopup')}
+      renderModelPickerPopup();
+      elements.modelList.innerHTML;
+    `;
+    const html = runInNewContext(source, { esc: (s: unknown) => String(s ?? '') }) as string;
+    expect(html).toContain('No default (agent picks)');
+    expect(html).toContain('data-model-id=""');
+    expect(html).toContain('GPT X');
+  });
+});
+
 describe('settings v7 responsive block', () => {
   it('ships the responsive rules in a separate style block with em breakpoints', () => {
     // The first <style> must stay literal-free (UI-R04); the responsive block
