@@ -152,3 +152,38 @@ export function filterTickets(
     `${t.key ?? ''} ${t.title ?? ''}`.toLowerCase().includes(q),
   );
 }
+
+/**
+ * A ticket is COMPLETED when its current stage is the terminal `done` stage.
+ * The sectioning source of truth — the Current list is everything this says no
+ * to, so "completing a ticket removes it from Current" holds by construction,
+ * and reopening a done ticket (stage moved away) restores it to Current
+ * automatically. Deliberately `stageCurrent`, not the glyph-derived `done`
+ * facet: the facet answers "is the row's dot green", while this answers "has
+ * the ticket reached the terminal stage" — a ticket parked at a passed ship
+ * is awaiting a merge (amber), never completed.
+ */
+export function isDoneTicket(t: TicketWithStages): boolean {
+  return t.stageCurrent === 'done';
+}
+
+/**
+ * Completion timestamp for ordering the completed sections: the done stage's
+ * end, else its start, else the ticket's own last update. `null` only when the
+ * ticket carries no timestamp at all — such a ticket sorts LAST in every
+ * newest-first list, never first (an unknown completion time must not read as
+ * the most recent completion).
+ *
+ * The `updated_at` fallback is normalized to ISO-8601 UTC: some writers use
+ * SQLite's `datetime('now')` space form, and a lexicographic comparison between
+ * a space-form and a `T`-form timestamp of the same day mis-orders every pair
+ * where the space-form time is actually later (model/time.ts's "one format"
+ * invariant only holds for the stage writers).
+ */
+export function completedAt(t: TicketWithStages): string | null {
+  const done = t.stages.find((s) => s.stageKey === 'done');
+  const raw = done?.endedAt ?? done?.startedAt ?? t.updatedAt ?? null;
+  if (raw === null) return null;
+  const iso = raw.includes('T') ? raw : raw.replace(' ', 'T');
+  return /[zZ]$/.test(iso) ? iso : `${iso}Z`;
+}

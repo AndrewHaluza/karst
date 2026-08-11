@@ -67,7 +67,7 @@ describe('SidebarViewManager', () => {
     mgr.bind(host);
     const view = resolve();
     expect(view.posted).toHaveLength(1);
-    expect(view.posted[0]!.rows.map((r) => r.label)).toEqual(['A-1 — one']);
+    expect(view.posted[0]!.sections.current.map((r) => r.label)).toEqual(['A-1 — one']);
   });
 
   it('toggleFacet / setFilter / refresh each re-push and getFacets reflects the pick', () => {
@@ -247,14 +247,14 @@ describe('SidebarViewManager', () => {
     const { host, resolve } = fakeHost();
     mgr.bind(host);
     const view = resolve();
-    expect(view.posted[0]!.rows[0]!.isActive).toBe(false);
+    expect(view.posted[0]!.sections.current[0]!.isActive).toBe(false);
 
     active = t.id;
     mgr.refresh();
-    expect(view.posted.at(-1)!.rows[0]!.isActive).toBe(true);
+    expect(view.posted.at(-1)!.sections.current[0]!.isActive).toBe(true);
 
     active = null;
     mgr.refresh();
-    expect(view.posted.at(-1)!.rows[0]!.isActive).toBe(false);
+    expect(view.posted.at(-1)!.sections.current[0]!.isActive).toBe(false);
   });
 });

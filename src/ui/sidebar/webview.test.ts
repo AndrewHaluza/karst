@@ -397,4 +397,88 @@ describe('sidebar webview.html', () => {
     const hover = main!.indexOf('.row:hover{');
     expect(active).toBeGreaterThan(hover);
   });
+
+  // ── Current / Recently Done / Older Completed sections (869egrd09) ─────────
+
+  it('renders lightweight section headers with the rendered count (CURRENT · N)', () => {
+    const script = scriptBlock();
+    expect(script).toContain('class="sec" role="presentation"');
+    expect(script).toContain('class="sec-name"');
+    expect(script).toContain('">· ${count}</span>');
+    // The header count is the rows rendered below it — never a promise of rows
+    // a query has hidden.
+    expect(script).toContain('secHtml(');
+  });
+
+  it('the Older Completed disclosure is a real button, keyboard accessible, with aria-expanded (UI-R09, R26)', () => {
+    const script = scriptBlock();
+    expect(script).toContain(
+      '<button type="button" class="k-btn k-btn--ghost hist" data-history="1" aria-expanded="${expanded}"',
+    );
+    expect(script).toContain('${n} more completed');
+    expect(script).toContain('aria-controls="histlist"');
+    // The disclosure is handled before the ticket-toggle branch in the
+    // delegated click handler — a click on it must never reach a ticket id.
+    expect(script).toContain("if (t.dataset.history) {");
+    // data-history carries a VALUE: `dataset` reads a valueless attribute as
+    // '' (falsy), which would make the toggle dead on arrival.
+    expect(script).toContain('data-history="1"');
+  });
+
+  it('the disclosure chevron rotates on the aria-expanded state, and the whole row is the button', () => {
+    const [main] = styleBlocks();
+    expect(main).toMatch(/\.hist\[aria-expanded="true"\] \.hist-chev\{[^}]*transform:rotate\(90deg\)/);
+    expect(main).toContain('.hist{display:flex;');
+  });
+
+  it('completed rows use the compact treatment: check indicator, muted title, no stage pill', () => {
+    const script = scriptBlock();
+    // The check-in-ring replaces the karst mark + status dot on compact rows…
+    expect(script).toContain('class="glyph chk g-${esc(row.glyph)}" aria-hidden="true"');
+    // …the stage pill renders only on full rows (a redundant DONE badge would
+    // restate what the section header already says)…
+    expect(script).toContain('(compact\n        ? (opts.time');
+    expect(script).toContain(": `<span class=\"stage ${esc(stageClass)}\"");
+    // …and the row root carries the compact/older markers for the quieter CSS.
+    expect(script).toContain("${compact ? ' done' : ''}");
+    expect(script).toContain("${opts.older ? ' older' : ''}");
+    // Recently Done shows the relative completion time; Older Completed does not.
+    expect(script).toContain("opts.time ? `<span class=\"time\">${esc(relTime(row.lastActiveAt))}</span>` : ''");
+  });
+
+  it('search auto-reveals Older Completed without marking the reveal as the user choice', () => {
+    const script = scriptBlock();
+    // A query matching older tickets expands the section…
+    expect(script).toContain("const expanded = histUser ? histOpen : (q !== '' && older.length > 0);");
+    // …but only an explicit click sets histUser — clearing the search then
+    // restores the default collapsed state.
+    expect(script).toContain('histUser = true;');
+    expect(script).toContain('histOpen = !histOpen;');
+  });
+
+  it('the Done facet renders the full completed list directly with no history control', () => {
+    const script = scriptBlock();
+    expect(script).toContain("secHtml('Done', rows.length)");
+    expect(script).toContain('rowHtml(r, { compact: true, time: true })');
+    expect(script).toContain("L.innerHTML = emptyHtml('done'); return;");
+  });
+
+  it('a pre-upgrade snapshot (no sections) degrades to the flat rows rather than an empty list', () => {
+    const script = scriptBlock();
+    expect(script).toContain('(state.sections && state.sections.current) || state.rows || []');
+  });
+
+  it('the older-completed list is one section of the single scroll surface, never its own scroller', () => {
+    const [main] = styleBlocks();
+    // UI-R38: the ticket list stays the ONLY scroll container — no
+    // overflow-y on .histlist or any section.
+    expect(main!.match(/overflow-y:auto/g) ?? []).toHaveLength(1);
+    expect(main).not.toContain('.histlist{overflow');
+  });
+
+  it('keeps the completed-history expand state out of the host protocol (view state only)', () => {
+    const script = scriptBlock();
+    expect(script).not.toContain("type:'toggle-history'");
+    expect(script).not.toContain("type:'set-history'");
+  });
 });
