@@ -24,6 +24,7 @@ import type { Store } from '../../store/db.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
 import type { ProcessAssignmentSnapshot } from '../../agent/processAssignment.js';
 import type { Severity } from '../../manifest/types.js';
+import { GATE_LANE_HEADLESS_TIMEOUT_MS } from '../../agent/headlessSpawn.js';
 import { openProcessRun, finishProcessRun } from '../../store/processRuns.js';
 import { stageAttempt } from '../../store/stages.js';
 import { recordUatFindings, type UatFindingInput } from '../../store/uatFindings.js';
@@ -60,6 +61,14 @@ export interface RunUatTesterOpts {
   attempt?: number;
   /** One signal for the whole run, so Stop reaches a call already in flight. */
   signal?: AbortSignal;
+  /**
+   * The hard deadline for EACH headless call, in milliseconds. Absent → the
+   * generous gate-lane bound (`GATE_LANE_HEADLESS_TIMEOUT_MS`): the Tester is
+   * asked to RUN the repo's tests and exercise the acceptance criteria, which
+   * a chat-tuned model spends many minutes of tool calls on — the 15-minute
+   * quick-call default killed UAT testing mid-run and left zero observations.
+   */
+  timeoutMs?: number;
   warn?: WarnFn;
   /**
    * Verbose decision-point logging (§ debug logging), prefixed `[gate]` — the
@@ -208,6 +217,7 @@ export async function runUatTester(
         cwd: target.worktreePath,
         model: opts.assignment.model,
         signal: opts.signal,
+        timeoutMs: opts.timeoutMs ?? GATE_LANE_HEADLESS_TIMEOUT_MS,
         tracking: {
           callSite: 'uat-tester',
           ticketId: opts.ticketId,

@@ -2686,7 +2686,83 @@
       + `${icon}${esc(label)} <span class="arw" aria-hidden="true">↗</span></a>`;
   }
 
+  // Keyboard focus across a repaint. The host re-pushes the snapshot once a
+  // second while a stage is running, and every section is rebuilt by innerHTML
+  // assignment, which blurs whatever the user had focused. The action ids are
+  // snapshot-scoped, so they cannot identify the same control across two
+  // renders — its POSITION among the page's controls plus its own `data-act`
+  // can. Restoring only on an exact match is the point: a page whose shape
+  // changed must never move focus onto a DIFFERENT control than the one the
+  // user was on.
+  // An element's own `id` is preferred and is what covers the controls that
+  // carry no action at all — the services filter INPUT is the one that made
+  // this mandatory: it is rebuilt with the panel, so a repaint mid-typing threw
+  // away the caret, and with no `data-act` a controls-only rule did not even
+  // see it. Its caret offsets ride along; the value itself already survives in
+  // `srvFilter`.
+  function focusMark() {
+    const active = document.activeElement;
+    if (!active || !active.getAttribute) return null;
+    const id = active.id || '';
+    const act = active.getAttribute('data-act') || '';
+    if (!id && !act) return null;
+    const mark = { id: id, act: act, index: -1, start: null, end: null };
+    if (!id) {
+      const controls = Array.prototype.slice.call(document.querySelectorAll('[data-act]'));
+      mark.index = controls.indexOf(active);
+      if (mark.index < 0) return null;
+    }
+    if (typeof active.selectionStart === 'number') {
+      mark.start = active.selectionStart;
+      mark.end = active.selectionEnd;
+    }
+    return mark;
+  }
+
+  function restoreFocus(mark) {
+    if (!mark) return;
+    let target = null;
+    if (mark.id) {
+      target = document.getElementById(mark.id);
+      // An id that came back on a control with a DIFFERENT action is not the
+      // same control.
+      if (target && mark.act && target.getAttribute('data-act') !== mark.act) target = null;
+    } else {
+      const controls = Array.prototype.slice.call(document.querySelectorAll('[data-act]'));
+      const candidate = controls[mark.index];
+      if (candidate && candidate.getAttribute('data-act') === mark.act) target = candidate;
+    }
+    if (!target) return;
+    target.focus();
+    if (mark.start !== null && typeof target.setSelectionRange === 'function') {
+      try { target.setSelectionRange(mark.start, mark.end); } catch (err) { /* not a text field */ }
+    }
+  }
+
+  // Whether a LIVE repaint (a host re-push of data the panel already has) may
+  // redraw right now. Two states make it unsafe, and both are the user being
+  // mid-interaction:
+  //
+  //  - an inside action is in flight. Those controls' pending state is keyed to
+  //    the DOM element that was clicked (see the delegated click handler), so
+  //    rebuilding the block would drop the `aria-busy`/disabled pair while the
+  //    request is still outstanding. Scoped to `#inside`: ship/merge/refresh
+  //    track their pending state in view state and re-render it correctly, and
+  //    they are exactly the multi-minute operations the repaint exists for.
+  //  - a text selection is being made. Replacing text nodes collapses it, and
+  //    a selection that dies once a second cannot be copied.
+  //
+  // A deferred repaint is not a lost one: the data is kept as `lastState` and
+  // the next tick (or any real push) draws it.
+  function liveRepaintSafe() {
+    if (document.querySelector('#inside [aria-busy="true"]')) return false;
+    const selection = window.getSelection ? window.getSelection() : null;
+    if (selection && selection.rangeCount > 0 && !selection.isCollapsed) return false;
+    return true;
+  }
+
   function render(state) {
+    const mark = focusMark();
     lastState = state;
     // Selection defaults to the current stage; with none (nothing has run) it
     // falls back to scope — the one the user is about to start.
@@ -2707,6 +2783,7 @@
     renderWorktrees(state.worktrees);
     renderPrs(state.prs, state.mergeChecks);
     renderGates();
+    restoreFocus(mark);
   }
 
   // One toggle row for one resolved gate. A real <button> (UI-R09), never a
@@ -3077,6 +3154,15 @@
       return;
     }
     if (msg.type === 'state') {
+      // A LIVE repaint carries no news — it is the same snapshot re-read so the
+      // running rows and their clocks stay current. Defer it while the user is
+      // mid-interaction rather than redrawing over them; keep the data, so the
+      // next tick draws it. A non-live push always renders: it is reporting
+      // something that actually happened.
+      if (msg.live && !liveRepaintSafe()) {
+        lastState = msg.state;
+        return;
+      }
       // Resolve an in-flight ship FIRST, so render() draws either the held
       // spinner or the settled line — never a flash of the stale "Confirm ship".
       resolveShipping(msg.state);
@@ -3112,11 +3198,18 @@
       }
       // The matching async totals message follows this snapshot. Until then,
       // omit numbers rather than showing values for an older working tree.
-      worktreeStats = {};
+      // NOT on a live repaint: that push deliberately re-runs no loader (it is
+      // a store read, nothing more), so no totals message follows it and
+      // clearing here would blank the numbers once a second and never refill
+      // them. The tree they describe has not changed either — a repaint is the
+      // same worktrees, re-read.
+      if (!msg.live) worktreeStats = {};
       // Never touches selectedStage, so a full re-render preserves the user's
       // selection for free — including during a run, when pushes are frequent.
       render(msg.state);
-      persist(); // survive reload (retainContextWhenHidden)
+      // Persisting is for surviving a reload, so only a push that carries news
+      // needs to write: a repaint would rewrite the same snapshot every second.
+      if (!msg.live) persist();
     }
   });
 

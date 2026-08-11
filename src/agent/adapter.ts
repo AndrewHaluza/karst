@@ -47,6 +47,16 @@ export interface RunHeadlessOpts {
    */
   signal?: AbortSignal;
   /**
+   * The hard deadline for THIS call, in milliseconds — forwarded into the
+   * headless spawn (`HeadlessSpawnOptions.timeoutMs`). Absent → the spawner's
+   * 15-minute quick-call default (classify, PR description). The gate lanes
+   * whose agent is asked to DO WORK in the worktree (the UAT tester runs the
+   * repo's tests) pass their own generous bound — see
+   * `GATE_LANE_HEADLESS_TIMEOUT_MS` — so a slow-but-progressing run is never
+   * cut off at a bound sized for a single-turn call.
+   */
+  timeoutMs?: number;
+  /**
    * Verbose decision-point logging (§ debug logging), prefixed `[agent:<name>]`.
    * Absent → no debug lines. The host binds it to `Logger.debug` (a no-op
    * unless the manifest's `debug` flag is on); `instrumentAdapter` injects it

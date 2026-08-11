@@ -2473,3 +2473,304 @@ describe('settings agents tab — process assignments', () => {
     expect(sandbox.draft).toEqual({ processes: undefined });
   });
 });
+
+// ═══ v7 redesign: shell + primitives (869efqhmh) ════════════════════════════
+
+describe('settings v7 script integrity', () => {
+  it('parses the webview script as valid JavaScript', () => {
+    // A syntax error in the big inline script would load a dead page that still
+    // passes every string pin above — the one class of defect strings cannot
+    // catch. `new Function` compiles without executing.
+    const m = HTML.match(/<script>([\s\S]*?)<\/script>/);
+    expect(m, 'no inline script block').toBeTruthy();
+    const src = m![1]!.replace(/\/\*KARST_[A-Z_]*\*\//g, '/*stub*/');
+    expect(() => new Function(src)).not.toThrow();
+  });
+});
+
+
+describe('settings v7 shell', () => {
+  it('groups the sidebar nav into Project / Workflow / Integrations with captions', () => {
+    expect(HTML).toContain('<nav class="sidebar"');
+    expect(HTML).toContain('<div class="nav-caption">Project</div>');
+    expect(HTML).toContain('<div class="nav-caption">Workflow</div>');
+    expect(HTML).toContain('<div class="nav-caption">Integrations</div>');
+    // The pinned button markup survives inside the groups.
+    expect(HTML).toContain('<button class="nav-btn" data-section="git">Git</button>');
+    expect(HTML).toContain('<button class="nav-btn" data-section="services">Repositories</button>');
+  });
+
+  it('adds a compact project identity footer with manifest open and a details popover', () => {
+    expect(HTML).toContain('id="projectInfoBtn"');
+    expect(HTML).toContain('id="footProjectId"');
+    expect(HTML).toContain('id="footProjectVersion"');
+    expect(HTML).toContain('id="footOpenManifest"');
+    expect(HTML).toContain('id="projectInfoPop"');
+    expect(HTML).toContain('id="popManifestPath"');
+  });
+
+  it('keeps the topbar save-state region and the mobile project entry', () => {
+    expect(HTML).toContain('id="saveState"');
+    expect(HTML).toContain('id="mobileProjectBtn"');
+  });
+
+  it('gives every page a header with title and description', () => {
+    for (const id of ['section-general', 'section-git', 'section-services', 'section-approaches', 'section-agents', 'section-ticketing', 'section-quality']) {
+      expect(HTML, id).toContain('id="' + id + '"');
+    }
+    expect(HTML).toContain('class="page-title"');
+    expect(HTML).toContain('class="page-desc"');
+  });
+});
+
+describe('settings v7 shared primitives', () => {
+  it('styles select triggers, dropdowns and identity options with the shared geometry', () => {
+    expect(HTML).toContain('.select-trigger');
+    expect(HTML).toContain('.select-shell');
+    expect(HTML).toContain('.dropdown');
+    expect(HTML).toContain('.drop-item');
+    expect(HTML).toContain('.chev');
+  });
+
+  it('implements the fixed-size reload icon button with a pending spin', () => {
+    expect(HTML).toMatch(/class="reload-btn(?: fixed)?"/);
+    expect(HTML).toContain('class="reload-icon"');
+    expect(HTML).toContain('reload-spin');
+    expect(HTML).toMatch(/prefers-reduced-motion[\s\S]*?reload-icon[\s\S]*?animation:none/);
+  });
+
+  it('provides the context menu host and more-button trigger', () => {
+    expect(HTML).toContain('id="ctxMenu"');
+    expect(HTML).toContain('class="more-btn"');
+    expect(HTML).toContain('data-more="agent"');
+    expect(HTML).toContain('data-more="approach"');
+    expect(HTML).toContain('class="ctx-item');
+  });
+
+  it('moves destructive actions into the overflow menu but keeps the danger variant', () => {
+    // The UI-R10b pin is on the raw HTML: the menu item templates carry the
+    // data attribute AND k-btn--danger in the same button tag, so the inline
+    // affordance removal does not weaken the guard.
+    expect(HTML).toContain('data-delete-agent="${esc(name)}"');
+    expect(HTML).toContain('data-uninstall="${esc(id)}"');
+  });
+
+  it('renders the template helper popup and the model picker popup', () => {
+    expect(HTML).toContain('id="helperPop"');
+    expect(HTML).toContain('data-template-help');
+    expect(HTML).toContain('data-insert-var');
+    expect(HTML).toContain('data-insert-transform');
+    expect(HTML).toContain('id="modelShell"');
+    expect(HTML).toContain('id="modelPop"');
+    expect(HTML).toContain('id="modelSearch"');
+    expect(HTML).toContain('data-model-id');
+  });
+
+  it('keeps the hidden native model select as the value carrier', () => {
+    expect(HTML).toContain('<select id="f-defaultModel" class="hidden"></select>');
+  });
+});
+
+describe('settings v7 process matrix', () => {
+  it('emits the matrix head and UAT/Review/Ship group headers from the row renderer', () => {
+    // The head is a separate static string prepended in renderProcessAssignments.
+    expect(HTML).toContain("const MATRIX_HEAD = '<div class=\"matrix-head matrix-cols\">'");
+    expect(HTML).toContain('>Process</div><div>Agent profile</div><div>Agent core</div><div>Model</div><div>State</div>');
+    // Group headers come from a LOCAL map inside the row renderer so the
+    // standalone sandbox (which loads only that function) stays self-contained.
+    const renderer = functionSource('renderProcessAssignmentRow');
+    expect(renderer).toContain("const GROUP_OF = { uatTester: 'UAT', review: 'Review', prDescription: 'Ship' };");
+    expect(renderer).toContain('matrix-group');
+    expect(renderer).toContain('data-name-override="${key}"');
+  });
+
+  it('keeps the pinned spread-not-rebuild write path untouched', () => {
+    expect(HTML).toMatch(/draft\.processes\s*=\s*\{\s*\.\.\.\(draft\.processes \|\| \{\}\)\s*,\s*\[key\]: entry\s*\};/);
+  });
+});
+
+describe('settings v7 template helper semantics', () => {
+  it('inserts a transform only into the variable at the caret', () => {
+    const sandbox = { input: undefined as unknown, TRANSFORM_NAMES: ['slice'], TRANSFORM_ARITY: {} };
+    const source = `
+      ${functionSource('variableAtCaret')}
+      ${functionSource('applyTransformAtCaret')}
+      function el() { return null; }
+      function Event() {}
+      const input = { value: 'karst/{slug}', selectionStart: 9, selectionEnd: 9,
+        setSelectionRange: () => {}, dispatchEvent: () => {} };
+      const applied = applyTransformAtCaret(input, 'upper');
+      input.value;
+    `;
+    const result = runInNewContext(source, {}) as string;
+    // {slug} at index 6..12; caret at 9 sits INSIDE it, so the transform lands
+    // on that variable, not at the end of the template.
+    expect(result).toBe('karst/{slug|upper}');
+  });
+
+  it('refuses to append a transform with no variable under the caret', () => {
+    const sandbox = { input: undefined as unknown };
+    const source = `
+      ${functionSource('variableAtCaret')}
+      ${functionSource('applyTransformAtCaret')}
+      function el() { return null; }
+      function Event() {}
+      const input = { value: 'karst/slug', selectionStart: 9, selectionEnd: 9,
+        setSelectionRange: () => {}, dispatchEvent: () => {} };
+      applyTransformAtCaret(input, 'upper');
+      input.value;
+    `;
+    const result = runInNewContext(source, {}) as string;
+    expect(result).toBe('karst/slug');
+  });
+});
+
+describe('settings v7 project footer rendering', () => {
+  it('fills the footer and popover from the host-pushed facts', () => {
+    const source = `
+      let manifestPath = '/work/proj/.karst/karst.yml';
+      let projectSlug = { value: 'my-proj', derived: false };
+      let extensionVersion = '1.2.3';
+      const elements = {};
+      function el(id) {
+        if (!elements[id]) elements[id] = { textContent: '', classList: { add(){}, remove(){}, toggle(){} } };
+        return elements[id];
+      }
+      ${functionSource('renderProjectFooter')}
+      renderProjectFooter();
+      ({
+        id: elements.footProjectId.textContent,
+        version: elements.footProjectVersion.textContent,
+        manifest: elements.footManifestName.textContent,
+        popId: elements.popProjectId.textContent,
+        popSource: elements.popIdSource.textContent,
+        popVersion: elements.popVersion.textContent,
+        popPath: elements.popManifestPath.textContent,
+      });
+    `;
+    const result = runInNewContext(source, {}) as Record<string, string>;
+    expect(result.id).toBe('my-proj');
+    expect(result.version).toBe('v1.2.3');
+    expect(result.manifest).toBe('karst.yml');
+    expect(result.popId).toBe('my-proj');
+    expect(result.popSource).toContain('Explicit');
+    expect(result.popVersion).toBe('1.2.3');
+    expect(result.popPath).toBe('/work/proj/.karst/karst.yml');
+  });
+
+  it('shows the derived id source when the manifest has no explicit id', () => {
+    const source = `
+      let manifestPath = '';
+      let projectSlug = { value: 'derived-slug', derived: true };
+      let extensionVersion = '';
+      const elements = {};
+      function el(id) {
+        if (!elements[id]) elements[id] = { textContent: '', classList: { add(){}, remove(){}, toggle(){} } };
+        return elements[id];
+      }
+      ${functionSource('renderProjectFooter')}
+      renderProjectFooter();
+      elements.popIdSource.textContent;
+    `;
+    const result = runInNewContext(source, {});
+    expect(result).toContain('Derived');
+  });
+});
+
+describe('settings v7 matrix groups', () => {
+  it('prepends a group header only on the first row of each group', () => {
+    // PROCESS_KEYS order: uatTester, uatFix, review, reviewFix, prDescription,
+    // ticketAnalysis — so headers appear for uatTester (UAT), review (Review),
+    // prDescription (Ship); ticketAnalysis is ungrouped.
+    const CATALOG = {
+      claude: [{ id: 'c', label: 'C', providers: ['claude'] }],
+      codex: [], antigravity: [], opencode: [],
+    };
+    const load = (key: string) => runInNewContext(`
+      const KNOWN_AGENT_PROVIDERS = ['claude', 'codex', 'antigravity', 'opencode'];
+      const AGENT_PROVIDER_LABELS = {
+        claude: 'Claude Code', codex: 'Codex', antigravity: 'Antigravity', opencode: 'OpenCode',
+      };
+      const PROCESS_KEYS_WITH_INSTRUCTIONS = ['uatTester', 'review'];
+      ${functionSource('renderModelOptions')}
+      ${functionSource('renderProcessAssignmentRow')}
+      renderProcessAssignmentRow(${JSON.stringify(key)}, {}, {})
+    `, {
+      modelCatalog: CATALOG,
+      esc: (v: unknown) => String(v ?? '').replace(/[&<>"]/g, (c) =>
+        ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' } as Record<string, string>)[c] ?? c),
+    }) as string;
+
+    expect(load('uatTester')).toContain('<div class="matrix-group">UAT</div>');
+    expect(load('uatFix')).not.toContain('matrix-group');
+    expect(load('review')).toContain('<div class="matrix-group">Review</div>');
+    expect(load('reviewFix')).not.toContain('matrix-group');
+    expect(load('prDescription')).toContain('<div class="matrix-group">Ship</div>');
+    expect(load('ticketAnalysis')).not.toContain('matrix-group');
+  });
+
+  it('keeps the Name override link per row, opening the shared drawer', () => {
+    const CATALOG = {
+      claude: [{ id: 'c', label: 'C', providers: ['claude'] }],
+      codex: [], antigravity: [], opencode: [],
+    };
+    const html = runInNewContext(`
+      const KNOWN_AGENT_PROVIDERS = ['claude', 'codex', 'antigravity', 'opencode'];
+      const AGENT_PROVIDER_LABELS = {
+        claude: 'Claude Code', codex: 'Codex', antigravity: 'Antigravity', opencode: 'OpenCode',
+      };
+      const PROCESS_KEYS_WITH_INSTRUCTIONS = ['uatTester', 'review'];
+      ${functionSource('renderModelOptions')}
+      ${functionSource('renderProcessAssignmentRow')}
+      renderProcessAssignmentRow('review', { agentName: 'My Review' }, {})
+    `, {
+      modelCatalog: CATALOG,
+      esc: (v: unknown) => String(v ?? '').replace(/[&<>"]/g, (c) =>
+        ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' } as Record<string, string>)[c] ?? c),
+    }) as string;
+    expect(html).toContain('data-name-override="review"');
+    expect(html).toContain('Name override');
+    expect(HTML).toContain('id="nameOverrideDrawer"');
+    expect(HTML).toContain('id="nameOverrideInput"');
+  });
+});
+
+describe('settings v7 model picker no-default', () => {
+  it('leads the popup with a No default row that clears the saved model', () => {
+    const source = `
+      const MODEL_GROUP_LABELS = { claude: 'Claude Code', codex: 'Codex', antigravity: 'Antigravity', opencode: 'OpenCode' };
+      const modelCatalog = {
+        codex: [{ id: 'gpt-x', label: 'GPT X', providers: ['codex'] }],
+        claude: [], antigravity: [], opencode: [],
+      };
+      let draft = { agentProvider: 'codex', defaultModel: 'gpt-x' };
+      const elements = {};
+      function el(id) {
+        if (!elements[id]) elements[id] = { innerHTML: '', classList: { toggle() {} } };
+        return elements[id];
+      }
+      ${functionSource('renderModelPickerPopup')}
+      renderModelPickerPopup();
+      elements.modelList.innerHTML;
+    `;
+    const html = runInNewContext(source, { esc: (s: unknown) => String(s ?? '') }) as string;
+    expect(html).toContain('No default (agent picks)');
+    expect(html).toContain('data-model-id=""');
+    expect(html).toContain('GPT X');
+  });
+});
+
+describe('settings v7 responsive block', () => {
+  it('ships the responsive rules in a separate style block with em breakpoints', () => {
+    // The first <style> must stay literal-free (UI-R04); the responsive block
+    // sits before the palette block and uses em units, which the conformance
+    // literal budget explicitly exempts.
+    const firstStyleEnd = HTML.indexOf('</style>');
+    const responsiveAt = HTML.indexOf('@media (max-width: 61.25em)');
+    expect(responsiveAt).toBeGreaterThan(firstStyleEnd);
+    for (const bp of ['61.25em', '40em', '26.875em', '22.5em', '18.75em']) {
+      expect(HTML, bp).toContain('@media (max-width: ' + bp + ')');
+    }
+    expect(HTML).toContain('/*KARST_PALETTE*/');
+  });
+});

@@ -11,6 +11,7 @@ import {
   type TesterTarget,
 } from './tester.js';
 import type { AgentAdapter, HeadlessResult, RunHeadlessOpts } from '../../agent/adapter.js';
+import { GATE_LANE_HEADLESS_TIMEOUT_MS } from '../../agent/headlessSpawn.js';
 
 const now = () => '2026-08-08T10:00:00.000Z';
 
@@ -136,6 +137,22 @@ describe('runUatTester', () => {
       status: 'failed',
     });
     expect(listUatFindings(store, ticketId)).toEqual([]);
+  });
+
+  // The tester is asked to RUN the repo's tests and exercise the acceptance
+  // criteria — a chat-tuned model needs many minutes of tool calls for that,
+  // so the lane's own deadline is the generous gate-lane bound, never the
+  // 15-minute quick-call backstop that killed UAT testing mid-run.
+  it('defaults the headless deadline to the gate-lane bound, so a tester exercising the repo is not cut off', async () => {
+    const { adapter, calls } = rawAdapter('[]');
+    await runUatTester(store, opts({ adapter }), { now });
+    expect(calls[0]!.timeoutMs).toBe(GATE_LANE_HEADLESS_TIMEOUT_MS);
+  });
+
+  it('honors an explicit headless deadline from the caller', async () => {
+    const { adapter, calls } = rawAdapter('[]');
+    await runUatTester(store, opts({ adapter, timeoutMs: 42_000 }), { now });
+    expect(calls[0]!.timeoutMs).toBe(42_000);
   });
 
   it('a Stop aborts the run as interrupted, never a verdict', async () => {
