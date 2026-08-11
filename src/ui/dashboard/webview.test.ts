@@ -2355,7 +2355,11 @@ describe('inside render round trip (executed in a VM)', () => {
   it('renders findings evidence with severity rows and their status words (B2)', () => {
     const html = openEvidence('review', 'review');
     expect(html).toContain('class="findings"');
-    expect(html).toContain('<span class="sev">critical</span>');
+    // The level is coloured per LEVEL, from the host's closed severity key —
+    // every level rendered in one amber before this (869egdr2u-fu2).
+    expect(html).toContain('<span class="sev sev-critical">critical</span>');
+    expect(html).toContain('<span class="sev sev-high">high</span>');
+    expect(html).toContain('<span class="sev sev-medium">medium</span>');
     expect(html).toContain('class="finding-title"');
   });
 
@@ -2597,8 +2601,8 @@ describe('inside render round trip (executed in a VM)', () => {
     // survives a theme that ignores colour (UI-R06).
     expect(openEvidence('uat', 'gates')).toContain('<span class="glyph pass" aria-label="passed"></span>');
     const findings = openEvidence('review', 'review');
-    expect(findings).toContain('<span class="sev">critical</span>');
-    expect(findings).toContain('<span class="sev">medium</span>');
+    expect(findings).toContain('>critical</span>');
+    expect(findings).toContain('>medium</span>');
     // Ship's rich bodies carry their state as the recorded provenance pill and
     // the PR state pill — both host-supplied words, never colour alone.
     expect(openEvidence('ship', 'commit')).toContain('<span class="commit-origin ship">created by ship</span>');
@@ -2633,17 +2637,20 @@ describe('inside render round trip (executed in a VM)', () => {
     expect(openEvidence('scope', 'worktrees')).toContain('<span class="ev-key">worktree</span>');
   });
 
-  it('places row actions in the trailing action cluster (Task 5)', () => {
-    // Findings carry the open-file action the reducer ships: the button is the
-    // LAST cell of its row, inside `.eact`, posting only the opaque id.
+  it('makes a finding location its own link, not an Open file button (fu2)', () => {
+    // UI-R09c: the visible resource identifier IS the control. The "Open file"
+    // button beside inert location text was a second, weaker way to reach the
+    // same place, and it is gone from BOTH quality stages.
     const findings = openEvidence('review', 'review');
     expect(findings).toMatch(
-      /<span class="ev-tail"><button[^>]*data-act="inside-action"[^>]*>Open file<\/button><\/span>/,
+      /<a class="obj-link file-link" href="#" data-act="inside-action"[^>]*>src\/db\/query\.ts:41<\/a>/,
     );
     expect(findings).toContain('data-action-id="fixture:open-file:1"');
-    // Tester observations (uat, kind rows) keep their open-file actions too.
+    expect(findings).not.toContain('>Open file</button>');
+    // Tester observations render through the SAME findings blueprint.
     const uat = openEvidence('uat', 'tester');
-    expect(uat).toMatch(/<span class="ev-tail"><button[^>]*>Open file<\/button><\/span>/);
+    expect(uat).toMatch(/<a class="obj-link file-link"[^>]*data-act="inside-action"/);
+    expect(uat).not.toContain('>Open file</button>');
   });
 
   it('orders UAT Gates → causal Fix → Services → Tester (Task 5)', () => {
@@ -3008,6 +3015,92 @@ describe('inside render round trip (executed in a VM)', () => {
 });
 
 describe('inside block issues p3 renderings (869egdr2u)', () => {
+  it('makes a delivery line\'s PR number its own link, with the state chip beside it (fu2)', () => {
+    const state = renderStateFor('done');
+    const done: InsideStageView = {
+      stageKey: 'done',
+      title: 'Done',
+      dot: 'done',
+      clock: '',
+      blurb: '',
+      processes: [
+        {
+          id: 'delivery-receipt',
+          kind: 'delivery-receipt',
+          label: 'Delivery receipt',
+          status: 'pass',
+          detail: '1 current pull request merged',
+          evidence: {
+            kind: 'receipt',
+            rows: [
+              {
+                status: 'pass',
+                label: 'web',
+                detail: '#412',
+                prState: 'merged',
+                time: '09:58:01',
+                action: { actionId: 'snap:open-pr:1', kind: 'open-pr' },
+              },
+            ],
+            hero: { title: 'Delivered', summary: '1 repository · 1 pull request merged', time: '' },
+            blocks: [],
+          },
+        },
+      ],
+    };
+    const html = renderWith({ ...state, insideViews: { ...state.insideViews, done } });
+    expect(html).toMatch(
+      /<a class="obj-link pr-link" href="#" data-act="inside-action" data-action-id="snap:open-pr:1"[^>]*>#412<\/a>/,
+    );
+    expect(html).toContain('<span class="pr-status merged">merged</span>');
+    // The row keeps its stamp: the link replaced the BUTTON, not the tail.
+    expect(html).toContain('<span class="ev-time">09:58:01</span>');
+    expect(html).not.toContain('>Open PR</button>');
+  });
+
+  it('dates each expanded pull-request row (fu2)', () => {
+    const state = renderStateFor('ship');
+    const ship: InsideStageView = {
+      stageKey: 'ship',
+      title: 'Ship',
+      dot: 'done',
+      clock: '',
+      blurb: '',
+      processes: [
+        {
+          id: 'pr',
+          kind: 'pr',
+          label: 'Pull request',
+          status: 'pass',
+          detail: '1 created',
+          time: '10:04:00',
+          evidence: {
+            kind: 'prs',
+            rows: [],
+            open: 1,
+            merged: 0,
+            branches: [
+              {
+                repo: 'web',
+                number: '#412',
+                prState: 'open',
+                steps: [{ label: 'PR opened', state: 'done' }],
+                note: 'PR #412 was created in this ship run.',
+                current: false,
+                time: '10:04:12',
+              },
+            ],
+          },
+        },
+      ],
+    };
+    const html = renderWith({ ...state, insideViews: { ...state.insideViews, ship } });
+    expect(html).toContain('<span class="pr-time" title="pull-request step started 10:04:12">10:04:12</span>');
+    // …and the process row itself states when the step ran, which a per-repo
+    // row can never answer for the process as a whole.
+    expect(html).toContain('<span class="op-time">10:04:00</span>');
+  });
+
   it('renders the scope prefill process with AI chip, identity and token pill', () => {
     const state = renderStateFor('scope');
     const scope: InsideStageView = {
@@ -3219,7 +3312,11 @@ describe('inside block issues p3 renderings (869egdr2u)', () => {
     expect(html).toContain('<div class="done-hero">');
     expect(html).toContain('<div class="receipt-grid">');
     expect(html).toContain('<div class="receipt-label">Validated</div>');
-    expect(html).toContain('2 current pull requests merged');
+    // ONE delivered header: the green hero. The process summary above it
+    // ("Delivery receipt · 2 current pull requests merged") said the same
+    // thing a second time and is gone (869egdr2u-fu2).
+    expect(html).not.toContain('2 current pull requests merged');
+    expect(html).not.toContain('>Delivery receipt<');
     expect(html).toMatch(/<span class="done-state"><span class="ev-time">09:58:01<\/span> · passed<\/span>/);
   });
 });

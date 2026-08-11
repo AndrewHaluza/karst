@@ -684,13 +684,29 @@
   #inside .gate-detail{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
     color:var(--p-muted);font-size:var(--p-sm)}
 
-  /* Findings */
+  /* Findings — one blueprint for Review findings and UAT observations */
   #inside .findings{display:grid;gap:var(--p-s1)}
-  #inside .finding{display:grid;grid-template-columns:38px minmax(0,1fr) auto;gap:var(--p-s2);
+  #inside .finding{display:grid;
+    grid-template-columns:62px minmax(0,1fr) auto auto;gap:var(--p-s2);
     align-items:center;min-height:27px;padding:0 var(--p-s2)}
-  #inside .sev{font-family:var(--p-mono);font-size:var(--p-xs);color:var(--p-attention)}
+  #inside .sev{font-family:var(--p-mono);font-size:var(--p-xs);color:var(--p-muted2);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  /* The level ramp. Four levels, four readings — before this every level from
+     critical to low rendered in the single amber `--p-attention`, so the one
+     column whose entire job is to rank findings ranked nothing. The word stays
+     visible beside the colour, so the ranking never rides hue alone (UI-R28). */
+  #inside .sev.sev-critical{color:var(--p-failed);font-weight:var(--k-weight-semibold)}
+  #inside .sev.sev-high{color:var(--p-attention);font-weight:var(--k-weight-semibold)}
+  #inside .sev.sev-medium{color:var(--p-running)}
+  #inside .sev.sev-low{color:var(--p-muted2)}
   #inside .finding-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--p-sm);line-height:18px}
-  #inside .finding-loc{color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs);white-space:nowrap}
+  #inside .finding-loc{color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs);
+    white-space:nowrap;display:inline-flex;align-items:center;min-width:0}
+  #inside .finding-time{color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs);white-space:nowrap}
+  /* An identifier with no action behind it stays text — same metrics as the
+     link so a row with one and a row without do not shift against each other. */
+  #inside .obj-link-plain{font-family:var(--p-mono);font-size:var(--p-xs);
+    line-height:14px;color:var(--p-muted2)}
 
   /* Bounded evidence: the prototype's overflow note carries the control. */
   #inside .overflow-note{min-height:26px;display:flex;align-items:center;gap:var(--p-s2);padding:0 var(--p-s2);
@@ -869,8 +885,12 @@
     font-family:var(--p-mono);font-size:9px;line-height:16px;white-space:nowrap}
   #inside .commit-origin.ship{border-color:var(--p-edge-run);color:var(--p-running)}
   #inside .commit-origin.existing{border-color:var(--p-border2);color:var(--p-muted2)}
-  #inside .commit-list{padding:0 var(--p-s2) var(--p-s1) calc(var(--p-s2) + 82px)}
-  #inside .commit-item{display:grid;grid-template-columns:58px minmax(0,1fr) auto;gap:var(--p-s1);
+  /* The commit list hangs under its repository head, indented by one step —
+     NOT by the head's whole first column. The 82px reservation left a gap
+     wider than the hash it preceded, so the second line read as detached from
+     the block it belongs to (869egdr2u-fu2). */
+  #inside .commit-list{padding:0 var(--p-s2) var(--p-s1) var(--p-s3)}
+  #inside .commit-item{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:var(--p-s2);
     min-height:23px;align-items:center}
   #inside .commit-sha{font-family:var(--p-mono);font-size:var(--p-xs);color:var(--p-muted2);
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -913,7 +933,11 @@
   #inside .pr-step.fail{color:var(--p-failed)}
   #inside .pr-step.note{color:var(--p-muted2);font-style:italic}
   #inside .pr-arrow{color:var(--p-muted2);flex:none}
-  #inside .pr-branch-note{padding:0 var(--p-s2) var(--p-s1) calc(var(--p-s2) + 48px);
+  #inside .pr-time{margin-left:auto;flex:none;color:var(--p-muted2);font-family:var(--p-mono);
+    font-size:var(--p-xs);white-space:nowrap}
+  /* Indented one step under its branch line, not by the whole repo column —
+     the 48px reservation opened a gap wider than the note's own first word. */
+  #inside .pr-branch-note{padding:0 var(--p-s2) var(--p-s1) var(--p-s3);
     color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs);line-height:18px}
 
   /* The prototype's compact width, expressed as the block's own container
@@ -933,8 +957,9 @@
     #inside .gate-state{grid-column:3}
     #inside .evidence-row{grid-template-columns:70px minmax(0,1fr)}
     #inside .ev-state{grid-column:2}
-    #inside .finding{grid-template-columns:36px minmax(0,1fr)}
+    #inside .finding{grid-template-columns:56px minmax(0,1fr)}
     #inside .finding-loc{grid-column:2}
+    #inside .finding-time{display:none}
     #inside .done-line{grid-template-columns:76px minmax(0,1fr)}
     #inside .done-state{grid-column:2}
     /* The receipt grid stacks rather than crushing three columns; the commit
@@ -946,8 +971,9 @@
     #inside .commit-repo-name{grid-column:1}
     #inside .commit-repo-summary{grid-column:1/-1}
     #inside .commit-list,#inside .pr-branch-note{padding-left:var(--p-s2)}
-    #inside .commit-item{grid-template-columns:52px minmax(0,1fr)}
+    #inside .commit-item{grid-template-columns:auto minmax(0,1fr)}
     #inside .pr-branch{flex-wrap:wrap}
+    #inside .pr-time{margin-left:0}
     #inside .session-head{grid-template-columns:20px minmax(72px,90px) minmax(0,1fr)}
     #inside .timeline-row{grid-template-columns:var(--timeline-col) minmax(82px,104px) minmax(0,1fr);
       padding-left:var(--timeline-left)}
@@ -1779,6 +1805,16 @@
   function evActionHtml(r) {
     return r.action ? `<span class="ev-tail">${insideActionBtnHtml(r.action)}</span>` : '';
   }
+  // A visible resource identifier IS its control (UI-R09c): a file path, a
+  // commit hash or a PR number renders as the link that opens it, never as
+  // inert text beside a duplicate button. With no action it stays plain text
+  // — a link that opens nothing is worse than none.
+  function objLinkHtml(text, action, cls, title) {
+    if (!text) return '';
+    if (!action) return `<span class="obj-link-plain ${cls}">${esc(text)}</span>`;
+    return `<a class="obj-link ${cls}" href="#" data-act="inside-action"`
+      + ` data-action-id="${esc(action.actionId)}" title="${esc(title)}">${esc(text)}</a>`;
+  }
 
   function evidenceRowsHtml(ev) {
     return ev.rows.map((r) => `<div class="evidence-row">`
@@ -1801,11 +1837,20 @@
       + evStateHtml(r, 'gate-state')
       + `</div>`).join('')}</div>`;
   }
+  // Findings — ONE blueprint for both the Review findings and the UAT
+  // observations. The level is coloured from the host's closed `severity` key
+  // (never from parsing the label, which is prose an agent wrote), and the
+  // location is the row's own link rather than an "Open file" button beside
+  // inert text (UI-R09c). The level word stays visible, so severity never
+  // rides colour alone (UI-R28).
   function evidenceFindingsHtml(ev) {
     return `<div class="findings">${ev.rows.map((r) => `<div class="finding">`
-      + `<span class="sev">${esc(r.label)}</span>`
+      + `<span class="sev${r.severity ? ' sev-' + esc(r.severity) : ''}">${esc(r.label)}</span>`
       + `<span class="finding-title">${esc(r.detail || '')}</span>`
-      + (r.action ? evActionHtml(r) : `<span class="finding-loc">${esc(r.duration || '')}</span>`)
+      + `<span class="finding-loc">`
+      + objLinkHtml(r.location, r.action, 'file-link', INSIDE_ACTION_TITLE['open-file'])
+      + `</span>`
+      + `<span class="finding-time">${esc(r.time || r.duration || '')}</span>`
       + `</div>`).join('')}</div>`;
   }
   // The bounded remainder of a RICH body. The host owns both the count copy
@@ -1865,7 +1910,10 @@
       ).join(arrow);
       return `<div><div class="pr-branch${b.current ? ' current' : ''}">`
         + `<span class="pr-repo">${esc(b.repo)}</span>`
-        + `<div class="pr-path">${object}${steps ? arrow + steps : ''}</div></div>`
+        + `<div class="pr-path">${object}${steps ? arrow + steps : ''}</div>`
+        // Every expanded row dates itself, like the commit blocks beside it.
+        + (b.time ? `<span class="pr-time" title="pull-request step started ${esc(b.time)}">${esc(b.time)}</span>` : '')
+        + `</div>`
         + `<div class="pr-branch-note">${esc(b.note || '')}</div></div>`;
     }).join('');
     return `<div class="pr-branches">${rows}</div>${evidenceOverflowHtml(ev.overflow)}`;
@@ -1878,10 +1926,18 @@
   // receipt that carries only rows renders exactly what it always did, as the
   // plain line list behind the Details disclosure.
   function evidenceReceiptHtml(ev) {
+    // A delivery line's PR number IS its link (UI-R09c) — the `open-pr` action
+    // rides the number itself, so the row keeps its state chip and its stamp
+    // instead of surrendering the tail to a duplicate button.
     const lines = ev.rows.map((r) => `<div class="done-line">`
       + `<span class="done-key">${esc(r.label)}</span>`
-      + `<span class="done-copy">${esc(r.detail || '')}</span>`
-      + (r.action ? evActionHtml(r)
+      + `<span class="done-copy">`
+      + (r.action && r.action.kind === 'open-pr'
+        ? objLinkHtml(r.detail, r.action, 'pr-link', INSIDE_ACTION_TITLE['open-pr'])
+        : esc(r.detail || ''))
+      + (r.prState ? `<span class="pr-status ${esc(r.prState)}">${esc(r.prState)}</span>` : '')
+      + `</span>`
+      + (r.action && r.action.kind !== 'open-pr' ? evActionHtml(r)
         : `<span class="done-state">${r.time ? `<span class="ev-time">${esc(r.time)}</span> · ` : ''}${esc(r.duration || statusWord(r.status))}</span>`)
       + `</div>`).join('');
     // "Details" is static control copy for the disclosure (UI-R20); the rows
@@ -2043,7 +2099,17 @@
     // renders as the static summary with the body always beneath it, so the
     // overview stats are never behind a chevron the user did not open.
     if (p.evidence && p.evidence.kind === 'receipt') {
-      const body = `<div class="op-body receipt-body">${evidenceBodyHtml(p.evidence)}${footer}</div>`;
+      // The body carries the row's identity whether or not the summary above
+      // it survives: `data-proc-id` is how every surface addresses a process.
+      const body = `<div class="op-body receipt-body" data-proc-id="${esc(key)}">`
+        + `${evidenceBodyHtml(p.evidence)}${footer}</div>`;
+      // A receipt that HAS a hero already states the delivery, in the green
+      // banner that is the design's one delivered header. The process summary
+      // above it said the same thing a second time in a weaker voice
+      // ("Delivery receipt · 1 current pull request merged"), so it is dropped
+      // — the body alone is the row. A receipt with no hero (nothing delivered
+      // yet) keeps its summary, which is then the only thing that speaks.
+      if (p.evidence.hero) return body;
       return `<div class="op op-static" data-proc-id="${esc(key)}">`
         + `${glyph}${name}${detail}${tail}<span></span></div>${body}`;
     }

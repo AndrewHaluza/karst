@@ -518,9 +518,10 @@ describe('implementationSessionProcess', () => {
     );
     const timeline = rows(process);
     expect(timeline.at(-1)).toMatchObject({ label: 'done', status: 'pass', role: 'phase' });
-    expect(timeline.at(-1)!.detail).toBe(
-      `implementation marked done · ${formatTime(runAt('13:00'))}`,
-    );
+    // The stamp lives in the row's time cell ONLY: the description used to
+    // repeat it, so the same moment was stated twice on one row (fu2).
+    expect(timeline.at(-1)!.detail).toBe('implementation marked done');
+    expect(timeline.at(-1)!.detail).not.toContain(formatTime(runAt('13:00')));
     // The design's short timestamp style: the phase-time cell gets HH:MM.
     expect(timeline.at(-1)!.time).toBe(formatShortTime(runAt('13:00')));
   });

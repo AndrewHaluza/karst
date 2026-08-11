@@ -602,7 +602,12 @@ describe('insideViews (the six-stage inside presentation)', () => {
     const registry = new InsideActionRegistry(1, ticketId);
     const state = buildDashboardState(store, ticketId, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, registry);
     const receipt = state.insideViews.done.processes.find((p) => p.id === 'delivery-receipt')!;
-    const continuation = receipt.evidence?.rows.find((r) => r.action)?.action;
+    // The delivery rows now carry their own `open-pr` action (the PR number is
+    // the link), so the continuation is selected by KIND, not by "the first row
+    // that has an action".
+    const continuation = receipt.evidence?.rows
+      .map((r) => r.action)
+      .find((a) => a?.kind === 'open-bounded-evidence');
     expect(continuation).toMatchObject({ kind: 'open-bounded-evidence', label: 'Show 2 more' });
   });
 

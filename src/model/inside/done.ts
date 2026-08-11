@@ -101,6 +101,12 @@ export interface DoneReceiptInput {
   now: string;
   attach?: (target: InsideEvidenceTarget) => TypedInsideAction | undefined;
   /**
+   * The manifest repository NAME for a recorded repo value — the receipt names
+   * the service the way Settings names it, never the path. Absent → the
+   * display path stands.
+   */
+  repoNameFor?: (repo: string) => string | undefined;
+  /**
    * The ticket's stage cells — the Timing strip's source. Every work stage
    * with both stamps contributes its span, and the total is their SUM over
    * the same stamps, so the strip's displayed total can never disagree with
@@ -220,13 +226,23 @@ export function doneReceipt(input: DoneReceiptInput): DoneReceiptView {
   );
   const validated = finalGateWording(input.gateRuns);
 
-  const mergedRows = merged.map((pr): EvidenceRow => ({
+  // The delivery lines name the repository and carry its PR number as the
+  // row's own link — the number is a resource identifier, so it IS the control
+  // (UI-R09c), the same reading the ship rows give it. A PR whose id the host
+  // never minted an action for renders the number as plain text.
+  const mergedRows = merged.map((pr): EvidenceRow => {
+    const label = input.repoNameFor?.(pr.repo) ?? (pr.repoDisplay || pr.repo);
+    const action = pr.id ? input.attach?.({ kind: 'open-pr', prId: pr.id }) : undefined;
+    return {
       status: 'pass',
-      label: 'merged',
-      detail: pr.number ? `${pr.repoDisplay || pr.repo} #${pr.number}` : pr.repoDisplay || pr.repo,
+      label,
+      detail: pr.number ? `#${pr.number}` : 'merged',
+      ...(pr.status ? { prState: pr.status } : {}),
+      ...(action ? { action } : {}),
       // Each merged row dates from its own merge stamp (Task 869egdr2u).
       ...(pr.mergedAt ? { time: formatTime(pr.mergedAt) } : {}),
-  }));
+    };
+  });
   const repositoryRows = boundedEvidenceRows(
     mergedRows,
     REPOSITORY_EVIDENCE_LIMIT,

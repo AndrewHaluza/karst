@@ -187,6 +187,30 @@ export type InsideProcessId = string;
 /** How one process row reads to the eye. The same vocabulary as `OpStatus`. */
 export type InsideStatus = 'pending' | 'run' | 'wait' | 'pass' | 'fail' | 'note' | 'skip';
 
+/**
+ * A finding's level, as a CLOSED styling key. Review and UAT observations are
+ * two different tables recording the same four-level vocabulary, and both
+ * render through one severity ramp — a reader must not have to learn which
+ * stage they are looking at to know how bad "high" is.
+ *
+ * Anything a store hands over that is not one of these is dropped rather than
+ * coerced: an unrecognised level is absence of a level, never `low`.
+ */
+export type InsideSeverity = 'critical' | 'high' | 'medium' | 'low';
+
+/** The closed vocabulary, in one place — mirrors the union above. */
+export const INSIDE_SEVERITIES: readonly InsideSeverity[] = [
+  'critical',
+  'high',
+  'medium',
+  'low',
+] as const;
+
+/** Narrow a recorded severity to the closed styling vocabulary, or nothing. */
+export function insideSeverity(value: string | null | undefined): InsideSeverity | undefined {
+  return INSIDE_SEVERITIES.find((s) => s === value);
+}
+
 /** The AI identity of one execution, as displayed. */
 export interface AgentExecutionView {
   agentName?: string;
@@ -316,6 +340,22 @@ export interface EvidenceRow {
    */
   prState?: string;
   /**
+   * A finding row's severity as a STYLING key — the closed vocabulary the
+   * renderer colours the level marker from. `label` already carries the same
+   * word as prose; this is the structural copy, because a renderer that
+   * coloured by parsing `label` would tint whatever text an agent wrote.
+   * Absent → the marker keeps the neutral default.
+   */
+  severity?: InsideSeverity;
+  /**
+   * The file location a finding names — `src/foo.ts:302`, host-formatted.
+   * Rendered as the row's own link when the row also carries an `open-file`
+   * action, and as plain text otherwise. Kept OUT of `detail` on purpose: the
+   * location is a resource identifier and therefore the link (UI-R09c), not a
+   * fragment of the title's prose.
+   */
+  location?: string;
+  /**
    * The exact form of `duration`, host-formatted. Rendered only as the
    * duration's `title`. Absent → the readable duration carries no tooltip.
    */
@@ -401,6 +441,12 @@ export interface PrBranchView {
   note: string;
   /** Whether this row is the one currently acting (running or failed). */
   current: boolean;
+  /**
+   * When this repository's pull-request step started, as a clock time. Absent
+   * for a repository whose step karst never recorded a start for — stated by
+   * omission, never by an empty cell.
+   */
+  time?: string;
   /**
    * Opens the PR on the host through the opaque `open-pr` capability. Absent
    * when the caller attached none — the number then renders as plain text.
