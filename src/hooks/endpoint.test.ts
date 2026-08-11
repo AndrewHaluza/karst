@@ -204,16 +204,64 @@ describe('startHookEndpoint', () => {
     expect(res.status).toBe(404);
   });
 
-  it('an oversized body is rejected with 413 and does not mutate', async () => {
+  it('an oversized body is accepted (204), ignored, and counted as too-large', async () => {
+    const recorder = createHookChannelRecorder();
+    await ep.close();
+    ep = await startHookEndpoint(store, 0, undefined, undefined, undefined, undefined, {
+      recorder,
+    });
     const id = ticketAt();
-    const huge = 'x'.repeat(70 * 1024);
+    const huge = 'x'.repeat(1024 * 1024 + 4096);
     const res = await fetch(ep.url, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ hook_event_name: 'SessionStart', cwd: WT, pad: huge }),
     });
     await res.text().catch(() => '');
-    expect(res.status).toBe(413);
+    expect(res.status).toBe(204);
+    expect(getTicket(store, id).agentState).toBe('none');
+    expect(recorder.snapshot().outcomes['too-large']).toBe(1);
+  });
+
+  it('disconnects an oversized body that never finishes at the request deadline', async () => {
+    await ep.close();
+    ep = await startHookEndpoint(
+      store,
+      0,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { requestTimeoutMs: 40 },
+    );
+    const id = ticketAt();
+    let partial: Socket | undefined;
+    await new Promise<void>((resolve, reject) => {
+      partial = connect(ep.port, '127.0.0.1');
+      partial.on('connect', () => {
+        partial!.write(
+          'POST /hooks HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 999999999\r\n\r\n' +
+            'x'.repeat(1024 * 1024 + 4096),
+        );
+        resolve();
+      });
+      partial.on('error', reject);
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error('oversized hook socket was not disconnected')),
+        1_000,
+      );
+      // Drain the 204 the server already sent — a real hook sender (curl,
+      // Claude's HTTP client) reads its response, and only then observes the
+      // disconnect at the deadline.
+      partial!.resume();
+      partial!.on('close', () => {
+        clearTimeout(timer);
+        resolve();
+      });
+    });
     expect(getTicket(store, id).agentState).toBe('none');
   });
 
