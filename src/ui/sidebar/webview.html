@@ -64,6 +64,18 @@
      second translucent layer stacking on top of the first. */
   .row:has(.rowopen.is-success){background:var(--k-surface-selected)}
   .rowopen.is-success{background:transparent}
+  /* The row whose ticket view (dashboard/edit/diffs) is the window's ACTIVE
+     view. "Currently active" is its own meaning, deliberately NOT the
+     selection wash (STYLE-GUIDE §10): `--k-surface-selected` says "this item
+     is selected", so the active row instead uses the focus color — a left
+     rail as the shape carrier (the state is never color-only) over a faint
+     focus tint. Outranks the transient open-flash wash (same specificity,
+     later in the file) and `.row:hover` (higher specificity), so the
+     highlight survives both. */
+  .ticket.active .row{background:color-mix(in srgb,var(--k-focus) 9%,transparent)}
+  .ticket.active .row::before{content:"";position:absolute;left:0;top:var(--k-space-2);
+    bottom:var(--k-space-2);width:calc(var(--k-border-w) * 2);
+    border-radius:var(--k-radius-pill);background:var(--k-focus)}
   /* The pending spinner replaces only the status dot — not the whole glyph —
      so the karst mark stays visible and the row never shifts. The dot hides
      and a same-size spinner takes its place (same absolute position). */
@@ -339,7 +351,7 @@
         ? `<span class="rowopen">${rowContent}</span>`
         : `<button type="button" class="k-btn k-btn--link k-btn--row rowopen" data-open="${row.ticketId}" title="Open ticket dashboard">${rowContent}</button>`;
 
-      return `<div class="ticket${isOpen ? ' open' : ''}${row.archived ? ' arch' : ''}" data-id="${row.ticketId}">`
+      return `<div class="ticket${isOpen ? ' open' : ''}${row.archived ? ' arch' : ''}${row.isActive ? ' active' : ''}" data-id="${row.ticketId}">`
         + `<div class="row">`
         + `<button type="button" class="k-iconbtn chev" data-toggle="${row.ticketId}" aria-expanded="${isOpen}" aria-label="${toggleLabel}" title="${toggleLabel}">${chev}</button>`
         + openControl

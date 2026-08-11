@@ -9,14 +9,17 @@ class FakePanel implements ChangesPanel {
   posted: ChangesHostMessage[] = [];
   column: number | undefined = 1;
   private messageHandler?: (message: unknown) => void;
+  private viewStateHandler?: (active: boolean) => void;
   private disposeHandler?: () => void;
 
   reveal(): void { this.revealed += 1; }
   viewColumn(): number | undefined { return this.column; }
   postMessage(message: ChangesHostMessage): void { this.posted.push(message); }
   onDidReceiveMessage(handler: (message: unknown) => void): void { this.messageHandler = handler; }
+  onDidChangeViewState(handler: (active: boolean) => void): void { this.viewStateHandler = handler; }
   onDidDispose(handler: () => void): void { this.disposeHandler = handler; }
   emit(message: unknown): void { this.messageHandler?.(message); }
+  emitViewState(active: boolean): void { this.viewStateHandler?.(active); }
   dispose(): void { this.disposeHandler?.(); }
 }
 
@@ -765,6 +768,90 @@ describe('TicketChangesManager', () => {
       expect(panels[0]!.posted).toContainEqual({ type: 'action-result', requestId: 'req-4', ok: true });
       second.resolve(snapshot(41, 'second:1', target('src/second.ts')));
       await settle();
+    });
+  });
+
+  describe('view activation reporting', () => {
+    it('reports the ticket active on open, then deactivation on view-state changes', async () => {
+      const loaded = snapshot(41, 'current:1', target('src/current.ts'));
+      const { host, panels } = makeHost();
+      const activated = vi.fn();
+      const manager = new TicketChangesManager(
+        host,
+        (id) => `Changes ${id}`,
+        async () => loaded,
+        async () => {},
+        () => {},
+        () => {},
+        () => {},
+        activated,
+      );
+
+      manager.open(41);
+      await settle();
+      // Creation focuses the panel and fires no `onDidChangeViewState`, so the
+      // open itself must report the activation.
+      expect(activated).toHaveBeenLastCalledWith(41, true);
+
+      panels[0]!.emitViewState(true);
+      panels[0]!.emitViewState(false);
+      expect(activated).toHaveBeenLastCalledWith(41, false);
+    });
+
+    it('reports a focus-taking re-open (reveal) of an existing panel', async () => {
+      const loaded = snapshot(41, 'current:1', target('src/current.ts'));
+      const { host, panels } = makeHost();
+      const activated = vi.fn();
+      const manager = new TicketChangesManager(
+        host,
+        (id) => `Changes ${id}`,
+        async () => loaded,
+        async () => {},
+        () => {},
+        () => {},
+        () => {},
+        activated,
+      );
+
+      manager.open(41);
+      await settle();
+      panels[0]!.emitViewState(false); // user moved away
+      manager.open(41); // plain re-open takes focus again
+      await settle();
+      expect(activated.mock.calls).toEqual([[41, true], [41, false], [41, true]]);
+    });
+
+    it('reports the ACTIVE panel losing focus when it is disposed (closing the focused tab)', async () => {
+      const loaded = snapshot(41, 'current:1', target('src/current.ts'));
+      const { host, panels } = makeHost();
+      const activated = vi.fn();
+      const manager = new TicketChangesManager(
+        host,
+        (id) => `Changes ${id}`,
+        async () => loaded,
+        async () => {},
+        () => {},
+        () => {},
+        () => {},
+        activated,
+      );
+
+      manager.open(41);
+      await settle();
+      panels[0]!.dispose();
+
+      expect(activated.mock.calls).toEqual([[41, true], [41, false]]);
+    });
+
+    it('reports nothing when no listener is given (default)', async () => {
+      const loaded = snapshot(41, 'current:1', target('src/current.ts'));
+      const { host, panels } = makeHost();
+      const manager = new TicketChangesManager(host, (id) => `Changes ${id}`, async () => loaded, async () => {}, () => {});
+
+      manager.open(41);
+      await settle();
+      panels[0]!.emitViewState(true);
+      panels[0]!.emitViewState(false);
     });
   });
 });

@@ -371,4 +371,30 @@ describe('sidebar webview.html', () => {
       expect(script, expr).toContain(expr);
     }
   });
+
+  it('marks the row active when its ticket view (dashboard/edit/diffs) is the window ACTIVE view', () => {
+    // The class rides the row root so the highlight spans the whole ticket
+    // (collapsed row + expanded body), and it is a no-op when absent.
+    expect(HTML).toContain("${row.isActive ? ' active' : ''}");
+    expect(HTML).toMatch(/class="ticket\$\{isOpen \? ' open' : ''\}/);
+  });
+
+  it('highlights the active row with the focus color, never the selection wash (STYLE-GUIDE §10)', () => {
+    const [main] = styleBlocks();
+    // "Currently active" is its own meaning: the active row uses --k-focus (the
+    // focused-surface color) instead of --k-surface-selected ("this item is
+    // selected"), and gets a left rail as the shape carrier so the state is
+    // never color-only (UI-R28 spirit — a distinct glyph per state).
+    expect(main).toContain('.ticket.active .row{');
+    expect(main).toContain('var(--k-focus)');
+    expect(main).not.toContain('.ticket.active .row{background:var(--k-surface-selected)');
+    expect(main).toContain('.ticket.active .row::before');
+  });
+
+  it('the active highlight outranks the hover wash so it survives pointer motion', () => {
+    const [main] = styleBlocks();
+    const active = main!.indexOf('.ticket.active .row{');
+    const hover = main!.indexOf('.row:hover{');
+    expect(active).toBeGreaterThan(hover);
+  });
 });

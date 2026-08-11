@@ -54,6 +54,12 @@ export interface TicketRow extends TicketNode {
    * line that only prints numbers.
    */
   prs: SidebarPr[];
+  /**
+   * True when the ticket's dashboard/edit/diffs view is the window's ACTIVE
+   * view right now — the row the sidebar highlights. Window UI context, never
+   * a ticket fact, which is why it rides the row rather than the node.
+   */
+  isActive: boolean;
 }
 
 export interface SidebarState {
@@ -92,6 +98,11 @@ export function buildSidebarState(
      * user can't see. Undefined only before a project is bound.
      */
     projectId?: number;
+    /**
+     * The ticket whose dashboard/edit/diffs view is currently active in this
+     * window, if any; its row is highlighted. Null/undefined → no highlight.
+     */
+    activeTicketId?: number | null;
   },
   pathContext?: PathContext,
 ): SidebarState {
@@ -119,6 +130,7 @@ export function buildSidebarState(
     parentKeys,
   ).map((node) => ({
     ...node,
+    isActive: node.ticketId === (opts.activeTicketId ?? null),
     servers: listServersByTicket(store, node.ticketId),
     worktrees: listWorktreesByTicket(store, node.ticketId).map((w) => ({
       ...w,
