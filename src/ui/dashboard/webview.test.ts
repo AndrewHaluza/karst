@@ -1736,7 +1736,16 @@ describe('dashboard webview.html', () => {
 // reduced-motion behavior stay source guards above, and only a Dev Host run
 // can execute them.
 
-/** The dashboard webview hydrated exactly as the host renders it. */
+/**
+ * The dashboard webview hydrated exactly as the host renders it — except the
+ * vendored xterm bundles. Production injects them at /*KARST_XTERM_*\/ (see
+ * extension.ts dashboardWebviewHtml); the VM harness deliberately does not,
+ * because the UMD needs a full DOM (navigator/document) that the doubles
+ * cannot supply — which is exactly why the console tests inject their own
+ * Terminal/FitAddon fakes instead. The wiring itself is pinned by
+ * src/ui/xterm.test.ts; the markers remaining here mean the console surface
+ * takes the harness's fake-library path.
+ */
 const HYDRATED = injectAgentIdentity(injectProviderIdentity(injectPalette(injectDesignSystem(HTML))));
 
 function previewScriptSource(): string {

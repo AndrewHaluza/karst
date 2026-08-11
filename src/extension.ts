@@ -304,6 +304,7 @@ import { injectDesignSystem } from './model/designSystem.js';
 import { injectCsp, newNonce } from './model/csp.js';
 import { injectProviderIdentity } from './model/providerIdentity.js';
 import { injectAgentIdentity } from './model/agentIdentity.js';
+import { injectXterm, readXtermAssets } from './model/xtermAssets.js';
 import { buildTicketArtifacts } from './model/artifacts.js';
 import {
   binaryExists,
@@ -2030,7 +2031,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   const dashboard = new DashboardManager(
     localStore,
-    makePanelHost(context, brandIcon),
+    makePanelHost(context, brandIcon, (m) => logger.warn(m)),
     (ticketId) =>
       makeDashboardActions(
         localStore,
@@ -4119,29 +4120,43 @@ function buildCliGuidePrefix(context: vscode.ExtensionContext): string {
 
 /**
  * The injected dashboard webview asset, built once per call: design system,
- * status palette, provider identity, and agent-core identity markers are all
- * substituted host-side (CSP forbids a shared stylesheet/script). Shared by the
- * production dashboard panels and the development-only Inside preview, so the
- * preview renders the exact asset production does (Finding 1). The agent
- * identity injection is applied outermost, in the same order the settings and
- * ticket form hosts use it.
+ * status palette, provider identity, agent-core identity, and the vendored
+ * xterm bundles are all substituted host-side (CSP forbids a shared
+ * stylesheet/script). Shared by the production dashboard panels and the
+ * development-only Inside preview, so the preview renders the exact asset
+ * production does (Finding 1). The agent identity injection is applied
+ * outermost, in the same order the settings and ticket form hosts use it.
+ *
+ * xterm is injected HERE, before `injectCsp` runs at panel creation: the
+ * vendored JS lands inside the document's own `<script>` block, so the nonce
+ * pass tags it along with the dashboard script. A missing vendor asset (a
+ * packaging regression) degrades to the marker comments the webview already
+ * guards — the console view reports "unavailable" instead of the dashboard
+ * failing to open at all.
  */
-function dashboardWebviewHtml(): string {
-  return injectAgentIdentity(
+function dashboardWebviewHtml(warn: (message: string) => void): string {
+  let html = injectAgentIdentity(
     injectProviderIdentity(
       injectPalette(
         injectDesignSystem(readFileSync(join(HERE, 'ui', 'dashboard', 'webview.html'), 'utf8')),
       ),
     ),
   );
+  try {
+    html = injectXterm(html, readXtermAssets(join(HERE, 'vendor', 'xterm')));
+  } catch (e) {
+    warn(`xterm vendor assets unavailable — console view disabled (${(e as Error).message})`);
+  }
+  return html;
 }
 
 /** Real webview panels, wrapped in the `DashboardPanel` interface. */
 function makePanelHost(
   context: vscode.ExtensionContext,
   brandIcon?: BrandIconPaths,
+  warn: (message: string) => void = () => {},
 ): PanelHost {
-  const html = dashboardWebviewHtml();
+  const html = dashboardWebviewHtml(warn);
   return {
     createPanel(title, _ticketId, preserveFocus): DashboardPanel {
       const panel = vscode.window.createWebviewPanel(
