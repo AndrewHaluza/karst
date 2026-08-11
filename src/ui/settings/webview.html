@@ -32,34 +32,8 @@
   h2{font-size:var(--k-text-base);text-transform:uppercase;letter-spacing:.04em;opacity:.7;margin:var(--k-space-0) var(--k-space-0) var(--k-space-4)}
   .hidden{display:none !important}
 
-  /* ---- layout: left nav + content ---- */
-  .nav{
-    width:calc(var(--k-space-8) * 7.5);flex:0 0 auto;padding:var(--k-space-7) var(--k-space-4);
-    border-right:var(--k-border-w) solid var(--vscode-panel-border);
-  }
-  /* A tab list, not a general action button — no k- primitive covers this
-     shape, so it stays a local, unprefixed component (§ STYLE-GUIDE.md 2).
-     Its values are still tokens throughout. */
-  .nav button{
-    display:block;position:relative;width:100%;text-align:left;margin-bottom:var(--k-space-1);
-    background:transparent;color:var(--k-text);border:none;
-    border-radius:var(--k-radius-sm);padding:var(--k-space-3) var(--k-space-8) var(--k-space-3) var(--k-space-5);
-    font-size:var(--k-text-sm);cursor:pointer;
-  }
   /* Per-tab marker: unsaved changes, or (red, and it wins) a validation error on
      that tab. Without it, tab-scoped Save would hide unsaved work behind a tab. */
-  .nav button.has-changes::after,.nav button.has-error::after{
-    content:'';position:absolute;right:var(--k-space-5);top:50%;transform:translateY(-50%);
-    width:var(--k-space-2);height:var(--k-space-2);border-radius:var(--k-radius-circle);
-    background:var(--k-attention);
-  }
-  .nav button.has-error::after{background:var(--k-failed)}
-  .nav button:hover{background:var(--k-surface-hover)}
-  .nav button:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
-  .nav button.active{
-    background:var(--vscode-list-activeSelectionBackground,var(--k-surface-hover));
-    color:var(--vscode-list-activeSelectionForeground,var(--k-text));
-  }
   .main{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;height:100vh}
 
   /* ---- top bar ---- */
@@ -2710,7 +2684,13 @@
       el('serviceCards').innerHTML = '<div class="empty">No repositories configured.</div>';
       return;
     }
-    el('serviceCards').innerHTML = names.map((name) => renderServiceCard(name)).join('');
+    // Roster head: Repository | Path | Baseline | Runtime | Actions (§10). The
+    // head is part of the table so the columns align with every row.
+    el('serviceCards').innerHTML =
+      `<div class="roster-head repo-cols">`
+      + `<div>Repository</div><div>Path</div><div>Baseline</div><div>Runtime</div><div></div>`
+      + `</div>`
+      + names.map((name) => renderServiceCard(name)).join('');
     // The rebuild threw away the previous inline error nodes; re-apply against
     // the fresh DOM so a touched field keeps its message across a re-render.
     applyFieldValidationUI(lastValidationError);
@@ -2747,13 +2727,25 @@
     // accordion was entirely unusable by keyboard. The enable switch and
     // Remove are SIBLINGS of the toggle button, never descendants, so no
     // interactive control ever nests inside another.
-    return `<div class="card ${isOpen ? 'open' : ''}" data-card="${esc(name)}">`
-      + `<div class="card-head">`
+    //
+    // The head doubles as the roster row (handoff §10): Repository | Path |
+    // Baseline | Runtime | Actions in the same grid as the roster head, with
+    // the toggle as the row opener and the detail editor below. The selected
+    // (open) row keeps its highlight while details are shown.
+    const runtimeBadge = svc
+      ? '<span class="badge good">service</span>'
+      : '<span class="badge">worktree only</span>';
+    return `<div class="card ${isOpen ? 'open is-selected' : ''}" data-card="${esc(name)}">`
+      + `<div class="card-head roster-row repo-cols">`
       + `<button type="button" class="card-toggle" data-toggle="${esc(name)}"`
       + ` aria-expanded="${isOpen ? 'true' : 'false'}" aria-controls="${bodyId}">`
       + `<span class="chevron" aria-hidden="true">&#9656;</span>`
       + `<span class="card-title">${esc(name)}</span>`
       + `</button>`
+      + `<span class="cell-path" title="${esc(repo.repoPath || '')}">${esc(repo.repoPath || '—')}</span>`
+      + `<span class="cell-meta mono">${esc(repo.baselineBranch || draft.baselineBranch || 'main')}</span>`
+      + `<span class="cell-meta">${runtimeBadge}</span>`
+      + `<span class="cell-actions">`
       + (repo.enabled === false ? `<span class="chip">Draft</span>` : '')
       + (svc ? '' : `<span class="field-hint" style="margin:0 0 0 8px">no service</span>`)
       + `<button type="button" class="k-switch" role="switch" aria-checked="${isEnabled ? 'true' : 'false'}"`
@@ -2764,6 +2756,7 @@
       + `</button>`
       + `<button type="button" class="k-btn k-btn--danger k-btn--sm" data-remove-service="${esc(name)}"`
       + ` title="Remove ${esc(name)} from the manifest">Remove</button>`
+      + `</span>`
       + `</div>`
       + `<div class="card-body" id="${bodyId}">`
       + `<label for="${nameFieldId}">Name</label>`
