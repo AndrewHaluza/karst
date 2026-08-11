@@ -83,6 +83,7 @@ function harness(overrides: Partial<SettingsActionsDeps> = {}) {
     modelCatalog: () => REMOTE_MODELS,
     browseForFolder: async () => undefined,
     openManifest: () => { order.push('openManifest'); },
+    revealGraphPrompt: async () => { order.push('revealGraphPrompt'); },
     ...overrides,
   };
   const factory = buildSettingsActions(deps);
@@ -291,6 +292,101 @@ describe('settings actions — section-scoped save', () => {
     expect(writes[0]!.approaches).toEqual([
       { id: 'karst-graph-engineering', label: 'Graph Engineering', enabled: true },
     ]);
+  });
+});
+
+describe('settings actions — graph configuration saves (Slice-1 T6)', () => {
+  /** The packaged built-in overlaid with a graph edit, as the webview draft holds it. */
+  function overlaidWithLimits(limits: Record<string, number>): Manifest {
+    const builtin = BUILT_IN_APPROACHES[0]!;
+    return {
+      ...VALID,
+      approaches: [
+        {
+          ...builtin,
+          enabled: true,
+          graph: {
+            ...builtin.graph!,
+            limits: { ...(builtin.graph!.limits ?? {}), ...limits },
+          },
+        },
+      ],
+    };
+  }
+
+  it('refuses a Save whose graph wall-time budget exceeds a hard ceiling and writes nothing', async () => {
+    const { writes, harness: h } = writeSpy();
+    const { actions, posted } = h({ ...VALID, approaches: [] });
+    await actions.save(overlaidWithLimits({ maxAgentWallSeconds: 99999 }), 'approaches');
+
+    expect(writes).toEqual([]); // never wrote
+    expect((posted.find((m) => m.type === 'error') as any).message).toMatch(/28800/);
+  });
+
+  it('accepts a budget at the hard ceiling and writes it as the delta', async () => {
+    const { writes, harness: h } = writeSpy();
+    const { actions, posted } = h({ ...VALID, approaches: [] });
+    await actions.save(overlaidWithLimits({ maxAgentWallSeconds: 28800 }), 'approaches');
+
+    expect(writes).toHaveLength(1);
+    expect(writes[0]!.approaches).toEqual([
+      {
+        id: 'karst-graph-engineering',
+        label: 'Graph Engineering',
+        enabled: true,
+        graph: {
+          limits: { ...(BUILT_IN_APPROACHES[0]!.graph?.limits ?? {}), maxAgentWallSeconds: 28800 },
+        },
+      },
+    ]);
+    expect(posted.some((m) => m.type === 'saved')).toBe(true);
+  });
+
+  it('a per-tab approaches Save writes only the approaches fields and validates the merged candidate', async () => {
+    // Disk carries a general-field edit the webview never saw (an out-of-band
+    // write); the draft's approaches hold a graph edit. Saving approaches must
+    // keep the disk's general fields and validate exactly the merged candidate.
+    const onDisk: Manifest = { ...VALID, host: '0.0.0.0' };
+    const { writes, harness: h } = writeSpy();
+    const { actions } = h(onDisk);
+    await actions.save(overlaidWithLimits({ maxParallel: 2 }), 'approaches');
+
+    expect(writes).toHaveLength(1);
+    expect(writes[0]!.host).toBe('0.0.0.0'); // from DISK, not the draft
+    expect(writes[0]!.approaches).toEqual([
+      {
+        id: 'karst-graph-engineering',
+        label: 'Graph Engineering',
+        enabled: true,
+        graph: { limits: { ...(BUILT_IN_APPROACHES[0]!.graph?.limits ?? {}), maxParallel: 2 } },
+      },
+    ]);
+  });
+
+  it('reports a named error when the merged candidate carries a bad profile effort', async () => {
+    const { writes, harness: h } = writeSpy();
+    const { actions, posted } = h({ ...VALID, approaches: [] });
+    const builtin = BUILT_IN_APPROACHES[0]!;
+    await actions.save(
+      {
+        ...VALID,
+        approaches: [
+          {
+            ...builtin,
+            enabled: true,
+            graph: {
+              ...builtin.graph!,
+              profiles: { expert: { provider: 'claude', model: 'claude-opus-5', effort: 'extreme' } },
+            },
+          },
+        ],
+      },
+      'approaches',
+    );
+
+    expect(writes).toEqual([]);
+    // The host refuses an effort the selected model does not advertise (A10).
+    expect((posted.find((m) => m.type === 'error') as any).message).toMatch(/effort/);
   });
 });
 

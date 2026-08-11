@@ -36,7 +36,13 @@ export type SettingsWebviewMessage =
   | { type: 'fetch-ticket-statuses'; listId: string; teamId?: string }
   | { type: 'fetch-ticket-lists'; teamId: string }
   | { type: 'browse-repo-path'; name: string }
-  | { type: 'open-manifest' };
+  | { type: 'open-manifest' }
+  /**
+   * Reveal the effective prompt for a graph prompt identity (`karst-graph-planner`
+   * / `karst-graph-node`). The identity is a closed set — the host resolves it
+   * against the stable override registry and refuses anything else.
+   */
+  | { type: 'open-graph-prompt'; identity: string };
 
 /** Host → webview messages. */
 export type SettingsHostMessage =
@@ -110,6 +116,8 @@ export interface SettingsActions {
   browseRepoPath(name: string): void | Promise<void>;
   /** Open this window's karst.yml in an editor (`karst.openManifest`). */
   openManifest(): void | Promise<void>;
+  /** Reveal the effective prompt file for a graph prompt identity. */
+  openGraphPrompt(identity: string): void | Promise<void>;
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -189,6 +197,8 @@ export function parseSettingsMessage(raw: unknown): SettingsWebviewMessage | nul
       return str('name') ? { type: 'browse-repo-path', name: raw.name as string } : null;
     case 'open-manifest':
       return { type: 'open-manifest' };
+    case 'open-graph-prompt':
+      return str('identity') ? { type: 'open-graph-prompt', identity: raw.identity as string } : null;
     default:
       return null;
   }
@@ -244,5 +254,7 @@ export function routeSettingsAction(raw: unknown, actions: SettingsActions): voi
       return actions.browseRepoPath(msg.name);
     case 'open-manifest':
       return actions.openManifest();
+    case 'open-graph-prompt':
+      return actions.openGraphPrompt(msg.identity);
   }
 }

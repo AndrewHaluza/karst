@@ -14,6 +14,7 @@ import type { LoadedManifest } from './panel.js';
 import type { TicketingProvider } from '../../integrations/ticketing.js';
 import type { TicketingConfig } from '../../manifest/types.js';
 import type { ModelCatalog } from '../../agent/modelCatalog.js';
+import { assertProfileEffort, EffortError } from '../../agent/effort.js';
 import { mergeSection, type SettingsSection } from './sections.js';
 
 /** Per-panel context: how to post to this webview + which file it edits. */
@@ -100,6 +101,11 @@ export interface SettingsActionsDeps {
   browseForFolder(): Promise<string | undefined>;
   /** Open this window's karst.yml in an editor (runs `karst.openManifest`). */
   openManifest(): void | Promise<void>;
+  /**
+   * Reveal the effective prompt file for a graph prompt identity (project
+   * override wins over the packaged bytes).
+   */
+  revealGraphPrompt(identity: string): Promise<void>;
 }
 
 export type SettingsActionsFactory = (ctx: SettingsActionsCtx) => SettingsActions;
@@ -131,6 +137,22 @@ function withApproachEnabledDelta(manifest: Manifest, id: string, enabled: boole
     ...manifest,
     approaches: [...(manifest.approaches ?? []).filter((a) => a.id !== id), entry],
   };
+}
+
+/**
+ * A10: every graph profile's effort must be advertised by its model in the LIVE
+ * catalog before a save reaches disk — an explicitly configured effort the
+ * selected model does not advertise is a configuration failure, never silently
+ * discarded (`assertProfileEffort`, wired here at Save per its own contract).
+ * The packaged defaults (Opus high, Sonnet low) validate against the bundled
+ * metadata; only project-authored values can trip this.
+ */
+function validateGraphEfforts(manifest: Manifest, catalog: ModelCatalog): void {
+  for (const approach of manifest.approaches ?? []) {
+    for (const profile of Object.values(approach.graph?.profiles ?? {})) {
+      assertProfileEffort(profile.provider, profile.model, profile.effort, catalog);
+    }
+  }
 }
 
 export function buildSettingsActions(deps: SettingsActionsDeps): SettingsActionsFactory {
@@ -296,8 +318,9 @@ export function buildSettingsActions(deps: SettingsActionsDeps): SettingsActions
         };
         try {
           validateManifest(delta); // guard before touching disk
+          validateGraphEfforts(delta, deps.modelCatalog()); // A10: effort vs live catalog
         } catch (e) {
-          if (!(e instanceof ManifestError)) throw e;
+          if (!(e instanceof ManifestError) && !(e instanceof EffortError)) throw e;
           ctx.post({ type: 'error', message: errorMessage(e) });
           return;
         }
@@ -534,6 +557,14 @@ export function buildSettingsActions(deps: SettingsActionsDeps): SettingsActions
       async openManifest(): Promise<void> {
         try {
           await deps.openManifest();
+        } catch (e) {
+          ctx.post({ type: 'error', message: errorMessage(e) });
+        }
+      },
+
+      async openGraphPrompt(identity: string): Promise<void> {
+        try {
+          await deps.revealGraphPrompt(identity);
         } catch (e) {
           ctx.post({ type: 'error', message: errorMessage(e) });
         }

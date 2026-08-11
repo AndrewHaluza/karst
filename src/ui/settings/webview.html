@@ -352,6 +352,33 @@
   .roster-card .approach-line .chips{margin:var(--k-space-0)}
   .roster-card .approach-foot{margin-top:var(--k-space-5)}
 
+  /* ---- graph configuration surface (built-in approach card, Slice-1 T6) ---- */
+  .graph-config{
+    margin-top:var(--k-space-7);padding-top:var(--k-space-6);
+    border-top:var(--k-border-w) solid var(--vscode-panel-border);
+  }
+  .graph-subsection-title{
+    font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.07em;
+    color:var(--k-text-dim);margin:var(--k-space-7) var(--k-space-0) var(--k-space-4);
+  }
+  .graph-subsection-title:first-child{margin-top:var(--k-space-0)}
+  .graph-row{display:flex;gap:var(--k-space-5);align-items:center;flex-wrap:wrap;padding:var(--k-space-2) var(--k-space-0)}
+  .graph-row .graph-label{font-size:var(--k-text-md);min-width:calc(var(--k-space-8) * 9)}
+  .graph-row input[type="number"]{width:calc(var(--k-space-8) * 5);flex:0 0 auto}
+  .graph-row input[type="text"]{flex:0 0 auto}
+  .graph-hint{font-size:var(--k-text-xs);opacity:.65;font-family:var(--k-font-mono)}
+  .graph-profile-name{font-family:var(--k-font-mono);font-weight:600;min-width:calc(var(--k-space-8) * 2.6)}
+  .graph-provider-choice{display:flex;gap:var(--k-space-5);align-items:center}
+  .graph-provider-choice label{display:inline-flex;align-items:center;gap:var(--k-space-2)}
+  .graph-prompt-link{font-family:var(--k-font-mono);font-size:var(--k-text-xs)}
+  .graph-cmd-row{
+    display:flex;gap:var(--k-space-3);align-items:center;flex-wrap:wrap;
+    padding:var(--k-space-3) var(--k-space-0);border-bottom:var(--k-border-w) solid var(--vscode-panel-border);
+  }
+  .graph-cmd-row .cmd-name{font-family:var(--k-font-mono);font-weight:600;min-width:calc(var(--k-space-8) * 2.6)}
+  .graph-cmd-row input[type="text"]{flex:1 1 auto;min-width:calc(var(--k-space-8) * 4)}
+  .graph-cmd-row input[type="number"]{width:calc(var(--k-space-8) * 5);flex:0 0 auto}
+
   /* ---- agents roster (provenance groups: Yours / From approaches) ---- */
   .agent-hero{
     display:flex;align-items:baseline;gap:var(--k-space-7);padding:var(--k-space-6) var(--k-space-6);margin-bottom:var(--k-space-7);
@@ -1917,6 +1944,18 @@
   // union). Options not in `implementedProviders` render disabled + "(coming soon)".
   const KNOWN_AGENT_PROVIDERS = ['claude', 'codex', 'antigravity', 'opencode'];
 
+  // Graph configuration — mirrors of src/manifest/graphConfig.ts (UI-R34).
+  // GRAPH_HARD_CEILINGS/GRAPH_COMMAND_TIMEOUT_CEILING are product constants a
+  // project can never raise and DEFAULT_GRAPH_LIMITS is what every budget row
+  // shows as its "packaged default". The webview cannot import TS, so these
+  // live here; webview.test.ts pins all three against the host module.
+  const GRAPH_HARD_CEILINGS = { maxParallel: 8, maxNodeRuns: 200, maxExpertRuns: 10, maxReplans: 5, maxActivations: 1000, maxGraphWallSeconds: 259200, maxAgentWallSeconds: 28800, maxAgentIdleSeconds: 7200, maxArtifactBytes: 104857600, maxLogBytes: 10485760, maxAggregateArtifactBytes: 1073741824, maxAggregateWorkspaceBytes: 107374182400 };
+  const GRAPH_COMMAND_TIMEOUT_CEILING = 7200;
+  const DEFAULT_GRAPH_LIMITS = { confirmGeneratedGraph: true, maxParallel: 1, maxNodeRuns: 40, maxExpertRuns: 5, maxReplans: 2, maxActivations: 200, maxGraphWallSeconds: 86400, maxAgentWallSeconds: 7200, maxAgentIdleSeconds: 1800, maxArtifactBytes: 104857600, maxLogBytes: 10485760, maxAggregateArtifactBytes: 536870912, maxAggregateWorkspaceBytes: 21474836480 };
+  const GRAPH_PROVIDERS = ['claude', 'codex', 'antigravity', 'opencode'];
+  const GRAPH_CWD_VALUES = ['repository', 'worktreeRoot'];
+  const GRAPH_ACCESS_VALUES = ['read', 'write'];
+
   // Mirrors validate/review.ts defaultFindings() and validateReview()'s
   // fallbacks. An absent block renders as what it DOES, not as empty (S4):
   // an absent `review:` still blocks at `high` with independent-signal
@@ -3154,6 +3193,24 @@
       postAction(t, 'set-agent-enabled', { name, enabled: next });
       return;
     }
+    // Graph configuration surface: the prompt link posts the host action (the
+    // visible artifact path is the link, UI-R09c); the command allowlist's
+    // add/remove are discrete draft mutations that re-render the roster.
+    if (t.dataset.openGraphPrompt) {
+      e.preventDefault();
+      openGraphPrompt(t);
+      return;
+    }
+    if (t.dataset.gfAddCmd) {
+      addGraphCommand(t.dataset.gfAddCmd);
+      renderApproaches();
+      return;
+    }
+    if (t.dataset.gfRemoveCmd) {
+      removeGraphCommand(t, t.dataset.gfRemoveCmd);
+      renderApproaches();
+      return;
+    }
 
     // Accordion toggle: LAST, so explicit action buttons above win first. Walk
     // up from the clicked element to the `.card-toggle[data-toggle]` — clicking
@@ -3292,6 +3349,46 @@
       updateProcessAssignment(t.dataset.procKey, { [t.dataset.procField]: t.value });
       return;
     }
+    // Graph configuration surface: selects/radios/checkbox commit on `change`,
+    // writing straight into the draft entry's graph block (no re-render, so
+    // focus survives). The host validates the merged candidate at Save.
+    if (t.dataset.gfPlannerProfile) {
+      const entry = graphEntryFor(t);
+      if (entry) {
+        if (!entry.graph) entry.graph = {};
+        entry.graph.planner = { ...(entry.graph.planner || {}), profile: t.value };
+        markDirty();
+      }
+      return;
+    }
+    if (t.dataset.gfProfileProvider) {
+      const entry = graphEntryFor(t);
+      if (entry && entry.graph && entry.graph.profiles && entry.graph.profiles[t.dataset.gfProfileProvider]) {
+        entry.graph.profiles[t.dataset.gfProfileProvider].provider = t.value;
+        markDirty();
+      }
+      return;
+    }
+    if (t.dataset.gfCmdCwd || t.dataset.gfCmdAccess) {
+      const entry = graphEntryFor(t);
+      const field = t.dataset.gfCmdCwd ? 'cwd' : 'access';
+      const name = t.dataset.gfCmdCwd || t.dataset.gfCmdAccess;
+      if (entry && entry.graph && entry.graph.commands && entry.graph.commands[name]) {
+        entry.graph.commands[name][field] = t.value;
+        markDirty();
+      }
+      return;
+    }
+    if (t.dataset.gfConfirm) {
+      const entry = graphEntryFor(t);
+      if (entry) {
+        if (!entry.graph) entry.graph = {};
+        if (!entry.graph.limits) entry.graph.limits = {};
+        entry.graph.limits.confirmGeneratedGraph = t.checked;
+        markDirty();
+      }
+      return;
+    }
     // set-approach-enabled / set-agent-enabled are handled in the `click`
     // listener above: both switches are real <button role="switch"> controls
     // now (UI-R24, R26), and a button never fires `change`.
@@ -3302,8 +3399,57 @@
     // agentName and instructions commit per keystroke WITHOUT a re-render, so
     // the field being typed into never loses focus; the `change` listener
     // above still commits them on blur.
-    if (!t.dataset || (t.dataset.procField !== 'agentName' && t.dataset.procField !== 'instructions')) return;
-    updateProcessAssignment(t.dataset.procKey, { [t.dataset.procField]: t.value }, { rerender: false });
+    if (!t.dataset) return;
+    if (t.dataset.procField === 'agentName' || t.dataset.procField === 'instructions') {
+      updateProcessAssignment(t.dataset.procKey, { [t.dataset.procField]: t.value }, { rerender: false });
+      return;
+    }
+    // Graph configuration surface: text/number inputs commit per keystroke
+    // (no re-render, so the field keeps focus). An empty number input DELETES
+    // the limit field — absence = packaged default at Save. Non-numeric text
+    // is never coerced here: the host refuses it at Save with a named error.
+    const entry = graphEntryFor(t);
+    if (entry && !entry.graph) entry.graph = {};
+    if (t.dataset.gfLimit && entry && entry.graph) {
+      if (!entry.graph.limits) entry.graph.limits = {};
+      const v = String(t.value).trim();
+      if (v === '') delete entry.graph.limits[t.dataset.gfLimit];
+      else entry.graph.limits[t.dataset.gfLimit] = Number(v);
+      markDirty();
+      return;
+    }
+    if (t.dataset.gfProfileModel || t.dataset.gfProfileEffort) {
+      const name = t.dataset.gfProfileModel || t.dataset.gfProfileEffort;
+      const field = t.dataset.gfProfileModel ? 'model' : 'effort';
+      if (entry && entry.graph && entry.graph.profiles && entry.graph.profiles[name]) {
+        const value = t.value.trim();
+        if (value === '') delete entry.graph.profiles[name][field];
+        else entry.graph.profiles[name][field] = value;
+        markDirty();
+      }
+      return;
+    }
+    if (t.dataset.gfCmdCommand || t.dataset.gfCmdArgs || t.dataset.gfCmdTimeout) {
+      const name = t.dataset.gfCmdCommand || t.dataset.gfCmdArgs || t.dataset.gfCmdTimeout;
+      const field = t.dataset.gfCmdCommand ? 'command' : (t.dataset.gfCmdArgs ? 'args' : 'timeoutSeconds');
+      if (entry && entry.graph && entry.graph.commands && entry.graph.commands[name]) {
+        if (field === 'args') {
+          const v = t.value.trim();
+          if (v === '') delete entry.graph.commands[name].args;
+          else entry.graph.commands[name].args = v.split(/\s+/).filter(Boolean);
+        } else if (field === 'command') {
+          const v = t.value.trim();
+          if (v === '') delete entry.graph.commands[name].command;
+          else entry.graph.commands[name].command = v;
+        } else {
+          const v = String(t.value).trim();
+          if (v === '') delete entry.graph.commands[name].timeoutSeconds;
+          else entry.graph.commands[name].timeoutSeconds = Number(v);
+        }
+        markDirty();
+      }
+      return;
+    }
   });
 
   document.addEventListener('keydown', (e) => {
@@ -3406,8 +3552,193 @@
       + (a.description ? `<div class="approach-desc">${esc(a.description)}</div>` : '')
       + (isInstalled ? renderApproachCommands(a.id) : '')
       + (source ? `<div class="approach-foot">${source}</div>` : '')
+      + (a.graph ? renderGraphConfig(a) : '')
       + `</div></div>`
     );
+  }
+
+  // ---- Graph configuration surface (built-in approach card, Slice-1 T6) ----
+  // Edits land in draft.approaches[<id>].graph; the host validates the merged
+  // candidate at Save (a wall-time budget past its hard ceiling is refused
+  // there), and the approaches delta mirror keeps the written file lean.
+
+  // The <a> that opens a graph prompt is the visible resource identifier (the
+  // packaged artifact path) — UI-R09c — and host-mediated, so its click posts
+  // the shared pending-action seam (UI-R11): pending on click, settled by the
+  // host's action-result or the watchdog.
+  function openGraphPrompt(t) {
+    postAction(t, 'open-graph-prompt', { identity: t.dataset.openGraphPrompt });
+  }
+
+  function graphEntryFor(target) {
+    const card = target.closest && target.closest('[data-graph-config]');
+    if (!card) return null;
+    return (draft.approaches || []).find((a) => a.id === card.dataset.graphConfig) || null;
+  }
+
+  function graphCommandsOf(entry) {
+    if (!entry.graph) entry.graph = {};
+    if (!entry.graph.commands) entry.graph.commands = {};
+    return entry.graph.commands;
+  }
+
+  // "+ Add command": an empty allowlist has no first command to clone, so the
+  // new entry starts from a sensible template. The name is made unique.
+  function addGraphCommand(id) {
+    const entry = (draft.approaches || []).find((a) => a.id === id);
+    if (!entry) return;
+    const commands = graphCommandsOf(entry);
+    let base = 'test';
+    for (let n = 1; commands[base]; n += 1) base = 'test' + n;
+    commands[base] = { command: 'npm', args: ['test'], cwd: 'repository', access: 'write', timeoutSeconds: 1800 };
+    markDirty();
+  }
+
+  function removeGraphCommand(target, name) {
+    const entry = graphEntryFor(target);
+    if (!entry || !entry.graph || !entry.graph.commands) return;
+    delete entry.graph.commands[name];
+    markDirty();
+  }
+
+  function formatSeconds(seconds) {
+    if (seconds >= 3600 && seconds % 3600 === 0) return (seconds / 3600) + 'h';
+    if (seconds >= 60 && seconds % 60 === 0) return (seconds / 60) + 'm';
+    return seconds + 's';
+  }
+
+  function formatBytes(bytes) {
+    const units = ['B', 'KiB', 'MiB', 'GiB'];
+    let v = bytes; let u = 0;
+    while (v >= 1024 && u < units.length - 1) { v /= 1024; u += 1; }
+    return (Math.round(v * 10) / 10) + ' ' + units[u];
+  }
+
+  // One numeric limits row: the input is bound to the limits field via
+  // data-gf-limit, and the packaged default + hard ceiling are shown beside it.
+  function graphLimitRowHtml(field, label, packaged, ceiling) {
+    return '<div class="graph-row">'
+      + '<span class="graph-label">' + esc(label) + '</span>'
+      + '<input type="number" min="1" max="' + esc(String(ceiling)) + '"'
+      + ' data-gf-limit="' + esc(field) + '" data-packaged="' + esc(String(packaged)) + '"'
+      + ' data-ceiling="' + esc(String(ceiling)) + '" aria-label="' + esc(label) + '" />'
+      + '<span class="graph-hint">packaged ' + esc(String(packaged))
+      + (field.startsWith('maxAggregate') || field.startsWith('maxArtifact') || field === 'maxLogBytes'
+        ? ' (' + formatBytes(packaged) + ') · hard ceiling ' + esc(String(ceiling)) + ' (' + formatBytes(ceiling) + ')'
+        : ' (' + formatSeconds(packaged) + ') · hard ceiling ' + esc(String(ceiling)) + ' (' + formatSeconds(ceiling) + ')')
+      + '</span>'
+      + '</div>';
+  }
+
+  function renderGraphConfig(a) {
+    const g = a.graph || {};
+    const profiles = g.profiles || {};
+    const commands = g.commands || {};
+    const limits = g.limits || {};
+    const planner = g.planner || {};
+
+    // Planner profile options are the configured profile keys (the packaged
+    // expert/worker/fast plus any project additions); a planner profile that
+    // names a key outside the map stays selectable so it can be fixed.
+    const profileKeys = Object.keys(profiles);
+    if (planner.profile && !profileKeys.includes(planner.profile)) profileKeys.push(planner.profile);
+    const plannerOptions = profileKeys.map((k) =>
+      '<option value="' + esc(k) + '"' + (planner.profile === k ? ' selected' : '') + '>' + esc(k) + '</option>',
+    ).join('');
+
+    // Execution profiles: provider is a radio/choice pattern rendering the
+    // canonical core identity (icon + name, UI-R10c); model/effort are
+    // subordinate metadata inputs.
+    const profileRows = profileKeys.map((name) => {
+      const p = profiles[name] || {};
+      const provider = p.provider || 'claude';
+      const choices = GRAPH_PROVIDERS.map((prov) =>
+        '<label>'
+        + '<input type="radio" name="gf-provider-' + esc(name) + '" value="' + esc(prov) + '"'
+        + (prov === provider ? ' checked' : '')
+        + ' data-gf-profile-provider="' + esc(name) + '" />'
+        + agentBadgeHtml(prov)
+        + '</label>',
+      ).join('');
+      return '<div class="graph-row">'
+        + '<span class="graph-profile-name">' + esc(name) + '</span>'
+        + '<span class="graph-provider-choice">' + choices + '</span>'
+        + '<input type="text" data-gf-profile-model="' + esc(name) + '" value="' + esc(p.model || '') + '"'
+        + ' aria-label="' + esc(name) + ' model" placeholder="model" />'
+        + '<input type="text" data-gf-profile-effort="' + esc(name) + '" value="' + esc(p.effort || '') + '"'
+        + ' aria-label="' + esc(name) + ' effort" placeholder="effort" />'
+        + '</div>';
+    }).join('');
+
+    // Trusted command allowlist: the planner may emit a CommandNode only for an
+    // enabled command ID present here, so the rows carry the full closed-vocab
+    // policy fields (cwd/access selects, bounded timeout).
+    const commandRows = Object.keys(commands).map((name) => {
+      const c = commands[name] || {};
+      const cwdOptions = GRAPH_CWD_VALUES.map((v) =>
+        '<option value="' + v + '"' + (c.cwd === v ? ' selected' : '') + '>' + v + '</option>').join('');
+      const accessOptions = GRAPH_ACCESS_VALUES.map((v) =>
+        '<option value="' + v + '"' + (c.access === v ? ' selected' : '') + '>' + v + '</option>').join('');
+      return '<div class="graph-cmd-row">'
+        + '<span class="cmd-name">' + esc(name) + '</span>'
+        + '<input type="text" data-gf-cmd-command="' + esc(name) + '" value="' + esc(c.command || '') + '"'
+        + ' aria-label="' + esc(name) + ' command" placeholder="command" />'
+        + '<input type="text" data-gf-cmd-args="' + esc(name) + '" value="' + esc((c.args || []).join(' ')) + '"'
+        + ' aria-label="' + esc(name) + ' args" placeholder="args" />'
+        + '<select data-gf-cmd-cwd="' + esc(name) + '" aria-label="' + esc(name) + ' cwd">' + cwdOptions + '</select>'
+        + '<select data-gf-cmd-access="' + esc(name) + '" aria-label="' + esc(name) + ' access">' + accessOptions + '</select>'
+        + '<input type="number" min="1" max="' + GRAPH_COMMAND_TIMEOUT_CEILING + '"'
+        + ' data-gf-cmd-timeout="' + esc(name) + '" value="' + esc(String(c.timeoutSeconds ?? '')) + '"'
+        + ' aria-label="' + esc(name) + ' timeout seconds" />'
+        + '<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-gf-remove-cmd="' + esc(name) + '">Remove</button>'
+        + '</div>';
+    }).join('');
+
+    const row = (field, label) => graphLimitRowHtml(
+      field, label, DEFAULT_GRAPH_LIMITS[field], GRAPH_HARD_CEILINGS[field],
+    );
+    const budgetRows = row('maxGraphWallSeconds', 'Graph lifetime')
+      + row('maxAgentWallSeconds', 'Planner/agent wall time')
+      + row('maxAgentIdleSeconds', 'Agent idle time')
+      + '<div class="graph-row"><span class="graph-label">Command timeout</span>'
+      + '<span class="graph-hint">set per command below · hard ceiling '
+      + GRAPH_COMMAND_TIMEOUT_CEILING + ' (' + formatSeconds(GRAPH_COMMAND_TIMEOUT_CEILING) + ')</span></div>';
+    const byteRows = row('maxArtifactBytes', 'Per-artifact')
+      + row('maxLogBytes', 'Per-log')
+      + row('maxAggregateArtifactBytes', 'Aggregate artifacts')
+      + row('maxAggregateWorkspaceBytes', 'Aggregate workspace');
+    const ceilingRows = row('maxParallel', 'Max parallel processes')
+      + row('maxNodeRuns', 'Node runs')
+      + row('maxExpertRuns', 'Expert runs')
+      + row('maxReplans', 'Replans')
+      + row('maxActivations', 'Activations');
+
+    return '<div class="graph-config" data-graph-config="' + esc(a.id) + '">'
+      + '<div class="graph-subsection-title">Planner</div>'
+      + '<div class="graph-row">'
+      + '<label class="graph-label" for="gf-planner-profile">Planner profile</label>'
+      + '<select id="gf-planner-profile" data-gf-planner-profile aria-label="Planner profile">' + plannerOptions + '</select>'
+      + '<a href="#" class="graph-prompt-link" data-open-graph-prompt="karst-graph-planner">'
+      + esc((planner.prompt && planner.prompt.artifact) || 'graph-planner prompt') + '</a>'
+      + '</div>'
+      + '<div class="graph-subsection-title">Execution profiles</div>'
+      + (profileRows || '<div class="empty">No profiles configured.</div>')
+      + '<div class="graph-subsection-title">Trusted commands</div>'
+      + (commandRows || '<div class="empty">No trusted commands — the planner may only emit CommandNodes for commands listed here.</div>')
+      + '<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-gf-add-cmd="' + esc(a.id) + '">+ Add command</button>'
+      + '<div class="graph-subsection-title">Budgets</div>'
+      + budgetRows
+      + '<div class="graph-subsection-title">Artifact and workspace ceilings</div>'
+      + byteRows
+      + '<div class="graph-subsection-title">Concurrency and budget ceilings</div>'
+      + ceilingRows
+      + '<div class="graph-row">'
+      + '<label class="graph-label" for="gf-confirm">Confirm generated graphs</label>'
+      + '<input type="checkbox" id="gf-confirm" data-gf-confirm="' + esc(a.id) + '"'
+      + (limits.confirmGeneratedGraph === false ? '' : ' checked')
+      + ' aria-label="Confirm generated graphs before execution" />'
+      + '</div>'
+      + '</div>';
   }
 
   // The longest shared leading directory of the include paths — the source

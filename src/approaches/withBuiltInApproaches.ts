@@ -29,6 +29,11 @@ import type { ApproachDef, Manifest } from '../manifest/types.js';
 import { ManifestError } from '../manifest/error.js';
 import { BUILT_IN_APPROACHES } from './builtIn.js';
 
+/** The packaged package dir (relative to the extension root), re-exported
+ *  through the seam: `builtIn.js` is imported by exactly this module, so a
+ *  path consumer (e.g. the graph prompt registry) must not import it directly. */
+export { BUILT_IN_PACKAGE_PATH } from './builtIn.js';
+
 /** The packaged definition for a built-in id, or undefined. */
 export function packagedApproachFor(id: string): ApproachDef | undefined {
   return BUILT_IN_APPROACHES.find((b) => b.id === id);
