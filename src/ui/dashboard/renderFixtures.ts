@@ -855,5 +855,6 @@ export function renderStateFor(stage: InsideStageKey): DashboardState {
     insideViews,
     presentedStage: stage,
     approach: null,
+    artifacts: [],
   };
 }

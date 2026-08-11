@@ -41,6 +41,25 @@ describe('buildDashboardState', () => {
     expect(state.servers[0]!.port).toBe(5173);
     expect(state.worktrees).toEqual([]);
     expect(state.prs).toEqual([]);
+    // No evidence → no artifacts section (spec §4.1: absence, never empty).
+    expect(state.artifacts).toEqual([]);
+  });
+
+  it('derives the artifacts shelf from the same evidence the inside view renders', () => {
+    const t = createTicket(store, { key: 'ART-ST', title: 'artifacts' });
+    store.db.prepare("UPDATE tickets SET stage_current = 'uat' WHERE id = ?").run(t.id);
+    setStage(store, t.id, 'uat', { status: 'passed', startedAt: '2026-08-01T09:00:00.000Z', endedAt: '2026-08-01T10:00:00.000Z' });
+    recordGateRun(store, {
+      ticketId: t.id,
+      stageKey: 'uat',
+      attempt: 0,
+      runAt: '2026-08-01T09:30:00.000Z',
+      gates: [{ gateName: 'test', exitCode: 0, repo: '/wt/web' }],
+    });
+
+    const state = buildDashboardState(store, t.id);
+    expect(state.artifacts).toHaveLength(1);
+    expect(state.artifacts[0]).toMatchObject({ id: 'uat-report', status: 'passed' });
   });
 
   it('passes the real estimated call count into the session process token view', () => {

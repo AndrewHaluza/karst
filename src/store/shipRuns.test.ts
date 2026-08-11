@@ -15,6 +15,7 @@ import {
   markShipOperationApplied,
   reconcileShipOperation,
   listShipEvidence,
+  countShipRuns,
   reconcileShipRuns,
   parseShipPreState,
   parseShipIntent,
@@ -747,6 +748,23 @@ describe('ship_runs', () => {
       run({ pid: 4242 });
       reconcileShipRuns(store, () => false, '2026-08-08T11:00:00.000Z');
       expect(reconcileShipRuns(store, () => false, '2026-08-08T11:05:00.000Z')).toEqual([]);
+    });
+  });
+
+  describe('countShipRuns', () => {
+    it('counts every recorded ship run, including superseded ones', () => {
+      expect(countShipRuns(store, ticketId)).toBe(0);
+      const r1 = run();
+      closeShipRun(store, r1.id, 'passed', '2026-08-08T10:30:00.000Z');
+      const r2 = run();
+      closeShipRun(store, r2.id, 'failed', '2026-08-08T11:00:00.000Z');
+      expect(countShipRuns(store, ticketId)).toBe(2);
+    });
+
+    it('is scoped to the ticket', () => {
+      run();
+      const other = createTicket(store, { key: 'SHIP-2', title: 'other' });
+      expect(countShipRuns(store, other.id)).toBe(0);
     });
   });
 });

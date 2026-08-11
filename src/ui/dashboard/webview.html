@@ -1237,6 +1237,81 @@
   .gaterow.off .gname{text-decoration:line-through;color:var(--k-text-faint)}
   .gaterow .gname{font-family:var(--k-font-mono);font-size:var(--k-text-sm);flex:1}
   .gaterow .gstate{font-size:var(--k-text-xs);color:var(--k-text-dim)}
+
+  /* Artifacts shelf + index + detail (§ docs/design/artifacts/README.md).
+     The shelf is a panel like any other; the index and the detail REPLACE the
+     dashboard body inside the SAME webview (spec §7: exactly three surfaces,
+     no second tab/drawer), which is what body.art-nav hides below. */
+  .artcards{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:var(--k-space-4)}
+  .artcard{display:block;width:100%;text-align:left;border:var(--k-border-w) solid var(--k-border);
+    border-radius:var(--k-radius-lg);background:var(--k-surface);cursor:pointer;
+    padding:var(--k-space-5) var(--k-space-6)}
+  .artcard:hover{background:var(--k-surface-hover)}
+  .artcard:focus-visible{outline:2px solid var(--k-focus);outline-offset:1px}
+  .artcard-title{display:flex;align-items:center;gap:var(--k-space-3);font-size:var(--k-text-md);
+    font-weight:var(--k-weight-semibold);color:var(--k-text)}
+  .artcard-summary{font-size:var(--k-text-sm);color:var(--k-text-dim);margin-top:var(--k-space-2)}
+  .artcard-meta{display:flex;align-items:center;gap:var(--k-space-3);margin-top:var(--k-space-4)}
+  .art-status{font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.4px;
+    font-weight:var(--k-weight-semibold)}
+  .art-status.passed{color:var(--k-passed)}
+  .art-status.failed{color:var(--k-failed)}
+  .art-status.attention{color:var(--k-attention)}
+  .art-status.info{color:var(--k-pending)}
+  .art-stale{font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.4px;color:var(--k-attention)}
+  /* The origin chip: one closed shape on every artifact surface (UI-R28 — the
+     mark is a SECONDARY carrier; the label is the identity). Built from the
+     injected agent identity (core icon) + the karst brand mark. */
+  .art-origin{display:inline-flex;align-items:center;gap:var(--k-space-2);
+    font-size:var(--k-text-xs);color:var(--k-text-dim);white-space:nowrap}
+  .art-origin .kmark{width:12px;height:12px;flex:none;color:var(--k-text-faint)}
+  .art-origin .agenticon{width:12px;height:12px;flex:none}
+  /* The in-webview index/detail surface: takes over the whole dashboard body
+     while active, restoring it on Back/Esc. */
+  body.art-nav .stepper,body.art-nav .grid{display:none}
+  .artview{padding:var(--k-space-7) 0 var(--k-space-9);max-width:720px}
+  .arthead{display:flex;align-items:center;gap:var(--k-space-4);margin-bottom:var(--k-space-6);flex-wrap:wrap}
+  .arthead h2{margin:0;font-size:var(--k-text-lg);font-weight:var(--k-weight-semibold)}
+  .arthead .artsub{font-size:var(--k-text-sm);color:var(--k-text-dim)}
+  .artgroup{margin-bottom:var(--k-space-7)}
+  .artgroup-title{font-size:var(--k-text-2xs);color:var(--k-text-faint);text-transform:uppercase;
+    letter-spacing:.4px;margin-bottom:var(--k-space-3)}
+  .artrow{display:flex;align-items:center;gap:var(--k-space-5);width:100%;text-align:left;
+    padding:var(--k-space-4) var(--k-space-5);border:var(--k-border-w) solid var(--k-border);
+    border-radius:var(--k-radius-md);background:var(--k-surface);cursor:pointer}
+  .artrow:hover{background:var(--k-surface-hover)}
+  .artrow:focus-visible{outline:2px solid var(--k-focus);outline-offset:1px}
+  .artrow .artrow-body{min-width:0;flex:1}
+  .artrow-title{font-size:var(--k-text-md);font-weight:var(--k-weight-medium)}
+  .artrow-summary{font-size:var(--k-text-sm);color:var(--k-text-dim);margin-top:var(--k-space-1)}
+  .artrow .arw{margin-left:auto;color:var(--k-text-faint);flex:none}
+  .artdetail .artsection{margin-bottom:var(--k-space-7)}
+  .artdetail .artheading{font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.4px;
+    color:var(--k-text-faint);margin-bottom:var(--k-space-3)}
+  .arthero{display:flex;align-items:baseline;gap:var(--k-space-4);flex-wrap:wrap}
+  .arthero .art-title{font-size:var(--k-text-lg);font-weight:var(--k-weight-semibold)}
+  .artmetrics{display:flex;gap:var(--k-space-6);flex-wrap:wrap;margin-top:var(--k-space-3)}
+  .artmetric{font-family:var(--k-font-mono);font-size:var(--k-text-md);color:var(--k-text)}
+  .artmetric .am-label{display:block;font-family:var(--k-font-normal);font-size:var(--k-text-2xs);
+    text-transform:uppercase;letter-spacing:.4px;color:var(--k-text-faint)}
+  .artfinding{border-left:2px solid var(--k-border);padding:var(--k-space-2) var(--k-space-4);
+    margin-bottom:var(--k-space-3)}
+  .artfinding.high,.artfinding.critical{border-left-color:var(--k-failed)}
+  .artfinding.medium{border-left-color:var(--k-attention)}
+  .artfinding .af-title{font-size:var(--k-text-sm);color:var(--k-text)}
+  .artfinding .af-detail{font-size:var(--k-text-xs);color:var(--k-text-dim);margin-top:var(--k-space-1)}
+  .artgate{display:flex;align-items:center;gap:var(--k-space-3);font-size:var(--k-text-sm);
+    padding:var(--k-space-2) 0;border-bottom:var(--k-border-w) solid var(--k-border)}
+  .artgate .ag-name{font-family:var(--k-font-mono);flex:1;color:var(--k-text)}
+  .artgate .ag-code{font-size:var(--k-text-xs);color:var(--k-text-dim)}
+  .artmeta{display:grid;grid-template-columns:auto 1fr;gap:var(--k-space-2) var(--k-space-5);
+    font-size:var(--k-text-sm)}
+  .artmeta .am-key{color:var(--k-text-faint)}
+  .artfiles{list-style:none;margin:0;padding:0}
+  .artfiles li{display:flex;align-items:center;gap:var(--k-space-4);
+    padding:var(--k-space-3) var(--k-space-4);border:var(--k-border-w) solid var(--k-border);
+    border-radius:var(--k-radius-md);margin-bottom:var(--k-space-3)}
+  .artfiles .af-name{font-family:var(--k-font-mono);font-size:var(--k-text-sm);flex:1;color:var(--k-text)}
 </style>
 
 <!-- Icon sprite for the servers panel. Stroked 16px glyphs on currentColor,
@@ -1297,6 +1372,14 @@
        stroke-linecap="round" stroke-linejoin="round">
       <circle cx="8" cy="8" r="5.6"/><path d="M4.2 4.2 11.8 11.8"/>
     </g>
+    <!-- The karst brand mark (media/karst.svg) at sprite size: three circles
+         and their connecting lines. Used by the artifact origin chip as the
+         karst-produced marker; the label beside it is the identity. -->
+    <g id="i-karst" fill="none" stroke="currentColor" stroke-width="1.6"
+       stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="6" cy="6" r="2.4"/><circle cx="18" cy="6" r="2.4"/><circle cx="12" cy="18" r="2.4"/>
+      <path d="M7.6 7.6 10.7 15.6"/><path d="M16.4 7.6 13.3 15.6"/><path d="M8 6h8"/>
+    </g>
   </defs>
 </svg>
 
@@ -1341,7 +1424,19 @@
        would actually run needs a filesystem probe the synchronous state push
        cannot do. Empty until that message lands. -->
   <div class="panel span"><div class="phead">Gates<span class="count" id="gateCount"></span></div><div class="pbody" id="gates"></div></div>
+  <!-- The artifacts shelf (docs/design/artifacts). Rendered only while the
+       ticket has at least one artifact — renderArtifacts() toggles .hidden —
+       because the spec's zero-artifact state is ABSENCE, never an empty
+       section (§4.1). The count is top-level semantic artifacts; the previews
+       are the host's semantic-priority order (state.artifacts is sorted), and
+       `View all N` opens the index INSIDE this webview. -->
+  <div class="panel span hidden" id="artPanel"><div class="phead">Artifacts<span class="count" id="artCount"></span><button id="artViewAll" type="button" class="k-btn k-btn--ghost k-btn--sm" data-art="index" title="Show every artifact this ticket has produced">View all <span id="artTotal"></span> ›</button></div><div class="pbody" id="artifacts"></div></div>
 </div>
+
+<!-- The artifact index/detail surface: the SAME webview, never a second tab.
+     While active it replaces the dashboard body (body.art-nav hides .stepper
+     and .grid); Back and Esc return to the ticket dashboard (spec §7–8). -->
+<div id="artView" class="artview hidden" tabindex="-1"></div>
 
 <script>
   /*KARST_DS_JS*/
@@ -1470,6 +1565,17 @@
   // dashboard, so it is never persisted here — a stored copy could only go
   // stale against another panel's toggle. The host pushes it on every open.
   let bindEnabled = false;
+  // The in-webview artifact surface (spec §7): null = the ticket dashboard,
+  // 'index' = the artifacts index, {id, from} = one artifact's detail. Local
+  // view state exactly like selectedStage — never in DashboardState, never
+  // round-tripped. `from` is what Back answers with: detail opened from the
+  // dashboard returns to the ticket, from the index to the index (spec §7.3).
+  let artView = null;
+  // Per-surface scroll positions (spec §9): the dashboard is tall, so a
+  // navigation round trip must not lose where the user was reading. Saved on
+  // leaving a surface, restored on returning; detail keeps one entry per
+  // artifact id. Survives reload via persist().
+  let artScrolls = { ticket: 0, index: 0, detail: {} };
 
   // "12:04:31 · 42s" — machine truth, so it is rendered in mono. Duration is
   // omitted while a stage is still running (no endedAt yet).
@@ -2620,6 +2726,270 @@
       + `${icon}${esc(label)} <span class="arw" aria-hidden="true">↗</span></a>`;
   }
 
+  // ---------------------------------------------------------------------
+  // Artifacts: shelf, index, detail (docs/design/artifacts/README.md)
+  // ---------------------------------------------------------------------
+
+  // The origin chip, ONE closed shape on every artifact surface (shelf card,
+  // index row, detail's Produced-by row). The mark is a secondary carrier;
+  // the LABEL is the identity (UI-R28) — never an icon alone. Native:
+  // `<core icon> <Core> · Native`; karst: `<karst mark> Karst[ · <Core>]`.
+  const KARST_MARK =
+    '<svg class="kmark" viewBox="0 0 24 24" aria-hidden="true" focusable="false">'
+    + '<use href="#i-karst"/></svg>';
+
+  function originChip(origin) {
+    const o = origin || { kind: 'karst', core: null };
+    const coreLabel = o.core && AGENT_PROVIDER_LABELS[o.core]
+      ? AGENT_PROVIDER_LABELS[o.core]
+      : (o.core || '');
+    if (o.kind === 'native') {
+      return '<span class="art-origin"'
+        + ` aria-label="${esc(coreLabel + ' native artifact')}">`
+        + `${agentIconHtml(o.core)}<span>${esc(coreLabel)} · Native</span></span>`;
+    }
+    const label = o.core ? `Karst · ${coreLabel}` : 'Karst';
+    return '<span class="art-origin"'
+      + ` aria-label="${esc(o.core ? 'karst artifact for ' + coreLabel : 'karst artifact')}">`
+      + `${KARST_MARK}<span>${esc(label)}</span></span>`;
+  }
+
+  // Workflow-state word, mirroring the rail's domain wording — never a
+  // "status" label glued beside the semantic title (UI-R28b keeps the glyphs
+  // icon-only; here the WORD is the carrier, so it is text).
+  const ART_STATUS_WORD = {
+    passed: 'Passed', failed: 'Failed', attention: 'Needs attention', info: 'In progress',
+  };
+  const ART_STATUS_CLASS = {
+    passed: 'passed', failed: 'failed', attention: 'attention', info: 'info',
+  };
+
+  function artifactStatusHtml(a) {
+    const word = ART_STATUS_WORD[a.status] || a.status;
+    return `<span class="art-status ${ART_STATUS_CLASS[a.status] || 'info'}">${esc(word)}</span>`;
+  }
+
+  function artifactStaleHtml(a) {
+    return a.freshness === 'stale'
+      ? '<span class="art-stale" title="No longer validates the current implementation">Stale</span>'
+      : '';
+  }
+
+  // One shelf preview card. The semantic title is the subject; the origin chip
+  // and status ride the meta row; raw filenames NEVER appear on the shelf
+  // (spec §4.4) — resources only exist inside the detail view.
+  function artifactCardHtml(a) {
+    return `<button type="button" class="artcard" data-art-open="${esc(a.id)}"`
+      + ` aria-label="Open ${esc(a.title)}">`
+      + `<span class="artcard-title">${esc(a.title)}`
+      + (a.scope ? `<span class="art-sub">· ${esc(a.scope)}</span>` : '') + `</span>`
+      + `<span class="artcard-summary">${esc(a.summary)}</span>`
+      + `<span class="artcard-meta">${artifactStatusHtml(a)}${artifactStaleHtml(a)}`
+      + `${originChip(a.origin)}</span></button>`;
+  }
+
+  // The shelf: absent while the ticket has no artifact (spec §4.1 — never an
+  // empty section). Previews are state.artifacts.slice(0,3): the host SORTS
+  // by semantic priority, so the first three ARE the three most useful
+  // outputs, stably ordered (spec §5).
+  function renderArtifacts(state) {
+    const panel = el('artPanel');
+    const body = el('artifacts');
+    if (!panel || !body) return;
+    const all = state.artifacts || [];
+    panel.classList.toggle('hidden', all.length === 0);
+    if (all.length === 0) { body.innerHTML = ''; return; }
+    const count = el('artCount');
+    if (count) count.textContent = String(all.length);
+    const total = el('artTotal');
+    if (total) total.textContent = String(all.length);
+    body.innerHTML = `<div class="artcards">${all.slice(0, 3).map(artifactCardHtml).join('')}</div>`;
+  }
+
+  // The index: artifacts grouped by producing stage, empty groups omitted
+  // (spec §10). Rows are real buttons (UI-R09), each carrying its semantic
+  // name, one useful summary line, status/staleness and the origin chip.
+  function renderArtIndex(state) {
+    const all = state.artifacts || [];
+    const groups = ['uat', 'review', 'ship']
+      .map((stage) => ({ stage, items: all.filter((a) => a.stage === stage) }))
+      .filter((g) => g.items.length > 0);
+    const rows = (g) => g.items.map((a) =>
+      `<li><button type="button" class="artrow" data-art-open="${esc(a.id)}">`
+      + `<span class="artrow-body"><span class="artrow-title">${esc(a.title)}</span>`
+      + `<span class="artrow-summary">${esc(a.summary)}</span></span>`
+      + `${artifactStatusHtml(a)}${artifactStaleHtml(a)}${originChip(a.origin)}`
+      + `<span class="arw" aria-hidden="true">›</span></button></li>`).join('');
+    const header = state.key ? `${esc(state.key)} · ${esc(state.title || '')}` : esc(state.title || '');
+    return `<div class="arthead">`
+      + `<button type="button" class="k-btn k-btn--ghost k-btn--sm" data-art="back" title="Return to the ticket dashboard">← Ticket</button>`
+      + `<h2>${header}</h2>`
+      + `<span class="artsub">Artifacts · ${all.length}</span></div>`
+      + groups.map((g) =>
+        `<section class="artgroup" aria-label="${esc((ART_STAGE_LABEL[g.stage] || g.stage))} artifacts">`
+        + `<div class="artgroup-title">${esc(ART_STAGE_LABEL[g.stage] || g.stage)}</div>`
+        + `<ul class="artfiles">${rows(g)}</ul></section>`).join('');
+  }
+
+  const ART_STAGE_LABEL = { uat: 'UAT', review: 'Review', ship: 'Ship' };
+
+  function artifactMetricsHtml(a) {
+    if (!a.metrics || !a.metrics.length) return '';
+    return `<div class="artmetrics">${a.metrics.map((m) =>
+      `<span class="artmetric"><span class="am-label">${esc(m.label)}</span>${esc(m.value)}</span>`
+    ).join('')}</div>`;
+  }
+
+  function artifactFindingsHtml(a) {
+    if (!a.findings || !a.findings.length) return '';
+    const items = a.findings.map((f) =>
+      `<div class="artfinding ${esc(f.severity || '')}">`
+      + `<div class="af-title">${esc(f.severity.toUpperCase())} · ${esc(f.title)}</div>`
+      + (f.detail ? `<div class="af-detail">${esc(f.detail)}</div>` : '')
+      + (f.file ? `<div class="af-detail">${esc(f.file)}${f.line != null ? `:${esc(String(f.line))}` : ''}</div>` : '')
+      + `</div>`).join('');
+    return `<section class="artsection" aria-label="Findings"><div class="artheading">Findings</div>${items}</section>`;
+  }
+
+  function artifactGatesHtml(a) {
+    if (!a.gates || !a.gates.length) return '';
+    const rows = a.gates.map((g) =>
+      `<div class="artgate"><span class="ag-name">${esc(g.name)}</span>`
+      + `<span class="ag-code">${g.exitCode === 0 ? 'passed' : g.exitCode === null ? 'no script' : 'failed'}</span></div>`
+    ).join('');
+    return `<section class="artsection" aria-label="Gate runs"><div class="artheading">Gate runs</div>${rows}</section>`;
+  }
+
+  function artifactPrsHtml(a) {
+    if (!a.prs || !a.prs.length) return '';
+    const rows = a.prs.map((p) =>
+      `<li><span class="af-name">${esc(p.repo)}${p.number ? ` · PR #${esc(String(p.number))}` : ''}</span>`
+      + (p.url
+        ? `<a class="k-btn k-btn--ghost k-btn--sm" href="#" data-act="open-pr" data-url="${esc(p.url)}">Open PR ↗</a>`
+        : `<span class="ag-code">${esc(p.status || '')}</span>`)
+      + `</li>`).join('');
+    return `<section class="artsection" aria-label="Pull requests"><div class="artheading">Pull requests</div><ul class="artfiles">${rows}</ul></section>`;
+  }
+
+  function artifactCommitsHtml(a) {
+    if (!a.commits || !a.commits.length) return '';
+    const rows = a.commits.map((c) =>
+      `<li><span class="af-name">${esc(c.sha.slice(0, 7))} · ${esc(c.message)}</span></li>`).join('');
+    return `<section class="artsection" aria-label="Commits"><div class="artheading">Commits</div><ul class="artfiles">${rows}</ul></section>`;
+  }
+
+  // Detail is SEMANTIC-FIRST, files LAST (spec §11): the result, the metrics,
+  // artifact-specific content, then provenance, then the raw files with their
+  // explicit "Open in editor" escape into VS Code (spec §12). Opening is a
+  // host round trip through artifact-open-resource — never automatic.
+  function artifactDetailHtml(a, from) {
+    const backLabel = from === 'index' ? '← Artifacts' : '← Ticket';
+    const backTitle = from === 'index'
+      ? 'Return to the artifacts index' : 'Return to the ticket dashboard';
+    const files = a.resources && a.resources.length
+      ? `<section class="artsection" aria-label="Underlying files"><div class="artheading">Underlying files</div><ul class="artfiles">`
+        + a.resources.map((r, i) =>
+          `<li><span class="af-name">${esc(r.name)}</span>`
+          + `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-act="artifact-open-resource"`
+          + ` data-artifact-id="${esc(a.id)}" data-index="${i}"`
+          + ` title="Open ${esc(r.name)} in the editor">Open in editor ↗</button></li>`).join('')
+        + `</ul></section>`
+      : '';
+    return `<div class="arthead">`
+      + `<button type="button" class="k-btn k-btn--ghost k-btn--sm" data-art="back" title="${backTitle}">${backLabel}</button></div>`
+      + `<div class="artdetail">`
+      + `<div class="arthero"><span class="art-title">${esc(a.title)}</span>`
+      + `${artifactStatusHtml(a)}${artifactStaleHtml(a)}</div>`
+      + `<div class="artcard-summary" style="margin-top:var(--k-space-2)">${esc(a.summary)}</div>`
+      + (a.freshness === 'stale'
+        ? `<p class="art-stale" style="margin-top:var(--k-space-3)">Implementation changed after this verification — rerun the stage before treating this result as evidence for the current code.</p>`
+        : '')
+      + artifactMetricsHtml(a)
+      + artifactFindingsHtml(a)
+      + artifactGatesHtml(a)
+      + artifactPrsHtml(a)
+      + artifactCommitsHtml(a)
+      + `<section class="artsection" aria-label="Details"><div class="artheading">Details</div><div class="artmeta">`
+      + `<span class="am-key">Stage</span><span>${esc(ART_STAGE_LABEL[a.stage] || a.stage)}</span>`
+      + `<span class="am-key">Produced by</span>${originChip(a.origin)}`
+      + `<span class="am-key">Version</span><span>${esc(a.currentVersionLabel || '')} · ${a.freshness}</span>`
+      + (a.createdAt
+        ? `<span class="am-key">Created</span><span>${esc(new Date(a.createdAt).toLocaleString())}</span>` : '')
+      + `</div></section>`
+      + files
+      + `</div>`;
+  }
+
+  // The index/detail surface: renders into #artView and swaps the dashboard
+  // body via body.art-nav, so the SAME webview hosts all three surfaces (spec
+  // §7 — no second Karst tab, no drawer, no split).
+  function renderArtView() {
+    const box = el('artView');
+    if (!box) return;
+    if (!artView || !lastState) {
+      box.classList.add('hidden');
+      box.innerHTML = '';
+      document.body.classList.remove('art-nav');
+      return;
+    }
+    box.classList.remove('hidden');
+    document.body.classList.add('art-nav');
+    if (artView === 'index') {
+      box.innerHTML = renderArtIndex(lastState);
+    } else {
+      const a = (lastState.artifacts || []).find((x) => x.id === artView.id);
+      // A stale view state (the artifact vanished — evidence was deleted):
+      // fall back to the index rather than rendering a dead detail.
+      if (!a) { artView = 'index'; box.innerHTML = renderArtIndex(lastState); return; }
+      box.innerHTML = artifactDetailHtml(a, artView.from);
+    }
+  }
+
+  // Scroll preservation (spec §9): each surface keeps its own position.
+  function artScrollTop() {
+    const root = document.documentElement || document.body;
+    return typeof root.scrollTop === 'number' ? root.scrollTop : 0;
+  }
+
+  function artSaveScroll() {
+    if (!artView) artScrolls.ticket = artScrollTop();
+    else if (artView === 'index') artScrolls.index = artScrollTop();
+    else artScrolls.detail[artView.id] = artScrollTop();
+  }
+
+  function artRestoreScroll() {
+    const key = !artView ? 'ticket' : artView === 'index' ? 'index' : 'detail';
+    const target = key === 'detail' && artView !== 'index' ? (artScrolls.detail[artView.id] || 0) : artScrolls[key] || 0;
+    const root = document.documentElement || document.body;
+    root.scrollTop = target;
+  }
+
+  function openArtifactIndex() {
+    artSaveScroll();
+    artView = 'index';
+    renderArtView();
+    artRestoreScroll();
+    persist();
+  }
+
+  function openArtifact(id, from) {
+    artSaveScroll();
+    artView = { id, from };
+    renderArtView();
+    artRestoreScroll();
+    persist();
+  }
+
+  // Back is deterministic (spec §7.3): detail→its origin, index→ticket.
+  function artifactBack() {
+    artSaveScroll();
+    if (!artView) return;
+    artView = artView === 'index' ? null : (artView.from === 'index' ? 'index' : null);
+    renderArtView();
+    artRestoreScroll();
+    persist();
+  }
+
   function render(state) {
     lastState = state;
     // Selection defaults to the current stage; with none (nothing has run) it
@@ -2641,6 +3011,8 @@
     renderWorktrees(state.worktrees);
     renderPrs(state.prs, state.mergeChecks);
     renderGates();
+    renderArtifacts(state);
+    renderArtView();
   }
 
   // One toggle row for one resolved gate. A real <button> (UI-R09), never a
@@ -2695,10 +3067,7 @@
       : 'Bind is off — this dashboard and the agent terminal move independently. Click to bind them.';
   }
 
-  // Selection is view state: persisted BESIDE the host's snapshot, never inside
-  // it. Inside `state` it would be dropped by the next push (the host builds
-  // that from the DB) and would put a webview concern in a host-owned type.
-  const persist = () => vscode.setState({ state: lastState, sel: selectedStage, srvFilter: srvFilter });
+  const persist = () => vscode.setState({ state: lastState, sel: selectedStage, srvFilter: srvFilter, artView: artView, artScrolls: artScrolls });
 
   function select(stage) {
     selectedStage = stage;
@@ -2733,9 +3102,28 @@
     // The needs-you button navigates; it never acts. Checked BEFORE the stage
     // hook, because it lives inside a segment that also carries one.
     if (e.target.closest('[data-goto]')) { gotoAction(); return; }
+    // Artifact navigation: Back (detail→origin, index→ticket) and opening an
+    // artifact (shelf card or index row). Local, like stage selection.
+    const artNav = e.target.closest('[data-art]');
+    if (artNav) {
+      if (artNav.dataset.art === 'back') { artifactBack(); return; }
+      if (artNav.dataset.art === 'index') { openArtifactIndex(); return; }
+    }
+    const artOpen = e.target.closest('[data-art-open]');
+    if (artOpen) {
+      const from = artView === 'index' ? 'index' : 'ticket';
+      openArtifact(artOpen.dataset.artOpen, from);
+      return;
+    }
     const node = e.target.closest('[data-stage]');
     if (node) { select(node.dataset.stage); return; }
     if (e.target.closest('[data-back]')) select(null);
+  });
+
+  // Esc mirrors one Back step (spec §8): detail → its origin, index → ticket,
+  // ticket → no artifact-navigation action. There is no modal to close.
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && artView) artifactBack();
   });
 
   // Tracks which merge disclosures (`.mgd`) are open, so the next render — fired
@@ -2895,6 +3283,17 @@
     // its snapshot-scoped allowlist.
     else if (btn.dataset.actionId) {
       post({ type: act, actionId: btn.dataset.actionId, requestId });
+    }
+    // artifact-open-resource: the artifact id + a resource INDEX — never a
+    // path. The host re-derives the artifacts and resolves both, so a crafted
+    // message cannot aim the editor at an arbitrary file (messages.ts).
+    else if (btn.dataset.artifactId && btn.dataset.index !== undefined) {
+      post({
+        type: act,
+        artifactId: btn.dataset.artifactId,
+        index: Number(btn.dataset.index),
+        requestId,
+      });
     }
     else post({ type: act, requestId });
     // Optimistic clipboard confirmation (UI-R15) rides ALONGSIDE the pending
@@ -3061,7 +3460,12 @@
   if (restored && restored.state) {
     selectedStage = restored.sel || null;
     srvFilter = restored.srvFilter || '';
+    // The artifact surface + scrolls are view state like selection; an old
+    // build's persisted state simply has none.
+    artView = restored.artView || null;
+    artScrolls = restored.artScrolls || { ticket: 0, index: 0, detail: {} };
     render(restored.state);
+    artRestoreScroll();
   }
 </script>
 

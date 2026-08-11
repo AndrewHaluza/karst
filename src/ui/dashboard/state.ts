@@ -40,7 +40,7 @@ import { buildAgentSessionView, type AgentSessionView } from '../../agent/sessio
 import { listProcessRuns } from '../../store/processRuns.js';
 import { listRecoveryRounds } from '../../store/recoveryRounds.js';
 import { listUatFindings } from '../../store/uatFindings.js';
-import { listShipEvidence } from '../../store/shipRuns.js';
+import { listShipEvidence, countShipRuns } from '../../store/shipRuns.js';
 import {
   listImplementationTimeline,
   readSegmentTokenTotals,
@@ -73,6 +73,7 @@ import { uatProcesses, reviewProcesses } from '../../model/inside/gates.js';
 import { shipProcesses } from '../../model/inside/ship.js';
 import { doneReceipt, type DoneReceiptView } from '../../model/inside/done.js';
 import type { SessionConfiguredInput, SessionTokensInput } from '../../model/inside/agent.js';
+import { buildArtifactsFrom, type ArtifactSummary } from '../../model/artifacts.js';
 
 export type { PathContext, StepperCell, NowLine, StageRail, PrPanelRow, MergeCheckPanelRow };
 
@@ -171,6 +172,15 @@ export interface DashboardState {
    * the agent in" is the same class of bug as two answers to needs-you.
    */
   approach: { id: string; phases: string[]; reported: string[] } | null;
+  /**
+   * The ticket's semantic artifacts (model/artifacts.ts), in semantic-priority
+   * order — the shelf's previews are `slice(0, 3)` of this array. Empty while
+   * the ticket has no durable output; the webview renders NO section then
+   * (spec §4.1: absence, never an empty state). The detail body rides each
+   * summary, so the webview renders detail locally and never round-trips an
+   * `artifact.get`.
+   */
+  artifacts: ArtifactSummary[];
 }
 
 /**
@@ -522,6 +532,20 @@ export function buildDashboardState(
     insideViews,
     presentedStage,
     approach: ticket.approach ? { id: ticket.approach, phases, reported } : null,
+    // Derived from the SAME evidence reads above (one read per table per
+    // snapshot): the artifacts shelf, the index, and the detail are three views
+    // of one set of facts, and two reads of one table is how two views of one
+    // fact disagree. Order = semantic priority; previews are the first three.
+    artifacts: buildArtifactsFrom({
+      ticket,
+      gateRuns,
+      findings,
+      uatFindings,
+      processRuns,
+      ship: shipEvidence,
+      shipRunCount: countShipRuns(store, ticketId),
+      prs,
+    }),
   };
 }
 

@@ -787,6 +787,18 @@ export function listShipEvidence(store: Store, ticketId: number): ShipEvidence {
   return { run, repos };
 }
 
+/**
+ * How many ship runs a ticket has recorded, in total. `listShipEvidence` keeps
+ * only the LATEST run; the artifact model counts runs as VERSIONS of the one
+ * ship-summary artifact, so the total is a separate, cheaper read.
+ */
+export function countShipRuns(store: Store, ticketId: number): number {
+  const row = store.db
+    .prepare('SELECT COUNT(*) AS n FROM ship_runs WHERE ticket_id = ?')
+    .get(ticketId) as { n: number } | undefined;
+  return row?.n ?? 0;
+}
+
 /** The step detail a sweep-closed step carries. */
 const INTERRUPTED_STEP_DETAIL = 'interrupted — the host that ran it died; retry ship to continue';
 
