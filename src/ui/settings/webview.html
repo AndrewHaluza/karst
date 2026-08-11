@@ -417,6 +417,7 @@
   .proc-row .spacer{flex:1}
   .proc-row .proc-fields{display:flex;flex-wrap:wrap;gap:var(--k-space-4);margin-top:var(--k-space-3)}
   .proc-row .proc-field{flex:1 1 calc(var(--k-space-8) * 8);min-width:0}
+  .proc-row .proc-field-wide{flex:1 1 100%}
   .proc-row .proc-field label{margin:var(--k-space-0) var(--k-space-0) var(--k-space-1);
     font-size:var(--k-text-2xs);opacity:.7}
   .proc-row .proc-hint{display:block;font-size:var(--k-text-2xs);color:var(--k-text-dim);
@@ -775,6 +776,7 @@
   .proc-advanced-link:hover{color:var(--k-link);text-decoration:underline}
   .proc-advanced-link:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
   .matrix-cols{grid-template-columns:minmax(calc(var(--k-space-8) * 6),1fr) minmax(calc(var(--k-space-8) * 7),1.1fr) minmax(calc(var(--k-space-8) * 6),.9fr) minmax(calc(var(--k-space-8) * 9),1.4fr) auto}
+  .matrix-row .proc-cell-wide{grid-column:1 / -1}
   .matrix-row .proc-row-wrap{min-width:0}
 
   /* Context / overflow menu (handoff §6.7). */
@@ -3289,8 +3291,11 @@
 
   document.addEventListener('input', (e) => {
     const t = e.target;
-    if (!t.dataset || t.dataset.procField !== 'agentName') return;
-    updateProcessAssignment(t.dataset.procKey, { agentName: t.value }, { rerender: false });
+    // agentName and instructions commit per keystroke WITHOUT a re-render, so
+    // the field being typed into never loses focus; the `change` listener
+    // above still commits them on blur.
+    if (!t.dataset || (t.dataset.procField !== 'agentName' && t.dataset.procField !== 'instructions')) return;
+    updateProcessAssignment(t.dataset.procKey, { [t.dataset.procField]: t.value }, { rerender: false });
   });
 
   document.addEventListener('keydown', (e) => {
@@ -3853,6 +3858,11 @@
   // only the draft-bound field VALUES are read from draft.processes, so a
   // change reflects instantly while the states follow on the round trip.
   const PROCESS_KEYS = ['uatTester', 'uatFix', 'review', 'reviewFix', 'prDescription', 'ticketAnalysis'];
+  // The two roles whose prompts consume `processes.<key>.instructions` (UAT
+  // Tester / Review findings); the other roles keep their own fixed prompt
+  // paths, so they offer no Instructions control (no dead field). Mirrored
+  // from the consumption sites — pinned by webview.test.ts (UI-R34).
+  const PROCESS_KEYS_WITH_INSTRUCTIONS = ['uatTester', 'review'];
 
   /** Index the host's row views by process key for O(1) row lookup. */
   function indexProcessViews(rows) {
@@ -3948,6 +3958,17 @@
       + `<button type="button" class="k-switch" role="switch" aria-checked="${enabled ? 'true' : 'false'}"`
       + ` data-proc-enabled="${key}" aria-label="${toggleLabel}" title="${toggleLabel}">`
       + `<span class="k-switch-track"></span></button>`
+      + `</div>`
+      + `<div class="proc-cell proc-cell-wide">`
+      + `<label for="proc-${key}-name">Display name</label>`
+      + `<input id="proc-${key}-name" type="text" class="proc-input" data-proc-field="agentName" data-proc-key="${key}"`
+      + ` value="${esc(cfg.agentName || '')}" placeholder="Snapshot name (blank = role default)" aria-label="${esc(label)} — display name" />`
+      + `</div>`
+      + (PROCESS_KEYS_WITH_INSTRUCTIONS.includes(key) ? `<div class="proc-cell proc-cell-wide">`
+        + `<label for="proc-${key}-instructions">Instructions</label>`
+        + `<textarea id="proc-${key}-instructions" class="proc-input" data-proc-field="instructions" data-proc-key="${key}" rows="4" aria-label="${esc(label)} — instructions" placeholder="Blank = the built-in prompt">${esc(cfg.instructions || '')}</textarea>`
+        + `<span class="proc-hint">Blank = the built-in prompt. Replaces the role/strategy section; the JSON output rules stay fixed.</span>`
+        + `</div>` : '')
       + `</div>`
       + (msg ? `<div class="proc-msg ${v.stateTone === 'error' ? 'is-error' : 'is-note'}" id="${msgId}" role="alert">${esc(msg)}</div>` : '')
       + `</div>`;

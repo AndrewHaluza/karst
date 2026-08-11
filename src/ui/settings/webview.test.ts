@@ -2081,6 +2081,56 @@ describe('settings agents tab — process assignments', () => {
     );
   });
 
+  it('mirrors the host instructions-consumer vocabulary exactly', () => {
+    expect(HTML).toContain(`const PROCESS_KEYS_WITH_INSTRUCTIONS = ['uatTester', 'review'];`);
+  });
+
+  it('renders the instructions textarea only for uatTester and review rows', () => {
+    expect(HTML).toContain('data-proc-field="instructions"');
+    const render = loadProcessRowRenderer();
+    const tester = render(
+      'uatTester',
+      { instructions: 'Focus on API endpoints.' },
+      view('uatTester', 'UAT Tester'),
+    );
+    expect(tester).toContain('data-proc-field="instructions"');
+    expect(tester).toContain('Focus on API endpoints.');
+    expect(tester).toContain('Blank = the built-in prompt');
+    const fix = render('uatFix', {}, view('uatFix', 'UAT Fix'));
+    expect(fix).not.toContain('data-proc-field="instructions"');
+  });
+
+  it('writes and clears the instructions field through updateProcessAssignment', () => {
+    const sandbox: Record<string, unknown> = {
+      draft: { processes: { uatTester: { provider: 'codex' } } },
+      markDirty: () => {},
+      renderProcessAssignments: () => {},
+    };
+    const source = `
+      ${functionSource('updateProcessAssignment')}
+      updateProcessAssignment('uatTester', { instructions: 'Focus on API endpoints.' });
+    `;
+    runInNewContext(source, sandbox);
+    expect((sandbox.draft as { processes: Record<string, unknown> }).processes.uatTester).toEqual({
+      provider: 'codex',
+      instructions: 'Focus on API endpoints.',
+    });
+
+    const cleared: Record<string, unknown> = {
+      draft: { processes: { uatTester: { provider: 'codex', instructions: 'Focus on API.' } } },
+      markDirty: () => {},
+      renderProcessAssignments: () => {},
+    };
+    const clearSource = `
+      ${functionSource('updateProcessAssignment')}
+      updateProcessAssignment('uatTester', { instructions: '' });
+    `;
+    runInNewContext(clearSource, cleared);
+    expect((cleared.draft as { processes: Record<string, unknown> }).processes.uatTester).toEqual({
+      provider: 'codex',
+    });
+  });
+
   it('renders six process assignment rows with profile/core/model/name controls and an enabled switch', () => {
     expect(HTML).toContain('id="processAssignments"');
     // The render walks the PROCESS_KEYS vocabulary (pinned above) and the row
@@ -2151,6 +2201,7 @@ describe('settings agents tab — process assignments', () => {
       const AGENT_PROVIDER_LABELS = {
         claude: 'Claude Code', codex: 'Codex', antigravity: 'Antigravity', opencode: 'OpenCode',
       };
+      const PROCESS_KEYS_WITH_INSTRUCTIONS = ['uatTester', 'review'];
       ${functionSource('renderModelOptions')}
       ${functionSource('renderProcessAssignmentRow')}
       renderProcessAssignmentRow
@@ -2640,6 +2691,7 @@ describe('settings v7 matrix groups', () => {
       const AGENT_PROVIDER_LABELS = {
         claude: 'Claude Code', codex: 'Codex', antigravity: 'Antigravity', opencode: 'OpenCode',
       };
+      const PROCESS_KEYS_WITH_INSTRUCTIONS = ['uatTester', 'review'];
       ${functionSource('renderModelOptions')}
       ${functionSource('renderProcessAssignmentRow')}
       renderProcessAssignmentRow(${JSON.stringify(key)}, {}, {})
@@ -2667,6 +2719,7 @@ describe('settings v7 matrix groups', () => {
       const AGENT_PROVIDER_LABELS = {
         claude: 'Claude Code', codex: 'Codex', antigravity: 'Antigravity', opencode: 'OpenCode',
       };
+      const PROCESS_KEYS_WITH_INSTRUCTIONS = ['uatTester', 'review'];
       ${functionSource('renderModelOptions')}
       ${functionSource('renderProcessAssignmentRow')}
       renderProcessAssignmentRow('review', { agentName: 'My Review' }, {})

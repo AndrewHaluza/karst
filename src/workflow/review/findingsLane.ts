@@ -115,16 +115,31 @@ export interface RunFindingsLaneOpts {
  * wording rather than ever interpolating the literal string "undefined" into
  * a prompt the agent will read. Naming it matters: at the shipped
  * `blockingSeverity: 'high'`, an agent that guesses the wrong range can fail
- * the ticket over a commit that was never part of its diff.
+ * the ticket over a commit that was never part of its diff. `instructions`
+ * (optional) replaces the review strategy lines with the author's own — the
+ * target context and the strict output rules always remain.
  */
-export function buildFindingsPrompt(repo: string, baseRef?: string | null): string {
+export function buildFindingsPrompt(
+  repo: string,
+  baseRef?: string | null,
+  instructions?: string,
+): string {
   const baseClause = baseRef
     ? `against its base branch, \`${baseRef}\` (compare against \`origin/${baseRef}\` when available, otherwise the local \`${baseRef}\`).`
     : `against its base branch.`;
+  // User instructions REPLACE the role/scope block; the target context line
+  // and the output rules below are never replaced.
+  const instructionsText = instructions?.trim() ?? '';
+  const strategy =
+    instructionsText.length > 0
+      ? [instructionsText, `Repository: ${repo} ${baseClause}`, '']
+      : [
+          `Review the uncommitted and committed changes in this worktree (repository: ${repo}) ${baseClause}`,
+          `Report findings about the DIFF ONLY — code you did not touch is out of scope, however wrong it looks.`,
+          ``,
+        ];
   return [
-    `Review the uncommitted and committed changes in this worktree (repository: ${repo}) ${baseClause}`,
-    `Report findings about the DIFF ONLY — code you did not touch is out of scope, however wrong it looks.`,
-    ``,
+    ...strategy,
     `Output rules (strict):`,
     `- Output ONLY a JSON array, nothing else: no preamble, no markdown fence, no commentary.`,
     `- Each element: {"severity": "critical"|"high"|"medium"|"low"|"info", "title": string, "detail": string, "file"?: string, "line"?: number}.`,
@@ -224,7 +239,7 @@ export async function runFindingsLane(opts: RunFindingsLaneOpts): Promise<Findin
     );
     try {
       const result = await adapter.runHeadless({
-        prompt: buildFindingsPrompt(target.repo, target.baseRef),
+        prompt: buildFindingsPrompt(target.repo, target.baseRef, opts.process?.assignment.instructions),
         cwd: target.worktreePath,
         model: opts.process?.assignment.model,
         signal: opts.signal,

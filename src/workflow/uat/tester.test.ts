@@ -414,6 +414,23 @@ describe('runUatTester', () => {
     expect(runs[0]).toMatchObject({ id: orphaned.id, status: 'stale' });
     expect(runs[1]).toMatchObject({ processId: 'tester', status: 'passed', resultKind: 'observed' });
   });
+
+  it('threads the assignment instructions into the prompt it sends', async () => {
+    const { adapter, calls } = rawAdapter('[]');
+    const res = await runUatTester(
+      store,
+      opts({
+        adapter,
+        assignment: { ...ASSIGNMENT, instructions: 'Focus on API endpoint behavior.' },
+      }),
+      { now },
+    );
+    expect(res.kind).toBe('observed');
+    expect(calls[0]!.prompt).toContain('Focus on API endpoint behavior.');
+    expect(calls[0]!.prompt).toContain('Output rules (strict):');
+    // The instructed run's output still parses ([] → zero findings recorded).
+    expect(listUatFindings(store, ticketId)).toHaveLength(0);
+  });
 });
 
 describe('buildTesterPrompt', () => {
@@ -429,5 +446,32 @@ describe('buildTesterPrompt', () => {
     const prompt = buildTesterPrompt({ repo: '/web', worktreePath: '/wt/web' });
     expect(prompt).not.toContain('undefined');
     expect(prompt).toContain('its base branch.');
+  });
+
+  it('replaces the role/strategy lines with user instructions, keeping the target context and output rules', () => {
+    const prompt = buildTesterPrompt(
+      TARGETS[0]!,
+      'Focus on API endpoint behavior.\nTest edge cases around authentication and rate limiting.',
+    );
+    expect(prompt).toContain(
+      'Focus on API endpoint behavior.\nTest edge cases around authentication and rate limiting.',
+    );
+    // The facts the agent needs survive — repo, base branch, service context.
+    expect(prompt).toContain('Repository: /web');
+    expect(prompt).toContain('develop');
+    expect(prompt).toContain('npm run dev');
+    // The default role/strategy lines are replaced...
+    expect(prompt).not.toContain('Act as the UAT tester');
+    expect(prompt).not.toContain('Try to BREAK');
+    // ...but the structured-output contract is non-negotiable.
+    expect(prompt).toContain('Output rules (strict):');
+    expect(prompt).toContain('JSON array');
+    expect(prompt).toContain('OBSERVATIONS, not verdicts');
+  });
+
+  it('treats blank or whitespace instructions as absent', () => {
+    const blank = buildTesterPrompt(TARGETS[0]!, '   ');
+    expect(blank).toContain('Act as the UAT tester');
+    expect(blank).toContain('Try to BREAK');
   });
 });

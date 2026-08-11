@@ -1993,6 +1993,7 @@ processes:
     agentName: My UAT Agent
     provider: codex
     model: gpt-5.6-sol
+    instructions: Focus on API behavior.
     enabled: false
   review:
     provider: antigravity
@@ -2010,6 +2011,7 @@ processes:
           agentName: 'My UAT Agent',
           provider: 'codex',
           model: 'gpt-5.6-sol',
+          instructions: 'Focus on API behavior.',
           enabled: false,
         },
         review: { provider: 'antigravity', enabled: true },

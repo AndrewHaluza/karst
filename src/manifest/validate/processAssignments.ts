@@ -107,6 +107,9 @@ function validateProcessAssignment(
   const model = optionalString(raw.model, `${where}.model`);
   if (model !== undefined) config.model = model;
 
+  const instructions = optionalString(raw.instructions, `${where}.instructions`);
+  if (instructions !== undefined) config.instructions = instructions;
+
   if (raw.enabled !== undefined && typeof raw.enabled !== 'boolean') {
     throw new ManifestError(`${where}.enabled must be a boolean`);
   }

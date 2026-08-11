@@ -22,6 +22,8 @@
  *              manifest.defaultModel, both through the provider-compatibility
  *              check (a known model of another provider is dropped, never
  *              launched wrong)
+ *   instructions: config.instructions (verbatim — author-declared; absent →
+ *              the built-in prompt; no ticket/manifest fallback exists)
  */
 
 import type { AgentProvider, Manifest } from '../manifest/types.js';
@@ -40,6 +42,13 @@ export interface ProcessAssignmentSnapshot {
   agentName?: string;
   provider: AgentProvider;
   model?: string;
+  /**
+   * Author-declared prompt instructions (`processes.<key>.instructions`),
+   * resolved verbatim. Absent → the process's built-in prompt. Snapshotted
+   * like the identity fields: a Settings edit mid-run must not rewrite the
+   * prompt a live run is reading.
+   */
+  instructions?: string;
 }
 
 /**
@@ -113,5 +122,10 @@ export function resolveProcessAssignment(
       ? AGENT_PROVIDER_LABELS[provider]
       : DEFAULT_PROCESS_AGENT_NAMES[role]);
 
-  return { agentName, provider, model };
+  return {
+    agentName,
+    provider,
+    model,
+    ...(config?.instructions === undefined ? {} : { instructions: config.instructions }),
+  };
 }
