@@ -237,6 +237,7 @@ export class AntigravityAdapter implements AgentAdapter {
     );
     const r = await this.spawnHeadless(AGY_BIN, args, opts.cwd, {
       signal: opts.signal,
+      timeoutMs: opts.timeoutMs,
       onDebug: opts.debug,
     });
     if (r.exitCode !== 0) {

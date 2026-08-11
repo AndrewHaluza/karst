@@ -5,6 +5,7 @@ import { listProcessRuns } from '../../store/processRuns.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
 import type { AggregateEntry } from './aggregate.js';
 import { buildFindingsPrompt, planAndRunFindingsLane, runFindingsLane } from './findingsLane.js';
+import { GATE_LANE_HEADLESS_TIMEOUT_MS } from '../../agent/headlessSpawn.js';
 
 function adapter(raw: string | (() => Promise<string>)): AgentAdapter {
   return {
@@ -156,6 +157,40 @@ describe('runFindingsLane', () => {
     });
     expect(runHeadless).toHaveBeenCalledTimes(1);
     expect(capturedPrompt).toContain('develop');
+  });
+
+  // A deep review verifies suspicions against the repo (test runs, typecheck),
+  // so the lane's own deadline is the generous gate-lane bound, never the
+  // 15-minute quick-call backstop that kills a working review mid-lane.
+  it('defaults the headless deadline to the gate-lane bound, so a deep diff review is not cut off', async () => {
+    let seenTimeout: number | undefined;
+    const runHeadless = vi.fn(async (headlessOpts: { timeoutMs?: number }) => {
+      seenTimeout = headlessOpts.timeoutMs;
+      return { sessionId: '', verdict: null, raw: '[]' };
+    });
+    await runFindingsLane({
+      config: CONFIG,
+      adapter: { ...adapter('[]'), runHeadless },
+      targets: [TARGET],
+      ticketId: 1,
+    });
+    expect(seenTimeout).toBe(GATE_LANE_HEADLESS_TIMEOUT_MS);
+  });
+
+  it('honors an explicit headless deadline from the caller', async () => {
+    let seenTimeout: number | undefined;
+    const runHeadless = vi.fn(async (headlessOpts: { timeoutMs?: number }) => {
+      seenTimeout = headlessOpts.timeoutMs;
+      return { sessionId: '', verdict: null, raw: '[]' };
+    });
+    await runFindingsLane({
+      config: CONFIG,
+      adapter: { ...adapter('[]'), runHeadless },
+      targets: [TARGET],
+      ticketId: 1,
+      timeoutMs: 77_000,
+    });
+    expect(seenTimeout).toBe(77_000);
   });
 
   it('runs the Review process with its configured assignment model', async () => {

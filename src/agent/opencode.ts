@@ -721,6 +721,7 @@ export class OpencodeAdapter implements AgentAdapter {
     );
     const result = await this.spawnHeadless(OPENCODE_BIN, args, opts.cwd, {
       signal: opts.signal,
+      timeoutMs: opts.timeoutMs,
       onDebug: opts.debug,
     });
     if (result.exitCode !== 0) {

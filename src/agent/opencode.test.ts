@@ -568,6 +568,20 @@ describe('OpencodeAdapter headless execution', () => {
     expect(seenOpts?.signal).toBe(controller.signal);
   });
 
+  it('forwards the headless deadline into the spawn', async () => {
+    let seenOpts: { timeoutMs?: number } | undefined;
+    const spawn: SpawnHeadless = async (_cmd, _args, _cwd, opts) => {
+      seenOpts = opts;
+      return { stdout: okNdjson, stderr: '', exitCode: 0 };
+    };
+    await new OpencodeAdapter(spawn).runHeadless({
+      prompt: 'go',
+      cwd: '/wt/a',
+      timeoutMs: 123_456,
+    });
+    expect(seenOpts?.timeoutMs).toBe(123_456);
+  });
+
   it('runs a fresh NDJSON run with --auto under bypassPermissions', async () => {
     const spawn = vi.fn(fakeSpawn({ stdout: okNdjson, exitCode: 0 }));
     const result = await new OpencodeAdapter(spawn).runHeadless({

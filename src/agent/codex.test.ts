@@ -1220,6 +1220,20 @@ describe('CodexAdapter headless execution', () => {
     expect(seenOpts?.signal).toBe(controller.signal);
   });
 
+  it('forwards the headless deadline into the spawn', async () => {
+    let seenOpts: { timeoutMs?: number } | undefined;
+    const spawn: SpawnHeadless = async (_cmd, _args, _cwd, opts) => {
+      seenOpts = opts;
+      return { stdout: okJsonl, stderr: '', exitCode: 0 };
+    };
+    await new CodexAdapter(spawn).runHeadless({
+      prompt: 'hi',
+      cwd: '/wt/a',
+      timeoutMs: 234_567,
+    });
+    expect(seenOpts?.timeoutMs).toBe(234_567);
+  });
+
   it('runs a fresh JSONL exec', async () => {
     const spawn = vi.fn(fakeSpawn({ stdout: okJsonl, exitCode: 0 }));
     const result = await new CodexAdapter(spawn).runHeadless({
