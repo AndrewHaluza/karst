@@ -661,6 +661,9 @@ export class OpencodeAdapter implements AgentAdapter {
         ...(opts.cliPhasePrefix
           ? { phaseCommand: opts.cliPhasePrefix }
           : {}),
+        ...(opts.cliGuidePrefix
+          ? { guideCommand: opts.cliGuidePrefix }
+          : {}),
       });
       // BARE `<id-slug>` (NOT `karst-<id>`): opencode registers the command file
       // as `/<basename>`, so this materializes as `/<id-slug>`. The slug is

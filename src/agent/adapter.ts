@@ -136,6 +136,13 @@ export interface MaterializeOpts {
    * markers (karst records no per-phase state, exactly as before).
    */
   cliPhasePrefix?: (phaseName: string) => string;
+  /**
+   * Shell command the generated `/karst:<id>` command runs to read the
+   * agent-facing manual (how Karst works, the flow, the verbs), e.g.
+   * `node "<ext>/dist/cli/main.js" guide`. Absent → the command does not point
+   * at the guide (a host too old to serve it must not hand out a dead verb).
+   */
+  cliGuidePrefix?: string;
 }
 
 /**

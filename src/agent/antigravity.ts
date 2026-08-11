@@ -196,6 +196,7 @@ export class AntigravityAdapter implements AgentAdapter {
           ...(opts.cliContextPrefix ? { contextCommand: opts.cliContextPrefix } : {}),
           ...(opts.cliStagePrefix ? { stageCommand: opts.cliStagePrefix } : {}),
           ...(opts.cliPhasePrefix ? { phaseCommand: opts.cliPhasePrefix } : {}),
+          ...(opts.cliGuidePrefix ? { guideCommand: opts.cliGuidePrefix } : {}),
         });
         const skill = [
           '---',

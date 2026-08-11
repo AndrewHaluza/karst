@@ -141,6 +141,7 @@ import { attentionItems, AttentionManager, type AttentionItem } from './ui/atten
 import { composeContextCommand } from './cli/context.js';
 import { composeStageCommand } from './cli/stage.js';
 import { composePhaseCommand } from './cli/phaseCommand.js';
+import { composeGuideCommand, renderGuideInstruction } from './cli/guide.js';
 import {
   buildWorkflowInvocation,
   renderWorkflowCommand,
@@ -3110,6 +3111,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         approachPrompt ?? delegation,
         invocation,
         markerInstruction,
+        // The one-line pointer to the agent manual rides every fresh seed
+        // (869edmcme): it costs ~40 tokens and saves the agent from reading the
+        // extension's dist/ to learn how Karst works and what the CLI can do.
+        renderGuideInstruction(buildCliGuidePrefix(context)),
       );
 
       // Resume the captured session when continuing interactive work, so the
@@ -3175,6 +3180,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                 ? undefined
                 : buildCliStagePrefix(context, dbPath, markerStage),
             cliPhasePrefix: buildCliPhasePrefix(context, dbPath),
+            cliGuidePrefix: buildCliGuidePrefix(context),
           });
         }
       } catch (error) {
@@ -3190,6 +3196,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           approachPrompt ?? delegation,
           invocation,
           markerInstruction,
+          renderGuideInstruction(buildCliGuidePrefix(context)),
         );
       }
       // A caller with one specific job for this session (the merge brief behind
@@ -4020,6 +4027,17 @@ function buildCliPhasePrefix(
   }
   return (phaseName: string): string =>
     composePhaseCommand(cliEntry, dbPath, phaseName, manifestPath);
+}
+
+/**
+ * Compose the `node <cli> guide` command a session runs to read the agent
+ * manual (how Karst works, the flow, the CLI verbs). Same CLI entry as the
+ * context/stage/phase prefixes; no DB, no manifest, no ticket — the guide is
+ * static karst-authored content.
+ */
+function buildCliGuidePrefix(context: vscode.ExtensionContext): string {
+  const cliEntry = join(context.extensionUri.fsPath, 'dist', 'cli', 'main.js');
+  return composeGuideCommand(cliEntry);
 }
 
 /**

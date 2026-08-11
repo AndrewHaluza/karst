@@ -250,6 +250,7 @@ export class ClaudeAdapter implements AgentAdapter {
           ...(opts.cliContextPrefix ? { contextCommand: opts.cliContextPrefix } : {}),
           ...(opts.cliStagePrefix ? { stageCommand: opts.cliStagePrefix } : {}),
           ...(opts.cliPhasePrefix ? { phaseCommand: opts.cliPhasePrefix } : {}),
+          ...(opts.cliGuidePrefix ? { guideCommand: opts.cliGuidePrefix } : {}),
         });
         writeFileSync(join(karstCommands, `${orchestratorCommandBasename(opts.pkg.id)}.md`), body);
         owned.push(karstDir);

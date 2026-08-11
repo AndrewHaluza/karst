@@ -704,6 +704,9 @@ export class CodexAdapter implements AgentAdapter {
         ...(opts.cliPhasePrefix
           ? { phaseCommand: opts.cliPhasePrefix }
           : {}),
+        ...(opts.cliGuidePrefix
+          ? { guideCommand: opts.cliGuidePrefix }
+          : {}),
       });
       const destination = writeSkill(
         opts.sessionDir,
