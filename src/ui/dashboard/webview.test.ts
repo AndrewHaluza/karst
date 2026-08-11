@@ -17,6 +17,7 @@ import { setStage } from '../../store/stages.js';
 import { parkGateStage } from '../../store/stageBlocks.js';
 import { EVIDENCE_KINDS } from '../../model/inside/types.js';
 import type { InsideProcessView, InsideStageKey, InsideStageView } from '../../model/inside/types.js';
+import type { ArtifactSummary } from '../../model/artifacts.js';
 
 const HTML = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'webview.html'), 'utf8');
 
@@ -887,9 +888,21 @@ describe('dashboard webview.html', () => {
     // `110px`/`160px` (and the ≤430 `104px`) are the session timeline's phase-name
     // column — a column minimum/maximum, the same exemption class as `82px`: the
     // detail column starts on ONE x at every width, which no space step expresses.
+    // `200px` is the artifact shelf's card grid minimum — a single-column floor
+    // that reads "wide enough" without a space step for the exact width. `720px`
+    // caps the in-webview artifact detail surface, the same layout-width class as
+    // `640px` but narrower for the detail-heavy content. `12px` (×4) sizes the
+    // origin chip's two icon marks — no space step at the chip's 12px scale.
+    // `2px` (×3) sets focus outlines and the artifact-finding left border; `1px`
+    // (×2) offsets those focus outlines. All six are the same exemption class as
+    // `74px` — a deliberate geometry with no token equivalent.
     const ALLOWED = ['46px', '72px', '640px', '82px', '74px', '4px', '180px', '288px', '6px', '400px',
       '300px', '360px', '430px', '110px', '160px', '104px',
-      '1px', '1px', '1px', '1px'];
+      '1px', '1px', '1px', '1px', '1px', '1px',
+      '200px', '720px',
+      '2px', '2px', '2px',
+      '12px', '12px', '12px', '12px',
+      '4px', '4px', '4px', '4px', '4px'];
     // The ported Inside block is the ONE exempt region (see its own header
     // comment): it is the A37 prototype's geometry, scoped under `#inside`,
     // and its pixel values ARE the design. Its colours still go through
@@ -1309,7 +1322,7 @@ describe('dashboard webview.html', () => {
   it('does not persist the live overlay across reloads', () => {
     // A restored overlay would claim a process is running that nobody is —
     // persist() saves only the snapshot, the selection and the filter.
-    expect(HTML).toMatch(/setState\(\{ state: lastState, sel: selectedStage, srvFilter: srvFilter \}\)/);
+    expect(HTML).toMatch(/setState\(\{ state: lastState, sel: selectedStage, srvFilter: srvFilter, artView: artView, artScrolls: artScrolls \}\)/);
     expect(HTML).not.toMatch(/liveOps: /);
   });
 
@@ -1874,6 +1887,10 @@ interface PreviewHarness {
   receive(message: unknown): void;
   /** Click one evidence disclosure chevron, exactly like a user expanding/collapsing a process. */
   clickChevron(key: string): void;
+  /** Click through the delegated document listeners at ONE selector. */
+  click(sel: string, dataset: Record<string, string>): void;
+  /** Press a key on the document keydown listener. */
+  key(key: string): void;
   htmlOf(id: string): string;
   textOf(id: string): string;
   classesOf(id: string): string[];
@@ -1908,6 +1925,12 @@ function bootPreviewHarness(): PreviewHarness {
     'gates',
     'gateCount',
     'bindBtn',
+    'artPanel',
+    'artCount',
+    'artTotal',
+    'artViewAll',
+    'artifacts',
+    'artView',
   ]) {
     elements[id] = previewElement(id);
   }
@@ -2010,6 +2033,30 @@ function bootPreviewHarness(): PreviewHarness {
           },
         });
       }
+    },
+    // Click a document-level listener through a fake target whose `closest`
+    // answers only the ONE selector that carries the node — every earlier
+    // guard in the delegated handlers sees null, exactly as it would for a
+    // target that is not inside those elements. The node carries the minimal
+    // element surface the delegated action handler touches (pending state,
+    // disabled, preventDefault).
+    click: (sel: string, dataset: Record<string, string>) => {
+      const node = {
+        dataset,
+        closest: (s: string) => (s === sel ? node : null),
+        setAttribute: () => {},
+        removeAttribute: () => {},
+        classList: { add: () => {}, remove: () => {} },
+        hasAttribute: () => false,
+        disabled: false,
+      };
+      for (const handler of docListeners.get('click') ?? []) {
+        handler({ target: node, preventDefault: () => {} });
+      }
+    },
+    // Press a key on the document's keydown listener (Esc mirrors Back).
+    key: (key: string) => {
+      for (const handler of docListeners.get('keydown') ?? []) handler({ key });
     },
     htmlOf: (id) => elements[id]!.innerHTML,
     textOf: (id) => elements[id]!.textContent,
@@ -3318,6 +3365,212 @@ describe('inside block issues p3 renderings (869egdr2u)', () => {
     expect(html).not.toContain('2 current pull requests merged');
     expect(html).not.toContain('>Delivery receipt<');
     expect(html).toMatch(/<span class="done-state"><span class="ev-time">09:58:01<\/span> · passed<\/span>/);
+  });
+});
+
+// ── Artifacts render round trip (executed in a VM) ─────────────────────────
+//
+// The artifacts shelf/index/detail are LOCAL render + navigation inside the
+// SAME webview (spec §7: no second Karst tab, no drawer, no split). These
+// tests execute the real inline script and drive the real delegated click/key
+// listeners with fake targets, asserting the surfaces actually swap.
+
+/** Three artifacts in the host's semantic-priority order (previews = first 3). */
+function artifactFixtures(): ArtifactSummary[] {
+  return [
+    {
+      id: 'uat-report',
+      stage: 'uat',
+      kind: 'uat-report',
+      title: 'UAT report',
+      scope: null,
+      summary: '3 passed · 0 failed',
+      status: 'passed',
+      freshness: 'current',
+      origin: { kind: 'karst', core: 'codex' },
+      versionCount: 1,
+      currentVersionLabel: 'v1',
+      createdAt: '2026-08-01T10:00:00.000Z',
+      metrics: [
+        { label: 'passed', value: '3' },
+        { label: 'failed', value: '0' },
+      ],
+      gates: [
+        { name: 'lint', exitCode: 0 },
+        { name: 'test', exitCode: 0 },
+      ],
+      findings: [],
+      prs: [],
+      commits: [],
+      resources: [{ name: 'uat-ticket-1.log', path: '/data/karst/artifacts/1/uat-ticket-1.log' }],
+      detail: null,
+    },
+    {
+      id: 'review',
+      stage: 'review',
+      kind: 'review',
+      title: 'Review',
+      scope: null,
+      summary: '1 finding · 1 needs attention',
+      status: 'attention',
+      freshness: 'stale',
+      origin: { kind: 'karst', core: null },
+      versionCount: 1,
+      currentVersionLabel: 'v1',
+      createdAt: null,
+      metrics: [{ label: 'high', value: '1' }],
+      gates: [],
+      findings: [
+        {
+          severity: 'high',
+          title: 'Credential cache is not cleared',
+          detail: 'The cache outlives the session.',
+          repo: '/wt/web',
+          file: 'src/auth.ts',
+          line: 12,
+        },
+      ],
+      prs: [],
+      commits: [],
+      resources: [],
+      detail: null,
+    },
+    {
+      id: 'ship-summary',
+      stage: 'ship',
+      kind: 'ship-summary',
+      title: 'PR summary',
+      scope: null,
+      summary: '1 PR opened · 1 commit',
+      status: 'passed',
+      freshness: 'current',
+      origin: { kind: 'karst', core: 'claude' },
+      versionCount: 1,
+      currentVersionLabel: 'v1',
+      createdAt: '2026-08-01T11:00:00.000Z',
+      metrics: [
+        { label: 'repos', value: '1' },
+        { label: 'PRs', value: '1' },
+        { label: 'commits', value: '1' },
+      ],
+      gates: [],
+      findings: [],
+      prs: [
+        {
+          repo: '/wt/web',
+          number: 42,
+          url: 'https://github.com/o/r/pull/42',
+          status: 'open',
+        },
+      ],
+      commits: [{ repo: '/wt/web', sha: 'abc123', message: 'feat: passkey login' }],
+      resources: [],
+      detail: null,
+    },
+  ];
+}
+
+function stateWithArtifacts(): DashboardState {
+  return { ...renderStateFor('uat'), artifacts: artifactFixtures() };
+}
+
+describe('artifacts render round trip (executed in a VM)', () => {
+  it('renders the shelf only when artifacts exist, with the semantic count and at most 3 previews', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: renderStateFor('uat') });
+    expect(h.classesOf('artPanel')).toContain('hidden');
+    expect(h.htmlOf('artifacts')).toBe('');
+
+    h.receive({ type: 'state', state: stateWithArtifacts() });
+    expect(h.classesOf('artPanel')).not.toContain('hidden');
+    expect(h.textOf('artCount')).toBe('3');
+    expect(h.textOf('artTotal')).toBe('3');
+    const body = h.htmlOf('artifacts');
+    // Exactly the 3 previews, each a real button opening its detail.
+    expect(body.match(/data-art-open=/g)).toHaveLength(3);
+    expect(body).toContain('data-art-open="uat-report"');
+    expect(body).toContain('data-art-open="ship-summary"');
+    // Raw filenames never reach the shelf (spec §4.4) — resources exist only
+    // in the detail view.
+    expect(body).not.toContain('uat-ticket-1.log');
+    // The origin chip labels ride every card (Karst · Codex / Karst).
+    expect(body).toContain('Karst · Codex');
+    expect(body).toContain('Karst');
+  });
+
+  it('opens the index in-webview from View all, grouped by stage, and returns via Back', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: stateWithArtifacts() });
+    h.click('[data-art]', { art: 'index' });
+    // The dashboard body is hidden while the index surface is active.
+    expect(h.bodyClasses).toContain('art-nav');
+    const index = h.htmlOf('artView');
+    expect(index).toContain('Artifacts · 3');
+    expect(index).toContain('← Ticket');
+    // Grouped by producing stage, empty groups omitted; one row per artifact.
+    expect(index).toMatch(/UAT[\s\S]*data-art-open="uat-report"/);
+    expect(index).toMatch(/Review[\s\S]*data-art-open="review"/);
+    expect(index).toMatch(/Ship[\s\S]*data-art-open="ship-summary"/);
+    // The index is not a file browser: semantic titles, never paths.
+    expect(index).not.toContain('/data/karst/artifacts');
+
+    h.click('[data-art]', { art: 'back' });
+    expect(h.bodyClasses).not.toContain('art-nav');
+    expect(h.htmlOf('artView')).toBe('');
+  });
+
+  it('opens a detail from the index, renders semantic-first with files last, and Esc returns to the index', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: stateWithArtifacts() });
+    h.click('[data-art]', { art: 'index' });
+    h.click('[data-art-open]', { artOpen: 'uat-report' });
+
+    const detail = h.htmlOf('artView');
+    // Back label answers the ORIGIN: from the index → back to Artifacts.
+    expect(detail).toContain('← Artifacts');
+    // Semantic result first: title, status word, metrics, gates.
+    expect(detail).toContain('UAT report');
+    expect(detail).toContain('Passed');
+    expect(detail).toContain('3');
+    expect(detail).toContain('lint');
+    // Provenance: produced-by carries the origin chip.
+    expect(detail).toContain('Produced by');
+    expect(detail).toContain('Karst · Codex');
+    // Files LAST, each with the explicit editor escape carrying id + index.
+    const filesAt = detail.indexOf('Underlying files');
+    const detailsAt = detail.indexOf('Details');
+    expect(filesAt).toBeGreaterThan(detailsAt);
+    expect(detail).toContain('uat-ticket-1.log');
+    expect(detail).toMatch(/data-act="artifact-open-resource"[\s\S]*data-artifact-id="uat-report"[\s\S]*data-index="0"/);
+
+    // Esc mirrors Back: detail(from index) → index.
+    h.key('Escape');
+    expect(h.htmlOf('artView')).toContain('Artifacts · 3');
+    // And Esc on the index → ticket.
+    h.key('Escape');
+    expect(h.bodyClasses).not.toContain('art-nav');
+  });
+
+  it('a detail opened from the shelf returns to the TICKET, and its editor escape posts id + index only', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: stateWithArtifacts() });
+    // From the ticket dashboard (artView is null): from = 'ticket'.
+    h.click('[data-art-open]', { artOpen: 'uat-report' });
+    expect(h.htmlOf('artView')).toContain('← Ticket');
+
+    // Open in editor posts the artifact id + a resource INDEX — never a path.
+    h.click('[data-act]', {
+      act: 'artifact-open-resource',
+      artifactId: 'uat-report',
+      index: '0',
+    });
+    const open = h.posted.find((m) => (m as { type?: string }).type === 'artifact-open-resource');
+    expect(open).toMatchObject({ type: 'artifact-open-resource', artifactId: 'uat-report', index: 0 });
+    expect(JSON.stringify(open)).not.toContain('/data/karst');
+
+    // Back from a ticket-origin detail returns to the ticket.
+    h.click('[data-art]', { art: 'back' });
+    expect(h.bodyClasses).not.toContain('art-nav');
   });
 });
 

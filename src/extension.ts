@@ -302,6 +302,7 @@ import { injectDesignSystem } from './model/designSystem.js';
 import { injectCsp, newNonce } from './model/csp.js';
 import { injectProviderIdentity } from './model/providerIdentity.js';
 import { injectAgentIdentity } from './model/agentIdentity.js';
+import { buildTicketArtifacts } from './model/artifacts.js';
 import {
   binaryExists,
   checkDependencyFaults,
@@ -4649,6 +4650,31 @@ function makeDashboardActions(
           // The gate wrote the path, but the file can be gone (worktree removed).
           void vscode.window.showWarningMessage(`Cannot open the log at ${path}.`);
           logError('open stage log failed', e);
+        }
+      })();
+    },
+    // Open one artifact resource in a normal VS Code editor — the deliberate
+    // escape from the semantic artifact UI into the file model (spec §12). The
+    // webview names ONLY the artifact id and a resource index, so this re-reads
+    // the ticket's artifacts FRESH and resolves both against them: a stale
+    // panel, a gone artifact, or a forged message all land on the same
+    // "no longer available" refusal, and no webview-supplied path ever reaches
+    // `Uri.file`. Mirrors openStageLog's failure copy: a missing file is
+    // "cannot open", never a domain verdict about the artifact's result.
+    openArtifactResource: (artifactId, index) => {
+      void (async () => {
+        const artifact = buildTicketArtifacts(store, ticketId).find((a) => a.id === artifactId);
+        const resource = artifact && artifact.resources[index];
+        if (!artifact || !resource) {
+          void vscode.window.showWarningMessage('That artifact file is no longer available.');
+          return;
+        }
+        try {
+          const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(resource.path));
+          await vscode.window.showTextDocument(doc, { preview: true });
+        } catch (e) {
+          void vscode.window.showWarningMessage(`Cannot open the file at ${resource.path}.`);
+          logError('open artifact resource failed', e);
         }
       })();
     },

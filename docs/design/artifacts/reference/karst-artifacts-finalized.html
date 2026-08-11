@@ -1,0 +1,622 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Karst — Final Artifacts UX</title>
+<style>
+:root{
+  --bg:#f5f6f8;
+  --surface:#ffffff;
+  --surface-subtle:#fafbfc;
+  --text:#17191d;
+  --muted:#707680;
+  --muted-2:#969ca5;
+  --line:#e3e5e9;
+  --line-strong:#d3d7dd;
+  --soft:#f1f3f5;
+  --focus:#6d6de0;
+  --ok:#147a55;
+  --ok-bg:#eef8f3;
+  --warn:#94600d;
+  --warn-bg:#fff5e6;
+}
+*{box-sizing:border-box}
+html,body{
+  margin:0;height:100%;background:var(--bg);color:var(--text);
+  font:14px/1.45 Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif
+}
+button{font:inherit;color:inherit}
+button:focus-visible,[tabindex]:focus-visible{
+  outline:2px solid var(--focus);outline-offset:2px
+}
+
+/* VS Code context simulation only */
+.app{height:100vh;display:flex;flex-direction:column;overflow:hidden}
+.vscode-tabs{
+  flex:0 0 auto;display:flex;align-items:stretch;gap:1px;overflow:auto;
+  background:#202124;border-bottom:1px solid #303136;color:#b9bdc4
+}
+.vscode-tab{
+  flex:0 0 auto;padding:9px 12px;border-right:1px solid #303136;
+  font-size:11px;background:#282a2e;white-space:nowrap
+}
+.vscode-tab.active{background:#34363b;color:#fff;border-top:1px solid #8b8bda}
+.context-note{
+  margin-left:auto;align-self:center;padding:0 12px;font-size:10px;color:#8d929a;white-space:nowrap
+}
+
+.webview{
+  flex:1;min-height:0;overflow:hidden;padding:20px;display:flex;justify-content:center
+}
+.shell{
+  position:relative;width:min(980px,100%);height:100%;
+  overflow:hidden;background:var(--surface);border:1px solid var(--line-strong);
+  border-radius:14px;box-shadow:0 8px 28px rgba(15,23,42,.07)
+}
+.view{
+  position:absolute;inset:0;display:none;overflow:auto;background:var(--surface)
+}
+.view.active{display:block}
+
+/* Shared */
+.ticket-head,.nav-head{
+  position:sticky;top:0;z-index:4;background:rgba(255,255,255,.97);
+  backdrop-filter:blur(8px);border-bottom:1px solid var(--line)
+}
+.ticket-head{
+  min-height:54px;padding:13px 17px;
+  display:flex;align-items:center;justify-content:space-between;gap:14px
+}
+.ticket-title{display:flex;align-items:center;gap:8px;min-width:0}
+.ticket-id{
+  flex:0 0 auto;font-size:10px;color:#767d87;background:var(--soft);
+  border-radius:5px;padding:3px 6px
+}
+.ticket-title strong{
+  font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis
+}
+.ticket-state{font-size:11px;color:var(--muted);white-space:nowrap}
+
+.label{
+  font-size:10px;text-transform:uppercase;letter-spacing:.09em;
+  color:var(--muted-2);font-weight:700
+}
+.block{padding:14px 17px;border-bottom:1px solid var(--line)}
+.block .label{margin-bottom:9px}
+
+/* Unchanged contextual placeholders */
+.rail{display:flex;align-items:center;gap:8px;font-size:11px;color:#5d636d}
+.node{width:8px;height:8px;border-radius:50%;background:#282b31;flex:0 0 auto}
+.node.current{box-shadow:0 0 0 3px #ececf7}
+.node.off{background:#d9dde2;box-shadow:none}
+.edge{height:1px;background:#d3d7dc;flex:1}
+.inside{
+  height:78px;border:1px dashed #d5d9de;background:var(--surface-subtle);
+  border-radius:9px;display:flex;align-items:center;padding:0 12px;
+  color:#888f98;font-size:11px
+}
+
+/* Artifact shelf */
+.artifacts{padding:13px 17px 15px;border-bottom:1px solid var(--line)}
+.art-head{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px
+}
+.art-head-left{display:flex;align-items:center;gap:7px}
+.art-head strong{font-size:12px}
+.count{font-size:10px;color:#7d838c}
+.link-button{
+  border:0;background:transparent;color:#626973;font-size:11px;cursor:pointer;
+  padding:5px 2px;border-radius:5px
+}
+.link-button:hover{color:#24282e}
+.cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}
+.card{
+  min-width:0;text-align:left;cursor:pointer;padding:9px 10px;
+  border:1px solid var(--line);background:#fff;border-radius:9px;
+  transition:background .14s,border-color .14s,box-shadow .14s
+}
+.card:hover{
+  background:#fafbfc;border-color:#c7ccd3;box-shadow:0 2px 8px rgba(17,24,39,.04)
+}
+.card-title{
+  font-size:11px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis
+}
+.card-meta{
+  min-width:0;display:flex;align-items:center;gap:5px;margin-top:4px;
+  color:var(--muted);font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis
+}
+.badge{
+  flex:0 0 auto;display:inline-flex;align-items:center;
+  font-size:9px;line-height:16px;height:16px;padding:0 5px;border-radius:999px;font-weight:700
+}
+.badge.ok{background:var(--ok-bg);color:var(--ok)}
+.badge.warn{background:var(--warn-bg);color:var(--warn)}
+
+.ticket-details{padding:16px 17px 220px}
+.ticket-details .label{margin-bottom:10px}
+.skeleton{height:9px;border-radius:999px;background:#eef0f2;margin-bottom:9px}
+.skeleton:nth-of-type(2){width:82%}
+.skeleton:nth-of-type(3){width:66%}
+.skeleton:nth-of-type(4){width:91%}
+.skeleton:nth-of-type(5){width:49%}
+
+/* In-webview navigation */
+.nav-head{
+  min-height:58px;padding:10px 13px;
+  display:flex;align-items:center;gap:10px
+}
+.back-button{
+  flex:0 0 auto;height:32px;border:0;background:transparent;border-radius:7px;
+  padding:0 8px;display:flex;align-items:center;gap:5px;cursor:pointer;
+  color:#606771;font-size:11px
+}
+.back-button:hover{background:#f1f2f4;color:#2c3036}
+.back-arrow{font-size:15px;line-height:1}
+.nav-titles{min-width:0;flex:1}
+.eyebrow{
+  font-size:9px;color:#8b919a;margin-bottom:1px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis
+}
+.nav-titles strong{
+  display:block;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis
+}
+
+/* Artifacts index */
+.index-body{padding:13px 16px 32px}
+.index-summary{font-size:11px;color:var(--muted);margin:0 0 13px}
+.group{padding:10px 0}
+.group+.group{border-top:1px solid #eceef1}
+.group-name{
+  font-size:9px;letter-spacing:.09em;text-transform:uppercase;
+  color:#959ba4;font-weight:700;margin-bottom:5px
+}
+.row{
+  display:grid;grid-template-columns:30px minmax(0,1fr) auto 14px;
+  gap:10px;align-items:center;padding:9px 7px;border-radius:9px;cursor:pointer
+}
+.row:hover{background:#f7f8fa}
+.art-icon{
+  width:30px;height:30px;border-radius:7px;background:#f0f1f4;
+  display:grid;place-items:center;font-size:10px;color:#555c65
+}
+.row-main{min-width:0}
+.row strong{
+  font-size:11px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis
+}
+.meta{
+  font-size:10px;color:var(--muted);margin-top:2px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis
+}
+.status{
+  font-size:9px;border-radius:999px;padding:2px 5px;background:#f1f2f4;
+  color:#6d737c;white-space:nowrap
+}
+.status.ok{background:var(--ok-bg);color:var(--ok);font-weight:700}
+.status.warn{background:var(--warn-bg);color:var(--warn);font-weight:700}
+.chevron{color:#a0a5ad;font-size:15px}
+
+/* Artifact detail */
+.detail-body{padding:14px 16px 40px}
+.result{
+  border:1px solid var(--line);border-radius:10px;padding:12px;background:#fcfcfd
+}
+.result-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.result h3{font-size:12px;margin:0 0 4px}
+.result p{font-size:10px;color:var(--muted);margin:0}
+.metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-top:10px}
+.metric{background:#f2f3f5;border-radius:7px;padding:8px}
+.metric b{display:block;font-size:14px}
+.metric span{font-size:9px;color:var(--muted)}
+.section{margin-top:16px}
+.section h4{
+  font-size:9px;text-transform:uppercase;letter-spacing:.08em;
+  color:#969ca5;margin:0 0 6px
+}
+.item{
+  display:flex;align-items:flex-start;gap:7px;padding:8px 0;
+  border-top:1px solid #edf0f2;font-size:10px
+}
+.item:first-of-type{border-top:0}
+.check{color:var(--ok);font-weight:700}
+.finding-sev{
+  flex:0 0 auto;font-size:9px;font-weight:700;color:var(--warn);
+  background:var(--warn-bg);border-radius:999px;padding:1px 5px
+}
+.meta-grid{
+  border:1px solid var(--line);border-radius:9px;overflow:hidden
+}
+.meta-row{
+  display:grid;grid-template-columns:120px minmax(0,1fr);
+  gap:10px;padding:8px 10px;font-size:10px
+}
+.meta-row+.meta-row{border-top:1px solid #edf0f2}
+.meta-row span:first-child{color:var(--muted)}
+.file{
+  padding:8px 9px;border:1px solid var(--line);border-radius:8px;
+  font-size:10px;color:#555c65;background:#fafafa;
+  display:flex;align-items:center;justify-content:space-between;gap:10px
+}
+.file+.file{margin-top:6px}
+.file-name{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.file button{
+  flex:0 0 auto;border:0;background:transparent;color:#626973;
+  font-size:10px;cursor:pointer;padding:3px 2px
+}
+.file button:hover{color:#22262c}
+
+.toast{
+  position:fixed;left:50%;bottom:18px;z-index:20;transform:translate(-50%,12px);
+  opacity:0;pointer-events:none;transition:.16s;
+  background:#25282e;color:#fff;border-radius:8px;padding:7px 10px;font-size:10px
+}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+
+@media(max-width:760px){
+  .webview{padding:12px}
+  .cards{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .context-note{display:none}
+}
+@media(max-width:520px){
+  .webview{padding:0}
+  .shell{border:0;border-radius:0;box-shadow:none}
+  .cards{grid-template-columns:1fr}
+  .ticket-state{display:none}
+  .meta-row{grid-template-columns:95px minmax(0,1fr)}
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- Context only: demonstrates multiple Karst ticket webviews open in VS Code -->
+  <div class="vscode-tabs" aria-label="VS Code tab simulation">
+    <span class="vscode-tab active">AUTH-284</span>
+    <span class="vscode-tab">PAY-113</span>
+    <span class="vscode-tab">UI-88</span>
+    <span class="vscode-tab">API-41</span>
+    <span class="vscode-tab">DB-29</span>
+    <span class="context-note">Each tab remains one ticket webview</span>
+  </div>
+
+  <div class="webview">
+    <div class="shell">
+
+      <!-- TICKET DASHBOARD -->
+      <section class="view active" id="dashboard">
+        <div class="ticket-head">
+          <div class="ticket-title">
+            <span class="ticket-id">AUTH-284</span>
+            <strong>Add passkey login</strong>
+          </div>
+          <span class="ticket-state">Review in progress</span>
+        </div>
+
+        <div class="block">
+          <div class="label">Stages</div>
+          <div class="rail">
+            <span class="node"></span>Scope<span class="edge"></span>
+            <span class="node"></span>Implement<span class="edge"></span>
+            <span class="node"></span>UAT<span class="edge"></span>
+            <span class="node current"></span>Review<span class="edge"></span>
+            <span class="node off"></span>Ship
+          </div>
+        </div>
+
+        <div class="block">
+          <div class="label">Inside</div>
+          <div class="inside">Existing Inside component — intentionally unchanged in this artifact exploration.</div>
+        </div>
+
+        <div class="artifacts">
+          <div class="art-head">
+            <div class="art-head-left">
+              <strong>Artifacts</strong>
+              <span class="count">6</span>
+            </div>
+            <button class="link-button" onclick="showIndex()">View all 6 ›</button>
+          </div>
+
+          <div class="cards">
+            <button class="card" onclick="showDetail('plan','dashboard')">
+              <div class="card-title">Plan</div>
+              <div class="card-meta">3 implementation tasks</div>
+            </button>
+
+            <button class="card" onclick="showDetail('uat','dashboard')">
+              <div class="card-title">UAT report</div>
+              <div class="card-meta"><span class="badge ok">✓ Passed</span>18/18</div>
+            </button>
+
+            <button class="card" onclick="showDetail('review','dashboard')">
+              <div class="card-title">Review</div>
+              <div class="card-meta"><span class="badge warn">2 findings</span>1 resolved</div>
+            </button>
+          </div>
+        </div>
+
+        <div class="ticket-details">
+          <div class="label">Ticket details</div>
+          <div class="skeleton"></div>
+          <div class="skeleton"></div>
+          <div class="skeleton"></div>
+          <div class="skeleton"></div>
+          <div class="skeleton"></div>
+        </div>
+      </section>
+
+      <!-- ARTIFACTS INDEX -->
+      <section class="view" id="index">
+        <div class="nav-head">
+          <button class="back-button" onclick="showDashboard()">
+            <span class="back-arrow">←</span><span>Ticket</span>
+          </button>
+          <div class="nav-titles">
+            <div class="eyebrow">AUTH-284 · Add passkey login</div>
+            <strong>Artifacts · 6</strong>
+          </div>
+        </div>
+
+        <div class="index-body">
+          <p class="index-summary">Durable outputs from this ticket, grouped by the stage that produced them.</p>
+
+          <div class="group">
+            <div class="group-name">Scope</div>
+            <div class="row" tabindex="0" onclick="showDetail('research','index')" onkeydown="rowKey(event,'research')">
+              <div class="art-icon">R</div>
+              <div class="row-main"><strong>Research notes</strong><div class="meta">Architecture and dependency findings</div></div>
+              <span class="status">18 KB</span><span class="chevron">›</span>
+            </div>
+          </div>
+
+          <div class="group">
+            <div class="group-name">Implement</div>
+            <div class="row" tabindex="0" onclick="showDetail('plan','index')" onkeydown="rowKey(event,'plan')">
+              <div class="art-icon">P</div>
+              <div class="row-main"><strong>Plan</strong><div class="meta">3 implementation tasks</div></div>
+              <span class="status">3 tasks</span><span class="chevron">›</span>
+            </div>
+            <div class="row" tabindex="0" onclick="showDetail('summary','index')" onkeydown="rowKey(event,'summary')">
+              <div class="art-icon">S</div>
+              <div class="row-main"><strong>Implementation summary</strong><div class="meta">Changes completed across the implementation run</div></div>
+              <span class="status ok">Complete</span><span class="chevron">›</span>
+            </div>
+          </div>
+
+          <div class="group">
+            <div class="group-name">UAT</div>
+            <div class="row" tabindex="0" onclick="showDetail('uat','index')" onkeydown="rowKey(event,'uat')">
+              <div class="art-icon">✓</div>
+              <div class="row-main"><strong>UAT report</strong><div class="meta">18 passed · 0 failed · current</div></div>
+              <span class="status ok">Passed</span><span class="chevron">›</span>
+            </div>
+            <div class="row" tabindex="0" onclick="showDetail('screens','index')" onkeydown="rowKey(event,'screens')">
+              <div class="art-icon">▧</div>
+              <div class="row-main"><strong>Screenshots</strong><div class="meta">Visual evidence captured during UAT</div></div>
+              <span class="status">4 images</span><span class="chevron">›</span>
+            </div>
+          </div>
+
+          <div class="group">
+            <div class="group-name">Review</div>
+            <div class="row" tabindex="0" onclick="showDetail('review','index')" onkeydown="rowKey(event,'review')">
+              <div class="art-icon">R</div>
+              <div class="row-main"><strong>Review</strong><div class="meta">2 findings · 1 resolved</div></div>
+              <span class="status warn">2 findings</span><span class="chevron">›</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ARTIFACT DETAIL -->
+      <section class="view" id="detail">
+        <div class="nav-head">
+          <button class="back-button" id="detailBack" onclick="detailBack()">
+            <span class="back-arrow">←</span><span id="detailBackLabel">Ticket</span>
+          </button>
+          <div class="nav-titles">
+            <div class="eyebrow" id="detailEyebrow">AUTH-284 · Artifacts</div>
+            <strong id="detailTitle">UAT report</strong>
+          </div>
+        </div>
+        <div class="detail-body" id="detailBody"></div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast">Would open the underlying file in a normal VS Code editor.</div>
+
+<script>
+let currentView='dashboard';
+let detailOrigin='dashboard';
+
+function activate(id){
+  document.querySelectorAll('.view').forEach(v=>v.classList.toggle('active',v.id===id));
+  currentView=id;
+}
+
+function showDashboard(){
+  activate('dashboard');
+}
+
+function showIndex(){
+  activate('index');
+}
+
+function showDetail(id, origin){
+  detailOrigin=origin || currentView || 'dashboard';
+  document.getElementById('detailBackLabel').textContent =
+    detailOrigin==='index' ? 'Artifacts' : 'Ticket';
+  renderDetail(id);
+  activate('detail');
+}
+
+function detailBack(){
+  activate(detailOrigin==='index' ? 'index' : 'dashboard');
+}
+
+function rowKey(event,id){
+  if(event.key==='Enter' || event.key===' '){
+    event.preventDefault();
+    showDetail(id,'index');
+  }
+}
+
+function openFile(){
+  const t=document.getElementById('toast');
+  t.classList.add('show');
+  clearTimeout(window.__toastTimer);
+  window.__toastTimer=setTimeout(()=>t.classList.remove('show'),1800);
+}
+
+function resultCard(title,description,badge=''){
+  return `
+    <div class="result">
+      <div class="result-top">
+        <div><h3>${title}</h3><p>${description}</p></div>
+        ${badge}
+      </div>
+    </div>`;
+}
+
+function fileRow(name){
+  return `<div class="file"><span class="file-name">${name}</span><button onclick="openFile()">Open in editor ↗</button></div>`;
+}
+
+function renderDetail(id){
+  const title=document.getElementById('detailTitle');
+  const body=document.getElementById('detailBody');
+
+  if(id==='uat'){
+    title.textContent='UAT report';
+    body.innerHTML=`
+      <div class="result">
+        <div class="result-top">
+          <div><h3>Verification passed</h3><p>Current for the latest implementation revision.</p></div>
+          <span class="badge ok">✓ Passed</span>
+        </div>
+        <div class="metrics">
+          <div class="metric"><b>18</b><span>passed</span></div>
+          <div class="metric"><b>0</b><span>failed</span></div>
+          <div class="metric"><b>42s</b><span>duration</span></div>
+        </div>
+      </div>
+      <div class="section">
+        <h4>Tests</h4>
+        <div class="item"><span class="check">✓</span>Login with passkey</div>
+        <div class="item"><span class="check">✓</span>Fallback password login</div>
+        <div class="item"><span class="check">✓</span>Revoked credential handling</div>
+        <div class="item"><span class="check">✓</span>Session restoration</div>
+      </div>
+      <div class="section">
+        <h4>Details</h4>
+        <div class="meta-grid">
+          <div class="meta-row"><span>Stage</span><strong>UAT</strong></div>
+          <div class="meta-row"><span>Produced by</span><strong>Karst UAT agent</strong></div>
+          <div class="meta-row"><span>Version</span><strong>v3 · current</strong></div>
+        </div>
+      </div>
+      <div class="section">
+        <h4>Underlying files</h4>
+        ${fileRow('uat-report.json')}
+      </div>`;
+    return;
+  }
+
+  if(id==='review'){
+    title.textContent='Review';
+    body.innerHTML=`
+      ${resultCard('2 findings need attention','Review is current for the latest implementation revision.','<span class="badge warn">2 findings</span>')}
+      <div class="section">
+        <h4>Findings</h4>
+        <div class="item"><span class="finding-sev">High</span><span>Credential cache is not cleared when falling back from passkey authentication.</span></div>
+        <div class="item"><span class="finding-sev">Medium</span><span>Successful passkey login does not emit the expected analytics event.</span></div>
+      </div>
+      <div class="section">
+        <h4>Details</h4>
+        <div class="meta-grid">
+          <div class="meta-row"><span>Stage</span><strong>Review</strong></div>
+          <div class="meta-row"><span>Produced by</span><strong>Review agent</strong></div>
+          <div class="meta-row"><span>Version</span><strong>v2 · current</strong></div>
+        </div>
+      </div>
+      <div class="section">
+        <h4>Underlying files</h4>
+        ${fileRow('review.md')}
+      </div>`;
+    return;
+  }
+
+  if(id==='plan'){
+    title.textContent='Plan';
+    body.innerHTML=`
+      ${resultCard('Implementation plan','Three tasks define the current implementation approach.')}
+      <div class="section">
+        <h4>Tasks</h4>
+        <div class="item">1. Add WebAuthn credential model</div>
+        <div class="item">2. Implement passkey challenge flow</div>
+        <div class="item">3. Add fallback login and tests</div>
+      </div>
+      <div class="section">
+        <h4>Details</h4>
+        <div class="meta-grid">
+          <div class="meta-row"><span>Stage</span><strong>Implement</strong></div>
+          <div class="meta-row"><span>Produced by</span><strong>Claude Opus</strong></div>
+          <div class="meta-row"><span>Version</span><strong>v2 · current</strong></div>
+        </div>
+      </div>
+      <div class="section"><h4>Underlying files</h4>${fileRow('plan.md')}</div>`;
+    return;
+  }
+
+  if(id==='research'){
+    title.textContent='Research notes';
+    body.innerHTML=`
+      ${resultCard('Research complete','Architecture, dependency, and implementation constraints collected during Scope.')}
+      <div class="section">
+        <h4>Key findings</h4>
+        <div class="item">Existing session model can support WebAuthn without schema migration.</div>
+        <div class="item">Fallback flow must preserve the current password authentication path.</div>
+        <div class="item">Browser support is sufficient for the target environments.</div>
+      </div>
+      <div class="section"><h4>Underlying files</h4>${fileRow('research.md')}</div>`;
+    return;
+  }
+
+  if(id==='summary'){
+    title.textContent='Implementation summary';
+    body.innerHTML=`
+      ${resultCard('Implementation complete','Durable summary of the changes produced by the implementation run.','<span class="badge ok">Complete</span>')}
+      <div class="section">
+        <h4>Changes</h4>
+        <div class="item"><span class="check">✓</span>Added WebAuthn credential storage and challenge handling.</div>
+        <div class="item"><span class="check">✓</span>Added passkey login UI and fallback flow.</div>
+        <div class="item"><span class="check">✓</span>Added static test coverage for authentication paths.</div>
+      </div>
+      <div class="section"><h4>Underlying files</h4>${fileRow('implementation-summary.md')}</div>`;
+    return;
+  }
+
+  if(id==='screens'){
+    title.textContent='Screenshots';
+    body.innerHTML=`
+      ${resultCard('4 UAT screenshots','Visual evidence captured during the current UAT run.')}
+      <div class="section">
+        <h4>Images</h4>
+        <div class="item">Passkey login prompt</div>
+        <div class="item">Successful passkey authentication</div>
+        <div class="item">Fallback password flow</div>
+        <div class="item">Revoked credential error state</div>
+      </div>
+      <div class="section"><h4>Underlying files</h4>${fileRow('uat/screenshots/')}</div>`;
+  }
+}
+
+document.addEventListener('keydown',event=>{
+  if(event.key!=='Escape') return;
+  if(currentView==='detail') detailBack();
+  else if(currentView==='index') showDashboard();
+});
+</script>
+</body>
+</html>

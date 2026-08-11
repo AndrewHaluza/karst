@@ -1,0 +1,660 @@
+<!doctype html>
+<!--
+  Artifacts shelf — VARIANT C: "Compact ledger" (ticket 869eetukv).
+
+  Thesis: no preview cards at all. The shelf is a dense one-line-per-artifact
+  ledger with a DEDICATED origin column at the left edge — the most explicit
+  possible answer to "show type/origin". One glance down the column answers
+  "what did the agents themselves produce vs what did Karst produce". Best for
+  artifact-heavy tickets where three preview cards force ranking; the count is
+  the header's first citizen, preview ranking is gone.
+
+  The origin column is a fixed-width chip stack: core monogram + short label
+  (Claude / Codex / AG / OC / K·core). The index keeps stage grouping from the
+  finalized spec, with the same origin column leading each row.
+
+  Trade-off vs A/B: rows are richer in identity but the shelf loses the
+  "3 most useful outputs" preview story from the finalized spec — this variant
+  is proposed as the INDEX layout applied to the dashboard, or as the
+  artifact-heavy fallback. Recommended only if real tickets accumulate many
+  artifacts (the finalized spec's §10 explicitly defers search/filters until
+  then; this variant is the density answer, not a filter answer).
+
+  Standalone, no external assets; palette emulated for dark/light; core marks
+  are monogram placeholders — production renders agentIdentity.ts icons.
+-->
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Artifacts — Variant C · Compact ledger</title>
+<style>
+  :root[data-theme="dark"]{
+    --vscode-editor-background:#1f1f1f;
+    --vscode-editorWidget-background:#252526;
+    --vscode-panel-border:#3c3c3c;
+    --vscode-foreground:#cccccc;
+    --vscode-descriptionForeground:#9d9d9d;
+    --vscode-disabledForeground:#7f7f7f;
+    --vscode-list-hoverBackground:#2a2d2e;
+    --vscode-focusBorder:#0078d4;
+    --vscode-charts-green:#89d185;
+    --vscode-charts-yellow:#cca700;
+    --vscode-charts-red:#f14c4c;
+    --vscode-charts-lines:#6e7681;
+    --vscode-charts-purple:#b180d7;
+    --vscode-button-background:#0078d4;
+    --vscode-button-hoverBackground:#026ec1;
+    --vscode-button-foreground:#ffffff;
+    --vscode-button-secondaryBackground:#313131;
+    --vscode-button-secondaryForeground:#cccccc;
+    --vscode-button-secondaryHoverBackground:#3c3c3c;
+    --skel:#333333; --skel-hi:#424242;
+  }
+  :root[data-theme="light"]{
+    --vscode-editor-background:#ffffff;
+    --vscode-editorWidget-background:#f3f3f3;
+    --vscode-panel-border:#d4d4d4;
+    --vscode-foreground:#3b3b3b;
+    --vscode-descriptionForeground:#5f5f5f;
+    --vscode-disabledForeground:#8a8a8a;
+    --vscode-list-hoverBackground:#e8e8e8;
+    --vscode-focusBorder:#005fb8;
+    --vscode-charts-green:#2d7d2d;
+    --vscode-charts-yellow:#8a6d00;
+    --vscode-charts-red:#c72e2e;
+    --vscode-charts-lines:#61616e;
+    --vscode-charts-purple:#652d90;
+    --vscode-button-background:#005fb8;
+    --vscode-button-hoverBackground:#0258a8;
+    --vscode-button-foreground:#ffffff;
+    --vscode-button-secondaryBackground:#e5e5e5;
+    --vscode-button-secondaryForeground:#3b3b3b;
+    --vscode-button-secondaryHoverBackground:#d8d8d8;
+    --skel:#e2e2e2; --skel-hi:#efefef;
+  }
+  :root{
+    --bg:var(--vscode-editor-background);
+    --panel:var(--vscode-editorWidget-background,var(--vscode-editor-background));
+    --border:var(--vscode-panel-border);
+    --text:var(--vscode-foreground);
+    --text-dim:var(--vscode-descriptionForeground,var(--vscode-foreground));
+    --text-faint:var(--vscode-disabledForeground,var(--vscode-descriptionForeground));
+    --hover:var(--vscode-list-hoverBackground);
+    --focus:var(--vscode-focusBorder);
+    --k-passed:var(--vscode-charts-green);
+    --k-attention:var(--vscode-charts-yellow);
+    --k-failed:var(--vscode-charts-red);
+    --k-pending:var(--vscode-charts-lines);
+    --k-series-2:var(--vscode-charts-purple);
+    --core-claude:#d97757; --core-codex:#10a37f; --core-antigravity:#4285f4;
+    --core-opencode:#8a63d2; --core-karst:var(--k-pending);
+    --mono:"SF Mono",ui-monospace,Menlo,Consolas,monospace;
+    --ui:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
+    font:13px/1.45 var(--ui)}
+  button{font:inherit;color:inherit}
+  button:focus-visible,[tabindex]:focus-visible{
+    outline:2px solid var(--focus);outline-offset:2px}
+
+  .chrome{position:sticky;top:0;z-index:30;display:flex;align-items:center;gap:10px;
+    padding:8px 14px;background:var(--panel);border-bottom:1px solid var(--border)}
+  .chrome h1{font-size:12px;margin:0;font-weight:650}
+  .chrome .tag{font-size:10px;color:var(--text-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .chrome .spacer{flex:1}
+  .theme-btn{background:var(--vscode-button-secondaryBackground);
+    color:var(--vscode-button-secondaryForeground);border:1px solid var(--border);
+    border-radius:5px;padding:3px 9px;font-size:11px;cursor:pointer}
+
+  .app{height:calc(100vh - 45px);display:flex;justify-content:center;overflow:hidden}
+  .webview{width:100%;max-width:900px;overflow:hidden;display:flex;flex-direction:column;
+    background:var(--bg)}
+  .shell{position:relative;flex:1;min-height:0;overflow:hidden;
+    background:var(--panel);border-left:1px solid var(--border);border-right:1px solid var(--border)}
+  .view{position:absolute;inset:0;display:none;overflow:auto;background:var(--panel)}
+  .view.active{display:block}
+
+  .ticket-head,.nav-head{position:sticky;top:0;z-index:4;background:var(--panel);
+    border-bottom:1px solid var(--border)}
+  .ticket-head{min-height:50px;padding:11px 15px;display:flex;align-items:center;
+    justify-content:space-between;gap:12px}
+  .ticket-title{display:flex;align-items:center;gap:8px;min-width:0}
+  .ticket-id{flex:0 0 auto;font-size:10px;color:var(--text-dim);background:var(--bg);
+    border:1px solid var(--border);border-radius:5px;padding:2px 6px}
+  .ticket-title strong{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ticket-state{font-size:11px;color:var(--text-dim);white-space:nowrap}
+
+  .label{font-size:9px;text-transform:uppercase;letter-spacing:.09em;
+    color:var(--text-faint);font-weight:700}
+  .block{padding:12px 15px;border-bottom:1px solid var(--border)}
+  .block .label{margin-bottom:8px}
+  .rail{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--text-dim)}
+  .node{width:8px;height:8px;border-radius:50%;background:var(--text);flex:0 0 auto}
+  .node.current{background:var(--k-series-2);box-shadow:0 0 0 3px color-mix(in srgb,var(--k-series-2) 25%,transparent)}
+  .node.off{background:var(--k-pending);opacity:.45}
+  .edge{height:1px;background:var(--border);flex:1}
+  .inside{height:64px;border:1px dashed var(--border);border-radius:8px;display:flex;
+    align-items:center;padding:0 12px;color:var(--text-faint);font-size:11px}
+
+  /* ── origin chip — the ledger's leading column ────────────────────────────
+     Native: core monogram + short core name. Karst: karst mark + "K · core"
+     (or bare "K · karst"). Column width is fixed so the column reads as one
+     vertical stack — the identity axis of this variant. */
+  .origin{flex:0 0 auto;display:inline-flex;align-items:center;gap:5px;height:18px;
+    padding:0 7px;border-radius:999px;border:1px solid var(--border);
+    background:var(--bg);font-size:9px;font-weight:600;color:var(--text-dim);
+    white-space:nowrap;max-width:100%}
+  .origin .omark{flex:0 0 auto;width:11px;height:11px;border-radius:50%;
+    display:inline-flex;align-items:center;justify-content:center;font-size:7px;
+    font-weight:800;color:#fff;letter-spacing:0}
+  .omark.claude{background:var(--core-claude)}
+  .omark.codex{background:var(--core-codex)}
+  .omark.antigravity{background:var(--core-antigravity)}
+  .omark.opencode{background:var(--core-opencode)}
+  .omark.karst{background:var(--core-karst);border-radius:2px}
+  .origin .okind{opacity:.85;font-weight:400}
+  .origin.native{color:var(--text)}
+  .origin.native .okind{text-transform:uppercase;font-size:8px;letter-spacing:.06em}
+  /* ledger keeps the chips short — the column, not the chip, is the axis */
+  .ocell{display:flex;align-items:center;justify-content:flex-start;min-width:118px}
+
+  /* ── the shelf — ledger ─────────────────────────────────────────────────── */
+  .artifacts{padding:12px 15px 14px;border-bottom:1px solid var(--border)}
+  .art-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:9px}
+  .art-head-left{display:flex;align-items:center;gap:7px}
+  .art-head strong{font-size:12px}
+  .count{font-size:10px;color:var(--text-faint)}
+  .link-button{border:0;background:transparent;color:var(--text-dim);font-size:11px;
+    cursor:pointer;padding:4px 2px;border-radius:5px}
+  .link-button:hover{color:var(--text)}
+
+  .ledger{border:1px solid var(--border);border-radius:9px;overflow:hidden}
+  .lhead,.lrow{display:grid;grid-template-columns:118px minmax(0,1fr) auto 14px;
+    gap:10px;align-items:center;padding:0 9px}
+  .lhead{background:var(--bg);border-bottom:1px solid var(--border);
+    font-size:9px;text-transform:uppercase;letter-spacing:.09em;color:var(--text-faint);
+    font-weight:700;height:26px}
+  .lrow{min-height:38px;cursor:pointer;text-align:left;width:100%;border:0;
+    background:transparent;color:inherit}
+  .lrow+.lrow{border-top:1px solid var(--border)}
+  .lrow:hover{background:var(--hover)}
+  .lrow .rname{font-size:11px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .lrow .rmeta{font-size:10px;color:var(--text-dim);margin-top:1px;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .badge{flex:0 0 auto;display:inline-flex;align-items:center;font-size:9px;line-height:16px;
+    height:16px;padding:0 5px;border-radius:999px;font-weight:700}
+  .badge.ok{background:color-mix(in srgb,var(--k-passed) 16%,transparent);color:var(--k-passed)}
+  .badge.warn{background:color-mix(in srgb,var(--k-attention) 16%,transparent);color:var(--k-attention)}
+  .lrow .chev{color:var(--text-faint);font-size:14px}
+
+  .ticket-details{padding:14px 15px 200px}
+  .ticket-details .label{margin-bottom:9px}
+  .skeleton{height:9px;border-radius:999px;background:var(--skel);margin-bottom:9px}
+  .skeleton:nth-of-type(2){width:82%}
+  .skeleton:nth-of-type(3){width:66%}
+  .skeleton:nth-of-type(4){width:91%}
+  .skeleton:nth-of-type(5){width:49%}
+
+  .nav-head{min-height:54px;padding:9px 12px;display:flex;align-items:center;gap:9px}
+  .back-button{flex:0 0 auto;height:30px;border:0;background:transparent;border-radius:7px;
+    padding:0 8px;display:flex;align-items:center;gap:5px;cursor:pointer;
+    color:var(--text-dim);font-size:11px}
+  .back-button:hover{background:var(--hover);color:var(--text)}
+  .back-arrow{font-size:14px;line-height:1}
+  .nav-titles{min-width:0;flex:1}
+  .eyebrow{font-size:9px;color:var(--text-faint);margin-bottom:1px;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .nav-titles strong{display:block;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+  .index-body{padding:12px 15px 32px}
+  .index-summary{font-size:11px;color:var(--text-dim);margin:0 0 12px}
+  .group{padding:9px 0}
+  .group+.group{border-top:1px solid var(--border)}
+  .group-name{font-size:9px;letter-spacing:.09em;text-transform:uppercase;
+    color:var(--text-faint);font-weight:700;margin-bottom:4px}
+  .row{display:grid;grid-template-columns:minmax(0,1fr) auto auto 14px;
+    gap:10px;align-items:center;padding:8px 7px;border-radius:9px;cursor:pointer}
+  .row:hover{background:var(--hover)}
+  .row-main{min-width:0}
+  .row strong{font-size:11px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .meta{font-size:10px;color:var(--text-dim);margin-top:2px;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .status{font-size:9px;border-radius:999px;padding:2px 5px;background:var(--bg);
+    border:1px solid var(--border);color:var(--text-dim);white-space:nowrap}
+  .status.ok{background:color-mix(in srgb,var(--k-passed) 14%,transparent);
+    border-color:transparent;color:var(--k-passed);font-weight:700}
+  .status.warn{background:color-mix(in srgb,var(--k-attention) 14%,transparent);
+    border-color:transparent;color:var(--k-attention);font-weight:700}
+  .chevron{color:var(--text-faint);font-size:14px}
+
+  .detail-body{padding:13px 15px 40px}
+  .result{border:1px solid var(--border);border-radius:10px;padding:11px;background:var(--bg)}
+  .result-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+  .result h3{font-size:12px;margin:0 0 4px}
+  .result p{font-size:10px;color:var(--text-dim);margin:0}
+  .metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-top:9px}
+  .metric{background:var(--bg);border:1px solid var(--border);border-radius:7px;padding:7px}
+  .metric b{display:block;font-size:13px}
+  .metric span{font-size:9px;color:var(--text-dim)}
+  .section{margin-top:14px}
+  .section h4{font-size:9px;text-transform:uppercase;letter-spacing:.08em;
+    color:var(--text-faint);margin:0 0 5px}
+  .item{display:flex;align-items:flex-start;gap:7px;padding:7px 0;
+    border-top:1px solid var(--border);font-size:10px}
+  .item:first-of-type{border-top:0}
+  .check{color:var(--k-passed);font-weight:700}
+  .finding-sev{flex:0 0 auto;font-size:9px;font-weight:700;color:var(--k-attention);
+    background:color-mix(in srgb,var(--k-attention) 14%,transparent);
+    border-radius:999px;padding:1px 5px}
+  .meta-grid{border:1px solid var(--border);border-radius:9px;overflow:hidden;background:var(--bg)}
+  .meta-row{display:grid;grid-template-columns:110px minmax(0,1fr);
+    gap:10px;padding:7px 10px;font-size:10px;align-items:center}
+  .meta-row+.meta-row{border-top:1px solid var(--border)}
+  .meta-row > span:first-child{color:var(--text-dim)}
+  .file{padding:7px 9px;border:1px solid var(--border);border-radius:8px;
+    font-size:10px;color:var(--text-dim);background:var(--bg);
+    display:flex;align-items:center;justify-content:space-between;gap:10px}
+  .file+.file{margin-top:6px}
+  .file-name{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+    font-family:var(--mono)}
+  .file button{flex:0 0 auto;border:0;background:transparent;color:var(--text-dim);
+    font-size:10px;cursor:pointer;padding:3px 2px}
+  .file button:hover{color:var(--text)}
+
+  .toast{position:fixed;left:50%;bottom:16px;z-index:40;transform:translate(-50%,12px);
+    opacity:0;pointer-events:none;transition:.16s;background:#25282e;color:#fff;
+    border-radius:8px;padding:7px 10px;font-size:10px}
+  .toast.show{opacity:1;transform:translate(-50%,0)}
+
+  @media(max-width:560px){
+    .ticket-state{display:none}
+    .lhead,.lrow{grid-template-columns:96px minmax(0,1fr) auto 12px;gap:8px}
+    .ocell{min-width:96px}
+    .origin .okind{display:none}
+  }
+</style>
+</head>
+<body>
+  <div class="chrome">
+    <h1>Artifacts · Variant C</h1>
+    <span class="tag">Compact ledger — origin is a dedicated leading column</span>
+    <span class="spacer"></span>
+    <button class="theme-btn" id="themeBtn" onclick="toggleTheme()">Light</button>
+  </div>
+
+  <div class="app">
+    <div class="webview">
+      <div class="shell">
+
+        <!-- TICKET DASHBOARD -->
+        <section class="view active" id="dashboard">
+          <div class="ticket-head">
+            <div class="ticket-title">
+              <span class="ticket-id">AUTH-284</span>
+              <strong>Add passkey login</strong>
+            </div>
+            <span class="ticket-state">Review in progress</span>
+          </div>
+
+          <div class="block">
+            <div class="label">Stages</div>
+            <div class="rail">
+              <span class="node"></span>Scope<span class="edge"></span>
+              <span class="node"></span>Implement<span class="edge"></span>
+              <span class="node"></span>UAT<span class="edge"></span>
+              <span class="node current"></span>Review<span class="edge"></span>
+              <span class="node off"></span>Ship
+            </div>
+          </div>
+
+          <div class="block">
+            <div class="label">Inside</div>
+            <div class="inside">Existing Inside component — unchanged in this variant.</div>
+          </div>
+
+          <!-- ARTIFACT SHELF: the ledger. Origin column first, per row. -->
+          <div class="artifacts">
+            <div class="art-head">
+              <div class="art-head-left">
+                <strong>Artifacts</strong>
+                <span class="count">6</span>
+              </div>
+              <button class="link-button" onclick="showIndex()">View all 6 ›</button>
+            </div>
+            <div class="ledger">
+              <div class="lhead" aria-hidden="true">
+                <span>Origin</span><span>Artifact</span><span>State</span><span></span>
+              </div>
+              <button class="lrow" onclick="showDetail('plan','dashboard')" aria-label="Plan — native Claude Code artifact">
+                <span class="ocell"><span class="origin native"><span class="omark claude" aria-hidden="true">C</span>Claude<span class="okind">Native</span></span></span>
+                <span style="min-width:0"><span class="rname">Plan</span><div class="rmeta">3 implementation tasks</div></span>
+                <span class="badge ok">3 tasks</span>
+                <span class="chev" aria-hidden="true">›</span>
+              </button>
+              <button class="lrow" onclick="showDetail('uat','dashboard')" aria-label="UAT report — Karst artifact for Codex">
+                <span class="ocell"><span class="origin"><span class="omark karst" aria-hidden="true">K</span>K · Codex<span class="okind"></span></span></span>
+                <span style="min-width:0"><span class="rname">UAT report</span><div class="rmeta">18 passed · 0 failed · current</div></span>
+                <span class="badge ok">✓ Passed</span>
+                <span class="chev" aria-hidden="true">›</span>
+              </button>
+              <button class="lrow" onclick="showDetail('review','dashboard')" aria-label="Review — Karst artifact">
+                <span class="ocell"><span class="origin"><span class="omark karst" aria-hidden="true">K</span>Karst<span class="okind"></span></span></span>
+                <span style="min-width:0"><span class="rname">Review</span><div class="rmeta">2 findings · 1 resolved</div></span>
+                <span class="badge warn">2 findings</span>
+                <span class="chev" aria-hidden="true">›</span>
+              </button>
+              <button class="lrow" onclick="showDetail('screens','dashboard')" aria-label="Screenshots — native Antigravity artifact">
+                <span class="ocell"><span class="origin native"><span class="omark antigravity" aria-hidden="true">A</span>AG<span class="okind">Native</span></span></span>
+                <span style="min-width:0"><span class="rname">Screenshots</span><div class="rmeta">Visual evidence from UAT</div></span>
+                <span class="badge">4 images</span>
+                <span class="chev" aria-hidden="true">›</span>
+              </button>
+              <button class="lrow" onclick="showDetail('summary','dashboard')" aria-label="Implementation summary — native OpenCode artifact">
+                <span class="ocell"><span class="origin native"><span class="omark opencode" aria-hidden="true">O</span>OpenCode<span class="okind">Native</span></span></span>
+                <span style="min-width:0"><span class="rname">Implementation summary</span><div class="rmeta">Changes across the implementation run</div></span>
+                <span class="badge ok">Complete</span>
+                <span class="chev" aria-hidden="true">›</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="ticket-details">
+            <div class="label">Ticket details</div>
+            <div class="skeleton"></div>
+            <div class="skeleton"></div>
+            <div class="skeleton"></div>
+            <div class="skeleton"></div>
+            <div class="skeleton"></div>
+          </div>
+        </section>
+
+        <!-- ARTIFACTS INDEX (stage grouping retained; origin column leads) -->
+        <section class="view" id="index">
+          <div class="nav-head">
+            <button class="back-button" onclick="showDashboard()">
+              <span class="back-arrow">←</span><span>Ticket</span>
+            </button>
+            <div class="nav-titles">
+              <div class="eyebrow">AUTH-284 · Add passkey login</div>
+              <strong>Artifacts · 6</strong>
+            </div>
+          </div>
+          <div class="index-body">
+            <p class="index-summary">Durable outputs from this ticket, grouped by the stage that produced them.</p>
+
+            <div class="group">
+              <div class="group-name">Scope</div>
+              <div class="row" tabindex="0" role="button" onclick="showDetail('research','index')" onkeydown="rowKey(event,'research')" aria-label="Research notes — native Claude Code artifact">
+                <div class="row-main"><strong>Research notes</strong><div class="meta">Architecture and dependency findings</div></div>
+                <span class="origin native"><span class="omark claude" aria-hidden="true">C</span>Claude Code<span class="okind">Native</span></span>
+                <span class="status">18 KB</span><span class="chevron" aria-hidden="true">›</span>
+              </div>
+            </div>
+
+            <div class="group">
+              <div class="group-name">Implement</div>
+              <div class="row" tabindex="0" role="button" onclick="showDetail('plan','index')" onkeydown="rowKey(event,'plan')" aria-label="Plan — native Claude Code artifact">
+                <div class="row-main"><strong>Plan</strong><div class="meta">3 implementation tasks</div></div>
+                <span class="origin native"><span class="omark claude" aria-hidden="true">C</span>Claude Code<span class="okind">Native</span></span>
+                <span class="status">3 tasks</span><span class="chevron" aria-hidden="true">›</span>
+              </div>
+              <div class="row" tabindex="0" role="button" onclick="showDetail('summary','index')" onkeydown="rowKey(event,'summary')" aria-label="Implementation summary — native OpenCode artifact">
+                <div class="row-main"><strong>Implementation summary</strong><div class="meta">Changes completed across the implementation run</div></div>
+                <span class="origin native"><span class="omark opencode" aria-hidden="true">O</span>OpenCode<span class="okind">Native</span></span>
+                <span class="status ok">Complete</span><span class="chevron" aria-hidden="true">›</span>
+              </div>
+            </div>
+
+            <div class="group">
+              <div class="group-name">UAT</div>
+              <div class="row" tabindex="0" role="button" onclick="showDetail('uat','index')" onkeydown="rowKey(event,'uat')" aria-label="UAT report — Karst artifact for Codex">
+                <div class="row-main"><strong>UAT report</strong><div class="meta">18 passed · 0 failed · current</div></div>
+                <span class="origin"><span class="omark karst" aria-hidden="true">K</span>Karst · Codex<span class="okind"></span></span>
+                <span class="status ok">Passed</span><span class="chevron" aria-hidden="true">›</span>
+              </div>
+              <div class="row" tabindex="0" role="button" onclick="showDetail('screens','index')" onkeydown="rowKey(event,'screens')" aria-label="Screenshots — native Antigravity artifact">
+                <div class="row-main"><strong>Screenshots</strong><div class="meta">Visual evidence captured during UAT</div></div>
+                <span class="origin native"><span class="omark antigravity" aria-hidden="true">A</span>Antigravity<span class="okind">Native</span></span>
+                <span class="status">4 images</span><span class="chevron" aria-hidden="true">›</span>
+              </div>
+            </div>
+
+            <div class="group">
+              <div class="group-name">Review</div>
+              <div class="row" tabindex="0" role="button" onclick="showDetail('review','index')" onkeydown="rowKey(event,'review')" aria-label="Review — Karst artifact">
+                <div class="row-main"><strong>Review</strong><div class="meta">2 findings · 1 resolved</div></div>
+                <span class="origin"><span class="omark karst" aria-hidden="true">K</span>Karst<span class="okind"></span></span>
+                <span class="status warn">2 findings</span><span class="chevron" aria-hidden="true">›</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ARTIFACT DETAIL -->
+        <section class="view" id="detail">
+          <div class="nav-head">
+            <button class="back-button" id="detailBack" onclick="detailBack()">
+              <span class="back-arrow">←</span><span id="detailBackLabel">Ticket</span>
+            </button>
+            <div class="nav-titles">
+              <div class="eyebrow" id="detailEyebrow">AUTH-284 · Artifacts</div>
+              <strong id="detailTitle">UAT report</strong>
+            </div>
+          </div>
+          <div class="detail-body" id="detailBody"></div>
+        </section>
+
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast">Would open the underlying file in a normal VS Code editor.</div>
+
+<script>
+  let currentView='dashboard';
+  let detailOrigin='dashboard';
+
+  function toggleTheme(){
+    const root=document.documentElement;
+    const dark=root.dataset.theme==='dark';
+    root.dataset.theme=dark?'light':'dark';
+    document.getElementById('themeBtn').textContent=dark?'Dark':'Light';
+  }
+
+  function activate(id){
+    document.querySelectorAll('.view').forEach(v=>v.classList.toggle('active',v.id===id));
+    currentView=id;
+  }
+  function showDashboard(){activate('dashboard')}
+  function showIndex(){activate('index')}
+  function showDetail(id,origin){
+    detailOrigin=origin||currentView||'dashboard';
+    document.getElementById('detailBackLabel').textContent=
+      detailOrigin==='index'?'Artifacts':'Ticket';
+    renderDetail(id);
+    activate('detail');
+  }
+  function detailBack(){activate(detailOrigin==='index'?'index':'dashboard')}
+  function rowKey(event,id){
+    if(event.key==='Enter'||event.key===' '){event.preventDefault();showDetail(id,'index')}
+  }
+  function openFile(){
+    const t=document.getElementById('toast');
+    t.classList.add('show');
+    clearTimeout(window.__toastTimer);
+    window.__toastTimer=setTimeout(()=>t.classList.remove('show'),1800);
+  }
+
+  function producedByHtml(originHtml){
+    return `<div class="meta-row"><span>Produced by</span>${originHtml}</div>`;
+  }
+  function fileRow(name){
+    return `<div class="file"><span class="file-name">${name}</span><button onclick="openFile()">Open in editor ↗</button></div>`;
+  }
+  const nativeClaude=`<span class="origin native"><span class="omark claude" aria-hidden="true">C</span>Claude Code<span class="okind">Native</span></span>`;
+  const nativeAntigravity=`<span class="origin native"><span class="omark antigravity" aria-hidden="true">A</span>Antigravity<span class="okind">Native</span></span>`;
+  const nativeOpencode=`<span class="origin native"><span class="omark opencode" aria-hidden="true">O</span>OpenCode<span class="okind">Native</span></span>`;
+  const karstCodex=`<span class="origin"><span class="omark karst" aria-hidden="true">K</span>Karst · Codex<span class="okind"></span></span>`;
+  const karstBare=`<span class="origin"><span class="omark karst" aria-hidden="true">K</span>Karst<span class="okind"></span></span>`;
+
+  function renderDetail(id){
+    const title=document.getElementById('detailTitle');
+    const body=document.getElementById('detailBody');
+    document.getElementById('detailEyebrow').textContent=
+      detailOrigin==='index'?'AUTH-284 · Artifacts':'AUTH-284';
+
+    if(id==='uat'){
+      title.textContent='UAT report';
+      body.innerHTML=`
+        <div class="result">
+          <div class="result-top">
+            <div><h3>Verification passed</h3><p>Current for the latest implementation revision.</p></div>
+            <span class="badge ok">✓ Passed</span>
+          </div>
+          <div class="metrics">
+            <div class="metric"><b>18</b><span>passed</span></div>
+            <div class="metric"><b>0</b><span>failed</span></div>
+            <div class="metric"><b>42s</b><span>duration</span></div>
+          </div>
+        </div>
+        <div class="section"><h4>Tests</h4>
+          <div class="item"><span class="check">✓</span>Login with passkey</div>
+          <div class="item"><span class="check">✓</span>Fallback password login</div>
+          <div class="item"><span class="check">✓</span>Revoked credential handling</div>
+          <div class="item"><span class="check">✓</span>Session restoration</div>
+        </div>
+        <div class="section"><h4>Details</h4>
+          <div class="meta-grid">
+            <div class="meta-row"><span>Stage</span><strong>UAT</strong></div>
+            ${producedByHtml(karstCodex)}
+            <div class="meta-row"><span>Version</span><strong>v3 · current</strong></div>
+          </div>
+        </div>
+        <div class="section"><h4>Underlying files</h4>${fileRow('uat-report.json')}</div>`;
+      return;
+    }
+    if(id==='review'){
+      title.textContent='Review';
+      body.innerHTML=`
+        <div class="result">
+          <div class="result-top">
+            <div><h3>2 findings need attention</h3><p>Review is current for the latest implementation revision.</p></div>
+            <span class="badge warn">2 findings</span>
+          </div>
+        </div>
+        <div class="section"><h4>Findings</h4>
+          <div class="item"><span class="finding-sev">High</span><span>Credential cache is not cleared when falling back from passkey authentication.</span></div>
+          <div class="item"><span class="finding-sev">Medium</span><span>Successful passkey login does not emit the expected analytics event.</span></div>
+        </div>
+        <div class="section"><h4>Details</h4>
+          <div class="meta-grid">
+            <div class="meta-row"><span>Stage</span><strong>Review</strong></div>
+            ${producedByHtml(karstBare)}
+            <div class="meta-row"><span>Version</span><strong>v2 · current</strong></div>
+          </div>
+        </div>
+        <div class="section"><h4>Underlying files</h4>${fileRow('review.md')}</div>`;
+      return;
+    }
+    if(id==='plan'){
+      title.textContent='Plan';
+      body.innerHTML=`
+        <div class="result">
+          <div class="result-top">
+            <div><h3>Implementation plan</h3><p>Three tasks define the current implementation approach.</p></div>
+          </div>
+        </div>
+        <div class="section"><h4>Tasks</h4>
+          <div class="item">1. Add WebAuthn credential model</div>
+          <div class="item">2. Implement passkey challenge flow</div>
+          <div class="item">3. Add fallback login and tests</div>
+        </div>
+        <div class="section"><h4>Details</h4>
+          <div class="meta-grid">
+            <div class="meta-row"><span>Stage</span><strong>Implement</strong></div>
+            ${producedByHtml(nativeClaude)}
+            <div class="meta-row"><span>Version</span><strong>v2 · current</strong></div>
+          </div>
+        </div>
+        <div class="section"><h4>Underlying files</h4>${fileRow('plan.md')}</div>`;
+      return;
+    }
+    if(id==='screens'){
+      title.textContent='Screenshots';
+      body.innerHTML=`
+        <div class="result">
+          <div class="result-top">
+            <div><h3>4 UAT screenshots</h3><p>Visual evidence captured during the current UAT run.</p></div>
+          </div>
+        </div>
+        <div class="section"><h4>Images</h4>
+          <div class="item">Passkey login prompt</div>
+          <div class="item">Successful passkey authentication</div>
+          <div class="item">Fallback password flow</div>
+          <div class="item">Revoked credential error state</div>
+        </div>
+        <div class="section"><h4>Details</h4>
+          <div class="meta-grid">
+            <div class="meta-row"><span>Stage</span><strong>UAT</strong></div>
+            ${producedByHtml(nativeAntigravity)}
+          </div>
+        </div>
+        <div class="section"><h4>Underlying files</h4>${fileRow('uat/screenshots/')}</div>`;
+      return;
+    }
+    if(id==='research'){
+      title.textContent='Research notes';
+      body.innerHTML=`
+        <div class="result">
+          <div class="result-top">
+            <div><h3>Research complete</h3><p>Architecture, dependency, and implementation constraints collected during Scope.</p></div>
+          </div>
+        </div>
+        <div class="section"><h4>Key findings</h4>
+          <div class="item">Existing session model can support WebAuthn without schema migration.</div>
+          <div class="item">Fallback flow must preserve the current password authentication path.</div>
+          <div class="item">Browser support is sufficient for the target environments.</div>
+        </div>
+        <div class="section"><h4>Details</h4>
+          <div class="meta-grid">
+            <div class="meta-row"><span>Stage</span><strong>Scope</strong></div>
+            ${producedByHtml(nativeClaude)}
+          </div>
+        </div>
+        <div class="section"><h4>Underlying files</h4>${fileRow('research.md')}</div>`;
+      return;
+    }
+    if(id==='summary'){
+      title.textContent='Implementation summary';
+      body.innerHTML=`
+        <div class="result">
+          <div class="result-top">
+            <div><h3>Implementation complete</h3><p>Durable summary of the changes produced by the implementation run.</p></div>
+            <span class="badge ok">Complete</span>
+          </div>
+        </div>
+        <div class="section"><h4>Changes</h4>
+          <div class="item"><span class="check">✓</span>Added WebAuthn credential storage and challenge handling.</div>
+          <div class="item"><span class="check">✓</span>Added passkey login UI and fallback flow.</div>
+          <div class="item"><span class="check">✓</span>Added static test coverage for authentication paths.</div>
+        </div>
+        <div class="section"><h4>Details</h4>
+          <div class="meta-grid">
+            <div class="meta-row"><span>Stage</span><strong>Implement</strong></div>
+            ${producedByHtml(nativeOpencode)}
+          </div>
+        </div>
+        <div class="section"><h4>Underlying files</h4>${fileRow('implementation-summary.md')}</div>`;
+    }
+  }
+
+  document.addEventListener('keydown',event=>{
+    if(event.key!=='Escape')return;
+    if(currentView==='detail')detailBack();
+    else if(currentView==='index')showDashboard();
+  });
+</script>
+</body>
+</html>

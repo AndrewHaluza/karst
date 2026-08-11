@@ -87,7 +87,17 @@ export type WebviewMessage =
    * action anywhere. The message is closed: any companion field beyond an
    * optional well-formed `requestId` drops the whole message.
    */
-  | { type: 'inside-action'; actionId: string };
+  | { type: 'inside-action'; actionId: string }
+  /**
+   * Open one underlying FILE of an artifact's detail in a normal VS Code
+   * editor. Carries the artifact id and a RESOURCE INDEX — never a path: the
+   * host re-derives the ticket's artifacts, matches the id against them, and
+   * resolves the index against THAT artifact's resource list, so a crafted or
+   * stale message cannot aim the editor at an arbitrary file (same property
+   * as `merge-pr`/`resolve-conflicts`). The id is a bounded string and the
+   * index a non-negative integer; anything else drops the whole message.
+   */
+  | { type: 'artifact-open-resource'; artifactId: string; index: number };
 
 /**
  * Host → webview messages. `state` pushes drive the stepper + panels;
@@ -199,6 +209,13 @@ export interface DashboardActions {
    * registry. The host resolves the id; the webview cannot name a target.
    */
   insideAction: (actionId: string) => InsideActionResult | void | Promise<void>;
+  /**
+   * Open one artifact resource file. Takes the artifact id and the resource
+   * INDEX (never a path): the host re-derives the artifacts and resolves the
+   * index against the matched artifact's own resource list, so the webview
+   * cannot name an arbitrary file to open.
+   */
+  openArtifactResource: (artifactId: string, index: number) => void | Promise<void>;
 }
 
 /**
@@ -334,6 +351,18 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
       if (!/^[A-Za-z0-9:_-]+$/.test(actionId)) return null;
       return { type: 'inside-action', actionId };
     }
+    case 'artifact-open-resource': {
+      // The id names an ARTIFACT (a bounded kind id), the index a RESOURCE of
+      // that artifact — never a path or URL. Both are validated here, at the
+      // boundary; the host re-derives the artifacts and resolves both against
+      // them before opening anything, so a crafted message cannot aim the
+      // editor at an arbitrary file.
+      const artifactId = typeof m.artifactId === 'string' ? m.artifactId : '';
+      if (artifactId.length === 0 || artifactId.length > MAX_ARTIFACT_ID_CHARS) return null;
+      if (!/^[a-z0-9-]+$/.test(artifactId)) return null;
+      if (!Number.isInteger(m.index) || (m.index as number) < 0) return null;
+      return { type: 'artifact-open-resource', artifactId, index: m.index as number };
+    }
     default:
       return null;
   }
@@ -356,6 +385,9 @@ const MAX_GATE_NAME_CHARS = 128;
 
 /** Longest inside action id accepted from a webview. Ids are `snapshot-<n>:action-<n>`. */
 export const MAX_ACTION_ID_CHARS = 96;
+
+/** Longest artifact id accepted from a webview. Ids are kind ids (`uat-report`). */
+export const MAX_ARTIFACT_ID_CHARS = 64;
 
 /**
  * Narrow an untrusted host→webview inside-progress payload to a closed
@@ -441,5 +473,7 @@ export function routeAction(
       return actions.setDisabledGate(msg.stage, msg.name, msg.disabled);
     case 'inside-action':
       return actions.insideAction(msg.actionId);
+    case 'artifact-open-resource':
+      return actions.openArtifactResource(msg.artifactId, msg.index);
   }
 }

@@ -39,6 +39,7 @@ function actions(): DashboardActions {
     resumeStage: vi.fn(),
     setDisabledGate: vi.fn(),
     insideAction: vi.fn(),
+    openArtifactResource: vi.fn(),
   };
 }
 
@@ -415,6 +416,31 @@ describe('inside-action', () => {
     const a = actions();
     routeAction({ type: 'inside-action', actionId: 'forged', path: '/etc/passwd' }, a);
     expect(a.insideAction).not.toHaveBeenCalled();
+  });
+
+  it('routes a valid artifact-open-resource to the action with id and index', () => {
+    const a = actions();
+    routeAction({ type: 'artifact-open-resource', artifactId: 'uat-report', index: 0 }, a);
+    expect(a.openArtifactResource).toHaveBeenCalledWith('uat-report', 0);
+  });
+
+  it('rejects a crafted artifact-open-resource: paths, negative or fractional indexes, junk ids', () => {
+    const a = actions();
+    // A path is never a valid artifact id, so a forged file path cannot ride in.
+    routeAction({ type: 'artifact-open-resource', artifactId: '/etc/passwd', index: 0 }, a);
+    expect(a.openArtifactResource).not.toHaveBeenCalled();
+    routeAction({ type: 'artifact-open-resource', artifactId: 'uat-report', index: -1 }, a);
+    expect(a.openArtifactResource).not.toHaveBeenCalled();
+    routeAction({ type: 'artifact-open-resource', artifactId: 'uat-report', index: 1.5 }, a);
+    expect(a.openArtifactResource).not.toHaveBeenCalled();
+    routeAction({ type: 'artifact-open-resource', artifactId: 'uat-report', index: '0' }, a);
+    expect(a.openArtifactResource).not.toHaveBeenCalled();
+    routeAction({ type: 'artifact-open-resource', artifactId: '', index: 0 }, a);
+    expect(a.openArtifactResource).not.toHaveBeenCalled();
+    routeAction({ type: 'artifact-open-resource', artifactId: 'UAT REPORT', index: 0 }, a);
+    expect(a.openArtifactResource).not.toHaveBeenCalled();
+    routeAction({ type: 'artifact-open-resource', artifactId: 'a'.repeat(65), index: 0 }, a);
+    expect(a.openArtifactResource).not.toHaveBeenCalled();
   });
 });
 
