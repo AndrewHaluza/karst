@@ -561,6 +561,20 @@ describe('ClaudeAdapter.runHeadless', () => {
     expect(seenOpts?.signal).toBe(controller.signal);
   });
 
+  it('forwards the headless deadline into the spawn', async () => {
+    let seenOpts: { timeoutMs?: number } | undefined;
+    const spawn: SpawnHeadless = async (_cmd, _args, _cwd, opts) => {
+      seenOpts = opts;
+      return { stdout: JSON.stringify({ session_id: 's', result: 'x' }), stderr: '', exitCode: 0 };
+    };
+    await new ClaudeAdapter(spawn).runHeadless({
+      prompt: 'go',
+      cwd: '/wt/a',
+      timeoutMs: 345_678,
+    });
+    expect(seenOpts?.timeoutMs).toBe(345_678);
+  });
+
   it('parses the session id and result text from claude JSON output', async () => {
     const json = JSON.stringify({ session_id: 'sess-9', result: '["api"]' });
     const adapter = new ClaudeAdapter(fakeSpawn({ stdout: json, exitCode: 0 }));

@@ -14,6 +14,7 @@ import type { AgentAdapter } from '../../agent/adapter.js';
 import type { ProcessAssignmentSnapshot } from '../../agent/processAssignment.js';
 import type { ReviewFindingsConfig, Severity } from '../../manifest/types.js';
 import type { FindingInput } from '../../store/reviewFindings.js';
+import { GATE_LANE_HEADLESS_TIMEOUT_MS } from '../../agent/headlessSpawn.js';
 import { openProcessRun, type ProcessRun } from '../../store/processRuns.js';
 import { stageAttempt } from '../../store/stages.js';
 import { collapseDiagnostic } from '../../model/diagnosticText.js';
@@ -73,6 +74,13 @@ export interface RunFindingsLaneOpts {
   ticketId: number;
   /** Threaded from the stage run so a Stop reaches a call already in flight (best-effort — see `RunHeadlessOpts.signal`). */
   signal?: AbortSignal;
+  /**
+   * The hard deadline for EACH headless call, in milliseconds. Absent → the
+   * generous gate-lane bound (`GATE_LANE_HEADLESS_TIMEOUT_MS`): a deep review
+   * verifies suspicions against the repo (test runs, typecheck), which can
+   * take far longer than the 15-minute quick-call default.
+   */
+  timeoutMs?: number;
   warn?: WarnFn;
   /** Required to open the Review process run (Task 8); absent → no run opens. */
   store?: Store;
@@ -220,6 +228,7 @@ export async function runFindingsLane(opts: RunFindingsLaneOpts): Promise<Findin
         cwd: target.worktreePath,
         model: opts.process?.assignment.model,
         signal: opts.signal,
+        timeoutMs: opts.timeoutMs ?? GATE_LANE_HEADLESS_TIMEOUT_MS,
         tracking: {
           callSite: 'review-findings',
           ticketId: opts.ticketId,
@@ -303,6 +312,8 @@ export interface PlanAndRunFindingsLaneOpts {
   adapter?: AgentAdapter;
   ticketId: number;
   signal?: AbortSignal;
+  /** Hard deadline per headless call — see `RunFindingsLaneOpts.timeoutMs`. */
+  timeoutMs?: number;
   warn?: WarnFn;
   /** Required to open the Review process run (Task 8); absent → no run opens. */
   store?: Store;
@@ -346,6 +357,7 @@ export async function planAndRunFindingsLane(
           targets: opts.targets,
           ticketId: opts.ticketId,
           signal: opts.signal,
+          timeoutMs: opts.timeoutMs,
           warn: opts.warn,
           store: opts.store,
           process: opts.process,
