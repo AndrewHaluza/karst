@@ -1,6 +1,12 @@
-node_modules/
-dist/
-coverage/
+# Dependency/build dirs carry NO trailing slash: `foo/` matches only a real
+# directory, never a symlink of that name, so a worktree-local
+# `node_modules -> <somewhere>` link was swept into a commit by `git add -A`
+# (40b6ac6) — the committed link pointed at its own path, and every npm spawn
+# under the checkout died with `ELOOP: too many symbolic links encountered`,
+# breaking ./scripts/install-local.sh. A slashless pattern ignores both shapes.
+node_modules
+dist
+coverage
 # karst config lives at .karst/karst.yml and is committed; only the generated
 # worktrees under it are ignored. (Note: worktree.ts excludes the whole .karst/
 # in each *service* repo via .git/info/exclude — that asymmetry is intentional:
