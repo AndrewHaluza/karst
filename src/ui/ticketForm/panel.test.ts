@@ -106,6 +106,7 @@ function recordingFactory(
       submit: () => {},
       save: () => {},
       requestState: () => ctx.pushState(),
+      closeForm: () => ctx.close(),
       ...overrides,
     };
   };
@@ -275,6 +276,21 @@ describe('TicketFormManager', () => {
     panels[0]!.emit({ type: 'request-state' });
     const pushed = panels[0]!.posted.at(-1) as { type: string };
     expect(pushed.type).toBe('state');
+  });
+
+  it('routes a close-form message to ctx.close, which disposes the panel (Cancel)', () => {
+    const { host, panels } = fakeHost();
+    const { factory } = recordingFactory();
+    const mgr = new TicketFormManager(store, () => MANIFEST, host, factory);
+
+    mgr.openCreate();
+    expect(mgr.isCreateOpen()).toBe(true);
+    panels[0]!.emit({ type: 'close-form' });
+    // ctx.close disposes the panel; the dispose handler unregisters its key.
+    expect(mgr.isCreateOpen()).toBe(false);
+    // A later open is a fresh panel — the old one is gone, not revealed.
+    mgr.openCreate();
+    expect(panels).toHaveLength(2);
   });
 
   it('awaits a rejected attachment action and reports it inline', async () => {

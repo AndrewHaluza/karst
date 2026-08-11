@@ -880,6 +880,14 @@ export function buildTicketFormActions(
     requestState(): void {
       ctx.pushState();
     },
+
+    // Cancel: discard the form and close the panel. Closing is the host's job
+    // (the webview cannot dispose itself); ctx.close disposes the panel, which
+    // drops every later post via the disposed guard — the same path submit's
+    // handoff uses.
+    closeForm(): void {
+      ctx.close();
+    },
     };
   };
 }
