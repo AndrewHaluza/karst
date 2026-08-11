@@ -342,6 +342,25 @@ describe('buildDashboardState', () => {
     expect(state.now.text).toBe('Now: the agent is waiting — it asked for your input.');
   });
 
+  it('does NOT mark a RUNNING ship needs-you when the agent state reads waiting', () => {
+    // The hook that set 'waiting' fired inside ship's own headless run: the
+    // ticket is shipping, not parked on the user (869ed7bpd). Every surface —
+    // the rail segment, its wording, and the Now line — must read "shipping".
+    const t = createTicket(store, { key: 'N-5', title: 't' });
+    setStage(store, t.id, 'ship', { status: 'running' });
+    store.db
+      .prepare("UPDATE tickets SET stage_current = 'ship', agent_state = 'waiting' WHERE id = ?")
+      .run(t.id);
+
+    const state = buildDashboardState(store, t.id);
+    const ship = state.rail.main.find((s) => s.cell.stageKey === 'ship')!;
+    expect(ship.needsUser).toBe(false);
+    expect(state.rail.main.every((s) => s.needs === null)).toBe(true);
+    expect(state.now.text).toBe(
+      'Now: shipping — committing, pushing, and opening PRs for each hot repo.',
+    );
+  });
+
   it('leaves every segment clear when nothing is blocked on the user', () => {
     const t = createTicket(store, { key: 'N-3', title: 't' });
     setStage(store, t.id, 'impl', { status: 'running' });
