@@ -817,6 +817,33 @@ describe('clickupProvider.createTicket', () => {
     expect(await provider.createTicket!({ title: 't' })).toEqual({ ref: 'cu-new-3' });
   });
 
+  it('rejects a description over ClickUp\'s 256 KB limit before any request', async () => {
+    const { fn, calls } = fakeFetch({
+      '/list/42/task': { json: { id: 'cu-big', name: 't' } },
+    });
+    const provider = clickupProvider({ fetchFn: fn, token: async () => 'tok', listId: '42' });
+
+    await expect(
+      provider.createTicket!({ title: 't', description: 'a'.repeat(256 * 1024 + 1) }),
+    ).rejects.toThrow(/256 KB/);
+    expect(calls.length).toBe(0);
+  });
+
+  it('accepts a description at exactly ClickUp\'s 256 KB limit', async () => {
+    const { fn, calls } = fakeFetch({
+      '/list/42/task': { json: { id: 'cu-big', name: 't' } },
+    });
+    const provider = clickupProvider({ fetchFn: fn, token: async () => 'tok', listId: '42' });
+
+    const created = await provider.createTicket!({
+      title: 't',
+      description: 'a'.repeat(256 * 1024),
+    });
+
+    expect(created).toEqual({ ref: 'cu-big' });
+    expect(calls.length).toBe(1);
+  });
+
   it('throws a ClickupError when no listId is configured', async () => {
     const { fn } = fakeFetch({ '/list/42/task': { json: { id: 'x' } } });
     const provider = clickupProvider({ fetchFn: fn, token: async () => 'tok' });
