@@ -23,8 +23,10 @@ export const HOOK_FAILURE_LOG_MAX_BYTES = 64 * 1024;
 
 /**
  * Outcomes the bridge writes. `request-error` is the expected IDE-lifecycle race
- * (the endpoint went away) and exits 0; every other outcome exits 1 and is what
- * the agent renders as `PostToolUse hook (failed) — hook exited with code 1`.
+ * (the endpoint went away) and exits 0; `input-too-large` is a normal event the
+ * bridge declined (tool outputs ride hook inputs) and ALSO exits 0. Every other
+ * outcome exits 1 and is what the agent renders as `PostToolUse hook (failed) —
+ * hook exited with code 1`.
  *
  * `http-error` and `request-error` carry a bounded detail suffix written by the
  * bridge so the report can name the failure instead of just the exit code:

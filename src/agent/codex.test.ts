@@ -637,6 +637,44 @@ describe('CodexAdapter interactive commands', () => {
     }
   });
 
+  it('fails open on an oversized hook input, recording the decline', async () => {
+    const configDir = makeWorktree();
+    const bridgePath = materializeBridge(configDir);
+    const diagnosticsPath = join(configDir, 'codex', 'hook-failures.jsonl');
+    const oversized = JSON.stringify({
+      hook_event_name: 'PostToolUse',
+      session_id: 'thread-1',
+      cwd: '/wt',
+      tool_output: 'x'.repeat(1024 * 1024),
+    });
+
+    // The bridge exits while the parent is still writing stdin, so the EPIPE
+    // error on this side is expected and must not fail the test.
+    const result = await new Promise<{ exitCode: number; stderr: string }>(
+      (resolve, reject) => {
+        const child = spawn(
+          resolveNodeExecutable(),
+          [bridgePath, 'http://127.0.0.1:4567/hooks', diagnosticsPath],
+          { stdio: ['pipe', 'ignore', 'pipe'] },
+        );
+        let stderr = '';
+        child.stderr.setEncoding('utf8');
+        child.stderr.on('data', (chunk: string) => {
+          stderr += chunk;
+        });
+        child.on('error', reject);
+        child.on('close', (code) => resolve({ exitCode: code ?? 1, stderr }));
+        child.stdin.on('error', () => {});
+        child.stdin.end(oversized);
+      },
+    );
+
+    expect(result).toEqual({ exitCode: 0, stderr: '' });
+    const diagnostics = readFileSync(diagnosticsPath, 'utf8');
+    expect(diagnostics).toContain('"outcome":"input-too-large"');
+    expect(diagnostics).not.toContain('/wt');
+  });
+
   it('reports an endpoint rejection as a genuine hook error', async () => {
     const configDir = makeWorktree();
     const bridgePath = materializeBridge(configDir);
