@@ -55,11 +55,6 @@
     },
     "commands": [
       {
-        "command": "karst.createTicket",
-        "title": "Karst: Create Ticket",
-        "icon": "$(add)"
-      },
-      {
         "command": "karst.openDashboard",
         "title": "Karst: Open Dashboard"
       },

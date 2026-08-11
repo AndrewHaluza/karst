@@ -514,7 +514,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     setFilter: (query) => mgr.setFilter(query),
     refresh: () => mgr.refresh(),
     requestState: () => mgr.refresh(),
-    create: () => void vscode.commands.executeCommand('karst.createTicket'),
+    create: () => void vscode.commands.executeCommand('karst.openTicketForm'),
     openSettings: () => void vscode.commands.executeCommand('karst.openSettings'),
     openTicket: (id) => openTicketFromList(localStore, id, {
       edit: (ticketId) => vscode.commands.executeCommand('karst.editTicket', ticketId),
@@ -2937,7 +2937,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
 
   // Shared entry: resolve the manifest, remember it for ticket-form actions, and
-  // open the create-mode page. Used by both createTicket and the ticket-form command.
+  // open the create-mode page. Backs the ticket-form command and the deprecated
+  // onboarding alias.
   const openTicketFormCreate = async (): Promise<void> => {
     const manifest = await resolveManifest(logger.info);
     if (!manifest) return; // no folder / scaffolded / invalid — message shown
@@ -3436,7 +3437,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     // "Add ticket" opens the ticket form (create mode). A manifest is
     // resolved first so the classify-gate + repo picker have services to show.
-    vscode.commands.registerCommand('karst.createTicket', () => openTicketFormCreate()),    vscode.commands.registerCommand('karst.openTicketForm', () => openTicketFormCreate()),
+    vscode.commands.registerCommand('karst.openTicketForm', () => openTicketFormCreate()),
     // Deprecated alias. A command id is externally consumable — a user's
     // keybindings.json or another extension may already invoke it — so the old
     // `onboarding` spelling stays registered and simply forwards. It is hidden
