@@ -6,7 +6,9 @@ import { openStore, type Store } from '../../store/db.js';
 import { createTicket, updateTicketFields } from '../../store/tickets.js';
 import { setStage } from '../../store/stages.js';
 import { manifest, processes, runnableRepo } from '../../manifest/fixtures.js';
+import { openProcessRun, finishProcessRun } from '../../store/processRuns.js';
 import { DashboardManager, type PanelHost, type FakePanel } from './panel.js';
+import { LIVE_TICK_MS } from './liveTick.js';
 import type { WorktreeStats, WorktreeStatsLoader } from './worktreeStats.js';
 
 const PANEL_SOURCE = readFileSync(
@@ -722,6 +724,90 @@ describe('DashboardManager', () => {
 
       expect(panels[0]!.createdPreserveFocus).toBeUndefined();
       expect(panels[0]!.revealedPreserveFocus).toEqual([undefined]);
+    });
+  });
+
+  describe('live snapshot ticks', () => {
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => vi.useRealTimers());
+
+    const states = (panel: FakePanel): unknown[] =>
+      panel.posted.filter((m) => (m as { type?: string }).type === 'state');
+
+    it('re-pushes the snapshot every second while a process is running', () => {
+      // The inside block reads store rows nothing pushes when they OPEN — a
+      // tester run, a findings lane, a running gate. Without this tick the
+      // panel shows the state it had when the stage last moved.
+      const t = createTicket(store, { key: 'A', title: 'a' });
+      setStage(store, t.id, 'uat', { status: 'running', startedAt: new Date().toISOString() });
+      openProcessRun(store, {
+        ticketId: t.id,
+        stageKey: 'uat',
+        processId: 'tester',
+        attempt: 1,
+        startedAt: new Date().toISOString(),
+      });
+      const { host, panels } = fakeHost();
+      const mgr = new DashboardManager(store, host, () => ({}) as never);
+
+      mgr.openDashboard(t.id);
+      const initial = states(panels[0]!).length;
+      vi.advanceTimersByTime(LIVE_TICK_MS * 3);
+
+      expect(states(panels[0]!).length).toBe(initial + 3);
+    });
+
+    it('stops ticking once nothing is running', () => {
+      const t = createTicket(store, { key: 'A', title: 'a' });
+      const run = openProcessRun(store, {
+        ticketId: t.id,
+        stageKey: 'uat',
+        processId: 'tester',
+        attempt: 1,
+        startedAt: new Date().toISOString(),
+      });
+      const { host, panels } = fakeHost();
+      const mgr = new DashboardManager(store, host, () => ({}) as never);
+
+      mgr.openDashboard(t.id);
+      finishProcessRun(store, run.id, 'passed', new Date().toISOString());
+      vi.advanceTimersByTime(LIVE_TICK_MS);
+      const settled = states(panels[0]!).length;
+      vi.advanceTimersByTime(LIVE_TICK_MS * 5);
+
+      expect(states(panels[0]!).length).toBe(settled);
+    });
+
+    it('never ticks a settled ticket at all', () => {
+      const t = createTicket(store, { key: 'A', title: 'a' });
+      const { host, panels } = fakeHost();
+      const mgr = new DashboardManager(store, host, () => ({}) as never);
+
+      mgr.openDashboard(t.id);
+      const initial = states(panels[0]!).length;
+      vi.advanceTimersByTime(LIVE_TICK_MS * 10);
+
+      expect(states(panels[0]!).length).toBe(initial);
+    });
+
+    it('a disposed panel stops its tick — no timer outlives the panel', () => {
+      const t = createTicket(store, { key: 'A', title: 'a' });
+      openProcessRun(store, {
+        ticketId: t.id,
+        stageKey: 'uat',
+        processId: 'tester',
+        attempt: 1,
+        startedAt: new Date().toISOString(),
+      });
+      const { host, panels } = fakeHost();
+      const mgr = new DashboardManager(store, host, () => ({}) as never);
+
+      mgr.openDashboard(t.id);
+      const atDispose = states(panels[0]!).length;
+      panels[0]!.dispose();
+      vi.advanceTimersByTime(LIVE_TICK_MS * 5);
+
+      expect(states(panels[0]!).length).toBe(atDispose);
     });
   });
 });

@@ -28,6 +28,7 @@ import type { InsideActionResult } from './messages.js';
 import type { WorktreeStatsLoader } from './worktreeStats.js';
 import type { GateOptions, GateOptionsLoader } from './gateOptions.js';
 import { readRequestId, reportAction } from '../../model/actionResult.js';
+import { hasLiveWork, LIVE_TICK_MS } from './liveTick.js';
 
 /**
  * The subset of a `vscode.WebviewPanel` the manager touches. Modeling it as an
@@ -129,6 +130,15 @@ export class DashboardManager {
   /** The CURRENT snapshot-scoped action registry per ticket (host-only targets). */
   private readonly registries = new Map<number, InsideActionRegistry>();
   private readonly generations = new Map<number, number>();
+  /**
+   * The pending live-snapshot timer per ticket (§ liveTick.ts). A self-
+   * rescheduling `setTimeout` rather than an interval: a push that finds
+   * nothing running simply does not schedule the next one, so a settled ticket
+   * costs nothing and there is no timer to remember to stop. Dies with the
+   * panel — a timer that outlives its panel is a store read for a window
+   * nobody is looking at.
+   */
+  private readonly liveTicks = new Map<number, ReturnType<typeof setTimeout>>();
 
   /**
    * `pathContext` is a getter (optional) so worktree paths render per the current
@@ -287,6 +297,9 @@ export class DashboardManager {
       if (this.panels.get(ticketId) !== panel) return;
       this.statsControllers.get(ticketId)?.abort();
       this.gateControllers.get(ticketId)?.abort();
+      const tick = this.liveTicks.get(ticketId);
+      if (tick) clearTimeout(tick);
+      this.liveTicks.delete(ticketId);
       this.panels.delete(ticketId);
       this.statsRequests.delete(ticketId);
       this.statsControllers.delete(ticketId);
@@ -354,6 +367,48 @@ export class DashboardManager {
     this.pushWorktreeStats(ticketId, panel, state.worktrees);
     this.refreshIcon(ticketId, panel);
     this.pushGateOptions(ticketId, panel);
+    this.scheduleLiveTick(ticketId, state);
+  }
+
+  /**
+   * Keep the snapshot moving while the ticket is moving.
+   *
+   * The host pushes state when a stage transitions and when a gate completes,
+   * but the inside block is process-led: a tester run, a findings lane, a
+   * pr-description call and a running gate all open their store rows and then
+   * take minutes, during which nothing pushed and the panel showed the world as
+   * it was when the stage last moved. The `inside-progress` overlay narrates
+   * only the ONE operation the driver knows about; every other row, and every
+   * running row's elapsed time, needs the authoritative snapshot to be re-read.
+   *
+   * Re-armed from the state it just pushed (`hasLiveWork`), so it stops itself
+   * the moment nothing is running — a settled or parked ticket schedules no
+   * timer at all. A panel disposed between two ticks drops the push in the same
+   * `pushState` guard every other caller relies on.
+   */
+  private scheduleLiveTick(ticketId: number, state: DashboardState): void {
+    const pending = this.liveTicks.get(ticketId);
+    if (pending) {
+      clearTimeout(pending);
+      this.liveTicks.delete(ticketId);
+    }
+    if (!hasLiveWork(state)) return;
+    if (!this.panels.has(ticketId)) return;
+    const timer = setTimeout(() => {
+      this.liveTicks.delete(ticketId);
+      if (!this.panels.has(ticketId)) return;
+      try {
+        this.pushState(ticketId);
+      } catch (err) {
+        // A tick is a repaint, never a mutation: a failed read (a deleted
+        // ticket, a locked DB) must not take the extension host down, and it
+        // must not re-arm — the next real push restarts the loop.
+        this.logError('karst: dashboard live tick failed', err);
+      }
+    }, LIVE_TICK_MS);
+    // Never hold the host's event loop open for a repaint.
+    (timer as { unref?: () => void }).unref?.();
+    this.liveTicks.set(ticketId, timer);
   }
 
   /**

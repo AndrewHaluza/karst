@@ -138,11 +138,22 @@ export function validateInsideProgressEvent(raw: unknown): InsideProgressEvent |
     ) {
       return null;
     }
+    // The row's one-line detail is optional but MUST survive the wire: the
+    // sender words the outcome ("gate test — exit 1") and dropping it left a
+    // completed row that named no result. Bounded like every other prose
+    // value — the webview renders it verbatim.
+    if (process.detail !== undefined && !isBoundedText(process.detail)) return null;
     return {
       kind: 'completed',
       ticketId: m.ticketId,
       stage: m.stage,
-      process: { id: process.id, kind: process.kind, label: process.label, status: process.status },
+      process: {
+        id: process.id,
+        kind: process.kind,
+        label: process.label,
+        status: process.status,
+        ...(typeof process.detail === 'string' ? { detail: process.detail } : {}),
+      },
     };
   }
   if (m.kind === 'cleared') {
