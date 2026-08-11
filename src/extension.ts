@@ -333,6 +333,9 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 /** The shipped karst mark. `HERE` is `dist/`, so the asset sits one level up. */
 const BRAND_SVG = join(HERE, '..', 'media', 'karst.svg');
 
+/** Monochrome silhouette of the same mark, tinted by the status glyph hue. */
+const MARK_SVG = join(HERE, '..', 'media', 'karst-mark.svg');
+
 /**
  * The status-free karst mark for every panel tab, materialized once per window.
  * A panel that also carries a ticket (dashboard, bound ticket form) repaints over
@@ -1346,7 +1349,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const t = getTicket(localStore, ticketId);
       return glyphIconPath(ticketGlyph(t), {
         storageDir: context.globalStorageUri.fsPath,
-        assetSvgPath: BRAND_SVG,
+        assetSvgPath: MARK_SVG,
       });
     } catch {
       return undefined;
@@ -3267,7 +3270,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         ),
         iconPath: glyphIconPath(glyph, {
           storageDir: context.globalStorageUri.fsPath,
-          assetSvgPath: BRAND_SVG,
+          assetSvgPath: MARK_SVG,
         }),
         color: glyphThemeColorKey(glyph),
       };
