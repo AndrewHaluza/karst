@@ -480,22 +480,28 @@ export async function runUat(
   // `uat.testerVerifier` is the deterministic boundary whose COMPLETED exit
   // code is the sole Tester-specific verdict; without one, the Tester's
   // observations are advisory and this gate verdict decides progression.
-  const testerResult: TesterRunResult | null = deps.tester
-    ? await runUatTester(
-        store,
-        {
-          ticketId: opts.ticketId,
-          targets: testerTargets(opts.manifest, targets, worktrees),
-          assignment: deps.tester.assignment,
-          adapter: deps.tester.adapter,
-          stageRunId: evidence.runId,
-          attempt: evidence.attempt,
-          signal: opts.signal,
-          warn: deps.warn,
-        },
-        { now },
-      )
-    : null;
+  let testerResult: TesterRunResult | null = null;
+  if (deps.tester) {
+    testerResult = await runUatTester(
+      store,
+      {
+        ticketId: opts.ticketId,
+        targets: testerTargets(opts.manifest, targets, worktrees),
+        assignment: deps.tester.assignment,
+        adapter: deps.tester.adapter,
+        stageRunId: evidence.runId,
+        attempt: evidence.attempt,
+        signal: opts.signal,
+        warn: deps.warn,
+        debug: opts.debug,
+      },
+      { now },
+    );
+  } else {
+    opts.debug?.(
+      `[gate] uat ticket ${opts.ticketId}: gates passed — no Tester configured, gates alone decide`,
+    );
+  }
   // The run was opened by `runUatTester` under the driver's single-flight;
   // read the id back so the verifier trigger can name the exact Tester
   // execution (a recovery round must never guess at its source process).
@@ -517,7 +523,7 @@ export async function runUat(
   const verifierGate = opts.manifest?.uat?.testerVerifier;
   if (verifierGate !== undefined) {
     const verification = await runTesterVerifier(
-      { gate: verifierGate, cwd: targets[0]?.path ?? opts.cwd, signal: opts.signal },
+      { gate: verifierGate, cwd: targets[0]?.path ?? opts.cwd, signal: opts.signal, onDebug: opts.debug },
       { run: deps.runVerifier },
     );
     switch (verification.kind) {

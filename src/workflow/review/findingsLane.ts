@@ -87,6 +87,15 @@ export interface RunFindingsLaneOpts {
    * pure collector, exactly like a pre-durability caller.
    */
   persistFindings?: (findings: readonly FindingInput[], processRunId?: number | null) => void;
+  /**
+   * Verbose decision-point logging (§ debug logging), prefixed `[gate]` — the
+   * lane is part of the Review stage flow, so its lines ride the same stream
+   * the stage's own debug lines use. Absent → no debug lines; the stage
+   * threads its `RunReviewOpts.debug` here, and the host binds that to
+   * `Logger.debug` (a no-op unless the manifest's `debug` flag is on).
+   * The prompt is never logged — only counts, names and outcomes.
+   */
+  debug?: (message: string) => void;
 }
 
 /**
@@ -133,16 +142,27 @@ export function buildFindingsPrompt(repo: string, baseRef?: string | null): stri
  * stopped before any aggregation.
  */
 export async function runFindingsLane(opts: RunFindingsLaneOpts): Promise<FindingsLaneOutcome> {
-  if (!opts.config.enabled) return { kind: 'not-run' };
+  const debug = opts.debug;
+  if (!opts.config.enabled) {
+    debug?.(`[gate] review findings ticket ${opts.ticketId}: disabled — not run`);
+    return { kind: 'not-run' };
+  }
 
   const adapter = opts.process?.adapter ?? opts.adapter;
   if (!adapter) {
+    debug?.(
+      `[gate] review findings ticket ${opts.ticketId}: no agent core available — capability-missing`,
+    );
     return {
       kind: 'capability-missing',
       reason: 'review findings: no agent core is available to ask about the diff',
     };
   }
 
+  debug?.(
+    `[gate] review findings ticket ${opts.ticketId}: starting — ${opts.targets.length} target(s), ` +
+      `blockingSeverity ${opts.config.blockingSeverity}, max ${opts.config.maxFindings}`,
+  );
   // Task 8: opened BEFORE the first call, so the identity snapshot is durable
   // before any token is spent, and only when the lane is actually about to
   // run — a lane skipped by R3–R5 (or disabled, or adapter-less) opens
@@ -161,6 +181,11 @@ export async function runFindingsLane(opts: RunFindingsLaneOpts): Promise<Findin
       pid: opts.process.pid ?? null,
       startedAt: opts.process.startedAt ?? nowIso(),
     });
+    debug?.(
+      `[gate] review findings ticket ${opts.ticketId}: process run ${processRun.id} opened ` +
+        `(${opts.process.assignment.agentName ?? '?'}/${opts.process.assignment.provider}` +
+        (opts.process.assignment.model ? `/${opts.process.assignment.model}` : '') + ')',
+    );
   }
 
   // Finding 3: one stopped outcome, carrying the opened run so the caller can
@@ -181,7 +206,14 @@ export async function runFindingsLane(opts: RunFindingsLaneOpts): Promise<Findin
   // distinction (Task 8). Never the raw message: it is untrusted CLI prose.
   const crashes: string[] = [];
   for (const target of opts.targets) {
-    if (opts.signal?.aborted) return stopped();
+    if (opts.signal?.aborted) {
+      debug?.(`[gate] review findings ticket ${opts.ticketId}: stopped before asking`);
+      return stopped();
+    }
+    debug?.(
+      `[gate] review findings ticket ${opts.ticketId}: asking target ${target.repo} ` +
+        `(worktree ${target.worktreePath})`,
+    );
     try {
       const result = await adapter.runHeadless({
         prompt: buildFindingsPrompt(target.repo, target.baseRef),
@@ -196,7 +228,10 @@ export async function runFindingsLane(opts: RunFindingsLaneOpts): Promise<Findin
       });
       // The call returned — but if the signal aborted WHILE it ran, the user
       // stopped and its output is not evidence to aggregate.
-      if (opts.signal?.aborted) return stopped();
+      if (opts.signal?.aborted) {
+        debug?.(`[gate] review findings ticket ${opts.ticketId}: stopped during a call`);
+        return stopped();
+      }
       const parsed = parseFindings(
         result.raw,
         { repo: target.repo, worktreePath: target.worktreePath, max: opts.config.maxFindings },
@@ -209,6 +244,10 @@ export async function runFindingsLane(opts: RunFindingsLaneOpts): Promise<Findin
       // this point leaves the finished targets' findings recorded, exactly like
       // the stopped path's gate rows: what already finished is still recorded.
       if (parsed.length > 0) opts.persistFindings?.(parsed, processRun?.id ?? null);
+      debug?.(
+        `[gate] review findings ticket ${opts.ticketId}: target ${target.repo} returned ` +
+          `${parsed.length} finding(s)`,
+      );
       findings.push(...parsed);
     } catch (error) {
       // Residual fix: a rejection that lands ON an aborted signal is the Stop
@@ -216,7 +255,10 @@ export async function runFindingsLane(opts: RunFindingsLaneOpts): Promise<Findin
       // (AbortError or its own failure type). That is never a crash to degrade
       // into `ran`: a cancelled lane must not read as a review that ran. The
       // SIGNAL is the authority, not the error's shape.
-      if (opts.signal?.aborted) return stopped();
+      if (opts.signal?.aborted) {
+        debug?.(`[gate] review findings ticket ${opts.ticketId}: stopped during a call`);
+        return stopped();
+      }
       // See the doc comment: a failed/garbage call must not break the stage —
       // degrading to `ran` with no findings for this target is still correct.
       // What changes is that the failure is no longer silent: a missing CLI,
@@ -226,6 +268,9 @@ export async function runFindingsLane(opts: RunFindingsLaneOpts): Promise<Findin
       // the actual defect, not the degradation.
       const message = collapseDiagnostic(error instanceof Error ? error.message : String(error));
       crashes.push(message);
+      debug?.(
+        `[gate] review findings ticket ${opts.ticketId}: target ${target.repo} call failed (${message})`,
+      );
       opts.warn?.(
         `review findings: ${target.repo} — call failed, contributing no findings: ${message}`,
       );
@@ -235,8 +280,15 @@ export async function runFindingsLane(opts: RunFindingsLaneOpts): Promise<Findin
   // Residual fix: the same rule holds once the loop has ended — a signal that
   // aborted at any point (including a lane with no targets to iterate) is a
   // Stop, never a silently truncated `ran`.
-  if (opts.signal?.aborted) return stopped();
+  if (opts.signal?.aborted) {
+    debug?.(`[gate] review findings ticket ${opts.ticketId}: stopped after the last target`);
+    return stopped();
+  }
 
+  debug?.(
+    `[gate] review findings ticket ${opts.ticketId}: ran with ${findings.length} finding(s)` +
+      (crashes.length > 0 ? `, ${crashes.length} target(s) failed to answer` : ''),
+  );
   const ran: Extract<FindingsLaneOutcome, { kind: 'ran' }> = { kind: 'ran', findings };
   if (crashes.length > 0) ran.crashes = crashes;
   if (processRun !== null) ran.processRunId = processRun.id;
@@ -258,6 +310,8 @@ export interface PlanAndRunFindingsLaneOpts {
   process?: FindingsProcessInput;
   /** Persist each target's findings as its call lands (see `RunFindingsLaneOpts`). */
   persistFindings?: (findings: readonly FindingInput[], processRunId?: number | null) => void;
+  /** Verbose decision-point logging (§ debug logging) — threaded into the lane it runs. */
+  debug?: (message: string) => void;
 }
 
 /**
@@ -272,6 +326,18 @@ export async function planAndRunFindingsLane(
 ): Promise<{ outcome: FindingsLaneOutcome; blockingSeverity: Severity | 'none' }> {
   const config = opts.findingsConfig ?? DEFAULT_REVIEW_FINDINGS;
   const prior = gatesOutcomeBeforeFindings(opts.entries);
+  if (prior !== null) {
+    opts.debug?.(
+      `[gate] review findings ticket ${opts.ticketId}: gates already decided the run ` +
+        `(${prior.kind === 'blocked' ? 'nothing ran or was unreadable' : `verdict ${prior.verdict.kind}`}) ` +
+        `— lane skipped`,
+    );
+  } else {
+    opts.debug?.(
+      `[gate] review findings ticket ${opts.ticketId}: gates left the outcome undecided — ` +
+        `running the lane (blockingSeverity ${config.blockingSeverity})`,
+    );
+  }
   const outcome: FindingsLaneOutcome =
     prior === null
       ? await runFindingsLane({
@@ -284,6 +350,7 @@ export async function planAndRunFindingsLane(
           store: opts.store,
           process: opts.process,
           persistFindings: opts.persistFindings,
+          debug: opts.debug,
         })
       : { kind: 'not-run' };
   return { outcome, blockingSeverity: config.blockingSeverity };

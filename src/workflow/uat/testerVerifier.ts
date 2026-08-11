@@ -43,7 +43,7 @@ export type TesterGateRunner = (
   command: string,
   args: readonly string[],
   cwd: string,
-  options?: { signal?: AbortSignal },
+  options?: { signal?: AbortSignal; onDebug?: (message: string) => void },
 ) => Promise<ProcessOutcome>;
 
 export interface RunTesterVerifierOpts {
@@ -53,6 +53,14 @@ export interface RunTesterVerifierOpts {
   cwd: string;
   /** One signal for the whole run, so Stop reaches the verifier in flight. */
   signal?: AbortSignal;
+  /**
+   * Verbose decision-point logging (§ debug logging), prefixed `[gate]` —
+   * the verifier is part of the UAT stage flow, so its lines ride the same
+   * stream the stage's own debug lines use, and `onDebug` is threaded into
+   * the gate runner so the verifier's process lifecycle lands there too.
+   * Absent → no debug lines; the stage threads its `RunUatOpts.debug` here.
+   */
+  onDebug?: (message: string) => void;
 }
 
 export interface TesterVerifierDeps {
@@ -94,16 +102,33 @@ export async function runTesterVerifier(
     };
   }
   const { command, args } = verifierCommand(opts.gate);
-  const outcome = await deps.run(command, args, opts.cwd, { signal: opts.signal });
+  const onDebug = opts.onDebug;
+  onDebug?.(
+    `[gate] uat tester verifier: ${opts.gate.name} — running ${command}` +
+      `${args.length > 0 ? ` ${args.join(' ')}` : ''} (cwd ${opts.cwd})`,
+  );
+  const outcome = await deps.run(command, args, opts.cwd, {
+    signal: opts.signal,
+    onDebug,
+  });
   switch (outcome.kind) {
     case 'completed':
+      onDebug?.(
+        `[gate] uat tester verifier: ${opts.gate.name} — ${
+          outcome.exitCode === 0 ? 'passed' : 'failed'
+        } (exit ${outcome.exitCode})`,
+      );
       return outcome.exitCode === 0
         ? { kind: 'passed', exitCode: 0 }
         : { kind: 'failed', exitCode: outcome.exitCode };
     case 'spawnFailed':
+      onDebug?.(
+        `[gate] uat tester verifier: ${opts.gate.name} — execution-failed (${outcome.message})`,
+      );
       return { kind: 'execution-failed', message: outcome.message };
     case 'timedOut':
     case 'aborted':
+      onDebug?.(`[gate] uat tester verifier: ${opts.gate.name} — interrupted`);
       return { kind: 'interrupted' };
   }
 }
