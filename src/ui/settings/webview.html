@@ -1019,7 +1019,8 @@
           <div class="field-control">
             <div class="select-shell" id="modelShell">
               <button type="button" class="select-trigger model-trigger" id="modelTrigger"
-                aria-haspopup="listbox" aria-expanded="false" aria-labelledby="defaultModelLabel"></button>
+                aria-haspopup="listbox" aria-expanded="false"
+                aria-label="Default model" aria-labelledby="defaultModelLabel"></button>
               <div class="model-pop" id="modelPop" role="listbox" aria-labelledby="defaultModelLabel">
                 <div class="model-search">
                   <input type="text" id="modelSearch" placeholder="Search models…" aria-label="Search models" />
@@ -3444,8 +3445,10 @@
   // Install/uninstall affordance for one approach row, keyed on `a.id` against
   // the disk-state `installedIds` set (independent of the dirty draft):
   // - blank id (freshly-added, unsaved row) -> nothing
-  // - installed -> Uninstall button (the button + the "Installed" group header
-  //   already signal installed state; a separate "Installed" tag is redundant)
+  // - installed -> ••• overflow menu carrying the Uninstall action (the button
+  //   + the "Installed" group header already signal installed state; the menu
+  //   item keeps the same data attribute + danger variant the inline button
+  //   had, so the delegated handler takes the identical path)
   // - not installed, no `source` -> "Built-in" tag (nothing to fetch)
   // - not installed, has `source`:
   //   - git -> Install button (posts immediately)
@@ -3453,8 +3456,8 @@
   function approachInstallAffordance(a) {
     if (!a.id) return '';
     if (installedIds.includes(a.id)) {
-      return `<button type="button" class="k-btn k-btn--danger k-btn--sm approach-install" data-uninstall="${esc(a.id)}"`
-        + ` title="Uninstall ${esc(a.id)} and remove its files">Uninstall</button>`;
+      return `<button type="button" class="more-btn" data-more="approach" data-approach-id="${esc(a.id)}"`
+        + ` aria-label="More actions for ${esc(a.id)}" title="More actions">&#8943;</button>`;
     }
     if (!a.source) {
       return `<span class="approach-install builtin-tag">Built-in</span>`;
@@ -3757,9 +3760,11 @@
       + `</button>`;
   }
 
-  // File agent: editable — name + switch + Delete on the roster row, an
-  // always-open body editor (textarea value set post-render, see above) with
-  // Save below it.
+  // File agent: editable — name + switch + overflow menu (Delete) on the
+  // roster row, an always-open body editor (textarea value set post-render,
+  // see above) with Save below it. Delete lives in the ••• menu so the row
+  // stays scannable; the menu item carries the same data attribute + danger
+  // variant the inline button did.
   function renderFileAgentRow(a) {
     const on = !!a.enabled;
     return `<div class="agent-roster-row${on ? ' on' : ''}${on ? '' : ' is-disabled'}">`
@@ -3767,8 +3772,8 @@
       + `<span class="nm">${esc(a.name)}</span>`
       + `<span class="spacer"></span>`
       + agentToggle(a)
-      + `<button type="button" class="k-btn k-btn--danger k-btn--sm" data-delete-agent="${esc(a.name)}"`
-      + ` title="Delete the ${esc(a.name)} agent file">Delete</button>`
+      + `<button type="button" class="more-btn" data-more="agent" data-agent-name="${esc(a.name)}"`
+      + ` aria-label="More actions for ${esc(a.name)}" title="More actions">&#8943;</button>`
       + `</div>`
       + `<div class="agent-editor">`
       + `<textarea aria-label="${esc(a.name)} body" data-agent-body="${esc(a.name)}"></textarea>`
@@ -5110,17 +5115,16 @@
 
   // ═══ Context / overflow menu (handoff §6.7) ════════════════════════════════
   // A single shared menu, rebuilt per open. Items are real buttons carrying
-  // the same data attributes the page's delegated handlers already own, so a
-  // Delete/Uninstall in the menu takes the exact same path as an inline one.
+  // the SAME data attributes the page's delegated handlers already own (with
+  // the danger variant class on destructive ones, UI-R10b), so a Delete /
+  // Uninstall in the menu takes the exact same path as an inline one.
   let ctxMenuAnchor = null;
 
   function openContextMenu(anchor, items) {
     const menu = el('ctxMenu');
     if (!menu) return;
     ctxMenuAnchor = anchor;
-    menu.innerHTML = items.map((it) =>
-      `<button type="button" class="ctx-item${it.danger ? ' danger' : ''}" data-ctx-action="${esc(it.action)}">${esc(it.label)}</button>`,
-    ).join('');
+    menu.innerHTML = items.join('');
     menu.classList.add('open');
     const r = anchor.getBoundingClientRect();
     const w = menu.offsetWidth || 180;
@@ -5148,29 +5152,31 @@
         e.preventDefault();
         e.stopPropagation();
         const kind = more.dataset.more;
+        // Menu items carry the REAL data attributes (data-delete-agent /
+        // data-uninstall) plus the danger variant, so the existing delegated
+        // click handler processes the action without any indirection here.
         if (kind === 'agent') {
-          openContextMenu(more, [{ label: 'Delete', danger: true, action: 'delete-agent:' + more.dataset.agentName }]);
+          const name = more.dataset.agentName;
+          openContextMenu(more, [
+            `<button type="button" class="ctx-item k-btn--danger" data-delete-agent="${esc(name)}"`
+            + ` title="Delete the ${esc(name)} agent file">Delete</button>`,
+          ]);
         } else if (kind === 'approach') {
-          openContextMenu(more, [{ label: 'Uninstall', danger: true, action: 'uninstall-approach:' + more.dataset.approachId }]);
+          const id = more.dataset.approachId;
+          openContextMenu(more, [
+            `<button type="button" class="ctx-item k-btn--danger" data-uninstall="${esc(id)}">Uninstall</button>`,
+          ]);
         }
         return;
       }
-      const item = e.target.closest && e.target.closest('[data-ctx-action]');
-      if (item) {
-        e.preventDefault();
-        const action = item.dataset.ctxAction;
-        closeContextMenu(true);
-        const [verb, payload] = [action.split(':')[0], action.slice(action.indexOf(':') + 1)];
-        if (verb === 'delete-agent') {
-          const t = document.querySelector('[data-delete-agent="' + CSS.escape(payload) + '"]');
-          if (t) t.click();
-        } else if (verb === 'uninstall-approach') {
-          const t = document.querySelector('[data-uninstall="' + CSS.escape(payload) + '"]');
-          if (t) t.click();
-        }
+      // Any click inside the menu closes it WITHOUT swallowing the event: the
+      // delegated action handler (registered earlier) already processed the
+      // item's data attribute, so the menu only tidies itself here.
+      if (e.target.closest && e.target.closest('#ctxMenu')) {
+        closeContextMenu(false);
         return;
       }
-      if (!(e.target.closest && e.target.closest('#ctxMenu'))) closeContextMenu(false);
+      closeContextMenu(false);
     });
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') closeContextMenu(true);
@@ -5536,5 +5542,74 @@
   bindProjectFooter();
   post({ type: 'request-state' });
 </script>
+
+<style>
+  /* Responsive breakpoints (handoff §18): kept in their OWN style block because
+     the first <style> must stay literal-free (UI-R04) and these queries need
+     real widths. Breakpoints follow the Inside design work: 980 (stack the
+     form grid + matrix), 640 (sidebar collapses to horizontal nav), then the
+     430/360/300 narrow-webview tiers. EM units, not px — the UI-R04 literal
+     budget explicitly exempts em as relative typography (conformance.test.ts),
+     so these queries stay within the zero-literal budget. */
+  @media (max-width: 61.25em){
+    .form-grid,.detail-grid,.template-form-row{grid-template-columns:minmax(0,1fr);gap:var(--k-space-3)}
+    .quality-grid{grid-template-columns:minmax(0,1fr)}
+    .matrix-head{display:none}
+    .matrix-cols{grid-template-columns:minmax(0,1fr)}
+    .matrix-row .proc-cell{padding:var(--k-space-2) var(--k-space-0)}
+    .matrix-row .proc-cell-name{grid-column:1 / -1}
+    .matrix-row .proc-cell-state{grid-column:1 / -1;justify-self:start}
+    .repo-cols{grid-template-columns:minmax(0,1fr) auto}
+    .roster-head{display:none}
+    .roster-row .cell-meta{display:none}
+    .override-editor-row{grid-template-columns:minmax(0,1fr)}
+    .subtable-head{display:none}
+    .subtable-row{grid-template-columns:minmax(0,1fr)}
+    .dependency-head,.bind-row{grid-template-columns:minmax(0,1fr)}
+  }
+  @media (max-width: 40em){
+    .app{grid-template-columns:minmax(0,1fr)}
+    .sidebar{
+      position:static;flex-direction:row;align-items:center;gap:var(--k-space-4);
+      padding:var(--k-space-3) var(--k-space-4);overflow-x:auto;border-right:none;
+      border-bottom:var(--k-border-w) solid var(--vscode-panel-border);
+    }
+    .brand{display:none}
+    .nav-group{display:flex;gap:var(--k-space-2);margin:var(--k-space-0);white-space:nowrap}
+    .nav-caption{display:none}
+    .nav-btn{margin:var(--k-space-0);white-space:nowrap}
+    .sidebar-foot{display:none}
+    .topbar{padding:var(--k-space-3) var(--k-space-4);gap:var(--k-space-3)}
+    .topbar h1{font-size:var(--k-text-base)}
+    .save-state{display:none}
+    .mobile-project-btn{display:grid;place-items:center}
+    .content{padding:var(--k-space-5) var(--k-space-5) calc(var(--k-space-8) * 3)}
+    .page-actions{margin-top:var(--k-space-3)}
+    .object-row,.agent-roster-row{flex-wrap:wrap}
+    .agent-hero{flex-wrap:wrap;gap:var(--k-space-3)}
+    .project-info-pop{left:auto;right:var(--k-space-4);top:auto;bottom:calc(var(--k-space-8) * 2.5)}
+    .template-meta{flex-direction:column;align-items:flex-start}
+    .lifecycle-status{grid-template-columns:minmax(0,1fr)}
+  }
+  @media (max-width: 26.875em){
+    .content{padding:var(--k-space-4) var(--k-space-4) calc(var(--k-space-8) * 3)}
+    .page-title{font-size:var(--k-text-xl)}
+    .q-row{grid-template-columns:minmax(0,1fr)}
+    .matrix-row .proc-cell{grid-column:1 / -1}
+    .gate-row{flex-direction:column;align-items:stretch}
+    .override-row{grid-template-columns:minmax(0,1fr)}
+  }
+  @media (max-width: 22.5em){
+    .topbar .saved-msg,.topbar .unsaved-hint{display:none}
+    .roster-row .cell-path{display:none}
+    .approach-card,.approach-actions{flex-wrap:wrap}
+    .footer-row{flex-wrap:wrap;justify-content:stretch}
+  }
+  @media (max-width: 18.75em){
+    .topbar .discardBtn,.topbar #discardBtn{display:none}
+    .section-head{flex-direction:column;align-items:flex-start}
+    .chips{flex-wrap:wrap}
+  }
+</style>
 
 <style>/*KARST_PALETTE*/</style>
