@@ -463,7 +463,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
   const localStore = store;
 
-  // One "Karst" output channel is the sink for every caught error (§ todo-5).
+  // One "Karst" output channel is the sink for every caught error.
   // Managers/endpoint get `logError`; the extension itself uses `logger`.
   const channel = vscode.window.createOutputChannel('Karst');
   context.subscriptions.push(channel);
@@ -2881,7 +2881,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
   );
 
-  // Startup dependency preflight (§ todo-5): karst shells out to tools it doesn't
+  // Startup dependency preflight: karst shells out to tools it doesn't
   // bundle. The registry is the whole list — never hand-maintain one here, or the
   // preflight and the Getting Started checklist drift apart.
   const depFaults = refreshDepsStatus();

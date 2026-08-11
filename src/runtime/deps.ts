@@ -3,7 +3,7 @@ import type { AgentProvider } from '../manifest/types.js';
 import { prepareCommand } from './command.js';
 
 /**
- * Startup dependency preflight (§ todo-5 dependencies check). karst shells out to
+ * Startup dependency preflight. karst shells out to
  * external CLIs it does not bundle — git for worktrees, the agent CLI (Claude
  * Code by default) to run sessions. If one is missing the user hits a cryptic
  * ENOENT deep in a spin; this checks up front and points them at an install.

@@ -55,7 +55,7 @@ export class SettingsManager {
     private readonly hasToken: () => Promise<boolean> = async () => false,
     private readonly listAgentRows: () => SettingsState['agents'] = () => [],
     private readonly listApproachCommands: () => Record<string, string[]> = () => ({}),
-    /** Report a caught pump error to the Karst output channel (§ todo-5). */
+    /** Report a caught pump error to the Karst output channel. */
     private readonly logError: LogError = (m, e) => console.error(m, e),
     /** Current launch-model catalog, refreshed independently of the manifest. */
     private readonly modelCatalog: () => ModelCatalog = bundledModelCatalog,

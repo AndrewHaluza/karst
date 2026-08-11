@@ -1720,8 +1720,8 @@ describe('dashboard webview.html', () => {
 // what the snapshot actually rendered: the disclosure key the renderer looks
 // up, evidence that survives a live overlay, and the presented-stage
 // projection. Nothing here claims pixels: layout, overflow, focus and
-// reduced-motion behavior stay source guards above and the Dev Host matrix
-// (docs/superpowers/verification/) is their only executor.
+// reduced-motion behavior stay source guards above, and only a Dev Host run
+// can execute them.
 
 /** The dashboard webview hydrated exactly as the host renders it. */
 const HYDRATED = injectAgentIdentity(injectProviderIdentity(injectPalette(injectDesignSystem(HTML))));
