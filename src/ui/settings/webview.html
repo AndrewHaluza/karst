@@ -1105,6 +1105,20 @@
               is a no-op. Debug entries are redacted like every other log line.
             </div>
           </div>
+
+          <div class="field-label" id="doneTerminalsLabel">Close done terminals with ticket</div>
+          <div class="field-control">
+            <div class="toggle">
+              <input type="checkbox" id="f-closeDoneTerminalsWithTicket" aria-describedby="doneTerminalsHint" />
+              <label for="f-closeDoneTerminalsWithTicket">Enabled</label>
+            </div>
+            <div class="field-help" id="doneTerminalsHint">
+              When a ticket is archived, also close its agent terminals whose process
+              has already exited (VS Code marks them <code>Done</code>), instead of
+              leaving the dead tabs in the terminal panel. A still-running session is
+              never touched. Off by default.
+            </div>
+          </div>
         </div>
       </div>
 
@@ -2028,7 +2042,7 @@
     general: [
       'host', 'portRange', 'baselineBranch', 'worktreePathDisplay',
       'ticketLabelTemplate', 'terminalNameTemplate', 'agentProvider', 'defaultModel',
-      'archiveDoneAfterDays', 'debug',
+      'archiveDoneAfterDays', 'debug', 'closeDoneTerminalsWithTicket',
     ],
     git: ['conventions'],
     services: ['repositories'],
@@ -2084,7 +2098,7 @@
     if (/\bapproach(es)?\b/.test(msg)) return 'approaches';
     if (/^agents?\b/.test(msg)) return 'agents';
     if (/^processes\b/.test(msg)) return 'agents';
-    if (/\b(host|portRange|baselineBranch|worktreePathDisplay|ticketLabelTemplate|terminalNameTemplate|agentProvider|defaultModel|archiveDoneAfterDays|debug)\b/.test(msg)) {
+    if (/\b(host|portRange|baselineBranch|worktreePathDisplay|ticketLabelTemplate|terminalNameTemplate|agentProvider|defaultModel|archiveDoneAfterDays|debug|closeDoneTerminalsWithTicket)\b/.test(msg)) {
       return 'general';
     }
     return null;
@@ -2413,6 +2427,8 @@
     el('f-archiveDoneAfterDays').value = draft.archiveDoneAfterDays ?? '';
     // Absent (undefined) renders unchecked — debug logging is off by default.
     el('f-debug').checked = draft.debug === true;
+    // Absent (undefined) renders unchecked — closing done terminals is off by default.
+    el('f-closeDoneTerminalsWithTicket').checked = draft.closeDoneTerminalsWithTicket === true;
     el('f-labelTemplate').value = draft.ticketLabelTemplate || '';
     el('f-terminalTemplate').value = draft.terminalNameTemplate || '';
     const conventions = draft.conventions || {};
@@ -2608,6 +2624,14 @@
     // have to read past.
     if (el('f-debug').checked) draft.debug = true;
     else delete draft.debug;
+    markDirty();
+  });
+  el('f-closeDoneTerminalsWithTicket').addEventListener('change', () => {
+    // Unchecking deletes the field entirely — absent IS the off default, so a
+    // cleared manifest never carries a stale `false` the loader would have to
+    // read past.
+    if (el('f-closeDoneTerminalsWithTicket').checked) draft.closeDoneTerminalsWithTicket = true;
+    else delete draft.closeDoneTerminalsWithTicket;
     markDirty();
   });
   el('f-labelTemplate').addEventListener('input', () => {

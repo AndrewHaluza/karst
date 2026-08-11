@@ -47,6 +47,7 @@ describe('settings sections — vocabulary', () => {
         'approaches',
         'archiveDoneAfterDays',
         'baselineBranch',
+        'closeDoneTerminalsWithTicket',
         'conventions',
         'debug',
         'defaultModel',

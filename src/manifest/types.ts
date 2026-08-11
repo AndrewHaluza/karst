@@ -461,6 +461,13 @@ export interface Manifest {
    */
   debug?: boolean;
   /**
+   * When a ticket is closed (archived), also dispose its agent terminals whose
+   * process has already exited — the dead tabs VS Code keeps with a "Done"
+   * suffix. Defaults to off: dead tabs stay until the user closes them, and a
+   * live session is never touched either way (only exited terminals qualify).
+   */
+  closeDoneTerminalsWithTicket?: boolean;
+  /**
    * UAT gates, credentials and (Phase 2) authored-step config. Absent yields the
    * default pipeline: karst probes package.json for known scripts. `origins` and
    * `authBootstrap` are validated at load but inert until Phase 2, so declaring

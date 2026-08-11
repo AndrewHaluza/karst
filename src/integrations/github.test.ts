@@ -98,14 +98,16 @@ describe.runIf(process.platform !== 'win32')('defaultGhRunnerAsync (POSIX fixtur
     tempDirs.push(handshakeDir);
     const pidFile = join(handshakeDir, 'grandchild.pid');
     const cwd = installFakeGh(`
-      const { writeFileSync } = require('node:fs');
+      const { writeFileSync, renameSync } = require('node:fs');
       const { spawn } = require('node:child_process');
       const grandchild = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)']);
-      writeFileSync(${JSON.stringify(pidFile)}, String(grandchild.pid));
+      writeFileSync(${JSON.stringify(pidFile)} + '.tmp', String(grandchild.pid));
+      renameSync(${JSON.stringify(pidFile)} + '.tmp', ${JSON.stringify(pidFile)});
       process.stdout.write(String(grandchild.pid) + '\\n');
       setInterval(() => {}, 1000);
     `);
     vi.useFakeTimers();
+    let grandchildPid = Number.NaN;
     const result = await (async () => {
       try {
         const pending = defaultGhRunnerAsync(['status'], cwd, {
@@ -113,18 +115,23 @@ describe.runIf(process.platform !== 'win32')('defaultGhRunnerAsync (POSIX fixtur
           terminationGraceMs: 500,
         });
 
+        // The pid file is renamed into place after its content is written, and
+        // the poll requires a parseable pid — spawning is not instant, and
+        // existsSync alone can observe the file before its content lands.
         const readinessDeadline = process.hrtime.bigint() + 5_000_000_000n;
-        while (!existsSync(pidFile) && process.hrtime.bigint() < readinessDeadline) {
-          Atomics.wait(readiness, 0, 0, 10);
+        while (!Number.isInteger(grandchildPid) && process.hrtime.bigint() < readinessDeadline) {
+          if (existsSync(pidFile)) {
+            grandchildPid = Number.parseInt(readFileSync(pidFile, 'utf8').trim(), 10);
+          }
+          if (!Number.isInteger(grandchildPid)) Atomics.wait(readiness, 0, 0, 10);
         }
-        expect(existsSync(pidFile)).toBe(true);
+        expect(Number.isInteger(grandchildPid)).toBe(true);
         await vi.advanceTimersByTimeAsync(10_000);
         return await pending;
       } finally {
         vi.useRealTimers();
       }
     })();
-    const grandchildPid = Number.parseInt(readFileSync(pidFile, 'utf8'), 10);
 
     expect(result.exitCode).toBe(1);
     expect(Number.isInteger(grandchildPid)).toBe(true);

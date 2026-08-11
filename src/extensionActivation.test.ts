@@ -53,6 +53,26 @@ describe('extension activation', () => {
     );
   });
 
+  // Closing a ticket with its DONE terminals is a SETTING (`closeDoneTerminals
+  // WithTicket`), off by default — so the wiring has two halves, both pinned
+  // here: the archive command and the auto-archive sweep must each consult the
+  // flag before disposing anything, and the dispose must go through the
+  // exit-status-gated helper (only an EXITED terminal may be closed, never a
+  // live session). Source assertions, like every case in this file: the
+  // decision logic runs in `ui/doneTerminals.test.ts`, this pins that the host
+  // actually wires it behind the setting.
+  it('closes a closed ticket\'s done terminals only behind the manifest setting', () => {
+    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+
+    // The setting gate exists, reads the live manifest, and both triggers ride it.
+    expect(source).toContain('closeDoneTerminalsWithTicket === true');
+    expect(source).toContain('closeTicketDoneTerminals(ticketId)');
+    expect(source).toMatch(/for \(const id of archived\)[\s\S]{0,80}?closeTicketDoneTerminals\(id\)/);
+    // Only exited terminals qualify — the helper is what the binding feeds.
+    expect(source).toContain('exited: terminal.exitStatus !== undefined');
+    expect(source).toContain('closeDoneTerminalsOf(probes, ticketId)');
+  });
+
   // `removeWorktree` reaps the servers it removes a tree out from under, but it
   // can only see removals karst performs. A worktree deleted by anything else —
   // or a server leaked by a build that predates that fix — is reachable only

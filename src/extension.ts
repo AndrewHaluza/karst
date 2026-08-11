@@ -64,6 +64,7 @@ import {
   type SessionTerminalRecord,
   type TerminalIdentity,
 } from './ui/terminalIdentity.js';
+import { closeDoneTerminalsOf, type DoneTerminalProbe } from './ui/doneTerminals.js';
 import { TerminalDashboardBinder } from './ui/bind/binder.js';
 import {
   classifyRestoredSession,
@@ -697,6 +698,26 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           };
     },
   );
+  // Setting-gated (manifest `closeDoneTerminalsWithTicket`, OFF by default):
+  // closing a ticket also closes its DONE terminals — the tabs whose process
+  // already exited (VS Code marks them "Done") and would otherwise sit dead in
+  // the terminal panel. Only EXITED terminals qualify, so a live agent session
+  // is never torn down by closing its ticket; identity comes from the same
+  // registry the adoption paths use, so a revived terminal still counts. The
+  // decision is the vscode-free `ui/doneTerminals.ts`; this is the binding.
+  const closeTicketDoneTerminals = (ticketId: number): number => {
+    const probes: DoneTerminalProbe[] = [];
+    for (const terminal of vscode.window.terminals) {
+      const named = terminalIdentity.identify(terminal);
+      if (!named || named.ticketId !== ticketId) continue;
+      probes.push({
+        ticketId,
+        exited: terminal.exitStatus !== undefined,
+        dispose: () => terminal.dispose(),
+      });
+    }
+    return closeDoneTerminalsOf(probes, ticketId);
+  };
   flushSessionOwnership = async () => {
     await ownershipWriter.flush();
     await terminalRecordWriter.flush();
@@ -2767,6 +2788,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       } catch (e) {
         logError('karst: done ticket auto-archive failed', e);
       }
+      // The same setting gates the background sweep: a ticket the sweep
+      // archives is closed exactly like one archived by a click, so its done
+      // terminals go with it — off by default, and never a live session.
+      if ((currentManifest() ?? emptyManifest()).closeDoneTerminalsWithTicket === true) {
+        let closed = 0;
+        try {
+          for (const id of archived) closed += closeTicketDoneTerminals(id);
+        } catch (e) {
+          logError('karst: closing done terminals failed', e);
+        }
+        if (closed > 0) {
+          logger.info(
+            `karst: closed ${closed} done terminal(s) of ${archived.length} auto-archived ticket(s)`,
+          );
+        }
+      }
       // A forced sweep pushes unconditionally: "nothing changed" is the answer
       // the user asked for, and it is also what clears the panel's spinner.
       if (force || changed > 0 || mergeChanged > 0 || landed.length > 0 || archived.length > 0) {
@@ -3481,6 +3518,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const ticketId = ticketIdArg(arg);
       if (ticketId === undefined) return;
       archiveTicket(localStore, ticketId);
+      // Setting-gated (`closeDoneTerminalsWithTicket`, OFF by default): the
+      // ticket is being closed, so its DONE terminals go with it — dead tabs
+      // whose process already exited, never a live session. A disposal failure
+      // must not fail the archive itself, so this is wrapped and reported.
+      if ((currentManifest() ?? emptyManifest()).closeDoneTerminalsWithTicket === true) {
+        try {
+          const closed = closeTicketDoneTerminals(ticketId);
+          if (closed > 0) {
+            logger.info(`karst: closed ${closed} done terminal(s) with ticket ${ticketId}`);
+          }
+        } catch (err) {
+          logError('karst: closing done terminals with ticket failed', err);
+        }
+      }
       const manifest = currentManifest();
       if (manifest) {
         const allocator = makePortAllocator(localStore, manifest.portRange);
