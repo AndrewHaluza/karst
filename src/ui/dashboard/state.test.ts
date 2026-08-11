@@ -505,6 +505,31 @@ describe('buildDashboardState', () => {
     const state = buildDashboardState(store, t.id);
     expect(state.worktrees[0]!.launchable).toBe(false);
   });
+
+  it('flags console on a gate stage whose stage row recorded an artifactPath', () => {
+    const t = createTicket(store, { key: 'PROJ-1', title: 'thing' });
+    setStage(store, t.id, 'uat', { status: 'passed', artifactPath: '/logs/uat.log' });
+    setStage(store, t.id, 'review', { status: 'passed', artifactPath: null });
+    const state = buildDashboardState(store, t.id);
+    expect(state.insideViews.uat.console).toBe(true);
+    expect(state.insideViews.review.console).toBe(false);
+  });
+
+  it('never flags a non-gate stage, whatever its artifactPath', () => {
+    const t = createTicket(store, { key: 'PROJ-2', title: 'thing' });
+    setStage(store, t.id, 'impl', { status: 'passed', artifactPath: '/logs/impl.log' });
+    setStage(store, t.id, 'ship', { status: 'passed', artifactPath: '/logs/ship.log' });
+    const state = buildDashboardState(store, t.id);
+    expect(state.insideViews.impl.console).toBeFalsy();
+    expect(state.insideViews.ship.console).toBeFalsy();
+  });
+
+  it('does not flag a gate stage that has no stage row at all', () => {
+    const t = createTicket(store, { key: 'PROJ-3', title: 'thing' });
+    const state = buildDashboardState(store, t.id);
+    expect(state.insideViews.uat.console).toBeFalsy();
+    expect(state.insideViews.review.console).toBeFalsy();
+  });
 });
 
 describe('buildDashboardState — runnable scope', () => {

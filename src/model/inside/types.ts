@@ -646,6 +646,12 @@ export interface InsideStageView {
   processes: InsideProcessView[];
   /** The static "what happens here" copy. Always present. */
   blurb: string;
+  /**
+   * Whether this stage offers the terminal console view: a gate stage whose
+   * stage row recorded an artifact log. Host-derived — the webview renders
+   * the Console button ONLY from this flag and never guesses availability.
+   */
+  console?: boolean;
 }
 
 /**
