@@ -204,6 +204,11 @@
   .agentselect-trigger:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
   .agentselect-trigger .chev{flex:none;width:var(--k-space-6);height:var(--k-space-6);margin-left:var(--k-space-4);
     background:var(--chevron) no-repeat center/var(--k-space-6)}
+  /* The trigger composes .k-btn (UI-R07) but is a DROPDOWN control, not an
+     action button — suppress the primitive's scale-on-active that squishes it
+     on every menu open/close (same call designComponents makes for
+     .k-btn--row; same rule as ticketForm/webview.html, which must not drift). */
+  .agentselect-trigger:active:not(:disabled){transform:none}
   .agentselect-menu{position:absolute;top:calc(100% + var(--k-space-2));left:0;right:0;z-index:var(--k-z-drawer);
     background:var(--vscode-dropdown-background,var(--k-bg));
     border:var(--k-border-w) solid var(--vscode-dropdown-border,var(--vscode-panel-border));

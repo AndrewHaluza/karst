@@ -129,6 +129,21 @@
   .agentselect-trigger:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
   .agentselect-trigger .chev{flex:none;width:var(--k-space-6);height:var(--k-space-6);margin-left:var(--k-space-4);
     background:var(--chevron) no-repeat center/var(--k-space-6)}
+  /* The trigger composes .k-btn for its chrome (UI-R07), but it is a DROPDOWN
+     control, not an action button — so the primitive's button behaviors are
+     suppressed here, the same call designComponents.ts makes for .k-btn--row:
+     - scale-on-active squishes the whole control on every menu open/close;
+     - the aria-busy spinner is injected into the flex row and shifts the badge;
+     - the settle flash turns it green with a checkmark.
+     A pick already repaints the trigger itself, so none of these animations
+     belong on it. Pending stays VISIBLE as the disabled dim (UI-R11), and
+     geometry stays put (UI-R18). Same suppression as settings/webview.html —
+     the two pages must not drift. */
+  .agentselect-trigger:active:not(:disabled){transform:none}
+  .agentselect-trigger[aria-busy="true"]::before{content:none}
+  .agentselect-trigger.is-success:not(.k-btn--row){color:var(--vscode-input-foreground);
+    border-color:var(--vscode-input-border,var(--vscode-panel-border))}
+  .agentselect-trigger.is-success:not(.k-btn--row)::before{content:none}
   .agentselect-menu{position:absolute;top:calc(100% + var(--k-space-2));left:0;right:0;z-index:var(--k-z-drawer);
     background:var(--vscode-dropdown-background,var(--k-bg));
     border:var(--k-border-w) solid var(--vscode-dropdown-border,var(--vscode-panel-border));
@@ -612,6 +627,13 @@
     lastSelectedAgent = state.selectedAgent ?? null;
     renderAgentPicker(state.agents, state.selectedAgent);
     renderProviderPicker(state.agentProviders, state.selectedAgentProvider, state.defaultAgentProvider, state.sessionOpen);
+    // Stash the pushed catalog + defaults so a provider pick can re-render the
+    // model picker locally (create mode: the host no-ops set-provider, so no
+    // state push follows the pick — without these the Model select would keep
+    // the previous agent core's models until the next full render).
+    lastModelCatalog = state.modelCatalog || lastModelCatalog;
+    lastDefaultModel = state.defaultModel ?? null;
+    lastSessionOpen = state.sessionOpen === true;
     renderModelPicker(state.models, state.selectedModel, state.defaultModel, state.sessionOpen);
     lastTicketTypes = state.ticketTypes || [];
     lastDefaultType = state.defaultType || 'feat';
@@ -877,6 +899,16 @@
   // Last default pushed, so a pick can repaint the trigger locally in create
   // mode (the host no-ops set-provider there — no state push follows).
   let lastDefaultProvider = 'claude';
+  // Last pushed model catalog + defaults, so a provider pick can re-render the
+  // Model select locally for the picked core (same reason as the trigger
+  // repaint above — create mode has no state push to answer with). Mirrors the
+  // host's modelsForProvider(catalog, provider): the page cannot import TS.
+  let lastModelCatalog = { claude: [], codex: [], antigravity: [], opencode: [] };
+  let lastDefaultModel = null;
+  let lastSessionOpen = false;
+  function modelsForProvider(provider) {
+    return lastModelCatalog[provider] || [];
+  }
   function renderProviderPicker(providers, selectedProvider, defaultProvider, sessionOpen) {
     const list = providers || [];
     lastDefaultProvider = defaultProvider || 'claude';
@@ -1664,6 +1696,11 @@
     });
     menu.classList.add('hidden');
     trigger.setAttribute('aria-expanded', 'false');
+    // The Model select follows the agent core: re-render it for the picked
+    // provider's catalog. Without this a create-mode pick left the previous
+    // core's models in the select until the next state push (fetch/submit) —
+    // the host no-ops set-provider there, so nothing else answers the switch.
+    renderModelPicker(modelsForProvider(p || lastDefaultProvider), draft.selectedModel, lastDefaultModel, lastSessionOpen);
     const requestId = karstRequestId();
     karstBeginPending(trigger, requestId);
     post({ type: 'set-provider', id: p, requestId });
