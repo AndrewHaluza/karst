@@ -1,276 +1,858 @@
 # Karst UI Style Guide
 
-How to *apply* the [design system](./DESIGN-SYSTEM.md). The
-[rules](./UI-RULES.md) say what is mandatory; this says what is good.
+**Version:** 3.0 — finalized UI application guide
+
+How to apply the [Design System](./DESIGN-SYSTEM.md).
+
+[UI-RULES.md](./UI-RULES.md) defines what is mandatory. This document
+explains the product/design judgment behind those rules.
 
 ---
 
-## 1. Naming
+# 1. Visual north star
 
-### CSS
+Karst should feel like a focused developer tool inside VS Code:
+
+- compact;
+- information-dense;
+- calm;
+- structurally clear;
+- low-chrome;
+- explicit about workflow state;
+- precise rather than decorative.
+
+The latest approved prototype from the design-system revamp review is the current
+visual north star.
+
+Before future visual redesign work, capture it as a stable repository visual
+reference, preferably under `docs/ui-reference/` with approved screenshots or the
+final prototype HTML plus a short README explaining which characteristics are
+normative and which are exploratory.
+
+An external prototype/share link is useful review provenance, but must not become
+the permanent normative dependency.
+
+When a mechanical rule conflicts with a composition that is clear, accessible,
+consistent, and matches the approved visual direction, review the rule before
+flattening the design.
+
+---
+
+# 2. Naming
+
+## CSS
 
 | Kind | Convention | Example |
 |---|---|---|
-| Primitive | `.k-<noun>` | `.k-btn`, `.k-chip`, `.k-toast` |
-| Variant | `.k-<noun>--<variant>` | `.k-btn--danger`, `.k-toast--error` |
-| Size | `.k-<noun>--<size>` | `.k-btn--sm` |
-| State (runtime) | `.is-<state>` | `.is-success`, `.is-open` |
-| Screen-local layout | plain, unprefixed | `.stepper`, `.uhead`, `.rowacts` |
+| shared primitive | `.k-<noun>` | `.k-btn`, `.k-badge` |
+| shared variant | `.k-<noun>--<variant>` | `.k-btn--danger` |
+| runtime state | `.is-<state>` when native/ARIA state is insufficient | `.is-success` |
+| local composition | unprefixed | `.stageRail`, `.repoGrid`, `.rowActions` |
 
-The `k-` prefix marks "this is shared and you may not restyle it". An unprefixed
-class is screen-local layout and may be anything, as long as it sets only layout
-properties — position, size, grid/flex placement — never appearance.
+`k-` means **shared contract**.
 
-### Tokens
+It does not mean every visually interesting element belongs in the design
+system.
 
-`--k-<category>-<name>[-<modifier>]`: `--k-space-4`, `--k-text-dim`,
-`--k-action-bg-hover`, `--k-dur-fast`.
+A local class may own:
 
-Name for **meaning**, never for value or appearance. `--k-danger`, not `--k-red`;
-`--k-space-4`, not `--k-space-8px`. A token named for its value is a token that
-can never change.
+- layout;
+- geometry;
+- position;
+- grid/flex composition;
+- a genuinely screen-specific visual component.
 
-### JS in webviews
+A local component must **not recreate an existing semantic primitive**.
 
-`camelCase`; `post()` for the message sender; `el(id)` for lookup; `esc()` for
-escaping. Keep these names — they are the same in all seven files, and that
-consistency is why a reader can move between them.
-
----
-
-## 2. Reuse vs. new component
-
-Decide in this order:
-
-1. **Does a primitive already fit?** Use it. A visual difference you were about
-   to add is probably not load-bearing.
-2. **Does a primitive fit with a new variant?** Add the variant to
-   `designSystem.ts` and to the design system doc. A variant is justified when it
-   encodes a *different meaning* (danger, secondary), not a different taste.
-3. **Is it a one-screen layout arrangement of primitives?** Build it locally with
-   an unprefixed class. Do not promote it.
-4. **Is it a genuinely new interaction that will appear on ≥2 screens?** Then it
-   is a new primitive: add it to `designSystem.ts`, document its full state
-   matrix, and test it.
-
-> A new primitive that exists on one screen is a local component wearing a `k-`
-> prefix. It costs everyone the review of a shared API and buys nothing.
-
-### Signs you are about to duplicate something
-
-- You are writing `background`, `border`, `padding`, `border-radius`, or
-  `font-size` on a `<button>`.
-- You are about to pick a hex.
-- You are naming something `.btn2`, `.smallbtn`, `.actionButton`.
-- You are copying a rule out of another `webview.html`. **That is how the six
-  greens happened.** Every one of them started as a reasonable local choice.
+If something is semantically a normal Karst button, it uses `.k-btn`.
+Calling the replacement `.localAction` does not make a second button system
+acceptable.
 
 ---
 
-## 3. Copy tone
+# 3. Reuse vs local design
 
-Karst talks like a competent colleague: direct, specific, never cheerful about
-failure and never vague about it either.
+Ask these questions in order.
 
-### Labels
+## 3.1 Does an existing primitive match the interaction?
 
-- Imperative verb + object: **Create ticket**, **Resolve conflicts**, **Open log**.
-- Sentence case. Not Title Case, not ALL CAPS (uppercase is a *style*, via
-  `text-transform`, not a way of writing the string).
-- No trailing punctuation. No ellipsis except where the control genuinely opens a
-  further choice (**Attach…**, **Switch agent…**).
-- Name the object when the screen shows more than one thing it could apply to:
-  **Open PR**, not **Open**.
+Use it.
 
-### Tooltips
+Examples:
 
-- ≤ 80 characters, one sentence, no trailing period.
-- Say what happens: *"Re-probe every PR for this ticket"*.
-- Never restate the label: a button reading **Archive** does not need
-  `title="Archive"`.
-- On a disabled control, say **why**: *"No worktree to show changes for"*.
+- action → button;
+- navigation → link;
+- information label → badge;
+- agent core → agent-core identity;
+- compact toggle → chip;
+- modal overlay → modal/drawer.
 
-### Errors
+## 3.2 Is the same semantic component missing a real variant?
 
-Three parts, in order — **what failed · why · what to do**:
+Add a shared variant.
+
+Variants encode meaning:
+
+- primary;
+- secondary;
+- ghost;
+- danger;
+- text.
+
+They do not encode taste:
+
+- purple;
+- slightly rounder;
+- dashboard version.
+
+## 3.3 Is this a product-specific composition?
+
+Keep it local.
+
+Examples:
+
+- stage rails;
+- implementation graphs;
+- workflow nodes and edges;
+- ticket timelines;
+- diff-file structures;
+- repo grids;
+- usage visualization;
+- complex settings layout.
+
+Promotion is based on a stable reusable semantic/API contract—not an arbitrary
+"used on two screens" count.
+
+---
+
+# 4. Tokens
+
+Use a token for a repeated visual decision.
+
+```css
+.card {
+  padding: var(--k-space-6);
+  border: var(--k-border-w) solid var(--k-border);
+  border-radius: var(--k-radius-md);
+}
+```
+
+A one-screen geometry value may stay local:
+
+```css
+.stageRail {
+  grid-template-columns: 164px minmax(0, 1fr);
+}
+```
+
+Do not produce arithmetic puzzles just to avoid literals:
+
+```css
+/* Don't */
+width: calc(var(--k-space-8) * 23);
+```
+
+If a local value becomes part of a shared component contract, promote it to a
+meaningful component token.
+
+---
+
+# 5. Color semantics
+
+Always decide **what the color means** before deciding which token to use.
+
+Keep separate:
+
+- workflow status;
+- feedback;
+- stage identity;
+- categorical data series;
+- selection.
+
+## Don't
+
+```css
+.merged {
+  background: var(--k-series-2);
+}
+```
+
+A chart color does not mean merged.
+
+## Don't
+
+```css
+.note {
+  color: var(--k-running);
+}
+```
+
+Information does not mean running.
+
+## Do
+
+```css
+.error {
+  color: var(--k-danger);
+}
+```
+
+or:
+
+```css
+.runningStatus {
+  color: var(--k-running);
+}
+```
+
+Different semantic tokens may currently resolve to the same hue.
+
+---
+
+# 6. Density and typography
+
+Preserve Karst's compact density.
+
+Do not enlarge spacing, typography, control heights, or surface padding as an
+incidental consequence of cleanup.
+
+Choose from the existing typography scale by role.
+
+Avoid adding new near-duplicate sizes to solve one local alignment issue.
+
+A fractional size already present in the approved visual baseline is not a
+reason to create more fractional sizes.
+
+Retuning the type scale is a design task, not token hygiene.
+
+---
+
+# 7. Buttons, links, and resource paths
+
+Semantics come before appearance.
+
+## Action
+
+```html
+<button class="k-btn k-btn--text">Show details</button>
+```
+
+## Navigation
+
+```html
+<a class="k-link" href="...">Open documentation</a>
+```
+
+## File / resource reveal
+
+When a file path, commit hash, PR number, or other useful target identifier is
+already visible, make that value the link:
+
+```html
+Fix process runs carry no pid —
+<a class="k-link mono" href="...">src/store/recoveryRounds.ts:693</a>
+```
+
+Do **not** render:
+
+```text
+Fix process runs carry no pid — src/store/recoveryRounds.ts:693    [Open file]
+```
+
+The extra button duplicates the same navigation and makes dense process rows
+heavier.
+
+If the host must mediate the reveal, route the link activation through the host
+while keeping link semantics.
+
+Do not call navigation a button because it looks like one.
+
+Do not use an anchor for an action merely because you want link styling.
+
+---
+
+# 8. Destructive actions
+
+Always-danger actions include:
+
+- permanent delete;
+- uninstall;
+- destructive remove/discard;
+- irreversible deletion of stored data.
+
+Reversible or consequential actions are not automatically danger-colored.
+
+For example:
+
+- **Archive** may be an ordinary action if it is safely reversible.
+- **Merge** may be primary/consequential rather than visually destructive; its
+  security-sensitive confirmation remains host-side where required.
+
+Choose danger based on **destructive loss**, not keyword matching.
+
+---
+
+# 9. Rows
+
+Rows are a core Karst composition and should remain row-like.
+
+A row may contain:
+
+- primary label;
+- metadata;
+- status;
+- stage;
+- disclosure;
+- child actions.
+
+Do not automatically give the whole row button chrome.
+
+## 9.1 Whole-row interaction
+
+If the whole row is the single action and contains no independent interactive
+children, the row may use appropriate native clickable semantics.
+
+## 9.2 Row with child actions
+
+If the row contains independent controls such as:
+
+- delete;
+- archive;
+- menu;
+- expand;
+- open session;
+
+do not wrap the entire row in a `<button>` or `<a>` and create nested interactive
+elements.
+
+Instead:
+
+- keep the row a layout container;
+- expose the primary action as its own control/link;
+- keep secondary actions independent.
+
+Do not put `:active`, busy, disabled, or success states on the row when a child
+control owns the action.
+
+For findings/log/detail rows, a visible filepath is itself the navigation link.
+Do not add a redundant **Open file** button beside the same path.
+
+---
+
+# 10. Selection, success, and status
+
+These are different meanings:
+
+```text
+selected
+successful action
+workflow passed
+currently active
+currently running
+```
+
+Do not collapse them into one green or selected wash.
+
+A selection wash means:
+
+> this item is selected
+
+A transient success treatment means:
+
+> the action completed
+
+A workflow status means:
+
+> this process is in this state
+
+They may be visually related, but they are not aliases.
+
+---
+
+# 11. Workflow status
+
+Workflow status is intentionally compact: **icon only**.
+
+The shared mapping is:
+
+| Meaning | Marker |
+|---|---|
+| passed / done | green checkmark |
+| running | blue spinner |
+| needs attention / paused / blocked | amber pause icon |
+| failed | red cross |
+| pending / not checked | neutral circle/dot |
+
+The status marker itself contains no visible word.
+
+Its accessible name still names the actual state (`Passed`, `Done`, `Needs
+attention`, and so on).
+
+Surrounding row copy may explain the state when useful:
+
+```text
+[green check] Gates       3/3 command gates passed
+[neutral dot] Services   not checked — no services reported for this ticket
+```
+
+The visible summary is row content, not part of the status primitive.
+
+This satisfies the non-color rule through distinct glyphs/shapes rather than
+repeating a status label next to every icon.
+
+---
+
+# 11.1 Agent core identity
+
+Agent-core identity is always:
+
+**icon + canonical core name**
+
+Use the shared identity mapping from `providerIdentity.ts`.
+
+Good:
+
+```text
+Review Agent · <icon> Claude Code · Opus 5
+Implementation Agent · <icon> Codex · GPT-5.6 · high
+PR Agent · <icon> OpenCode · mimo-v2.5-free
+```
+
+The role (`Review Agent`, `UAT Agent`, `PR Agent`) is contextual copy.
+
+The core identity (`icon + Claude Code`, `icon + Codex`, and so on) is shared
+presentation.
+
+Append model only where it adds useful context. Append effort or variant only
+when it matters for the configured/recorded run.
+
+Do not use:
+
+- bare `Claude Code` without its shared icon;
+- icon-only agent identity;
+- model-only identity;
+- a generic `AI` pill as a replacement for core identity.
+
+Usage totals and timing remain separate metadata.
+
+When the user is choosing an agent core, use a single-choice UI that can render
+the same icon + name identity for every option. Do not fall back to a text-only
+native select just because it is convenient. Native radio inputs with styled
+labels are preferred when they fit.
+
+---
+
+# 12. Stages
+
+Karst stages are product identity:
+
+```text
+Scope → Implement → UAT → Review → Ship → Done
+```
+
+Preserve their hierarchy and visual relationship.
+
+Do not replace stage identity with generic success/info/warning badges.
+
+Screen-specific stage structures such as rails, nodes, implementation graphs,
+and timelines may remain local compositions.
+
+---
+
+# 13. Badges, chips, and choices
+
+## Informational badge
+
+```html
+<span class="k-badge">Review</span>
+```
+
+No pressed state. No fake button role.
+
+Agent-core identity is not represented by a badge; use the shared
+icon + core-name pattern from §11.1.
+
+## Toggle chip
+
+```html
+<button class="k-chip" aria-pressed="true">Backend</button>
+```
+
+It is an action/selection control.
+
+## Single choice
+
+Prefer native radio controls with styled labels.
+
+If a custom radio group is necessary, implement the whole interaction, including
+arrow-key navigation and focus management.
+
+---
+
+# 14. Copy tone
+
+Karst speaks like a competent colleague.
+
+Direct, specific, neutral.
+
+## Labels
+
+Prefer imperative verb + object:
+
+- **Create ticket**
+- **Resolve conflicts**
+- **Open log**
+- **Switch agent…**
+
+Use sentence case.
+
+Use an ellipsis only where the action genuinely opens another decision.
+
+## Errors
+
+Use:
+
+**what failed → why, if known → what to do**
+
+Example:
 
 > Could not refresh ticket changes: worktree is missing. Re-spin the ticket.
 
-- Address the user as "you" only when they must act. Never blame them.
-- Never surface a raw exception, stack, or multi-kilobyte CLI envelope. Collapse
-  to one line and cap it (UI-R32) — a 429 JSON blob read as an internal crash
-  once already.
-- "Unknown" is a legitimate outcome and must be worded as itself, not as failure
-  (UI-R14). *"Still running — result unknown"* ≠ *"Failed"*.
+Do not expose raw:
 
-### Empty states
+- stack traces;
+- provider JSON;
+- CLI envelopes;
+- internal logs
 
-Name what is absent, then the next action:
+in transient UI.
 
-> **No AI token usage recorded yet**
-> Usage is recorded when an agent session runs.
+"Unknown" and "failed" are different claims.
 
-Never render zeros for absence. `0` asserts a measurement; absence is a different
-claim.
+## Empty states
+
+Say what is absent and what causes it to appear.
+
+> **No AI token usage recorded yet**  
+> Usage appears after an agent session runs.
+
+No-data is not the same as measured zero.
 
 ---
 
-## 4. Do / Don't
+# 15. Tooltips and help
 
-### Colour
+Native `title` is supplemental convenience.
 
-```css
-/* DON'T — a sixth green, and a foreground picked against a themed background */
-.badge-ok { background: #2ea043; color: #fff; }
-
-/* DO — one meaning, one token, a paired foreground */
-.badge-ok { background: var(--k-success); color: var(--k-success-fg); }
-```
-
-```css
-/* DON'T — same variable, a different fallback per file */
-/* diffs:   */ color: var(--vscode-testing-iconPassed, #73c991);
-/* welcome: */ color: var(--vscode-testing-iconPassed, #3fb950);
-
-/* DO — the fallback is decided once, in designSystem.ts */
-color: var(--k-success);
-```
-
-### Spacing and type
-
-```css
-/* DON'T — off-scale values that read as precision but are rounding noise */
-.meta { font-size: 10.5px; padding: 7px 13px; gap: 9px; }
-
-/* DO */
-.meta { font-size: var(--k-text-2xs); padding: var(--k-space-3) var(--k-space-6); gap: var(--k-space-4); }
-```
-
-### Buttons
+It is useful for concise pointer help, especially on icon-only controls.
 
 ```html
-<!-- DON'T — a class with no rule, so it silently renders as primary -->
-<button id="attachBtn" class="ghost">Attach…</button>
-
-<!-- DO -->
-<button id="attachBtn" class="k-btn k-btn--ghost">Attach…</button>
-```
-
-```css
-/* DON'T — restyling the primitive back into a bespoke control */
-.file { border: 0; border-radius: 0; background: none; text-align: left; }
-
-/* DO — a variant that exists, plus local layout only */
-.file { /* grid placement only */ }
-```
-
-### Semantics
-
-```html
-<!-- DON'T — a click handler on a th: unreachable by keyboard -->
-<th data-sort="total" class="sortable">Total</th>
-
-<!-- DO -->
-<th aria-sort="descending"><button class="k-btn--link" data-sort="total">Total</button></th>
-```
-
-```html
-<!-- DON'T -->
-<span class="chev" data-toggle></span>
-<div class="row" data-open></div>
-
-<!-- DO -->
-<button class="k-iconbtn" data-toggle aria-expanded="false" aria-label="Expand ticket" title="Expand ticket">…</button>
-```
-
-### Interactive states on containers
-
-```css
-/* DON'T — :active leaks from the button to its container row */
-.row:active { transform: scale(.96) }
-
-/* DO — :active stays on the interactive element only */
-.k-btn:active:not(:disabled) { transform: scale(.96) }
-```
-
-A row, `<div>`, or `<span>` that shows `:active` press scale, `[aria-busy]`
-spinner, or `.is-success` flash is a defect (UI-R09b). The state belongs to the
-child control that posts the message, not to the container that holds it.
-
-### Async feedback
-
-```js
-// DON'T — fire and forget: nothing tells the user this was even received
-btn.addEventListener('click', () => post({ type: 'archive', ticketId: id }));
-
-// DO — pending on click, non-re-triggerable, settles on the host's result
-karstAction(btn, () => post({ type: 'archive', ticketId: id, requestId: rid() }));
-```
-
-```js
-// DON'T — the accessible name changes mid-action and the control reflows
-btn.textContent = 'Saving…';
-
-// DO — the label is stable; the spinner carries the meaning
-// (handled by the runtime: aria-busy + disabled + .k-spinner)
-```
-
-```js
-// DON'T — optimistic success on a mutation
-post({ type: 'merge-pr', repo }); flashOk(btn);
-
-// DO — optimistic only where failure needs no user action, and say so
-// Optimistic: the host does the clipboard write; a failed copy is recoverable
-// by clicking again, so we do not wait for confirmation. (UI-R15)
-post({ type: 'copy-hash', hash }); flashCopied(btn);
-```
-
-### Icon-only controls
-
-```html
-<!-- DON'T — title is not an accessible name -->
-<button class="ia" data-act="delete" title="Delete"><svg …></svg></button>
-
-<!-- DO — same string in both, and a variant that marks it destructive -->
-<button class="k-iconbtn k-iconbtn--danger" data-act="delete"
-        aria-label="Delete ticket permanently" title="Delete ticket permanently">
-  <svg aria-hidden="true" …></svg>
+<button
+  class="k-iconbtn"
+  aria-label="Refresh pull requests"
+  title="Refresh pull requests"
+>
+  …
 </button>
 ```
 
+The accessible name comes from `aria-label`, not `title`.
+
+Required guidance must not exist only in `title`.
+
+For unavailable actions, use visible or associated explanation when the reason
+matters:
+
+```html
+<button disabled aria-describedby="changesReason">Open changes</button>
+<span id="changesReason">No worktree is available for this ticket</span>
+```
+
+Keep tooltip copy short and behavioral:
+
+> Re-probe every PR for this ticket
+
+not:
+
+> Refresh button
+
 ---
 
-## 5. Working on a webview
+# 16. Forms and overlays
 
-1. **Read the file's header comment first.** Each webview states what it decides
-   and what it does not. Most decide nothing — that is deliberate (UI-R31).
-2. **Never edit `dist/`.** Edit `src/ui/<name>/webview.html`;
-   `scripts/copy-assets.mjs` mirrors it.
-3. **Mirrored constants are behaviour** (UI-R34). If you are reformatting near
-   `deriveKey`, `MAX_PASTE_BYTES`, `SECTION_FIELDS`, `TRANSFORM_NAMES`,
-   `briefToText`, or `CONVENTION_PRESETS`, stop and leave them exactly as they are.
-4. **Escape everything interpolated.** `esc()` on every value that reaches HTML.
-   CSP is the backstop, not the guard.
-5. **Text-level tests are the harness.** There is no DOM in vitest. Assert on the
-   HTML string; test real behaviour in the emitted runtime against a fake DOM.
-6. **F5 is still required** for anything a string match cannot see — a broken
-   `calc()`, a mistyped class, a focus order.
+Field errors belong to fields.
+
+If a drawer/modal form can fail validation:
+
+- keep it open until the result is known;
+- retain entered values;
+- identify the field;
+- explain recovery.
+
+Do not close the surface immediately after `post()` and then display the error
+behind it.
+
+Use a global error region only when there is no meaningful local owner.
 
 ---
 
-## 6. Review checklist
+# 17. Modal vs side panel
 
-Before calling UI work done:
+Visual similarity does not imply modal semantics.
 
-- [ ] No hex, `rgba()`, raw `px`/`rem`, raw radius, raw duration in the diff (UI-R04)
-- [ ] Every button is a `.k-btn`/`.k-iconbtn` variant; nothing restyles a primitive (UI-R07)
-- [ ] Every async control: pending on click, non-re-triggerable, terminal result, watchdog (UI-R11–R14)
-- [ ] Every icon-only control: matching `aria-label` + `title`, ≤80 chars (UI-R19–R21, R24)
-- [ ] Every click target is a `<button>` or `<a href>` (UI-R09)
-- [ ] `aria-busy` / `aria-expanded` / `aria-pressed` / `aria-checked` / `aria-invalid` reflect real state (UI-R26)
-- [ ] One live region, and results reach it (UI-R27)
-- [ ] Keyboard: reachable, operable, visible focus (UI-R09, R23)
-- [ ] Reduced motion loses no information (UI-R30)
-- [ ] Mirrored constants untouched and still pinned (UI-R34)
-- [ ] Commit cites the rule ids (UI-R35)
-- [ ] `npm test` and `npm run typecheck` pass (UI-R37)
+## Modal drawer
+
+Use when the user must finish/dismiss the overlay before interacting with the
+underlying surface.
+
+It follows the modal focus contract.
+
+## Inspector / details panel
+
+Use when users should move freely between the panel and main content.
+
+It does not:
+
+- trap focus;
+- claim `aria-modal`;
+- make the underlying UI inert.
+
+---
+
+# 18. Async feedback
+
+The user should know when an action that visibly takes time was received.
+
+The design system owns how pending/result state looks.
+
+The application owns how the host and webview communicate that state.
+
+## Pending
+
+For an in-flight host mutation or long-running external operation whose result is
+not immediately visible:
+
+- show pending state;
+- prevent unsafe duplicate activation;
+- keep feedback scoped to the initiating control/surface.
+
+## Success
+
+Prefer the actual changed domain state as confirmation.
+
+Use transient success feedback only when the changed state itself is not obvious.
+
+## Failure
+
+Put it where the user can act:
+
+1. field/local surface;
+2. workflow/state display;
+3. toast when no better local home exists.
+
+## Unknown
+
+Timeout/lost acknowledgment does not prove failure.
+
+It also does not prove the operation stopped.
+
+Do not simply re-enable a destructive mutation and invite a duplicate retry
+unless application architecture makes retry safe.
+
+## Optimistic feedback
+
+Do not call something "Saved", "Copied", "Merged", or equivalent when the
+application can still determine that it failed.
+
+If optimistic state is deliberately used for reversible UI behavior, represent it
+as optimistic state with reconciliation—not false confirmed success.
+
+---
+
+# 19. Stable interaction geometry
+
+Avoid needless movement when a control becomes busy or successful.
+
+Even keeping the same label can cause reflow:
+
+```text
+Save
+→ spinner + Save
+→ check + Save
+```
+
+Solutions include:
+
+- reserve an icon/status slot;
+- preserve the control width;
+- display status adjacent to the control;
+- use the changed domain state instead of injecting a glyph.
+
+The goal is stable geometry.
+
+There is no blanket rule that text must never change.
+
+---
+
+# 20. Disabled state
+
+Disabled means unavailable.
+
+Loading means in progress.
+
+They are not synonyms.
+
+Native `disabled` is appropriate when removing the action from ordinary
+interaction is correct.
+
+If discoverability while unavailable is important, use an architecture that keeps
+the explanation accessible rather than relying on a hover-only tooltip.
+
+Do not double-dim components by blindly combining a faint semantic foreground and
+global opacity if the resulting treatment loses useful structure.
+
+Choose the disabled treatment at primitive level.
+
+---
+
+# 21. Local composition is allowed
+
+The design system should make correct product UI easier.
+
+It should not eliminate product design.
+
+Legitimate local compositions include:
+
+- stage rails;
+- graph nodes and edges;
+- implementation timelines;
+- diff rows;
+- repository grids;
+- settings structures;
+- usage visualizations;
+- screen-specific headers.
+
+Use shared semantic tokens and primitives where they genuinely fit.
+
+Do not distort a composition merely to increase primitive reuse.
+
+---
+
+# 22. Host / presentation boundary
+
+The host supplies semantic facts.
+
+Example:
+
+```ts
+{
+  status: 'running',
+  stage: 'uat',
+  canMerge: false
+}
+```
+
+The webview decides how those facts are presented:
+
+- class;
+- glyph;
+- token;
+- component;
+- local layout.
+
+Do not send:
+
+```ts
+{
+  className: 'green-pill',
+  color: '#4bb64b'
+}
+```
+
+from domain code.
+
+## Formatting
+
+Domain/canonical formatting remains upstream when it carries business meaning.
+
+Pure display formatting may remain in the webview.
+
+Ask:
+
+> If another UI rendered this value differently, would the meaning change?
+
+If yes, it is probably domain/canonical formatting.
+
+If no, it may be presentation formatting.
+
+---
+
+# 23. Accessibility review
+
+Prefer native HTML.
+
+Do not treat a grep as proof of rendered accessibility.
+
+Verify in the real webview:
+
+- keyboard reachability;
+- focus visibility;
+- focus order;
+- overlay focus behavior;
+- accessible names;
+- radio/switch keyboard behavior;
+- light theme;
+- dark theme;
+- high contrast;
+- color-independent status;
+- reduced motion.
+
+---
+
+# 24. Working on a webview
+
+1. Read the file's ownership/header notes.
+2. Edit source, never generated `dist/`.
+3. Preserve pinned mirrored behavior constants unless behavior change is explicitly
+   in scope.
+4. Escape untrusted values before interpolation.
+5. Keep domain decisions out of CSS/presentation.
+6. Keep CSS classes/colors out of host/domain view models.
+7. Use static tests only for properties source inspection can prove.
+8. Use runtime tests for behavior.
+9. Use an F5/real-webview pass for rendered behavior.
+
+---
+
+# 25. Review checklist
+
+- [ ] Approved compact visual character is preserved
+- [ ] No incidental spacing/type/radius retuning
+- [ ] Shared semantic controls use shared primitives
+- [ ] Local compositions have not recreated an existing primitive
+- [ ] Workflow, feedback, stage, selection, and chart-series meanings remain separate
+- [ ] Repeated visual decisions use tokens
+- [ ] Local layout geometry is clear rather than disguised as token arithmetic
+- [ ] Actions are buttons; navigation/resource reveal is links
+- [ ] Visible filepaths/PRs/commits are the link instead of duplicated Open buttons
+- [ ] Rows with child actions avoid nested interactive controls
+- [ ] Truly destructive actions use danger treatment
+- [ ] Pending state exists where host/long-running operations visibly wait
+- [ ] Unsafe duplicate activation is prevented
+- [ ] Unknown is not shown as failed
+- [ ] Retry is not offered blindly after uncertain destructive work
+- [ ] Field errors stay with fields
+- [ ] Required help does not depend on `title`
+- [ ] Icon-only actions have accessible names
+- [ ] Workflow status markers are icon-only with the correct glyph/color mapping
+- [ ] Status remains understandable without color because glyphs differ
+- [ ] Every displayed agent core is icon + canonical core name
+- [ ] Model / effort / variant appear only when useful
+- [ ] Focus is visible
+- [ ] Normal text contrast is verified at the correct threshold
+- [ ] Light, dark, and high-contrast themes are checked
+- [ ] Shared/reusable components contain no hard-coded dark-theme surface leaks
+- [ ] Reduced motion loses no information
+- [ ] Mirrored behavior constants remain pinned
+- [ ] Tests/typecheck pass
+- [ ] Real webview verification covers what tests cannot prove

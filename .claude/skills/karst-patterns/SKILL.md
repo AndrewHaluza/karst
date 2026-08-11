@@ -70,10 +70,11 @@ Layering rules the history enforces:
 Guard: `writeManifest.test.ts` "round-trips every modeled section".
 
 ### Adding a UI control
-1. Read `docs/ui/UI-RULES.md`; every change is judged pass/fail against a numbered rule (`UI-R01`…). Cite the rule id in the commit.
-2. Only `--k-*` tokens as style values — no hex, `rgba()`, raw px/rem, radius, shadow, duration.
-3. Any control that posts to the host: local pending state on click, `aria-busy`, single-trigger guard, terminal `{type:'action-result', requestId, ok, message?}`, and a watchdog reporting "unknown" on timeout.
-4. Actions are `<button>`, navigation is `<a href>`; icon-only controls carry identical `aria-label` + `title` ≤80 chars.
+1. Read `docs/ui/UI-RULES.md` (v3.0); every change is judged pass/fail against a numbered rule (`UI-R01`…) and its verification mode (STATIC / RUNTIME / VISUAL / REVIEW). Cite the rule id in the commit. `docs/ui/KARST-UI-CATALOG.html` is the rendered reference.
+2. `--k-*` tokens for every SHARED/repeated visual decision; screen-local composition geometry may stay a plain literal — never fake it as token arithmetic.
+3. Any control that posts to the host: local pending state on click, `aria-busy`, single-trigger guard, terminal `{type:'action-result', requestId, ok, message?}`, and a watchdog reporting "unknown" (≠ failure) on timeout. Keep the geometry stable rather than freezing the label.
+4. Actions are `<button>`, navigation is `<a href>`, and a visible filepath/PR/commit is itself the link — no duplicate `Open file` button. Icon-only controls need an accessible name; a `title` is supplemental and must agree with it, ≤80 chars.
+5. Workflow status is the icon-only `.k-status` (check / spinner / pause / cross / dot) with an accessible name and no visible status word; an agent core is always `providerIdentity.ts`'s canonical icon + name, with model/effort as secondary metadata.
 
 ### Adding an agent core
 1. New adapter in `src/agent/<name>.ts` implementing `AgentAdapter`.

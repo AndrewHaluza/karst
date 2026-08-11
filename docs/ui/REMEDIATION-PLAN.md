@@ -4,6 +4,20 @@ Bringing the existing UI into conformance with [UI-RULES.md](./UI-RULES.md).
 Every task names the rules it satisfies, so the work is traceable back to the
 contract (UI-R35).
 
+> **Contract superseded — read the rules, not this plan, for what is binding.**
+> The contract was replaced by v3.0 (`UI-RULES.md`, `DESIGN-SYSTEM.md`,
+> `STYLE-GUIDE.md`, `KARST-UI-CATALOG.html`). The rule numbering and the phase
+> ticks below are a record of the earlier remediation, not the current rule set:
+> v3.0 renumbers to `UI-R01`…`UI-R37` (plus `R09b`/`R09c`/`R10b`/`R10c`/`R14b`/
+> `R28b`), adds verification modes, and changes several rulings (icon-only
+> status, agent-core identity, resource-identifier links, geometry-stable
+> pending instead of frozen labels, local geometry allowed outside the token
+> scale). Where this plan and v3.0 disagree, v3.0 wins.
+>
+> The work v3.0 adds on top of what this plan already closed is tracked in
+> [V3-CONFORMANCE-GAPS.md](./V3-CONFORMANCE-GAPS.md) — read that for what is
+> still open, not the ticks below.
+
 **Status legend:** ☑ done · ☐ pending
 
 ---
