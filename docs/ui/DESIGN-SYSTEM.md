@@ -1,155 +1,376 @@
 # Karst Design System
 
-The single source of truth for what Karst's UI is made of: **tokens** (the only
-legal style values), **primitives** (the only legal controls), and the **state
-matrix** each primitive must express.
+**Version:** 3.0 — finalized UI contract
 
-This document defines *what exists*. [UI-RULES.md](./UI-RULES.md) defines *what
-an agent must do* and is the enforceable contract. [STYLE-GUIDE.md](./STYLE-GUIDE.md)
-defines *how to apply it*.
+The source of truth for Karst's shared visual language: **semantic tokens,
+shared primitives, component states, and accessibility contracts**.
+
+This document defines *what the UI is made of*.
+
+[UI-RULES.md](./UI-RULES.md) defines the binding repository invariants.
+[STYLE-GUIDE.md](./STYLE-GUIDE.md) defines how to apply this system while
+preserving Karst's product character.
+
+[KARST-UI-CATALOG.html](./KARST-UI-CATALOG.html) is the rendered catalog of the
+primitives, states and tokens described here.
+
+Parts of this contract are not yet what the repository ships — notably the
+`.k-status` primitive (§11.12), the feedback-token aliasing rule (§2.2/§3.5), the
+filled-surface foregrounds (§3.5) and the unified palette delivery (§1.2). Those
+deltas are enumerated in
+[V3-CONFORMANCE-GAPS.md](./V3-CONFORMANCE-GAPS.md); read this document as the
+target, and that one for what is still open.
+
+This document does **not** define host/webview transport, request IDs,
+dispatching, persistence, retry policy, or domain behavior.
 
 ---
 
-## 0. Why this exists (the measured problem)
+## 0. Product character
 
-Karst's UI is seven self-contained `webview.html` documents. CSP forbids a shared
-stylesheet or script, so every file grew its own copy of everything. Measured
-across `src/ui/*/webview.html` before remediation:
+Karst is a dense developer tool inside VS Code.
 
-| Symptom | Measurement |
+The approved UI direction is:
+
+- compact rather than spacious;
+- structured rather than decorative;
+- restrained in borders, fills, shadows, and animation;
+- strongly hierarchical;
+- explicit about stage and workflow status;
+- native-feeling inside VS Code;
+- context-aware rather than forcing every UI object into one generic component
+  shape.
+
+Consistency means **the same semantic thing behaves and renders consistently**.
+
+Consistency does not mean:
+
+- every row is a button;
+- every label is a pill;
+- every local composition is a card;
+- every status uses the same generic feedback treatment;
+- every dimension belongs to one global spacing scale.
+
+The current prototype-approved density and visual tuning are the baseline.
+Changing token values for spacing, type, radius, or sizing is a separate visual
+design decision and must not happen as incidental cleanup.
+
+---
+
+# 1. Delivery
+
+Karst currently ships self-contained `webview.html` documents and uses
+host-side marker injection for shared UI assets.
+
+This is a **repository architecture choice**, not a CSP requirement. VS Code
+supports extension-local webview resources under an appropriate CSP; Karst keeps
+marker injection because it fits the current build/runtime architecture and
+avoids introducing another frontend delivery mechanism.
+
+## 1.1 Required markers
+
+Every webview carries:
+
+- `<!--KARST_CSP-->`
+- `/*KARST_DS_CSS*/`
+- `/*KARST_DS_JS*/`
+
+The host applies the shared design-system injection before the CSP nonce pass.
+
+Webview discovery tests enumerate webview directories from disk. They must not
+use a handwritten list.
+
+## 1.2 Target: one shared visual delivery path
+
+The status and stage palettes remain owned by:
+
+- `src/model/palette.ts`
+- `src/model/stagePalette.ts`
+
+**Current implementation:** some webviews still receive these through the
+separate `/*KARST_PALETTE*/` marker and `injectPalette(...)` path.
+
+**Target implementation:** palette and stage-palette CSS are assembled into the
+mandatory `injectDesignSystem(html)` delivery path.
+
+A webview must not permanently need to opt into the token system and palette
+system independently. That split previously allowed a semantic token to resolve
+through a missing palette variable without any failure.
+
+Once the target delivery path is implemented and covered by discovery tests,
+`/*KARST_PALETTE*/` and redundant `injectPalette(...)` calls are removed.
+
+Palette ownership remains separate in TypeScript; only delivery is unified.
+
+## 1.3 Ownership
+
+| Concern | Owner |
 |---|---|
-| No shared color source | **6 distinct greens** (`#73c991 #4bb64b #2ea043 #89d185 #81b88b #3fb950`), **5 reds**, **3 purples** for related meanings |
-| No spacing scale | **~1050** raw `px` literals across 24 distinct magnitudes |
-| No type scale | **~30** distinct `font-size` values, incl. `9px 9.5px 10px 10.5px 11px 11.5px` |
-| No shared primitive | at least **6** rounded-pill/chip shapes at 3 different radii; **3** circular "node" treatments encoding overlapping status |
-| No pending feedback | **0** occurrences of `aria-busy` in the entire UI |
-| Partial token adoption | 3 of 7 webviews (`usage`, `diffs`, `welcome`) carry **no** `/*KARST_PALETTE*/` marker, so they are outside even the one shared block that already existed |
+| visual tokens | `designTokens.ts` |
+| shared primitive CSS | `designComponents.ts` |
+| status visual source | `palette.ts` |
+| stage palette | `stagePalette.ts` |
+| shared UI/component behavior | shared webview runtime |
+| agent-core icon + canonical name mapping | `src/model/providerIdentity.ts` |
+| screen composition | `src/ui/<view>/webview.html` |
+| host/domain behavior | host/application code |
 
-The delivery mechanism is not new. `src/model/palette.ts` and
-`src/model/providerIdentity.ts` already prove the pattern: **a marker in the HTML,
-a TS module that emits CSS/JS text, and a host-side inject call.** This design
-system extends exactly that mechanism rather than inventing a second one — and
-no UI framework or component library is introduced (see [UI-RULES.md](./UI-RULES.md) §R-0).
+Shared UI JavaScript may implement component behavior such as toast dismissal,
+focus management, or common busy-state presentation.
 
----
-
-## 1. Delivery
-
-| Artifact | Location |
-|---|---|
-| Token + primitive definitions (TS) | `src/model/designSystem.ts` |
-| CSS marker (first line inside each `<style>`) | `/*KARST_DS_CSS*/` |
-| JS marker (first statement inside each `<script>`) | `/*KARST_DS_JS*/` |
-| Injector | `injectDesignSystem(html)` |
-
-Ordering is load-bearing:
-
-- `/*KARST_DS_CSS*/` sits at the **top** of the file's own `<style>`, so a
-  file-local rule can still override a primitive during migration. Once a
-  screen is remediated it must have nothing left to override.
-- `/*KARST_PALETTE*/` continues to sit in the **trailing** `<style>` block, so
-  the `--k-*` status ramp wins the cascade. The design system consumes that ramp;
-  it does not redefine it.
-- `/*KARST_DS_JS*/` must be injected **before** `injectCsp`, so the nonce pass
-  authorizes it.
-
-Every webview carries both markers. `src/ui/designSystem.test.ts` discovers the
-webview directories rather than listing them (same rationale as
-`ui/webviewCsp.test.ts`): a webview added later cannot ship outside the system
-without a failing test.
+The host action protocol is not part of the design system.
 
 ---
 
-## 2. Tokens
+# 2. Token model
 
-Tokens are CSS custom properties emitted into `:root`. **A token is the only
-legal style value.** No component may contain a raw hex, a raw `px` spacing or
-font size, a raw radius, or a raw duration.
+A token represents a **reusable visual decision**.
 
-Values resolve to VS Code theme variables wherever a theme variable expresses
-the intent, with a hex fallback for the case where the host theme omits it. That
-is what makes the UI track the user's theme instead of imposing a palette.
+Tokens are required for:
 
-### 2.1 Color
+- semantic colors;
+- repeated typography roles;
+- repeated spacing;
+- shared radii;
+- shared component sizes;
+- elevation;
+- motion;
+- layering.
 
-Colors are **semantic**, never literal. `--k-danger` — never `--k-red`.
+Tokens are not required for arbitrary CSS syntax or unique layout geometry.
 
-#### Surface
+Valid screen-local CSS may contain, for example:
 
-| Token | Value | Use |
+```css
+grid-template-columns: 172px minmax(0, 1fr);
+transform: translateX(-50%);
+clip-path: polygon(...);
+width: 86vw;
+```
+
+when those values belong to that composition rather than the shared visual
+system.
+
+Do not replace a clear local dimension with meaningless arithmetic such as:
+
+```css
+width: calc(var(--k-space-8) * 23);
+```
+
+merely to satisfy a source-code rule.
+
+If a local dimension becomes a repeated component contract, promote it to a
+meaningful component token.
+
+---
+
+## 2.1 Semantic identity is not value identity
+
+Two semantic tokens may intentionally have the same current value.
+
+For example:
+
+```text
+workflow passed ─┐
+                 ├─ may use the same current positive tone
+feedback success ┘
+```
+
+They remain separate semantic roles.
+
+Likewise:
+
+```text
+page background
+sunken surface
+```
+
+may currently resolve to the same VS Code value without becoming the same token.
+
+The system forbids **duplicate meanings**, not duplicate underlying values.
+
+---
+
+## 2.2 Semantic layers
+
+Karst uses this model:
+
+```text
+theme / palette source
+        ↓
+semantic roles
+        ↓
+components / domain UI
+```
+
+A semantic CSS token must not alias through another unrelated semantic CSS token
+just because the current color matches.
+
+If two roles use the same actual color, their TypeScript definitions may source
+the same **private/shared palette value in TypeScript**.
+
+Do not introduce another public CSS namespace such as `--k-tone-positive` merely
+to deduplicate values unless a real component needs to consume that foundation
+role directly.
+
+Example:
+
+```text
+positive palette source
+ ├─ --k-passed
+ └─ --k-success
+```
+
+not:
+
+```text
+--k-success: var(--k-passed)
+```
+
+This preserves one controlled visual source without making "success feedback"
+mean "workflow passed".
+
+---
+
+# 3. Color
+
+## 3.1 Surface
+
+| Token | Current value | Use |
 |---|---|---|
 | `--k-bg` | `var(--vscode-editor-background)` | page background |
-| `--k-surface` | `var(--vscode-editorWidget-background, var(--vscode-editor-background))` | panels, cards, drawers |
-| `--k-surface-hover` | `var(--vscode-list-hoverBackground)` | row/control hover wash |
-| `--k-surface-selected` | `var(--vscode-list-inactiveSelectionBackground, var(--k-surface-hover))` | a row that is selected, or that was just acted on (the `.k-btn--row` success flash) |
-| `--k-surface-sunken` | `var(--vscode-editor-background)` | wells, progress tracks |
-| `--k-border` | `var(--vscode-panel-border, rgba(128,128,128,.35))` | default 1px hairline |
-| `--k-border-strong` | `var(--vscode-contrastBorder, var(--vscode-panel-border))` | emphasis / high-contrast themes |
+| `--k-surface` | `var(--vscode-editorWidget-background, var(--vscode-editor-background))` | panels, drawers, cards |
+| `--k-surface-hover` | `var(--vscode-list-hoverBackground)` | hover wash |
+| `--k-surface-selected` | `var(--vscode-list-inactiveSelectionBackground, var(--k-surface-hover))` | persistent selection |
+| `--k-surface-sunken` | `var(--vscode-editor-background)` | wells, tracks |
+| `--k-border` | theme-derived neutral border | normal hairline |
+| `--k-border-strong` | theme contrast border | high-emphasis boundary |
 
-#### Text
+`--k-bg` and `--k-surface-sunken` intentionally remain separate semantic names.
 
-| Token | Value | Use |
-|---|---|---|
-| `--k-text` | `var(--vscode-foreground)` | body |
-| `--k-text-dim` | `var(--vscode-descriptionForeground, var(--vscode-foreground))` | secondary, labels, captions |
-| `--k-text-faint` | `var(--vscode-disabledForeground, var(--vscode-descriptionForeground))` | disabled, tertiary metadata |
-| `--k-link` | `var(--vscode-textLink-foreground)` | links |
-| `--k-link-active` | `var(--vscode-textLink-activeForeground, var(--vscode-textLink-foreground))` | link hover/active |
+## 3.2 Text
 
-#### Action
+| Token | Use |
+|---|---|
+| `--k-text` | body / primary |
+| `--k-text-dim` | secondary labels and metadata |
+| `--k-text-faint` | tertiary/unavailable |
+| `--k-link` | navigation |
+| `--k-link-active` | navigation hover/active |
 
-| Token | Value | Use |
-|---|---|---|
-| `--k-action-bg` | `var(--vscode-button-background)` | primary button fill |
-| `--k-action-fg` | `var(--vscode-button-foreground)` | primary button text |
-| `--k-action-bg-hover` | `var(--vscode-button-hoverBackground, var(--vscode-button-background))` | primary hover |
-| `--k-action-2-bg` | `var(--vscode-button-secondaryBackground)` | secondary fill |
-| `--k-action-2-fg` | `var(--vscode-button-secondaryForeground)` | secondary text |
-| `--k-action-2-bg-hover` | `var(--vscode-button-secondaryHoverBackground, var(--vscode-button-secondaryBackground))` | secondary hover |
-| `--k-focus` | `var(--vscode-focusBorder)` | the focus ring — one value, everywhere |
+## 3.3 Actions
 
-#### Status (existing ramp — consumed, not redefined)
+| Token | Use |
+|---|---|
+| `--k-action-bg` | primary action background |
+| `--k-action-fg` | primary action foreground |
+| `--k-action-bg-hover` | primary hover |
+| `--k-action-2-bg` | secondary action background |
+| `--k-action-2-fg` | secondary action foreground |
+| `--k-action-2-bg-hover` | secondary hover |
+| `--k-focus` | shared focus indicator |
 
-Emitted today by `src/model/palette.ts`. The design system **must not** declare a
-second value for any of these.
+Where VS Code exposes a paired control foreground/background role, use the pair.
+
+---
+
+## 3.4 Workflow status
+
+Owned visually by `palette.ts`.
 
 | Token | Meaning |
 |---|---|
-| `--k-pending` | idle · skipped · not yet run · offline |
-| `--k-running` | in progress |
-| `--k-attention` | needs the user |
-| `--k-passed` | succeeded · done · online |
-| `--k-failed` | failed · blocked |
+| `--k-pending` | not started / not checked / neutral waiting |
+| `--k-running` | actively in progress |
+| `--k-attention` | paused / blocked / waiting for intervention |
+| `--k-passed` | passed / done / completed |
+| `--k-failed` | terminal failure |
 
-#### Feedback (aliases onto the status ramp — this is what kills the 6 greens)
+Workflow status is rendered by the icon-only `.k-status` primitive (§11.12).
+The glyph/shape carries the visible state; color reinforces it.
 
-| Token | Value |
+`offline`, `skipped`, and other domain states remain explicit domain meanings.
+They may intentionally use the same neutral visual treatment as another state
+when surrounding copy supplies the distinction, but must not be renamed merely
+to obtain a color.
+
+---
+
+## 3.5 Feedback
+
+Feedback describes the UI's communication tone.
+
+| Token | Meaning |
 |---|---|
-| `--k-success` | `var(--k-passed)` |
-| `--k-warning` | `var(--k-attention)` |
-| `--k-danger` | `var(--k-failed)` |
-| `--k-info` | `var(--k-running)` |
-| `--k-success-fg` / `--k-danger-fg` | `var(--vscode-editor-background)` — text *on* a filled success/danger surface |
+| `--k-success` | positive result |
+| `--k-warning` | warning / caution |
+| `--k-danger` | error / destructive emphasis |
+| `--k-info` | neutral information |
+| `--k-success-fg` | foreground on filled success |
+| `--k-danger-fg` | foreground on filled danger |
 
-#### Data series (categorical — not status)
+Feedback tokens and workflow-status tokens may source the same palette constants,
+but they do not alias each other in CSS.
 
-| Token | Value |
+**Current intended mapping:** `--k-passed` and `--k-success` use the same positive
+palette value and therefore render as the same green. That is intentional.
+`passed` means workflow state; `success` means generic UI feedback. Their semantic
+names remain separate so either role can diverge later without changing usage.
+
+The same principle may apply to other status/feedback pairs: shared visual source,
+separate semantic token.
+
+Filled semantic surfaces require an explicitly tested foreground pair.
+
+`--k-success-fg` / `--k-danger-fg` must not simply be the page background.
+Their concrete theme values are owned alongside the palette and are pinned by
+contrast tests.
+
+---
+
+## 3.6 Data series
+
+Categorical visualization colors are independent semantic roles.
+
+| Token | Meaning |
 |---|---|
-| `--k-series-1` | `var(--k-info)` |
-| `--k-series-2` | `var(--vscode-charts-purple, #8a63d2)` |
+| `--k-series-1` | first categorical series |
+| `--k-series-2` | second categorical series |
 
-For a view with more than one series (the usage view breaks spend down by stage
-*and* by model, side by side). Used in order. These are **not** status colours:
-`--k-info` means "running", and borrowing it for a second series would make one
-colour carry two claims.
+To preserve the current approved visual appearance, a series token may currently
+use the same actual hue as another palette source.
 
-> A component that needs "green" uses `--k-success`. There is no second green to
-> pick. Ad-hoc `#2ea043` / `#73c991` / `#89d185` are the defect this replaces.
+It must still be emitted independently.
 
-### 2.2 Spacing
+Never use:
 
-Derived from the actual distribution (the six most-used values were `1,6,8,10,12,4`).
-The scale is closed — a component may not interpolate between steps.
+- `--k-running` as a chart series;
+- `--k-info` as a chart series;
+- `--k-series-2` as a merged/status badge;
+- chart-series colors to communicate workflow meaning.
+
+---
+
+## 3.7 Stages
+
+Stage identity is owned by `stagePalette.ts`.
+
+Karst's primary workflow is:
+
+```text
+Scope → Implement → UAT → Review → Ship → Done
+```
+
+Stage identity is not generic feedback.
+
+A stage must not become "success", "warning", or "info" merely because those
+colors are visually convenient.
+
+---
+
+# 4. Spacing
+
+The current spacing scale is preserved:
 
 | Token | Value |
 |---|---|
@@ -164,438 +385,735 @@ The scale is closed — a component may not interpolate between steps.
 | `--k-space-8` | `20px` |
 | `--k-space-9` | `26px` |
 
-`1px` is **not** a spacing step — it is a border width, `--k-border-w`.
+Use this scale for recurring:
 
-### 2.3 Radius
+- margin;
+- padding;
+- gap;
+- compact rhythm.
+
+The scale is **not** a universal dimension scale.
+
+A graph node, drawer width, column width, timeline offset, or other
+composition-specific geometry may use a local value.
+
+`1px` hairlines use `--k-border-w`.
+
+Do not expand this scale merely to absorb every historical literal.
+
+---
+
+# 5. Radius
+
+Current visual values are preserved.
 
 | Token | Value | Use |
 |---|---|---|
-| `--k-radius-xs` | `3px` | tiny overlay controls (attachment detach) |
+| `--k-radius-xs` | `3px` | tiny overlay/detail controls |
 | `--k-radius-sm` | `5px` | buttons, inputs |
-| `--k-radius-md` | `6px` | rows, small panels |
-| `--k-radius-lg` | `9px` | chips, badges |
-| `--k-radius-xl` | `12px` | large panels, drawers, modals |
-| `--k-radius-pill` | `999px` | pills, toggle tracks |
-| `--k-radius-circle` | `50%` | status dots, nodes |
+| `--k-radius-md` | `6px` | rows, compact surfaces |
+| `--k-radius-lg` | `9px` | badges/pills |
+| `--k-radius-xl` | `12px` | large overlays |
+| `--k-radius-pill` | `999px` | pill geometry |
+| `--k-radius-circle` | `50%` | circles |
 
-### 2.4 Typography
+A local non-shared shape may use local geometry.
 
-| Token | Value |
+---
+
+# 6. Typography
+
+The current visual sizing is preserved in this remediation.
+
+Names describe roles where possible; no new size is introduced merely for
+taxonomy.
+
+| Token | Current value | Role |
+|---|---|---|
+| `--k-text-2xs` | `10px` | dense metadata |
+| `--k-text-xs` | `11px` | captions / compact control labels |
+| `--k-text-sm` | `11.5px` | secondary body |
+| `--k-text-md` | `12px` | dense table/body |
+| `--k-text-base` | current 13px/body contract | normal page body |
+| `--k-text-lg` | `14px` | section heading |
+| `--k-text-xl` | `17px` | page/view title |
+| `--k-text-2xl` | `20px` | prominent statistic |
+
+The existing `11.5px` value is preserved because changing it would be a visual
+retuning. Whether the scale should later be simplified is a separate design
+decision.
+
+Weights:
+
+- `--k-weight-normal`: `400`
+- `--k-weight-medium`: `500`
+- `--k-weight-semibold`: `600`
+
+Leading:
+
+- `--k-leading-tight`: `1.15`
+- `--k-leading-normal`: `1.45`
+
+Do not create further fractional sizes to preserve incidental historical
+differences.
+
+### Font family
+
+Do not switch the Karst UI to VS Code's **editor** font merely because webviews
+expose `--vscode-editor-font-family`; preserve the current approved Karst UI font
+behavior until a dedicated typography change verifies the visual result.
+
+---
+
+# 7. Elevation
+
+Keep only shared elevation levels that are actually used.
+
+| Token | Use |
 |---|---|
-| `--k-font-ui` | `var(--vscode-font-family, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif)` |
-| `--k-font-mono` | `var(--vscode-editor-font-family, "SF Mono", ui-monospace, Menlo, Monaco, Consolas, monospace)` |
-| `--k-text-2xs` | `10px` — dense metadata only |
-| `--k-text-xs` | `11px` — control labels, captions |
-| `--k-text-sm` | `11.5px` — secondary body |
-| `--k-text-md` | `12px` — table/body default |
-| `--k-text-base` | `var(--vscode-font-size, 13px)` — page body |
-| `--k-text-lg` | `14px` — section headings |
-| `--k-text-xl` | `17px` — page title |
-| `--k-text-2xl` | `20px` — stat numerals |
-| `--k-weight-normal` / `-medium` / `-semibold` | `400` / `500` / `600` |
-| `--k-leading-tight` / `-normal` | `1.15` / `1.45` |
+| `--k-elev-2` | drawer/dropdown |
+| `--k-elev-3` | modal/toast |
+| `--k-scrim` | modal backdrop |
 
-Nine steps replace ~30 ad-hoc sizes. `9px`, `9.5px`, `10.5px`, `12.5px` are
-**removed**, not tokenized — they were rounding noise, not intent.
+Unused theoretical elevation levels should not exist solely to complete a scale.
 
-### 2.5 Elevation
+Concrete values remain the current implementation values unless changed by a
+visual-design task.
 
-| Token | Value | Use |
-|---|---|---|
-| `--k-elev-0` | `none` | flush |
-| `--k-elev-1` | `0 1px 2px rgba(0,0,0,.18)` | raised row, popover |
-| `--k-elev-2` | `0 4px 12px rgba(0,0,0,.28)` | drawer, dropdown |
-| `--k-elev-3` | `0 8px 28px rgba(0,0,0,.35)` | modal, toast |
-| `--k-scrim` | `rgba(0,0,0,.35)` | modal/drawer backdrop |
+---
 
-### 2.6 Motion
+# 8. Motion
 
-| Token | Value | Use |
-|---|---|---|
-| `--k-dur-fast` | `120ms` | hover, focus, color change |
-| `--k-dur-base` | `180ms` | expand/collapse, small move |
-| `--k-dur-slow` | `280ms` | drawer, modal |
-| `--k-dur-spin` | `900ms` | one spinner revolution |
-| `--k-dur-flash-copy` | `1200ms` | optimistic copy confirmation |
-| `--k-dur-flash-done` | `2400ms` | terminal success badge dwell |
-| `--k-ease-standard` | `cubic-bezier(.2,0,.2,1)` | default |
-| `--k-ease-out` | `cubic-bezier(0,0,.2,1)` | entrances |
+Shared motion tokens remain:
 
-**Every** animation and transition must be nulled under
-`@media (prefers-reduced-motion: reduce)`. The design system emits that block
-once; a component must not reintroduce unguarded motion.
+| Token | Use |
+|---|---|
+| `--k-dur-fast` | hover/focus/color |
+| `--k-dur-base` | small expansion/move |
+| `--k-dur-slow` | overlay entrance |
+| `--k-dur-spin` | spinner |
+| `--k-dur-flash-copy` | copy acknowledgement |
+| `--k-dur-flash-done` | transient completion acknowledgement |
+| `--k-ease-standard` | default easing |
+| `--k-ease-out` | entrances |
 
-### 2.7 Sizing
+Reduced-motion mode removes non-essential animation without removing state.
+
+Meaning must survive when animation stops.
+
+---
+
+# 9. Shared sizing
+
+Current compact density is preserved:
 
 | Token | Value | Use |
 |---|---|---|
 | `--k-border-w` | `1px` | hairline |
-| `--k-control-h-sm` | `22px` | dense icon button |
+| `--k-control-h-sm` | `22px` | dense text control |
 | `--k-control-h-md` | `26px` | default control |
-| `--k-control-h-lg` | `30px` | prominent control, node |
-| `--k-hit-min` | `24px` | minimum pointer target (WCAG 2.2 §2.5.8 AA) |
-| `--k-focus-w` | `1px` | focus ring width |
-| `--k-focus-offset` | `1px` | focus ring offset |
+| `--k-control-h-lg` | `30px` | prominent control |
+| `--k-hit-min` | `24px` | preferred standalone pointer target |
+| `--k-focus-w` | current shared value | focus indicator |
+| `--k-focus-offset` | current shared value | focus offset |
 
-### 2.8 Layering
+A `22px` dense text control is not automatically invalid. Karst nevertheless
+requires standalone icon buttons to provide at least a `24×24px` target.
 
-| Token | Value |
+Do not misrepresent `--k-hit-min` as an exceptionless WCAG rule.
+
+---
+
+# 10. Component-state vocabulary
+
+The shared state vocabulary is:
+
+- default;
+- hover;
+- focus-visible;
+- active;
+- loading;
+- disabled;
+- error;
+- success;
+- selected;
+- checked;
+- expanded.
+
+Not every component supports every state.
+
+Each primitive declares applicable states. Unsupported states are `N/A`, not
+features that must be invented.
+
+---
+
+# 11. Primitives
+
+## 11.1 Button — `.k-btn`
+
+A real `<button>` used for actions.
+
+### Variants
+
+| Variant | Meaning |
 |---|---|
-| `--k-z-scrim` | `30` |
-| `--k-z-drawer` | `40` |
-| `--k-z-modal` | `50` |
-| `--k-z-toast` | `60` |
-| `--k-z-tooltip` | `70` |
+| `primary` | main action in the current context |
+| `secondary` | ordinary adjacent action |
+| `ghost` | low-emphasis action |
+| `danger` | destructive action |
+| `text` | action with minimal visual chrome |
+
+`text` replaces the ambiguous term "link button".
+
+Navigation uses `.k-link` on `<a href>`.
+
+### Sizes
+
+Current shared heights remain:
+
+- `.k-btn--sm` → `--k-control-h-sm`
+- default → `--k-control-h-md`
+- `.k-btn--lg` → `--k-control-h-lg`
+
+Buttons use:
+
+- shared button typography;
+- `--k-radius-sm`;
+- shared variant border/fill;
+- spacing tokens for shared internal padding.
+
+A local screen may position or constrain a button but may not recreate another
+button appearance locally.
+
+### States
+
+| State | Contract |
+|---|---|
+| default | variant appearance |
+| hover | shared variant hover |
+| focus-visible | visible `--k-focus` treatment |
+| active | subtle press feedback; no neighboring reflow |
+| loading | when the action genuinely waits; exposes busy state |
+| disabled | unavailable state |
+| error | normally surfaced at owning context, not by permanently recoloring button |
+| success | optional transient acknowledgement when changed state is not already obvious |
+| selected | only for explicitly selectable button patterns |
+
+Pending/success affordances must not cause disruptive width changes. Reserve a
+status/icon slot, preserve minimum width, or put the status adjacent where needed.
+
+Changing the label during pending is not globally forbidden, but unnecessary
+accessible-name churn and layout shifts should be avoided.
 
 ---
 
-## 3. The state matrix
+## 11.2 Icon button — `.k-iconbtn`
 
-Every interactive primitive must express these eight states. A primitive's row in
-its own section below says *how*; this table says what each state **means** and
-what it is **not allowed** to be confused with.
+A real button whose visible content is only a glyph/icon.
 
-| State | Trigger | Required expression | Never |
-|---|---|---|---|
-| **default** | resting | the primitive's base look | — |
-| **hover** | pointer over | `--k-surface-hover` wash or the variant's hover fill | a size change that reflows neighbours |
-| **focus-visible** | keyboard focus | `outline: var(--k-focus-w) solid var(--k-focus)` at `--k-focus-offset` | removed, or replaced by a colour change alone |
-| **active/pressed** | pointer down | a visible depress (scale `.96` or a darker fill) | nothing |
-| **loading/processing** | async action in flight | `aria-busy="true"` + spinner **and** the control is non-re-triggerable | a label swap alone; a spinner without `aria-busy` |
-| **disabled** | unavailable | `disabled` attribute, `--k-text-faint`, `opacity:.45`, `cursor:default` | `pointer-events:none` alone (kills the tooltip that explains *why*) |
-| **error** | action failed / invalid input | `--k-danger` border or text, and a message a human can act on | a red control with no message |
-| **success** | action succeeded | `--k-success` flash for `--k-dur-flash-done`, then return to default | a permanent green state that hides the next default |
+Requirements:
 
-Two states are distinct and must not be collapsed:
+- accessible name;
+- shared icon-button appearance;
+- minimum `24×24px` standalone target;
+- decorative icon hidden from assistive technology when the button itself is
+  already named.
 
-- **disabled** = "you cannot do this" (and the tooltip says why).
-- **loading** = "you already did this, wait".
+A matching `title` may be added as supplemental pointer help.
 
-A control that is disabled *because* it is loading carries `aria-busy="true"`;
-a control disabled for any other reason must not.
-
-> **Scope.** These states apply to the interactive element itself (a `<button>`,
-> `<a>`, or a primitive like `.k-btn`), never to a non-interactive container
-> wrapping it. `:active` on a row `<div>` is a defect (UI-R09b) — a row does not
-> post a message, so a press depress on it promises an interaction that does not
-> exist.
+`title` is not the accessible name.
 
 ---
 
-## 4. Primitives
+## 11.3 Link — `.k-link`
 
-Class prefix is `k-`. A primitive owns its states; a screen supplies only content
-and variant.
+A real `<a href>` used for navigation or resource reveal.
 
-### 4.1 Button — `.k-btn`
+When a file path, PR number, commit hash, URL, or other resource identifier is
+already visible, the identifier itself is the link.
 
-The default interactive control. Always a real `<button>`.
+Example:
 
-**Variants** (`.k-btn--<variant>`)
+```html
+<a class="k-link mono" href="…">src/store/recoveryRounds.ts:693</a>
+```
 
-| Variant | Look | Use |
+Do not render the path as inert text plus an adjacent **Open file** button when
+both perform the same navigation.
+
+If VS Code/host mediation is required to reveal a resource, the webview may route
+the link activation through the host, but the UI remains link semantics rather
+than a visually separate action button.
+
+An action that merely looks link-like remains a `<button class="k-btn
+k-btn--text">`.
+
+---
+
+## 11.4 Input — `.k-input`
+
+For text-like input and textarea controls.
+
+Applicable states:
+
+- default;
+- hover;
+- focus;
+- readonly;
+- disabled;
+- error;
+- busy where editing genuinely needs to be suspended.
+
+Field errors use:
+
+- `aria-invalid="true"`;
+- an actionable message;
+- programmatic association with that message.
+
+---
+
+## 11.5 Select — `.k-select`
+
+Native `<select>` is a separate primitive from text input.
+
+A `<select>` has no `readonly` state.
+
+When unavailable, use a real supported state such as `disabled`.
+
+When its options are asynchronously loading, expose that state at the owning
+field/surface instead of inventing a readonly-select contract.
+
+---
+
+## 11.6 Field — `.k-field`
+
+Label + control + help/error.
+
+Prefer native `<label for>`.
+
+Field-specific errors stay with the field.
+
+A global/page error region is for errors without a meaningful local owner.
+
+---
+
+## 11.7 Switch — `.k-switch`
+
+Used for a persistent on/off setting.
+
+Prefer a native checkbox with switch styling where practical.
+
+If a custom switch is necessary, it implements the full switch semantics and
+keyboard contract.
+
+A temporary pressed/unpressed action is a button with `aria-pressed`, not a
+switch.
+
+---
+
+## 11.8 Badge — `.k-badge`
+
+Non-interactive compact information.
+
+Examples:
+
+- stage;
+- repository state;
+- count;
+- usage total;
+- draft / merged metadata.
+
+An agent core/provider identity is **not** a badge. Use `.k-agent-core`
+(§11.9).
+
+An informational badge does not gain pressed/hover/disabled semantics simply
+because an interactive chip exists elsewhere.
+
+---
+
+## 11.9 Agent core identity — `.k-agent-core`
+
+Whenever an agent core is shown, its identity is:
+
+**canonical core icon + canonical core name**
+
+The mapping is owned by `src/model/providerIdentity.ts`.
+
+Examples of core names include:
+
+- Claude Code
+- Codex
+- AGY
+- OpenCode
+
+The icon is decorative when the visible name is present.
+
+Optional secondary metadata may follow the core identity when it helps explain
+the configured or recorded run:
+
+```text
+<core icon> Claude Code · Opus 5
+<core icon> Codex · GPT-5.6 · high
+<core icon> OpenCode · mimo-v2.5-free
+```
+
+Display order is:
+
+1. agent role, when the row needs one (`Review Agent`, `UAT Agent`, `PR Agent`);
+2. core icon + core name;
+3. model, when useful;
+4. effort or variant, when useful;
+5. usage/timing as separate metadata.
+
+The core name is mandatory whenever the core is displayed. Never show:
+
+- a core icon without its name;
+- a model name as a replacement for the core;
+- a generic `AI` badge as the agent identity;
+- a text-only core name when the shared identity renderer is available.
+
+Model / effort / variant are secondary metadata, not part of the canonical core
+name.
+
+### Agent-core selectors
+
+A selector that presents agent cores must preserve the same icon + canonical-name
+identity for every choice.
+
+A plain native `<select>` is not appropriate when it reduces agent choices to
+text-only core names. Prefer the single-select choice/radio pattern (§11.11), or
+another accessible selector that can render the shared `.k-agent-core` identity.
+
+The selector's interaction semantics remain those of a single choice; the
+identity requirement does not justify an incomplete custom listbox.
+
+---
+
+## 11.10 Toggle chip — `.k-chip`
+
+Interactive compact binary choice.
+
+Use a real `<button aria-pressed>`.
+
+Applicable states:
+
+- default;
+- hover;
+- focus;
+- active;
+- pressed;
+- disabled.
+
+Do not use `.k-chip` for purely informational content.
+
+---
+
+## 11.11 Single-select choice
+
+Prefer native radio controls.
+
+If a custom radio visual is required, implement the complete radio interaction
+model, including keyboard focus and arrow-key navigation—not only
+`role="radio"` and `aria-checked`.
+
+---
+
+## 11.12 Workflow status — `.k-status`
+
+A non-interactive, **icon-only** workflow-state marker.
+
+The primitive does not render a visible status word. Surrounding process copy may
+describe the result where useful, but the marker itself is only the icon.
+
+| State | Visible marker | Color |
 |---|---|---|
-| `primary` | filled `--k-action-bg` / `--k-action-fg` | the one main action of a view |
-| `secondary` | `--k-action-2-bg` / `--k-action-2-fg`, `--k-border` hairline | everything alongside a primary |
-| `ghost` | transparent, `--k-text-dim`, hairline border | tertiary / dismissive |
-| `danger` | `--k-danger` border + text; filled `--k-danger` on hover | irreversible (merge, delete, archive) |
-| `link` | no chrome, `--k-link`, underline on hover | navigation rendered as a button |
+| pending / not checked | neutral circle/dot | `--k-pending` |
+| running | spinner | `--k-running` |
+| needs attention / paused / blocked | pause icon | `--k-attention` |
+| passed / done | checkmark | `--k-passed` |
+| failed | cross | `--k-failed` |
 
-**Modifier** — `.k-btn--row`, composed *with* a variant, never instead of one
-(`k-btn k-btn--ghost k-btn--row`). It marks a control that is a **row in a
-list**: full width, left-aligned, and its success state is the selection wash
-(`--k-surface-selected`) rather than the check glyph + `--k-success` border.
+`passed` and `done` intentionally share the same visible green checkmark.
 
-A row is not button-shaped — it is full width, usually its own grid, and its
-content is the data. The badge was auto-placed into that grid: on a diff file
-row it landed beside the status letter, reading `M ✓`, and pushed the path onto
-a second line; on a sidebar ticket row it shifted the glyph, name and stage pill
-sideways. Both then sat inside a green box. Success still has to be visible
-(UI-R13), but for these rows the action is a handoff — an editor or a panel
-opens — so the flash only has to say *which* row, which is what a selection wash
-already means.
+Requirements:
 
-> `.ghost` currently exists in `ticketForm/webview.html` as a class with **no CSS
-> rule at all** — `#attachBtn.ghost` renders as a primary button. `.k-btn--ghost`
-> is the real thing.
+- each state has a distinct glyph/shape, so hue is not the only visible carrier;
+- the marker has an accessible name such as `aria-label="Passed"` or
+  `aria-label="Needs attention"`;
+- the accessible name uses the actual domain wording even when two domain states
+  share one visual marker;
+- the marker is non-interactive unless the surrounding product composition gives
+  it a separate explicit action.
 
-**Sizes** (`.k-btn--sm` / default / `.k-btn--lg`) → heights `--k-control-h-sm` /
-`-md` / `-lg`, padding from the space scale, font `--k-text-xs` / `-xs` / `-md`.
+Example:
 
-**State matrix**
+```html
+<span class="k-status k-status--passed" role="img" aria-label="Done">✓</span>
+```
 
-| State | Expression |
-|---|---|
-| default | variant fill, `--k-radius-sm` |
-| hover | variant hover fill; `--k-dur-fast` |
-| focus-visible | `outline: var(--k-focus-w) solid var(--k-focus); outline-offset: var(--k-focus-offset)` |
-| active | `transform: scale(.96)` |
-| loading | `aria-busy="true"`, `disabled`, leading `.k-spinner` replaces any leading icon, label unchanged |
-| disabled | `disabled`, `opacity:.45`, `cursor:default`, label unchanged |
-| error | returns to default; the failure is reported by a toast or inline message, **not** by recolouring the button |
-| success | `.k-btn.is-success` for `--k-dur-flash-done` — check glyph + `--k-success` — then default; on `.k-btn--row`, the `--k-surface-selected` wash instead |
-
-The label **must not change** between default and loading. "Save" stays "Save";
-the spinner carries the pending meaning. A label swap (`Save` → `Saving…`) moves
-the control's accessible name mid-action and reflows its width.
-
-### 4.2 Icon button — `.k-iconbtn`
-
-Icon-only. Square, `--k-control-h-sm` or `-md`, never below `--k-hit-min`.
-
-Same variants and state matrix as `.k-btn`, plus two hard requirements:
-
-- an `aria-label` — the *accessible name*, since there is no text;
-- a `title` with the **same text** — the *tooltip*, since the glyph is not
-  self-evident.
-
-In the loading state the icon is replaced by `.k-spinner`, never overlaid.
-
-### 4.3 Link — `.k-link`
-
-A real `<a>` for navigation, `--k-link`, underline on hover, same focus ring.
-An `<a>` that triggers an action rather than navigating is a bug — use
-`.k-btn--link`.
-
-### 4.4 Input / textarea / select — `.k-input`
-
-| State | Expression |
-|---|---|
-| default | `--k-surface`, `--k-border`, `--k-radius-sm`, `--k-text-md` |
-| hover | `--k-border-strong` |
-| focus-visible | focus ring (inputs get it on `:focus`, not only `:focus-visible`) |
-| loading | `aria-busy="true"` + `readonly`; the field keeps its value |
-| disabled | `disabled`, `--k-text-faint` |
-| error | `aria-invalid="true"`, `--k-danger` border, message wired by `aria-describedby` |
-| success | no persistent success styling — a valid field is simply default |
-
-### 4.5 Form field — `.k-field`
-
-Label + control + help/error, as one unit.
-
-- The label is a real `<label for>`. A placeholder is **not** a label.
-- The error message element's `id` is referenced by the control's
-  `aria-describedby`, and the control carries `aria-invalid="true"` while it is
-  in error.
-- One error message may serve one field. A single page-level error bucket that
-  every failure funnels into (today's `#err` in the ticket form, `#errBanner` in
-  settings) is permitted only for failures that belong to no single field.
-
-### 4.6 Switch — `.k-switch`
-
-Two-state on/off. `role="switch"` + `aria-checked`, keyboard-operable with
-<kbd>Space</kbd> and <kbd>Enter</kbd>. Track `--k-radius-pill`, thumb
-`--k-radius-circle`, transition `--k-dur-fast`.
-
-A toggle *button* (pressed/unpressed) uses `.k-btn` + `aria-pressed` instead.
-Pick by meaning: `aria-pressed` = "this button is currently engaged";
-`role="switch"` = "this setting is on".
-
-### 4.7 Chip — `.k-chip`
-
-Compact selectable or informational token. `--k-radius-pill`.
-
-- Selectable → real `<button>` + `aria-pressed`.
-- Single-select group → `role="radio"` inside `role="radiogroup"` + `aria-checked`.
-- Informational only → a `<span>` with **no** `tabindex` and **no** `role="button"`.
-
-This replaces the six divergent pill shapes (`keypill`, `fixtoggle`, `approach .aid`,
-`pr .pst`, repo `chip`, `delta`) with one shape at one radius.
-
-### 4.8 Status dot — `.k-dot`
-
-Non-interactive. `--k-radius-circle`, colour strictly from the status ramp
-(`--k-pending|running|attention|passed|failed`), `role="img"` with an `aria-label`
-naming the status in words. Colour is never the only carrier of meaning.
-
-### 4.9 Spinner — `.k-spinner`
-
-The one pending indicator. Ring, `--k-dur-spin` linear infinite, `currentColor`,
-sized to the control. `aria-hidden="true"` — the busy meaning is carried by the
-host control's `aria-busy`, not by the spinner element.
-
-Nulled under `prefers-reduced-motion`, where a static ring is shown instead. The
-pending state is still conveyed, because `aria-busy` and the disabled control do
-not depend on motion.
-
-### 4.10 Modal — `.k-modal`
-
-`role="dialog"` + `aria-modal="true"` + `aria-labelledby`. Scrim `--k-scrim` at
-`--k-z-scrim`, panel `--k-elev-3` / `--k-radius-xl` at `--k-z-modal`.
-
-Required behaviour: focus moves into the dialog on open, is **trapped** while
-open, and returns to the invoking control on close; <kbd>Esc</kbd> closes; the
-scrim closes only non-destructive dialogs.
-
-A confirmation for an irreversible action is a **host-side** VS Code modal, not a
-webview one — a crafted webview message must not be able to skip it. (This is
-already the rule for `merge-pr`.)
-
-### 4.11 Drawer — `.k-drawer`
-
-Side panel. Same dialog semantics as `.k-modal` at `--k-z-drawer` / `--k-elev-2`,
-`--k-dur-slow`. The invoking control carries `aria-expanded`.
-
-### 4.12 Toast — `.k-toast`
-
-The terminal result of an async action that has no inline home.
-
-- Container is a single `<div role="status" aria-live="polite">` at `--k-z-toast`.
-- Variants `--success` / `--error` / `--info`, from the feedback tokens.
-- Success auto-dismisses after `--k-dur-flash-done`; **error does not
-  auto-dismiss** and carries a close button.
-- Never the *only* record of a destructive failure — that also belongs inline.
-
-### 4.13 Tooltip — `.k-tooltip`
-
-Short explanatory text on a control whose purpose is not self-evident.
-
-Implemented as the native `title` attribute. That is deliberate: `title` is
-keyboard-reachable through the platform, survives the CSP with no JS, and needs
-no positioning logic. A custom tooltip may only be introduced if it also works on
-focus, not only hover.
-
-- **Max 80 characters**, one sentence, no trailing period.
-- States what the control *does*, not what it is ("Re-probe every PR", not
-  "Refresh button").
-- On an icon-only control the `title` and the `aria-label` are the **same string**.
-
-### 4.14 Empty state — `.k-empty`
-
-Dashed `--k-border`, `--k-radius-xl`, centered. A headline naming what is absent
-and a hint naming the next action. **Never** a grid of zeros: "0" asserts a
-measurement, absence does not.
+No visible `Passed`, `Done`, `Running`, or `Needs attention` text is appended by
+the status primitive itself.
 
 ---
 
-## 5. Async interaction contract
+## 11.13 Spinner — `.k-spinner`
 
-This is the part the UI has none of today (`aria-busy` count: **0**).
+The shared visual pending indicator.
 
-### 5.1 Vocabulary
+The spinner is decorative when busy state is already exposed by its owner.
 
-An **async action** is any control that posts a message to the host. Two kinds:
+The running `.k-status` variant may use this spinner inside an accessible
+icon-only status container.
 
-| Kind | Definition | Settles on |
-|---|---|---|
-| `handoff` | the host hands the request to VS Code and the result is visible outside the webview (open a terminal, reveal a folder, open a URL, open an editor) | the host's **ack** |
-| `mutating` | the host changes state the webview renders (ship, merge, archive, save, spin, delete, set-*) | the host's **result**, or the next `state` push |
+Reduced motion stops the animation but leaves a static pending indicator.
 
-### 5.2 Required lifecycle
+---
 
-```
-idle ──click──▶ pending ──result:ok───▶ success flash ──▶ idle
-                   │     └─result:err──▶ error surfaced ──▶ idle
-                   └─────timeout───────▶ error surfaced ──▶ idle
-```
+## 11.14 Modal — `.k-modal`
 
-1. **On click** the control enters pending: `aria-busy="true"`, `disabled`,
-   `.k-spinner`. This happens immediately and locally — it must not wait for a
-   round trip, because the round trip is exactly what is being reported.
-2. **While pending** the control is non-re-triggerable. The runtime keys pending
-   state by control identity, so a second click is dropped, not queued.
-3. **On terminal result** the control leaves pending and the outcome is surfaced:
-   success as a flash (or simply the new state, if the state push itself is the
-   visible answer), failure as a toast or inline message that names what failed.
-4. **A watchdog is mandatory.** A control may never be permanently stuck
-   pending. On timeout the control leaves pending and reports that the result is
-   unknown — which is honest, and is not the same as reporting failure.
+A modal dialog:
 
-### 5.3 Re-rendered screens: bind the pieces, not the element
+- has an accessible name;
+- moves focus inside when opened;
+- contains focus while modal;
+- supports expected dismissal behavior;
+- restores focus to an appropriate location after close.
 
-`karstAction(el, send)` attaches a listener to **one element**. Most Karst
-screens re-render by replacing `innerHTML` and dispatch clicks from a single
-delegated document listener, so a per-element binding is destroyed on the next
-repaint and the control silently loses its feedback.
+Irreversible operations whose confirmation must not be bypassable remain
+confirmed host-side.
 
-On those screens, drive the lifecycle from the delegated handler using the same
-pieces `karstAction` uses internally:
+---
 
-```js
-const el = ev.target.closest('[data-act]');
-if (!el || karstIsPending(el)) return;          // dropped, not queued
-const requestId = karstRequestId();
-karstBeginPending(el, requestId);                // aria-busy + disabled + spinner + watchdog
-post({ type: el.dataset.act, repo: el.dataset.repo, requestId });
-```
+## 11.15 Modal drawer — `.k-drawer`
 
-`karstSettle` then resolves it from the `action-result` handler exactly as
-before. This is not a workaround — it is the supported shape for a delegated
-screen, and `sidebar`, `diffs` and `dashboard` all use it.
+An overlay side surface that makes the underlying interface temporarily
+unavailable.
 
-A control whose settlement is genuinely just "the next `state` push" (a filter, a
-facet toggle) may stay immediate and carry no `requestId`. That is a deliberate
-exemption, not an oversight, and it should be commented as one.
+It follows modal-dialog semantics.
 
-### 5.4 Host contract
+---
 
-The webview→host message carries a `requestId`. The host replies once:
+## 11.16 Side panel / inspector — `.k-panel`
+
+A non-modal contextual side surface.
+
+It does not:
+
+- claim `aria-modal`;
+- trap focus;
+- prevent interaction with the underlying screen.
+
+Use it for details/inspection flows where users should move between the panel
+and main content.
+
+---
+
+## 11.17 Toast — `.k-toast`
+
+Transient result communication where no stronger inline home exists.
+
+One coordinated polite live region per webview is the default for ordinary
+transient results.
+
+Variants:
+
+- success;
+- error;
+- info.
+
+A persistent error toast includes a real dismiss button.
+
+An error that belongs to a field, modal, drawer, or workflow remains recorded
+there rather than existing only as a toast.
+
+---
+
+## 11.18 Tooltip / contextual help
+
+Native `title` is supplemental convenience only.
+
+Required information must not depend on it.
+
+If a disabled control needs an explanation, use visible or programmatically
+associated help.
+
+A custom tooltip that conveys useful information must work for keyboard focus as
+well as pointer hover.
+
+---
+
+## 11.19 Empty state — `.k-empty`
+
+State:
+
+1. what is absent;
+2. what causes it to appear or what the user can do next.
+
+Do not use a grid of zeros as a synonym for no data.
+
+---
+
+# 12. Accessibility baseline
+
+## 12.1 Native semantics
+
+Prefer native HTML.
+
+Use ARIA to expose real component state, not to compensate for incorrect element
+semantics.
+
+## 12.2 Focus
+
+Every keyboard-focusable interactive element has a clearly visible focus
+indicator.
+
+Non-rectangular controls may use a shape-aware focus treatment rather than a
+rectangular outline when needed.
+
+## 12.3 Contrast
+
+Normal text meets at least `4.5:1`.
+
+The lower `3:1` text threshold applies only to text that actually qualifies as
+large text under WCAG; a Karst `14px` heading does not qualify merely because it
+is called `lg`.
+
+Required UI boundaries/state indicators meet applicable non-text contrast
+requirements.
+
+Verify:
+
+- light;
+- dark;
+- high-contrast
+
+theme behavior.
+
+Shared primitives and reusable local patterns must derive surfaces, text,
+borders, and state fills from semantic/theme tokens rather than hard-coded
+dark-theme literals. A component that looks correct only in the default dark
+theme is not conformant.
+
+## 12.4 Names
+
+- icon-only controls have accessible names;
+- form controls have programmatic labels;
+- decorative SVGs are hidden where appropriate;
+- status glyphs either have full accessible text or are decorative beside it.
+
+## 12.5 Color
+
+Color is never the only **visible** carrier of meaningful state.
+
+For workflow status, the distinct status glyph (check / spinner / pause / cross /
+neutral marker) is the non-color carrier. A visible status word is not required.
+
+An `aria-label` does not solve color-only information for a sighted user; it
+supplies the accessible name for the icon-only status marker.
+
+## 12.6 Disabled controls
+
+Use native `disabled` when removing the control from ordinary keyboard
+interaction is appropriate.
+
+Use `aria-disabled` only where keeping the unavailable control discoverable is
+intentional and activation is correctly prevented.
+
+## 12.7 Motion
+
+Reduced motion removes non-essential animation without removing information.
+
+---
+
+# 13. Host / webview boundary
+
+The host owns:
+
+- domain state;
+- permissions;
+- persistence;
+- external command/provider results;
+- consequential operations;
+- security-sensitive confirmation;
+- canonical business rules.
+
+The webview owns:
+
+- composition;
+- component selection;
+- classes;
+- glyphs;
+- semantic visual tokens;
+- purely presentational formatting.
+
+Prefer:
 
 ```ts
-{ type: 'action-result', requestId: string, ok: boolean, message?: string }
+{ status: 'failed', stage: 'review', canMerge: false }
 ```
 
-`message` is untrusted prose (it can be CLI or model output), so it is collapsed
-to one line and length-capped before it reaches a toast — the same rule
-`agent/cliFailure.ts` already applies to verdicts and logs.
+over:
 
-Because every webview dispatches through a single `routeAction`-shaped seam, the
-ack is emitted at that **one** seam per webview, not at ~90 call sites. Action
-methods widen from `() => void` to `() => void | Promise<void>`; the dispatcher
-awaits a returned thenable and reports the real outcome, and acks on the spot
-when nothing is returned. Widening a return type is not a behaviour change: every
-existing implementation still satisfies it, and one that keeps returning `void`
-keeps its current semantics exactly.
+```ts
+{ className: 'red-pill', color: '#f14c4c', icon: 'x' }
+```
 
-### 5.5 Optimistic feedback
+## 13.1 Formatting boundary
 
-Permitted only where the host cannot fail in a way the user needs to know about,
-and it must be labelled as optimistic in a comment. Today's `flashCopied()` is
-the only legitimate case (a clipboard write). It is **not** legitimate for a
-merge, a save, or a delete.
+Canonical/domain formatting remains upstream when it carries meaning.
 
----
+Examples:
 
-## 6. Accessibility baseline
+- verdict classification;
+- stage labels;
+- provider-defined meaning;
+- domain-specific duration interpretation.
 
-Non-negotiable, and checkable:
+Pure display formatting may live in the presentation layer when it does not
+reimplement a business rule.
 
-1. **Visible focus.** Every focusable element shows the `--k-focus` ring. `outline: none`
-   without a replacement ring is banned.
-2. **Contrast.** Text meets WCAG 2.1 AA — 4.5:1 body, 3:1 for ≥ `--k-text-lg`
-   semibold and for UI component boundaries. Because colours resolve to the
-   user's theme, contrast is guaranteed by *using the paired tokens*
-   (`--k-action-fg` on `--k-action-bg`, `--k-danger-fg` on `--k-danger`) and
-   never by hand-picking a foreground.
-3. **Accessible names.** Every icon-only control has an `aria-label`. Every form
-   control has a `<label for>`.
-4. **ARIA state.** `aria-busy` while pending; `aria-disabled` is not a substitute
-   for `disabled`; `aria-expanded` on every disclosure trigger; `aria-pressed` on
-   toggle buttons; `aria-checked` on `role="switch"`/`role="radio"`;
-   `aria-invalid` + `aria-describedby` on a field in error; `aria-current` on the
-   active step of a wizard.
-5. **Keyboard operability.** Every action is reachable and operable by keyboard.
-   A `<div>`/`<span>` with a click handler is a defect — use a `<button>`. Where a
-   non-native control is unavoidable it needs `role`, `tabindex="0"`, and
-   <kbd>Enter</kbd>+<kbd>Space</kbd> handlers.
-6. **Announcements.** Anything that changes without user action — pending
-   completion, a result, a progress step — is announced through a live region.
-   One `role="status" aria-live="polite"` region per webview, supplied by
-   `.k-toast`'s container.
-7. **Colour is never alone.** Status is carried by a glyph or text as well as a
-   hue.
-8. **Motion.** `prefers-reduced-motion: reduce` nulls every animation; no
-   information is lost when it does.
+Examples:
+
+- visual truncation;
+- localized numeric separators;
+- compact display formatting.
 
 ---
 
-## 7. What this does not cover
+## 13.2 Agent identity boundary
 
-- The **status ramp** (`--k-*`) and the **stage ramp** — owned by
-  `src/model/palette.ts` and `src/model/stagePalette.ts`. Consumed here, never
-  redefined.
-- The **provider badge** — owned by `src/model/providerIdentity.ts`.
-- **Host-side formatting** of any displayed value. A number, a duration, a path,
-  or a verdict string is rendered host-side and arrives pre-formatted. A
-  formatter in a webview is a second implementation of a rule that already
-  exists.
+Domain/application code may supply semantic agent metadata such as:
+
+```ts
+{
+  agentCore: 'claude-code',
+  model: 'opus-5',
+  effort: 'high'
+}
+```
+
+The shared provider identity mapping resolves the core identifier to its canonical
+icon and visible name. Host/domain code does not hand-pick an icon glyph, provider
+color, or CSS class.
+
+Model, effort, and variant remain semantic metadata and are rendered only where
+they add useful run/configuration context.
+
+---
+
+# 14. Out of scope
+
+The design system does not define:
+
+- request IDs;
+- `action-result` wire shape;
+- dispatcher seams;
+- retry/idempotency;
+- watchdog duration;
+- persistence;
+- host command implementation;
+- domain workflow transitions.
+
+The UI contract may require observable behavior such as immediate pending
+feedback or safe duplicate prevention, but the transport implementation belongs
+to application architecture.

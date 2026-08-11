@@ -1,0 +1,841 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Karst UI Catalog — Design System v3.0</title>
+<style>
+:root{
+  --k-bg:#1d1f20;
+  --k-surface:#202223;
+  --k-surface-raised:#2a2c2d;
+  --k-surface-hover:#303234;
+  --k-surface-selected:#2b2e30;
+  --k-surface-sunken:#1a1b1c;
+  --k-border:#404244;
+  --k-border-strong:#5a5d60;
+  --k-text:#d6d6d6;
+  --k-text-dim:#999b9e;
+  --k-text-faint:#707276;
+  --k-link:#4da3ff;
+  --k-link-active:#7fbbff;
+  --k-action-bg:#3f4246;
+  --k-action-fg:#f1f1f1;
+  --k-action-bg-hover:#51555a;
+  --k-action-2-bg:#303235;
+  --k-action-2-fg:#d6d6d6;
+  --k-action-2-bg-hover:#3b3e42;
+  --k-focus:#2f9cff;
+
+  --k-pending:#7b7e82;
+  --k-running:#4aa6ff;
+  --k-attention:#d6a51a;
+  --k-passed:#72d184;
+  --k-failed:#e06b73;
+
+  --k-success:#72d184;
+  --k-warning:#d6a51a;
+  --k-danger:#e06b73;
+  --k-info:#4aa6ff;
+  --k-success-fg:#102014;
+  --k-danger-fg:#251011;
+
+  --k-series-1:#8b83ff;
+  --k-series-2:#d866c5;
+
+  --stage-scope:#b77bff;
+  --stage-scope-bg:#392e4a;
+  --stage-impl:#8b83ff;
+  --stage-impl-bg:#32354f;
+  --stage-uat:#d18b10;
+  --stage-uat-bg:#4a3820;
+  --stage-review:#35b5c3;
+  --stage-review-bg:#223f42;
+  --stage-ship:#d866c5;
+  --stage-ship-bg:#493047;
+  --stage-done:#45c457;
+  --stage-done-bg:#263f29;
+
+  --k-space-1:2px;
+  --k-space-2:4px;
+  --k-space-3:6px;
+  --k-space-4:8px;
+  --k-space-5:10px;
+  --k-space-6:12px;
+  --k-space-7:16px;
+  --k-space-8:20px;
+  --k-space-9:26px;
+
+  --k-radius-xs:3px;
+  --k-radius-sm:5px;
+  --k-radius-md:6px;
+  --k-radius-lg:9px;
+  --k-radius-xl:12px;
+  --k-radius-pill:999px;
+  --k-radius-circle:50%;
+
+  --k-border-w:1px;
+  --k-control-h-sm:22px;
+  --k-control-h-md:26px;
+  --k-control-h-lg:30px;
+  --k-hit-min:24px;
+  --k-focus-w:1px;
+  --k-focus-offset:2px;
+
+  --k-text-2xs:10px;
+  --k-text-xs:11px;
+  --k-text-sm:11.5px;
+  --k-text-md:12px;
+  --k-text-base:13px;
+  --k-text-lg:14px;
+  --k-text-xl:17px;
+  --k-text-2xl:20px;
+
+  --k-dur-fast:120ms;
+  --k-dur-base:180ms;
+  --k-dur-slow:280ms;
+  --k-dur-spin:900ms;
+  --k-dur-flash-copy:1200ms;
+  --k-dur-flash-done:2400ms;
+
+  --k-elev-2:0 4px 12px rgba(0,0,0,.28);
+  --k-elev-3:0 8px 28px rgba(0,0,0,.35);
+  --k-scrim:rgba(0,0,0,.45);
+}
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%;background:var(--k-bg);color:var(--k-text)}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+  font-size:var(--k-text-base);
+  line-height:1.4;
+  padding:20px;
+}
+button,input,select,textarea{font:inherit}
+a{color:var(--k-link)}
+a:hover{color:var(--k-link-active)}
+button:focus-visible,a:focus-visible,input:focus,select:focus,textarea:focus{
+  outline:var(--k-focus-w) solid var(--k-focus);
+  outline-offset:var(--k-focus-offset);
+}
+.mono{font-family:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace;font-variant-numeric:tabular-nums}
+.catalog{max-width:1500px;margin:0 auto}
+.catalogHead{
+  display:flex;justify-content:space-between;gap:20px;align-items:flex-start;
+  padding-bottom:18px;margin-bottom:22px;border-bottom:1px solid var(--k-border)
+}
+.catalogHead h1{font-size:22px;margin:0 0 6px}
+.catalogHead p{margin:0;color:var(--k-text-dim);max-width:760px}
+.toolbar{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.section{
+  border:1px solid var(--k-border);
+  border-radius:12px;
+  overflow:hidden;
+  margin-bottom:18px;
+  background:var(--k-surface);
+}
+.sectionHead{
+  min-height:50px;padding:0 16px;display:flex;align-items:center;justify-content:space-between;gap:16px;
+  border-bottom:1px solid var(--k-border);background:var(--k-surface-raised)
+}
+.sectionHead h2{font-size:14px;margin:0}
+.sectionHead span{color:var(--k-text-faint);font-size:11px}
+.sectionBody{padding:16px}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.sample{
+  border:1px solid var(--k-border);
+  border-radius:8px;
+  background:var(--k-surface-sunken);
+  padding:14px;
+}
+.sampleTitle{font-size:11px;color:var(--k-text-faint);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px}
+.row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.stack{display:grid;gap:8px}
+.note{color:var(--k-text-faint);font-size:11px;margin-top:8px}
+
+/* shared primitives */
+.k-btn{
+  min-height:var(--k-control-h-md);
+  border:1px solid transparent;border-radius:var(--k-radius-sm);
+  padding:0 11px;display:inline-flex;align-items:center;justify-content:center;gap:6px;
+  cursor:pointer;color:var(--k-text);background:transparent;white-space:nowrap;
+  transition:background var(--k-dur-fast),border-color var(--k-dur-fast),transform var(--k-dur-fast)
+}
+.k-btn:active:not(:disabled){transform:scale(.97)}
+.k-btn--primary{background:var(--k-action-bg);color:var(--k-action-fg)}
+.k-btn--primary:hover:not(:disabled){background:var(--k-action-bg-hover)}
+.k-btn--secondary{background:var(--k-action-2-bg);color:var(--k-action-2-fg);border-color:var(--k-border)}
+.k-btn--secondary:hover:not(:disabled){background:var(--k-action-2-bg-hover)}
+.k-btn--ghost{background:transparent;color:var(--k-text-dim);border-color:var(--k-border)}
+.k-btn--ghost:hover:not(:disabled){background:var(--k-surface-hover);color:var(--k-text)}
+.k-btn--danger{background:transparent;color:var(--k-danger);border-color:var(--k-danger)}
+.k-btn--danger:hover:not(:disabled){background:var(--k-danger);color:var(--k-danger-fg)}
+.k-btn--text{background:transparent;color:var(--k-link);padding-inline:4px}
+.k-btn--text:hover:not(:disabled){text-decoration:underline}
+.k-btn--sm{min-height:var(--k-control-h-sm);font-size:var(--k-text-xs);padding-inline:8px}
+.k-btn--lg{min-height:var(--k-control-h-lg)}
+.k-btn:disabled{cursor:default;color:var(--k-text-faint);border-color:var(--k-border);background:var(--k-surface-hover)}
+.k-btn[aria-busy="true"]{opacity:.82}
+
+.k-iconbtn{
+  width:var(--k-hit-min);height:var(--k-hit-min);min-width:var(--k-hit-min);
+  display:inline-grid;place-items:center;border:1px solid transparent;border-radius:var(--k-radius-sm);
+  background:transparent;color:var(--k-text-dim);cursor:pointer
+}
+.k-iconbtn:hover{background:var(--k-surface-hover);color:var(--k-text)}
+.k-iconbtn--danger{color:var(--k-danger)}
+
+.k-link{text-decoration:none;color:var(--k-link)}
+.k-link:hover{text-decoration:underline;color:var(--k-link-active)}
+
+.k-input,.k-select{
+  min-height:var(--k-control-h-md);width:100%;
+  border:1px solid var(--k-border);border-radius:var(--k-radius-sm);
+  background:var(--k-surface-sunken);color:var(--k-text);padding:5px 8px
+}
+textarea.k-input{min-height:76px;resize:vertical}
+.k-input[aria-invalid="true"]{border-color:var(--k-danger)}
+.k-input:disabled,.k-select:disabled{color:var(--k-text-faint);background:var(--k-surface-hover)}
+
+.k-field{display:grid;gap:5px}
+.k-field label{font-size:12px;font-weight:650}
+.k-help{font-size:11px;color:var(--k-text-faint)}
+.k-error{font-size:11px;color:var(--k-danger)}
+.choiceGroup{border:0;padding:0;margin:0;display:grid;gap:7px}
+.choiceGroup legend{font-size:12px;font-weight:650;margin-bottom:6px}
+.choiceRow{
+  display:flex;align-items:center;gap:8px;border:1px solid var(--k-border);
+  border-radius:var(--k-radius-sm);padding:7px 9px;background:var(--k-surface-sunken)
+}
+.choiceRow:has(input:checked){border-color:var(--k-border-strong);background:var(--k-surface-selected)}
+.tooltipDemo{display:flex;align-items:center;gap:8px}
+.tooltipHint{font-size:11px;color:var(--k-text-faint)}
+
+.k-switch{display:inline-flex;align-items:center;gap:8px}
+.k-switch input{position:absolute;opacity:0;pointer-events:none}
+.k-switchTrack{
+  width:32px;height:18px;border-radius:var(--k-radius-pill);background:var(--k-surface-selected);border:1px solid var(--k-border);
+  position:relative;cursor:pointer
+}
+.k-switchTrack::after{
+  content:"";position:absolute;width:12px;height:12px;border-radius:50%;background:var(--k-text-dim);top:2px;left:2px;
+  transition:left var(--k-dur-fast),background var(--k-dur-fast)
+}
+.k-switch input:checked + .k-switchTrack{background:color-mix(in srgb,var(--k-passed) 22%,var(--k-surface));border-color:color-mix(in srgb,var(--k-passed) 55%,var(--k-border))}
+.k-switch input:checked + .k-switchTrack::after{left:16px;background:var(--k-passed)}
+.k-switch input:focus-visible + .k-switchTrack{outline:1px solid var(--k-focus);outline-offset:2px}
+
+.k-badge{
+  display:inline-flex;align-items:center;gap:4px;min-height:21px;padding:0 8px;border-radius:var(--k-radius-pill);
+  border:1px solid var(--k-border);background:var(--k-surface-raised);color:var(--k-text-dim);font-size:11px;white-space:nowrap
+}
+.k-badge--merged{color:var(--k-passed);border-color:color-mix(in srgb,var(--k-passed) 55%,var(--k-border));background:color-mix(in srgb,var(--k-passed) 12%,var(--k-surface))}
+.k-badge--draft{color:var(--stage-scope);border-color:color-mix(in srgb,var(--stage-scope) 55%,var(--k-border));background:color-mix(in srgb,var(--stage-scope) 12%,var(--k-surface))}
+.k-agent-core{
+  display:inline-flex;align-items:center;gap:5px;color:var(--k-link);white-space:nowrap
+}
+.k-agent-icon{
+  width:15px;height:15px;display:inline-grid;place-items:center;line-height:1;
+  color:var(--k-link);font-size:13px
+}
+.k-agent-name{font-weight:650}
+.k-agent-meta{color:var(--k-text-dim);white-space:nowrap}
+.agentLine{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.agentChoice{
+  position:relative;display:grid;grid-template-columns:18px minmax(0,1fr);gap:8px;align-items:start;
+  border:1px solid var(--k-border);border-radius:var(--k-radius-md);padding:9px 10px;
+  background:var(--k-surface-sunken);cursor:pointer
+}
+.agentChoice:hover{background:var(--k-surface-hover)}
+.agentChoice input{margin:2px 0 0}
+.agentChoice:has(input:checked){border-color:var(--k-border-strong);background:var(--k-surface-selected)}
+.agentChoiceMeta{font-size:11px;color:var(--k-text-faint);margin-top:2px}
+
+.k-chip{
+  min-height:var(--k-control-h-sm);border:1px solid var(--k-border);border-radius:var(--k-radius-pill);
+  background:transparent;color:var(--k-text-dim);padding:0 9px;font-size:11px;cursor:pointer
+}
+.k-chip[aria-pressed="true"]{background:var(--k-surface-selected);border-color:var(--k-border-strong);color:var(--k-text)}
+
+.k-status{
+  width:22px;height:22px;min-width:22px;border:2px solid currentColor;border-radius:50%;
+  display:inline-grid;place-items:center;font-size:12px;font-weight:800;line-height:1
+}
+.k-status--passed{color:var(--k-passed)}
+.k-status--attention{color:var(--k-attention)}
+.k-status--failed{color:var(--k-failed)}
+.k-status--pending{color:var(--k-pending)}
+.k-status--running{
+  color:var(--k-running);border-right-color:transparent;
+  animation:spin var(--k-dur-spin) linear infinite
+}
+.statusLegend{display:grid;grid-template-columns:repeat(5,minmax(90px,1fr));gap:8px}
+.statusLegendItem{
+  display:flex;align-items:center;gap:8px;border:1px solid var(--k-border);
+  border-radius:var(--k-radius-md);padding:8px;background:var(--k-surface-sunken)
+}
+.statusLegendLabel{font-size:11px;color:var(--k-text-dim)}
+
+.k-spinner{
+  width:12px;height:12px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;
+  animation:spin var(--k-dur-spin) linear infinite
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+.k-empty{
+  min-height:130px;border:1px dashed var(--k-border-strong);border-radius:var(--k-radius-xl);
+  display:grid;place-items:center;text-align:center;padding:18px
+}
+.k-empty strong{display:block;margin-bottom:4px}
+.k-empty span{color:var(--k-text-dim);font-size:12px}
+
+.toastRoot{position:fixed;right:20px;bottom:20px;z-index:80;display:grid;gap:8px}
+.k-toast{
+  min-width:300px;max-width:460px;border:1px solid var(--k-border-strong);border-radius:var(--k-radius-md);
+  background:var(--k-surface-raised);box-shadow:var(--k-elev-3);padding:10px 12px;display:flex;align-items:center;gap:10px
+}
+.k-toast.success{border-color:var(--k-success)}
+.k-toast.error{border-color:var(--k-danger)}
+.k-toast.info{border-color:var(--k-info)}
+.k-toast .k-iconbtn{margin-left:auto}
+
+/* modal / drawer / panel */
+.scrim{
+  position:fixed;inset:0;background:var(--k-scrim);display:none;place-items:center;z-index:50;padding:20px
+}
+.scrim.open{display:grid}
+.k-modal{
+  width:min(520px,100%);border:1px solid var(--k-border-strong);border-radius:var(--k-radius-xl);
+  background:var(--k-surface);box-shadow:var(--k-elev-3);overflow:hidden
+}
+.modalHead,.drawerHead{min-height:48px;padding:0 14px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--k-border)}
+.modalBody,.drawerBody{padding:14px}
+.modalActions{padding:12px 14px;display:flex;justify-content:flex-end;gap:8px;border-top:1px solid var(--k-border)}
+
+.drawerScrim{
+  position:fixed;inset:0;background:var(--k-scrim);display:none;justify-content:flex-end;z-index:50
+}
+.drawerScrim.open{display:flex}
+.k-drawer{
+  width:min(430px,90vw);height:100%;background:var(--k-surface);border-left:1px solid var(--k-border-strong);box-shadow:var(--k-elev-2)
+}
+.k-panel{
+  border:1px solid var(--k-border);border-radius:8px;background:var(--k-surface-sunken);padding:14px
+}
+
+/* stage rail / process / receipt local compositions */
+.stageRail{
+  display:flex;align-items:stretch;min-height:62px;overflow:hidden;border:1px solid var(--k-border);
+  border-radius:14px;background:var(--stage-done-bg)
+}
+.stageSeg{
+  --c:var(--k-text);--bg:transparent;appearance:none;border:0;margin:0 -18px 0 0;padding:0 34px 0 30px;
+  min-width:128px;background:var(--bg);color:var(--c);clip-path:polygon(0 0,calc(100% - 20px) 0,100% 50%,calc(100% - 20px) 100%,0 100%,20px 50%);
+  cursor:pointer;z-index:2
+}
+.stageSeg:first-child{clip-path:polygon(0 0,calc(100% - 20px) 0,100% 50%,calc(100% - 20px) 100%,0 100%)}
+.stageSeg.scope{--c:var(--stage-scope);--bg:var(--stage-scope-bg)}
+.stageSeg.impl{--c:var(--stage-impl);--bg:var(--stage-impl-bg)}
+.stageSeg.uat{--c:var(--stage-uat);--bg:var(--stage-uat-bg)}
+.stageSeg.review{--c:var(--stage-review);--bg:var(--stage-review-bg)}
+.stageSeg.ship{--c:var(--stage-ship);--bg:var(--stage-ship-bg)}
+.stageSeg.done{--c:var(--stage-done);--bg:var(--stage-done-bg)}
+.stageSeg.viewing{filter:brightness(1.08);outline:2px solid var(--stage-scope);outline-offset:-4px}
+.stageInner{height:100%;display:flex;align-items:center;gap:9px;white-space:nowrap;font-family:"SFMono-Regular",Consolas,monospace;font-size:12px;font-weight:700}
+.stageName{text-transform:uppercase}.stageTime{padding-left:8px;border-left:1px solid currentColor}
+
+.processDemo{border:1px solid var(--k-border);border-radius:8px;overflow:hidden}
+.processHead{
+  min-height:46px;display:grid;grid-template-columns:28px 150px minmax(160px,1fr) auto 24px;
+  gap:9px;align-items:center;padding:0 12px;background:var(--k-surface-raised)
+}
+.processName{font-weight:700}
+.processSummary{color:var(--k-text-dim)}
+.processMeta{color:var(--k-text-faint);white-space:nowrap;font-size:11px}
+.processBody{position:relative;padding:10px 12px 12px 54px}
+.processBody::before{content:"";position:absolute;left:39px;top:0;bottom:10px;width:1px;background:var(--k-border)}
+.detailRow{min-height:38px;display:grid;grid-template-columns:110px minmax(0,1fr);align-items:center;gap:12px;color:var(--k-text-dim)}
+.detailRow + .detailRow{border-top:1px solid var(--k-border)}
+.detailLead{color:var(--k-text);font-weight:650}
+.resourceLink{font-family:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace;white-space:nowrap}
+
+.receipt{
+  border:1px solid var(--k-border);border-radius:8px;overflow:hidden
+}
+.receiptBanner{min-height:58px;padding:0 14px;display:flex;align-items:center;justify-content:space-between;background:color-mix(in srgb,var(--k-passed) 10%,var(--k-surface));border-bottom:1px solid color-mix(in srgb,var(--k-passed) 45%,var(--k-border))}
+.receiptGrid{display:grid;grid-template-columns:repeat(3,1fr)}
+.receiptCell{padding:14px;min-height:112px}
+.receiptCell + .receiptCell{border-left:1px solid var(--k-border)}
+.receiptEyebrow{font-size:11px;color:var(--k-text-faint);text-transform:uppercase;letter-spacing:.05em}
+.receiptValue{font-weight:750;margin:8px 0}
+.receiptText{color:var(--k-text-dim);font-size:12px}
+
+/* visual tokens */
+.swatches{display:grid;grid-template-columns:repeat(6,minmax(120px,1fr));gap:8px}
+.swatch{border:1px solid var(--k-border);border-radius:7px;overflow:hidden;background:var(--k-surface-sunken)}
+.swatchColor{height:42px}
+.swatchMeta{padding:7px;font-size:10px;color:var(--k-text-dim)}
+.typeSpec{display:grid;grid-template-columns:120px 80px 1fr;align-items:center;gap:12px;padding:6px 0;border-bottom:1px solid var(--k-border)}
+.typeSpec:last-child{border-bottom:0}
+.spaceSpec{display:grid;grid-template-columns:100px 70px 1fr;gap:12px;align-items:center;padding:5px 0}
+.spaceBar{height:8px;background:var(--k-link);border-radius:4px}
+
+/* light theme */
+body.light{
+  --k-bg:#f2f3f4;--k-surface:#fff;--k-surface-raised:#f0f1f3;--k-surface-hover:#e8eaed;--k-surface-selected:#e2e6ea;--k-surface-sunken:#f8f9fa;
+  --k-border:#d3d7dc;--k-border-strong:#aeb5bd;--k-text:#24272b;--k-text-dim:#626972;--k-text-faint:#858c94;
+  --k-action-bg:#e1e4e8;--k-action-fg:#222;--k-action-bg-hover:#d4d8dd;--k-action-2-bg:#eceef1;--k-action-2-fg:#222;--k-action-2-bg-hover:#dfe2e6;
+  --stage-scope-bg:color-mix(in srgb,var(--stage-scope) 12%,var(--k-surface));
+  --stage-impl-bg:color-mix(in srgb,var(--stage-impl) 12%,var(--k-surface));
+  --stage-uat-bg:color-mix(in srgb,var(--stage-uat) 12%,var(--k-surface));
+  --stage-review-bg:color-mix(in srgb,var(--stage-review) 12%,var(--k-surface));
+  --stage-ship-bg:color-mix(in srgb,var(--stage-ship) 12%,var(--k-surface));
+  --stage-done-bg:color-mix(in srgb,var(--stage-done) 12%,var(--k-surface))
+}
+
+@media(max-width:980px){.grid,.grid3{grid-template-columns:1fr}.swatches{grid-template-columns:repeat(3,1fr)}.statusLegend{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:650px){body{padding:10px}.catalogHead{display:grid}.swatches{grid-template-columns:repeat(2,1fr)}.statusLegend{grid-template-columns:1fr}.receiptGrid{grid-template-columns:1fr}.receiptCell+.receiptCell{border-left:0;border-top:1px solid var(--k-border)}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div class="catalog">
+  <header class="catalogHead">
+    <div>
+      <h1>Karst UI Catalog <span class="mono" style="color:var(--k-text-faint);font-size:13px">v3.0</span></h1>
+      <p>Final shared primitives, states, semantic tokens, and Karst-specific local compositions in the screenshot-aligned visual language.</p>
+    </div>
+    <div class="toolbar">
+      <button class="k-btn k-btn--secondary k-btn--sm" id="themeBtn">Light theme</button>
+      <button class="k-btn k-btn--secondary k-btn--sm" id="toastBtn">Show toast</button>
+      <button class="k-btn k-btn--secondary k-btn--sm" id="modalBtn">Open modal</button>
+      <button class="k-btn k-btn--secondary k-btn--sm" id="drawerBtn">Open drawer</button>
+    </div>
+  </header>
+
+  <section class="section">
+    <div class="sectionHead"><h2>Buttons</h2><span>shared primitives</span></div>
+    <div class="sectionBody grid3">
+      <div class="sample">
+        <div class="sampleTitle">Variants</div>
+        <div class="row">
+          <button class="k-btn k-btn--primary">Primary</button>
+          <button class="k-btn k-btn--secondary">Secondary</button>
+          <button class="k-btn k-btn--ghost">Ghost</button>
+          <button class="k-btn k-btn--danger">Delete</button>
+          <button class="k-btn k-btn--text">Text action</button>
+        </div>
+      </div>
+      <div class="sample">
+        <div class="sampleTitle">Sizes</div>
+        <div class="row">
+          <button class="k-btn k-btn--secondary k-btn--sm">Small</button>
+          <button class="k-btn k-btn--secondary">Default</button>
+          <button class="k-btn k-btn--secondary k-btn--lg">Large</button>
+        </div>
+      </div>
+      <div class="sample">
+        <div class="sampleTitle">States</div>
+        <div class="row">
+          <button class="k-btn k-btn--secondary">Default</button>
+          <button class="k-btn k-btn--secondary" disabled>Disabled</button>
+          <button class="k-btn k-btn--secondary" aria-busy="true"><span class="k-spinner" aria-hidden="true"></span>Running</button>
+        </div>
+      </div>
+      <div class="sample">
+        <div class="sampleTitle">Icon buttons</div>
+        <div class="row">
+          <button class="k-iconbtn" aria-label="Refresh" title="Refresh">↻</button>
+          <button class="k-iconbtn" aria-label="More actions" title="More actions">⋯</button>
+          <button class="k-iconbtn k-iconbtn--danger" aria-label="Delete ticket" title="Delete ticket">×</button>
+        </div>
+      </div>
+      <div class="sample">
+        <div class="sampleTitle">Navigation link</div>
+        <a class="k-link" href="#links">Open documentation</a>
+        <div class="note">Navigation stays an anchor; actions use buttons.</div>
+      </div>
+      <div class="sample">
+        <div class="sampleTitle">Stable pending geometry</div>
+        <button class="k-btn k-btn--secondary" id="asyncBtn" style="min-width:112px">Refresh state</button>
+        <div class="note">Click to see pending → settled without moving neighboring layout.</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="sectionHead"><h2>Fields and form controls</h2><span>labels, errors, native semantics</span></div>
+    <div class="sectionBody grid">
+      <div class="sample stack">
+        <div class="sampleTitle">Text input</div>
+        <div class="k-field">
+          <label for="ticketTitle">Ticket title</label>
+          <input id="ticketTitle" class="k-input" value="Graph-based implementation approach">
+          <div class="k-help">Short, specific title shown in the ticket list</div>
+        </div>
+      </div>
+      <div class="sample stack">
+        <div class="sampleTitle">Error state</div>
+        <div class="k-field">
+          <label for="branch">Branch</label>
+          <input id="branch" class="k-input" aria-invalid="true" aria-describedby="branchErr" value="">
+          <div id="branchErr" class="k-error">Branch is required before implementation can start</div>
+        </div>
+      </div>
+      <div class="sample stack">
+        <div class="sampleTitle">Textarea</div>
+        <div class="k-field">
+          <label for="desc">Description</label>
+          <textarea id="desc" class="k-input">Keep the implementation graph local to the approach.</textarea>
+        </div>
+      </div>
+      <div class="sample stack">
+        <div class="sampleTitle">Select</div>
+        <div class="k-field">
+          <label for="agent">Default agent</label>
+          <select id="agent" class="k-select">
+            <option>Claude Code · Opus 5</option>
+            <option>Codex</option>
+            <option>OpenCode</option>
+          </select>
+        </div>
+      </div>
+      <div class="sample">
+        <div class="sampleTitle">Switch</div>
+        <label class="k-switch">
+          <input type="checkbox" checked>
+          <span class="k-switchTrack" aria-hidden="true"></span>
+          <span>Run review automatically</span>
+        </label>
+      </div>
+      <div class="sample">
+        <div class="sampleTitle">Unavailable control + explanation</div>
+        <button class="k-btn k-btn--secondary" disabled aria-describedby="noWt">Open changes</button>
+        <div id="noWt" class="k-help" style="margin-top:6px">No worktree is available for this ticket</div>
+      </div>
+      <div class="sample">
+        <div class="sampleTitle">Single-select choice</div>
+        <fieldset class="choiceGroup">
+          <legend>Execution mode</legend>
+          <label class="choiceRow"><input type="radio" name="mode" checked><span>Automatic</span></label>
+          <label class="choiceRow"><input type="radio" name="mode"><span>Manual confirmation</span></label>
+        </fieldset>
+      </div>
+      <div class="sample">
+        <div class="sampleTitle">Supplemental tooltip</div>
+        <div class="tooltipDemo">
+          <button class="k-iconbtn" aria-label="Re-probe pull requests" title="Re-probe pull requests">↻</button>
+          <span class="tooltipHint">The accessible name works without the native title tooltip.</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="sectionHead"><h2>Badges, chips, workflow status, agent identity</h2><span>semantic separation</span></div>
+    <div class="sectionBody grid">
+      <div class="sample">
+        <div class="sampleTitle">Informational badges</div>
+        <div class="row">
+          <span class="k-badge">Review</span>
+          <span class="k-badge k-badge--merged">merged</span>
+          <span class="k-badge k-badge--draft">draft</span>
+          <span class="k-badge mono">Σ 491.7k tok</span>
+        </div>
+        <div class="note">Agent core identity is not represented by a badge.</div>
+      </div>
+      <div class="sample">
+        <div class="sampleTitle">Interactive chips</div>
+        <div class="row">
+          <button class="k-chip" aria-pressed="true">Parallel repos</button>
+          <button class="k-chip" aria-pressed="false">Escalate blocked</button>
+          <button class="k-chip" aria-pressed="false">Manual ship check</button>
+        </div>
+      </div>
+      <div class="sample" style="grid-column:1/-1">
+        <div class="sampleTitle">Workflow status — component is icon only</div>
+        <div class="statusLegend">
+          <div class="statusLegendItem"><span class="k-status k-status--passed" role="img" aria-label="Passed">✓</span><span class="statusLegendLabel">Passed / done</span></div>
+          <div class="statusLegendItem"><span class="k-status k-status--running" role="img" aria-label="Running"></span><span class="statusLegendLabel">Running</span></div>
+          <div class="statusLegendItem"><span class="k-status k-status--attention" role="img" aria-label="Needs attention">Ⅱ</span><span class="statusLegendLabel">Needs attention / paused</span></div>
+          <div class="statusLegendItem"><span class="k-status k-status--failed" role="img" aria-label="Failed">×</span><span class="statusLegendLabel">Failed</span></div>
+          <div class="statusLegendItem"><span class="k-status k-status--pending" role="img" aria-label="Not checked">·</span><span class="statusLegendLabel">Pending / not checked</span></div>
+        </div>
+        <div class="note">Labels above belong to the catalog legend, not to the status primitive.</div>
+      </div>
+      <div class="sample" style="grid-column:1/-1">
+        <div class="sampleTitle">Agent core — icon + canonical name, optional model / effort / variant</div>
+        <div class="stack">
+          <div class="agentLine"><span class="k-agent-core"><span class="k-agent-icon" aria-hidden="true">✣</span><span class="k-agent-name">Claude Code</span></span><span class="k-agent-meta mono">· Opus 5</span></div>
+          <div class="agentLine"><span class="k-agent-core"><span class="k-agent-icon" aria-hidden="true">◈</span><span class="k-agent-name">Codex</span></span><span class="k-agent-meta mono">· GPT-5.6 · high</span></div>
+          <div class="agentLine"><span class="k-agent-core"><span class="k-agent-icon" aria-hidden="true">◇</span><span class="k-agent-name">AGY</span></span><span class="k-agent-meta mono">· configured model</span></div>
+          <div class="agentLine"><span class="k-agent-core"><span class="k-agent-icon" aria-hidden="true">▣</span><span class="k-agent-name">OpenCode</span></span><span class="k-agent-meta mono">· mimo-v2.5-free</span></div>
+        </div>
+        <div class="note">Catalog glyphs are representative; implementation uses the canonical mapping from providerIdentity.ts.</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="sectionHead"><h2>Empty state and non-modal panel</h2><span>shared surfaces</span></div>
+    <div class="sectionBody grid">
+      <div class="k-empty">
+        <div><strong>No AI token usage recorded yet</strong><span>Usage appears after an agent session runs.</span></div>
+      </div>
+      <aside class="k-panel">
+        <strong>Inspector panel</strong>
+        <p style="margin:6px 0 0;color:var(--k-text-dim)">Non-modal side content does not trap focus or claim <span class="mono">aria-modal</span>.</p>
+      </aside>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="sectionHead"><h2>Toast feedback</h2><span>generic feedback, not workflow status</span></div>
+    <div class="sectionBody grid3">
+      <div class="k-toast success" style="min-width:0"><span>Settings saved</span></div>
+      <div class="k-toast info" style="min-width:0"><span>Repository state refreshed</span></div>
+      <div class="k-toast error" style="min-width:0"><span>Could not save approach</span><button class="k-iconbtn" aria-label="Dismiss error">×</button></div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="sectionHead"><h2>Stage rail</h2><span>local Karst composition driven by stage palette</span></div>
+    <div class="sectionBody">
+      <div class="stageRail" aria-label="Ticket stages">
+        <button class="stageSeg scope viewing"><span class="stageInner"><span>✓</span><span class="stageName">Scope</span></span></button>
+        <button class="stageSeg impl"><span class="stageInner"><span>✓</span><span class="stageName">Impl</span><span class="stageTime">13m</span></span></button>
+        <button class="stageSeg uat"><span class="stageInner"><span>✓</span><span class="stageName">UAT</span><span class="stageTime">5m</span></span></button>
+        <button class="stageSeg review"><span class="stageInner"><span>✓</span><span class="stageName">Review</span><span class="stageTime">1m</span></span></button>
+        <button class="stageSeg ship"><span class="stageInner"><span>✓</span><span class="stageName">Ship</span><span class="stageTime">15m</span></span></button>
+        <button class="stageSeg done"><span class="stageInner"><span>✓</span><span class="stageName">Done</span><span class="stageTime">0.0s</span></span></button>
+      </div>
+      <div class="note">Stage identity is not generic feedback. The rail remains a product-specific composition rather than a generic primitive.</div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="sectionHead"><h2>Process / Inside-stage rows</h2><span>local composition + shared status, identity, links</span></div>
+    <div class="sectionBody">
+      <div class="processDemo">
+        <div class="processHead">
+          <span class="k-status k-status--passed" role="img" aria-label="Passed">✓</span>
+          <div class="processName">Review</div>
+          <div class="processSummary">no blocking findings</div>
+          <div class="processMeta">
+            <span class="mono">Review Agent · </span>
+            <span class="k-agent-core"><span class="k-agent-icon" aria-hidden="true">✣</span><span class="k-agent-name">Claude Code</span></span>
+            <span class="k-agent-meta mono"> · Opus 5</span>
+            <span class="k-badge mono">Σ 491.7k tok</span>
+            <span class="mono">1m 20s</span>
+          </div>
+          <button class="k-iconbtn" data-process-toggle aria-label="Collapse review details" aria-expanded="true">⌄</button>
+        </div>
+        <div class="processBody" data-process-body>
+          <div class="detailRow">
+            <div class="detailLead mono" style="color:var(--k-warning)">medium</div>
+            <div>Fix process runs carry no pid, so the sweep's main branch rarely fires —
+              <a class="k-link resourceLink" href="#src-store-recoveryRounds-693">src/store/recoveryRounds.ts:693</a>
+            </div>
+          </div>
+          <div class="detailRow">
+            <div class="detailLead mono" style="color:var(--k-warning)">low</div>
+            <div>Activation sweep changes ticket state with no UI notification —
+              <a class="k-link resourceLink" href="#src-extension-590">src/extension.ts:590</a>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="note">The filepath itself is clickable. No duplicate “Open file” button is rendered.</div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="sectionHead"><h2>Done / delivery receipt</h2><span>local product composition</span></div>
+    <div class="sectionBody">
+      <div class="receipt">
+        <div class="receiptBanner">
+          <div class="row"><span class="k-status k-status--passed" role="img" aria-label="Delivered">✓</span><strong>Delivered</strong><span style="color:var(--k-text-dim)">2 repositories · 2 PRs merged · validation passed</span></div>
+          <span class="mono" style="color:var(--k-text-faint)">completed 10:48 · 45m 12s</span>
+        </div>
+        <div class="receiptGrid">
+          <div class="receiptCell"><div class="receiptEyebrow mono">Delivered</div><div class="receiptValue">2 PRs merged</div><div class="receiptText">2 repositories<br>3 commits landed · 1 created in Ship</div></div>
+          <div class="receiptCell"><div class="receiptEyebrow mono">Validated</div><div class="receiptValue">UAT passed · Review passed</div><div class="receiptText">12 final gate checks passed<br>UAT recovery 1/3 · Review recovery 1/2</div></div>
+          <div class="receiptCell"><div class="receiptEyebrow mono">AI usage</div><div class="receiptValue">110.9k recorded tokens</div><div class="receiptText">87.7k input · 23.2k output<br><span class="mono">58.3k impl · 21.4k UAT · 25.6k review</span></div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="sectionHead"><h2>Color semantics</h2><span>workflow / feedback / data series / stage kept separate</span></div>
+    <div class="sectionBody">
+      <div class="note" style="margin:0 0 10px"><span class="mono">--k-passed</span> and <span class="mono">--k-success</span> intentionally use the same current green, but remain separate semantic tokens.</div>
+      <div class="swatches">
+        <div class="swatch"><div class="swatchColor" style="background:var(--k-running)"></div><div class="swatchMeta"><strong>workflow running</strong><br><span class="mono">--k-running</span></div></div>
+        <div class="swatch"><div class="swatchColor" style="background:var(--k-passed)"></div><div class="swatchMeta"><strong>workflow passed</strong><br><span class="mono">--k-passed</span></div></div>
+        <div class="swatch"><div class="swatchColor" style="background:var(--k-success)"></div><div class="swatchMeta"><strong>feedback success</strong><br><span class="mono">--k-success</span></div></div>
+        <div class="swatch"><div class="swatchColor" style="background:var(--k-series-1)"></div><div class="swatchMeta"><strong>data series 1</strong><br><span class="mono">--k-series-1</span></div></div>
+        <div class="swatch"><div class="swatchColor" style="background:var(--stage-review)"></div><div class="swatchMeta"><strong>stage review</strong><br><span class="mono">stage palette</span></div></div>
+        <div class="swatch"><div class="swatchColor" style="background:var(--k-danger)"></div><div class="swatchMeta"><strong>feedback danger</strong><br><span class="mono">--k-danger</span></div></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="sectionHead"><h2>Typography</h2><span>current scale preserved</span></div>
+    <div class="sectionBody">
+      <div class="typeSpec"><span class="mono">--k-text-2xs</span><span>10px</span><span style="font-size:10px">Dense metadata / 10:48:32 PM</span></div>
+      <div class="typeSpec"><span class="mono">--k-text-xs</span><span>11px</span><span style="font-size:11px">Compact controls, captions, usage badges</span></div>
+      <div class="typeSpec"><span class="mono">--k-text-sm</span><span>11.5px</span><span style="font-size:11.5px">Secondary body and supporting descriptions</span></div>
+      <div class="typeSpec"><span class="mono">--k-text-md</span><span>12px</span><span style="font-size:12px">Dense body / table text</span></div>
+      <div class="typeSpec"><span class="mono">--k-text-base</span><span>13px</span><span style="font-size:13px">Default body content</span></div>
+      <div class="typeSpec"><span class="mono">--k-text-lg</span><span>14px</span><span style="font-size:14px;font-weight:700">Section heading</span></div>
+      <div class="typeSpec"><span class="mono">--k-text-xl</span><span>17px</span><span style="font-size:17px;font-weight:700">View title</span></div>
+      <div class="typeSpec"><span class="mono">--k-text-2xl</span><span>20px</span><span style="font-size:20px;font-weight:700">Prominent statistic</span></div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="sectionHead"><h2>Spacing</h2><span>for repeated rhythm, not all geometry</span></div>
+    <div class="sectionBody">
+      <div class="spaceSpec"><span class="mono">space-1</span><span>2px</span><div class="spaceBar" style="width:2px"></div></div>
+      <div class="spaceSpec"><span class="mono">space-2</span><span>4px</span><div class="spaceBar" style="width:4px"></div></div>
+      <div class="spaceSpec"><span class="mono">space-3</span><span>6px</span><div class="spaceBar" style="width:6px"></div></div>
+      <div class="spaceSpec"><span class="mono">space-4</span><span>8px</span><div class="spaceBar" style="width:8px"></div></div>
+      <div class="spaceSpec"><span class="mono">space-5</span><span>10px</span><div class="spaceBar" style="width:10px"></div></div>
+      <div class="spaceSpec"><span class="mono">space-6</span><span>12px</span><div class="spaceBar" style="width:12px"></div></div>
+      <div class="spaceSpec"><span class="mono">space-7</span><span>16px</span><div class="spaceBar" style="width:16px"></div></div>
+      <div class="spaceSpec"><span class="mono">space-8</span><span>20px</span><div class="spaceBar" style="width:20px"></div></div>
+      <div class="spaceSpec"><span class="mono">space-9</span><span>26px</span><div class="spaceBar" style="width:26px"></div></div>
+    </div>
+  </section>
+</div>
+
+<div class="toastRoot" id="toastRoot" role="status" aria-live="polite"></div>
+
+<div class="scrim" id="modalScrim">
+  <div class="k-modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modalHead"><strong id="modalTitle">Switch implementation agent</strong><button class="k-iconbtn" id="modalClose" aria-label="Close dialog">×</button></div>
+    <div class="modalBody">
+      <fieldset class="choiceGroup" id="modalAgent">
+        <legend>Agent core</legend>
+        <label class="agentChoice"><input type="radio" name="modalAgent" checked><span><span class="k-agent-core"><span class="k-agent-icon" aria-hidden="true">✣</span><span class="k-agent-name">Claude Code</span></span><div class="agentChoiceMeta mono">Opus 5</div></span></label>
+        <label class="agentChoice"><input type="radio" name="modalAgent"><span><span class="k-agent-core"><span class="k-agent-icon" aria-hidden="true">◈</span><span class="k-agent-name">Codex</span></span><div class="agentChoiceMeta mono">GPT-5.6 · high</div></span></label>
+        <label class="agentChoice"><input type="radio" name="modalAgent"><span><span class="k-agent-core"><span class="k-agent-icon" aria-hidden="true">▣</span><span class="k-agent-name">OpenCode</span></span><div class="agentChoiceMeta mono">mimo-v2.5-free</div></span></label>
+      </fieldset>
+    </div>
+    <div class="modalActions"><button class="k-btn k-btn--ghost" id="modalCancel">Cancel</button><button class="k-btn k-btn--primary">Switch agent</button></div>
+  </div>
+</div>
+
+<div class="drawerScrim" id="drawerScrim">
+  <aside class="k-drawer" role="dialog" aria-modal="true" aria-labelledby="drawerTitle">
+    <div class="drawerHead"><strong id="drawerTitle">Approach settings</strong><button class="k-iconbtn" id="drawerClose" aria-label="Close drawer">×</button></div>
+    <div class="drawerBody stack">
+      <fieldset class="choiceGroup" id="planner">
+        <legend>Planner agent</legend>
+        <label class="agentChoice"><input type="radio" name="planner" checked><span><span class="k-agent-core"><span class="k-agent-icon" aria-hidden="true">✣</span><span class="k-agent-name">Claude Code</span></span><div class="agentChoiceMeta mono">Opus 5</div></span></label>
+        <label class="agentChoice"><input type="radio" name="planner"><span><span class="k-agent-core"><span class="k-agent-icon" aria-hidden="true">◈</span><span class="k-agent-name">Codex</span></span><div class="agentChoiceMeta mono">GPT-5.6 · high</div></span></label>
+      </fieldset>
+      <label class="k-switch"><input type="checkbox" checked><span class="k-switchTrack" aria-hidden="true"></span><span>Escalate blocked nodes</span></label>
+    </div>
+  </aside>
+</div>
+
+<script>
+const themeBtn=document.getElementById('themeBtn');
+themeBtn.addEventListener('click',()=>{
+  const light=document.body.classList.toggle('light');
+  themeBtn.textContent=light?'Dark theme':'Light theme';
+});
+
+function toast(kind,message){
+  const root=document.getElementById('toastRoot');
+  const el=document.createElement('div');
+  el.className='k-toast '+kind;
+  el.innerHTML=`<span>${message}</span>${kind==='error'?'<button class="k-iconbtn" aria-label="Dismiss error">×</button>':''}`;
+  root.appendChild(el);
+  const close=el.querySelector('button');
+  if(close)close.addEventListener('click',()=>el.remove());
+  if(kind!=='error')setTimeout(()=>el.remove(),2400);
+}
+document.getElementById('toastBtn').addEventListener('click',()=>toast('success','Repository state refreshed'));
+
+const asyncBtn=document.getElementById('asyncBtn');
+asyncBtn.addEventListener('click',()=>{
+  if(asyncBtn.getAttribute('aria-busy')==='true')return;
+  const old=asyncBtn.textContent;
+  asyncBtn.setAttribute('aria-busy','true');
+  asyncBtn.disabled=true;
+  asyncBtn.innerHTML='<span class="k-spinner" aria-hidden="true"></span><span>Refresh state</span>';
+  setTimeout(()=>{
+    asyncBtn.removeAttribute('aria-busy');
+    asyncBtn.disabled=false;
+    asyncBtn.textContent=old;
+    toast('success','State refreshed');
+  },1200);
+});
+
+function openModal(){
+  const s=document.getElementById('modalScrim');
+  s.classList.add('open');
+  document.querySelector('#modalAgent input:checked').focus();
+}
+function closeModal(){document.getElementById('modalScrim').classList.remove('open');document.getElementById('modalBtn').focus()}
+document.getElementById('modalBtn').addEventListener('click',openModal);
+document.getElementById('modalClose').addEventListener('click',closeModal);
+document.getElementById('modalCancel').addEventListener('click',closeModal);
+
+function openDrawer(){document.getElementById('drawerScrim').classList.add('open');document.getElementById('planner').focus()}
+function closeDrawer(){document.getElementById('drawerScrim').classList.remove('open');document.getElementById('drawerBtn').focus()}
+document.getElementById('drawerBtn').addEventListener('click',openDrawer);
+document.getElementById('drawerClose').addEventListener('click',closeDrawer);
+
+function trapTab(container,e){
+  if(e.key!=='Tab') return;
+  const items=[...container.querySelectorAll('button,[href],input,select,textarea,[tabindex]:not([tabindex="-1"])')]
+    .filter(el=>!el.disabled && el.offsetParent!==null);
+  if(!items.length) return;
+  const first=items[0], last=items[items.length-1];
+  if(e.shiftKey && document.activeElement===first){e.preventDefault();last.focus();}
+  else if(!e.shiftKey && document.activeElement===last){e.preventDefault();first.focus();}
+}
+
+document.addEventListener('keydown',e=>{
+  const modal=document.getElementById('modalScrim');
+  const drawer=document.getElementById('drawerScrim');
+  if(modal.classList.contains('open')){
+    if(e.key==='Escape'){closeModal();return;}
+    trapTab(modal,e);
+  }else if(drawer.classList.contains('open')){
+    if(e.key==='Escape'){closeDrawer();return;}
+    trapTab(drawer,e);
+  }
+});
+
+document.querySelectorAll('.k-chip').forEach(btn=>{
+  btn.addEventListener('click',()=>btn.setAttribute('aria-pressed',btn.getAttribute('aria-pressed')==='true'?'false':'true'));
+});
+document.querySelectorAll('.stageSeg').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    document.querySelectorAll('.stageSeg').forEach(b=>b.classList.remove('viewing'));
+    btn.classList.add('viewing');
+  });
+});
+document.querySelectorAll('.section .k-toast.error .k-iconbtn').forEach(btn=>{
+  btn.addEventListener('click',()=>btn.closest('.k-toast').remove());
+});
+document.querySelectorAll('[data-process-toggle]').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    const root=btn.closest('.processDemo');
+    const body=root.querySelector('[data-process-body]');
+    const open=btn.getAttribute('aria-expanded')==='true';
+    btn.setAttribute('aria-expanded',String(!open));
+    btn.setAttribute('aria-label',open?'Expand review details':'Collapse review details');
+    btn.textContent=open?'›':'⌄';
+    body.hidden=open;
+  });
+});
+</script>
+</body>
+</html>

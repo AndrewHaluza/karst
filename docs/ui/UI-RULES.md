@@ -1,438 +1,970 @@
-# Karst UI Rules — binding on every agent and human touching the UI
+# Karst UI Rules
 
-These rules are **normative**. An agent producing or modifying any file under
-`src/ui/` or any `webview.html` is bound by them, and its output is judged
-pass/fail against them.
+**Version:** 3.0 — finalized normative rules
 
-Each rule has an id (`UI-R##`), a single testable claim, and a **Check** — the
-concrete way to decide pass/fail. Cite the rule id in the commit or PR when a
-change exists to satisfy it.
+Binding rules for agents and humans modifying Karst UI.
 
-Definitions and values live in [DESIGN-SYSTEM.md](./DESIGN-SYSTEM.md).
-Application guidance lives in [STYLE-GUIDE.md](./STYLE-GUIDE.md).
+These rules apply to files under `src/ui/`, shared webview UI modules, and
+`webview.html`.
 
-> **Precedence.** These rules sit under the repository's architecture invariants
-> in `CLAUDE.md`/`AGENTS.md`. Where a rule here would break an invariant there,
-> the invariant wins and the conflict is a defect in this document — report it,
-> do not route around it.
+[DESIGN-SYSTEM.md](./DESIGN-SYSTEM.md) defines visual primitives and tokens.
+[STYLE-GUIDE.md](./STYLE-GUIDE.md) provides application/design guidance.
+
+Repository architecture invariants in `CLAUDE.md` / `AGENTS.md` take precedence.
+A conflict is reported rather than worked around.
 
 ---
 
-## A. Foundation
+# Verification modes
 
-### UI-R01 — No new UI framework or component library
-Build on what exists: self-contained `webview.html`, inline `<style>`/`<script>`,
-marker injection from TS. Adding React/Vue/Tailwind/a component package, or a
-runtime dependency for the UI, is refused unless the PR carries an explicit
-written justification accepted by the user.
+Every rule declares how it can actually be verified.
 
-**Check:** `package.json` `dependencies` unchanged by a UI change.
+### STATIC
 
-### UI-R02 — The design system is delivered by marker injection, not by import
-Shared CSS/JS reaches a webview only through a marker replaced host-side
-(`/*KARST_DS_CSS*/`, `/*KARST_DS_JS*/`), because CSP forbids `<link>`, external
-`<script>`, `url()`, `@font-face`, and `fetch()`.
+Source structure or emitted source can prove the rule.
 
-**Check:** no `<link>`, no `src=` on a `<script>`, no `@import`, no `url(http…)`
-in any `webview.html`.
+### RUNTIME
 
-### UI-R03 — Every webview carries every marker
-A webview must contain `<!--KARST_CSP-->`, `/*KARST_DS_CSS*/`, and
-`/*KARST_DS_JS*/`, and its host must call `injectDesignSystem` before
-`injectCsp`.
+A unit, fake-DOM, integration, or protocol test is required.
 
-**Check:** `src/ui/designSystem.test.ts` discovers webview directories from disk
-and asserts the markers — it must not be given a hand-written list.
+### VISUAL
 
-### UI-R04 — Tokens are the only legal style values
-No component may contain a raw hex colour, `rgb()`/`rgba()`/`hsl()` literal, raw
-`px`/`rem` spacing, font size, radius, shadow, duration, or z-index. Use the
-token. If no token fits, add one to `designSystem.ts` and to
-[DESIGN-SYSTEM.md](./DESIGN-SYSTEM.md) — do not inline a value.
+A real VS Code/webview review is required because source inspection cannot prove
+the rendered property.
 
-**Exempt:** `1px` hairlines expressed as `var(--k-border-w)`, `0`, `100%`,
-`50%` via `--k-radius-circle`, and the token definitions themselves.
+### REVIEW
 
-**Check:** in a remediated file, `grep -nE '#[0-9a-fA-F]{3,8}|rgba?\(|[0-9]+(\.[0-9]+)?(px|rem)'`
-inside `<style>` returns only token declarations.
+A semantic/design/architecture judgment is required where correctness depends on
+meaning rather than source shape, runtime behavior, or rendered pixels. Examples
+include deciding whether two tokens represent the same semantic role or whether
+an action is genuinely destructive.
 
-### UI-R05 — One semantic value has exactly one token
-A colour meaning ("failed", "done") resolves through one token everywhere. Never
-introduce a second name, a second VS Code source variable, or a second hex
-fallback for a meaning that already has one.
+Some rules use more than one mode.
 
-**Motivating defect:** six greens, five reds, three purples; and
-`var(--vscode-testing-iconPassed, …)` written with fallback `#73c991` in
-`diffs/webview.html` and `#3fb950` in `welcome/webview.html` — the *same*
-variable, two different results on a theme that omits it.
-
-**Check:** every colour in a remediated file is `var(--k-*)`; the distinct set of
-hex literals across `src/ui/*/webview.html` shrinks and never grows.
-
-### UI-R06 — Status colour comes from the existing ramp
-`--k-pending|running|attention|passed|failed` (from `src/model/palette.ts`) and
-the stage ramp (`src/model/stagePalette.ts`) are consumed, never redefined and
-never shadowed. Feedback tokens (`--k-success|warning|danger|info`) are aliases
-onto that ramp.
-
-**Check:** no webview redeclares a `--k-*` status token.
+A source grep is not accepted as proof of visual behavior that it cannot observe.
 
 ---
 
-## B. Primitives
+# A. Architecture
 
-### UI-R07 — Use a primitive; do not restyle a control
-Every button is `.k-btn` or `.k-iconbtn` with a variant. A `<button>` that
-overrides `background`, `border`, `padding`, `border-radius`, or `font-size`
-locally is a defect — pick the right variant, or add a variant to the design
-system.
+## UI-R01 — No unapproved UI framework/runtime dependency
 
-**Motivating defect:** four radii (2px/3px/4px/5px) for the same primary button
-across four files; `diffs`' `.file` and `.copy-hash` each de-style a `<button>`
-into something unrecognizable as a control.
+Karst remains framework-free unless an explicit architecture decision approves a
+new frontend runtime or component dependency.
 
-**Check:** in a remediated file, no rule whose selector matches a `<button>`
-sets those five properties outside `designSystem.ts`.
+Routine UI work must not add React, Vue, Tailwind, a component framework, or
+another frontend runtime dependency.
 
-### UI-R08 — Visually equivalent controls render identically
-The same conceptual control (secondary button, icon button, toggle chip) uses
-the same primitive and the same tokens on every screen. Screen-specific layout
-(width, position, grid placement) is allowed; screen-specific *appearance* is not.
+**Verification:** STATIC
 
-**Check:** the same variant class produces byte-identical declarations, because
-they come from one emitted stylesheet.
-
-### UI-R09 — Semantics match the element
-An action is a `<button>`. Navigation is an `<a href>`. A disclosure is
-`<details>/<summary>` or a `<button aria-expanded>`. A `<div>`/`<span>`/`<th>`
-with a click handler is a defect.
-
-**Motivating defects:** `usage`'s sortable `<th data-sort>` (click handler, no
-role, no `tabindex`, no key handler — unreachable by keyboard); `sidebar`'s
-`.chev` `<span data-toggle>` and `.row` `<div data-open>`; `sidebar`'s `#emptyNew`
-`<a>` with no `href`.
-
-**Check:** every `data-act`/`data-*` click target in a remediated file is a
-`<button>` or an `<a href>`. Where a non-native control is genuinely required it
-carries `role`, `tabindex="0"`, and <kbd>Enter</kbd>+<kbd>Space</kbd> handlers —
-and that exception is justified in a comment.
-
-### UI-R09b — Interactive states stay on the primitive
-`:active` (press scale), `[aria-busy]` (spinner), `.is-success` (flash), and
-`:disabled` apply **only** to the interactive element itself — a `<button>` or
-an `<a href>` — never to a non-interactive container wrapping it (a `<div>`,
-`<span>`, or layout row). A row that scales `.96` on press, shows a spinner
-badge, or goes opaque on disable is a defect: the state leaked from the child
-control to its parent.
-
-**Motivating defect:** the design system's `:active { transform: scale(.96) }`
-was applied to `.row` (a `<div>`) during the rollout, so clicking anywhere on a
-ticket row — including the name text — produced a visible depress, even though
-the row is not a button and does not post a message.
-
-**Check:** no `:active`, `[aria-busy]`, `.is-success`, or `:disabled` rule
-targets an element that is not a `<button>`, `<a>`, `<input>`, `<select>`,
-`<textarea>`, or a known interactive primitive (`.k-btn`, `.k-iconbtn`,
-`.k-chip`, `.k-switch`, `.k-input`).
-
-### UI-R10 — A class must have a rule
-Applying a class that no stylesheet defines is a defect.
-
-**Motivating defect:** `ticketForm`'s `#attachBtn.ghost` — `.ghost` has no CSS
-anywhere in that file, so the "ghost" button renders as a primary button.
-
-**Check:** every class used in markup resolves to a rule in the file or in the
-injected design system.
+**Check:** UI-only changes do not introduce an unapproved runtime dependency in
+`package.json`.
 
 ---
 
-### UI-R10b — A destructive control looks destructive
-Any control that deletes, removes, uninstalls, archives, or merges uses
-`.k-btn--danger` / `.k-iconbtn--danger` and carries a `title` naming what is
-lost. It must never be visually indistinguishable from a benign secondary
-action.
+## UI-R02 — Use the shared webview delivery path
 
-**Motivating defect:** `settings` has **no danger variant anywhere in its
-stylesheet** — "Delete" (agent), "Remove" (repository), and "Uninstall"
-(approach) render as the same plain `.secondary` as "Cancel" and "Reload".
+Shared design-system assets reach webviews through Karst's existing shared
+injection/rendering path.
 
-**Check:** every `data-act`/handler matching `delete|remove|uninstall|archive|merge`
-carries the danger variant.
+Do not create a screen-specific second delivery mechanism.
 
----
+Marker injection is a Karst architecture choice, not a claim that CSP prevents
+all extension-local resources.
 
-## C. Async interaction feedback
+**Verification:** STATIC
 
-### UI-R11 — Every async control shows a pending state
-Any control that posts a message to the host enters pending **on click**,
-locally, before any round trip: `aria-busy="true"`, `disabled`, and a
-`.k-spinner`.
-
-**Motivating defect:** `aria-busy` appears **0** times in the entire UI today.
-
-**Check:** `grep -c 'aria-busy' src/ui/*/webview.html` > 0 for every webview that
-has an async control; every `post({type:…})` call site for a mutating action goes
-through the shared async-action runtime.
-
-### UI-R12 — A pending control is not re-triggerable
-While pending, a second activation is dropped — not queued, not re-sent. Pending
-state is keyed by control identity in the shared runtime, so this is structural
-rather than per-control discipline.
-
-**Motivating defect:** `welcome`'s "Create karst.yml" writes a file to disk and
-is not disabled during the `await`; `sidebar`'s `delete`/`archive`/`spin` are
-fire-and-forget with nothing preventing repeats.
-
-**Check:** a unit test drives a double activation through the runtime and asserts
-one post.
-
-### UI-R13 — Every async action reports a terminal outcome
-Pending must end in a visible success or a visible failure. The host replies once
-per request with `{type:'action-result', requestId, ok, message?}` from the single
-dispatch seam; the runtime settles the control on it.
-
-**Check:** every webview's host-message union includes `action-result`; the
-dispatcher emits exactly one per parsed request.
-
-### UI-R14 — A control can never be stuck pending
-The runtime arms a watchdog on entering pending. On expiry the control leaves
-pending and reports that the outcome is **unknown** — which is not the same
-claim as failure and must not be worded as one.
-
-**Check:** a unit test advances fake timers past the watchdog and asserts the
-control is re-enabled and `aria-busy` cleared.
-
-### UI-R14b — A surface does not close before its action settles
-A modal or drawer whose Save/submit posts an async action stays open, with its
-control pending, until the terminal result arrives. It closes on success. On
-failure it stays open and renders the error **inside itself**, next to the field
-that caused it.
-
-**Motivating defect:** `settings`' approach drawer calls `closeApproachDrawer()`
-on the line after `post()`, ungated. A host validation failure then has nowhere
-to render — it falls back to the global `#errBanner` behind a closed drawer, and
-the user cannot see which field was rejected without reopening and guessing.
-
-**Check:** no `close*()` call is unconditionally adjacent to a `post()` of a
-mutating action.
-
-### UI-R15 — Optimistic feedback only where failure does not matter
-Showing success before the host confirms is permitted only for actions whose
-failure the user does not need to act on (a clipboard write), and the optimism
-must be stated in a comment. Never for a mutation.
-
-**Motivating defect:** `diffs`' `.copy-hash` shows "✓ Copied" regardless of
-whether the host clipboard write threw. Acceptable *only* because it is a
-clipboard write; the same pattern on a merge or delete would not be.
-
-**Check:** no `flash*`/optimistic helper is invoked from a mutating action.
-
-### UI-R16 — Busy vocabularies are closed
-A busy/result discriminant is a union of literal types, never `string`. An
-unrecognized value is handled explicitly, not dropped.
-
-**Motivating defect:** `TicketFormHostMessage` declares `{type:'busy'; what: string}`;
-the host posts `what:'suggest'` and the webview's `setBusy` switch has no
-`'suggest'` case, so the Suggest button's pending state is silently swallowed and
-never rendered.
-
-**Check:** `what` is a closed union in TS; the webview's switch handles every
-member; a test pins the two together.
-
-### UI-R17 — Disabled and loading are different states
-`disabled` means unavailable — and the control keeps a `title` explaining why.
-`aria-busy` means in flight. A control disabled *because* it is loading carries
-both; a control disabled for any other reason carries only `disabled`.
-`pointer-events:none` must not be used to disable, because it suppresses the
-tooltip that explains the disablement.
-
-**Check:** no `pointer-events:none` on an interactive element; every statically
-disabled control has a `title`.
-
-### UI-R18 — A control's label does not change while pending
-The accessible name is stable across the action. The spinner carries the pending
-meaning. `Save` → `Saving…` → `Save` is refused: it mutates the accessible name
-mid-action and reflows the control's width.
-
-**Check:** no `textContent`/label assignment inside a pending branch.
+**Check:** new shared CSS/behavior is delivered through the shared webview
+injection path unless an architecture change is explicitly in scope.
 
 ---
 
-## D. Tooltips
+## UI-R03 — Every webview receives the complete shared visual system
 
-### UI-R19 — A tooltip is required when the label is not sufficient
-A `title` is **mandatory** on: every icon-only control; every control whose label
-is a bare verb whose object is not visible ("Open", "Suggest", "Spin"); every
-control that is destructive or irreversible; every statically disabled control
-(explaining why); and every control whose effect is not confined to the visible
-screen.
+Every discovered webview contains:
 
-A tooltip is **forbidden** where it merely restates a self-evident text label.
+- `<!--KARST_CSP-->`
+- `/*KARST_DS_CSS*/`
+- `/*KARST_DS_JS*/`
 
-**Check:** every `.k-iconbtn` in markup has both `title` and `aria-label`.
+and its host applies the shared design-system injection before CSP processing.
 
-### UI-R20 — Tooltip text is bounded and behavioural
-Max **80 characters**, one sentence, no trailing period. It says what the control
-does, not what it is: "Re-probe every PR", not "Refresh button".
+During migration, a separate `/*KARST_PALETTE*/` marker may remain only where the
+current implementation still requires it. The target architecture delivers
+status/stage palette output through the same mandatory design-system path and then
+removes the separate palette marker/calls.
 
-**Check:** a test asserts every `title="…"` in every webview is ≤ 80 chars.
+**Verification:** STATIC
 
-### UI-R21 — Tooltip and accessible name agree
-On an icon-only control, `title` and `aria-label` are the **same string**. Two
-different strings mean the pointer user and the screen-reader user are told two
-different things.
-
-**Check:** a test extracts icon-only controls and compares the pair.
-
-### UI-R22 — Tooltips are keyboard-reachable
-Use the native `title` attribute. A custom tooltip is permitted only if it also
-appears on `:focus-visible`, not only on `:hover`, and is dismissible with
-<kbd>Esc</kbd>.
-
-**Check:** no custom tooltip implementation binds only `mouseenter`.
+**Check:** discovery tests enumerate webviews from disk, not a handwritten list,
+assert the required design-system markers/host path, and prevent any webview from
+consuming unresolved status/stage tokens during the migration.
 
 ---
 
-## E. Accessibility
+## UI-R04 — Reusable visual decisions use tokens
 
-### UI-R23 — Visible focus, everywhere
-Every focusable element shows `outline: var(--k-focus-w) solid var(--k-focus)` at
-`var(--k-focus-offset)`. `outline:none` without a replacement ring is refused.
+Shared/repeated values for:
 
-A replacement ring need not be an `outline`: an element that is not rectangular
-cannot be outlined by one, because `outline` is a rectangle and a `clip-path`
-cuts whatever falls outside the shape — the dashboard track's chevron segments
-lost the ring's vertical strokes inside their notches. Such an element may draw
-the ring as a shape instead (there, `--k-focus` filling the segment clipped to
-the chevron minus a smaller chevron), as long as `--k-focus` is what draws it and
-the fallback for a browser that cannot compute the shape is the plain outline.
+- color;
+- typography;
+- recurring spacing;
+- shared radius;
+- shared component sizing;
+- elevation;
+- motion;
+- layering
 
-**Motivating defect:** `sidebar` and `welcome` define **no** `:focus-visible`
-rule at all; `usage` covers only bare `button`.
+use design tokens.
 
-**Check:** `grep -c ':focus-visible' src/ui/*/webview.html` > 0 for every
-webview — satisfied by the injected design system, not per-file.
+Screen-local structural CSS and genuinely local geometry do not require a global
+token.
 
-### UI-R24 — Icon-only controls have accessible names
-Every control whose visible content is only a glyph or SVG has an `aria-label`.
-`title` alone is not an accessible name.
+Do not hide arbitrary dimensions behind meaningless token arithmetic.
 
-**Motivating defect:** every `.ia` row action in `sidebar` (unarchive, delete,
-spin, open-session, edit, archive) has `title` and no `aria-label`.
+**Verification:** STATIC + REVIEW
 
-**Check:** no `<button>` with only an SVG/glyph child lacks `aria-label`.
+**Check:** a changed shared/repeated visual value uses an existing/new semantic
+token; local geometry is permitted when it belongs to that composition.
 
-### UI-R25 — Form controls have real labels
-A `<label for>` per control. A placeholder is not a label. A field in error
-carries `aria-invalid="true"` and `aria-describedby` pointing at its message.
-
-**Motivating defect:** `ticketForm`'s generated `#sig-${svc}` inputs have no
-`<label for>`; `#ref`/`#title`/`#desc` never get `aria-invalid` or
-`aria-describedby` when `#err` fires.
-
-**Check:** every `<input>`/`<select>`/`<textarea>` id is referenced by a
-`<label for>` or the control carries an `aria-label`.
-
-### UI-R26 — ARIA state reflects real state
-`aria-busy` while pending · `aria-expanded` on every disclosure trigger ·
-`aria-pressed` on toggle buttons · `aria-checked` on `role="switch"`/`role="radio"` ·
-`aria-current` on the active wizard step · `aria-invalid` on a field in error.
-
-**Motivating defects:** `ticketForm`'s `#detailsBtn` opens a drawer with no
-`aria-expanded`; its repo `.chip` (`role="button"`) has no `aria-pressed` and its
-approach `.acard` (a radio in effect) has no `aria-checked`; its stepper conveys
-done/active purely by CSS class with no `aria-current`.
-
-### UI-R27 — Changes not caused by the user are announced
-Every webview has exactly one `role="status" aria-live="polite"` region (the
-toast container). Pending completion, results, and progress steps are announced
-through it.
-
-**Motivating defect:** `dashboard` has no live region at all — ship progress,
-merge completion, and refresh completion are silent to assistive tech;
-`welcome`'s `#error` and `usage`'s `#err` have no `role`/`aria-live`.
-
-### UI-R28 — Colour is never the only carrier
-Status is also carried by a glyph, a letter, or text. A status dot is
-`role="img"` with an `aria-label` naming the status in words.
-
-**Motivating defect:** `diffs`' A/M/D/R status letters are colour + a bare
-letter, never expanded to "Modified"; `welcome`'s `.mark` ✓/✗ glyphs have neither
-`aria-label` nor `aria-hidden`.
-
-### UI-R29 — Contrast meets WCAG AA by construction
-4.5:1 for body text, 3:1 for ≥`--k-text-lg` semibold and for component
-boundaries. Guaranteed by using **paired** tokens (`--k-action-fg` on
-`--k-action-bg`, `--k-danger-fg` on `--k-danger`), never by hand-picking a
-foreground against a themed background.
-
-**Motivating defect:** `dashboard` line 417 sets `background:#8957e5;color:#fff`
-with no theme variable on either side.
-
-**Check:** no bare `color:#fff`/`#000` paired with a themed background.
-
-### UI-R30 — Motion is optional
-Every animation and transition is nulled under
-`@media (prefers-reduced-motion: reduce)`, and no information is lost when it is.
-The pending state survives because it is carried by `aria-busy` and `disabled`,
-not by the spinner's rotation.
-
-**Motivating defect:** of seven webviews only `diffs` has a reduced-motion query.
+A raw-literal budget is not the conformance criterion.
 
 ---
 
-## F. Boundaries
+## UI-R05 — One semantic role has one definition
 
-### UI-R31 — The webview decides nothing
-Values arrive pre-formatted from the host: numbers, durations, paths, verdicts,
-labels, colours, classes. A formatter or a business rule inside a `webview.html`
-is a second implementation of a rule that already exists host-side.
+Do not create competing definitions for the same semantic visual role.
 
-### UI-R32 — Untrusted prose is bounded before it is displayed
-Any string originating from a CLI, an agent, a git command, or a provider is
-collapsed to one line and length-capped before it reaches a toast, a label, or a
-tooltip — the rule `agent/cliFailure.ts` already applies to verdicts and logs.
+Different semantic roles may share the same underlying value.
 
-### UI-R33 — Confirmation of an irreversible action lives host-side
-A destructive action is confirmed by a VS Code modal in the host, never by a
-webview dialog, so a crafted message cannot skip it. The webview posts intent
-only; it never picks the strategy.
+Examples:
 
-### UI-R34 — Mirrored constants stay pinned
-Blocks mirrored from TS into a webview (`SECTION_FIELDS`, `TICKET_TYPES`,
-`CONVENTION_PRESETS`, `TRANSFORM_NAMES`, `deriveKey`/`TITLE_KEY_MAX`,
-`MAX_PASTE_BYTES`, `briefToText`) are behaviour, not styling. A UI change must
-not touch them, and their pinning tests must keep passing untouched.
+- workflow passed and feedback success may share a palette source;
+- page background and sunken surface may currently resolve identically.
+
+They remain separate tokens because their meanings differ.
+
+**Verification:** STATIC + REVIEW
+
+**Check:** no second token/source is introduced solely to give an existing
+semantic role another screen-specific value.
 
 ---
 
-## G. Verification
+## UI-R06 — Status, feedback, stage, and data-series semantics do not cross
 
-### UI-R35 — Remediation is traceable
-Every remediation change cites the rule id it satisfies, in the commit body or in
-a code comment where the reason is not evident from the diff.
+Workflow status, generic feedback, stage identity, and categorical series are
+separate semantic namespaces.
 
-### UI-R36 — Tests cover the matrix and the feedback, not just the markup
-A change that adds or alters a primitive adds tests for its **state matrix**, and
-a change that adds an async control adds tests for **pending / non-re-trigger /
-terminal result / watchdog**. Webview HTML is asserted at text level (the repo
-has no DOM harness and adding one is out of scope); the shared runtime is tested
-by evaluating the **emitted JS itself** against a fake DOM, so there is no second
-copy to drift.
+Status/stage palette ownership remains centralized.
 
-### UI-R37 — Behaviour is preserved
-This is a presentation and interaction-feedback contract. No rule here licenses
-changing what an action does, which message it posts, what the host executes, or
-what is persisted. `npm test` and `npm run typecheck` pass.
+**Verification:** STATIC
 
-### UI-R38 — A scrolling surface keeps its controls pinned
+**Check:**
+
+- no webview redeclares status/stage tokens;
+- no chart series references workflow/feedback semantic tokens;
+- no status/feedback component uses `--k-series-*`.
+
+---
+
+# B. Semantics and primitives
+
+## UI-R07 — Existing semantic controls use shared primitives
+
+If an interaction is already represented by a shared primitive, use that
+primitive.
+
+A screen-local layout may position/constrain it.
+
+A local component must not recreate the same semantic primitive with another
+appearance.
+
+**Verification:** STATIC + VISUAL
+
+**Check:** changed shared control semantics resolve through the shared primitive;
+visual review confirms local composition has not unnecessarily forked it.
+
+---
+
+## UI-R08 — Shared primitives are consistent; local product composition is allowed
+
+The same primitive/variant comes from the shared implementation on every screen.
+
+This rule does not require stage rails, graphs, rows, timelines, or other
+product-specific compositions to be promoted into primitives.
+
+**Verification:** STATIC
+
+**Check:** shared primitive/variant declarations are not copied and forked
+screen-locally.
+
+---
+
+## UI-R09 — Native element semantics match the interaction
+
+Use:
+
+- `<button>` for actions;
+- `<a href>` for navigation and visible resource links;
+- native form controls where appropriate;
+- `<details>/<summary>` or `<button aria-expanded>` for disclosure.
+
+A host-mediated file/PR/commit reveal still uses link semantics when the visible
+resource identifier is the navigation affordance.
+
+Do not use `<div>`, `<span>`, or `<th>` as a click-only replacement.
+
+A custom widget is permitted only when a native control cannot express the
+interaction and the complete required keyboard/ARIA behavior is implemented.
+
+**Verification:** STATIC + RUNTIME
+
+**Check:** interactive hooks map to a native interactive element or an explicitly
+tested custom widget.
+
+---
+
+## UI-R09b — Interaction state stays on its owner
+
+Busy, disabled, pressed, selected, and transient action-result state belongs to
+the interactive element/surface that owns the interaction.
+
+Do not apply button press, `aria-busy`, `:disabled`, or child-action success
+state to a non-interactive container merely because it contains the control.
+
+**Verification:** STATIC + VISUAL
+
+**Check:** state selectors/attributes target the actual owner; visual review
+confirms row/container state does not falsely imply interaction.
+
+---
+
+## UI-R09c — A visible resource identifier is the navigation affordance
+
+When a row already displays a file path, PR number, commit hash, URL, or other
+resource identifier and the intended action is to reveal/open that resource, the
+displayed identifier is the link.
+
+Do not add an adjacent **Open file**, **Open PR**, or equivalent button that
+duplicates the same navigation.
+
+A separate button is allowed when it performs a different action or when no
+meaningful target identifier is displayed.
+
+**Verification:** STATIC + VISUAL
+
+**Check:** finding/detail rows with visible resource targets use the target value
+as the link and do not duplicate it with an equivalent adjacent open button.
+
+---
+
+## UI-R10 — Shared visual classes resolve
+
+Every used `k-*` primitive/variant and visual `is-*` state has a defined shared
+or local contract.
+
+Behavior-only hooks use `data-*` where a CSS class has no visual role.
+
+**Verification:** STATIC
+
+**Check:** markup tests detect undefined shared primitive/variant classes.
+
+---
+
+## UI-R10b — Irreversible destructive actions use danger treatment
+
+Actions that permanently destroy/remove user data or installed configuration use
+the shared danger variant.
+
+This includes:
+
+- permanent delete;
+- uninstall;
+- destructive discard/remove.
+
+Reversible archive is not automatically danger.
+
+Merge is not automatically danger-colored merely because it is consequential;
+required confirmation remains host-side.
+
+**Verification:** STATIC + REVIEW
+
+**Check:** destructive action definitions are mapped to danger treatment using an
+explicit action taxonomy, not a broad keyword regex.
+
+---
+
+## UI-R10c — Agent core identity is icon + canonical name
+
+Whenever an agent core is visible, render it through the shared provider identity
+mapping as:
+
+**core icon + canonical core name**
+
+The core name is mandatory. The icon is decorative when the visible name is
+present.
+
+Model, effort, and variant are optional secondary metadata and are shown only
+where they help identify the configured or recorded run.
+
+A generic `AI` badge, model name, or icon alone is not a substitute for the core
+identity.
+
+Agent-core selectors must also preserve icon + canonical-name identity for every
+choice. A text-only native select does not satisfy this rule; prefer a native
+radio/choice pattern or another complete accessible selector.
+
+**Verification:** STATIC + VISUAL
+
+**Check:** agent-core render sites use the shared identity mapping; tests pin the
+known core identifier → canonical icon/name mapping; visual review confirms model
+/ effort / variant are subordinate metadata rather than replacement identity.
+
+---
+
+# C. Async interaction
+
+These rules specify user-observable interaction behavior.
+
+They do not prescribe request-ID format, one specific dispatcher, or one wire
+protocol.
+
+## UI-R11 — Waiting host mutations/long-running actions expose pending state
+
+A control must expose pending state when all are true:
+
+1. it starts a host mutation or external/agent operation;
+2. completion is not immediately visible in the same interaction;
+3. the control remains present while waiting.
+
+Pending is entered locally on activation rather than after the host result.
+
+Pure navigation/handoff that immediately opens the resulting VS Code surface does
+not require an artificial spinner.
+
+**Verification:** RUNTIME
+
+**Check:** qualifying operations have a runtime test proving pending begins
+before settlement.
+
+---
+
+## UI-R12 — Unsafe duplicate activation is prevented
+
+While a qualifying operation is in flight, a second activation must not create
+duplicate unsafe work.
+
+The mechanism may be:
+
+- native disabled state;
+- pending-state guard;
+- idempotency;
+- application-level deduplication.
+
+**Verification:** RUNTIME
+
+**Check:** double-activation tests for mutations/long-running work assert one
+effective operation.
+
+---
+
+## UI-R13 — Known terminal results leave pending and become visible
+
+When the application knows a terminal result, the UI leaves pending and exposes
+that outcome.
+
+Prefer the strongest existing home:
+
+1. changed domain state;
+2. inline/local result;
+3. toast.
+
+**Verification:** RUNTIME
+
+**Check:** success and failure settlement tests clear busy state and expose the
+result through the intended UI path.
+
+---
+
+## UI-R14 — Unknown is not failure, and uncertainty is not automatic retry safety
+
+A timeout/lost acknowledgment that cannot establish the operation result is
+reported as unknown/uncertain.
+
+It must not be represented as confirmed failure.
+
+A potentially non-idempotent mutation must not simply become re-triggerable after
+timeout if the original operation may still be running.
+
+**Verification:** RUNTIME
+
+**Check:** timeout tests assert:
+
+- pending presentation ends or changes to an uncertainty state;
+- no false failure claim;
+- unsafe duplicate retry is not enabled without reconciliation/idempotency.
+
+---
+
+## UI-R14b — Recoverable form/surface errors preserve recovery context
+
+A form, drawer, or modal that owns a mutation capable of local validation failure
+must not destroy its own recovery UI before the result is known.
+
+On failure:
+
+- entered values remain;
+- relevant surface remains available;
+- field/local error is visible.
+
+**Verification:** RUNTIME
+
+**Check:** failure tests prove the surface remains/reopens with preserved values
+and local error association.
+
+---
+
+## UI-R15 — Terminal success is not shown before success is known
+
+Do not show terminal claims such as:
+
+- Saved
+- Copied
+- Merged
+- Deleted
+- Installed
+
+before the application knows the operation succeeded when the result is
+observable.
+
+Deliberate optimistic UI is allowed only as an explicit reversible/reconcilable
+state model; it must not masquerade as confirmed completion.
+
+**Verification:** RUNTIME
+
+**Check:** failure tests never pass through a confirmed-success presentation
+first.
+
+---
+
+## UI-R16 — Finite controlled protocol discriminants are closed
+
+When Karst controls both sides of a finite UI/host discriminant, represent it as
+a closed set rather than unrestricted `string`.
+
+Unrecognized values are handled explicitly.
+
+**Verification:** STATIC + RUNTIME
+
+**Check:** TypeScript uses a literal union/discriminated union and tests pin the
+consumer to every supported member.
+
+No "where practical" exemption applies to finite protocols owned by this
+repository.
+
+---
+
+## UI-R17 — Disabled and loading remain distinct
+
+Disabled means unavailable.
+
+Loading means in flight.
+
+A control may be disabled while loading, but busy state remains separately
+exposed.
+
+Do not use `pointer-events:none` as the sole disabling mechanism.
+
+Required explanation for an unavailable action must not depend only on native
+`title`.
+
+**Verification:** STATIC + RUNTIME + VISUAL
+
+**Check:**
+
+- busy and unavailable state are distinguishable in DOM/state;
+- activation is prevented correctly;
+- required explanation remains available without pointer-hover-only behavior.
+
+---
+
+## UI-R18 — Pending/result feedback preserves usable geometry and naming
+
+Pending/result UI must not create a layout change that moves the activation
+target or neighboring primary controls enough to disrupt continued interaction.
+
+Avoid unnecessary accessible-name changes during the action.
+
+Label changes are allowed when intentional and accessible; they are not
+categorically forbidden.
+
+**Verification:** RUNTIME + VISUAL
+
+**Check:** runtime asserts appropriate accessible state; real-webview review
+confirms the control/adjacent layout does not jump materially through
+idle→pending→settled.
+
+---
+
+# D. Help and accessible naming
+
+## UI-R19 — Required information does not depend on `title`
+
+Native `title` may supplement an interface.
+
+It is not the sole mechanism for:
+
+- accessible name;
+- unavailable-action explanation;
+- validation guidance;
+- instructions required to use the control.
+
+**Verification:** STATIC + VISUAL
+
+**Check:** required meaning remains available when native tooltip presentation is
+ignored.
+
+---
+
+## UI-R20 — Supplemental tooltip copy is concise and useful
+
+Where a title/custom tooltip exists, it describes behavior rather than widget
+type and does not redundantly repeat an obvious visible label.
+
+The existing 80-character bound remains a copy guard for transient tooltip text.
+
+**Verification:** STATIC + REVIEW
+
+**Check:** `title` values are ≤80 characters and review confirms they add useful
+behavioral context.
+
+---
+
+## UI-R21 — Supplemental tooltip text agrees with the accessible name
+
+When an icon-only control has both an accessible name and supplemental tooltip
+text, the two must describe the same action and scope.
+
+For simple icon actions, exact equality between `aria-label` and `title` is
+preferred. Different wording is allowed only when it adds supplemental context
+without changing the action's meaning.
+
+This rule governs **agreement between two descriptions**. The requirement that an
+icon-only control has an accessible name at all is UI-R24.
+
+**Verification:** STATIC + REVIEW
+
+**Check:** controls carrying both `aria-label` and `title` are compared for
+semantic agreement; simple one-action icon controls should normally use the same
+string.
+
+---
+
+## UI-R22 — Custom tooltip/help behavior supports keyboard users
+
+A custom tooltip/help surface containing useful information must be accessible
+from keyboard focus as well as pointer hover.
+
+It must not create a keyboard trap.
+
+**Verification:** RUNTIME + VISUAL
+
+**Check:** keyboard interaction test/review exercises focus, appearance, and
+dismissal.
+
+---
+
+# E. Accessibility
+
+## UI-R23 — Keyboard focus is visibly identifiable
+
+Every keyboard-focusable interactive element has a clearly visible focus
+indicator.
+
+A non-rectangular control may use a shape-aware focus treatment.
+
+Do not remove focus presentation without replacement.
+
+**Verification:** STATIC + VISUAL
+
+**Check:**
+
+- shared primitives include a focus-state contract;
+- keyboard through every changed surface in light, dark, and high-contrast mode;
+- focus remains visually identifiable.
+
+---
+
+## UI-R24 — Icon-only controls have accessible names
+
+An icon/glyph alone is not the control's accessible name.
+
+Decorative icons are hidden from assistive technology when text or an
+`aria-label` already names the control.
+
+**Verification:** STATIC
+
+**Check:** icon-only control tests assert accessible names and decorative icon
+treatment where applicable.
+
+---
+
+## UI-R25 — Form controls have labels and local error association
+
+Each form control has a programmatic label.
+
+A placeholder is not a label.
+
+Field-specific errors are programmatically associated with the field and expose
+invalid state.
+
+**Verification:** STATIC + RUNTIME
+
+**Check:** markup tests verify label association; error-state tests verify
+`aria-invalid` and description association.
+
+---
+
+## UI-R26 — ARIA reflects actual state
+
+ARIA state is updated with the real component state.
+
+Examples:
+
+- `aria-busy`;
+- `aria-expanded`;
+- `aria-pressed`;
+- `aria-checked`;
+- `aria-invalid`;
+- `aria-current`.
+
+Prefer native semantics before custom ARIA.
+
+A custom radio group implements expected keyboard navigation, not only
+`aria-checked`.
+
+**Verification:** RUNTIME
+
+**Check:** interaction tests verify each changed ARIA state tracks actual state.
+
+---
+
+## UI-R27 — Important asynchronous changes have an announcement path
+
+A change that would otherwise be missed by assistive-technology users has an
+appropriate status/live-region announcement path.
+
+Do not announce every rerender.
+
+Ordinary transient results use one coordinated polite status region per webview
+unless a more local semantic element already provides the announcement.
+
+**Verification:** STATIC + RUNTIME
+
+**Check:** qualifying completion/error flows update an announcement path.
+
+---
+
+## UI-R28 — Color is not the only visible carrier of meaning
+
+Meaningful state remains identifiable without distinguishing its hue.
+
+Use a distinct glyph, shape, pattern, or visible text.
+
+Workflow status intentionally uses icon-only markers: check / spinner / pause /
+cross / neutral marker. The different glyph/shape is the non-color carrier.
+
+An `aria-label` alone does not satisfy this rule for sighted users.
+
+**Verification:** VISUAL
+
+**Check:** review the changed state while suppressing color distinction; its
+meaning remains visually identifiable from glyph/shape/text.
+
+---
+
+## UI-R28b — Workflow status markers are icon-only and use the shared mapping
+
+The `.k-status` primitive renders no visible status word.
+
+Required mapping:
+
+- passed / done → green checkmark;
+- running → blue spinner;
+- needs attention / paused / blocked → amber pause icon;
+- failed → red cross;
+- pending / not checked → neutral circle/dot.
+
+Every marker has an accessible name describing the actual state.
+
+Surrounding row copy may describe the status where useful; that copy is not part
+of the status primitive.
+
+**Verification:** STATIC + VISUAL
+
+**Check:** status renderers use the shared state→icon/color mapping, contain an
+accessible name, and do not append a visible status word inside the primitive.
+
+---
+
+## UI-R29 — Contrast meets WCAG AA
+
+Normal text requires at least `4.5:1`.
+
+Use the lower `3:1` text threshold only where text actually qualifies as large
+text under WCAG. `14px` semibold Karst headings remain normal text for this rule.
+
+Required non-text UI indicators/boundaries meet their applicable contrast
+requirements.
+
+Theme-dependent pairs are not assumed to pass merely because they come from
+theme variables.
+
+Shared/reusable component CSS must not embed dark-theme surface/text/border
+literals that bypass the semantic token layer.
+
+**Verification:** STATIC + VISUAL
+
+**Check:**
+
+- Karst-owned fixed semantic foreground/background pairs have pinned contrast
+  tests;
+- changed surfaces are checked in VS Code light, dark, and high-contrast theme
+  classes.
+
+---
+
+## UI-R30 — Reduced motion preserves state information
+
+Reduced-motion mode removes/reduces non-essential animation.
+
+All state remains understandable without movement.
+
+**Verification:** STATIC + VISUAL
+
+**Check:** shared motion has a reduced-motion rule and the changed screen is
+reviewed with reduced motion enabled.
+
+---
+
+# F. Host / webview boundaries
+
+## UI-R31 — Host supplies semantic facts; webview owns visual presentation
+
+The host owns:
+
+- domain/business state;
+- permissions;
+- persistence;
+- external results;
+- consequential decisions.
+
+The webview owns:
+
+- component selection;
+- CSS classes;
+- glyphs;
+- visual tokens;
+- layout;
+- presentation-only formatting.
+
+Prefer:
+
+```ts
+{
+  status: 'running',
+  stage: 'uat',
+  canMerge: false,
+  agentCore: 'claude-code',
+  model: 'opus-5'
+}
+```
+
+`agentCore` is semantic identity. The shared provider identity module maps it to
+the canonical icon/name; domain code does not send presentation glyphs/classes.
+
+over:
+
+```ts
+{ className: 'green-pill', color: '#4bb64b' }
+```
+
+Canonical formatting that changes meaning remains upstream.
+
+Purely visual formatting may remain in the presentation layer.
+
+**Verification:** STATIC + REVIEW
+
+**Check:** host/domain view models do not prescribe CSS classes/colors for
+ordinary presentation; webview formatters do not duplicate business/domain
+classification logic.
+
+---
+
+## UI-R32 — Untrusted prose is escaped and bounded for its destination
+
+External strings from:
+
+- CLI;
+- git;
+- agents;
+- providers;
+- workspace data
+
+are escaped for their output context.
+
+Transient UI such as toasts, badges, labels, and tooltips bounds/collapses
+external prose so it cannot become a raw diagnostic dump.
+
+Dedicated detail/log surfaces may intentionally expose longer content.
+
+**Verification:** STATIC + RUNTIME
+
+**Check:** interpolation helpers are used; tests cover transient-output
+truncation/collapse.
+
+---
+
+## UI-R33 — Protected irreversible confirmation stays host-side
+
+Where confirmation must not be bypassable by a crafted webview message, the host
+performs the confirmation using the approved VS Code mechanism.
+
+The webview posts intent.
+
+**Verification:** STATIC + RUNTIME
+
+**Check:** protected irreversible handlers retain host-side confirmation and
+tests prevent direct webview intent from skipping it.
+
+---
+
+## UI-R34 — Mirrored behavior constants remain pinned
+
+Existing TS↔webview mirrored behavior blocks are not modified as incidental UI
+cleanup.
+
+Examples include:
+
+- `SECTION_FIELDS`;
+- `TICKET_TYPES`;
+- `CONVENTION_PRESETS`;
+- `TRANSFORM_NAMES`;
+- `deriveKey` / `TITLE_KEY_MAX`;
+- `MAX_PASTE_BYTES`;
+- `briefToText`.
+
+A required change is treated as a behavior change with dedicated tests/review.
+
+**Verification:** STATIC
+
+**Check:** existing pinning tests remain green unless explicitly changed in
+scope.
+
+---
+
+# G. Verification and change control
+
+## UI-R35 — Rule-driven remediation is traceable
+
+A change made specifically to satisfy/correct a UI rule cites the rule ID in the
+commit/PR, or in a nearby comment when the reason would otherwise be unclear.
+
+Do not add rule IDs as ceremony to unrelated changes.
+
+**Verification:** REVIEW
+
+---
+
+## UI-R36 — Use a test that can prove the property
+
+### Static tests are appropriate for
+
+- markers;
+- native element structure;
+- accessible-name presence;
+- status state→icon mapping;
+- agent-core identity mapping;
+- resource-link structure;
+- token/class ownership;
+- mirrored constants;
+- finite protocol discriminants.
+
+### Runtime tests are appropriate for
+
+- pending/settled state;
+- duplicate activation;
+- toast dismissal;
+- ARIA state;
+- validation recovery;
+- announcements.
+
+### Visual verification is required for
+
+- focus visibility;
+- reflow/layout stability;
+- clipping;
+- hierarchy;
+- light/dark/high-contrast appearance;
+- contrast involving theme-dependent values;
+- modal focus experience;
+- color-independent readability;
+- reduced motion.
+
+A literal/regex budget is not a substitute for rendered verification.
+
+**Verification:** STATIC + RUNTIME + VISUAL
+
+---
+
+## UI-R37 — Domain behavior is preserved unless explicitly in scope
+
+A design-system/presentation task must not silently change:
+
+- domain meaning;
+- persistence;
+- permissions;
+- host command selection;
+- irreversible behavior;
+- workflow transitions.
+
+Intentional interaction/accessibility improvements are allowed, including:
+
+- duplicate-activation prevention;
+- pending feedback;
+- correct validation recovery;
+- accessible focus/ARIA;
+- safer unknown-result handling;
+- improved result presentation.
+
+These are interaction changes and must be tested as such; they are not prohibited
+by a generic "no behavior change" rule.
+
+**Verification:** STATIC + RUNTIME
+
+**Check:** `npm test` and `npm run typecheck` pass, and behavior changes introduced
+by UI remediation have dedicated coverage.
+
+This rule also carries the presentation-contract statement: no rule in this
+document licenses changing what an action does, which message it posts, what the
+host executes, or what is persisted.
+
+---
+
+## UI-R38 — A scrolling surface keeps its controls pinned
+
 A list that scrolls keeps the controls that act on it — header toolbar, search
-box, filter chips — pinned above it. A control that scrolls away with the rows
-it filters is unreachable at the bottom of a long list: the sidebar's ticket
-list scrolled as one document until this rule, so the search box and facet
-chips disappeared below the fold.
+box, filter chips — pinned above it.
 
-**Check:** the list is the only `overflow-y:auto` container in the webview's
-main `<style>`; the shell (`body`) is `overflow:hidden` and fills the view
+A control that scrolls away with the rows it filters is unreachable at the bottom
+of a long list: the sidebar's ticket list scrolled as one document until this
+rule, so the search box and facet chips disappeared below the fold.
+
+**Verification:** STATIC + VISUAL
+
+**Check:** the list is the only `overflow-y:auto` container in the webview's main
+`<style>`; the shell (`body`) is `overflow:hidden` and fills the view
 (`html,body{height:100%}`); pinned blocks are `flex:0 0 auto`; the list is
-`flex:1` with `min-height:0`.
+`flex:1` with `min-height:0`; visual review confirms the controls stay visible
+while the list scrolls.
