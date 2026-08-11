@@ -16,8 +16,10 @@
  */
 
 import type {
+  ApproachDef,
   BindVar,
   DependsOn,
+  GraphApproachConfig,
   Manifest,
   PortSlot,
   ProcessAssignmentsConfig,
@@ -130,6 +132,58 @@ export function processes(
 ): ProcessAssignmentsConfig {
   return {
     uatTester: { provider: 'codex', model: 'gpt-5.6-sol', enabled: true },
+    ...over,
+  };
+}
+
+/**
+ * A fully-populated nested `graph:` block, matching the design Configuration
+ * Model. `validateGraphConfig` accepts the typed shape (every field present),
+ * so hand-built fixtures can spread this and override one field.
+ */
+export function graphApproachConfig(over: Partial<GraphApproachConfig> = {}): GraphApproachConfig {
+  return {
+    planner: { profile: 'expert', prompt: { artifact: 'skills/graph-planner/SKILL.md' } },
+    profiles: {
+      expert: { provider: 'claude', model: 'claude-opus-5', effort: 'high' },
+      worker: { provider: 'claude', model: 'claude-sonnet-5', effort: 'low' },
+      fast: { provider: 'claude', model: 'claude-sonnet-5', effort: 'low' },
+    },
+    commands: {
+      test: {
+        command: 'npm',
+        args: ['test'],
+        cwd: 'repository',
+        access: 'write',
+        timeoutSeconds: 1800,
+      },
+    },
+    limits: {
+      confirmGeneratedGraph: true,
+      maxParallel: 1,
+      maxNodeRuns: 40,
+      maxExpertRuns: 5,
+      maxReplans: 2,
+      maxActivations: 200,
+      maxGraphWallSeconds: 86400,
+      maxAgentWallSeconds: 7200,
+      maxAgentIdleSeconds: 1800,
+      maxArtifactBytes: 104857600,
+      maxLogBytes: 10485760,
+      maxAggregateArtifactBytes: 536870912,
+      maxAggregateWorkspaceBytes: 21474836480,
+    },
+    ...over,
+  };
+}
+
+/** One approach entry carrying the full graph block (disabled by default). */
+export function graphApproach(over: Partial<ApproachDef> = {}): ApproachDef {
+  return {
+    id: 'karst-graph-engineering',
+    label: 'Graph Engineering',
+    enabled: false,
+    graph: graphApproachConfig(),
     ...over,
   };
 }

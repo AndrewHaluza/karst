@@ -13,6 +13,7 @@
 
 import { join } from 'node:path';
 import type { ApproachDef, GraphApproachConfig } from '../manifest/types.js';
+import { DEFAULT_GRAPH_LIMITS } from '../manifest/graphConfig.js';
 
 export const BUILT_IN_PACKAGE_ID = 'karst-graph-engineering';
 
@@ -35,21 +36,9 @@ const PACKAGED_GRAPH: GraphApproachConfig = {
     fast: { provider: 'claude', model: 'claude-sonnet-5', effort: 'low' },
   },
   commands: {},
-  limits: {
-    confirmGeneratedGraph: true,
-    maxParallel: 1,
-    maxNodeRuns: 40,
-    maxExpertRuns: 5,
-    maxReplans: 2,
-    maxActivations: 200,
-    maxGraphWallSeconds: 86400,
-    maxAgentWallSeconds: 7200,
-    maxAgentIdleSeconds: 1800,
-    maxArtifactBytes: 104857600,
-    maxLogBytes: 10485760,
-    maxAggregateArtifactBytes: 536870912,
-    maxAggregateWorkspaceBytes: 21474836480,
-  },
+  // The packaged limits ARE the validator's defaults — one shared table, so a
+  // drifted default fails the packaged-equality test AND the validator test.
+  limits: { ...DEFAULT_GRAPH_LIMITS },
 };
 
 /**
