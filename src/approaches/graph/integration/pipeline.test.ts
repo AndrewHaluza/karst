@@ -11,7 +11,8 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync, readFileSync, chmodSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, readFileSync, chmodSync, mkdirSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { openStore } from '../../../store/db.js';
@@ -28,6 +29,7 @@ interface Harness {
   ticketId: number;
   worktree: string;
   baseSha: string;
+  artifactRoot: string;
   close: () => void;
 }
 
@@ -74,7 +76,20 @@ function harness(): Harness {
       .lastInsertRowid,
   );
   const { dir, baseSha } = makeRepo();
-  return { db, graphRunId, revisionId, ticketId, worktree: dir, baseSha, close: () => store.close() };
+  const artifactRoot = mkdtempSync(join(tmpdir(), 'karst-artifacts-'));
+  return {
+    db,
+    graphRunId,
+    revisionId,
+    ticketId,
+    worktree: dir,
+    baseSha,
+    artifactRoot,
+    close: () => {
+      store.close();
+      rmSync(artifactRoot, { recursive: true, force: true });
+    },
+  };
 }
 
 function insertNodeRun(h: Harness, id: number, status: string): void {
@@ -116,6 +131,7 @@ function makeDeps(
     },
     getSession: (nodeRunId) => session(nodeRunId),
     domainsFor: () => [{ repoName: 'api', worktreePath: h.worktree }],
+    artifactRoot: () => h.artifactRoot,
     declaredWritesOf: () => [
       {
         domainKey: domainKeyOf(canonicalPath(h.worktree), gitCommonDirOf2(h.worktree)),
@@ -382,5 +398,196 @@ describe('runCompletionPipeline — guards', () => {
     );
     expect(result.kind).toBe('no-op');
     expect(nodeRow(h, 72).status).toBe('completing');
+  });
+});
+
+/**
+ * Slice 4 Task 2 fixtures: a canonical document whose agent node `n` declares
+ * one required output artifact (`spec`), and a claimed activation token whose
+ * fork lineage is the producing activation's.
+ */
+const PIPELINE_DOC = {
+  version: 1,
+  title: 't',
+  rationaleArtifact: 'r',
+  entries: ['n'],
+  artifacts: [
+    {
+      id: 'spec',
+      path: 'out/spec.md',
+      producer: 'n',
+      consumers: [],
+      mediaType: 'text/markdown',
+      maxBytes: 4096,
+      required: true,
+    },
+  ],
+  nodes: [
+    {
+      id: 'n',
+      kind: 'agent',
+      label: 'n',
+      profile: 'default',
+      instructionsArtifact: 'i',
+      inputs: [],
+      outputs: ['spec'],
+      resources: { reads: [], writes: [] },
+      outcomes: ['complete'],
+      budget: { maxVisits: 1 },
+    },
+  ],
+  edges: [{ id: 'e-end', from: 'n', on: 'complete', to: 'END' }],
+  budgets: { maxNodeRuns: 10, maxExpertRuns: 1, maxReplans: 1 },
+};
+
+function installDocument(h: Harness, doc: unknown): void {
+  h.db
+    .prepare('UPDATE approach_graph_revisions SET canonical_graph = ? WHERE id = ?')
+    .run(JSON.stringify(doc), h.revisionId);
+}
+
+function claimNodeToken(h: Harness, nodeRunId: number, lineage: string): void {
+  const res = h.db
+    .prepare(
+      `INSERT INTO approach_graph_tokens
+         (revision_id, source_node_run_id, is_entry, edge_id, destination_node_id,
+          destination_end, fork_instance, fork_lineage, status, created_at)
+       VALUES (?, NULL, 1, 'e-entry', 'n', 0, 0, ?, 'claimed', '2026-08-12T00:00:00.000Z')`,
+    )
+    .run(h.revisionId, lineage);
+  h.db
+    .prepare('UPDATE approach_graph_tokens SET claiming_node_run_id = ? WHERE id = ?')
+    .run(nodeRunId, Number(res.lastInsertRowid));
+}
+
+describe('runCompletionPipeline — required output validation (Slice-4 T2)', () => {
+  it('a missing required output parks at output-artifact-missing: effective outcome null, no edge', async () => {
+    const h = harness();
+    cleanups.push(h.close);
+    installDocument(h, PIPELINE_DOC);
+    insertNodeRun(h, 81, 'completing');
+    claimNodeToken(h, 81, 'root');
+
+    const result = await runCompletionPipeline(
+      makeDeps(h),
+      { graphRunId: h.graphRunId, nodeRunId: 81 },
+    );
+    expect(result).toMatchObject({ kind: 'output-artifact-missing', artifactId: 'spec' });
+    const node = h.db
+      .prepare(
+        'SELECT status, outcome, effective_outcome, failure_category FROM approach_node_runs WHERE id = 81',
+      )
+      .get() as { status: string; outcome: string | null; effective_outcome: string | null; failure_category: string | null };
+    // The agent-authored `complete` stays immutable reported evidence…
+    expect(node.outcome).toBe('complete');
+    // …but the effective outcome is NULL and no edge is emitted.
+    expect(node.status).toBe('output-artifact-missing');
+    expect(node.effective_outcome).toBeNull();
+    expect(node.failure_category).toBe('output-artifact-missing');
+    const run = h.db
+      .prepare('SELECT status, blocked_reason FROM approach_graph_runs WHERE id = ?')
+      .get(h.graphRunId) as { status: string; blocked_reason: string | null };
+    expect(run.status).toBe('blocked');
+    expect(run.blocked_reason).toContain('output-artifact-missing');
+    // No edge: the claimed token is never consumed and no successor exists.
+    const claimed = h.db
+      .prepare('SELECT status, destination_end FROM approach_graph_tokens WHERE claiming_node_run_id = 81')
+      .all() as { status: string; destination_end: number }[];
+    expect(claimed).toEqual([{ status: 'claimed', destination_end: 0 }]);
+    const ends = h.db
+      .prepare('SELECT COUNT(*) AS n FROM approach_graph_tokens WHERE destination_end = 1')
+      .get() as { n: number };
+    expect(ends.n).toBe(0);
+    // A parked node records no instance: only completed productions do.
+    const instances = h.db
+      .prepare('SELECT COUNT(*) AS n FROM approach_artifact_instances')
+      .get() as { n: number };
+    expect(instances.n).toBe(0);
+  });
+
+  it('an unsafe required output parks at artifact-unsafe with effective outcome null', async () => {
+    const h = harness();
+    cleanups.push(h.close);
+    installDocument(h, PIPELINE_DOC);
+    insertNodeRun(h, 82, 'completing');
+    claimNodeToken(h, 82, 'root');
+    // The file exists but its bytes do not match the declared media type.
+    mkdirSync(join(h.artifactRoot, 'out'), { recursive: true });
+    writeFileSync(join(h.artifactRoot, 'out/spec.md'), Buffer.from([0x23, 0x00, 0x42]));
+
+    const result = await runCompletionPipeline(
+      makeDeps(h),
+      { graphRunId: h.graphRunId, nodeRunId: 82 },
+    );
+    expect(result).toMatchObject({ kind: 'artifact-unsafe', artifactId: 'spec' });
+    const node = h.db
+      .prepare('SELECT status, effective_outcome FROM approach_node_runs WHERE id = 82')
+      .get() as { status: string; effective_outcome: string | null };
+    expect(node.status).toBe('artifact-unsafe');
+    expect(node.effective_outcome).toBeNull();
+    const run = h.db
+      .prepare('SELECT status FROM approach_graph_runs WHERE id = ?')
+      .get(h.graphRunId) as { status: string };
+    expect(run.status).toBe('blocked');
+    expect(
+      h.db.prepare('SELECT COUNT(*) AS n FROM approach_artifact_instances').get() as { n: number },
+    ).toEqual({ n: 0 });
+  });
+
+  it('a complete with all required outputs present records instances and emits the edge', async () => {
+    const h = harness();
+    cleanups.push(h.close);
+    installDocument(h, PIPELINE_DOC);
+    insertNodeRun(h, 83, 'completing');
+    claimNodeToken(h, 83, 'root');
+    const content = '# spec';
+    mkdirSync(join(h.artifactRoot, 'out'), { recursive: true });
+    writeFileSync(join(h.artifactRoot, 'out/spec.md'), content);
+
+    const result = await runCompletionPipeline(
+      makeDeps(h),
+      { graphRunId: h.graphRunId, nodeRunId: 83 },
+    );
+    expect(result).toEqual({ kind: 'integrated', committed: false });
+    const node = h.db
+      .prepare('SELECT status, effective_outcome FROM approach_node_runs WHERE id = 83')
+      .get() as { status: string; effective_outcome: string | null };
+    expect(node.status).toBe('completed');
+    expect(node.effective_outcome).toBe('complete');
+    // The production was recorded as an instance in this run's lineage.
+    const inst = h.db
+      .prepare(
+        `SELECT artifact_id, producer_node_run_id, fork_lineage, media_type, byte_size, snapshot_path, sha256
+         FROM approach_artifact_instances`,
+      )
+      .get() as {
+      artifact_id: string;
+      producer_node_run_id: number;
+      fork_lineage: string;
+      media_type: string;
+      byte_size: number;
+      snapshot_path: string;
+      sha256: string;
+    };
+    expect(inst.artifact_id).toBe('spec');
+    expect(inst.producer_node_run_id).toBe(83);
+    expect(inst.fork_lineage).toBe('root');
+    expect(inst.media_type).toBe('text/markdown');
+    expect(inst.byte_size).toBe(content.length);
+    expect(inst.sha256).toBe(createHash('sha256').update(content).digest('hex'));
+    expect(inst.snapshot_path).toBe(join(h.artifactRoot, inst.sha256));
+    // The edge WAS emitted: the claim is consumed and the END token landed.
+    const claimed = h.db
+      .prepare('SELECT status FROM approach_graph_tokens WHERE claiming_node_run_id = 83')
+      .all() as { status: string }[];
+    expect(claimed).toEqual([{ status: 'consumed' }]);
+    const ends = h.db
+      .prepare('SELECT COUNT(*) AS n FROM approach_graph_tokens WHERE destination_end = 1')
+      .get() as { n: number };
+    expect(ends.n).toBe(1);
+    const run = h.db
+      .prepare('SELECT status FROM approach_graph_runs WHERE id = ?')
+      .get(h.graphRunId) as { status: string };
+    expect(run.status).toBe('running');
   });
 });

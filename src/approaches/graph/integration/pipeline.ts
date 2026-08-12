@@ -9,19 +9,31 @@
  *    positive termination evidence (`killed`/`dead`); anything else parks the
  *    node at `termination-unknown` — the lease stays held and the node is
  *    never automatically retried;
- * 2. atomically claims the graph's single integrating slot (`completing →
+ * 2. validates the node's declared output artifacts (Slice 4 Task 2) BEFORE
+ *    the effective outcome is accepted: every output is snapshotted through
+ *    the one-descriptor protocol, and a missing or unsafe REQUIRED output
+ *    leaves the effective outcome NULL — the node parks at
+ *    `output-artifact-missing` / `artifact-unsafe`, the graph blocks, and NO
+ *    edge is emitted. The agent-authored `complete` stays immutable reported
+ *    evidence (`outcome`), never an accepted routing outcome;
+ * 3. atomically claims the graph's single integrating slot (`completing →
  *    integrating` refused when ANY node of the graph is already integrating)
  *    — the durable, cross-window serialization: change sets integrate one at
  *    a time, in node-run order as the caller walks completing nodes by id;
- * 3. snapshots the actual diff per physical repository (`git diff HEAD` — the
+ * 4. snapshots the actual diff per physical repository (`git diff HEAD` — the
  *    node's uncommitted/staged work in the canonical worktree) and compares
  *    it with the node's DECLARED writes BEFORE any integration; an
  *    out-of-claim mutation blocks with `resource-claim-violated` and V1 never
  *    silently widens a running node's claim;
- * 4. integrates valid change sets serially under that slot, committing each
+ * 5. integrates valid change sets serially under that slot, committing each
  *    domain's validated paths with the integration marker. A git refusal to
  *    land the change set (failed add/commit) is `integration-conflict`:
  *    both trees are preserved for diagnosis and the graph blocks.
+ *
+ * The validated output instances are recorded in the SAME transaction that
+ * accepts the effective `complete` (`integrating → completed`), so an
+ * instance exists only for a production that actually completed — never for
+ * a parked node.
  *
  * A node whose changes are entirely COMMITTED by the agent itself is the
  * known V1 scope of the canonical-worktree model: its commits are already in
@@ -41,6 +53,9 @@ import type { AgentTransport, SupervisedAgentSession } from '../transport/superv
 import { resolvePhysicalDomains, type DomainEntry } from './domains.js';
 import { captureChangeSet, validateChangeSet, type ChangeSetEntry } from './changeSet.js';
 import { completeActivation } from '../coordinator/completion.js';
+import { recordArtifactInstance, validateRequiredOutputs } from '../artifacts/resolve.js';
+import { parseGraphDocument } from '../parse.js';
+import { join } from 'node:path';
 
 export const INTEGRATION_COMMIT_PREFIX = 'karst: integrate graph';
 
@@ -60,12 +75,16 @@ export interface CompletionPipelineDeps {
   domainsFor: () => DomainEntry[];
   /** The node's DECLARED writes, per physical domain key. */
   declaredWritesOf: (nodeRunId: number) => { domainKey: string; paths: string[] }[];
+  /** The graph run's artifact root (global storage; staging + snapshots). */
+  artifactRoot: () => string;
 }
 
 export type CompletionPipelineResult =
   | { kind: 'no-op' }
   | { kind: 'deferred' }
   | { kind: 'termination-unknown' }
+  | { kind: 'output-artifact-missing'; artifactId: string; reason: string }
+  | { kind: 'artifact-unsafe'; artifactId: string; reason: string }
   | { kind: 'claim-violated'; violations: string[] }
   | { kind: 'integration-conflict'; reason: string }
   | { kind: 'integrated'; committed: boolean };
@@ -73,6 +92,8 @@ export type CompletionPipelineResult =
 interface NodeRunRow {
   id: number;
   graph_run_id: number;
+  revision_id: number;
+  node_id: string;
   status: string;
 }
 
@@ -85,14 +106,18 @@ function parkNode(
   deps: CompletionPipelineDeps,
   nodeRunId: number,
   from: 'completing' | 'integrating',
-  status: 'termination-unknown' | 'blocked',
+  status:
+    | 'termination-unknown'
+    | 'blocked'
+    | 'output-artifact-missing'
+    | 'artifact-unsafe',
   fields: { outcome?: string; failureCategory?: string; reason?: string },
 ): void {
   deps.transaction(() => {
     if (!casStatus(deps.db, 'approach_node_runs', NODE_RUN_TRANSITIONS, nodeRunId, from, status)) {
       return;
     }
-    if (status === 'blocked') {
+    if (status !== 'termination-unknown') {
       deps.db
         .prepare(
           `UPDATE approach_node_runs
@@ -132,6 +157,35 @@ function boundedGitReason(stderr: string): string {
   const line = stderr.split('\n').find((l) => l.trim() !== '');
   const collapsed = (line ?? 'git refused').trim().slice(0, 200);
   return collapsed;
+}
+
+/**
+ * The node's DECLARED output staging paths, keyed by artifact id: the
+ * canonical document's artifact defs resolve against the artifact root. A
+ * document that cannot be re-parsed declares nothing (compile guaranteed it
+ * once; a gap is not a constraint).
+ */
+function declaredOutputPaths(
+  db: GraphDb,
+  revisionId: number,
+  nodeId: string,
+  artifactRoot: string,
+): Record<string, string> {
+  const revision = db
+    .prepare('SELECT canonical_graph FROM approach_graph_revisions WHERE id = ?')
+    .get(revisionId) as { canonical_graph: string } | undefined;
+  if (!revision) return {};
+  const parsed = parseGraphDocument(revision.canonical_graph);
+  if (!parsed.ok) return {};
+  const node = parsed.document.nodes.find((n) => n.id === nodeId);
+  if (!node || node.kind !== 'agent') return {};
+  const defs = new Map(parsed.document.artifacts.map((a) => [a.id, a]));
+  const paths: Record<string, string> = {};
+  for (const artifactId of node.outputs) {
+    const def = defs.get(artifactId);
+    if (def) paths[artifactId] = join(artifactRoot, def.path);
+  }
+  return paths;
 }
 
 /**
@@ -193,7 +247,7 @@ export async function runCompletionPipeline(
     .get(input.graphRunId) as GraphRunRow | undefined;
   if (!run || run.status !== 'running') return { kind: 'no-op' };
   const node = deps.db
-    .prepare('SELECT id, graph_run_id, status FROM approach_node_runs WHERE id = ?')
+    .prepare('SELECT id, graph_run_id, revision_id, node_id, status FROM approach_node_runs WHERE id = ?')
     .get(input.nodeRunId) as NodeRunRow | undefined;
   if (!node || node.status !== 'completing') return { kind: 'no-op' };
 
@@ -201,6 +255,30 @@ export async function runCompletionPipeline(
   if (!(await terminationProven(deps, input.nodeRunId))) {
     parkNode(deps, input.nodeRunId, 'completing', 'termination-unknown', {});
     return { kind: 'termination-unknown' };
+  }
+
+  // Slice 4 Task 2: required outputs are validated BEFORE the effective
+  // outcome is accepted. A missing or unsafe REQUIRED output parks the node
+  // (effective outcome null, no edge) and blocks the graph — the reported
+  // `complete` stays evidence, never a routing outcome.
+  const artifactRoot = deps.artifactRoot();
+  const validation = validateRequiredOutputs(deps.db, {
+    revisionId: node.revision_id,
+    nodeId: node.node_id,
+    nodeRunId: input.nodeRunId,
+    outputPaths: declaredOutputPaths(deps.db, node.revision_id, node.node_id, artifactRoot),
+    snapshotDir: artifactRoot,
+  });
+  if (!validation.ok) {
+    const reason = `${validation.code}: artifact "${validation.artifactId}" ${validation.code === 'output-artifact-missing' ? 'produced nothing' : `failed validation: ${validation.reason}`}`;
+    deps.debug?.(`[graph] completing node ${input.nodeRunId}: ${reason}`);
+    parkNode(deps, input.nodeRunId, 'completing', validation.code, {
+      outcome: 'complete',
+      failureCategory: validation.code,
+      reason,
+    });
+    blockGraphRun(deps, input.graphRunId, reason);
+    return { kind: validation.code, artifactId: validation.artifactId, reason };
   }
 
   if (!claimIntegratingSlot(deps, input.graphRunId, input.nodeRunId)) {
@@ -300,6 +378,25 @@ export async function runCompletionPipeline(
          WHERE id = ?`,
       )
       .run(`cs:${input.graphRunId}:${input.nodeRunId}`, deps.now(), input.nodeRunId);
+    // Slice 4 Task 2: record the validated output instances in the SAME
+    // transaction that accepts the effective complete — an instance exists
+    // only for a production that actually completed. The lineage is the
+    // producing activation's, read once by the validation.
+    for (const out of validation.instances) {
+      recordArtifactInstance(deps.db, {
+        graphRunId: input.graphRunId,
+        revisionId: node.revision_id,
+        artifactId: out.artifactId,
+        producerPlannerRunId: null,
+        producerNodeRunId: input.nodeRunId,
+        forkLineage: validation.forkLineage,
+        snapshotPath: out.snapshotPath,
+        sha256: out.sha256,
+        mediaType: out.mediaType,
+        byteSize: out.byteSize,
+        now: deps.now(),
+      });
+    }
     // Consume the node's claimed tokens and insert its outcome successors in
     // the SAME transaction (the inner transaction wrapper is a pass-through:
     // this call already runs inside the pipeline's transaction). An END edge

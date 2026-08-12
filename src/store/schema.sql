@@ -855,7 +855,7 @@ CREATE TABLE IF NOT EXISTS approach_node_runs (
   status                   TEXT NOT NULL CHECK (status IN (
     'ready','waiting-resource','launching','running','completing','integrating',
     'completed','blocked','failed-to-launch','launch-unknown','termination-unknown',
-    'stale','cancelled')),
+    'output-artifact-missing','artifact-unsafe','stale','cancelled')),
   outcome                  TEXT,
   effective_outcome        TEXT,
   reason                   TEXT,

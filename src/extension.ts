@@ -166,6 +166,7 @@ import {
   stopActiveGraph,
 } from './approaches/graph/entryPoints.js';
 import { runCompletionPipeline } from './approaches/graph/integration/pipeline.js';
+import { artifactRootDir } from './approaches/graph/artifacts/snapshot.js';
 import { declaredWritesFor } from './approaches/graph/integration/claims.js';
 import { flipOnEndQuiescence } from './approaches/graph/coordinator/completion.js';
 import { recoverGraphRun } from './approaches/graph/coordinator/recovery.js';
@@ -2813,6 +2814,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             getSession: (nodeRunId) => graphSessionFor(nodeRunId),
             domainsFor: () => graphDomainsFor(graphRunId),
             declaredWritesOf: (nodeRunId) => declaredGraphWrites(nodeRunId),
+            artifactRoot: () => graphArtifactRoot(graphRunId),
           },
           { graphRunId, nodeRunId: row.id },
         );
@@ -2905,6 +2907,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       .get(nodeRunId) as { ticket_id: number } | undefined;
     if (!run) return undefined;
     return tr.sessionFor(run.ticket_id, nodeRunId);
+  };
+
+  /** The graph run's artifact root under global storage (Decision 15): where
+   *  node outputs stage and content-addressed snapshots land. Empty when the
+   *  project is unbound — no graph work can run then, and the pipeline's
+   *  validation simply finds nothing declared. */
+  const graphArtifactRoot = (graphRunId: number): string => {
+    const gs = graphCoordinatorStore;
+    const proj = currentProject();
+    if (!gs || !proj) return '';
+    const run = gs.db
+      .prepare('SELECT ticket_id FROM approach_graph_runs WHERE id = ?')
+      .get(graphRunId) as { ticket_id: number } | undefined;
+    if (!run) return '';
+    return artifactRootDir(context.globalStorageUri.fsPath, proj.slug, run.ticket_id, graphRunId);
   };
 
   /** The ticket's manifest repository entries resolved to worktree paths. */

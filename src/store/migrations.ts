@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 const SCHEMA_PATH = join(dirname(fileURLToPath(import.meta.url)), 'schema.sql');
 
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 36;
+export const SCHEMA_VERSION = 37;
 
 /** v2 ticket-field columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -176,7 +176,7 @@ CREATE TABLE IF NOT EXISTS approach_node_runs (
   status                   TEXT NOT NULL CHECK (status IN (
     'ready','waiting-resource','launching','running','completing','integrating',
     'completed','blocked','failed-to-launch','launch-unknown','termination-unknown',
-    'stale','cancelled')),
+    'output-artifact-missing','artifact-unsafe','stale','cancelled')),
   outcome                  TEXT,
   effective_outcome        TEXT,
   reason                   TEXT,
@@ -260,6 +260,60 @@ CREATE TABLE IF NOT EXISTS approach_node_overrides (
   updated_at    TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_node_overrides_node ON approach_node_overrides(graph_run_id, node_id);
+`;
+
+/**
+ * v37's `approach_node_runs` rebuild (Slice 4 Task 2): SQLite cannot ALTER a
+ * CHECK constraint, so the two new output-validation rest statuses
+ * (`output-artifact-missing`, `artifact-unsafe`) require the standard
+ * create → copy → drop → rename table rebuild. Columns and the UNIQUE index
+ * are byte-identical in intent to schema.sql; only the status CHECK widens.
+ * Exported so the interruption-atomicity test can drive the REAL step DDL.
+ */
+export const NODE_RUN_STATUSES_V37_DDL = `
+CREATE TABLE approach_node_runs_v37 (
+  id                       INTEGER PRIMARY KEY,
+  graph_run_id             INTEGER NOT NULL REFERENCES approach_graph_runs(id),
+  revision_id              INTEGER NOT NULL REFERENCES approach_graph_revisions(id),
+  node_id                  TEXT NOT NULL,
+  node_kind                TEXT NOT NULL,
+  visit_number             INTEGER NOT NULL,
+  status                   TEXT NOT NULL CHECK (status IN (
+    'ready','waiting-resource','launching','running','completing','integrating',
+    'completed','blocked','failed-to-launch','launch-unknown','termination-unknown',
+    'output-artifact-missing','artifact-unsafe','stale','cancelled')),
+  outcome                  TEXT,
+  effective_outcome        TEXT,
+  reason                   TEXT,
+  failure_category         TEXT,
+  profile                  TEXT,
+  provider                 TEXT,
+  model                    TEXT,
+  effort                   TEXT,
+  prompt_hash              TEXT,
+  launch_attempt           INTEGER NOT NULL DEFAULT 0,
+  generation               TEXT,
+  process_run_id           INTEGER REFERENCES process_runs(id) ON DELETE SET NULL,
+  owner_nonce              TEXT,
+  capability_hash          TEXT,
+  instruction_artifact_id  INTEGER,
+  input_artifact_id        INTEGER,
+  output_artifact_id       INTEGER,
+  change_set_id            TEXT,
+  started_at               TEXT,
+  ended_at                 TEXT,
+  UNIQUE (revision_id, node_id, visit_number)
+);
+INSERT INTO approach_node_runs_v37
+  SELECT id, graph_run_id, revision_id, node_id, node_kind, visit_number, status,
+         outcome, effective_outcome, reason, failure_category, profile, provider,
+         model, effort, prompt_hash, launch_attempt, generation, process_run_id,
+         owner_nonce, capability_hash, instruction_artifact_id, input_artifact_id,
+         output_artifact_id, change_set_id, started_at, ended_at
+  FROM approach_node_runs;
+DROP TABLE approach_node_runs;
+ALTER TABLE approach_node_runs_v37 RENAME TO approach_node_runs;
+CREATE INDEX IF NOT EXISTS idx_node_runs_revision ON approach_node_runs(revision_id, id);
 `;
 
 
@@ -1336,6 +1390,43 @@ export function migrate(db: Database): void {
     const graphRunCols36 = tableColumns(db, 'approach_graph_runs');
     if (graphRunCols36.size > 0 && !graphRunCols36.has('blocked_reason')) {
       db.exec('ALTER TABLE approach_graph_runs ADD COLUMN blocked_reason TEXT');
+    }
+  }
+
+  if (current < 37) {
+    // v37 widens the `approach_node_runs` status CHECK with the two
+    // output-validation rest statuses (Slice 4 Task 2). SQLite cannot alter
+    // a CHECK constraint, so the table is REBUILT (create → copy → drop →
+    // rename) inside one transaction, following v35's interruption-atomicity
+    // pattern: a poisoned step rolls back and user_version stays 36.
+    //
+    // The guard reads the CURRENT table SQL — a fresh DB (schema.sql already
+    // carries the widened CHECK) skips the rebuild entirely, and a re-run on
+    // a migrated DB is a no-op. Foreign-key enforcement is suspended for the
+    // swap (it cannot change inside a transaction); the rename restores the
+    // name every FK clause references.
+    const nodeRunsSql = (
+      db
+        .prepare(
+          "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'approach_node_runs'",
+        )
+        .get() as { sql: string } | undefined
+    )?.sql;
+    if (nodeRunsSql && !nodeRunsSql.includes('output-artifact-missing')) {
+      db.pragma('foreign_keys = OFF');
+      try {
+        db.exec('BEGIN IMMEDIATE');
+        try {
+          db.exec(NODE_RUN_STATUSES_V37_DDL);
+          db.pragma('user_version = 37');
+          db.exec('COMMIT');
+        } catch (e) {
+          db.exec('ROLLBACK');
+          throw e;
+        }
+      } finally {
+        db.pragma('foreign_keys = ON');
+      }
     }
   }
 

@@ -101,6 +101,11 @@ describe('node-run transition map', () => {
       // termination cannot be proven, and the integrating step must be able to
       // block a node whose change set failed integration.
       'completing → termination-unknown',
+      // Slice-4 T2: the completing pipeline parks a node whose required
+      // output artifacts are missing or unsafe (effective outcome null, no
+      // edge); recovery is an explicit retry, never automatic.
+      'completing → output-artifact-missing',
+      'completing → artifact-unsafe',
       'integrating → blocked',
       'running → blocked',
       'running → stale',
@@ -116,14 +121,18 @@ describe('node-run transition map', () => {
       'failed-to-launch → launching',
       'blocked → launching',
       'stale → launching',
+      'output-artifact-missing → launching',
+      'artifact-unsafe → launching',
       'failed-to-launch → cancelled',
       'blocked → cancelled',
       'stale → cancelled',
+      'output-artifact-missing → cancelled',
+      'artifact-unsafe → cancelled',
     ]);
   });
 
   it('the rest states each carry exactly the two exits: recovery launch and drain cancel', () => {
-    for (const rest of ['failed-to-launch', 'blocked', 'stale']) {
+    for (const rest of ['failed-to-launch', 'blocked', 'stale', 'output-artifact-missing', 'artifact-unsafe']) {
       const exits = NODE_RUN_TRANSITIONS[rest] ?? [];
       expect(exits).toEqual(['launching', 'cancelled']);
     }

@@ -74,10 +74,22 @@ export const NODE_RUN_TRANSITIONS: Readonly<Record<string, readonly string[]>> =
   'waiting-resource': ['ready', 'cancelled'],
   launching: ['running', 'failed-to-launch', 'launch-unknown', 'cancelled'],
   running: ['completing', 'blocked', 'stale', 'termination-unknown', 'cancelled'],
-  completing: ['integrating', 'running', 'termination-unknown', 'cancelled'],
+  completing: [
+    'integrating',
+    'running',
+    'termination-unknown',
+    // Slice-4 T2: the completing pipeline parks a node whose required output
+    // artifacts are missing or unsafe — the effective outcome is null and no
+    // edge is emitted; recovery is an explicit retry (→ launching).
+    'output-artifact-missing',
+    'artifact-unsafe',
+    'cancelled',
+  ],
   integrating: ['completed', 'blocked', 'cancelled'],
   completed: [],
   blocked: ['launching', 'cancelled'],
+  'output-artifact-missing': ['launching', 'cancelled'],
+  'artifact-unsafe': ['launching', 'cancelled'],
   'failed-to-launch': ['launching', 'cancelled'],
   'launch-unknown': ['cancelled'],
   'termination-unknown': ['cancelled'],

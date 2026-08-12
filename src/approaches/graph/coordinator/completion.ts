@@ -56,6 +56,10 @@ const ACTIVE_NODE_STATUSES = [
   'termination-unknown',
   'failed-to-launch',
   'blocked',
+  // Slice-4 T2: a node parked for missing/unsafe output artifacts has no
+  // effective outcome and must keep the graph from quiescing.
+  'output-artifact-missing',
+  'artifact-unsafe',
   'stale',
 ];
 
