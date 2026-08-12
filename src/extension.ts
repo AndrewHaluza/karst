@@ -229,6 +229,11 @@ import { instrumentAdapter } from './agent/instrumentedAdapter.js';
 import { recordTokenUsage } from './store/tokenUsage.js';
 import { UsagePanelManager, type UsagePanel, type UsagePanelHost } from './ui/usage/panel.js';
 import {
+  ResourcesPanelManager,
+  type ResourcesPanel,
+  type ResourcesPanelHost,
+} from './ui/resources/panel.js';
+import {
   listInstalled,
   readApproachPackage,
   uninstallApproach,
@@ -318,6 +323,10 @@ import {
 } from './runtime/deps.js';
 import { ensureCapabilityAsync } from './runtime/depsAsync.js';
 import { buildDepsIndicator } from './ui/depsIndicator.js';
+import { buildResourceIndicator } from './ui/resourceStatus.js';
+import { WorktreeDiskCache } from './runtime/worktreeDisk.js';
+import { ResourceMonitor } from './runtime/resourceMonitor.js';
+import { aiCallSiteLabel } from './agent/aiCallSites.js';
 import { GettingStartedManager } from './ui/gettingStarted/panel.js';
 import { buildGettingStartedActions } from './ui/gettingStarted/actions.js';
 import { makeGettingStartedPanelHost } from './ui/gettingStarted/host.js';
@@ -712,6 +721,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       logError('session terminal identity persistence failed', error);
     },
   );
+  // Declared before the terminal registry because the registry's session-pid
+  // hook reads it (a closure running at remember/forget time, long after the
+  // monitor is constructed below); assigned where the monitor is built.
+  let resourceMonitor: ResourceMonitor | undefined;
   const terminalIdentity = makeTerminalIdentityRegistry(
     parseSessionTerminalRecords(context.workspaceState.get(SESSION_TERMINALS_KEY)),
     (records) => void terminalRecordWriter.enqueue(records),
@@ -726,6 +739,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             agentName: intent.agentName,
           };
     },
+    (pid, ticketId) =>
+      resourceMonitor?.registerPid({ pid, kind: 'session', ticketId, label: null }),
   );
   // Setting-gated (manifest `closeDoneTerminalsWithTicket`, OFF by default):
   // closing a ticket also closes its DONE terminals — the tabs whose process
@@ -975,6 +990,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // Injected ONCE here, threaded into every headless call's opts — a new
       // adapter gets debug logging by construction (gated inside the logger).
       debug: (message) => logger.debug(message),
+      // Live-pid registry hook, injected at the same seam: every agent process
+      // this window spawns is registered the moment it exists and unregistered
+      // wherever the run settles, attributed to the call that spawned it.
+      onSpawned: (pid, tracking) =>
+        resourceMonitor?.registerPid({
+          pid,
+          kind: 'agent',
+          ticketId: tracking?.ticketId ?? null,
+          label: tracking ? aiCallSiteLabel(tracking.callSite) : null,
+        }),
     });
 
   const currentAgentAdapter = (ticketId?: number): AgentAdapter => {
@@ -1969,6 +1994,71 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     openDashboard: (ticketId) =>
       void vscode.commands.executeCommand('karst.openDashboard', ticketId),
     logError,
+  });
+
+  // The resource monitor (leak hunter): one slow-lane sample every 30 s for the
+  // window's lifetime, a fast lane only while the Resources panel is visible.
+  // Host-agnostic; every host fact is injected. Window-scoped like the usage
+  // panel — each window samples independently, and display is scoped to this
+  // window's project.
+  const worktreeRoots = (): string[] => {
+    const manifest = currentManifest();
+    if (!manifest) return [];
+    const roots = new Set<string>();
+    for (const repo of Object.values(manifest.repositories)) {
+      roots.add(join(repo.repoPath, '.karst', 'worktrees'));
+    }
+    return [...roots];
+  };
+  const resourceMonitorInstance = new ResourceMonitor({
+    store: localStore,
+    projectId: () => currentProject()?.id,
+    worktreeRoots,
+    debug: (message) => logger.debug(message),
+    logError,
+  });
+  resourceMonitor = resourceMonitorInstance;
+  resourceMonitorInstance.start();
+
+  const resourcesDisk = new WorktreeDiskCache();
+  const resourcesPanel = new ResourcesPanelManager(makeResourcesPanelHost(context, brandIcon), {
+    monitor: resourceMonitorInstance,
+    disk: resourcesDisk,
+    worktreePaths: () => {
+      const project = currentProject();
+      return project ? listWorktreesByProject(localStore, project.id).map((w) => w.path) : [];
+    },
+    pathContext: () => worktreePathContext(currentManifest(), logger.warn, logger.info),
+    // The kill confirmation is HOST-side (UI-R33): the webview posts only a
+    // `servers.id`, and a crafted message can never skip this modal.
+    confirm: async (message) => {
+      const choice = await vscode.window.showWarningMessage(message, { modal: true }, 'Stop process');
+      return choice === 'Stop process';
+    },
+    logError,
+  });
+  context.subscriptions.push(
+    { dispose: () => resourceMonitorInstance.dispose() },
+    { dispose: () => resourcesPanel.dispose() },
+  );
+
+  // The always-on meter. Hidden while there is nothing to say — the one surface
+  // the user cannot dismiss must not be permanent noise.
+  const resourcesStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 40);
+  resourcesStatus.command = 'karst.openResources';
+  context.subscriptions.push(resourcesStatus);
+  resourceMonitorInstance.onReading((reading) => {
+    const indicator = buildResourceIndicator(reading);
+    if (!indicator) {
+      resourcesStatus.hide();
+      return;
+    }
+    resourcesStatus.text = indicator.text;
+    resourcesStatus.tooltip = indicator.tooltip;
+    resourcesStatus.backgroundColor = indicator.warning
+      ? new vscode.ThemeColor('statusBarItem.warningBackground')
+      : undefined;
+    resourcesStatus.show();
   });
 
   // One launch in flight per worktree path, per window. A second click during a
@@ -3717,6 +3807,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (picked) void vscode.commands.executeCommand('karst.openDashboard', picked.ticketId);
     }),
     vscode.commands.registerCommand('karst.openTokenUsage', () => tokenUsagePanel.open()),
+    vscode.commands.registerCommand('karst.openResources', () => resourcesPanel.open()),
     vscode.commands.registerCommand('karst.showLogs', () => channel.show()),
     vscode.commands.registerCommand('karst.search', async () => {
       const query = await vscode.window.showInputBox({ prompt: 'Filter tickets' });
@@ -4278,6 +4369,36 @@ function makeUsagePanelHost(
   };
 }
 
+/** Real resources panel, with a fresh CSP nonce for every panel. */
+function makeResourcesPanelHost(
+  context: vscode.ExtensionContext,
+  brandIcon?: BrandIconPaths,
+): ResourcesPanelHost {
+  const html = injectPalette(
+    injectDesignSystem(readFileSync(join(HERE, 'ui', 'resources', 'webview.html'), 'utf8')),
+  );
+  return {
+    createPanel(title): ResourcesPanel {
+      const panel = vscode.window.createWebviewPanel(
+        'karst.resources',
+        title,
+        vscode.ViewColumn.Active,
+        { enableScripts: true, retainContextWhenHidden: true },
+      );
+      context.subscriptions.push(panel);
+      panel.iconPath = brandIconUri(brandIcon);
+      panel.webview.html = injectCsp(html, newNonce());
+      return {
+        reveal: (keepFocus) => panel.reveal(undefined, keepFocus),
+        postMessage: (message) => void panel.webview.postMessage(message),
+        onDidReceiveMessage: (handler) =>
+          panel.webview.onDidReceiveMessage(handler, undefined, context.subscriptions),
+        onDidDispose: (handler) => panel.onDidDispose(handler, undefined, context.subscriptions),
+      };
+    },
+  };
+}
+
 /** Real ticket-changes panels, with a fresh CSP nonce for every panel. */
 function makeChangesPanelHost(
   context: vscode.ExtensionContext,
@@ -4370,10 +4491,18 @@ function makeTerminalIdentityRegistry(
   initial: readonly SessionTerminalRecord[],
   persist: (records: SessionTerminalRecord[]) => void,
   lookupIdentity?: DurableSessionIdentityLookup,
+  /**
+   * Live-pid registry hook (the resource monitor): called once a remembered
+   * terminal's pid resolves, with the pid and its ticket. The returned disposer
+   * runs when the ticket's record is forgotten — a closed terminal's pid is
+   * free for the OS to reissue, so the registration must not outlive it.
+   */
+  onSessionTerminal?: (pid: number, ticketId: number) => (() => void) | void,
 ): TerminalIdentityRegistry {
   let records: SessionTerminalRecord[] = [...initial];
   const pidByTerminal = new WeakMap<vscode.Terminal, number>();
   const probes = new WeakMap<vscode.Terminal, Promise<void>>();
+  const sessionDisposers = new Map<number, () => void>();
 
   const resolve = (terminal: vscode.Terminal): Promise<void> => {
     const running = probes.get(terminal);
@@ -4430,11 +4559,18 @@ function makeTerminalIdentityRegistry(
             ...(sessionIdentity ? { identity: sessionIdentity } : {}),
           }),
         );
+        const dispose = onSessionTerminal?.(pid, ticketId);
+        if (dispose) sessionDisposers.set(ticketId, dispose);
       });
     },
     forget: (ticketId) => {
       const next = forgetSessionTerminal(records, ticketId);
       if (next.length !== records.length) write(next);
+      const dispose = sessionDisposers.get(ticketId);
+      if (dispose) {
+        sessionDisposers.delete(ticketId);
+        dispose();
+      }
     },
     prune: (knownTicketIds) => {
       const next = pruneSessionTerminals(records, knownTicketIds);

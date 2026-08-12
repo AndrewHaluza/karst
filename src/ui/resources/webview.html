@@ -1,0 +1,320 @@
+<!--
+  Karst resource-monitor webview (leak hunter). Self-contained: no external
+  assets (the webview CSP forbids them). Renders from the `state` postMessage
+  the host pushes (state.ts → ResourcesState) and posts intent back (messages.ts
+  → ResourcesWebviewMessage).
+
+  It decides NOTHING. Every number arrives pre-formatted, every label
+  pre-resolved — the same split the usage panel uses, because a number formatted
+  here would be a second implementation of a rule that already lives host-side
+  (UI-R31). The only local state is which control has focus and the sparkline
+  geometry, which is pure presentation.
+
+  The kill confirmation is HOST-side (UI-R33): the webview posts only a
+  `servers.id`; the host re-attributes and confirms before it signals anything.
+
+  UI-R11/R13/R14/R18 are satisfied by routing every posting control through
+  `karstAction` — local pending on click, aria-busy, no re-trigger, a watchdog
+  that reports "unknown" on timeout, and a terminal `action-result` outcome.
+-->
+<!--KARST_CSP-->
+<style>
+  /*KARST_DS_CSS*/
+
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--k-bg);color:var(--k-text);
+    font-family:var(--k-font-ui);font-size:var(--k-text-base);padding:var(--k-space-8) var(--k-space-9)}
+  .hidden{display:none}
+
+  .rhead{display:flex;align-items:center;gap:var(--k-space-6);flex-wrap:wrap;margin-bottom:var(--k-space-6)}
+  .rhead h1{font-size:var(--k-text-xl);margin:0}
+  .rhead .sub{color:var(--k-text-dim);font-size:var(--k-text-sm)}
+  .rhead .actions{margin-left:auto;display:flex;gap:var(--k-space-2)}
+
+  .note{border:var(--k-border-w) solid var(--k-warning);border-radius:var(--k-radius-lg);
+    padding:var(--k-space-5) var(--k-space-6);margin-bottom:var(--k-space-6);
+    color:var(--k-warning);font-size:var(--k-text-md)}
+  .note.plain{border-color:var(--k-border);color:var(--k-text-dim)}
+
+  /* Totals strip — same shape as the usage panel's stat cards. */
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(calc(var(--k-space-9) * 5),1fr));
+    gap:var(--k-space-5);margin-bottom:var(--k-space-8)}
+  .stat{border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-lg);
+    background:var(--k-surface);padding:var(--k-space-5) var(--k-space-6)}
+  .stat .k{font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.04em;color:var(--k-text-dim)}
+  .stat .v{font-family:var(--k-font-mono);font-size:var(--k-text-2xl);margin-top:var(--k-space-2);
+    line-height:var(--k-leading-tight)}
+  .stat .n{font-size:var(--k-text-2xs);color:var(--k-text-faint);margin-top:var(--k-space-1);min-height:var(--k-space-6)}
+  .stat.flag .v{color:var(--k-warning)}
+
+  .panel{border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-lg);
+    background:var(--k-surface);overflow:hidden;margin-bottom:var(--k-space-6)}
+  .phead{display:flex;align-items:center;gap:var(--k-space-4);
+    padding:var(--k-space-5) var(--k-space-6);border-bottom:var(--k-border-w) solid var(--k-border);
+    font-size:var(--k-text-md);font-weight:var(--k-weight-semibold)}
+  .phead .count{margin-left:auto;font-family:var(--k-font-mono);font-size:var(--k-text-xs);
+    color:var(--k-text-dim);font-weight:var(--k-weight-normal)}
+  .pbody{padding:var(--k-space-3) var(--k-space-6) var(--k-space-5)}
+
+  #spark{display:block;width:100%;height:calc(var(--k-space-9) * 4)}
+  .series-rss{fill:none;stroke:var(--k-series-1);stroke-width:calc(var(--k-space-1) / 2)}
+  .series-cpu{fill:none;stroke:var(--k-series-2);stroke-width:calc(var(--k-space-1) / 2)}
+  .spark-empty{fill:var(--k-text-faint);font-family:var(--k-font-ui);font-size:var(--k-text-sm)}
+
+  table{width:100%;border-collapse:collapse;font-size:var(--k-text-md)}
+  .tscroll{overflow-x:auto}
+  th{text-align:left;font-weight:var(--k-weight-semibold);font-size:var(--k-text-2xs);text-transform:uppercase;
+    letter-spacing:.04em;color:var(--k-text-dim);padding:var(--k-space-4) var(--k-space-6);
+    border-bottom:var(--k-border-w) solid var(--k-border);white-space:nowrap}
+  th.num,td.num{text-align:right;font-family:var(--k-font-mono)}
+  td{padding:var(--k-space-4) var(--k-space-6);border-bottom:var(--k-border-w) solid var(--k-border);vertical-align:middle}
+  tr:last-child td{border-bottom:none}
+  tbody tr:hover{background:var(--k-surface-hover)}
+  td.mono{font-family:var(--k-font-mono)}
+  td.ellipsis{max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .attrib{font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.04em;color:var(--k-text-dim)}
+
+  /* A waste row: reason, size, and either a Stop control or a visible
+     explanation of why it cannot be stopped (UI-R19 — never title-only). */
+  .wrow{display:flex;align-items:center;gap:var(--k-space-4);padding:var(--k-space-3) 0}
+  .wrow + .wrow{border-top:var(--k-border-w) solid var(--k-border)}
+  .wrow .reason{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .wrow .amt{margin-left:auto;font-family:var(--k-font-mono);font-size:var(--k-text-md);flex:none}
+  .wrow .why{color:var(--k-text-faint);font-size:var(--k-text-2xs);flex:none}
+  .wrow .k-btn{flex:none}
+  .meta{color:var(--k-text-faint);font-size:var(--k-text-2xs)}
+
+  .drow{display:flex;align-items:center;gap:var(--k-space-4);padding:var(--k-space-3) 0}
+  .drow + .drow{border-top:var(--k-border-w) solid var(--k-border)}
+  .drow .path{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--k-font-mono);font-size:var(--k-text-md)}
+  .drow .amt{margin-left:auto;font-family:var(--k-font-mono);font-size:var(--k-text-md);flex:none}
+  .measure-row{display:flex;align-items:center;gap:var(--k-space-4);margin-bottom:var(--k-space-3)}
+</style>
+
+<div class="rhead">
+  <h1>Resources</h1>
+  <span class="sub" id="sub"></span>
+  <div class="actions">
+    <button type="button" class="k-btn k-btn--secondary" id="refreshBtn">Refresh</button>
+  </div>
+</div>
+
+<div class="note plain hidden" id="unsupported">
+  Resource monitoring is not supported on this platform. The status-bar meter is hidden; nothing here is measured.
+</div>
+<div class="note hidden" id="degraded">
+  The last reading did not complete — showing the previous numbers, which may be up to a minute old.
+</div>
+
+<div id="body" class="hidden">
+  <div class="stats" id="stats"></div>
+
+  <div class="panel">
+    <div class="phead">5-minute trend<span class="count" id="trendCount"></span></div>
+    <div class="pbody">
+      <svg id="spark" viewBox="0 0 560 80" preserveAspectRatio="none" aria-hidden="true"></svg>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="phead">Attributed to karst<span class="count" id="attrCount"></span></div>
+    <div class="tscroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Ticket</th>
+            <th>Repo / label</th>
+            <th class="num">PID</th>
+            <th class="num">CPU</th>
+            <th class="num">RSS</th>
+            <th class="num">Procs</th>
+            <th class="num">Up</th>
+            <th>Attribution</th>
+          </tr>
+        </thead>
+        <tbody id="attrBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="phead">Unattributed (top 5)<span class="count" id="unknownCount"></span></div>
+    <div class="tscroll">
+      <table>
+        <thead>
+          <tr>
+            <th class="num">PID</th>
+            <th>Command</th>
+            <th class="num">CPU</th>
+            <th class="num">RSS</th>
+            <th class="num">Procs</th>
+          </tr>
+        </thead>
+        <tbody id="unknownBody"></tbody>
+      </table>
+    </div>
+    <div class="pbody"><div class="meta" id="unknownNote"></div></div>
+  </div>
+
+  <div class="panel">
+    <div class="phead">Leaks<span class="count" id="wasteCount"></span></div>
+    <div class="pbody" id="waste"></div>
+  </div>
+
+  <div class="panel">
+    <div class="phead">Worktree disk<span class="count" id="diskCount"></span></div>
+    <div class="pbody">
+      <div class="measure-row">
+        <button type="button" class="k-btn k-btn--primary" id="measureBtn">Measure</button>
+        <span class="meta" id="diskHint"></span>
+      </div>
+      <div id="diskRows"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  /*KARST_DS_JS*/
+
+  const vscode = acquireVsCodeApi();
+  const post = (msg) => vscode.postMessage(msg);
+  const el = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+
+  let lastState = null;
+
+  const statCard = (label, value, note, flag) =>
+    `<div class="stat${flag ? ' flag' : ''}"><div class="k">${esc(label)}</div>` +
+    `<div class="v">${esc(value)}</div><div class="n">${esc(note || '')}</div></div>`;
+
+  const renderStats = (state) => {
+    const measuring = state.history.length === 0;
+    el('stats').innerHTML = [
+      statCard('RSS', state.rssDisplay, measuring ? 'measuring' : 'resident set size'),
+      statCard('CPU', state.cpuPctDisplay, measuring ? 'measuring' : 'of one core, rolling'),
+    ].join('');
+  };
+
+  const renderSpark = (history) => {
+    const svg = el('spark');
+    if (history.length === 0) {
+      svg.innerHTML = '<text x="4" y="45" class="spark-empty">measuring\u2026</text>';
+      return;
+    }
+    const W = 560, H = 80, PAD = 2;
+    const rss = history.map((s) => s.totals.rssBytes);
+    const cpu = history.map((s) => s.totals.cpuPct);
+    const rssMax = Math.max(...rss, 1);
+    const cpuVals = cpu.filter((v) => v !== null);
+    const cpuMax = Math.max(...cpuVals, 1);
+    const x = (i) => (history.length === 1 ? PAD : (i / (history.length - 1)) * (W - PAD * 2) + PAD);
+    const y = (v, max) => H - PAD - (v / max) * (H - PAD * 2);
+    const rssPts = rss.map((v, i) => `${x(i)},${y(v, rssMax)}`).join(' ');
+    const cpuPts = [];
+    cpu.forEach((v, i) => { if (v !== null) cpuPts.push(`${x(i)},${y(v, cpuMax)}`); });
+    svg.innerHTML = `<polyline vector-effect="non-scaling-stroke" class="series-rss" points="${rssPts}"></polyline>` +
+      (cpuPts.length ? `<polyline vector-effect="non-scaling-stroke" class="series-cpu" points="${cpuPts}"></polyline>` : '');
+  };
+
+  const renderAttributed = (rows) => {
+    el('attrCount').textContent = rows.length;
+    el('attrBody').innerHTML = rows.map((r) =>
+      '<tr>' +
+        `<td class="ellipsis">${esc(r.ticketLabel || '—')}</td>` +
+        `<td class="ellipsis">${esc(r.label || '—')}</td>` +
+        `<td class="num">${esc(r.pid)}</td>` +
+        `<td class="num">${esc(r.cpuPctDisplay)}</td>` +
+        `<td class="num">${esc(r.rssDisplay)}</td>` +
+        `<td class="num">${esc(r.procCount)}</td>` +
+        `<td class="num">${esc(r.uptimeDisplay || '—')}</td>` +
+        `<td><span class="attrib">${esc(r.attribution)}</span></td>` +
+      '</tr>',
+    ).join('');
+  };
+
+  const renderUnknown = (rows) => {
+    el('unknownCount').textContent = rows.length;
+    el('unknownBody').innerHTML = rows.map((u) =>
+      '<tr>' +
+        `<td class="num">${esc(u.pid)}</td>` +
+        `<td class="ellipsis">${esc(u.comm)}</td>` +
+        `<td class="num">${esc(u.cpuPctDisplay)}</td>` +
+        `<td class="num">${esc(u.rssDisplay)}</td>` +
+        `<td class="num">${esc(u.procCount)}</td>` +
+      '</tr>',
+    ).join('');
+    // The lane is machine-wide by construction — these are NOT claimed as karst's.
+    el('unknownNote').textContent = rows.length
+      ? 'Largest processes not tied to karst, machine-wide — listed for awareness, never claimed.'
+      : 'No unattributed heavy processes at the moment.';
+  };
+
+  const renderWaste = (rows) => {
+    el('wasteCount').textContent = rows.length;
+    const wrap = el('waste');
+    if (!rows.length) {
+      wrap.innerHTML = '<div class="meta">nothing leaked</div>';
+      return;
+    }
+    wrap.innerHTML = rows.map((w) => {
+      const action = w.killable
+        ? `<button type="button" class="k-btn k-btn--danger" data-kill="${esc(w.serverId)}">Stop</button>`
+        : '<span class="why">report-only \u2014 karst cannot prove this process is safe to stop</span>';
+      return '<div class="wrow">' +
+        `<span class="reason" title="${esc(w.reason)}">${esc(w.reason)}</span>` +
+        `<span class="amt">${esc(w.rssDisplay)}</span>${action}` +
+      '</div>';
+    }).join('');
+    for (const btn of wrap.querySelectorAll('[data-kill]')) {
+      karstAction(btn, (requestId) => post({ type: 'kill-server', serverId: Number(btn.dataset.kill), requestId }));
+    }
+  };
+
+  const renderDisk = (rows) => {
+    el('diskCount').textContent = rows.length;
+    el('diskHint').textContent = rows.length ? 'measured on demand, cached 60 minutes' : 'measured only while this panel is open';
+    el('diskRows').innerHTML = rows.map((d) =>
+      '<div class="drow">' +
+        `<span class="path" title="${esc(d.display)}">${esc(d.display)}</span>` +
+        `<span class="amt">${esc(d.sizeDisplay)}</span>` +
+      '</div>',
+    ).join('');
+  };
+
+  const render = (state) => {
+    if (!state) return;
+    lastState = state;
+    el('unsupported').classList.toggle('hidden', state.supported);
+    el('degraded').classList.toggle('hidden', !state.degraded);
+    el('body').classList.toggle('hidden', !state.supported);
+    el('sub').textContent = state.supported ? '' : 'not supported on this platform';
+    if (!state.supported) return;
+
+    renderStats(state);
+    el('trendCount').textContent = state.history.length;
+    renderSpark(state.history);
+    renderAttributed(state.rows);
+    renderUnknown(state.unknown);
+    renderWaste(state.waste);
+    renderDisk(state.disk);
+  };
+
+  window.addEventListener('message', (e) => {
+    const msg = e.data;
+    if (!msg) return;
+    if (msg.type === 'state') render(msg.state);
+    else if (msg.type === 'disk') {
+      // Incremental disk rows; re-render from the last state plus the new rows.
+      if (lastState) render({ ...lastState, disk: msg.rows });
+    } else if (msg.type === 'action-result') karstSettle(msg.requestId, msg.ok, msg.message);
+  });
+
+  karstAction(el('refreshBtn'), (requestId) => post({ type: 'refresh', requestId }));
+  karstAction(el('measureBtn'), (requestId) => post({ type: 'measure-disk', requestId }));
+
+  // The host pushes on open, but a webview that was restored (or reloaded)
+  // missed it — ask, rather than render a blank page.
+  post({ type: 'request-state' });
+</script>
+
+<style>/*KARST_PALETTE*/</style>

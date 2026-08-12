@@ -156,6 +156,45 @@ describe('spawnHeadlessCli', () => {
 
     expect(lines.some((line) => /timed out after 10ms/.test(line))).toBe(true);
   });
+
+  it('notifies onSpawned with the pid and runs its disposer when the process settles', async () => {
+    const child = fakeChild(5555);
+    const dispose = vi.fn();
+    const onSpawned = vi.fn(() => dispose);
+    const spawnImpl = vi.fn(() => {
+      queueMicrotask(() => child.emit('close', 0));
+      return child;
+    }) as unknown as typeof spawn;
+
+    await spawnHeadlessCli('codex', ['exec'], '/wt/a', { onSpawned }, spawnImpl);
+    expect(onSpawned).toHaveBeenCalledWith(5555);
+    expect(dispose).toHaveBeenCalledTimes(1);
+  });
+
+  it('runs the onSpawned disposer on the abort path too', async () => {
+    const child = fakeChild(5556);
+    const killed = vi.spyOn(process, 'kill');
+    const dispose = vi.fn();
+    const onSpawned = vi.fn(() => dispose);
+    const spawnImpl = vi.fn(() => {
+      setTimeout(() => child.emit('close', null), 50);
+      return child;
+    }) as unknown as typeof spawn;
+    const controller = new AbortController();
+
+    const promise = spawnHeadlessCli(
+      'codex',
+      ['exec'],
+      '/wt/a',
+      { signal: controller.signal, onSpawned },
+      spawnImpl,
+    );
+    controller.abort();
+    await expect(promise).rejects.toMatchObject({ name: 'AbortError' });
+    expect(onSpawned).toHaveBeenCalledWith(5556);
+    expect(dispose).toHaveBeenCalledTimes(1);
+    expect(killed).toHaveBeenCalledWith(-5556, 'SIGKILL');
+  });
 });
 
 describe('spawnHeadlessCli (real processes)', () => {

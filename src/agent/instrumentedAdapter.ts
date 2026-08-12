@@ -6,6 +6,7 @@ import type {
   MaterializeOpts,
   Materialized,
   RunHeadlessOpts,
+  UsageTracking,
 } from './adapter.js';
 import type { TokenUsageEntry } from '../store/tokenUsage.js';
 import { UNKNOWN_CALL_SITE } from './aiCallSites.js';
@@ -62,6 +63,14 @@ export interface InstrumentOptions {
    * flag is on).
    */
   debug?: (message: string) => void;
+  /**
+   * Live-pid registry hook (the resource monitor). Injected into every headless
+   * call's `RunHeadlessOpts.onSpawned` at the same seam as `debug`, with the
+   * call's own `tracking` bound — so a new adapter gets pid registration by
+   * construction, and the registration's ticket/label come from the call that
+   * spawned it. The host binds it to `ResourceMonitor.registerPid`.
+   */
+  onSpawned?: (pid: number, tracking?: UsageTracking) => (() => void) | void;
   /** Injected clock, for tests. */
   now?: () => string;
 }
@@ -123,7 +132,13 @@ export function instrumentAdapter(
     async runHeadless(opts: RunHeadlessOpts): Promise<HeadlessResult> {
       let result: HeadlessResult;
       try {
-        result = await adapter.runHeadless({ ...opts, debug: options.debug });
+        result = await adapter.runHeadless({
+          ...opts,
+          debug: options.debug,
+          ...(options.onSpawned
+            ? { onSpawned: (pid: number) => options.onSpawned!(pid, opts.tracking) }
+            : {}),
+        });
       } catch (error) {
         // A failure after the provider counted the input is still spend. When
         // it reported nothing, the prompt was sent regardless — estimate the

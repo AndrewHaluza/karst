@@ -36,6 +36,13 @@ export interface HeadlessSpawnOptions {
    * manifest's `debug` flag is on).
    */
   onDebug?: (message: string) => void;
+  /**
+   * Live-pid registry hook (the resource monitor). Called once with the child's
+   * pid the moment it exists; the returned disposer runs wherever the promise
+   * settles (success, abort, timeout and spawn-failure paths alike), so a
+   * registration can never outlive its process.
+   */
+  onSpawned?: (pid: number) => (() => void) | void;
 }
 
 function abortError(): Error {
@@ -113,6 +120,11 @@ export function spawnHeadlessCli(
     }
     onDebug?.(`[agent] headless run: spawned ${command} (pid ${child.pid ?? 'unavailable'}, cwd ${cwd})`);
 
+    let disposeRegistration: (() => void) | void = undefined;
+    if (child.pid !== undefined && options.onSpawned) {
+      disposeRegistration = options.onSpawned(child.pid);
+    }
+
     const stdout = new BoundedOutput(Math.max(0, maxOutputBytes));
     const stderr = new BoundedOutput(Math.max(0, maxOutputBytes));
     let settled = false;
@@ -135,6 +147,7 @@ export function spawnHeadlessCli(
       if (deadline !== undefined) clearTimeout(deadline);
       if (terminationDeadline !== undefined) clearTimeout(terminationDeadline);
       options.signal?.removeEventListener('abort', onAbort);
+      disposeRegistration?.();
       if (outcome instanceof Error) reject(outcome);
       else resolve(outcome);
     };
