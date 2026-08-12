@@ -8,6 +8,7 @@ import { parseContextArgs, runContextCommand } from './context.js';
 import { runStageCommand } from './stage.js';
 import { runPhaseCommand } from './phase.js';
 import { runGraphCommand } from './graph.js';
+import { runNodeCommand } from './node.js';
 import { runGuideCommand } from './guide.js';
 import { resolveTicketByKey } from './resolveTicket.js';
 
@@ -179,6 +180,23 @@ export function runCli(argv: string[]): string {
     }
   }
 
+  // `karst node complete|block|replan` (Slice 3 Task 5) — the SAME closed
+  // pattern as `graph submit`: a separate parser that accepts no identity in
+  // argv; every claim comes from the host-owned environment and the
+  // capability hash is the sole authenticator. It never imports the workflow
+  // machine and produces no `Verdict`.
+  if (subcommand === 'node') {
+    if (!db && !process.env.KARST_GRAPH_DB) {
+      throw new Error('missing --db <path> (or KARST_GRAPH_DB)');
+    }
+    const store = openGraphWritableStore(db ?? process.env.KARST_GRAPH_DB!);
+    try {
+      return runNodeCommand(store, process.env, rest);
+    } finally {
+      store.close();
+    }
+  }
+
   // The guide is static karst-authored content: no DB, no manifest, no ticket.
   // Read-only by construction (it never opens the store at all).
   if (subcommand === 'guide') {
@@ -186,7 +204,7 @@ export function runCli(argv: string[]): string {
   }
 
   throw new Error(
-    `unknown command '${subcommand ?? ''}' (want 'context', 'stage', 'phase', 'graph' or 'guide')`,
+    `unknown command '${subcommand ?? ''}' (want 'context', 'stage', 'phase', 'graph', 'node' or 'guide')`,
   );
 }
 

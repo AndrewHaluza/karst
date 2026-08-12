@@ -67,6 +67,11 @@ machine-read JSON or markdown; diagnostics go to stderr and never corrupt it.
   (\`graph.json\`) for the graph run named by the host-owned environment. It
   takes no arguments, reads no ticket key, and is invoked ON YOUR BEHALF by
   the graph runtime — never by you.
+- \`node complete|block|replan\` — internal: reports a graph NODE's outcome
+  (complete, blocked, or replan with an optional bounded \`--reason\`). It
+  accepts no id or destination in argv — every identity claim comes from the
+  host-owned environment, and the capability is consumed one-shot on the
+  first call. Invoked ON YOUR BEHALF by the graph runtime — never by you.
 - \`guide\` — this document.
 
 The marker is deliberately narrow: \`stage\` accepts only \`impl\`/\`fix\` and
