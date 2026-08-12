@@ -33,9 +33,9 @@ import { parkGateStage } from '../store/stageBlocks.js';
 import { stageAttempt } from '../store/stages.js';
 import { casStatus, GRAPH_RUN_TRANSITIONS } from '../store/graph/transitions.js';
 import { quiescenceBlockedBy } from '../approaches/graph/coordinator/completion.js';
+import { GRAPH_FAILED_BLOCKER } from '../approaches/graph/coordinator/recovery.js';
 
-/** The blocker kind this module's surfaces are about. */
-export const GRAPH_FAILED_BLOCKER = 'approach-graph-failed' as const;
+export { GRAPH_FAILED_BLOCKER };
 
 export interface GraphMarkerGuardResult {
   ok: boolean;

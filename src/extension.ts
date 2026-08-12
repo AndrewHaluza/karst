@@ -167,6 +167,7 @@ import {
 import { runCompletionPipeline } from './approaches/graph/integration/pipeline.js';
 import { declaredWritesFor } from './approaches/graph/integration/claims.js';
 import { flipOnEndQuiescence } from './approaches/graph/coordinator/completion.js';
+import { recoverGraphRun } from './approaches/graph/coordinator/recovery.js';
 import { blockGraphStage } from './workflow/graphMarkerGuard.js';
 import {
   domainKeyOf,
@@ -4845,12 +4846,29 @@ function makeInsideActionHost(store: Store): InsideActionHost {
         return;
       }
       if (outcome.kind === 'graph-recovery') {
-        // The generic Resume refuses the graph block by design (Slice-3 T9):
-        // recovery is graph-aware and belongs to the Inside panel, never a
-        // silent generic retry. Tell the user where the control lives.
-        void vscode.window.showInformationMessage(
-          `Ticket #${ticketId}: the implementation graph (run ${outcome.graphRunId}) is blocked — open the Inside panel to recover or replan it.`,
+        // The generic Resume refuses the graph block by design (Slice-3 T9);
+        // the typed action runs graph-aware recovery: a retry on the same
+        // revision, clearing the block only after it durably entered.
+        const recovery = recoverGraphRun(
+          {
+            store,
+            transaction: <T>(fn: () => T): T =>
+              (store.db.transaction as unknown as (f: () => T, o: { begin: 'immediate' }) => () => T)(fn, {
+                begin: 'immediate',
+              })(),
+            now: () => new Date().toISOString(),
+          },
+          { ticketId: outcome.ticketId, graphRunId: outcome.graphRunId },
         );
+        if (recovery.kind === 'retried') {
+          void vscode.window.showInformationMessage(
+            `Ticket #${ticketId}: the implementation graph was retried (graph run ${outcome.graphRunId}).`,
+          );
+        } else if (recovery.kind === 'refused') {
+          void vscode.window.showInformationMessage(
+            `Ticket #${ticketId}: the implementation graph cannot retry itself (${recovery.reason}) — open the Inside panel to discard the unknown process.`,
+          );
+        }
       }
     },
     openFullEvidence: (ticketId, processRunId) => {
@@ -5073,10 +5091,26 @@ function makeDashboardActions(
       }
       if (outcome.kind === 'graph-recovery') {
         // The graph block is NOT cleared by a generic Resume (Slice-3 T9) —
-        // recovery is graph-aware. Surface the typed action honestly.
-        void vscode.window.showInformationMessage(
-          `Ticket #${ticketId}: the implementation graph (run ${outcome.graphRunId}) is blocked — open the Inside panel to recover or replan it.`,
+        // the typed action runs graph-aware recovery instead.
+        const recovery = recoverGraphRun(
+          {
+            store,
+            transaction: <T>(fn: () => T): T =>
+              (store.db.transaction as unknown as (f: () => T, o: { begin: 'immediate' }) => () => T)(fn, {
+                begin: 'immediate',
+              })(),
+            now: () => new Date().toISOString(),
+          },
+          { ticketId: outcome.ticketId, graphRunId: outcome.graphRunId },
         );
+        if (recovery.kind === 'retried') {
+          afterServerChange();
+          driveAfterResume(ticketId);
+        } else if (recovery.kind === 'refused') {
+          void vscode.window.showInformationMessage(
+            `Ticket #${ticketId}: the implementation graph cannot retry itself (${recovery.reason}) — open the Inside panel to discard the unknown process.`,
+          );
+        }
       }
     },
     // Opens the ticket form in edit mode on the new ticket so the user can type
