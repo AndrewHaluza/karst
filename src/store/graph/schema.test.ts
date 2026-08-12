@@ -234,7 +234,13 @@ describe('unique indexes', () => {
       now: '2026-08-11T00:00:00.000Z',
     };
     createToken(store.db, insert);
-    expect(() => createToken(store.db, insert)).toThrow(/UNIQUE/i);
+    // Slice-3 T1: successor insertion is IDEMPOTENT under a duplicated
+    // completion — the second insert is ignored (undefined), never an error.
+    expect(createToken(store.db, insert)).toBeUndefined();
+    const rows = store.db
+      .prepare('SELECT COUNT(*) AS n FROM approach_graph_tokens WHERE edge_id = ?')
+      .get('e1') as { n: number };
+    expect(rows.n).toBe(1);
   });
 });
 
@@ -276,7 +282,7 @@ describe('driver-agnostic store helpers', () => {
       forkInstance: 0,
       forkLineage: null,
       now: '2026-08-11T00:00:00.000Z',
-    });
+    })!;
     transitionGraphRun(db, runId, 'planning', 'running');
     const status = (graphRunById(db, runId) as { status: string }).status;
     return { runId, status, tokens: tokenId };
