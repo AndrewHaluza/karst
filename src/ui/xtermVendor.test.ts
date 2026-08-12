@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { mkdtempSync, copyFileSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -10,7 +10,15 @@ import { readXtermAssets } from '../model/xtermAssets.js';
 // The package ships its bundles split across lib/ (js) and css/ (css), so
 // they are staged flat into a temp dir — the same shape dist/vendor/xterm
 // has at runtime — before readXtermAssets reads them.
-const VENDOR = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'node_modules', '@xterm');
+//
+// The bundles are located through Node's OWN resolution, never by a path
+// relative to this source file: the UAT gate runs the suite from a linked
+// worktree whose node_modules is empty, and packages resolve by walking up
+// to the main checkout (the same resolution every import in this suite
+// uses). A `../../node_modules/@xterm` literal exists only in a main
+// checkout and fails the gate in the worktree it is run from.
+const require = createRequire(import.meta.url);
+const VENDOR = dirname(dirname(require.resolve('@xterm/xterm/package.json')));
 
 describe('vendored xterm bundles are CSP-safe to inline', () => {
   let assets: ReturnType<typeof readXtermAssets>;

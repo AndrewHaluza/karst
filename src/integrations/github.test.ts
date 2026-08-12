@@ -191,7 +191,7 @@ describe('toGhResult', () => {
     });
     expect(r.exitCode).toBe(1);
     expect(r.stderr).not.toContain('ENOENT');
-    // Registry copy, not a second hand-written version of it: the fault card and
+    // Registry copy, not a second hand-written version of it: the dashboard and
     // the setup checklist must not disagree about how to install gh.
     expect(r.stderr).toBe(renderMissingDependency(GH_DEPENDENCY));
   });
