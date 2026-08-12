@@ -1405,6 +1405,17 @@ describe('dashboard webview.html', () => {
     expect(HTML).toMatch(/function evidenceRowsHtml[\s\S]*?class="evidence-row"/);
   });
 
+  it('renders the CURRENT karst mark in the artifact origin chip — never the retired three-node graph', () => {
+    // The artifact origin chip's karst mark must match the approved
+    // monochrome silhouette (media/karst-mark.svg, pinned by brandAssets.test.ts).
+    // The old three-node graph was the exact staleness this replaces — a copy
+    // that drifted from the approved asset and read as a different brand.
+    expect(HTML).toMatch(/const KARST_MARK =[\s\S]*viewBox="0 0 215 215"/);
+    expect(HTML).toMatch(/const KARST_MARK =[\s\S]*M 96 20[\s\S]*M 151 42[\s\S]*cx="106\.5" cy="111\.5" r="26\.5"/);
+    expect(HTML).not.toMatch(/cx="6" cy="6" r="2\.4"/);
+    expect(HTML).not.toMatch(/7\.6 7\.6/);
+  });
+
   it('draws the timeline connector from the structural field, never the label', () => {
     // A switch/resume row carries `connector` from the host; the webview maps
     // the CLOSED vocabulary to the branch class + static tooltip and must not
@@ -2017,7 +2028,6 @@ function bootPreviewHarness(): PreviewHarness {
     'prCount',
     'prRefresh',
     'artPanel',
-    'artCount',
     'artTotal',
     'artViewAll',
     'artifacts',
@@ -3586,7 +3596,7 @@ function artifactFixtures(): ArtifactSummary[] {
       kind: 'uat-report',
       title: 'UAT report',
       scope: null,
-      summary: '3 passed · 0 failed',
+      summary: '2 passed · 1 failed',
       status: 'passed',
       freshness: 'current',
       origin: { kind: 'karst', core: 'codex' },
@@ -3594,12 +3604,13 @@ function artifactFixtures(): ArtifactSummary[] {
       currentVersionLabel: 'v1',
       createdAt: '2026-08-01T10:00:00.000Z',
       metrics: [
-        { label: 'passed', value: '3' },
-        { label: 'failed', value: '0' },
+        { label: 'passed', value: '2' },
+        { label: 'failed', value: '1' },
       ],
       gates: [
         { name: 'lint', exitCode: 0 },
         { name: 'test', exitCode: 0 },
+        { name: 'e2e', exitCode: 2 },
       ],
       findings: [],
       prs: [],
@@ -3630,6 +3641,7 @@ function artifactFixtures(): ArtifactSummary[] {
           repo: '/wt/web',
           file: 'src/auth.ts',
           line: 12,
+          action: { actionId: 'snapshot-1:action-8', kind: 'open-file' },
         },
       ],
       prs: [],
@@ -3665,7 +3677,14 @@ function artifactFixtures(): ArtifactSummary[] {
           status: 'open',
         },
       ],
-      commits: [{ repo: '/wt/web', sha: 'abc123', message: 'feat: passkey login' }],
+      commits: [
+        {
+          repo: '/wt/web',
+          sha: 'abc123',
+          message: 'feat: passkey login',
+          action: { actionId: 'snapshot-1:action-9', kind: 'open-commit' },
+        },
+      ],
       resources: [],
       detail: null,
     },
@@ -3685,7 +3704,8 @@ describe('artifacts render round trip (executed in a VM)', () => {
 
     h.receive({ type: 'state', state: stateWithArtifacts() });
     expect(h.classesOf('artPanel')).not.toContain('hidden');
-    expect(h.textOf('artCount')).toBe('3');
+    // The ONE count lives in the "View all N" button — the panel header has no
+    // redundant `.count` of its own (issue: two counters for one number).
     expect(h.textOf('artTotal')).toBe('3');
     const body = h.htmlOf('artifacts');
     // Exactly the 3 previews, each a real button opening its detail.
@@ -3733,8 +3753,18 @@ describe('artifacts render round trip (executed in a VM)', () => {
     // Semantic result first: title, status word, metrics, gates.
     expect(detail).toContain('UAT report');
     expect(detail).toContain('Passed');
-    expect(detail).toContain('3');
+    expect(detail).toContain('2');
     expect(detail).toContain('lint');
+    // Gate outcomes are COLOURED STATES (green pass / red fail), not text
+    // labels: the passing gates draw a passed dot, the failing one a failed
+    // dot, each with its state word only as the dot's accessible name.
+    expect(detail).toMatch(/class="ag-state pass"[\s\S]*role="img" aria-label="passed"/);
+    expect(detail).toMatch(/class="ag-state fail"[\s\S]*role="img" aria-label="failed"/);
+    expect(detail).toContain('exit 2');
+    expect(detail).not.toMatch(/ag-code[^>]*>passed</);
+    // The gate log opens in the xterm console — the uat stage's console entry
+    // rides the Gate runs heading.
+    expect(detail).toMatch(/data-act="console"[\s\S]*data-console="uat"/);
     // Provenance: produced-by carries the origin chip.
     expect(detail).toContain('Produced by');
     expect(detail).toContain('Karst · Codex');
@@ -3751,6 +3781,39 @@ describe('artifacts render round trip (executed in a VM)', () => {
     // And Esc on the index → ticket.
     h.key('Escape');
     expect(h.bodyClasses).not.toContain('art-nav');
+  });
+
+  it('renders the ship detail with the PR number and commit SHA as the open controls', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: stateWithArtifacts() });
+    h.click('[data-art]', { art: 'index' });
+    h.click('[data-art-open]', { artOpen: 'ship-summary' });
+    const detail = h.htmlOf('artView');
+    // The PR number IS the link — never inert text beside an "Open PR" button.
+    expect(detail).toMatch(
+      /<a class="obj-link pr-link" href="#" data-act="open-pr" data-url="https:\/\/github\.com\/o\/r\/pull\/42"[^>]*>#42<\/a>/,
+    );
+    expect(detail).not.toContain('Open PR ↗');
+    expect(detail).not.toContain('>Open PR</button>');
+    // The commit SHA IS the open-commit control (opaque action id only).
+    expect(detail).toMatch(
+      /<a class="obj-link commit-link" href="#" data-act="inside-action" data-action-id="snapshot-1:action-9"[^>]*>abc123<\/a>/,
+    );
+    // The ship summary is not a gate stage, so it offers no console entry.
+    expect(detail).not.toContain('data-console="ship"');
+  });
+
+  it('renders the review detail with the finding location as the open-file control', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: stateWithArtifacts() });
+    h.click('[data-art]', { art: 'index' });
+    h.click('[data-art-open]', { artOpen: 'review' });
+    const detail = h.htmlOf('artView');
+    expect(detail).toContain('Credential cache is not cleared');
+    // The finding's file:line IS the open-file control, never inert text.
+    expect(detail).toMatch(
+      /<a class="obj-link file-link" href="#" data-act="inside-action" data-action-id="snapshot-1:action-8"[^>]*>src\/auth\.ts:12<\/a>/,
+    );
   });
 
   it('a detail opened from the shelf returns to the TICKET, and its editor escape posts id + index only', () => {

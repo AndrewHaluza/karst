@@ -566,6 +566,7 @@ export function buildDashboardState(
       ship: shipEvidence,
       shipRunCount: countShipRuns(store, ticketId),
       prs,
+      attach,
     }),
   };
 }

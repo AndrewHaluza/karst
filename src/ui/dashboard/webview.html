@@ -1309,15 +1309,18 @@
      dashboard body inside the SAME webview (spec §7: exactly three surfaces,
      no second tab/drawer), which is what body.art-nav hides below. */
   .artcards{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:var(--k-space-4)}
+  /* The "View all N" button is the header's count now — it sits at the right
+     edge exactly where the removed `.count` did. */
+  .phead #artViewAll{margin-left:auto}
   .artcard{display:block;width:100%;text-align:left;border:var(--k-border-w) solid var(--k-border);
     border-radius:var(--k-radius-lg);background:var(--k-surface);cursor:pointer;
-    padding:var(--k-space-5) var(--k-space-6)}
+    padding:var(--k-space-5) var(--k-space-6);color:var(--k-text)}
   .artcard:hover{background:var(--k-surface-hover)}
   .artcard:focus-visible{outline:2px solid var(--k-focus);outline-offset:1px}
   .artcard-title{display:flex;align-items:center;gap:var(--k-space-3);font-size:var(--k-text-md);
     font-weight:var(--k-weight-semibold);color:var(--k-text)}
   .artcard-summary{font-size:var(--k-text-sm);color:var(--k-text-dim);margin-top:var(--k-space-2)}
-  .artcard-meta{display:flex;align-items:center;gap:var(--k-space-3);margin-top:var(--k-space-4)}
+  .artcard-meta{display:flex;align-items:center;gap:var(--k-space-3);margin-top:var(--k-space-4);flex-wrap:wrap}
   .art-status{font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.4px;
     font-weight:var(--k-weight-semibold)}
   .art-status.passed{color:var(--k-passed)}
@@ -1325,6 +1328,8 @@
   .art-status.attention{color:var(--k-attention)}
   .art-status.info{color:var(--k-pending)}
   .art-stale{font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.4px;color:var(--k-attention)}
+  /* The detail's stale banner sits under the summary, not inline-styled. */
+  .artdetail .art-stale-note{text-transform:none;letter-spacing:normal;margin-top:var(--k-space-3)}
   /* The origin chip: one closed shape on every artifact surface (UI-R28 — the
      mark is a SECONDARY carrier; the label is the identity). Built from the
      injected agent identity (core icon) + the karst brand mark. */
@@ -1336,26 +1341,36 @@
      while active, restoring it on Back/Esc. */
   body.art-nav .stepper,body.art-nav .grid{display:none}
   body.term-nav .stepper,body.term-nav .grid{display:none}
-  .artview{padding:var(--k-space-7) 0 var(--k-space-9);max-width:720px}
+  .artview{padding:var(--k-space-7) 0 var(--k-space-9);max-width:720px;color:var(--k-text)}
   .arthead{display:flex;align-items:center;gap:var(--k-space-4);margin-bottom:var(--k-space-6);flex-wrap:wrap}
   .arthead h2{margin:0;font-size:var(--k-text-lg);font-weight:var(--k-weight-semibold)}
   .arthead .artsub{font-size:var(--k-text-sm);color:var(--k-text-dim)}
   .artgroup{margin-bottom:var(--k-space-7)}
   .artgroup-title{font-size:var(--k-text-2xs);color:var(--k-text-faint);text-transform:uppercase;
     letter-spacing:.4px;margin-bottom:var(--k-space-3)}
+  /* The index's own list: its rows are the `.artrow` buttons, which carry
+     their own border/padding — wrapping them in `.artfiles li` (whose styling
+     exists for the DETAIL's single-line file rows) drew a second border around
+     each row. */
+  .artrows{list-style:none;margin:0;padding:0}
+  .artrows li{margin-bottom:var(--k-space-3)}
   .artrow{display:flex;align-items:center;gap:var(--k-space-5);width:100%;text-align:left;
     padding:var(--k-space-4) var(--k-space-5);border:var(--k-border-w) solid var(--k-border);
-    border-radius:var(--k-radius-md);background:var(--k-surface);cursor:pointer}
+    border-radius:var(--k-radius-md);background:var(--k-surface);cursor:pointer;color:var(--k-text)}
   .artrow:hover{background:var(--k-surface-hover)}
   .artrow:focus-visible{outline:2px solid var(--k-focus);outline-offset:1px}
   .artrow .artrow-body{min-width:0;flex:1}
-  .artrow-title{font-size:var(--k-text-md);font-weight:var(--k-weight-medium)}
+  .artrow-title{font-size:var(--k-text-md);font-weight:var(--k-weight-medium);color:var(--k-text)}
   .artrow-summary{font-size:var(--k-text-sm);color:var(--k-text-dim);margin-top:var(--k-space-1)}
   .artrow .arw{margin-left:auto;color:var(--k-text-faint);flex:none}
   .artdetail .artsection{margin-bottom:var(--k-space-7)}
-  .artdetail .artheading{font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.4px;
+  /* The section heading is a flex row so the console entry (the xterm view of
+     a gate stage's log) can sit at its right edge without a second line. */
+  .artdetail .artheading{display:flex;align-items:center;gap:var(--k-space-3);
+    font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.4px;
     color:var(--k-text-faint);margin-bottom:var(--k-space-3)}
-  .arthero{display:flex;align-items:baseline;gap:var(--k-space-4);flex-wrap:wrap}
+  .artdetail .artheading .sp{margin-left:auto}
+  .arthero{display:flex;align-items:center;gap:var(--k-space-4);flex-wrap:wrap}
   .arthero .art-title{font-size:var(--k-text-lg);font-weight:var(--k-weight-semibold)}
   .artmetrics{display:flex;gap:var(--k-space-6);flex-wrap:wrap;margin-top:var(--k-space-3)}
   .artmetric{font-family:var(--k-font-mono);font-size:var(--k-text-md);color:var(--k-text)}
@@ -1371,6 +1386,17 @@
     padding:var(--k-space-2) 0;border-bottom:var(--k-border-w) solid var(--k-border)}
   .artgate .ag-name{font-family:var(--k-font-mono);flex:1;color:var(--k-text)}
   .artgate .ag-code{font-size:var(--k-text-xs);color:var(--k-text-dim)}
+  /* One gate's outcome as a COLOURED STATE, not a text label: the dot is the
+     shipped `.k-dot` status primitive (gap G1 — hue is its current carrier),
+     green for pass, red for fail; the state word rides only as the dot's
+     accessible name (UI-R28), and the exit code stays as the row's detail. */
+  .artgate .ag-state{display:inline-flex;flex:none}
+  .artgate .ag-state .ag-dot{width:var(--k-space-3);height:var(--k-space-3);
+    border-radius:var(--k-radius-circle);flex:none}
+  .artgate .ag-state.pass .ag-dot{background:var(--k-passed)}
+  .artgate .ag-state.fail .ag-dot{background:var(--k-failed)}
+  .artgate .ag-state.note .ag-dot{background:transparent;
+    border:calc(var(--k-border-w) * 2) solid var(--k-pending)}
   .artmeta{display:grid;grid-template-columns:auto 1fr;gap:var(--k-space-2) var(--k-space-5);
     font-size:var(--k-text-sm)}
   .artmeta .am-key{color:var(--k-text-faint)}
@@ -1379,6 +1405,23 @@
     padding:var(--k-space-3) var(--k-space-4);border:var(--k-border-w) solid var(--k-border);
     border-radius:var(--k-radius-md);margin-bottom:var(--k-space-3)}
   .artfiles .af-name{font-family:var(--k-font-mono);font-size:var(--k-text-sm);flex:1;color:var(--k-text)}
+  /* In-body object links (UI-R09c): the commit SHA, the PR number and a
+     finding's file location ARE the controls — underlined, monospaced,
+     keyboard-focusable — never inert text beside a duplicate button. */
+  .artdetail .obj-link{display:inline-flex;align-items:center;color:var(--k-link);
+    text-decoration-line:underline;text-decoration-thickness:var(--k-border-w);
+    text-decoration-color:var(--k-border);text-underline-offset:var(--k-space-1);cursor:pointer;
+    font-family:var(--k-font-mono);border-radius:var(--k-radius-xs)}
+  .artdetail .obj-link:hover{color:var(--k-link);text-decoration-color:currentColor}
+  .artdetail .obj-link:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+  .artfiles .pr-link{color:var(--k-text);font-weight:var(--k-weight-semibold)}
+  .artfiles .pr-status{display:inline-flex;align-items:center;border:var(--k-border-w) solid var(--k-border);
+    border-radius:var(--k-radius-pill);padding:var(--k-space-0) var(--k-space-2);color:var(--k-text-dim);
+    font-family:var(--k-font-mono);font-size:var(--k-text-2xs);text-transform:lowercase;white-space:nowrap}
+  .artfiles .pr-status.open{color:var(--k-running);border-color:var(--k-border)}
+  .artfiles .pr-status.merged{color:var(--k-passed);border-color:var(--k-border)}
+  .artfiles .pr-status.closed{color:var(--k-failed);border-color:var(--k-border)}
+  .artfiles .commit-sha{color:var(--k-text-dim)}
 
   /* The terminal console surface (xterm "detailed mode"): a full-body swap via
      body.term-nav, exactly like the artifact surface — the SAME webview hosts
@@ -1499,8 +1542,10 @@
        because the spec's zero-artifact state is ABSENCE, never an empty
        section (§4.1). The count is top-level semantic artifacts; the previews
        are the host's semantic-priority order (state.artifacts is sorted), and
-       `View all N` opens the index INSIDE this webview. -->
-  <div class="panel span hidden" id="artPanel"><div class="phead">Artifacts<span class="count" id="artCount"></span><button id="artViewAll" type="button" class="k-btn k-btn--ghost k-btn--sm" data-art="index" title="Show every artifact this ticket has produced">View all <span id="artTotal"></span> ›</button></div><div class="pbody" id="artifacts"></div></div>
+       `View all N` opens the index INSIDE this webview. The panel carries NO
+       `.count` of its own — the "View all N" button IS the counter (the two
+       repeated the same number twice in one header). -->
+  <div class="panel span hidden" id="artPanel"><div class="phead">Artifacts<button id="artViewAll" type="button" class="k-btn k-btn--ghost k-btn--sm" data-art="index" title="Show every artifact this ticket has produced">View all <span id="artTotal"></span> ›</button></div><div class="pbody" id="artifacts"></div></div>
 </div>
 
 <!-- The artifact index/detail surface: the SAME webview, never a second tab.
@@ -3001,13 +3046,16 @@
   // index row, detail's Produced-by row). The mark is a secondary carrier;
   // the LABEL is the identity (UI-R28) — never an icon alone. Native:
   // `<core icon> <Core> · Native`; karst: `<karst mark> Karst[ · <Core>]`.
-  // The karst mark is a PRODUCT-IDENTITY exception, not an interaction icon —
-  // it stays outside the Tabler catalog (docs/ui/ICONS.md §5).
+  // The karst mark is the CURRENT monochrome silhouette (media/karst-mark.svg,
+  // viewBox 0 0 215 215 — the old three-node graph is gone; see
+  // brandAssets.test.ts), inlined because the webview CSP forbids external
+  // assets. It is a PRODUCT-IDENTITY exception, not an interaction icon — it
+  // stays outside the Tabler catalog (docs/ui/ICONS.md §5).
   const KARST_MARK =
-    '<svg class="kmark" viewBox="0 0 24 24" aria-hidden="true" focusable="false">'
-    + '<g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">'
-    + '<circle cx="6" cy="6" r="2.4"/><circle cx="18" cy="6" r="2.4"/><circle cx="12" cy="18" r="2.4"/>'
-    + '<path d="M7.6 7.6 10.7 15.6"/><path d="M16.4 7.6 13.3 15.6"/><path d="M8 6h8"/></g></svg>';
+    '<svg class="kmark" viewBox="0 0 215 215" aria-hidden="true" focusable="false">'
+    + '<path d="M 96 20 L 25 67 L 25 156 L 98 203 L 98 180 L 44 145 L 44 78 L 97 44 Z" fill="currentColor"/>'
+    + '<path d="M 151 42 L 138 58 L 170 78 L 170 144 L 138 165 L 150 180 L 188 156 L 188 67 Z" fill="currentColor"/>'
+    + '<circle cx="106.5" cy="111.5" r="26.5" fill="currentColor"/></svg>';
 
   function originChip(origin) {
     const o = origin || { kind: 'karst', core: null };
@@ -3070,8 +3118,8 @@
     const all = state.artifacts || [];
     panel.classList.toggle('hidden', all.length === 0);
     if (all.length === 0) { body.innerHTML = ''; return; }
-    const count = el('artCount');
-    if (count) count.textContent = String(all.length);
+    // The one count lives in the "View all N" button — the panel header
+    // carries no `.count` of its own (the two would repeat the same number).
     const total = el('artTotal');
     if (total) total.textContent = String(all.length);
     body.innerHTML = `<div class="artcards">${all.slice(0, 3).map(artifactCardHtml).join('')}</div>`;
@@ -3099,7 +3147,7 @@
       + groups.map((g) =>
         `<section class="artgroup" aria-label="${esc((ART_STAGE_LABEL[g.stage] || g.stage))} artifacts">`
         + `<div class="artgroup-title">${esc(ART_STAGE_LABEL[g.stage] || g.stage)}</div>`
-        + `<ul class="artfiles">${rows(g)}</ul></section>`).join('');
+        + `<ul class="artrows">${rows(g)}</ul></section>`).join('');
   }
 
   const ART_STAGE_LABEL = { uat: 'UAT', review: 'Review', ship: 'Ship' };
@@ -3117,35 +3165,78 @@
       `<div class="artfinding ${esc(f.severity || '')}">`
       + `<div class="af-title">${esc(f.severity.toUpperCase())} · ${esc(f.title)}</div>`
       + (f.detail ? `<div class="af-detail">${esc(f.detail)}</div>` : '')
-      + (f.file ? `<div class="af-detail">${esc(f.file)}${f.line != null ? `:${esc(String(f.line))}` : ''}</div>` : '')
+      + (f.file
+        // The file location IS the open-file control (UI-R09c) when the host
+        // attached the capability; with none it stays plain text.
+        ? `<div class="af-detail">${f.action
+          ? `<a class="obj-link file-link" href="#" data-act="inside-action"`
+            + ` data-action-id="${esc(f.action.actionId)}"`
+            + ` title="Open this file in an editor">${esc(f.file)}${f.line != null ? `:${esc(String(f.line))}` : ''}</a>`
+          : esc(f.file) + (f.line != null ? `:${esc(String(f.line))}` : '')}</div>`
+        : '')
       + `</div>`).join('');
     return `<section class="artsection" aria-label="Findings"><div class="artheading">Findings</div>${items}</section>`;
   }
 
   function artifactGatesHtml(a) {
     if (!a.gates || !a.gates.length) return '';
-    const rows = a.gates.map((g) =>
-      `<div class="artgate"><span class="ag-name">${esc(g.name)}</span>`
-      + `<span class="ag-code">${g.exitCode === 0 ? 'passed' : g.exitCode === null ? 'no script' : 'failed'}</span></div>`
-    ).join('');
-    return `<section class="artsection" aria-label="Gate runs"><div class="artheading">Gate runs</div>${rows}</section>`;
+    // The console (xterm) entry: a gate stage's artifact log is previewed in
+    // the terminal "detailed mode" — the same data-console stage the inside
+    // gates row carries, resolved host-side from the stage's artifactPath. Only
+    // the gate stages (uat/review) record a log, so only they offer it.
+    const consoleBtn = a.stage === 'uat' || a.stage === 'review'
+      ? `<button type="button" class="k-iconbtn ib t-open" data-act="${CONSOLE_ACT}"`
+        + ` data-console="${esc(a.stage)}"`
+        + ` aria-label="View this stage's console output in the dashboard"`
+        + ` title="View this stage's console output in the dashboard">${svgIcon('terminal-2')}</button>`
+      : '';
+    const rows = a.gates.map((g) => {
+      // Each gate's outcome is a COLOURED STATE — green pass / red fail — not
+      // a text label: the dot carries the state (UI-R28 keeps the word as its
+      // accessible name), and the exit code stays as the row's detail.
+      const state = g.exitCode === 0 ? 'pass' : g.exitCode === null ? 'note' : 'fail';
+      const word = state === 'pass' ? 'passed' : state === 'fail' ? 'failed' : 'no script';
+      return `<div class="artgate"><span class="ag-state ${state}">`
+        + `<span class="ag-dot" role="img" aria-label="${esc(word)}"></span></span>`
+        + `<span class="ag-name">${esc(g.name)}</span>`
+        + `<span class="ag-code">${g.exitCode === null ? 'no script' : `exit ${esc(String(g.exitCode))}`}</span></div>`;
+    }).join('');
+    return `<section class="artsection" aria-label="Gate runs">`
+      + `<div class="artheading">Gate runs${consoleBtn ? `<span class="sp">${consoleBtn}</span>` : ''}</div>`
+      + `${rows}</section>`;
   }
 
   function artifactPrsHtml(a) {
     if (!a.prs || !a.prs.length) return '';
-    const rows = a.prs.map((p) =>
-      `<li><span class="af-name">${esc(p.repo)}${p.number ? ` · PR #${esc(String(p.number))}` : ''}</span>`
-      + (p.url
-        ? `<a class="k-btn k-btn--ghost k-btn--sm" href="#" data-act="open-pr" data-url="${esc(p.url)}">Open PR ↗</a>`
-        : `<span class="ag-code">${esc(p.status || '')}</span>`)
-      + `</li>`).join('');
+    const rows = a.prs.map((p) => {
+      // The PR number IS the open-PR control (UI-R09c) — a link, never inert
+      // text beside a duplicate button, so the redundant "Open PR" button is
+      // gone. With no url the number stays plain text and the status word
+      // carries the row.
+      const number = p.number
+        ? (p.url
+          ? `<a class="obj-link pr-link" href="#" data-act="open-pr" data-url="${esc(p.url)}"`
+            + ` title="Open this pull request on the host">#${esc(String(p.number))}</a>`
+          : `<span class="pr-link">#${esc(String(p.number))}</span>`)
+        : '';
+      return `<li><span class="af-name">${esc(p.repo)}${number ? ` · ${number}` : ''}</span>`
+        + (p.status ? `<span class="pr-status ${esc(p.status)}">${esc(p.status)}</span>` : '')
+        + `</li>`;
+    }).join('');
     return `<section class="artsection" aria-label="Pull requests"><div class="artheading">Pull requests</div><ul class="artfiles">${rows}</ul></section>`;
   }
 
   function artifactCommitsHtml(a) {
     if (!a.commits || !a.commits.length) return '';
-    const rows = a.commits.map((c) =>
-      `<li><span class="af-name">${esc(c.sha.slice(0, 7))} · ${esc(c.message)}</span></li>`).join('');
+    const rows = a.commits.map((c) => {
+      // The commit SHA IS the open-commit control (UI-R09c) — a link when the
+      // host attached the capability, plain text when it did not.
+      const sha = c.action
+        ? `<a class="obj-link commit-link" href="#" data-act="inside-action"`
+          + ` data-action-id="${esc(c.action.actionId)}" title="Open this commit on the host">${esc(c.sha.slice(0, 7))}</a>`
+        : `<span class="commit-sha">${esc(c.sha.slice(0, 7))}</span>`;
+      return `<li><span class="af-name">${sha} · ${esc(c.message)}</span></li>`;
+    }).join('');
     return `<section class="artsection" aria-label="Commits"><div class="artheading">Commits</div><ul class="artfiles">${rows}</ul></section>`;
   }
 
@@ -3171,9 +3262,9 @@
       + `<div class="artdetail">`
       + `<div class="arthero"><span class="art-title">${esc(a.title)}</span>`
       + `${artifactStatusHtml(a)}${artifactStaleHtml(a)}</div>`
-      + `<div class="artcard-summary" style="margin-top:var(--k-space-2)">${esc(a.summary)}</div>`
+      + `<div class="artcard-summary">${esc(a.summary)}</div>`
       + (a.freshness === 'stale'
-        ? `<p class="art-stale" style="margin-top:var(--k-space-3)">Implementation changed after this verification — rerun the stage before treating this result as evidence for the current code.</p>`
+        ? `<p class="art-stale art-stale-note">Implementation changed after this verification — rerun the stage before treating this result as evidence for the current code.</p>`
         : '')
       + artifactMetricsHtml(a)
       + artifactFindingsHtml(a)

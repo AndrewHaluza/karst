@@ -39,6 +39,8 @@ import { listShipEvidence, countShipRuns } from '../store/shipRuns.js';
 import { listPrsByTicket } from '../store/dashboard.js';
 import { isKnownProvider } from '../agent/provider.js';
 import type { Store } from '../store/db.js';
+import { formatSpanMs } from './inside/types.js';
+import type { InsideEvidenceTarget, TypedInsideAction } from './inside/types.js';
 
 /** The semantic artifact kinds V1 derives. One artifact per kind per ticket. */
 export type ArtifactKind = 'uat-report' | 'review' | 'ship-summary';
@@ -86,6 +88,12 @@ export interface ArtifactFinding {
   repo: string | null;
   file: string | null;
   line: number | null;
+  /**
+   * The opaque open-file capability for the finding's location, minted
+   * host-side through the same `attach` seam the inside findings use. Absent →
+   * the location renders as plain text (no file, no attach, or a fixture).
+   */
+  action?: TypedInsideAction;
 }
 
 export interface ArtifactPr {
@@ -99,6 +107,12 @@ export interface ArtifactCommit {
   repo: string;
   sha: string;
   message: string;
+  /**
+   * The opaque open-commit capability, minted host-side through the same
+   * `attach` seam the inside evidence uses. Absent → the SHA renders as plain
+   * text (a snapshot that attached none, or a fixture). Never invented here.
+   */
+  action?: TypedInsideAction;
 }
 
 /** One underlying raw representation, shown LAST in detail, opened on demand. */
@@ -157,6 +171,12 @@ export interface ArtifactInput {
   ship: ShipEvidence;
   shipRunCount: number;
   prs: PrView[];
+  /**
+   * Mint an opaque capability for an evidence row (the ship summary's commits
+   * get an `open-commit`). Absent → rows carry no actions, exactly like the
+   * inside reducers when their caller attaches none.
+   */
+  attach?: (target: InsideEvidenceTarget) => TypedInsideAction | undefined;
 }
 
 /** The gate_runs row that is NOT a gate: the review stage's Changes-panel mark. */
@@ -281,10 +301,16 @@ function gateSummary(entries: readonly GateRun[]): string {
   return `${passed} passed · ${failed} failed${noScript ? ` · ${noScript} no script` : ''}`;
 }
 
-function durationSec(stage: Stage | undefined): string | null {
+/**
+ * A stage's span as a person reads it (the same `formatSpanMs` the inside rows
+ * use, so the artifact's "duration" metric and the ledger's row durations can
+ * never disagree about how long the same stage took). Null for an unparseable
+ * or negative span — an absent fact must read as absent.
+ */
+function durationSpan(stage: Stage | undefined): string | null {
   if (!stage?.startedAt || !stage.endedAt) return null;
   const ms = new Date(stage.endedAt).getTime() - new Date(stage.startedAt).getTime();
-  return Number.isFinite(ms) && ms >= 0 ? String(Math.round(ms / 1000)) : null;
+  return Number.isFinite(ms) && ms >= 0 ? formatSpanMs(ms) : null;
 }
 
 /**
@@ -361,6 +387,16 @@ function uatReport(input: ArtifactInput): ArtifactSummary | null {
       repo: f.repo ?? null,
       file: f.filePath ?? null,
       line: f.line ?? null,
+      // The observation's file is a real location — the same open-file
+      // capability the inside findings carry, minted only when one exists.
+      ...(input.attach && f.filePath
+        ? {
+            action: input.attach({
+              kind: 'open-file',
+              evidence: { source: 'uat-finding', id: f.id },
+            }),
+          }
+        : {}),
     }));
   const createdAt = stage?.endedAt ?? stage?.startedAt ?? null;
   const attempts = versionAttempts(allEntries, processRuns, 'uat');
@@ -369,10 +405,10 @@ function uatReport(input: ArtifactInput): ArtifactSummary | null {
     entries.length > 0
       ? gateSummary(entries)
       : `${findings.length} observation${findings.length === 1 ? '' : 's'}`;
-  const duration = durationSec(stage);
+  const duration = durationSpan(stage);
   const metrics = [
     ...gateMetrics(entries),
-    ...(duration ? [{ label: 'duration', value: `${duration}s` }] : []),
+    ...(duration ? [{ label: 'duration', value: duration }] : []),
   ];
   const resources: ArtifactResource[] = [];
   resourceFrom(stage?.artifactPath ?? null, resources);
@@ -451,6 +487,16 @@ function reviewReport(input: ArtifactInput): ArtifactSummary | null {
       repo: f.repo || null,
       file: f.file ?? null,
       line: f.line ?? null,
+      // The finding's file is a real location — the same open-file capability
+      // the inside findings carry, minted only when one exists.
+      ...(input.attach && f.file
+        ? {
+            action: input.attach({
+              kind: 'open-file',
+              evidence: { source: 'review-finding', id: f.id },
+            }),
+          }
+        : {}),
     })),
     prs: [],
     commits: [],
@@ -500,7 +546,18 @@ function shipSummary(input: ArtifactInput): ArtifactSummary | null {
     })),
     commits: commits
       .slice(0, MAX_DETAIL_COMMITS)
-      .map((c) => ({ repo: c.repo, sha: c.sha, message: c.message })),
+      .map((c) => ({
+        repo: c.repo,
+        sha: c.sha,
+        message: c.message,
+        // The SHA's open-commit capability — the SAME host seam the inside
+        // evidence uses, so a click re-loads the recorded ship commit by id
+        // and reveals it. An artifact snapshot built without an attach
+        // callback (a fixture, the CLI) renders the SHA as plain text.
+        ...(input.attach
+          ? { action: input.attach({ kind: 'open-commit', shipCommitId: c.id }) }
+          : {}),
+      })),
     resources: [],
     detail: run.status === 'passed' ? null : 'Ship did not complete — retry ship to continue.',
   };
