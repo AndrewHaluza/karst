@@ -1345,6 +1345,12 @@
      body.term-nav, exactly like the artifact surface — the SAME webview hosts
      the ticket dashboard and the console view, never a second tab. */
   .termview{position:fixed;inset:0;z-index:8;display:flex;flex-direction:column;background:var(--k-bg);color:var(--k-text);font-family:var(--k-font-mono)}
+  /* The surface starts closed (class="termview hidden"): .termview and .hidden
+     have EQUAL specificity, so the LATER declaration wins the cascade — this
+     override must follow the .termview block or display:flex beats
+     .hidden{display:none} and the empty console box (position:fixed, inset:0,
+     opaque) covers the whole dashboard on every open. */
+  .termview.hidden{display:none}
   .termview .thead{display:flex;align-items:center;gap:var(--k-space-4);padding:var(--k-space-3) var(--k-space-4);border-bottom:var(--k-border-w) solid var(--k-border)}
   .termview .ttitle{font-weight:var(--k-weight-semibold)}
   .termview .tstatus{font-size:var(--k-text-xs);color:var(--k-text-dim);padding:var(--k-space-2) var(--k-space-4)}

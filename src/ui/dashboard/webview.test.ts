@@ -3834,4 +3834,25 @@ describe('terminal console view (VM)', () => {
     h.receive({ type: 'state', state: noConsole as DashboardState });
     expect(h.htmlOf('inside')).not.toContain('data-act="console"');
   });
+
+  /**
+   * Guard on the console surface's resting visibility.
+   *
+   * Be honest about what this is: a text assertion CANNOT render the cascade.
+   * It cannot tell you the dashboard is visible — only that the rule which
+   * stops the console box from covering it is still in the file, ordered so
+   * that it wins. #termView starts with BOTH classes (class="termview hidden"),
+   * and the console box is position:fixed;inset:0 with an opaque background:
+   * if its own display:flex ever beat .hidden{display:none}, EVERY dashboard
+   * open would show a blank full-screen box with the real page behind it —
+   * "the html is there, but nothing is visible". .termview and .hidden have
+   * EQUAL specificity, so source order decides; the override must sit after
+   * the .termview block or it loses. Written after reproducing the defect in
+   * a real webview; re-verifying the pixels needs F5.
+   */
+  it('never covers the dashboard at load — .hidden beats .termview display:flex', () => {
+    expect(HTML).toMatch(/\.termview\{[^}]*display:flex/);
+    expect(HTML).toMatch(/\.termview\.hidden\{display:none\}/);
+    expect(HTML.indexOf('.termview.hidden')).toBeGreaterThan(HTML.indexOf('.termview{'));
+  });
 });
