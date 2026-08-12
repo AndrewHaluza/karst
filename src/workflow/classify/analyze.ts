@@ -64,6 +64,13 @@ export interface AnalyzeInput {
    * other headless call that declares none.
    */
   model?: string;
+  /**
+   * Author-declared analysis instructions (the chosen single-subagent's body,
+   * or `processes.ticketAnalysis.instructions`). REPLACES the built-in
+   * role/strategy block of the prompt — the input facts and the JSON output
+   * contract are never replaced. Blank/absent → the built-in analyzer prompt.
+   */
+  instructions?: string;
 }
 
 export interface TicketAnalysis {
@@ -89,27 +96,39 @@ function buildPrompt(input: AnalyzeInput): string {
     .join('\n');
   const prompt = input.prompt?.trim();
   const brief = input.brief.trim();
+  // A selected single-subagent (or configured process instructions) REPLACES
+  // the built-in role/strategy block: the analysis then runs with the agent's
+  // own body as its strategy, not the generic analyzer persona. The input
+  // facts (approaches, services, author prompt, brief), the type
+  // classification and the JSON output contract below are never replaced.
+  const instructionsText = input.instructions?.trim() ?? '';
+  const roleBlock =
+    instructionsText.length > 0
+      ? [instructionsText, ``]
+      : [
+          `You analyze a software ticket and produce THREE coupled decisions at once:`,
+          `(1) a clear, implementation-ready prompt for the coding agent — synthesize`,
+          `it from the ticket; do NOT merely copy the brief;`,
+          `(2) the best-fit development approach for the scope of work;`,
+          `(3) the services (repos) the work will touch.`,
+          ``,
+          `The three are decided together, but they are DELIVERED to the coding agent`,
+          `separately: the approach's own method and the selected services are already`,
+          `given to it from the ticket's stored state. The prompt outlives this`,
+          `analysis — the user may pick a different approach or different services`,
+          `afterwards, and the prompt is NOT regenerated. So the prompt must be`,
+          `approach-agnostic and service-agnostic: state WHAT to achieve and WHY`,
+          `(the problem, the goal, the constraints, the acceptance criteria).`,
+          `It must not prescribe HOW to work — no workflow, methodology, phases,`,
+          `stages, step ordering, research/plan/approve gates, or "do not implement`,
+          `until X" instructions; those come from the approach, whichever one is`,
+          `finally selected. It must not name repos, services, or paths; those come`,
+          `from the selected services. Put the approach rationale in "reason", never`,
+          `in "prompt".`,
+          ``,
+        ];
   return [
-    `You analyze a software ticket and produce THREE coupled decisions at once:`,
-    `(1) a clear, implementation-ready prompt for the coding agent — synthesize`,
-    `it from the ticket; do NOT merely copy the brief;`,
-    `(2) the best-fit development approach for the scope of work;`,
-    `(3) the services (repos) the work will touch.`,
-    ``,
-    `The three are decided together, but they are DELIVERED to the coding agent`,
-    `separately: the approach's own method and the selected services are already`,
-    `given to it from the ticket's stored state. The prompt outlives this`,
-    `analysis — the user may pick a different approach or different services`,
-    `afterwards, and the prompt is NOT regenerated. So the prompt must be`,
-    `approach-agnostic and service-agnostic: state WHAT to achieve and WHY`,
-    `(the problem, the goal, the constraints, the acceptance criteria).`,
-    `It must not prescribe HOW to work — no workflow, methodology, phases,`,
-    `stages, step ordering, research/plan/approve gates, or "do not implement`,
-    `until X" instructions; those come from the approach, whichever one is`,
-    `finally selected. It must not name repos, services, or paths; those come`,
-    `from the selected services. Put the approach rationale in "reason", never`,
-    `in "prompt".`,
-    ``,
+    ...roleBlock,
     `Available approaches:`,
     approachList,
     ``,

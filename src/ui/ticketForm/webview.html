@@ -1085,7 +1085,16 @@
     approachBusy = true;
     el('analyzeBtn').setAttribute('aria-busy', 'true');
     syncAnalyzeBtn();
-    post({ type: 'analyze', prompt: el('desc').value });
+    // The analysis runs THROUGH the ticket's chosen single-subagent when the
+    // single-subagent approach is picked: its body becomes the analysis
+    // instructions. The pick lives in the draft (create mode holds it there
+    // until submit), so it must ride the analyze message — the host persists
+    // it onto the bound ticket before resolving the analyzer process.
+    const agent =
+      currentApproach() === 'single-subagent'
+        ? (draft.selectedAgent ?? el('agentSelect').value ?? null) || null
+        : null;
+    post({ type: 'analyze', prompt: el('desc').value, ...(agent ? { agent } : {}) });
   }
 
   // Auto-improve (default on): run the analyzer exactly once after a fetch, only

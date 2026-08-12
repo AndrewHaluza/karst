@@ -670,7 +670,7 @@ export function buildTicketFormActions(
       }
     },
 
-    async analyze(livePrompt: string): Promise<void> {
+    async analyze(livePrompt: string, agent?: string | null): Promise<void> {
       // Match the ticket-form picker: offer built-in (sourceless) approaches
       // always, sourced ones only when installed. Otherwise the analyzer could
       // never pick `direct`/`single-subagent`, or pick one that won't launch.
@@ -712,6 +712,24 @@ export function buildTicketFormActions(
         // (`tracking.processRunId`). The draft is re-keyed and retitled at
         // submit.
         const ticketId = ensureTicket();
+        // Create mode holds the single-subagent pick in the webview draft (it
+        // isn't persisted until submit), so analyze carries it from the page
+        // and lands it on the bound draft NOW — the resolver reads the ticket,
+        // and without this it would never learn which agent to analyze through.
+        // Edit mode already persisted the pick via setAgent; the value here is
+        // a no-op re-write of the same field. The write is GATED on the ticket
+        // already being (or not yet having) the single-subagent approach: a
+        // crafted message must never force a ticket whose approach is something
+        // else into single-subagent just to smuggle an agent in.
+        if (agent) {
+          const current = getTicket(deps.store, ticketId);
+          if (current.approach === 'single-subagent' || current.approach === null) {
+            updateTicketFields(deps.store, ticketId, {
+              agent,
+              approach: 'single-subagent',
+            });
+          }
+        }
         const process = deps.resolveAnalysisProcess(ticketId);
         if (process === null) {
           // Configured absence (`processes.ticketAnalysis.enabled: false`),
@@ -747,6 +765,13 @@ export function buildTicketFormActions(
             approaches,
             ticketId,
             processRunId: run.id,
+            // The chosen single-subagent's body rides the process resolution as
+            // the analysis instructions — the one way the selected agent makes
+            // a difference. Blank (no agent, no configured instructions) keeps
+            // the built-in analyzer prompt.
+            ...(process.assignment.instructions !== undefined
+              ? { instructions: process.assignment.instructions }
+              : {}),
             model: process.assignment.model ?? undefined,
           });
           finishProcessRun(deps.store, run.id, 'passed', new Date().toISOString());

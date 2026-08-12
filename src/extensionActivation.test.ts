@@ -277,6 +277,22 @@ describe('extension activation', () => {
     expect(source).toContain('DriveProcessBundle');
   });
 
+  // A single-subagent ticket analyzes THROUGH its chosen agent: the analysis
+  // process resolver must overlay the ticket's selected agent body as the
+  // assignment's `instructions` (replacing the built-in analyzer role block).
+  // Without this wiring the selected agent makes no difference to the ticket
+  // analysis — the ticket's reported bug.
+  it('overlays the chosen single-subagent body as the analysis instructions', () => {
+    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+
+    // The resolver reads the ticket's own single-subagent pick…
+    expect(source).toMatch(/t\.approach === 'single-subagent' && t\.agent/);
+    expect(source).toMatch(/readAgentFile|readArtifactBody/);
+    // …and layers the resolved body onto the assignment as `instructions`.
+    expect(source).toContain('instructions: body');
+    expect(source).toContain('assignment: { ...bundle.assignment, instructions: body }');
+  });
+
   // Task 3: a configured-ABSENT Fix process (enabled: false) must never reach
   // the session manager — no nudge, no launch, no fabricated process evidence —
   // and a live session whose identity differs from the configured Fix
