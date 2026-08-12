@@ -45,6 +45,7 @@ import type {
 import type { AgentAdapter, InteractiveCommandOpts } from '../../../agent/adapter.js';
 import { killTree as systemKillTree, type KillOutcome } from '../../../runtime/processTree.js';
 import { attributeServer, type ProcessFactsSource } from '../../../runtime/serverIdentity.js';
+import { emitGraphDiagnostic, type GraphDiagnosticIdentity } from '../diagnostics.js';
 
 export type {
   AgentAdapter,
@@ -95,6 +96,10 @@ export interface SupervisedTransportDeps {
   closeProcessRun?: (processRunId: number, status: 'passed' | 'failed' | 'interrupted', now: string) => void;
   now: () => string;
   debug?: (message: string) => void;
+  /** Resolve a graph run's ticket identity (project slug, ticket key, stage
+   *  attempt) for the structured launch diagnostic. Absent → the launch line
+   *  is skipped (an unattributed run is not keyed). */
+  graphIdentityOf?: (graphRunId: number) => GraphDiagnosticIdentity | undefined;
 }
 
 /** The launch request this transport accepts: the adapter it bridges FROM,
@@ -176,6 +181,16 @@ export function createSupervisedCliTransport(deps: SupervisedTransportDeps): Sup
         terminal,
       };
       sessions.set(`${request.ticketId}:${request.nodeRunId}`, session);
+      emitGraphDiagnostic(
+        { debug: deps.debug, identityOf: deps.graphIdentityOf },
+        {
+          category: 'launch',
+          graphRunId: request.graphRunId,
+          nodeRunId: request.nodeRunId,
+          generation: request.generation,
+          detail: `launched in ${request.repo} (pid ${pid ?? 'none'})`,
+        },
+      );
       // The terminal's close is the session's end: close the accounting row
       // with the exit verdict, exactly once (the terminal close handler fires
       // once per terminal, and the store's guarded close ignores anything

@@ -67,6 +67,7 @@ import {
   type ReplanLaunchDeps,
   type ReplanLaunchRequest,
 } from './replan.js';
+import { emitGraphDiagnostic } from '../diagnostics.js';
 
 /** The one graph blocker kind (defined here, on the graph side; the stage
  *  boundary module and the model's `BlockerKind` refer to this string). */
@@ -242,9 +243,11 @@ function retryReservedVisits(
     if (!nodeNeedsPromptResnapshot(deps, category, node)) continue;
     const hash = resnapshotPromptHash(deps, input.graphRunId, node);
     if (hash === null) {
-      deps.debug?.(
-        `[graph] recovery refused for run ${input.graphRunId}: prompt re-snapshot unresolvable for node ${node.id}`,
-      );
+      emitGraphDiagnostic({ db, debug: deps.debug }, {
+        category: 'recovery',
+        graphRunId: input.graphRunId,
+        detail: `refused (explicit-resolution): prompt re-snapshot unresolvable for node ${node.id}`,
+      });
       return { kind: 'refused', reason: 'explicit-resolution' };
     }
     snapshots.set(node.id, hash);
@@ -284,9 +287,11 @@ function retryReservedVisits(
     return true;
   });
   if (!outcome) return { kind: 'no-op' };
-  deps.debug?.(
-    `[graph] recovery: run ${input.graphRunId} retried (${retried.join(',') || 'none'}${resnapshotted.length ? `, ${resnapshotted.length} prompt re-snapshot(s)` : ''}) — stage block cleared`,
-  );
+  emitGraphDiagnostic({ db, debug: deps.debug }, {
+    category: 'recovery',
+    graphRunId: input.graphRunId,
+    detail: `retried (${retried.join(',') || 'none'}${resnapshotted.length ? `, ${resnapshotted.length} prompt re-snapshot(s)` : ''}) — stage block cleared`,
+  });
   return { kind: 'retried', retried, resnapshotted };
 }
 
@@ -312,7 +317,11 @@ function replanRecovery(
       )
       .get(input.graphRunId) !== undefined;
   if (!hasActiveRevision) {
-    deps.debug?.(`[graph] recovery refused for run ${input.graphRunId}: replan requires an active revision`);
+    emitGraphDiagnostic({ db, debug: deps.debug }, {
+      category: 'recovery',
+      graphRunId: input.graphRunId,
+      detail: 'refused (explicit-resolution): replan requires an active revision',
+    });
     return { kind: 'refused', reason: 'explicit-resolution' };
   }
 
@@ -350,9 +359,11 @@ function replanRecovery(
   });
   if (!elected.elected) {
     if (elected.reason === 'max-replans-exhausted') {
-      deps.debug?.(
-        `[graph] recovery refused for run ${input.graphRunId}: replan budget exhausted — config change + Resume`,
-      );
+      emitGraphDiagnostic({ db, debug: deps.debug }, {
+        category: 'replan',
+        graphRunId: input.graphRunId,
+        detail: 'refused (config-then-resume): replan budget exhausted — config change + Resume',
+      });
       return { kind: 'refused', reason: 'config-then-resume' };
     }
     // A raced election (not-running/draining) — the run is already moving.
@@ -378,9 +389,12 @@ function replanRecovery(
     };
     const begun = beginReplanPlannerRun(launchDeps, { graphRunId: input.graphRunId });
     if (begun.ok) {
-      deps.debug?.(
-        `[graph] recovery: run ${input.graphRunId} replan elected — planner run ${begun.plannerRunId} (#${begun.plannerRunNumber})`,
-      );
+      emitGraphDiagnostic({ db, debug: deps.debug }, {
+        category: 'replan',
+        graphRunId: input.graphRunId,
+        plannerRunId: begun.plannerRunId,
+        detail: `elected — planner run ${begun.plannerRunId} (#${begun.plannerRunNumber})`,
+      });
       return {
         kind: 'replanned',
         plannerRunId: begun.plannerRunId,
@@ -388,12 +402,18 @@ function replanRecovery(
         launch: begun.launch,
       };
     }
-    deps.debug?.(
-      `[graph] recovery: run ${input.graphRunId} replan elected; planner deferred (${begun.reason})`,
-    );
+    emitGraphDiagnostic({ db, debug: deps.debug }, {
+      category: 'replan',
+      graphRunId: input.graphRunId,
+      detail: `elected; planner deferred (${begun.reason})`,
+    });
     return { kind: 'replanned', plannerRunId: null, plannerRunNumber: null, launch: null };
   }
-  deps.debug?.(`[graph] recovery: run ${input.graphRunId} replan elected; planner launch seams unwired`);
+  emitGraphDiagnostic({ db, debug: deps.debug }, {
+    category: 'replan',
+    graphRunId: input.graphRunId,
+    detail: 'elected; planner launch seams unwired',
+  });
   return { kind: 'replanned', plannerRunId: null, plannerRunNumber: null, launch: null };
 }
 
@@ -423,19 +443,25 @@ export function recoverGraphRun(
     case 'compile-new-revision':
       return replanRecovery(deps, input);
     case 'discard-required':
-      deps.debug?.(
-        `[graph] recovery refused for run ${input.graphRunId}: ${run.blocked_reason ?? 'unknown reason'} — discard the unknown process`,
-      );
+      emitGraphDiagnostic({ db: deps.store.db, debug: deps.debug }, {
+        category: 'recovery',
+        graphRunId: input.graphRunId,
+        detail: `refused (discard-required): ${run.blocked_reason ?? 'unknown reason'} — discard the unknown process`,
+      });
       return { kind: 'refused', reason: 'discard-required' };
     case 'config-then-resume':
-      deps.debug?.(
-        `[graph] recovery refused for run ${input.graphRunId}: ${run.blocked_reason ?? 'unknown reason'} — config change within hard caps, then Resume`,
-      );
+      emitGraphDiagnostic({ db: deps.store.db, debug: deps.debug }, {
+        category: 'recovery',
+        graphRunId: input.graphRunId,
+        detail: `refused (config-then-resume): ${run.blocked_reason ?? 'unknown reason'} — config change within hard caps, then Resume`,
+      });
       return { kind: 'refused', reason: 'config-then-resume' };
     case 'explicit-resolution':
-      deps.debug?.(
-        `[graph] recovery refused for run ${input.graphRunId}: ${run.blocked_reason ?? 'unknown reason'} — corrected artifacts/claims or replan, then explicit Resume`,
-      );
+      emitGraphDiagnostic({ db: deps.store.db, debug: deps.debug }, {
+        category: 'recovery',
+        graphRunId: input.graphRunId,
+        detail: `refused (explicit-resolution): ${run.blocked_reason ?? 'unknown reason'} — corrected artifacts/claims or replan, then explicit Resume`,
+      });
       return { kind: 'refused', reason: 'explicit-resolution' };
   }
   const unreachable: never = category;

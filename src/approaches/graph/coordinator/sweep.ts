@@ -42,6 +42,7 @@ import {
 import { earliestFaultNodeRun, faultNodeRunReason } from './completion.js';
 import { parseGraphDocument, type ApproachNode, type GraphDocument } from '../parse.js';
 import type { ActivationDomain } from './leases.js';
+import { emitGraphDiagnostic, type GraphDiagnosticCategory, type GraphDiagnosticEvent } from '../diagnostics.js';
 
 /** The per-tick bound: ≤ 100 state transitions (design, "Coordinator sweep"). */
 export const MAX_SWEEP_TRANSITIONS = 100;
@@ -138,6 +139,14 @@ export function runCoordinatorTick(
   const db = deps.db;
   const result: SweepResult = { graphRunId: opts.graphRunId, claimed: 0, transitions: 0 };
 
+  /** Structured diagnostic for this run, through the injected debug callback. */
+  const graphDiag = (
+    category: GraphDiagnosticCategory,
+    event: Omit<GraphDiagnosticEvent, 'category' | 'graphRunId'>,
+  ): string | undefined => {
+    return emitGraphDiagnostic({ db, debug: deps.debug }, { category, graphRunId: opts.graphRunId, ...event });
+  };
+
   const run = db
     .prepare('SELECT status FROM approach_graph_runs WHERE id = ?')
     .get(opts.graphRunId) as { status: string } | undefined;
@@ -164,11 +173,12 @@ export function runCoordinatorTick(
       );
       return true;
     });
-    deps.debug?.(
-      blocked
-        ? `[graph] run ${opts.graphRunId}: first fault (node ${earliestFault.id}) stops new launches — run blocked`
-        : `[graph] run ${opts.graphRunId}: fault node ${earliestFault.id} present but the run already moved`,
-    );
+    graphDiag('block', {
+      nodeRunId: earliestFault.id,
+      detail: blocked
+        ? `first fault (node ${earliestFault.id}) stops new launches — run blocked`
+        : `fault node ${earliestFault.id} present but the run already moved`,
+    });
     return result;
   }
 
@@ -316,9 +326,10 @@ export function runCoordinatorTick(
       now: deps.now(),
     });
     if (recorded.fresh) {
-      deps.debug?.(
-        `[graph] run ${opts.graphRunId}: node ${nodeId} deferred (${refusal.reason}) — waiting since ${recorded.waitSince}`,
-      );
+      graphDiag('defer', {
+        revisionId: revision.id,
+        detail: `node ${nodeId} deferred (${refusal.reason}) — waiting since ${recorded.waitSince}`,
+      });
     }
   };
 
@@ -371,6 +382,11 @@ export function runCoordinatorTick(
           },
         );
         if (fired.claimed) {
+          graphDiag('claim', {
+            revisionId: revision.id,
+            nodeRunId: fired.nodeRunId,
+            detail: `join ${group.destination} fired`,
+          });
           clearDeferral(db, revision.id, group.destination);
           result.claimed += 1;
           result.transitions += cost;
@@ -432,14 +448,20 @@ export function runCoordinatorTick(
           // fault. The token stays pending and the group defers, with the
           // reason persisted so Inside can show it.
           defer(group.destination, { reason: 'resource-conflict', detail: err.message });
-          deps.debug?.(
-            `[graph] run ${opts.graphRunId}: activation for ${group.destination} refused: ${err.message}`,
-          );
+          graphDiag('claim', {
+            revisionId: revision.id,
+            detail: `activation for ${group.destination} refused: ${err.message}`,
+          });
           break;
         }
         throw err;
       }
       if (outcome.claimed) {
+        graphDiag('claim', {
+          revisionId: revision.id,
+          nodeRunId: outcome.nodeRunId,
+          detail: `node ${group.destination} claimed`,
+        });
         clearDeferral(db, revision.id, group.destination);
         // The claimed leases enter the working set ONLY once the claim
         // committed — later groups in this tick see them, and a raced or

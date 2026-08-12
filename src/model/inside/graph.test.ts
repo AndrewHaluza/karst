@@ -479,4 +479,56 @@ describe('graphInsideProcess', () => {
       { label: 'deferred nodes', detail: '+4 more', status: 'note' },
     ]);
   });
+
+  // Slice 6 Task 3 — the "Copy diagnostic" / "Open log" surface. The lines are
+  // bounded and redacted at the SOURCE (the diagnostics module runs every line
+  // through the redaction pipeline before it is captured); the projection's
+  // job is to re-escape and bound them, so a capability, prompt/completion
+  // text, secret, or unredacted command output can never ride a copied line.
+  it('renders the bounded diagnostic log as escaped text rows (Slice 6 T3)', () => {
+    const process = graphInsideProcess(
+      input({
+        nodeRuns: [],
+        diagnosticLog: [
+          `[graph:claim] project=acme ticket=T-1 attempt=2 graph=7 revision=3 planner=null node=9 gen=null node claimed\u001b[31mred\u001b[0m`,
+          'line two javascript:alert(1)\twith \u0001control',
+        ],
+      }),
+    )!;
+    if (process.evidence?.kind !== 'rows') return;
+    const rows = process.evidence.rows;
+    const log = rows.filter((r) => r.label === 'log');
+    expect(log).toHaveLength(2);
+    expect(log[0]!.detail).toContain('node claimedred');
+    expect(log[0]!.detail).not.toContain('\u001b');
+    expect(log[1]!.detail).toContain('line two alert(1)with control');
+    expect(log[1]!.detail).not.toContain('\u0001');
+    expect(log[1]!.detail).not.toMatch(/javascript:/i);
+    expect(log[1]!.detail).not.toContain('\n');
+    expect(log.every((r) => r.status === 'note')).toBe(true);
+  });
+
+  it('bounds each diagnostic log line and the section size (Slice 6 T3)', () => {
+    const longLine = `[graph:block] project=p ticket=t attempt=0 graph=7 revision=null planner=null node=null gen=null ${'x'.repeat(500)}`;
+    const many = Array.from({ length: 12 }, (_, i) => `line ${i} ${'y'.repeat(50)}`);
+    const process = graphInsideProcess(
+      input({ nodeRuns: [], diagnosticLog: [longLine, ...many] }),
+    )!;
+    if (process.evidence?.kind !== 'rows') return;
+    const rows = process.evidence.rows;
+    const shown = rows.filter(
+      (r) => r.label === 'log' && !/^\+\d+ more$/.test(r.detail ?? ''),
+    );
+    expect(shown).toHaveLength(8);
+    expect(shown.every((r) => (r.detail?.length ?? 0) <= 200)).toBe(true);
+    expect(rows.filter((r) => r.label === 'log' && r.detail === '+5 more')).toEqual([
+      { label: 'log', detail: '+5 more', status: 'note' },
+    ]);
+  });
+
+  it('renders no log section when the diagnostic log is absent', () => {
+    const process = graphInsideProcess(input({ nodeRuns: [] }))!;
+    if (process.evidence?.kind !== 'rows') return;
+    expect(process.evidence.rows.filter((r) => r.label === 'log')).toEqual([]);
+  });
 });

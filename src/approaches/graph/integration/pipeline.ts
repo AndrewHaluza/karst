@@ -83,6 +83,7 @@ import { acquireDomainLeases, releaseLeaseForNodeRun, type ActivationDomain } fr
 import { releaseProcessSlot } from '../../../store/graph/nodeRuns.js';
 import { recordArtifactInstance, validateRequiredOutputs } from '../artifacts/resolve.js';
 import { parseGraphDocument } from '../parse.js';
+import { emitGraphDiagnostic } from '../diagnostics.js';
 import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -442,9 +443,25 @@ export async function runCompletionPipeline(
     .get(input.nodeRunId) as NodeRunRow | undefined;
   if (!node || node.status !== 'completing') return { kind: 'no-op' };
 
+  const revisionId = node.revision_id;
+  /** Structured diagnostic for this run, through the injected debug callback. */
+  const graphDiag = (
+    category: 'completion-rejection' | 'integration',
+    detail: string,
+  ): string | undefined => {
+    return emitGraphDiagnostic({ db: deps.db, debug: deps.debug }, {
+      category,
+      graphRunId: input.graphRunId,
+      revisionId,
+      nodeRunId: input.nodeRunId,
+      detail,
+    });
+  };
+
   deps.debug?.(`[graph] completing node ${input.nodeRunId} — terminating and verifying`);
   if (!(await terminationProven(deps, input.nodeRunId))) {
     parkNode(deps, input.nodeRunId, 'completing', 'termination-unknown', {});
+    graphDiag('completion-rejection', 'termination not proven — node parked termination-unknown');
     return { kind: 'termination-unknown' };
   }
 
@@ -462,7 +479,7 @@ export async function runCompletionPipeline(
   });
   if (!validation.ok) {
     const reason = `${validation.code}: artifact "${validation.artifactId}" ${validation.code === 'output-artifact-missing' ? 'produced nothing' : `failed validation: ${validation.reason}`}`;
-    deps.debug?.(`[graph] completing node ${input.nodeRunId}: ${reason}`);
+    graphDiag('completion-rejection', reason);
     parkNode(deps, input.nodeRunId, 'completing', validation.code, {
       outcome: 'complete',
       failureCategory: validation.code,
@@ -505,9 +522,7 @@ export async function runCompletionPipeline(
     try {
       capture = await captureDomainChangeSet(deps, input.nodeRunId, domain);
     } catch (err) {
-      deps.debug?.(
-        `[graph] completing node ${input.nodeRunId}: change-set capture failed for ${domain.key}: ${String(err)}`,
-      );
+      graphDiag('integration', `change-set capture failed for ${domain.repoNames.join('/')}: ${String(err)}`);
       blockGraphRun(
         deps,
         input.graphRunId,
@@ -521,7 +536,7 @@ export async function runCompletionPipeline(
   }
   if (violations.length > 0) {
     const reason = `resource-claim-violated: ${violations.slice(0, 5).join(', ')}`;
-    deps.debug?.(`[graph] completing node ${input.nodeRunId}: ${reason}`);
+    graphDiag('completion-rejection', reason);
     parkNode(deps, input.nodeRunId, 'integrating', 'blocked', {
       outcome: 'failed',
       failureCategory: 'resource-claim-violated',
@@ -550,7 +565,7 @@ export async function runCompletionPipeline(
       );
       if (!landed.ok) {
         const reason = `integration-conflict: ${landed.reason} in ${domain.repoNames.join('/')} (${boundedGitReason(landed.stderr)})`;
-        deps.debug?.(`[graph] completing node ${input.nodeRunId}: ${reason}`);
+        graphDiag('integration', reason);
         parkNode(deps, input.nodeRunId, 'integrating', 'blocked', {
           outcome: 'failed',
           failureCategory: 'integration-conflict',
@@ -563,6 +578,7 @@ export async function runCompletionPipeline(
     const add = await deps.git(['add', '--all', '--', ...paths], domain.canonicalWorktree);
     if (add.exitCode !== 0) {
       const reason = `integration-conflict: git add refused in ${domain.repoNames.join('/')} (${boundedGitReason(add.stderr)})`;
+      graphDiag('integration', reason);
       parkNode(deps, input.nodeRunId, 'integrating', 'blocked', {
         outcome: 'failed',
         failureCategory: 'integration-conflict',
@@ -577,6 +593,7 @@ export async function runCompletionPipeline(
     );
     if (commit.exitCode !== 0) {
       const reason = `integration-conflict: git commit refused in ${domain.repoNames.join('/')} (${boundedGitReason(commit.stderr)})`;
+      graphDiag('integration', reason);
       parkNode(deps, input.nodeRunId, 'integrating', 'blocked', {
         outcome: 'failed',
         failureCategory: 'integration-conflict',
@@ -639,8 +656,6 @@ export async function runCompletionPipeline(
     // oversubscribe real processes).
     releaseProcessSlot(deps.db, input.graphRunId);
   });
-  deps.debug?.(
-    `[graph] node ${input.nodeRunId} integrated${committed ? '' : ' (no changes)'} — completed`,
-  );
+  graphDiag('integration', `node integrated${committed ? '' : ' (no changes)'} — completed`);
   return { kind: 'integrated', committed };
 }

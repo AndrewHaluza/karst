@@ -22,6 +22,7 @@ import type { GraphDb } from '../../../store/graph/transitions.js';
 import { GRAPH_RUN_TRANSITIONS, casStatus } from '../../../store/graph/transitions.js';
 import { cancelGraphToken, insertGraphToken, type GraphTokenRow } from '../../../store/graph/tokens.js';
 import { parseGraphDocument } from '../parse.js';
+import { emitGraphDiagnostic } from '../diagnostics.js';
 
 export type BudgetRefusalReason = 'max-node-runs' | 'max-visits';
 
@@ -183,9 +184,12 @@ export function handleBudgetRefusal(
           deps.now(),
           input.graphRunId,
         );
-        deps.debug?.(
-          `[graph] run ${input.graphRunId}: budget exhausted for node ${input.nodeId} (${input.nodeKind}); blocked graph-budget-exhausted`,
-        );
+        emitGraphDiagnostic({ db, debug: deps.debug }, {
+          category: 'block',
+          graphRunId: input.graphRunId,
+          revisionId: input.revisionId,
+          detail: `budget exhausted for node ${input.nodeId} (${input.nodeKind}); blocked graph-budget-exhausted`,
+        });
         return { kind: 'blocked' };
       }
       return { kind: 'no-op' };

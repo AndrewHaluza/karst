@@ -16,6 +16,7 @@
 
 import type { GraphDb } from '../../../store/graph/transitions.js';
 import type { CompileDiagnostic, CompiledGraph } from '../compile.js';
+import { emitGraphDiagnostic } from '../diagnostics.js';
 
 export const MAX_COMPILE_ATTEMPTS = 3;
 
@@ -42,6 +43,7 @@ export interface CompileRepairDeps {
     attempt: number,
     diagnostics: CompileDiagnostic[],
   ) => void;
+  debug?: (message: string) => void;
 }
 
 export type CompileRepairResult =
@@ -66,6 +68,20 @@ export function compileWithRepair(
   plannerRunId: number,
   deps: CompileRepairDeps,
 ): CompileRepairResult {
+  const run = deps.db
+    .prepare('SELECT graph_run_id FROM approach_planner_runs WHERE id = ?')
+    .get(plannerRunId) as { graph_run_id: number } | undefined;
+  const graphRunId = run?.graph_run_id;
+  const emit = graphRunId === undefined
+    ? (): void => {}
+    : (detail: string): void => {
+        emitGraphDiagnostic({ db: deps.db, debug: deps.debug }, {
+          category: 'compile',
+          graphRunId,
+          plannerRunId,
+          detail,
+        });
+      };
   let diagnostics: CompileDiagnostic[] = [];
   for (let attempt = 1; attempt <= MAX_COMPILE_ATTEMPTS; attempt++) {
     const bytes = deps.runPlanner(plannerRunId, attempt, diagnostics);
@@ -74,15 +90,19 @@ export function compileWithRepair(
       // The planner produced nothing — an execution-class failure, not a
       // compile rejection — but the attempt still counts against the run's
       // compile budget.
+      emit(`attempt ${attempt} planner produced no output`);
       return { ok: false, code: 'planner-no-output', attempts: attempt, diagnostics };
     }
     const outcome = deps.parseAndCompile(bytes);
     if (outcome.ok) {
+      emit(`attempt ${attempt} accepted`);
       return { ok: true, compiled: outcome.compiled, attempts: attempt };
     }
     diagnostics = outcome.diagnostics;
     deps.writeDiagnostics(plannerRunId, attempt, diagnostics);
+    emit(`attempt ${attempt} rejected (${diagnostics.length} diagnostics)`);
   }
+  emit(`graph-plan-invalid after ${MAX_COMPILE_ATTEMPTS} attempts`);
   return {
     ok: false,
     code: 'graph-plan-invalid',

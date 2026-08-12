@@ -30,6 +30,7 @@ import {
 } from '../../../store/graph/tokens.js';
 import { parseGraphDocument } from '../parse.js';
 import { uuidv7 } from './lineage.js';
+import { emitGraphDiagnostic } from '../diagnostics.js';
 
 export interface CompletionDeps {
   db: GraphDb;
@@ -41,7 +42,9 @@ export interface CompletionDeps {
   uuidv7?: () => string;
 }
 
-export interface QuiescenceDeps extends CompletionDeps {}
+export interface QuiescenceDeps extends CompletionDeps {
+  debug?: (message: string) => void;
+}
 
 export interface CompletionResult {
   consumed: number;
@@ -307,6 +310,11 @@ export function flipOnEndQuiescence(
       deps.now(),
       input.graphRunId,
     );
+    emitGraphDiagnostic({ db, debug: deps.debug }, {
+      category: 'close',
+      graphRunId: input.graphRunId,
+      detail: 'end-quiescent — run completed-awaiting-impl-marker',
+    });
     return { flipped: true };
   });
 }

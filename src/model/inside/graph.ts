@@ -38,6 +38,7 @@ export const GRAPH_TEXT_MAX = 200;
 const MAX_DIAGNOSTIC_ROWS = 8;
 const MAX_ARTIFACT_ROWS = 8;
 const MAX_DEFERRAL_ROWS = 8;
+const MAX_DIAGNOSTIC_LOG_ROWS = 8;
 
 /**
  * The one audited escaper for graph-derived text. Untrusted planner/authored
@@ -144,6 +145,17 @@ export interface GraphInsideInput {
   revision: GraphRevisionView | null;
   diagnostics: GraphDiagnosticView[];
   artifacts: GraphArtifactView[];
+  /**
+   * The run's structured diagnostic lines (Slice 6 Task 3) — the "Copy
+   * diagnostic" / "Open log" surface. Each line is ALREADY bounded and
+   * redacted at the source (the graph diagnostics module renders through the
+   * same redaction pipeline the diagnostic buffer applies at capture); the
+   * projection re-escapes and bounds every line through `sanitizeGraphText`,
+   * so completion capabilities, prompt/completion text, secrets, and
+   * unredacted command output can never reach the copied/logged content.
+   * Absent → no log section.
+   */
+  diagnosticLog?: readonly string[];
   /** Sessions the host has live, keyed by run row id. */
   liveSessions: GraphLiveSessionView[];
   /**
@@ -418,6 +430,17 @@ export function graphInsideProcess(
       detail: `+${artifacts.remaining} more`,
       status: 'note',
     });
+  }
+
+  // Slice 6 Task 3: the run's structured diagnostic lines — bounded and
+  // redacted at the source, then re-escaped and bounded here. This is the
+  // copy/log surface; it renders TEXT only and never invents a line.
+  const log = bounded(input.diagnosticLog ?? [], MAX_DIAGNOSTIC_LOG_ROWS);
+  for (const line of log.shown) {
+    rows.push({ label: 'log', detail: sanitizeGraphText(line), status: 'note' });
+  }
+  if (log.remaining > 0) {
+    rows.push({ label: 'log', detail: `+${log.remaining} more`, status: 'note' });
   }
 
   return {
