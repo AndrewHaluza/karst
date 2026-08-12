@@ -1951,7 +1951,7 @@
   // live here; webview.test.ts pins all three against the host module.
   const GRAPH_HARD_CEILINGS = { maxParallel: 8, maxNodeRuns: 200, maxExpertRuns: 10, maxReplans: 5, maxActivations: 1000, maxGraphWallSeconds: 259200, maxAgentWallSeconds: 28800, maxAgentIdleSeconds: 7200, maxArtifactBytes: 104857600, maxLogBytes: 10485760, maxAggregateArtifactBytes: 1073741824, maxAggregateWorkspaceBytes: 107374182400 };
   const GRAPH_COMMAND_TIMEOUT_CEILING = 7200;
-  const DEFAULT_GRAPH_LIMITS = { confirmGeneratedGraph: true, maxParallel: 1, maxNodeRuns: 40, maxExpertRuns: 5, maxReplans: 2, maxActivations: 200, maxGraphWallSeconds: 86400, maxAgentWallSeconds: 7200, maxAgentIdleSeconds: 1800, maxArtifactBytes: 104857600, maxLogBytes: 10485760, maxAggregateArtifactBytes: 536870912, maxAggregateWorkspaceBytes: 21474836480 };
+  const DEFAULT_GRAPH_LIMITS = { confirmGeneratedGraph: true, maxParallel: 4, maxNodeRuns: 40, maxExpertRuns: 5, maxReplans: 2, maxActivations: 200, maxGraphWallSeconds: 86400, maxAgentWallSeconds: 7200, maxAgentIdleSeconds: 1800, maxArtifactBytes: 104857600, maxLogBytes: 10485760, maxAggregateArtifactBytes: 536870912, maxAggregateWorkspaceBytes: 21474836480 };
   const GRAPH_PROVIDERS = ['claude', 'codex', 'antigravity', 'opencode'];
   const GRAPH_CWD_VALUES = ['repository', 'worktreeRoot'];
   const GRAPH_ACCESS_VALUES = ['read', 'write'];

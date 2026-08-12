@@ -62,7 +62,7 @@ describe('validateGraphConfig', () => {
     const cfg = validateGraphConfig({}, 'approaches[0].graph');
     expect(cfg.limits).toEqual({
       confirmGeneratedGraph: true,
-      maxParallel: 1,
+      maxParallel: 4, // Slice-5 T7: the packaged concurrency default
       maxNodeRuns: 40,
       maxExpertRuns: 5,
       maxReplans: 2,
