@@ -18,8 +18,8 @@ describe('built-in approach package definition', () => {
     expect(BUILT_IN_APPROACHES[0]!.label).toBe('Graph Engineering');
   });
 
-  it('ships disabled, not recommended, sourceless, and commandless', () => {
-    expect(packaged.enabled).toBe(false);
+  it('ships enabled (Slice 3 flip), not recommended, sourceless, and commandless', () => {
+    expect(packaged.enabled).toBe(true);
     expect(packaged.recommended).toBe(false);
     expect(packaged.source).toBeUndefined();
     expect(packaged.graph?.commands).toEqual({});

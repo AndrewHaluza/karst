@@ -31,8 +31,8 @@ describe('withBuiltInApproaches', () => {
     const entry = effective.approaches!.find((a) => a.id === builtInId);
     expect(entry).toBeDefined();
     expect(entry).toEqual(BUILT_IN_APPROACHES[0]); // packaged defaults exactly
-    // The packaged definition ships disabled until Slice 3 (A9).
-    expect(entry!.enabled).toBe(false);
+    // The packaged definition ships enabled as of the Slice 3 flip (T12).
+    expect(entry!.enabled).toBe(true);
   });
 
   it('a project entry overlays field-by-field and discards nothing', () => {
@@ -144,14 +144,13 @@ describe('approachDelta (Settings Save serializes the delta, never the merged ob
     expect(approachDelta(effective.approaches!)).toEqual([]);
   });
 
-  it('a disable tombstone round-trips even against the DISABLED packaged default', () => {
-    // The packaged default is enabled:false until Slice 3, yet the toggle's own
-    // write — the minimal tombstone {id, label, enabled:false} — must STILL
-    // reach the file: a packaged upgrade may flip the default (Slice 3), and a
-    // project that explicitly disabled the built-in must stay disabled across
-    // the flip. The raw tombstone (the shape setApproachEnabled reduces) is
-    // kept because it is minimal — the packaged body, which deep-equals the
-    // packaged definition, is the never-touched case and reduces to absence.
+  it('a disable tombstone round-trips even against the ENABLED packaged default', () => {
+    // The packaged default is enabled:true as of the Slice 3 flip, yet the
+    // toggle's own write — the minimal tombstone {id, label, enabled:false} —
+    // must STILL reach the file: the raw tombstone (the shape setApproachEnabled
+    // reduces) is kept because it is minimal — the packaged body, which
+    // deep-equals the packaged definition, is the never-touched case and
+    // reduces to absence.
     const tombstone = builtInEnableEntry(builtInId, false, undefined);
     expect(approachDelta([tombstone])).toEqual([tombstone]);
     // The overlay of that written tombstone reads disabled.
@@ -159,11 +158,16 @@ describe('approachDelta (Settings Save serializes the delta, never the merged ob
     expect(effective.approaches!.find((a) => a.id === builtInId)!.enabled).toBe(false);
   });
 
-  it('writes an explicit enabled:true entry for an enable against the disabled packaged default', () => {
+  it('an explicit enable against the ENABLED packaged default reduces to absence', () => {
+    // Post-flip (Slice 3 T12) the packaged default IS enabled, so the overlay
+    // of the minimal enable entry — packaged body + enabled:true — deep-equals
+    // the packaged definition and nothing is written: absence represents the
+    // enabled default. Only a DIFFERING flag (the disable tombstone above) or
+    // a differing field reaches the file.
     const enable = builtInEnableEntry(builtInId, true, undefined);
     expect(enable).toEqual({ id: builtInId, label: 'Graph Engineering', enabled: true });
     const effective = withBuiltInApproaches(baseManifest([enable]));
-    expect(approachDelta(effective.approaches!)).toEqual([enable]);
+    expect(approachDelta(effective.approaches!)).toEqual([]);
   });
 
   it('keeps only fields that differ from packaged (explicit overrides)', () => {

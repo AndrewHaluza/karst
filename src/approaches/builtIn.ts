@@ -4,11 +4,12 @@
  * Configuration Model. No fs at module load — `builtInPackageDir` resolves a
  * path; it never touches the disk.
  *
- * The built-in ships DISABLED (`enabled: false`), not recommended, and with no
+ * The built-in ships ENABLED (`enabled: true`, flipped by Slice 3 Task 12 —
+ * the slice with a runtime behind it), not recommended, and with no
  * `commands` — the test/typecheck/build entries in the design's example are
- * PROJECT content, never packaged. The slice that flips `enabled` on is Slice 3
- * (Decision 31); until then no ticket may select an approach whose runtime does
- * not exist.
+ * PROJECT content, never packaged. Flipping earlier would have let a ticket
+ * pick an approach whose impl launch had no runtime; the flip is the Slice-3
+ * exit gate (Decision 31).
  */
 
 import { join } from 'node:path';
@@ -50,7 +51,7 @@ export const BUILT_IN_APPROACHES: readonly ApproachDef[] = [
     id: BUILT_IN_PACKAGE_ID,
     label: 'Graph Engineering',
     recommended: false,
-    enabled: false,
+    enabled: true,
     graph: PACKAGED_GRAPH,
   },
 ];

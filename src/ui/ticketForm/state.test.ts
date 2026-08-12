@@ -158,9 +158,11 @@ describe('buildTicketFormState — create mode', () => {
   });
 
   it('offers installed sourced approaches plus built-in (sourceless) ones', () => {
-    // rpi installed; tdd sourced-but-not-installed (dropped); direct built-in (always).
+    // rpi installed; tdd sourced-but-not-installed (dropped); direct built-in
+    // (always); karst-graph-engineering offered since the Slice 3 T12 flip
+    // ships the packaged default ENABLED.
     const s = buildTicketFormState(store, MANIFEST, () => ['rpi'], () => []);
-    expect(s.approaches.map((a) => a.id)).toEqual(['rpi', 'direct']);
+    expect(s.approaches.map((a) => a.id)).toEqual(['rpi', 'direct', 'karst-graph-engineering']);
     expect(s.approaches.every((a) => a.installed === true)).toBe(true);
   });
 
@@ -175,14 +177,16 @@ describe('buildTicketFormState — create mode', () => {
       ],
     };
     // rpi installed but disabled → dropped; direct built-in but disabled → dropped;
-    // tdd installed+enabled → kept; single-subagent built-in+enabled → kept.
+    // tdd installed+enabled → kept; single-subagent built-in+enabled → kept;
+    // karst-graph-engineering packaged default is ENABLED (Slice 3 T12 flip) → kept.
     const s = buildTicketFormState(store, m, () => ['rpi', 'tdd'], () => []);
-    expect(s.approaches.map((a) => a.id)).toEqual(['tdd', 'single-subagent']);
+    expect(s.approaches.map((a) => a.id)).toEqual(['tdd', 'single-subagent', 'karst-graph-engineering']);
   });
 
   it('always offers a built-in (sourceless) approach even when nothing is installed', () => {
     const s = buildTicketFormState(store, MANIFEST, () => [], () => []);
-    expect(s.approaches.map((a) => a.id)).toEqual(['direct']);
+    // direct + the ENABLED packaged graph built-in (Slice 3 T12 flip).
+    expect(s.approaches.map((a) => a.id)).toEqual(['direct', 'karst-graph-engineering']);
   });
 
   it('defaults to the recommended-flagged approach even when it is not first', () => {
@@ -199,15 +203,25 @@ describe('buildTicketFormState — create mode', () => {
 
   it('returns only built-in approaches and defaults to one when nothing is installed', () => {
     const s = buildTicketFormState(store, MANIFEST, () => [], () => []);
-    expect(s.approaches.map((a) => a.id)).toEqual(['direct']);
+    // direct + the ENABLED packaged graph built-in (Slice 3 T12 flip); the
+    // default pick stays the first (direct), never the graph built-in.
+    expect(s.approaches.map((a) => a.id)).toEqual(['direct', 'karst-graph-engineering']);
     expect(s.selectedApproach).toBe('direct');
   });
 
-  it('returns an empty approaches array and null selectedApproach when none configured', () => {
+  it('returns an empty approaches array and null selectedApproach only when the built-in is disabled', () => {
+    // An explicit `approaches: []` still resolves the ENABLED packaged
+    // built-in (absence = packaged defaults, Slice 3 T12 flip); with nothing
+    // else to pick it IS the default pick. The picker is truly empty only
+    // when the built-in is explicitly disabled.
     const m = { ...MANIFEST, approaches: [] };
     const s = buildTicketFormState(store, m, () => [], () => []);
-    expect(s.approaches).toEqual([]);
-    expect(s.selectedApproach).toBeNull();
+    expect(s.approaches.map((a) => a.id)).toEqual(['karst-graph-engineering']);
+    expect(s.selectedApproach).toBe('karst-graph-engineering');
+    const disabled = { ...MANIFEST, approaches: [{ id: 'karst-graph-engineering', label: 'Graph Engineering', enabled: false }] };
+    const s2 = buildTicketFormState(store, disabled, () => [], () => []);
+    expect(s2.approaches).toEqual([]);
+    expect(s2.selectedApproach).toBeNull();
   });
 
   it('lists unclassified repositories', () => {
