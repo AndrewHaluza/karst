@@ -501,6 +501,11 @@
   // two together, because a drift means a paste that vanishes with no message.
   const MAX_PASTE_BYTES = 10485760;
 
+  // Mirrors LONG_TEXT_PASTE_CHARS in attachments/ingest.ts. The webview makes the
+  // inline-vs-attach decision for a text paste; this copy is pinned by
+  // webview.test.ts so the two can never drift (UI-R34).
+  const LONG_TEXT_PASTE_CHARS = 4000;
+
   // The working draft: create mode has no ticket, so the webview owns state that
   // only lands in the DB on submit. Repos/approach/agent selections are
   // mirrored here.
@@ -1565,15 +1570,50 @@
     }
   }
 
+  // A long text pasted into the prompt becomes a .txt attachment: the prompt stays
+  // concise and the agent reads the full content from the attachment file. Short
+  // pastes keep the default behavior (text lands in the field). base64 is built in
+  // chunks because btoa() throws on inputs around 64 KB in some engines, and the
+  // paste cap is 10 MB.
+  function postPastedText(text) {
+    const name = 'pasted-' + Date.now() + '.txt';
+    const bytes = new TextEncoder().encode(text);
+    if (bytes.length > MAX_PASTE_BYTES) {
+      showErr(name + ' is too long to attach (limit 10 MB). Paste it in smaller parts.');
+      return;
+    }
+    let binary = '';
+    const CHUNK = 0x8000;
+    for (let i = 0; i < bytes.length; i += CHUNK) {
+      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+    }
+    const base64 = btoa(binary);
+    // Shares the Attach… button's pending state, same as postPastedFile.
+    if (!karstIsPending(el('attachBtn'))) {
+      const requestId = karstRequestId();
+      karstBeginPending(el('attachBtn'), requestId);
+      post({ type: 'attach-bytes', name, base64, requestId });
+    }
+  }
+
   // Clipboard images have no path, so bytes are the only thing available — this
-  // is why the paste path exists at all. Text pastes fall through untouched:
-  // preventDefault only fires once a file is actually found.
+  // is why the paste path exists at all. A LONG text paste is attached as a
+  // file instead of inlined (see postPastedText). Short text pastes fall
+  // through untouched: preventDefault only fires once a file is actually found
+  // or a text actually meets the length threshold.
   el('desc').addEventListener('paste', function (e) {
     const files = e.clipboardData && e.clipboardData.files;
-    if (!files || files.length === 0) return;
-    e.preventDefault();
-    for (let i = 0; i < files.length; i += 1) {
-      postPastedFile(files[i]);
+    if (files && files.length > 0) {
+      e.preventDefault();
+      for (let i = 0; i < files.length; i += 1) {
+        postPastedFile(files[i]);
+      }
+      return;
+    }
+    const text = e.clipboardData && e.clipboardData.getData('text/plain');
+    if (typeof text === 'string' && text.length > LONG_TEXT_PASTE_CHARS) {
+      e.preventDefault();
+      postPastedText(text);
     }
   });
 
