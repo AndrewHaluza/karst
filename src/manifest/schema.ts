@@ -461,7 +461,7 @@ export function validateManifest(raw: unknown): Manifest {
   assertSharedRepoBaselineBranches(repositories, baselineBranch);
 
   const agents = validateAgents(raw.agents);
-  const processes = validateProcessAssignments(raw.processes, agents);
+  const processes = validateProcessAssignments(raw.processes);
 
   return {
     id: validateProjectId(raw.id),

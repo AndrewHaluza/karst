@@ -2095,11 +2095,12 @@ processes:
     }
   });
 
-  it('rejects an undeclared agent reference, naming the agent', () => {
-    const yaml = WITH_PROCESSES.replace('agent: uat-author', 'agent: no-such-agent');
+  it('accepts an agent reference not declared in the agents block (a pool/file agent)', () => {
+    const yaml = WITH_PROCESSES.replace('agent: uat-author', 'agent: description-improver');
     const { path, cleanup } = fixture(yaml);
     try {
-      expect(() => loadManifest(path)).toThrow(/no-such-agent/);
+      const m = loadManifest(path);
+      expect(m.processes?.uatTester?.agent).toBe('description-improver');
     } finally {
       cleanup();
     }
