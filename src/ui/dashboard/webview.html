@@ -38,37 +38,37 @@
      drew its border. */
   .hidden{display:none}
 
-  .dhead{display:flex;align-items:center;gap:var(--k-space-5);margin-bottom:var(--k-space-2)}
-  .dhead h1{font-size:var(--k-text-xl);margin:0}
-  .dhead h1{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .dhead .agent{margin-left:auto;font-size:var(--k-text-xs);color:var(--k-text-dim);font-family:var(--k-font-mono)}
-  /* The key pill IS the board link: provider mark + key + arrow, one target.
-     A separate link chip echoed the key (both print the board's id), so the
-     two collapse into one. The board ref/brief demote to the tooltip.
-     Manual (no board) is the same pill, dashed and inert — built on the shared
-     `.k-chip` primitive (UI-R08: one pill shape, one radius, for every chip in
-     this file), with only content-specific bits (monospace, the hover arrow
-     shift) layered on top. */
-  .dhead .keypill{font-family:var(--k-font-mono)}
-  .dhead a.keypill .arw{color:var(--k-link);transition:transform var(--k-dur-fast) var(--k-ease-standard)}
-  .dhead a.keypill:hover .arw{transform:translate(var(--k-space-1),calc(var(--k-space-1) * -1))}
-  /* Inert: dashed border + default cursor say plainly "not a control" — a
-     plain span, never a link, so nothing implies it is clickable (the
-     `.k-chip` informational form: no role, no tabindex). */
-  .dhead .keypill.local{border-style:dashed;color:var(--k-text-dim);
-    background:transparent;cursor:default}
-  /* The terminal binding. Off is the default, so the resting look is quiet —
-     an outline, like every other non-primary control here. On is not a hover
-     shade but a filled chip: the button reports a mode that changes what
-     clicking a TAB does, and a state that subtle reads as "nothing happened".
-     Built on `.k-btn--ghost` (quiet outline at rest) with the pressed state
-     re-themed to the primary action fill. */
-  .dhead .bindtoggle .dot{width:var(--k-space-3);height:var(--k-space-3);border-radius:var(--k-radius-circle);
-    background:currentColor;opacity:.45}
-  .dhead .bindtoggle[aria-pressed="true"]{color:var(--k-action-fg);
-    background:var(--k-action-bg);border-color:transparent}
-  .dhead .bindtoggle[aria-pressed="true"] .dot{opacity:1}
-  @media (prefers-reduced-motion:reduce){.dhead a.keypill:hover .arw{transform:none}}
+  /* Header (prototype v8): ticket identity + agent identity + ship action + … menu. */
+  .dhead{display:flex;align-items:center;gap:var(--k-space-5);margin-bottom:var(--k-space-6);flex-wrap:wrap}
+  .ticketIdentity{display:inline-flex;align-items:center;gap:var(--k-space-3);flex:none}
+  .ticketIdentity .provicon{width:var(--k-space-7);height:var(--k-space-7)}
+  .dhead h1.ticketTitle{min-width:0;flex:1;margin:0 var(--k-space-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--k-text-xl)}
+  .ticketKey{min-height:var(--k-hit-min);padding:0 var(--k-space-3);border:0;border-radius:var(--k-radius-sm);background:transparent;color:var(--k-text-dim);font-family:var(--k-font-mono);font-size:var(--k-text-xs);cursor:pointer}
+  .ticketKey:hover{background:var(--k-surface-hover);color:var(--k-text)}
+  .headerActions{display:flex;align-items:center;gap:var(--k-space-2);flex:none;margin-left:auto}
+  .agentWrap,.menuWrap{position:relative}
+  .agentButton{max-width:calc(var(--k-space-8) * 20);min-height:var(--k-control-h-lg);padding:0 var(--k-space-4);border:var(--k-border-w) solid transparent;border-radius:var(--k-radius-sm);background:transparent;color:var(--k-text);display:inline-flex;align-items:center;gap:var(--k-space-3);cursor:pointer;min-width:0}
+  .agentButton:hover:not(:disabled){background:var(--k-surface-hover);border-color:var(--k-border)}
+  .agentButton:disabled{opacity:.72;cursor:default}
+  .agentButton .agentSep{color:var(--k-text-faint);flex:none}
+  .agentMeta{min-width:0;max-width:calc(var(--k-space-8) * 9);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--k-text-dim);font-family:var(--k-font-mono);font-size:var(--k-text-xs)}
+  .agentLive{display:inline-flex;align-items:center;gap:var(--k-space-2);color:var(--k-text-dim);font-size:var(--k-text-xs);white-space:nowrap;flex:none}
+  .agentLiveDot{width:var(--k-space-3);height:var(--k-space-3);border-radius:var(--k-radius-circle);background:var(--k-pending);flex:none}
+  .agentLiveDot.running{background:var(--k-running)}
+  .agentLiveDot.waiting{background:var(--k-attention)}
+  /* The two popovers — agent switch form + ticket-controls menu (UI-R04: composed
+     from control-height tokens, no raw widths). */
+  .popover{display:none;position:absolute;z-index:50;top:calc(100% + var(--k-space-3));right:0;border:var(--k-border-w) solid var(--k-border-strong);border-radius:var(--k-radius-lg);background:var(--k-surface);box-shadow:var(--k-elev-2)}
+  .popover.hidden{display:none}
+  .popover.open{display:block}
+  .agentPopover{width:calc(var(--k-control-h-lg) * 14);padding:0}
+  .menuPopover{width:calc(var(--k-control-h-lg) * 12);padding:var(--k-space-4)}
+  .agentForm{display:grid;gap:var(--k-space-3);padding:var(--k-space-4)}
+  .fieldRow{display:grid;grid-template-columns:var(--k-space-8) minmax(0,1fr);align-items:center;gap:var(--k-space-4);min-height:var(--k-control-h-lg)}
+  .fieldLabel{margin:0;color:var(--k-text-faint);font-size:var(--k-text-xs);font-weight:var(--k-weight-medium);line-height:1;text-align:right;white-space:nowrap}
+  .fieldControl{min-width:0}
+  .fieldHelp{margin-left:calc(var(--k-space-8) + var(--k-space-4));color:var(--k-text-faint);font-size:var(--k-text-xs);line-height:1.35}
+  .popActions{display:flex;justify-content:flex-end;padding:var(--k-space-4);border-top:var(--k-border-w) solid var(--k-border)}
   /* Shared ticketing-provider badge (icon + brand name) — single source in
      src/model/providerIdentity.ts, injected here at load (CSP forbids a
      shared stylesheet). */
@@ -1142,10 +1142,6 @@
      on this panel), built in markup — no bespoke color rule left here. */
   .mgbtn{flex:none}
 
-  /* agent pill (colored by state) */
-  .agent-pill{display:inline-flex;align-items:center;gap:var(--k-space-3)}
-  .agent-pill .dot{width:var(--k-space-3);height:var(--k-space-3);border-radius:var(--k-radius-circle)}
-
   /* ===================== Servers panel ==================================
      One service is ONE LINE at every width. The panel reacts to its own grid
      column rather than the viewport, so containment is scoped to it — .panel
@@ -1309,8 +1305,8 @@
      injected agent identity (core icon) + the karst brand mark. */
   .art-origin{display:inline-flex;align-items:center;gap:var(--k-space-2);
     font-size:var(--k-text-xs);color:var(--k-text-dim);white-space:nowrap}
-  .art-origin .kmark{width:12px;height:12px;flex:none;color:var(--k-text-faint)}
-  .art-origin .agenticon{width:12px;height:12px;flex:none}
+  .art-origin .kmark{width:var(--k-space-6);height:var(--k-space-6);flex:none;color:var(--k-text-faint)}
+  .art-origin .agenticon{width:var(--k-space-6);height:var(--k-space-6);flex:none}
   /* The in-webview index/detail surface: takes over the whole dashboard body
      while active, restoring it on Back/Esc. */
   body.art-nav .stepper,body.art-nav .grid{display:none}
@@ -1377,16 +1373,75 @@
 </style>
 
 <div class="dhead">
-  <span id="keyPill"></span>
-  <h1 id="title"></h1>
-  <span class="agent" id="agent"></span>
-  <button id="bindBtn" type="button" class="k-btn k-btn--ghost k-btn--sm bindtoggle" data-act="toggle-bind" aria-pressed="false"
-    title="Bind is off — this dashboard and the agent terminal move independently"><span class="dot" aria-hidden="true"></span>Bind terminal</button>
-  <button id="followUpBtn" type="button" class="hidden k-btn k-btn--secondary k-btn--sm" data-act="create-follow-up-ticket" title="Create a new ticket linked to this one, pre-filled with its repos/approach/agent">Create follow-up</button>
-  <button id="editBtn" type="button" class="k-btn k-btn--secondary k-btn--sm" data-act="edit-ticket" title="Edit this ticket's title, description, and scope">Edit</button>
-  <span id="toast" class="toast" aria-live="polite"></span>
-  <button id="confirmShip" type="button" class="k-btn k-btn--primary k-btn--sm shipAction" data-act="ship-ticket" title="Ship this ticket — commit, push, and open pull requests" hidden>Confirm ship</button>
-  <span id="shipWait" class="shipWait hidden" role="status"><span class="attentionMark" aria-hidden="true">❚❚</span><span>Waiting to merge</span></span>
+  <div class="ticketIdentity">
+    <span id="providerMark" class="provicon" aria-hidden="true"></span>
+    <button id="keyBtn" type="button" class="ticketKey" data-act="copy-ticket-key" data-copy title="Copy ticket key" aria-label="Copy ticket key"></button>
+    <a id="boardLink" class="k-iconbtn" href="#" data-act="open-ticket-link" data-url="${esc(state.ticketUrl)}" hidden
+      aria-label="Open ticket in provider" title="Open ticket in provider">
+      <svg class="k-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 6h-6a2 2 0 0 0 -2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-6"/><path d="M11 13l9 -9"/><path d="M15 4h5v5"/></svg>
+    </a>
+  </div>
+  <h1 id="title" class="ticketTitle"></h1>
+  <div class="headerActions">
+    <div class="agentWrap">
+      <button id="agentButton" type="button" class="agentButton" aria-expanded="false" aria-haspopup="dialog"
+        title="Switch the live agent session">
+        <span id="agentCore" class="k-agent-core"></span>
+        <span aria-hidden="true" class="agentSep">·</span>
+        <span id="agentModel" class="agentMeta"></span>
+        <span class="agentLive"><span id="agentDot" class="agentLiveDot idle"></span><span id="agentLiveText">idle</span></span>
+        <svg class="k-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 9l6 6l6 -6"/></svg>
+      </button>
+      <div id="agentPopover" class="popover agentPopover hidden" role="dialog" aria-label="Switch active agent">
+        <div class="agentForm">
+          <div class="fieldRow">
+            <label class="fieldLabel" for="coreSelect">Agent core</label>
+            <div class="fieldControl"><select id="coreSelect" class="k-select"></select></div>
+          </div>
+          <div class="fieldRow">
+            <label class="fieldLabel" for="modelSelect">Model</label>
+            <div class="fieldControl"><select id="modelSelect" class="k-select"></select></div>
+          </div>
+          <div class="fieldHelp">Provider and model changes are staged. Closing this menu takes no action.</div>
+        </div>
+        <div class="popActions">
+          <button id="switchBtn" type="button" class="k-btn k-btn--primary" disabled>Switch agent…</button>
+        </div>
+      </div>
+    </div>
+    <span id="toast" class="toast" aria-live="polite"></span>
+    <button id="confirmShip" type="button" class="k-btn k-btn--primary k-btn--sm shipAction" data-act="ship-ticket" title="Ship this ticket — commit, push, and open pull requests" hidden>Confirm ship</button>
+    <span id="shipWait" class="shipWait hidden" role="status"><span class="attentionMark" aria-hidden="true">❚❚</span><span>Waiting to merge</span></span>
+    <div class="menuWrap">
+      <button id="moreBtn" type="button" class="k-iconbtn" aria-expanded="false" aria-haspopup="menu" aria-label="Ticket controls" title="Ticket controls">
+        <svg class="k-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"/><path d="M12 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"/><path d="M19 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"/></svg>
+      </button>
+      <div id="menuPopover" class="popover menuPopover hidden" role="menu" aria-label="Ticket controls">
+        <div class="menuHeading">Ticket</div>
+        <button type="button" class="menuButton" data-act="edit-ticket" role="menuitem">
+          <svg class="k-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 20h4l10.5 -10.5a2.828 2.828 0 1 0 -4 -4l-10.5 10.5v4"/><path d="M13.5 6.5l4 4"/></svg><span>Edit ticket</span>
+        </button>
+        <button type="button" class="menuButton hidden" id="followUpItem" data-act="create-follow-up-ticket" role="menuitem">
+          <svg class="k-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 5l2.5 2.5l-2.5 2.5l-2.5 -2.5z"/><path d="M12 12l2.5 2.5l-2.5 2.5l-2.5 -2.5z"/><path d="M12 19l2.5 2.5l-2.5 2.5l-2.5 -2.5z"/></svg><span>Create follow-up</span>
+        </button>
+        <div class="menuDivider"></div>
+        <div class="menuHeading">Quick setting</div>
+        <div class="settingRow">
+          <div class="settingCopy">
+            <div class="settingTitle">Link dashboard ↔ terminal</div>
+            <div class="settingHelp">Global · focusing either view brings the paired view forward.</div>
+          </div>
+          <label class="k-switch">
+            <input id="linkViews" type="checkbox" aria-label="Link dashboard and terminal">
+            <span class="k-switchTrack"></span>
+          </label>
+        </div>
+        <div class="menuDivider"></div>
+        <div class="menuHeading">Gates for this ticket</div>
+        <div id="menuGates" class="menuGates"></div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <div class="stepper">
@@ -2749,47 +2804,161 @@
     )).join('') : '<div class="empty">No pull requests.</div>';
   }
 
-  // agent state -> pill color (uses the same chart vars as the stepper).
-  const AGENT_COLOR = {
-    running: 'var(--k-running)',
-    waiting: 'var(--k-attention)',
-    idle: 'var(--k-pending)',
-    none: 'var(--k-pending)',
-  };
-
-  function renderAgent(agentState) {
-    const st = agentState || 'none';
-    const color = AGENT_COLOR[st] || 'var(--k-pending)';
-    el('agent').innerHTML =
-      `<span class="agent-pill"><span class="dot" style="background:${color}"></span>`
-      + `agent: ${esc(st)}</span>`;
+  // The header's ticket identity: provider mark + copy-key button + a SEPARATE
+  // board link (the key no longer doubles as the link — a regular click copies
+  // the key, and the anchor opens the board). The provider icon is the shared
+  // injected badge; the key's `title` stays the plain affordance, never the
+  // dynamic copy label, so a screen reader and a tooltip cannot drift.
+  function renderTicketIdentity(state) {
+    const label = state.key || `#${state.ticketId}`;
+    const keyBtn = el('keyBtn');
+    keyBtn.textContent = label;
+    keyBtn.setAttribute('aria-label', `Copy ticket key ${label}`);
+    keyBtn.title = 'Copy ticket key';
+    const mark = el('providerMark');
+    if (mark) {
+      mark.innerHTML = providerIconHtml(state.provider);
+      if (state.brief) mark.setAttribute('title', esc(state.brief));
+      else mark.removeAttribute('title');
+    }
+    const link = el('boardLink');
+    if (!link) return;
+    if (state.ticketUrl) {
+      link.hidden = false;
+      link.setAttribute('data-url', state.ticketUrl);
+    } else {
+      link.hidden = true;
+      link.removeAttribute('data-url');
+    }
   }
 
-  // The key pill, which doubles as the link to the source board (ClickUp, …)
-  // when the ticket was fetched from one: provider mark + key + arrow, one
-  // target. The board ref and the synthesized brief ride along as the hover —
-  // printing the ref beside the key only echoed it (they name the same id).
-  // Manual/unfetched → the same pill, dashed and inert.
-  function renderKeyPill(state) {
-    const label = state.key || `#${state.ticketId}`;
-    if (!state.ticketUrl) {
-      // Inert: a plain, non-interactive <span> (the `.k-chip` informational
-      // form — no role, no tabindex) with a dashed border and default cursor,
-      // so nothing about it implies a control that can be activated.
-      el('keyPill').innerHTML =
-        `<span class="k-chip keypill local" title="Manual ticket — not linked to a board">${esc(label)}</span>`;
+  function renderAgentHeader(state) {
+    const s = state.agentSession;
+    const core = el('agentCore');
+    if (core) core.innerHTML = agentBadgeHtml(state.agentSession.provider);
+    const model = el('agentModel');
+    if (model) model.textContent = state.agentSession.modelLabel;
+    const st = state.agentState || 'none';
+    const dot = el('agentDot');
+    if (dot) {
+      dot.classList.remove('idle', 'running', 'waiting', 'none');
+      dot.classList.add(st);
+    }
+    const liveText = el('agentLiveText');
+    if (liveText) liveText.textContent = st;
+    const btn = el('agentButton');
+    if (btn) {
+      if (s.canSwitch) {
+        btn.disabled = false;
+        btn.title = 'Switch the live agent session';
+      } else {
+        btn.disabled = true;
+        btn.title = 'No live agent session to switch right now';
+      }
+    }
+  }
+
+  // The agent-switch popover stages a draft core/model selection and does
+  // nothing until Switch agent… is clicked. The draft is a suggestion, never
+  // authority: the `switch-agent` message the host re-validates (isKnownProvider
+  // + model-choice membership) before it confirms or persists.
+  let draftCore = null;
+  let draftModel = '';
+
+  function populateAgentPopover() {
+    const s = lastState && lastState.agentSession;
+    if (!s) return;
+    draftCore = s.provider;
+    draftModel = s.modelId || '';
+    renderCoreSelect();
+    renderModelSelect();
+    updateSwitchState();
+  }
+
+  function renderCoreSelect() {
+    const select = el('coreSelect');
+    if (!select || !lastState) return;
+    select.innerHTML = (lastState.agentSwitch.cores || []).map((c) =>
+      `<option value="${esc(c.id)}">${esc(c.label)}</option>`).join('');
+    select.value = draftCore || '';
+  }
+
+  function renderModelSelect() {
+    const select = el('modelSelect');
+    if (!select || !lastState) return;
+    const models = (lastState.agentSwitch.models || {})[draftCore] || [];
+    select.innerHTML = models.map((m) =>
+      `<option value="${esc(m.model || '')}">${esc(m.label)}</option>`).join('');
+    if (models.some((m) => (m.model || '') === draftModel)) select.value = draftModel;
+    else { draftModel = ''; select.value = ''; }
+  }
+
+  function updateSwitchState() {
+    const btn = el('switchBtn');
+    const s = lastState && lastState.agentSession;
+    if (!btn || !s) return;
+    const changed = draftCore !== s.provider || (draftModel || null) !== (s.modelId || null);
+    btn.disabled = !changed;
+  }
+
+  function openAgentPopover() {
+    const btn = el('agentButton');
+    if (btn && btn.disabled) return;
+    populateAgentPopover();
+    el('agentPopover').classList.remove('hidden');
+    if (btn) btn.setAttribute('aria-expanded', 'true');
+  }
+
+  function openMenuPopover() {
+    el('menuPopover').classList.remove('hidden');
+    el('moreBtn').setAttribute('aria-expanded', 'true');
+  }
+
+  function closePopovers() {
+    el('agentPopover').classList.add('hidden');
+    el('menuPopover').classList.add('hidden');
+    el('agentButton').setAttribute('aria-expanded', 'false');
+    el('moreBtn').setAttribute('aria-expanded', 'false');
+  }
+
+  // Popover open/close runs alongside — not instead of — the stage-selection
+  // and [data-act] document listeners below. A click on either trigger toggles
+  // its popover; a click anywhere else (outside any .popover) closes both.
+  document.addEventListener('click', (e) => {
+    const t = e.target;
+    if (t && t.closest('#agentButton')) {
+      const opening = el('agentPopover').classList.contains('hidden');
+      closePopovers();
+      if (opening) openAgentPopover();
       return;
     }
-    const icon = providerIconHtml(state.provider);
-    // Drop the ref when it IS the key (a fetched ticket usually keys on it) —
-    // the tooltip would just repeat the pill.
-    const ref = state.sourceRef === label ? null : state.sourceRef;
-    const hover = [ref, state.brief].filter(Boolean).join(' — ');
-    const tip = hover ? ` title="${esc(hover)}"` : '';
-    el('keyPill').innerHTML =
-      `<a class="k-chip keypill" href="#" data-act="open-ticket-link" data-url="${esc(state.ticketUrl)}"${tip}>`
-      + `${icon}${esc(label)} <span class="arw" aria-hidden="true">↗</span></a>`;
-  }
+    if (t && t.closest('#moreBtn')) {
+      const opening = el('menuPopover').classList.contains('hidden');
+      closePopovers();
+      if (opening) openMenuPopover();
+      return;
+    }
+    if (t && t.closest('.popover')) return;
+    closePopovers();
+  });
+
+  el('coreSelect').addEventListener('change', (e) => {
+    draftCore = e.target && e.target.value;
+    renderModelSelect();
+    updateSwitchState();
+  });
+  el('modelSelect').addEventListener('change', (e) => {
+    draftModel = e.target && e.target.value;
+    updateSwitchState();
+  });
+  el('switchBtn').addEventListener('click', () => {
+    if (el('switchBtn').disabled) return;
+    closePopovers();
+    // No requestId: the popover closes and the host owns the outcome (confirm
+    // modal + relaunch); a stale/cancelled switch surfaces as a host toast or
+    // the next state push, never as an invented verdict (UI-R14/R31).
+    post({ type: 'switch-agent', provider: draftCore, model: draftModel || null });
+  });
 
   // ---------------------------------------------------------------------
   // Artifacts: shelf, index, detail (docs/design/artifacts/README.md)
@@ -3248,11 +3417,8 @@
     // falls back to scope — the one the user is about to start.
     const sel = selectedStage || state.presentedStage || state.stageCurrent || 'scope';
     el('title').textContent = state.title || '(untitled)';
-    renderKeyPill(state);
-    // Follow-up only makes sense once the work shipped — same gate the
-    // createFollowUpTicket command enforces server-side.
-    el('followUpBtn').classList.toggle('hidden', state.stageCurrent !== 'done');
-    renderAgent(state.agentState);
+    renderTicketIdentity(state);
+    renderAgentHeader(state);
     renderTrack(state.rail, state.approach, sel);
     renderInside(state, sel);
     renderBlocked(state);
@@ -3263,7 +3429,15 @@
     renderGates();
     renderArtifacts(state);
     renderArtView();
+    renderFollowUp(state);
     restoreFocus(mark);
+  }
+
+  // Follow-up only makes sense once the work shipped — same gate the
+  // createFollowUpTicket command enforces server-side. The menu item lives in
+  // the … controls menu, shown only at `done`.
+  function renderFollowUp(state) {
+    el('followUpItem').classList.toggle('hidden', state.stageCurrent !== 'done');
   }
 
   // One toggle row for one resolved gate. A real <button> (UI-R09), never a
@@ -3326,9 +3500,10 @@
     persist();
   }
 
-  // editBtn/followUpBtn post through the generic delegated `[data-act]`
-  // handler below (data-act is set in their markup, above) — the same pending
-  // lifecycle every other posting control gets, rather than a bespoke listener.
+  // The … menu's Edit ticket / Create follow-up items post through the generic
+  // delegated `[data-act]` handler below (data-act is set in their markup,
+  // above) — the same pending lifecycle every other posting control gets,
+  // rather than a bespoke listener.
 
   // Filtering is local and never round-trips to the host. Re-rendering replaces
   // the input element, so focus and caret are restored explicitly — otherwise

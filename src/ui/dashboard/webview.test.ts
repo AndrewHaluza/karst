@@ -126,8 +126,9 @@ describe('dashboard webview.html', () => {
 
   it('keeps every injection marker — each one fails silently when lost', () => {
     // injectCsp no-ops on a marker-less document by design, and the provider
-    // markers are load-bearing at runtime (renderKeyPill calls providerIconHtml,
-    // which only exists because the JS marker was substituted). The agent
+    // markers are load-bearing at runtime (renderTicketIdentity calls
+    // providerIconHtml, which only exists because the JS marker was
+    // substituted). The agent
     // markers are equally load-bearing since B1: identityChipHtml calls
     // agentIconHtml, so a marker-less dashboard would throw ReferenceError on
     // the first process row that carries an execution identity.
@@ -562,11 +563,12 @@ describe('dashboard webview.html', () => {
     expect(HTML).toMatch(/srvFilter:\s*srvFilter/);
   });
 
-  it('offers the terminal binding as a real pressed-state toggle', () => {
-    // Icon-free text button, but still a toggle: screen readers need the pressed
-    // state, since "Bind" alone does not say whether it is currently on.
-    expect(HTML).toContain('data-act="toggle-bind"');
-    expect(HTML).toMatch(/id="bindBtn"[^>]*aria-pressed/);
+  it('keeps the host bind push alive while the toggle relocates to the … menu', () => {
+    // The standalone Bind button left the header with Task 5; its menu switch
+    // lands in Task 6. The host's `bind` push must still answer here, and
+    // renderBind must keep guarding the (now absent) button instead of
+    // throwing on a null element.
+    expect(HTML).toMatch(/function renderBind\(\)[\s\S]*?el\('bindBtn'\)[\s\S]*?if \(!btn\) return/);
   });
 
   it('renders the binding from the host push, never from its own memory', () => {
@@ -626,19 +628,19 @@ describe('dashboard webview.html', () => {
     expect(HTML).not.toMatch(/renderInsideFlat/);
   });
 
-  it('shows the follow-up button only once the ticket is done', () => {
-    expect(HTML).toContain('id="followUpBtn"');
+  it('shows the follow-up menu item only once the ticket is done', () => {
+    expect(HTML).toContain('id="followUpItem"');
     expect(HTML).toContain(
-      "el('followUpBtn').classList.toggle('hidden', state.stageCurrent !== 'done')",
+      "el('followUpItem').classList.toggle('hidden', state.stageCurrent !== 'done')",
     );
   });
 
-  it('wires the follow-up button to create-follow-up-ticket', () => {
+  it('wires the follow-up menu item to create-follow-up-ticket', () => {
     // Posts through the generic delegated [data-act] handler (pending on
     // click, non-re-triggerable, settled by action-result) rather than a
     // bespoke fire-and-forget listener.
-    expect(HTML).toMatch(/id="followUpBtn"[^>]*data-act="create-follow-up-ticket"/);
-    expect(HTML).not.toContain("el('followUpBtn').addEventListener('click'");
+    expect(HTML).toMatch(/id="followUpItem"[^>]*data-act="create-follow-up-ticket"/);
+    expect(HTML).not.toContain("el('followUpItem').addEventListener('click'");
   });
 
   /**
@@ -1029,13 +1031,14 @@ describe('dashboard webview.html', () => {
   });
 
   it('gives every rounded pill in the file the shared .k-chip primitive (UI-R08)', () => {
-    // keypill and the PR status pill build on one shared shape instead of
-    // divergent bespoke radii. The fixtoggle and the approach chips left with the
+    // The PR status pill builds on the shared shape instead of a bespoke
+    // radius. The keypill left the header with Task 5 (the key is a plain
+    // monospace button now). The fixtoggle and the approach chips left with the
     // branch band: the track carries the fix loop inside the gate it retries and
     // the approach inside impl's own segment, so neither is a pill any more.
-    expect(HTML).toMatch(/class="k-chip keypill/);
     expect(HTML).toMatch(/class="k-chip pst pst-/);
     expect(HTML).not.toMatch(/class="k-chip fixtoggle/);
+    expect(HTML).not.toMatch(/class="k-chip keypill/);
   });
 
   it('resolves the three purples (selection mark, merged badge, merged timestamp) to one token', () => {
@@ -1055,9 +1058,43 @@ describe('dashboard webview.html', () => {
     expect(HTML).toMatch(/\.pcms summary:focus-visible\{outline:var\(--k-focus-w\) solid var\(--k-focus\)/);
   });
 
-  it('makes the inert local key pill visibly non-interactive, never a real control', () => {
-    expect(HTML).toMatch(/class="k-chip keypill local"/);
-    expect(HTML).toMatch(/\.dhead \.keypill\.local\{border-style:dashed;color:var\(--k-text-dim\);\s*\n\s*background:transparent;cursor:default\}/);
+  it('renders ticket identity as provider mark + copy-key button + separate board link', () => {
+    expect(HTML).toMatch(/id="keyBtn"[^>]*data-act="copy-ticket-key"/);
+    expect(HTML).toMatch(/id="keyBtn"[^>]*data-copy/);
+    expect(HTML).toMatch(/id="boardLink"[^>]*data-act="open-ticket-link"/);
+    expect(HTML).toMatch(/id="boardLink"[^>]*data-url="\$\{esc\(state\.ticketUrl\)\}"/);
+    expect(HTML).toMatch(/id="providerMark"/);
+    // The key itself must NOT be the board link any more.
+    expect(HTML).not.toMatch(/class="k-chip keypill/);
+  });
+
+  it('renders the active agent through the Karst identity pattern with runtime status', () => {
+    expect(HTML).toMatch(/agentBadgeHtml\(state\.agentSession\.provider\)/);
+    expect(HTML).toMatch(/id="agentModel"[\s\S]*?state\.agentSession\.modelLabel/);
+    expect(HTML).toMatch(/id="agentLiveText"[\s\S]*?agentState/);
+    expect(HTML).toContain('id="agentButton"');
+  });
+
+  it('stages the agent switch in a popover that does nothing until Switch agent is clicked', () => {
+    expect(HTML).toContain('id="agentPopover"');
+    expect(HTML).toContain('id="coreSelect"');
+    expect(HTML).toContain('id="modelSelect"');
+    expect(HTML).toContain('id="switchBtn"');
+    expect(HTML).toMatch(/Closing this menu takes no action/);
+    expect(HTML).toMatch(/draftCore !== s\.provider \|\| /); // changed-draft gate
+    expect(HTML).toMatch(/post\(\{ type: 'switch-agent', provider: draftCore, model: draftModel \|\| null \}\)/);
+    expect(HTML).not.toMatch(/data-act="switch-agent"/);      // no longer a Now-line button
+  });
+
+  it('titles the header identity and agent controls (UI-R20/R21)', () => {
+    for (const title of [
+      'Switch the live agent session', // #agentButton
+      'Open ticket in provider', // #boardLink
+      'Ticket controls', // #moreBtn
+      'Copy ticket key', // #keyBtn
+    ]) {
+      expect(HTML, `missing header title: ${title}`).toContain(title);
+    }
   });
 
   it('renders a blocked banner from state.currentStage.blocked, hidden by default', () => {
@@ -1253,7 +1290,11 @@ describe('dashboard webview.html', () => {
     expect(HTML).toMatch(/<summary>\$\{glyph\}\$\{name\}\$\{detail\}\$\{tail\}<span class="chev"/);
     expect(HTML).toMatch(/openProcesses = next;/);
     expect(HTML).not.toMatch(/data-chev/);
-    expect(HTML).not.toMatch(/aria-expanded/);
+    // The disclosure element itself is the native <details> — no aria-expanded
+    // toggle on it (the header's popover buttons legitimately carry
+    // aria-expanded; that is the button-controlling-a-dialog pattern, not this
+    // disclosure).
+    expect(HTML).not.toMatch(/<details[^>]*aria-expanded/);
   });
 
   it('posts inside actions with only the opaque actionId', () => {
@@ -1820,10 +1861,23 @@ function overlayProcesses_forTest(
   return run({ [view.stageKey]: live }, view);
 }
 
+/**
+ * Read the static `class` attribute off an element's markup, so a harness
+ * element starts with the same classes the real webview has (e.g. `hidden`).
+ * Without this a popover/menu that the script only ever OPENS would read as
+ * already-open, because the stub's class list starts empty.
+ */
+function initialClasses(id: string): string[] {
+  const tag = HYDRATED.match(new RegExp(`<[^>]*\\bid="${id}"[^>]*>`))?.[0];
+  if (!tag) return [];
+  const cls = /class="([^"]*)"/.exec(tag)?.[1];
+  return cls ? cls.split(/\s+/).filter(Boolean) : [];
+}
+
 /** A minimal element double for whatever the script touches through `el()`. */
-function previewElement(id: string) {
+function previewElement(id: string, initial: string[] = []) {
   const attrs: Record<string, string> = {};
-  const classes: string[] = [];
+  const classes: string[] = [...initial];
   const listeners = new Map<string, (event?: unknown) => void>();
   return {
     id,
@@ -1911,13 +1965,27 @@ function bootPreviewHarness(): PreviewHarness {
     'inside',
     'rail',
     'title',
-    'followUpBtn',
-    'keyPill',
-    'agent',
     'blocked',
     'toast',
     'confirmShip',
     'shipWait',
+    'providerMark',
+    'keyBtn',
+    'boardLink',
+    'agentButton',
+    'agentCore',
+    'agentModel',
+    'agentDot',
+    'agentLiveText',
+    'agentPopover',
+    'coreSelect',
+    'modelSelect',
+    'switchBtn',
+    'moreBtn',
+    'menuPopover',
+    'followUpItem',
+    'linkViews',
+    'menuGates',
     'srvCount',
     'srvOps',
     'worktrees',
@@ -1929,6 +1997,7 @@ function bootPreviewHarness(): PreviewHarness {
     'gates',
     'gateCount',
     'bindBtn',
+    'editBtn',
     'artPanel',
     'artCount',
     'artTotal',
@@ -1938,7 +2007,7 @@ function bootPreviewHarness(): PreviewHarness {
     'termView',
     'termHost',
   ]) {
-    elements[id] = previewElement(id);
+    elements[id] = previewElement(id, initialClasses(id));
   }
 
   const bodyClasses: string[] = [];
@@ -3100,6 +3169,28 @@ describe('inside render round trip (executed in a VM)', () => {
     expect(fn!.match(/statusWord\(/g)).toHaveLength(1);
     expect(fn!).toMatch(/aria-label="\$\{esc\(statusWord\(/);
     expect(fn!).not.toContain('esc(r.duration || statusWord(r.status))');
+  });
+});
+
+describe('agent popover round trip (executed in a VM)', () => {
+  it('posts the staged core/model only on Switch agent, never on open or close', () => {
+    const store = openStore(':memory:');
+    const t = createTicket(store, { key: 'SW-H', title: 'switch' });
+    store.db.prepare("UPDATE tickets SET stage_current = 'impl' WHERE id = ?").run(t.id);
+    const state = buildDashboardState(
+      store, t.id, undefined, undefined, undefined, undefined, 'claude',
+      { defaultModel: null, isSessionOpen: () => true },
+    );
+    store.close();
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state });
+    h.click('#agentButton', {});
+    const popover = h.classesOf('agentPopover');
+    expect(popover.includes('hidden')).toBe(false);
+    // Closing without switching posts nothing.
+    const before = h.posted.length;
+    h.click('body', {});
+    expect(h.posted.length).toBe(before);
   });
 });
 
