@@ -1008,7 +1008,9 @@ describe('approaches', () => {
         access: 'write',
         timeoutSeconds: 1800,
       });
-      // Absent limit fields default to the packaged values.
+      // Absent limit fields default to the packaged values; the fixture
+      // itself configures maxParallel 1 explicitly, so it round-trips as 1
+      // (the packaged default is 4 since the Slice-5 T7 concurrency flip).
       expect(g.limits).toMatchObject({
         confirmGeneratedGraph: true,
         maxParallel: 1,

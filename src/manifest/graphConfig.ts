@@ -51,7 +51,10 @@ export const GRAPH_COMMAND_TIMEOUT_CEILING = 7200;
 /** Packaged defaults (design Configuration Model + Budgets section). */
 export const DEFAULT_GRAPH_LIMITS: GraphLimits = {
   confirmGeneratedGraph: true,
-  maxParallel: 1,
+  // maxParallel 4 since Slice 5 (Task 7) — parallelism ships only after
+  // workspaces, leases and lineage exist; the hard ceiling stays 8. A
+  // project configuring 9 is still refused at manifest validation.
+  maxParallel: 4,
   maxNodeRuns: 40,
   maxExpertRuns: 5,
   maxReplans: 2,

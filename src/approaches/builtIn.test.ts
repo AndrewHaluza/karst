@@ -44,7 +44,8 @@ describe('built-in approach package definition', () => {
   it('packaged limits equal the design defaults exactly (table-driven)', () => {
     const expected = {
       confirmGeneratedGraph: true,
-      maxParallel: 1,
+      // Slice-5 T7: parallelism ships at 4 (workspaces + leases + lineage).
+      maxParallel: 4,
       maxNodeRuns: 40,
       maxExpertRuns: 5,
       maxReplans: 2,
