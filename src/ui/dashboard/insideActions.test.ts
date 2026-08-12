@@ -160,6 +160,8 @@ function host(calls: string[]): InsideActionHost {
     graphStop: (ticketId) => void calls.push(`graph-stop:${ticketId}`),
     graphDiscardNode: (ticketId, nodeRunId) =>
       void calls.push(`graph-discard:${ticketId}:${nodeRunId}`),
+    graphEditOverride: (ticketId, nodeRunId) =>
+      void calls.push(`graph-edit-override:${ticketId}:${nodeRunId}`),
   };
 }
 
@@ -608,6 +610,37 @@ describe('dispatchInsideAction', () => {
 
     const r3 = registry(7);
     r3.register({ kind: 'graph-discard-node', ticketId: 1, nodeRunId: 999 });
+    expect(dispatchInsideAction(store, r3, 'snapshot-7:action-0', deps([]))).toEqual({
+      outcome: 'rejected',
+      reason: 'node run not found for this ticket',
+    });
+  });
+
+  it('dispatches graph-edit-override only for a node run owned by this ticket', () => {
+    const mine = seedGraph({ ticketId: 1, runId: 1 });
+    seedNodeRun(mine.revisionId, { id: 71, graphRunId: 1, status: 'blocked' });
+    // A node run under ANOTHER ticket's graph run: exists, but not this
+    // ticket's — rejected, never handed to the editor.
+    const theirs = seedGraph({ ticketId: 2, runId: 2 });
+    seedNodeRun(theirs.revisionId, { id: 72, graphRunId: 2, status: 'blocked' });
+
+    const r = registry(7);
+    r.register({ kind: 'graph-edit-override', ticketId: 1, nodeRunId: 71 });
+    const calls: string[] = [];
+    expect(dispatchInsideAction(store, r, 'snapshot-7:action-0', deps(calls))).toEqual({
+      outcome: 'dispatched',
+    });
+    expect(calls).toEqual(['graph-edit-override:1:71']);
+
+    const r2 = registry(7);
+    r2.register({ kind: 'graph-edit-override', ticketId: 1, nodeRunId: 72 });
+    expect(dispatchInsideAction(store, r2, 'snapshot-7:action-0', deps([]))).toEqual({
+      outcome: 'rejected',
+      reason: 'node run not found for this ticket',
+    });
+
+    const r3 = registry(7);
+    r3.register({ kind: 'graph-edit-override', ticketId: 1, nodeRunId: 999 });
     expect(dispatchInsideAction(store, r3, 'snapshot-7:action-0', deps([]))).toEqual({
       outcome: 'rejected',
       reason: 'node run not found for this ticket',

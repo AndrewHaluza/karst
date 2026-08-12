@@ -4,9 +4,10 @@
  * `buildDashboardState` never reads the graph tables; the host injects the
  * finished `GraphInsideInput` through this builder. It is a READ over rows
  * the coordinator already keeps current — graph run, planner runs, node runs,
- * the active revision, artifact instances, live transport sessions — plus the
- * manifest's `graph.limits` for the execution policy. Host-agnostic: store,
- * manifest getter, live-session source and clock are injected.
+ * the active revision, artifact instances, live transport sessions, and the
+ * per-node override rows (Slice 6 T4) — plus the manifest's `graph.limits`
+ * for the execution policy. Host-agnostic: store, manifest getter, live-session
+ * source and clock are injected.
  *
  * `liveSessions` is the transport's own registry (graph sessions bypass
  * SessionManager); a session's kind is decided by which run table its row
@@ -18,6 +19,7 @@ import { DEFAULT_GRAPH_LIMITS } from '../../manifest/graphConfig.js';
 import type { Manifest } from '../../manifest/types.js';
 import type { GraphInsideInput } from '../../model/inside/graph.js';
 import type { SupervisedAgentSession } from '../../approaches/graph/transport/agentTransport.js';
+import { NODE_OVERRIDE_KINDS } from '../../store/graph/nodeRuns.js';
 
 export interface GraphInsideDeps {
   store: Store;
@@ -89,7 +91,7 @@ export function buildGraphInsideInput(
 
   const nodeRuns = deps.store.db
     .prepare(
-      `SELECT id, node_id, node_kind, visit_number, status, outcome, reason,
+      `SELECT id, node_id, node_kind, revision_id, visit_number, status, outcome, reason,
               provider, model, effort, profile, launch_attempt
          FROM approach_node_runs WHERE graph_run_id = ? ORDER BY id`,
     )
@@ -97,6 +99,7 @@ export function buildGraphInsideInput(
     id: number;
     node_id: string;
     node_kind: string;
+    revision_id: number;
     visit_number: number;
     status: string;
     outcome: string | null;
@@ -107,6 +110,29 @@ export function buildGraphInsideInput(
     profile: string | null;
     launch_attempt: number;
   }[];
+
+  // Slice 6 Task 4: existing per-node overrides — a READ over the store's
+  // claim-gated override table. Grouped by (revision, node); kinds are
+  // narrowed to the closed `NodeOverrideKind` vocabulary (the table's own CHECK
+  // already enforces it; the read re-validates because the projection renders
+  // the kinds into a marker). The projection treats this input as READ-ONLY.
+  const overrideRows = deps.store.db
+    .prepare(
+      `SELECT revision_id, node_id, kind
+         FROM approach_node_overrides WHERE graph_run_id = ? ORDER BY revision_id, node_id, kind`,
+    )
+    .all(run.id) as { revision_id: number; node_id: string; kind: string }[];
+  const overrides = Array.from(
+    overrideRows.reduce((byKey, row) => {
+      if (!NODE_OVERRIDE_KINDS.includes(row.kind as (typeof NODE_OVERRIDE_KINDS)[number])) return byKey;
+      const key = `${row.revision_id}:${row.node_id}`;
+      const group = byKey.get(key) ?? { revisionId: row.revision_id, nodeId: row.node_id, kinds: [] as string[] };
+      group.kinds.push(row.kind);
+      byKey.set(key, group);
+      return byKey;
+    }, new Map<string, { revisionId: number; nodeId: string; kinds: string[] }>()),
+    ([, group]) => group,
+  );
 
   // Slice 5 Task 3: the deferral ledger, filtered to nodes whose token is
   // STILL pending — a deferral whose node was claimed, cancelled, or whose run
@@ -188,6 +214,7 @@ export function buildGraphInsideInput(
       nodeRunId: n.id,
       nodeId: n.node_id,
       nodeKind: n.node_kind,
+      revisionId: n.revision_id,
       visitNumber: n.visit_number,
       status: n.status,
       outcome: n.outcome,
@@ -198,6 +225,7 @@ export function buildGraphInsideInput(
       profile: n.profile,
       launchAttempt: n.launch_attempt,
     })),
+    overrides,
     deferrals: deferrals.map((d) => ({
       nodeId: d.node_id,
       reason: d.reason,

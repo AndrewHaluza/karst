@@ -2262,6 +2262,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           logError(`karst: graph discard failed for ticket ${ticketId}`, err);
         }
       },
+      // Slice 6 Task 4: open the override editor for an editable agent node
+      // BEFORE claiming. The dispatch proved the run row belongs to the ticket
+      // and the projection minted the control only on a status the store's
+      // claim gate still accepts a write for — so this surface can never reach
+      // a frozen launch. The per-node override editor (profile/provider/model/
+      // effort/prompt, `writeNodeOverride`/`clearNodeOverride` in
+      // store/graph/nodeRuns.ts) has no dedicated UI yet; the callback is the
+      // deep-link stub that will open it, and it reports the intended target
+      // until then. The write itself stays behind the store's claim gate.
+      graphEditOverride: (ticketId, nodeRunId) => {
+        void vscode.window.showInformationMessage(
+          `Ticket #${ticketId}: editing overrides for node run #${nodeRunId} — the per-node override editor (profile / provider / model / effort / prompt) opens here before claiming.`,
+        );
+      },
     },
     () => graphRecoveryDeps(),
   ),
@@ -5295,6 +5309,7 @@ function makeInsideActionHost(
     ) => void;
     graphStop: (ticketId: number) => void | Promise<void>;
     graphDiscardNode: (ticketId: number, nodeRunId: number) => void | Promise<void>;
+    graphEditOverride: (ticketId: number, nodeRunId: number) => void | Promise<void>;
   },
   // The graph recovery action's host binding (Slice-4 T6): the atomic claim
   // wrapper plus the prompt re-snapshot seam. Bound in activate where the
@@ -5371,6 +5386,7 @@ function makeInsideActionHost(
     graphOpenSession: (ticketId, session) => graphHost.graphOpenSession(ticketId, session),
     graphStop: (ticketId) => graphHost.graphStop(ticketId),
     graphDiscardNode: (ticketId, nodeRunId) => graphHost.graphDiscardNode(ticketId, nodeRunId),
+    graphEditOverride: (ticketId, nodeRunId) => graphHost.graphEditOverride(ticketId, nodeRunId),
   };
 }
 

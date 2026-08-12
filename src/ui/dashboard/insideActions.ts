@@ -68,7 +68,14 @@ export type InsideActionTarget =
   // `termination-unknown`). The nodeRunId is a RECORDED node-run row id — the
   // dispatch re-loads it and proves it belongs to the registry's ticket; the
   // discard module's own transaction is the status gate.
-  | { kind: 'graph-discard-node'; ticketId: number; nodeRunId: number };
+  | { kind: 'graph-discard-node'; ticketId: number; nodeRunId: number }
+  // Slice 6 Task 4: edit an editable agent node's per-node overrides before
+  // claiming. The nodeRunId is a RECORDED node-run row id; the dispatch proves
+  // it belongs to this ticket. The override WRITE's own claim gate (the
+  // node-run status CAS in `store/graph/nodeRuns.ts`) is the real authority —
+  // this dispatch only opens the editor surface, so a stale control can never
+  // mutate a launch that claiming already froze.
+  | { kind: 'graph-edit-override'; ticketId: number; nodeRunId: number };
 
 /** Longest accepted action id. Ids are `snapshot-<n>:action-<n>`; this is slack. */
 export const MAX_ACTION_ID_CHARS = 96;
@@ -149,6 +156,13 @@ export interface InsideActionHost {
    * transaction is the status gate, so a second window's discard is a no-op.
    */
   graphDiscardNode(ticketId: number, nodeRunId: number): void | Promise<void>;
+  /**
+   * Open the override editor for an editable agent node (ready / blocked /
+   * failed-to-launch) BEFORE claiming. The dispatch has already proven the run
+   * row belongs to the ticket; the store's claim gate is the write's
+   * authority, so this host callback never mutates anything itself.
+   */
+  graphEditOverride(ticketId: number, nodeRunId: number): void | Promise<void>;
 }
 
 export type InsideDispatchOutcome =
@@ -354,6 +368,17 @@ export function dispatchInsideAction(
         return { outcome: 'rejected', reason: 'node run not found for this ticket' };
       }
       void deps.host.graphDiscardNode(target.ticketId, target.nodeRunId);
+      return { outcome: 'dispatched' };
+    }
+    case 'graph-edit-override': {
+      // The override editor is offered only on editable nodes; the run row
+      // must exist and belong to this ticket, or the id is stale/foreign. The
+      // store's claim gate is the write's authority — this dispatch only
+      // proves ownership and opens the surface.
+      if (!graphSessionOwner(store, 'node', target.nodeRunId, target.ticketId)) {
+        return { outcome: 'rejected', reason: 'node run not found for this ticket' };
+      }
+      void deps.host.graphEditOverride(target.ticketId, target.nodeRunId);
       return { outcome: 'dispatched' };
     }
   }

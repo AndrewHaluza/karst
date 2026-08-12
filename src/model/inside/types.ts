@@ -231,7 +231,8 @@ export type InsideActionKind =
   | 'open-bounded-evidence'
   | 'graph-open-session'
   | 'graph-stop'
-  | 'graph-discard-node';
+  | 'graph-discard-node'
+  | 'graph-edit-override';
 
 /**
  * A navigation/continuation control on a process row.
@@ -280,7 +281,13 @@ export type InsideEvidenceTarget =
   // `launch-unknown`/`termination-unknown` node run. DANGER: the process may
   // still be running; the row's visible copy names that risk (UI-R19), and the
   // host transaction is conditional, so a second window's discard is a no-op.
-  | { kind: 'graph-discard-node'; nodeRunId: number };
+  | { kind: 'graph-discard-node'; nodeRunId: number }
+  // Slice 6 Task 4: edit an editable agent node's per-node overrides
+  // (profile/provider/model/effort/prompt) BEFORE claiming. Minted only on
+  // node runs whose status is in the editable set; the projection's attach
+  // rule and the store's claim gate share that closed set, so a control a
+  // claimed node never carries can never be minted in the first place.
+  | { kind: 'graph-edit-override'; nodeRunId: number };
 
 /**
  * The inside process's token claim, as ONE of three states (decision 8).
@@ -506,7 +513,20 @@ export interface DoneHeroView {
  * "+N more" continuation the row path puts in its last row.
  */
 export type ProcessEvidenceView =
-  | { kind: 'rows'; rows: readonly EvidenceRow[] }
+  | {
+      kind: 'rows';
+      rows: readonly EvidenceRow[];
+      /**
+       * The graph process's status-grouped node composition (Slice 6 T4): the
+       * node runs as structured rows, rendered as a status-grouped list. The
+       * projection ships it ORDERED by status group (the closed
+       * `GraphNodeListRow.group` vocabulary), so the webview inserts a section
+       * header on a group change and concatenates nothing. Absent for every
+       * other process and for a snapshot that predates the surface — the flat
+       * `rows` then render exactly as always.
+       */
+      nodes?: readonly GraphNodeListRow[];
+    }
   | {
       kind: 'gates';
       rows: readonly EvidenceRow[];
@@ -559,6 +579,44 @@ export const EVIDENCE_KINDS: readonly ProcessEvidenceView['kind'][] = [
   'recovery',
   'receipt',
 ] as const;
+
+/**
+ * One node run in the graph process's status-grouped node composition (Slice
+ * 6 T4). Structured so the webview renders the group header on a `group`
+ * change and each node's identity, visit, override marker and control WITHOUT
+ * parsing the flat rows' prose. Every string field is already sanitized and
+ * bounded at the projection; the webview's one `esc` is the second pass.
+ *
+ * `group` is the CLOSED section vocabulary (`active`/`ready`/
+ * `resource-waiting`/`completed`/`blocked`/`stale`/`cancelled`/`other`) — the
+ * webview maps it to static section copy, never to prose. `status` is the raw
+ * node-run status, the row's own verdict text.
+ */
+export interface GraphNodeListRow {
+  nodeRunId: number;
+  nodeId: string;
+  nodeKind: string;
+  /** The raw node-run status (`running`, `blocked`, …). */
+  status: string;
+  /** The closed section key the webview groups by. */
+  group: string;
+  /** The mapped status dot — the row's glyph, one of `InsideStatus`. */
+  displayStatus: InsideStatus;
+  /** Pre-joined per-node identity — provider · model · effort · profile. */
+  identity: string;
+  /** Host-formatted visit — `visit 1/40`. */
+  visit: string;
+  /**
+   * The node's existing overrides as one finished marker (`override
+   * profile,model`) — absent when none exist. A marker is READ-only; the edit
+   * control is the separate `action`.
+   */
+  override?: string;
+  outcome?: string;
+  reason?: string;
+  /** The node row's single control (open/discard/edit-override), if any. */
+  action?: TypedInsideAction;
+}
 
 /** One process inside one inside stage. A snapshot, no functions. */
 export interface InsideProcessView {

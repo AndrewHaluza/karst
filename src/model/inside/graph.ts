@@ -14,9 +14,17 @@
  * Stop signals the coordinator to drain. An ambiguous node run
  * (`launch-unknown`/`termination-unknown`) carries the DANGER discard exit
  * (Slice 4 Task 4) instead of Open — the process may still be running, and the
- * row's visible status names it. A ready node under `maxParallel: 1`
- * renders an explicit serialized reason row, so deliberate serialization
- * never reads as a scheduler defect.
+ * row's visible status names it. An editable agent node (ready / blocked /
+ * failed-to-launch) carries the override-edit exit (Slice 6 Task 4) — the
+ * store's claim gate is the write's authority, this is only the control. A
+ * ready node under `maxParallel: 1` renders an explicit serialized reason row,
+ * so deliberate serialization never reads as a scheduler defect.
+ *
+ * The node runs render as the status-grouped node LIST (Slice 6 Task 4): the
+ * flat rows no longer carry them; the structured `evidence.nodes` composition
+ * carries each node's group, identity, visit budget, override marker and its
+ * single control. Existing overrides are READ from the `overrides` input and
+ * rendered as a marker — this projection writes nothing.
  *
  * Every graph-derived label, reason, artifact name, and log line passes
  * through `sanitizeGraphText`, the one audited escaper of this module: ANSI
@@ -27,11 +35,13 @@
 
 import type {
   EvidenceRow,
+  GraphNodeListRow,
   InsideProcessView,
   InsideStatus,
   TypedInsideAction,
 } from './types.js';
 import { bounded } from './bounds.js';
+import { NODE_OVERRIDE_EDITABLE_STATUSES } from '../../store/graph/nodeRuns.js';
 
 /** Cap for graph-derived text after sanitization. */
 export const GRAPH_TEXT_MAX = 200;
@@ -85,6 +95,9 @@ export interface GraphNodeRunView {
   nodeRunId: number;
   nodeId: string;
   nodeKind: string;
+  /** The revision this run was claimed under — overrides are scoped to
+   *  `(revision, node)`, so a replanned revision N+1 carries none of N's. */
+  revisionId: number;
   visitNumber: number;
   status: string;
   outcome: string | null;
@@ -94,6 +107,17 @@ export interface GraphNodeRunView {
   effort: string | null;
   profile: string | null;
   launchAttempt: number;
+}
+
+/** One existing per-node override (Slice 4 Task 6), READ-ONLY here. The
+ *  projection renders an override marker on the node run it applies to and
+ *  never writes one — the override write/clear surface is the store's own
+ *  claim-gated transaction, reached through the override EDIT control. */
+export interface GraphNodeOverrideView {
+  revisionId: number;
+  nodeId: string;
+  /** The closed override kinds present for `(revision, node)`. */
+  kinds: readonly string[];
 }
 
 /** One deferred node (Slice 5 Task 3): a node that is READY (its token is
@@ -124,7 +148,8 @@ export type GraphLiveSessionView = { kind: 'planner' | 'node'; runId: number };
 export type GraphActionTarget =
   | { kind: 'graph-open-session'; session: { kind: 'planner' | 'node'; runId: number } }
   | { kind: 'graph-stop' }
-  | { kind: 'graph-discard-node'; nodeRunId: number };
+  | { kind: 'graph-discard-node'; nodeRunId: number }
+  | { kind: 'graph-edit-override'; nodeRunId: number };
 
 export interface GraphInsideInput {
   /** Feature flag: the projection ships inert until Slice 3 enables it. */
@@ -138,6 +163,9 @@ export interface GraphInsideInput {
   } | null;
   plannerRuns: GraphPlannerRunView[];
   nodeRuns: GraphNodeRunView[];
+  /** Existing per-node overrides (Slice 4 Task 6), READ-ONLY — the projection
+   *  renders a marker on the node run each override applies to. */
+  overrides: GraphNodeOverrideView[];
   /** Ready-but-blocked nodes whose activation the scheduler refused — each
    *  renders its own row with the persisted reason (Slice 5 Task 3). */
   deferrals: GraphNodeDeferralView[];
@@ -268,9 +296,82 @@ export const AMBIGUOUS_NODE_STATUSES: readonly string[] = [
   'termination-unknown',
 ] as const;
 
-/** The single control a node row carries: the discard exit for an ambiguous
- *  run, else Open for a live session, else none. Exactly one — the discard and
- *  the session-open never compete for one action slot. */
+/**
+ * The node-run statuses whose configuration is still editable — the ONE source
+ * of truth is the store's claim gate (`NODE_OVERRIDE_EDITABLE_STATUSES`); the
+ * projection's override-edit attach rule reads the same constant, so a control
+ * can only ever be minted on a node the store would still accept a write for.
+ * Widened to `readonly string[]` here because the attach rule tests a recorded
+ * `node.status`, which is a free string.
+ */
+export const NODE_OVERRIDE_EDITABLE: readonly string[] = NODE_OVERRIDE_EDITABLE_STATUSES;
+
+/**
+ * The CLOSED section vocabulary of the status-grouped node list (Slice 6 T4):
+ * `active` folds the in-flight statuses, `other` holds whatever is not named
+ * (the unknown/fault rest states, which keep their own row verdicts). The
+ * order IS the display order — the projection sorts each node run into its
+ * group rank so the webview renders a section header on a group change and
+ * never sorts.
+ */
+export const GRAPH_NODE_GROUPS: readonly string[] = [
+  'active',
+  'ready',
+  'resource-waiting',
+  'completed',
+  'blocked',
+  'stale',
+  'cancelled',
+  'other',
+] as const;
+
+const GRAPH_ACTIVE_STATUSES: readonly string[] = [
+  'launching',
+  'running',
+  'completing',
+  'integrating',
+] as const;
+
+/** The node-run statuses of the `active` section. */
+function nodeGroupFor(status: string): string {
+  if (GRAPH_ACTIVE_STATUSES.includes(status)) return 'active';
+  switch (status) {
+    case 'ready':
+      return 'ready';
+    case 'waiting-resource':
+      return 'resource-waiting';
+    case 'completed':
+      return 'completed';
+    case 'blocked':
+      return 'blocked';
+    case 'stale':
+      return 'stale';
+    case 'cancelled':
+      return 'cancelled';
+    default:
+      return 'other';
+  }
+}
+
+/** Sort node runs into display order: group rank, then node run id. */
+function byGroup(a: GraphNodeRunView, b: GraphNodeRunView): number {
+  const ga = GRAPH_NODE_GROUPS.indexOf(nodeGroupFor(a.status));
+  const gb = GRAPH_NODE_GROUPS.indexOf(nodeGroupFor(b.status));
+  return ga - gb || a.nodeRunId - b.nodeRunId;
+}
+
+/**
+ * The single control a node row carries: the discard exit for an ambiguous
+ * run, else Open for a live session, else the override-edit exit for an
+ * editable AGENT node, else none. Exactly one — the discard, the session-open
+ * and the override-edit never compete for one action slot, because the status
+ * sets they attach on are disjoint (an ambiguous or launched run is never
+ * editable). The override-edit is the plan's "per-node overrides for
+ * ready/blocked/failed-to-launch agent nodes BEFORE claiming": the store's
+ * claim gate (the same closed set) refuses the write once claiming began, so
+ * a stale control is a no-op at the store, never a mutation of a frozen
+ * launch.
+ */
 function nodeRowAction(
   input: Pick<GraphInsideInput, 'attach' | 'liveSessions'>,
   node: GraphNodeRunView,
@@ -285,7 +386,60 @@ function nodeRowAction(
       session: { kind: 'node', runId: node.nodeRunId },
     });
   }
+  if (node.nodeKind === 'agent' && NODE_OVERRIDE_EDITABLE.includes(node.status)) {
+    return input.attach({ kind: 'graph-edit-override', nodeRunId: node.nodeRunId });
+  }
   return undefined;
+}
+
+/** The node's pre-joined identity detail — provider · model · effort ·
+ *  profile. Every part is untrusted prose, escaped at the caller. */
+function nodeIdentityDetail(node: GraphNodeRunView): string {
+  return [
+    node.provider,
+    node.model,
+    node.effort,
+    node.profile ? `profile ${node.profile}` : null,
+  ]
+    .filter((part): part is string => part !== null && part !== undefined && part !== '')
+    .join(' · ');
+}
+
+/** The override kinds that exist for a node's `(revision, node)` pair, if any
+ *  — the READ of the `overrides` input; the projection writes nothing. */
+function overrideKindsFor(
+  overrides: GraphNodeOverrideView[],
+  revisionId: number,
+  nodeId: string,
+): readonly string[] | undefined {
+  return overrides.find((o) => o.revisionId === revisionId && o.nodeId === nodeId)?.kinds;
+}
+
+/** One structured node-list row (Slice 6 T4). Every untrusted string is
+ *  escaped and bounded; `group`/`status`/`displayStatus` are closed keys. */
+function nodeListView(
+  node: GraphNodeRunView,
+  execution: GraphExecutionView,
+  overrides: GraphNodeOverrideView[],
+  action: TypedInsideAction | undefined,
+): GraphNodeListRow {
+  const kinds = overrideKindsFor(overrides, node.revisionId, node.nodeId);
+  return {
+    nodeRunId: node.nodeRunId,
+    nodeId: sanitizeGraphText(node.nodeId),
+    nodeKind: sanitizeGraphText(node.nodeKind),
+    status: sanitizeGraphText(node.status),
+    group: nodeGroupFor(node.status),
+    displayStatus: nodeRunStatus(node.status),
+    identity: sanitizeGraphText(nodeIdentityDetail(node)),
+    visit: sanitizeGraphText(`visit ${node.visitNumber}/${execution.maxNodeRuns}`),
+    ...(kinds && kinds.length > 0
+      ? { override: sanitizeGraphText(`override ${kinds.join(',')}`) }
+      : {}),
+    ...(node.outcome ? { outcome: sanitizeGraphText(node.outcome) } : {}),
+    ...(node.reason ? { reason: sanitizeGraphText(node.reason) } : {}),
+    ...(action ? { action } : {}),
+  };
 }
 
 function formatBytes(size: number): string {
@@ -325,30 +479,14 @@ export function graphInsideProcess(
     });
   }
 
-  for (const node of input.nodeRuns) {
-    const detail = [
-      `${node.nodeKind} · ${node.status}`,
-      node.provider,
-      node.model,
-      node.effort,
-      node.profile ? `profile ${node.profile}` : null,
-      `visit ${node.visitNumber}/${input.execution.maxNodeRuns}`,
-      node.outcome,
-      node.reason,
-    ]
-      .filter((part): part is string => part !== null && part !== undefined && part !== '')
-      .join(' · ');
-    // One control per node row: the discard exit for an ambiguous run (the
-    // process may still be running — the row's visible status names it), Open
-    // for a live session (it never spawns one), else none.
-    const action = nodeRowAction(input, node);
-    rows.push({
-      label: `node ${sanitizeGraphText(node.nodeId)}`,
-      detail: sanitizeGraphText(detail),
-      status: nodeRunStatus(node.status),
-      ...(action ? { action } : {}),
-    });
-  }
+  // Slice 6 Task 4: the node runs render as the status-grouped node list — the
+  // node/edge list surface. The list is ORDERED by group then run id, so the
+  // webview inserts a section header on a `group` change and concatenates
+  // nothing. The flat `rows` carry the node runs NO longer: a node row's
+  // single control (open / discard / edit-override) rides the structured row.
+  const nodes = [...input.nodeRuns]
+    .sort(byGroup)
+    .map((node) => nodeListView(node, input.execution, input.overrides, nodeRowAction(input, node)));
 
   // A ready node under maxParallel 1 is serialized BY POLICY — the explicit
   // reason row keeps deliberate serialization from reading as a scheduler
@@ -449,6 +587,10 @@ export function graphInsideProcess(
     label: 'Implementation graph',
     status: graphRunStatus(input.graphRun.status),
     aggregate: sanitizeGraphText(input.graphRun.status),
-    evidence: { kind: 'rows', rows },
+    evidence: {
+      kind: 'rows',
+      rows,
+      ...(nodes.length > 0 ? { nodes } : {}),
+    },
   };
 }

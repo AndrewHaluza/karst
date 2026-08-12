@@ -59,6 +59,7 @@ function input(overrides?: Partial<GraphInsideInput>): GraphInsideInput {
         nodeRunId: 11,
         nodeId: 'implement',
         nodeKind: 'agent',
+        revisionId: 1,
         visitNumber: 1,
         status: 'running',
         outcome: null,
@@ -70,6 +71,7 @@ function input(overrides?: Partial<GraphInsideInput>): GraphInsideInput {
         launchAttempt: 2,
       },
     ],
+    overrides: [],
     deferrals: [],
     execution: { maxParallel: 1, maxNodeRuns: 40 },
     liveSessions: [{ kind: 'node', runId: 11 }],
@@ -124,7 +126,6 @@ describe('graphInsideProcess', () => {
     expect(rows.map((r) => r.label)).toEqual([
       'graph',
       'planner 1',
-      'node implement',
       'revision',
       '<script>alert(1)</script>red alert(2) x plain',
       'edge-outcome-undeclared',
@@ -132,18 +133,22 @@ describe('graphInsideProcess', () => {
     ]);
     expect(rows[0]!.status).toBe('run');
     expect(rows[0]!.detail).toContain('run 7');
+    // The node run moved to the structured node list (Slice 6 T4).
+    expect(process.evidence.nodes).toHaveLength(1);
   });
 
   it('shows the node identity, visit count and budget, and its live session action', () => {
     const process = graphInsideProcess(input())!;
     if (process.evidence?.kind !== 'rows') return;
-    const node = process.evidence.rows.find((r) => r.label === 'node implement')!;
-    expect(node.detail).toContain('agent · running');
-    expect(node.detail).toContain('codex');
-    expect(node.detail).toContain('sol');
-    expect(node.detail).toContain('high');
-    expect(node.detail).toContain('profile default');
-    expect(node.detail).toContain('visit 1/40');
+    const node = process.evidence.nodes![0]!;
+    expect(node.nodeId).toBe('implement');
+    expect(node.status).toBe('running');
+    expect(node.group).toBe('active');
+    expect(node.identity).toContain('codex');
+    expect(node.identity).toContain('sol');
+    expect(node.identity).toContain('high');
+    expect(node.identity).toContain('profile default');
+    expect(node.visit).toBe('visit 1/40');
     expect(node.action).toMatchObject({ kind: 'graph-open-session' });
   });
 
@@ -155,6 +160,7 @@ describe('graphInsideProcess', () => {
             nodeRunId: 12,
             nodeId: 'ready-node',
             nodeKind: 'agent',
+            revisionId: 1,
             visitNumber: 1,
             status: 'ready',
             outcome: null,
@@ -171,14 +177,15 @@ describe('graphInsideProcess', () => {
     )!;
     if (process.evidence?.kind !== 'rows') return;
     const rows = process.evidence.rows;
-    expect(rows.map((r) => r.label)).toContain('node ready-node');
     const reason = rows.find((r) => r.label === 'serialized');
     expect(reason).toBeDefined();
     expect(reason!.detail).toContain('maxParallel');
     // A ready node with no live session gets no open-session action — Open
-    // reveals a terminal, it never spawns one.
-    const node = rows.find((r) => r.label === 'node ready-node')!;
-    expect(node.action).toBeUndefined();
+    // reveals a terminal, it never spawns one. It IS editable, so the
+    // override-edit control takes its place (Slice 6 T4).
+    const node = process.evidence.nodes!.find((n) => n.nodeId === 'ready-node')!;
+    expect(node.group).toBe('ready');
+    expect(node.action).toMatchObject({ kind: 'graph-edit-override' });
   });
 
   it('attaches the stop action to a running graph run and none once it is closed', () => {
@@ -200,6 +207,7 @@ describe('graphInsideProcess', () => {
             nodeRunId: 21,
             nodeId: 'stuck',
             nodeKind: 'agent',
+            revisionId: 1,
             visitNumber: 1,
             status: 'termination-unknown',
             outcome: null,
@@ -215,13 +223,14 @@ describe('graphInsideProcess', () => {
       }),
     )!;
     if (ambiguous.evidence?.kind !== 'rows') return;
-    const stuck = ambiguous.evidence.rows.find((r) => r.label === 'node stuck')!;
+    const stuck = ambiguous.evidence.nodes!.find((n) => n.nodeId === 'stuck')!;
     expect(stuck.action).toMatchObject({ kind: 'graph-discard-node' });
-    expect(stuck.detail).toContain('termination-unknown');
+    expect(stuck.status).toBe('termination-unknown');
+    expect(stuck.group).toBe('other');
 
     const live = graphInsideProcess(input())!;
     if (live.evidence?.kind !== 'rows') return;
-    const running = live.evidence.rows.find((r) => r.label === 'node implement')!;
+    const running = live.evidence.nodes!.find((n) => n.nodeId === 'implement')!;
     expect(running.action).toMatchObject({ kind: 'graph-open-session' });
     expect(running.action?.kind).not.toBe('graph-discard-node');
   });
@@ -234,6 +243,7 @@ describe('graphInsideProcess', () => {
             nodeRunId: 22,
             nodeId: 'half',
             nodeKind: 'agent',
+            revisionId: 1,
             visitNumber: 1,
             status: 'launch-unknown',
             outcome: null,
@@ -249,11 +259,11 @@ describe('graphInsideProcess', () => {
       }),
     )!;
     if (process.evidence?.kind !== 'rows') return;
-    const half = process.evidence.rows.find((r) => r.label === 'node half')!;
+    const half = process.evidence.nodes!.find((n) => n.nodeId === 'half')!;
     expect(half.action).toMatchObject({ kind: 'graph-discard-node' });
   });
 
-  it('a non-ambiguous node with no live session carries no action', () => {
+  it('a non-ambiguous node with no live session and a non-editable status carries no action', () => {
     const process = graphInsideProcess(
       input({
         nodeRuns: [
@@ -261,6 +271,7 @@ describe('graphInsideProcess', () => {
             nodeRunId: 23,
             nodeId: 'idle',
             nodeKind: 'command',
+            revisionId: 1,
             visitNumber: 1,
             status: 'completed',
             outcome: 'complete',
@@ -276,8 +287,9 @@ describe('graphInsideProcess', () => {
       }),
     )!;
     if (process.evidence?.kind !== 'rows') return;
-    const idle = process.evidence.rows.find((r) => r.label === 'node idle')!;
+    const idle = process.evidence.nodes!.find((n) => n.nodeId === 'idle')!;
     expect(idle.action).toBeUndefined();
+    expect(idle.group).toBe('completed');
   });
 
   it('renders every graph-derived string with ANSI/controls and unsafe schemes removed, bounded', () => {
@@ -345,6 +357,7 @@ describe('graphInsideProcess', () => {
             nodeRunId: 5,
             nodeId: 'a',
             nodeKind: 'agent',
+            revisionId: 1,
             visitNumber: 1,
             status: 'blocked',
             outcome: 'blocked',
@@ -359,6 +372,7 @@ describe('graphInsideProcess', () => {
             nodeRunId: 6,
             nodeId: 'b',
             nodeKind: 'agent',
+            revisionId: 1,
             visitNumber: 1,
             status: 'failed-to-launch',
             outcome: null,
@@ -373,6 +387,7 @@ describe('graphInsideProcess', () => {
             nodeRunId: 7,
             nodeId: 'c',
             nodeKind: 'command',
+            revisionId: 1,
             visitNumber: 1,
             status: 'blocked',
             outcome: 'failed',
@@ -388,22 +403,23 @@ describe('graphInsideProcess', () => {
       }),
     )!;
     if (process.evidence?.kind !== 'rows') return;
-    const rows = process.evidence.rows;
+    const nodes = process.evidence.nodes!;
     // The projection NEVER drops a blocking node run: each of the three
-    // concurrent faults renders its own row carrying its status AND reason.
-    const a = rows.find((r) => r.label === 'node a')!;
-    const b = rows.find((r) => r.label === 'node b')!;
-    const c = rows.find((r) => r.label === 'node c')!;
-    expect(a.status).toBe('wait');
-    expect(a.detail).toContain('blocked');
-    expect(a.detail).toContain('integration-conflict: b.ts');
-    expect(b.status).toBe('wait');
-    expect(b.detail).toContain('failed-to-launch');
-    expect(b.detail).toContain('spawn refused');
-    expect(c.status).toBe('wait');
-    expect(c.detail).toContain('blocked');
-    expect(c.detail).toContain('node 7 fault');
-    expect(rows.filter((r) => r.label.startsWith('node '))).toHaveLength(3);
+    // concurrent faults renders its own structured row carrying its status AND
+    // reason.
+    const a = nodes.find((n) => n.nodeId === 'a')!;
+    const b = nodes.find((n) => n.nodeId === 'b')!;
+    const c = nodes.find((n) => n.nodeId === 'c')!;
+    expect(a.displayStatus).toBe('wait');
+    expect(a.status).toBe('blocked');
+    expect(a.reason).toContain('integration-conflict: b.ts');
+    expect(b.displayStatus).toBe('wait');
+    expect(b.status).toBe('failed-to-launch');
+    expect(b.reason).toContain('spawn refused');
+    expect(c.displayStatus).toBe('wait');
+    expect(c.status).toBe('blocked');
+    expect(c.reason).toContain('node 7 fault');
+    expect(nodes).toHaveLength(3);
   });
 
   it('renders one row per deferred node with its persisted reason and wait duration (Slice 5 T3)', () => {
@@ -530,5 +546,272 @@ describe('graphInsideProcess', () => {
     const process = graphInsideProcess(input({ nodeRuns: [] }))!;
     if (process.evidence?.kind !== 'rows') return;
     expect(process.evidence.rows.filter((r) => r.label === 'log')).toEqual([]);
+  });
+
+  // ── Slice 6 Task 4 — the richer graph projection ─────────────────────────
+  it('renders the node list ordered by status group with the override marker (Slice 6 T4)', () => {
+    const process = graphInsideProcess(
+      input({
+        nodeRuns: [
+          {
+            nodeRunId: 1,
+            nodeId: 'write-all',
+            nodeKind: 'agent',
+            revisionId: 1,
+            visitNumber: 1,
+            status: 'waiting-resource',
+            outcome: null,
+            reason: 'resource-conflict: dom-api held write',
+            provider: 'claude',
+            model: null,
+            effort: null,
+            profile: 'expert',
+            launchAttempt: 0,
+          },
+          {
+            nodeRunId: 2,
+            nodeId: 'lint',
+            nodeKind: 'command',
+            revisionId: 1,
+            visitNumber: 2,
+            status: 'completed',
+            outcome: 'complete',
+            reason: null,
+            provider: null,
+            model: null,
+            effort: null,
+            profile: null,
+            launchAttempt: 0,
+          },
+          {
+            nodeRunId: 3,
+            nodeId: 'implement',
+            nodeKind: 'agent',
+            revisionId: 1,
+            visitNumber: 1,
+            status: 'running',
+            outcome: null,
+            reason: null,
+            provider: 'codex',
+            model: 'sol',
+            effort: 'high',
+            profile: 'default',
+            launchAttempt: 2,
+          },
+          {
+            nodeRunId: 4,
+            nodeId: 'review',
+            nodeKind: 'agent',
+            revisionId: 1,
+            visitNumber: 1,
+            status: 'cancelled',
+            outcome: 'cancelled',
+            reason: 'superseded by replan',
+            provider: null,
+            model: null,
+            effort: null,
+            profile: 'default',
+            launchAttempt: 0,
+          },
+        ],
+        overrides: [
+          { revisionId: 1, nodeId: 'write-all', kinds: ['profile', 'provider'] },
+          // A REPLANNED revision's override must NOT mark revision 1's run.
+          { revisionId: 2, nodeId: 'write-all', kinds: ['effort'] },
+        ],
+        liveSessions: [],
+      }),
+    )!;
+    if (process.evidence?.kind !== 'rows') return;
+    const nodes = process.evidence.nodes!;
+    // Display order is the group order: active, ready, resource-waiting,
+    // completed, blocked, stale, cancelled, other.
+    expect(nodes.map((n) => n.group)).toEqual([
+      'active',
+      'resource-waiting',
+      'completed',
+      'cancelled',
+    ]);
+    // The override marker matches the run's OWN (revision, node) — revision 2's
+    // override never marks revision 1's run.
+    const writeAll = nodes.find((n) => n.nodeId === 'write-all')!;
+    expect(writeAll.override).toBe('override profile,provider');
+    const lint = nodes.find((n) => n.nodeId === 'lint')!;
+    expect(lint.override).toBeUndefined();
+    // Each node carries its identity, visit budget and reason verbatim.
+    expect(nodes.find((n) => n.nodeId === 'implement')!.identity).toBe(
+      'codex · sol · high · profile default',
+    );
+    expect(lint.visit).toBe('visit 2/40');
+    expect(writeAll.reason).toContain('resource-conflict');
+  });
+
+  it('an override edit control is present for an editable agent node and absent for an active node (Slice 6 T4)', () => {
+    const process = graphInsideProcess(
+      input({
+        nodeRuns: [
+          {
+            nodeRunId: 1,
+            nodeId: 'blocked-agent',
+            nodeKind: 'agent',
+            revisionId: 1,
+            visitNumber: 1,
+            status: 'blocked',
+            outcome: 'blocked',
+            reason: 'integration-conflict',
+            provider: 'codex',
+            model: null,
+            effort: null,
+            profile: 'default',
+            launchAttempt: 1,
+          },
+          {
+            nodeRunId: 2,
+            nodeId: 'failed-agent',
+            nodeKind: 'agent',
+            revisionId: 1,
+            visitNumber: 1,
+            status: 'failed-to-launch',
+            outcome: null,
+            reason: 'spawn refused',
+            provider: null,
+            model: null,
+            effort: null,
+            profile: 'default',
+            launchAttempt: 1,
+          },
+          {
+            nodeRunId: 3,
+            nodeId: 'running-agent',
+            nodeKind: 'agent',
+            revisionId: 1,
+            visitNumber: 1,
+            status: 'running',
+            outcome: null,
+            reason: null,
+            provider: 'codex',
+            model: 'sol',
+            effort: null,
+            profile: 'default',
+            launchAttempt: 1,
+          },
+          {
+            nodeRunId: 4,
+            nodeId: 'blocked-command',
+            nodeKind: 'command',
+            revisionId: 1,
+            visitNumber: 1,
+            status: 'blocked',
+            outcome: 'failed',
+            reason: 'node 4 fault',
+            provider: null,
+            model: null,
+            effort: null,
+            profile: null,
+            launchAttempt: 0,
+          },
+        ],
+        liveSessions: [],
+      }),
+    )!;
+    if (process.evidence?.kind !== 'rows') return;
+    const byId = new Map(process.evidence.nodes!.map((n) => [n.nodeId, n]));
+    // The override-edit control is present on ready/blocked/failed-to-launch
+    // AGENT nodes — the store's claim gate accepts a write for exactly these.
+    expect(byId.get('blocked-agent')!.action).toMatchObject({ kind: 'graph-edit-override' });
+    expect(byId.get('failed-agent')!.action).toMatchObject({ kind: 'graph-edit-override' });
+    // An ACTIVE node is never editable — its control (if any) is Open, never
+    // the override edit.
+    expect(byId.get('running-agent')!.action?.kind).not.toBe('graph-edit-override');
+    // A blocked COMMAND node is not an agent node — no override surface.
+    expect(byId.get('blocked-command')!.action).toBeUndefined();
+  });
+
+  it('the projection is a pure function of persisted rows — it mutates nothing and writes nothing', () => {
+    const source = input();
+    // A structured snapshot (the `attach` closure is a function, so a generic
+    // clone would throw) to prove the projection leaves every persisted row
+    // byte-identical.
+    const snapshot = {
+      ...source,
+      plannerRuns: source.plannerRuns.map((p) => ({ ...p })),
+      nodeRuns: source.nodeRuns.map((n) => ({ ...n })),
+      overrides: source.overrides.map((o) => ({ ...o, kinds: [...o.kinds] })),
+      diagnostics: source.diagnostics.map((d) => ({ ...d })),
+      artifacts: source.artifacts.map((a) => ({ ...a })),
+      deferrals: source.deferrals.map((d) => ({ ...d })),
+      liveSessions: source.liveSessions.map((s) => ({ ...s })),
+    };
+    const first = graphInsideProcess(source)!;
+    const second = graphInsideProcess(source)!;
+    // The input is untouched: node runs, overrides, planner runs all read
+    // identically before and after.
+    expect(source).toEqual(snapshot);
+    // Two calls over the same rows return equal-but-distinct views — the
+    // projection allocates fresh output and never caches or records.
+    expect(second).toEqual(first);
+    expect(second).not.toBe(first);
+    // The node list is an immutable snapshot of the input rows: mutating the
+    // input AFTER projection never reaches an already-rendered view.
+    if (second.evidence?.kind !== 'rows') return;
+    source.nodeRuns.push({
+      nodeRunId: 99,
+      nodeId: 'late',
+      nodeKind: 'agent',
+      revisionId: 1,
+      visitNumber: 1,
+      status: 'ready',
+      outcome: null,
+      reason: null,
+      provider: null,
+      model: null,
+      effort: null,
+      profile: null,
+      launchAttempt: 0,
+    });
+    expect(second.evidence.nodes!.some((n) => n.nodeId === 'late')).toBe(false);
+  });
+
+  it('escapes the injection fixture at every new node-list surface (Slice 6 T4)', () => {
+    const process = graphInsideProcess(
+      input({
+        nodeRuns: [
+          {
+            nodeRunId: 31,
+            nodeId: INJECTED,
+            nodeKind: INJECTED,
+            revisionId: 1,
+            visitNumber: 1,
+            status: 'blocked',
+            outcome: INJECTED,
+            reason: INJECTED,
+            provider: INJECTED,
+            model: INJECTED,
+            effort: INJECTED,
+            profile: INJECTED,
+            launchAttempt: 0,
+          },
+        ],
+        overrides: [
+          { revisionId: 1, nodeId: INJECTED, kinds: ['profile', INJECTED] },
+        ],
+        liveSessions: [],
+      }),
+    )!;
+    if (process.evidence?.kind !== 'rows') return;
+    const node = process.evidence.nodes![0]!;
+    for (const field of ['nodeId', 'nodeKind', 'identity', 'override', 'outcome', 'reason'] as const) {
+      const value = String(node[field] ?? '');
+      expect(value, `${field} carries ANSI`).not.toContain('\u001b');
+      expect(value, `${field} carries an unsafe scheme`).not.toMatch(/javascript:|data:/i);
+      expect(value, `${field} carries a control char`).not.toContain('\n');
+      expect(value.length, `${field} is unbounded`).toBeLessThanOrEqual(200);
+    }
+    // The override marker joins the CLOSED kinds present on the node's own
+    // (revision, node) — the injected kind string is NOT a marker member, and
+    // the marker's own prose is sanitized like every other surface (HTML stays
+    // inert TEXT, never markup).
+    expect(node.override).toContain('profile');
+    expect(node.override).not.toMatch(/javascript:|data:/i);
   });
 });

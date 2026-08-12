@@ -793,6 +793,7 @@ const NOOP_INSIDE_HOST: InsideActionHost = {
   graphOpenSession: () => undefined,
   graphStop: () => undefined,
   graphDiscardNode: () => undefined,
+  graphEditOverride: () => undefined,
 };
 
 /** The graph projection's ticket-less target, stamped with the registry's
@@ -809,5 +810,7 @@ function toRegisteredGraphTarget(
       return { kind: 'graph-stop', ticketId };
     case 'graph-discard-node':
       return { kind: 'graph-discard-node', ticketId, nodeRunId: target.nodeRunId };
+    case 'graph-edit-override':
+      return { kind: 'graph-edit-override', ticketId, nodeRunId: target.nodeRunId };
   }
 }

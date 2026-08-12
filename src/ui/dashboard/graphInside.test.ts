@@ -145,6 +145,7 @@ describe('buildGraphInsideInput', () => {
         nodeRunId: 1,
         nodeId: 'worker',
         nodeKind: 'agent',
+        revisionId,
         visitNumber: 1,
         status: 'running',
         outcome: null,
@@ -157,6 +158,7 @@ describe('buildGraphInsideInput', () => {
       },
     ]);
     expect(input.revision).toEqual({ revisionNumber: 1, status: 'active', fingerprint: 'fp' });
+    expect(input.overrides).toEqual([]);
     expect(input.artifacts).toEqual([
       {
         artifactId: 'a-1',
@@ -280,5 +282,44 @@ describe('buildGraphInsideInput', () => {
         waitSince: '2026-08-12T00:00:00.000Z',
       },
     ]);
+  });
+
+  it('reads existing node overrides into the projection input, narrowed to the closed kinds (Slice 6 T4)', () => {
+    const { graphRunId, revisionId } = seedGraph({});
+    const insert = store.db.prepare(
+      `INSERT INTO approach_node_overrides
+         (graph_run_id, revision_id, node_id, kind, value, row_version, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, 0, ?, ?)`,
+    );
+    insert.run(graphRunId, revisionId, 'write-all', 'profile', 'expert', '2026-08-12T00:00:00.000Z', '2026-08-12T00:00:00.000Z');
+    insert.run(graphRunId, revisionId, 'write-all', 'provider', 'codex', '2026-08-12T00:00:00.000Z', '2026-08-12T00:00:00.000Z');
+    store.db
+      .prepare(
+        `INSERT INTO approach_node_overrides
+           (graph_run_id, revision_id, node_id, kind, value, row_version, created_at, updated_at)
+         VALUES (?, ?, 'write-all', 'effort', 'high', 0, ?, ?)`,
+      )
+      .run(graphRunId, revisionId + 1, '2026-08-12T00:00:00.000Z', '2026-08-12T00:00:00.000Z');
+
+    const input = buildGraphInsideInput(deps(), 1)!;
+    // Grouped by (revision, node); a DIFFERENT revision's override stays under
+    // its own key.
+    expect(input.overrides).toEqual([
+      { revisionId, nodeId: 'write-all', kinds: ['profile', 'provider'] },
+      { revisionId: revisionId + 1, nodeId: 'write-all', kinds: ['effort'] },
+    ]);
+  });
+
+  it('carries each node run\'s revision id so the projection matches overrides by (revision, node)', () => {
+    const { graphRunId, revisionId } = seedGraph({});
+    store.db
+      .prepare(
+        `INSERT INTO approach_node_runs
+           (graph_run_id, revision_id, node_id, node_kind, visit_number, status)
+         VALUES (?, ?, 'worker', 'agent', 1, 'ready')`,
+      )
+      .run(graphRunId, revisionId);
+    const input = buildGraphInsideInput(deps(), 1)!;
+    expect(input.nodeRuns[0]).toMatchObject({ nodeId: 'worker', revisionId });
   });
 });

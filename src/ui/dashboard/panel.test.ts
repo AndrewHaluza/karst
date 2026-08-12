@@ -364,7 +364,7 @@ describe('DashboardManager', () => {
 
     const state = (panels[0]!.posted.find((msg: any) => msg.type === 'state') as any).state;
     const graph = state.insideViews.impl.processes.find((p: any) => p.id === 'graph');
-    const nodeRow = graph.evidence.rows.find((r: any) => r.label === 'node worker');
+    const nodeRow = graph.evidence.nodes.find((n: any) => n.nodeId === 'worker');
     expect(nodeRow.action).toMatchObject({ kind: 'graph-discard-node' });
     const actionId = nodeRow.action.actionId;
     expect(actionId).toMatch(/^snapshot-1:action-\d+$/);
@@ -372,6 +372,79 @@ describe('DashboardManager', () => {
     panels[0]!.posted.length = 0;
     panels[0]!.emit({ type: 'inside-action', actionId, requestId: 'r1' });
     expect(discarded).toEqual([[t.id, 1]]);
+  });
+
+  it('mints a registry-backed override-edit action for an editable agent node and dispatches it (Slice 6 T4)', () => {
+    const t = createTicket(store, { key: 'GE', title: 'edit override' });
+    store.db.prepare("UPDATE tickets SET stage_current = 'impl' WHERE id = ?").run(t.id);
+    const graphRunId = Number(
+      store.db
+        .prepare(
+          `INSERT INTO approach_graph_runs
+             (ticket_id, stage_key, stage_attempt, approach_id, status, created_at)
+           VALUES (?, 'impl', 0, 'karst-graph-engineering', 'running', '2026-08-12T00:00:00.000Z')`,
+        )
+        .run(t.id)
+        .lastInsertRowid,
+    );
+    const revisionId = Number(
+      store.db
+        .prepare(
+          `INSERT INTO approach_graph_revisions
+             (graph_run_id, revision_number, canonical_graph, fingerprint, status, created_at)
+           VALUES (?, 1, '{}', 'fp', 'active', '2026-08-12T00:00:00.000Z')`,
+        )
+        .run(graphRunId)
+        .lastInsertRowid,
+    );
+    store.db
+      .prepare(
+        `INSERT INTO approach_node_runs
+           (graph_run_id, revision_id, node_id, node_kind, visit_number, status)
+         VALUES (?, ?, 'blocked-agent', 'agent', 1, 'blocked')`,
+      )
+      .run(graphRunId, revisionId);
+
+    const { host, panels } = fakeHost();
+    const edited: Array<[number, number]> = [];
+    const insideHost = {
+      openPr: () => undefined,
+      graphEditOverride: (ticketId: number, nodeRunId: number) => {
+        edited.push([ticketId, nodeRunId]);
+      },
+    } as never;
+    let mgr!: DashboardManager;
+    mgr = new DashboardManager(
+      store, host, () => ({ insideAction: (actionId: string) => mgr.dispatchInsideAction(t.id, actionId) }) as never,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined, undefined, insideHost,
+      undefined, undefined, undefined,
+      (ticketId) =>
+        buildGraphInsideInput(
+          {
+            store,
+            manifest: () => undefined,
+            liveSessions: () => [],
+            now: () => '2026-08-12T00:00:00.000Z',
+          },
+          ticketId,
+        ),
+    );
+
+    mgr.openDashboard(t.id);
+
+    const state = (panels[0]!.posted.find((msg: any) => msg.type === 'state') as any).state;
+    const graph = state.insideViews.impl.processes.find((p: any) => p.id === 'graph');
+    const nodeRow = graph.evidence.nodes.find((n: any) => n.nodeId === 'blocked-agent');
+    // The projection mints the edit-override control ONLY on an editable agent
+    // node; the registry makes it a dispatchable capability.
+    expect(nodeRow.action).toMatchObject({ kind: 'graph-edit-override' });
+    const actionId = nodeRow.action.actionId;
+    expect(actionId).toMatch(/^snapshot-1:action-\d+$/);
+
+    panels[0]!.posted.length = 0;
+    panels[0]!.emit({ type: 'inside-action', actionId, requestId: 'r1' });
+    expect(edited).toEqual([[t.id, 1]]);
   });
 
   it('drops a malformed inside-progress event at the panel boundary', () => {

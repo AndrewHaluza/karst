@@ -680,6 +680,7 @@ describe('buildDashboardState — graph inside projection (Slice-2 T10)', () => 
       graphRun: { id: 7, status: 'running', approachId: 'karst-graph-engineering', stageAttempt: 0, createdAt: '2026-08-11T00:00:00.000Z' },
       plannerRuns: [],
       nodeRuns: [],
+      overrides: [],
       deferrals: [],
       execution: { maxParallel: 1, maxNodeRuns: 40 },
       revision: null,
