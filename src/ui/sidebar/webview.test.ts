@@ -325,11 +325,11 @@ describe('sidebar webview.html', () => {
     expect(HTML).toContain('k-btn k-btn--danger" data-act="delete"');
   });
 
-  it('archive keeps the danger variant in the overflow menu (UI-R10b) while unarchive does not', () => {
-    // Archive moved out of the hover strip into the expanded mini-dashboard's
-    // overflow menu, keeping its danger treatment; unarchive (a restore, not
-    // destructive) stays plain.
-    expect(HTML).toContain('k-btn k-btn--danger" data-act="archive"');
+  it('archive keeps the danger variant in the context window (UI-R10b) while unarchive does not', () => {
+    // Archive moved out of the hover strip into the shared ticket context
+    // window (Edit / Follow Up / Archive), keeping its danger treatment;
+    // unarchive (a restore, not destructive) stays plain.
+    expect(HTML).toContain('class="ctxitem danger" data-act="archive"');
     expect(HTML).not.toMatch(/k-iconbtn--danger"\s*data-act="archive"/);
     expect(HTML).not.toMatch(/k-iconbtn--danger"\s*data-act="unarchive"/);
   });
@@ -540,16 +540,26 @@ describe('sidebar webview.html', () => {
 
   // ── Expanded mini-dashboard (869ehda7y) ────────────────────────────────────
 
-  it('the collapsed hover strip shows Spin / Terminal / Dashboard and nothing else', () => {
+  it('the collapsed hover strip shows Spin / Terminal + the ⋯ context-window trigger (reverted prior behavior)', () => {
     const script = scriptBlock();
-    // The three quick actions ride the hover strip…
+    // The follow-up (869ehda7y-fu1) reverted the collapsed hover menu to its
+    // PRIOR composition: the two quick actions Spin / Terminal plus the ⋯
+    // trigger that opens the shared ticket context window (Edit / Follow Up /
+    // Archive). Dashboard belongs to the expanded toolbar alone now.
     expect(script).toContain('data-act="spin"');
     expect(script).toContain('data-act="open-session"');
-    expect(script).toContain('data-act="open-dashboard"');
-    // …and Edit/Archive are NOT there anymore — they moved to the expanded
-    // mini-dashboard's overflow menu (secondary by design).
-    expect(script).not.toMatch(/data-act="edit"[^>]*class="[^"]*k-iconbtn"/);
-    expect(script).not.toMatch(/data-act="archive"[^>]*class="[^"]*k-iconbtn"/);
+    expect(script).toContain('ctxMenuTriggerHtml(row, menuOpen)');
+    expect(script).toContain('data-menu="${row.ticketId}"');
+    // Scoped to the hover-strip `acts` block: Dashboard moved out of the strip
+    // (it still lives in the expanded dashbar), and the non-quick actions
+    // (Edit/Archive/Follow Up) ride the shared context window, never the strip.
+    const acts = script.match(/const acts = row\.archived[\s\S]*?const hoverStrip/)?.[0] ?? '';
+    expect(acts, acts).toContain('data-act="spin"');
+    expect(acts, acts).toContain('data-act="open-session"');
+    expect(acts, acts).toContain('ctxMenuTriggerHtml(row, menuOpen)');
+    expect(acts, acts).not.toContain('data-act="open-dashboard"');
+    expect(acts, acts).not.toContain('data-act="edit"');
+    expect(acts, acts).not.toContain('data-act="archive"');
   });
 
   it('an expanded row suppresses the collapsed hover strip (CSS + not rendered)', () => {
@@ -562,14 +572,14 @@ describe('sidebar webview.html', () => {
     expect(main).toContain('.ticket.open .row:hover .stage{opacity:1}');
   });
 
-  it('the expanded mini-dashboard carries a stable toolbar with Spin / Terminal / Dashboard + overflow', () => {
+  it('the expanded mini-dashboard carries a stable toolbar with Spin / Terminal / Dashboard + ⋯', () => {
     const script = scriptBlock();
     expect(script).toContain('function dashbarHtml(row, sessVerb, menuOpen)');
     // The toolbar is the same three quick actions, in a bar.
     expect(script).toContain('data-act="spin"');
     expect(script).toContain('data-act="open-session"');
     expect(script).toContain('data-act="open-dashboard"');
-    // Plus the overflow disclosure.
+    // Plus the shared context-window trigger.
     expect(script).toContain('data-menu="${row.ticketId}"');
     expect(script).toContain('ic.more');
     // The bar is stable CSS, not a hover-only overlay.
@@ -578,19 +588,32 @@ describe('sidebar webview.html', () => {
     expect(main).toContain('.dashbar .sp{flex:1}');
   });
 
-  it('the overflow disclosure is a real button with aria-expanded and an in-flow menu (never clipped)', () => {
+  it('the ⋯ trigger is a real button with menu semantics and a POSITIONED context window (never clipped)', () => {
     const script = scriptBlock();
-    // Native disclosure semantics on the ⋯ control (UI-R09/R26)…
+    // Native menu trigger semantics on the ⋯ control (UI-R09/R26)…
     expect(script).toContain('data-menu="${row.ticketId}" aria-expanded="${menuOpen}"');
-    // …and the menu is IN-FLOW below the bar, so the list's scroll container
-    // can never clip it — no absolutely-positioned popup.
-    expect(script).toContain('function overflowHtml(row)');
+    expect(script).toContain('aria-haspopup="menu"');
+    // …and the window is a SHARED, POSITIONED popup (position:fixed) — the
+    // follow-up retired the in-flow, full-width .dashmenu block that the list's
+    // scroll container could not clip but which spanned the whole ticket width.
+    expect(script).toContain('function openCtxMenu(trigger, row)');
+    expect(script).toContain('function closeCtxMenu(returnFocus)');
+    expect(script).toContain("el('ctxMenu')");
+    // The shared window element lives in the HTML body (sibling of the list).
+    expect(HTML).toContain('id="ctxMenu" role="menu"');
+    // The window's items are the secondary actions: Edit / Follow Up / Archive.
     expect(script).toContain('data-act="edit"');
+    expect(script).toContain('data-act="create-follow-up"');
     expect(script).toContain('data-act="archive"');
     const [main] = styleBlocks();
-    expect(main).toContain('.dashmenu{display:flex;');
-    expect(main).not.toMatch(/\.dashmenu\{[^}]*position:absolute/);
-    expect(main).toContain('.dashmenu{display:flex;flex-direction:column;');
+    expect(main).toContain('.ctxmenu{position:fixed;');
+    expect(main).not.toContain('.dashmenu');
+  });
+
+  it('Follow Up uses the corner-down-right icon in the context window', () => {
+    const script = scriptBlock();
+    expect(script).toContain("follow: karstIcon('corner-down-right', 13)");
+    expect(script).toContain('${ic.follow} Follow up</button>');
   });
 
   it('a Done ticket renders Create follow-up as the expanded primary action', () => {
@@ -619,18 +642,30 @@ describe('sidebar webview.html', () => {
     const [main] = styleBlocks();
     const chev = main!.match(/\.chev\s*\{[^}]*\}/)?.[0] ?? '';
     // Negative right margin pulls the glyph closer — a spacing change, never a
-    // size change: the --k-hit-min target is untouched.
-    expect(chev).toContain('margin-right:calc(-1 * var(--k-space-1))');
+    // size change: the --k-hit-min target is untouched. The follow-up tightened
+    // the gap further (--k-space-2 instead of --k-space-1).
+    expect(chev).toContain('margin-right:calc(-1 * var(--k-space-2))');
     expect(chev).not.toContain('min-width:auto');
     expect(chev).not.toContain('min-height:auto');
   });
 
-  it('the overflow menu state is view-only, keyed to rendered rows like the expand set', () => {
+  it('the expanded body aligns with the expand chevron and hugs the row', () => {
+    const [main] = styleBlocks();
+    const body = main!.match(/\.body\{[^}]*\}/)?.[0] ?? '';
+    // Left padding matches the collapsed row's own left slot (--k-space-2) so
+    // the minidashboard starts aligned with the expand chevron, and the top
+    // padding is the smallest token so the minidashboard sits right under the
+    // row.
+    expect(body).toContain('padding:var(--k-space-1) var(--k-space-4) var(--k-space-5) var(--k-space-2)');
+  });
+
+  it('the context window state is view-only, one shared popup (no host protocol)', () => {
     const script = scriptBlock();
-    expect(script).toContain('const menu = new Set();');
-    expect(script).toContain('if (menu.has(id)) menu.delete(id); else menu.add(id);');
-    // Pruned with the expand set so it can never grow unbounded.
-    expect(script).toContain('for (const id of [...menu]) if (!ids.has(id)) menu.delete(id);');
+    expect(script).toContain('let menuTicket = null;');
+    expect(script).toContain('let menuTrigger = null;');
+    // Toggling is open/close on the single shared window, never a per-row Set.
+    expect(script).toContain('if (row && menuTicket === id) closeCtxMenu(true);');
+    expect(script).toContain('else if (row) openCtxMenu(t, row);');
     // No host protocol for it — the host neither knows nor persists it.
     expect(script).not.toContain("type:'toggle-menu'");
     expect(script).not.toContain("type:'set-menu'");
