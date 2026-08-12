@@ -152,8 +152,14 @@
     border-radius:var(--k-radius-md);padding:var(--k-space-2);box-shadow:var(--k-elev-2)}
   .agentselect-opt{display:flex;align-items:center;gap:var(--k-space-3);padding:var(--k-space-3) var(--k-space-4);
     border-radius:var(--k-radius-sm);cursor:pointer;font-size:var(--k-text-base)}
-  .agentselect-opt:hover{background:var(--k-surface-hover)}
-  .agentselect-opt.selected{background:var(--vscode-list-activeSelectionBackground,var(--k-surface-hover))}
+  .agentselect-opt:hover{background:var(--k-surface-hover);color:var(--k-text)}
+  /* The selected option keeps the theme's ACTIVE selection wash, so it must
+     take the theme's paired foreground too — the wash is a saturated blue on
+     light themes and the inherited `--k-text` is a grey that fails contrast on
+     it (UI-R29). Same rule settings/.provselect-opt.selected already follows;
+     the two pages must not drift. */
+  .agentselect-opt.selected{background:var(--vscode-list-activeSelectionBackground,var(--k-surface-hover));
+    color:var(--vscode-list-activeSelectionForeground,var(--k-text))}
   .agentselect-opt:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
 
   /* Fetch button doubles as the status, via the `.k-btn` primitive's own
