@@ -439,6 +439,24 @@ describe('sidebar webview.html', () => {
     expect(main).toContain('.hist{display:flex;');
   });
 
+  it('the Older Completed disclosure is one centered label — no spacer, no edge HISTORY tag', () => {
+    const script = scriptBlock();
+    const [main] = styleBlocks();
+    // The count IS the label. The bar used to split its content with a flex
+    // spacer plus a redundant uppercase HISTORY tag at the opposite edge,
+    // leaving the label hugging the left of a wide card; the ghost variant's
+    // own centering now applies untouched (UI-R07).
+    expect(script).not.toContain('hist-side');
+    expect(script).not.toContain('<span class="sp"></span>');
+    expect(main).not.toContain('.hist .sp');
+    expect(main).not.toContain('.hist-side');
+    // The ghost variant's own hover (surface wash + text brighten) is the whole
+    // hover story — the local override that dimmed it back is gone.
+    expect(main).not.toContain('.hist:hover{');
+    // The label keeps the count, in sentence case.
+    expect(script).toContain('${n} more completed');
+  });
+
   it('completed rows use the compact treatment: check indicator, muted title, no stage pill', () => {
     const script = scriptBlock();
     // The check-in-ring replaces the karst mark + status dot on compact rows…

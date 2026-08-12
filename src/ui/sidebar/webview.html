@@ -210,15 +210,15 @@
   .glyph.chk svg{display:block}
 
   /* The Older Completed disclosure — the whole row is the control (UI-R09).
-     Built on the ghost variant (hairline border, dim text) with the row
-     geometry applied locally: a bordered quiet row like the prototype's
-     "› 37 more completed · history", not a large saturated card. */
-  .hist{display:flex;align-items:center;gap:var(--k-space-2);margin:var(--k-space-2);
-    padding:var(--k-space-2) var(--k-space-3);border-radius:var(--k-radius-md);
-    background:var(--k-surface);font-weight:var(--k-weight-semibold)}
-  .hist:hover{background:var(--k-surface-hover);color:var(--k-text-dim);text-decoration:none}
-  .hist .sp{flex:1}
-  .hist-side{font-size:var(--k-text-2xs);color:var(--k-text-faint);text-transform:uppercase;letter-spacing:.06em}
+     A quiet centered "show more" bar, not a card: ghost hairline border, no
+     fill, one label. The count IS the label — a second uppercase HISTORY tag
+     at the opposite edge used to restate it across a flex spacer, which left
+     the content hugging the left of a wide bar (UI-R07). The ghost variant's
+     own hover (surface wash + text brighten) is the whole hover story, and its
+     own justify-content:center is the whole positioning story. */
+  .hist{display:flex;align-items:center;gap:var(--k-space-2);
+    margin:var(--k-space-3) var(--k-space-2);padding:var(--k-space-2) var(--k-space-4);
+    border-radius:var(--k-radius-md)}
   .hist-chev{display:inline-flex;flex:0 0 auto;transition:transform var(--k-dur-fast) var(--k-ease-standard)}
   .hist[aria-expanded="true"] .hist-chev{transform:rotate(90deg)}
 </style>
@@ -435,9 +435,10 @@
   // The Older Completed disclosure. The whole row is the button (UI-R09); the
   // chevron rotates to ⌄ when open (a separate state model from the ticket
   // chevrons — it controls only this section). `aria-controls` names the
-  // expanded list only while it exists.
+  // expanded list only while it exists. One label — the count — with no
+  // trailing tag: the ghost bar's own centering is the show-more affordance.
   function histToggle(expanded, n) {
-    return `<button type="button" class="k-btn k-btn--ghost hist" data-history="1" aria-expanded="${expanded}"${expanded ? ' aria-controls="histlist"' : ''}><span class="hist-chev">${chev}</span><span>${n} more completed</span><span class="sp"></span><span class="hist-side">history</span></button>`;
+    return `<button type="button" class="k-btn k-btn--ghost hist" data-history="1" aria-expanded="${expanded}"${expanded ? ' aria-controls="histlist"' : ''}><span class="hist-chev">${chev}</span><span>${n} more completed</span></button>`;
   }
 
   function emptyHtml(view) {
