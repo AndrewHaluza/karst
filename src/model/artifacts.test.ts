@@ -7,10 +7,19 @@ import { recordFindings } from '../store/reviewFindings.js';
 import { recordUatFindings } from '../store/uatFindings.js';
 import { openProcessRun, finishProcessRun } from '../store/processRuns.js';
 import { openShipRun, closeShipRun, recordShipCommit } from '../store/shipRuns.js';
+import { getTicket } from '../store/tickets.js';
+import { listGateRuns } from '../store/gateRuns.js';
+import { listFindings } from '../store/reviewFindings.js';
+import { listUatFindings } from '../store/uatFindings.js';
+import { listProcessRuns } from '../store/processRuns.js';
+import { listShipEvidence, countShipRuns } from '../store/shipRuns.js';
+import { listPrsByTicket } from '../store/dashboard.js';
 import {
   buildTicketArtifacts,
+  buildArtifactsFrom,
   pickArtifactPreviews,
   artifactPriority,
+  type ArtifactInput,
   type ArtifactSummary,
 } from './artifacts.js';
 
@@ -86,7 +95,10 @@ describe('buildTicketArtifacts', () => {
       { label: 'passed', value: '3' },
       { label: 'failed', value: '0' },
     ]);
+    // The duration is HUMANIZED — the one-hour span reads as "1h 0m", never
+    // as a raw seconds count.
     expect(a.metrics.some((m) => m.label === 'duration')).toBe(true);
+    expect(a.metrics.find((m) => m.label === 'duration')?.value).toBe('1h 0m');
   });
 
   it('a null exit code (repo defines no such script) is NOT a pass', () => {
@@ -285,6 +297,108 @@ describe('buildTicketArtifacts', () => {
     expect(a.prs).toHaveLength(1);
     expect(a.prs[0]).toMatchObject({ number: 42, url: 'https://github.com/o/r/pull/42' });
     expect(a.commits[0]).toMatchObject({ sha: 'abc123' });
+  });
+
+  it('mints the open-commit capability for ship commits through the attach seam', () => {
+    const t = ticket({ stageCurrent: 'ship' });
+    const run = openShipRun(store, { ticketId: t.id, attempt: 0, startedAt: '2026-08-01T11:00:00.000Z' });
+    closeShipRun(store, run.id, 'passed', '2026-08-01T11:05:00.000Z');
+    recordShipCommit(store, {
+      shipRunId: run.id,
+      repo: 'web',
+      sha: 'abc123',
+      message: 'feat: passkey login',
+      origin: 'created-by-ship',
+    });
+
+    // Without an attach callback the SHA carries no capability — plain text.
+    const plain = buildTicketArtifacts(store, t.id) as [ArtifactSummary];
+    expect(plain[0].commits[0]?.action).toBeUndefined();
+
+    // With one, the SAME host seam the inside evidence uses mints it, keyed to
+    // the recorded ship commit's id.
+    const targets: Array<{ kind: string; shipCommitId: number }> = [];
+    let n = 0;
+    const attach = (target: { kind: string; shipCommitId?: number }) => {
+      n += 1;
+      if (target.kind === 'open-commit' && target.shipCommitId !== undefined) {
+        targets.push({ kind: 'open-commit', shipCommitId: target.shipCommitId });
+      }
+      return { actionId: `snapshot-1:action-${n}`, kind: target.kind } as {
+        actionId: string;
+        kind: 'open-commit';
+      };
+    };
+    const input: ArtifactInput = {
+      ticket: getTicket(store, t.id),
+      gateRuns: listGateRuns(store, t.id),
+      findings: listFindings(store, t.id),
+      uatFindings: listUatFindings(store, t.id),
+      processRuns: listProcessRuns(store, t.id),
+      ship: listShipEvidence(store, t.id),
+      shipRunCount: countShipRuns(store, t.id),
+      prs: listPrsByTicket(store, t.id),
+      attach,
+    };
+    const [a] = buildArtifactsFrom(input) as [ArtifactSummary];
+    const commitId = (store.db.prepare('SELECT id FROM ship_commits LIMIT 1').get() as { id: number }).id;
+    expect(targets).toEqual([{ kind: 'open-commit', shipCommitId: commitId }]);
+    expect(a.commits[0]).toMatchObject({
+      sha: 'abc123',
+      action: { actionId: 'snapshot-1:action-1', kind: 'open-commit' },
+    });
+  });
+
+  it('mints the open-file capability for a finding that names a location', () => {
+    const t = ticket({ stageCurrent: 'review' });
+    stage(t.id, 'review', 'running', '2026-08-01T09:00:00.000Z', null);
+    recordFindings(store, {
+      ticketId: t.id,
+      attempt: 0,
+      runAt: '2026-08-01T09:30:00.000Z',
+      findings: [
+        {
+          severity: 'high',
+          repo: '/wt/web',
+          file: 'src/a.ts',
+          title: 'Credential cache is not cleared',
+          detail: '',
+          source: 'agent',
+        },
+      ],
+    });
+
+    const targets: Array<{ kind: string; source: string; id: number }> = [];
+    let n = 0;
+    const attach = (target: { kind: string; evidence?: { source?: string; id?: number } }) => {
+      n += 1;
+      if (target.kind === 'open-file') {
+        targets.push({
+          kind: 'open-file',
+          source: target.evidence?.source ?? '',
+          id: target.evidence?.id ?? 0,
+        });
+      }
+      return { actionId: `snapshot-1:action-${n}`, kind: target.kind } as { actionId: string; kind: 'open-file' };
+    };
+    const input: ArtifactInput = {
+      ticket: getTicket(store, t.id),
+      gateRuns: listGateRuns(store, t.id),
+      findings: listFindings(store, t.id),
+      uatFindings: listUatFindings(store, t.id),
+      processRuns: listProcessRuns(store, t.id),
+      ship: listShipEvidence(store, t.id),
+      shipRunCount: countShipRuns(store, t.id),
+      prs: listPrsByTicket(store, t.id),
+      attach,
+    };
+    const [a] = buildArtifactsFrom(input) as [ArtifactSummary];
+    const findingId = (store.db.prepare('SELECT id FROM review_findings LIMIT 1').get() as { id: number }).id;
+    expect(targets).toEqual([{ kind: 'open-file', source: 'review-finding', id: findingId }]);
+    expect(a.findings[0]).toMatchObject({
+      file: 'src/a.ts',
+      action: { actionId: 'snapshot-1:action-1', kind: 'open-file' },
+    });
   });
 
   it('each ship run is a version; versions never inflate the artifact count', () => {
