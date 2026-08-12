@@ -1411,6 +1411,22 @@ describe('settings quality tab (UAT + review scalars)', () => {
     }
   });
 
+  it('finds the findings controls in their own policy panel', () => {
+    // UAT | Review | Findings — three balanced panels instead of one 1-row
+    // panel beside a 6-row one (the findings trio IS a policy, not an
+    // appendix of Review).
+    expect(HTML).toContain('<div class="section-title">Findings</div>');
+    expect(HTML).toContain('<div class="section-title">UAT policy</div>');
+    expect(HTML).toContain('<div class="section-title">Review policy</div>');
+  });
+
+  it('number inputs fill their control column like text inputs and selects', () => {
+    // The Max fix attempts / Max findings fields rendered at the browser
+    // default width beside full-width selects — a mixed column. The shared
+    // rule now covers number inputs too.
+    expect(HTML).toMatch(/input\[type=text\],input\[type=number\],select\{width:100%\}/);
+  });
+
   /**
    * Mirrors validate/review.ts defaultFindings()/validateReview() and
    * validate/uat.ts's maxFixAttempts fallback so the mirror can't silently
@@ -1682,6 +1698,27 @@ describe('settings quality tab — gate editor', () => {
     expect(html).toContain('+ Add gate');
   });
 
+  it('states the package.json fallback when a global gate list is empty', () => {
+    // An empty declared list is NOT "nothing runs": resolveGates probes the
+    // repo's package.json scripts. The empty state must say so, not sit blank.
+    const renderGateList = loadRenderGateList({ api: {} });
+    const html = renderGateList('uat', []);
+    expect(html).toContain('No gates declared');
+    expect(html).toContain('package.json');
+    expect(html).toContain('data-add-gate="uat"');
+  });
+
+  it('states the global-list fallback when an override list is empty', () => {
+    // An empty override is indistinguishable from no override
+    // (declaredGatesFor only takes a non-empty list), so the repo runs the
+    // global list — the empty state names that instead of implying "nothing".
+    const renderGateList = loadRenderGateList({ api: {} });
+    const html = renderGateList('uat:api', []);
+    expect(html).toContain('No gates here');
+    expect(html).toContain('runs the global list');
+    expect(html).toContain('data-add-gate="uat:api"');
+  });
+
   it('mounts both blocks into #qualityGates and syncs repo selects after render', () => {
     const body = HTML.slice(
       HTML.indexOf('function renderQuality('),
@@ -1784,11 +1821,78 @@ describe('settings quality tab — per-repository gate overrides', () => {
     expect(result.uat.repositories.api).toBeUndefined();
   });
 
-  it('says the override replaces rather than extends', () => {
-    const start = HTML.indexOf('id="overrideHint"');
-    expect(start).toBeGreaterThan(-1);
-    const snippet = HTML.slice(start, start + 200);
-    expect(snippet).toMatch(/replaces/i);
+  it('removing the LAST gate of an override removes the override itself', () => {
+    // An empty `gates: []` override is indistinguishable from no override
+    // (declaredGatesFor only takes a non-empty list) — it would sit in the
+    // manifest as a phantom row while the repo runs the global list. The
+    // editor never produces that state: the card disappears instead.
+    const draft = {
+      repositories: { api: {} },
+      review: {
+        gates: [{ name: 'build', kind: 'script', script: 'build' }],
+        repositories: { api: { gates: [{ name: 'lint', kind: 'script', script: 'lint' }] } },
+      },
+    };
+    const sandbox = overrideSandbox(draft);
+    const source = `
+      ${functionSource('parseGateBlock')}
+      ${functionSource('gatesOf')}
+      ${functionSource('writeGates')}
+      ${functionSource('removeGate')}
+      removeGate('review:api', 0);
+    `;
+    runInNewContext(source, sandbox);
+    const result = sandbox.draft as {
+      review: { gates: unknown[]; repositories: Record<string, unknown> };
+    };
+    expect(result.review.repositories.api).toBeUndefined();
+    expect(result.review.gates).toHaveLength(1);
+  });
+
+  it('removing a NON-last gate of an override keeps the override', () => {
+    const draft = {
+      repositories: { api: {} },
+      review: {
+        gates: [],
+        repositories: { api: { gates: [
+          { name: 'lint', kind: 'script', script: 'lint' },
+          { name: 'govet', kind: 'script', script: 'govet' },
+        ] } },
+      },
+    };
+    const sandbox = overrideSandbox(draft);
+    const source = `
+      ${functionSource('parseGateBlock')}
+      ${functionSource('gatesOf')}
+      ${functionSource('writeGates')}
+      ${functionSource('removeGate')}
+      removeGate('review:api', 0);
+    `;
+    runInNewContext(source, sandbox);
+    const result = sandbox.draft as {
+      review: { repositories: { api: { gates: Array<{ name: string }> } } };
+    };
+    expect(result.review.repositories.api!.gates).toEqual([{ name: 'govet', kind: 'script', script: 'govet' }]);
+  });
+
+  it('says the override replaces rather than extends, beside the cards it explains', () => {
+    const renderOverridesSection = loadRenderOverridesSection({ api: {} });
+    const html = renderOverridesSection('review', {
+      api: { gates: [{ name: 'lint', kind: 'script', script: 'lint' }] },
+    });
+    expect(html).toContain('override-editor-note');
+    expect(html).toMatch(/<strong>replaces<\/strong>/i);
+  });
+
+  it('shows no note and no header when nothing is overridden yet', () => {
+    const renderOverridesSection = loadRenderOverridesSection({ api: {} });
+    const html = renderOverridesSection('review', {});
+    expect(html).not.toContain('override-editor-note');
+  });
+
+  it('renders nothing at all when the manifest declares no repositories', () => {
+    const renderOverridesSection = loadRenderOverridesSection({});
+    expect(renderOverridesSection('review', {})).toBe('');
   });
 
   it('parseGateBlock splits an override block into base + repo, leaving a global block untouched', () => {

@@ -116,7 +116,7 @@
   input[type=text]:focus,input[type=number]:focus,select:focus,textarea:focus{
     outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset);
   }
-  input[type=text],select{width:100%}
+  input[type=text],input[type=number],select{width:100%}
   /* Drop the OS arrow and paint our own, vertically centered with room reserved
      via padding — the native arrow's placement drifts between platforms/renderers. */
   select{
@@ -844,21 +844,21 @@
   .panel.has-open-menu{position:relative;z-index:calc(var(--k-z-scrim) - 1)}
   .drawer .ctx-menu{position:fixed}
 
-  /* Quality policy panels (handoff §16). */
-  .quality-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:var(--k-space-7);align-items:start}
+  /* Quality policy panels (handoff §16): UAT policy, Review policy and
+     Findings side by side, each a bordered box whose rows are hairline
+     separated. Every row carries `border-top` — the head above the first
+     row is the separator there, and `:first-of-type` is NEVER used (the
+     panel's section-head div precedes every row, so it would never match). */
+  .quality-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--k-space-7);align-items:start}
   .quality-panel{
     border:var(--k-border-w) solid var(--vscode-panel-border);border-radius:var(--k-radius-lg);
     padding:var(--k-space-6);background:var(--vscode-editorWidget-background,transparent);
   }
-  .quality-panel .q-title{font-size:var(--k-text-base);font-weight:600;margin:var(--k-space-0)}
-  .quality-panel .q-desc{margin-top:var(--k-space-2);font-size:var(--k-text-md);color:var(--k-text-dim);line-height:var(--k-leading-normal)}
   .q-row{display:grid;grid-template-columns:minmax(calc(var(--k-space-8) * 8),1fr) minmax(calc(var(--k-space-8) * 9),1fr);gap:var(--k-space-6);align-items:center;padding:var(--k-space-4) var(--k-space-0);border-top:var(--k-border-w) solid var(--vscode-panel-border)}
-  .q-row:first-of-type{border-top:none}
   .q-row label{margin:var(--k-space-0)}
-  .gate-section + .gate-section{margin-top:var(--k-space-8)}
-  .override-block{margin-top:var(--k-space-5);padding-top:var(--k-space-5);border-top:var(--k-border-w) solid var(--vscode-panel-border)}
-  .override-note{font-size:var(--k-text-xs);color:var(--k-text-dim);margin:var(--k-space-4) var(--k-space-0)}
-  .override-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:var(--k-space-3);align-items:center;padding:var(--k-space-4);border:var(--k-border-w) solid var(--vscode-panel-border);border-radius:var(--k-radius-md);margin-bottom:var(--k-space-4)}
+  /* Empty gate lists: a muted line instead of a bare "+ Add gate" button, so
+     the fallback that an empty list actually means is stated next to it. */
+  .gate-empty{font-size:var(--k-text-sm);color:var(--k-text-dim);margin:var(--k-space-4) var(--k-space-0);max-width:calc(var(--k-space-8) * 28)}
   .override-editor-note{margin-bottom:var(--k-space-5);padding:var(--k-space-4);border:var(--k-border-w) solid var(--vscode-panel-border);border-radius:var(--k-radius-md);background:var(--k-surface-hover);color:var(--k-text-dim);font-size:var(--k-text-sm);line-height:var(--k-leading-normal)}
 
   /* Ticketing lifecycle rows (handoff §15.3): a toggle with its indented
@@ -1527,8 +1527,9 @@
          (uat.repositories/review.repositories): an override REPLACES the
          block's global list for that repository rather than adding to it
          (declaredGatesFor/declaredReviewGatesFor), so a newly-added override
-         is seeded with a COPY of the global list (addRepoOverride) and
-         #overrideHint says so explicitly. See sections.ts doc comment for the
+         is seeded with a COPY of the global list (addRepoOverride) and the
+         replace-not-add fact is repeated in the overrides section's inline
+         note, at the point of use. See sections.ts doc comment for the
          spread-not-rebuild warning: no handler here may rebuild draft.uat or
          draft.review wholesale, or it would erase fields this tab does not
          render (uat.secrets, uat.env, ...) — writeGates() spreads the
@@ -1551,7 +1552,7 @@
             <div class="q-row">
               <div>
                 <label for="f-uatMaxFix">Max fix attempts</label>
-                <div class="field-help">Fix→UAT→fix retries before the ticket parks. UAT only.</div>
+                <div class="field-help">Retries a failed UAT gets before the ticket parks.</div>
               </div>
               <input type="number" min="1" id="f-uatMaxFix" />
             </div>
@@ -1567,6 +1568,7 @@
             <div class="q-row">
               <div>
                 <label for="f-reviewMaxFix">Max fix attempts</label>
+                <div class="field-help">Retries a failed review gets before the ticket parks.</div>
               </div>
               <input type="number" min="1" id="f-reviewMaxFix" />
             </div>
@@ -1578,7 +1580,6 @@
                 </div>
                 <div class="field-help">A pass needs evidence beyond the agent's own claim.</div>
               </div>
-              <div></div>
             </div>
             <div class="q-row">
               <div>
@@ -1586,10 +1587,18 @@
                   <input type="checkbox" id="f-reviewOpenChanges" />
                   <label for="f-reviewOpenChanges">Open changes panel after review</label>
                 </div>
-                <div class="field-help">Off by default. When on, a finished review reveals the
-                  ticket's Changes panel for every affected repository.</div>
+                <div class="field-help">A finished review reveals the ticket's Changes panel for
+                  every affected repository.</div>
               </div>
-              <div></div>
+            </div>
+          </div>
+
+          <div class="quality-panel">
+            <div class="section-head">
+              <div>
+                <div class="section-title">Findings</div>
+                <div class="section-desc">The agent findings pass that feeds the review, and when it blocks.</div>
+              </div>
             </div>
             <div class="q-row">
               <div>
@@ -1597,8 +1606,9 @@
                   <input type="checkbox" id="f-findingsEnabled" />
                   <label for="f-findingsEnabled">Agent findings</label>
                 </div>
+                <div class="field-help">A headless agent pass that scans the change and reports findings
+                  into the review.</div>
               </div>
-              <div></div>
             </div>
             <div class="q-row">
               <div>
@@ -1611,6 +1621,7 @@
             <div class="q-row">
               <div>
                 <label for="f-findingsMax">Max findings</label>
+                <div class="field-help">The most findings the pass keeps per repository.</div>
               </div>
               <input type="number" min="1" id="f-findingsMax" />
             </div>
@@ -1625,9 +1636,7 @@
             <div class="section-desc">One editor for UAT and Review gates. A repository override <strong>replaces</strong> the global list for that repository.</div>
           </div>
         </div>
-        <div class="card open">
-          <div class="card-body" id="qualityGates"></div>
-        </div>
+        <div id="qualityGates"></div>
       </div>
     </div>
   </div>
@@ -3164,9 +3173,7 @@
       return;
     }
     if (t.dataset.removeGate) {
-      const block = t.dataset.removeGate, idx = Number(t.dataset.gateIdx);
-      writeGates(block, gatesOf(block).filter((_, i) => i !== idx));
-      markDirty(); renderQuality();
+      removeGate(t.dataset.removeGate, Number(t.dataset.gateIdx));
       return;
     }
     if (t.dataset.addOverride) {
@@ -4574,7 +4581,17 @@
       + ` aria-label="Remove gate ${i + 1}" title="Remove gate ${i + 1}">&times;</button>`
       + `</div>`
     )).join('');
+    // An empty list is not "nothing happens": the host falls back to probing the
+    // repo's package.json scripts, and an empty OVERRIDE is indistinguishable
+    // from no override at all (declaredGatesFor requires a non-empty list to
+    // take effect), so the empty state states which fallback applies.
+    const empty = (gates || []).length === 0
+      ? `<div class="gate-empty">${overrideRepo !== null
+          ? 'No gates here — this repository runs the global list.'
+          : 'No gates declared — karst probes the repository\'s package.json scripts instead.'}</div>`
+      : '';
     return rows
+      + empty
       + `<button type="button" class="k-btn k-btn--secondary k-btn--sm"`
       + ` data-add-gate="${block}">+ Add gate</button>`;
   }
@@ -4669,9 +4686,11 @@
   // declaredReviewGatesFor), which is the opposite of how "add a gate for this
   // repo" reads. Seeding the new override with the global list makes the
   // replacement visible: the user edits a copy rather than starting from an
-  // empty list that silently means "this repo runs nothing". `clone` (below)
-  // is a deep copy — a shared reference would make editing the override
-  // mutate the global list out from under it.
+  // empty list that would silently fall back to the global one (an empty
+  // override is indistinguishable from no override — declaredGatesFor only
+  // takes a non-empty list). `clone` (below) is a deep copy — a shared
+  // reference would make editing the override mutate the global list out from
+  // under it.
   function addRepoOverride(block, repo) {
     const blockDraft = draft[block] || {};
     const seed = clone(blockDraft.gates || []);
@@ -4685,9 +4704,33 @@
     renderQuality();
   }
 
+  // A gate removal routes through writeGates except for one edge: an
+  // override's LAST gate removes the override itself. An empty `gates: []`
+  // override is indistinguishable from no override (declaredGatesFor only
+  // takes a NON-empty list), so the empty card the editor would otherwise
+  // keep is a phantom — the repo silently runs the global list again. The
+  // user sees the card disappear and the repo return to the override picker,
+  // which is exactly what happened. Same shape as removeRepoOverride's
+  // never-write-an-empty-override rule.
+  function removeGate(block, idx) {
+    const remaining = gatesOf(block).filter((_, i) => i !== idx);
+    const { base, repo } = parseGateBlock(block);
+    if (repo !== null && remaining.length === 0) {
+      removeRepoOverride(base, repo);
+      return;
+    }
+    writeGates(block, remaining);
+    markDirty();
+    renderQuality();
+  }
+
   // Deletes the repo's key entirely — never sets an empty override — so the
-  // repository falls back to the global list (an empty `gates: []` override
-  // would instead mean "this repo runs nothing", per declaredGatesFor).
+  // repository falls back to the global list. Writing an empty `gates: []`
+  // override instead would leave a row that LOOKS like "this repo runs no
+  // gates" while the host treats it as no override at all (declaredGatesFor
+  // only takes a non-empty list): the editor mirrors that by removing the
+  // override when its last gate is removed (removeGate) rather than ever
+  // producing the phantom state.
   function removeRepoOverride(block, repo) {
     const blockDraft = draft[block] || {};
     const repositories = { ...(blockDraft.repositories || {}) };
@@ -4707,12 +4750,15 @@
   // silently create a dead override.
   function renderOverridesSection(block, repositories) {
     const declared = Object.keys(draft.repositories || {});
+    // No repositories declared: there is nothing an override could name, so the
+    // whole section is dead weight — not even the group header renders.
+    if (declared.length === 0) return '';
     const overridden = declared.filter((r) => repositories[r]);
     const available = declared.filter((r) => !repositories[r]);
     const cards = overridden.map((repo) => (
       `<div class="override-card">`
       + `<div class="row override-card-head"><span class="override-repo">${esc(repo)}</span>`
-      + `<button type="button" class="k-iconbtn k-iconbtn--danger" data-remove-override="${block}"`
+      + `<button type="button" class="k-iconbtn k-iconbtn--danger fixed" data-remove-override="${block}"`
       + ` data-override-repo="${esc(repo)}" aria-label="Remove ${esc(repo)} override"`
       + ` title="Remove ${esc(repo)} override">&times;</button>`
       + `</div>`
@@ -4724,10 +4770,16 @@
         + `<select aria-label="Repository to override" data-override-picker="${block}">`
         + available.map((r) => `<option value="${esc(r)}">${esc(r)}</option>`).join('')
         + `</select>`
-        + `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-add-override="${block}">+ Add repository override</button>`
+        + `<button type="button" class="k-btn k-btn--secondary k-btn--sm fixed" data-add-override="${block}">+ Add repository override</button>`
         + `</div>`
       : '';
-    return `<div class="approach-group-header">Repository overrides</div>` + cards + picker;
+    // The replace-vs-add fact lives beside the cards it explains (the section
+    // head states it once; the note repeats it at the point of use).
+    const note = overridden.length
+      ? `<div class="override-editor-note">An override <strong>replaces</strong> the global list`
+        + ` for that repository — it does not add to it.</div>`
+      : '';
+    return `<div class="approach-group-header">Repository overrides</div>` + note + cards + picker;
   }
 
   function renderQuality() {
@@ -4756,9 +4808,7 @@
       + renderOverridesSection('uat', uatRepositories)
       + '<div class="approach-group-header">Review gates</div>'
       + renderGateList('review', reviewGates)
-      + renderOverridesSection('review', reviewRepositories)
-      + '<div class="field-hint" id="overrideHint">A repository override <strong>replaces</strong>'
-      + ' the gates above for that repository — it does not add to them.</div>';
+      + renderOverridesSection('review', reviewRepositories);
     syncGateRepoSelects('uat', uatGates);
     syncGateRepoSelects('review', reviewGates);
     Object.keys(uatRepositories).forEach((repo) => {
@@ -5806,7 +5856,6 @@
     .q-row{grid-template-columns:minmax(0,1fr)}
     .matrix-row .proc-cell{grid-column:1 / -1}
     .gate-row{flex-direction:column;align-items:stretch}
-    .override-row{grid-template-columns:minmax(0,1fr)}
   }
   @media (max-width: 22.5em){
     .topbar .saved-msg,.topbar .unsaved-hint{display:none}
