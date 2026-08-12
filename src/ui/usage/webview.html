@@ -79,6 +79,7 @@
      one colour carry two claims. */
   .bar > i{display:block;height:100%;background:var(--k-series-1);border-radius:var(--k-radius-xs)}
   .panel.models .bar > i{background:var(--k-series-2)}
+  .panel.profiles .bar > i{background:var(--k-series-2)}
   .brow .meta{font-size:var(--k-text-2xs);color:var(--k-text-faint);margin-top:var(--k-space-1)}
   .est{color:var(--k-warning)}
 
@@ -121,6 +122,10 @@
     <div class="panel models">
       <div class="phead">By model<span class="count" id="modelCount"></span></div>
       <div class="pbody" id="models"></div>
+    </div>
+    <div class="panel profiles">
+      <div class="phead">Graph spend by profile<span class="count" id="profileCount"></span></div>
+      <div class="pbody" id="profiles"></div>
     </div>
   </div>
   <div class="panel">
@@ -212,6 +217,7 @@
         '</div>' +
         `<div class="bar"><i style="width:${Number(r.share) || 0}%"></i></div>` +
         `<div class="meta">${esc(r.calls)} call${r.calls === 1 ? '' : 's'} · in ${esc(r.inputDisplay)} · out ${esc(r.outputDisplay)}` +
+          (r.note ? ` · ${esc(r.note)}` : '') +
           (r.estimated ? ' · <span class="est">estimated</span>' : '') +
         '</div>' +
       '</div>',
@@ -303,9 +309,11 @@
     renderStats(state.totals);
     el('stageCount').textContent = state.byStage.length;
     el('modelCount').textContent = state.byModel.length;
+    el('profileCount').textContent = state.byProfile.length;
     el('tktCount').textContent = state.page.groups;
     renderBreakdown(el('stages'), state.byStage);
     renderBreakdown(el('models'), state.byModel);
+    renderBreakdown(el('profiles'), state.byProfile);
     renderTable(state);
   };
 

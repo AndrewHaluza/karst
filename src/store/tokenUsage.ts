@@ -48,6 +48,18 @@ export interface UsageTicketRow extends UsageTotals {
   lastAt: string | null;
 }
 
+/**
+ * Graph-attributed spend rolled up per profile (Slice-6 T2). The profile is READ
+ * from the run row through the join (`approach_node_runs.profile` /
+ * `approach_planner_runs.profile`) — no `token_usage` column carries it.
+ */
+export interface UsageProfileRow extends UsageTotals {
+  /** The profile name resolved on the node/planner run. `''` = never resolved. */
+  profile: string;
+  /** The provider the spend is attributed to; NULL = the core never named one. */
+  provider: string | null;
+}
+
 export interface TokenUsageStats {
   totals: UsageTotals;
   byCallSite: UsageGroupRow[];
@@ -56,6 +68,12 @@ export interface TokenUsageStats {
   byTicket: UsageTicketRow[];
   /** Distinct tickets in range — the page's denominator. */
   ticketGroups: number;
+  /**
+   * Graph spend grouped by (profile, provider) through the node/planner run
+   * join (Slice-6 T2). Rows with no graph linkage are absent — this is the
+   * graph runtime's spend, not the ticket's whole spend.
+   */
+  byProfile: UsageProfileRow[];
   range: { from: string | null; to: string | null };
 }
 
@@ -285,6 +303,31 @@ export function queryTokenUsageStats(store: Store, query: UsageQuery): TokenUsag
     last_at: string | null;
   })[];
 
+  // The graph-spend rollup (Slice-6 T2): same range/scope as the rest of the
+  // view, but ONLY rows linked to a graph run. The profile is read from the run
+  // row through the JOIN — the join is the point, no token_usage column is
+  // added. The WHERE is the query's shape (all values bound) plus the
+  // graph-attribution scope; the scan still rides `idx_token_usage_*` and the
+  // run lookups ride their PKs.
+  const graphFilter = filter(query, 't.');
+  const graphScope = '(t.approach_node_run_id IS NOT NULL OR t.approach_planner_run_id IS NOT NULL)';
+  const graphWhere = graphFilter.clause
+    ? `WHERE ${graphScope} AND ${graphFilter.clause.replace(/^WHERE /, '')}`
+    : `WHERE ${graphScope}`;
+  const profileRows = store.db
+    .prepare(
+      `SELECT COALESCE(nr.profile, pr.profile, '') AS profile,
+              t.provider AS provider,
+              ${aggregates('t.')}
+         FROM token_usage t
+         LEFT JOIN approach_node_runs nr ON nr.id = t.approach_node_run_id
+         LEFT JOIN approach_planner_runs pr ON pr.id = t.approach_planner_run_id
+         ${graphWhere}
+        GROUP BY COALESCE(nr.profile, pr.profile, ''), t.provider
+        ORDER BY total_tokens DESC, profile ASC, provider ASC`,
+    )
+    .all(...graphFilter.params) as (TotalsRow & { profile: string; provider: string | null })[];
+
   return {
     totals: totalsRow ? toTotals(totalsRow) : EMPTY_USAGE_TOTALS,
     byCallSite: groupBy(store, 'call_site', where),
@@ -294,6 +337,11 @@ export function queryTokenUsageStats(store: Store, query: UsageQuery): TokenUsag
       ticketKey: row.ticket_key,
       ticketTitle: row.ticket_title,
       lastAt: row.last_at,
+      ...toTotals(row),
+    })),
+    byProfile: profileRows.map((row) => ({
+      profile: row.profile,
+      provider: row.provider,
       ...toTotals(row),
     })),
     ticketGroups: ticketGroupsRow?.n ?? 0,

@@ -224,4 +224,26 @@ describe('token-usage webview.html', () => {
     expect(HTML).toContain('class="tscroll"');
     expect(HTML).toMatch(/\.tscroll\{overflow-x:auto\}/);
   });
+
+  it('breaks graph spend down by profile, rendered from state like every other breakdown', () => {
+    expect(HTML).toContain('<div class="panel profiles">');
+    expect(HTML).toContain('Graph spend by profile');
+    expect(HTML).toContain('id="profileCount"');
+    const script = scriptBlock();
+    expect(script).toContain("renderBreakdown(el('profiles'), state.byProfile)");
+    expect(script).toContain('profileCount');
+  });
+
+  it('renders the profile label and the host-resolved provider note, escaped', () => {
+    const script = scriptBlock();
+    expect(script).toContain("(r.note ? ` · ${esc(r.note)}` : '')");
+    // The word "unknown" for an unresolved profile is a HOST decision (state
+    // labels it) — hardcoding it here would be a second, driftable copy.
+    expect(script).not.toContain('unknown profile');
+  });
+
+  it('gives the graph-profile panel its own categorical series bar (UI-R06)', () => {
+    const style = styleBlock();
+    expect(style).toMatch(/\.panel\.profiles \.bar > i\{background:var\(--k-series-2\)\}/);
+  });
 });

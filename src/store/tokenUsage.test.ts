@@ -408,6 +408,150 @@ describe('queryTokenUsageStats', () => {
 });
 
 /**
+ * Slice-6 T2: graph spend rolled up PER PROFILE through the node/planner run
+ * join. The resolved profile is recorded on the RUN row (`approach_node_runs
+ * .profile` / `approach_planner_runs.profile`), never on `token_usage` — so the
+ * rollup is a JOIN, not a new column. Aggregation stays a SQL GROUP BY off the
+ * existing indexes (`idx_token_usage_*` + the run tables' PKs), never an
+ * in-memory rollup.
+ */
+describe('graph-run per-profile rollup (Slice-6 T2)', () => {
+  const T = '2026-08-12T00:00:00.000Z';
+
+  function graphTicket(): void {
+    ticket(1, 'K-1', 'One');
+    store.db
+      .prepare(
+        `INSERT INTO approach_graph_runs
+           (id, ticket_id, stage_key, stage_attempt, approach_id, status, created_at)
+         VALUES (?, 1, 'impl', 1, 'graph', 'running', ?)`,
+      )
+      .run(1, T);
+    store.db
+      .prepare(
+        `INSERT INTO approach_graph_revisions
+           (id, graph_run_id, revision_number, canonical_graph, fingerprint, status, created_at)
+         VALUES (?, 1, 1, 'graph: []', 'fp', 'active', ?)`,
+      )
+      .run(1, T);
+  }
+
+  function nodeRun(id: number, profile: string | null, provider: string | null): void {
+    store.db
+      .prepare(
+        `INSERT INTO approach_node_runs
+           (id, graph_run_id, revision_id, node_id, node_kind, visit_number, status, profile, provider)
+         VALUES (?, 1, 1, ?, 'agent', 1, 'completed', ?, ?)`,
+      )
+      .run(id, `n${id}`, profile, provider);
+  }
+
+  function plannerRun(id: number, profile: string | null, provider: string | null): void {
+    store.db
+      .prepare(
+        `INSERT INTO approach_planner_runs
+           (id, graph_run_id, planner_run_number, kind, status, profile, provider)
+         VALUES (?, 1, ?, 'bootstrap', 'submitted', ?, ?)`,
+      )
+      .run(id, id, profile, provider);
+  }
+
+  function graphSeed(o: {
+    nodeRunId?: number;
+    plannerRunId?: number;
+    provider?: string;
+    input?: number;
+    output?: number;
+    estimated?: boolean;
+  }): void {
+    recordTokenUsage(store, {
+      projectId: 1,
+      ticketId: 1,
+      approachPlannerRunId: o.plannerRunId ?? null,
+      approachNodeRunId: o.nodeRunId ?? null,
+      callSite: o.nodeRunId !== undefined ? 'graph-node' : 'graph-planner',
+      provider: o.provider ?? 'codex',
+      outcome: 'ok',
+      recordedAt: T,
+      usage: {
+        inputTokens: o.input ?? 40,
+        outputTokens: o.output ?? 10,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        totalTokens: (o.input ?? 40) + (o.output ?? 10),
+        model: 'sol',
+        estimated: o.estimated ?? false,
+      },
+    });
+  }
+
+  it('rolls a graph run\'s spend up per profile through the node/planner join', () => {
+    graphTicket();
+    nodeRun(9, 'graphite', 'codex');
+    nodeRun(10, 'graphite', 'codex');
+    plannerRun(3, 'planner', 'claude');
+    graphSeed({ nodeRunId: 9, input: 40, output: 10, provider: 'codex' });
+    graphSeed({ nodeRunId: 10, input: 5, output: 5, provider: 'codex' });
+    graphSeed({ plannerRunId: 3, input: 100, output: 20, provider: 'claude' });
+
+    const { byProfile, totals } = queryTokenUsageStats(store, query({ projectId: 1 }));
+    expect(totals.totalTokens).toBe(180);
+    expect(
+      byProfile.map((r) => [r.profile, r.provider, r.calls, r.inputTokens, r.outputTokens, r.totalTokens, r.estimatedCalls]),
+    ).toEqual([
+      ['planner', 'claude', 1, 100, 20, 120, 0],
+      ['graphite', 'codex', 2, 45, 15, 60, 0],
+    ]);
+  });
+
+  it('keeps a run that never resolved a profile under the unknown (empty) key', () => {
+    graphTicket();
+    nodeRun(9, null, 'codex');
+    graphSeed({ nodeRunId: 9, input: 40, output: 10, provider: 'codex' });
+    const { byProfile } = queryTokenUsageStats(store, query({ projectId: 1 }));
+    expect(byProfile).toHaveLength(1);
+    expect(byProfile[0]!.profile).toBe('');
+    expect(byProfile[0]!.provider).toBe('codex');
+    expect(byProfile[0]!.calls).toBe(1);
+    expect(byProfile[0]!.totalTokens).toBe(50);
+  });
+
+  it('excludes spend outside the graph runtime from the profile rollup', () => {
+    graphTicket();
+    nodeRun(9, 'graphite', 'codex');
+    graphSeed({ nodeRunId: 9, input: 40, output: 10, provider: 'codex' });
+    seed({ input: 7, output: 0 });
+    const { byProfile, totals } = queryTokenUsageStats(store, query({ projectId: 1 }));
+    expect(totals.totalTokens).toBe(57);
+    expect(byProfile).toEqual([
+      expect.objectContaining({ profile: 'graphite', provider: 'codex', calls: 1, totalTokens: 50 }),
+    ]);
+  });
+
+  it('rolls the profile grouping up in SQL — the query never reads rows into memory', () => {
+    graphTicket();
+    nodeRun(9, 'graphite', 'codex');
+    graphSeed({ nodeRunId: 9, input: 40, output: 10, provider: 'codex' });
+    const plan = store.db
+      .prepare(
+        `EXPLAIN QUERY PLAN
+         SELECT COALESCE(nr.profile, pr.profile, '') AS profile, t.provider AS provider,
+                COUNT(*) AS calls, COALESCE(SUM(t.total_tokens), 0) AS total_tokens
+           FROM token_usage t
+           LEFT JOIN approach_node_runs nr ON nr.id = t.approach_node_run_id
+           LEFT JOIN approach_planner_runs pr ON pr.id = t.approach_planner_run_id
+          WHERE (t.approach_node_run_id IS NOT NULL OR t.approach_planner_run_id IS NOT NULL)
+            AND t.project_id = ? AND t.recorded_at >= ?
+          GROUP BY COALESCE(nr.profile, pr.profile, ''), t.provider`,
+      )
+      .all(1, '2026-01-01')
+      .map((r) => (r as { detail: string }).detail)
+      .join(' ');
+    expect(plan).toMatch(/USING INDEX idx_token_usage/);
+  });
+});
+
+/**
  * v27 process-run attribution (§ task 3): a call made by an inside process
  * (gates, commit, delivery-receipt…) is linked to its process_runs row, so the
  * inside view can show one process's spend. Legacy rows — and rows whose caller

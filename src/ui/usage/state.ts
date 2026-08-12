@@ -3,6 +3,7 @@ import {
   queryTokenUsageStats,
   type TokenUsageStats,
   type UsageGroupRow,
+  type UsageProfileRow,
   type UsageTicketRow,
 } from '../../store/tokenUsage.js';
 import {
@@ -46,6 +47,19 @@ export interface UsageBreakdownRow {
   share: number;
   /** True when every call in this group had estimated counts. */
   estimated: boolean;
+  /** A host-resolved annotation rendered on the row's meta line, if any. */
+  note?: string;
+}
+
+/**
+ * A formatted graph-spend row (Slice-6 T2): the spend of the graph runtime,
+ * grouped by the profile the node/planner run resolved — read from the RUN
+ * through the join, never from a `token_usage` column. `label` carries the
+ * profile name; a run that never resolved one renders as "unknown profile".
+ */
+export interface UsageProfileRowView extends UsageBreakdownRow {
+  /** The provider that spent it; NULL = the core never named one. */
+  provider: string | null;
 }
 
 /** A formatted row of the per-ticket table. */
@@ -88,6 +102,8 @@ export interface UsageState {
   totals: UsageTotalsView;
   byStage: UsageBreakdownRow[];
   byModel: UsageBreakdownRow[];
+  /** Graph spend rolled up per profile (Slice-6 T2); empty when none in range. */
+  byProfile: UsageProfileRowView[];
   tickets: UsageTicketRowView[];
   page: { offset: number; limit: number; groups: number; hasPrev: boolean; hasNext: boolean };
   /** A rejected query, stated. Null when the query was well-formed. */
@@ -170,6 +186,33 @@ function totalsView(stats: TokenUsageStats): UsageTotalsView {
   };
 }
 
+/**
+ * A profile the run never resolved is NAMED — never a blank cell, never a "0"
+ * that reads as a profile called zero. Its recorded spend is shown as
+ * recorded; the one wrong answer this view must never give is a fabricated
+ * zero on an unmeasured invocation.
+ */
+function profileLabel(key: string): string {
+  return key === '' ? 'unknown profile' : key;
+}
+
+function profileRows(rows: UsageProfileRow[], total: number): UsageProfileRowView[] {
+  return rows.map((row) => ({
+    key: row.profile,
+    label: profileLabel(row.profile),
+    calls: row.calls,
+    totalTokens: row.totalTokens,
+    totalDisplay: formatTokens(row.totalTokens),
+    totalExact: formatExactTokens(row.totalTokens),
+    inputDisplay: formatTokens(row.inputTokens),
+    outputDisplay: formatTokens(row.outputTokens),
+    share: shareOfTotal(row.totalTokens, total),
+    estimated: row.calls > 0 && row.estimatedCalls === row.calls,
+    provider: row.provider,
+    note: row.provider === null ? 'provider unknown' : row.provider,
+  }));
+}
+
 /** The shell every state shares — also what an error or empty range renders. */
 function base(rangeId: string, sort: UsageSort, offset: number, limit: number): UsageState {
   return {
@@ -181,6 +224,7 @@ function base(rangeId: string, sort: UsageSort, offset: number, limit: number): 
     totals: EMPTY_TOTALS,
     byStage: [],
     byModel: [],
+    byProfile: [],
     tickets: [],
     page: { offset, limit, groups: 0, hasPrev: offset > 0, hasNext: false },
     error: null,
@@ -220,6 +264,7 @@ export function buildUsageState(store: Store, input: UsageStateInput = {}): Usag
     totals: totalsView(stats),
     byStage: breakdown(stats.byCallSite, total, aiCallSiteLabel),
     byModel: breakdown(stats.byModel, total, modelLabel),
+    byProfile: profileRows(stats.byProfile, total),
     tickets: stats.byTicket.map((row) => ({
       ticketId: row.ticketId,
       ticketKey: row.ticketKey,

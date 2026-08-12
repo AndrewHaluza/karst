@@ -189,4 +189,102 @@ describe('buildUsageState', () => {
     expect(totals.erroredCalls).toBe(1);
     expect(totals.totalExact).toBe('40');
   });
+
+  describe('graph spend by profile (Slice-6 T2)', () => {
+    const T = '2026-08-12T00:00:00.000Z';
+
+    function graphTicket(): void {
+      ticket(1, 'K-1', 'One');
+      store.db
+        .prepare(
+          `INSERT INTO approach_graph_runs
+             (id, ticket_id, stage_key, stage_attempt, approach_id, status, created_at)
+           VALUES (?, 1, 'impl', 1, 'graph', 'running', ?)`,
+        )
+        .run(1, T);
+      store.db
+        .prepare(
+          `INSERT INTO approach_graph_revisions
+             (id, graph_run_id, revision_number, canonical_graph, fingerprint, status, created_at)
+           VALUES (?, 1, 1, 'graph: []', 'fp', 'active', ?)`,
+        )
+        .run(1, T);
+    }
+
+    function nodeRun(id: number, profile: string | null): void {
+      store.db
+        .prepare(
+          `INSERT INTO approach_node_runs
+             (id, graph_run_id, revision_id, node_id, node_kind, visit_number, status, profile)
+           VALUES (?, 1, 1, ?, 'agent', 1, 'completed', ?)`,
+        )
+        .run(id, `n${id}`, profile);
+    }
+
+    function graphSeed(o: { nodeRunId: number; input: number; output: number }): void {
+      recordTokenUsage(store, {
+        projectId: 1,
+        ticketId: 1,
+        approachNodeRunId: o.nodeRunId,
+        callSite: 'graph-node',
+        provider: 'codex',
+        outcome: 'ok',
+        recordedAt: T,
+        usage: {
+          inputTokens: o.input,
+          outputTokens: o.output,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          totalTokens: o.input + o.output,
+          model: 'sol',
+          estimated: false,
+        },
+      });
+    }
+
+    it('breaks graph spend down per profile through the run join', () => {
+      graphTicket();
+      nodeRun(9, 'graphite');
+      nodeRun(10, 'graphite');
+      graphSeed({ nodeRunId: 9, input: 40, output: 10 });
+      graphSeed({ nodeRunId: 10, input: 5, output: 5 });
+      const { byProfile, totals } = buildUsageState(store, { projectId: 1, now: NOW });
+      expect(totals.totalExact).toBe('60');
+      expect(byProfile).toHaveLength(1);
+      expect(byProfile[0]).toMatchObject({
+        label: 'graphite',
+        calls: 2,
+        totalExact: '60',
+        share: 100,
+        provider: 'codex',
+      });
+    });
+
+    it('renders an unresolved profile as unknown, never as a zero', () => {
+      graphTicket();
+      nodeRun(9, null);
+      graphSeed({ nodeRunId: 9, input: 40, output: 10 });
+      const { byProfile } = buildUsageState(store, { projectId: 1, now: NOW });
+      expect(byProfile).toHaveLength(1);
+      // The run never resolved a profile — the row is NAMED, never blank and
+      // never a "0" that could read as a profile called zero.
+      expect(byProfile[0]!.label).toBe('unknown profile');
+      expect(byProfile[0]!.key).toBe('');
+      // Its recorded spend is shown as recorded — a fabricated 0 is the one
+      // wrong answer this view must never give.
+      expect(byProfile[0]!.totalExact).toBe('50');
+      expect(byProfile[0]!.totalDisplay).toBe('50');
+    });
+
+    it('a rejected query leaves the graph breakdown empty — never a table reading as zero spend', () => {
+      graphTicket();
+      nodeRun(9, 'graphite');
+      graphSeed({ nodeRunId: 9, input: 40, output: 10 });
+      const state = buildUsageState(store, { projectId: 1, limit: 10_000, now: NOW });
+      expect(state.error).toMatch(/limit/);
+      expect(state.byProfile).toEqual([]);
+      expect(state.empty).toBe(true);
+      expect(state.totals.totalDisplay).toBe('0');
+    });
+  });
 });
