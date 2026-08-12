@@ -215,10 +215,17 @@
      at the opposite edge used to restate it across a flex spacer, which left
      the content hugging the left of a wide bar (UI-R07). The ghost variant's
      own hover (surface wash + text brighten) is the whole hover story, and its
-     own justify-content:center is the whole positioning story. */
+     own justify-content:center is the whole positioning story — but only
+     WITHIN a box that actually spans the list: a <button> element treats
+     width:auto as shrink-to-fit even at display:flex, so without an explicit
+     width the bar collapsed to a compact pill hugging the list's left edge
+     (869egrd09-fu1). The width is explicit; the calc compensates the two
+     --k-space-2 side margins so the bar fits the content box exactly like a
+     .ticket row — width:100% alone would add the margins on top and overflow
+     the list's horizontal scroll surface. */
   .hist{display:flex;align-items:center;gap:var(--k-space-2);
     margin:var(--k-space-3) var(--k-space-2);padding:var(--k-space-2) var(--k-space-4);
-    border-radius:var(--k-radius-md)}
+    border-radius:var(--k-radius-md);width:calc(100% - var(--k-space-4))}
   .hist-chev{display:inline-flex;flex:0 0 auto;transition:transform var(--k-dur-fast) var(--k-ease-standard)}
   .hist[aria-expanded="true"] .hist-chev{transform:rotate(90deg)}
 </style>
