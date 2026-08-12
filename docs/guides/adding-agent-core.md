@@ -206,6 +206,29 @@ Update and test:
 Do not add a provider to `IMPLEMENTED_PROVIDERS` until its adapter is usable.
 Unimplemented manifest values remain disabled in settings.
 
+### Register the identity (icon + name + model pattern)
+
+Every provider renders through the ONE identity component in
+`src/model/agentIdentity.ts` — `[icon] Provider · Model` — in every webview,
+selector, and ledger row. Adding a provider's visual identity is exactly two
+things and nothing else:
+
+1. drop the canonical SVG into `src/model/icons/agent/<name>.svg` and add it
+   to `scripts/copy-assets.mjs` (it ships next to the compiled output);
+2. register one row in `AGENT_PROVIDERS` in `src/model/agentIdentity.ts`:
+   the canonical display name plus the asset filename.
+
+There is no second icon set to draw: the line-art set was retired with
+869eh44n5, so a provider is never present in one surface and missing from
+another. Prefer an SVG that reads at 13–14px; a `fill="currentColor"` mark
+inherits the theme automatically, while a fixed brand-color mark renders as
+its brand in both light and dark themes (the Antigravity precedent). A
+missing asset degrades to the label-only badge — never a blank hole.
+
+Verify with `src/model/agentIdentity.test.ts` (registry completeness, asset
+presence, injected-component output) and `src/ui/designSystem.test.ts` (every
+webview that calls the injected API carries both markers).
+
 ## 7. Add dependency detection
 
 Add a confirmed entry to `AGENT_CLI_DEPENDENCIES` in `src/runtime/deps.ts`:

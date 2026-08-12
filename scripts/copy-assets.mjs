@@ -16,6 +16,10 @@ const assets = [
   'ui/usage/webview.html',
   'ui/gettingStarted/webview.html',
   'store/schema.sql',
+  'model/icons/agent/claude-code.svg',
+  'model/icons/agent/codex.svg',
+  'model/icons/agent/antigravity-cli.svg',
+  'model/icons/agent/opencode.svg',
 ]; // sourced from src/
 // Sourced from the repo root. The setup runbook travels the same way the
 // manifest template does: it is written into the TARGET project at scaffold

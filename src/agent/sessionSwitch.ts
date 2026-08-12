@@ -6,10 +6,14 @@ import {
   resolveModelForProvider,
 } from './models.js';
 import { IMPLEMENTED_PROVIDERS } from './provider.js';
+import { AGENT_PROVIDER_LABELS } from '../model/agentIdentity.js';
 
-export const PROVIDER_LABELS: Readonly<Record<AgentProvider, string>> = {
-  claude: 'Claude Code', codex: 'Codex', antigravity: 'Antigravity', opencode: 'OpenCode',
-};
+/**
+ * The provider display names — ONE source of truth: the agent identity
+ * registry (`model/agentIdentity.ts`). This module used to carry its own
+ * copy, so a rename there silently drifted the switch flow (869eh44n5).
+ */
+export const PROVIDER_LABELS: Readonly<Record<AgentProvider, string>> = AGENT_PROVIDER_LABELS;
 
 export interface AgentSessionView {
   provider: AgentProvider;

@@ -2108,7 +2108,11 @@ describe('settings agents tab — process assignments', () => {
     expect(HTML).toContain('PROCESS_KEYS\n      .map((key) => renderProcessAssignmentRow(key,');
     expect(HTML).toContain('data-proc-key="${key}"');
     expect(HTML).toContain('data-proc-field="agent"');
-    expect(HTML).toContain('data-proc-field="provider"');
+    // The core cell is the identity dropdown (icon + name per choice, UI-R10c),
+    // not a native select — the model/name fields are the remaining proc
+    // fields that commit on change/input.
+    expect(HTML).not.toContain('data-proc-field="provider"');
+    expect(HTML).toContain('data-proc-core-opt="');
     expect(HTML).toContain('data-proc-field="model"');
     expect(HTML).toContain('data-proc-field="agentName"');
     expect(HTML).toContain('data-proc-enabled="${key}"');
@@ -2169,8 +2173,9 @@ describe('settings agents tab — process assignments', () => {
     const source = `
       const KNOWN_AGENT_PROVIDERS = ['claude', 'codex', 'antigravity', 'opencode'];
       const AGENT_PROVIDER_LABELS = {
-        claude: 'Claude Code', codex: 'Codex', antigravity: 'Antigravity', opencode: 'OpenCode',
+        claude: 'Claude Code', codex: 'Codex', antigravity: 'Antigravity CLI', opencode: 'OpenCode',
       };
+      function agentBadgeHtml(p) { return '<span class="agentbadge"><span class="agentname">' + (AGENT_PROVIDER_LABELS[p] || p || '') + '</span></span>'; }
       const PROCESS_KEYS_WITH_INSTRUCTIONS = ['uatTester', 'review'];
       ${functionSource('renderModelOptions')}
       ${functionSource('renderProcessAssignmentRow')}
@@ -2228,7 +2233,7 @@ describe('settings agents tab — process assignments', () => {
     expect(html).toContain('data-proc-key="uatTester"');
     expect(html).toContain('Codex Current');
     expect(html).not.toContain('Claude Only');
-    expect(html).toContain('data-proc-field="provider"');
+    expect(html).toContain('data-proc-core-opt="uatTester"');
     expect(html).toContain('data-proc-field="model"');
   });
 
@@ -2719,8 +2724,9 @@ describe('settings v7 matrix groups', () => {
     const load = (key: string) => runInNewContext(`
       const KNOWN_AGENT_PROVIDERS = ['claude', 'codex', 'antigravity', 'opencode'];
       const AGENT_PROVIDER_LABELS = {
-        claude: 'Claude Code', codex: 'Codex', antigravity: 'Antigravity', opencode: 'OpenCode',
+        claude: 'Claude Code', codex: 'Codex', antigravity: 'Antigravity CLI', opencode: 'OpenCode',
       };
+      function agentBadgeHtml(p) { return '<span class="agentbadge"><span class="agentname">' + (AGENT_PROVIDER_LABELS[p] || p || '') + '</span></span>'; }
       const PROCESS_KEYS_WITH_INSTRUCTIONS = ['uatTester', 'review'];
       ${functionSource('renderModelOptions')}
       ${functionSource('renderProcessAssignmentRow')}
@@ -2747,8 +2753,9 @@ describe('settings v7 matrix groups', () => {
     const html = runInNewContext(`
       const KNOWN_AGENT_PROVIDERS = ['claude', 'codex', 'antigravity', 'opencode'];
       const AGENT_PROVIDER_LABELS = {
-        claude: 'Claude Code', codex: 'Codex', antigravity: 'Antigravity', opencode: 'OpenCode',
+        claude: 'Claude Code', codex: 'Codex', antigravity: 'Antigravity CLI', opencode: 'OpenCode',
       };
+      function agentBadgeHtml(p) { return '<span class="agentbadge"><span class="agentname">' + (AGENT_PROVIDER_LABELS[p] || p || '') + '</span></span>'; }
       const PROCESS_KEYS_WITH_INSTRUCTIONS = ['uatTester', 'review'];
       ${functionSource('renderModelOptions')}
       ${functionSource('renderProcessAssignmentRow')}
@@ -2768,17 +2775,19 @@ describe('settings v7 matrix groups', () => {
 describe('settings v7 model picker no-default', () => {
   it('leads the popup with a No default row that clears the saved model', () => {
     const source = `
-      const MODEL_GROUP_LABELS = { claude: 'Claude Code', codex: 'Codex', antigravity: 'Antigravity', opencode: 'OpenCode' };
       const modelCatalog = {
         codex: [{ id: 'gpt-x', label: 'GPT X', providers: ['codex'] }],
         claude: [], antigravity: [], opencode: [],
       };
+      function agentBadgeHtml(p) { return '<span class="agentbadge"><span class="agentname">' + p + '</span></span>'; }
+      const AGENT_PROVIDER_LABELS = { claude: 'Claude Code', codex: 'Codex', antigravity: 'Antigravity CLI', opencode: 'OpenCode' };
       let draft = { agentProvider: 'codex', defaultModel: 'gpt-x' };
       const elements = {};
       function el(id) {
         if (!elements[id]) elements[id] = { innerHTML: '', classList: { toggle() {} } };
         return elements[id];
       }
+      ${functionSource('modelGroupLabelHtml')}
       ${functionSource('renderModelPickerPopup')}
       renderModelPickerPopup();
       elements.modelList.innerHTML;
