@@ -42,7 +42,7 @@ function doc(nodes: ApproachNode[], edges: ApproachEdge[], entries: string[]): s
   return JSON.stringify(document);
 }
 
-function agent(id: string): ApproachNode {
+function agent(id: string, maxVisits = 3): ApproachNode {
   return {
     id,
     kind: 'agent',
@@ -53,7 +53,7 @@ function agent(id: string): ApproachNode {
     outputs: [],
     resources: { reads: [], writes: [] },
     outcomes: ['complete'],
-    budget: { maxVisits: 3 },
+    budget: { maxVisits },
   };
 }
 
@@ -217,18 +217,21 @@ describe('runCoordinatorTick', () => {
   });
 
   it('is bounded to 100 transitions per tick', () => {
-    const ctx = harness(doc([agent('a'), agent('b')], [
-      { id: 'a-b', from: 'a', on: 'complete', to: 'b' },
-      { id: 'b-end', from: 'b', on: 'complete', to: 'END' },
+    // 150 pending tokens across five nodes of maxVisits 20 (the hard
+    // ceiling): the tick bound (100), not the node budgets, is what stops it.
+    const nodes = [agent('a'), ...Array.from({ length: 5 }, (_, i) => agent(`b${i}`, 20))];
+    const ctx = harness(doc(nodes, [
+      { id: 'a-b', from: 'a', on: 'complete', to: 'b0' },
+      { id: 'b-end', from: 'b0', on: 'complete', to: 'END' },
     ], ['a']));
-    // 150 pending tokens for node b (distinct activations).
+    // 30 pending tokens per node (distinct activations).
     for (let i = 0; i < 150; i++) {
       insertGraphToken(ctx.db, {
         revisionId: ctx.revisionId,
         sourceNodeRunId: 700 + i,
         isEntry: false,
         edgeId: `s${i}`,
-        destinationNodeId: 'b',
+        destinationNodeId: `b${i % 5}`,
         destinationEnd: false,
         forkInstance: i,
         forkLineage: 'root',

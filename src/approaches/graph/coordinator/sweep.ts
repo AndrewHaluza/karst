@@ -22,6 +22,7 @@
 import type { GraphDb } from '../../../store/graph/transitions.js';
 import { pendingTokensForRevision, type GraphTokenRow } from '../../../store/graph/tokens.js';
 import { claimActivation, claimJoinActivation, GraphClaimError } from './claim.js';
+import { handleBudgetRefusal } from './visits.js';
 import { parseGraphDocument, type ApproachNode, type GraphDocument } from '../parse.js';
 
 /** The per-tick bound: ≤ 100 state transitions (design, "Coordinator sweep"). */
@@ -149,7 +150,7 @@ export function runCoordinatorTick(
       const cost = group.tokens.length + 1; // arrivals + successor token
       if (result.transitions + cost > maxTransitions) break;
       try {
-        claimJoinActivation(
+        const fired = claimJoinActivation(
           { db, transaction: deps.transaction, now: deps.now },
           {
             tokenIds: group.tokens.map((t) => t.id),
@@ -162,8 +163,27 @@ export function runCoordinatorTick(
             },
           },
         );
-        result.claimed += 1;
-        result.transitions += cost;
+        if (fired.claimed) {
+          result.claimed += 1;
+          result.transitions += cost;
+          continue;
+        }
+        if (fired.reason === 'budget-exhausted') {
+          // A join beyond its budget has no failure outcome — the graph
+          // blocks with graph-budget-exhausted, never fires partially.
+          const refusal = handleBudgetRefusal(
+            { db, transaction: deps.transaction, now: deps.now, debug: deps.debug },
+            {
+              graphRunId: opts.graphRunId,
+              revisionId: revision.id,
+              nodeId: group.destination,
+              nodeKind: 'join',
+              tokens: group.tokens,
+            },
+          );
+          result.transitions += 1;
+          if (refusal.kind === 'blocked') break;
+        }
       } catch (err) {
         if (err instanceof GraphClaimError) {
           deps.debug?.(`[graph] run ${opts.graphRunId}: join ${node.id} firing aborted: ${err.message}`);
@@ -186,7 +206,26 @@ export function runCoordinatorTick(
       if (outcome.claimed) {
         result.claimed += 1;
         result.transitions += 1;
+        continue;
       }
+      if (outcome.reason !== 'budget-exhausted') continue;
+      // Slice 4 Task 1: a visit beyond its budget either routes along the
+      // node's declared failure edge or blocks the graph — one transaction,
+      // never a silent drop. The group's remaining tokens are either
+      // cancelled (routed) or stay pending (blocked → Resume re-evaluates).
+      const refusal = handleBudgetRefusal(
+        { db, transaction: deps.transaction, now: deps.now, debug: deps.debug },
+        {
+          graphRunId: opts.graphRunId,
+          revisionId: revision.id,
+          nodeId: group.destination,
+          nodeKind: node.kind,
+          tokens: group.tokens,
+        },
+      );
+      result.transitions += 1;
+      if (refusal.kind === 'blocked') break; // the run is no longer running
+      break; // routed: the group's tokens are consumed; stop scheduling it
     }
   }
   return result;

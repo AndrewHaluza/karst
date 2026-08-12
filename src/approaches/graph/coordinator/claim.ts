@@ -35,6 +35,7 @@ import {
   claimGraphToken,
   type GraphTokenRow,
 } from '../../../store/graph/tokens.js';
+import { budgetRefusalFor, type BudgetRefusal } from './visits.js';
 
 /** Thrown when a claim must abort: a join with an unclaimable arrival, an
  *  END token handed to claiming, or an inner CAS that changed no row. */
@@ -55,7 +56,7 @@ export interface ClaimDeps {
 
 export type ClaimResult =
   | { claimed: true; nodeRunId: number; visitNumber: number }
-  | { claimed: false; reason: 'not-found' | 'not-pending' };
+  | { claimed: false; reason: 'not-found' | 'not-pending' | 'budget-exhausted'; refusal?: BudgetRefusal };
 
 export interface ClaimActivationInput {
   tokenId: number;
@@ -166,6 +167,10 @@ export function claimActivation(deps: ClaimDeps, input: ClaimActivationInput): C
     }
     const graphRunId = revisionGraphRunId(db, token.revision_id);
     const nodeId = token.destination_node_id!;
+    // Slice 4 Task 1: a visit beyond the document or node budget is refused
+    // BEFORE any row is written — no run, no budget increment, no mutation.
+    const refusal = budgetRefusalFor(db, graphRunId, token.revision_id, nodeId);
+    if (refusal) return { claimed: false, reason: 'budget-exhausted', refusal };
     const visitNumber = nextVisitNumber(db, token.revision_id, nodeId);
     const nodeRunId = createNodeRun(db, graphRunId, token.revision_id, nodeId, input.nodeKind, visitNumber);
     if (!claimGraphToken(db, token.id, nodeRunId)) {
@@ -191,6 +196,10 @@ export function claimJoinActivation(deps: ClaimDeps, input: ClaimJoinInput): Cla
     const first = arrivals[0]!;
     const graphRunId = revisionGraphRunId(db, first.revision_id);
     const joinNodeId = first.destination_node_id!;
+    // A join visit consumes budget like any other (Slice 4 Task 1): a join
+    // beyond its budget is refused — the handler blocks, never fires.
+    const refusal = budgetRefusalFor(db, graphRunId, first.revision_id, joinNodeId);
+    if (refusal) return { claimed: false, reason: 'budget-exhausted', refusal };
     const visitNumber = nextVisitNumber(db, first.revision_id, joinNodeId);
     const nodeRunId = createNodeRun(db, graphRunId, first.revision_id, joinNodeId, 'join', visitNumber);
     let changed = 0;
