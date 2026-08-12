@@ -151,6 +151,8 @@ import {
   orchestratorCommandBasename,
 } from './agent/workflowCommand.js';
 import { startHookEndpoint, type HookEndpoint } from './hooks/endpoint.js';
+import { startGraphWakeupEndpoint, type GraphWakeupEndpoint } from './hooks/graphEndpoint.js';
+import { runCoordinatorTick, activeGraphRunIds } from './approaches/graph/coordinator/sweep.js';
 import { createHookChannelRecorder } from './diagnostics/hookChannel.js';
 import { sweepHookSettings } from './agent/settingsSweep.js';
 import { writeCurrentEndpoint } from './agent/hookFailureLog.js';
@@ -431,6 +433,8 @@ const MERGE_SYNC_MIN_AGE_MS = 5 * 60_000;
 
 let store: Store | undefined;
 let endpoint: HookEndpoint | undefined;
+let graphEndpoint: GraphWakeupEndpoint | undefined;
+let graphCoordinatorStore: Store | undefined;
 const pendingApproachInstalls = new Set<Promise<ApproachPackage>>();
 let flushSessionOwnership: (() => Promise<void>) | undefined;
 let shutdownSessionRecovery: (() => void) | undefined;
@@ -2638,6 +2642,65 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     await context.workspaceState.update(HOOK_PORT_KEY, endpoint.port);
   }
 
+  // Graph coordinator wiring (Slice 3 Task 2) — wiring only, all logic lives
+  // in the coordinator modules. The coordinator gets its OWN connection with
+  // a zero busy timeout: a contended BEGIN IMMEDIATE must abort immediately
+  // (a synchronous busy wait would block the shared event loop), and that
+  // policy must not leak onto the main connection every other path uses.
+  // WAL keeps the second connection consistent with the first.
+  graphCoordinatorStore = openStore(dbPath);
+  graphCoordinatorStore.db.pragma('busy_timeout = 0');
+  graphEndpoint = await startGraphWakeupEndpoint({
+    schedule: (graphRunId) => {
+      runGraphCoordinatorTick(graphRunId);
+    },
+    debug: (message) => logger.debug(message),
+  });
+
+  // Per-graph-run loopback routes: created on demand and handed to the
+  // launcher, which puts the URL and route token into the agent environment.
+  // A route is a wake-up capability only — it can never advance state.
+  const graphRoutes = new Map<number, { url: string; token: string }>();
+
+  /** One bounded coordinator tick for a graph run; a failure only delays the
+   *  next tick (the sweep is the source of truth, never this callback). */
+  const runGraphCoordinatorTick = (graphRunId: number): void => {
+    const gs = graphCoordinatorStore;
+    if (!gs) return;
+    // Ensure the run's wake-up route exists before any of its sessions can
+    // launch; the launcher reuses the same route when composing the env.
+    graphRouteFor(graphRunId);
+    try {
+      runCoordinatorTick(
+        {
+          db: gs.db,
+          // The installed @types predate better-sqlite3's `{ begin }` option;
+          // the runtime (12.x) supports it, so the option is cast once here.
+          transaction: <T>(fn: () => T): T =>
+            (gs.db.transaction as unknown as (f: () => T, o: { begin: 'immediate' }) => () => T)(
+              fn,
+              { begin: 'immediate' },
+            )(),
+          now: () => new Date().toISOString(),
+          debug: (message) => logger.debug(message),
+        },
+        { graphRunId },
+      );
+    } catch (err) {
+      // Bookkeeping over state that is already stored: the next tick retries.
+      logError(`karst: graph coordinator tick failed for run ${graphRunId}`, err);
+    }
+  };
+
+  /** The wake-up route for a graph run, created on first use. */
+  const graphRouteFor = (graphRunId: number): { url: string; token: string } => {
+    const existing = graphRoutes.get(graphRunId);
+    if (existing) return existing;
+    const route = graphEndpoint!.registerRoute({ graphRunId });
+    graphRoutes.set(graphRunId, route);
+    return route;
+  };
+
   // Write the current endpoint URL so revived Codex sessions discover the live
   // port instead of POSTing to a stale one left over from before the reload.
   writeCurrentEndpoint(settingsDir, endpoint.url);
@@ -2791,6 +2854,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       } catch (e) {
         // Bookkeeping over state that is already stored: the next tick retries.
         logError('karst: merge gate settle failed', e);
+      }
+      // Graph coordinator sweep (Slice 3 Task 2). Rides this tick exactly
+      // like settleShipGates: a completion that committed to the database is
+      // always eventually scheduled, even when its wake-up hit a dead port.
+      // The tick is bounded (≤ 100 transitions), reads canonical state fresh,
+      // and a failure only delays the next tick — never depends on a callback.
+      if (graphCoordinatorStore) {
+        let graphRuns: number[] = [];
+        try {
+          graphRuns = activeGraphRunIds(graphCoordinatorStore.db);
+        } catch (e) {
+          logError('karst: graph run listing failed', e);
+        }
+        for (const graphRunId of graphRuns) {
+          runGraphCoordinatorTick(graphRunId);
+        }
       }
       // Done tickets are archived on a DELAY (manifest `archiveDoneAfterDays`,
       // default 3 days), never when they reach done — and a ticket can sit at
@@ -3937,6 +4016,18 @@ export async function deactivate(): Promise<void> {
     cleanupErrors.push(error);
   }
   endpoint = undefined;
+  try {
+    await graphEndpoint?.close();
+  } catch (error) {
+    cleanupErrors.push(error);
+  }
+  graphEndpoint = undefined;
+  try {
+    graphCoordinatorStore?.close();
+  } catch (error) {
+    cleanupErrors.push(error);
+  }
+  graphCoordinatorStore = undefined;
   try {
     shutdownSessionRecovery?.();
   } catch (error) {
