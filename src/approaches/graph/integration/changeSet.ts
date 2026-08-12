@@ -81,6 +81,30 @@ export async function captureChangeSet(
 }
 
 /**
+ * Enumerate the untracked files of a workspace, bounded — new files a node
+ * created without `git add`, which `git diff --name-status` never lists. The
+ * pipeline's workspace landing copies these into the canonical worktree (the
+ * paths `git add --all` used to pick up under the V1 canonical model) so a
+ * node's new files are never silently dropped between its workspace and the
+ * canonical tree. `--exclude-standard` honors the repo's ignore rules, exactly
+ * like `git add -A`.
+ */
+export async function captureUntrackedPaths(
+  git: GitRunner,
+  cwd: string,
+): Promise<string[]> {
+  const result = await git(['ls-files', '--others', '--exclude-standard'], cwd);
+  if (result.exitCode !== 0) {
+    throw new Error(`git ls-files --others failed (exit ${result.exitCode})`);
+  }
+  return result.stdout
+    .split('\n')
+    .map((p) => p.trim())
+    .filter((p) => p !== '')
+    .slice(0, MAX_CHANGE_SET_PATHS);
+}
+
+/**
  * Whether a changed path is inside a declared claim. A claim is an exact
  * file OR a directory subtree; both are matched without a marker, because
  * an exact-file claim can never have a descendant (no `/` may follow it) and

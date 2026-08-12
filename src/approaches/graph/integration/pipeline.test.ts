@@ -156,6 +156,9 @@ function makeDeps(
         paths: ['a.ts'],
       },
     ],
+    // Slice 5 T5: the node's isolated workspace clone per repo, when one was
+    // created (T1). Undefined = the V1 canonical-worktree model.
+    workspaceCwdOf: () => undefined,
   };
   return { ...base, ...overrides };
 }
@@ -269,8 +272,11 @@ describe('runCompletionPipeline — integration', () => {
     const h = harness();
     cleanups.push(h.close);
     insertNodeRun(h, 24, 'completing');
+    // Two held leases, one of them the ACTUAL domain being integrated (the
+    // per-domain model: the node must hold its integrated domain's lease).
+    const domainD = domainKeyOf(canonicalPath(h.worktree), gitCommonDirOf2(h.worktree));
     lease(h, 24, 'dom-a');
-    lease(h, 24, 'dom-b');
+    lease(h, 24, domainD);
     writeFileSync(join(h.worktree, 'a.ts'), 'a5\n');
     const result = await runCompletionPipeline(
       makeDeps(h),
@@ -318,11 +324,16 @@ describe('runCompletionPipeline — integration', () => {
 });
 
 describe('runCompletionPipeline — serialization and order', () => {
-  it('deferred while another node of the graph is integrating', async () => {
+  it('deferred while another node holds the same physical domain lease (Slice 5 T5)', async () => {
     const h = harness();
     cleanups.push(h.close);
     insertNodeRun(h, 31, 'completing');
     insertNodeRun(h, 32, 'integrating');
+    // 32 holds the SAME physical domain's write lease (a same-domain writer is
+    // in flight): 31 may not integrate it — the per-domain serialization. A
+    // DISJOINT domain would NOT defer (that is the parallel case, tested below).
+    const domainD = domainKeyOf(canonicalPath(h.worktree), gitCommonDirOf2(h.worktree));
+    lease(h, 32, domainD);
     const result = await runCompletionPipeline(
       makeDeps(h),
       { graphRunId: h.graphRunId, nodeRunId: 31 },
@@ -634,5 +645,211 @@ describe('runCompletionPipeline — required output validation (Slice-4 T2)', ()
       .prepare('SELECT status FROM approach_graph_runs WHERE id = ?')
       .get(h.graphRunId) as { status: string };
     expect(run.status).toBe('running');
+  });
+});
+
+/** A local clone of a canonical worktree at `baseSha` — the isolated node
+ *  workspace the T1 provider creates and the pipeline now captures from. */
+function makeWorkspaceClone(canonicalDir: string, baseSha: string): string {
+  const root = mkdtempSync(join(tmpdir(), 'karst-graph-ws-'));
+  cleanups.push(() => rmSync(root, { recursive: true, force: true }));
+  const clone = join(root, 'repo');
+  git(root, ['clone', '-q', '--local', canonicalDir, 'repo']);
+  git(clone, ['checkout', '-q', '--detach', baseSha]);
+  return clone;
+}
+
+/** A path-granular held lease for a node run (claimed_paths encoded). */
+function pathLease(h: Harness, nodeRunId: number, physicalDomain: string, paths: string[]): void {
+  acquireLease(h.db, {
+    graphRunId: h.graphRunId,
+    ownerNodeRunId: nodeRunId,
+    physicalDomain,
+    accessMode: 'write',
+    claimedPaths: JSON.stringify(paths),
+    now: '2026-08-12T00:00:00.000Z',
+  });
+}
+
+describe('runCompletionPipeline — Slice 5 Task 5: deterministic integration under parallelism', () => {
+  it('two disjoint writers integrate cleanly in node-run order, each landing its workspace diff in its canonical tree', async () => {
+    const h = harness();
+    cleanups.push(h.close);
+    const repoB = makeRepo();
+    cleanups.push(() => rmSync(repoB.dir, { recursive: true, force: true }));
+    insertNodeRun(h, 41, 'completing');
+    insertNodeRun(h, 42, 'completing');
+    // Each node works in ITS OWN isolated workspace clone; the canonical
+    // worktrees stay clean until the pipeline lands the diffs.
+    const wsA = makeWorkspaceClone(h.worktree, h.baseSha);
+    const wsB = makeWorkspaceClone(repoB.dir, repoB.baseSha);
+    writeFileSync(join(wsA, 'a.ts'), 'ws-A\n');
+    writeFileSync(join(wsB, 'a.ts'), 'ws-B\n');
+    expect(git(h.worktree, ['status', '--porcelain'])).toBe('');
+    expect(git(repoB.dir, ['status', '--porcelain'])).toBe('');
+
+    const domainA = domainKeyOf(canonicalPath(h.worktree), gitCommonDirOf2(h.worktree));
+    const domainB = domainKeyOf(canonicalPath(repoB.dir), gitCommonDirOf2(repoB.dir));
+    const deps = makeDeps(h, {
+      domainsFor: () => [
+        { repoName: 'repoA', worktreePath: h.worktree },
+        { repoName: 'repoB', worktreePath: repoB.dir },
+      ],
+      declaredWritesOf: (nodeRunId) =>
+        nodeRunId === 41
+          ? [{ domainKey: domainA, paths: ['a.ts'] }]
+          : [{ domainKey: domainB, paths: ['a.ts'] }],
+      workspaceCwdOf: (nodeRunId, repoName) => {
+        if (nodeRunId === 41 && repoName === 'repoA') return wsA;
+        if (nodeRunId === 42 && repoName === 'repoB') return wsB;
+        return undefined;
+      },
+    });
+
+    // Disjoint domains integrate in parallel: neither defers on the other.
+    const first = await runCompletionPipeline(deps, { graphRunId: h.graphRunId, nodeRunId: 41 });
+    expect(first).toEqual({ kind: 'integrated', committed: true });
+    expect(readFileSync(join(h.worktree, 'a.ts'), 'utf8')).toBe('ws-A\n');
+    expect(git(h.worktree, ['status', '--porcelain'])).toBe('');
+
+    const second = await runCompletionPipeline(deps, { graphRunId: h.graphRunId, nodeRunId: 42 });
+    expect(second).toEqual({ kind: 'integrated', committed: true });
+    expect(readFileSync(join(repoB.dir, 'a.ts'), 'utf8')).toBe('ws-B\n');
+    expect(git(repoB.dir, ['status', '--porcelain'])).toBe('');
+
+    // Both completed and their leases released (Slice 5 T2) in node-run order.
+    expect(nodeRow(h, 41).status).toBe('completed');
+    expect(nodeRow(h, 42).status).toBe('completed');
+    const leases = h.db
+      .prepare('SELECT status FROM approach_resource_leases ORDER BY owner_node_run_id')
+      .all() as { status: string }[];
+    expect(leases).toEqual([{ status: 'released' }, { status: 'released' }]);
+    const log = git(h.worktree, ['log', '--format=%s', '-1']);
+    expect(log).toBe(`${INTEGRATION_COMMIT_PREFIX} ${h.graphRunId} node 41`);
+  });
+
+  it('an overlapping pair serializes: the second defers while the first integrates, then integrates after', async () => {
+    const h = harness();
+    cleanups.push(h.close);
+    insertNodeRun(h, 51, 'completing');
+    insertNodeRun(h, 52, 'completing');
+    // Both write the SAME repository (same physical domain), disjoint files.
+    // 51 holds the domain's write lease (the claim-time T2 shape): 52 — any
+    // write in that domain — waits until 51's integration releases it.
+    const domainD = domainKeyOf(canonicalPath(h.worktree), gitCommonDirOf2(h.worktree));
+    lease(h, 51, domainD);
+    const ws51 = makeWorkspaceClone(h.worktree, h.baseSha);
+    const ws52 = makeWorkspaceClone(h.worktree, h.baseSha);
+    writeFileSync(join(ws51, 'a.ts'), '51\n');
+    writeFileSync(join(ws52, 'b.ts'), '52\n');
+    const deps = makeDeps(h, {
+      declaredWritesOf: (nodeRunId) =>
+        nodeRunId === 51
+          ? [{ domainKey: domainD, paths: ['a.ts'] }]
+          : [{ domainKey: domainD, paths: ['b.ts'] }],
+      workspaceCwdOf: (nodeRunId) =>
+        nodeRunId === 51 ? ws51 : nodeRunId === 52 ? ws52 : undefined,
+    });
+
+    // Only one integrates at a time: while 51 holds the domain lease, 52 waits.
+    const headBefore = git(h.worktree, ['log', '--format=%H', '-1']);
+    const deferred = await runCompletionPipeline(deps, { graphRunId: h.graphRunId, nodeRunId: 52 });
+    expect(deferred.kind).toBe('deferred');
+    expect(nodeRow(h, 52).status).toBe('completing');
+    expect(git(h.worktree, ['log', '--format=%H', '-1'])).toBe(headBefore);
+
+    const first = await runCompletionPipeline(deps, { graphRunId: h.graphRunId, nodeRunId: 51 });
+    expect(first).toEqual({ kind: 'integrated', committed: true });
+    expect(readFileSync(join(h.worktree, 'a.ts'), 'utf8')).toBe('51\n');
+    expect(git(h.worktree, ['status', '--porcelain'])).toBe('');
+
+    // 51's integration released the lease; 52 acquires it and integrates after.
+    const second = await runCompletionPipeline(deps, { graphRunId: h.graphRunId, nodeRunId: 52 });
+    expect(second).toEqual({ kind: 'integrated', committed: true });
+    expect(readFileSync(join(h.worktree, 'b.ts'), 'utf8')).toBe('52\n');
+    expect(nodeRow(h, 51).status).toBe('completed');
+    expect(nodeRow(h, 52).status).toBe('completed');
+    const log = git(h.worktree, ['log', '--format=%s', '-2']).split('\n');
+    expect(log[0]).toBe(`${INTEGRATION_COMMIT_PREFIX} ${h.graphRunId} node 52`);
+    expect(log[1]).toBe(`${INTEGRATION_COMMIT_PREFIX} ${h.graphRunId} node 51`);
+  });
+
+  it('an integration conflict preserves both the isolated workspace and the canonical worktree and blocks', async () => {
+    const h = harness();
+    cleanups.push(h.close);
+    insertNodeRun(h, 61, 'completing');
+    // The canonical worktree has moved on (a prior integration committed a
+    // different content for a.ts). The node's workspace — cut from the OLD
+    // base — changes a.ts; landing it onto the advanced canonical tree is a
+    // genuine conflict.
+    writeFileSync(join(h.worktree, 'a.ts'), 'canonical\n');
+    git(h.worktree, ['add', '-A']);
+    git(h.worktree, ['commit', '-qm', 'prior integration']);
+    const ws61 = makeWorkspaceClone(h.worktree, h.baseSha);
+    writeFileSync(join(ws61, 'a.ts'), 'ws-conflict\n');
+    const headBefore = git(h.worktree, ['log', '--format=%H', '-1']);
+    const domainD = domainKeyOf(canonicalPath(h.worktree), gitCommonDirOf2(h.worktree));
+    const deps = makeDeps(h, {
+      declaredWritesOf: () => [{ domainKey: domainD, paths: ['a.ts'] }],
+      workspaceCwdOf: (nodeRunId) => (nodeRunId === 61 ? ws61 : undefined),
+    });
+
+    const result = await runCompletionPipeline(deps, { graphRunId: h.graphRunId, nodeRunId: 61 });
+    expect(result.kind).toBe('integration-conflict');
+    expect(nodeRow(h, 61)).toMatchObject({
+      status: 'blocked',
+      failure_category: 'integration-conflict',
+    });
+    const run = h.db
+      .prepare('SELECT status, blocked_reason FROM approach_graph_runs WHERE id = ?')
+      .get(h.graphRunId) as { status: string; blocked_reason: string };
+    expect(run.status).toBe('blocked');
+    expect(run.blocked_reason).toContain('integration-conflict');
+    // BOTH trees preserved: the workspace keeps its change, the canonical
+    // worktree keeps its prior state, and nothing was committed.
+    expect(readFileSync(join(ws61, 'a.ts'), 'utf8')).toBe('ws-conflict\n');
+    expect(readFileSync(join(h.worktree, 'a.ts'), 'utf8')).toBe('canonical\n');
+    expect(git(h.worktree, ['log', '--format=%H', '-1'])).toBe(headBefore);
+    // The lease stays HELD behind the blocker (Slice 5 T2) — only the discard
+    // action or the resumed integration releases it.
+    expect(leaseRow(h, 61)).toEqual({ status: 'held' });
+  });
+
+  it('interleaved integration and a repository-wide command serialize by physical domain', async () => {
+    const h = harness();
+    cleanups.push(h.close);
+    const domainD = domainKeyOf(canonicalPath(h.worktree), gitCommonDirOf2(h.worktree));
+    insertNodeRun(h, 71, 'completing'); // agent, path claim
+    insertNodeRun(h, 72, 'completing'); // command, repo-wide claim
+    // Direction A: the agent's domain write is in flight (path lease) — the
+    // repository-wide command cannot integrate while it stands.
+    pathLease(h, 71, domainD, ['a.ts']);
+    const agentInFlight = await runCompletionPipeline(
+      makeDeps(h, {
+        declaredWritesOf: (nodeRunId) =>
+          nodeRunId === 72 ? [{ domainKey: domainD, paths: [''] }] : [],
+        workspaceCwdOf: () => undefined,
+      }),
+      { graphRunId: h.graphRunId, nodeRunId: 72 },
+    );
+    expect(agentInFlight.kind).toBe('deferred');
+    expect(nodeRow(h, 72).status).toBe('completing');
+
+    // Direction B: the repository-wide command holds the domain lease — an
+    // agent's path write defers.
+    h.db
+      .prepare('UPDATE approach_resource_leases SET status = ? WHERE owner_node_run_id = ?')
+      .run('released', 71);
+    lease(h, 72, domainD); // repo-wide (claimed_paths NULL)
+    const commandInFlight = await runCompletionPipeline(
+      makeDeps(h, {
+        declaredWritesOf: (nodeRunId) =>
+          nodeRunId === 71 ? [{ domainKey: domainD, paths: ['a.ts'] }] : [],
+        workspaceCwdOf: () => undefined,
+      }),
+      { graphRunId: h.graphRunId, nodeRunId: 71 },
+    );
+    expect(commandInFlight.kind).toBe('deferred');
+    expect(nodeRow(h, 71).status).toBe('completing');
   });
 });

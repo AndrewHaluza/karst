@@ -3188,6 +3188,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       domainsFor: () => graphDomainsFor(graphRunId),
       declaredWritesOf: (nodeRunId) => declaredGraphWrites(nodeRunId),
       artifactRoot: () => graphArtifactRoot(graphRunId),
+      // Slice 5 T5: the node's isolated workspace clone per repo (T1). The
+      // pipeline captures the actual diff from the clone and lands it into the
+      // CANONICAL worktree; a repo with no ledger row falls back to the
+      // canonical model.
+      workspaceCwdOf: (nodeRunId, repoName) => {
+        const gs = graphCoordinatorStore;
+        if (!gs) return undefined;
+        const row = gs.db
+          .prepare(
+            `SELECT cwd FROM approach_graph_workspaces
+             WHERE node_run_id = ? AND repo_name = ? ORDER BY id LIMIT 1`,
+          )
+          .get(nodeRunId, repoName) as { cwd: string } | undefined;
+        return row?.cwd;
+      },
     };
   };
 

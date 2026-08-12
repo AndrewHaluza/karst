@@ -8,14 +8,47 @@
  * boundaries — `abc` never covers `abc-2`.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import {
   parseNameStatus,
   validateChangeSet,
   isPathWithinClaim,
+  captureUntrackedPaths,
   MAX_CHANGE_SET_PATHS,
 } from './changeSet.js';
 import type { GitRunner } from '../../../integrations/git.js';
+
+function git(cwd: string, args: string[]): string {
+  const r = spawnSync('git', args, { cwd, encoding: 'utf8' });
+  if (r.status !== 0) throw new Error(`git ${args.join(' ')} in ${cwd}: ${r.stderr}`);
+  return r.stdout.trim();
+}
+
+function makeRepo(): string {
+  const dir = mkdtempSync(join(tmpdir(), 'karst-cs-'));
+  git(dir, ['init', '-q', '-b', 'main']);
+  git(dir, ['config', 'user.email', 't@karst']);
+  git(dir, ['config', 'user.name', 'T']);
+  writeFileSync(join(dir, 'a.ts'), 'a\n');
+  git(dir, ['add', '-A']);
+  git(dir, ['commit', '-qm', 'base']);
+  return dir;
+}
+
+const runner: GitRunner = (args, cwd) => {
+  const r = spawnSync('git', args, { cwd, encoding: 'utf8' });
+  return Promise.resolve({ stdout: r.stdout.trim(), stderr: r.stderr, exitCode: r.status ?? -1 });
+};
+
+const cleanups: (() => void)[] = [];
+beforeEach(() => (cleanups.length = 0));
+afterEach(() => {
+  while (cleanups.length) cleanups.pop()!();
+});
 
 describe('parseNameStatus', () => {
   it('parses verbatim `git diff --name-status` output', () => {
@@ -63,6 +96,17 @@ describe('isPathWithinClaim', () => {
     expect(isPathWithinClaim('src/a.tsx', 'src/a.ts')).toBe(false);
     expect(isPathWithinClaim('src/abc-2/file.ts', 'src/abc')).toBe(false);
     expect(isPathWithinClaim('other/a.ts', 'src/a.ts')).toBe(false);
+  });
+});
+
+describe('captureUntrackedPaths', () => {
+  it('lists new files `git diff --name-status` never sees, honoring ignore rules', async () => {
+    const dir = makeRepo();
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    writeFileSync(join(dir, 'new.ts'), 'n\n');
+    writeFileSync(join(dir, 'ignored.log'), 'x\n');
+    writeFileSync(join(dir, '.gitignore'), '*.log\n');
+    expect(await captureUntrackedPaths(runner, dir)).toEqual(['.gitignore', 'new.ts']);
   });
 });
 

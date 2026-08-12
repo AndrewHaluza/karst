@@ -1,6 +1,5 @@
 /**
- * The completing-node pipeline (Slice 3 Task 8) — "Integration into canonical
- * worktrees".
+ * The completing-node pipeline (Slice 3 Task 8, Slice 5 Task 5).
  *
  * On a reported completion the CLI has already moved the node run
  * `running → completing`. This pipeline, driven by the coordinator's tick:
@@ -16,19 +15,33 @@
  *    `output-artifact-missing` / `artifact-unsafe`, the graph blocks, and NO
  *    edge is emitted. The agent-authored `complete` stays immutable reported
  *    evidence (`outcome`), never an accepted routing outcome;
- * 3. atomically claims the graph's single integrating slot (`completing →
- *    integrating` refused when ANY node of the graph is already integrating)
- *    — the durable, cross-window serialization: change sets integrate one at
- *    a time, in node-run order as the caller walks completing nodes by id;
- * 4. snapshots the actual diff per physical repository (`git diff HEAD` — the
- *    node's uncommitted/staged work in the canonical worktree) and compares
- *    it with the node's DECLARED writes BEFORE any integration; an
- *    out-of-claim mutation blocks with `resource-claim-violated` and V1 never
- *    silently widens a running node's claim;
- * 5. integrates valid change sets serially under that slot, committing each
- *    domain's validated paths with the integration marker. A git refusal to
- *    land the change set (failed add/commit) is `integration-conflict`:
- *    both trees are preserved for diagnosis and the graph blocks.
+ * 3. SERIALIZES PER PHYSICAL DOMAIN (Slice 5 Task 5): before the node may
+ *    integrate a change set for a domain it must HOLD (or ACQUIRE) that
+ *    domain's durable lease. The claim (Slice 5 Task 2/3) already acquired
+ *    write leases for the node's DECLARED domains and refused conflicting
+ *    activations, so a T2-era node's assertion always passes; a conflicting
+ *    lease (a same-domain writer in flight) defers the node — it stays
+ *    `completing` and the walk re-drives it in node-run order. Two DISJOINT
+ *    domains integrate in PARALLEL: there is no graph-global integrating
+ *    slot to contend for;
+ * 4. claims the node's own `completing → integrating` status (a per-NODE
+ *    claim so a racing window reads `integrating` instead of driving the
+ *    same node twice);
+ * 5. snapshots the actual diff per physical repository and compares it with
+ *    the node's DECLARED writes BEFORE any integration. Under Slice 5 Task 1
+ *    the diff is captured from the node's ISOLATED WORKSPACE clone; a node
+ *    with no workspace for a domain falls back to the canonical worktree
+ *    (the V1 canonical model). An out-of-claim mutation blocks with
+ *    `resource-claim-violated` and V1 never silently widens a running node's
+ *    claim;
+ * 6. integrates valid change sets into the CANONICAL worktree under the
+ *    domain's lease, committing each domain's validated paths with the
+ *    integration marker. A workspace change set is landed into the canonical
+ *    tree as a patch (tracked changes) plus a copy of untracked in-claim
+ *    files. A git refusal to land the change set — a diff that no longer
+ *    applies (the canonical tree advanced under the node), a failed
+ *    add/commit — is `integration-conflict`: BOTH the isolated workspace AND
+ *    the canonical worktree are preserved for diagnosis and the graph blocks.
  *
  * Lease release (Slice 5 Task 2): a successful integration releases the node's
  * `held` leases in the SAME transaction that accepts the completion. Every
@@ -57,14 +70,22 @@ import type { GraphDb } from '../../../store/graph/transitions.js';
 import { casStatus, NODE_RUN_TRANSITIONS, GRAPH_RUN_TRANSITIONS } from '../../../store/graph/transitions.js';
 import type { GitRunner } from '../../../integrations/git.js';
 import type { AgentTransport, SupervisedAgentSession } from '../transport/supervisedCliTransport.js';
-import { resolvePhysicalDomains, type DomainEntry } from './domains.js';
-import { captureChangeSet, validateChangeSet, type ChangeSetEntry } from './changeSet.js';
+import { resolvePhysicalDomains, type DomainEntry, type PhysicalDomain } from './domains.js';
+import {
+  captureChangeSet,
+  captureUntrackedPaths,
+  isPathWithinClaim,
+  validateChangeSet,
+  type ChangeSetEntry,
+} from './changeSet.js';
 import { completeActivation } from '../coordinator/completion.js';
-import { releaseLeaseForNodeRun } from '../coordinator/leases.js';
+import { acquireDomainLeases, releaseLeaseForNodeRun, type ActivationDomain } from '../coordinator/leases.js';
 import { releaseProcessSlot } from '../../../store/graph/nodeRuns.js';
 import { recordArtifactInstance, validateRequiredOutputs } from '../artifacts/resolve.js';
 import { parseGraphDocument } from '../parse.js';
-import { join } from 'node:path';
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { tmpdir } from 'node:os';
 
 export const INTEGRATION_COMMIT_PREFIX = 'karst: integrate graph';
 
@@ -86,6 +107,10 @@ export interface CompletionPipelineDeps {
   declaredWritesOf: (nodeRunId: number) => { domainKey: string; paths: string[] }[];
   /** The graph run's artifact root (global storage; staging + snapshots). */
   artifactRoot: () => string;
+  /** The node's isolated workspace clone for a repo (Slice 5 T1); undefined
+   *  when the node has none — the V1 canonical-worktree model. The change set
+   *  is captured from the clone and landed into the CANONICAL worktree. */
+  workspaceCwdOf: (nodeRunId: number, repoName: string) => string | undefined;
 }
 
 export type CompletionPipelineResult =
@@ -198,28 +223,185 @@ function declaredOutputPaths(
 }
 
 /**
- * The one conditional UPDATE that claims the graph's integrating slot: the
- * node moves `completing → integrating` only when no OTHER node of the graph
- * is integrating. A single statement is atomic in SQLite — the durable,
- * cross-window serialization the design's physical-repository lock requires.
+ * The one conditional UPDATE that claims the node's integrating status: the
+ * node moves `completing → integrating` — a per-NODE claim, so a racing
+ * window reads `integrating` instead of driving the same node twice. Slice 5
+ * Task 5 REMOVED the graph-global "no OTHER node may be integrating"
+ * exclusion: disjoint domains integrate in PARALLEL, and same-domain pairs
+ * serialize on the domain LEASE (a conflicting activation cannot hold it), not
+ * on a whole-graph slot.
  */
-function claimIntegratingSlot(
+function claimIntegratingStatus(
   deps: CompletionPipelineDeps,
-  graphRunId: number,
   nodeRunId: number,
 ): boolean {
   const res = deps.db
     .prepare(
       `UPDATE approach_node_runs
        SET status = 'integrating'
-       WHERE id = ? AND status = 'completing'
-         AND NOT EXISTS (
-           SELECT 1 FROM approach_node_runs
-           WHERE graph_run_id = ? AND id != ? AND status = 'integrating'
-         )`,
+       WHERE id = ? AND status = 'completing'`,
     )
-    .run(nodeRunId, graphRunId, nodeRunId);
+    .run(nodeRunId);
   return res.changes === 1;
+}
+
+/**
+ * Slice 5 Task 5 — the per-physical-domain serialization guarantee. Before
+ * the node may integrate a change set for a domain it must HOLD (or ACQUIRE)
+ * that domain's durable lease. A T2/T3-era node already holds write leases
+ * for its DECLARED domains (the claim refused conflicting activations), so
+ * this is an assertion; a pre-lease node acquires now — refusing (deferring)
+ * when a conflicting lease stands, so a same-domain writer in flight keeps
+ * this node `completing`. The check + acquire is ONE `BEGIN IMMEDIATE`
+ * transaction, so two windows never double-insert the same owner+domain
+ * (the `UNIQUE(owner_node_run_id, physical_domain)` index is the backstop).
+ * An `ambiguous-process` lease is never integrated over and never re-acquired.
+ */
+function ensureIntegrationLeases(
+  deps: CompletionPipelineDeps,
+  graphRunId: number,
+  nodeRunId: number,
+): boolean {
+  const declared = deps.declaredWritesOf(nodeRunId);
+  if (declared.length === 0) return true;
+  return deps.transaction(() => {
+    const db = deps.db;
+    const toAcquire: ActivationDomain[] = [];
+    for (const domain of declared) {
+      const owned = db
+        .prepare(
+          `SELECT status FROM approach_resource_leases
+           WHERE owner_node_run_id = ? AND physical_domain = ?`,
+        )
+        .get(nodeRunId, domain.domainKey) as { status: string } | undefined;
+      if (owned !== undefined) {
+        if (owned.status !== 'held') {
+          deps.debug?.(
+            `[graph] completing node ${nodeRunId}: domain lease ${domain.domainKey} is ${owned.status} — deferring`,
+          );
+          return false;
+        }
+        continue; // already held from the claim (Slice 5 Task 2/3)
+      }
+      toAcquire.push({ physicalDomain: domain.domainKey, accessMode: 'write', paths: domain.paths });
+    }
+    if (toAcquire.length === 0) return true;
+    const acquisition = acquireDomainLeases(
+      { db, now: deps.now },
+      { graphRunId, nodeRunId, domains: toAcquire },
+    );
+    if (!acquisition.acquired) {
+      deps.debug?.(
+        `[graph] completing node ${nodeRunId}: lease refused (${acquisition.reason}) — deferred`,
+      );
+    }
+    return acquisition.acquired;
+  });
+}
+
+/** One domain's captured change set plus the workspace clones it came from. */
+interface DomainCapture {
+  entries: ChangeSetEntry[];
+  /** The node's workspace clones for this domain; empty = canonical model. */
+  workspaceCwds: string[];
+}
+
+/**
+ * Capture a domain's change set. Under Slice 5 Task 1 the node works in ITS
+ * isolated workspace clone(s) — the diff is read from each clone (a domain
+ * aliases one or more repos) and merged; only a domain for which the node has
+ * NO workspace falls back to the canonical worktree (the V1 canonical model).
+ */
+async function captureDomainChangeSet(
+  deps: CompletionPipelineDeps,
+  nodeRunId: number,
+  domain: PhysicalDomain,
+): Promise<DomainCapture> {
+  const workspaceCwds = domain.repoNames
+    .map((repoName) => deps.workspaceCwdOf(nodeRunId, repoName))
+    .filter((cwd): cwd is string => cwd !== undefined);
+  const sources = workspaceCwds.length > 0 ? workspaceCwds : [domain.canonicalWorktree];
+  const merged = new Map<string, ChangeSetEntry>();
+  for (const cwd of sources) {
+    const entries = await captureChangeSet(deps.git, { cwd, baseRef: 'HEAD' });
+    for (const entry of entries) {
+      if (!merged.has(entry.path)) merged.set(entry.path, entry);
+    }
+  }
+  return { entries: [...merged.values()], workspaceCwds };
+}
+
+type LandResult = { ok: true } | { ok: false; stderr: string; reason: string };
+
+/**
+ * Land a workspace-captured change set into the CANONICAL worktree: apply the
+ * workspace's `git diff HEAD` patch (tracked changes — renames, deletions and
+ * content all ride the patch) and copy the workspace's untracked in-claim
+ * files (new files `git diff` never lists, which `git add -A` used to pick
+ * up under the V1 model). `git apply --check` runs first, so a patch that
+ * cannot land — the canonical tree advanced under the node — touches NOTHING
+ * and reports `integration-conflict`: both trees stay exactly as they are.
+ */
+async function landWorkspaceChanges(
+  deps: CompletionPipelineDeps,
+  domain: PhysicalDomain,
+  paths: readonly string[],
+  declaredClaims: readonly string[],
+  workspaceCwds: readonly string[],
+): Promise<LandResult> {
+  const patchDir = mkdtempSync(join(tmpdir(), 'karst-int-'));
+  try {
+    const patchFile = join(patchDir, 'changes.patch');
+    const fragments: string[] = [];
+    const untracked: { from: string; rel: string }[] = [];
+    for (const cwd of workspaceCwds) {
+      const diff = await deps.git(['diff', '--binary', 'HEAD', '--', ...paths], cwd);
+      if (diff.exitCode !== 0) {
+        return { ok: false, stderr: diff.stderr, reason: 'change-set diff failed' };
+      }
+      if (diff.stdout.trim() !== '') fragments.push(diff.stdout);
+      let untrackedPaths: string[];
+      try {
+        untrackedPaths = await captureUntrackedPaths(deps.git, cwd);
+      } catch (err) {
+        return { ok: false, stderr: String(err), reason: 'untracked enumeration failed' };
+      }
+      for (const rel of untrackedPaths) {
+        if (declaredClaims.some((claim) => isPathWithinClaim(rel, claim))) {
+          untracked.push({ from: join(cwd, rel), rel });
+        }
+      }
+    }
+    if (fragments.length > 0) {
+      // Normalize the concatenation to a well-formed patch: each fragment is
+      // trimmed at its END and the fragments joined with a single newline —
+      // a runner that trims stdout must not leave the last hunk unterminated
+      // ("corrupt patch"), and a fragment that already ends with a newline
+      // must not double it.
+      const patch = fragments.map((f) => f.trimEnd()).join('\n') + '\n';
+      writeFileSync(patchFile, patch);
+      const check = await deps.git(['apply', '--check', patchFile], domain.canonicalWorktree);
+      if (check.exitCode !== 0) {
+        return { ok: false, stderr: check.stderr, reason: 'git apply --check refused' };
+      }
+      const applied = await deps.git(['apply', patchFile], domain.canonicalWorktree);
+      if (applied.exitCode !== 0) {
+        return { ok: false, stderr: applied.stderr, reason: 'git apply refused' };
+      }
+    }
+    for (const u of untracked) {
+      try {
+        const target = join(domain.canonicalWorktree, u.rel);
+        mkdirSync(dirname(target), { recursive: true });
+        copyFileSync(u.from, target);
+      } catch (err) {
+        return { ok: false, stderr: String(err), reason: 'untracked copy failed' };
+      }
+    }
+    return { ok: true };
+  } finally {
+    rmSync(patchDir, { recursive: true, force: true });
+  }
 }
 
 async function terminationProven(
@@ -290,29 +472,38 @@ export async function runCompletionPipeline(
     return { kind: validation.code, artifactId: validation.artifactId, reason };
   }
 
-  if (!claimIntegratingSlot(deps, input.graphRunId, input.nodeRunId)) {
+  // Slice 5 Task 5: PER-PHYSICAL-DOMAIN serialization. The node must hold (or
+  // acquire) the lease of every domain it declares writes for BEFORE it may
+  // integrate; a conflicting lease (a same-domain writer in flight) defers
+  // the node — it stays `completing` and the walk re-drives it in node-run
+  // order. Disjoint domains are never contended: there is no graph-global slot.
+  if (!ensureIntegrationLeases(deps, input.graphRunId, input.nodeRunId)) {
+    return { kind: 'deferred' };
+  }
+
+  if (!claimIntegratingStatus(deps, input.nodeRunId)) {
     const now = deps.db
       .prepare('SELECT status FROM approach_node_runs WHERE id = ?')
       .get(input.nodeRunId) as { status: string };
     if (now.status === 'completing') {
-      return { kind: 'deferred' }; // another node of the graph is integrating
+      return { kind: 'deferred' }; // a racing window is mid-flight
     }
     return { kind: 'no-op' }; // already moved by a racing window
   }
 
   // Snapshot + validate. Domains are sorted by key; change sets are captured
-  // per domain and validated against that domain's declared writes.
+  // per domain from the node's ISOLATED workspace clone (Slice 5 T1), falling
+  // back to the canonical worktree only when the node has no workspace for a
+  // domain (the V1 canonical model), and validated against that domain's
+  // declared writes.
   const domains = resolvePhysicalDomains(deps.domainsFor(), deps.gitCommonDirOf);
   const declared = new Map(deps.declaredWritesOf(input.nodeRunId).map((d) => [d.domainKey, d.paths]));
-  const captured = new Map<string, ChangeSetEntry[]>();
+  const captured = new Map<string, DomainCapture>();
   const violations: string[] = [];
   for (const domain of domains) {
-    let entries: ChangeSetEntry[];
+    let capture: DomainCapture;
     try {
-      entries = await captureChangeSet(deps.git, {
-        cwd: domain.canonicalWorktree,
-        baseRef: 'HEAD',
-      });
+      capture = await captureDomainChangeSet(deps, input.nodeRunId, domain);
     } catch (err) {
       deps.debug?.(
         `[graph] completing node ${input.nodeRunId}: change-set capture failed for ${domain.key}: ${String(err)}`,
@@ -324,8 +515,8 @@ export async function runCompletionPipeline(
       );
       return { kind: 'integration-conflict', reason: 'change-set capture failed' };
     }
-    captured.set(domain.key, entries);
-    const validation = validateChangeSet(declared.get(domain.key) ?? [], entries);
+    captured.set(domain.key, capture);
+    const validation = validateChangeSet(declared.get(domain.key) ?? [], capture.entries);
     if (!validation.ok) violations.push(...validation.violations);
   }
   if (violations.length > 0) {
@@ -340,13 +531,35 @@ export async function runCompletionPipeline(
     return { kind: 'claim-violated', violations };
   }
 
-  // Integrate serially per domain in sorted-key order (the slot already
-  // guarantees at most one integrator in the whole graph).
+  // Integrate per domain in sorted-key order. Disjoint domains are INDEPENDENT
+  // (the leases serialize same-domain writers); a workspace change set is
+  // landed into the CANONICAL worktree under the domain's lease, then the
+  // domain's validated paths are committed with the integration marker.
   let committed = false;
   for (const domain of domains) {
-    const entries = captured.get(domain.key) ?? [];
-    if (entries.length === 0) continue;
-    const paths = entries.map((e) => e.path);
+    const capture = captured.get(domain.key);
+    if (!capture || capture.entries.length === 0) continue;
+    const paths = capture.entries.map((e) => e.path);
+    if (capture.workspaceCwds.length > 0) {
+      const landed = await landWorkspaceChanges(
+        deps,
+        domain,
+        paths,
+        declared.get(domain.key) ?? [],
+        capture.workspaceCwds,
+      );
+      if (!landed.ok) {
+        const reason = `integration-conflict: ${landed.reason} in ${domain.repoNames.join('/')} (${boundedGitReason(landed.stderr)})`;
+        deps.debug?.(`[graph] completing node ${input.nodeRunId}: ${reason}`);
+        parkNode(deps, input.nodeRunId, 'integrating', 'blocked', {
+          outcome: 'failed',
+          failureCategory: 'integration-conflict',
+          reason,
+        });
+        blockGraphRun(deps, input.graphRunId, reason);
+        return { kind: 'integration-conflict', reason: landed.stderr };
+      }
+    }
     const add = await deps.git(['add', '--all', '--', ...paths], domain.canonicalWorktree);
     if (add.exitCode !== 0) {
       const reason = `integration-conflict: git add refused in ${domain.repoNames.join('/')} (${boundedGitReason(add.stderr)})`;
