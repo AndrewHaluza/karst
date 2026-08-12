@@ -918,6 +918,7 @@ CREATE TABLE IF NOT EXISTS approach_graph_tokens (
   destination_end       INTEGER NOT NULL DEFAULT 0 CHECK (destination_end IN (0,1)),
   fork_instance         INTEGER NOT NULL DEFAULT 0,
   fork_lineage          TEXT,
+  fork_instance_id      TEXT,
   status                TEXT NOT NULL CHECK (status IN ('pending','claimed','consumed','cancelled')),
   claiming_node_run_id  INTEGER,
   consuming_node_run_id INTEGER,

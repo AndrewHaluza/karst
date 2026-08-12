@@ -27,6 +27,7 @@ import type {
   GraphDocument,
   JoinNode,
 } from './parse.js';
+import { GRAPH_LIMITS } from './parse.js';
 
 export type ProfileTier = 'worker' | 'expert';
 
@@ -110,6 +111,7 @@ export type CompileDiagnosticCode =
   | 'join-region-in-scc'
   | 'ambiguous-join-region'
   | 'join-budget-below-fork-multiplicity'
+  | 'lineage-depth-exceeded'
   | 'warn-serialized-plan';
 
 export interface CompileDiagnostic {
@@ -581,6 +583,115 @@ function checkJoins(
   }
 }
 
+/**
+ * The maximum fork-lineage depth the graph can produce along any execution
+ * path (Slice 5 Task 4). Lineage grows ONLY on self-loop traversals — one
+ * segment per traversal — and a node's self-loop can be traversed at most
+ * `maxVisits - 1` times (its visit budget caps the traversals). The value is
+ * the longest weighted path through the SCC condensation: each SCC weighs the
+ * self-loop contributions of its members, and a condensation path visits each
+ * SCC once, so independent loops do not sum. The `1` is the root segment.
+ */
+function maxGraphLineageDepth(
+  document: GraphDocument,
+  cfg: Map<string, string[]>,
+): number {
+  const selfLoop = new Set<string>();
+  for (const edge of document.edges) {
+    if (edge.from === edge.to) selfLoop.add(edge.from);
+  }
+  const nodesById = new Map(document.nodes.map((n) => [n.id, n]));
+
+  // Tarjan SCCs over the CFG.
+  const index = new Map<string, number>();
+  const low = new Map<string, number>();
+  const onStack = new Set<string>();
+  const stack: string[] = [];
+  const componentOf = new Map<string, number>();
+  const components: string[][] = [];
+  let counter = 0;
+  const visit = (v: string): void => {
+    index.set(v, counter);
+    low.set(v, counter);
+    counter += 1;
+    stack.push(v);
+    onStack.add(v);
+    for (const w of cfg.get(v) ?? []) {
+      if (!index.has(w)) {
+        visit(w);
+        low.set(v, Math.min(low.get(v)!, low.get(w)!));
+      } else if (onStack.has(w)) {
+        low.set(v, Math.min(low.get(v)!, index.get(w)!));
+      }
+    }
+    if (low.get(v) === index.get(v)) {
+      const comp: string[] = [];
+      let w: string | undefined;
+      do {
+        w = stack.pop()!;
+        onStack.delete(w);
+        comp.push(w);
+      } while (w !== v);
+      const id = components.length;
+      for (const member of comp) componentOf.set(member, id);
+      components.push(comp);
+    }
+  };
+  for (const id of cfg.keys()) {
+    if (!index.has(id)) visit(id);
+  }
+
+  // Condensation DAG.
+  const dag = new Map<number, number[]>();
+  for (let i = 0; i < components.length; i++) dag.set(i, []);
+  for (const [u, next] of cfg) {
+    const cu = componentOf.get(u)!;
+    for (const v of next) {
+      const cv = componentOf.get(v)!;
+      if (cu !== cv && !dag.get(cu)!.includes(cv)) dag.get(cu)!.push(cv);
+    }
+  }
+
+  const weight = new Map<number, number>();
+  for (let i = 0; i < components.length; i++) {
+    let w = 0;
+    for (const member of components[i]!) {
+      const node = nodesById.get(member);
+      if (node && selfLoop.has(member)) w += node.budget.maxVisits - 1;
+    }
+    weight.set(i, w);
+  }
+
+  const memo = new Map<number, number>();
+  const longest = (compId: number): number => {
+    const cached = memo.get(compId);
+    if (cached !== undefined) return cached;
+    let best = 0;
+    for (const next of dag.get(compId) ?? []) best = Math.max(best, longest(next));
+    const result = (weight.get(compId) ?? 0) + best;
+    memo.set(compId, result);
+    return result;
+  };
+
+  return 1 + longest(componentOf.get(ENTRY)!);
+}
+
+/** Reject a graph whose loop chain's lineage depth exceeds the hard bound. */
+function checkLineageDepth(
+  document: GraphDocument,
+  cfg: Map<string, string[]>,
+  error: (code: CompileDiagnosticCode, where: string, message: string) => void,
+): void {
+  const depth = maxGraphLineageDepth(document, cfg);
+  if (depth > GRAPH_LIMITS.maxLineageDepth) {
+    error(
+      'lineage-depth-exceeded',
+      'fork lineage',
+      `deepest loop chain reaches a fork-lineage depth of ${depth}, beyond the bound ${GRAPH_LIMITS.maxLineageDepth}`,
+    );
+  }
+}
+
 function toPlainDocument(document: GraphDocument): Record<string, unknown> {
   const plainNode = (node: ApproachNode): Record<string, unknown> => {
     const base: Record<string, unknown> = {
@@ -873,6 +984,10 @@ export function compileGraphDocument(
 
   // Fork/join structure.
   checkJoins(document, cfg, document.edges, diags);
+
+  // Fork-lineage depth: a loop chain deeper than the hard bound is rejected
+  // at compile, so the runtime stack can never overflow it (Slice 5 Task 4).
+  checkLineageDepth(document, cfg, error);
 
   // Resource overlaps for scheduler serialization, and the serialization
   // warning (never an error).

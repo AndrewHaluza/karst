@@ -25,6 +25,7 @@ import {
   cancelGraphToken,
   transitionToken,
   insertEntryTokens,
+  MAX_FORK_LINEAGE_DEPTH,
   type GraphTokenRow,
 } from './tokens.js';
 import { GraphStoreError } from './transitions.js';
@@ -150,6 +151,52 @@ describe('insertGraphToken', () => {
     });
     expect(a).toBeDefined();
     expect(b).toBeDefined();
+  });
+
+  it('persists the fork-execution identity when one is supplied (Slice 5 T4)', () => {
+    const { db, revisionId, now } = harness();
+    const id = insertGraphToken(db, {
+      revisionId,
+      sourceNodeRunId: 7,
+      isEntry: false,
+      ...EDGE,
+      forkInstanceId: '01900000-0000-7000-8000-000000000001',
+      now,
+    })!;
+    expect(graphTokenById(db, id)?.fork_instance_id).toBe(
+      '01900000-0000-7000-8000-000000000001',
+    );
+  });
+
+  it('a lineage stack deeper than the bound is a defect and is never stored', () => {
+    const { db, revisionId, now } = harness();
+    const tooDeep = Array.from({ length: MAX_FORK_LINEAGE_DEPTH + 1 }, (_, i) => `n${i}`).join(
+      ':',
+    );
+    expect(() =>
+      insertGraphToken(db, {
+        revisionId,
+        sourceNodeRunId: 7,
+        isEntry: false,
+        ...EDGE,
+        forkLineage: `root:${tooDeep}`,
+        now,
+      }),
+    ).toThrow(GraphStoreError);
+    expect(() =>
+      insertGraphToken(db, {
+        revisionId,
+        sourceNodeRunId: 7,
+        isEntry: false,
+        ...EDGE,
+        forkLineage: `root:${tooDeep}`,
+        now,
+      }),
+    ).toThrow(/fork-lineage depth/);
+    // The reject happens before the insert — nothing is written, ever.
+    expect(
+      db.prepare('SELECT COUNT(*) AS n FROM approach_graph_tokens').get() as { n: number },
+    ).toEqual({ n: 0 });
   });
 });
 

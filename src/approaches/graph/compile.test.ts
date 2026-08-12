@@ -876,3 +876,63 @@ describe('compileGraphDocument — overlaps and the serialization warning', () =
     expect(warning).toBeDefined();
   });
 });
+
+describe('compileGraphDocument — fork-lineage depth bound (Slice 5 T4)', () => {
+  /** A loop chain: `count` agents, each self-looping (maxVisits each) and
+   *  exiting to the next; the deepest lineage stack it can produce is
+   *  `1 + count × (maxVisits - 1)`. */
+  function loopChain(count: number, maxVisits: number): string {
+    const nodes = Array.from({ length: count }, (_, i) => ({
+      id: `n${i}`,
+      kind: 'agent',
+      label: `Loop ${i}`,
+      profile: 'worker',
+      instructionsArtifact: 'task',
+      inputs: ['task'],
+      outputs: [],
+      resources: { reads: [], writes: [] },
+      outcomes: ['complete', 'blocked', 'replan'],
+      budget: { maxVisits },
+    }));
+    const edges: Record<string, unknown>[] = [];
+    for (let i = 0; i < count; i++) {
+      edges.push({ id: `self${i}`, from: `n${i}`, on: 'complete', to: `n${i}` });
+      if (i + 1 < count) {
+        edges.push({ id: `next${i}`, from: `n${i}`, on: 'complete', to: `n${i + 1}` });
+      }
+    }
+    edges.push({ id: 'last-end', from: `n${count - 1}`, on: 'complete', to: 'END' });
+    return JSON.stringify({
+      version: 1,
+      title: 'Loop chain',
+      rationaleArtifact: 'task',
+      entries: ['n0'],
+      artifacts: [
+        {
+          id: 'task',
+          path: 'artifacts/plan/task.md',
+          producer: '$planner',
+          consumers: nodes.map((n) => n.id),
+          mediaType: 'text/markdown',
+          maxBytes: 1024,
+          required: true,
+        },
+      ],
+      nodes,
+      edges,
+      budgets: { maxNodeRuns: 200, maxExpertRuns: 10, maxReplans: 5 },
+    });
+  }
+
+  it('a single loop well within the bound compiles', () => {
+    const result = compile(loopChain(1, 20));
+    expect(result.ok).toBe(true);
+  });
+
+  it('a loop chain deeper than the bound fails compilation', () => {
+    // 5 nested loops of maxVisits 20 → deepest lineage depth 1 + 5×19 = 96,
+    // beyond GRAPH_LIMITS.maxLineageDepth (64).
+    const diagnostic = expectError(loopChain(5, 20), 'lineage-depth-exceeded', 'fork lineage');
+    expect(diagnostic.message).toMatch(/96.*beyond the bound 64/);
+  });
+});

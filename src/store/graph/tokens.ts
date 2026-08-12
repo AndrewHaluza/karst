@@ -30,6 +30,15 @@
 import type { GraphDb } from './transitions.js';
 import { GraphStoreError, TOKEN_TRANSITIONS, casStatus } from './transitions.js';
 
+/**
+ * The hard ceiling on a fork-lineage stack's depth (Slice 5 Task 4). The
+ * store cannot import the parser, so this mirrors `GRAPH_LIMITS
+ * .maxLineageDepth`; `coordinator/lineage.test.ts` pins the two equal. An
+ * over-depth token is a defect — the compiler bounds every graph's lineage
+ * depth, so a deeper stack can only be an application bug.
+ */
+export const MAX_FORK_LINEAGE_DEPTH = 64;
+
 export interface CreateToken {
   revisionId: number;
   /** NULL only for the entry token (`isEntry = 1`). */
@@ -40,6 +49,9 @@ export interface CreateToken {
   destinationEnd: 0 | 1;
   forkInstance: number;
   forkLineage: string | null;
+  /** The producing fork execution's identity (host-minted UUIDv7); NULL for
+   *  entry tokens and legacy rows. */
+  forkInstanceId?: string | null;
   now: string;
 }
 
@@ -53,11 +65,21 @@ export interface GraphTokenRow {
   destination_end: number;
   fork_instance: number;
   fork_lineage: string | null;
+  fork_instance_id: string | null;
   status: string;
   claiming_node_run_id: number | null;
   consuming_node_run_id: number | null;
   created_at: string;
   consumed_at: string | null;
+}
+
+/**
+ * The depth of a fork-lineage stack: the number of `:`-separated segments,
+ * with `root` as the outermost (depth 1). NULL reads as 0.
+ */
+function lineageDepth(lineage: string | null): number {
+  if (lineage === null || lineage === '') return 0;
+  return lineage.split(':').length;
 }
 
 /**
@@ -76,12 +98,21 @@ export function createToken(db: GraphDb, input: CreateToken): number | undefined
   if (input.sourceNodeRunId !== null && input.isEntry !== 0) {
     throw new GraphStoreError('only the entry token may carry is_entry = 1');
   }
+  // A lineage stack beyond the compiler's nesting bound is a defect: the
+  // compiler rejects graphs that could produce it, so reaching here is an
+  // application bug. Never truncate silently — the stack is the causal
+  // identity of the activation.
+  if (lineageDepth(input.forkLineage) > MAX_FORK_LINEAGE_DEPTH) {
+    throw new GraphStoreError(
+      `fork-lineage depth ${lineageDepth(input.forkLineage)} exceeds the bound ${MAX_FORK_LINEAGE_DEPTH}`,
+    );
+  }
   const res = db
     .prepare(
       `INSERT OR IGNORE INTO approach_graph_tokens
         (revision_id, source_node_run_id, is_entry, edge_id, destination_node_id,
-         destination_end, fork_instance, fork_lineage, status, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
+         destination_end, fork_instance, fork_lineage, fork_instance_id, status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
     )
     .run(
       input.revisionId,
@@ -92,6 +123,7 @@ export function createToken(db: GraphDb, input: CreateToken): number | undefined
       input.destinationEnd,
       input.forkInstance,
       input.forkLineage,
+      input.forkInstanceId ?? null,
       input.now,
     );
   return res.changes === 1 ? Number(res.lastInsertRowid) : undefined;
@@ -108,6 +140,9 @@ export interface InsertGraphToken {
   destinationEnd: boolean;
   forkInstance: number;
   forkLineage: string | null;
+  /** The producing fork execution's identity (host-minted UUIDv7); absent
+   *  for entry tokens and pre-v41 rows. */
+  forkInstanceId?: string | null;
   now: string;
 }
 
@@ -121,6 +156,7 @@ export function insertGraphToken(db: GraphDb, input: InsertGraphToken): number |
     destinationEnd: input.destinationEnd ? 1 : 0,
     forkInstance: input.forkInstance,
     forkLineage: input.forkLineage,
+    forkInstanceId: input.forkInstanceId ?? null,
     now: input.now,
   });
 }
@@ -144,6 +180,7 @@ export function insertEntryTokens(
       destinationEnd: edge.destinationEnd ? 1 : 0,
       forkInstance: 0,
       forkLineage: 'root',
+      forkInstanceId: null,
       now,
     });
     if (id !== undefined) ids.push(id);

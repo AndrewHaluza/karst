@@ -30,6 +30,7 @@ export const GRAPH_LIMITS = {
   maxOutcomes: 4,
   maxPredicateDepth: 6,
   maxPredicateCollection: 20,
+  maxLineageDepth: 64,
   minMaxVisits: 1,
   maxMaxVisits: 20,
   minMaxNodeRuns: 1,

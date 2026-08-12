@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 const SCHEMA_PATH = join(dirname(fileURLToPath(import.meta.url)), 'schema.sql');
 
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 40;
+export const SCHEMA_VERSION = 41;
 
 /** v2 ticket-field columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -213,6 +213,7 @@ CREATE TABLE IF NOT EXISTS approach_graph_tokens (
   destination_end       INTEGER NOT NULL DEFAULT 0 CHECK (destination_end IN (0,1)),
   fork_instance         INTEGER NOT NULL DEFAULT 0,
   fork_lineage          TEXT,
+  fork_instance_id      TEXT,
   status                TEXT NOT NULL CHECK (status IN ('pending','claimed','consumed','cancelled')),
   claiming_node_run_id  INTEGER,
   consuming_node_run_id INTEGER,
@@ -1557,6 +1558,22 @@ export function migrate(db: Database): void {
       db.exec('ALTER TABLE approach_graph_runs ADD COLUMN active_processes INTEGER NOT NULL DEFAULT 0');
     }
     db.exec(GRAPH_DEFERRAL_MIGRATION_DDL);
+  }
+
+  if (current < 41) {
+    // v41 (Slice 5 Task 4) adds the fork-execution identity
+    // `fork_instance_id` (host-minted UUIDv7) to each activation token. A
+    // fresh DB already carries it (schema.sql — including inside
+    // GRAPH_MIGRATION_DDL, so the guard skips); a legacy DB gains the column
+    // through the guarded ALTER. The join-correlation UNIQUE index stays on
+    // the INTEGER `fork_instance` pair, which is unchanged.
+    //
+    // NOTHING IS BACKFILLED. No prior karst minted a fork instance id; NULL
+    // is the legacy answer, and correlation never depends on the id.
+    const tokenCols41 = tableColumns(db, 'approach_graph_tokens');
+    if (tokenCols41.size > 0 && !tokenCols41.has('fork_instance_id')) {
+      db.exec('ALTER TABLE approach_graph_tokens ADD COLUMN fork_instance_id TEXT');
+    }
   }
 
   db.pragma(`user_version = ${SCHEMA_VERSION}`);

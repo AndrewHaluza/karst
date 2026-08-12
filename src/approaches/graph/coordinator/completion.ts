@@ -29,12 +29,16 @@ import {
   type InsertGraphToken,
 } from '../../../store/graph/tokens.js';
 import { parseGraphDocument } from '../parse.js';
+import { uuidv7 } from './lineage.js';
 
 export interface CompletionDeps {
   db: GraphDb;
   /** BEGIN IMMEDIATE-wrapped, all-or-nothing; a throw rolls back. */
   transaction: <T>(fn: () => T) => T;
   now: () => string;
+  /** Mints the fork-execution identity (UUIDv7) for a self-loop successor.
+   *  Injected by the host; defaults to the real clock (Slice 5 Task 4). */
+  uuidv7?: () => string;
 }
 
 export interface QuiescenceDeps extends CompletionDeps {}
@@ -87,10 +91,15 @@ export function completeActivation(
     if (!run) return { consumed: 0, inserted: 0 };
     const claimed = db
       .prepare(
-        `SELECT id, fork_instance, fork_lineage FROM approach_graph_tokens
+        `SELECT id, fork_instance, fork_lineage, fork_instance_id FROM approach_graph_tokens
          WHERE claiming_node_run_id = ? AND status = 'claimed'`,
       )
-      .all(input.nodeRunId) as { id: number; fork_instance: number; fork_lineage: string }[];
+      .all(input.nodeRunId) as {
+      id: number;
+      fork_instance: number;
+      fork_lineage: string;
+      fork_instance_id: string | null;
+    }[];
     let consumed = 0;
     for (const token of claimed) {
       if (consumeGraphToken(db, token.id, input.nodeRunId, deps.now())) consumed += 1;
@@ -128,6 +137,12 @@ export function completeActivation(
             const forkLineage = isLoop && consumedToken
               ? `${consumedToken.fork_lineage}:${node.id}`
               : (consumedToken?.fork_lineage ?? 'root');
+            // A self-loop traversal IS a fork execution: mint a fresh UUIDv7
+            // identity for it. Descendant (non-loop) successors inherit the
+            // fork execution's identity; entry tokens have none.
+            const forkInstanceId = isLoop
+              ? (deps.uuidv7?.() ?? uuidv7())
+              : (consumedToken?.fork_instance_id ?? null);
             const successor = insertGraphToken(db, {
               revisionId: run.revision_id,
               sourceNodeRunId: input.nodeRunId,
@@ -137,6 +152,7 @@ export function completeActivation(
               destinationEnd: edge.to === 'END',
               forkInstance,
               forkLineage,
+              forkInstanceId,
               now: deps.now(),
             } satisfies InsertGraphToken);
             if (successor !== undefined) inserted += 1;

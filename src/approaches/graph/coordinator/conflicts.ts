@@ -217,6 +217,9 @@ export interface SchedulerGroup {
   /** The group's earliest token id — breaks one-millisecond creation ties. */
   tokenId: number;
   forkInstance: number;
+  /** The full fork-lineage stack (outermost first); correlation key member
+   *  (Slice 5 Task 4) — two forks sharing a visit number never collide. */
+  forkLineage: string | null;
   /** A join whose arrival set is not fully pending is dependency-waiting. */
   dependencyWaiting: boolean;
 }

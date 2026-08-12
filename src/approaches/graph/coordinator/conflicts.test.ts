@@ -213,6 +213,7 @@ describe('schedulerReady', () => {
     created: '2026-08-12T00:00:00.000Z',
     tokenId: 1,
     forkInstance: 0,
+    forkLineage: 'root',
     dependencyWaiting: false,
     ...over,
   });
@@ -347,6 +348,7 @@ describe('agingPriority', () => {
     created: '2026-08-12T00:00:00.000Z',
     tokenId: 1,
     forkInstance: 0,
+    forkLineage: 'root',
     dependencyWaiting: false,
     ...over,
   });

@@ -102,6 +102,9 @@ export interface JoinOutgoing {
   destinationEnd: boolean;
   forkInstance: number;
   forkLineage: string | null;
+  /** The correlated fork execution's identity, inherited from the arrivals
+   *  (Slice 5 Task 4); NULL for legacy rows and entry forks. */
+  forkInstanceId?: string | null;
 }
 
 export interface ClaimJoinInput {
@@ -281,6 +284,7 @@ export function claimJoinActivation(deps: ClaimDeps, input: ClaimJoinInput): Cla
       destinationEnd: input.outgoing.destinationEnd,
       forkInstance: input.outgoing.forkInstance,
       forkLineage: input.outgoing.forkLineage,
+      forkInstanceId: input.outgoing.forkInstanceId ?? null,
       now: deps.now(),
     });
     if (successorId === undefined) {

@@ -212,6 +212,7 @@ export function handleBudgetRefusal(
       destinationEnd: edge.to === 'END',
       forkInstance: first.fork_instance,
       forkLineage: first.fork_lineage,
+      forkInstanceId: first.fork_instance_id,
       now: deps.now(),
     });
     deps.debug?.(

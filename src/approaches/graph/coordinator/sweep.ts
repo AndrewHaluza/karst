@@ -8,9 +8,9 @@
  * harmless by construction (design, "Coordinator sweep").
  *
  * One tick: re-reads the graph run's status and active revision, re-parses
- * the canonical document, groups pending tokens by (destination, fork
- * instance) in token order, claims single activations, and fires a join only
- * when its full arrival set is pending. Work is bounded to
+ * the canonical document, groups pending tokens by (destination, full fork
+ * lineage, fork instance) in token order, claims single activations, and
+ * fires a join only when its full arrival set is pending. Work is bounded to
  * `MAX_SWEEP_TRANSITIONS` (≤ 100) state transitions per tick. Raced tokens
  * (claimed by another window mid-tick) are skipped, never thrown; an
  * expected partial join firing is a no-op for that group, retried next tick.
@@ -30,6 +30,7 @@ import {
 } from '../../../store/graph/nodeRuns.js';
 import { claimActivation, claimJoinActivation, GraphClaimError } from './claim.js';
 import { handleBudgetRefusal } from './visits.js';
+import { joinCorrelationKey } from './lineage.js';
 import {
   agingPriority,
   schedulerReady,
@@ -95,6 +96,7 @@ interface RevisionRow {
 
 interface TokenGroup {
   destination: string;
+  forkLineage: string | null;
   forkInstance: number;
   tokens: GraphTokenRow[];
 }
@@ -105,10 +107,15 @@ function groupPendingTokens(tokens: readonly GraphTokenRow[]): TokenGroup[] {
   for (const token of tokens) {
     if (token.destination_end) continue; // END tokens are never claimed
     const destination = token.destination_node_id!;
-    const key = `${destination}\u0000${token.fork_instance}`;
+    const key = joinCorrelationKey(destination, token.fork_lineage, token.fork_instance);
     let group = byKey.get(key);
     if (!group) {
-      group = { destination, forkInstance: token.fork_instance, tokens: [] };
+      group = {
+        destination,
+        forkLineage: token.fork_lineage,
+        forkInstance: token.fork_instance,
+        tokens: [],
+      };
       byKey.set(key, group);
       order.push(key);
     }
@@ -241,6 +248,7 @@ export function runCoordinatorTick(
         created: earliest.created_at,
         tokenId: earliest.id,
         forkInstance: group.forkInstance,
+        forkLineage: group.forkLineage,
         dependencyWaiting,
       },
     });
@@ -256,7 +264,10 @@ export function runCoordinatorTick(
     (nodeId) => waitSinceByNode.get(nodeId) ?? null,
   );
   const entryByGroupKey = new Map(
-    entries.map((e) => [`${e.scheduler.destination}\u0000${e.scheduler.forkInstance}`, e]),
+    entries.map((e) => [
+      joinCorrelationKey(e.scheduler.destination, e.scheduler.forkLineage, e.scheduler.forkInstance),
+      e,
+    ]),
   );
 
   const defer = (nodeId: string, refusal: SchedulerRefusal): void => {
@@ -282,7 +293,9 @@ export function runCoordinatorTick(
 
   for (const scheduler of ordered) {
     if (result.transitions >= maxTransitions) break;
-    const entry = entryByGroupKey.get(`${scheduler.destination}\u0000${scheduler.forkInstance}`);
+    const entry = entryByGroupKey.get(
+      joinCorrelationKey(scheduler.destination, scheduler.forkLineage, scheduler.forkInstance),
+    );
     if (!entry) continue;
     const { group, node } = entry;
     const schedulerState = {
@@ -322,6 +335,7 @@ export function runCoordinatorTick(
               destinationEnd: outgoing.end,
               forkInstance: group.forkInstance,
               forkLineage: group.tokens[0]!.fork_lineage,
+              forkInstanceId: group.tokens[0]!.fork_instance_id,
             },
           },
         );
