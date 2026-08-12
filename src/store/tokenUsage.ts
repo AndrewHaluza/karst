@@ -8,9 +8,12 @@ import type { UsageQuery, UsageSort } from './tokenUsageQuery.js';
  * Writing is one INSERT — deliberately the cheapest thing in the module, because
  * it happens on the AI call's own path and must never be worth skipping.
  *
- * Reading is FOUR aggregate queries (overall, by call site, by model, by
- * ticket), each a GROUP BY that SQLite answers off the v17 indexes. None of them
- * selects a row: the alternative — pull the range into JS and reduce it — is an
+ * Reading is FIVE aggregate queries (overall, by call site, by model, by ticket,
+ * by graph profile), each a GROUP BY. The first four SQLite answers off the v17
+ * indexes; the profile rollup rides LEFT JOINs to `approach_node_runs`/
+ * `approach_planner_runs` by primary key instead, since a profile is a fact of
+ * the RUN a usage row was attributed to, not of the row's own range. None of
+ * them selects a row: the alternative — pull the range into JS and reduce it — is an
  * unbounded in-memory rollup whose cost grows with history, and history here
  * only ever grows. The per-ticket page is LIMIT/OFFSET'd, and its full group
  * count comes back separately so the view can page without having read the rest.
