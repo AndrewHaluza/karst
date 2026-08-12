@@ -52,6 +52,9 @@ describe('Tabler icon catalog (src/model/tablerIcons.ts)', () => {
     // local approximation — the vendored data must stay the upstream bytes.
     expect(TABLER_ICONS['check']).toBe('<path d="M5 12l5 5l10 -10"/>');
     expect(TABLER_ICONS['player-play']).toBe('<path d="M7 4v16l13 -8l-13 -8"/>');
+    expect(TABLER_ICONS['player-pause']).toBe(
+      '<path d="M6 6a1 1 0 0 1 1 -1h2a1 1 0 0 1 1 1v12a1 1 0 0 1 -1 1h-2a1 1 0 0 1 -1 -1l0 -12"/><path d="M14 6a1 1 0 0 1 1 -1h2a1 1 0 0 1 1 1v12a1 1 0 0 1 -1 1h-2a1 1 0 0 1 -1 -1l0 -12"/>',
+    );
     expect(TABLER_ICONS['terminal-2']).toBe(
       '<path d="M8 9l3 3l-3 3"/><path d="M13 15l3 0"/><path d="M3 6a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2l0 -12"/>',
     );

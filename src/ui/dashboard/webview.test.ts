@@ -1124,11 +1124,20 @@ describe('dashboard webview.html', () => {
     // statement that builds the generic title — it must return before ever
     // reaching the Resume-button markup.
     const nonResumableBranch = renderBlockedBody.slice(
-      renderBlockedBody.indexOf('blocked.resumable === false'),
+      renderBlockedBody.indexOf('if (blocked.resumable === false)'),
       renderBlockedBody.indexOf('const title = `${STAGE_TITLE'),
     );
     expect(nonResumableBranch).toContain('Waiting to merge');
     expect(nonResumableBranch).not.toMatch(/data-act="stage-resume"/);
+    // A wait is not a fault (UI-R28): the awaiting-merge branch swaps the red
+    // failure styling for the `waiting` treatment — the amber attention edge
+    // plus the pause glyph, so hue is not the only carrier — and the
+    // `.fault.waiting` CSS rule uses `--k-attention`, never `--k-failed`.
+    expect(nonResumableBranch).toContain("box.classList.add('waiting')");
+    expect(nonResumableBranch).toContain("karstIcon('player-pause'");
+    expect(HTML).toMatch(/\.fault\.waiting\{[^}]*var\(--k-attention\)[^}]*\}/);
+    expect(HTML).toMatch(/\.fault\.waiting\{[^}]*background:color-mix[^}]*\}/);
+    expect(HTML).not.toMatch(/\.fault\.waiting\{[^}]*var\(--k-failed\)/);
   });
 
   it('posts stage-resume with the ticket id and the button\'s own stage key', () => {
