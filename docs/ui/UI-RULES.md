@@ -721,6 +721,13 @@ requirements.
 Theme-dependent pairs are not assumed to pass merely because they come from
 theme variables.
 
+A rule that paints a surface (selection wash, fill, hover) must take that
+surface's paired foreground at the same time — the paired theme variable
+(e.g. `--vscode-list-activeSelectionForeground`), never the inherited text
+color. On a light theme the active-selection wash is a saturated blue and the
+inherited grey `--k-text` fails contrast on it; the theme's own foreground
+pairing is the only one that tracks the wash across themes.
+
 Shared/reusable component CSS must not embed dark-theme surface/text/border
 literals that bypass the semantic token layer.
 
@@ -730,6 +737,10 @@ literals that bypass the semantic token layer.
 
 - Karst-owned fixed semantic foreground/background pairs have pinned contrast
   tests;
+- every selection/hover rule that changes `background` also sets `color` —
+  the paired theme variable on a filled/washed surface, `--k-text` on a
+  subtle hover wash — and the pages that duplicate a control's rules carry
+  the same pinning test;
 - changed surfaces are checked in VS Code light, dark, and high-contrast theme
   classes.
 

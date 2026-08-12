@@ -787,6 +787,19 @@ describe('ticket-form webview.html — selects, buttons, positioning fixes', () 
     expect(main).toMatch(/\.agentselect-trigger\.is-success[^{]*::before\{[^}]*content:none/);
   });
 
+  it('pairs the selection foreground on the agent-core option (light-theme contrast)', () => {
+    // The active wash is a saturated blue on light themes; the inherited
+    // `--k-text` is grey and fails contrast on it (UI-R29) — the selected
+    // option rendered as grey text on the blue row (GRAY-TEXT-ON-BLUE-BACKGROUND).
+    // The option must take the theme's own paired foreground, exactly as
+    // settings' .provselect-opt/.agentselect-opt rules already do — the two
+    // pages must not drift (settings pins the same pairing in webview.test.ts).
+    const [main] = styleBlocks();
+    expect(main).toMatch(/\.agentselect-opt\.selected\{[^}]*background:var\(--vscode-list-activeSelectionBackground,var\(--k-surface-hover\)\)/);
+    expect(main).toMatch(/\.agentselect-opt\.selected\{[^}]*color:var\(--vscode-list-activeSelectionForeground,var\(--k-text\)\)/);
+    expect(main).toMatch(/\.agentselect-opt:hover\{[^}]*background:var\(--k-surface-hover\)[^}]*color:var\(--k-text\)/);
+  });
+
   it('re-renders the model picker for the picked provider from the last catalog', () => {
     // The Model select sits right below the agent-core picker and must follow
     // it. In create mode the host no-ops set-provider (no state push follows),
