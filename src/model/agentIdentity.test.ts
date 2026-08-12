@@ -32,6 +32,15 @@ describe('AGENT_PROVIDERS registry', () => {
     }
   });
 
+  it('every icon is monochrome — a currentColor fill and no baked-in color machinery', () => {
+    for (const [provider, meta] of Object.entries(AGENT_PROVIDERS)) {
+      const raw = readFileSync(join(ICONS_DIR, meta.icon), 'utf8');
+      expect(raw, provider).toMatch(/fill="currentColor"/);
+      expect(raw, provider).not.toMatch(/fill="#/);
+      expect(raw, provider).not.toMatch(/<(mask|filter|linearGradient|radialGradient)/i);
+    }
+  });
+
   it('derives the label map from the registry — one source of truth', () => {
     expect(AGENT_PROVIDER_LABELS).toEqual(
       Object.fromEntries(Object.entries(AGENT_PROVIDERS).map(([p, m]) => [p, m.label])),
