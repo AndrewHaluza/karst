@@ -24,15 +24,24 @@ describe('attachmentKind', () => {
     expect(attachmentKind('Clip.MOV')).toBe('video');
   });
 
-  it('rejects a non-whitelisted extension', () => {
-    expect(attachmentKind('notes.pdf')).toBeNull();
-    expect(attachmentKind('script.sh')).toBeNull();
+  it('classifies any plain-alphanumeric extension as a file', () => {
+    expect(attachmentKind('notes.pdf')).toBe('file');
+    expect(attachmentKind('script.sh')).toBe('file');
+    expect(attachmentKind('SPEC.md')).toBe('file');
+    expect(attachmentKind('archive.zip')).toBe('file');
+    expect(attachmentKind('report.docx')).toBe('file');
+  });
+
+  it('rejects an extension that is not plain alphanumeric', () => {
+    expect(attachmentKind('x.txt!')).toBeNull();
+    expect(attachmentKind('x.txt v2')).toBeNull();
+    expect(attachmentKind('x.ta\nr')).toBeNull();
   });
 
   // The double extension is the interesting case: only the LAST segment counts,
   // so a file dressed up as an image is classified by what it actually is.
   it('classifies by the final extension only', () => {
-    expect(attachmentKind('payload.png.exe')).toBeNull();
+    expect(attachmentKind('payload.png.exe')).toBe('file');
     expect(attachmentKind('archive.tar.png')).toBe('image');
   });
 
@@ -53,9 +62,15 @@ describe('attachmentExtension', () => {
     expect(attachmentExtension('clip.Mp4')).toBe('mp4');
   });
 
-  it('returns null for anything not whitelisted', () => {
-    expect(attachmentExtension('notes.pdf')).toBeNull();
-    expect(attachmentExtension('screenshot')).toBeNull();
+  it('returns the normalized lowercase extension for a generic file name', () => {
+    expect(attachmentExtension('REPORT.PDF')).toBe('pdf');
+    expect(attachmentExtension('script.Sh')).toBe('sh');
+  });
+
+  it('returns null for a name with no plain extension', () => {
+    expect(attachmentExtension('README')).toBeNull();
+    expect(attachmentExtension('x.txt!')).toBeNull();
+    expect(attachmentExtension('.pdf')).toBeNull();
   });
 
   // The stored filename is built from this value, so it must never carry a

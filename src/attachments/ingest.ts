@@ -14,6 +14,14 @@ import type { AttachmentInput } from '../store/attachments.js';
 /** The maximum number of bytes accepted through the webview paste path. */
 export const MAX_PASTE_BYTES = 10 * 1024 * 1024;
 
+/**
+ * The minimum character count for a text paste into the ticket-form prompt to be
+ * attached as a file rather than inlined. Below this, a paste keeps the default
+ * browser behavior (text lands in the field); at or above it, the webview turns
+ * the paste into a `pasted-<ts>.txt` attachment and the host stores it.
+ */
+export const LONG_TEXT_PASTE_CHARS = 4000;
+
 export type IngestResult =
   | { ok: true; input: AttachmentInput }
   | { ok: false; message: string };
@@ -22,7 +30,7 @@ export type AttachmentValidation =
   | { ok: true; kind: NonNullable<ReturnType<typeof attachmentKind>>; extension: string }
   | { ok: false; message: string };
 
-const SUPPORTED = `images: ${IMAGE_EXTENSIONS.join(', ')}; video: ${VIDEO_EXTENSIONS.join(', ')}`;
+const SUPPORTED = `images: ${IMAGE_EXTENSIONS.join(', ')}; video: ${VIDEO_EXTENSIONS.join(', ')}; any other file`;
 
 function unsupported(name: string): AttachmentValidation {
   return { ok: false, message: `${name} is not a supported attachment (${SUPPORTED})` };

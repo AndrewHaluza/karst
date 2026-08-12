@@ -40,6 +40,21 @@ describe('ticket attachments store', () => {
     expect(listAttachments(store, seedTicket(store))).toEqual([]);
   });
 
+  it('round-trips a generic file kind', () => {
+    const store = freshStore();
+    const ticketId = seedTicket(store, 'F-1');
+    insertAttachment(store, {
+      ticketId,
+      kind: 'file',
+      storedName: 'aaaa1111bbbb2222.pdf',
+      originalName: 'notes.pdf',
+      byteSize: 5,
+    });
+    expect(listAttachments(store, ticketId)).toEqual([
+      expect.objectContaining({ kind: 'file', originalName: 'notes.pdf' }),
+    ]);
+  });
+
   it('round-trips every field of an inserted attachment', () => {
     const store = freshStore();
     const ticketId = seedTicket(store);

@@ -87,6 +87,8 @@
     border:var(--k-border-w) solid var(--k-border)}
   .attachtile img,.attachtile video{display:block;width:100%;height:calc(var(--k-space-8) * 4.1);object-fit:cover;
     background:var(--k-bg)}
+  .attachfile{display:flex;align-items:center;justify-content:center;height:calc(var(--k-space-8) * 4.1);
+    color:var(--k-text-dim)}
   .attachmeta{padding:var(--k-space-2) var(--k-space-3);font-size:var(--k-text-xs);line-height:var(--k-leading-normal);
     color:var(--k-text-dim);opacity:.85}
   .attachname{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -374,8 +376,8 @@
   <textarea class="k-input" id="desc" placeholder="What should the agent do? Pre-filled from the brief when fetched — edit freely."></textarea>
   <div class="attachrow">
     <button type="button" id="attachBtn" class="k-btn k-btn--ghost"
-            title="Attach an image or video from disk">Attach…</button>
-    <span class="hint">or paste a screenshot into the prompt</span>
+            title="Attach any file from disk">Attach…</button>
+    <span class="hint">or paste a screenshot — a long text becomes a file attachment</span>
   </div>
   <div id="attachments" class="attachstrip"></div>
   <div class="err hidden" id="err" role="alert"></div>
@@ -499,6 +501,11 @@
   // two together, because a drift means a paste that vanishes with no message.
   const MAX_PASTE_BYTES = 10485760;
 
+  // Mirrors LONG_TEXT_PASTE_CHARS in attachments/ingest.ts. The webview makes the
+  // inline-vs-attach decision for a text paste; this copy is pinned by
+  // webview.test.ts so the two can never drift (UI-R34).
+  const LONG_TEXT_PASTE_CHARS = 4000;
+
   // The working draft: create mode has no ticket, so the webview owns state that
   // only lands in the DB on submit. Repos/approach/agent selections are
   // mirrored here.
@@ -574,6 +581,8 @@
       const media = a.kind === 'video'
         ? '<video src="' + esc(a.src) + '" preload="metadata" controls '
           + 'data-attach-id="' + esc(a.id) + '"></video>'
+        : a.kind === 'file'
+        ? '<span class="attachfile" aria-hidden="true">' + karstIcon('file-text', 26) + '</span>'
         : '<img src="' + esc(a.src) + '" alt="' + esc(a.name) + '" '
           + 'data-attach-id="' + esc(a.id) + '">';
       return '<div class="attachtile">'
@@ -1561,15 +1570,50 @@
     }
   }
 
+  // A long text pasted into the prompt becomes a .txt attachment: the prompt stays
+  // concise and the agent reads the full content from the attachment file. Short
+  // pastes keep the default behavior (text lands in the field). base64 is built in
+  // chunks because btoa() throws on inputs around 64 KB in some engines, and the
+  // paste cap is 10 MB.
+  function postPastedText(text) {
+    const name = 'pasted-' + Date.now() + '.txt';
+    const bytes = new TextEncoder().encode(text);
+    if (bytes.length > MAX_PASTE_BYTES) {
+      showErr(name + ' is too long to attach (limit 10 MB). Paste it in smaller parts.');
+      return;
+    }
+    let binary = '';
+    const CHUNK = 0x8000;
+    for (let i = 0; i < bytes.length; i += CHUNK) {
+      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+    }
+    const base64 = btoa(binary);
+    // Shares the Attach… button's pending state, same as postPastedFile.
+    if (!karstIsPending(el('attachBtn'))) {
+      const requestId = karstRequestId();
+      karstBeginPending(el('attachBtn'), requestId);
+      post({ type: 'attach-bytes', name, base64, requestId });
+    }
+  }
+
   // Clipboard images have no path, so bytes are the only thing available — this
-  // is why the paste path exists at all. Text pastes fall through untouched:
-  // preventDefault only fires once a file is actually found.
+  // is why the paste path exists at all. A LONG text paste is attached as a
+  // file instead of inlined (see postPastedText). Short text pastes fall
+  // through untouched: preventDefault only fires once a file is actually found
+  // or a text actually meets the length threshold.
   el('desc').addEventListener('paste', function (e) {
     const files = e.clipboardData && e.clipboardData.files;
-    if (!files || files.length === 0) return;
-    e.preventDefault();
-    for (let i = 0; i < files.length; i += 1) {
-      postPastedFile(files[i]);
+    if (files && files.length > 0) {
+      e.preventDefault();
+      for (let i = 0; i < files.length; i += 1) {
+        postPastedFile(files[i]);
+      }
+      return;
+    }
+    const text = e.clipboardData && e.clipboardData.getData('text/plain');
+    if (typeof text === 'string' && text.length > LONG_TEXT_PASTE_CHARS) {
+      e.preventDefault();
+      postPastedText(text);
     }
   });
 

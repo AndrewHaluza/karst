@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { runInNewContext } from 'node:vm';
 import { slugifyTitleKey, TITLE_KEY_MAX } from '../../store/titleKey.js';
-import { MAX_PASTE_BYTES } from '../../attachments/ingest.js';
+import { MAX_PASTE_BYTES, LONG_TEXT_PASTE_CHARS } from '../../attachments/ingest.js';
 
 const HTML = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'webview.html'), 'utf8');
 
@@ -72,6 +72,17 @@ describe('ticket-form webview.html', () => {
       expect(head).toContain("showErr('Title is required.')");
       expect(head).not.toContain('!key');
     }
+  });
+
+  it('intercepts a long text paste into the prompt as a file attachment', () => {
+    const at = HTML.indexOf("el('desc').addEventListener('paste'");
+    const handler = HTML.slice(at, HTML.indexOf('// Auto-improve switch'));
+    expect(handler).toContain("getData('text/plain')");
+    expect(handler).toContain('text.length > LONG_TEXT_PASTE_CHARS');
+    expect(handler).toContain('preventDefault()');
+    expect(handler).toContain('postPastedText(text)');
+    // Files still win: the text branch must only run when no clipboard file exists.
+    expect(handler.indexOf('clipboardData.files')).toBeLessThan(handler.indexOf('getData'));
   });
 
   it('previews the derived key with the exact rule the store persists', () => {
@@ -339,6 +350,7 @@ describe('attachment strip', () => {
   const render = (list: unknown): string =>
     loadFunction('renderAttachments', {
       formatBytes: loadFunction('formatBytes'),
+      karstIcon: (name: string) => `<svg class="k-icon" data-icon="${name}"></svg>`,
     })(list) as string;
 
   it('renders nothing when there are no attachments', () => {
@@ -362,6 +374,18 @@ describe('attachment strip', () => {
     expect(html).toContain('controls');
     expect(html).toContain('preload="metadata"');
     expect(html).toContain('src="webview://b.mp4"');
+  });
+
+  it('renders a file tile with a file-text glyph and no media element', () => {
+    const html = render([
+      { id: 3, kind: 'file', name: 'notes.pdf', byteSize: 2048, src: 'webview://c.pdf' },
+    ]);
+    expect(html).not.toContain('<img');
+    expect(html).not.toContain('<video');
+    expect(html).toContain('data-icon="file-text"');
+    expect(html).toContain('notes.pdf');
+    expect(html).toContain('2 KB');
+    expect(html).toMatch(/<button[^>]*class="[^"]*\battachopen\b[^"]*"[^>]*data-attach-id="3"/);
   });
 
   it('carries the image row id on its media, detach control, and explicit open control', () => {
@@ -434,6 +458,15 @@ describe('paste cap mirror', () => {
   });
 });
 
+// The webview decides WHEN a pasted text becomes a file instead of inline text.
+// That decision is host-visible only via this mirror — pin it so a drift never
+// silently changes what counts as a "long" paste (UI-R34).
+describe('long-text paste threshold mirror', () => {
+  it('matches the host constant exactly', () => {
+    expect(htmlConstNumber('LONG_TEXT_PASTE_CHARS')).toBe(LONG_TEXT_PASTE_CHARS);
+  });
+});
+
 describe('pasted file reader', () => {
   function readerHarness() {
     const posted: unknown[] = [];
@@ -487,6 +520,55 @@ describe('pasted file reader', () => {
       expect(harness.posted).toEqual([]);
     },
   );
+});
+
+describe('pasted text writer', () => {
+  function writerHarness() {
+    const posted: unknown[] = [];
+    const errors: string[] = [];
+    let pending = false;
+    const read = loadFunction('postPastedText', {
+      TextEncoder: globalThis.TextEncoder,
+      btoa: globalThis.btoa,
+      MAX_PASTE_BYTES,
+      post: (message: unknown) => posted.push(message),
+      showErr: (message: string) => errors.push(message),
+      el: (id: string) => (id === 'attachBtn' ? {} : null),
+      karstIsPending: () => pending,
+      karstRequestId: () => 'req-1',
+      karstBeginPending: () => { pending = true; },
+    }) as (text: string) => void;
+    return { read, posted, errors };
+  }
+
+  it('posts the text as a base64 attach-bytes with a timestamped .txt name', () => {
+    const harness = writerHarness();
+    harness.read('line one\nline two');
+
+    expect(harness.posted).toHaveLength(1);
+    const msg = harness.posted[0] as { type: string; name: string; base64: string };
+    expect(msg.type).toBe('attach-bytes');
+    expect(msg.name).toMatch(/^pasted-\d+\.txt$/);
+    expect(Buffer.from(msg.base64, 'base64').toString('utf8')).toBe('line one\nline two');
+    expect(harness.errors).toEqual([]);
+  });
+
+  it('round-trips a multi-megabyte text through the chunked encoder', () => {
+    const harness = writerHarness();
+    const big = 'x'.repeat(200_000);
+    harness.read(big);
+
+    const msg = harness.posted[0] as { base64: string };
+    expect(Buffer.from(msg.base64, 'base64').byteLength).toBe(200_000);
+  });
+
+  it('declines text over the paste cap with an inline error and no post', () => {
+    const harness = writerHarness();
+    harness.read('x'.repeat(MAX_PASTE_BYTES + 1));
+
+    expect(harness.posted).toEqual([]);
+    expect(harness.errors[0]).toContain('too long to attach');
+  });
 });
 
 // ── UI-RULES.md remediation guards (Task 3.5) ─────────────────────────────────
@@ -834,6 +916,12 @@ describe('ticket-form webview.html — selects, buttons, positioning fixes', () 
     const rule = main!.match(/\.hint\{[^}]*\}/)?.[0] ?? '';
     expect(rule).toContain('font-size:var(--k-text-sm)');
     expect(rule).toContain('opacity:.6');
+  });
+
+  it('says the prompt accepts pasted screenshots AND long text', () => {
+    const row = HTML.slice(HTML.indexOf('id="attachBtn"'), HTML.indexOf('<div id="attachments"'));
+    expect(row).toMatch(/paste a screenshot/i);
+    expect(row).toMatch(/long text/i);
   });
 
   it('centres the step rail under the dots so the spine lines up with them', () => {

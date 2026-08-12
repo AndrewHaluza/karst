@@ -1508,6 +1508,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           openLabel: 'Attach',
           filters: {
             Media: [...IMAGE_EXTENSIONS, ...VIDEO_EXTENSIONS],
+            'All Files': ['*'],
           },
         });
         return (picked ?? []).map((uri) => uri.fsPath);
