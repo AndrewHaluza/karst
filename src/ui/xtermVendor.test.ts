@@ -11,14 +11,13 @@ import { readXtermAssets } from '../model/xtermAssets.js';
 // they are staged flat into a temp dir — the same shape dist/vendor/xterm
 // has at runtime — before readXtermAssets reads them.
 //
-// The vendor dir is resolved through Node's own resolution, never an assumed
-// `<repo root>/node_modules` path: a karst worktree has no node_modules of its
-// own, and Node resolves every other dependency by walking up to the main
-// checkout's tree (scripts/rebuild-better-sqlite3.mjs documents the same
-// trap) — this test must survive the same layout.
+// The bundles are located through Node's OWN resolution, never by a path
+// relative to this source file: the UAT gate runs the suite from a linked
+// worktree whose node_modules is empty, and packages resolve by walking up
+// to the main checkout (the same resolution every import in this suite
+// uses). A `../../node_modules/@xterm` literal exists only in a main
+// checkout and fails the gate in the worktree it is run from.
 const require = createRequire(import.meta.url);
-// `<installRoot>/node_modules/@xterm/xterm` → the scope dir that holds both
-// packages, the shape the join calls below expect.
 const VENDOR = dirname(dirname(require.resolve('@xterm/xterm/package.json')));
 
 describe('vendored xterm bundles are CSP-safe to inline', () => {

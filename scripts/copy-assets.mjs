@@ -7,6 +7,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
+const require = createRequire(import.meta.url);
 
 const assets = [
   'ui/dashboard/webview.html',
@@ -48,21 +49,18 @@ for (const rel of rootAssets) {
 // runtime reads dist/vendor/xterm/* (inlined into the dashboard webview by
 // src/model/xtermAssets.ts), and .vscodeignore excludes node_modules/@xterm.
 //
-// They are resolved through Node's own resolution, never an assumed
-// `<repo root>/node_modules` path: a karst worktree has no node_modules of its
-// own, and Node resolves every other dependency by walking up to the main
-// checkout's tree (scripts/rebuild-better-sqlite3.mjs documents the same
-// trap) — this build must survive the same layout.
-const require = createRequire(import.meta.url);
+// Resolved through Node's own resolution, never by a path relative to this
+// file: a build run from a linked worktree (empty local node_modules) must
+// walk up to the main checkout, exactly like every import in the test suite.
 const vendorAssets = [
-  ['@xterm/xterm/lib/xterm.js', 'vendor/xterm/xterm.js'],
-  ['@xterm/xterm/css/xterm.css', 'vendor/xterm/xterm.css'],
-  ['@xterm/addon-fit/lib/addon-fit.js', 'vendor/xterm/addon-fit.js'],
+  [require.resolve('@xterm/xterm/lib/xterm.js'), 'vendor/xterm/xterm.js'],
+  [require.resolve('@xterm/xterm/css/xterm.css'), 'vendor/xterm/xterm.css'],
+  [require.resolve('@xterm/addon-fit/lib/addon-fit.js'), 'vendor/xterm/addon-fit.js'],
 ];
 
 for (const [from, rel] of vendorAssets) {
   const to = join(root, 'dist', rel);
   mkdirSync(dirname(to), { recursive: true });
-  copyFileSync(require.resolve(from), to);
+  copyFileSync(from, to);
   console.log(`copied ${rel}`);
 }

@@ -119,7 +119,7 @@ function unmergedRepos(state: MergeGateState): readonly string[] {
 
 /**
  * A block reason naming the unmerged PR(s), so the gate never fails silently —
- * the dashboard's fault card and the rail both read `stages.blocked_reason`
+ * the dashboard's blocked banner and the rail both read `stages.blocked_reason`
  * verbatim.
  */
 function describeAwaitingMerge(state: MergeGateState): string {

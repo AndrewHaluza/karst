@@ -17,9 +17,52 @@
 #   scripts/install-local.sh cursor       # build+install for just cursor
 #   scripts/install-local.sh cursor vscode  # multiple explicit targets
 #   scripts/install-local.sh all          # every detected IDE, no prompt
+#   scripts/install-local.sh --no-cache   # bypass build/rebuild/vsix caches
+#   scripts/install-local.sh --clean      # delete all caches then exit
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# --- Cache management ---------------------------------------------------
+# Skip expensive steps (TS build, native addon rebuild, vsix packaging)
+# when source hasn't changed.  Pass --no-cache to bypass all checks.
+# Pass --clean to delete all caches then exit.
+CACHE_DIR=".karst-cache"
+for arg in "$@"; do
+  if [ "$arg" = "--clean" ]; then
+    echo "Cleaning install-local caches..."
+    rm -rf "$CACHE_DIR"
+    echo "Done."
+    exit 0
+  fi
+done
+
+USE_CACHE=true
+for arg in "$@"; do
+  [ "$arg" = "--no-cache" ] && USE_CACHE=false
+done
+
+mkdir -p "$CACHE_DIR"
+
+# --- ABI probe -----------------------------------------------------------
+# Echo a .node addon's NODE_MODULE_VERSION, or "unknown" (or empty on a
+# probe failure).  The probe runs under the LOCAL node: an ABI mismatch
+# aborts BEFORE dlopen and names the addon's version on stderr — "compiled
+# against a different Node.js version using NODE_MODULE_VERSION <n>" — so
+# macOS code signing (which blocks dlopen of differently-signed addons in
+# Electron) never interferes with the verdict; a match loads cleanly and its
+# ABI is this node's own.  This works for EVERY ABI, unlike the byte-scan it
+# replaces, which only knew 143 and 127.
+addon_abi() {
+  local addon="$1" out rc
+  out="$(node -e "require(process.argv[1])" "$addon" 2>&1)"; rc=$?
+  if [ "$rc" -eq 0 ]; then
+    node -p "process.versions.modules"
+  else
+    printf '%s' "$out" | grep -oE "NODE_MODULE_VERSION [0-9]+" | head -1 | awk '{print $2}'
+  fi
+}
+
+# --- IDE targets ---------------------------------------------------------
 # name | app Electron binary (ABI detection) | extension-install CLI
 #
 # macOS puts every app at a fixed /Applications bundle path, so those rows are
@@ -90,14 +133,26 @@ if [ "${#detected[@]}" -eq 0 ]; then
   exit 1
 fi
 
-# Decide which targets to build for.
+# Decide which targets to build for.  Flags are filtered out first so a
+# flag-only invocation (e.g. `install-local.sh --no-cache`) falls through
+# to the same prompt/auto-select behavior as a no-arg run.
 selected=()
-if [ "$#" -gt 0 ]; then
+targets=()
+for arg in "$@"; do
+  [ "$arg" = "--no-cache" ] && continue
+  targets+=("$arg")
+done
+
+if [ "${#targets[@]}" -gt 0 ]; then
   # Explicit args (or the literal 'all').
-  if [ "$1" = "all" ]; then
+  has_all=false
+  for arg in "${targets[@]}"; do
+    if [ "$arg" = "all" ]; then has_all=true; fi
+  done
+  if [ "$has_all" = true ]; then
     selected=("${detected[@]}")
   else
-    for arg in "$@"; do
+    for arg in "${targets[@]}"; do
       if entry_for "$arg" >/dev/null; then
         selected+=("$arg")
       else
@@ -127,7 +182,22 @@ else
   done
 fi
 
-npm run build
+# --- TS build (cached) ---------------------------------------------------
+BUILD_STAMP="$CACHE_DIR/build.stamp"
+build_needed=true
+if [ "$USE_CACHE" = true ] && [ -f "$BUILD_STAMP" ]; then
+  # Rebuild if any source or config file is newer than the stamp
+  stale=$(find src/ package.json tsconfig.json tsconfig.build.json -newer "$BUILD_STAMP" \
+    -print -quit 2>/dev/null || true)
+  if [ -z "$stale" ]; then
+    build_needed=false
+    echo "Build cache hit — skipping TS compile"
+  fi
+fi
+if [ "$build_needed" = true ]; then
+  npm run build
+  touch "$BUILD_STAMP"
+fi
 
 installed_any=false
 
@@ -142,17 +212,85 @@ for name in "${selected[@]}"; do
   fi
 
   echo "== $name =="
-  KARST_TARGET_APP_BINARY="$app_bin" npm run rebuild:electron
-  # --skip-license / --allow-missing-repository stop vsce from raising the
-  # packaging warnings that otherwise trigger an interactive
-  # "Do you want to continue? [y/N]" confirm and stall a non-interactive run.
-  # vsce runs `vscode:prepublish`, which runs rebuild:electron AGAIN — pass the
-  # target through or that second run detects no app and rebuilds for the wrong
-  # (or no) ABI, undoing the rebuild above.
-  # @vscode/vsce, not the legacy `vsce` package — that one is frozen at 2.15.0
-  # and rejects --skip-license with "unknown option".
-  KARST_TARGET_APP_BINARY="$app_bin" npx @vscode/vsce package --skip-license --allow-missing-repository
-  VSIX="$(ls -t *.vsix | head -1)"
+
+  # --- Native addon rebuild (cached, per-target) ----------------------
+  # The addon at build/Release is a SINGLE shared file that several paths
+  # replace out-of-band: another target's rebuild:electron, `npm test`'s
+  # pretest (rebuild:node), an IDE auto-update, a fresh npm ci.  A cache
+  # keyed on mtimes cannot see any of those — and the addon's mtime is the
+  # release archive's, not the install's (prebuild-install extracts from a
+  # cached tarball, and tar preserves the archive's mtime), so mtime is not
+  # even a real change signal.  The cache verdict is therefore the addon's
+  # ACTUAL ABI (probed via addon_abi) against the IDE's CURRENT Electron
+  # ABI: if they match, the addon is by definition what this IDE needs,
+  # whatever wrote it.
+  VSIX_STAMP="$CACHE_DIR/vsix-${name}.stamp"
+
+  # Ask the IDE's embedded Electron binary for its ABI.  MUST run with
+  # ELECTRON_RUN_AS_NODE=1: without it the binary starts the real app (GUI,
+  # single-instance hand-off) and blocks forever when the IDE is not running —
+  # the bare `-e` probe hung the script.  This is the same probe
+  # rebuild-better-sqlite3.mjs's detectElectronRuntime uses.
+  expected_abi="$(ELECTRON_RUN_AS_NODE=1 "$app_bin" -e 'process.stdout.write(String(process.versions.modules))' 2>/dev/null || true)"
+
+  addon="node_modules/better-sqlite3/build/Release/better_sqlite3.node"
+  addon_abs="$PWD/$addon"
+  rebuild_needed=true
+  if [ "$USE_CACHE" = true ] && [ -f "$addon" ] && [ -n "$expected_abi" ]; then
+    if [ "$(addon_abi "$addon_abs")" = "$expected_abi" ]; then
+      rebuild_needed=false
+      echo "Rebuild cache hit — addon ABI $expected_abi matches $name"
+    fi
+  fi
+  if [ "$rebuild_needed" = true ]; then
+    KARST_TARGET_APP_BINARY="$app_bin" npm run rebuild:electron
+
+    # Verify the rebuilt addon actually targets this IDE's ABI before
+    # packaging.
+    if [ -z "$expected_abi" ]; then
+      echo "Cannot detect ABI from $app_bin — skipping verification." >&2
+    elif [ "$(addon_abi "$addon_abs")" = "$expected_abi" ]; then
+      echo "ABI verified: $expected_abi (matches $name)"
+    else
+      echo "ABI MISMATCH: expected $expected_abi but got $(addon_abi "$addon_abs")" >&2
+      echo "The better-sqlite3 native module was not rebuilt for $name (ABI $expected_abi)." >&2
+      echo "Rebuild output:" >&2
+      KARST_TARGET_APP_BINARY="$app_bin" npm run rebuild:electron 2>&1 >&2
+      exit 1
+    fi
+    # The addon inside the existing vsix is now stale — force a repackage.
+    rm -f "$VSIX_STAMP"
+  fi
+
+  # --- Vsix packaging (cached, per-target) -----------------------------
+  # The vsix is named per-target (vsce's default name is version-only, so
+  # two targets would overwrite each other's artifact) and the stamp records
+  # its filename, so a cache hit can only reuse the file THIS target built.
+  vsix_needed=true
+  if [ "$USE_CACHE" = true ] && [ -f "$VSIX_STAMP" ]; then
+    VSIX="$(cat "$VSIX_STAMP" 2>/dev/null || true)"
+    if [ -n "$VSIX" ] && [ -f "$VSIX" ]; then
+      # Repackage if src/, package.json, dist/ or the packaging config
+      # changed since last packaging.
+      stale=$(find src/ package.json dist/ .vscodeignore -newer "$VSIX_STAMP" -print -quit 2>/dev/null || true)
+      if [ -z "$stale" ]; then
+        vsix_needed=false
+        echo "Vsix cache hit — reusing $VSIX"
+      fi
+    fi
+  fi
+  if [ "$vsix_needed" = true ]; then
+    # --skip-license / --allow-missing-repository stop vsce from raising the
+    # packaging warnings that otherwise trigger an interactive
+    # "Do you want to continue? [y/N]" confirm and stall a non-interactive run.
+    # @vscode/vsce, not the legacy `vsce` package — that one is frozen at 2.15.0
+    # and rejects --skip-license with "unknown option".
+    ver="$(node -e "console.log(require('./package.json').version)")"
+    VSIX="$CACHE_DIR/karst-${ver}-${name}.vsix"
+    KARST_TARGET_APP_BINARY="$app_bin" npx @vscode/vsce package \
+      --skip-license --allow-missing-repository --out "$VSIX"
+    printf '%s\n' "$VSIX" > "$VSIX_STAMP"
+  fi
 
   if [ ! -e "$cli_bin" ]; then
     echo "Built $VSIX but no CLI at $cli_bin — install it manually via the $name Extensions panel."

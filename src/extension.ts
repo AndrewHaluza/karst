@@ -4692,7 +4692,8 @@ function makeDashboardActions(
         // `shipTicket` already recorded the reason on the ship stage, so the
         // dashboard now explains itself — but the user just clicked a button
         // and deserves an answer to THAT click, not a ticket that quietly goes
-        // red. Refresh first so the fault card is there when the toast lands.
+        // red. Refresh first so the dashboard reflects the failure when the
+        // toast lands.
         afterServerChange();
         onInsideProgress(shipClearedEvent(ticketId));
         void vscode.window.showErrorMessage(

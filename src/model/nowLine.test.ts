@@ -165,7 +165,20 @@ describe('buildNowLine', () => {
     // Ship has no failed edge, so the ticket parks here. Without this the user saw
     // a ticket sitting at ship with the gh error only in the output channel.
     expect(buildNowLine(cell({ stageKey: 'ship', status: 'failed' }))).toEqual({
-      text: 'Now: ship failed — the PRs were not opened. Check the reason above, then try again.',
+      text: 'Now: ship failed — the PRs were not opened.',
+      action: { kind: 'ship', label: 'Retry ship' },
+    });
+  });
+
+  it('carries the recorded reason on the failed-ship line — never "check above"', () => {
+    // The sentence must be self-contained: "Check the reason above" pointed at
+    // the fault card, a sibling surface the line cannot guarantee renders the
+    // reason (869eh44n5-fu1). The stepper already collapsed/capped the reason,
+    // so embedding it cannot blow the line up.
+    expect(
+      buildNowLine(cell({ stageKey: 'ship', status: 'failed', reason: 'gh pr create failed: HTTP 422' })),
+    ).toEqual({
+      text: 'Now: ship failed — the PRs were not opened: gh pr create failed: HTTP 422.',
       action: { kind: 'ship', label: 'Retry ship' },
     });
   });

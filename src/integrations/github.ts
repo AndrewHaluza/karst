@@ -46,8 +46,8 @@ interface SpawnOutcome {
  * `error`. Dropping it produced the empty "gh pr create failed in <cwd>: " that
  * told the user nothing. A failure always carries some text out of here.
  *
- * ENOENT gets translated rather than quoted: this text is what the dashboard's
- * fault card puts in front of the user, and "spawnSync gh ENOENT" is a true
+ * ENOENT gets translated rather than quoted: this text is what the dashboard
+ * puts in front of the user, and "spawnSync gh ENOENT" is a true
  * sentence they cannot act on. The wording comes from the dependency registry —
  * the same sentence the preflight and the checklist show — so install copy lives
  * in exactly one place. Every other spawn error is passed through as-is.

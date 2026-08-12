@@ -1016,7 +1016,7 @@ describe('dashboard webview.html', () => {
   it('titles every previously-untitled control named in the remediation brief', () => {
     for (const title of [
       'Return the strip to the stage the ticket is actually on', // .ghost[data-back]
-      "Open this stage's log file in an editor", // open-stage-log
+      "Open this stage's log file", // open-stage-log (Inside block / Now line)
       "Switch this ticket\\'s live agent session", // .switch-agent (JS string literal, escaped apostrophe)
       'Open a terminal in this worktree', // open-worktree-terminal
       'Reveal this worktree in the file explorer', // open-worktree-folder
@@ -1101,7 +1101,7 @@ describe('dashboard webview.html', () => {
     // re-point the Inside panel to whatever stage it names.
     const renderBlockedBody = HTML.slice(
       HTML.indexOf('function renderBlocked(state)'),
-      HTML.indexOf('// The fault card scans the FLAT stepper'),
+      HTML.indexOf('// One sentence + at most one button'),
     );
     expect(renderBlockedBody).toMatch(/data-act="stage-resume"/);
     expect(renderBlockedBody).toMatch(/data-stagekey="\$\{esc\(cell\.stageKey\)\}"/);
@@ -1117,7 +1117,7 @@ describe('dashboard webview.html', () => {
     // host's `resumable` flag, never a reason-string match in the webview.
     const renderBlockedBody = HTML.slice(
       HTML.indexOf('function renderBlocked(state)'),
-      HTML.indexOf('// The fault card scans the FLAT stepper'),
+      HTML.indexOf('// One sentence + at most one button'),
     );
     expect(renderBlockedBody).toMatch(/blocked\.resumable === false/);
     // The non-resumable branch is the code between its own `if` and the next
@@ -1394,9 +1394,12 @@ describe('dashboard webview.html', () => {
     // truncates with an ellipsis instead of pushing the row.
     expect(HTML).toMatch(/#inside \.op summary,#inside \.op-static\{[\s\S]*?minmax\(0,1fr\)/);
     expect(HTML).toMatch(/#inside \.evidence-row\{display:grid[^}]*minmax\(0,1fr\)/);
-    expect(HTML).toMatch(/\$\{esc\(p\.detail \|\| ''\)\}/);
     // The detail cell is a pure grid item (min-width:0 lets it shrink to its
     // ellipsis), never a fixed or minimum width that could overflow at 300px.
+    // The console-bearing gates row wraps its text in the same cell and keeps
+    // the ellipsis contract on the text span (869e7n906-fu1).
+    expect(HTML).toMatch(/<span class="op-detail-text">\$\{esc\(p\.detail\)\}<\/span>/);
+    expect(HTML).toMatch(/#inside \.op-detail\.detail-console \.op-detail-text\{[\s\S]*?min-width:0/);
     const detail = HTML.slice(HTML.indexOf('#inside .op-detail{'), HTML.indexOf('#inside .op-detail{') + 240);
     expect(detail).toContain('min-width:0');
     expect(detail).not.toContain('overflow-x');
@@ -1601,7 +1604,7 @@ describe('dashboard webview.html', () => {
     expect(HTML).toMatch(/<span class="ev-key">\$\{esc\(r\.label\)\}<\/span>/);
     expect(HTML).toMatch(/<span class="ev-detail">\$\{esc\(r\.detail \|\| ''\)\}[\s\S]*?<\/span>/);
     expect(HTML).toMatch(/<span class="op-name">\$\{esc\(p\.label\)\}/);
-    expect(HTML).toMatch(/\$\{esc\(p\.detail \|\| ''\)\}/);
+    expect(HTML).toMatch(/\$\{esc\(p\.detail\)\}<\/span>/);
     expect(HTML).toMatch(/<span class="phase-time">\$\{esc\(r\.time \|\| r\.duration \|\| ''\)\}<\/span>/);
     // The object-link templates (commit hash, PR number) escape the label.
     expect(HTML).toMatch(/class="obj-link commit-link"[^>]*>\$\{esc\(c\.sha\)\}<\/a>/);
@@ -1928,7 +1931,6 @@ function bootPreviewHarness(): PreviewHarness {
     'followUpBtn',
     'keyPill',
     'agent',
-    'fault',
     'blocked',
     'now',
     'srvCount',
@@ -3824,6 +3826,28 @@ describe('terminal console view (VM)', () => {
     expect((state.insideViews as Record<string, { console?: boolean }>).uat!.console).toBe(true);
     h.receive({ type: 'state', state });
     expect(h.htmlOf('inside')).toContain('data-act="console"');
+  });
+
+  it('sits in the GATES row description area, icon-only, never in the header (869e7n906-fu1)', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: renderStateFor('uat') });
+    const inside = h.htmlOf('inside');
+    // The console entry renders INSIDE the gates process row's markup — the
+    // row whose summary is the gate run this console shows.
+    expect(inside).toMatch(/data-proc-id="uat:gates"[\s\S]*?data-act="console"/);
+    // ...and specifically inside the row's DESCRIPTION area (the op-detail
+    // slot), not the header's meta cell where it used to sit — the meta cell
+    // now contains plain clock text and nothing else.
+    expect(inside).toMatch(/<span class="op-detail pass detail-console">[\s\S]*?data-act="console"/);
+    expect(inside).toMatch(/<span class="inside-meta">[^<]+<\/span>/);
+    // The label is an icon now: a Tabler svg rides inside the button, and the
+    // word survives only as the matching aria-label/title pair (UI-R21/R24).
+    expect(inside).toMatch(/data-act="console"[^>]*aria-label="View this stage's console output in the dashboard"[\s\S]*?<svg class="k-icon"/);
+    expect(inside).not.toContain('>Console</button>');
+    // The click still opens the console for the stage named on data-console —
+    // the button's data-act/data-console pair is the one contract unchanged.
+    h.click('[data-act]', { act: 'console', console: 'uat' });
+    expect(h.bodyClasses).toContain('term-nav');
   });
 
   it('renders no Console button for a stage the host did not flag', () => {

@@ -69,7 +69,7 @@ function detail<T>(key: string, value: T | null | undefined): Record<string, T> 
  * `verdict`/`blockedReason` are untrusted CLI/git prose (e.g. raw `git
  * status` stderr, `workflow/gates/targets.ts`) — unbounded, possibly
  * multi-line, and this is the ONE place both reach the cell that every
- * rendered surface (fault card, blocked banner, Inside op row) reads from.
+ * rendered surface (blocked banner, Inside op row) reads from.
  * Collapsed to one line and capped here, not per-surface, so no renderer can
  * forget to.
  */

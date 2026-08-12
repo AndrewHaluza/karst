@@ -16,10 +16,9 @@
  * same loader works in both places. A missing asset (a packaging regression)
  * degrades to the label-only badge — an icon hole is never rendered.
  *
- * Theme support: the Claude/Codex/OpenCode marks are `fill="currentColor"`, so
- * they inherit the surrounding text color in light and dark alike; the
- * Antigravity mark is a fixed brand-color logo and renders as its brand in
- * both themes (same precedent as the ClickUp gradient in [[providerIdentity]]).
+ * Theme support: every mark is authored `fill="currentColor"` — including the
+ * Antigravity sparkle, which is the brand logo's silhouette traced monochrome —
+ * so all four inherit the surrounding text color in light and dark alike.
  * Width/height attributes are stripped at load so CSS alone controls size —
  * one sizing rule per context, including the compact variant.
  *
