@@ -3,10 +3,11 @@ import { pathToFileURL } from 'node:url';
 import { loadManifestWithDiagnostics } from '../manifest/load.js';
 import type { Manifest } from '../manifest/types.js';
 import { openReadonlyStore } from './readonlyStore.js';
-import { openWritableStore } from './writableStore.js';
+import { openGraphWritableStore, openWritableStore } from './writableStore.js';
 import { parseContextArgs, runContextCommand } from './context.js';
 import { runStageCommand } from './stage.js';
 import { runPhaseCommand } from './phase.js';
+import { runGraphCommand } from './graph.js';
 import { runGuideCommand } from './guide.js';
 import { resolveTicketByKey } from './resolveTicket.js';
 
@@ -158,6 +159,26 @@ export function runCli(argv: string[]): string {
     }
   }
 
+  // A SEPARATE branch from `stage` and `phase`, on purpose: `graph submit` is
+  // a closed parser that accepts no ticket, id, destination, capability, or
+  // generation in argv — every identity claim comes from the host-owned
+  // environment, and the capability hash is the sole authenticator (see
+  // src/cli/graph.ts). It never imports the workflow machine and produces no
+  // `Verdict`. The store opener fails closed on a schema that is not EXACTLY
+  // this build's version and uses `BEGIN IMMEDIATE` plus a bounded busy
+  // timeout (see openGraphWritableStore).
+  if (subcommand === 'graph') {
+    if (!db && !process.env.KARST_GRAPH_DB) {
+      throw new Error('missing --db <path> (or KARST_GRAPH_DB)');
+    }
+    const store = openGraphWritableStore(db ?? process.env.KARST_GRAPH_DB!);
+    try {
+      return runGraphCommand(store, process.env, rest);
+    } finally {
+      store.close();
+    }
+  }
+
   // The guide is static karst-authored content: no DB, no manifest, no ticket.
   // Read-only by construction (it never opens the store at all).
   if (subcommand === 'guide') {
@@ -165,7 +186,7 @@ export function runCli(argv: string[]): string {
   }
 
   throw new Error(
-    `unknown command '${subcommand ?? ''}' (want 'context', 'stage', 'phase' or 'guide')`,
+    `unknown command '${subcommand ?? ''}' (want 'context', 'stage', 'phase', 'graph' or 'guide')`,
   );
 }
 

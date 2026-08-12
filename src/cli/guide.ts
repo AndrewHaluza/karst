@@ -63,6 +63,10 @@ machine-read JSON or markdown; diagnostics go to stderr and never corrupt it.
 - \`phase <name>\` — append-only evidence that you REPORTED entering a phase
   of your declared workflow (e.g. \`research\`, \`plan\`, \`implement\`). It
   records an event; it never moves the ticket.
+- \`graph submit\` — internal: submits the fixed planner artifact
+  (\`graph.json\`) for the graph run named by the host-owned environment. It
+  takes no arguments, reads no ticket key, and is invoked ON YOUR BEHALF by
+  the graph runtime — never by you.
 - \`guide\` — this document.
 
 The marker is deliberately narrow: \`stage\` accepts only \`impl\`/\`fix\` and

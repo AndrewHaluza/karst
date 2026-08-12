@@ -5,7 +5,8 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { openStore } from '../store/db.js';
 import { openReadonlyStore } from './readonlyStore.js';
-import { openWritableStore } from './writableStore.js';
+import { openGraphWritableStore, openWritableStore } from './writableStore.js';
+import { assertExactSchema } from './assertMigrated.js';
 import { SCHEMA_VERSION } from '../store/migrations.js';
 
 /**
@@ -64,5 +65,44 @@ describe('CLI schema guard', () => {
     const rw = openWritableStore(path);
     cleanups.push(() => rw.close());
     expect(rw.db).toBeDefined();
+  });
+
+  it('assertExactSchema rejects a NEWER registry (Slice-2 T6)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-cli-exact-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, 'karst.db');
+    const db = new DatabaseSync(path);
+    db.exec('CREATE TABLE tickets (id INTEGER PRIMARY KEY)');
+    db.exec(`PRAGMA user_version = ${SCHEMA_VERSION + 1}`);
+    db.close();
+    expect(() => openGraphWritableStore(path)).toThrow(
+      new RegExp(`schema v${SCHEMA_VERSION + 1}`),
+    );
+    expect(() => openGraphWritableStore(path)).toThrow(new RegExp(`exactly v${SCHEMA_VERSION}`));
+  });
+
+  it('assertExactSchema rejects an OLDER registry naming the file and both versions', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-cli-exact-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, 'karst.db');
+    const db = new DatabaseSync(path);
+    db.exec('CREATE TABLE tickets (id INTEGER PRIMARY KEY)');
+    db.exec(`PRAGMA user_version = ${SCHEMA_VERSION - 1}`);
+    db.close();
+    expect(() => openGraphWritableStore(path)).toThrow(path);
+    expect(() => openGraphWritableStore(path)).toThrow(
+      new RegExp(`schema v${SCHEMA_VERSION - 1}`),
+    );
+    expect(() => openGraphWritableStore(path)).toThrow(new RegExp(`v${SCHEMA_VERSION}`));
+  });
+
+  it('assertExactSchema accepts a registry at this build version', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-cli-exact-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, 'karst.db');
+    openStore(path).close();
+    const graphStore = openGraphWritableStore(path);
+    cleanups.push(() => graphStore.close());
+    expect(graphStore.db).toBeDefined();
   });
 });
