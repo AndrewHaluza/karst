@@ -282,6 +282,25 @@ describe('runCoordinatorTick', () => {
     expect(endToken.status).toBe('pending');
   });
 
+  it('a draining revision is never scheduled — new nodes stop launching (Slice 4 T5)', () => {
+    // Step 2 of immutable replanning: once the election moved the run to
+    // draining, the tick must not claim the revision's pending tokens. The
+    // run gate (status must be 'running') is what stops it by construction.
+    const draining = harness(doc([agent('a')], [
+      { id: 'a-end', from: 'a', on: 'complete', to: 'END' },
+    ], ['a']), 'draining');
+    insertEntryTokens(draining.db, draining.revisionId, [
+      { edgeId: 'entry-a', destinationNodeId: 'a', destinationEnd: false },
+    ], draining.now);
+    expect(
+      runCoordinatorTick(draining.makeDeps(), { graphRunId: draining.graphRunId }),
+    ).toMatchObject({ claimed: 0, transitions: 0 });
+    const pending = draining.db
+      .prepare("SELECT COUNT(*) AS n FROM approach_graph_tokens WHERE status = 'pending'")
+      .get() as { n: number };
+    expect(pending.n).toBe(1);
+  });
+
   it('a raced token claimed by another window is skipped, not thrown', () => {
     const ctx = harness(doc([agent('a')], [
       { id: 'a-end', from: 'a', on: 'complete', to: 'END' },

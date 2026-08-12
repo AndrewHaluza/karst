@@ -44,8 +44,10 @@ export interface CompletionResult {
   inserted: number;
 }
 
-/** The non-terminal node-run statuses that keep a graph from quiescing. */
-const ACTIVE_NODE_STATUSES = [
+/** The non-terminal node-run statuses that keep a graph from quiescing.
+ *  Shared with the replan drain (Slice 4 Task 5) — a draining revision
+ *  quiesces only when none of these remains. */
+export const ACTIVE_NODE_STATUSES = [
   'ready',
   'waiting-resource',
   'launching',
@@ -66,6 +68,7 @@ const ACTIVE_NODE_STATUSES = [
 interface NodeRunRow {
   revision_id: number;
   node_id: string;
+  graph_run_id: number;
 }
 
 /**
@@ -79,7 +82,7 @@ export function completeActivation(
   return deps.transaction(() => {
     const db = deps.db;
     const run = db
-      .prepare('SELECT revision_id, node_id FROM approach_node_runs WHERE id = ?')
+      .prepare('SELECT revision_id, node_id, graph_run_id FROM approach_node_runs WHERE id = ?')
       .get(input.nodeRunId) as NodeRunRow | undefined;
     if (!run) return { consumed: 0, inserted: 0 };
     const claimed = db
@@ -102,6 +105,14 @@ export function completeActivation(
           .prepare('SELECT canonical_graph FROM approach_graph_revisions WHERE id = ?')
           .get(run.revision_id) as { canonical_graph: string } | undefined)
       : undefined;
+    // Slice 4 Task 5: a draining revision's completions still consume the
+    // claimed token and record the node's evidence, but suppress ALL successor
+    // creation — the drain owns the continuation; the replan's N+1 resumes
+    // scheduling. A drained completion must never route the old revision.
+    const graphRun = db
+      .prepare('SELECT status FROM approach_graph_runs WHERE id = ?')
+      .get(run.graph_run_id) as { status: string } | undefined;
+    if (graphRun?.status === 'draining') return { consumed, inserted };
     if (revision) {
       const parsed = parseGraphDocument(revision.canonical_graph);
       if (parsed.ok) {

@@ -155,6 +155,7 @@ import { startGraphWakeupEndpoint, type GraphWakeupEndpoint } from './hooks/grap
 import { runCoordinatorTick, activeGraphRunIds } from './approaches/graph/coordinator/sweep.js';
 import { reconcileGraphRun } from './approaches/graph/coordinator/reconcile.js';
 import { discardUnknownProcess } from './approaches/graph/coordinator/discard.js';
+import { electReplan } from './approaches/graph/coordinator/replan.js';
 import {
   createSupervisedCliTransport,
   type SupervisedCliTransport,
@@ -2863,12 +2864,35 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // names the reason; the graph run blocks with it.
       const blockedNode = db
         .prepare(
-          `SELECT id, reason FROM approach_node_runs
+          `SELECT id, reason, outcome FROM approach_node_runs
            WHERE graph_run_id = ? AND status = 'blocked'
            ORDER BY id LIMIT 1`,
         )
-        .get(graphRunId) as { id: number; reason: string | null } | undefined;
+        .get(graphRunId) as { id: number; reason: string | null; outcome: string | null } | undefined;
       if (blockedNode) {
+        // Slice 4 Task 5: a node reporting `replan` is an election trigger,
+        // never a `node-blocked` block. `electReplan` decides it all — the
+        // single-winner `running → draining` election, or the budget-refusal
+        // block — in one transaction; host-agnostic logic lives in replan.ts.
+        if (blockedNode.outcome === 'replan') {
+          const elected = electReplan(
+            {
+              db,
+              transaction: <T>(fn: () => T): T =>
+                (db.transaction as unknown as (f: () => T, o: { begin: 'immediate' }) => () => T)(
+                  fn,
+                  { begin: 'immediate' },
+                )(),
+              now: () => new Date().toISOString(),
+              debug: (message) => logger.debug(message),
+            },
+            { graphRunId, requestNodeRunId: blockedNode.id },
+          );
+          logger.debug(
+            `[graph] run ${graphRunId} replan election for node ${blockedNode.id} → ${JSON.stringify(elected)}`,
+          );
+          return;
+        }
         const reason = `node-blocked: node ${blockedNode.id} (${blockedNode.reason ?? 'blocked by agent'})`;
         const blocked = flipOrBlockGraph(db, graphRunId, reason);
         if (blocked) {

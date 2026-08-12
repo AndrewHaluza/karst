@@ -212,6 +212,26 @@ describe('completeActivation', () => {
       .get() as { n: number };
     expect(pending.n).toBe(0);
   });
+
+  it('a draining revision consumes and records evidence but creates no successor', () => {
+    // Slice 4 Task 5: once the replan election moved the revision to draining,
+    // a finishing node still consumes its claimed token (evidence recorded)
+    // but inserts NO successor — the drain owns the continuation and a drained
+    // completion must never route the old revision.
+    const ctx = harness();
+    ctx.db.prepare("UPDATE approach_graph_runs SET status = 'draining' WHERE id = ?").run(
+      ctx.graphRunId,
+    );
+    nodeRun(ctx, 15, 'a');
+    claimEntry(ctx, 15, 'e-a-end');
+    const result = completeActivation(makeDeps(ctx), {
+      nodeRunId: 15,
+      effectiveOutcome: 'complete',
+    });
+    expect(result).toEqual({ consumed: 1, inserted: 0 });
+    const tokens = tokenStatuses(ctx);
+    expect(tokens).toEqual([{ edge_id: 'e-a-end', status: 'consumed', destination_end: 0 }]);
+  });
 });
 
 describe('flipOnEndQuiescence', () => {
