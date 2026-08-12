@@ -43,10 +43,20 @@ export interface ProcessAssignmentSnapshot {
   provider: AgentProvider;
   model?: string;
   /**
-   * Author-declared prompt instructions (`processes.<key>.instructions`),
-   * resolved verbatim. Absent → the process's built-in prompt. Snapshotted
-   * like the identity fields: a Settings edit mid-run must not rewrite the
-   * prompt a live run is reading.
+   * The settings agent-pool profile this process is assigned to run as
+   * (`processes.<key>.agent`), carried VERBATIM alongside `agentName`. The
+   * host resolves the profile's BODY (its custom prompt) into `instructions`
+   * at the execution boundary (`processFor`); this field is what lets it know
+   * WHICH profile to resolve — `agentName` alone is a display label and can be
+   * overridden by `config.agentName`.
+   */
+  agent?: string;
+  /**
+   * The prompt instructions the process's headless call is run with: an
+   * author-declared `processes.<key>.instructions`, or — when that is absent —
+   * the resolved body of the assigned profile (`agent`). Absent entirely → the
+   * process's built-in prompt. Snapshotted like the identity fields: a
+   * Settings edit mid-run must not rewrite the prompt a live run is reading.
    */
   instructions?: string;
 }
@@ -126,6 +136,11 @@ export function resolveProcessAssignment(
     agentName,
     provider,
     model,
+    // The profile REFERENCE rides the snapshot so the host's execution
+    // boundary can resolve its body as the process's instructions. Carried
+    // separately from `agentName`: `config.agentName` overrides the display
+    // label without changing which profile drives the prompt.
+    ...(config?.agent === undefined ? {} : { agent: config.agent }),
     ...(config?.instructions === undefined ? {} : { instructions: config.instructions }),
   };
 }

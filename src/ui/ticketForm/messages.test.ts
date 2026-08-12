@@ -69,21 +69,18 @@ describe('parseTicketFormMessage', () => {
     });
     // a non-string prompt is rejected at the trust boundary
     expect(parseTicketFormMessage({ type: 'analyze' })).toBeNull();
-    // the webview-carried single-subagent rides the analyze message…
-    expect(
-      parseTicketFormMessage({ type: 'analyze', prompt: 'go', agent: 'description-improver' }),
-    ).toEqual({ type: 'analyze', prompt: 'go', agent: 'description-improver' });
-    // …a blank agent is dropped (same as absent)…
-    expect(parseTicketFormMessage({ type: 'analyze', prompt: 'go', agent: '' })).toEqual({
+    // no agent rides the analyze message — the analysis runs through the
+    // SETTINGS Ticket-analysis assignment, resolved host-side, never through a
+    // webview-carried pick. A crafted `agent` value is DROPPED at the boundary
+    // (the parser models only what the host will act on), never carried.
+    expect(parseTicketFormMessage({ type: 'analyze', prompt: 'go', agent: 'x' })).toEqual({
       type: 'analyze',
       prompt: 'go',
     });
-    expect(parseTicketFormMessage({ type: 'analyze', prompt: 'go', agent: null })).toEqual({
+    expect(parseTicketFormMessage({ type: 'analyze', prompt: 'go', agent: 42 })).toEqual({
       type: 'analyze',
       prompt: 'go',
     });
-    // …and a crafted non-string value is refused.
-    expect(parseTicketFormMessage({ type: 'analyze', prompt: 'go', agent: 42 })).toBeNull();
     expect(
       parseTicketFormMessage({ type: 'open-ticket-link', url: 'https://app.clickup.com/t/CU-1' }),
     ).toEqual({ type: 'open-ticket-link', url: 'https://app.clickup.com/t/CU-1' });
@@ -336,8 +333,8 @@ describe('routeTicketFormAction', () => {
     expect(actions.submit).toHaveBeenCalledWith({
       key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex', ticketType: null, createInProvider: false, pullBase: true,
     });
-    expect(actions.analyze).toHaveBeenCalledWith('go', undefined);
-    expect(actions.analyze).toHaveBeenCalledWith('go again', 'description-improver');
+    expect(actions.analyze).toHaveBeenCalledWith('go');
+    expect(actions.analyze).toHaveBeenCalledWith('go again');
     expect(actions.setAgent).toHaveBeenCalledWith('reviewer');
     expect(actions.setModel).toHaveBeenCalledWith('claude-sonnet-5');
     expect(actions.setProvider).toHaveBeenCalledWith('antigravity');

@@ -1025,6 +1025,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * drivers' nullable callbacks — never collapsed to `undefined` by an
    * assertion at this seam.
    */
+  // The roles whose headless prompts consume `assignment.instructions` (UAT
+  // Tester, Review findings, Ticket analysis). A process-assignment PROFILE's
+  // body is resolved into `instructions` only for these — the Fix roles are
+  // interactive sessions and pr-description has a fixed prompt, so their
+  // profile body is never read and must not be resolved/carried.
+  const PROMPT_BEARING_ROLES = new Set<ProcessRole>(['uat-tester', 'review', 'ticket-analysis']);
   const processFor = (
     ticketId: number,
     role: ProcessRole,
@@ -1040,8 +1046,35 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       modelCatalog,
     );
     if (assignment === null) return null;
+    // The process-assignment PROFILE (the Settings agent-pool pick) is the
+    // process's own custom prompt: for the prompt-BEARING roles, resolve the
+    // assigned profile's body and use it as the process's `instructions`,
+    // replacing the built-in role block. An explicit `processes.<key>.instructions`
+    // (author-declared) WINS over the profile body; a missing / unreadable
+    // profile degrades to the built-in prompt, exactly like the launch path's
+    // solo-agent fallback. The Fix roles are interactive sessions and
+    // pr-description has a fixed prompt — their profile body is deliberately
+    // NOT resolved (a debug line would overclaim, and the value would ride the
+    // session assignment with no consumer).
+    // `soloAgentBody` is only CALLED here (at execution time), long after the
+    // helper is initialized, so the later `const` declaration is safe.
+    const instructions =
+      assignment.instructions !== undefined
+        ? assignment.instructions
+        : PROMPT_BEARING_ROLES.has(role) && assignment.agent
+          ? (soloAgentBody(assignment.agent) ?? undefined)
+          : undefined;
+    if (instructions !== undefined && instructions !== assignment.instructions) {
+      logger.debug(
+        `[process] ${role} for ticket #${ticketId} runs through Settings profile ` +
+          `"${assignment.agent}" (instructions overlaid)`,
+      );
+    }
     return {
-      assignment,
+      assignment:
+        instructions === undefined || instructions === assignment.instructions
+          ? assignment
+          : { ...assignment, instructions },
       // The process assignment is the execution identity. In particular, a
       // configured UAT/Review/Fix role may deliberately differ from the
       // ticket's interactive provider, so resolving through the ticket here
@@ -1075,29 +1108,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   /**
    * Task 3: the configured ticket-analysis process for the ticket form
-   * (nullable). A single-subagent ticket analyzes THROUGH its chosen agent:
-   * when the ticket has `approach === 'single-subagent'` and a chosen agent,
-   * the agent's body (its instructions) is overlaid as the assignment's
-   * `instructions` — replacing the built-in analyzer role block, exactly as
-   * the same agent drives the launch. `soloAgentBody` is only CALLED here (at
-   * analyze time), long after the helper is initialized, so the later `const`
-   * declaration is safe to reference.
+   * (nullable). The analyzer runs through the SETTINGS Ticket-analysis
+   * assignment: `processFor` resolves the assigned profile's body as the
+   * analysis `instructions` (or the author-declared inline `instructions`),
+   * so changing the Settings → Agents → Inside process assignments →
+   * Ticket analysis profile changes what the form's Improve / auto-improve
+   * asks — the selected agent IS the difference. The ticket's own
+   * `single-subagent` pick drives the SESSION, never this headless analysis.
    */
-  const analysisProcess = (ticketId: number): DriveProcessBundle | null => {
-    const bundle = processFor(ticketId, 'ticket-analysis');
-    if (bundle === null) return null;
-    const t = getTicket(localStore, ticketId);
-    if (t.approach === 'single-subagent' && t.agent) {
-      const body = soloAgentBody(t.agent);
-      if (body) {
-        logger.debug(
-          `[analysis] ticket #${ticketId} analyzes through single-subagent "${t.agent}" (instructions overlaid)`,
-        );
-        return { ...bundle, assignment: { ...bundle.assignment, instructions: body } };
-      }
-    }
-    return bundle;
-  };
+  const analysisProcess = (ticketId: number): DriveProcessBundle | null =>
+    processFor(ticketId, 'ticket-analysis');
 
   // Drop the cached copy so the next read re-reads from disk. Shared by
   // the ticket form (after a signal writeback) and settings (after a save) so both
@@ -1424,11 +1444,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   };
 
-  // Resolve a single-subagent's BODY (its instructions) by name: a local agent
-  // file OR an approach artifact, matching the pool entry's `source`. The ONE
-  // resolution the launch path and the ticket-analysis resolver share, so a
-  // chosen agent drives the ticket analysis exactly as it drives the session.
-  // A missing agent / unreadable body → null (the caller keeps its default).
+  // Resolve a profile's BODY (its instructions) by name: a local agent file OR
+  // an approach artifact, matching the pool entry's `source`. The ONE
+  // resolution the launch path (a ticket's single-subagent) and the inside
+  // process assignments (`processFor` → a Settings profile) share, so a chosen
+  // agent drives the ticket analysis / UAT / Review exactly as it drives the
+  // session. A missing agent / unreadable body → null (the caller keeps its
+  // built-in prompt).
   const soloAgentBody = (name: string): string | null => {
     try {
       const chosen = listAgents().find((a) => a.name === name);
@@ -3266,8 +3288,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // `source`) so it can be materialized into the launch plugin and named in
       // the delegation instruction below. Any resolution failure degrades to no
       // solo agent — the session still opens, just without the plugin/delegation.
-      // Shares `soloAgentBody` with the ticket-analysis resolver, so the chosen
-      // agent drives the analysis and the session with the same instructions.
+      // Shares `soloAgentBody` with the inside process assignments (`processFor`),
+      // so a chosen agent drives the session and the processes with the same body.
       let soloAgent: { name: string; body: string } | undefined;
       if (t.approach === 'single-subagent' && t.agent) {
         const body = soloAgentBody(t.agent);
