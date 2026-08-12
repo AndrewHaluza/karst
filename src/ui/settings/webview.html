@@ -539,10 +539,9 @@
   }
   .project-identity:hover{background:var(--k-surface-hover)}
   .project-identity:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+  /* The approved #35 mark itself — no badge box behind it (869egvp46-fu3). */
   .project-icon{
-    width:var(--k-space-8);height:var(--k-space-8);flex:0 0 auto;display:grid;place-items:center;
-    border-radius:var(--k-radius-sm);font-weight:700;font-size:var(--k-text-sm);
-    background:var(--vscode-badge-background);color:var(--vscode-badge-foreground);
+    width:var(--k-space-8);height:var(--k-space-8);flex:0 0 auto;display:block;
   }
   .project-copy{min-width:0;display:flex;flex-direction:column;gap:var(--k-space-1)}
   .project-id{font-family:var(--k-font-mono);font-weight:600;font-size:var(--k-text-sm);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -571,10 +570,9 @@
   .project-info-row .mono{font-family:var(--k-font-mono)}
   .mobile-project-btn{
     display:none;width:var(--k-space-8);height:var(--k-space-8);flex:0 0 auto;
-    border-radius:var(--k-radius-sm);font-weight:700;cursor:pointer;
-    background:var(--vscode-badge-background);color:var(--vscode-badge-foreground);
-    border:var(--k-border-w) solid transparent;
+    padding:var(--k-space-0);cursor:pointer;background:transparent;border:none;
   }
+  .mobile-project-btn svg{width:var(--k-space-8);height:var(--k-space-8);display:block}
   .mobile-project-btn:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
 
   /* Top bar: one live save-state region (handoff §5.5). */
@@ -933,7 +931,22 @@
     <div class="sidebar-project-label">Project</div>
     <button type="button" class="project-identity" id="projectInfoBtn"
             aria-expanded="false" aria-haspopup="dialog">
-      <span class="project-icon" id="footProjectIcon">K</span>
+      <svg class="project-icon" id="footProjectIcon" aria-hidden="true" viewBox="0 0 215 215">
+        <defs>
+          <linearGradient id="footLeft" x1="0.22" y1="0.12" x2="0.78" y2="0.92">
+            <stop offset="0%" stop-color="#7D48E9"/><stop offset="43%" stop-color="#7D3CEE"/><stop offset="100%" stop-color="#4A71D7"/>
+          </linearGradient>
+          <linearGradient id="footRight" x1="0.18" y1="0.10" x2="0.82" y2="0.90">
+            <stop offset="0%" stop-color="#00B7C9"/><stop offset="55%" stop-color="#00AFC0"/><stop offset="100%" stop-color="#00B1C4"/>
+          </linearGradient>
+          <linearGradient id="footCore" x1="0.20" y1="0.18" x2="0.82" y2="0.86">
+            <stop offset="0%" stop-color="#6647DE"/><stop offset="48%" stop-color="#5660D9"/><stop offset="100%" stop-color="#3586D6"/>
+          </linearGradient>
+        </defs>
+        <path d="M 96 20 L 25 67 L 25 156 L 98 203 L 98 180 L 44 145 L 44 78 L 97 44 Z" fill="url(#footLeft)"/>
+        <path d="M 151 42 L 138 58 L 170 78 L 170 144 L 138 165 L 150 180 L 188 156 L 188 67 Z" fill="url(#footRight)"/>
+        <circle cx="106.5" cy="111.5" r="26.5" fill="url(#footCore)"/>
+      </svg>
       <span class="project-copy">
         <span class="project-id" id="footProjectId">(unresolved)</span>
         <span class="project-version" id="footProjectVersion"></span>
@@ -965,7 +978,24 @@
          from a bare "Settings" heading. -->
     <h1>Settings <span class="topbar-section" id="topbarSection"></span></h1>
     <button class="mobile-project-btn" id="mobileProjectBtn" type="button"
-            aria-label="Project information" title="Project information">K</button>
+            aria-label="Project information" title="Project information">
+      <svg aria-hidden="true" viewBox="0 0 215 215">
+        <defs>
+          <linearGradient id="mobLeft" x1="0.22" y1="0.12" x2="0.78" y2="0.92">
+            <stop offset="0%" stop-color="#7D48E9"/><stop offset="43%" stop-color="#7D3CEE"/><stop offset="100%" stop-color="#4A71D7"/>
+          </linearGradient>
+          <linearGradient id="mobRight" x1="0.18" y1="0.10" x2="0.82" y2="0.90">
+            <stop offset="0%" stop-color="#00B7C9"/><stop offset="55%" stop-color="#00AFC0"/><stop offset="100%" stop-color="#00B1C4"/>
+          </linearGradient>
+          <linearGradient id="mobCore" x1="0.20" y1="0.18" x2="0.82" y2="0.86">
+            <stop offset="0%" stop-color="#6647DE"/><stop offset="48%" stop-color="#5660D9"/><stop offset="100%" stop-color="#3586D6"/>
+          </linearGradient>
+        </defs>
+        <path d="M 96 20 L 25 67 L 25 156 L 98 203 L 98 180 L 44 145 L 44 78 L 97 44 Z" fill="url(#mobLeft)"/>
+        <path d="M 151 42 L 138 58 L 170 78 L 170 144 L 138 165 L 150 180 L 188 156 L 188 67 Z" fill="url(#mobRight)"/>
+        <circle cx="106.5" cy="111.5" r="26.5" fill="url(#mobCore)"/>
+      </svg>
+    </button>
     <span class="spacer"></span>
     <span class="save-state" id="saveState" role="status" aria-live="polite">All changes saved</span>
     <span class="saved-msg hidden" id="savedMsg" role="status" aria-live="polite">Saved</span>
