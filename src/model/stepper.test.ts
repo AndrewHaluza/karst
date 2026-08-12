@@ -106,8 +106,8 @@ describe('buildStepper', () => {
   // The reviewer's Important finding (task 8, fix round 1): `verdict` and
   // `blockedReason` are untrusted CLI/git prose (e.g. raw `git status`
   // stderr, see workflow/gates/targets.ts) — unbounded and possibly
-  // multi-line. Both reach the dashboard's fault card / blocked banner /
-  // Inside op row verbatim unless collapsed here, at the one place both
+  // multi-line. Both reach the dashboard's blocked banner / Inside op row
+  // verbatim unless collapsed here, at the one place both
   // fields are built.
   it('collapses a multi-line verdict to one line before it reaches the cell', () => {
     const cells = buildStepper([

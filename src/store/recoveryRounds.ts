@@ -121,8 +121,8 @@ const STATUSES: readonly string[] = [
 /**
  * The karst-authored verdicts a PARKED fix stage row carries — the closed set
  * of "the fix is no longer in flight" reasons. Written by the interrupt/exhaust
- * paths and the driver's leave branches, read by the stepper's fault card and
- * the Now line; never free-form prose, because these are the words the
+ * paths and the driver's leave branches, read by the stepper's cell and the
+ * Now line; never free-form prose, because these are the words the
  * dashboard repeats back to the user.
  */
 export const FIX_PARKED_INTERRUPTED = 'fix session ended without the done marker';

@@ -1,8 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { mkdtempSync, copyFileSync, rmSync, readFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { readXtermAssets } from '../model/xtermAssets.js';
 
@@ -12,13 +11,14 @@ import { readXtermAssets } from '../model/xtermAssets.js';
 // they are staged flat into a temp dir — the same shape dist/vendor/xterm
 // has at runtime — before readXtermAssets reads them.
 //
-// The @xterm packages are located through Node's ancestor walk
-// (createRequire), never a path derived from this file: a karst worktree
-// under `.karst/worktrees/<name>/` has no node_modules of its own (see the
-// resolution note in scripts/rebuild-better-sqlite3.mjs), so the packages
-// live in the main checkout's tree and must be found the same way.
+// The bundles are located through Node's OWN resolution, never by a path
+// relative to this source file: the UAT gate runs the suite from a linked
+// worktree whose node_modules is empty, and packages resolve by walking up
+// to the main checkout (the same resolution every import in this suite
+// uses). A `../../node_modules/@xterm` literal exists only in a main
+// checkout and fails the gate in the worktree it is run from.
 const require = createRequire(import.meta.url);
-const VENDOR = join(dirname(require.resolve('@xterm/xterm/package.json')), '..');
+const VENDOR = dirname(dirname(require.resolve('@xterm/xterm/package.json')));
 
 describe('vendored xterm bundles are CSP-safe to inline', () => {
   let assets: ReturnType<typeof readXtermAssets>;

@@ -135,8 +135,11 @@
   .provselect-trigger{width:100%;display:flex;align-items:center;justify-content:space-between;
     text-align:left;background:var(--vscode-input-background);color:var(--vscode-input-foreground);
     border:var(--k-border-w) solid var(--vscode-input-border,var(--vscode-panel-border));border-radius:var(--k-radius-sm);
-    padding:var(--k-space-3) var(--k-space-4);font-family:inherit;font-size:var(--k-text-base)}
-  .provselect-trigger:hover{background:var(--vscode-input-background)}
+    padding:var(--k-space-3) var(--k-space-4);font-family:inherit;font-size:var(--k-text-base);cursor:pointer}
+  /* A custom control must answer a hover the way the page's other custom
+     triggers do (`.select-trigger`): the input chrome does not change under
+     the cursor, but the border highlights to show the control is live. */
+  .provselect-trigger:hover{border-color:var(--vscode-inputOption-activeBorder,var(--k-focus))}
   .provselect-trigger:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
   .provselect-trigger .chev{flex:none;width:var(--k-space-6);height:var(--k-space-6);margin-left:var(--k-space-4);
     background:var(--chevron) no-repeat center/var(--k-space-6)}
@@ -155,12 +158,12 @@
     color:var(--vscode-list-activeSelectionForeground,var(--k-text))}
   .provselect-opt:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
   /* The menu is absolutely positioned below the trigger and is taller than the
-     card that hosts it (the ClickUp fields below it are hidden while the
-     provider is `manual`), so the accordion's `.card{overflow:hidden}` clipped
-     it to a sliver — the dropdown opened but read as invisible. This card is
-     always open and has no rounded body to clip, so it opts out. The menu's
-     z-index is what keeps it above the cards that follow. */
-  .card.unclipped{overflow:visible}
+     row that hosts it (the ClickUp fields below it are hidden while the
+     provider is `manual`). It used to sit inside an accordion `.card` whose
+     `overflow:hidden` clipped it to a sliver — the dropdown opened but read as
+     invisible. The ticketing section now hosts the select in a section-block,
+     which never clips, so the menu needs no opt-out; its z-index is what keeps
+     it above the content that follows. */
   /* Shared ticketing-provider badge (icon + brand name) — single source in
      src/model/providerIdentity.ts, injected here at load (CSP forbids a
      shared stylesheet). */
@@ -858,13 +861,18 @@
   .override-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:var(--k-space-3);align-items:center;padding:var(--k-space-4);border:var(--k-border-w) solid var(--vscode-panel-border);border-radius:var(--k-radius-md);margin-bottom:var(--k-space-4)}
   .override-editor-note{margin-bottom:var(--k-space-5);padding:var(--k-space-4);border:var(--k-border-w) solid var(--vscode-panel-border);border-radius:var(--k-radius-md);background:var(--k-surface-hover);color:var(--k-text-dim);font-size:var(--k-text-sm);line-height:var(--k-leading-normal)}
 
-  /* Ticketing lifecycle rows (handoff §15.3). */
-  .lifecycle-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:var(--k-space-4);align-items:center;padding:var(--k-space-5) var(--k-space-0);border-top:var(--k-border-w) solid var(--vscode-panel-border)}
-  .lifecycle-row:first-of-type{border-top:none}
+  /* Ticketing lifecycle rows (handoff §15.3): a toggle with its indented
+     status row beneath it, stacked rows separated by a hairline. The rows sit
+     under a section-head, so separation is the `+` sibling rule — never
+     `:first-of-type`, which a preceding head div would break. */
+  .lifecycle-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:var(--k-space-4);align-items:center;padding:var(--k-space-5) var(--k-space-0)}
+  .lifecycle-row + .lifecycle-row{border-top:var(--k-border-w) solid var(--vscode-panel-border)}
   .lifecycle-copy{min-width:0}
-  .lifecycle-status{grid-column:1 / -1;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:var(--k-space-3);align-items:center;padding-left:var(--k-space-5);border-left:calc(var(--k-border-w) * 2) solid var(--vscode-panel-border)}
+  .lifecycle-status{grid-column:1 / -1;display:grid;grid-template-columns:max-content minmax(0,1fr);gap:var(--k-space-3);align-items:center;padding-left:var(--k-space-5);border-left:calc(var(--k-border-w) * 2) solid var(--vscode-panel-border)}
   .lifecycle-status.off{display:none}
   .lifecycle-status .full{grid-column:1 / -1}
+  .lifecycle-status label{margin:var(--k-space-0)}
+  .lifecycle-status .row{min-width:0}
 
   /* Drawer/modals: same primitives as before, plus a shared focus ring. */
   .drawer .drawer-body.form label{display:block;margin:var(--k-space-5) var(--k-space-0) var(--k-space-2)}
@@ -1373,126 +1381,140 @@
         <div class="page-desc">The board Karst reads tickets from and writes statuses to. Manual keeps every lifecycle step a local no-op.</div>
       </div>
 
-      <!-- Custom dropdown (not a native <select>): the branded [ICON] Brand
-           badge can't render inside a native <option>, so the trigger and
-           each option render the shared provider-identity badge instead. -->
-      <div class="card open unclipped">
-        <div class="card-body" style="display:block;padding-top:14px">
-          <div class="form-grid">
-            <div class="field-label" id="ticketProviderLabel">Provider</div>
-            <div class="field-control">
-              <div class="provselect" id="provSelectWrap">
-                <button type="button" class="provselect-trigger" id="providerTrigger"
-                  aria-label="Ticketing provider"
-                        aria-haspopup="listbox" aria-expanded="false" aria-labelledby="ticketProviderLabel"></button>
-                <div class="provselect-menu hidden" id="providerMenu" role="listbox" aria-labelledby="ticketProviderLabel"></div>
-              </div>
+      <div class="section-block">
+        <div class="section-head">
+          <div>
+            <div class="section-title">Board connection</div>
+            <div class="section-desc">Provider, and the ClickUp workspace, list and API token Karst connects with.</div>
+          </div>
+        </div>
+
+        <!-- Custom dropdown (not a native <select>): the branded [ICON] Brand
+             badge can't render inside a native <option>, so the trigger and
+             each option render the shared provider-identity badge instead.
+             The absolutely-positioned menu overflows its row on purpose —
+             a section-block never clips it (no overflow:hidden), unlike the
+             accordion card that used to host it. -->
+        <div class="form-grid">
+          <div class="field-label" id="ticketProviderLabel">Provider</div>
+          <div class="field-control">
+            <div class="provselect" id="provSelectWrap">
+              <button type="button" class="provselect-trigger" id="providerTrigger"
+                aria-label="Ticketing provider"
+                      aria-haspopup="listbox" aria-expanded="false" aria-labelledby="ticketProviderLabel"></button>
+              <div class="provselect-menu hidden" id="providerMenu" role="listbox" aria-labelledby="ticketProviderLabel"></div>
             </div>
           </div>
+        </div>
 
-          <!-- ClickUp-specific fields; hidden unless provider === clickup -->
-          <div id="clickupFields">
-            <div class="form-grid">
-              <div class="field-label" id="teamIdLabel">Team ID</div>
-              <div class="field-control">
-                <input type="text" id="f-ticketTeamId" placeholder="e.g. 9001" aria-labelledby="teamIdLabel" />
-                <div class="field-help">(ClickUp workspace, for custom task ids)</div>
-              </div>
+        <!-- ClickUp-specific fields; hidden unless provider === clickup. A
+             separate form-grid so the group hides as one unit; its rows share
+             the label column with the provider row above. -->
+        <div id="clickupFields" class="form-grid">
+          <div class="field-label" id="teamIdLabel">Team ID</div>
+          <div class="field-control">
+            <input type="text" id="f-ticketTeamId" placeholder="e.g. 9001" aria-labelledby="teamIdLabel" />
+            <div class="field-help">The ClickUp workspace that owns the list. Needed when task ids are custom.</div>
+          </div>
 
-              <div class="field-label" id="listLabel">List</div>
-              <div class="field-control">
-                <div class="row" style="align-items:center">
-                  <select id="f-ticketList" aria-labelledby="listLabel"></select>
-                  <button class="reload-btn fixed" id="refreshListsBtn" type="button"
-                          title="Reload lists from ClickUp" aria-label="Reload lists from ClickUp">
-                    <svg class="k-icon reload-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8.1 8.1 0 0 0 -15.5 -2m-.5 -4v4h4"/><path d="M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4"/></svg>
-                  </button>
-                </div>
-                <div id="listHint" class="field-hint" role="status" aria-live="polite"></div>
-                <div class="field-help">(the ClickUp list to advance tickets in)</div>
-              </div>
-
-              <div class="field-label" id="tokenLabel">API token</div>
-              <div class="field-control">
-                <div class="row" style="align-items:center">
-                  <span id="tokenStatus" class="status-pill off"><span class="dot"></span><span class="txt">No token</span></span>
-                  <button class="k-btn k-btn--secondary fixed" id="setTokenBtn">Set token</button>
-                  <button class="k-btn k-btn--secondary fixed" id="clearTokenBtn">Clear token</button>
-                </div>
-                <div class="field-help">(stored in your OS keychain — never in karst.yml)</div>
-              </div>
+          <div class="field-label" id="listLabel">List</div>
+          <div class="field-control">
+            <div class="row">
+              <select id="f-ticketList" aria-labelledby="listLabel"></select>
+              <button class="reload-btn fixed" id="refreshListsBtn" type="button"
+                      title="Reload lists from ClickUp" aria-label="Reload lists from ClickUp">
+                <svg class="k-icon reload-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8.1 8.1 0 0 0 -15.5 -2m-.5 -4v4h4"/><path d="M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4"/></svg>
+              </button>
             </div>
+            <div id="listHint" class="field-hint" role="status" aria-live="polite"></div>
+            <div class="field-help">The ClickUp list to advance tickets in.</div>
+          </div>
+
+          <div class="field-label" id="tokenLabel">API token</div>
+          <div class="field-control">
+            <div class="row">
+              <span id="tokenStatus" class="status-pill off"><span class="dot"></span><span class="txt">No token</span></span>
+              <button class="k-btn k-btn--secondary fixed" id="setTokenBtn">Set token</button>
+              <button class="k-btn k-btn--secondary fixed" id="clearTokenBtn">Clear token</button>
+            </div>
+            <div class="field-help">Stored in your OS keychain — never in karst.yml.</div>
           </div>
         </div>
       </div>
 
       <!-- Ticket-search dropdown in the Add/Edit ticket page. ClickUp-only:
            `manual` has no board to search. On by default. -->
-      <div class="card open hidden" id="searchCard">
-        <div class="card-body" style="display:block;padding-top:14px">
-          <div class="form-grid">
-            <div class="field-label">Search</div>
-            <div class="field-control">
-              <div class="toggle">
-                <input type="checkbox" id="f-searchEnabled" />
-                <label for="f-searchEnabled">Search tickets in the Add/Edit ticket page</label>
-              </div>
-              <div class="field-help">The Key field becomes a dropdown that searches this list's tickets — filtered by status (default: the list's TODO) and sorted by priority.</div>
+      <div class="section-block hidden" id="searchCard">
+        <div class="section-head">
+          <div>
+            <div class="section-title">Ticket search</div>
+            <div class="section-desc">How the Add/Edit ticket page finds existing tickets instead of typing a key.</div>
+          </div>
+        </div>
+        <div class="lifecycle-row">
+          <div class="lifecycle-copy">
+            <div class="toggle">
+              <input type="checkbox" id="f-searchEnabled" />
+              <label for="f-searchEnabled">Search tickets in the Add/Edit ticket page</label>
             </div>
+            <div class="field-help">The Key field becomes a dropdown that searches this list's tickets — filtered by status (default: the list's TODO) and sorted by priority.</div>
           </div>
         </div>
       </div>
 
-      <!-- On-start advance. Hidden unless provider === clickup: manual has no
-           statuses to list, and advancing a local no-op record means nothing. -->
-      <div class="card open hidden" id="startAdvanceCard">
-        <div class="card-body" style="display:block;padding-top:14px">
-          <div class="lifecycle-row">
-            <div class="lifecycle-copy">
-              <div class="toggle">
-                <input type="checkbox" id="f-advanceOnStart" />
-                <label for="f-advanceOnStart">Set the ticket status when work starts</label>
-              </div>
+      <!-- On-start and after-ship advances. ClickUp-only: manual has no
+           statuses to list, and advancing a local no-op record means nothing.
+           Each row is a lifecycle unit: the toggle, then its indented status
+           row (handoff §15.3) once the toggle is on. -->
+      <div class="section-block hidden" id="advanceCards">
+        <div class="section-head">
+          <div>
+            <div class="section-title">Status updates</div>
+            <div class="section-desc">Board statuses Karst sets when work starts and when it ships.</div>
+          </div>
+        </div>
+
+        <div class="lifecycle-row">
+          <div class="lifecycle-copy">
+            <div class="toggle">
+              <input type="checkbox" id="f-advanceOnStart" />
+              <label for="f-advanceOnStart">Set the ticket status when work starts</label>
             </div>
           </div>
-
-          <div id="startAdvanceStatusRow" class="hidden" style="margin-top:10px">
+          <div class="lifecycle-status hidden" id="startAdvanceStatusRow">
             <label for="f-startStatus">Status at start of work</label>
-            <div class="row" style="align-items:center">
+            <div class="row">
               <select id="f-startStatus"></select>
               <button class="reload-btn fixed" id="refreshStartStatusesBtn" type="button"
                       title="Reload statuses for this list" aria-label="Reload statuses for this list">
                 <svg class="k-icon reload-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8.1 8.1 0 0 0 -15.5 -2m-.5 -4v4h4"/><path d="M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4"/></svg>
               </button>
             </div>
-            <div id="startStatusHint" class="field-hint" role="status" aria-live="polite"></div>
-          </div>
-        </div>
-      </div>
-
-      <!-- After-ship advance. Hidden unless provider === clickup: manual has no
-           statuses to list, and advancing a local no-op record means nothing. -->
-      <div class="card open hidden" id="advanceCard">
-        <div class="card-body" style="display:block;padding-top:14px">
-          <div class="lifecycle-row">
-            <div class="lifecycle-copy">
-              <div class="toggle">
-                <input type="checkbox" id="f-advanceOnShip" />
-                <label for="f-advanceOnShip">Set the ticket status when karst ships</label>
-              </div>
+            <div class="full">
+              <div id="startStatusHint" class="field-hint" role="status" aria-live="polite"></div>
             </div>
           </div>
+        </div>
 
-          <div id="advanceStatusRow" class="hidden" style="margin-top:10px">
+        <div class="lifecycle-row">
+          <div class="lifecycle-copy">
+            <div class="toggle">
+              <input type="checkbox" id="f-advanceOnShip" />
+              <label for="f-advanceOnShip">Set the ticket status when karst ships</label>
+            </div>
+          </div>
+          <div class="lifecycle-status hidden" id="advanceStatusRow">
             <label for="f-shipStatus">Status after ship</label>
-            <div class="row" style="align-items:center">
+            <div class="row">
               <select id="f-shipStatus"></select>
               <button class="reload-btn fixed" id="refreshStatusesBtn" type="button"
                       title="Reload statuses for this list" aria-label="Reload statuses for this list">
                 <svg class="k-icon reload-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8.1 8.1 0 0 0 -15.5 -2m-.5 -4v4h4"/><path d="M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4"/></svg>
               </button>
             </div>
-            <div id="statusHint" class="field-hint" role="status" aria-live="polite"></div>
+            <div class="full">
+              <div id="statusHint" class="field-hint" role="status" aria-live="polite"></div>
+            </div>
           </div>
         </div>
       </div>
@@ -4234,7 +4256,7 @@
   function renderAdvance() {
     const cfg = ticketingCfg();
     const isClickup = cfg.provider === 'clickup';
-    el('advanceCard').classList.toggle('hidden', !isClickup);
+    el('advanceCards').classList.toggle('hidden', !isClickup);
     if (!isClickup) return;
 
     const on = el('f-advanceOnShip').checked;
@@ -4296,7 +4318,7 @@
   function renderStartAdvance() {
     const cfg = ticketingCfg();
     const isClickup = cfg.provider === 'clickup';
-    el('startAdvanceCard').classList.toggle('hidden', !isClickup);
+    el('advanceCards').classList.toggle('hidden', !isClickup);
     if (!isClickup) return;
 
     const on = el('f-advanceOnStart').checked;

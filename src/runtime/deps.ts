@@ -252,7 +252,7 @@ export function checkDependencyFaults(
  * Startup preflight warns; this refuses. A capability check belongs at the entry
  * point that is about to use it, because the startup toast is minutes old by the
  * time the user clicks Ship, and because failing before the work starts is what
- * separates an actionable message from a fault card at stage six.
+ * separates an actionable message from a stage-six fault banner.
  */
 export function ensureCapability(
   capability: Capability,

@@ -235,7 +235,7 @@ describe('buildDashboardState', () => {
   });
 
   // The reviewer's Important finding (task 8, fix round 1): `reason`/`blocked`
-  // arrive from raw git/CLI stderr and reach the fault card / blocked banner
+  // arrive from raw git/CLI stderr and reach the blocked banner
   // verbatim unless collapsed and capped BEFORE they land in DashboardState —
   // the webview does nothing but `esc()` them. This exercises the real
   // buildDashboardState path (store → stepper → state), not the collapse

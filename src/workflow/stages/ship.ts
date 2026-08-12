@@ -1440,7 +1440,7 @@ export async function shipTicket(
     // Ship has no `failed` edge (graph.ts): a ticket whose PRs did not open has
     // NOT shipped, so it must stay at ship rather than advance. Record the reason
     // on the stage row — that is what the dashboard renders (a red node + the
-    // fault card), so a failed ship is visible instead of a ticket that just sits
+    // Now line), so a failed ship is visible instead of a ticket that just sits
     // at "running" with the truth buried in the output channel. Re-thrown so the
     // caller still reports it; the PRs already opened stay recorded (idempotent
     // re-run skips them). The saga run is closed `failed` the same way — a

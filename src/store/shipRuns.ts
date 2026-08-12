@@ -802,7 +802,7 @@ export function countShipRuns(store: Store, ticketId: number): number {
 /** The step detail a sweep-closed step carries. */
 const INTERRUPTED_STEP_DETAIL = 'interrupted — the host that ran it died; retry ship to continue';
 
-/** The stage verdict a sweep-parked ship carries, shown in the fault card. */
+/** The stage verdict a sweep-parked ship carries, surfaced by the dashboard. */
 const INTERRUPTED_STAGE_VERDICT =
   'ship was interrupted — the host that ran it died before the PRs opened; retry ship to continue';
 

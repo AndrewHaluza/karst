@@ -7,6 +7,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
+const require = createRequire(import.meta.url);
 
 const assets = [
   'ui/dashboard/webview.html',
@@ -47,17 +48,14 @@ for (const rel of rootAssets) {
 // asset SOURCES only — the extension never requires them at runtime. The
 // runtime reads dist/vendor/xterm/* (inlined into the dashboard webview by
 // src/model/xtermAssets.ts), and .vscodeignore excludes node_modules/@xterm.
-// The packages resolve through Node's ancestor walk (createRequire) so a
-// build inside a karst worktree — which has no node_modules of its own, see
-// the resolution note in rebuild-better-sqlite3.mjs — still copies the main
-// checkout's bundles.
-const require = createRequire(import.meta.url);
-const xtermRoot = join(dirname(require.resolve('@xterm/xterm/package.json')), '..');
-
+//
+// Resolved through Node's own resolution, never by a path relative to this
+// file: a build run from a linked worktree (empty local node_modules) must
+// walk up to the main checkout, exactly like every import in the test suite.
 const vendorAssets = [
-  [join(xtermRoot, 'xterm', 'lib', 'xterm.js'), 'vendor/xterm/xterm.js'],
-  [join(xtermRoot, 'xterm', 'css', 'xterm.css'), 'vendor/xterm/xterm.css'],
-  [join(xtermRoot, 'addon-fit', 'lib', 'addon-fit.js'), 'vendor/xterm/addon-fit.js'],
+  [require.resolve('@xterm/xterm/lib/xterm.js'), 'vendor/xterm/xterm.js'],
+  [require.resolve('@xterm/xterm/css/xterm.css'), 'vendor/xterm/xterm.css'],
+  [require.resolve('@xterm/addon-fit/lib/addon-fit.js'), 'vendor/xterm/addon-fit.js'],
 ];
 
 for (const [from, rel] of vendorAssets) {

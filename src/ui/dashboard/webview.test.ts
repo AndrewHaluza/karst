@@ -1016,7 +1016,7 @@ describe('dashboard webview.html', () => {
   it('titles every previously-untitled control named in the remediation brief', () => {
     for (const title of [
       'Return the strip to the stage the ticket is actually on', // .ghost[data-back]
-      "Open this stage's log file in an editor", // open-stage-log
+      "Open this stage's log file", // open-stage-log (Inside block / Now line)
       "Switch this ticket\\'s live agent session", // .switch-agent (JS string literal, escaped apostrophe)
       'Open a terminal in this worktree', // open-worktree-terminal
       'Reveal this worktree in the file explorer', // open-worktree-folder
@@ -1101,7 +1101,7 @@ describe('dashboard webview.html', () => {
     // re-point the Inside panel to whatever stage it names.
     const renderBlockedBody = HTML.slice(
       HTML.indexOf('function renderBlocked(state)'),
-      HTML.indexOf('// The fault card scans the FLAT stepper'),
+      HTML.indexOf('// One sentence + at most one button'),
     );
     expect(renderBlockedBody).toMatch(/data-act="stage-resume"/);
     expect(renderBlockedBody).toMatch(/data-stagekey="\$\{esc\(cell\.stageKey\)\}"/);
@@ -1117,7 +1117,7 @@ describe('dashboard webview.html', () => {
     // host's `resumable` flag, never a reason-string match in the webview.
     const renderBlockedBody = HTML.slice(
       HTML.indexOf('function renderBlocked(state)'),
-      HTML.indexOf('// The fault card scans the FLAT stepper'),
+      HTML.indexOf('// One sentence + at most one button'),
     );
     expect(renderBlockedBody).toMatch(/blocked\.resumable === false/);
     // The non-resumable branch is the code between its own `if` and the next
@@ -1928,7 +1928,6 @@ function bootPreviewHarness(): PreviewHarness {
     'followUpBtn',
     'keyPill',
     'agent',
-    'fault',
     'blocked',
     'now',
     'srvCount',

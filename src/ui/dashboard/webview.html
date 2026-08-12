@@ -33,8 +33,9 @@
   *{box-sizing:border-box}
   body{margin:0;background:var(--k-bg);color:var(--k-text);font-family:var(--k-font-ui);font-size:var(--k-text-base);padding:var(--k-space-8) var(--k-space-9)}
   a{color:var(--k-link);text-decoration:none}
-  /* Toggled by the render fns (fault card, impl phases) — without this rule the
-     `hidden` class was a no-op and an empty box still drew its border. */
+  /* Toggled by the render fns (blocked banner, impl phases, artifact panels) —
+     without this rule the `hidden` class was a no-op and an empty box still
+     drew its border. */
   .hidden{display:none}
 
   .dhead{display:flex;align-items:center;gap:var(--k-space-5);margin-bottom:var(--k-space-2)}
@@ -1017,14 +1018,14 @@
     font-family:var(--p-mono);font-size:var(--p-xs)}
   /*KARST_INSIDE_PROTO_END*/
 
-  /* The fault card — the one loud element on the page, because a failure is the
-     one moment the user MUST read. Machine truth (reason, timings) is monospace. */
+  /* The blocked banner — the one loud element on the page, because a wait for
+     the user is the one moment the user MUST read. Machine truth (reason) is
+     monospace. */
   .fault{margin:var(--k-space-7) var(--k-space-3) var(--k-space-1);padding:var(--k-space-5) var(--k-space-6);
     border-left:calc(var(--k-border-w) * 3) solid var(--k-failed);
     border-radius:0 var(--k-radius-md) var(--k-radius-md) 0;background:var(--vscode-inputValidation-errorBackground,transparent)}
   .fault .ftitle{font-size:var(--k-text-md);font-weight:var(--k-weight-semibold);margin-bottom:var(--k-space-3)}
   .fault .freason{font-family:var(--k-font-mono);font-size:var(--k-text-sm);white-space:pre-wrap;word-break:break-word}
-  .fault .fmeta{font-family:var(--k-font-mono);font-size:var(--k-text-sm);color:var(--k-text-dim);margin-top:calc(var(--k-space-4) - var(--k-border-w))}
   .fault .facts{margin-top:var(--k-space-6)}
 
   /* The "Now" line — one plain sentence naming what is happening and the next
@@ -1376,8 +1377,6 @@
   <div class="railwrap" id="rail"></div>
   <!-- What happens inside the SELECTED stage (defaults to the current one). -->
   <div id="inside"></div>
-  <!-- Inline fault card for a failed stage: reason + timings + [Open log]. -->
-  <div class="fault hidden" id="fault"></div>
   <!-- The blocked banner: why the CURRENT stage could not ask its question,
        plus [Resume]. Shares the `.fault` visual language (DESIGN-SYSTEM.md
        maps `--k-failed` to "failed · blocked") — never both at once, since a
@@ -1578,19 +1577,6 @@
   // never be spelled as a data-act literal in this file. The rendered DOM
   // still carries the console data-act value (NOW_MESSAGE is the same pattern).
   const CONSOLE_ACT = 'console';
-
-  // "12:04:31 · 42s" — machine truth, so it is rendered in mono. Duration is
-  // omitted while a stage is still running (no endedAt yet).
-  function timingText(cell) {
-    if (!cell.startedAt) return '';
-    const started = new Date(cell.startedAt);
-    if (Number.isNaN(started.getTime())) return '';
-    const stamp = started.toLocaleTimeString();
-    if (!cell.endedAt) return stamp;
-    const ms = new Date(cell.endedAt).getTime() - started.getTime();
-    if (!Number.isFinite(ms) || ms < 0) return stamp;
-    return `${stamp} · ${(ms / 1000).toFixed(1)}s`;
-  }
 
   // Under a rail node there is room for one number, not a sentence. The full
   // stamp belongs to the Inside header, which has a line to itself.
@@ -2305,26 +2291,6 @@
         : '')
       + `</span></div>${body}</section>`;
   }
-  // The fault card: the reason a red node is red, the log behind it, and when it
-  // ran. Shown only for a failed stage — everything else stays quiet.
-  function renderFault(stepper) {
-    const box = el('fault');
-    const failed = (stepper || []).find((s) => s.status === 'failed');
-    box.classList.toggle('hidden', !failed);
-    if (!failed) { box.innerHTML = ''; return; }
-    const title = `${STAGE_TITLE[failed.stageKey] || failed.stageKey} failed`;
-    const timing = timingText(failed);
-    const attempt = failed.attempt ? ` · attempt ${esc(failed.attempt)}` : '';
-    box.innerHTML = `<div class="ftitle">${esc(title)}</div>`
-      + `<div class="freason">${esc(failed.reason || 'No reason recorded.')}</div>`
-      + (timing ? `<div class="fmeta">${esc(timing)}${attempt}</div>` : '')
-      + (failed.artifactPath
-        ? `<div class="facts"><button type="button" class="k-btn k-btn--secondary k-btn--sm" data-act="open-stage-log"`
-          + ` data-path="${esc(failed.artifactPath)}" title="Open this stage's log file in an editor">Open log</button>`
-          + `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-act="${CONSOLE_ACT}"`
-          + ` data-console="${esc(failed.stageKey)}" title="View this stage's console output in the dashboard">Console</button></div>`
-        : '');
-  }
 
   // The blocked banner: why karst could not ask the CURRENT stage's question
   // (`parkGateStage`/`clearStageBlock`, § blocked state visible), plus the one
@@ -2419,7 +2385,7 @@
   // truth (the ship stage's own status), never the copy: while the ship runs
   // the stage sits at `running`, so every push would otherwise rebuild the
   // plain "Confirm ship" line and wipe the spinner. Success = advanced past
-  // ship; error = ship landed failed (the Now line + fault card then explain
+  // ship; error = ship landed failed (the Now line then explains
   // it). The in-flight marker is `shipRequestId` — the old `shipping` flag is
   // gone with the legacy ship-progress overlay it drove (Finding 12).
   function resolveShipping(state) {
@@ -2429,7 +2395,7 @@
     const failed = atShip && state.currentStage && state.currentStage.status === 'failed';
     shipRequestId = null;
     if (failed) {
-      // The failed Now line + fault card are the explicit error state.
+      // The failed Now line is the explicit error state.
       karstSettle(requestId, false);
     } else if (!atShip) {
       shipDone = 'success';
@@ -3255,8 +3221,6 @@
     renderAgent(state.agentState);
     renderTrack(state.rail, state.approach, sel);
     renderInside(state, sel);
-    // The fault card scans the FLAT stepper, so it still sees fix.
-    renderFault(state.stepper);
     renderBlocked(state);
     renderNow(state.now, state.agentSession);
     renderServers(state);
@@ -3520,8 +3484,9 @@
     // The terminal console view: open it and post the closed-vocabulary
     // stage-log-request. No requestId — the host answers with the `stage-log`
     // message itself (ok or error), which is the terminal outcome (UI-R13).
-    // Reads `data-console`, never `data-stage` (see renderFault — the rail's
-    // select listener must not re-point the strip for a console click).
+    // Reads `data-console`, never `data-stage` (the rail's select listener
+    // matches any `[data-stage]` ancestor via closest() and must not re-point
+    // the strip for a console click).
     if (act === CONSOLE_ACT) {
       const stage = btn.dataset.console;
       if (!stage) return;
