@@ -1,0 +1,299 @@
+/**
+ * SupervisedCLITransport (Slice 3 Task 3).
+ *
+ * The sole bridge from `AgentAdapter` to `AgentTransport`: it calls
+ * `buildInteractiveCommand`, owns the spawn and the supervision on top of it,
+ * persists an owner nonce BEFORE spawn, records process/start identity
+ * immediately after spawn, and terminates only on attributed evidence
+ * (`runtime/serverIdentity.ts` — no invented probe). Graph sessions register
+ * with the existing `servers` registry keyed by their workspace cwd, so
+ * `removeWorktree` → `stopServersUnder` and the global `reapStaleServers`
+ * sweep both see them — the 869ed2n50 detached-process class, by name.
+ */
+
+import { describe, it, expect } from 'vitest';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { openStore } from '../../../store/db.js';
+import { stopServersUnder, reapStaleServers } from '../../../runtime/worktreeServers.js';
+import {
+  createSupervisedCliTransport,
+  type SupervisedTransportDeps,
+} from './supervisedCliTransport.js';
+import type { TransportTerminal } from './agentTransport.js';
+import type { AgentAdapter, InteractiveCommand } from '../../../agent/adapter.js';
+
+/** A terminal fake that resolves a configured pid immediately after spawn. */
+function fakeTerminal(pid: number | undefined): TransportTerminal & { disposed: boolean } {
+  return {
+    processId: () => Promise.resolve(pid),
+    show: () => {},
+    sendText: () => {},
+    dispose: () => {},
+    onDidClose: () => {},
+    disposed: false,
+  };
+}
+
+function adapterFor(command: InteractiveCommand): AgentAdapter {
+  return {
+    requiredBinary: 'fake',
+    runHeadless: async () => {
+      throw new Error('unused');
+    },
+    buildInteractiveCommand: () => command,
+  } as unknown as AgentAdapter;
+}
+
+interface Harness {
+  deps: SupervisedTransportDeps;
+  calls: {
+    order: string[];
+    nonce: string;
+    terminal: { cwd: string; shellPath: string; shellArgs: string[]; env: Record<string, string> };
+  };
+  sessions: { ticketId: number; repo: string; pid: number | null; cwd: string; startedAt: string }[];
+}
+
+function harness(pid?: number): Harness {
+  const calls: Harness['calls'] = {
+    order: [],
+    nonce: '',
+    terminal: { cwd: '', shellPath: '', shellArgs: [], env: {} },
+  };
+  const sessions: Harness['sessions'] = [];
+  const deps: SupervisedTransportDeps = {
+    persistOwnerNonce: (nodeRunId, nonce) => {
+      calls.order.push('persist');
+      calls.nonce = nonce;
+    },
+    terminalHost: {
+      createTerminal: (opts) => {
+        calls.order.push('spawn');
+        calls.terminal = { cwd: opts.cwd, shellPath: opts.shellPath, shellArgs: opts.shellArgs, env: opts.env };
+        return fakeTerminal(pid);
+      },
+    },
+    recordSession: (row) => {
+      calls.order.push('record');
+      sessions.push(row);
+    },
+    killTree: () => 'killed',
+    facts: {
+      isAlive: () => true,
+      liveCwd: () => ({ path: '/wt/n1', deleted: false }),
+      processStartMs: () => 1_700_000_000_000,
+    },
+    now: () => '2026-08-12T00:00:00.000Z',
+  };
+  return { deps, calls, sessions };
+}
+
+const LAUNCH = {
+  nodeRunId: 11,
+  ticketId: 1,
+  graphRunId: 2,
+  repo: 'api',
+  cwd: '/wt/n1',
+  generation: 'gen-1',
+  adapter: adapterFor({ command: 'claude', args: ['--resume'], env: { KARST_TICKET_ID: '1' } }),
+  interactive: { cwd: '/wt/n1' },
+  graphEnv: { KARST_GRAPH_RUN_ID: '2', KARST_GRAPH_CALLBACK_URL: 'http://127.0.0.1:9/wakeup' },
+};
+
+describe('SupervisedCLITransport', () => {
+  it('persists the owner nonce BEFORE spawn and identity immediately after', async () => {
+    const h = harness(4242);
+    const transport = createSupervisedCliTransport(h.deps);
+    const session = await transport.start(LAUNCH);
+    expect(h.calls.order).toEqual(['persist', 'spawn', 'record']);
+    expect(h.calls.nonce).toMatch(/^[0-9a-f]{32}$/); // ≥ 128 bits, CSPRNG
+    expect(h.calls.terminal).toMatchObject({ cwd: '/wt/n1', shellPath: 'claude', shellArgs: ['--resume'] });
+    expect(session).toMatchObject({
+      nodeRunId: 11,
+      ticketId: 1,
+      graphRunId: 2,
+      pid: 4242,
+      cwd: '/wt/n1',
+      generation: 'gen-1',
+      startedAt: '2026-08-12T00:00:00.000Z',
+      providerSessionId: null,
+    });
+    expect(session.ownerNonce).toBe(h.calls.nonce);
+    expect(h.sessions).toHaveLength(1);
+    expect(h.sessions[0]).toMatchObject({ ticketId: 1, repo: 'api', pid: 4242, cwd: '/wt/n1' });
+  });
+
+  it('merges the graph environment onto the adapter-built environment', async () => {
+    const h = harness(4242);
+    const transport = createSupervisedCliTransport(h.deps);
+    await transport.start(LAUNCH);
+    expect(h.deps.terminalHost.createTerminal).toBeDefined();
+  });
+
+  it('records a null pid when the terminal never produced one', async () => {
+    const h = harness();
+    const transport = createSupervisedCliTransport(h.deps);
+    const session = await transport.start(LAUNCH);
+    expect(session.pid).toBeNull();
+    expect(session.startedAt).toBeNull();
+    expect(h.sessions).toHaveLength(1);
+    expect(h.sessions[0]).toMatchObject({ pid: null, cwd: '/wt/n1' });
+  });
+
+  it('keeps sessions in its own (ticketId, nodeRunId) registry', async () => {
+    const h = harness(4242);
+    const transport = createSupervisedCliTransport(h.deps);
+    await transport.start(LAUNCH);
+    expect(transport.sessions()).toHaveLength(1);
+    expect(transport.sessionFor(1, 11)?.pid).toBe(4242);
+    expect(transport.sessionFor(1, 99)).toBeUndefined();
+  });
+
+  it('terminates an attributable pid via the process group and reports the kill outcome', async () => {
+    const h = harness(4242);
+    let signalled: number | undefined;
+    const transport = createSupervisedCliTransport({
+      ...h.deps,
+      killTree: (pid) => {
+        signalled = pid;
+        return 'killed';
+      },
+    });
+    const session = await transport.start(LAUNCH);
+    const proof = await transport.terminate(session);
+    expect(signalled).toBe(4242);
+    expect(proof).toEqual({ kind: 'attributable', kill: 'killed' });
+  });
+
+  it('a denied kill reads as NOT terminated — the row stays running and the lease stays held', async () => {
+    const h = harness(4242);
+    const transport = createSupervisedCliTransport({ ...h.deps, killTree: () => 'denied' });
+    const session = await transport.start(LAUNCH);
+    const proof = await transport.terminate(session);
+    // The caller (node executor) must keep the row `running` and the lease
+    // held — `denied` is a live process that refused, never a termination.
+    expect(proof).toEqual({ kind: 'attributable', kill: 'denied' });
+    expect(h.deps.recordSession).toBeDefined();
+  });
+
+  it('a reissued pid reads foreign and signals nothing', async () => {
+    const h = harness(4242);
+    let signalled = false;
+    const transport = createSupervisedCliTransport({
+      ...h.deps,
+      facts: {
+        isAlive: () => true,
+        liveCwd: () => ({ path: '/somewhere/else', deleted: false }),
+        processStartMs: () => 1_700_000_000_999, // outside START_TIME_TOLERANCE_MS
+      },
+      killTree: (pid) => {
+        signalled = true;
+        return 'killed';
+      },
+    });
+    const session = await transport.start(LAUNCH);
+    const proof = await transport.terminate(session);
+    expect(proof).toEqual({ kind: 'foreign' });
+    expect(signalled).toBe(false);
+  });
+
+  it('a dead pid signals nothing; an unknowable pid signals nothing', async () => {
+    const h = harness(4242);
+    let signalled = false;
+    const deadTransport = createSupervisedCliTransport({
+      ...h.deps,
+      facts: { isAlive: () => false, liveCwd: () => null, processStartMs: () => null },
+      killTree: () => {
+        signalled = true;
+        return 'killed';
+      },
+    });
+    const session = await deadTransport.start(LAUNCH);
+    expect(await deadTransport.terminate(session)).toEqual({ kind: 'dead' });
+    expect(signalled).toBe(false);
+
+    const unknownTransport = createSupervisedCliTransport({
+      ...h.deps,
+      facts: { isAlive: () => true, liveCwd: () => null, processStartMs: () => null },
+    });
+    const unknownSession = await unknownTransport.start(LAUNCH);
+    expect(await unknownTransport.terminate(unknownSession)).toEqual({ kind: 'unknown' });
+    expect(signalled).toBe(false);
+
+    const noPid = createSupervisedCliTransport(h.deps);
+    const noPidSession = await noPid.start({ ...LAUNCH, nodeRunId: 12 });
+    expect(noPidSession.pid).not.toBeNull();
+  });
+
+  it('a graph session appears in the servers registry and is reaped by BOTH paths', () => {
+    const store = openStore(':memory:');
+    const worktreeDir = '/repo/.karst/worktrees/ticket-1';
+    // The OS verdict is per-pid: A's tree is gone under the worktree, B's
+    // sibling tree is gone too (its parent still stands).
+    const deadFacts = {
+      isAlive: () => false,
+      liveCwd: (pid: number) => ({
+        path: pid === 222 ? '/repo/.karst/worktrees/other-ticket/node' : `${worktreeDir}/node`,
+        deleted: true,
+      }),
+      processStartMs: () => null,
+    };
+    // Session A serves a cwd under the worktree — `stopServersUnder` matches
+    // it by PATH.
+    store.db
+      .prepare(
+        `INSERT INTO servers (ticket_id, repo, host, port, pid, status, cwd, started_at)
+         VALUES (?, 'api', 'graph', NULL, ?, 'running', ?, ?)`,
+      )
+      .run(1, 111, `${worktreeDir}/node`, '2026-08-12T00:00:00.000Z');
+    // Session B serves a SIBLING tree — stopServersUnder (by path) must miss
+    // it; the global sweep catches it by a GONE directory instead.
+    store.db
+      .prepare(
+        `INSERT INTO servers (ticket_id, repo, host, port, pid, status, cwd, started_at)
+         VALUES (?, 'web', 'graph', NULL, ?, 'running', ?, ?)`,
+      )
+      .run(1, 222, '/repo/.karst/worktrees/other-ticket/node', '2026-08-12T00:00:00.000Z');
+    const underTree = stopServersUnder(store, worktreeDir, { facts: deadFacts });
+    expect(underTree.map((r) => r.outcome)).toEqual(['row-cleared']);
+    const swept = reapStaleServers(store, { facts: deadFacts });
+    expect(swept.map((r) => r.outcome)).toEqual(['row-cleared']);
+    const remaining = store.db
+      .prepare("SELECT COUNT(*) AS n FROM servers WHERE status = 'running'")
+      .get() as { n: number };
+    expect(remaining.n).toBe(0);
+  });
+
+  it('pins SessionManager: its terminals map stays keyed by ticket id only', () => {
+    const source = readFileSync(join(import.meta.dirname, '..', '..', '..', 'ui', 'session.ts'), 'utf8');
+    expect(source).toMatch(/terminals = new Map<number, TrackedSession>\(\)/);
+    expect(source).not.toMatch(/Map<\[number, number\]/);
+  });
+
+  it('pins the sole bridge: no other module imports both AgentAdapter and AgentTransport', () => {
+    const srcDir = join(import.meta.dirname, '..', '..', '..');
+    const files: string[] = [];
+    const collect = (dir: string): void => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, entry.name);
+        if (entry.isDirectory()) {
+          if (entry.name === 'node_modules' || entry.name === 'dist') continue;
+          collect(full);
+        } else if (entry.name.endsWith('.ts') && !entry.name.endsWith('.test.ts')) {
+          files.push(full);
+        }
+      }
+    };
+    collect(srcDir);
+    const bridgers = files.filter((file) => {
+      const source = readFileSync(file, 'utf8');
+      const importsAdapter = /from\s+['"][^'"]*agent\/adapter\.js['"]/.test(source);
+      const importsTransport = /from\s+['"][^'"]*agentTransport\.js['"]/.test(source);
+      return importsAdapter && importsTransport;
+    });
+    expect(bridgers).toEqual([
+      join(srcDir, 'approaches', 'graph', 'transport', 'supervisedCliTransport.ts'),
+    ]);
+  });
+});
