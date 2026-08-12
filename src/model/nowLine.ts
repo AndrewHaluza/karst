@@ -220,10 +220,15 @@ export function buildNowLine(
     case 'ship':
       // Ship has no failed edge (graph.ts): a ship that could not open its PRs
       // leaves the ticket parked right here, so the line has to say so and offer
-      // the retry — the same action, renamed for what it now does.
+      // the retry — the same action, renamed for what it now does. The recorded
+      // reason (already collapsed/capped by the stepper) rides on the sentence
+      // itself, so the copy never depends on a sibling surface rendering it —
+      // the fault card still shows it large, with timing and attempt, but the
+      // line alone carries the at-a-glance why (869eh44n5-fu1).
       if (cell.status === 'failed') {
+        const why = cell.reason ? `: ${cell.reason}` : '';
         return {
-          text: 'Now: ship failed — the PRs were not opened. Check the reason above, then try again.',
+          text: `Now: ship failed — the PRs were not opened${why}.`,
           action: { kind: 'ship', label: 'Retry ship' },
         };
       }
