@@ -95,7 +95,12 @@ export interface SupervisedAgentSession {
   processRunId: number | null;
   /** Provider session id — recorded via the lifecycle channel, later. */
   providerSessionId: string | null;
-  terminal: TransportTerminal;
+  /**
+   * The host terminal surface (CLI transport). Absent for a transport with no
+   * terminal (ACP drives the session over its protocol instead) — a session
+   * without one must never fabricate a terminal it does not own.
+   */
+  terminal?: TransportTerminal;
 }
 
 export type TerminationProof =

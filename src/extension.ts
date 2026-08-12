@@ -2217,7 +2217,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       graphOpenSession: (ticketId, session) => {
         const tr = graphTransport;
         const live = tr?.sessionFor(ticketId, session.runId);
-        live?.terminal.show(true);
+        live?.terminal?.show(true);
       },
       // Declared here with the coordinator wiring it forces (like
       // `runPrSync`): bound later in activate, read only once a panel is open.
@@ -3796,7 +3796,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (activeGraph) {
         const session = graphTransport?.sessions().find((s) => s.ticketId === ticketId);
         if (session) {
-          session.terminal.show();
+          session.terminal?.show();
         } else {
           void vscode.window.showInformationMessage(
             `Ticket #${ticketId} is owned by an active graph run (${activeGraph.status}) — its session is not attached to this window; the coordinator re-attaches it on the next sweep.`,
