@@ -917,7 +917,10 @@
     const sel = draft.selectedAgentProvider ?? selectedProvider ?? '';
     const current = sel || defaultProvider || 'claude';
     el('agentTrigger').innerHTML = agentBadgeHtml(current) + '<span class="chev" aria-hidden="true"></span>';
-    const inheritOpt = `<div class="agentselect-opt${sel ? '' : ' selected'}" role="option" tabindex="0" data-value="" aria-selected="${!sel}">Inherit (settings: ${esc(defaultProvider)})</div>`;
+    // The inherit row names the DEFAULT CORE by its canonical identity label,
+    // never a raw manifest id.
+    const inheritLabel = AGENT_PROVIDER_LABELS[defaultProvider] || defaultProvider || 'claude';
+    const inheritOpt = `<div class="agentselect-opt${sel ? '' : ' selected'}" role="option" tabindex="0" data-value="" aria-selected="${!sel}">Inherit (settings: ${esc(inheritLabel)})</div>`;
     const opts = list.map((p) => {
       return `<div class="agentselect-opt${p === sel ? ' selected' : ''}" role="option"`
         + ` tabindex="0" data-value="${esc(p)}" aria-selected="${p === sel}">`

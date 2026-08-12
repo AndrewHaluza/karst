@@ -559,9 +559,11 @@
   #inside .agent-id{display:inline-flex;align-items:center;gap:var(--p-s1);min-width:0;height:18px;
     color:var(--p-muted);font-family:var(--p-mono);font-size:var(--p-xs);line-height:14px;vertical-align:middle}
   #inside .agent-id .agent-sep{color:var(--p-muted2);line-height:14px}
-  #inside .agent-icon{width:13px;height:13px;display:inline-grid;place-items:center;flex:none;color:var(--p-running)}
-  #inside .agent-icon svg{width:13px;height:13px;display:block;stroke:currentColor;fill:none;
-    stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+  /* Agent identity primitive — the mark is the CANONICAL provider icon
+     (injected as .agenticon) drawn at 13px in the core's own blue; the
+     stroke-based line-icon styling is gone with the prototype icon set. */
+  #inside .agent-icon,#inside .agenticon{width:13px;height:13px;display:inline-grid;place-items:center;flex:none;color:var(--p-running)}
+  #inside .agent-icon svg,#inside .agenticon svg{width:13px;height:13px;display:block}
   #inside .agent-core,#inside .agent-model{display:inline-flex;align-items:center;height:14px;line-height:14px;white-space:nowrap}
   #inside .agent-core{color:var(--p-running)}
   #inside .agent-model{color:var(--p-muted)}
@@ -1829,13 +1831,14 @@
 
   // ── the prototype's shared primitives ──────────────────────────────────
   // The identity run: [agent name ·] core mark + core · model. Every part is
-  // host-shipped (`AgentExecutionView`); the mark comes from the injected
-  // line-icon renderer, so a provider with no mark degrades to text alone.
+  // host-shipped (`AgentExecutionView`); the mark is the CANONICAL provider
+  // icon from the injected identity renderer, so a provider with no mark
+  // degrades to text alone.
   function agentIdHtml(x) {
     if (!x) return '';
     const name = x.agentName
       ? `<span class="agent-name">${esc(x.agentName)}</span><span class="agent-sep">·</span>` : '';
-    const icon = x.provider ? agentLineIconHtml(x.provider) : '';
+    const icon = x.provider ? agentIconHtml(x.provider) : '';
     const core = x.providerLabel ? `<span class="agent-core">${esc(x.providerLabel)}</span>` : '';
     const model = x.modelLabel
       ? `<span class="agent-sep">·</span><span class="agent-model">${esc(x.modelLabel)}</span>` : '';
@@ -2086,7 +2089,7 @@
     // borrow the identity chip's colour for something that is not an
     // identity (869egdr2u-fu1).
     const identity = r.provider
-      ? `<span class="agent-id">${agentLineIconHtml(r.provider)}`
+      ? `<span class="agent-id">${agentIconHtml(r.provider)}`
         + `<span class="agent-core">${esc(r.detail || '')}</span></span>`
       : '<span></span>';
     if (r.connector === 'switch' || r.connector === 'resume') {
@@ -2392,16 +2395,18 @@
       ? '<button type="button" class="k-btn k-btn--secondary k-btn--sm switch-agent" data-act="switch-agent"'
         + ' title="Switch this ticket\'s live agent session">Switch agent…</button>'
       : '';
+    // The live session's identity is the injected component (icon + name +
+    // model, compact for the small subtitle line) — never a bare text pair.
     const identity = agentSession
-      ? `${agentSession.providerLabel} · ${agentSession.modelLabel}`
+      ? agentIdentityHtml(agentSession.provider, agentSession.modelLabel, true)
       : '';
     // A brief success flash beside the settled line once a ship resolves — the
     // clear "it worked" beat before the dashboard shows the done state.
     const badge = shipDone === 'success' ? `<span class="shipbadge ok">✓ Shipped</span>` : '';
-    const detail = a && a.kind === 'session' && a.detail ? a.detail : '';
+    const detail = a && a.kind === 'session' && a.detail ? esc(a.detail) : '';
     const subtitle = [detail, identity].filter(Boolean).join(' · ');
     const sub = subtitle
-      ? `<div class="now-sub">${esc(subtitle)}</div>`
+      ? `<div class="now-sub">${subtitle}</div>`
       : '';
     el('now').innerHTML = badge + `<span class="ntext">${esc(line.text)}</span>`
       + (type ? `<button type="button" class="k-btn k-btn--primary k-btn--sm" data-act="${type}"${attrs}`
