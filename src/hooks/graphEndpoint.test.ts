@@ -98,26 +98,35 @@ describe('graph wake-up endpoint', () => {
   });
 
   it('rate-limits a valid-token flood per graph run with exponential backoff', async () => {
+    // The backoff windows are driven by the injected clock, never a real
+    // wall-clock sleep — under full-suite load a setTimeout can stretch past
+    // a 40 ms window and flip the assertion (the UAT-failing flake).
+    let now = 1_000;
     const { endpoint, register, close } = await startEndpoint({
       baseBackoffMs: 20,
       maxBackoffMs: 640,
+      now: () => now,
     });
     const { url, token } = register(7);
-    // Accept at t0 → backoff 40 ms.
+    // Accept at t=0 → backoff window is 20 ms.
     expect((await post(url, { token })).status).toBe(202);
     expect((await post(url, { token })).status).toBe(429);
+    // Just inside the window: still rate-limited.
+    now += 19;
     expect((await post(url, { token })).status).toBe(429);
-    // After the backoff window (40 ms) elapses a wake-up is accepted again…
-    await new Promise((r) => setTimeout(r, 60));
+    // At exactly 20 ms the window is over: accepted again, window doubles to 40 ms.
+    now += 1;
     expect((await post(url, { token })).status).toBe(202);
-    // …and the DOUBLED window (80 ms) means a request 30 ms later is still
-    // rate-limited — with the base window it would have been accepted, so
-    // this assertion pins the exponential growth.
+    // 30 ms into the doubled window: still 429 — the base window would have
+    // accepted, so this pins the exponential growth.
+    now += 30;
     expect((await post(url, { token })).status).toBe(429);
-    await new Promise((r) => setTimeout(r, 30));
-    expect((await post(url, { token })).status).toBe(429);
-    await new Promise((r) => setTimeout(r, 60));
+    // 10 more ms = exactly the doubled window: accepted, window doubles to 80 ms.
+    now += 10;
     expect((await post(url, { token })).status).toBe(202);
+    // 79 ms later: still rate-limited (80 ms window).
+    now += 79;
+    expect((await post(url, { token })).status).toBe(429);
     await close();
   });
 

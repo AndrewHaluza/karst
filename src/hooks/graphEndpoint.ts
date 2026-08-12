@@ -47,6 +47,9 @@ export interface GraphWakeupEndpointOptions {
   maxBackoffMs?: number;
   /** Injectable loopback check (tests); defaults to the socket address. */
   isLoopback?: (remoteAddress: string | undefined) => boolean;
+  /** Injectable clock (tests): the backoff windows read it, never a real
+   *  wall-clock sleep. Defaults to `Date.now`. */
+  now?: () => number;
   requestTimeoutMs?: number;
   debug?: (message: string) => void;
 }
@@ -73,6 +76,7 @@ export function startGraphWakeupEndpoint(
   const requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
   const isLoopback =
     options.isLoopback ?? ((remoteAddress: string | undefined) => LOOPBACK_ADDRESSES.has(remoteAddress ?? ''));
+  const clock = options.now ?? Date.now;
   const routes = new Map<string, Route>();
   const backoff = new Map<number, BackoffState>();
 
@@ -126,7 +130,7 @@ export function startGraphWakeupEndpoint(
           finish(404);
           return;
         }
-        const now = Date.now();
+        const now = clock();
         const state = backoff.get(route.graphRunId);
         if (state && now < state.nextAllowedAt) {
           finish(429); // rate-limited — a valid-token flood is the realistic attack
