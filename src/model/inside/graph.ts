@@ -37,6 +37,7 @@ import { bounded } from './bounds.js';
 export const GRAPH_TEXT_MAX = 200;
 const MAX_DIAGNOSTIC_ROWS = 8;
 const MAX_ARTIFACT_ROWS = 8;
+const MAX_DEFERRAL_ROWS = 8;
 
 /**
  * The one audited escaper for graph-derived text. Untrusted planner/authored
@@ -94,6 +95,17 @@ export interface GraphNodeRunView {
   launchAttempt: number;
 }
 
+/** One deferred node (Slice 5 Task 3): a node that is READY (its token is
+ *  pending) but whose activation the scheduler refused — the persisted reason
+ *  makes deliberate serialization read as a decision, never a scheduler
+ *  defect. The node has no run row yet (it is still waiting to be claimed), so
+ *  the deferral is rendered as its own row. */
+export interface GraphNodeDeferralView {
+  nodeId: string;
+  reason: string;
+  waitSince: string;
+}
+
 /** The execution policy the node rows' visit budgets and serialization read. */
 export interface GraphExecutionView {
   maxParallel: number;
@@ -125,6 +137,9 @@ export interface GraphInsideInput {
   } | null;
   plannerRuns: GraphPlannerRunView[];
   nodeRuns: GraphNodeRunView[];
+  /** Ready-but-blocked nodes whose activation the scheduler refused — each
+   *  renders its own row with the persisted reason (Slice 5 Task 3). */
+  deferrals: GraphNodeDeferralView[];
   execution: GraphExecutionView;
   revision: GraphRevisionView | null;
   diagnostics: GraphDiagnosticView[];
@@ -335,6 +350,29 @@ export function graphInsideProcess(
       detail: sanitizeGraphText(
         `maxParallel ${input.execution.maxParallel} — ready nodes run one at a time`,
       ),
+      status: 'note',
+    });
+  }
+
+  // Slice 5 Task 3: each ready-but-blocked node renders its own row with the
+  // scheduler's persisted refusal reason, so deliberate serialization never
+  // reads as a scheduler defect. The waiting duration comes from the injected
+  // clock — display only, never a decision.
+  const deferrals = bounded(input.deferrals, MAX_DEFERRAL_ROWS);
+  for (const deferral of deferrals.shown) {
+    const waited = Math.max(0, Date.parse(input.now) - Date.parse(deferral.waitSince));
+    rows.push({
+      label: `deferred ${sanitizeGraphText(deferral.nodeId)}`,
+      detail: sanitizeGraphText(
+        `${deferral.reason} · waiting ${Math.floor(waited / 1000)}s`,
+      ),
+      status: 'wait',
+    });
+  }
+  if (deferrals.remaining > 0) {
+    rows.push({
+      label: 'deferred nodes',
+      detail: `+${deferrals.remaining} more`,
       status: 'note',
     });
   }

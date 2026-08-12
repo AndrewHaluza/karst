@@ -285,3 +285,118 @@ export function removeWorkspacesForNode(db: GraphDb, nodeRunId: number): number 
   const res = db.prepare('DELETE FROM approach_graph_workspaces WHERE node_run_id = ?').run(nodeRunId);
   return res.changes;
 }
+
+/**
+ * The deferral ledger (Slice 5 Task 3). One row per READY-BUT-BLOCKED node in
+ * a revision: the reason the scheduler refused its activation and the first
+ * moment it became blocked (`wait_since` — the bounded-aging clock). Keyed by
+ * `(revision_id, node_id)` because the node run does not exist until its claim
+ * succeeds — a deferral describes a node waiting to be claimed, never a
+ * claimed run. Inside reads it so deliberate serialization never looks like a
+ * scheduler defect.
+ */
+export interface DeferralRow {
+  id: number;
+  graph_run_id: number;
+  revision_id: number;
+  node_id: string;
+  reason: string;
+  wait_since: string;
+  updated_at: string;
+}
+
+/** The deferral for a node in a revision, or undefined when not deferred. */
+export function deferralFor(db: GraphDb, revisionId: number, nodeId: string): DeferralRow | undefined {
+  return db
+    .prepare(
+      `SELECT id, graph_run_id, revision_id, node_id, reason, wait_since, updated_at
+         FROM approach_node_deferrals WHERE revision_id = ? AND node_id = ?`,
+    )
+    .get(revisionId, nodeId) as DeferralRow | undefined;
+}
+
+/**
+ * Record (or refresh) a node's deferral. The FIRST deferral stamps
+ * `wait_since` (the bounded-aging clock — it never moves); a later refusal
+ * only refreshes the reason and `updated_at`. Returns the effective wait_since
+ * and whether this was the first deferral.
+ */
+export function recordDeferral(
+  db: GraphDb,
+  input: { graphRunId: number; revisionId: number; nodeId: string; reason: string; now: string },
+): { waitSince: string; fresh: boolean } {
+  const existing = deferralFor(db, input.revisionId, input.nodeId);
+  if (existing) {
+    db.prepare(
+      'UPDATE approach_node_deferrals SET reason = ?, updated_at = ? WHERE id = ?',
+    ).run(input.reason, input.now, existing.id);
+    return { waitSince: existing.wait_since, fresh: false };
+  }
+  db.prepare(
+    `INSERT INTO approach_node_deferrals (graph_run_id, revision_id, node_id, reason, wait_since, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+  ).run(input.graphRunId, input.revisionId, input.nodeId, input.reason, input.now, input.now);
+  return { waitSince: input.now, fresh: true };
+}
+
+/** Clear a node's deferral — the claim succeeded, or the node became
+ *  dependency-waiting (never resource-blocked), or the run stopped. Returns
+ *  whether a row was removed. */
+export function clearDeferral(db: GraphDb, revisionId: number, nodeId: string): boolean {
+  const res = db.prepare(
+    'DELETE FROM approach_node_deferrals WHERE revision_id = ? AND node_id = ?',
+  ).run(revisionId, nodeId);
+  return res.changes > 0;
+}
+
+/** A graph run's deferral rows, ordered by node id. */
+export function deferralsForGraphRun(db: GraphDb, graphRunId: number): DeferralRow[] {
+  return db
+    .prepare(
+      `SELECT id, graph_run_id, revision_id, node_id, reason, wait_since, updated_at
+         FROM approach_node_deferrals WHERE graph_run_id = ? ORDER BY node_id`,
+    )
+    .all(graphRunId) as DeferralRow[];
+}
+
+/**
+ * The graph run's `active_processes` counter — the coordinator's own accounting
+ * of the shared external-process ceiling (`graph.limits.maxParallel`). It
+ * counts agent sessions AND per-repository command subprocesses: one slot per
+ * claimed agent/command activation (a command node runs its repositories
+ * serially, so its subprocesses never exceed one slot at a time). Gates and
+ * joins spawn nothing and never reserve a slot. Reserved in the claim
+ * transaction (the atomic ceiling CAS is the multi-window enforcement),
+ * released only when the process provably ends (pipeline integration) or the
+ * ambiguous run is discarded — a rest state keeps its slot until then, which
+ * is conservative: recovery can never oversubscribe real processes.
+ */
+export function activeProcessesOf(db: GraphDb, graphRunId: number): number {
+  const row = db
+    .prepare('SELECT active_processes FROM approach_graph_runs WHERE id = ?')
+    .get(graphRunId) as { active_processes: number } | undefined;
+  return row?.active_processes ?? 0;
+}
+
+/** Atomically reserve one process slot, refusing when the ceiling is reached.
+ *  The affected-row check makes the reserve a claim: under `BEGIN IMMEDIATE`
+ *  two windows cannot both pass the ceiling. */
+export function reserveProcessSlot(db: GraphDb, graphRunId: number, maxParallel: number): boolean {
+  const res = db
+    .prepare(
+      'UPDATE approach_graph_runs SET active_processes = active_processes + 1 WHERE id = ? AND active_processes < ?',
+    )
+    .run(graphRunId, maxParallel);
+  return res.changes === 1;
+}
+
+/** Release one process slot, never below zero (a run whose slot is not held
+ *  must not be driven negative). Idempotent. */
+export function releaseProcessSlot(db: GraphDb, graphRunId: number): boolean {
+  const res = db
+    .prepare(
+      'UPDATE approach_graph_runs SET active_processes = MAX(0, active_processes - 1) WHERE id = ?',
+    )
+    .run(graphRunId);
+  return res.changes === 1;
+}

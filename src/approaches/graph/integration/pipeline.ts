@@ -61,6 +61,7 @@ import { resolvePhysicalDomains, type DomainEntry } from './domains.js';
 import { captureChangeSet, validateChangeSet, type ChangeSetEntry } from './changeSet.js';
 import { completeActivation } from '../coordinator/completion.js';
 import { releaseLeaseForNodeRun } from '../coordinator/leases.js';
+import { releaseProcessSlot } from '../../../store/graph/nodeRuns.js';
 import { recordArtifactInstance, validateRequiredOutputs } from '../artifacts/resolve.js';
 import { parseGraphDocument } from '../parse.js';
 import { join } from 'node:path';
@@ -418,6 +419,12 @@ export async function runCompletionPipeline(
     // same transaction that accepts the completion. An `ambiguous-process`
     // lease is left strictly alone (only the discard action may move one).
     releaseLeaseForNodeRun(deps.db, input.nodeRunId);
+    // Slice 5 Task 3: the node's process provably ended — its slot under the
+    // external-process ceiling (`active_processes`) is released with it. This
+    // is the ONLY normal-completion release point; a rest state keeps its slot
+    // until it is discarded or integrated (conservative — recovery can never
+    // oversubscribe real processes).
+    releaseProcessSlot(deps.db, input.graphRunId);
   });
   deps.debug?.(
     `[graph] node ${input.nodeRunId} integrated${committed ? '' : ' (no changes)'} — completed`,

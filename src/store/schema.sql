@@ -795,6 +795,14 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_ticket_attachments_ticket_stored_name
 -- canonical integration heads observed when the activation was claimed (JSON
 -- of `{domainKey, commit}`); `approach_graph_workspaces` is the per-workspace
 -- ledger that keeps the negations exact.
+--
+-- v40 (Slice 5 Task 3) adds the scheduler shape: `approach_graph_runs.
+-- active_processes` is the coordinator's own accounting of the external-process
+-- ceiling (`graph.limits.maxParallel`), reserved in the claim and released when
+-- a process provably ends; `approach_node_deferrals` is the deferral ledger —
+-- one row per ready-but-blocked node carrying the refusal reason and
+-- `wait_since`, so Inside can show that deliberate serialization is not a
+-- scheduler defect and bounded aging can promote an old waiter.
 
 CREATE TABLE IF NOT EXISTS approach_graph_runs (
   id                INTEGER PRIMARY KEY,
@@ -814,6 +822,7 @@ CREATE TABLE IF NOT EXISTS approach_graph_runs (
   updated_at        TEXT,
   completed_at      TEXT,
   workspace_bytes   INTEGER NOT NULL DEFAULT 0,
+  active_processes  INTEGER NOT NULL DEFAULT 0,
   UNIQUE (ticket_id, stage_attempt)
 );
 CREATE INDEX IF NOT EXISTS idx_graph_runs_ticket ON approach_graph_runs(ticket_id, id);
@@ -964,6 +973,17 @@ CREATE TABLE IF NOT EXISTS approach_node_overrides (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_node_overrides_rev_node_kind
   ON approach_node_overrides(revision_id, node_id, kind);
 CREATE INDEX IF NOT EXISTS idx_node_overrides_node ON approach_node_overrides(graph_run_id, node_id);
+CREATE TABLE IF NOT EXISTS approach_node_deferrals (
+  id            INTEGER PRIMARY KEY,
+  graph_run_id  INTEGER NOT NULL REFERENCES approach_graph_runs(id),
+  revision_id   INTEGER NOT NULL REFERENCES approach_graph_revisions(id),
+  node_id       TEXT NOT NULL,
+  reason        TEXT NOT NULL,
+  wait_since    TEXT NOT NULL,
+  updated_at    TEXT NOT NULL,
+  UNIQUE (revision_id, node_id)
+);
+CREATE INDEX IF NOT EXISTS idx_node_deferrals_run ON approach_node_deferrals(graph_run_id, id);
 
 -- v39 (Slice 5 Task 1): the durable per-workspace ledger. One row per clone
 -- created for a node run, with the byte count it contributes to the graph

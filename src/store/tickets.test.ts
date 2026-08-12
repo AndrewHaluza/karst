@@ -753,6 +753,12 @@ describe('deleteTicket — graph evidence (Slice-2 T8)', () => {
          VALUES (?, 'a', 0, ?)`,
       )
       .run(graphRunId, '2026-08-11T00:00:00.000Z');
+    store.db
+      .prepare(
+        `INSERT INTO approach_node_deferrals (graph_run_id, revision_id, node_id, reason, wait_since, updated_at)
+         VALUES (?, ?, 'a', 'resource-conflict: x', ?, ?)`,
+      )
+      .run(graphRunId, revisionId, '2026-08-11T00:00:00.000Z', '2026-08-11T00:00:00.000Z');
     return { ticketId: t.id, graphRunId, plannerRunId, revisionId, nodeRunId };
   }
 
@@ -770,6 +776,7 @@ describe('deleteTicket — graph evidence (Slice-2 T8)', () => {
         'approach_graph_tokens',
         'approach_node_overrides',
         'approach_resource_leases',
+        'approach_node_deferrals',
         'approach_artifact_instances',
         'approach_node_runs',
         'approach_planner_runs',

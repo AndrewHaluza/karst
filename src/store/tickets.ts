@@ -566,6 +566,7 @@ export function deleteTicket(store: Store, ticketId: number, graphBytesRoot?: st
         .run(graphRunId);
       store.db.prepare('DELETE FROM approach_node_overrides WHERE graph_run_id = ?').run(graphRunId);
       store.db.prepare('DELETE FROM approach_resource_leases WHERE graph_run_id = ?').run(graphRunId);
+      store.db.prepare('DELETE FROM approach_node_deferrals WHERE graph_run_id = ?').run(graphRunId);
       store.db.prepare('DELETE FROM approach_artifact_instances WHERE graph_run_id = ?').run(graphRunId);
       store.db.prepare('DELETE FROM approach_node_runs WHERE graph_run_id = ?').run(graphRunId);
       store.db.prepare('DELETE FROM approach_planner_runs WHERE graph_run_id = ?').run(graphRunId);

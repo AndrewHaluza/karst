@@ -244,6 +244,149 @@ describe('acquireDomainLeases', () => {
     );
     expect(result).toEqual({ acquired: true, count: 1 });
   });
+
+  it('read/read on the same domain may coexist (Slice 5 Task 3)', () => {
+    const ctx = harness();
+    nodeRun(ctx, 7);
+    nodeRun(ctx, 8);
+    withImmediate(ctx.db, () =>
+      acquireDomainLeases(ctx.makeDeps(), {
+        graphRunId: ctx.graphRunId,
+        nodeRunId: 7,
+        domains: [{ physicalDomain: 'dom-shared', accessMode: 'read' }],
+      }),
+    );
+    const result = withImmediate(ctx.db, () =>
+      acquireDomainLeases(ctx.makeDeps(), {
+        graphRunId: ctx.graphRunId,
+        nodeRunId: 8,
+        domains: [{ physicalDomain: 'dom-shared', accessMode: 'read' }],
+      }),
+    );
+    expect(result).toEqual({ acquired: true, count: 1 });
+    expect(leaseRows(ctx, 7)).toEqual([{ physical_domain: 'dom-shared', status: 'held', access_mode: 'read' }]);
+    expect(leaseRows(ctx, 8)).toEqual([{ physical_domain: 'dom-shared', status: 'held', access_mode: 'read' }]);
+  });
+
+  it('write/read on the same domain refuses — a writer blocks even a reader', () => {
+    const ctx = harness();
+    nodeRun(ctx, 9);
+    nodeRun(ctx, 10);
+    withImmediate(ctx.db, () =>
+      acquireDomainLeases(ctx.makeDeps(), {
+        graphRunId: ctx.graphRunId,
+        nodeRunId: 9,
+        domains: [{ physicalDomain: 'dom-wr', accessMode: 'write' }],
+      }),
+    );
+    const result = withImmediate(ctx.db, () =>
+      acquireDomainLeases(ctx.makeDeps(), {
+        graphRunId: ctx.graphRunId,
+        nodeRunId: 10,
+        domains: [{ physicalDomain: 'dom-wr', accessMode: 'read' }],
+      }),
+    );
+    expect(result).toMatchObject({ acquired: false });
+  });
+
+  it('path-disjoint claims on the same domain do not conflict — even write/write', () => {
+    const ctx = harness();
+    nodeRun(ctx, 11);
+    nodeRun(ctx, 12);
+    withImmediate(ctx.db, () =>
+      acquireDomainLeases(ctx.makeDeps(), {
+        graphRunId: ctx.graphRunId,
+        nodeRunId: 11,
+        domains: [{ physicalDomain: 'dom-paths', accessMode: 'write', paths: ['src/'] }],
+      }),
+    );
+    const result = withImmediate(ctx.db, () =>
+      acquireDomainLeases(ctx.makeDeps(), {
+        graphRunId: ctx.graphRunId,
+        nodeRunId: 12,
+        domains: [{ physicalDomain: 'dom-paths', accessMode: 'write', paths: ['lib/'] }],
+      }),
+    );
+    expect(result).toEqual({ acquired: true, count: 1 });
+    expect(leaseRows(ctx, 11)).toEqual([{ physical_domain: 'dom-paths', status: 'held', access_mode: 'write' }]);
+    expect(leaseRows(ctx, 12)).toEqual([{ physical_domain: 'dom-paths', status: 'held', access_mode: 'write' }]);
+  });
+
+  it('overlapping claims on the same domain refuse, whether write/write or write/read', () => {
+    const ctx = harness();
+    nodeRun(ctx, 13);
+    nodeRun(ctx, 14);
+    withImmediate(ctx.db, () =>
+      acquireDomainLeases(ctx.makeDeps(), {
+        graphRunId: ctx.graphRunId,
+        nodeRunId: 13,
+        domains: [{ physicalDomain: 'dom-overlap', accessMode: 'write', paths: ['src/'] }],
+      }),
+    );
+    const writeOverlap = withImmediate(ctx.db, () =>
+      acquireDomainLeases(ctx.makeDeps(), {
+        graphRunId: ctx.graphRunId,
+        nodeRunId: 14,
+        domains: [{ physicalDomain: 'dom-overlap', accessMode: 'write', paths: ['src/lib/x.ts'] }],
+      }),
+    );
+    expect(writeOverlap).toMatchObject({ acquired: false });
+    const readOverlap = withImmediate(ctx.db, () =>
+      acquireDomainLeases(ctx.makeDeps(), {
+        graphRunId: ctx.graphRunId,
+        nodeRunId: 14,
+        domains: [{ physicalDomain: 'dom-overlap', accessMode: 'read', paths: ['src/'] }],
+      }),
+    );
+    expect(readOverlap).toMatchObject({ acquired: false });
+  });
+
+  it('a repository-wide lease (no paths) overlaps every path', () => {
+    const ctx = harness();
+    nodeRun(ctx, 15);
+    nodeRun(ctx, 16);
+    withImmediate(ctx.db, () =>
+      acquireDomainLeases(ctx.makeDeps(), {
+        graphRunId: ctx.graphRunId,
+        nodeRunId: 15,
+        domains: [{ physicalDomain: 'dom-wide', accessMode: 'write' }],
+      }),
+    );
+    const result = withImmediate(ctx.db, () =>
+      acquireDomainLeases(ctx.makeDeps(), {
+        graphRunId: ctx.graphRunId,
+        nodeRunId: 16,
+        domains: [{ physicalDomain: 'dom-wide', accessMode: 'read', paths: ['deep/nested'] }],
+      }),
+    );
+    expect(result).toMatchObject({ acquired: false });
+  });
+
+  it('an ambiguous-process lease blocks even a read/read arrival', () => {
+    const ctx = harness();
+    nodeRun(ctx, 17);
+    nodeRun(ctx, 18);
+    acquireLease(ctx.db, {
+      graphRunId: ctx.graphRunId,
+      ownerNodeRunId: 17,
+      physicalDomain: 'dom-ambig-read',
+      accessMode: 'read',
+      claimedPaths: null,
+      now: NOW,
+    });
+    ctx.db
+      .prepare("UPDATE approach_resource_leases SET status = 'ambiguous-process' WHERE owner_node_run_id = ?")
+      .run(17);
+    const result = withImmediate(ctx.db, () =>
+      acquireDomainLeases(ctx.makeDeps(), {
+        graphRunId: ctx.graphRunId,
+        nodeRunId: 18,
+        domains: [{ physicalDomain: 'dom-ambig-read', accessMode: 'read' }],
+      }),
+    );
+    expect(result).toMatchObject({ acquired: false });
+    expect(leaseRows(ctx, 18)).toHaveLength(0);
+  });
 });
 
 describe('releaseLeaseForNodeRun', () => {

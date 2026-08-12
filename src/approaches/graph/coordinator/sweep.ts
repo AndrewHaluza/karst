@@ -21,10 +21,23 @@
 
 import type { GraphDb } from '../../../store/graph/transitions.js';
 import { pendingTokensForRevision, type GraphTokenRow } from '../../../store/graph/tokens.js';
+import { heldLeasesForScheduler, type SchedulerLeaseRow } from '../../../store/graph/leases.js';
+import {
+  activeProcessesOf,
+  clearDeferral,
+  recordDeferral,
+  type BaseHead,
+} from '../../../store/graph/nodeRuns.js';
 import { claimActivation, claimJoinActivation, GraphClaimError } from './claim.js';
 import { handleBudgetRefusal } from './visits.js';
+import {
+  agingPriority,
+  schedulerReady,
+  type SchedulerDecision,
+  type SchedulerGroup,
+  type SchedulerRefusal,
+} from './conflicts.js';
 import { parseGraphDocument, type ApproachNode, type GraphDocument } from '../parse.js';
-import type { BaseHead } from '../../../store/graph/nodeRuns.js';
 import type { ActivationDomain } from './leases.js';
 
 /** The per-tick bound: ≤ 100 state transitions (design, "Coordinator sweep"). */
@@ -57,6 +70,14 @@ export interface SweepDeps {
     nodeId: string;
     nodeKind: 'agent' | 'command' | 'gate';
   }) => readonly ActivationDomain[];
+  /**
+   * The external-process ceiling for the run (Slice 5 Task 3) — the manifest's
+   * `graph.limits.maxParallel`. The HOST resolves it from the run's approach.
+   * It feeds the scheduler's pre-claim admission (a claim at the ceiling
+   * defers `parallel-slot-busy` with a persisted reason) and each claim's
+   * atomic slot reservation. Absent → the tick enforces no ceiling.
+   */
+  maxParallelOf?: (graphRunId: number) => number | undefined;
 }
 
 export interface SweepResult {
@@ -154,18 +175,134 @@ export function runCoordinatorTick(
 
   const pending = pendingTokensForRevision(db, revision.id);
   const baseHeads = deps.baseHeadsOf?.(opts.graphRunId) ?? [];
+  // Slice 5 Task 3: the scheduler reads the durable facts ONCE per tick — the
+  // held leases (this run's and any other window's), the run's process count,
+  // and the manifest ceiling. Refusals and the deferred set below consult a
+  // WORKING copy so work admitted in this tick is seen by later groups.
+  const maxParallel = deps.maxParallelOf?.(opts.graphRunId);
+  const workingState: {
+    heldLeases: SchedulerLeaseRow[];
+    activeProcesses: number;
+    ceiling: number;
+  } = {
+    heldLeases: heldLeasesForScheduler(db),
+    activeProcesses: activeProcessesOf(db, opts.graphRunId),
+    ceiling: maxParallel ?? Number.MAX_SAFE_INTEGER,
+  };
+  const waitSinceByNode = new Map(
+    (
+      db
+        .prepare('SELECT node_id, wait_since FROM approach_node_deferrals WHERE revision_id = ?')
+        .all(revision.id) as { node_id: string; wait_since: string }[]
+    ).map((row) => [row.node_id, row.wait_since]),
+  );
+
+  interface PendingEntry {
+    group: TokenGroup;
+    node: ApproachNode;
+    scheduler: SchedulerGroup;
+  }
+  const entries: PendingEntry[] = [];
   for (const group of groupPendingTokens(pending)) {
-    if (result.transitions >= maxTransitions) break;
     const node = nodesById.get(group.destination) as ApproachNode | undefined;
     if (!node) {
       deps.debug?.(`[graph] run ${opts.graphRunId}: pending token for unknown node ${group.destination}`);
       continue;
     }
+    const nodeKind = node.kind === 'agent' ? 'agent' : node.kind === 'command' ? 'command' : 'gate';
+    const domains =
+      node.kind === 'join'
+        ? []
+        : (deps.domainsForActivation?.({
+            graphRunId: opts.graphRunId,
+            revisionId: revision.id,
+            nodeId: group.destination,
+            nodeKind,
+          }) ?? []);
+    const dependencyWaiting =
+      node.kind === 'join' &&
+      (() => {
+        const arrivalEdges = joinArrivalEdges.get(node.id) ?? [];
+        return !(
+          arrivalEdges.length === group.tokens.length
+          && arrivalEdges.every((edgeId) => group.tokens.some((t) => t.edge_id === edgeId))
+        );
+      })();
+    const earliest = [...group.tokens].sort(
+      (a, b) => a.created_at.localeCompare(b.created_at) || a.id - b.id,
+    )[0]!;
+    entries.push({
+      group,
+      node,
+      scheduler: {
+        destination: group.destination,
+        nodeKind: node.kind,
+        domains,
+        created: earliest.created_at,
+        tokenId: earliest.id,
+        forkInstance: group.forkInstance,
+        dependencyWaiting,
+      },
+    });
+  }
+
+  // Bounded aging: a node ready-but-blocked past the threshold is preferred
+  // over newer narrow work — a wide-resource node cannot starve behind
+  // repeatedly regenerated loop work. Order is otherwise creation time then
+  // token id (token id breaks one-millisecond ties across windows).
+  const ordered = agingPriority(
+    entries.map((e) => e.scheduler),
+    deps.now(),
+    (nodeId) => waitSinceByNode.get(nodeId) ?? null,
+  );
+  const entryByGroupKey = new Map(
+    entries.map((e) => [`${e.scheduler.destination}\u0000${e.scheduler.forkInstance}`, e]),
+  );
+
+  const defer = (nodeId: string, refusal: SchedulerRefusal): void => {
+    const reason =
+      refusal.reason === 'resource-conflict'
+        ? `resource-conflict: ${refusal.detail}`
+        : refusal.reason === 'parallel-slot-busy'
+          ? `parallel-slot-busy: ${refusal.detail}`
+          : `dependency-waiting: ${refusal.detail}`;
+    const recorded = recordDeferral(db, {
+      graphRunId: opts.graphRunId,
+      revisionId: revision.id,
+      nodeId,
+      reason,
+      now: deps.now(),
+    });
+    if (recorded.fresh) {
+      deps.debug?.(
+        `[graph] run ${opts.graphRunId}: node ${nodeId} deferred (${refusal.reason}) — waiting since ${recorded.waitSince}`,
+      );
+    }
+  };
+
+  for (const scheduler of ordered) {
+    if (result.transitions >= maxTransitions) break;
+    const entry = entryByGroupKey.get(`${scheduler.destination}\u0000${scheduler.forkInstance}`);
+    if (!entry) continue;
+    const { group, node } = entry;
+    const schedulerState = {
+      heldLeases: workingState.heldLeases,
+      activeProcesses: workingState.activeProcesses,
+      maxParallel: workingState.ceiling,
+    };
+    const decision = schedulerReady([scheduler], schedulerState)[0]!;
+
     if (node.kind === 'join') {
-      const arrivalEdges = joinArrivalEdges.get(node.id) ?? [];
-      const complete = arrivalEdges.length === group.tokens.length
-        && arrivalEdges.every((edgeId) => group.tokens.some((t) => t.edge_id === edgeId));
-      if (!complete) continue; // the join waits for its whole arrival set
+      if (decision.admitted === false) {
+        if (decision.refused?.reason === 'dependency-waiting') {
+          // A join waiting on its arrival set is NOT ready and is NEVER
+          // reported as resource-blocked — clear any stale deferral instead.
+          clearDeferral(db, revision.id, group.destination);
+          continue;
+        }
+        defer(group.destination, decision.refused!);
+        continue;
+      }
       const outgoing = joinOutgoing.get(node.id);
       if (!outgoing) {
         deps.debug?.(`[graph] run ${opts.graphRunId}: join ${node.id} has no outgoing edge`);
@@ -189,6 +326,7 @@ export function runCoordinatorTick(
           },
         );
         if (fired.claimed) {
+          clearDeferral(db, revision.id, group.destination);
           result.claimed += 1;
           result.transitions += cost;
           continue;
@@ -207,26 +345,28 @@ export function runCoordinatorTick(
             },
           );
           result.transitions += 1;
+          clearDeferral(db, revision.id, group.destination);
           if (refusal.kind === 'blocked') break;
         }
       } catch (err) {
         if (err instanceof GraphClaimError) {
-          deps.debug?.(`[graph] run ${opts.graphRunId}: join ${node.id} firing aborted: ${err.message}`);
+          defer(group.destination, {
+            reason: 'resource-conflict',
+            detail: err.message,
+          });
         } else {
           throw err;
         }
       }
       continue;
     }
+
+    if (!decision.admitted) {
+      defer(group.destination, decision.refused!);
+      continue;
+    }
     for (const token of group.tokens) {
       if (result.transitions >= maxTransitions) break;
-      const domains =
-        deps.domainsForActivation?.({
-          graphRunId: opts.graphRunId,
-          revisionId: revision.id,
-          nodeId: group.destination,
-          nodeKind: node.kind === 'agent' ? 'agent' : node.kind === 'command' ? 'command' : 'gate',
-        }) ?? [];
       let outcome;
       try {
         outcome = claimActivation(
@@ -236,14 +376,17 @@ export function runCoordinatorTick(
             nodeKind: node.kind === 'agent' ? 'agent' : node.kind === 'command' ? 'command' : 'gate',
             profileIsExpert: node.kind === 'agent' && node.profile === 'expert',
             baseHeads,
-            domains,
+            domains: scheduler.domains,
+            maxParallel: maxParallel,
           },
         );
       } catch (err) {
         if (err instanceof GraphClaimError) {
-          // Slice 5 Task 2: a lease-conflicted claim aborts and rolls back —
-          // a NORMAL serialization state, not a fault. The token stays
-          // pending and the tick defers the group to the next tick.
+          // Slice 5 Task 2/3: a lease-conflicted or ceiling-refused claim
+          // aborts and rolls back — a NORMAL serialization state, not a
+          // fault. The token stays pending and the group defers, with the
+          // reason persisted so Inside can show it.
+          defer(group.destination, { reason: 'resource-conflict', detail: err.message });
           deps.debug?.(
             `[graph] run ${opts.graphRunId}: activation for ${group.destination} refused: ${err.message}`,
           );
@@ -252,6 +395,19 @@ export function runCoordinatorTick(
         throw err;
       }
       if (outcome.claimed) {
+        clearDeferral(db, revision.id, group.destination);
+        // The claimed leases enter the working set ONLY once the claim
+        // committed — later groups in this tick see them, and a raced or
+        // rolled-back claim never leaves a phantom lease behind.
+        for (const domain of scheduler.domains) {
+          workingState.heldLeases.push({
+            physicalDomain: domain.physicalDomain,
+            accessMode: domain.accessMode,
+            ambiguous: false,
+            paths: [...(domain.paths ?? [])],
+          });
+        }
+        workingState.activeProcesses += 1;
         result.claimed += 1;
         result.transitions += 1;
         continue;
@@ -272,6 +428,7 @@ export function runCoordinatorTick(
         },
       );
       result.transitions += 1;
+      clearDeferral(db, revision.id, group.destination);
       if (refusal.kind === 'blocked') break; // the run is no longer running
       break; // routed: the group's tokens are consumed; stop scheduling it
     }

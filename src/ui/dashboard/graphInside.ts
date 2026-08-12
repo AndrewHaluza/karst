@@ -108,6 +108,29 @@ export function buildGraphInsideInput(
     launch_attempt: number;
   }[];
 
+  // Slice 5 Task 3: the deferral ledger, filtered to nodes whose token is
+  // STILL pending — a deferral whose node was claimed, cancelled, or whose run
+  // stopped is stale and never rendered (a READ-time filter, like the merged-PR
+  // rule: nothing is deleted on transition, the read recomputes from state).
+  const deferrals = deps.store.db
+    .prepare(
+      `SELECT d.node_id, d.reason, d.wait_since
+         FROM approach_node_deferrals d
+        WHERE d.graph_run_id = ?
+          AND EXISTS (
+            SELECT 1 FROM approach_graph_tokens t
+             WHERE t.revision_id = d.revision_id
+               AND t.destination_node_id = d.node_id
+               AND t.status = 'pending'
+          )
+        ORDER BY d.node_id`,
+    )
+    .all(run.id) as {
+    node_id: string;
+    reason: string;
+    wait_since: string;
+  }[];
+
   const revision = deps.store.db
     .prepare(
       `SELECT revision_number, status, fingerprint
@@ -174,6 +197,11 @@ export function buildGraphInsideInput(
       effort: n.effort,
       profile: n.profile,
       launchAttempt: n.launch_attempt,
+    })),
+    deferrals: deferrals.map((d) => ({
+      nodeId: d.node_id,
+      reason: d.reason,
+      waitSince: d.wait_since,
     })),
     execution: { maxParallel: limits.maxParallel, maxNodeRuns: limits.maxNodeRuns },
     revision: revision

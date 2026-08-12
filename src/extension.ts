@@ -174,9 +174,11 @@ import { declaredWritesFor } from './approaches/graph/integration/claims.js';
 import { flipOnEndQuiescence } from './approaches/graph/coordinator/completion.js';
 import { recoverGraphRun, type RecoveryDeps } from './approaches/graph/coordinator/recovery.js';
 import { type ActivationDomain } from './approaches/graph/coordinator/leases.js';
+import { activationDomainKeys, type AllowlistCommandAccess } from './approaches/graph/coordinator/conflicts.js';
 import { parseGraphDocument } from './approaches/graph/parse.js';
 import { nodeOverrideFor, type BaseHead } from './store/graph/nodeRuns.js';
 import { blockGraphStage } from './workflow/graphMarkerGuard.js';
+import { DEFAULT_GRAPH_LIMITS } from './manifest/graphConfig.js';
 import {
   domainKeyOf,
   gitCommonDirFromFs,
@@ -2820,6 +2822,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           // from the node's declared claims — the claim acquires one `held`
           // lease per domain inside its transaction.
           domainsForActivation: graphDomainsForActivation,
+          // Slice 5 T3: the manifest's `graph.limits.maxParallel` — the sweep's
+          // pre-claim admission and each claim's atomic slot reservation both
+          // enforce the external-process ceiling against it.
+          maxParallelOf: (graphRunId) => {
+            const run = gs.db
+              .prepare('SELECT approach_id FROM approach_graph_runs WHERE id = ?')
+              .get(graphRunId) as { approach_id: string } | undefined;
+            if (!run) return undefined;
+            const graph = (currentManifest() ?? emptyManifest()).approaches?.find(
+              (a) => a.id === run.approach_id,
+            )?.graph;
+            return graph?.limits?.maxParallel ?? DEFAULT_GRAPH_LIMITS.maxParallel;
+          },
         },
         { graphRunId },
       );
@@ -3068,13 +3083,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
 
   /**
-   * Claim-time physical domains (Slice 5 T2): the physical domain keys an
+   * Claim-time physical domains (Slice 5 Task 2/3): the physical domain keys an
    * activation needs, resolved from the node's declared claims in the active
-   * revision — an agent node's `resources.reads`/`resources.writes` repos, a
-   * command node's repositories (repo-wide write). Gates claim nothing. Each
-   * claimed repo maps through its worktree path to the durable domain key
-   * (canonical realpath + git common-dir), deduplicated by key with `write`
-   * winning over `read`. The claim acquires one `held` lease per domain.
+   * revision via the PURE `activationDomainKeys` rule — an agent node's
+   * `resources.reads`/`resources.writes` (path-granular, read vs write), a
+   * command node's repositories with the access inherited from the PINNED
+   * command allowlist (`graph.commands`), never planner prose. Each claimed
+   * repo maps through its worktree path to the durable domain key (canonical
+   * realpath + git common-dir), deduplicated by key with `write` winning and
+   * claimed paths unioned. The claim acquires one `held` lease per domain.
    */
   const graphDomainsForActivation = (input: {
     graphRunId: number;
@@ -3083,7 +3100,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     nodeKind: 'agent' | 'command' | 'gate';
   }): ActivationDomain[] => {
     const gs = graphCoordinatorStore;
-    if (!gs || input.nodeKind === 'gate') return [];
+    if (!gs) return [];
     const rev = gs.db
       .prepare('SELECT canonical_graph FROM approach_graph_revisions WHERE id = ?')
       .get(input.revisionId) as { canonical_graph: string } | undefined;
@@ -3091,25 +3108,38 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const parsed = parseGraphDocument(rev.canonical_graph);
     if (!parsed.ok) return [];
     const node = parsed.document.nodes.find((n) => n.id === input.nodeId);
-    if (!node) return [];
+    if (!node || node.kind === 'join') return [];
     const worktreeByRepo = new Map(
       graphDomainsFor(input.graphRunId).map((entry) => [entry.repoName, entry.worktreePath]),
     );
-    const byDomain = new Map<string, ActivationDomain>();
-    const addDomain = (repoName: string, accessMode: 'read' | 'write'): void => {
+    const physicalDomainOf = (repoName: string): string | null => {
       const worktreePath = worktreeByRepo.get(repoName);
-      if (!worktreePath) return;
-      const physicalDomain = domainKeyOf(canonicalPath(worktreePath), gitCommonDirFromFs(worktreePath));
-      const existing = byDomain.get(physicalDomain);
-      if (!existing || accessMode === 'write') byDomain.set(physicalDomain, { physicalDomain, accessMode });
+      return worktreePath ? domainKeyOf(canonicalPath(worktreePath), gitCommonDirFromFs(worktreePath)) : null;
     };
+    const run = gs.db
+      .prepare('SELECT approach_id FROM approach_graph_runs WHERE id = ?')
+      .get(input.graphRunId) as { approach_id: string } | undefined;
+    const graphConfig = (currentManifest() ?? emptyManifest()).approaches?.find(
+      (a) => a.id === run?.approach_id,
+    )?.graph;
+    const commands: AllowlistCommandAccess = new Map(
+      Object.entries(graphConfig?.commands ?? {}).map(([id, def]) => [id, def.access]),
+    );
     if (node.kind === 'agent') {
-      for (const claim of node.resources.reads) if (claim.paths.length > 0) addDomain(claim.repo, 'read');
-      for (const claim of node.resources.writes) if (claim.paths.length > 0) addDomain(claim.repo, 'write');
-    } else if (node.kind === 'command') {
-      for (const repoId of node.repositories) addDomain(repoId, 'write');
+      return activationDomainKeys(
+        { kind: 'agent', reads: node.resources.reads, writes: node.resources.writes },
+        commands,
+        physicalDomainOf,
+      );
     }
-    return [...byDomain.values()].sort((a, b) => (a.physicalDomain < b.physicalDomain ? -1 : 1));
+    // A command node's access comes from the pinned allowlist; a gate claims
+    // no repository resources.
+    if (node.kind !== 'command') return [];
+    return activationDomainKeys(
+      { kind: 'command', command: node.command, repositories: node.repositories },
+      commands,
+      physicalDomainOf,
+    );
   };
 
   /** The declared writes of a node run, from the active revision's graph. */

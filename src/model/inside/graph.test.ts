@@ -70,6 +70,7 @@ function input(overrides?: Partial<GraphInsideInput>): GraphInsideInput {
         launchAttempt: 2,
       },
     ],
+    deferrals: [],
     execution: { maxParallel: 1, maxNodeRuns: 40 },
     liveSessions: [{ kind: 'node', runId: 11 }],
     attach: (target) => ({ actionId: 'snapshot-1:action-1', kind: target.kind }),
@@ -326,6 +327,80 @@ describe('graphInsideProcess', () => {
     ]);
     expect(rows.filter((r) => r.label === 'artifacts')).toEqual([
       { label: 'artifacts', detail: '+2 more', status: 'note' },
+    ]);
+  });
+
+  it('renders one row per deferred node with its persisted reason and wait duration (Slice 5 T3)', () => {
+    const process = graphInsideProcess(
+      input({
+        nodeRuns: [],
+        deferrals: [
+          {
+            nodeId: 'write-all',
+            reason: 'resource-conflict: physical domain dom-api is held write by another node run',
+            waitSince: '2026-08-11T00:30:00.000Z',
+          },
+          {
+            nodeId: 'lint',
+            reason: 'parallel-slot-busy: active process ceiling reached (maxParallel 1)',
+            waitSince: '2026-08-11T00:00:00.000Z',
+          },
+        ],
+        now: '2026-08-11T01:00:00.000Z',
+      }),
+    )!;
+    if (process.evidence?.kind !== 'rows') return;
+    const rows = process.evidence.rows;
+    expect(rows.filter((r) => r.label === 'deferred write-all')).toEqual([
+      {
+        label: 'deferred write-all',
+        detail: 'resource-conflict: physical domain dom-api is held write by another node run · waiting 1800s',
+        status: 'wait',
+      },
+    ]);
+    expect(rows.filter((r) => r.label === 'deferred lint')).toEqual([
+      {
+        label: 'deferred lint',
+        detail: 'parallel-slot-busy: active process ceiling reached (maxParallel 1) · waiting 3600s',
+        status: 'wait',
+      },
+    ]);
+  });
+
+  it('a deferral reason is rendered as inert text — never markup (Slice 5 T3)', () => {
+    const process = graphInsideProcess(
+      input({
+        nodeRuns: [],
+        deferrals: [
+          { nodeId: 'n', reason: INJECTED, waitSince: '2026-08-11T00:00:00.000Z' },
+        ],
+        now: '2026-08-11T01:00:00.000Z',
+      }),
+    )!;
+    if (process.evidence?.kind !== 'rows') return;
+    const row = process.evidence.rows.find((r) => r.label === 'deferred n')!;
+    expect(row.detail).not.toContain('\u001b');
+    expect(row.detail).not.toMatch(/javascript:/i);
+    expect(row.detail).not.toContain('\n');
+    expect(row.detail!.length).toBeLessThanOrEqual(300);
+  });
+
+  it('bounds the deferred list with a remainder row', () => {
+    const many = input({
+      nodeRuns: [],
+      deferrals: Array.from({ length: 12 }, (_, i) => ({
+        nodeId: `w-${i}`,
+        reason: `reason-${i}`,
+        waitSince: '2026-08-11T00:00:00.000Z',
+      })),
+      now: '2026-08-11T01:00:00.000Z',
+    });
+    const process = graphInsideProcess(many)!;
+    if (process.evidence?.kind !== 'rows') return;
+    const rows = process.evidence.rows;
+    expect(rows.filter((r) => r.label.startsWith('deferred w-'))).toHaveLength(8);
+    expect(rows.filter((r) => r.label === 'deferred nodes')).toEqual([
+      { label: 'deferred nodes', detail: '+4 more', status: 'note' },
     ]);
   });
 });

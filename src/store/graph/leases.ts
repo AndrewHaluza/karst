@@ -37,6 +37,28 @@ export function acquireLease(db: GraphDb, input: AcquireLease): number {
   return Number(res.lastInsertRowid);
 }
 
+/** Encode a claimed-path list for the lease column: a repository-wide lease
+ *  (no paths) records NULL — the T2 domain-level shape, and the shape a null
+ *  decoded later reads as repository-wide, which overlaps everything. */
+export function encodeLeasePaths(paths: readonly string[]): string | null {
+  return paths.length === 0 ? null : JSON.stringify([...paths].sort());
+}
+
+/** Decode a lease's claimed paths. NULL — the T2 domain-level lease — is
+ *  repository-wide: it overlaps EVERY path, because the holder's granularity
+ *  was never narrowed. Anything that is not a JSON array is equally unknown
+ *  and treated the same. */
+export function decodeLeasePaths(json: string | null): string[] {
+  if (json === null) return [];
+  try {
+    const parsed: unknown = JSON.parse(json);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((p): p is string => typeof p === 'string');
+  } catch {
+    return [];
+  }
+}
+
 export function transitionLease(db: GraphDb, id: number, from: string, to: string): boolean {
   return casStatus(db, 'approach_resource_leases', LEASE_TRANSITIONS, id, from, to);
 }
@@ -47,21 +69,94 @@ export interface LeaseRow {
 }
 
 /**
- * Whether ANOTHER node run already holds (or is ambiguous over) the domain —
- * the pre-check that refuses a conflicting claim. The domain's own owner is
- * excluded (`owner_node_run_id != ?`): a node run never conflicts with its own
- * lease. Because the claim runs inside `BEGIN IMMEDIATE`, a second window's
- * pre-check reads the first window's COMMITTED row, so the affected-row check
- * is enforcement rather than convention.
+ * Whether ANOTHER node run's lease blocks the incoming access to the domain —
+ * the pre-check that refuses a conflicting claim, and the SCHEDULER's conflict
+ * decision (Slice 5 Task 3). The conflict rules: an `ambiguous-process` lease
+ * blocks everything (its access is unknowable — the process may still write);
+ * read/read on the domain may coexist; otherwise at least one side writes and
+ * the claimed-path sets decide (a repository-wide lease — NULL `claimed_paths`
+ * — overlaps every path). The domain's own owner is excluded: a node run never
+ * conflicts with its own lease. Because the claim runs inside `BEGIN
+ * IMMEDIATE`, a second window's pre-check reads the first window's COMMITTED
+ * row, so the affected-row check is enforcement rather than convention.
  */
-export function leaseConflictsWith(db: GraphDb, physicalDomain: string, ownerNodeRunId: number): boolean {
-  const row = db
+export function leaseConflictsWith(
+  db: GraphDb,
+  physicalDomain: string,
+  ownerNodeRunId: number,
+  incoming: { accessMode: 'read' | 'write'; paths: readonly string[] },
+): boolean {
+  const rows = db
     .prepare(
-      `SELECT id FROM approach_resource_leases
+      `SELECT status, access_mode, claimed_paths FROM approach_resource_leases
        WHERE physical_domain = ? AND status IN ('held','ambiguous-process') AND owner_node_run_id != ?`,
     )
-    .get(physicalDomain, ownerNodeRunId);
-  return row !== undefined;
+    .all(physicalDomain, ownerNodeRunId) as {
+    status: string;
+    access_mode: string;
+    claimed_paths: string | null;
+  }[];
+  for (const row of rows) {
+    if (row.status === 'ambiguous-process') return true;
+    if (incoming.accessMode === 'read' && row.access_mode === 'read') continue;
+    const heldPaths = decodeLeasePaths(row.claimed_paths);
+    if (pathSetsOverlap(incoming.paths, heldPaths)) return true;
+  }
+  return false;
+}
+
+/** The path-list overlap predicate shared by the lease conflict decision and
+ *  the scheduler — an empty list is repository-wide (overlaps every path). */
+function pathSetsOverlap(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length === 0 || b.length === 0) return true;
+  const strip = (p: string): string => {
+    let end = p.length;
+    while (end > 0 && p[end - 1] === '/') end -= 1;
+    return p.slice(0, end);
+  };
+  for (const p of a) {
+    for (const q of b) {
+      const x = strip(p);
+      const y = strip(q);
+      if (x === '' || y === '' || x === y || x.startsWith(`${y}/`) || y.startsWith(`${x}/`)) return true;
+    }
+  }
+  return false;
+}
+
+/** One held lease as the scheduler's pre-claim admission reads it: the domain,
+ *  its access, whether the owner's process death is unprovable, and the
+ *  claimed paths ([] = repository-wide). READ-only — the scheduler never
+ *  mutates leases; the claim's `acquireDomainLeases` is the writer. */
+export interface SchedulerLeaseRow {
+  physicalDomain: string;
+  accessMode: 'read' | 'write';
+  ambiguous: boolean;
+  paths: string[];
+}
+
+/** Every `held`/`ambiguous-process` lease in the store, other-owner excluded
+ *  by the caller — the snapshot the sweep hands `schedulerReady`. */
+export function heldLeasesForScheduler(db: GraphDb): SchedulerLeaseRow[] {
+  const rows = db
+    .prepare(
+      `SELECT physical_domain, access_mode, claimed_paths, status
+       FROM approach_resource_leases
+       WHERE status IN ('held','ambiguous-process')
+       ORDER BY physical_domain, id`,
+    )
+    .all() as {
+    physical_domain: string;
+    access_mode: string;
+    claimed_paths: string | null;
+    status: string;
+  }[];
+  return rows.map((row) => ({
+    physicalDomain: row.physical_domain,
+    accessMode: row.access_mode === 'read' ? 'read' : 'write',
+    ambiguous: row.status === 'ambiguous-process',
+    paths: decodeLeasePaths(row.claimed_paths),
+  }));
 }
 
 export interface ReleaseLeaseOpts {

@@ -47,6 +47,7 @@ import type { GraphDb } from '../../../store/graph/transitions.js';
 import { casStatus, GRAPH_RUN_TRANSITIONS, NODE_RUN_TRANSITIONS } from '../../../store/graph/transitions.js';
 import { cancelGraphToken } from '../../../store/graph/tokens.js';
 import { releaseLeaseForNodeRun } from './leases.js';
+import { releaseProcessSlot } from '../../../store/graph/nodeRuns.js';
 import { parseGraphDocument } from '../parse.js';
 
 /** The graph blocker reason a discard writes when the edge can no longer fire. */
@@ -218,6 +219,10 @@ export function discardUnknownProcess(deps: DiscardDeps, input: DiscardInput): D
     //    `held` and `ambiguous-process` → `released`; no other caller may
     //    move an ambiguous-process lease (pinned in coordinator/leases.test).
     const releasedLeases = releaseLeaseForNodeRun(db, node.id, { allowAmbiguous: true });
+    // Slice 5 Task 3: the discarded run's process is gone (or will never be
+    // trusted again) — its slot under the external-process ceiling is released
+    // with its lease, so a discarded ambiguous run cannot pin the ceiling.
+    releaseProcessSlot(db, graphRunId);
 
     // 6. Re-evaluate: block with graph-topology-deadlock when the discarded
     //    run was the only remaining satisfier; otherwise leave the graph

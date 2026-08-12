@@ -512,6 +512,97 @@ describe('claim-time physical-domain leases (Slice 5 Task 2)', () => {
   });
 });
 
+describe('the process ceiling (Slice 5 Task 3)', () => {
+  function processCount(ctx: Ctx): number {
+    return (
+      ctx.db
+        .prepare('SELECT active_processes FROM approach_graph_runs WHERE id = ?')
+        .get(ctx.graphRunId) as { active_processes: number }
+    ).active_processes;
+  }
+
+  it('an agent claim reserves one process slot inside the claim transaction', () => {
+    const ctx = harness();
+    const result = claimActivation(ctx.makeDeps(), {
+      tokenId: entryTokenId(ctx),
+      nodeKind: 'agent',
+      maxParallel: 2,
+    });
+    expect(result.claimed).toBe(true);
+    expect(processCount(ctx)).toBe(1);
+  });
+
+  it('a command claim reserves one slot (its repository subprocesses run serially)', () => {
+    const ctx = harness();
+    const result = claimActivation(ctx.makeDeps(), {
+      tokenId: entryTokenId(ctx),
+      nodeKind: 'command',
+      maxParallel: 2,
+    });
+    expect(result.claimed).toBe(true);
+    expect(processCount(ctx)).toBe(1);
+  });
+
+  it('a gate claim reserves no slot', () => {
+    const ctx = harness();
+    const result = claimActivation(ctx.makeDeps(), {
+      tokenId: entryTokenId(ctx),
+      nodeKind: 'gate',
+      maxParallel: 1,
+    });
+    expect(result.claimed).toBe(true);
+    expect(processCount(ctx)).toBe(0);
+  });
+
+  it('a claim at the ceiling aborts with parallel-slot-busy and rolls back', () => {
+    const ctx = harness();
+    const first = claimActivation(ctx.makeDeps(), {
+      tokenId: entryTokenId(ctx, 'entry-a'),
+      nodeKind: 'agent',
+      maxParallel: 1,
+    });
+    expect(first.claimed).toBe(true);
+    const tokenId = entryTokenId(ctx, 'entry-b');
+    expect(() =>
+      claimActivation(ctx.makeDeps(), { tokenId, nodeKind: 'agent', maxParallel: 1 }),
+    ).toThrow(/parallel-slot-busy/);
+    // Rolled back: the token stays pending, no second run, one slot held.
+    const token = ctx.db
+      .prepare('SELECT status FROM approach_graph_tokens WHERE id = ?')
+      .get(tokenId) as { status: string };
+    expect(token.status).toBe('pending');
+    expect(runCount(ctx.db, ctx.revisionId)).toBe(1);
+    expect(processCount(ctx)).toBe(1);
+  });
+
+  it('the slot CAS is atomic — a second claim cannot oversubscribe the ceiling', () => {
+    const ctx = harness();
+    const a = claimActivation(ctx.makeDeps(), {
+      tokenId: entryTokenId(ctx, 'entry-a'),
+      nodeKind: 'agent',
+      maxParallel: 1,
+    });
+    expect(a.claimed).toBe(true);
+    // A claim that never passed the scheduler pre-check (another window) is
+    // still refused by the atomic ceiling CAS inside the transaction.
+    expect(() =>
+      claimActivation(ctx.makeDeps(), {
+        tokenId: entryTokenId(ctx, 'entry-b'),
+        nodeKind: 'agent',
+        maxParallel: 1,
+      }),
+    ).toThrow(/parallel-slot-busy/);
+    expect(processCount(ctx)).toBe(1);
+  });
+
+  it('absent maxParallel reserves no slot (legacy callers and tests)', () => {
+    const ctx = harness();
+    const result = claimActivation(ctx.makeDeps(), { tokenId: entryTokenId(ctx), nodeKind: 'agent' });
+    expect(result.claimed).toBe(true);
+    expect(processCount(ctx)).toBe(0);
+  });
+});
+
 describe('lock liveness', () => {
   it('a busied claim aborts immediately, mutates nothing, and succeeds next tick', () => {
     const dir = mkdtempSync(join(tmpdir(), 'karst-claim-busy-'));

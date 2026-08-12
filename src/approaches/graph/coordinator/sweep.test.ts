@@ -71,6 +71,17 @@ function join(id: string, waitFor: string[]): ApproachNode {
   };
 }
 
+function gate(id: string): ApproachNode {
+  return {
+    id,
+    kind: 'gate',
+    label: id,
+    policy: { kind: 'all', predicates: [] },
+    outcomes: ['matched'],
+    budget: { maxVisits: 3 },
+  };
+}
+
 function harness(documentText: string, runStatus = 'running'): Ctx {
   const store = openStore(':memory:');
   const db = store.db;
@@ -401,5 +412,251 @@ describe('runCoordinatorTick', () => {
       domainsForActivation: () => [{ physicalDomain: 'dom-api', accessMode: 'write' }],
     }), { graphRunId: ctx.graphRunId });
     expect(retry.claimed).toBe(1);
+  });
+});
+
+describe('scheduler admission, deferrals and the process ceiling (Slice 5 Task 3)', () => {
+  function entryFor(ctx: Ctx, edgeId: string, destination: string, at: string): number {
+    return insertEntryTokens(ctx.db, ctx.revisionId, [
+      { edgeId, destinationNodeId: destination, destinationEnd: false },
+    ], at)[0]!;
+  }
+
+  function deferralRow(db: Ctx['db'], nodeId: string): { reason: string; wait_since: string; updated_at: string } | undefined {
+    return db
+      .prepare('SELECT reason, wait_since, updated_at FROM approach_node_deferrals WHERE node_id = ?')
+      .get(nodeId) as { reason: string; wait_since: string; updated_at: string } | undefined;
+  }
+
+  it('persists a deferral with its reason and wait_since when a lease conflict refuses the claim, and clears it on success', () => {
+    const ctx = harness(doc([agent('a')], [
+      { id: 'a-end', from: 'a', on: 'complete', to: 'END' },
+    ], ['a']));
+    ctx.db
+      .prepare(
+        `INSERT INTO approach_node_runs
+           (id, graph_run_id, revision_id, node_id, node_kind, visit_number, status)
+         VALUES (900, ?, ?, 'foreign', 'agent', 1, 'running')`,
+      )
+      .run(ctx.graphRunId, ctx.revisionId);
+    acquireLease(ctx.db, {
+      graphRunId: ctx.graphRunId,
+      ownerNodeRunId: 900,
+      physicalDomain: 'dom-api',
+      accessMode: 'write',
+      claimedPaths: null,
+      now: ctx.now,
+    });
+    entryFor(ctx, 'entry-a', 'a', ctx.now);
+    const result = runCoordinatorTick(ctx.makeDeps({
+      domainsForActivation: () => [{ physicalDomain: 'dom-api', accessMode: 'write', paths: [] }],
+    }), { graphRunId: ctx.graphRunId });
+    expect(result.claimed).toBe(0);
+    const deferral = deferralRow(ctx.db, 'a')!;
+    expect(deferral.reason).toMatch(/dom-api/);
+    expect(deferral.wait_since).toBe(ctx.now);
+    // The lease releases; the retry claims and the deferral is cleared.
+    ctx.db.prepare("UPDATE approach_resource_leases SET status = 'released' WHERE owner_node_run_id = 900").run();
+    const retry = runCoordinatorTick(ctx.makeDeps({
+      domainsForActivation: () => [{ physicalDomain: 'dom-api', accessMode: 'write', paths: [] }],
+    }), { graphRunId: ctx.graphRunId });
+    expect(retry.claimed).toBe(1);
+    expect(deferralRow(ctx.db, 'a')).toBeUndefined();
+  });
+
+  it('a dependency-waiting join is never reported as resource-blocked — a stale deferral is cleared instead', () => {
+    const ctx = harness(doc(
+      [agent('f'), join('j', ['b1', 'b2']), agent('b')],
+      [
+        { id: 'f-j', from: 'f', on: 'complete', to: 'j' },
+        { id: 'j-b', from: 'j', on: 'complete', to: 'b' },
+        { id: 'b-end', from: 'b', on: 'complete', to: 'END' },
+      ],
+      ['f'],
+    ));
+    entryFor(ctx, 'entry-f', 'f', ctx.now);
+    // Simulate f's completion: only ONE of the join's two arrivals is pending.
+    const fRunId = runIdForNode(ctx.db, ctx.revisionId, 'f')!;
+    // f claims; complete it by hand to mint the single arrival.
+    runCoordinatorTick(ctx.makeDeps(), { graphRunId: ctx.graphRunId });
+    insertGraphToken(ctx.db, {
+      revisionId: ctx.revisionId,
+      sourceNodeRunId: fRunId,
+      isEntry: false,
+      edgeId: 'b1-j',
+      destinationNodeId: 'j',
+      destinationEnd: false,
+      forkInstance: 0,
+      forkLineage: 'root',
+      now: ctx.now,
+    });
+    // A stale resource-blocked deferral from an earlier tick (wrong — the join
+    // is dependency-waiting now) must be cleared, never refreshed.
+    ctx.db
+      .prepare(
+        `INSERT INTO approach_node_deferrals (graph_run_id, revision_id, node_id, reason, wait_since, updated_at)
+         VALUES (?, ?, 'j', 'resource-conflict: stale', ?, ?)`,
+      )
+      .run(ctx.graphRunId, ctx.revisionId, ctx.now, ctx.now);
+    const result = runCoordinatorTick(ctx.makeDeps(), { graphRunId: ctx.graphRunId });
+    expect(result.claimed).toBe(0);
+    expect(runIdForNode(ctx.db, ctx.revisionId, 'j')).toBeUndefined();
+    expect(deferralRow(ctx.db, 'j')).toBeUndefined();
+  });
+
+  it('path-disjoint agents run concurrently in one tick — two held leases on the same domain', () => {
+    const ctx = harness(doc([agent('a'), agent('b')], [
+      { id: 'a-end', from: 'a', on: 'complete', to: 'END' },
+      { id: 'b-end', from: 'b', on: 'complete', to: 'END' },
+    ], ['a', 'b']));
+    entryFor(ctx, 'entry-a', 'a', ctx.now);
+    entryFor(ctx, 'entry-b', 'b', ctx.now);
+    const domainsForActivation = (nodeId: string) =>
+      nodeId === 'a'
+        ? [{ physicalDomain: 'dom', accessMode: 'write' as const, paths: ['src/'] }]
+        : [{ physicalDomain: 'dom', accessMode: 'write' as const, paths: ['lib/'] }];
+    const result = runCoordinatorTick(ctx.makeDeps({
+      domainsForActivation: ({ nodeId }) => domainsForActivation(nodeId),
+    }), { graphRunId: ctx.graphRunId });
+    expect(result.claimed).toBe(2);
+    const aId = runIdForNode(ctx.db, ctx.revisionId, 'a')!;
+    const bId = runIdForNode(ctx.db, ctx.revisionId, 'b')!;
+    const aLease = ctx.db
+      .prepare('SELECT claimed_paths FROM approach_resource_leases WHERE owner_node_run_id = ?')
+      .get(aId) as { claimed_paths: string | null };
+    const bLease = ctx.db
+      .prepare('SELECT claimed_paths FROM approach_resource_leases WHERE owner_node_run_id = ?')
+      .get(bId) as { claimed_paths: string | null };
+    expect(aLease.claimed_paths).toBe('["src/"]');
+    expect(bLease.claimed_paths).toBe('["lib/"]');
+  });
+
+  it('repository aliases sharing a repoPath conflict correctly — one domain, second defers', () => {
+    const ctx = harness(doc(
+      [agent('a'), agent('b')],
+      [
+        { id: 'a-end', from: 'a', on: 'complete', to: 'END' },
+        { id: 'b-end', from: 'b', on: 'complete', to: 'END' },
+      ],
+      ['a', 'b'],
+    ));
+    entryFor(ctx, 'entry-a', 'a', ctx.now);
+    entryFor(ctx, 'entry-b', 'b', ctx.now);
+    // Two manifest entries — api and api-alias — resolve to ONE domain key.
+    const result = runCoordinatorTick(ctx.makeDeps({
+      domainsForActivation: () => [{ physicalDomain: 'dom-x', accessMode: 'write', paths: [] }],
+    }), { graphRunId: ctx.graphRunId });
+    expect(result.claimed).toBe(1);
+    const deferral = deferralRow(ctx.db, result.claimed === 1 ? (runIdForNode(ctx.db, ctx.revisionId, 'a') ? 'b' : 'a') : 'b')!;
+    expect(deferral.reason).toMatch(/resource-conflict/);
+  });
+
+  it('the process ceiling refuses an agent claim with a parallel-slot-busy deferral', () => {
+    const ctx = harness(doc([agent('a'), agent('b')], [
+      { id: 'a-end', from: 'a', on: 'complete', to: 'END' },
+      { id: 'b-end', from: 'b', on: 'complete', to: 'END' },
+    ], ['a', 'b']));
+    entryFor(ctx, 'entry-a', 'a', ctx.now);
+    entryFor(ctx, 'entry-b', 'b', ctx.now);
+    const result = runCoordinatorTick(ctx.makeDeps({
+      maxParallelOf: () => 1,
+      domainsForActivation: () => [],
+    }), { graphRunId: ctx.graphRunId });
+    expect(result.claimed).toBe(1);
+    const slots = ctx.db
+      .prepare('SELECT active_processes FROM approach_graph_runs WHERE id = ?')
+      .get(ctx.graphRunId) as { active_processes: number };
+    expect(slots.active_processes).toBe(1);
+    const loser = runIdForNode(ctx.db, ctx.revisionId, 'a') ? 'b' : 'a';
+    const deferral = deferralRow(ctx.db, loser)!;
+    expect(deferral.reason).toMatch(/parallel-slot-busy/);
+    expect(deferral.reason).toMatch(/maxParallel 1/);
+  });
+
+  it('gates and joins consume no process slot', () => {
+    const ctx = harness(doc([agent('a'), gate('g'), join('j', ['g']), agent('b')], [
+      { id: 'a-g', from: 'a', on: 'complete', to: 'g' },
+      { id: 'g-j', from: 'g', on: 'matched', to: 'j' },
+      { id: 'j-b', from: 'j', on: 'complete', to: 'b' },
+      { id: 'b-end', from: 'b', on: 'complete', to: 'END' },
+    ], ['a']));
+    entryFor(ctx, 'entry-a', 'a', ctx.now);
+    runCoordinatorTick(ctx.makeDeps({ maxParallelOf: () => 1 }), { graphRunId: ctx.graphRunId });
+    const slots = ctx.db
+      .prepare('SELECT active_processes FROM approach_graph_runs WHERE id = ?')
+      .get(ctx.graphRunId) as { active_processes: number };
+    expect(slots.active_processes).toBe(1); // only the agent claim reserved
+  });
+
+  it('wait_since is stamped on the FIRST deferral and survives later refusals (bounded aging clock)', () => {
+    const ctx = harness(doc([agent('a')], [
+      { id: 'a-end', from: 'a', on: 'complete', to: 'END' },
+    ], ['a']));
+    ctx.db
+      .prepare(
+        `INSERT INTO approach_node_runs
+           (id, graph_run_id, revision_id, node_id, node_kind, visit_number, status)
+         VALUES (900, ?, ?, 'foreign', 'agent', 1, 'running')`,
+      )
+      .run(ctx.graphRunId, ctx.revisionId);
+    acquireLease(ctx.db, {
+      graphRunId: ctx.graphRunId,
+      ownerNodeRunId: 900,
+      physicalDomain: 'dom-api',
+      accessMode: 'write',
+      claimedPaths: null,
+      now: '2026-08-12T00:00:00.000Z',
+    });
+    const t0 = '2026-08-12T00:00:00.000Z';
+    const t1 = '2026-08-12T00:00:30.000Z';
+    entryFor(ctx, 'entry-a', 'a', t0);
+    const clock = { value: t0 };
+    const deps = (): SweepDeps =>
+      ctx.makeDeps({
+        now: () => clock.value,
+        domainsForActivation: () => [{ physicalDomain: 'dom-api', accessMode: 'write', paths: [] }],
+      });
+    runCoordinatorTick(deps(), { graphRunId: ctx.graphRunId });
+    const first = deferralRow(ctx.db, 'a')!;
+    expect(first.wait_since).toBe(t0);
+    clock.value = t1;
+    runCoordinatorTick(deps(), { graphRunId: ctx.graphRunId });
+    const second = deferralRow(ctx.db, 'a')!;
+    expect(second.wait_since).toBe(t0); // the clock never moves once stamped
+    expect(second.updated_at).toBe(t1);
+  });
+
+  it('aging prevents starvation: a wide node that has waited past the threshold is preferred over older narrow work', () => {
+    // maxParallel 1 with one slot. `wide`'s claim is refused by the slot while
+    // its deferral accumulates; `narrow` was created EARLIER. Under pure
+    // creation-time ordering `narrow` would win the freed slot — but `wide`'s
+    // wait has passed the aging threshold, so it is preferred (the
+    // accumulated deferral row stands in for the natural wait_since the
+    // scheduler would have accumulated across the prior ticks).
+    const ctx = harness(doc([agent('wide'), agent('narrow')], [
+      { id: 'w-end', from: 'wide', on: 'complete', to: 'END' },
+      { id: 'n-end', from: 'narrow', on: 'complete', to: 'END' },
+    ], ['wide', 'narrow']));
+    const t0 = '2026-08-12T00:00:00.000Z';
+    const now = '2026-08-12T00:01:30.000Z'; // 90s past the wide node's first deferral
+    entryFor(ctx, 'entry-narrow', 'narrow', t0);
+    entryFor(ctx, 'entry-wide', 'wide', '2026-08-12T00:00:05.000Z');
+    ctx.db
+      .prepare(
+        `INSERT INTO approach_node_deferrals (graph_run_id, revision_id, node_id, reason, wait_since, updated_at)
+         VALUES (?, ?, 'wide', 'parallel-slot-busy: active process ceiling reached', '2026-08-12T00:00:00.000Z', ?)`,
+      )
+      .run(ctx.graphRunId, ctx.revisionId, t0);
+    const result = runCoordinatorTick(ctx.makeDeps({
+      maxParallelOf: () => 1,
+      now: () => now,
+      domainsForActivation: () => [],
+    }), { graphRunId: ctx.graphRunId });
+    expect(result.claimed).toBe(1);
+    // The AGED wide node won the single slot, not the older-created narrow one.
+    expect(runIdForNode(ctx.db, ctx.revisionId, 'wide')).toBeDefined();
+    expect(runIdForNode(ctx.db, ctx.revisionId, 'narrow')).toBeUndefined();
+    const deferral = deferralRow(ctx.db, 'narrow');
+    expect(deferral?.reason).toMatch(/parallel-slot-busy/);
   });
 });

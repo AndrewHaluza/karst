@@ -239,4 +239,46 @@ describe('buildGraphInsideInput', () => {
     const input = buildGraphInsideInput(deps(), 1)!;
     expect(input.revision?.revisionNumber).toBe(1);
   });
+
+  it('reads deferrals only for nodes whose token is STILL pending (Slice 5 T3)', () => {
+    const { graphRunId, revisionId } = seedGraph({});
+    // 'pending-node' still waits — its deferral must render.
+    store.db
+      .prepare(
+        `INSERT INTO approach_node_deferrals (graph_run_id, revision_id, node_id, reason, wait_since, updated_at)
+         VALUES (?, ?, 'pending-node', 'resource-conflict: held', ?, ?)`,
+      )
+      .run(graphRunId, revisionId, '2026-08-12T00:00:00.000Z', '2026-08-12T00:00:00.000Z');
+    store.db
+      .prepare(
+        `INSERT INTO approach_graph_tokens
+           (revision_id, source_node_run_id, is_entry, edge_id, destination_node_id, destination_end, fork_instance, fork_lineage, status, created_at)
+         VALUES (?, NULL, 1, 'e1', 'pending-node', 0, 0, NULL, 'pending', ?)`,
+      )
+      .run(revisionId, '2026-08-12T00:00:00.000Z');
+    // 'claimed-node' had a deferral but its token is no longer pending — the
+    // read must drop it (nothing was deleted; the read recomputes from state).
+    store.db
+      .prepare(
+        `INSERT INTO approach_node_deferrals (graph_run_id, revision_id, node_id, reason, wait_since, updated_at)
+         VALUES (?, ?, 'claimed-node', 'parallel-slot-busy: stale', ?, ?)`,
+      )
+      .run(graphRunId, revisionId, '2026-08-12T00:00:00.000Z', '2026-08-12T00:00:00.000Z');
+    store.db
+      .prepare(
+        `INSERT INTO approach_graph_tokens
+           (revision_id, source_node_run_id, is_entry, edge_id, destination_node_id, destination_end, fork_instance, fork_lineage, status, created_at)
+         VALUES (?, NULL, 1, 'e2', 'claimed-node', 0, 0, NULL, 'consumed', ?)`,
+      )
+      .run(revisionId, '2026-08-12T00:00:00.000Z');
+
+    const input = buildGraphInsideInput(deps(), 1)!;
+    expect(input.deferrals).toEqual([
+      {
+        nodeId: 'pending-node',
+        reason: 'resource-conflict: held',
+        waitSince: '2026-08-12T00:00:00.000Z',
+      },
+    ]);
+  });
 });

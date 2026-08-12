@@ -36,7 +36,11 @@ import {
   claimGraphToken,
   type GraphTokenRow,
 } from '../../../store/graph/tokens.js';
-import { writeNodeRunBaseHeads, type BaseHead } from '../../../store/graph/nodeRuns.js';
+import {
+  writeNodeRunBaseHeads,
+  reserveProcessSlot,
+  type BaseHead,
+} from '../../../store/graph/nodeRuns.js';
 import { budgetRefusalFor, type BudgetRefusal } from './visits.js';
 import { acquireDomainLeases, type ActivationDomain } from './leases.js';
 
@@ -81,6 +85,15 @@ export interface ClaimActivationInput {
    * node run throws a `GraphClaimError` and the whole claim rolls back.
    */
   domains?: readonly ActivationDomain[];
+  /**
+   * The external-process ceiling (`graph.limits.maxParallel`) — Slice 5 Task
+   * 3. When present and the node kind spawns a process (agent/command), the
+   * claim atomically reserves one `active_processes` slot inside the
+   * transaction; at the ceiling the CAS moves no row and the claim throws,
+   * rolling back. Gates and joins spawn nothing and never reserve. Absent →
+   * the claim reserves no slot (tests and legacy callers).
+   */
+  maxParallel?: number;
 }
 
 export interface JoinOutgoing {
@@ -212,6 +225,20 @@ export function claimActivation(deps: ClaimDeps, input: ClaimActivationInput): C
       if (!acquisition.acquired) {
         throw new GraphClaimError(`lease refused for node ${nodeId}: ${acquisition.reason}`);
       }
+    }
+    // Slice 5 Task 3: an agent/command claim atomically reserves one process
+    // slot against `maxParallel`. At the ceiling the CAS moves no row and the
+    // whole claim rolls back — a second window that passed the scheduler's
+    // advisory pre-check cannot oversubscribe the ceiling. Gates and joins
+    // spawn no process and never reserve.
+    if (
+      input.maxParallel !== undefined
+      && (input.nodeKind === 'agent' || input.nodeKind === 'command')
+      && !reserveProcessSlot(db, graphRunId, input.maxParallel)
+    ) {
+      throw new GraphClaimError(
+        `parallel-slot-busy for node ${nodeId}: active process ceiling reached (maxParallel ${input.maxParallel})`,
+      );
     }
     return { claimed: true, nodeRunId, visitNumber };
   });

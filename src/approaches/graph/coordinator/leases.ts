@@ -32,7 +32,11 @@
  */
 
 import type { GraphDb } from '../../../store/graph/transitions.js';
-import { acquireLease, leaseConflictsWith } from '../../../store/graph/leases.js';
+import {
+  acquireLease,
+  encodeLeasePaths,
+  leaseConflictsWith,
+} from '../../../store/graph/leases.js';
 
 export {
   releaseLeaseForNodeRun,
@@ -43,10 +47,15 @@ export {
 /** One physical domain an activation needs at claim time: the durable domain
  *  key (canonical worktree realpath + Git common-directory identity) and the
  *  access the activation will take over it. The HOST resolves these from the
- *  node's declared claims via the injected `domainsForActivation` callback. */
+ *  node's declared claims via the injected `domainsForActivation` callback
+ *  (`coordinator/conflicts.ts`'s `activationDomainKeys`). `paths` are the
+ *  claimed paths within the domain ('' = the worktree root); an EMPTY list is
+ *  repository-wide — the lease records it as `claimed_paths NULL` and it
+ *  overlaps every path (Slice 5 Task 3 makes the conflict path-aware). */
 export interface ActivationDomain {
   physicalDomain: string;
   accessMode: 'read' | 'write';
+  paths?: readonly string[];
 }
 
 export interface AcquireDomainLeasesDeps {
@@ -61,36 +70,52 @@ export type DomainLeaseAcquisition =
 /**
  * Acquire one `held` lease per required physical domain, CALLED INSIDE the
  * claim transaction. Deduplicated by domain key (aliased repository entries
- * resolve to one domain — `write` wins over `read` for the same key). Refuses
- * the WHOLE acquisition — a domain already `held` or `ambiguous-process` by
- * another node run — so the claim rolls back rather than proceeding partially.
+ * resolve to one domain — `write` wins over `read` for the same key, and the
+ * claimed paths UNION: the node touches all of them). Refuses the WHOLE
+ * acquisition when a conflicting lease is already held or ambiguous by another
+ * node run — the path-aware READ/WRITE conflict rules (`leaseConflictsWith`)
+ * decide — so the claim rolls back rather than proceeding partially.
  */
 export function acquireDomainLeases(
   deps: AcquireDomainLeasesDeps,
   input: { graphRunId: number; nodeRunId: number; domains: readonly ActivationDomain[] },
 ): DomainLeaseAcquisition {
   const db = deps.db;
-  const byDomain = new Map<string, ActivationDomain>();
+  const byDomain = new Map<string, { accessMode: 'read' | 'write'; paths: string[] }>();
   for (const domain of input.domains) {
     const existing = byDomain.get(domain.physicalDomain);
-    if (!existing || domain.accessMode === 'write') byDomain.set(domain.physicalDomain, domain);
+    if (!existing || domain.accessMode === 'write') {
+      byDomain.set(domain.physicalDomain, {
+        accessMode: domain.accessMode,
+        paths: [...(domain.paths ?? [])],
+      });
+    } else {
+      for (const path of domain.paths ?? []) {
+        if (!existing.paths.includes(path)) existing.paths.push(path);
+      }
+    }
   }
-  for (const domain of byDomain.values()) {
-    if (leaseConflictsWith(db, domain.physicalDomain, input.nodeRunId)) {
+  for (const [physicalDomain, domain] of byDomain) {
+    if (
+      leaseConflictsWith(db, physicalDomain, input.nodeRunId, {
+        accessMode: domain.accessMode,
+        paths: domain.paths,
+      })
+    ) {
       return {
         acquired: false,
-        reason: `physical domain ${domain.physicalDomain} is ${domainStatusText(db, domain.physicalDomain, input.nodeRunId)} by another node run`,
+        reason: `physical domain ${physicalDomain} is ${domainStatusText(db, physicalDomain, input.nodeRunId)} by another node run`,
       };
     }
   }
   let count = 0;
-  for (const domain of byDomain.values()) {
+  for (const [physicalDomain, domain] of byDomain) {
     acquireLease(db, {
       graphRunId: input.graphRunId,
       ownerNodeRunId: input.nodeRunId,
-      physicalDomain: domain.physicalDomain,
+      physicalDomain,
       accessMode: domain.accessMode,
-      claimedPaths: null,
+      claimedPaths: encodeLeasePaths(domain.paths),
       now: deps.now(),
     });
     count += 1;

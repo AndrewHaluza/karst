@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 const SCHEMA_PATH = join(dirname(fileURLToPath(import.meta.url)), 'schema.sql');
 
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 39;
+export const SCHEMA_VERSION = 40;
 
 /** v2 ticket-field columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -117,6 +117,7 @@ CREATE TABLE IF NOT EXISTS approach_graph_runs (
   updated_at        TEXT,
   completed_at      TEXT,
   workspace_bytes   INTEGER NOT NULL DEFAULT 0,
+  active_processes  INTEGER NOT NULL DEFAULT 0,
   UNIQUE (ticket_id, stage_attempt)
 );
 CREATE INDEX IF NOT EXISTS idx_graph_runs_ticket ON approach_graph_runs(ticket_id, id);
@@ -267,6 +268,17 @@ CREATE TABLE IF NOT EXISTS approach_node_overrides (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_node_overrides_rev_node_kind
   ON approach_node_overrides(revision_id, node_id, kind);
 CREATE INDEX IF NOT EXISTS idx_node_overrides_node ON approach_node_overrides(graph_run_id, node_id);
+CREATE TABLE IF NOT EXISTS approach_node_deferrals (
+  id            INTEGER PRIMARY KEY,
+  graph_run_id  INTEGER NOT NULL REFERENCES approach_graph_runs(id),
+  revision_id   INTEGER NOT NULL REFERENCES approach_graph_revisions(id),
+  node_id       TEXT NOT NULL,
+  reason        TEXT NOT NULL,
+  wait_since    TEXT NOT NULL,
+  updated_at    TEXT NOT NULL,
+  UNIQUE (revision_id, node_id)
+);
+CREATE INDEX IF NOT EXISTS idx_node_deferrals_run ON approach_node_deferrals(graph_run_id, id);
 `;
 
 /**
@@ -342,6 +354,27 @@ CREATE TABLE IF NOT EXISTS approach_graph_workspaces (
 );
 CREATE INDEX IF NOT EXISTS idx_graph_workspaces_run ON approach_graph_workspaces(graph_run_id, id);
 CREATE INDEX IF NOT EXISTS idx_graph_workspaces_node ON approach_graph_workspaces(node_run_id, id);
+`;
+
+/**
+ * v40's deferral ledger (Slice 5 Task 3). Byte-identical in intent to the
+ * schema.sql block it mirrors; `db.test.ts` pins that with a `toContain`. The
+ * `approach_graph_runs.active_processes` COLUMN already lives inside
+ * `GRAPH_MIGRATION_DDL` above for fresh DBs — this step's guarded ALTER
+ * brings legacy DBs up.
+ */
+export const GRAPH_DEFERRAL_MIGRATION_DDL = `
+CREATE TABLE IF NOT EXISTS approach_node_deferrals (
+  id            INTEGER PRIMARY KEY,
+  graph_run_id  INTEGER NOT NULL REFERENCES approach_graph_runs(id),
+  revision_id   INTEGER NOT NULL REFERENCES approach_graph_revisions(id),
+  node_id       TEXT NOT NULL,
+  reason        TEXT NOT NULL,
+  wait_since    TEXT NOT NULL,
+  updated_at    TEXT NOT NULL,
+  UNIQUE (revision_id, node_id)
+);
+CREATE INDEX IF NOT EXISTS idx_node_deferrals_run ON approach_node_deferrals(graph_run_id, id);
 `;
 
 
@@ -1505,6 +1538,25 @@ export function migrate(db: Database): void {
       db.exec('ALTER TABLE approach_graph_runs ADD COLUMN workspace_bytes INTEGER NOT NULL DEFAULT 0');
     }
     db.exec(GRAPH_WORKSPACE_MIGRATION_DDL);
+  }
+
+  if (current < 40) {
+    // v40 (Slice 5 Task 3) adds the scheduler shape: the graph run's
+    // `active_processes` counter (the coordinator's own accounting of the
+    // external-process ceiling `graph.limits.maxParallel`) and the
+    // `approach_node_deferrals` ledger — one row per ready-but-blocked node
+    // carrying the refusal reason and `wait_since` for bounded aging. A fresh
+    // DB already carries both (schema.sql — including inside
+    // GRAPH_MIGRATION_DDL, so the guards skip); a legacy DB gains the column
+    // through the guarded ALTER and the ledger through IF NOT EXISTS.
+    //
+    // NOTHING IS BACKFILLED. No prior karst counted active processes or
+    // recorded a deferral; 0/absent name the unknown, never an invented value.
+    const runCols40 = tableColumns(db, 'approach_graph_runs');
+    if (runCols40.size > 0 && !runCols40.has('active_processes')) {
+      db.exec('ALTER TABLE approach_graph_runs ADD COLUMN active_processes INTEGER NOT NULL DEFAULT 0');
+    }
+    db.exec(GRAPH_DEFERRAL_MIGRATION_DDL);
   }
 
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
