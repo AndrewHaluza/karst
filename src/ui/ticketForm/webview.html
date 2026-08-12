@@ -1046,21 +1046,35 @@
   // Track the analyze-busy state so the disabled rule (below) can OR it in.
   let approachBusy = false;
 
-  // The inputs the analyzer reasons over: the fetched brief, the prompt text, and
-  // the selected repos. An analysis snapshots these; the manual Improve is live
-  // only while the current parts DIVERGE from that snapshot — an identical input
-  // never burns an AI call. `null` = nothing improved yet.
+  // The inputs the analyzer reasons over: the fetched brief, the prompt text,
+  // the selected repos, the effective approach, and the chosen single-subagent.
+  // An analysis snapshots these; the manual Improve is live only while the
+  // current parts DIVERGE from that snapshot — an identical input never burns an
+  // AI call. `null` = nothing improved yet.
+  //
+  // The approach and agent are part of the fingerprint for a reason: the
+  // auto-improve after a fetch runs with the DEFAULT approach and no agent, and
+  // the analysis instructions DEPEND on the chosen single-subagent — so picking
+  // `single-subagent` + an agent must mark the analysis stale and re-enable
+  // Improve, or the selected agent can never drive a re-run ("selected agent
+  // for Ticket analysis makes no difference"). `agent` mirrors triggerAnalyze's
+  // effective-pick read so the fingerprint and the message can't disagree.
   let lastAnalyzed = null;
   function currentParts() {
     return {
       brief: briefText,
       prompt: el('desc').value.trim(),
       repos: lastRepos.filter(repoSelected).map((r) => r.service).sort(),
+      approach: currentApproach(),
+      agent: currentApproach() === 'single-subagent'
+        ? (draft.selectedAgent ?? el('agentSelect').value ?? null) || null
+        : null,
     };
   }
   function partsEqual(a, b) {
     return !!a && !!b && a.brief === b.brief && a.prompt === b.prompt
-      && JSON.stringify(a.repos) === JSON.stringify(b.repos);
+      && JSON.stringify(a.repos) === JSON.stringify(b.repos)
+      && a.approach === b.approach && a.agent === b.agent;
   }
   // Name WHICH input moved, in priority order, so the Δ badge explains why the
   // button re-enabled (git-dirty-style legibility).
@@ -1069,6 +1083,8 @@
     if (prev.brief !== cur.brief) return 'brief refetched';
     if (prev.prompt !== cur.prompt) return 'prompt edited';
     if (JSON.stringify(prev.repos) !== JSON.stringify(cur.repos)) return 'repositories changed';
+    if (prev.approach !== cur.approach) return 'approach changed';
+    if (prev.agent !== cur.agent) return 'agent changed';
     return '';
   }
   // Something to reason over = a fetched brief OR a non-empty prompt.
@@ -1740,6 +1756,10 @@
     const requestId = karstRequestId();
     karstBeginPending(select, requestId);
     post({ type: 'set-agent', id, requestId });
+    // The pick is part of the analysis fingerprint: re-sync the Improve button
+    // so a freshly-picked single-subagent re-enables re-analysis through it
+    // (the host no-ops set-agent in create mode, so no state push answers).
+    syncAnalyzeBtn();
   });
 
   // Pick a model (or "Inherit", value ''): record + post. In create mode the

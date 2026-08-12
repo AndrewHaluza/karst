@@ -971,6 +971,41 @@ describe('ticket-form webview.html — selects, buttons, positioning fixes', () 
     const render = functionSource('renderAgentPicker');
     expect(render).toContain("currentApproach() === 'single-subagent'");
   });
+
+  // The Improve button's staleness fingerprint MUST include the approach and
+  // the selected agent: the auto-improve after a fetch runs with the DEFAULT
+  // approach and no agent, so if picking `single-subagent` + an agent did not
+  // change the fingerprint, the button would stay disabled ("synced") and the
+  // analysis could never be re-run THROUGH the agent — the selected agent
+  // making no difference at all (the reported duck-test failure).
+  it('the analysis fingerprint includes the effective approach and the selected agent', () => {
+    const parts = functionSource('currentParts');
+    expect(parts).toContain('approach');
+    expect(parts).toContain('agent');
+    // The agent read must match triggerAnalyze's: the effective single-subagent
+    // pick (draft first, DOM value as the create-mode default), else null.
+    expect(parts).toMatch(/agent:\s*currentApproach\(\) === 'single-subagent'/);
+    expect(parts).toContain("draft.selectedAgent ?? el('agentSelect').value");
+
+    const equal = functionSource('partsEqual');
+    expect(equal).toContain('a.approach === b.approach');
+    expect(equal).toContain('a.agent === b.agent');
+
+    const reason = functionSource('deltaReason');
+    expect(reason).toContain("if (prev.approach !== cur.approach) return 'approach changed'");
+    expect(reason).toContain("if (prev.agent !== cur.agent) return 'agent changed'");
+  });
+
+  // Picking a subagent from the dropdown must re-sync the Improve button:
+  // the host's set-agent is a no-op in create mode (no state push follows), so
+  // without a local sync the button keeps its pre-agent "synced" state and the
+  // user cannot re-run the analysis through the newly-picked agent.
+  it('re-syncs the Improve button when the single-subagent pick changes', () => {
+    const at = HTML.indexOf("el('agentSelect').addEventListener('change'");
+    const handler = HTML.slice(at, at + 600);
+    expect(handler).toContain('draft.selectedAgent = id;');
+    expect(handler).toContain('syncAnalyzeBtn()');
+  });
 });
 
 describe('legacy busy channel watchdog', () => {
