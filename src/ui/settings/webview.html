@@ -492,8 +492,12 @@
 
   /* ═══ v7 redesign: shell ═══════════════════════════════════════════════════
      Screen-local composition geometry (UI-R04/R05): the sidebar, label column
-     and control height are settings-page decisions, expressed with tokens only. */
-  .app{display:grid;grid-template-columns:calc(var(--k-space-8) * 9.4) minmax(0,1fr);min-height:100%}
+     and control height are settings-page decisions, expressed with tokens only.
+     The app is the only child of a flex body: without flex-grow it sizes to
+     its content, so the page stopped far short of the webview's right edge
+     (a dead band whose width changed per tab) and every section read as not
+     full-width. flex:1 1 auto makes the page fill the window at any width. */
+  .app{flex:1 1 auto;display:grid;grid-template-columns:calc(var(--k-space-8) * 9.4) minmax(0,1fr);min-height:100%}
   .sidebar{
     display:flex;flex-direction:column;gap:var(--k-space-4);
     padding:var(--k-space-7) var(--k-space-4);overflow-y:auto;
@@ -854,7 +858,13 @@
     border:var(--k-border-w) solid var(--vscode-panel-border);border-radius:var(--k-radius-lg);
     padding:var(--k-space-6);background:var(--vscode-editorWidget-background,transparent);
   }
-  .q-row{display:grid;grid-template-columns:minmax(calc(var(--k-space-8) * 8),1fr) minmax(calc(var(--k-space-8) * 9),1fr);gap:var(--k-space-6);align-items:center;padding:var(--k-space-4) var(--k-space-0);border-top:var(--k-border-w) solid var(--vscode-panel-border)}
+  /* The q-row columns had oversized fixed minimums — together wider than a
+     3-column quality panel at mid-width viewports, so the findings
+     Select/input overflowed the panel and stuck out past the page's right
+     edge (a horizontal scrollbar on the Quality tab only). The minimums now
+     only guard against a crushed copy column; the columns still share the
+     panel as fr tracks above the breakpoint. */
+  .q-row{display:grid;grid-template-columns:minmax(calc(var(--k-space-8) * 5),1fr) minmax(calc(var(--k-space-8) * 5),1fr);gap:var(--k-space-6);align-items:center;padding:var(--k-space-4) var(--k-space-0);border-top:var(--k-border-w) solid var(--vscode-panel-border)}
   .q-row label{margin:var(--k-space-0)}
   /* Empty gate lists: a muted line instead of a bare "+ Add gate" button, so
      the fallback that an empty list actually means is stated next to it. */
@@ -873,6 +883,12 @@
   .lifecycle-status .full{grid-column:1 / -1}
   .lifecycle-status label{margin:var(--k-space-0)}
   .lifecycle-status .row{min-width:0}
+  /* The ClickUp fields are a separate form-grid from the Provider row so the
+     group hides as one unit — but a stacked pair of grids has zero inter-grid
+     gap, which put the Team ID label/input directly against the provider
+     trigger. A group boundary reads at the section-block rhythm, not the
+     intra-grid row gap. */
+  #clickupFields{margin-top:var(--k-space-7)}
 
   /* Drawer/modals: same primitives as before, plus a shared focus ring. */
   .drawer .drawer-body.form label{display:block;margin:var(--k-space-5) var(--k-space-0) var(--k-space-2)}

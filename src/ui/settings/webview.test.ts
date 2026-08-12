@@ -504,6 +504,38 @@ describe('ticketing provider dropdown', () => {
   });
 });
 
+describe('settings width and spacing consistency', () => {
+  // The settings shell is the only child of a flex body. Without flex-grow it
+  // sized to its own content, so the page stopped ~250px short of the
+  // webview's right edge — a dead band whose width changed per tab, which is
+  // what read as "some elements not using full width" on every settings page.
+  it('makes the settings shell grow to fill the webview', () => {
+    const m = HTML.match(/\.app\{([^}]*)\}/);
+    expect(m, '.app rule not found').toBeTruthy();
+    expect(m![1]).toMatch(/flex:1 1 auto/);
+  });
+
+  it('separates the ClickUp fields group from the Provider row', () => {
+    // The provider row and #clickupFields are two stacked form-grids, and a
+    // stacked pair of grids has zero inter-grid gap — the Team ID label used
+    // to sit directly against the provider trigger. A group boundary must
+    // read at the section-block rhythm, not the intra-grid row gap.
+    const m = HTML.match(/#clickupFields\{([^}]*)\}/);
+    expect(m, '#clickupFields rule not found').toBeTruthy();
+    expect(m![1]).toMatch(/margin-top:var\(--k-space-7\)/);
+  });
+
+  it('keeps quality q-rows inside their 3-column panels', () => {
+    // The q-row columns used to carry 160/180px minimums — together wider
+    // than a panel at 980–1300px viewports, so the findings Select overflowed
+    // the panel and past the page edge. The minimums must fit the narrowest
+    // 3-column panel; the columns still share the panel as fr tracks.
+    const m = HTML.match(/\.q-row\{([^}]*)\}/);
+    expect(m, '.q-row rule not found').toBeTruthy();
+    expect(m![1]).toContain('minmax(calc(var(--k-space-8) * 5),1fr)');
+  });
+});
+
 describe('ticketing search toggle', () => {
   it('renders a search toggle card that defaults ON, hidden for manual', () => {
     const markup = HTML.slice(HTML.indexOf('id="searchCard"'), HTML.indexOf('id="searchCard"') + 800);
