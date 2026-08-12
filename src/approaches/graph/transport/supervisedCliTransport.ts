@@ -75,6 +75,24 @@ export interface SupervisedTransportDeps {
   facts?: ProcessFactsSource;
   /** Group signal; defaults to `runtime/processTree.ts` `killTree`. */
   killTree?: (pid: number) => KillOutcome;
+  /**
+   * Open the graph launch's `process_runs` row (Slice-3 T10) — exactly one
+   * per launch attempt, called with the resolved pid (null when the terminal
+   * never started). The row is the interactive usage sampler's binding; its
+   * absence means the transport cannot report usage, and the session records
+   * `processRunId: null` — an unknown, never a fabricated zero. The host
+   * wraps the write so a locked database can never fail the launch; the
+   * transport swallows a throw the same way.
+   */
+  openProcessRun?: (request: SupervisedLaunchRequest, pid: number | null) => number | undefined;
+  /**
+   * Close the launch's `process_runs` row when its terminal closes (Slice-3
+   * T10). The verdict comes from the terminal: exit 0 → `passed`, non-zero →
+   * `failed`, no exit code (a killed/failed-to-start terminal) →
+   * `interrupted`. Fires once; the store's guarded close is what keeps a
+   * late close from overwriting a completion verdict.
+   */
+  closeProcessRun?: (processRunId: number, status: 'passed' | 'failed' | 'interrupted', now: string) => void;
   now: () => string;
   debug?: (message: string) => void;
 }
@@ -124,6 +142,19 @@ export function createSupervisedCliTransport(deps: SupervisedTransportDeps): Sup
       // executor can tell `failed-to-launch` from never-claimed. The start
       // identity (session.startedAt) is only captured when a pid exists.
       const startedAt = pid === null ? null : deps.now();
+      // The accounting row opens with the resolved pid, BEFORE the session is
+      // registered — a failed spawn still lands its row, and a locked store
+      // (or an absent hook) must never fail the launch itself.
+      let processRunId: number | null = null;
+      if (deps.openProcessRun) {
+        try {
+          processRunId = deps.openProcessRun(request, pid) ?? null;
+        } catch (error) {
+          deps.debug?.(
+            `[graph] node ${request.nodeRunId}: opening the process_runs row failed (${String(error)}) — the launch continues unattributed`,
+          );
+        }
+      }
       deps.recordSession({
         ticketId: request.ticketId,
         repo: request.repo,
@@ -140,10 +171,30 @@ export function createSupervisedCliTransport(deps: SupervisedTransportDeps): Sup
         generation: request.generation,
         ownerNonce,
         startedAt,
+        processRunId,
         providerSessionId: null,
         terminal,
       };
       sessions.set(`${request.ticketId}:${request.nodeRunId}`, session);
+      // The terminal's close is the session's end: close the accounting row
+      // with the exit verdict, exactly once (the terminal close handler fires
+      // once per terminal, and the store's guarded close ignores anything
+      // already closed).
+      if (processRunId !== null && deps.closeProcessRun) {
+        terminal.onDidClose((exitCode) => {
+          try {
+            deps.closeProcessRun?.(
+              processRunId!,
+              exitCode === 0 ? 'passed' : exitCode !== undefined ? 'failed' : 'interrupted',
+              deps.now(),
+            );
+          } catch (error) {
+            deps.debug?.(
+              `[graph] node ${request.nodeRunId}: closing the process_runs row failed (${String(error)})`,
+            );
+          }
+        });
+      }
       return session;
     },
 

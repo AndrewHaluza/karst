@@ -265,8 +265,91 @@ describe('SupervisedCLITransport', () => {
     expect(remaining.n).toBe(0);
   });
 
-  it('pins SessionManager: its terminals map stays keyed by ticket id only', () => {
-    const source = readFileSync(join(import.meta.dirname, '..', '..', '..', 'ui', 'session.ts'), 'utf8');
+  it('a graph launch opens exactly one process_runs row and is counted once', async () => {
+    const h = harness(4242);
+    const opened: number[] = [];
+    const transport = createSupervisedCliTransport({
+      ...h.deps,
+      openProcessRun: (request, pid) => {
+        expect(request.nodeRunId).toBe(LAUNCH.nodeRunId);
+        expect(pid).toBe(4242);
+        h.calls.order.push('open');
+        opened.push(request.nodeRunId);
+        return 77;
+      },
+    });
+    const session = await transport.start(LAUNCH);
+    expect(opened).toEqual([LAUNCH.nodeRunId]);
+    expect(session.processRunId).toBe(77);
+    // The accounting row opens as part of the launch, before the session is
+    // handed back — never a second time for the same launch.
+    expect(h.calls.order).toEqual(['persist', 'spawn', 'open', 'record']);
+  });
+
+  it('a transport that cannot record usage opens no row and never fabricates a zero', async () => {
+    const h = harness(4242);
+    const transport = createSupervisedCliTransport(h.deps);
+    const session = await transport.start(LAUNCH);
+    expect(session.processRunId).toBeNull();
+  });
+
+  it('a locked database never fails the launch', async () => {
+    const h = harness(4242);
+    const transport = createSupervisedCliTransport({
+      ...h.deps,
+      openProcessRun: () => {
+        throw new Error('database is locked');
+      },
+    });
+    const session = await transport.start(LAUNCH);
+    expect(session.pid).toBe(4242);
+    expect(session.processRunId).toBeNull();
+  });
+
+  it('closes the process run when the terminal closes, once, with the exit verdict', async () => {
+    const close: Array<{ processRunId: number; status: string }> = [];
+    const terminal = fakeTerminal(4242);
+    let closeHandler: ((exitCode?: number) => void) | undefined;
+    terminal.onDidClose = (handler) => {
+      closeHandler = handler;
+    };
+    const transport = createSupervisedCliTransport({
+      ...harness(4242).deps,
+      terminalHost: { createTerminal: () => terminal },
+      openProcessRun: () => 77,
+      closeProcessRun: (processRunId, status) => {
+        close.push({ processRunId, status });
+      },
+    });
+    await transport.start(LAUNCH);
+    expect(close).toEqual([]);
+    closeHandler?.(0);
+    // A terminal's close handler fires exactly once in reality; the store's
+    // guarded close is the layer that ignores anything already closed.
+    expect(close).toEqual([{ processRunId: 77, status: 'passed' }]);
+  });
+
+  it('closes the process run as interrupted when the exit code is unknown', async () => {
+    const close: Array<{ processRunId: number; status: string }> = [];
+    const terminal = fakeTerminal(4242);
+    let closeHandler: ((exitCode?: number) => void) | undefined;
+    terminal.onDidClose = (handler) => {
+      closeHandler = handler;
+    };
+    const transport = createSupervisedCliTransport({
+      ...harness(4242).deps,
+      terminalHost: { createTerminal: () => terminal },
+      openProcessRun: () => 77,
+      closeProcessRun: (processRunId, status) => {
+        close.push({ processRunId, status });
+      },
+    });
+    await transport.start(LAUNCH);
+    closeHandler?.(undefined);
+    expect(close).toEqual([{ processRunId: 77, status: 'interrupted' }]);
+  });
+
+  it('pins SessionManager: its terminals map stays keyed by ticket id only', () => {    const source = readFileSync(join(import.meta.dirname, '..', '..', '..', 'ui', 'session.ts'), 'utf8');
     expect(source).toMatch(/terminals = new Map<number, TrackedSession>\(\)/);
     expect(source).not.toMatch(/Map<\[number, number\]/);
   });

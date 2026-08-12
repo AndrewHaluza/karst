@@ -27,6 +27,14 @@ export interface UsageTracking {
    * threaded its run through yet.
    */
   processRunId?: number | null;
+  /**
+   * The graph planner run the call was made inside (Slice-3 T10). Node
+   * identity travels in these FK columns, never in the call site — the set
+   * is closed and must stay bounded.
+   */
+  approachPlannerRunId?: number | null;
+  /** The graph node run the call was made inside (Slice-3 T10). */
+  approachNodeRunId?: number | null;
 }
 
 export interface RunHeadlessOpts {

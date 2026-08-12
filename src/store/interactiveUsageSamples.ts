@@ -128,12 +128,15 @@ export type AppendInteractiveUsageResult =
 
 /** The confirmed intent currently bound to a provider session. */
 interface SessionBinding {
-  purpose: 'implementation' | 'fix';
+  purpose: 'implementation' | 'fix' | 'graph-planner' | 'graph-node';
   sessionOrigin: 'new' | 'resume' | 'unknown';
   provider: string;
   model: string | null;
   processRunId: number | null;
   implementationSegmentId: number | null;
+  /** v35: the graph run the session belongs to (Slice-3 T10); NULL outside. */
+  approachPlannerRunId: number | null;
+  approachNodeRunId: number | null;
 }
 
 /**
@@ -224,6 +227,8 @@ function resolveSessionBinding(
         model: fixRound.model,
         processRunId: fixRound.fix_process_run_id,
         implementationSegmentId: null,
+        approachPlannerRunId: null,
+        approachNodeRunId: null,
       };
     }
   }
@@ -249,8 +254,8 @@ function resolveSessionBinding(
         ticket_id: number;
       }
     | undefined;
-  if (intent === undefined) return null;
-  if (intent.purpose === 'implementation' && intent.implementation_run_id !== null) {
+  if (intent !== undefined) {
+    if (intent.purpose === 'implementation' && intent.implementation_run_id !== null) {
     const segment = store.db
       .prepare(
         `SELECT s.id AS id, s.model AS model, pr.id AS process_run_id
@@ -282,6 +287,8 @@ function resolveSessionBinding(
       model: segment.model,
       processRunId: segment.process_run_id,
       implementationSegmentId: segment.id,
+      approachPlannerRunId: null,
+      approachNodeRunId: null,
     };
   }
   if (intent.recovery_round_id !== null) {
@@ -307,8 +314,79 @@ function resolveSessionBinding(
         model: fixRun.model,
         processRunId: fixRun.fix_process_run_id,
         implementationSegmentId: null,
+        approachPlannerRunId: null,
+        approachNodeRunId: null,
       };
     }
+  }
+  }
+
+  // Graph sessions (Slice-3 T10): the launch opened its `process_runs` row at
+  // the transport seam, so the binding is the ticket's ACTIVE graph process
+  // of this provider — the node or planner run whose row is still `running`.
+  // Slice-3 execution is SEQUENTIAL, so one ticket has at most one live graph
+  // process at a time; the latest such run owns the session. No owned process
+  // is NOT a binding: a closed row (the node completed, the terminal closed)
+  // owns nothing, and nothing is invented to make the observation fit. (A
+  // provider-session-id column on the runs is the Slice-6 refinement; until
+  // then the sequential invariant bounds the approximation.)
+  const graphNode = store.db
+    .prepare(
+      `SELECT ar.id AS run_id, pr.id AS process_run_id, pr.model AS model
+         FROM approach_node_runs ar
+         JOIN process_runs pr
+           ON pr.id = ar.process_run_id
+          AND pr.status = 'running'
+          AND pr.provider = ?
+          AND pr.ticket_id = ?
+         JOIN approach_graph_runs gr
+           ON gr.id = ar.graph_run_id AND gr.ticket_id = ?
+        WHERE gr.status NOT IN ('closed', 'cancelled', 'stale')
+        ORDER BY ar.id DESC LIMIT 1`,
+    )
+    .get(provider, ticketId, ticketId) as
+    | { run_id: number; process_run_id: number; model: string | null }
+    | undefined;
+  if (graphNode !== undefined) {
+    return {
+      purpose: 'graph-node',
+      sessionOrigin: 'new',
+      provider,
+      model: graphNode.model,
+      processRunId: graphNode.process_run_id,
+      implementationSegmentId: null,
+      approachPlannerRunId: null,
+      approachNodeRunId: graphNode.run_id,
+    };
+  }
+  const graphPlanner = store.db
+    .prepare(
+      `SELECT ar.id AS run_id, pr.id AS process_run_id, pr.model AS model
+         FROM approach_planner_runs ar
+         JOIN process_runs pr
+           ON pr.id = ar.process_run_id
+          AND pr.status = 'running'
+          AND pr.provider = ?
+          AND pr.ticket_id = ?
+         JOIN approach_graph_runs gr
+           ON gr.id = ar.graph_run_id AND gr.ticket_id = ?
+        WHERE gr.status NOT IN ('closed', 'cancelled', 'stale')
+        ORDER BY ar.id DESC LIMIT 1`,
+    )
+    .get(provider, ticketId, ticketId) as
+    | { run_id: number; process_run_id: number; model: string | null }
+    | undefined;
+  if (graphPlanner !== undefined) {
+    return {
+      purpose: 'graph-planner',
+      sessionOrigin: 'new',
+      provider,
+      model: graphPlanner.model,
+      processRunId: graphPlanner.process_run_id,
+      implementationSegmentId: null,
+      approachPlannerRunId: graphPlanner.run_id,
+      approachNodeRunId: null,
+    };
   }
   return null;
 }
@@ -360,7 +438,14 @@ export function appendInteractiveUsageSample(
       return;
     }
 
-    const callSite = binding.purpose === 'fix' ? 'fix-resume' : 'implementation';
+    const callSite =
+      binding.purpose === 'fix'
+        ? 'fix-resume'
+        : binding.purpose === 'graph-planner'
+          ? 'graph-planner'
+          : binding.purpose === 'graph-node'
+            ? 'graph-node'
+            : 'implementation';
 
     const existing = store.db
       .prepare(
@@ -460,8 +545,9 @@ export function appendInteractiveUsageSample(
            (project_id, ticket_id, process_run_id, implementation_segment_id,
             interactive_usage_sample_id, call_site, provider, model,
             input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
-            total_tokens, estimated, outcome, recorded_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'ok', ?)`,
+            total_tokens, estimated, outcome, recorded_at,
+            approach_planner_run_id, approach_node_run_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'ok', ?, ?, ?)`,
       )
       .run(
         projectId?.project_id ?? null,
@@ -478,6 +564,8 @@ export function appendInteractiveUsageSample(
         delta.cacheWrite,
         delta.total,
         now,
+        binding.approachPlannerRunId,
+        binding.approachNodeRunId,
       );
     outcome = { kind: 'recorded', sampleId, delta };
   });

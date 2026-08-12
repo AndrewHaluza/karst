@@ -208,6 +208,8 @@ import { reconcileStageRuns, describeStaleStageRun } from './store/stageRuns.js'
 import {
   reconcileProcessRuns,
   describeStaleProcessRun,
+  openProcessRun,
+  finishProcessRun,
 } from './store/processRuns.js';
 import { pidAlive } from './runtime/pidAlive.js';
 import { archiveWorktree, restoreWorktree } from './runtime/archive.js';
@@ -2921,6 +2923,62 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       graphCoordinatorStore?.db
         .prepare('UPDATE approach_node_runs SET owner_nonce = ? WHERE id = ?')
         .run(nonce, nodeRunId);
+    },
+    // Token accounting (Slice 3 T10): every graph launch — planner and node —
+    // opens exactly one `process_runs` row, which the interactive usage
+    // sampler binds to. Opened with the resolved pid (null when the terminal
+    // never started), snapshotted with the identity the launch resolved to.
+    // The whole write is swallowed: a locked database must never fail a
+    // launch, and a launch that cannot record is simply unattributed.
+    openProcessRun: (request, pid) => {
+      try {
+        const gs = graphCoordinatorStore;
+        if (!gs) return undefined;
+        const run = gs.db
+          .prepare('SELECT ticket_id, stage_attempt FROM approach_graph_runs WHERE id = ?')
+          .get(request.graphRunId) as
+          | { ticket_id: number; stage_attempt: number }
+          | undefined;
+        if (!run) return undefined;
+        const node = gs.db
+          .prepare('SELECT id, profile, provider, model FROM approach_node_runs WHERE id = ?')
+          .get(request.nodeRunId) as
+          | { id: number; profile: string | null; provider: string | null; model: string | null }
+          | undefined;
+        const planner = gs.db
+          .prepare('SELECT id, profile, provider, model FROM approach_planner_runs WHERE id = ?')
+          .get(request.nodeRunId) as
+          | { id: number; profile: string | null; provider: string | null; model: string | null }
+          | undefined;
+        if (node === undefined && planner === undefined) return undefined;
+        const identity = node ?? planner!;
+        const processRun = openProcessRun(graphCoordinatorStore!, {
+          ticketId: run.ticket_id,
+          stageKey: 'impl',
+          processId: node !== undefined ? 'graph-node' : 'graph-planner',
+          attempt: run.stage_attempt,
+          agentName: identity.profile,
+          provider: identity.provider ?? request.adapter.requiredBinary,
+          model: request.interactive.model ?? identity.model,
+          pid,
+          startedAt: new Date().toISOString(),
+        });
+        const link = node !== undefined ? 'approach_node_runs' : 'approach_planner_runs';
+        gs.db
+          .prepare(`UPDATE ${link} SET process_run_id = ? WHERE id = ?`)
+          .run(processRun.id, request.nodeRunId);
+        return processRun.id;
+      } catch (err) {
+        logError('karst: opening the graph launch process_runs row failed', err);
+        return undefined;
+      }
+    },
+    closeProcessRun: (processRunId, status, at) => {
+      try {
+        finishProcessRun(graphCoordinatorStore!, processRunId, status, at);
+      } catch (err) {
+        logError('karst: closing the graph launch process_runs row failed', err);
+      }
     },
     recordSession: (row) => {
       graphCoordinatorStore?.db

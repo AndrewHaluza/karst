@@ -109,6 +109,74 @@ describe('recordTokenUsage', () => {
     expect(index).toEqual({ name: 'idx_token_usage_interactive_sample' });
   });
 
+  it('carries the v35 graph linkage, NULL for ordinary ledger writes', () => {
+    ticket(1, 'K-1', 'One');
+    seed({ input: 10 });
+    const row = store.db.prepare('SELECT approach_planner_run_id, approach_node_run_id FROM token_usage').get() as {
+      approach_planner_run_id: number | null;
+      approach_node_run_id: number | null;
+    };
+    expect(row).toEqual({ approach_planner_run_id: null, approach_node_run_id: null });
+  });
+
+  it('writes and reads back the graph run linkage a graph launch carries', () => {
+    ticket(1, 'K-1', 'One');
+    const T = '2026-08-12T00:00:00.000Z';
+    store.db
+      .prepare(
+        `INSERT INTO approach_graph_runs
+           (id, ticket_id, stage_key, stage_attempt, approach_id, status, created_at)
+         VALUES (?, 1, 'impl', 1, 'graph', 'running', ?)`,
+      )
+      .run(1, T);
+    store.db
+      .prepare(
+        `INSERT INTO approach_graph_revisions
+           (id, graph_run_id, revision_number, canonical_graph, fingerprint, status, created_at)
+         VALUES (?, 1, 1, 'graph: []', 'fp', 'active', ?)`,
+      )
+      .run(1, T);
+    store.db
+      .prepare(
+        `INSERT INTO approach_planner_runs
+           (id, graph_run_id, planner_run_number, kind, status)
+         VALUES (3, 1, 1, 'bootstrap', 'running')`,
+      )
+      .run();
+    store.db
+      .prepare(
+        `INSERT INTO approach_node_runs
+           (id, graph_run_id, revision_id, node_id, node_kind, visit_number, status)
+         VALUES (9, 1, 1, 'n1', 'agent', 1, 'running')`,
+      )
+      .run();
+    recordTokenUsage(store, {
+      projectId: 1,
+      ticketId: 1,
+      processRunId: 5,
+      approachPlannerRunId: 3,
+      approachNodeRunId: 9,
+      callSite: 'graph-node',
+      provider: 'codex',
+      outcome: 'ok',
+      recordedAt: T,
+      usage: {
+        inputTokens: 40,
+        outputTokens: 10,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        totalTokens: 50,
+        model: 'sol',
+        estimated: false,
+      },
+    });
+    const listed = listTokenUsage(store, { ticketId: 1 });
+    expect(listed).toHaveLength(1);
+    expect(listed[0]!.approachPlannerRunId).toBe(3);
+    expect(listed[0]!.approachNodeRunId).toBe(9);
+    expect(listed[0]!.callSite).toBe('graph-node');
+  });
+
   it('records a call made before the ticket exists, unattributed', () => {
     seed({ ticketId: null });
     const row = store.db.prepare('SELECT ticket_id FROM token_usage').get() as {

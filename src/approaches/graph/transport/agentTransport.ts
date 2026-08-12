@@ -86,6 +86,13 @@ export interface SupervisedAgentSession {
   ownerNonce: string;
   /** When the pid was obtained (captured at that moment, never at INSERT). */
   startedAt: string | null;
+  /**
+   * The `process_runs` row this launch opened (Slice-3 T10) — the binding the
+   * interactive usage sampler attaches observations to. NULL when the host
+   * supplied no accounting hook (an unreportable transport) — never a
+   * fabricated row, and never a fabricated zero.
+   */
+  processRunId: number | null;
   /** Provider session id — recorded via the lifecycle channel, later. */
   providerSessionId: string | null;
   terminal: TransportTerminal;

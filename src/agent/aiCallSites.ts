@@ -39,6 +39,16 @@ export const AI_CALL_SITES = [
    * interactive deltas attributed to an implementation session (Task 5).
    */
   'implementation',
+  /**
+   * An interactive graph PLANNER session (Slice-3 T10) — the call site of
+   * measured interactive deltas attributed to a planner run.
+   */
+  'graph-planner',
+  /**
+   * An interactive graph NODE session (Slice-3 T10) — the call site of
+   * measured interactive deltas attributed to a node run.
+   */
+  'graph-node',
   /** An instrumented call that declared no site (see the module doc). */
   'unknown',
 ] as const;
@@ -62,6 +72,8 @@ const LABELS: Record<AiCallSite, string> = {
   'review-findings': 'Review findings',
   'uat-tester': 'UAT tester',
   implementation: 'Implementation session',
+  'graph-planner': 'Graph planner',
+  'graph-node': 'Graph node',
   unknown: 'Undeclared',
 };
 

@@ -85,6 +85,14 @@ export interface TokenUsageEntry {
    * Task 5 adds the measured ingestion seam that writes it.
    */
   implementationSegmentId?: number | null;
+  /**
+   * v35: the graph planner run the call was made inside (Slice-3 T10); NULL
+   * outside the graph runtime, or a pre-v35 row. Never backfilled. ON DELETE
+   * SET NULL: deleting graph history never takes the ledger's spend with it.
+   */
+  approachPlannerRunId?: number | null;
+  /** v35: the graph node run the call was made inside (Slice-3 T10). */
+  approachNodeRunId?: number | null;
   /** An `AiCallSite`; typed as string here so the store stays agent-free. */
   callSite: string;
   provider?: string | null;
@@ -99,8 +107,9 @@ const INSERT = `
 INSERT INTO token_usage (
   project_id, ticket_id, process_run_id, call_site, provider, model,
   input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, total_tokens,
-  estimated, outcome, recorded_at, implementation_segment_id, interactive_usage_sample_id
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`;
+  estimated, outcome, recorded_at, implementation_segment_id, interactive_usage_sample_id,
+  approach_planner_run_id, approach_node_run_id
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`;
 
 /**
  * Append one call to the ledger. Throws only on a genuine store failure — the
@@ -127,6 +136,8 @@ export function recordTokenUsage(store: Store, entry: TokenUsageEntry): void {
       entry.outcome,
       entry.recordedAt ?? new Date().toISOString(),
       entry.implementationSegmentId ?? null,
+      entry.approachPlannerRunId ?? null,
+      entry.approachNodeRunId ?? null,
     );
 }
 
@@ -315,6 +326,13 @@ export interface TokenUsageRow {
    * segment (Task 5 writes it for measured interactive deltas).
    */
   implementationSegmentId: number | null;
+  /**
+   * v35: the graph planner run the call was made inside; NULL outside the
+   * graph runtime (Slice-3 T10). Never backfilled.
+   */
+  approachPlannerRunId: number | null;
+  /** v35: the graph node run the call was made inside (Slice-3 T10). */
+  approachNodeRunId: number | null;
 }
 
 interface TokenUsageRowRow {
@@ -333,6 +351,8 @@ interface TokenUsageRowRow {
   outcome: string;
   recorded_at: string;
   implementation_segment_id: number | null;
+  approach_planner_run_id: number | null;
+  approach_node_run_id: number | null;
 }
 
 function rowToUsage(r: TokenUsageRowRow): TokenUsageRow {
@@ -353,6 +373,8 @@ function rowToUsage(r: TokenUsageRowRow): TokenUsageRow {
     outcome: r.outcome === 'ok' ? 'ok' : 'error',
     recordedAt: r.recorded_at,
     implementationSegmentId: r.implementation_segment_id,
+    approachPlannerRunId: r.approach_planner_run_id,
+    approachNodeRunId: r.approach_node_run_id,
   };
 }
 
@@ -391,7 +413,7 @@ export function listTokenUsage(
       `SELECT id, ticket_id, process_run_id, call_site, provider, model,
               input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
               total_tokens, estimated, outcome, recorded_at,
-              implementation_segment_id
+              implementation_segment_id, approach_planner_run_id, approach_node_run_id
          FROM token_usage ${where}
         ORDER BY id`,
     )
