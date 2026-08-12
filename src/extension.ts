@@ -172,6 +172,7 @@ import { runCompletionPipeline, type CompletionPipelineDeps } from './approaches
 import { artifactRootDir } from './approaches/graph/artifacts/snapshot.js';
 import { declaredWritesFor } from './approaches/graph/integration/claims.js';
 import { flipOnEndQuiescence } from './approaches/graph/coordinator/completion.js';
+import { resolveGraphDiagnosticIdentity } from './approaches/graph/diagnostics.js';
 import { recoverGraphRun, type RecoveryDeps } from './approaches/graph/coordinator/recovery.js';
 import { type ActivationDomain } from './approaches/graph/coordinator/leases.js';
 import { activationDomainKeys, type AllowlistCommandAccess } from './approaches/graph/coordinator/conflicts.js';
@@ -2946,6 +2947,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
               begin: 'immediate',
             })(),
           now: () => new Date().toISOString(),
+          debug: (message) => logger.debug(message),
         },
         { graphRunId },
       );
@@ -3284,6 +3286,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     facts: systemAsyncProcessFacts,
     now: () => new Date().toISOString(),
     debug: (message) => logger.debug(message),
+    // The launch diagnostic's identity (Slice-6 T3): the transport has no DB
+    // handle, so the host resolves graph → project/ticket/attempt for it.
+    graphIdentityOf: (graphRunId) => {
+      const gs = graphCoordinatorStore;
+      if (!gs) return undefined;
+      return resolveGraphDiagnosticIdentity(gs.db, graphRunId);
+    },
   });
 
   // Reload/crash reconcile (Slice 4 Task 3): one pass over every graph run
