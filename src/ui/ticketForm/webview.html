@@ -87,6 +87,8 @@
     border:var(--k-border-w) solid var(--k-border)}
   .attachtile img,.attachtile video{display:block;width:100%;height:calc(var(--k-space-8) * 4.1);object-fit:cover;
     background:var(--k-bg)}
+  .attachfile{display:flex;align-items:center;justify-content:center;height:calc(var(--k-space-8) * 4.1);
+    color:var(--k-text-dim)}
   .attachmeta{padding:var(--k-space-2) var(--k-space-3);font-size:var(--k-text-xs);line-height:var(--k-leading-normal);
     color:var(--k-text-dim);opacity:.85}
   .attachname{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -374,8 +376,8 @@
   <textarea class="k-input" id="desc" placeholder="What should the agent do? Pre-filled from the brief when fetched — edit freely."></textarea>
   <div class="attachrow">
     <button type="button" id="attachBtn" class="k-btn k-btn--ghost"
-            title="Attach an image or video from disk">Attach…</button>
-    <span class="hint">or paste a screenshot into the prompt</span>
+            title="Attach any file from disk">Attach…</button>
+    <span class="hint">or paste a screenshot — a long text becomes a file attachment</span>
   </div>
   <div id="attachments" class="attachstrip"></div>
   <div class="err hidden" id="err" role="alert"></div>
@@ -574,6 +576,8 @@
       const media = a.kind === 'video'
         ? '<video src="' + esc(a.src) + '" preload="metadata" controls '
           + 'data-attach-id="' + esc(a.id) + '"></video>'
+        : a.kind === 'file'
+        ? '<span class="attachfile" aria-hidden="true">' + karstIcon('file-text', 26) + '</span>'
         : '<img src="' + esc(a.src) + '" alt="' + esc(a.name) + '" '
           + 'data-attach-id="' + esc(a.id) + '">';
       return '<div class="attachtile">'

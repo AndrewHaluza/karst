@@ -339,6 +339,7 @@ describe('attachment strip', () => {
   const render = (list: unknown): string =>
     loadFunction('renderAttachments', {
       formatBytes: loadFunction('formatBytes'),
+      karstIcon: (name: string) => `<svg class="k-icon" data-icon="${name}"></svg>`,
     })(list) as string;
 
   it('renders nothing when there are no attachments', () => {
@@ -362,6 +363,18 @@ describe('attachment strip', () => {
     expect(html).toContain('controls');
     expect(html).toContain('preload="metadata"');
     expect(html).toContain('src="webview://b.mp4"');
+  });
+
+  it('renders a file tile with a file-text glyph and no media element', () => {
+    const html = render([
+      { id: 3, kind: 'file', name: 'notes.pdf', byteSize: 2048, src: 'webview://c.pdf' },
+    ]);
+    expect(html).not.toContain('<img');
+    expect(html).not.toContain('<video');
+    expect(html).toContain('data-icon="file-text"');
+    expect(html).toContain('notes.pdf');
+    expect(html).toContain('2 KB');
+    expect(html).toMatch(/<button[^>]*class="[^"]*\battachopen\b[^"]*"[^>]*data-attach-id="3"/);
   });
 
   it('carries the image row id on its media, detach control, and explicit open control', () => {
@@ -834,6 +847,12 @@ describe('ticket-form webview.html — selects, buttons, positioning fixes', () 
     const rule = main!.match(/\.hint\{[^}]*\}/)?.[0] ?? '';
     expect(rule).toContain('font-size:var(--k-text-sm)');
     expect(rule).toContain('opacity:.6');
+  });
+
+  it('says the prompt accepts pasted screenshots AND long text', () => {
+    const row = HTML.slice(HTML.indexOf('id="attachBtn"'), HTML.indexOf('<div id="attachments"'));
+    expect(row).toMatch(/paste a screenshot/i);
+    expect(row).toMatch(/long text/i);
   });
 
   it('centres the step rail under the dots so the spine lines up with them', () => {
