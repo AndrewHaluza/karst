@@ -632,6 +632,13 @@
   #inside .op-detail.wait{color:var(--p-attention)}
   #inside .op-detail.fail{color:var(--p-failed)}
   #inside .op-detail.note,#inside .op-detail.skip{font-style:italic}
+  /* The gates row's console entry (869e7n906-fu1): the description text and
+     the terminal icon share one flex slot, so a long gate summary ellipsizes
+     on its own span while the icon (flex:none, never shrunk or clipped) stays
+     visible at the end of the description area. */
+  #inside .op-detail.detail-console{display:inline-flex;align-items:center;gap:var(--p-s2);max-width:100%}
+  #inside .op-detail.detail-console .op-detail-text{overflow:hidden;text-overflow:ellipsis;
+    white-space:nowrap;min-width:0}
   #inside .op-tail{display:flex;align-items:center;justify-content:flex-end;gap:var(--p-s2);min-width:0;
     min-height:18px;line-height:18px;white-space:nowrap;padding-right:var(--p-s1)}
   #inside .count{display:inline-flex;align-items:center;height:18px;border:var(--k-border-w) solid var(--p-border);
@@ -2142,7 +2149,7 @@
   // operability comes from the element, never a handler (UI-R09). One with
   // nothing behind it is the prototype's `.op-static` — a row that states its
   // fact and offers no disclosure it cannot honour.
-  function processRowHtml(p, key, open) {
+  function processRowHtml(p, key, open, consoleStage) {
     const ai = p.execution || p.configuredExecution ? '<span class="ai-mark">AI</span>' : '';
     // No status WORD in the tail: the prototype's row carries its state on the
     // glyph (which keeps the word as its accessible name) and in the detail's
@@ -2158,7 +2165,23 @@
       + `</span>`;
     const name = `<span class="op-name">${esc(p.label)}${ai}</span>`;
     const glyph = `<span class="glyph ${esc(p.status)}" aria-label="${esc(p.statusLabel || statusWord(p.status))}"></span>`;
-    const detail = `<span class="op-detail ${esc(p.status)}">${esc(p.detail || '')}</span>`;
+    // The console (terminal detailed mode) entry point: the GATES row's
+    // description area, icon-only (869e7n906-fu1). The label is not lost — it
+    // moves to aria-label + title, the SAME string on both (UI-R21/R24), and
+    // `data-console` still carries the stage whose log this opens, so the
+    // click handler is untouched. The gates row is the one row whose summary
+    // IS the gate run, so this button shows the gates' test log (uat) or the
+    // review gates' log (review) depending on which stage view is on screen.
+    const consoleBtn = consoleStage && p.id === 'gates'
+      ? `<button type="button" class="k-iconbtn ib t-open" data-act="${CONSOLE_ACT}"`
+        + ` data-console="${esc(consoleStage)}"`
+        + ` aria-label="View this stage's console output in the dashboard"`
+        + ` title="View this stage's console output in the dashboard">${svgIcon('terminal-2')}</button>`
+      : '';
+    const detail = `<span class="op-detail ${esc(p.status)}${consoleBtn ? ' detail-console' : ''}">`
+      + (p.detail ? `<span class="op-detail-text">${esc(p.detail)}</span>` : '')
+      + consoleBtn
+      + `</span>`;
     const footer = p.footer && p.footer.length
       ? `<div class="session-foot">${p.footer.map((f, i) => `<span${i === p.footer.length - 1 ? ' class="session-rule"' : ''}>${esc(f)}</span>`).join('')}</div>`
       : '';
@@ -2274,8 +2297,15 @@
       : '';
 
     const procs = overlayProcesses(view);
+    // The console (terminal detailed mode) entry point lives in the GATES
+    // row's description area, not the header (869e7n906-fu1): that row's
+    // summary IS the gate run this console renders, so the button sits beside
+    // the text that names it. Availability is still the host-derived
+    // `view.console` flag — only the stage key travels on, so the click
+    // handler posts exactly the stage whose log is available.
+    const consoleStage = view.console ? view.stageKey : null;
     const body = procs.length
-      ? `<div class="ledger">${procs.map((p) => processRowHtml(p, `${view.stageKey}:${p.id}`, processOpen(p, `${view.stageKey}:${p.id}`))).join('')}</div>`
+      ? `<div class="ledger">${procs.map((p) => processRowHtml(p, `${view.stageKey}:${p.id}`, processOpen(p, `${view.stageKey}:${p.id}`), consoleStage)).join('')}</div>`
       : `<div class="blurb">${esc(view.blurb)}</div>`;
 
     // The prototype's block: viewing bar, then the three-cell header (stage
@@ -2284,12 +2314,7 @@
       + `<div class="inside-head"${view.title ? ` title="${esc(view.title)}"` : ''}>`
       + `<span class="inside-title" id="inside-title">Inside ${esc(view.stageKey)}</span>`
       + `<span class="inside-live ${esc(lstatus)}">${alive}</span>`
-      + `<span class="inside-meta">${esc(view.clock)}`
-      + (view.console
-        ? `<span class="sp"><button type="button" class="k-btn k-btn--ghost k-btn--sm" data-act="${CONSOLE_ACT}"`
-          + ` data-console="${esc(view.stageKey)}" title="View this stage's console output in the dashboard">Console</button></span>`
-        : '')
-      + `</span></div>${body}</section>`;
+      + `<span class="inside-meta">${esc(view.clock)}</span></div>${body}</section>`;
   }
 
   // The blocked banner: why karst could not ask the CURRENT stage's question
