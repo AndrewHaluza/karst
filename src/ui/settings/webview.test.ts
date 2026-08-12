@@ -2466,6 +2466,17 @@ describe('settings v7 shell', () => {
     expect(HTML).not.toContain('<span class="brandmark">K</span>');
   });
 
+  it('the project-info footer and mobile entry carry the approved #35 mark, not the letter badge', () => {
+    expect(HTML).toContain('<svg class="project-icon" id="footProjectIcon"');
+    expect(HTML).toContain('id="footLeft"');
+    expect(HTML).toContain('id="footCore"');
+    expect(HTML).toMatch(/id="mobileProjectBtn"[^>]*>\s*<svg[^>]*viewBox="0 0 215 215"/);
+    expect(HTML).toContain('id="mobLeft"');
+    expect(HTML).toContain('id="mobCore"');
+    expect(HTML).not.toContain('<span class="project-icon" id="footProjectIcon">K</span>');
+    expect(HTML).not.toContain('title="Project information">K</button>');
+  });
+
   it('groups the sidebar nav into Project / Workflow / Integrations with captions', () => {
     expect(HTML).toContain('<nav class="sidebar"');
     expect(HTML).toContain('<div class="nav-caption">Project</div>');
