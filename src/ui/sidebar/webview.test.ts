@@ -457,6 +457,23 @@ describe('sidebar webview.html', () => {
     expect(script).toContain('${n} more completed');
   });
 
+  it('the Older Completed bar spans the list so the label is truly centered (button width:auto quirk)', () => {
+    const [main] = styleBlocks();
+    // A <button> element treats width:auto as shrink-to-fit even at
+    // display:flex, so the bar used to collapse to a compact pill hugging the
+    // LEFT edge of the list — the ghost variant's justify-content:center only
+    // centered WITHIN a box that was never full-width (869egrd09-fu1). The
+    // width is explicit so the label centers across the row, and the calc
+    // compensates the two --k-space-2 side margins so the bar fits the list's
+    // content box exactly like a .ticket row — width:100% alone would add the
+    // margins on top and overflow the list's horizontal scroll surface.
+    expect(main).toContain('width:calc(100% - var(--k-space-4))');
+    // The centering itself stays the ghost variant's own justify-content:center
+    // (declared on .k-btn) — .hist must never re-declare it, or the two would
+    // drift apart.
+    expect(main).not.toMatch(/\.hist\{[^}]*justify-content/);
+  });
+
   it('completed rows use the compact treatment: check indicator, muted title, no stage pill', () => {
     const script = scriptBlock();
     // The check-in-ring replaces the karst mark + status dot on compact rows…
