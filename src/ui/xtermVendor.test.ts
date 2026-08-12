@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { mkdtempSync, copyFileSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -10,7 +10,16 @@ import { readXtermAssets } from '../model/xtermAssets.js';
 // The package ships its bundles split across lib/ (js) and css/ (css), so
 // they are staged flat into a temp dir — the same shape dist/vendor/xterm
 // has at runtime — before readXtermAssets reads them.
-const VENDOR = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'node_modules', '@xterm');
+//
+// The vendor dir is resolved through Node's own resolution, never an assumed
+// `<repo root>/node_modules` path: a karst worktree has no node_modules of its
+// own, and Node resolves every other dependency by walking up to the main
+// checkout's tree (scripts/rebuild-better-sqlite3.mjs documents the same
+// trap) — this test must survive the same layout.
+const require = createRequire(import.meta.url);
+// `<installRoot>/node_modules/@xterm/xterm` → the scope dir that holds both
+// packages, the shape the join calls below expect.
+const VENDOR = dirname(dirname(require.resolve('@xterm/xterm/package.json')));
 
 describe('vendored xterm bundles are CSP-safe to inline', () => {
   let assets: ReturnType<typeof readXtermAssets>;

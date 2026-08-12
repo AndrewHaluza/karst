@@ -380,6 +380,85 @@ describe('buildDashboardState', () => {
     );
   });
 
+  it('reads a resolve session at a conflicted ship as in-progress, not needs-you', () => {
+    // The user clicked "Resolve conflicts": the session is actively working,
+    // so the ticket must read in progress. The awaiting-merge block stays
+    // stored (`settleShipGate` needs it) — only its needs-you READING yields,
+    // on every surface at once: the rail loses the needs wording, and the Now
+    // line stops instructing the user to resolve what the agent is resolving.
+    const t = createTicket(store, { key: 'N-6', title: 't' });
+    setStage(store, t.id, 'ship', {
+      status: 'passed',
+      endedAt: '2026-08-01T10:00:00.000Z',
+      blockedKind: 'awaiting-merge',
+      blockedReason: 'blocked: the pull request for "api" is not merged yet',
+      blockedAt: '2026-08-01T10:00:00.000Z',
+    });
+    store.db
+      .prepare("UPDATE tickets SET stage_current = 'ship', agent_state = 'running' WHERE id = ?")
+      .run(t.id);
+    store.db
+      .prepare('INSERT INTO prs (ticket_id, repo, number, url, status) VALUES (?, ?, ?, ?, ?)')
+      .run(t.id, 'api', 12, 'https://github.com/o/r/pull/12', 'open');
+    setMergeCheck(store, {
+      ticketId: t.id,
+      repo: 'api',
+      state: 'conflicted',
+      files: ['src/a.ts'],
+      reason: null,
+      headSha: 'h',
+      baseSha: 'b',
+      baseRef: 'main',
+      checkedAt: '2026-08-01T10:00:00.000Z',
+    });
+
+    const state = buildDashboardState(store, t.id);
+    const ship = state.rail.main.find((s) => s.cell.stageKey === 'ship')!;
+    expect(ship.needsUser).toBe(false);
+    expect(ship.needs).toBeNull();
+    expect(state.rail.main.every((s) => s.needs === null)).toBe(true);
+    expect(state.now.text).toBe('Now: resolving the merge conflict — the agent is running.');
+  });
+
+  it('returns to needs-you on the same conflicted ship once the session ends', () => {
+    // SessionEnd → idle: nobody is working the ticket, so the wait for a human
+    // merge click resumes on every surface — the rail and the Now line.
+    const t = createTicket(store, { key: 'N-7', title: 't' });
+    setStage(store, t.id, 'ship', {
+      status: 'passed',
+      endedAt: '2026-08-01T10:00:00.000Z',
+      blockedKind: 'awaiting-merge',
+      blockedReason: 'blocked: the pull request for "api" is not merged yet',
+      blockedAt: '2026-08-01T10:00:00.000Z',
+    });
+    store.db
+      .prepare("UPDATE tickets SET stage_current = 'ship', agent_state = 'idle' WHERE id = ?")
+      .run(t.id);
+    store.db
+      .prepare('INSERT INTO prs (ticket_id, repo, number, url, status) VALUES (?, ?, ?, ?, ?)')
+      .run(t.id, 'api', 12, 'https://github.com/o/r/pull/12', 'open');
+    setMergeCheck(store, {
+      ticketId: t.id,
+      repo: 'api',
+      state: 'conflicted',
+      files: ['src/a.ts'],
+      reason: null,
+      headSha: 'h',
+      baseSha: 'b',
+      baseRef: 'main',
+      checkedAt: '2026-08-01T10:00:00.000Z',
+    });
+
+    const state = buildDashboardState(store, t.id);
+    const ship = state.rail.main.find((s) => s.cell.stageKey === 'ship')!;
+    expect(ship.needsUser).toBe(true);
+    expect(ship.needs).toEqual({
+      detail: '1 repo no longer merges cleanly',
+      action: 'Resolve',
+    });
+    expect(state.now.text).toContain('Resolve the conflicts below');
+  });
+
   it('leaves every segment clear when nothing is blocked on the user', () => {
     const t = createTicket(store, { key: 'N-3', title: 't' });
     setStage(store, t.id, 'impl', { status: 'running' });
