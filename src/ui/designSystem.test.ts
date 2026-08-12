@@ -83,6 +83,11 @@ describe.each(WEBVIEWS)('%s webview design system', (name) => {
     expect(out).toContain('--k-space-4:8px;');
     expect(out).toContain('.k-btn{');
     expect(out).toContain('function karstAction(');
+    // The Tabler icon runtime and its shared stroke treatment ride the same
+    // injection — every webview gets the catalog and `karstIcon()` by
+    // construction (docs/ui/ICONS.md §3).
+    expect(out).toContain('function karstIcon(');
+    expect(out).toContain('.k-icon{');
     expect(out).not.toContain(DS_CSS_MARKER);
     expect(out).not.toContain(DS_JS_MARKER);
   });

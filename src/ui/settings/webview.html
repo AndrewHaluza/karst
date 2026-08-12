@@ -12,12 +12,14 @@
 
   :root{
     /* One chevron for every dropdown (native <select> + the custom provider
-       trigger) so placement and size read the same. A data-URI SVG cannot
-       consume a CSS custom property, so its stroke colour cannot resolve to a
-       --k-* token the way every other colour in this file does — this is the
-       one accepted UI-R04 exception, forced by the encoding, not by choice.
+       trigger) so placement and size read the same. The glyph is Tabler's
+       chevron-down (docs/ui/ICONS.md §4) embedded as a data-URI — the only
+       icon form that reaches a CSS background. A data-URI SVG cannot consume
+       a CSS custom property, so its stroke colour cannot resolve to a --k-*
+       token the way every other colour in this file does — this is the one
+       accepted UI-R04 exception, forced by the encoding, not by choice.
        Mid-gray shows on light and dark input chrome alike. */
-    --chevron:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.5 6 7.5 9 4.5' fill='none' stroke='%238a8a8a' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    --chevron:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24'%3E%3Cpath d='M6 9l6 6l6 -6' fill='none' stroke='%238a8a8a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   }
   *{box-sizing:border-box}
   html,body{height:100%}
@@ -1394,7 +1396,7 @@
                   <select id="f-ticketList" aria-labelledby="listLabel"></select>
                   <button class="reload-btn fixed" id="refreshListsBtn" type="button"
                           title="Reload lists from ClickUp" aria-label="Reload lists from ClickUp">
-                    <svg class="reload-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M13.4 8a5.4 5.4 0 1 1-1.5-3.8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M13.7 2.6v3h-3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    <svg class="k-icon reload-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8.1 8.1 0 0 0 -15.5 -2m-.5 -4v4h4"/><path d="M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4"/></svg>
                   </button>
                 </div>
                 <div id="listHint" class="field-hint" role="status" aria-live="polite"></div>
@@ -1451,7 +1453,7 @@
               <select id="f-startStatus"></select>
               <button class="reload-btn fixed" id="refreshStartStatusesBtn" type="button"
                       title="Reload statuses for this list" aria-label="Reload statuses for this list">
-                <svg class="reload-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M13.4 8a5.4 5.4 0 1 1-1.5-3.8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M13.7 2.6v3h-3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <svg class="k-icon reload-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8.1 8.1 0 0 0 -15.5 -2m-.5 -4v4h4"/><path d="M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4"/></svg>
               </button>
             </div>
             <div id="startStatusHint" class="field-hint" role="status" aria-live="polite"></div>
@@ -1478,7 +1480,7 @@
               <select id="f-shipStatus"></select>
               <button class="reload-btn fixed" id="refreshStatusesBtn" type="button"
                       title="Reload statuses for this list" aria-label="Reload statuses for this list">
-                <svg class="reload-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M13.4 8a5.4 5.4 0 1 1-1.5-3.8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M13.7 2.6v3h-3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <svg class="k-icon reload-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8.1 8.1 0 0 0 -15.5 -2m-.5 -4v4h4"/><path d="M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4"/></svg>
               </button>
             </div>
             <div id="statusHint" class="field-hint" role="status" aria-live="polite"></div>

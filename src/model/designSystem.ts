@@ -1,6 +1,7 @@
 import { tokensCss } from './designTokens.js';
 import { componentsCss, DS_CSS_MARKER } from './designComponents.js';
 import { designRuntimeJs, DS_JS_MARKER } from './designRuntime.js';
+import { tablerIconsCss, tablerIconsJs } from './tablerIcons.js';
 
 /**
  * The design system's single injection point (§ `docs/ui/DESIGN-SYSTEM.md` §1).
@@ -28,9 +29,9 @@ import { designRuntimeJs, DS_JS_MARKER } from './designRuntime.js';
 
 export { DS_CSS_MARKER, DS_JS_MARKER };
 
-/** Tokens then primitives — primitives reference tokens, so this order is required. */
+/** Tokens then primitives then the shared icon treatment — order is required. */
 export function designSystemCss(): string {
-  return `${tokensCss()}\n${componentsCss()}`;
+  return `${tokensCss()}\n${componentsCss()}\n${tablerIconsCss()}`;
 }
 
 /**
@@ -45,5 +46,5 @@ export function designSystemCss(): string {
 export function injectDesignSystem(html: string): string {
   return html
     .replace(DS_CSS_MARKER, () => designSystemCss())
-    .replace(DS_JS_MARKER, () => designRuntimeJs());
+    .replace(DS_JS_MARKER, () => `${designRuntimeJs()}\n${tablerIconsJs()}`);
 }
