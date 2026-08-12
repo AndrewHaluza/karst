@@ -2,6 +2,8 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { openStore, type Store } from '../../store/db.js';
 import { createTicket, archiveTicket } from '../../store/tickets.js';
 import { setStage } from '../../store/stages.js';
+import { recordGateRun } from '../../store/gateRuns.js';
+import { setMergeCheck } from '../../store/mergeChecks.js';
 import { buildSidebarState, RECENT_DONE_LIMIT } from './state.js';
 
 /** Stamp a ticket done at a specific completion time (stage row + current stage). */
@@ -335,6 +337,75 @@ describe('buildSidebarState', () => {
     // D-1 sits BEYOND the recent-3 boundary; the query must surface it there.
     expect(state.sections.olderDone.map((r) => r.label)).toEqual(['D-1 — done 1']);
     expect(state.sections.recentlyDone).toEqual([]);
+  });
+
+  // ── Expanded mini-dashboard (peek) ─────────────────────────────────────────
+
+  it('a done ticket peek offers Create follow-up as its primary next action', () => {
+    const t = createTicket(store, { key: 'D-1', title: 'done' });
+    markDone(store, t.id, '2026-08-11T10:00:00Z');
+
+    const row = buildSidebarState(store, { facets: ['done'], filter: '' }).done[0]!;
+    expect(row.peek.title).toBe('Shipped');
+    expect(row.peek.next).toEqual({ kind: 'create-follow-up', label: 'Create follow-up ticket' });
+  });
+
+  it('a ship ticket awaiting merge carries the landing state in its peek', () => {
+    const t = createTicket(store, { key: 'S-1', title: 'ship' });
+    store.db.prepare("UPDATE tickets SET stage_current = 'ship' WHERE id = ?").run(t.id);
+    setStage(store, t.id, 'ship', { status: 'passed' });
+    store.db
+      .prepare('INSERT INTO prs (ticket_id, repo, number, url, status) VALUES (?,?,?,?,?)')
+      .run(t.id, 'api', 1, 'https://github.com/x/pull/1', 'open');
+
+    const row = buildSidebarState(store, { facets: ['all'], filter: '' }).sections.current[0]!;
+    expect(row.peek.title).toBe('1 pull request awaiting merge');
+    expect(row.peek.detail).toBe('api');
+    expect(row.peek.next).toBeNull();
+  });
+
+  it('a conflicted ship names the conflict and offers Resolve conflicts', () => {
+    const t = createTicket(store, { key: 'S-1', title: 'ship' });
+    store.db.prepare("UPDATE tickets SET stage_current = 'ship' WHERE id = ?").run(t.id);
+    setStage(store, t.id, 'ship', { status: 'passed' });
+    store.db
+      .prepare('INSERT INTO prs (ticket_id, repo, number, url, status) VALUES (?,?,?,?,?)')
+      .run(t.id, 'api', 1, 'https://github.com/x/pull/1', 'open');
+    setMergeCheck(store, {
+      ticketId: t.id,
+      repo: 'api',
+      state: 'conflicted',
+      files: ['src/a.ts'],
+      reason: null,
+      headSha: null,
+      baseSha: null,
+      baseRef: 'develop',
+      checkedAt: '2026-08-12T10:00:00Z',
+    });
+
+    const row = buildSidebarState(store, { facets: ['all'], filter: '' }).sections.current[0]!;
+    expect(row.peek.title).toBe('1 merge conflict in api');
+    expect(row.peek.next).toEqual({ kind: 'resolve-conflicts', label: 'Resolve conflicts', repo: 'api' });
+  });
+
+  it('a running uat ticket carries its gate progress in the peek', () => {
+    const t = createTicket(store, { key: 'U-1', title: 'uat' });
+    store.db.prepare("UPDATE tickets SET stage_current = 'uat' WHERE id = ?").run(t.id);
+    setStage(store, t.id, 'uat', { status: 'running' });
+    recordGateRun(store, {
+      ticketId: t.id,
+      stageKey: 'uat',
+      attempt: 0,
+      runAt: '2026-08-12T10:00:00Z',
+      gates: [
+        { gateName: 'test', exitCode: 0, repo: '/wt/api' },
+        { gateName: 'lint', exitCode: null, repo: '/wt/web' },
+      ],
+    });
+
+    const row = buildSidebarState(store, { facets: ['all'], filter: '' }).sections.current[0]!;
+    expect(row.peek.title).toBe('UAT running');
+    expect(row.peek.detail).toBe('1/2 gates passed');
   });
 });
 
