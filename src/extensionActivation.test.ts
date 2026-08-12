@@ -206,14 +206,13 @@ describe('extension activation', () => {
     );
   });
 
-  it('binds dashboard agent switching to native pickers, confirmation, and the normal launch path', () => {
+  it('binds dashboard agent switching to the header selection, host confirmation, and the normal launch path', () => {
     const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
-    expect(source).toContain('runAgentSwitchFlow(');
+    expect(source).toContain('applyAgentSwitchSelection(');
     expect(source).toMatch(
       /fixExecutionActive: listRecoveryRounds\(localStore, ticketId\)\s*\.some\(\(round\) => round\.status === 'fixing'\)/,
     );
-    expect(source).toContain('vscode.window.showQuickPick');
-    expect(source).toContain("modal: true");
+    expect(source).toContain('modal: true');
     expect(source).toContain("guardProviderCapabilityAsync('sessions', provider)");
     expect(source).toContain(
       "if (!options.providerReady && !guardCapability('sessions', ticketId)) return;",

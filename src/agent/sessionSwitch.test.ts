@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { ModelCatalog } from './modelCatalog.js';
 import {
+  agentSwitchCoreChoices,
   agentSwitchModelChoices,
-  agentSwitchProviderChoices,
+  applyAgentSwitchSelection,
   buildAgentSessionView,
   canSwitchAgentSession,
-  runAgentSwitchFlow,
   type AgentSwitchFlowDeps,
 } from './sessionSwitch.js';
 
@@ -27,11 +27,12 @@ describe('agent switch presentation', () => {
     expect(canSwitchAgentSession(stage, open, fixing)).toBe(expected);
   });
 
-  it('omits the current provider and supplies the canonical identity labels', () => {
-    expect(agentSwitchProviderChoices('claude')).toEqual([
-      { provider: 'codex', label: 'Codex' },
-      { provider: 'antigravity', label: 'Antigravity CLI' },
-      { provider: 'opencode', label: 'OpenCode' },
+  it('lists every implemented core with its canonical label for the header select', () => {
+    expect(agentSwitchCoreChoices()).toEqual([
+      { id: 'claude', label: 'Claude Code' },
+      { id: 'codex', label: 'Codex' },
+      { id: 'antigravity', label: 'Antigravity CLI' },
+      { id: 'opencode', label: 'OpenCode' },
     ]);
   });
 
@@ -86,111 +87,86 @@ function flow(overrides: Partial<AgentSwitchFlowDeps> = {}) {
       stageCurrent: 'impl', provider: 'claude', ticketModel: 'claude-x', defaultModel: null,
     }),
     isSessionOpen: () => true,
-    pickProvider: async () => (order.push('pick-provider'), 'codex'),
     isProviderReady: async (provider) => (order.push(`ready:${provider}`), true),
-    pickModel: async (_provider, choices) => (order.push('pick-model'), choices[1]),
     confirm: async () => (order.push('confirm'), true),
     persist: (selection) => order.push(`persist:${selection.provider}:${selection.model}`),
     dispose: () => order.push('dispose'),
     launch: async (options) => {
-      order.push(
-        `launch:allow-resume=${String(options.allowResume)}:provider-ready=${String(options.providerReady)}`,
-      );
+      order.push(`launch:allow-resume=${String(options.allowResume)}:provider-ready=${String(options.providerReady)}`);
     },
     ...overrides,
   };
   return { deps, order };
 }
 
-describe('runAgentSwitchFlow', () => {
-  it('rejects a switch during an owned Fix execution before opening a picker or changing ownership', async () => {
+describe('applyAgentSwitchSelection', () => {
+  it('rejects a switch during an owned Fix execution without mutating anything', async () => {
     let owned = true;
     const { deps, order } = flow({
       read: () => ({
-        stageCurrent: 'fix',
-        provider: 'claude',
-        ticketModel: 'claude-x',
-        defaultModel: null,
+        stageCurrent: 'fix', provider: 'claude', ticketModel: 'claude-x', defaultModel: null,
         fixExecutionActive: true,
       }),
-      dispose: () => {
-        owned = false;
-        order.push('dispose');
-      },
+      dispose: () => { owned = false; order.push('dispose'); },
     });
-
-    await expect(runAgentSwitchFlow(deps, CATALOG)).resolves.toEqual({ kind: 'stale' });
+    await expect(
+      applyAgentSwitchSelection(deps, CATALOG, { provider: 'codex', model: 'codex-x' }),
+    ).resolves.toEqual({ kind: 'stale' });
     expect(order).toEqual([]);
     expect(owned).toBe(true);
   });
 
   it('persists one selection, disposes, then launches', async () => {
     const { deps, order } = flow();
-    await expect(runAgentSwitchFlow(deps, CATALOG)).resolves.toEqual({ kind: 'switched' });
-    expect(order).toEqual([
-      'pick-provider', 'ready:codex', 'pick-model', 'confirm',
-      'persist:codex:codex-x', 'dispose',
-      'launch:allow-resume=false:provider-ready=true',
-    ]);
+    await expect(
+      applyAgentSwitchSelection(deps, CATALOG, { provider: 'codex', model: 'codex-x' }),
+    ).resolves.toEqual({ kind: 'switched' });
+    expect(order).toEqual(['ready:codex', 'confirm', 'persist:codex:codex-x', 'dispose', 'launch:allow-resume=false:provider-ready=true']);
   });
 
-  it('awaits replacement readiness and keeps the current session when it times out', async () => {
-    let finishReadiness!: (ready: boolean) => void;
-    const readiness = new Promise<boolean>((resolve) => { finishReadiness = resolve; });
-    const { deps, order } = flow({
-      isProviderReady: async () => {
-        order.push('ready:codex');
-        return await readiness;
-      },
-    });
-
-    const switching = runAgentSwitchFlow(deps, CATALOG);
-    await Promise.resolve();
-    expect(order).toEqual(['pick-provider', 'ready:codex']);
-
-    finishReadiness(false);
-    await expect(switching).resolves.toEqual({ kind: 'unavailable', provider: 'codex' });
-    expect(order.some((entry) => entry.startsWith('persist'))).toBe(false);
-    expect(order).not.toContain('dispose');
+  it('allows a model-only switch on the current core without a readiness probe', async () => {
+    const { deps, order } = flow({ isProviderReady: async () => { order.push('ready:unexpected'); return true; } });
+    await expect(
+      applyAgentSwitchSelection(deps, CATALOG, { provider: 'claude', model: 'claude-x' }),
+    ).resolves.toEqual({ kind: 'switched' });
+    expect(order).toEqual(['confirm', 'persist:claude:claude-x', 'dispose', 'launch:allow-resume=false:provider-ready=true']);
   });
 
-  it('propagates a replacement readiness error without mutating or disposing', async () => {
-    const readiness = Promise.reject(new Error('probe failed'));
-    // Avoid an unhandled-rejection diagnostic against the pre-fix implementation,
-    // which does not yet await the returned promise.
-    void readiness.catch(() => undefined);
-    const { deps, order } = flow({
-      isProviderReady: async () => await readiness,
-    });
-
-    await expect(runAgentSwitchFlow(deps, CATALOG)).rejects.toThrow('probe failed');
-    expect(order.some((entry) => entry.startsWith('persist'))).toBe(false);
-    expect(order).not.toContain('dispose');
-  });
-
-  it.each(['provider', 'model', 'confirm'] as const)(
-    'cancelling at %s mutates nothing', async (at) => {
-      const { deps, order } = flow({
-        ...(at === 'provider' ? { pickProvider: async () => undefined } : {}),
-        ...(at === 'model' ? { pickModel: async () => undefined } : {}),
-        ...(at === 'confirm' ? { confirm: async () => false } : {}),
-      });
-      await expect(runAgentSwitchFlow(deps, CATALOG)).resolves.toEqual({ kind: 'cancelled', at });
-      expect(order.some((entry) => entry.startsWith('persist'))).toBe(false);
-      expect(order).not.toContain('dispose');
-      expect(order.some((entry) => entry.startsWith('launch'))).toBe(false);
-    },
-  );
-
-  it('keeps the current session when the selected CLI is unavailable', async () => {
+  it('keeps the current session when the new core is not ready', async () => {
     const { deps, order } = flow({ isProviderReady: async () => false });
-    await expect(runAgentSwitchFlow(deps, CATALOG)).resolves.toEqual({
-      kind: 'unavailable', provider: 'codex',
-    });
+    await expect(
+      applyAgentSwitchSelection(deps, CATALOG, { provider: 'codex', model: 'codex-x' }),
+    ).resolves.toEqual({ kind: 'unavailable', provider: 'codex' });
+    expect(order.some((e) => e.startsWith('persist'))).toBe(false);
     expect(order).not.toContain('dispose');
   });
 
-  it('revalidates stage, provider, and live terminal after confirmation', async () => {
+  it('rejects a model that is not among the provider’s own choices', async () => {
+    const { deps, order } = flow();
+    await expect(
+      applyAgentSwitchSelection(deps, CATALOG, { provider: 'codex', model: 'claude-x' }),
+    ).resolves.toEqual({ kind: 'stale' });
+    expect(order).toEqual([]);
+  });
+
+  it('rejects an unknown provider', async () => {
+    const { deps, order } = flow();
+    await expect(
+      applyAgentSwitchSelection(deps, CATALOG, { provider: 'evil' as never, model: null }),
+    ).resolves.toEqual({ kind: 'stale' });
+    expect(order).toEqual([]);
+  });
+
+  it('cancelling at the confirm modal mutates nothing', async () => {
+    const { deps, order } = flow({ confirm: async () => false });
+    await expect(
+      applyAgentSwitchSelection(deps, CATALOG, { provider: 'codex', model: 'codex-x' }),
+    ).resolves.toEqual({ kind: 'cancelled', at: 'confirm' });
+    expect(order.some((e) => e.startsWith('persist'))).toBe(false);
+    expect(order).not.toContain('dispose');
+  });
+
+  it('revalidates the session after confirmation', async () => {
     let reads = 0;
     const { deps, order } = flow({
       read: () => ({
@@ -198,21 +174,25 @@ describe('runAgentSwitchFlow', () => {
         provider: 'claude', ticketModel: null, defaultModel: null,
       }),
     });
-    await expect(runAgentSwitchFlow(deps, CATALOG)).resolves.toEqual({ kind: 'stale' });
+    await expect(
+      applyAgentSwitchSelection(deps, CATALOG, { provider: 'codex', model: 'codex-x' }),
+    ).resolves.toEqual({ kind: 'stale' });
     expect(order).not.toContain('dispose');
   });
 
   it('keeps the new selection and reports a retryable launch failure', async () => {
     const { deps, order } = flow({ launch: async () => { order.push('launch'); throw new Error('spawn'); } });
-    const outcome = await runAgentSwitchFlow(deps, CATALOG);
+    const outcome = await applyAgentSwitchSelection(deps, CATALOG, { provider: 'codex', model: 'codex-x' });
     expect(outcome.kind).toBe('launch-failed');
     expect(order.slice(-3)).toEqual(['persist:codex:codex-x', 'dispose', 'launch']);
   });
 
   it('leaves the old terminal open when persistence fails', async () => {
     const { deps, order } = flow({ persist: () => { throw new Error('write'); } });
-    await expect(runAgentSwitchFlow(deps, CATALOG)).rejects.toThrow('write');
+    await expect(
+      applyAgentSwitchSelection(deps, CATALOG, { provider: 'codex', model: 'codex-x' }),
+    ).rejects.toThrow('write');
     expect(order).not.toContain('dispose');
-    expect(order.some((entry) => entry.startsWith('launch'))).toBe(false);
+    expect(order.some((e) => e.startsWith('launch'))).toBe(false);
   });
 });
