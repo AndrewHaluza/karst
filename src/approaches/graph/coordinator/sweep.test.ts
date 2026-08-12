@@ -17,6 +17,7 @@ import {
   graphTokenById,
   pendingTokensForRevision,
 } from '../../../store/graph/tokens.js';
+import { acquireLease } from '../../../store/graph/leases.js';
 import { runCoordinatorTick, type SweepDeps } from './sweep.js';
 import type { GraphDocument, ApproachEdge, ApproachNode } from '../parse.js';
 
@@ -331,5 +332,74 @@ describe('runCoordinatorTick', () => {
       .prepare('SELECT base_heads FROM approach_node_runs WHERE node_id = ?')
       .get('a') as { base_heads: string };
     expect(JSON.parse(run.base_heads)).toEqual(baseHeads);
+  });
+
+  it('claims acquire one held lease per host-resolved domain (Slice 5 T2)', () => {
+    const ctx = harness(doc([agent('a')], [
+      { id: 'a-end', from: 'a', on: 'complete', to: 'END' },
+    ], ['a']));
+    insertEntryTokens(ctx.db, ctx.revisionId, [
+      { edgeId: 'entry-a', destinationNodeId: 'a', destinationEnd: false },
+    ], ctx.now);
+    const result = runCoordinatorTick(ctx.makeDeps({
+      domainsForActivation: () => [
+        { physicalDomain: 'dom-api', accessMode: 'write' },
+        { physicalDomain: 'dom-web', accessMode: 'read' },
+      ],
+    }), { graphRunId: ctx.graphRunId });
+    expect(result.claimed).toBe(1);
+    const runId = runIdForNode(ctx.db, ctx.revisionId, 'a');
+    const leases = ctx.db
+      .prepare(
+        'SELECT physical_domain, status FROM approach_resource_leases WHERE owner_node_run_id = ? ORDER BY physical_domain',
+      )
+      .all(runId!) as { physical_domain: string; status: string }[];
+    expect(leases).toEqual([
+      { physical_domain: 'dom-api', status: 'held' },
+      { physical_domain: 'dom-web', status: 'held' },
+    ]);
+  });
+
+  it('a lease-conflicted activation defers to the next tick — the token stays pending, nothing is claimed', () => {
+    const ctx = harness(doc([agent('a'), agent('b')], [
+      { id: 'a-b', from: 'a', on: 'complete', to: 'b' },
+      { id: 'b-end', from: 'b', on: 'complete', to: 'END' },
+    ], ['a']));
+    // A foreign node run already holds `dom-api`; node `a` needs it.
+    ctx.db
+      .prepare(
+        `INSERT INTO approach_node_runs
+           (id, graph_run_id, revision_id, node_id, node_kind, visit_number, status)
+         VALUES (900, ?, ?, 'foreign', 'agent', 1, 'running')`,
+      )
+      .run(ctx.graphRunId, ctx.revisionId);
+    acquireLease(ctx.db, {
+      graphRunId: ctx.graphRunId,
+      ownerNodeRunId: 900,
+      physicalDomain: 'dom-api',
+      accessMode: 'write',
+      claimedPaths: null,
+      now: ctx.now,
+    });
+    insertEntryTokens(ctx.db, ctx.revisionId, [
+      { edgeId: 'entry-a', destinationNodeId: 'a', destinationEnd: false },
+    ], ctx.now);
+    const result = runCoordinatorTick(ctx.makeDeps({
+      domainsForActivation: () => [{ physicalDomain: 'dom-api', accessMode: 'write' }],
+    }), { graphRunId: ctx.graphRunId });
+    expect(result.claimed).toBe(0);
+    const token = ctx.db
+      .prepare("SELECT status FROM approach_graph_tokens WHERE destination_node_id = 'a'")
+      .get() as { status: string };
+    expect(token.status).toBe('pending'); // deferred, never cancelled
+    expect(runIdForNode(ctx.db, ctx.revisionId, 'a')).toBeUndefined();
+    // Once the foreign lease releases, the same tick claims it.
+    ctx.db
+      .prepare("UPDATE approach_resource_leases SET status = 'released' WHERE owner_node_run_id = 900")
+      .run();
+    const retry = runCoordinatorTick(ctx.makeDeps({
+      domainsForActivation: () => [{ physicalDomain: 'dom-api', accessMode: 'write' }],
+    }), { graphRunId: ctx.graphRunId });
+    expect(retry.claimed).toBe(1);
   });
 });

@@ -20,7 +20,8 @@
  *  4. node-level sweep per the matrix: `launching` (owner nonce proves a
  *     pre-spawn crash → retryable; no nonce → `launch-unknown`), `running`
  *     (dead → `stale` + recoverable block; unprovable → `termination-unknown`
- *     with leases retained; live attributable → left alone), and
+ *     with leases marked `ambiguous-process`; live attributable → left alone),
+ *     and
  *     `completing`/`integrating` (dead → resume the completion pipeline where
  *     it stopped — the reported outcome is in hand and is never re-executed;
  *     live attributable → revert to `running` so completion proceeds).
@@ -39,6 +40,7 @@
 import type { GraphDb } from '../../../store/graph/transitions.js';
 import { casStatus, GRAPH_RUN_TRANSITIONS, NODE_RUN_TRANSITIONS } from '../../../store/graph/transitions.js';
 import { cancelGraphToken } from '../../../store/graph/tokens.js';
+import { markLeaseAmbiguous } from './leases.js';
 import {
   attributeServer,
   type Attribution,
@@ -300,8 +302,9 @@ async function reconcileLaunching(
 }
 
 /** The `running` rows: dead/foreign → `stale` + recoverable block; unprovable
- *  → `termination-unknown` (leases retained — no lease write here); live
- *  attributable → left alone (another window owns it). No pid → never judged. */
+ *  → `termination-unknown` (held leases flip `ambiguous-process` — the flip
+ *  happens exactly here, never a release); live attributable → left alone
+ *  (another window owns it). No pid → never judged. */
 async function reconcileRunning(
   deps: ReconcileGraphRunDeps,
   graphRunId: number,
@@ -338,8 +341,12 @@ async function reconcileRunning(
     ) {
       return 0;
     }
+    // Slice 5 Task 2: a lease of a node whose process death is unprovable is
+    // ambiguous-process from here on — a conflicting launch is blocked and no
+    // automatic release may ever move it (only the discard action can).
+    markLeaseAmbiguous(deps.db, node.id);
     deps.debug?.(
-      `[graph] reconcile: node ${node.id} process death unprovable — termination-unknown, leases retained`,
+      `[graph] reconcile: node ${node.id} process death unprovable — termination-unknown, leases marked ambiguous-process`,
     );
     return 1;
   });

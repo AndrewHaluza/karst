@@ -21,9 +21,10 @@
  * node run is reused, and `incrementLaunchAttempt` bumps the launch-attempt
  * counter — there is no `claimed → pending` transition.
  *
- * Physical-domain lease acquisition and the concurrency-slot reservation join
- * this transaction with the workspace/lease machinery (Slices 4–5); the
- * transaction shape already accommodates them.
+ * Physical-domain lease acquisition (Slice 5 Task 2) and the concurrency-slot
+ * reservation join this transaction: one `held` lease row per required domain
+ * is inserted INSIDE the claim (a conflicting domain rolls the claim back),
+ * and the transaction shape already accommodates them.
  *
  * Host-agnostic: no vscode, no provider, no stage machine.
  */
@@ -37,6 +38,7 @@ import {
 } from '../../../store/graph/tokens.js';
 import { writeNodeRunBaseHeads, type BaseHead } from '../../../store/graph/nodeRuns.js';
 import { budgetRefusalFor, type BudgetRefusal } from './visits.js';
+import { acquireDomainLeases, type ActivationDomain } from './leases.js';
 
 /** Thrown when a claim must abort: a join with an unclaimable arrival, an
  *  END token handed to claiming, or an inner CAS that changed no row. */
@@ -71,6 +73,14 @@ export interface ClaimActivationInput {
    * the new node run so the workspace provider clones exactly that state.
    */
   baseHeads?: readonly BaseHead[];
+  /**
+   * The physical domains the activation needs (Slice 5 Task 2) — the HOST
+   * resolves them from the node's declared claims via the injected
+   * `domainsForActivation` callback. One `held` lease is acquired per domain
+   * INSIDE this claim transaction; a domain already held/ambiguous by another
+   * node run throws a `GraphClaimError` and the whole claim rolls back.
+   */
+  domains?: readonly ActivationDomain[];
 }
 
 export interface JoinOutgoing {
@@ -192,6 +202,16 @@ export function claimActivation(deps: ClaimDeps, input: ClaimActivationInput): C
     reserveBudgets(db, graphRunId, deps.now(), input.profileIsExpert === true);
     if (input.baseHeads !== undefined && !writeNodeRunBaseHeads(db, nodeRunId, input.baseHeads)) {
       throw new GraphClaimError(`base-head write moved no row for node run ${nodeRunId}`);
+    }
+    // Slice 5 Task 2: durable physical-domain leases are acquired INSIDE this
+    // transaction, after the affected-row checks pass and before the claim
+    // commits. A domain already held/ambiguous by another node run refuses the
+    // whole claim — the transaction rolls back and the sweep defers.
+    if (input.domains !== undefined) {
+      const acquisition = acquireDomainLeases({ db, now: deps.now }, { graphRunId, nodeRunId, domains: input.domains });
+      if (!acquisition.acquired) {
+        throw new GraphClaimError(`lease refused for node ${nodeId}: ${acquisition.reason}`);
+      }
     }
     return { claimed: true, nodeRunId, visitNumber };
   });

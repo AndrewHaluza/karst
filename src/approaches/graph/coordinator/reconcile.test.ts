@@ -224,7 +224,7 @@ describe('reconcileGraphRun — reload and crash matrix', () => {
     expect(result.transitions).toBe(1);
   });
 
-  it('a running node whose process death is unprovable becomes termination-unknown and its lease is retained', async () => {
+  it('a running node whose process death is unprovable becomes termination-unknown and its lease is marked ambiguous-process', async () => {
     linkProcess(ctx, 107, 4444, NOW);
     insertNodeRun(ctx, 107, 'running', { processRunId: 107 });
     acquireLease(ctx.db, {
@@ -232,7 +232,7 @@ describe('reconcileGraphRun — reload and crash matrix', () => {
       ownerNodeRunId: 107,
       physicalDomain: 'dom',
       accessMode: 'exclusive',
-      claimedPaths: 'x',
+      claimedPaths: null,
       now: NOW,
     });
     const deps = ctx.makeDeps({
@@ -240,11 +240,12 @@ describe('reconcileGraphRun — reload and crash matrix', () => {
     });
     const result = await reconcileGraphRun(deps, { graphRunId: ctx.graphRunId });
     expect(nodeRow(ctx, 107).status).toBe('termination-unknown');
-    // The lease stays held — no automatic release without proven termination.
+    // The lease flips `ambiguous-process` exactly here (Slice 5 T2) — a
+    // conflicting launch is blocked and no automatic release may move it.
     const lease = ctx.db
       .prepare('SELECT status FROM approach_resource_leases WHERE owner_node_run_id = ?')
       .get(107) as { status: string };
-    expect(lease.status).toBe('held');
+    expect(lease.status).toBe('ambiguous-process');
     expect(runRow(ctx).status).toBe('running');
     expect(result.transitions).toBe(1);
   });

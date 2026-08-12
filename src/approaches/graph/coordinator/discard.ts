@@ -19,7 +19,8 @@
  *     `sweep.ts` used at reserve time). The run's `visit_number` is evidence
  *     and is never touched: a cancelled visit stays recorded;
  *  5. release the run's leases — the ONLY path that releases a lease without
- *     proven termination (both `held` and `ambiguous-process` → `released`);
+ *     proven termination (`releaseLeaseForNodeRun(…, {allowAmbiguous})` moves
+ *     both `held` and `ambiguous-process` → `released`);
  *  6. re-evaluate the graph: if the discarded run was the last satisfier, the
  *     run blocks with `graph-topology-deadlock` — a recoverable blocker the
  *     recovery action refuses to auto-retry, leading to replan or an explicit
@@ -45,7 +46,7 @@
 import type { GraphDb } from '../../../store/graph/transitions.js';
 import { casStatus, GRAPH_RUN_TRANSITIONS, NODE_RUN_TRANSITIONS } from '../../../store/graph/transitions.js';
 import { cancelGraphToken } from '../../../store/graph/tokens.js';
-import { transitionLease } from '../../../store/graph/leases.js';
+import { releaseLeaseForNodeRun } from './leases.js';
 import { parseGraphDocument } from '../parse.js';
 
 /** The graph blocker reason a discard writes when the edge can no longer fire. */
@@ -213,17 +214,10 @@ export function discardUnknownProcess(deps: DiscardDeps, input: DiscardInput): D
     }
 
     // 5. Release the run's leases — the ONLY path that releases a lease
-    //    without proven termination. Both `held` and `ambiguous-process` are
-    //    legal → `released`; an already-released lease moves nothing.
-    const leases = db
-      .prepare(
-        "SELECT id, status FROM approach_resource_leases WHERE owner_node_run_id = ? AND status IN ('held','ambiguous-process')",
-      )
-      .all(node.id) as { id: number; status: string }[];
-    let releasedLeases = 0;
-    for (const lease of leases) {
-      if (transitionLease(db, lease.id, lease.status, 'released')) releasedLeases += 1;
-    }
+    //    without proven termination. Discard passes `allowAmbiguous`, so BOTH
+    //    `held` and `ambiguous-process` → `released`; no other caller may
+    //    move an ambiguous-process lease (pinned in coordinator/leases.test).
+    const releasedLeases = releaseLeaseForNodeRun(db, node.id, { allowAmbiguous: true });
 
     // 6. Re-evaluate: block with graph-topology-deadlock when the discarded
     //    run was the only remaining satisfier; otherwise leave the graph

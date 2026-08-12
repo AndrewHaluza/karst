@@ -19,6 +19,7 @@ import { openStore } from '../../../store/db.js';
 import { runCompletionPipeline, INTEGRATION_COMMIT_PREFIX, type CompletionPipelineDeps } from './pipeline.js';
 import { domainKeyOf } from './domains.js';
 import { canonicalPath } from '../../../runtime/pathScope.js';
+import { acquireLease } from '../../../store/graph/leases.js';
 import type { AgentTransport, SupervisedAgentSession } from '../transport/supervisedCliTransport.js';
 import type { GitRunner } from '../../../integrations/git.js';
 
@@ -102,6 +103,23 @@ function insertNodeRun(h: Harness, id: number, status: string): void {
     .run(id, h.graphRunId, h.revisionId, id, status);
 }
 
+function lease(h: Harness, nodeRunId: number, physicalDomain: string): void {
+  acquireLease(h.db, {
+    graphRunId: h.graphRunId,
+    ownerNodeRunId: nodeRunId,
+    physicalDomain,
+    accessMode: 'write',
+    claimedPaths: null,
+    now: '2026-08-12T00:00:00.000Z',
+  });
+}
+
+function leaseRow(h: Harness, nodeRunId: number): { status: string } {
+  return h.db
+    .prepare('SELECT status FROM approach_resource_leases WHERE owner_node_run_id = ?')
+    .get(nodeRunId) as { status: string };
+}
+
 function session(nodeRunId: number): SupervisedAgentSession {
   return { nodeRunId, ticketId: 1, graphRunId: 1, pid: 4200 + nodeRunId, cwd: '/wt' } as SupervisedAgentSession;
 }
@@ -165,6 +183,7 @@ describe('runCompletionPipeline — claim validation', () => {
     const h = harness();
     cleanups.push(h.close);
     insertNodeRun(h, 11, 'completing');
+    lease(h, 11, 'dom-blocked');
     writeFileSync(join(h.worktree, 'a.ts'), 'a2\n');
     writeFileSync(join(h.worktree, 'b.ts'), 'b2\n'); // outside the declared writes
     const logBefore = git(h.worktree, ['log', '--format=%H', '-1']);
@@ -190,6 +209,9 @@ describe('runCompletionPipeline — claim validation', () => {
     // Nothing was integrated: no new commit, both trees preserved.
     expect(git(h.worktree, ['log', '--format=%H', '-1'])).toBe(logBefore);
     expect(readFileSync(join(h.worktree, 'b.ts'), 'utf8')).toBe('b2\n');
+    // The lease stays HELD — preserved behind the blocker (Slice 5 T2): only
+    // the discard action or the resumed integration releases it.
+    expect(leaseRow(h, 11)).toEqual({ status: 'held' });
   });
 
   it('a node with no declared writes and a dirty worktree violates every path', async () => {
@@ -241,6 +263,25 @@ describe('runCompletionPipeline — integration', () => {
     );
     expect(result).toEqual({ kind: 'integrated', committed: false });
     expect(nodeRow(h, 22).status).toBe('completed');
+  });
+
+  it('a successful integration releases the node held leases in the same transaction (Slice 5 T2)', async () => {
+    const h = harness();
+    cleanups.push(h.close);
+    insertNodeRun(h, 24, 'completing');
+    lease(h, 24, 'dom-a');
+    lease(h, 24, 'dom-b');
+    writeFileSync(join(h.worktree, 'a.ts'), 'a5\n');
+    const result = await runCompletionPipeline(
+      makeDeps(h),
+      { graphRunId: h.graphRunId, nodeRunId: 24 },
+    );
+    expect(result).toEqual({ kind: 'integrated', committed: true });
+    expect(nodeRow(h, 24).status).toBe('completed');
+    const rows = h.db
+      .prepare('SELECT status FROM approach_resource_leases WHERE owner_node_run_id = 24 ORDER BY physical_domain')
+      .all() as { status: string }[];
+    expect(rows).toEqual([{ status: 'released' }, { status: 'released' }]);
   });
 
   it('a git refusal to land the change set preserves both trees and blocks with integration-conflict', async () => {
@@ -340,6 +381,7 @@ describe('runCompletionPipeline — termination', () => {
     const h = harness();
     cleanups.push(h.close);
     insertNodeRun(h, 61, 'completing');
+    lease(h, 61, 'dom-term');
     writeFileSync(join(h.worktree, 'a.ts'), 'z\n');
     const logBefore = git(h.worktree, ['log', '--format=%H', '-1']);
     const result = await runCompletionPipeline(
@@ -361,6 +403,9 @@ describe('runCompletionPipeline — termination', () => {
     };
     expect(run.status).toBe('running');
     expect(git(h.worktree, ['log', '--format=%H', '-1'])).toBe(logBefore);
+    // Termination unproven: the lease stays HELD (never released while
+    // termination is unknown; the reconcile pass marks it ambiguous later).
+    expect(leaseRow(h, 61)).toEqual({ status: 'held' });
   });
 
   it('a session that vanished from the registry cannot prove termination', async () => {

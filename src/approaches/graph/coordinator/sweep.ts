@@ -25,6 +25,7 @@ import { claimActivation, claimJoinActivation, GraphClaimError } from './claim.j
 import { handleBudgetRefusal } from './visits.js';
 import { parseGraphDocument, type ApproachNode, type GraphDocument } from '../parse.js';
 import type { BaseHead } from '../../../store/graph/nodeRuns.js';
+import type { ActivationDomain } from './leases.js';
 
 /** The per-tick bound: ≤ 100 state transitions (design, "Coordinator sweep"). */
 export const MAX_SWEEP_TRANSITIONS = 100;
@@ -43,6 +44,19 @@ export interface SweepDeps {
    * record no base heads.
    */
   baseHeadsOf?: (graphRunId: number) => readonly BaseHead[];
+  /**
+   * The physical domains an activation needs (Slice 5 Task 2). The HOST
+   * resolves them from the node's declared claims in the active revision; the
+   * sweep passes them into each claim, which acquires one `held` lease per
+   * domain inside its transaction. A conflicting domain rolls that claim back
+   * and the tick defers the group. Absent → claims acquire no leases.
+   */
+  domainsForActivation?: (input: {
+    graphRunId: number;
+    revisionId: number;
+    nodeId: string;
+    nodeKind: 'agent' | 'command' | 'gate';
+  }) => readonly ActivationDomain[];
 }
 
 export interface SweepResult {
@@ -206,15 +220,37 @@ export function runCoordinatorTick(
     }
     for (const token of group.tokens) {
       if (result.transitions >= maxTransitions) break;
-      const outcome = claimActivation(
-        { db, transaction: deps.transaction, now: deps.now },
-        {
-          tokenId: token.id,
+      const domains =
+        deps.domainsForActivation?.({
+          graphRunId: opts.graphRunId,
+          revisionId: revision.id,
+          nodeId: group.destination,
           nodeKind: node.kind === 'agent' ? 'agent' : node.kind === 'command' ? 'command' : 'gate',
-          profileIsExpert: node.kind === 'agent' && node.profile === 'expert',
-          baseHeads,
-        },
-      );
+        }) ?? [];
+      let outcome;
+      try {
+        outcome = claimActivation(
+          { db, transaction: deps.transaction, now: deps.now },
+          {
+            tokenId: token.id,
+            nodeKind: node.kind === 'agent' ? 'agent' : node.kind === 'command' ? 'command' : 'gate',
+            profileIsExpert: node.kind === 'agent' && node.profile === 'expert',
+            baseHeads,
+            domains,
+          },
+        );
+      } catch (err) {
+        if (err instanceof GraphClaimError) {
+          // Slice 5 Task 2: a lease-conflicted claim aborts and rolls back —
+          // a NORMAL serialization state, not a fault. The token stays
+          // pending and the tick defers the group to the next tick.
+          deps.debug?.(
+            `[graph] run ${opts.graphRunId}: activation for ${group.destination} refused: ${err.message}`,
+          );
+          break;
+        }
+        throw err;
+      }
       if (outcome.claimed) {
         result.claimed += 1;
         result.transitions += 1;

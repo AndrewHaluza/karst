@@ -30,6 +30,13 @@
  *    land the change set (failed add/commit) is `integration-conflict`:
  *    both trees are preserved for diagnosis and the graph blocks.
  *
+ * Lease release (Slice 5 Task 2): a successful integration releases the node's
+ * `held` leases in the SAME transaction that accepts the completion. Every
+ * parked path — `termination-unknown`, `output-artifact-missing`,
+ * `artifact-unsafe`, `claim-violated`, `integration-conflict` — keeps the
+ * leases held (preserved behind the blocker; only the discard action or the
+ * resumed integration releases them).
+ *
  * The validated output instances are recorded in the SAME transaction that
  * accepts the effective `complete` (`integrating → completed`), so an
  * instance exists only for a production that actually completed — never for
@@ -53,6 +60,7 @@ import type { AgentTransport, SupervisedAgentSession } from '../transport/superv
 import { resolvePhysicalDomains, type DomainEntry } from './domains.js';
 import { captureChangeSet, validateChangeSet, type ChangeSetEntry } from './changeSet.js';
 import { completeActivation } from '../coordinator/completion.js';
+import { releaseLeaseForNodeRun } from '../coordinator/leases.js';
 import { recordArtifactInstance, validateRequiredOutputs } from '../artifacts/resolve.js';
 import { parseGraphDocument } from '../parse.js';
 import { join } from 'node:path';
@@ -405,6 +413,11 @@ export async function runCompletionPipeline(
       { ...deps, transaction: <T>(fn: () => T): T => fn() },
       { nodeRunId: input.nodeRunId, effectiveOutcome: 'complete' },
     );
+    // Slice 5 Task 2: the change set INTEGRATED — termination is proven and
+    // the work is landed, so the node's `held` leases release here, in the
+    // same transaction that accepts the completion. An `ambiguous-process`
+    // lease is left strictly alone (only the discard action may move one).
+    releaseLeaseForNodeRun(deps.db, input.nodeRunId);
   });
   deps.debug?.(
     `[graph] node ${input.nodeRunId} integrated${committed ? '' : ' (no changes)'} — completed`,

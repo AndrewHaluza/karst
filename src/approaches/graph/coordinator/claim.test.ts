@@ -18,6 +18,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openStore } from '../../../store/db.js';
 import { insertEntryTokens, insertGraphToken, claimGraphToken } from '../../../store/graph/tokens.js';
+import { acquireLease } from '../../../store/graph/leases.js';
 import {
   claimActivation,
   claimJoinActivation,
@@ -409,6 +410,105 @@ describe('claim-time base heads (Slice 5 Task 1)', () => {
       claimActivation(deps, { tokenId, nodeKind: 'agent', baseHeads: SHARED_BASE }),
     ).toThrow('boom after claim');
     expect(runCount(ctx.db, ctx.revisionId)).toBe(0);
+  });
+});
+
+describe('claim-time physical-domain leases (Slice 5 Task 2)', () => {
+  function leasesOf(ctx: Ctx, nodeRunId: number): { physical_domain: string; status: string }[] {
+    return ctx.db
+      .prepare(
+        'SELECT physical_domain, status FROM approach_resource_leases WHERE owner_node_run_id = ? ORDER BY physical_domain',
+      )
+      .all(nodeRunId) as { physical_domain: string; status: string }[];
+  }
+
+  /** A pre-existing node run (not the claim's own) that already holds a lease. */
+  function foreignLease(ctx: Ctx, physicalDomain: string): void {
+    ctx.db
+      .prepare(
+        `INSERT INTO approach_node_runs
+           (id, graph_run_id, revision_id, node_id, node_kind, visit_number, status)
+         VALUES (900, ?, ?, 'foreign', 'agent', 1, 'running')`,
+      )
+      .run(ctx.graphRunId, ctx.revisionId);
+    acquireLease(ctx.db, {
+      graphRunId: ctx.graphRunId,
+      ownerNodeRunId: 900,
+      physicalDomain,
+      accessMode: 'write',
+      claimedPaths: null,
+      now: ctx.now,
+    });
+  }
+
+  it('acquires one held lease per required domain inside the claim transaction', () => {
+    const ctx = harness();
+    const result = claimActivation(ctx.makeDeps(), {
+      tokenId: entryTokenId(ctx),
+      nodeKind: 'agent',
+      domains: [
+        { physicalDomain: 'dom-1', accessMode: 'write' },
+        { physicalDomain: 'dom-2', accessMode: 'read' },
+      ],
+    });
+    expect(result.claimed).toBe(true);
+    if (!result.claimed) return;
+    expect(leasesOf(ctx, result.nodeRunId)).toEqual([
+      { physical_domain: 'dom-1', status: 'held' },
+      { physical_domain: 'dom-2', status: 'held' },
+    ]);
+  });
+
+  it('a domain held by another node run aborts the claim — the whole transaction rolls back', () => {
+    const ctx = harness();
+    foreignLease(ctx, 'dom-conflict');
+    const tokenId = entryTokenId(ctx);
+    expect(() =>
+      claimActivation(ctx.makeDeps(), {
+        tokenId,
+        nodeKind: 'agent',
+        domains: [{ physicalDomain: 'dom-conflict', accessMode: 'write' }],
+      }),
+    ).toThrow(/lease refused/);
+    // Rolled back: token still pending, no node run, no budget spent.
+    const token = ctx.db
+      .prepare('SELECT status FROM approach_graph_tokens WHERE id = ?')
+      .get(tokenId) as { status: string };
+    expect(token.status).toBe('pending');
+    expect(runCount(ctx.db, ctx.revisionId)).toBe(1); // only the foreign run
+    expect(graphCounters(ctx.db, ctx.graphRunId)).toEqual({ node: 0, expert: 0 });
+  });
+
+  it('a rollback also rolls back the acquired leases', () => {
+    const ctx = harness();
+    const tokenId = entryTokenId(ctx);
+    const deps = ctx.makeDeps({
+      transaction: (fn) =>
+        withImmediate(ctx.db, () => {
+          const inner = fn();
+          throw new Error('boom after lease acquisition');
+        }),
+    });
+    expect(() =>
+      claimActivation(deps, {
+        tokenId,
+        nodeKind: 'agent',
+        domains: [{ physicalDomain: 'dom-rollback', accessMode: 'write' }],
+      }),
+    ).toThrow('boom after lease acquisition');
+    expect(
+      ctx.db
+        .prepare('SELECT COUNT(*) AS n FROM approach_resource_leases')
+        .get() as { n: number },
+    ).toEqual({ n: 0 });
+  });
+
+  it('claims without domains acquire no leases', () => {
+    const ctx = harness();
+    const result = claimActivation(ctx.makeDeps(), { tokenId: entryTokenId(ctx), nodeKind: 'gate' });
+    expect(result.claimed).toBe(true);
+    if (!result.claimed) return;
+    expect(leasesOf(ctx, result.nodeRunId)).toEqual([]);
   });
 });
 
