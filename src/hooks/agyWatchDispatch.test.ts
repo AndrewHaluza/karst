@@ -3,7 +3,6 @@ import { openStore, type Store } from '../store/db.js';
 import { createTicket, getTicket } from '../store/tickets.js';
 import { dispatchHook } from './dispatch.js';
 import { ticketGlyph } from '../model/ticketGlyph.js';
-import { buildNowLine } from '../model/nowLine.js';
 
 /** Register a worktree row directly so a payload cwd resolves to a ticket. */
 function seedWorktree(store: Store, ticketId: number, path: string): void {
@@ -19,8 +18,8 @@ function seedWorktree(store: Store, ticketId: number, path: string): void {
  * The agy conversation watch normalizes its reads of the CLI's conversation DB
  * into the CLOSED hook vocabulary (SessionStart / permission.asked /
  * UserPromptSubmit) — this pins that those exact payloads, dispatched, drive
- * the provider-agnostic needs-you display: the amber glyph and the waiting Now
- * line while the ask is pending, running/blue once the user answers.
+ * the provider-agnostic needs-you display: the amber glyph while the ask is
+ * pending, running/blue once the user answers.
  */
 describe('agy conversation watch → dispatch → needs-you display', () => {
   let store: Store;
@@ -51,9 +50,6 @@ describe('agy conversation watch → dispatch → needs-you display', () => {
     });
     expect(getTicket(store, id).agentState).toBe('waiting');
     expect(ticketGlyph(getTicket(store, id))).toBe('amber');
-    expect(
-      buildNowLine({ stageKey: 'impl', status: 'running' }, { agentWaiting: true }).text,
-    ).toBe('Now: the agent is waiting — it asked for your input.');
 
     // The user answers → the status=9 row resolves → the watch emits
     // UserPromptSubmit, which flips the amber back to running.

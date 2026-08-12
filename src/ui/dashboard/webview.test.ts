@@ -55,27 +55,10 @@ function containerBlock(w: string): string {
  * or a selection round trip that fails in a real webview. Those need F5.
  */
 describe('dashboard webview.html', () => {
-  it('renders the Now session subtitle from action.detail', () => {
-    expect(HTML).toContain('a.detail');
-  });
-
-  it('shows the live core/model through the identity component and a payload-free switch action beside Now', () => {
-    // The Now line renders the session identity through the injected
-    // component (icon + name + model) — never a bare text pair.
-    expect(HTML).toMatch(/agentIdentityHtml\(agentSession\.provider,\s*agentSession\.modelLabel/);
-    expect(HTML).toContain('data-act="switch-agent"');
-    expect(HTML).toMatch(/agentSession\.canSwitch[\s\S]*switch-agent/);
-    expect(HTML).not.toMatch(/data-act="switch-agent"[^>]*data-(?:provider|model|ticket)/);
-  });
-
-  it('builds the switch action on the shared secondary button, not a bespoke style rule', () => {
-    // UI-R07: no local rule may restyle a <button> (background/border/padding/
-    // radius/font-size) — `.switch-agent` used to declare its own colors with
-    // a hex-adjacent VS Code fallback chain; it is now a layout-only class
-    // riding on `.k-btn--secondary`, which already resolves through the same
-    // secondaryBackground/secondaryForeground tokens.
-    expect(HTML).toMatch(/class="k-btn k-btn--secondary[^"]*switch-agent"[^>]*data-act="switch-agent"/);
-    expect(HTML).not.toMatch(/\.switch-agent\{[^}]*background/);
+  it('renders the header ship action from state.ship, never a Now sentence', () => {
+    expect(HTML).toMatch(/function renderShip\(state\)[\s\S]*?state\.ship/);
+    expect(HTML).not.toContain('id="now"');
+    expect(HTML).not.toMatch(/function renderNow\(/);
   });
 
   it('renders ticket changes as one accessible diff icon button', () => {
@@ -143,8 +126,9 @@ describe('dashboard webview.html', () => {
 
   it('keeps every injection marker — each one fails silently when lost', () => {
     // injectCsp no-ops on a marker-less document by design, and the provider
-    // markers are load-bearing at runtime (renderKeyPill calls providerIconHtml,
-    // which only exists because the JS marker was substituted). The agent
+    // markers are load-bearing at runtime (renderTicketIdentity calls
+    // providerIconHtml, which only exists because the JS marker was
+    // substituted). The agent
     // markers are equally load-bearing since B1: identityChipHtml calls
     // agentIconHtml, so a marker-less dashboard would throw ReferenceError on
     // the first process row that carries an execution identity.
@@ -416,13 +400,18 @@ describe('dashboard webview.html', () => {
       join(dirname(fileURLToPath(import.meta.url)), 'messages.ts'),
       'utf8',
     );
-    // Literal names only. The Now line's button interpolates its action from
-    // NOW_MESSAGE, whose values are themselves literals declared below.
+    // Literal names only. Ship rides the fixed confirmShip button markup; the
+    // other data-act values are static strings declared below.
     const emitted = [...HTML.matchAll(/data-act="([^"$]+)"/g)].map((m) => m[1]!);
     expect(emitted.length).toBeGreaterThan(0);
     for (const act of new Set(emitted)) {
       expect(declared, `unvalidated action: ${act}`).toContain(`'${act}'`);
     }
+    // The menu's edit entry and the identity's copy-key ride data-act; the
+    // agent switch is a dedicated popover button, never a data-act value.
+    expect(emitted).toContain('edit-ticket');
+    expect(emitted).toContain('copy-ticket-key');
+    expect(emitted).not.toContain('switch-agent');
   });
 
   /**
@@ -579,21 +568,12 @@ describe('dashboard webview.html', () => {
     expect(HTML).toMatch(/srvFilter:\s*srvFilter/);
   });
 
-  it('offers the terminal binding as a real pressed-state toggle', () => {
-    // Icon-free text button, but still a toggle: screen readers need the pressed
-    // state, since "Bind" alone does not say whether it is currently on.
-    expect(HTML).toContain('data-act="toggle-bind"');
-    expect(HTML).toMatch(/id="bindBtn"[^>]*aria-pressed/);
-  });
-
-  it('renders the binding from the host push, never from its own memory', () => {
-    // The binding is window-wide and host-owned: two dashboards are open at
-    // once, so a webview that remembered its own value would drift from the
-    // other panel and from the host after a toggle.
+  it('offers the terminal binding as a menu switch reflecting the host push', () => {
+    expect(HTML).toContain('id="linkViews"');
+    expect(HTML).toMatch(/bindEnabled[\s\S]*linkViews/);
+    expect(HTML).not.toMatch(/id="bindBtn"/);
     expect(HTML).toMatch(/'bind'|"bind"/);
     expect(HTML).toMatch(/bindEnabled\s*=\s*[^;]*\bmsg\b/);
-    // Not persisted beside the snapshot, unlike sel/fixExpanded/srvFilter —
-    // the host re-pushes it on every open, so a stored copy could only be stale.
     expect(HTML).not.toMatch(/setState\(\{ state:[^}]*bindEnabled/);
   });
 
@@ -613,36 +593,28 @@ describe('dashboard webview.html', () => {
    * `shipping` flag and its flat `ship-progress` overlay are gone.
    */
   it('registers the confirm-ship click before the host round trip', () => {
-    // shipRequestId is set and the pending lifecycle starts inside the click
-    // handler, not on the next state push — so there is no window where the
-    // button looks inert.
     expect(HTML).toMatch(/act === 'ship-ticket'/);
     expect(HTML).toMatch(/shipRequestId = karstRequestId\(\)/);
     expect(HTML).toMatch(/karstBeginPending\(btn, shipRequestId\)/);
   });
 
   it('guards against a double confirm-ship submit while one is in flight', () => {
-    // Re-clicking must not fire a second ship. The pending requestId is the
-    // in-flight marker (the old `shipping` boolean is gone).
     expect(HTML).toMatch(/if \(shipRequestId\) return/);
   });
 
-  it('holds the ship Now line across state pushes until the stage resolves', () => {
-    // Every push still reads the ship stage as "ready" (it sits at running), so
-    // renderNow must short-circuit to a static sentence while a ship is in
-    // flight, and the resolution must key off host stage truth — not the button
-    // copy. The hold keys off the in-flight requestId, never a `shipping` flag.
-    expect(HTML).toMatch(/function renderNow\(now(?:, agentSession)?\) \{[\s\S]*?if \(shipRequestId\)/);
-    expect(HTML).toMatch(/stageCurrent === 'ship'/);
+  it('holds the ship header slot across state pushes until the stage resolves', () => {
+    expect(HTML).toMatch(/function renderShip\(state\)[\s\S]*?(?:shipRequestId|\bslot\b)/);
+    expect(HTML).toMatch(/stageCurrent === 'ship'/);   // resolveShipping still keys off host truth
     expect(HTML).toMatch(/status === 'failed'/);
     expect(HTML).not.toMatch(/if \(shipping\)/);
+    expect(HTML).not.toContain('id="now"');
   });
 
   it('feeds live Ship events through the generic inside-progress protocol, never a flat overlay', () => {
     // Finding 12: the per-repo/per-step `ship-progress` stream is gone; ship's
     // lifecycle rides the same `inside-progress` union as gates and Fix, and
     // renderInside always consumes the authoritative ledger + generic overlays.
-    // (The word "shipping" still appears inside the host's static Now sentence.)
+    // (The word "shipping" now lives in the header ship button's label.)
     expect(HTML).toContain("'inside-progress'");
     expect(HTML).not.toContain("'ship-progress'");
     expect(HTML).not.toMatch(/\blet shipping\b|shipping\s*=\s*(?:true|false)/);
@@ -651,19 +623,10 @@ describe('dashboard webview.html', () => {
     expect(HTML).not.toMatch(/renderInsideFlat/);
   });
 
-  it('shows the follow-up button only once the ticket is done', () => {
-    expect(HTML).toContain('id="followUpBtn"');
-    expect(HTML).toContain(
-      "el('followUpBtn').classList.toggle('hidden', state.stageCurrent !== 'done')",
-    );
-  });
-
-  it('wires the follow-up button to create-follow-up-ticket', () => {
-    // Posts through the generic delegated [data-act] handler (pending on
-    // click, non-re-triggerable, settled by action-result) rather than a
-    // bespoke fire-and-forget listener.
-    expect(HTML).toMatch(/id="followUpBtn"[^>]*data-act="create-follow-up-ticket"/);
-    expect(HTML).not.toContain("el('followUpBtn').addEventListener('click'");
+  it('shows the follow-up menu item only once the ticket is done', () => {
+    expect(HTML).toContain('id="followUpItem"');
+    expect(HTML).toMatch(/el\('followUpItem'\)\.classList\.toggle\('hidden', state\.stageCurrent !== 'done'\)/);
+    expect(HTML).not.toMatch(/id="followUpBtn"/);
   });
 
   /**
@@ -780,11 +743,11 @@ describe('dashboard webview.html', () => {
     expect(HTML).toMatch(/prRefreshId = null/);
   });
 
-  it('resolves the ship to an explicit success flash', () => {
+  it('resolves the ship to an explicit success toast', () => {
     // On completion the indicator settles to a clear success beat, distinct from
-    // the idle and processing states.
+    // the idle and processing states — the header toast now carries it.
     expect(HTML).toMatch(/shipDone = 'success'/);
-    expect(HTML).toContain('✓ Shipped');
+    expect(HTML).toContain('Shipped ✓');
   });
   it('renders the PR path through the host’s display form, never the raw path', () => {
     // The path-display preference (relative/absolute) is resolved host-side into
@@ -897,14 +860,17 @@ describe('dashboard webview.html', () => {
     // caps the in-webview artifact detail surface, the same layout-width class as
     // `640px` but narrower for the detail-heavy content. `12px` (×4) sizes the
     // origin chip's two icon marks — no space step at the chip's 12px scale.
-    // `2px` (×3) sets focus outlines and the artifact-finding left border; `1px`
-    // (×2) offsets those focus outlines. All six are the same exemption class as
-    // `74px` — a deliberate geometry with no token equivalent.
+    // `2px` (×4) sets focus outlines and the artifact-finding left border; `1px`
+    // (×9) offsets those focus outlines plus the … menu's divider, the bind
+    // switch's focus ring, and the quick-setting help's optical nudge. All ten
+    // are the same exemption class as `74px` — a deliberate geometry with no
+    // token equivalent.
     const ALLOWED = ['46px', '72px', '640px', '82px', '74px', '4px', '180px', '288px', '6px', '400px',
       '300px', '360px', '430px', '110px', '160px', '104px',
       '1px', '1px', '1px', '1px', '1px', '1px',
       '200px', '720px',
-      '2px', '2px', '2px',
+      '2px', '2px', '2px', '2px',
+      '1px', '1px', '1px',
       '12px', '12px', '12px', '12px',
       '4px', '4px', '4px', '4px', '4px'];
     // The ported Inside block is the ONE exempt region (see its own header
@@ -1016,8 +982,7 @@ describe('dashboard webview.html', () => {
   it('titles every previously-untitled control named in the remediation brief', () => {
     for (const title of [
       'Return the strip to the stage the ticket is actually on', // .ghost[data-back]
-      "Open this stage's log file", // open-stage-log (Inside block / Now line)
-      "Switch this ticket\\'s live agent session", // .switch-agent (JS string literal, escaped apostrophe)
+      "Open this stage's log file", // open-stage-log (Inside block)
       'Open a terminal in this worktree', // open-worktree-terminal
       'Reveal this worktree in the file explorer', // open-worktree-folder
       'Build this worktree and open its extension in a new dev window', // launch-worktree-extension
@@ -1055,13 +1020,14 @@ describe('dashboard webview.html', () => {
   });
 
   it('gives every rounded pill in the file the shared .k-chip primitive (UI-R08)', () => {
-    // keypill and the PR status pill build on one shared shape instead of
-    // divergent bespoke radii. The fixtoggle and the approach chips left with the
+    // The PR status pill builds on the shared shape instead of a bespoke
+    // radius. The keypill left the header with Task 5 (the key is a plain
+    // monospace button now). The fixtoggle and the approach chips left with the
     // branch band: the track carries the fix loop inside the gate it retries and
     // the approach inside impl's own segment, so neither is a pill any more.
-    expect(HTML).toMatch(/class="k-chip keypill/);
     expect(HTML).toMatch(/class="k-chip pst pst-/);
     expect(HTML).not.toMatch(/class="k-chip fixtoggle/);
+    expect(HTML).not.toMatch(/class="k-chip keypill/);
   });
 
   it('resolves the three purples (selection mark, merged badge, merged timestamp) to one token', () => {
@@ -1081,9 +1047,43 @@ describe('dashboard webview.html', () => {
     expect(HTML).toMatch(/\.pcms summary:focus-visible\{outline:var\(--k-focus-w\) solid var\(--k-focus\)/);
   });
 
-  it('makes the inert local key pill visibly non-interactive, never a real control', () => {
-    expect(HTML).toMatch(/class="k-chip keypill local"/);
-    expect(HTML).toMatch(/\.dhead \.keypill\.local\{border-style:dashed;color:var\(--k-text-dim\);\s*\n\s*background:transparent;cursor:default\}/);
+  it('renders ticket identity as provider mark + copy-key button + separate board link', () => {
+    expect(HTML).toMatch(/id="keyBtn"[^>]*data-act="copy-ticket-key"/);
+    expect(HTML).toMatch(/id="keyBtn"[^>]*data-copy/);
+    expect(HTML).toMatch(/id="boardLink"[^>]*data-act="open-ticket-link"/);
+    expect(HTML).toMatch(/id="boardLink"[^>]*data-url="\$\{esc\(state\.ticketUrl\)\}"/);
+    expect(HTML).toMatch(/id="providerMark"/);
+    // The key itself must NOT be the board link any more.
+    expect(HTML).not.toMatch(/class="k-chip keypill/);
+  });
+
+  it('renders the active agent through the Karst identity pattern with runtime status', () => {
+    expect(HTML).toMatch(/agentBadgeHtml\(state\.agentSession\.provider\)/);
+    expect(HTML).toMatch(/id="agentModel"[\s\S]*?state\.agentSession\.modelLabel/);
+    expect(HTML).toMatch(/id="agentLiveText"[\s\S]*?agentState/);
+    expect(HTML).toContain('id="agentButton"');
+  });
+
+  it('stages the agent switch in a popover that does nothing until Switch agent is clicked', () => {
+    expect(HTML).toContain('id="agentPopover"');
+    expect(HTML).toContain('id="coreSelect"');
+    expect(HTML).toContain('id="modelSelect"');
+    expect(HTML).toContain('id="switchBtn"');
+    expect(HTML).toMatch(/Closing this menu takes no action/);
+    expect(HTML).toMatch(/draftCore !== s\.provider \|\| /); // changed-draft gate
+    expect(HTML).toMatch(/post\(\{ type: 'switch-agent', provider: draftCore, model: draftModel \|\| null \}\)/);
+    expect(HTML).not.toMatch(/data-act="switch-agent"/);      // no longer a Now-line button
+  });
+
+  it('titles the header identity and agent controls (UI-R20/R21)', () => {
+    for (const title of [
+      'Switch the live agent session', // #agentButton
+      'Open ticket in provider', // #boardLink
+      'Ticket controls', // #moreBtn
+      'Copy ticket key', // #keyBtn
+    ]) {
+      expect(HTML, `missing header title: ${title}`).toContain(title);
+    }
   });
 
   it('renders a blocked banner from state.currentStage.blocked, hidden by default', () => {
@@ -1101,7 +1101,7 @@ describe('dashboard webview.html', () => {
     // re-point the Inside panel to whatever stage it names.
     const renderBlockedBody = HTML.slice(
       HTML.indexOf('function renderBlocked(state)'),
-      HTML.indexOf('// One sentence + at most one button'),
+      HTML.indexOf('let toastTimer = 0;'),
     );
     expect(renderBlockedBody).toMatch(/data-act="stage-resume"/);
     expect(renderBlockedBody).toMatch(/data-stagekey="\$\{esc\(cell\.stageKey\)\}"/);
@@ -1117,7 +1117,7 @@ describe('dashboard webview.html', () => {
     // host's `resumable` flag, never a reason-string match in the webview.
     const renderBlockedBody = HTML.slice(
       HTML.indexOf('function renderBlocked(state)'),
-      HTML.indexOf('// One sentence + at most one button'),
+      HTML.indexOf('let toastTimer = 0;'),
     );
     expect(renderBlockedBody).toMatch(/blocked\.resumable === false/);
     // The non-resumable branch is the code between its own `if` and the next
@@ -1184,13 +1184,21 @@ describe('dashboard webview.html', () => {
     expect(HTML).toMatch(/#inside \.glyph\.pending,#inside \.glyph\.note\{/);
   });
 
-  it('renders a Gates panel with a per-gate toggle button', () => {
-    expect(HTML).toContain('id="gates"');
+  it('renders the gate toggles inside the … menu, per-gate', () => {
+    expect(HTML).toContain('id="menuGates"');
     expect(HTML).toContain('data-act="set-disabled-gates"');
+    expect(HTML).toMatch(/renderMenuGates/);
   });
 
   it('handles the gate-options host message', () => {
     expect(HTML).toContain("msg.type === 'gate-options'");
+  });
+
+  it('removes the standalone Gates panel — the toggles live in the … menu', () => {
+    expect(HTML).not.toMatch(/class="panel span"[^>]*>\s*<div class="phead">Gates/);
+    expect(HTML).not.toContain('id="gateCount"');
+    expect(HTML).toContain('id="menuGates"');
+    expect(HTML).toMatch(/renderMenuGates/);
   });
 
   it('gives every gate toggle a matching aria-label and title (UI-R19–R21)', () => {
@@ -1279,7 +1287,11 @@ describe('dashboard webview.html', () => {
     expect(HTML).toMatch(/<summary>\$\{glyph\}\$\{name\}\$\{detail\}\$\{tail\}<span class="chev"/);
     expect(HTML).toMatch(/openProcesses = next;/);
     expect(HTML).not.toMatch(/data-chev/);
-    expect(HTML).not.toMatch(/aria-expanded/);
+    // The disclosure element itself is the native <details> — no aria-expanded
+    // toggle on it (the header's popover buttons legitimately carry
+    // aria-expanded; that is the button-controlling-a-dialog pattern, not this
+    // disclosure).
+    expect(HTML).not.toMatch(/<details[^>]*aria-expanded/);
   });
 
   it('posts inside actions with only the opaque actionId', () => {
@@ -1676,7 +1688,7 @@ describe('dashboard webview.html', () => {
     // reduced-motion block is a (0,1,0) rule, so a later scoped rule such as
     // `.inside-head .alive .spin` (0,3,1) would win by specificity and spin
     // again under reduced motion.
-    for (const scoped of ['.inside-head .alive .spin', '.now .spin', '.track .seg .spin']) {
+    for (const scoped of ['.inside-head .alive .spin', '.track .seg .spin']) {
       expect(HTML, `${scoped} re-declares an animation`).not.toMatch(
         new RegExp(`${scoped.replace('.', '\\.')}\\{[^}]*animation`),
       );
@@ -1846,10 +1858,23 @@ function overlayProcesses_forTest(
   return run({ [view.stageKey]: live }, view);
 }
 
+/**
+ * Read the static `class` attribute off an element's markup, so a harness
+ * element starts with the same classes the real webview has (e.g. `hidden`).
+ * Without this a popover/menu that the script only ever OPENS would read as
+ * already-open, because the stub's class list starts empty.
+ */
+function initialClasses(id: string): string[] {
+  const tag = HYDRATED.match(new RegExp(`<[^>]*\\bid="${id}"[^>]*>`))?.[0];
+  if (!tag) return [];
+  const cls = /class="([^"]*)"/.exec(tag)?.[1];
+  return cls ? cls.split(/\s+/).filter(Boolean) : [];
+}
+
 /** A minimal element double for whatever the script touches through `el()`. */
-function previewElement(id: string) {
+function previewElement(id: string, initial: string[] = []) {
   const attrs: Record<string, string> = {};
-  const classes: string[] = [];
+  const classes: string[] = [...initial];
   const listeners = new Map<string, (event?: unknown) => void>();
   return {
     id,
@@ -1857,6 +1882,7 @@ function previewElement(id: string) {
     textContent: '',
     title: '',
     value: '',
+    checked: false,
     disabled: false,
     dataset: {} as Record<string, string>,
     scrollWidth: 100,
@@ -1919,6 +1945,8 @@ interface PreviewHarness {
   htmlOf(id: string): string;
   textOf(id: string): string;
   classesOf(id: string): string[];
+  /** The stub element for `id` — read `.checked` or `.fire('change', event)` on it. */
+  element(id: string): PreviewElement;
   bodyDataset: Record<string, string>;
   bodyClasses: string[];
   /** The most recent message the script dispatched on `window` (the selected snapshot). */
@@ -1937,11 +1965,27 @@ function bootPreviewHarness(): PreviewHarness {
     'inside',
     'rail',
     'title',
-    'followUpBtn',
-    'keyPill',
-    'agent',
     'blocked',
-    'now',
+    'toast',
+    'confirmShip',
+    'shipWait',
+    'providerMark',
+    'keyBtn',
+    'boardLink',
+    'agentButton',
+    'agentCore',
+    'agentModel',
+    'agentDot',
+    'agentLiveText',
+    'agentPopover',
+    'coreSelect',
+    'modelSelect',
+    'switchBtn',
+    'moreBtn',
+    'menuPopover',
+    'followUpItem',
+    'linkViews',
+    'menuGates',
     'srvCount',
     'srvOps',
     'worktrees',
@@ -1950,9 +1994,6 @@ function bootPreviewHarness(): PreviewHarness {
     'prs',
     'prCount',
     'prRefresh',
-    'gates',
-    'gateCount',
-    'bindBtn',
     'artPanel',
     'artCount',
     'artTotal',
@@ -1962,7 +2003,7 @@ function bootPreviewHarness(): PreviewHarness {
     'termView',
     'termHost',
   ]) {
-    elements[id] = previewElement(id);
+    elements[id] = previewElement(id, initialClasses(id));
   }
 
   const bodyClasses: string[] = [];
@@ -2125,6 +2166,7 @@ function bootPreviewHarness(): PreviewHarness {
     htmlOf: (id) => elements[id]!.innerHTML,
     textOf: (id) => elements[id]!.textContent,
     classesOf: (id) => elements[id]!.classes,
+    element: (id) => elements[id]!,
     bodyDataset,
     bodyClasses,
     lastDispatched: () => dispatched.at(-1),
@@ -3124,6 +3166,46 @@ describe('inside render round trip (executed in a VM)', () => {
     expect(fn!.match(/statusWord\(/g)).toHaveLength(1);
     expect(fn!).toMatch(/aria-label="\$\{esc\(statusWord\(/);
     expect(fn!).not.toContain('esc(r.duration || statusWord(r.status))');
+  });
+});
+
+describe('agent popover round trip (executed in a VM)', () => {
+  it('posts the staged core/model only on Switch agent, never on open or close', () => {
+    const store = openStore(':memory:');
+    const t = createTicket(store, { key: 'SW-H', title: 'switch' });
+    store.db.prepare("UPDATE tickets SET stage_current = 'impl' WHERE id = ?").run(t.id);
+    const state = buildDashboardState(
+      store, t.id, undefined, undefined, undefined, undefined, 'claude',
+      { defaultModel: null, isSessionOpen: () => true },
+    );
+    store.close();
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state });
+    h.click('#agentButton', {});
+    const popover = h.classesOf('agentPopover');
+    expect(popover.includes('hidden')).toBe(false);
+    // Closing without switching posts nothing.
+    const before = h.posted.length;
+    h.click('body', {});
+    expect(h.posted.length).toBe(before);
+  });
+
+  it('posts toggle-bind from the menu switch and renders the host push', () => {
+    const h = bootPreviewHarness();
+    // The host's `bind` push drives the checkbox — the webview never remembers
+    // the value, because the preference is window-wide and host-owned.
+    h.receive({ type: 'bind', enabled: true });
+    expect(h.element('linkViews').checked).toBe(true);
+    h.receive({ type: 'bind', enabled: false });
+    expect(h.element('linkViews').checked).toBe(false);
+    // The change listener posts the payload-free flip; the host answers with
+    // the `bind` message, which is the terminal outcome (UI-R13/R31).
+    const before = h.posted.length;
+    h.element('linkViews').fire('change', {});
+    expect(h.posted.slice(before)).toEqual([{ type: 'toggle-bind' }]);
+    // The shipped wiring, pinned so a future refactor cannot rename it.
+    expect(HTML).toContain("msg.type === 'bind'");
+    expect(HTML).toMatch(/toggle-bind/);
   });
 });
 

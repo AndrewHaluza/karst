@@ -134,6 +134,15 @@ describe('buildDashboardState', () => {
     expect(state.agentSession.canSwitch).toBe(false);
   });
 
+  it('exposes the header agent-switch choices for every implemented core', () => {
+    const t = createTicket(store, { key: 'SW-CH', title: 'switch' });
+    const state = buildDashboardState(store, t.id);
+    expect(state.agentSwitch.cores.map((c) => c.id)).toEqual(['claude', 'codex', 'antigravity', 'opencode']);
+    expect(state.agentSwitch.cores.find((c) => c.id === 'codex')?.label).toBe('Codex');
+    expect(Array.isArray(state.agentSwitch.models.codex)).toBe(true);
+    expect(state.agentSwitch.models.codex!.some((m) => m.model === null)).toBe(true); // inherit choice
+  });
+
   // The merge verdicts already feed the ship strip; the PR panel needs them at
   // the top level too, because that is where the conflict is acted on and the
   // webview cannot query the store.
@@ -185,12 +194,6 @@ describe('buildDashboardState', () => {
       status: 'failed',
       reason: 'gates failed: lint, test',
       artifactPath: '/logs/review-ticket-1.log',
-    });
-    expect(state.now.text).toContain('review gate failed');
-    expect(state.now.action).toEqual({
-      kind: 'open-log',
-      label: 'Open log',
-      path: '/logs/review-ticket-1.log',
     });
   });
 
@@ -276,7 +279,7 @@ describe('buildDashboardState', () => {
     store.db.prepare('UPDATE tickets SET stage_current = NULL WHERE id = ?').run(t.id);
     const state = buildDashboardState(store, t.id);
     expect(state.currentStage).toBeNull();
-    expect(state.now.text).toBe('Now: not started. Launch a session to begin.');
+    expect(state.ship).toEqual({ kind: 'none' });
   });
 
   it('builds a provider ticket URL from the source ref for a clickup ticket', () => {
@@ -357,8 +360,6 @@ describe('buildDashboardState', () => {
     expect(impl.needsUser).toBe(true);
     expect(impl.needs?.action).toBe('Open session');
     expect(state.rail.main.filter((s) => s.needsUser)).toHaveLength(1);
-    // The Now line must agree: the agent is waiting, not "working in its terminal".
-    expect(state.now.text).toBe('Now: the agent is waiting — it asked for your input.');
   });
 
   it('does NOT mark a RUNNING ship needs-you when the agent state reads waiting', () => {
@@ -375,9 +376,6 @@ describe('buildDashboardState', () => {
     const ship = state.rail.main.find((s) => s.cell.stageKey === 'ship')!;
     expect(ship.needsUser).toBe(false);
     expect(state.rail.main.every((s) => s.needs === null)).toBe(true);
-    expect(state.now.text).toBe(
-      'Now: shipping — committing, pushing, and opening PRs for each hot repo.',
-    );
   });
 
   it('reads a resolve session at a conflicted ship as in-progress, not needs-you', () => {
@@ -417,7 +415,6 @@ describe('buildDashboardState', () => {
     expect(ship.needsUser).toBe(false);
     expect(ship.needs).toBeNull();
     expect(state.rail.main.every((s) => s.needs === null)).toBe(true);
-    expect(state.now.text).toBe('Now: resolving the merge conflict — the agent is running.');
   });
 
   it('returns to needs-you on the same conflicted ship once the session ends', () => {
@@ -456,7 +453,6 @@ describe('buildDashboardState', () => {
       detail: '1 repo no longer merges cleanly',
       action: 'Resolve',
     });
-    expect(state.now.text).toContain('Resolve the conflicts below');
   });
 
   it('leaves every segment clear when nothing is blocked on the user', () => {
@@ -608,6 +604,36 @@ describe('buildDashboardState', () => {
     const state = buildDashboardState(store, t.id);
     expect(state.insideViews.uat.console).toBeFalsy();
     expect(state.insideViews.review.console).toBeFalsy();
+  });
+});
+
+describe('buildDashboardState — ship header slot', () => {
+  let store: Store;
+  beforeEach(() => (store = openStore(':memory:')));
+  afterEach(() => store.close());
+
+  it('offers confirm when the ticket sits at ship ready', () => {
+    const t = createTicket(store, { key: 'SHIP-C', title: 'ship' });
+    store.db.prepare("UPDATE tickets SET stage_current = 'ship' WHERE id = ?").run(t.id);
+    expect(buildDashboardState(store, t.id).ship).toEqual({ kind: 'confirm' });
+  });
+
+  it('reports waiting-merge when ship is parked awaiting merge', () => {
+    const t = createTicket(store, { key: 'SHIP-W', title: 'ship' });
+    setStage(store, t.id, 'ship', { status: 'passed', startedAt: '2026-08-09T10:00:00.000Z' });
+    parkGateStage(store, {
+      ticketId: t.id, stageKey: 'ship', kind: 'awaiting-merge',
+      reason: 'PR #412 is open and unmerged', runAt: '2026-08-09T10:33:42.000Z', gates: [],
+    });
+    store.db.prepare("UPDATE tickets SET stage_current = 'ship' WHERE id = ?").run(t.id);
+    expect(buildDashboardState(store, t.id).ship.kind).toBe('waiting-merge');
+  });
+
+  it('reports retry when ship failed', () => {
+    const t = createTicket(store, { key: 'SHIP-F', title: 'ship' });
+    setStage(store, t.id, 'ship', { status: 'failed', verdict: 'gh pr create failed' });
+    store.db.prepare("UPDATE tickets SET stage_current = 'ship' WHERE id = ?").run(t.id);
+    expect(buildDashboardState(store, t.id).ship).toEqual({ kind: 'retry', reason: 'gh pr create failed' });
   });
 });
 

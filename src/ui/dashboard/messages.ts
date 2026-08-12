@@ -6,6 +6,8 @@ import type { ActionResultMessage } from '../../model/actionResult.js';
 import { STAGE_KEYS, type StageKey } from '../../model/types.js';
 import { GATE_STAGES, type GateStage } from '../../store/ticketGates.js';
 import { validateInsideProgressEvent, type InsideProgressEvent } from '../../model/inside/progress.js';
+import { isKnownProvider } from '../../agent/provider.js';
+import type { AgentProvider } from '../../manifest/types.js';
 
 /**
  * Webview → host action messages (§14 dashboard tier actions). The webview
@@ -59,8 +61,16 @@ export type WebviewMessage =
    * two can never disagree about which way the toggle currently sits.
    */
   | { type: 'toggle-bind' }
-  /** Request the host-owned picker for this panel's current live session. */
-  | { type: 'switch-agent' }
+  /**
+   * Apply a staged agent-core/model selection to this ticket's live session.
+   * Carries the selection VERBATIM — the host re-validates both against the
+   * choices IT computed (isKnownProvider + model-choice membership) before
+   * confirming or persisting, so the webview's draft is a suggestion, never
+   * authority.
+   */
+  | { type: 'switch-agent'; provider: AgentProvider; model: string | null }
+  /** Copy this ticket's key through the host clipboard (the closure owns the ticket). */
+  | { type: 'copy-ticket-key' }
   /**
    * Resume a parked gate stage (§ blocked state visible). Carries the ticket
    * AND the stage it believes is blocked — the host still validates both
@@ -207,8 +217,10 @@ export interface DashboardActions {
   refreshPrs: () => void | Promise<void>;
   /** Flip the window's terminal↔dashboard binding. */
   toggleBind: () => void | Promise<void>;
-  /** Switch the panel's live agent session through the host-owned picker. */
-  switchAgent: () => void | Promise<void>;
+  /** Apply a staged agent-core/model selection to this ticket's live session. */
+  switchAgent: (provider: AgentProvider, model: string | null) => void | Promise<void>;
+  /** Copy the ticket key to the clipboard. */
+  copyTicketKey: () => void | Promise<void>;
   /**
    * Clear a stage's block and try to drive it forward. Takes the message's
    * `ticketId`/`stageKey` VERBATIM (not pre-validated) so the host can apply
@@ -329,10 +341,23 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
     // is dropped rather than honored, so the host's value stays authoritative.
     case 'toggle-bind':
       return { type: 'toggle-bind' };
-    // Payload-free: the panel closure owns the ticket and re-reads the live
-    // session before switching, so no webview-supplied target can be trusted.
-    case 'switch-agent':
-      return { type: 'switch-agent' };
+    // The selection is re-validated host-side (isKnownProvider + model-choice
+    // membership) before anything is confirmed or persisted, so the webview's
+    // draft is a suggestion, never authority — but the two fields still pass
+    // the trust boundary typed and bounded.
+    case 'switch-agent': {
+      const provider = typeof m.provider === 'string' ? m.provider : '';
+      if (!isKnownProvider(provider)) return null;
+      // A missing/blank model means "inherit"; a NON-string model drops the
+      // whole message rather than being coerced to a value the webview never
+      // offered.
+      const model = m.model === undefined ? '' : (typeof m.model === 'string' ? m.model : null);
+      if (model === null) return null;
+      if (model.length > MAX_MODEL_ID_CHARS) return null;
+      return { type: 'switch-agent', provider, model: model || null };
+    }
+    case 'copy-ticket-key':
+      return { type: 'copy-ticket-key' };
     // Both fields are required and typed here, at the boundary — a missing or
     // malformed one drops the whole message rather than resuming with a
     // guessed ticket or an invalid stage.
@@ -416,6 +441,9 @@ export const MAX_ACTION_ID_CHARS = 96;
 /** Longest artifact id accepted from a webview. Ids are kind ids (`uat-report`). */
 export const MAX_ARTIFACT_ID_CHARS = 64;
 
+/** Longest model id accepted from a webview. Real model ids are short CLI values; 128 is a bounded ceiling. */
+const MAX_MODEL_ID_CHARS = 128;
+
 /**
  * Narrow an untrusted host→webview inside-progress payload to a closed
  * `InsideProgressEvent`, validating the discriminant/status combinations in
@@ -493,7 +521,9 @@ export function routeAction(
     case 'toggle-bind':
       return actions.toggleBind();
     case 'switch-agent':
-      return actions.switchAgent();
+      return actions.switchAgent(msg.provider, msg.model);
+    case 'copy-ticket-key':
+      return actions.copyTicketKey();
     case 'stage-resume':
       return actions.resumeStage(msg.ticketId, msg.stageKey);
     case 'set-disabled-gates':
