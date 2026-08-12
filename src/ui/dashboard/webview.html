@@ -37,6 +37,17 @@
      without this rule the `hidden` class was a no-op and an empty box still
      drew its border. */
   .hidden{display:none}
+  /* The header's staged controls (#confirmShip, #boardLink) toggle the `hidden`
+     ATTRIBUTE — semantically the right tool (it drops them from the a11y tree
+     and tab order, which the class cannot). But the component CSS
+     (.k-btn/.k-iconbtn) sets display:inline-flex, and author CSS overrides
+     the UA `[hidden]{display:none}` no matter its specificity — so without an
+     author rule the attribute was a no-op and Confirm ship stayed visible the
+     whole way through Implementation (869ehahjh-fu1). Same fix the diffs
+     webview needed for its notice. Same specificity as the component rules,
+     so it must sit AFTER the injected design-system CSS (which it does — the
+     marker is at the top of this <style>) to win the cascade. */
+  [hidden]{display:none}
 
   /* Header (prototype v8): ticket identity + agent identity + ship action + … menu. */
   .dhead{display:flex;align-items:center;gap:var(--k-space-5);margin-bottom:var(--k-space-6);flex-wrap:wrap}

@@ -61,6 +61,34 @@ describe('dashboard webview.html', () => {
     expect(HTML).not.toMatch(/function renderNow\(/);
   });
 
+  it('lets the hidden ATTRIBUTE actually hide a .k-btn/.k-iconbtn (PR #166)', () => {
+    // `.k-btn`/`.k-iconbtn` set `display:inline-flex` in author CSS, which
+    // overrides the UA `[hidden]{display:none}` regardless of specificity —
+    // so toggling the `hidden` attribute on #confirmShip / #boardLink never
+    // hid them, and the Confirm ship CTA stayed visible through the whole
+    // Implementation stage (869ehahjh-fu1). The diffs webview hit the same
+    // wall and fixed it with an author `[hidden]` rule (`#notice[hidden]`).
+    // The rule must WIN the cascade: equal specificity to the component's
+    // display rule, so source order decides — it must sit after the injected
+    // design-system CSS at the top of the <style>, and after the component
+    // rules that set display. The dashboard's own `.hidden{display:none}`
+    // (line ~39) is the anchor: it already beats the injected DS once.
+    expect(HTML).toMatch(/\.hidden\{display:none\}/);
+    expect(HTML).toMatch(/(^|;|})[^{]*\[hidden\]\s*\{\s*display\s*:\s*none\s*\}/);
+    // The rule must come after the DS-injected component CSS it overrides.
+    const ds = HTML.indexOf('/*KARST_DS_CSS*/');
+    const rule = HTML.indexOf('[hidden]');
+    expect(rule).toBeGreaterThan(ds);
+    // And the two header controls must actually rely on the attribute, so the
+    // rule is what they render through — not a class that already worked.
+    expect(HTML).toMatch(/id="confirmShip"[^>]*\shidden>/);
+    expect(HTML).toMatch(/id="boardLink"[^>]*\shidden/);
+    // The toggling must keep using the attribute (the rule makes it real),
+    // never silently reverted to a display class the tests cannot see.
+    expect(HTML).toMatch(/btn\.hidden\s*=/);
+    expect(HTML).toMatch(/link\.hidden\s*=/);
+  });
+
   it('renders ticket changes as one accessible diff icon button', () => {
     expect(HTML.match(/data-act="show-changes"/g)).toHaveLength(1);
     expect(HTML).toMatch(/id="wtChanges"[^>]*aria-label="Show ticket changes"/);
