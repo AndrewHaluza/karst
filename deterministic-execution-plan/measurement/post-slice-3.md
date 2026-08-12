@@ -58,11 +58,24 @@ therefore:
    first N completed graph-approach tickets (same selection-window style as
    the baseline) are measured with the identical queries below, and if the
    graph group does not improve at least one metric without worsening the
-   others, the flip is reverted to `enabled: false` and Slices 4–6 stop. The
+   others, the flip is reverted to `enabled: false` and the runtime is not
+   the default. The
    ROADMAP names Slice 6's entry gate as "the post-Slice-3 measurement
    evaluated as favorable under the design's abandonment criterion" — that
    evaluation happens on the tickets this flip now makes possible, and this
    document is where it will be recorded.
+
+## Post-slice status (recorded 2026-08-12, after Slice 6)
+
+- Slices 4–6 were built under the principal's entry-gate waiver
+  (`04-slice-4…md`, waiver recorded 2026-08-12): the criterion is
+  unevaluable at N=0, not violated, so the work proceeded and the packaged
+  default is `enabled: true` with `maxParallel: 4` (Slice-5 T7). The runtime
+  is the packaged default.
+- The evaluation obligation stands: the identical queries below run on the
+  first N completed graph-approach tickets, and a violation reverts the flip
+  and retires the packaged default. This document remains the recording
+  point.
 
 ## The queries that will produce the graph-group numbers (identical to baseline)
 
