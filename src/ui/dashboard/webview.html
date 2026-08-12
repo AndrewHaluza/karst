@@ -56,6 +56,14 @@
   .agentLiveDot{width:var(--k-space-3);height:var(--k-space-3);border-radius:var(--k-radius-circle);background:var(--k-pending);flex:none}
   .agentLiveDot.running{background:var(--k-running)}
   .agentLiveDot.waiting{background:var(--k-attention)}
+  /* The header + controls-menu icons are sized EXPLICITLY. An inline k-icon
+     svg carries no intrinsic size — the shared `.k-icon` rule applies only
+     the stroke treatment — so an unsized one renders at the browser's default
+     replaced-object size: in the agent button's unclipped flex row that
+     ballooned to ~275px and inflated the whole header. Every other icon in
+     this file carries its size (the panel headers' width/height attributes,
+     `.ib svg`); these five did not. */
+  .dhead .k-icon{width:var(--k-space-7);height:var(--k-space-7)}
   /* The two popovers — agent switch form + ticket-controls menu (UI-R04: composed
      from control-height tokens, no raw widths). */
   .popover{display:none;position:absolute;z-index:50;top:calc(100% + var(--k-space-3));right:0;border:var(--k-border-w) solid var(--k-border-strong);border-radius:var(--k-radius-lg);background:var(--k-surface);box-shadow:var(--k-elev-2)}
@@ -63,11 +71,17 @@
   .popover.open{display:block}
   .agentPopover{width:calc(var(--k-control-h-lg) * 14);padding:0}
   .menuPopover{width:calc(var(--k-control-h-lg) * 12);padding:var(--k-space-4)}
-  .agentForm{display:grid;gap:var(--k-space-3);padding:var(--k-space-4)}
-  .fieldRow{display:grid;grid-template-columns:var(--k-space-8) minmax(0,1fr);align-items:center;gap:var(--k-space-4);min-height:var(--k-control-h-lg)}
+  .agentForm{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:var(--k-space-3) var(--k-space-4);padding:var(--k-space-4);align-items:center}
+  /* The label column is max-content, never a fixed step: "Agent core" is wider
+     than any spacing token, and a 20px column let the right-aligned label spill
+     out of the popover's left edge and over whatever sat beside it. `contents`
+     dissolves the row wrapper so label + control place straight into the two
+     columns; the help line takes the control column, so it can never drift from
+     the controls' indent. */
+  .fieldRow{display:contents}
   .fieldLabel{margin:0;color:var(--k-text-faint);font-size:var(--k-text-xs);font-weight:var(--k-weight-medium);line-height:1;text-align:right;white-space:nowrap}
   .fieldControl{min-width:0}
-  .fieldHelp{margin-left:calc(var(--k-space-8) + var(--k-space-4));color:var(--k-text-faint);font-size:var(--k-text-xs);line-height:1.35}
+  .fieldHelp{grid-column:2;color:var(--k-text-faint);font-size:var(--k-text-xs);line-height:1.35}
   .popActions{display:flex;justify-content:flex-end;padding:var(--k-space-4);border-top:var(--k-border-w) solid var(--k-border)}
   .menuButton{width:100%;min-height:var(--k-control-h-lg);display:flex;align-items:center;gap:var(--k-space-4);border:0;border-radius:var(--k-radius-sm);background:transparent;color:var(--k-text);padding:0 var(--k-space-4);cursor:pointer;text-align:left}
   .menuButton:hover{background:var(--k-surface-hover)}
@@ -2911,18 +2925,26 @@
     const btn = el('agentButton');
     if (btn && btn.disabled) return;
     populateAgentPopover();
-    el('agentPopover').classList.remove('hidden');
+    const pop = el('agentPopover');
+    pop.classList.remove('hidden');
+    pop.classList.add('open');
     if (btn) btn.setAttribute('aria-expanded', 'true');
   }
 
   function openMenuPopover() {
-    el('menuPopover').classList.remove('hidden');
+    const pop = el('menuPopover');
+    pop.classList.remove('hidden');
+    pop.classList.add('open');
     el('moreBtn').setAttribute('aria-expanded', 'true');
   }
 
   function closePopovers() {
-    el('agentPopover').classList.add('hidden');
-    el('menuPopover').classList.add('hidden');
+    const agent = el('agentPopover');
+    agent.classList.add('hidden');
+    agent.classList.remove('open');
+    const menu = el('menuPopover');
+    menu.classList.add('hidden');
+    menu.classList.remove('open');
     el('agentButton').setAttribute('aria-expanded', 'false');
     el('moreBtn').setAttribute('aria-expanded', 'false');
   }
