@@ -458,7 +458,7 @@ export async function runCompletionPipeline(
     });
   };
 
-  deps.debug?.(`[graph] completing node ${input.nodeRunId} — terminating and verifying`);
+  graphDiag('integration', 'completing the node — terminating and verifying');
   if (!(await terminationProven(deps, input.nodeRunId))) {
     parkNode(deps, input.nodeRunId, 'completing', 'termination-unknown', {});
     graphDiag('completion-rejection', 'termination not proven — node parked termination-unknown');

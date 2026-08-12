@@ -46,6 +46,11 @@ import type {
   TransportTerminal,
   TransportTerminalHost,
 } from './agentTransport.js';
+import {
+  emitGraphDiagnostic,
+  type GraphDiagnosticCategory,
+  type GraphDiagnosticIdentity,
+} from '../diagnostics.js';
 import { killTree as systemKillTree, type KillOutcome } from '../../../runtime/processTree.js';
 import { attributeServer, type ProcessFactsSource } from '../../../runtime/serverIdentity.js';
 
@@ -215,6 +220,11 @@ export interface AcpTransportDeps {
   onPermissionRequest?: (event: { nodeRunId: number; requestId: string; prompt: string }) => void;
   now: () => string;
   debug?: (message: string) => void;
+  /** Resolve a graph run's ticket identity (project slug, ticket key, stage
+   *  attempt) for the structured diagnostics — the same seam the CLI transport
+   *  uses, so both transports emit one keyed, bounded vocabulary. Absent → the
+   *  keyed line is skipped (an unattributed run is not keyed). */
+  graphIdentityOf?: (graphRunId: number) => GraphDiagnosticIdentity | undefined;
 }
 
 export interface AcpTransport extends AgentTransport {
@@ -252,6 +262,26 @@ export function createAcpTransport(deps: AcpTransportDeps): AcpTransport {
   /** Sessions whose accounting row already closed — an end event fires once. */
   const closed = new Set<string>();
 
+  /**
+   * One keyed, bounded diagnostic — the same emitter the CLI transport uses.
+   * Every detail here is untrusted: an ACP peer's `reason`, and `String(error)`
+   * over a client failure that may carry model output. The emitter collapses
+   * and caps it and runs the redaction pipeline, which an ad-hoc debug string
+   * would skip.
+   */
+  const diag = (
+    category: GraphDiagnosticCategory,
+    graphRunId: number,
+    nodeRunId: number,
+    generation: string | undefined,
+    detail: string,
+  ): void => {
+    emitGraphDiagnostic(
+      { debug: deps.debug, identityOf: deps.graphIdentityOf },
+      { category, graphRunId, nodeRunId, generation, detail },
+    );
+  };
+
   return {
     capabilities: () => CAPABILITIES,
 
@@ -271,9 +301,8 @@ export function createAcpTransport(deps: AcpTransportDeps): AcpTransport {
         try {
           processRunId = deps.openProcessRun(request, pid) ?? null;
         } catch (error) {
-          deps.debug?.(
-            `[graph] node ${request.nodeRunId}: opening the process_runs row failed (${String(error)}) — the launch continues unattributed`,
-          );
+          diag('launch', request.graphRunId, request.nodeRunId, request.generation,
+            `opening the process_runs row failed (${String(error)}) — the launch continues unattributed`);
         }
       }
       deps.recordSession({
@@ -307,17 +336,15 @@ export function createAcpTransport(deps: AcpTransportDeps): AcpTransport {
             // exactly like a killed/failed-to-start terminal does for the CLI
             // transport. The node OUTCOME is never written here — it arrives
             // only via the guarded completion protocol (`karst node …`).
-            deps.debug?.(
-              `[graph] node ${request.nodeRunId}: ACP session ended (${event.reason}) — termination evidence only, no outcome`,
-            );
+            diag('close', request.graphRunId, request.nodeRunId, request.generation,
+              `ACP session ended (${event.reason}) — termination evidence only, no outcome`);
             if (processRunId !== null && deps.closeProcessRun && !closed.has(key)) {
               closed.add(key);
               try {
                 deps.closeProcessRun(processRunId, 'interrupted', deps.now());
               } catch (error) {
-                deps.debug?.(
-                  `[graph] node ${request.nodeRunId}: closing the process_runs row failed (${String(error)})`,
-                );
+                diag('close', request.graphRunId, request.nodeRunId, request.generation,
+                  `closing the process_runs row failed (${String(error)})`);
               }
             }
             return;
@@ -326,9 +353,8 @@ export function createAcpTransport(deps: AcpTransportDeps): AcpTransport {
             return;
           case 'message':
             if (refusePeerDelegation(event.message)) {
-              deps.debug?.(
-                `[graph] node ${request.nodeRunId}: refused an ACP peer-delegation message`,
-              );
+              diag('block', request.graphRunId, request.nodeRunId, request.generation,
+                'refused an ACP peer-delegation message');
               return;
             }
             deps.onMessage?.(request.nodeRunId, event.message);
@@ -347,17 +373,18 @@ export function createAcpTransport(deps: AcpTransportDeps): AcpTransport {
         try {
           await handle.cancel();
         } catch (error) {
-          deps.debug?.(
-            `[graph] node ${session.nodeRunId}: ACP cancel failed (${String(error)}) — attribution still decides`,
-          );
+          diag('close', session.graphRunId, session.nodeRunId, session.generation,
+            `ACP cancel failed (${String(error)}) — attribution still decides`);
         }
       }
       if (session.pid === null) {
-        deps.debug?.('[graph] terminate for a session that never started — nothing to signal');
+        diag('close', session.graphRunId, session.nodeRunId, session.generation,
+          'terminate for a session that never started — nothing to signal');
         return { kind: 'unknown' };
       }
       if (!facts) {
-        deps.debug?.('[graph] transport terminate without attribution facts — refusing to signal');
+        diag('close', session.graphRunId, session.nodeRunId, session.generation,
+          'terminate without attribution facts — refusing to signal');
         return { kind: 'unknown' };
       }
       const [alive, liveCwd, processStartMs] = await Promise.all([
