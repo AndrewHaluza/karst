@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { readFileSync, mkdirSync, existsSync } from 'node:fs';
+import { readFileSync, mkdirSync, existsSync, writeFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import {
   lstat as fsLstat,
@@ -172,7 +172,8 @@ import { runCompletionPipeline, type CompletionPipelineDeps } from './approaches
 import { artifactRootDir } from './approaches/graph/artifacts/snapshot.js';
 import { declaredWritesFor } from './approaches/graph/integration/claims.js';
 import { flipOnEndQuiescence } from './approaches/graph/coordinator/completion.js';
-import { recoverGraphRun } from './approaches/graph/coordinator/recovery.js';
+import { recoverGraphRun, type RecoveryDeps } from './approaches/graph/coordinator/recovery.js';
+import { nodeOverrideFor } from './store/graph/nodeRuns.js';
 import { blockGraphStage } from './workflow/graphMarkerGuard.js';
 import {
   domainKeyOf,
@@ -2147,6 +2148,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         (id) => maybeDrive(id, 'stage-resume'),
         (path) => void launchWorktreeDevWindow(path),
         () => launchWorktreeConfig(),
+        () => graphRecoveryDeps(),
       ),
     () => worktreePathContext(currentManifest(), logger.warn, logger.info),
     () => currentManifest()?.ticketLabelTemplate,
@@ -2254,10 +2256,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           logError(`karst: graph discard failed for ticket ${ticketId}`, err);
         }
       },
-    }),
-    // Live manifest getter, so the inside views resolve the REAL service names
-    // and process assignments (panel.ts is manifest-free by contract).
-    () => currentManifest(),
+    },
+    () => graphRecoveryDeps(),
+  ),
+  // Live manifest getter, so the inside views resolve the REAL service names
+  // and process assignments (panel.ts is manifest-free by contract).
+  () => currentManifest(),
     // The Launch Dev gate, composed from the feature's live config: hidden
     // (and refused) unless karst.launchWorktreeDev.enabled is true AND the
     // worktree is a karst checkout.
@@ -2967,6 +2971,38 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       .get(graphRunId) as { ticket_id: number } | undefined;
     if (!run) return '';
     return artifactRootDir(context.globalStorageUri.fsPath, proj.slug, run.ticket_id, graphRunId);
+  };
+
+  /** The graph recovery deps (Slice-4 T6): the atomic claim wrapper plus the
+   *  prompt re-snapshot seam — content-addressed writes under the graph
+   *  artifact root, and the effective-prompt resolution that consults the
+   *  per-node `prompt` override. All decision logic lives in recovery.ts;
+   *  this binding only supplies the seam the host owns. */
+  const graphRecoveryDeps = (): RecoveryDeps => {
+    const gs = graphCoordinatorStore;
+    return {
+      store: gs!,
+      transaction: <T>(fn: () => T): T =>
+        (gs!.db.transaction as unknown as (f: () => T, o: { begin: 'immediate' }) => () => T)(fn, {
+          begin: 'immediate',
+        })(),
+      now: () => new Date().toISOString(),
+      debug: (message) => logger.debug(message),
+      resolveEffective: ({ revisionId, nodeId }) => {
+        if (!gs) return { promptOverride: false };
+        const override = nodeOverrideFor(gs.db, revisionId, nodeId, 'prompt');
+        return override
+          ? { prompt: override.value, promptOverride: true }
+          : { promptOverride: false };
+      },
+      writeSnapshot: (graphRunId, relativePath, bytes) => {
+        const root = graphArtifactRoot(graphRunId);
+        if (!root) return;
+        const target = join(root, relativePath);
+        mkdirSync(dirname(target), { recursive: true });
+        writeFileSync(target, bytes);
+      },
+    };
   };
 
   /** The ticket's manifest repository entries resolved to worktree paths. */
@@ -5118,6 +5154,10 @@ function makeInsideActionHost(
     graphStop: (ticketId: number) => void | Promise<void>;
     graphDiscardNode: (ticketId: number, nodeRunId: number) => void | Promise<void>;
   },
+  // The graph recovery action's host binding (Slice-4 T6): the atomic claim
+  // wrapper plus the prompt re-snapshot seam. Bound in activate where the
+  // snapshot root is known; the panel host only routes Resume to it.
+  graphRecoveryDeps: () => RecoveryDeps,
 ): InsideActionHost {
   return {
     openFile: (path) => void vscode.commands.executeCommand('vscode.open', vscode.Uri.file(path)),
@@ -5144,19 +5184,16 @@ function makeInsideActionHost(
         // the typed action runs graph-aware recovery: a retry on the same
         // revision, clearing the block only after it durably entered.
         const recovery = recoverGraphRun(
-          {
-            store,
-            transaction: <T>(fn: () => T): T =>
-              (store.db.transaction as unknown as (f: () => T, o: { begin: 'immediate' }) => () => T)(fn, {
-                begin: 'immediate',
-              })(),
-            now: () => new Date().toISOString(),
-          },
+          graphRecoveryDeps(),
           { ticketId: outcome.ticketId, graphRunId: outcome.graphRunId },
         );
         if (recovery.kind === 'retried') {
           void vscode.window.showInformationMessage(
             `Ticket #${ticketId}: the implementation graph was retried (graph run ${outcome.graphRunId}).`,
+          );
+        } else if (recovery.kind === 'replanned') {
+          void vscode.window.showInformationMessage(
+            `Ticket #${ticketId}: the implementation graph was replanned (graph run ${outcome.graphRunId}).`,
           );
         } else if (recovery.kind === 'refused') {
           void vscode.window.showInformationMessage(
@@ -5259,6 +5296,9 @@ function makeDashboardActions(
   // when the switch is off — a crafted message must not launch what the user
   // disabled.
   launchConfig: () => ReturnType<typeof parseLaunchWorktreeConfig>,
+  // The graph recovery action's host binding (Slice-4 T6), bound in activate
+  // where the snapshot root is known.
+  graphRecoveryDeps: () => RecoveryDeps,
 ): DashboardActions {
   const worktreeActions = makeWorktreeActions(
     {
@@ -5390,17 +5430,10 @@ function makeDashboardActions(
         // The graph block is NOT cleared by a generic Resume (Slice-3 T9) —
         // the typed action runs graph-aware recovery instead.
         const recovery = recoverGraphRun(
-          {
-            store,
-            transaction: <T>(fn: () => T): T =>
-              (store.db.transaction as unknown as (f: () => T, o: { begin: 'immediate' }) => () => T)(fn, {
-                begin: 'immediate',
-              })(),
-            now: () => new Date().toISOString(),
-          },
+          graphRecoveryDeps(),
           { ticketId: outcome.ticketId, graphRunId: outcome.graphRunId },
         );
-        if (recovery.kind === 'retried') {
+        if (recovery.kind === 'retried' || recovery.kind === 'replanned') {
           afterServerChange();
           driveAfterResume(ticketId);
         } else if (recovery.kind === 'refused') {

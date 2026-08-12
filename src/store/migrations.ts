@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 const SCHEMA_PATH = join(dirname(fileURLToPath(import.meta.url)), 'schema.sql');
 
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 37;
+export const SCHEMA_VERSION = 38;
 
 /** v2 ticket-field columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -256,9 +256,14 @@ CREATE TABLE IF NOT EXISTS approach_node_overrides (
   model         TEXT,
   effort        TEXT,
   profile       TEXT,
+  kind          TEXT NOT NULL DEFAULT 'provider' CHECK (kind IN ('profile','provider','model','effort','prompt')),
+  value         TEXT NOT NULL DEFAULT '',
   row_version   INTEGER NOT NULL DEFAULT 0,
+  created_at    TEXT NOT NULL DEFAULT '',
   updated_at    TEXT NOT NULL
 );
+CREATE UNIQUE INDEX IF NOT EXISTS idx_node_overrides_rev_node_kind
+  ON approach_node_overrides(revision_id, node_id, kind);
 CREATE INDEX IF NOT EXISTS idx_node_overrides_node ON approach_node_overrides(graph_run_id, node_id);
 `;
 
@@ -1428,6 +1433,34 @@ export function migrate(db: Database): void {
         db.pragma('foreign_keys = ON');
       }
     }
+  }
+
+  if (current < 38) {
+    // v38 (Slice 4 Task 6) extends the `approach_node_overrides` placeholder
+    // with the category-specific override surface: `kind` (one of the closed
+    // `NodeOverrideKind` set), the `value` JSON, and `created_at`, plus the
+    // `(revision_id, node_id, kind)` uniqueness that scopes an override to ONE
+    // node in ONE revision. A fresh DB already carries all of it (schema.sql),
+    // so the guards skip; a legacy v35–v37 DB gains the columns through the
+    // same ALTER the placeholder's empty shape needs. The claim CAS is the
+    // NODE RUN status (ready/blocked/failed-to-launch editable), never the
+    // override row; `row_version` stays for concurrent-write optimism.
+    //
+    // NOTHING IS BACKFILLED. No prior karst wrote a `kind`/`value`; legacy
+    // placeholder rows (if any) default to the inert `provider`/'' pair.
+    const overrideCols = tableColumns(db, 'approach_node_overrides');
+    if (overrideCols.size > 0 && !overrideCols.has('kind')) {
+      db.exec(
+        "ALTER TABLE approach_node_overrides ADD COLUMN kind TEXT NOT NULL DEFAULT 'provider' " +
+          "CHECK (kind IN ('profile','provider','model','effort','prompt'))",
+      );
+      db.exec("ALTER TABLE approach_node_overrides ADD COLUMN value TEXT NOT NULL DEFAULT ''");
+      db.exec("ALTER TABLE approach_node_overrides ADD COLUMN created_at TEXT NOT NULL DEFAULT ''");
+    }
+    db.exec(
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_node_overrides_rev_node_kind
+         ON approach_node_overrides(revision_id, node_id, kind)`,
+    );
   }
 
   db.pragma(`user_version = ${SCHEMA_VERSION}`);

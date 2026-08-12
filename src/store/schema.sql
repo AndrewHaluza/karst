@@ -775,6 +775,15 @@ CREATE INDEX IF NOT EXISTS idx_ticket_attachments_ticket
 CREATE UNIQUE INDEX IF NOT EXISTS idx_ticket_attachments_ticket_stored_name
   ON ticket_attachments(ticket_id, stored_name);
 
+-- v38 (Slice 4 Task 6): the node-override table gains the category-specific
+-- columns — `kind` (profile/provider/model/effort/prompt), the `value` JSON,
+-- and `created_at` — plus the `(revision_id, node_id, kind)` uniqueness that
+-- scopes an override to ONE node in ONE revision (an override never carries
+-- into a replanned revision N+1, whose revision_id differs). The legacy
+-- provider/model/effort/profile columns remain as the v35 placeholder's
+-- record; `value` is the operative payload. The claim CAS is the node run's
+-- status (editable only in ready/blocked/failed-to-launch), never the row.
+
 -- v35 graph tables (Slice 2, design "Persistence") — byte-identical to
 -- migrations.ts GRAPH_MIGRATION_DDL (db.test.ts pins the equality).
 
@@ -935,7 +944,12 @@ CREATE TABLE IF NOT EXISTS approach_node_overrides (
   model         TEXT,
   effort        TEXT,
   profile       TEXT,
+  kind          TEXT NOT NULL DEFAULT 'provider' CHECK (kind IN ('profile','provider','model','effort','prompt')),
+  value         TEXT NOT NULL DEFAULT '',
   row_version   INTEGER NOT NULL DEFAULT 0,
+  created_at    TEXT NOT NULL DEFAULT '',
   updated_at    TEXT NOT NULL
 );
+CREATE UNIQUE INDEX IF NOT EXISTS idx_node_overrides_rev_node_kind
+  ON approach_node_overrides(revision_id, node_id, kind);
 CREATE INDEX IF NOT EXISTS idx_node_overrides_node ON approach_node_overrides(graph_run_id, node_id);
