@@ -3,7 +3,7 @@
 # (VS Code, Cursor, Antigravity IDE, ...).
 #
 # better-sqlite3 is native and must be compiled against each IDE's own
-# Electron ABI (they differ: VS Code 1.126 = ABI 140, Cursor 3.11 = ABI 143,
+# Electron ABI (they differ: VS Code 1.132 = ABI 146, Cursor 3.11 = ABI 143,
 # etc — see rebuild-better-sqlite3.mjs). A single vsix's native addon only
 # works in the IDE it was rebuilt for, so we rebuild + repackage + install
 # per target.
@@ -58,7 +58,7 @@ case "$(uname -s)" in
     ;;
   *)
     TARGETS=(
-      "vscode|/Applications/Visual Studio Code.app/Contents/MacOS/Electron|/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code"
+      "vscode|/Applications/Visual Studio Code.app/Contents/MacOS/Code|/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code"
       "cursor|/Applications/Cursor.app/Contents/MacOS/Cursor|/Applications/Cursor.app/Contents/Resources/app/bin/cursor"
       "antigravity|/Applications/Antigravity IDE.app/Contents/MacOS/Electron|/Applications/Antigravity IDE.app/Contents/Resources/app/bin/antigravity-ide"
     )
@@ -134,6 +134,12 @@ installed_any=false
 for name in "${selected[@]}"; do
   entry="$(entry_for "$name")"
   IFS='|' read -r _n app_bin cli_bin <<<"$entry"
+
+  if [ ! -e "$app_bin" ]; then
+    echo "No $name app binary at $app_bin — cannot detect its Electron ABI." >&2
+    echo "Refusing to build: ABI detection would fall back to another installed IDE and ship the wrong addon." >&2
+    exit 1
+  fi
 
   echo "== $name =="
   KARST_TARGET_APP_BINARY="$app_bin" npm run rebuild:electron

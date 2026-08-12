@@ -19,6 +19,7 @@ import { listGateRuns } from '../../store/gateRuns.js';
 import { listFindings } from '../../store/reviewFindings.js';
 import { listPhaseMarks } from '../../store/phaseMarks.js';
 import { listMergeChecksByTicket } from '../../store/mergeChecks.js';
+import type { GateStage } from '../../store/ticketGates.js';
 import { mergeGateState } from '../../workflow/mergeGate.js';
 import { buildMergeCheckPanelRows, type MergeCheckPanelRow } from '../../model/mergeCheckPanel.js';
 import { nowIso } from '../../model/time.js';
@@ -354,6 +355,11 @@ export function buildDashboardState(
   const cellOf = (key: StageKey): StepperCell =>
     stepper.find((c) => c.stageKey === key) ?? { stageKey: key, status: 'pending' };
 
+  // The console (terminal detailed mode) is offered for a gate stage that
+  // actually has a recorded artifact log — never for a stage that has not
+  // run, and never for non-gate stages (UI-R31: availability is host-derived).
+  const consoleFor = (key: GateStage): boolean => !!cellOf(key).artifactPath;
+
   // The stage the six-stage presentation shows as CURRENT: `fix` projects onto
   // the stage its active recovery round is causally attached to.
   const fixFallback: 'uat' | 'review' =
@@ -422,6 +428,7 @@ export function buildDashboardState(
         repoNameFor,
       }),
       now,
+      consoleFor('uat'),
     ),
     review: stageView(
       'review',
@@ -442,6 +449,7 @@ export function buildDashboardState(
         repoNameFor,
       }),
       now,
+      consoleFor('review'),
     ),
     ship: stageView(
       'ship',
@@ -585,6 +593,7 @@ function stageView(
   cell: StepperCell,
   processes: readonly InsideProcessView[],
   now: string,
+  console?: boolean,
 ): InsideStageView {
   const live = liveFor(processes);
   return {
@@ -601,6 +610,10 @@ function stageView(
     ...(live ? { live } : {}),
     processes: [...processes],
     blurb: STAGE_BLURBS[key as StageKey],
+    // The key is carried for a gate stage whether or not it holds a log (an
+    // explicit false beats an absent answer), and stays absent for a stage
+    // that never got a console answer at all.
+    ...(console !== undefined ? { console } : {}),
   };
 }
 

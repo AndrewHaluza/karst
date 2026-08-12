@@ -33,6 +33,9 @@ package-lock.json
 .claude/**
 .vscode/**
 
+# Vendored webview libs ship as dist/vendor/xterm copies, never as npm packages.
+node_modules/@xterm/**
+
 # Keep: dist/**, node_modules/** (better-sqlite3 loaded at runtime),
 #       package.json, README.md, karst.example.yml,
 #       karst.uat-review-setup.md (both root assets are copied into dist/,

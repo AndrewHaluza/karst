@@ -23,6 +23,7 @@ import type { DashboardActions } from './ui/dashboard/messages.js';
 import { makeWorktreeActions } from './ui/dashboard/worktreeActions.js';
 import { loadWorktreeStats } from './ui/dashboard/worktreeStats.js';
 import { buildGateOptionsLoader } from './ui/dashboard/gateOptions.js';
+import { readStageLog } from './ui/dashboard/stageLogReader.js';
 import {
   TicketChangesManager,
   type ChangesPanel,
@@ -164,7 +165,7 @@ import {
   selectLaunchableWorktrees,
 } from './commands/launchWorktree.js';
 import { parseLaunchWorktreeConfig } from './commands/launchWorktreeConfig.js';
-import { getDisabledGates, setDisabledGates } from './store/ticketGates.js';
+import { getDisabledGates, setDisabledGates, type GateStage } from './store/ticketGates.js';
 import { latestFindingBatch } from './store/reviewFindings.js';
 import { defaultGhRunnerAsync } from './integrations/github.js';
 import { syncPrStatuses } from './workflow/prSync.js';
@@ -303,6 +304,7 @@ import { injectDesignSystem } from './model/designSystem.js';
 import { injectCsp, newNonce } from './model/csp.js';
 import { injectProviderIdentity } from './model/providerIdentity.js';
 import { injectAgentIdentity } from './model/agentIdentity.js';
+import { injectXterm, readXtermAssets } from './model/xtermAssets.js';
 import { buildTicketArtifacts } from './model/artifacts.js';
 import {
   binaryExists,
@@ -2029,7 +2031,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   const dashboard = new DashboardManager(
     localStore,
-    makePanelHost(context, brandIcon),
+    makePanelHost(context, brandIcon, (m) => logger.warn(m)),
     (ticketId) =>
       makeDashboardActions(
         localStore,
@@ -2082,6 +2084,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         (id) => maybeDrive(id, 'stage-resume'),
         (path) => void launchWorktreeDevWindow(path),
         () => launchWorktreeConfig(),
+        // The stage key arrives from the webview; the manager resolves the read
+        // through the injected reader and posts the answer to this ticket's
+        // panel (the postInsideProgress pattern).
+        (stage) => dashboard.requestStageLog(ticketId, stage),
       ),
     () => worktreePathContext(currentManifest(), logger.warn, logger.info),
     () => currentManifest()?.ticketLabelTemplate,
@@ -2149,6 +2155,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // Reports the panel's raw activation (including losing it, and including
     // dispose-while-focused) so the sidebar can highlight this ticket's row.
     (ticketId, active) => activeTicket.set(ticketId, active),
+    // The terminal view's log source: resolve the stage row's recorded
+    // artifactPath and read it bounded (the webview names only a stage key).
+    (ticketId, stage) =>
+      readStageLog(localStore, ticketId, stage, (path) => readFileSync(path, 'utf8'), (m) =>
+        logger.debug(m),
+      ),
   );
 
   // A karst.yml edit made OUTSIDE karst (hand edit in the editor, a teammate's
@@ -4108,29 +4120,43 @@ function buildCliGuidePrefix(context: vscode.ExtensionContext): string {
 
 /**
  * The injected dashboard webview asset, built once per call: design system,
- * status palette, provider identity, and agent-core identity markers are all
- * substituted host-side (CSP forbids a shared stylesheet/script). Shared by the
- * production dashboard panels and the development-only Inside preview, so the
- * preview renders the exact asset production does (Finding 1). The agent
- * identity injection is applied outermost, in the same order the settings and
- * ticket form hosts use it.
+ * status palette, provider identity, agent-core identity, and the vendored
+ * xterm bundles are all substituted host-side (CSP forbids a shared
+ * stylesheet/script). Shared by the production dashboard panels and the
+ * development-only Inside preview, so the preview renders the exact asset
+ * production does (Finding 1). The agent identity injection is applied
+ * outermost, in the same order the settings and ticket form hosts use it.
+ *
+ * xterm is injected HERE, before `injectCsp` runs at panel creation: the
+ * vendored JS lands inside the document's own `<script>` block, so the nonce
+ * pass tags it along with the dashboard script. A missing vendor asset (a
+ * packaging regression) degrades to the marker comments the webview already
+ * guards — the console view reports "unavailable" instead of the dashboard
+ * failing to open at all.
  */
-function dashboardWebviewHtml(): string {
-  return injectAgentIdentity(
+function dashboardWebviewHtml(warn: (message: string) => void): string {
+  let html = injectAgentIdentity(
     injectProviderIdentity(
       injectPalette(
         injectDesignSystem(readFileSync(join(HERE, 'ui', 'dashboard', 'webview.html'), 'utf8')),
       ),
     ),
   );
+  try {
+    html = injectXterm(html, readXtermAssets(join(HERE, 'vendor', 'xterm')));
+  } catch (e) {
+    warn(`xterm vendor assets unavailable — console view disabled (${(e as Error).message})`);
+  }
+  return html;
 }
 
 /** Real webview panels, wrapped in the `DashboardPanel` interface. */
 function makePanelHost(
   context: vscode.ExtensionContext,
   brandIcon?: BrandIconPaths,
+  warn: (message: string) => void = () => {},
 ): PanelHost {
-  const html = dashboardWebviewHtml();
+  const html = dashboardWebviewHtml(warn);
   return {
     createPanel(title, _ticketId, preserveFocus): DashboardPanel {
       const panel = vscode.window.createWebviewPanel(
@@ -4559,6 +4585,10 @@ function makeDashboardActions(
   // when the switch is off — a crafted message must not launch what the user
   // disabled.
   launchConfig: () => ReturnType<typeof parseLaunchWorktreeConfig>,
+  // Resolve one gate stage's console log via the dashboard manager, which owns
+  // the ticket panel: the stage key arrives from the webview, the read stays
+  // host-side.
+  requestStageLog: (stage: GateStage) => void,
 ): DashboardActions {
   const worktreeActions = makeWorktreeActions(
     {
@@ -4703,6 +4733,10 @@ function makeDashboardActions(
         }
       })();
     },
+    // A `stage-log-request` for the terminal "detailed mode" view: the manager
+    // owns the ticket panel, so the read (store + fs, bounded) happens here and
+    // the `stage-log` answer is posted to the panel that asked.
+    requestStageLog: (stage) => requestStageLog(stage),
     // Open one artifact resource in a normal VS Code editor — the deliberate
     // escape from the semantic artifact UI into the file model (spec §12). The
     // webview names ONLY the artifact id and a resource index, so this re-reads

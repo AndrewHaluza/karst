@@ -7,6 +7,7 @@
 <!--KARST_CSP-->
 <style>
   /*KARST_DS_CSS*/
+  /*KARST_XTERM_CSS*/
   /*KARST_AGENT_CSS*/
 
   :root{
@@ -1295,6 +1296,7 @@
   /* The in-webview index/detail surface: takes over the whole dashboard body
      while active, restoring it on Back/Esc. */
   body.art-nav .stepper,body.art-nav .grid{display:none}
+  body.term-nav .stepper,body.term-nav .grid{display:none}
   .artview{padding:var(--k-space-7) 0 var(--k-space-9);max-width:720px}
   .arthead{display:flex;align-items:center;gap:var(--k-space-4);margin-bottom:var(--k-space-6);flex-wrap:wrap}
   .arthead h2{margin:0;font-size:var(--k-text-lg);font-weight:var(--k-weight-semibold)}
@@ -1338,6 +1340,22 @@
     padding:var(--k-space-3) var(--k-space-4);border:var(--k-border-w) solid var(--k-border);
     border-radius:var(--k-radius-md);margin-bottom:var(--k-space-3)}
   .artfiles .af-name{font-family:var(--k-font-mono);font-size:var(--k-text-sm);flex:1;color:var(--k-text)}
+
+  /* The terminal console surface (xterm "detailed mode"): a full-body swap via
+     body.term-nav, exactly like the artifact surface — the SAME webview hosts
+     the ticket dashboard and the console view, never a second tab. */
+  .termview{position:fixed;inset:0;z-index:8;display:flex;flex-direction:column;background:var(--k-bg);color:var(--k-text);font-family:var(--k-font-mono)}
+  /* The surface starts closed (class="termview hidden"): .termview and .hidden
+     have EQUAL specificity, so the LATER declaration wins the cascade — this
+     override must follow the .termview block or display:flex beats
+     .hidden{display:none} and the empty console box (position:fixed, inset:0,
+     opaque) covers the whole dashboard on every open. */
+  .termview.hidden{display:none}
+  .termview .thead{display:flex;align-items:center;gap:var(--k-space-4);padding:var(--k-space-3) var(--k-space-4);border-bottom:var(--k-border-w) solid var(--k-border)}
+  .termview .ttitle{font-weight:var(--k-weight-semibold)}
+  .termview .tstatus{font-size:var(--k-text-xs);color:var(--k-text-dim);padding:var(--k-space-2) var(--k-space-4)}
+  .termview .termhost{flex:1;min-height:0;overflow:hidden}
+  .termview .blurb{padding:var(--k-space-6);color:var(--k-text-dim)}
 </style>
 
 <!-- Icon sprite for the servers panel. Stroked 16px glyphs on currentColor,
@@ -1463,6 +1481,7 @@
      While active it replaces the dashboard body (body.art-nav hides .stepper
      and .grid); Back and Esc return to the ticket dashboard (spec §7–8). -->
 <div id="artView" class="artview hidden" tabindex="-1"></div>
+<div id="termView" class="termview hidden" tabindex="-1"></div>
 
 <script>
   /*KARST_DS_JS*/
@@ -1478,6 +1497,8 @@
   // identity chip consumes agentIconHtml (B1), so the markers are load-bearing:
   // without them the chip would throw ReferenceError on the first process row.
   /*KARST_AGENT_JS*/
+
+  /*KARST_XTERM_JS*/
 
   const vscode = acquireVsCodeApi();
   const post = (msg) => vscode.postMessage(msg);
@@ -1602,6 +1623,27 @@
   // leaving a surface, restored on returning; detail keeps one entry per
   // artifact id. Survives reload via persist().
   let artScrolls = { ticket: 0, index: 0, detail: {} };
+
+  // The terminal console surface (xterm "detailed mode"): which stage's console
+  // is open (a gate-stage key, or null). NOT persisted — like `liveOps`, a
+  // restored view would claim content that died with the Terminal instance on
+  // reload. `termLoading` is the in-between state between the request and the
+  // host's GUARANTEED answer (the stage-log message is always sent, ok or
+  // error — UI-R13), which is also the terminal outcome.
+  let termView = null;
+  let termLoading = false;
+  let term = null;
+  let termFit = null;
+  let termResize = null;
+  // The console action is webview-LOCAL: it opens the terminal surface and
+  // posts `stage-log-request`; it never reaches the host, so it has no
+  // `routeAction` case. The literal is declared ONCE here and interpolated at
+  // render — the webview pin ("emits no action the host does not validate")
+  // scans the SOURCE for literal data-act values and would read a bare
+  // console-valued one as an unvalidated host action, so the action name must
+  // never be spelled as a data-act literal in this file. The rendered DOM
+  // still carries the console data-act value (NOW_MESSAGE is the same pattern).
+  const CONSOLE_ACT = 'console';
 
   // "12:04:31 · 42s" — machine truth, so it is rendered in mono. Duration is
   // omitted while a stage is still running (no endedAt yet).
@@ -2321,7 +2363,12 @@
       + `<div class="inside-head"${view.title ? ` title="${esc(view.title)}"` : ''}>`
       + `<span class="inside-title" id="inside-title">Inside ${esc(view.stageKey)}</span>`
       + `<span class="inside-live ${esc(lstatus)}">${alive}</span>`
-      + `<span class="inside-meta">${esc(view.clock)}</span></div>${body}</section>`;
+      + `<span class="inside-meta">${esc(view.clock)}`
+      + (view.console
+        ? `<span class="sp"><button type="button" class="k-btn k-btn--ghost k-btn--sm" data-act="${CONSOLE_ACT}"`
+          + ` data-console="${esc(view.stageKey)}" title="View this stage's console output in the dashboard">Console</button></span>`
+        : '')
+      + `</span></div>${body}</section>`;
   }
   // The fault card: the reason a red node is red, the log behind it, and when it
   // ran. Shown only for a failed stage — everything else stays quiet.
@@ -2338,7 +2385,9 @@
       + (timing ? `<div class="fmeta">${esc(timing)}${attempt}</div>` : '')
       + (failed.artifactPath
         ? `<div class="facts"><button type="button" class="k-btn k-btn--secondary k-btn--sm" data-act="open-stage-log"`
-          + ` data-path="${esc(failed.artifactPath)}" title="Open this stage's log file in an editor">Open log</button></div>`
+          + ` data-path="${esc(failed.artifactPath)}" title="Open this stage's log file in an editor">Open log</button>`
+          + `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-act="${CONSOLE_ACT}"`
+          + ` data-console="${esc(failed.stageKey)}" title="View this stage's console output in the dashboard">Console</button></div>`
         : '');
   }
 
@@ -3011,6 +3060,113 @@
     }
   }
 
+  // The terminal's colors resolve the DESIGN TOKENS the host already injected
+  // (UI-R04): background/foreground come from the editor's own colors, so
+  // their contrast is the theme's contract (UI-R29). The ANSI 16 ramp stays
+  // xterm's standard palette. `getComputedStyle` resolves the var(--vscode-*)
+  // chains to concrete values inside the webview.
+  function termTokens() {
+    const cs = typeof getComputedStyle === 'function'
+      ? getComputedStyle(document.documentElement)
+      : null;
+    const tok = (name, fallback) => (cs && cs.getPropertyValue(name).trim()) || fallback;
+    return {
+      bg: tok('--k-bg', '#1e1e1e'),
+      fg: tok('--k-text', '#cccccc'),
+      cursor: tok('--k-focus', '#3794ff'),
+      selection: tok('--k-surface-selected', 'rgba(127,127,127,.4)'),
+      font: tok('--k-font-mono', 'monospace'),
+      size: parseFloat(tok('--k-text-base', '')) || 13,
+    };
+  }
+
+  function termTheme(t) {
+    return {
+      background: t.bg,
+      foreground: t.fg,
+      cursor: t.cursor,
+      selectionBackground: t.selection,
+    };
+  }
+
+  // The console surface: full-body swap via body.term-nav, exactly like the
+  // artifact surface. Rendered ONLY on open/close — render() never calls this,
+  // so a state push (up to one a second while running) cannot recreate
+  // #termHost out from under the live Terminal instance.
+  function renderTermView() {
+    const box = el('termView');
+    if (!box) return;
+    if (!termView) {
+      box.classList.add('hidden');
+      box.innerHTML = '';
+      document.body.classList.remove('term-nav');
+      return;
+    }
+    box.classList.remove('hidden');
+    document.body.classList.add('term-nav');
+    const title = STAGE_TITLE[termView] || termView;
+    box.innerHTML = `<div class="thead"><span class="ttitle">Console · ${esc(title)}</span>`
+      + `<span class="sp"><button type="button" class="k-btn k-btn--ghost k-btn--sm" data-term="close"`
+      + ` title="Close the console view">Close</button></span></div>`
+      + `<div class="tstatus" id="tstatus" role="status">${esc(termLoading ? 'Loading console output…' : '')}</div>`
+      + `<div id="termHost" class="termhost"></div>`;
+    initTerminal();
+  }
+
+  // A real <button> Console entry (UI-R09) posting the closed-vocabulary
+  // stage-log-request; the host's stage-log answer is the outcome (UI-R13).
+  function openTerminal(stage) {
+    if (termView === stage && term) return;
+    if (termView) closeTerminal();
+    termView = stage;
+    termLoading = true;
+    renderTermView();
+    post({ type: 'stage-log-request', stage });
+  }
+
+  function closeTerminal() {
+    if (term) { try { term.dispose(); } catch (e) { /* renderer teardown */ } term = null; }
+    termFit = null;
+    if (termResize) { termResize.disconnect(); termResize = null; }
+    termView = null;
+    termLoading = false;
+    renderTermView();
+  }
+
+  // Create the Terminal only on first open of a view. Guarded for the test
+  // harness (no real xterm in the VM): an absent library degrades to a visible
+  // refusal, never a silent blank.
+  function initTerminal() {
+    if (term) return;
+    if (typeof Terminal === 'undefined' || typeof FitAddon === 'undefined') {
+      const host = el('termHost');
+      if (host) host.innerHTML = '<div class="blurb">Console rendering is unavailable in this build.</div>';
+      return;
+    }
+    const t = termTokens();
+    const host = el('termHost');
+    if (!host) return;
+    term = new Terminal({
+      convertEol: true,        // the artifact log uses bare \n; xterm expects \r\n
+      disableStdin: true,      // a log viewer, never an input surface
+      cursorBlink: false,
+      scrollback: 10000,       // 1 MiB of output is ~10k+ lines at common widths
+      fontFamily: t.font,
+      fontSize: t.size,
+      theme: termTheme(t),
+      allowProposedApi: true,  // FitAddon's addon lifecycle
+    });
+    termFit = new FitAddon.FitAddon();
+    term.loadAddon(termFit);
+    term.open(host);
+    termFit.fit();
+    if (typeof ResizeObserver !== 'undefined' && host) {
+      // fit lives on the ADDON, not the terminal — `term.fit` does not exist.
+      termResize = new ResizeObserver(() => termFit && termFit.fit());
+      termResize.observe(host);
+    }
+  }
+
   // Scroll preservation (spec §9): each surface keeps its own position.
   function artScrollTop() {
     const root = document.documentElement || document.body;
@@ -3258,6 +3414,11 @@
       openArtifact(artOpen.dataset.artOpen, from);
       return;
     }
+    const termBtn = e.target.closest('[data-term]');
+    if (termBtn) {
+      if (termBtn.dataset.term === 'close') closeTerminal();
+      return;
+    }
     const node = e.target.closest('[data-stage]');
     if (node) { select(node.dataset.stage); return; }
     if (e.target.closest('[data-back]')) select(null);
@@ -3266,6 +3427,7 @@
   // Esc mirrors one Back step (spec §8): detail → its origin, index → ticket,
   // ticket → no artifact-navigation action. There is no modal to close.
   document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && termView) { closeTerminal(); return; }
     if (e.key === 'Escape' && artView) artifactBack();
   });
 
@@ -3401,6 +3563,18 @@
       return;
     }
 
+    // The terminal console view: open it and post the closed-vocabulary
+    // stage-log-request. No requestId — the host answers with the `stage-log`
+    // message itself (ok or error), which is the terminal outcome (UI-R13).
+    // Reads `data-console`, never `data-stage` (see renderFault — the rail's
+    // select listener must not re-point the strip for a console click).
+    if (act === CONSOLE_ACT) {
+      const stage = btn.dataset.console;
+      if (!stage) return;
+      openTerminal(stage);
+      return;
+    }
+
     // Every other posting control settles on the host's genuine `action-result`
     // ack (UI-R11–R14): pending on click, dropped (not queued) on a repeat,
     // and the runtime's own watchdog covers a host that never answers.
@@ -3518,6 +3692,24 @@
         delete liveOps[e.stage];
       }
       if (lastState) render(lastState);
+      return;
+    }
+    // The terminal console answer. The host ALWAYS answers a stage-log-request
+    // (ok or error) — this message is the terminal outcome (UI-R13). A stale
+    // answer for a view that has since closed (or moved to another stage) is
+    // dropped, not rendered.
+    if (msg.type === 'stage-log') {
+      if (!termView || termView !== msg.stage) return;
+      termLoading = false;
+      const status = el('tstatus');
+      if (msg.result.kind === 'ok') {
+        if (status) status.textContent = msg.result.truncated ? 'Console output truncated' : '';
+        if (term) term.write(msg.result.content);
+      } else {
+        if (status) status.textContent = '';
+        const host = el('termHost');
+        if (host) host.innerHTML = `<div class="blurb">${esc(msg.result.message)}</div>`;
+      }
       return;
     }
     // The window's terminal binding. Host-owned: it is one preference shared by
