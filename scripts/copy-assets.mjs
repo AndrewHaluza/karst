@@ -2,6 +2,7 @@
 // mirroring the src tree so `readFileSync(join(HERE, 'ui/dashboard/webview.html'))`
 // resolves at runtime. Kept tiny and dependency-free.
 import { copyFileSync, mkdirSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -46,15 +47,22 @@ for (const rel of rootAssets) {
 // asset SOURCES only — the extension never requires them at runtime. The
 // runtime reads dist/vendor/xterm/* (inlined into the dashboard webview by
 // src/model/xtermAssets.ts), and .vscodeignore excludes node_modules/@xterm.
+// The packages resolve through Node's ancestor walk (createRequire) so a
+// build inside a karst worktree — which has no node_modules of its own, see
+// the resolution note in rebuild-better-sqlite3.mjs — still copies the main
+// checkout's bundles.
+const require = createRequire(import.meta.url);
+const xtermRoot = join(dirname(require.resolve('@xterm/xterm/package.json')), '..');
+
 const vendorAssets = [
-  ['node_modules/@xterm/xterm/lib/xterm.js', 'vendor/xterm/xterm.js'],
-  ['node_modules/@xterm/xterm/css/xterm.css', 'vendor/xterm/xterm.css'],
-  ['node_modules/@xterm/addon-fit/lib/addon-fit.js', 'vendor/xterm/addon-fit.js'],
+  [join(xtermRoot, 'xterm', 'lib', 'xterm.js'), 'vendor/xterm/xterm.js'],
+  [join(xtermRoot, 'xterm', 'css', 'xterm.css'), 'vendor/xterm/xterm.css'],
+  [join(xtermRoot, 'addon-fit', 'lib', 'addon-fit.js'), 'vendor/xterm/addon-fit.js'],
 ];
 
 for (const [from, rel] of vendorAssets) {
   const to = join(root, 'dist', rel);
   mkdirSync(dirname(to), { recursive: true });
-  copyFileSync(join(root, from), to);
+  copyFileSync(from, to);
   console.log(`copied ${rel}`);
 }

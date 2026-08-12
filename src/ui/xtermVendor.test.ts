@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { mkdtempSync, copyFileSync, rmSync, readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { readXtermAssets } from '../model/xtermAssets.js';
 
@@ -10,7 +11,14 @@ import { readXtermAssets } from '../model/xtermAssets.js';
 // The package ships its bundles split across lib/ (js) and css/ (css), so
 // they are staged flat into a temp dir — the same shape dist/vendor/xterm
 // has at runtime — before readXtermAssets reads them.
-const VENDOR = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'node_modules', '@xterm');
+//
+// The @xterm packages are located through Node's ancestor walk
+// (createRequire), never a path derived from this file: a karst worktree
+// under `.karst/worktrees/<name>/` has no node_modules of its own (see the
+// resolution note in scripts/rebuild-better-sqlite3.mjs), so the packages
+// live in the main checkout's tree and must be found the same way.
+const require = createRequire(import.meta.url);
+const VENDOR = join(dirname(require.resolve('@xterm/xterm/package.json')), '..');
 
 describe('vendored xterm bundles are CSP-safe to inline', () => {
   let assets: ReturnType<typeof readXtermAssets>;
