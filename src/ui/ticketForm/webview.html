@@ -99,6 +99,15 @@
   .attachdetach{position:absolute;top:var(--k-space-1);right:var(--k-space-1)}
   .attachopen{display:flex;width:100%;justify-content:center;
     border-top:var(--k-border-w) solid var(--k-border)}
+  /* The Attach… button reports its outcome through the strip — the tile
+     appearing IS the success acknowledgement (DESIGN-SYSTEM §11.1: success is
+     "optional transient acknowledgement when changed state is not already
+     obvious"). So the `.k-btn` primitive's green-border + checkmark settle
+     (`.is-success`) is suppressed here, the same call the agent-core trigger
+     makes above: the control stays a regular ghost button through the cycle,
+     and the strip's new tile is the flash (UI-R13). */
+  #attachBtn.is-success{color:var(--k-text-dim);border-color:var(--k-border)}
+  #attachBtn.is-success::before{content:none}
 
   /* Card heading row: title on the left, provider chip pinned top-right. */
   .cardhead{display:flex;align-items:center;justify-content:space-between;
@@ -1498,12 +1507,16 @@
   // click.
   el('desc').addEventListener('input', syncAnalyzeBtn);
 
-  el('attachBtn').addEventListener('click', function () {
-    // `attach-pick`/`attach-bytes` (paste, below) share this control's pending
-    // state — both are "the attach machinery" from the user's point of view,
-    // and only one can usefully run at a time.
-    karstAction(el('attachBtn'), (requestId) => post({ type: 'attach-pick', requestId }));
-  });
+  // `karstAction` binds its own click listener ONCE, at setup — this page's
+  // `#attachBtn` is static markup, so a delegated re-bind is never needed.
+  // Binding it inside a click handler (as it once was) re-bound a listener on
+  // EVERY click, and a listener added while a click is being dispatched does
+  // not fire for that click — so the FIRST click only armed the machinery and
+  // the SECOND click was the first to actually open the picker.
+  // `attach-pick`/`attach-bytes` (paste, below) share this control's pending
+  // state — both are "the attach machinery" from the user's point of view,
+  // and only one can usefully run at a time.
+  karstAction(el('attachBtn'), (requestId) => post({ type: 'attach-pick', requestId }));
 
   // Delegated: the strip is re-rendered on every state push, so per-tile
   // listeners would be re-bound each time and leak. Uses the runtime's pending
