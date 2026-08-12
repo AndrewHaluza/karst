@@ -55,27 +55,10 @@ function containerBlock(w: string): string {
  * or a selection round trip that fails in a real webview. Those need F5.
  */
 describe('dashboard webview.html', () => {
-  it('renders the Now session subtitle from action.detail', () => {
-    expect(HTML).toContain('a.detail');
-  });
-
-  it('shows the live core/model through the identity component and a payload-free switch action beside Now', () => {
-    // The Now line renders the session identity through the injected
-    // component (icon + name + model) — never a bare text pair.
-    expect(HTML).toMatch(/agentIdentityHtml\(agentSession\.provider,\s*agentSession\.modelLabel/);
-    expect(HTML).toContain('data-act="switch-agent"');
-    expect(HTML).toMatch(/agentSession\.canSwitch[\s\S]*switch-agent/);
-    expect(HTML).not.toMatch(/data-act="switch-agent"[^>]*data-(?:provider|model|ticket)/);
-  });
-
-  it('builds the switch action on the shared secondary button, not a bespoke style rule', () => {
-    // UI-R07: no local rule may restyle a <button> (background/border/padding/
-    // radius/font-size) — `.switch-agent` used to declare its own colors with
-    // a hex-adjacent VS Code fallback chain; it is now a layout-only class
-    // riding on `.k-btn--secondary`, which already resolves through the same
-    // secondaryBackground/secondaryForeground tokens.
-    expect(HTML).toMatch(/class="k-btn k-btn--secondary[^"]*switch-agent"[^>]*data-act="switch-agent"/);
-    expect(HTML).not.toMatch(/\.switch-agent\{[^}]*background/);
+  it('renders the header ship action from state.ship, never a Now sentence', () => {
+    expect(HTML).toMatch(/function renderShip\(state\)[\s\S]*?state\.ship/);
+    expect(HTML).not.toContain('id="now"');
+    expect(HTML).not.toMatch(/function renderNow\(/);
   });
 
   it('renders ticket changes as one accessible diff icon button', () => {
@@ -416,8 +399,8 @@ describe('dashboard webview.html', () => {
       join(dirname(fileURLToPath(import.meta.url)), 'messages.ts'),
       'utf8',
     );
-    // Literal names only. The Now line's button interpolates its action from
-    // NOW_MESSAGE, whose values are themselves literals declared below.
+    // Literal names only. Ship rides the fixed confirmShip button markup; the
+    // other data-act values are static strings declared below.
     const emitted = [...HTML.matchAll(/data-act="([^"$]+)"/g)].map((m) => m[1]!);
     expect(emitted.length).toBeGreaterThan(0);
     for (const act of new Set(emitted)) {
@@ -613,36 +596,28 @@ describe('dashboard webview.html', () => {
    * `shipping` flag and its flat `ship-progress` overlay are gone.
    */
   it('registers the confirm-ship click before the host round trip', () => {
-    // shipRequestId is set and the pending lifecycle starts inside the click
-    // handler, not on the next state push — so there is no window where the
-    // button looks inert.
     expect(HTML).toMatch(/act === 'ship-ticket'/);
     expect(HTML).toMatch(/shipRequestId = karstRequestId\(\)/);
     expect(HTML).toMatch(/karstBeginPending\(btn, shipRequestId\)/);
   });
 
   it('guards against a double confirm-ship submit while one is in flight', () => {
-    // Re-clicking must not fire a second ship. The pending requestId is the
-    // in-flight marker (the old `shipping` boolean is gone).
     expect(HTML).toMatch(/if \(shipRequestId\) return/);
   });
 
-  it('holds the ship Now line across state pushes until the stage resolves', () => {
-    // Every push still reads the ship stage as "ready" (it sits at running), so
-    // renderNow must short-circuit to a static sentence while a ship is in
-    // flight, and the resolution must key off host stage truth — not the button
-    // copy. The hold keys off the in-flight requestId, never a `shipping` flag.
-    expect(HTML).toMatch(/function renderNow\(now(?:, agentSession)?\) \{[\s\S]*?if \(shipRequestId\)/);
-    expect(HTML).toMatch(/stageCurrent === 'ship'/);
+  it('holds the ship header slot across state pushes until the stage resolves', () => {
+    expect(HTML).toMatch(/function renderShip\(state\)[\s\S]*?(?:shipRequestId|\bslot\b)/);
+    expect(HTML).toMatch(/stageCurrent === 'ship'/);   // resolveShipping still keys off host truth
     expect(HTML).toMatch(/status === 'failed'/);
     expect(HTML).not.toMatch(/if \(shipping\)/);
+    expect(HTML).not.toContain('id="now"');
   });
 
   it('feeds live Ship events through the generic inside-progress protocol, never a flat overlay', () => {
     // Finding 12: the per-repo/per-step `ship-progress` stream is gone; ship's
     // lifecycle rides the same `inside-progress` union as gates and Fix, and
     // renderInside always consumes the authoritative ledger + generic overlays.
-    // (The word "shipping" still appears inside the host's static Now sentence.)
+    // (The word "shipping" now lives in the header ship button's label.)
     expect(HTML).toContain("'inside-progress'");
     expect(HTML).not.toContain("'ship-progress'");
     expect(HTML).not.toMatch(/\blet shipping\b|shipping\s*=\s*(?:true|false)/);
@@ -780,11 +755,11 @@ describe('dashboard webview.html', () => {
     expect(HTML).toMatch(/prRefreshId = null/);
   });
 
-  it('resolves the ship to an explicit success flash', () => {
+  it('resolves the ship to an explicit success toast', () => {
     // On completion the indicator settles to a clear success beat, distinct from
-    // the idle and processing states.
+    // the idle and processing states — the header toast now carries it.
     expect(HTML).toMatch(/shipDone = 'success'/);
-    expect(HTML).toContain('✓ Shipped');
+    expect(HTML).toContain('Shipped ✓');
   });
   it('renders the PR path through the host’s display form, never the raw path', () => {
     // The path-display preference (relative/absolute) is resolved host-side into
@@ -1016,8 +991,7 @@ describe('dashboard webview.html', () => {
   it('titles every previously-untitled control named in the remediation brief', () => {
     for (const title of [
       'Return the strip to the stage the ticket is actually on', // .ghost[data-back]
-      "Open this stage's log file", // open-stage-log (Inside block / Now line)
-      "Switch this ticket\\'s live agent session", // .switch-agent (JS string literal, escaped apostrophe)
+      "Open this stage's log file", // open-stage-log (Inside block)
       'Open a terminal in this worktree', // open-worktree-terminal
       'Reveal this worktree in the file explorer', // open-worktree-folder
       'Build this worktree and open its extension in a new dev window', // launch-worktree-extension
@@ -1101,7 +1075,7 @@ describe('dashboard webview.html', () => {
     // re-point the Inside panel to whatever stage it names.
     const renderBlockedBody = HTML.slice(
       HTML.indexOf('function renderBlocked(state)'),
-      HTML.indexOf('// One sentence + at most one button'),
+      HTML.indexOf('let toastTimer = 0;'),
     );
     expect(renderBlockedBody).toMatch(/data-act="stage-resume"/);
     expect(renderBlockedBody).toMatch(/data-stagekey="\$\{esc\(cell\.stageKey\)\}"/);
@@ -1117,7 +1091,7 @@ describe('dashboard webview.html', () => {
     // host's `resumable` flag, never a reason-string match in the webview.
     const renderBlockedBody = HTML.slice(
       HTML.indexOf('function renderBlocked(state)'),
-      HTML.indexOf('// One sentence + at most one button'),
+      HTML.indexOf('let toastTimer = 0;'),
     );
     expect(renderBlockedBody).toMatch(/blocked\.resumable === false/);
     // The non-resumable branch is the code between its own `if` and the next
@@ -1676,7 +1650,7 @@ describe('dashboard webview.html', () => {
     // reduced-motion block is a (0,1,0) rule, so a later scoped rule such as
     // `.inside-head .alive .spin` (0,3,1) would win by specificity and spin
     // again under reduced motion.
-    for (const scoped of ['.inside-head .alive .spin', '.now .spin', '.track .seg .spin']) {
+    for (const scoped of ['.inside-head .alive .spin', '.track .seg .spin']) {
       expect(HTML, `${scoped} re-declares an animation`).not.toMatch(
         new RegExp(`${scoped.replace('.', '\\.')}\\{[^}]*animation`),
       );
@@ -1941,7 +1915,9 @@ function bootPreviewHarness(): PreviewHarness {
     'keyPill',
     'agent',
     'blocked',
-    'now',
+    'toast',
+    'confirmShip',
+    'shipWait',
     'srvCount',
     'srvOps',
     'worktrees',

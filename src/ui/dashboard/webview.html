@@ -1043,18 +1043,17 @@
     background:color-mix(in srgb,var(--k-attention) 10%,transparent)}
   .fault.waiting .ftitle{display:flex;align-items:center;gap:var(--k-space-3);color:var(--k-attention)}
 
-  /* The "Now" line — one plain sentence naming what is happening and the next
-     action the user controls. Built host-side (state.now) so the copy is tested. */
-  .now{display:flex;flex-wrap:wrap;align-items:center;gap:var(--k-space-5);margin:var(--k-space-6) var(--k-space-3) var(--k-space-1);padding-top:calc(var(--k-space-6) - var(--k-border-w));
-    border-top:var(--k-border-w) solid var(--k-border);font-size:var(--k-text-md);color:var(--k-text)}
-  .now .ntext{flex:1}
-  .now .now-sub{flex-basis:100%;font-size:var(--k-text-xs);color:var(--k-text-dim)}
-  /* The ship-in-progress spinner rides in the Now line at the gate-node size.
-     .spin is display:block, so it needs an explicit box here. */
-  .now .spin{width:var(--k-text-base);height:var(--k-text-base);flex:none;color:var(--k-running)}
-  /* The resolved-success flash: a brief "Shipped ✓" beside the settled line. */
-  .now .shipbadge{font-weight:var(--k-weight-semibold);flex:none}
-  .now .shipbadge.ok{color:var(--k-passed)}
+  /* The header ship workflow-action slot (UI-R28b): Confirm ship / Shipping… is
+     the primary action; Waiting to merge is the parked-wait chip. The two never
+     render together — the host's ShipSlot union is mutually exclusive. The
+     min-width is `calc`-composed so the label swap (Confirm ship / Retry ship /
+     Shipping…) never shifts the neighbouring controls (UI-R18). */
+  .shipAction{min-width:calc(var(--k-control-h-lg) * 3)}
+  .shipWait{display:inline-flex;align-items:center;gap:var(--k-space-3);min-height:var(--k-control-h-lg);padding:0 var(--k-space-4);border-radius:var(--k-radius-sm);color:var(--k-attention);font-size:var(--k-text-xs);font-weight:var(--k-weight-semibold);white-space:nowrap}
+  .shipWait.hidden{display:none}
+  .attentionMark{width:var(--k-space-4);height:var(--k-space-4);border:calc(var(--k-border-w) * 2) solid currentColor;border-radius:var(--k-radius-circle);display:inline-flex;align-items:center;justify-content:center;font-size:var(--k-text-2xs);line-height:1}
+  .toast{color:var(--k-success);font-size:var(--k-text-xs);opacity:0;transition:opacity var(--k-dur-fast) var(--k-ease-standard);white-space:nowrap}
+  .toast.show{opacity:1}
   .grid{display:grid;grid-template-columns:1fr 1fr;gap:var(--k-space-7)}
   .panel{border:var(--k-border-w) solid var(--k-border);border-radius:calc(var(--k-radius-lg) + var(--k-border-w));background:var(--k-surface);overflow:hidden}
   .panel.span{grid-column:1 / -1}
@@ -1385,6 +1384,9 @@
     title="Bind is off — this dashboard and the agent terminal move independently"><span class="dot" aria-hidden="true"></span>Bind terminal</button>
   <button id="followUpBtn" type="button" class="hidden k-btn k-btn--secondary k-btn--sm" data-act="create-follow-up-ticket" title="Create a new ticket linked to this one, pre-filled with its repos/approach/agent">Create follow-up</button>
   <button id="editBtn" type="button" class="k-btn k-btn--secondary k-btn--sm" data-act="edit-ticket" title="Edit this ticket's title, description, and scope">Edit</button>
+  <span id="toast" class="toast" aria-live="polite"></span>
+  <button id="confirmShip" type="button" class="k-btn k-btn--primary k-btn--sm shipAction" data-act="ship-ticket" title="Ship this ticket — commit, push, and open pull requests" hidden>Confirm ship</button>
+  <span id="shipWait" class="shipWait hidden" role="status"><span class="attentionMark" aria-hidden="true">❚❚</span><span>Waiting to merge</span></span>
 </div>
 
 <div class="stepper">
@@ -1399,8 +1401,7 @@
        wait is the exception: renderBlocked swaps it onto the amber
        `.fault.waiting` treatment, because a wait is not a fault. -->
   <div class="fault blocked hidden" id="blocked"></div>
-  <!-- What is happening and what the user can do next (state.now). -->
-  <div class="now" id="now"></div></div>
+</div>
 
 <div class="grid">
   <div class="panel svpanel"><div class="phead">Servers<span class="count" id="srvCount"></span><span class="pops" id="srvOps"></span></div><div class="pbody" id="servers"></div></div>
@@ -1592,7 +1593,8 @@
   // scans the SOURCE for literal data-act values and would read a bare
   // console-valued one as an unvalidated host action, so the action name must
   // never be spelled as a data-act literal in this file. The rendered DOM
-  // still carries the console data-act value (NOW_MESSAGE is the same pattern).
+  // still carries the console data-act value (same pattern as any action name
+  // the pin would otherwise flag as unvalidated).
   const CONSOLE_ACT = 'console';
 
   // Under a rail node there is room for one number, not a sentence. The full
@@ -1792,7 +1794,7 @@
   // its per-kind evidence bodies.
 
   // kind → label, from the closed InsideActionKind vocabulary. Static control
-  // copy (UI-R20), like NOW_TITLE — the host never ships these strings.
+  // copy (UI-R20), like every other fixed label — the host never ships these strings.
   const INSIDE_ACTION_LABEL = {
     'open-pr': 'Open PR',
     'open-commit': 'Open commit',
@@ -2366,61 +2368,51 @@
       + ` title="Clear the block and let karst try this stage again">Resume</button></div>`;
   }
 
-  // One sentence + at most one button. The copy is built host-side (model/nowLine)
-  // and shipped in the state, so it is unit-tested and lives in exactly one place.
-  // `session` and `resume` both route to resume-ticket: the host's openSession
-  // resolves --resume vs. a fresh (self-scoping) launch on its own, so the verb
-  // is a label concern only — the button always reaches the one entry point.
-  const NOW_MESSAGE = { 'open-log': 'open-stage-log', ship: 'ship-ticket', resume: 'resume-ticket', session: 'resume-ticket' };
-  // Fixed, static tooltip text per action kind (UI-R19/R20) — the label alone
-  // ("Ship", "Resume") is a bare verb whose object is not visible on the
-  // button. These are structural UI copy, like every other static tooltip in
-  // this file (sidebar's row actions are the precedent), not a host-derived
-  // value — UI-R31 governs DATA, not fixed control copy.
-  const NOW_TITLE = {
-    'open-log': "Open the failed stage's log file",
-    ship: 'Ship this ticket — commit, push, and open pull requests',
-    resume: "Resume this ticket's agent session",
-    session: "Resume this ticket's agent session",
-  };
+  let toastTimer = 0;
+  function showToast(message) {
+    const t = el('toast');
+    if (!t) return;
+    t.textContent = message;
+    t.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => t.classList.remove('show'), 1400);
+  }
 
-  function renderNow(now, agentSession) {
-    // While a ship is in flight, the real per-step progress lives in the Inside
-    // block; this line is a static sentence, never a spinner label — and no
-    // button, since the confirm click already happened (no second one to make).
-    // The in-flight marker is the pending requestId (the old `shipping` flag
-    // is gone), so the hold survives every push until the stage resolves.
-    if (shipRequestId) {
-      el('now').innerHTML = `<span class="ntext">${esc('Now: shipping — committing, pushing, and opening PRs for each hot repo.')}</span>`;
+  // The header ship action. The host's `state.ship` union is the placement
+  // truth; the webview's own in-flight `shipRequestId` (set by the click,
+  // settled by resolveShipping) additionally holds "Shipping…" across the
+  // pushes before the ship stage reads `running`.
+  function renderShip(state) {
+    const btn = el('confirmShip');
+    const wait = el('shipWait');
+    if (!btn || !wait) return;
+    const slot = state.ship || { kind: 'none' };
+    const inFlight = !!shipRequestId;
+    wait.classList.add('hidden');
+    if (slot.kind === 'waiting-merge') {
+      btn.hidden = true;
+      btn.setAttribute('aria-busy', 'false');
+      btn.disabled = false;
+      wait.classList.remove('hidden');
+      wait.title = slot.repos > 0 ? `Waiting for ${slot.repos} ${slot.repos === 1 ? 'repo' : 'repos'} to be merged` : 'Waiting for the pull requests to be merged';
       return;
     }
-    const line = now || { text: '' };
-    const a = line.action;
-    const type = a && NOW_MESSAGE[a.kind];
-    const title = a && NOW_TITLE[a.kind];
-    const attrs = a && a.path ? ` data-path="${esc(a.path)}"` : '';
-    const switchAction = agentSession && agentSession.canSwitch
-      ? '<button type="button" class="k-btn k-btn--secondary k-btn--sm switch-agent" data-act="switch-agent"'
-        + ' title="Switch this ticket\'s live agent session">Switch agent…</button>'
-      : '';
-    // The live session's identity is the injected component (icon + name +
-    // model, compact for the small subtitle line) — never a bare text pair.
-    const identity = agentSession
-      ? agentIdentityHtml(agentSession.provider, agentSession.modelLabel, true)
-      : '';
-    // A brief success flash beside the settled line once a ship resolves — the
-    // clear "it worked" beat before the dashboard shows the done state.
-    const badge = shipDone === 'success' ? `<span class="shipbadge ok">✓ Shipped</span>` : '';
-    const detail = a && a.kind === 'session' && a.detail ? esc(a.detail) : '';
-    const subtitle = [detail, identity].filter(Boolean).join(' · ');
-    const sub = subtitle
-      ? `<div class="now-sub">${subtitle}</div>`
-      : '';
-    el('now').innerHTML = badge + `<span class="ntext">${esc(line.text)}</span>`
-      + (type ? `<button type="button" class="k-btn k-btn--primary k-btn--sm" data-act="${type}"${attrs}`
-        + `${title ? ` title="${esc(title)}"` : ''}>${esc(a.label)}</button>` : '')
-      + switchAction
-      + sub;
+    if (slot.kind === 'confirm' || slot.kind === 'retry') {
+      btn.hidden = false;
+      btn.textContent = slot.kind === 'retry' ? 'Retry ship' : 'Confirm ship';
+      btn.setAttribute('aria-busy', 'false');
+      btn.disabled = false;
+    } else if (slot.kind === 'shipping' || inFlight) {
+      btn.hidden = false;
+      btn.textContent = 'Shipping…';
+      btn.setAttribute('aria-busy', 'true');
+      btn.disabled = true;
+    } else {
+      btn.hidden = true;
+      btn.setAttribute('aria-busy', 'false');
+      btn.disabled = false;
+    }
+    if (shipDone === 'success') showToast('Shipped ✓');
   }
 
   // Decide whether an incoming snapshot ends the in-flight ship. Keyed off host
@@ -3264,7 +3256,7 @@
     renderTrack(state.rail, state.approach, sel);
     renderInside(state, sel);
     renderBlocked(state);
-    renderNow(state.now, state.agentSession);
+    renderShip(state);
     renderServers(state);
     renderWorktrees(state.worktrees);
     renderPrs(state.prs, state.mergeChecks);
