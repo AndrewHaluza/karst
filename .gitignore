@@ -40,3 +40,11 @@ rpi/
 # with fake state injected, for measuring the stage track at narrow widths. A
 # build product of webview.html, regenerated on demand, never a source.
 docs/design/stages/_harness-shipped.html
+# The runtime registry. karst is developed in the repo it also drives, so a run
+# from this checkout drops its SQLite database (and the transient `-wal`/`-shm`
+# sidecars) at the root. It carries whatever tickets and sessions the developer
+# had open and its `user_version` trails the branch's SCHEMA_VERSION, so it is
+# never a fixture — a named one would live under a test directory.
+karst.db
+karst.db-shm
+karst.db-wal
