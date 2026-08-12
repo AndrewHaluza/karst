@@ -15,6 +15,7 @@ describe('glyphFor', () => {
     ['failed', 'idle', 'red'],
     ['failed', 'none', 'red'],
     ['passed', 'idle', 'green'],
+    ['passed', 'running', 'blue'], // a running agent beats a finished stage (the resolve session on a passed ship)
     ['running', 'idle', 'blue'],
     ['pending', 'running', 'blue'], // agent running drives blue even if stage pending
     ['pending', 'idle', 'gray'],

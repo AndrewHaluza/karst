@@ -162,6 +162,13 @@ export function buildNowLine(
      * headless run and the line must keep saying it is shipping (869ed7bpd).
      */
     agentWaiting?: boolean;
+    /**
+     * A session is actively working the ticket (`agentState === 'running'`) —
+     * the resolve-conflicts session on a ship waiting to land. The ticket reads
+     * in progress, so the needs-you instruction copy ("Resolve the conflicts
+     * below") must not keep telling the user to do what the agent is doing.
+     */
+    agentRunning?: boolean;
   } = {},
 ): NowLine {
   // The returning-user entry point (§ start/continue): the verb rides on the
@@ -235,6 +242,13 @@ export function buildNowLine(
       // PRs are open but the entry gate into `done` (workflow/mergeGate.ts)
       // is holding: at least one still has to land.
       if (cell.blocked?.kind === 'awaiting-merge') {
+        // The "Resolve conflicts" click opened a session: the user already
+        // acted, so the instruction copy below is stale — say the agent is
+        // doing the resolving, the same way the fix branch says the agent is
+        // fixing. Once the session ends (idle) the instruction returns.
+        if (ctx.agentRunning) {
+          return { text: 'Now: resolving the merge conflict — the agent is running.' };
+        }
         return merging(ctx.mergeGate);
       }
       // Running: the confirm click already happened — no button, and no more

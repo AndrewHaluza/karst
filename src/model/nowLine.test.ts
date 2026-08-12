@@ -287,6 +287,21 @@ describe('buildNowLine', () => {
       ).toBeUndefined();
     });
 
+    // The "Resolve conflicts" click opened a session: the instruction copy
+    // ("Resolve the conflicts below") is stale while the agent is the one
+    // resolving — the line says the agent is doing it, the same way the fix
+    // branch says the agent is fixing.
+    it('says the agent is resolving while a resolve session runs', () => {
+      expect(
+        buildNowLine(merge, {
+          mergeGate: { kind: 'conflicted', repos: ['api'], pending: [] },
+          agentRunning: true,
+        }),
+      ).toEqual({
+        text: 'Now: resolving the merge conflict — the agent is running.',
+      });
+    });
+
     // A gate nobody asked still has to produce a sentence — the panel renders
     // this line unconditionally.
     it('degrades to a plain waiting line when the gate was not read', () => {
