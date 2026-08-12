@@ -1221,7 +1221,7 @@ describe('buildTicketFormActions', () => {
 
     it('reports an unsupported file as an inline error and attaches nothing', async () => {
       const { actions, ctx, deps, ticketId } = makeActions({ mode: 'edit' });
-      deps.pickAttachment = async () => [sourceFile('notes.pdf', '%PDF')];
+      deps.pickAttachment = async () => [sourceFile('README', 'plain text, no extension')];
       await actions.attachPick();
       expect(listAttachments(deps.store, ticketId!)).toEqual([]);
       expect(ctx.posted).toContainEqual(
@@ -1259,7 +1259,7 @@ describe('buildTicketFormActions', () => {
     it('rejects an unsupported pasted filename before binding a create-mode draft', async () => {
       const { actions, ctx, deps } = makeActions({ mode: 'create' });
 
-      await actions.attachBytes('notes.pdf', Buffer.from('%PDF').toString('base64'));
+      await actions.attachBytes('README', Buffer.from('no extension').toString('base64'));
 
       expect(ctx.boundTicketId).toBeUndefined();
       expect(listTickets(deps.store)).toEqual([]);
