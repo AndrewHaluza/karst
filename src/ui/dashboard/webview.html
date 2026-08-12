@@ -69,6 +69,29 @@
   .fieldControl{min-width:0}
   .fieldHelp{margin-left:calc(var(--k-space-8) + var(--k-space-4));color:var(--k-text-faint);font-size:var(--k-text-xs);line-height:1.35}
   .popActions{display:flex;justify-content:flex-end;padding:var(--k-space-4);border-top:var(--k-border-w) solid var(--k-border)}
+  .menuButton{width:100%;min-height:var(--k-control-h-lg);display:flex;align-items:center;gap:var(--k-space-4);border:0;border-radius:var(--k-radius-sm);background:transparent;color:var(--k-text);padding:0 var(--k-space-4);cursor:pointer;text-align:left}
+  .menuButton:hover{background:var(--k-surface-hover)}
+  .menuButton .k-icon{color:var(--k-text-dim);flex:none}
+  .menuHeading{margin:var(--k-space-2) var(--k-space-4) var(--k-space-3);color:var(--k-text-faint);font-size:var(--k-text-2xs);font-weight:var(--k-weight-semibold);letter-spacing:.06em;text-transform:uppercase}
+  .menuDivider{height:1px;background:var(--k-border);margin:var(--k-space-3)}
+  .settingRow{display:flex;align-items:center;gap:var(--k-space-5);padding:var(--k-space-3) var(--k-space-4)}
+  .settingCopy{min-width:0;flex:1}
+  .settingTitle{font-size:var(--k-text-md);font-weight:var(--k-weight-medium)}
+  .settingHelp{margin-top:1px;color:var(--k-text-faint);font-size:var(--k-text-2xs);line-height:1.35}
+  .k-switch{position:relative;width:calc(var(--k-control-h-sm) * 1.5);height:var(--k-control-h-sm);flex:none;display:inline-block}
+  .k-switch input{position:absolute;opacity:0;pointer-events:none}
+  .k-switchTrack{position:absolute;inset:0;border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-pill);background:var(--k-surface-selected);cursor:pointer}
+  .k-switchTrack::after{content:"";position:absolute;width:calc(var(--k-control-h-sm) - var(--k-space-6));height:calc(var(--k-control-h-sm) - var(--k-space-6));border-radius:var(--k-radius-circle);left:calc(var(--k-space-2) - var(--k-border-w));top:calc(var(--k-space-2) - var(--k-border-w));background:var(--k-text-dim);transition:left var(--k-dur-fast) var(--k-ease-standard),background var(--k-dur-fast) var(--k-ease-standard)}
+  .k-switch input:checked + .k-switchTrack{background:color-mix(in srgb,var(--k-passed) 18%,var(--k-surface));border-color:color-mix(in srgb,var(--k-passed) 55%,var(--k-border))}
+  .k-switch input:checked + .k-switchTrack::after{left:calc(var(--k-control-h-sm) * .5);background:var(--k-passed)}
+  .k-switch input:focus-visible + .k-switchTrack{outline:1px solid var(--k-focus);outline-offset:2px}
+  .gateGroup{margin:0 var(--k-space-3) var(--k-space-3);border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-md);overflow:hidden}
+  .gateHead{min-height:var(--k-control-h-sm);display:flex;align-items:center;padding:0 var(--k-space-4);background:var(--k-surface-sunken);color:var(--k-text-faint);font-size:var(--k-text-2xs);font-weight:var(--k-weight-semibold);letter-spacing:.06em;text-transform:uppercase}
+  .gateRow{min-height:var(--k-control-h-lg);display:flex;align-items:center;gap:var(--k-space-4);padding:0 var(--k-space-4);border-top:var(--k-border-w) solid var(--k-border)}
+  .gateName{flex:1;font-family:var(--k-font-mono);font-size:var(--k-text-xs)}
+  .gateState{color:var(--k-text-faint);font-size:var(--k-text-xs)}
+  .gateToggle{min-width:calc(var(--k-control-h-sm) * 2.5);justify-content:flex-end;font-size:var(--k-text-xs)}
+  .menuBlurb{padding:var(--k-space-4);color:var(--k-text-faint);font-size:var(--k-text-xs)}
   /* Shared ticketing-provider badge (icon + brand name) — single source in
      src/model/providerIdentity.ts, injected here at load (CSP forbids a
      shared stylesheet). */
@@ -1267,18 +1290,6 @@
   .svpanel .estate.dead .ehead{color:var(--k-text-dim);font-weight:var(--k-weight-medium)}
   .svpanel .nomatch{padding:calc(var(--k-space-6) + var(--k-space-1));color:var(--k-text-faint);font-size:var(--k-text-md)}
 
-  /* Gates panel: one group per stage, one row per resolved gate name. */
-  #gates .blurb{padding:var(--k-space-5) var(--k-space-3);font-size:var(--k-text-sm);color:var(--k-text-dim)}
-  .ggroup{margin-bottom:var(--k-space-4)}
-  .gtitle{font-size:var(--k-text-2xs);color:var(--k-text-faint);text-transform:uppercase;
-    margin-bottom:var(--k-space-2);padding:0 var(--k-space-3)}
-  .gaterow{display:flex;align-items:center;gap:var(--k-space-4);
-    padding:var(--k-space-2) var(--k-space-3);border-radius:var(--k-radius-md)}
-  .gaterow:hover{background:var(--k-surface-hover)}
-  .gaterow.off .gname{text-decoration:line-through;color:var(--k-text-faint)}
-  .gaterow .gname{font-family:var(--k-font-mono);font-size:var(--k-text-sm);flex:1}
-  .gaterow .gstate{font-size:var(--k-text-xs);color:var(--k-text-dim)}
-
   /* Artifacts shelf + index + detail (§ docs/design/artifacts/README.md).
      The shelf is a panel like any other; the index and the detail REPLACE the
      dashboard body inside the SAME webview (spec §7: exactly three surfaces,
@@ -1469,11 +1480,6 @@
     aria-label="Re-check pull request status and mergeability now" title="Re-check pull request status and mergeability now">
     <svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20 11a8.1 8.1 0 0 0 -15.5 -2m-.5 -4v4h4"/><path d="M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4"/></svg>
   </button></div><div class="pbody" id="prs"></div></div>
-  <!-- Resolved async, host-side, on its own gate-options message — same split
-       as Worktrees' stats — because listing what a ticket's UAT/review stages
-       would actually run needs a filesystem probe the synchronous state push
-       cannot do. Empty until that message lands. -->
-  <div class="panel span"><div class="phead">Gates<span class="count" id="gateCount"></span></div><div class="pbody" id="gates"></div></div>
   <!-- The artifacts shelf (docs/design/artifacts). Rendered only while the
        ticket has at least one artifact — renderArtifacts() toggles .hidden —
        because the spec's zero-artifact state is ABSENCE, never an empty
@@ -2959,6 +2965,11 @@
     // the next state push, never as an invented verdict (UI-R14/R31).
     post({ type: 'switch-agent', provider: draftCore, model: draftModel || null });
   });
+  el('linkViews').addEventListener('change', () => {
+    // Payload-free like the old bind button: the host owns the preference and
+    // answers with the `bind` message, which is the terminal outcome (UI-R13).
+    post({ type: 'toggle-bind' });
+  });
 
   // ---------------------------------------------------------------------
   // Artifacts: shelf, index, detail (docs/design/artifacts/README.md)
@@ -3426,7 +3437,6 @@
     renderServers(state);
     renderWorktrees(state.worktrees);
     renderPrs(state.prs, state.mergeChecks);
-    renderGates();
     renderArtifacts(state);
     renderArtView();
     renderFollowUp(state);
@@ -3446,10 +3456,10 @@
   // ticket's current selection.
   function gateRow(stage, opt) {
     const label = (opt.disabled ? 'Enable ' : 'Disable ') + opt.name + ' for this ticket';
-    return `<div class="gaterow${opt.disabled ? ' off' : ''}">`
-      + `<span class="gname">${esc(opt.name)}</span>`
-      + `<span class="gstate">${opt.disabled ? 'disabled' : 'runs'}</span>`
-      + `<button type="button" class="k-btn k-btn--ghost k-btn--sm gtoggle"`
+    return `<div class="gateRow${opt.disabled ? ' off' : ''}">`
+      + `<span class="gateName">${esc(opt.name)}</span>`
+      + `<span class="gateState">${opt.disabled ? 'disabled' : 'runs'}</span>`
+      + `<button type="button" class="k-btn k-btn--ghost k-btn--sm gateToggle"`
       + ` data-act="set-disabled-gates" data-stage="${esc(stage)}" data-name="${esc(opt.name)}"`
       + ` data-disabled="${opt.disabled ? '1' : '0'}"`
       + ` aria-pressed="${opt.disabled ? 'true' : 'false'}"`
@@ -3457,39 +3467,25 @@
       + `</div>`;
   }
 
-  // Resolved gate names arrive on their own message (§ gateOptions), never
-  // inside `state` — so this reads the module-level `gateOptions`, not an
-  // argument, and is safe to call from both the state push (clears to empty)
-  // and the gate-options message handler (repopulates).
-  function renderGates() {
+  function renderMenuGates() {
+    const body = el('menuGates');
+    if (!body) return;
     const uat = gateOptions.uat || [];
     const review = gateOptions.review || [];
-    const countEl = el('gateCount');
-    if (countEl) countEl.textContent = String(uat.length + review.length);
-    const body = el('gates');
-    if (!body) return;
     if (!uat.length && !review.length) {
-      body.innerHTML = '<div class="blurb">No gates resolved for this ticket yet.</div>';
+      body.innerHTML = '<div class="menuBlurb">No gates resolved for this ticket yet.</div>';
       return;
     }
     const group = (title, stage, opts) => opts.length
-      ? `<div class="ggroup"><div class="gtitle">${esc(title)}</div>`
+      ? `<div class="gateGroup"><div class="gateHead">${esc(title)}</div>`
         + opts.map((o) => gateRow(stage, o)).join('') + '</div>'
       : '';
     body.innerHTML = group('UAT', 'uat', uat) + group('Review', 'review', review);
   }
 
-  // The toggle's label stays "Bind terminal" in both states — a button that
-  // renamed itself to the ACTION ("Unbind") reads, at a glance, as the state.
-  // aria-pressed and the fill carry the state; the tooltip spells out what the
-  // binding does, since the consequence lands on tabs elsewhere in the IDE.
   function renderBind() {
-    const btn = el('bindBtn');
-    if (!btn) return;
-    btn.setAttribute('aria-pressed', String(bindEnabled));
-    btn.title = bindEnabled
-      ? 'Bind is on — opening this dashboard reveals the agent terminal, and opening the terminal reveals this dashboard. Click to unbind.'
-      : 'Bind is off — this dashboard and the agent terminal move independently. Click to bind them.';
+    const box = el('linkViews');
+    if (box) box.checked = bindEnabled;
   }
 
   const persist = () => vscode.setState({ state: lastState, sel: selectedStage, srvFilter: srvFilter, artView: artView, artScrolls: artScrolls });
@@ -3861,7 +3857,7 @@
     // longer resolves.
     if (msg.type === 'gate-options') {
       gateOptions = msg.options || { uat: [], review: [] };
-      renderGates();
+      renderMenuGates();
       return;
     }
     // The terminal result of an async action (§ DESIGN-SYSTEM.md 5.3, UI-R13).

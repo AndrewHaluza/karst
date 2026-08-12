@@ -407,6 +407,11 @@ describe('dashboard webview.html', () => {
     for (const act of new Set(emitted)) {
       expect(declared, `unvalidated action: ${act}`).toContain(`'${act}'`);
     }
+    // The menu's edit entry and the identity's copy-key ride data-act; the
+    // agent switch is a dedicated popover button, never a data-act value.
+    expect(emitted).toContain('edit-ticket');
+    expect(emitted).toContain('copy-ticket-key');
+    expect(emitted).not.toContain('switch-agent');
   });
 
   /**
@@ -563,22 +568,12 @@ describe('dashboard webview.html', () => {
     expect(HTML).toMatch(/srvFilter:\s*srvFilter/);
   });
 
-  it('keeps the host bind push alive while the toggle relocates to the … menu', () => {
-    // The standalone Bind button left the header with Task 5; its menu switch
-    // lands in Task 6. The host's `bind` push must still answer here, and
-    // renderBind must keep guarding the (now absent) button instead of
-    // throwing on a null element.
-    expect(HTML).toMatch(/function renderBind\(\)[\s\S]*?el\('bindBtn'\)[\s\S]*?if \(!btn\) return/);
-  });
-
-  it('renders the binding from the host push, never from its own memory', () => {
-    // The binding is window-wide and host-owned: two dashboards are open at
-    // once, so a webview that remembered its own value would drift from the
-    // other panel and from the host after a toggle.
+  it('offers the terminal binding as a menu switch reflecting the host push', () => {
+    expect(HTML).toContain('id="linkViews"');
+    expect(HTML).toMatch(/bindEnabled[\s\S]*linkViews/);
+    expect(HTML).not.toMatch(/id="bindBtn"/);
     expect(HTML).toMatch(/'bind'|"bind"/);
     expect(HTML).toMatch(/bindEnabled\s*=\s*[^;]*\bmsg\b/);
-    // Not persisted beside the snapshot, unlike sel/fixExpanded/srvFilter —
-    // the host re-pushes it on every open, so a stored copy could only be stale.
     expect(HTML).not.toMatch(/setState\(\{ state:[^}]*bindEnabled/);
   });
 
@@ -630,17 +625,8 @@ describe('dashboard webview.html', () => {
 
   it('shows the follow-up menu item only once the ticket is done', () => {
     expect(HTML).toContain('id="followUpItem"');
-    expect(HTML).toContain(
-      "el('followUpItem').classList.toggle('hidden', state.stageCurrent !== 'done')",
-    );
-  });
-
-  it('wires the follow-up menu item to create-follow-up-ticket', () => {
-    // Posts through the generic delegated [data-act] handler (pending on
-    // click, non-re-triggerable, settled by action-result) rather than a
-    // bespoke fire-and-forget listener.
-    expect(HTML).toMatch(/id="followUpItem"[^>]*data-act="create-follow-up-ticket"/);
-    expect(HTML).not.toContain("el('followUpItem').addEventListener('click'");
+    expect(HTML).toMatch(/el\('followUpItem'\)\.classList\.toggle\('hidden', state\.stageCurrent !== 'done'\)/);
+    expect(HTML).not.toMatch(/id="followUpBtn"/);
   });
 
   /**
@@ -874,14 +860,17 @@ describe('dashboard webview.html', () => {
     // caps the in-webview artifact detail surface, the same layout-width class as
     // `640px` but narrower for the detail-heavy content. `12px` (×4) sizes the
     // origin chip's two icon marks — no space step at the chip's 12px scale.
-    // `2px` (×3) sets focus outlines and the artifact-finding left border; `1px`
-    // (×2) offsets those focus outlines. All six are the same exemption class as
-    // `74px` — a deliberate geometry with no token equivalent.
+    // `2px` (×4) sets focus outlines and the artifact-finding left border; `1px`
+    // (×9) offsets those focus outlines plus the … menu's divider, the bind
+    // switch's focus ring, and the quick-setting help's optical nudge. All ten
+    // are the same exemption class as `74px` — a deliberate geometry with no
+    // token equivalent.
     const ALLOWED = ['46px', '72px', '640px', '82px', '74px', '4px', '180px', '288px', '6px', '400px',
       '300px', '360px', '430px', '110px', '160px', '104px',
       '1px', '1px', '1px', '1px', '1px', '1px',
       '200px', '720px',
-      '2px', '2px', '2px',
+      '2px', '2px', '2px', '2px',
+      '1px', '1px', '1px',
       '12px', '12px', '12px', '12px',
       '4px', '4px', '4px', '4px', '4px'];
     // The ported Inside block is the ONE exempt region (see its own header
@@ -1195,13 +1184,21 @@ describe('dashboard webview.html', () => {
     expect(HTML).toMatch(/#inside \.glyph\.pending,#inside \.glyph\.note\{/);
   });
 
-  it('renders a Gates panel with a per-gate toggle button', () => {
-    expect(HTML).toContain('id="gates"');
+  it('renders the gate toggles inside the … menu, per-gate', () => {
+    expect(HTML).toContain('id="menuGates"');
     expect(HTML).toContain('data-act="set-disabled-gates"');
+    expect(HTML).toMatch(/renderMenuGates/);
   });
 
   it('handles the gate-options host message', () => {
     expect(HTML).toContain("msg.type === 'gate-options'");
+  });
+
+  it('removes the standalone Gates panel — the toggles live in the … menu', () => {
+    expect(HTML).not.toMatch(/class="panel span"[^>]*>\s*<div class="phead">Gates/);
+    expect(HTML).not.toContain('id="gateCount"');
+    expect(HTML).toContain('id="menuGates"');
+    expect(HTML).toMatch(/renderMenuGates/);
   });
 
   it('gives every gate toggle a matching aria-label and title (UI-R19–R21)', () => {
@@ -1885,6 +1882,7 @@ function previewElement(id: string, initial: string[] = []) {
     textContent: '',
     title: '',
     value: '',
+    checked: false,
     disabled: false,
     dataset: {} as Record<string, string>,
     scrollWidth: 100,
@@ -1947,6 +1945,8 @@ interface PreviewHarness {
   htmlOf(id: string): string;
   textOf(id: string): string;
   classesOf(id: string): string[];
+  /** The stub element for `id` — read `.checked` or `.fire('change', event)` on it. */
+  element(id: string): PreviewElement;
   bodyDataset: Record<string, string>;
   bodyClasses: string[];
   /** The most recent message the script dispatched on `window` (the selected snapshot). */
@@ -1994,10 +1994,6 @@ function bootPreviewHarness(): PreviewHarness {
     'prs',
     'prCount',
     'prRefresh',
-    'gates',
-    'gateCount',
-    'bindBtn',
-    'editBtn',
     'artPanel',
     'artCount',
     'artTotal',
@@ -2170,6 +2166,7 @@ function bootPreviewHarness(): PreviewHarness {
     htmlOf: (id) => elements[id]!.innerHTML,
     textOf: (id) => elements[id]!.textContent,
     classesOf: (id) => elements[id]!.classes,
+    element: (id) => elements[id]!,
     bodyDataset,
     bodyClasses,
     lastDispatched: () => dispatched.at(-1),
@@ -3191,6 +3188,24 @@ describe('agent popover round trip (executed in a VM)', () => {
     const before = h.posted.length;
     h.click('body', {});
     expect(h.posted.length).toBe(before);
+  });
+
+  it('posts toggle-bind from the menu switch and renders the host push', () => {
+    const h = bootPreviewHarness();
+    // The host's `bind` push drives the checkbox — the webview never remembers
+    // the value, because the preference is window-wide and host-owned.
+    h.receive({ type: 'bind', enabled: true });
+    expect(h.element('linkViews').checked).toBe(true);
+    h.receive({ type: 'bind', enabled: false });
+    expect(h.element('linkViews').checked).toBe(false);
+    // The change listener posts the payload-free flip; the host answers with
+    // the `bind` message, which is the terminal outcome (UI-R13/R31).
+    const before = h.posted.length;
+    h.element('linkViews').fire('change', {});
+    expect(h.posted.slice(before)).toEqual([{ type: 'toggle-bind' }]);
+    // The shipped wiring, pinned so a future refactor cannot rename it.
+    expect(HTML).toContain("msg.type === 'bind'");
+    expect(HTML).toMatch(/toggle-bind/);
   });
 });
 
