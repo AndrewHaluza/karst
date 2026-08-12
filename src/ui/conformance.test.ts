@@ -64,6 +64,7 @@ const LITERAL_BUDGET: Record<string, number> = {
   sidebar: 0,
   usage: 0,
   gettingStarted: 0,
+  resources: 0,
 };
 
 describe('UI conformance — discovery', () => {
@@ -72,6 +73,7 @@ describe('UI conformance — discovery', () => {
       'dashboard',
       'diffs',
       'gettingStarted',
+      'resources',
       'settings',
       'sidebar',
       'ticketForm',

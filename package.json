@@ -108,6 +108,12 @@
         "icon": "$(graph)"
       },
       {
+        "command": "karst.openResources",
+        "title": "Karst: Resource Monitor",
+        "category": "Karst",
+        "icon": "$(dashboard)"
+      },
+      {
         "command": "karst.showLogs",
         "title": "Karst: Show Logs",
         "icon": "$(output)"

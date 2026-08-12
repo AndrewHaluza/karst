@@ -239,6 +239,7 @@ export class AntigravityAdapter implements AgentAdapter {
       signal: opts.signal,
       timeoutMs: opts.timeoutMs,
       onDebug: opts.debug,
+      onSpawned: opts.onSpawned,
     });
     if (r.exitCode !== 0) {
       opts.debug?.(

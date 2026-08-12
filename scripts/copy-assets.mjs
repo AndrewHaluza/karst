@@ -16,6 +16,7 @@ const assets = [
   'ui/settings/webview.html',
   'ui/sidebar/webview.html',
   'ui/usage/webview.html',
+  'ui/resources/webview.html',
   'ui/gettingStarted/webview.html',
   'store/schema.sql',
   'model/icons/agent/claude-code.svg',
