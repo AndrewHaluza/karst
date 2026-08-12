@@ -330,6 +330,82 @@ describe('graphInsideProcess', () => {
     ]);
   });
 
+  it('lists EVERY blocking node run when multiple faults block simultaneously (Slice 5 T6)', () => {
+    const process = graphInsideProcess(
+      input({
+        graphRun: {
+          id: 7,
+          status: 'blocked',
+          approachId: 'karst-graph-engineering',
+          stageAttempt: 0,
+          createdAt: '2026-08-11T00:00:00.000Z',
+        },
+        nodeRuns: [
+          {
+            nodeRunId: 5,
+            nodeId: 'a',
+            nodeKind: 'agent',
+            visitNumber: 1,
+            status: 'blocked',
+            outcome: 'blocked',
+            reason: 'integration-conflict: b.ts',
+            provider: 'codex',
+            model: null,
+            effort: null,
+            profile: 'default',
+            launchAttempt: 1,
+          },
+          {
+            nodeRunId: 6,
+            nodeId: 'b',
+            nodeKind: 'agent',
+            visitNumber: 1,
+            status: 'failed-to-launch',
+            outcome: null,
+            reason: 'spawn refused',
+            provider: null,
+            model: null,
+            effort: null,
+            profile: 'default',
+            launchAttempt: 1,
+          },
+          {
+            nodeRunId: 7,
+            nodeId: 'c',
+            nodeKind: 'command',
+            visitNumber: 1,
+            status: 'blocked',
+            outcome: 'failed',
+            reason: 'node 7 fault',
+            provider: null,
+            model: null,
+            effort: null,
+            profile: null,
+            launchAttempt: 0,
+          },
+        ],
+        liveSessions: [],
+      }),
+    )!;
+    if (process.evidence?.kind !== 'rows') return;
+    const rows = process.evidence.rows;
+    // The projection NEVER drops a blocking node run: each of the three
+    // concurrent faults renders its own row carrying its status AND reason.
+    const a = rows.find((r) => r.label === 'node a')!;
+    const b = rows.find((r) => r.label === 'node b')!;
+    const c = rows.find((r) => r.label === 'node c')!;
+    expect(a.status).toBe('wait');
+    expect(a.detail).toContain('blocked');
+    expect(a.detail).toContain('integration-conflict: b.ts');
+    expect(b.status).toBe('wait');
+    expect(b.detail).toContain('failed-to-launch');
+    expect(b.detail).toContain('spawn refused');
+    expect(c.status).toBe('wait');
+    expect(c.detail).toContain('blocked');
+    expect(c.detail).toContain('node 7 fault');
+    expect(rows.filter((r) => r.label.startsWith('node '))).toHaveLength(3);
+  });
+
   it('renders one row per deferred node with its persisted reason and wait duration (Slice 5 T3)', () => {
     const process = graphInsideProcess(
       input({

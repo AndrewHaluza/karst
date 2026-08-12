@@ -174,6 +174,53 @@ describe('blockGraphStage', () => {
     expect(block?.reason).toContain('resource-claim-violated: b.ts');
   });
 
+  it('names the EARLIEST fault by durable event order among concurrent node faults (Slice 5 T6)', () => {
+    const ticketId = createTicket(store, { key: 'BG-3', title: 'thing' }).id;
+    store.db.prepare("UPDATE tickets SET stage_current = 'impl' WHERE id = ?").run(ticketId);
+    const graphRunId = Number(
+      store.db
+        .prepare(
+          `INSERT INTO approach_graph_runs (ticket_id, stage_key, stage_attempt, approach_id, status, blocked_reason, created_at)
+           VALUES (?, 'impl', 0, 'x', 'blocked', 'node-blocked: node 7 (a later fault won the block)', '2026-08-12T00:00:00.000Z')`,
+        )
+        .run(ticketId)
+        .lastInsertRowid,
+    );
+    const revisionId = Number(
+      store.db
+        .prepare(
+          `INSERT INTO approach_graph_revisions
+             (graph_run_id, revision_number, canonical_graph, fingerprint, status, created_at)
+           VALUES (?, 1, '{}', 'fp', 'active', '2026-08-12T00:00:00.000Z')`,
+        )
+        .run(graphRunId)
+        .lastInsertRowid,
+    );
+    // Three concurrent node faults; the run's OWN blocked_reason names a
+    // LATER fault (node run 7) — the stage block must name the EARLIEST by
+    // durable event order (the lowest node-run id: 5).
+    const nodes: [number, string, string][] = [
+      [5, 'blocked', 'integration-conflict: b.ts'],
+      [6, 'failed-to-launch', 'spawn refused'],
+      [7, 'blocked', 'node 7 fault'],
+    ];
+    for (const [id, status, reason] of nodes) {
+      store.db
+        .prepare(
+          `INSERT INTO approach_node_runs
+             (id, graph_run_id, revision_id, node_id, node_kind, visit_number, status, reason, outcome)
+           VALUES (?, ?, ?, 'n', 'agent', ?, ?, ?, ?)`,
+        )
+        .run(id, graphRunId, revisionId, id, status, reason, status === 'blocked' ? 'blocked' : null);
+    }
+    blockGraphStage(store, ticketId, graphRunId, () => '2026-08-12T00:00:00.000Z');
+    const block = stageBlock(store, ticketId, 'impl');
+    expect(block?.kind).toBe(GRAPH_FAILED_BLOCKER);
+    expect(block?.reason).toContain('node 5');
+    expect(block?.reason).toContain('integration-conflict: b.ts');
+    expect(block?.reason).not.toContain('node 7 (a later fault won the block)');
+  });
+
   it('refuses once the ticket left impl (stage-scoped write path)', () => {
     const ticketId = createTicket(store, { key: 'BG-2', title: 'thing' }).id;
     store.db.prepare("UPDATE tickets SET stage_current = 'uat' WHERE id = ?").run(ticketId);

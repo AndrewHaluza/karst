@@ -20,6 +20,7 @@
  */
 
 import type { GraphDb } from '../../../store/graph/transitions.js';
+import { casStatus, GRAPH_RUN_TRANSITIONS } from '../../../store/graph/transitions.js';
 import { pendingTokensForRevision, type GraphTokenRow } from '../../../store/graph/tokens.js';
 import { heldLeasesForScheduler, type SchedulerLeaseRow } from '../../../store/graph/leases.js';
 import {
@@ -38,6 +39,7 @@ import {
   type SchedulerGroup,
   type SchedulerRefusal,
 } from './conflicts.js';
+import { earliestFaultNodeRun, faultNodeRunReason } from './completion.js';
 import { parseGraphDocument, type ApproachNode, type GraphDocument } from '../parse.js';
 import type { ActivationDomain } from './leases.js';
 
@@ -140,6 +142,35 @@ export function runCoordinatorTick(
     .prepare('SELECT status FROM approach_graph_runs WHERE id = ?')
     .get(opts.graphRunId) as { status: string } | undefined;
   if (!run || run.status !== 'running') return result;
+
+  // Slice 5 Task 6: the FIRST fault stops new launches. A faulted node run on
+  // a still-running run means a fault path recorded the node without blocking
+  // the run (or a concurrent window raced the block): NO new activation is
+  // claimed this tick — the run blocks immediately with the EARLIEST fault by
+  // durable event order (lowest node-run id), and the already-active nodes'
+  // completions keep recording evidence (a completion is never a claim path).
+  const earliestFault = earliestFaultNodeRun(db, opts.graphRunId);
+  if (earliestFault) {
+    const blocked = deps.transaction(() => {
+      if (
+        !casStatus(db, 'approach_graph_runs', GRAPH_RUN_TRANSITIONS, opts.graphRunId, 'running', 'blocked')
+      ) {
+        return false; // a racing window already moved the run
+      }
+      db.prepare('UPDATE approach_graph_runs SET blocked_reason = ?, updated_at = ? WHERE id = ?').run(
+        faultNodeRunReason(earliestFault),
+        deps.now(),
+        opts.graphRunId,
+      );
+      return true;
+    });
+    deps.debug?.(
+      blocked
+        ? `[graph] run ${opts.graphRunId}: first fault (node ${earliestFault.id}) stops new launches — run blocked`
+        : `[graph] run ${opts.graphRunId}: fault node ${earliestFault.id} present but the run already moved`,
+    );
+    return result;
+  }
 
   const revision = db
     .prepare(

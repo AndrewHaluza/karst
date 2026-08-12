@@ -69,6 +69,68 @@ export const ACTIVE_NODE_STATUSES = [
   'stale',
 ];
 
+/**
+ * The closed FAULT status set — the node-run rest states that mean a node
+ * faulted and stop NEW launches (Slice 5 Task 6). A faulted node run on a
+ * still-running graph run blocks the run (the sweep's first-fault guard) and
+ * is what the stage block's EARLIEST-fault reason is computed from. Exactly
+ * the statuses `recoveryCategoryFor` can retry or refuse; ambiguous and
+ * explicit-resolution statuses are included because a fault is a fault — the
+ * discard/resolution exits work on a blocked run just as well.
+ */
+export const FAULT_NODE_STATUSES = [
+  'blocked',
+  'failed-to-launch',
+  'launch-unknown',
+  'termination-unknown',
+  'output-artifact-missing',
+  'artifact-unsafe',
+  'stale',
+] as const;
+
+/** A faulted node run, read for the earliest-fault reason (Slice 5 Task 6). */
+export interface FaultNodeRunRow {
+  id: number;
+  status: string;
+  reason: string | null;
+}
+
+/**
+ * The EARLIEST faulted node run of a graph run by durable event order: the
+ * rowid IS the durable order, so the lowest `id` faulted first. The one
+ * reason both the sweep's first-fault block and the stage block (`blockGraphStage`)
+ * render — when several node runs fault simultaneously, the fault that is
+ * earliest in durable order names the block, never whichever committed first.
+ */
+export function earliestFaultNodeRun(db: GraphDb, graphRunId: number): FaultNodeRunRow | undefined {
+  return db
+    .prepare(
+      `SELECT id, status, reason FROM approach_node_runs
+       WHERE graph_run_id = ? AND status IN (${FAULT_NODE_STATUSES.map(() => '?').join(',')})
+       ORDER BY id LIMIT 1`,
+    )
+    .get(graphRunId, ...FAULT_NODE_STATUSES) as FaultNodeRunRow | undefined;
+}
+
+/** The recovery-classifiable reason prefix for a node-run fault status: a
+ *  blocked/stale node reads `node-blocked` (the launch-retry class), the
+ *  ambiguous pair and the artifact faults read their status names — every
+ *  prefix is one `recoveryCategoryFor` already maps. */
+const NODE_FAULT_PREFIX: Readonly<Record<string, string>> = {
+  blocked: 'node-blocked',
+  stale: 'node-blocked',
+  'failed-to-launch': 'failed-to-launch',
+  'launch-unknown': 'launch-unknown',
+  'termination-unknown': 'termination-unknown',
+  'output-artifact-missing': 'output-artifact-missing',
+  'artifact-unsafe': 'artifact-unsafe',
+};
+
+/** Render a faulted node run as the blocked reason a recovery category maps. */
+export function faultNodeRunReason(node: FaultNodeRunRow): string {
+  return `${NODE_FAULT_PREFIX[node.status] ?? 'node-blocked'}: node ${node.id} (${node.reason ?? node.status})`;
+}
+
 interface NodeRunRow {
   revision_id: number;
   node_id: string;

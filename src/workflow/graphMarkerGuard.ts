@@ -32,7 +32,7 @@ import { transition } from './machine.js';
 import { parkGateStage } from '../store/stageBlocks.js';
 import { stageAttempt } from '../store/stages.js';
 import { casStatus, GRAPH_RUN_TRANSITIONS } from '../store/graph/transitions.js';
-import { quiescenceBlockedBy } from '../approaches/graph/coordinator/completion.js';
+import { quiescenceBlockedBy, earliestFaultNodeRun, faultNodeRunReason } from '../approaches/graph/coordinator/completion.js';
 import { GRAPH_FAILED_BLOCKER } from '../approaches/graph/coordinator/recovery.js';
 
 export { GRAPH_FAILED_BLOCKER };
@@ -116,9 +116,15 @@ export function graphImplMarkerGuard(store: Store, ticketId: number): GraphMarke
 /**
  * The `approach-graph-failed` stage-block write. Goes through the existing
  * `store/stageBlocks.ts` infrastructure — the block is a normal parked stage
- * block, written only while the ticket is still AT `impl`; the graph-side
+ * block, written only while the ticket is still AT `impl`. The graph-side
  * input is the run's persisted `blocked_reason` (the EARLIEST failure by
  * durable event order: the run blocks once, on the first failing event).
+ *
+ * Slice 5 Task 6: when MULTIPLE node runs fault at once, the block names the
+ * EARLIEST by durable event order (the lowest node-run id) — computed here
+ * from the run's faulted node runs, never from whichever block happened to
+ * commit first. The run's own `blocked_reason` is the fallback only when no
+ * node-level fault is recorded (a run-level block like graph-budget-exhausted).
  */
 export function blockGraphStage(
   store: Store,
@@ -130,11 +136,13 @@ export function blockGraphStage(
   if (ticket.stageCurrent !== 'impl') return; // stage-scoped write path
   const run = graphRunFor(store, ticketId, stageAttempt(store, ticketId, 'impl'));
   if (!run || run.id !== graphRunId || run.status !== 'blocked') return;
+  const earliest = earliestFaultNodeRun(store.db, graphRunId);
+  const reason = earliest ? faultNodeRunReason(earliest) : (run.blocked_reason ?? 'graph blocked');
   parkGateStage(store, {
     ticketId,
     stageKey: 'impl',
     kind: GRAPH_FAILED_BLOCKER,
-    reason: `${GRAPH_FAILED_BLOCKER}: ${run.blocked_reason ?? 'graph blocked'} (graph run ${run.id})`,
+    reason: `${GRAPH_FAILED_BLOCKER}: ${reason} (graph run ${run.id})`,
     runAt: now(),
     gates: [],
   });

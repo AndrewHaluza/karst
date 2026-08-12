@@ -232,6 +232,33 @@ describe('completeActivation', () => {
     const tokens = tokenStatuses(ctx);
     expect(tokens).toEqual([{ edge_id: 'e-a-end', status: 'consumed', destination_end: 0 }]);
   });
+
+  it('a blocked run still records a finishing node’s evidence without throwing (Slice 5 T6)', () => {
+    // The first fault blocks the run while already-active nodes are still
+    // finishing: the completion is NOT a claim path, so it must still consume
+    // the claimed token (the completed work's evidence is never dropped by a
+    // block) and route its successors — recovery reopens the run and the graph
+    // continues past the finished node. Unlike `draining`, a blocked run keeps
+    // its continuation; the sweep stops NEW launches, not recorded completions.
+    const ctx = harness();
+    ctx.db
+      .prepare(
+        "UPDATE approach_graph_runs SET status = 'blocked', blocked_reason = 'node-blocked: node 9 (x)' WHERE id = ?",
+      )
+      .run(ctx.graphRunId);
+    nodeRun(ctx, 16, 'a');
+    claimEntry(ctx, 16, 'e-a-end');
+    const result = completeActivation(makeDeps(ctx), {
+      nodeRunId: 16,
+      effectiveOutcome: 'complete',
+    });
+    expect(result).toEqual({ consumed: 1, inserted: 1 });
+    const tokens = tokenStatuses(ctx);
+    expect(tokens).toEqual([
+      { edge_id: 'e-a-end', status: 'consumed', destination_end: 0 },
+      { edge_id: 'e-a-end', status: 'pending', destination_end: 1 },
+    ]);
+  });
 });
 
 describe('flipOnEndQuiescence', () => {

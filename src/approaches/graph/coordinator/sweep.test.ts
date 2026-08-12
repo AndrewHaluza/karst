@@ -294,6 +294,43 @@ describe('runCoordinatorTick', () => {
     expect(endToken.status).toBe('pending');
   });
 
+  it('the first fault stops new launches — the run blocks and claims nothing (Slice 5 T6)', () => {
+    const ctx = harness(doc([agent('a'), agent('b')], [
+      { id: 'a-b', from: 'a', on: 'complete', to: 'b' },
+      { id: 'b-end', from: 'b', on: 'complete', to: 'END' },
+    ], ['a', 'b']));
+    insertEntryTokens(ctx.db, ctx.revisionId, [
+      { edgeId: 'entry-b', destinationNodeId: 'b', destinationEnd: false },
+    ], ctx.now);
+    // Two concurrent node faults on a still-running run (a fault path that
+    // recorded the node without blocking the run, or a raced block). The
+    // EARLIEST by durable order (lowest node-run id) is 5 — the block reason
+    // must name it, and the tick must claim NO new activation.
+    ctx.db
+      .prepare(
+        `INSERT INTO approach_node_runs
+           (id, graph_run_id, revision_id, node_id, node_kind, visit_number, status, reason)
+         VALUES (5, ?, ?, 'a', 'agent', 1, 'blocked', 'integration-conflict: a.ts')`,
+      )
+      .run(ctx.graphRunId, ctx.revisionId);
+    ctx.db
+      .prepare(
+        `INSERT INTO approach_node_runs
+           (id, graph_run_id, revision_id, node_id, node_kind, visit_number, status, reason)
+         VALUES (6, ?, ?, 'b', 'agent', 1, 'launch-unknown', 'crashed after a possible spawn')`,
+      )
+      .run(ctx.graphRunId, ctx.revisionId);
+    const result = runCoordinatorTick(ctx.makeDeps(), { graphRunId: ctx.graphRunId });
+    expect(result).toMatchObject({ claimed: 0, transitions: 0 });
+    const run = ctx.db
+      .prepare('SELECT status, blocked_reason FROM approach_graph_runs WHERE id = ?')
+      .get(ctx.graphRunId) as { status: string; blocked_reason: string | null };
+    expect(run.status).toBe('blocked');
+    expect(run.blocked_reason).toContain('node 5');
+    expect(run.blocked_reason).toContain('integration-conflict: a.ts');
+    expect(run.blocked_reason).not.toContain('node 6');
+  });
+
   it('a draining revision is never scheduled — new nodes stop launching (Slice 4 T5)', () => {
     // Step 2 of immutable replanning: once the election moved the run to
     // draining, the tick must not claim the revision's pending tokens. The
