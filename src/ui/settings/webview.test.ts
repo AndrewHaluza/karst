@@ -2564,7 +2564,7 @@ describe('settings v7 shared primitives', () => {
 
   it('implements the fixed-size reload icon button with a pending spin', () => {
     expect(HTML).toMatch(/class="reload-btn(?: fixed)?"/);
-    expect(HTML).toContain('class="reload-icon"');
+    expect(HTML).toContain('class="k-icon reload-icon"');
     expect(HTML).toContain('reload-spin');
     expect(HTML).toMatch(/prefers-reduced-motion[\s\S]*?reload-icon[\s\S]*?animation:none/);
   });

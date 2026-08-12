@@ -559,6 +559,9 @@ module.
 - [`docs/guides/adding-agent-core.md`](./docs/guides/adding-agent-core.md) —
   how to add a fifth agent core
 - [`docs/ui/`](./docs/ui/) — the design system (tokens, primitives, UI rules)
+  and the icon standard (Tabler Icons, [`docs/ui/ICONS.md`](./docs/ui/ICONS.md))
+- [`THIRD_PARTY_NOTICES.md`](./THIRD_PARTY_NOTICES.md) — licenses for vendored
+  third-party software (Tabler Icons, xterm.js)
 - [`docs/plans/`](./docs/plans/) — milestone plans and task breakdowns
 
 ---

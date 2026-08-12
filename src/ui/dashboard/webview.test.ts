@@ -81,7 +81,10 @@ describe('dashboard webview.html', () => {
     expect(HTML.match(/data-act="show-changes"/g)).toHaveLength(1);
     expect(HTML).toMatch(/id="wtChanges"[^>]*aria-label="Show ticket changes"/);
     expect(HTML).toMatch(/id="wtChanges"[^>]*title="Show ticket changes"/);
-    expect(HTML).toContain('href="#i-diff"');
+    // The glyph is the Tabler catalog's `git-compare` on the shared treatment
+    // (docs/ui/ICONS.md §4) — never a hand-rolled sprite reference.
+    expect(HTML).toMatch(/id="wtChanges"[^>]*>[\s\S]{0,200}<svg class="k-icon"[^>]*viewBox="0 0 24 24"[^>]*><path d="M4 6a2 2/);
+    expect(HTML).not.toContain('href="#i-');
     expect(HTML).not.toMatch(/id="wtChanges"[^>]*>Changes<\/button>/);
     expect(HTML).not.toContain('diff-worktree');
   });
