@@ -166,11 +166,14 @@ import {
 } from './approaches/graph/entryPoints.js';
 import { runCompletionPipeline } from './approaches/graph/integration/pipeline.js';
 import { declaredWritesFor } from './approaches/graph/integration/claims.js';
+import { flipOnEndQuiescence } from './approaches/graph/coordinator/completion.js';
+import { blockGraphStage } from './workflow/graphMarkerGuard.js';
 import {
   domainKeyOf,
   gitCommonDirFromFs,
   type DomainEntry,
 } from './approaches/graph/integration/domains.js';
+import { casStatus, GRAPH_RUN_TRANSITIONS, type GraphDb } from './store/graph/transitions.js';
 import { canonicalPath } from './runtime/pathScope.js';
 import { createHookChannelRecorder } from './diagnostics/hookChannel.js';
 import { sweepHookSettings } from './agent/settingsSweep.js';
@@ -2739,7 +2742,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
 
   /** Run the completing pipeline for every completing node of a graph run,
-   *  ascending node-run order (deterministic integration order). */
+   *  ascending node-run order (deterministic integration order), then settle
+   *  the run: a blocked node blocks the run (earliest failure by durable
+   *  event order), END-quiescent runs flip to the marker-ready status, and a
+   *  blocked run writes its `approach-graph-failed` stage block. */
   const driveCompletingNodes = async (graphRunId: number): Promise<void> => {
     const gs = graphCoordinatorStore;
     const tr = graphTransport;
@@ -2779,6 +2785,76 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         logError(`karst: completion pipeline failed for graph node ${row.id}`, err);
       }
     }
+    settleGraphRun(gs.db, graphRunId);
+  };
+
+  /** After integration: a blocked node blocks the run, and an END-quiescent
+   *  run flips to `completed-awaiting-impl-marker`. A blocked run then gets
+   *  its `approach-graph-failed` stage block, once, via the boundary module. */
+  const settleGraphRun = (db: ReturnType<typeof openStore>['db'], graphRunId: number): void => {
+    const run = db
+      .prepare('SELECT id, status, ticket_id FROM approach_graph_runs WHERE id = ?')
+      .get(graphRunId) as { id: number; status: string; ticket_id: number } | undefined;
+    if (!run) return;
+    if (run.status === 'running') {
+      // A node reported `blocked` while the run kept running: the graph must
+      // not dangle at impl. The earliest blocked node (durable order = id)
+      // names the reason; the graph run blocks with it.
+      const blockedNode = db
+        .prepare(
+          `SELECT id, reason FROM approach_node_runs
+           WHERE graph_run_id = ? AND status = 'blocked'
+           ORDER BY id LIMIT 1`,
+        )
+        .get(graphRunId) as { id: number; reason: string | null } | undefined;
+      if (blockedNode) {
+        const reason = `node-blocked: node ${blockedNode.id} (${blockedNode.reason ?? 'blocked by agent'})`;
+        const blocked = flipOrBlockGraph(db, graphRunId, reason);
+        if (blocked) {
+          blockGraphStage(graphCoordinatorStore!, run.ticket_id, graphRunId, () => new Date().toISOString());
+        }
+        return;
+      }
+      const result = flipOnEndQuiescence(
+        {
+          db,
+          transaction: <T>(fn: () => T): T =>
+            (db.transaction as unknown as (f: () => T, o: { begin: 'immediate' }) => () => T)(fn, {
+              begin: 'immediate',
+            })(),
+          now: () => new Date().toISOString(),
+        },
+        { graphRunId },
+      );
+      if (result.flipped) {
+        logger.debug(`[graph] run ${graphRunId} quiescent — waiting for the impl marker`);
+      }
+      return;
+    }
+    if (run.status === 'blocked') {
+      blockGraphStage(graphCoordinatorStore!, run.ticket_id, graphRunId, () => new Date().toISOString());
+    }
+  };
+
+  /** Block a running graph run with a reason, atomically; false when it
+   *  already moved (a second window or an earlier event). */
+  const flipOrBlockGraph = (db: ReturnType<typeof openStore>['db'], graphRunId: number, reason: string): boolean => {
+    return (db.transaction as unknown as (f: () => boolean, o: { begin: 'immediate' }) => () => boolean)(
+      () => {
+        if (
+          !casStatus(db, 'approach_graph_runs', GRAPH_RUN_TRANSITIONS, graphRunId, 'running', 'blocked')
+        ) {
+          return false;
+        }
+        db.prepare('UPDATE approach_graph_runs SET blocked_reason = ?, updated_at = ? WHERE id = ?').run(
+          reason,
+          new Date().toISOString(),
+          graphRunId,
+        );
+        return true;
+      },
+      { begin: 'immediate' },
+    )();
   };
 
   /** The live transport session for a node run, via its ticket. */
@@ -4763,8 +4839,19 @@ function makeInsideActionHost(store: Store): InsideActionHost {
       }
     },
     resumeStage: (ticketId, stageKey) => {
-      if (!resumeBlockedStage(store, ticketId, ticketId, stageKey)) return;
-      void vscode.commands.executeCommand('karst.openDashboard', ticketId);
+      const outcome = resumeBlockedStage(store, ticketId, ticketId, stageKey);
+      if (outcome.kind === 'cleared') {
+        void vscode.commands.executeCommand('karst.openDashboard', ticketId);
+        return;
+      }
+      if (outcome.kind === 'graph-recovery') {
+        // The generic Resume refuses the graph block by design (Slice-3 T9):
+        // recovery is graph-aware and belongs to the Inside panel, never a
+        // silent generic retry. Tell the user where the control lives.
+        void vscode.window.showInformationMessage(
+          `Ticket #${ticketId}: the implementation graph (run ${outcome.graphRunId}) is blocked — open the Inside panel to recover or replan it.`,
+        );
+      }
     },
     openFullEvidence: (ticketId, processRunId) => {
       void vscode.window.showInformationMessage(`Inside evidence: process run #${processRunId} on ticket #${ticketId}`);
@@ -4978,9 +5065,19 @@ function makeDashboardActions(
     // refresh the panel and kick the same driver trigger every other resume
     // path uses.
     resumeStage: (msgTicketId, stageKey) => {
-      if (!resumeBlockedStage(store, ticketId, msgTicketId, stageKey)) return;
-      afterServerChange();
-      driveAfterResume(ticketId);
+      const outcome = resumeBlockedStage(store, ticketId, msgTicketId, stageKey);
+      if (outcome.kind === 'cleared') {
+        afterServerChange();
+        driveAfterResume(ticketId);
+        return;
+      }
+      if (outcome.kind === 'graph-recovery') {
+        // The graph block is NOT cleared by a generic Resume (Slice-3 T9) —
+        // recovery is graph-aware. Surface the typed action honestly.
+        void vscode.window.showInformationMessage(
+          `Ticket #${ticketId}: the implementation graph (run ${outcome.graphRunId}) is blocked — open the Inside panel to recover or replan it.`,
+        );
+      }
     },
     // Opens the ticket form in edit mode on the new ticket so the user can type
     // the actual follow-up ask straight away — the command itself copies

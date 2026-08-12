@@ -40,6 +40,7 @@ import type { GitRunner } from '../../../integrations/git.js';
 import type { AgentTransport, SupervisedAgentSession } from '../transport/supervisedCliTransport.js';
 import { resolvePhysicalDomains, type DomainEntry } from './domains.js';
 import { captureChangeSet, validateChangeSet, type ChangeSetEntry } from './changeSet.js';
+import { completeActivation } from '../coordinator/completion.js';
 
 export const INTEGRATION_COMMIT_PREFIX = 'karst: integrate graph';
 
@@ -299,6 +300,14 @@ export async function runCompletionPipeline(
          WHERE id = ?`,
       )
       .run(`cs:${input.graphRunId}:${input.nodeRunId}`, deps.now(), input.nodeRunId);
+    // Consume the node's claimed tokens and insert its outcome successors in
+    // the SAME transaction (the inner transaction wrapper is a pass-through:
+    // this call already runs inside the pipeline's transaction). An END edge
+    // lands the END token that quiescence waits for.
+    completeActivation(
+      { ...deps, transaction: <T>(fn: () => T): T => fn() },
+      { nodeRunId: input.nodeRunId, effectiveOutcome: 'complete' },
+    );
   });
   deps.debug?.(
     `[graph] node ${input.nodeRunId} integrated${committed ? '' : ' (no changes)'} — completed`,

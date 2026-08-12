@@ -59,7 +59,13 @@ export function needsUser(t: TicketWithStages): boolean {
   if (needsConfirm(stage) && currentStageStatus(t) === 'pending') return true;
 
   const current = t.stages.find((s) => s.stageKey === stage);
-  return current?.blockedKind === 'awaiting-merge';
+  return (
+    current?.blockedKind === 'awaiting-merge' ||
+    // A blocked implementation graph is parked on the user (Slice-3 T9): the
+    // graph needs a human decision (recover/replan/discard), never a silent
+    // generic retry — amber everywhere, like awaiting-merge.
+    current?.blockedKind === 'approach-graph-failed'
+  );
 }
 
 /**
