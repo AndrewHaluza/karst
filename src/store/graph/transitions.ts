@@ -70,7 +70,7 @@ export const REVISION_TRANSITIONS: Readonly<Record<string, readonly string[]>> =
 };
 
 export const NODE_RUN_TRANSITIONS: Readonly<Record<string, readonly string[]>> = {
-  ready: ['waiting-resource', 'launching', 'cancelled'],
+  ready: ['waiting-resource', 'launching', 'completing', 'cancelled'],
   'waiting-resource': ['ready', 'cancelled'],
   launching: ['running', 'failed-to-launch', 'launch-unknown', 'cancelled'],
   running: ['completing', 'blocked', 'stale', 'termination-unknown', 'cancelled'],

@@ -46,6 +46,17 @@ import type { AgentAdapter, InteractiveCommandOpts } from '../../../agent/adapte
 import { killTree as systemKillTree, type KillOutcome } from '../../../runtime/processTree.js';
 import { attributeServer, type ProcessFactsSource } from '../../../runtime/serverIdentity.js';
 
+export type {
+  AgentAdapter,
+  InteractiveCommandOpts,
+} from '../../../agent/adapter.js';
+export type {
+  AgentTransport,
+  AgentNodeLaunch,
+  SupervisedAgentSession,
+  TerminationProof,
+} from './agentTransport.js';
+
 export interface SupervisedTransportDeps {
   terminalHost: TransportTerminalHost;
   /** Persist the owner nonce on the node run — MUST run before spawn. */

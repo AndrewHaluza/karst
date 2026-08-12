@@ -88,6 +88,8 @@ describe('node-run transition map', () => {
       'ready → waiting-resource',
       'waiting-resource → ready',
       'ready → launching',
+      // Slice-3 T4: a join never launches — its ready visit completes directly.
+      'ready → completing',
       'launching → running',
       'launching → failed-to-launch',
       'launching → launch-unknown',
