@@ -27,7 +27,7 @@
     "compile": "tsc -p tsconfig.build.json",
     "copy-assets": "node scripts/copy-assets.mjs",
     "build": "npm run clean && npm run compile && npm run copy-assets",
-    "vscode:prepublish": "npm run build && npm run rebuild:electron",
+    "vscode:prepublish": "npm run build",
     "rebuild:better-sqlite3": "node scripts/rebuild-better-sqlite3.mjs auto",
     "rebuild:electron": "node scripts/rebuild-better-sqlite3.mjs electron",
     "rebuild:node": "node scripts/rebuild-better-sqlite3.mjs node",
@@ -108,6 +108,12 @@
         "icon": "$(graph)"
       },
       {
+        "command": "karst.openResources",
+        "title": "Karst: Resource Monitor",
+        "category": "Karst",
+        "icon": "$(dashboard)"
+      },
+      {
         "command": "karst.showLogs",
         "title": "Karst: Show Logs",
         "icon": "$(output)"
@@ -168,8 +174,8 @@
     "menus": {
       "commandPalette": [
         {
-          "command": "karst.openOnboarding",
-          "when": "false"
+          "command": "karst.launchWorktreeExtension",
+          "when": "config.karst.launchWorktreeDev.enabled"
         }
       ]
     },
@@ -198,7 +204,13 @@
         },
         "karst.launchWorktreeDev.ide": {
           "type": "string",
-          "enum": ["auto", "vscode", "cursor", "antigravity", "windsurf"],
+          "enum": [
+            "auto",
+            "vscode",
+            "cursor",
+            "antigravity",
+            "windsurf"
+          ],
           "default": "auto",
           "description": "Which editor opens the development window. 'auto' uses the editor this window runs in; a named IDE is launched through its CLI on PATH. Any other editor can be targeted via karst.launchWorktreeDev.idePath."
         },
@@ -208,14 +220,6 @@
           "description": "Exact path to an editor CLI (e.g. /usr/local/bin/code) used to open the development window. When set, it wins over karst.launchWorktreeDev.ide."
         }
       }
-    },
-    "menus": {
-      "commandPalette": [
-        {
-          "command": "karst.launchWorktreeExtension",
-          "when": "config.karst.launchWorktreeDev.enabled"
-        }
-      ]
     }
   },
   "keywords": [],
@@ -232,6 +236,8 @@
     "@types/node": "^26.1.1",
     "@types/vscode": "^1.105.1",
     "@vitest/coverage-v8": "^4.1.10",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
     "tsx": "^4.23.0",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"

@@ -34,6 +34,16 @@ describe('karst.example.yml', () => {
     expect(tooling.signals).toContain('tooling');
   });
 
+  // The superpowers:writing-plans approach must DECLARE its workflow phases so
+  // materializeApproach generates the /karst:<id> command and the seed seeds its
+  // invocation — an approach with no `workflow` renders no phases, so nothing
+  // triggers after the done marker (869edmcme's workflow command).
+  it('documents the superpowers:writing-plans workflow phases', () => {
+    const { manifest } = loadManifestWithDiagnostics(path);
+    const approach = manifest.approaches?.find((a) => a.id === 'superpowers:writing-plans');
+    expect(approach?.workflow?.map((p) => p.name)).toEqual(['plan', 'implement']);
+  });
+
   it('declares no avoidable inert key — the example must teach shape, never dead config', () => {
     const parsed = load(readFileSync(path, 'utf8')) as unknown;
     // uat's inert keys are all OPTIONAL — the example demonstrates their shape

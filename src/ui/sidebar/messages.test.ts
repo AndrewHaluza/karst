@@ -37,6 +37,24 @@ describe('parseSidebarMessage', () => {
     expect(parseSidebarMessage({ type: 'edit' })).toBeNull();
   });
 
+  it('accepts create-follow-up with a numeric ticketId', () => {
+    expect(parseSidebarMessage({ type: 'create-follow-up', ticketId: 12 })).toEqual({
+      type: 'create-follow-up',
+      ticketId: 12,
+    });
+    expect(parseSidebarMessage({ type: 'create-follow-up', ticketId: '12' })).toBeNull();
+  });
+
+  it('accepts resolve-conflicts with a numeric ticketId and a string repo', () => {
+    expect(parseSidebarMessage({ type: 'resolve-conflicts', ticketId: 12, repo: 'api' })).toEqual({
+      type: 'resolve-conflicts',
+      ticketId: 12,
+      repo: 'api',
+    });
+    expect(parseSidebarMessage({ type: 'resolve-conflicts', ticketId: 12 })).toBeNull();
+    expect(parseSidebarMessage({ type: 'resolve-conflicts', ticketId: '12', repo: 'api' })).toBeNull();
+  });
+
   it('rejects non-objects and unknown types', () => {
     expect(parseSidebarMessage(null)).toBeNull();
     expect(parseSidebarMessage('x')).toBeNull();
@@ -61,6 +79,8 @@ describe('routeSidebarAction', () => {
       archive: vi.fn(),
       unarchive: vi.fn(),
       delete: vi.fn(),
+      createFollowUp: vi.fn(),
+      resolveConflicts: vi.fn(),
     };
   }
 
@@ -72,6 +92,8 @@ describe('routeSidebarAction', () => {
     routeSidebarAction({ type: 'spin', ticketId: 7 }, a);
     routeSidebarAction({ type: 'archive', ticketId: 8 }, a);
     routeSidebarAction({ type: 'create' }, a);
+    routeSidebarAction({ type: 'create-follow-up', ticketId: 12 }, a);
+    routeSidebarAction({ type: 'resolve-conflicts', ticketId: 12, repo: 'api' }, a);
 
     expect(a.toggleFacet).toHaveBeenCalledWith('failed');
     expect(a.setFilter).toHaveBeenCalledWith('q');
@@ -79,6 +101,8 @@ describe('routeSidebarAction', () => {
     expect(a.spin).toHaveBeenCalledWith(7);
     expect(a.archive).toHaveBeenCalledWith(8);
     expect(a.create).toHaveBeenCalledOnce();
+    expect(a.createFollowUp).toHaveBeenCalledWith(12);
+    expect(a.resolveConflicts).toHaveBeenCalledWith(12, 'api');
   });
 
   it('returns whatever the action returns, so the dispatch seam can await a real outcome', async () => {

@@ -137,14 +137,6 @@ describe('buildTicketNodes', () => {
     expect(unknown.glyph).toBe('gray');
   });
 
-  it('activityLabel reflects the agent/session runtime state', () => {
-    expect(buildTicketNodes([ticket({ agentState: 'running' })])[0]!.activityLabel).toBe('Agent running');
-    expect(buildTicketNodes([ticket({ agentState: 'waiting' })])[0]!.activityLabel).toBe('Agent waiting for input');
-    expect(buildTicketNodes([ticket({ agentState: 'idle' })])[0]!.activityLabel).toBe('Session idle');
-    expect(buildTicketNodes([ticket({ agentState: 'none' })])[0]!.activityLabel).toBe('No active session');
-    expect(buildTicketNodes([ticket({ agentState: null })])[0]!.activityLabel).toBe('No active session');
-  });
-
   it('sessionAction reads Continue for a captured interactive session, Start otherwise', () => {
     // Interrupted impl/fix with a captured id → the button continues in place.
     expect(

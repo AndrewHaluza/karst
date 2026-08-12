@@ -752,6 +752,7 @@ export class CodexAdapter implements AgentAdapter {
       signal: opts.signal,
       timeoutMs: opts.timeoutMs,
       onDebug: opts.debug,
+      onSpawned: opts.onSpawned,
     });
     if (result.exitCode !== 0) {
       opts.debug?.(

@@ -491,42 +491,65 @@ describe('chevron and invalid-field styling', () => {
   });
 });
 
-/** Classes on the accordion card that hosts the custom provider dropdown. */
-function providerCardClasses(): string[] {
-  const wrap = HTML.indexOf('id="provSelectWrap"');
-  expect(wrap, '#provSelectWrap not found').toBeGreaterThan(-1);
-  // The nearest preceding opening tag whose class list contains `card` itself
-  // (not `card-body`, which sits between the wrapper and its card).
-  const tags = [...HTML.slice(0, wrap).matchAll(/<div class="([^"]*)"/g)]
-    .map((m) => m[1]!.split(/\s+/).filter(Boolean))
-    .filter((classes) => classes.includes('card'));
-  const last = tags[tags.length - 1];
-  expect(last, 'no enclosing .card for #provSelectWrap').toBeTruthy();
-  return last!;
-}
-
 describe('ticketing provider dropdown', () => {
   // The menu is absolutely positioned below the trigger and is taller than the
-  // (short) card that hosts it, so the accordion's `.card{overflow:hidden}`
-  // clipped it to a sliver: the dropdown opened but was invisible.
-  it('is not clipped by its accordion card', () => {
-    const classes = providerCardClasses();
-    const optedOut = classes.some(
-      (c) => c !== 'card' && new RegExp(`\\.card\\.${c}\\{[^}]*overflow:visible`).test(HTML),
-    );
-    expect(optedOut, `provider card classes "${classes.join(' ')}" are still clipped`).toBe(true);
+  // row that hosts it. It used to sit inside a `.card{overflow:hidden}` (the
+  // accordion box) and needed an `.unclipped` opt-out that made the card
+  // overflow-visible; the ticketing section now uses section-blocks, which
+  // never clip by construction — so the dropdown must not have a card (the
+  // only overflow:hidden container in the section) anywhere above it.
+  it('is not clipped: the provider select has no .card ancestor', () => {
+    const wrap = HTML.indexOf('id="provSelectWrap"');
+    expect(wrap, '#provSelectWrap not found').toBeGreaterThan(-1);
+    const section = HTML.slice(HTML.indexOf('id="section-ticketing"'), wrap);
+    const cards = [...section.matchAll(/<div class="([^"]*)"/g)]
+      .map((m) => m[1]!.split(/\s+/).filter(Boolean))
+      .filter((classes) => classes.includes('card'));
+    expect(cards, 'ticketing section must not wrap the provider select in a card').toEqual([]);
   });
 
-  it('paints the menu above the cards that follow it', () => {
+  it('paints the menu above the content that follows it', () => {
     const m = HTML.match(/\.provselect-menu\{([^}]*)\}/);
     expect(m, '.provselect-menu rule not found').toBeTruthy();
     expect(m![1]).toMatch(/z-index:(?:\d+|var\(--k-z-[\w-]+\))/);
   });
 });
 
+describe('settings width and spacing consistency', () => {
+  // The settings shell is the only child of a flex body. Without flex-grow it
+  // sized to its own content, so the page stopped ~250px short of the
+  // webview's right edge — a dead band whose width changed per tab, which is
+  // what read as "some elements not using full width" on every settings page.
+  it('makes the settings shell grow to fill the webview', () => {
+    const m = HTML.match(/\.app\{([^}]*)\}/);
+    expect(m, '.app rule not found').toBeTruthy();
+    expect(m![1]).toMatch(/flex:1 1 auto/);
+  });
+
+  it('separates the ClickUp fields group from the Provider row', () => {
+    // The provider row and #clickupFields are two stacked form-grids, and a
+    // stacked pair of grids has zero inter-grid gap — the Team ID label used
+    // to sit directly against the provider trigger. A group boundary must
+    // read at the section-block rhythm, not the intra-grid row gap.
+    const m = HTML.match(/#clickupFields\{([^}]*)\}/);
+    expect(m, '#clickupFields rule not found').toBeTruthy();
+    expect(m![1]).toMatch(/margin-top:var\(--k-space-7\)/);
+  });
+
+  it('keeps quality q-rows inside their 3-column panels', () => {
+    // The q-row columns used to carry 160/180px minimums — together wider
+    // than a panel at 980–1300px viewports, so the findings Select overflowed
+    // the panel and past the page edge. The minimums must fit the narrowest
+    // 3-column panel; the columns still share the panel as fr tracks.
+    const m = HTML.match(/\.q-row\{([^}]*)\}/);
+    expect(m, '.q-row rule not found').toBeTruthy();
+    expect(m![1]).toContain('minmax(calc(var(--k-space-8) * 5),1fr)');
+  });
+});
+
 describe('ticketing search toggle', () => {
   it('renders a search toggle card that defaults ON, hidden for manual', () => {
-    const markup = HTML.slice(HTML.indexOf('id="searchCard"'), HTML.indexOf('id="searchCard"') + 500);
+    const markup = HTML.slice(HTML.indexOf('id="searchCard"'), HTML.indexOf('id="searchCard"') + 800);
     expect(markup).toContain('id="f-searchEnabled"');
     expect(markup).toContain('Search tickets in the Add/Edit ticket page');
     // renderTicketing shows it only for clickup and reflects the draft value.
@@ -767,6 +790,7 @@ describe('settings tab-scoped save', () => {
       ['general', { worktreePathDisplay: 'sideways' as never }],
       ['general', { agentProvider: 'nope' as never }],
       ['general', { archiveDoneAfterDays: 0 }],
+      ['general', { closeDoneTerminalsWithTicket: 'yes' as never }],
       ['services', { repositories: {} }],
       ['services', { repositories: { api: { repoPath: 42 as never, hasMigrations: false } } }],
       ['git', { conventions: { branchName: '{nope}' } }],
@@ -1359,17 +1383,14 @@ describe('UI-R13 — action-result is handled', () => {
 });
 
 describe('project facts (manifest path & resolved project id)', () => {
-  it('renders a read-only <dl>, not inputs, so Save can never write these back', () => {
+  it('does not render the read-only facts in the General tab — they live in the sidebar footer only', () => {
     const generalStart = HTML.indexOf('id="section-general"');
     const generalEnd = HTML.indexOf('<!-- Git -->');
     const section = HTML.slice(generalStart, generalEnd);
-    expect(section).toContain('id="projectFacts"');
-    expect(section).toContain('<dl class="facts">');
-    expect(section).toContain('id="factManifestPath"');
-    expect(section).toContain('id="factProjectSlug"');
-    expect(section).toContain('id="factSlugDerived"');
-    expect(section).toContain('id="factVersion"');
-    expect(section).toContain('id="openManifestBtn"');
+    expect(section).not.toContain('This project');
+    expect(section).not.toContain('id="projectFacts"');
+    expect(section).not.toContain('id="factManifestPath"');
+    expect(section).not.toContain('id="openManifestBtn"');
   });
 
   it('never adds the facts to SECTION_FIELDS — they must not enter the draft', () => {
@@ -1377,80 +1398,8 @@ describe('project facts (manifest path & resolved project id)', () => {
     expect(SECTION_FIELDS.general).not.toContain('projectSlug');
   });
 
-  it('the Open karst.yml button posts through the pending action runtime (UI-R11)', () => {
-    expect(HTML).toMatch(/postAction\(el\('openManifestBtn'\),\s*'open-manifest'/);
-  });
-
-  it("renderProjectFacts fills the facts from the host-pushed state, marking a derived id", () => {
-    const source = `
-      let manifestPath = '';
-      let projectSlug = { value: '', derived: true };
-      let extensionVersion = '1.0.0';
-      const elements = {};
-      function el(id) {
-        if (!elements[id]) elements[id] = { textContent: '', hidden: false };
-        return elements[id];
-      }
-      ${functionSource('renderProjectFacts')}
-      manifestPath = '/work/proj/.karst/karst.yml';
-      projectSlug = { value: 'my-proj', derived: true };
-      extensionVersion = '1.0.0';
-      renderProjectFacts();
-      ({
-        path: elements.factManifestPath.textContent,
-        slug: elements.factProjectSlug.textContent,
-        derivedHidden: elements.factSlugDerived.hidden,
-        version: elements.factVersion.textContent,
-      });
-    `;
-    const result = runInNewContext(source, {}) as {
-      path: string;
-      slug: string;
-      derivedHidden: boolean;
-      version: string;
-    };
-    expect(result.path).toBe('/work/proj/.karst/karst.yml');
-    expect(result.slug).toBe('my-proj');
-    expect(result.derivedHidden).toBe(false);
-    expect(result.version).toBe('1.0.0');
-  });
-
-  it('renderProjectFacts hides the derived chip when the id is explicit', () => {
-    const source = `
-      let manifestPath = 'x';
-      let projectSlug = { value: '', derived: true };
-      let extensionVersion = '';
-      const elements = {};
-      function el(id) {
-        if (!elements[id]) elements[id] = { textContent: '', hidden: false };
-        return elements[id];
-      }
-      ${functionSource('renderProjectFacts')}
-      projectSlug = { value: 'explicit-id', derived: false };
-      renderProjectFacts();
-      elements.factSlugDerived.hidden;
-    `;
-    const result = runInNewContext(source, {});
-    expect(result).toBe(true);
-  });
-
-  it('falls back to (unresolved) when the host has not supplied the facts yet', () => {
-    const source = `
-      let manifestPath = '';
-      let projectSlug = { value: '', derived: true };
-      let extensionVersion = '';
-      const elements = {};
-      function el(id) {
-        if (!elements[id]) elements[id] = { textContent: '', hidden: false };
-        return elements[id];
-      }
-      ${functionSource('renderProjectFacts')}
-      renderProjectFacts();
-      ({ path: elements.factManifestPath.textContent, slug: elements.factProjectSlug.textContent });
-    `;
-    const result = runInNewContext(source, {}) as { path: string; slug: string };
-    expect(result.path).toBe('(unresolved)');
-    expect(result.slug).toBe('(unresolved)');
+  it('the sidebar Open karst.yml button posts through the pending action runtime (UI-R11)', () => {
+    expect(HTML).toMatch(/postAction\(footOpen,\s*'open-manifest'\)/);
   });
 });
 
@@ -1489,7 +1438,6 @@ describe('debug logging toggle (General tab)', () => {
       function renderDefaultTypeOptions() {}
       function renderLabelPreview() {}
       function renderConventions() {}
-      function renderProjectFacts() {}
       function agentBadgeHtml() { return ''; }
       const KNOWN_AGENT_PROVIDERS = [];
       const implementedProviders = [];
@@ -1501,6 +1449,51 @@ describe('debug logging toggle (General tab)', () => {
       draft = {};
       renderGeneral();
       const off = el('f-debug').checked;
+      ({ on, off });
+    `;
+    const result = runInNewContext(source, {}) as { on: boolean; off: boolean };
+    expect(result.on).toBe(true);
+    expect(result.off).toBe(false);
+  });
+});
+
+describe('close-done-terminals toggle (General tab)', () => {
+  it('renders a checkbox in the General section with the behavior hint', () => {
+    const generalStart = HTML.indexOf('id="section-general"');
+    const generalEnd = HTML.indexOf('<!-- Git -->');
+    const section = HTML.slice(generalStart, generalEnd);
+    expect(section).toContain('id="f-closeDoneTerminalsWithTicket"');
+    expect(section).toContain('type="checkbox"');
+    expect(section).toContain('id="doneTerminalsHint"');
+    // The hint must say which action closes the terminals — never a bare toggle.
+    expect(section).toContain('archived');
+  });
+
+  it('checks the box only when the draft carries closeDoneTerminalsWithTicket: true (off by default)', () => {
+    const source = `
+      let draft = {};
+      const elements = {};
+      function el(id) {
+        if (!elements[id]) elements[id] = { textContent: '', hidden: false };
+        return elements[id];
+      }
+      function renderModelPicker() {}
+      function renderPresetOptions() {}
+      function renderDefaultTypeOptions() {}
+      function renderLabelPreview() {}
+      function renderConventions() {}
+      function renderProjectFacts() {}
+      function agentBadgeHtml() { return ''; }
+      const KNOWN_AGENT_PROVIDERS = [];
+      const implementedProviders = [];
+      function esc(s) { return String(s); }
+      ${functionSource('renderGeneral')}
+      draft = { closeDoneTerminalsWithTicket: true };
+      renderGeneral();
+      const on = el('f-closeDoneTerminalsWithTicket').checked;
+      draft = {};
+      renderGeneral();
+      const off = el('f-closeDoneTerminalsWithTicket').checked;
       ({ on, off });
     `;
     const result = runInNewContext(source, {}) as { on: boolean; off: boolean };
@@ -1565,6 +1558,22 @@ describe('settings quality tab (UAT + review scalars)', () => {
       // Every input/select carries a matching <label for>.
       expect(HTML, `${id} label`).toContain(`for="${id}"`);
     }
+  });
+
+  it('finds the findings controls in their own policy panel', () => {
+    // UAT | Review | Findings — three balanced panels instead of one 1-row
+    // panel beside a 6-row one (the findings trio IS a policy, not an
+    // appendix of Review).
+    expect(HTML).toContain('<div class="section-title">Findings</div>');
+    expect(HTML).toContain('<div class="section-title">UAT policy</div>');
+    expect(HTML).toContain('<div class="section-title">Review policy</div>');
+  });
+
+  it('number inputs fill their control column like text inputs and selects', () => {
+    // The Max fix attempts / Max findings fields rendered at the browser
+    // default width beside full-width selects — a mixed column. The shared
+    // rule now covers number inputs too.
+    expect(HTML).toMatch(/input\[type=text\],input\[type=number\],select\{width:100%\}/);
   });
 
   /**
@@ -1838,6 +1847,27 @@ describe('settings quality tab — gate editor', () => {
     expect(html).toContain('+ Add gate');
   });
 
+  it('states the package.json fallback when a global gate list is empty', () => {
+    // An empty declared list is NOT "nothing runs": resolveGates probes the
+    // repo's package.json scripts. The empty state must say so, not sit blank.
+    const renderGateList = loadRenderGateList({ api: {} });
+    const html = renderGateList('uat', []);
+    expect(html).toContain('No gates declared');
+    expect(html).toContain('package.json');
+    expect(html).toContain('data-add-gate="uat"');
+  });
+
+  it('states the global-list fallback when an override list is empty', () => {
+    // An empty override is indistinguishable from no override
+    // (declaredGatesFor only takes a non-empty list), so the repo runs the
+    // global list — the empty state names that instead of implying "nothing".
+    const renderGateList = loadRenderGateList({ api: {} });
+    const html = renderGateList('uat:api', []);
+    expect(html).toContain('No gates here');
+    expect(html).toContain('runs the global list');
+    expect(html).toContain('data-add-gate="uat:api"');
+  });
+
   it('mounts both blocks into #qualityGates and syncs repo selects after render', () => {
     const body = HTML.slice(
       HTML.indexOf('function renderQuality('),
@@ -1940,11 +1970,78 @@ describe('settings quality tab — per-repository gate overrides', () => {
     expect(result.uat.repositories.api).toBeUndefined();
   });
 
-  it('says the override replaces rather than extends', () => {
-    const start = HTML.indexOf('id="overrideHint"');
-    expect(start).toBeGreaterThan(-1);
-    const snippet = HTML.slice(start, start + 200);
-    expect(snippet).toMatch(/replaces/i);
+  it('removing the LAST gate of an override removes the override itself', () => {
+    // An empty `gates: []` override is indistinguishable from no override
+    // (declaredGatesFor only takes a non-empty list) — it would sit in the
+    // manifest as a phantom row while the repo runs the global list. The
+    // editor never produces that state: the card disappears instead.
+    const draft = {
+      repositories: { api: {} },
+      review: {
+        gates: [{ name: 'build', kind: 'script', script: 'build' }],
+        repositories: { api: { gates: [{ name: 'lint', kind: 'script', script: 'lint' }] } },
+      },
+    };
+    const sandbox = overrideSandbox(draft);
+    const source = `
+      ${functionSource('parseGateBlock')}
+      ${functionSource('gatesOf')}
+      ${functionSource('writeGates')}
+      ${functionSource('removeGate')}
+      removeGate('review:api', 0);
+    `;
+    runInNewContext(source, sandbox);
+    const result = sandbox.draft as {
+      review: { gates: unknown[]; repositories: Record<string, unknown> };
+    };
+    expect(result.review.repositories.api).toBeUndefined();
+    expect(result.review.gates).toHaveLength(1);
+  });
+
+  it('removing a NON-last gate of an override keeps the override', () => {
+    const draft = {
+      repositories: { api: {} },
+      review: {
+        gates: [],
+        repositories: { api: { gates: [
+          { name: 'lint', kind: 'script', script: 'lint' },
+          { name: 'govet', kind: 'script', script: 'govet' },
+        ] } },
+      },
+    };
+    const sandbox = overrideSandbox(draft);
+    const source = `
+      ${functionSource('parseGateBlock')}
+      ${functionSource('gatesOf')}
+      ${functionSource('writeGates')}
+      ${functionSource('removeGate')}
+      removeGate('review:api', 0);
+    `;
+    runInNewContext(source, sandbox);
+    const result = sandbox.draft as {
+      review: { repositories: { api: { gates: Array<{ name: string }> } } };
+    };
+    expect(result.review.repositories.api!.gates).toEqual([{ name: 'govet', kind: 'script', script: 'govet' }]);
+  });
+
+  it('says the override replaces rather than extends, beside the cards it explains', () => {
+    const renderOverridesSection = loadRenderOverridesSection({ api: {} });
+    const html = renderOverridesSection('review', {
+      api: { gates: [{ name: 'lint', kind: 'script', script: 'lint' }] },
+    });
+    expect(html).toContain('override-editor-note');
+    expect(html).toMatch(/<strong>replaces<\/strong>/i);
+  });
+
+  it('shows no note and no header when nothing is overridden yet', () => {
+    const renderOverridesSection = loadRenderOverridesSection({ api: {} });
+    const html = renderOverridesSection('review', {});
+    expect(html).not.toContain('override-editor-note');
+  });
+
+  it('renders nothing at all when the manifest declares no repositories', () => {
+    const renderOverridesSection = loadRenderOverridesSection({});
+    expect(renderOverridesSection('review', {})).toBe('');
   });
 
   it('parseGateBlock splits an override block into base + repo, leaving a global block untouched', () => {
@@ -2255,7 +2352,11 @@ describe('settings agents tab — process assignments', () => {
     expect(HTML).toContain('PROCESS_KEYS\n      .map((key) => renderProcessAssignmentRow(key,');
     expect(HTML).toContain('data-proc-key="${key}"');
     expect(HTML).toContain('data-proc-field="agent"');
-    expect(HTML).toContain('data-proc-field="provider"');
+    // The core cell is the identity dropdown (icon + name per choice, UI-R10c),
+    // not a native select — the model/name fields are the remaining proc
+    // fields that commit on change/input.
+    expect(HTML).not.toContain('data-proc-field="provider"');
+    expect(HTML).toContain('data-proc-core-opt="');
     expect(HTML).toContain('data-proc-field="model"');
     expect(HTML).toContain('data-proc-field="agentName"');
     expect(HTML).toContain('data-proc-enabled="${key}"');
@@ -2316,8 +2417,9 @@ describe('settings agents tab — process assignments', () => {
     const source = `
       const KNOWN_AGENT_PROVIDERS = ['claude', 'codex', 'antigravity', 'opencode'];
       const AGENT_PROVIDER_LABELS = {
-        claude: 'Claude Code', codex: 'Codex', antigravity: 'Antigravity', opencode: 'OpenCode',
+        claude: 'Claude Code', codex: 'Codex', antigravity: 'Antigravity CLI', opencode: 'OpenCode',
       };
+      function agentBadgeHtml(p) { return '<span class="agentbadge"><span class="agentname">' + (AGENT_PROVIDER_LABELS[p] || p || '') + '</span></span>'; }
       const PROCESS_KEYS_WITH_INSTRUCTIONS = ['uatTester', 'review'];
       ${functionSource('renderModelOptions')}
       ${functionSource('renderProcessAssignmentRow')}
@@ -2375,7 +2477,7 @@ describe('settings agents tab — process assignments', () => {
     expect(html).toContain('data-proc-key="uatTester"');
     expect(html).toContain('Codex Current');
     expect(html).not.toContain('Claude Only');
-    expect(html).toContain('data-proc-field="provider"');
+    expect(html).toContain('data-proc-core-opt="uatTester"');
     expect(html).toContain('data-proc-field="model"');
   });
 
@@ -2607,6 +2709,23 @@ describe('settings v7 script integrity', () => {
 
 
 describe('settings v7 shell', () => {
+  it('the sidebar brand mark is the approved #35 mark, not the old letter badge', () => {
+    expect(HTML).toContain('M 96 20');
+    expect(HTML).toContain('cx="106.5" cy="111.5" r="26.5"');
+    expect(HTML).not.toContain('<span class="brandmark">K</span>');
+  });
+
+  it('the project-info footer and mobile entry carry the approved #35 mark, not the letter badge', () => {
+    expect(HTML).toContain('<svg class="project-icon" id="footProjectIcon"');
+    expect(HTML).toContain('id="footLeft"');
+    expect(HTML).toContain('id="footCore"');
+    expect(HTML).toMatch(/id="mobileProjectBtn"[^>]*>\s*<svg[^>]*viewBox="0 0 215 215"/);
+    expect(HTML).toContain('id="mobLeft"');
+    expect(HTML).toContain('id="mobCore"');
+    expect(HTML).not.toContain('<span class="project-icon" id="footProjectIcon">K</span>');
+    expect(HTML).not.toContain('title="Project information">K</button>');
+  });
+
   it('groups the sidebar nav into Project / Workflow / Integrations with captions', () => {
     expect(HTML).toContain('<nav class="sidebar"');
     expect(HTML).toContain('<div class="nav-caption">Project</div>');
@@ -2649,9 +2768,52 @@ describe('settings v7 shared primitives', () => {
     expect(HTML).toContain('.chev');
   });
 
+  it('pairs the selection foreground on every active dropdown option (light-theme contrast)', () => {
+    // The active wash is a saturated blue on light themes; inherited `--k-text`
+    // is grey and fails contrast on it (UI-R29). Each option family must take
+    // the theme's own paired foreground, and dim/faint descendants must not
+    // re-grey themselves on the fill.
+    expect(HTML).toContain('.provselect-opt.selected{background:var(--vscode-list-activeSelectionBackground,var(--k-surface-hover));');
+    expect(HTML).toMatch(/\.provselect-opt\.selected\{[^}]*color:var\(--vscode-list-activeSelectionForeground,var\(--k-text\)\)/);
+    expect(HTML).toMatch(/\.agentselect-opt\.selected\{[^}]*color:var\(--vscode-list-activeSelectionForeground,var\(--k-text\)\)/);
+    expect(HTML).toMatch(/\.drop-item\.active,\.drop-item\[aria-selected="true"\]\{[^}]*color:var\(--vscode-list-activeSelectionForeground,var\(--k-text\)\)/);
+    expect(HTML).toMatch(/\.model-item\.active[^}]*color:var\(--vscode-list-activeSelectionForeground,var\(--k-text\)\)/);
+    expect(HTML).toContain('.model-item.active .model-sub,.model-item.active .model-tag{color:inherit;opacity:.8}');
+    expect(HTML).toContain('.drop-item.active .ident-meta{color:inherit;opacity:.8}');
+  });
+
+  it('keeps dropdown items readable on hover with an explicit foreground', () => {
+    expect(HTML).toContain('.provselect-opt:hover{background:var(--k-surface-hover);color:var(--k-text)}');
+    expect(HTML).toContain('.agentselect-opt:hover{background:var(--k-surface-hover);color:var(--k-text)}');
+    expect(HTML).toContain('.drop-item:hover{background:var(--k-surface-hover);color:var(--k-text)}');
+    expect(HTML).toContain('.model-item:hover .model-sub,.model-item:hover .model-tag{color:var(--k-text);opacity:.8}');
+  });
+
+  it('overlay pops use their own display:none — never the !important .hidden class', () => {
+    // `.hidden{display:none !important}` defeats `.open{display:block}`: the
+    // template helper pop, context menu and project-info pop all carried the
+    // class and could never become visible.
+    expect(HTML).toContain('<div class="helper-pop" id="helperPop"');
+    expect(HTML).toContain('<div class="ctx-menu" id="ctxMenu"');
+    expect(HTML).toContain('<div class="project-info-pop" id="projectInfoPop"');
+    expect(HTML).not.toMatch(/id="helperPop"[^>]*class="[^"]*hidden/);
+    expect(HTML).not.toMatch(/id="ctxMenu"[^>]*class="[^"]*hidden/);
+    expect(HTML).not.toMatch(/id="projectInfoPop"[^>]*class="[^"]*hidden/);
+  });
+
+  it('renders the repositories list as ONE rounded roster: head and cards share the container', () => {
+    // The head used to float bare above the cards — a square block against
+    // their rounded corners. renderServices now wraps both in `.roster`,
+    // which owns the single border+radius, and the per-card chrome is
+    // neutralized inside it.
+    expect(HTML).toMatch(/<div class="roster">`\s*\+ `<div class="roster-head repo-cols">`/);
+    expect(HTML).toContain('.roster .card{border:none;border-radius:0;margin-bottom:var(--k-space-0);background:transparent}');
+    expect(HTML).toContain('.roster .card + .card{border-top:var(--k-border-w) solid var(--vscode-panel-border)}');
+  });
+
   it('implements the fixed-size reload icon button with a pending spin', () => {
     expect(HTML).toMatch(/class="reload-btn(?: fixed)?"/);
-    expect(HTML).toContain('class="reload-icon"');
+    expect(HTML).toContain('class="k-icon reload-icon"');
     expect(HTML).toContain('reload-spin');
     expect(HTML).toMatch(/prefers-reduced-motion[\s\S]*?reload-icon[\s\S]*?animation:none/);
   });
@@ -2806,8 +2968,9 @@ describe('settings v7 matrix groups', () => {
     const load = (key: string) => runInNewContext(`
       const KNOWN_AGENT_PROVIDERS = ['claude', 'codex', 'antigravity', 'opencode'];
       const AGENT_PROVIDER_LABELS = {
-        claude: 'Claude Code', codex: 'Codex', antigravity: 'Antigravity', opencode: 'OpenCode',
+        claude: 'Claude Code', codex: 'Codex', antigravity: 'Antigravity CLI', opencode: 'OpenCode',
       };
+      function agentBadgeHtml(p) { return '<span class="agentbadge"><span class="agentname">' + (AGENT_PROVIDER_LABELS[p] || p || '') + '</span></span>'; }
       const PROCESS_KEYS_WITH_INSTRUCTIONS = ['uatTester', 'review'];
       ${functionSource('renderModelOptions')}
       ${functionSource('renderProcessAssignmentRow')}
@@ -2834,8 +2997,9 @@ describe('settings v7 matrix groups', () => {
     const html = runInNewContext(`
       const KNOWN_AGENT_PROVIDERS = ['claude', 'codex', 'antigravity', 'opencode'];
       const AGENT_PROVIDER_LABELS = {
-        claude: 'Claude Code', codex: 'Codex', antigravity: 'Antigravity', opencode: 'OpenCode',
+        claude: 'Claude Code', codex: 'Codex', antigravity: 'Antigravity CLI', opencode: 'OpenCode',
       };
+      function agentBadgeHtml(p) { return '<span class="agentbadge"><span class="agentname">' + (AGENT_PROVIDER_LABELS[p] || p || '') + '</span></span>'; }
       const PROCESS_KEYS_WITH_INSTRUCTIONS = ['uatTester', 'review'];
       ${functionSource('renderModelOptions')}
       ${functionSource('renderProcessAssignmentRow')}
@@ -2855,17 +3019,19 @@ describe('settings v7 matrix groups', () => {
 describe('settings v7 model picker no-default', () => {
   it('leads the popup with a No default row that clears the saved model', () => {
     const source = `
-      const MODEL_GROUP_LABELS = { claude: 'Claude Code', codex: 'Codex', antigravity: 'Antigravity', opencode: 'OpenCode' };
       const modelCatalog = {
         codex: [{ id: 'gpt-x', label: 'GPT X', providers: ['codex'] }],
         claude: [], antigravity: [], opencode: [],
       };
+      function agentBadgeHtml(p) { return '<span class="agentbadge"><span class="agentname">' + p + '</span></span>'; }
+      const AGENT_PROVIDER_LABELS = { claude: 'Claude Code', codex: 'Codex', antigravity: 'Antigravity CLI', opencode: 'OpenCode' };
       let draft = { agentProvider: 'codex', defaultModel: 'gpt-x' };
       const elements = {};
       function el(id) {
         if (!elements[id]) elements[id] = { innerHTML: '', classList: { toggle() {} } };
         return elements[id];
       }
+      ${functionSource('modelGroupLabelHtml')}
       ${functionSource('renderModelPickerPopup')}
       renderModelPickerPopup();
       elements.modelList.innerHTML;

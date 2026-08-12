@@ -12,12 +12,14 @@
 
   :root{
     /* One chevron for every dropdown (native <select> + the custom provider
-       trigger) so placement and size read the same. A data-URI SVG cannot
-       consume a CSS custom property, so its stroke colour cannot resolve to a
-       --k-* token the way every other colour in this file does — this is the
-       one accepted UI-R04 exception, forced by the encoding, not by choice.
+       trigger) so placement and size read the same. The glyph is Tabler's
+       chevron-down (docs/ui/ICONS.md §4) embedded as a data-URI — the only
+       icon form that reaches a CSS background. A data-URI SVG cannot consume
+       a CSS custom property, so its stroke colour cannot resolve to a --k-*
+       token the way every other colour in this file does — this is the one
+       accepted UI-R04 exception, forced by the encoding, not by choice.
        Mid-gray shows on light and dark input chrome alike. */
-    --chevron:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.5 6 7.5 9 4.5' fill='none' stroke='%238a8a8a' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    --chevron:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24'%3E%3Cpath d='M6 9l6 6l6 -6' fill='none' stroke='%238a8a8a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   }
   *{box-sizing:border-box}
   html,body{height:100%}
@@ -94,13 +96,8 @@
   /* Inline per-field validation message on repository cards — see
      applyFieldValidationUI; only ever shown for a field the user has touched. */
   .field-error{color:var(--k-danger);font-size:var(--k-text-xs);margin-top:var(--k-space-2)}
-  /* Read-only host facts (General tab) — a <dl>, never inputs, so nothing here
-     can enter the editable draft. */
-  dl.facts{margin:var(--k-space-2) var(--k-space-0) var(--k-space-0)}
-  dl.facts dt{font-size:var(--k-text-xs);color:var(--k-text-dim);opacity:.7;margin-top:var(--k-space-3)}
-  dl.facts dd{margin:var(--k-space-1) var(--k-space-0) var(--k-space-0);display:flex;
-    align-items:center;gap:var(--k-space-3)}
-  dl.facts code{font-family:var(--k-font-mono);font-size:var(--k-text-sm)}
+  /* Read-only host facts live in the sidebar footer, not here — the footer is
+     the one surface that renders them (see renderProjectFooter). */
 
   .content{flex:1 1 auto;overflow:auto;padding:var(--k-space-8) var(--k-space-9)}
   .section{max-width:calc(var(--k-space-8) * 38)}
@@ -119,7 +116,7 @@
   input[type=text]:focus,input[type=number]:focus,select:focus,textarea:focus{
     outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset);
   }
-  input[type=text],select{width:100%}
+  input[type=text],input[type=number],select{width:100%}
   /* Drop the OS arrow and paint our own, vertically centered with room reserved
      via padding — the native arrow's placement drifts between platforms/renderers. */
   select{
@@ -138,8 +135,11 @@
   .provselect-trigger{width:100%;display:flex;align-items:center;justify-content:space-between;
     text-align:left;background:var(--vscode-input-background);color:var(--vscode-input-foreground);
     border:var(--k-border-w) solid var(--vscode-input-border,var(--vscode-panel-border));border-radius:var(--k-radius-sm);
-    padding:var(--k-space-3) var(--k-space-4);font-family:inherit;font-size:var(--k-text-base)}
-  .provselect-trigger:hover{background:var(--vscode-input-background)}
+    padding:var(--k-space-3) var(--k-space-4);font-family:inherit;font-size:var(--k-text-base);cursor:pointer}
+  /* A custom control must answer a hover the way the page's other custom
+     triggers do (`.select-trigger`): the input chrome does not change under
+     the cursor, but the border highlights to show the control is live. */
+  .provselect-trigger:hover{border-color:var(--vscode-inputOption-activeBorder,var(--k-focus))}
   .provselect-trigger:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
   .provselect-trigger .chev{flex:none;width:var(--k-space-6);height:var(--k-space-6);margin-left:var(--k-space-4);
     background:var(--chevron) no-repeat center/var(--k-space-6)}
@@ -149,16 +149,21 @@
     border-radius:var(--k-radius-md);padding:var(--k-space-2);box-shadow:var(--k-elev-2)}
   .provselect-opt{display:flex;align-items:center;gap:var(--k-space-3);padding:var(--k-space-3) var(--k-space-4);
     border-radius:var(--k-radius-sm);cursor:pointer;font-size:var(--k-text-base)}
-  .provselect-opt:hover{background:var(--k-surface-hover)}
-  .provselect-opt.selected{background:var(--vscode-list-activeSelectionBackground,var(--k-surface-hover))}
+  .provselect-opt:hover{background:var(--k-surface-hover);color:var(--k-text)}
+  /* The selected option keeps the theme's ACTIVE selection wash, so it must
+     take the theme's paired foreground too — the wash is a saturated blue on
+     light themes and the inherited `--k-text` is a grey that fails contrast on
+     it (UI-R29). Same rule `.nav-btn.active` already follows. */
+  .provselect-opt.selected{background:var(--vscode-list-activeSelectionBackground,var(--k-surface-hover));
+    color:var(--vscode-list-activeSelectionForeground,var(--k-text))}
   .provselect-opt:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
   /* The menu is absolutely positioned below the trigger and is taller than the
-     card that hosts it (the ClickUp fields below it are hidden while the
-     provider is `manual`), so the accordion's `.card{overflow:hidden}` clipped
-     it to a sliver — the dropdown opened but read as invisible. This card is
-     always open and has no rounded body to clip, so it opts out. The menu's
-     z-index is what keeps it above the cards that follow. */
-  .card.unclipped{overflow:visible}
+     row that hosts it (the ClickUp fields below it are hidden while the
+     provider is `manual`). It used to sit inside an accordion `.card` whose
+     `overflow:hidden` clipped it to a sliver — the dropdown opened but read as
+     invisible. The ticketing section now hosts the select in a section-block,
+     which never clips, so the menu needs no opt-out; its z-index is what keeps
+     it above the content that follows. */
   /* Shared ticketing-provider badge (icon + brand name) — single source in
      src/model/providerIdentity.ts, injected here at load (CSP forbids a
      shared stylesheet). */
@@ -189,8 +194,9 @@
     border-radius:var(--k-radius-md);padding:var(--k-space-2);box-shadow:var(--k-elev-2)}
   .agentselect-opt{display:flex;align-items:center;gap:var(--k-space-3);padding:var(--k-space-3) var(--k-space-4);
     border-radius:var(--k-radius-sm);cursor:pointer;font-size:var(--k-text-base)}
-  .agentselect-opt:hover{background:var(--k-surface-hover)}
-  .agentselect-opt.selected{background:var(--vscode-list-activeSelectionBackground,var(--k-surface-hover))}
+  .agentselect-opt:hover{background:var(--k-surface-hover);color:var(--k-text)}
+  .agentselect-opt.selected{background:var(--vscode-list-activeSelectionBackground,var(--k-surface-hover));
+    color:var(--vscode-list-activeSelectionForeground,var(--k-text))}
   .agentselect-opt:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
   .agentselect-opt[aria-disabled="true"]{opacity:.5;cursor:not-allowed}
 
@@ -513,8 +519,12 @@
 
   /* ═══ v7 redesign: shell ═══════════════════════════════════════════════════
      Screen-local composition geometry (UI-R04/R05): the sidebar, label column
-     and control height are settings-page decisions, expressed with tokens only. */
-  .app{display:grid;grid-template-columns:calc(var(--k-space-8) * 9.4) minmax(0,1fr);min-height:100%}
+     and control height are settings-page decisions, expressed with tokens only.
+     The app is the only child of a flex body: without flex-grow it sizes to
+     its content, so the page stopped far short of the webview's right edge
+     (a dead band whose width changed per tab) and every section read as not
+     full-width. flex:1 1 auto makes the page fill the window at any width. */
+  .app{flex:1 1 auto;display:grid;grid-template-columns:calc(var(--k-space-8) * 9.4) minmax(0,1fr);min-height:100%}
   .sidebar{
     display:flex;flex-direction:column;gap:var(--k-space-4);
     padding:var(--k-space-7) var(--k-space-4);overflow-y:auto;
@@ -522,10 +532,9 @@
     background:var(--vscode-sideBar-background,var(--k-bg));
   }
   .brand{display:flex;align-items:center;gap:var(--k-space-3);padding:var(--k-space-0) var(--k-space-3) var(--k-space-4)}
+  /* The approved #35 mark itself — no badge box behind it (869egvp46-fu2). */
   .brandmark{
-    width:var(--k-space-8);height:var(--k-space-8);flex:0 0 auto;display:grid;place-items:center;
-    border-radius:var(--k-radius-sm);font-weight:700;font-size:var(--k-text-sm);
-    background:var(--vscode-badge-background);color:var(--vscode-badge-foreground);
+    width:var(--k-space-8);height:var(--k-space-8);flex:0 0 auto;display:block;
   }
   .brand .brand-name{font-size:var(--k-text-md);font-weight:600;letter-spacing:.01em}
   .nav-group{margin-top:var(--k-space-3)}
@@ -566,10 +575,9 @@
   }
   .project-identity:hover{background:var(--k-surface-hover)}
   .project-identity:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+  /* The approved #35 mark itself — no badge box behind it (869egvp46-fu3). */
   .project-icon{
-    width:var(--k-space-8);height:var(--k-space-8);flex:0 0 auto;display:grid;place-items:center;
-    border-radius:var(--k-radius-sm);font-weight:700;font-size:var(--k-text-sm);
-    background:var(--vscode-badge-background);color:var(--vscode-badge-foreground);
+    width:var(--k-space-8);height:var(--k-space-8);flex:0 0 auto;display:block;
   }
   .project-copy{min-width:0;display:flex;flex-direction:column;gap:var(--k-space-1)}
   .project-id{font-family:var(--k-font-mono);font-weight:600;font-size:var(--k-text-sm);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -598,10 +606,9 @@
   .project-info-row .mono{font-family:var(--k-font-mono)}
   .mobile-project-btn{
     display:none;width:var(--k-space-8);height:var(--k-space-8);flex:0 0 auto;
-    border-radius:var(--k-radius-sm);font-weight:700;cursor:pointer;
-    background:var(--vscode-badge-background);color:var(--vscode-badge-foreground);
-    border:var(--k-border-w) solid transparent;
+    padding:var(--k-space-0);cursor:pointer;background:transparent;border:none;
   }
+  .mobile-project-btn svg{width:var(--k-space-8);height:var(--k-space-8);display:block}
   .mobile-project-btn:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
 
   /* Top bar: one live save-state region (handoff §5.5). */
@@ -706,8 +713,13 @@
     display:flex;align-items:center;gap:var(--k-space-3);padding:var(--k-space-3) var(--k-space-4);
     border-radius:var(--k-radius-sm);cursor:pointer;font-size:var(--k-text-base);
   }
-  .drop-item:hover{background:var(--k-surface-hover)}
-  .drop-item.active,.drop-item[aria-selected="true"]{background:var(--vscode-list-activeSelectionBackground,var(--k-surface-hover))}
+  .drop-item:hover{background:var(--k-surface-hover);color:var(--k-text)}
+  .drop-item:hover .ident-meta{color:var(--k-text);opacity:.7}
+  .drop-item.active,.drop-item[aria-selected="true"]{background:var(--vscode-list-activeSelectionBackground,var(--k-surface-hover));
+    color:var(--vscode-list-activeSelectionForeground,var(--k-text))}
+  /* Dim/faint descendant text must not re-grey itself on the paired selection
+     fill — the meta line inherits the selection foreground instead. */
+  .drop-item.active .ident-meta{color:inherit;opacity:.8}
   .drop-item.is-disabled{opacity:.5;cursor:not-allowed}
   .drop-item .mono{font-family:var(--k-font-mono)}
   .drop-divider{height:var(--k-border-w);background:var(--vscode-panel-border);margin:var(--k-space-2) var(--k-space-0)}
@@ -734,12 +746,19 @@
     padding:var(--k-space-4) var(--k-space-4) var(--k-space-2);font-size:var(--k-text-2xs);
     text-transform:uppercase;letter-spacing:.07em;color:var(--k-text-faint);
   }
+  /* The provider identity badge inside the group header: the label's
+     uppercase transform must not bleed into the badge's canonical name. */
+  .model-group-label .agentbadge{text-transform:none;letter-spacing:0}
+  .model-group-label .agenticon{width:calc(var(--k-space-8) * 1.5);height:calc(var(--k-space-8) * 1.5)}
   .model-item{
     display:grid;grid-template-columns:minmax(0,1fr) auto;gap:var(--k-space-4);align-items:center;
     padding:var(--k-space-3) var(--k-space-4);cursor:pointer;
   }
   .model-item:hover{background:var(--k-surface-hover)}
-  .model-item.active,.model-item[aria-selected="true"]{background:var(--vscode-list-activeSelectionBackground,var(--k-surface-hover))}
+  .model-item:hover .model-sub,.model-item:hover .model-tag{color:var(--k-text);opacity:.8}
+  .model-item.active,.model-item[aria-selected="true"]{background:var(--vscode-list-activeSelectionBackground,var(--k-surface-hover));
+    color:var(--vscode-list-activeSelectionForeground,var(--k-text))}
+  .model-item.active .model-sub,.model-item.active .model-tag{color:inherit;opacity:.8}
   .model-item .model-name{font-weight:500;font-size:var(--k-text-base)}
   .model-item .model-sub{font-size:var(--k-text-xs);color:var(--k-text-dim);margin-top:var(--k-space-1)}
   .model-item .model-tag{font-size:var(--k-text-2xs);color:var(--k-text-faint);flex:0 0 auto}
@@ -775,6 +794,18 @@
   .roster-row .cell-path{font-family:var(--k-font-mono)}
   .roster-row .cell-actions{display:flex;align-items:center;justify-content:flex-end;gap:var(--k-space-3)}
   .repo-cols{grid-template-columns:minmax(calc(var(--k-space-8) * 6),1fr) minmax(calc(var(--k-space-8) * 9),1.6fr) minmax(calc(var(--k-space-8) * 4),.7fr) auto}
+  /* Repository cards inside the roster (renderServices): the container owns the
+     ONE border and radius — a card must not draw its own rounded box beside the
+     head's square block, which is the mismatch that made the list read as two
+     different components. Rows are separated by hairlines; the open card's
+     body is inset by the same rule. `.card` stays fully rounded everywhere
+     else (Ticketing, Quality), so these overrides are scoped to `.roster`. */
+  .roster .card{border:none;border-radius:0;margin-bottom:var(--k-space-0);background:transparent}
+  .roster .card + .card{border-top:var(--k-border-w) solid var(--vscode-panel-border)}
+  .roster .card.open .card-body{border-top:var(--k-border-w) solid var(--vscode-panel-border)}
+  .roster .card.is-selected .card-head{background:var(--vscode-list-inactiveSelectionBackground,var(--k-surface-hover))}
+  .roster .card .card-head{gap:var(--k-space-4);padding:var(--k-space-4) var(--k-space-5)}
+  .roster .card .card-head .card-toggle{border-radius:var(--k-radius-sm)}
   .repo-detail{
     display:none;border-top:var(--k-border-w) solid var(--vscode-panel-border);
     padding:var(--k-space-6);background:var(--vscode-editorWidget-background,transparent);
@@ -805,6 +836,11 @@
   .matrix-cols{grid-template-columns:minmax(calc(var(--k-space-8) * 6),1fr) minmax(calc(var(--k-space-8) * 7),1.1fr) minmax(calc(var(--k-space-8) * 6),.9fr) minmax(calc(var(--k-space-8) * 9),1.4fr) auto}
   .matrix-row .proc-cell-wide{grid-column:1 / -1}
   .matrix-row .proc-row-wrap{min-width:0}
+  /* The core cell's identity dropdown (UI-R10c): the trigger and every menu
+     option render the provider's icon + name (never a bare text option); the
+     empty choice is the plain "Default provider" text, claiming no identity. */
+  .proc-core-trigger .sel-label{display:flex;align-items:center;gap:var(--k-space-2)}
+  .proc-core-trigger .sel-label,.proc-core-menu .agentbadge{white-space:nowrap}
 
   /* Context / overflow menu (handoff §6.7). */
   .ctx-menu{
@@ -839,30 +875,47 @@
   .panel.has-open-menu{position:relative;z-index:calc(var(--k-z-scrim) - 1)}
   .drawer .ctx-menu{position:fixed}
 
-  /* Quality policy panels (handoff §16). */
-  .quality-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:var(--k-space-7);align-items:start}
+  /* Quality policy panels (handoff §16): UAT policy, Review policy and
+     Findings side by side, each a bordered box whose rows are hairline
+     separated. Every row carries `border-top` — the head above the first
+     row is the separator there, and `:first-of-type` is NEVER used (the
+     panel's section-head div precedes every row, so it would never match). */
+  .quality-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--k-space-7);align-items:start}
   .quality-panel{
     border:var(--k-border-w) solid var(--vscode-panel-border);border-radius:var(--k-radius-lg);
     padding:var(--k-space-6);background:var(--vscode-editorWidget-background,transparent);
   }
-  .quality-panel .q-title{font-size:var(--k-text-base);font-weight:600;margin:var(--k-space-0)}
-  .quality-panel .q-desc{margin-top:var(--k-space-2);font-size:var(--k-text-md);color:var(--k-text-dim);line-height:var(--k-leading-normal)}
-  .q-row{display:grid;grid-template-columns:minmax(calc(var(--k-space-8) * 8),1fr) minmax(calc(var(--k-space-8) * 9),1fr);gap:var(--k-space-6);align-items:center;padding:var(--k-space-4) var(--k-space-0);border-top:var(--k-border-w) solid var(--vscode-panel-border)}
-  .q-row:first-of-type{border-top:none}
+  /* The q-row columns had oversized fixed minimums — together wider than a
+     3-column quality panel at mid-width viewports, so the findings
+     Select/input overflowed the panel and stuck out past the page's right
+     edge (a horizontal scrollbar on the Quality tab only). The minimums now
+     only guard against a crushed copy column; the columns still share the
+     panel as fr tracks above the breakpoint. */
+  .q-row{display:grid;grid-template-columns:minmax(calc(var(--k-space-8) * 5),1fr) minmax(calc(var(--k-space-8) * 5),1fr);gap:var(--k-space-6);align-items:center;padding:var(--k-space-4) var(--k-space-0);border-top:var(--k-border-w) solid var(--vscode-panel-border)}
   .q-row label{margin:var(--k-space-0)}
-  .gate-section + .gate-section{margin-top:var(--k-space-8)}
-  .override-block{margin-top:var(--k-space-5);padding-top:var(--k-space-5);border-top:var(--k-border-w) solid var(--vscode-panel-border)}
-  .override-note{font-size:var(--k-text-xs);color:var(--k-text-dim);margin:var(--k-space-4) var(--k-space-0)}
-  .override-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:var(--k-space-3);align-items:center;padding:var(--k-space-4);border:var(--k-border-w) solid var(--vscode-panel-border);border-radius:var(--k-radius-md);margin-bottom:var(--k-space-4)}
+  /* Empty gate lists: a muted line instead of a bare "+ Add gate" button, so
+     the fallback that an empty list actually means is stated next to it. */
+  .gate-empty{font-size:var(--k-text-sm);color:var(--k-text-dim);margin:var(--k-space-4) var(--k-space-0);max-width:calc(var(--k-space-8) * 28)}
   .override-editor-note{margin-bottom:var(--k-space-5);padding:var(--k-space-4);border:var(--k-border-w) solid var(--vscode-panel-border);border-radius:var(--k-radius-md);background:var(--k-surface-hover);color:var(--k-text-dim);font-size:var(--k-text-sm);line-height:var(--k-leading-normal)}
 
-  /* Ticketing lifecycle rows (handoff §15.3). */
-  .lifecycle-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:var(--k-space-4);align-items:center;padding:var(--k-space-5) var(--k-space-0);border-top:var(--k-border-w) solid var(--vscode-panel-border)}
-  .lifecycle-row:first-of-type{border-top:none}
+  /* Ticketing lifecycle rows (handoff §15.3): a toggle with its indented
+     status row beneath it, stacked rows separated by a hairline. The rows sit
+     under a section-head, so separation is the `+` sibling rule — never
+     `:first-of-type`, which a preceding head div would break. */
+  .lifecycle-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:var(--k-space-4);align-items:center;padding:var(--k-space-5) var(--k-space-0)}
+  .lifecycle-row + .lifecycle-row{border-top:var(--k-border-w) solid var(--vscode-panel-border)}
   .lifecycle-copy{min-width:0}
-  .lifecycle-status{grid-column:1 / -1;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:var(--k-space-3);align-items:center;padding-left:var(--k-space-5);border-left:calc(var(--k-border-w) * 2) solid var(--vscode-panel-border)}
+  .lifecycle-status{grid-column:1 / -1;display:grid;grid-template-columns:max-content minmax(0,1fr);gap:var(--k-space-3);align-items:center;padding-left:var(--k-space-5);border-left:calc(var(--k-border-w) * 2) solid var(--vscode-panel-border)}
   .lifecycle-status.off{display:none}
   .lifecycle-status .full{grid-column:1 / -1}
+  .lifecycle-status label{margin:var(--k-space-0)}
+  .lifecycle-status .row{min-width:0}
+  /* The ClickUp fields are a separate form-grid from the Provider row so the
+     group hides as one unit — but a stacked pair of grids has zero inter-grid
+     gap, which put the Team ID label/input directly against the provider
+     trigger. A group boundary reads at the section-block rhythm, not the
+     intra-grid row gap. */
+  #clickupFields{margin-top:var(--k-space-7)}
 
   /* Drawer/modals: same primitives as before, plus a shared focus ring. */
   .drawer .drawer-body.form label{display:block;margin:var(--k-space-5) var(--k-space-0) var(--k-space-2)}
@@ -893,7 +946,24 @@
 <div class="app">
 <nav class="sidebar" aria-label="Settings sections">
   <div class="brand">
-    <span class="brandmark">K</span>
+    <!-- Approved #35 mark, inline like the Getting Started splash (CSP forbids
+         external assets). Gradient ids are page-scoped so no webview clashes. -->
+    <svg class="brandmark" aria-hidden="true" viewBox="0 0 215 215">
+      <defs>
+        <linearGradient id="setLeft" x1="0.22" y1="0.12" x2="0.78" y2="0.92">
+          <stop offset="0%" stop-color="#7D48E9"/><stop offset="43%" stop-color="#7D3CEE"/><stop offset="100%" stop-color="#4A71D7"/>
+        </linearGradient>
+        <linearGradient id="setRight" x1="0.18" y1="0.10" x2="0.82" y2="0.90">
+          <stop offset="0%" stop-color="#00B7C9"/><stop offset="55%" stop-color="#00AFC0"/><stop offset="100%" stop-color="#00B1C4"/>
+        </linearGradient>
+        <linearGradient id="setCore" x1="0.20" y1="0.18" x2="0.82" y2="0.86">
+          <stop offset="0%" stop-color="#6647DE"/><stop offset="48%" stop-color="#5660D9"/><stop offset="100%" stop-color="#3586D6"/>
+        </linearGradient>
+      </defs>
+      <path d="M 96 20 L 25 67 L 25 156 L 98 203 L 98 180 L 44 145 L 44 78 L 97 44 Z" fill="url(#setLeft)"/>
+      <path d="M 151 42 L 138 58 L 170 78 L 170 144 L 138 165 L 150 180 L 188 156 L 188 67 Z" fill="url(#setRight)"/>
+      <circle cx="106.5" cy="111.5" r="26.5" fill="url(#setCore)"/>
+    </svg>
     <span class="brand-name">Karst settings</span>
   </div>
 
@@ -923,7 +993,22 @@
     <div class="sidebar-project-label">Project</div>
     <button type="button" class="project-identity" id="projectInfoBtn"
             aria-expanded="false" aria-haspopup="dialog">
-      <span class="project-icon" id="footProjectIcon">K</span>
+      <svg class="project-icon" id="footProjectIcon" aria-hidden="true" viewBox="0 0 215 215">
+        <defs>
+          <linearGradient id="footLeft" x1="0.22" y1="0.12" x2="0.78" y2="0.92">
+            <stop offset="0%" stop-color="#7D48E9"/><stop offset="43%" stop-color="#7D3CEE"/><stop offset="100%" stop-color="#4A71D7"/>
+          </linearGradient>
+          <linearGradient id="footRight" x1="0.18" y1="0.10" x2="0.82" y2="0.90">
+            <stop offset="0%" stop-color="#00B7C9"/><stop offset="55%" stop-color="#00AFC0"/><stop offset="100%" stop-color="#00B1C4"/>
+          </linearGradient>
+          <linearGradient id="footCore" x1="0.20" y1="0.18" x2="0.82" y2="0.86">
+            <stop offset="0%" stop-color="#6647DE"/><stop offset="48%" stop-color="#5660D9"/><stop offset="100%" stop-color="#3586D6"/>
+          </linearGradient>
+        </defs>
+        <path d="M 96 20 L 25 67 L 25 156 L 98 203 L 98 180 L 44 145 L 44 78 L 97 44 Z" fill="url(#footLeft)"/>
+        <path d="M 151 42 L 138 58 L 170 78 L 170 144 L 138 165 L 150 180 L 188 156 L 188 67 Z" fill="url(#footRight)"/>
+        <circle cx="106.5" cy="111.5" r="26.5" fill="url(#footCore)"/>
+      </svg>
       <span class="project-copy">
         <span class="project-id" id="footProjectId">(unresolved)</span>
         <span class="project-version" id="footProjectVersion"></span>
@@ -935,7 +1020,10 @@
       <span class="manifest-name" id="footManifestName">karst.yml</span>
       <span class="manifest-open">Open &#8599;</span>
     </button>
-    <div class="project-info-pop hidden" id="projectInfoPop" role="dialog" aria-label="Project information">
+    <!-- The pop is closed by its own `display:none` rule — it must NOT carry the
+         `hidden` class: `.hidden` is `display:none !important` and would defeat
+         `.open{display:block}` here and in every other pop that follows. -->
+    <div class="project-info-pop" id="projectInfoPop" role="dialog" aria-label="Project information">
       <div class="project-info-title">Project information</div>
       <div class="project-info-row"><span>Project ID</span><strong class="mono" id="popProjectId"></strong></div>
       <div class="project-info-row"><span>ID source</span><strong id="popIdSource"></strong></div>
@@ -952,7 +1040,24 @@
          from a bare "Settings" heading. -->
     <h1>Settings <span class="topbar-section" id="topbarSection"></span></h1>
     <button class="mobile-project-btn" id="mobileProjectBtn" type="button"
-            aria-label="Project information" title="Project information">K</button>
+            aria-label="Project information" title="Project information">
+      <svg aria-hidden="true" viewBox="0 0 215 215">
+        <defs>
+          <linearGradient id="mobLeft" x1="0.22" y1="0.12" x2="0.78" y2="0.92">
+            <stop offset="0%" stop-color="#7D48E9"/><stop offset="43%" stop-color="#7D3CEE"/><stop offset="100%" stop-color="#4A71D7"/>
+          </linearGradient>
+          <linearGradient id="mobRight" x1="0.18" y1="0.10" x2="0.82" y2="0.90">
+            <stop offset="0%" stop-color="#00B7C9"/><stop offset="55%" stop-color="#00AFC0"/><stop offset="100%" stop-color="#00B1C4"/>
+          </linearGradient>
+          <linearGradient id="mobCore" x1="0.20" y1="0.18" x2="0.82" y2="0.86">
+            <stop offset="0%" stop-color="#6647DE"/><stop offset="48%" stop-color="#5660D9"/><stop offset="100%" stop-color="#3586D6"/>
+          </linearGradient>
+        </defs>
+        <path d="M 96 20 L 25 67 L 25 156 L 98 203 L 98 180 L 44 145 L 44 78 L 97 44 Z" fill="url(#mobLeft)"/>
+        <path d="M 151 42 L 138 58 L 170 78 L 170 144 L 138 165 L 150 180 L 188 156 L 188 67 Z" fill="url(#mobRight)"/>
+        <circle cx="106.5" cy="111.5" r="26.5" fill="url(#mobCore)"/>
+      </svg>
+    </button>
     <span class="spacer"></span>
     <span class="save-state" id="saveState" role="status" aria-live="polite">All changes saved</span>
     <span class="saved-msg hidden" id="savedMsg" role="status" aria-live="polite">Saved</span>
@@ -1108,33 +1213,23 @@
               is a no-op. Debug entries are redacted like every other log line.
             </div>
           </div>
+
+          <div class="field-label" id="doneTerminalsLabel">Close done terminals with ticket</div>
+          <div class="field-control">
+            <div class="toggle">
+              <input type="checkbox" id="f-closeDoneTerminalsWithTicket" aria-describedby="doneTerminalsHint" />
+              <label for="f-closeDoneTerminalsWithTicket">Enabled</label>
+            </div>
+            <div class="field-help" id="doneTerminalsHint">
+              When a ticket is archived, also close its agent terminals whose process
+              has already exited (VS Code marks them <code>Done</code>), instead of
+              leaving the dead tabs in the terminal panel. A still-running session is
+              never touched. Off by default.
+            </div>
+          </div>
         </div>
       </div>
 
-      <div class="section-block">
-        <div class="section-head">
-          <div>
-            <div class="section-title">This project</div>
-            <div class="section-desc">Read-only facts about the manifest this Settings page edits. Also shown compactly in the sidebar.</div>
-          </div>
-        </div>
-        <div class="field-group" id="projectFacts">
-          <dl class="facts">
-            <dt>Manifest</dt>
-            <dd><code id="factManifestPath"></code>
-              <button type="button" class="k-btn k-btn--secondary k-btn--sm fixed"
-                      id="openManifestBtn"
-                      aria-label="Open karst.yml in an editor"
-                      title="Open karst.yml in an editor">Open karst.yml</button></dd>
-            <dt>Project id</dt>
-            <dd><code id="factProjectSlug"></code>
-              <span class="chip" id="factSlugDerived" hidden
-                    title="No id: in karst.yml — derived from the workspace path, changes if it moves">derived</span></dd>
-            <dt>Version</dt>
-            <dd><code id="factVersion"></code></dd>
-          </dl>
-        </div>
-      </div>
     </div>
 
     <!-- Git -->
@@ -1329,126 +1424,140 @@
         <div class="page-desc">The board Karst reads tickets from and writes statuses to. Manual keeps every lifecycle step a local no-op.</div>
       </div>
 
-      <!-- Custom dropdown (not a native <select>): the branded [ICON] Brand
-           badge can't render inside a native <option>, so the trigger and
-           each option render the shared provider-identity badge instead. -->
-      <div class="card open unclipped">
-        <div class="card-body" style="display:block;padding-top:14px">
-          <div class="form-grid">
-            <div class="field-label" id="ticketProviderLabel">Provider</div>
-            <div class="field-control">
-              <div class="provselect" id="provSelectWrap">
-                <button type="button" class="provselect-trigger" id="providerTrigger"
-                  aria-label="Ticketing provider"
-                        aria-haspopup="listbox" aria-expanded="false" aria-labelledby="ticketProviderLabel"></button>
-                <div class="provselect-menu hidden" id="providerMenu" role="listbox" aria-labelledby="ticketProviderLabel"></div>
-              </div>
+      <div class="section-block">
+        <div class="section-head">
+          <div>
+            <div class="section-title">Board connection</div>
+            <div class="section-desc">Provider, and the ClickUp workspace, list and API token Karst connects with.</div>
+          </div>
+        </div>
+
+        <!-- Custom dropdown (not a native <select>): the branded [ICON] Brand
+             badge can't render inside a native <option>, so the trigger and
+             each option render the shared provider-identity badge instead.
+             The absolutely-positioned menu overflows its row on purpose —
+             a section-block never clips it (no overflow:hidden), unlike the
+             accordion card that used to host it. -->
+        <div class="form-grid">
+          <div class="field-label" id="ticketProviderLabel">Provider</div>
+          <div class="field-control">
+            <div class="provselect" id="provSelectWrap">
+              <button type="button" class="provselect-trigger" id="providerTrigger"
+                aria-label="Ticketing provider"
+                      aria-haspopup="listbox" aria-expanded="false" aria-labelledby="ticketProviderLabel"></button>
+              <div class="provselect-menu hidden" id="providerMenu" role="listbox" aria-labelledby="ticketProviderLabel"></div>
             </div>
           </div>
+        </div>
 
-          <!-- ClickUp-specific fields; hidden unless provider === clickup -->
-          <div id="clickupFields">
-            <div class="form-grid">
-              <div class="field-label" id="teamIdLabel">Team ID</div>
-              <div class="field-control">
-                <input type="text" id="f-ticketTeamId" placeholder="e.g. 9001" aria-labelledby="teamIdLabel" />
-                <div class="field-help">(ClickUp workspace, for custom task ids)</div>
-              </div>
+        <!-- ClickUp-specific fields; hidden unless provider === clickup. A
+             separate form-grid so the group hides as one unit; its rows share
+             the label column with the provider row above. -->
+        <div id="clickupFields" class="form-grid">
+          <div class="field-label" id="teamIdLabel">Team ID</div>
+          <div class="field-control">
+            <input type="text" id="f-ticketTeamId" placeholder="e.g. 9001" aria-labelledby="teamIdLabel" />
+            <div class="field-help">The ClickUp workspace that owns the list. Needed when task ids are custom.</div>
+          </div>
 
-              <div class="field-label" id="listLabel">List</div>
-              <div class="field-control">
-                <div class="row" style="align-items:center">
-                  <select id="f-ticketList" aria-labelledby="listLabel"></select>
-                  <button class="reload-btn fixed" id="refreshListsBtn" type="button"
-                          title="Reload lists from ClickUp" aria-label="Reload lists from ClickUp">
-                    <svg class="reload-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M13.4 8a5.4 5.4 0 1 1-1.5-3.8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M13.7 2.6v3h-3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                  </button>
-                </div>
-                <div id="listHint" class="field-hint" role="status" aria-live="polite"></div>
-                <div class="field-help">(the ClickUp list to advance tickets in)</div>
-              </div>
-
-              <div class="field-label" id="tokenLabel">API token</div>
-              <div class="field-control">
-                <div class="row" style="align-items:center">
-                  <span id="tokenStatus" class="status-pill off"><span class="dot"></span><span class="txt">No token</span></span>
-                  <button class="k-btn k-btn--secondary fixed" id="setTokenBtn">Set token</button>
-                  <button class="k-btn k-btn--secondary fixed" id="clearTokenBtn">Clear token</button>
-                </div>
-                <div class="field-help">(stored in your OS keychain — never in karst.yml)</div>
-              </div>
+          <div class="field-label" id="listLabel">List</div>
+          <div class="field-control">
+            <div class="row">
+              <select id="f-ticketList" aria-labelledby="listLabel"></select>
+              <button class="reload-btn fixed" id="refreshListsBtn" type="button"
+                      title="Reload lists from ClickUp" aria-label="Reload lists from ClickUp">
+                <svg class="k-icon reload-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8.1 8.1 0 0 0 -15.5 -2m-.5 -4v4h4"/><path d="M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4"/></svg>
+              </button>
             </div>
+            <div id="listHint" class="field-hint" role="status" aria-live="polite"></div>
+            <div class="field-help">The ClickUp list to advance tickets in.</div>
+          </div>
+
+          <div class="field-label" id="tokenLabel">API token</div>
+          <div class="field-control">
+            <div class="row">
+              <span id="tokenStatus" class="status-pill off"><span class="dot"></span><span class="txt">No token</span></span>
+              <button class="k-btn k-btn--secondary fixed" id="setTokenBtn">Set token</button>
+              <button class="k-btn k-btn--secondary fixed" id="clearTokenBtn">Clear token</button>
+            </div>
+            <div class="field-help">Stored in your OS keychain — never in karst.yml.</div>
           </div>
         </div>
       </div>
 
       <!-- Ticket-search dropdown in the Add/Edit ticket page. ClickUp-only:
            `manual` has no board to search. On by default. -->
-      <div class="card open hidden" id="searchCard">
-        <div class="card-body" style="display:block;padding-top:14px">
-          <div class="form-grid">
-            <div class="field-label">Search</div>
-            <div class="field-control">
-              <div class="toggle">
-                <input type="checkbox" id="f-searchEnabled" />
-                <label for="f-searchEnabled">Search tickets in the Add/Edit ticket page</label>
-              </div>
-              <div class="field-help">The Key field becomes a dropdown that searches this list's tickets — filtered by status (default: the list's TODO) and sorted by priority.</div>
+      <div class="section-block hidden" id="searchCard">
+        <div class="section-head">
+          <div>
+            <div class="section-title">Ticket search</div>
+            <div class="section-desc">How the Add/Edit ticket page finds existing tickets instead of typing a key.</div>
+          </div>
+        </div>
+        <div class="lifecycle-row">
+          <div class="lifecycle-copy">
+            <div class="toggle">
+              <input type="checkbox" id="f-searchEnabled" />
+              <label for="f-searchEnabled">Search tickets in the Add/Edit ticket page</label>
             </div>
+            <div class="field-help">The Key field becomes a dropdown that searches this list's tickets — filtered by status (default: the list's TODO) and sorted by priority.</div>
           </div>
         </div>
       </div>
 
-      <!-- On-start advance. Hidden unless provider === clickup: manual has no
-           statuses to list, and advancing a local no-op record means nothing. -->
-      <div class="card open hidden" id="startAdvanceCard">
-        <div class="card-body" style="display:block;padding-top:14px">
-          <div class="lifecycle-row">
-            <div class="lifecycle-copy">
-              <div class="toggle">
-                <input type="checkbox" id="f-advanceOnStart" />
-                <label for="f-advanceOnStart">Set the ticket status when work starts</label>
-              </div>
+      <!-- On-start and after-ship advances. ClickUp-only: manual has no
+           statuses to list, and advancing a local no-op record means nothing.
+           Each row is a lifecycle unit: the toggle, then its indented status
+           row (handoff §15.3) once the toggle is on. -->
+      <div class="section-block hidden" id="advanceCards">
+        <div class="section-head">
+          <div>
+            <div class="section-title">Status updates</div>
+            <div class="section-desc">Board statuses Karst sets when work starts and when it ships.</div>
+          </div>
+        </div>
+
+        <div class="lifecycle-row">
+          <div class="lifecycle-copy">
+            <div class="toggle">
+              <input type="checkbox" id="f-advanceOnStart" />
+              <label for="f-advanceOnStart">Set the ticket status when work starts</label>
             </div>
           </div>
-
-          <div id="startAdvanceStatusRow" class="hidden" style="margin-top:10px">
+          <div class="lifecycle-status hidden" id="startAdvanceStatusRow">
             <label for="f-startStatus">Status at start of work</label>
-            <div class="row" style="align-items:center">
+            <div class="row">
               <select id="f-startStatus"></select>
               <button class="reload-btn fixed" id="refreshStartStatusesBtn" type="button"
                       title="Reload statuses for this list" aria-label="Reload statuses for this list">
-                <svg class="reload-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M13.4 8a5.4 5.4 0 1 1-1.5-3.8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M13.7 2.6v3h-3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <svg class="k-icon reload-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8.1 8.1 0 0 0 -15.5 -2m-.5 -4v4h4"/><path d="M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4"/></svg>
               </button>
             </div>
-            <div id="startStatusHint" class="field-hint" role="status" aria-live="polite"></div>
-          </div>
-        </div>
-      </div>
-
-      <!-- After-ship advance. Hidden unless provider === clickup: manual has no
-           statuses to list, and advancing a local no-op record means nothing. -->
-      <div class="card open hidden" id="advanceCard">
-        <div class="card-body" style="display:block;padding-top:14px">
-          <div class="lifecycle-row">
-            <div class="lifecycle-copy">
-              <div class="toggle">
-                <input type="checkbox" id="f-advanceOnShip" />
-                <label for="f-advanceOnShip">Set the ticket status when karst ships</label>
-              </div>
+            <div class="full">
+              <div id="startStatusHint" class="field-hint" role="status" aria-live="polite"></div>
             </div>
           </div>
+        </div>
 
-          <div id="advanceStatusRow" class="hidden" style="margin-top:10px">
+        <div class="lifecycle-row">
+          <div class="lifecycle-copy">
+            <div class="toggle">
+              <input type="checkbox" id="f-advanceOnShip" />
+              <label for="f-advanceOnShip">Set the ticket status when karst ships</label>
+            </div>
+          </div>
+          <div class="lifecycle-status hidden" id="advanceStatusRow">
             <label for="f-shipStatus">Status after ship</label>
-            <div class="row" style="align-items:center">
+            <div class="row">
               <select id="f-shipStatus"></select>
               <button class="reload-btn fixed" id="refreshStatusesBtn" type="button"
                       title="Reload statuses for this list" aria-label="Reload statuses for this list">
-                <svg class="reload-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M13.4 8a5.4 5.4 0 1 1-1.5-3.8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M13.7 2.6v3h-3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <svg class="k-icon reload-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8.1 8.1 0 0 0 -15.5 -2m-.5 -4v4h4"/><path d="M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4"/></svg>
               </button>
             </div>
-            <div id="statusHint" class="field-hint" role="status" aria-live="polite"></div>
+            <div class="full">
+              <div id="statusHint" class="field-hint" role="status" aria-live="polite"></div>
+            </div>
           </div>
         </div>
       </div>
@@ -1461,8 +1570,9 @@
          (uat.repositories/review.repositories): an override REPLACES the
          block's global list for that repository rather than adding to it
          (declaredGatesFor/declaredReviewGatesFor), so a newly-added override
-         is seeded with a COPY of the global list (addRepoOverride) and
-         #overrideHint says so explicitly. See sections.ts doc comment for the
+         is seeded with a COPY of the global list (addRepoOverride) and the
+         replace-not-add fact is repeated in the overrides section's inline
+         note, at the point of use. See sections.ts doc comment for the
          spread-not-rebuild warning: no handler here may rebuild draft.uat or
          draft.review wholesale, or it would erase fields this tab does not
          render (uat.secrets, uat.env, ...) — writeGates() spreads the
@@ -1485,7 +1595,7 @@
             <div class="q-row">
               <div>
                 <label for="f-uatMaxFix">Max fix attempts</label>
-                <div class="field-help">Fix→UAT→fix retries before the ticket parks. UAT only.</div>
+                <div class="field-help">Retries a failed UAT gets before the ticket parks.</div>
               </div>
               <input type="number" min="1" id="f-uatMaxFix" />
             </div>
@@ -1501,6 +1611,7 @@
             <div class="q-row">
               <div>
                 <label for="f-reviewMaxFix">Max fix attempts</label>
+                <div class="field-help">Retries a failed review gets before the ticket parks.</div>
               </div>
               <input type="number" min="1" id="f-reviewMaxFix" />
             </div>
@@ -1512,7 +1623,6 @@
                 </div>
                 <div class="field-help">A pass needs evidence beyond the agent's own claim.</div>
               </div>
-              <div></div>
             </div>
             <div class="q-row">
               <div>
@@ -1520,10 +1630,18 @@
                   <input type="checkbox" id="f-reviewOpenChanges" />
                   <label for="f-reviewOpenChanges">Open changes panel after review</label>
                 </div>
-                <div class="field-help">Off by default. When on, a finished review reveals the
-                  ticket's Changes panel for every affected repository.</div>
+                <div class="field-help">A finished review reveals the ticket's Changes panel for
+                  every affected repository.</div>
               </div>
-              <div></div>
+            </div>
+          </div>
+
+          <div class="quality-panel">
+            <div class="section-head">
+              <div>
+                <div class="section-title">Findings</div>
+                <div class="section-desc">The agent findings pass that feeds the review, and when it blocks.</div>
+              </div>
             </div>
             <div class="q-row">
               <div>
@@ -1531,8 +1649,9 @@
                   <input type="checkbox" id="f-findingsEnabled" />
                   <label for="f-findingsEnabled">Agent findings</label>
                 </div>
+                <div class="field-help">A headless agent pass that scans the change and reports findings
+                  into the review.</div>
               </div>
-              <div></div>
             </div>
             <div class="q-row">
               <div>
@@ -1545,6 +1664,7 @@
             <div class="q-row">
               <div>
                 <label for="f-findingsMax">Max findings</label>
+                <div class="field-help">The most findings the pass keeps per repository.</div>
               </div>
               <input type="number" min="1" id="f-findingsMax" />
             </div>
@@ -1559,9 +1679,7 @@
             <div class="section-desc">One editor for UAT and Review gates. A repository override <strong>replaces</strong> the global list for that repository.</div>
           </div>
         </div>
-        <div class="card open">
-          <div class="card-body" id="qualityGates"></div>
-        </div>
+        <div id="qualityGates"></div>
       </div>
     </div>
   </div>
@@ -1706,11 +1824,11 @@
 <!-- Shared context/overflow menu (handoff §6.7): rebuilt per open with real
      buttons carrying the same data attributes the page's delegated handlers
      own, so a menu action takes the exact same path as an inline one. -->
-<div class="ctx-menu hidden" id="ctxMenu" role="menu"></div>
+<div class="ctx-menu" id="ctxMenu" role="menu"></div>
 
 <!-- Template helper popup (handoff §7.3/§8): contextual variables + transforms
      at the point of use, filled by openTemplateHelper(). -->
-<div class="helper-pop hidden" id="helperPop" role="dialog" aria-label="Template variables and transforms"></div>
+<div class="helper-pop" id="helperPop" role="dialog" aria-label="Template variables and transforms"></div>
 
 <script>
   /*KARST_DS_JS*/
@@ -2075,7 +2193,7 @@
     general: [
       'host', 'portRange', 'baselineBranch', 'worktreePathDisplay',
       'ticketLabelTemplate', 'terminalNameTemplate', 'agentProvider', 'defaultModel',
-      'archiveDoneAfterDays', 'debug',
+      'archiveDoneAfterDays', 'debug', 'closeDoneTerminalsWithTicket',
     ],
     git: ['conventions'],
     services: ['repositories'],
@@ -2131,7 +2249,7 @@
     if (/\bapproach(es)?\b/.test(msg)) return 'approaches';
     if (/^agents?\b/.test(msg)) return 'agents';
     if (/^processes\b/.test(msg)) return 'agents';
-    if (/\b(host|portRange|baselineBranch|worktreePathDisplay|ticketLabelTemplate|terminalNameTemplate|agentProvider|defaultModel|archiveDoneAfterDays|debug)\b/.test(msg)) {
+    if (/\b(host|portRange|baselineBranch|worktreePathDisplay|ticketLabelTemplate|terminalNameTemplate|agentProvider|defaultModel|archiveDoneAfterDays|debug|closeDoneTerminalsWithTicket)\b/.test(msg)) {
       return 'general';
     }
     return null;
@@ -2460,6 +2578,8 @@
     el('f-archiveDoneAfterDays').value = draft.archiveDoneAfterDays ?? '';
     // Absent (undefined) renders unchecked — debug logging is off by default.
     el('f-debug').checked = draft.debug === true;
+    // Absent (undefined) renders unchecked — closing done terminals is off by default.
+    el('f-closeDoneTerminalsWithTicket').checked = draft.closeDoneTerminalsWithTicket === true;
     el('f-labelTemplate').value = draft.ticketLabelTemplate || '';
     el('f-terminalTemplate').value = draft.terminalNameTemplate || '';
     const conventions = draft.conventions || {};
@@ -2471,18 +2591,6 @@
     renderDefaultTypeOptions(conventions.defaultType || '');
     renderLabelPreview();
     renderConventions();
-    renderProjectFacts();
-  }
-
-  // The two read-only host facts (§ state.ts): this window's manifest file and
-  // its resolved project identity. `projectSlug.derived: true` means the
-  // manifest declares no `id:` and the host fell back to a path-derived slug —
-  // the case worth flagging, because it changes if the repo moves.
-  function renderProjectFacts() {
-    el('factManifestPath').textContent = manifestPath || '(unresolved)';
-    el('factProjectSlug').textContent = (projectSlug && projectSlug.value) || '(unresolved)';
-    el('factSlugDerived').hidden = !(projectSlug && projectSlug.derived);
-    el('factVersion').textContent = extensionVersion || '(unknown)';
   }
 
   // Live preview of the label template against a representative sample ticket,
@@ -2669,6 +2777,14 @@
     else delete draft.debug;
     markDirty();
   });
+  el('f-closeDoneTerminalsWithTicket').addEventListener('change', () => {
+    // Unchecking deletes the field entirely — absent IS the off default, so a
+    // cleared manifest never carries a stale `false` the loader would have to
+    // read past.
+    if (el('f-closeDoneTerminalsWithTicket').checked) draft.closeDoneTerminalsWithTicket = true;
+    else delete draft.closeDoneTerminalsWithTicket;
+    markDirty();
+  });
   el('f-labelTemplate').addEventListener('input', () => {
     // Blank normalizes to undefined so a cleared field falls back to the default
     // (mirrors validateTicketLabelTemplate in schema.ts).
@@ -2744,12 +2860,18 @@
       return;
     }
     // Roster head: Repository | Path | Baseline | Runtime | Actions (§10). The
-    // head is part of the table so the columns align with every row.
+    // head is part of the table so the columns align with every row — and the
+    // whole list sits in ONE `.roster` container (handoff §6.5) so the head's
+    // square block and the cards' rounded corners share the same outer border
+    // and radius instead of clashing (the head used to float bare above the
+    // cards, square against their rounded edges).
     el('serviceCards').innerHTML =
-      `<div class="roster-head repo-cols">`
+      `<div class="roster">`
+      + `<div class="roster-head repo-cols">`
       + `<div>Repository</div><div>Path</div><div>Baseline</div><div>Runtime</div><div></div>`
       + `</div>`
-      + names.map((name) => renderServiceCard(name)).join('');
+      + names.map((name) => renderServiceCard(name)).join('')
+      + `</div>`;
     // The rebuild threw away the previous inline error nodes; re-apply against
     // the fresh DOM so a touched field keeps its message across a re-render.
     applyFieldValidationUI(lastValidationError);
@@ -3114,9 +3236,7 @@
       return;
     }
     if (t.dataset.removeGate) {
-      const block = t.dataset.removeGate, idx = Number(t.dataset.gateIdx);
-      writeGates(block, gatesOf(block).filter((_, i) => i !== idx));
-      markDirty(); renderQuality();
+      removeGate(t.dataset.removeGate, Number(t.dataset.gateIdx));
       return;
     }
     if (t.dataset.addOverride) {
@@ -3392,6 +3512,17 @@
     // set-approach-enabled / set-agent-enabled are handled in the `click`
     // listener above: both switches are real <button role="switch"> controls
     // now (UI-R24, R26), and a button never fires `change`.
+  });
+
+  // The core cell's dropdown commits on PICK, like the native select it
+  // replaced committed on `change`: close the menu, write the provider, and
+  // re-render so the model cell's options follow the new core.
+  document.addEventListener('click', (e) => {
+    const opt = e.target.closest && e.target.closest('[data-proc-core-opt]');
+    if (!opt) return;
+    const shell = opt.closest('.select-shell');
+    if (shell) closeMenuShell(shell, true);
+    updateProcessAssignment(opt.dataset.procCoreOpt, { provider: opt.dataset.value });
   });
 
   document.addEventListener('input', (e) => {
@@ -4335,10 +4466,33 @@
     if (agent && !(v.profileOptions || []).includes(agent)) {
       profileOpts += `<option value="${esc(agent)}" selected>${esc(agent)}</option>`;
     }
-    const coreOpts = '<option value="">Default provider</option>'
-      + KNOWN_AGENT_PROVIDERS.map((p) =>
-        `<option value="${p}"${p === provider ? ' selected' : ''}>${esc(AGENT_PROVIDER_LABELS[p] || p)}</option>`,
-      ).join('');
+    // The core cell is the identity component, NOT a text-only native select
+    // (UI-R10c): the trigger shows the current core's icon + name and the menu
+    // renders the same identity per choice. It rides the shared select-shell
+    // machinery (open/close, keyboard nav, outside click), so a pick commits
+    // through the same updateProcessAssignment path the native select used.
+    // The empty choice is the plain "Default provider" — a core is not chosen
+    // yet, so no identity is claimed. Built INSIDE the row renderer so the
+    // standalone test sandbox stays self-contained.
+    function coreDropdownHtml(key, provider, describedBy, invalidAttr) {
+      const badge = provider ? agentBadgeHtml(provider) : 'Default provider';
+      const opts = ['<div class="drop-item' + (provider === '' ? ' active' : '') + '" role="option"'
+        + ' data-value="" data-proc-core-opt="' + key + '" aria-selected="' + (provider === '' ? 'true' : 'false') + '">'
+        + 'Default provider</div>'];
+      for (const p of KNOWN_AGENT_PROVIDERS) {
+        opts.push('<div class="drop-item' + (p === provider ? ' active' : '') + '" role="option"'
+          + ' data-value="' + esc(p) + '" data-proc-core-opt="' + key + '"'
+          + ' aria-selected="' + (p === provider ? 'true' : 'false') + '">'
+          + agentBadgeHtml(p) + '</div>');
+      }
+      return '<div class="select-shell proc-core-shell">'
+        + `<button type="button" class="select-trigger proc-core-trigger" id="proc-${key}-provider"`
+        + ` aria-haspopup="listbox" aria-expanded="false"${describedBy}${invalidAttr}>`
+        + `<span class="sel-label">${badge}</span><span class="chev" aria-hidden="true"></span></button>`
+        + `<div class="dropdown proc-core-menu" role="listbox" aria-labelledby="proc-${key}-provider">${opts.join('')}</div>`
+        + '</div>';
+    }
+    const coreCell = coreDropdownHtml(key, provider, describedBy, invalid('provider'));
     // An unknown saved core gets NO model picker claim: the model select is
     // disabled with an empty option list and the state message explains why
     // (handoff §7 — "Unknown provider: inline error and no model picker claim").
@@ -4362,9 +4516,9 @@
       + `<select id="proc-${key}-profile" class="proc-select" data-proc-field="agent" data-proc-key="${key}"${describedBy}${invalid('agent')}>${profileOpts}</select>`
       + (v.profileHint ? `<span class="proc-hint">${esc(v.profileHint)}</span>` : '')
       + `</div>`
-      + `<div class="proc-cell">`
+      + `<div class="proc-cell proc-core-cell">`
       + `<label for="proc-${key}-provider">Agent core</label>`
-      + `<select id="proc-${key}-provider" class="proc-select" data-proc-field="provider" data-proc-key="${key}"${describedBy}${invalid('provider')}>${coreOpts}</select>`
+      + coreCell
       + (v.coreHint ? `<span class="proc-hint">${esc(v.coreHint)}</span>` : '')
       + `</div>`
       + `<div class="proc-cell">`
@@ -4544,7 +4698,7 @@
   function renderAdvance() {
     const cfg = ticketingCfg();
     const isClickup = cfg.provider === 'clickup';
-    el('advanceCard').classList.toggle('hidden', !isClickup);
+    el('advanceCards').classList.toggle('hidden', !isClickup);
     if (!isClickup) return;
 
     const on = el('f-advanceOnShip').checked;
@@ -4606,7 +4760,7 @@
   function renderStartAdvance() {
     const cfg = ticketingCfg();
     const isClickup = cfg.provider === 'clickup';
-    el('startAdvanceCard').classList.toggle('hidden', !isClickup);
+    el('advanceCards').classList.toggle('hidden', !isClickup);
     if (!isClickup) return;
 
     const on = el('f-advanceOnStart').checked;
@@ -4862,7 +5016,17 @@
       + ` aria-label="Remove gate ${i + 1}" title="Remove gate ${i + 1}">&times;</button>`
       + `</div>`
     )).join('');
+    // An empty list is not "nothing happens": the host falls back to probing the
+    // repo's package.json scripts, and an empty OVERRIDE is indistinguishable
+    // from no override at all (declaredGatesFor requires a non-empty list to
+    // take effect), so the empty state states which fallback applies.
+    const empty = (gates || []).length === 0
+      ? `<div class="gate-empty">${overrideRepo !== null
+          ? 'No gates here — this repository runs the global list.'
+          : 'No gates declared — karst probes the repository\'s package.json scripts instead.'}</div>`
+      : '';
     return rows
+      + empty
       + `<button type="button" class="k-btn k-btn--secondary k-btn--sm"`
       + ` data-add-gate="${block}">+ Add gate</button>`;
   }
@@ -4957,9 +5121,11 @@
   // declaredReviewGatesFor), which is the opposite of how "add a gate for this
   // repo" reads. Seeding the new override with the global list makes the
   // replacement visible: the user edits a copy rather than starting from an
-  // empty list that silently means "this repo runs nothing". `clone` (below)
-  // is a deep copy — a shared reference would make editing the override
-  // mutate the global list out from under it.
+  // empty list that would silently fall back to the global one (an empty
+  // override is indistinguishable from no override — declaredGatesFor only
+  // takes a non-empty list). `clone` (below) is a deep copy — a shared
+  // reference would make editing the override mutate the global list out from
+  // under it.
   function addRepoOverride(block, repo) {
     const blockDraft = draft[block] || {};
     const seed = clone(blockDraft.gates || []);
@@ -4973,9 +5139,33 @@
     renderQuality();
   }
 
+  // A gate removal routes through writeGates except for one edge: an
+  // override's LAST gate removes the override itself. An empty `gates: []`
+  // override is indistinguishable from no override (declaredGatesFor only
+  // takes a NON-empty list), so the empty card the editor would otherwise
+  // keep is a phantom — the repo silently runs the global list again. The
+  // user sees the card disappear and the repo return to the override picker,
+  // which is exactly what happened. Same shape as removeRepoOverride's
+  // never-write-an-empty-override rule.
+  function removeGate(block, idx) {
+    const remaining = gatesOf(block).filter((_, i) => i !== idx);
+    const { base, repo } = parseGateBlock(block);
+    if (repo !== null && remaining.length === 0) {
+      removeRepoOverride(base, repo);
+      return;
+    }
+    writeGates(block, remaining);
+    markDirty();
+    renderQuality();
+  }
+
   // Deletes the repo's key entirely — never sets an empty override — so the
-  // repository falls back to the global list (an empty `gates: []` override
-  // would instead mean "this repo runs nothing", per declaredGatesFor).
+  // repository falls back to the global list. Writing an empty `gates: []`
+  // override instead would leave a row that LOOKS like "this repo runs no
+  // gates" while the host treats it as no override at all (declaredGatesFor
+  // only takes a non-empty list): the editor mirrors that by removing the
+  // override when its last gate is removed (removeGate) rather than ever
+  // producing the phantom state.
   function removeRepoOverride(block, repo) {
     const blockDraft = draft[block] || {};
     const repositories = { ...(blockDraft.repositories || {}) };
@@ -4995,12 +5185,15 @@
   // silently create a dead override.
   function renderOverridesSection(block, repositories) {
     const declared = Object.keys(draft.repositories || {});
+    // No repositories declared: there is nothing an override could name, so the
+    // whole section is dead weight — not even the group header renders.
+    if (declared.length === 0) return '';
     const overridden = declared.filter((r) => repositories[r]);
     const available = declared.filter((r) => !repositories[r]);
     const cards = overridden.map((repo) => (
       `<div class="override-card">`
       + `<div class="row override-card-head"><span class="override-repo">${esc(repo)}</span>`
-      + `<button type="button" class="k-iconbtn k-iconbtn--danger" data-remove-override="${block}"`
+      + `<button type="button" class="k-iconbtn k-iconbtn--danger fixed" data-remove-override="${block}"`
       + ` data-override-repo="${esc(repo)}" aria-label="Remove ${esc(repo)} override"`
       + ` title="Remove ${esc(repo)} override">&times;</button>`
       + `</div>`
@@ -5012,10 +5205,16 @@
         + `<select aria-label="Repository to override" data-override-picker="${block}">`
         + available.map((r) => `<option value="${esc(r)}">${esc(r)}</option>`).join('')
         + `</select>`
-        + `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-add-override="${block}">+ Add repository override</button>`
+        + `<button type="button" class="k-btn k-btn--secondary k-btn--sm fixed" data-add-override="${block}">+ Add repository override</button>`
         + `</div>`
       : '';
-    return `<div class="approach-group-header">Repository overrides</div>` + cards + picker;
+    // The replace-vs-add fact lives beside the cards it explains (the section
+    // head states it once; the note repeats it at the point of use).
+    const note = overridden.length
+      ? `<div class="override-editor-note">An override <strong>replaces</strong> the global list`
+        + ` for that repository — it does not add to it.</div>`
+      : '';
+    return `<div class="approach-group-header">Repository overrides</div>` + note + cards + picker;
   }
 
   function renderQuality() {
@@ -5044,9 +5243,7 @@
       + renderOverridesSection('uat', uatRepositories)
       + '<div class="approach-group-header">Review gates</div>'
       + renderGateList('review', reviewGates)
-      + renderOverridesSection('review', reviewRepositories)
-      + '<div class="field-hint" id="overrideHint">A repository override <strong>replaces</strong>'
-      + ' the gates above for that repository — it does not add to them.</div>';
+      + renderOverridesSection('review', reviewRepositories);
     syncGateRepoSelects('uat', uatGates);
     syncGateRepoSelects('review', reviewGates);
     Object.keys(uatRepositories).forEach((repo) => {
@@ -5091,8 +5288,6 @@
   });
   el('setTokenBtn').addEventListener('click', () => post({ type: 'set-token' }));
   el('clearTokenBtn').addEventListener('click', () => post({ type: 'clear-token' }));
-
-  el('openManifestBtn').addEventListener('click', () => postAction(el('openManifestBtn'), 'open-manifest'));
 
   // The host's answer to set-token/clear-token. The token is keychain state, not
   // manifest state, so this NEVER touches `draft` — a full `state` push would
@@ -5320,16 +5515,22 @@
 
   // ═══ Searchable grouped model picker (handoff §6.3) ═══════════════════════
   // Host truth is `modelCatalog` + `modelCompatibility` (never a literal list).
-  // The picker groups by provider label (presentation-level only), keeps a
-  // saved model that left the catalog visible as "unavailable", and never
-  // substitutes silently. The hidden native <select> is the VALUE carrier —
-  // the same change listener the native control had still owns the draft write.
-  const MODEL_GROUP_LABELS = { claude: 'Claude Code', codex: 'Codex', antigravity: 'Antigravity', opencode: 'OpenCode' };
+  // The picker groups by provider identity — the INJECTED label map, never a
+  // second literal — keeps a saved model that left the catalog visible as
+  // "unavailable", and never substitutes silently. The hidden native <select>
+  // is the VALUE carrier — the same change listener the native control had
+  // still owns the draft write.
 
   function modelLabelFor(provider, id) {
     if (!id) return '';
     const found = (modelCatalog[provider] || []).find((m) => m.id === id);
     return found ? found.label : id;
+  }
+
+  // The group header row renders the provider's identity badge (icon + name),
+  // so the model list reads as belonging to the core it is filtered to.
+  function modelGroupLabelHtml(provider) {
+    return '<div class="model-group-label">' + agentBadgeHtml(provider) + '</div>';
   }
 
   function renderModelPickerPopup() {
@@ -5338,7 +5539,7 @@
     const provider = draft.agentProvider || 'claude';
     const saved = typeof draft.defaultModel === 'string' ? draft.defaultModel : '';
     const list = modelCatalog[provider] || [];
-    const groupLabel = MODEL_GROUP_LABELS[provider] || provider;
+    const groupLabel = AGENT_PROVIDER_LABELS[provider] || provider;
     // The "No default" row is always first: it is how the picker expresses an
     // explicit none (handoff §7.2), and picking it clears the saved model.
     let html = '<div class="model-item' + (saved === '' ? ' active' : '') + '" role="option"'
@@ -5350,7 +5551,7 @@
     if (list.length === 0) {
       html += '<div class="model-empty">No models listed for ' + esc(groupLabel) + '.</div>';
     } else {
-      html += '<div class="model-group-label">' + esc(groupLabel) + '</div>';
+      html += modelGroupLabelHtml(provider);
       for (const m of list) {
         html += '<div class="model-item' + (m.id === saved ? ' active' : '') + '" role="option"'
           + ' data-model-id="' + esc(m.id) + '" aria-selected="' + (m.id === saved ? 'true' : 'false') + '">'
@@ -5383,8 +5584,11 @@
     if (!trigger) return;
     const provider = draft.agentProvider || 'claude';
     const saved = typeof draft.defaultModel === 'string' ? draft.defaultModel : '';
-    const label = saved ? modelLabelFor(provider, saved) : 'No default (agent picks)';
-    trigger.innerHTML = '<span class="sel-label">' + esc(label) + '</span><span class="chev" aria-hidden="true"></span>';
+    const label = saved ? modelLabelFor(provider, saved) : '';
+    // The trigger shows the full identity pattern — icon + provider · model —
+    // so the default is never a bare model name without its core.
+    trigger.innerHTML = '<span class="sel-label">' + agentIdentityHtml(provider, label, true) + '</span>'
+      + '<span class="chev" aria-hidden="true"></span>';
     trigger.classList.toggle('is-unavailable', Boolean(saved) && !(modelCatalog[provider] || []).some((m) => m.id === saved));
   }
 
@@ -5405,7 +5609,7 @@
       let html = '<div class="model-item' + (saved === '' ? ' active' : '') + '" role="option"'
         + ' data-model-id="" aria-selected="' + (saved === '' ? 'true' : 'false') + '">'
         + '<div class="model-name">No default (agent picks)</div></div>';
-      html += '<div class="model-group-label">' + esc(MODEL_GROUP_LABELS[provider] || provider) + '</div>';
+      html += modelGroupLabelHtml(provider);
       for (const m of list) {
         const hay = (m.label + ' ' + m.id).toLowerCase();
         if (hay.includes(q)) {
@@ -6096,7 +6300,6 @@
     .q-row{grid-template-columns:minmax(0,1fr)}
     .matrix-row .proc-cell{grid-column:1 / -1}
     .gate-row{flex-direction:column;align-items:stretch}
-    .override-row{grid-template-columns:minmax(0,1fr)}
   }
   @media (max-width: 22.5em){
     .topbar .saved-msg,.topbar .unsaved-hint{display:none}

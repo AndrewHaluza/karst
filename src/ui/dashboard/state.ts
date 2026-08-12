@@ -11,14 +11,16 @@ import { isKarstCheckout } from '../../commands/launchWorktree.js';
 import type { TicketProvider, AgentProvider } from '../../manifest/types.js';
 import { providerTicketUrl } from '../../integrations/ticketUrl.js';
 import { buildStepper, displayStatus, type StepperCell } from '../../model/stepper.js';
-import { buildNowLine, type NowLine } from '../../model/nowLine.js';
-import { sessionAction } from '../../agent/sessionAction.js';
+import { buildShipSlot, type ShipSlot } from '../../model/shipSlot.js';
 import { resolveProvider } from '../../agent/registry.js';
+import { IMPLEMENTED_PROVIDERS } from '../../agent/provider.js';
+import { AGENT_PROVIDER_LABELS } from '../../model/agentIdentity.js';
 import { buildStageRail, type StageRail } from '../../model/stageRail.js';
 import { listGateRuns } from '../../store/gateRuns.js';
 import { listFindings } from '../../store/reviewFindings.js';
 import { listPhaseMarks } from '../../store/phaseMarks.js';
 import { listMergeChecksByTicket } from '../../store/mergeChecks.js';
+import type { GateStage } from '../../store/ticketGates.js';
 import { mergeGateState } from '../../workflow/mergeGate.js';
 import { buildMergeCheckPanelRows, type MergeCheckPanelRow } from '../../model/mergeCheckPanel.js';
 import { graphInsideProcess, type GraphInsideInput } from '../../model/inside/graph.js';
@@ -26,8 +28,6 @@ import { nowIso } from '../../model/time.js';
 import type { StageKey } from '../../model/types.js';
 import {
   FIX_ATTEMPT_CAP,
-  countFixAttempts,
-  lastFailedGate,
   type GateStageKey,
 } from '../../workflow/fixAttempts.js';
 import { needsUser } from '../../model/ticketGlyph.js';
@@ -37,7 +37,7 @@ import { repoDisplayPath, type PathContext } from '../worktreePath.js';
 import { buildPrPanelRows, type PrPanelRow } from '../../model/prPanelView.js';
 import type { ModelCatalog } from '../../agent/modelCatalog.js';
 import { bundledModelCatalog } from '../../agent/modelCatalog.js';
-import { buildAgentSessionView, type AgentSessionView } from '../../agent/sessionSwitch.js';
+import { buildAgentSessionView, agentSwitchCoreChoices, agentSwitchModelChoices, type AgentSessionView } from '../../agent/sessionSwitch.js';
 import { listProcessRuns } from '../../store/processRuns.js';
 import { listRecoveryRounds } from '../../store/recoveryRounds.js';
 import { listUatFindings } from '../../store/uatFindings.js';
@@ -76,7 +76,7 @@ import { doneReceipt, type DoneReceiptView } from '../../model/inside/done.js';
 import type { SessionConfiguredInput, SessionTokensInput } from '../../model/inside/agent.js';
 import { buildArtifactsFrom, type ArtifactSummary } from '../../model/artifacts.js';
 
-export type { PathContext, StepperCell, NowLine, StageRail, PrPanelRow, MergeCheckPanelRow };
+export type { PathContext, StepperCell, StageRail, PrPanelRow, MergeCheckPanelRow };
 
 export interface DashboardAgentContext {
   defaultModel?: string | null;
@@ -95,8 +95,8 @@ export interface DashboardState {
   agentSession: AgentSessionView;
   stepper: StepperCell[];
   /**
-   * The stepper cell the ticket currently sits on — the one the "Now" line,
-   * the fault card, and the blocked banner (§ blocked state visible) all
+   * The stepper cell the ticket currently sits on — the one the "Now" line
+   * and the blocked banner (§ blocked state visible) both
    * describe. `currentStage.blocked` is set only while a gate stage (uat,
    * review) sits parked (`parkGateStage`/`clearStageBlock`,
    * `store/stageBlocks.ts`) — the webview reads it directly to show the
@@ -105,11 +105,19 @@ export interface DashboardState {
    */
   currentStage: StepperCell | null;
   /**
-   * One plain sentence naming what is happening and the next action the user
-   * controls. Built host-side because the webview is standalone HTML and cannot
-   * import the copy module — shipping it keeps a single, tested source.
+   * The header's ship workflow-action slot (model/shipSlot.ts) — the Now line's
+   * ship branch, lifted to the header. The states are mutually exclusive.
    */
-  now: NowLine;
+  ship: ShipSlot;
+  /**
+   * The agent-switch choices the header popover renders: every implemented core
+   * (canonical label) and each core's model choices, keyed by provider id. The
+   * webview cannot import TS, so the catalog arrives here, host-resolved.
+   */
+  agentSwitch: {
+    cores: { id: AgentProvider; label: string }[];
+    models: Record<string, { model: string | null; label: string }[]>;
+  };
   servers: ServerView[];
   /** False when nothing in scope declares a service — nothing can ever start. */
   hasRunnableRepos: boolean;
@@ -288,17 +296,23 @@ export function buildDashboardState(
   const stepper = buildStepper(ticket.stages);
   const currentStage = stepper.find((c) => c.stageKey === ticket.stageCurrent) ?? null;
 
+  const catalog = agentContext.modelCatalog ?? bundledModelCatalog();
+  const switchModels: Record<string, { model: string | null; label: string }[]> = {};
+  for (const id of IMPLEMENTED_PROVIDERS) {
+    switchModels[id] = agentSwitchModelChoices({
+      provider: id,
+      ticketModel: ticket.model,
+      defaultModel: agentContext.defaultModel ?? null,
+      catalog,
+    }).map(({ model, label }) => ({ model, label }));
+  }
+
   const worktrees = listWorktreesByTicket(store, ticketId).map((w) => ({
     ...w,
     repoDisplay: repoDisplayPath(w.repo, pathContext),
     launchable: isCheckout(w.path),
   }));
 
-  // The fix loop's displayed count is whichever gate actually sent the ticket
-  // there — the rail/now-line only ever narrate `fix`, so with no failed gate
-  // there is nothing to report yet (0, same as before any gate has failed).
-  const failedGate = lastFailedGate(ticket.stages);
-  const fixAttempts = failedGate ? countFixAttempts(ticket.stages, failedGate) : 0;
   // Rendered through the SAME path-display preference as the worktree rows: the
   // ship stage names the same directories, and two formats for one path is the
   // bug this replaces.
@@ -363,6 +377,11 @@ export function buildDashboardState(
 
   const cellOf = (key: StageKey): StepperCell =>
     stepper.find((c) => c.stageKey === key) ?? { stageKey: key, status: 'pending' };
+
+  // The console (terminal detailed mode) is offered for a gate stage that
+  // actually has a recorded artifact log — never for a stage that has not
+  // run, and never for non-gate stages (UI-R31: availability is host-derived).
+  const consoleFor = (key: GateStage): boolean => !!cellOf(key).artifactPath;
 
   // The stage the six-stage presentation shows as CURRENT: `fix` projects onto
   // the stage its active recovery round is causally attached to.
@@ -435,6 +454,7 @@ export function buildDashboardState(
         repoNameFor,
       }),
       now,
+      consoleFor('uat'),
     ),
     review: stageView(
       'review',
@@ -455,6 +475,7 @@ export function buildDashboardState(
         repoNameFor,
       }),
       now,
+      consoleFor('review'),
     ),
     ship: stageView(
       'ship',
@@ -509,18 +530,8 @@ export function buildDashboardState(
     agentSession,
     stepper,
     currentStage,
-    now: buildNowLine(currentStage, {
-      fixAttempts,
-      agentWaiting: (ticket.agentState ?? 'none') === 'waiting',
-      sessionAction: sessionAction(
-        ticket,
-        resolvedProvider,
-      ),
-      // Read from the same two tables the PR panel and the merge rows below
-      // render, so the sentence at the top of the panel and the buttons under it
-      // can never disagree about which repo is holding the ticket up.
-      mergeGate,
-    }),
+    ship: buildShipSlot(currentStage, 'repos' in mergeGate ? mergeGate : undefined),
+    agentSwitch: { cores: agentSwitchCoreChoices(), models: switchModels },
     servers: listServersByTicket(store, ticketId),
     // Drives whether "Start servers" is offered at all. A ticket scoping only
     // non-runnable repositories can never have a server, so presenting a live
@@ -568,6 +579,7 @@ export function buildDashboardState(
       ship: shipEvidence,
       shipRunCount: countShipRuns(store, ticketId),
       prs,
+      attach,
     }),
   };
 }
@@ -598,6 +610,7 @@ function stageView(
   cell: StepperCell,
   processes: readonly InsideProcessView[],
   now: string,
+  console?: boolean,
 ): InsideStageView {
   const live = liveFor(processes);
   return {
@@ -614,6 +627,10 @@ function stageView(
     ...(live ? { live } : {}),
     processes: [...processes],
     blurb: STAGE_BLURBS[key as StageKey],
+    // The key is carried for a gate stage whether or not it holds a log (an
+    // explicit false beats an absent answer), and stays absent for a stage
+    // that never got a console answer at all.
+    ...(console !== undefined ? { console } : {}),
   };
 }
 

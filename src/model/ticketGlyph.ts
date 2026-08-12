@@ -45,6 +45,14 @@ function waitingWhileShipRuns(t: TicketWithStages): boolean {
  * right.
  */
 export function needsUser(t: TicketWithStages): boolean {
+  // A RUNNING agent is actively working the ticket — the session the
+  // "Resolve conflicts" button opens is exactly this — so the ticket is in
+  // progress, not parked on the user, whatever the stage's block says. The
+  // awaiting-merge block itself stays stored (`settleShipGate` needs it to
+  // tell "waiting to land" from "parked pending the first confirm click");
+  // only its needs-you READING yields while the agent works, and returns
+  // once the session ends (SessionEnd → idle).
+  if (((t.agentState ?? 'none') as AgentState) === 'running') return false;
   // `waiting` normally IS the needs-you signal — except while a ship is
   // RUNNING, where the ticket is moving, not parked (see `waitingWhileShipRuns`).
   if (waitingWhileShipRuns(t)) return false;

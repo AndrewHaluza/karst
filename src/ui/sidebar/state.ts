@@ -23,6 +23,9 @@ import {
   type FacetSelection,
 } from './facets.js';
 import { repoDisplayPath, type PathContext } from '../worktreePath.js';
+import { buildPeek, type TicketPeek } from './peek.js';
+import { listGateRuns } from '../../store/gateRuns.js';
+import { mergeGateState } from '../../workflow/mergeGate.js';
 
 /** A worktree row enriched with its display path (honors `worktreePathDisplay`). */
 export interface SidebarWorktree extends WorktreeView {
@@ -73,6 +76,12 @@ export interface TicketRow extends TicketNode {
    * a ticket fact, which is why it rides the row rather than the node.
    */
   isActive: boolean;
+  /**
+   * The expanded row's mini-dashboard summary (peek.ts) — the strongest
+   * current-state line, one small context line, and the suggested next step,
+   * computed host-side so the standalone webview never phrases domain state.
+   */
+  peek: TicketPeek;
 }
 
 /**
@@ -184,21 +193,44 @@ export function buildSidebarState(
     if (t.key !== null) parentKeys.set(t.id, t.key);
   }
 
-  const enrich = (tickets: readonly TicketWithStages[]): TicketRow[] =>
-    buildTicketNodes(tickets, opts.labelTemplate, opts.defaultProvider, parentKeys).map(
-      (node) => ({
+  const enrich = (tickets: readonly TicketWithStages[]): TicketRow[] => {
+    const nodes = buildTicketNodes(tickets, opts.labelTemplate, opts.defaultProvider, parentKeys);
+    return tickets.map((t, i) => {
+      const node = nodes[i]!;
+      const worktrees = listWorktreesByTicket(store, node.ticketId).map((w) => ({
+        ...w,
+        repoDisplay: repoDisplayPath(w.repo, pathContext),
+      }));
+      const servers = listServersByTicket(store, node.ticketId);
+      const prs = listPrsByTicket(store, node.ticketId).map(
+        (p): SidebarPr => ({ repo: p.repo, number: p.number, url: p.url, status: p.status }),
+      );
+      return {
         ...node,
         isActive: node.ticketId === (opts.activeTicketId ?? null),
-        servers: listServersByTicket(store, node.ticketId),
-        worktrees: listWorktreesByTicket(store, node.ticketId).map((w) => ({
-          ...w,
-          repoDisplay: repoDisplayPath(w.repo, pathContext),
-        })),
-        prs: listPrsByTicket(store, node.ticketId).map(
-          (p): SidebarPr => ({ repo: p.repo, number: p.number, url: p.url, status: p.status }),
-        ),
-      }),
-    );
+        servers,
+        worktrees,
+        prs,
+        // The mini-dashboard summary. The extra evidence reads are SCOPED to the
+        // stage that needs them — the gate ledger only for a gate stage, the
+        // merge gate only for ship — so the board never pays per-ticket for
+        // state it will not show.
+        peek: buildPeek({
+          stageCurrent: t.stageCurrent,
+          current: t.stages.find((s) => s.stageKey === t.stageCurrent) ?? null,
+          agentState: t.agentState,
+          sessionAction: node.sessionAction,
+          worktrees,
+          servers,
+          gateRuns:
+            t.stageCurrent === 'uat' || t.stageCurrent === 'review'
+              ? listGateRuns(store, t.id)
+              : [],
+          mergeGate: t.stageCurrent === 'ship' ? mergeGateState(store, t.id) : null,
+        }),
+      };
+    });
+  };
 
   const counts = facetCounts(active, archived.length);
   const base = { facets, filter: query, counts };

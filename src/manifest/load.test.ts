@@ -1721,6 +1721,57 @@ describe('debug', () => {
   });
 });
 
+describe('closeDoneTerminalsWithTicket', () => {
+  it('is undefined when omitted (done terminals stay on ticket close)', () => {
+    const { path, cleanup } = fixture(VALID);
+    try {
+      expect(loadManifest(path).closeDoneTerminalsWithTicket).toBeUndefined();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('parses closeDoneTerminalsWithTicket: true', () => {
+    const { path, cleanup } = fixture(`${VALID}\ncloseDoneTerminalsWithTicket: true\n`);
+    try {
+      expect(loadManifest(path).closeDoneTerminalsWithTicket).toBe(true);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('parses closeDoneTerminalsWithTicket: false', () => {
+    const { path, cleanup } = fixture(`${VALID}\ncloseDoneTerminalsWithTicket: false\n`);
+    try {
+      expect(loadManifest(path).closeDoneTerminalsWithTicket).toBe(false);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('throws on a non-boolean — a string "true" is a YAML typo', () => {
+    const { path, cleanup } = fixture(`${VALID}\ncloseDoneTerminalsWithTicket: "true"\n`);
+    try {
+      expect(() => loadManifest(path)).toThrow(
+        /closeDoneTerminalsWithTicket must be a boolean/,
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('throws on a non-boolean number', () => {
+    const { path, cleanup } = fixture(`${VALID}\ncloseDoneTerminalsWithTicket: 1\n`);
+    try {
+      expect(() => loadManifest(path)).toThrow(
+        /closeDoneTerminalsWithTicket must be a boolean/,
+      );
+    } finally {
+      cleanup();
+    }
+  });
+});
+
 describe('ticketLabelTemplate', () => {
   it('is undefined when omitted', () => {
     const { path, cleanup } = fixture(VALID);
@@ -2147,11 +2198,12 @@ processes:
     }
   });
 
-  it('rejects an undeclared agent reference, naming the agent', () => {
-    const yaml = WITH_PROCESSES.replace('agent: uat-author', 'agent: no-such-agent');
+  it('accepts an agent reference not declared in the agents block (a pool/file agent)', () => {
+    const yaml = WITH_PROCESSES.replace('agent: uat-author', 'agent: description-improver');
     const { path, cleanup } = fixture(yaml);
     try {
-      expect(() => loadManifest(path)).toThrow(/no-such-agent/);
+      const m = loadManifest(path);
+      expect(m.processes?.uatTester?.agent).toBe('description-improver');
     } finally {
       cleanup();
     }

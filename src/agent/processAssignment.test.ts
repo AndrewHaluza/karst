@@ -72,6 +72,32 @@ describe('resolveProcessAssignment', () => {
     });
   });
 
+  // The assigned profile reference (`processes.<key>.agent`) rides the snapshot
+  // VERBATIM so the host's execution boundary can resolve its body as the
+  // process's instructions. A display-name override (`agentName`) must NOT
+  // erase it — the profile still drives the prompt even under a custom label.
+  it('carries the assigned profile reference alongside the agentName display label', () => {
+    const manifest: Manifest = {
+      ...BASE,
+      processes: {
+        ticketAnalysis: {
+          agent: 'description-improver',
+          agentName: 'My Analyzer',
+          provider: 'opencode',
+          model: 'gemini-2.5-pro',
+        },
+      },
+    };
+    expect(resolveProcessAssignment(manifest, 'ticket-analysis')).toEqual({
+      agentName: 'My Analyzer',
+      agent: 'description-improver',
+      provider: 'opencode',
+      model: 'gemini-2.5-pro',
+    });
+    // No profile set → no `agent` key at all (the snapshot stays lean).
+    expect(resolveProcessAssignment(BASE, 'ticket-analysis')).not.toHaveProperty('agent');
+  });
+
   it('applies an explicit assignment over the defaults (plan example)', () => {
     const manifest: Manifest = { ...BASE, processes: { uatTester: { model: 'sol' } } };
     expect(resolveProcessAssignment(manifest, 'uat-tester')).toMatchObject({

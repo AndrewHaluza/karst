@@ -5,11 +5,15 @@ import {
   modelsForProvider,
   resolveModelForProvider,
 } from './models.js';
-import { IMPLEMENTED_PROVIDERS } from './provider.js';
+import { IMPLEMENTED_PROVIDERS, isKnownProvider } from './provider.js';
+import { AGENT_PROVIDER_LABELS } from '../model/agentIdentity.js';
 
-export const PROVIDER_LABELS: Readonly<Record<AgentProvider, string>> = {
-  claude: 'Claude Code', codex: 'Codex', antigravity: 'Antigravity', opencode: 'OpenCode',
-};
+/**
+ * The provider display names — ONE source of truth: the agent identity
+ * registry (`model/agentIdentity.ts`). This module used to carry its own
+ * copy, so a rename there silently drifted the switch flow (869eh44n5).
+ */
+export const PROVIDER_LABELS: Readonly<Record<AgentProvider, string>> = AGENT_PROVIDER_LABELS;
 
 export interface AgentSessionView {
   provider: AgentProvider;
@@ -30,7 +34,7 @@ export interface AgentSessionViewInput {
   fixExecutionActive?: boolean;
 }
 
-export interface AgentSwitchProviderChoice { provider: AgentProvider; label: string }
+export interface AgentSwitchCoreChoice { id: AgentProvider; label: string }
 
 export interface AgentSwitchModelChoicesInput {
   provider: AgentProvider;
@@ -64,15 +68,7 @@ export interface AgentSwitchSnapshot {
 export interface AgentSwitchFlowDeps {
   read(): AgentSwitchSnapshot;
   isSessionOpen(): boolean;
-  pickProvider(
-    choices: readonly AgentSwitchProviderChoice[],
-    current: AgentSessionView,
-  ): Promise<AgentProvider | undefined>;
   isProviderReady(provider: AgentProvider): Promise<boolean>;
-  pickModel(
-    provider: AgentProvider,
-    choices: readonly AgentSwitchModelChoice[],
-  ): Promise<AgentSwitchModelChoice | undefined>;
   confirm(input: { from: AgentSessionView; to: AgentSessionView }): Promise<boolean>;
   persist(selection: AgentSwitchSelection): void;
   dispose(): void;
@@ -101,10 +97,9 @@ export function canSwitchAgentSession(
     && !(stageCurrent === 'fix' && fixExecutionActive);
 }
 
-export function agentSwitchProviderChoices(current: AgentProvider): AgentSwitchProviderChoice[] {
-  return IMPLEMENTED_PROVIDERS
-    .filter((provider) => provider !== current)
-    .map((provider) => ({ provider, label: PROVIDER_LABELS[provider] }));
+/** Every implemented core with its canonical label — the header select lists ALL of them. */
+export function agentSwitchCoreChoices(): AgentSwitchCoreChoice[] {
+  return IMPLEMENTED_PROVIDERS.map((id) => ({ id, label: PROVIDER_LABELS[id] }));
 }
 
 export function agentSwitchModelChoices(input: AgentSwitchModelChoicesInput): AgentSwitchModelChoice[] {
@@ -148,54 +143,46 @@ export function buildAgentSessionView(input: AgentSessionViewInput): AgentSessio
   };
 }
 
-export async function runAgentSwitchFlow(
+export async function applyAgentSwitchSelection(
   deps: AgentSwitchFlowDeps,
   catalog: ModelCatalog,
+  selection: { provider: AgentProvider; model: string | null },
 ): Promise<AgentSwitchOutcome> {
+  if (!isKnownProvider(selection.provider)) return { kind: 'stale' };
   const initial = deps.read();
-  if (!canSwitchAgentSession(
-    initial.stageCurrent,
-    deps.isSessionOpen(),
-    initial.fixExecutionActive,
-  )) return { kind: 'stale' };
-
-  const from = buildAgentSessionView({ ...initial, catalog, sessionOpen: true });
-  const provider = await deps.pickProvider(agentSwitchProviderChoices(initial.provider), from);
-  if (provider === undefined) return { kind: 'cancelled', at: 'provider' };
-  if (provider === initial.provider) return { kind: 'stale' };
-  if (!await deps.isProviderReady(provider)) return { kind: 'unavailable', provider };
-
+  if (!canSwitchAgentSession(initial.stageCurrent, deps.isSessionOpen(), initial.fixExecutionActive)) {
+    return { kind: 'stale' };
+  }
+  // The staged model must be one of the choices the webview was built from —
+  // the host re-validates its own offer, never the webview's word.
   const modelChoices = agentSwitchModelChoices({
-    provider,
+    provider: selection.provider,
     ticketModel: initial.ticketModel,
     defaultModel: initial.defaultModel,
     catalog,
   });
-  const modelChoice = await deps.pickModel(provider, modelChoices);
-  if (modelChoice === undefined) return { kind: 'cancelled', at: 'model' };
-  if (!modelChoices.some((choice) => choice.model === modelChoice.model)) return { kind: 'stale' };
+  if (!modelChoices.some((choice) => choice.model === selection.model)) return { kind: 'stale' };
 
+  const from = buildAgentSessionView({ ...initial, catalog, sessionOpen: true });
   const to = buildAgentSessionView({
-    provider,
-    ticketModel: modelChoice.model,
+    provider: selection.provider,
+    ticketModel: selection.model,
     defaultModel: initial.defaultModel,
     catalog,
     stageCurrent: initial.stageCurrent,
     sessionOpen: false,
   });
-  if (!await deps.confirm({ from, to })) return { kind: 'cancelled', at: 'confirm' };
+  // Only a changed core needs a readiness probe; the current one is already running.
+  if (selection.provider !== initial.provider && !(await deps.isProviderReady(selection.provider))) {
+    return { kind: 'unavailable', provider: selection.provider };
+  }
+  if (!(await deps.confirm({ from, to }))) return { kind: 'cancelled', at: 'confirm' };
 
   const current = deps.read();
-  if (
-    current.provider !== initial.provider
-    || !canSwitchAgentSession(
-      current.stageCurrent,
-      deps.isSessionOpen(),
-      current.fixExecutionActive,
-    )
-  ) return { kind: 'stale' };
-
-  deps.persist({ provider, model: modelChoice.model });
+  if (!canSwitchAgentSession(current.stageCurrent, deps.isSessionOpen(), current.fixExecutionActive)) {
+    return { kind: 'stale' };
+  }
+  deps.persist({ provider: selection.provider, model: selection.model });
   deps.dispose();
   try {
     await deps.launch({ allowResume: false, providerReady: true });

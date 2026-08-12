@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
@@ -14,13 +14,13 @@ const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 /**
  * Where better-sqlite3 ACTUALLY lives, and the package root that owns it.
  *
- * A git worktree under `.karst/worktrees/<name>/` has no node_modules of its
- * own — Node resolves better-sqlite3 by walking up to the main checkout's tree.
- * Assuming `<this repo>/node_modules` therefore probed a path that cannot exist,
- * `mkdirSync` CREATED an empty stub package there, and `npm rebuild` run from the
- * worktree then saw a root with nothing installed, rebuilt nothing, and still
- * exited 0 ("rebuilt dependencies successfully"). The Electron-ABI prebuild left
- * by `rebuild:electron` survived untouched and every test died on the ABI check.
+ * A git worktree (karst's `.karst/worktrees/<name>/` or a plain
+ * `git worktree add`) has no node_modules of its own — Node resolves
+ * better-sqlite3 by walking up to the main checkout's tree. Rebuilding from
+ * THAT shared install is what lets one worktree's `npm test` flip the addon
+ * out from under the main checkout's installer (and vice versa), so the
+ * resolved install is materialized as a LOCAL copy first whenever it lives
+ * outside this checkout; from then on every path below operates on the copy.
  *
  * Resolve the real package instead, and rebuild from the root that owns it.
  */
@@ -42,7 +42,45 @@ function locateBetterSqlite3() {
   return { moduleDir, installRoot };
 }
 
-const { moduleDir, installRoot } = locateBetterSqlite3();
+// originalModuleDir stays the anchor for resolving prebuild-install: the
+// local copy does not carry that tool (it lives hoisted at the top level of
+// the MAIN checkout's node_modules), but the download must still land in the
+// copy's own build/Release.
+let { moduleDir, installRoot } = locateBetterSqlite3();
+const originalModuleDir = moduleDir;
+
+function isWithin(parent, child) {
+  const rel = relative(resolve(parent), resolve(child));
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
+}
+
+/**
+ * If better-sqlite3 resolved to an install OUTSIDE this checkout (a worktree
+ * with no node_modules of its own walking up to the main checkout's), copy
+ * the package in locally so this checkout's rebuilds — and therefore this
+ * checkout's `npm test` — never touch the shared addon again. The main
+ * checkout itself resolves inside its own cwd and never materializes.
+ */
+function materializeLocalCopyIfNeeded() {
+  const cwd = process.cwd();
+  if (isWithin(cwd, installRoot)) return;
+  const localDir = join(cwd, 'node_modules', 'better-sqlite3');
+  rmSync(localDir, { recursive: true, force: true });
+  mkdirSync(dirname(localDir), { recursive: true });
+  const result = spawnSync('cp', ['-R', moduleDir, localDir], { stdio: 'inherit' });
+  if (result.status !== 0) {
+    console.error(`Failed to copy better-sqlite3 into ${localDir}.`);
+    process.exit(1);
+  }
+  moduleDir = localDir;
+  installRoot = resolve(localDir, '..', '..');
+  console.log(
+    `better-sqlite3 resolved outside this checkout (shared install at ${originalModuleDir}) — copied it locally to ${localDir} ` +
+      'so rebuilds here never flip the main checkout\'s addon.',
+  );
+}
+
+materializeLocalCopyIfNeeded();
 
 function run(command, args, extraEnv = {}) {
   const result = spawnSync(command, args, {
@@ -56,21 +94,131 @@ function run(command, args, extraEnv = {}) {
   }
 }
 
+function releaseAddonPath() {
+  return join(moduleDir, 'build', 'Release', 'better_sqlite3.node');
+}
+
+/**
+ * The addon's OWN NODE_MODULE_VERSION, read by attempting to load it under
+ * THIS node. An ABI match loads cleanly — the addon's ABI is then this
+ * node's own — while a mismatch aborts BEFORE dlopen and names the addon's
+ * version on stderr ("…compiled against a different Node.js version using
+ * NODE_MODULE_VERSION <n>…"), so macOS code signing never interferes with
+ * the verdict. A missing or unloadable addon is null. This is the same
+ * probe install-local.sh's addon_abi uses, and the only one that works for
+ * EVERY ABI.
+ */
+function addonAbi() {
+  const addon = releaseAddonPath();
+  if (!existsSync(addon)) return null;
+  const result = spawnSync(process.execPath, ['-e', 'require(process.argv[1])', addon], {
+    encoding: 'utf8',
+  });
+  if (result.status === 0) return process.versions.modules?.toString() ?? null;
+  const match = /NODE_MODULE_VERSION[^\d]*(\d+)/.exec(result.stderr ?? '');
+  return match ? match[1] : null;
+}
+
+/**
+ * Make build/Release/better_sqlite3.node an ABI-`abi` addon for `target`
+ * (`electron` or `node`), or exit 1.
+ *
+ * Every delivery path is VERIFIED on the actual addon afterwards: "the
+ * command ran" is not "it delivered". prebuild-install in particular can
+ * exit 0 with the destination untouched, and a stale wrong-ABI binary must
+ * neither be skipped over by a download nor read as a delivery — so the
+ * existing addon is removed up front whenever it is not already the target
+ * ABI (which is also the fast path: an addon that already matches needs no
+ * churn, and `npm test`'s pretest becomes a no-op when the addon is already
+ * the Node one).
+ */
+function ensureAddonFor(target, abi, version) {
+  const current = addonAbi();
+  if (current === abi) {
+    console.log(`better-sqlite3 addon already matches ABI ${abi} (${target})`);
+    return;
+  }
+  if (current !== null) {
+    console.log(`Removing stale better-sqlite3 addon (ABI ${current}) before rebuilding for ABI ${abi} (${target})...`);
+  }
+  rmSync(releaseAddonPath(), { force: true });
+
+  if (tryPrebuild(abi)) {
+    if (addonAbi() === abi) return;
+    console.error(`Vendored prebuild for ABI ${abi} did not verify (got ${addonAbi() ?? 'nothing'}).`);
+    rmSync(releaseAddonPath(), { force: true });
+  }
+
+  if (version !== null && tryPrebuildDownload(target, version)) {
+    if (addonAbi() === abi) {
+      console.log(`Downloaded better-sqlite3 prebuild for ${target} ${version} (ABI ${abi}, ${platform}-${arch})`);
+      return;
+    }
+    console.error(
+      `prebuild-install exited 0 but did not deliver an ABI ${abi} addon (got ${addonAbi() ?? 'nothing'}) — falling back to a source build.`,
+    );
+    rmSync(releaseAddonPath(), { force: true });
+  }
+
+  if (version === null) {
+    console.error(`No prebuild found for ABI ${abi} and no ${target} version to build against — giving up.`);
+    process.exit(1);
+  }
+
+  console.log(`No prebuild for ABI ${abi}; building better-sqlite3 for ${target} ${version} (${arch})...`);
+  if (target === 'electron') {
+    run(npmCommand, ['exec', '--', 'electron-rebuild', '-f', '-w', 'better-sqlite3', '--version', version, '--arch', arch, '--module-dir', installRoot], {
+      npm_config_build_from_source: 'true',
+    });
+  } else {
+    run(npmCommand, ['rebuild', 'better-sqlite3', '--build-from-source'], {
+      npm_config_build_from_source: 'true',
+    });
+  }
+
+  if (addonAbi() !== abi) {
+    console.error(
+      `better-sqlite3 still does not target ABI ${abi} (got ${addonAbi() ?? 'nothing'}) after the source build for ${target}.`,
+    );
+    process.exit(1);
+  }
+  console.log(`Built better-sqlite3 for ${target} ${version} (ABI ${abi}, ${platform}-${arch})`);
+}
+
 function detectElectronRuntime() {
   // The devDependency electron version in an app's package.json is a build-time
   // artifact and can be absent entirely (Cursor's app package.json has no
   // `electron` field). Ask the app's own embedded Electron binary instead —
   // running it with ELECTRON_RUN_AS_NODE prints its actual process.versions,
   // which is the ground truth for the ABI this extension host will load against.
+  // Explicit target wins (install-local.sh sets this per-IDE so it doesn't
+  // depend on candidate-list order or on apps not covered below). A set-but-
+  // missing target is a config error, never a reason to fall through: the
+  // fallback picks whichever IDE is installed next and silently ships that
+  // app's ABI, which only fails at activation in the app that was asked for.
+  if (process.env.KARST_TARGET_APP_BINARY && !existsSync(process.env.KARST_TARGET_APP_BINARY)) {
+    console.error(
+      `KARST_TARGET_APP_BINARY set but no such file: ${process.env.KARST_TARGET_APP_BINARY}\n` +
+        'Refusing to fall back to another installed IDE — that would build the wrong ABI.',
+    );
+    process.exit(1);
+  }
   const candidates = [
-    // Explicit target wins (install-local.sh sets this per-IDE so it doesn't
-    // depend on candidate-list order or on apps not covered below).
     process.env.KARST_TARGET_APP_BINARY,
     '/Applications/Cursor.app/Contents/MacOS/Cursor',
+    // VS Code renamed its macOS binary from `Electron` to `Code` (1.93+), so
+    // probe the current name first, the legacy one after.
+    '/Applications/Visual Studio Code.app/Contents/MacOS/Code',
     '/Applications/Visual Studio Code.app/Contents/MacOS/Electron',
+    '/Applications/Visual Studio Code - Insiders.app/Contents/MacOS/Code',
     '/Applications/Visual Studio Code - Insiders.app/Contents/MacOS/Electron',
     '/Applications/Antigravity IDE.app/Contents/MacOS/Electron',
-    process.env.VSCODE_APP_PATH ? join(process.env.VSCODE_APP_PATH, 'Contents/MacOS/Electron') : null,
+    process.env.VSCODE_APP_PATH
+      ? join(process.env.VSCODE_APP_PATH, 'Contents', 'MacOS', 'Code')
+      : null,
+    process.env.VSCODE_APP_PATH
+      ? join(process.env.VSCODE_APP_PATH, 'Contents', 'MacOS', 'Electron')
+      : null,
   ].filter(Boolean);
 
   for (const candidate of candidates) {
@@ -99,7 +247,11 @@ function detectElectronRuntime() {
  * a machine that only wants to RUN the extension has no reason to have.
  */
 function tryPrebuildDownload(runtime, version) {
-  const require = createRequire(join(moduleDir, 'package.json'));
+  // Resolve prebuild-install from the ORIGINAL install (the local copy made by
+  // materializeLocalCopyIfNeeded does not carry it — it lives hoisted in the
+  // main checkout's node_modules) but download into the CURRENT moduleDir, so
+  // a worktree-local rebuild still receives the prebuild.
+  const require = createRequire(join(originalModuleDir, 'package.json'));
   let binPath;
   try {
     binPath = require.resolve('prebuild-install/bin.js');
@@ -133,34 +285,16 @@ function tryPrebuild(abi) {
 
 if (mode === 'electron') {
   // VS Code / Cursor extension hosts run Electron, not plain Node, and their
-  // Electron version varies by app/release (VS Code 1.126 = Electron 39 = ABI
-  // 140; Cursor 3.11 = Electron 40 = ABI 143). Detect the actual host's ABI by
-  // running its embedded Electron binary rather than assuming a fixed default —
-  // otherwise a stale prebuild silently ships the wrong ABI and only fails at
-  // extension activation in the other app. better-sqlite3 ships matching
-  // prebuilds (e.g. darwin-arm64-140); copy one into build/Release (what
-  // bindings loads) instead of compiling, when available.
+  // Electron version varies by app/release (VS Code 1.132 = Electron 42.7 =
+  // ABI 146; Cursor 3.11 = Electron 40 = ABI 143). Detect the actual host's ABI
+  // by running its embedded Electron binary rather than assuming a fixed
+  // default — otherwise a stale prebuild silently ships the wrong ABI and only
+  // fails at extension activation in the other app. better-sqlite3 ships
+  // matching prebuilds (e.g. darwin-arm64-146); copy one into build/Release
+  // (what bindings loads) instead of compiling, when available.
   const runtime = detectElectronRuntime();
   const abi = process.env.BETTER_SQLITE3_ABI ?? runtime?.abi ?? '140';
-  if (tryPrebuild(abi)) {
-    process.exit(0);
-  }
-
-  const electronVersion = process.env.ELECTRON_VERSION ?? runtime?.electronVersion;
-  if (!electronVersion) {
-    console.error(`No prebuild found for ABI ${abi} and unable to detect an Electron version for source rebuild.`);
-    process.exit(1);
-  }
-
-  if (tryPrebuildDownload('electron', electronVersion)) {
-    console.log(`Downloaded better-sqlite3 prebuild for Electron ${electronVersion} (ABI ${abi}, ${platform}-${arch})`);
-    process.exit(0);
-  }
-
-  console.log(`No prebuild for ABI ${abi}; rebuilding better-sqlite3 for Electron ${electronVersion} (${arch})...`);
-  run(npmCommand, ['exec', '--', 'electron-rebuild', '-f', '-w', 'better-sqlite3', '--version', electronVersion, '--arch', arch, '--module-dir', installRoot], {
-    npm_config_build_from_source: 'true',
-  });
+  ensureAddonFor('electron', abi, runtime?.electronVersion ?? null);
   process.exit(0);
 }
 
@@ -195,24 +329,10 @@ if (mode === 'node') {
     process.exit(1);
   }
 
-  if (tryPrebuild(abi)) {
-    assertLoadableUnderNode();
-    process.exit(0);
-  }
+  ensureAddonFor('node', abi, process.versions.node ?? null);
 
-  // Same reasoning as the electron branch: the published Node prebuild is what
-  // `npm install` itself fetched, so ask for it by version before demanding a
-  // toolchain this machine may not have.
-  if (tryPrebuildDownload('node', process.versions.node)) {
-    console.log(`Downloaded better-sqlite3 prebuild for Node ${process.versions.node} (ABI ${abi}, ${platform}-${arch})`);
-    assertLoadableUnderNode();
-    process.exit(0);
-  }
-
-  console.log(`No prebuild found for ABI ${abi}; rebuilding from source for Node...`);
-  run(npmCommand, ['rebuild', 'better-sqlite3', '--build-from-source'], {
-    npm_config_build_from_source: 'true',
-  });
+  // The ABI probe proved the addon loads under this Node; prove it also
+  // CONSTRUCTS a database, so `npm test` never fails on the first open.
   assertLoadableUnderNode();
   process.exit(0);
 }

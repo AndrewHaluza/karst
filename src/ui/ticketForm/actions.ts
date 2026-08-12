@@ -727,7 +727,7 @@ export function buildTicketFormActions(
           ctx.post({
             type: 'error',
             message:
-              'Ticket analysis is disabled in Settings — enable it to prefill the prompt.',
+              'Ticket analysis is disabled in Settings — enable it to improve the prompt.',
           });
           return;
         }
@@ -753,6 +753,15 @@ export function buildTicketFormActions(
             approaches,
             ticketId,
             processRunId: run.id,
+            // The configured Ticket-analysis assignment's instructions — the
+            // resolved Settings agent-profile body, or the author-declared
+            // inline text — replace the built-in analyzer role block, so the
+            // selected agent IS the difference in what the analyzer asks.
+            // Blank (no profile, no inline instructions) keeps the built-in
+            // analyzer prompt.
+            ...(process.assignment.instructions !== undefined
+              ? { instructions: process.assignment.instructions }
+              : {}),
             model: process.assignment.model ?? undefined,
           });
           finishProcessRun(deps.store, run.id, 'passed', new Date().toISOString());

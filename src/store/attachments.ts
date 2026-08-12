@@ -51,7 +51,7 @@ interface AttachmentDbRow {
  * the boundary, not the writer — the same rule `mergeChecks.parseFiles` follows.
  */
 function toKind(raw: string): AttachmentKind {
-  return raw === 'video' ? 'video' : 'image';
+  return raw === 'video' ? 'video' : raw === 'file' ? 'file' : 'image';
 }
 
 function rowToAttachment(row: AttachmentDbRow): AttachmentRow {

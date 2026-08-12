@@ -1054,6 +1054,48 @@ describe('buildTicketFormActions', () => {
     expect(posted.find((m) => m.type === 'analysis')).toBeTruthy();
   });
 
+  // The analysis runs through the configured Ticket-analysis assignment: the
+  // resolver overlays the Settings profile's body (or inline `instructions`)
+  // as the assignment's `instructions`, and analyze must thread it into the
+  // headless prompt. Dropping it is the bug that made a well-instructed
+  // selected agent and an empty one produce identical analysis.
+  it('analyze threads the resolved assignment instructions into the prompt', async () => {
+    const runHeadless = vi.fn(async (opts: { prompt: string }) => {
+      void opts;
+      return {
+        sessionId: 's',
+        verdict: null,
+        raw: '{"prompt":"p","approach":"rpi","repos":["fe"],"reason":"r"}',
+      };
+    });
+    const configured: AgentAdapter = { ...fakeAdapter(), runHeadless };
+    const t = createTicket(store, { key: 'P-1', title: 't' });
+    updateTicketFields(store, t.id, { brief: 'the brief text', selectedRepos: [] });
+    deps.resolveAnalysisProcess = () => ({
+      assignment: {
+        agentName: 'description-improver',
+        provider: 'claude',
+        instructions: '# description-improver\nRewrite the description.',
+      },
+      adapter: configured,
+    });
+    const posted: TicketFormHostMessage[] = [];
+    const ctx: TicketFormActionsCtx = {
+      post: (m) => posted.push(m), pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, close: () => {},
+    };
+    const actions = buildTicketFormActions(deps)(ctx);
+
+    await actions.analyze('');
+
+    expect(runHeadless).toHaveBeenCalledTimes(1);
+    expect(runHeadless.mock.calls[0]![0].prompt).toContain('# description-improver');
+    expect(runHeadless.mock.calls[0]![0].prompt).toContain('Rewrite the description.');
+    // The JSON output contract survives under instructed analysis.
+    expect(runHeadless.mock.calls[0]![0].prompt).toContain(
+      'Respond with ONLY a single JSON object',
+    );
+  });
+
   it('analyze refuses with an inline error when the ticket-analysis process is disabled', async () => {
     const t = createTicket(store, { key: 'P-1', title: 't' });
     updateTicketFields(store, t.id, { brief: 'the brief text', selectedRepos: [] });
@@ -1257,7 +1299,7 @@ describe('buildTicketFormActions', () => {
 
     it('reports an unsupported file as an inline error and attaches nothing', async () => {
       const { actions, ctx, deps, ticketId } = makeActions({ mode: 'edit' });
-      deps.pickAttachment = async () => [sourceFile('notes.pdf', '%PDF')];
+      deps.pickAttachment = async () => [sourceFile('README', 'plain text, no extension')];
       await actions.attachPick();
       expect(listAttachments(deps.store, ticketId!)).toEqual([]);
       expect(ctx.posted).toContainEqual(
@@ -1295,7 +1337,7 @@ describe('buildTicketFormActions', () => {
     it('rejects an unsupported pasted filename before binding a create-mode draft', async () => {
       const { actions, ctx, deps } = makeActions({ mode: 'create' });
 
-      await actions.attachBytes('notes.pdf', Buffer.from('%PDF').toString('base64'));
+      await actions.attachBytes('README', Buffer.from('no extension').toString('base64'));
 
       expect(ctx.boundTicketId).toBeUndefined();
       expect(listTickets(deps.store)).toEqual([]);

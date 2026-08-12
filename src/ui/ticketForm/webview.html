@@ -11,13 +11,15 @@
 
   :root{
     /* One chevron for every dropdown (native <select> + the custom agent-core
-       trigger) so placement and size read the same. A data-URI SVG cannot
+       trigger) so placement and size read the same. The glyph is Tabler's
+       chevron-down (docs/ui/ICONS.md §4) embedded as a data-URI — the only
+       icon form that reaches a CSS background. A data-URI SVG cannot
        consume a CSS custom property, so its stroke colour cannot resolve to a
        --k-* token the way every other colour in this file does — this is the
        one accepted UI-R04 exception, forced by the encoding, not by choice.
        Mid-gray shows on light and dark input chrome alike. (Same definition
        as settings/webview.html — the two pages must not drift.) */
-    --chevron:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.5 6 7.5 9 4.5' fill='none' stroke='%238a8a8a' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    --chevron:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24'%3E%3Cpath d='M6 9l6 6l6 -6' fill='none' stroke='%238a8a8a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   }
 
   *{box-sizing:border-box}
@@ -85,6 +87,8 @@
     border:var(--k-border-w) solid var(--k-border)}
   .attachtile img,.attachtile video{display:block;width:100%;height:calc(var(--k-space-8) * 4.1);object-fit:cover;
     background:var(--k-bg)}
+  .attachfile{display:flex;align-items:center;justify-content:center;height:calc(var(--k-space-8) * 4.1);
+    color:var(--k-text-dim)}
   .attachmeta{padding:var(--k-space-2) var(--k-space-3);font-size:var(--k-text-xs);line-height:var(--k-leading-normal);
     color:var(--k-text-dim);opacity:.85}
   .attachname{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -95,6 +99,15 @@
   .attachdetach{position:absolute;top:var(--k-space-1);right:var(--k-space-1)}
   .attachopen{display:flex;width:100%;justify-content:center;
     border-top:var(--k-border-w) solid var(--k-border)}
+  /* The Attach… button reports its outcome through the strip — the tile
+     appearing IS the success acknowledgement (DESIGN-SYSTEM §11.1: success is
+     "optional transient acknowledgement when changed state is not already
+     obvious"). So the `.k-btn` primitive's green-border + checkmark settle
+     (`.is-success`) is suppressed here, the same call the agent-core trigger
+     makes above: the control stays a regular ghost button through the cycle,
+     and the strip's new tile is the flash (UI-R13). */
+  #attachBtn.is-success{color:var(--k-text-dim);border-color:var(--k-border)}
+  #attachBtn.is-success::before{content:none}
 
   /* Card heading row: title on the left, provider chip pinned top-right. */
   .cardhead{display:flex;align-items:center;justify-content:space-between;
@@ -150,8 +163,14 @@
     border-radius:var(--k-radius-md);padding:var(--k-space-2);box-shadow:var(--k-elev-2)}
   .agentselect-opt{display:flex;align-items:center;gap:var(--k-space-3);padding:var(--k-space-3) var(--k-space-4);
     border-radius:var(--k-radius-sm);cursor:pointer;font-size:var(--k-text-base)}
-  .agentselect-opt:hover{background:var(--k-surface-hover)}
-  .agentselect-opt.selected{background:var(--vscode-list-activeSelectionBackground,var(--k-surface-hover))}
+  .agentselect-opt:hover{background:var(--k-surface-hover);color:var(--k-text)}
+  /* The selected option keeps the theme's ACTIVE selection wash, so it must
+     take the theme's paired foreground too — the wash is a saturated blue on
+     light themes and the inherited `--k-text` is a grey that fails contrast on
+     it (UI-R29). Same rule settings/.provselect-opt.selected already follows;
+     the two pages must not drift. */
+  .agentselect-opt.selected{background:var(--vscode-list-activeSelectionBackground,var(--k-surface-hover));
+    color:var(--vscode-list-activeSelectionForeground,var(--k-text))}
   .agentselect-opt:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
 
   /* Fetch button doubles as the status, via the `.k-btn` primitive's own
@@ -251,8 +270,8 @@
   .acard .aname{font-weight:var(--k-weight-semibold);display:flex;align-items:center;gap:var(--k-space-3);flex-wrap:wrap}
   .acard .adesc{opacity:.7;font-size:var(--k-text-sm)}
 
-  /* Inline prefill control (dirty-state model): an Auto-prefill switch, a status
-     that flips ✓ in sync ↔ Δ <why>, and Regenerate — all beside the Prompt
+  /* Inline improve control (dirty-state model): an Auto-improve switch, a status
+     that flips ✓ in sync ↔ Δ <why>, and the Improve button — all beside the Prompt
      label. Interface STATE speaks in mono; the Δ badge names the divergence so
      the enabled/disabled flip is never a mystery. */
   .labelrow{display:flex;align-items:center;gap:var(--k-space-5) var(--k-space-6);flex-wrap:wrap;
@@ -351,23 +370,23 @@
   <div class="labelrow">
     <label for="desc">Prompt</label>
     <span class="prefill-ctl">
-      <button type="button" class="k-switch" id="autoPrefill" role="switch" aria-checked="true"
-              title="Run the AI prefill automatically after a fetch">
-        <span class="k-switch-track" aria-hidden="true"></span>Auto-prefill
+      <button type="button" class="k-switch" id="autoImprove" role="switch" aria-checked="true"
+              title="Improve the prompt with AI automatically after a fetch">
+        <span class="k-switch-track" aria-hidden="true"></span>Auto-improve
       </button>
       <span class="synctag hidden" id="syncTag">in sync</span>
       <span class="delta hidden" id="deltaBadge"></span>
       <button type="button" class="k-btn k-btn--secondary" id="analyzeBtn"
-              title="Fill the prompt, repositories &amp; approach together from the brief">
-        <span class="rico" aria-hidden="true">⟳</span><span id="analyzeLbl">Prefill</span>
+              title="Improve the prompt with AI — also suggests the approach and repositories">
+        <span class="rico" aria-hidden="true">⟳</span><span id="analyzeLbl">Improve with AI</span>
       </button>
     </span>
   </div>
   <textarea class="k-input" id="desc" placeholder="What should the agent do? Pre-filled from the brief when fetched — edit freely."></textarea>
   <div class="attachrow">
     <button type="button" id="attachBtn" class="k-btn k-btn--ghost"
-            title="Attach an image or video from disk">Attach…</button>
-    <span class="hint">or paste a screenshot into the prompt</span>
+            title="Attach any file from disk">Attach…</button>
+    <span class="hint">or paste a screenshot — a long text becomes a file attachment</span>
   </div>
   <div id="attachments" class="attachstrip"></div>
   <div class="err hidden" id="err" role="alert"></div>
@@ -491,6 +510,11 @@
   // two together, because a drift means a paste that vanishes with no message.
   const MAX_PASTE_BYTES = 10485760;
 
+  // Mirrors LONG_TEXT_PASTE_CHARS in attachments/ingest.ts. The webview makes the
+  // inline-vs-attach decision for a text paste; this copy is pinned by
+  // webview.test.ts so the two can never drift (UI-R34).
+  const LONG_TEXT_PASTE_CHARS = 4000;
+
   // The working draft: create mode has no ticket, so the webview owns state that
   // only lands in the DB on submit. Repos/approach/agent selections are
   // mirrored here.
@@ -566,6 +590,8 @@
       const media = a.kind === 'video'
         ? '<video src="' + esc(a.src) + '" preload="metadata" controls '
           + 'data-attach-id="' + esc(a.id) + '"></video>'
+        : a.kind === 'file'
+        ? '<span class="attachfile" aria-hidden="true">' + karstIcon('file-text', 26) + '</span>'
         : '<img src="' + esc(a.src) + '" alt="' + esc(a.name) + '" '
           + 'data-attach-id="' + esc(a.id) + '">';
       return '<div class="attachtile">'
@@ -915,7 +941,10 @@
     const sel = draft.selectedAgentProvider ?? selectedProvider ?? '';
     const current = sel || defaultProvider || 'claude';
     el('agentTrigger').innerHTML = agentBadgeHtml(current) + '<span class="chev" aria-hidden="true"></span>';
-    const inheritOpt = `<div class="agentselect-opt${sel ? '' : ' selected'}" role="option" tabindex="0" data-value="" aria-selected="${!sel}">Inherit (settings: ${esc(defaultProvider)})</div>`;
+    // The inherit row names the DEFAULT CORE by its canonical identity label,
+    // never a raw manifest id.
+    const inheritLabel = AGENT_PROVIDER_LABELS[defaultProvider] || defaultProvider || 'claude';
+    const inheritOpt = `<div class="agentselect-opt${sel ? '' : ' selected'}" role="option" tabindex="0" data-value="" aria-selected="${!sel}">Inherit (settings: ${esc(inheritLabel)})</div>`;
     const opts = list.map((p) => {
       return `<div class="agentselect-opt${p === sel ? ' selected' : ''}" role="option"`
         + ` tabindex="0" data-value="${esc(p)}" aria-selected="${p === sel}">`
@@ -1017,10 +1046,17 @@
   // Track the analyze-busy state so the disabled rule (below) can OR it in.
   let approachBusy = false;
 
-  // The inputs the analyzer reasons over: the fetched brief, the prompt text, and
-  // the selected repos. A prefill snapshots these; the manual Regenerate is live
-  // only while the current parts DIVERGE from that snapshot — an identical input
-  // never burns an AI call. `null` = nothing prefilled yet.
+  // The inputs the analyzer reasons over: the fetched brief, the prompt text,
+  // and the selected repos. An analysis snapshots these; the manual Improve is
+  // live only while the current parts DIVERGE from that snapshot — an identical
+  // input never burns an AI call. `null` = nothing improved yet.
+  //
+  // Which agent (profile) the analysis runs through is NOT part of the
+  // fingerprint: that is the Settings → Inside process assignments →
+  // Ticket analysis pick, resolved host-side at analyze time. It is not a
+  // page input, so it cannot move these parts — a Settings change takes effect
+  // on the next fetch (the one-time auto-improve) or a fresh page, exactly
+  // like every other Settings value the form reads.
   let lastAnalyzed = null;
   function currentParts() {
     return {
@@ -1047,17 +1083,17 @@
     return Boolean(briefText) || el('desc').value.trim() !== '';
   }
 
-  // Gate the inline control: Regenerate is active only with a signal, no run in
-  // flight, and parts diverged from the last prefill. Status flips ✓ in sync ↔
-  // Δ <why>; the button label reads Prefill before the first fill, Regenerate
-  // after. All status hidden while a run is in flight — the button's own
-  // aria-busy spinner is the only thing that says "running".
+  // Gate the inline control: the Improve button is active only with a signal, no
+  // run in flight, and parts diverged from the last analysis. Status flips ✓ in
+  // sync ↔ Δ <why>; the button label reads Improve with AI before the first run,
+  // Improve again after. All status hidden while a run is in flight — the
+  // button's own aria-busy spinner is the only thing that says "running".
   function syncAnalyzeBtn() {
     const cur = currentParts();
     const analyzed = lastAnalyzed !== null;
     const unchanged = analyzed && partsEqual(lastAnalyzed, cur);
     el('analyzeBtn').disabled = !hasSuggestSignal() || approachBusy || unchanged;
-    el('analyzeLbl').textContent = analyzed ? 'Regenerate' : 'Prefill';
+    el('analyzeLbl').textContent = analyzed ? 'Improve again' : 'Improve with AI';
     el('syncTag').classList.toggle('hidden', !(unchanged && !approachBusy));
     const reason = analyzed && !unchanged ? deltaReason(lastAnalyzed, cur) : '';
     const showDelta = Boolean(reason) && !approachBusy;
@@ -1074,22 +1110,26 @@
     approachBusy = true;
     el('analyzeBtn').setAttribute('aria-busy', 'true');
     syncAnalyzeBtn();
+    // The analysis runs through the SETTINGS Ticket-analysis assignment (its
+    // profile body / inline instructions), resolved host-side — the page
+    // carries no agent; the ticket's own single-subagent pick drives the
+    // SESSION, never this headless analysis.
     post({ type: 'analyze', prompt: el('desc').value });
   }
 
-  // Auto-prefill (default on): run the analyzer exactly once after a fetch, only
-  // when nothing has been prefilled yet. Off → manual Regenerate is the only
-  // trigger. Never re-fires on reopens/edits (those re-enable the button).
-  let autoPrefillOn = true;
-  function setAutoPrefill(on) {
-    autoPrefillOn = on;
-    const sw = el('autoPrefill');
+  // Auto-improve (default on): run the analyzer exactly once after a fetch, only
+  // when nothing has been improved yet. Off → the manual Improve button is the
+  // only trigger. Never re-fires on reopens/edits (those re-enable the button).
+  let autoImproveOn = true;
+  function setAutoImprove(on) {
+    autoImproveOn = on;
+    const sw = el('autoImprove');
     sw.setAttribute('aria-checked', String(on));
   }
   function maybeAutoAnalyze() {
-    if (!autoPrefillOn) return;
+    if (!autoImproveOn) return;
     if (!hasSuggestSignal() || approachBusy) return;
-    if (lastAnalyzed !== null) return; // a prefill exists; re-run is manual
+    if (lastAnalyzed !== null) return; // an analysis exists; re-run is manual
     triggerAnalyze();
   }
 
@@ -1473,16 +1513,21 @@
     if (searchEnabled && !el('searchBox').contains(e.target)) closeSearchMenu();
   });
   // Editing the Prompt is a context change: re-gate the control. It does NOT
-  // auto-prefill (that would rewrite the prompt mid-type); prefill auto-runs only
-  // after a fetch (and only when Auto-prefill is on), or on an explicit click.
+  // auto-improve (that would rewrite the prompt mid-type); the analyzer auto-runs
+  // only after a fetch (and only when Auto-improve is on), or on an explicit
+  // click.
   el('desc').addEventListener('input', syncAnalyzeBtn);
 
-  el('attachBtn').addEventListener('click', function () {
-    // `attach-pick`/`attach-bytes` (paste, below) share this control's pending
-    // state — both are "the attach machinery" from the user's point of view,
-    // and only one can usefully run at a time.
-    karstAction(el('attachBtn'), (requestId) => post({ type: 'attach-pick', requestId }));
-  });
+  // `karstAction` binds its own click listener ONCE, at setup — this page's
+  // `#attachBtn` is static markup, so a delegated re-bind is never needed.
+  // Binding it inside a click handler (as it once was) re-bound a listener on
+  // EVERY click, and a listener added while a click is being dispatched does
+  // not fire for that click — so the FIRST click only armed the machinery and
+  // the SECOND click was the first to actually open the picker.
+  // `attach-pick`/`attach-bytes` (paste, below) share this control's pending
+  // state — both are "the attach machinery" from the user's point of view,
+  // and only one can usefully run at a time.
+  karstAction(el('attachBtn'), (requestId) => post({ type: 'attach-pick', requestId }));
 
   // Delegated: the strip is re-rendered on every state push, so per-tile
   // listeners would be re-bound each time and leak. Uses the runtime's pending
@@ -1549,24 +1594,59 @@
     }
   }
 
+  // A long text pasted into the prompt becomes a .txt attachment: the prompt stays
+  // concise and the agent reads the full content from the attachment file. Short
+  // pastes keep the default behavior (text lands in the field). base64 is built in
+  // chunks because btoa() throws on inputs around 64 KB in some engines, and the
+  // paste cap is 10 MB.
+  function postPastedText(text) {
+    const name = 'pasted-' + Date.now() + '.txt';
+    const bytes = new TextEncoder().encode(text);
+    if (bytes.length > MAX_PASTE_BYTES) {
+      showErr(name + ' is too long to attach (limit 10 MB). Paste it in smaller parts.');
+      return;
+    }
+    let binary = '';
+    const CHUNK = 0x8000;
+    for (let i = 0; i < bytes.length; i += CHUNK) {
+      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+    }
+    const base64 = btoa(binary);
+    // Shares the Attach… button's pending state, same as postPastedFile.
+    if (!karstIsPending(el('attachBtn'))) {
+      const requestId = karstRequestId();
+      karstBeginPending(el('attachBtn'), requestId);
+      post({ type: 'attach-bytes', name, base64, requestId });
+    }
+  }
+
   // Clipboard images have no path, so bytes are the only thing available — this
-  // is why the paste path exists at all. Text pastes fall through untouched:
-  // preventDefault only fires once a file is actually found.
+  // is why the paste path exists at all. A LONG text paste is attached as a
+  // file instead of inlined (see postPastedText). Short text pastes fall
+  // through untouched: preventDefault only fires once a file is actually found
+  // or a text actually meets the length threshold.
   el('desc').addEventListener('paste', function (e) {
     const files = e.clipboardData && e.clipboardData.files;
-    if (!files || files.length === 0) return;
-    e.preventDefault();
-    for (let i = 0; i < files.length; i += 1) {
-      postPastedFile(files[i]);
+    if (files && files.length > 0) {
+      e.preventDefault();
+      for (let i = 0; i < files.length; i += 1) {
+        postPastedFile(files[i]);
+      }
+      return;
+    }
+    const text = e.clipboardData && e.clipboardData.getData('text/plain');
+    if (typeof text === 'string' && text.length > LONG_TEXT_PASTE_CHARS) {
+      e.preventDefault();
+      postPastedText(text);
     }
   });
 
-  // Auto-prefill switch (default on). A real <button role="switch"> gets
+  // Auto-improve switch (default on). A real <button role="switch"> gets
   // Enter/Space activation natively — no custom keydown handler needed.
-  el('autoPrefill').addEventListener('click', () => setAutoPrefill(!autoPrefillOn));
+  el('autoImprove').addEventListener('click', () => setAutoImprove(!autoImproveOn));
 
   // The create-mode "Also create in ClickUp" switch (default off). Same native
-  // button activation as Auto-prefill; the value rides submit/save.
+  // button activation as Auto-improve; the value rides submit/save.
   el('createIn').addEventListener('click', () => {
     createInOn = !createInOn;
     el('createIn').setAttribute('aria-checked', String(createInOn));
@@ -1583,7 +1663,7 @@
   });
 
   // Pull-the-base switch (default on). Same native-button activation as
-  // Auto-prefill above.
+  // Auto-improve above.
   el('pullBase').addEventListener('click', () => setPullBase(!pullBaseOn));
 
   // Cancel discards the form and closes the panel. It used to post
@@ -1870,8 +1950,8 @@
         if (state) renderTicketFormTicketLink(state);
         // Prefilled title may now satisfy Phase 1 — reveal Phase 2.
         syncPhase2();
-        // A fresh brief is new context nothing has been prefilled against yet.
-        // Reset so the one-time auto-prefill fires for it.
+        // A fresh brief is new context nothing has been improved against yet.
+        // Reset so the one-time auto-improve fires for it.
         aiSuggestion = null;
         lastAnalyzed = null;
         maybeAutoAnalyze();
@@ -1879,8 +1959,8 @@
         break;
       }
       case 'analysis': {
-        // The analyzer result: the synthesized prompt is authoritative (it
-        // replaces the placeholder raw description / the prompt the user asked to
+        // The analyzer result: the improved prompt is authoritative (it
+        // replaces the raw description / the prompt the user asked to
         // analyze) and repos are preselected. The approach is a SUGGESTION only —
         // it carries a reason badge but never moves the pick (see below). A later
         // explicit user edit/click still wins.

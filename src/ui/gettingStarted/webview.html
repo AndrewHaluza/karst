@@ -14,6 +14,10 @@
         max-width: 58ch;
         line-height: var(--k-leading-normal);
       }
+      /* Splash header: the approved mark beside the title — brand presence on
+         the fresh-install surface, layout composed from tokens (UI-R04/R05). */
+      .gs-head{display:flex;align-items:center;gap:var(--k-space-4);margin-bottom:var(--k-space-2)}
+      .gs-head h1{margin:0}
       h1 { font-size: var(--k-text-xl); margin: 0 0 var(--k-space-2); }
       p.lede { margin: 0 0 var(--k-space-8); color: var(--k-text-dim); }
       section { margin-bottom: var(--k-space-9); }
@@ -54,7 +58,25 @@
     </style>
   </head>
   <body>
-    <h1>Getting Started</h1>
+    <div class="gs-head">
+      <svg aria-hidden="true" width="28" height="28" viewBox="0 0 215 215">
+        <defs>
+          <linearGradient id="gsLeft" x1="0.22" y1="0.12" x2="0.78" y2="0.92">
+            <stop offset="0%" stop-color="#7D48E9"/><stop offset="43%" stop-color="#7D3CEE"/><stop offset="100%" stop-color="#4A71D7"/>
+          </linearGradient>
+          <linearGradient id="gsRight" x1="0.18" y1="0.10" x2="0.82" y2="0.90">
+            <stop offset="0%" stop-color="#00B7C9"/><stop offset="55%" stop-color="#00AFC0"/><stop offset="100%" stop-color="#00B1C4"/>
+          </linearGradient>
+          <linearGradient id="gsCore" x1="0.20" y1="0.18" x2="0.82" y2="0.86">
+            <stop offset="0%" stop-color="#6647DE"/><stop offset="48%" stop-color="#5660D9"/><stop offset="100%" stop-color="#3586D6"/>
+          </linearGradient>
+        </defs>
+        <path d="M 96 20 L 25 67 L 25 156 L 98 203 L 98 180 L 44 145 L 44 78 L 97 44 Z" fill="url(#gsLeft)"/>
+        <path d="M 151 42 L 138 58 L 170 78 L 170 144 L 138 165 L 150 180 L 188 156 L 188 67 Z" fill="url(#gsRight)"/>
+        <circle cx="106.5" cy="111.5" r="26.5" fill="url(#gsCore)"/>
+      </svg>
+      <h1>Getting Started</h1>
+    </div>
     <p class="lede">Orchestrate AI-agent ticket workflows across your repos. Finish setup below.</p>
 
     <section>

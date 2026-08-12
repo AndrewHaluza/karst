@@ -420,9 +420,13 @@ export interface ReviewConfig {
  * Every field is optional so an absent block needs no configuration at all;
  * `resolveProcessAssignment` (agent/processAssignment.ts) fills the gaps.
  *
- * `agent` references a role-keyed agent PROFILE from the manifest `agents`
- * block (an `AgentDef` key); `agentName` is the display-snapshot override for
- * the `process_runs` row. `provider`/`model` select the launch adapter the
+ * `agent` names a profile from the selectable agent POOL (a local file under
+ * `agentsDir` or an approach artifact — see `agents/pool.ts`); it feeds the
+ * `process_runs` display snapshot. Pool membership is checked in the Settings
+ * UI (`ui/settings/processAssignmentViews.ts`, `unknown-profile`), NOT at
+ * manifest load, because the pool is filesystem-derived and the pure loader
+ * cannot see it. `agentName` is the display-snapshot override for the
+ * `process_runs` row. `provider`/`model` select the launch adapter the
  * process runs headless through, ahead of the ticket/manifest defaults.
  */
 export interface ProcessAssignmentConfig {
@@ -536,6 +540,13 @@ export interface Manifest {
    * enabled.
    */
   debug?: boolean;
+  /**
+   * When a ticket is closed (archived), also dispose its agent terminals whose
+   * process has already exited — the dead tabs VS Code keeps with a "Done"
+   * suffix. Defaults to off: dead tabs stay until the user closes them, and a
+   * live session is never touched either way (only exited terminals qualify).
+   */
+  closeDoneTerminalsWithTicket?: boolean;
   /**
    * UAT gates, credentials and (Phase 2) authored-step config. Absent yields the
    * default pipeline: karst probes package.json for known scripts. `origins` and

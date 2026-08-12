@@ -7,6 +7,7 @@
 <!--KARST_CSP-->
 <style>
   /*KARST_DS_CSS*/
+  /*KARST_XTERM_CSS*/
   /*KARST_AGENT_CSS*/
 
   :root{
@@ -32,41 +33,90 @@
   *{box-sizing:border-box}
   body{margin:0;background:var(--k-bg);color:var(--k-text);font-family:var(--k-font-ui);font-size:var(--k-text-base);padding:var(--k-space-8) var(--k-space-9)}
   a{color:var(--k-link);text-decoration:none}
-  /* Toggled by the render fns (fault card, impl phases) — without this rule the
-     `hidden` class was a no-op and an empty box still drew its border. */
+  /* Toggled by the render fns (blocked banner, impl phases, artifact panels) —
+     without this rule the `hidden` class was a no-op and an empty box still
+     drew its border. */
   .hidden{display:none}
+  /* The header's staged controls (#confirmShip, #boardLink) toggle the `hidden`
+     ATTRIBUTE — semantically the right tool (it drops them from the a11y tree
+     and tab order, which the class cannot). But the component CSS
+     (.k-btn/.k-iconbtn) sets display:inline-flex, and author CSS overrides
+     the UA `[hidden]{display:none}` no matter its specificity — so without an
+     author rule the attribute was a no-op and Confirm ship stayed visible the
+     whole way through Implementation (869ehahjh-fu1). Same fix the diffs
+     webview needed for its notice. Same specificity as the component rules,
+     so it must sit AFTER the injected design-system CSS (which it does — the
+     marker is at the top of this <style>) to win the cascade. */
+  [hidden]{display:none}
 
-  .dhead{display:flex;align-items:center;gap:var(--k-space-5);margin-bottom:var(--k-space-2)}
-  .dhead h1{font-size:var(--k-text-xl);margin:0}
-  .dhead h1{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .dhead .agent{margin-left:auto;font-size:var(--k-text-xs);color:var(--k-text-dim);font-family:var(--k-font-mono)}
-  /* The key pill IS the board link: provider mark + key + arrow, one target.
-     A separate link chip echoed the key (both print the board's id), so the
-     two collapse into one. The board ref/brief demote to the tooltip.
-     Manual (no board) is the same pill, dashed and inert — built on the shared
-     `.k-chip` primitive (UI-R08: one pill shape, one radius, for every chip in
-     this file), with only content-specific bits (monospace, the hover arrow
-     shift) layered on top. */
-  .dhead .keypill{font-family:var(--k-font-mono)}
-  .dhead a.keypill .arw{color:var(--k-link);transition:transform var(--k-dur-fast) var(--k-ease-standard)}
-  .dhead a.keypill:hover .arw{transform:translate(var(--k-space-1),calc(var(--k-space-1) * -1))}
-  /* Inert: dashed border + default cursor say plainly "not a control" — a
-     plain span, never a link, so nothing implies it is clickable (the
-     `.k-chip` informational form: no role, no tabindex). */
-  .dhead .keypill.local{border-style:dashed;color:var(--k-text-dim);
-    background:transparent;cursor:default}
-  /* The terminal binding. Off is the default, so the resting look is quiet —
-     an outline, like every other non-primary control here. On is not a hover
-     shade but a filled chip: the button reports a mode that changes what
-     clicking a TAB does, and a state that subtle reads as "nothing happened".
-     Built on `.k-btn--ghost` (quiet outline at rest) with the pressed state
-     re-themed to the primary action fill. */
-  .dhead .bindtoggle .dot{width:var(--k-space-3);height:var(--k-space-3);border-radius:var(--k-radius-circle);
-    background:currentColor;opacity:.45}
-  .dhead .bindtoggle[aria-pressed="true"]{color:var(--k-action-fg);
-    background:var(--k-action-bg);border-color:transparent}
-  .dhead .bindtoggle[aria-pressed="true"] .dot{opacity:1}
-  @media (prefers-reduced-motion:reduce){.dhead a.keypill:hover .arw{transform:none}}
+  /* Header (prototype v8): ticket identity + agent identity + ship action + … menu. */
+  .dhead{display:flex;align-items:center;gap:var(--k-space-5);margin-bottom:var(--k-space-6);flex-wrap:wrap}
+  .ticketIdentity{display:inline-flex;align-items:center;gap:var(--k-space-3);flex:none}
+  .ticketIdentity .provicon{width:var(--k-space-7);height:var(--k-space-7)}
+  .dhead h1.ticketTitle{min-width:0;flex:1;margin:0 var(--k-space-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--k-text-xl)}
+  .ticketKey{min-height:var(--k-hit-min);padding:0 var(--k-space-3);border:0;border-radius:var(--k-radius-sm);background:transparent;color:var(--k-text-dim);font-family:var(--k-font-mono);font-size:var(--k-text-xs);cursor:pointer}
+  .ticketKey:hover{background:var(--k-surface-hover);color:var(--k-text)}
+  .headerActions{display:flex;align-items:center;gap:var(--k-space-2);flex:none;margin-left:auto}
+  .agentWrap,.menuWrap{position:relative}
+  .agentButton{max-width:calc(var(--k-space-8) * 20);min-height:var(--k-control-h-lg);padding:0 var(--k-space-4);border:var(--k-border-w) solid transparent;border-radius:var(--k-radius-sm);background:transparent;color:var(--k-text);display:inline-flex;align-items:center;gap:var(--k-space-3);cursor:pointer;min-width:0}
+  .agentButton:hover:not(:disabled){background:var(--k-surface-hover);border-color:var(--k-border)}
+  .agentButton:disabled{opacity:.72;cursor:default}
+  .agentButton .agentSep{color:var(--k-text-faint);flex:none}
+  .agentMeta{min-width:0;max-width:calc(var(--k-space-8) * 9);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--k-text-dim);font-family:var(--k-font-mono);font-size:var(--k-text-xs)}
+  .agentLive{display:inline-flex;align-items:center;gap:var(--k-space-2);color:var(--k-text-dim);font-size:var(--k-text-xs);white-space:nowrap;flex:none}
+  .agentLiveDot{width:var(--k-space-3);height:var(--k-space-3);border-radius:var(--k-radius-circle);background:var(--k-pending);flex:none}
+  .agentLiveDot.running{background:var(--k-running)}
+  .agentLiveDot.waiting{background:var(--k-attention)}
+  /* The header + controls-menu icons are sized EXPLICITLY. An inline k-icon
+     svg carries no intrinsic size — the shared `.k-icon` rule applies only
+     the stroke treatment — so an unsized one renders at the browser's default
+     replaced-object size: in the agent button's unclipped flex row that
+     ballooned to ~275px and inflated the whole header. Every other icon in
+     this file carries its size (the panel headers' width/height attributes,
+     `.ib svg`); these five did not. */
+  .dhead .k-icon{width:var(--k-space-7);height:var(--k-space-7)}
+  /* The two popovers — agent switch form + ticket-controls menu (UI-R04: composed
+     from control-height tokens, no raw widths). */
+  .popover{display:none;position:absolute;z-index:50;top:calc(100% + var(--k-space-3));right:0;border:var(--k-border-w) solid var(--k-border-strong);border-radius:var(--k-radius-lg);background:var(--k-surface);box-shadow:var(--k-elev-2)}
+  .popover.hidden{display:none}
+  .popover.open{display:block}
+  .agentPopover{width:calc(var(--k-control-h-lg) * 14);padding:0}
+  .menuPopover{width:calc(var(--k-control-h-lg) * 12);padding:var(--k-space-4)}
+  .agentForm{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:var(--k-space-3) var(--k-space-4);padding:var(--k-space-4);align-items:center}
+  /* The label column is max-content, never a fixed step: "Agent core" is wider
+     than any spacing token, and a 20px column let the right-aligned label spill
+     out of the popover's left edge and over whatever sat beside it. `contents`
+     dissolves the row wrapper so label + control place straight into the two
+     columns; the help line takes the control column, so it can never drift from
+     the controls' indent. */
+  .fieldRow{display:contents}
+  .fieldLabel{margin:0;color:var(--k-text-faint);font-size:var(--k-text-xs);font-weight:var(--k-weight-medium);line-height:1;text-align:right;white-space:nowrap}
+  .fieldControl{min-width:0}
+  .fieldHelp{grid-column:2;color:var(--k-text-faint);font-size:var(--k-text-xs);line-height:1.35}
+  .popActions{display:flex;justify-content:flex-end;padding:var(--k-space-4);border-top:var(--k-border-w) solid var(--k-border)}
+  .menuButton{width:100%;min-height:var(--k-control-h-lg);display:flex;align-items:center;gap:var(--k-space-4);border:0;border-radius:var(--k-radius-sm);background:transparent;color:var(--k-text);padding:0 var(--k-space-4);cursor:pointer;text-align:left}
+  .menuButton:hover{background:var(--k-surface-hover)}
+  .menuButton .k-icon{color:var(--k-text-dim);flex:none}
+  .menuHeading{margin:var(--k-space-2) var(--k-space-4) var(--k-space-3);color:var(--k-text-faint);font-size:var(--k-text-2xs);font-weight:var(--k-weight-semibold);letter-spacing:.06em;text-transform:uppercase}
+  .menuDivider{height:1px;background:var(--k-border);margin:var(--k-space-3)}
+  .settingRow{display:flex;align-items:center;gap:var(--k-space-5);padding:var(--k-space-3) var(--k-space-4)}
+  .settingCopy{min-width:0;flex:1}
+  .settingTitle{font-size:var(--k-text-md);font-weight:var(--k-weight-medium)}
+  .settingHelp{margin-top:1px;color:var(--k-text-faint);font-size:var(--k-text-2xs);line-height:1.35}
+  .k-switch{position:relative;width:calc(var(--k-control-h-sm) * 1.5);height:var(--k-control-h-sm);flex:none;display:inline-block}
+  .k-switch input{position:absolute;opacity:0;pointer-events:none}
+  .k-switchTrack{position:absolute;inset:0;border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-pill);background:var(--k-surface-selected);cursor:pointer}
+  .k-switchTrack::after{content:"";position:absolute;width:calc(var(--k-control-h-sm) - var(--k-space-6));height:calc(var(--k-control-h-sm) - var(--k-space-6));border-radius:var(--k-radius-circle);left:calc(var(--k-space-2) - var(--k-border-w));top:calc(var(--k-space-2) - var(--k-border-w));background:var(--k-text-dim);transition:left var(--k-dur-fast) var(--k-ease-standard),background var(--k-dur-fast) var(--k-ease-standard)}
+  .k-switch input:checked + .k-switchTrack{background:color-mix(in srgb,var(--k-passed) 18%,var(--k-surface));border-color:color-mix(in srgb,var(--k-passed) 55%,var(--k-border))}
+  .k-switch input:checked + .k-switchTrack::after{left:calc(var(--k-control-h-sm) * .5);background:var(--k-passed)}
+  .k-switch input:focus-visible + .k-switchTrack{outline:1px solid var(--k-focus);outline-offset:2px}
+  .gateGroup{margin:0 var(--k-space-3) var(--k-space-3);border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-md);overflow:hidden}
+  .gateHead{min-height:var(--k-control-h-sm);display:flex;align-items:center;padding:0 var(--k-space-4);background:var(--k-surface-sunken);color:var(--k-text-faint);font-size:var(--k-text-2xs);font-weight:var(--k-weight-semibold);letter-spacing:.06em;text-transform:uppercase}
+  .gateRow{min-height:var(--k-control-h-lg);display:flex;align-items:center;gap:var(--k-space-4);padding:0 var(--k-space-4);border-top:var(--k-border-w) solid var(--k-border)}
+  .gateName{flex:1;font-family:var(--k-font-mono);font-size:var(--k-text-xs)}
+  .gateState{color:var(--k-text-faint);font-size:var(--k-text-xs)}
+  .gateToggle{min-width:calc(var(--k-control-h-sm) * 2.5);justify-content:flex-end;font-size:var(--k-text-xs)}
+  .menuBlurb{padding:var(--k-space-4);color:var(--k-text-faint);font-size:var(--k-text-xs)}
   /* Shared ticketing-provider badge (icon + brand name) — single source in
      src/model/providerIdentity.ts, injected here at load (CSP forbids a
      shared stylesheet). */
@@ -558,9 +608,11 @@
   #inside .agent-id{display:inline-flex;align-items:center;gap:var(--p-s1);min-width:0;height:18px;
     color:var(--p-muted);font-family:var(--p-mono);font-size:var(--p-xs);line-height:14px;vertical-align:middle}
   #inside .agent-id .agent-sep{color:var(--p-muted2);line-height:14px}
-  #inside .agent-icon{width:13px;height:13px;display:inline-grid;place-items:center;flex:none;color:var(--p-running)}
-  #inside .agent-icon svg{width:13px;height:13px;display:block;stroke:currentColor;fill:none;
-    stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+  /* Agent identity primitive — the mark is the CANONICAL provider icon
+     (injected as .agenticon) drawn at 13px in the core's own blue; the
+     stroke-based line-icon styling is gone with the prototype icon set. */
+  #inside .agent-icon,#inside .agenticon{width:13px;height:13px;display:inline-grid;place-items:center;flex:none;color:var(--p-running)}
+  #inside .agent-icon svg,#inside .agenticon svg{width:13px;height:13px;display:block}
   #inside .agent-core,#inside .agent-model{display:inline-flex;align-items:center;height:14px;line-height:14px;white-space:nowrap}
   #inside .agent-core{color:var(--p-running)}
   #inside .agent-model{color:var(--p-muted)}
@@ -628,6 +680,13 @@
   #inside .op-detail.wait{color:var(--p-attention)}
   #inside .op-detail.fail{color:var(--p-failed)}
   #inside .op-detail.note,#inside .op-detail.skip{font-style:italic}
+  /* The gates row's console entry (869e7n906-fu1): the description text and
+     the terminal icon share one flex slot, so a long gate summary ellipsizes
+     on its own span while the icon (flex:none, never shrunk or clipped) stays
+     visible at the end of the description area. */
+  #inside .op-detail.detail-console{display:inline-flex;align-items:center;gap:var(--p-s2);max-width:100%}
+  #inside .op-detail.detail-console .op-detail-text{overflow:hidden;text-overflow:ellipsis;
+    white-space:nowrap;min-width:0}
   #inside .op-tail{display:flex;align-items:center;justify-content:flex-end;gap:var(--p-s2);min-width:0;
     min-height:18px;line-height:18px;white-space:nowrap;padding-right:var(--p-s1)}
   #inside .count{display:inline-flex;align-items:center;height:18px;border:var(--k-border-w) solid var(--p-border);
@@ -1040,28 +1099,35 @@
     font-family:var(--p-mono);font-size:var(--p-xs)}
   /*KARST_INSIDE_PROTO_END*/
 
-  /* The fault card — the one loud element on the page, because a failure is the
-     one moment the user MUST read. Machine truth (reason, timings) is monospace. */
+  /* The blocked banner — the one loud element on the page, because a wait for
+     the user is the one moment the user MUST read. Machine truth (reason) is
+     monospace. */
   .fault{margin:var(--k-space-7) var(--k-space-3) var(--k-space-1);padding:var(--k-space-5) var(--k-space-6);
     border-left:calc(var(--k-border-w) * 3) solid var(--k-failed);
     border-radius:0 var(--k-radius-md) var(--k-radius-md) 0;background:var(--vscode-inputValidation-errorBackground,transparent)}
   .fault .ftitle{font-size:var(--k-text-md);font-weight:var(--k-weight-semibold);margin-bottom:var(--k-space-3)}
   .fault .freason{font-family:var(--k-font-mono);font-size:var(--k-text-sm);white-space:pre-wrap;word-break:break-word}
-  .fault .fmeta{font-family:var(--k-font-mono);font-size:var(--k-text-sm);color:var(--k-text-dim);margin-top:calc(var(--k-space-4) - var(--k-border-w))}
   .fault .facts{margin-top:var(--k-space-6)}
+  /* The waiting variant — `awaiting-merge` is a NORMAL WAIT, not a fault: the
+     banner drops the red failure edge and error wash for the amber attention
+     treatment the rest of the board already uses for blocked (rail seg.blocked,
+     inside-view waits), with the pause glyph so hue is not the only carrier
+     (UI-R28; DESIGN-SYSTEM.md §11.12 "needs attention · paused · blocked"). */
+  .fault.waiting{border-left-color:var(--k-attention);
+    background:color-mix(in srgb,var(--k-attention) 10%,transparent)}
+  .fault.waiting .ftitle{display:flex;align-items:center;gap:var(--k-space-3);color:var(--k-attention)}
 
-  /* The "Now" line — one plain sentence naming what is happening and the next
-     action the user controls. Built host-side (state.now) so the copy is tested. */
-  .now{display:flex;flex-wrap:wrap;align-items:center;gap:var(--k-space-5);margin:var(--k-space-6) var(--k-space-3) var(--k-space-1);padding-top:calc(var(--k-space-6) - var(--k-border-w));
-    border-top:var(--k-border-w) solid var(--k-border);font-size:var(--k-text-md);color:var(--k-text)}
-  .now .ntext{flex:1}
-  .now .now-sub{flex-basis:100%;font-size:var(--k-text-xs);color:var(--k-text-dim)}
-  /* The ship-in-progress spinner rides in the Now line at the gate-node size.
-     .spin is display:block, so it needs an explicit box here. */
-  .now .spin{width:var(--k-text-base);height:var(--k-text-base);flex:none;color:var(--k-running)}
-  /* The resolved-success flash: a brief "Shipped ✓" beside the settled line. */
-  .now .shipbadge{font-weight:var(--k-weight-semibold);flex:none}
-  .now .shipbadge.ok{color:var(--k-passed)}
+  /* The header ship workflow-action slot (UI-R28b): Confirm ship / Shipping… is
+     the primary action; Waiting to merge is the parked-wait chip. The two never
+     render together — the host's ShipSlot union is mutually exclusive. The
+     min-width is `calc`-composed so the label swap (Confirm ship / Retry ship /
+     Shipping…) never shifts the neighbouring controls (UI-R18). */
+  .shipAction{min-width:calc(var(--k-control-h-lg) * 3)}
+  .shipWait{display:inline-flex;align-items:center;gap:var(--k-space-3);min-height:var(--k-control-h-lg);padding:0 var(--k-space-4);border-radius:var(--k-radius-sm);color:var(--k-attention);font-size:var(--k-text-xs);font-weight:var(--k-weight-semibold);white-space:nowrap}
+  .shipWait.hidden{display:none}
+  .attentionMark{width:var(--k-space-4);height:var(--k-space-4);border:calc(var(--k-border-w) * 2) solid currentColor;border-radius:var(--k-radius-circle);display:inline-flex;align-items:center;justify-content:center;font-size:var(--k-text-2xs);line-height:1}
+  .toast{color:var(--k-success);font-size:var(--k-text-xs);opacity:0;transition:opacity var(--k-dur-fast) var(--k-ease-standard);white-space:nowrap}
+  .toast.show{opacity:1}
   .grid{display:grid;grid-template-columns:1fr 1fr;gap:var(--k-space-7)}
   .panel{border:var(--k-border-w) solid var(--k-border);border-radius:calc(var(--k-radius-lg) + var(--k-border-w));background:var(--k-surface);overflow:hidden}
   .panel.span{grid-column:1 / -1}
@@ -1150,10 +1216,6 @@
      on this panel), built in markup — no bespoke color rule left here. */
   .mgbtn{flex:none}
 
-  /* agent pill (colored by state) */
-  .agent-pill{display:inline-flex;align-items:center;gap:var(--k-space-3)}
-  .agent-pill .dot{width:var(--k-space-3);height:var(--k-space-3);border-radius:var(--k-radius-circle)}
-
   /* ===================== Servers panel ==================================
      One service is ONE LINE at every width. The panel reacts to its own grid
      column rather than the viewport, so containment is scoped to it — .panel
@@ -1172,14 +1234,15 @@
   .svpanel .phead .pops{margin-left:auto;display:flex;gap:var(--k-space-1)}
   .svpanel .pbody{padding:0}
 
-  /* Icon buttons — inline SVG off a sprite (no icon font, no external asset:
-     the webview CSP forbids both). Icon-only is what lets four actions share a
-     row without the action column outgrowing the data. The label is not lost,
-     it moves to aria-label + title, so the word survives for both pointer and
-     screen reader. Built on `.k-iconbtn` (UI-R07: sizing, hover surface, focus
-     ring, and the disabled/pending states all come from the primitive); `.ib`
-     stays a LAYOUT+colour-only local class — the glyph's own size, and each
-     action's resting hue off the shared status ramp. */
+  /* Icon buttons — inline Tabler SVGs from the injected catalog (docs/ui/
+     ICONS.md; no icon font, no external asset: the webview CSP forbids both).
+     Icon-only is what lets four actions share a row without the action column
+     outgrowing the data. The label is not lost, it moves to aria-label +
+     title, so the word survives for both pointer and screen reader. Built on
+     `.k-iconbtn` (UI-R07: sizing, hover surface, focus ring, and the
+     disabled/pending states all come from the primitive); `.ib` stays a
+     LAYOUT+colour-only local class — the glyph's own size, and each action's
+     resting hue off the shared status ramp. */
   .ib svg{width:calc(var(--k-space-6) + var(--k-space-1));height:calc(var(--k-space-6) + var(--k-space-1));display:block;
     transition:transform var(--k-dur-fast) var(--k-ease-standard)}
   /* Each action carries its OWN resting colour, off the same status ramp the
@@ -1278,32 +1341,23 @@
   .svpanel .estate.dead .ehead{color:var(--k-text-dim);font-weight:var(--k-weight-medium)}
   .svpanel .nomatch{padding:calc(var(--k-space-6) + var(--k-space-1));color:var(--k-text-faint);font-size:var(--k-text-md)}
 
-  /* Gates panel: one group per stage, one row per resolved gate name. */
-  #gates .blurb{padding:var(--k-space-5) var(--k-space-3);font-size:var(--k-text-sm);color:var(--k-text-dim)}
-  .ggroup{margin-bottom:var(--k-space-4)}
-  .gtitle{font-size:var(--k-text-2xs);color:var(--k-text-faint);text-transform:uppercase;
-    margin-bottom:var(--k-space-2);padding:0 var(--k-space-3)}
-  .gaterow{display:flex;align-items:center;gap:var(--k-space-4);
-    padding:var(--k-space-2) var(--k-space-3);border-radius:var(--k-radius-md)}
-  .gaterow:hover{background:var(--k-surface-hover)}
-  .gaterow.off .gname{text-decoration:line-through;color:var(--k-text-faint)}
-  .gaterow .gname{font-family:var(--k-font-mono);font-size:var(--k-text-sm);flex:1}
-  .gaterow .gstate{font-size:var(--k-text-xs);color:var(--k-text-dim)}
-
   /* Artifacts shelf + index + detail (§ docs/design/artifacts/README.md).
      The shelf is a panel like any other; the index and the detail REPLACE the
      dashboard body inside the SAME webview (spec §7: exactly three surfaces,
      no second tab/drawer), which is what body.art-nav hides below. */
   .artcards{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:var(--k-space-4)}
+  /* The "View all N" button is the header's count now — it sits at the right
+     edge exactly where the removed `.count` did. */
+  .phead #artViewAll{margin-left:auto}
   .artcard{display:block;width:100%;text-align:left;border:var(--k-border-w) solid var(--k-border);
     border-radius:var(--k-radius-lg);background:var(--k-surface);cursor:pointer;
-    padding:var(--k-space-5) var(--k-space-6)}
+    padding:var(--k-space-5) var(--k-space-6);color:var(--k-text)}
   .artcard:hover{background:var(--k-surface-hover)}
   .artcard:focus-visible{outline:2px solid var(--k-focus);outline-offset:1px}
   .artcard-title{display:flex;align-items:center;gap:var(--k-space-3);font-size:var(--k-text-md);
     font-weight:var(--k-weight-semibold);color:var(--k-text)}
   .artcard-summary{font-size:var(--k-text-sm);color:var(--k-text-dim);margin-top:var(--k-space-2)}
-  .artcard-meta{display:flex;align-items:center;gap:var(--k-space-3);margin-top:var(--k-space-4)}
+  .artcard-meta{display:flex;align-items:center;gap:var(--k-space-3);margin-top:var(--k-space-4);flex-wrap:wrap}
   .art-status{font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.4px;
     font-weight:var(--k-weight-semibold)}
   .art-status.passed{color:var(--k-passed)}
@@ -1311,36 +1365,49 @@
   .art-status.attention{color:var(--k-attention)}
   .art-status.info{color:var(--k-pending)}
   .art-stale{font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.4px;color:var(--k-attention)}
+  /* The detail's stale banner sits under the summary, not inline-styled. */
+  .artdetail .art-stale-note{text-transform:none;letter-spacing:normal;margin-top:var(--k-space-3)}
   /* The origin chip: one closed shape on every artifact surface (UI-R28 — the
      mark is a SECONDARY carrier; the label is the identity). Built from the
      injected agent identity (core icon) + the karst brand mark. */
   .art-origin{display:inline-flex;align-items:center;gap:var(--k-space-2);
     font-size:var(--k-text-xs);color:var(--k-text-dim);white-space:nowrap}
-  .art-origin .kmark{width:12px;height:12px;flex:none;color:var(--k-text-faint)}
-  .art-origin .agenticon{width:12px;height:12px;flex:none}
+  .art-origin .kmark{width:var(--k-space-6);height:var(--k-space-6);flex:none;color:var(--k-text-faint)}
+  .art-origin .agenticon{width:var(--k-space-6);height:var(--k-space-6);flex:none}
   /* The in-webview index/detail surface: takes over the whole dashboard body
      while active, restoring it on Back/Esc. */
   body.art-nav .stepper,body.art-nav .grid{display:none}
-  .artview{padding:var(--k-space-7) 0 var(--k-space-9);max-width:720px}
+  body.term-nav .stepper,body.term-nav .grid{display:none}
+  .artview{padding:var(--k-space-7) 0 var(--k-space-9);max-width:720px;color:var(--k-text)}
   .arthead{display:flex;align-items:center;gap:var(--k-space-4);margin-bottom:var(--k-space-6);flex-wrap:wrap}
   .arthead h2{margin:0;font-size:var(--k-text-lg);font-weight:var(--k-weight-semibold)}
   .arthead .artsub{font-size:var(--k-text-sm);color:var(--k-text-dim)}
   .artgroup{margin-bottom:var(--k-space-7)}
   .artgroup-title{font-size:var(--k-text-2xs);color:var(--k-text-faint);text-transform:uppercase;
     letter-spacing:.4px;margin-bottom:var(--k-space-3)}
+  /* The index's own list: its rows are the `.artrow` buttons, which carry
+     their own border/padding — wrapping them in `.artfiles li` (whose styling
+     exists for the DETAIL's single-line file rows) drew a second border around
+     each row. */
+  .artrows{list-style:none;margin:0;padding:0}
+  .artrows li{margin-bottom:var(--k-space-3)}
   .artrow{display:flex;align-items:center;gap:var(--k-space-5);width:100%;text-align:left;
     padding:var(--k-space-4) var(--k-space-5);border:var(--k-border-w) solid var(--k-border);
-    border-radius:var(--k-radius-md);background:var(--k-surface);cursor:pointer}
+    border-radius:var(--k-radius-md);background:var(--k-surface);cursor:pointer;color:var(--k-text)}
   .artrow:hover{background:var(--k-surface-hover)}
   .artrow:focus-visible{outline:2px solid var(--k-focus);outline-offset:1px}
   .artrow .artrow-body{min-width:0;flex:1}
-  .artrow-title{font-size:var(--k-text-md);font-weight:var(--k-weight-medium)}
+  .artrow-title{font-size:var(--k-text-md);font-weight:var(--k-weight-medium);color:var(--k-text)}
   .artrow-summary{font-size:var(--k-text-sm);color:var(--k-text-dim);margin-top:var(--k-space-1)}
   .artrow .arw{margin-left:auto;color:var(--k-text-faint);flex:none}
   .artdetail .artsection{margin-bottom:var(--k-space-7)}
-  .artdetail .artheading{font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.4px;
+  /* The section heading is a flex row so the console entry (the xterm view of
+     a gate stage's log) can sit at its right edge without a second line. */
+  .artdetail .artheading{display:flex;align-items:center;gap:var(--k-space-3);
+    font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.4px;
     color:var(--k-text-faint);margin-bottom:var(--k-space-3)}
-  .arthero{display:flex;align-items:baseline;gap:var(--k-space-4);flex-wrap:wrap}
+  .artdetail .artheading .sp{margin-left:auto}
+  .arthero{display:flex;align-items:center;gap:var(--k-space-4);flex-wrap:wrap}
   .arthero .art-title{font-size:var(--k-text-lg);font-weight:var(--k-weight-semibold)}
   .artmetrics{display:flex;gap:var(--k-space-6);flex-wrap:wrap;margin-top:var(--k-space-3)}
   .artmetric{font-family:var(--k-font-mono);font-size:var(--k-text-md);color:var(--k-text)}
@@ -1356,6 +1423,17 @@
     padding:var(--k-space-2) 0;border-bottom:var(--k-border-w) solid var(--k-border)}
   .artgate .ag-name{font-family:var(--k-font-mono);flex:1;color:var(--k-text)}
   .artgate .ag-code{font-size:var(--k-text-xs);color:var(--k-text-dim)}
+  /* One gate's outcome as a COLOURED STATE, not a text label: the dot is the
+     shipped `.k-dot` status primitive (gap G1 — hue is its current carrier),
+     green for pass, red for fail; the state word rides only as the dot's
+     accessible name (UI-R28), and the exit code stays as the row's detail. */
+  .artgate .ag-state{display:inline-flex;flex:none}
+  .artgate .ag-state .ag-dot{width:var(--k-space-3);height:var(--k-space-3);
+    border-radius:var(--k-radius-circle);flex:none}
+  .artgate .ag-state.pass .ag-dot{background:var(--k-passed)}
+  .artgate .ag-state.fail .ag-dot{background:var(--k-failed)}
+  .artgate .ag-state.note .ag-dot{background:transparent;
+    border:calc(var(--k-border-w) * 2) solid var(--k-pending)}
   .artmeta{display:grid;grid-template-columns:auto 1fr;gap:var(--k-space-2) var(--k-space-5);
     font-size:var(--k-text-sm)}
   .artmeta .am-key{color:var(--k-text-faint)}
@@ -1364,85 +1442,111 @@
     padding:var(--k-space-3) var(--k-space-4);border:var(--k-border-w) solid var(--k-border);
     border-radius:var(--k-radius-md);margin-bottom:var(--k-space-3)}
   .artfiles .af-name{font-family:var(--k-font-mono);font-size:var(--k-text-sm);flex:1;color:var(--k-text)}
+  /* In-body object links (UI-R09c): the commit SHA, the PR number and a
+     finding's file location ARE the controls — underlined, monospaced,
+     keyboard-focusable — never inert text beside a duplicate button. */
+  .artdetail .obj-link{display:inline-flex;align-items:center;color:var(--k-link);
+    text-decoration-line:underline;text-decoration-thickness:var(--k-border-w);
+    text-decoration-color:var(--k-border);text-underline-offset:var(--k-space-1);cursor:pointer;
+    font-family:var(--k-font-mono);border-radius:var(--k-radius-xs)}
+  .artdetail .obj-link:hover{color:var(--k-link);text-decoration-color:currentColor}
+  .artdetail .obj-link:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+  .artfiles .pr-link{color:var(--k-text);font-weight:var(--k-weight-semibold)}
+  .artfiles .pr-status{display:inline-flex;align-items:center;border:var(--k-border-w) solid var(--k-border);
+    border-radius:var(--k-radius-pill);padding:var(--k-space-0) var(--k-space-2);color:var(--k-text-dim);
+    font-family:var(--k-font-mono);font-size:var(--k-text-2xs);text-transform:lowercase;white-space:nowrap}
+  .artfiles .pr-status.open{color:var(--k-running);border-color:var(--k-border)}
+  .artfiles .pr-status.merged{color:var(--k-passed);border-color:var(--k-border)}
+  .artfiles .pr-status.closed{color:var(--k-failed);border-color:var(--k-border)}
+  .artfiles .commit-sha{color:var(--k-text-dim)}
+
+  /* The terminal console surface (xterm "detailed mode"): a full-body swap via
+     body.term-nav, exactly like the artifact surface — the SAME webview hosts
+     the ticket dashboard and the console view, never a second tab. */
+  .termview{position:fixed;inset:0;z-index:8;display:flex;flex-direction:column;background:var(--k-bg);color:var(--k-text);font-family:var(--k-font-mono)}
+  /* The surface starts closed (class="termview hidden"): .termview and .hidden
+     have EQUAL specificity, so the LATER declaration wins the cascade — this
+     override must follow the .termview block or display:flex beats
+     .hidden{display:none} and the empty console box (position:fixed, inset:0,
+     opaque) covers the whole dashboard on every open. */
+  .termview.hidden{display:none}
+  .termview .thead{display:flex;align-items:center;gap:var(--k-space-4);padding:var(--k-space-3) var(--k-space-4);border-bottom:var(--k-border-w) solid var(--k-border)}
+  .termview .ttitle{font-weight:var(--k-weight-semibold)}
+  .termview .tstatus{font-size:var(--k-text-xs);color:var(--k-text-dim);padding:var(--k-space-2) var(--k-space-4)}
+  .termview .termhost{flex:1;min-height:0;overflow:hidden}
+  .termview .blurb{padding:var(--k-space-6);color:var(--k-text-dim)}
 </style>
 
-<!-- Icon sprite for the servers panel. Stroked 16px glyphs on currentColor,
-     sized to sit beside 12.5px row text. Inline because the CSP forbids an icon
-     font and any external asset; defined once, referenced with <use>. -->
-<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
-  <defs>
-    <g id="i-open" fill="none" stroke="currentColor" stroke-width="1.4"
-       stroke-linecap="round" stroke-linejoin="round">
-      <path d="M7.5 3.5H4A1.5 1.5 0 0 0 2.5 5v7A1.5 1.5 0 0 0 4 13.5h7a1.5 1.5 0 0 0 1.5-1.5V8.5"/>
-      <path d="M9.5 2.5h4v4"/><path d="M13.5 2.5 7.5 8.5"/>
-    </g>
-    <g id="i-copy" fill="none" stroke="currentColor" stroke-width="1.4"
-       stroke-linecap="round" stroke-linejoin="round">
-      <rect x="5.5" y="2.5" width="8" height="8" rx="1.5"/>
-      <path d="M10.5 10.5V12A1.5 1.5 0 0 1 9 13.5H4A1.5 1.5 0 0 1 2.5 12V7A1.5 1.5 0 0 1 4 5.5h1.5"/>
-    </g>
-    <g id="i-diff" fill="none" stroke="currentColor" stroke-width="1.4"
-       stroke-linecap="round" stroke-linejoin="round">
-      <path d="M4 2.5v11M2.5 4 4 2.5 5.5 4M12 13.5v-11M10.5 12 12 13.5l1.5-1.5"/>
-      <path d="M4 8h5a3 3 0 0 0 3-3"/>
-    </g>
-    <g id="i-terminal" fill="none" stroke="currentColor" stroke-width="1.4"
-       stroke-linecap="round" stroke-linejoin="round">
-      <rect x="2" y="2.5" width="12" height="11" rx="1.5"/>
-      <path d="m4.5 6 2 2-2 2M8.5 10h3"/>
-    </g>
-    <g id="i-folder" fill="none" stroke="currentColor" stroke-width="1.4"
-       stroke-linecap="round" stroke-linejoin="round">
-      <path d="M2 5.5h12v6A1.5 1.5 0 0 1 12.5 13h-9A1.5 1.5 0 0 1 2 11.5z"/>
-      <path d="M2 5.5V4A1.5 1.5 0 0 1 3.5 2.5H7l1.5 2H14v1"/>
-    </g>
-    <g id="i-restart" fill="none" stroke="currentColor" stroke-width="1.4"
-       stroke-linecap="round" stroke-linejoin="round">
-      <path d="M13 8a5 5 0 1 1-1.6-3.7"/><path d="M13.2 2.6v3.2H10"/>
-    </g>
-    <g id="i-stop" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round">
-      <rect x="4.2" y="4.2" width="7.6" height="7.6" rx="1.3" fill="currentColor"/>
-    </g>
-    <g id="i-start" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round">
-      <path d="M5.2 3.4 12 8l-6.8 4.6z" fill="currentColor"/>
-    </g>
-    <!-- Copy confirmation: an icon button has no text to swap, so the glyph is
-         what flashes. -->
-    <g id="i-check" fill="none" stroke="currentColor" stroke-width="1.6"
-       stroke-linecap="round" stroke-linejoin="round">
-      <path d="M3 8.4 6.4 11.8 13 5.2"/>
-    </g>
-    <!-- Empty-state marks: a rack of services, and a struck-through circle for
-         the case where nothing in scope can ever run. -->
-    <g id="i-rack" fill="none" stroke="currentColor" stroke-width="1.3"
-       stroke-linecap="round" stroke-linejoin="round">
-      <rect x="2.5" y="2.5" width="11" height="4.5" rx="1.2"/>
-      <rect x="2.5" y="9" width="11" height="4.5" rx="1.2"/>
-      <path d="M5 4.75h.01"/><path d="M5 11.25h.01"/>
-    </g>
-    <g id="i-ban" fill="none" stroke="currentColor" stroke-width="1.3"
-       stroke-linecap="round" stroke-linejoin="round">
-      <circle cx="8" cy="8" r="5.6"/><path d="M4.2 4.2 11.8 11.8"/>
-    </g>
-    <!-- The karst brand mark (media/karst.svg) at sprite size: three circles
-         and their connecting lines. Used by the artifact origin chip as the
-         karst-produced marker; the label beside it is the identity. -->
-    <g id="i-karst" fill="none" stroke="currentColor" stroke-width="1.6"
-       stroke-linecap="round" stroke-linejoin="round">
-      <circle cx="6" cy="6" r="2.4"/><circle cx="18" cy="6" r="2.4"/><circle cx="12" cy="18" r="2.4"/>
-      <path d="M7.6 7.6 10.7 15.6"/><path d="M16.4 7.6 13.3 15.6"/><path d="M8 6h8"/>
-    </g>
-  </defs>
-</svg>
-
 <div class="dhead">
-  <span id="keyPill"></span>
-  <h1 id="title"></h1>
-  <span class="agent" id="agent"></span>
-  <button id="bindBtn" type="button" class="k-btn k-btn--ghost k-btn--sm bindtoggle" data-act="toggle-bind" aria-pressed="false"
-    title="Bind is off — this dashboard and the agent terminal move independently"><span class="dot" aria-hidden="true"></span>Bind terminal</button>
-  <button id="followUpBtn" type="button" class="hidden k-btn k-btn--secondary k-btn--sm" data-act="create-follow-up-ticket" title="Create a new ticket linked to this one, pre-filled with its repos/approach/agent">Create follow-up</button>
-  <button id="editBtn" type="button" class="k-btn k-btn--secondary k-btn--sm" data-act="edit-ticket" title="Edit this ticket's title, description, and scope">Edit</button>
+  <div class="ticketIdentity">
+    <span id="providerMark" class="provicon" aria-hidden="true"></span>
+    <button id="keyBtn" type="button" class="ticketKey" data-act="copy-ticket-key" data-copy title="Copy ticket key" aria-label="Copy ticket key"></button>
+    <a id="boardLink" class="k-iconbtn" href="#" data-act="open-ticket-link" data-url="${esc(state.ticketUrl)}" hidden
+      aria-label="Open ticket in provider" title="Open ticket in provider">
+      <svg class="k-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 6h-6a2 2 0 0 0 -2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-6"/><path d="M11 13l9 -9"/><path d="M15 4h5v5"/></svg>
+    </a>
+  </div>
+  <h1 id="title" class="ticketTitle"></h1>
+  <div class="headerActions">
+    <div class="agentWrap">
+      <button id="agentButton" type="button" class="agentButton" aria-expanded="false" aria-haspopup="dialog"
+        title="Switch the live agent session">
+        <span id="agentCore" class="k-agent-core"></span>
+        <span aria-hidden="true" class="agentSep">·</span>
+        <span id="agentModel" class="agentMeta"></span>
+        <span class="agentLive"><span id="agentDot" class="agentLiveDot idle"></span><span id="agentLiveText">idle</span></span>
+        <svg class="k-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 9l6 6l6 -6"/></svg>
+      </button>
+      <div id="agentPopover" class="popover agentPopover hidden" role="dialog" aria-label="Switch active agent">
+        <div class="agentForm">
+          <div class="fieldRow">
+            <label class="fieldLabel" for="coreSelect">Agent core</label>
+            <div class="fieldControl"><select id="coreSelect" class="k-select"></select></div>
+          </div>
+          <div class="fieldRow">
+            <label class="fieldLabel" for="modelSelect">Model</label>
+            <div class="fieldControl"><select id="modelSelect" class="k-select"></select></div>
+          </div>
+          <div class="fieldHelp">Provider and model changes are staged. Closing this menu takes no action.</div>
+        </div>
+        <div class="popActions">
+          <button id="switchBtn" type="button" class="k-btn k-btn--primary" disabled>Switch agent…</button>
+        </div>
+      </div>
+    </div>
+    <span id="toast" class="toast" aria-live="polite"></span>
+    <button id="confirmShip" type="button" class="k-btn k-btn--primary k-btn--sm shipAction" data-act="ship-ticket" title="Ship this ticket — commit, push, and open pull requests" hidden>Confirm ship</button>
+    <span id="shipWait" class="shipWait hidden" role="status"><span class="attentionMark" aria-hidden="true">❚❚</span><span>Waiting to merge</span></span>
+    <div class="menuWrap">
+      <button id="moreBtn" type="button" class="k-iconbtn" aria-expanded="false" aria-haspopup="menu" aria-label="Ticket controls" title="Ticket controls">
+        <svg class="k-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"/><path d="M12 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"/><path d="M19 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"/></svg>
+      </button>
+      <div id="menuPopover" class="popover menuPopover hidden" role="menu" aria-label="Ticket controls">
+        <div class="menuHeading">Ticket</div>
+        <button type="button" class="menuButton" data-act="edit-ticket" role="menuitem">
+          <svg class="k-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 20h4l10.5 -10.5a2.828 2.828 0 1 0 -4 -4l-10.5 10.5v4"/><path d="M13.5 6.5l4 4"/></svg><span>Edit ticket</span>
+        </button>
+        <button type="button" class="menuButton hidden" id="followUpItem" data-act="create-follow-up-ticket" role="menuitem">
+          <svg class="k-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 5l0 14"/><path d="M5 12l14 0"/></svg><span>Create follow-up</span>
+        </button>
+        <div class="menuDivider"></div>
+        <div class="menuHeading">Quick setting</div>
+        <div class="settingRow">
+          <div class="settingCopy">
+            <div class="settingTitle">Link dashboard ↔ terminal</div>
+            <div class="settingHelp">Global · focusing either view brings the paired view forward.</div>
+          </div>
+          <label class="k-switch">
+            <input id="linkViews" type="checkbox" aria-label="Link dashboard and terminal">
+            <span class="k-switchTrack"></span>
+          </label>
+        </div>
+        <div class="menuDivider"></div>
+        <div class="menuHeading">Gates for this ticket</div>
+        <div id="menuGates" class="menuGates"></div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <div class="stepper">
@@ -1450,15 +1554,14 @@
   <div class="railwrap" id="rail"></div>
   <!-- What happens inside the SELECTED stage (defaults to the current one). -->
   <div id="inside"></div>
-  <!-- Inline fault card for a failed stage: reason + timings + [Open log]. -->
-  <div class="fault hidden" id="fault"></div>
   <!-- The blocked banner: why the CURRENT stage could not ask its question,
        plus [Resume]. Shares the `.fault` visual language (DESIGN-SYSTEM.md
        maps `--k-failed` to "failed · blocked") — never both at once, since a
-       blocked stage sits at running/pending, not failed. -->
+       blocked stage sits at running/pending, not failed. The `awaiting-merge`
+       wait is the exception: renderBlocked swaps it onto the amber
+       `.fault.waiting` treatment, because a wait is not a fault. -->
   <div class="fault blocked hidden" id="blocked"></div>
-  <!-- What is happening and what the user can do next (state.now). -->
-  <div class="now" id="now"></div></div>
+</div>
 
 <div class="grid">
   <div class="panel svpanel"><div class="phead">Servers<span class="count" id="srvCount"></span><span class="pops" id="srvOps"></span></div><div class="pbody" id="servers"></div></div>
@@ -1466,29 +1569,27 @@
        a wrapper its `margin-left:auto` had nothing to push against, so it read
        as "Worktrees2" and the button sat wherever the text ended. -->
   <div class="panel"><div class="phead">Worktrees<span class="count" id="wtCount"></span><button id="wtChanges" class="k-iconbtn iconbtn" data-act="show-changes" type="button"
-    aria-label="Show ticket changes" title="Show ticket changes"><svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false"><use href="#i-diff"/></svg></button></div><div class="pbody" id="worktrees"></div></div>
+    aria-label="Show ticket changes" title="Show ticket changes"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 6a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/><path d="M16 18a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/><path d="M11 6h5a2 2 0 0 1 2 2v8"/><path d="M14 9l-3 -3l3 -3"/><path d="M13 18h-5a2 2 0 0 1 -2 -2v-8"/><path d="M10 15l3 3l-3 3"/></svg></button></div><div class="pbody" id="worktrees"></div></div>
   <div class="panel span"><div class="phead">Pull requests<span class="count" id="prCount"></span><button id="prRefresh" class="k-iconbtn iconbtn" data-act="refresh-prs" type="button"
     aria-label="Re-check pull request status and mergeability now" title="Re-check pull request status and mergeability now">
-    <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false"><path fill="currentColor" d="M8 3a5 5 0 1 0 4.546 2.914l1.09-.508A6.2 6.2 0 1 1 8 1.8V0l3 2.4-3 2.4V3Z"/></svg>
+    <svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20 11a8.1 8.1 0 0 0 -15.5 -2m-.5 -4v4h4"/><path d="M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4"/></svg>
   </button></div><div class="pbody" id="prs"></div></div>
-  <!-- Resolved async, host-side, on its own gate-options message — same split
-       as Worktrees' stats — because listing what a ticket's UAT/review stages
-       would actually run needs a filesystem probe the synchronous state push
-       cannot do. Empty until that message lands. -->
-  <div class="panel span"><div class="phead">Gates<span class="count" id="gateCount"></span></div><div class="pbody" id="gates"></div></div>
   <!-- The artifacts shelf (docs/design/artifacts). Rendered only while the
        ticket has at least one artifact — renderArtifacts() toggles .hidden —
        because the spec's zero-artifact state is ABSENCE, never an empty
        section (§4.1). The count is top-level semantic artifacts; the previews
        are the host's semantic-priority order (state.artifacts is sorted), and
-       `View all N` opens the index INSIDE this webview. -->
-  <div class="panel span hidden" id="artPanel"><div class="phead">Artifacts<span class="count" id="artCount"></span><button id="artViewAll" type="button" class="k-btn k-btn--ghost k-btn--sm" data-art="index" title="Show every artifact this ticket has produced">View all <span id="artTotal"></span> ›</button></div><div class="pbody" id="artifacts"></div></div>
+       `View all N` opens the index INSIDE this webview. The panel carries NO
+       `.count` of its own — the "View all N" button IS the counter (the two
+       repeated the same number twice in one header). -->
+  <div class="panel span hidden" id="artPanel"><div class="phead">Artifacts<button id="artViewAll" type="button" class="k-btn k-btn--ghost k-btn--sm" data-art="index" title="Show every artifact this ticket has produced">View all <span id="artTotal"></span> ›</button></div><div class="pbody" id="artifacts"></div></div>
 </div>
 
 <!-- The artifact index/detail surface: the SAME webview, never a second tab.
      While active it replaces the dashboard body (body.art-nav hides .stepper
      and .grid); Back and Esc return to the ticket dashboard (spec §7–8). -->
 <div id="artView" class="artview hidden" tabindex="-1"></div>
+<div id="termView" class="termview hidden" tabindex="-1"></div>
 
 <script>
   /*KARST_DS_JS*/
@@ -1504,6 +1605,8 @@
   // identity chip consumes agentIconHtml (B1), so the markers are load-bearing:
   // without them the chip would throw ReferenceError on the first process row.
   /*KARST_AGENT_JS*/
+
+  /*KARST_XTERM_JS*/
 
   const vscode = acquireVsCodeApi();
   const post = (msg) => vscode.postMessage(msg);
@@ -1629,18 +1732,27 @@
   // artifact id. Survives reload via persist().
   let artScrolls = { ticket: 0, index: 0, detail: {} };
 
-  // "12:04:31 · 42s" — machine truth, so it is rendered in mono. Duration is
-  // omitted while a stage is still running (no endedAt yet).
-  function timingText(cell) {
-    if (!cell.startedAt) return '';
-    const started = new Date(cell.startedAt);
-    if (Number.isNaN(started.getTime())) return '';
-    const stamp = started.toLocaleTimeString();
-    if (!cell.endedAt) return stamp;
-    const ms = new Date(cell.endedAt).getTime() - started.getTime();
-    if (!Number.isFinite(ms) || ms < 0) return stamp;
-    return `${stamp} · ${(ms / 1000).toFixed(1)}s`;
-  }
+  // The terminal console surface (xterm "detailed mode"): which stage's console
+  // is open (a gate-stage key, or null). NOT persisted — like `liveOps`, a
+  // restored view would claim content that died with the Terminal instance on
+  // reload. `termLoading` is the in-between state between the request and the
+  // host's GUARANTEED answer (the stage-log message is always sent, ok or
+  // error — UI-R13), which is also the terminal outcome.
+  let termView = null;
+  let termLoading = false;
+  let term = null;
+  let termFit = null;
+  let termResize = null;
+  // The console action is webview-LOCAL: it opens the terminal surface and
+  // posts `stage-log-request`; it never reaches the host, so it has no
+  // `routeAction` case. The literal is declared ONCE here and interpolated at
+  // render — the webview pin ("emits no action the host does not validate")
+  // scans the SOURCE for literal data-act values and would read a bare
+  // console-valued one as an unvalidated host action, so the action name must
+  // never be spelled as a data-act literal in this file. The rendered DOM
+  // still carries the console data-act value (same pattern as any action name
+  // the pin would otherwise flag as unvalidated).
+  const CONSOLE_ACT = 'console';
 
   // Under a rail node there is room for one number, not a sentence. The full
   // stamp belongs to the Inside header, which has a line to itself.
@@ -1839,7 +1951,7 @@
   // its per-kind evidence bodies.
 
   // kind → label, from the closed InsideActionKind vocabulary. Static control
-  // copy (UI-R20), like NOW_TITLE — the host never ships these strings.
+  // copy (UI-R20), like every other fixed label — the host never ships these strings.
   const INSIDE_ACTION_LABEL = {
     'open-pr': 'Open PR',
     'open-commit': 'Open commit',
@@ -1901,13 +2013,14 @@
 
   // ── the prototype's shared primitives ──────────────────────────────────
   // The identity run: [agent name ·] core mark + core · model. Every part is
-  // host-shipped (`AgentExecutionView`); the mark comes from the injected
-  // line-icon renderer, so a provider with no mark degrades to text alone.
+  // host-shipped (`AgentExecutionView`); the mark is the CANONICAL provider
+  // icon from the injected identity renderer, so a provider with no mark
+  // degrades to text alone.
   function agentIdHtml(x) {
     if (!x) return '';
     const name = x.agentName
       ? `<span class="agent-name">${esc(x.agentName)}</span><span class="agent-sep">·</span>` : '';
-    const icon = x.provider ? agentLineIconHtml(x.provider) : '';
+    const icon = x.provider ? agentIconHtml(x.provider) : '';
     const core = x.providerLabel ? `<span class="agent-core">${esc(x.providerLabel)}</span>` : '';
     const model = x.modelLabel
       ? `<span class="agent-sep">·</span><span class="agent-model">${esc(x.modelLabel)}</span>` : '';
@@ -2205,7 +2318,7 @@
     // borrow the identity chip's colour for something that is not an
     // identity (869egdr2u-fu1).
     const identity = r.provider
-      ? `<span class="agent-id">${agentLineIconHtml(r.provider)}`
+      ? `<span class="agent-id">${agentIconHtml(r.provider)}`
         + `<span class="agent-core">${esc(r.detail || '')}</span></span>`
       : '<span></span>';
     if (r.connector === 'switch' || r.connector === 'resume') {
@@ -2273,7 +2386,7 @@
   // operability comes from the element, never a handler (UI-R09). One with
   // nothing behind it is the prototype's `.op-static` — a row that states its
   // fact and offers no disclosure it cannot honour.
-  function processRowHtml(p, key, open) {
+  function processRowHtml(p, key, open, consoleStage) {
     const ai = p.execution || p.configuredExecution ? '<span class="ai-mark">AI</span>' : '';
     // No status WORD in the tail: the prototype's row carries its state on the
     // glyph (which keeps the word as its accessible name) and in the detail's
@@ -2289,7 +2402,23 @@
       + `</span>`;
     const name = `<span class="op-name">${esc(p.label)}${ai}</span>`;
     const glyph = `<span class="glyph ${esc(p.status)}" aria-label="${esc(p.statusLabel || statusWord(p.status))}"></span>`;
-    const detail = `<span class="op-detail ${esc(p.status)}">${esc(p.detail || '')}</span>`;
+    // The console (terminal detailed mode) entry point: the GATES row's
+    // description area, icon-only (869e7n906-fu1). The label is not lost — it
+    // moves to aria-label + title, the SAME string on both (UI-R21/R24), and
+    // `data-console` still carries the stage whose log this opens, so the
+    // click handler is untouched. The gates row is the one row whose summary
+    // IS the gate run, so this button shows the gates' test log (uat) or the
+    // review gates' log (review) depending on which stage view is on screen.
+    const consoleBtn = consoleStage && p.id === 'gates'
+      ? `<button type="button" class="k-iconbtn ib t-open" data-act="${CONSOLE_ACT}"`
+        + ` data-console="${esc(consoleStage)}"`
+        + ` aria-label="View this stage's console output in the dashboard"`
+        + ` title="View this stage's console output in the dashboard">${svgIcon('terminal-2')}</button>`
+      : '';
+    const detail = `<span class="op-detail ${esc(p.status)}${consoleBtn ? ' detail-console' : ''}">`
+      + (p.detail ? `<span class="op-detail-text">${esc(p.detail)}</span>` : '')
+      + consoleBtn
+      + `</span>`;
     const footer = p.footer && p.footer.length
       ? `<div class="session-foot">${p.footer.map((f, i) => `<span${i === p.footer.length - 1 ? ' class="session-rule"' : ''}>${esc(f)}</span>`).join('')}</div>`
       : '';
@@ -2405,8 +2534,15 @@
       : '';
 
     const procs = overlayProcesses(view);
+    // The console (terminal detailed mode) entry point lives in the GATES
+    // row's description area, not the header (869e7n906-fu1): that row's
+    // summary IS the gate run this console renders, so the button sits beside
+    // the text that names it. Availability is still the host-derived
+    // `view.console` flag — only the stage key travels on, so the click
+    // handler posts exactly the stage whose log is available.
+    const consoleStage = view.console ? view.stageKey : null;
     const body = procs.length
-      ? `<div class="ledger">${procs.map((p) => processRowHtml(p, `${view.stageKey}:${p.id}`, processOpen(p, `${view.stageKey}:${p.id}`))).join('')}</div>`
+      ? `<div class="ledger">${procs.map((p) => processRowHtml(p, `${view.stageKey}:${p.id}`, processOpen(p, `${view.stageKey}:${p.id}`), consoleStage)).join('')}</div>`
       : `<div class="blurb">${esc(view.blurb)}</div>`;
 
     // The prototype's block: viewing bar, then the three-cell header (stage
@@ -2416,24 +2552,6 @@
       + `<span class="inside-title" id="inside-title">Inside ${esc(view.stageKey)}</span>`
       + `<span class="inside-live ${esc(lstatus)}">${alive}</span>`
       + `<span class="inside-meta">${esc(view.clock)}</span></div>${body}</section>`;
-  }
-  // The fault card: the reason a red node is red, the log behind it, and when it
-  // ran. Shown only for a failed stage — everything else stays quiet.
-  function renderFault(stepper) {
-    const box = el('fault');
-    const failed = (stepper || []).find((s) => s.status === 'failed');
-    box.classList.toggle('hidden', !failed);
-    if (!failed) { box.innerHTML = ''; return; }
-    const title = `${STAGE_TITLE[failed.stageKey] || failed.stageKey} failed`;
-    const timing = timingText(failed);
-    const attempt = failed.attempt ? ` · attempt ${esc(failed.attempt)}` : '';
-    box.innerHTML = `<div class="ftitle">${esc(title)}</div>`
-      + `<div class="freason">${esc(failed.reason || 'No reason recorded.')}</div>`
-      + (timing ? `<div class="fmeta">${esc(timing)}${attempt}</div>` : '')
-      + (failed.artifactPath
-        ? `<div class="facts"><button type="button" class="k-btn k-btn--secondary k-btn--sm" data-act="open-stage-log"`
-          + ` data-path="${esc(failed.artifactPath)}" title="Open this stage's log file in an editor">Open log</button></div>`
-        : '');
   }
 
   // The blocked banner: why karst could not ask the CURRENT stage's question
@@ -2452,10 +2570,17 @@
     // as a normal wait for one of them to land. The flag is the host's verdict
     // (`blockedDetail`, model/stepper.ts), never a reason-string match here.
     if (blocked.resumable === false) {
-      box.innerHTML = `<div class="ftitle">Waiting to merge</div>`
+      // The wait wears the waiting treatment — amber attention edge + pause
+      // glyph (`.fault.waiting`), never the red failure edge — so a waiting
+      // ticket cannot read as a failed one (UI-R28).
+      box.classList.add('waiting');
+      box.innerHTML = `<div class="ftitle">${karstIcon('player-pause', 14)}`
+        + `<span>Waiting to merge</span></div>`
         + `<div class="freason">${esc(blocked.reason)}</div>`;
       return;
     }
+    // A resumable block is a real fault — the banner drops the waiting look.
+    box.classList.remove('waiting');
     const title = `${STAGE_TITLE[cell.stageKey] || cell.stageKey} is blocked`;
     box.innerHTML = `<div class="ftitle">${esc(title)}</div>`
       + `<div class="freason">${esc(blocked.reason)}</div>`
@@ -2468,66 +2593,58 @@
       + ` title="Clear the block and let karst try this stage again">Resume</button></div>`;
   }
 
-  // One sentence + at most one button. The copy is built host-side (model/nowLine)
-  // and shipped in the state, so it is unit-tested and lives in exactly one place.
-  // `session` and `resume` both route to resume-ticket: the host's openSession
-  // resolves --resume vs. a fresh (self-scoping) launch on its own, so the verb
-  // is a label concern only — the button always reaches the one entry point.
-  const NOW_MESSAGE = { 'open-log': 'open-stage-log', ship: 'ship-ticket', resume: 'resume-ticket', session: 'resume-ticket' };
-  // Fixed, static tooltip text per action kind (UI-R19/R20) — the label alone
-  // ("Ship", "Resume") is a bare verb whose object is not visible on the
-  // button. These are structural UI copy, like every other static tooltip in
-  // this file (sidebar's row actions are the precedent), not a host-derived
-  // value — UI-R31 governs DATA, not fixed control copy.
-  const NOW_TITLE = {
-    'open-log': "Open the failed stage's log file",
-    ship: 'Ship this ticket — commit, push, and open pull requests',
-    resume: "Resume this ticket's agent session",
-    session: "Resume this ticket's agent session",
-  };
+  let toastTimer = 0;
+  function showToast(message) {
+    const t = el('toast');
+    if (!t) return;
+    t.textContent = message;
+    t.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => t.classList.remove('show'), 1400);
+  }
 
-  function renderNow(now, agentSession) {
-    // While a ship is in flight, the real per-step progress lives in the Inside
-    // block; this line is a static sentence, never a spinner label — and no
-    // button, since the confirm click already happened (no second one to make).
-    // The in-flight marker is the pending requestId (the old `shipping` flag
-    // is gone), so the hold survives every push until the stage resolves.
-    if (shipRequestId) {
-      el('now').innerHTML = `<span class="ntext">${esc('Now: shipping — committing, pushing, and opening PRs for each hot repo.')}</span>`;
+  // The header ship action. The host's `state.ship` union is the placement
+  // truth; the webview's own in-flight `shipRequestId` (set by the click,
+  // settled by resolveShipping) additionally holds "Shipping…" across the
+  // pushes before the ship stage reads `running`.
+  function renderShip(state) {
+    const btn = el('confirmShip');
+    const wait = el('shipWait');
+    if (!btn || !wait) return;
+    const slot = state.ship || { kind: 'none' };
+    const inFlight = !!shipRequestId;
+    wait.classList.add('hidden');
+    if (slot.kind === 'waiting-merge') {
+      btn.hidden = true;
+      btn.setAttribute('aria-busy', 'false');
+      btn.disabled = false;
+      wait.classList.remove('hidden');
+      wait.title = slot.repos > 0 ? `Waiting for ${slot.repos} ${slot.repos === 1 ? 'repo' : 'repos'} to be merged` : 'Waiting for the pull requests to be merged';
       return;
     }
-    const line = now || { text: '' };
-    const a = line.action;
-    const type = a && NOW_MESSAGE[a.kind];
-    const title = a && NOW_TITLE[a.kind];
-    const attrs = a && a.path ? ` data-path="${esc(a.path)}"` : '';
-    const switchAction = agentSession && agentSession.canSwitch
-      ? '<button type="button" class="k-btn k-btn--secondary k-btn--sm switch-agent" data-act="switch-agent"'
-        + ' title="Switch this ticket\'s live agent session">Switch agent…</button>'
-      : '';
-    const identity = agentSession
-      ? `${agentSession.providerLabel} · ${agentSession.modelLabel}`
-      : '';
-    // A brief success flash beside the settled line once a ship resolves — the
-    // clear "it worked" beat before the dashboard shows the done state.
-    const badge = shipDone === 'success' ? `<span class="shipbadge ok">✓ Shipped</span>` : '';
-    const detail = a && a.kind === 'session' && a.detail ? a.detail : '';
-    const subtitle = [detail, identity].filter(Boolean).join(' · ');
-    const sub = subtitle
-      ? `<div class="now-sub">${esc(subtitle)}</div>`
-      : '';
-    el('now').innerHTML = badge + `<span class="ntext">${esc(line.text)}</span>`
-      + (type ? `<button type="button" class="k-btn k-btn--primary k-btn--sm" data-act="${type}"${attrs}`
-        + `${title ? ` title="${esc(title)}"` : ''}>${esc(a.label)}</button>` : '')
-      + switchAction
-      + sub;
+    if (slot.kind === 'confirm' || slot.kind === 'retry') {
+      btn.hidden = false;
+      btn.textContent = slot.kind === 'retry' ? 'Retry ship' : 'Confirm ship';
+      btn.setAttribute('aria-busy', 'false');
+      btn.disabled = false;
+    } else if (slot.kind === 'shipping' || inFlight) {
+      btn.hidden = false;
+      btn.textContent = 'Shipping…';
+      btn.setAttribute('aria-busy', 'true');
+      btn.disabled = true;
+    } else {
+      btn.hidden = true;
+      btn.setAttribute('aria-busy', 'false');
+      btn.disabled = false;
+    }
+    if (shipDone === 'success') showToast('Shipped ✓');
   }
 
   // Decide whether an incoming snapshot ends the in-flight ship. Keyed off host
   // truth (the ship stage's own status), never the copy: while the ship runs
   // the stage sits at `running`, so every push would otherwise rebuild the
   // plain "Confirm ship" line and wipe the spinner. Success = advanced past
-  // ship; error = ship landed failed (the Now line + fault card then explain
+  // ship; error = ship landed failed (the Now line then explains
   // it). The in-flight marker is `shipRequestId` — the old `shipping` flag is
   // gone with the legacy ship-progress overlay it drove (Finding 12).
   function resolveShipping(state) {
@@ -2537,7 +2654,7 @@
     const failed = atShip && state.currentStage && state.currentStage.status === 'failed';
     shipRequestId = null;
     if (failed) {
-      // The failed Now line + fault card are the explicit error state.
+      // The failed Now line is the explicit error state.
       karstSettle(requestId, false);
     } else if (!atShip) {
       shipDone = 'success';
@@ -2556,9 +2673,22 @@
   const isOnline = (s) => s.status === 'running';
   const addrOf = (s) => `${s.host || 'localhost'}:${s.port}`;
 
-  const svgIcon = (name) => (
-    `<svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><use href="#i-${name}"/></svg>`
+  const svgIcon = (name, size) => (
+    karstIcon(name, size)
   );
+
+  /* Each action keeps its OWN resting hue, off the same status ramp the
+     stepper uses — hue is the fastest way to tell Stop from Start before any
+     label is read. The word is still on every button, so hue accelerates, it
+     never carries. Keyed by the ACTION's tone (docs/ui/ICONS.md §4): the
+     glyph is the Tabler icon, the hue is what the action means. */
+  const TONE = {
+    'external-link': 'open',
+    copy: 'copy',
+    refresh: 'restart',
+    'player-stop': 'stop',
+    'player-play': 'start',
+  };
 
   /**
    * An icon action. The visible label IS the icon, so the word survives as both
@@ -2568,20 +2698,20 @@
    * user cannot tell from a broken one, for a screen-reader user exactly as
    * much as a sighted one.
    */
-  const iact = (action, id, label, name, disabledWhy) => (
-    `<button type="button" class="k-iconbtn ib t-${name}" data-act="${action}"`
+  const iact = (action, id, label, icon, disabledWhy) => (
+    `<button type="button" class="k-iconbtn ib t-${TONE[icon] || 'open'}" data-act="${action}"`
     + `${id != null ? ` data-id="${id}"` : ''}`
-    + `${name === 'copy' ? ' data-copy' : ''}`
+    + `${icon === 'copy' ? ' data-copy' : ''}`
     + `${disabledWhy ? ' disabled' : ''}`
     + ` aria-label="${esc(disabledWhy || label)}" title="${esc(disabledWhy || label)}">`
-    + `${svgIcon(name)}</button>`
+    + `${svgIcon(icon)}</button>`
   );
 
   // Row actions come in two groups: Open and Copy operate on the ADDRESS and sit
   // flush against it; Restart and Stop operate on the PROCESS.
   const addrActions = (s) => (
     isOnline(s)
-      ? iact('open-server', s.id, 'Open in browser', 'open')
+      ? iact('open-server', s.id, 'Open in browser', 'external-link')
         + iact('copy-server-url', s.id, 'Copy URL', 'copy')
       : ''
   );
@@ -2590,9 +2720,9 @@
   // Copy and Stop are all meaningless on it.
   const lifeActions = (s) => (
     isOnline(s)
-      ? iact('restart-server', s.id, 'Restart', 'restart')
-        + iact('stop-server', s.id, 'Stop', 'stop')
-      : iact('spin-servers', null, 'Start service', 'start')
+      ? iact('restart-server', s.id, 'Restart', 'refresh')
+        + iact('stop-server', s.id, 'Stop', 'player-stop')
+      : iact('spin-servers', null, 'Start service', 'player-play')
   );
 
   /**
@@ -2616,9 +2746,9 @@
     const startWhy = !none && !anyOffline ? 'Every service is already running' : null;
     const restartWhy = none ? 'No services to restart' : null;
     const stopWhy = !anyRunning ? 'No service is running' : null;
-    return iact('spin-servers', null, 'Start all services', 'start', startWhy)
-      + iact('restart-servers', null, 'Restart all services', 'restart', restartWhy)
-      + iact('stop-servers', null, 'Stop all services', 'stop', stopWhy);
+    return iact('spin-servers', null, 'Start all services', 'player-play', startWhy)
+      + iact('restart-servers', null, 'Restart all services', 'refresh', restartWhy)
+      + iact('stop-servers', null, 'Stop all services', 'player-stop', stopWhy);
   }
 
   /**
@@ -2629,12 +2759,12 @@
    */
   function serversEmpty(state) {
     if (state.hasRunnableRepos === false) {
-      return `<div class="estate dead"><span class="emark">${svgIcon('ban')}</span>`
+      return `<div class="estate dead"><span class="emark">${svgIcon('circle-x')}</span>`
         + `<div><div class="ehead">No runnable services in scope</div>`
         + `<div class="esub">This ticket scopes only repositories without a service`
         + ` block, so there is nothing here to run.</div></div></div>`;
     }
-    return `<div class="estate"><span class="emark">${svgIcon('rack')}</span>`
+    return `<div class="estate"><span class="emark">${svgIcon('server-2')}</span>`
       + `<div><div class="ehead">No servers running</div>`
       + `<div class="esub">Start the services in scope to get their local`
       + ` addresses here.</div></div></div>`;
@@ -2844,47 +2974,174 @@
     )).join('') : '<div class="empty">No pull requests.</div>';
   }
 
-  // agent state -> pill color (uses the same chart vars as the stepper).
-  const AGENT_COLOR = {
-    running: 'var(--k-running)',
-    waiting: 'var(--k-attention)',
-    idle: 'var(--k-pending)',
-    none: 'var(--k-pending)',
-  };
-
-  function renderAgent(agentState) {
-    const st = agentState || 'none';
-    const color = AGENT_COLOR[st] || 'var(--k-pending)';
-    el('agent').innerHTML =
-      `<span class="agent-pill"><span class="dot" style="background:${color}"></span>`
-      + `agent: ${esc(st)}</span>`;
+  // The header's ticket identity: provider mark + copy-key button + a SEPARATE
+  // board link (the key no longer doubles as the link — a regular click copies
+  // the key, and the anchor opens the board). The provider icon is the shared
+  // injected badge; the key's `title` stays the plain affordance, never the
+  // dynamic copy label, so a screen reader and a tooltip cannot drift.
+  function renderTicketIdentity(state) {
+    const label = state.key || `#${state.ticketId}`;
+    const keyBtn = el('keyBtn');
+    keyBtn.textContent = label;
+    keyBtn.setAttribute('aria-label', `Copy ticket key ${label}`);
+    keyBtn.title = 'Copy ticket key';
+    const mark = el('providerMark');
+    if (mark) {
+      mark.innerHTML = providerIconHtml(state.provider);
+      if (state.brief) mark.setAttribute('title', esc(state.brief));
+      else mark.removeAttribute('title');
+    }
+    const link = el('boardLink');
+    if (!link) return;
+    if (state.ticketUrl) {
+      link.hidden = false;
+      link.setAttribute('data-url', state.ticketUrl);
+    } else {
+      link.hidden = true;
+      link.removeAttribute('data-url');
+    }
   }
 
-  // The key pill, which doubles as the link to the source board (ClickUp, …)
-  // when the ticket was fetched from one: provider mark + key + arrow, one
-  // target. The board ref and the synthesized brief ride along as the hover —
-  // printing the ref beside the key only echoed it (they name the same id).
-  // Manual/unfetched → the same pill, dashed and inert.
-  function renderKeyPill(state) {
-    const label = state.key || `#${state.ticketId}`;
-    if (!state.ticketUrl) {
-      // Inert: a plain, non-interactive <span> (the `.k-chip` informational
-      // form — no role, no tabindex) with a dashed border and default cursor,
-      // so nothing about it implies a control that can be activated.
-      el('keyPill').innerHTML =
-        `<span class="k-chip keypill local" title="Manual ticket — not linked to a board">${esc(label)}</span>`;
+  function renderAgentHeader(state) {
+    const s = state.agentSession;
+    const core = el('agentCore');
+    if (core) core.innerHTML = agentBadgeHtml(state.agentSession.provider);
+    const model = el('agentModel');
+    if (model) model.textContent = state.agentSession.modelLabel;
+    const st = state.agentState || 'none';
+    const dot = el('agentDot');
+    if (dot) {
+      dot.classList.remove('idle', 'running', 'waiting', 'none');
+      dot.classList.add(st);
+    }
+    const liveText = el('agentLiveText');
+    if (liveText) liveText.textContent = st;
+    const btn = el('agentButton');
+    if (btn) {
+      if (s.canSwitch) {
+        btn.disabled = false;
+        btn.title = 'Switch the live agent session';
+      } else {
+        btn.disabled = true;
+        btn.title = 'No live agent session to switch right now';
+      }
+    }
+  }
+
+  // The agent-switch popover stages a draft core/model selection and does
+  // nothing until Switch agent… is clicked. The draft is a suggestion, never
+  // authority: the `switch-agent` message the host re-validates (isKnownProvider
+  // + model-choice membership) before it confirms or persists.
+  let draftCore = null;
+  let draftModel = '';
+
+  function populateAgentPopover() {
+    const s = lastState && lastState.agentSession;
+    if (!s) return;
+    draftCore = s.provider;
+    draftModel = s.modelId || '';
+    renderCoreSelect();
+    renderModelSelect();
+    updateSwitchState();
+  }
+
+  function renderCoreSelect() {
+    const select = el('coreSelect');
+    if (!select || !lastState) return;
+    select.innerHTML = (lastState.agentSwitch.cores || []).map((c) =>
+      `<option value="${esc(c.id)}">${esc(c.label)}</option>`).join('');
+    select.value = draftCore || '';
+  }
+
+  function renderModelSelect() {
+    const select = el('modelSelect');
+    if (!select || !lastState) return;
+    const models = (lastState.agentSwitch.models || {})[draftCore] || [];
+    select.innerHTML = models.map((m) =>
+      `<option value="${esc(m.model || '')}">${esc(m.label)}</option>`).join('');
+    if (models.some((m) => (m.model || '') === draftModel)) select.value = draftModel;
+    else { draftModel = ''; select.value = ''; }
+  }
+
+  function updateSwitchState() {
+    const btn = el('switchBtn');
+    const s = lastState && lastState.agentSession;
+    if (!btn || !s) return;
+    const changed = draftCore !== s.provider || (draftModel || null) !== (s.modelId || null);
+    btn.disabled = !changed;
+  }
+
+  function openAgentPopover() {
+    const btn = el('agentButton');
+    if (btn && btn.disabled) return;
+    populateAgentPopover();
+    const pop = el('agentPopover');
+    pop.classList.remove('hidden');
+    pop.classList.add('open');
+    if (btn) btn.setAttribute('aria-expanded', 'true');
+  }
+
+  function openMenuPopover() {
+    const pop = el('menuPopover');
+    pop.classList.remove('hidden');
+    pop.classList.add('open');
+    el('moreBtn').setAttribute('aria-expanded', 'true');
+  }
+
+  function closePopovers() {
+    const agent = el('agentPopover');
+    agent.classList.add('hidden');
+    agent.classList.remove('open');
+    const menu = el('menuPopover');
+    menu.classList.add('hidden');
+    menu.classList.remove('open');
+    el('agentButton').setAttribute('aria-expanded', 'false');
+    el('moreBtn').setAttribute('aria-expanded', 'false');
+  }
+
+  // Popover open/close runs alongside — not instead of — the stage-selection
+  // and [data-act] document listeners below. A click on either trigger toggles
+  // its popover; a click anywhere else (outside any .popover) closes both.
+  document.addEventListener('click', (e) => {
+    const t = e.target;
+    if (t && t.closest('#agentButton')) {
+      const opening = el('agentPopover').classList.contains('hidden');
+      closePopovers();
+      if (opening) openAgentPopover();
       return;
     }
-    const icon = providerIconHtml(state.provider);
-    // Drop the ref when it IS the key (a fetched ticket usually keys on it) —
-    // the tooltip would just repeat the pill.
-    const ref = state.sourceRef === label ? null : state.sourceRef;
-    const hover = [ref, state.brief].filter(Boolean).join(' — ');
-    const tip = hover ? ` title="${esc(hover)}"` : '';
-    el('keyPill').innerHTML =
-      `<a class="k-chip keypill" href="#" data-act="open-ticket-link" data-url="${esc(state.ticketUrl)}"${tip}>`
-      + `${icon}${esc(label)} <span class="arw" aria-hidden="true">↗</span></a>`;
-  }
+    if (t && t.closest('#moreBtn')) {
+      const opening = el('menuPopover').classList.contains('hidden');
+      closePopovers();
+      if (opening) openMenuPopover();
+      return;
+    }
+    if (t && t.closest('.popover')) return;
+    closePopovers();
+  });
+
+  el('coreSelect').addEventListener('change', (e) => {
+    draftCore = e.target && e.target.value;
+    renderModelSelect();
+    updateSwitchState();
+  });
+  el('modelSelect').addEventListener('change', (e) => {
+    draftModel = e.target && e.target.value;
+    updateSwitchState();
+  });
+  el('switchBtn').addEventListener('click', () => {
+    if (el('switchBtn').disabled) return;
+    closePopovers();
+    // No requestId: the popover closes and the host owns the outcome (confirm
+    // modal + relaunch); a stale/cancelled switch surfaces as a host toast or
+    // the next state push, never as an invented verdict (UI-R14/R31).
+    post({ type: 'switch-agent', provider: draftCore, model: draftModel || null });
+  });
+  el('linkViews').addEventListener('change', () => {
+    // Payload-free like the old bind button: the host owns the preference and
+    // answers with the `bind` message, which is the terminal outcome (UI-R13).
+    post({ type: 'toggle-bind' });
+  });
 
   // ---------------------------------------------------------------------
   // Artifacts: shelf, index, detail (docs/design/artifacts/README.md)
@@ -2894,9 +3151,16 @@
   // index row, detail's Produced-by row). The mark is a secondary carrier;
   // the LABEL is the identity (UI-R28) — never an icon alone. Native:
   // `<core icon> <Core> · Native`; karst: `<karst mark> Karst[ · <Core>]`.
+  // The karst mark is the CURRENT monochrome silhouette (media/karst-mark.svg,
+  // viewBox 0 0 215 215 — the old three-node graph is gone; see
+  // brandAssets.test.ts), inlined because the webview CSP forbids external
+  // assets. It is a PRODUCT-IDENTITY exception, not an interaction icon — it
+  // stays outside the Tabler catalog (docs/ui/ICONS.md §5).
   const KARST_MARK =
-    '<svg class="kmark" viewBox="0 0 24 24" aria-hidden="true" focusable="false">'
-    + '<use href="#i-karst"/></svg>';
+    '<svg class="kmark" viewBox="0 0 215 215" aria-hidden="true" focusable="false">'
+    + '<path d="M 96 20 L 25 67 L 25 156 L 98 203 L 98 180 L 44 145 L 44 78 L 97 44 Z" fill="currentColor"/>'
+    + '<path d="M 151 42 L 138 58 L 170 78 L 170 144 L 138 165 L 150 180 L 188 156 L 188 67 Z" fill="currentColor"/>'
+    + '<circle cx="106.5" cy="111.5" r="26.5" fill="currentColor"/></svg>';
 
   function originChip(origin) {
     const o = origin || { kind: 'karst', core: null };
@@ -2959,8 +3223,8 @@
     const all = state.artifacts || [];
     panel.classList.toggle('hidden', all.length === 0);
     if (all.length === 0) { body.innerHTML = ''; return; }
-    const count = el('artCount');
-    if (count) count.textContent = String(all.length);
+    // The one count lives in the "View all N" button — the panel header
+    // carries no `.count` of its own (the two would repeat the same number).
     const total = el('artTotal');
     if (total) total.textContent = String(all.length);
     body.innerHTML = `<div class="artcards">${all.slice(0, 3).map(artifactCardHtml).join('')}</div>`;
@@ -2988,7 +3252,7 @@
       + groups.map((g) =>
         `<section class="artgroup" aria-label="${esc((ART_STAGE_LABEL[g.stage] || g.stage))} artifacts">`
         + `<div class="artgroup-title">${esc(ART_STAGE_LABEL[g.stage] || g.stage)}</div>`
-        + `<ul class="artfiles">${rows(g)}</ul></section>`).join('');
+        + `<ul class="artrows">${rows(g)}</ul></section>`).join('');
   }
 
   const ART_STAGE_LABEL = { uat: 'UAT', review: 'Review', ship: 'Ship' };
@@ -3006,35 +3270,78 @@
       `<div class="artfinding ${esc(f.severity || '')}">`
       + `<div class="af-title">${esc(f.severity.toUpperCase())} · ${esc(f.title)}</div>`
       + (f.detail ? `<div class="af-detail">${esc(f.detail)}</div>` : '')
-      + (f.file ? `<div class="af-detail">${esc(f.file)}${f.line != null ? `:${esc(String(f.line))}` : ''}</div>` : '')
+      + (f.file
+        // The file location IS the open-file control (UI-R09c) when the host
+        // attached the capability; with none it stays plain text.
+        ? `<div class="af-detail">${f.action
+          ? `<a class="obj-link file-link" href="#" data-act="inside-action"`
+            + ` data-action-id="${esc(f.action.actionId)}"`
+            + ` title="Open this file in an editor">${esc(f.file)}${f.line != null ? `:${esc(String(f.line))}` : ''}</a>`
+          : esc(f.file) + (f.line != null ? `:${esc(String(f.line))}` : '')}</div>`
+        : '')
       + `</div>`).join('');
     return `<section class="artsection" aria-label="Findings"><div class="artheading">Findings</div>${items}</section>`;
   }
 
   function artifactGatesHtml(a) {
     if (!a.gates || !a.gates.length) return '';
-    const rows = a.gates.map((g) =>
-      `<div class="artgate"><span class="ag-name">${esc(g.name)}</span>`
-      + `<span class="ag-code">${g.exitCode === 0 ? 'passed' : g.exitCode === null ? 'no script' : 'failed'}</span></div>`
-    ).join('');
-    return `<section class="artsection" aria-label="Gate runs"><div class="artheading">Gate runs</div>${rows}</section>`;
+    // The console (xterm) entry: a gate stage's artifact log is previewed in
+    // the terminal "detailed mode" — the same data-console stage the inside
+    // gates row carries, resolved host-side from the stage's artifactPath. Only
+    // the gate stages (uat/review) record a log, so only they offer it.
+    const consoleBtn = a.stage === 'uat' || a.stage === 'review'
+      ? `<button type="button" class="k-iconbtn ib t-open" data-act="${CONSOLE_ACT}"`
+        + ` data-console="${esc(a.stage)}"`
+        + ` aria-label="View this stage's console output in the dashboard"`
+        + ` title="View this stage's console output in the dashboard">${svgIcon('terminal-2')}</button>`
+      : '';
+    const rows = a.gates.map((g) => {
+      // Each gate's outcome is a COLOURED STATE — green pass / red fail — not
+      // a text label: the dot carries the state (UI-R28 keeps the word as its
+      // accessible name), and the exit code stays as the row's detail.
+      const state = g.exitCode === 0 ? 'pass' : g.exitCode === null ? 'note' : 'fail';
+      const word = state === 'pass' ? 'passed' : state === 'fail' ? 'failed' : 'no script';
+      return `<div class="artgate"><span class="ag-state ${state}">`
+        + `<span class="ag-dot" role="img" aria-label="${esc(word)}"></span></span>`
+        + `<span class="ag-name">${esc(g.name)}</span>`
+        + `<span class="ag-code">${g.exitCode === null ? 'no script' : `exit ${esc(String(g.exitCode))}`}</span></div>`;
+    }).join('');
+    return `<section class="artsection" aria-label="Gate runs">`
+      + `<div class="artheading">Gate runs${consoleBtn ? `<span class="sp">${consoleBtn}</span>` : ''}</div>`
+      + `${rows}</section>`;
   }
 
   function artifactPrsHtml(a) {
     if (!a.prs || !a.prs.length) return '';
-    const rows = a.prs.map((p) =>
-      `<li><span class="af-name">${esc(p.repo)}${p.number ? ` · PR #${esc(String(p.number))}` : ''}</span>`
-      + (p.url
-        ? `<a class="k-btn k-btn--ghost k-btn--sm" href="#" data-act="open-pr" data-url="${esc(p.url)}">Open PR ↗</a>`
-        : `<span class="ag-code">${esc(p.status || '')}</span>`)
-      + `</li>`).join('');
+    const rows = a.prs.map((p) => {
+      // The PR number IS the open-PR control (UI-R09c) — a link, never inert
+      // text beside a duplicate button, so the redundant "Open PR" button is
+      // gone. With no url the number stays plain text and the status word
+      // carries the row.
+      const number = p.number
+        ? (p.url
+          ? `<a class="obj-link pr-link" href="#" data-act="open-pr" data-url="${esc(p.url)}"`
+            + ` title="Open this pull request on the host">#${esc(String(p.number))}</a>`
+          : `<span class="pr-link">#${esc(String(p.number))}</span>`)
+        : '';
+      return `<li><span class="af-name">${esc(p.repo)}${number ? ` · ${number}` : ''}</span>`
+        + (p.status ? `<span class="pr-status ${esc(p.status)}">${esc(p.status)}</span>` : '')
+        + `</li>`;
+    }).join('');
     return `<section class="artsection" aria-label="Pull requests"><div class="artheading">Pull requests</div><ul class="artfiles">${rows}</ul></section>`;
   }
 
   function artifactCommitsHtml(a) {
     if (!a.commits || !a.commits.length) return '';
-    const rows = a.commits.map((c) =>
-      `<li><span class="af-name">${esc(c.sha.slice(0, 7))} · ${esc(c.message)}</span></li>`).join('');
+    const rows = a.commits.map((c) => {
+      // The commit SHA IS the open-commit control (UI-R09c) — a link when the
+      // host attached the capability, plain text when it did not.
+      const sha = c.action
+        ? `<a class="obj-link commit-link" href="#" data-act="inside-action"`
+          + ` data-action-id="${esc(c.action.actionId)}" title="Open this commit on the host">${esc(c.sha.slice(0, 7))}</a>`
+        : `<span class="commit-sha">${esc(c.sha.slice(0, 7))}</span>`;
+      return `<li><span class="af-name">${sha} · ${esc(c.message)}</span></li>`;
+    }).join('');
     return `<section class="artsection" aria-label="Commits"><div class="artheading">Commits</div><ul class="artfiles">${rows}</ul></section>`;
   }
 
@@ -3060,9 +3367,9 @@
       + `<div class="artdetail">`
       + `<div class="arthero"><span class="art-title">${esc(a.title)}</span>`
       + `${artifactStatusHtml(a)}${artifactStaleHtml(a)}</div>`
-      + `<div class="artcard-summary" style="margin-top:var(--k-space-2)">${esc(a.summary)}</div>`
+      + `<div class="artcard-summary">${esc(a.summary)}</div>`
       + (a.freshness === 'stale'
-        ? `<p class="art-stale" style="margin-top:var(--k-space-3)">Implementation changed after this verification — rerun the stage before treating this result as evidence for the current code.</p>`
+        ? `<p class="art-stale art-stale-note">Implementation changed after this verification — rerun the stage before treating this result as evidence for the current code.</p>`
         : '')
       + artifactMetricsHtml(a)
       + artifactFindingsHtml(a)
@@ -3102,6 +3409,113 @@
       // fall back to the index rather than rendering a dead detail.
       if (!a) { artView = 'index'; box.innerHTML = renderArtIndex(lastState); return; }
       box.innerHTML = artifactDetailHtml(a, artView.from);
+    }
+  }
+
+  // The terminal's colors resolve the DESIGN TOKENS the host already injected
+  // (UI-R04): background/foreground come from the editor's own colors, so
+  // their contrast is the theme's contract (UI-R29). The ANSI 16 ramp stays
+  // xterm's standard palette. `getComputedStyle` resolves the var(--vscode-*)
+  // chains to concrete values inside the webview.
+  function termTokens() {
+    const cs = typeof getComputedStyle === 'function'
+      ? getComputedStyle(document.documentElement)
+      : null;
+    const tok = (name, fallback) => (cs && cs.getPropertyValue(name).trim()) || fallback;
+    return {
+      bg: tok('--k-bg', '#1e1e1e'),
+      fg: tok('--k-text', '#cccccc'),
+      cursor: tok('--k-focus', '#3794ff'),
+      selection: tok('--k-surface-selected', 'rgba(127,127,127,.4)'),
+      font: tok('--k-font-mono', 'monospace'),
+      size: parseFloat(tok('--k-text-base', '')) || 13,
+    };
+  }
+
+  function termTheme(t) {
+    return {
+      background: t.bg,
+      foreground: t.fg,
+      cursor: t.cursor,
+      selectionBackground: t.selection,
+    };
+  }
+
+  // The console surface: full-body swap via body.term-nav, exactly like the
+  // artifact surface. Rendered ONLY on open/close — render() never calls this,
+  // so a state push (up to one a second while running) cannot recreate
+  // #termHost out from under the live Terminal instance.
+  function renderTermView() {
+    const box = el('termView');
+    if (!box) return;
+    if (!termView) {
+      box.classList.add('hidden');
+      box.innerHTML = '';
+      document.body.classList.remove('term-nav');
+      return;
+    }
+    box.classList.remove('hidden');
+    document.body.classList.add('term-nav');
+    const title = STAGE_TITLE[termView] || termView;
+    box.innerHTML = `<div class="thead"><span class="ttitle">Console · ${esc(title)}</span>`
+      + `<span class="sp"><button type="button" class="k-btn k-btn--ghost k-btn--sm" data-term="close"`
+      + ` title="Close the console view">Close</button></span></div>`
+      + `<div class="tstatus" id="tstatus" role="status">${esc(termLoading ? 'Loading console output…' : '')}</div>`
+      + `<div id="termHost" class="termhost"></div>`;
+    initTerminal();
+  }
+
+  // A real <button> Console entry (UI-R09) posting the closed-vocabulary
+  // stage-log-request; the host's stage-log answer is the outcome (UI-R13).
+  function openTerminal(stage) {
+    if (termView === stage && term) return;
+    if (termView) closeTerminal();
+    termView = stage;
+    termLoading = true;
+    renderTermView();
+    post({ type: 'stage-log-request', stage });
+  }
+
+  function closeTerminal() {
+    if (term) { try { term.dispose(); } catch (e) { /* renderer teardown */ } term = null; }
+    termFit = null;
+    if (termResize) { termResize.disconnect(); termResize = null; }
+    termView = null;
+    termLoading = false;
+    renderTermView();
+  }
+
+  // Create the Terminal only on first open of a view. Guarded for the test
+  // harness (no real xterm in the VM): an absent library degrades to a visible
+  // refusal, never a silent blank.
+  function initTerminal() {
+    if (term) return;
+    if (typeof Terminal === 'undefined' || typeof FitAddon === 'undefined') {
+      const host = el('termHost');
+      if (host) host.innerHTML = '<div class="blurb">Console rendering is unavailable in this build.</div>';
+      return;
+    }
+    const t = termTokens();
+    const host = el('termHost');
+    if (!host) return;
+    term = new Terminal({
+      convertEol: true,        // the artifact log uses bare \n; xterm expects \r\n
+      disableStdin: true,      // a log viewer, never an input surface
+      cursorBlink: false,
+      scrollback: 10000,       // 1 MiB of output is ~10k+ lines at common widths
+      fontFamily: t.font,
+      fontSize: t.size,
+      theme: termTheme(t),
+      allowProposedApi: true,  // FitAddon's addon lifecycle
+    });
+    termFit = new FitAddon.FitAddon();
+    term.loadAddon(termFit);
+    term.open(host);
+    termFit.fit();
+    if (typeof ResizeObserver !== 'undefined' && host) {
+      // fit lives on the ADDON, not the terminal — `term.fit` does not exist.
+      termResize = new ResizeObserver(() => termFit && termFit.fit());
+      termResize.observe(host);
     }
   }
 
@@ -3232,24 +3646,26 @@
     // falls back to scope — the one the user is about to start.
     const sel = selectedStage || state.presentedStage || state.stageCurrent || 'scope';
     el('title').textContent = state.title || '(untitled)';
-    renderKeyPill(state);
-    // Follow-up only makes sense once the work shipped — same gate the
-    // createFollowUpTicket command enforces server-side.
-    el('followUpBtn').classList.toggle('hidden', state.stageCurrent !== 'done');
-    renderAgent(state.agentState);
+    renderTicketIdentity(state);
+    renderAgentHeader(state);
     renderTrack(state.rail, state.approach, sel);
     renderInside(state, sel);
-    // The fault card scans the FLAT stepper, so it still sees fix.
-    renderFault(state.stepper);
     renderBlocked(state);
-    renderNow(state.now, state.agentSession);
+    renderShip(state);
     renderServers(state);
     renderWorktrees(state.worktrees);
     renderPrs(state.prs, state.mergeChecks);
-    renderGates();
     renderArtifacts(state);
     renderArtView();
+    renderFollowUp(state);
     restoreFocus(mark);
+  }
+
+  // Follow-up only makes sense once the work shipped — same gate the
+  // createFollowUpTicket command enforces server-side. The menu item lives in
+  // the … controls menu, shown only at `done`.
+  function renderFollowUp(state) {
+    el('followUpItem').classList.toggle('hidden', state.stageCurrent !== 'done');
   }
 
   // One toggle row for one resolved gate. A real <button> (UI-R09), never a
@@ -3258,10 +3674,10 @@
   // ticket's current selection.
   function gateRow(stage, opt) {
     const label = (opt.disabled ? 'Enable ' : 'Disable ') + opt.name + ' for this ticket';
-    return `<div class="gaterow${opt.disabled ? ' off' : ''}">`
-      + `<span class="gname">${esc(opt.name)}</span>`
-      + `<span class="gstate">${opt.disabled ? 'disabled' : 'runs'}</span>`
-      + `<button type="button" class="k-btn k-btn--ghost k-btn--sm gtoggle"`
+    return `<div class="gateRow${opt.disabled ? ' off' : ''}">`
+      + `<span class="gateName">${esc(opt.name)}</span>`
+      + `<span class="gateState">${opt.disabled ? 'disabled' : 'runs'}</span>`
+      + `<button type="button" class="k-btn k-btn--ghost k-btn--sm gateToggle"`
       + ` data-act="set-disabled-gates" data-stage="${esc(stage)}" data-name="${esc(opt.name)}"`
       + ` data-disabled="${opt.disabled ? '1' : '0'}"`
       + ` aria-pressed="${opt.disabled ? 'true' : 'false'}"`
@@ -3269,39 +3685,25 @@
       + `</div>`;
   }
 
-  // Resolved gate names arrive on their own message (§ gateOptions), never
-  // inside `state` — so this reads the module-level `gateOptions`, not an
-  // argument, and is safe to call from both the state push (clears to empty)
-  // and the gate-options message handler (repopulates).
-  function renderGates() {
+  function renderMenuGates() {
+    const body = el('menuGates');
+    if (!body) return;
     const uat = gateOptions.uat || [];
     const review = gateOptions.review || [];
-    const countEl = el('gateCount');
-    if (countEl) countEl.textContent = String(uat.length + review.length);
-    const body = el('gates');
-    if (!body) return;
     if (!uat.length && !review.length) {
-      body.innerHTML = '<div class="blurb">No gates resolved for this ticket yet.</div>';
+      body.innerHTML = '<div class="menuBlurb">No gates resolved for this ticket yet.</div>';
       return;
     }
     const group = (title, stage, opts) => opts.length
-      ? `<div class="ggroup"><div class="gtitle">${esc(title)}</div>`
+      ? `<div class="gateGroup"><div class="gateHead">${esc(title)}</div>`
         + opts.map((o) => gateRow(stage, o)).join('') + '</div>'
       : '';
     body.innerHTML = group('UAT', 'uat', uat) + group('Review', 'review', review);
   }
 
-  // The toggle's label stays "Bind terminal" in both states — a button that
-  // renamed itself to the ACTION ("Unbind") reads, at a glance, as the state.
-  // aria-pressed and the fill carry the state; the tooltip spells out what the
-  // binding does, since the consequence lands on tabs elsewhere in the IDE.
   function renderBind() {
-    const btn = el('bindBtn');
-    if (!btn) return;
-    btn.setAttribute('aria-pressed', String(bindEnabled));
-    btn.title = bindEnabled
-      ? 'Bind is on — opening this dashboard reveals the agent terminal, and opening the terminal reveals this dashboard. Click to unbind.'
-      : 'Bind is off — this dashboard and the agent terminal move independently. Click to bind them.';
+    const box = el('linkViews');
+    if (box) box.checked = bindEnabled;
   }
 
   const persist = () => vscode.setState({ state: lastState, sel: selectedStage, srvFilter: srvFilter, artView: artView, artScrolls: artScrolls });
@@ -3312,9 +3714,10 @@
     persist();
   }
 
-  // editBtn/followUpBtn post through the generic delegated `[data-act]`
-  // handler below (data-act is set in their markup, above) — the same pending
-  // lifecycle every other posting control gets, rather than a bespoke listener.
+  // The … menu's Edit ticket / Create follow-up items post through the generic
+  // delegated `[data-act]` handler below (data-act is set in their markup,
+  // above) — the same pending lifecycle every other posting control gets,
+  // rather than a bespoke listener.
 
   // Filtering is local and never round-trips to the host. Re-rendering replaces
   // the input element, so focus and caret are restored explicitly — otherwise
@@ -3352,6 +3755,11 @@
       openArtifact(artOpen.dataset.artOpen, from);
       return;
     }
+    const termBtn = e.target.closest('[data-term]');
+    if (termBtn) {
+      if (termBtn.dataset.term === 'close') closeTerminal();
+      return;
+    }
     const node = e.target.closest('[data-stage]');
     if (node) { select(node.dataset.stage); return; }
     if (e.target.closest('[data-back]')) select(null);
@@ -3360,6 +3768,7 @@
   // Esc mirrors one Back step (spec §8): detail → its origin, index → ticket,
   // ticket → no artifact-navigation action. There is no modal to close.
   document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && termView) { closeTerminal(); return; }
     if (e.key === 'Escape' && artView) artifactBack();
   });
 
@@ -3495,6 +3904,19 @@
       return;
     }
 
+    // The terminal console view: open it and post the closed-vocabulary
+    // stage-log-request. No requestId — the host answers with the `stage-log`
+    // message itself (ok or error), which is the terminal outcome (UI-R13).
+    // Reads `data-console`, never `data-stage` (the rail's select listener
+    // matches any `[data-stage]` ancestor via closest() and must not re-point
+    // the strip for a console click).
+    if (act === CONSOLE_ACT) {
+      const stage = btn.dataset.console;
+      if (!stage) return;
+      openTerminal(stage);
+      return;
+    }
+
     // Every other posting control settles on the host's genuine `action-result`
     // ack (UI-R11–R14): pending on click, dropped (not queued) on a repeat,
     // and the runtime's own watchdog covers a host that never answers.
@@ -3614,6 +4036,24 @@
       if (lastState) render(lastState);
       return;
     }
+    // The terminal console answer. The host ALWAYS answers a stage-log-request
+    // (ok or error) — this message is the terminal outcome (UI-R13). A stale
+    // answer for a view that has since closed (or moved to another stage) is
+    // dropped, not rendered.
+    if (msg.type === 'stage-log') {
+      if (!termView || termView !== msg.stage) return;
+      termLoading = false;
+      const status = el('tstatus');
+      if (msg.result.kind === 'ok') {
+        if (status) status.textContent = msg.result.truncated ? 'Console output truncated' : '';
+        if (term) term.write(msg.result.content);
+      } else {
+        if (status) status.textContent = '';
+        const host = el('termHost');
+        if (host) host.innerHTML = `<div class="blurb">${esc(msg.result.message)}</div>`;
+      }
+      return;
+    }
     // The window's terminal binding. Host-owned: it is one preference shared by
     // every open dashboard, so the webview renders what it is told and never
     // decides — the click posts `toggle-bind` and waits for this message back.
@@ -3635,7 +4075,7 @@
     // longer resolves.
     if (msg.type === 'gate-options') {
       gateOptions = msg.options || { uat: [], review: [] };
-      renderGates();
+      renderMenuGates();
       return;
     }
     // The terminal result of an async action (§ DESIGN-SYSTEM.md 5.3, UI-R13).

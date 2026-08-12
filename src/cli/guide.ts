@@ -87,6 +87,8 @@ ticket would park with no way out.
    it is current state, not history.
 3. Fire the done marker ONLY when the stage's work is actually complete —
    code, research, or a confirmation all count; a half-done stage does not.
+   The marker is REFUSED while the agent is waiting for user input: if the
+   session is blocked on a question to the user, the stage is not done.
 4. If a marker command is denied by the workspace sandbox, request approval
    to run that exact command outside the sandbox — never improvise a variant.
 5. \`nothing-to-merge\` is a genuine pass: a ticket whose work produced no

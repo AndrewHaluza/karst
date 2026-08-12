@@ -81,6 +81,13 @@ export interface RunHeadlessOpts {
    * construction.
    */
   debug?: (message: string) => void;
+  /**
+   * Live-pid registry hook (the resource monitor). Forwarded verbatim to the
+   * headless spawn's `HeadlessSpawnOptions.onSpawned`: called once with the
+   * child's pid the moment it exists, and the returned disposer runs wherever
+   * the run settles. Absent → the spawner never calls it.
+   */
+  onSpawned?: (pid: number) => (() => void) | void;
 }
 
 export interface HeadlessResult {

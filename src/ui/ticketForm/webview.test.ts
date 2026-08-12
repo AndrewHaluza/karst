@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { runInNewContext } from 'node:vm';
 import { slugifyTitleKey, TITLE_KEY_MAX } from '../../store/titleKey.js';
-import { MAX_PASTE_BYTES } from '../../attachments/ingest.js';
+import { MAX_PASTE_BYTES, LONG_TEXT_PASTE_CHARS } from '../../attachments/ingest.js';
 
 const HTML = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'webview.html'), 'utf8');
 
@@ -72,6 +72,17 @@ describe('ticket-form webview.html', () => {
       expect(head).toContain("showErr('Title is required.')");
       expect(head).not.toContain('!key');
     }
+  });
+
+  it('intercepts a long text paste into the prompt as a file attachment', () => {
+    const at = HTML.indexOf("el('desc').addEventListener('paste'");
+    const handler = HTML.slice(at, HTML.indexOf('// Auto-improve switch'));
+    expect(handler).toContain("getData('text/plain')");
+    expect(handler).toContain('text.length > LONG_TEXT_PASTE_CHARS');
+    expect(handler).toContain('preventDefault()');
+    expect(handler).toContain('postPastedText(text)');
+    // Files still win: the text branch must only run when no clipboard file exists.
+    expect(handler.indexOf('clipboardData.files')).toBeLessThan(handler.indexOf('getData'));
   });
 
   it('previews the derived key with the exact rule the store persists', () => {
@@ -339,6 +350,7 @@ describe('attachment strip', () => {
   const render = (list: unknown): string =>
     loadFunction('renderAttachments', {
       formatBytes: loadFunction('formatBytes'),
+      karstIcon: (name: string) => `<svg class="k-icon" data-icon="${name}"></svg>`,
     })(list) as string;
 
   it('renders nothing when there are no attachments', () => {
@@ -362,6 +374,18 @@ describe('attachment strip', () => {
     expect(html).toContain('controls');
     expect(html).toContain('preload="metadata"');
     expect(html).toContain('src="webview://b.mp4"');
+  });
+
+  it('renders a file tile with a file-text glyph and no media element', () => {
+    const html = render([
+      { id: 3, kind: 'file', name: 'notes.pdf', byteSize: 2048, src: 'webview://c.pdf' },
+    ]);
+    expect(html).not.toContain('<img');
+    expect(html).not.toContain('<video');
+    expect(html).toContain('data-icon="file-text"');
+    expect(html).toContain('notes.pdf');
+    expect(html).toContain('2 KB');
+    expect(html).toMatch(/<button[^>]*class="[^"]*\battachopen\b[^"]*"[^>]*data-attach-id="3"/);
   });
 
   it('carries the image row id on its media, detach control, and explicit open control', () => {
@@ -434,6 +458,15 @@ describe('paste cap mirror', () => {
   });
 });
 
+// The webview decides WHEN a pasted text becomes a file instead of inline text.
+// That decision is host-visible only via this mirror — pin it so a drift never
+// silently changes what counts as a "long" paste (UI-R34).
+describe('long-text paste threshold mirror', () => {
+  it('matches the host constant exactly', () => {
+    expect(htmlConstNumber('LONG_TEXT_PASTE_CHARS')).toBe(LONG_TEXT_PASTE_CHARS);
+  });
+});
+
 describe('pasted file reader', () => {
   function readerHarness() {
     const posted: unknown[] = [];
@@ -487,6 +520,55 @@ describe('pasted file reader', () => {
       expect(harness.posted).toEqual([]);
     },
   );
+});
+
+describe('pasted text writer', () => {
+  function writerHarness() {
+    const posted: unknown[] = [];
+    const errors: string[] = [];
+    let pending = false;
+    const read = loadFunction('postPastedText', {
+      TextEncoder: globalThis.TextEncoder,
+      btoa: globalThis.btoa,
+      MAX_PASTE_BYTES,
+      post: (message: unknown) => posted.push(message),
+      showErr: (message: string) => errors.push(message),
+      el: (id: string) => (id === 'attachBtn' ? {} : null),
+      karstIsPending: () => pending,
+      karstRequestId: () => 'req-1',
+      karstBeginPending: () => { pending = true; },
+    }) as (text: string) => void;
+    return { read, posted, errors };
+  }
+
+  it('posts the text as a base64 attach-bytes with a timestamped .txt name', () => {
+    const harness = writerHarness();
+    harness.read('line one\nline two');
+
+    expect(harness.posted).toHaveLength(1);
+    const msg = harness.posted[0] as { type: string; name: string; base64: string };
+    expect(msg.type).toBe('attach-bytes');
+    expect(msg.name).toMatch(/^pasted-\d+\.txt$/);
+    expect(Buffer.from(msg.base64, 'base64').toString('utf8')).toBe('line one\nline two');
+    expect(harness.errors).toEqual([]);
+  });
+
+  it('round-trips a multi-megabyte text through the chunked encoder', () => {
+    const harness = writerHarness();
+    const big = 'x'.repeat(200_000);
+    harness.read(big);
+
+    const msg = harness.posted[0] as { base64: string };
+    expect(Buffer.from(msg.base64, 'base64').byteLength).toBe(200_000);
+  });
+
+  it('declines text over the paste cap with an inline error and no post', () => {
+    const harness = writerHarness();
+    harness.read('x'.repeat(MAX_PASTE_BYTES + 1));
+
+    expect(harness.posted).toEqual([]);
+    expect(harness.errors[0]).toContain('too long to attach');
+  });
 });
 
 // ── UI-RULES.md remediation guards (Task 3.5) ─────────────────────────────────
@@ -635,6 +717,31 @@ describe('ticket-form webview.html — UI-RULES.md remediation', () => {
     expect(script).toContain("post({ type: 'set-type', id, requestId });");
   });
 
+  it('binds the Attach picker ONCE at setup, never inside a click handler (the two-click defect)', () => {
+    // `karstAction` installs its own click listener. Wrapping that call in an
+    // `el('attachBtn').addEventListener('click', …)` re-bound a listener on
+    // EVERY click, and a listener added while a click is being dispatched is
+    // not invoked for that click — so the first click only armed the machinery
+    // and the second click was the first to actually open the picker.
+    const script = scriptBlock();
+    expect(script).not.toMatch(/el\('attachBtn'\)\.addEventListener/);
+    // The binding is a top-level statement, present exactly once.
+    const bound = script.match(/karstAction\(el\('attachBtn'\),/g);
+    expect(bound).toHaveLength(1);
+  });
+
+  it('suppresses the k-btn success flash on the Attach button — the strip tile is the acknowledgement (UI-R13)', () => {
+    // DESIGN-SYSTEM §11.1: success is "optional transient acknowledgement when
+    // changed state is not already obvious". For Attach the tile appearing in
+    // the strip IS the changed state, so the green-border + checkmark settle
+    // must not recolour the control (it read as a weird done state on a button
+    // that stays active for the next file). Same call the agent-core trigger
+    // makes for the same reason.
+    const [main] = styleBlocks();
+    expect(main).toContain('#attachBtn.is-success{color:var(--k-text-dim);border-color:var(--k-border)}');
+    expect(main).toContain('#attachBtn.is-success::before{content:none}');
+  });
+
   it('handles action-result by settling the pending control (UI-R13)', () => {
     const script = scriptBlock();
     expect(script).toContain("case 'action-result': karstSettle(msg.requestId, msg.ok, msg.message); break;");
@@ -668,6 +775,25 @@ describe('ticket-form webview.html — UI-RULES.md remediation', () => {
     expect(HTML, 'analyze no longer marks the button busy').toContain(
       "el('analyzeBtn').setAttribute('aria-busy', 'true')",
     );
+  });
+
+  /**
+   * The inline control runs an AI analysis — it IMPROVES the prompt, it never
+   * copies one from the provider. Its copy must say so ("Improve with AI" /
+   * "Auto-improve"), never the old "Prefill"/"Auto-prefill" vocabulary that
+   * read as a plain copy of the fetched brief (the "misspelling" the ticket
+   * names is a wrong WORD, not a wrong letter).
+   */
+  it('names the AI action honestly — improve, never pre-fill (UI-R35)', () => {
+    expect(HTML).toContain('id="autoImprove"');
+    expect(HTML).toContain('>Auto-improve');
+    expect(HTML).toContain('Improve the prompt with AI automatically after a fetch');
+    expect(HTML).toContain('>Improve with AI</span>');
+    expect(HTML).toContain("el('analyzeLbl').textContent = analyzed ? 'Improve again' : 'Improve with AI';");
+    expect(HTML).toContain('Improve the prompt with AI — also suggests the approach and repositories');
+    // The misleading vocabulary is retired from the control's copy.
+    expect(HTML).not.toContain('Auto-prefill');
+    expect(HTML).not.toMatch(/'Prefill'|'Regenerate'/);
   });
 
   it('the busy vocabulary is closed and every member (including "suggest") is handled (UI-R16)', () => {
@@ -768,6 +894,19 @@ describe('ticket-form webview.html — selects, buttons, positioning fixes', () 
     expect(main).toMatch(/\.agentselect-trigger\.is-success[^{]*::before\{[^}]*content:none/);
   });
 
+  it('pairs the selection foreground on the agent-core option (light-theme contrast)', () => {
+    // The active wash is a saturated blue on light themes; the inherited
+    // `--k-text` is grey and fails contrast on it (UI-R29) — the selected
+    // option rendered as grey text on the blue row (GRAY-TEXT-ON-BLUE-BACKGROUND).
+    // The option must take the theme's own paired foreground, exactly as
+    // settings' .provselect-opt/.agentselect-opt rules already do — the two
+    // pages must not drift (settings pins the same pairing in webview.test.ts).
+    const [main] = styleBlocks();
+    expect(main).toMatch(/\.agentselect-opt\.selected\{[^}]*background:var\(--vscode-list-activeSelectionBackground,var\(--k-surface-hover\)\)/);
+    expect(main).toMatch(/\.agentselect-opt\.selected\{[^}]*color:var\(--vscode-list-activeSelectionForeground,var\(--k-text\)\)/);
+    expect(main).toMatch(/\.agentselect-opt:hover\{[^}]*background:var\(--k-surface-hover\)[^}]*color:var\(--k-text\)/);
+  });
+
   it('re-renders the model picker for the picked provider from the last catalog', () => {
     // The Model select sits right below the agent-core picker and must follow
     // it. In create mode the host no-ops set-provider (no state push follows),
@@ -804,6 +943,12 @@ describe('ticket-form webview.html — selects, buttons, positioning fixes', () 
     expect(rule).toContain('opacity:.6');
   });
 
+  it('says the prompt accepts pasted screenshots AND long text', () => {
+    const row = HTML.slice(HTML.indexOf('id="attachBtn"'), HTML.indexOf('<div id="attachments"'));
+    expect(row).toMatch(/paste a screenshot/i);
+    expect(row).toMatch(/long text/i);
+  });
+
   it('centres the step rail under the dots so the spine lines up with them', () => {
     // The dot is --k-space-9 (26px) wide → its centre sits 13px into the card.
     // margin-left:--k-space-5 (10px) put the 2px rail's centre at 11px — the
@@ -811,6 +956,32 @@ describe('ticket-form webview.html — selects, buttons, positioning fixes', () 
     const [main] = styleBlocks();
     const rule = main!.match(/\.stepbody\{[^}]*\}/)?.[0] ?? '';
     expect(rule).toContain('margin-left:var(--k-space-6)');
+  });
+
+  // The analysis runs through the SETTINGS Ticket-analysis assignment (its
+  // profile body / inline instructions), resolved host-side at analyze time —
+  // NEVER through a webview-carried agent. The Improve action must therefore
+  // carry no agent, and the analysis fingerprint must NOT include the ticket's
+  // approach/agent pick: that pick drives the SESSION, not this headless
+  // analysis, so including it would re-enable Improve for a change that
+  // produces an identical analysis (the reported "no difference" confusion).
+  it('the Improve action carries no agent and the fingerprint stays brief/prompt/repos', () => {
+    const fn = functionSource('triggerAnalyze');
+    expect(fn).toMatch(/post\(\{\s*type: 'analyze',\s*prompt: el\('desc'\)\.value\s*\}\)/);
+    expect(fn).not.toMatch(/\.\.\.\(agent \? \{ agent \} : \{\}\)/);
+    expect(fn).not.toMatch(/\.\.\.\(agent\)/);
+
+    const parts = functionSource('currentParts');
+    expect(parts).not.toContain('approach');
+    expect(parts).not.toContain('agent');
+
+    const equal = functionSource('partsEqual');
+    expect(equal).not.toContain('a.approach === b.approach');
+    expect(equal).not.toContain('a.agent === b.agent');
+
+    const reason = functionSource('deltaReason');
+    expect(reason).not.toContain('approach changed');
+    expect(reason).not.toContain('agent changed');
   });
 });
 

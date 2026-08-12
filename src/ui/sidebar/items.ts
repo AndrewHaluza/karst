@@ -8,24 +8,6 @@ import { resolveProvider } from '../../agent/registry.js';
 import type { AgentProvider } from '../../manifest/types.js';
 
 /**
- * Human phrase for the expanded "activity" line — the runtime state of the
- * ticket's agent/session, which the collapsed row does NOT show (the row states
- * WHERE the ticket is; this states whether anything is working on it right now).
- */
-function activityLabel(agentState: string | null): string {
-  switch (agentState) {
-    case 'running':
-      return 'Agent running';
-    case 'waiting':
-      return 'Agent waiting for input';
-    case 'idle':
-      return 'Session idle';
-    default:
-      return 'No active session';
-  }
-}
-
-/**
  * The expanded body's blocker line — the ONE thing the collapsed row can't show.
  * The row's left glyph already states the status (running / needs-you / failed /
  * done) by color and the chip states the stage, so a plain "UAT failed" phrase is
@@ -78,12 +60,6 @@ export interface TicketNode {
    */
   blocker: Blocker | null;
   /**
-   * Runtime state of the ticket's agent/session for the expanded activity line —
-   * "Agent running" / "Session idle" / "No active session". New information: the
-   * collapsed row shows the stage, never whether a session is live.
-   */
-  activityLabel: string;
-  /**
    * What the row's session button does and reads — "Continue" a captured
    * interactive session, or "Start" a fresh one. The single, always-visible
    * returning-user entry point, so it must never be a generic verb that hides
@@ -130,7 +106,6 @@ export function buildTicketNodes(
       stageClass: stageColorClass(badge.stage),
       stageChip: badge.stage ?? 'none',
       blocker,
-      activityLabel: activityLabel(t.agentState),
       sessionAction: sessionAction(t, resolveProvider(t.agentProvider, defaultProvider)),
       lastActiveAt: current?.endedAt ?? current?.startedAt ?? null,
       model: t.model,

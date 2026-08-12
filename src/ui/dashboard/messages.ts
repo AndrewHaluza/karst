@@ -6,6 +6,8 @@ import type { ActionResultMessage } from '../../model/actionResult.js';
 import { STAGE_KEYS, type StageKey } from '../../model/types.js';
 import { GATE_STAGES, type GateStage } from '../../store/ticketGates.js';
 import { validateInsideProgressEvent, type InsideProgressEvent } from '../../model/inside/progress.js';
+import { isKnownProvider } from '../../agent/provider.js';
+import type { AgentProvider } from '../../manifest/types.js';
 
 /**
  * Webview → host action messages (§14 dashboard tier actions). The webview
@@ -59,8 +61,16 @@ export type WebviewMessage =
    * two can never disagree about which way the toggle currently sits.
    */
   | { type: 'toggle-bind' }
-  /** Request the host-owned picker for this panel's current live session. */
-  | { type: 'switch-agent' }
+  /**
+   * Apply a staged agent-core/model selection to this ticket's live session.
+   * Carries the selection VERBATIM — the host re-validates both against the
+   * choices IT computed (isKnownProvider + model-choice membership) before
+   * confirming or persisting, so the webview's draft is a suggestion, never
+   * authority.
+   */
+  | { type: 'switch-agent'; provider: AgentProvider; model: string | null }
+  /** Copy this ticket's key through the host clipboard (the closure owns the ticket). */
+  | { type: 'copy-ticket-key' }
   /**
    * Resume a parked gate stage (§ blocked state visible). Carries the ticket
    * AND the stage it believes is blocked — the host still validates both
@@ -97,7 +107,16 @@ export type WebviewMessage =
    * as `merge-pr`/`resolve-conflicts`). The id is a bounded string and the
    * index a non-negative integer; anything else drops the whole message.
    */
-  | { type: 'artifact-open-resource'; artifactId: string; index: number };
+  | { type: 'artifact-open-resource'; artifactId: string; index: number }
+  /**
+   * Ask the host to push one gate stage's console log (the uat/review artifact
+   * file) for the terminal "detailed mode" view. Carries the STAGE only — a
+   * closed vocabulary: no path, no ticket id (the panel closure owns the
+   * ticket), exactly like `set-disabled-gates`. The host resolves the stage
+   * row's recorded artifactPath from the store, reads it, and answers with
+   * `stage-log`; the answer message (ok or error) is the terminal outcome.
+   */
+  | { type: 'stage-log-request'; stage: GateStage };
 
 /**
  * Host → webview messages. `state` pushes drive the stepper + panels;
@@ -117,6 +136,13 @@ export type HostMessage =
    * `buildDashboardState` is synchronous — same split as `worktree-stats`.
    */
   | { type: 'gate-options'; options: GateOptions }
+  /**
+   * The answer to `stage-log-request`: the console log content for one gate
+   * stage, or a named refusal. The `result` union is closed — the webview
+   * renders exactly these two shapes. `truncated` is true when the file was
+   * cut at the read cap (defensive; the recording itself caps at 1 MiB).
+   */
+  | { type: 'stage-log'; stage: GateStage; result: StageLogResult }
   | ActionResultMessage;
 
 /**
@@ -168,6 +194,8 @@ export interface DashboardActions {
   createFollowUpTicket: () => void | Promise<void>;
   /** Open a stage's log (uat/review artifact) in an editor. */
   openStageLog: (path: string) => void | Promise<void>;
+  /** Push one gate stage's console log to the panel; the `stage-log` message is the outcome. */
+  requestStageLog: (stage: GateStage) => void | Promise<void>;
   /**
    * Hand one repo's merge conflict to an agent session, seeded with the conflict
    * context. Takes the repo (not a path) because the host resolves the worktree
@@ -189,8 +217,10 @@ export interface DashboardActions {
   refreshPrs: () => void | Promise<void>;
   /** Flip the window's terminal↔dashboard binding. */
   toggleBind: () => void | Promise<void>;
-  /** Switch the panel's live agent session through the host-owned picker. */
-  switchAgent: () => void | Promise<void>;
+  /** Apply a staged agent-core/model selection to this ticket's live session. */
+  switchAgent: (provider: AgentProvider, model: string | null) => void | Promise<void>;
+  /** Copy the ticket key to the clipboard. */
+  copyTicketKey: () => void | Promise<void>;
   /**
    * Clear a stage's block and try to drive it forward. Takes the message's
    * `ticketId`/`stageKey` VERBATIM (not pre-validated) so the host can apply
@@ -229,6 +259,11 @@ export interface InsideActionResult {
   ok: boolean;
   message?: string;
 }
+
+/** The terminal outcome of a `stage-log-request` (UI-R13). */
+export type StageLogResult =
+  | { kind: 'ok'; content: string; truncated: boolean }
+  | { kind: 'error'; message: string };
 
 /**
  * Narrow an untrusted webview message to a `WebviewMessage`, validating BOTH the
@@ -306,10 +341,23 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
     // is dropped rather than honored, so the host's value stays authoritative.
     case 'toggle-bind':
       return { type: 'toggle-bind' };
-    // Payload-free: the panel closure owns the ticket and re-reads the live
-    // session before switching, so no webview-supplied target can be trusted.
-    case 'switch-agent':
-      return { type: 'switch-agent' };
+    // The selection is re-validated host-side (isKnownProvider + model-choice
+    // membership) before anything is confirmed or persisted, so the webview's
+    // draft is a suggestion, never authority — but the two fields still pass
+    // the trust boundary typed and bounded.
+    case 'switch-agent': {
+      const provider = typeof m.provider === 'string' ? m.provider : '';
+      if (!isKnownProvider(provider)) return null;
+      // A missing/blank model means "inherit"; a NON-string model drops the
+      // whole message rather than being coerced to a value the webview never
+      // offered.
+      const model = m.model === undefined ? '' : (typeof m.model === 'string' ? m.model : null);
+      if (model === null) return null;
+      if (model.length > MAX_MODEL_ID_CHARS) return null;
+      return { type: 'switch-agent', provider, model: model || null };
+    }
+    case 'copy-ticket-key':
+      return { type: 'copy-ticket-key' };
     // Both fields are required and typed here, at the boundary — a missing or
     // malformed one drops the whole message rather than resuming with a
     // guessed ticket or an invalid stage.
@@ -363,6 +411,10 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
       if (!Number.isInteger(m.index) || (m.index as number) < 0) return null;
       return { type: 'artifact-open-resource', artifactId, index: m.index as number };
     }
+    // The stage is narrowed to GATE_STAGES here, at the trust boundary; a
+    // non-gate stage (or a malformed payload) drops the whole message.
+    case 'stage-log-request':
+      return isGateStage(m.stage) ? { type: 'stage-log-request', stage: m.stage } : null;
     default:
       return null;
   }
@@ -388,6 +440,9 @@ export const MAX_ACTION_ID_CHARS = 96;
 
 /** Longest artifact id accepted from a webview. Ids are kind ids (`uat-report`). */
 export const MAX_ARTIFACT_ID_CHARS = 64;
+
+/** Longest model id accepted from a webview. Real model ids are short CLI values; 128 is a bounded ceiling. */
+const MAX_MODEL_ID_CHARS = 128;
 
 /**
  * Narrow an untrusted host→webview inside-progress payload to a closed
@@ -466,7 +521,9 @@ export function routeAction(
     case 'toggle-bind':
       return actions.toggleBind();
     case 'switch-agent':
-      return actions.switchAgent();
+      return actions.switchAgent(msg.provider, msg.model);
+    case 'copy-ticket-key':
+      return actions.copyTicketKey();
     case 'stage-resume':
       return actions.resumeStage(msg.ticketId, msg.stageKey);
     case 'set-disabled-gates':
@@ -475,5 +532,7 @@ export function routeAction(
       return actions.insideAction(msg.actionId);
     case 'artifact-open-resource':
       return actions.openArtifactResource(msg.artifactId, msg.index);
+    case 'stage-log-request':
+      return actions.requestStageLog(msg.stage);
   }
 }

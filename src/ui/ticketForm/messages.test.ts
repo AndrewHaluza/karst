@@ -69,6 +69,18 @@ describe('parseTicketFormMessage', () => {
     });
     // a non-string prompt is rejected at the trust boundary
     expect(parseTicketFormMessage({ type: 'analyze' })).toBeNull();
+    // no agent rides the analyze message — the analysis runs through the
+    // SETTINGS Ticket-analysis assignment, resolved host-side, never through a
+    // webview-carried pick. A crafted `agent` value is DROPPED at the boundary
+    // (the parser models only what the host will act on), never carried.
+    expect(parseTicketFormMessage({ type: 'analyze', prompt: 'go', agent: 'x' })).toEqual({
+      type: 'analyze',
+      prompt: 'go',
+    });
+    expect(parseTicketFormMessage({ type: 'analyze', prompt: 'go', agent: 42 })).toEqual({
+      type: 'analyze',
+      prompt: 'go',
+    });
     expect(
       parseTicketFormMessage({ type: 'open-ticket-link', url: 'https://app.clickup.com/t/CU-1' }),
     ).toEqual({ type: 'open-ticket-link', url: 'https://app.clickup.com/t/CU-1' });
@@ -303,6 +315,10 @@ describe('routeTicketFormAction', () => {
       actions,
     );
     routeTicketFormAction({ type: 'analyze', prompt: 'go' }, actions);
+    routeTicketFormAction(
+      { type: 'analyze', prompt: 'go again', agent: 'description-improver' },
+      actions,
+    );
     routeTicketFormAction({ type: 'set-agent', id: 'reviewer' }, actions);
     routeTicketFormAction({ type: 'set-model', id: 'claude-sonnet-5' }, actions);
     routeTicketFormAction({ type: 'set-provider', id: 'antigravity' }, actions);
@@ -318,6 +334,7 @@ describe('routeTicketFormAction', () => {
       key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex', ticketType: null, createInProvider: false, pullBase: true,
     });
     expect(actions.analyze).toHaveBeenCalledWith('go');
+    expect(actions.analyze).toHaveBeenCalledWith('go again');
     expect(actions.setAgent).toHaveBeenCalledWith('reviewer');
     expect(actions.setModel).toHaveBeenCalledWith('claude-sonnet-5');
     expect(actions.setProvider).toHaveBeenCalledWith('antigravity');

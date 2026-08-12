@@ -126,7 +126,7 @@ export function review(over: Partial<ReviewConfig> = {}): ReviewConfig {
   };
 }
 
-/** A processes block. Defaults match `validateProcessAssignments({}, {})` so tests start from the real default. */
+/** A processes block. Defaults match `validateProcessAssignments({})` so tests start from the real default. */
 export function processes(
   over: Partial<ProcessAssignmentsConfig> = {},
 ): ProcessAssignmentsConfig {

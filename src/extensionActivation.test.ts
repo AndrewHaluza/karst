@@ -53,6 +53,26 @@ describe('extension activation', () => {
     );
   });
 
+  // Closing a ticket with its DONE terminals is a SETTING (`closeDoneTerminals
+  // WithTicket`), off by default — so the wiring has two halves, both pinned
+  // here: the archive command and the auto-archive sweep must each consult the
+  // flag before disposing anything, and the dispose must go through the
+  // exit-status-gated helper (only an EXITED terminal may be closed, never a
+  // live session). Source assertions, like every case in this file: the
+  // decision logic runs in `ui/doneTerminals.test.ts`, this pins that the host
+  // actually wires it behind the setting.
+  it('closes a closed ticket\'s done terminals only behind the manifest setting', () => {
+    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+
+    // The setting gate exists, reads the live manifest, and both triggers ride it.
+    expect(source).toContain('closeDoneTerminalsWithTicket === true');
+    expect(source).toContain('closeTicketDoneTerminals(ticketId)');
+    expect(source).toMatch(/for \(const id of archived\)[\s\S]{0,80}?closeTicketDoneTerminals\(id\)/);
+    // Only exited terminals qualify — the helper is what the binding feeds.
+    expect(source).toContain('exited: terminal.exitStatus !== undefined');
+    expect(source).toContain('closeDoneTerminalsOf(probes, ticketId)');
+  });
+
   // `removeWorktree` reaps the servers it removes a tree out from under, but it
   // can only see removals karst performs. A worktree deleted by anything else —
   // or a server leaked by a build that predates that fix — is reachable only
@@ -186,14 +206,13 @@ describe('extension activation', () => {
     );
   });
 
-  it('binds dashboard agent switching to native pickers, confirmation, and the normal launch path', () => {
+  it('binds dashboard agent switching to the header selection, host confirmation, and the normal launch path', () => {
     const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
-    expect(source).toContain('runAgentSwitchFlow(');
+    expect(source).toContain('applyAgentSwitchSelection(');
     expect(source).toMatch(
       /fixExecutionActive: listRecoveryRounds\(localStore, ticketId\)\s*\.some\(\(round\) => round\.status === 'fixing'\)/,
     );
-    expect(source).toContain('vscode.window.showQuickPick');
-    expect(source).toContain("modal: true");
+    expect(source).toContain('modal: true');
     expect(source).toContain("guardProviderCapabilityAsync('sessions', provider)");
     expect(source).toContain(
       "if (!options.providerReady && !guardCapability('sessions', ticketId)) return;",
@@ -255,6 +274,30 @@ describe('extension activation', () => {
     const seamAssertion = ['undefined as unknown as', 'DriveProcessBundle'].join(' ');
     expect(source).not.toContain(seamAssertion);
     expect(source).toContain('DriveProcessBundle');
+  });
+
+  // The ticket form's analysis runs through the SETTINGS Ticket-analysis
+  // assignment: when the row names a profile (`processes.ticketAnalysis.agent`)
+  // and declares no inline `instructions`, the execution boundary must resolve
+  // the profile's BODY and overlay it as the assignment's `instructions`
+  // (replacing the built-in analyzer role block). Without this wiring the
+  // selected Settings agent makes no difference to the ticket analysis — the
+  // reported bug. The overlay lives at the shared `processFor` seam, so the
+  // same rule wires UAT / Review / Fix, not just the analyzer.
+  it('overlays the assigned Settings profile body as the process instructions at the processFor seam', () => {
+    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+
+    // The seam reads the assignment's PROFILE reference (not the ticket's
+    // single-subagent pick) and resolves its body…
+    expect(source).toMatch(/assignment\.agent/);
+    expect(source).toMatch(/soloAgentBody\(assignment\.agent\)/);
+    // …an author-declared inline `instructions` wins over the profile body…
+    expect(source).toMatch(/assignment\.instructions !== undefined\s*\? assignment\.instructions/);
+    // …and the resolved body is layered onto the assignment as `instructions`.
+    expect(source).toContain('{ ...assignment, instructions }');
+    // The wrong #170 seam is gone: the ticket's own single-subagent pick never
+    // hijacks the headless analysis (it drives the SESSION).
+    expect(source).not.toContain('assignment: { ...bundle.assignment, instructions: body }');
   });
 
   // Task 3: a configured-ABSENT Fix process (enabled: false) must never reach

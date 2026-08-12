@@ -81,6 +81,49 @@ describe('ticketGlyph', () => {
     expect(ticketGlyph(t)).toBe('blue');
   });
 
+  it('a running agent at an awaiting-merge ship reads in-progress, not needs-you', () => {
+    // The "Resolve conflicts" click opened a session: the ticket is being
+    // worked right now, so the awaiting-merge block YIELDS its needs-you
+    // reading while the agent runs. The block itself stays stored —
+    // `settleShipGate` needs it to tell "waiting to land" from "parked" — only
+    // the READING changes.
+    const t = ticket({
+      stageCurrent: 'ship',
+      agentState: 'running',
+      stages: [
+        {
+          stageKey: 'ship',
+          status: 'passed',
+          blockedKind: 'awaiting-merge',
+          blockedReason: 'blocked: the pull request for "api" is not merged yet',
+          blockedAt: '2026-08-01T10:00:00.000Z',
+        } as never,
+      ],
+    });
+    expect(needsUser(t)).toBe(false);
+    expect(ticketGlyph(t)).toBe('blue');
+  });
+
+  it('an awaiting-merge ship reads needs-you again once the resolve session ends', () => {
+    // SessionEnd → idle: nobody is working the ticket, so the wait for a human
+    // merge click resumes. The fix must not erase the wait, only pause it.
+    const t = ticket({
+      stageCurrent: 'ship',
+      agentState: 'idle',
+      stages: [
+        {
+          stageKey: 'ship',
+          status: 'passed',
+          blockedKind: 'awaiting-merge',
+          blockedReason: 'blocked: the pull request for "api" is not merged yet',
+          blockedAt: '2026-08-01T10:00:00.000Z',
+        } as never,
+      ],
+    });
+    expect(needsUser(t)).toBe(true);
+    expect(ticketGlyph(t)).toBe('amber');
+  });
+
   it('pending/idle → gray', () => {
     expect(
       ticketGlyph(

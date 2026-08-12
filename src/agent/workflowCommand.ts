@@ -42,7 +42,9 @@ export function renderDoneMarkerInstruction(stageCommand: string, ticketArg: str
     "When you have finished this stage's work — whether that is code, research, or a " +
     `confirmation — run \`${stageCommand} ${ticketArg}\` to record the done marker and ` +
     'advance the ticket to its next stage. A session ending does not advance the ticket ' +
-    'on its own — you must fire this marker explicitly. If access to the Karst registry ' +
+    'on its own — you must fire this marker explicitly. Do NOT fire it while you are ' +
+    'waiting for the user to answer a question: a stage whose agent is waiting on the ' +
+    'user is not complete, and the marker will be refused. If access to the Karst registry ' +
     'is denied, request approval to run this exact marker command outside the workspace sandbox.'
   );
 }

@@ -205,6 +205,22 @@ describe('buildTicketContext', () => {
       expect(md).not.toContain('not agent-readable');
     });
 
+    it('renders a file attachment as agent-readable, unlike video', () => {
+      const ticketId = seed();
+      insertAttachment(store, {
+        ticketId,
+        kind: 'file',
+        storedName: 'c2d3e4f5a6b7c8d9.txt',
+        originalName: 'notes.txt',
+        byteSize: 30,
+      });
+
+      const md = renderTicketContext(buildTicketContext(store, undefined, ticketId, '/storage'));
+      expect(md).toContain('- file: ');
+      expect(md).toContain('— "notes.txt"');
+      expect(md).not.toContain('not agent-readable');
+    });
+
     it('omits attachments entirely when no storage dir is supplied', () => {
       const ticketId = seed();
       insertAttachment(store, {

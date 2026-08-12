@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, basename, dirname } from 'node:path';
-import { brandIconPaths, BRAND_ICON_HEX } from './brandIcon.js';
+import { brandIconPaths } from './brandIcon.js';
 import { glyphIconPath } from './glyphIcon.js';
 
 const ASSET = join(dirname(new URL(import.meta.url).pathname), '..', '..', 'media', 'karst.svg');
@@ -16,28 +16,26 @@ const paths = (): { light: string; dark: string } =>
   brandIconPaths({ storageDir, assetSvgPath: ASSET });
 
 describe('brandIconPaths', () => {
-  it('materializes a light and a dark variant under <storageDir>/icons', () => {
+  it('materializes one full-color file under <storageDir>/icons', () => {
     const p = paths();
     expect(dirname(p.light)).toBe(join(storageDir, 'icons'));
-    expect(dirname(p.dark)).toBe(join(storageDir, 'icons'));
+    expect(p.light).toBe(p.dark);
     expect(readFileSync(p.light, 'utf8')).toContain('<svg');
-    expect(readFileSync(p.dark, 'utf8')).toContain('<svg');
   });
 
-  // A tab icon is a static image VS Code will not tint, so an untinted
-  // `currentColor` renders black — invisible on a dark theme.
-  it('bakes a theme foreground into each variant, leaving no currentColor', () => {
+  // The approved #35 mark carries its own colors, chosen to contrast on both
+  // light and dark themes — the old per-theme foreground bake is gone.
+  it('returns the approved mark for both themes, untinted', () => {
     const p = paths();
-    expect(readFileSync(p.light, 'utf8')).toContain(BRAND_ICON_HEX.light);
-    expect(readFileSync(p.dark, 'utf8')).toContain(BRAND_ICON_HEX.dark);
-    expect(readFileSync(p.light, 'utf8')).not.toContain('currentColor');
-    expect(readFileSync(p.dark, 'utf8')).not.toContain('currentColor');
+    const content = readFileSync(p.light, 'utf8');
+    expect(content).toContain('M 96 20');
+    expect(content).toContain('cx="106.5" cy="111.5" r="26.5"');
+    expect(content).not.toContain('currentColor');
   });
 
-  it('gives the two themes different files and different hues', () => {
+  it('the two themes point at the SAME file (the mark needs no per-theme hue)', () => {
     const p = paths();
-    expect(p.light).not.toBe(p.dark);
-    expect(BRAND_ICON_HEX.light).not.toBe(BRAND_ICON_HEX.dark);
+    expect(p.light).toBe(p.dark);
   });
 
   // The brand mark carries no status: it must never resolve to a file the
@@ -46,7 +44,7 @@ describe('brandIconPaths', () => {
     const p = paths();
     const gray = glyphIconPath('gray', { storageDir, assetSvgPath: ASSET });
     expect([p.light, p.dark]).not.toContain(gray);
-    expect(basename(p.light)).toMatch(/^karst-brand-/);
+    expect(basename(p.light)).toMatch(/^karst-brand\.svg$/);
   });
 
   it('is idempotent — an existing file is returned, not rewritten', () => {

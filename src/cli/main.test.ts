@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseGlobalFlags, runCli } from './main.js';
 import { openStore, type Store } from '../store/db.js';
-import { createTicket, getTicket } from '../store/tickets.js';
+import { createTicket, getTicket, setAgentState } from '../store/tickets.js';
 import { insertAttachment } from '../store/attachments.js';
 import { transition } from '../workflow/machine.js';
 import { createGraphRun } from '../store/graph/graphRuns.js';
@@ -63,6 +63,22 @@ describe('runCli — stage marker', () => {
 
   it('fails loudly on an unknown ticket key', () => {
     expect(() => runCli(['stage', 'impl', 'pass', '--db', dbPath, '--ticket', 'NOPE'])).toThrow(/NOPE/);
+  });
+
+  it('refuses the impl marker while the agent is waiting for user input', () => {
+    const seed = openStore(dbPath);
+    setAgentState(seed, 1, 'waiting');
+    seed.close();
+
+    expect(() => runCli(['stage', 'impl', 'pass', '--db', dbPath, '--ticket', 'K-1'])).toThrow(
+      /waiting for|waiting on|asked/i,
+    );
+
+    const check: Store = openStore(dbPath);
+    const t = getTicket(check, 1);
+    expect(t.stageCurrent).toBe('impl');
+    expect(t.stages.find((s) => s.stageKey === 'impl')?.status).toBe('running');
+    check.close();
   });
 
   it('requires --ticket for a stage command', () => {

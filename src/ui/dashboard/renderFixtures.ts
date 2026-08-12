@@ -577,6 +577,7 @@ function uatView(n: RenderRepoCount): InsideStageView {
     title: 'UAT',
     dot: 'fail',
     clock: '10:03:55 · 41.2s · attempt 3',
+    console: true,
     processes: [
       {
         id: 'gates',
@@ -856,7 +857,8 @@ export function renderStateFor(stage: InsideStageKey): DashboardState {
     },
     stepper: [],
     currentStage: null,
-    now: { text: 'Render fixture' },
+    ship: { kind: 'none' },
+    agentSwitch: { cores: [], models: {} },
     servers: [],
     hasRunnableRepos: false,
     worktrees: [],

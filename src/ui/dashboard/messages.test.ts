@@ -36,10 +36,12 @@ function actions(): DashboardActions {
     refreshPrs: vi.fn(),
     toggleBind: vi.fn(),
     switchAgent: vi.fn(),
+    copyTicketKey: vi.fn(),
     resumeStage: vi.fn(),
     setDisabledGate: vi.fn(),
     insideAction: vi.fn(),
     openArtifactResource: vi.fn(),
+    requestStageLog: vi.fn(),
   };
 }
 
@@ -291,13 +293,35 @@ describe('routeAction', () => {
     expect(a.toggleBind).toHaveBeenCalledTimes(1);
   });
 
-  it('routes switch-agent without trusting companion provider/model/ticket fields', () => {
+  it('parses a switch-agent selection and dispatches it with both fields', () => {
     const a = actions();
     expect(parseWebviewMessage({
-      type: 'switch-agent', provider: 'evil', model: 'evil', ticketId: 999,
-    })).toEqual({ type: 'switch-agent' });
-    routeAction({ type: 'switch-agent', provider: 'evil' }, a);
-    expect(a.switchAgent).toHaveBeenCalledOnce();
+      type: 'switch-agent', provider: 'codex', model: 'gpt-5.2-codex', ticketId: 999,
+    })).toEqual({ type: 'switch-agent', provider: 'codex', model: 'gpt-5.2-codex' });
+    routeAction({ type: 'switch-agent', provider: 'codex', model: 'gpt-5.2-codex' }, a);
+    expect(a.switchAgent).toHaveBeenCalledWith('codex', 'gpt-5.2-codex');
+  });
+
+  it('coerces a blank model to inherit (null)', () => {
+    expect(parseWebviewMessage({ type: 'switch-agent', provider: 'claude' })).toEqual({
+      type: 'switch-agent', provider: 'claude', model: null,
+    });
+    expect(parseWebviewMessage({ type: 'switch-agent', provider: 'claude', model: '' })).toEqual({
+      type: 'switch-agent', provider: 'claude', model: null,
+    });
+  });
+
+  it('rejects a switch-agent to an unknown provider or a non-string model', () => {
+    expect(parseWebviewMessage({ type: 'switch-agent', provider: 'evil', model: 'x' })).toBeNull();
+    expect(parseWebviewMessage({ type: 'switch-agent', provider: 'codex', model: 42 })).toBeNull();
+    expect(parseWebviewMessage({ type: 'switch-agent', provider: 'codex', model: 'x'.repeat(300) })).toBeNull();
+  });
+
+  it('parses and dispatches copy-ticket-key with no payload', () => {
+    const a = actions();
+    expect(parseWebviewMessage({ type: 'copy-ticket-key' })).toEqual({ type: 'copy-ticket-key' });
+    routeAction({ type: 'copy-ticket-key' }, a);
+    expect(a.copyTicketKey).toHaveBeenCalledOnce();
   });
 
   it('parses a well-formed stage-resume and dispatches it with both fields', () => {
@@ -497,6 +521,42 @@ describe('parseInsideProgress', () => {
     expect(
       parseInsideProgress({ kind: 'cleared', ticketId: 1, stage: 'uat', processId: 'gates' }),
     ).toEqual({ kind: 'cleared', ticketId: 1, stage: 'uat', processId: 'gates' });
+  });
+});
+
+describe('stage-log-request', () => {
+  it('accepts a gate stage (uat/review) only — closed vocabulary (UI-R16)', () => {
+    expect(parseWebviewMessage({ type: 'stage-log-request', stage: 'uat' })).toEqual({
+      type: 'stage-log-request',
+      stage: 'uat',
+    });
+    expect(parseWebviewMessage({ type: 'stage-log-request', stage: 'review' })).toEqual({
+      type: 'stage-log-request',
+      stage: 'review',
+    });
+    // Non-gate stages, missing stage, and wrong types all drop the message.
+    expect(parseWebviewMessage({ type: 'stage-log-request', stage: 'impl' })).toBeNull();
+    expect(parseWebviewMessage({ type: 'stage-log-request', stage: 'ship' })).toBeNull();
+    expect(parseWebviewMessage({ type: 'stage-log-request' })).toBeNull();
+    expect(parseWebviewMessage({ type: 'stage-log-request', stage: 42 })).toBeNull();
+  });
+
+  it('routes to requestStageLog with the validated stage', () => {
+    const calls: string[] = [];
+    routeAction({ type: 'stage-log-request', stage: 'review' }, {
+      ...actions(),
+      requestStageLog: (stage) => void calls.push(stage),
+    });
+    expect(calls).toEqual(['review']);
+  });
+
+  it('never routes an unparsed stage-log-request (unknown stays silent)', () => {
+    let called = false;
+    routeAction({ type: 'stage-log-request', stage: 'done' }, {
+      ...actions(),
+      requestStageLog: () => void (called = true),
+    });
+    expect(called).toBe(false);
   });
 });
 

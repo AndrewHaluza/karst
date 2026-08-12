@@ -210,6 +210,46 @@ describe('analyzeTicket', () => {
     expect(prompts[0]).toContain('user intent here');
   });
 
+  // A single-subagent ticket analyzes THROUGH its chosen agent: the agent's
+  // body is the analysis instructions, replacing the built-in role/strategy
+  // block while the input facts and the JSON output contract stay. Without it
+  // a well-instructed agent and an empty one produce byte-identical prompts
+  // ("Selected agent for Ticket analysis not makes any difference").
+  it('replaces the built-in role/strategy block with the provided instructions', async () => {
+    const { adapter, prompts } = capturingAdapter(
+      '{"prompt":"p","approach":"gsd","repos":["frontend"],"reason":"r"}',
+    );
+    await analyzeTicket(adapter, {
+      brief: 'b',
+      services,
+      approaches,
+      instructions: '# description-improver\nRewrite the description using the project glossary.',
+    });
+    const built = prompts[0]!;
+    // The agent's own body is the strategy now…
+    expect(built).toContain('# description-improver');
+    expect(built).toContain('Rewrite the description using the project glossary.');
+    expect(built).not.toContain('produce THREE coupled decisions at once');
+    // …but the facts the analyzer still needs survive: approaches, services,
+    // the type classification, and the JSON output contract.
+    expect(built).toContain('gsd');
+    expect(built).toContain('backend');
+    expect(built).toContain('conventional-commit type');
+    expect(built).toContain('Respond with ONLY a single JSON object');
+  });
+
+  it('treats blank instructions as absent, keeping the built-in role/strategy byte-identical', async () => {
+    const blank = capturingAdapter(
+      '{"prompt":"p","approach":"gsd","repos":[],"reason":"r"}',
+    );
+    await analyzeTicket(blank.adapter, { brief: 'b', services, approaches, instructions: '   ' });
+    const plain = capturingAdapter(
+      '{"prompt":"p","approach":"gsd","repos":[],"reason":"r"}',
+    );
+    await analyzeTicket(plain.adapter, { brief: 'b', services, approaches });
+    expect(blank.prompts[0]).toBe(plain.prompts[0]);
+  });
+
   it('constrains the synthesized prompt to be approach- and service-agnostic', async () => {
     const { adapter, prompts } = capturingAdapter(
       '{"prompt":"p","approach":"gsd","repos":["frontend"],"reason":"r"}',

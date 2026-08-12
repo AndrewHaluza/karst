@@ -23,6 +23,7 @@ import type { DashboardActions } from './ui/dashboard/messages.js';
 import { makeWorktreeActions } from './ui/dashboard/worktreeActions.js';
 import { loadWorktreeStats } from './ui/dashboard/worktreeStats.js';
 import { buildGateOptionsLoader } from './ui/dashboard/gateOptions.js';
+import { readStageLog } from './ui/dashboard/stageLogReader.js';
 import {
   TicketChangesManager,
   type ChangesPanel,
@@ -64,6 +65,7 @@ import {
   type SessionTerminalRecord,
   type TerminalIdentity,
 } from './ui/terminalIdentity.js';
+import { closeDoneTerminalsOf, type DoneTerminalProbe } from './ui/doneTerminals.js';
 import { TerminalDashboardBinder } from './ui/bind/binder.js';
 import {
   classifyRestoredSession,
@@ -104,7 +106,7 @@ import {
 import type { AgentAdapter, Materialized } from './agent/adapter.js';
 import { bundledModelCatalog } from './agent/modelCatalog.js';
 import type { ModelCatalog } from './agent/modelCatalog.js';
-import { PROVIDER_LABELS, runAgentSwitchFlow } from './agent/sessionSwitch.js';
+import { applyAgentSwitchSelection } from './agent/sessionSwitch.js';
 import {
   catalogDiagnosticSeverity,
   formatCatalogDiagnostic,
@@ -136,7 +138,7 @@ import { ticketGlyph } from './model/ticketGlyph.js';
 import { glyphIconPath } from './ui/glyphIcon.js';
 import { brandIconPaths, type BrandIconPaths } from './ui/brandIcon.js';
 import { brandIconUri } from './ui/panelIcon.js';
-import { glyphThemeColorKey } from './model/glyphColor.js';
+import { terminalNaming } from './ui/terminalNaming.js';
 import { StatusBarManager } from './ui/statusBar.js';
 import { attentionItems, AttentionManager, type AttentionItem } from './ui/attention.js';
 import { composeContextCommand } from './cli/context.js';
@@ -200,7 +202,7 @@ import {
   selectLaunchableWorktrees,
 } from './commands/launchWorktree.js';
 import { parseLaunchWorktreeConfig } from './commands/launchWorktreeConfig.js';
-import { getDisabledGates, setDisabledGates } from './store/ticketGates.js';
+import { getDisabledGates, setDisabledGates, type GateStage } from './store/ticketGates.js';
 import { latestFindingBatch } from './store/reviewFindings.js';
 import { defaultGhRunnerAsync } from './integrations/github.js';
 import { syncPrStatuses } from './workflow/prSync.js';
@@ -273,6 +275,11 @@ import type {
 import { instrumentAdapter } from './agent/instrumentedAdapter.js';
 import { recordTokenUsage } from './store/tokenUsage.js';
 import { UsagePanelManager, type UsagePanel, type UsagePanelHost } from './ui/usage/panel.js';
+import {
+  ResourcesPanelManager,
+  type ResourcesPanel,
+  type ResourcesPanelHost,
+} from './ui/resources/panel.js';
 import {
   listInstalled,
   readApproachPackage,
@@ -350,6 +357,7 @@ import { injectDesignSystem } from './model/designSystem.js';
 import { injectCsp, newNonce } from './model/csp.js';
 import { injectProviderIdentity } from './model/providerIdentity.js';
 import { injectAgentIdentity } from './model/agentIdentity.js';
+import { injectXterm, readXtermAssets } from './model/xtermAssets.js';
 import { buildTicketArtifacts } from './model/artifacts.js';
 import {
   binaryExists,
@@ -363,6 +371,10 @@ import {
 } from './runtime/deps.js';
 import { ensureCapabilityAsync } from './runtime/depsAsync.js';
 import { buildDepsIndicator } from './ui/depsIndicator.js';
+import { buildResourceIndicator } from './ui/resourceStatus.js';
+import { WorktreeDiskCache } from './runtime/worktreeDisk.js';
+import { ResourceMonitor } from './runtime/resourceMonitor.js';
+import { aiCallSiteLabel } from './agent/aiCallSites.js';
 import { GettingStartedManager } from './ui/gettingStarted/panel.js';
 import { buildGettingStartedActions } from './ui/gettingStarted/actions.js';
 import { makeGettingStartedPanelHost } from './ui/gettingStarted/host.js';
@@ -381,6 +393,9 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 
 /** The shipped karst mark. `HERE` is `dist/`, so the asset sits one level up. */
 const BRAND_SVG = join(HERE, '..', 'media', 'karst.svg');
+
+/** Monochrome silhouette of the same mark, tinted by the status glyph hue. */
+const MARK_SVG = join(HERE, '..', 'media', 'karst-mark.svg');
 
 /**
  * The status-free karst mark for every panel tab, materialized once per window.
@@ -581,6 +596,30 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     archive: (id) => void vscode.commands.executeCommand('karst.archiveTicket', id),
     unarchive: (id) => void vscode.commands.executeCommand('karst.unarchiveTicket', id),
     delete: (id) => void vscode.commands.executeCommand('karst.deleteTicket', id),
+    // The expanded mini-dashboard's primary next action on a Done ticket (§
+    // 869ehda7y): the command copies repos/approach/agent/model from the parent
+    // and opens the ticket form so the user can type the follow-up ask.
+    createFollowUp: (id) => void vscode.commands.executeCommand('karst.createFollowUpTicket', id),
+    // The expanded mini-dashboard's "Resolve conflicts" CTA. The store decides
+    // whether the conflict still exists — `repo` arrived in a webview message
+    // and a stale row can name one that has since gone. Same handoff as the
+    // dashboard's resolveConflicts: nudge a live session, else launch one
+    // seeded with the brief (never drop the brief on an open terminal).
+    resolveConflicts: (id, repo) => {
+      if (!guardCapability('sessions', id)) return;
+      const brief = buildConflictBrief(localStore, id, repo);
+      if (!brief) {
+        void vscode.window.showInformationMessage(
+          `No merge conflict is recorded for "${repo}" on this ticket — nothing to resolve.`,
+        );
+        return;
+      }
+      if (sessions.nudge(id, brief)) {
+        sessions.focusSession(id);
+        return;
+      }
+      void vscode.commands.executeCommand('karst.openSession', id, { seedPrompt: brief });
+    },
   }), () => worktreePathContext(currentManifest(), logger.warn, logger.info), () => currentManifest()?.ticketLabelTemplate, logError,
     () => currentProject()?.id,
     () => currentManifest()?.agentProvider,
@@ -733,6 +772,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       logError('session terminal identity persistence failed', error);
     },
   );
+  // Declared before the terminal registry because the registry's session-pid
+  // hook reads it (a closure running at remember/forget time, long after the
+  // monitor is constructed below); assigned where the monitor is built.
+  let resourceMonitor: ResourceMonitor | undefined;
   const terminalIdentity = makeTerminalIdentityRegistry(
     parseSessionTerminalRecords(context.workspaceState.get(SESSION_TERMINALS_KEY)),
     (records) => void terminalRecordWriter.enqueue(records),
@@ -747,7 +790,29 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             agentName: intent.agentName,
           };
     },
+    (pid, ticketId) =>
+      resourceMonitor?.registerPid({ pid, kind: 'session', ticketId, label: null }),
   );
+  // Setting-gated (manifest `closeDoneTerminalsWithTicket`, OFF by default):
+  // closing a ticket also closes its DONE terminals — the tabs whose process
+  // already exited (VS Code marks them "Done") and would otherwise sit dead in
+  // the terminal panel. Only EXITED terminals qualify, so a live agent session
+  // is never torn down by closing its ticket; identity comes from the same
+  // registry the adoption paths use, so a revived terminal still counts. The
+  // decision is the vscode-free `ui/doneTerminals.ts`; this is the binding.
+  const closeTicketDoneTerminals = (ticketId: number): number => {
+    const probes: DoneTerminalProbe[] = [];
+    for (const terminal of vscode.window.terminals) {
+      const named = terminalIdentity.identify(terminal);
+      if (!named || named.ticketId !== ticketId) continue;
+      probes.push({
+        ticketId,
+        exited: terminal.exitStatus !== undefined,
+        dispose: () => terminal.dispose(),
+      });
+    }
+    return closeDoneTerminalsOf(probes, ticketId);
+  };
   flushSessionOwnership = async () => {
     await ownershipWriter.flush();
     await terminalRecordWriter.flush();
@@ -976,6 +1041,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // Injected ONCE here, threaded into every headless call's opts — a new
       // adapter gets debug logging by construction (gated inside the logger).
       debug: (message) => logger.debug(message),
+      // Live-pid registry hook, injected at the same seam: every agent process
+      // this window spawns is registered the moment it exists and unregistered
+      // wherever the run settles, attributed to the call that spawned it.
+      onSpawned: (pid, tracking) =>
+        resourceMonitor?.registerPid({
+          pid,
+          kind: 'agent',
+          ticketId: tracking?.ticketId ?? null,
+          label: tracking ? aiCallSiteLabel(tracking.callSite) : null,
+        }),
     });
 
   const currentAgentAdapter = (ticketId?: number): AgentAdapter => {
@@ -1001,6 +1076,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * drivers' nullable callbacks — never collapsed to `undefined` by an
    * assertion at this seam.
    */
+  // The roles whose headless prompts consume `assignment.instructions` (UAT
+  // Tester, Review findings, Ticket analysis). A process-assignment PROFILE's
+  // body is resolved into `instructions` only for these — the Fix roles are
+  // interactive sessions and pr-description has a fixed prompt, so their
+  // profile body is never read and must not be resolved/carried.
+  const PROMPT_BEARING_ROLES = new Set<ProcessRole>(['uat-tester', 'review', 'ticket-analysis']);
   const processFor = (
     ticketId: number,
     role: ProcessRole,
@@ -1016,8 +1097,35 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       modelCatalog,
     );
     if (assignment === null) return null;
+    // The process-assignment PROFILE (the Settings agent-pool pick) is the
+    // process's own custom prompt: for the prompt-BEARING roles, resolve the
+    // assigned profile's body and use it as the process's `instructions`,
+    // replacing the built-in role block. An explicit `processes.<key>.instructions`
+    // (author-declared) WINS over the profile body; a missing / unreadable
+    // profile degrades to the built-in prompt, exactly like the launch path's
+    // solo-agent fallback. The Fix roles are interactive sessions and
+    // pr-description has a fixed prompt — their profile body is deliberately
+    // NOT resolved (a debug line would overclaim, and the value would ride the
+    // session assignment with no consumer).
+    // `soloAgentBody` is only CALLED here (at execution time), long after the
+    // helper is initialized, so the later `const` declaration is safe.
+    const instructions =
+      assignment.instructions !== undefined
+        ? assignment.instructions
+        : PROMPT_BEARING_ROLES.has(role) && assignment.agent
+          ? (soloAgentBody(assignment.agent) ?? undefined)
+          : undefined;
+    if (instructions !== undefined && instructions !== assignment.instructions) {
+      logger.debug(
+        `[process] ${role} for ticket #${ticketId} runs through Settings profile ` +
+          `"${assignment.agent}" (instructions overlaid)`,
+      );
+    }
     return {
-      assignment,
+      assignment:
+        instructions === undefined || instructions === assignment.instructions
+          ? assignment
+          : { ...assignment, instructions },
       // The process assignment is the execution identity. In particular, a
       // configured UAT/Review/Fix role may deliberately differ from the
       // ticket's interactive provider, so resolving through the ticket here
@@ -1049,7 +1157,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const prDescriptionProcess = (ticketId: number): DriveProcessBundle | null =>
     processFor(ticketId, 'pr-description');
 
-  /** Task 3: the configured ticket-analysis process for the ticket form (nullable). */
+  /**
+   * Task 3: the configured ticket-analysis process for the ticket form
+   * (nullable). The analyzer runs through the SETTINGS Ticket-analysis
+   * assignment: `processFor` resolves the assigned profile's body as the
+   * analysis `instructions` (or the author-declared inline `instructions`),
+   * so changing the Settings → Agents → Inside process assignments →
+   * Ticket analysis profile changes what the form's Improve / auto-improve
+   * asks — the selected agent IS the difference. The ticket's own
+   * `single-subagent` pick drives the SESSION, never this headless analysis.
+   */
   const analysisProcess = (ticketId: number): DriveProcessBundle | null =>
     processFor(ticketId, 'ticket-analysis');
 
@@ -1250,9 +1367,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return false;
   };
 
-  const switchAgentSession = async (ticketId: number): Promise<void> => {
+  const switchAgentSession = async (
+    ticketId: number,
+    targetProvider: AgentProvider,
+    model: string | null,
+  ): Promise<void> => {
     try {
-      const outcome = await runAgentSwitchFlow({
+      const outcome = await applyAgentSwitchSelection({
         read: () => {
           const ticket = getTicket(localStore, ticketId);
           return {
@@ -1265,18 +1386,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           };
         },
         isSessionOpen: () => sessions.isOpen(ticketId),
-        pickProvider: async (choices, current) => {
-          const picked = await vscode.window.showQuickPick(
-            choices.map((choice) => ({ label: choice.label, provider: choice.provider })),
-            { title: `Switch from ${current.providerLabel} for ${ticketLabel(getTicket(localStore, ticketId))}` },
-          );
-          return picked?.provider;
-        },
         isProviderReady: (provider) => guardProviderCapabilityAsync('sessions', provider),
-        pickModel: async (provider, choices) => vscode.window.showQuickPick(
-          choices.map((choice) => ({ ...choice, label: choice.label })),
-          { title: `Choose a model for ${PROVIDER_LABELS[provider]}` },
-        ),
         confirm: async ({ from, to }) => {
           const choice = await vscode.window.showWarningMessage(
             `Switch from ${from.providerLabel} · ${from.modelLabel} to ${to.providerLabel} · ${to.modelLabel}?`,
@@ -1288,16 +1398,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           );
           return choice === 'Switch and continue';
         },
-        persist: ({ provider, model }) => updateTicketFields(localStore, ticketId, {
-          agentProvider: provider,
-          model: model ?? '',
+        persist: ({ provider: p, model: m }) => updateTicketFields(localStore, ticketId, {
+          agentProvider: p,
+          model: m ?? '',
         }),
         dispose: () => sessions.disposeSession(ticketId),
         launch: async (options) => {
           await vscode.commands.executeCommand('karst.openSession', ticketId, options);
         },
-      }, modelCatalog);
-
+      }, modelCatalog, { provider: targetProvider, model });
+      // Keep the same outcome toasts as before (stale / launch-failed).
       if (outcome.kind === 'stale') {
         void vscode.window.showInformationMessage('The live agent session changed before it could be switched.');
       } else if (outcome.kind === 'launch-failed') {
@@ -1399,6 +1509,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   };
 
+  // Resolve a profile's BODY (its instructions) by name: a local agent file OR
+  // an approach artifact, matching the pool entry's `source`. The ONE
+  // resolution the launch path (a ticket's single-subagent) and the inside
+  // process assignments (`processFor` → a Settings profile) share, so a chosen
+  // agent drives the ticket analysis / UAT / Review exactly as it drives the
+  // session. A missing agent / unreadable body → null (the caller keeps its
+  // built-in prompt).
+  const soloAgentBody = (name: string): string | null => {
+    try {
+      const chosen = listAgents().find((a) => a.name === name);
+      if (!chosen) return null;
+      return chosen.source === 'file'
+        ? (readAgentFile(agentsDirOrThrow(), chosen.name)?.body ?? null)
+        : readArtifactBody(approachesDirOrThrow(), chosen.approachId!, chosen.relPath!);
+    } catch {
+      return null;
+    }
+  };
+
   // Ticket form: create + edit tickets on one persistent surface. The
   // manifest is read fresh per-open (getter) so a signal write is reflected
   // immediately. The ClickUp provider + agent adapter are wired with the secure
@@ -1412,7 +1541,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const t = getTicket(localStore, ticketId);
       return glyphIconPath(ticketGlyph(t), {
         storageDir: context.globalStorageUri.fsPath,
-        assetSvgPath: BRAND_SVG,
+        assetSvgPath: MARK_SVG,
       });
     } catch {
       return undefined;
@@ -1550,6 +1679,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           openLabel: 'Attach',
           filters: {
             Media: [...IMAGE_EXTENSIONS, ...VIDEO_EXTENSIONS],
+            'All Files': ['*'],
           },
         });
         return (picked ?? []).map((uri) => uri.fsPath);
@@ -1974,6 +2104,71 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     logError,
   });
 
+  // The resource monitor (leak hunter): one slow-lane sample every 30 s for the
+  // window's lifetime, a fast lane only while the Resources panel is visible.
+  // Host-agnostic; every host fact is injected. Window-scoped like the usage
+  // panel — each window samples independently, and display is scoped to this
+  // window's project.
+  const worktreeRoots = (): string[] => {
+    const manifest = currentManifest();
+    if (!manifest) return [];
+    const roots = new Set<string>();
+    for (const repo of Object.values(manifest.repositories)) {
+      roots.add(join(repo.repoPath, '.karst', 'worktrees'));
+    }
+    return [...roots];
+  };
+  const resourceMonitorInstance = new ResourceMonitor({
+    store: localStore,
+    projectId: () => currentProject()?.id,
+    worktreeRoots,
+    debug: (message) => logger.debug(message),
+    logError,
+  });
+  resourceMonitor = resourceMonitorInstance;
+  resourceMonitorInstance.start();
+
+  const resourcesDisk = new WorktreeDiskCache();
+  const resourcesPanel = new ResourcesPanelManager(makeResourcesPanelHost(context, brandIcon), {
+    monitor: resourceMonitorInstance,
+    disk: resourcesDisk,
+    worktreePaths: () => {
+      const project = currentProject();
+      return project ? listWorktreesByProject(localStore, project.id).map((w) => w.path) : [];
+    },
+    pathContext: () => worktreePathContext(currentManifest(), logger.warn, logger.info),
+    // The kill confirmation is HOST-side (UI-R33): the webview posts only a
+    // `servers.id`, and a crafted message can never skip this modal.
+    confirm: async (message) => {
+      const choice = await vscode.window.showWarningMessage(message, { modal: true }, 'Stop process');
+      return choice === 'Stop process';
+    },
+    logError,
+  });
+  context.subscriptions.push(
+    { dispose: () => resourceMonitorInstance.dispose() },
+    { dispose: () => resourcesPanel.dispose() },
+  );
+
+  // The always-on meter. Hidden while there is nothing to say — the one surface
+  // the user cannot dismiss must not be permanent noise.
+  const resourcesStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 40);
+  resourcesStatus.command = 'karst.openResources';
+  context.subscriptions.push(resourcesStatus);
+  resourceMonitorInstance.onReading((reading) => {
+    const indicator = buildResourceIndicator(reading);
+    if (!indicator) {
+      resourcesStatus.hide();
+      return;
+    }
+    resourcesStatus.text = indicator.text;
+    resourcesStatus.tooltip = indicator.tooltip;
+    resourcesStatus.backgroundColor = indicator.warning
+      ? new vscode.ThemeColor('statusBarItem.warningBackground')
+      : undefined;
+    resourcesStatus.show();
+  });
+
   // One launch in flight per worktree path, per window. A second click during a
   // multi-minute build must not start a second build beside the first.
   const launchingWorktrees = new Set<string>();
@@ -2096,7 +2291,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   const dashboard = new DashboardManager(
     localStore,
-    makePanelHost(context, brandIcon),
+    makePanelHost(context, brandIcon, (m) => logger.warn(m)),
     (ticketId) =>
       makeDashboardActions(
         localStore,
@@ -2143,7 +2338,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           });
         },
         () => changes.open(ticketId),
-        () => void switchAgentSession(ticketId),
+        (provider, model) => void switchAgentSession(ticketId, provider, model),
         () => binder.toggle(),
         // Declared below with the sweep it forces (like `binder`, the two are
         // mutually referential); read only when a panel is actually open, which
@@ -2155,6 +2350,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         (path) => void launchWorktreeDevWindow(path),
         () => launchWorktreeConfig(),
         () => graphRecoveryDeps(),
+        // The stage key arrives from the webview; the manager resolves the read
+        // through the injected reader and posts the answer to this ticket's
+        // panel (the postInsideProgress pattern).
+        (stage) => dashboard.requestStageLog(ticketId, stage),
       ),
     () => worktreePathContext(currentManifest(), logger.warn, logger.info),
     () => currentManifest()?.ticketLabelTemplate,
@@ -2301,6 +2500,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           now: () => new Date().toISOString(),
         },
         ticketId,
+      ),
+    // The terminal view's log source: resolve the stage row's recorded
+    // artifactPath and read it bounded (the webview names only a stage key).
+    (ticketId, stage) =>
+      readStageLog(localStore, ticketId, stage, (path) => readFileSync(path, 'utf8'), (m) =>
+        logger.debug(m),
       ),
   );
 
@@ -3596,6 +3801,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       } catch (e) {
         logError('karst: done ticket auto-archive failed', e);
       }
+      // The same setting gates the background sweep: a ticket the sweep
+      // archives is closed exactly like one archived by a click, so its done
+      // terminals go with it — off by default, and never a live session.
+      if ((currentManifest() ?? emptyManifest()).closeDoneTerminalsWithTicket === true) {
+        let closed = 0;
+        try {
+          for (const id of archived) closed += closeTicketDoneTerminals(id);
+        } catch (e) {
+          logError('karst: closing done terminals failed', e);
+        }
+        if (closed > 0) {
+          logger.info(
+            `karst: closed ${closed} done terminal(s) of ${archived.length} auto-archived ticket(s)`,
+          );
+        }
+      }
       // A forced sweep pushes unconditionally: "nothing changed" is the answer
       // the user asked for, and it is also what clears the panel's spinner.
       if (force || changed > 0 || mergeChanged > 0 || landed.length > 0 || archived.length > 0) {
@@ -3915,21 +4136,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // `source`) so it can be materialized into the launch plugin and named in
       // the delegation instruction below. Any resolution failure degrades to no
       // solo agent — the session still opens, just without the plugin/delegation.
+      // Shares `soloAgentBody` with the inside process assignments (`processFor`),
+      // so a chosen agent drives the session and the processes with the same body.
       let soloAgent: { name: string; body: string } | undefined;
       if (t.approach === 'single-subagent' && t.agent) {
-        try {
-          const pool = listAgents();
-          const chosen = pool.find((a) => a.name === t.agent);
-          if (chosen) {
-            const body =
-              chosen.source === 'file'
-                ? (readAgentFile(agentsDirOrThrow(), chosen.name)?.body ?? null)
-                : readArtifactBody(approachesDirOrThrow(), chosen.approachId!, chosen.relPath!);
-            if (body) soloAgent = { name: chosen.name, body };
-          }
-        } catch {
-          soloAgent = undefined;
-        }
+        const body = soloAgentBody(t.agent);
+        if (body) soloAgent = { name: t.agent, body };
       }
 
       // ALWAYS seed the session with the ticket's own context (key, title,
@@ -4105,21 +4317,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             modelCatalog,
           );
 
-      // Terminal name/icon/color are frozen at creation, so resolve the ticket's
-      // glyph ONCE here: the color is the stage-at-launch, and the template keeps
-      // the stage legible as text for the rest of the terminal's life.
-      const glyph = ticketGlyph(t);
-      const naming = {
+      // Terminal name/icon/color are frozen at creation, so the tab carries the
+      // status-free brand mark from the start — never a stage-at-launch glyph
+      // hue, which the tab would keep for the rest of its life (869egvp46-fu2).
+      // The template keeps the stage legible as text.
+      const naming = terminalNaming({
         name: renderTicketLabel(
           t,
           currentManifest()?.terminalNameTemplate ?? DEFAULT_TERMINAL_NAME_TEMPLATE,
         ),
-        iconPath: glyphIconPath(glyph, {
-          storageDir: context.globalStorageUri.fsPath,
-          assetSvgPath: BRAND_SVG,
-        }),
-        color: glyphThemeColorKey(glyph),
-      };
+        brandIcon,
+      });
 
         sessions.openSession(
           adapter,
@@ -4329,6 +4537,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const ticketId = ticketIdArg(arg);
       if (ticketId === undefined) return;
       archiveTicket(localStore, ticketId);
+      // Setting-gated (`closeDoneTerminalsWithTicket`, OFF by default): the
+      // ticket is being closed, so its DONE terminals go with it — dead tabs
+      // whose process already exited, never a live session. A disposal failure
+      // must not fail the archive itself, so this is wrapped and reported.
+      if ((currentManifest() ?? emptyManifest()).closeDoneTerminalsWithTicket === true) {
+        try {
+          const closed = closeTicketDoneTerminals(ticketId);
+          if (closed > 0) {
+            logger.info(`karst: closed ${closed} done terminal(s) with ticket ${ticketId}`);
+          }
+        } catch (err) {
+          logError('karst: closing done terminals with ticket failed', err);
+        }
+      }
       const manifest = currentManifest();
       if (manifest) {
         const allocator = makePortAllocator(localStore, manifest.portRange);
@@ -4455,6 +4677,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (picked) void vscode.commands.executeCommand('karst.openDashboard', picked.ticketId);
     }),
     vscode.commands.registerCommand('karst.openTokenUsage', () => tokenUsagePanel.open()),
+    vscode.commands.registerCommand('karst.openResources', () => resourcesPanel.open()),
     vscode.commands.registerCommand('karst.showLogs', () => channel.show()),
     vscode.commands.registerCommand('karst.search', async () => {
       const query = await vscode.window.showInputBox({ prompt: 'Filter tickets' });
@@ -4923,29 +5146,43 @@ function buildCliGuidePrefix(context: vscode.ExtensionContext): string {
 
 /**
  * The injected dashboard webview asset, built once per call: design system,
- * status palette, provider identity, and agent-core identity markers are all
- * substituted host-side (CSP forbids a shared stylesheet/script). Shared by the
- * production dashboard panels and the development-only Inside preview, so the
- * preview renders the exact asset production does (Finding 1). The agent
- * identity injection is applied outermost, in the same order the settings and
- * ticket form hosts use it.
+ * status palette, provider identity, agent-core identity, and the vendored
+ * xterm bundles are all substituted host-side (CSP forbids a shared
+ * stylesheet/script). Shared by the production dashboard panels and the
+ * development-only Inside preview, so the preview renders the exact asset
+ * production does (Finding 1). The agent identity injection is applied
+ * outermost, in the same order the settings and ticket form hosts use it.
+ *
+ * xterm is injected HERE, before `injectCsp` runs at panel creation: the
+ * vendored JS lands inside the document's own `<script>` block, so the nonce
+ * pass tags it along with the dashboard script. A missing vendor asset (a
+ * packaging regression) degrades to the marker comments the webview already
+ * guards — the console view reports "unavailable" instead of the dashboard
+ * failing to open at all.
  */
-function dashboardWebviewHtml(): string {
-  return injectAgentIdentity(
+function dashboardWebviewHtml(warn: (message: string) => void): string {
+  let html = injectAgentIdentity(
     injectProviderIdentity(
       injectPalette(
         injectDesignSystem(readFileSync(join(HERE, 'ui', 'dashboard', 'webview.html'), 'utf8')),
       ),
     ),
   );
+  try {
+    html = injectXterm(html, readXtermAssets(join(HERE, 'vendor', 'xterm')));
+  } catch (e) {
+    warn(`xterm vendor assets unavailable — console view disabled (${(e as Error).message})`);
+  }
+  return html;
 }
 
 /** Real webview panels, wrapped in the `DashboardPanel` interface. */
 function makePanelHost(
   context: vscode.ExtensionContext,
   brandIcon?: BrandIconPaths,
+  warn: (message: string) => void = () => {},
 ): PanelHost {
-  const html = dashboardWebviewHtml();
+  const html = dashboardWebviewHtml(warn);
   return {
     createPanel(title, _ticketId, preserveFocus): DashboardPanel {
       const panel = vscode.window.createWebviewPanel(
@@ -5006,6 +5243,36 @@ function makeUsagePanelHost(
       );
       context.subscriptions.push(panel);
       // Spend across every ticket — no single ticket's status to carry.
+      panel.iconPath = brandIconUri(brandIcon);
+      panel.webview.html = injectCsp(html, newNonce());
+      return {
+        reveal: (keepFocus) => panel.reveal(undefined, keepFocus),
+        postMessage: (message) => void panel.webview.postMessage(message),
+        onDidReceiveMessage: (handler) =>
+          panel.webview.onDidReceiveMessage(handler, undefined, context.subscriptions),
+        onDidDispose: (handler) => panel.onDidDispose(handler, undefined, context.subscriptions),
+      };
+    },
+  };
+}
+
+/** Real resources panel, with a fresh CSP nonce for every panel. */
+function makeResourcesPanelHost(
+  context: vscode.ExtensionContext,
+  brandIcon?: BrandIconPaths,
+): ResourcesPanelHost {
+  const html = injectPalette(
+    injectDesignSystem(readFileSync(join(HERE, 'ui', 'resources', 'webview.html'), 'utf8')),
+  );
+  return {
+    createPanel(title): ResourcesPanel {
+      const panel = vscode.window.createWebviewPanel(
+        'karst.resources',
+        title,
+        vscode.ViewColumn.Active,
+        { enableScripts: true, retainContextWhenHidden: true },
+      );
+      context.subscriptions.push(panel);
       panel.iconPath = brandIconUri(brandIcon);
       panel.webview.html = injectCsp(html, newNonce());
       return {
@@ -5111,10 +5378,18 @@ function makeTerminalIdentityRegistry(
   initial: readonly SessionTerminalRecord[],
   persist: (records: SessionTerminalRecord[]) => void,
   lookupIdentity?: DurableSessionIdentityLookup,
+  /**
+   * Live-pid registry hook (the resource monitor): called once a remembered
+   * terminal's pid resolves, with the pid and its ticket. The returned disposer
+   * runs when the ticket's record is forgotten — a closed terminal's pid is
+   * free for the OS to reissue, so the registration must not outlive it.
+   */
+  onSessionTerminal?: (pid: number, ticketId: number) => (() => void) | void,
 ): TerminalIdentityRegistry {
   let records: SessionTerminalRecord[] = [...initial];
   const pidByTerminal = new WeakMap<vscode.Terminal, number>();
   const probes = new WeakMap<vscode.Terminal, Promise<void>>();
+  const sessionDisposers = new Map<number, () => void>();
 
   const resolve = (terminal: vscode.Terminal): Promise<void> => {
     const running = probes.get(terminal);
@@ -5171,11 +5446,18 @@ function makeTerminalIdentityRegistry(
             ...(sessionIdentity ? { identity: sessionIdentity } : {}),
           }),
         );
+        const dispose = onSessionTerminal?.(pid, ticketId);
+        if (dispose) sessionDisposers.set(ticketId, dispose);
       });
     },
     forget: (ticketId) => {
       const next = forgetSessionTerminal(records, ticketId);
       if (next.length !== records.length) write(next);
+      const dispose = sessionDisposers.get(ticketId);
+      if (dispose) {
+        sessionDisposers.delete(ticketId);
+        dispose();
+      }
     },
     prune: (knownTicketIds) => {
       const next = pruneSessionTerminals(records, knownTicketIds);
@@ -5431,9 +5713,10 @@ function makeDashboardActions(
   // Open the host-owned, whole-ticket changes explorer. The dashboard action
   // carries no path because this closure already owns the ticket id.
   showChanges: () => void,
-  // Switch the open session through native VS Code pickers. The closure owns
-  // the ticket id so the webview cannot select a different session.
-  switchAgent: () => void,
+  // Apply a staged agent-core/model selection to the open session. The closure
+  // owns the ticket id AND re-validates the selection against the catalog, so
+  // the webview can only ever propose a switch, never direct one.
+  switchAgent: (provider: AgentProvider, model: string | null) => void,
   // Flip the window's terminal binding. Window-scoped, not ticket-scoped, so it
   // takes no id — every open dashboard reports the same toggle.
   toggleBind: () => void,
@@ -5457,6 +5740,10 @@ function makeDashboardActions(
   // The graph recovery action's host binding (Slice-4 T6), bound in activate
   // where the snapshot root is known.
   graphRecoveryDeps: () => RecoveryDeps,
+  // Resolve one gate stage's console log via the dashboard manager, which owns
+  // the ticket panel: the stage key arrives from the webview, the read stays
+  // host-side.
+  requestStageLog: (stage: GateStage) => void,
 ): DashboardActions {
   const worktreeActions = makeWorktreeActions(
     {
@@ -5521,6 +5808,10 @@ function makeDashboardActions(
     },
     showChanges,
     switchAgent,
+    copyTicketKey: () => {
+      const key = getTicket(store, ticketId).key ?? `#${ticketId}`;
+      void vscode.env.clipboard.writeText(key);
+    },
     ...worktreeActions,
     // Launch must not be aimable: the webview names a path, and the host
     // verifies it against the ticket's registered worktrees before building
@@ -5560,7 +5851,8 @@ function makeDashboardActions(
         // `shipTicket` already recorded the reason on the ship stage, so the
         // dashboard now explains itself — but the user just clicked a button
         // and deserves an answer to THAT click, not a ticket that quietly goes
-        // red. Refresh first so the fault card is there when the toast lands.
+        // red. Refresh first so the dashboard reflects the failure when the
+        // toast lands.
         afterServerChange();
         onInsideProgress(shipClearedEvent(ticketId));
         void vscode.window.showErrorMessage(
@@ -5620,6 +5912,10 @@ function makeDashboardActions(
         }
       })();
     },
+    // A `stage-log-request` for the terminal "detailed mode" view: the manager
+    // owns the ticket panel, so the read (store + fs, bounded) happens here and
+    // the `stage-log` answer is posted to the panel that asked.
+    requestStageLog: (stage) => requestStageLog(stage),
     // Open one artifact resource in a normal VS Code editor — the deliberate
     // escape from the semantic artifact UI into the file model (spec §12). The
     // webview names ONLY the artifact id and a resource index, so this re-reads

@@ -143,7 +143,7 @@ describe('resolveShipLanding', () => {
   });
 
   // The block reason is what "surface a clear reason naming the unmerged PR"
-  // means in practice — the dashboard's fault card and rail read it verbatim.
+  // means in practice — the dashboard's blocked banner and rail read it verbatim.
   it('names the unmerged repo in the block reason', () => {
     walkToShip(store, id);
     seedPr(store, id, 'api', 'open');

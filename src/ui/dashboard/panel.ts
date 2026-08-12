@@ -4,6 +4,7 @@ import { getTicket, ticketLabel } from '../../store/tickets.js';
 import type { TicketProvider } from '../../manifest/types.js';
 import type { LogError } from '../../logging/logger.js';
 import type { GateStageKey } from '../../workflow/fixAttempts.js';
+import type { GateStage } from '../../store/ticketGates.js';
 import { existsSync, realpathSync } from 'node:fs';
 import type { InsideProgressEvent } from '../../model/inside/progress.js';
 import type { SessionConfiguredInput } from '../../model/inside/agent.js';
@@ -25,7 +26,7 @@ import {
   type PathContext,
 } from './state.js';
 import { parseInsideProgress, parseWebviewMessage, routeAction, type DashboardActions } from './messages.js';
-import type { InsideActionResult } from './messages.js';
+import type { InsideActionResult, StageLogResult } from './messages.js';
 import type { WorktreeStatsLoader } from './worktreeStats.js';
 import type { GateOptions, GateOptionsLoader } from './gateOptions.js';
 import type { GraphInsideInput, GraphActionTarget } from '../../model/inside/graph.js';
@@ -106,6 +107,9 @@ export interface DashboardBinding {
 
 /** Resolve the daemon actions for a ticket (lets the host bind live services). */
 export type ActionsFactory = (ticketId: number) => DashboardActions;
+
+/** Resolve one gate stage's console log host-side (store + fs). */
+export type StageLogReader = (ticketId: number, stage: GateStage) => StageLogResult;
 
 /**
  * How long a superseded snapshot's action ids stay dispatchable — the window a
@@ -269,6 +273,11 @@ export class DashboardManager {
      * the pre-wiring state. Keyed by ticket because the read is per-ticket.
      */
     private readonly graphInsideFor?: (ticketId: number) => GraphInsideInput | null,
+    /**
+     * Resolve a gate stage's console log for the terminal view. Absent → the
+     * webview receives a named refusal rather than content (UI-R13).
+     */
+    private readonly stageLogReader?: StageLogReader,
   ) {}
 
   /**
@@ -703,6 +712,20 @@ export class DashboardManager {
     const validated = parseInsideProgress(event);
     if (validated === null) return;
     panel.postMessage({ type: 'inside-progress', event: validated });
+  }
+
+  /**
+   * Answer a `stage-log-request`: resolve the log via the injected reader and
+   * post the `stage-log` message. The answer IS the terminal outcome — always
+   * sent (ok or error), never left to a watchdog (UI-R13).
+   */
+  requestStageLog(ticketId: number, stage: GateStage): void {
+    const panel = this.panels.get(ticketId);
+    if (!panel) return;
+    const result = this.stageLogReader
+      ? this.stageLogReader(ticketId, stage)
+      : { kind: 'error', message: 'No console log source is configured.' };
+    panel.postMessage({ type: 'stage-log', stage, result });
   }
 
   /**

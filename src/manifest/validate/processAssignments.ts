@@ -1,17 +1,21 @@
 /**
  * Validate the `processes:` block (Task 7): six closed inside-process role
- * keys, each an optional assignment override. Follows `validateAgents`'s
- * shape conventions (house style hand-picks known fields and ignores the
- * rest) but is stricter about REFERENCE integrity: the `agent` field must
- * name a profile that actually exists in the validated `agents` block, or
- * the resolver would silently launch the default instead of the profile the
- * author pointed at. Unknown process keys and unknown providers are refused
- * with the field named, never guessed at.
+ * keys, each an optional assignment override. Unknown process keys and
+ * unknown providers are refused with the field named, never guessed at.
+ *
+ * The `agent` field is deliberately NOT checked for reference integrity
+ * here: it names a profile in the agent POOL (a local file under `agentsDir`
+ * or an approach artifact), which is derived from the filesystem and
+ * invisible to this pure validator. The manifest `agents:` block is only the
+ * per-agent `enabled` flag store (its `role`/`command`/`promptPath` are
+ * inert — see `manifest/inertKeys.ts`), so checking against it would reject
+ * every legitimately referenced file agent. The pool-aware check lives in
+ * the Settings UI (`ui/settings/processAssignmentViews.ts`'s
+ * `unknown-profile` state), exactly where the pool is in scope.
  */
 
 import { ManifestError } from '../error.js';
 import type {
-  AgentDef,
   AgentProvider,
   ProcessAssignmentConfig,
   ProcessAssignmentsConfig,
@@ -74,7 +78,6 @@ function optionalString(raw: unknown, where: string): string | undefined {
 function validateProcessAssignment(
   raw: unknown,
   where: string,
-  agents: Record<string, AgentDef>,
 ): ProcessAssignmentConfig {
   if (!isObject(raw)) throw new ManifestError(`${where} must be a mapping`);
   const config: ProcessAssignmentConfig = {};
@@ -83,16 +86,7 @@ function validateProcessAssignment(
   if (agentName !== undefined) config.agentName = agentName;
 
   const agent = optionalString(raw.agent, `${where}.agent`);
-  if (agent !== undefined) {
-    // An agent reference is a pointer, not a label: a dangling one would
-    // silently resolve to the default instead of the profile the author meant.
-    if (!(agent in agents)) {
-      throw new ManifestError(
-        `${where}.agent references undeclared agent "${agent}" — declare it under agents first`,
-      );
-    }
-    config.agent = agent;
-  }
+  if (agent !== undefined) config.agent = agent;
 
   const provider = optionalString(raw.provider, `${where}.provider`);
   if (provider !== undefined) {
@@ -119,13 +113,11 @@ function validateProcessAssignment(
 
 /**
  * Parse the top-level `processes` block (default undefined). Each key must be
- * one of `PROCESS_KEYS`; `agent` references are checked against the ALREADY
- * validated `agents` record, so an undeclared profile is caught here at load
- * rather than silently launching the default later.
+ * one of `PROCESS_KEYS`; the `agent` reference is a plain name (the settings
+ * UI validates it against the agent pool — see the module comment).
  */
 export function validateProcessAssignments(
   raw: unknown,
-  agents: Record<string, AgentDef>,
 ): ProcessAssignmentsConfig | undefined {
   if (raw === undefined) return undefined;
   if (!isObject(raw)) throw new ManifestError('processes must be a mapping');
@@ -137,7 +129,7 @@ export function validateProcessAssignments(
         `processes "${key}" is not a known inside process — expected one of: ${PROCESS_KEYS.join(', ')}`,
       );
     }
-    config[key as ProcessKey] = validateProcessAssignment(value, `processes.${key}`, agents);
+    config[key as ProcessKey] = validateProcessAssignment(value, `processes.${key}`);
   }
   return config;
 }
