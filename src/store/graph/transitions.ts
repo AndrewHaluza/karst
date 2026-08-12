@@ -72,7 +72,7 @@ export const REVISION_TRANSITIONS: Readonly<Record<string, readonly string[]>> =
 export const NODE_RUN_TRANSITIONS: Readonly<Record<string, readonly string[]>> = {
   ready: ['waiting-resource', 'launching', 'completing', 'cancelled'],
   'waiting-resource': ['ready', 'cancelled'],
-  launching: ['running', 'failed-to-launch', 'launch-unknown', 'cancelled'],
+  launching: ['running', 'failed-to-launch', 'launch-unknown', 'blocked', 'cancelled'],
   running: ['completing', 'blocked', 'stale', 'termination-unknown', 'cancelled'],
   completing: [
     'integrating',
@@ -85,7 +85,7 @@ export const NODE_RUN_TRANSITIONS: Readonly<Record<string, readonly string[]>> =
     'artifact-unsafe',
     'cancelled',
   ],
-  integrating: ['completed', 'blocked', 'cancelled'],
+  integrating: ['completed', 'blocked', 'running', 'cancelled'],
   completed: [],
   blocked: ['launching', 'cancelled'],
   'output-artifact-missing': ['launching', 'cancelled'],

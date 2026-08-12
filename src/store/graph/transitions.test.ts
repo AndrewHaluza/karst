@@ -93,9 +93,16 @@ describe('node-run transition map', () => {
       'launching → running',
       'launching → failed-to-launch',
       'launching → launch-unknown',
+      // Slice-4 T3: a crash before spawn (owner nonce persisted, no process
+      // identity) is provably retryable — the node parks at `blocked`, the
+      // rest state the typed recovery action already relaunches.
+      'launching → blocked',
       'running → completing',
       'completing → integrating',
       'completing → running',
+      // Slice-4 T3: an integrating node with a live attributable process
+      // reverts to `running` so completion proceeds normally.
+      'integrating → running',
       'integrating → completed',
       // Slice-3 T8: the completing pipeline must be able to park a node whose
       // termination cannot be proven, and the integrating step must be able to

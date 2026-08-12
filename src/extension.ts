@@ -153,6 +153,7 @@ import {
 import { startHookEndpoint, type HookEndpoint } from './hooks/endpoint.js';
 import { startGraphWakeupEndpoint, type GraphWakeupEndpoint } from './hooks/graphEndpoint.js';
 import { runCoordinatorTick, activeGraphRunIds } from './approaches/graph/coordinator/sweep.js';
+import { reconcileGraphRun } from './approaches/graph/coordinator/reconcile.js';
 import {
   createSupervisedCliTransport,
   type SupervisedCliTransport,
@@ -165,7 +166,7 @@ import {
   shouldDriveGraphTicket,
   stopActiveGraph,
 } from './approaches/graph/entryPoints.js';
-import { runCompletionPipeline } from './approaches/graph/integration/pipeline.js';
+import { runCompletionPipeline, type CompletionPipelineDeps } from './approaches/graph/integration/pipeline.js';
 import { artifactRootDir } from './approaches/graph/artifacts/snapshot.js';
 import { declaredWritesFor } from './approaches/graph/integration/claims.js';
 import { flipOnEndQuiescence } from './approaches/graph/coordinator/completion.js';
@@ -2798,26 +2799,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       .all(graphRunId) as { id: number }[];
     for (const row of completing) {
       try {
-        await runCompletionPipeline(
-          {
-            db: gs.db,
-            transaction: <T>(fn: () => T): T =>
-              (gs.db.transaction as unknown as (f: () => T, o: { begin: 'immediate' }) => () => T)(
-                fn,
-                { begin: 'immediate' },
-              )(),
-            now: () => new Date().toISOString(),
-            debug: (message) => logger.debug(message),
-            git: defaultGitRunner,
-            gitCommonDirOf: gitCommonDirFromFs,
-            transport: tr,
-            getSession: (nodeRunId) => graphSessionFor(nodeRunId),
-            domainsFor: () => graphDomainsFor(graphRunId),
-            declaredWritesOf: (nodeRunId) => declaredGraphWrites(nodeRunId),
-            artifactRoot: () => graphArtifactRoot(graphRunId),
-          },
-          { graphRunId, nodeRunId: row.id },
-        );
+        const deps = graphCompletionPipelineDeps(graphRunId);
+        if (!deps) return;
+        await runCompletionPipeline(deps, { graphRunId, nodeRunId: row.id });
       } catch (err) {
         // A failed pipeline never retries itself; the next tick re-drives the
         // node, which is still `completing` unless a transition already moved
@@ -2965,6 +2949,33 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     );
   };
 
+  /** The completion-pipeline deps for a graph run — ONE construction shared by
+   *  the tick's completing drive and the reload reconcile's resume, so the
+   *  two never disagree about git, domains or the artifact root. Reads the
+   *  coordinator store/transport late, like `driveCompletingNodes` does. */
+  const graphCompletionPipelineDeps = (graphRunId: number): CompletionPipelineDeps | undefined => {
+    const gs = graphCoordinatorStore;
+    const tr = graphTransport;
+    if (!gs || !tr) return undefined;
+    return {
+      db: gs.db,
+      transaction: <T>(fn: () => T): T =>
+        (gs.db.transaction as unknown as (f: () => T, o: { begin: 'immediate' }) => () => T)(
+          fn,
+          { begin: 'immediate' },
+        )(),
+      now: () => new Date().toISOString(),
+      debug: (message) => logger.debug(message),
+      git: defaultGitRunner,
+      gitCommonDirOf: gitCommonDirFromFs,
+      transport: tr,
+      getSession: (nodeRunId) => graphSessionFor(nodeRunId),
+      domainsFor: () => graphDomainsFor(graphRunId),
+      declaredWritesOf: (nodeRunId) => declaredGraphWrites(nodeRunId),
+      artifactRoot: () => graphArtifactRoot(graphRunId),
+    };
+  };
+
   // Graph node supervision (Slice 3 Task 3 + 7 wiring). Node sessions are
   // REAL vscode terminals, remembered in the identity registry so a reload
   // can re-attach them, registered in the `servers` registry for the reapers,
@@ -3044,6 +3055,64 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     now: () => new Date().toISOString(),
     debug: (message) => logger.debug(message),
   });
+
+  // Reload/crash reconcile (Slice 4 Task 3): one pass over every graph run
+  // applying the crash matrix, next to the coordinator sweep. Process facts
+  // are the real OS probes and `resumePipeline` is the completion pipeline —
+  // reconcile itself stays host-agnostic. Safe under concurrency: every
+  // mutation is a durable conditional claim, so another window's live process
+  // is left alone by attribution, never by this window's bookkeeping.
+  const reconcileGraphRuns = async (): Promise<void> => {
+    const gs = graphCoordinatorStore;
+    if (!gs) return;
+    try {
+      const runs = gs.db
+        .prepare('SELECT id FROM approach_graph_runs ORDER BY id')
+        .all() as { id: number }[];
+      for (const run of runs) {
+        const result = await reconcileGraphRun(
+          {
+            db: gs.db,
+            transaction: <T>(fn: () => T): T =>
+              (gs.db.transaction as unknown as (f: () => T, o: { begin: 'immediate' }) => () => T)(
+                fn,
+                { begin: 'immediate' },
+              )(),
+            now: () => new Date().toISOString(),
+            debug: (message) => logger.debug(message),
+            facts: systemAsyncProcessFacts,
+            sessionFor: (nodeRunId) => graphSessionFor(nodeRunId),
+            resumePipeline: (nodeRunId) => {
+              const node = gs.db
+                .prepare('SELECT graph_run_id FROM approach_node_runs WHERE id = ?')
+                .get(nodeRunId) as { graph_run_id: number } | undefined;
+              if (!node) return;
+              const deps = graphCompletionPipelineDeps(node.graph_run_id);
+              if (!deps) return;
+              void runCompletionPipeline(deps, { graphRunId: node.graph_run_id, nodeRunId });
+            },
+          },
+          { graphRunId: run.id },
+        );
+        if (
+          result.transitions > 0 ||
+          result.resumed.length > 0 ||
+          result.reverted.length > 0 ||
+          result.cancelledTokens > 0
+        ) {
+          logger.info(
+            `[graph] reconcile: run ${run.id} → ${result.status}` +
+              ` (${result.transitions} transition${result.transitions === 1 ? '' : 's'}, ` +
+              `${result.cancelledTokens} token${result.cancelledTokens === 1 ? '' : 's'} cancelled, ` +
+              `resumed ${result.resumed.length}, reverted ${result.reverted.length})`,
+          );
+        }
+      }
+    } catch (err) {
+      logError('karst: graph reconcile sweep failed', err);
+    }
+  };
+  void reconcileGraphRuns();
 
   // The Inside Stop binding (Slice 3 Task 11): terminates every live session
   // of the ticket's active graph through the supervised transport, then moves
