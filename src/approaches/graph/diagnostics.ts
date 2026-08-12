@@ -149,11 +149,19 @@ export function renderGraphDiagnosticLine(
 /** Emit one structured diagnostic: resolve the run identity, render the
  *  bounded line, push it through the redaction pipeline, and hand it to the
  *  injected `debug` callback. Returns the emitted line, or undefined when the
- *  run is unknown (nothing is emitted for a run that no longer exists). */
+ *  run is unknown (nothing is emitted for a run that no longer exists) or no
+ *  callback is bound.
+ *
+ *  Debug OFF costs one branch, per the logger's own contract. The sweep emits
+ *  one of these per transition INSIDE its `BEGIN IMMEDIATE`, so resolving an
+ *  identity JOIN per event would lengthen the write-lock hold — up to
+ *  `MAX_SWEEP_TRANSITIONS` extra reads a tick — to render lines nobody
+ *  receives. Nothing is read until there is somewhere to send the result. */
 export function emitGraphDiagnostic(
   deps: GraphDiagnosticDeps,
   event: GraphDiagnosticEvent,
 ): string | undefined {
+  if (!deps.debug) return undefined;
   const identity = deps.db
     ? resolveGraphDiagnosticIdentity(deps.db, event.graphRunId)
     : deps.identityOf?.(event.graphRunId);

@@ -125,6 +125,27 @@ describe('emitGraphDiagnostic', () => {
     expect(line!).toContain('line one line two tabbed ctrl');
   });
 
+  it('reads NOTHING when no debug callback is bound', () => {
+    const { deps, graphRunId } = harness();
+    // Debug off is the default, and the sweep emits one of these per transition
+    // inside its BEGIN IMMEDIATE — an identity JOIN per event would lengthen the
+    // write-lock hold for a line nobody receives. Off must cost one branch.
+    let reads = 0;
+    const counting = {
+      ...deps,
+      debug: undefined,
+      db: {
+        prepare: (sql: string) => {
+          reads += 1;
+          return deps.db.prepare(sql);
+        },
+      } as unknown as typeof deps.db,
+    };
+    const line = emitGraphDiagnostic(counting, { category: 'claim', graphRunId });
+    expect(line).toBeUndefined();
+    expect(reads).toBe(0);
+  });
+
   it('emits nothing for an unknown run', () => {
     const { debug, deps } = harness();
     const line = emitGraphDiagnostic(deps, { category: 'claim', graphRunId: 999 });
