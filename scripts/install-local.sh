@@ -143,12 +143,35 @@ for name in "${selected[@]}"; do
 
   echo "== $name =="
   KARST_TARGET_APP_BINARY="$app_bin" npm run rebuild:electron
+
+  # Verify the rebuild actually produced the correct ABI before packaging.
+  expected_abi="$("$app_bin" -e 'process.stdout.write(String(process.versions.modules))' 2>/dev/null \
+    || ELECTRON_RUN_AS_NODE=1 "$app_bin" -e 'process.stdout.write(String(process.versions.modules))' 2>/dev/null)"
+  if [ -z "$expected_abi" ]; then
+    echo "Cannot detect ABI from $app_bin — skipping verification." >&2
+  else
+    actual_abi="$(node -e "
+      const fs = require('fs');
+      try {
+        const buf = fs.readFileSync('node_modules/better-sqlite3/build/Release/better_sqlite3.node');
+        const abi143 = buf.includes(Buffer.from('143'));
+        const abi127 = buf.includes(Buffer.from('127'));
+        process.stdout.write(abi143 ? '143' : abi127 ? '127' : 'unknown');
+      } catch { process.stdout.write('missing'); }
+    ")"
+    if [ "$actual_abi" != "$expected_abi" ]; then
+      echo "ABI MISMATCH: expected $expected_abi but got $actual_abi" >&2
+      echo "The better-sqlite3 native module was not rebuilt for $name (ABI $expected_abi)." >&2
+      echo "Rebuild output:" >&2
+      KARST_TARGET_APP_BINARY="$app_bin" npm run rebuild:electron 2>&1 >&2
+      exit 1
+    fi
+    echo "ABI verified: $actual_abi (matches $name)"
+  fi
+
   # --skip-license / --allow-missing-repository stop vsce from raising the
   # packaging warnings that otherwise trigger an interactive
   # "Do you want to continue? [y/N]" confirm and stall a non-interactive run.
-  # vsce runs `vscode:prepublish`, which runs rebuild:electron AGAIN — pass the
-  # target through or that second run detects no app and rebuilds for the wrong
-  # (or no) ABI, undoing the rebuild above.
   # @vscode/vsce, not the legacy `vsce` package — that one is frozen at 2.15.0
   # and rejects --skip-license with "unknown option".
   KARST_TARGET_APP_BINARY="$app_bin" npx @vscode/vsce package --skip-license --allow-missing-repository
