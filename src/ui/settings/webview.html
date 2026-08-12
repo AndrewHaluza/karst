@@ -12,12 +12,14 @@
 
   :root{
     /* One chevron for every dropdown (native <select> + the custom provider
-       trigger) so placement and size read the same. A data-URI SVG cannot
-       consume a CSS custom property, so its stroke colour cannot resolve to a
-       --k-* token the way every other colour in this file does — this is the
-       one accepted UI-R04 exception, forced by the encoding, not by choice.
+       trigger) so placement and size read the same. The glyph is Tabler's
+       chevron-down (docs/ui/ICONS.md §4) embedded as a data-URI — the only
+       icon form that reaches a CSS background. A data-URI SVG cannot consume
+       a CSS custom property, so its stroke colour cannot resolve to a --k-*
+       token the way every other colour in this file does — this is the one
+       accepted UI-R04 exception, forced by the encoding, not by choice.
        Mid-gray shows on light and dark input chrome alike. */
-    --chevron:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.5 6 7.5 9 4.5' fill='none' stroke='%238a8a8a' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    --chevron:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24'%3E%3Cpath d='M6 9l6 6l6 -6' fill='none' stroke='%238a8a8a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   }
   *{box-sizing:border-box}
   html,body{height:100%}
@@ -713,6 +715,10 @@
     padding:var(--k-space-4) var(--k-space-4) var(--k-space-2);font-size:var(--k-text-2xs);
     text-transform:uppercase;letter-spacing:.07em;color:var(--k-text-faint);
   }
+  /* The provider identity badge inside the group header: the label's
+     uppercase transform must not bleed into the badge's canonical name. */
+  .model-group-label .agentbadge{text-transform:none;letter-spacing:0}
+  .model-group-label .agenticon{width:calc(var(--k-space-8) * 1.5);height:calc(var(--k-space-8) * 1.5)}
   .model-item{
     display:grid;grid-template-columns:minmax(0,1fr) auto;gap:var(--k-space-4);align-items:center;
     padding:var(--k-space-3) var(--k-space-4);cursor:pointer;
@@ -799,6 +805,11 @@
   .matrix-cols{grid-template-columns:minmax(calc(var(--k-space-8) * 6),1fr) minmax(calc(var(--k-space-8) * 7),1.1fr) minmax(calc(var(--k-space-8) * 6),.9fr) minmax(calc(var(--k-space-8) * 9),1.4fr) auto}
   .matrix-row .proc-cell-wide{grid-column:1 / -1}
   .matrix-row .proc-row-wrap{min-width:0}
+  /* The core cell's identity dropdown (UI-R10c): the trigger and every menu
+     option render the provider's icon + name (never a bare text option); the
+     empty choice is the plain "Default provider" text, claiming no identity. */
+  .proc-core-trigger .sel-label{display:flex;align-items:center;gap:var(--k-space-2)}
+  .proc-core-trigger .sel-label,.proc-core-menu .agentbadge{white-space:nowrap}
 
   /* Context / overflow menu (handoff §6.7). */
   .ctx-menu{
@@ -1412,7 +1423,7 @@
               <select id="f-ticketList" aria-labelledby="listLabel"></select>
               <button class="reload-btn fixed" id="refreshListsBtn" type="button"
                       title="Reload lists from ClickUp" aria-label="Reload lists from ClickUp">
-                <svg class="reload-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M13.4 8a5.4 5.4 0 1 1-1.5-3.8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M13.7 2.6v3h-3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <svg class="k-icon reload-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8.1 8.1 0 0 0 -15.5 -2m-.5 -4v4h4"/><path d="M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4"/></svg>
               </button>
             </div>
             <div id="listHint" class="field-hint" role="status" aria-live="polite"></div>
@@ -1476,7 +1487,7 @@
               <select id="f-startStatus"></select>
               <button class="reload-btn fixed" id="refreshStartStatusesBtn" type="button"
                       title="Reload statuses for this list" aria-label="Reload statuses for this list">
-                <svg class="reload-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M13.4 8a5.4 5.4 0 1 1-1.5-3.8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M13.7 2.6v3h-3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <svg class="k-icon reload-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8.1 8.1 0 0 0 -15.5 -2m-.5 -4v4h4"/><path d="M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4"/></svg>
               </button>
             </div>
             <div class="full">
@@ -1498,7 +1509,7 @@
               <select id="f-shipStatus"></select>
               <button class="reload-btn fixed" id="refreshStatusesBtn" type="button"
                       title="Reload statuses for this list" aria-label="Reload statuses for this list">
-                <svg class="reload-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M13.4 8a5.4 5.4 0 1 1-1.5-3.8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M13.7 2.6v3h-3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <svg class="k-icon reload-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8.1 8.1 0 0 0 -15.5 -2m-.5 -4v4h4"/><path d="M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4"/></svg>
               </button>
             </div>
             <div class="full">
@@ -3375,6 +3386,17 @@
     // now (UI-R24, R26), and a button never fires `change`.
   });
 
+  // The core cell's dropdown commits on PICK, like the native select it
+  // replaced committed on `change`: close the menu, write the provider, and
+  // re-render so the model cell's options follow the new core.
+  document.addEventListener('click', (e) => {
+    const opt = e.target.closest && e.target.closest('[data-proc-core-opt]');
+    if (!opt) return;
+    const shell = opt.closest('.select-shell');
+    if (shell) closeMenuShell(shell, true);
+    updateProcessAssignment(opt.dataset.procCoreOpt, { provider: opt.dataset.value });
+  });
+
   document.addEventListener('input', (e) => {
     const t = e.target;
     // agentName and instructions commit per keystroke WITHOUT a re-render, so
@@ -4002,10 +4024,33 @@
     if (agent && !(v.profileOptions || []).includes(agent)) {
       profileOpts += `<option value="${esc(agent)}" selected>${esc(agent)}</option>`;
     }
-    const coreOpts = '<option value="">Default provider</option>'
-      + KNOWN_AGENT_PROVIDERS.map((p) =>
-        `<option value="${p}"${p === provider ? ' selected' : ''}>${esc(AGENT_PROVIDER_LABELS[p] || p)}</option>`,
-      ).join('');
+    // The core cell is the identity component, NOT a text-only native select
+    // (UI-R10c): the trigger shows the current core's icon + name and the menu
+    // renders the same identity per choice. It rides the shared select-shell
+    // machinery (open/close, keyboard nav, outside click), so a pick commits
+    // through the same updateProcessAssignment path the native select used.
+    // The empty choice is the plain "Default provider" — a core is not chosen
+    // yet, so no identity is claimed. Built INSIDE the row renderer so the
+    // standalone test sandbox stays self-contained.
+    function coreDropdownHtml(key, provider, describedBy, invalidAttr) {
+      const badge = provider ? agentBadgeHtml(provider) : 'Default provider';
+      const opts = ['<div class="drop-item' + (provider === '' ? ' active' : '') + '" role="option"'
+        + ' data-value="" data-proc-core-opt="' + key + '" aria-selected="' + (provider === '' ? 'true' : 'false') + '">'
+        + 'Default provider</div>'];
+      for (const p of KNOWN_AGENT_PROVIDERS) {
+        opts.push('<div class="drop-item' + (p === provider ? ' active' : '') + '" role="option"'
+          + ' data-value="' + esc(p) + '" data-proc-core-opt="' + key + '"'
+          + ' aria-selected="' + (p === provider ? 'true' : 'false') + '">'
+          + agentBadgeHtml(p) + '</div>');
+      }
+      return '<div class="select-shell proc-core-shell">'
+        + `<button type="button" class="select-trigger proc-core-trigger" id="proc-${key}-provider"`
+        + ` aria-haspopup="listbox" aria-expanded="false"${describedBy}${invalidAttr}>`
+        + `<span class="sel-label">${badge}</span><span class="chev" aria-hidden="true"></span></button>`
+        + `<div class="dropdown proc-core-menu" role="listbox" aria-labelledby="proc-${key}-provider">${opts.join('')}</div>`
+        + '</div>';
+    }
+    const coreCell = coreDropdownHtml(key, provider, describedBy, invalid('provider'));
     // An unknown saved core gets NO model picker claim: the model select is
     // disabled with an empty option list and the state message explains why
     // (handoff §7 — "Unknown provider: inline error and no model picker claim").
@@ -4029,9 +4074,9 @@
       + `<select id="proc-${key}-profile" class="proc-select" data-proc-field="agent" data-proc-key="${key}"${describedBy}${invalid('agent')}>${profileOpts}</select>`
       + (v.profileHint ? `<span class="proc-hint">${esc(v.profileHint)}</span>` : '')
       + `</div>`
-      + `<div class="proc-cell">`
+      + `<div class="proc-cell proc-core-cell">`
       + `<label for="proc-${key}-provider">Agent core</label>`
-      + `<select id="proc-${key}-provider" class="proc-select" data-proc-field="provider" data-proc-key="${key}"${describedBy}${invalid('provider')}>${coreOpts}</select>`
+      + coreCell
       + (v.coreHint ? `<span class="proc-hint">${esc(v.coreHint)}</span>` : '')
       + `</div>`
       + `<div class="proc-cell">`
@@ -4977,16 +5022,22 @@
 
   // ═══ Searchable grouped model picker (handoff §6.3) ═══════════════════════
   // Host truth is `modelCatalog` + `modelCompatibility` (never a literal list).
-  // The picker groups by provider label (presentation-level only), keeps a
-  // saved model that left the catalog visible as "unavailable", and never
-  // substitutes silently. The hidden native <select> is the VALUE carrier —
-  // the same change listener the native control had still owns the draft write.
-  const MODEL_GROUP_LABELS = { claude: 'Claude Code', codex: 'Codex', antigravity: 'Antigravity', opencode: 'OpenCode' };
+  // The picker groups by provider identity — the INJECTED label map, never a
+  // second literal — keeps a saved model that left the catalog visible as
+  // "unavailable", and never substitutes silently. The hidden native <select>
+  // is the VALUE carrier — the same change listener the native control had
+  // still owns the draft write.
 
   function modelLabelFor(provider, id) {
     if (!id) return '';
     const found = (modelCatalog[provider] || []).find((m) => m.id === id);
     return found ? found.label : id;
+  }
+
+  // The group header row renders the provider's identity badge (icon + name),
+  // so the model list reads as belonging to the core it is filtered to.
+  function modelGroupLabelHtml(provider) {
+    return '<div class="model-group-label">' + agentBadgeHtml(provider) + '</div>';
   }
 
   function renderModelPickerPopup() {
@@ -4995,7 +5046,7 @@
     const provider = draft.agentProvider || 'claude';
     const saved = typeof draft.defaultModel === 'string' ? draft.defaultModel : '';
     const list = modelCatalog[provider] || [];
-    const groupLabel = MODEL_GROUP_LABELS[provider] || provider;
+    const groupLabel = AGENT_PROVIDER_LABELS[provider] || provider;
     // The "No default" row is always first: it is how the picker expresses an
     // explicit none (handoff §7.2), and picking it clears the saved model.
     let html = '<div class="model-item' + (saved === '' ? ' active' : '') + '" role="option"'
@@ -5007,7 +5058,7 @@
     if (list.length === 0) {
       html += '<div class="model-empty">No models listed for ' + esc(groupLabel) + '.</div>';
     } else {
-      html += '<div class="model-group-label">' + esc(groupLabel) + '</div>';
+      html += modelGroupLabelHtml(provider);
       for (const m of list) {
         html += '<div class="model-item' + (m.id === saved ? ' active' : '') + '" role="option"'
           + ' data-model-id="' + esc(m.id) + '" aria-selected="' + (m.id === saved ? 'true' : 'false') + '">'
@@ -5040,8 +5091,11 @@
     if (!trigger) return;
     const provider = draft.agentProvider || 'claude';
     const saved = typeof draft.defaultModel === 'string' ? draft.defaultModel : '';
-    const label = saved ? modelLabelFor(provider, saved) : 'No default (agent picks)';
-    trigger.innerHTML = '<span class="sel-label">' + esc(label) + '</span><span class="chev" aria-hidden="true"></span>';
+    const label = saved ? modelLabelFor(provider, saved) : '';
+    // The trigger shows the full identity pattern — icon + provider · model —
+    // so the default is never a bare model name without its core.
+    trigger.innerHTML = '<span class="sel-label">' + agentIdentityHtml(provider, label, true) + '</span>'
+      + '<span class="chev" aria-hidden="true"></span>';
     trigger.classList.toggle('is-unavailable', Boolean(saved) && !(modelCatalog[provider] || []).some((m) => m.id === saved));
   }
 
@@ -5062,7 +5116,7 @@
       let html = '<div class="model-item' + (saved === '' ? ' active' : '') + '" role="option"'
         + ' data-model-id="" aria-selected="' + (saved === '' ? 'true' : 'false') + '">'
         + '<div class="model-name">No default (agent picks)</div></div>';
-      html += '<div class="model-group-label">' + esc(MODEL_GROUP_LABELS[provider] || provider) + '</div>';
+      html += modelGroupLabelHtml(provider);
       for (const m of list) {
         const hay = (m.label + ' ' + m.id).toLowerCase();
         if (hay.includes(q)) {

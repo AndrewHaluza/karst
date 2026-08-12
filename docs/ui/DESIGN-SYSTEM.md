@@ -10,6 +10,8 @@ This document defines *what the UI is made of*.
 [UI-RULES.md](./UI-RULES.md) defines the binding repository invariants.
 [STYLE-GUIDE.md](./STYLE-GUIDE.md) defines how to apply this system while
 preserving Karst's product character.
+[ICONS.md](./ICONS.md) defines the icon standard (Tabler Icons, vendored and
+delivered through the same marker injection as this system).
 
 [KARST-UI-CATALOG.html](./KARST-UI-CATALOG.html) is the rendered catalog of the
 primitives, states and tokens described here.
@@ -76,6 +78,10 @@ Every webview carries:
 - `/*KARST_DS_JS*/`
 
 The host applies the shared design-system injection before the CSP nonce pass.
+The `/*KARST_DS_*` markers also deliver the Tabler icon catalog and the
+`karstIcon()` runtime (`.k-icon` treatment + `KARST_TABLER_ICONS` — see
+[ICONS.md](./ICONS.md) §1), so every webview gets the icon vocabulary by
+construction, exactly like tokens and the action runtime.
 
 Webview discovery tests enumerate webview directories from disk. They must not
 use a handwritten list.
@@ -108,6 +114,7 @@ Palette ownership remains separate in TypeScript; only delivery is unified.
 |---|---|
 | visual tokens | `designTokens.ts` |
 | shared primitive CSS | `designComponents.ts` |
+| icon catalog + shared stroke treatment | `tablerIcons.ts` (see [ICONS.md](./ICONS.md)) |
 | status visual source | `palette.ts` |
 | stage palette | `stagePalette.ts` |
 | shared UI/component behavior | shared webview runtime |

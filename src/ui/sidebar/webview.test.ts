@@ -439,6 +439,41 @@ describe('sidebar webview.html', () => {
     expect(main).toContain('.hist{display:flex;');
   });
 
+  it('the Older Completed disclosure is one centered label — no spacer, no edge HISTORY tag', () => {
+    const script = scriptBlock();
+    const [main] = styleBlocks();
+    // The count IS the label. The bar used to split its content with a flex
+    // spacer plus a redundant uppercase HISTORY tag at the opposite edge,
+    // leaving the label hugging the left of a wide card; the ghost variant's
+    // own centering now applies untouched (UI-R07).
+    expect(script).not.toContain('hist-side');
+    expect(script).not.toContain('<span class="sp"></span>');
+    expect(main).not.toContain('.hist .sp');
+    expect(main).not.toContain('.hist-side');
+    // The ghost variant's own hover (surface wash + text brighten) is the whole
+    // hover story — the local override that dimmed it back is gone.
+    expect(main).not.toContain('.hist:hover{');
+    // The label keeps the count, in sentence case.
+    expect(script).toContain('${n} more completed');
+  });
+
+  it('the Older Completed bar spans the list so the label is truly centered (button width:auto quirk)', () => {
+    const [main] = styleBlocks();
+    // A <button> element treats width:auto as shrink-to-fit even at
+    // display:flex, so the bar used to collapse to a compact pill hugging the
+    // LEFT edge of the list — the ghost variant's justify-content:center only
+    // centered WITHIN a box that was never full-width (869egrd09-fu1). The
+    // width is explicit so the label centers across the row, and the calc
+    // compensates the two --k-space-2 side margins so the bar fits the list's
+    // content box exactly like a .ticket row — width:100% alone would add the
+    // margins on top and overflow the list's horizontal scroll surface.
+    expect(main).toContain('width:calc(100% - var(--k-space-4))');
+    // The centering itself stays the ghost variant's own justify-content:center
+    // (declared on .k-btn) — .hist must never re-declare it, or the two would
+    // drift apart.
+    expect(main).not.toMatch(/\.hist\{[^}]*justify-content/);
+  });
+
   it('completed rows use the compact treatment: check indicator, muted title, no stage pill', () => {
     const script = scriptBlock();
     // The check-in-ring replaces the karst mark + status dot on compact rows…

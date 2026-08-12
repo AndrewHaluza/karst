@@ -11,13 +11,15 @@
 
   :root{
     /* One chevron for every dropdown (native <select> + the custom agent-core
-       trigger) so placement and size read the same. A data-URI SVG cannot
+       trigger) so placement and size read the same. The glyph is Tabler's
+       chevron-down (docs/ui/ICONS.md §4) embedded as a data-URI — the only
+       icon form that reaches a CSS background. A data-URI SVG cannot
        consume a CSS custom property, so its stroke colour cannot resolve to a
        --k-* token the way every other colour in this file does — this is the
        one accepted UI-R04 exception, forced by the encoding, not by choice.
        Mid-gray shows on light and dark input chrome alike. (Same definition
        as settings/webview.html — the two pages must not drift.) */
-    --chevron:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.5 6 7.5 9 4.5' fill='none' stroke='%238a8a8a' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    --chevron:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24'%3E%3Cpath d='M6 9l6 6l6 -6' fill='none' stroke='%238a8a8a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   }
 
   *{box-sizing:border-box}
@@ -915,7 +917,10 @@
     const sel = draft.selectedAgentProvider ?? selectedProvider ?? '';
     const current = sel || defaultProvider || 'claude';
     el('agentTrigger').innerHTML = agentBadgeHtml(current) + '<span class="chev" aria-hidden="true"></span>';
-    const inheritOpt = `<div class="agentselect-opt${sel ? '' : ' selected'}" role="option" tabindex="0" data-value="" aria-selected="${!sel}">Inherit (settings: ${esc(defaultProvider)})</div>`;
+    // The inherit row names the DEFAULT CORE by its canonical identity label,
+    // never a raw manifest id.
+    const inheritLabel = AGENT_PROVIDER_LABELS[defaultProvider] || defaultProvider || 'claude';
+    const inheritOpt = `<div class="agentselect-opt${sel ? '' : ' selected'}" role="option" tabindex="0" data-value="" aria-selected="${!sel}">Inherit (settings: ${esc(inheritLabel)})</div>`;
     const opts = list.map((p) => {
       return `<div class="agentselect-opt${p === sel ? ' selected' : ''}" role="option"`
         + ` tabindex="0" data-value="${esc(p)}" aria-selected="${p === sel}">`

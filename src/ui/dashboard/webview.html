@@ -559,9 +559,11 @@
   #inside .agent-id{display:inline-flex;align-items:center;gap:var(--p-s1);min-width:0;height:18px;
     color:var(--p-muted);font-family:var(--p-mono);font-size:var(--p-xs);line-height:14px;vertical-align:middle}
   #inside .agent-id .agent-sep{color:var(--p-muted2);line-height:14px}
-  #inside .agent-icon{width:13px;height:13px;display:inline-grid;place-items:center;flex:none;color:var(--p-running)}
-  #inside .agent-icon svg{width:13px;height:13px;display:block;stroke:currentColor;fill:none;
-    stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+  /* Agent identity primitive — the mark is the CANONICAL provider icon
+     (injected as .agenticon) drawn at 13px in the core's own blue; the
+     stroke-based line-icon styling is gone with the prototype icon set. */
+  #inside .agent-icon,#inside .agenticon{width:13px;height:13px;display:inline-grid;place-items:center;flex:none;color:var(--p-running)}
+  #inside .agent-icon svg,#inside .agenticon svg{width:13px;height:13px;display:block}
   #inside .agent-core,#inside .agent-model{display:inline-flex;align-items:center;height:14px;line-height:14px;white-space:nowrap}
   #inside .agent-core{color:var(--p-running)}
   #inside .agent-model{color:var(--p-muted)}
@@ -1147,14 +1149,15 @@
   .svpanel .phead .pops{margin-left:auto;display:flex;gap:var(--k-space-1)}
   .svpanel .pbody{padding:0}
 
-  /* Icon buttons — inline SVG off a sprite (no icon font, no external asset:
-     the webview CSP forbids both). Icon-only is what lets four actions share a
-     row without the action column outgrowing the data. The label is not lost,
-     it moves to aria-label + title, so the word survives for both pointer and
-     screen reader. Built on `.k-iconbtn` (UI-R07: sizing, hover surface, focus
-     ring, and the disabled/pending states all come from the primitive); `.ib`
-     stays a LAYOUT+colour-only local class — the glyph's own size, and each
-     action's resting hue off the shared status ramp. */
+  /* Icon buttons — inline Tabler SVGs from the injected catalog (docs/ui/
+     ICONS.md; no icon font, no external asset: the webview CSP forbids both).
+     Icon-only is what lets four actions share a row without the action column
+     outgrowing the data. The label is not lost, it moves to aria-label +
+     title, so the word survives for both pointer and screen reader. Built on
+     `.k-iconbtn` (UI-R07: sizing, hover surface, focus ring, and the
+     disabled/pending states all come from the primitive); `.ib` stays a
+     LAYOUT+colour-only local class — the glyph's own size, and each action's
+     resting hue off the shared status ramp. */
   .ib svg{width:calc(var(--k-space-6) + var(--k-space-1));height:calc(var(--k-space-6) + var(--k-space-1));display:block;
     transition:transform var(--k-dur-fast) var(--k-ease-standard)}
   /* Each action carries its OWN resting colour, off the same status ramp the
@@ -1358,75 +1361,6 @@
   .termview .blurb{padding:var(--k-space-6);color:var(--k-text-dim)}
 </style>
 
-<!-- Icon sprite for the servers panel. Stroked 16px glyphs on currentColor,
-     sized to sit beside 12.5px row text. Inline because the CSP forbids an icon
-     font and any external asset; defined once, referenced with <use>. -->
-<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
-  <defs>
-    <g id="i-open" fill="none" stroke="currentColor" stroke-width="1.4"
-       stroke-linecap="round" stroke-linejoin="round">
-      <path d="M7.5 3.5H4A1.5 1.5 0 0 0 2.5 5v7A1.5 1.5 0 0 0 4 13.5h7a1.5 1.5 0 0 0 1.5-1.5V8.5"/>
-      <path d="M9.5 2.5h4v4"/><path d="M13.5 2.5 7.5 8.5"/>
-    </g>
-    <g id="i-copy" fill="none" stroke="currentColor" stroke-width="1.4"
-       stroke-linecap="round" stroke-linejoin="round">
-      <rect x="5.5" y="2.5" width="8" height="8" rx="1.5"/>
-      <path d="M10.5 10.5V12A1.5 1.5 0 0 1 9 13.5H4A1.5 1.5 0 0 1 2.5 12V7A1.5 1.5 0 0 1 4 5.5h1.5"/>
-    </g>
-    <g id="i-diff" fill="none" stroke="currentColor" stroke-width="1.4"
-       stroke-linecap="round" stroke-linejoin="round">
-      <path d="M4 2.5v11M2.5 4 4 2.5 5.5 4M12 13.5v-11M10.5 12 12 13.5l1.5-1.5"/>
-      <path d="M4 8h5a3 3 0 0 0 3-3"/>
-    </g>
-    <g id="i-terminal" fill="none" stroke="currentColor" stroke-width="1.4"
-       stroke-linecap="round" stroke-linejoin="round">
-      <rect x="2" y="2.5" width="12" height="11" rx="1.5"/>
-      <path d="m4.5 6 2 2-2 2M8.5 10h3"/>
-    </g>
-    <g id="i-folder" fill="none" stroke="currentColor" stroke-width="1.4"
-       stroke-linecap="round" stroke-linejoin="round">
-      <path d="M2 5.5h12v6A1.5 1.5 0 0 1 12.5 13h-9A1.5 1.5 0 0 1 2 11.5z"/>
-      <path d="M2 5.5V4A1.5 1.5 0 0 1 3.5 2.5H7l1.5 2H14v1"/>
-    </g>
-    <g id="i-restart" fill="none" stroke="currentColor" stroke-width="1.4"
-       stroke-linecap="round" stroke-linejoin="round">
-      <path d="M13 8a5 5 0 1 1-1.6-3.7"/><path d="M13.2 2.6v3.2H10"/>
-    </g>
-    <g id="i-stop" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round">
-      <rect x="4.2" y="4.2" width="7.6" height="7.6" rx="1.3" fill="currentColor"/>
-    </g>
-    <g id="i-start" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round">
-      <path d="M5.2 3.4 12 8l-6.8 4.6z" fill="currentColor"/>
-    </g>
-    <!-- Copy confirmation: an icon button has no text to swap, so the glyph is
-         what flashes. -->
-    <g id="i-check" fill="none" stroke="currentColor" stroke-width="1.6"
-       stroke-linecap="round" stroke-linejoin="round">
-      <path d="M3 8.4 6.4 11.8 13 5.2"/>
-    </g>
-    <!-- Empty-state marks: a rack of services, and a struck-through circle for
-         the case where nothing in scope can ever run. -->
-    <g id="i-rack" fill="none" stroke="currentColor" stroke-width="1.3"
-       stroke-linecap="round" stroke-linejoin="round">
-      <rect x="2.5" y="2.5" width="11" height="4.5" rx="1.2"/>
-      <rect x="2.5" y="9" width="11" height="4.5" rx="1.2"/>
-      <path d="M5 4.75h.01"/><path d="M5 11.25h.01"/>
-    </g>
-    <g id="i-ban" fill="none" stroke="currentColor" stroke-width="1.3"
-       stroke-linecap="round" stroke-linejoin="round">
-      <circle cx="8" cy="8" r="5.6"/><path d="M4.2 4.2 11.8 11.8"/>
-    </g>
-    <!-- The karst brand mark (media/karst.svg) at sprite size: three circles
-         and their connecting lines. Used by the artifact origin chip as the
-         karst-produced marker; the label beside it is the identity. -->
-    <g id="i-karst" fill="none" stroke="currentColor" stroke-width="1.6"
-       stroke-linecap="round" stroke-linejoin="round">
-      <circle cx="6" cy="6" r="2.4"/><circle cx="18" cy="6" r="2.4"/><circle cx="12" cy="18" r="2.4"/>
-      <path d="M7.6 7.6 10.7 15.6"/><path d="M16.4 7.6 13.3 15.6"/><path d="M8 6h8"/>
-    </g>
-  </defs>
-</svg>
-
 <div class="dhead">
   <span id="keyPill"></span>
   <h1 id="title"></h1>
@@ -1458,10 +1392,10 @@
        a wrapper its `margin-left:auto` had nothing to push against, so it read
        as "Worktrees2" and the button sat wherever the text ended. -->
   <div class="panel"><div class="phead">Worktrees<span class="count" id="wtCount"></span><button id="wtChanges" class="k-iconbtn iconbtn" data-act="show-changes" type="button"
-    aria-label="Show ticket changes" title="Show ticket changes"><svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false"><use href="#i-diff"/></svg></button></div><div class="pbody" id="worktrees"></div></div>
+    aria-label="Show ticket changes" title="Show ticket changes"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 6a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/><path d="M16 18a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/><path d="M11 6h5a2 2 0 0 1 2 2v8"/><path d="M14 9l-3 -3l3 -3"/><path d="M13 18h-5a2 2 0 0 1 -2 -2v-8"/><path d="M10 15l3 3l-3 3"/></svg></button></div><div class="pbody" id="worktrees"></div></div>
   <div class="panel span"><div class="phead">Pull requests<span class="count" id="prCount"></span><button id="prRefresh" class="k-iconbtn iconbtn" data-act="refresh-prs" type="button"
     aria-label="Re-check pull request status and mergeability now" title="Re-check pull request status and mergeability now">
-    <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false"><path fill="currentColor" d="M8 3a5 5 0 1 0 4.546 2.914l1.09-.508A6.2 6.2 0 1 1 8 1.8V0l3 2.4-3 2.4V3Z"/></svg>
+    <svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20 11a8.1 8.1 0 0 0 -15.5 -2m-.5 -4v4h4"/><path d="M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4"/></svg>
   </button></div><div class="pbody" id="prs"></div></div>
   <!-- Resolved async, host-side, on its own gate-options message — same split
        as Worktrees' stats — because listing what a ticket's UAT/review stages
@@ -1897,13 +1831,14 @@
 
   // ── the prototype's shared primitives ──────────────────────────────────
   // The identity run: [agent name ·] core mark + core · model. Every part is
-  // host-shipped (`AgentExecutionView`); the mark comes from the injected
-  // line-icon renderer, so a provider with no mark degrades to text alone.
+  // host-shipped (`AgentExecutionView`); the mark is the CANONICAL provider
+  // icon from the injected identity renderer, so a provider with no mark
+  // degrades to text alone.
   function agentIdHtml(x) {
     if (!x) return '';
     const name = x.agentName
       ? `<span class="agent-name">${esc(x.agentName)}</span><span class="agent-sep">·</span>` : '';
-    const icon = x.provider ? agentLineIconHtml(x.provider) : '';
+    const icon = x.provider ? agentIconHtml(x.provider) : '';
     const core = x.providerLabel ? `<span class="agent-core">${esc(x.providerLabel)}</span>` : '';
     const model = x.modelLabel
       ? `<span class="agent-sep">·</span><span class="agent-model">${esc(x.modelLabel)}</span>` : '';
@@ -2154,7 +2089,7 @@
     // borrow the identity chip's colour for something that is not an
     // identity (869egdr2u-fu1).
     const identity = r.provider
-      ? `<span class="agent-id">${agentLineIconHtml(r.provider)}`
+      ? `<span class="agent-id">${agentIconHtml(r.provider)}`
         + `<span class="agent-core">${esc(r.detail || '')}</span></span>`
       : '<span></span>';
     if (r.connector === 'switch' || r.connector === 'resume') {
@@ -2460,16 +2395,18 @@
       ? '<button type="button" class="k-btn k-btn--secondary k-btn--sm switch-agent" data-act="switch-agent"'
         + ' title="Switch this ticket\'s live agent session">Switch agent…</button>'
       : '';
+    // The live session's identity is the injected component (icon + name +
+    // model, compact for the small subtitle line) — never a bare text pair.
     const identity = agentSession
-      ? `${agentSession.providerLabel} · ${agentSession.modelLabel}`
+      ? agentIdentityHtml(agentSession.provider, agentSession.modelLabel, true)
       : '';
     // A brief success flash beside the settled line once a ship resolves — the
     // clear "it worked" beat before the dashboard shows the done state.
     const badge = shipDone === 'success' ? `<span class="shipbadge ok">✓ Shipped</span>` : '';
-    const detail = a && a.kind === 'session' && a.detail ? a.detail : '';
+    const detail = a && a.kind === 'session' && a.detail ? esc(a.detail) : '';
     const subtitle = [detail, identity].filter(Boolean).join(' · ');
     const sub = subtitle
-      ? `<div class="now-sub">${esc(subtitle)}</div>`
+      ? `<div class="now-sub">${subtitle}</div>`
       : '';
     el('now').innerHTML = badge + `<span class="ntext">${esc(line.text)}</span>`
       + (type ? `<button type="button" class="k-btn k-btn--primary k-btn--sm" data-act="${type}"${attrs}`
@@ -2511,9 +2448,22 @@
   const isOnline = (s) => s.status === 'running';
   const addrOf = (s) => `${s.host || 'localhost'}:${s.port}`;
 
-  const svgIcon = (name) => (
-    `<svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><use href="#i-${name}"/></svg>`
+  const svgIcon = (name, size) => (
+    karstIcon(name, size)
   );
+
+  /* Each action keeps its OWN resting hue, off the same status ramp the
+     stepper uses — hue is the fastest way to tell Stop from Start before any
+     label is read. The word is still on every button, so hue accelerates, it
+     never carries. Keyed by the ACTION's tone (docs/ui/ICONS.md §4): the
+     glyph is the Tabler icon, the hue is what the action means. */
+  const TONE = {
+    'external-link': 'open',
+    copy: 'copy',
+    refresh: 'restart',
+    'player-stop': 'stop',
+    'player-play': 'start',
+  };
 
   /**
    * An icon action. The visible label IS the icon, so the word survives as both
@@ -2523,20 +2473,20 @@
    * user cannot tell from a broken one, for a screen-reader user exactly as
    * much as a sighted one.
    */
-  const iact = (action, id, label, name, disabledWhy) => (
-    `<button type="button" class="k-iconbtn ib t-${name}" data-act="${action}"`
+  const iact = (action, id, label, icon, disabledWhy) => (
+    `<button type="button" class="k-iconbtn ib t-${TONE[icon] || 'open'}" data-act="${action}"`
     + `${id != null ? ` data-id="${id}"` : ''}`
-    + `${name === 'copy' ? ' data-copy' : ''}`
+    + `${icon === 'copy' ? ' data-copy' : ''}`
     + `${disabledWhy ? ' disabled' : ''}`
     + ` aria-label="${esc(disabledWhy || label)}" title="${esc(disabledWhy || label)}">`
-    + `${svgIcon(name)}</button>`
+    + `${svgIcon(icon)}</button>`
   );
 
   // Row actions come in two groups: Open and Copy operate on the ADDRESS and sit
   // flush against it; Restart and Stop operate on the PROCESS.
   const addrActions = (s) => (
     isOnline(s)
-      ? iact('open-server', s.id, 'Open in browser', 'open')
+      ? iact('open-server', s.id, 'Open in browser', 'external-link')
         + iact('copy-server-url', s.id, 'Copy URL', 'copy')
       : ''
   );
@@ -2545,9 +2495,9 @@
   // Copy and Stop are all meaningless on it.
   const lifeActions = (s) => (
     isOnline(s)
-      ? iact('restart-server', s.id, 'Restart', 'restart')
-        + iact('stop-server', s.id, 'Stop', 'stop')
-      : iact('spin-servers', null, 'Start service', 'start')
+      ? iact('restart-server', s.id, 'Restart', 'refresh')
+        + iact('stop-server', s.id, 'Stop', 'player-stop')
+      : iact('spin-servers', null, 'Start service', 'player-play')
   );
 
   /**
@@ -2571,9 +2521,9 @@
     const startWhy = !none && !anyOffline ? 'Every service is already running' : null;
     const restartWhy = none ? 'No services to restart' : null;
     const stopWhy = !anyRunning ? 'No service is running' : null;
-    return iact('spin-servers', null, 'Start all services', 'start', startWhy)
-      + iact('restart-servers', null, 'Restart all services', 'restart', restartWhy)
-      + iact('stop-servers', null, 'Stop all services', 'stop', stopWhy);
+    return iact('spin-servers', null, 'Start all services', 'player-play', startWhy)
+      + iact('restart-servers', null, 'Restart all services', 'refresh', restartWhy)
+      + iact('stop-servers', null, 'Stop all services', 'player-stop', stopWhy);
   }
 
   /**
@@ -2584,12 +2534,12 @@
    */
   function serversEmpty(state) {
     if (state.hasRunnableRepos === false) {
-      return `<div class="estate dead"><span class="emark">${svgIcon('ban')}</span>`
+      return `<div class="estate dead"><span class="emark">${svgIcon('circle-x')}</span>`
         + `<div><div class="ehead">No runnable services in scope</div>`
         + `<div class="esub">This ticket scopes only repositories without a service`
         + ` block, so there is nothing here to run.</div></div></div>`;
     }
-    return `<div class="estate"><span class="emark">${svgIcon('rack')}</span>`
+    return `<div class="estate"><span class="emark">${svgIcon('server-2')}</span>`
       + `<div><div class="ehead">No servers running</div>`
       + `<div class="esub">Start the services in scope to get their local`
       + ` addresses here.</div></div></div>`;
@@ -2849,9 +2799,13 @@
   // index row, detail's Produced-by row). The mark is a secondary carrier;
   // the LABEL is the identity (UI-R28) — never an icon alone. Native:
   // `<core icon> <Core> · Native`; karst: `<karst mark> Karst[ · <Core>]`.
+  // The karst mark is a PRODUCT-IDENTITY exception, not an interaction icon —
+  // it stays outside the Tabler catalog (docs/ui/ICONS.md §5).
   const KARST_MARK =
     '<svg class="kmark" viewBox="0 0 24 24" aria-hidden="true" focusable="false">'
-    + '<use href="#i-karst"/></svg>';
+    + '<g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">'
+    + '<circle cx="6" cy="6" r="2.4"/><circle cx="18" cy="6" r="2.4"/><circle cx="12" cy="18" r="2.4"/>'
+    + '<path d="M7.6 7.6 10.7 15.6"/><path d="M16.4 7.6 13.3 15.6"/><path d="M8 6h8"/></g></svg>';
 
   function originChip(origin) {
     const o = origin || { kind: 'karst', core: null };

@@ -59,9 +59,10 @@ describe('dashboard webview.html', () => {
     expect(HTML).toContain('a.detail');
   });
 
-  it('shows the live core/model and a payload-free switch action beside Now', () => {
-    expect(HTML).toContain('agentSession.providerLabel');
-    expect(HTML).toContain('agentSession.modelLabel');
+  it('shows the live core/model through the identity component and a payload-free switch action beside Now', () => {
+    // The Now line renders the session identity through the injected
+    // component (icon + name + model) — never a bare text pair.
+    expect(HTML).toMatch(/agentIdentityHtml\(agentSession\.provider,\s*agentSession\.modelLabel/);
     expect(HTML).toContain('data-act="switch-agent"');
     expect(HTML).toMatch(/agentSession\.canSwitch[\s\S]*switch-agent/);
     expect(HTML).not.toMatch(/data-act="switch-agent"[^>]*data-(?:provider|model|ticket)/);
@@ -81,7 +82,10 @@ describe('dashboard webview.html', () => {
     expect(HTML.match(/data-act="show-changes"/g)).toHaveLength(1);
     expect(HTML).toMatch(/id="wtChanges"[^>]*aria-label="Show ticket changes"/);
     expect(HTML).toMatch(/id="wtChanges"[^>]*title="Show ticket changes"/);
-    expect(HTML).toContain('href="#i-diff"');
+    // The glyph is the Tabler catalog's `git-compare` on the shared treatment
+    // (docs/ui/ICONS.md §4) — never a hand-rolled sprite reference.
+    expect(HTML).toMatch(/id="wtChanges"[^>]*>[\s\S]{0,200}<svg class="k-icon"[^>]*viewBox="0 0 24 24"[^>]*><path d="M4 6a2 2/);
+    expect(HTML).not.toContain('href="#i-');
     expect(HTML).not.toMatch(/id="wtChanges"[^>]*>Changes<\/button>/);
     expect(HTML).not.toContain('diff-worktree');
   });
@@ -2362,8 +2366,8 @@ describe('inside render round trip (executed in a VM)', () => {
     // Switch rows branch from the STRUCTURAL connector — never a label match.
     expect(ol.match(/class="timeline-row switch-event"/g)).toHaveLength(2);
     expect(ol).not.toContain('label-switch');
-    // The identity mark is the INJECTED line-icon renderer's.
-    expect(ol).toContain('<span class="agent-icon" aria-hidden="true">');
+    // The identity mark is the INJECTED canonical-icon renderer's.
+    expect(ol).toContain('<span class="agenticon" aria-hidden="true">');
     // Token pills are the prototype's Σ stat, with the exact count as the
     // hover title.
     expect(ol.match(/class="token-stat"/g)).toHaveLength(3);
@@ -2379,7 +2383,7 @@ describe('inside render round trip (executed in a VM)', () => {
     // on the first identity row, exactly like identityChipHtml. The pill is
     // a bordered mono token — border + mono font + faint text, all tokens.
     const fn = /function timelineRowHtml[\s\S]*?\n  \}/.exec(HTML)?.[0] ?? '';
-    expect(fn).toContain('agentLineIconHtml(r.provider)');
+    expect(fn).toContain('agentIconHtml(r.provider)');
     const pill = /#inside \.token-stat\{([^}]*)\}/.exec(HTML)?.[1] ?? '';
     expect(pill).toMatch(/border:/);
     expect(pill).toMatch(/--p-mono/);

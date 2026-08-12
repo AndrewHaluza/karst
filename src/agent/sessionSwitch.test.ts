@@ -27,10 +27,10 @@ describe('agent switch presentation', () => {
     expect(canSwitchAgentSession(stage, open, fixing)).toBe(expected);
   });
 
-  it('omits the current provider and supplies human labels', () => {
+  it('omits the current provider and supplies the canonical identity labels', () => {
     expect(agentSwitchProviderChoices('claude')).toEqual([
       { provider: 'codex', label: 'Codex' },
-      { provider: 'antigravity', label: 'Antigravity' },
+      { provider: 'antigravity', label: 'Antigravity CLI' },
       { provider: 'opencode', label: 'OpenCode' },
     ]);
   });
