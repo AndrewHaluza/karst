@@ -480,33 +480,24 @@ describe('chevron and invalid-field styling', () => {
   });
 });
 
-/** Classes on the accordion card that hosts the custom provider dropdown. */
-function providerCardClasses(): string[] {
-  const wrap = HTML.indexOf('id="provSelectWrap"');
-  expect(wrap, '#provSelectWrap not found').toBeGreaterThan(-1);
-  // The nearest preceding opening tag whose class list contains `card` itself
-  // (not `card-body`, which sits between the wrapper and its card).
-  const tags = [...HTML.slice(0, wrap).matchAll(/<div class="([^"]*)"/g)]
-    .map((m) => m[1]!.split(/\s+/).filter(Boolean))
-    .filter((classes) => classes.includes('card'));
-  const last = tags[tags.length - 1];
-  expect(last, 'no enclosing .card for #provSelectWrap').toBeTruthy();
-  return last!;
-}
-
 describe('ticketing provider dropdown', () => {
   // The menu is absolutely positioned below the trigger and is taller than the
-  // (short) card that hosts it, so the accordion's `.card{overflow:hidden}`
-  // clipped it to a sliver: the dropdown opened but was invisible.
-  it('is not clipped by its accordion card', () => {
-    const classes = providerCardClasses();
-    const optedOut = classes.some(
-      (c) => c !== 'card' && new RegExp(`\\.card\\.${c}\\{[^}]*overflow:visible`).test(HTML),
-    );
-    expect(optedOut, `provider card classes "${classes.join(' ')}" are still clipped`).toBe(true);
+  // row that hosts it. It used to sit inside a `.card{overflow:hidden}` (the
+  // accordion box) and needed an `.unclipped` opt-out that made the card
+  // overflow-visible; the ticketing section now uses section-blocks, which
+  // never clip by construction — so the dropdown must not have a card (the
+  // only overflow:hidden container in the section) anywhere above it.
+  it('is not clipped: the provider select has no .card ancestor', () => {
+    const wrap = HTML.indexOf('id="provSelectWrap"');
+    expect(wrap, '#provSelectWrap not found').toBeGreaterThan(-1);
+    const section = HTML.slice(HTML.indexOf('id="section-ticketing"'), wrap);
+    const cards = [...section.matchAll(/<div class="([^"]*)"/g)]
+      .map((m) => m[1]!.split(/\s+/).filter(Boolean))
+      .filter((classes) => classes.includes('card'));
+    expect(cards, 'ticketing section must not wrap the provider select in a card').toEqual([]);
   });
 
-  it('paints the menu above the cards that follow it', () => {
+  it('paints the menu above the content that follows it', () => {
     const m = HTML.match(/\.provselect-menu\{([^}]*)\}/);
     expect(m, '.provselect-menu rule not found').toBeTruthy();
     expect(m![1]).toMatch(/z-index:(?:\d+|var\(--k-z-[\w-]+\))/);
@@ -515,7 +506,7 @@ describe('ticketing provider dropdown', () => {
 
 describe('ticketing search toggle', () => {
   it('renders a search toggle card that defaults ON, hidden for manual', () => {
-    const markup = HTML.slice(HTML.indexOf('id="searchCard"'), HTML.indexOf('id="searchCard"') + 500);
+    const markup = HTML.slice(HTML.indexOf('id="searchCard"'), HTML.indexOf('id="searchCard"') + 800);
     expect(markup).toContain('id="f-searchEnabled"');
     expect(markup).toContain('Search tickets in the Add/Edit ticket page');
     // renderTicketing shows it only for clickup and reflects the draft value.
