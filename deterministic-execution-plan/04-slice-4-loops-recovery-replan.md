@@ -1,6 +1,16 @@
 # Slice 4 — Loops, Recovery, and Immutable Replan
 
 **Entry gate:** Slice 3 exit gate holds **and** the post-Slice-3 measurement satisfies the abandonment criterion.
+
+> **Entry-gate waiver (2026-08-12, principal decision):** the post-Slice-3
+> measurement (`measurement/post-slice-3.md`) is vacuous — zero real
+> graph-approach tickets exist (N=0), so the abandonment criterion is
+> unevaluable, not violated. Per the principal's explicit direction, the gate
+> is waived: Slices 4–6 proceed now, treating unevaluable as not-violated.
+> The criterion remains a binding forward obligation evaluated on the first N
+> completed graph-approach tickets (Slice 6's entry gate), and a violation
+> there reverts the flip and stops the remaining work.
+
 **Ships:** repeated visits with distinct identities, causal artifact binding, budget enforcement, the full crash/reload matrix, stale and unknown process handling with a named escape, replan election and drain, and revision N+1.
 
 ## Task 1 — Repeated visits and loop budgets
