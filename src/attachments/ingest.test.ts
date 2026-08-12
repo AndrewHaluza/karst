@@ -92,13 +92,22 @@ describe('ingestBytes', () => {
     expect(a.input.storedName).not.toBe(b.input.storedName);
   });
 
-  it('rejects a non-whitelisted type with a named reason', async () => {
+  it('rejects a name with no accepted extension', async () => {
     const storage = freshStorage();
-    const result = await ingestBytes(storage, 12, 'notes.pdf', Buffer.from('%PDF'));
+    const result = await ingestBytes(storage, 12, 'README', Buffer.from('data'));
     expect(result).toEqual({
       ok: false,
-      message: 'notes.pdf is not a supported attachment (images: png, jpg, jpeg, gif, webp; video: mp4, webm, mov)',
+      message: 'README is not a supported attachment (images: png, jpg, jpeg, gif, webp; video: mp4, webm, mov; any other file)',
     });
+  });
+
+  it('stores pasted text bytes as a file attachment', async () => {
+    const storage = freshStorage();
+    const result = await ingestBytes(storage, 12, 'pasted.txt', Buffer.from('hello'));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.input.kind).toBe('file');
+    expect(result.input.storedName).toMatch(/^[0-9a-f]{16}\.txt$/);
   });
 
   it('rejects bytes over the paste cap with a named reason', async () => {
@@ -188,13 +197,22 @@ describe('ingestFile', () => {
     expect(readdirSync(attachmentDir(storage, 5))).toEqual([]);
   });
 
-  it('rejects a non-whitelisted type with a named reason', async () => {
+  it('rejects a name with no accepted extension', async () => {
     const storage = freshStorage();
-    const src = sourceFile('notes.pdf', '%PDF');
+    const src = sourceFile('README', 'data');
     const result = await ingestFile(storage, 5, src);
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.message).toContain('not a supported attachment');
+  });
+
+  it('stores a picked pdf as a file attachment', async () => {
+    const storage = freshStorage();
+    const src = sourceFile('notes.pdf', '%PDF');
+    const result = await ingestFile(storage, 5, src);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.input).toMatchObject({ kind: 'file', originalName: 'notes.pdf' });
   });
 
   it('accepts a file larger than the paste cap', async () => {

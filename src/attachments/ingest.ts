@@ -22,7 +22,7 @@ export type AttachmentValidation =
   | { ok: true; kind: NonNullable<ReturnType<typeof attachmentKind>>; extension: string }
   | { ok: false; message: string };
 
-const SUPPORTED = `images: ${IMAGE_EXTENSIONS.join(', ')}; video: ${VIDEO_EXTENSIONS.join(', ')}`;
+const SUPPORTED = `images: ${IMAGE_EXTENSIONS.join(', ')}; video: ${VIDEO_EXTENSIONS.join(', ')}; any other file`;
 
 function unsupported(name: string): AttachmentValidation {
   return { ok: false, message: `${name} is not a supported attachment (${SUPPORTED})` };
