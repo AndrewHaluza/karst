@@ -62,3 +62,14 @@ export function graphRunForTicket(
 export function transitionGraphRun(db: GraphDb, id: number, from: string, to: string): boolean {
   return casStatus(db, 'approach_graph_runs', GRAPH_RUN_TRANSITIONS, id, from, to);
 }
+
+/** True when every graph run of the ticket has status `closed` — the
+ *  retention sweep's predicate (Slice 2 Task 8). */
+export function allGraphRunsClosed(db: GraphDb, ticketId: number): boolean {
+  const row = db
+    .prepare(
+      "SELECT 1 AS open FROM approach_graph_runs WHERE ticket_id = ? AND status != 'closed' LIMIT 1",
+    )
+    .get(ticketId) as { open: number } | undefined;
+  return row === undefined;
+}

@@ -6,6 +6,10 @@ export interface PermanentDeleteLifecycle {
   closePanel(ticketId: number): void;
   /** Remove bytes after the row transaction wins against in-flight inserts. */
   reap(ticketId: number): Promise<void>;
+  /** The `<globalStorage>/graph/<projectSlug>` root; when set, deleteTicket
+   *  also removes the ticket's graph byte subtree after its rows (Slice 2
+   *  Task 8; the activation sweep covers the absent case). */
+  graphBytesRoot?: string;
 }
 
 /**
@@ -19,7 +23,7 @@ export async function deleteTicketPermanently(
   ticketId: number,
   lifecycle: PermanentDeleteLifecycle,
 ): Promise<void> {
-  deleteTicket(store, ticketId);
+  deleteTicket(store, ticketId, lifecycle.graphBytesRoot);
   // Both operations are synchronous: the DB tombstone is visible before any
   // local in-flight action can resume, then its panel is invalidated before the
   // first asynchronous yield in filesystem cleanup.
