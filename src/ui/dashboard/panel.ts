@@ -16,6 +16,7 @@ import {
   InsideActionRegistry,
   dispatchInsideAction,
   type InsideActionHost,
+  type InsideActionTarget,
 } from './insideActions.js';
 import {
   buildDashboardState,
@@ -27,7 +28,7 @@ import { parseInsideProgress, parseWebviewMessage, routeAction, type DashboardAc
 import type { InsideActionResult } from './messages.js';
 import type { WorktreeStatsLoader } from './worktreeStats.js';
 import type { GateOptions, GateOptionsLoader } from './gateOptions.js';
-import type { GraphInsideInput } from '../../model/inside/graph.js';
+import type { GraphInsideInput, GraphActionTarget } from '../../model/inside/graph.js';
 import { readRequestId, reportAction } from '../../model/actionResult.js';
 import { hasLiveWork, LIVE_TICK_MS } from './liveTick.js';
 
@@ -454,6 +455,16 @@ export class DashboardManager {
     }
     this.pruneGrace(ticketId);
     this.registries.set(ticketId, registry);
+    // The graph projection's controls (Slice 3 Task 11 / Slice 4 Task 4) ride
+    // the SAME opaque typed-action seam: the projection is pure, so the host
+    // injects the attach closure that mints ids in THIS snapshot's registry.
+    const graphInside = this.graphInsideFor?.(ticketId) ?? null;
+    if (graphInside) {
+      graphInside.attach = (target) => {
+        const action = registry.register(toRegisteredGraphTarget(target, ticketId));
+        return action ?? undefined;
+      };
+    }
     const state = buildDashboardState(
       this.store,
       ticketId,
@@ -474,7 +485,7 @@ export class DashboardManager {
       (repo) => this.repoNameFor(repo),
       // The graph runtime's read-only projection (Slice 3 Task 11): built
       // host-side, null for a ticket with no graph run.
-      this.graphInsideFor?.(ticketId),
+      graphInside,
     );
     // `live` marks a REPAINT of data the panel already had, as opposed to a
     // push that reports something happening. The webview defers a live repaint
@@ -781,4 +792,22 @@ const NOOP_INSIDE_HOST: InsideActionHost = {
   openBoundedEvidence: () => undefined,
   graphOpenSession: () => undefined,
   graphStop: () => undefined,
+  graphDiscardNode: () => undefined,
 };
+
+/** The graph projection's ticket-less target, stamped with the registry's
+ *  ticket — the ONLY place the projection's targets become dispatchable
+ *  capabilities. Exhaustive over the closed `GraphActionTarget` union. */
+function toRegisteredGraphTarget(
+  target: GraphActionTarget,
+  ticketId: number,
+): InsideActionTarget {
+  switch (target.kind) {
+    case 'graph-open-session':
+      return { kind: 'graph-open-session', ticketId, session: target.session };
+    case 'graph-stop':
+      return { kind: 'graph-stop', ticketId };
+    case 'graph-discard-node':
+      return { kind: 'graph-discard-node', ticketId, nodeRunId: target.nodeRunId };
+  }
+}

@@ -11,7 +11,10 @@
  * Controls ride the same opaque typed-action seam every inside process uses:
  * a row's `action` is minted through the injected `attach` closure (absent →
  * no actions). Open focuses a live planner/node session (never spawns one);
- * Stop signals the coordinator to drain. A ready node under `maxParallel: 1`
+ * Stop signals the coordinator to drain. An ambiguous node run
+ * (`launch-unknown`/`termination-unknown`) carries the DANGER discard exit
+ * (Slice 4 Task 4) instead of Open — the process may still be running, and the
+ * row's visible status names it. A ready node under `maxParallel: 1`
  * renders an explicit serialized reason row, so deliberate serialization
  * never reads as a scheduler defect.
  *
@@ -107,7 +110,8 @@ export type GraphLiveSessionView = { kind: 'planner' | 'node'; runId: number };
  */
 export type GraphActionTarget =
   | { kind: 'graph-open-session'; session: { kind: 'planner' | 'node'; runId: number } }
-  | { kind: 'graph-stop' };
+  | { kind: 'graph-stop' }
+  | { kind: 'graph-discard-node'; nodeRunId: number };
 
 export interface GraphInsideInput {
   /** Feature flag: the projection ships inert until Slice 3 enables it. */
@@ -230,6 +234,33 @@ function hasLiveSession(
   return liveSessions.some((s) => s.kind === kind && s.runId === runId);
 }
 
+/** The ambiguous node-run statuses that offer the discard exit (Slice 4 Task
+ *  4) — the one explicit action for a process whose fate cannot be proven. */
+export const AMBIGUOUS_NODE_STATUSES: readonly string[] = [
+  'launch-unknown',
+  'termination-unknown',
+] as const;
+
+/** The single control a node row carries: the discard exit for an ambiguous
+ *  run, else Open for a live session, else none. Exactly one — the discard and
+ *  the session-open never compete for one action slot. */
+function nodeRowAction(
+  input: Pick<GraphInsideInput, 'attach' | 'liveSessions'>,
+  node: GraphNodeRunView,
+): TypedInsideAction | undefined {
+  if (!input.attach) return undefined;
+  if (AMBIGUOUS_NODE_STATUSES.includes(node.status)) {
+    return input.attach({ kind: 'graph-discard-node', nodeRunId: node.nodeRunId });
+  }
+  if (hasLiveSession(input.liveSessions, 'node', node.nodeRunId)) {
+    return input.attach({
+      kind: 'graph-open-session',
+      session: { kind: 'node', runId: node.nodeRunId },
+    });
+  }
+  return undefined;
+}
+
 function formatBytes(size: number): string {
   if (size < 1024) return `${size} B`;
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
@@ -280,20 +311,15 @@ export function graphInsideProcess(
     ]
       .filter((part): part is string => part !== null && part !== undefined && part !== '')
       .join(' · ');
+    // One control per node row: the discard exit for an ambiguous run (the
+    // process may still be running — the row's visible status names it), Open
+    // for a live session (it never spawns one), else none.
+    const action = nodeRowAction(input, node);
     rows.push({
       label: `node ${sanitizeGraphText(node.nodeId)}`,
       detail: sanitizeGraphText(detail),
       status: nodeRunStatus(node.status),
-      // Open reveals a live session's terminal; it never spawns one. A node
-      // with no live session gets no action at all.
-      ...(hasLiveSession(input.liveSessions, 'node', node.nodeRunId) && input.attach
-        ? {
-            action: input.attach({
-              kind: 'graph-open-session',
-              session: { kind: 'node', runId: node.nodeRunId },
-            }),
-          }
-        : {}),
+      ...(action ? { action } : {}),
     });
   }
 

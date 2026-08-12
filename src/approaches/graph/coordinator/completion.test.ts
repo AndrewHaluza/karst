@@ -194,6 +194,24 @@ describe('completeActivation', () => {
     const tokens = tokenStatuses(ctx).filter((t) => t.status === 'pending');
     expect(tokens).toHaveLength(1);
   });
+
+  it('a completion that consumed no claimed token emits no successor (a discarded run)', () => {
+    // Slice 4 Task 4: a valid-but-late completion arriving after a discard has
+    // no claimed token (the discard cancelled it). Consuming nothing must also
+    // emit nothing — a cancelled run must never route the graph.
+    const ctx = harness();
+    nodeRun(ctx, 14, 'a');
+    ctx.db.prepare("UPDATE approach_node_runs SET status = 'cancelled' WHERE id = 14").run();
+    const result = completeActivation(makeDeps(ctx), {
+      nodeRunId: 14,
+      effectiveOutcome: 'complete',
+    });
+    expect(result).toEqual({ consumed: 0, inserted: 0 });
+    const pending = ctx.db
+      .prepare("SELECT COUNT(*) AS n FROM approach_graph_tokens WHERE status = 'pending'")
+      .get() as { n: number };
+    expect(pending.n).toBe(0);
+  });
 });
 
 describe('flipOnEndQuiescence', () => {

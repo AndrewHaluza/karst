@@ -1824,6 +1824,7 @@
     'open-bounded-evidence': 'Show all',
     'graph-open-session': 'Open session',
     'graph-stop': 'Stop',
+    'graph-discard-node': 'Discard process',
   };
   const INSIDE_ACTION_TITLE = {
     'open-pr': 'Open this pull request on the host',
@@ -1835,6 +1836,14 @@
     'open-bounded-evidence': 'Show every repository row',
     'graph-open-session': 'Focus this session\'s terminal — never spawns one',
     'graph-stop': 'Signal the graph coordinator to drain',
+    // DANGER (UI-R10b): the process may still be running. The title names the
+    // risk and the row's visible status (`launch-unknown`/`termination-unknown`)
+    // states it again, so the explanation is never title-only (UI-R19).
+    'graph-discard-node': 'Discard unknown process — it may still be running',
+  };
+  // The DANGER variants among the inside actions (UI-R10b: irreversible loss).
+  const INSIDE_ACTION_DANGER = {
+    'graph-discard-node': true,
   };
 
   function insideActionBtnHtml(a) {
@@ -1842,7 +1851,10 @@
     // The host may ship a count-bearing label ("Show 4 more" — handoff §10);
     // the static map is the fallback, never a webview-computed count.
     const label = a.label || INSIDE_ACTION_LABEL[a.kind];
-    return `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-act="inside-action"`
+    // A danger action gets the danger variant (UI-R10b), so an irreversible
+    // control is never styled as an ordinary secondary button.
+    const variant = INSIDE_ACTION_DANGER[a.kind] ? 'k-btn--danger' : 'k-btn--secondary';
+    return `<button type="button" class="k-btn ${variant} k-btn--sm" data-act="inside-action"`
       + ` data-action-id="${esc(a.actionId)}" title="${esc(INSIDE_ACTION_TITLE[a.kind])}">`
       + `${esc(label)}</button>`;
   }

@@ -191,6 +191,94 @@ describe('graphInsideProcess', () => {
     expect(closed.evidence.rows[0]!.action).toBeUndefined();
   });
 
+  it('attaches the discard exit to an ambiguous node run and Open to a live one, never both', () => {
+    const ambiguous = graphInsideProcess(
+      input({
+        nodeRuns: [
+          {
+            nodeRunId: 21,
+            nodeId: 'stuck',
+            nodeKind: 'agent',
+            visitNumber: 1,
+            status: 'termination-unknown',
+            outcome: null,
+            reason: null,
+            provider: null,
+            model: null,
+            effort: null,
+            profile: 'default',
+            launchAttempt: 1,
+          },
+        ],
+        liveSessions: [],
+      }),
+    )!;
+    if (ambiguous.evidence?.kind !== 'rows') return;
+    const stuck = ambiguous.evidence.rows.find((r) => r.label === 'node stuck')!;
+    expect(stuck.action).toMatchObject({ kind: 'graph-discard-node' });
+    expect(stuck.detail).toContain('termination-unknown');
+
+    const live = graphInsideProcess(input())!;
+    if (live.evidence?.kind !== 'rows') return;
+    const running = live.evidence.rows.find((r) => r.label === 'node implement')!;
+    expect(running.action).toMatchObject({ kind: 'graph-open-session' });
+    expect(running.action?.kind).not.toBe('graph-discard-node');
+  });
+
+  it('attaches the discard exit for a launch-unknown node too', () => {
+    const process = graphInsideProcess(
+      input({
+        nodeRuns: [
+          {
+            nodeRunId: 22,
+            nodeId: 'half',
+            nodeKind: 'agent',
+            visitNumber: 1,
+            status: 'launch-unknown',
+            outcome: null,
+            reason: null,
+            provider: null,
+            model: null,
+            effort: null,
+            profile: 'default',
+            launchAttempt: 1,
+          },
+        ],
+        liveSessions: [],
+      }),
+    )!;
+    if (process.evidence?.kind !== 'rows') return;
+    const half = process.evidence.rows.find((r) => r.label === 'node half')!;
+    expect(half.action).toMatchObject({ kind: 'graph-discard-node' });
+  });
+
+  it('a non-ambiguous node with no live session carries no action', () => {
+    const process = graphInsideProcess(
+      input({
+        nodeRuns: [
+          {
+            nodeRunId: 23,
+            nodeId: 'idle',
+            nodeKind: 'command',
+            visitNumber: 1,
+            status: 'completed',
+            outcome: 'complete',
+            reason: null,
+            provider: null,
+            model: null,
+            effort: null,
+            profile: null,
+            launchAttempt: 0,
+          },
+        ],
+        liveSessions: [],
+      }),
+    )!;
+    if (process.evidence?.kind !== 'rows') return;
+    const idle = process.evidence.rows.find((r) => r.label === 'node idle')!;
+    expect(idle.action).toBeUndefined();
+  });
+
   it('renders every graph-derived string with ANSI/controls and unsafe schemes removed, bounded', () => {
     const process = graphInsideProcess(input())!;
     if (process.evidence?.kind !== 'rows') return;

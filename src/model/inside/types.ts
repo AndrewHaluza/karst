@@ -230,7 +230,8 @@ export type InsideActionKind =
   | 'open-full-evidence'
   | 'open-bounded-evidence'
   | 'graph-open-session'
-  | 'graph-stop';
+  | 'graph-stop'
+  | 'graph-discard-node';
 
 /**
  * A navigation/continuation control on a process row.
@@ -274,7 +275,12 @@ export type InsideEvidenceTarget =
   // drain. The `session.runId` is a recorded run row id — a persisted object,
   // never a client-supplied session name.
   | { kind: 'graph-open-session'; session: { kind: 'planner' | 'node'; runId: number } }
-  | { kind: 'graph-stop' };
+  | { kind: 'graph-stop' }
+  // Slice 4 Task 4: Discard an unknown process — the ONE explicit exit for a
+  // `launch-unknown`/`termination-unknown` node run. DANGER: the process may
+  // still be running; the row's visible copy names that risk (UI-R19), and the
+  // host transaction is conditional, so a second window's discard is a no-op.
+  | { kind: 'graph-discard-node'; nodeRunId: number };
 
 /**
  * The inside process's token claim, as ONE of three states (decision 8).

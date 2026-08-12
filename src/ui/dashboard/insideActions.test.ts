@@ -158,6 +158,8 @@ function host(calls: string[]): InsideActionHost {
     graphOpenSession: (ticketId, session) =>
       void calls.push(`graph-open:${ticketId}:${session.kind}:${session.runId}`),
     graphStop: (ticketId) => void calls.push(`graph-stop:${ticketId}`),
+    graphDiscardNode: (ticketId, nodeRunId) =>
+      void calls.push(`graph-discard:${ticketId}:${nodeRunId}`),
   };
 }
 
@@ -578,6 +580,37 @@ describe('dispatchInsideAction', () => {
     expect(dispatchInsideAction(store, r3, 'snapshot-7:action-0', deps([]))).toEqual({
       outcome: 'rejected',
       reason: 'no live graph run to stop',
+    });
+  });
+
+  it('dispatches graph-discard-node only for a node run owned by this ticket', () => {
+    const mine = seedGraph({ ticketId: 1, runId: 1 });
+    seedNodeRun(mine.revisionId, { id: 61, graphRunId: 1, status: 'termination-unknown' });
+    // A node run under ANOTHER ticket's graph run: exists, but not this
+    // ticket's — rejected, never discarded.
+    const theirs = seedGraph({ ticketId: 2, runId: 2 });
+    seedNodeRun(theirs.revisionId, { id: 62, graphRunId: 2, status: 'termination-unknown' });
+
+    const r = registry(7);
+    r.register({ kind: 'graph-discard-node', ticketId: 1, nodeRunId: 61 });
+    const calls: string[] = [];
+    expect(dispatchInsideAction(store, r, 'snapshot-7:action-0', deps(calls))).toEqual({
+      outcome: 'dispatched',
+    });
+    expect(calls).toEqual(['graph-discard:1:61']);
+
+    const r2 = registry(7);
+    r2.register({ kind: 'graph-discard-node', ticketId: 1, nodeRunId: 62 });
+    expect(dispatchInsideAction(store, r2, 'snapshot-7:action-0', deps([]))).toEqual({
+      outcome: 'rejected',
+      reason: 'node run not found for this ticket',
+    });
+
+    const r3 = registry(7);
+    r3.register({ kind: 'graph-discard-node', ticketId: 1, nodeRunId: 999 });
+    expect(dispatchInsideAction(store, r3, 'snapshot-7:action-0', deps([]))).toEqual({
+      outcome: 'rejected',
+      reason: 'node run not found for this ticket',
     });
   });
 });

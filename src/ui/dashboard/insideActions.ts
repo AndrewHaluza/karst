@@ -63,7 +63,12 @@ export type InsideActionTarget =
       ticketId: number;
       session: { kind: 'planner' | 'node'; runId: number };
     }
-  | { kind: 'graph-stop'; ticketId: number };
+  | { kind: 'graph-stop'; ticketId: number }
+  // Slice 4 Task 4: discard an ambiguous node run (`launch-unknown` /
+  // `termination-unknown`). The nodeRunId is a RECORDED node-run row id — the
+  // dispatch re-loads it and proves it belongs to the registry's ticket; the
+  // discard module's own transaction is the status gate.
+  | { kind: 'graph-discard-node'; ticketId: number; nodeRunId: number };
 
 /** Longest accepted action id. Ids are `snapshot-<n>:action-<n>`; this is slack. */
 export const MAX_ACTION_ID_CHARS = 96;
@@ -137,6 +142,13 @@ export interface InsideActionHost {
   ): void | Promise<void>;
   /** Signal the coordinator to drain the ticket's live graph run. */
   graphStop(ticketId: number): void | Promise<void>;
+  /**
+   * Discard an ambiguous node run (launch-unknown/termination-unknown) — the
+   * ONE explicit exit for an unprovable process. The dispatch has already
+   * proven the run row belongs to the ticket; the discard module's own
+   * transaction is the status gate, so a second window's discard is a no-op.
+   */
+  graphDiscardNode(ticketId: number, nodeRunId: number): void | Promise<void>;
 }
 
 export type InsideDispatchOutcome =
@@ -331,6 +343,17 @@ export function dispatchInsideAction(
         return { outcome: 'rejected', reason: 'no live graph run to stop' };
       }
       void deps.host.graphStop(target.ticketId);
+      return { outcome: 'dispatched' };
+    }
+    case 'graph-discard-node': {
+      // The discard is offered only on ambiguous runs; the run row must exist
+      // and belong to this ticket, or the id is stale/foreign. The discard
+      // module's own transaction is the status gate — this dispatch only
+      // proves ownership, exactly like graph-open-session.
+      if (!graphSessionOwner(store, 'node', target.nodeRunId, target.ticketId)) {
+        return { outcome: 'rejected', reason: 'node run not found for this ticket' };
+      }
+      void deps.host.graphDiscardNode(target.ticketId, target.nodeRunId);
       return { outcome: 'dispatched' };
     }
   }

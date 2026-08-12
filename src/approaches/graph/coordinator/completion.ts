@@ -93,9 +93,15 @@ export function completeActivation(
       if (consumeGraphToken(db, token.id, input.nodeRunId, deps.now())) consumed += 1;
     }
     let inserted = 0;
-    const revision = db
-      .prepare("SELECT canonical_graph FROM approach_graph_revisions WHERE id = ?")
-      .get(run.revision_id) as { canonical_graph: string } | undefined;
+    // A completion that consumed no claimed token is not a completion: a
+    // duplicate call, or a run cancelled/discarded since the snapshot (Slice 4
+    // Task 4), must never emit successors. The claimed-token CAS already moved
+    // nothing; emitting an edge from a cancelled run would route the graph.
+    const revision = consumed > 0
+      ? (db
+          .prepare('SELECT canonical_graph FROM approach_graph_revisions WHERE id = ?')
+          .get(run.revision_id) as { canonical_graph: string } | undefined)
+      : undefined;
     if (revision) {
       const parsed = parseGraphDocument(revision.canonical_graph);
       if (parsed.ok) {

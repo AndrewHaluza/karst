@@ -8,6 +8,7 @@ import { setStage } from '../../store/stages.js';
 import { manifest, processes, runnableRepo } from '../../manifest/fixtures.js';
 import { openProcessRun, finishProcessRun } from '../../store/processRuns.js';
 import { DashboardManager, type PanelHost, type FakePanel } from './panel.js';
+import { buildGraphInsideInput } from './graphInside.js';
 import { LIVE_TICK_MS } from './liveTick.js';
 import { ACTION_GRACE_MS } from './panel.js';
 import type { WorktreeStats, WorktreeStatsLoader } from './worktreeStats.js';
@@ -296,6 +297,81 @@ describe('DashboardManager', () => {
     panels[0]!.emit({ type: 'inside-action', actionId: 'stale-action-id', requestId: 'r1' });
     const posted = panels[0]!.posted.find((m: any) => m.type === 'action-result');
     expect(posted).toMatchObject({ type: 'action-result', ok: false });
+  });
+
+  it('mints a registry-backed discard action for an ambiguous node run and dispatches it to the host', () => {
+    // Slice 4 Task 4: the panel wires the graph projection's attach closure to
+    // THIS snapshot's registry, so an ambiguous node run's discard exit is a
+    // dispatchable capability — and dispatching it reaches the host's
+    // graphDiscardNode (the discard transaction itself is the status gate).
+    const t = createTicket(store, { key: 'GD', title: 'discard' });
+    store.db.prepare("UPDATE tickets SET stage_current = 'impl' WHERE id = ?").run(t.id);
+    const graphRunId = Number(
+      store.db
+        .prepare(
+          `INSERT INTO approach_graph_runs
+             (ticket_id, stage_key, stage_attempt, approach_id, status, created_at)
+           VALUES (?, 'impl', 0, 'karst-graph-engineering', 'running', '2026-08-12T00:00:00.000Z')`,
+        )
+        .run(t.id)
+        .lastInsertRowid,
+    );
+    const revisionId = Number(
+      store.db
+        .prepare(
+          `INSERT INTO approach_graph_revisions
+             (graph_run_id, revision_number, canonical_graph, fingerprint, status, created_at)
+           VALUES (?, 1, '{}', 'fp', 'active', '2026-08-12T00:00:00.000Z')`,
+        )
+        .run(graphRunId)
+        .lastInsertRowid,
+    );
+    store.db
+      .prepare(
+        `INSERT INTO approach_node_runs
+           (graph_run_id, revision_id, node_id, node_kind, visit_number, status)
+         VALUES (?, ?, 'worker', 'agent', 1, 'termination-unknown')`,
+      )
+      .run(graphRunId, revisionId);
+
+    const { host, panels } = fakeHost();
+    const discarded: Array<[number, number]> = [];
+    const insideHost = {
+      openPr: () => undefined,
+      graphDiscardNode: (ticketId: number, nodeRunId: number) => {
+        discarded.push([ticketId, nodeRunId]);
+      },
+    } as never;
+    let mgr!: DashboardManager;
+    mgr = new DashboardManager(
+      store, host, () => ({ insideAction: (actionId: string) => mgr.dispatchInsideAction(t.id, actionId) }) as never,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined, undefined, insideHost,
+      undefined, undefined, undefined,
+      (ticketId) =>
+        buildGraphInsideInput(
+          {
+            store,
+            manifest: () => undefined,
+            liveSessions: () => [],
+            now: () => '2026-08-12T00:00:00.000Z',
+          },
+          ticketId,
+        ),
+    );
+
+    mgr.openDashboard(t.id);
+
+    const state = (panels[0]!.posted.find((msg: any) => msg.type === 'state') as any).state;
+    const graph = state.insideViews.impl.processes.find((p: any) => p.id === 'graph');
+    const nodeRow = graph.evidence.rows.find((r: any) => r.label === 'node worker');
+    expect(nodeRow.action).toMatchObject({ kind: 'graph-discard-node' });
+    const actionId = nodeRow.action.actionId;
+    expect(actionId).toMatch(/^snapshot-1:action-\d+$/);
+
+    panels[0]!.posted.length = 0;
+    panels[0]!.emit({ type: 'inside-action', actionId, requestId: 'r1' });
+    expect(discarded).toEqual([[t.id, 1]]);
   });
 
   it('drops a malformed inside-progress event at the panel boundary', () => {

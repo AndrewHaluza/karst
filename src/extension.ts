@@ -154,6 +154,7 @@ import { startHookEndpoint, type HookEndpoint } from './hooks/endpoint.js';
 import { startGraphWakeupEndpoint, type GraphWakeupEndpoint } from './hooks/graphEndpoint.js';
 import { runCoordinatorTick, activeGraphRunIds } from './approaches/graph/coordinator/sweep.js';
 import { reconcileGraphRun } from './approaches/graph/coordinator/reconcile.js';
+import { discardUnknownProcess } from './approaches/graph/coordinator/discard.js';
 import {
   createSupervisedCliTransport,
   type SupervisedCliTransport,
@@ -2215,6 +2216,42 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       graphStop: (ticketId) => {
         const handler = stopGraphRun;
         if (handler) void handler(ticketId);
+      },
+      // Discard an ambiguous node run (Slice 4 Task 4) — the named exit for a
+      // process whose fate cannot be proven. The coordinator's OWN connection
+      // runs the one transaction (a contended BEGIN IMMEDIATE must abort, not
+      // wait), then the dashboard and sidebar refresh so the discarded row is
+      // gone from the view. A second window's discard is an idempotent no-op.
+      graphDiscardNode: (ticketId, nodeRunId) => {
+        const gs = graphCoordinatorStore;
+        if (!gs) return;
+        try {
+          const result = discardUnknownProcess(
+            {
+              db: gs.db,
+              transaction: <T>(fn: () => T): T =>
+                (gs.db.transaction as unknown as (f: () => T, o: { begin: 'immediate' }) => () => T)(
+                  fn,
+                  { begin: 'immediate' },
+                )(),
+              now: () => new Date().toISOString(),
+              debug: (message) => logger.debug(message),
+            },
+            { nodeRunId },
+          );
+          if (result.discarded) {
+            void vscode.window.showInformationMessage(
+              `Ticket #${ticketId}: unknown process for node run #${nodeRunId} discarded` +
+                (result.graphBlockedWith
+                  ? ' — the graph deadlocked on topology; resume or replan to continue.'
+                  : ''),
+            );
+          }
+          provider.refresh();
+          dashboard.pushState(ticketId);
+        } catch (err) {
+          logError(`karst: graph discard failed for ticket ${ticketId}`, err);
+        }
       },
     }),
     // Live manifest getter, so the inside views resolve the REAL service names
@@ -5055,6 +5092,7 @@ function makeInsideActionHost(
       session: { kind: 'planner' | 'node'; runId: number },
     ) => void;
     graphStop: (ticketId: number) => void | Promise<void>;
+    graphDiscardNode: (ticketId: number, nodeRunId: number) => void | Promise<void>;
   },
 ): InsideActionHost {
   return {
@@ -5129,6 +5167,7 @@ function makeInsideActionHost(
     },
     graphOpenSession: (ticketId, session) => graphHost.graphOpenSession(ticketId, session),
     graphStop: (ticketId) => graphHost.graphStop(ticketId),
+    graphDiscardNode: (ticketId, nodeRunId) => graphHost.graphDiscardNode(ticketId, nodeRunId),
   };
 }
 
