@@ -177,6 +177,15 @@ describe('renderDoneMarkerInstruction', () => {
     expect(s).toContain('outside the workspace sandbox');
   });
 
+  it('warns against firing the marker while waiting for user input', () => {
+    const s = renderDoneMarkerInstruction(
+      'node "/ext/dist/cli/main.js" stage impl pass --db "/x.db" --ticket',
+      'PROJ-9',
+    );
+    expect(s.toLowerCase()).toContain('waiting');
+    expect(s.toLowerCase()).toContain('answer a question');
+  });
+
   it('names no stage of its own — the stage is already baked into the command', () => {
     // The same text seeds a fix resume (`stage fix pass`), so naming "UAT" here
     // would tell a fixing agent the wrong thing about where it is going.
