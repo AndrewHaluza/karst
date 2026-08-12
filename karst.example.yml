@@ -206,39 +206,52 @@ agents:
   test: { role: test }
   review: { role: review }
 
-# Inside AI process assignments (optional). Each inside process — UAT test,
-# UAT fix, Review, Review fix, and the PR description — opens its run record
-# with a SNAPSHOT of the agent name, provider and model that actually launched
-# it, resolved ONCE at launch and immutable afterwards (a later Settings edit
-# never rewrites a stored run). ABSENT (the default) resolves every role to its
-# approved default — UAT Agent, UAT Fix Agent, Review Agent, Review Fix Agent,
-# Ticket Analysis Agent, and the ticket-resolved PR-description adapter — using
-# `agentProvider` and `defaultModel` above.
+# Inside AI process assignments (optional). Each inside process — Ticket
+# analysis, UAT test, UAT fix, Review, Review fix, and the PR description —
+# opens its run record with a SNAPSHOT of the agent name, provider and model
+# that actually launched it, resolved ONCE at launch and immutable afterwards
+# (a later Settings edit never rewrites a stored run). ABSENT (the default)
+# resolves every role to its approved default — UAT Agent, UAT Fix Agent,
+# Review Agent, Review Fix Agent, Ticket Analysis Agent, and the
+# ticket-resolved PR-description adapter — using `agentProvider` and
+# `defaultModel` above.
 #
 # `agent` names a profile from the agent POOL — a local file under agentsDir
 # (create one with Settings → Agents → "+ Add agent") or an approach-owned
-# agent. It feeds the run-record display snapshot; pool membership is checked
-# in Settings (an unknown name shows "unknown profile" inline), not at load,
-# because the pool lives on the filesystem. `agentName` overrides the display
-# snapshot; blanks keep the defaults. `provider`/`model` beat the ticket and
-# manifest defaults; `enabled: false` turns the assignment off.
-# `instructions` (uatTester / review only) replaces the built-in role/strategy
-# prompt section; the JSON output rules stay fixed.
+# agent. The profile's BODY IS the process's prompt: it is resolved at the
+# execution boundary and REPLACES the built-in role/strategy section, so the
+# assigned profile makes the difference in what the process asks — a custom
+# Ticket-analysis agent drives the ticket form's Improve/auto-improve, a custom
+# UAT/Review agent drives those gates' headless prompts. Pool membership is
+# checked in Settings (an unknown name shows "unknown profile" inline), not at
+# load, because the pool lives on the filesystem. `agentName` overrides only the
+# display snapshot; blanks keep the defaults. `provider`/`model` beat the
+# ticket and manifest defaults; `enabled: false` turns the assignment off.
+# `instructions` (uatTester / review only) is an author-declared OVERRIDE that
+# wins over the profile body — a profile is sufficient without it.
+#
+# Wiring notes: the profile body drives the PROMPT-BEARING roles — Ticket
+# analysis, uatTester, review (their headless calls run with the profile body).
+# The interactive Fix roles (uatFix / reviewFix) and prDescription consume only
+# the profile's provider/model/name snapshot today, not its body — their
+# prompts are fixed (pr-description) or the session's own (fix).
 #
 # processes:
 #   uatTester:
-#     agent: tester             # a name from the agent pool
+#     agent: tester             # a name from the agent pool → its body is the prompt
 #     agentName: My UAT Agent
 #     provider: codex
 #     model: gpt-5.6-sol
-#     instructions: |          # optional; blank/absent keeps the built-in prompt
+#     instructions: |          # optional override; wins over the profile body
 #       Focus on API endpoint behavior. Test edge cases around
 #       authentication and rate limiting. Ignore UI concerns.
 #   uatFix: { provider: codex }
 #   review: { agent: review, provider: antigravity }
 #   reviewFix: { provider: antigravity }
 #   prDescription: { provider: claude, model: claude-haiku-4-5 }
-#   ticketAnalysis: { provider: codex, model: gpt-5.6-sol }
+#   ticketAnalysis: { agent: description-improver, provider: codex, model: gpt-5.6-sol }
+#     # ^ the agent must EXIST in your pool (Settings shows "unknown profile"
+#     # otherwise and the analysis silently keeps the built-in prompt).
 
 # UAT gates. Step-by-step runbook for this block and `review:` below (which
 # stage a check belongs to, script vs command gates, the independent-signal

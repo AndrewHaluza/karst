@@ -276,20 +276,28 @@ describe('extension activation', () => {
     expect(source).toContain('DriveProcessBundle');
   });
 
-  // A single-subagent ticket analyzes THROUGH its chosen agent: the analysis
-  // process resolver must overlay the ticket's selected agent body as the
-  // assignment's `instructions` (replacing the built-in analyzer role block).
-  // Without this wiring the selected agent makes no difference to the ticket
-  // analysis — the ticket's reported bug.
-  it('overlays the chosen single-subagent body as the analysis instructions', () => {
+  // The ticket form's analysis runs through the SETTINGS Ticket-analysis
+  // assignment: when the row names a profile (`processes.ticketAnalysis.agent`)
+  // and declares no inline `instructions`, the execution boundary must resolve
+  // the profile's BODY and overlay it as the assignment's `instructions`
+  // (replacing the built-in analyzer role block). Without this wiring the
+  // selected Settings agent makes no difference to the ticket analysis — the
+  // reported bug. The overlay lives at the shared `processFor` seam, so the
+  // same rule wires UAT / Review / Fix, not just the analyzer.
+  it('overlays the assigned Settings profile body as the process instructions at the processFor seam', () => {
     const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
 
-    // The resolver reads the ticket's own single-subagent pick…
-    expect(source).toMatch(/t\.approach === 'single-subagent' && t\.agent/);
-    expect(source).toMatch(/readAgentFile|readArtifactBody/);
-    // …and layers the resolved body onto the assignment as `instructions`.
-    expect(source).toContain('instructions: body');
-    expect(source).toContain('assignment: { ...bundle.assignment, instructions: body }');
+    // The seam reads the assignment's PROFILE reference (not the ticket's
+    // single-subagent pick) and resolves its body…
+    expect(source).toMatch(/assignment\.agent/);
+    expect(source).toMatch(/soloAgentBody\(assignment\.agent\)/);
+    // …an author-declared inline `instructions` wins over the profile body…
+    expect(source).toMatch(/assignment\.instructions !== undefined\s*\? assignment\.instructions/);
+    // …and the resolved body is layered onto the assignment as `instructions`.
+    expect(source).toContain('{ ...assignment, instructions }');
+    // The wrong #170 seam is gone: the ticket's own single-subagent pick never
+    // hijacks the headless analysis (it drives the SESSION).
+    expect(source).not.toContain('assignment: { ...bundle.assignment, instructions: body }');
   });
 
   // Task 3: a configured-ABSENT Fix process (enabled: false) must never reach

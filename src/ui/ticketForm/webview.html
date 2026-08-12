@@ -1047,34 +1047,27 @@
   let approachBusy = false;
 
   // The inputs the analyzer reasons over: the fetched brief, the prompt text,
-  // the selected repos, the effective approach, and the chosen single-subagent.
-  // An analysis snapshots these; the manual Improve is live only while the
-  // current parts DIVERGE from that snapshot — an identical input never burns an
-  // AI call. `null` = nothing improved yet.
+  // and the selected repos. An analysis snapshots these; the manual Improve is
+  // live only while the current parts DIVERGE from that snapshot — an identical
+  // input never burns an AI call. `null` = nothing improved yet.
   //
-  // The approach and agent are part of the fingerprint for a reason: the
-  // auto-improve after a fetch runs with the DEFAULT approach and no agent, and
-  // the analysis instructions DEPEND on the chosen single-subagent — so picking
-  // `single-subagent` + an agent must mark the analysis stale and re-enable
-  // Improve, or the selected agent can never drive a re-run ("selected agent
-  // for Ticket analysis makes no difference"). `agent` mirrors triggerAnalyze's
-  // effective-pick read so the fingerprint and the message can't disagree.
+  // Which agent (profile) the analysis runs through is NOT part of the
+  // fingerprint: that is the Settings → Inside process assignments →
+  // Ticket analysis pick, resolved host-side at analyze time. It is not a
+  // page input, so it cannot move these parts — a Settings change takes effect
+  // on the next fetch (the one-time auto-improve) or a fresh page, exactly
+  // like every other Settings value the form reads.
   let lastAnalyzed = null;
   function currentParts() {
     return {
       brief: briefText,
       prompt: el('desc').value.trim(),
       repos: lastRepos.filter(repoSelected).map((r) => r.service).sort(),
-      approach: currentApproach(),
-      agent: currentApproach() === 'single-subagent'
-        ? (draft.selectedAgent ?? el('agentSelect').value ?? null) || null
-        : null,
     };
   }
   function partsEqual(a, b) {
     return !!a && !!b && a.brief === b.brief && a.prompt === b.prompt
-      && JSON.stringify(a.repos) === JSON.stringify(b.repos)
-      && a.approach === b.approach && a.agent === b.agent;
+      && JSON.stringify(a.repos) === JSON.stringify(b.repos);
   }
   // Name WHICH input moved, in priority order, so the Δ badge explains why the
   // button re-enabled (git-dirty-style legibility).
@@ -1083,8 +1076,6 @@
     if (prev.brief !== cur.brief) return 'brief refetched';
     if (prev.prompt !== cur.prompt) return 'prompt edited';
     if (JSON.stringify(prev.repos) !== JSON.stringify(cur.repos)) return 'repositories changed';
-    if (prev.approach !== cur.approach) return 'approach changed';
-    if (prev.agent !== cur.agent) return 'agent changed';
     return '';
   }
   // Something to reason over = a fetched brief OR a non-empty prompt.
@@ -1119,16 +1110,11 @@
     approachBusy = true;
     el('analyzeBtn').setAttribute('aria-busy', 'true');
     syncAnalyzeBtn();
-    // The analysis runs THROUGH the ticket's chosen single-subagent when the
-    // single-subagent approach is picked: its body becomes the analysis
-    // instructions. The pick lives in the draft (create mode holds it there
-    // until submit), so it must ride the analyze message — the host persists
-    // it onto the bound ticket before resolving the analyzer process.
-    const agent =
-      currentApproach() === 'single-subagent'
-        ? (draft.selectedAgent ?? el('agentSelect').value ?? null) || null
-        : null;
-    post({ type: 'analyze', prompt: el('desc').value, ...(agent ? { agent } : {}) });
+    // The analysis runs through the SETTINGS Ticket-analysis assignment (its
+    // profile body / inline instructions), resolved host-side — the page
+    // carries no agent; the ticket's own single-subagent pick drives the
+    // SESSION, never this headless analysis.
+    post({ type: 'analyze', prompt: el('desc').value });
   }
 
   // Auto-improve (default on): run the analyzer exactly once after a fetch, only
@@ -1756,10 +1742,6 @@
     const requestId = karstRequestId();
     karstBeginPending(select, requestId);
     post({ type: 'set-agent', id, requestId });
-    // The pick is part of the analysis fingerprint: re-sync the Improve button
-    // so a freshly-picked single-subagent re-enables re-analysis through it
-    // (the host no-ops set-agent in create mode, so no state push answers).
-    syncAnalyzeBtn();
   });
 
   // Pick a model (or "Inherit", value ''): record + post. In create mode the

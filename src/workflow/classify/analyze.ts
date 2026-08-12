@@ -65,10 +65,12 @@ export interface AnalyzeInput {
    */
   model?: string;
   /**
-   * Author-declared analysis instructions (the chosen single-subagent's body,
-   * or `processes.ticketAnalysis.instructions`). REPLACES the built-in
-   * role/strategy block of the prompt — the input facts and the JSON output
-   * contract are never replaced. Blank/absent → the built-in analyzer prompt.
+   * The effective analysis instructions: the resolved body of the SETTINGS
+   * Ticket-analysis profile (`processes.ticketAnalysis.agent`), or the
+   * author-declared `processes.ticketAnalysis.instructions` — resolved
+   * host-side by `processFor`. REPLACES the built-in role/strategy block of
+   * the prompt — the input facts and the JSON output contract are never
+   * replaced. Blank/absent → the built-in analyzer prompt.
    */
   instructions?: string;
 }

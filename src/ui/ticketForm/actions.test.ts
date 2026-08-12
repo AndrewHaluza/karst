@@ -1018,11 +1018,12 @@ describe('buildTicketFormActions', () => {
     expect(posted.find((m) => m.type === 'analysis')).toBeTruthy();
   });
 
-  // A single-subagent ticket analyzes THROUGH its chosen agent: the resolver
-  // overlays the agent's body as the assignment's `instructions`, and analyze
-  // must thread it into the headless prompt. Dropping it is the bug that made
-  // a well-instructed agent and an empty one produce identical analysis.
-  it('analyze threads the resolution instructions (the chosen agent body) into the prompt', async () => {
+  // The analysis runs through the configured Ticket-analysis assignment: the
+  // resolver overlays the Settings profile's body (or inline `instructions`)
+  // as the assignment's `instructions`, and analyze must thread it into the
+  // headless prompt. Dropping it is the bug that made a well-instructed
+  // selected agent and an empty one produce identical analysis.
+  it('analyze threads the resolved assignment instructions into the prompt', async () => {
     const runHeadless = vi.fn(async (opts: { prompt: string }) => {
       void opts;
       return {
@@ -1057,56 +1058,6 @@ describe('buildTicketFormActions', () => {
     expect(runHeadless.mock.calls[0]![0].prompt).toContain(
       'Respond with ONLY a single JSON object',
     );
-  });
-
-  // Create mode holds the single-subagent pick in the webview draft; analyze
-  // must persist it onto the bound draft so the resolver (which reads the
-  // ticket) sees the chosen agent. Without this the analysis in create mode
-  // never learns the selected agent either.
-  it('analyze persists the webview-carried single-subagent onto the bound draft in create mode', async () => {
-    deps.adapter = analyzerAdapter(
-      '{"prompt":"Rename the button","approach":"rpi","repos":["fe"],"reason":"trivial"}',
-    );
-    const posted: TicketFormHostMessage[] = [];
-    let bound: number | undefined;
-    const ctx: TicketFormActionsCtx = {
-      post: (m) => posted.push(m),
-      pushState: () => {},
-      mode: 'create',
-      bindTicket: (id) => { bound = id; },
-      close: () => {},
-    };
-    const actions = buildTicketFormActions(deps)(ctx);
-
-    await actions.analyze('rename the button', 'description-improver');
-
-    expect(bound).toBeDefined();
-    const draft = getTicket(store, bound!);
-    expect(draft.agent).toBe('description-improver');
-    expect(draft.approach).toBe('single-subagent');
-  });
-
-  // A crafted analyze message must never force a ticket whose approach is
-  // something else into single-subagent just to smuggle an agent in — the
-  // agent only rides the message for the single-subagent approach, and the
-  // host re-checks that at the trust boundary.
-  it('analyze ignores a carried agent when the ticket approach is not single-subagent', async () => {
-    deps.adapter = analyzerAdapter(
-      '{"prompt":"p","approach":"rpi","repos":["fe"],"reason":"r"}',
-    );
-    const t = createTicket(store, { key: 'P-1', title: 't' });
-    updateTicketFields(store, t.id, { brief: 'the brief text', approach: 'rpi' });
-    const posted: TicketFormHostMessage[] = [];
-    const ctx: TicketFormActionsCtx = {
-      post: (m) => posted.push(m), pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, close: () => {},
-    };
-    const actions = buildTicketFormActions(deps)(ctx);
-
-    await actions.analyze('', 'description-improver');
-
-    const reloaded = getTicket(store, t.id);
-    expect(reloaded.approach).toBe('rpi'); // never clobbered
-    expect(reloaded.agent).toBeNull();
   });
 
   it('analyze refuses with an inline error when the ticket-analysis process is disabled', async () => {
