@@ -1086,6 +1086,28 @@ describe('dashboard webview.html', () => {
     }
   });
 
+  it('sizes every header and controls-menu icon explicitly (PR #166 balloon)', () => {
+    // The shared `.k-icon` rule applies ONLY the Tabler stroke treatment — no
+    // size. An unsized inline svg in the agent button's unclipped flex row
+    // rendered at the browser's default replaced-object size (~275px),
+    // inflating the whole header to match. Every other icon in this file
+    // carries its size (the panel headers' width/height attributes, `.ib svg`);
+    // the header's five (board link, agent chevron, … dots, Edit, follow-up)
+    // did not, so one token-derived rule sizes all of them (UI-R04).
+    expect(HTML).toMatch(/\.dhead \.k-icon\{[^}]*var\(--k-space-7\)/);
+    // And the header svgs must not smuggle their own raw size either — one
+    // rule, one 16px step, so a future header icon is sized or visibly broken.
+    const header = HYDRATED.slice(
+      HYDRATED.indexOf('<div class="dhead">'),
+      HYDRATED.indexOf('<div class="stepper">'),
+    );
+    const icons = [...header.matchAll(/<svg class="k-icon"[^>]*>/g)];
+    expect(icons.length, 'the header carries the unsized icon set').toBeGreaterThan(0);
+    for (const m of icons) {
+      expect(m[0], m[0]).not.toMatch(/\s(width|height)="\d/);
+    }
+  });
+
   it('renders a blocked banner from state.currentStage.blocked, hidden by default', () => {
     expect(HTML).toContain('<div class="fault blocked hidden" id="blocked">');
     expect(HTML).toMatch(/function renderBlocked\(state\)/);
@@ -3188,6 +3210,38 @@ describe('agent popover round trip (executed in a VM)', () => {
     const before = h.posted.length;
     h.click('body', {});
     expect(h.posted.length).toBe(before);
+  });
+
+  it('opens each header popover with the .open class, not just minus hidden (PR #166)', () => {
+    // `.popover{display:none}` is the base state — removing `hidden` alone
+    // leaves the popover invisible, because only `.popover.open` turns it on.
+    // The shipped open/close helpers must toggle `open`, or the agent-switch
+    // form and the … ticket-controls menu can never appear.
+    const store = openStore(':memory:');
+    const t = createTicket(store, { key: 'SW-H', title: 'switch' });
+    store.db.prepare("UPDATE tickets SET stage_current = 'impl' WHERE id = ?").run(t.id);
+    const state = buildDashboardState(
+      store, t.id, undefined, undefined, undefined, undefined, 'claude',
+      { defaultModel: null, isSessionOpen: () => true },
+    );
+    store.close();
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state });
+
+    h.click('#agentButton', {});
+    expect(h.classesOf('agentPopover')).toEqual(expect.arrayContaining(['open']));
+    expect(h.classesOf('agentPopover')).not.toContain('hidden');
+    // A click elsewhere closes it: `hidden` returns and `open` is dropped.
+    h.click('body', {});
+    expect(h.classesOf('agentPopover')).toContain('hidden');
+    expect(h.classesOf('agentPopover')).not.toContain('open');
+
+    h.click('#moreBtn', {});
+    expect(h.classesOf('menuPopover')).toEqual(expect.arrayContaining(['open']));
+    expect(h.classesOf('menuPopover')).not.toContain('hidden');
+    h.click('body', {});
+    expect(h.classesOf('menuPopover')).toContain('hidden');
+    expect(h.classesOf('menuPopover')).not.toContain('open');
   });
 
   it('posts toggle-bind from the menu switch and renders the host push', () => {
