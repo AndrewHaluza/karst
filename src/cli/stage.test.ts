@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { parseStageArgs, runStageCommand, composeStageCommand } from './stage.js';
+import {
+  parseStageArgs,
+  runStageCommand,
+  composeStageCommand,
+  assertMarkerNotWhileWaiting,
+} from './stage.js';
 import type { Store } from '../store/db.js';
 import { openStore } from '../store/db.js';
 import { createTicketFlow } from '../workflow/stages/create.js';
@@ -10,7 +15,7 @@ import {
 } from '../store/sessionLaunchIntents.js';
 import { listImplementationTimeline } from '../store/implementationRuns.js';
 import { listProcessRuns } from '../store/processRuns.js';
-import { getTicket } from '../store/tickets.js';
+import { getTicket, setAgentState } from '../store/tickets.js';
 import {
   openRecoveryRound,
   beginLiveFixExecution,
@@ -98,6 +103,25 @@ describe('parseStageArgs', () => {
   });
 });
 
+describe('assertMarkerNotWhileWaiting', () => {
+  it('refuses the marker while the agent is waiting for user input', () => {
+    expect(() => assertMarkerNotWhileWaiting('waiting')).toThrow(/waiting for your input/);
+  });
+
+  it('accepts a running agent — the normal state while the marker fires', () => {
+    expect(() => assertMarkerNotWhileWaiting('running')).not.toThrow();
+  });
+
+  it('accepts an idle agent — a finished session the marker may close', () => {
+    expect(() => assertMarkerNotWhileWaiting('idle')).not.toThrow();
+  });
+
+  it('accepts no agent at all', () => {
+    expect(() => assertMarkerNotWhileWaiting(null)).not.toThrow();
+    expect(() => assertMarkerNotWhileWaiting(undefined)).not.toThrow();
+  });
+});
+
 describe('runStageCommand', () => {
   it('routes the impl marker through markImplementDone, carrying the completion premutate', () => {
     const transition = vi.fn().mockReturnValue('uat');
@@ -125,6 +149,40 @@ describe('runStageCommand', () => {
       expect.any(Function),
     );
     expect(next).toBe('uat');
+  });
+
+  it('refuses the impl marker while the agent is waiting for user input', () => {
+    const store = openStore(':memory:');
+    try {
+      const id = createTicketFlow(store, { key: 'T-1', title: 't' }).id;
+      transition(store, id, 'scope', { kind: 'passed' });
+      setAgentState(store, id, 'waiting');
+
+      expect(() => runStageCommand(store, id, ['stage', 'impl', 'pass'])).toThrow(
+        /waiting for your input/,
+      );
+      expect(getTicket(store, id).stageCurrent).toBe('impl');
+    } finally {
+      store.close();
+    }
+  });
+
+  it('refuses the fix marker while the agent is waiting for user input', () => {
+    const store = openStore(':memory:');
+    try {
+      const id = createTicketFlow(store, { key: 'T-1', title: 't' }).id;
+      transition(store, id, 'scope', { kind: 'passed' });
+      transition(store, id, 'impl', { kind: 'passed' });
+      transition(store, id, 'uat', { kind: 'failed', reason: 'exit 1' });
+      setAgentState(store, id, 'waiting');
+
+      expect(() => runStageCommand(store, id, ['stage', 'fix', 'pass'])).toThrow(
+        /waiting for your input/,
+      );
+      expect(getTicket(store, id).stageCurrent).toBe('fix');
+    } finally {
+      store.close();
+    }
   });
 
   it('fires the real marker path: closes the active segment and Session process run, passes the run, advances to UAT', () => {

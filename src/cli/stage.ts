@@ -94,14 +94,58 @@ export type TransitionFn = (
   verdict: Verdict,
 ) => StageKey;
 
+/**
+ * The one marker state a stage may not be marked done in: the agent asked the
+ * user a question and is blocked on their input. A stage whose agent is
+ * WAITING cannot be complete — the agent literally stopped to ask, so its
+ * work is not done. Refusing the marker here is what stops the "marker fired
+ * when the agent asked me a question" premature-advance (the writing-plans
+ * handoff asks "Which approach?" — the ticket must stay at impl until the
+ * user answers and the agent actually finishes).
+ *
+ * `null` (no agent yet) and `running`/`idle` are NOT refused: `running` is
+ * the normal state while the agent fires the marker from within its session,
+ * and `idle` is a finished session the marker may legitimately close.
+ */
+export function assertMarkerNotWhileWaiting(
+  agentState: string | null | undefined,
+): void {
+  if (agentState === 'waiting') {
+    throw new Error(
+      'cannot mark this stage done: the agent is currently waiting for your input ' +
+        '(it asked a question). A stage whose agent is waiting on the user is not complete — ' +
+        'answer the question, then re-fire the marker when the work is actually done.',
+    );
+  }
+}
+
 /** Parse argv and apply the transition for `ticketId`; returns the next stage. */
 export function runStageCommand(
   store: Store,
   ticketId: number,
   argv: string[],
   transition: TransitionFn = defaultTransition,
+  ticket?: { agentState?: string | null },
 ): StageKey {
   const { stage, verdict } = parseStageArgs(argv);
+  // The marker is the agent's claim that the stage's work is done. If the
+  // agent is currently waiting for the user (it asked a question), that claim
+  // is false by construction — refuse before any transition, so the ticket
+  // cannot be advanced while the user is being asked for input. The caller
+  // hands the resolved ticket when it has one (the CLI); a bare call reads the
+  // live agent_state from the store. The test seam may stub the store without
+  // `db` — the check simply does not apply then.
+  const agentState =
+    ticket?.agentState !== undefined
+      ? ticket.agentState
+      : store.db
+        ? (
+            store.db
+              .prepare('SELECT agent_state FROM tickets WHERE id = ?')
+              .get(ticketId) as { agent_state: string | null } | undefined
+          )?.agent_state ?? null
+        : undefined;
+  assertMarkerNotWhileWaiting(agentState);
   // The impl marker routes through markImplementDone, never directly through
   // the generic transition: completing the stable implementation run (closing
   // its segment and Session process run, passing the run) is part of the
