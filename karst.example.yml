@@ -210,18 +210,19 @@ agents:
 # Ticket Analysis Agent, and the ticket-resolved PR-description adapter — using
 # `agentProvider` and `defaultModel` above.
 #
-# `agent` references a profile from the `agents` block ABOVE; the referenced
-# key MUST be declared there or loading fails (a dangling reference would
-# otherwise silently launch the default instead of the profile the author
-# meant). `agentName` overrides the display snapshot; blanks keep the defaults.
-# `provider`/`model` beat the ticket and manifest defaults; `enabled: false`
-# turns the assignment off.
+# `agent` names a profile from the agent POOL — a local file under agentsDir
+# (create one with Settings → Agents → "+ Add agent") or an approach-owned
+# agent. It feeds the run-record display snapshot; pool membership is checked
+# in Settings (an unknown name shows "unknown profile" inline), not at load,
+# because the pool lives on the filesystem. `agentName` overrides the display
+# snapshot; blanks keep the defaults. `provider`/`model` beat the ticket and
+# manifest defaults; `enabled: false` turns the assignment off.
 # `instructions` (uatTester / review only) replaces the built-in role/strategy
 # prompt section; the JSON output rules stay fixed.
 #
 # processes:
 #   uatTester:
-#     agent: test             # a key from the `agents` block above
+#     agent: tester             # a name from the agent pool
 #     agentName: My UAT Agent
 #     provider: codex
 #     model: gpt-5.6-sol
