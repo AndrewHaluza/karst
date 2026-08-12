@@ -1034,6 +1034,14 @@
   .fault .ftitle{font-size:var(--k-text-md);font-weight:var(--k-weight-semibold);margin-bottom:var(--k-space-3)}
   .fault .freason{font-family:var(--k-font-mono);font-size:var(--k-text-sm);white-space:pre-wrap;word-break:break-word}
   .fault .facts{margin-top:var(--k-space-6)}
+  /* The waiting variant — `awaiting-merge` is a NORMAL WAIT, not a fault: the
+     banner drops the red failure edge and error wash for the amber attention
+     treatment the rest of the board already uses for blocked (rail seg.blocked,
+     inside-view waits), with the pause glyph so hue is not the only carrier
+     (UI-R28; DESIGN-SYSTEM.md §11.12 "needs attention · paused · blocked"). */
+  .fault.waiting{border-left-color:var(--k-attention);
+    background:color-mix(in srgb,var(--k-attention) 10%,transparent)}
+  .fault.waiting .ftitle{display:flex;align-items:center;gap:var(--k-space-3);color:var(--k-attention)}
 
   /* The "Now" line — one plain sentence naming what is happening and the next
      action the user controls. Built host-side (state.now) so the copy is tested. */
@@ -1387,7 +1395,9 @@
   <!-- The blocked banner: why the CURRENT stage could not ask its question,
        plus [Resume]. Shares the `.fault` visual language (DESIGN-SYSTEM.md
        maps `--k-failed` to "failed · blocked") — never both at once, since a
-       blocked stage sits at running/pending, not failed. -->
+       blocked stage sits at running/pending, not failed. The `awaiting-merge`
+       wait is the exception: renderBlocked swaps it onto the amber
+       `.fault.waiting` treatment, because a wait is not a fault. -->
   <div class="fault blocked hidden" id="blocked"></div>
   <!-- What is happening and what the user can do next (state.now). -->
   <div class="now" id="now"></div></div>
@@ -2333,10 +2343,17 @@
     // as a normal wait for one of them to land. The flag is the host's verdict
     // (`blockedDetail`, model/stepper.ts), never a reason-string match here.
     if (blocked.resumable === false) {
-      box.innerHTML = `<div class="ftitle">Waiting to merge</div>`
+      // The wait wears the waiting treatment — amber attention edge + pause
+      // glyph (`.fault.waiting`), never the red failure edge — so a waiting
+      // ticket cannot read as a failed one (UI-R28).
+      box.classList.add('waiting');
+      box.innerHTML = `<div class="ftitle">${karstIcon('player-pause', 14)}`
+        + `<span>Waiting to merge</span></div>`
         + `<div class="freason">${esc(blocked.reason)}</div>`;
       return;
     }
+    // A resumable block is a real fault — the banner drops the waiting look.
+    box.classList.remove('waiting');
     const title = `${STAGE_TITLE[cell.stageKey] || cell.stageKey} is blocked`;
     box.innerHTML = `<div class="ftitle">${esc(title)}</div>`
       + `<div class="freason">${esc(blocked.reason)}</div>`
