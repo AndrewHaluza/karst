@@ -9,6 +9,9 @@ import { runStageCommand } from './stage.js';
 import { runPhaseCommand } from './phase.js';
 import { runGuideCommand } from './guide.js';
 import { resolveTicketByKey } from './resolveTicket.js';
+import { runTestCommand, parseTestArgs } from './test/main.js';
+import { runReset } from './test/reset.js';
+import { AssertionMismatchError } from './test/assert.js';
 
 /**
  * Write each manifest diagnostic (warning or notice) to stderr, one line,
@@ -53,6 +56,13 @@ function loadProjectSlug(manifestPath: string | undefined): string | undefined {
  *             its declared workflow. A separate parse path that never produces a
  *             `Verdict` and never touches the machine: a mark records an event,
  *             it cannot move a ticket (see parsePhaseArgs).
+ *   test:     `… test <subcommand> --db <db> [--ticket <key>] …`
+ *             the AGENT TEST DRIVER — programmatically drive the full workflow
+ *             and inspect every layer (stage machine, PRs, hooks, evidence).
+ *             A deliberately-powerful, development-only parse path: unlike the
+ *             marker verbs it can set a stage, inject a verdict, merge a PR and
+ *             even reset the registry, so it is documented in the guide as a
+ *             tool that bypasses gate verdicts (see src/cli/test/main.ts).
  *   guide:    `… guide`
  *             the agent-facing manual (how Karst works, the flow, the verbs,
  *             the marker rules) — no flags, no ticket, no DB (see guide.ts).
@@ -158,6 +168,31 @@ export function runCli(argv: string[]): string {
     }
   }
 
+  // The test driver is a separate parse path from `stage`/`phase` for the same
+  // reason those two are separate: it is intentionally powerful (it can set a
+  // stage, inject a verdict, merge a PR, reset the registry) and must never
+  // widen the narrow marker parser. `reset` opens the registry BEFORE the schema
+  // exists (a fresh DB has user_version 0 and `openWritableStore` refuses it),
+  // so it owns its own connection; every other subcommand runs on the standard
+  // writable store. The `--ticket` global names the target ticket for the
+  // subcommands that take one.
+  if (subcommand === 'test') {
+    if (!db) throw new Error('missing --db <path>');
+    // Validate the subcommand BEFORE opening the store, so an unknown subcommand
+    // is named even when the `--db` path does not exist yet (a test script may
+    // point at a file `reset` has not created). `runTestCommand` re-parses.
+    const parsedTest = parseTestArgs(rest);
+    if (parsedTest.subcommand === 'reset') {
+      return runReset(db);
+    }
+    const store = openWritableStore(db);
+    try {
+      return runTestCommand(store, ticket, loadProjectSlug(manifestPath), rest);
+    } finally {
+      store.close();
+    }
+  }
+
   // The guide is static karst-authored content: no DB, no manifest, no ticket.
   // Read-only by construction (it never opens the store at all).
   if (subcommand === 'guide') {
@@ -165,7 +200,7 @@ export function runCli(argv: string[]): string {
   }
 
   throw new Error(
-    `unknown command '${subcommand ?? ''}' (want 'context', 'stage', 'phase' or 'guide')`,
+    `unknown command '${subcommand ?? ''}' (want 'context', 'stage', 'phase', 'test' or 'guide')`,
   );
 }
 
@@ -181,6 +216,14 @@ if (invokedDirectly) {
   try {
     process.stdout.write(runCli(process.argv.slice(2)) + '\n');
   } catch (e) {
+    // `karst test assert` reports a mismatch as exit code 1 WITH the diff JSON on
+    // stdout — the shell test scripts the driver ships branch on that exit code.
+    // The diff must stay off stderr (a parseable stdout is the CLI's contract),
+    // so it is rendered here rather than through the generic `fail` path.
+    if (e instanceof AssertionMismatchError) {
+      process.stdout.write(JSON.stringify({ ok: false, diff: e.diff }) + '\n');
+      process.exit(1);
+    }
     fail((e as Error).message);
   }
 }

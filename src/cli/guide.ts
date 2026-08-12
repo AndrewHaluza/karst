@@ -63,6 +63,14 @@ machine-read JSON or markdown; diagnostics go to stderr and never corrupt it.
 - \`phase <name>\` — append-only evidence that you REPORTED entering a phase
   of your declared workflow (e.g. \`research\`, \`plan\`, \`implement\`). It
   records an event; it never moves the ticket.
+- \`test <subcommand> …\` — the agent test driver: create tickets, inject
+  verdicts, simulate hooks, open/merge PRs, and read full state (\`test
+  get-state\`, \`test get-logs\`, \`test assert\`). This is a DEVELOPMENT tool
+  that deliberately bypasses gate verdicts — a \`test advance --verdict passed\`
+  can move a stage a real gate never ran, and \`test reset\` wipes a registry.
+  It exists to drive and inspect workflows from scripts, never as a way for a
+  working agent to report progress: the \`stage\` marker is the only verb that
+  records an agent's own done marker.
 - \`guide\` — this document.
 
 The marker is deliberately narrow: \`stage\` accepts only \`impl\`/\`fix\` and
