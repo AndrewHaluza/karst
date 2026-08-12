@@ -767,3 +767,37 @@ CREATE INDEX IF NOT EXISTS idx_ticket_attachments_ticket
 -- same content-addressed file at once.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_ticket_attachments_ticket_stored_name
   ON ticket_attachments(ticket_id, stored_name);
+
+-- v35: the AGENT TEST DRIVER's structured evidence (Phase 1 of the
+-- agent-test-driver ticket). Two test-only tables, written ONLY by the
+-- `karst test` CLI verb — no production code reads or writes them, so a
+-- normal workflow's registry never accumulates rows here.
+--
+-- `test_logs` mirrors what the extension would have written to the output
+-- channel as structured rows, so a test can assert on driver/gate/hook
+-- logging the way an agent reads `context`. `meta` is a JSON blob for
+-- structured data (a gate's stdout/stderr, a diff, …).
+CREATE TABLE IF NOT EXISTS test_logs (
+  id            INTEGER PRIMARY KEY,  -- rowid alias: insertion order IS log order
+  ticket_id     INTEGER,              -- -> tickets.id; NULL = not ticket-scoped
+  level         TEXT NOT NULL,        -- debug | info | warn | error
+  module        TEXT NOT NULL,        -- [driver], [gate], [agent:claude], …
+  message       TEXT NOT NULL,
+  meta          TEXT,                 -- JSON blob for structured data
+  recorded_at   TEXT NOT NULL         -- ISO-8601; what --since cuts on
+);
+CREATE INDEX IF NOT EXISTS idx_test_logs_ticket ON test_logs(ticket_id, id);
+
+-- Hook events the driver dispatched (a subset of what dispatchHook processes),
+-- recorded AFTER the dispatch so `agent_state_after` reflects the applied
+-- state. Append-only evidence like gate_runs: an event is a fact, never edited.
+CREATE TABLE IF NOT EXISTS test_hooks (
+  id                INTEGER PRIMARY KEY,  -- rowid alias: insertion order IS dispatch order
+  ticket_id         INTEGER,              -- -> tickets.id
+  event             TEXT NOT NULL,        -- SessionStart | SessionEnd | Stop | …
+  session_id        TEXT,
+  payload           TEXT,                 -- JSON of the full hook payload
+  agent_state_after TEXT,                 -- what agent_state was set to
+  recorded_at       TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_test_hooks_ticket ON test_hooks(ticket_id, id);
