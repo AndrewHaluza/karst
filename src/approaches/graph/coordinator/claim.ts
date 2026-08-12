@@ -35,6 +35,7 @@ import {
   claimGraphToken,
   type GraphTokenRow,
 } from '../../../store/graph/tokens.js';
+import { writeNodeRunBaseHeads, type BaseHead } from '../../../store/graph/nodeRuns.js';
 import { budgetRefusalFor, type BudgetRefusal } from './visits.js';
 
 /** Thrown when a claim must abort: a join with an unclaimable arrival, an
@@ -63,6 +64,13 @@ export interface ClaimActivationInput {
   nodeKind: 'agent' | 'command' | 'gate';
   /** Agent nodes whose resolved profile is `expert` reserve the expert budget. */
   profileIsExpert?: boolean;
+  /**
+   * The canonical integration heads observed when the activation is claimed
+   * (Slice 5 Task 1) — per-domain `{domainKey, commit}` pairs the HOST
+   * captures from the canonical worktrees right before the claim. Stored on
+   * the new node run so the workspace provider clones exactly that state.
+   */
+  baseHeads?: readonly BaseHead[];
 }
 
 export interface JoinOutgoing {
@@ -77,6 +85,9 @@ export interface ClaimJoinInput {
   /** The join's correlated arrivals — one per declared predecessor. */
   tokenIds: readonly number[];
   outgoing: JoinOutgoing;
+  /** Claim-time integration heads, stored on the join's node run (see
+   *  `ClaimActivationInput.baseHeads`). */
+  baseHeads?: readonly BaseHead[];
 }
 
 interface RevisionRow {
@@ -179,6 +190,9 @@ export function claimActivation(deps: ClaimDeps, input: ClaimActivationInput): C
       throw new GraphClaimError(`claim CAS moved no row for token ${token.id}`);
     }
     reserveBudgets(db, graphRunId, deps.now(), input.profileIsExpert === true);
+    if (input.baseHeads !== undefined && !writeNodeRunBaseHeads(db, nodeRunId, input.baseHeads)) {
+      throw new GraphClaimError(`base-head write moved no row for node run ${nodeRunId}`);
+    }
     return { claimed: true, nodeRunId, visitNumber };
   });
 }
@@ -226,6 +240,9 @@ export function claimJoinActivation(deps: ClaimDeps, input: ClaimJoinInput): Cla
       throw new GraphClaimError('duplicate successor token on join firing');
     }
     reserveBudgets(db, graphRunId, deps.now(), false);
+    if (input.baseHeads !== undefined && !writeNodeRunBaseHeads(db, nodeRunId, input.baseHeads)) {
+      throw new GraphClaimError(`base-head write moved no row for node run ${nodeRunId}`);
+    }
     return { claimed: true, nodeRunId, visitNumber };
   });
 }

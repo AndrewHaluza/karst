@@ -305,6 +305,113 @@ describe('claimJoinActivation', () => {
   });
 });
 
+describe('claim-time base heads (Slice 5 Task 1)', () => {
+  const SHARED_BASE = [
+    { domainKey: 'dk-1', commit: 'abc123' },
+    { domainKey: 'dk-2', commit: 'def456' },
+  ];
+  const OUTGOING = {
+    edgeId: 'join-out',
+    destinationNodeId: 'finisher',
+    destinationEnd: false,
+    forkInstance: 0,
+    forkLineage: 'root',
+  };
+
+  function baseHeadsOf(ctx: Ctx, nodeRunId: number): unknown {
+    const run = ctx.db
+      .prepare('SELECT base_heads FROM approach_node_runs WHERE id = ?')
+      .get(nodeRunId) as { base_heads: string | null };
+    return run.base_heads === null ? null : JSON.parse(run.base_heads);
+  }
+
+  it('stores the captured base heads on the claimed node run', () => {
+    const ctx = harness();
+    const result = claimActivation(ctx.makeDeps(), {
+      tokenId: entryTokenId(ctx),
+      nodeKind: 'agent',
+      baseHeads: SHARED_BASE,
+    });
+    expect(result.claimed).toBe(true);
+    if (!result.claimed) return;
+    expect(baseHeadsOf(ctx, result.nodeRunId)).toEqual(SHARED_BASE);
+  });
+
+  it('two sibling activations of one predecessor carry the same base on their node runs', () => {
+    const ctx = harness();
+    // Two successor tokens released by one completion (same source node run,
+    // different edges) — the fan-out whose members must share the base.
+    const a = insertGraphToken(ctx.db, {
+      revisionId: ctx.revisionId,
+      sourceNodeRunId: 7,
+      isEntry: false,
+      edgeId: 'fa',
+      destinationNodeId: 'worker-a',
+      destinationEnd: false,
+      forkInstance: 0,
+      forkLineage: 'root',
+      now: ctx.now,
+    })!;
+    const b = insertGraphToken(ctx.db, {
+      revisionId: ctx.revisionId,
+      sourceNodeRunId: 7,
+      isEntry: false,
+      edgeId: 'fb',
+      destinationNodeId: 'worker-b',
+      destinationEnd: false,
+      forkInstance: 0,
+      forkLineage: 'root',
+      now: ctx.now,
+    })!;
+    const claimA = claimActivation(ctx.makeDeps(), {
+      tokenId: a,
+      nodeKind: 'agent',
+      baseHeads: SHARED_BASE,
+    });
+    const claimB = claimActivation(ctx.makeDeps(), {
+      tokenId: b,
+      nodeKind: 'agent',
+      baseHeads: SHARED_BASE,
+    });
+    expect(claimA.claimed && claimB.claimed).toBe(true);
+    if (!claimA.claimed || !claimB.claimed) return;
+    expect(baseHeadsOf(ctx, claimA.nodeRunId)).toEqual(baseHeadsOf(ctx, claimB.nodeRunId));
+    expect(baseHeadsOf(ctx, claimA.nodeRunId)).toEqual(SHARED_BASE);
+  });
+
+  it('a join firing stores the shared base on its node run', () => {
+    const ctx = harness();
+    const arrivals = insertEntryTokens(ctx.db, ctx.revisionId, [
+      { edgeId: 'in-a', destinationNodeId: 'join', destinationEnd: false },
+      { edgeId: 'in-b', destinationNodeId: 'join', destinationEnd: false },
+    ], ctx.now);
+    const result = claimJoinActivation(ctx.makeDeps(), {
+      tokenIds: arrivals,
+      baseHeads: SHARED_BASE,
+      outgoing: OUTGOING,
+    });
+    expect(result.claimed).toBe(true);
+    if (!result.claimed) return;
+    expect(baseHeadsOf(ctx, result.nodeRunId)).toEqual(SHARED_BASE);
+  });
+
+  it('a rollback also rolls back the base-head write', () => {
+    const ctx = harness();
+    const tokenId = entryTokenId(ctx);
+    const deps = ctx.makeDeps({
+      transaction: (fn) =>
+        withImmediate(ctx.db, () => {
+          const inner = fn();
+          throw new Error('boom after claim');
+        }),
+    });
+    expect(() =>
+      claimActivation(deps, { tokenId, nodeKind: 'agent', baseHeads: SHARED_BASE }),
+    ).toThrow('boom after claim');
+    expect(runCount(ctx.db, ctx.revisionId)).toBe(0);
+  });
+});
+
 describe('lock liveness', () => {
   it('a busied claim aborts immediately, mutates nothing, and succeeds next tick', () => {
     const dir = mkdtempSync(join(tmpdir(), 'karst-claim-busy-'));

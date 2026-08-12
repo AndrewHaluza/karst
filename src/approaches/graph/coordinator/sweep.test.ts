@@ -313,4 +313,23 @@ describe('runCoordinatorTick', () => {
     expect(result.claimed).toBe(0);
     expect(result.transitions).toBe(0);
   });
+
+  it('claims record the base heads the host captured for the tick (Slice 5 T1)', () => {
+    const ctx = harness(doc([agent('a'), agent('b')], [
+      { id: 'a-b', from: 'a', on: 'complete', to: 'b' },
+      { id: 'b-end', from: 'b', on: 'complete', to: 'END' },
+    ], ['a']));
+    insertEntryTokens(ctx.db, ctx.revisionId, [
+      { edgeId: 'entry-a', destinationNodeId: 'a', destinationEnd: false },
+    ], ctx.now);
+    const baseHeads = [{ domainKey: 'dk', commit: 'cafe' }];
+    const result = runCoordinatorTick(ctx.makeDeps({ baseHeadsOf: () => baseHeads }), {
+      graphRunId: ctx.graphRunId,
+    });
+    expect(result.claimed).toBe(1);
+    const run = ctx.db
+      .prepare('SELECT base_heads FROM approach_node_runs WHERE node_id = ?')
+      .get('a') as { base_heads: string };
+    expect(JSON.parse(run.base_heads)).toEqual(baseHeads);
+  });
 });

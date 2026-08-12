@@ -786,6 +786,15 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_ticket_attachments_ticket_stored_name
 
 -- v35 graph tables (Slice 2, design "Persistence") — byte-identical to
 -- migrations.ts GRAPH_MIGRATION_DDL (db.test.ts pins the equality).
+--
+-- v39 (Slice 5 Task 1) adds two columns to these tables and one ledger table
+-- at the end: `approach_graph_runs.workspace_bytes` is the graph run's durable
+-- aggregate node-workspace byte total (measured against
+-- `graph.limits.maxAggregateWorkspaceBytes`, incremented on creation, negated
+-- never below zero on cleanup); `approach_node_runs.base_heads` is the
+-- canonical integration heads observed when the activation was claimed (JSON
+-- of `{domainKey, commit}`); `approach_graph_workspaces` is the per-workspace
+-- ledger that keeps the negations exact.
 
 CREATE TABLE IF NOT EXISTS approach_graph_runs (
   id                INTEGER PRIMARY KEY,
@@ -804,6 +813,7 @@ CREATE TABLE IF NOT EXISTS approach_graph_runs (
   created_at        TEXT NOT NULL,
   updated_at        TEXT,
   completed_at      TEXT,
+  workspace_bytes   INTEGER NOT NULL DEFAULT 0,
   UNIQUE (ticket_id, stage_attempt)
 );
 CREATE INDEX IF NOT EXISTS idx_graph_runs_ticket ON approach_graph_runs(ticket_id, id);
@@ -885,6 +895,7 @@ CREATE TABLE IF NOT EXISTS approach_node_runs (
   change_set_id            TEXT,
   started_at               TEXT,
   ended_at                 TEXT,
+  base_heads               TEXT,
   UNIQUE (revision_id, node_id, visit_number)
 );
 CREATE INDEX IF NOT EXISTS idx_node_runs_revision ON approach_node_runs(revision_id, id);
@@ -953,3 +964,19 @@ CREATE TABLE IF NOT EXISTS approach_node_overrides (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_node_overrides_rev_node_kind
   ON approach_node_overrides(revision_id, node_id, kind);
 CREATE INDEX IF NOT EXISTS idx_node_overrides_node ON approach_node_overrides(graph_run_id, node_id);
+
+-- v39 (Slice 5 Task 1): the durable per-workspace ledger. One row per clone
+-- created for a node run, with the byte count it contributes to the graph
+-- run's `workspace_bytes` total; cleanup negates the total by the sum of the
+-- rows it deletes, so the ledger is what keeps the negations exact.
+CREATE TABLE IF NOT EXISTS approach_graph_workspaces (
+  id             INTEGER PRIMARY KEY,
+  graph_run_id   INTEGER NOT NULL REFERENCES approach_graph_runs(id),
+  node_run_id    INTEGER NOT NULL REFERENCES approach_node_runs(id),
+  repo_name      TEXT NOT NULL,
+  cwd            TEXT NOT NULL,
+  byte_size      INTEGER NOT NULL,
+  created_at     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_graph_workspaces_run ON approach_graph_workspaces(graph_run_id, id);
+CREATE INDEX IF NOT EXISTS idx_graph_workspaces_node ON approach_graph_workspaces(node_run_id, id);

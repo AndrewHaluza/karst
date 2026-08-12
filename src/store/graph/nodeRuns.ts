@@ -159,3 +159,129 @@ export function clearNodeOverride(
     .run(input.revisionId, input.nodeId, input.kind);
   return res.changes > 0;
 }
+
+/** One repository's canonical integration head, observed at claim time (Slice
+ *  5 Task 1). Keyed by the physical-domain key (`integration/domains.ts`), so
+ *  several manifest entries sharing a worktree record one head. */
+export interface BaseHead {
+  domainKey: string;
+  commit: string;
+}
+
+export function encodeBaseHeads(heads: readonly BaseHead[]): string | null {
+  return heads.length === 0 ? null : JSON.stringify(heads);
+}
+
+/** Decode a `base_heads` column. Anything that is not an array of well-formed
+ *  `{domainKey, commit}` pairs is treated as absent — never a half-truth. */
+export function decodeBaseHeads(json: string | null): BaseHead[] {
+  if (!json) return [];
+  try {
+    const parsed: unknown = JSON.parse(json);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (h): h is BaseHead =>
+        typeof h === 'object'
+        && h !== null
+        && typeof (h as BaseHead).domainKey === 'string'
+        && typeof (h as BaseHead).commit === 'string',
+    );
+  } catch {
+    return [];
+  }
+}
+
+/** Record the claim-time base heads on a node run. The affected-row check is
+ *  the contract: this runs inside the claim transaction, so exactly one row —
+ *  the run just created — must move. */
+export function writeNodeRunBaseHeads(
+  db: GraphDb,
+  nodeRunId: number,
+  heads: readonly BaseHead[],
+): boolean {
+  const res = db
+    .prepare('UPDATE approach_node_runs SET base_heads = ? WHERE id = ?')
+    .run(encodeBaseHeads(heads), nodeRunId);
+  return res.changes === 1;
+}
+
+/** The base heads recorded on a node run at claim time, or [] when none. */
+export function nodeRunBaseHeads(db: GraphDb, nodeRunId: number): BaseHead[] {
+  const row = db
+    .prepare('SELECT base_heads FROM approach_node_runs WHERE id = ?')
+    .get(nodeRunId) as { base_heads: string | null } | undefined;
+  return decodeBaseHeads(row?.base_heads ?? null);
+}
+
+/** One durable workspace-ledger row (Slice 5 Task 1): a clone created for a
+ *  node run and the byte count it contributes to the graph run's total. */
+export interface WorkspaceRow {
+  id: number;
+  graph_run_id: number;
+  node_run_id: number;
+  repo_name: string;
+  cwd: string;
+  byte_size: number;
+  created_at: string;
+}
+
+/** The graph run's durable workspace byte total (`workspace_bytes`, v39). */
+export function workspaceBytesOf(db: GraphDb, graphRunId: number): number {
+  const row = db
+    .prepare('SELECT workspace_bytes FROM approach_graph_runs WHERE id = ?')
+    .get(graphRunId) as { workspace_bytes: number } | undefined;
+  return row?.workspace_bytes ?? 0;
+}
+
+/** Add `bytes` to the graph run's workspace total. The affected-row check
+ *  makes the increment a claim: inside the caller's `BEGIN IMMEDIATE` it is
+ *  the double-spend guard for the aggregate byte ceiling. */
+export function addWorkspaceBytes(db: GraphDb, graphRunId: number, bytes: number): boolean {
+  if (bytes < 0) throw new Error('addWorkspaceBytes: negative bytes');
+  const res = db
+    .prepare('UPDATE approach_graph_runs SET workspace_bytes = workspace_bytes + ? WHERE id = ?')
+    .run(bytes, graphRunId);
+  return res.changes === 1;
+}
+
+/** Release `bytes` from the graph run's total, never below zero. */
+export function releaseWorkspaceBytes(db: GraphDb, graphRunId: number, bytes: number): boolean {
+  if (bytes < 0) throw new Error('releaseWorkspaceBytes: negative bytes');
+  const res = db
+    .prepare(
+      'UPDATE approach_graph_runs SET workspace_bytes = MAX(0, workspace_bytes - ?) WHERE id = ?',
+    )
+    .run(bytes, graphRunId);
+  return res.changes === 1;
+}
+
+/** Record one created workspace in the ledger. */
+export function recordWorkspace(
+  db: GraphDb,
+  input: { graphRunId: number; nodeRunId: number; repoName: string; cwd: string; byteSize: number; now: string },
+): number {
+  const res = db
+    .prepare(
+      `INSERT INTO approach_graph_workspaces
+         (graph_run_id, node_run_id, repo_name, cwd, byte_size, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    )
+    .run(input.graphRunId, input.nodeRunId, input.repoName, input.cwd, input.byteSize, input.now);
+  return Number(res.lastInsertRowid);
+}
+
+/** The workspace-ledger rows of a node run (the bytes cleanup must release). */
+export function workspacesForNode(db: GraphDb, nodeRunId: number): WorkspaceRow[] {
+  return db
+    .prepare(
+      `SELECT id, graph_run_id, node_run_id, repo_name, cwd, byte_size, created_at
+       FROM approach_graph_workspaces WHERE node_run_id = ? ORDER BY id`,
+    )
+    .all(nodeRunId) as WorkspaceRow[];
+}
+
+/** Remove a node run's workspace-ledger rows. Idempotent. */
+export function removeWorkspacesForNode(db: GraphDb, nodeRunId: number): number {
+  const res = db.prepare('DELETE FROM approach_graph_workspaces WHERE node_run_id = ?').run(nodeRunId);
+  return res.changes;
+}

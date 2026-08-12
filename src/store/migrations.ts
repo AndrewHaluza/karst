@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 const SCHEMA_PATH = join(dirname(fileURLToPath(import.meta.url)), 'schema.sql');
 
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 38;
+export const SCHEMA_VERSION = 39;
 
 /** v2 ticket-field columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -116,6 +116,7 @@ CREATE TABLE IF NOT EXISTS approach_graph_runs (
   created_at        TEXT NOT NULL,
   updated_at        TEXT,
   completed_at      TEXT,
+  workspace_bytes   INTEGER NOT NULL DEFAULT 0,
   UNIQUE (ticket_id, stage_attempt)
 );
 CREATE INDEX IF NOT EXISTS idx_graph_runs_ticket ON approach_graph_runs(ticket_id, id);
@@ -197,6 +198,7 @@ CREATE TABLE IF NOT EXISTS approach_node_runs (
   change_set_id            TEXT,
   started_at               TEXT,
   ended_at                 TEXT,
+  base_heads               TEXT,
   UNIQUE (revision_id, node_id, visit_number)
 );
 CREATE INDEX IF NOT EXISTS idx_node_runs_revision ON approach_node_runs(revision_id, id);
@@ -319,6 +321,27 @@ INSERT INTO approach_node_runs_v37
 DROP TABLE approach_node_runs;
 ALTER TABLE approach_node_runs_v37 RENAME TO approach_node_runs;
 CREATE INDEX IF NOT EXISTS idx_node_runs_revision ON approach_node_runs(revision_id, id);
+`;
+
+/**
+ * v39's workspace-ledger table (Slice 5 Task 1). Byte-identical in intent to
+ * the schema.sql block it mirrors; `db.test.ts` pins that with a `toContain`.
+ * The two v39 COLUMNS (`approach_graph_runs.workspace_bytes`,
+ * `approach_node_runs.base_heads`) already live inside `GRAPH_MIGRATION_DDL`
+ * above for fresh DBs — this step's guarded ALTERs bring legacy DBs up.
+ */
+export const GRAPH_WORKSPACE_MIGRATION_DDL = `
+CREATE TABLE IF NOT EXISTS approach_graph_workspaces (
+  id             INTEGER PRIMARY KEY,
+  graph_run_id   INTEGER NOT NULL REFERENCES approach_graph_runs(id),
+  node_run_id    INTEGER NOT NULL REFERENCES approach_node_runs(id),
+  repo_name      TEXT NOT NULL,
+  cwd            TEXT NOT NULL,
+  byte_size      INTEGER NOT NULL,
+  created_at     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_graph_workspaces_run ON approach_graph_workspaces(graph_run_id, id);
+CREATE INDEX IF NOT EXISTS idx_graph_workspaces_node ON approach_graph_workspaces(node_run_id, id);
 `;
 
 
@@ -1461,6 +1484,27 @@ export function migrate(db: Database): void {
       `CREATE UNIQUE INDEX IF NOT EXISTS idx_node_overrides_rev_node_kind
          ON approach_node_overrides(revision_id, node_id, kind)`,
     );
+  }
+
+  if (current < 39) {
+    // v39 (Slice 5 Task 1) adds the node execution workspace shape: the
+    // claim-time base heads on each node run, the graph run's aggregate
+    // workspace byte total, and the per-workspace ledger table. A fresh DB
+    // already carries all of it (schema.sql — including inside
+    // GRAPH_MIGRATION_DDL, so the guards skip); a legacy DB gains the columns
+    // through the same guarded ALTERs and the ledger through IF NOT EXISTS.
+    //
+    // NOTHING IS BACKFILLED. No prior karst captured base heads or counted
+    // workspace bytes; NULL/0 name the unknown, never an invented value.
+    const nodeCols39 = tableColumns(db, 'approach_node_runs');
+    if (nodeCols39.size > 0 && !nodeCols39.has('base_heads')) {
+      db.exec('ALTER TABLE approach_node_runs ADD COLUMN base_heads TEXT');
+    }
+    const runCols39 = tableColumns(db, 'approach_graph_runs');
+    if (runCols39.size > 0 && !runCols39.has('workspace_bytes')) {
+      db.exec('ALTER TABLE approach_graph_runs ADD COLUMN workspace_bytes INTEGER NOT NULL DEFAULT 0');
+    }
+    db.exec(GRAPH_WORKSPACE_MIGRATION_DDL);
   }
 
   db.pragma(`user_version = ${SCHEMA_VERSION}`);

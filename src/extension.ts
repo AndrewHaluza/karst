@@ -173,11 +173,12 @@ import { artifactRootDir } from './approaches/graph/artifacts/snapshot.js';
 import { declaredWritesFor } from './approaches/graph/integration/claims.js';
 import { flipOnEndQuiescence } from './approaches/graph/coordinator/completion.js';
 import { recoverGraphRun, type RecoveryDeps } from './approaches/graph/coordinator/recovery.js';
-import { nodeOverrideFor } from './store/graph/nodeRuns.js';
+import { nodeOverrideFor, type BaseHead } from './store/graph/nodeRuns.js';
 import { blockGraphStage } from './workflow/graphMarkerGuard.js';
 import {
   domainKeyOf,
   gitCommonDirFromFs,
+  resolvePhysicalDomains,
   type DomainEntry,
 } from './approaches/graph/integration/domains.js';
 import { casStatus, GRAPH_RUN_TRANSITIONS, type GraphDb } from './store/graph/transitions.js';
@@ -2770,7 +2771,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   graphCoordinatorStore.db.pragma('busy_timeout = 0');
   graphEndpoint = await startGraphWakeupEndpoint({
     schedule: (graphRunId) => {
-      runGraphCoordinatorTick(graphRunId);
+      void runGraphCoordinatorTick(graphRunId);
     },
     debug: (message) => logger.debug(message),
   });
@@ -2781,10 +2782,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const graphRoutes = new Map<number, { url: string; token: string }>();
 
   /** One bounded coordinator tick for a graph run; a failure only delays the
-   *  next tick (the sweep is the source of truth, never this callback). */
-  const runGraphCoordinatorTick = (graphRunId: number): void => {
+   *  next tick (the sweep is the source of truth, never this callback). The
+   *  claim-time base heads are captured right before the tick and handed to
+   *  it, so the activations this tick claims record exactly the integration
+   *  state their workspaces must clone. */
+  const runGraphCoordinatorTick = async (graphRunId: number): Promise<void> => {
     const gs = graphCoordinatorStore;
     if (!gs) return;
+    let baseHeads: BaseHead[] = [];
+    try {
+      baseHeads = await readBaseHeads(graphRunId);
+    } catch (err) {
+      // A head that cannot be probed is simply not captured; the tick still
+      // runs (a claim that records no base blocks no workspace launch).
+      logError('karst: graph base-head capture failed', err);
+    }
     // Ensure the run's wake-up route exists before any of its sessions can
     // launch; the launcher reuses the same route when composing the env.
     graphRouteFor(graphRunId);
@@ -2801,6 +2813,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             )(),
           now: () => new Date().toISOString(),
           debug: (message) => logger.debug(message),
+          baseHeadsOf: () => baseHeads,
         },
         { graphRunId },
       );
@@ -3022,6 +3035,30 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return path ? [{ repoName, worktreePath: path }] : [];
       },
     );
+  };
+
+  /**
+   * Claim-time base heads (Slice 5 T1): per physical-domain HEAD of the
+   * canonical worktrees, captured right before a coordinator tick claims
+   * activations, so every node run records the integration state its
+   * workspace must clone. A domain whose HEAD cannot be resolved simply is
+   * not captured — the node run records the bases that were observable.
+   */
+  const readBaseHeads = async (graphRunId: number): Promise<BaseHead[]> => {
+    const gs = graphCoordinatorStore;
+    if (!gs) return [];
+    const run = gs.db
+      .prepare('SELECT ticket_id FROM approach_graph_runs WHERE id = ?')
+      .get(graphRunId) as { ticket_id: number } | undefined;
+    if (!run) return [];
+    const heads: BaseHead[] = [];
+    for (const domain of resolvePhysicalDomains(graphDomainsFor(graphRunId), gitCommonDirFromFs)) {
+      const r = await defaultGitRunner(['rev-parse', 'HEAD'], domain.canonicalWorktree);
+      if (r.exitCode !== 0) continue;
+      const commit = r.stdout.trim();
+      if (commit) heads.push({ domainKey: domain.key, commit });
+    }
+    return heads;
   };
 
   /** The declared writes of a node run, from the active revision's graph. */
@@ -3420,7 +3457,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           logError('karst: graph run listing failed', e);
         }
         for (const graphRunId of graphRuns) {
-          runGraphCoordinatorTick(graphRunId);
+          void runGraphCoordinatorTick(graphRunId);
         }
       }
       // Done tickets are archived on a DELAY (manifest `archiveDoneAfterDays`,

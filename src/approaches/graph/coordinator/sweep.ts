@@ -24,6 +24,7 @@ import { pendingTokensForRevision, type GraphTokenRow } from '../../../store/gra
 import { claimActivation, claimJoinActivation, GraphClaimError } from './claim.js';
 import { handleBudgetRefusal } from './visits.js';
 import { parseGraphDocument, type ApproachNode, type GraphDocument } from '../parse.js';
+import type { BaseHead } from '../../../store/graph/nodeRuns.js';
 
 /** The per-tick bound: ≤ 100 state transitions (design, "Coordinator sweep"). */
 export const MAX_SWEEP_TRANSITIONS = 100;
@@ -34,6 +35,14 @@ export interface SweepDeps {
   transaction: <T>(fn: () => T) => T;
   now: () => string;
   debug?: (message: string) => void;
+  /**
+   * The canonical integration heads observed right before this tick claims
+   * activations (Slice 5 Task 1). The HOST captures them from the canonical
+   * worktrees and passes them; the sweep stores them on each claimed node run
+   * so workspaces clone exactly the state the claim saw. Absent → node runs
+   * record no base heads.
+   */
+  baseHeadsOf?: (graphRunId: number) => readonly BaseHead[];
 }
 
 export interface SweepResult {
@@ -130,6 +139,7 @@ export function runCoordinatorTick(
   }
 
   const pending = pendingTokensForRevision(db, revision.id);
+  const baseHeads = deps.baseHeadsOf?.(opts.graphRunId) ?? [];
   for (const group of groupPendingTokens(pending)) {
     if (result.transitions >= maxTransitions) break;
     const node = nodesById.get(group.destination) as ApproachNode | undefined;
@@ -154,6 +164,7 @@ export function runCoordinatorTick(
           { db, transaction: deps.transaction, now: deps.now },
           {
             tokenIds: group.tokens.map((t) => t.id),
+            baseHeads,
             outgoing: {
               edgeId: outgoing.edgeId,
               destinationNodeId: outgoing.destination,
@@ -201,6 +212,7 @@ export function runCoordinatorTick(
           tokenId: token.id,
           nodeKind: node.kind === 'agent' ? 'agent' : node.kind === 'command' ? 'command' : 'gate',
           profileIsExpert: node.kind === 'agent' && node.profile === 'expert',
+          baseHeads,
         },
       );
       if (outcome.claimed) {
