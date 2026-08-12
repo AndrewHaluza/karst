@@ -304,6 +304,67 @@ describe('createNodeWorkspace', () => {
     }
   });
 
+  it('re-creating a node workspace REPLACES its ledger rather than appending to it', async () => {
+    const h = harness();
+    try {
+      const deps = makeDeps(h, { measureBytes: () => 1000, facts: factsOf({ alive: () => false }) });
+      expect((await createNodeWorkspace(deps, input(h, 9))).kind).toBe('created');
+      expect(workspacesForNode(h.db, 9)).toHaveLength(1);
+      expect(workspaceBytesOf(h.db, h.graphRunId)).toBe(1000);
+
+      // The superseded workspace's contribution is released with the directory,
+      // so N recreations of one node cost exactly one workspace, not N.
+      expect((await createNodeWorkspace(deps, input(h, 9))).kind).toBe('created');
+      expect((await createNodeWorkspace(deps, input(h, 9))).kind).toBe('created');
+      expect(workspacesForNode(h.db, 9)).toHaveLength(1);
+      expect(workspaceBytesOf(h.db, h.graphRunId)).toBe(1000);
+    } finally {
+      h.close();
+    }
+  });
+
+  it('a retry of the node that filled the ceiling is not refused by its own superseded workspace', async () => {
+    const h = harness();
+    try {
+      // The node's own workspace fills the ceiling exactly; replacing it is the
+      // same spend, so the retry must be admitted rather than read as 2x.
+      const deps = makeDeps(h, {
+        measureBytes: () => 1000,
+        maxAggregateWorkspaceBytes: 1500,
+        facts: factsOf({ alive: () => false }),
+      });
+      expect((await createNodeWorkspace(deps, input(h, 1))).kind).toBe('created');
+      expect(workspaceBytesOf(h.db, h.graphRunId)).toBe(1000);
+
+      const retry = await createNodeWorkspace(deps, input(h, 1));
+      expect(retry.kind).toBe('created');
+      expect(workspaceBytesOf(h.db, h.graphRunId)).toBe(1000);
+      // A DIFFERENT node is still refused — the ceiling itself did not move.
+      expect((await createNodeWorkspace(deps, input(h, 2))).kind).toBe('budget-exhausted');
+    } finally {
+      h.close();
+    }
+  });
+
+  it('releases a superseded ledger whose directory is already gone', async () => {
+    const h = harness();
+    try {
+      const deps = makeDeps(h, { measureBytes: () => 1000, facts: factsOf({ alive: () => false }) });
+      expect((await createNodeWorkspace(deps, input(h, 4))).kind).toBe('created');
+      // A hand-run `rm -rf`, or a reap karst did not perform: the ledger rows
+      // outlive the tree, and must not keep charging the graph run for it.
+      rmSync(nodeWorkspaceDir(h.globalRoot, 'proj', h.ticketId, h.graphRunId, 4), {
+        recursive: true,
+        force: true,
+      });
+      expect((await createNodeWorkspace(deps, input(h, 4))).kind).toBe('created');
+      expect(workspacesForNode(h.db, 4)).toHaveLength(1);
+      expect(workspaceBytesOf(h.db, h.graphRunId)).toBe(1000);
+    } finally {
+      h.close();
+    }
+  });
+
   it('a workspace over the byte ceiling blocks with graph-budget-exhausted', async () => {
     const h = harness();
     try {

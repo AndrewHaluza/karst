@@ -25,7 +25,11 @@
  *
  * A pre-existing workspace directory belongs to a superseded node run. It is
  * removed ONLY after process attribution (`runtime/serverIdentity.ts`)
- * proves nothing live serves it; a live (or unprovable) process blocks.
+ * proves nothing live serves it; a live (or unprovable) process blocks. The
+ * tree and its ACCOUNTING leave together — the superseded ledger rows are
+ * deleted and their bytes released in the same transaction as the removal, and
+ * the ceiling gate excludes them, so a retry costs one workspace rather than
+ * two and a node that filled the ceiling can still replace its own workspace.
  *
  * Host-agnostic: store, transaction, git runner, probes and the device/byte
  * decisions are injected; no vscode. Registration of workspace processes with
@@ -44,7 +48,10 @@ import type { GraphDb } from '../../../store/graph/transitions.js';
 import {
   addWorkspaceBytes,
   recordWorkspace,
+  releaseWorkspaceBytes,
+  removeWorkspacesForNode,
   workspaceBytesOf,
+  workspacesForNode,
 } from '../../../store/graph/nodeRuns.js';
 
 /** One repository domain the workspace clones: its name, the canonical
@@ -201,17 +208,24 @@ export async function createNodeWorkspace(
   const measureBytes = deps.measureBytes ?? measureBytesDefault;
   const sameDevice = deps.sameDevice ?? sameDeviceDefault;
 
-  // 1. Byte-ceiling gate: recorded total + the new clone's estimated bytes.
+  // 1. Byte-ceiling gate: recorded total + the new clone's estimated bytes,
+  //    MINUS what this node's own superseded workspace already contributes.
+  //    That subtraction is what makes a retry cost one workspace and not two:
+  //    the replacement takes the superseded one's place, so charging for both
+  //    refused the very node whose ledger filled the ceiling.
   const currentBytes = workspaceBytesOf(db, input.graphRunId);
+  const supersededRows = workspacesForNode(db, input.nodeRunId);
+  const supersededBytes = supersededRows.reduce((sum, row) => sum + row.byte_size, 0);
+  const otherNodeBytes = Math.max(0, currentBytes - supersededBytes);
   let estimatedBytes = 0;
   for (const domain of input.domains) estimatedBytes += measureBytes(domain.canonicalWorktreePath);
-  if (currentBytes + estimatedBytes > deps.maxAggregateWorkspaceBytes) {
+  if (otherNodeBytes + estimatedBytes > deps.maxAggregateWorkspaceBytes) {
     deps.debug?.(
-      `[graph] workspace: node ${input.nodeRunId} refused — ${currentBytes + estimatedBytes} bytes over the ${deps.maxAggregateWorkspaceBytes} aggregate ceiling`,
+      `[graph] workspace: node ${input.nodeRunId} refused — ${otherNodeBytes + estimatedBytes} bytes over the ${deps.maxAggregateWorkspaceBytes} aggregate ceiling`,
     );
     return {
       kind: 'budget-exhausted',
-      currentBytes,
+      currentBytes: otherNodeBytes,
       limitBytes: deps.maxAggregateWorkspaceBytes,
       estimatedBytes,
     };
@@ -234,6 +248,28 @@ export async function createNodeWorkspace(
       `[graph] workspace: removing superseded workspace of node run ${input.nodeRunId} (no live process)`,
     );
     rmSync(nodeDir, { recursive: true, force: true });
+  }
+
+  //    The tree and its accounting leave TOGETHER. Releasing the ledger is not
+  //    conditional on the directory having existed: rows outliving their tree
+  //    (a hand-run `rm -rf`, a reap karst did not perform) would otherwise
+  //    charge the graph run forever for bytes nothing occupies.
+  if (supersededRows.length > 0) {
+    transaction(() => {
+      // Re-read inside the lock: another window may have released these rows
+      // since step 1, and releasing bytes twice would under-count the ceiling.
+      const released = workspacesForNode(db, input.nodeRunId).reduce(
+        (sum, row) => sum + row.byte_size,
+        0,
+      );
+      removeWorkspacesForNode(db, input.nodeRunId);
+      if (released > 0 && !releaseWorkspaceBytes(db, input.graphRunId, released)) {
+        throw new Error(`workspace byte counter moved for graph run ${input.graphRunId}`);
+      }
+    });
+    deps.debug?.(
+      `[graph] workspace: released the superseded ledger of node run ${input.nodeRunId} (${supersededBytes} bytes)`,
+    );
   }
 
   // 3. Clone each repository at its claim-time base commit: local on the same
@@ -279,6 +315,8 @@ export async function createNodeWorkspace(
 
   // 4. Record the clones + byte total durably, re-checking the ceiling inside
   //    the write lock (another window may have recorded bytes since step 1).
+  //    The superseded contribution is already gone from the total by step 2, so
+  //    this reads the replacement's true incremental cost.
   const ledgerBytes = created.reduce((sum, c) => sum + c.bytes, 0);
   const committed = transaction(() => {
     const nowTotal = workspaceBytesOf(db, input.graphRunId);
