@@ -153,6 +153,17 @@ import {
 import { startHookEndpoint, type HookEndpoint } from './hooks/endpoint.js';
 import { startGraphWakeupEndpoint, type GraphWakeupEndpoint } from './hooks/graphEndpoint.js';
 import { runCoordinatorTick, activeGraphRunIds } from './approaches/graph/coordinator/sweep.js';
+import {
+  createSupervisedCliTransport,
+  type SupervisedCliTransport,
+  type TransportTerminal,
+  type TransportTerminalHost,
+} from './approaches/graph/transport/supervisedCliTransport.js';
+import {
+  activeGraphRunFor,
+  nudgeSurface,
+  shouldDriveGraphTicket,
+} from './approaches/graph/entryPoints.js';
 import { createHookChannelRecorder } from './diagnostics/hookChannel.js';
 import { sweepHookSettings } from './agent/settingsSweep.js';
 import { writeCurrentEndpoint } from './agent/hookFailureLog.js';
@@ -180,6 +191,7 @@ import { resumeBlockedStage } from './workflow/stageResume.js';
 import { buildConflictBrief } from './workflow/conflictSession.js';
 import { stopServer, stopTicketServers } from './runtime/supervisor.js';
 import { reapStaleServers, describeReap } from './runtime/worktreeServers.js';
+import { systemAsyncProcessFacts } from './runtime/serverIdentity.js';
 import { reconcileStageRuns, describeStaleStageRun } from './store/stageRuns.js';
 import {
   reconcileProcessRuns,
@@ -435,6 +447,7 @@ let store: Store | undefined;
 let endpoint: HookEndpoint | undefined;
 let graphEndpoint: GraphWakeupEndpoint | undefined;
 let graphCoordinatorStore: Store | undefined;
+let graphTransport: SupervisedCliTransport | undefined;
 const pendingApproachInstalls = new Set<Promise<ApproachPackage>>();
 let flushSessionOwnership: (() => Promise<void>) | undefined;
 let shutdownSessionRecovery: (() => void) | undefined;
@@ -2083,7 +2096,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // A live session already owns the worktrees: nudge it and reveal the
         // terminal so the user sees the agent take the job. With none open,
         // launch one seeded with the brief instead of the ticket's own context.
+        // A graph ticket is never nudged from here: the graph coordinator owns
+        // its sessions (entry-point matrix, Slice 3 Task 7).
         (prompt) => {
+          if (nudgeSurface(localStore.db, ticketId) === 'no-op') {
+            return;
+          }
           if (sessions.nudge(ticketId, prompt)) {
             sessions.focusSession(ticketId);
             return;
@@ -2564,6 +2582,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const maybeDrive = (ticketId: number, trigger: string): void => {
     const t = getTicket(localStore, ticketId);
     if (!shouldStartDriver(t.stageCurrent as StageKey)) return;
+    // A graph ticket at impl with an active graph run is driven by the graph
+    // coordinator, never by the stage driver (Slice 3 Task 7 entry-point
+    // matrix: the graph owns the ticket until it completes).
+    if (shouldDriveGraphTicket(localStore.db, ticketId)) {
+      logger.debug(`stage driver: ${trigger} → ticket ${ticketId} skipped (active graph)`);
+      return;
+    }
     // A missing gate tool is NOT a failing gate. Left unguarded, every gate exits
     // nonzero, the driver reads that as a code verdict, and the ticket parks at
     // fix in a loop no agent can win. Warn once — the activation sweep drives
@@ -2700,6 +2725,30 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     graphRoutes.set(graphRunId, route);
     return route;
   };
+
+  // Graph node supervision (Slice 3 Task 3 + 7 wiring). Node sessions are
+  // REAL vscode terminals, remembered in the identity registry so a reload
+  // can re-attach them, registered in the `servers` registry for the reapers,
+  // and terminated only through attribution (systemAsyncProcessFacts).
+  graphTransport = createSupervisedCliTransport({
+    terminalHost: makeGraphTerminalHost(terminalIdentity),
+    persistOwnerNonce: (nodeRunId, nonce) => {
+      graphCoordinatorStore?.db
+        .prepare('UPDATE approach_node_runs SET owner_nonce = ? WHERE id = ?')
+        .run(nonce, nodeRunId);
+    },
+    recordSession: (row) => {
+      graphCoordinatorStore?.db
+        .prepare(
+          `INSERT INTO servers (ticket_id, repo, pid, status, cwd, started_at)
+           VALUES (?, ?, ?, 'running', ?, ?)`,
+        )
+        .run(row.ticketId, row.repo, row.pid, row.cwd, row.startedAt);
+    },
+    facts: systemAsyncProcessFacts,
+    now: () => new Date().toISOString(),
+    debug: (message) => logger.debug(message),
+  });
 
   // Write the current endpoint URL so revived Codex sessions discover the live
   // port instead of POSTing to a stale one left over from before the reload.
@@ -3103,6 +3152,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // Without the CLI the terminal opens, prints a shell "command not found",
       // and sits there looking like karst did something.
       if (!options.providerReady && !guardCapability('sessions', ticketId)) return;
+      // A graph ticket with an active run is owned by the graph coordinator:
+      // REVEAL the live node terminal, never spawn a second agent (entry-point
+      // matrix, Slice 3 Task 7). `graph-marker`/`none` fall through to the
+      // normal continue-or-start flow below.
+      const activeGraph = activeGraphRunFor(localStore.db, ticketId);
+      if (activeGraph) {
+        const session = graphTransport?.sessions().find((s) => s.ticketId === ticketId);
+        if (session) {
+          session.terminal.show();
+        } else {
+          void vscode.window.showInformationMessage(
+            `Ticket #${ticketId} is owned by an active graph run (${activeGraph.status}) — its session is not attached to this window; the coordinator re-attaches it on the next sweep.`,
+          );
+        }
+        return;
+      }
       // The single continue-or-start entry point must never dead-end. A drafted
       // ticket that was never run has no worktree yet — rather than tell the user
       // to "scope it first", scope its selected repos now (the same confirmScope +
@@ -4028,6 +4093,11 @@ export async function deactivate(): Promise<void> {
     cleanupErrors.push(error);
   }
   graphCoordinatorStore = undefined;
+  // Live graph node sessions are NOT terminated here: they are detached
+  // vscode terminals whose rows stay `running`, and the next activation
+  // re-attaches them via the identity registry (the coordinator's job, not
+  // a window's teardown).
+  graphTransport = undefined;
   try {
     shutdownSessionRecovery?.();
   } catch (error) {
@@ -4520,6 +4590,40 @@ function makeTerminalHost(identity: TerminalIdentityRegistry): TerminalHost {
         const session = restoredSessionOf(terminal, identity);
         return session ? [session] : [];
       }),
+  };
+}
+
+/** Graph node terminals, wrapped in the `TransportTerminal` interface. */
+function makeGraphTerminalHost(identity: TerminalIdentityRegistry): TransportTerminalHost {
+  return {
+    createTerminal(opts): TransportTerminal {
+      const terminal = vscode.window.createTerminal({
+        name: opts.name,
+        cwd: opts.cwd,
+        shellPath: opts.shellPath,
+        shellArgs: opts.shellArgs,
+        env: opts.env,
+        hideFromUser: opts.hideFromUser,
+      });
+      // Remembered in the same per-window registry the session terminals use:
+      // the graph env carries KARST_TICKET_ID + KARST_LAUNCH_ID, so a reload
+      // re-attaches a live node session instead of launching a second one.
+      identity.remember(terminal, opts.env, undefined);
+      return {
+        processId: () => Promise.resolve(terminal.processId),
+        show: (preserveFocus) => terminal.show(preserveFocus),
+        sendText: (text) => terminal.sendText(text, true),
+        dispose: () => terminal.dispose(),
+        onDidClose: (handler) => {
+          const sub = vscode.window.onDidCloseTerminal((closed) => {
+            if (closed === terminal) {
+              sub.dispose();
+              handler(closed.exitStatus?.code);
+            }
+          });
+        },
+      };
+    },
   };
 }
 

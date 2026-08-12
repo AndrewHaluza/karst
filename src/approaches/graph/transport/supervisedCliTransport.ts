@@ -55,6 +55,8 @@ export type {
   AgentNodeLaunch,
   SupervisedAgentSession,
   TerminationProof,
+  TransportTerminal,
+  TransportTerminalHost,
 } from './agentTransport.js';
 
 export interface SupervisedTransportDeps {
