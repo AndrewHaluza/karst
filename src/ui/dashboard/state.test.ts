@@ -679,9 +679,12 @@ describe('buildDashboardState — graph inside projection (Slice-2 T10)', () => 
       enabled: true,
       graphRun: { id: 7, status: 'running', approachId: 'karst-graph-engineering', stageAttempt: 0, createdAt: '2026-08-11T00:00:00.000Z' },
       plannerRuns: [],
+      nodeRuns: [],
+      execution: { maxParallel: 1, maxNodeRuns: 40 },
       revision: null,
       diagnostics: [],
       artifacts: [],
+      liveSessions: [],
       now: '2026-08-11T01:00:00.000Z',
     });
     const impl = wired.insideViews.impl;

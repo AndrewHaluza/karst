@@ -163,6 +163,7 @@ import {
   activeGraphRunFor,
   nudgeSurface,
   shouldDriveGraphTicket,
+  stopActiveGraph,
 } from './approaches/graph/entryPoints.js';
 import { runCompletionPipeline } from './approaches/graph/integration/pipeline.js';
 import { declaredWritesFor } from './approaches/graph/integration/claims.js';
@@ -279,6 +280,7 @@ import { DriverController, shouldStartDriver, ticketsToSweep } from './workflow/
 import { shipTicket as runShipTicket } from './workflow/stages/ship.js';
 import { shipClearedEvent, shipStepEvent, type InsideProgressEvent } from './model/inside/progress.js';
 import type { InsideActionHost } from './ui/dashboard/insideActions.js';
+import { buildGraphInsideInput } from './ui/dashboard/graphInside.js';
 import { getPrById } from './store/prs.js';
 import {
   getShipCommitById,
@@ -2076,6 +2078,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   };
 
+  // Deferred graph-stop binding (Slice 3 Task 11): the coordinator transport
+  // is created later in activate; the Inside Stop action reads it only after
+  // activation has fully run, like `runPrSync` and `maybeDrive`.
+  let stopGraphRun: ((ticketId: number) => Promise<void>) | undefined;
+
   const dashboard = new DashboardManager(
     localStore,
     makePanelHost(context, brandIcon),
@@ -2192,7 +2199,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     buildGateOptionsLoader({ store: localStore, manifest: currentManifest }),
     // The inside-action host: vscode bindings for the containment-checked
     // dispatches (the panel already proved ownership + containment).
-    makeInsideActionHost(localStore),
+    makeInsideActionHost(localStore, {
+      // Open reveals a LIVE graph session's terminal — it never spawns one.
+      // The dispatch proved the run row belongs to the ticket; a session that
+      // died since the snapshot simply has no terminal to reveal.
+      graphOpenSession: (ticketId, session) => {
+        const tr = graphTransport;
+        const live = tr?.sessionFor(ticketId, session.runId);
+        live?.terminal.show(true);
+      },
+      // Declared here with the coordinator wiring it forces (like
+      // `runPrSync`): bound later in activate, read only once a panel is open.
+      graphStop: (ticketId) => {
+        const handler = stopGraphRun;
+        if (handler) void handler(ticketId);
+      },
+    }),
     // Live manifest getter, so the inside views resolve the REAL service names
     // and process assignments (panel.ts is manifest-free by contract).
     () => currentManifest(),
@@ -2203,6 +2225,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // Reports the panel's raw activation (including losing it, and including
     // dispose-while-focused) so the sidebar can highlight this ticket's row.
     (ticketId, active) => activeTicket.set(ticketId, active),
+    // The graph Inside projection (Slice 3 Task 11): a pure read over rows
+    // the coordinator keeps current, keyed by ticket. Null for a ticket with
+    // no graph run — the projection is inert.
+    (ticketId) =>
+      buildGraphInsideInput(
+        {
+          store: localStore,
+          manifest: () => currentManifest(),
+          liveSessions: () => graphTransport?.sessions() ?? [],
+          now: () => new Date().toISOString(),
+        },
+        ticketId,
+      ),
   );
 
   // A karst.yml edit made OUTSIDE karst (hand edit in the editor, a teammate's
@@ -2992,6 +3027,48 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     now: () => new Date().toISOString(),
     debug: (message) => logger.debug(message),
   });
+
+  // The Inside Stop binding (Slice 3 Task 11): terminates every live session
+  // of the ticket's active graph through the supervised transport, then moves
+  // the run `running → draining` — the coordinator's own drain. NEVER to
+  // `blocked`: a stop is a deliberate halt, not a fault the Resume would
+  // retry.
+  stopGraphRun = async (ticketId: number): Promise<void> => {
+    const gs = graphCoordinatorStore;
+    const tr = graphTransport;
+    if (!gs || !tr) return;
+    const run = activeGraphRunFor(gs.db, ticketId);
+    if (!run) return;
+    try {
+      const result = await stopActiveGraph(
+        {
+          db: gs.db,
+          transaction: <T>(fn: () => T): T =>
+            (gs.db.transaction as unknown as (f: () => T, o: { begin: 'immediate' }) => () => T)(
+              fn,
+              { begin: 'immediate' },
+            )(),
+          transport: tr,
+          sessionsFor: (graphRunId) =>
+            tr.sessions().filter((s) => s.graphRunId === graphRunId),
+          debug: (message) => logger.debug(message),
+        },
+        { ticketId, graphRunId: run.graphRunId },
+      );
+      logger.info(
+        `[graph] stop: run ${result.graphRunId} drained=${result.drained} terminated=${result.terminated} refused=${result.refused}`,
+      );
+      void vscode.window.showInformationMessage(
+        result.drained
+          ? `Ticket #${ticketId}: implementation graph stopped — ${result.terminated} session${result.terminated === 1 ? '' : 's'} terminated${result.refused > 0 ? `, ${result.refused} refused` : ''}.`
+          : `Ticket #${ticketId}: the graph run already moved; nothing was stopped.`,
+      );
+      provider.refresh();
+      dashboard.pushState(ticketId);
+    } catch (err) {
+      logError(`karst: graph stop failed for ticket ${ticketId}`, err);
+    }
+  };
 
   // Write the current endpoint URL so revived Codex sessions discover the live
   // port instead of POSTing to a stale one left over from before the reload.
@@ -4881,8 +4958,19 @@ type CapabilityGuard = (capability: Capability, ticketId?: number, silent?: bool
 
 /** The vscode bindings for the inside-action dispatches (Task 13). Every
  *  target was already containment- and ownership-checked by the panel; these
- *  resolve the recorded object to its real-world surface. */
-function makeInsideActionHost(store: Store): InsideActionHost {
+ *  resolve the recorded object to its real-world surface. Graph controls
+ *  (Slice 3 Task 11) arrive as host callbacks — the transport/session surface
+ *  they need lives in `activate`, not here. */
+function makeInsideActionHost(
+  store: Store,
+  graphHost: {
+    graphOpenSession: (
+      ticketId: number,
+      session: { kind: 'planner' | 'node'; runId: number },
+    ) => void;
+    graphStop: (ticketId: number) => void | Promise<void>;
+  },
+): InsideActionHost {
   return {
     openFile: (path) => void vscode.commands.executeCommand('vscode.open', vscode.Uri.file(path)),
     openPr: (_ticketId, prId) => {
@@ -4953,6 +5041,8 @@ function makeInsideActionHost(store: Store): InsideActionHost {
         { title, placeHolder: 'Recorded repository evidence' },
       );
     },
+    graphOpenSession: (ticketId, session) => graphHost.graphOpenSession(ticketId, session),
+    graphStop: (ticketId) => graphHost.graphStop(ticketId),
   };
 }
 

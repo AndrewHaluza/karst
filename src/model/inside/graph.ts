@@ -1,11 +1,19 @@
 /**
- * Read-only Inside projection for the graph runtime (Slice 2 Task 10).
+ * Read-only Inside projection for the graph runtime (Slice 2 Task 10, Slice 3
+ * Task 11 controls).
  *
  * A pure function of persisted rows — graph run, revision, planner runs,
- * compile diagnostics, and the artifact list — rendered as ONE process in the
- * impl strip, with the detail rows as its evidence. NO controls yet, and it
- * is behind a feature flag (`enabled`) so this slice ships inert: with the
- * flag off or no graph run the projection is null.
+ * node runs, compile diagnostics, and the artifact list — rendered as ONE
+ * process in the impl strip, with the detail rows as its evidence. It is
+ * behind a feature flag (`enabled`): with the flag off or no graph run the
+ * projection is null.
+ *
+ * Controls ride the same opaque typed-action seam every inside process uses:
+ * a row's `action` is minted through the injected `attach` closure (absent →
+ * no actions). Open focuses a live planner/node session (never spawns one);
+ * Stop signals the coordinator to drain. A ready node under `maxParallel: 1`
+ * renders an explicit serialized reason row, so deliberate serialization
+ * never reads as a scheduler defect.
  *
  * Every graph-derived label, reason, artifact name, and log line passes
  * through `sanitizeGraphText`, the one audited escaper of this module: ANSI
@@ -18,6 +26,7 @@ import type {
   EvidenceRow,
   InsideProcessView,
   InsideStatus,
+  TypedInsideAction,
 } from './types.js';
 import { bounded } from './bounds.js';
 
@@ -67,6 +76,39 @@ export interface GraphDiagnosticView {
   message: string;
 }
 
+export interface GraphNodeRunView {
+  nodeRunId: number;
+  nodeId: string;
+  nodeKind: string;
+  visitNumber: number;
+  status: string;
+  outcome: string | null;
+  reason: string | null;
+  provider: string | null;
+  model: string | null;
+  effort: string | null;
+  profile: string | null;
+  launchAttempt: number;
+}
+
+/** The execution policy the node rows' visit budgets and serialization read. */
+export interface GraphExecutionView {
+  maxParallel: number;
+  maxNodeRuns: number;
+}
+
+/** A session the host has live for this graph run: planner or node run. */
+export type GraphLiveSessionView = { kind: 'planner' | 'node'; runId: number };
+
+/**
+ * The ticket-less target shape this projection hands to the injected `attach`
+ * closure — the host mints the opaque action id and returns the
+ * `{actionId, kind}` the row carries (same contract as `InsideEvidenceTarget`).
+ */
+export type GraphActionTarget =
+  | { kind: 'graph-open-session'; session: { kind: 'planner' | 'node'; runId: number } }
+  | { kind: 'graph-stop' };
+
 export interface GraphInsideInput {
   /** Feature flag: the projection ships inert until Slice 3 enables it. */
   enabled: boolean;
@@ -78,9 +120,19 @@ export interface GraphInsideInput {
     createdAt: string;
   } | null;
   plannerRuns: GraphPlannerRunView[];
+  nodeRuns: GraphNodeRunView[];
+  execution: GraphExecutionView;
   revision: GraphRevisionView | null;
   diagnostics: GraphDiagnosticView[];
   artifacts: GraphArtifactView[];
+  /** Sessions the host has live, keyed by run row id. */
+  liveSessions: GraphLiveSessionView[];
+  /**
+   * The host's attach closure for this snapshot (Slice 3 Task 11). Absent →
+   * rows carry no actions. A row's action is minted ONLY when a live session
+   * backs it: Open reveals a terminal, it never spawns one.
+   */
+  attach?: (target: GraphActionTarget) => TypedInsideAction | undefined;
   now: string;
 }
 
@@ -134,6 +186,50 @@ function revisionStatus(status: string): InsideStatus {
   }
 }
 
+function nodeRunStatus(status: string): InsideStatus {
+  switch (status) {
+    case 'ready':
+    case 'waiting-resource':
+      return 'pending';
+    case 'launching':
+    case 'running':
+    case 'completing':
+    case 'integrating':
+      return 'run';
+    case 'completed':
+      return 'pass';
+    case 'blocked':
+    case 'failed-to-launch':
+    case 'launch-unknown':
+    case 'termination-unknown':
+      return 'wait';
+    case 'stale':
+    case 'cancelled':
+      return 'note';
+    default:
+      return 'pending';
+  }
+}
+
+/**
+ * The graph-run statuses a Stop action is offered on: the coordinator is
+ * live and a drain is a meaningful signal. A closed, blocked, or stale run
+ * carries no stop action — Stop never reads as a reset.
+ */
+const STOPPABLE_RUN_STATUSES: readonly string[] = [
+  'planning',
+  'awaiting-confirmation',
+  'running',
+] as const;
+
+function hasLiveSession(
+  liveSessions: GraphLiveSessionView[],
+  kind: 'planner' | 'node',
+  runId: number,
+): boolean {
+  return liveSessions.some((s) => s.kind === kind && s.runId === runId);
+}
+
 function formatBytes(size: number): string {
   if (size < 1024) return `${size} B`;
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
@@ -156,6 +252,9 @@ export function graphInsideProcess(
       `run ${input.graphRun.id} · ${input.graphRun.status} · ${input.graphRun.approachId}`,
     ),
     status: graphRunStatus(input.graphRun.status),
+    ...(STOPPABLE_RUN_STATUSES.includes(input.graphRun.status) && input.attach
+      ? { action: input.attach({ kind: 'graph-stop' }) }
+      : {}),
   });
 
   for (const planner of input.plannerRuns) {
@@ -165,6 +264,52 @@ export function graphInsideProcess(
         `${planner.kind} · ${planner.status} · compile attempt ${planner.compileAttempt}`,
       ),
       status: plannerStatus(planner.status),
+    });
+  }
+
+  for (const node of input.nodeRuns) {
+    const detail = [
+      `${node.nodeKind} · ${node.status}`,
+      node.provider,
+      node.model,
+      node.effort,
+      node.profile ? `profile ${node.profile}` : null,
+      `visit ${node.visitNumber}/${input.execution.maxNodeRuns}`,
+      node.outcome,
+      node.reason,
+    ]
+      .filter((part): part is string => part !== null && part !== undefined && part !== '')
+      .join(' · ');
+    rows.push({
+      label: `node ${sanitizeGraphText(node.nodeId)}`,
+      detail: sanitizeGraphText(detail),
+      status: nodeRunStatus(node.status),
+      // Open reveals a live session's terminal; it never spawns one. A node
+      // with no live session gets no action at all.
+      ...(hasLiveSession(input.liveSessions, 'node', node.nodeRunId) && input.attach
+        ? {
+            action: input.attach({
+              kind: 'graph-open-session',
+              session: { kind: 'node', runId: node.nodeRunId },
+            }),
+          }
+        : {}),
+    });
+  }
+
+  // A ready node under maxParallel 1 is serialized BY POLICY — the explicit
+  // reason row keeps deliberate serialization from reading as a scheduler
+  // defect (Slice 3 Task 11).
+  if (
+    input.execution.maxParallel === 1 &&
+    input.nodeRuns.some((n) => n.status === 'ready')
+  ) {
+    rows.push({
+      label: 'serialized',
+      detail: sanitizeGraphText(
+        `maxParallel ${input.execution.maxParallel} — ready nodes run one at a time`,
+      ),
+      status: 'note',
     });
   }
 

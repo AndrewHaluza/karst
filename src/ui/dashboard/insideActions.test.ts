@@ -91,6 +91,53 @@ function seedPr(id: number, ticketId: number, number: number | null = 40): void 
     .run(id, ticketId, '/web', number, `https://github.com/o/r/pull/${number ?? 1}`, 'open');
 }
 
+/** Seed a graph run + an active revision; returns both row ids. */
+function seedGraph(
+  over: { ticketId?: number; runId?: number; status?: string } = {},
+): { graphRunId: number; revisionId: number } {
+  const graphRunId = over.runId ?? 1;
+  store.db
+    .prepare(
+      `INSERT INTO approach_graph_runs
+         (id, ticket_id, stage_key, stage_attempt, approach_id, status, created_at)
+       VALUES (?, ?, 'impl', 0, 'karst-graph-engineering', ?, '2026-08-12T00:00:00.000Z')`,
+    )
+    .run(graphRunId, over.ticketId ?? 1, over.status ?? 'running');
+  const revisionId = Number(
+    store.db
+      .prepare(
+        `INSERT INTO approach_graph_revisions
+           (graph_run_id, revision_number, canonical_graph, fingerprint, status, created_at)
+         VALUES (?, 1, '{}', 'fp', 'active', '2026-08-12T00:00:00.000Z')`,
+      )
+      .run(graphRunId)
+      .lastInsertRowid,
+  );
+  return { graphRunId, revisionId };
+}
+
+/** Seed a node run under the given revision; returns its id. */
+function seedNodeRun(revisionId: number, over: { id: number; graphRunId: number; status?: string }): void {
+  store.db
+    .prepare(
+      `INSERT INTO approach_node_runs
+         (id, graph_run_id, revision_id, node_id, node_kind, visit_number, status)
+       VALUES (?, ?, ?, 'worker', 'agent', 1, ?)`,
+    )
+    .run(over.id, over.graphRunId, revisionId, over.status ?? 'running');
+}
+
+/** Seed a planner run under the given graph run; returns its id. */
+function seedPlannerRun(graphRunId: number, over: { id: number; status?: string }): void {
+  store.db
+    .prepare(
+      `INSERT INTO approach_planner_runs
+         (id, graph_run_id, planner_run_number, kind, status)
+       VALUES (?, ?, 1, 'bootstrap', ?)`,
+    )
+    .run(over.id, graphRunId, over.status ?? 'running');
+}
+
 /** A worktree map keyed by repo path. */
 const worktrees = new Map<string, string>([['/web', '/wt/web']]);
 
@@ -108,6 +155,9 @@ function host(calls: string[]): InsideActionHost {
     openFullEvidence: (ticketId, processRunId) => void calls.push(`evidence:${ticketId}:${processRunId}`),
     openBoundedEvidence: (ticketId, title, rows) =>
       void calls.push(`bounded:${ticketId}:${title}:${rows.map((row) => row.label).join(',')}`),
+    graphOpenSession: (ticketId, session) =>
+      void calls.push(`graph-open:${ticketId}:${session.kind}:${session.runId}`),
+    graphStop: (ticketId) => void calls.push(`graph-stop:${ticketId}`),
   };
 }
 
@@ -461,5 +511,73 @@ describe('dispatchInsideAction', () => {
       outcome: 'dispatched',
     });
     expect(calls).toEqual(['file:/wt/web/src/foo.ts']);
+  });
+
+  it('dispatches graph-open-session only for a node/planner run owned by this ticket', () => {
+    const mine = seedGraph({ ticketId: 1, runId: 1 });
+    seedNodeRun(mine.revisionId, { id: 11, graphRunId: 1 });
+    seedPlannerRun(1, { id: 21 });
+    // A node run under ANOTHER ticket's graph run: exists, but not this
+    // ticket's — rejected, never revealed.
+    const theirs = seedGraph({ ticketId: 2, runId: 2 });
+    seedNodeRun(theirs.revisionId, { id: 12, graphRunId: 2 });
+
+    const r = registry(7);
+    r.register({ kind: 'graph-open-session', ticketId: 1, session: { kind: 'node', runId: 11 } });
+    const calls: string[] = [];
+    expect(dispatchInsideAction(store, r, 'snapshot-7:action-0', deps(calls))).toEqual({
+      outcome: 'dispatched',
+    });
+    expect(calls).toEqual(['graph-open:1:node:11']);
+
+    const r2 = registry(7);
+    r2.register({ kind: 'graph-open-session', ticketId: 1, session: { kind: 'planner', runId: 21 } });
+    expect(dispatchInsideAction(store, r2, 'snapshot-7:action-0', deps([]))).toEqual({
+      outcome: 'dispatched',
+    });
+
+    const r3 = registry(7);
+    r3.register({ kind: 'graph-open-session', ticketId: 1, session: { kind: 'node', runId: 12 } });
+    expect(dispatchInsideAction(store, r3, 'snapshot-7:action-0', deps([]))).toEqual({
+      outcome: 'rejected',
+      reason: 'session run not found for this ticket',
+    });
+
+    const r4 = registry(7);
+    r4.register({ kind: 'graph-open-session', ticketId: 1, session: { kind: 'node', runId: 999 } });
+    expect(dispatchInsideAction(store, r4, 'snapshot-7:action-0', deps([]))).toEqual({
+      outcome: 'rejected',
+      reason: 'session run not found for this ticket',
+    });
+  });
+
+  it('dispatches graph-stop only while a live graph run exists for the ticket', () => {
+    seedGraph({ ticketId: 1, runId: 1, status: 'running' });
+    const r = registry(7);
+    r.register({ kind: 'graph-stop', ticketId: 1 });
+    const calls: string[] = [];
+    expect(dispatchInsideAction(store, r, 'snapshot-7:action-0', deps(calls))).toEqual({
+      outcome: 'dispatched',
+    });
+    expect(calls).toEqual(['graph-stop:1']);
+
+    // A ticket with NO graph run is rejected — Stop never signals nothing.
+    const r2 = registry(7, 2);
+    r2.register({ kind: 'graph-stop', ticketId: 2 });
+    expect(dispatchInsideAction(store, r2, 'snapshot-7:action-0', deps([]))).toEqual({
+      outcome: 'rejected',
+      reason: 'no live graph run to stop',
+    });
+
+    // A run that is no longer stoppable (closed) is rejected, never stopped.
+    store.db
+      .prepare("UPDATE approach_graph_runs SET status = 'closed' WHERE id = 1")
+      .run();
+    const r3 = registry(7);
+    r3.register({ kind: 'graph-stop', ticketId: 1 });
+    expect(dispatchInsideAction(store, r3, 'snapshot-7:action-0', deps([]))).toEqual({
+      outcome: 'rejected',
+      reason: 'no live graph run to stop',
+    });
   });
 });

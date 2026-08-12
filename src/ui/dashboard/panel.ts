@@ -27,6 +27,7 @@ import { parseInsideProgress, parseWebviewMessage, routeAction, type DashboardAc
 import type { InsideActionResult } from './messages.js';
 import type { WorktreeStatsLoader } from './worktreeStats.js';
 import type { GateOptions, GateOptionsLoader } from './gateOptions.js';
+import type { GraphInsideInput } from '../../model/inside/graph.js';
 import { readRequestId, reportAction } from '../../model/actionResult.js';
 import { hasLiveWork, LIVE_TICK_MS } from './liveTick.js';
 
@@ -261,6 +262,12 @@ export class DashboardManager {
      * highlight). Called alongside the terminal binding; absent → no report.
      */
     private readonly onViewActivated?: (ticketId: number, active: boolean) => void,
+    /**
+     * The host-built graph Inside input (Slice 3 Task 11) — the manager never
+     * reads the graph tables. Absent → the graph projection is inert, which is
+     * the pre-wiring state. Keyed by ticket because the read is per-ticket.
+     */
+    private readonly graphInsideFor?: (ticketId: number) => GraphInsideInput | null,
   ) {}
 
   /**
@@ -465,6 +472,9 @@ export class DashboardManager {
       // The inside ship rows name the repository, never the path the runtime
       // tables key by — the manifest's name for a recorded repoPath.
       (repo) => this.repoNameFor(repo),
+      // The graph runtime's read-only projection (Slice 3 Task 11): built
+      // host-side, null for a ticket with no graph run.
+      this.graphInsideFor?.(ticketId),
     );
     // `live` marks a REPAINT of data the panel already had, as opposed to a
     // push that reports something happening. The webview defers a live repaint
@@ -769,4 +779,6 @@ const NOOP_INSIDE_HOST: InsideActionHost = {
   resumeStage: () => undefined,
   openFullEvidence: () => undefined,
   openBoundedEvidence: () => undefined,
+  graphOpenSession: () => undefined,
+  graphStop: () => undefined,
 };

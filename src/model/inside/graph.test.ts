@@ -54,6 +54,25 @@ function input(overrides?: Partial<GraphInsideInput>): GraphInsideInput {
         createdAt: '2026-08-11T00:00:00.000Z',
       },
     ],
+    nodeRuns: [
+      {
+        nodeRunId: 11,
+        nodeId: 'implement',
+        nodeKind: 'agent',
+        visitNumber: 1,
+        status: 'running',
+        outcome: null,
+        reason: null,
+        provider: 'codex',
+        model: 'sol',
+        effort: 'high',
+        profile: 'default',
+        launchAttempt: 2,
+      },
+    ],
+    execution: { maxParallel: 1, maxNodeRuns: 40 },
+    liveSessions: [{ kind: 'node', runId: 11 }],
+    attach: (target) => ({ actionId: 'snapshot-1:action-1', kind: target.kind }),
     now: '2026-08-11T01:00:00.000Z',
     ...overrides,
   };
@@ -104,6 +123,7 @@ describe('graphInsideProcess', () => {
     expect(rows.map((r) => r.label)).toEqual([
       'graph',
       'planner 1',
+      'node implement',
       'revision',
       '<script>alert(1)</script>red alert(2) x plain',
       'edge-outcome-undeclared',
@@ -111,6 +131,64 @@ describe('graphInsideProcess', () => {
     ]);
     expect(rows[0]!.status).toBe('run');
     expect(rows[0]!.detail).toContain('run 7');
+  });
+
+  it('shows the node identity, visit count and budget, and its live session action', () => {
+    const process = graphInsideProcess(input())!;
+    if (process.evidence?.kind !== 'rows') return;
+    const node = process.evidence.rows.find((r) => r.label === 'node implement')!;
+    expect(node.detail).toContain('agent · running');
+    expect(node.detail).toContain('codex');
+    expect(node.detail).toContain('sol');
+    expect(node.detail).toContain('high');
+    expect(node.detail).toContain('profile default');
+    expect(node.detail).toContain('visit 1/40');
+    expect(node.action).toMatchObject({ kind: 'graph-open-session' });
+  });
+
+  it('explains the serialization reason for a ready node — never a scheduler defect', () => {
+    const process = graphInsideProcess(
+      input({
+        nodeRuns: [
+          {
+            nodeRunId: 12,
+            nodeId: 'ready-node',
+            nodeKind: 'agent',
+            visitNumber: 1,
+            status: 'ready',
+            outcome: null,
+            reason: null,
+            provider: 'claude',
+            model: null,
+            effort: null,
+            profile: 'expert',
+            launchAttempt: 0,
+          },
+        ],
+        liveSessions: [],
+      }),
+    )!;
+    if (process.evidence?.kind !== 'rows') return;
+    const rows = process.evidence.rows;
+    expect(rows.map((r) => r.label)).toContain('node ready-node');
+    const reason = rows.find((r) => r.label === 'serialized');
+    expect(reason).toBeDefined();
+    expect(reason!.detail).toContain('maxParallel');
+    // A ready node with no live session gets no open-session action — Open
+    // reveals a terminal, it never spawns one.
+    const node = rows.find((r) => r.label === 'node ready-node')!;
+    expect(node.action).toBeUndefined();
+  });
+
+  it('attaches the stop action to a running graph run and none once it is closed', () => {
+    const running = graphInsideProcess(input())!;
+    if (running.evidence?.kind !== 'rows') return;
+    expect(running.evidence.rows[0]!.action).toMatchObject({ kind: 'graph-stop' });
+    const closed = graphInsideProcess(
+      input({ graphRun: { id: 7, status: 'completed-awaiting-impl-marker', approachId: 'g', stageAttempt: 0, createdAt: '2026-08-11T00:00:00.000Z' } }),
+    )!;
+    if (closed.evidence?.kind !== 'rows') return;
+    expect(closed.evidence.rows[0]!.action).toBeUndefined();
   });
 
   it('renders every graph-derived string with ANSI/controls and unsafe schemes removed, bounded', () => {

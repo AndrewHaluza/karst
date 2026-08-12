@@ -53,7 +53,17 @@ export type InsideActionTarget =
       ticketId: number;
       title: string;
       rows: readonly EvidenceRow[];
-    };
+    }
+  // Graph controls (Slice 3 Task 11). `session.runId` is a RECORDED
+  // planner-run / node-run row id — the dispatch re-loads it and proves it
+  // belongs to the registry's ticket before the host focuses anything. Stop
+  // is offered only while a live graph run exists for the ticket.
+  | {
+      kind: 'graph-open-session';
+      ticketId: number;
+      session: { kind: 'planner' | 'node'; runId: number };
+    }
+  | { kind: 'graph-stop'; ticketId: number };
 
 /** Longest accepted action id. Ids are `snapshot-<n>:action-<n>`; this is slack. */
 export const MAX_ACTION_ID_CHARS = 96;
@@ -117,12 +127,51 @@ export interface InsideActionHost {
     title: string,
     rows: readonly EvidenceRow[],
   ): void | Promise<void>;
+  /**
+   * Focus the terminal of a LIVE planner/node session. Never spawns: the
+   * dispatch has already proven the run row exists and belongs to the ticket.
+   */
+  graphOpenSession(
+    ticketId: number,
+    session: { kind: 'planner' | 'node'; runId: number },
+  ): void | Promise<void>;
+  /** Signal the coordinator to drain the ticket's live graph run. */
+  graphStop(ticketId: number): void | Promise<void>;
 }
 
 export type InsideDispatchOutcome =
   | { outcome: 'dispatched' }
   | { outcome: 'rejected'; reason: string }
   | { outcome: 'unknown' };
+
+/**
+ * The graph-run statuses Stop may signal on — the coordinator is live and a
+ * drain is meaningful. Mirrors the pure projection's own stoppable set; a
+ * closed/blocked/stale run is never stopped by this id.
+ */
+const GRAPH_STOPPABLE_STATUSES: readonly string[] = [
+  'planning',
+  'awaiting-confirmation',
+  'running',
+] as const;
+
+/** Prove a planner/node run row belongs to the registry's ticket. */
+function graphSessionOwner(
+  store: Store,
+  kind: 'planner' | 'node',
+  runId: number,
+  ticketId: number,
+): boolean {
+  const table = kind === 'planner' ? 'approach_planner_runs' : 'approach_node_runs';
+  const row = store.db
+    .prepare(
+      `SELECT gr.ticket_id AS ticketId
+         FROM ${table} r JOIN approach_graph_runs gr ON gr.id = r.graph_run_id
+        WHERE r.id = ?`,
+    )
+    .get(runId) as { ticketId: number } | undefined;
+  return row !== undefined && row.ticketId === ticketId;
+}
 
 function owned<T extends { ticketId: number }>(
   row: T | undefined,
@@ -260,6 +309,28 @@ export function dispatchInsideAction(
     }
     case 'open-bounded-evidence': {
       void deps.host.openBoundedEvidence(target.ticketId, target.title, target.rows);
+      return { outcome: 'dispatched' };
+    }
+    case 'graph-open-session': {
+      // Open reveals a LIVE session's terminal — it never spawns one. The
+      // proof is the recorded run row: it must exist and belong to this
+      // ticket, or the id is stale/foreign.
+      if (!graphSessionOwner(store, target.session.kind, target.session.runId, target.ticketId)) {
+        return { outcome: 'rejected', reason: 'session run not found for this ticket' };
+      }
+      void deps.host.graphOpenSession(target.ticketId, target.session);
+      return { outcome: 'dispatched' };
+    }
+    case 'graph-stop': {
+      const row = store.db
+        .prepare(
+          'SELECT status FROM approach_graph_runs WHERE ticket_id = ? ORDER BY id DESC LIMIT 1',
+        )
+        .get(target.ticketId) as { status: string } | undefined;
+      if (row === undefined || !GRAPH_STOPPABLE_STATUSES.includes(row.status)) {
+        return { outcome: 'rejected', reason: 'no live graph run to stop' };
+      }
+      void deps.host.graphStop(target.ticketId);
       return { outcome: 'dispatched' };
     }
   }
