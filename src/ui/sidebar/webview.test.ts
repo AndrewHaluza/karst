@@ -61,11 +61,14 @@ describe('sidebar webview.html', () => {
     expect(HTML).not.toContain('row.nextAction');
   });
 
-  it('renders an activity line for the session runtime state + relative time', () => {
-    expect(HTML).toContain('class="activity"');
-    expect(HTML).toContain('activityLine(row)');
-    expect(HTML).toContain('row.activityLabel');
-    expect(HTML).toContain('relTime(row.lastActiveAt)');
+  it('renders the stage-aware mini-dashboard summary (peek title + detail + next CTA)', () => {
+    // The expanded body's headline is the host-derived peek summary (peek.ts):
+    // the strongest current-state line, one small context line, and the
+    // suggested next step — all escaped before reaching innerHTML.
+    expect(HTML).toContain('class="peek-title">${esc(peek.title)}');
+    expect(HTML).toContain('class="peek-detail">${esc(peek.detail)}');
+    expect(HTML).toContain('nextCtaHtml(peek.next, row)');
+    expect(HTML).toContain('const peek = row.peek;');
   });
 
   it('renders a meta line that omits empty tokens (model/repos/ports/PR) instead of dashes', () => {
@@ -129,8 +132,11 @@ describe('sidebar webview.html', () => {
     expect(HTML).toContain('${sessVerb} session');
   });
 
-  it('renders the session subtitle from row.sessionAction.detail', () => {
-    expect(HTML).toContain('row.sessionAction.detail');
+  it('renders the session verb as the toolbar terminal label', () => {
+    // The mini-dashboard toolbar's Terminal button states which of the two it
+    // does — "Continue" a captured session, or "Start" a fresh one. The
+    // session detail itself moved host-side into the peek summary.
+    expect(HTML).toContain('aria-label="${sessVerb} session"');
   });
 
   it('falls back rather than painting an empty pill from a stale snapshot', () => {
@@ -319,8 +325,12 @@ describe('sidebar webview.html', () => {
     expect(HTML).toContain('k-btn k-btn--danger" data-act="delete"');
   });
 
-  it('archive uses the danger variant (UI-R10b) while unarchive (a restore, not destructive) does not', () => {
-    expect(HTML).toContain('k-iconbtn k-iconbtn--danger" data-act="archive"');
+  it('archive keeps the danger variant in the overflow menu (UI-R10b) while unarchive does not', () => {
+    // Archive moved out of the hover strip into the expanded mini-dashboard's
+    // overflow menu, keeping its danger treatment; unarchive (a restore, not
+    // destructive) stays plain.
+    expect(HTML).toContain('k-btn k-btn--danger" data-act="archive"');
+    expect(HTML).not.toMatch(/k-iconbtn--danger"\s*data-act="archive"/);
     expect(HTML).not.toMatch(/k-iconbtn--danger"\s*data-act="unarchive"/);
   });
 
@@ -447,7 +457,10 @@ describe('sidebar webview.html', () => {
     // leaving the label hugging the left of a wide card; the ghost variant's
     // own centering now applies untouched (UI-R07).
     expect(script).not.toContain('hist-side');
-    expect(script).not.toContain('<span class="sp"></span>');
+    // The mini-dashboard toolbar legitimately has a spacer (.dashbar .sp), so
+    // the "no spacer" claim is scoped to the history disclosure's own markup.
+    const histFn = script.match(/function histToggle\([\s\S]*?\n  \}/)?.[0] ?? '';
+    expect(histFn, histFn).not.toContain('class="sp"');
     expect(main).not.toContain('.hist .sp');
     expect(main).not.toContain('.hist-side');
     // The ghost variant's own hover (surface wash + text brighten) is the whole
@@ -523,5 +536,103 @@ describe('sidebar webview.html', () => {
     const script = scriptBlock();
     expect(script).not.toContain("type:'toggle-history'");
     expect(script).not.toContain("type:'set-history'");
+  });
+
+  // ── Expanded mini-dashboard (869ehda7y) ────────────────────────────────────
+
+  it('the collapsed hover strip shows Spin / Terminal / Dashboard and nothing else', () => {
+    const script = scriptBlock();
+    // The three quick actions ride the hover strip…
+    expect(script).toContain('data-act="spin"');
+    expect(script).toContain('data-act="open-session"');
+    expect(script).toContain('data-act="open-dashboard"');
+    // …and Edit/Archive are NOT there anymore — they moved to the expanded
+    // mini-dashboard's overflow menu (secondary by design).
+    expect(script).not.toMatch(/data-act="edit"[^>]*class="[^"]*k-iconbtn"/);
+    expect(script).not.toMatch(/data-act="archive"[^>]*class="[^"]*k-iconbtn"/);
+  });
+
+  it('an expanded row suppresses the collapsed hover strip (CSS + not rendered)', () => {
+    const [main] = styleBlocks();
+    const script = scriptBlock();
+    // Both belts: the strip is not rendered while the row is open…
+    expect(script).toContain("const hoverStrip = isOpen ? '' : `<span class=\"rowacts\">${acts}</span>`;");
+    // …and a stale snapshot that already rendered one is hidden by CSS.
+    expect(main).toContain('.ticket.open .rowacts{display:none}');
+    expect(main).toContain('.ticket.open .row:hover .stage{opacity:1}');
+  });
+
+  it('the expanded mini-dashboard carries a stable toolbar with Spin / Terminal / Dashboard + overflow', () => {
+    const script = scriptBlock();
+    expect(script).toContain('function dashbarHtml(row, sessVerb, menuOpen)');
+    // The toolbar is the same three quick actions, in a bar.
+    expect(script).toContain('data-act="spin"');
+    expect(script).toContain('data-act="open-session"');
+    expect(script).toContain('data-act="open-dashboard"');
+    // Plus the overflow disclosure.
+    expect(script).toContain('data-menu="${row.ticketId}"');
+    expect(script).toContain('ic.more');
+    // The bar is stable CSS, not a hover-only overlay.
+    const [main] = styleBlocks();
+    expect(main).toContain('.dashbar{display:flex;');
+    expect(main).toContain('.dashbar .sp{flex:1}');
+  });
+
+  it('the overflow disclosure is a real button with aria-expanded and an in-flow menu (never clipped)', () => {
+    const script = scriptBlock();
+    // Native disclosure semantics on the ⋯ control (UI-R09/R26)…
+    expect(script).toContain('data-menu="${row.ticketId}" aria-expanded="${menuOpen}"');
+    // …and the menu is IN-FLOW below the bar, so the list's scroll container
+    // can never clip it — no absolutely-positioned popup.
+    expect(script).toContain('function overflowHtml(row)');
+    expect(script).toContain('data-act="edit"');
+    expect(script).toContain('data-act="archive"');
+    const [main] = styleBlocks();
+    expect(main).toContain('.dashmenu{display:flex;');
+    expect(main).not.toMatch(/\.dashmenu\{[^}]*position:absolute/);
+    expect(main).toContain('.dashmenu{display:flex;flex-direction:column;');
+  });
+
+  it('a Done ticket renders Create follow-up as the expanded primary action', () => {
+    const script = scriptBlock();
+    expect(script).toContain("case 'create-follow-up':");
+    expect(script).toContain('data-act="create-follow-up" data-id="${row.ticketId}"');
+    expect(script).toContain('data-act="create-follow-up"');
+  });
+
+  it('a conflicted ship CTA carries the repo for host-side re-verification', () => {
+    const script = scriptBlock();
+    expect(script).toContain("case 'resolve-conflicts':");
+    expect(script).toContain('data-repo="${esc(next.repo)}"');
+    // The delegated handler forwards repo to the host.
+    expect(script).toContain('if (t.dataset.repo) payload.repo = t.dataset.repo;');
+  });
+
+  it('peek strings are escaped before reaching innerHTML', () => {
+    const script = scriptBlock();
+    for (const expr of ['esc(peek.title)', 'esc(peek.detail)', 'esc(next.label)', 'esc(next.repo)']) {
+      expect(script, expr).toContain(expr);
+    }
+  });
+
+  it('the chevron tightens the gap to the glyph without shrinking its hit target (UI-R29)', () => {
+    const [main] = styleBlocks();
+    const chev = main!.match(/\.chev\s*\{[^}]*\}/)?.[0] ?? '';
+    // Negative right margin pulls the glyph closer — a spacing change, never a
+    // size change: the --k-hit-min target is untouched.
+    expect(chev).toContain('margin-right:calc(-1 * var(--k-space-1))');
+    expect(chev).not.toContain('min-width:auto');
+    expect(chev).not.toContain('min-height:auto');
+  });
+
+  it('the overflow menu state is view-only, keyed to rendered rows like the expand set', () => {
+    const script = scriptBlock();
+    expect(script).toContain('const menu = new Set();');
+    expect(script).toContain('if (menu.has(id)) menu.delete(id); else menu.add(id);');
+    // Pruned with the expand set so it can never grow unbounded.
+    expect(script).toContain('for (const id of [...menu]) if (!ids.has(id)) menu.delete(id);');
+    // No host protocol for it — the host neither knows nor persists it.
+    expect(script).not.toContain("type:'toggle-menu'");
+    expect(script).not.toContain("type:'set-menu'");
   });
 });

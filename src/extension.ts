@@ -536,6 +536,30 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     archive: (id) => void vscode.commands.executeCommand('karst.archiveTicket', id),
     unarchive: (id) => void vscode.commands.executeCommand('karst.unarchiveTicket', id),
     delete: (id) => void vscode.commands.executeCommand('karst.deleteTicket', id),
+    // The expanded mini-dashboard's primary next action on a Done ticket (§
+    // 869ehda7y): the command copies repos/approach/agent/model from the parent
+    // and opens the ticket form so the user can type the follow-up ask.
+    createFollowUp: (id) => void vscode.commands.executeCommand('karst.createFollowUpTicket', id),
+    // The expanded mini-dashboard's "Resolve conflicts" CTA. The store decides
+    // whether the conflict still exists — `repo` arrived in a webview message
+    // and a stale row can name one that has since gone. Same handoff as the
+    // dashboard's resolveConflicts: nudge a live session, else launch one
+    // seeded with the brief (never drop the brief on an open terminal).
+    resolveConflicts: (id, repo) => {
+      if (!guardCapability('sessions', id)) return;
+      const brief = buildConflictBrief(localStore, id, repo);
+      if (!brief) {
+        void vscode.window.showInformationMessage(
+          `No merge conflict is recorded for "${repo}" on this ticket — nothing to resolve.`,
+        );
+        return;
+      }
+      if (sessions.nudge(id, brief)) {
+        sessions.focusSession(id);
+        return;
+      }
+      void vscode.commands.executeCommand('karst.openSession', id, { seedPrompt: brief });
+    },
   }), () => worktreePathContext(currentManifest(), logger.warn, logger.info), () => currentManifest()?.ticketLabelTemplate, logError,
     () => currentProject()?.id,
     () => currentManifest()?.agentProvider,

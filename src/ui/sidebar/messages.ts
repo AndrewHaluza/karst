@@ -23,7 +23,9 @@ export type SidebarWebviewMessage =
   | { type: 'edit'; ticketId: number }
   | { type: 'archive'; ticketId: number }
   | { type: 'unarchive'; ticketId: number }
-  | { type: 'delete'; ticketId: number };
+  | { type: 'delete'; ticketId: number }
+  | { type: 'create-follow-up'; ticketId: number }
+  | { type: 'resolve-conflicts'; ticketId: number; repo: string };
 
 /**
  * Host → webview. The old channel was ONLY `state` — `spin`/`archive`/`delete`
@@ -56,6 +58,8 @@ export interface SidebarActions {
   archive(ticketId: number): void | Promise<void>;
   unarchive(ticketId: number): void | Promise<void>;
   delete(ticketId: number): void | Promise<void>;
+  createFollowUp(ticketId: number): void | Promise<void>;
+  resolveConflicts(ticketId: number, repo: string): void | Promise<void>;
 }
 
 const FACET_KEYS = new Set<string>(FACETS.map((f) => f.key));
@@ -90,7 +94,12 @@ export function parseSidebarMessage(raw: unknown): SidebarWebviewMessage | null 
     case 'archive':
     case 'unarchive':
     case 'delete':
+    case 'create-follow-up':
       return id ? ({ type: m.type, ticketId: m.ticketId as number } as SidebarWebviewMessage) : null;
+    case 'resolve-conflicts':
+      return id && typeof m.repo === 'string'
+        ? ({ type: 'resolve-conflicts', ticketId: m.ticketId as number, repo: m.repo } as SidebarWebviewMessage)
+        : null;
     default:
       return null;
   }
@@ -134,5 +143,9 @@ export function routeSidebarAction(msg: SidebarWebviewMessage, actions: SidebarA
       return actions.unarchive(msg.ticketId);
     case 'delete':
       return actions.delete(msg.ticketId);
+    case 'create-follow-up':
+      return actions.createFollowUp(msg.ticketId);
+    case 'resolve-conflicts':
+      return actions.resolveConflicts(msg.ticketId, msg.repo);
   }
 }

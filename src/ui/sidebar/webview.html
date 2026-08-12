@@ -97,9 +97,12 @@
 
   /* Override .k-iconbtn padding — the prototype chevron has zero inset. The
      min-width/min-height stay at the .k-iconbtn defaults (--k-hit-min) so the
-     expand/collapse target keeps its WCAG 2.5.8 size (UI-R29). */
+     expand/collapse target keeps its WCAG 2.5.8 size (UI-R29). The negative
+     right margin tightens the gap between the chevron and the status glyph
+     (the mini-dashboard redesign) WITHOUT shrinking the hit target — the
+     glyph pulls closer while the control keeps its full box. */
   .chev{transition:transform var(--k-dur-fast) var(--k-ease-standard);
-    padding:0}
+    padding:0;margin-right:calc(-1 * var(--k-space-1))}
   .ticket.open .chev{transform:rotate(90deg)}
 
   /* The row's main click target — opens the ticket dashboard. A real <button>
@@ -166,8 +169,13 @@
     padding-left:var(--k-space-2);opacity:0;pointer-events:none}
   .row:hover .rowacts{opacity:1;pointer-events:auto}
   .row:hover .stage{opacity:0}
+  /* An expanded row's actions live in the mini-dashboard toolbar below, so the
+     collapsed hover strip is suppressed and the stage stays the right anchor —
+     never two copies of the same quick actions visible at once. */
+  .ticket.open .rowacts{display:none}
+  .ticket.open .row:hover .stage{opacity:1}
 
-  /* expanded body */
+  /* expanded body — the compact mini-dashboard */
   .body{display:none;padding:var(--k-space-2) var(--k-space-4) var(--k-space-5) var(--k-space-9)}
   .ticket.open .body{display:block}
 
@@ -176,13 +184,39 @@
   .nextact .att{color:var(--k-text-dim);font-family:var(--k-font-mono);font-size:var(--k-text-2xs);
     margin-left:var(--k-space-2)}
 
-  .activity{font-size:var(--k-text-xs);color:var(--k-text-dim);margin:var(--k-space-1) 0}
-  .sess-sub{color:var(--k-text)}
+  /* The stage-aware summary (peek.ts): the strongest current-state headline
+     plus one small context line. Host-derived, so the standalone webview never
+     phrases domain state (UI-R31). */
+  .peek{margin:var(--k-space-2) 0 var(--k-space-1)}
+  .peek-title{font-size:var(--k-text-sm);color:var(--k-text);font-weight:var(--k-weight-medium)}
+  .peek-detail{font-size:var(--k-text-xs);color:var(--k-text-dim);margin-top:var(--k-space-1)}
 
   .meta{font-size:var(--k-text-2xs);color:var(--k-text-dim);
     font-family:var(--k-font-mono);margin:var(--k-space-2) 0 var(--k-space-1);word-break:break-word}
 
+  /* Archived rows keep their labeled restore/delete pair in a plain flex row —
+     the live mini-dashboard toolbar (.dashbar) only exists for active rows. */
   .actions{display:flex;gap:var(--k-space-3);margin-top:var(--k-space-4)}
+
+  /* The suggested next step — a labeled primary CTA above the toolbar. It may
+     share intent with a toolbar icon action ("Continue session" beside
+     Terminal); that is an emphasis, not the duplication the acceptance bans
+     (which is the collapsed hover strip, suppressed while expanded). */
+  .peek-cta{margin-top:var(--k-space-3)}
+
+  /* The stable action bar: Spin / Terminal / Dashboard + overflow menu. Sits
+     at the bottom of the expanded surface like a card footer. */
+  .dashbar{display:flex;align-items:center;gap:var(--k-space-1);margin-top:var(--k-space-4);
+    padding-top:var(--k-space-2);border-top:var(--k-border-w) solid var(--k-border)}
+  .dashbar .sp{flex:1}
+
+  /* The overflow menu (Edit / Archive) — compact and IN-FLOW below the bar,
+     never an absolutely-positioned popup, so it can never be clipped by the
+     list's scroll container. */
+  .dashmenu{display:flex;flex-direction:column;gap:var(--k-space-1);
+    margin-top:var(--k-space-2);padding:var(--k-space-2);
+    border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-md);
+    background:var(--k-surface)}
 
   /* Section headers (CURRENT · N / RECENTLY DONE · N): lightweight uppercase
      labels, not cards — the list reads as one continuous scroll surface. */
@@ -276,6 +310,10 @@
   // back to `rows` until the fresh state lands.
   let state = { facets:['all'], filter:'', counts:{}, sections:{current:[],recentlyDone:[],olderDone:[]}, done:[], rows:[] };
   const open = new Set();
+  // Which rows' overflow menu (Edit / Archive) is open. View state, like
+  // `open` — the host neither knows nor persists it, and it survives re-renders
+  // until the row's ticket disappears or the user toggles it.
+  const menu = new Set();
   // The Older Completed disclosure is VIEW state, never ticket data: the host
   // neither knows nor persists it. `histUser` separates an explicit click
   // (which sticks across searches and re-renders) from the automatic search
@@ -296,6 +334,7 @@
     edit: karstIcon('pencil', 13),
     arch: karstIcon('archive', 13),
     unarch: karstIcon('history', 13),
+    more: karstIcon('dots', 13),
     // The karst mark (approved #35 silhouette, monochrome for status tint) —
     // the status-tinted row marker.
     mark:'<svg aria-hidden="true" width="13" height="13" viewBox="0 0 215 215" fill="currentColor"><path d="M 96 20 L 25 67 L 25 156 L 98 203 L 98 180 L 44 145 L 44 78 L 97 44 Z"/><path d="M 151 42 L 138 58 L 170 78 L 170 144 L 138 165 L 150 180 L 188 156 L 188 67 Z"/><circle cx="106.5" cy="111.5" r="26.5"/></svg>',
@@ -333,15 +372,10 @@
     return Math.round(h / 24) + 'd ago';
   }
 
-  // The activity line: runtime state of the ticket's session, plus when it last
-  // moved. The second line explains what the session action will do.
-  function activityLine(row) {
-    const label = row.activityLabel || 'No active session';
-    const rel = relTime(row.lastActiveAt);
-    const head = rel ? `${esc(label)} · ${esc(rel)}` : esc(label);
-    const detail = row.sessionAction && row.sessionAction.detail;
-    return detail ? `${head}<br><span class="sess-sub">${esc(detail)}</span>` : head;
-  }
+  // The activity line is retired with the mini-dashboard: its "what is the
+  // session doing" content moved into the host-derived peek summary (peek.ts),
+  // which also carries the next action. `relTime` stays — the Recently Done
+  // rows still show "4m ago".
 
   function metaLine(row) {
     const ports = (row.servers || []).map((s) => s.port).filter(Boolean);
@@ -355,6 +389,48 @@
     return tokens.join(' · ');
   }
 
+  // The expanded mini-dashboard toolbar — the SAME quick actions the collapsed
+  // hover strip shows, moved into a stable bar so expanding never duplicates
+  // them (the hover strip is not rendered while the row is open). Spin is
+  // ticket-level and shown for every row; the host command owns the real
+  // capability/availability rules. The overflow "⋯" is a disclosure button
+  // (aria-expanded) that reveals the in-flow Edit/Archive menu.
+  function dashbarHtml(row, sessVerb, menuOpen) {
+    const menuId = 'dashmenu-' + row.ticketId;
+    return `<div class="dashbar">`
+      + `<button type="button" class="k-iconbtn" data-act="spin" data-id="${row.ticketId}" aria-label="Spin up worktree and dev servers" title="Spin up worktree and dev servers">${ic.spin}</button>`
+      + `<button type="button" class="k-iconbtn" data-act="open-session" data-id="${row.ticketId}" aria-label="${sessVerb} session" title="${sessVerb} session">${ic.sess}</button>`
+      + `<button type="button" class="k-iconbtn" data-act="open-dashboard" data-id="${row.ticketId}" aria-label="Open ticket dashboard" title="Open ticket dashboard">${ic.dash}</button>`
+      + `<span class="sp"></span>`
+      + `<button type="button" class="k-iconbtn" data-menu="${row.ticketId}" aria-expanded="${menuOpen}"${menuOpen ? ` aria-controls="${menuId}"` : ''} aria-label="More ticket actions" title="More ticket actions">${ic.more}</button>`
+      + `</div>`;
+  }
+
+  // The overflow menu: Edit / Archive, deliberately secondary to the toolbar's
+  // Spin / Terminal / Dashboard. In-flow below the bar, so the list's scroll
+  // container can never clip it. Archive keeps its danger treatment (the same
+  // action that was already danger in the hover strip).
+  function overflowHtml(row) {
+    return `<div class="dashmenu" id="dashmenu-${row.ticketId}">`
+      + `<button type="button" class="k-btn k-btn--secondary" data-act="edit" data-id="${row.ticketId}" title="Edit ticket">${ic.edit} Edit ticket</button>`
+      + `<button type="button" class="k-btn k-btn--danger" data-act="archive" data-id="${row.ticketId}" title="Archive ticket, hiding it from the active list">${ic.arch} Archive</button>`
+      + `</div>`;
+  }
+
+  // The contextual primary next action (peek.ts) — a LABELED button, distinct
+  // from the icon-only toolbar. `resolve-conflicts` carries the conflicted repo
+  // so the host can re-verify against the store before opening a session.
+  function nextCtaHtml(next, row) {
+    switch (next.kind) {
+      case 'open-session':
+        return `<button type="button" class="k-btn k-btn--primary peek-cta" data-act="open-session" data-id="${row.ticketId}" title="${esc(next.label)}">${esc(next.label)}</button>`;
+      case 'create-follow-up':
+        return `<button type="button" class="k-btn k-btn--primary peek-cta" data-act="create-follow-up" data-id="${row.ticketId}" title="${esc(next.label)}">${esc(next.label)}</button>`;
+      case 'resolve-conflicts':
+        return `<button type="button" class="k-btn k-btn--primary peek-cta" data-act="resolve-conflicts" data-id="${row.ticketId}" data-repo="${esc(next.repo)}" title="${esc(next.label)}">${esc(next.label)}</button>`;
+    }
+  }
+
   // One ticket row. `compact` switches to the completed-row treatment: check
   // indicator instead of the status glyph, muted title, no stage pill (the
   // section context already says "done"), and — for Recently Done only —
@@ -365,6 +441,7 @@
     opts = opts || {};
     const compact = !!opts.compact;
     const isOpen = open.has(row.ticketId);
+    const menuOpen = menu.has(row.ticketId);
     // A restored snapshot (vscode.getState) can predate stageLabel, so fall
     // back rather than render an empty pill on the first paint after upgrade.
     const stageText = row.stageLabel || row.description || '—';
@@ -385,15 +462,37 @@
     const acts = row.archived
       ? `<button type="button" class="k-iconbtn" data-act="unarchive" data-id="${row.ticketId}" aria-label="Restore ticket to the active list" title="Restore ticket to the active list">${ic.unarch}</button>`
         + `<button type="button" class="k-iconbtn k-iconbtn--danger" data-act="delete" data-id="${row.ticketId}" aria-label="Delete ticket permanently" title="Delete ticket permanently">${ic.del}</button>`
+      // The collapsed hover strip shows the three quick actions — Spin /
+      // Terminal / Dashboard. Edit and Archive are NOT here anymore: they are
+      // secondary and live in the expanded mini-dashboard's overflow menu.
       : `<button type="button" class="k-iconbtn" data-act="spin" data-id="${row.ticketId}" aria-label="Spin up worktree and dev servers" title="Spin up worktree and dev servers">${ic.spin}</button>`
         + `<button type="button" class="k-iconbtn" data-act="open-session" data-id="${row.ticketId}" aria-label="${sessVerb} session" title="${sessVerb} session">${ic.sess}</button>`
-        + `<button type="button" class="k-iconbtn" data-act="edit" data-id="${row.ticketId}" aria-label="Edit ticket" title="Edit ticket">${ic.edit}</button>`
-        + `<button type="button" class="k-iconbtn k-iconbtn--danger" data-act="archive" data-id="${row.ticketId}" aria-label="Archive ticket, hiding it from the active list" title="Archive ticket, hiding it from the active list">${ic.arch}</button>`;
-    const bodyActs = row.archived
-      ? `<button type="button" class="k-btn k-btn--secondary" data-act="unarchive" data-id="${row.ticketId}" title="Restore ticket to the active list">${ic.unarch} Unarchive</button>`
-        + `<button type="button" class="k-btn k-btn--danger" data-act="delete" data-id="${row.ticketId}" title="Delete ticket permanently">${ic.del} Delete</button>`
-      : `<button type="button" class="k-btn k-btn--primary" data-act="open-dashboard" data-id="${row.ticketId}" title="Open the ticket dashboard">${ic.dash} Open dashboard</button>`
-        + `<button type="button" class="k-btn k-btn--secondary" data-act="open-session" data-id="${row.ticketId}" title="${sessVerb} the ticket session">${ic.sess} ${sessVerb} session</button>`;
+        + `<button type="button" class="k-iconbtn" data-act="open-dashboard" data-id="${row.ticketId}" aria-label="Open ticket dashboard" title="Open ticket dashboard">${ic.dash}</button>`;
+    // The hover strip is only rendered while the row is COLLAPSED — expanding
+    // moves the same quick actions into the toolbar below, so the two are never
+    // visible at once (no duplicated quick actions).
+    const hoverStrip = isOpen ? '' : `<span class="rowacts">${acts}</span>`;
+
+    // The stage-aware mini-dashboard content (peek.ts): strongest summary +
+    // one small context line + the suggested next step. Archived rows keep
+    // their restore/delete pair instead. A pre-upgrade snapshot has no peek
+    // and renders the plain meta only.
+    const peek = row.peek;
+    const peekHtml = !row.archived && peek
+      ? `<div class="peek">`
+          + `<div class="peek-title">${esc(peek.title)}</div>`
+          + (peek.detail ? `<div class="peek-detail">${esc(peek.detail)}</div>` : '')
+        + `</div>`
+        + (peek.next ? nextCtaHtml(peek.next, row) : '')
+      : '';
+    const meta = metaLine(row);
+    const metaHtml = meta ? `<div class="meta">${meta}</div>` : '';
+    const bar = row.archived
+      ? `<div class="actions">`
+          + `<button type="button" class="k-btn k-btn--secondary" data-act="unarchive" data-id="${row.ticketId}" title="Restore ticket to the active list">${ic.unarch} Unarchive</button>`
+          + `<button type="button" class="k-btn k-btn--danger" data-act="delete" data-id="${row.ticketId}" title="Delete ticket permanently">${ic.del} Delete</button>`
+        + `</div>`
+      : dashbarHtml(row, sessVerb, menuOpen) + (menuOpen ? overflowHtml(row) : '');
 
     // Decorative content of the row's main click target — never another
     // interactive control (UI-R09; see the `.rowopen` comment in <style>).
@@ -420,7 +519,7 @@
       + `<div class="row">`
       + `<button type="button" class="k-iconbtn chev" data-toggle="${row.ticketId}" aria-expanded="${isOpen}" aria-label="${toggleLabel}" title="${toggleLabel}">${chev}</button>`
       + openControl
-      + `<span class="rowacts">${acts}</span>`
+      + hoverStrip
       + `</div>`
       + `<div class="body">`
       + (() => { const b = row.blocker; if (!b) return '';
@@ -430,9 +529,9 @@
           const att = b.attempt ? `<span class="att">attempt ${b.attempt}</span>` : '';
           if (!txt && !att) return '';
           return `<div class="nextact warn">⚠ ${txt}${att}</div>`; })()
-      + `<div class="activity">${activityLine(row)}</div>`
-      + (() => { const m = metaLine(row); return m ? `<div class="meta">${m}</div>` : ''; })()
-      + `<div class="actions">${bodyActs}</div>`
+      + peekHtml
+      + metaHtml
+      + bar
       + `</div></div>`;
   }
 
@@ -534,8 +633,17 @@
   // and the watchdog (UI-R11–R14). `data-facet`/`data-toggle` stay immediate —
   // their "settlement" is simply the next `state` push, not a tracked request.
   document.addEventListener('click', (e) => {
-    const t = e.target.closest('[data-act],[data-open],[data-facet],[data-toggle],[data-history]');
+    const t = e.target.closest('[data-act],[data-open],[data-facet],[data-toggle],[data-history],[data-menu]');
     if (!t) return;
+    if (t.dataset.menu) {
+      // The overflow disclosure (⋯): pure view state, like the row's expand —
+      // settlement is the next render, never a tracked request.
+      e.stopPropagation();
+      const id = Number(t.dataset.menu);
+      if (menu.has(id)) menu.delete(id); else menu.add(id);
+      renderList();
+      return;
+    }
     if (t.dataset.act || t.dataset.open) {
       e.stopPropagation();
       if (karstIsPending(t) || t.disabled) { e.preventDefault(); return; }
@@ -543,7 +651,12 @@
       const requestId = karstRequestId();
       karstBeginPending(t, requestId);
       const idRaw = t.dataset.act ? t.dataset.id : t.dataset.open;
-      post(idRaw !== undefined ? { type, ticketId: Number(idRaw), requestId } : { type, requestId });
+      // resolve-conflicts carries the conflicted repo (the peek's first
+      // conflicted repo) so the host re-verifies it against the store.
+      const payload = { type, requestId };
+      if (idRaw !== undefined) payload.ticketId = Number(idRaw);
+      if (t.dataset.repo) payload.repo = t.dataset.repo;
+      post(payload);
       return;
     }
     if (t.dataset.facet) {
@@ -583,6 +696,9 @@
         for (const r of list || []) ids.add(r.ticketId);
       }
       for (const id of [...open]) if (!ids.has(id)) open.delete(id);
+      // The overflow menu is keyed to a rendered row too — prune rows that
+      // disappeared (facet switch, filter, archive).
+      for (const id of [...menu]) if (!ids.has(id)) menu.delete(id);
       // Keep the search box in sync only when the host changed the filter.
       if (el('search').value !== state.filter) el('search').value = state.filter;
       renderFacets();
