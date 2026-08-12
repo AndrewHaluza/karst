@@ -1024,9 +1024,31 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const prDescriptionProcess = (ticketId: number): DriveProcessBundle | null =>
     processFor(ticketId, 'pr-description');
 
-  /** Task 3: the configured ticket-analysis process for the ticket form (nullable). */
-  const analysisProcess = (ticketId: number): DriveProcessBundle | null =>
-    processFor(ticketId, 'ticket-analysis');
+  /**
+   * Task 3: the configured ticket-analysis process for the ticket form
+   * (nullable). A single-subagent ticket analyzes THROUGH its chosen agent:
+   * when the ticket has `approach === 'single-subagent'` and a chosen agent,
+   * the agent's body (its instructions) is overlaid as the assignment's
+   * `instructions` — replacing the built-in analyzer role block, exactly as
+   * the same agent drives the launch. `soloAgentBody` is only CALLED here (at
+   * analyze time), long after the helper is initialized, so the later `const`
+   * declaration is safe to reference.
+   */
+  const analysisProcess = (ticketId: number): DriveProcessBundle | null => {
+    const bundle = processFor(ticketId, 'ticket-analysis');
+    if (bundle === null) return null;
+    const t = getTicket(localStore, ticketId);
+    if (t.approach === 'single-subagent' && t.agent) {
+      const body = soloAgentBody(t.agent);
+      if (body) {
+        logger.debug(
+          `[analysis] ticket #${ticketId} analyzes through single-subagent "${t.agent}" (instructions overlaid)`,
+        );
+        return { ...bundle, assignment: { ...bundle.assignment, instructions: body } };
+      }
+    }
+    return bundle;
+  };
 
   // Drop the cached copy so the next read re-reads from disk. Shared by
   // the ticket form (after a signal writeback) and settings (after a save) so both
@@ -1350,6 +1372,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       });
     } catch {
       return [];
+    }
+  };
+
+  // Resolve a single-subagent's BODY (its instructions) by name: a local agent
+  // file OR an approach artifact, matching the pool entry's `source`. The ONE
+  // resolution the launch path and the ticket-analysis resolver share, so a
+  // chosen agent drives the ticket analysis exactly as it drives the session.
+  // A missing agent / unreadable body → null (the caller keeps its default).
+  const soloAgentBody = (name: string): string | null => {
+    try {
+      const chosen = listAgents().find((a) => a.name === name);
+      if (!chosen) return null;
+      return chosen.source === 'file'
+        ? (readAgentFile(agentsDirOrThrow(), chosen.name)?.body ?? null)
+        : readArtifactBody(approachesDirOrThrow(), chosen.approachId!, chosen.relPath!);
+    } catch {
+      return null;
     }
   };
 
@@ -3113,21 +3152,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // `source`) so it can be materialized into the launch plugin and named in
       // the delegation instruction below. Any resolution failure degrades to no
       // solo agent — the session still opens, just without the plugin/delegation.
+      // Shares `soloAgentBody` with the ticket-analysis resolver, so the chosen
+      // agent drives the analysis and the session with the same instructions.
       let soloAgent: { name: string; body: string } | undefined;
       if (t.approach === 'single-subagent' && t.agent) {
-        try {
-          const pool = listAgents();
-          const chosen = pool.find((a) => a.name === t.agent);
-          if (chosen) {
-            const body =
-              chosen.source === 'file'
-                ? (readAgentFile(agentsDirOrThrow(), chosen.name)?.body ?? null)
-                : readArtifactBody(approachesDirOrThrow(), chosen.approachId!, chosen.relPath!);
-            if (body) soloAgent = { name: chosen.name, body };
-          }
-        } catch {
-          soloAgent = undefined;
-        }
+        const body = soloAgentBody(t.agent);
+        if (body) soloAgent = { name: t.agent, body };
       }
 
       // ALWAYS seed the session with the ticket's own context (key, title,

@@ -72,7 +72,7 @@ export type TicketFormMessage =
   | { type: 'set-provider'; id: string }
   // id may be '' — "Inherit (settings)", which clears the ticket's type.
   | { type: 'set-type'; id: string }
-  | { type: 'analyze'; prompt: string }
+  | { type: 'analyze'; prompt: string; agent?: string | null }
   // Open the native file picker. Carries nothing — the host owns the dialog, so
   // a crafted message can neither choose a path nor pre-fill one.
   | { type: 'attach-pick' }
@@ -166,7 +166,7 @@ export interface TicketFormActions {
   setModel: (id: string) => void | Promise<void>;
   setProvider: (id: string) => void | Promise<void>;
   setType: (id: string) => void | Promise<void>;
-  analyze: (prompt: string) => void | Promise<void>;
+  analyze: (prompt: string, agent?: string | null) => void | Promise<void>;
   attachPick: () => Promise<void>;
   attachBytes: (name: string, base64: string) => Promise<void>;
   detachAttachment: (id: number) => Promise<void>;
@@ -302,8 +302,17 @@ export function parseTicketFormMessage(raw: unknown): TicketFormMessage | null {
       return typeof m.id === 'string' ? { type: 'set-type', id: m.id } : null;
     case 'analyze':
       // prompt may be empty (a fetched ticket with no typed prompt yet); the
-      // host has the persisted brief to reason over in that case.
-      return typeof m.prompt === 'string' ? { type: 'analyze', prompt: m.prompt } : null;
+      // host has the persisted brief to reason over in that case. `agent` is
+      // the webview's currently-selected single-subagent (create mode holds it
+      // in the draft, so it must ride the message); optional, validated to a
+      // string or null — a crafted value must never reach the store.
+      if (typeof m.prompt !== 'string') return null;
+      if (m.agent !== undefined && m.agent !== null && typeof m.agent !== 'string') return null;
+      return {
+        type: 'analyze',
+        prompt: m.prompt,
+        ...(typeof m.agent === 'string' && m.agent.length > 0 ? { agent: m.agent } : {}),
+      };
     case 'attach-pick':
       return { type: 'attach-pick' };
     case 'attach-bytes': {
@@ -396,7 +405,7 @@ export function routeTicketFormAction(
       actions.setType(msg.id);
       return;
     case 'analyze':
-      actions.analyze(msg.prompt);
+      actions.analyze(msg.prompt, msg.agent);
       return;
     case 'attach-pick':
       return actions.attachPick();

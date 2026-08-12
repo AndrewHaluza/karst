@@ -957,6 +957,20 @@ describe('ticket-form webview.html — selects, buttons, positioning fixes', () 
     const rule = main!.match(/\.stepbody\{[^}]*\}/)?.[0] ?? '';
     expect(rule).toContain('margin-left:var(--k-space-6)');
   });
+
+  // The analysis runs THROUGH the ticket's chosen single-subagent (its body is
+  // the analysis instructions), and create mode holds the pick in the draft —
+  // so the Improve action must carry the currently-selected agent to the host.
+  // Mirrors the host's `resolveAnalysisProcess` overlay (UI-R34-style mirror).
+  it('carries the currently-selected single-subagent on the Improve action', () => {
+    const fn = functionSource('triggerAnalyze');
+    expect(fn).toContain("currentApproach() === 'single-subagent'");
+    expect(fn).toContain("draft.selectedAgent ?? el('agentSelect').value");
+    expect(fn).toMatch(/post\(\{\s*type: 'analyze',\s*prompt: el\('desc'\)\.value,\s*\.\.\.\(agent \? \{ agent \} : \{\}\)/);
+    // Non-single-subagent approaches carry no agent — the pick is meaningless there.
+    const render = functionSource('renderAgentPicker');
+    expect(render).toContain("currentApproach() === 'single-subagent'");
+  });
 });
 
 describe('legacy busy channel watchdog', () => {
