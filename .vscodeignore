@@ -28,6 +28,10 @@ scripts/**
 .gitignore
 package-lock.json
 
+# install-local.sh build cache: per-target stamps and vsix artifacts. A vsix
+# must never be shipped inside another vsix (and the stamps are private state).
+.karst-cache/**
+
 # Agent/editor tooling (not runtime)
 .superpowers/**
 .claude/**
