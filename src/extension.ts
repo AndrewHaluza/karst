@@ -164,6 +164,14 @@ import {
   nudgeSurface,
   shouldDriveGraphTicket,
 } from './approaches/graph/entryPoints.js';
+import { runCompletionPipeline } from './approaches/graph/integration/pipeline.js';
+import { declaredWritesFor } from './approaches/graph/integration/claims.js';
+import {
+  domainKeyOf,
+  gitCommonDirFromFs,
+  type DomainEntry,
+} from './approaches/graph/integration/domains.js';
+import { canonicalPath } from './runtime/pathScope.js';
 import { createHookChannelRecorder } from './diagnostics/hookChannel.js';
 import { sweepHookSettings } from './agent/settingsSweep.js';
 import { writeCurrentEndpoint } from './agent/hookFailureLog.js';
@@ -2715,6 +2723,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // Bookkeeping over state that is already stored: the next tick retries.
       logError(`karst: graph coordinator tick failed for run ${graphRunId}`, err);
     }
+    // Completing nodes are integrated by THIS window, in node-run order (the
+    // pipeline's integrating-slot CAS serializes the write phases across
+    // windows). A deferred node is retried on the next tick.
+    void driveCompletingNodes(graphRunId);
   };
 
   /** The wake-up route for a graph run, created on first use. */
@@ -2724,6 +2736,102 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const route = graphEndpoint!.registerRoute({ graphRunId });
     graphRoutes.set(graphRunId, route);
     return route;
+  };
+
+  /** Run the completing pipeline for every completing node of a graph run,
+   *  ascending node-run order (deterministic integration order). */
+  const driveCompletingNodes = async (graphRunId: number): Promise<void> => {
+    const gs = graphCoordinatorStore;
+    const tr = graphTransport;
+    if (!gs || !tr) return;
+    const completing = gs.db
+      .prepare(
+        `SELECT id FROM approach_node_runs
+         WHERE graph_run_id = ? AND status = 'completing'
+         ORDER BY id`,
+      )
+      .all(graphRunId) as { id: number }[];
+    for (const row of completing) {
+      try {
+        await runCompletionPipeline(
+          {
+            db: gs.db,
+            transaction: <T>(fn: () => T): T =>
+              (gs.db.transaction as unknown as (f: () => T, o: { begin: 'immediate' }) => () => T)(
+                fn,
+                { begin: 'immediate' },
+              )(),
+            now: () => new Date().toISOString(),
+            debug: (message) => logger.debug(message),
+            git: defaultGitRunner,
+            gitCommonDirOf: gitCommonDirFromFs,
+            transport: tr,
+            getSession: (nodeRunId) => graphSessionFor(nodeRunId),
+            domainsFor: () => graphDomainsFor(graphRunId),
+            declaredWritesOf: (nodeRunId) => declaredGraphWrites(nodeRunId),
+          },
+          { graphRunId, nodeRunId: row.id },
+        );
+      } catch (err) {
+        // A failed pipeline never retries itself; the next tick re-drives the
+        // node, which is still `completing` unless a transition already moved
+        // it. The pipeline is single-flighted per node by that CAS.
+        logError(`karst: completion pipeline failed for graph node ${row.id}`, err);
+      }
+    }
+  };
+
+  /** The live transport session for a node run, via its ticket. */
+  const graphSessionFor = (nodeRunId: number) => {
+    const gs = graphCoordinatorStore;
+    const tr = graphTransport;
+    if (!gs || !tr) return undefined;
+    const run = gs.db
+      .prepare('SELECT ticket_id FROM approach_node_runs WHERE id = ?')
+      .get(nodeRunId) as { ticket_id: number } | undefined;
+    if (!run) return undefined;
+    return tr.sessionFor(run.ticket_id, nodeRunId);
+  };
+
+  /** The ticket's manifest repository entries resolved to worktree paths. */
+  const graphDomainsFor = (graphRunId: number): DomainEntry[] => {
+    const gs = graphCoordinatorStore;
+    if (!gs) return [];
+    const run = gs.db
+      .prepare('SELECT ticket_id FROM approach_graph_runs WHERE id = ?')
+      .get(graphRunId) as { ticket_id: number } | undefined;
+    if (!run) return [];
+    const manifest = currentManifest() ?? emptyManifest();
+    const worktrees = listWorktreesByTicket(localStore, run.ticket_id);
+    const byRepo = new Map(worktrees.map((wt) => [wt.repo, wt.path]));
+    return Object.entries(manifest.repositories ?? {}).flatMap(
+      ([repoName]): DomainEntry[] => {
+        const path = byRepo.get(repoName);
+        return path ? [{ repoName, worktreePath: path }] : [];
+      },
+    );
+  };
+
+  /** The declared writes of a node run, from the active revision's graph. */
+  const declaredGraphWrites = (nodeRunId: number) => {
+    const gs = graphCoordinatorStore;
+    if (!gs) return [];
+    const run = gs.db
+      .prepare('SELECT graph_run_id FROM approach_node_runs WHERE id = ?')
+      .get(nodeRunId) as { graph_run_id: number } | undefined;
+    if (!run) return [];
+    return declaredWritesFor(
+      gs.db,
+      nodeRunId,
+      graphDomainsFor(run.graph_run_id).map((entry) => ({
+        repoName: entry.repoName,
+        // The worktree IS the repository root in V1 (one worktree per
+        // repoPath); the manifest's nested paths are not re-rooted here.
+        root: '',
+        worktreePath: entry.worktreePath,
+      })),
+      (worktreePath) => domainKeyOf(canonicalPath(worktreePath), gitCommonDirFromFs(worktreePath)),
+    );
   };
 
   // Graph node supervision (Slice 3 Task 3 + 7 wiring). Node sessions are

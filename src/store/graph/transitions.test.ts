@@ -97,6 +97,11 @@ describe('node-run transition map', () => {
       'completing → integrating',
       'completing → running',
       'integrating → completed',
+      // Slice-3 T8: the completing pipeline must be able to park a node whose
+      // termination cannot be proven, and the integrating step must be able to
+      // block a node whose change set failed integration.
+      'completing → termination-unknown',
+      'integrating → blocked',
       'running → blocked',
       'running → stale',
       'running → termination-unknown',

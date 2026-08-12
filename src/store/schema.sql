@@ -791,6 +791,7 @@ CREATE TABLE IF NOT EXISTS approach_graph_runs (
   expert_run_count  INTEGER NOT NULL DEFAULT 0,
   node_run_count    INTEGER NOT NULL DEFAULT 0,
   replan_count      INTEGER NOT NULL DEFAULT 0,
+  blocked_reason    TEXT,
   created_at        TEXT NOT NULL,
   updated_at        TEXT,
   completed_at      TEXT,

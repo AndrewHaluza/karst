@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 const SCHEMA_PATH = join(dirname(fileURLToPath(import.meta.url)), 'schema.sql');
 
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 35;
+export const SCHEMA_VERSION = 36;
 
 /** v2 ticket-field columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -112,6 +112,7 @@ CREATE TABLE IF NOT EXISTS approach_graph_runs (
   expert_run_count  INTEGER NOT NULL DEFAULT 0,
   node_run_count    INTEGER NOT NULL DEFAULT 0,
   replan_count      INTEGER NOT NULL DEFAULT 0,
+  blocked_reason    TEXT,
   created_at        TEXT NOT NULL,
   updated_at        TEXT,
   completed_at      TEXT,
@@ -1319,6 +1320,22 @@ export function migrate(db: Database): void {
     } catch (e) {
       db.exec('ROLLBACK');
       throw e;
+    }
+  }
+
+  if (current < 36) {
+    // v36 records WHY a graph run blocked (`approach_graph_runs.blocked_reason`),
+    // so the graph-aware recovery surface (Slice-3 Task 9) can name the
+    // category — `resource-claim-violated` or `integration-conflict` — instead
+    // of re-deriving it from scattered node rows. The completing pipeline
+    // (Slice-3 Task 8) writes it in the same transaction that moves the run
+    // `running → blocked`.
+    //
+    // NOTHING IS BACKFILLED. No prior karst recorded a block reason, and a
+    // NULL names the unknown, never an invented category.
+    const graphRunCols36 = tableColumns(db, 'approach_graph_runs');
+    if (graphRunCols36.size > 0 && !graphRunCols36.has('blocked_reason')) {
+      db.exec('ALTER TABLE approach_graph_runs ADD COLUMN blocked_reason TEXT');
     }
   }
 
