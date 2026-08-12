@@ -172,6 +172,11 @@ approaches:
     entrypoint: writing-plans
     source: { type: git, repo: obra/superpowers, ref: main,
               include: [skills/writing-plans] }
+    # Phases in order; no `command` because this source ships no slash
+    # commands — each phase is handled manually and reported via `phase`.
+    workflow:
+      - { name: plan }
+      - { name: implement }
   - id: "superpowers:test-driven-development"
     label: "TDD"
     description: "Bug fix or feature with clear acceptance criteria — tests first."
