@@ -42,6 +42,26 @@ export const GRAPH_RUN_TRANSITIONS: Readonly<Record<string, readonly string[]>> 
   cancelled: [],
 };
 
+/**
+ * Planner-run map. The design enumerates the planner-run statuses
+ * (`approach_planner_runs`) but not their pairs; this map applies the same
+ * doctrine the node-run rest states follow: `blocked`/`launch-unknown`/`stale`
+ * are rest states with a recovery exit and a drain exit, `submitted` is
+ * terminal evidence, and a late submission (a replan already won election)
+ * marks the run `stale` with its snapshot discarded (design, "Immutable
+ * Replanning", step on late submissions).
+ */
+export const PLANNER_RUN_TRANSITIONS: Readonly<Record<string, readonly string[]>> = {
+  ready: ['launching', 'cancelled', 'stale'],
+  launching: ['running', 'launch-unknown', 'cancelled', 'stale'],
+  running: ['submitted', 'blocked', 'cancelled', 'stale'],
+  submitted: ['stale'],
+  blocked: ['launching', 'cancelled', 'stale'],
+  'launch-unknown': ['cancelled'],
+  stale: [],
+  cancelled: [],
+};
+
 export const REVISION_TRANSITIONS: Readonly<Record<string, readonly string[]>> = {
   active: ['draining', 'completed', 'superseded'],
   draining: ['superseded', 'completed'],
@@ -85,6 +105,7 @@ export const STATUS_TABLES = [
   'approach_node_runs',
   'approach_graph_tokens',
   'approach_resource_leases',
+  'approach_planner_runs',
 ] as const;
 
 export type TransitionMap = Readonly<Record<string, readonly string[]>>;
