@@ -62,15 +62,34 @@ function detectElectronRuntime() {
   // `electron` field). Ask the app's own embedded Electron binary instead —
   // running it with ELECTRON_RUN_AS_NODE prints its actual process.versions,
   // which is the ground truth for the ABI this extension host will load against.
+  // Explicit target wins (install-local.sh sets this per-IDE so it doesn't
+  // depend on candidate-list order or on apps not covered below). A set-but-
+  // missing target is a config error, never a reason to fall through: the
+  // fallback picks whichever IDE is installed next and silently ships that
+  // app's ABI, which only fails at activation in the app that was asked for.
+  if (process.env.KARST_TARGET_APP_BINARY && !existsSync(process.env.KARST_TARGET_APP_BINARY)) {
+    console.error(
+      `KARST_TARGET_APP_BINARY set but no such file: ${process.env.KARST_TARGET_APP_BINARY}\n` +
+        'Refusing to fall back to another installed IDE — that would build the wrong ABI.',
+    );
+    process.exit(1);
+  }
   const candidates = [
-    // Explicit target wins (install-local.sh sets this per-IDE so it doesn't
-    // depend on candidate-list order or on apps not covered below).
     process.env.KARST_TARGET_APP_BINARY,
     '/Applications/Cursor.app/Contents/MacOS/Cursor',
+    // VS Code renamed its macOS binary from `Electron` to `Code` (1.93+), so
+    // probe the current name first, the legacy one after.
+    '/Applications/Visual Studio Code.app/Contents/MacOS/Code',
     '/Applications/Visual Studio Code.app/Contents/MacOS/Electron',
+    '/Applications/Visual Studio Code - Insiders.app/Contents/MacOS/Code',
     '/Applications/Visual Studio Code - Insiders.app/Contents/MacOS/Electron',
     '/Applications/Antigravity IDE.app/Contents/MacOS/Electron',
-    process.env.VSCODE_APP_PATH ? join(process.env.VSCODE_APP_PATH, 'Contents/MacOS/Electron') : null,
+    process.env.VSCODE_APP_PATH
+      ? join(process.env.VSCODE_APP_PATH, 'Contents', 'MacOS', 'Code')
+      : null,
+    process.env.VSCODE_APP_PATH
+      ? join(process.env.VSCODE_APP_PATH, 'Contents', 'MacOS', 'Electron')
+      : null,
   ].filter(Boolean);
 
   for (const candidate of candidates) {
@@ -133,13 +152,13 @@ function tryPrebuild(abi) {
 
 if (mode === 'electron') {
   // VS Code / Cursor extension hosts run Electron, not plain Node, and their
-  // Electron version varies by app/release (VS Code 1.126 = Electron 39 = ABI
-  // 140; Cursor 3.11 = Electron 40 = ABI 143). Detect the actual host's ABI by
-  // running its embedded Electron binary rather than assuming a fixed default —
-  // otherwise a stale prebuild silently ships the wrong ABI and only fails at
-  // extension activation in the other app. better-sqlite3 ships matching
-  // prebuilds (e.g. darwin-arm64-140); copy one into build/Release (what
-  // bindings loads) instead of compiling, when available.
+  // Electron version varies by app/release (VS Code 1.132 = Electron 42.7 =
+  // ABI 146; Cursor 3.11 = Electron 40 = ABI 143). Detect the actual host's ABI
+  // by running its embedded Electron binary rather than assuming a fixed
+  // default — otherwise a stale prebuild silently ships the wrong ABI and only
+  // fails at extension activation in the other app. better-sqlite3 ships
+  // matching prebuilds (e.g. darwin-arm64-146); copy one into build/Release
+  // (what bindings loads) instead of compiling, when available.
   const runtime = detectElectronRuntime();
   const abi = process.env.BETTER_SQLITE3_ABI ?? runtime?.abi ?? '140';
   if (tryPrebuild(abi)) {
