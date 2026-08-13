@@ -2905,7 +2905,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // A graph ticket at impl with an active graph run is driven by the graph
     // coordinator, never by the stage driver (Slice 3 Task 7 entry-point
     // matrix: the graph owns the ticket until it completes).
-    if (shouldDriveGraphTicket(localStore.db, ticketId)) {
+    if (!shouldDriveGraphTicket(localStore.db, ticketId)) {
       logger.debug(`stage driver: ${trigger} → ticket ${ticketId} skipped (active graph)`);
       return;
     }

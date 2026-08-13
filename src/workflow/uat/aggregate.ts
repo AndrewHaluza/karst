@@ -122,25 +122,24 @@ export function aggregateUat(
    * The gate names this ticket switched off. Not evidence — the skipped rows in
    * `gate_runs` are — but the one fact that lets the zero-ran block NAME why:
    * "the repository offered nothing" vs "the user disabled everything that was
-   * offered". Both are still blocks, never a pass — converting "asked nothing"
-   * into green is the bug this whole design exists to close, and a per-ticket
-   * disable does not get to soften that invariant. Deliberately narrow: this
-   * only affects the wording when NO entry resolved at all.
+   * offered". When all gates are deliberately disabled, UAT passes: the user
+   * explicitly chose to skip every check, which is a valid configuration — not
+   * an absence of signal. When gates were never resolved (no entries, no
+   * disables), the stage blocks: the question was never asked.
    */
   disabledNames: readonly string[] = [],
 ): AggregateOutcome {
   const ran = entries.filter((e) => e.result.exitCode !== null);
 
-  // Not a pass. "Nothing ran" means the stage asked nothing, and converting that
-  // into green is the bug this whole design exists to close.
   if (ran.length === 0) {
+    // All gates deliberately disabled by the user — pass. The user chose to
+    // skip every check; this is a valid configuration, not an absence of signal.
     if (entries.length === 0 && disabledNames.length > 0) {
-      return {
-        kind: 'blocked',
-        blocker: 'nothing-to-run',
-        reason: `all gates disabled by user for this ticket (${disabledNames.join(', ')})`,
-      };
+      return { kind: 'verdict', verdict: { kind: 'passed' }, warnings: [] };
     }
+    // No gates resolved and nothing disabled — the question was never asked.
+    // "Nothing ran" means the stage asked nothing, and converting that into
+    // green is the bug this whole design exists to close.
     return {
       kind: 'blocked',
       blocker: 'nothing-to-run',

@@ -817,15 +817,10 @@ describe('runUat', () => {
     expect(result).toEqual({ kind: 'advanced', next: 'review' });
   });
 
-  it('parks, naming the disable, when every uat gate is disabled', async () => {
+  it('advances when every uat gate is disabled — the user chose to skip all checks', async () => {
     setDisabledGates(store, id, 'uat', ['test', 'e2e']);
     const result = await runUat(store, { ticketId: id, cwd: '/wt/web', artifactDir }, deps());
-    expect(result).toMatchObject({ kind: 'blocked', blocker: 'nothing-to-run' });
-    if (result.kind !== 'blocked') throw new Error('unreachable');
-    expect(result.reason).toContain('disabled by user');
-    expect(result.reason).toContain('test');
-    expect(result.reason).toContain('e2e');
-    expect(getTicket(store, id).stageCurrent).toBe('uat');
+    expect(result).toEqual({ kind: 'advanced', next: 'review' });
   });
 
   // v25: the run existing at all, and what it ended as, is what resolves

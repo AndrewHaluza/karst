@@ -1,4 +1,4 @@
-# karst — VS Code extension: AI-agent ticket orchestration across multi-repo stack
+age# karst — VS Code extension: AI-agent ticket orchestration across multi-repo stack
 
 ## Commands
 - `npm test` — vitest run (in-memory SQLite via `openStore(':memory:')`); `pretest` rebuilds better-sqlite3 for Node ABI

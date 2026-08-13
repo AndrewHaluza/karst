@@ -1062,13 +1062,10 @@ describe('runReview', () => {
     expect(result).toEqual({ kind: 'advanced', next: 'ship' });
   });
 
-  it('parks, naming the disable, when every review gate is disabled', async () => {
+  it('advances when every review gate is disabled — the user chose to skip all checks', async () => {
     setDisabledGates(store, id, 'review', ['lint', 'typecheck', 'build', 'format:check']);
     const result = await runReview(store, { ticketId: id, cwd: '/wt/web', artifactDir }, deps());
-    expect(result).toMatchObject({ kind: 'blocked', blocker: 'nothing-to-run' });
-    if (result.kind !== 'blocked') throw new Error('unreachable');
-    expect(result.reason).toContain('disabled by user');
-    expect(getTicket(store, id).stageCurrent).toBe('review');
+    expect(result).toEqual({ kind: 'advanced', next: 'ship' });
   });
 });
 

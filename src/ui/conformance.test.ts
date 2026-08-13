@@ -185,7 +185,7 @@ describe.each(WEBVIEWS)('UI conformance — %s', (name) => {
       .map(([, attrs]) => attrs!);
     for (const attrs of iconOnly) {
       expect(attrs, `icon-only button without aria-label: ${attrs.slice(0, 90)}`).toMatch(
-        /aria-label=/,
+        /aria-label=|aria-labelledby=/,
       );
     }
   });
