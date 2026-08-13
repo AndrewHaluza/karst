@@ -449,14 +449,15 @@
 
   /* The needs-you control. NOT `.act` — that was the retired activity strip's
      class (the inside ledger now). The host decides what it DOES (`s.needs.cta`):
-     for a whole-ticket confirm ship and a single mergeable merge it is a REAL
-     actor posting the same message the header's Confirm ship button and the PR
-     panel's Merge button post — the host's confirmation still guards the
-     irreversible step, and the pending lifecycle is the same `shipRequestId` /
-     `mergeRequests` the owning controls use. Every other shape (a multi-repo
-     wait, a conflict, an open session) is NAVIGATIONAL: it scrolls the control
-     that owns the action into view and focuses it, so the rail never becomes a
-     second actor it cannot back with a confirmation. */
+     for a whole-ticket confirm ship, a single mergeable merge and a single
+     conflicted repo it is a REAL actor posting the same message the header's
+     Confirm ship button, the PR panel's Merge button and its Resolve conflicts
+     button post — the host's confirmation still guards the irreversible merge
+     step, and resolve-conflicts re-derives the brief from the store before
+     handing it to a session. Every other shape (a multi-repo wait, a
+     multi-repo conflict, an open session) is NAVIGATIONAL: it scrolls the
+     control that owns the action into view and focuses it, so the rail never
+     becomes a second actor it cannot back with a confirmation. */
   .track .seg .go{font:inherit;font-size:var(--k-text-2xs);border:var(--k-border-w) solid currentColor;
     border-radius:var(--k-radius-sm);background:transparent;color:inherit;
     padding:var(--k-space-1) var(--k-space-4);cursor:pointer;flex:none;margin-left:auto}
@@ -1970,14 +1971,19 @@
   }
 
   // The needs-you control, rendered from the host's `cta` verdict — never from
-  // the action LABEL, which is prose. Two of the kinds ACT, posting the same
-  // message as the header's Confirm ship / the PR panel's Merge (the host's
-  // confirmation still guards the irreversible step, and the shared pending
-  // markers — `shipRequestId` / `mergeRequests` — make the click report and
-  // settle exactly like the owning controls'). The rest NAVIGATE to the control
-  // that owns the action. A real actor carries `data-act` so the generic
-  // delegated handler gives it the full pending lifecycle; a navigational one
-  // carries `data-go` naming the kind for gotoAction().
+  // the action LABEL, which is prose. Three of the kinds ACT, posting the same
+  // message as the header's Confirm ship, the PR panel's Merge, and its Resolve
+  // conflicts button (the host's confirmation still guards the irreversible
+  // merge, and resolve-conflicts re-derives the brief from the store before
+  // handing it to a session). The shared pending markers — `shipRequestId` /
+  // `mergeRequests` — make the ship and merge clicks report and settle exactly
+  // like the owning controls'; resolve-conflicts is NOT one of the
+  // state-push-settled long-runners, so it rides the generic delegated path
+  // like the PR panel's own button (pending on click, dropped on a repeat,
+  // watchdog-armed, settled by the host's `action-result`). The rest NAVIGATE
+  // to the control that owns the action. A real actor carries `data-act` so
+  // the generic delegated handler gives it the full pending lifecycle; a
+  // navigational one carries `data-go` naming the kind for gotoAction().
   function goButton(needs) {
     const label = esc((needs && needs.action) || 'Open');
     const cta = needs && needs.cta;
@@ -1988,6 +1994,9 @@
     if (cta && cta.kind === 'merge') {
       const busy = !!mergeRequests[cta.repo];
       return `<button type="button" class="go" data-act="merge-pr" data-repo="${esc(cta.repo)}"${busy ? ' aria-busy="true" disabled' : ''}>${label}</button>`;
+    }
+    if (cta && cta.kind === 'resolve-conflicts') {
+      return `<button type="button" class="go" data-act="resolve-conflicts" data-repo="${esc(cta.repo)}">${label}</button>`;
     }
     const kind = cta ? cta.kind : 'open-session';
     return `<button type="button" class="go" data-goto data-go="${kind}">${label}</button>`;
@@ -2067,16 +2076,17 @@
   }
 
   // The NAVIGATIONAL needs-you cases. The acting kinds (ship-confirm, a single
-  // mergeable merge) never reach here — they carry `data-act` and post through
-  // the generic handler. What is left is exactly what the rail must not act on
-  // itself: a multi-repo wait (no single repo to pick, each merge carries its
-  // own host confirmation), a per-repo conflict session, and an open session.
-  // It scrolls the control that owns the action into view and focuses it; it
+  // mergeable merge, a single conflicted repo) never reach here — they carry
+  // `data-act` and post through the generic handler. What is left is exactly
+  // what the rail must not act on itself: a multi-repo wait or multi-repo
+  // conflict (no single repo to pick — each merge/Resolve control is per-repo
+  // and the merge carries its own host confirmation), and an open session. It
+  // scrolls the control that owns the action into view and focuses it; it
   // posts no host message and duplicates no actor.
   function gotoAction(kind) {
-    // merge-panel and resolve live on the PR panel, where each repo has its own
-    // Merge / Resolve control. An open session is the agent header — the
-    // dashboard's own session control (it names the live session and its
+    // merge-panel and resolve-panel live on the PR panel, where each repo has
+    // its own Merge / Resolve control. An open session is the agent header —
+    // the dashboard's own session control (it names the live session and its
     // state).
     const target = kind === 'open-session'
       ? document.querySelector('#agentButton')
