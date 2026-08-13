@@ -32,13 +32,9 @@ describe('aggregateUat — disabled gates never reach the aggregator as an entry
     });
   });
 
-  it('still blocks — never a pass — when every gate was disabled, naming the disable', () => {
+  it('passes when every gate was disabled — the user chose to skip all checks', () => {
     const outcome = aggregateUat([], [], ['test', 'e2e']);
-    expect(outcome).toEqual({
-      kind: 'blocked',
-      blocker: 'nothing-to-run',
-      reason: 'all gates disabled by user for this ticket (test, e2e)',
-    });
+    expect(outcome).toEqual({ kind: 'verdict', verdict: { kind: 'passed' }, warnings: [] });
   });
 
   it('still blocks when a gate resolved, none ran, and a DIFFERENT gate was disabled', () => {

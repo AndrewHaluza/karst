@@ -1124,7 +1124,7 @@ describe('dashboard webview.html', () => {
 
   it('stages the agent switch in a popover that does nothing until Switch agent is clicked', () => {
     expect(HTML).toContain('id="agentPopover"');
-    expect(HTML).toContain('id="coreSelect"');
+    expect(HTML).toContain('id="coreTrigger"');
     expect(HTML).toContain('id="modelSelect"');
     expect(HTML).toContain('id="switchBtn"');
     expect(HTML).toMatch(/Closing this menu takes no action/);
@@ -1290,9 +1290,9 @@ describe('dashboard webview.html', () => {
     expect(row).toContain('title="${esc(label)}"');
   });
 
-  it('uses a real button for the gate toggle, never a clickable div (UI-R09)', () => {
+  it('uses a real interactive element for the gate toggle, never a clickable div (UI-R09)', () => {
     const row = /function gateRow\([\s\S]*?\n  \}/.exec(HTML)?.[0] ?? '';
-    expect(row).toContain('<button type="button"');
+    expect(row).toContain('role="switch"');
     expect(row).not.toMatch(/<div[^>]*data-act=/);
   });
 
@@ -2139,12 +2139,21 @@ function bootPreviewHarness(): PreviewHarness {
     'agentLiveText',
     'agentPopover',
     'coreSelect',
+    'coreShell',
+    'coreTrigger',
+    'coreMenu',
     'modelSelect',
+    'modelShell',
+    'modelTrigger',
+    'modelPop',
+    'modelList',
+    'modelSearch',
     'switchBtn',
     'moreBtn',
     'menuPopover',
     'followUpItem',
     'linkViews',
+    'linkViewsLabel',
     'menuGates',
     'srvCount',
     'srvOps',
@@ -2204,6 +2213,7 @@ function bootPreviewHarness(): PreviewHarness {
       docListeners.set(type, list);
     },
     querySelector: (sel: string) => (sel === '.track' ? track : null),
+    querySelectorAll: () => [],
     body: { classList: bodyClassList, dataset: bodyDataset, appendChild: () => {} },
     createElement: () => previewElement('__created'),
   };

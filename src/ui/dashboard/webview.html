@@ -103,19 +103,58 @@
   .settingCopy{min-width:0;flex:1}
   .settingTitle{font-size:var(--k-text-md);font-weight:var(--k-weight-medium)}
   .settingHelp{margin-top:1px;color:var(--k-text-faint);font-size:var(--k-text-2xs);line-height:1.35}
-  .k-switch{position:relative;width:calc(var(--k-control-h-sm) * 1.5);height:var(--k-control-h-sm);flex:none;display:inline-block}
+  .k-switch{position:relative;display:inline-flex;align-items:center;cursor:pointer}
   .k-switch input{position:absolute;opacity:0;pointer-events:none}
-  .k-switchTrack{position:absolute;inset:0;border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-pill);background:var(--k-surface-selected);cursor:pointer}
-  .k-switchTrack::after{content:"";position:absolute;width:calc(var(--k-control-h-sm) - var(--k-space-6));height:calc(var(--k-control-h-sm) - var(--k-space-6));border-radius:var(--k-radius-circle);left:calc(var(--k-space-2) - var(--k-border-w));top:calc(var(--k-space-2) - var(--k-border-w));background:var(--k-text-dim);transition:left var(--k-dur-fast) var(--k-ease-standard),background var(--k-dur-fast) var(--k-ease-standard)}
-  .k-switch input:checked + .k-switchTrack{background:color-mix(in srgb,var(--k-passed) 18%,var(--k-surface));border-color:color-mix(in srgb,var(--k-passed) 55%,var(--k-border))}
-  .k-switch input:checked + .k-switchTrack::after{left:calc(var(--k-control-h-sm) * .5);background:var(--k-passed)}
-  .k-switch input:focus-visible + .k-switchTrack{outline:1px solid var(--k-focus);outline-offset:2px}
   .gateGroup{margin:0 var(--k-space-3) var(--k-space-3);border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-md);overflow:hidden}
   .gateHead{min-height:var(--k-control-h-sm);display:flex;align-items:center;padding:0 var(--k-space-4);background:var(--k-surface-sunken);color:var(--k-text-faint);font-size:var(--k-text-2xs);font-weight:var(--k-weight-semibold);letter-spacing:.06em;text-transform:uppercase}
   .gateRow{min-height:var(--k-control-h-lg);display:flex;align-items:center;gap:var(--k-space-4);padding:0 var(--k-space-4);border-top:var(--k-border-w) solid var(--k-border)}
   .gateName{flex:1;font-family:var(--k-font-mono);font-size:var(--k-text-xs)}
-  .gateState{color:var(--k-text-faint);font-size:var(--k-text-xs)}
-  .gateToggle{min-width:calc(var(--k-control-h-sm) * 2.5);justify-content:flex-end;font-size:var(--k-text-xs)}
+  .gateSwitch{margin-left:auto}
+  /* Select shell / dropdown — shared agent-switch picker (same pattern as
+     Settings → General, adapted to dashboard design tokens). */
+  .select-shell{position:relative;min-width:0}
+  .select-trigger{width:100%;min-height:var(--k-control-h-lg);display:flex;align-items:center;gap:var(--k-space-3);
+    padding:var(--k-space-2) calc(var(--k-space-8) + var(--k-space-3)) var(--k-space-2) var(--k-space-4);
+    text-align:left;position:relative;cursor:pointer;overflow:hidden;
+    background:var(--k-surface);color:var(--k-text);
+    border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-sm);
+    font:inherit;font-size:var(--k-text-base)}
+  .select-trigger:hover{border-color:var(--k-focus)}
+  .select-trigger:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+  .select-trigger .chev{position:absolute;right:var(--k-space-4);top:50%;transform:translateY(-50%);
+    width:var(--k-space-6);height:var(--k-space-6);flex:none;margin:var(--k-space-0);
+    background:var(--chevron) no-repeat center/var(--k-space-6)}
+  .select-trigger .sel-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:flex;align-items:center;gap:var(--k-space-2)}
+  .select-shell.is-open{z-index:calc(var(--k-z-drawer) + 1)}
+  .dropdown{position:absolute;top:calc(100% + var(--k-space-2));left:var(--k-space-0);right:var(--k-space-0);
+    min-width:100%;z-index:var(--k-z-drawer);display:none;
+    background:var(--k-surface);border:var(--k-border-w) solid var(--k-border-strong);
+    border-radius:var(--k-radius-md);padding:var(--k-space-2);box-shadow:var(--k-elev-2)}
+  .dropdown.open{display:block}
+  .drop-item{display:flex;align-items:center;gap:var(--k-space-3);padding:var(--k-space-3) var(--k-space-4);
+    border-radius:var(--k-radius-sm);cursor:pointer;font-size:var(--k-text-base)}
+  .drop-item:hover{background:var(--k-surface-hover);color:var(--k-text)}
+  .drop-item.active,.drop-item[aria-selected="true"]{background:var(--k-surface-hover);color:var(--k-text)}
+  .model-pop{position:absolute;top:calc(100% + var(--k-space-2));left:var(--k-space-0);right:var(--k-space-0);
+    min-width:calc(var(--k-space-8) * 12);z-index:var(--k-z-drawer);display:none;overflow:hidden;
+    background:var(--k-surface);border:var(--k-border-w) solid var(--k-border-strong);
+    border-radius:var(--k-radius-md);box-shadow:var(--k-elev-2)}
+  .model-pop.open{display:block}
+  .model-search{padding:var(--k-space-3);border-bottom:var(--k-border-w) solid var(--k-border)}
+  .model-search input{width:100%}
+  .model-scroll{max-height:calc(var(--k-space-8) * 12);overflow:auto}
+  .model-group-label{padding:var(--k-space-2) var(--k-space-4);color:var(--k-text-faint);font-size:var(--k-text-2xs);
+    font-weight:var(--k-weight-semibold);letter-spacing:.06em;text-transform:uppercase}
+  .model-empty{padding:var(--k-space-4);color:var(--k-text-faint);font-size:var(--k-text-xs);text-align:center}
+  .model-item{display:flex;align-items:center;justify-content:space-between;gap:var(--k-space-3);
+    padding:var(--k-space-3) var(--k-space-4);border-radius:var(--k-radius-sm);cursor:pointer}
+  .model-item:hover{background:var(--k-surface-hover)}
+  .model-item:hover .model-sub,.model-item:hover .model-tag{color:var(--k-text);opacity:.8}
+  .model-item.active,.model-item[aria-selected="true"]{background:var(--k-surface-hover);color:var(--k-text)}
+  .model-item.active .model-sub,.model-item.active .model-tag{color:inherit;opacity:.8}
+  .model-item .model-name{font-weight:500;font-size:var(--k-text-base)}
+  .model-item .model-sub{font-size:var(--k-text-xs);color:var(--k-text-dim);margin-top:var(--k-space-1)}
+  .model-item .model-tag{font-size:var(--k-text-2xs);color:var(--k-text-faint);flex:0 0 auto}
   .menuBlurb{padding:var(--k-space-4);color:var(--k-text-faint);font-size:var(--k-text-xs)}
   /* Shared ticketing-provider badge (icon + brand name) — single source in
      src/model/providerIdentity.ts, injected here at load (CSP forbids a
@@ -1525,12 +1564,30 @@
       <div id="agentPopover" class="popover agentPopover hidden" role="dialog" aria-label="Switch active agent">
         <div class="agentForm">
           <div class="fieldRow">
-            <label class="fieldLabel" for="coreSelect">Agent core</label>
-            <div class="fieldControl"><select id="coreSelect" class="k-select"></select></div>
+            <label class="fieldLabel" id="coreLabel">Agent core</label>
+            <div class="fieldControl">
+              <div class="select-shell agentCoreShell" id="coreShell">
+                <button type="button" class="select-trigger agentCoreTrigger" id="coreTrigger"
+                  aria-haspopup="listbox" aria-expanded="false" aria-labelledby="coreLabel"></button>
+                <div class="dropdown agentCoreMenu" id="coreMenu" role="listbox" aria-labelledby="coreLabel"></div>
+              </div>
+            </div>
           </div>
           <div class="fieldRow">
-            <label class="fieldLabel" for="modelSelect">Model</label>
-            <div class="fieldControl"><select id="modelSelect" class="k-select"></select></div>
+            <label class="fieldLabel" id="modelLabel">Model</label>
+            <div class="fieldControl">
+              <div class="select-shell agentModelShell" id="modelShell">
+                <button type="button" class="select-trigger agentModelTrigger" id="modelTrigger"
+                  aria-haspopup="listbox" aria-expanded="false" aria-labelledby="modelLabel"></button>
+                <div class="model-pop agentModelPop" id="modelPop" role="listbox" aria-labelledby="modelLabel">
+                  <div class="model-search">
+                    <input type="text" id="modelSearch" placeholder="Search models…" aria-label="Search models" />
+                  </div>
+                  <div class="model-scroll" id="modelList"></div>
+                </div>
+                <select id="modelSelect" class="hidden"></select>
+              </div>
+            </div>
           </div>
           <div class="fieldHelp">Provider and model changes are staged. Closing this menu takes no action.</div>
         </div>
@@ -1561,9 +1618,9 @@
             <div class="settingTitle">Link dashboard ↔ terminal</div>
             <div class="settingHelp">Global · focusing either view brings the paired view forward.</div>
           </div>
-          <label class="k-switch">
-            <input id="linkViews" type="checkbox" aria-label="Link dashboard and terminal">
-            <span class="k-switchTrack"></span>
+          <label class="k-switch" id="linkViewsLabel" aria-checked="false" role="switch" aria-label="Link dashboard and terminal">
+            <input id="linkViews" type="checkbox" tabindex="-1">
+            <span class="k-switch-track"></span>
           </label>
         </div>
         <div class="menuDivider"></div>
@@ -3121,22 +3178,60 @@
   }
 
   function renderCoreSelect() {
-    const select = el('coreSelect');
-    if (!select || !lastState) return;
-    select.innerHTML = (lastState.agentSwitch.cores || []).map((c) =>
-      `<option value="${esc(c.id)}">${esc(c.label)}</option>`).join('');
-    select.value = draftCore || '';
+    const menu = el('coreMenu');
+    if (!menu || !lastState) return;
+    const cores = lastState.agentSwitch.cores || [];
+    menu.innerHTML = cores.map((c) =>
+      `<div class="drop-item${c.id === draftCore ? ' active' : ''}" role="option"`
+      + ` data-value="${esc(c.id)}" aria-selected="${c.id === draftCore ? 'true' : 'false'}">`
+      + agentBadgeHtml(c.id) + '</div>').join('');
+    const trigger = el('coreTrigger');
+    if (trigger) {
+      trigger.innerHTML = '<span class="sel-label">' + agentBadgeHtml(draftCore || cores[0]?.id || '') + '</span>'
+        + '<span class="chev" aria-hidden="true"></span>';
+    }
   }
 
-  function renderModelSelect() {
-    const select = el('modelSelect');
-    if (!select || !lastState) return;
+  function renderModelPopup() {
+    const listEl = el('modelList');
+    if (!listEl || !lastState) return;
     const models = (lastState.agentSwitch.models || {})[draftCore] || [];
-    select.innerHTML = models.map((m) =>
-      `<option value="${esc(m.model || '')}">${esc(m.label)}</option>`).join('');
-    if (models.some((m) => (m.model || '') === draftModel)) select.value = draftModel;
-    else { draftModel = ''; select.value = ''; }
+    let html = '<div class="model-item' + (draftModel === '' ? ' active' : '') + '" role="option"'
+      + ' data-model-id="" aria-selected="' + (draftModel === '' ? 'true' : 'false') + '">'
+      + '<div><div class="model-name">No default (agent picks)</div>'
+      + '<div class="model-sub">Let the provider choose.</div></div></div>';
+    if (models.length === 0) {
+      html += '<div class="model-empty">No models listed for ' + esc(AGENT_PROVIDER_LABELS[draftCore] || draftCore || '') + '.</div>';
+    } else {
+      html += '<div class="model-group-label">' + agentBadgeHtml(draftCore || '') + '</div>';
+      for (const m of models) {
+        const id = m.model || '';
+        html += '<div class="model-item' + (id === draftModel ? ' active' : '') + '" role="option"'
+          + ' data-model-id="' + esc(id) + '" aria-selected="' + (id === draftModel ? 'true' : 'false') + '">'
+          + '<div><div class="model-name">' + esc(m.label) + '</div>'
+          + '<div class="model-sub">' + esc(id) + '</div></div></div>';
+      }
+    }
+    listEl.innerHTML = html;
+    // Update the hidden value carrier
+    const sel = el('modelSelect');
+    if (sel) {
+      sel.innerHTML = models.map((m) =>
+        `<option value="${esc(m.model || '')}">${esc(m.label)}</option>`).join('');
+      if (models.some((m) => (m.model || '') === draftModel)) sel.value = draftModel;
+      else { draftModel = ''; sel.value = ''; }
+    }
+    // Update trigger label
+    const trigger = el('modelTrigger');
+    if (trigger) {
+      const currentModel = models.find((m) => (m.model || '') === draftModel);
+      const label = currentModel ? currentModel.label : (draftModel || '');
+      trigger.innerHTML = '<span class="sel-label">' + agentIdentityHtml(draftCore || '', label, true) + '</span>'
+        + '<span class="chev" aria-hidden="true"></span>';
+    }
   }
+
+  function renderModelSelect() { renderModelPopup(); }
 
   function updateSwitchState() {
     const btn = el('switchBtn');
@@ -3150,6 +3245,11 @@
     const btn = el('agentButton');
     if (btn && btn.disabled) return;
     populateAgentPopover();
+    // Close any open select-shells from a previous popover opening
+    document.querySelectorAll('.select-shell.is-open').forEach((s) => {
+      s.classList.remove('is-open');
+      s.querySelector('.dropdown, .model-pop')?.classList.remove('open');
+    });
     const pop = el('agentPopover');
     pop.classList.remove('hidden');
     pop.classList.add('open');
@@ -3195,14 +3295,98 @@
     closePopovers();
   });
 
-  el('coreSelect').addEventListener('change', (e) => {
-    draftCore = e.target && e.target.value;
-    renderModelSelect();
+  // Core dropdown pick
+  el('coreMenu').addEventListener('click', (e) => {
+    const item = e.target.closest && e.target.closest('[data-value]');
+    if (!item) return;
+    draftCore = item.dataset.value || null;
+    renderCoreSelect();
+    renderModelPopup();
     updateSwitchState();
+    const shell = item.closest('.select-shell');
+    if (shell) { shell.classList.remove('is-open'); shell.querySelector('.dropdown')?.classList.remove('open'); }
   });
-  el('modelSelect').addEventListener('change', (e) => {
-    draftModel = e.target && e.target.value;
+  // Model dropdown pick
+  el('modelPop').addEventListener('click', (e) => {
+    const item = e.target.closest && e.target.closest('[data-model-id]');
+    if (!item) return;
+    draftModel = item.dataset.modelId || '';
+    renderModelPopup();
     updateSwitchState();
+    const shell = item.closest('.select-shell');
+    if (shell) { shell.classList.remove('is-open'); shell.querySelector('.model-pop')?.classList.remove('open'); }
+  });
+  // Model search filter
+  el('modelSearch')?.addEventListener('input', (e) => {
+    const q = (e.target.value || '').trim().toLowerCase();
+    const models = (lastState?.agentSwitch.models || {})[draftCore] || [];
+    const listEl = el('modelList');
+    if (!listEl) return;
+    if (!q) { renderModelPopup(); return; }
+    let html = '<div class="model-item' + (draftModel === '' ? ' active' : '') + '" role="option"'
+      + ' data-model-id="" aria-selected="' + (draftModel === '' ? 'true' : 'false') + '">'
+      + '<div><div class="model-name">No default (agent picks)</div></div></div>';
+    html += '<div class="model-group-label">' + agentBadgeHtml(draftCore || '') + '</div>';
+    for (const m of models) {
+      const id = m.model || '';
+      const hay = (m.label + ' ' + id).toLowerCase();
+      if (hay.includes(q)) {
+        html += '<div class="model-item' + (id === draftModel ? ' active' : '') + '" role="option"'
+          + ' data-model-id="' + esc(id) + '" aria-selected="' + (id === draftModel ? 'true' : 'false') + '">'
+          + '<div><div class="model-name">' + esc(m.label) + '</div>'
+          + '<div class="model-sub">' + esc(id) + '</div></div></div>';
+      }
+    }
+    if (html.indexOf('model-item') === -1) {
+      html = '<div class="model-empty">No models match "' + esc(e.target.value) + '".</div>';
+    }
+    listEl.innerHTML = html;
+  });
+  el('modelSearch')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      const shell = el('modelShell');
+      if (shell) { shell.classList.remove('is-open'); shell.querySelector('.model-pop')?.classList.remove('open'); }
+    }
+  });
+  // Agent core dropdown open/close (inside the agent popover)
+  el('coreTrigger')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const shell = el('coreShell');
+    if (!shell) return;
+    const opening = !shell.classList.contains('is-open');
+    // Close any other open shell
+    document.querySelectorAll('.select-shell.is-open').forEach((s) => {
+      s.classList.remove('is-open');
+      s.querySelector('.dropdown, .model-pop')?.classList.remove('open');
+    });
+    if (opening) {
+      shell.classList.add('is-open');
+      shell.querySelector('.dropdown')?.classList.add('open');
+    }
+  });
+  // Agent model dropdown open/close
+  el('modelTrigger')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const shell = el('modelShell');
+    if (!shell) return;
+    const opening = !shell.classList.contains('is-open');
+    document.querySelectorAll('.select-shell.is-open').forEach((s) => {
+      s.classList.remove('is-open');
+      s.querySelector('.dropdown, .model-pop')?.classList.remove('open');
+    });
+    if (opening) {
+      shell.classList.add('is-open');
+      shell.querySelector('.model-pop')?.classList.add('open');
+      el('modelSearch')?.focus();
+    }
+  });
+  // Close open shells on outside click
+  document.addEventListener('click', (e) => {
+    if (e.target.closest && e.target.closest('.select-shell')) return;
+    document.querySelectorAll('.select-shell.is-open').forEach((s) => {
+      s.classList.remove('is-open');
+      s.querySelector('.dropdown, .model-pop')?.classList.remove('open');
+    });
   });
   el('switchBtn').addEventListener('click', () => {
     if (el('switchBtn').disabled) return;
@@ -3777,15 +3961,16 @@
   // ticket's current selection.
   function gateRow(stage, opt) {
     const label = (opt.disabled ? 'Enable ' : 'Disable ') + opt.name + ' for this ticket';
+    const enabled = !opt.disabled;
     return `<div class="gateRow${opt.disabled ? ' off' : ''}">`
       + `<span class="gateName">${esc(opt.name)}</span>`
-      + `<span class="gateState">${opt.disabled ? 'disabled' : 'runs'}</span>`
-      + `<button type="button" class="k-btn k-btn--ghost k-btn--sm gateToggle"`
+      + `<label class="k-switch gateSwitch" role="switch" aria-checked="${enabled ? 'true' : 'false'}"`
+      + ` aria-label="${esc(label)}" title="${esc(label)}"`
       + ` data-act="set-disabled-gates" data-stage="${esc(stage)}" data-name="${esc(opt.name)}"`
-      + ` data-disabled="${opt.disabled ? '1' : '0'}"`
-      + ` aria-pressed="${opt.disabled ? 'true' : 'false'}"`
-      + ` aria-label="${esc(label)}" title="${esc(label)}">${opt.disabled ? 'Enable' : 'Disable'}</button>`
-      + `</div>`;
+      + ` data-disabled="${opt.disabled ? '1' : '0'}">`
+      + `<input type="checkbox" tabindex="-1">`
+      + `<span class="k-switch-track"></span>`
+      + `</label></div>`;
   }
 
   function renderMenuGates() {
@@ -3805,6 +3990,8 @@
   }
 
   function renderBind() {
+    const label = el('linkViewsLabel');
+    if (label) label.setAttribute('aria-checked', bindEnabled ? 'true' : 'false');
     const box = el('linkViews');
     if (box) box.checked = bindEnabled;
   }
@@ -3897,6 +4084,11 @@
     if (e.key === 'Escape' && stageMenuStage !== null) { stageMenuStage = null; render(lastState); return; }
     if (e.key === 'Escape' && termView) { closeTerminal(); return; }
     if (e.key === 'Escape' && artView) artifactBack();
+    // Gate switch keyboard toggle (Space/Enter)
+    if ((e.key === ' ' || e.key === 'Enter') && e.target && e.target.closest && e.target.closest('.gateSwitch')) {
+      e.preventDefault();
+      e.target.closest('.gateSwitch').click();
+    }
   });
 
   // Tracks which merge disclosures (`.mgd`) are open, so the next render — fired

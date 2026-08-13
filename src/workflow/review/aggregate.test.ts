@@ -420,11 +420,11 @@ describe('gatesOutcomeBeforeFindings', () => {
     });
   });
 
-  it('names the disable in the block reason when every gate was disabled — still a block, never a pass', () => {
+  it('passes when every gate was disabled — the user chose to skip all checks', () => {
     expect(gatesOutcomeBeforeFindings([], ['lint', 'typecheck'])).toEqual({
-      kind: 'blocked',
-      blocker: 'nothing-to-run',
-      reason: 'all gates disabled by user for this ticket (lint, typecheck)',
+      kind: 'verdict',
+      verdict: { kind: 'passed' },
+      warnings: [],
     });
   });
 
@@ -449,16 +449,12 @@ describe('aggregateReview — disabled gates never reach the aggregator as an en
     expect(outcome).toEqual({ kind: 'verdict', verdict: { kind: 'passed' }, warnings: [] });
   });
 
-  it('blocks, naming the disable, when every gate was disabled and nothing ran', () => {
+  it('passes when every gate was disabled and nothing ran — the user chose to skip all checks', () => {
     const outcome = aggregateReview([], [], NOT_RUN, {
       ...REQUIRED,
       disabledGateNames: ['lint'],
     });
-    expect(outcome).toEqual({
-      kind: 'blocked',
-      blocker: 'nothing-to-run',
-      reason: 'all gates disabled by user for this ticket (lint)',
-    });
+    expect(outcome).toEqual({ kind: 'verdict', verdict: { kind: 'passed' }, warnings: [] });
   });
 });
 

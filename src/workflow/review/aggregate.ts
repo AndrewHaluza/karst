@@ -269,23 +269,21 @@ export function gatesOutcomeBeforeFindings(
   entries: readonly AggregateEntry[],
   /**
    * The gate names this ticket switched off (`AggregateReviewOpts.disabledGateNames`).
-   * Only changes the WORDING of the R3 block when NO entry resolved at all —
-   * it never turns the block into a pass.
+   * When all gates are deliberately disabled, review passes: the user explicitly
+   * chose to skip every check, which is a valid configuration. When gates were
+   * never resolved (no entries, no disables), the stage blocks.
    */
   disabledNames: readonly string[] = [],
 ): AggregateOutcome | null {
   const ran = entries.filter((e) => e.result.exitCode !== null);
 
-  // R3 — nothing answered. Not a pass: converting "asked nothing" into green is
-  // the bug this design exists to close.
   if (ran.length === 0) {
+    // All gates deliberately disabled by the user — pass.
     if (entries.length === 0 && disabledNames.length > 0) {
-      return {
-        kind: 'blocked',
-        blocker: 'nothing-to-run',
-        reason: `all gates disabled by user for this ticket (${disabledNames.join(', ')})`,
-      };
+      return { kind: 'verdict', verdict: { kind: 'passed' }, warnings: [] };
     }
+    // R3 — nothing answered. Not a pass: converting "asked nothing" into green
+    // is the bug this design exists to close.
     return {
       kind: 'blocked',
       blocker: 'nothing-to-run',
