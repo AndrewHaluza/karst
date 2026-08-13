@@ -252,18 +252,22 @@ describe('dashboard webview.html', () => {
     expect(track).not.toMatch(/=== 'ship'|'pending'/);
   });
 
-  it('makes the needs-you control act for confirm ship and a single merge, navigate otherwise', () => {
+  it('makes the needs-you control act for confirm ship, a single merge, and a single conflict, navigate otherwise', () => {
     // The HOST decides what the control does (`s.needs.cta`), never the webview
     // deriving it from the label. The acting kinds carry `data-act` so the
     // generic delegated handler gives them the same pending lifecycle as the
-    // header's Confirm ship and the PR panel's Merge — the host's confirmation
-    // still guards the irreversible step. The navigational kinds keep
-    // `data-goto data-go` and gotoAction() scrolls to the owning control.
+    // header's Confirm ship, the PR panel's Merge and its Resolve conflicts
+    // button — the host's confirmation still guards the irreversible merge,
+    // and resolve-conflicts re-derives the brief from the store before handing
+    // it to a session. The navigational kinds keep `data-goto data-go` and
+    // gotoAction() scrolls to the owning control.
     expect(HTML).toContain('goButton(s.needs)');
     expect(HTML).toMatch(/cta\.kind === 'ship-confirm'/);
     expect(HTML).toMatch(/data-act="ship-ticket"/);
     expect(HTML).toMatch(/cta\.kind === 'merge'/);
     expect(HTML).toMatch(/data-act="merge-pr" data-repo="/);
+    expect(HTML).toMatch(/cta\.kind === 'resolve-conflicts'/);
+    expect(HTML).toMatch(/data-act="resolve-conflicts" data-repo="/);
     expect(HTML).toContain('data-goto data-go');
     expect(HTML).toMatch(/function gotoAction\(kind\)/);
     const fn = HTML.slice(HTML.indexOf('function gotoAction(kind)'));

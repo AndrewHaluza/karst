@@ -559,7 +559,50 @@ describe('buildDashboardState', () => {
     expect(ship.needs).toEqual({
       detail: '1 repo no longer merges cleanly',
       action: 'Resolve',
-      cta: { kind: 'resolve' },
+      cta: { kind: 'resolve-conflicts', repo: 'api' },
+    });
+  });
+
+  it('points a multi-repo conflict at the PR panel, never resolving blindly', () => {
+    // Resolve is per-repo (one conflict brief, one session): a track-level
+    // button cannot choose which of several conflicted repos to hand off, so
+    // the rail navigates to the panel that owns one Resolve control per repo.
+    const t = createTicket(store, { key: 'N-11', title: 't' });
+    setStage(store, t.id, 'ship', {
+      status: 'passed',
+      endedAt: '2026-08-01T10:00:00.000Z',
+      blockedKind: 'awaiting-merge',
+      blockedReason: 'blocked: pull requests for api, web are not merged yet',
+      blockedAt: '2026-08-01T10:00:00.000Z',
+    });
+    store.db
+      .prepare("UPDATE tickets SET stage_current = 'ship', agent_state = 'idle' WHERE id = ?")
+      .run(t.id);
+    const ins = store.db.prepare(
+      'INSERT INTO prs (ticket_id, repo, number, url, status) VALUES (?, ?, ?, ?, ?)',
+    );
+    ins.run(t.id, 'api', 12, 'https://github.com/o/r/pull/12', 'open');
+    ins.run(t.id, 'web', 13, 'https://github.com/o/r/pull/13', 'open');
+    for (const repo of ['api', 'web']) {
+      setMergeCheck(store, {
+        ticketId: t.id,
+        repo,
+        state: 'conflicted',
+        files: ['src/a.ts'],
+        reason: null,
+        headSha: 'h',
+        baseSha: 'b',
+        baseRef: 'main',
+        checkedAt: '2026-08-01T10:00:00.000Z',
+      });
+    }
+
+    const state = buildDashboardState(store, t.id);
+    const ship = state.rail.main.find((s) => s.cell.stageKey === 'ship')!;
+    expect(ship.needs).toEqual({
+      detail: '2 repos no longer merge cleanly',
+      action: 'Resolve',
+      cta: { kind: 'resolve-panel' },
     });
   });
 
