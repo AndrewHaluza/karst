@@ -740,7 +740,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           };
     },
     (pid, ticketId) =>
-      resourceMonitor?.registerPid({ pid, kind: 'session', ticketId, label: null }),
+      resourceMonitor?.registerPid({ pid, kind: 'session', ticketId, label: 'Session' }),
   );
   // Setting-gated (manifest `closeDoneTerminalsWithTicket`, OFF by default):
   // closing a ticket also closes its DONE terminals — the tabs whose process

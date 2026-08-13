@@ -19,7 +19,7 @@ export interface KnownPid {
   pid: number;
   kind: 'server' | 'agent' | 'gate' | 'session';
   ticketId: number | null;
-  /** Repository name for a server; the call site label for an agent/gate; null for a session. */
+  /** Repository name for a server; the call site label for an agent/gate; 'Session' for a session. */
   label: string | null;
   /** Only servers carry an identity row; other kinds are trusted by construction. */
   identity?: ServerIdentity;
