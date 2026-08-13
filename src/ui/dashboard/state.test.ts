@@ -139,14 +139,14 @@ describe('buildDashboardState', () => {
     expect(session.tokens).toMatchObject({ state: 'estimated' });
   });
 
-  it('shows the resolved agent core/model and enables switching only for a live impl session', () => {
+  it('shows the resolved agent core/model and enables switching', () => {
     const t = createTicket(store, { key: 'SW-1', title: 'switch' });
     updateTicketFields(store, t.id, { agentProvider: 'codex', model: 'gpt-5.6-sol' });
     store.db.prepare("UPDATE tickets SET stage_current = 'impl' WHERE id = ?").run(t.id);
 
     const state = buildDashboardState(
       store, t.id, undefined, undefined, undefined, undefined, 'claude',
-      { defaultModel: null, isSessionOpen: (id) => id === t.id },
+      { defaultModel: null },
     );
 
     expect(state.agentSession).toMatchObject({
@@ -156,15 +156,12 @@ describe('buildDashboardState', () => {
   });
 
   it.each([
-    ['impl', false], ['fix', false], ['review', true],
-  ] as const)('does not offer switching at %s/open=%s', (stage, open) => {
-    const t = createTicket(store, { key: `SW-${stage}-${open}`, title: 'switch' });
-    store.db.prepare('UPDATE tickets SET stage_current = ? WHERE id = ?').run(stage, t.id);
-    const state = buildDashboardState(
-      store, t.id, undefined, undefined, undefined, undefined, 'claude',
-      { isSessionOpen: () => open },
-    );
-    expect(state.agentSession.canSwitch).toBe(false);
+    'impl', 'fix', 'uat', 'review', 'ship', 'done', 'scope', null,
+  ] as const)('offers switching at %s whether or not a session is open', (stage) => {
+    const t = createTicket(store, { key: `SW-${stage ?? 'null'}`, title: 'switch' });
+    if (stage !== null) store.db.prepare('UPDATE tickets SET stage_current = ? WHERE id = ?').run(stage, t.id);
+    const state = buildDashboardState(store, t.id);
+    expect(state.agentSession.canSwitch).toBe(true);
   });
 
   it('does not offer switching while a Fix recovery execution owns the live session', () => {
@@ -179,7 +176,6 @@ describe('buildDashboardState', () => {
 
     const state = buildDashboardState(
       store, t.id, undefined, undefined, undefined, undefined, 'claude',
-      { isSessionOpen: () => true },
     );
 
     expect(state.agentSession.canSwitch).toBe(false);

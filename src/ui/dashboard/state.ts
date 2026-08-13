@@ -82,7 +82,6 @@ export type { PathContext, StepperCell, StageRail, PrPanelRow, MergeCheckPanelRo
 export interface DashboardAgentContext {
   defaultModel?: string | null;
   modelCatalog?: ModelCatalog;
-  isSessionOpen?: (ticketId: number) => boolean;
 }
 
 /** Fully serializable dashboard state pushed to the webview via postMessage. */
@@ -325,7 +324,6 @@ export function buildDashboardState(
     defaultModel: agentContext.defaultModel ?? null,
     catalog: agentContext.modelCatalog ?? bundledModelCatalog(),
     stageCurrent: ticket.stageCurrent,
-    sessionOpen: agentContext.isSessionOpen?.(ticketId) ?? false,
     fixExecutionActive: rounds.some((round) => round.status === 'fixing'),
   });
   const stepper = buildStepper(ticket.stages);

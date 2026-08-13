@@ -17,14 +17,21 @@ const CATALOG: ModelCatalog = {
 };
 
 describe('agent switch presentation', () => {
+  // The switch is available at EVERY stage — impl, the gate stages, ship, done
+  // and scope — whether or not a live session is open: the whole point is to
+  // let a user change core after a provider hit its usage limit mid-flight
+  // (869ehtcmz). The ONE withheld state is a running Fix execution, which owns
+  // the live session and must not be interrupted.
   it.each([
-    ['impl', true, false, true],
-    ['fix', true, false, true],
-    ['fix', true, true, false],
-    ['impl', false, false, false],
-    ['review', true, false, false],
-  ] as const)('switchability at %s/open=%s/fixing=%s is %s', (stage, open, fixing, expected) => {
-    expect(canSwitchAgentSession(stage, open, fixing)).toBe(expected);
+    'scope', 'impl', 'fix', 'uat', 'review', 'ship', 'done', null,
+  ] as const)('offers the switch at %s even with no live session', (stage) => {
+    expect(canSwitchAgentSession(stage)).toBe(true);
+    // The fix-execution guard is the ONLY withholding state (asserted below).
+    expect(canSwitchAgentSession(stage, stage === 'fix')).toBe(stage !== 'fix');
+  });
+
+  it('withholds the switch only while a Fix execution owns the live session', () => {
+    expect(canSwitchAgentSession('fix', true)).toBe(false);
   });
 
   it('lists every implemented core with its canonical label for the header select', () => {
@@ -39,7 +46,7 @@ describe('agent switch presentation', () => {
   it('labels opencode in the agent session view', () => {
     expect(buildAgentSessionView({
       provider: 'opencode', ticketModel: null, defaultModel: null,
-      catalog: CATALOG, stageCurrent: 'impl', sessionOpen: true,
+      catalog: CATALOG, stageCurrent: 'impl',
     }).providerLabel).toBe('OpenCode');
   });
 
@@ -58,11 +65,18 @@ describe('agent switch presentation', () => {
   it('renders the resolved provider/model and switch availability', () => {
     expect(buildAgentSessionView({
       provider: 'codex', ticketModel: null, defaultModel: 'codex-x',
-      catalog: CATALOG, stageCurrent: 'impl', sessionOpen: true,
+      catalog: CATALOG, stageCurrent: 'impl',
     })).toEqual({
       provider: 'codex', providerLabel: 'Codex',
       modelId: 'codex-x', modelLabel: 'Codex X', canSwitch: true,
     });
+  });
+
+  it('keeps the switch available at a later stage with no live session', () => {
+    expect(buildAgentSessionView({
+      provider: 'codex', ticketModel: null, defaultModel: 'codex-x',
+      catalog: CATALOG, stageCurrent: 'done',
+    }).canSwitch).toBe(true);
   });
 
   it('uses the selected provider label when model ids are shared', () => {
@@ -75,7 +89,7 @@ describe('agent switch presentation', () => {
 
     expect(buildAgentSessionView({
       provider: 'codex', ticketModel: null, defaultModel: 'shared',
-      catalog, stageCurrent: 'impl', sessionOpen: true,
+      catalog, stageCurrent: 'impl',
     }).modelLabel).toBe('Codex Shared');
   });
 });
@@ -88,7 +102,7 @@ function flow(overrides: Partial<AgentSwitchFlowDeps> = {}) {
     }),
     isSessionOpen: () => true,
     isProviderReady: async (provider) => (order.push(`ready:${provider}`), true),
-    confirm: async () => (order.push('confirm'), true),
+    confirm: async ({ willReplaceSession }) => (order.push(`confirm:replace=${String(willReplaceSession)}`), true),
     persist: (selection) => order.push(`persist:${selection.provider}:${selection.model}`),
     dispose: () => order.push('dispose'),
     launch: async (options) => {
@@ -116,12 +130,20 @@ describe('applyAgentSwitchSelection', () => {
     expect(owned).toBe(true);
   });
 
-  it('persists one selection, disposes, then launches', async () => {
+  it('persists one selection, disposes the live session, then launches', async () => {
     const { deps, order } = flow();
     await expect(
       applyAgentSwitchSelection(deps, CATALOG, { provider: 'codex', model: 'codex-x' }),
     ).resolves.toEqual({ kind: 'switched' });
-    expect(order).toEqual(['ready:codex', 'confirm', 'persist:codex:codex-x', 'dispose', 'launch:allow-resume=false:provider-ready=true']);
+    expect(order).toEqual(['ready:codex', 'confirm:replace=true', 'persist:codex:codex-x', 'dispose', 'launch:allow-resume=false:provider-ready=true']);
+  });
+
+  it('persists and launches — with no dispose — when no live session is open', async () => {
+    const { deps, order } = flow({ isSessionOpen: () => false });
+    await expect(
+      applyAgentSwitchSelection(deps, CATALOG, { provider: 'codex', model: 'codex-x' }),
+    ).resolves.toEqual({ kind: 'switched' });
+    expect(order).toEqual(['ready:codex', 'confirm:replace=false', 'persist:codex:codex-x', 'launch:allow-resume=false:provider-ready=true']);
   });
 
   it('allows a model-only switch on the current core without a readiness probe', async () => {
@@ -129,7 +151,7 @@ describe('applyAgentSwitchSelection', () => {
     await expect(
       applyAgentSwitchSelection(deps, CATALOG, { provider: 'claude', model: 'claude-x' }),
     ).resolves.toEqual({ kind: 'switched' });
-    expect(order).toEqual(['confirm', 'persist:claude:claude-x', 'dispose', 'launch:allow-resume=false:provider-ready=true']);
+    expect(order).toEqual(['confirm:replace=true', 'persist:claude:claude-x', 'dispose', 'launch:allow-resume=false:provider-ready=true']);
   });
 
   it('keeps the current session when the new core is not ready', async () => {
@@ -166,12 +188,13 @@ describe('applyAgentSwitchSelection', () => {
     expect(order).not.toContain('dispose');
   });
 
-  it('revalidates the session after confirmation', async () => {
+  it('revalidates after confirmation when a Fix execution takes over the session', async () => {
     let reads = 0;
     const { deps, order } = flow({
       read: () => ({
-        stageCurrent: ++reads === 1 ? 'impl' : 'review',
+        stageCurrent: 'fix',
         provider: 'claude', ticketModel: null, defaultModel: null,
+        fixExecutionActive: ++reads === 2,
       }),
     });
     await expect(

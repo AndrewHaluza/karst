@@ -1572,7 +1572,7 @@
   <div class="headerActions">
     <div class="agentWrap">
       <button id="agentButton" type="button" class="agentButton" aria-expanded="false" aria-haspopup="dialog"
-        title="Switch the live agent session">
+        title="Switch the agent core and model">
         <span id="agentCore" class="k-agent-core"></span>
         <span aria-hidden="true" class="agentSep">·</span>
         <span id="agentModel" class="agentMeta"></span>
@@ -3182,10 +3182,10 @@
     if (btn) {
       if (s.canSwitch) {
         btn.disabled = false;
-        btn.title = 'Switch the live agent session';
+        btn.title = 'Switch the agent core and model';
       } else {
         btn.disabled = true;
-        btn.title = 'No live agent session to switch right now';
+        btn.title = 'Cannot switch while a fix recovery is running';
       }
     }
   }
