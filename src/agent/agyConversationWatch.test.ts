@@ -12,14 +12,20 @@ import {
   type AgyWatchState,
 } from './agyConversationWatch.js';
 
-function fixtureDb(dir: string, name: string, workspacePath: string, pending: boolean): string {
+function fixtureDb(
+  dir: string,
+  name: string,
+  workspacePath: string,
+  pending: boolean,
+  usageFixtures?: { idx: number; step_type: number; metadataHex: string }[],
+): string {
   const conversationsDir = join(dir, 'conversations');
   mkdirSync(conversationsDir, { recursive: true });
   const dbPath = join(conversationsDir, `${name}.db`);
   const db = new Database(dbPath);
   db.exec(
     'CREATE TABLE trajectory_metadata_blob (id TEXT PRIMARY KEY, data BLOB);' +
-      'CREATE TABLE steps (idx INTEGER PRIMARY KEY, step_type INTEGER NOT NULL DEFAULT 0, status INTEGER NOT NULL DEFAULT 0);',
+      'CREATE TABLE steps (idx INTEGER PRIMARY KEY, step_type INTEGER NOT NULL DEFAULT 0, status INTEGER NOT NULL DEFAULT 0, metadata BLOB);',
   );
   db.prepare('INSERT INTO trajectory_metadata_blob (id, data) VALUES (?, ?)').run(
     'main',
@@ -27,6 +33,12 @@ function fixtureDb(dir: string, name: string, workspacePath: string, pending: bo
   );
   db.prepare('INSERT INTO steps (idx, step_type, status) VALUES (0, 14, 3)').run();
   db.prepare('INSERT INTO steps (idx, step_type, status) VALUES (1, 5, ?)').run(pending ? 9 : 3);
+  if (usageFixtures) {
+    const insert = db.prepare('INSERT INTO steps (idx, step_type, metadata) VALUES (?, ?, ?)');
+    for (const row of usageFixtures) {
+      insert.run(row.idx, row.step_type, Buffer.from(row.metadataHex, 'hex'));
+    }
+  }
   db.close();
   return dbPath;
 }
@@ -141,5 +153,61 @@ describe('agyConversationWatch', () => {
       pendingApproval: false,
     };
     expect(agyWatchTick(state, fresh)).toEqual([{ kind: 'SessionStart', sessionId: 'c2' }]);
+  });
+
+  describe('usage()', () => {
+    const TYPE15_HEX =
+      '0a0b08d1e4f6d30610b0bde30e1802320c08d6e4f6d30610a8ce9efd013a0c08d6e4f6d30610f0aca6b302420c08d6e4f6d30610f0aca6b3024a4f088c0810894c18a00228ae3f301842210a0973657373696f6e494412142d33373530373633303334333632383935353739489b0250055a1755624a39616f6948494c434632386f5076365063734138588c08622430306366303937322d316631372d343865322d383263612d3663616237616230326433636a03088c08a2014e0a2434326636386230342d633632632d346638382d396365642d6264346139316564393763361003222462393732326632662d333833312d346337372d393136372d633134666235333432363435a80101d201240a100808120c08d6e4f6d3061080ffa0fd010a100803120c08d6e4f6d30610f8caa9b30282020c08d6e4f6d30610f0aca6b302';
+    const TYPE23_HEX =
+      '0a0c08d6e4f6d30610c0ec90b5021805420b08d7e4f6d3061088f1b8704a47089a0810631804301842210a0973657373696f6e494412142d3337353037363330333433363238393535373950045a1756724a3961765f624c347162766449506f724834734134622430306366303937322d316631372d343865322d383263612d366361623761623032643363a201500a2434326636386230342d633632632d346638382d396365642d62643461393165643937633610041801222462393732326632662d333833312d346337372d393136372d633134666235333432363435d201350a100801120c08d6e4f6d30610e08b91b5020a100802120c08d6e4f6d30610d8a5a5b5020a0f0803120b08d7e4f6d30610f89fb970e201491247089a0810631804301842210a0973657373696f6e494412142d3337353037363330333433363238393535373950045a1756724a3961765f624c347162766449506f72483473413482020c08d6e4f6d3061098fc9db502';
+
+    it('returns null on a DB with no usage rows', () => {
+      dir = mkdtempSync(join(tmpdir(), 'karst-agy-watch-'));
+      const dbPath = fixtureDb(dir, '11111111-1111-4111-8111-111111111111', '/wt', false);
+      const db = openAgyConversationDb(dbPath);
+      expect(db.usage()).toBeNull();
+      db.close();
+    });
+
+    it('returns cumulative usage from type-15 and type-23 steps', () => {
+      dir = mkdtempSync(join(tmpdir(), 'karst-agy-watch-'));
+      const dbPath = fixtureDb(
+        dir,
+        '11111111-1111-4111-8111-111111111111',
+        '/wt',
+        false,
+        [
+          { idx: 3, step_type: 15, metadataHex: TYPE15_HEX },
+          { idx: 4, step_type: 23, metadataHex: TYPE23_HEX },
+        ],
+      );
+      const db = openAgyConversationDb(dbPath);
+      expect(db.usage()).toEqual({
+        input: 9836,
+        output: 292,
+        cacheRead: 8110,
+        lastStepIdx: 4,
+      });
+      db.close();
+    });
+
+    it('returns the same cumulative on a second call (read-only, no mutation)', () => {
+      dir = mkdtempSync(join(tmpdir(), 'karst-agy-watch-'));
+      const dbPath = fixtureDb(
+        dir,
+        '11111111-1111-4111-8111-111111111111',
+        '/wt',
+        false,
+        [
+          { idx: 3, step_type: 15, metadataHex: TYPE15_HEX },
+          { idx: 4, step_type: 23, metadataHex: TYPE23_HEX },
+        ],
+      );
+      const db = openAgyConversationDb(dbPath);
+      const first = db.usage();
+      const second = db.usage();
+      expect(second).toEqual(first);
+      db.close();
+    });
   });
 });
