@@ -2315,16 +2315,16 @@ function bootPreviewHarness(): PreviewHarness {
       const tag = html.slice(rowAt, html.indexOf('>', rowAt));
       // A native <details> toggles: the browser flips `open` and fires the
       // `toggle` event, which the capture-phase listener persists by procId.
-      // The new state is the OPPOSITE of what the rendered row currently has,
-      // so clicking an open row collapses it (Task 3's default-open session
-      // is exactly that case) and clicking a closed row expands it.
+      // The event's target IS the toggled <details> row itself (it carries the
+      // row's own data-proc-id) — the listener must match that, never a
+      // `closest()` climb onto some ancestor class. The new state is the
+      // OPPOSITE of what the rendered row currently has, so clicking an open
+      // row collapses it (Task 3's default-open session is exactly that case)
+      // and clicking a closed row expands it.
       const open = !tag.includes(' open');
       for (const handler of docListeners.get('toggle') ?? []) {
         handler({
-          target: {
-            closest: (sel: string) =>
-              sel === '.inside-process' ? { dataset: { procId: `${stageKey}:${processId}` }, open } : null,
-          },
+          target: { tagName: 'DETAILS', dataset: { procId: `${stageKey}:${processId}` }, open },
         });
       }
     },
@@ -2392,6 +2392,90 @@ describe('inside render round trip (executed in a VM)', () => {
     h.receive({ type: 'state', state: renderStateFor('uat') });
     expect(h.htmlOf('inside')).toContain('data-proc-id="uat:tester" open');
     expect(h.htmlOf('inside')).toContain('data-proc-id="uat:gates" open');
+  });
+
+  it('keeps expanded processes and running spinners intact across a live repaint (869e)', () => {
+    // The live tick re-pushes the same snapshot every second while a process
+    // runs. That repaint must NOT rebuild the inside block: rebuilding would
+    // restart every running spinner's CSS animation (the visible "spinner
+    // glitch every few moments") and re-render each process row, dropping the
+    // user's expanded disclosures back to their default state. The repaint is
+    // the same snapshot re-read — only the running rows' clocks advance — so it
+    // updates the mutable text in place and leaves the rendered DOM alone.
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: renderStateFor('uat') });
+    // The user expands the gates row (default-collapsed, B3), and a real push
+    // re-renders it open — the persisted open set is what survives the rebuild.
+    h.clickChevron('uat:gates');
+    h.receive({ type: 'state', state: renderStateFor('uat') });
+    expect(h.htmlOf('inside')).toContain('data-proc-id="uat:gates" open');
+    // A live repaint carries the same snapshot: the rendered block must not be
+    // replaced. A rebuild would recreate the spinner element (restarting its
+    // animation) and re-run processOpen over every row.
+    h.receive({ type: 'state', state: renderStateFor('uat'), live: true });
+    expect(h.htmlOf('inside')).toContain('data-proc-id="uat:gates" open');
+  });
+
+  it('does not rebuild the inside block on a live repaint — the spinner survives (869e)', () => {
+    // The discriminating half of the repaint fix: a live repaint IS the same
+    // snapshot re-read, so the ONLY difference from the last push is the
+    // host-computed running-clock text (elapsed durations advance each tick).
+    // Rebuilding the block to land that text would recreate the running
+    // spinner element and restart its CSS animation once a second — the
+    // visible "spinner glitch". The repaint must update the mutable text in
+    // place and leave the rendered block's markup untouched.
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: renderStateFor('impl') });
+    const before = h.htmlOf('inside');
+    expect(before).toContain('data-proc-id="impl:session" open');
+    // The next tick's snapshot differs only in the running clock/duration.
+    const tick = renderStateFor('impl');
+    tick.insideViews.impl.clock = 'started 09:12:33 · 4m 13s elapsed · attempt 1';
+    h.receive({ type: 'state', state: tick, live: true });
+    // Byte-for-byte identical: the block was not re-rendered, so the spinner
+    // element was not recreated and the expanded row was not re-derived.
+    expect(h.htmlOf('inside')).toBe(before);
+  });
+
+  it('advances the running-clock text in place on a live repaint, never a rebuild (869e)', () => {
+    // The live repaint's JOB is to keep the running rows' clocks current — that
+    // is why the tick exists at all. updateInsideLive must land the advanced
+    // clock and durations on the EXISTING nodes (textContent), proving the
+    // tick still delivers its purpose without recreating the DOM.
+    const src = /function updateInsideLive[\s\S]*?\n  \}/.exec(HYDRATED)?.[0];
+    if (!src) throw new Error('updateInsideLive not found in the webview script');
+    // A fake inside block: querySelector answers the meta clock, and for the
+    // running session row (by its composite data-proc-id) its .op-tail
+    // .duration. Each answered node carries a settable textContent.
+    const meta = { textContent: 'old clock' };
+    const dur = { textContent: '4m 12s' };
+    const block = {
+      querySelector: (sel: string) => {
+        if (sel === '.inside-meta') return meta;
+        if (sel === '[data-proc-id="impl:session"]') {
+          return { querySelector: (inner: string) => (inner === '.op-tail .duration' ? dur : null) };
+        }
+        return null;
+      },
+    };
+    const run = new Function(
+      'el',
+      'selectedStage',
+      'liveOps',
+      'state',
+      `${src}\n;return updateInsideLive(state);`,
+    ) as (
+      el: (id: string) => unknown,
+      selectedStage: unknown,
+      liveOps: unknown,
+      state: DashboardState,
+    ) => void;
+    const tick = renderStateFor('impl');
+    tick.insideViews.impl!.clock = 'started 09:12:33 · 4m 13s elapsed · attempt 1';
+    tick.insideViews.impl!.processes[0]!.duration = '4m 13s';
+    run((id) => (id === 'inside' ? block : null), null, {}, tick);
+    expect(meta.textContent).toBe('started 09:12:33 · 4m 13s elapsed · attempt 1');
+    expect(dur.textContent).toBe('4m 13s');
   });
 
   it('never renders a spinner on a stage that is blocked', () => {
