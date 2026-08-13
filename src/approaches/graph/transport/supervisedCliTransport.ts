@@ -112,6 +112,14 @@ export interface SupervisedLaunchRequest extends AgentNodeLaunch {
 export interface SupervisedCliTransport extends AgentTransport {
   sessions(): SupervisedAgentSession[];
   sessionFor(ticketId: number, nodeRunId: number): SupervisedAgentSession | undefined;
+  /**
+   * Re-attach a live session after a window reload. The transport's registry
+   * is in-memory and recreated fresh on activation; a graph session whose
+   * terminal survived the reload must be re-registered by the coordinator so
+   * `sessions()`/`sessionFor` see it again — never a second spawn. Idempotent:
+   * re-adopting an already-registered (ticketId, nodeRunId) replaces the entry.
+   */
+  adopt(session: SupervisedAgentSession): void;
 }
 
 const CAPABILITIES: AgentTransportCapabilities = {
@@ -248,5 +256,26 @@ export function createSupervisedCliTransport(deps: SupervisedTransportDeps): Sup
 
     sessions: () => [...sessions.values()],
     sessionFor: (ticketId, nodeRunId) => sessions.get(`${ticketId}:${nodeRunId}`),
+    adopt: (session) => {
+      sessions.set(`${session.ticketId}:${session.nodeRunId}`, session);
+      // The revived terminal's eventual close is the re-attached session's end,
+      // exactly as it is for a freshly-spawned one (`start` wires the same
+      // handler): close the accounting row with the exit verdict, once.
+      if (session.processRunId !== null && session.terminal && deps.closeProcessRun) {
+        session.terminal.onDidClose((exitCode) => {
+          try {
+            deps.closeProcessRun?.(
+              session.processRunId!,
+              exitCode === 0 ? 'passed' : exitCode !== undefined ? 'failed' : 'interrupted',
+              deps.now(),
+            );
+          } catch (error) {
+            deps.debug?.(
+              `[graph] node ${session.nodeRunId}: closing the process_runs row failed (${String(error)})`,
+            );
+          }
+        });
+      }
+    },
   };
 }

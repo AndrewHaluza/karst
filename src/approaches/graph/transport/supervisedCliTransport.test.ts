@@ -20,7 +20,7 @@ import {
   createSupervisedCliTransport,
   type SupervisedTransportDeps,
 } from './supervisedCliTransport.js';
-import type { TransportTerminal } from './agentTransport.js';
+import type { TransportTerminal, SupervisedAgentSession } from './agentTransport.js';
 import type { AgentAdapter, InteractiveCommand } from '../../../agent/adapter.js';
 
 /** A terminal fake that resolves a configured pid immediately after spawn. */
@@ -148,6 +148,84 @@ describe('SupervisedCLITransport', () => {
     expect(transport.sessions()).toHaveLength(1);
     expect(transport.sessionFor(1, 11)?.pid).toBe(4242);
     expect(transport.sessionFor(1, 99)).toBeUndefined();
+  });
+
+  it('adopts a session a reloaded window re-attaches, without re-spawning', async () => {
+    const h = harness(4242);
+    const transport = createSupervisedCliTransport(h.deps);
+    const adopted: SupervisedAgentSession = {
+      nodeRunId: 55,
+      ticketId: 1,
+      graphRunId: 2,
+      pid: 4242,
+      cwd: '/wt/n1',
+      generation: 'gen-1',
+      ownerNonce: 'nonce-adopted',
+      startedAt: '2026-08-12T00:00:00.000Z',
+      processRunId: null,
+      providerSessionId: null,
+      terminal: fakeTerminal(4242),
+    };
+    transport.adopt(adopted);
+    expect(transport.sessions()).toHaveLength(1);
+    expect(transport.sessionFor(1, 55)).toBe(adopted);
+    expect(h.calls.order).toEqual([]); // no persist/spawn/record — nothing new launched
+  });
+
+  it('adopting an already-known (ticketId, nodeRunId) is idempotent — the registry entry is replaced, not duplicated', async () => {
+    const h = harness(4242);
+    const transport = createSupervisedCliTransport(h.deps);
+    const first: SupervisedAgentSession = {
+      nodeRunId: 55,
+      ticketId: 1,
+      graphRunId: 2,
+      pid: 4242,
+      cwd: '/wt/n1',
+      generation: 'gen-1',
+      ownerNonce: 'nonce-a',
+      startedAt: '2026-08-12T00:00:00.000Z',
+      processRunId: null,
+      providerSessionId: null,
+      terminal: fakeTerminal(4242),
+    };
+    transport.adopt(first);
+    const second: SupervisedAgentSession = { ...first, ownerNonce: 'nonce-b' };
+    transport.adopt(second);
+    expect(transport.sessions()).toHaveLength(1);
+    expect(transport.sessionFor(1, 55)?.ownerNonce).toBe('nonce-b');
+  });
+
+  it('adopt wires the revived terminal close to the accounting row, once, with the exit verdict', async () => {
+    const close: Array<{ processRunId: number; status: string }> = [];
+    const terminal = fakeTerminal(4242);
+    let closeHandler: ((exitCode?: number) => void) | undefined;
+    terminal.onDidClose = (handler) => {
+      closeHandler = handler;
+    };
+    const transport = createSupervisedCliTransport({
+      ...harness(4242).deps,
+      terminalHost: { createTerminal: () => terminal },
+      closeProcessRun: (processRunId, status) => {
+        close.push({ processRunId, status });
+      },
+    });
+    const adopted: SupervisedAgentSession = {
+      nodeRunId: 66,
+      ticketId: 1,
+      graphRunId: 2,
+      pid: 4242,
+      cwd: '/wt/n1',
+      generation: 'gen-1',
+      ownerNonce: 'nonce',
+      startedAt: '2026-08-12T00:00:00.000Z',
+      processRunId: 77,
+      providerSessionId: null,
+      terminal,
+    };
+    transport.adopt(adopted);
+    expect(close).toEqual([]);
+    closeHandler?.(0);
+    expect(close).toEqual([{ processRunId: 77, status: 'passed' }]);
   });
 
   it('terminates an attributable pid via the process group and reports the kill outcome', async () => {

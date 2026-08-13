@@ -176,6 +176,7 @@ import { electReplan } from './approaches/graph/coordinator/replan.js';
 import {
   createSupervisedCliTransport,
   type SupervisedCliTransport,
+  type SupervisedAgentSession,
   type TransportTerminal,
   type TransportTerminalHost,
 } from './approaches/graph/transport/supervisedCliTransport.js';
@@ -185,6 +186,7 @@ import {
   shouldDriveGraphTicket,
   stopActiveGraph,
 } from './approaches/graph/entryPoints.js';
+import { reattachableSessionIdentity } from './approaches/graph/coordinator/reattach.js';
 import { runCompletionPipeline, type CompletionPipelineDeps } from './approaches/graph/integration/pipeline.js';
 import { artifactRootDir } from './approaches/graph/artifacts/snapshot.js';
 import { declaredWritesFor } from './approaches/graph/integration/claims.js';
@@ -3279,6 +3281,50 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return tr.sessionFor(run.ticket_id, nodeRunId);
   };
 
+  /**
+   * Re-attach a live graph session to this window after a reload. The
+   * transport's session registry is in-memory and recreated fresh on
+   * activation; the terminals themselves survive, so a session whose
+   * `KARST_LAUNCH_ID` still matches a live node/planner run of the active
+   * graph is re-registered from the revived terminal — NEVER a second spawn.
+   * This is what the "the coordinator re-attaches it on the next sweep"
+   * message promises; without it a planning/running graph sits stalled with no
+   * interaction path (the reported defect).
+   */
+  const reattachGraphSessions = async (): Promise<void> => {
+    const gs = graphCoordinatorStore;
+    const tr = graphTransport;
+    if (!gs || !tr) return;
+    for (const terminal of vscode.window.terminals) {
+      await terminalIdentity.resolve(terminal);
+      const named = terminalIdentity.identify(terminal);
+      if (!named || named.launchId === undefined) continue;
+      if (tr.sessionFor(named.ticketId, Number(named.launchId))) continue; // already attached
+      const identity = reattachableSessionIdentity(gs.db, {
+        ticketId: named.ticketId,
+        launchId: named.launchId,
+      });
+      if (!identity) continue;
+      const session: SupervisedAgentSession = {
+        nodeRunId: identity.nodeRunId,
+        ticketId: named.ticketId,
+        graphRunId: identity.graphRunId,
+        pid: identity.pid,
+        cwd: graphTerminalCwd(terminal),
+        generation: identity.generation,
+        ownerNonce: identity.ownerNonce,
+        startedAt: identity.startedAt,
+        processRunId: identity.processRunId,
+        providerSessionId: null,
+        terminal: wrapRevivedGraphTerminal(terminal),
+      };
+      tr.adopt(session);
+      logger.debug(
+        `[graph] re-attached live ${identity.kind} session for run ${identity.nodeRunId} (ticket ${named.ticketId})`,
+      );
+    }
+  };
+
   /** The graph run's artifact root under global storage (Decision 15): where
    *  node outputs stage and content-addressed snapshots land. Empty when the
    *  project is unbound — no graph work can run then, and the pipeline's
@@ -4086,6 +4132,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   };
   void reconcileGraphRuns();
+  // A reload re-attaches every graph session whose terminal survived it, so a
+  // ticket owned by a live run is never reported as "session not attached"
+  // until the first coordinator sweep (the promise the message makes).
+  void reattachGraphSessions();
 
   // The Inside Stop binding (Slice 3 Task 11): terminates every live session
   // of the ticket's active graph through the supervised transport, then moves
@@ -4294,6 +4344,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // The tick is bounded (≤ 100 transitions), reads canonical state fresh,
       // and a failure only delays the next tick — never depends on a callback.
       if (graphCoordinatorStore) {
+        // Re-attach sessions a terminal revival delivered after the last sweep
+        // (the "coordinator re-attaches it on the next sweep" promise), then
+        // tick the runs whose continuation the coordinator owns.
+        void reattachGraphSessions();
         let graphRuns: number[] = [];
         try {
           graphRuns = activeGraphRunIds(graphCoordinatorStore.db);
@@ -4741,7 +4795,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // normal continue-or-start flow below.
       const activeGraph = activeGraphRunFor(localStore.db, ticketId);
       if (activeGraph) {
-        const session = graphTransport?.sessions().find((s) => s.ticketId === ticketId);
+        let session = graphTransport?.sessions().find((s) => s.ticketId === ticketId);
+        // The terminal may be a revived one this window has not re-attached yet
+        // (a reload between the session's launch and this click). Re-attach it
+        // BEFORE reporting "not attached" — a live session is recoverable, and
+        // the message is only correct when the coordinator genuinely cannot
+        // find the session.
+        if (!session) await reattachGraphSessions();
+        session = graphTransport?.sessions().find((s) => s.ticketId === ticketId);
         if (session) {
           session.terminal?.show();
         } else {
@@ -5540,6 +5601,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // what makes this handler async.
     vscode.window.onDidOpenTerminal(async (terminal) => {
       await terminalIdentity.resolve(terminal);
+      // A graph session terminal can be revived AFTER the activation scan too;
+      // re-attach it now (idempotent) so a live graph session is never left
+      // "not attached to this window" until the next coordinator sweep.
+      await reattachGraphSessions();
       const session = restoredSessionOf(terminal, terminalIdentity);
       if (!session) return;
       const outcome = sessions.adoptLateSession(session, classifyLateSession);
@@ -6221,6 +6286,37 @@ function restoredSessionOf(
 /** Wrap a VS Code terminal for both freshly-created and restored sessions. */
 function wrapTerminal(terminal: vscode.Terminal): SessionTerminal {
   return {
+    show: (preserveFocus) => terminal.show(preserveFocus),
+    sendText: (text) => terminal.sendText(text, true),
+    dispose: () => terminal.dispose(),
+    onDidClose: (handler) => {
+      const sub = vscode.window.onDidCloseTerminal((closed) => {
+        if (closed === terminal) {
+          sub.dispose();
+          handler(closed.exitStatus?.code);
+        }
+      });
+    },
+  };
+}
+
+/** The workspace a revived graph terminal was launched in, when recoverable.
+ *  `creationOptions.cwd` survives a reload (the pty details carry it); a
+ *  non-string value degrades to '' — the session's cwd is used for attribution
+ *  on terminate, and an empty value simply falls back to start-time matching. */
+function graphTerminalCwd(terminal: vscode.Terminal): string {
+  const opts = terminal.creationOptions;
+  const cwd = opts && 'cwd' in opts ? opts.cwd : undefined;
+  return typeof cwd === 'string' ? cwd : '';
+}
+
+/** Wrap a REVIVED vscode terminal in the graph transport's `TransportTerminal`
+ *  surface (the graph host's `createTerminal` returns the same shape for a
+ *  freshly-spawned one). Only ever used to re-attach a session that already
+ *  exists — it never spawns, and never re-registers in the identity registry. */
+function wrapRevivedGraphTerminal(terminal: vscode.Terminal): TransportTerminal {
+  return {
+    processId: () => Promise.resolve(terminal.processId),
     show: (preserveFocus) => terminal.show(preserveFocus),
     sendText: (text) => terminal.sendText(text, true),
     dispose: () => terminal.dispose(),
