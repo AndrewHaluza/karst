@@ -155,6 +155,21 @@ function validateGraphEfforts(manifest: Manifest, catalog: ModelCatalog): void {
   }
 }
 
+/**
+ * A10: the manifest default effort must be advertised by the default model in
+ * the LIVE catalog before a save reaches disk — same rule as the graph
+ * profiles. An absent effort, or an absent default model, is fine.
+ */
+function validateDefaultEffort(manifest: Manifest, catalog: ModelCatalog): void {
+  if (manifest.defaultEffort === undefined || manifest.defaultEffort === '') return;
+  assertProfileEffort(
+    manifest.agentProvider ?? 'claude',
+    manifest.defaultModel,
+    manifest.defaultEffort,
+    catalog,
+  );
+}
+
 export function buildSettingsActions(deps: SettingsActionsDeps): SettingsActionsFactory {
   return (ctx: SettingsActionsCtx): SettingsActions => {
     /**
@@ -319,6 +334,7 @@ export function buildSettingsActions(deps: SettingsActionsDeps): SettingsActions
         try {
           validateManifest(delta); // guard before touching disk
           validateGraphEfforts(delta, deps.modelCatalog()); // A10: effort vs live catalog
+          validateDefaultEffort(delta, deps.modelCatalog()); // A10: default effort vs live catalog
         } catch (e) {
           if (!(e instanceof ManifestError) && !(e instanceof EffortError)) throw e;
           ctx.post({ type: 'error', message: errorMessage(e) });

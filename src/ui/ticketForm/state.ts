@@ -130,6 +130,10 @@ export interface TicketFormState {
   selectedModel: string | null;
   /** Manifest default model, for the "Inherit (settings: …)" label; null = none. */
   defaultModel: string | null;
+  /** Per-ticket effort/variant override; null = inherit the manifest default. */
+  selectedEffort: string | null;
+  /** Manifest default effort, for the "Inherit (settings: …)" label; null = none. */
+  defaultEffort: string | null;
   /** Implemented agent-core providers offered in the picker. */
   agentProviders: AgentProvider[];
   /** Per-ticket agent-core override; null = inherit the manifest default. */
@@ -288,6 +292,8 @@ export function buildTicketFormState(
       modelCatalog,
       selectedModel: null,
       defaultModel: manifest.defaultModel ?? null,
+      selectedEffort: null,
+      defaultEffort: manifest.defaultEffort ?? null,
       agentProviders: [...IMPLEMENTED_PROVIDERS],
       selectedAgentProvider: null,
       defaultAgentProvider,
@@ -336,6 +342,8 @@ export function buildTicketFormState(
     modelCatalog,
     selectedModel: ticket.model ?? null,
     defaultModel: manifest.defaultModel ?? null,
+    selectedEffort: ticket.effort ?? null,
+    defaultEffort: manifest.defaultEffort ?? null,
     agentProviders: [...IMPLEMENTED_PROVIDERS],
     selectedAgentProvider: ticket.agentProvider ?? null,
     defaultAgentProvider,

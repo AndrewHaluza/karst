@@ -52,6 +52,7 @@ describe('ticketLabel', () => {
     archivedAt: null,
     updatedAt: null,
     model: null,
+    effort: null,
     type: null,
     agentProvider: null,
     sessionProvider: null,
@@ -275,6 +276,24 @@ describe('ticket + stage persistence', () => {
     updateTicketFields(store, t.id, { model: 'claude-sonnet-5' });
     updateTicketFields(store, t.id, { model: '' });
     expect(getTicket(store, t.id).model).toBeNull();
+  });
+
+  it('a new ticket has a null effort (inherit) until one is chosen', () => {
+    const t = createTicket(store, { key: 'PROJ-1', title: 'x' });
+    expect(getTicket(store, t.id).effort).toBeNull();
+  });
+
+  it('updateTicketFields round-trips the per-ticket effort', () => {
+    const t = createTicket(store, { key: 'PROJ-1', title: 'x' });
+    updateTicketFields(store, t.id, { effort: 'high' });
+    expect(getTicket(store, t.id).effort).toBe('high');
+  });
+
+  it('an empty-string effort clears the selection back to inherit (null)', () => {
+    const t = createTicket(store, { key: 'PROJ-1', title: 'x' });
+    updateTicketFields(store, t.id, { effort: 'high' });
+    updateTicketFields(store, t.id, { effort: '' });
+    expect(getTicket(store, t.id).effort).toBeNull();
   });
 
   it('a new ticket has a null agentProvider (inherit) until one is chosen', () => {

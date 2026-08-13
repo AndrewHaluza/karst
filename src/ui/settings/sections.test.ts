@@ -50,6 +50,7 @@ describe('settings sections — vocabulary', () => {
         'closeDoneTerminalsWithTicket',
         'conventions',
         'debug',
+        'defaultEffort',
         'defaultModel',
         'host',
         'portRange',

@@ -40,6 +40,12 @@ export interface Ticket {
   updatedAt: string | null;
   /** Per-ticket launch model id (§ model selection); `null` = inherit the manifest default. */
   model: string | null;
+  /**
+   * Per-ticket effort/variant override (§ Execution policy resolution);
+   * `null` = inherit the manifest default effort. Resolved against the live
+   * catalog at launch like `model` is.
+   */
+  effort: string | null;
   /** Per-ticket agent-core override (§ agent core selection); `null` = inherit `manifest.agentProvider`. */
   agentProvider: AgentProvider | null;
   /**
@@ -90,6 +96,7 @@ interface TicketRow {
   agent_provider: string | null;
   session_provider: string | null;
   type: string | null;
+  effort: string | null;
   project_id: number | null;
   parent_ticket_id: number | null;
 }
@@ -134,6 +141,7 @@ function rowToTicket(r: TicketRow): Ticket {
     archivedAt: r.archived_at,
     updatedAt: r.updated_at,
     model: r.model,
+    effort: r.effort,
     agentProvider: isKnownProvider(r.agent_provider) ? r.agent_provider : null,
     sessionProvider: isKnownProvider(r.session_provider) ? r.session_provider : null,
     // Narrow on read too: the column is plain TEXT, and a value that predates a
@@ -363,6 +371,8 @@ export interface TicketFieldsPatch {
   selectedRepos?: string[];
   /** Per-ticket launch model id; empty string clears it back to inherit. */
   model?: string;
+  /** Per-ticket effort/variant override; empty string clears it back to inherit. */
+  effort?: string;
   /** Per-ticket agent-core override; empty string clears it back to inherit. */
   agentProvider?: string;
   /**
@@ -395,6 +405,8 @@ export function updateTicketFields(
   }
   // An explicit empty string clears the per-ticket model back to "inherit" (NULL).
   if (patch.model !== undefined) columns.model = patch.model === '' ? null : patch.model;
+  // Same "inherit" convention for the per-ticket effort/variant override.
+  if (patch.effort !== undefined) columns.effort = patch.effort === '' ? null : patch.effort;
   // Same "inherit" convention for the per-ticket agent-core override. A switch
   // deliberately does NOT touch session_id here: the session carries its own
   // `session_provider` tag, so a now-foreign session is simply not resumed

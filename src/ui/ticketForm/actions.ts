@@ -255,6 +255,7 @@ function persistDraft(
     ...(input.agent !== null ? { agent: input.agent } : {}),
     // null = "Inherit"; persist '' so the store clears any prior pick to NULL.
     model: input.model ?? '',
+    effort: input.effort ?? '',
     agentProvider: input.agentProvider ?? '',
     type: input.ticketType ?? '',
   });
@@ -653,6 +654,14 @@ export function buildTicketFormActions(
       // the store maps to NULL (inherit the manifest default at launch).
       if (ctx.ticketId !== undefined) {
         updateTicketFields(deps.store, ctx.ticketId, { model: id });
+      }
+    },
+
+    setEffort(id: string): void {
+      // An empty id is the "Inherit (settings)" choice — persisted as '' which
+      // the store maps to NULL (inherit the manifest default effort at launch).
+      if (ctx.ticketId !== undefined) {
+        updateTicketFields(deps.store, ctx.ticketId, { effort: id });
       }
     },
 

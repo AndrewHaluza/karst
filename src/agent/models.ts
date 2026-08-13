@@ -96,3 +96,29 @@ export function resolveModelForProvider(
   }
   return undefined;
 }
+
+/**
+ * Resolve the effective effort/variant for a launch: the ticket's own effort
+ * wins, else the manifest default. The effort is only meaningful for a model
+ * that advertises it, so a candidate is carried only when the RESOLVED model
+ * for that provider advertises it (the save-time validation in `effort.ts`
+ * already refused an unsupported one; this guards a catalog change in between
+ * that removed the value). Absent → the agent CLI's own default applies.
+ */
+export function resolveEffortForProvider(
+  provider: AgentProvider,
+  ticketEffort: string | null | undefined,
+  defaultEffort: string | null | undefined,
+  modelId: string | undefined,
+  catalog: ModelCatalog = bundledModelCatalog(),
+): string | undefined {
+  for (const candidate of [ticketEffort, defaultEffort]) {
+    const value = firstNonBlank(candidate);
+    if (!value) continue;
+    const efforts = catalog[provider].find((m) => m.id === modelId)?.efforts;
+    // No model resolved → no model to cross-check → the effort cannot be used.
+    if (modelId === undefined || efforts === undefined) continue;
+    if (efforts.includes(value)) return value;
+  }
+  return undefined;
+}

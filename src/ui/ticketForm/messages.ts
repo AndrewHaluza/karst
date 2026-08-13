@@ -20,6 +20,8 @@ export interface TicketDraftFields {
   approach: string | null;
   agent: string | null;
   model: string | null;
+  /** Per-ticket effort/variant override; null = inherit the manifest default. */
+  effort?: string | null;
   /** Per-ticket agent-core override; null = inherit the manifest default. */
   agentProvider?: string | null;
   /**
@@ -68,6 +70,8 @@ export type TicketFormMessage =
   | { type: 'set-agent'; id: string }
   // id may be '' — the "Inherit (settings)" choice, which clears the model.
   | { type: 'set-model'; id: string }
+  // id may be '' — the "Inherit (settings)" choice, which clears the effort.
+  | { type: 'set-effort'; id: string }
   // id may be '' — the "Inherit (settings)" choice, which clears the provider.
   | { type: 'set-provider'; id: string }
   // id may be '' — "Inherit (settings)", which clears the ticket's type.
@@ -164,6 +168,7 @@ export interface TicketFormActions {
   setApproach: (id: string) => void | Promise<void>;
   setAgent: (id: string) => void | Promise<void>;
   setModel: (id: string) => void | Promise<void>;
+  setEffort: (id: string) => void | Promise<void>;
   setProvider: (id: string) => void | Promise<void>;
   setType: (id: string) => void | Promise<void>;
   analyze: (prompt: string) => void | Promise<void>;
@@ -229,6 +234,9 @@ function parseDraftFields(m: Record<string, unknown>): TicketDraftFields | null 
   const agent = typeof m.agent === 'string' && m.agent.length > 0 ? m.agent : null;
   const model = typeof m.model === 'string' && m.model.length > 0 ? m.model : null;
   // Blank/invalid both degrade to null (inherit), same as an absent field — a
+  // crafted or stale value must never reach the launch path.
+  const effort = typeof m.effort === 'string' && m.effort.length > 0 ? m.effort : null;
+  // Blank/invalid both degrade to null (inherit), same as an absent field — a
   // crafted or stale value must never reach resolveAdapter's provider lookup.
   const agentProvider =
     typeof m.agentProvider === 'string' && isKnownProvider(m.agentProvider) ? m.agentProvider : null;
@@ -246,6 +254,7 @@ function parseDraftFields(m: Record<string, unknown>): TicketDraftFields | null 
     approach,
     agent,
     model,
+    effort,
     agentProvider,
     ticketType,
     createInProvider,
@@ -290,6 +299,10 @@ export function parseTicketFormMessage(raw: unknown): TicketFormMessage | null {
     case 'set-model':
       // id may be '' ("Inherit"); require the field to be a string, not non-empty.
       return typeof m.id === 'string' ? { type: 'set-model', id: m.id } : null;
+    case 'set-effort':
+      // id may be '' ("Inherit"); require a string — the effort vocabulary is
+      // enforced against the live catalog by the store/launch path.
+      return typeof m.id === 'string' ? { type: 'set-effort', id: m.id } : null;
     case 'set-provider':
       // '' means "Inherit"; otherwise the id must be a known implemented provider —
       // this is a trust boundary, an unrecognized value must never reach resolveAdapter.
@@ -388,6 +401,9 @@ export function routeTicketFormAction(
       return;
     case 'set-model':
       actions.setModel(msg.id);
+      return;
+    case 'set-effort':
+      actions.setEffort(msg.id);
       return;
     case 'set-provider':
       actions.setProvider(msg.id);

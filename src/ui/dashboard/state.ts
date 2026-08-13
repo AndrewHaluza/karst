@@ -14,6 +14,7 @@ import { buildStepper, displayStatus, type StepperCell } from '../../model/stepp
 import { buildShipSlot, type ShipSlot } from '../../model/shipSlot.js';
 import { resolveProvider } from '../../agent/registry.js';
 import { IMPLEMENTED_PROVIDERS } from '../../agent/provider.js';
+import { resolveEffortForProvider } from '../../agent/models.js';
 import { AGENT_PROVIDER_LABELS } from '../../model/agentIdentity.js';
 import { buildStageRail, type StageRail } from '../../model/stageRail.js';
 import { listGateRuns } from '../../store/gateRuns.js';
@@ -82,6 +83,8 @@ export type { PathContext, StepperCell, StageRail, PrPanelRow, MergeCheckPanelRo
 
 export interface DashboardAgentContext {
   defaultModel?: string | null;
+  /** Manifest default effort/variant, for the switch popover's inherit row. */
+  defaultEffort?: string | null;
   modelCatalog?: ModelCatalog;
 }
 
@@ -120,10 +123,18 @@ export interface DashboardState {
    * The agent-switch choices the header popover renders: every implemented core
    * (canonical label) and each core's model choices, keyed by provider id. The
    * webview cannot import TS, so the catalog arrives here, host-resolved.
+   * `modelsByCore` is the FULL model catalog (models + their advertised
+   * efforts) the shared agent identity picker renders from; `models` keeps the
+   * flattened legacy shape. `effort` is the resolved current effort/variant,
+   * and the `*InheritLabel`s name the switch popover's inherit rows.
    */
   agentSwitch: {
     cores: { id: AgentProvider; label: string }[];
     models: Record<string, { model: string | null; label: string }[]>;
+    modelsByCore: ModelCatalog;
+    effort: string | null;
+    modelInheritLabel: string;
+    effortInheritLabel: string;
   };
   servers: ServerView[];
   /** False when nothing in scope declares a service — nothing can ever start. */
@@ -323,6 +334,8 @@ export function buildDashboardState(
     provider: resolvedProvider,
     ticketModel: ticket.model,
     defaultModel: agentContext.defaultModel ?? null,
+    ticketEffort: ticket.effort,
+    defaultEffort: agentContext.defaultEffort ?? null,
     catalog: agentContext.modelCatalog ?? bundledModelCatalog(),
     stageCurrent: ticket.stageCurrent,
     fixExecutionActive: rounds.some((round) => round.status === 'fixing'),
@@ -340,6 +353,20 @@ export function buildDashboardState(
       catalog,
     }).map(({ model, label }) => ({ model, label }));
   }
+  // The shared picker's inherit rows name the RESOLVED defaults, like the
+  // legacy model choices did. Effort inherits the manifest default when the
+  // ticket has none.
+  const inheritedEffort = resolveEffortForProvider(
+    resolvedProvider,
+    ticket.effort,
+    agentContext.defaultEffort ?? null,
+    agentSession.modelId ?? undefined,
+    catalog,
+  );
+  const effortInheritLabel = inheritedEffort ? `Inherit (settings: ${inheritedEffort})` : 'No effort (agent picks)';
+  const modelInheritLabel = agentSession.modelLabel === 'Agent default'
+    ? 'No default (agent picks)'
+    : agentSession.modelLabel;
 
   const worktrees = listWorktreesByTicket(store, ticketId).map((w) => ({
     ...w,
@@ -584,7 +611,14 @@ export function buildDashboardState(
     stepper,
     currentStage,
     ship: buildShipSlot(currentStage, 'repos' in mergeGate ? mergeGate : undefined),
-    agentSwitch: { cores: agentSwitchCoreChoices(), models: switchModels },
+    agentSwitch: {
+      cores: agentSwitchCoreChoices(),
+      models: switchModels,
+      modelsByCore: catalog,
+      effort: agentSession.effort,
+      modelInheritLabel,
+      effortInheritLabel,
+    },
     servers: listServersByTicket(store, ticketId),
     // Drives whether "Start servers" is offered at all. A ticket scoping only
     // non-runnable repositories can never have a server, so presenting a live

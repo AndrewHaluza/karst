@@ -296,6 +296,9 @@ describe('writeManifest', () => {
         },
         agentProvider: 'codex',
         defaultModel: 'claude-opus-4-8',
+        // Same reason: absent defaultEffort would round-trip regardless of the
+        // overlay, so the populated manifest pins the explicit value.
+        defaultEffort: 'high',
         // Non-default on purpose: a missing writeManifest overlay would fall
         // back to the loader's default and the round-trip would still pass.
         archiveDoneAfterDays: 7,

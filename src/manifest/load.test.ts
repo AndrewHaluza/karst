@@ -1589,6 +1589,44 @@ describe('agentProvider', () => {
   });
 });
 
+describe('defaultEffort', () => {
+  it('defaults to undefined when omitted', () => {
+    const { path, cleanup } = fixture(VALID);
+    try {
+      expect(loadManifest(path).defaultEffort).toBeUndefined();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('preserves an explicit value', () => {
+    const { path, cleanup } = fixture(`${VALID}\ndefaultEffort: high\n`);
+    try {
+      expect(loadManifest(path).defaultEffort).toBe('high');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('normalizes a blank value to undefined', () => {
+    const { path, cleanup } = fixture(`${VALID}\ndefaultEffort: '  '\n`);
+    try {
+      expect(loadManifest(path).defaultEffort).toBeUndefined();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('throws on a non-string value', () => {
+    const { path, cleanup } = fixture(`${VALID}\ndefaultEffort: 42\n`);
+    try {
+      expect(() => loadManifest(path)).toThrow(/defaultEffort/i);
+    } finally {
+      cleanup();
+    }
+  });
+});
+
 describe('worktreePathDisplay', () => {
   it('defaults to relative when omitted', () => {
     const { path, cleanup } = fixture(VALID);
