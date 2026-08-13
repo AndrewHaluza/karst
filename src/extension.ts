@@ -3669,6 +3669,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       (step) => {
         const event = shipStepEvent(ticketId, step);
         if (event) dashboard.postInsideProgress(ticketId, event);
+        // Each step event marks a store write the ledger reads (a step row
+        // opened or closed). Push the snapshot now so a subprocess's checkmark
+        // lands the instant that subprocess finishes — not once the whole saga
+        // ends. The live tick keeps it moving while a step reads `run`.
+        dashboard.pushState(ticketId);
       },
       (event) => dashboard.postInsideProgress(ticketId, event),
     );

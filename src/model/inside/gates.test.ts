@@ -960,3 +960,94 @@ describe('finding rows carry a level key and a linkable location', () => {
     });
   });
 });
+
+// ── the gates finish BEFORE the stage does — the AI phase follows ─────────
+// The uat/review stage runs its gates first, then its AI process (Tester /
+// Review lane). While that AI process runs the stage still reads `running`, so
+// a green recorded batch must read as done (`pass`) rather than keep the
+// spinner the whole minutes of the AI call. The proof the gates are done is the
+// AI process run belonging to the SAME stage run as the recorded batch; a run
+// from a previous attempt, or one the host died on, is not the current gates.
+describe('gates process status while the stage runs its AI phase', () => {
+  it('reads a green batch as pass once the Tester is running, never a spinner', () => {
+    const views = uatProcesses(
+      qualityInput({
+        cell: cell('uat', 'running', { startedAt: '2026-07-20T12:00:00.000Z' }),
+        gateRuns: [run('uat', 'test (web)', 0, { runAt: NOW, stageRunId: 5 })],
+        processRuns: [
+          processRun({ id: 9, status: 'running', stageRunId: 5, endedAt: null, resultKind: null }),
+        ],
+      }),
+    );
+    const gates = views[0]!;
+    expect(gates.status).toBe('pass');
+    expect(gates.detail).toBe('1/1 command gates passed');
+    // The stage's live work is the Tester, so its row reads run — the current
+    // process the header names is the AI, not the finished gates.
+    expect(views.find((p) => p.id === 'tester')!.status).toBe('run');
+  });
+
+  it('keeps the spinner while a gate is still in flight (no Tester run yet)', () => {
+    // One recorded pass beside a gate still running is NOT done — the batch is
+    // only complete once every gate recorded, and no AI process has begun.
+    const views = uatProcesses(
+      qualityInput({
+        cell: cell('uat', 'running'),
+        gateRuns: [run('uat', 'test (web)', 0, { runAt: NOW, stageRunId: 5 })],
+        processRuns: [],
+      }),
+    );
+    expect(views[0]!.status).toBe('run');
+    expect(views[0]!.detail).toBe('1/1 command gates passed');
+  });
+
+  it('never lets a previous attempt\'s Tester run read as the current gates done', () => {
+    // The stale (well, finished) attempt's run belongs to a DIFFERENT stage
+    // run; while the fresh gates are in flight the spinner stays.
+    const views = uatProcesses(
+      qualityInput({
+        cell: cell('uat', 'running'),
+        gateRuns: [run('uat', 'test (web)', 0, { runAt: NOW, stageRunId: 6 })],
+        processRuns: [
+          processRun({ id: 3, status: 'passed', resultKind: 'observed', stageRunId: 5 }),
+        ],
+      }),
+    );
+    expect(views[0]!.status).toBe('run');
+  });
+
+  it('never reads a stale Tester run as gates done — stale is not a verdict', () => {
+    const views = uatProcesses(
+      qualityInput({
+        cell: cell('uat', 'running'),
+        gateRuns: [run('uat', 'test (web)', 0, { runAt: NOW, stageRunId: 5 })],
+        processRuns: [
+          processRun({ id: 9, status: 'stale', stageRunId: 5, endedAt: null, resultKind: null }),
+        ],
+      }),
+    );
+    expect(views[0]!.status).toBe('run');
+  });
+
+  it('review reads the same way: green gates read pass once the Review lane runs', () => {
+    const views = reviewProcesses(
+      qualityInput({
+        cell: cell('review', 'running', { startedAt: '2026-07-20T12:00:00.000Z' }),
+        gateRuns: [run('review', 'lint (web)', 0, { runAt: NOW, stageRunId: 7 })],
+        processRuns: [
+          processRun({
+            id: 9,
+            stageKey: 'review',
+            processId: 'review',
+            status: 'running',
+            stageRunId: 7,
+            endedAt: null,
+            resultKind: null,
+          }),
+        ],
+      }),
+    );
+    expect(views[0]!.status).toBe('pass');
+    expect(views.find((p) => p.id === 'review')!.status).toBe('run');
+  });
+});
