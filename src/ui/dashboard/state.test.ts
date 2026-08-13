@@ -13,6 +13,7 @@ import { MAX_DIAGNOSTIC_CHARS } from '../../model/diagnosticText.js';
 import { formatTime } from '../../model/inside/types.js';
 import { InsideActionRegistry } from './insideActions.js';
 import { buildDashboardState } from './state.js';
+import type { ArtifactSummary } from '../../model/artifacts.js';
 
 describe('buildDashboardState', () => {
   let store: Store;
@@ -111,6 +112,40 @@ describe('buildDashboardState', () => {
     // No planner-produced artifacts and no node runs → no resources, no tasks.
     expect(state.artifacts[0]!.resources).toEqual([]);
     expect(state.artifacts[0]!.tasks).toEqual([]);
+  });
+
+  it('derives the session-phases plan for a non-graph ticket whose workflow declares phases', () => {
+    const t = createTicket(store, { key: 'ART-PH', title: 'phases' });
+    store.db
+      .prepare("UPDATE tickets SET stage_current = 'impl', approach = 'rpi' WHERE id = ?")
+      .run(t.id);
+    setStage(store, t.id, 'impl', {
+      status: 'running',
+      startedAt: '2026-08-01T08:00:00.000Z',
+      endedAt: null,
+      attempt: 0,
+    });
+    recordPhaseMark(store, {
+      ticketId: t.id,
+      stageKey: 'impl',
+      attempt: 0,
+      phaseName: 'plan',
+      markedAt: '2026-08-01T08:20:00.000Z',
+    });
+
+    const state = buildDashboardState(
+      store, t.id, undefined, undefined,
+      (approachId) =>
+        approachId === 'rpi' ? ['describe', 'research', 'plan', 'implement'] : [],
+    );
+    const [plan] = state.artifacts as [ArtifactSummary];
+    expect(plan).toMatchObject({
+      id: 'plan',
+      status: 'info',
+      summary: '4 tasks · 0 done · 1 in progress',
+    });
+    expect(plan.tasks.find((task) => task.label === 'plan')).toMatchObject({ status: 'doing' });
+    expect(plan.tasks.find((task) => task.label === 'describe')).toMatchObject({ status: 'todo' });
   });
 
   it('passes the real estimated call count into the session process token view', () => {

@@ -31,6 +31,7 @@ import type { Finding } from '../store/reviewFindings.js';
 import type { UatFinding } from '../store/uatFindings.js';
 import type { ProcessRun } from '../store/processRuns.js';
 import type { ShipEvidence } from '../store/shipRuns.js';
+import type { PhaseMark } from '../store/phaseMarks.js';
 import type { PrView } from '../store/dashboard.js';
 import { getTicket } from '../store/tickets.js';
 import { listGateRuns } from '../store/gateRuns.js';
@@ -38,6 +39,7 @@ import { listFindings } from '../store/reviewFindings.js';
 import { listUatFindings } from '../store/uatFindings.js';
 import { listProcessRuns } from '../store/processRuns.js';
 import { listShipEvidence, countShipRuns } from '../store/shipRuns.js';
+import { listPhaseMarks } from '../store/phaseMarks.js';
 import { listPrsByTicket } from '../store/dashboard.js';
 import { listGraphPlanEvidence } from '../store/graph/planEvidence.js';
 import { parseGraphDocument } from '../approaches/graph/parse.js';
@@ -205,6 +207,19 @@ export interface ArtifactInput {
    */
   plan?: ArtifactPlanInput | null;
   /**
+   * The phases the ticket's approach DECLARES for impl (its `workflow`), in
+   * order — what the session was asked to do. Resolved by the host from the
+   * installed approach package; empty when the ticket has no approach.
+   */
+  declaredPhases: string[];
+  /**
+   * The phases the agent REPORTED by firing the `phase` marker, oldest first
+   * (store/phaseMarks). Used by the session-phases plan when no graph run
+   * drove the ticket; a phase mark is the one fact that can read a task as
+   * done/in-progress.
+   */
+  phaseMarks: PhaseMark[];
+  /**
    * Mint an opaque capability for an evidence row (the ship summary's commits
    * get an `open-commit`). Absent → rows carry no actions, exactly like the
    * inside reducers when their caller attaches none.
@@ -347,8 +362,16 @@ export function pickArtifactPreviews(artifacts: readonly ArtifactSummary[]): Art
  * a priority. The order is stable unless a more important output appears, which
  * is the spec's whole requirement; `stageCurrent` drives the active-vs-done
  * flip.
+ *
+ * `declaredPhases` (the approach's declared impl workflow) is host-resolved
+ * from the installed approach package, so this store-only read defaults it to
+ * empty — the session-phases plan then derives from the reported marks alone.
  */
-export function buildTicketArtifacts(store: Store, ticketId: number): ArtifactSummary[] {
+export function buildTicketArtifacts(
+  store: Store,
+  ticketId: number,
+  declaredPhases: string[] = [],
+): ArtifactSummary[] {
   return buildArtifactsFrom({
     ticket: getTicket(store, ticketId),
     gateRuns: listGateRuns(store, ticketId),
@@ -359,6 +382,8 @@ export function buildTicketArtifacts(store: Store, ticketId: number): ArtifactSu
     shipRunCount: countShipRuns(store, ticketId),
     prs: listPrsByTicket(store, ticketId),
     plan: readPlanInput(store, ticketId),
+    declaredPhases,
+    phaseMarks: listPhaseMarks(store, ticketId),
   });
 }
 
@@ -757,15 +782,24 @@ function planOrigin(plan: ArtifactPlanInput, ticket: TicketWithStages): Artifact
 }
 
 /**
- * The Plan artifact: the graph runtime IS the ticket's plan. It reads the
- * latest accepted revision's canonical graph (the plan document) for the node
- * labels, and each node's LATEST run for its current progress — so the shelf
- * answers "what to do / what was done / what is in progress" from the same
- * rows the graph Inside projection renders. No graph run → no plan (a ticket
- * the graph approach never drove has no plan to show). A replanned revision
- * is a NEW version of the same plan, never a second artifact.
+ * The Plan artifact's dispatcher: the graph runtime owns the plan when it
+ * drove the ticket (graphPlanReport); a regular session's plan is derived from
+ * the workflow it declares and the phases it reported (sessionPlanReport).
  */
 function planReport(input: ArtifactInput): ArtifactSummary | null {
+  return input.plan?.graphRun ? graphPlanReport(input) : sessionPlanReport(input);
+}
+
+/**
+ * The graph Plan artifact: the graph runtime IS the ticket's plan. It reads
+ * the latest accepted revision's canonical graph (the plan document) for the
+ * node labels, and each node's LATEST run for its current progress — so the
+ * shelf answers "what to do / what was done / what is in progress" from the
+ * same rows the graph Inside projection renders. No graph run → the session
+ * plan reports instead. A replanned revision is a NEW version of the same
+ * plan, never a second artifact.
+ */
+function graphPlanReport(input: ArtifactInput): ArtifactSummary | null {
   const plan = input.plan;
   const graphRun = plan?.graphRun;
   if (!graphRun) return null;
@@ -856,6 +890,93 @@ function planReport(input: ArtifactInput): ArtifactSummary | null {
     commits: [],
     tasks: tasks.slice(0, MAX_DETAIL_TASKS),
     resources,
+    detail: null,
+  };
+}
+
+/**
+ * The session-phases plan: the plan for a ticket the graph approach never
+ * drove. A regular impl session still has a plan — the workflow its approach
+ * DECLARES (what to do) and the phases the agent REPORTED by firing the
+ * `phase` marker (what was done / what is in progress). Each declared phase is
+ * a task; a reported phase the approach never declared is appended rather than
+ * dropped, because the off-script signal is evidence (store/phaseMarks, same
+ * rule as a node that left a superseded revision). A phase reads `done` once
+ * marked, `doing` while it is the LATEST mark of a still-running impl, and
+ * `todo` before it is ever claimed.
+ *
+ * No graph run, no workflow, no marks — and no impl evidence at all (the stage
+ * never started, no impl process ran, nothing reported) → no plan: there is no
+ * plan to show, and "no evidence, no artifact" holds here too.
+ */
+function sessionPlanReport(input: ArtifactInput): ArtifactSummary | null {
+  const { ticket, declaredPhases, phaseMarks } = input;
+  const implCell = ticket.stages.find((s) => s.stageKey === 'impl');
+  const hasImplEvidence =
+    implCell?.startedAt != null ||
+    input.processRuns.some((p) => p.stageKey === 'impl') ||
+    phaseMarks.length > 0;
+  if (!hasImplEvidence) return null;
+
+  // The reported phases THIS impl may claim: same stage, same attempt, each
+  // at its FIRST mark — the `reportedPhases` semantics, in report order.
+  const attempt = implCell?.attempt ?? 0;
+  const first = new Map<string, string>();
+  for (const mark of phaseMarks) {
+    if (mark.stageKey === 'impl' && mark.attempt === attempt && !first.has(mark.phaseName)) {
+      first.set(mark.phaseName, mark.markedAt);
+    }
+  }
+  const reported = [...first.keys()];
+  if (declaredPhases.length === 0 && reported.length === 0) return null;
+
+  const names = [...declaredPhases];
+  for (const name of reported) {
+    if (!names.includes(name)) names.push(name);
+  }
+  const reportedSet = new Set(reported);
+  const latestReported = reported[reported.length - 1] ?? null;
+  const running = implCell?.status === 'running';
+
+  const tasks: ArtifactPlanTask[] = names.map((name) => {
+    let status: ArtifactPlanTaskStatus = 'todo';
+    if (reportedSet.has(name)) status = 'done';
+    if (running && name === latestReported) status = 'doing';
+    return { id: name, label: name, kind: 'phase', status, visits: null };
+  });
+
+  const done = tasks.filter((t) => t.status === 'done').length;
+  const doing = tasks.filter((t) => t.status === 'doing').length;
+  const todo = tasks.filter((t) => t.status === 'todo').length;
+
+  const summary =
+    `${tasks.length} task${tasks.length === 1 ? '' : 's'} · ${done} done`
+    + (doing ? ` · ${doing} in progress` : '');
+
+  return {
+    id: 'plan',
+    stage: 'impl',
+    kind: 'plan',
+    title: KINDS.plan.title,
+    scope: null,
+    summary,
+    status: running ? 'info' : implCell?.status === 'passed' ? 'passed' : 'info',
+    freshness: 'current',
+    origin: originFor('impl', input.processRuns, ticket),
+    versionCount: 1,
+    currentVersionLabel: 'v1',
+    createdAt: implCell?.startedAt ?? null,
+    metrics: [
+      { label: 'to-do', value: String(todo) },
+      { label: 'in progress', value: String(doing) },
+      { label: 'done', value: String(done) },
+    ],
+    gates: [],
+    findings: [],
+    prs: [],
+    commits: [],
+    tasks: tasks.slice(0, MAX_DETAIL_TASKS),
+    resources: [],
     detail: null,
   };
 }

@@ -623,6 +623,11 @@ export function buildDashboardState(
       shipRunCount: countShipRuns(store, ticketId),
       prs,
       plan: readPlanInput(store, ticketId),
+      // The session-phases plan reads the SAME one-read phase marks and
+      // declared workflow the approach line above already resolved — two reads
+      // of one table is how two panels describe one plan differently.
+      declaredPhases: phases,
+      phaseMarks: marks,
       attach,
     }),
     sendBack,
