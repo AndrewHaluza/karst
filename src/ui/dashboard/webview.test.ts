@@ -106,8 +106,8 @@ describe('dashboard webview.html', () => {
     expect(HTML).toContain('data-act="copy-worktree-branch"');
     expect(HTML).toContain('data-branch="${esc(w.branch)}"');
     expect(HTML).toContain('data-copy');
-    expect(HTML).toContain('aria-label="Open terminal"');
-    expect(HTML).toContain('aria-label="Reveal in file explorer"');
+    expect(HTML).toContain('Open Terminal');
+    expect(HTML).toContain('Reveal in Explorer');
     expect(HTML).not.toContain('>Open folder</button>');
   });
 

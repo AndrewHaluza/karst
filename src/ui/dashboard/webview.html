@@ -2833,7 +2833,7 @@
     copy: 'copy',
     refresh: 'restart',
     'player-stop': 'stop',
-    bug: 'start',
+    'player-play': 'start',
   };
 
   /**
@@ -2868,7 +2868,7 @@
     isOnline(s)
       ? iact('restart-server', s.id, 'Restart', 'refresh')
         + iact('stop-server', s.id, 'Stop', 'player-stop')
-      : iact('spin-servers', null, 'Start service', 'bug')
+      : iact('spin-servers', null, 'Start service', 'player-play')
   );
 
   /**
@@ -2892,7 +2892,7 @@
     const startWhy = !none && !anyOffline ? 'Every service is already running' : null;
     const restartWhy = none ? 'No services to restart' : null;
     const stopWhy = !anyRunning ? 'No service is running' : null;
-    return iact('spin-servers', null, 'Start all services', 'bug', startWhy)
+    return iact('spin-servers', null, 'Start all services', 'player-play', startWhy)
       + iact('restart-servers', null, 'Restart all services', 'refresh', restartWhy)
       + iact('stop-servers', null, 'Stop all services', 'player-stop', stopWhy);
   }
@@ -2984,16 +2984,16 @@
         : '';
       return `<div class="wt"><span class="wrepo">${esc(w.repoDisplay || w.repo)}</span>`
         + branch + totals + `<span class="wacts">`
-        + `<button type="button" class="k-iconbtn ib t-open" data-act="open-worktree-terminal" data-path="${esc(w.path)}"`
-        + ` aria-label="Open terminal" title="Open a terminal in this worktree">${svgIcon('terminal-2')}</button>`
-        + `<button type="button" class="k-iconbtn ib t-copy" data-act="open-worktree-folder" data-path="${esc(w.path)}"`
-        + ` aria-label="Reveal in file explorer" title="Reveal this worktree in the file explorer">${svgIcon('folder')}</button>`
+        + `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-act="open-worktree-terminal" data-path="${esc(w.path)}"`
+        + ` title="Open a terminal in this worktree">Open Terminal</button>`
+        + `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-act="open-worktree-folder" data-path="${esc(w.path)}"`
+        + ` title="Reveal this worktree in the file explorer">Reveal in Explorer</button>`
         // Only karst-extension checkouts can become a dev host (the host probes
         // `launchable` when it builds the state). A foreign repo's worktree
         // gets no button at all — a dead control on every app repo is noise.
         + (w.launchable
-          ? `<button type="button" class="k-iconbtn ib t-start" data-act="launch-worktree-extension" data-path="${esc(w.path)}"`
-            + ` aria-label="Launch dev host" title="Build this worktree and open its extension in a new dev window">${svgIcon('bug')}</button>`
+          ? `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-act="launch-worktree-extension" data-path="${esc(w.path)}"`
+            + ` title="Build this worktree and open its extension in a new dev window">Launch Dev</button>`
           : '')
         + `</span></div>`;
     }).join('') : '<div class="empty">No worktrees.</div>';
