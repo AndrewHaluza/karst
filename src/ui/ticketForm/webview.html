@@ -920,12 +920,11 @@
     )).join('');
   }
 
-  // Agent-core (provider) picker: an "Inherit (settings)" option (empty value)
-  // plus the implemented providers pushed in `state.agentProviders`. Mirrors
-  // renderModelPicker exactly, including the session-open lock — the adapter is
-  // baked into the terminal at spawn, same as the model.
-  // Last default pushed, so a pick can repaint the trigger locally in create
-  // mode (the host no-ops set-provider there — no state push follows).
+  // Agent-core (provider) picker state: the UNIFIED identity picker
+  // (model/agentPicker.ts) handles the Inherit row, the session-open lock and
+  // the core/model/effort cascade; these locals only repaint the trigger
+  // locally in create mode (the host no-ops set-provider there — no state push
+  // follows). The adapter is baked into the terminal at spawn, same as the model.
   let lastDefaultProvider = 'claude';
   // Last pushed model catalog + defaults, so a provider pick can re-render the
   // Model select locally for the picked core (same reason as the trigger
