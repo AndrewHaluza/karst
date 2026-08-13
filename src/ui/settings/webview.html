@@ -656,6 +656,13 @@
   }
   .template-help-link:hover{text-decoration:underline}
   .template-help-link:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+  .template-meta-actions{display:flex;align-items:center;gap:var(--k-space-4);flex:0 0 auto}
+  .template-reset-link{
+    flex:0 0 auto;background:none;border:none;color:var(--k-text-dim);cursor:pointer;font:inherit;
+    font-size:var(--k-text-xs);padding:var(--k-space-1) var(--k-space-0);text-decoration:none;
+  }
+  .template-reset-link:hover{color:var(--k-text);text-decoration:underline}
+  .template-reset-link:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
 
   /* Contextual template helper popup (handoff §8): variables + transforms. */
   .helper-pop{
@@ -1338,10 +1345,15 @@
               aria-describedby="prDescriptionHint prDescriptionVars prDescriptionPreview prDescriptionError"></textarea>
             <div class="field-help" id="prDescriptionHint">
               Use {description} to include Karst's generated summary. Without it, no summary is generated.
+              The default template also carries the implementation agent's provider, model, approach and session id;
+              Reset restores it.
             </div>
             <div class="template-meta">
               <div class="template-preview" id="prDescriptionPreview"></div>
-              <button type="button" class="template-help-link" data-template-help="description">Variables &amp; transforms</button>
+              <div class="template-meta-actions">
+                <button type="button" class="template-help-link" data-template-help="description">Variables &amp; transforms</button>
+                <button type="button" class="template-reset-link" id="prDescriptionResetBtn">Reset to default</button>
+              </div>
             </div>
             <div class="convention-vars hidden" id="prDescriptionVars"></div>
             <div class="convention-error hidden" id="prDescriptionError" role="alert"></div>
@@ -2125,7 +2137,7 @@
   // Mirrors the strict host-side vocabulary for display only. The host's
   // validateManifest call remains authoritative for syntax and token errors.
   const COMMON_CONVENTION_VARS = ['title', 'key', 'id', 'repo', 'type', 'scope'];
-  const DESCRIPTION_CONVENTION_VARS = [...COMMON_CONVENTION_VARS, 'description'];
+  const DESCRIPTION_CONVENTION_VARS = [...COMMON_CONVENTION_VARS, 'description', 'provider', 'model', 'approach', 'sessionId'];
   // The branch renderer has its own vocabulary: no {repo}/{scope}, because two
   // repository entries sharing a repoPath resolve to ONE worktree.
   const BRANCH_CONVENTION_VARS = ['type', 'slug', 'key', 'id', 'title'];
@@ -2138,7 +2150,15 @@
     scope: 'web',
     slug: 'proj-142-add-login',
     description: 'Adds the requested login flow.',
+    provider: 'claude',
+    model: 'claude-sonnet-5',
+    approach: 'rpi',
+    sessionId: 'sess_2b1e9c7a',
   };
+  // Mirrors src/workflow/conventionPresets.ts (DEFAULT_PR_DESCRIPTION_TEMPLATE):
+  // the template ship applies when the manifest declares none, what the Git tab
+  // pre-fills into the field, and what Reset restores. webview.test.ts pins it.
+  const DEFAULT_PR_DESCRIPTION_TEMPLATE = '## Summary\n{description}\n\nTicket: {key}\nRepository: {repo}\n\n## Metadata\nAgent: {provider}\nModel: {model|default:n/a}\nApproach: {approach|default:n/a}\nSession: {sessionId|default:n/a}';
   // Mirrors src/store/ticketTypes.ts and src/workflow/conventionPresets.ts —
   // the webview cannot import TypeScript. webview.test.ts pins both mirrors.
   const TICKET_TYPES = ['feat', 'fix', 'refactor', 'docs', 'test', 'chore', 'perf', 'ci', 'build', 'style', 'revert'];
@@ -2150,7 +2170,7 @@
         branchName: 'karst/{type}/{slug}',
         commitMessage: '{type}({scope}): {title} [{key}]',
         pullRequestTitle: '{type}({scope}): {title}',
-        pullRequestDescription: '## Summary\n{description}\n\nTicket: {key}\nRepository: {repo}',
+        pullRequestDescription: '## Summary\n{description}\n\nTicket: {key}\nRepository: {repo}\n\n## Metadata\nAgent: {provider}\nModel: {model|default:n/a}\nApproach: {approach|default:n/a}\nSession: {sessionId|default:n/a}',
       },
     },
     {
@@ -2586,7 +2606,11 @@
     el('f-branchNameTemplate').value = conventions.branchName || '';
     el('f-commitMessageTemplate').value = conventions.commitMessage || '';
     el('f-prTitleTemplate').value = conventions.pullRequestTitle || '';
-    el('f-prDescriptionTemplate').value = conventions.pullRequestDescription || '';
+    // The Git tab pre-fills the DEFAULT template when the manifest declares
+    // none — that is what ship would render, so the field never lies about the
+    // PR body that will ship. Clearing the field drops it from the manifest and
+    // ship falls back to the same default.
+    el('f-prDescriptionTemplate').value = conventions.pullRequestDescription || DEFAULT_PR_DESCRIPTION_TEMPLATE;
     renderPresetOptions();
     renderDefaultTypeOptions(conventions.defaultType || '');
     renderLabelPreview();
@@ -2677,7 +2701,7 @@
     renderConventionPreview(
       'f-prDescriptionTemplate',
       'prDescriptionPreview',
-      'Default: generated summary, falling back to the resolved ticket title',
+      'Default: generated summary plus agent metadata (provider, model, approach, session)',
     );
   }
 
@@ -2825,7 +2849,7 @@
     el('f-branchNameTemplate').value = conventions.branchName || '';
     el('f-commitMessageTemplate').value = conventions.commitMessage || '';
     el('f-prTitleTemplate').value = conventions.pullRequestTitle || '';
-    el('f-prDescriptionTemplate').value = conventions.pullRequestDescription || '';
+    el('f-prDescriptionTemplate').value = conventions.pullRequestDescription || DEFAULT_PR_DESCRIPTION_TEMPLATE;
     renderConventions();
     markDirty();
   });
@@ -2842,6 +2866,15 @@
   el('f-prDescriptionTemplate').addEventListener('input', () => {
     // Preserve raw multiline content; trim is used only to recognize "clear".
     updateConvention('pullRequestDescription', el('f-prDescriptionTemplate').value);
+    renderConventions();
+    markDirty();
+  });
+  // Reset drops any edits and restores the DEFAULT template — the one ship
+  // applies when the manifest declares none. It writes the draft, exactly like
+  // typing: the field is filled, the preview re-renders, and Save persists it.
+  el('prDescriptionResetBtn').addEventListener('click', () => {
+    updateConvention('pullRequestDescription', DEFAULT_PR_DESCRIPTION_TEMPLATE);
+    el('f-prDescriptionTemplate').value = DEFAULT_PR_DESCRIPTION_TEMPLATE;
     renderConventions();
     markDirty();
   });

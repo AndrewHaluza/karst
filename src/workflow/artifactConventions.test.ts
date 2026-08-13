@@ -14,6 +14,10 @@ const context: ArtifactTemplateContext = {
   type: 'feat',
   scope: 'web',
   description: 'Adds indexed search.',
+  provider: 'claude',
+  model: 'claude-sonnet-5',
+  approach: 'rpi',
+  sessionId: 'sess_1',
 };
 
 describe('artifact convention validation', () => {
@@ -33,6 +37,17 @@ describe('artifact convention validation', () => {
     );
     expect(() => validateArtifactTemplate('pullRequestTitle', '{description}')).toThrow(
       /pullRequestTitle.*\{description\}/,
+    );
+  });
+
+  it('allows implementation metadata only in pull-request descriptions', () => {
+    const template = '{provider} {model} {approach} {sessionId}';
+    expect(() => validateArtifactTemplate('pullRequestDescription', template)).not.toThrow();
+    expect(() => validateArtifactTemplate('commitMessage', '{provider}')).toThrow(
+      /commitMessage.*\{provider\}/,
+    );
+    expect(() => validateArtifactTemplate('pullRequestTitle', '{sessionId}')).toThrow(
+      /pullRequestTitle.*\{sessionId\}/,
     );
   });
 
@@ -70,6 +85,23 @@ describe('artifact convention rendering', () => {
         title: 'Keep {repo} literal',
       }),
     ).toBe('feat(frontend): Keep {repo} literal');
+  });
+
+  it('renders the implementation metadata with empty values falling back via default', () => {
+    expect(
+      renderArtifactTemplate(
+        'pullRequestDescription',
+        'Agent: {provider}\nModel: {model}\nApproach: {approach}\nSession: {sessionId}',
+        context,
+      ),
+    ).toBe('Agent: claude\nModel: claude-sonnet-5\nApproach: rpi\nSession: sess_1');
+    expect(
+      renderArtifactTemplate(
+        'pullRequestDescription',
+        '{provider|default:n/a} {model|default:n/a} {approach|default:n/a} {sessionId|default:n/a}',
+        { ...context, provider: undefined, model: undefined, approach: undefined, sessionId: undefined },
+      ),
+    ).toBe('n/a n/a n/a n/a');
   });
 
   it('rejects a result that becomes blank', () => {
