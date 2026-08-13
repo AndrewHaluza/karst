@@ -53,7 +53,7 @@ export function createFollowUpTicket(
   const key = nextFollowUpKey(store, parentKey, scope);
   const child = createTicket(store, {
     key,
-    title: `Follow-up: ${parent.title ?? parentKey}`,
+    title: parent.title ?? parentKey,
     source: 'karst',
     projectId: scope.projectId,
     parentTicketId: parent.id,
