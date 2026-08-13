@@ -7,6 +7,7 @@ import { setMergeCheck } from '../../store/mergeChecks.js';
 import { recordPhaseMark } from '../../store/phaseMarks.js';
 import { recordTokenUsage } from '../../store/tokenUsage.js';
 import { openProcessRun } from '../../store/processRuns.js';
+import { openStageRun } from '../../store/stageRuns.js';
 import { parkGateStage } from '../../store/stageBlocks.js';
 import { MAX_DIAGNOSTIC_CHARS } from '../../model/diagnosticText.js';
 import { InsideActionRegistry } from './insideActions.js';
@@ -908,6 +909,43 @@ describe('insideViews (the six-stage inside presentation)', () => {
     setStage(store, ticketId, 'impl', { status: 'running', startedAt: '2026-08-09T10:00:00.000Z' });
     const impl = buildDashboardState(store, ticketId).insideViews.impl;
     expect(impl.live).toMatchObject({ status: 'run', label: 'Session' });
+  });
+
+  it('names the AI phase as the current process once the gates have passed', () => {
+    // The uat stage runs gates first, THEN the Tester. While the Tester runs
+    // the stage still reads `running` — the gates are done work, so the gates
+    // row must read a checkmark and the header's current process must name the
+    // Tester, never Gates (the reported UAT mislead).
+    const ticketId = ticketAt('uat');
+    setStage(store, ticketId, 'uat', { status: 'running', startedAt: '2026-08-09T10:00:00.000Z' });
+    const stageRunId = openStageRun(store, {
+      ticketId,
+      stageKey: 'uat',
+      attempt: 0,
+      runAt: '2026-08-09T10:00:00.000Z',
+      startedAt: '2026-08-09T10:00:00.000Z',
+    });
+    recordGateRun(store, {
+      ticketId,
+      stageKey: 'uat',
+      attempt: 0,
+      runAt: '2026-08-09T10:00:00.000Z',
+      stageRunId,
+      gates: [{ gateName: 'test (web)', exitCode: 0 }],
+    });
+    openProcessRun(store, {
+      ticketId,
+      stageKey: 'uat',
+      processId: 'tester',
+      attempt: 0,
+      stageRunId,
+      provider: 'codex',
+      startedAt: '2026-08-09T10:05:00.000Z',
+    });
+    const uat = buildDashboardState(store, ticketId).insideViews.uat;
+    expect(uat.processes.find((p) => p.id === 'gates')!.status).toBe('pass');
+    expect(uat.processes.find((p) => p.id === 'tester')!.status).toBe('run');
+    expect(uat.live).toMatchObject({ status: 'run', label: 'Tester' });
   });
 
   it('omits the live line for a stage with nothing running or waiting', () => {
