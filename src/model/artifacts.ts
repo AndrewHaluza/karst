@@ -9,17 +9,19 @@
  *
  * Derivation, not storage: every artifact is a READ over evidence karst already
  * keeps (stages, gate_runs, review_findings, uat_findings, process_runs,
- * ship_runs). The origin's `core` is likewise READ from the immutable identity
- * snapshot `process_runs` captured at launch (provider/agent/model are written
- * when the process opens and never rewritten) — falling back to the ticket's
+ * ship_runs, and — for the plan — the graph runtime's runs/revisions). The
+ * origin's `core` is likewise READ from the immutable identity snapshot
+ * `process_runs` captured at launch (provider/agent/model are written when the
+ * process opens and never rewritten) — falling back to the ticket's
  * `session_provider`/`agent_provider` only for evidence that predates process
  * identity capture. Nothing here invents a fact: no evidence, no artifact.
  *
  * The detail "payload" rides the same snapshot (there is no async `artifact.get`
  * round trip): everything the detail renders — metrics, findings, gates, PRs,
- * commits, resources — is already in the state push, so the webview's detail
- * view is a local render and its only failure mode (a resource file that has
- * gone) is reported by the host opener, exactly like `openStageLog`.
+ * commits, plan tasks, resources — is already in the state push, so the
+ * webview's detail view is a local render and its only failure mode (a resource
+ * file that has gone) is reported by the host opener, exactly like
+ * `openStageLog`.
  */
 import type { AgentProvider, Severity } from '../manifest/types.js';
 import type { TicketWithStages } from '../store/tickets.js';
@@ -37,16 +39,18 @@ import { listUatFindings } from '../store/uatFindings.js';
 import { listProcessRuns } from '../store/processRuns.js';
 import { listShipEvidence, countShipRuns } from '../store/shipRuns.js';
 import { listPrsByTicket } from '../store/dashboard.js';
+import { listGraphPlanEvidence } from '../store/graph/planEvidence.js';
+import { parseGraphDocument } from '../approaches/graph/parse.js';
 import { isKnownProvider } from '../agent/provider.js';
 import type { Store } from '../store/db.js';
 import { formatSpanMs } from './inside/types.js';
 import type { InsideEvidenceTarget, TypedInsideAction } from './inside/types.js';
 
 /** The semantic artifact kinds V1 derives. One artifact per kind per ticket. */
-export type ArtifactKind = 'uat-report' | 'review' | 'ship-summary';
+export type ArtifactKind = 'plan' | 'uat-report' | 'review' | 'ship-summary';
 
 /** The stage the artifact's work happened in — also the index's grouping key. */
-export type ArtifactStage = 'uat' | 'review' | 'ship';
+export type ArtifactStage = 'impl' | 'uat' | 'review' | 'ship';
 
 /** Domain state, distinct from availability: a load failure is NEVER this. */
 export type ArtifactStatus = 'passed' | 'failed' | 'attention' | 'info';
@@ -124,6 +128,24 @@ export interface ArtifactResource {
 }
 
 /**
+ * One task of the plan artifact — a node of the canonical graph with its
+ * CURRENT progress. The status is derived from the node's LATEST run: what
+ * was done (completed), what is in progress (running/launching/…), what is
+ * still to do (ready/not-yet-claimed). A node with no run at all reads
+ * `todo`, never "unknown".
+ */
+export type ArtifactPlanTaskStatus = 'todo' | 'doing' | 'done' | 'blocked' | 'cancelled';
+
+export interface ArtifactPlanTask {
+  id: string;
+  label: string;
+  kind: string;
+  status: ArtifactPlanTaskStatus;
+  /** `visit n` when the node has run at least once; absent before claiming. */
+  visits: string | null;
+}
+
+/**
  * A ticket's artifact, carrying BOTH the shelf/index summary fields and the
  * detail body: the webview renders detail locally from this snapshot and never
  * round-trips an `artifact.get`. Lists are capped so a long-lived ticket's
@@ -156,6 +178,11 @@ export interface ArtifactSummary {
   findings: ArtifactFinding[];
   prs: ArtifactPr[];
   commits: ArtifactCommit[];
+  /**
+   * The plan's task list — ONLY the plan artifact carries tasks; every other
+   * kind sets an empty array. Rendered as its own section in detail.
+   */
+  tasks: ArtifactPlanTask[];
   resources: ArtifactResource[];
   /** The stage verdict's reason when the artifact's stage failed; else null. */
   detail: string | null;
@@ -172,11 +199,97 @@ export interface ArtifactInput {
   shipRunCount: number;
   prs: PrView[];
   /**
+   * The graph plan evidence (the graph runtime IS the plan). Absent → no
+   * plan artifact: a ticket the graph approach never drove has no plan to
+   * show, and "no evidence, no artifact" holds here too.
+   */
+  plan?: ArtifactPlanInput | null;
+  /**
    * Mint an opaque capability for an evidence row (the ship summary's commits
    * get an `open-commit`). Absent → rows carry no actions, exactly like the
    * inside reducers when their caller attaches none.
    */
   attach?: (target: InsideEvidenceTarget) => TypedInsideAction | undefined;
+}
+
+/**
+ * The graph evidence a plan artifact reads — the latest graph run, its
+ * accepted revisions (each replan is a NEW plan version), and the node runs
+ * that track each node's progress. Supplied so `buildArtifactsFrom` stays a
+ * pure function of a single snapshot, like every other artifact input.
+ */
+export interface ArtifactPlanInput {
+  graphRun: {
+    id: number;
+    status: string;
+    approachId: string;
+    createdAt: string;
+  } | null;
+  revisions: {
+    revisionNumber: number;
+    canonicalGraph: string;
+    status: string;
+    createdAt: string;
+  }[];
+  nodeRuns: {
+    id: number;
+    nodeId: string;
+    nodeKind: string;
+    revisionId: number;
+    visitNumber: number;
+    status: string;
+    endedAt: string | null;
+  }[];
+  plannerRuns: {
+    kind: 'bootstrap' | 'replan';
+    status: string;
+    provider: string | null;
+  }[];
+  plannerArtifacts: {
+    snapshotPath: string;
+    mediaType: string;
+    byteSize: number;
+  }[];
+}
+
+/** The plan evidence read ONCE from the store, for `buildTicketArtifacts`. */
+export function readPlanInput(store: Store, ticketId: number): ArtifactPlanInput {
+  const evidence = listGraphPlanEvidence(store.db, ticketId);
+  return {
+    graphRun: evidence.graphRun
+      ? {
+          id: evidence.graphRun.id,
+          status: evidence.graphRun.status,
+          approachId: evidence.graphRun.approach_id,
+          createdAt: evidence.graphRun.created_at,
+        }
+      : null,
+    revisions: evidence.revisions.map((r) => ({
+      revisionNumber: r.revision_number,
+      canonicalGraph: r.canonical_graph,
+      status: r.status,
+      createdAt: r.created_at,
+    })),
+    nodeRuns: evidence.nodeRuns.map((n) => ({
+      id: n.id,
+      nodeId: n.node_id,
+      nodeKind: n.node_kind,
+      revisionId: n.revision_id,
+      visitNumber: n.visit_number,
+      status: n.status,
+      endedAt: n.ended_at,
+    })),
+    plannerRuns: evidence.plannerRuns.map((p) => ({
+      kind: p.kind,
+      status: p.status,
+      provider: p.provider,
+    })),
+    plannerArtifacts: evidence.plannerArtifacts.map((a) => ({
+      snapshotPath: a.snapshot_path,
+      mediaType: a.media_type,
+      byteSize: a.byte_size,
+    })),
+  };
 }
 
 /** The gate_runs row that is NOT a gate: the review stage's Changes-panel mark. */
@@ -185,8 +298,10 @@ const NON_GATE_RUNS = new Set(['changes']);
 /** Detail list caps: a display decision, never a verdict (see ArtifactSummary). */
 const MAX_DETAIL_FINDINGS = 50;
 const MAX_DETAIL_COMMITS = 20;
+const MAX_DETAIL_TASKS = 40;
 
 const KINDS: Record<ArtifactKind, { stage: ArtifactStage; title: string }> = {
+  plan: { stage: 'impl', title: 'Plan' },
   'uat-report': { stage: 'uat', title: 'UAT report' },
   review: { stage: 'review', title: 'Review' },
   'ship-summary': { stage: 'ship', title: 'PR summary' },
@@ -194,18 +309,22 @@ const KINDS: Record<ArtifactKind, { stage: ArtifactStage; title: string }> = {
 
 /**
  * Semantic preview priority (spec §5): the three previews represent the most
- * useful current outputs, stably ordered. Active tickets lead with verification;
- * completed tickets lead with the landing (Ship/PR outranks Plan there).
+ * useful current outputs, stably ordered. Active tickets lead with the plan
+ * (the implementation plan outranks verification per the finalized spec's
+ * priority list); completed tickets lead with the landing (Ship/PR outranks
+ * Plan there).
  */
 const PRIORITY_ACTIVE: Record<ArtifactKind, number> = {
-  'uat-report': 0,
-  review: 1,
-  'ship-summary': 2,
+  plan: 0,
+  'uat-report': 1,
+  review: 2,
+  'ship-summary': 3,
 };
 const PRIORITY_DONE: Record<ArtifactKind, number> = {
   'ship-summary': 0,
   'uat-report': 1,
   review: 2,
+  plan: 3,
 };
 
 /** The preview rank of one artifact for a ticket at `stageCurrent`. */
@@ -239,6 +358,7 @@ export function buildTicketArtifacts(store: Store, ticketId: number): ArtifactSu
     ship: listShipEvidence(store, ticketId),
     shipRunCount: countShipRuns(store, ticketId),
     prs: listPrsByTicket(store, ticketId),
+    plan: readPlanInput(store, ticketId),
   });
 }
 
@@ -246,6 +366,8 @@ export function buildTicketArtifacts(store: Store, ticketId: number): ArtifactSu
 export function buildArtifactsFrom(input: ArtifactInput): ArtifactSummary[] {
   const { ticket } = input;
   const out: ArtifactSummary[] = [];
+  const plan = planReport(input);
+  if (plan) out.push(plan);
   const uat = uatReport(input);
   if (uat) out.push(uat);
   const review = reviewReport(input);
@@ -435,6 +557,7 @@ function uatReport(input: ArtifactInput): ArtifactSummary | null {
     prs: [],
     commits: [],
     resources,
+    tasks: [],
     detail: failedStage ? (stage?.verdict ?? null) : null,
   };
 }
@@ -501,6 +624,7 @@ function reviewReport(input: ArtifactInput): ArtifactSummary | null {
     prs: [],
     commits: [],
     resources,
+    tasks: [],
     detail: failedStage ? (stage?.verdict ?? null) : null,
   };
 }
@@ -559,6 +683,179 @@ function shipSummary(input: ArtifactInput): ArtifactSummary | null {
           : {}),
       })),
     resources: [],
+    tasks: [],
     detail: run.status === 'passed' ? null : 'Ship did not complete — retry ship to continue.',
+  };
+}
+
+/**
+ * The graph runtime's node-run statuses that read as "this task is running".
+ * Everything else is derived below; a status absent from every map (an
+ * unknown/future rest state) reads `todo`, never "unknown".
+ */
+const PLAN_TASK_DOING_STATUSES: readonly string[] = [
+  'launching',
+  'running',
+  'completing',
+  'integrating',
+];
+const PLAN_TASK_BLOCKED_STATUSES: readonly string[] = [
+  'blocked',
+  'failed-to-launch',
+  'launch-unknown',
+  'termination-unknown',
+  'output-artifact-missing',
+  'artifact-unsafe',
+];
+const PLAN_TASK_CANCELLED_STATUSES: readonly string[] = ['stale', 'cancelled'];
+
+/** Map one node-run status to the plan task's closed status vocabulary. */
+function planTaskStatus(status: string): ArtifactPlanTaskStatus {
+  if (status === 'completed') return 'done';
+  if (PLAN_TASK_DOING_STATUSES.includes(status)) return 'doing';
+  if (PLAN_TASK_BLOCKED_STATUSES.includes(status)) return 'blocked';
+  if (PLAN_TASK_CANCELLED_STATUSES.includes(status)) return 'cancelled';
+  return 'todo'; // ready / waiting-resource / not yet claimed
+}
+
+/** The plan artifact's status from the graph run's status + task outcomes. */
+function planArtifactStatus(
+  graphRunStatus: string,
+  blocked: number,
+  done: number,
+  total: number,
+): ArtifactStatus {
+  // A blocked task is the actionable fault: a plan with a blocked node reads
+  // needs-attention even while the run itself still looks active.
+  if (blocked > 0) return 'attention';
+  switch (graphRunStatus) {
+    case 'completed-awaiting-impl-marker':
+    case 'closed':
+      return total > 0 && done === total ? 'passed' : 'attention';
+    case 'blocked':
+    case 'stale':
+      return 'attention';
+    case 'cancelled':
+      return 'info';
+    default:
+      return 'info'; // planning / awaiting-confirmation / running / draining
+  }
+}
+
+/**
+ * The plan's origin: the graph planner produced the plan, so the producing
+ * core is the planner run's recorded provider (falling back to the ticket's
+ * session/config provider for evidence that predates identity capture) — the
+ * same fallback chain `originFor` uses for gate evidence.
+ */
+function planOrigin(plan: ArtifactPlanInput, ticket: TicketWithStages): ArtifactOrigin {
+  const plannerProvider = [...plan.plannerRuns]
+    .reverse()
+    .find((p) => p.provider && isKnownProvider(p.provider))?.provider;
+  const raw = plannerProvider ?? ticket.sessionProvider ?? ticket.agentProvider ?? null;
+  return { kind: 'karst', core: isKnownProvider(raw) ? raw : null };
+}
+
+/**
+ * The Plan artifact: the graph runtime IS the ticket's plan. It reads the
+ * latest accepted revision's canonical graph (the plan document) for the node
+ * labels, and each node's LATEST run for its current progress — so the shelf
+ * answers "what to do / what was done / what is in progress" from the same
+ * rows the graph Inside projection renders. No graph run → no plan (a ticket
+ * the graph approach never drove has no plan to show). A replanned revision
+ * is a NEW version of the same plan, never a second artifact.
+ */
+function planReport(input: ArtifactInput): ArtifactSummary | null {
+  const plan = input.plan;
+  const graphRun = plan?.graphRun;
+  if (!graphRun) return null;
+
+  // The LATEST revision is the current plan document (a replan's revision N+1
+  // supersedes N). The revision list is ordered by revision_number.
+  const revision = plan.revisions[plan.revisions.length - 1];
+  let nodes: { id: string; kind: string; label: string }[] = [];
+  if (revision) {
+    const parsed = parseGraphDocument(revision.canonicalGraph);
+    if (parsed.ok) {
+      nodes = parsed.document.nodes.map((n) => ({ id: n.id, kind: n.kind, label: n.label }));
+    }
+  }
+
+  // The latest run PER NODE: runs are append-only, so the highest id wins.
+  const latestRun = new Map<string, ArtifactPlanInput['nodeRuns'][number]>();
+  for (const run of plan.nodeRuns) {
+    const current = latestRun.get(run.nodeId);
+    if (!current || run.id > current.id) latestRun.set(run.nodeId, run);
+  }
+
+  const tasks: ArtifactPlanTask[] = nodes.map((node) => {
+    const run = latestRun.get(node.id);
+    return {
+      id: node.id,
+      label: node.label,
+      kind: node.kind,
+      status: run ? planTaskStatus(run.status) : 'todo',
+      visits: run ? `visit ${run.visitNumber}` : null,
+    };
+  });
+  // A node that RAN but is not in the latest document (a superseded
+  // revision's leftover) still reads as a task with its recorded status —
+  // evidence is never dropped because the plan moved on.
+  for (const [nodeId, run] of latestRun) {
+    if (!nodes.some((n) => n.id === nodeId)) {
+      tasks.push({
+        id: nodeId,
+        label: nodeId,
+        kind: run.nodeKind,
+        status: planTaskStatus(run.status),
+        visits: `visit ${run.visitNumber}`,
+      });
+    }
+  }
+
+  const done = tasks.filter((t) => t.status === 'done').length;
+  const doing = tasks.filter((t) => t.status === 'doing').length;
+  const blocked = tasks.filter((t) => t.status === 'blocked').length;
+  const todo = tasks.filter((t) => t.status === 'todo').length;
+
+  const summary =
+    tasks.length === 0
+      ? graphRun.status === 'planning'
+        ? 'Planning the implementation…'
+        : 'No tasks yet'
+      : `${tasks.length} task${tasks.length === 1 ? '' : 's'} · ${done} done`
+        + (doing ? ` · ${doing} in progress` : '');
+
+  const resources: ArtifactResource[] = [];
+  for (const artifact of plan.plannerArtifacts) {
+    resourceFrom(artifact.snapshotPath, resources);
+  }
+
+  return {
+    id: 'plan',
+    stage: 'impl',
+    kind: 'plan',
+    title: KINDS.plan.title,
+    scope: null,
+    summary,
+    status: planArtifactStatus(graphRun.status, blocked, done, tasks.length),
+    freshness: 'current',
+    origin: planOrigin(plan, input.ticket),
+    versionCount: Math.max(plan.revisions.length, 1),
+    currentVersionLabel: `v${Math.max(plan.revisions.length, 1)}`,
+    createdAt: graphRun.createdAt,
+    metrics: [
+      { label: 'to-do', value: String(todo) },
+      { label: 'in progress', value: String(doing) },
+      { label: 'done', value: String(done) },
+      ...(blocked ? [{ label: 'blocked', value: String(blocked) }] : []),
+    ],
+    gates: [],
+    findings: [],
+    prs: [],
+    commits: [],
+    tasks: tasks.slice(0, MAX_DETAIL_TASKS),
+    resources,
+    detail: null,
   };
 }

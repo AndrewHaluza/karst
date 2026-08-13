@@ -75,7 +75,7 @@ import { uatProcesses, reviewProcesses } from '../../model/inside/gates.js';
 import { shipProcesses } from '../../model/inside/ship.js';
 import { doneReceipt, type DoneReceiptView } from '../../model/inside/done.js';
 import type { SessionConfiguredInput, SessionTokensInput } from '../../model/inside/agent.js';
-import { buildArtifactsFrom, type ArtifactSummary } from '../../model/artifacts.js';
+import { buildArtifactsFrom, readPlanInput, type ArtifactSummary } from '../../model/artifacts.js';
 
 export type { PathContext, StepperCell, StageRail, PrPanelRow, MergeCheckPanelRow };
 
@@ -595,6 +595,7 @@ export function buildDashboardState(
       ship: shipEvidence,
       shipRunCount: countShipRuns(store, ticketId),
       prs,
+      plan: readPlanInput(store, ticketId),
       attach,
     }),
     sendBack,

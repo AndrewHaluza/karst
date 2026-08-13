@@ -1468,6 +1468,22 @@
     padding:var(--k-space-2) 0;border-bottom:var(--k-border-w) solid var(--k-border)}
   .artgate .ag-name{font-family:var(--k-font-mono);flex:1;color:var(--k-text)}
   .artgate .ag-code{font-size:var(--k-text-xs);color:var(--k-text-dim)}
+  /* The plan artifact's task rows: the label carries the task, the dot the
+     coloured state, and the kind/visit detail trails. Same pattern as the
+     gate rows — one dot, one closed status vocabulary (UI-R28). */
+  .arttask{display:flex;align-items:center;gap:var(--k-space-3);font-size:var(--k-text-sm);
+    padding:var(--k-space-2) 0;border-bottom:var(--k-border-w) solid var(--k-border)}
+  .arttask .at-state{display:inline-flex;flex:none}
+  .arttask .at-state .at-dot{width:var(--k-space-3);height:var(--k-space-3);
+    border-radius:var(--k-radius-circle);flex:none}
+  .arttask .at-state.done .at-dot{background:var(--k-passed)}
+  .arttask .at-state.doing .at-dot{background:var(--k-running)}
+  .arttask .at-state.todo .at-dot{background:transparent;
+    border:calc(var(--k-border-w) * 2) solid var(--k-pending)}
+  .arttask .at-state.blocked .at-dot{background:var(--k-attention)}
+  .arttask .at-state.cancelled .at-dot{background:var(--k-text-faint)}
+  .arttask .at-label{flex:1;color:var(--k-text)}
+  .arttask .at-kind{font-size:var(--k-text-xs);color:var(--k-text-dim)}
   /* One gate's outcome as a COLOURED STATE, not a text label: the dot is the
      shipped `.k-dot` status primitive (gap G1 — hue is its current carrier),
      green for pass, red for fail; the state word rides only as the dot's
@@ -3522,7 +3538,7 @@
   // name, one useful summary line, status/staleness and the origin chip.
   function renderArtIndex(state) {
     const all = state.artifacts || [];
-    const groups = ['uat', 'review', 'ship']
+    const groups = ['impl', 'uat', 'review', 'ship']
       .map((stage) => ({ stage, items: all.filter((a) => a.stage === stage) }))
       .filter((g) => g.items.length > 0);
     const rows = (g) => g.items.map((a) =>
@@ -3542,7 +3558,7 @@
         + `<ul class="artrows">${rows(g)}</ul></section>`).join('');
   }
 
-  const ART_STAGE_LABEL = { uat: 'UAT', review: 'Review', ship: 'Ship' };
+  const ART_STAGE_LABEL = { impl: 'Implement', uat: 'UAT', review: 'Review', ship: 'Ship' };
 
   function artifactMetricsHtml(a) {
     if (!a.metrics || !a.metrics.length) return '';
@@ -3632,6 +3648,30 @@
     return `<section class="artsection" aria-label="Commits"><div class="artheading">Commits</div><ul class="artfiles">${rows}</ul></section>`;
   }
 
+  // The plan artifact's task list: each node of the plan with its current
+  // progress. The status is a COLOURED STATE (the shipped `.k-dot` primitive,
+  // gap G1) with the state word only as the dot's accessible name (UI-R28) —
+  // the task LABEL is the visible carrier, exactly like the gate rows.
+  const ART_TASK_STATUS = {
+    todo: { cls: 'todo', word: 'to do' },
+    doing: { cls: 'doing', word: 'in progress' },
+    done: { cls: 'done', word: 'done' },
+    blocked: { cls: 'blocked', word: 'blocked' },
+    cancelled: { cls: 'cancelled', word: 'cancelled' },
+  };
+
+  function artifactTasksHtml(a) {
+    if (!a.tasks || !a.tasks.length) return '';
+    const rows = a.tasks.map((t) => {
+      const state = ART_TASK_STATUS[t.status] || ART_TASK_STATUS.todo;
+      return `<div class="arttask">`
+        + `<span class="at-state ${state.cls}"><span class="at-dot" role="img" aria-label="${esc(state.word)}"></span></span>`
+        + `<span class="at-label">${esc(t.label)}</span>`
+        + `<span class="at-kind">${esc(t.kind)}${t.visits ? ` · ${esc(t.visits)}` : ''}</span></div>`;
+    }).join('');
+    return `<section class="artsection" aria-label="Plan tasks"><div class="artheading">Tasks</div>${rows}</section>`;
+  }
+
   // Detail is SEMANTIC-FIRST, files LAST (spec §11): the result, the metrics,
   // artifact-specific content, then provenance, then the raw files with their
   // explicit "Open in editor" escape into VS Code (spec §12). Opening is a
@@ -3659,6 +3699,7 @@
         ? `<p class="art-stale art-stale-note">Implementation changed after this verification — rerun the stage before treating this result as evidence for the current code.</p>`
         : '')
       + artifactMetricsHtml(a)
+      + artifactTasksHtml(a)
       + artifactFindingsHtml(a)
       + artifactGatesHtml(a)
       + artifactPrsHtml(a)

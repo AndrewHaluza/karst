@@ -437,6 +437,255 @@ describe('buildTicketArtifacts', () => {
   });
 });
 
+/** A minimal VALID canonical graph document — nodes carry the plan's labels. */
+const CANONICAL_GRAPH = JSON.stringify({
+  version: 1,
+  title: 'Plan',
+  rationaleArtifact: 'task',
+  entries: ['impl'],
+  artifacts: [
+    { id: 'task', path: 'artifacts/plan/task.md', producer: '$planner', consumers: ['impl'], mediaType: 'text/markdown', maxBytes: 1024, required: true },
+  ],
+  nodes: [
+    { id: 'impl', kind: 'agent', label: 'Implement the feature', profile: 'worker', instructionsArtifact: 'task', inputs: ['task'], outputs: [], resources: { reads: [], writes: [] }, outcomes: ['complete', 'blocked', 'replan'], budget: { maxVisits: 1 } },
+    { id: 'verify', kind: 'command', label: 'Verify', command: 'test', repositories: ['api'], outcomes: ['passed', 'failed'], budget: { maxVisits: 2 } },
+  ],
+  edges: [
+    { id: 'e1', from: 'impl', on: 'complete', to: 'verify' },
+    { id: 'e2', from: 'verify', on: 'passed', to: 'END' },
+  ],
+  budgets: { maxNodeRuns: 4, maxExpertRuns: 1, maxReplans: 0 },
+});
+
+function seedGraphPlan(
+  store: Store,
+  ticketId: number,
+  over: { status?: string; nodeStatuses?: { nodeId: string; status: string; visit?: number }[] } = {},
+): void {
+  store.db
+    .prepare(
+      `INSERT INTO approach_graph_runs
+         (ticket_id, stage_key, stage_attempt, approach_id, status, created_at)
+       VALUES (?, 'impl', 0, 'karst-graph-engineering', ?, '2026-08-01T08:00:00.000Z')`,
+    )
+    .run(ticketId, over.status ?? 'running');
+  const graphRunId = (store.db.prepare('SELECT id FROM approach_graph_runs WHERE ticket_id = ?').get(ticketId) as { id: number }).id;
+  store.db
+    .prepare(
+      `INSERT INTO approach_planner_runs (graph_run_id, planner_run_number, kind, status)
+       VALUES (?, 1, 'bootstrap', 'submitted')`,
+    )
+    .run(graphRunId);
+  store.db
+    .prepare(
+      `INSERT INTO approach_graph_revisions
+         (graph_run_id, revision_number, canonical_graph, fingerprint, status, created_at)
+       VALUES (?, 1, ?, 'fp', 'active', '2026-08-01T08:05:00.000Z')`,
+    )
+    .run(graphRunId, CANONICAL_GRAPH);
+  const revisionId = (store.db
+    .prepare('SELECT id FROM approach_graph_revisions WHERE graph_run_id = ?')
+    .get(graphRunId) as { id: number }).id;
+  for (const node of over.nodeStatuses ?? []) {
+    store.db
+      .prepare(
+        `INSERT INTO approach_node_runs
+           (graph_run_id, revision_id, node_id, node_kind, visit_number, status, started_at)
+         VALUES (?, ?, ?, ?, ?, ?, '2026-08-01T08:10:00.000Z')`,
+      )
+      .run(graphRunId, revisionId, node.nodeId, 'agent', node.visit ?? 1, node.status);
+  }
+}
+
+describe('plan artifact (graph evidence)', () => {
+  let store: Store;
+  beforeEach(() => (store = openStore(':memory:')));
+  afterEach(() => store.close());
+
+  function ticket(stageCurrent: string) {
+    const t = createTicket(store, { key: 'PL-1', title: 'plan' });
+    store.db.prepare('UPDATE tickets SET stage_current = ? WHERE id = ?').run(stageCurrent, t.id);
+    return t;
+  }
+
+  it('derives no plan artifact when the graph approach never drove the ticket', () => {
+    const t = ticket('impl');
+    expect(buildTicketArtifacts(store, t.id)).toEqual([]);
+  });
+
+  it('tracks each node with its latest status: done, doing, todo, blocked', () => {
+    const t = ticket('impl');
+    seedGraphPlan(store, t.id, {
+      nodeStatuses: [
+        { nodeId: 'impl', status: 'completed' },
+        { nodeId: 'verify', status: 'running' },
+      ],
+    });
+
+    const [a] = buildTicketArtifacts(store, t.id) as [ArtifactSummary];
+    expect(a).toMatchObject({
+      id: 'plan',
+      stage: 'impl',
+      kind: 'plan',
+      title: 'Plan',
+      status: 'info',
+      freshness: 'current',
+      summary: '2 tasks · 1 done · 1 in progress',
+      versionCount: 1,
+      currentVersionLabel: 'v1',
+    });
+    expect(a.metrics).toEqual([
+      { label: 'to-do', value: '0' },
+      { label: 'in progress', value: '1' },
+      { label: 'done', value: '1' },
+    ]);
+    // Labels come from the canonical graph; a node that never ran reads todo.
+    expect(a.tasks).toEqual([
+      { id: 'impl', label: 'Implement the feature', kind: 'agent', status: 'done', visits: 'visit 1' },
+      { id: 'verify', label: 'Verify', kind: 'command', status: 'doing', visits: 'visit 1' },
+    ]);
+  });
+
+  it('reads an unclaimed node as to-do and a blocked one as blocked', () => {
+    const t = ticket('impl');
+    seedGraphPlan(store, t.id, {
+      nodeStatuses: [{ nodeId: 'verify', status: 'blocked' }],
+    });
+    const [a] = buildTicketArtifacts(store, t.id) as [ArtifactSummary];
+    expect(a.summary).toBe('2 tasks · 0 done');
+    expect(a.status).toBe('attention');
+    expect(a.metrics).toEqual([
+      { label: 'to-do', value: '1' },
+      { label: 'in progress', value: '0' },
+      { label: 'done', value: '0' },
+      { label: 'blocked', value: '1' },
+    ]);
+  });
+
+  it('a closed run with every task done reads passed', () => {
+    const t = ticket('done');
+    seedGraphPlan(store, t.id, {
+      status: 'closed',
+      nodeStatuses: [
+        { nodeId: 'impl', status: 'completed' },
+        { nodeId: 'verify', status: 'completed' },
+      ],
+    });
+    const [a] = buildTicketArtifacts(store, t.id) as [ArtifactSummary];
+    expect(a.status).toBe('passed');
+  });
+
+  it('a replanned revision is a new VERSION of the same plan, not a new artifact', () => {
+    const t = ticket('impl');
+    seedGraphPlan(store, t.id);
+    const graphRunId = (store.db.prepare('SELECT id FROM approach_graph_runs WHERE ticket_id = ?').get(t.id) as { id: number }).id;
+    // A replan supersedes the ACTIVE revision before the next one is created.
+    store.db
+      .prepare("UPDATE approach_graph_revisions SET status = 'superseded' WHERE graph_run_id = ? AND status = 'active'")
+      .run(graphRunId);
+    store.db
+      .prepare(
+        `INSERT INTO approach_graph_revisions
+           (graph_run_id, revision_number, canonical_graph, fingerprint, status, created_at)
+         VALUES (?, 2, ?, 'fp2', 'active', '2026-08-01T09:00:00.000Z')`,
+      )
+      .run(graphRunId, CANONICAL_GRAPH);
+    const all = buildTicketArtifacts(store, t.id);
+    expect(all).toHaveLength(1);
+    expect(all[0]!.versionCount).toBe(2);
+    expect(all[0]!.currentVersionLabel).toBe('v2');
+  });
+
+  it('a node that ran but left the latest plan still reads as a task', () => {
+    const t = ticket('impl');
+    // Revision 2 drops the verify node; the earlier run remains evidence.
+    const dropped = JSON.stringify({
+      version: 1,
+      title: 'Plan',
+      rationaleArtifact: 'task',
+      entries: ['impl'],
+      artifacts: [
+        { id: 'task', path: 'artifacts/plan/task.md', producer: '$planner', consumers: ['impl'], mediaType: 'text/markdown', maxBytes: 1024, required: true },
+      ],
+      nodes: [
+        { id: 'impl', kind: 'agent', label: 'Implement the feature', profile: 'worker', instructionsArtifact: 'task', inputs: ['task'], outputs: [], resources: { reads: [], writes: [] }, outcomes: ['complete', 'blocked', 'replan'], budget: { maxVisits: 1 } },
+      ],
+      edges: [{ id: 'e1', from: 'impl', on: 'complete', to: 'END' }],
+      budgets: { maxNodeRuns: 4, maxExpertRuns: 1, maxReplans: 0 },
+    });
+    seedGraphPlan(store, t.id);
+    const graphRunId = (store.db.prepare('SELECT id FROM approach_graph_runs WHERE ticket_id = ?').get(t.id) as { id: number }).id;
+    const oldRevision = (store.db
+      .prepare('SELECT id FROM approach_graph_revisions WHERE graph_run_id = ? ORDER BY revision_number DESC LIMIT 1')
+      .get(graphRunId) as { id: number }).id;
+    store.db
+      .prepare(
+        `INSERT INTO approach_node_runs
+           (graph_run_id, revision_id, node_id, node_kind, visit_number, status, started_at)
+         VALUES (?, ?, 'verify', 'command', 1, 'completed', '2026-08-01T08:10:00.000Z')`,
+      )
+      .run(graphRunId, oldRevision);
+    store.db
+      .prepare("UPDATE approach_graph_revisions SET status = 'superseded' WHERE graph_run_id = ? AND status = 'active'")
+      .run(graphRunId);
+    store.db
+      .prepare(
+        `INSERT INTO approach_graph_revisions
+           (graph_run_id, revision_number, canonical_graph, fingerprint, status, created_at)
+         VALUES (?, 2, ?, 'fp2', 'active', '2026-08-01T09:00:00.000Z')`,
+      )
+      .run(graphRunId, dropped);
+
+    const [a] = buildTicketArtifacts(store, t.id) as [ArtifactSummary];
+    expect(a.tasks.map((task) => task.id)).toEqual(['impl', 'verify']);
+    expect(a.tasks.find((task) => task.id === 'verify')).toMatchObject({ status: 'done' });
+  });
+
+  it('carries the planner-produced artifacts as the underlying files', () => {
+    const t = ticket('impl');
+    seedGraphPlan(store, t.id);
+    const graphRunId = (store.db.prepare('SELECT id FROM approach_graph_runs WHERE ticket_id = ?').get(t.id) as { id: number }).id;
+    const plannerRunId = (store.db
+      .prepare('SELECT id FROM approach_planner_runs WHERE graph_run_id = ?')
+      .get(graphRunId) as { id: number }).id;
+    store.db
+      .prepare(
+        `INSERT INTO approach_artifact_instances
+           (graph_run_id, revision_id, artifact_id, producer_planner_run_id, snapshot_path, sha256, media_type, byte_size, created_at)
+         VALUES (?, NULL, 'task', ?, '/data/karst/graph/1/plan.md', 'sha', 'text/markdown', 512, '2026-08-01T08:06:00.000Z')`,
+      )
+      .run(graphRunId, plannerRunId);
+    const [a] = buildTicketArtifacts(store, t.id) as [ArtifactSummary];
+    expect(a.resources).toEqual([{ name: 'plan.md', path: '/data/karst/graph/1/plan.md' }]);
+  });
+
+  it('the plan artifact is FIRST in semantic priority for an active ticket', () => {
+    const t = ticket('impl');
+    seedGraphPlan(store, t.id);
+    setStage(store, t.id, 'uat', { status: 'passed', startedAt: '2026-08-01T09:00:00.000Z', endedAt: '2026-08-01T10:00:00.000Z' });
+    recordGateRun(store, {
+      ticketId: t.id,
+      stageKey: 'uat',
+      attempt: 0,
+      runAt: '2026-08-01T09:30:00.000Z',
+      gates: [{ gateName: 'test', exitCode: 0, repo: '/wt/web' }],
+    });
+    const all = buildTicketArtifacts(store, t.id);
+    expect(all[0]!.id).toBe('plan');
+    expect(all[1]!.id).toBe('uat-report');
+  });
+
+  it('for a done ticket the PR summary outranks the plan', () => {
+    const t = ticket('done');
+    seedGraphPlan(store, t.id, { status: 'closed' });
+    const run = openShipRun(store, { ticketId: t.id, attempt: 0, startedAt: '2026-08-01T11:00:00.000Z' });
+    closeShipRun(store, run.id, 'passed', '2026-08-01T11:05:00.000Z');
+    const all = buildTicketArtifacts(store, t.id);
+    expect(all[0]!.id).toBe('ship-summary');
+    expect(all.map((a) => a.id)).toContain('plan');
+  });
+});
+
 describe('pickArtifactPreviews', () => {
   let store: Store;
   beforeEach(() => (store = openStore(':memory:')));

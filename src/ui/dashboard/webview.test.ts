@@ -3895,6 +3895,36 @@ describe('inside block issues p3 renderings (869egdr2u)', () => {
 function artifactFixtures(): ArtifactSummary[] {
   return [
     {
+      id: 'plan',
+      stage: 'impl',
+      kind: 'plan',
+      title: 'Plan',
+      scope: null,
+      summary: '3 tasks · 2 done · 1 in progress',
+      status: 'info',
+      freshness: 'current',
+      origin: { kind: 'karst', core: 'codex' },
+      versionCount: 1,
+      currentVersionLabel: 'v1',
+      createdAt: '2026-08-01T08:00:00.000Z',
+      metrics: [
+        { label: 'to-do', value: '0' },
+        { label: 'in progress', value: '1' },
+        { label: 'done', value: '2' },
+      ],
+      gates: [],
+      findings: [],
+      prs: [],
+      commits: [],
+      tasks: [
+        { id: 'impl', label: 'Implement the feature', kind: 'agent', status: 'done', visits: 'visit 1' },
+        { id: 'verify', label: 'Verify', kind: 'command', status: 'doing', visits: 'visit 1' },
+        { id: 'note', label: 'Note', kind: 'join', status: 'todo', visits: null },
+      ],
+      resources: [],
+      detail: null,
+    },
+    {
       id: 'uat-report',
       stage: 'uat',
       kind: 'uat-report',
@@ -3919,6 +3949,7 @@ function artifactFixtures(): ArtifactSummary[] {
       findings: [],
       prs: [],
       commits: [],
+      tasks: [],
       resources: [{ name: 'uat-ticket-1.log', path: '/data/karst/artifacts/1/uat-ticket-1.log' }],
       detail: null,
     },
@@ -3950,6 +3981,7 @@ function artifactFixtures(): ArtifactSummary[] {
       ],
       prs: [],
       commits: [],
+      tasks: [],
       resources: [],
       detail: null,
     },
@@ -3989,6 +4021,7 @@ function artifactFixtures(): ArtifactSummary[] {
           action: { actionId: 'snapshot-1:action-9', kind: 'open-commit' },
         },
       ],
+      tasks: [],
       resources: [],
       detail: null,
     },
@@ -4010,12 +4043,13 @@ describe('artifacts render round trip (executed in a VM)', () => {
     expect(h.classesOf('artPanel')).not.toContain('hidden');
     // The ONE count lives in the "View all N" button — the panel header has no
     // redundant `.count` of its own (issue: two counters for one number).
-    expect(h.textOf('artTotal')).toBe('3');
+    expect(h.textOf('artTotal')).toBe('4');
     const body = h.htmlOf('artifacts');
-    // Exactly the 3 previews, each a real button opening its detail.
+    // Exactly 3 previews (slice(0,3) of the priority order), each a real button.
     expect(body.match(/data-art-open=/g)).toHaveLength(3);
+    expect(body).toContain('data-art-open="plan"');
     expect(body).toContain('data-art-open="uat-report"');
-    expect(body).toContain('data-art-open="ship-summary"');
+    expect(body).toContain('data-art-open="review"');
     // Raw filenames never reach the shelf (spec §4.4) — resources exist only
     // in the detail view.
     expect(body).not.toContain('uat-ticket-1.log');
@@ -4031,9 +4065,10 @@ describe('artifacts render round trip (executed in a VM)', () => {
     // The dashboard body is hidden while the index surface is active.
     expect(h.bodyClasses).toContain('art-nav');
     const index = h.htmlOf('artView');
-    expect(index).toContain('Artifacts · 3');
+    expect(index).toContain('Artifacts · 4');
     expect(index).toContain('← Ticket');
     // Grouped by producing stage, empty groups omitted; one row per artifact.
+    expect(index).toMatch(/Implement[\s\S]*data-art-open="plan"/);
     expect(index).toMatch(/UAT[\s\S]*data-art-open="uat-report"/);
     expect(index).toMatch(/Review[\s\S]*data-art-open="review"/);
     expect(index).toMatch(/Ship[\s\S]*data-art-open="ship-summary"/);
@@ -4081,7 +4116,7 @@ describe('artifacts render round trip (executed in a VM)', () => {
 
     // Esc mirrors Back: detail(from index) → index.
     h.key('Escape');
-    expect(h.htmlOf('artView')).toContain('Artifacts · 3');
+    expect(h.htmlOf('artView')).toContain('Artifacts · 4');
     // And Esc on the index → ticket.
     h.key('Escape');
     expect(h.bodyClasses).not.toContain('art-nav');
@@ -4118,6 +4153,30 @@ describe('artifacts render round trip (executed in a VM)', () => {
     expect(detail).toMatch(
       /<a class="obj-link file-link" href="#" data-act="inside-action" data-action-id="snapshot-1:action-8"[^>]*>src\/auth\.ts:12<\/a>/,
     );
+  });
+
+  it('renders the plan detail with the task list as the tracking surface', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: stateWithArtifacts() });
+    h.click('[data-art]', { art: 'index' });
+    h.click('[data-art-open]', { artOpen: 'plan' });
+    const detail = h.htmlOf('artView');
+    // The plan detail carries the tracking metrics and the Tasks section.
+    expect(detail).toContain('Plan');
+    expect(detail).toContain('2');
+    expect(detail).toContain('Tasks');
+    // Each task renders its label + kind + visit, with the state WORD only as
+    // the dot's accessible name (UI-R28) — never a visible status label.
+    expect(detail).toMatch(/at-state done[\s\S]*role="img" aria-label="done"/);
+    expect(detail).toMatch(/at-state doing[\s\S]*role="img" aria-label="in progress"/);
+    expect(detail).toMatch(/at-state todo[\s\S]*role="img" aria-label="to do"/);
+    expect(detail).toContain('Implement the feature');
+    expect(detail).toContain('command · visit 1');
+    // The plan is not a gate stage, so it offers no console entry.
+    expect(detail).not.toContain('data-console="impl"');
+    // The plan is produced during impl, so the index labels it Implement.
+    h.key('Escape');
+    expect(h.htmlOf('artView')).toMatch(/Implement[\s\S]*data-art-open="plan"/);
   });
 
   it('a detail opened from the shelf returns to the TICKET, and its editor escape posts id + index only', () => {
