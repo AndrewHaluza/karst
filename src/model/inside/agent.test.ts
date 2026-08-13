@@ -375,39 +375,19 @@ describe('implementationSessionProcess', () => {
     expect(process.tokens).toEqual({ state: 'estimated', total: '12.4k', exact: '12,435' });
   });
 
-  it('renders unavailable — never a zero — for a provider with no per-session usage', () => {
-    // Claude declares interactiveUsage false (agent/claude.ts): its sessions
-    // can never produce a measured token fact, so the row states that absence
-    // instead of claiming "0 tokens".
-    const process = implementationSessionProcess(
-      cell('impl', 'running'),
-      tl([segment({ id: 1, provider: 'claude' })]),
-      [],
-      undefined,
-      null,
-      NOW,
-    );
-    expect(process.tokens).toEqual({
-      state: 'unavailable',
-      title: 'Token usage not available for this provider',
-    });
-  });
-
   it('renders unavailable from the configured provider before anything ran', () => {
-    // The default provider IS claude: a pending impl shows the truth about the
-    // provider karst will launch, not an absent chip.
+    // Antigravity's interactive usage is measured via the conversation DB
+    // (agyUsageWatch.ts), but a pending impl has no data yet — the truth about
+    // the provider karst will launch is silent, never "unavailable", never zero.
     const process = implementationSessionProcess(
       cell('impl', 'pending'),
       null,
       [],
-      { provider: 'claude', model: 'claude-opus-4-8' },
+      { provider: 'antigravity', model: 'claude-opus-4-8' },
       undefined,
       NOW,
     );
-    expect(process.tokens).toEqual({
-      state: 'unavailable',
-      title: 'Token usage not available for this provider',
-    });
+    expect(process.tokens).toBeUndefined();
   });
 
   it('tokenView never claims a zero for a non-interactive provider', () => {
