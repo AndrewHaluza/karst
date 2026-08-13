@@ -32,6 +32,7 @@ import type { GateOptions, GateOptionsLoader } from './gateOptions.js';
 import type { GraphInsideInput, GraphActionTarget } from '../../model/inside/graph.js';
 import { readRequestId, reportAction } from '../../model/actionResult.js';
 import { hasLiveWork, LIVE_TICK_MS } from './liveTick.js';
+import { compactTicketLabel } from '../../model/followUp.js';
 
 /**
  * The subset of a `vscode.WebviewPanel` the manager touches. Modeling it as an
@@ -296,8 +297,9 @@ export class DashboardManager {
       return;
     }
 
+    const ticket = getTicket(this.store, ticketId);
     const panel = this.host.createPanel(
-      ticketLabel(getTicket(this.store, ticketId), this.labelTemplate?.()),
+      compactTicketLabel(ticket, ticketLabel(ticket, this.labelTemplate?.())),
       ticketId,
       opts?.preserveFocus,
     );

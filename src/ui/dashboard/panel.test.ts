@@ -94,6 +94,20 @@ describe('DashboardManager', () => {
     expect(panels[0]!.title).toBe('PROJ-9 — ship it');
   });
 
+  it('prefixes the panel title with the one-char marker for a follow-up ticket', () => {
+    const parent = createTicket(store, { key: 'PROJ-9', title: 'ship it' });
+    const child = createTicket(store, {
+      key: 'PROJ-9-fu1',
+      title: 'ship it',
+      parentTicketId: parent.id,
+    });
+    const { host, panels } = fakeHost();
+    const mgr = new DashboardManager(store, host, () => ({}) as never);
+
+    mgr.openDashboard(child.id);
+    expect(panels[0]!.title).toBe('↳ PROJ-9-fu1 — ship it');
+  });
+
   it('posts switchable agent-session state for a live impl session', () => {
     const t = createTicket(store, { key: 'SW-1', title: 'switch' });
     store.db.prepare("UPDATE tickets SET stage_current = 'impl' WHERE id = ?").run(t.id);
