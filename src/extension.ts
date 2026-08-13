@@ -1412,12 +1412,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         },
         isSessionOpen: () => sessions.isOpen(ticketId),
         isProviderReady: (provider) => guardProviderCapabilityAsync('sessions', provider),
-        confirm: async ({ from, to }) => {
+        confirm: async ({ from, to, willReplaceSession }) => {
           const choice = await vscode.window.showWarningMessage(
             `Switch from ${from.providerLabel} · ${from.modelLabel} to ${to.providerLabel} · ${to.modelLabel}?`,
             {
               modal: true,
-              detail: 'Karst will close the current terminal and start a fresh agent session. Worktree changes and ticket progress stay intact.',
+              detail: willReplaceSession
+                ? 'Karst will close the current terminal and start a fresh agent session. Worktree changes and ticket progress stay intact.'
+                : 'Karst will start a fresh agent session with the new core. Worktree changes and ticket progress stay intact.',
             },
             'Switch and continue',
           );
@@ -1434,7 +1436,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }, modelCatalog, { provider: targetProvider, model });
       // Keep the same outcome toasts as before (stale / launch-failed).
       if (outcome.kind === 'stale') {
-        void vscode.window.showInformationMessage('The live agent session changed before it could be switched.');
+        void vscode.window.showInformationMessage('The ticket state changed before the agent could be switched.');
       } else if (outcome.kind === 'launch-failed') {
         void vscode.window.showErrorMessage(
           `The agent selection was saved, but its session could not start: ${outcome.error instanceof Error ? outcome.error.message : String(outcome.error)}`,
@@ -2421,7 +2423,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     () => ({
       defaultModel: currentManifest()?.defaultModel ?? null,
       modelCatalog,
-      isSessionOpen: (ticketId) => sessions.isOpen(ticketId),
     }),
     (worktrees, signal) => loadWorktreeStats(worktrees, defaultGitRunner, logError, signal),
     // The rail's retry meter must draw the budget the driver will actually

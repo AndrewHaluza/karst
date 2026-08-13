@@ -112,11 +112,19 @@ describe('DashboardManager', () => {
     const t = createTicket(store, { key: 'SW-1', title: 'switch' });
     store.db.prepare("UPDATE tickets SET stage_current = 'impl' WHERE id = ?").run(t.id);
     const { host, panels } = fakeHost();
-    const mgr = new DashboardManager(
-      store, host, () => ({}) as never,
-      undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
-      () => ({ isSessionOpen: () => true }),
-    );
+    const mgr = new DashboardManager(store, host, () => ({}) as never);
+
+    mgr.openDashboard(t.id);
+
+    const message = panels[0]!.posted.find((m: any) => m.type === 'state') as any;
+    expect(message.state.agentSession.canSwitch).toBe(true);
+  });
+
+  it('posts switchable agent-session state for a settled stage with no live session', () => {
+    const t = createTicket(store, { key: 'SW-2', title: 'switch' });
+    store.db.prepare("UPDATE tickets SET stage_current = 'done' WHERE id = ?").run(t.id);
+    const { host, panels } = fakeHost();
+    const mgr = new DashboardManager(store, host, () => ({}) as never);
 
     mgr.openDashboard(t.id);
 

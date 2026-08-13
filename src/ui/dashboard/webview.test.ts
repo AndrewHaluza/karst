@@ -1147,7 +1147,7 @@ describe('dashboard webview.html', () => {
 
   it('titles the header identity and agent controls (UI-R20/R21)', () => {
     for (const title of [
-      'Switch the live agent session', // #agentButton
+      'Switch the agent core and model', // #agentButton
       'Open ticket in provider', // #boardLink
       'Ticket controls', // #moreBtn
       'Copy ticket key', // #keyBtn
@@ -3360,7 +3360,7 @@ describe('agent popover round trip (executed in a VM)', () => {
     store.db.prepare("UPDATE tickets SET stage_current = 'impl' WHERE id = ?").run(t.id);
     const state = buildDashboardState(
       store, t.id, undefined, undefined, undefined, undefined, 'claude',
-      { defaultModel: null, isSessionOpen: () => true },
+      { defaultModel: null },
     );
     store.close();
     const h = bootPreviewHarness();
@@ -3384,7 +3384,7 @@ describe('agent popover round trip (executed in a VM)', () => {
     store.db.prepare("UPDATE tickets SET stage_current = 'impl' WHERE id = ?").run(t.id);
     const state = buildDashboardState(
       store, t.id, undefined, undefined, undefined, undefined, 'claude',
-      { defaultModel: null, isSessionOpen: () => true },
+      { defaultModel: null },
     );
     store.close();
     const h = bootPreviewHarness();
