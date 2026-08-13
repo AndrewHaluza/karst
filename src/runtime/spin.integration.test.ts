@@ -263,10 +263,7 @@ describe('spinTicket integration', () => {
     // No duplicate worktree row from the retry.
     const wtAfter = store.db.prepare('SELECT COUNT(*) AS n FROM worktrees WHERE ticket_id = ?').get(ticket.id) as { n: number };
     expect(wtAfter.n).toBe(1);
-    // Spins real backend + frontend services twice with health checks; ~4s
-    // isolated and over the 5s unit default under parallel load (the UAT gate
-    // failed this test on exactly that timeout).
-  }, 20_000);
+  });
 
   it('(a5) cancel mid-health tears down the run — fresh worktree removed, ports freed, no server', async () => {
     const bePort = port();
