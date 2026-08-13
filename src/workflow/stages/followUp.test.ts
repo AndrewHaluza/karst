@@ -75,8 +75,8 @@ describe('createFollowUpTicket', () => {
     const second = createFollowUpTicket(store, first.id);
     expect(first.title).toBe('Ship the thing');
     expect(second.title).toBe('Ship the thing');
-    expect(first.title.startsWith('Follow-up:')).toBe(false);
-    expect(second.title.startsWith('Follow-up:')).toBe(false);
+    expect(first.title!.startsWith('Follow-up:')).toBe(false);
+    expect(second.title!.startsWith('Follow-up:')).toBe(false);
   });
 
   it('rejects a parent ticket that has not reached done', () => {
