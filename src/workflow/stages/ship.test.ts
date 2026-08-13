@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openStore, type Store } from '../../store/db.js';
 import { createTicketFlow } from './create.js';
-import { getTicket, updateTicketFields } from '../../store/tickets.js';
+import { getTicket, setSessionId, updateTicketFields } from '../../store/tickets.js';
 import { listPrsByTicket } from '../../store/dashboard.js';
 import { listMergeChecksByTicket } from '../../store/mergeChecks.js';
 import { listShipEvidence } from '../../store/shipRuns.js';
@@ -639,7 +639,7 @@ setTimeout(() => {
     };
     const res = await shipTicket(
       store,
-      { ticketId: id, prDescriptionProcess: null },
+      { ticketId: id, prDescriptionProcess: null, conventions: { pullRequestDescription: '{description}' } },
       gh,
       fakeAdapter(),
       fakeGit().git,
@@ -823,7 +823,19 @@ setTimeout(() => {
         '--title',
         '[PROJ-1] add search',
         '--body',
-        'Legacy generated body.',
+        [
+          '## Summary',
+          'Legacy generated body.',
+          '',
+          'Ticket: PROJ-1',
+          'Repository: frontend',
+          '',
+          '## Metadata',
+          'Agent: claude',
+          'Model: n/a',
+          'Approach: n/a',
+          'Session: n/a',
+        ].join('\n'),
         '--base',
         'develop',
       ]);
@@ -982,7 +994,7 @@ setTimeout(() => {
       ]);
     });
 
-    it('preserves exact unconfigured title and no-adapter body behavior', async () => {
+    it('renders the default description template when no template is configured', async () => {
       seedWorktree(store, id, 'frontend', join(dir, 'fe'));
       const { gh, creates } = recordingGh();
 
@@ -994,10 +1006,54 @@ setTimeout(() => {
         '--title',
         'add search',
         '--body',
-        'add search',
+        [
+          '## Summary',
+          'add search',
+          '',
+          'Ticket: PROJ-1',
+          'Repository: frontend',
+          '',
+          '## Metadata',
+          'Agent: claude',
+          'Model: n/a',
+          'Approach: n/a',
+          'Session: n/a',
+        ].join('\n'),
         '--base',
         'develop',
       ]);
+    });
+
+    it('renders the implementation agent metadata into the default template from the ticket', async () => {
+      seedWorktree(store, id, 'frontend', join(dir, 'fe'));
+      updateTicketFields(store, id, { model: 'claude-sonnet-5', agentProvider: 'opencode', approach: 'rpi' });
+      // The session that actually ran impl wins over the per-ticket core pick.
+      setSessionId(store, id, 'sess-42', 'claude');
+      const { gh, creates } = recordingGh();
+
+      await shipTicket(store, { ticketId: id }, gh, undefined, fakeGit().git);
+
+      const body = creates[0]![creates[0]!.indexOf('--body') + 1]!;
+      expect(body).toContain('## Metadata');
+      expect(body).toContain('Agent: claude');
+      expect(body).toContain('Model: claude-sonnet-5');
+      expect(body).toContain('Approach: rpi');
+      expect(body).toContain('Session: sess-42');
+    });
+
+    it('a custom description template replaces the default — metadata only when the template asks for it', async () => {
+      seedWorktree(store, id, 'frontend', join(dir, 'fe'));
+      const { gh, creates } = recordingGh();
+
+      await shipTicket(
+        store,
+        { ticketId: id, conventions: { pullRequestDescription: '{description}' } },
+        gh,
+        undefined,
+        fakeGit().git,
+      );
+
+      expect(creates[0]![creates[0]!.indexOf('--body') + 1]!).toBe('add search');
     });
   });
 
@@ -1048,7 +1104,13 @@ setTimeout(() => {
       seedWorktree(store, id, 'frontend', join(dir, 'fe'));
       const { gh, creates } = recordingGh();
 
-      await shipTicket(store, { ticketId: id }, gh, chattyAdapter(), fakeGit().git);
+      await shipTicket(
+        store,
+        { ticketId: id, conventions: { pullRequestDescription: '{description}' } },
+        gh,
+        chattyAdapter(),
+        fakeGit().git,
+      );
 
       const body = bodyOf(creates);
       // The status line, the "copy-paste ready" preamble, the whole-body
@@ -1119,7 +1181,13 @@ setTimeout(() => {
         return { stdout: '', stderr: '', exitCode: 0 };
       };
 
-      await shipTicket(store, { ticketId: id }, gh, adapter, git);
+      await shipTicket(
+        store,
+        { ticketId: id, conventions: { pullRequestDescription: '{description}' } },
+        gh,
+        adapter,
+        git,
+      );
 
       expect(prompts).toHaveLength(1);
       expect(prompts[0]).toContain('Commits on this branch:\n* abc1234 add search');
@@ -1150,7 +1218,13 @@ setTimeout(() => {
         }),
       };
 
-      await shipTicket(store, { ticketId: id }, gh, adapter, fakeGit().git);
+      await shipTicket(
+        store,
+        { ticketId: id, conventions: { pullRequestDescription: '{description}' } },
+        gh,
+        adapter,
+        fakeGit().git,
+      );
 
       expect(bodyOf(creates)).toBe(['## Summary', '', 'The search feature now works.'].join('\n'));
     });
@@ -1222,7 +1296,7 @@ setTimeout(() => {
       // and the deterministic branch-facts body still produces the PR body.
       await shipTicket(
         store,
-        { ticketId: id, prDescriptionProcess: null },
+        { ticketId: id, prDescriptionProcess: null, conventions: { pullRequestDescription: '{description}' } },
         gh,
         adapter,
         fakeGit().git,
@@ -1480,7 +1554,13 @@ setTimeout(() => {
           },
         };
 
-        await shipTicket(store, { ticketId: id }, gh, adapter, fakeGit().git);
+        await shipTicket(
+          store,
+          { ticketId: id, conventions: { pullRequestDescription: '{description}' } },
+          gh,
+          adapter,
+          fakeGit().git,
+        );
 
         expect(args.find((a) => a[1] === 'edit')).toEqual([
           'pr',
