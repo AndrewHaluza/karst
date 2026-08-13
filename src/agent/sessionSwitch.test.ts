@@ -10,7 +10,7 @@ import {
 } from './sessionSwitch.js';
 
 const CATALOG: ModelCatalog = {
-  claude: [{ id: 'claude-x', label: 'Claude X', providers: ['claude'] }],
+  claude: [{ id: 'claude-x', label: 'Claude X', providers: ['claude'], efforts: ['low', 'high'] }],
   codex: [{ id: 'codex-x', label: 'Codex X', providers: ['codex'] }],
   antigravity: [{ id: 'agy-x', label: 'Agy X', providers: ['antigravity'] }],
   opencode: [],
@@ -61,8 +61,28 @@ describe('agent switch presentation', () => {
       catalog: CATALOG, stageCurrent: 'impl', sessionOpen: true,
     })).toEqual({
       provider: 'codex', providerLabel: 'Codex',
-      modelId: 'codex-x', modelLabel: 'Codex X', canSwitch: true,
+      modelId: 'codex-x', modelLabel: 'Codex X', effort: null, canSwitch: true,
     });
+  });
+
+  it('resolves the effort/variant against the resolved model', () => {
+    expect(buildAgentSessionView({
+      provider: 'claude', ticketModel: 'claude-x', defaultModel: null,
+      ticketEffort: 'high', defaultEffort: null,
+      catalog: CATALOG, stageCurrent: 'impl', sessionOpen: true,
+    }).effort).toBe('high');
+    // An effort the model does not advertise is not carried.
+    expect(buildAgentSessionView({
+      provider: 'claude', ticketModel: 'claude-x', defaultModel: null,
+      ticketEffort: 'ultracode', defaultEffort: null,
+      catalog: CATALOG, stageCurrent: 'impl', sessionOpen: true,
+    }).effort).toBeNull();
+    // Falls back to the manifest default.
+    expect(buildAgentSessionView({
+      provider: 'claude', ticketModel: null, defaultModel: 'claude-x',
+      ticketEffort: null, defaultEffort: 'high',
+      catalog: CATALOG, stageCurrent: 'impl', sessionOpen: true,
+    }).effort).toBe('high');
   });
 
   it('uses the selected provider label when model ids are shared', () => {
@@ -85,6 +105,7 @@ function flow(overrides: Partial<AgentSwitchFlowDeps> = {}) {
   const deps: AgentSwitchFlowDeps = {
     read: () => ({
       stageCurrent: 'impl', provider: 'claude', ticketModel: 'claude-x', defaultModel: null,
+      ticketEffort: null, defaultEffort: null,
     }),
     isSessionOpen: () => true,
     isProviderReady: async (provider) => (order.push(`ready:${provider}`), true),
@@ -105,12 +126,13 @@ describe('applyAgentSwitchSelection', () => {
     const { deps, order } = flow({
       read: () => ({
         stageCurrent: 'fix', provider: 'claude', ticketModel: 'claude-x', defaultModel: null,
+        ticketEffort: null, defaultEffort: null,
         fixExecutionActive: true,
       }),
       dispose: () => { owned = false; order.push('dispose'); },
     });
     await expect(
-      applyAgentSwitchSelection(deps, CATALOG, { provider: 'codex', model: 'codex-x' }),
+      applyAgentSwitchSelection(deps, CATALOG, { provider: 'codex', model: 'codex-x', effort: null }),
     ).resolves.toEqual({ kind: 'stale' });
     expect(order).toEqual([]);
     expect(owned).toBe(true);
@@ -119,7 +141,7 @@ describe('applyAgentSwitchSelection', () => {
   it('persists one selection, disposes, then launches', async () => {
     const { deps, order } = flow();
     await expect(
-      applyAgentSwitchSelection(deps, CATALOG, { provider: 'codex', model: 'codex-x' }),
+      applyAgentSwitchSelection(deps, CATALOG, { provider: 'codex', model: 'codex-x', effort: null }),
     ).resolves.toEqual({ kind: 'switched' });
     expect(order).toEqual(['ready:codex', 'confirm', 'persist:codex:codex-x', 'dispose', 'launch:allow-resume=false:provider-ready=true']);
   });
@@ -127,7 +149,7 @@ describe('applyAgentSwitchSelection', () => {
   it('allows a model-only switch on the current core without a readiness probe', async () => {
     const { deps, order } = flow({ isProviderReady: async () => { order.push('ready:unexpected'); return true; } });
     await expect(
-      applyAgentSwitchSelection(deps, CATALOG, { provider: 'claude', model: 'claude-x' }),
+      applyAgentSwitchSelection(deps, CATALOG, { provider: 'claude', model: 'claude-x', effort: null }),
     ).resolves.toEqual({ kind: 'switched' });
     expect(order).toEqual(['confirm', 'persist:claude:claude-x', 'dispose', 'launch:allow-resume=false:provider-ready=true']);
   });
@@ -135,7 +157,7 @@ describe('applyAgentSwitchSelection', () => {
   it('keeps the current session when the new core is not ready', async () => {
     const { deps, order } = flow({ isProviderReady: async () => false });
     await expect(
-      applyAgentSwitchSelection(deps, CATALOG, { provider: 'codex', model: 'codex-x' }),
+      applyAgentSwitchSelection(deps, CATALOG, { provider: 'codex', model: 'codex-x', effort: null }),
     ).resolves.toEqual({ kind: 'unavailable', provider: 'codex' });
     expect(order.some((e) => e.startsWith('persist'))).toBe(false);
     expect(order).not.toContain('dispose');
@@ -144,7 +166,7 @@ describe('applyAgentSwitchSelection', () => {
   it('rejects a model that is not among the provider’s own choices', async () => {
     const { deps, order } = flow();
     await expect(
-      applyAgentSwitchSelection(deps, CATALOG, { provider: 'codex', model: 'claude-x' }),
+      applyAgentSwitchSelection(deps, CATALOG, { provider: 'codex', model: 'claude-x', effort: null }),
     ).resolves.toEqual({ kind: 'stale' });
     expect(order).toEqual([]);
   });
@@ -152,7 +174,7 @@ describe('applyAgentSwitchSelection', () => {
   it('rejects an unknown provider', async () => {
     const { deps, order } = flow();
     await expect(
-      applyAgentSwitchSelection(deps, CATALOG, { provider: 'evil' as never, model: null }),
+      applyAgentSwitchSelection(deps, CATALOG, { provider: 'evil' as never, model: null, effort: null }),
     ).resolves.toEqual({ kind: 'stale' });
     expect(order).toEqual([]);
   });
@@ -160,7 +182,7 @@ describe('applyAgentSwitchSelection', () => {
   it('cancelling at the confirm modal mutates nothing', async () => {
     const { deps, order } = flow({ confirm: async () => false });
     await expect(
-      applyAgentSwitchSelection(deps, CATALOG, { provider: 'codex', model: 'codex-x' }),
+      applyAgentSwitchSelection(deps, CATALOG, { provider: 'codex', model: 'codex-x', effort: null }),
     ).resolves.toEqual({ kind: 'cancelled', at: 'confirm' });
     expect(order.some((e) => e.startsWith('persist'))).toBe(false);
     expect(order).not.toContain('dispose');
@@ -172,17 +194,18 @@ describe('applyAgentSwitchSelection', () => {
       read: () => ({
         stageCurrent: ++reads === 1 ? 'impl' : 'review',
         provider: 'claude', ticketModel: null, defaultModel: null,
+        ticketEffort: null, defaultEffort: null,
       }),
     });
     await expect(
-      applyAgentSwitchSelection(deps, CATALOG, { provider: 'codex', model: 'codex-x' }),
+      applyAgentSwitchSelection(deps, CATALOG, { provider: 'codex', model: 'codex-x', effort: null }),
     ).resolves.toEqual({ kind: 'stale' });
     expect(order).not.toContain('dispose');
   });
 
   it('keeps the new selection and reports a retryable launch failure', async () => {
     const { deps, order } = flow({ launch: async () => { order.push('launch'); throw new Error('spawn'); } });
-    const outcome = await applyAgentSwitchSelection(deps, CATALOG, { provider: 'codex', model: 'codex-x' });
+    const outcome = await applyAgentSwitchSelection(deps, CATALOG, { provider: 'codex', model: 'codex-x', effort: null });
     expect(outcome.kind).toBe('launch-failed');
     expect(order.slice(-3)).toEqual(['persist:codex:codex-x', 'dispose', 'launch']);
   });
@@ -190,7 +213,7 @@ describe('applyAgentSwitchSelection', () => {
   it('leaves the old terminal open when persistence fails', async () => {
     const { deps, order } = flow({ persist: () => { throw new Error('write'); } });
     await expect(
-      applyAgentSwitchSelection(deps, CATALOG, { provider: 'codex', model: 'codex-x' }),
+      applyAgentSwitchSelection(deps, CATALOG, { provider: 'codex', model: 'codex-x', effort: null }),
     ).rejects.toThrow('write');
     expect(order).not.toContain('dispose');
     expect(order.some((e) => e.startsWith('launch'))).toBe(false);

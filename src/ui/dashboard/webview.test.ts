@@ -1133,12 +1133,14 @@ describe('dashboard webview.html', () => {
 
   it('stages the agent switch in a popover that does nothing until Switch agent is clicked', () => {
     expect(HTML).toContain('id="agentPopover"');
-    expect(HTML).toContain('id="coreTrigger"');
-    expect(HTML).toContain('id="modelSelect"');
+    expect(HTML).toContain('id="agentSwitchPicker"');   // the UNIFIED picker
+    expect(HTML).toContain('mountAgentPicker(root, {');
+    expect(HTML).toContain('KARST_AGENT_PICKER_CSS');
+    expect(HTML).toContain('KARST_AGENT_PICKER_JS');
     expect(HTML).toContain('id="switchBtn"');
     expect(HTML).toMatch(/Closing this menu takes no action/);
-    expect(HTML).toMatch(/draftCore !== s\.provider \|\| /); // changed-draft gate
-    expect(HTML).toMatch(/post\(\{ type: 'switch-agent', provider: draftCore, model: draftModel \|\| null \}\)/);
+    expect(HTML).toMatch(/draftCore !== s\.provider/); // changed-draft gate
+    expect(HTML).toMatch(/post\(\{ type: 'switch-agent', provider: draftCore, model: draftModel \|\| null, effort: draftEffort \|\| null \}\)/);
     expect(HTML).not.toMatch(/data-act="switch-agent"/);      // no longer a Now-line button
   });
 

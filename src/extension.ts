@@ -129,7 +129,7 @@ import type { HookPayload } from './hooks/dispatch.js';
 import { dispatchHook } from './hooks/dispatch.js';
 import type { StageKey } from './model/types.js';
 import { buildTicketContext, renderTicketContext } from './context/ticketContext.js';
-import { resolveModelForProvider } from './agent/models.js';
+import { resolveEffortForProvider, resolveModelForProvider } from './agent/models.js';
 import {
   renderTicketLabel,
   DEFAULT_TERMINAL_NAME_TEMPLATE,
@@ -359,6 +359,7 @@ import { injectDesignSystem } from './model/designSystem.js';
 import { injectCsp, newNonce } from './model/csp.js';
 import { injectProviderIdentity } from './model/providerIdentity.js';
 import { injectAgentIdentity } from './model/agentIdentity.js';
+import { injectAgentPicker } from './model/agentPicker.js';
 import { injectXterm, readXtermAssets } from './model/xtermAssets.js';
 import { buildTicketArtifacts } from './model/artifacts.js';
 import {
@@ -1373,6 +1374,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     ticketId: number,
     targetProvider: AgentProvider,
     model: string | null,
+    effort: string | null,
   ): Promise<void> => {
     try {
       const outcome = await applyAgentSwitchSelection({
@@ -1383,6 +1385,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             provider: resolveProvider(ticket.agentProvider, currentManifest()?.agentProvider),
             ticketModel: ticket.model,
             defaultModel: currentManifest()?.defaultModel ?? null,
+            ticketEffort: ticket.effort,
+            defaultEffort: currentManifest()?.defaultEffort ?? null,
             fixExecutionActive: listRecoveryRounds(localStore, ticketId)
               .some((round) => round.status === 'fixing'),
           };
@@ -1400,15 +1404,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           );
           return choice === 'Switch and continue';
         },
-        persist: ({ provider: p, model: m }) => updateTicketFields(localStore, ticketId, {
+        persist: ({ provider: p, model: m, effort: e }) => updateTicketFields(localStore, ticketId, {
           agentProvider: p,
           model: m ?? '',
+          effort: e ?? '',
         }),
         dispose: () => sessions.disposeSession(ticketId),
         launch: async (options) => {
           await vscode.commands.executeCommand('karst.openSession', ticketId, options);
         },
-      }, modelCatalog, { provider: targetProvider, model });
+      }, modelCatalog, { provider: targetProvider, model, effort });
       // Keep the same outcome toasts as before (stale / launch-failed).
       if (outcome.kind === 'stale') {
         void vscode.window.showInformationMessage('The live agent session changed before it could be switched.');
@@ -2343,7 +2348,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           });
         },
         () => changes.open(ticketId),
-        (provider, model) => void switchAgentSession(ticketId, provider, model),
+        (provider, model, effort) => void switchAgentSession(ticketId, provider, model, effort),
         () => binder.toggle(),
         // Declared below with the sweep it forces (like `binder`, the two are
         // mutually referential); read only when a panel is actually open, which
@@ -2397,6 +2402,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
     () => ({
       defaultModel: currentManifest()?.defaultModel ?? null,
+      defaultEffort: currentManifest()?.defaultEffort ?? null,
       modelCatalog,
       isSessionOpen: (ticketId) => sessions.isOpen(ticketId),
     }),
@@ -4323,6 +4329,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             modelCatalog,
           );
 
+      // Resolve the launch effort the same way: the ticket's own effort wins,
+      // else the manifest default, else undefined (the agent CLI's default).
+      // Only carried when the RESOLVED model advertises it (§ Execution policy
+      // resolution). A host-only assignment override supplies it verbatim.
+      const effort = options.assignment
+        ? (options.assignment.effort ?? undefined)
+        : resolveEffortForProvider(
+            launchProvider,
+            t.effort,
+            currentManifest()?.defaultEffort,
+            model,
+            modelCatalog,
+          );
+
       // Terminal name/icon/color are frozen at creation, so the tab carries the
       // status-free brand mark from the start — never a stage-at-launch glyph
       // hue, which the tab would keep for the rest of its life (869egvp46-fu2).
@@ -4346,7 +4366,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           resumeId,
           naming,
           materialized.ownedPaths,
-          options,
+          { ...options, ...(effort ? { effort } : {}) },
           // Record the session manager's active provider/model snapshot, so a
           // later fix recovery reads the identity that ACTUALLY launched this
           // session — not the one a manifest edit resolves today. A host-only
@@ -5169,13 +5189,13 @@ function buildCliGuidePrefix(context: vscode.ExtensionContext): string {
  * failing to open at all.
  */
 function dashboardWebviewHtml(warn: (message: string) => void): string {
-  let html = injectAgentIdentity(
+  let html = injectAgentPicker(injectAgentIdentity(
     injectProviderIdentity(
       injectPalette(
         injectDesignSystem(readFileSync(join(HERE, 'ui', 'dashboard', 'webview.html'), 'utf8')),
       ),
     ),
-  );
+  ));
   try {
     html = injectXterm(html, readXtermAssets(join(HERE, 'vendor', 'xterm')));
   } catch (e) {
@@ -5724,7 +5744,7 @@ function makeDashboardActions(
   // Apply a staged agent-core/model selection to the open session. The closure
   // owns the ticket id AND re-validates the selection against the catalog, so
   // the webview can only ever propose a switch, never direct one.
-  switchAgent: (provider: AgentProvider, model: string | null) => void,
+  switchAgent: (provider: AgentProvider, model: string | null, effort: string | null) => void,
   // Flip the window's terminal binding. Window-scoped, not ticket-scoped, so it
   // takes no id — every open dashboard reports the same toggle.
   toggleBind: () => void,

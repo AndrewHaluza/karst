@@ -3,6 +3,7 @@ import type { ModelCatalog } from './modelCatalog.js';
 import {
   isModelCompatibleWithProvider,
   modelsForProvider,
+  resolveEffortForProvider,
   resolveModelForProvider,
 } from './models.js';
 import { IMPLEMENTED_PROVIDERS, isKnownProvider } from './provider.js';
@@ -20,6 +21,7 @@ export interface AgentSessionView {
   providerLabel: string;
   modelId: string | null;
   modelLabel: string;
+  effort: string | null;
   canSwitch: boolean;
 }
 
@@ -27,6 +29,10 @@ export interface AgentSessionViewInput {
   provider: AgentProvider;
   ticketModel: string | null;
   defaultModel: string | null;
+  /** Per-ticket effort override (ticket `effort` column); `null` = inherit default. */
+  ticketEffort?: string | null;
+  /** Manifest default effort; `null` = no default. */
+  defaultEffort?: string | null;
   catalog: ModelCatalog;
   stageCurrent: string | null;
   sessionOpen: boolean;
@@ -50,7 +56,7 @@ export interface AgentSwitchModelChoice {
   picked: boolean;
 }
 
-export interface AgentSwitchSelection { provider: AgentProvider; model: string | null }
+export interface AgentSwitchSelection { provider: AgentProvider; model: string | null; effort: string | null }
 export interface AgentSwitchLaunchOptions {
   allowResume: false;
   /** The candidate provider passed the coordinator's async readiness probe. */
@@ -62,6 +68,8 @@ export interface AgentSwitchSnapshot {
   provider: AgentProvider;
   ticketModel: string | null;
   defaultModel: string | null;
+  ticketEffort: string | null;
+  defaultEffort: string | null;
   fixExecutionActive?: boolean;
 }
 
@@ -130,11 +138,19 @@ export function buildAgentSessionView(input: AgentSessionViewInput): AgentSessio
   const modelId = resolveModelForProvider(
     input.provider, input.ticketModel, input.defaultModel, input.catalog,
   );
+  const effort = resolveEffortForProvider(
+    input.provider,
+    input.ticketEffort ?? null,
+    input.defaultEffort ?? null,
+    modelId,
+    input.catalog,
+  );
   return {
     provider: input.provider,
     providerLabel: PROVIDER_LABELS[input.provider],
     modelId: modelId ?? null,
     modelLabel: labelForModel(input.provider, modelId, input.catalog),
+    effort: effort ?? null,
     canSwitch: canSwitchAgentSession(
       input.stageCurrent,
       input.sessionOpen,
@@ -146,7 +162,7 @@ export function buildAgentSessionView(input: AgentSessionViewInput): AgentSessio
 export async function applyAgentSwitchSelection(
   deps: AgentSwitchFlowDeps,
   catalog: ModelCatalog,
-  selection: { provider: AgentProvider; model: string | null },
+  selection: AgentSwitchSelection,
 ): Promise<AgentSwitchOutcome> {
   if (!isKnownProvider(selection.provider)) return { kind: 'stale' };
   const initial = deps.read();
@@ -163,11 +179,25 @@ export async function applyAgentSwitchSelection(
   });
   if (!modelChoices.some((choice) => choice.model === selection.model)) return { kind: 'stale' };
 
+  // The staged effort must be advertised by the SELECTED model — the same
+  // validation the launch path applies (`resolveEffortForProvider`), so a
+  // staged effort the model does not advertise is refused here rather than
+  // silently dropped at launch.
+  const toEffort = resolveEffortForProvider(
+    selection.provider,
+    selection.effort,
+    initial.defaultEffort,
+    selection.model ?? undefined,
+    catalog,
+  );
+
   const from = buildAgentSessionView({ ...initial, catalog, sessionOpen: true });
   const to = buildAgentSessionView({
     provider: selection.provider,
     ticketModel: selection.model,
     defaultModel: initial.defaultModel,
+    ticketEffort: selection.effort,
+    defaultEffort: initial.defaultEffort,
     catalog,
     stageCurrent: initial.stageCurrent,
     sessionOpen: false,
@@ -182,7 +212,10 @@ export async function applyAgentSwitchSelection(
   if (!canSwitchAgentSession(current.stageCurrent, deps.isSessionOpen(), current.fixExecutionActive)) {
     return { kind: 'stale' };
   }
-  deps.persist({ provider: selection.provider, model: selection.model });
+  // The persisted effort is the RESOLVED value: a staged effort the selected
+  // model does not advertise is stored as NULL (inherit), never as a value the
+  // launch would drop anyway.
+  deps.persist({ provider: selection.provider, model: selection.model, effort: toEffort ?? null });
   deps.dispose();
   try {
     await deps.launch({ allowResume: false, providerReady: true });

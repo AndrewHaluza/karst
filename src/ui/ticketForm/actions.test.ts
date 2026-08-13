@@ -1235,6 +1235,17 @@ describe('buildTicketFormActions', () => {
     expect(getTicket(store, t.id).model).toBeNull();
   });
 
+  it('setEffort persists onto an existing ticket, and empty clears it to inherit', () => {
+    const t = createTicket(store, { key: 'P-EF', title: 't' });
+    const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, close: () => {} };
+    const actions = buildTicketFormActions(deps)(ctx);
+
+    actions.setEffort('high');
+    expect(getTicket(store, t.id).effort).toBe('high');
+    actions.setEffort('');
+    expect(getTicket(store, t.id).effort).toBeNull();
+  });
+
   it('setProvider persists onto an existing ticket, re-pushes state, and empty clears it to inherit', () => {
     const t = createTicket(store, { key: 'P-PR', title: 't' });
     const ctx = mkCtx(t.id);

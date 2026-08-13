@@ -94,6 +94,7 @@ function recordingFactory(
       setApproach: () => {},
       setAgent: () => {},
       setModel: () => {},
+      setEffort: () => {},
       setProvider: () => {},
       setType: () => {},
       analyze: () => {},

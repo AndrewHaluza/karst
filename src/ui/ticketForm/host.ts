@@ -7,6 +7,7 @@ import { injectPalette } from '../../model/palette.js';
 import { injectDesignSystem } from '../../model/designSystem.js';
 import { injectProviderIdentity } from '../../model/providerIdentity.js';
 import { injectAgentIdentity } from '../../model/agentIdentity.js';
+import { injectAgentPicker } from '../../model/agentPicker.js';
 import { injectCsp, newNonce } from '../../model/csp.js';
 import { attachmentsRoot } from '../../attachments/paths.js';
 import type { BrandIconPaths } from '../brandIcon.js';
@@ -27,9 +28,9 @@ export function makeTicketFormPanelHost(
   context: vscode.ExtensionContext,
   brandIcon?: BrandIconPaths,
 ): TicketFormPanelHost {
-  const html = injectAgentIdentity(injectProviderIdentity(
+  const html = injectAgentPicker(injectAgentIdentity(injectProviderIdentity(
     injectPalette(injectDesignSystem(readFileSync(join(HERE, 'webview.html'), 'utf8'))),
-  ));
+  )));
   return {
     createPanel(title: string): TicketFormPanel {
       const panel = vscode.window.createWebviewPanel(

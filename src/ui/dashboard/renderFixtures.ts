@@ -1,4 +1,5 @@
 import type { DashboardState } from './state.js';
+import type { ModelCatalog } from '../../agent/modelCatalog.js';
 import type {
   CommitRepoView,
   DoneHeroView,
@@ -854,12 +855,13 @@ export function renderStateFor(stage: InsideStageKey): DashboardState {
       providerLabel: 'Claude Code',
       modelId: null,
       modelLabel: 'Agent default',
+      effort: null,
       canSwitch: false,
     },
     stepper: [],
     currentStage: null,
     ship: { kind: 'none' },
-    agentSwitch: { cores: [], models: {} },
+    agentSwitch: { cores: [], models: {}, modelsByCore: {} as ModelCatalog, effort: null, modelInheritLabel: 'Agent default', effortInheritLabel: 'No effort (agent picks)' },
     servers: [],
     hasRunnableRepos: false,
     worktrees: [],

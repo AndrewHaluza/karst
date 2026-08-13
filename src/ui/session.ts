@@ -103,6 +103,12 @@ export interface OpenSessionOptions {
    */
   seedPrompt?: string;
   /**
+   * The resolved effort/variant for this launch (per-ticket or manifest
+   * default), threaded as the provider's effort flag. Host-internal: no webview
+   * message can reach it.
+   */
+  effort?: string;
+  /**
    * Host-only configured process assignment (the Fix path, Task 3): when
    * present, the launch resolves provider/adapter/model from this snapshot
    * rather than the ticket/manifest precedence. It also rides the
@@ -372,7 +378,9 @@ export class SessionManager {
    * command. `extraArgs` carries agent-specific launch additions from the
    * adapter's `materializeApproach` (e.g. `--plugin-dir`), fresh-launch only.
    * `model` is the resolved launch model id (per-ticket or manifest default),
-   * threaded as `--model`; omitted → the agent CLI's own default. `resume` is
+   * threaded as `--model`; omitted → the agent CLI's own default. `effort` is
+   * the resolved effort/variant, threaded as the provider's effort flag;
+   * omitted → the agent CLI's own default. `resume` is
    * an agent session id to continue via `--resume`, fresh-launch only.
    */
    openSession(
@@ -417,6 +425,7 @@ export class SessionManager {
       ...(initialPrompt ? { initialPrompt } : {}),
       ...(extraArgs && extraArgs.length > 0 ? { extraArgs } : {}),
       ...(model ? { model } : {}),
+      ...(options.effort ? { effort: options.effort } : {}),
       ...(resume ? { resume } : {}),
     });
     const cleanupPaths = [...ownedPaths, ...(cmd.ownedPaths ?? [])];

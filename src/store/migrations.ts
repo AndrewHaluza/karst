@@ -19,7 +19,7 @@ export function readSchema(): string {
 }
 
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 43;
+export const SCHEMA_VERSION = 44;
 
 /** v2 ticket-field columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -1665,6 +1665,18 @@ export function migrate(db: Database): void {
           // keep stripping leading prefixes until none remain
         }
       })();
+    }
+  }
+
+  if (current < 44) {
+    // v44 adds the per-ticket effort/variant override, the launch-path sibling
+    // of `model`/`agent_provider` (§ Execution policy resolution). A per-ticket
+    // effort is NULL for every existing row — inherit the manifest default —
+    // because no prior karst persisted one. NOTHING IS BACKFILLED: synthesizing
+    // an effort would assert a choice the user never made.
+    const cols = ticketColumns(db);
+    if (cols.has('model') && !cols.has('effort')) {
+      db.exec('ALTER TABLE tickets ADD COLUMN effort TEXT');
     }
   }
 

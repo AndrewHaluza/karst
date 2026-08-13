@@ -527,6 +527,14 @@ export interface Manifest {
    */
   defaultModel?: string;
   /**
+   * Default effort/variant inherited by tickets that don't pick their own
+   * (§ Execution policy resolution). Undefined → the agent CLI's own default.
+   * Only meaningful when `defaultModel` advertises efforts in the catalog; a
+   * configured effort the selected model does not advertise is a configuration
+   * error at Save, never silently discarded (see `agent/effort.ts`).
+   */
+  defaultEffort?: string;
+  /**
    * How many days a ticket stays visible at `done` before the periodic sweep
    * archives it (§ auto-archiving done tickets). Defaults to 3 — a ticket is
    * never archived the moment it lands, and 0 is refused for that reason.
