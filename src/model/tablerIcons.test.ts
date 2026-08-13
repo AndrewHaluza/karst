@@ -51,6 +51,9 @@ describe('Tabler icon catalog (src/model/tablerIcons.ts)', () => {
     // what keep a future hand-edit from silently replacing a glyph with a
     // local approximation — the vendored data must stay the upstream bytes.
     expect(TABLER_ICONS['check']).toBe('<path d="M5 12l5 5l10 -10"/>');
+    expect(TABLER_ICONS['folder']).toBe(
+      '<path d="M5 4h4l3 3h7a2 2 0 0 1 2 2v8a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v-11a2 2 0 0 1 2 -2"/>',
+    );
     expect(TABLER_ICONS['player-play']).toBe('<path d="M7 4v16l13 -8l-13 -8"/>');
     expect(TABLER_ICONS['terminal-2']).toBe(
       '<path d="M8 9l3 3l-3 3"/><path d="M13 15l3 0"/><path d="M3 6a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2l0 -12"/>',
