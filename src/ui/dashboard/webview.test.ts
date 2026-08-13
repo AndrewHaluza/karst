@@ -2020,6 +2020,8 @@ function previewElement(id: string, initial: string[] = []) {
     focus: () => {},
     setSelectionRange: () => {},
     scrollIntoView: () => {},
+    appendChild: () => {},
+    removeChild: () => {},
   };
 }
 
@@ -3335,6 +3337,125 @@ describe('agent popover round trip (executed in a VM)', () => {
     // The shipped wiring, pinned so a future refactor cannot rename it.
     expect(HTML).toContain("msg.type === 'bind'");
     expect(HTML).toMatch(/toggle-bind/);
+  });
+});
+
+describe('send back to implement (executed in a VM)', () => {
+  /** A settled uat snapshot whose host verdict offers the recovery action. */
+  function uatRecoverable(): DashboardState {
+    return {
+      ...renderStateFor('uat'),
+      stageCurrent: 'uat',
+      presentedStage: 'uat',
+      sendBack: { available: true, stage: 'uat' },
+    };
+  }
+
+  it('renders the ⋯ menu button on the current stage header when available', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: uatRecoverable() });
+    const html = h.htmlOf('inside');
+    expect(html).toMatch(/data-stage-menu="uat"/);
+    expect(html).toMatch(/aria-expanded="false"/);
+    // The item is inside the closed menu — it appears once the menu opens.
+    expect(html).not.toContain('Send back to Implement');
+  });
+
+  it('renders no menu when the host withholds the action', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: renderStateFor('uat') }); // unavailable fixture
+    const html = h.htmlOf('inside');
+    expect(html).not.toContain('data-stage-menu');
+    expect(html).not.toContain('Send back to Implement');
+  });
+
+  it('keys the menu to the stage whose header hosts it — never a stale header', () => {
+    // The host says the CURRENT stage (uat) offers it, but the panel is
+    // showing impl's header: the menu must not leak onto a stage that is not
+    // the offered one (same rule as the blocked banner's stagekey split).
+    const state: DashboardState = {
+      ...renderStateFor('impl'),
+      stageCurrent: 'uat',
+      sendBack: { available: true, stage: 'uat' },
+    };
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state });
+    expect(h.htmlOf('inside')).not.toContain('data-stage-menu');
+    expect(h.htmlOf('inside')).not.toContain('Send back to Implement');
+  });
+
+  it('toggles the ⋯ menu locally, posting nothing to the host', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: uatRecoverable() });
+    const before = h.posted.length;
+    h.click('[data-stage-menu]', { 'stage-menu': 'uat' });
+    expect(h.posted.length).toBe(before); // purely local — the host is never asked
+    expect(h.htmlOf('inside')).toMatch(/aria-expanded="true"/);
+    expect(h.htmlOf('inside')).toContain('Send back to Implement');
+    // Toggling again closes it.
+    h.click('[data-stage-menu]', { 'stage-menu': 'uat' });
+    expect(h.htmlOf('inside')).toMatch(/aria-expanded="false"/);
+    expect(h.htmlOf('inside')).not.toContain('Send back to Implement');
+  });
+
+  it('posts the payload-free send-back message and drops a duplicate while pending', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: uatRecoverable() });
+    h.click('[data-stage-menu]', { 'stage-menu': 'uat' });
+    h.click('[data-act]', { act: 'send-back-to-implement' });
+    expect(h.posted).toEqual([{ type: 'send-back-to-implement' }]);
+    // A second click while the request is in flight (the host modal is up)
+    // must not re-open it.
+    h.click('[data-act]', { act: 'send-back-to-implement' });
+    expect(h.posted).toEqual([{ type: 'send-back-to-implement' }]);
+  });
+
+  it('settles the pending item and hides the menu when the push shows impl', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: uatRecoverable() });
+    h.click('[data-stage-menu]', { 'stage-menu': 'uat' });
+    h.click('[data-act]', { act: 'send-back-to-implement' });
+    // The host confirmed and pushed: the ticket is at impl, the verdict gone.
+    const moved: DashboardState = {
+      ...uatRecoverable(),
+      stageCurrent: 'impl',
+      sendBack: { available: false, reason: 'stage' },
+    };
+    h.receive({ type: 'state', state: moved });
+    expect(h.htmlOf('inside')).not.toContain('data-stage-menu');
+    expect(h.htmlOf('inside')).not.toContain('Send back to Implement');
+    // The request is spent: a later push settles nothing further.
+    h.receive({ type: 'state', state: moved });
+    expect(h.posted).toEqual([{ type: 'send-back-to-implement' }]);
+  });
+
+  it('re-arms after a dismissal (same-stage push) — the modal was cancelled', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: uatRecoverable() });
+    h.click('[data-stage-menu]', { 'stage-menu': 'uat' });
+    h.click('[data-act]', { act: 'send-back-to-implement' });
+    // The user dismissed the modal: the host pushed the same snapshot, and the
+    // action must be clickable again.
+    h.receive({ type: 'state', state: uatRecoverable() });
+    h.click('[data-stage-menu]', { 'stage-menu': 'uat' });
+    h.click('[data-act]', { act: 'send-back-to-implement' });
+    expect(h.posted).toEqual([
+      { type: 'send-back-to-implement' },
+      { type: 'send-back-to-implement' },
+    ]);
+  });
+
+  it('ships the settled-outcome wiring: true on a move, never false on a dismissal', () => {
+    const fn = HYDRATED.match(/function resolveSendBackOutcome[\s\S]*?\n  \}/)?.[0] ?? '';
+    expect(fn).toMatch(/moved \? true : null/);
+    expect(fn).not.toMatch(/karstSettle\([^)]*,\s*false/);
+    expect(fn).toContain('Sent back to Implement.');
+  });
+
+  it('carries no requestId on the send-back wire payload — it settles from state', () => {
+    // Same contract as merge-pr/refresh-prs: the host answers with a state push,
+    // not an immediate ack, so the wire carries exactly the payload-free action.
+    expect(HYDRATED).toMatch(/if \(act === 'send-back-to-implement'\)[\s\S]*?post\(\{ type: act \}\)/);
   });
 });
 

@@ -40,6 +40,16 @@ export type WebviewMessage =
   | { type: 'ship-ticket' }
   | { type: 'resume-ticket' }
   | { type: 'create-follow-up-ticket' }
+  /**
+   * The ONE explicit recovery action: move this ticket back to Implement from
+   * the current stage header's ⋯ menu. Payload-free exactly like `refresh-prs`:
+   * the host derives availability and the current stage from the store it is
+   * about to mutate, so a crafted or stale message can neither name a stage to
+   * move to nor skip the host's confirmation. The host answers with a state
+   * push after the modal (confirm or cancel), which settles the webview's
+   * pending state.
+   */
+  | { type: 'send-back-to-implement' }
   | { type: 'open-stage-log'; path: string }
   | { type: 'resolve-conflicts'; repo: string }
   /**
@@ -190,6 +200,8 @@ export interface DashboardActions {
   stopDriver: () => void | Promise<void>;
   shipTicket: () => void | Promise<void>;
   resumeTicket: () => void | Promise<void>;
+  /** Move this ticket back to Implement — the unified recovery action (host-confirmed). */
+  sendBackToImplement: () => void | Promise<void>;
   /** Create a linked follow-up ticket from this (done) ticket. */
   createFollowUpTicket: () => void | Promise<void>;
   /** Open a stage's log (uat/review artifact) in an editor. */
@@ -318,6 +330,10 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
       return { type: 'ship-ticket' };
     case 'resume-ticket':
       return { type: 'resume-ticket' };
+    // Payload-free like the panel-level server controls: a companion field is
+    // dropped, so the recovery can only ever move the ticket the panel owns.
+    case 'send-back-to-implement':
+      return { type: 'send-back-to-implement' };
     case 'create-follow-up-ticket':
       return { type: 'create-follow-up-ticket' };
     case 'open-stage-log':
@@ -508,6 +524,8 @@ export function routeAction(
       return actions.shipTicket();
     case 'resume-ticket':
       return actions.resumeTicket();
+    case 'send-back-to-implement':
+      return actions.sendBackToImplement();
     case 'create-follow-up-ticket':
       return actions.createFollowUpTicket();
     case 'open-stage-log':
