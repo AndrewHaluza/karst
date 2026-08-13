@@ -62,6 +62,32 @@ describe('buildDashboardState', () => {
     expect(state.artifacts[0]).toMatchObject({ id: 'uat-report', status: 'passed' });
   });
 
+  it('leads the artifacts shelf with the plan when the graph approach drove the ticket', () => {
+    const t = createTicket(store, { key: 'ART-P', title: 'plan' });
+    store.db.prepare("UPDATE tickets SET stage_current = 'impl' WHERE id = ?").run(t.id);
+    store.db
+      .prepare(
+        `INSERT INTO approach_graph_runs
+           (ticket_id, stage_key, stage_attempt, approach_id, status, created_at)
+         VALUES (?, 'impl', 0, 'karst-graph-engineering', 'running', '2026-08-01T08:00:00.000Z')`,
+      )
+      .run(t.id);
+    const graphRunId = (store.db.prepare('SELECT id FROM approach_graph_runs WHERE ticket_id = ?').get(t.id) as { id: number }).id;
+    store.db
+      .prepare(
+        `INSERT INTO approach_graph_revisions
+           (graph_run_id, revision_number, canonical_graph, fingerprint, status, created_at)
+         VALUES (?, 1, '{}', 'fp', 'active', '2026-08-01T08:05:00.000Z')`,
+      )
+      .run(graphRunId);
+
+    const state = buildDashboardState(store, t.id);
+    expect(state.artifacts[0]).toMatchObject({ id: 'plan', stage: 'impl' });
+    // No planner-produced artifacts and no node runs → no resources, no tasks.
+    expect(state.artifacts[0]!.resources).toEqual([]);
+    expect(state.artifacts[0]!.tasks).toEqual([]);
+  });
+
   it('passes the real estimated call count into the session process token view', () => {
     const t = createTicket(store, { key: 'TK-1', title: 'tokens' });
     const run = openProcessRun(store, {
