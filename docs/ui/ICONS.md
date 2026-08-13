@@ -45,7 +45,7 @@ path data inside a `.k-icon` svg — see §4.
 
 | Karst concept | Tabler glyph | Notes |
 |---|---|---|
-| Start service / spin | `player-play` | stroked triangle, canonical Tabler |
+| Start service / spin | `bug` | debug-play glyph, canonical Tabler |
 | Stop service / session | `player-stop` | stroked square, canonical Tabler |
 | Restart service / reload | `refresh` | circular arrow — also the settings "reload lists" glyph |
 | Open in browser / external | `external-link` | address row action |

@@ -54,7 +54,13 @@ describe('Tabler icon catalog (src/model/tablerIcons.ts)', () => {
     expect(TABLER_ICONS['folder']).toBe(
       '<path d="M5 4h4l3 3h7a2 2 0 0 1 2 2v8a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v-11a2 2 0 0 1 2 -2"/>',
     );
-    expect(TABLER_ICONS['player-play']).toBe('<path d="M7 4v16l13 -8l-13 -8"/>');
+    expect(TABLER_ICONS['bug']).toBe(
+      '<path d="M9 9v-1a3 3 0 0 1 6 0v1"/>' +
+        '<path d="M8 9h8a6 6 0 0 1 1 3v3a5 5 0 0 1 -10 0v-3a6 6 0 0 1 1 -3"/>' +
+        '<path d="M3 13l4 0"/><path d="M17 13l4 0"/><path d="M12 20l0 -6"/>' +
+        '<path d="M4 19l3.35 -2"/><path d="M20 19l-3.35 -2"/>' +
+        '<path d="M4 7l3.75 2.4"/><path d="M20 7l-3.75 2.4"/>',
+    );
     expect(TABLER_ICONS['terminal-2']).toBe(
       '<path d="M8 9l3 3l-3 3"/><path d="M13 15l3 0"/><path d="M3 6a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2l0 -12"/>',
     );
