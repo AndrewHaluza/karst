@@ -188,6 +188,31 @@ describe('buildResourcesState', () => {
     expect(state.trend.timeTicks[0]).toEqual({ label: '-2m', fraction: 0 });
   });
 
+  it('sets a y-axis scale: a host-formatted label for both series per gridline', () => {
+    const history: ResourceReading['history'] = [
+      { takenMs: 0, totals: { rssBytes: 100, cpuPct: 10 } },
+      { takenMs: 60_000, totals: { rssBytes: 200, cpuPct: 30 } },
+      { takenMs: 120_000, totals: { rssBytes: 300, cpuPct: 20 } },
+    ];
+    const state = buildResourcesState({ ...reading, history }, []);
+    // Maxima: rss 300 B, cpu 30%. Ticks at 25/50/75% of the maximum.
+    expect(state.trend.yTicks).toEqual([
+      { fraction: 0.25, cpu: '8%', rss: '75 B' },
+      { fraction: 0.5, cpu: '15%', rss: '150 B' },
+      { fraction: 0.75, cpu: '23%', rss: '225 B' },
+    ]);
+  });
+
+  it('reports an em-dash cpu y-tick when the cpu series is unmeasured', () => {
+    const history: ResourceReading['history'] = [
+      { takenMs: 0, totals: { rssBytes: 100, cpuPct: null } },
+      { takenMs: 60_000, totals: { rssBytes: 200, cpuPct: null } },
+    ];
+    const state = buildResourcesState({ ...reading, history }, []);
+    expect(state.trend.yTicks[0]).toMatchObject({ cpu: '—' });
+    expect(state.trend.yTicks.every((t) => t.rss !== '0 B')).toBe(true);
+  });
+
   it('reports CPU trend and the recent spark values', () => {
     const rising: ResourceReading['history'] = [
       { takenMs: 0, totals: { rssBytes: 100, cpuPct: 5 } },

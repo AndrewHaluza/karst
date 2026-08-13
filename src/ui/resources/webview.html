@@ -78,22 +78,35 @@
   .swRss{background:var(--k-series-1)}
   .scaleNote{margin-left:auto;font-family:var(--k-font-mono);font-size:var(--k-text-2xs);color:var(--k-text-faint);white-space:nowrap}
   .chartWrap{position:relative;height:calc(var(--k-space-9) * 4);background:var(--k-surface-sunken);
-    border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-sm);overflow:hidden}
-  .chartWrap svg{position:absolute;inset:0;width:100%;height:100%;display:block;overflow:visible}
+    border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-sm);overflow:hidden;
+    --yaxis-w:calc(var(--k-space-9) * 3)}
+  .chartWrap svg{position:absolute;top:0;right:0;bottom:0;left:var(--yaxis-w);width:auto;
+    height:100%;display:block;overflow:visible}
   .series-rss{fill:none;stroke:var(--k-series-1);stroke-width:calc(var(--k-space-1) / 2)}
   .series-cpu{fill:none;stroke:var(--k-series-2);stroke-width:calc(var(--k-space-1) / 2)}
   .series-rss.muted,.series-cpu.muted{opacity:.08}
   .gridline{stroke:var(--k-border);stroke-width:var(--k-border-w);opacity:.5}
   .spark-empty{fill:var(--k-text-faint);font-family:var(--k-font-ui);font-size:var(--k-text-sm)}
-  .chartTicks{position:absolute;left:0;right:0;bottom:var(--k-space-1);height:var(--k-space-4);
+  .chartTicks{position:absolute;left:var(--yaxis-w);right:0;bottom:var(--k-space-1);height:var(--k-space-4);
     color:var(--k-text-faint);font-size:var(--k-text-2xs);pointer-events:none}
   .chartTicks span{position:absolute;transform:translateX(-50%)}
   .chartTicks span:first-child{transform:translateX(0)}
   .chartTicks span:last-child{transform:translateX(-100%)}
-  .chartScale{position:absolute;top:var(--k-space-2);left:var(--k-space-4);color:var(--k-text-faint);
-    font-size:var(--k-text-2xs);pointer-events:none;display:flex;gap:var(--k-space-5);font-family:var(--k-font-mono)}
+  .chartScale{position:absolute;top:var(--k-space-2);left:calc(var(--yaxis-w) + var(--k-space-4));
+    color:var(--k-text-faint);font-size:var(--k-text-2xs);pointer-events:none;display:flex;gap:var(--k-space-5);font-family:var(--k-font-mono)}
   .chartScale .cpu{color:var(--k-series-2)}
   .chartScale .rss{color:var(--k-series-1)}
+
+  /* Y-axis labels: one value pair per gridline, sitting in the reserved gutter
+     to the left of the plot. The cpu/rss colors are the series identity, so a
+     muted series dims its own label too (UI-R28 — never an invented label). */
+  .chartY{position:absolute;left:0;top:0;bottom:0;width:var(--yaxis-w);pointer-events:none;
+    font-family:var(--k-font-mono);font-size:var(--k-text-2xs)}
+  .chartY .yTick{position:absolute;right:var(--k-space-3);transform:translateY(-50%);
+    display:flex;gap:var(--k-space-3);white-space:nowrap}
+  .chartY .yTick .cpu{color:var(--k-series-2)}
+  .chartY .yTick .rss{color:var(--k-series-1)}
+  .chartY .yTick .muted{opacity:.25}
 
   /* Monitor facts lane. */
   .laneFacts{display:grid;gap:var(--k-space-1)}
@@ -118,12 +131,15 @@
   .attrib{font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.04em;color:var(--k-text-dim)}
 
   /* The unattributed lane: a PID column as wide as six digits, a command column
-     that takes the freed space so the path is actually readable, and numeric
-     columns that stay as narrow as their content allows. */
+     that absorbs ALL the freed space (the `width:100%` + max-width:0 flex trick
+     the dashboard's service-name column uses) so the full command line is
+     readable, and numeric columns pinned to `width:1%` so they shrink to their
+     content instead of grabbing a share of the slack. */
   .utable th.pid,.utable td.pid{width:6ch}
-  .utable th.cmd,.utable td.cmd{width:auto}
-  .utable td.cmd{min-width:0}
-  .utable th.amt,.utable td.amt{white-space:nowrap}
+  .utable th.cmd,.utable td.cmd{width:100%}
+  .utable td.cmd{min-width:0;max-width:0;overflow:hidden;
+    text-overflow:ellipsis;white-space:nowrap}
+  .utable th.amt,.utable td.amt{width:1%;white-space:nowrap}
 
   /* A ticket cell: the key is the identity, the title rides beneath it. */
   .ticketCell{display:grid;gap:var(--k-space-1)}
@@ -185,6 +201,7 @@
         </div>
         <div class="chartWrap">
           <svg id="spark" viewBox="0 0 560 80" preserveAspectRatio="none" aria-hidden="true"></svg>
+          <div class="chartY" id="chartY"></div>
           <div class="chartScale" id="chartScale"></div>
           <div class="chartTicks" id="chartTicks"></div>
         </div>
@@ -298,15 +315,31 @@
       const rssPts = rss.map((v, i) => `${x(i)},${y(v, rssMax)}`).join(' ');
       const cpuPts = [];
       cpu.forEach((v, i) => { if (v !== null) cpuPts.push(`${x(i)},${y(v, cpuMax)}`); });
-      const grid = [H * .25, H * .5, H * .75].map((gy) => `<line class="gridline" x1="0" y1="${gy}" x2="${W}" y2="${gy}"/>`).join('');
+      // Gridlines sit exactly on the host-computed y-tick fractions, so each
+      // line and its label always agree — one source of truth for the heights.
+      const grid = state.trend.yTicks.map((t) => {
+        const gy = y(t.fraction * rssMax, rssMax);
+        return `<line class="gridline" x1="0" y1="${gy}" x2="${W}" y2="${gy}"/>`;
+      }).join('');
       svg.innerHTML = grid +
         `<polyline vector-effect="non-scaling-stroke" class="series-rss${muted.rss ? ' muted' : ''}" points="${rssPts}"></polyline>` +
         (cpuPts.length ? `<polyline vector-effect="non-scaling-stroke" class="series-cpu${muted.cpu ? ' muted' : ''}" points="${cpuPts}"></polyline>` : '');
     }
-    // Scale markers: the per-series maxima, and the x-axis time ticks.
+    // Scale markers: the per-series maxima, the y-axis gridline labels, and the
+    // x-axis time ticks. Every value is pre-formatted host-side (UI-R31).
     el('chartScale').innerHTML =
       `<span class="cpu">CPU ${esc(state.trend.cpuMaxDisplay)}</span>` +
       `<span class="rss">RSS ${esc(state.trend.rssMaxDisplay)}</span>`;
+    el('chartY').innerHTML = state.trend.yTicks.map((t) => {
+      // The gridline is drawn in SVG viewBox space (H=80, PAD=2); the label must
+      // sit on the same line, so its top% uses the SAME mapping as the gridline.
+      const ySvg = 80 - 2 - t.fraction * (80 - 2 * 2);
+      const topPct = Math.round((ySvg / 80) * 100);
+      return `<span class="yTick" style="top:${topPct}%">` +
+        `<span class="cpu${muted.cpu ? ' muted' : ''}">${esc(t.cpu)}</span>` +
+        `<span class="rss${muted.rss ? ' muted' : ''}">${esc(t.rss)}</span>` +
+      '</span>';
+    }).join('');
     el('chartTicks').innerHTML = state.trend.timeTicks.map((t) =>
       `<span style="left:${Math.round(t.fraction * 100)}%">${esc(t.label)}</span>`,
     ).join('');
@@ -419,12 +452,15 @@
   };
 
   // Legend toggles mute a series locally — pure presentation, never a post.
+  // `on` is the OLD pressed state: a series that was shown becomes muted, so
+  // muted mirrors the old aria-pressed — NOT its inverse, which would leave the
+  // button grayed while the series stayed visible (and vice versa).
   for (const btn of document.querySelectorAll('.legendBtn')) {
     btn.addEventListener('click', () => {
       const series = btn.dataset.series;
       const on = btn.getAttribute('aria-pressed') === 'true';
       btn.setAttribute('aria-pressed', String(!on));
-      muted[series] = !on;
+      muted[series] = on;
       if (lastState) renderSpark(lastState);
     });
   }
