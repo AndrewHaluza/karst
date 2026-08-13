@@ -168,4 +168,4 @@ Each row names the defect class the three design reviews raised, the task that c
 2. For every checklist row gated on this slice, name the test file and test title that proves it. A row without one is an open High finding.
 3. Confirm no pre-existing non-graph test was modified, except where a task explicitly extends one.
 4. Confirm the cross-slice invariants in `00-ROADMAP.md` still hold — in particular that no later slice weakened an earlier slice's stage, project, capability, artifact, transaction, lease, workspace-location, or capability-rotation invariant.
-5. Record the sign-off (slice, date, commit range, checklist rows with their proving tests) in `deterministic-execution-plan/sign-off/<slice>.md`.
+5. Record the sign-off (slice, date, commit range, checklist rows with their proving tests) in `docs/plans/deterministic-execution-plan/sign-off/<slice>.md`.

@@ -144,7 +144,7 @@ Editing writes only the project override; Reset deletes only that override and n
 
 **Why:** the Slice-3 entry gate and the abandonment criterion are both unenforceable without a baseline captured before the runtime exists.
 
-**Changes:** record, in `deterministic-execution-plan/measurement/baseline.md` (new), for N ≥ 5 recently completed real tickets run under the existing single-agent `impl`: implementation wall time, total token cost from `token_usage`, count of human interventions, and UAT-pass-on-first-attempt. Include the exact SQL used, so the post-Slice-3 measurement is the same query against the same columns.
+**Changes:** record, in `docs/plans/deterministic-execution-plan/measurement/baseline.md` (new), for N ≥ 5 recently completed real tickets run under the existing single-agent `impl`: implementation wall time, total token cost from `token_usage`, count of human interventions, and UAT-pass-on-first-attempt. Include the exact SQL used, so the post-Slice-3 measurement is the same query against the same columns.
 
 **Verification:** the file exists, names its tickets and its queries, and its numbers are reproducible by re-running the recorded SQL.
 

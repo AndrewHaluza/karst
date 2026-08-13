@@ -1,8 +1,8 @@
 # Dynamic IMPL Graph Runtime — Implementation Roadmap
 
-> **Design of record:** [`docs/superpowers/specs/2026-08-09-dynamic-impl-graph-runtime-design.md`](../docs/superpowers/specs/2026-08-09-dynamic-impl-graph-runtime-design.md) (post-remediation, commit `41cc326`).
-> **Binding decisions:** [`docs/plans/2026-08-10-graph-runtime-review-remediation.md`](../docs/plans/2026-08-10-graph-runtime-review-remediation.md) — "Key Decisions" 1–31. This plan may not reopen any of them.
-> **Findings ledger:** [`docs/superpowers/specs/2026-08-09-dynamic-impl-graph-runtime-FINDINGS-LEDGER.md`](../docs/superpowers/specs/2026-08-09-dynamic-impl-graph-runtime-FINDINGS-LEDGER.md) — 119 review findings, all dispositioned.
+> **Design of record:** [`docs/superpowers/specs/2026-08-09-dynamic-impl-graph-runtime-design.md`](../../superpowers/specs/2026-08-09-dynamic-impl-graph-runtime-design.md) (post-remediation, commit `41cc326`).
+> **Binding decisions:** [`docs/plans/2026-08-10-graph-runtime-review-remediation.md`](../2026-08-10-graph-runtime-review-remediation.md) — "Key Decisions" 1–31. This plan may not reopen any of them.
+> **Findings ledger:** [`docs/superpowers/specs/2026-08-09-dynamic-impl-graph-runtime-FINDINGS-LEDGER.md`](../../superpowers/specs/2026-08-09-dynamic-impl-graph-runtime-FINDINGS-LEDGER.md) — 119 review findings, all dispositioned.
 
 ## Goal
 

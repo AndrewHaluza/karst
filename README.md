@@ -569,7 +569,9 @@ module.
   and the icon standard (Tabler Icons, [`docs/ui/ICONS.md`](./docs/ui/ICONS.md))
 - [`THIRD_PARTY_NOTICES.md`](./THIRD_PARTY_NOTICES.md) — licenses for vendored
   third-party software (Tabler Icons, xterm.js)
-- [`docs/plans/`](./docs/plans/) — milestone plans and task breakdowns
+- [`docs/plans/`](./docs/plans/) — milestone plans and task breakdowns,
+  including the dynamic IMPL graph runtime roadmap
+  ([`plans/deterministic-execution-plan/`](./docs/plans/deterministic-execution-plan/))
 
 ---
 
