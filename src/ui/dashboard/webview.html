@@ -2704,6 +2704,43 @@
       + `${stageMenu}</div>${body}</section>`;
   }
 
+  // A LIVE repaint is the same snapshot re-read — nothing structural changed,
+  // only the running rows' clocks and the header meta advanced. Rebuilding the
+  // whole block (as a live repaint once did) recreated every running spinner
+  // element and restarted its CSS animation once a second — the visible
+  // "spinner glitch every few moments" — and re-derived every disclosure from
+  // the open/closed sets. Update the mutable running-clock text in place; a
+  // real push renders the block authoritatively.
+  function updateInsideLive(state) {
+    const sel = selectedStage || state.presentedStage || state.stageCurrent || 'scope';
+    const view = (state.insideViews || {})[sel];
+    const block = el('inside');
+    if (!view || !block) return;
+    const meta = block.querySelector('.inside-meta');
+    if (meta && view.clock) meta.textContent = view.clock;
+    // The header live op's elapsed time, if the stage is showing one.
+    const live = liveOps[view.stageKey];
+    const lop = (live && live.active) || view.live || null;
+    if (lop && lop.duration) {
+      const hd = block.querySelector('.inside-live .duration');
+      if (hd) hd.textContent = lop.duration;
+    }
+    // Each RUNNING row's elapsed facts.
+    for (const p of view.processes) {
+      if (p.status !== 'run') continue;
+      const row = block.querySelector(`[data-proc-id="${view.stageKey}:${p.id}"]`);
+      if (!row) continue;
+      if (p.time) {
+        const t = row.querySelector('.op-time');
+        if (t) t.textContent = p.time;
+      }
+      if (p.duration) {
+        const d = row.querySelector('.op-tail .duration');
+        if (d) d.textContent = p.duration;
+      }
+    }
+  }
+
   // The blocked banner: why karst could not ask the CURRENT stage's question
   // (`parkGateStage`/`clearStageBlock`, § blocked state visible), plus the one
   // recovery action. Reads `state.currentStage.blocked` only — a stage that
@@ -4382,16 +4419,24 @@
   // up (Task 0.1) — restores exactly the rows the user had open next render.
   // Explicit COLLAPSES also land in `closedProcesses` (Task 3, Step 5) so a
   // default-open row the user closed stays closed. Capture phase, like .mgd.
+  //
+  // The toggled element IS the process row itself: only rows carry
+  // `data-proc-id`, so the target's OWN attribute is the row key — never a
+  // `closest()` onto an ancestor class. A nested disclosure inside a row's
+  // body (a receipt's inner "Details", a merge-check detail, PR comments) is
+  // a different <details> with no data-proc-id and must not record the row
+  // as toggled.
   document.addEventListener('toggle', (e) => {
-    const node = e.target && e.target.closest && e.target.closest('.inside-process');
-    if (!node || !node.dataset.procId) return;
+    const node = e.target;
+    if (!node || node.tagName !== 'DETAILS' || !node.dataset || !node.dataset.procId) return;
+    const key = node.dataset.procId;
     const next = new Set(openProcesses);
-    if (node.open) next.add(node.dataset.procId);
-    else next.delete(node.dataset.procId);
+    if (node.open) next.add(key);
+    else next.delete(key);
     openProcesses = next;
     const closed = new Set(closedProcesses);
-    if (node.open) closed.delete(node.dataset.procId);
-    else closed.add(node.dataset.procId);
+    if (node.open) closed.delete(key);
+    else closed.add(key);
     closedProcesses = closed;
   }, true);
 
@@ -4574,6 +4619,17 @@
       // them. The tree they describe has not changed either — a repaint is the
       // same worktrees, re-read.
       if (!msg.live) worktreeStats = {};
+      // A live repaint is the same snapshot re-read — only the running rows'
+      // clocks advanced. A full render would rebuild the inside block and
+      // recreate the running spinner elements (restarting their CSS animation
+      // once a second) and re-derive every disclosure from the open/closed
+      // sets. Update the mutable running-clock text in place instead; a real
+      // push still renders authoritatively.
+      if (msg.live) {
+        lastState = msg.state;
+        updateInsideLive(msg.state);
+        return;
+      }
       // Never touches selectedStage, so a full re-render preserves the user's
       // selection for free — including during a run, when pushes are frequent.
       render(msg.state);
