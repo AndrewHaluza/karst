@@ -4377,11 +4377,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     agyWatchRunning = true;
     try {
       const appDataDir = resolveAgyAppDataDir();
-      for (const terminal of vscode.window.terminals) {
+      const terminals = [...vscode.window.terminals];
+      logger.debug(`[agy] sweep tick: ${terminals.length} terminals`);
+      for (const terminal of terminals) {
         const named = terminalIdentity.identify(terminal);
         if (named?.identity?.provider !== 'antigravity') continue;
         const worktree = listWorktreesByTicket(localStore, named.ticketId)[0];
-        if (!worktree) continue;
+        if (!worktree) {
+          logger.debug(`[agy] ticket ${named.ticketId}: no worktree found`);
+          continue;
+        }
         let snapshot: AgyConversationSnapshot | null = null;
         let agyUsage: AgyConversationUsage | null = null;
         try {
@@ -4405,6 +4410,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           logError(`karst: agy conversation read failed for ticket ${named.ticketId}`, error);
           continue;
         }
+        logger.debug(`[agy] ticket ${named.ticketId}: conversation=${snapshot?.conversationId ?? 'none'}, usage=${agyUsage ? `${agyUsage.input}/${agyUsage.output}/${agyUsage.cacheRead}` : 'null'}, launchId=${named.launchId ?? 'none'}`);
         const state =
           agyWatchStates.get(named.ticketId) ?? { dbPath: null, started: false, awaiting: false };
         const events = agyWatchTick(state, snapshot);
@@ -4415,6 +4421,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           const usageEvents = agyUsageTick(usageState, agyUsage);
           agyUsageStates.set(named.ticketId, usageState);
           for (const event of usageEvents) {
+            logger.debug(`[agy] ticket ${named.ticketId}: dispatching UsageUpdate event_id=${event.usage.event_id}`);
             const usagePayload: HookPayload = {
               hook_event_name: 'UsageUpdate',
               cwd: worktree.path,
@@ -4456,18 +4463,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
               : event.kind === 'permission.asked'
                 ? { hook_event_name: 'permission.asked', ...base }
                 : { hook_event_name: 'UserPromptSubmit', ...base };
-          try {
-            dispatchHook(
-              localStore,
-              payload,
-              notifyHook,
-              shouldApplyHookState,
-              sessionProviderFor,
-              hookChannelRecorder,
-            );
-          } catch (error) {
-            logError(`karst: agy watch dispatch failed for ticket ${named.ticketId}`, error);
-          }
+            try {
+              dispatchHook(
+                localStore,
+                payload,
+                notifyHook,
+                shouldApplyHookState,
+                sessionProviderFor,
+                hookChannelRecorder,
+                logger.debug,
+              );
+            } catch (error) {
+              logError(`karst: agy watch dispatch failed for ticket ${named.ticketId}`, error);
+            }
         }
         // Conversation-DB token usage: agy 1.1.12 persists per-call usage in
         // this same DB (steps.metadata field-9 submessage — see agyUsageWatch.ts),
@@ -4497,6 +4505,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                 shouldApplyHookState,
                 sessionProviderFor,
                 hookChannelRecorder,
+                logger.debug,
               );
             } catch (error) {
               logError(`karst: agy usage dispatch failed for ticket ${named.ticketId}`, error);
@@ -4535,13 +4544,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     claudeTranscriptWatchRunning = true;
     try {
       const projectsDir = resolveClaudeProjectsDir();
-      for (const terminal of vscode.window.terminals) {
+      const terminals = [...vscode.window.terminals];
+      logger.debug(`[claude] sweep tick: ${terminals.length} terminals`);
+      for (const terminal of terminals) {
         const named = terminalIdentity.identify(terminal);
         if (named?.identity?.provider !== 'claude') continue;
         const worktree = listWorktreesByTicket(localStore, named.ticketId)[0];
-        if (!worktree) continue;
+        if (!worktree) {
+          logger.debug(`[claude] ticket ${named.ticketId}: no worktree found`);
+          continue;
+        }
         const sessionId = getTicket(localStore, named.ticketId).sessionId;
-        if (!sessionId) continue;
+        if (!sessionId) {
+          logger.debug(`[claude] ticket ${named.ticketId}: no sessionId`);
+          continue;
+        }
         const transcriptPath = transcriptPathFor(projectsDir, worktree.path, sessionId);
         let fingerprint: { mtimeMs: number; size: number } | null = null;
         try {
@@ -4573,6 +4590,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const events = claudeTranscriptTick(state, snapshot);
         state.fingerprint = fingerprint;
         claudeTranscriptStates.set(named.ticketId, state);
+        logger.debug(`[claude] ticket ${named.ticketId}: usage=${usage ? `${usage.input}/${usage.output}/${usage.cacheRead}/${usage.cacheWrite}` : 'null'}, events=${events.length}, launchId=${named.launchId ?? 'none'}`);
         if (events.length === 0) continue;
         for (const event of events) {
           const payload: HookPayload = {
@@ -4590,6 +4608,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
               shouldApplyHookState,
               sessionProviderFor,
               hookChannelRecorder,
+              logger.debug,
             );
           } catch (error) {
             logError(

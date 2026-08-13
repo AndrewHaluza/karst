@@ -173,10 +173,17 @@ function ingestUsageUpdate(
   store: Store,
   payload: HookPayload,
   sessionProviderFor?: SessionProviderFor,
+  debug?: (msg: string) => void,
 ): void {
-  if (!payload.session_id) return;
+  if (!payload.session_id) {
+    debug?.(`[usage] skipped: no session_id`);
+    return;
+  }
   const ticketId = ticketIdForWorktreePath(store, payload.cwd!);
-  if (ticketId === null) return;
+  if (ticketId === null) {
+    debug?.(`[usage] skipped: unknown worktree ${payload.cwd}`);
+    return;
+  }
 
   // Usage belongs to the provider SESSION that emitted it, not whichever
   // provider the ticket would launch if asked right now. Configured Fix
@@ -191,10 +198,17 @@ function ingestUsageUpdate(
       ? active.session_provider
       : null;
   const provider = durableProvider ?? sessionProviderFor?.(ticketId);
-  if (provider === undefined || provider === null) return;
+  if (provider === undefined || provider === null) {
+    debug?.(`[usage] ticket ${ticketId}: no provider (durable=${durableProvider}, fallback=${sessionProviderFor?.(ticketId)})`);
+    return;
+  }
   const normalized = normalizeInteractiveUsage(payload.usage);
-  if (normalized === null) return;
-  appendInteractiveUsageSample(store, {
+  if (normalized === null) {
+    debug?.(`[usage] ticket ${ticketId}: malformed usage payload`);
+    return;
+  }
+  debug?.(`[usage] ticket ${ticketId}: provider=${provider}, session=${payload.session_id}, input=${normalized.input}, output=${normalized.output}`);
+  const result = appendInteractiveUsageSample(store, {
     ticketId,
     sample: {
       ...normalized,
@@ -203,6 +217,7 @@ function ingestUsageUpdate(
       observedAt: nowIso(),
     },
   });
+  debug?.(`[usage] ticket ${ticketId}: append result=${result.kind}`);
 }
 
 /**
@@ -217,6 +232,7 @@ export function dispatchHook(
   shouldApplyState?: ShouldApplyHookState,
   sessionProviderFor?: SessionProviderFor,
   recorder?: HookChannelRecorder,
+  debug?: (msg: string) => void,
 ): void {
   // Observation only — a recorder defect may not change what a hook does.
   const observe = (outcome: HookDispatchOutcome): void => {
@@ -246,7 +262,7 @@ export function dispatchHook(
   // Usage is not a lifecycle event: it rides the same URL-guarded, generation-
   // checked path, but it records spend and never touches session or liveness.
   if (payload.hook_event_name === 'UsageUpdate') {
-    ingestUsageUpdate(store, payload, sessionProviderFor);
+    ingestUsageUpdate(store, payload, sessionProviderFor, debug);
     return;
   }
 
