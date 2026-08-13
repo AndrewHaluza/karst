@@ -1139,7 +1139,7 @@
   .panel.span{grid-column:1 / -1}
   .phead{display:flex;align-items:center;gap:var(--k-space-4);min-height:var(--phead-h);padding:var(--k-space-4) var(--k-space-7);
     border-bottom:var(--k-border-w) solid var(--k-border);font-size:var(--k-text-md);font-weight:var(--k-weight-semibold)}
-  .phead .count{margin-left:auto;font-family:var(--k-font-mono);font-size:var(--k-text-xs);color:var(--k-text-faint);font-weight:var(--k-weight-normal)}
+  .phead .count{font-family:var(--k-font-mono);font-size:var(--k-text-xs);color:var(--k-text-faint);font-weight:var(--k-weight-normal)}
   /* An icon-only panel control, built on `.k-iconbtn` (UI-R07) — quiet until
      hovered, since it sits in a header, not a row of actions, and a filled
      button there would read as the panel's subject. */
@@ -1147,15 +1147,15 @@
   .pbody{padding:var(--k-space-3) var(--k-space-4) var(--k-space-5)}
   .empty{padding:var(--k-space-7) var(--k-space-6);color:var(--k-text-faint);font-size:var(--k-text-md)}
 
-  .wt,.pr{display:flex;align-items:center;gap:var(--k-space-5);padding:var(--k-space-4) var(--k-space-3);border-radius:var(--k-radius-md)}
+  .wt,.pr{display:flex;align-items:center;gap:var(--k-space-5);padding:var(--k-space-4) var(--k-space-3);border-radius:var(--k-radius-md);min-width:0}
   .wt:hover,.pr:hover{background:var(--k-surface-hover)}
   /* 74px has no scale match — set by the longest repo label karst has shown in
      practice, not a spacing value. */
-  .wt .wrepo{font-size:var(--k-text-md);min-width:74px}
-  .wt .wacts,.pr .pacts{margin-left:auto;display:flex;gap:var(--k-space-2)}
+  .wt .wrepo{font-size:var(--k-text-md);min-width:74px;flex-shrink:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .wt .wacts,.pr .pacts{margin-left:auto;display:flex;gap:var(--k-space-2);flex-shrink:0}
   .wt .wbranch{display:flex;align-items:center;gap:var(--k-space-1);min-width:0;flex:1}
   .wt .wbr{font-family:var(--k-font-mono);font-size:var(--k-text-xs);color:var(--k-text-dim);overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-  .wt .wstats{display:flex;gap:var(--k-space-3);font-family:var(--k-font-mono);font-size:var(--k-text-xs);white-space:nowrap}
+  .wt .wstats{display:flex;gap:var(--k-space-3);font-family:var(--k-font-mono);font-size:var(--k-text-xs);white-space:nowrap;flex-shrink:0}
   .wt .wadd{color:var(--k-passed)}
   .wt .wdel{color:var(--k-failed)}
   /* Built on `.k-chip` (UI-R08: the same pill primitive as keypill/fixtoggle/
@@ -2909,16 +2909,16 @@
         : '';
       return `<div class="wt"><span class="wrepo">${esc(w.repoDisplay || w.repo)}</span>`
         + branch + totals + `<span class="wacts">`
-        + `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-act="open-worktree-terminal" data-path="${esc(w.path)}"`
-        + ` title="Open a terminal in this worktree">Open Terminal</button>`
-        + `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-act="open-worktree-folder" data-path="${esc(w.path)}"`
-        + ` title="Reveal this worktree in the file explorer">Reveal in Explorer</button>`
+        + `<button type="button" class="k-iconbtn ib t-open" data-act="open-worktree-terminal" data-path="${esc(w.path)}"`
+        + ` aria-label="Open terminal" title="Open a terminal in this worktree">${svgIcon('terminal-2')}</button>`
+        + `<button type="button" class="k-iconbtn ib t-copy" data-act="open-worktree-folder" data-path="${esc(w.path)}"`
+        + ` aria-label="Reveal in file explorer" title="Reveal this worktree in the file explorer">${svgIcon('folder')}</button>`
         // Only karst-extension checkouts can become a dev host (the host probes
         // `launchable` when it builds the state). A foreign repo's worktree
         // gets no button at all — a dead control on every app repo is noise.
         + (w.launchable
-          ? `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-act="launch-worktree-extension" data-path="${esc(w.path)}"`
-            + ` title="Build this worktree and open its extension in a new dev window">Launch Dev</button>`
+          ? `<button type="button" class="k-iconbtn ib t-start" data-act="launch-worktree-extension" data-path="${esc(w.path)}"`
+            + ` aria-label="Launch dev host" title="Build this worktree and open its extension in a new dev window">${svgIcon('player-play')}</button>`
           : '')
         + `</span></div>`;
     }).join('') : '<div class="empty">No worktrees.</div>';
