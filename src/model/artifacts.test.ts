@@ -14,6 +14,9 @@ import { listUatFindings } from '../store/uatFindings.js';
 import { listProcessRuns } from '../store/processRuns.js';
 import { listShipEvidence, countShipRuns } from '../store/shipRuns.js';
 import { listPrsByTicket } from '../store/dashboard.js';
+import { recordPhaseMark } from '../store/phaseMarks.js';
+import { listPhaseMarks } from '../store/phaseMarks.js';
+import { readPlanInput } from './artifacts.js';
 import {
   buildTicketArtifacts,
   buildArtifactsFrom,
@@ -338,6 +341,8 @@ describe('buildTicketArtifacts', () => {
       ship: listShipEvidence(store, t.id),
       shipRunCount: countShipRuns(store, t.id),
       prs: listPrsByTicket(store, t.id),
+      phaseMarks: [],
+      declaredPhases: [],
       attach,
     };
     const [a] = buildArtifactsFrom(input) as [ArtifactSummary];
@@ -390,6 +395,8 @@ describe('buildTicketArtifacts', () => {
       ship: listShipEvidence(store, t.id),
       shipRunCount: countShipRuns(store, t.id),
       prs: listPrsByTicket(store, t.id),
+      phaseMarks: [],
+      declaredPhases: [],
       attach,
     };
     const [a] = buildArtifactsFrom(input) as [ArtifactSummary];
@@ -683,6 +690,134 @@ describe('plan artifact (graph evidence)', () => {
     const all = buildTicketArtifacts(store, t.id);
     expect(all[0]!.id).toBe('ship-summary');
     expect(all.map((a) => a.id)).toContain('plan');
+  });
+});
+
+describe('plan artifact (session phases, non-graph)', () => {
+  let store: Store;
+  beforeEach(() => (store = openStore(':memory:')));
+  afterEach(() => store.close());
+
+  function ticket(
+    stageCurrent: string,
+    impl: {
+      status: string;
+      startedAt: string | null;
+      endedAt: string | null;
+    } = { status: 'running', startedAt: '2026-08-01T08:00:00.000Z', endedAt: null },
+  ) {
+    const t = createTicket(store, { key: 'PH-1', title: 'phases' });
+    store.db.prepare('UPDATE tickets SET stage_current = ? WHERE id = ?').run(stageCurrent, t.id);
+    setStage(store, t.id, 'impl', {
+      status: impl.status as never,
+      startedAt: impl.startedAt,
+      endedAt: impl.endedAt,
+      attempt: 0,
+    });
+    return t;
+  }
+
+  function phase(ticketId: number, name: string, at: string): void {
+    recordPhaseMark(store, {
+      ticketId,
+      stageKey: 'impl',
+      attempt: 0,
+      phaseName: name,
+      markedAt: at,
+    });
+  }
+
+  it('derives no plan when the session declared no workflow and reported no phases', () => {
+    const t = ticket('impl');
+    expect(buildTicketArtifacts(store, t.id)).toEqual([]);
+  });
+
+  it('derives no plan before any impl evidence exists', () => {
+    const t = ticket('scope', { status: 'pending', startedAt: null, endedAt: null });
+    expect(buildTicketArtifacts(store, t.id, ['research', 'plan', 'implement'])).toEqual([]);
+  });
+
+  it('declares the workflow as tasks before any phase is reported', () => {
+    const t = ticket('impl');
+    const [a] = buildTicketArtifacts(store, t.id, ['research', 'plan', 'implement']) as [ArtifactSummary];
+    expect(a).toMatchObject({
+      id: 'plan',
+      stage: 'impl',
+      kind: 'plan',
+      title: 'Plan',
+      status: 'info',
+      freshness: 'current',
+      summary: '3 tasks · 0 done',
+      versionCount: 1,
+      currentVersionLabel: 'v1',
+    });
+    expect(a.tasks).toEqual([
+      { id: 'research', label: 'research', kind: 'phase', status: 'todo', visits: null },
+      { id: 'plan', label: 'plan', kind: 'phase', status: 'todo', visits: null },
+      { id: 'implement', label: 'implement', kind: 'phase', status: 'todo', visits: null },
+    ]);
+    expect(a.metrics).toEqual([
+      { label: 'to-do', value: '3' },
+      { label: 'in progress', value: '0' },
+      { label: 'done', value: '0' },
+    ]);
+  });
+
+  it('marks reported phases done and the latest in progress while the session runs', () => {
+    const t = ticket('impl');
+    phase(t.id, 'research', '2026-08-01T08:10:00.000Z');
+    phase(t.id, 'plan', '2026-08-01T08:20:00.000Z');
+    const [a] = buildTicketArtifacts(store, t.id, ['research', 'plan', 'implement']) as [ArtifactSummary];
+    expect(a.summary).toBe('3 tasks · 1 done · 1 in progress');
+    expect(a.tasks).toEqual([
+      { id: 'research', label: 'research', kind: 'phase', status: 'done', visits: null },
+      { id: 'plan', label: 'plan', kind: 'phase', status: 'doing', visits: null },
+      { id: 'implement', label: 'implement', kind: 'phase', status: 'todo', visits: null },
+    ]);
+  });
+
+  it('a phase the approach never declared still reads as a task', () => {
+    const t = ticket('impl');
+    phase(t.id, 'plan', '2026-08-01T08:20:00.000Z');
+    phase(t.id, 'spike', '2026-08-01T08:30:00.000Z');
+    const [a] = buildTicketArtifacts(store, t.id, ['plan', 'implement']) as [ArtifactSummary];
+    expect(a.tasks.map((task) => task.label)).toEqual(['plan', 'implement', 'spike']);
+    expect(a.tasks.find((task) => task.label === 'plan')).toMatchObject({ status: 'done' });
+    expect(a.tasks.find((task) => task.label === 'spike')).toMatchObject({ status: 'doing' });
+  });
+
+  it('reported phases alone form the plan when no workflow is declared', () => {
+    const t = ticket('impl');
+    phase(t.id, 'research', '2026-08-01T08:10:00.000Z');
+    const [a] = buildTicketArtifacts(store, t.id) as [ArtifactSummary];
+    expect(a).toMatchObject({ id: 'plan', summary: '1 task · 0 done · 1 in progress' });
+    expect(a.tasks).toEqual([
+      { id: 'research', label: 'research', kind: 'phase', status: 'doing', visits: null },
+    ]);
+  });
+
+  it('a completed impl reads every reported phase done and the plan passed', () => {
+    const t = ticket('impl', {
+      status: 'passed',
+      startedAt: '2026-08-01T08:00:00.000Z',
+      endedAt: '2026-08-01T09:00:00.000Z',
+    });
+    phase(t.id, 'research', '2026-08-01T08:10:00.000Z');
+    phase(t.id, 'implement', '2026-08-01T08:40:00.000Z');
+    const [a] = buildTicketArtifacts(store, t.id, ['research', 'plan', 'implement']) as [ArtifactSummary];
+    expect(a.status).toBe('passed');
+    expect(a.tasks.find((task) => task.label === 'research')).toMatchObject({ status: 'done' });
+    expect(a.tasks.find((task) => task.label === 'implement')).toMatchObject({ status: 'done' });
+    expect(a.tasks.find((task) => task.label === 'plan')).toMatchObject({ status: 'todo' });
+  });
+
+  it('the graph plan wins when the graph approach drove the ticket', () => {
+    const t = ticket('impl');
+    seedGraphPlan(store, t.id, { nodeStatuses: [{ nodeId: 'verify', status: 'running' }] });
+    phase(t.id, 'research', '2026-08-01T08:10:00.000Z');
+    const [a] = buildTicketArtifacts(store, t.id, ['research', 'plan', 'implement']) as [ArtifactSummary];
+    expect(a.tasks[0]).toMatchObject({ id: 'impl', label: 'Implement the feature', kind: 'agent' });
+    expect(a.tasks.some((task) => task.kind === 'phase')).toBe(false);
   });
 });
 
