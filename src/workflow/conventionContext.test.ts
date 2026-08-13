@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { resolveRepoScope, resolveTicketType } from './conventionContext.js';
+import { resolveRepoName, resolveRepoScope, resolveTicketType } from './conventionContext.js';
 import { manifest, repo } from '../manifest/fixtures.js';
 
 describe('resolveTicketType', () => {
@@ -25,5 +25,30 @@ describe('resolveRepoScope', () => {
   it('falls back to the repository name with no manifest or unknown repo', () => {
     expect(resolveRepoScope(undefined, 'frontend')).toBe('frontend');
     expect(resolveRepoScope(m, 'gone')).toBe('gone');
+  });
+});
+
+describe('resolveRepoName', () => {
+  const m = manifest({
+    frontend: repo({ repoPath: '/repos/frontend', scope: 'web' }),
+    backend: repo({ repoPath: '/repos/backend' }),
+  });
+
+  it('resolves the manifest entry name for a worktree repo path', () => {
+    expect(resolveRepoName(m, '/repos/frontend')).toBe('frontend');
+    expect(resolveRepoName(m, '/repos/backend')).toBe('backend');
+  });
+
+  it('returns the path when the manifest is absent or the path is unmapped', () => {
+    expect(resolveRepoName(undefined, '/repos/frontend')).toBe('/repos/frontend');
+    expect(resolveRepoName(m, '/elsewhere')).toBe('/elsewhere');
+  });
+
+  it('answers the first declared entry when several share a repoPath', () => {
+    const shared = manifest({
+      fe: repo({ repoPath: '/repos/mono' }),
+      admin: repo({ repoPath: '/repos/mono' }),
+    });
+    expect(resolveRepoName(shared, '/repos/mono')).toBe('fe');
   });
 });

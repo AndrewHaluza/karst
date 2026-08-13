@@ -994,6 +994,39 @@ setTimeout(() => {
       ]);
     });
 
+    it('renders the repository NAME, never its local path, in artifact templates', async () => {
+      // Production worktrees store the absolute repo path (`worktrees.repo`),
+      // while the manifest is keyed by entry name. `{repo}`/`{scope}` must
+      // render the NAME — a public PR body once shipped
+      // "Repository: /Users/nd/..." and leaked the machine's directory layout.
+      seedWorktree(store, id, '/abs/path/frontend', join(dir, 'fe'));
+      const { gh, creates } = recordingGh();
+
+      await shipTicket(
+        store,
+        {
+          ticketId: id,
+          manifest: manifest({ frontend: repo({ repoPath: '/abs/path/frontend', scope: 'web' }) }),
+          conventions: {
+            pullRequestTitle: '{repo}: {title}',
+            pullRequestDescription: 'Repository {repo}\nScope {scope}',
+          },
+        },
+        gh,
+        fakeAdapter(),
+        fakeGit().git,
+      );
+
+      expect(creates[0]!.slice(2)).toEqual([
+        '--title',
+        'frontend: add search',
+        '--body',
+        'Repository frontend\nScope web',
+        '--base',
+        'develop',
+      ]);
+    });
+
     it('renders the default description template when no template is configured', async () => {
       seedWorktree(store, id, 'frontend', join(dir, 'fe'));
       const { gh, creates } = recordingGh();
