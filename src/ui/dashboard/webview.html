@@ -1562,7 +1562,7 @@
       aria-label="Open ticket in provider" title="Open ticket in provider">
       <svg class="k-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 6h-6a2 2 0 0 0 -2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-6"/><path d="M11 13l9 -9"/><path d="M15 4h5v5"/></svg>
     </a>
-    <button id="ticketDataBtn" type="button" class="k-iconbtn" data-act="preview-ticket-data" hidden
+    <button id="ticketDataBtn" type="button" class="k-iconbtn" data-act="preview-ticket-data"
       aria-label="Preview ticket data" title="Preview ticket data">
       <svg class="k-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21h-10a2 2 0 0 1 -2 -2v-14a2 2 0 0 1 2 -2h7l5 5v11a2 2 0 0 1 -2 2"/><path d="M9 9l1 0"/><path d="M9 13l6 0"/><path d="M9 17l6 0"/></svg>
     </button>
@@ -1572,7 +1572,7 @@
   <div class="headerActions">
     <div class="agentWrap">
       <button id="agentButton" type="button" class="agentButton" aria-expanded="false" aria-haspopup="dialog"
-        title="Switch the live agent session">
+        title="Switch the agent core and model">
         <span id="agentCore" class="k-agent-core"></span>
         <span aria-hidden="true" class="agentSep">·</span>
         <span id="agentModel" class="agentMeta"></span>
@@ -1689,8 +1689,9 @@
 <!-- The ticket-data preview: a slide-over drawer over the dashboard, mirroring
      the ticket form's brief drawer (.k-scrim/.k-drawer supply the surface; the
      open/closed transform and the scrim's own opacity fade stay local). The
-     body renders state.brief as TEXT (textContent, never innerHTML) — the
-     brief is provider-authored markdown, so it can never inject. -->
+     body renders the composed ticket-data text as TEXT (textContent, never
+     innerHTML) — brief and description are user/provider-authored markdown, so
+     they can never inject. -->
 <div class="k-scrim tdScrim" id="ticketDataScrim"></div>
 <aside class="k-drawer tdDrawer" id="ticketDataDrawer" role="dialog" aria-modal="true"
        aria-labelledby="ticketDataTitle" aria-hidden="true">
@@ -2833,7 +2834,7 @@
     copy: 'copy',
     refresh: 'restart',
     'player-stop': 'stop',
-    'player-play': 'start',
+    bug: 'start',
   };
 
   /**
@@ -2868,7 +2869,7 @@
     isOnline(s)
       ? iact('restart-server', s.id, 'Restart', 'refresh')
         + iact('stop-server', s.id, 'Stop', 'player-stop')
-      : iact('spin-servers', null, 'Start service', 'player-play')
+      : iact('spin-servers', null, 'Start service', 'bug')
   );
 
   /**
@@ -2892,7 +2893,7 @@
     const startWhy = !none && !anyOffline ? 'Every service is already running' : null;
     const restartWhy = none ? 'No services to restart' : null;
     const stopWhy = !anyRunning ? 'No service is running' : null;
-    return iact('spin-servers', null, 'Start all services', 'player-play', startWhy)
+    return iact('spin-servers', null, 'Start all services', 'bug', startWhy)
       + iact('restart-servers', null, 'Restart all services', 'refresh', restartWhy)
       + iact('stop-servers', null, 'Stop all services', 'player-stop', stopWhy);
   }
@@ -2984,16 +2985,16 @@
         : '';
       return `<div class="wt"><span class="wrepo">${esc(w.repoDisplay || w.repo)}</span>`
         + branch + totals + `<span class="wacts">`
-        + `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-act="open-worktree-terminal" data-path="${esc(w.path)}"`
-        + ` title="Open a terminal in this worktree">Open Terminal</button>`
-        + `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-act="open-worktree-folder" data-path="${esc(w.path)}"`
-        + ` title="Reveal this worktree in the file explorer">Reveal in Explorer</button>`
+        + `<button type="button" class="k-iconbtn ib t-open" data-act="open-worktree-terminal" data-path="${esc(w.path)}"`
+        + ` aria-label="Open terminal" title="Open a terminal in this worktree">${svgIcon('terminal-2')}</button>`
+        + `<button type="button" class="k-iconbtn ib t-copy" data-act="open-worktree-folder" data-path="${esc(w.path)}"`
+        + ` aria-label="Reveal in file explorer" title="Reveal this worktree in the file explorer">${svgIcon('folder')}</button>`
         // Only karst-extension checkouts can become a dev host (the host probes
         // `launchable` when it builds the state). A foreign repo's worktree
         // gets no button at all — a dead control on every app repo is noise.
         + (w.launchable
-          ? `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-act="launch-worktree-extension" data-path="${esc(w.path)}"`
-            + ` title="Build this worktree and open its extension in a new dev window">Launch Dev</button>`
+          ? `<button type="button" class="k-iconbtn ib t-start" data-act="launch-worktree-extension" data-path="${esc(w.path)}"`
+            + ` aria-label="Launch dev host" title="Build this worktree and open its extension in a new dev window">${svgIcon('bug')}</button>`
           : '')
         + `</span></div>`;
     }).join('') : '<div class="empty">No worktrees.</div>';
@@ -3126,11 +3127,12 @@
   // injected badge; the key's `title` stays the plain affordance, never the
   // dynamic copy label, so a screen reader and a tooltip cannot drift.
   //
-  // The preview button is where the ticket's data (state.brief) becomes
-  // readable: it appears ONLY when a brief exists, and opens the slide-over
-  // drawer — the old provider-mark `title` hover carried the whole brief on a
-  // tiny icon, where a tooltip that truncates and cannot be scrolled was no
-  // preview at all.
+  // The preview button is where the ticket's data becomes readable: it is
+  // ALWAYS present — every ticket has data, a manual one bound via "Create in
+  // ClickUp" as much as a fetched one — and opens the slide-over drawer. The
+  // old provider-mark `title` hover carried the whole brief on a tiny icon,
+  // where a tooltip that truncates and cannot be scrolled was no preview at
+  // all.
   function renderTicketIdentity(state) {
     const label = state.key || `#${state.ticketId}`;
     const keyBtn = el('keyBtn');
@@ -3140,7 +3142,7 @@
     const mark = el('providerMark');
     if (mark) mark.innerHTML = providerIconHtml(state.provider);
     const prevBtn = el('ticketDataBtn');
-    if (prevBtn) prevBtn.hidden = !state.brief;
+    if (prevBtn) prevBtn.hidden = false;
     const link = el('boardLink');
     if (!link) return;
     if (state.ticketUrl) {
@@ -3180,10 +3182,10 @@
     if (btn) {
       if (s.canSwitch) {
         btn.disabled = false;
-        btn.title = 'Switch the live agent session';
+        btn.title = 'Switch the agent core and model';
       } else {
         btn.disabled = true;
-        btn.title = 'No live agent session to switch right now';
+        btn.title = 'Cannot switch while a fix recovery is running';
       }
     }
   }
@@ -3431,18 +3433,35 @@
   });
 
   // ---- ticket-data preview drawer ----
-  // A pure webview-local surface: the brief already rides DashboardState, so
-  // opening it posts nothing and needs no host ack (UI-R31 — no verdict is
-  // invented, there is simply no round trip). Focus moves into the dialog on
-  // open and returns to the trigger on close, per the modal-dialog contract.
+  // A pure webview-local surface: the brief and description already ride
+  // DashboardState, so opening it posts nothing and needs no host ack (UI-R31
+  // — no verdict is invented, there is simply no round trip). Focus moves into
+  // the dialog on open and returns to the trigger on close, per the
+  // modal-dialog contract.
   let ticketDataTrigger = null;
+  // Compose the drawer's body. The fetched brief is the rich provider context
+  // (title/description/details) and wins verbatim when present. A manual
+  // ticket has NO brief — even one bound to a provider via "Create in ClickUp"
+  // (binding sets sourceRef/ticketUrl, never brief) — so fall back to the
+  // ticket's own data: heading + the user's prompt. textContent, never
+  // innerHTML: brief and description are user/provider-authored, so they are
+  // data, not structure.
+  function ticketDataText(state) {
+    const brief = (state.brief || '').trim();
+    if (brief) return brief;
+    const heading = [state.key || `#${state.ticketId}`, state.title]
+      .filter((v) => v)
+      .join(' — ');
+    const lines = [`# ${heading}`];
+    const prompt = (state.description || '').trim();
+    if (prompt) lines.push('', prompt);
+    return lines.join('\n');
+  }
   function openTicketData() {
     const state = lastState;
-    if (!state || !state.brief) return;
+    if (!state) return;
     const body = el('ticketDataBody');
-    // textContent, never innerHTML: the brief is provider-authored markdown,
-    // so it is data, not structure.
-    body.textContent = state.brief;
+    body.textContent = ticketDataText(state);
     ticketDataTrigger = document.activeElement;
     el('ticketDataScrim').classList.add('open');
     el('ticketDataDrawer').classList.add('open');

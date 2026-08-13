@@ -82,6 +82,7 @@ import {
 } from '../prDescription.js';
 import { collectPrDiffContext } from '../prDiffContext.js';
 import { resolveRepoScope, resolveTicketType } from '../conventionContext.js';
+import { DEFAULT_PR_DESCRIPTION_TEMPLATE } from '../conventionPresets.js';
 
 /**
  * Ship stage (§T4.5, §11, §12). Opens one PR per hot repo — independently, no
@@ -171,6 +172,22 @@ async function gitIdentity(git: GitRunner, cwd: string): Promise<PersistedCommit
     email: email.exitCode === 0 && email.stdout.trim() ? email.stdout.trim() : 'karst@local',
     at: new Date().toISOString(),
   };
+}
+
+/**
+ * The `{model}` value for the PR description template, following the launch
+ * precedence: the per-ticket model override, else the manifest default, else
+ * nothing (the agent CLI picks its own default — rendered as `n/a` by the
+ * default template). Blank at either level counts as "inherit".
+ */
+function resolveTemplateModel(
+  ticket: { model: string | null },
+  manifest?: Manifest,
+): string | undefined {
+  for (const candidate of [ticket.model, manifest?.defaultModel]) {
+    if (typeof candidate === 'string' && candidate.trim() !== '') return candidate;
+  }
+  return undefined;
 }
 
 /** Open the durable step row and its pre-state ownership row in ONE transaction. */
@@ -871,7 +888,7 @@ export async function shipTicket(
         // Nothing ran this time — say so for every step this repo skips,
         // rather than leaving commit/push looking like they are still "to
         // come" (the old free-text channel simply skipped this repo entirely).
-        const descriptionTemplate = conventions?.pullRequestDescription;
+        const descriptionTemplate = conventions?.pullRequestDescription ?? DEFAULT_PR_DESCRIPTION_TEMPLATE;
         // Task 3: the configured process decides what ship would run — a null
         // bundle (enabled: false) means the describe step would not run at all.
         const wouldDescribe = Boolean(
@@ -907,6 +924,14 @@ export async function shipTicket(
         repo: wt.repo,
         type: resolveTicketType(ticket, conventions),
         scope: resolveRepoScope(opts.manifest, wt.repo),
+        // Implementation metadata for the PR description template: the agent
+        // that actually ran the impl session wins, then the per-ticket core
+        // override, then the manifest default; the model mirrors the launch
+        // precedence (ticket override, else manifest default).
+        provider: ticket.sessionProvider ?? ticket.agentProvider ?? opts.manifest?.agentProvider ?? 'claude',
+        model: resolveTemplateModel(ticket, opts.manifest),
+        approach: ticket.approach ?? undefined,
+        sessionId: ticket.sessionId ?? undefined,
       };
       const commitMessage = conventions?.commitMessage
         ? renderArtifactTemplate(
@@ -1154,7 +1179,10 @@ export async function shipTicket(
       // `describePr` from paying for prose describing a PR that already exists.
       onProgress({ repo: wt.repo, step: 'pr', status: 'run' });
       const existing = await findOpenPr(gh, wt.path);
-      const descriptionTemplate = conventions?.pullRequestDescription;
+      // A manifest that declares no description template still gets the default
+      // one — that is how the metadata (provider/model/approach/session) ships
+      // by default. Clearing the field or replacing it is what turns it off.
+      const descriptionTemplate = conventions?.pullRequestDescription ?? DEFAULT_PR_DESCRIPTION_TEMPLATE;
 
       // RC5, stated in the public record: whether any gate stage's latest run
       // answered a different question set than the one before it. Ticket-wide

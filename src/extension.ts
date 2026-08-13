@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { readFileSync, mkdirSync, existsSync, writeFileSync } from 'node:fs';
+import { readFileSync, mkdirSync, existsSync, writeFileSync, statSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import {
@@ -126,6 +126,19 @@ import {
   type AgyConversationSnapshot,
   type AgyWatchState,
 } from './agent/agyConversationWatch.js';
+import {
+  agyUsageTick,
+  type AgyConversationUsage,
+  type AgyUsageState,
+} from './agent/agyUsageWatch.js';
+import {
+  resolveClaudeProjectsDir,
+  transcriptPathFor,
+  parseClaudeTranscript,
+  claudeTranscriptTick,
+  type ClaudeTranscriptSnapshot,
+  type ClaudeWatchState,
+} from './agent/claudeTranscriptWatch.js';
 import type { HookPayload } from './hooks/dispatch.js';
 import { dispatchHook } from './hooks/dispatch.js';
 import type { StageKey } from './model/types.js';
@@ -785,6 +798,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // read showed a pending permission ask. Ephemeral — rebuilt from the CLI's
   // own state on every sweep, cleared when the terminal closes.
   const agyWatchStates = new Map<number, AgyWatchState>();
+  // Per-ticket memory of the agy usage watch: the last conversation step idx
+  // already emitted as a UsageUpdate. Ephemeral — rebuilt from the DB on every
+  // sweep, cleared when the terminal closes (the store dedupes on event id).
+  const agyUsageStates = new Map<number, AgyUsageState>();
+  // Per-ticket memory of the claude transcript usage watch: the last transcript
+  // path, message uuid, and file fingerprint. Ephemeral — rebuilt from the file
+  // on every sweep, cleared when the terminal closes.
+  const claudeTranscriptStates = new Map<number, ClaudeWatchState>();
   const ownershipWriter = new SerializedStateWriter<number[]>(
     (snapshot) =>
       context.workspaceState.update(OWNED_SESSION_TICKETS_KEY, snapshot),
@@ -870,6 +891,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // The agy watch's per-ticket memory dies with the terminal: a closed
       // session must not keep a stale conversation/awaiting state behind.
       agyWatchStates.delete(ticketId);
+      agyUsageStates.delete(ticketId);
+      claudeTranscriptStates.delete(ticketId);
       ownedSessionTickets.delete(ticketId);
       void persistOwnedSessionTickets();
       setAgentState(localStore, ticketId, 'idle');
@@ -1413,12 +1436,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         },
         isSessionOpen: () => sessions.isOpen(ticketId),
         isProviderReady: (provider) => guardProviderCapabilityAsync('sessions', provider),
-        confirm: async ({ from, to }) => {
+        confirm: async ({ from, to, willReplaceSession }) => {
           const choice = await vscode.window.showWarningMessage(
             `Switch from ${from.providerLabel} · ${from.modelLabel} to ${to.providerLabel} · ${to.modelLabel}?`,
             {
               modal: true,
-              detail: 'Karst will close the current terminal and start a fresh agent session. Worktree changes and ticket progress stay intact.',
+              detail: willReplaceSession
+                ? 'Karst will close the current terminal and start a fresh agent session. Worktree changes and ticket progress stay intact.'
+                : 'Karst will start a fresh agent session with the new core. Worktree changes and ticket progress stay intact.',
             },
             'Switch and continue',
           );
@@ -1435,7 +1460,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }, modelCatalog, { provider: targetProvider, model });
       // Keep the same outcome toasts as before (stale / launch-failed).
       if (outcome.kind === 'stale') {
-        void vscode.window.showInformationMessage('The live agent session changed before it could be switched.');
+        void vscode.window.showInformationMessage('The ticket state changed before the agent could be switched.');
       } else if (outcome.kind === 'launch-failed') {
         void vscode.window.showErrorMessage(
           `The agent selection was saved, but its session could not start: ${outcome.error instanceof Error ? outcome.error.message : String(outcome.error)}`,
@@ -2423,7 +2448,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     () => ({
       defaultModel: currentManifest()?.defaultModel ?? null,
       modelCatalog,
-      isSessionOpen: (ticketId) => sessions.isOpen(ticketId),
     }),
     (worktrees, signal) => loadWorktreeStats(worktrees, defaultGitRunner, logError, signal),
     // The rail's retry meter must draw the budget the driver will actually
@@ -4145,6 +4169,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       (step) => {
         const event = shipStepEvent(ticketId, step);
         if (event) dashboard.postInsideProgress(ticketId, event);
+        // Each step event marks a store write the ledger reads (a step row
+        // opened or closed). Push the snapshot now so a subprocess's checkmark
+        // lands the instant that subprocess finishes — not once the whole saga
+        // ends. The live tick keeps it moving while a step reads `run`.
+        dashboard.pushState(ticketId);
       },
       (event) => dashboard.postInsideProgress(ticketId, event),
     );
@@ -4345,6 +4374,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const worktree = listWorktreesByTicket(localStore, named.ticketId)[0];
         if (!worktree) continue;
         let snapshot: AgyConversationSnapshot | null = null;
+        let agyUsage: AgyConversationUsage | null = null;
         try {
           const found = findConversationForWorktree(appDataDir, worktree.path);
           if (found) {
@@ -4355,6 +4385,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                 conversationId: found.conversationId,
                 pendingApproval: db.pendingApprovalCount() > 0,
               };
+              // Read usage while the DB is open — the lifecycle watch
+              // doubles as the usage channel for antigravity sessions.
+              agyUsage = db.usage();
             } finally {
               db.close();
             }
@@ -4366,7 +4399,35 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const state =
           agyWatchStates.get(named.ticketId) ?? { dbPath: null, started: false, awaiting: false };
         const events = agyWatchTick(state, snapshot);
-        if (events.length === 0) continue;
+        if (events.length === 0) {
+          // Lifecycle produced no events, but still dispatch any usage
+          // observation (the usage read is outside the lifecycle continue).
+          const usageState = agyUsageStates.get(named.ticketId) ?? { eventId: null };
+          const usageEvents = agyUsageTick(usageState, agyUsage);
+          agyUsageStates.set(named.ticketId, usageState);
+          for (const event of usageEvents) {
+            const usagePayload: HookPayload = {
+              hook_event_name: 'UsageUpdate',
+              cwd: worktree.path,
+              session_id: snapshot?.conversationId ?? '',
+              usage: event.usage,
+              ...(named.launchId ? { launchId: named.launchId } : {}),
+            };
+            try {
+              dispatchHook(
+                localStore,
+                usagePayload,
+                notifyHook,
+                shouldApplyHookState,
+                sessionProviderFor,
+                hookChannelRecorder,
+              );
+            } catch (error) {
+              logError(`karst: agy usage dispatch failed for ticket ${named.ticketId}`, error);
+            }
+          }
+          continue;
+        }
         agyWatchStates.set(named.ticketId, state);
         // The session id for non-SessionStart events is the CURRENT
         // conversation's id — the same one SessionStart carried.
@@ -4399,6 +4460,40 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             logError(`karst: agy watch dispatch failed for ticket ${named.ticketId}`, error);
           }
         }
+        // Conversation-DB token usage: agy 1.1.12 persists per-call usage in
+        // this same DB (steps.metadata field-9 submessage — see agyUsageWatch.ts),
+        // so the lifecycle watch doubles as the usage channel. The cumulative
+        // sample rides the same UsageUpdate seam and closures as the
+        // codex/opencode bridges — attribution (impl segment vs fix), the
+        // generation barrier, and the store's cumulative-delta ledger are shared.
+        // A re-sweep of an unchanged DB emits nothing; the store dedupes on
+        // event id anyway.
+        {
+          const usageState = agyUsageStates.get(named.ticketId) ?? { eventId: null };
+          const usageEvents = agyUsageTick(usageState, agyUsage);
+          agyUsageStates.set(named.ticketId, usageState);
+          for (const event of usageEvents) {
+            const usagePayload: HookPayload = {
+              hook_event_name: 'UsageUpdate',
+              cwd: worktree.path,
+              session_id: snapshot?.conversationId ?? '',
+              usage: event.usage,
+              ...(named.launchId ? { launchId: named.launchId } : {}),
+            };
+            try {
+              dispatchHook(
+                localStore,
+                usagePayload,
+                notifyHook,
+                shouldApplyHookState,
+                sessionProviderFor,
+                hookChannelRecorder,
+              );
+            } catch (error) {
+              logError(`karst: agy usage dispatch failed for ticket ${named.ticketId}`, error);
+            }
+          }
+        }
       }
     } catch (error) {
       logError('karst: agy conversation watch failed', error);
@@ -4409,6 +4504,104 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   void runAgyConversationWatch();
   const agyWatchTimer = setInterval(runAgyConversationWatch, AGY_WATCH_INTERVAL_MS);
   context.subscriptions.push({ dispose: () => clearInterval(agyWatchTimer) });
+
+  // Claude interactive usage watch: Claude's documented hooks carry no token
+  // counters, but Claude Code writes a per-session JSONL transcript at
+  // ~/.claude/projects/<encoded-cwd>/<session-id>.jsonl whose `assistant`
+  // messages carry per-API-call token usage (input_tokens/output_tokens/
+  // cache_read_input_tokens/cache_creation_input_tokens) with a stable message
+  // uuid. The sweep reads that file (read-only, like the agy conversation DB),
+  // sums the messages into a CUMULATIVE session sample keyed by the LAST
+  // message's uuid, and posts it through the SAME UsageUpdate seam and closures
+  // as the codex/opencode bridges — attribution (impl segment vs fix), the
+  // generation barrier, and the store's cumulative-delta ledger are shared. A
+  // re-sweep of an unchanged transcript emits nothing; the store dedupes on
+  // event id anyway. Session end -> the terminal-close callback clears the watch
+  // state. Interactive usage is not a liveness signal: nothing here touches
+  // agent_state.
+  const CLAUDE_TRANSCRIPT_WATCH_INTERVAL_MS = 10_000;
+  let claudeTranscriptWatchRunning = false;
+  const runClaudeTranscriptWatch = async (): Promise<void> => {
+    if (claudeTranscriptWatchRunning) return;
+    claudeTranscriptWatchRunning = true;
+    try {
+      const projectsDir = resolveClaudeProjectsDir();
+      for (const terminal of vscode.window.terminals) {
+        const named = terminalIdentity.identify(terminal);
+        if (named?.identity?.provider !== 'claude') continue;
+        const worktree = listWorktreesByTicket(localStore, named.ticketId)[0];
+        if (!worktree) continue;
+        const sessionId = getTicket(localStore, named.ticketId).sessionId;
+        if (!sessionId) continue;
+        const transcriptPath = transcriptPathFor(projectsDir, worktree.path, sessionId);
+        let fingerprint: { mtimeMs: number; size: number } | null = null;
+        try {
+          const st = statSync(transcriptPath);
+          fingerprint = { mtimeMs: st.mtimeMs, size: st.size };
+        } catch {
+          continue; // no transcript yet — the session may not have written one
+        }
+        const state =
+          claudeTranscriptStates.get(named.ticketId) ??
+          { transcriptPath: null, eventId: null, fingerprint: null };
+        if (
+          state.transcriptPath === transcriptPath &&
+          state.fingerprint !== null &&
+          state.fingerprint.mtimeMs === fingerprint.mtimeMs &&
+          state.fingerprint.size === fingerprint.size
+        ) {
+          continue; // unchanged since the last read — nothing new to parse
+        }
+        let text: string;
+        try {
+          text = await fsReadFile(transcriptPath, 'utf8');
+        } catch (error) {
+          logError(`karst: claude transcript read failed for ticket ${named.ticketId}`, error);
+          continue;
+        }
+        const usage = parseClaudeTranscript(text);
+        const snapshot: ClaudeTranscriptSnapshot = { transcriptPath, usage };
+        const events = claudeTranscriptTick(state, snapshot);
+        state.fingerprint = fingerprint;
+        claudeTranscriptStates.set(named.ticketId, state);
+        if (events.length === 0) continue;
+        for (const event of events) {
+          const payload: HookPayload = {
+            hook_event_name: 'UsageUpdate',
+            cwd: worktree.path,
+            session_id: sessionId,
+            usage: event.usage,
+            ...(named.launchId ? { launchId: named.launchId } : {}),
+          };
+          try {
+            dispatchHook(
+              localStore,
+              payload,
+              notifyHook,
+              shouldApplyHookState,
+              sessionProviderFor,
+              hookChannelRecorder,
+            );
+          } catch (error) {
+            logError(
+              `karst: claude transcript usage dispatch failed for ticket ${named.ticketId}`,
+              error,
+            );
+          }
+        }
+      }
+    } catch (error) {
+      logError('karst: claude transcript usage watch failed', error);
+    } finally {
+      claudeTranscriptWatchRunning = false;
+    }
+  };
+  void runClaudeTranscriptWatch();
+  const claudeTranscriptTimer = setInterval(
+    () => void runClaudeTranscriptWatch(),
+    CLAUDE_TRANSCRIPT_WATCH_INTERVAL_MS,
+  );
+  context.subscriptions.push({ dispose: () => clearInterval(claudeTranscriptTimer) });
 
   // The `karst` CLI commits to the registry from its own `node` process; this
   // host's connection never sees those writes, so an open dashboard would keep

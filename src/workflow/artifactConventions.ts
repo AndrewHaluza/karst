@@ -24,13 +24,25 @@ export interface ArtifactTemplateContext {
   /** Conventional-commit scope: the repository's `scope:`, else its manifest name. */
   scope: string;
   description?: string;
+  /** Implementation agent core (session-then-ticket-then-manifest precedence). */
+  provider?: string;
+  /** Implementation model (per-ticket override, else the manifest default). */
+  model?: string;
+  /** The approach the implementation ran under. */
+  approach?: string;
+  /** The agent session id that implemented the ticket. */
+  sessionId?: string;
 }
 
 const COMMON_VARIABLES = ['title', 'key', 'id', 'repo', 'type', 'scope'] as const;
+// The description template is the only artifact that can name the agent that
+// implemented the work — provider/model/approach/sessionId are per-ticket facts
+// with no meaning on a commit subject or a PR title.
+const DESCRIPTION_VARIABLES = ['description', 'provider', 'model', 'approach', 'sessionId'] as const;
 const VARIABLES: Record<ArtifactConventionName, ReadonlySet<string>> = {
   commitMessage: new Set(COMMON_VARIABLES),
   pullRequestTitle: new Set(COMMON_VARIABLES),
-  pullRequestDescription: new Set([...COMMON_VARIABLES, 'description']),
+  pullRequestDescription: new Set([...COMMON_VARIABLES, ...DESCRIPTION_VARIABLES]),
 };
 
 const TOKEN = /\{([^{}]*)\}/g;
@@ -90,6 +102,10 @@ export function renderArtifactTemplate(
     type: context.type,
     scope: context.scope,
     description: context.description ?? '',
+    provider: context.provider ?? '',
+    model: context.model ?? '',
+    approach: context.approach ?? '',
+    sessionId: context.sessionId ?? '',
   };
   const rendered = template.replace(TOKEN, (_match, body: string) => {
     const { variable, transforms } = parseTokenBody(body);

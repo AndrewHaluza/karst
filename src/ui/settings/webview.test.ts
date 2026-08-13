@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { runInNewContext } from 'node:vm';
-import { CONVENTION_PRESETS } from '../../workflow/conventionPresets.js';
+import { CONVENTION_PRESETS, DEFAULT_PR_DESCRIPTION_TEMPLATE } from '../../workflow/conventionPresets.js';
 import { TICKET_TYPES } from '../../store/ticketTypes.js';
 import { TRANSFORM_NAMES, applyTransforms } from '../../template/transforms.js';
 import { parseTokenBody } from '../../template/token.js';
@@ -206,7 +206,7 @@ describe('settings artifact conventions', () => {
     expect(HTML).toContain("const conventions = draft.conventions || {};");
     expect(HTML).toContain("el('f-branchNameTemplate').value = conventions.branchName || '';");
     expect(HTML).toContain(
-      "el('f-prDescriptionTemplate').value = conventions.pullRequestDescription || '';",
+      "el('f-prDescriptionTemplate').value = conventions.pullRequestDescription || DEFAULT_PR_DESCRIPTION_TEMPLATE;",
     );
   });
 
@@ -226,7 +226,7 @@ describe('settings artifact conventions', () => {
       "const COMMON_CONVENTION_VARS = ['title', 'key', 'id', 'repo', 'type', 'scope'];",
     );
     expect(HTML).toContain(
-      "const DESCRIPTION_CONVENTION_VARS = [...COMMON_CONVENTION_VARS, 'description'];",
+      "const DESCRIPTION_CONVENTION_VARS = [...COMMON_CONVENTION_VARS, 'description', 'provider', 'model', 'approach', 'sessionId'];",
     );
     // The branch vocabulary is NOT the artifact one: {repo}/{scope} are absent
     // because entries sharing a repoPath resolve to a single worktree.
@@ -264,6 +264,30 @@ describe('settings artifact conventions', () => {
     );
     expect(fn, 'applyPresetBtn handler not found').toBeTruthy();
     expect(fn![1]).toContain('updateConvention(field, value)');
+    expect(fn![1]).toContain('markDirty()');
+    expect(fn![1]).not.toContain("type: 'save'");
+  });
+
+  // The Git tab pre-fills the DEFAULT template when the manifest declares none,
+  // and Reset restores it — both must reference the exact host default string,
+  // or the field would show a template ship never applies.
+  it('mirrors the default PR description template and pre-fills it when unset', () => {
+    const literal = DEFAULT_PR_DESCRIPTION_TEMPLATE.replace(/\n/g, '\\n');
+    expect(HTML).toContain(`const DEFAULT_PR_DESCRIPTION_TEMPLATE = '${literal}';`);
+    expect(HTML).toContain(
+      "el('f-prDescriptionTemplate').value = conventions.pullRequestDescription || DEFAULT_PR_DESCRIPTION_TEMPLATE;",
+    );
+  });
+
+  it('resets the PR description template to the default, writing only the draft', () => {
+    expect(HTML).toContain('id="prDescriptionResetBtn"');
+    const fn = HTML.match(
+      /el\('prDescriptionResetBtn'\)\.addEventListener\('click', \(\) => {([\s\S]*?)\n {2}}\);/,
+    );
+    expect(fn, 'prDescriptionResetBtn handler not found').toBeTruthy();
+    expect(fn![1]).toContain('updateConvention(\'pullRequestDescription\', DEFAULT_PR_DESCRIPTION_TEMPLATE)');
+    expect(fn![1]).toContain("el('f-prDescriptionTemplate').value = DEFAULT_PR_DESCRIPTION_TEMPLATE;");
+    expect(fn![1]).toContain('renderConventions()');
     expect(fn![1]).toContain('markDirty()');
     expect(fn![1]).not.toContain("type: 'save'");
   });
@@ -1456,6 +1480,7 @@ describe('debug logging toggle (General tab)', () => {
       const KNOWN_AGENT_PROVIDERS = [];
       const implementedProviders = [];
       function esc(s) { return String(s); }
+      const DEFAULT_PR_DESCRIPTION_TEMPLATE = '';
       ${functionSource('renderGeneral')}
       draft = { debug: true };
       renderGeneral();
@@ -1501,6 +1526,7 @@ describe('close-done-terminals toggle (General tab)', () => {
       const KNOWN_AGENT_PROVIDERS = [];
       const implementedProviders = [];
       function esc(s) { return String(s); }
+      const DEFAULT_PR_DESCRIPTION_TEMPLATE = '';
       ${functionSource('renderGeneral')}
       draft = { closeDoneTerminalsWithTicket: true };
       renderGeneral();

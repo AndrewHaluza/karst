@@ -82,7 +82,6 @@ export type { PathContext, StepperCell, StageRail, PrPanelRow, MergeCheckPanelRo
 export interface DashboardAgentContext {
   defaultModel?: string | null;
   modelCatalog?: ModelCatalog;
-  isSessionOpen?: (ticketId: number) => boolean;
 }
 
 /** Fully serializable dashboard state pushed to the webview via postMessage. */
@@ -152,6 +151,13 @@ export interface DashboardState {
   sourceRef: string | null;
   /** External board URL for the ticket, or null (manual/unfetched → no link). */
   ticketUrl: string | null;
+  /**
+   * The user's authored instruction (the `description` column) — the prompt a
+   * manual ticket was created from. Previewed in the ticket-data drawer when
+   * the ticket has no fetched brief (a manual ticket bound via "Create in
+   * ClickUp" gets a provider ref but never a brief).
+   */
+  description: string | null;
   /** Synthesized context brief, shown in the header's ticket-data preview drawer; or null. */
   brief: string | null;
   /**
@@ -318,7 +324,6 @@ export function buildDashboardState(
     defaultModel: agentContext.defaultModel ?? null,
     catalog: agentContext.modelCatalog ?? bundledModelCatalog(),
     stageCurrent: ticket.stageCurrent,
-    sessionOpen: agentContext.isSessionOpen?.(ticketId) ?? false,
     fixExecutionActive: rounds.some((round) => round.status === 'fixing'),
   });
   const stepper = buildStepper(ticket.stages);
@@ -578,6 +583,7 @@ export function buildDashboardState(
     provider: ticketing?.provider ?? null,
     sourceRef: ticket.sourceRef,
     ticketUrl: providerTicketUrl(ticketing?.provider, ticket.sourceRef),
+    description: ticket.description,
     brief: ticket.brief,
     rail: buildStageRail(stepper, ticket.stages, {
       current: ticket.stageCurrent,

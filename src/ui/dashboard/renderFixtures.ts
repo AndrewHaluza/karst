@@ -854,7 +854,9 @@ export function renderStateFor(stage: InsideStageKey): DashboardState {
       providerLabel: 'Claude Code',
       modelId: null,
       modelLabel: 'Agent default',
-      canSwitch: false,
+      // The switch is available at every stage (869ehtcmz); only a running
+      // Fix execution withholds it, and this fixture carries no recovery round.
+      canSwitch: true,
     },
     stepper: [],
     currentStage: null,
@@ -868,6 +870,7 @@ export function renderStateFor(stage: InsideStageKey): DashboardState {
     provider: null,
     sourceRef: null,
     ticketUrl: null,
+    description: null,
     brief: null,
     rail: { main: [] },
     insideViews,

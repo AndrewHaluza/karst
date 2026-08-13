@@ -106,8 +106,8 @@ describe('dashboard webview.html', () => {
     expect(HTML).toContain('data-act="copy-worktree-branch"');
     expect(HTML).toContain('data-branch="${esc(w.branch)}"');
     expect(HTML).toContain('data-copy');
-    expect(HTML).toContain('Open Terminal');
-    expect(HTML).toContain('Reveal in Explorer');
+    expect(HTML).toContain('aria-label="Open terminal"');
+    expect(HTML).toContain('aria-label="Reveal in file explorer"');
     expect(HTML).not.toContain('>Open folder</button>');
   });
 
@@ -1101,22 +1101,25 @@ describe('dashboard webview.html', () => {
 
   it('previews ticket data through a real button + modal drawer, never a hover', () => {
     // The trigger is a real <button> (UI-R09), icon-only with an accessible
-    // name (UI-R24), starts hidden (renderTicketIdentity shows it only when a
-    // brief exists), and carries NO host-facing data-act (the preview is
-    // purely local — see the delegated handler's explicit branch).
+    // name (UI-R24), ALWAYS present — a manual ticket bound via "Create in
+    // ClickUp" has no fetched brief but still has data to preview — and
+    // carries NO host-facing data-act (the preview is purely local — see the
+    // delegated handler's explicit branch).
     expect(HTML).toMatch(/id="ticketDataBtn"[^>]*data-act="preview-ticket-data"/);
     expect(HTML).toMatch(/id="ticketDataBtn"[^>]*title="Preview ticket data"/);
     expect(HTML).toMatch(/id="ticketDataBtn"[^>]*aria-label="Preview ticket data"/);
-    expect(HTML).toMatch(/id="ticketDataBtn"[^>]*\shidden/);
     // The drawer follows modal-dialog semantics (DESIGN-SYSTEM.md §11.15).
     expect(HTML).toMatch(/id="ticketDataDrawer"[^>]*role="dialog"/);
     expect(HTML).toMatch(/id="ticketDataDrawer"[^>]*aria-modal="true"/);
     expect(HTML).toMatch(/id="ticketDataDrawer"[^>]*aria-labelledby="ticketDataTitle"/);
     expect(HTML).toMatch(/id="ticketDataClose"[^>]*title="Close ticket data preview"/);
     expect(HTML).toMatch(/id="ticketDataClose"[^>]*aria-label="Close ticket data preview"/);
-    // The brief is provider-authored data: it must be written as TEXT, never
-    // structure — the renderer reads state.brief, not an interpolated literal.
-    expect(HTML).toContain('body.textContent = state.brief;');
+    // The body is composed as TEXT (brief verbatim, else the ticket's own
+    // heading + prompt): the renderer reads state via ticketDataText, never an
+    // interpolated literal, and never innerHTML — brief/description are
+    // user/provider-authored data that can never inject.
+    expect(HTML).toContain('body.textContent = ticketDataText(state);');
+    expect(HTML).toContain('function ticketDataText(state)');
     expect(HTML).not.toMatch(/ticketDataBody[^;]*innerHTML/);
     expect(HTML).not.toContain("el('ticketDataBody').innerHTML");
     // The old provider-mark hover carried the WHOLE brief on a tiny icon; the
@@ -1144,7 +1147,7 @@ describe('dashboard webview.html', () => {
 
   it('titles the header identity and agent controls (UI-R20/R21)', () => {
     for (const title of [
-      'Switch the live agent session', // #agentButton
+      'Switch the agent core and model', // #agentButton
       'Open ticket in provider', // #boardLink
       'Ticket controls', // #moreBtn
       'Copy ticket key', // #keyBtn
@@ -3357,7 +3360,7 @@ describe('agent popover round trip (executed in a VM)', () => {
     store.db.prepare("UPDATE tickets SET stage_current = 'impl' WHERE id = ?").run(t.id);
     const state = buildDashboardState(
       store, t.id, undefined, undefined, undefined, undefined, 'claude',
-      { defaultModel: null, isSessionOpen: () => true },
+      { defaultModel: null },
     );
     store.close();
     const h = bootPreviewHarness();
@@ -3381,7 +3384,7 @@ describe('agent popover round trip (executed in a VM)', () => {
     store.db.prepare("UPDATE tickets SET stage_current = 'impl' WHERE id = ?").run(t.id);
     const state = buildDashboardState(
       store, t.id, undefined, undefined, undefined, undefined, 'claude',
-      { defaultModel: null, isSessionOpen: () => true },
+      { defaultModel: null },
     );
     store.close();
     const h = bootPreviewHarness();
@@ -3542,16 +3545,16 @@ describe('send back to implement (executed in a VM)', () => {
 });
 
 describe('ticket data preview drawer (executed in a VM)', () => {
-  it('shows the trigger only when a brief exists', () => {
+  it('always shows the trigger, with or without a fetched brief (869e9wn1u-fu1)', () => {
     const h = bootPreviewHarness();
-    h.receive({ type: 'state', state: renderStateFor('impl') }); // brief: null
-    expect(h.element('ticketDataBtn').hidden).toBe(true);
+    h.receive({ type: 'state', state: renderStateFor('impl') }); // brief: null, manual
+    expect(h.element('ticketDataBtn').hidden).toBe(false);
     const withBrief = { ...renderStateFor('impl'), brief: '# Title\n\nbody' };
     h.receive({ type: 'state', state: withBrief });
     expect(h.element('ticketDataBtn').hidden).toBe(false);
   });
 
-  it('opens the drawer with the brief as text, posting nothing to the host', () => {
+  it('opens the drawer with the fetched brief as text, posting nothing to the host', () => {
     const h = bootPreviewHarness();
     h.receive({ type: 'state', state: { ...renderStateFor('impl'), brief: '# T\n\n## Details\n- x' } });
     const before = h.posted.length;
@@ -3562,6 +3565,26 @@ describe('ticket data preview drawer (executed in a VM)', () => {
     expect(h.element('ticketDataDrawer').getAttribute('aria-hidden')).toBe('false');
     // Rendered as TEXT — an HTML payload in the brief must not become markup.
     expect(h.element('ticketDataBody').textContent).toBe('# T\n\n## Details\n- x');
+    expect(h.element('ticketDataBody').innerHTML).toBe(''); // never innerHTML
+  });
+
+  it('opens the drawer with the ticket\'s own data when no brief exists (a manual ticket bound via Create in ClickUp)', () => {
+    const h = bootPreviewHarness();
+    // A manual ticket has no fetched brief; its own description is what a
+    // preview can show. This is the case the ticket reports as broken: after
+    // manual create + "Create in ClickUp", the button used to never appear.
+    h.receive({
+      type: 'state',
+      state: {
+        ...renderStateFor('impl'),
+        key: 'M-1',
+        title: 'Manual ticket',
+        description: 'Fix the login modal',
+      },
+    });
+    h.click('[data-act]', { act: 'preview-ticket-data' });
+    expect(h.element('ticketDataBody').textContent)
+      .toBe('# M-1 — Manual ticket\n\nFix the login modal');
     expect(h.element('ticketDataBody').innerHTML).toBe(''); // never innerHTML
   });
 

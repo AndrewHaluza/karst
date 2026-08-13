@@ -325,6 +325,7 @@ function gatesProcess(
   now: string,
   resolved: readonly { name: string; disabled: boolean }[] = [],
   repoNameFor?: (repo: string) => string | undefined,
+  processRuns: readonly ProcessRun[] = [],
 ): InsideProcessView {
   // One mapping, used by BOTH the per-gate rows and the failure sentence: a
   // row that named the service while the summary above it named the path
@@ -349,6 +350,26 @@ function gatesProcess(
   const finished = shown === 'passed' || shown === 'failed';
   const running = shown === 'running';
   const blocked = shown === 'blocked';
+  // Gates are only the stage's FIRST question. While the stage stays `running`
+  // the gates process must not keep drawing a spinner after every gate has
+  // answered: the stage is still running because its AI process (the Tester
+  // for uat, the Review lane for review) is now the work in flight, and a
+  // green batch beside the AI's spinner is what the stage is actually doing.
+  // "The AI process has begun for THIS run" is proven by the AI process run
+  // belonging to the SAME stage run as the recorded gate batch (`stageRunId`):
+  // the AI only ever opens after the gates finish, and a run from a previous
+  // attempt (or one the host died on — `stale`) carries a different stage run,
+  // so it can never stand in for the current one. A batch with no recorded
+  // row, or a stage run that predates the `stage_run_id` column, degrades to
+  // the conservative answer: the gates are (still) running.
+  const batchStageRunId = batch.length > 0 ? (batch[0]!.stageRunId ?? null) : null;
+  const aiProcessId = stageKey === 'review' ? 'review' : 'tester';
+  const aiRun = latestProcessRun(processRuns, aiProcessId);
+  const gatesDone =
+    batchStageRunId !== null &&
+    aiRun !== undefined &&
+    aiRun.stageRunId === batchStageRunId &&
+    aiRun.status !== 'stale';
   // Before anything ran, the resolved names (`gateOptions.ts`) are the gates
   // that WOULD run — a forecast, ROWS ONLY: it never touches the counts or
   // the aggregate, because a gate that has not run has no outcome. Recorded
@@ -404,7 +425,10 @@ function gatesProcess(
   } else if (failed > 0 && firstFailed) {
     detail = `attempt ${cell.attempt ?? 0} failed · ${where(firstFailed)}`;
     count = `${passed}/${batch.length}`;
-  } else if (running && batch.length > 0) {
+  } else if (running && !gatesDone && batch.length > 0) {
+    // "so far" only while a gate is genuinely still in flight — a batch whose
+    // AI has begun is finished, and `answered === 0` below reads as nothing to
+    // run rather than as a promise of more gates.
     detail = `${answered}/${batch.length} command gates passed so far`;
     count = `${answered}/${batch.length}`;
   } else if (batch.length > 0 && answered === 0) {
@@ -442,7 +466,11 @@ function gatesProcess(
         : failed > 0
           ? 'fail'
           : running
-            ? 'run'
+            ? // A green recorded batch is done work; only a batch with a gate
+              // still in flight (the AI has not begun) keeps the spinner.
+              gatesDone
+              ? 'pass'
+              : 'run'
             : 'pass',
     // The description IS the count, per state (design copy: "6 / 6 command
     // gates passed", "attempt 2 failed · web / test"). The verbose failure
@@ -642,6 +670,7 @@ export function uatProcesses(input: QualityProcessesInput): InsideProcessView[] 
       input.now,
       input.resolvedGates ?? [],
       input.repoNameFor,
+      input.processRuns,
     ),
     servicesProcess(input.cell, input.services),
     testerProcess(input),
@@ -663,6 +692,7 @@ export function reviewProcesses(input: QualityProcessesInput): InsideProcessView
       input.now,
       input.resolvedGates ?? [],
       input.repoNameFor,
+      input.processRuns,
     ),
     servicesProcess(input.cell, input.services),
     reviewProcess(input),

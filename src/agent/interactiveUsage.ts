@@ -3,20 +3,22 @@ import type { AgentProvider } from '../manifest/types.js';
 /**
  * Measured token counts for an INTERACTIVE provider session (Task 5).
  *
- * `tokenUsage.ts` reads what a HEADLESS run printed; this module describes what
- * a provider bridge POSTs while a live session runs. The two share one rule:
- * a count is a finite, non-negative number, and anything else is not a count.
- * The shape mirrors `TokenUsage` — cache reads and cache writes are independent
- * counters and must never be collapsed into a single `cachedInput` value.
+ * `tokenUsage.ts` reads what a HEADLESS run printed; this module describes
+ * what a "sample source" produces while a live session runs — a bridge POST
+ * (codex/opencode), a session transcript read (claude, via
+ * claudeTranscriptWatch.ts), or a conversation-DB read (antigravity, via
+ * agyUsageWatch.ts). The two share one rule: a count is a finite, non-negative
+ * number, and anything else is not a count. The shape mirrors `TokenUsage` —
+ * cache reads and cache writes are independent counters and must never be
+ * collapsed into a single `cachedInput` value.
  *
- * A sample is CUMULATIVE for one provider session: the provider reports a
- * running tally (as opencode's step-finish tokens and codex's turn usage do),
- * and the delta since the last persisted observation is what a process spent.
- * The bridge may only emit a sample when the provider supplied numeric counts
- * AND a stable event/message id — the id is what makes the ingestion
- * idempotent, so an event without one is dropped before it reaches the store.
- * Nothing here ever estimates from transcript size, terminal text, elapsed
- * time, or model output.
+ * A sample is CUMULIVE for one provider session: the source reports a running
+ * tally (as opencode's step-finish tokens and codex's turn usage do), and the
+ * delta since the last persisted observation is what a process spent. The source
+ * may only emit a sample when the provider supplied numeric counts AND a stable
+ * event/message id — the id is what makes the ingestion idempotent, so an
+ * event without one is dropped before it reaches the store. Nothing here ever
+ * estimates from transcript size, terminal text, elapsed time, or model output.
  */
 
 export interface InteractiveUsageSample {

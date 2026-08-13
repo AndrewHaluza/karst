@@ -7,6 +7,7 @@ import { setMergeCheck } from '../../store/mergeChecks.js';
 import { recordPhaseMark } from '../../store/phaseMarks.js';
 import { recordTokenUsage } from '../../store/tokenUsage.js';
 import { openProcessRun } from '../../store/processRuns.js';
+import { openStageRun } from '../../store/stageRuns.js';
 import { parkGateStage } from '../../store/stageBlocks.js';
 import { MAX_DIAGNOSTIC_CHARS } from '../../model/diagnosticText.js';
 import { formatTime } from '../../model/inside/types.js';
@@ -138,14 +139,14 @@ describe('buildDashboardState', () => {
     expect(session.tokens).toMatchObject({ state: 'estimated' });
   });
 
-  it('shows the resolved agent core/model and enables switching only for a live impl session', () => {
+  it('shows the resolved agent core/model and enables switching', () => {
     const t = createTicket(store, { key: 'SW-1', title: 'switch' });
     updateTicketFields(store, t.id, { agentProvider: 'codex', model: 'gpt-5.6-sol' });
     store.db.prepare("UPDATE tickets SET stage_current = 'impl' WHERE id = ?").run(t.id);
 
     const state = buildDashboardState(
       store, t.id, undefined, undefined, undefined, undefined, 'claude',
-      { defaultModel: null, isSessionOpen: (id) => id === t.id },
+      { defaultModel: null },
     );
 
     expect(state.agentSession).toMatchObject({
@@ -155,15 +156,12 @@ describe('buildDashboardState', () => {
   });
 
   it.each([
-    ['impl', false], ['fix', false], ['review', true],
-  ] as const)('does not offer switching at %s/open=%s', (stage, open) => {
-    const t = createTicket(store, { key: `SW-${stage}-${open}`, title: 'switch' });
-    store.db.prepare('UPDATE tickets SET stage_current = ? WHERE id = ?').run(stage, t.id);
-    const state = buildDashboardState(
-      store, t.id, undefined, undefined, undefined, undefined, 'claude',
-      { isSessionOpen: () => open },
-    );
-    expect(state.agentSession.canSwitch).toBe(false);
+    'impl', 'fix', 'uat', 'review', 'ship', 'done', 'scope', null,
+  ] as const)('offers switching at %s whether or not a session is open', (stage) => {
+    const t = createTicket(store, { key: `SW-${stage ?? 'null'}`, title: 'switch' });
+    if (stage !== null) store.db.prepare('UPDATE tickets SET stage_current = ? WHERE id = ?').run(stage, t.id);
+    const state = buildDashboardState(store, t.id);
+    expect(state.agentSession.canSwitch).toBe(true);
   });
 
   it('does not offer switching while a Fix recovery execution owns the live session', () => {
@@ -178,7 +176,6 @@ describe('buildDashboardState', () => {
 
     const state = buildDashboardState(
       store, t.id, undefined, undefined, undefined, undefined, 'claude',
-      { isSessionOpen: () => true },
     );
 
     expect(state.agentSession.canSwitch).toBe(false);
@@ -923,6 +920,43 @@ describe('insideViews (the six-stage inside presentation)', () => {
     setStage(store, ticketId, 'impl', { status: 'running', startedAt: '2026-08-09T10:00:00.000Z' });
     const impl = buildDashboardState(store, ticketId).insideViews.impl;
     expect(impl.live).toMatchObject({ status: 'run', label: 'Session' });
+  });
+
+  it('names the AI phase as the current process once the gates have passed', () => {
+    // The uat stage runs gates first, THEN the Tester. While the Tester runs
+    // the stage still reads `running` — the gates are done work, so the gates
+    // row must read a checkmark and the header's current process must name the
+    // Tester, never Gates (the reported UAT mislead).
+    const ticketId = ticketAt('uat');
+    setStage(store, ticketId, 'uat', { status: 'running', startedAt: '2026-08-09T10:00:00.000Z' });
+    const stageRunId = openStageRun(store, {
+      ticketId,
+      stageKey: 'uat',
+      attempt: 0,
+      runAt: '2026-08-09T10:00:00.000Z',
+      startedAt: '2026-08-09T10:00:00.000Z',
+    });
+    recordGateRun(store, {
+      ticketId,
+      stageKey: 'uat',
+      attempt: 0,
+      runAt: '2026-08-09T10:00:00.000Z',
+      stageRunId,
+      gates: [{ gateName: 'test (web)', exitCode: 0 }],
+    });
+    openProcessRun(store, {
+      ticketId,
+      stageKey: 'uat',
+      processId: 'tester',
+      attempt: 0,
+      stageRunId,
+      provider: 'codex',
+      startedAt: '2026-08-09T10:05:00.000Z',
+    });
+    const uat = buildDashboardState(store, ticketId).insideViews.uat;
+    expect(uat.processes.find((p) => p.id === 'gates')!.status).toBe('pass');
+    expect(uat.processes.find((p) => p.id === 'tester')!.status).toBe('run');
+    expect(uat.live).toMatchObject({ status: 'run', label: 'Tester' });
   });
 
   it('omits the live line for a stage with nothing running or waiting', () => {

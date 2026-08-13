@@ -122,8 +122,8 @@ describe('ClaudeAdapter.buildInteractiveCommand', () => {
     expect(adapter.capabilities.resume).toBe(true);
   });
 
-  it('does not advertise interactive usage — Claude hooks carry no token counters', () => {
-    expect(adapter.capabilities.interactiveUsage).toBe(false);
+  it('advertises interactive usage — session transcript carries per-call token counts', () => {
+    expect(adapter.capabilities.interactiveUsage).toBe(true);
   });
 
 });
