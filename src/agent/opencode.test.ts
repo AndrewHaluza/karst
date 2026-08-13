@@ -55,12 +55,12 @@ function makeBasePackage(
 }
 
 describe('OpencodeAdapter capabilities', () => {
-  it('declares truthful conservative capabilities and the opencode binary', () => {
+  it('declares truthful capabilities and the opencode binary', () => {
     const a = new OpencodeAdapter();
     expect(a.requiredBinary).toBe('opencode');
     expect(a.capabilities).toEqual({
       lifecycleEvents: true,
-      resume: false,
+      resume: true,
       interactiveUsage: true,
     });
   });
@@ -104,6 +104,15 @@ describe('OpencodeAdapter interactive commands', () => {
     });
     expect(cmd.args).not.toContain('--name');
     expect(cmd.args).not.toContain('Karst: KARST-1 — title');
+  });
+
+  it('threads a captured session id as --session on a resumed launch', () => {
+    const cmd = new OpencodeAdapter().buildInteractiveCommand({
+      cwd: '/wt',
+      resume: 'ses_abc',
+      initialPrompt: 'go',
+    });
+    expect(cmd.args).toEqual(['--session', 'ses_abc', '--prompt', 'go']);
   });
 
   it('places extraArgs before the prompt', () => {
@@ -524,6 +533,130 @@ describe('generated karst-bridge plugin — UsageUpdate', () => {
           id: 'evt-status-idle',
           type: 'session.status',
           properties: { sessionID: 'ses_1', cwd: '/wt', status: { type: 'idle' } },
+        },
+      });
+      await expect(Promise.race([
+        r.received,
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('no posts within 150ms')), 150),
+        ),
+      ])).rejects.toThrow('no posts within 150ms');
+    } finally {
+      await r.close();
+    }
+  });
+});
+
+describe('generated karst-bridge plugin — SessionStart capture', () => {
+  function receiver(): Promise<{
+    endpointUrl: string;
+    received: Promise<unknown[]>;
+    close(): Promise<void>;
+  }> {
+    const bodies: unknown[] = [];
+    let resolveAll!: (b: unknown[]) => void;
+    const received = new Promise<unknown[]>((resolve) => {
+      resolveAll = resolve;
+    });
+    const server = createServer((request, response) => {
+      let body = '';
+      request.setEncoding('utf8');
+      request.on('data', (chunk: string) => {
+        body += chunk;
+      });
+      request.on('end', () => {
+        bodies.push(JSON.parse(body));
+        resolveAll(bodies);
+        response.writeHead(204);
+        response.end();
+      });
+    });
+    return new Promise((resolve, reject) => {
+      server.on('error', reject);
+      server.listen(0, '127.0.0.1', () => {
+        const address = server.address();
+        if (typeof address !== 'object' || address === null) {
+          reject(new Error('hook receiver did not bind a TCP port'));
+          return;
+        }
+        resolve({
+          endpointUrl: `http://127.0.0.1:${address.port}/hooks`,
+          received,
+          close: () =>
+            new Promise<void>((closeResolve, closeReject) => {
+              server.close((error) => {
+                if (error) closeReject(error);
+                else closeResolve();
+              });
+            }),
+        });
+      });
+    });
+  }
+
+  async function loadBridge(worktree: string, endpointUrl: string): Promise<{
+    event(input: unknown): Promise<void>;
+  }> {
+    const configDir = join(worktree, '.karst-runtime');
+    mkdirSync(configDir, { recursive: true });
+    const cmd = new OpencodeAdapter().buildInteractiveCommand({
+      cwd: worktree,
+      hookChannel: { endpointUrl, configDir },
+      initialPrompt: 'go',
+    });
+    const pluginPath = cmd.ownedPaths![0]!;
+    const mod = (await import(pathToFileURL(pluginPath).href)) as {
+      KarstBridge: (ctx: { directory: string; worktree: string }) => Promise<{
+        event(input: unknown): Promise<void>;
+      }>;
+    };
+    return mod.KarstBridge({ directory: worktree, worktree });
+  }
+
+  // The resume-by-id contract (§5.3) needs the interactive session id captured
+  // while a session runs. opencode delivers it ONLY at creation
+  // (`EventSessionCreated` carries `properties.info: Session` with `id` and
+  // `directory`), so the bridge must POST `SessionStart` on `session.created`
+  // — without it `tickets.session_id` stays NULL and the sidebar button can
+  // never `--session` the previous conversation (investigation #217).
+  it('posts SessionStart on session.created, reading id/directory from properties.info', async () => {
+    const worktree = makeWorktree();
+    const r = await receiver();
+    try {
+      const bridge = await loadBridge(worktree, r.endpointUrl);
+      await bridge.event({
+        event: {
+          id: 'evt-created',
+          type: 'session.created',
+          properties: {
+            info: { id: 'ses_created', directory: '/wt' },
+          },
+        },
+      });
+      const bodies = await Promise.race([
+        r.received,
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('plugin posted no SessionStart')), 2_000),
+        ),
+      ]);
+      expect(bodies).toEqual([
+        { hook_event_name: 'SessionStart', cwd: '/wt', session_id: 'ses_created' },
+      ]);
+    } finally {
+      await r.close();
+    }
+  });
+
+  it('drops a session.created without an id — nothing to capture', async () => {
+    const worktree = makeWorktree();
+    const r = await receiver();
+    try {
+      const bridge = await loadBridge(worktree, r.endpointUrl);
+      await bridge.event({
+        event: {
+          id: 'evt-created-none',
+          type: 'session.created',
+          properties: { info: { directory: '/wt' } },
         },
       });
       await expect(Promise.race([
