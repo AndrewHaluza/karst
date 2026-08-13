@@ -285,7 +285,106 @@
     color:var(--k-warning);
     border:var(--k-border-w) solid var(--k-warning);
     border-radius:var(--k-radius-xs);padding:var(--k-space-1) var(--k-space-3);opacity:.9}
-  #analyzeBtn .rico{font-size:var(--k-text-md);line-height:1}
+
+  /* Pixel control family (prototype 8662b8d05152810e): the Auto-improve switch
+     and the Improve button share one DNA — the same control height (two
+     `--k-space-8` at 1.4×), mono semibold type, hairline strong border and
+     chamfered corner, with the action accent appearing only for ON / busy.
+     `.k-switch`/`.k-btn` stay the primitives (UI-R07): markup, semantics and the
+     shared focus ring are untouched — only the surface is composed here, in
+     tokens (UI-R04). */
+  #autoImprove{
+    font-family:var(--k-font-mono);font-size:var(--k-text-xs);
+    font-weight:var(--k-weight-semibold);letter-spacing:.01em;
+    color:var(--k-text-dim);white-space:nowrap;
+    height:calc(var(--k-space-8) * 1.4)}
+  #autoImprove[aria-checked="true"]{color:var(--k-text)}
+  #autoImprove .k-switch-track{
+    width:calc(var(--k-space-9) + var(--k-space-4));height:var(--k-space-8);
+    border-radius:var(--k-radius-xs);
+    background:var(--k-surface-sunken);border-color:var(--k-border-strong);
+    box-shadow:inset 0 calc(-1 * var(--k-border-w)) 0 var(--k-border);
+    transition:background var(--k-dur-fast) var(--k-ease-standard),
+               border-color var(--k-dur-fast) var(--k-ease-standard)}
+  #autoImprove .k-switch-track::after{
+    top:var(--k-space-2);left:var(--k-space-2);
+    width:var(--k-space-5);height:var(--k-space-5);
+    border-radius:0;background:var(--k-text-dim);
+    transition:left var(--k-dur-fast) steps(2,end),background var(--k-dur-fast) steps(2,end)}
+  #autoImprove[aria-checked="true"] .k-switch-track{
+    background:var(--k-surface-sunken);border-color:var(--k-focus)}
+  #autoImprove[aria-checked="true"] .k-switch-track::after{
+    left:calc(var(--k-space-8) - var(--k-space-1));
+    transform:none;background:var(--k-action-bg)}
+  #autoImprove .k-switch-track::before{
+    content:"";position:absolute;inset:var(--k-space-1);opacity:0;pointer-events:none;
+    background:linear-gradient(90deg,transparent 0 var(--k-space-2),var(--k-action-bg) var(--k-space-2) var(--k-space-3),transparent var(--k-space-3) var(--k-space-5))}
+  #autoImprove[aria-checked="true"] .k-switch-track::before{
+    opacity:.35;animation:karstToggleScan var(--k-dur-base) steps(4,end) infinite}
+  @keyframes karstToggleScan{
+    from{background-position:calc(-1 * var(--k-space-4)) 0}
+    to{background-position:var(--k-space-6) 0}}
+
+  #analyzeBtn{
+    font-family:var(--k-font-mono);font-size:var(--k-text-xs);
+    font-weight:var(--k-weight-semibold);letter-spacing:.01em;
+    display:grid;grid-template-columns:var(--k-space-7) minmax(min-content,1fr) var(--k-space-6);
+    gap:var(--k-space-3);align-items:center;
+    height:calc(var(--k-space-8) * 1.4);min-width:calc(var(--k-space-8) * 8);
+    padding:var(--k-space-0) var(--k-space-4);
+    border-color:var(--k-border-strong);border-radius:var(--k-radius-xs);
+    background:var(--k-surface-sunken);color:var(--k-text);
+    overflow:hidden;isolation:isolate}
+  #analyzeBtn:hover:not(:disabled){background:var(--k-surface-hover)}
+  #analyzeBtn .pixcore{
+    width:var(--k-space-6);height:var(--k-space-6);
+    display:grid;grid-template-columns:repeat(3,calc(var(--k-space-2) - var(--k-border-w)));
+    grid-template-rows:repeat(3,calc(var(--k-space-2) - var(--k-border-w)));
+    gap:var(--k-border-w)}
+  #analyzeBtn .pixcore span{background:var(--k-text-dim)}
+  #analyzeBtn .pixcore span:nth-child(2n){opacity:.35}
+  #analyzeBtn .pixcore span:nth-child(5){background:currentColor}
+  #analyzeBtn #analyzeLbl{justify-self:center;white-space:nowrap}
+  #analyzeBtn .tail{justify-self:end;color:var(--k-text-faint);font-size:var(--k-text-2xs)}
+  #analyzeBtn .tail::before{content:"↗"}
+  #analyzeBtn:disabled{
+    opacity:1;cursor:default;
+    color:var(--k-text-faint);border-color:var(--k-border);background:var(--k-surface-sunken)}
+  #analyzeBtn:disabled .pixcore{opacity:.48}
+  #analyzeBtn:disabled .tail{color:var(--k-text-faint)}
+  #analyzeBtn[aria-busy="true"]{
+    cursor:default;color:var(--k-text);
+    border-color:var(--k-focus);background:var(--k-surface)}
+  #analyzeBtn[aria-busy="true"]::before{content:none}
+  #analyzeBtn[aria-busy="true"]::after{
+    content:"";position:absolute;inset:0;z-index:-1;
+    background:linear-gradient(90deg,transparent,var(--k-action-bg) 50%,transparent);
+    opacity:.18;animation:karstScan var(--k-dur-base) steps(8,end) infinite}
+  #analyzeBtn[aria-busy="true"] .pixcore span{animation:karstMatrix calc(var(--k-dur-base) * 4) steps(1,end) infinite}
+  #analyzeBtn[aria-busy="true"] .pixcore span:nth-child(2){animation-delay:calc(var(--k-dur-fast) * 1)}
+  #analyzeBtn[aria-busy="true"] .pixcore span:nth-child(3){animation-delay:calc(var(--k-dur-fast) * 2)}
+  #analyzeBtn[aria-busy="true"] .pixcore span:nth-child(4){animation-delay:calc(var(--k-dur-fast) * 3)}
+  #analyzeBtn[aria-busy="true"] .pixcore span:nth-child(5){animation-delay:calc(var(--k-dur-fast) * 4)}
+  #analyzeBtn[aria-busy="true"] .pixcore span:nth-child(6){animation-delay:calc(var(--k-dur-fast) * 5)}
+  #analyzeBtn[aria-busy="true"] .pixcore span:nth-child(7){animation-delay:calc(var(--k-dur-fast) * 6)}
+  #analyzeBtn[aria-busy="true"] .pixcore span:nth-child(8){animation-delay:calc(var(--k-dur-fast) * 7)}
+  #analyzeBtn[aria-busy="true"] .pixcore span:nth-child(9){animation-delay:calc(var(--k-dur-fast) * 8)}
+  #analyzeBtn[aria-busy="true"] .tail{color:var(--k-action-bg);animation:karstCaret var(--k-dur-base) steps(1,end) infinite}
+  #analyzeBtn[aria-busy="true"] .tail::before{content:"_"}
+  @keyframes karstScan{
+    from{transform:translateX(calc(-1 * var(--k-space-8)))}
+    to{transform:translateX(calc(var(--k-space-8) * 8))}}
+  @keyframes karstMatrix{
+    0%,49%{background:var(--k-surface-sunken);opacity:.45}
+    50%,74%{background:var(--k-action-bg);opacity:1}
+    75%,100%{background:var(--k-action-bg);opacity:1}}
+  @keyframes karstCaret{50%{opacity:.1}}
+  @media (prefers-reduced-motion:reduce){
+    #autoImprove .k-switch-track::before,
+    #analyzeBtn[aria-busy="true"]::after,
+    #analyzeBtn[aria-busy="true"] .pixcore span,
+    #analyzeBtn[aria-busy="true"] .tail{animation:none}
+    #autoImprove .k-switch-track::after{transition:none}}
 
   /* Slide-over brief drawer — the page's signature moment. `.k-scrim`/`.k-drawer`
      supply the surface/shadow/border/z-index; the open/closed transform (the
@@ -378,7 +477,7 @@
       <span class="delta hidden" id="deltaBadge"></span>
       <button type="button" class="k-btn k-btn--secondary" id="analyzeBtn"
               title="Improve the prompt with AI — also suggests the approach and repositories">
-        <span class="rico" aria-hidden="true">⟳</span><span id="analyzeLbl">Improve with AI</span>
+        <span class="pixcore" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span><span id="analyzeLbl">Improve with AI</span><span class="tail" aria-hidden="true"></span>
       </button>
     </span>
   </div>
