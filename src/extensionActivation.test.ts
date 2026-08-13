@@ -105,6 +105,37 @@ describe('extension activation', () => {
     expect(source).toContain('sessions.adoptLateSession(session, classifyLateSession)');
   });
 
+  // A graph session's transport registry is in-memory and recreated fresh on
+  // activation, while the terminal survives the reload. Without a re-attach the
+  // "the coordinator re-attaches it on the next sweep" message is a promise
+  // nothing keeps: `openSession` reports "session not attached" and the graph
+  // sits stalled with no interaction path. The wiring is pinned here: the
+  // coordinator re-attaches revived graph sessions on activation AND on each
+  // PR sweep, and `openSession` re-attaches before reporting "not attached".
+  it('re-attaches revived graph sessions on activation, on the sweep, and before the not-attached message', () => {
+    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+    const transportSource = readFileSync(
+      join(process.cwd(), 'src', 'approaches', 'graph', 'transport', 'supervisedCliTransport.ts'),
+      'utf8',
+    );
+
+    // The transport can register a session without spawning a second agent.
+    expect(transportSource).toContain('adopt(session: SupervisedAgentSession): void;');
+    // The pure resolver gates on the same adoption rule as the entry-point matrix.
+    expect(source).toContain('reattachableSessionIdentity(');
+    // Activation re-attaches right after the reload reconcile…
+    expect(source.indexOf('void reconcileGraphRuns();')).toBeLessThan(
+      source.indexOf('void reattachGraphSessions();'),
+    );
+    // …the coordinator sweep re-attaches on every tick…
+    expect(source.indexOf('void reattachGraphSessions();')).toBeLessThan(
+      source.indexOf('activeGraphRunIds(graphCoordinatorStore.db)'),
+    );
+    // …and openSession re-attaches BEFORE showing the "not attached" message.
+    expect(source).toMatch(/if \(!session\) await reattachGraphSessions\(\);/);
+    expect(source).toContain('its session is not attached to this window');
+  });
+
   // A process run is opened durably before the process starts, so a run whose
   // extension host died mid-flight stays `running` forever unless something
   // sweeps it — and a run killed by process death is the exact evidence the
