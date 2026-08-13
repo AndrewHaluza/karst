@@ -555,7 +555,10 @@ describe('ship quarantine commit primitives', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
-  });
+    // A dozen sequential real-git operations on a fresh repo; well over the 5s
+    // unit default once the parallel suite loads the machine (the UAT gate
+    // failed this test on exactly that timeout).
+  }, 20_000);
 
   it('headCommit, listCommitsFrom and remoteRefSha answer for a real repo', async () => {
     const dir = await freshRepo('probes');
