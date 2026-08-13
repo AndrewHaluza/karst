@@ -111,19 +111,14 @@ export function makeDefaultSpawn(spawnImpl: SpawnImpl): SpawnHeadless {
 const defaultSpawn: SpawnHeadless = makeDefaultSpawn(spawn);
 
 export class AntigravityAdapter implements AgentAdapter {
-  // agy 1.1.11 has NO executable hook channel in the CLI (its hooks.json loads
-  // but never runs — see docs/guides/adding-agent-core.md § Antigravity), so
-  // lifecycle signals come from the conversation watch (agyConversationWatch.ts):
-  // it reads the CLI's conversation DB — the pending `status = 9` step that
-  // exists exactly while a permission ask is on screen — and normalizes it into
-  // the closed hook vocabulary (SessionStart / permission.asked /
-  // UserPromptSubmit). The captured conversation id also makes `--conversation`
-  // resume real. There is still no usage channel: `interactiveUsage` stays
-  // false — truthful absence, never a measured zero.
+  // agy 1.1.12 persists per-call token usage in the conversation DB's
+  // steps.metadata (field-9 submessage — see agyUsageWatch.ts), read by the
+  // same sweep that reads lifecycle events (agyConversationWatch.ts). The hooks
+  // remain non-executing; the DB is the channel.
   readonly capabilities: AgentCapabilities = {
     lifecycleEvents: true,
     resume: true,
-    interactiveUsage: false,
+    interactiveUsage: true,
   };
   readonly requiredBinary = AGY_BIN;
 

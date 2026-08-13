@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
-import { readFileSync, mkdirSync, existsSync, writeFileSync } from 'node:fs';
+import { readFileSync, mkdirSync, existsSync, writeFileSync, statSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import {
   lstat as fsLstat,
@@ -8,7 +9,7 @@ import {
   realpath as fsRealpath,
 } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { basename, dirname, join } from 'node:path';
+import { basename, dirname, isAbsolute, join } from 'node:path';
 
 import { openStore, type Store } from './store/db.js';
 import { describeStoreOpenFailure } from './extension/storeOpenFailure.js';
@@ -125,15 +126,25 @@ import {
   type AgyConversationSnapshot,
   type AgyWatchState,
 } from './agent/agyConversationWatch.js';
+import {
+  agyUsageTick,
+  type AgyConversationUsage,
+  type AgyUsageState,
+} from './agent/agyUsageWatch.js';
+import {
+  resolveClaudeProjectsDir,
+  transcriptPathFor,
+  parseClaudeTranscript,
+  claudeTranscriptTick,
+  type ClaudeTranscriptSnapshot,
+  type ClaudeWatchState,
+} from './agent/claudeTranscriptWatch.js';
 import type { HookPayload } from './hooks/dispatch.js';
 import { dispatchHook } from './hooks/dispatch.js';
 import type { StageKey } from './model/types.js';
 import { buildTicketContext, renderTicketContext } from './context/ticketContext.js';
 import { resolveEffortForProvider, resolveModelForProvider } from './agent/models.js';
-import {
-  renderTicketLabel,
-  DEFAULT_TERMINAL_NAME_TEMPLATE,
-} from './store/ticketLabelTemplate.js';
+import { terminalTicketName } from './store/ticketLabelTemplate.js';
 import { compactTicketLabel } from './model/followUp.js';
 import { ticketGlyph } from './model/ticketGlyph.js';
 import { glyphIconPath } from './ui/glyphIcon.js';
@@ -162,6 +173,7 @@ import { electReplan } from './approaches/graph/coordinator/replan.js';
 import {
   createSupervisedCliTransport,
   type SupervisedCliTransport,
+  type SupervisedAgentSession,
   type TransportTerminal,
   type TransportTerminalHost,
 } from './approaches/graph/transport/supervisedCliTransport.js';
@@ -171,18 +183,40 @@ import {
   shouldDriveGraphTicket,
   stopActiveGraph,
 } from './approaches/graph/entryPoints.js';
+import { reattachableSessionIdentity } from './approaches/graph/coordinator/reattach.js';
 import { runCompletionPipeline, type CompletionPipelineDeps } from './approaches/graph/integration/pipeline.js';
 import { artifactRootDir } from './approaches/graph/artifacts/snapshot.js';
 import { declaredWritesFor } from './approaches/graph/integration/claims.js';
 import { flipOnEndQuiescence } from './approaches/graph/coordinator/completion.js';
 import { resolveGraphDiagnosticIdentity } from './approaches/graph/diagnostics.js';
 import { recoverGraphRun, type RecoveryDeps } from './approaches/graph/coordinator/recovery.js';
+import type { ReplanLaunchRequest } from './approaches/graph/coordinator/replan.js';
 import { type ActivationDomain } from './approaches/graph/coordinator/leases.js';
 import { activationDomainKeys, type AllowlistCommandAccess } from './approaches/graph/coordinator/conflicts.js';
 import { parseGraphDocument } from './approaches/graph/parse.js';
 import { nodeOverrideFor, type BaseHead } from './store/graph/nodeRuns.js';
 import { blockGraphStage } from './workflow/graphMarkerGuard.js';
 import { DEFAULT_GRAPH_LIMITS } from './manifest/graphConfig.js';
+import {
+  acceptSubmittedPlan,
+  acceptSubmittedReplan,
+  bootstrapAndLaunchPlanner,
+  confirmGraphRun,
+  driveReadyNodeRuns,
+  launchReplanPlanner,
+  resolveProfileFor,
+  type GraphDriverDeps,
+} from './approaches/graph/driver.js';
+import { runGraphCommand } from './cli/graph.js';
+import { buildGraphSessionEnv } from './approaches/graph/transport/env.js';
+import { createNodeWorkspace } from './approaches/graph/workspace/provider.js';
+import type {
+  CommandDefinition,
+  CompileContext,
+  ProfileTier,
+  ResolvedRepository,
+} from './approaches/graph/compile.js';
+import type { GraphDocument } from './approaches/graph/parse.js';
 import {
   domainKeyOf,
   gitCommonDirFromFs,
@@ -273,6 +307,8 @@ import {
 import type {
   AgentProvider,
   ApproachDef,
+  GraphApproachConfig,
+  GraphCommandConfig,
 } from './manifest/types.js';
 import { instrumentAdapter } from './agent/instrumentedAdapter.js';
 import { recordTokenUsage } from './store/tokenUsage.js';
@@ -327,6 +363,7 @@ import {
 import type { Project } from './store/projects.js';
 import { bindProject } from './project/bind.js';
 import { resolveProjectSlug } from './project/slug.js';
+import { listTicketLifecycle } from './store/runningServers.js';
 import { TicketFormManager } from './ui/ticketForm/panel.js';
 import {
   buildTicketFormActions,
@@ -762,6 +799,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // read showed a pending permission ask. Ephemeral — rebuilt from the CLI's
   // own state on every sweep, cleared when the terminal closes.
   const agyWatchStates = new Map<number, AgyWatchState>();
+  // Per-ticket memory of the agy usage watch: the last conversation step idx
+  // already emitted as a UsageUpdate. Ephemeral — rebuilt from the DB on every
+  // sweep, cleared when the terminal closes (the store dedupes on event id).
+  const agyUsageStates = new Map<number, AgyUsageState>();
+  // Per-ticket memory of the claude transcript usage watch: the last transcript
+  // path, message uuid, and file fingerprint. Ephemeral — rebuilt from the file
+  // on every sweep, cleared when the terminal closes.
+  const claudeTranscriptStates = new Map<number, ClaudeWatchState>();
   const ownershipWriter = new SerializedStateWriter<number[]>(
     (snapshot) =>
       context.workspaceState.update(OWNED_SESSION_TICKETS_KEY, snapshot),
@@ -847,6 +892,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // The agy watch's per-ticket memory dies with the terminal: a closed
       // session must not keep a stale conversation/awaiting state behind.
       agyWatchStates.delete(ticketId);
+      agyUsageStates.delete(ticketId);
+      claudeTranscriptStates.delete(ticketId);
       ownedSessionTickets.delete(ticketId);
       void persistOwnedSessionTickets();
       setAgentState(localStore, ticketId, 'idle');
@@ -1393,12 +1440,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         },
         isSessionOpen: () => sessions.isOpen(ticketId),
         isProviderReady: (provider) => guardProviderCapabilityAsync('sessions', provider),
-        confirm: async ({ from, to }) => {
+        confirm: async ({ from, to, willReplaceSession }) => {
           const choice = await vscode.window.showWarningMessage(
             `Switch from ${from.providerLabel} · ${from.modelLabel} to ${to.providerLabel} · ${to.modelLabel}?`,
             {
               modal: true,
-              detail: 'Karst will close the current terminal and start a fresh agent session. Worktree changes and ticket progress stay intact.',
+              detail: willReplaceSession
+                ? 'Karst will close the current terminal and start a fresh agent session. Worktree changes and ticket progress stay intact.'
+                : 'Karst will start a fresh agent session with the new core. Worktree changes and ticket progress stay intact.',
             },
             'Switch and continue',
           );
@@ -1416,7 +1465,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }, modelCatalog, { provider: targetProvider, model, effort });
       // Keep the same outcome toasts as before (stale / launch-failed).
       if (outcome.kind === 'stale') {
-        void vscode.window.showInformationMessage('The live agent session changed before it could be switched.');
+        void vscode.window.showInformationMessage('The ticket state changed before the agent could be switched.');
       } else if (outcome.kind === 'launch-failed') {
         void vscode.window.showErrorMessage(
           `The agent selection was saved, but its session could not start: ${outcome.error instanceof Error ? outcome.error.message : String(outcome.error)}`,
@@ -2147,6 +2196,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return project ? listWorktreesByProject(localStore, project.id).map((w) => w.path) : [];
     },
     pathContext: () => worktreePathContext(currentManifest(), logger.warn, logger.info),
+    // The attributed lane carries only `tickets.id`; resolve it to the key/title
+    // the user can match against their board (the id is not a visible label).
+    ticketIdentity: (ids) =>
+      new Map([...listTicketLifecycle(localStore, ids)].map(([id, t]) => [id, { key: t.key, title: t.title }])),
+    scopeLabel: () => {
+      const project = currentProject();
+      return project ? `Project ${project.name ?? project.slug} · this window` : '';
+    },
     // The kill confirmation is HOST-side (UI-R33): the webview posts only a
     // `servers.id`, and a crafted message can never skip this modal.
     confirm: async (message) => {
@@ -2360,6 +2417,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         (path) => void launchWorktreeDevWindow(path),
         () => launchWorktreeConfig(),
         () => graphRecoveryDeps(),
+        (launch) => void launchReplanPlannerHost(launch),
         // The stage key arrives from the webview; the manager resolves the read
         // through the injected reader and posts the answer to this ticket's
         // panel (the postInsideProgress pattern).
@@ -2404,7 +2462,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       defaultModel: currentManifest()?.defaultModel ?? null,
       defaultEffort: currentManifest()?.defaultEffort ?? null,
       modelCatalog,
-      isSessionOpen: (ticketId) => sessions.isOpen(ticketId),
     }),
     (worktrees, signal) => loadWorktreeStats(worktrees, defaultGitRunner, logError, signal),
     // The rail's retry meter must draw the budget the driver will actually
@@ -2489,6 +2546,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       },
     },
     () => graphRecoveryDeps(),
+    (launch) => void launchReplanPlannerHost(launch),
   ),
   // Live manifest getter, so the inside views resolve the REAL service names
   // and process assignments (panel.ts is manifest-free by contract).
@@ -3076,8 +3134,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
     // Completing nodes are integrated by THIS window, in node-run order (the
     // pipeline's integrating-slot CAS serializes the write phases across
-    // windows). A deferred node is retried on the next tick.
-    void driveCompletingNodes(graphRunId);
+    // windows). A deferred node is retried on the next tick. The continuation
+    // also accepts a submitted plan and executes newly claimed node runs.
+    void driveGraphRunContinuation(graphRunId);
   };
 
   /** The wake-up route for a graph run, created on first use. */
@@ -3223,6 +3282,50 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       .get(nodeRunId) as { ticket_id: number } | undefined;
     if (!run) return undefined;
     return tr.sessionFor(run.ticket_id, nodeRunId);
+  };
+
+  /**
+   * Re-attach a live graph session to this window after a reload. The
+   * transport's session registry is in-memory and recreated fresh on
+   * activation; the terminals themselves survive, so a session whose
+   * `KARST_LAUNCH_ID` still matches a live node/planner run of the active
+   * graph is re-registered from the revived terminal — NEVER a second spawn.
+   * This is what the "the coordinator re-attaches it on the next sweep"
+   * message promises; without it a planning/running graph sits stalled with no
+   * interaction path (the reported defect).
+   */
+  const reattachGraphSessions = async (): Promise<void> => {
+    const gs = graphCoordinatorStore;
+    const tr = graphTransport;
+    if (!gs || !tr) return;
+    for (const terminal of vscode.window.terminals) {
+      await terminalIdentity.resolve(terminal);
+      const named = terminalIdentity.identify(terminal);
+      if (!named || named.launchId === undefined) continue;
+      if (tr.sessionFor(named.ticketId, Number(named.launchId))) continue; // already attached
+      const identity = reattachableSessionIdentity(gs.db, {
+        ticketId: named.ticketId,
+        launchId: named.launchId,
+      });
+      if (!identity) continue;
+      const session: SupervisedAgentSession = {
+        nodeRunId: identity.nodeRunId,
+        ticketId: named.ticketId,
+        graphRunId: identity.graphRunId,
+        pid: identity.pid,
+        cwd: graphTerminalCwd(terminal),
+        generation: identity.generation,
+        ownerNonce: identity.ownerNonce,
+        startedAt: identity.startedAt,
+        processRunId: identity.processRunId,
+        providerSessionId: null,
+        terminal: wrapRevivedGraphTerminal(terminal),
+      };
+      tr.adopt(session);
+      logger.debug(
+        `[graph] re-attached live ${identity.kind} session for run ${identity.nodeRunId} (ticket ${named.ticketId})`,
+      );
+    }
   };
 
   /** The graph run's artifact root under global storage (Decision 15): where
@@ -3526,6 +3629,455 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
   });
 
+  /* ------------------------------------------------------------------ */
+  /* Graph-run launch seam — the missing orchestration. A graph-approach   */
+  /* ticket must START the graph (bootstrap planner → plan → compile →     */
+  /* confirm → execute nodes), never open a plain implementation session.  */
+  /* ------------------------------------------------------------------ */
+
+  /** The effective `graph:` block of an approach (built-in overlay applied). */
+  const graphApproachConfigFor = (approachId: string): GraphApproachConfig | undefined =>
+    withBuiltInApproaches(currentManifest() ?? emptyManifest())
+      .approaches?.find((a) => a.id === approachId)?.graph;
+
+  const graphRunTicketId = (graphRunId: number): number =>
+    (graphCoordinatorStore?.db
+      .prepare('SELECT ticket_id FROM approach_graph_runs WHERE id = ?')
+      .get(graphRunId) as { ticket_id: number } | undefined)?.ticket_id ?? 0;
+
+  const graphRunApproachId = (graphRunId: number): string =>
+    (graphCoordinatorStore?.db
+      .prepare('SELECT approach_id FROM approach_graph_runs WHERE id = ?')
+      .get(graphRunId) as { approach_id: string } | undefined)?.approach_id ?? '';
+
+  /** The per-launch identity the host keeps until the planner session closes,
+   *  so it can run `karst graph submit` on the planner's behalf with the same
+   *  capability it minted at launch. */
+  const graphLaunchIdentities = new Map<
+    number,
+    { graphRunId: number; ticketId: number; plannerRunId: number; generation: string; capability: string }
+  >();
+
+  /** The driver's host bindings: transport, prompts, adapters, git, and the
+   *  manifest/registry seams the pure driver cannot reach. */
+  const graphDriverDeps = (): GraphDriverDeps => {
+    const gs = graphCoordinatorStore;
+    const tr = graphTransport;
+    return {
+      db: gs!.db,
+      transaction: <T>(fn: () => T): T =>
+        (gs!.db.transaction as unknown as (f: () => T, o: { begin: 'immediate' }) => () => T)(fn, {
+          begin: 'immediate',
+        })(),
+      now: () => new Date().toISOString(),
+      debug: (message) => logger.debug(message),
+      graphConfigOf: graphApproachConfigFor,
+      artifactRootOf: graphArtifactRoot,
+      graphEnvOf: (input) =>
+        buildGraphSessionEnv({
+          ticketId: graphRunTicketId(input.graphRunId),
+          launchId: input.launchId,
+          graphRunId: input.graphRunId,
+          revisionId: input.revisionId,
+          generation: input.generation,
+          capability: input.capability,
+          artifactRoot: input.artifactRoot,
+          callbackUrl: graphRouteFor(input.graphRunId).url,
+          dbPath,
+          projectId: currentProject()?.id ?? 0,
+        }),
+      adapterFor: (provider) =>
+        instrument(resolveAdapter(provider as AgentProvider), provider as AgentProvider),
+      transport: tr!,
+      promptBytesOf: (identity) => {
+        try {
+          const resolved = resolveGraphPrompt(
+            approachesDirOrThrow(),
+            context.extensionUri.fsPath,
+            identity,
+          );
+          return new Uint8Array(readFileSync(resolved.path));
+        } catch {
+          return undefined;
+        }
+      },
+      writeSnapshot: (graphRunId, relativePath, bytes) => {
+        const root = graphArtifactRoot(graphRunId);
+        if (!root) return;
+        const target = join(root, relativePath);
+        mkdirSync(dirname(target), { recursive: true });
+        writeFileSync(target, bytes);
+      },
+      readBytes: (graphRunId, relativeOrAbsolute) => {
+        // Recorded artifact-instance `snapshot_path` values are absolute
+        // (content-addressed under the root); relative paths (the plan
+        // snapshot, diagnostics) resolve under the run's artifact root.
+        const root = graphArtifactRoot(graphRunId);
+        const target = isAbsolute(relativeOrAbsolute) ? relativeOrAbsolute : join(root, relativeOrAbsolute);
+        try {
+          return new Uint8Array(readFileSync(target));
+        } catch {
+          return undefined;
+        }
+      },
+      ticketContextOf: (ticketId) =>
+        renderTicketContext(
+          buildTicketContext(localStore, currentManifest(), ticketId, context.globalStorageUri.fsPath),
+        ),
+      compileContextOf: (graphRunId, document) => graphCompileContext(graphRunId, document),
+      physicalDomainsOf: (graphRunId, document, nodeId) => {
+        const node = document.nodes.find((n) => n.id === nodeId);
+        if (!node || node.kind === 'join') return [];
+        const config = graphApproachConfigFor(graphRunApproachId(graphRunId));
+        const commands: AllowlistCommandAccess = new Map(
+          Object.entries(config?.commands ?? {}).map(([id, def]) => [id, def.access] as const),
+        );
+        const worktreeByRepo = new Map(
+          graphDomainsFor(graphRunId).map((entry) => [entry.repoName, entry.worktreePath]),
+        );
+        const physicalDomainOf = (repoName: string): string | null => {
+          const worktreePath = worktreeByRepo.get(repoName);
+          return worktreePath
+            ? domainKeyOf(canonicalPath(worktreePath), gitCommonDirFromFs(worktreePath))
+            : null;
+        };
+        const domains =
+          node.kind === 'agent'
+            ? activationDomainKeys(
+                { kind: 'agent', reads: node.resources.reads, writes: node.resources.writes },
+                commands,
+                physicalDomainOf,
+              )
+            : node.kind === 'command'
+              ? activationDomainKeys(
+                  { kind: 'command', command: node.command, repositories: node.repositories },
+                  commands,
+                  physicalDomainOf,
+                )
+              : [];
+        return domains.map((d) => d.physicalDomain);
+      },
+      commandDefOf: (graphRunId, commandId) =>
+        graphApproachConfigFor(graphRunApproachId(graphRunId))?.commands[commandId],
+      runProcess,
+      plannerCwdOf: (graphRunId) => {
+        const wt = listWorktreesByTicket(localStore, graphRunTicketId(graphRunId))[0];
+        return wt ? { repo: wt.repo, cwd: wt.path } : undefined;
+      },
+      cwdForRepo: (graphRunId, repo) => {
+        const wt = listWorktreesByTicket(localStore, graphRunTicketId(graphRunId)).find(
+          (w) => w.repo === repo,
+        );
+        return wt?.path;
+      },
+      workspaceOf: (graphRunId, nodeRunId, repo) =>
+        (gs?.db
+          .prepare(
+            `SELECT cwd FROM approach_graph_workspaces
+             WHERE graph_run_id = ? AND node_run_id = ? AND repo_name = ? ORDER BY id LIMIT 1`,
+          )
+          .get(graphRunId, nodeRunId, repo) as { cwd: string } | undefined)?.cwd,
+      createWorkspace: (input) =>
+        createNodeWorkspace(
+          {
+            db: gs!.db,
+            transaction: <T>(fn: () => T): T =>
+              (gs!.db.transaction as unknown as (f: () => T, o: { begin: 'immediate' }) => () => T)(fn, {
+                begin: 'immediate',
+              })(),
+            git: defaultGitRunner,
+            maxAggregateWorkspaceBytes:
+              graphApproachConfigFor(graphRunApproachId(input.graphRunId))?.limits
+                .maxAggregateWorkspaceBytes ?? DEFAULT_GRAPH_LIMITS.maxAggregateWorkspaceBytes,
+            globalStorageRoot: context.globalStorageUri.fsPath,
+            now: () => new Date().toISOString(),
+            facts: systemAsyncProcessFacts,
+            debug: (message) => logger.debug(message),
+          },
+          {
+            projectSlug: currentProject()?.slug ?? 'unknown',
+            ticketId: graphRunTicketId(input.graphRunId),
+            graphRunId: input.graphRunId,
+            nodeRunId: input.nodeRunId,
+            domains: input.domains,
+          },
+        ),
+      sessionNameOf: (runId, kind) => `Karst ${kind} ${runId}`,
+      cliNodeCompletionCommand: () =>
+        `node "${join(context.extensionUri.fsPath, 'dist', 'cli', 'main.js')}" node complete`,
+    };
+  };
+
+  /** The compile context for a graph run: profiles/commands/repositories from
+   *  the live manifest, project maxima from the graph config, and
+   *  `artifactFileExists` over the parsed document's declared staging paths. */
+  const graphCompileContext = (graphRunId: number, document?: GraphDocument): CompileContext => {
+    const approachId = graphRunApproachId(graphRunId);
+    const config = graphApproachConfigFor(approachId);
+    const manifest = currentManifest() ?? emptyManifest();
+    const worktrees = listWorktreesByTicket(localStore, graphRunTicketId(graphRunId));
+    const wtByRepo = new Map(worktrees.map((wt) => [wt.repo, wt.path]));
+    const repositories = new Map<string, ResolvedRepository>();
+    for (const repoName of Object.keys(manifest.repositories ?? {})) {
+      const path = wtByRepo.get(repoName);
+      if (!path) continue;
+      repositories.set(repoName, {
+        id: repoName,
+        root: '',
+        domain: domainKeyOf(canonicalPath(path), gitCommonDirFromFs(path)),
+      });
+    }
+    const profiles = new Map<string, ProfileTier>();
+    for (const name of Object.keys(config?.profiles ?? {})) {
+      profiles.set(name, name === 'expert' ? 'expert' : 'worker');
+    }
+    const commands = new Map<string, CommandDefinition>();
+    for (const [id, def] of Object.entries(config?.commands ?? {})) {
+      commands.set(id, {
+        id,
+        fingerprint: sha256HexCommand(def),
+        access: def.access,
+        timeoutSeconds: def.timeoutSeconds,
+        permittedRepositories: Object.keys(manifest.repositories ?? {}),
+      });
+    }
+    const artifactPaths = new Map(
+      (document?.artifacts ?? []).map((a) => [a.id, a.path]),
+    );
+    const root = graphArtifactRoot(graphRunId);
+    const artifactFileExists = (artifactId: string): boolean => {
+      const rel = artifactPaths.get(artifactId);
+      if (!rel || !root) return false;
+      try {
+        return existsSync(join(root, rel));
+      } catch {
+        return false;
+      }
+    };
+    return {
+      profiles,
+      commands,
+      repositories,
+      artifactFileExists,
+      expertSpend: {
+        // The bootstrap planner already ran (spent); the compile reserves the
+        // permitted replan budget and charges no bootstrap for the future.
+        spentPlannerRuns: 1,
+        permittedReplans: config?.limits.maxReplans ?? 0,
+        bootstrapUnspent: false,
+      },
+      projectMaxima: {
+        maxNodeRuns: config?.limits.maxNodeRuns ?? DEFAULT_GRAPH_LIMITS.maxNodeRuns,
+        maxExpertRuns: config?.limits.maxExpertRuns ?? DEFAULT_GRAPH_LIMITS.maxExpertRuns,
+        maxReplans: config?.limits.maxReplans ?? DEFAULT_GRAPH_LIMITS.maxReplans,
+      },
+    };
+  };
+
+  const sha256HexCommand = (def: GraphCommandConfig): string =>
+    createHash('sha256')
+      .update(
+        JSON.stringify({ command: def.command, args: def.args, cwd: def.cwd, access: def.access, timeoutSeconds: def.timeoutSeconds, env: def.env ?? {} }),
+      )
+      .digest('hex');
+
+  /** Drive the post-tick continuation of a graph run: accept a submitted plan,
+   *  execute claimed node runs, and finish completing nodes. Called after every
+   *  coordinator tick, a submit, a confirm, and a replan launch. */
+  const driveGraphRunContinuation = async (graphRunId: number): Promise<void> => {
+    const gs = graphCoordinatorStore;
+    if (!gs) return;
+    try {
+      const run = gs.db
+        .prepare('SELECT status FROM approach_graph_runs WHERE id = ?')
+        .get(graphRunId) as { status: string } | undefined;
+      if (!run) return;
+      if (run.status === 'planning') {
+        const accepted = acceptSubmittedPlan(graphDriverDeps(), graphRunId);
+        if (accepted.kind === 'accepted' || accepted.kind === 'rejected') {
+          provider.refresh();
+          dashboard.pushState(graphRunTicketId(graphRunId));
+          const after = gs.db
+            .prepare('SELECT status FROM approach_graph_runs WHERE id = ?')
+            .get(graphRunId) as { status: string };
+          if (after.status === 'awaiting-confirmation') {
+            // The human gate: the plan compiled and is awaiting review.
+            void vscode.window
+              .showInformationMessage(
+                `Ticket #${graphRunTicketId(graphRunId)}: the implementation graph plan is ready — review it, then start the run.`,
+                'Start graph',
+              )
+              .then((choice) => {
+                if (choice === 'Start graph') void confirmGraphRunHost(graphRunId);
+              });
+          } else if (after.status === 'running') {
+            void runGraphCoordinatorTick(graphRunId);
+          }
+          settleGraphRun(gs.db, graphRunId);
+        }
+        return;
+      }
+      if (run.status === 'draining') {
+        // A submitted replan planner lands revision N+1 here.
+        const accepted = acceptSubmittedReplan(graphDriverDeps(), graphRunId);
+        if (accepted.kind === 'accepted') {
+          provider.refresh();
+          dashboard.pushState(graphRunTicketId(graphRunId));
+          void runGraphCoordinatorTick(graphRunId);
+        }
+        return;
+      }
+      if (run.status === 'awaiting-confirmation') return;
+      if (run.status === 'blocked') {
+        settleGraphRun(gs.db, graphRunId);
+        return;
+      }
+      if (run.status === 'running') {
+        await driveReadyNodeRuns(graphDriverDeps(), graphRunId);
+        driveCompletingNodes(graphRunId);
+      }
+    } catch (err) {
+      logError(`karst: graph run continuation failed for run ${graphRunId}`, err);
+    }
+  };
+
+  /** Bootstrap a graph-approach ticket's first impl launch: create the run,
+   *  launch the planner session, and submit the plan when the planner closes. */
+  const launchGraphRun = async (ticketId: number): Promise<void> => {
+    const gs = graphCoordinatorStore;
+    if (!gs) return;
+    const t = getTicket(localStore, ticketId);
+    if (!t.approach || t.stageCurrent !== 'impl') return;
+    const attempt =
+      (localStore.db
+        .prepare("SELECT MAX(attempt) AS attempt FROM stages WHERE ticket_id = ? AND stage_key = 'impl'")
+        .get(ticketId) as { attempt: number | null }).attempt ?? 0;
+    const result = await bootstrapAndLaunchPlanner(graphDriverDeps(), {
+      ticketId,
+      stageAttempt: attempt,
+      approachId: t.approach,
+      projectSlug: currentProject()?.slug ?? 'unknown',
+    }).catch((err) => {
+      logError(`karst: graph bootstrap for ticket #${ticketId} failed`, err);
+      return { kind: 'failed' as const, reason: 'planner session could not start' };
+    });
+    if (result.kind !== 'launched') {
+      const reason = result.reason;
+      logger.warn(`karst: graph launch for ticket #${ticketId} failed: ${reason}`);
+      void vscode.window.showErrorMessage(
+        `Ticket #${ticketId}: the graph engineering run could not start — ${reason}`,
+      );
+      return;
+    }
+    graphLaunchIdentities.set(result.graphRunId, {
+      graphRunId: result.graphRunId,
+      ticketId,
+      plannerRunId: result.plannerRunId,
+      generation: result.generation,
+      capability: result.capability,
+    });
+    // When the planner closes, submit its graph.json on its behalf, then
+    // accept (compile) the plan and drive the run.
+    attachPlannerSubmitOnClose(result.session, result.graphRunId);
+    result.session.terminal?.show();
+    provider.refresh();
+    dashboard.pushState(ticketId);
+    logger.info(`karst: graph run ${result.graphRunId} launched for ticket #${ticketId}`);
+  };
+
+  /** The human confirm gate: awaiting-confirmation → running, then a sweep
+   *  tick claims the entry tokens and the tick's continuation executes them. */
+  const confirmGraphRunHost = async (graphRunId: number): Promise<void> => {
+    const gs = graphCoordinatorStore;
+    if (!gs) return;
+    if (confirmGraphRun(graphDriverDeps(), graphRunId)) {
+      provider.refresh();
+      dashboard.pushState(graphRunTicketId(graphRunId));
+      void runGraphCoordinatorTick(graphRunId);
+    }
+  };
+
+  /** Attach the planner-submit-on-close handler: when the planner's terminal
+   *  closes, run `karst graph submit` on its behalf and drive the run. */
+  const attachPlannerSubmitOnClose = (
+    session: { terminal?: { onDidClose(handler: (exitCode?: number) => void): void } },
+    graphRunId: number,
+  ): void => {
+    session.terminal?.onDidClose(() => {
+      void (async () => {
+        const identity = graphLaunchIdentities.get(graphRunId);
+        if (!identity) return;
+        const env: Record<string, string | undefined> = {
+          KARST_GRAPH_PROJECT: String(currentProject()?.id ?? 0),
+          KARST_TICKET_ID: String(identity.ticketId),
+          KARST_GRAPH_RUN_ID: String(identity.graphRunId),
+          KARST_LAUNCH_ID: String(identity.plannerRunId),
+          KARST_GRAPH_GENERATION: identity.generation,
+          KARST_GRAPH_CAPABILITY: identity.capability,
+          KARST_GRAPH_ARTIFACT_ROOT: graphArtifactRoot(identity.graphRunId),
+        };
+        try {
+          const out = runGraphCommand(graphCoordinatorStore!, env, ['graph', 'submit']);
+          const parsed = JSON.parse(out) as { ok: boolean; rejected?: string; reason?: string };
+          if (!parsed.ok) {
+            logger.warn(
+              `karst: graph submit rejected (${parsed.rejected ?? 'unknown'}) — ${parsed.reason ?? ''}`,
+            );
+          }
+        } catch (err) {
+          logError('karst: graph submit on planner close failed', err);
+        }
+        await driveGraphRunContinuation(graphRunId);
+      })();
+    });
+  };
+
+  /** Launch the elected replan planner (Slice-4 T5): the election produced a
+   *  launch request with the replan reasons as a file artifact; compose the
+   *  prompt and start the session through the driver. */
+  const launchReplanPlannerHost = async (launch: ReplanLaunchRequest): Promise<void> => {
+    const gs = graphCoordinatorStore;
+    if (!gs) return;
+    const base = graphDriverDeps().promptBytesOf('karst-graph-planner');
+    const prompt = [
+      base === undefined ? '# Graph Replanner' : new TextDecoder().decode(base),
+      launch.ticketContext,
+      `Replan the graph (superseding revision ${launch.priorRevisionNumber}). The replan reasons and prior plan evidence are under the artifact root: ${launch.reasonsSnapshotPath}.`,
+      'Write the new graph.json and finish your session — karst compiles and runs the graph after you close.',
+    ].join('\n\n');
+    const wt = listWorktreesByTicket(localStore, graphRunTicketId(launch.graphRunId))[0];
+    const result = await launchReplanPlanner(graphDriverDeps(), {
+      graphRunId: launch.graphRunId,
+      plannerRunId: launch.plannerRunId,
+      generation: '',
+      capability: '',
+      prompt,
+      cwd: wt?.path ?? '',
+      repo: wt?.repo ?? '',
+    }).catch((err) => {
+      logError(`karst: replan planner launch failed for run ${launch.graphRunId}`, err);
+      return { kind: 'failed' as const, reason: 'planner session could not start' };
+    });
+    if (result.kind === 'launched') {
+      graphLaunchIdentities.set(launch.graphRunId, {
+        graphRunId: launch.graphRunId,
+        ticketId: graphRunTicketId(launch.graphRunId),
+        plannerRunId: launch.plannerRunId,
+        generation: result.generation,
+        capability: result.capability,
+      });
+      attachPlannerSubmitOnClose(result.session, launch.graphRunId);
+      result.session.terminal?.show();
+      provider.refresh();
+      dashboard.pushState(graphRunTicketId(launch.graphRunId));
+    } else if (result.kind === 'failed') {
+      logError(`karst: replan planner launch failed for run ${launch.graphRunId}`, new Error(result.reason));
+      void vscode.window.showErrorMessage(
+        `Ticket #${graphRunTicketId(launch.graphRunId)}: the replan planner could not start — ${result.reason}`,
+      );
+    }
+  };
+
   // Reload/crash reconcile (Slice 4 Task 3): one pass over every graph run
   // applying the crash matrix, next to the coordinator sweep. Process facts
   // are the real OS probes and `resumePipeline` is the completion pipeline —
@@ -3583,6 +4135,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   };
   void reconcileGraphRuns();
+  // A reload re-attaches every graph session whose terminal survived it, so a
+  // ticket owned by a live run is never reported as "session not attached"
+  // until the first coordinator sweep (the promise the message makes).
+  void reattachGraphSessions();
 
   // The Inside Stop binding (Slice 3 Task 11): terminates every live session
   // of the ticket's active graph through the supervised transport, then moves
@@ -3675,6 +4231,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       (step) => {
         const event = shipStepEvent(ticketId, step);
         if (event) dashboard.postInsideProgress(ticketId, event);
+        // Each step event marks a store write the ledger reads (a step row
+        // opened or closed). Push the snapshot now so a subprocess's checkmark
+        // lands the instant that subprocess finishes — not once the whole saga
+        // ends. The live tick keeps it moving while a step reads `run`.
+        dashboard.pushState(ticketId);
       },
       (event) => dashboard.postInsideProgress(ticketId, event),
     );
@@ -3786,6 +4347,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // The tick is bounded (≤ 100 transitions), reads canonical state fresh,
       // and a failure only delays the next tick — never depends on a callback.
       if (graphCoordinatorStore) {
+        // Re-attach sessions a terminal revival delivered after the last sweep
+        // (the "coordinator re-attaches it on the next sweep" promise), then
+        // tick the runs whose continuation the coordinator owns.
+        void reattachGraphSessions();
         let graphRuns: number[] = [];
         try {
           graphRuns = activeGraphRunIds(graphCoordinatorStore.db);
@@ -3869,12 +4434,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     agyWatchRunning = true;
     try {
       const appDataDir = resolveAgyAppDataDir();
-      for (const terminal of vscode.window.terminals) {
+      const terminals = [...vscode.window.terminals];
+      logger.debug(`[agy] sweep tick: ${terminals.length} terminals`);
+      for (const terminal of terminals) {
         const named = terminalIdentity.identify(terminal);
         if (named?.identity?.provider !== 'antigravity') continue;
         const worktree = listWorktreesByTicket(localStore, named.ticketId)[0];
-        if (!worktree) continue;
+        if (!worktree) {
+          logger.debug(`[agy] ticket ${named.ticketId}: no worktree found`);
+          continue;
+        }
         let snapshot: AgyConversationSnapshot | null = null;
+        let agyUsage: AgyConversationUsage | null = null;
         try {
           const found = findConversationForWorktree(appDataDir, worktree.path);
           if (found) {
@@ -3885,6 +4456,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                 conversationId: found.conversationId,
                 pendingApproval: db.pendingApprovalCount() > 0,
               };
+              // Read usage while the DB is open — the lifecycle watch
+              // doubles as the usage channel for antigravity sessions.
+              agyUsage = db.usage();
             } finally {
               db.close();
             }
@@ -3893,10 +4467,40 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           logError(`karst: agy conversation read failed for ticket ${named.ticketId}`, error);
           continue;
         }
+        logger.debug(`[agy] ticket ${named.ticketId}: conversation=${snapshot?.conversationId ?? 'none'}, usage=${agyUsage ? `${agyUsage.input}/${agyUsage.output}/${agyUsage.cacheRead}` : 'null'}, launchId=${named.launchId ?? 'none'}`);
         const state =
           agyWatchStates.get(named.ticketId) ?? { dbPath: null, started: false, awaiting: false };
         const events = agyWatchTick(state, snapshot);
-        if (events.length === 0) continue;
+        if (events.length === 0) {
+          // Lifecycle produced no events, but still dispatch any usage
+          // observation (the usage read is outside the lifecycle continue).
+          const usageState = agyUsageStates.get(named.ticketId) ?? { eventId: null };
+          const usageEvents = agyUsageTick(usageState, agyUsage);
+          agyUsageStates.set(named.ticketId, usageState);
+          for (const event of usageEvents) {
+            logger.debug(`[agy] ticket ${named.ticketId}: dispatching UsageUpdate event_id=${event.usage.event_id}`);
+            const usagePayload: HookPayload = {
+              hook_event_name: 'UsageUpdate',
+              cwd: worktree.path,
+              session_id: snapshot?.conversationId ?? '',
+              usage: event.usage,
+              ...(named.launchId ? { launchId: named.launchId } : {}),
+            };
+            try {
+              dispatchHook(
+                localStore,
+                usagePayload,
+                notifyHook,
+                shouldApplyHookState,
+                sessionProviderFor,
+                hookChannelRecorder,
+              );
+            } catch (error) {
+              logError(`karst: agy usage dispatch failed for ticket ${named.ticketId}`, error);
+            }
+          }
+          continue;
+        }
         agyWatchStates.set(named.ticketId, state);
         // The session id for non-SessionStart events is the CURRENT
         // conversation's id — the same one SessionStart carried.
@@ -3916,17 +4520,53 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
               : event.kind === 'permission.asked'
                 ? { hook_event_name: 'permission.asked', ...base }
                 : { hook_event_name: 'UserPromptSubmit', ...base };
-          try {
-            dispatchHook(
-              localStore,
-              payload,
-              notifyHook,
-              shouldApplyHookState,
-              sessionProviderFor,
-              hookChannelRecorder,
-            );
-          } catch (error) {
-            logError(`karst: agy watch dispatch failed for ticket ${named.ticketId}`, error);
+            try {
+              dispatchHook(
+                localStore,
+                payload,
+                notifyHook,
+                shouldApplyHookState,
+                sessionProviderFor,
+                hookChannelRecorder,
+                logger.debug,
+              );
+            } catch (error) {
+              logError(`karst: agy watch dispatch failed for ticket ${named.ticketId}`, error);
+            }
+        }
+        // Conversation-DB token usage: agy 1.1.12 persists per-call usage in
+        // this same DB (steps.metadata field-9 submessage — see agyUsageWatch.ts),
+        // so the lifecycle watch doubles as the usage channel. The cumulative
+        // sample rides the same UsageUpdate seam and closures as the
+        // codex/opencode bridges — attribution (impl segment vs fix), the
+        // generation barrier, and the store's cumulative-delta ledger are shared.
+        // A re-sweep of an unchanged DB emits nothing; the store dedupes on
+        // event id anyway.
+        {
+          const usageState = agyUsageStates.get(named.ticketId) ?? { eventId: null };
+          const usageEvents = agyUsageTick(usageState, agyUsage);
+          agyUsageStates.set(named.ticketId, usageState);
+          for (const event of usageEvents) {
+            const usagePayload: HookPayload = {
+              hook_event_name: 'UsageUpdate',
+              cwd: worktree.path,
+              session_id: snapshot?.conversationId ?? '',
+              usage: event.usage,
+              ...(named.launchId ? { launchId: named.launchId } : {}),
+            };
+            try {
+              dispatchHook(
+                localStore,
+                usagePayload,
+                notifyHook,
+                shouldApplyHookState,
+                sessionProviderFor,
+                hookChannelRecorder,
+                logger.debug,
+              );
+            } catch (error) {
+              logError(`karst: agy usage dispatch failed for ticket ${named.ticketId}`, error);
+            }
           }
         }
       }
@@ -3939,6 +4579,114 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   void runAgyConversationWatch();
   const agyWatchTimer = setInterval(runAgyConversationWatch, AGY_WATCH_INTERVAL_MS);
   context.subscriptions.push({ dispose: () => clearInterval(agyWatchTimer) });
+
+  // Claude interactive usage watch: Claude's documented hooks carry no token
+  // counters, but Claude Code writes a per-session JSONL transcript at
+  // ~/.claude/projects/<encoded-cwd>/<session-id>.jsonl whose `assistant`
+  // messages carry per-API-call token usage (input_tokens/output_tokens/
+  // cache_read_input_tokens/cache_creation_input_tokens) with a stable message
+  // uuid. The sweep reads that file (read-only, like the agy conversation DB),
+  // sums the messages into a CUMULATIVE session sample keyed by the LAST
+  // message's uuid, and posts it through the SAME UsageUpdate seam and closures
+  // as the codex/opencode bridges — attribution (impl segment vs fix), the
+  // generation barrier, and the store's cumulative-delta ledger are shared. A
+  // re-sweep of an unchanged transcript emits nothing; the store dedupes on
+  // event id anyway. Session end -> the terminal-close callback clears the watch
+  // state. Interactive usage is not a liveness signal: nothing here touches
+  // agent_state.
+  const CLAUDE_TRANSCRIPT_WATCH_INTERVAL_MS = 10_000;
+  let claudeTranscriptWatchRunning = false;
+  const runClaudeTranscriptWatch = async (): Promise<void> => {
+    if (claudeTranscriptWatchRunning) return;
+    claudeTranscriptWatchRunning = true;
+    try {
+      const projectsDir = resolveClaudeProjectsDir();
+      const terminals = [...vscode.window.terminals];
+      logger.debug(`[claude] sweep tick: ${terminals.length} terminals`);
+      for (const terminal of terminals) {
+        const named = terminalIdentity.identify(terminal);
+        if (named?.identity?.provider !== 'claude') continue;
+        const worktree = listWorktreesByTicket(localStore, named.ticketId)[0];
+        if (!worktree) {
+          logger.debug(`[claude] ticket ${named.ticketId}: no worktree found`);
+          continue;
+        }
+        const sessionId = getTicket(localStore, named.ticketId).sessionId;
+        if (!sessionId) {
+          logger.debug(`[claude] ticket ${named.ticketId}: no sessionId`);
+          continue;
+        }
+        const transcriptPath = transcriptPathFor(projectsDir, worktree.path, sessionId);
+        let fingerprint: { mtimeMs: number; size: number } | null = null;
+        try {
+          const st = statSync(transcriptPath);
+          fingerprint = { mtimeMs: st.mtimeMs, size: st.size };
+        } catch {
+          continue; // no transcript yet — the session may not have written one
+        }
+        const state =
+          claudeTranscriptStates.get(named.ticketId) ??
+          { transcriptPath: null, eventId: null, fingerprint: null };
+        if (
+          state.transcriptPath === transcriptPath &&
+          state.fingerprint !== null &&
+          state.fingerprint.mtimeMs === fingerprint.mtimeMs &&
+          state.fingerprint.size === fingerprint.size
+        ) {
+          continue; // unchanged since the last read — nothing new to parse
+        }
+        let text: string;
+        try {
+          text = await fsReadFile(transcriptPath, 'utf8');
+        } catch (error) {
+          logError(`karst: claude transcript read failed for ticket ${named.ticketId}`, error);
+          continue;
+        }
+        const usage = parseClaudeTranscript(text);
+        const snapshot: ClaudeTranscriptSnapshot = { transcriptPath, usage };
+        const events = claudeTranscriptTick(state, snapshot);
+        state.fingerprint = fingerprint;
+        claudeTranscriptStates.set(named.ticketId, state);
+        logger.debug(`[claude] ticket ${named.ticketId}: usage=${usage ? `${usage.input}/${usage.output}/${usage.cacheRead}/${usage.cacheWrite}` : 'null'}, events=${events.length}, launchId=${named.launchId ?? 'none'}`);
+        if (events.length === 0) continue;
+        for (const event of events) {
+          const payload: HookPayload = {
+            hook_event_name: 'UsageUpdate',
+            cwd: worktree.path,
+            session_id: sessionId,
+            usage: event.usage,
+            ...(named.launchId ? { launchId: named.launchId } : {}),
+          };
+          try {
+            dispatchHook(
+              localStore,
+              payload,
+              notifyHook,
+              shouldApplyHookState,
+              sessionProviderFor,
+              hookChannelRecorder,
+              logger.debug,
+            );
+          } catch (error) {
+            logError(
+              `karst: claude transcript usage dispatch failed for ticket ${named.ticketId}`,
+              error,
+            );
+          }
+        }
+      }
+    } catch (error) {
+      logError('karst: claude transcript usage watch failed', error);
+    } finally {
+      claudeTranscriptWatchRunning = false;
+    }
+  };
+  void runClaudeTranscriptWatch();
+  const claudeTranscriptTimer = setInterval(
+    () => void runClaudeTranscriptWatch(),
+    CLAUDE_TRANSCRIPT_WATCH_INTERVAL_MS,
+  );
+  context.subscriptions.push({ dispose: () => clearInterval(claudeTranscriptTimer) });
 
   // The `karst` CLI commits to the registry from its own `node` process; this
   // host's connection never sees those writes, so an open dashboard would keep
@@ -4050,7 +4798,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // normal continue-or-start flow below.
       const activeGraph = activeGraphRunFor(localStore.db, ticketId);
       if (activeGraph) {
-        const session = graphTransport?.sessions().find((s) => s.ticketId === ticketId);
+        let session = graphTransport?.sessions().find((s) => s.ticketId === ticketId);
+        // The terminal may be a revived one this window has not re-attached yet
+        // (a reload between the session's launch and this click). Re-attach it
+        // BEFORE reporting "not attached" — a live session is recoverable, and
+        // the message is only correct when the coordinator genuinely cannot
+        // find the session.
+        if (!session) await reattachGraphSessions();
+        session = graphTransport?.sessions().find((s) => s.ticketId === ticketId);
         if (session) {
           session.terminal?.show();
         } else {
@@ -4107,6 +4862,34 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
       }
       const t = getTicket(localStore, ticketId);
+
+      // A GRAPH approach ticket at impl runs the graph — never a plain
+      // implementation session (the reported defect: the graph approach was
+      // selected and a plain session opened instead). The active-run reveal
+      // above already returned; here a run in any other state exists (blocked/
+      // completed/stale — the coordinator owns continuation) or none at all
+      // (bootstrap the run and launch the planner session now).
+      const graphApproachDef = withBuiltInApproaches(currentManifest() ?? emptyManifest())
+        .approaches?.find((a) => a.id === t.approach)?.graph;
+      if (graphApproachDef && t.stageCurrent === 'impl') {
+        if (options.recovery) return; // recovery never launches a second run
+        const existing = graphCoordinatorStore?.db
+          .prepare('SELECT id, status FROM approach_graph_runs WHERE ticket_id = ? ORDER BY id DESC LIMIT 1')
+          .get(ticketId) as { id: number; status: string } | undefined;
+        if (existing) {
+          const live = graphTransport?.sessions().find((s) => s.ticketId === ticketId);
+          if (live) {
+            live.terminal?.show();
+          } else {
+            void vscode.window.showInformationMessage(
+              `Ticket #${ticketId} is owned by graph run ${existing.id} (${existing.status}) — the coordinator owns continuation; use the Inside panel.`,
+            );
+          }
+          return;
+        }
+        await launchGraphRun(ticketId);
+        return;
+      }
 
       // Resolve the approach's method prompt (its entrypoint), if one resolves.
       // Any failure (no folder, no package, bad id) → no method, ticket context
@@ -4346,12 +5129,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // Terminal name/icon/color are frozen at creation, so the tab carries the
       // status-free brand mark from the start — never a stage-at-launch glyph
       // hue, which the tab would keep for the rest of its life (869egvp46-fu2).
-      // The template keeps the stage legible as text.
+      // The template keeps the stage legible as text. The one-char follow-up
+      // marker is FORCED at this seam (terminalTicketName) so a follow-up's
+      // terminal reads as a follow-up whatever the template says (869ehqx68-fu1).
       const naming = terminalNaming({
-        name: renderTicketLabel(
-          t,
-          currentManifest()?.terminalNameTemplate ?? DEFAULT_TERMINAL_NAME_TEMPLATE,
-        ),
+        name: terminalTicketName(t, currentManifest()?.terminalNameTemplate),
         brandIcon,
       });
 
@@ -4835,6 +5617,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // what makes this handler async.
     vscode.window.onDidOpenTerminal(async (terminal) => {
       await terminalIdentity.resolve(terminal);
+      // A graph session terminal can be revived AFTER the activation scan too;
+      // re-attach it now (idempotent) so a live graph session is never left
+      // "not attached to this window" until the next coordinator sweep.
+      await reattachGraphSessions();
       const session = restoredSessionOf(terminal, terminalIdentity);
       if (!session) return;
       const outcome = sessions.adoptLateSession(session, classifyLateSession);
@@ -5530,6 +6316,37 @@ function wrapTerminal(terminal: vscode.Terminal): SessionTerminal {
   };
 }
 
+/** The workspace a revived graph terminal was launched in, when recoverable.
+ *  `creationOptions.cwd` survives a reload (the pty details carry it); a
+ *  non-string value degrades to '' — the session's cwd is used for attribution
+ *  on terminate, and an empty value simply falls back to start-time matching. */
+function graphTerminalCwd(terminal: vscode.Terminal): string {
+  const opts = terminal.creationOptions;
+  const cwd = opts && 'cwd' in opts ? opts.cwd : undefined;
+  return typeof cwd === 'string' ? cwd : '';
+}
+
+/** Wrap a REVIVED vscode terminal in the graph transport's `TransportTerminal`
+ *  surface (the graph host's `createTerminal` returns the same shape for a
+ *  freshly-spawned one). Only ever used to re-attach a session that already
+ *  exists — it never spawns, and never re-registers in the identity registry. */
+function wrapRevivedGraphTerminal(terminal: vscode.Terminal): TransportTerminal {
+  return {
+    processId: () => Promise.resolve(terminal.processId),
+    show: (preserveFocus) => terminal.show(preserveFocus),
+    sendText: (text) => terminal.sendText(text, true),
+    dispose: () => terminal.dispose(),
+    onDidClose: (handler) => {
+      const sub = vscode.window.onDidCloseTerminal((closed) => {
+        if (closed === terminal) {
+          sub.dispose();
+          handler(closed.exitStatus?.code);
+        }
+      });
+    },
+  };
+}
+
 /** Real terminals, wrapped in the `SessionTerminal` interface. */
 function makeTerminalHost(identity: TerminalIdentityRegistry): TerminalHost {
   return {
@@ -5625,6 +6442,9 @@ function makeInsideActionHost(
   // wrapper plus the prompt re-snapshot seam. Bound in activate where the
   // snapshot root is known; the panel host only routes Resume to it.
   graphRecoveryDeps: () => RecoveryDeps,
+  // Launch the elected replan planner session (Slice-4 T5) — the recovery
+  // election returns a launch request; the host starts the session.
+  graphReplanLaunch: (launch: ReplanLaunchRequest) => void,
 ): InsideActionHost {
   return {
     openFile: (path) => void vscode.commands.executeCommand('vscode.open', vscode.Uri.file(path)),
@@ -5659,6 +6479,7 @@ function makeInsideActionHost(
             `Ticket #${ticketId}: the implementation graph was retried (graph run ${outcome.graphRunId}).`,
           );
         } else if (recovery.kind === 'replanned') {
+          if (recovery.launch) graphReplanLaunch(recovery.launch);
           void vscode.window.showInformationMessage(
             `Ticket #${ticketId}: the implementation graph was replanned (graph run ${outcome.graphRunId}).`,
           );
@@ -5768,6 +6589,8 @@ function makeDashboardActions(
   // The graph recovery action's host binding (Slice-4 T6), bound in activate
   // where the snapshot root is known.
   graphRecoveryDeps: () => RecoveryDeps,
+  // Launch the elected replan planner session (Slice-4 T5).
+  graphReplanLaunch: (launch: ReplanLaunchRequest) => void,
   // Resolve one gate stage's console log via the dashboard manager, which owns
   // the ticket panel: the stage key arrives from the webview, the read stays
   // host-side.
@@ -5968,6 +6791,7 @@ function makeDashboardActions(
           { ticketId: outcome.ticketId, graphRunId: outcome.graphRunId },
         );
         if (recovery.kind === 'retried' || recovery.kind === 'replanned') {
+          if (recovery.kind === 'replanned' && recovery.launch) graphReplanLaunch(recovery.launch);
           afterServerChange();
           driveAfterResume(ticketId);
         } else if (recovery.kind === 'refused') {

@@ -22,6 +22,20 @@ export interface ConventionPreset {
   >>;
 }
 
+/**
+ * The default pull-request description template. Ship applies it whenever the
+ * manifest declares no `conventions.pullRequestDescription`, and Settings' Git
+ * tab pre-fills and "Reset" restores it, so the metadata the prompt asks for —
+ * implementation agent provider, model, approach and session id — is what a PR
+ * opens with by default. Editing the field (or clearing it) is what turns it
+ * off. The webview cannot import TypeScript, so `webview.html` mirrors this
+ * string; `webview.test.ts` pins the mirror.
+ */
+export const DEFAULT_PR_DESCRIPTION_TEMPLATE =
+  '## Summary\n{description}\n\nTicket: {key}\nRepository: {repo}\n\n## Metadata\n' +
+  'Agent: {provider}\nModel: {model|default:n/a}\nApproach: {approach|default:n/a}\n' +
+  'Session: {sessionId|default:n/a}';
+
 export const CONVENTION_PRESETS: ConventionPreset[] = [
   {
     id: 'conventional',
@@ -31,7 +45,7 @@ export const CONVENTION_PRESETS: ConventionPreset[] = [
       branchName: 'karst/{type}/{slug}',
       commitMessage: '{type}({scope}): {title} [{key}]',
       pullRequestTitle: '{type}({scope}): {title}',
-      pullRequestDescription: '## Summary\n{description}\n\nTicket: {key}\nRepository: {repo}',
+      pullRequestDescription: DEFAULT_PR_DESCRIPTION_TEMPLATE,
     },
   },
   {

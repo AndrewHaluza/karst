@@ -21,6 +21,7 @@ import { listGateRuns } from '../../store/gateRuns.js';
 import { listFindings } from '../../store/reviewFindings.js';
 import { listPhaseMarks } from '../../store/phaseMarks.js';
 import { listMergeChecksByTicket } from '../../store/mergeChecks.js';
+import { listCurrentPrsByTicket } from '../../store/prs.js';
 import type { GateStage } from '../../store/ticketGates.js';
 import { mergeGateState } from '../../workflow/mergeGate.js';
 import { sendBackState, type SendBackState } from '../../workflow/sendBack.js';
@@ -85,7 +86,6 @@ export interface DashboardAgentContext {
   /** Manifest default effort/variant, for the switch popover's inherit row. */
   defaultEffort?: string | null;
   modelCatalog?: ModelCatalog;
-  isSessionOpen?: (ticketId: number) => boolean;
 }
 
 /** Fully serializable dashboard state pushed to the webview via postMessage. */
@@ -163,6 +163,13 @@ export interface DashboardState {
   sourceRef: string | null;
   /** External board URL for the ticket, or null (manual/unfetched → no link). */
   ticketUrl: string | null;
+  /**
+   * The user's authored instruction (the `description` column) — the prompt a
+   * manual ticket was created from. Previewed in the ticket-data drawer when
+   * the ticket has no fetched brief (a manual ticket bound via "Create in
+   * ClickUp" gets a provider ref but never a brief).
+   */
+  description: string | null;
   /** Synthesized context brief, shown in the header's ticket-data preview drawer; or null. */
   brief: string | null;
   /**
@@ -331,7 +338,6 @@ export function buildDashboardState(
     defaultEffort: agentContext.defaultEffort ?? null,
     catalog: agentContext.modelCatalog ?? bundledModelCatalog(),
     stageCurrent: ticket.stageCurrent,
-    sessionOpen: agentContext.isSessionOpen?.(ticketId) ?? false,
     fixExecutionActive: rounds.some((round) => round.status === 'fixing'),
   });
   const stepper = buildStepper(ticket.stages);
@@ -384,6 +390,18 @@ export function buildDashboardState(
   // track's needs-you wording must not describe the same three-valued fact from
   // two different reads.
   const mergeGate = mergeGateState(store, ticketId);
+  // The repos whose CURRENT PR karst currently offers to merge, from the SAME
+  // current-PR read the gate uses. This is the rail's licence to ACT on a single
+  // waiting repo; without it the track-level Merge would fire an irreversible
+  // command the PR panel's own disabled button would refuse (draft/closed/
+  // unknown PRs). `status === 'open'` is exactly `canMerge` for a current PR
+  // (a recorded url is guaranteed by `listCurrentPrsByTicket`).
+  const mergeableRepos = listCurrentPrsByTicket(store, ticketId)
+    .filter((p) => p.status === 'open')
+    .map((p) => p.repo);
+  // The dashboard's PR rows, host-worded and host-decided like every other
+  // panel string. Hoisted so the rail and the panel share one mergeability read.
+  const prRows = buildPrPanelRows(prs);
   // ONE read of the recovery action's availability, for the same reason: the
   // stage header's ⋯ menu and the host's confirm path must agree about whether
   // "Send back to Implement" exists at all. Derived here rather than on click
@@ -607,11 +625,12 @@ export function buildDashboardState(
     // Start button there is a dead affordance dressed as an available action.
     hasRunnableRepos: ticket.selectedRepos.some((r) => isRepoRunnable(r)),
     worktrees,
-    prs: buildPrPanelRows(prs),
+    prs: prRows,
     mergeChecks: buildMergeCheckPanelRows(mergeChecks, now),
     provider: ticketing?.provider ?? null,
     sourceRef: ticket.sourceRef,
     ticketUrl: providerTicketUrl(ticketing?.provider, ticket.sourceRef),
+    description: ticket.description,
     brief: ticket.brief,
     rail: buildStageRail(stepper, ticket.stages, {
       current: ticket.stageCurrent,
@@ -628,6 +647,7 @@ export function buildDashboardState(
             shipAwaitingMerge:
               stepper.find((c) => c.stageKey === 'ship')?.blocked?.kind === 'awaiting-merge',
             mergeGate,
+            mergeableRepos,
           })
         : null,
       capFor: fixCapFor,
@@ -649,6 +669,11 @@ export function buildDashboardState(
       shipRunCount: countShipRuns(store, ticketId),
       prs,
       plan: readPlanInput(store, ticketId),
+      // The session-phases plan reads the SAME one-read phase marks and
+      // declared workflow the approach line above already resolved — two reads
+      // of one table is how two panels describe one plan differently.
+      declaredPhases: phases,
+      phaseMarks: marks,
       attach,
     }),
     sendBack,

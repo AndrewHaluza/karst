@@ -231,10 +231,12 @@ agent states, hook events) are defined once in `src/model/types.ts` and
   idle · none`, driven ONLY by hooks, orthogonal to stage status. `waiting` is
   the needs-you amber signal and never comes from stage state. See *Hook
   event*, *Needs you*.
-- **Interactive usage** — token usage reported by the provider's bridge
-  (`UsageUpdate` events). Only codex and opencode have a token-bearing
-  lifecycle channel; claude/antigravity report nothing, so their interactive
-  usage stays unmeasured rather than reading as a measured zero.
+- **Interactive usage** — token usage measured while a live provider session
+  runs. Codex and opencode post `UsageUpdate` events from their bridges;
+  claude's interactive usage is read from Claude Code's session transcript
+  (claudeTranscriptWatch.ts); antigravity's is read from its conversation DB
+  (agyUsageWatch.ts). Every implemented provider is now measured; a missing
+  fact is never rendered as a zero.
 
 ---
 

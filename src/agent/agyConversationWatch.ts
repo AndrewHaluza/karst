@@ -3,6 +3,7 @@ import { homedir } from 'node:os';
 import { basename, extname, join } from 'node:path';
 import Database from 'better-sqlite3';
 import { canonicalPath } from '../runtime/pathScope.js';
+import { aggregateConversationUsage, type AgyConversationUsage } from './agyUsageWatch.js';
 
 /**
  * The Antigravity CLI's conversation state, read as a lifecycle channel.
@@ -43,6 +44,8 @@ export interface AgyConversationDb {
   workspaceBlob(): Buffer | null;
   /** How many `steps` rows are awaiting a user decision (`status = 9`). */
   pendingApprovalCount(): number;
+  /** Cumulative per-call usage recorded in this conversation, or null when none yet. */
+  usage(): AgyConversationUsage | null;
   close(): void;
 }
 
@@ -54,6 +57,7 @@ export function openAgyConversationDb(dbPath: string): AgyConversationDb {
     "SELECT data AS data FROM trajectory_metadata_blob WHERE id = 'main'",
   );
   const pendingStmt = db.prepare('SELECT COUNT(*) AS n FROM steps WHERE status = 9');
+  const usageStmt = db.prepare('SELECT idx, metadata FROM steps ORDER BY idx');
   return {
     workspaceBlob(): Buffer | null {
       const row = blobStmt.get() as { data: Buffer | null } | undefined;
@@ -62,6 +66,10 @@ export function openAgyConversationDb(dbPath: string): AgyConversationDb {
     pendingApprovalCount(): number {
       const row = pendingStmt.get() as { n: number } | undefined;
       return row?.n ?? 0;
+    },
+    usage(): AgyConversationUsage | null {
+      const rows = usageStmt.all() as { idx: number; metadata: Buffer | null }[];
+      return aggregateConversationUsage(rows);
     },
     close(): void {
       db.close();

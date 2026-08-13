@@ -36,12 +36,12 @@ describe('AntigravityAdapter', () => {
     expect(adapter.capabilities.resume).toBe(true);
   });
 
-  // Antigravity has no token-bearing usage channel: agy reports no usage in
-  // `-p` stdout and the watch reads no usage file. Truthful absence, never a
-  // measured zero.
-  it('pins truthful absence of interactive usage — no usage channel exists', () => {
+  // Antigravity's interactive usage is measured by reading per-call token counts
+  // from the conversation DB's steps.metadata (field-9 submessage), implemented
+  // in agyUsageWatch.ts.
+  it('advertises interactive usage — the conversation DB records per-call token counts', () => {
     const adapter = new AntigravityAdapter();
-    expect(adapter.capabilities.interactiveUsage).toBe(false);
+    expect(adapter.capabilities.interactiveUsage).toBe(true);
   });
 
   describe('buildInteractiveCommand', () => {

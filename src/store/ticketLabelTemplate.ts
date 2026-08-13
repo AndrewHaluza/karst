@@ -9,17 +9,18 @@
 
 import { parseTemplateTokens, parseTokenBody } from '../template/token.js';
 import { applyTransforms, validateTemplateTransforms } from '../template/transforms.js';
-import { followUpTextPrefix } from '../model/followUp.js';
+import { compactTicketLabel } from '../model/followUp.js';
 
 /** The default template — matches the pre-config `ticketLabel` output exactly. */
 export const DEFAULT_TICKET_LABEL_TEMPLATE = '{key} — {title}';
 
 /**
- * Terminal-name default — the historical `"Karst: <key> — <title>"` convention,
- * plus the one-char follow-up marker. `{followUp}` renders `'↳ '` for a
- * follow-up ticket and `''` otherwise, so a non-follow-up is unchanged.
+ * Terminal-name default — the historical `"Karst: <key> — <title>"` convention.
+ * The one-char follow-up marker is NOT a template token: it is forced at the
+ * presentation seam (`terminalTicketName`) so it stays visible whatever a user
+ * configured (869ehqx68-fu1).
  */
-export const DEFAULT_TERMINAL_NAME_TEMPLATE = 'Karst: {followUp}{key} — {title}';
+export const DEFAULT_TERMINAL_NAME_TEMPLATE = 'Karst: {key} — {title}';
 
 /** The variable tokens a template may substitute (surfaced in the settings hint). */
 export const TICKET_LABEL_VARIABLES = [
@@ -29,7 +30,6 @@ export const TICKET_LABEL_VARIABLES = [
   'status',
   'stage',
   'repos',
-  'followUp',
 ] as const;
 
 /** The minimal ticket shape the label engine reads (structural; `Ticket` fits). */
@@ -40,7 +40,7 @@ export interface TicketLabelFields {
   stageCurrent: string | null;
   agentState: string | null;
   selectedRepos: string[];
-  /** Non-null when the ticket is a follow-up (domain fact — never title parsing). */
+  /** Non-null when the ticket is a follow-up — read by the terminal seam, never a template token. */
   parentTicketId: number | null;
 }
 
@@ -53,7 +53,6 @@ function substitutions(ticket: TicketLabelFields): Record<string, string> {
     status: ticket.agentState ?? '',
     stage: ticket.stageCurrent ?? '',
     repos: ticket.selectedRepos.join(', '),
-    followUp: followUpTextPrefix(ticket),
   };
 }
 
@@ -112,4 +111,17 @@ export function renderTicketLabel(ticket: TicketLabelFields, template?: string):
   // `{key}` degrades to `#<id>`), guarding against a blank row.
   if (tpl === DEFAULT_TICKET_LABEL_TEMPLATE) return rendered;
   return renderTicketLabel(ticket, DEFAULT_TICKET_LABEL_TEMPLATE);
+}
+
+/**
+ * Render a terminal's ticket identity: the rendered template ALWAYS carries the
+ * one-char follow-up marker (`↳ `) for a follow-up ticket, whatever the template
+ * says (869ehqx68-fu1). The terminal is a text-only surface where follow-up
+ * identity must stay visible — the marker is relationship metadata the
+ * presentation layer adds via `model/followUp.ts`, never a template token, so a
+ * follow-up can't be configured out of the name. A non-follow-up renders the
+ * template verbatim.
+ */
+export function terminalTicketName(ticket: TicketLabelFields, template?: string): string {
+  return compactTicketLabel(ticket, renderTicketLabel(ticket, template));
 }

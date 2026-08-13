@@ -252,16 +252,24 @@ describe('dashboard webview.html', () => {
     expect(track).not.toMatch(/=== 'ship'|'pending'/);
   });
 
-  it('makes the needs-you button navigational, never a second actor', () => {
-    // karst never performs an irreversible step from the track: merge is per-repo
-    // and its confirmation modal lives in the host, so a track-level Merge button
-    // could neither pick a repo nor carry the confirmation.
-    expect(HTML).toContain('data-goto');
-    expect(HTML).toMatch(/function gotoAction\(\)/);
-    const fn = HTML.slice(HTML.indexOf('function gotoAction()'));
+  it('makes the needs-you control act for confirm ship and a single merge, navigate otherwise', () => {
+    // The HOST decides what the control does (`s.needs.cta`), never the webview
+    // deriving it from the label. The acting kinds carry `data-act` so the
+    // generic delegated handler gives them the same pending lifecycle as the
+    // header's Confirm ship and the PR panel's Merge — the host's confirmation
+    // still guards the irreversible step. The navigational kinds keep
+    // `data-goto data-go` and gotoAction() scrolls to the owning control.
+    expect(HTML).toContain('goButton(s.needs)');
+    expect(HTML).toMatch(/cta\.kind === 'ship-confirm'/);
+    expect(HTML).toMatch(/data-act="ship-ticket"/);
+    expect(HTML).toMatch(/cta\.kind === 'merge'/);
+    expect(HTML).toMatch(/data-act="merge-pr" data-repo="/);
+    expect(HTML).toContain('data-goto data-go');
+    expect(HTML).toMatch(/function gotoAction\(kind\)/);
+    const fn = HTML.slice(HTML.indexOf('function gotoAction(kind)'));
     const body = fn.slice(0, fn.indexOf('\n  }'));
     expect(body).toContain('scrollIntoView');
-    expect(body, 'the track posts nothing').not.toContain('post(');
+    expect(body, 'the navigational path posts nothing').not.toContain('post(');
   });
 
   it('fills a phase pip only for a phase the agent reported', () => {
@@ -1101,22 +1109,25 @@ describe('dashboard webview.html', () => {
 
   it('previews ticket data through a real button + modal drawer, never a hover', () => {
     // The trigger is a real <button> (UI-R09), icon-only with an accessible
-    // name (UI-R24), starts hidden (renderTicketIdentity shows it only when a
-    // brief exists), and carries NO host-facing data-act (the preview is
-    // purely local — see the delegated handler's explicit branch).
+    // name (UI-R24), ALWAYS present — a manual ticket bound via "Create in
+    // ClickUp" has no fetched brief but still has data to preview — and
+    // carries NO host-facing data-act (the preview is purely local — see the
+    // delegated handler's explicit branch).
     expect(HTML).toMatch(/id="ticketDataBtn"[^>]*data-act="preview-ticket-data"/);
     expect(HTML).toMatch(/id="ticketDataBtn"[^>]*title="Preview ticket data"/);
     expect(HTML).toMatch(/id="ticketDataBtn"[^>]*aria-label="Preview ticket data"/);
-    expect(HTML).toMatch(/id="ticketDataBtn"[^>]*\shidden/);
     // The drawer follows modal-dialog semantics (DESIGN-SYSTEM.md §11.15).
     expect(HTML).toMatch(/id="ticketDataDrawer"[^>]*role="dialog"/);
     expect(HTML).toMatch(/id="ticketDataDrawer"[^>]*aria-modal="true"/);
     expect(HTML).toMatch(/id="ticketDataDrawer"[^>]*aria-labelledby="ticketDataTitle"/);
     expect(HTML).toMatch(/id="ticketDataClose"[^>]*title="Close ticket data preview"/);
     expect(HTML).toMatch(/id="ticketDataClose"[^>]*aria-label="Close ticket data preview"/);
-    // The brief is provider-authored data: it must be written as TEXT, never
-    // structure — the renderer reads state.brief, not an interpolated literal.
-    expect(HTML).toContain('body.textContent = state.brief;');
+    // The body is composed as TEXT (brief verbatim, else the ticket's own
+    // heading + prompt): the renderer reads state via ticketDataText, never an
+    // interpolated literal, and never innerHTML — brief/description are
+    // user/provider-authored data that can never inject.
+    expect(HTML).toContain('body.textContent = ticketDataText(state);');
+    expect(HTML).toContain('function ticketDataText(state)');
     expect(HTML).not.toMatch(/ticketDataBody[^;]*innerHTML/);
     expect(HTML).not.toContain("el('ticketDataBody').innerHTML");
     // The old provider-mark hover carried the WHOLE brief on a tiny icon; the
@@ -1146,7 +1157,7 @@ describe('dashboard webview.html', () => {
 
   it('titles the header identity and agent controls (UI-R20/R21)', () => {
     for (const title of [
-      'Switch the live agent session', // #agentButton
+      'Switch the agent core and model', // #agentButton
       'Open ticket in provider', // #boardLink
       'Ticket controls', // #moreBtn
       'Copy ticket key', // #keyBtn
@@ -2306,16 +2317,16 @@ function bootPreviewHarness(): PreviewHarness {
       const tag = html.slice(rowAt, html.indexOf('>', rowAt));
       // A native <details> toggles: the browser flips `open` and fires the
       // `toggle` event, which the capture-phase listener persists by procId.
-      // The new state is the OPPOSITE of what the rendered row currently has,
-      // so clicking an open row collapses it (Task 3's default-open session
-      // is exactly that case) and clicking a closed row expands it.
+      // The event's target IS the toggled <details> row itself (it carries the
+      // row's own data-proc-id) — the listener must match that, never a
+      // `closest()` climb onto some ancestor class. The new state is the
+      // OPPOSITE of what the rendered row currently has, so clicking an open
+      // row collapses it (Task 3's default-open session is exactly that case)
+      // and clicking a closed row expands it.
       const open = !tag.includes(' open');
       for (const handler of docListeners.get('toggle') ?? []) {
         handler({
-          target: {
-            closest: (sel: string) =>
-              sel === '.inside-process' ? { dataset: { procId: `${stageKey}:${processId}` }, open } : null,
-          },
+          target: { tagName: 'DETAILS', dataset: { procId: `${stageKey}:${processId}` }, open },
         });
       }
     },
@@ -2383,6 +2394,90 @@ describe('inside render round trip (executed in a VM)', () => {
     h.receive({ type: 'state', state: renderStateFor('uat') });
     expect(h.htmlOf('inside')).toContain('data-proc-id="uat:tester" open');
     expect(h.htmlOf('inside')).toContain('data-proc-id="uat:gates" open');
+  });
+
+  it('keeps expanded processes and running spinners intact across a live repaint (869e)', () => {
+    // The live tick re-pushes the same snapshot every second while a process
+    // runs. That repaint must NOT rebuild the inside block: rebuilding would
+    // restart every running spinner's CSS animation (the visible "spinner
+    // glitch every few moments") and re-render each process row, dropping the
+    // user's expanded disclosures back to their default state. The repaint is
+    // the same snapshot re-read — only the running rows' clocks advance — so it
+    // updates the mutable text in place and leaves the rendered DOM alone.
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: renderStateFor('uat') });
+    // The user expands the gates row (default-collapsed, B3), and a real push
+    // re-renders it open — the persisted open set is what survives the rebuild.
+    h.clickChevron('uat:gates');
+    h.receive({ type: 'state', state: renderStateFor('uat') });
+    expect(h.htmlOf('inside')).toContain('data-proc-id="uat:gates" open');
+    // A live repaint carries the same snapshot: the rendered block must not be
+    // replaced. A rebuild would recreate the spinner element (restarting its
+    // animation) and re-run processOpen over every row.
+    h.receive({ type: 'state', state: renderStateFor('uat'), live: true });
+    expect(h.htmlOf('inside')).toContain('data-proc-id="uat:gates" open');
+  });
+
+  it('does not rebuild the inside block on a live repaint — the spinner survives (869e)', () => {
+    // The discriminating half of the repaint fix: a live repaint IS the same
+    // snapshot re-read, so the ONLY difference from the last push is the
+    // host-computed running-clock text (elapsed durations advance each tick).
+    // Rebuilding the block to land that text would recreate the running
+    // spinner element and restart its CSS animation once a second — the
+    // visible "spinner glitch". The repaint must update the mutable text in
+    // place and leave the rendered block's markup untouched.
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: renderStateFor('impl') });
+    const before = h.htmlOf('inside');
+    expect(before).toContain('data-proc-id="impl:session" open');
+    // The next tick's snapshot differs only in the running clock/duration.
+    const tick = renderStateFor('impl');
+    tick.insideViews.impl.clock = 'started 09:12:33 · 4m 13s elapsed · attempt 1';
+    h.receive({ type: 'state', state: tick, live: true });
+    // Byte-for-byte identical: the block was not re-rendered, so the spinner
+    // element was not recreated and the expanded row was not re-derived.
+    expect(h.htmlOf('inside')).toBe(before);
+  });
+
+  it('advances the running-clock text in place on a live repaint, never a rebuild (869e)', () => {
+    // The live repaint's JOB is to keep the running rows' clocks current — that
+    // is why the tick exists at all. updateInsideLive must land the advanced
+    // clock and durations on the EXISTING nodes (textContent), proving the
+    // tick still delivers its purpose without recreating the DOM.
+    const src = /function updateInsideLive[\s\S]*?\n  \}/.exec(HYDRATED)?.[0];
+    if (!src) throw new Error('updateInsideLive not found in the webview script');
+    // A fake inside block: querySelector answers the meta clock, and for the
+    // running session row (by its composite data-proc-id) its .op-tail
+    // .duration. Each answered node carries a settable textContent.
+    const meta = { textContent: 'old clock' };
+    const dur = { textContent: '4m 12s' };
+    const block = {
+      querySelector: (sel: string) => {
+        if (sel === '.inside-meta') return meta;
+        if (sel === '[data-proc-id="impl:session"]') {
+          return { querySelector: (inner: string) => (inner === '.op-tail .duration' ? dur : null) };
+        }
+        return null;
+      },
+    };
+    const run = new Function(
+      'el',
+      'selectedStage',
+      'liveOps',
+      'state',
+      `${src}\n;return updateInsideLive(state);`,
+    ) as (
+      el: (id: string) => unknown,
+      selectedStage: unknown,
+      liveOps: unknown,
+      state: DashboardState,
+    ) => void;
+    const tick = renderStateFor('impl');
+    tick.insideViews.impl!.clock = 'started 09:12:33 · 4m 13s elapsed · attempt 1';
+    tick.insideViews.impl!.processes[0]!.duration = '4m 13s';
+    run((id) => (id === 'inside' ? block : null), null, {}, tick);
+    expect(meta.textContent).toBe('started 09:12:33 · 4m 13s elapsed · attempt 1');
+    expect(dur.textContent).toBe('4m 13s');
   });
 
   it('never renders a spinner on a stage that is blocked', () => {
@@ -3359,7 +3454,7 @@ describe('agent popover round trip (executed in a VM)', () => {
     store.db.prepare("UPDATE tickets SET stage_current = 'impl' WHERE id = ?").run(t.id);
     const state = buildDashboardState(
       store, t.id, undefined, undefined, undefined, undefined, 'claude',
-      { defaultModel: null, isSessionOpen: () => true },
+      { defaultModel: null },
     );
     store.close();
     const h = bootPreviewHarness();
@@ -3383,7 +3478,7 @@ describe('agent popover round trip (executed in a VM)', () => {
     store.db.prepare("UPDATE tickets SET stage_current = 'impl' WHERE id = ?").run(t.id);
     const state = buildDashboardState(
       store, t.id, undefined, undefined, undefined, undefined, 'claude',
-      { defaultModel: null, isSessionOpen: () => true },
+      { defaultModel: null },
     );
     store.close();
     const h = bootPreviewHarness();
@@ -3544,16 +3639,16 @@ describe('send back to implement (executed in a VM)', () => {
 });
 
 describe('ticket data preview drawer (executed in a VM)', () => {
-  it('shows the trigger only when a brief exists', () => {
+  it('always shows the trigger, with or without a fetched brief (869e9wn1u-fu1)', () => {
     const h = bootPreviewHarness();
-    h.receive({ type: 'state', state: renderStateFor('impl') }); // brief: null
-    expect(h.element('ticketDataBtn').hidden).toBe(true);
+    h.receive({ type: 'state', state: renderStateFor('impl') }); // brief: null, manual
+    expect(h.element('ticketDataBtn').hidden).toBe(false);
     const withBrief = { ...renderStateFor('impl'), brief: '# Title\n\nbody' };
     h.receive({ type: 'state', state: withBrief });
     expect(h.element('ticketDataBtn').hidden).toBe(false);
   });
 
-  it('opens the drawer with the brief as text, posting nothing to the host', () => {
+  it('opens the drawer with the fetched brief as text, posting nothing to the host', () => {
     const h = bootPreviewHarness();
     h.receive({ type: 'state', state: { ...renderStateFor('impl'), brief: '# T\n\n## Details\n- x' } });
     const before = h.posted.length;
@@ -3564,6 +3659,26 @@ describe('ticket data preview drawer (executed in a VM)', () => {
     expect(h.element('ticketDataDrawer').getAttribute('aria-hidden')).toBe('false');
     // Rendered as TEXT — an HTML payload in the brief must not become markup.
     expect(h.element('ticketDataBody').textContent).toBe('# T\n\n## Details\n- x');
+    expect(h.element('ticketDataBody').innerHTML).toBe(''); // never innerHTML
+  });
+
+  it('opens the drawer with the ticket\'s own data when no brief exists (a manual ticket bound via Create in ClickUp)', () => {
+    const h = bootPreviewHarness();
+    // A manual ticket has no fetched brief; its own description is what a
+    // preview can show. This is the case the ticket reports as broken: after
+    // manual create + "Create in ClickUp", the button used to never appear.
+    h.receive({
+      type: 'state',
+      state: {
+        ...renderStateFor('impl'),
+        key: 'M-1',
+        title: 'Manual ticket',
+        description: 'Fix the login modal',
+      },
+    });
+    h.click('[data-act]', { act: 'preview-ticket-data' });
+    expect(h.element('ticketDataBody').textContent)
+      .toBe('# M-1 — Manual ticket\n\nFix the login modal');
     expect(h.element('ticketDataBody').innerHTML).toBe(''); // never innerHTML
   });
 

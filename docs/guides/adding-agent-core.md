@@ -447,7 +447,14 @@ rather than its docs.
 - `ANTIGRAVITY_CONVERSATION_ID` exists in the binary but is NOT set on the CLI
   process environment — do not rely on it for discovery.
 - The `-p` (print/headless) mode runs no hooks and writes no conversation DB;
-  headless `sessionId` stays `''`.
+  headless `sessionId` stays `''`. (agy 1.1.12's `-p --output-format json`
+  does report a `usage` block, but headless usage tracking is a separate change.)
 - Capabilities: `lifecycleEvents: true` and `resume: true` (the watch delivers
-  both), `interactiveUsage: false` (no usage channel exists — never a measured
-  zero).
+  both), `interactiveUsage: true` — agy 1.1.12 persists per-call token usage
+  in the conversation DB's `steps.metadata` (field-9 submessage; types 15 and
+  23 both contribute; the submessage contains varint fields 2 = input tokens,
+  3 = output tokens, 5 = cache-read tokens). `agyUsageWatch.ts` reads and
+  sums these across all contributing steps, and the extension sweep dispatches
+  `UsageUpdate` events through the same `dispatchHook` seam as the lifecycle
+  events. This was re-verified against agy 1.1.12; the earlier "no usage
+  channel" note was written against 1.1.11.

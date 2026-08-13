@@ -35,19 +35,21 @@ export function isKnownProvider(value: unknown): value is AgentProvider {
  * The map is a pure fact table, deliberately kept out of `registry.ts`: it must
  * stay importable by read-only consumers (the same constraint that keeps
  * `provider.ts` free of `node:child_process`). The truth is pinned in the
- * adapter tests — codex/opencode bridges emit UsageUpdate, claude/antigravity
- * have no token-bearing lifecycle channel.
+ * adapter tests — codex/opencode bridges emit UsageUpdate; claude's interactive
+ * usage is read from its session transcript (claudeTranscriptWatch.ts);
+ * antigravity's interactive usage is read from its conversation DB
+ * (agyUsageWatch.ts); every implemented provider is now measured.
  */
 export interface ProviderCapabilityResult {
   provider: AgentProvider;
-  /** True only when the provider's bridge can emit measured UsageUpdate events. */
+  /** True only when the provider's sessions produce measured token counts. */
   interactiveUsage: boolean;
 }
 
 export const PROVIDER_INTERACTIVE_USAGE: Readonly<Record<AgentProvider, boolean>> = {
-  claude: false,
+  claude: true,
   codex: true,
-  antigravity: false,
+  antigravity: true,
   opencode: true,
 };
 

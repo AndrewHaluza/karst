@@ -46,6 +46,10 @@ export interface ResourceReading {
   inventory: Inventory | null;
   waste: WasteFinding[];
   history: readonly ResourceSample[];
+  /** Ticks skipped because the previous `ps` was still in flight. */
+  skipped: number;
+  /** Whether the fast lane is live right now (panel visible). */
+  fastLane: boolean;
 }
 
 export interface ResourceMonitorDeps {
@@ -154,6 +158,8 @@ export class ResourceMonitor {
       inventory: this.inventory,
       waste: this.waste,
       history: [...this.history],
+      skipped: this.skipped,
+      fastLane: this.fastTimer !== undefined,
     };
   }
 

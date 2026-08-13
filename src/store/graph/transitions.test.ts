@@ -46,6 +46,7 @@ describe('graph-run transition map', () => {
     expectPairsEqual(GRAPH_RUN_TRANSITIONS, [
       'planning → awaiting-confirmation',
       'planning → running',
+      'planning → blocked',
       'awaiting-confirmation → running',
       'running → draining',
       'draining → running',

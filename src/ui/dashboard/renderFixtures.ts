@@ -327,7 +327,7 @@ function doneView(n: RenderRepoCount): InsideStageView {
     stageKey: 'done',
     title: 'Done',
     dot: 'done',
-    clock: '09:58:44 · 3m 02s',
+    clock: '09:58:44',
     processes: [
       {
         id: 'delivery-receipt',
@@ -856,7 +856,9 @@ export function renderStateFor(stage: InsideStageKey): DashboardState {
       modelId: null,
       modelLabel: 'Agent default',
       effort: null,
-      canSwitch: false,
+      // The switch is available at every stage (869ehtcmz); only a running
+      // Fix execution withholds it, and this fixture carries no recovery round.
+      canSwitch: true,
     },
     stepper: [],
     currentStage: null,
@@ -870,6 +872,7 @@ export function renderStateFor(stage: InsideStageKey): DashboardState {
     provider: null,
     sourceRef: null,
     ticketUrl: null,
+    description: null,
     brief: null,
     rail: { main: [] },
     insideViews,

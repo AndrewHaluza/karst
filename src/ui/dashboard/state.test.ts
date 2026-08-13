@@ -7,10 +7,13 @@ import { setMergeCheck } from '../../store/mergeChecks.js';
 import { recordPhaseMark } from '../../store/phaseMarks.js';
 import { recordTokenUsage } from '../../store/tokenUsage.js';
 import { openProcessRun } from '../../store/processRuns.js';
+import { openStageRun } from '../../store/stageRuns.js';
 import { parkGateStage } from '../../store/stageBlocks.js';
 import { MAX_DIAGNOSTIC_CHARS } from '../../model/diagnosticText.js';
+import { formatTime } from '../../model/inside/types.js';
 import { InsideActionRegistry } from './insideActions.js';
 import { buildDashboardState } from './state.js';
+import type { ArtifactSummary } from '../../model/artifacts.js';
 
 describe('buildDashboardState', () => {
   let store: Store;
@@ -111,6 +114,40 @@ describe('buildDashboardState', () => {
     expect(state.artifacts[0]!.tasks).toEqual([]);
   });
 
+  it('derives the session-phases plan for a non-graph ticket whose workflow declares phases', () => {
+    const t = createTicket(store, { key: 'ART-PH', title: 'phases' });
+    store.db
+      .prepare("UPDATE tickets SET stage_current = 'impl', approach = 'rpi' WHERE id = ?")
+      .run(t.id);
+    setStage(store, t.id, 'impl', {
+      status: 'running',
+      startedAt: '2026-08-01T08:00:00.000Z',
+      endedAt: null,
+      attempt: 0,
+    });
+    recordPhaseMark(store, {
+      ticketId: t.id,
+      stageKey: 'impl',
+      attempt: 0,
+      phaseName: 'plan',
+      markedAt: '2026-08-01T08:20:00.000Z',
+    });
+
+    const state = buildDashboardState(
+      store, t.id, undefined, undefined,
+      (approachId) =>
+        approachId === 'rpi' ? ['describe', 'research', 'plan', 'implement'] : [],
+    );
+    const [plan] = state.artifacts as [ArtifactSummary];
+    expect(plan).toMatchObject({
+      id: 'plan',
+      status: 'info',
+      summary: '4 tasks · 0 done · 1 in progress',
+    });
+    expect(plan.tasks.find((task) => task.label === 'plan')).toMatchObject({ status: 'doing' });
+    expect(plan.tasks.find((task) => task.label === 'describe')).toMatchObject({ status: 'todo' });
+  });
+
   it('passes the real estimated call count into the session process token view', () => {
     const t = createTicket(store, { key: 'TK-1', title: 'tokens' });
     const run = openProcessRun(store, {
@@ -137,14 +174,14 @@ describe('buildDashboardState', () => {
     expect(session.tokens).toMatchObject({ state: 'estimated' });
   });
 
-  it('shows the resolved agent core/model and enables switching only for a live impl session', () => {
+  it('shows the resolved agent core/model and enables switching', () => {
     const t = createTicket(store, { key: 'SW-1', title: 'switch' });
     updateTicketFields(store, t.id, { agentProvider: 'codex', model: 'gpt-5.6-sol' });
     store.db.prepare("UPDATE tickets SET stage_current = 'impl' WHERE id = ?").run(t.id);
 
     const state = buildDashboardState(
       store, t.id, undefined, undefined, undefined, undefined, 'claude',
-      { defaultModel: null, isSessionOpen: (id) => id === t.id },
+      { defaultModel: null },
     );
 
     expect(state.agentSession).toMatchObject({
@@ -154,15 +191,12 @@ describe('buildDashboardState', () => {
   });
 
   it.each([
-    ['impl', false], ['fix', false], ['review', true],
-  ] as const)('does not offer switching at %s/open=%s', (stage, open) => {
-    const t = createTicket(store, { key: `SW-${stage}-${open}`, title: 'switch' });
-    store.db.prepare('UPDATE tickets SET stage_current = ? WHERE id = ?').run(stage, t.id);
-    const state = buildDashboardState(
-      store, t.id, undefined, undefined, undefined, undefined, 'claude',
-      { isSessionOpen: () => open },
-    );
-    expect(state.agentSession.canSwitch).toBe(false);
+    'impl', 'fix', 'uat', 'review', 'ship', 'done', 'scope', null,
+  ] as const)('offers switching at %s whether or not a session is open', (stage) => {
+    const t = createTicket(store, { key: `SW-${stage ?? 'null'}`, title: 'switch' });
+    if (stage !== null) store.db.prepare('UPDATE tickets SET stage_current = ? WHERE id = ?').run(stage, t.id);
+    const state = buildDashboardState(store, t.id);
+    expect(state.agentSession.canSwitch).toBe(true);
   });
 
   it('does not offer switching while a Fix recovery execution owns the live session', () => {
@@ -177,7 +211,6 @@ describe('buildDashboardState', () => {
 
     const state = buildDashboardState(
       store, t.id, undefined, undefined, undefined, undefined, 'claude',
-      { isSessionOpen: () => true },
     );
 
     expect(state.agentSession.canSwitch).toBe(false);
@@ -284,6 +317,20 @@ describe('buildDashboardState', () => {
     const state = buildDashboardState(store, t.id);
     expect(state.insideViews.uat.clock).toContain('· 33m 42s elapsed');
     expect(state.insideViews.uat.clock).not.toContain('h elapsed');
+  });
+
+  it('names only the completion time on the done stage header — no 0.0s span', () => {
+    // Done is stamped at arrival ("nothing runs here, arriving is completing"),
+    // so both stamps are the same instant and the span reads 0.0s. The header
+    // shows the timestamp; the durations live in the receipt's Timing strip.
+    const stamp = '2026-08-09T10:00:00.000Z';
+    const t = createTicket(store, { key: 'PROJ-DONE', title: 'delivered' });
+    setStage(store, t.id, 'done', { status: 'passed', startedAt: stamp, endedAt: stamp });
+    store.db.prepare("UPDATE tickets SET stage_current = 'done' WHERE id = ?").run(t.id);
+
+    const state = buildDashboardState(store, t.id);
+    expect(state.insideViews.done.clock).toBe(formatTime(stamp));
+    expect(state.insideViews.done.clock).not.toContain('0.0s');
   });
 
   // The reviewer's Important finding (task 8, fix round 1): `reason`/`blocked`
@@ -393,7 +440,11 @@ describe('buildDashboardState', () => {
     const state = buildDashboardState(store, t.id);
     const ship = state.rail.main.find((s) => s.cell.stageKey === 'ship')!;
     expect(ship.needsUser).toBe(true);
-    expect(ship.needs).toEqual({ detail: 'ready to open the PRs', action: 'Confirm ship' });
+    expect(ship.needs).toEqual({
+      detail: 'ready to open the PRs',
+      action: 'Confirm ship',
+      cta: { kind: 'ship-confirm' },
+    });
     expect(state.rail.main.filter((s) => s.needsUser)).toHaveLength(1);
   });
 
@@ -501,6 +552,7 @@ describe('buildDashboardState', () => {
     expect(ship.needs).toEqual({
       detail: '1 repo no longer merges cleanly',
       action: 'Resolve',
+      cta: { kind: 'resolve' },
     });
   });
 
@@ -511,6 +563,92 @@ describe('buildDashboardState', () => {
     const state = buildDashboardState(store, t.id);
     expect(state.rail.main.some((s) => s.needsUser)).toBe(false);
     expect(state.rail.main.every((s) => s.needs === null)).toBe(true);
+  });
+
+  it('acts on the ONE waiting repo when its current PR can merge', () => {
+    // A single unmerged repo whose PR is open is exactly the case the rail can
+    // act on: it names the repo and posts `merge-pr`, the host modal still
+    // guarding the irreversible step.
+    const t = createTicket(store, { key: 'N-8', title: 't' });
+    setStage(store, t.id, 'ship', {
+      status: 'passed',
+      endedAt: '2026-08-01T10:00:00.000Z',
+      blockedKind: 'awaiting-merge',
+      blockedReason: 'blocked: the pull request for "api" is not merged yet',
+      blockedAt: '2026-08-01T10:00:00.000Z',
+    });
+    store.db
+      .prepare("UPDATE tickets SET stage_current = 'ship', agent_state = 'idle' WHERE id = ?")
+      .run(t.id);
+    store.db
+      .prepare('INSERT INTO prs (ticket_id, repo, number, url, status) VALUES (?, ?, ?, ?, ?)')
+      .run(t.id, 'api', 12, 'https://github.com/o/r/pull/12', 'open');
+
+    const state = buildDashboardState(store, t.id);
+    const ship = state.rail.main.find((s) => s.cell.stageKey === 'ship')!;
+    expect(ship.needs).toEqual({
+      detail: '1 repo to merge',
+      action: 'Merge',
+      cta: { kind: 'merge', repo: 'api' },
+    });
+  });
+
+  it('points a multi-repo wait at the PR panel, never merging blindly', () => {
+    // A track-level button cannot pick which of several repos to merge — each
+    // merge is its own host-confirmed step, so the rail navigates to the panel
+    // that owns one Merge button per repo.
+    const t = createTicket(store, { key: 'N-9', title: 't' });
+    setStage(store, t.id, 'ship', {
+      status: 'passed',
+      endedAt: '2026-08-01T10:00:00.000Z',
+      blockedKind: 'awaiting-merge',
+      blockedReason: 'blocked: pull requests for api, web are not merged yet',
+      blockedAt: '2026-08-01T10:00:00.000Z',
+    });
+    store.db
+      .prepare("UPDATE tickets SET stage_current = 'ship', agent_state = 'idle' WHERE id = ?")
+      .run(t.id);
+    const ins = store.db.prepare(
+      'INSERT INTO prs (ticket_id, repo, number, url, status) VALUES (?, ?, ?, ?, ?)',
+    );
+    ins.run(t.id, 'api', 12, 'https://github.com/o/r/pull/12', 'open');
+    ins.run(t.id, 'web', 13, 'https://github.com/o/r/pull/13', 'open');
+
+    const state = buildDashboardState(store, t.id);
+    const ship = state.rail.main.find((s) => s.cell.stageKey === 'ship')!;
+    expect(ship.needs).toEqual({
+      detail: '2 repos to merge',
+      action: 'Merge',
+      cta: { kind: 'merge-panel' },
+    });
+  });
+
+  it('will not act on a single waiting repo whose PR cannot currently merge', () => {
+    // A draft/closed/unknown PR is not offered a merge by the PR panel; the rail
+    // must not fire an irreversible command the panel's own button would refuse,
+    // so a single NON-mergeable waiting repo still navigates to the panel.
+    const t = createTicket(store, { key: 'N-10', title: 't' });
+    setStage(store, t.id, 'ship', {
+      status: 'passed',
+      endedAt: '2026-08-01T10:00:00.000Z',
+      blockedKind: 'awaiting-merge',
+      blockedReason: 'blocked: the pull request for "api" is not merged yet',
+      blockedAt: '2026-08-01T10:00:00.000Z',
+    });
+    store.db
+      .prepare("UPDATE tickets SET stage_current = 'ship', agent_state = 'idle' WHERE id = ?")
+      .run(t.id);
+    store.db
+      .prepare('INSERT INTO prs (ticket_id, repo, number, url, status) VALUES (?, ?, ?, ?, ?)')
+      .run(t.id, 'api', 12, 'https://github.com/o/r/pull/12', 'draft');
+
+    const state = buildDashboardState(store, t.id);
+    const ship = state.rail.main.find((s) => s.cell.stageKey === 'ship')!;
+    expect(ship.needs).toEqual({
+      detail: '1 repo to merge',
+      action: 'Merge',
+      cta: { kind: 'merge-panel' },
+    });
   });
 
   it('draws the meter with the manifest’s narrowed uat budget', () => {
@@ -908,6 +1046,43 @@ describe('insideViews (the six-stage inside presentation)', () => {
     setStage(store, ticketId, 'impl', { status: 'running', startedAt: '2026-08-09T10:00:00.000Z' });
     const impl = buildDashboardState(store, ticketId).insideViews.impl;
     expect(impl.live).toMatchObject({ status: 'run', label: 'Session' });
+  });
+
+  it('names the AI phase as the current process once the gates have passed', () => {
+    // The uat stage runs gates first, THEN the Tester. While the Tester runs
+    // the stage still reads `running` — the gates are done work, so the gates
+    // row must read a checkmark and the header's current process must name the
+    // Tester, never Gates (the reported UAT mislead).
+    const ticketId = ticketAt('uat');
+    setStage(store, ticketId, 'uat', { status: 'running', startedAt: '2026-08-09T10:00:00.000Z' });
+    const stageRunId = openStageRun(store, {
+      ticketId,
+      stageKey: 'uat',
+      attempt: 0,
+      runAt: '2026-08-09T10:00:00.000Z',
+      startedAt: '2026-08-09T10:00:00.000Z',
+    });
+    recordGateRun(store, {
+      ticketId,
+      stageKey: 'uat',
+      attempt: 0,
+      runAt: '2026-08-09T10:00:00.000Z',
+      stageRunId,
+      gates: [{ gateName: 'test (web)', exitCode: 0 }],
+    });
+    openProcessRun(store, {
+      ticketId,
+      stageKey: 'uat',
+      processId: 'tester',
+      attempt: 0,
+      stageRunId,
+      provider: 'codex',
+      startedAt: '2026-08-09T10:05:00.000Z',
+    });
+    const uat = buildDashboardState(store, ticketId).insideViews.uat;
+    expect(uat.processes.find((p) => p.id === 'gates')!.status).toBe('pass');
+    expect(uat.processes.find((p) => p.id === 'tester')!.status).toBe('run');
+    expect(uat.live).toMatchObject({ status: 'run', label: 'Tester' });
   });
 
   it('omits the live line for a stage with nothing running or waiting', () => {

@@ -35,7 +35,6 @@ export interface AgentSessionViewInput {
   defaultEffort?: string | null;
   catalog: ModelCatalog;
   stageCurrent: string | null;
-  sessionOpen: boolean;
   /** A running Fix process currently owns the session and may not be switched. */
   fixExecutionActive?: boolean;
 }
@@ -77,7 +76,10 @@ export interface AgentSwitchFlowDeps {
   read(): AgentSwitchSnapshot;
   isSessionOpen(): boolean;
   isProviderReady(provider: AgentProvider): Promise<boolean>;
-  confirm(input: { from: AgentSessionView; to: AgentSessionView }): Promise<boolean>;
+  /** `willReplaceSession` lets the host word its dialog: a live session is being
+   *  closed; with none open the switch only changes which core the next session
+   *  launches with. */
+  confirm(input: { from: AgentSessionView; to: AgentSessionView; willReplaceSession: boolean }): Promise<boolean>;
   persist(selection: AgentSwitchSelection): void;
   dispose(): void;
   launch(options: AgentSwitchLaunchOptions): Promise<void>;
@@ -95,14 +97,19 @@ function labelForModel(provider: AgentProvider, id: string | undefined, catalog:
   return modelsForProvider(provider, catalog).find((model) => model.id === id)?.label ?? id;
 }
 
+/**
+ * Whether the header agent-core switch is offered at all. It is available at
+ * EVERY stage — impl, the gate stages, ship, done and scope — whether or not a
+ * live session is open (869ehtcmz): a provider that hit its usage limit must
+ * be replaceable wherever the ticket is, or the work gets stuck. The ONE
+ * withheld state is a running Fix recovery execution, which owns the live
+ * session and must not be interrupted mid-run.
+ */
 export function canSwitchAgentSession(
   stageCurrent: string | null,
-  sessionOpen: boolean,
   fixExecutionActive = false,
 ): boolean {
-  return sessionOpen
-    && (stageCurrent === 'impl' || stageCurrent === 'fix')
-    && !(stageCurrent === 'fix' && fixExecutionActive);
+  return !(stageCurrent === 'fix' && fixExecutionActive);
 }
 
 /** Every implemented core with its canonical label — the header select lists ALL of them. */
@@ -153,7 +160,6 @@ export function buildAgentSessionView(input: AgentSessionViewInput): AgentSessio
     effort: effort ?? null,
     canSwitch: canSwitchAgentSession(
       input.stageCurrent,
-      input.sessionOpen,
       input.fixExecutionActive,
     ),
   };
@@ -166,7 +172,7 @@ export async function applyAgentSwitchSelection(
 ): Promise<AgentSwitchOutcome> {
   if (!isKnownProvider(selection.provider)) return { kind: 'stale' };
   const initial = deps.read();
-  if (!canSwitchAgentSession(initial.stageCurrent, deps.isSessionOpen(), initial.fixExecutionActive)) {
+  if (!canSwitchAgentSession(initial.stageCurrent, initial.fixExecutionActive)) {
     return { kind: 'stale' };
   }
   // The staged model must be one of the choices the webview was built from —
@@ -191,7 +197,11 @@ export async function applyAgentSwitchSelection(
     catalog,
   );
 
-  const from = buildAgentSessionView({ ...initial, catalog, sessionOpen: true });
+  // Whether a live session is open decides two things: the dialog's wording
+  // (a live session is replaced; with none open the change just takes effect
+  // for the next session) and whether anything needs disposing.
+  const willReplaceSession = deps.isSessionOpen();
+  const from = buildAgentSessionView({ ...initial, catalog });
   const to = buildAgentSessionView({
     provider: selection.provider,
     ticketModel: selection.model,
@@ -200,23 +210,24 @@ export async function applyAgentSwitchSelection(
     defaultEffort: initial.defaultEffort,
     catalog,
     stageCurrent: initial.stageCurrent,
-    sessionOpen: false,
   });
   // Only a changed core needs a readiness probe; the current one is already running.
   if (selection.provider !== initial.provider && !(await deps.isProviderReady(selection.provider))) {
     return { kind: 'unavailable', provider: selection.provider };
   }
-  if (!(await deps.confirm({ from, to }))) return { kind: 'cancelled', at: 'confirm' };
+  if (!(await deps.confirm({ from, to, willReplaceSession }))) return { kind: 'cancelled', at: 'confirm' };
 
   const current = deps.read();
-  if (!canSwitchAgentSession(current.stageCurrent, deps.isSessionOpen(), current.fixExecutionActive)) {
+  if (!canSwitchAgentSession(current.stageCurrent, current.fixExecutionActive)) {
     return { kind: 'stale' };
   }
   // The persisted effort is the RESOLVED value: a staged effort the selected
   // model does not advertise is stored as NULL (inherit), never as a value the
   // launch would drop anyway.
   deps.persist({ provider: selection.provider, model: selection.model, effort: toEffort ?? null });
-  deps.dispose();
+  // Re-check the session after the confirmation modal: it may have opened or
+  // closed while the user was deciding, and only a live session needs disposing.
+  if (deps.isSessionOpen()) deps.dispose();
   try {
     await deps.launch({ allowResume: false, providerReady: true });
     return { kind: 'switched' };

@@ -11,6 +11,8 @@ const baseReading: ResourceReading = {
   inventory: null,
   waste: [],
   history: [],
+  skipped: 0,
+  fastLane: false,
 };
 
 function fakeMonitor(): {
@@ -249,5 +251,59 @@ describe('ResourcesPanelManager', () => {
     manager.dispose();
     expect(d.measureAll).toHaveBeenCalled();
     expect(d.measureAll.mock.calls[0]?.[1]?.aborted).toBe(true);
+  });
+
+  it('resolves attributed ticket ids through the injected identity dep', async () => {
+    const m = fakeMonitor();
+    m.reading.mockReturnValue({
+      ...baseReading,
+      inventory: {
+        takenMs: 100,
+        cwdProbes: 0,
+        attributed: [
+          {
+            pid: 100,
+            kind: 'server',
+            ticketId: 7,
+            label: 'web',
+            serverId: 1,
+            attribution: 'attributable',
+            cost: { pid: 100, rssBytes: 60, cpuPct: 50, procCount: 1, startedMs: 1 },
+            cwd: '/wt/x',
+            comm: 'npm',
+          },
+        ],
+        unattributed: [],
+        totals: { rssBytes: 60, cpuPct: 50 },
+      },
+      waste: [],
+    });
+    const p = fakePanel();
+    const manager = new ResourcesPanelManager(hostFor(p.panel), {
+      monitor: m.monitor,
+      disk: fakeDisk().disk,
+      worktreePaths: () => [],
+      ticketIdentity: (ids) => new Map(ids.map((id) => [id, { key: `K-${id}`, title: `T-${id}` }])),
+    });
+    manager.open();
+    const state = manager.state();
+    expect(state.rows[0]).toMatchObject({ ticketKey: 'K-7', ticketTitle: 'T-7' });
+  });
+
+  it('carries the scope label into the pushed state', async () => {
+    const m = fakeMonitor();
+    const p = fakePanel();
+    const manager = new ResourcesPanelManager(hostFor(p.panel), {
+      monitor: m.monitor,
+      disk: fakeDisk().disk,
+      worktreePaths: () => [],
+      scopeLabel: () => 'Project karst · this window',
+    });
+    manager.open();
+    const state = p.posts.find((x) => x.type === 'state') as Extract<
+      ResourcesHostMessage,
+      { type: 'state' }
+    >;
+    expect(state.state.scopeLabel).toBe('Project karst · this window');
   });
 });

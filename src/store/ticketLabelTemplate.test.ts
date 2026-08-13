@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   renderTicketLabel,
   validateLabelTemplate,
+  terminalTicketName,
   DEFAULT_TICKET_LABEL_TEMPLATE,
   DEFAULT_TERMINAL_NAME_TEMPLATE,
   type TicketLabelFields,
@@ -67,23 +68,26 @@ describe('renderTicketLabel', () => {
     expect(renderTicketLabel({ ...base, selectedRepos: [] }, '{key} [{repos}]')).toBe('PROJ-142 []');
   });
 
-  it('renders the one-char follow-up marker in the default terminal template', () => {
+  it('terminalTicketName always carries the one-char follow-up marker for a follow-up ticket', () => {
+    // The terminal is a text-only surface where follow-up identity must be
+    // visible whatever the user's template says (869ehqx68-fu1): the marker is
+    // added at the presentation seam, never opt-in via a template token.
     const fu = { ...base, key: 'PROJ-1-fu1', parentTicketId: 7 };
-    expect(renderTicketLabel(fu, DEFAULT_TERMINAL_NAME_TEMPLATE)).toBe(
-      'Karst: ↳ PROJ-1-fu1 — do things',
+    expect(terminalTicketName(fu, DEFAULT_TERMINAL_NAME_TEMPLATE)).toBe(
+      '↳ Karst: PROJ-1-fu1 — do things',
     );
-    // A non-follow-up renders byte-identically to the historical default.
-    expect(renderTicketLabel(base, DEFAULT_TERMINAL_NAME_TEMPLATE)).toBe(
+    // A template that never mentions follow-up still renders the marker.
+    expect(terminalTicketName(fu, '{title}')).toBe('↳ do things');
+    // A non-follow-up renders the template verbatim.
+    expect(terminalTicketName(base, DEFAULT_TERMINAL_NAME_TEMPLATE)).toBe(
       'Karst: PROJ-142 — do things',
     );
   });
 
-  it('{followUp} renders the marker prefix only for a follow-up ticket', () => {
-    expect(renderTicketLabel({ ...base, parentTicketId: 7 }, '{followUp}{key}')).toBe(
-      '↳ PROJ-142',
-    );
-    expect(renderTicketLabel({ ...base, parentTicketId: null }, '{followUp}{key}')).toBe(
-      'PROJ-142',
+  it('the default terminal template itself never embeds the marker — the seam owns it', () => {
+    const fu = { ...base, key: 'PROJ-1-fu1', parentTicketId: 7 };
+    expect(renderTicketLabel(fu, DEFAULT_TERMINAL_NAME_TEMPLATE)).toBe(
+      'Karst: PROJ-1-fu1 — do things',
     );
   });
 

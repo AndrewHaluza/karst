@@ -51,6 +51,84 @@ describe('resources webview.html', () => {
     expect(script).toContain('state.history');
   });
 
+  it('labels the two chart series with toggleable legend buttons (UI-R28)', () => {
+    expect(HTML).toContain('CPU %');
+    expect(HTML).toContain('RSS');
+    expect(HTML).toContain('data-series="cpu"');
+    expect(HTML).toContain('data-series="rss"');
+    // The toggle is LOCAL presentation — it must never post a message.
+    const script = scriptBlock();
+    // `muted` mirrors the OLD pressed state (a shown series becomes muted), not
+    // its inverse — the inverse left the button grayed while the series stayed
+    // visible, and full-opacity while it was muted.
+    expect(script).toContain('muted[series] = on');
+    expect(script).toContain('renderSpark(lastState)');
+    // The legend click handler contains no vscode.postMessage.
+    const handler = script.slice(
+      script.indexOf("for (const btn of document.querySelectorAll('.legendBtn'))"),
+      script.indexOf("window.addEventListener('message'"),
+    );
+    expect(handler).not.toContain('post(');
+  });
+
+  it('shows scale markers: per-series maxima, y-axis gridline labels, and x-axis time ticks', () => {
+    expect(HTML).toContain('id="chartScale"');
+    expect(HTML).toContain('state.trend.cpuMaxDisplay');
+    expect(HTML).toContain('id="chartTicks"');
+    expect(HTML).toContain('state.trend.timeTicks');
+    // The values are HOST-formatted — the webview only re-escapes them.
+    expect(HTML).toContain('CPU ${esc(state.trend.cpuMaxDisplay)}');
+    // The Y scale is set: a label per gridline, both series, host-formatted.
+    expect(HTML).toContain('id="chartY"');
+    expect(HTML).toContain('state.trend.yTicks');
+    expect(HTML).toContain('esc(t.cpu)');
+    expect(HTML).toContain('esc(t.rss)');
+  });
+
+  it('dims a muted series\'s own y-axis label, so the legend state reads on the scale too', () => {
+    const script = scriptBlock();
+    expect(script).toContain("`<span class=\"cpu${muted.cpu ? ' muted' : ''}\">${esc(t.cpu)}</span>`");
+    expect(script).toContain("`<span class=\"rss${muted.rss ? ' muted' : ''}\">${esc(t.rss)}</span>`");
+  });
+
+  it('gives the unattributed PID column a six-character mono width (000000)', () => {
+    const styles = [...HTML.matchAll(/<style>(.*?)<\/style>/gs)].map((m) => m[1]!).join('\n');
+    expect(styles).toMatch(/\.utable th\.pid,\.utable td\.pid\{width:6ch\}/);
+  });
+
+  it('gives the unattributed command column the freed space and pins the numeric columns narrow', () => {
+    const styles = [...HTML.matchAll(/<style>(.*?)<\/style>/gs)].map((m) => m[1]!).join('\n');
+    // The command column absorbs ALL the slack (width:100% on both the th and
+    // the td, max-width:0 + ellipsis on the td) so a long command line is
+    // readable, and the CPU/RSS/PROCS columns are pinned to width:1% so they
+    // shrink to their content instead of splitting the leftover space.
+    expect(styles).toMatch(/\.utable th\.cmd,\.utable td\.cmd\{width:100%\}/);
+    expect(styles).toMatch(/\.utable td\.cmd\{min-width:0;max-width:0;overflow:hidden;/);
+    expect(styles).toMatch(/\.utable th\.amt,\.utable td\.amt\{width:1%;white-space:nowrap\}/);
+  });
+
+  it('renders the attributed ticket cell from the resolved key and title', () => {
+    expect(HTML).toContain('class="tkey"');
+    expect(HTML).toContain('r.ticketKey');
+    expect(HTML).toContain('class="ttitle"');
+    expect(HTML).toContain('r.ticketTitle');
+  });
+
+  it('renders the summary rail and the monitor facts lane', () => {
+    expect(HTML).toContain('Proven waste');
+    expect(HTML).toContain('state.wasteCount');
+    expect(HTML).toContain('id="summaryMeta"');
+    expect(HTML).toContain('id="facts"');
+    expect(HTML).toContain('state.facts');
+  });
+
+  it('renders a relative disk share bar from the host bytes', () => {
+    const script = scriptBlock();
+    expect(script).toContain('Math.max(...rows.map((d) => d.bytes), 1)');
+    expect(script).toContain('Math.round((d.bytes / max) * 100)');
+    expect(HTML).toContain('class="diskTrack"');
+  });
+
   it('renders cpuPct null as an em-dash, never a coerced zero', () => {
     expect(HTML).toContain('cpuPctDisplay');
   });

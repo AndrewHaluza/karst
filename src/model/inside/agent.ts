@@ -453,11 +453,12 @@ export function implementationSessionProcess(
         })
       : undefined;
 
-  // Per-session usage exists only for providers whose bridge emits measured
-  // UsageUpdate events (agent/provider.ts) — a Claude/Antigravity session can
-  // never produce a token fact, so the row renders absence-with-title, NEVER
-  // "0 tokens". The capability belongs to the provider: what RAN decides, and
-  // the configured provider speaks before anything ran.
+  // Per-session usage exists for every implemented provider — codex/opencode
+  // via their bridges, claude via its session transcript, antigravity via its
+  // conversation DB (agent/provider.ts is the truth table). A provider that
+  // does not measure renders absence-with-title, NEVER "0 tokens". The
+  // capability belongs to the provider: what RAN decides, and the configured
+  // provider speaks before anything ran.
   const interactiveUsage = measuresSessionUsage(execution?.provider ?? configured?.provider);
   const tokensView: TokenUsageView | undefined = tokens
     ? tokenView(tokens, interactiveUsage)
