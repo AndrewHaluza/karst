@@ -326,7 +326,7 @@ function doneView(n: RenderRepoCount): InsideStageView {
     stageKey: 'done',
     title: 'Done',
     dot: 'done',
-    clock: '09:58:44 · 3m 02s',
+    clock: '09:58:44',
     processes: [
       {
         id: 'delivery-receipt',

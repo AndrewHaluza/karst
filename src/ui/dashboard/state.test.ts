@@ -9,6 +9,7 @@ import { recordTokenUsage } from '../../store/tokenUsage.js';
 import { openProcessRun } from '../../store/processRuns.js';
 import { parkGateStage } from '../../store/stageBlocks.js';
 import { MAX_DIAGNOSTIC_CHARS } from '../../model/diagnosticText.js';
+import { formatTime } from '../../model/inside/types.js';
 import { InsideActionRegistry } from './insideActions.js';
 import { buildDashboardState } from './state.js';
 
@@ -284,6 +285,20 @@ describe('buildDashboardState', () => {
     const state = buildDashboardState(store, t.id);
     expect(state.insideViews.uat.clock).toContain('· 33m 42s elapsed');
     expect(state.insideViews.uat.clock).not.toContain('h elapsed');
+  });
+
+  it('names only the completion time on the done stage header — no 0.0s span', () => {
+    // Done is stamped at arrival ("nothing runs here, arriving is completing"),
+    // so both stamps are the same instant and the span reads 0.0s. The header
+    // shows the timestamp; the durations live in the receipt's Timing strip.
+    const stamp = '2026-08-09T10:00:00.000Z';
+    const t = createTicket(store, { key: 'PROJ-DONE', title: 'delivered' });
+    setStage(store, t.id, 'done', { status: 'passed', startedAt: stamp, endedAt: stamp });
+    store.db.prepare("UPDATE tickets SET stage_current = 'done' WHERE id = ?").run(t.id);
+
+    const state = buildDashboardState(store, t.id);
+    expect(state.insideViews.done.clock).toBe(formatTime(stamp));
+    expect(state.insideViews.done.clock).not.toContain('0.0s');
   });
 
   // The reviewer's Important finding (task 8, fix round 1): `reason`/`blocked`
