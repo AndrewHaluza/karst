@@ -429,8 +429,13 @@ describe('dashboard webview.html', () => {
       'utf8',
     );
     // Literal names only. Ship rides the fixed confirmShip button markup; the
-    // other data-act values are static strings declared below.
-    const emitted = [...HTML.matchAll(/data-act="([^"$]+)"/g)].map((m) => m[1]!);
+    // other data-act values are static strings declared below. `preview-ticket-data`
+    // is the ONE local-only action: the delegated handler answers it in an explicit
+    // branch BEFORE the posting path, so it never becomes a host message (same
+    // carve-out as the constant CONSOLE_ACT, which reads `data-console`).
+    const emitted = [...HTML.matchAll(/data-act="([^"$]+)"/g)]
+      .map((m) => m[1]!)
+      .filter((act) => act !== 'preview-ticket-data');
     expect(emitted.length).toBeGreaterThan(0);
     for (const act of new Set(emitted)) {
       expect(declared, `unvalidated action: ${act}`).toContain(`'${act}'`);
@@ -1083,6 +1088,31 @@ describe('dashboard webview.html', () => {
     expect(HTML).toMatch(/id="providerMark"/);
     // The key itself must NOT be the board link any more.
     expect(HTML).not.toMatch(/class="k-chip keypill/);
+  });
+
+  it('previews ticket data through a real button + modal drawer, never a hover', () => {
+    // The trigger is a real <button> (UI-R09), icon-only with an accessible
+    // name (UI-R24), starts hidden (renderTicketIdentity shows it only when a
+    // brief exists), and carries NO host-facing data-act (the preview is
+    // purely local — see the delegated handler's explicit branch).
+    expect(HTML).toMatch(/id="ticketDataBtn"[^>]*data-act="preview-ticket-data"/);
+    expect(HTML).toMatch(/id="ticketDataBtn"[^>]*title="Preview ticket data"/);
+    expect(HTML).toMatch(/id="ticketDataBtn"[^>]*aria-label="Preview ticket data"/);
+    expect(HTML).toMatch(/id="ticketDataBtn"[^>]*\shidden/);
+    // The drawer follows modal-dialog semantics (DESIGN-SYSTEM.md §11.15).
+    expect(HTML).toMatch(/id="ticketDataDrawer"[^>]*role="dialog"/);
+    expect(HTML).toMatch(/id="ticketDataDrawer"[^>]*aria-modal="true"/);
+    expect(HTML).toMatch(/id="ticketDataDrawer"[^>]*aria-labelledby="ticketDataTitle"/);
+    expect(HTML).toMatch(/id="ticketDataClose"[^>]*title="Close ticket data preview"/);
+    expect(HTML).toMatch(/id="ticketDataClose"[^>]*aria-label="Close ticket data preview"/);
+    // The brief is provider-authored data: it must be written as TEXT, never
+    // structure — the renderer reads state.brief, not an interpolated literal.
+    expect(HTML).toContain('body.textContent = state.brief;');
+    expect(HTML).not.toMatch(/ticketDataBody[^;]*innerHTML/);
+    expect(HTML).not.toContain("el('ticketDataBody').innerHTML");
+    // The old provider-mark hover carried the WHOLE brief on a tiny icon; the
+    // button owns the preview now, so the giant title tooltip is gone.
+    expect(HTML).not.toMatch(/mark\.setAttribute\('title', esc\(state\.brief\)\)/);
   });
 
   it('renders the active agent through the Karst identity pattern with runtime status', () => {
@@ -1945,6 +1975,7 @@ function previewElement(id: string, initial: string[] = []) {
     value: '',
     checked: false,
     disabled: false,
+    hidden: false,
     dataset: {} as Record<string, string>,
     scrollWidth: 100,
     clientWidth: 100,
@@ -2033,6 +2064,12 @@ function bootPreviewHarness(): PreviewHarness {
     'providerMark',
     'keyBtn',
     'boardLink',
+    'ticketDataBtn',
+    'ticketDataScrim',
+    'ticketDataDrawer',
+    'ticketDataTitle',
+    'ticketDataClose',
+    'ticketDataBody',
     'agentButton',
     'agentCore',
     'agentModel',
@@ -3298,6 +3335,51 @@ describe('agent popover round trip (executed in a VM)', () => {
     // The shipped wiring, pinned so a future refactor cannot rename it.
     expect(HTML).toContain("msg.type === 'bind'");
     expect(HTML).toMatch(/toggle-bind/);
+  });
+});
+
+describe('ticket data preview drawer (executed in a VM)', () => {
+  it('shows the trigger only when a brief exists', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: renderStateFor('impl') }); // brief: null
+    expect(h.element('ticketDataBtn').hidden).toBe(true);
+    const withBrief = { ...renderStateFor('impl'), brief: '# Title\n\nbody' };
+    h.receive({ type: 'state', state: withBrief });
+    expect(h.element('ticketDataBtn').hidden).toBe(false);
+  });
+
+  it('opens the drawer with the brief as text, posting nothing to the host', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: { ...renderStateFor('impl'), brief: '# T\n\n## Details\n- x' } });
+    const before = h.posted.length;
+    h.click('[data-act]', { act: 'preview-ticket-data' });
+    expect(h.posted.length).toBe(before); // purely local — no host round trip
+    expect(h.classesOf('ticketDataDrawer')).toContain('open');
+    expect(h.classesOf('ticketDataScrim')).toContain('open');
+    expect(h.element('ticketDataDrawer').getAttribute('aria-hidden')).toBe('false');
+    // Rendered as TEXT — an HTML payload in the brief must not become markup.
+    expect(h.element('ticketDataBody').textContent).toBe('# T\n\n## Details\n- x');
+    expect(h.element('ticketDataBody').innerHTML).toBe(''); // never innerHTML
+  });
+
+  it('closes on the close button, the scrim, and Escape, restoring focus', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: { ...renderStateFor('impl'), brief: 'b' } });
+    h.click('[data-act]', { act: 'preview-ticket-data' });
+    expect(h.classesOf('ticketDataDrawer')).toContain('open');
+
+    h.element('ticketDataClose').fire('click');
+    expect(h.classesOf('ticketDataDrawer')).not.toContain('open');
+    expect(h.classesOf('ticketDataScrim')).not.toContain('open');
+    expect(h.element('ticketDataDrawer').getAttribute('aria-hidden')).toBe('true');
+
+    h.click('[data-act]', { act: 'preview-ticket-data' });
+    h.element('ticketDataScrim').fire('click');
+    expect(h.classesOf('ticketDataDrawer')).not.toContain('open');
+
+    h.click('[data-act]', { act: 'preview-ticket-data' });
+    h.key('Escape');
+    expect(h.classesOf('ticketDataDrawer')).not.toContain('open');
   });
 });
 
