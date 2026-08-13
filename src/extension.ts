@@ -144,10 +144,7 @@ import { dispatchHook } from './hooks/dispatch.js';
 import type { StageKey } from './model/types.js';
 import { buildTicketContext, renderTicketContext } from './context/ticketContext.js';
 import { resolveModelForProvider } from './agent/models.js';
-import {
-  renderTicketLabel,
-  DEFAULT_TERMINAL_NAME_TEMPLATE,
-} from './store/ticketLabelTemplate.js';
+import { terminalTicketName } from './store/ticketLabelTemplate.js';
 import { compactTicketLabel } from './model/followUp.js';
 import { ticketGlyph } from './model/ticketGlyph.js';
 import { glyphIconPath } from './ui/glyphIcon.js';
@@ -5112,12 +5109,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // Terminal name/icon/color are frozen at creation, so the tab carries the
       // status-free brand mark from the start — never a stage-at-launch glyph
       // hue, which the tab would keep for the rest of its life (869egvp46-fu2).
-      // The template keeps the stage legible as text.
+      // The template keeps the stage legible as text. The one-char follow-up
+      // marker is FORCED at this seam (terminalTicketName) so a follow-up's
+      // terminal reads as a follow-up whatever the template says (869ehqx68-fu1).
       const naming = terminalNaming({
-        name: renderTicketLabel(
-          t,
-          currentManifest()?.terminalNameTemplate ?? DEFAULT_TERMINAL_NAME_TEMPLATE,
-        ),
+        name: terminalTicketName(t, currentManifest()?.terminalNameTemplate),
         brandIcon,
       });
 

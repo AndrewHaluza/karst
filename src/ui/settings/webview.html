@@ -1185,7 +1185,7 @@
         <div class="template-form-row">
           <div class="field-label" id="terminalTemplateLabel">Terminal name template</div>
           <div class="field-control">
-            <input type="text" id="f-terminalTemplate" placeholder="Karst: {followUp}{key} — {title}" aria-labelledby="terminalTemplateLabel" />
+            <input type="text" id="f-terminalTemplate" placeholder="Karst: {key} — {title}" aria-labelledby="terminalTemplateLabel" />
             <div class="template-meta">
               <div class="template-preview" id="terminalPreview"></div>
               <button type="button" class="template-help-link" data-template-help="label">Variables &amp; transforms</button>
@@ -1977,10 +1977,12 @@
   }
 
   // Ticket-label template — mirror of src/store/ticketLabelTemplate.ts (the webview
-  // can't import TS). Keep the two in sync: default + variables + fallbacks.
+  // can't import TS). Keep the two in sync: default + variables + fallbacks. The
+  // one-char follow-up marker is NOT a token: the host forces it at the terminal
+  // seam (terminalTicketName), so the template never renders it (869ehqx68-fu1).
   const DEFAULT_LABEL_TEMPLATE = '{key} — {title}';
-  const DEFAULT_TERMINAL_TEMPLATE = 'Karst: {followUp}{key} — {title}';
-  const LABEL_VARS = ['key', 'title', 'id', 'status', 'stage', 'repos', 'followUp'];
+  const DEFAULT_TERMINAL_TEMPLATE = 'Karst: {key} — {title}';
+  const LABEL_VARS = ['key', 'title', 'id', 'status', 'stage', 'repos'];
   const SAMPLE_TICKET = {
     id: 142, key: 'PROJ-142', title: 'add login', stageCurrent: 'implement',
     agentState: 'working', selectedRepos: ['fe', 'be'], parentTicketId: null,
@@ -1994,7 +1996,6 @@
       status: ticket.agentState ?? '',
       stage: ticket.stageCurrent ?? '',
       repos: (ticket.selectedRepos || []).join(', '),
-      followUp: ticket.parentTicketId != null ? '↳ ' : '',
     };
     const out = tpl.replace(/\{(\w+(?:\|[^{}]*)?)\}/g, (_m, body) => {
       const token = parseTokenBody(body);

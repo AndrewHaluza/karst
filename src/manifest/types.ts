@@ -504,9 +504,10 @@ export interface Manifest {
    */
   ticketLabelTemplate?: string;
   /**
-   * Terminal-name template with the same `{var}` tokens as ticketLabelTemplate
-   * plus `followUp` (the one-char `↳` marker, rendered only for a follow-up
-   * ticket). Undefined → the default `'Karst: {followUp}{key} — {title}'`.
+   * Terminal-name template with the same `{var}` tokens as ticketLabelTemplate.
+   * The one-char follow-up marker (`↳`) is NOT a token here: the host appends
+   * it at launch for follow-up tickets (model/followUp.ts), so it stays visible
+   * whatever this template says. Undefined → the default `'Karst: {key} — {title}'`.
    * Blank normalizes to undefined at validation. Rendered once at launch
    * (terminals are static).
    */

@@ -701,16 +701,17 @@ describe('settings placeholder-transform mirror', () => {
 });
 
 describe('settings label-template mirror (UI-R34)', () => {
-  it('mirrors the followUp template token and the marker in the terminal default', () => {
+  it('mirrors the terminal template default and the shared variable set', () => {
     // UI-R34: TICKET_LABEL_VARIABLES / DEFAULT_TERMINAL_NAME_TEMPLATE are
     // mirrored into the webview (it cannot import TS). A drift shows one set of
-    // variables in Settings and another in the host engine.
+    // variables in Settings and another in the host engine. The follow-up
+    // marker is NOT a token — the host forces it at the terminal seam, so the
+    // mirror (like the engine) never renders it from a template.
     expect(HTML).toContain(
-      "const LABEL_VARS = ['key', 'title', 'id', 'status', 'stage', 'repos', 'followUp']",
+      "const LABEL_VARS = ['key', 'title', 'id', 'status', 'stage', 'repos']",
     );
-    expect(HTML).toContain("const DEFAULT_TERMINAL_TEMPLATE = 'Karst: {followUp}{key} — {title}'");
+    expect(HTML).toContain("const DEFAULT_TERMINAL_TEMPLATE = 'Karst: {key} — {title}'");
     expect(HTML).toContain('parentTicketId: null');
-    expect(HTML).toContain('followUp: ticket.parentTicketId != null ? \'↳ \' : \'\'');
   });
 });
 
