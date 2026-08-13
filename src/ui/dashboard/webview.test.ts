@@ -922,7 +922,7 @@ describe('dashboard webview.html', () => {
       '2px', '2px', '2px', '2px',
       '1px', '1px', '1px',
       '12px', '12px', '12px', '12px',
-      '4px', '4px', '4px', '4px', '4px'];
+      '4px', '4px', '4px', '4px', '4px', '4px'];
     // The ported Inside block is the ONE exempt region (see its own header
     // comment): it is the A37 prototype's geometry, scoped under `#inside`,
     // and its pixel values ARE the design. Its colours still go through
@@ -1105,6 +1105,18 @@ describe('dashboard webview.html', () => {
     expect(HTML).toMatch(/id="providerMark"/);
     // The key itself must NOT be the board link any more.
     expect(HTML).not.toMatch(/class="k-chip keypill/);
+  });
+
+  it('renders a read-only provider-native priority chip in the header', () => {
+    // The chip is a plain span on the shared pill shape (UI-R08), never a
+    // control: priority is a provider fact, not an action. It is hidden unless
+    // the ticket was fetched with one.
+    expect(HTML).toMatch(/id="priorityChip"/);
+    expect(HTML).toMatch(/prio\.hidden = !value;/);
+    expect(HTML).toMatch(/prio\.textContent = value;/);
+    expect(HTML).toMatch(/Priority: /);
+    // It must not be a button/anchor that would invite interaction.
+    expect(HTML).not.toMatch(/id="priorityChip"[^>]*data-act/);
   });
 
   it('previews ticket data through a real button + modal drawer, never a hover', () => {
@@ -2147,6 +2159,7 @@ function bootPreviewHarness(): PreviewHarness {
     'shipWait',
     'providerMark',
     'keyBtn',
+    'priorityChip',
     'boardLink',
     'ticketDataBtn',
     'ticketDataScrim',

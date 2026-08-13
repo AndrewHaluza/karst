@@ -225,6 +225,10 @@ describe('parseStageZeroEntries', () => {
 });
 
 describe('inspectWorktree', () => {
+  // The fixture is real git (init/config/add/commit + a full worktree
+  // inspection). Under the full-suite parallel run this has exceeded vitest's
+  // 5s default timeout on loaded machines (saw 5054ms in CI), so the test gets
+  // an explicit budget that real git can actually meet.
   it('inspects a real Git commit with an empty subject', async () => {
     const { dir, spec } = createWorktreeFixture();
     try {
@@ -242,7 +246,7 @@ describe('inspectWorktree', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
-  });
+  }, 30_000);
 
   it('lists first-parent commits since base newest-first with exact commit files', async () => {
     const { dir, spec } = createWorktreeFixture();

@@ -69,6 +69,12 @@ export interface Ticket {
    * ticket); `null` for an ordinary ticket. Set once, at creation.
    */
   parentTicketId: number | null;
+  /**
+   * Provider-native priority label (e.g. 'urgent', 'high', 'normal'), populated
+   * from the ticketing provider when the ticket is fetched; `null` when the
+   * provider did not expose one (a manual ticket, or an unfetched one).
+   */
+  priority: string | null;
 }
 
 export interface TicketWithStages extends Ticket {
@@ -99,6 +105,7 @@ interface TicketRow {
   effort: string | null;
   project_id: number | null;
   parent_ticket_id: number | null;
+  priority: string | null;
 }
 
 /**
@@ -149,6 +156,7 @@ function rowToTicket(r: TicketRow): Ticket {
     type: isTicketType(r.type) ? r.type : null,
     projectId: r.project_id,
     parentTicketId: r.parent_ticket_id,
+    priority: r.priority,
   };
 }
 
@@ -381,6 +389,11 @@ export interface TicketFieldsPatch {
    * and the analyzer that suggests it is an untrusted (model) source.
    */
   type?: string;
+  /**
+   * Provider-native priority label (e.g. 'urgent'); empty string clears it back
+   * to NULL. Populated by the ticket form's fetch, never authored by the user.
+   */
+  priority?: string;
 }
 
 /**
@@ -423,6 +436,9 @@ export function updateTicketFields(
       );
     }
     columns.type = patch.type === '' ? null : patch.type;
+  }
+  if (patch.priority !== undefined) {
+    columns.priority = patch.priority === '' ? null : patch.priority;
   }
 
   const entries = Object.entries(columns);

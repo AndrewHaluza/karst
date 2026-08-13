@@ -872,6 +872,7 @@ export function renderStateFor(stage: InsideStageKey): DashboardState {
     provider: null,
     sourceRef: null,
     ticketUrl: null,
+    priority: null,
     description: null,
     brief: null,
     rail: { main: [] },
