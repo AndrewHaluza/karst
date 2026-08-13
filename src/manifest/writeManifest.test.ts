@@ -192,6 +192,42 @@ describe('writeManifest', () => {
             enabled: false,
             workflow: [{ name: 'research', command: '/rpi:research' }],
           },
+          {
+            id: 'karst-graph-engineering',
+            label: 'Graph Engineering',
+            enabled: false,
+            graph: {
+              planner: { profile: 'expert', prompt: { artifact: 'skills/graph-planner/SKILL.md' } },
+              profiles: {
+                expert: { provider: 'claude', model: 'claude-opus-5', effort: 'high' },
+                worker: { provider: 'claude', model: 'claude-sonnet-5', effort: 'low' },
+              },
+              commands: {
+                test: {
+                  command: 'npm',
+                  args: ['test'],
+                  cwd: 'repository',
+                  access: 'write',
+                  timeoutSeconds: 1800,
+                },
+              },
+              limits: {
+                confirmGeneratedGraph: true,
+                maxParallel: 1,
+                maxNodeRuns: 40,
+                maxExpertRuns: 5,
+                maxReplans: 2,
+                maxActivations: 200,
+                maxGraphWallSeconds: 86400,
+                maxAgentWallSeconds: 7200,
+                maxAgentIdleSeconds: 1800,
+                maxArtifactBytes: 104857600,
+                maxLogBytes: 10485760,
+                maxAggregateArtifactBytes: 536870912,
+                maxAggregateWorkspaceBytes: 21474836480,
+              },
+            },
+          },
         ],
         agents: {
           implement: {
@@ -658,6 +694,54 @@ processes:
         /processes\.uatTester\.provider must be one of/,
       );
       expect(readFileSync(path, 'utf8')).toBe(before); // untouched
+    } finally {
+      cleanup();
+    }
+  });
+
+  // The invariant that motivated the whole nested-block task (A1): without the
+  // validator preserving the block, validateApproaches' fresh-object
+  // construction DROPS every graph field on the first load→save cycle. The
+  // approaches overlay passes the validated array through whole — the proof
+  // that no separate overlay entry is needed is this round trip succeeding.
+  it('round-trips a full graph: block through load → write → load byte-identically', () => {
+    const { path, cleanup } = fixture(`${RAW}
+approaches:
+  - id: karst-graph-engineering
+    label: Graph Engineering
+    enabled: false
+    graph:
+      planner: { profile: expert, prompt: { artifact: skills/graph-planner/SKILL.md } }
+      profiles:
+        expert: { provider: claude, model: claude-opus-5, effort: high }
+        worker: { provider: claude, model: claude-sonnet-5, effort: low }
+        fast: { provider: claude, model: claude-sonnet-5, effort: low }
+      commands:
+        test: { command: npm, args: [test], cwd: repository, access: write, timeoutSeconds: 1800 }
+        typecheck: { command: npm, args: [run, typecheck], cwd: repository, access: write, timeoutSeconds: 900 }
+        build: { command: npm, args: [run, build], cwd: repository, access: write, timeoutSeconds: 1800 }
+      limits:
+        confirmGeneratedGraph: true
+        maxParallel: 1
+        maxNodeRuns: 40
+        maxExpertRuns: 5
+        maxReplans: 2
+        maxActivations: 200
+        maxGraphWallSeconds: 86400
+        maxAgentWallSeconds: 7200
+        maxAgentIdleSeconds: 1800
+        maxArtifactBytes: 104857600
+        maxLogBytes: 10485760
+        maxAggregateArtifactBytes: 536870912
+        maxAggregateWorkspaceBytes: 21474836480
+`);
+    try {
+      const first = loadManifest(path);
+      expect(first.approaches![0]!.graph).toBeDefined();
+      // A Save that merely touches host keeps the whole block.
+      writeManifest(path, { ...first, host: '0.0.0.0' });
+      const second = loadManifest(path);
+      expect(second.approaches![0]!.graph).toEqual(first.approaches![0]!.graph);
     } finally {
       cleanup();
     }

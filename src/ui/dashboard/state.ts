@@ -24,6 +24,7 @@ import type { GateStage } from '../../store/ticketGates.js';
 import { mergeGateState } from '../../workflow/mergeGate.js';
 import { sendBackState, type SendBackState } from '../../workflow/sendBack.js';
 import { buildMergeCheckPanelRows, type MergeCheckPanelRow } from '../../model/mergeCheckPanel.js';
+import { graphInsideProcess, type GraphInsideInput } from '../../model/inside/graph.js';
 import { nowIso } from '../../model/time.js';
 import type { StageKey } from '../../model/types.js';
 import {
@@ -280,6 +281,15 @@ export function buildDashboardState(
    * path. Absent → the raw recorded value stands.
    */
   repoNameFor: (repo: string) => string | undefined = () => undefined,
+  /**
+   * The read-only graph runtime projection for the impl strip (Slice 2 Task
+   * 10). Injected by the host — the state builder never reads the graph
+   * tables — and ABSENT by default: the projection ships inert behind its
+   * feature flag until Slice 3 wires the coordinator, so no caller changes
+   * behavior today. Appended LAST so every existing positional caller keeps
+   * its argument positions.
+   */
+  graphInside?: GraphInsideInput | null,
 ): DashboardState {
   const ticket = getTicket(store, ticketId); // throws on unknown id
   const rounds = listRecoveryRounds(store, ticketId);
@@ -433,6 +443,9 @@ export function buildDashboardState(
               }))
             : [],
         ),
+        // The graph runtime's read-only projection (Slice 2 Task 10):
+        // appended when the host supplies it, inert otherwise.
+        ...(graphInsideProcess(graphInside) ? [graphInsideProcess(graphInside)!] : []),
       ],
       now,
     ),

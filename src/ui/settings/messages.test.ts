@@ -169,6 +169,7 @@ describe('routeSettingsAction', () => {
       getApproachCommandBody: [],
       fetchTicketStatuses: [],
       fetchTicketLists: [],
+      openGraphPrompt: [],
     };
     return {
       calls,
@@ -188,6 +189,7 @@ describe('routeSettingsAction', () => {
       getApproachCommandBody: (approachId, command) => { calls['getApproachCommandBody']!.push({ approachId, command }); },
       fetchTicketStatuses: (listId, teamId) => { calls['fetchTicketStatuses']!.push({ listId, teamId }); },
       fetchTicketLists: (teamId) => { calls['fetchTicketLists']!.push(teamId); },
+      openGraphPrompt: (identity) => { calls['openGraphPrompt']!.push(identity); },
       browseRepoPath: (name) => { calls['browseRepoPath']!.push(name); },
       openManifest: () => { calls['openManifest']!.push(true); },
     };
@@ -217,6 +219,7 @@ describe('routeSettingsAction', () => {
     routeSettingsAction({ type: 'get-approach-command-body', approachId: 'rpi', command: '/rpi:research' }, a);
     routeSettingsAction({ type: 'browse-repo-path', name: 'backend' }, a);
     routeSettingsAction({ type: 'open-manifest' }, a);
+    routeSettingsAction({ type: 'open-graph-prompt', identity: 'karst-graph-planner' }, a);
     expect(a.calls.save).toEqual([{ manifest: draft, section: undefined }]);
     expect(a.calls.validate).toEqual([draft]);
     expect(a.calls.validateProcessAssignments).toEqual([draft]);
@@ -233,6 +236,7 @@ describe('routeSettingsAction', () => {
     expect(a.calls.getApproachCommandBody).toEqual([{ approachId: 'rpi', command: '/rpi:research' }]);
     expect(a.calls.browseRepoPath).toEqual(['backend']);
     expect(a.calls.openManifest).toEqual([true]);
+    expect(a.calls.openGraphPrompt).toEqual(['karst-graph-planner']);
   });
 
   it('ignores malformed messages (no throw, no action)', () => {
@@ -255,6 +259,26 @@ describe('routeSettingsAction', () => {
     const returned = routeSettingsAction({ type: 'request-state' }, a);
     expect(returned).toBeInstanceOf(Promise);
     await returned;
+  });
+});
+
+describe('open-graph-prompt', () => {
+  it('parses a message with a non-empty identity', () => {
+    expect(
+      parseSettingsMessage({ type: 'open-graph-prompt', identity: 'karst-graph-planner' }),
+    ).toEqual({ type: 'open-graph-prompt', identity: 'karst-graph-planner' });
+  });
+
+  it('drops a message with a missing or blank identity', () => {
+    expect(parseSettingsMessage({ type: 'open-graph-prompt' })).toBeNull();
+    expect(parseSettingsMessage({ type: 'open-graph-prompt', identity: '' })).toBeNull();
+  });
+
+  it('routes to openGraphPrompt', () => {
+    const calls: string[] = [];
+    const actions = { openGraphPrompt: (id: string) => calls.push(id) } as unknown as SettingsActions;
+    routeSettingsAction({ type: 'open-graph-prompt', identity: 'karst-graph-node' }, actions);
+    expect(calls).toEqual(['karst-graph-node']);
   });
 });
 

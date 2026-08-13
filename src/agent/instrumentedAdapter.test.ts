@@ -87,6 +87,8 @@ describe('instrumentAdapter', () => {
       projectId: 7,
       ticketId: 42,
       processRunId: null,
+      approachPlannerRunId: null,
+      approachNodeRunId: null,
       callSite: 'pr-description',
       provider: 'claude',
       outcome: 'ok',

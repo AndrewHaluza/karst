@@ -1,6 +1,12 @@
 import type { ApproachDef, Manifest } from '../../manifest/types.js';
 import { validateManifest, ManifestError } from '../../manifest/schema.js';
 import { installCommandFor } from '../../approaches/fetch.js';
+import {
+  approachDelta,
+  builtInEnableEntry,
+  isBuiltInApproachId,
+  withBuiltInApproaches,
+} from '../../approaches/withBuiltInApproaches.js';
 import type { SettingsActions, SettingsHostMessage } from './messages.js';
 import { buildSettingsState, type SettingsState } from './state.js';
 import { buildProcessAssignmentViews } from './processAssignmentViews.js';
@@ -8,6 +14,7 @@ import type { LoadedManifest } from './panel.js';
 import type { TicketingProvider } from '../../integrations/ticketing.js';
 import type { TicketingConfig } from '../../manifest/types.js';
 import type { ModelCatalog } from '../../agent/modelCatalog.js';
+import { assertProfileEffort, EffortError } from '../../agent/effort.js';
 import { mergeSection, type SettingsSection } from './sections.js';
 
 /** Per-panel context: how to post to this webview + which file it edits. */
@@ -94,6 +101,11 @@ export interface SettingsActionsDeps {
   browseForFolder(): Promise<string | undefined>;
   /** Open this window's karst.yml in an editor (runs `karst.openManifest`). */
   openManifest(): void | Promise<void>;
+  /**
+   * Reveal the effective prompt file for a graph prompt identity (project
+   * override wins over the packaged bytes).
+   */
+  revealGraphPrompt(identity: string): Promise<void>;
 }
 
 export type SettingsActionsFactory = (ctx: SettingsActionsCtx) => SettingsActions;
@@ -110,8 +122,57 @@ function withApproachEnabled(manifest: Manifest, id: string, enabled: boolean): 
   };
 }
 
+/**
+ * Flip a built-in approach's `enabled` flag as a DELTA, never as the merged
+ * effective object. For a built-in id the manifest entry is the small
+ * tombstone `{id, label, enabled}` — the packaged label is injected because a
+ * labelless tombstone fails manifest load — and any prior project entry's
+ * label carries over. Non-built-in ids keep the plain map-and-flip.
+ */
+function withApproachEnabledDelta(manifest: Manifest, id: string, enabled: boolean): Manifest {
+  if (!isBuiltInApproachId(id)) return withApproachEnabled(manifest, id, enabled);
+  const prior = (manifest.approaches ?? []).find((a) => a.id === id);
+  const entry = builtInEnableEntry(id, enabled, prior?.label);
+  return {
+    ...manifest,
+    approaches: [...(manifest.approaches ?? []).filter((a) => a.id !== id), entry],
+  };
+}
+
+/**
+ * A10: every graph profile's effort must be advertised by its model in the LIVE
+ * catalog before a save reaches disk — an explicitly configured effort the
+ * selected model does not advertise is a configuration failure, never silently
+ * discarded (`assertProfileEffort`, wired here at Save per its own contract).
+ * The packaged defaults (Opus high, Sonnet low) validate against the bundled
+ * metadata; only project-authored values can trip this.
+ */
+function validateGraphEfforts(manifest: Manifest, catalog: ModelCatalog): void {
+  for (const approach of manifest.approaches ?? []) {
+    for (const profile of Object.values(approach.graph?.profiles ?? {})) {
+      assertProfileEffort(profile.provider, profile.model, profile.effort, catalog);
+    }
+  }
+}
+
 export function buildSettingsActions(deps: SettingsActionsDeps): SettingsActionsFactory {
   return (ctx: SettingsActionsCtx): SettingsActions => {
+    /**
+     * THE Settings write seam: every manifest write routes through here, and
+     * the approaches list is reduced to the DELTA against the packaged built-in
+     * definition before it reaches the file. `loadState` returns the OVERLAID
+     * manifest (the roster must render the built-in), so without this reduction
+     * ANY write — an agent toggle, an install reconcile, a section save — would
+     * resurrect the whole packaged built-in into the manifest (A7).
+     */
+    function writeManifestDelta(next: Manifest): void {
+      deps.writeManifest(ctx.manifestPath, {
+        ...next,
+        approaches:
+          next.approaches !== undefined ? approachDelta(next.approaches) : next.approaches,
+      });
+    }
+
     /**
      * Re-read the manifest file and push state carrying fresh installedIds +
      * token-configured flag. Async because the token flag is read from
@@ -183,11 +244,16 @@ export function buildSettingsActions(deps: SettingsActionsDeps): SettingsActions
     function syncApproachEnabled(id: string, enabled: boolean): boolean {
       const loaded = deps.loadState();
       if (loaded.error) return false;
-      const def = (loaded.manifest.approaches ?? []).find((a) => a.id === id);
+      // Resolve through the built-in seam: an id absent from the raw manifest
+      // may still be a packaged built-in (absence = packaged defaults), which
+      // is exactly the case that used to return early and silently no-op.
+      const def = (withBuiltInApproaches(loaded.manifest).approaches ?? []).find(
+        (a) => a.id === id,
+      );
       if (def === undefined) return false;
       // `enabled` is optional and defaults to on, so compare against that.
       if ((def.enabled ?? true) === enabled) return false;
-      deps.writeManifest(ctx.manifestPath, withApproachEnabled(loaded.manifest, id, enabled));
+      writeManifestDelta(withApproachEnabledDelta(loaded.manifest, id, enabled));
       deps.reloadManifest();
       deps.onChange();
       return true;
@@ -237,15 +303,29 @@ export function buildSettingsActions(deps: SettingsActionsDeps): SettingsActions
         const next = section
           ? mergeSection(deps.loadState().manifest, manifest, section)
           : manifest;
+        // Settings Save serializes only the DELTA against the packaged built-in
+        // definition — never the merged effective object. The webview draft is
+        // seeded from the overlaid manifest, so without this reduction a Save
+        // resurrects the whole packaged built-in into the manifest (the
+        // stale-baseline/clobber class). The reduction happens here, BEFORE
+        // validation, so validity is judged on exactly what would reach the
+        // file; `writeManifestDelta` re-applies it at the write seam for the
+        // other write paths (an idempotent belt-and-braces).
+        const delta = {
+          ...next,
+          approaches:
+            next.approaches !== undefined ? approachDelta(next.approaches) : next.approaches,
+        };
         try {
-          validateManifest(next); // guard before touching disk
+          validateManifest(delta); // guard before touching disk
+          validateGraphEfforts(delta, deps.modelCatalog()); // A10: effort vs live catalog
         } catch (e) {
-          if (!(e instanceof ManifestError)) throw e;
+          if (!(e instanceof ManifestError) && !(e instanceof EffortError)) throw e;
           ctx.post({ type: 'error', message: errorMessage(e) });
           return;
         }
         try {
-          deps.writeManifest(ctx.manifestPath, next);
+          writeManifestDelta(next);
           deps.reloadManifest(); // refresh host's live copy BEFORE state push
           deps.onChange();
           await pushStateWithInstalled();
@@ -348,7 +428,12 @@ export function buildSettingsActions(deps: SettingsActionsDeps): SettingsActions
 
       async setApproachEnabled(id: string, enabled: boolean): Promise<void> {
         const loaded = deps.loadState();
-        const approach = (loaded.manifest.approaches ?? []).find((a) => a.id === id);
+        // Resolve through the built-in seam: a packaged built-in absent from
+        // the raw manifest (absence = packaged defaults) must be findable, or
+        // enabling it errors `Unknown approach` and silently no-ops.
+        const approach = (withBuiltInApproaches(loaded.manifest).approaches ?? []).find(
+          (a) => a.id === id,
+        );
         if (!approach) {
           ctx.post({ type: 'error', message: `Unknown approach "${id}".` });
           return;
@@ -363,13 +448,10 @@ export function buildSettingsActions(deps: SettingsActionsDeps): SettingsActions
           return;
         }
         try {
-          const next: Manifest = {
-            ...loaded.manifest,
-            approaches: (loaded.manifest.approaches ?? []).map((a) =>
-              a.id === id ? { ...a, enabled } : a,
-            ),
-          };
-          deps.writeManifest(ctx.manifestPath, next);
+          // Write the DELTA for a built-in (tombstone / explicit override),
+          // never the merged effective object — a whole-object write would
+          // resurrect the packaged definition into the manifest.
+          writeManifestDelta(withApproachEnabledDelta(loaded.manifest, id, enabled));
           deps.reloadManifest();
           deps.onChange();
           await pushStateWithInstalled();
@@ -388,7 +470,7 @@ export function buildSettingsActions(deps: SettingsActionsDeps): SettingsActions
               [name]: { ...(loaded.manifest.agents?.[name] ?? { role: name }), enabled },
             },
           };
-          deps.writeManifest(ctx.manifestPath, next);
+          writeManifestDelta(next);
           deps.reloadManifest();
           deps.onChange();
           await pushStateWithInstalled();
@@ -475,6 +557,14 @@ export function buildSettingsActions(deps: SettingsActionsDeps): SettingsActions
       async openManifest(): Promise<void> {
         try {
           await deps.openManifest();
+        } catch (e) {
+          ctx.post({ type: 'error', message: errorMessage(e) });
+        }
+      },
+
+      async openGraphPrompt(identity: string): Promise<void> {
+        try {
+          await deps.revealGraphPrompt(identity);
         } catch (e) {
           ctx.post({ type: 'error', message: errorMessage(e) });
         }

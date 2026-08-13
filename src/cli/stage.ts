@@ -2,6 +2,7 @@ import type { Store } from '../store/db.js';
 import type { StageKey, Verdict } from '../model/types.js';
 import { MARKER_STAGES, isMarkerStage, type MarkerStage } from '../agent/markerStage.js';
 import { transition as defaultTransition } from '../workflow/machine.js';
+import { graphImplMarkerGuard } from '../workflow/graphMarkerGuard.js';
 import { markImplementDone } from '../workflow/stages/implement.js';
 import { markFixDone } from '../workflow/fixExecution.js';
 
@@ -146,11 +147,34 @@ export function runStageCommand(
           )?.agent_state ?? null
         : undefined;
   assertMarkerNotWhileWaiting(agentState);
-  // The impl marker routes through markImplementDone, never directly through
-  // the generic transition: completing the stable implementation run (closing
-  // its segment and Session process run, passing the run) is part of the
-  // marker's job, folded into the SAME transaction as the stage advance.
-  if (stage === 'impl') return markImplementDone(store, ticketId, transition);
+  // A graph ticket's impl marker routes through the graph marker guard (the
+  // ONLY graph/stage boundary, Slice-3 T9): the graph run closes and the
+  // stage advances in one transaction, and an earlier/non-quiescent marker is
+  // rejected without mutation. The graph has no stable implementation run, so
+  // markImplementDone's run bookkeeping never applies.
+  if (stage === 'impl') {
+    // The store is the real db-backed store in production; the test seam may
+    // stub it without `db` — the graph check simply does not apply then.
+    const hasGraphRun = store.db
+      ? (
+          store.db
+            .prepare('SELECT 1 AS n FROM approach_graph_runs WHERE ticket_id = ? LIMIT 1')
+            .get(ticketId) as { n: number } | undefined
+        ) !== undefined
+      : false;
+    if (hasGraphRun) {
+      const result = graphImplMarkerGuard(store, ticketId);
+      if (!result.ok) {
+        throw new Error(`graph marker refused: ${result.reason}`);
+      }
+      return 'uat';
+    }
+    // The impl marker routes through markImplementDone, never directly through
+    // the generic transition: completing the stable implementation run (closing
+    // its segment and Session process run, passing the run) is part of the
+    // marker's job, folded into the SAME transaction as the stage advance.
+    return markImplementDone(store, ticketId, transition);
+  }
   // The fix marker routes through markFixDone for the same reason one level
   // down: completing the recovery round (passing the linked Fix process run,
   // moving the round to revalidating) is part of the marker's job, folded into

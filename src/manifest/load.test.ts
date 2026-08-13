@@ -969,6 +969,109 @@ describe('approaches', () => {
       cleanup();
     }
   });
+
+  it('parses a nested graph: block with defaults applied', () => {
+    const yaml = withApproaches(
+      '  - id: karst-graph-engineering\n' +
+        '    label: Graph Engineering\n' +
+        '    enabled: false\n' +
+        '    graph:\n' +
+        '      planner: { profile: expert, prompt: { artifact: skills/graph-planner/SKILL.md } }\n' +
+        '      profiles:\n' +
+        '        expert: { provider: claude, model: claude-opus-5, effort: high }\n' +
+        '        worker: { provider: claude, model: claude-sonnet-5, effort: low }\n' +
+        '      commands:\n' +
+        '        test: { command: npm, args: [test], cwd: repository, access: write, timeoutSeconds: 1800 }\n' +
+        '      limits:\n' +
+        '        maxParallel: 1\n' +
+        '        maxNodeRuns: 40\n' +
+        '        maxExpertRuns: 5\n' +
+        '        maxReplans: 2\n',
+    );
+    const { path, cleanup } = fixture(yaml);
+    try {
+      const m = loadManifest(path);
+      const g = m.approaches![0]!.graph!;
+      expect(g.planner).toEqual({
+        profile: 'expert',
+        prompt: { artifact: 'skills/graph-planner/SKILL.md' },
+      });
+      expect(g.profiles.expert).toEqual({
+        provider: 'claude',
+        model: 'claude-opus-5',
+        effort: 'high',
+      });
+      expect(g.commands.test).toEqual({
+        command: 'npm',
+        args: ['test'],
+        cwd: 'repository',
+        access: 'write',
+        timeoutSeconds: 1800,
+      });
+      // Absent limit fields default to the packaged values; the fixture
+      // itself configures maxParallel 1 explicitly, so it round-trips as 1
+      // (the packaged default is 4 since the Slice-5 T7 concurrency flip).
+      expect(g.limits).toMatchObject({
+        confirmGeneratedGraph: true,
+        maxParallel: 1,
+        maxNodeRuns: 40,
+        maxExpertRuns: 5,
+        maxReplans: 2,
+        maxActivations: 200,
+        maxGraphWallSeconds: 86400,
+        maxAggregateWorkspaceBytes: 21474836480,
+      });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('a graph: block on a non-built-in approach id validates and is inert', () => {
+    const yaml = withApproaches(
+      '  - id: my-custom-graph\n' +
+        '    label: Custom Graph\n' +
+        '    graph:\n' +
+        '      limits: { maxParallel: 2 }\n',
+    );
+    const { path, cleanup } = fixture(yaml);
+    try {
+      const m = loadManifest(path);
+      expect(m.approaches![0]!.graph!.limits.maxParallel).toBe(2);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('refuses a file carrying both the flat shape and the nested graph: block', () => {
+    const yaml = withApproaches(
+      '  - id: karst-graph-engineering\n' +
+        '    label: Graph Engineering\n' +
+        '    planner: { profile: expert }\n' +
+        '    graph:\n' +
+        '      limits: { maxParallel: 1 }\n',
+    );
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(() => loadManifest(path)).toThrow(/both the nested "graph:" block and the hoisted "planner"/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('rejects an out-of-range graph limit at load, naming the field', () => {
+    const yaml = withApproaches(
+      '  - id: karst-graph-engineering\n' +
+        '    label: Graph Engineering\n' +
+        '    graph:\n' +
+        '      limits: { maxParallel: 9 }\n',
+    );
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(() => loadManifest(path)).toThrow(/graph\.limits\.maxParallel must be an integer between 1 and 8/);
+    } finally {
+      cleanup();
+    }
+  });
 });
 
 describe('agents', () => {

@@ -13,6 +13,21 @@ describe('validateModelList', () => {
       .toEqual([{ id: 'gpt-5.6-sol', label: 'GPT-5.6 Sol', providers: ['codex'] }]);
   });
 
+  it('parses an optional efforts list', () => {
+    expect(validateModelList('claude', [
+      { id: 'opus', label: 'Opus', efforts: ['low', 'medium', 'high'] },
+    ])).toEqual([{ id: 'opus', label: 'Opus', providers: ['claude'], efforts: ['low', 'medium', 'high'] }]);
+  });
+
+  it.each([
+    ['non-array efforts', [{ id: 'model', label: 'Model', efforts: 'high' }]],
+    ['blank effort', [{ id: 'model', label: 'Model', efforts: [' ', 'high'] }]],
+    ['unsafe effort', [{ id: 'model', label: 'Model', efforts: ['hi gh'] }]],
+    ['duplicate effort', [{ id: 'model', label: 'Model', efforts: ['high', 'high'] }]],
+  ])('rejects a list with %s', (_reason, models) => {
+    expect(validateModelList('codex', models)).toBeUndefined();
+  });
+
   it.each([
     ['blank id', [{ id: ' ', label: 'Model' }]],
     ['blank label', [{ id: 'model', label: '  ' }]],
@@ -64,6 +79,16 @@ describe('bundledModelCatalog', () => {
     // is intentionally empty (the guide: "Do not add model IDs merely because
     // they look plausible").
     expect(catalog.opencode).toEqual([]);
+  });
+
+  it('advertises efforts for the models the packaged graph defaults use', () => {
+    // The packaged profiles are expert = Opus high, worker/fast = Sonnet low
+    // (builtIn.ts). Each must validate against the packaged catalog metadata.
+    const catalog = bundledModelCatalog();
+    const opus = catalog.claude.find((m) => m.id === 'claude-opus-5');
+    const sonnet = catalog.claude.find((m) => m.id === 'claude-sonnet-5');
+    expect(opus?.efforts).toContain('high');
+    expect(sonnet?.efforts).toContain('low');
   });
 
   /**

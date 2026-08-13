@@ -1,7 +1,7 @@
 // Copy non-TS runtime assets (the webview HTML) next to the compiled output,
 // mirroring the src tree so `readFileSync(join(HERE, 'ui/dashboard/webview.html'))`
 // resolves at runtime. Kept tiny and dependency-free.
-import { copyFileSync, mkdirSync } from 'node:fs';
+import { copyFileSync, mkdirSync, readdirSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -44,6 +44,27 @@ for (const rel of rootAssets) {
   copyFileSync(join(root, rel), to);
   console.log(`copied ${rel}`);
 }
+
+// The built-in approach package: the canonical shipped prompt tree must travel
+// into the VSIX byte-for-byte so the parity test can prove the shipped bytes
+// equal what reviewers see in Git. Walk the tree recursively; the package root
+// itself is authored under `.agents/skills/karst-graph-engineering`.
+function copyTree(fromDir, toDir) {
+  mkdirSync(toDir, { recursive: true });
+  for (const entry of readdirSync(fromDir)) {
+    const from = join(fromDir, entry);
+    const to = join(toDir, entry);
+    if (statSync(from).isDirectory()) {
+      copyTree(from, to);
+    } else {
+      copyFileSync(from, to);
+      console.log(`copied .agents/skills/karst-graph-engineering/${entry}`);
+    }
+  }
+}
+
+const packageRel = join('.agents', 'skills', 'karst-graph-engineering');
+copyTree(join(root, packageRel), join(root, 'dist', packageRel));
 
 // Vendored webview libraries (xterm.js): npm devDependencies are build-time
 // asset SOURCES only — the extension never requires them at runtime. The

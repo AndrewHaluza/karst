@@ -23,6 +23,7 @@ import { validateGraph } from './validate/graph.js';
 import { validateUat } from './validate/uat.js';
 import { validateReview } from './validate/review.js';
 import { validateProcessAssignments } from './validate/processAssignments.js';
+import { validateGraphConfig, assertNoHoistedGraphKeys } from './graphConfig.js';
 import {
   validateArtifactTemplate,
   type ArtifactConventionName,
@@ -84,7 +85,10 @@ function validateWorkflow(raw: unknown, where: string): WorkflowPhase[] {
 /**
  * Parse the top-level `approaches` list (default []): each needs a unique `id`
  * and `label`; at most one may be `recommended`. Optional `description`,
- * `entrypoint`, and `source` are parsed when present.
+ * `entrypoint`, and `source` are parsed when present. A nested `graph:` block
+ * is validated through `validateGraphConfig` (defaulted, closed vocabularies,
+ * hard ceilings); a file carrying BOTH the nested block and a hoisted flat
+ * shape is refused, never guessed.
  */
 function validateApproaches(raw: unknown): ApproachDef[] {
   if (raw === undefined) return [];
@@ -112,6 +116,10 @@ function validateApproaches(raw: unknown): ApproachDef[] {
     }
     if (a.workflow !== undefined) {
       approach.workflow = validateWorkflow(a.workflow, `${where}.workflow`);
+    }
+    if (a.graph !== undefined) {
+      assertNoHoistedGraphKeys(a, where);
+      approach.graph = validateGraphConfig(a.graph, `${where}.graph`);
     }
     approach.enabled = a.enabled === false ? false : true;
     if (a.recommended === true) {

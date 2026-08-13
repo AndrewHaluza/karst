@@ -11,9 +11,10 @@ import { MARKER_STAGES } from '../agent/markerStage.js';
 
 describe('karst guide — content', () => {
   it('documents every verb runCli accepts', () => {
-    // runCli accepts exactly: context, stage, phase, test, guide (main.ts). Verbs are
-    // named backtick-quoted (e.g. `phase <name>`), so match the opening tick.
-    for (const verb of ['context', 'stage', 'phase', 'test', 'guide']) {
+    // runCli accepts exactly: context, stage, phase, graph, node, test, guide (main.ts).
+    // Verbs are named backtick-quoted (e.g. `phase <name>`), so match the
+    // opening tick.
+    for (const verb of ['context', 'stage', 'phase', 'graph', 'node', 'test', 'guide']) {
       expect(AGENT_GUIDE).toContain(`\`${verb}`);
     }
   });

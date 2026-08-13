@@ -1,6 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
 import type { Store } from '../store/db.js';
-import { assertMigratedSchema } from './assertMigrated.js';
+import { assertExactSchema, assertMigratedSchema } from './assertMigrated.js';
 
 /**
  * Open the karst registry read-WRITE using Node's BUILT-IN `node:sqlite`
@@ -56,6 +56,56 @@ export function openWritableStore(dbPath: string): Store {
     // Boundary cast: node:sqlite's connection, wrapped with a transaction shim,
     // is structurally compatible with the write surface the machine uses, but
     // not nominally the better-sqlite3 type. Confined to this CLI-only adapter.
+    db: shim as unknown as Store['db'],
+    close: () => db.close(),
+  };
+}
+
+/** Bounded busy timeout for graph-verb transactions (Slice 2 Task 6). */
+export const GRAPH_BUSY_TIMEOUT_MS = 5000;
+
+/**
+ * Open the registry for the GRAPH verbs (`karst graph submit`), which have
+ * stricter store requirements than the marker verbs:
+ *
+ * - the schema must be EXACTLY this build's version — a newer registry may
+ *   carry graph semantics this CLI cannot see, so it fails closed naming the
+ *   file and both versions (`assertExactSchema`), never falling back to an
+ *   unscoped or half-understood write;
+ * - the transaction shim issues `BEGIN IMMEDIATE` plus a bounded busy
+ *   timeout, so a concurrent completion in another window surfaces as a
+ *   retry (`SQLITE_BUSY` after the timeout) rather than an unhandled lock
+ *   error inside a plain `BEGIN`.
+ */
+export function openGraphWritableStore(dbPath: string): Store {
+  const db = new DatabaseSync(dbPath);
+  try {
+    assertExactSchema(db, dbPath);
+  } catch (e) {
+    db.close();
+    throw e;
+  }
+  db.exec('PRAGMA foreign_keys = ON');
+  db.exec(`PRAGMA busy_timeout = ${GRAPH_BUSY_TIMEOUT_MS}`);
+
+  const shim = {
+    prepare: (sql: string) => db.prepare(sql),
+    transaction: <A extends unknown[], R>(fn: (...args: A) => R) => {
+      return (...args: A): R => {
+        db.exec('BEGIN IMMEDIATE');
+        try {
+          const result = fn(...args);
+          db.exec('COMMIT');
+          return result;
+        } catch (err) {
+          db.exec('ROLLBACK');
+          throw err;
+        }
+      };
+    },
+  };
+
+  return {
     db: shim as unknown as Store['db'],
     close: () => db.close(),
   };

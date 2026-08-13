@@ -7,6 +7,9 @@ import { openStore, type Store } from '../store/db.js';
 import { createTicket, getTicket, setAgentState } from '../store/tickets.js';
 import { insertAttachment } from '../store/attachments.js';
 import { transition } from '../workflow/machine.js';
+import { createGraphRun } from '../store/graph/graphRuns.js';
+import { createPlannerRun } from '../store/graph/plannerRuns.js';
+import { sha256Hex } from './graph.js';
 
 describe('parseGlobalFlags', () => {
   it('extracts --db and --manifest, leaving the subcommand argv', () => {
@@ -262,6 +265,67 @@ uat:
       expect(() => JSON.parse(out)).not.toThrow();
     } finally {
       writeSpy.mockRestore();
+    }
+  });
+});
+
+describe('runCli — graph submit (Slice-2 T6)', () => {
+  let dir: string;
+  let dbPath: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'karst-cli-graph-'));
+    dbPath = join(dir, 'karst.db');
+    const store = openStore(dbPath);
+    const projectId = Number(
+      store.db.prepare("INSERT INTO projects (slug) VALUES ('project')").run().lastInsertRowid,
+    );
+    const ticketId = Number(
+      store.db
+        .prepare('INSERT INTO tickets (key, project_id) VALUES (?, ?)')
+        .run('T-1', projectId).lastInsertRowid,
+    );
+    const graphRunId = createGraphRun(store.db, {
+      ticketId,
+      stageAttempt: 0,
+      approachId: 'karst-graph-engineering',
+      now: '2026-08-11T00:00:00.000Z',
+    });
+    const plannerRunId = createPlannerRun(store.db, {
+      graphRunId,
+      plannerRunNumber: 1,
+      kind: 'bootstrap',
+    });
+    const capability = 'c'.repeat(64);
+    store.db
+      .prepare(
+        `UPDATE approach_planner_runs
+         SET status = 'running', generation = 'gen-1', capability_hash = ?
+         WHERE id = ?`,
+      )
+      .run(sha256Hex(new TextEncoder().encode(capability)), plannerRunId);
+    store.close();
+    writeFileSync(join(dir, 'graph.json'), '{"version":1}');
+  });
+
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  it('submits through runCli using the host-owned environment (no --ticket)', () => {
+    vi.stubEnv('KARST_GRAPH_DB', dbPath);
+    vi.stubEnv('KARST_GRAPH_PROJECT', '1');
+    vi.stubEnv('KARST_TICKET_ID', '1');
+    vi.stubEnv('KARST_GRAPH_RUN_ID', '1');
+    vi.stubEnv('KARST_LAUNCH_ID', '1');
+    vi.stubEnv('KARST_GRAPH_GENERATION', 'gen-1');
+    vi.stubEnv('KARST_GRAPH_CAPABILITY', 'c'.repeat(64));
+    vi.stubEnv('KARST_GRAPH_ARTIFACT_ROOT', dir);
+    try {
+      const out = runCli(['graph', 'submit']);
+      const parsed = JSON.parse(out);
+      expect(parsed.ok).toBe(true);
+      expect(parsed.graphRunId).toBe(1);
+    } finally {
+      vi.unstubAllEnvs();
     }
   });
 });

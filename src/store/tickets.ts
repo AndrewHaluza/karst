@@ -1,4 +1,6 @@
 import { randomBytes } from 'node:crypto';
+import { rmSync } from 'node:fs';
+import { join } from 'node:path';
 import type { Store } from './db.js';
 import { STAGE_KEYS } from '../model/types.js';
 import { rowToStage, setStage, type Stage } from './stages.js';
@@ -501,12 +503,21 @@ const TICKET_CHILD_TABLES = [
  * global accounting ledger is detached FIRST so its rows survive the delete,
  * then every execution-attribution column is cleared so evidence rows can be
  * removed leaf-first, THEN ticket-owned evidence (findings, then the process
- * runs that are the roots of the `ON DELETE SET NULL` references) goes, and
- * only finally the older child tables and the ticket row itself. With foreign
- * keys ON, any other order can surface a `SQLITE_CONSTRAINT_FOREIGNKEY` — or,
- * worse, silently delete spend that belongs to the ledger, not the ticket.
+ * runs that are the roots of the `ON DELETE SET NULL` references) goes, then
+ * the graph evidence subtree leaf-first (Slice 2 Task 8: tokens, overrides,
+ * leases, artifact instances, node runs, planner runs, revisions, graph runs —
+ * no `ON DELETE CASCADE` fires on any of the eight, correctness never depends
+ * on a cascade), and only finally the older child tables and the ticket row
+ * itself. With foreign keys ON, any other order can surface a
+ * `SQLITE_CONSTRAINT_FOREIGNKEY` — or, worse, silently delete spend that
+ * belongs to the ledger, not the ticket.
+ *
+ * When `graphBytesRoot` (the `<globalStorage>/graph/<projectSlug>` directory)
+ * is provided, the ticket's graph byte subtree is removed AFTER the rows
+ * commit — the retention sweep covers the case where it is absent. Archive
+ * removes nothing (see archiveTicket).
  */
-export function deleteTicket(store: Store, ticketId: number): void {
+export function deleteTicket(store: Store, ticketId: number, graphBytesRoot?: string): void {
   const del = store.db.transaction((): void => {
     // 1. Detach the global accounting ledger. `token_usage` is shared global
     // spend, not ticket-owned evidence: its rows survive the ticket as
@@ -537,12 +548,40 @@ export function deleteTicket(store: Store, ticketId: number): void {
     // cleanup is the ticket's contract, not SQLite's discovery.
     store.db.prepare('DELETE FROM review_findings WHERE ticket_id = ?').run(ticketId);
     store.db.prepare('DELETE FROM process_runs WHERE ticket_id = ?').run(ticketId);
+    // 4. Graph evidence, leaf-first per graph run (Slice 2 Task 8). No
+    // `ON DELETE CASCADE` is added to any graph table's ticket reference;
+    // correctness never depends on a cascade firing. token_usage rows already
+    // detached keep their spend and get their graph FKs SET NULL here.
+    const graphRunIds = (
+      store.db
+        .prepare('SELECT id FROM approach_graph_runs WHERE ticket_id = ?')
+        .all(ticketId) as Array<{ id: number }>
+    ).map((r) => r.id);
+    for (const graphRunId of graphRunIds) {
+      store.db
+        .prepare(
+          `DELETE FROM approach_graph_tokens
+           WHERE revision_id IN (SELECT id FROM approach_graph_revisions WHERE graph_run_id = ?)`,
+        )
+        .run(graphRunId);
+      store.db.prepare('DELETE FROM approach_node_overrides WHERE graph_run_id = ?').run(graphRunId);
+      store.db.prepare('DELETE FROM approach_resource_leases WHERE graph_run_id = ?').run(graphRunId);
+      store.db.prepare('DELETE FROM approach_node_deferrals WHERE graph_run_id = ?').run(graphRunId);
+      store.db.prepare('DELETE FROM approach_artifact_instances WHERE graph_run_id = ?').run(graphRunId);
+      store.db.prepare('DELETE FROM approach_node_runs WHERE graph_run_id = ?').run(graphRunId);
+      store.db.prepare('DELETE FROM approach_planner_runs WHERE graph_run_id = ?').run(graphRunId);
+      store.db.prepare('DELETE FROM approach_graph_revisions WHERE graph_run_id = ?').run(graphRunId);
+      store.db.prepare('DELETE FROM approach_graph_runs WHERE id = ?').run(graphRunId);
+    }
     for (const table of TICKET_CHILD_TABLES) {
       store.db.prepare(`DELETE FROM ${table} WHERE ticket_id = ?`).run(ticketId);
     }
     store.db.prepare('DELETE FROM tickets WHERE id = ?').run(ticketId);
   });
   del();
+  if (graphBytesRoot !== undefined) {
+    rmSync(join(graphBytesRoot, String(ticketId)), { recursive: true, force: true });
+  }
 }
 
 /**

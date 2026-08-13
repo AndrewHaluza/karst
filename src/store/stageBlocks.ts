@@ -1,7 +1,6 @@
 import type { Store } from './db.js';
 import type { BlockerKind, StageKey } from '../model/types.js';
-import { setStage, stageAttempt } from './stages.js';
-import { recordGateRun, type GateRunBatch } from './gateRuns.js';
+import { setStage, stageAttempt } from './stages.js';import { recordGateRun, type GateRunBatch } from './gateRuns.js';
 
 /** A stage's persisted "karst could not ask" state. */
 export interface StageBlock {

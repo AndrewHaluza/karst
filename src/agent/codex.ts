@@ -606,6 +606,7 @@ export class CodexAdapter implements AgentAdapter {
     const args: string[] = [];
     if (opts.resume) args.push('resume');
     if (opts.model) args.push('--model', opts.model);
+    if (opts.effort) args.push('--config', `model_reasoning_effort=${opts.effort}`);
     if (opts.extraArgs?.length) args.push(...opts.extraArgs);
     if (opts.hookChannel) args.push('--dangerously-bypass-hook-trust');
     if (opts.hookChannel) {
@@ -732,6 +733,7 @@ export class CodexAdapter implements AgentAdapter {
     // requires this opt-out before it will consume the supplied prompt.
     args.push('--skip-git-repo-check');
     if (opts.model) args.push('--model', opts.model);
+    if (opts.effort) args.push('--config', `model_reasoning_effort=${opts.effort}`);
     appendPolicyArgs(args, opts.permissionMode);
     if (opts.resume) {
       args.push(opts.resume, opts.prompt);

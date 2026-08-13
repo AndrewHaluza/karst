@@ -666,7 +666,14 @@ CREATE TABLE IF NOT EXISTS token_usage (
   -- NULL = a call recorded by an instrumented headless run, or a pre-v29 row.
   -- Never backfilled. ON DELETE SET NULL: deleting a sample never takes the
   -- ledger's spend with it — the count stays, its measurement source goes.
-  interactive_usage_sample_id INTEGER REFERENCES interactive_usage_samples(id) ON DELETE SET NULL
+  interactive_usage_sample_id INTEGER REFERENCES interactive_usage_samples(id) ON DELETE SET NULL,
+  -- v35 graph linkage (kept in sync with migrations.ts v35 ALTER):
+  -- the planner/node run the call was made inside. NULL = a call outside the
+  -- graph runtime, or a pre-v35 row. Never backfilled. ON DELETE SET NULL:
+  -- deleting graph history never takes the ledger's spend with it — the count
+  -- stays, its attribution goes.
+  approach_planner_run_id INTEGER REFERENCES approach_planner_runs(id) ON DELETE SET NULL,
+  approach_node_run_id    INTEGER REFERENCES approach_node_runs(id) ON DELETE SET NULL
 );
 -- The aggregation index set. Every stats query filters on (project_id,
 -- recorded_at) and then groups by one of ticket / call_site / model, so each
@@ -768,8 +775,234 @@ CREATE INDEX IF NOT EXISTS idx_ticket_attachments_ticket
 CREATE UNIQUE INDEX IF NOT EXISTS idx_ticket_attachments_ticket_stored_name
   ON ticket_attachments(ticket_id, stored_name);
 
--- v35: the AGENT TEST DRIVER's structured evidence (Phase 1 of the
--- agent-test-driver ticket). Two test-only tables, written ONLY by the
+-- v38 (Slice 4 Task 6): the node-override table gains the category-specific
+-- columns — `kind` (profile/provider/model/effort/prompt), the `value` JSON,
+-- and `created_at` — plus the `(revision_id, node_id, kind)` uniqueness that
+-- scopes an override to ONE node in ONE revision (an override never carries
+-- into a replanned revision N+1, whose revision_id differs). The legacy
+-- provider/model/effort/profile columns remain as the v35 placeholder's
+-- record; `value` is the operative payload. The claim CAS is the node run's
+-- status (editable only in ready/blocked/failed-to-launch), never the row.
+
+-- v35 graph tables (Slice 2, design "Persistence") — byte-identical to
+-- migrations.ts GRAPH_MIGRATION_DDL (db.test.ts pins the equality).
+--
+-- v39 (Slice 5 Task 1) adds two columns to these tables and one ledger table
+-- at the end: `approach_graph_runs.workspace_bytes` is the graph run's durable
+-- aggregate node-workspace byte total (measured against
+-- `graph.limits.maxAggregateWorkspaceBytes`, incremented on creation, negated
+-- never below zero on cleanup); `approach_node_runs.base_heads` is the
+-- canonical integration heads observed when the activation was claimed (JSON
+-- of `{domainKey, commit}`); `approach_graph_workspaces` is the per-workspace
+-- ledger that keeps the negations exact.
+--
+-- v40 (Slice 5 Task 3) adds the scheduler shape: `approach_graph_runs.
+-- active_processes` is the coordinator's own accounting of the external-process
+-- ceiling (`graph.limits.maxParallel`), reserved in the claim and released when
+-- a process provably ends; `approach_node_deferrals` is the deferral ledger —
+-- one row per ready-but-blocked node carrying the refusal reason and
+-- `wait_since`, so Inside can show that deliberate serialization is not a
+-- scheduler defect and bounded aging can promote an old waiter.
+
+CREATE TABLE IF NOT EXISTS approach_graph_runs (
+  id                INTEGER PRIMARY KEY,
+  ticket_id         INTEGER NOT NULL REFERENCES tickets(id),
+  stage_key         TEXT NOT NULL CHECK (stage_key = 'impl'),
+  stage_attempt     INTEGER NOT NULL,
+  approach_id       TEXT NOT NULL,
+  status            TEXT NOT NULL CHECK (status IN (
+    'planning','awaiting-confirmation','running','draining','blocked',
+    'completed-awaiting-impl-marker','closed','stale','cancelled')),
+  planner_run_count INTEGER NOT NULL DEFAULT 0,
+  expert_run_count  INTEGER NOT NULL DEFAULT 0,
+  node_run_count    INTEGER NOT NULL DEFAULT 0,
+  replan_count      INTEGER NOT NULL DEFAULT 0,
+  blocked_reason    TEXT,
+  created_at        TEXT NOT NULL,
+  updated_at        TEXT,
+  completed_at      TEXT,
+  workspace_bytes   INTEGER NOT NULL DEFAULT 0,
+  active_processes  INTEGER NOT NULL DEFAULT 0,
+  UNIQUE (ticket_id, stage_attempt)
+);
+CREATE INDEX IF NOT EXISTS idx_graph_runs_ticket ON approach_graph_runs(ticket_id, id);
+CREATE TABLE IF NOT EXISTS approach_planner_runs (
+  id                    INTEGER PRIMARY KEY,
+  graph_run_id          INTEGER NOT NULL REFERENCES approach_graph_runs(id),
+  target_revision_number INTEGER,
+  planner_run_number    INTEGER NOT NULL,
+  kind                  TEXT NOT NULL CHECK (kind IN ('bootstrap','replan')),
+  status                TEXT NOT NULL CHECK (status IN (
+    'ready','launching','running','submitted','blocked','launch-unknown','stale','cancelled')),
+  profile               TEXT,
+  provider              TEXT,
+  model                 TEXT,
+  effort                TEXT,
+  prompt_hash           TEXT,
+  compile_attempt       INTEGER NOT NULL DEFAULT 0,
+  launch_attempt        INTEGER NOT NULL DEFAULT 0,
+  generation            TEXT,
+  process_run_id        INTEGER REFERENCES process_runs(id) ON DELETE SET NULL,
+  owner_nonce           TEXT,
+  capability_hash       TEXT,
+  graph_snapshot_id     TEXT,
+  artifact_snapshot_id  TEXT,
+  reason                TEXT,
+  started_at            TEXT,
+  submitted_at          TEXT,
+  ended_at              TEXT,
+  UNIQUE (graph_run_id, planner_run_number)
+);
+CREATE INDEX IF NOT EXISTS idx_planner_runs_run ON approach_planner_runs(graph_run_id, id);
+CREATE TABLE IF NOT EXISTS approach_graph_revisions (
+  id                        INTEGER PRIMARY KEY,
+  graph_run_id              INTEGER NOT NULL REFERENCES approach_graph_runs(id),
+  revision_number           INTEGER NOT NULL,
+  canonical_graph           TEXT NOT NULL,
+  fingerprint               TEXT NOT NULL,
+  planner_graph_snapshot_id TEXT,
+  planner_artifact_snapshot_id TEXT,
+  command_fingerprints      TEXT,
+  resource_domains          TEXT,
+  supersedes_revision_id    INTEGER,
+  reason                    TEXT,
+  status                    TEXT NOT NULL CHECK (status IN ('active','draining','superseded','completed')),
+  created_at                TEXT NOT NULL,
+  superseded_at             TEXT,
+  UNIQUE (graph_run_id, revision_number)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_graph_revisions_active
+  ON approach_graph_revisions(graph_run_id) WHERE status = 'active';
+CREATE TABLE IF NOT EXISTS approach_node_runs (
+  id                       INTEGER PRIMARY KEY,
+  graph_run_id             INTEGER NOT NULL REFERENCES approach_graph_runs(id),
+  revision_id              INTEGER NOT NULL REFERENCES approach_graph_revisions(id),
+  node_id                  TEXT NOT NULL,
+  node_kind                TEXT NOT NULL,
+  visit_number             INTEGER NOT NULL,
+  status                   TEXT NOT NULL CHECK (status IN (
+    'ready','waiting-resource','launching','running','completing','integrating',
+    'completed','blocked','failed-to-launch','launch-unknown','termination-unknown',
+    'output-artifact-missing','artifact-unsafe','stale','cancelled')),
+  outcome                  TEXT,
+  effective_outcome        TEXT,
+  reason                   TEXT,
+  failure_category         TEXT,
+  profile                  TEXT,
+  provider                 TEXT,
+  model                    TEXT,
+  effort                   TEXT,
+  prompt_hash              TEXT,
+  launch_attempt           INTEGER NOT NULL DEFAULT 0,
+  generation               TEXT,
+  process_run_id           INTEGER REFERENCES process_runs(id) ON DELETE SET NULL,
+  owner_nonce              TEXT,
+  capability_hash          TEXT,
+  instruction_artifact_id  INTEGER,
+  input_artifact_id        INTEGER,
+  output_artifact_id       INTEGER,
+  change_set_id            TEXT,
+  started_at               TEXT,
+  ended_at                 TEXT,
+  base_heads               TEXT,
+  UNIQUE (revision_id, node_id, visit_number)
+);
+CREATE INDEX IF NOT EXISTS idx_node_runs_revision ON approach_node_runs(revision_id, id);
+CREATE TABLE IF NOT EXISTS approach_graph_tokens (
+  id                    INTEGER PRIMARY KEY,
+  revision_id           INTEGER NOT NULL REFERENCES approach_graph_revisions(id),
+  source_node_run_id    INTEGER,
+  is_entry              INTEGER NOT NULL DEFAULT 0 CHECK (is_entry IN (0,1)),
+  edge_id               TEXT NOT NULL,
+  destination_node_id   TEXT NOT NULL,
+  destination_end       INTEGER NOT NULL DEFAULT 0 CHECK (destination_end IN (0,1)),
+  fork_instance         INTEGER NOT NULL DEFAULT 0,
+  fork_lineage          TEXT,
+  fork_instance_id      TEXT,
+  status                TEXT NOT NULL CHECK (status IN ('pending','claimed','consumed','cancelled')),
+  claiming_node_run_id  INTEGER,
+  consuming_node_run_id INTEGER,
+  created_at            TEXT NOT NULL,
+  consumed_at           TEXT,
+  UNIQUE (source_node_run_id, edge_id, fork_instance)
+);
+CREATE INDEX IF NOT EXISTS idx_graph_tokens_revision ON approach_graph_tokens(revision_id, status);
+CREATE TABLE IF NOT EXISTS approach_artifact_instances (
+  id                      INTEGER PRIMARY KEY,
+  graph_run_id            INTEGER NOT NULL REFERENCES approach_graph_runs(id),
+  revision_id             INTEGER,
+  artifact_id             TEXT NOT NULL,
+  producer_planner_run_id INTEGER,
+  producer_node_run_id    INTEGER,
+  fork_lineage            TEXT,
+  snapshot_path           TEXT NOT NULL,
+  sha256                  TEXT NOT NULL,
+  media_type              TEXT NOT NULL,
+  byte_size               INTEGER NOT NULL,
+  sensitivity             TEXT,
+  created_at              TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_artifact_instances_run ON approach_artifact_instances(graph_run_id, id);
+CREATE TABLE IF NOT EXISTS approach_resource_leases (
+  id                INTEGER PRIMARY KEY,
+  graph_run_id      INTEGER NOT NULL REFERENCES approach_graph_runs(id),
+  owner_node_run_id INTEGER NOT NULL REFERENCES approach_node_runs(id),
+  physical_domain   TEXT NOT NULL,
+  access_mode       TEXT NOT NULL,
+  claimed_paths     TEXT,
+  status            TEXT NOT NULL CHECK (status IN ('held','released','ambiguous-process')),
+  acquired_at       TEXT NOT NULL,
+  released_at       TEXT,
+  UNIQUE (owner_node_run_id, physical_domain)
+);
+CREATE INDEX IF NOT EXISTS idx_resource_leases_domain ON approach_resource_leases(physical_domain, status);
+CREATE TABLE IF NOT EXISTS approach_node_overrides (
+  id            INTEGER PRIMARY KEY,
+  graph_run_id  INTEGER NOT NULL REFERENCES approach_graph_runs(id),
+  revision_id   INTEGER,
+  node_id       TEXT,
+  provider      TEXT,
+  model         TEXT,
+  effort        TEXT,
+  profile       TEXT,
+  kind          TEXT NOT NULL DEFAULT 'provider' CHECK (kind IN ('profile','provider','model','effort','prompt')),
+  value         TEXT NOT NULL DEFAULT '',
+  row_version   INTEGER NOT NULL DEFAULT 0,
+  created_at    TEXT NOT NULL DEFAULT '',
+  updated_at    TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_node_overrides_rev_node_kind
+  ON approach_node_overrides(revision_id, node_id, kind);
+CREATE INDEX IF NOT EXISTS idx_node_overrides_node ON approach_node_overrides(graph_run_id, node_id);
+CREATE TABLE IF NOT EXISTS approach_node_deferrals (
+  id            INTEGER PRIMARY KEY,
+  graph_run_id  INTEGER NOT NULL REFERENCES approach_graph_runs(id),
+  revision_id   INTEGER NOT NULL REFERENCES approach_graph_revisions(id),
+  node_id       TEXT NOT NULL,
+  reason        TEXT NOT NULL,
+  wait_since    TEXT NOT NULL,
+  updated_at    TEXT NOT NULL,
+  UNIQUE (revision_id, node_id)
+);
+CREATE INDEX IF NOT EXISTS idx_node_deferrals_run ON approach_node_deferrals(graph_run_id, id);
+
+-- v39 (Slice 5 Task 1): the durable per-workspace ledger. One row per clone
+-- created for a node run, with the byte count it contributes to the graph
+-- run's `workspace_bytes` total; cleanup negates the total by the sum of the
+-- rows it deletes, so the ledger is what keeps the negations exact.
+CREATE TABLE IF NOT EXISTS approach_graph_workspaces (
+  id             INTEGER PRIMARY KEY,
+  graph_run_id   INTEGER NOT NULL REFERENCES approach_graph_runs(id),
+  node_run_id    INTEGER NOT NULL REFERENCES approach_node_runs(id),
+  repo_name      TEXT NOT NULL,
+  cwd            TEXT NOT NULL,
+  byte_size      INTEGER NOT NULL,
+  created_at     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_graph_workspaces_run ON approach_graph_workspaces(graph_run_id, id);
+CREATE INDEX IF NOT EXISTS idx_graph_workspaces_node ON approach_graph_workspaces(node_run_id, id);
+
+-- v42 (the agent test driver): two test-only tables, written ONLY by the
 -- `karst test` CLI verb — no production code reads or writes them, so a
 -- normal workflow's registry never accumulates rows here.
 --

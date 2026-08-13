@@ -108,6 +108,8 @@ export function instrumentAdapter(
         projectId: options.projectId?.() ?? null,
         ticketId: opts.tracking?.ticketId ?? null,
         processRunId: opts.tracking?.processRunId ?? null,
+        approachPlannerRunId: opts.tracking?.approachPlannerRunId ?? null,
+        approachNodeRunId: opts.tracking?.approachNodeRunId ?? null,
         callSite: opts.tracking?.callSite ?? UNKNOWN_CALL_SITE,
         ...(options.provider !== undefined ? { provider: options.provider } : {}),
         usage,

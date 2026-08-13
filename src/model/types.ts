@@ -75,7 +75,15 @@ export type BlockerKind =
   // answer, only the user editing karst.yml or re-scoping the ticket can, so a
   // retry only helps AFTER the user fixes karst.yml — which is exactly what the
   // Resume button is for, so the block stays resumable.
-  | 'unmapped-repository';
+  | 'unmapped-repository'
+  // The implementation GRAPH blocked (Slice-3 T9): a node failed with
+  // `resource-claim-violated` or `integration-conflict`, or termination could
+  // not be proven. The generic Resume MUST NOT clear it — the graph needs
+  // graph-aware recovery (retry/recompile/replan), and clearing the block
+  // stranding the graph's stage signal is the same failure class as clearing
+  // `awaiting-merge`. `needsUser` renders it amber; Resume returns the typed
+  // `graph-recovery` action instead.
+  | 'approach-graph-failed';
 
 /**
  * What one stage run did. A runner no longer implies a transition by returning:

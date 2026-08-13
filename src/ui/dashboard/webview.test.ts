@@ -1466,6 +1466,63 @@ describe('dashboard webview.html', () => {
     expect(HTML).toMatch(/function evidenceRowsHtml[\s\S]*?class="evidence-row"/);
   });
 
+  // ── Slice 6 Task 4 — the richer graph projection ─────────────────────────
+  it('renders the status-grouped node list from ev.nodes with static section copy', () => {
+    // The graph process ships `nodes` (ordered by the CLOSED group vocabulary)
+    // on its rows evidence; the webview inserts a section header on a group
+    // change and renders each node's identity/visit/override/control verbatim.
+    // The composition is local and unprefixed (UI-R07/R08): it re-uses the
+    // shared `.k-btn` for the control and the shared `.glyph` for the status,
+    // never a new primitive under another name.
+    expect(HTML).toMatch(/function graphNodeListHtml/);
+    expect(HTML).toMatch(/ev\.nodes && ev\.nodes\.length/);
+    expect(HTML).toMatch(/class="graph-nodes"/);
+    expect(HTML).toMatch(/class="graph-node-group"/);
+    expect(HTML).toMatch(/class="graph-node"/);
+    // Static control copy for the section headers (UI-R20), keyed by the closed
+    // group vocabulary the projection orders by — the webview never parses a
+    // status word out of the row prose.
+    expect(HTML).toMatch(/const GRAPH_NODE_GROUP_LABEL/);
+    expect(HTML).toMatch(/GRAPH_NODE_GROUP_LABEL\[group\]/);
+    expect(HTML).not.toMatch(/n\.group === 'running'/);
+  });
+
+  it('maps the override-edit control to static copy and never treats it as danger', () => {
+    // Slice 6 T4: the per-node override edit is an ordinary secondary control
+    // (reversible editing, nothing lost on click) — NOT the danger variant the
+    // discard exit gets (UI-R10b). Its label and title are static control copy
+    // (UI-R20) beside the other inside actions.
+    expect(HTML).toMatch(/'graph-edit-override': 'Edit override'/);
+    expect(HTML).toMatch(/'graph-edit-override': [^]*?title/);
+    expect(HTML).not.toMatch(/INSIDE_ACTION_DANGER[\s\S]{0,200}'graph-edit-override': true/);
+  });
+
+  it('escapes every node-list string through the one webview escaper', () => {
+    // The projection already sanitizes; the webview is the second pass (F9):
+    // every node string — name, kind, identity, visit, override marker,
+    // outcome, reason and the section label — renders through `esc`.
+    const fn = /function graphNodeListHtml[\s\S]*?\n  \}/.exec(HTML)?.[0] ?? '';
+    expect(fn).toMatch(/esc\(n\.nodeId\)/);
+    expect(fn).toMatch(/esc\(n\.identity\)/);
+    expect(fn).toMatch(/esc\(n\.visit\)/);
+    expect(fn).toMatch(/esc\(n\.override\)/);
+    expect(fn).toMatch(/esc\(n\.outcome\)/);
+    expect(fn).toMatch(/esc\(n\.reason\)/);
+    expect(fn).toMatch(/esc\(graphNodeGroupLabel\(n\.group\)\)/);
+    expect(fn).not.toMatch(/innerHTML \+=/);
+  });
+
+  it('groups nodes by the host-ordered group field, never parsing the label', () => {
+    // The projection ships the nodes already ordered by group; the webview
+    // only breaks a section when the CLOSED `group` field changes. It must not
+    // derive a group by parsing `nodeId` or a status word out of prose.
+    const fn = /function graphNodeListHtml[\s\S]*?\n  \}/.exec(HTML)?.[0] ?? '';
+    expect(fn).toMatch(/n\.group !== lastGroup/);
+    expect(fn).not.toMatch(/n\.nodeId\.startsWith|n\.nodeId\.includes|n\.status\s*===\s*['"]/);
+    // The action still rides the opaque id through the shared button renderer.
+    expect(fn).toMatch(/insideActionBtnHtml\(n\.action\)/);
+  });
+
   it('renders the CURRENT karst mark in the artifact origin chip — never the retired three-node graph', () => {
     // The artifact origin chip's karst mark must match the approved
     // monochrome silhouette (media/karst-mark.svg, pinned by brandAssets.test.ts).

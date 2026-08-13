@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { readFileSync, mkdirSync, existsSync } from 'node:fs';
+import { readFileSync, mkdirSync, existsSync, writeFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import {
   lstat as fsLstat,
@@ -153,6 +153,43 @@ import {
   orchestratorCommandBasename,
 } from './agent/workflowCommand.js';
 import { startHookEndpoint, type HookEndpoint } from './hooks/endpoint.js';
+import { startGraphWakeupEndpoint, type GraphWakeupEndpoint } from './hooks/graphEndpoint.js';
+import { runCoordinatorTick, activeGraphRunIds } from './approaches/graph/coordinator/sweep.js';
+import { reconcileGraphRun } from './approaches/graph/coordinator/reconcile.js';
+import { discardUnknownProcess } from './approaches/graph/coordinator/discard.js';
+import { electReplan } from './approaches/graph/coordinator/replan.js';
+import {
+  createSupervisedCliTransport,
+  type SupervisedCliTransport,
+  type TransportTerminal,
+  type TransportTerminalHost,
+} from './approaches/graph/transport/supervisedCliTransport.js';
+import {
+  activeGraphRunFor,
+  nudgeSurface,
+  shouldDriveGraphTicket,
+  stopActiveGraph,
+} from './approaches/graph/entryPoints.js';
+import { runCompletionPipeline, type CompletionPipelineDeps } from './approaches/graph/integration/pipeline.js';
+import { artifactRootDir } from './approaches/graph/artifacts/snapshot.js';
+import { declaredWritesFor } from './approaches/graph/integration/claims.js';
+import { flipOnEndQuiescence } from './approaches/graph/coordinator/completion.js';
+import { resolveGraphDiagnosticIdentity } from './approaches/graph/diagnostics.js';
+import { recoverGraphRun, type RecoveryDeps } from './approaches/graph/coordinator/recovery.js';
+import { type ActivationDomain } from './approaches/graph/coordinator/leases.js';
+import { activationDomainKeys, type AllowlistCommandAccess } from './approaches/graph/coordinator/conflicts.js';
+import { parseGraphDocument } from './approaches/graph/parse.js';
+import { nodeOverrideFor, type BaseHead } from './store/graph/nodeRuns.js';
+import { blockGraphStage } from './workflow/graphMarkerGuard.js';
+import { DEFAULT_GRAPH_LIMITS } from './manifest/graphConfig.js';
+import {
+  domainKeyOf,
+  gitCommonDirFromFs,
+  resolvePhysicalDomains,
+  type DomainEntry,
+} from './approaches/graph/integration/domains.js';
+import { casStatus, GRAPH_RUN_TRANSITIONS, type GraphDb } from './store/graph/transitions.js';
+import { canonicalPath } from './runtime/pathScope.js';
 import { createHookChannelRecorder } from './diagnostics/hookChannel.js';
 import { sweepHookSettings } from './agent/settingsSweep.js';
 import { writeCurrentEndpoint } from './agent/hookFailureLog.js';
@@ -181,10 +218,13 @@ import { sendBackState, sendBackToImplement } from './workflow/sendBack.js';
 import { buildConflictBrief } from './workflow/conflictSession.js';
 import { stopServer, stopTicketServers } from './runtime/supervisor.js';
 import { reapStaleServers, describeReap } from './runtime/worktreeServers.js';
+import { systemAsyncProcessFacts } from './runtime/serverIdentity.js';
 import { reconcileStageRuns, describeStaleStageRun } from './store/stageRuns.js';
 import {
   reconcileProcessRuns,
   describeStaleProcessRun,
+  openProcessRun,
+  finishProcessRun,
 } from './store/processRuns.js';
 import { pidAlive } from './runtime/pidAlive.js';
 import { archiveWorktree, restoreWorktree } from './runtime/archive.js';
@@ -222,6 +262,13 @@ import {
   runNpmCommand,
 } from './approaches/npmCommand.js';
 import { resolveApproachPrompt } from './approaches/resolve.js';
+import { resolveGraphPrompt } from './agent/graphPrompts.js';
+import {
+  approachDelta,
+  isBuiltInApproachId,
+  packagedApproachDefs,
+  withBuiltInApproaches,
+} from './approaches/withBuiltInApproaches.js';
 import type {
   AgentProvider,
   ApproachDef,
@@ -252,6 +299,7 @@ import { DriverController, shouldStartDriver, ticketsToSweep } from './workflow/
 import { shipTicket as runShipTicket } from './workflow/stages/ship.js';
 import { shipClearedEvent, shipStepEvent, type InsideProgressEvent } from './model/inside/progress.js';
 import type { InsideActionHost } from './ui/dashboard/insideActions.js';
+import { buildGraphInsideInput } from './ui/dashboard/graphInside.js';
 import { getPrById } from './store/prs.js';
 import {
   getShipCommitById,
@@ -440,6 +488,9 @@ const MERGE_SYNC_MIN_AGE_MS = 5 * 60_000;
 
 let store: Store | undefined;
 let endpoint: HookEndpoint | undefined;
+let graphEndpoint: GraphWakeupEndpoint | undefined;
+let graphCoordinatorStore: Store | undefined;
+let graphTransport: SupervisedCliTransport | undefined;
 const pendingApproachInstalls = new Set<Promise<ApproachPackage>>();
 let flushSessionOwnership: (() => Promise<void>) | undefined;
 let shutdownSessionRecovery: (() => void) | undefined;
@@ -1389,7 +1440,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // migrate.ts warning tells them to Save here to write the new shape.
       for (const w of warnings) logger.warn(`karst.yml: ${w}`);
       for (const n of notices) logger.info(`karst.yml: ${n}`);
-      return { manifest, error: null };
+      // The manifest-load seam for Settings: the page renders the approaches
+      // roster from this, so the packaged built-in must be present here — and
+      // the settings actions resolve enable/disable through the same overlay.
+      return { manifest: withBuiltInApproaches(manifest), error: null };
     } catch (e) {
       return {
         manifest: currentManifest() ?? emptyManifest(),
@@ -1419,12 +1473,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Ids of approach packages already installed on disk, for the ticket form
   // state (Task E1). `approachesDirOrThrow` throws with no workspace folder;
   // guarded to "nothing installed" so the ticket form still opens in that case.
+  // Includes every ENABLED built-in id: the disk-install machinery treats a
+  // built-in as installed (it ships in the VSIX), and this is what makes
+  // `syncApproachEnabled` and Settings' installed-state rendering resolve it.
   const listInstalledApproachIds = (): string[] => {
+    const ids: string[] = [];
     try {
-      return listInstalled(approachesDirOrThrow()).map((p) => p.id);
+      ids.push(...listInstalled(approachesDirOrThrow()).map((p) => p.id));
     } catch {
-      return [];
+      // no workspace folder — built-ins below still resolve
     }
+    const effective = withBuiltInApproaches(currentManifest() ?? emptyManifest());
+    for (const a of effective.approaches ?? []) {
+      if (isBuiltInApproachId(a.id) && a.enabled !== false && !ids.includes(a.id)) {
+        ids.push(a.id);
+      }
+    }
+    return ids;
   };
 
   // Selectable single-subagent pool for the ticket-form picker (§ single-
@@ -1491,9 +1556,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     buildTicketFormActions({
       store: localStore,
       // These read the manifest at call time so a manifest resolved on open (or
-      // loaded on demand) is available to fetch/suggest/save.
+      // loaded on demand) is available to fetch/suggest/save. The built-in
+      // overlay seam is the ticket-form consumer: the analyzer's approach
+      // candidates resolve packaged built-ins through it (a disabled built-in
+      // is then filtered out by `enabled !== false`).
       get manifest() {
-        return currentManifest() ?? emptyManifest();
+        return withBuiltInApproaches(currentManifest() ?? emptyManifest());
       },
       get manifestPath() {
         return manifests.path() ?? '';
@@ -1813,6 +1881,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       openManifest: async () => {
         await vscode.commands.executeCommand('karst.openManifest');
       },
+      // The Settings → Approaches prompt links. The identity is a CLOSED set
+      // (graphPrompts); the reveal shows the EFFECTIVE prompt — the project
+      // override when one exists, else the packaged bytes (Slice-1 T7).
+      revealGraphPrompt: async (identity: string): Promise<void> => {
+        const resolved = resolveGraphPrompt(
+          agentsDirOrThrow(),
+          context.extensionUri.fsPath,
+          identity,
+        );
+        if (!existsSync(resolved.path)) {
+          throw new Error(`Graph prompt not found: ${resolved.path}`);
+        }
+        const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(resolved.path));
+        await vscode.window.showTextDocument(doc, { preview: true });
+      },
     }),
     listInstalledApproachIds,
     () => hasToken(context),
@@ -1827,6 +1910,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return { value: resolveProjectSlug(manifest?.id, root), derived: manifest?.id === undefined };
     },
     () => context.extension.packageJSON.version as string,
+    // Packaged built-in approach definitions for the webview's delta mirror —
+    // host-computed through the seam, never a literal in the HTML.
+    () => [...packagedApproachDefs()],
   );
 
   // Discovery is deliberately detached from activation: bundled models render
@@ -2199,6 +2285,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   };
 
+  // Deferred graph-stop binding (Slice 3 Task 11): the coordinator transport
+  // is created later in activate; the Inside Stop action reads it only after
+  // activation has fully run, like `runPrSync` and `maybeDrive`.
+  let stopGraphRun: ((ticketId: number) => Promise<void>) | undefined;
+
   const dashboard = new DashboardManager(
     localStore,
     makePanelHost(context, brandIcon, (m) => logger.warn(m)),
@@ -2233,7 +2324,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // A live session already owns the worktrees: nudge it and reveal the
         // terminal so the user sees the agent take the job. With none open,
         // launch one seeded with the brief instead of the ticket's own context.
+        // A graph ticket is never nudged from here: the graph coordinator owns
+        // its sessions (entry-point matrix, Slice 3 Task 7).
         (prompt) => {
+          if (nudgeSurface(localStore.db, ticketId) === 'no-op') {
+            return;
+          }
           if (sessions.nudge(ticketId, prompt)) {
             sessions.focusSession(ticketId);
             return;
@@ -2254,6 +2350,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         (id) => maybeDrive(id, 'stage-resume'),
         (path) => void launchWorktreeDevWindow(path),
         () => launchWorktreeConfig(),
+        () => graphRecoveryDeps(),
         // The stage key arrives from the webview; the manager resolves the read
         // through the injected reader and posts the answer to this ticket's
         // panel (the postInsideProgress pattern).
@@ -2315,10 +2412,77 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     buildGateOptionsLoader({ store: localStore, manifest: currentManifest }),
     // The inside-action host: vscode bindings for the containment-checked
     // dispatches (the panel already proved ownership + containment).
-    makeInsideActionHost(localStore),
-    // Live manifest getter, so the inside views resolve the REAL service names
-    // and process assignments (panel.ts is manifest-free by contract).
-    () => currentManifest(),
+    makeInsideActionHost(localStore, {
+      // Open reveals a LIVE graph session's terminal — it never spawns one.
+      // The dispatch proved the run row belongs to the ticket; a session that
+      // died since the snapshot simply has no terminal to reveal.
+      graphOpenSession: (ticketId, session) => {
+        const tr = graphTransport;
+        const live = tr?.sessionFor(ticketId, session.runId);
+        live?.terminal?.show(true);
+      },
+      // Declared here with the coordinator wiring it forces (like
+      // `runPrSync`): bound later in activate, read only once a panel is open.
+      graphStop: (ticketId) => {
+        const handler = stopGraphRun;
+        if (handler) void handler(ticketId);
+      },
+      // Discard an ambiguous node run (Slice 4 Task 4) — the named exit for a
+      // process whose fate cannot be proven. The coordinator's OWN connection
+      // runs the one transaction (a contended BEGIN IMMEDIATE must abort, not
+      // wait), then the dashboard and sidebar refresh so the discarded row is
+      // gone from the view. A second window's discard is an idempotent no-op.
+      graphDiscardNode: (ticketId, nodeRunId) => {
+        const gs = graphCoordinatorStore;
+        if (!gs) return;
+        try {
+          const result = discardUnknownProcess(
+            {
+              db: gs.db,
+              transaction: <T>(fn: () => T): T =>
+                (gs.db.transaction as unknown as (f: () => T, o: { begin: 'immediate' }) => () => T)(
+                  fn,
+                  { begin: 'immediate' },
+                )(),
+              now: () => new Date().toISOString(),
+              debug: (message) => logger.debug(message),
+            },
+            { nodeRunId },
+          );
+          if (result.discarded) {
+            void vscode.window.showInformationMessage(
+              `Ticket #${ticketId}: unknown process for node run #${nodeRunId} discarded` +
+                (result.graphBlockedWith
+                  ? ' — the graph deadlocked on topology; resume or replan to continue.'
+                  : ''),
+            );
+          }
+          provider.refresh();
+          dashboard.pushState(ticketId);
+        } catch (err) {
+          logError(`karst: graph discard failed for ticket ${ticketId}`, err);
+        }
+      },
+      // Slice 6 Task 4: open the override editor for an editable agent node
+      // BEFORE claiming. The dispatch proved the run row belongs to the ticket
+      // and the projection minted the control only on a status the store's
+      // claim gate still accepts a write for — so this surface can never reach
+      // a frozen launch. The per-node override editor (profile/provider/model/
+      // effort/prompt, `writeNodeOverride`/`clearNodeOverride` in
+      // store/graph/nodeRuns.ts) has no dedicated UI yet; the callback is the
+      // deep-link stub that will open it, and it reports the intended target
+      // until then. The write itself stays behind the store's claim gate.
+      graphEditOverride: (ticketId, nodeRunId) => {
+        void vscode.window.showInformationMessage(
+          `Ticket #${ticketId}: editing overrides for node run #${nodeRunId} — the per-node override editor (profile / provider / model / effort / prompt) opens here before claiming.`,
+        );
+      },
+    },
+    () => graphRecoveryDeps(),
+  ),
+  // Live manifest getter, so the inside views resolve the REAL service names
+  // and process assignments (panel.ts is manifest-free by contract).
+  () => currentManifest(),
     // The Launch Dev gate, composed from the feature's live config: hidden
     // (and refused) unless karst.launchWorktreeDev.enabled is true AND the
     // worktree is a karst checkout.
@@ -2326,6 +2490,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // Reports the panel's raw activation (including losing it, and including
     // dispose-while-focused) so the sidebar can highlight this ticket's row.
     (ticketId, active) => activeTicket.set(ticketId, active),
+    // The graph Inside projection (Slice 3 Task 11): a pure read over rows
+    // the coordinator keeps current, keyed by ticket. Null for a ticket with
+    // no graph run — the projection is inert.
+    (ticketId) =>
+      buildGraphInsideInput(
+        {
+          store: localStore,
+          manifest: () => currentManifest(),
+          liveSessions: () => graphTransport?.sessions() ?? [],
+          now: () => new Date().toISOString(),
+        },
+        ticketId,
+      ),
     // The terminal view's log source: resolve the stage row's recorded
     // artifactPath and read it bounded (the webview names only a stage key).
     (ticketId, stage) =>
@@ -2725,6 +2902,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const maybeDrive = (ticketId: number, trigger: string): void => {
     const t = getTicket(localStore, ticketId);
     if (!shouldStartDriver(t.stageCurrent as StageKey)) return;
+    // A graph ticket at impl with an active graph run is driven by the graph
+    // coordinator, never by the stage driver (Slice 3 Task 7 entry-point
+    // matrix: the graph owns the ticket until it completes).
+    if (shouldDriveGraphTicket(localStore.db, ticketId)) {
+      logger.debug(`stage driver: ${trigger} → ticket ${ticketId} skipped (active graph)`);
+      return;
+    }
     // A missing gate tool is NOT a failing gate. Left unguarded, every gate exits
     // nonzero, the driver reads that as a code verdict, and the ticket parks at
     // fix in a loop no agent can win. Warn once — the activation sweep drives
@@ -2802,6 +2986,635 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   if (endpoint.port !== rememberedPort) {
     await context.workspaceState.update(HOOK_PORT_KEY, endpoint.port);
   }
+
+  // Graph coordinator wiring (Slice 3 Task 2) — wiring only, all logic lives
+  // in the coordinator modules. The coordinator gets its OWN connection with
+  // a zero busy timeout: a contended BEGIN IMMEDIATE must abort immediately
+  // (a synchronous busy wait would block the shared event loop), and that
+  // policy must not leak onto the main connection every other path uses.
+  // WAL keeps the second connection consistent with the first.
+  graphCoordinatorStore = openStore(dbPath);
+  graphCoordinatorStore.db.pragma('busy_timeout = 0');
+  graphEndpoint = await startGraphWakeupEndpoint({
+    schedule: (graphRunId) => {
+      void runGraphCoordinatorTick(graphRunId);
+    },
+    debug: (message) => logger.debug(message),
+  });
+
+  // Per-graph-run loopback routes: created on demand and handed to the
+  // launcher, which puts the URL and route token into the agent environment.
+  // A route is a wake-up capability only — it can never advance state.
+  const graphRoutes = new Map<number, { url: string; token: string }>();
+
+  /** One bounded coordinator tick for a graph run; a failure only delays the
+   *  next tick (the sweep is the source of truth, never this callback). The
+   *  claim-time base heads are captured right before the tick and handed to
+   *  it, so the activations this tick claims record exactly the integration
+   *  state their workspaces must clone. */
+  const runGraphCoordinatorTick = async (graphRunId: number): Promise<void> => {
+    const gs = graphCoordinatorStore;
+    if (!gs) return;
+    let baseHeads: BaseHead[] = [];
+    try {
+      baseHeads = await readBaseHeads(graphRunId);
+    } catch (err) {
+      // A head that cannot be probed is simply not captured; the tick still
+      // runs (a claim that records no base blocks no workspace launch).
+      logError('karst: graph base-head capture failed', err);
+    }
+    // Ensure the run's wake-up route exists before any of its sessions can
+    // launch; the launcher reuses the same route when composing the env.
+    graphRouteFor(graphRunId);
+    try {
+      runCoordinatorTick(
+        {
+          db: gs.db,
+          // The installed @types predate better-sqlite3's `{ begin }` option;
+          // the runtime (12.x) supports it, so the option is cast once here.
+          transaction: <T>(fn: () => T): T =>
+            (gs.db.transaction as unknown as (f: () => T, o: { begin: 'immediate' }) => () => T)(
+              fn,
+              { begin: 'immediate' },
+            )(),
+          now: () => new Date().toISOString(),
+          debug: (message) => logger.debug(message),
+          baseHeadsOf: () => baseHeads,
+          // Slice 5 T2: the physical domains each activation needs, resolved
+          // from the node's declared claims — the claim acquires one `held`
+          // lease per domain inside its transaction.
+          domainsForActivation: graphDomainsForActivation,
+          // Slice 5 T3: the manifest's `graph.limits.maxParallel` — the sweep's
+          // pre-claim admission and each claim's atomic slot reservation both
+          // enforce the external-process ceiling against it.
+          maxParallelOf: (graphRunId) => {
+            const run = gs.db
+              .prepare('SELECT approach_id FROM approach_graph_runs WHERE id = ?')
+              .get(graphRunId) as { approach_id: string } | undefined;
+            if (!run) return undefined;
+            const graph = (currentManifest() ?? emptyManifest()).approaches?.find(
+              (a) => a.id === run.approach_id,
+            )?.graph;
+            return graph?.limits?.maxParallel ?? DEFAULT_GRAPH_LIMITS.maxParallel;
+          },
+        },
+        { graphRunId },
+      );
+    } catch (err) {
+      // Bookkeeping over state that is already stored: the next tick retries.
+      logError(`karst: graph coordinator tick failed for run ${graphRunId}`, err);
+    }
+    // Completing nodes are integrated by THIS window, in node-run order (the
+    // pipeline's integrating-slot CAS serializes the write phases across
+    // windows). A deferred node is retried on the next tick.
+    void driveCompletingNodes(graphRunId);
+  };
+
+  /** The wake-up route for a graph run, created on first use. */
+  const graphRouteFor = (graphRunId: number): { url: string; token: string } => {
+    const existing = graphRoutes.get(graphRunId);
+    if (existing) return existing;
+    const route = graphEndpoint!.registerRoute({ graphRunId });
+    graphRoutes.set(graphRunId, route);
+    return route;
+  };
+
+  /** Run the completing pipeline for every completing node of a graph run,
+   *  ascending node-run order (deterministic integration order), then settle
+   *  the run: a blocked node blocks the run (earliest failure by durable
+   *  event order), END-quiescent runs flip to the marker-ready status, and a
+   *  blocked run writes its `approach-graph-failed` stage block. */
+  const driveCompletingNodes = async (graphRunId: number): Promise<void> => {
+    const gs = graphCoordinatorStore;
+    const tr = graphTransport;
+    if (!gs || !tr) return;
+    const completing = gs.db
+      .prepare(
+        `SELECT id FROM approach_node_runs
+         WHERE graph_run_id = ? AND status = 'completing'
+         ORDER BY id`,
+      )
+      .all(graphRunId) as { id: number }[];
+    for (const row of completing) {
+      try {
+        const deps = graphCompletionPipelineDeps(graphRunId);
+        if (!deps) return;
+        await runCompletionPipeline(deps, { graphRunId, nodeRunId: row.id });
+      } catch (err) {
+        // A failed pipeline never retries itself; the next tick re-drives the
+        // node, which is still `completing` unless a transition already moved
+        // it. The pipeline is single-flighted per node by that CAS.
+        logError(`karst: completion pipeline failed for graph node ${row.id}`, err);
+      }
+    }
+    settleGraphRun(gs.db, graphRunId);
+  };
+
+  /** After integration: a blocked node blocks the run, and an END-quiescent
+   *  run flips to `completed-awaiting-impl-marker`. A blocked run then gets
+   *  its `approach-graph-failed` stage block, once, via the boundary module. */
+  const settleGraphRun = (db: ReturnType<typeof openStore>['db'], graphRunId: number): void => {
+    const run = db
+      .prepare('SELECT id, status, ticket_id FROM approach_graph_runs WHERE id = ?')
+      .get(graphRunId) as { id: number; status: string; ticket_id: number } | undefined;
+    if (!run) return;
+    if (run.status === 'running') {
+      // A node reported `blocked` while the run kept running: the graph must
+      // not dangle at impl. The earliest blocked node (durable order = id)
+      // names the reason; the graph run blocks with it.
+      const blockedNode = db
+        .prepare(
+          `SELECT id, reason, outcome FROM approach_node_runs
+           WHERE graph_run_id = ? AND status = 'blocked'
+           ORDER BY id LIMIT 1`,
+        )
+        .get(graphRunId) as { id: number; reason: string | null; outcome: string | null } | undefined;
+      if (blockedNode) {
+        // Slice 4 Task 5: a node reporting `replan` is an election trigger,
+        // never a `node-blocked` block. `electReplan` decides it all — the
+        // single-winner `running → draining` election, or the budget-refusal
+        // block — in one transaction; host-agnostic logic lives in replan.ts.
+        if (blockedNode.outcome === 'replan') {
+          const elected = electReplan(
+            {
+              db,
+              transaction: <T>(fn: () => T): T =>
+                (db.transaction as unknown as (f: () => T, o: { begin: 'immediate' }) => () => T)(
+                  fn,
+                  { begin: 'immediate' },
+                )(),
+              now: () => new Date().toISOString(),
+              debug: (message) => logger.debug(message),
+            },
+            { graphRunId, requestNodeRunId: blockedNode.id },
+          );
+          logger.debug(
+            `[graph] run ${graphRunId} replan election for node ${blockedNode.id} → ${JSON.stringify(elected)}`,
+          );
+          return;
+        }
+        const reason = `node-blocked: node ${blockedNode.id} (${blockedNode.reason ?? 'blocked by agent'})`;
+        const blocked = flipOrBlockGraph(db, graphRunId, reason);
+        if (blocked) {
+          blockGraphStage(graphCoordinatorStore!, run.ticket_id, graphRunId, () => new Date().toISOString());
+        }
+        return;
+      }
+      const result = flipOnEndQuiescence(
+        {
+          db,
+          transaction: <T>(fn: () => T): T =>
+            (db.transaction as unknown as (f: () => T, o: { begin: 'immediate' }) => () => T)(fn, {
+              begin: 'immediate',
+            })(),
+          now: () => new Date().toISOString(),
+          debug: (message) => logger.debug(message),
+        },
+        { graphRunId },
+      );
+      if (result.flipped) {
+        logger.debug(`[graph] run ${graphRunId} quiescent — waiting for the impl marker`);
+      }
+      return;
+    }
+    if (run.status === 'blocked') {
+      blockGraphStage(graphCoordinatorStore!, run.ticket_id, graphRunId, () => new Date().toISOString());
+    }
+  };
+
+  /** Block a running graph run with a reason, atomically; false when it
+   *  already moved (a second window or an earlier event). */
+  const flipOrBlockGraph = (db: ReturnType<typeof openStore>['db'], graphRunId: number, reason: string): boolean => {
+    return (db.transaction as unknown as (f: () => boolean, o: { begin: 'immediate' }) => () => boolean)(
+      () => {
+        if (
+          !casStatus(db, 'approach_graph_runs', GRAPH_RUN_TRANSITIONS, graphRunId, 'running', 'blocked')
+        ) {
+          return false;
+        }
+        db.prepare('UPDATE approach_graph_runs SET blocked_reason = ?, updated_at = ? WHERE id = ?').run(
+          reason,
+          new Date().toISOString(),
+          graphRunId,
+        );
+        return true;
+      },
+      { begin: 'immediate' },
+    )();
+  };
+
+  /** The live transport session for a node run, via its ticket. */
+  const graphSessionFor = (nodeRunId: number) => {
+    const gs = graphCoordinatorStore;
+    const tr = graphTransport;
+    if (!gs || !tr) return undefined;
+    const run = gs.db
+      .prepare('SELECT ticket_id FROM approach_node_runs WHERE id = ?')
+      .get(nodeRunId) as { ticket_id: number } | undefined;
+    if (!run) return undefined;
+    return tr.sessionFor(run.ticket_id, nodeRunId);
+  };
+
+  /** The graph run's artifact root under global storage (Decision 15): where
+   *  node outputs stage and content-addressed snapshots land. Empty when the
+   *  project is unbound — no graph work can run then, and the pipeline's
+   *  validation simply finds nothing declared. */
+  const graphArtifactRoot = (graphRunId: number): string => {
+    const gs = graphCoordinatorStore;
+    const proj = currentProject();
+    if (!gs || !proj) return '';
+    const run = gs.db
+      .prepare('SELECT ticket_id FROM approach_graph_runs WHERE id = ?')
+      .get(graphRunId) as { ticket_id: number } | undefined;
+    if (!run) return '';
+    return artifactRootDir(context.globalStorageUri.fsPath, proj.slug, run.ticket_id, graphRunId);
+  };
+
+  /** The graph recovery deps (Slice-4 T6): the atomic claim wrapper plus the
+   *  prompt re-snapshot seam — content-addressed writes under the graph
+   *  artifact root, and the effective-prompt resolution that consults the
+   *  per-node `prompt` override. All decision logic lives in recovery.ts;
+   *  this binding only supplies the seam the host owns. */
+  const graphRecoveryDeps = (): RecoveryDeps => {
+    const gs = graphCoordinatorStore;
+    return {
+      store: gs!,
+      transaction: <T>(fn: () => T): T =>
+        (gs!.db.transaction as unknown as (f: () => T, o: { begin: 'immediate' }) => () => T)(fn, {
+          begin: 'immediate',
+        })(),
+      now: () => new Date().toISOString(),
+      debug: (message) => logger.debug(message),
+      resolveEffective: ({ revisionId, nodeId }) => {
+        if (!gs) return { promptOverride: false };
+        const override = nodeOverrideFor(gs.db, revisionId, nodeId, 'prompt');
+        return override
+          ? { prompt: override.value, promptOverride: true }
+          : { promptOverride: false };
+      },
+      writeSnapshot: (graphRunId, relativePath, bytes) => {
+        const root = graphArtifactRoot(graphRunId);
+        if (!root) return;
+        const target = join(root, relativePath);
+        mkdirSync(dirname(target), { recursive: true });
+        writeFileSync(target, bytes);
+      },
+    };
+  };
+
+  /** The ticket's manifest repository entries resolved to worktree paths. */
+  const graphDomainsFor = (graphRunId: number): DomainEntry[] => {
+    const gs = graphCoordinatorStore;
+    if (!gs) return [];
+    const run = gs.db
+      .prepare('SELECT ticket_id FROM approach_graph_runs WHERE id = ?')
+      .get(graphRunId) as { ticket_id: number } | undefined;
+    if (!run) return [];
+    const manifest = currentManifest() ?? emptyManifest();
+    const worktrees = listWorktreesByTicket(localStore, run.ticket_id);
+    const byRepo = new Map(worktrees.map((wt) => [wt.repo, wt.path]));
+    return Object.entries(manifest.repositories ?? {}).flatMap(
+      ([repoName]): DomainEntry[] => {
+        const path = byRepo.get(repoName);
+        return path ? [{ repoName, worktreePath: path }] : [];
+      },
+    );
+  };
+
+  /**
+   * Claim-time base heads (Slice 5 T1): per physical-domain HEAD of the
+   * canonical worktrees, captured right before a coordinator tick claims
+   * activations, so every node run records the integration state its
+   * workspace must clone. A domain whose HEAD cannot be resolved simply is
+   * not captured — the node run records the bases that were observable.
+   */
+  const readBaseHeads = async (graphRunId: number): Promise<BaseHead[]> => {
+    const gs = graphCoordinatorStore;
+    if (!gs) return [];
+    const run = gs.db
+      .prepare('SELECT ticket_id FROM approach_graph_runs WHERE id = ?')
+      .get(graphRunId) as { ticket_id: number } | undefined;
+    if (!run) return [];
+    const heads: BaseHead[] = [];
+    for (const domain of resolvePhysicalDomains(graphDomainsFor(graphRunId), gitCommonDirFromFs)) {
+      const r = await defaultGitRunner(['rev-parse', 'HEAD'], domain.canonicalWorktree);
+      if (r.exitCode !== 0) continue;
+      const commit = r.stdout.trim();
+      if (commit) heads.push({ domainKey: domain.key, commit });
+    }
+    return heads;
+  };
+
+  /**
+   * Claim-time physical domains (Slice 5 Task 2/3): the physical domain keys an
+   * activation needs, resolved from the node's declared claims in the active
+   * revision via the PURE `activationDomainKeys` rule — an agent node's
+   * `resources.reads`/`resources.writes` (path-granular, read vs write), a
+   * command node's repositories with the access inherited from the PINNED
+   * command allowlist (`graph.commands`), never planner prose. Each claimed
+   * repo maps through its worktree path to the durable domain key (canonical
+   * realpath + git common-dir), deduplicated by key with `write` winning and
+   * claimed paths unioned. The claim acquires one `held` lease per domain.
+   */
+  const graphDomainsForActivation = (input: {
+    graphRunId: number;
+    revisionId: number;
+    nodeId: string;
+    nodeKind: 'agent' | 'command' | 'gate';
+  }): ActivationDomain[] => {
+    const gs = graphCoordinatorStore;
+    if (!gs) return [];
+    const rev = gs.db
+      .prepare('SELECT canonical_graph FROM approach_graph_revisions WHERE id = ?')
+      .get(input.revisionId) as { canonical_graph: string } | undefined;
+    if (!rev) return [];
+    const parsed = parseGraphDocument(rev.canonical_graph);
+    if (!parsed.ok) return [];
+    const node = parsed.document.nodes.find((n) => n.id === input.nodeId);
+    if (!node || node.kind === 'join') return [];
+    const worktreeByRepo = new Map(
+      graphDomainsFor(input.graphRunId).map((entry) => [entry.repoName, entry.worktreePath]),
+    );
+    const physicalDomainOf = (repoName: string): string | null => {
+      const worktreePath = worktreeByRepo.get(repoName);
+      return worktreePath ? domainKeyOf(canonicalPath(worktreePath), gitCommonDirFromFs(worktreePath)) : null;
+    };
+    const run = gs.db
+      .prepare('SELECT approach_id FROM approach_graph_runs WHERE id = ?')
+      .get(input.graphRunId) as { approach_id: string } | undefined;
+    const graphConfig = (currentManifest() ?? emptyManifest()).approaches?.find(
+      (a) => a.id === run?.approach_id,
+    )?.graph;
+    const commands: AllowlistCommandAccess = new Map(
+      Object.entries(graphConfig?.commands ?? {}).map(([id, def]) => [id, def.access]),
+    );
+    if (node.kind === 'agent') {
+      return activationDomainKeys(
+        { kind: 'agent', reads: node.resources.reads, writes: node.resources.writes },
+        commands,
+        physicalDomainOf,
+      );
+    }
+    // A command node's access comes from the pinned allowlist; a gate claims
+    // no repository resources.
+    if (node.kind !== 'command') return [];
+    return activationDomainKeys(
+      { kind: 'command', command: node.command, repositories: node.repositories },
+      commands,
+      physicalDomainOf,
+    );
+  };
+
+  /** The declared writes of a node run, from the active revision's graph. */
+  const declaredGraphWrites = (nodeRunId: number) => {
+    const gs = graphCoordinatorStore;
+    if (!gs) return [];
+    const run = gs.db
+      .prepare('SELECT graph_run_id FROM approach_node_runs WHERE id = ?')
+      .get(nodeRunId) as { graph_run_id: number } | undefined;
+    if (!run) return [];
+    return declaredWritesFor(
+      gs.db,
+      nodeRunId,
+      graphDomainsFor(run.graph_run_id).map((entry) => ({
+        repoName: entry.repoName,
+        // The worktree IS the repository root in V1 (one worktree per
+        // repoPath); the manifest's nested paths are not re-rooted here.
+        root: '',
+        worktreePath: entry.worktreePath,
+      })),
+      (worktreePath) => domainKeyOf(canonicalPath(worktreePath), gitCommonDirFromFs(worktreePath)),
+    );
+  };
+
+  /** The completion-pipeline deps for a graph run — ONE construction shared by
+   *  the tick's completing drive and the reload reconcile's resume, so the
+   *  two never disagree about git, domains or the artifact root. Reads the
+   *  coordinator store/transport late, like `driveCompletingNodes` does. */
+  const graphCompletionPipelineDeps = (graphRunId: number): CompletionPipelineDeps | undefined => {
+    const gs = graphCoordinatorStore;
+    const tr = graphTransport;
+    if (!gs || !tr) return undefined;
+    return {
+      db: gs.db,
+      transaction: <T>(fn: () => T): T =>
+        (gs.db.transaction as unknown as (f: () => T, o: { begin: 'immediate' }) => () => T)(
+          fn,
+          { begin: 'immediate' },
+        )(),
+      now: () => new Date().toISOString(),
+      debug: (message) => logger.debug(message),
+      git: defaultGitRunner,
+      gitCommonDirOf: gitCommonDirFromFs,
+      transport: tr,
+      getSession: (nodeRunId) => graphSessionFor(nodeRunId),
+      domainsFor: () => graphDomainsFor(graphRunId),
+      declaredWritesOf: (nodeRunId) => declaredGraphWrites(nodeRunId),
+      artifactRoot: () => graphArtifactRoot(graphRunId),
+      // Slice 5 T5: the node's isolated workspace clone per repo (T1). The
+      // pipeline captures the actual diff from the clone and lands it into the
+      // CANONICAL worktree; a repo with no ledger row falls back to the
+      // canonical model.
+      workspaceCwdOf: (nodeRunId, repoName) => {
+        const gs = graphCoordinatorStore;
+        if (!gs) return undefined;
+        const row = gs.db
+          .prepare(
+            `SELECT cwd FROM approach_graph_workspaces
+             WHERE node_run_id = ? AND repo_name = ? ORDER BY id LIMIT 1`,
+          )
+          .get(nodeRunId, repoName) as { cwd: string } | undefined;
+        return row?.cwd;
+      },
+    };
+  };
+
+  // Graph node supervision (Slice 3 Task 3 + 7 wiring). Node sessions are
+  // REAL vscode terminals, remembered in the identity registry so a reload
+  // can re-attach them, registered in the `servers` registry for the reapers,
+  // and terminated only through attribution (systemAsyncProcessFacts).
+  graphTransport = createSupervisedCliTransport({
+    terminalHost: makeGraphTerminalHost(terminalIdentity),
+    persistOwnerNonce: (nodeRunId, nonce) => {
+      graphCoordinatorStore?.db
+        .prepare('UPDATE approach_node_runs SET owner_nonce = ? WHERE id = ?')
+        .run(nonce, nodeRunId);
+    },
+    // Token accounting (Slice 3 T10): every graph launch — planner and node —
+    // opens exactly one `process_runs` row, which the interactive usage
+    // sampler binds to. Opened with the resolved pid (null when the terminal
+    // never started), snapshotted with the identity the launch resolved to.
+    // The whole write is swallowed: a locked database must never fail a
+    // launch, and a launch that cannot record is simply unattributed.
+    openProcessRun: (request, pid) => {
+      try {
+        const gs = graphCoordinatorStore;
+        if (!gs) return undefined;
+        const run = gs.db
+          .prepare('SELECT ticket_id, stage_attempt FROM approach_graph_runs WHERE id = ?')
+          .get(request.graphRunId) as
+          | { ticket_id: number; stage_attempt: number }
+          | undefined;
+        if (!run) return undefined;
+        const node = gs.db
+          .prepare('SELECT id, profile, provider, model FROM approach_node_runs WHERE id = ?')
+          .get(request.nodeRunId) as
+          | { id: number; profile: string | null; provider: string | null; model: string | null }
+          | undefined;
+        const planner = gs.db
+          .prepare('SELECT id, profile, provider, model FROM approach_planner_runs WHERE id = ?')
+          .get(request.nodeRunId) as
+          | { id: number; profile: string | null; provider: string | null; model: string | null }
+          | undefined;
+        if (node === undefined && planner === undefined) return undefined;
+        const identity = node ?? planner!;
+        const processRun = openProcessRun(graphCoordinatorStore!, {
+          ticketId: run.ticket_id,
+          stageKey: 'impl',
+          processId: node !== undefined ? 'graph-node' : 'graph-planner',
+          attempt: run.stage_attempt,
+          agentName: identity.profile,
+          provider: identity.provider ?? request.adapter.requiredBinary,
+          model: request.interactive.model ?? identity.model,
+          pid,
+          startedAt: new Date().toISOString(),
+        });
+        const link = node !== undefined ? 'approach_node_runs' : 'approach_planner_runs';
+        gs.db
+          .prepare(`UPDATE ${link} SET process_run_id = ? WHERE id = ?`)
+          .run(processRun.id, request.nodeRunId);
+        return processRun.id;
+      } catch (err) {
+        logError('karst: opening the graph launch process_runs row failed', err);
+        return undefined;
+      }
+    },
+    closeProcessRun: (processRunId, status, at) => {
+      try {
+        finishProcessRun(graphCoordinatorStore!, processRunId, status, at);
+      } catch (err) {
+        logError('karst: closing the graph launch process_runs row failed', err);
+      }
+    },
+    recordSession: (row) => {
+      graphCoordinatorStore?.db
+        .prepare(
+          `INSERT INTO servers (ticket_id, repo, pid, status, cwd, started_at)
+           VALUES (?, ?, ?, 'running', ?, ?)`,
+        )
+        .run(row.ticketId, row.repo, row.pid, row.cwd, row.startedAt);
+    },
+    facts: systemAsyncProcessFacts,
+    now: () => new Date().toISOString(),
+    debug: (message) => logger.debug(message),
+    // The launch diagnostic's identity (Slice-6 T3): the transport has no DB
+    // handle, so the host resolves graph → project/ticket/attempt for it.
+    graphIdentityOf: (graphRunId) => {
+      const gs = graphCoordinatorStore;
+      if (!gs) return undefined;
+      return resolveGraphDiagnosticIdentity(gs.db, graphRunId);
+    },
+  });
+
+  // Reload/crash reconcile (Slice 4 Task 3): one pass over every graph run
+  // applying the crash matrix, next to the coordinator sweep. Process facts
+  // are the real OS probes and `resumePipeline` is the completion pipeline —
+  // reconcile itself stays host-agnostic. Safe under concurrency: every
+  // mutation is a durable conditional claim, so another window's live process
+  // is left alone by attribution, never by this window's bookkeeping.
+  const reconcileGraphRuns = async (): Promise<void> => {
+    const gs = graphCoordinatorStore;
+    if (!gs) return;
+    try {
+      const runs = gs.db
+        .prepare('SELECT id FROM approach_graph_runs ORDER BY id')
+        .all() as { id: number }[];
+      for (const run of runs) {
+        const result = await reconcileGraphRun(
+          {
+            db: gs.db,
+            transaction: <T>(fn: () => T): T =>
+              (gs.db.transaction as unknown as (f: () => T, o: { begin: 'immediate' }) => () => T)(
+                fn,
+                { begin: 'immediate' },
+              )(),
+            now: () => new Date().toISOString(),
+            debug: (message) => logger.debug(message),
+            facts: systemAsyncProcessFacts,
+            sessionFor: (nodeRunId) => graphSessionFor(nodeRunId),
+            resumePipeline: (nodeRunId) => {
+              const node = gs.db
+                .prepare('SELECT graph_run_id FROM approach_node_runs WHERE id = ?')
+                .get(nodeRunId) as { graph_run_id: number } | undefined;
+              if (!node) return;
+              const deps = graphCompletionPipelineDeps(node.graph_run_id);
+              if (!deps) return;
+              void runCompletionPipeline(deps, { graphRunId: node.graph_run_id, nodeRunId });
+            },
+          },
+          { graphRunId: run.id },
+        );
+        if (
+          result.transitions > 0 ||
+          result.resumed.length > 0 ||
+          result.reverted.length > 0 ||
+          result.cancelledTokens > 0
+        ) {
+          logger.info(
+            `[graph] reconcile: run ${run.id} → ${result.status}` +
+              ` (${result.transitions} transition${result.transitions === 1 ? '' : 's'}, ` +
+              `${result.cancelledTokens} token${result.cancelledTokens === 1 ? '' : 's'} cancelled, ` +
+              `resumed ${result.resumed.length}, reverted ${result.reverted.length})`,
+          );
+        }
+      }
+    } catch (err) {
+      logError('karst: graph reconcile sweep failed', err);
+    }
+  };
+  void reconcileGraphRuns();
+
+  // The Inside Stop binding (Slice 3 Task 11): terminates every live session
+  // of the ticket's active graph through the supervised transport, then moves
+  // the run `running → draining` — the coordinator's own drain. NEVER to
+  // `blocked`: a stop is a deliberate halt, not a fault the Resume would
+  // retry.
+  stopGraphRun = async (ticketId: number): Promise<void> => {
+    const gs = graphCoordinatorStore;
+    const tr = graphTransport;
+    if (!gs || !tr) return;
+    const run = activeGraphRunFor(gs.db, ticketId);
+    if (!run) return;
+    try {
+      const result = await stopActiveGraph(
+        {
+          db: gs.db,
+          transaction: <T>(fn: () => T): T =>
+            (gs.db.transaction as unknown as (f: () => T, o: { begin: 'immediate' }) => () => T)(
+              fn,
+              { begin: 'immediate' },
+            )(),
+          transport: tr,
+          sessionsFor: (graphRunId) =>
+            tr.sessions().filter((s) => s.graphRunId === graphRunId),
+          debug: (message) => logger.debug(message),
+        },
+        { ticketId, graphRunId: run.graphRunId },
+      );
+      logger.info(
+        `[graph] stop: run ${result.graphRunId} drained=${result.drained} terminated=${result.terminated} refused=${result.refused}`,
+      );
+      void vscode.window.showInformationMessage(
+        result.drained
+          ? `Ticket #${ticketId}: implementation graph stopped — ${result.terminated} session${result.terminated === 1 ? '' : 's'} terminated${result.refused > 0 ? `, ${result.refused} refused` : ''}.`
+          : `Ticket #${ticketId}: the graph run already moved; nothing was stopped.`,
+      );
+      provider.refresh();
+      dashboard.pushState(ticketId);
+    } catch (err) {
+      logError(`karst: graph stop failed for ticket ${ticketId}`, err);
+    }
+  };
 
   // Write the current endpoint URL so revived Codex sessions discover the live
   // port instead of POSTing to a stale one left over from before the reload.
@@ -2956,6 +3769,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       } catch (e) {
         // Bookkeeping over state that is already stored: the next tick retries.
         logError('karst: merge gate settle failed', e);
+      }
+      // Graph coordinator sweep (Slice 3 Task 2). Rides this tick exactly
+      // like settleShipGates: a completion that committed to the database is
+      // always eventually scheduled, even when its wake-up hit a dead port.
+      // The tick is bounded (≤ 100 transitions), reads canonical state fresh,
+      // and a failure only delays the next tick — never depends on a callback.
+      if (graphCoordinatorStore) {
+        let graphRuns: number[] = [];
+        try {
+          graphRuns = activeGraphRunIds(graphCoordinatorStore.db);
+        } catch (e) {
+          logError('karst: graph run listing failed', e);
+        }
+        for (const graphRunId of graphRuns) {
+          void runGraphCoordinatorTick(graphRunId);
+        }
       }
       // Done tickets are archived on a DELAY (manifest `archiveDoneAfterDays`,
       // default 3 days), never when they reach done — and a ticket can sit at
@@ -3205,6 +4034,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // Without the CLI the terminal opens, prints a shell "command not found",
       // and sits there looking like karst did something.
       if (!options.providerReady && !guardCapability('sessions', ticketId)) return;
+      // A graph ticket with an active run is owned by the graph coordinator:
+      // REVEAL the live node terminal, never spawn a second agent (entry-point
+      // matrix, Slice 3 Task 7). `graph-marker`/`none` fall through to the
+      // normal continue-or-start flow below.
+      const activeGraph = activeGraphRunFor(localStore.db, ticketId);
+      if (activeGraph) {
+        const session = graphTransport?.sessions().find((s) => s.ticketId === ticketId);
+        if (session) {
+          session.terminal?.show();
+        } else {
+          void vscode.window.showInformationMessage(
+            `Ticket #${ticketId} is owned by an active graph run (${activeGraph.status}) — its session is not attached to this window; the coordinator re-attaches it on the next sweep.`,
+          );
+        }
+        return;
+      }
       // The single continue-or-start entry point must never dead-end. A drafted
       // ticket that was never run has no worktree yet — rather than tell the user
       // to "scope it first", scope its selected repos now (the same confirmScope +
@@ -3256,9 +4101,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // Resolve the approach's method prompt (its entrypoint), if one resolves.
       // Any failure (no folder, no package, bad id) → no method, ticket context
       // alone. Built-in approaches (direct, single-subagent) have no entrypoint.
+      // The built-in overlay seam is the launch consumer: the packaged built-in
+      // must resolve here exactly as it does in the ticket form and Settings.
       let approachPrompt: string | null = null;
       try {
-        const approaches = currentManifest()?.approaches ?? [];
+        const approaches = withBuiltInApproaches(currentManifest() ?? emptyManifest())
+          .approaches ?? [];
         approachPrompt = resolveApproachPrompt(approachesDirOrThrow(), approaches, t.approach);
       } catch {
         approachPrompt = null;
@@ -4118,6 +4966,23 @@ export async function deactivate(): Promise<void> {
   }
   endpoint = undefined;
   try {
+    await graphEndpoint?.close();
+  } catch (error) {
+    cleanupErrors.push(error);
+  }
+  graphEndpoint = undefined;
+  try {
+    graphCoordinatorStore?.close();
+  } catch (error) {
+    cleanupErrors.push(error);
+  }
+  graphCoordinatorStore = undefined;
+  // Live graph node sessions are NOT terminated here: they are detached
+  // vscode terminals whose rows stay `running`, and the next activation
+  // re-attaches them via the identity registry (the coordinator's job, not
+  // a window's teardown).
+  graphTransport = undefined;
+  try {
     shutdownSessionRecovery?.();
   } catch (error) {
     cleanupErrors.push(error);
@@ -4671,6 +5536,40 @@ function makeTerminalHost(identity: TerminalIdentityRegistry): TerminalHost {
   };
 }
 
+/** Graph node terminals, wrapped in the `TransportTerminal` interface. */
+function makeGraphTerminalHost(identity: TerminalIdentityRegistry): TransportTerminalHost {
+  return {
+    createTerminal(opts): TransportTerminal {
+      const terminal = vscode.window.createTerminal({
+        name: opts.name,
+        cwd: opts.cwd,
+        shellPath: opts.shellPath,
+        shellArgs: opts.shellArgs,
+        env: opts.env,
+        hideFromUser: opts.hideFromUser,
+      });
+      // Remembered in the same per-window registry the session terminals use:
+      // the graph env carries KARST_TICKET_ID + KARST_LAUNCH_ID, so a reload
+      // re-attaches a live node session instead of launching a second one.
+      identity.remember(terminal, opts.env, undefined);
+      return {
+        processId: () => Promise.resolve(terminal.processId),
+        show: (preserveFocus) => terminal.show(preserveFocus),
+        sendText: (text) => terminal.sendText(text, true),
+        dispose: () => terminal.dispose(),
+        onDidClose: (handler) => {
+          const sub = vscode.window.onDidCloseTerminal((closed) => {
+            if (closed === terminal) {
+              sub.dispose();
+              handler(closed.exitStatus?.code);
+            }
+          });
+        },
+      };
+    },
+  };
+}
+
 /**
  * Bind dashboard actions to real vscode side-effects. Server lifecycle: stop and
  * open are wired to the supervisor + browser; restart can't fully re-run without
@@ -4682,8 +5581,25 @@ type CapabilityGuard = (capability: Capability, ticketId?: number, silent?: bool
 
 /** The vscode bindings for the inside-action dispatches (Task 13). Every
  *  target was already containment- and ownership-checked by the panel; these
- *  resolve the recorded object to its real-world surface. */
-function makeInsideActionHost(store: Store): InsideActionHost {
+ *  resolve the recorded object to its real-world surface. Graph controls
+ *  (Slice 3 Task 11) arrive as host callbacks — the transport/session surface
+ *  they need lives in `activate`, not here. */
+function makeInsideActionHost(
+  store: Store,
+  graphHost: {
+    graphOpenSession: (
+      ticketId: number,
+      session: { kind: 'planner' | 'node'; runId: number },
+    ) => void;
+    graphStop: (ticketId: number) => void | Promise<void>;
+    graphDiscardNode: (ticketId: number, nodeRunId: number) => void | Promise<void>;
+    graphEditOverride: (ticketId: number, nodeRunId: number) => void | Promise<void>;
+  },
+  // The graph recovery action's host binding (Slice-4 T6): the atomic claim
+  // wrapper plus the prompt re-snapshot seam. Bound in activate where the
+  // snapshot root is known; the panel host only routes Resume to it.
+  graphRecoveryDeps: () => RecoveryDeps,
+): InsideActionHost {
   return {
     openFile: (path) => void vscode.commands.executeCommand('vscode.open', vscode.Uri.file(path)),
     openPr: (_ticketId, prId) => {
@@ -4699,8 +5615,33 @@ function makeInsideActionHost(store: Store): InsideActionHost {
       }
     },
     resumeStage: (ticketId, stageKey) => {
-      if (!resumeBlockedStage(store, ticketId, ticketId, stageKey)) return;
-      void vscode.commands.executeCommand('karst.openDashboard', ticketId);
+      const outcome = resumeBlockedStage(store, ticketId, ticketId, stageKey);
+      if (outcome.kind === 'cleared') {
+        void vscode.commands.executeCommand('karst.openDashboard', ticketId);
+        return;
+      }
+      if (outcome.kind === 'graph-recovery') {
+        // The generic Resume refuses the graph block by design (Slice-3 T9);
+        // the typed action runs graph-aware recovery: a retry on the same
+        // revision, clearing the block only after it durably entered.
+        const recovery = recoverGraphRun(
+          graphRecoveryDeps(),
+          { ticketId: outcome.ticketId, graphRunId: outcome.graphRunId },
+        );
+        if (recovery.kind === 'retried') {
+          void vscode.window.showInformationMessage(
+            `Ticket #${ticketId}: the implementation graph was retried (graph run ${outcome.graphRunId}).`,
+          );
+        } else if (recovery.kind === 'replanned') {
+          void vscode.window.showInformationMessage(
+            `Ticket #${ticketId}: the implementation graph was replanned (graph run ${outcome.graphRunId}).`,
+          );
+        } else if (recovery.kind === 'refused') {
+          void vscode.window.showInformationMessage(
+            `Ticket #${ticketId}: the implementation graph cannot retry itself (${recovery.reason}) — open the Inside panel to discard the unknown process.`,
+          );
+        }
+      }
     },
     openFullEvidence: (ticketId, processRunId) => {
       void vscode.window.showInformationMessage(`Inside evidence: process run #${processRunId} on ticket #${ticketId}`);
@@ -4726,6 +5667,10 @@ function makeInsideActionHost(store: Store): InsideActionHost {
         { title, placeHolder: 'Recorded repository evidence' },
       );
     },
+    graphOpenSession: (ticketId, session) => graphHost.graphOpenSession(ticketId, session),
+    graphStop: (ticketId) => graphHost.graphStop(ticketId),
+    graphDiscardNode: (ticketId, nodeRunId) => graphHost.graphDiscardNode(ticketId, nodeRunId),
+    graphEditOverride: (ticketId, nodeRunId) => graphHost.graphEditOverride(ticketId, nodeRunId),
   };
 }
 
@@ -4794,6 +5739,9 @@ function makeDashboardActions(
   // when the switch is off — a crafted message must not launch what the user
   // disabled.
   launchConfig: () => ReturnType<typeof parseLaunchWorktreeConfig>,
+  // The graph recovery action's host binding (Slice-4 T6), bound in activate
+  // where the snapshot root is known.
+  graphRecoveryDeps: () => RecoveryDeps,
   // Resolve one gate stage's console log via the dashboard manager, which owns
   // the ticket panel: the stage key arrives from the webview, the read stays
   // host-side.
@@ -4980,9 +5928,28 @@ function makeDashboardActions(
     // refresh the panel and kick the same driver trigger every other resume
     // path uses.
     resumeStage: (msgTicketId, stageKey) => {
-      if (!resumeBlockedStage(store, ticketId, msgTicketId, stageKey)) return;
-      afterServerChange();
-      driveAfterResume(ticketId);
+      const outcome = resumeBlockedStage(store, ticketId, msgTicketId, stageKey);
+      if (outcome.kind === 'cleared') {
+        afterServerChange();
+        driveAfterResume(ticketId);
+        return;
+      }
+      if (outcome.kind === 'graph-recovery') {
+        // The graph block is NOT cleared by a generic Resume (Slice-3 T9) —
+        // the typed action runs graph-aware recovery instead.
+        const recovery = recoverGraphRun(
+          graphRecoveryDeps(),
+          { ticketId: outcome.ticketId, graphRunId: outcome.graphRunId },
+        );
+        if (recovery.kind === 'retried' || recovery.kind === 'replanned') {
+          afterServerChange();
+          driveAfterResume(ticketId);
+        } else if (recovery.kind === 'refused') {
+          void vscode.window.showInformationMessage(
+            `Ticket #${ticketId}: the implementation graph cannot retry itself (${recovery.reason}) — open the Inside panel to discard the unknown process.`,
+          );
+        }
+      }
     },
     // Opens the ticket form in edit mode on the new ticket so the user can type
     // the actual follow-up ask straight away — the command itself copies

@@ -1,8 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openStore, type Store } from './db.js';
+import { createGraphRun } from './graph/graphRuns.js';
+import { createPlannerRun } from './graph/plannerRuns.js';
+import { createRevision } from './graph/revisions.js';
+import { createNodeRun } from './graph/nodeRuns.js';
+import { createToken } from './graph/tokens.js';
 import {
   createTicket,
   getTicket,
@@ -673,5 +678,172 @@ describe('clearApproachFromTickets', () => {
     updateTicketFields(store, a.id, { approach: 'rpi' });
     expect(clearApproachFromTickets(store, 'rpi', { projectId: PROJ_A })).toBe(1);
     expect(clearApproachFromTickets(store, 'rpi', { projectId: PROJ_A })).toBe(0);
+  });
+});
+
+describe('deleteTicket — graph evidence (Slice-2 T8)', () => {
+  let store: Store;
+  beforeEach(() => {
+    store = openStore(':memory:');
+  });
+  afterEach(() => store.close());
+
+  /** Seed a ticket with a full mid-execution graph subtree. */
+  function seedGraphTicket(): {
+    ticketId: number;
+    graphRunId: number;
+    plannerRunId: number;
+    revisionId: number;
+    nodeRunId: number;
+  } {
+    const t = createTicket(store, { key: 'G-1', title: 'graph' });
+    const graphRunId = createGraphRun(store.db, {
+      ticketId: t.id,
+      stageAttempt: 0,
+      approachId: 'karst-graph-engineering',
+      now: '2026-08-11T00:00:00.000Z',
+    });
+    const plannerRunId = createPlannerRun(store.db, {
+      graphRunId,
+      plannerRunNumber: 1,
+      kind: 'bootstrap',
+    });
+    const revisionId = createRevision(store.db, {
+      graphRunId,
+      revisionNumber: 1,
+      canonicalGraph: '{}',
+      fingerprint: 'fp',
+      status: 'active',
+      now: '2026-08-11T00:00:00.000Z',
+    });
+    const nodeRunId = createNodeRun(store.db, {
+      graphRunId,
+      revisionId,
+      nodeId: 'a',
+      nodeKind: 'agent',
+      visitNumber: 1,
+      now: '2026-08-11T00:00:00.000Z',
+    });
+    createToken(store.db, {
+      revisionId,
+      sourceNodeRunId: null,
+      isEntry: 1,
+      edgeId: 'entry',
+      destinationNodeId: 'a',
+      destinationEnd: 0,
+      forkInstance: 1,
+      forkLineage: null,
+      now: '2026-08-11T00:00:00.000Z',
+    });
+    store.db
+      .prepare(
+        `INSERT INTO approach_artifact_instances (graph_run_id, revision_id, producer_planner_run_id, artifact_id, snapshot_path, sha256, byte_size, media_type, created_at)
+         VALUES (?, ?, ?, 'task', '/snap/x', 'x', 1, 'text/markdown', ?)`,
+      )
+      .run(graphRunId, revisionId, plannerRunId, '2026-08-11T00:00:00.000Z');
+    store.db
+      .prepare(
+        `INSERT INTO approach_resource_leases (graph_run_id, owner_node_run_id, physical_domain, access_mode, status, acquired_at)
+         VALUES (?, ?, 'domain', 'write', 'held', ?)`,
+      )
+      .run(graphRunId, nodeRunId, '2026-08-11T00:00:00.000Z');
+    store.db
+      .prepare(
+        `INSERT INTO approach_node_overrides (graph_run_id, node_id, row_version, updated_at)
+         VALUES (?, 'a', 0, ?)`,
+      )
+      .run(graphRunId, '2026-08-11T00:00:00.000Z');
+    store.db
+      .prepare(
+        `INSERT INTO approach_node_deferrals (graph_run_id, revision_id, node_id, reason, wait_since, updated_at)
+         VALUES (?, ?, 'a', 'resource-conflict: x', ?, ?)`,
+      )
+      .run(graphRunId, revisionId, '2026-08-11T00:00:00.000Z', '2026-08-11T00:00:00.000Z');
+    return { ticketId: t.id, graphRunId, plannerRunId, revisionId, nodeRunId };
+  }
+
+  it('hard delete removes every graph row and the byte subtree', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-graph-delete-'));
+    try {
+      const { ticketId } = seedGraphTicket();
+      const graphBytesRoot = join(dir, 'graph', 'project');
+      mkdirSync(join(graphBytesRoot, String(ticketId), 'artifacts'), { recursive: true });
+      writeFileSync(join(graphBytesRoot, String(ticketId), 'artifacts', 'x'), 'bytes');
+
+      deleteTicket(store, ticketId, graphBytesRoot);
+
+      for (const table of [
+        'approach_graph_tokens',
+        'approach_node_overrides',
+        'approach_resource_leases',
+        'approach_node_deferrals',
+        'approach_artifact_instances',
+        'approach_node_runs',
+        'approach_planner_runs',
+        'approach_graph_revisions',
+        'approach_graph_runs',
+      ]) {
+        const n = store.db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number };
+        expect(n.n, table).toBe(0);
+      }
+      expect(existsSync(join(graphBytesRoot, String(ticketId)))).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('archive removes neither rows nor bytes', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-graph-archive-'));
+    try {
+      const { ticketId, graphRunId } = seedGraphTicket();
+      const graphBytesRoot = join(dir, 'graph', 'project');
+      mkdirSync(join(graphBytesRoot, String(ticketId)), { recursive: true });
+      writeFileSync(join(graphBytesRoot, String(ticketId), 'x'), 'bytes');
+
+      archiveTicket(store, ticketId);
+
+      const runs = store.db
+        .prepare('SELECT COUNT(*) AS n FROM approach_graph_runs WHERE id = ?')
+        .get(graphRunId) as { n: number };
+      expect(runs.n).toBe(1);
+      expect(existsSync(join(graphBytesRoot, String(ticketId), 'x'))).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('deleting a ticket mid-execution runs the explicit sequence without FK errors', () => {
+    const { ticketId } = seedGraphTicket();
+    expect(() => deleteTicket(store, ticketId)).not.toThrow();
+  });
+
+  it('token_usage rows survive with their graph FKs set to NULL', () => {
+    const { ticketId, plannerRunId, nodeRunId } = seedGraphTicket();
+    store.db
+      .prepare(
+        `INSERT INTO token_usage (project_id, ticket_id, call_site, outcome, total_tokens,
+                                  approach_planner_run_id, approach_node_run_id, recorded_at)
+         VALUES (1, ?, 'graph-planner', 'ok', 150, ?, ?, ?)`,
+      )
+      .run(ticketId, plannerRunId, nodeRunId, '2026-08-11T00:00:00.000Z');
+    deleteTicket(store, ticketId);
+    const rows = store.db
+      .prepare(
+        `SELECT ticket_id, approach_planner_run_id, approach_node_run_id, total_tokens
+         FROM token_usage`,
+      )
+      .all() as Array<{
+      ticket_id: number | null;
+      approach_planner_run_id: number | null;
+      approach_node_run_id: number | null;
+      total_tokens: number;
+    }>;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      ticket_id: null,
+      approach_planner_run_id: null,
+      approach_node_run_id: null,
+      total_tokens: 150,
+    });
   });
 });

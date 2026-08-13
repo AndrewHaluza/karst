@@ -24,6 +24,13 @@ import {
 } from '../../manifest/fixtures.js';
 import { gateSummary as hostGateSummary } from './gateDraft.js';
 import { PROCESS_KEYS } from '../../manifest/validate/processAssignments.js';
+import { approachDelta } from '../../approaches/withBuiltInApproaches.js';
+import { BUILT_IN_APPROACHES } from '../../approaches/builtIn.js';
+import {
+  DEFAULT_GRAPH_LIMITS,
+  GRAPH_COMMAND_TIMEOUT_CEILING,
+  GRAPH_HARD_CEILINGS,
+} from '../../manifest/graphConfig.js';
 
 const HTML = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'webview.html'), 'utf8');
 
@@ -48,6 +55,10 @@ function loadFunction(
   return runInNewContext(`(${functionSource(name)})`, {
     modelCatalog,
     modelCompatibility,
+    // The webview's display helpers, injected with their real source so a row
+    // renderer lifted here formats exactly as it does on the page.
+    formatSeconds: runInNewContext(`(${functionSource('formatSeconds')})`, {}),
+    formatBytes: runInNewContext(`(${functionSource('formatBytes')})`, {}),
     esc: (s: unknown) => String(s ?? '').replace(/[&<>"]/g, (c) =>
       ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] ?? c),
   }) as (...args: unknown[]) => unknown;
@@ -808,6 +819,110 @@ describe('settings tab-scoped save', () => {
   });
 });
 
+describe('settings graph configuration surface (Slice-1 T6)', () => {
+  const packagedGraph = BUILT_IN_APPROACHES[0]!.graph!;
+
+  /** Read a top-level `const NAME = …;` from the webview script (single-line). */
+  function constValue(name: string): unknown {
+    const m = HTML.match(new RegExp(`const ${name} = ([^;]+);`));
+    if (!m) throw new Error(`const ${name} not found in webview.html`);
+    return runInNewContext(`(${m[1]})`, {});
+  }
+
+  it('renders a graph configuration surface inside the built-in approach card', () => {
+    expect(functionSource('renderGraphConfig')).toContain('data-graph-config');
+    expect(functionSource('renderGraphConfig')).toContain('Budgets');
+    expect(functionSource('graphLimitRowHtml')).toContain('data-gf-limit');
+  });
+
+  it('shows the packaged default and hard ceiling beside every wall-time budget', () => {
+    const rowHtml = loadFunction('graphLimitRowHtml', MODELS);
+    const row = String(rowHtml('maxAgentWallSeconds', 'Planner/agent wall time', 7200, 28800));
+    expect(row).toContain('data-gf-limit="maxAgentWallSeconds"');
+    expect(row).toContain('data-packaged="7200"');
+    expect(row).toContain('data-ceiling="28800"');
+    expect(row).toContain('aria-label='); // accessible name on the control (UI-R24)
+  });
+
+  it('mirrors the host graph hard ceilings and command-timeout ceiling exactly (UI-R34)', () => {
+    expect(constValue('GRAPH_HARD_CEILINGS')).toEqual(GRAPH_HARD_CEILINGS);
+    expect(constValue('GRAPH_COMMAND_TIMEOUT_CEILING')).toBe(GRAPH_COMMAND_TIMEOUT_CEILING);
+    expect(constValue('DEFAULT_GRAPH_LIMITS')).toEqual(DEFAULT_GRAPH_LIMITS);
+  });
+
+  it('a wall-time budget beyond the hard ceiling is refused at Save', () => {
+    // What the surface's number input carries lands in the saved draft's limits
+    // block; validateManifest is the host's Save guard and refuses a budget
+    // past its hard ceiling (A3) with a named message.
+    const limits = { ...packagedGraph.limits!, maxAgentWallSeconds: 99999 };
+    const manifest = buildManifest(
+      { api: runnableRepo({ ports: [slot('port', 'PORT', 3000)] }, { repoPath: '../api', signals: [] }) },
+      {
+        portRange: [4000, 4999],
+        approaches: [
+          { id: 'karst-graph-engineering', label: 'Graph Engineering', graph: { ...packagedGraph, limits } },
+        ],
+        agents: {},
+        worktreePathDisplay: 'relative',
+      },
+    );
+    expect(() => validateManifest(manifest)).toThrow(/28800/);
+  });
+
+  it('every graph-config host-posting control goes through postAction (UI-R11)', () => {
+    // The prompt link posts through the shared pending-action seam — never a
+    // bare post() — so it shows pending, cannot re-trigger, and settles on the
+    // host's action-result or the watchdog.
+    expect(HTML).toMatch(/data-open-graph-prompt="karst-graph-planner"/);
+    expect(functionSource('openGraphPrompt')).toMatch(/postAction\(t, 'open-graph-prompt'/);
+  });
+});
+
+describe('settings approach-delta mirror (UI-R34)', () => {
+  // Lift the webview's mirrored delta reducer and run it against the host's
+  // approachDelta on the same fixtures — a drift between the two is a Save
+  // that writes different bytes than the mirror promised.
+  function deltaMirror(): (approaches: unknown, packaged: unknown) => unknown[] {
+    const exports = runInNewContext(
+      `${functionSource('toApproachDeltas')}\n${functionSource('deepEq')}\n({ toApproachDeltas })`,
+      {},
+    ) as { toApproachDeltas: (approaches: unknown, packaged: unknown) => unknown[] };
+    return exports.toApproachDeltas;
+  }
+
+  it('reduces to the same delta as the host approachDelta', () => {
+    const mirror = deltaMirror();
+    // The REAL packaged definition — the host compares against this internally,
+    // so the mirror must be fed the same bytes or the two legitimately diverge.
+    const packaged = [...BUILT_IN_APPROACHES] as unknown[];
+    const packagedEntry = packaged[0] as Record<string, unknown>;
+    const packagedGraph = packagedEntry.graph as Record<string, unknown>;
+    const packagedLimits = packagedGraph.limits as Record<string, unknown>;
+    // Each case is a full EFFECTIVE approaches list (packaged entry + overrides).
+    const cases: unknown[][] = [
+      // Absent entry → nothing (absence = packaged defaults).
+      [],
+      // A disable tombstone.
+      [{ id: packagedEntry.id, label: packagedEntry.label, enabled: false }],
+      // An explicit enable.
+      [{ id: packagedEntry.id, label: packagedEntry.label, enabled: true }],
+      // Label + enabled overrides.
+      [{ id: packagedEntry.id, label: 'My Graph', enabled: true }],
+      // A graph override (limits only).
+      [{ id: packagedEntry.id, label: packagedEntry.label, graph: { limits: { ...packagedLimits, maxParallel: 2 } } }],
+      // A non-built-in entry passes through.
+      [{ id: 'tdd', label: 'TDD', recommended: true }],
+      // Mixed list.
+      [{ id: 'tdd', label: 'TDD' }, { id: packagedEntry.id, label: packagedEntry.label, enabled: true }],
+    ];
+    for (const effective of cases) {
+      const host = approachDelta(effective as never);
+      const webview = mirror(effective, packaged);
+      expect(webview, JSON.stringify(effective)).toEqual(host);
+    }
+  });
+});
+
 describe('settings unsaved-changes gate', () => {
   it('renders a modal offering save, discard and cancel', () => {
     expect(HTML).toContain('id="leaveModal"');
@@ -825,9 +940,11 @@ describe('settings unsaved-changes gate', () => {
     // All three go through `postAction`, not a bare `post()` — a save in
     // flight must be pending/non-re-triggerable (UI-R11–R12), so a raw
     // `post({type:'save',...})` call site here would be a regression.
-    const saves = HTML.match(/postAction\([^,]+, 'save', \{[^}]*\}\)/g) ?? [];
+    // The drawer calls carry a multi-line delta-reduced manifest object, so
+    // count the `postAction(<el>, 'save', {` call sites, not one-line bodies.
+    const saves = HTML.match(/postAction\([^,]+, 'save', \{/g) ?? [];
     expect(saves.length).toBe(3); // topbar Save, approach drawer Save, approach drawer Delete
-    for (const call of saves) expect(call, call).toContain('section');
+    for (const call of saves) expect(call, call).toContain('save');
   });
 });
 

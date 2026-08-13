@@ -19,7 +19,7 @@ export function readSchema(): string {
 }
 
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 35;
+export const SCHEMA_VERSION = 42;
 
 /** v2 ticket-field columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -99,6 +99,298 @@ CREATE INDEX IF NOT EXISTS idx_token_usage_model ON token_usage(project_id, mode
 
 /** Tables whose `service` column became `repo` in v10. */
 const V10_RENAMED_TABLES = ['servers', 'port_allocations', 'baseline_refs'] as const;
+
+/**
+ * v35's eight graph tables (Slice 2, design "Persistence"). Byte-identical in
+ * intent to the schema.sql block it mirrors — `db.test.ts` pins that with a
+ * `toContain` over this exact text. Exported so the interruption-atomicity
+ * test can drive the REAL step DDL inside a transaction.
+ *
+ * Insert-only rowid tables (no AUTOINCREMENT): none of the eight deletes a row
+ * outside `deleteTicket`'s explicit ordered sequence, so the largest rowid
+ * never decreases. Closed-value CHECKs enforce status MEMBERSHIP only;
+ * transition legality is application code, pinned by the transition-map tests.
+ */
+export const GRAPH_MIGRATION_DDL = `
+CREATE TABLE IF NOT EXISTS approach_graph_runs (
+  id                INTEGER PRIMARY KEY,
+  ticket_id         INTEGER NOT NULL REFERENCES tickets(id),
+  stage_key         TEXT NOT NULL CHECK (stage_key = 'impl'),
+  stage_attempt     INTEGER NOT NULL,
+  approach_id       TEXT NOT NULL,
+  status            TEXT NOT NULL CHECK (status IN (
+    'planning','awaiting-confirmation','running','draining','blocked',
+    'completed-awaiting-impl-marker','closed','stale','cancelled')),
+  planner_run_count INTEGER NOT NULL DEFAULT 0,
+  expert_run_count  INTEGER NOT NULL DEFAULT 0,
+  node_run_count    INTEGER NOT NULL DEFAULT 0,
+  replan_count      INTEGER NOT NULL DEFAULT 0,
+  blocked_reason    TEXT,
+  created_at        TEXT NOT NULL,
+  updated_at        TEXT,
+  completed_at      TEXT,
+  workspace_bytes   INTEGER NOT NULL DEFAULT 0,
+  active_processes  INTEGER NOT NULL DEFAULT 0,
+  UNIQUE (ticket_id, stage_attempt)
+);
+CREATE INDEX IF NOT EXISTS idx_graph_runs_ticket ON approach_graph_runs(ticket_id, id);
+CREATE TABLE IF NOT EXISTS approach_planner_runs (
+  id                    INTEGER PRIMARY KEY,
+  graph_run_id          INTEGER NOT NULL REFERENCES approach_graph_runs(id),
+  target_revision_number INTEGER,
+  planner_run_number    INTEGER NOT NULL,
+  kind                  TEXT NOT NULL CHECK (kind IN ('bootstrap','replan')),
+  status                TEXT NOT NULL CHECK (status IN (
+    'ready','launching','running','submitted','blocked','launch-unknown','stale','cancelled')),
+  profile               TEXT,
+  provider              TEXT,
+  model                 TEXT,
+  effort                TEXT,
+  prompt_hash           TEXT,
+  compile_attempt       INTEGER NOT NULL DEFAULT 0,
+  launch_attempt        INTEGER NOT NULL DEFAULT 0,
+  generation            TEXT,
+  process_run_id        INTEGER REFERENCES process_runs(id) ON DELETE SET NULL,
+  owner_nonce           TEXT,
+  capability_hash       TEXT,
+  graph_snapshot_id     TEXT,
+  artifact_snapshot_id  TEXT,
+  reason                TEXT,
+  started_at            TEXT,
+  submitted_at          TEXT,
+  ended_at              TEXT,
+  UNIQUE (graph_run_id, planner_run_number)
+);
+CREATE INDEX IF NOT EXISTS idx_planner_runs_run ON approach_planner_runs(graph_run_id, id);
+CREATE TABLE IF NOT EXISTS approach_graph_revisions (
+  id                        INTEGER PRIMARY KEY,
+  graph_run_id              INTEGER NOT NULL REFERENCES approach_graph_runs(id),
+  revision_number           INTEGER NOT NULL,
+  canonical_graph           TEXT NOT NULL,
+  fingerprint               TEXT NOT NULL,
+  planner_graph_snapshot_id TEXT,
+  planner_artifact_snapshot_id TEXT,
+  command_fingerprints      TEXT,
+  resource_domains          TEXT,
+  supersedes_revision_id    INTEGER,
+  reason                    TEXT,
+  status                    TEXT NOT NULL CHECK (status IN ('active','draining','superseded','completed')),
+  created_at                TEXT NOT NULL,
+  superseded_at             TEXT,
+  UNIQUE (graph_run_id, revision_number)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_graph_revisions_active
+  ON approach_graph_revisions(graph_run_id) WHERE status = 'active';
+CREATE TABLE IF NOT EXISTS approach_node_runs (
+  id                       INTEGER PRIMARY KEY,
+  graph_run_id             INTEGER NOT NULL REFERENCES approach_graph_runs(id),
+  revision_id              INTEGER NOT NULL REFERENCES approach_graph_revisions(id),
+  node_id                  TEXT NOT NULL,
+  node_kind                TEXT NOT NULL,
+  visit_number             INTEGER NOT NULL,
+  status                   TEXT NOT NULL CHECK (status IN (
+    'ready','waiting-resource','launching','running','completing','integrating',
+    'completed','blocked','failed-to-launch','launch-unknown','termination-unknown',
+    'output-artifact-missing','artifact-unsafe','stale','cancelled')),
+  outcome                  TEXT,
+  effective_outcome        TEXT,
+  reason                   TEXT,
+  failure_category         TEXT,
+  profile                  TEXT,
+  provider                 TEXT,
+  model                    TEXT,
+  effort                   TEXT,
+  prompt_hash              TEXT,
+  launch_attempt           INTEGER NOT NULL DEFAULT 0,
+  generation               TEXT,
+  process_run_id           INTEGER REFERENCES process_runs(id) ON DELETE SET NULL,
+  owner_nonce              TEXT,
+  capability_hash          TEXT,
+  instruction_artifact_id  INTEGER,
+  input_artifact_id        INTEGER,
+  output_artifact_id       INTEGER,
+  change_set_id            TEXT,
+  started_at               TEXT,
+  ended_at                 TEXT,
+  base_heads               TEXT,
+  UNIQUE (revision_id, node_id, visit_number)
+);
+CREATE INDEX IF NOT EXISTS idx_node_runs_revision ON approach_node_runs(revision_id, id);
+CREATE TABLE IF NOT EXISTS approach_graph_tokens (
+  id                    INTEGER PRIMARY KEY,
+  revision_id           INTEGER NOT NULL REFERENCES approach_graph_revisions(id),
+  source_node_run_id    INTEGER,
+  is_entry              INTEGER NOT NULL DEFAULT 0 CHECK (is_entry IN (0,1)),
+  edge_id               TEXT NOT NULL,
+  destination_node_id   TEXT NOT NULL,
+  destination_end       INTEGER NOT NULL DEFAULT 0 CHECK (destination_end IN (0,1)),
+  fork_instance         INTEGER NOT NULL DEFAULT 0,
+  fork_lineage          TEXT,
+  fork_instance_id      TEXT,
+  status                TEXT NOT NULL CHECK (status IN ('pending','claimed','consumed','cancelled')),
+  claiming_node_run_id  INTEGER,
+  consuming_node_run_id INTEGER,
+  created_at            TEXT NOT NULL,
+  consumed_at           TEXT,
+  UNIQUE (source_node_run_id, edge_id, fork_instance)
+);
+CREATE INDEX IF NOT EXISTS idx_graph_tokens_revision ON approach_graph_tokens(revision_id, status);
+CREATE TABLE IF NOT EXISTS approach_artifact_instances (
+  id                      INTEGER PRIMARY KEY,
+  graph_run_id            INTEGER NOT NULL REFERENCES approach_graph_runs(id),
+  revision_id             INTEGER,
+  artifact_id             TEXT NOT NULL,
+  producer_planner_run_id INTEGER,
+  producer_node_run_id    INTEGER,
+  fork_lineage            TEXT,
+  snapshot_path           TEXT NOT NULL,
+  sha256                  TEXT NOT NULL,
+  media_type              TEXT NOT NULL,
+  byte_size               INTEGER NOT NULL,
+  sensitivity             TEXT,
+  created_at              TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_artifact_instances_run ON approach_artifact_instances(graph_run_id, id);
+CREATE TABLE IF NOT EXISTS approach_resource_leases (
+  id                INTEGER PRIMARY KEY,
+  graph_run_id      INTEGER NOT NULL REFERENCES approach_graph_runs(id),
+  owner_node_run_id INTEGER NOT NULL REFERENCES approach_node_runs(id),
+  physical_domain   TEXT NOT NULL,
+  access_mode       TEXT NOT NULL,
+  claimed_paths     TEXT,
+  status            TEXT NOT NULL CHECK (status IN ('held','released','ambiguous-process')),
+  acquired_at       TEXT NOT NULL,
+  released_at       TEXT,
+  UNIQUE (owner_node_run_id, physical_domain)
+);
+CREATE INDEX IF NOT EXISTS idx_resource_leases_domain ON approach_resource_leases(physical_domain, status);
+CREATE TABLE IF NOT EXISTS approach_node_overrides (
+  id            INTEGER PRIMARY KEY,
+  graph_run_id  INTEGER NOT NULL REFERENCES approach_graph_runs(id),
+  revision_id   INTEGER,
+  node_id       TEXT,
+  provider      TEXT,
+  model         TEXT,
+  effort        TEXT,
+  profile       TEXT,
+  kind          TEXT NOT NULL DEFAULT 'provider' CHECK (kind IN ('profile','provider','model','effort','prompt')),
+  value         TEXT NOT NULL DEFAULT '',
+  row_version   INTEGER NOT NULL DEFAULT 0,
+  created_at    TEXT NOT NULL DEFAULT '',
+  updated_at    TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_node_overrides_rev_node_kind
+  ON approach_node_overrides(revision_id, node_id, kind);
+CREATE INDEX IF NOT EXISTS idx_node_overrides_node ON approach_node_overrides(graph_run_id, node_id);
+CREATE TABLE IF NOT EXISTS approach_node_deferrals (
+  id            INTEGER PRIMARY KEY,
+  graph_run_id  INTEGER NOT NULL REFERENCES approach_graph_runs(id),
+  revision_id   INTEGER NOT NULL REFERENCES approach_graph_revisions(id),
+  node_id       TEXT NOT NULL,
+  reason        TEXT NOT NULL,
+  wait_since    TEXT NOT NULL,
+  updated_at    TEXT NOT NULL,
+  UNIQUE (revision_id, node_id)
+);
+CREATE INDEX IF NOT EXISTS idx_node_deferrals_run ON approach_node_deferrals(graph_run_id, id);
+`;
+
+/**
+ * v37's `approach_node_runs` rebuild (Slice 4 Task 2): SQLite cannot ALTER a
+ * CHECK constraint, so the two new output-validation rest statuses
+ * (`output-artifact-missing`, `artifact-unsafe`) require the standard
+ * create → copy → drop → rename table rebuild. Columns and the UNIQUE index
+ * are byte-identical in intent to schema.sql; only the status CHECK widens.
+ * Exported so the interruption-atomicity test can drive the REAL step DDL.
+ */
+export const NODE_RUN_STATUSES_V37_DDL = `
+CREATE TABLE approach_node_runs_v37 (
+  id                       INTEGER PRIMARY KEY,
+  graph_run_id             INTEGER NOT NULL REFERENCES approach_graph_runs(id),
+  revision_id              INTEGER NOT NULL REFERENCES approach_graph_revisions(id),
+  node_id                  TEXT NOT NULL,
+  node_kind                TEXT NOT NULL,
+  visit_number             INTEGER NOT NULL,
+  status                   TEXT NOT NULL CHECK (status IN (
+    'ready','waiting-resource','launching','running','completing','integrating',
+    'completed','blocked','failed-to-launch','launch-unknown','termination-unknown',
+    'output-artifact-missing','artifact-unsafe','stale','cancelled')),
+  outcome                  TEXT,
+  effective_outcome        TEXT,
+  reason                   TEXT,
+  failure_category         TEXT,
+  profile                  TEXT,
+  provider                 TEXT,
+  model                    TEXT,
+  effort                   TEXT,
+  prompt_hash              TEXT,
+  launch_attempt           INTEGER NOT NULL DEFAULT 0,
+  generation               TEXT,
+  process_run_id           INTEGER REFERENCES process_runs(id) ON DELETE SET NULL,
+  owner_nonce              TEXT,
+  capability_hash          TEXT,
+  instruction_artifact_id  INTEGER,
+  input_artifact_id        INTEGER,
+  output_artifact_id       INTEGER,
+  change_set_id            TEXT,
+  started_at               TEXT,
+  ended_at                 TEXT,
+  UNIQUE (revision_id, node_id, visit_number)
+);
+INSERT INTO approach_node_runs_v37
+  SELECT id, graph_run_id, revision_id, node_id, node_kind, visit_number, status,
+         outcome, effective_outcome, reason, failure_category, profile, provider,
+         model, effort, prompt_hash, launch_attempt, generation, process_run_id,
+         owner_nonce, capability_hash, instruction_artifact_id, input_artifact_id,
+         output_artifact_id, change_set_id, started_at, ended_at
+  FROM approach_node_runs;
+DROP TABLE approach_node_runs;
+ALTER TABLE approach_node_runs_v37 RENAME TO approach_node_runs;
+CREATE INDEX IF NOT EXISTS idx_node_runs_revision ON approach_node_runs(revision_id, id);
+`;
+
+/**
+ * v39's workspace-ledger table (Slice 5 Task 1). Byte-identical in intent to
+ * the schema.sql block it mirrors; `db.test.ts` pins that with a `toContain`.
+ * The two v39 COLUMNS (`approach_graph_runs.workspace_bytes`,
+ * `approach_node_runs.base_heads`) already live inside `GRAPH_MIGRATION_DDL`
+ * above for fresh DBs — this step's guarded ALTERs bring legacy DBs up.
+ */
+export const GRAPH_WORKSPACE_MIGRATION_DDL = `
+CREATE TABLE IF NOT EXISTS approach_graph_workspaces (
+  id             INTEGER PRIMARY KEY,
+  graph_run_id   INTEGER NOT NULL REFERENCES approach_graph_runs(id),
+  node_run_id    INTEGER NOT NULL REFERENCES approach_node_runs(id),
+  repo_name      TEXT NOT NULL,
+  cwd            TEXT NOT NULL,
+  byte_size      INTEGER NOT NULL,
+  created_at     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_graph_workspaces_run ON approach_graph_workspaces(graph_run_id, id);
+CREATE INDEX IF NOT EXISTS idx_graph_workspaces_node ON approach_graph_workspaces(node_run_id, id);
+`;
+
+/**
+ * v40's deferral ledger (Slice 5 Task 3). Byte-identical in intent to the
+ * schema.sql block it mirrors; `db.test.ts` pins that with a `toContain`. The
+ * `approach_graph_runs.active_processes` COLUMN already lives inside
+ * `GRAPH_MIGRATION_DDL` above for fresh DBs — this step's guarded ALTER
+ * brings legacy DBs up.
+ */
+export const GRAPH_DEFERRAL_MIGRATION_DDL = `
+CREATE TABLE IF NOT EXISTS approach_node_deferrals (
+  id            INTEGER PRIMARY KEY,
+  graph_run_id  INTEGER NOT NULL REFERENCES approach_graph_runs(id),
+  revision_id   INTEGER NOT NULL REFERENCES approach_graph_revisions(id),
+  node_id       TEXT NOT NULL,
+  reason        TEXT NOT NULL,
+  wait_since    TEXT NOT NULL,
+  updated_at    TEXT NOT NULL,
+  UNIQUE (revision_id, node_id)
+);
+CREATE INDEX IF NOT EXISTS idx_node_deferrals_run ON approach_node_deferrals(graph_run_id, id);
+`;
+
 
 export function migrate(db: Database): void {
   const current = db.pragma('user_version', { simple: true }) as number;
@@ -1125,13 +1417,194 @@ export function migrate(db: Database): void {
     }
   }
 
-  if (current < 35) {
-    // v35 adds the AGENT TEST DRIVER's two evidence tables (Phase 1 of the
+  if (current < 35 || tableColumns(db, 'approach_graph_runs').size === 0) {
+    // v35 adds the eight graph tables plus the `token_usage` graph-detachment
+    // FKs (Slice 2, design "Persistence"). This is the ONE step wrapped in an
+    // outer transaction (Decision 21): every other step autocommits and relies
+    // on guards, but a graph migration interrupted midway must leave
+    // `user_version` at 34 so the next open re-runs the same guarded steps.
+    // `BEGIN IMMEDIATE` before the version read: the whole step — guarded DDL
+    // and the version bump — commits together, or rolls back together.
+    //
+    // The outer guard is PRESENCE-based, not version-only: the graph tables
+    // landed at v35 on this branch, but develop's v35 (the agent test driver)
+    // shipped without them, so a registry migrated to v35 on develop must
+    // still gain them here — `CREATE TABLE IF NOT EXISTS` makes the re-run a
+    // no-op on a graph-shaped v35.
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const inside = db.pragma('user_version', { simple: true }) as number;
+      if (inside < 35 || tableColumns(db, 'approach_graph_runs').size === 0) {
+        db.exec(GRAPH_MIGRATION_DDL);
+        const tokenCols35 = tableColumns(db, 'token_usage');
+        if (tokenCols35.size > 0 && !tokenCols35.has('approach_planner_run_id')) {
+          db.exec(
+            'ALTER TABLE token_usage ADD COLUMN approach_planner_run_id INTEGER ' +
+              'REFERENCES approach_planner_runs(id) ON DELETE SET NULL',
+          );
+        }
+        if (tokenCols35.size > 0 && !tokenCols35.has('approach_node_run_id')) {
+          db.exec(
+            'ALTER TABLE token_usage ADD COLUMN approach_node_run_id INTEGER ' +
+              'REFERENCES approach_node_runs(id) ON DELETE SET NULL',
+          );
+        }
+        db.pragma('user_version = 35');
+      }
+      db.exec('COMMIT');
+    } catch (e) {
+      db.exec('ROLLBACK');
+      throw e;
+    }
+  }
+
+  if (current < 36) {
+    // v36 records WHY a graph run blocked (`approach_graph_runs.blocked_reason`),
+    // so the graph-aware recovery surface (Slice-3 Task 9) can name the
+    // category — `resource-claim-violated` or `integration-conflict` — instead
+    // of re-deriving it from scattered node rows. The completing pipeline
+    // (Slice-3 Task 8) writes it in the same transaction that moves the run
+    // `running → blocked`.
+    //
+    // NOTHING IS BACKFILLED. No prior karst recorded a block reason, and a
+    // NULL names the unknown, never an invented category.
+    const graphRunCols36 = tableColumns(db, 'approach_graph_runs');
+    if (graphRunCols36.size > 0 && !graphRunCols36.has('blocked_reason')) {
+      db.exec('ALTER TABLE approach_graph_runs ADD COLUMN blocked_reason TEXT');
+    }
+  }
+
+  if (current < 37) {
+    // v37 widens the `approach_node_runs` status CHECK with the two
+    // output-validation rest statuses (Slice 4 Task 2). SQLite cannot alter
+    // a CHECK constraint, so the table is REBUILT (create → copy → drop →
+    // rename) inside one transaction, following v35's interruption-atomicity
+    // pattern: a poisoned step rolls back and user_version stays 36.
+    //
+    // The guard reads the CURRENT table SQL — a fresh DB (schema.sql already
+    // carries the widened CHECK) skips the rebuild entirely, and a re-run on
+    // a migrated DB is a no-op. Foreign-key enforcement is suspended for the
+    // swap (it cannot change inside a transaction); the rename restores the
+    // name every FK clause references.
+    const nodeRunsSql = (
+      db
+        .prepare(
+          "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'approach_node_runs'",
+        )
+        .get() as { sql: string } | undefined
+    )?.sql;
+    if (nodeRunsSql && !nodeRunsSql.includes('output-artifact-missing')) {
+      db.pragma('foreign_keys = OFF');
+      try {
+        db.exec('BEGIN IMMEDIATE');
+        try {
+          db.exec(NODE_RUN_STATUSES_V37_DDL);
+          db.pragma('user_version = 37');
+          db.exec('COMMIT');
+        } catch (e) {
+          db.exec('ROLLBACK');
+          throw e;
+        }
+      } finally {
+        db.pragma('foreign_keys = ON');
+      }
+    }
+  }
+
+  if (current < 38) {
+    // v38 (Slice 4 Task 6) extends the `approach_node_overrides` placeholder
+    // with the category-specific override surface: `kind` (one of the closed
+    // `NodeOverrideKind` set), the `value` JSON, and `created_at`, plus the
+    // `(revision_id, node_id, kind)` uniqueness that scopes an override to ONE
+    // node in ONE revision. A fresh DB already carries all of it (schema.sql),
+    // so the guards skip; a legacy v35–v37 DB gains the columns through the
+    // same ALTER the placeholder's empty shape needs. The claim CAS is the
+    // NODE RUN status (ready/blocked/failed-to-launch editable), never the
+    // override row; `row_version` stays for concurrent-write optimism.
+    //
+    // NOTHING IS BACKFILLED. No prior karst wrote a `kind`/`value`; legacy
+    // placeholder rows (if any) default to the inert `provider`/'' pair.
+    const overrideCols = tableColumns(db, 'approach_node_overrides');
+    if (overrideCols.size > 0 && !overrideCols.has('kind')) {
+      db.exec(
+        "ALTER TABLE approach_node_overrides ADD COLUMN kind TEXT NOT NULL DEFAULT 'provider' " +
+          "CHECK (kind IN ('profile','provider','model','effort','prompt'))",
+      );
+      db.exec("ALTER TABLE approach_node_overrides ADD COLUMN value TEXT NOT NULL DEFAULT ''");
+      db.exec("ALTER TABLE approach_node_overrides ADD COLUMN created_at TEXT NOT NULL DEFAULT ''");
+    }
+    db.exec(
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_node_overrides_rev_node_kind
+         ON approach_node_overrides(revision_id, node_id, kind)`,
+    );
+  }
+
+  if (current < 39) {
+    // v39 (Slice 5 Task 1) adds the node execution workspace shape: the
+    // claim-time base heads on each node run, the graph run's aggregate
+    // workspace byte total, and the per-workspace ledger table. A fresh DB
+    // already carries all of it (schema.sql — including inside
+    // GRAPH_MIGRATION_DDL, so the guards skip); a legacy DB gains the columns
+    // through the same guarded ALTERs and the ledger through IF NOT EXISTS.
+    //
+    // NOTHING IS BACKFILLED. No prior karst captured base heads or counted
+    // workspace bytes; NULL/0 name the unknown, never an invented value.
+    const nodeCols39 = tableColumns(db, 'approach_node_runs');
+    if (nodeCols39.size > 0 && !nodeCols39.has('base_heads')) {
+      db.exec('ALTER TABLE approach_node_runs ADD COLUMN base_heads TEXT');
+    }
+    const runCols39 = tableColumns(db, 'approach_graph_runs');
+    if (runCols39.size > 0 && !runCols39.has('workspace_bytes')) {
+      db.exec('ALTER TABLE approach_graph_runs ADD COLUMN workspace_bytes INTEGER NOT NULL DEFAULT 0');
+    }
+    db.exec(GRAPH_WORKSPACE_MIGRATION_DDL);
+  }
+
+  if (current < 40) {
+    // v40 (Slice 5 Task 3) adds the scheduler shape: the graph run's
+    // `active_processes` counter (the coordinator's own accounting of the
+    // external-process ceiling `graph.limits.maxParallel`) and the
+    // `approach_node_deferrals` ledger — one row per ready-but-blocked node
+    // carrying the refusal reason and `wait_since` for bounded aging. A fresh
+    // DB already carries both (schema.sql — including inside
+    // GRAPH_MIGRATION_DDL, so the guards skip); a legacy DB gains the column
+    // through the guarded ALTER and the ledger through IF NOT EXISTS.
+    //
+    // NOTHING IS BACKFILLED. No prior karst counted active processes or
+    // recorded a deferral; 0/absent name the unknown, never an invented value.
+    const runCols40 = tableColumns(db, 'approach_graph_runs');
+    if (runCols40.size > 0 && !runCols40.has('active_processes')) {
+      db.exec('ALTER TABLE approach_graph_runs ADD COLUMN active_processes INTEGER NOT NULL DEFAULT 0');
+    }
+    db.exec(GRAPH_DEFERRAL_MIGRATION_DDL);
+  }
+
+  if (current < 41) {
+    // v41 (Slice 5 Task 4) adds the fork-execution identity
+    // `fork_instance_id` (host-minted UUIDv7) to each activation token. A
+    // fresh DB already carries it (schema.sql — including inside
+    // GRAPH_MIGRATION_DDL, so the guard skips); a legacy DB gains the column
+    // through the guarded ALTER. The join-correlation UNIQUE index stays on
+    // the INTEGER `fork_instance` pair, which is unchanged.
+    //
+    // NOTHING IS BACKFILLED. No prior karst minted a fork instance id; NULL
+    // is the legacy answer, and correlation never depends on the id.
+    const tokenCols41 = tableColumns(db, 'approach_graph_tokens');
+    if (tokenCols41.size > 0 && !tokenCols41.has('fork_instance_id')) {
+      db.exec('ALTER TABLE approach_graph_tokens ADD COLUMN fork_instance_id TEXT');
+    }
+  }
+
+  if (current < 42) {
+    // v42 adds the AGENT TEST DRIVER's two evidence tables (Phase 1 of the
     // agent-test-driver ticket): `test_logs` (structured log rows) and
     // `test_hooks` (hook events the `karst test simulate-hook` subcommand
-    // dispatched). A whole new table set, so the step is the same DDL as
-    // schema.sql rather than ALTERs, and every statement is IF NOT EXISTS — a
-    // fresh DB (already carrying it) and a re-open are both no-ops.
+    // dispatched). The tables landed at v35 on develop — the graph tables this
+    // branch added at v35-v41 were developed in parallel — so this merge step
+    // renumbers them to v42, after every graph step. A whole new table set, so
+    // the step is the same DDL as schema.sql rather than ALTERs, and every
+    // statement is IF NOT EXISTS — a fresh DB (already carrying it) and a
+    // re-open are both no-ops.
     //
     // NOTHING IS BACKFILLED. No prior karst recorded structured test logs or
     // dispatched-hook events — the driver did not exist — and synthesizing

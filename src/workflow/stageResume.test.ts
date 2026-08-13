@@ -16,86 +16,72 @@ describe('resumeBlockedStage', () => {
   beforeEach(() => (store = openStore(':memory:')));
   afterEach(() => store.close());
 
-  it('clears the block and reports success when the ticket is at the blocked stage', () => {
-    const t = createTicket(store, { key: 'RB-1', title: 'thing' });
-    setStage(store, t.id, 'review', {
-      status: 'running',
-      blockedKind: 'nothing-to-run',
-      blockedReason: 'no target resolved',
+  function blockedTicket(key: string, stage: 'review' | 'ship' | 'impl', kind: string): number {
+    const t = createTicket(store, { key, title: 'thing' });
+    setStage(store, t.id, stage, {
+      status: stage === 'ship' ? 'passed' : 'running',
+      blockedKind: kind as never,
+      blockedReason: 'some reason',
       blockedAt: '2026-07-16T10:00:00.000Z',
     });
-    store.db.prepare("UPDATE tickets SET stage_current = 'review' WHERE id = ?").run(t.id);
+    store.db.prepare('UPDATE tickets SET stage_current = ? WHERE id = ?').run(stage, t.id);
+    return t.id;
+  }
 
-    const ok = resumeBlockedStage(store, t.id, t.id, 'review');
-
-    expect(ok).toBe(true);
-    expect(stageBlock(store, t.id, 'review')).toBeNull();
+  it('clears the block and reports success when the ticket is at the blocked stage', () => {
+    const id = blockedTicket('RB-1', 'review', 'nothing-to-run');
+    const result = resumeBlockedStage(store, id, id, 'review');
+    expect(result).toEqual({ kind: 'cleared' });
+    expect(stageBlock(store, id, 'review')).toBeNull();
   });
 
   it('refuses a message naming a different ticket than the one the panel owns', () => {
-    const t = createTicket(store, { key: 'RB-2', title: 'thing' });
-    setStage(store, t.id, 'review', {
-      status: 'running',
-      blockedKind: 'nothing-to-run',
-      blockedReason: 'no target resolved',
-      blockedAt: '2026-07-16T10:00:00.000Z',
-    });
-    store.db.prepare("UPDATE tickets SET stage_current = 'review' WHERE id = ?").run(t.id);
-
-    const ok = resumeBlockedStage(store, t.id, t.id + 1, 'review');
-
-    expect(ok).toBe(false);
-    expect(stageBlock(store, t.id, 'review')).not.toBeNull();
+    const id = blockedTicket('RB-2', 'review', 'nothing-to-run');
+    const result = resumeBlockedStage(store, id, id + 1, 'review');
+    expect(result).toEqual({ kind: 'refused' });
+    expect(stageBlock(store, id, 'review')).not.toBeNull();
   });
 
   it('refuses to resume a stage the ticket has since left', () => {
-    const t = createTicket(store, { key: 'RB-3', title: 'thing' });
-    setStage(store, t.id, 'review', {
-      status: 'running',
-      blockedKind: 'nothing-to-run',
-      blockedReason: 'no target resolved',
-      blockedAt: '2026-07-16T10:00:00.000Z',
-    });
-    // The ticket moved on (e.g. an earlier retry already cleared and advanced
-    // it) — a stale panel's message must not touch a stage the ticket left.
-    store.db.prepare("UPDATE tickets SET stage_current = 'ship' WHERE id = ?").run(t.id);
-
-    const ok = resumeBlockedStage(store, t.id, t.id, 'review');
-
-    expect(ok).toBe(false);
-    expect(stageBlock(store, t.id, 'review')).not.toBeNull();
+    const id = blockedTicket('RB-3', 'review', 'nothing-to-run');
+    store.db.prepare("UPDATE tickets SET stage_current = 'ship' WHERE id = ?").run(id);
+    const result = resumeBlockedStage(store, id, id, 'review');
+    expect(result).toEqual({ kind: 'refused' });
+    expect(stageBlock(store, id, 'review')).not.toBeNull();
   });
 
   it('refuses when the named stage carries no block at all', () => {
     const t = createTicket(store, { key: 'RB-4', title: 'thing' });
     setStage(store, t.id, 'review', { status: 'running' });
     store.db.prepare("UPDATE tickets SET stage_current = 'review' WHERE id = ?").run(t.id);
-
-    const ok = resumeBlockedStage(store, t.id, t.id, 'review');
-
-    expect(ok).toBe(false);
+    expect(resumeBlockedStage(store, t.id, t.id, 'review')).toEqual({ kind: 'refused' });
   });
 
   it('refuses to clear an awaiting-merge block — only the merge gate is entitled to', () => {
-    // Unlike every other BlockerKind, awaiting-merge does not mean "karst
-    // could not ask the question, retry it" — the question WAS asked (ship
-    // opened its PRs) and answered "not yet". A Resume click here cannot make
-    // a PR merge; only settleShipGate, observing the actual landing, may
-    // clear this block. Clearing it any other way strands the ticket at
-    // `ship` forever, because settleShipGate requires this exact block to
-    // distinguish "waiting to land" from "parked pending the first confirm".
-    const t = createTicket(store, { key: 'RB-5', title: 'thing' });
-    setStage(store, t.id, 'ship', {
-      status: 'passed',
-      blockedKind: 'awaiting-merge',
-      blockedReason: 'blocked: the pull request for "api" has changes and is not merged yet.',
-      blockedAt: '2026-07-16T10:00:00.000Z',
-    });
-    store.db.prepare("UPDATE tickets SET stage_current = 'ship' WHERE id = ?").run(t.id);
+    const id = blockedTicket('RB-5', 'ship', 'awaiting-merge');
+    const result = resumeBlockedStage(store, id, id, 'ship');
+    expect(result).toEqual({ kind: 'refused' });
+    expect(stageBlock(store, id, 'ship')?.kind).toBe('awaiting-merge');
+  });
 
-    const ok = resumeBlockedStage(store, t.id, t.id, 'ship');
+  it('an approach-graph-failed block returns the typed graph-recovery action, never clears', () => {
+    const id = blockedTicket('RB-6', 'impl', 'approach-graph-failed');
+    const runId = Number(
+      store.db
+        .prepare(
+          `INSERT INTO approach_graph_runs (ticket_id, stage_key, stage_attempt, approach_id, status, blocked_reason, created_at)
+           VALUES (?, 'impl', 0, 'x', 'blocked', 'resource-claim-violated: b.ts', '2026-08-12T00:00:00.000Z')`,
+        )
+        .run(id)
+        .lastInsertRowid,
+    );
+    const result = resumeBlockedStage(store, id, id, 'impl');
+    expect(result).toEqual({ kind: 'graph-recovery', ticketId: id, graphRunId: runId });
+    expect(stageBlock(store, id, 'impl')?.kind).toBe('approach-graph-failed');
+  });
 
-    expect(ok).toBe(false);
-    expect(stageBlock(store, t.id, 'ship')?.kind).toBe('awaiting-merge');
+  it('a graph-failed block with no blocked graph run refuses (stale)', () => {
+    const id = blockedTicket('RB-7', 'impl', 'approach-graph-failed');
+    expect(resumeBlockedStage(store, id, id, 'impl')).toEqual({ kind: 'refused' });
   });
 });

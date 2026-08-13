@@ -867,3 +867,36 @@ describe('insideViews (the six-stage inside presentation)', () => {
     expect(buildDashboardState(store, ticketId).insideViews.impl.live).toBeUndefined();
   });
 });
+
+describe('buildDashboardState — graph inside projection (Slice-2 T10)', () => {
+  let store: Store;
+  beforeEach(() => (store = openStore(':memory:')));
+  afterEach(() => store.close());
+
+  it('appends graph rows to the impl view only when the host supplies the projection', () => {
+    const t = createTicket(store, { key: 'G-1', title: 'graph' });
+    store.db.prepare('UPDATE tickets SET stage_current = ? WHERE id = ?').run('impl', t.id);
+
+    const inert = buildDashboardState(store, t.id);
+    expect(inert.insideViews.impl.processes.map((p) => p.id)).toEqual(['session']);
+
+    const wired = buildDashboardState(store, t.id, undefined, undefined, () => [], () => true, undefined, {}, () => 1, () => [], () => null, null, undefined, () => false, () => undefined, {
+      enabled: true,
+      graphRun: { id: 7, status: 'running', approachId: 'karst-graph-engineering', stageAttempt: 0, createdAt: '2026-08-11T00:00:00.000Z' },
+      plannerRuns: [],
+      nodeRuns: [],
+      overrides: [],
+      deferrals: [],
+      execution: { maxParallel: 1, maxNodeRuns: 40 },
+      revision: null,
+      diagnostics: [],
+      artifacts: [],
+      liveSessions: [],
+      now: '2026-08-11T01:00:00.000Z',
+    });
+    const impl = wired.insideViews.impl;
+    expect(impl.processes.map((p) => p.id)).toEqual(['session', 'graph']);
+    expect(impl.processes[1]!.label).toBe('Implementation graph');
+    expect(impl.processes[1]!.status).toBe('run');
+  });
+});

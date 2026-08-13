@@ -27,6 +27,14 @@ export interface UsageTracking {
    * threaded its run through yet.
    */
   processRunId?: number | null;
+  /**
+   * The graph planner run the call was made inside (Slice-3 T10). Node
+   * identity travels in these FK columns, never in the call site — the set
+   * is closed and must stay bounded.
+   */
+  approachPlannerRunId?: number | null;
+  /** The graph node run the call was made inside (Slice-3 T10). */
+  approachNodeRunId?: number | null;
 }
 
 export interface RunHeadlessOpts {
@@ -36,6 +44,15 @@ export interface RunHeadlessOpts {
   permissionMode?: string;
   resume?: string; // session_id to continue
   model?: string;
+  /**
+   * A resolved effort value for this run (design § Execution policy
+   * resolution). Validated against the live model catalog by `effort.ts`
+   * BEFORE it reaches an adapter, so the adapter never sees an unsupported
+   * value — its job is provider-specific flag translation only. Absent → the
+   * CLI's own default applies. Always passed as its own argv entry, never
+   * shell-interpolated.
+   */
+  effort?: string;
   tracking?: UsageTracking;
   /**
    * Aborts this call: the headless spawn kills the child's whole process group
@@ -92,6 +109,11 @@ export interface InteractiveCommandOpts {
   resume?: string; // session_id to --resume an interrupted interactive session (§5.3)
   initialPrompt?: string; // seed prompt for the session (e.g. an approach entrypoint)
   model?: string; // resolved launch model id (§ model selection); omitted → agent CLI default
+  /**
+   * A resolved effort value for this session — provider-specific flag
+   * translation only, exactly as `RunHeadlessOpts.effort` (see there).
+   */
+  effort?: string;
   /**
    * The session's display name — the SAME rendered string the terminal tab
    * shows, so the session is findable by ticket in the agent's resume picker.

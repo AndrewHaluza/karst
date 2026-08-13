@@ -17,6 +17,7 @@ import {
   bundledModelCatalog,
   type ModelCatalog,
 } from '../../agent/modelCatalog.js';
+import { withBuiltInApproaches } from '../../approaches/withBuiltInApproaches.js';
 
 /**
  * Serializable state for the ticket form (§ ticket form). One surface serves
@@ -102,6 +103,14 @@ export interface TicketFormState {
   repos: RepoRow[];
   approaches: ApproachRow[];
   selectedApproach: string | null;
+  /**
+   * Host-side: true once the user has interacted with the approach picker in
+   * this form session. Never cleared within the session. Gates the analyzer:
+   * it may set the selection only when `!pickerTouched && approach === null`;
+   * after a touch, later analysis is recommendation-only (design, Selection
+   * and Enablement).
+   */
+  pickerTouched: boolean;
   /** Selectable single-subagent pool (§ single-subagent picker). */
   agents: PoolAgent[];
   /** Persisted (edit mode) or not-yet-chosen (create mode) agent name. */
@@ -204,7 +213,19 @@ export function buildTicketFormState(
    * so the strip renders nothing rather than a broken tile.
    */
   storageDir?: string,
+  /**
+   * Host-side picker-touch flag for this form session. Defaults false; the
+   * panel owns the live value (set on any user picker interaction, never
+   * cleared) and threads it through every state push.
+   */
+  pickerTouched = false,
 ): TicketFormState {
+  // The built-in overlay seam: the ticket form resolves packaged built-ins
+  // ONLY through `withBuiltInApproaches` (design, Selection and Enablement).
+  // A disabled built-in (`enabled: false` until Slice 3) is filtered out by
+  // `toApproachRows` below, so it never appears in the picker or analyzer
+  // candidates — presence in the manifest alone is not offerability.
+  manifest = withBuiltInApproaches(manifest);
   const approaches = toApproachRows(manifest.approaches ?? [], listInstalledIds);
   const agents = listAgents();
   const unclassified = unclassifiedRepos(manifest);
@@ -260,6 +281,7 @@ export function buildTicketFormState(
       repos: makeRepos(new Set(), new Map()),
       approaches,
       selectedApproach: defaultApproach(approaches),
+      pickerTouched,
       agents,
       selectedAgent: null,
       models: [...modelsForProvider(defaultAgentProvider, modelCatalog)],
@@ -305,6 +327,7 @@ export function buildTicketFormState(
     repos: makeRepos(selectedSet, scores),
     approaches,
     selectedApproach: ticket.approach ?? defaultApproach(approaches),
+    pickerTouched,
     agents,
     selectedAgent: ticket.agent ?? null,
     models: [

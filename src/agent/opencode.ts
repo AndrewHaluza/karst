@@ -544,6 +544,7 @@ export class OpencodeAdapter implements AgentAdapter {
       ownedPaths = [pluginPath];
     }
     if (opts.model) args.push('--model', opts.model);
+    if (opts.effort) args.push('--variant', opts.effort);
     if (opts.extraArgs?.length) args.push(...opts.extraArgs);
     if (opts.initialPrompt) args.push('--prompt', opts.initialPrompt);
     return {
@@ -707,6 +708,7 @@ export class OpencodeAdapter implements AgentAdapter {
     // that add context, latency, or other projects' hook channels (869ef1e6x).
     if (opts.permissionMode === 'bypassPermissions') args.push('--auto');
     if (opts.model) args.push('--model', opts.model);
+    if (opts.effort) args.push('--variant', opts.effort);
     if (opts.resume) args.push('--session', opts.resume);
     // `--` terminates options so a dash-prefixed prompt (e.g. a YAML
     // frontmatter `---` in a seed) cannot be misread as an option.

@@ -8,9 +8,12 @@ import type { UsageQuery, UsageSort } from './tokenUsageQuery.js';
  * Writing is one INSERT — deliberately the cheapest thing in the module, because
  * it happens on the AI call's own path and must never be worth skipping.
  *
- * Reading is FOUR aggregate queries (overall, by call site, by model, by
- * ticket), each a GROUP BY that SQLite answers off the v17 indexes. None of them
- * selects a row: the alternative — pull the range into JS and reduce it — is an
+ * Reading is FIVE aggregate queries (overall, by call site, by model, by ticket,
+ * by graph profile), each a GROUP BY. The first four SQLite answers off the v17
+ * indexes; the profile rollup rides LEFT JOINs to `approach_node_runs`/
+ * `approach_planner_runs` by primary key instead, since a profile is a fact of
+ * the RUN a usage row was attributed to, not of the row's own range. None of
+ * them selects a row: the alternative — pull the range into JS and reduce it — is an
  * unbounded in-memory rollup whose cost grows with history, and history here
  * only ever grows. The per-ticket page is LIMIT/OFFSET'd, and its full group
  * count comes back separately so the view can page without having read the rest.
@@ -48,6 +51,18 @@ export interface UsageTicketRow extends UsageTotals {
   lastAt: string | null;
 }
 
+/**
+ * Graph-attributed spend rolled up per profile (Slice-6 T2). The profile is READ
+ * from the run row through the join (`approach_node_runs.profile` /
+ * `approach_planner_runs.profile`) — no `token_usage` column carries it.
+ */
+export interface UsageProfileRow extends UsageTotals {
+  /** The profile name resolved on the node/planner run. `''` = never resolved. */
+  profile: string;
+  /** The provider the spend is attributed to; NULL = the core never named one. */
+  provider: string | null;
+}
+
 export interface TokenUsageStats {
   totals: UsageTotals;
   byCallSite: UsageGroupRow[];
@@ -56,6 +71,12 @@ export interface TokenUsageStats {
   byTicket: UsageTicketRow[];
   /** Distinct tickets in range — the page's denominator. */
   ticketGroups: number;
+  /**
+   * Graph spend grouped by (profile, provider) through the node/planner run
+   * join (Slice-6 T2). Rows with no graph linkage are absent — this is the
+   * graph runtime's spend, not the ticket's whole spend.
+   */
+  byProfile: UsageProfileRow[];
   range: { from: string | null; to: string | null };
 }
 
@@ -85,6 +106,14 @@ export interface TokenUsageEntry {
    * Task 5 adds the measured ingestion seam that writes it.
    */
   implementationSegmentId?: number | null;
+  /**
+   * v35: the graph planner run the call was made inside (Slice-3 T10); NULL
+   * outside the graph runtime, or a pre-v35 row. Never backfilled. ON DELETE
+   * SET NULL: deleting graph history never takes the ledger's spend with it.
+   */
+  approachPlannerRunId?: number | null;
+  /** v35: the graph node run the call was made inside (Slice-3 T10). */
+  approachNodeRunId?: number | null;
   /** An `AiCallSite`; typed as string here so the store stays agent-free. */
   callSite: string;
   provider?: string | null;
@@ -99,8 +128,9 @@ const INSERT = `
 INSERT INTO token_usage (
   project_id, ticket_id, process_run_id, call_site, provider, model,
   input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, total_tokens,
-  estimated, outcome, recorded_at, implementation_segment_id, interactive_usage_sample_id
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`;
+  estimated, outcome, recorded_at, implementation_segment_id, interactive_usage_sample_id,
+  approach_planner_run_id, approach_node_run_id
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`;
 
 /**
  * Append one call to the ledger. Throws only on a genuine store failure — the
@@ -127,6 +157,8 @@ export function recordTokenUsage(store: Store, entry: TokenUsageEntry): void {
       entry.outcome,
       entry.recordedAt ?? new Date().toISOString(),
       entry.implementationSegmentId ?? null,
+      entry.approachPlannerRunId ?? null,
+      entry.approachNodeRunId ?? null,
     );
 }
 
@@ -274,6 +306,31 @@ export function queryTokenUsageStats(store: Store, query: UsageQuery): TokenUsag
     last_at: string | null;
   })[];
 
+  // The graph-spend rollup (Slice-6 T2): same range/scope as the rest of the
+  // view, but ONLY rows linked to a graph run. The profile is read from the run
+  // row through the JOIN — the join is the point, no token_usage column is
+  // added. The WHERE is the query's shape (all values bound) plus the
+  // graph-attribution scope; the scan still rides `idx_token_usage_*` and the
+  // run lookups ride their PKs.
+  const graphFilter = filter(query, 't.');
+  const graphScope = '(t.approach_node_run_id IS NOT NULL OR t.approach_planner_run_id IS NOT NULL)';
+  const graphWhere = graphFilter.clause
+    ? `WHERE ${graphScope} AND ${graphFilter.clause.replace(/^WHERE /, '')}`
+    : `WHERE ${graphScope}`;
+  const profileRows = store.db
+    .prepare(
+      `SELECT COALESCE(nr.profile, pr.profile, '') AS profile,
+              t.provider AS provider,
+              ${aggregates('t.')}
+         FROM token_usage t
+         LEFT JOIN approach_node_runs nr ON nr.id = t.approach_node_run_id
+         LEFT JOIN approach_planner_runs pr ON pr.id = t.approach_planner_run_id
+         ${graphWhere}
+        GROUP BY COALESCE(nr.profile, pr.profile, ''), t.provider
+        ORDER BY total_tokens DESC, profile ASC, provider ASC`,
+    )
+    .all(...graphFilter.params) as (TotalsRow & { profile: string; provider: string | null })[];
+
   return {
     totals: totalsRow ? toTotals(totalsRow) : EMPTY_USAGE_TOTALS,
     byCallSite: groupBy(store, 'call_site', where),
@@ -283,6 +340,11 @@ export function queryTokenUsageStats(store: Store, query: UsageQuery): TokenUsag
       ticketKey: row.ticket_key,
       ticketTitle: row.ticket_title,
       lastAt: row.last_at,
+      ...toTotals(row),
+    })),
+    byProfile: profileRows.map((row) => ({
+      profile: row.profile,
+      provider: row.provider,
       ...toTotals(row),
     })),
     ticketGroups: ticketGroupsRow?.n ?? 0,
@@ -315,6 +377,13 @@ export interface TokenUsageRow {
    * segment (Task 5 writes it for measured interactive deltas).
    */
   implementationSegmentId: number | null;
+  /**
+   * v35: the graph planner run the call was made inside; NULL outside the
+   * graph runtime (Slice-3 T10). Never backfilled.
+   */
+  approachPlannerRunId: number | null;
+  /** v35: the graph node run the call was made inside (Slice-3 T10). */
+  approachNodeRunId: number | null;
 }
 
 interface TokenUsageRowRow {
@@ -333,6 +402,8 @@ interface TokenUsageRowRow {
   outcome: string;
   recorded_at: string;
   implementation_segment_id: number | null;
+  approach_planner_run_id: number | null;
+  approach_node_run_id: number | null;
 }
 
 function rowToUsage(r: TokenUsageRowRow): TokenUsageRow {
@@ -353,6 +424,8 @@ function rowToUsage(r: TokenUsageRowRow): TokenUsageRow {
     outcome: r.outcome === 'ok' ? 'ok' : 'error',
     recordedAt: r.recorded_at,
     implementationSegmentId: r.implementation_segment_id,
+    approachPlannerRunId: r.approach_planner_run_id,
+    approachNodeRunId: r.approach_node_run_id,
   };
 }
 
@@ -391,7 +464,7 @@ export function listTokenUsage(
       `SELECT id, ticket_id, process_run_id, call_site, provider, model,
               input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
               total_tokens, estimated, outcome, recorded_at,
-              implementation_segment_id
+              implementation_segment_id, approach_planner_run_id, approach_node_run_id
          FROM token_usage ${where}
         ORDER BY id`,
     )

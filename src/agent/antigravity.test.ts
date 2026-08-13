@@ -62,6 +62,16 @@ describe('AntigravityAdapter', () => {
       expect(cmd.args).toEqual(['--conversation', 'sesh-123', '--model', 'gemini-3.6-pro']);
     });
 
+    it('passes an effort as --effort', () => {
+      const adapter = new AntigravityAdapter();
+      const cmd = adapter.buildInteractiveCommand({
+        cwd: '/test',
+        model: 'gemini-3.6-pro',
+        effort: 'high',
+      });
+      expect(cmd.args).toEqual(['--model', 'gemini-3.6-pro', '--effort', 'high']);
+    });
+
     it('passes an initial prompt', () => {
       const adapter = new AntigravityAdapter();
       const cmd = adapter.buildInteractiveCommand({
@@ -123,6 +133,24 @@ describe('AntigravityAdapter', () => {
       });
       expect(result.raw).toBe('success');
       expect(result.sessionId).toBe('');
+    });
+
+    it('passes an effort as --effort into the headless spawn', async () => {
+      const spawner = vi.fn(fakeSpawn({ stdout: 'success', exitCode: 0 }));
+      const adapter = new AntigravityAdapter(spawner);
+
+      await adapter.runHeadless({
+        prompt: 'do the thing',
+        cwd: '/test',
+        effort: 'high',
+      });
+
+      expect(spawner).toHaveBeenCalledWith(
+        'agy',
+        ['-p', 'do the thing', '--effort', 'high'],
+        '/test',
+        { signal: undefined },
+      );
     });
 
     it('passes resume and permission mode', async () => {

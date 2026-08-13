@@ -12,7 +12,7 @@ import {
   completeImplementationRun,
   interruptImplementationRun,
 } from './implementationRuns.js';
-import { listProcessRuns } from './processRuns.js';
+import { listProcessRuns, openProcessRun, finishProcessRun } from './processRuns.js';
 import {
   openRecoveryRound,
   recordFixLaunchIntent,
@@ -1060,6 +1060,131 @@ describe('lastInteractiveUsageSample', () => {
     // A different provider or session id is a different baseline scope.
     expect(lastInteractiveUsageSample(store, 'claude', SESSION)).toBeNull();
     expect(lastInteractiveUsageSample(store, PROVIDER, 'other')).toBeNull();
+  });
+});
+
+describe('graph session binding (Slice-3 T10)', () => {
+  /** Seed a running graph process: graph run + revision + node/planner run
+   *  linked to a `process_runs` row of the given provider. */
+  function seedGraphProcess(opts: {
+    kind: 'node' | 'planner';
+    processId: string;
+    provider: string;
+    status?: 'running' | 'passed';
+  }): { processRunId: number } {
+    store.db
+      .prepare(
+        `INSERT INTO approach_graph_runs
+           (id, ticket_id, stage_key, stage_attempt, approach_id, status, created_at)
+         VALUES (?, ?, 'impl', 1, 'graph', 'running', ?)`,
+      )
+      .run(1, ticketId, T0);
+    store.db
+      .prepare(
+        `INSERT INTO approach_graph_revisions
+           (id, graph_run_id, revision_number, canonical_graph, fingerprint, status, created_at)
+         VALUES (?, 1, 1, 'graph: []', 'fp', 'active', ?)`,
+      )
+      .run(1, T0);
+    const processRun = openProcessRun(store, {
+      ticketId,
+      stageKey: 'impl',
+      processId: opts.processId,
+      attempt: 1,
+      provider: opts.provider,
+      model: 'sol',
+      startedAt: T0,
+    });
+    if (opts.status === 'passed') {
+      finishProcessRun(store, processRun.id, 'passed', T0);
+    }
+    if (opts.kind === 'node') {
+      store.db
+        .prepare(
+          `INSERT INTO approach_node_runs
+             (id, graph_run_id, revision_id, node_id, node_kind, visit_number,
+              status, process_run_id, profile, provider, model)
+           VALUES (?, 1, 1, 'n1', 'agent', 1, 'running', ?, 'default', ?, 'sol')`,
+        )
+        .run(9, processRun.id, opts.provider);
+    } else {
+      store.db
+        .prepare(
+          `INSERT INTO approach_planner_runs
+             (id, graph_run_id, planner_run_number, kind, status, process_run_id,
+              profile, provider, model)
+           VALUES (?, 1, 1, 'bootstrap', 'running', ?, 'planner', ?, 'sol')`,
+        )
+        .run(3, processRun.id, opts.provider);
+    }
+    return { processRunId: processRun.id };
+  }
+
+  it('binds a graph NODE session to its running process run and files the spend there', () => {
+    const { processRunId } = seedGraphProcess({ kind: 'node', processId: 'graph-node', provider: PROVIDER });
+    const result = appendInteractiveUsageSample(store, {
+      ticketId,
+      sample: sample({ eventId: 'g1', input: 2_000, output: 300 }),
+    });
+    expect(result).toMatchObject({ kind: 'recorded' });
+    const row = store.db
+      .prepare(
+        `SELECT call_site, process_run_id, approach_node_run_id, approach_planner_run_id, total_tokens
+         FROM token_usage`,
+      )
+      .get() as Record<string, unknown>;
+    expect(row).toMatchObject({
+      call_site: 'graph-node',
+      process_run_id: processRunId,
+      approach_node_run_id: 9,
+      approach_planner_run_id: null,
+      total_tokens: 2_300,
+    });
+    const sampleRow = store.db
+      .prepare('SELECT process_run_id FROM interactive_usage_samples')
+      .get() as { process_run_id: number };
+    expect(sampleRow.process_run_id).toBe(processRunId);
+  });
+
+  it('binds a graph PLANNER session to its running process run', () => {
+    const { processRunId } = seedGraphProcess({ kind: 'planner', processId: 'graph-planner', provider: PROVIDER });
+    const result = appendInteractiveUsageSample(store, {
+      ticketId,
+      sample: sample({ eventId: 'g1', input: 900, output: 80 }),
+    });
+    expect(result).toMatchObject({ kind: 'recorded' });
+    const row = store.db
+      .prepare(
+        `SELECT call_site, process_run_id, approach_node_run_id, approach_planner_run_id
+         FROM token_usage`,
+      )
+      .get() as Record<string, unknown>;
+    expect(row).toMatchObject({
+      call_site: 'graph-planner',
+      process_run_id: processRunId,
+      approach_node_run_id: null,
+      approach_planner_run_id: 3,
+    });
+  });
+
+  it('a graph session whose process run closed is unattributed — never an invented owner', () => {
+    seedGraphProcess({ kind: 'node', processId: 'graph-node', provider: PROVIDER, status: 'passed' });
+    expect(
+      appendInteractiveUsageSample(store, { ticketId, sample: sample({ eventId: 'g1' }) }),
+    ).toEqual({ kind: 'unattributed' });
+    expect(
+      store.db.prepare('SELECT COUNT(*) AS n FROM token_usage').get(),
+    ).toEqual({ n: 0 });
+    expect(
+      store.db.prepare('SELECT COUNT(*) AS n FROM interactive_usage_samples').get(),
+    ).toEqual({ n: 0 });
+  });
+
+  it('a graph session of a different provider binds nothing', () => {
+    seedGraphProcess({ kind: 'node', processId: 'graph-node', provider: 'claude' });
+    expect(
+      appendInteractiveUsageSample(store, { ticketId, sample: sample({ eventId: 'g1' }) }),
+    ).toEqual({ kind: 'unattributed' });
   });
 });
 

@@ -880,9 +880,9 @@ describe('buildTicketFormActions', () => {
     expect(reloaded.selectedRepos).toEqual(['fe']);
     // …as is the conventional type, which the ticket did not have yet.
     expect(reloaded.type).toBe('feat');
-    // …but the approach is a SUGGESTION only (surfaced via the analysis post),
-    // never auto-persisted — the user's explicit selection is authoritative.
-    expect(reloaded.approach).toBeNull();
+    // …and — fresh form, no persisted choice, picker untouched (design,
+    // Selection and Enablement) — the analyzer's approach pick is applied.
+    expect(reloaded.approach).toBe('rpi');
     expect(pushes).toBe(1);
   });
 
@@ -907,6 +907,31 @@ describe('buildTicketFormActions', () => {
     expect(posted.find((m) => m.type === 'analysis')).toMatchObject({ approachId: 'rpi' });
     // …but the ticket's stored approach is untouched — no silent clobber.
     expect(getTicket(store, t.id).approach).toBe('superpowers:writing-plans');
+  });
+
+  it('analyze does not set the approach once the user has touched the picker', async () => {
+    const t = createTicket(store, { key: 'P-TCH', title: 't' });
+    updateTicketFields(store, t.id, { brief: 'the brief text', selectedRepos: [] });
+    deps.adapter = analyzerAdapter(
+      '{"prompt":"p","approach":"rpi","repos":[],"reason":"r"}',
+    );
+    const posted: TicketFormHostMessage[] = [];
+    const ctx: TicketFormActionsCtx = {
+      post: (m) => posted.push(m), pushState: () => {}, mode: 'edit', ticketId: t.id,
+      bindTicket: () => {}, close: () => {},
+      // The user picked (or at least interacted with) the approach picker
+      // earlier in this form session — the host never clears the flag.
+      pickerTouched: true,
+    };
+    const actions = buildTicketFormActions(deps)(ctx);
+
+    await actions.analyze('');
+
+    // Still a recommendation — the badge carries the suggestion…
+    expect(posted.find((m) => m.type === 'analysis')).toMatchObject({ approachId: 'rpi' });
+    // …but the pick is NOT applied: after a touch, later analysis may never
+    // move the selection (design, Selection and Enablement).
+    expect(getTicket(store, t.id).approach).toBeNull();
   });
 
   it('analyze never overwrites the ticket type the user already picked', async () => {
@@ -950,12 +975,19 @@ describe('buildTicketFormActions', () => {
       '{"prompt":"Rename the button","approach":"rpi","repos":["fe"],"reason":"trivial"}',
     );
     const posted: TicketFormHostMessage[] = [];
+    // Mirrors the real panel ctx: bindTicket flips the panel to edit mode, so
+    // the post-ensureTicket persist block runs against the freshly minted draft.
     let bound: number | undefined;
     let pushes = 0;
     const ctx: TicketFormActionsCtx = {
       post: (m) => posted.push(m),
       pushState: () => { pushes += 1; },
-      mode: 'create',
+      get mode(): 'create' | 'edit' {
+        return bound === undefined ? 'create' : 'edit';
+      },
+      get ticketId() {
+        return bound;
+      },
       bindTicket: (id) => { bound = id; },
       close: () => {},
     };
@@ -966,7 +998,6 @@ describe('buildTicketFormActions', () => {
     // The analysis is the scope stage's prefill process, and a process run
     // needs a ticket to attach to — the draft is bound on Analyze now.
     expect(posted.find((m) => m.type === 'analysis')).toMatchObject({ prompt: 'Rename the button' });
-    expect(pushes).toBe(0); // create mode still holds the fields in the webview
     const tickets = listTickets(store);
     expect(tickets).toHaveLength(1);
     expect(bound).toBe(tickets[0]!.id);
@@ -974,6 +1005,11 @@ describe('buildTicketFormActions', () => {
     const runs = listProcessRuns(store, tickets[0]!.id);
     expect(runs).toHaveLength(1);
     expect(runs[0]).toMatchObject({ processId: 'prefill', stageKey: 'scope', status: 'passed' });
+    // The bound draft is a fresh form with no persisted choice and an untouched
+    // picker — the analyzer's approach pick is applied to it (the state push
+    // carries it back so the webview radio reflects the applied pick).
+    expect(getTicket(store, tickets[0]!.id).approach).toBe('rpi');
+    expect(pushes).toBe(1);
   });
 
   it('analyze runs through the configured ticket-analysis process and snapshots its identity', async () => {

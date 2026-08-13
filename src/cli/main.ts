@@ -3,10 +3,12 @@ import { pathToFileURL } from 'node:url';
 import { loadManifestWithDiagnostics } from '../manifest/load.js';
 import type { Manifest } from '../manifest/types.js';
 import { openReadonlyStore } from './readonlyStore.js';
-import { openWritableStore } from './writableStore.js';
+import { openGraphWritableStore, openWritableStore } from './writableStore.js';
 import { parseContextArgs, runContextCommand } from './context.js';
 import { runStageCommand } from './stage.js';
 import { runPhaseCommand } from './phase.js';
+import { runGraphCommand } from './graph.js';
+import { runNodeCommand } from './node.js';
 import { runGuideCommand } from './guide.js';
 import { resolveTicketByKey } from './resolveTicket.js';
 import { runTestCommand, parseTestArgs } from './test/main.js';
@@ -63,6 +65,14 @@ function loadProjectSlug(manifestPath: string | undefined): string | undefined {
  *             marker verbs it can set a stage, inject a verdict, merge a PR and
  *             even reset the registry, so it is documented in the guide as a
  *             tool that bypasses gate verdicts (see src/cli/test/main.ts).
+ *   graph:    `… graph submit --db <db>`
+ *             internal — submits the fixed planner artifact for the graph run
+ *             named by the host-owned environment; takes no ticket key, invoked
+ *             by the graph runtime on the agent's behalf (see src/cli/graph.ts).
+ *   node:     `… node complete|block|replan [--reason …] --db <db>`
+ *             internal — reports a graph NODE's outcome; every identity claim
+ *             comes from the host-owned environment and the capability is
+ *             consumed one-shot (see src/cli/node.ts).
  *   guide:    `… guide`
  *             the agent-facing manual (how Karst works, the flow, the verbs,
  *             the marker rules) — no flags, no ticket, no DB (see guide.ts).
@@ -168,6 +178,43 @@ export function runCli(argv: string[]): string {
     }
   }
 
+  // A SEPARATE branch from `stage` and `phase`, on purpose: `graph submit` is
+  // a closed parser that accepts no ticket, id, destination, capability, or
+  // generation in argv — every identity claim comes from the host-owned
+  // environment, and the capability hash is the sole authenticator (see
+  // src/cli/graph.ts). It never imports the workflow machine and produces no
+  // `Verdict`. The store opener fails closed on a schema that is not EXACTLY
+  // this build's version and uses `BEGIN IMMEDIATE` plus a bounded busy
+  // timeout (see openGraphWritableStore).
+  if (subcommand === 'graph') {
+    if (!db && !process.env.KARST_GRAPH_DB) {
+      throw new Error('missing --db <path> (or KARST_GRAPH_DB)');
+    }
+    const store = openGraphWritableStore(db ?? process.env.KARST_GRAPH_DB!);
+    try {
+      return runGraphCommand(store, process.env, rest);
+    } finally {
+      store.close();
+    }
+  }
+
+  // `karst node complete|block|replan` (Slice 3 Task 5) — the SAME closed
+  // pattern as `graph submit`: a separate parser that accepts no identity in
+  // argv; every claim comes from the host-owned environment and the
+  // capability hash is the sole authenticator. It never imports the workflow
+  // machine and produces no `Verdict`.
+  if (subcommand === 'node') {
+    if (!db && !process.env.KARST_GRAPH_DB) {
+      throw new Error('missing --db <path> (or KARST_GRAPH_DB)');
+    }
+    const store = openGraphWritableStore(db ?? process.env.KARST_GRAPH_DB!);
+    try {
+      return runNodeCommand(store, process.env, rest);
+    } finally {
+      store.close();
+    }
+  }
+
   // The test driver is a separate parse path from `stage`/`phase` for the same
   // reason those two are separate: it is intentionally powerful (it can set a
   // stage, inject a verdict, merge a PR, reset the registry) and must never
@@ -200,7 +247,7 @@ export function runCli(argv: string[]): string {
   }
 
   throw new Error(
-    `unknown command '${subcommand ?? ''}' (want 'context', 'stage', 'phase', 'test' or 'guide')`,
+    `unknown command '${subcommand ?? ''}' (want 'context', 'stage', 'phase', 'graph', 'node', 'test' or 'guide')`,
   );
 }
 

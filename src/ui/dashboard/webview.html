@@ -738,6 +738,32 @@
   #inside .ev-time{color:var(--p-muted2)}
   #inside .ev-tail{display:inline-flex;align-items:center;gap:var(--p-s2);justify-content:flex-end}
 
+  /* Slice 6 T4 — the graph's status-grouped node list. A LOCAL composition
+     (UI-R07/R08): only the list geometry is local; the status glyph and the
+     control ride the shared `.glyph`/`.k-btn` primitives. */
+  #inside .graph-nodes{border:var(--k-border-w) solid var(--p-border);border-radius:var(--p-r1);
+    overflow:hidden;background:var(--p-surface);margin-bottom:var(--p-s2)}
+  #inside .graph-node-group{padding:var(--p-s1) var(--p-s2) var(--p-s1);
+    background:var(--p-tint-run);border-bottom:var(--k-border-w) solid var(--p-border);
+    color:var(--p-muted);font-family:var(--p-mono);font-size:var(--p-xs);
+    text-transform:uppercase;letter-spacing:.04em}
+  #inside .graph-node{display:grid;grid-template-columns:18px minmax(74px,110px) minmax(0,1fr) auto;
+    gap:var(--p-s2);align-items:center;min-height:26px;padding:0 var(--p-s2);
+    border-bottom:var(--k-border-w) solid var(--p-border)}
+  #inside .graph-node:last-child{border-bottom:0}
+  #inside .graph-node .glyph{justify-self:start}
+  #inside .graph-node-name{font-family:var(--p-mono);font-size:var(--p-xs);color:var(--p-text);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #inside .graph-node-meta{color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #inside .graph-node-detail{display:flex;align-items:center;gap:var(--p-s2);min-width:0;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--p-sm);line-height:18px}
+  #inside .graph-node-identity{color:var(--p-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #inside .graph-node-visit{color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs);white-space:nowrap}
+  #inside .graph-node-override{color:var(--p-running);font-family:var(--p-mono);font-size:var(--p-xs);white-space:nowrap}
+  #inside .graph-node-fact{color:var(--p-muted2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #inside .graph-node-reason{color:var(--p-attention);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
   /* Gates */
   #inside .gates{border:var(--k-border-w) solid var(--p-border);border-radius:var(--p-r1);
     overflow:hidden;background:var(--p-surface)}
@@ -1986,6 +2012,10 @@
     'resume-stage': 'Resume',
     'open-full-evidence': 'Show all',
     'open-bounded-evidence': 'Show all',
+    'graph-open-session': 'Open session',
+    'graph-stop': 'Stop',
+    'graph-discard-node': 'Discard process',
+    'graph-edit-override': 'Edit override',
   };
   const INSIDE_ACTION_TITLE = {
     'open-pr': 'Open this pull request on the host',
@@ -1995,6 +2025,19 @@
     'resume-stage': "Resume this ticket's stage",
     'open-full-evidence': 'Show every recorded row',
     'open-bounded-evidence': 'Show every repository row',
+    'graph-open-session': 'Focus this session\'s terminal — never spawns one',
+    'graph-stop': 'Signal the graph coordinator to drain',
+    // DANGER (UI-R10b): the process may still be running. The title names the
+    // risk and the row's visible status (`launch-unknown`/`termination-unknown`)
+    // states it again, so the explanation is never title-only (UI-R19).
+    'graph-discard-node': 'Discard unknown process — it may still be running',
+    // Slice 6 T4: the per-node override edit — an ORDINARY secondary control
+    // (reversible editing, nothing lost on click), unlike the discard exit.
+    'graph-edit-override': 'Edit this node\'s profile/provider/model/effort/prompt overrides before it claims',
+  };
+  // The DANGER variants among the inside actions (UI-R10b: irreversible loss).
+  const INSIDE_ACTION_DANGER = {
+    'graph-discard-node': true,
   };
 
   function insideActionBtnHtml(a) {
@@ -2002,7 +2045,10 @@
     // The host may ship a count-bearing label ("Show 4 more" — handoff §10);
     // the static map is the fallback, never a webview-computed count.
     const label = a.label || INSIDE_ACTION_LABEL[a.kind];
-    return `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-act="inside-action"`
+    // A danger action gets the danger variant (UI-R10b), so an irreversible
+    // control is never styled as an ordinary secondary button.
+    const variant = INSIDE_ACTION_DANGER[a.kind] ? 'k-btn--danger' : 'k-btn--secondary';
+    return `<button type="button" class="k-btn ${variant} k-btn--sm" data-act="inside-action"`
       + ` data-action-id="${esc(a.actionId)}" title="${esc(INSIDE_ACTION_TITLE[a.kind])}">`
       + `${esc(label)}</button>`;
   }
@@ -2087,8 +2133,55 @@
       + ` data-action-id="${esc(action.actionId)}" title="${esc(title)}">${esc(text)}</a>`;
   }
 
+  // ── Slice 6 T4: the graph's status-grouped node list ─────────────────────
+  // The host ships `nodes` on the graph process's rows evidence, ALREADY
+  // ordered by the closed `group` vocabulary; the webview breaks a section when
+  // `n.group` changes and concatenates nothing (UI-R31). Static section copy
+  // (UI-R20), keyed by that closed vocabulary — the webview never parses a
+  // group out of row prose. The composition is local and unprefixed
+  // (UI-R07/R08): the shared `.k-btn`/`.glyph` primitives carry the control and
+  // the status; only the list geometry is local.
+  const GRAPH_NODE_GROUP_LABEL = {
+    active: 'Active',
+    ready: 'Ready',
+    'resource-waiting': 'Resource waiting',
+    completed: 'Completed',
+    blocked: 'Blocked',
+    stale: 'Stale',
+    cancelled: 'Cancelled',
+    other: 'Other',
+  };
+  function graphNodeGroupLabel(group) {
+    return GRAPH_NODE_GROUP_LABEL[group] || group || '';
+  }
+  function graphNodeListHtml(nodes) {
+    let lastGroup = null;
+    return `<div class="graph-nodes">${nodes.map((n) => {
+      const head = n.group !== lastGroup
+        ? `<div class="graph-node-group">${esc(graphNodeGroupLabel(n.group))}</div>` : '';
+      lastGroup = n.group;
+      // The status word rides the glyph's accessible name; the raw node-run
+      // status is the row's own verdict text and stays visible as meta.
+      const glyph = `<span class="glyph ${esc(n.displayStatus)}"`
+        + ` aria-label="${esc(statusWord(n.displayStatus))}"></span>`;
+      return head + `<div class="graph-node">${glyph}`
+        + `<span class="graph-node-name">${esc(n.nodeId)}</span>`
+        + `<span class="graph-node-meta">${esc(n.nodeKind)} · ${esc(n.status)}</span>`
+        + `<span class="graph-node-detail">`
+        + (n.identity ? `<span class="graph-node-identity">${esc(n.identity)}</span>` : '')
+        + `<span class="graph-node-visit">${esc(n.visit)}</span>`
+        + (n.override ? `<span class="graph-node-override">${esc(n.override)}</span>` : '')
+        + (n.outcome ? `<span class="graph-node-fact">${esc(n.outcome)}</span>` : '')
+        + (n.reason ? `<span class="graph-node-reason">${esc(n.reason)}</span>` : '')
+        + `</span>`
+        + (n.action ? `<span class="ev-tail">${insideActionBtnHtml(n.action)}</span>` : '')
+        + `</div>`;
+    }).join('')}</div>`;
+  }
+
   function evidenceRowsHtml(ev) {
-    return ev.rows.map((r) => `<div class="evidence-row">`
+    const nodes = ev.nodes && ev.nodes.length ? graphNodeListHtml(ev.nodes) : '';
+    return nodes + ev.rows.map((r) => `<div class="evidence-row">`
       + `<span class="ev-key">${esc(r.label)}</span>`
       + `<span class="ev-detail">${esc(r.detail || '')}`
       + (r.prState ? `<span class="pr-status ${esc(r.prState)}">${esc(r.prState)}</span>` : '')
@@ -2335,7 +2428,8 @@
   // row static: content behind a disclosure with no way to open it.
   function hasEvidenceBody(ev) {
     if (!ev) return false;
-    return !!((ev.rows && ev.rows.length) || (ev.branches && ev.branches.length)
+    return !!((ev.rows && ev.rows.length) || (ev.nodes && ev.nodes.length)
+      || (ev.branches && ev.branches.length)
       || (ev.repos && ev.repos.length) || (ev.blocks && ev.blocks.length) || ev.hero);
   }
 

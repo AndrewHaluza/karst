@@ -226,6 +226,16 @@ describe('buildInteractiveCommand initialPrompt', () => {
     expect(cmd.args).not.toContain('--model');
   });
 
+  it('threads --effort when an effort is given', () => {
+    const cmd = adapter.buildInteractiveCommand({
+      cwd: '/wt',
+      model: 'claude-opus-4-8',
+      effort: 'high',
+      initialPrompt: 'go',
+    });
+    expect(cmd.args).toEqual(['--model', 'claude-opus-4-8', '--effort', 'high', '--', 'go']);
+  });
+
   it('threads --resume when a session id is given', () => {
     const cmd = new ClaudeAdapter().buildInteractiveCommand({ cwd: '/wt', resume: 'sess-9' });
     expect(cmd.args).toContain('--resume');
@@ -606,6 +616,28 @@ describe('ClaudeAdapter.runHeadless', () => {
     await adapter.runHeadless({ prompt: 'go', cwd: '/wt/a', model: 'claude-sonnet-5' });
     expect(seen.args).toContain('--model');
     expect(seen.args[seen.args.indexOf('--model') + 1]).toBe('claude-sonnet-5');
+  });
+
+  it('passes --effort as an individual argv value', async () => {
+    const seen: { args: string[] } = { args: [] };
+    const spawn: SpawnHeadless = async (_cmd, args) => {
+      seen.args = args;
+      return { stdout: JSON.stringify({ session_id: 's', result: 'x' }), stderr: '', exitCode: 0 };
+    };
+    const adapter = new ClaudeAdapter(spawn);
+    await adapter.runHeadless({ prompt: 'go', cwd: '/wt/a', model: 'claude-opus-5', effort: 'high' });
+    expect(seen.args).toContain('--effort');
+    expect(seen.args[seen.args.indexOf('--effort') + 1]).toBe('high');
+  });
+
+  it('omits --effort when none is given', async () => {
+    const seen: { args: string[] } = { args: [] };
+    const spawn: SpawnHeadless = async (_cmd, args) => {
+      seen.args = args;
+      return { stdout: JSON.stringify({ session_id: 's', result: 'x' }), stderr: '', exitCode: 0 };
+    };
+    await new ClaudeAdapter(spawn).runHeadless({ prompt: 'go', cwd: '/wt/a' });
+    expect(seen.args).not.toContain('--effort');
   });
 
   it('rejects on a nonzero exit code', async () => {

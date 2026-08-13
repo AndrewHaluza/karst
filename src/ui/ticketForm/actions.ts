@@ -398,6 +398,14 @@ export function buildTicketFormActions(
       }
     };
 
+    // One persistence path for the approach, shared by the user's picker pick
+    // and the analyzer's gated auto-apply (design, Selection and Enablement).
+    const setApproach = (id: string): void => {
+      if (ctx.ticketId !== undefined) {
+        updateTicketFields(deps.store, ctx.ticketId, { approach: id });
+      }
+    };
+
     return {
     attachPick: async (): Promise<void> => {
       try {
@@ -631,9 +639,7 @@ export function buildTicketFormActions(
     },
 
     setApproach(id: string): void {
-      if (ctx.ticketId !== undefined) {
-        updateTicketFields(deps.store, ctx.ticketId, { approach: id });
-      }
+      setApproach(id);
     },
 
     setAgent(id: string): void {
@@ -784,6 +790,14 @@ export function buildTicketFormActions(
             // not quietly overwrite it. Absent one, the suggestion IS the value.
             ...(bound?.type ? {} : { type: analysis.type }),
           });
+          // The analyzer MAY apply its approach pick, but only while the user has
+          // not touched the picker AND no choice is persisted yet (design,
+          // Selection and Enablement). After a touch — or once a choice exists —
+          // later analysis is recommendation-only, so the badge carries the
+          // suggestion and commit stays an explicit set-approach / save / submit.
+          if (!ctx.pickerTouched && !bound?.approach) {
+            setApproach(analysis.approachId);
+          }
           ctx.pushState();
         }
         ctx.post({

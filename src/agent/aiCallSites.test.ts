@@ -15,6 +15,9 @@ describe('aiCallSites', () => {
     expect(AI_CALL_SITES).toContain('fix-resume');
     expect(AI_CALL_SITES).toContain('review-findings');
     expect(AI_CALL_SITES).toContain('implementation');
+    expect(AI_CALL_SITES).toContain('graph-planner');
+    expect(AI_CALL_SITES).toContain('graph-node');
+    expect(AI_CALL_SITES).toContain('uat-tester');
   });
 
   it('files an undeclared call under a site that is itself a known id', () => {
@@ -35,6 +38,8 @@ describe('aiCallSites', () => {
     }
     expect(aiCallSiteLabel('ticket-analysis')).toBe('Ticket analysis');
     expect(aiCallSiteLabel('implementation')).toBe('Implementation session');
+    expect(aiCallSiteLabel('graph-planner')).toBe('Graph planner');
+    expect(aiCallSiteLabel('graph-node')).toBe('Graph node');
     expect(aiCallSiteLabel('made-up')).toBe('made-up');
   });
 });

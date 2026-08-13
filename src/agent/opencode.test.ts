@@ -78,6 +78,24 @@ describe('OpencodeAdapter interactive commands', () => {
     expect(cmd.env).toEqual({});
   });
 
+  it('threads an effort as --variant (effort is the model variant)', () => {
+    const cmd = new OpencodeAdapter().buildInteractiveCommand({
+      cwd: '/wt',
+      model: 'openrouter/~openai/gpt-mini-latest',
+      effort: 'high',
+      initialPrompt: '/rpi KARST-1',
+    });
+    expect(cmd.command).toBe('opencode');
+    expect(cmd.args).toEqual([
+      '--model',
+      'openrouter/~openai/gpt-mini-latest',
+      '--variant',
+      'high',
+      '--prompt',
+      '/rpi KARST-1',
+    ]);
+  });
+
   it('drops sessionName (opencode TUI has no launch-time session-name flag)', () => {
     const cmd = new OpencodeAdapter().buildInteractiveCommand({
       cwd: '/wt',
@@ -589,6 +607,15 @@ describe('OpencodeAdapter headless execution', () => {
     });
     expect(spawn).toHaveBeenCalledWith('opencode', ['run', '--format', 'json', '--pure', '--auto', '--model', 'openrouter/~openai/gpt-mini-latest', '--', '- inspect'], '/wt', { signal: undefined });
     expect(result).toEqual({ sessionId: 'ses_abc', verdict: null, raw: 'HELLO', usage: expect.objectContaining({ inputTokens: 16312 }) });
+  });
+
+  it('threads an effort as --variant into a headless run', async () => {
+    const spawn = vi.fn(fakeSpawn({ stdout: okNdjson, exitCode: 0 }));
+    await new OpencodeAdapter(spawn).runHeadless({
+      cwd: '/wt', prompt: '- inspect', model: 'openrouter/~openai/gpt-mini-latest', effort: 'high',
+    });
+    expect(spawn.mock.calls[0]![1]).toContain('--variant');
+    expect(spawn.mock.calls[0]![1][spawn.mock.calls[0]![1].indexOf('--variant') + 1]).toBe('high');
   });
 
   it('runs without --auto when permissionMode is not bypass', async () => {

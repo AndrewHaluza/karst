@@ -68,6 +68,14 @@ export interface TicketFormActionsCtx {
   readonly ticketId?: number;
   readonly mode: 'create' | 'edit';
   /**
+   * Host-side picker-touch flag: true once the user has interacted with the
+   * approach picker in this form session, never cleared (design, Selection
+   * and Enablement). Gates the analyzer's auto-apply — after a touch, later
+   * analysis is recommendation-only. The analyzer's own persistence never
+   * sets it.
+   */
+  readonly pickerTouched?: boolean;
+  /**
    * Persist-on-fetch hook: bind this (create) panel to a freshly-created draft
    * ticket. After this, `ticketId`/`mode` report edit mode and the next
    * `pushState` seeds from the draft. No-op semantics if already bound.
@@ -189,6 +197,11 @@ export class TicketFormManager {
     // Mutable so persist-on-fetch can bind a create panel to its new draft
     // ticket without re-opening. `pushState`/`ctx` read this live.
     let boundId = ticketId;
+    // Host-side picker-touch flag (design, Selection and Enablement): set when
+    // the webview posts a user `set-approach`, never cleared for the life of
+    // the panel, threaded into every state push and read by the analyzer via
+    // ctx. The analyzer's own persistence path never touches this flag.
+    let pickerTouched = false;
     // Flipped by dispose (user-closed OR ctx.close). Gates every post so an
     // in-flight action resolving after the tab is gone is silently dropped.
     let disposed = false;
@@ -211,6 +224,7 @@ export class TicketFormManager {
         this.isSessionOpen,
         this.modelCatalog(),
         this.storageDir,
+        pickerTouched,
       );
       // The state builder emits filesystem paths; only the panel can turn one
       // into a URI the webview is allowed to load. Mapped here, at the last
@@ -239,6 +253,15 @@ export class TicketFormManager {
       },
       get mode() {
         return boundId === undefined ? 'create' : 'edit';
+      },
+      /**
+       * Host-side picker-touch flag, owned by this panel for its whole life
+       * (design, Selection and Enablement). Set when the webview posts a user
+       * `set-approach` — the ONLY way a user touches the picker — and never
+       * cleared, so the analyzer's auto-pick is gated for the session.
+       */
+      get pickerTouched() {
+        return pickerTouched;
       },
       bindTicket: (id: number) => {
         boundId = id;
@@ -272,6 +295,11 @@ export class TicketFormManager {
       // An unparsed message posts NOTHING (UI-R13): no action ran, so there is
       // no terminal outcome to report.
       if (!parseTicketFormMessage(raw)) return;
+      // A USER touched the approach picker. The analyzer's own persist path
+      // calls `setApproach` host-side and never passes through this pump, so
+      // this is the ONLY source of the touch flag — and once set, no later
+      // analysis may auto-apply (design, Selection and Enablement).
+      if ((raw as { type?: string }).type === 'set-approach') pickerTouched = true;
       void reportAction(requestId, (message) => ctx.post(message), () => {
         // The message pump must never die on one bad message — log it either
         // way, then rethrow so reportAction reports the real failure as
