@@ -150,4 +150,12 @@ not the capture gap described here.
    conservative capabilities" (`resume: false` → `true`), and the 
    `session.created` bridge case would need its own plugin-fixture test.
 
-This ticket is the investigation; the fix is a follow-up decision.
+## Status
+
+Implemented (follow-up ticket MAKE-INVESTIGATION-ABOUT-fu1): the bridge now
+captures `session.created` → POSTs `SessionStart` (persisting
+`tickets.session_id`/`session_provider` and confirming the launch intent through
+the URL-carried generation), `capabilities.resume` is `true`, and
+`buildInteractiveCommand` threads `opts.resume` as `--session <id>`. opencode
+sessions now resume the same conversation from the sidebar button like the other
+cores.
