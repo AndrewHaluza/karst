@@ -413,8 +413,8 @@ agent states, hook events) are defined once in `src/model/types.ts` and
 - **Single-writer discipline** — every stage mutation goes through `setStage`;
   `agent_state` through `setAgentState`. Two writers, one each, never racing.
 - **ABI (native addon)** — `better-sqlite3` must match the ABI of whatever runs
-  it: VS Code's Electron (39 → ABI 140) for F5, plain Node for `npm test`.
-  `npm run dev:extension` / `npm test` restore the right binary automatically.
+  it: VS Code's Electron (39 → ABI 140) for F5, plain Node for `npm run test:unit`.
+  `npm run dev:extension` / `npm run test:unit` restore the right binary automatically.
   A `NODE_MODULE_VERSION` mismatch is fixed with `rebuild:electron` /
   `rebuild:node`.
 
@@ -429,7 +429,7 @@ agent states, hook events) are defined once in `src/model/types.ts` and
 - **`guide`** — prints the agent manual: how Karst works, the stage flow, the
   verbs, and the marker rules. It is the ONE agent-facing document, and
   `cli/guide.test.ts` pins it to the real CLI — a new verb, marker stage, or
-  flow change fails `npm test` until the guide mentions it (869edmcme). The
+  flow change fails `npm run test:unit` until the guide mentions it (869edmcme). The
   launch seed carries a one-line pointer to it, never the full text.
 - **`context`** — renders the ticket context brief (header, stage, evidence,
   worktrees) for the invoking session. Both `context` and `stage` fall back to

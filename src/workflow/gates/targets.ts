@@ -77,7 +77,20 @@ type ChangeProbe =
   | { kind: 'changed'; changed: boolean }
   | { kind: 'unavailable'; blocker: BlockerKind; reason: string };
 
-async function hasReviewChanges(git: GitRunner, cwd: string, base: string): Promise<ChangeProbe> {
+/**
+ * Timeout for remote git operations (fetch) that may hang when the remote is
+ * unreachable. The fetch is optional — a timeout falls back to the local branch
+ * for comparison, which is a deterministic baseline even without the latest
+ * remote state.
+ */
+const GIT_REMOTE_TIMEOUT_MS = 30_000;
+
+async function hasReviewChanges(
+  git: GitRunner,
+  cwd: string,
+  base: string,
+  fetchTimeoutMs: number = GIT_REMOTE_TIMEOUT_MS,
+): Promise<ChangeProbe> {
   // Agents are allowed to leave implementation work uncommitted until ship.
   // Porcelain includes staged, unstaged, and untracked files, so review cannot
   // pass merely because HEAD itself has not moved yet.
@@ -91,10 +104,21 @@ async function hasReviewChanges(git: GitRunner, cwd: string, base: string): Prom
   }
   if (status.stdout.trim().length > 0) return { kind: 'changed', changed: true };
 
-  // Prefer the fresh remote baseline. If fetch is unavailable, the local branch
-  // is still a deterministic comparison when it exists; unlike ship's
-  // conservative helper, a fetch failure must not label every repo as changed.
-  const fetched = await git(['fetch', 'origin', base], cwd);
+  // Prefer the fresh remote baseline. If fetch is unavailable or hangs, the
+  // local branch is still a deterministic comparison when it exists; unlike
+  // ship's conservative helper, a fetch failure must not label every repo as
+  // changed. The timeout prevents an unreachable remote from stalling the
+  // entire gate stage indefinitely (the hanging process is left to the OS TCP
+  // timeout — it is a child of the extension host and will be cleaned up).
+  const fetched = await Promise.race([
+    git(['fetch', 'origin', base], cwd),
+    new Promise<{ exitCode: number; stdout: string; stderr: string }>((resolve) =>
+      setTimeout(
+        () => resolve({ exitCode: 1, stdout: '', stderr: 'git fetch timed out' }),
+        fetchTimeoutMs,
+      ),
+    ),
+  ]);
   const compare = fetched.exitCode === 0 ? `origin/${base}` : base;
   const diff = await git(['diff', '--quiet', `${compare}...HEAD`], cwd);
   if (diff.exitCode === 0) return { kind: 'changed', changed: false };
@@ -105,6 +129,15 @@ async function hasReviewChanges(git: GitRunner, cwd: string, base: string): Prom
     blocker: 'capability-missing',
     reason: `cannot determine review changes in ${cwd}: ${reason || `git diff exited ${diff.exitCode}`}`,
   };
+}
+
+export interface SelectReviewTargetsOptions {
+  /**
+   * Timeout for the remote git fetch in target planning. A hung fetch (e.g.
+   * unreachable remote) falls back to the local branch for comparison. Tests
+   * pass a short value to avoid waiting for the real 30-second timeout.
+   */
+  gitFetchTimeoutMs?: number;
 }
 
 /**
@@ -119,6 +152,7 @@ export async function selectReviewTargets(
   manifest: Manifest,
   worktrees: readonly ReviewWorktree[],
   git: GitRunner,
+  options?: SelectReviewTargetsOptions,
 ): Promise<TargetSelection> {
   const namesByPath = new Map<string, string[]>();
   for (const [name, repository] of Object.entries(manifest.repositories)) {
@@ -135,7 +169,7 @@ export async function selectReviewTargets(
     const names = namesByPath.get(canonicalPath(worktree.repo)) ?? [];
     if (names.length === 0) unmapped.push(worktree.repo);
     const base = resolveBaselineBranchForPath(manifest, worktree.repo);
-    const probe = await hasReviewChanges(git, worktree.path, base);
+    const probe = await hasReviewChanges(git, worktree.path, base, options?.gitFetchTimeoutMs);
     if (probe.kind === 'unavailable') {
       return { kind: 'unavailable', blocker: probe.blocker, reason: probe.reason };
     }
