@@ -57,6 +57,7 @@ describe('ticketLabel', () => {
     sessionProvider: null,
     projectId: null,
     parentTicketId: null,
+    priority: null,
   };
 
   it('renders "key — title" when both present', () => {
@@ -275,6 +276,24 @@ describe('ticket + stage persistence', () => {
     updateTicketFields(store, t.id, { model: 'claude-sonnet-5' });
     updateTicketFields(store, t.id, { model: '' });
     expect(getTicket(store, t.id).model).toBeNull();
+  });
+
+  it('a new ticket has a null priority until one is fetched', () => {
+    const t = createTicket(store, { key: 'PROJ-1', title: 'x' });
+    expect(getTicket(store, t.id).priority).toBeNull();
+  });
+
+  it('updateTicketFields round-trips the provider-native priority label', () => {
+    const t = createTicket(store, { key: 'PROJ-1', title: 'x' });
+    updateTicketFields(store, t.id, { priority: 'urgent' });
+    expect(getTicket(store, t.id).priority).toBe('urgent');
+  });
+
+  it('an empty-string priority clears it back to NULL', () => {
+    const t = createTicket(store, { key: 'PROJ-1', title: 'x' });
+    updateTicketFields(store, t.id, { priority: 'high' });
+    updateTicketFields(store, t.id, { priority: '' });
+    expect(getTicket(store, t.id).priority).toBeNull();
   });
 
   it('a new ticket has a null agentProvider (inherit) until one is chosen', () => {

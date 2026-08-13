@@ -19,7 +19,7 @@ export function readSchema(): string {
 }
 
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 43;
+export const SCHEMA_VERSION = 44;
 
 /** v2 ticket-field columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -1665,6 +1665,22 @@ export function migrate(db: Database): void {
           // keep stripping leading prefixes until none remain
         }
       })();
+    }
+  }
+
+  if (current < 44) {
+    // v44 adds the provider-native priority label parsed by the ticketing
+    // provider's `fetchTicket`/`searchTickets` (e.g. ClickUp's 'urgent'). A
+    // fresh DB already carries it (schema.sql); guard so the ALTER only runs
+    // for a legacy DB being upgraded. NOT backfilled: a pre-v44 ticket has no
+    // provider priority to derive, and NULL is the honest "provider never said"
+    // reading — the next fetch populates it. The `ticketColumns` guard is
+    // checked for a NON-empty set first, so a partial-schema DB (e.g. a lone
+    // attachments table in a repair test) skips instead of failing to prepare
+    // the ALTER.
+    const cols = ticketColumns(db);
+    if (cols.size > 0 && !cols.has('priority')) {
+      db.exec('ALTER TABLE tickets ADD COLUMN priority TEXT');
     }
   }
 

@@ -553,6 +553,11 @@ export function buildTicketFormActions(
           brief: renderBrief(brief),
           description: brief.description,
           selectedRepos: repos,
+          // The provider-native priority label, populated from the brief. Absent
+          // in the brief → '' clears it back to NULL: the fetch is the source of
+          // truth, and a re-fetch of a ticket whose provider no longer reports a
+          // priority must not keep a stale one.
+          priority: brief.priority ?? '',
         });
 
         // Re-push edit-mode state (prefilled fields + scored repos), THEN post

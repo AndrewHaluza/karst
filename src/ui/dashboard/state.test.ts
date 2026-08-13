@@ -387,6 +387,13 @@ describe('buildDashboardState', () => {
     expect(state.ticketUrl).toBe('https://app.clickup.com/t/abc123');
   });
 
+  it('carries the provider-native priority label when one was fetched', () => {
+    const t = createTicket(store, { key: 'CU-2', title: 't' });
+    expect(buildDashboardState(store, t.id).priority).toBeNull();
+    updateTicketFields(store, t.id, { priority: 'urgent' });
+    expect(buildDashboardState(store, t.id).priority).toBe('urgent');
+  });
+
   it('has no ticket URL for a manual provider or a missing source ref', () => {
     const manual = createTicket(store, { key: 'M-1', title: 't' });
     updateTicketFields(store, manual.id, { sourceRef: 'abc123' });

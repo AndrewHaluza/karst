@@ -56,6 +56,11 @@
   .dhead h1.ticketTitle{min-width:0;flex:1;margin:0 var(--k-space-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--k-text-xl)}
   .ticketKey{min-height:var(--k-hit-min);padding:0 var(--k-space-3);border:0;border-radius:var(--k-radius-sm);background:transparent;color:var(--k-text-dim);font-family:var(--k-font-mono);font-size:var(--k-text-xs);cursor:pointer}
   .ticketKey:hover{background:var(--k-surface-hover);color:var(--k-text)}
+  /* The header's provider-native priority chip. A READ-only provider fact, so
+     it is a plain span on the shared `.k-chip` pill shape (UI-R08), never a
+     control. Local color only: the priority label is provider-authored copy,
+     not a workflow state, so it gets no semantic feedback token. */
+  .prio{font-family:var(--k-font-mono);font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.4px;padding:var(--k-space-1) var(--k-space-4);border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-pill);color:var(--k-text-dim);flex:none}
   .ticketParent{display:block;margin-top:var(--k-space-3);color:var(--k-text-dim);font-size:var(--k-text-xs);font-family:var(--k-font-mono)}
   .headerActions{display:flex;align-items:center;gap:var(--k-space-2);flex:none;margin-left:auto}
   .agentWrap,.menuWrap{position:relative}
@@ -1568,6 +1573,7 @@
   <div class="ticketIdentity">
     <span id="providerMark" class="provicon" aria-hidden="true"></span>
     <button id="keyBtn" type="button" class="ticketKey" data-act="copy-ticket-key" data-copy title="Copy ticket key" aria-label="Copy ticket key"></button>
+    <span id="priorityChip" class="prio" hidden></span>
     <a id="boardLink" class="k-iconbtn" href="#" data-act="open-ticket-link" data-url="${esc(state.ticketUrl)}" hidden
       aria-label="Open ticket in provider" title="Open ticket in provider">
       <svg class="k-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 6h-6a2 2 0 0 0 -2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-6"/><path d="M11 13l9 -9"/><path d="M15 4h5v5"/></svg>
@@ -3215,6 +3221,13 @@
     keyBtn.title = 'Copy ticket key';
     const mark = el('providerMark');
     if (mark) mark.innerHTML = providerIconHtml(state.provider);
+    const prio = el('priorityChip');
+    if (prio) {
+      const value = (state.priority || '').trim();
+      prio.hidden = !value;
+      prio.textContent = value;
+      prio.setAttribute('aria-label', value ? `Priority: ${value}` : '');
+    }
     const prevBtn = el('ticketDataBtn');
     if (prevBtn) prevBtn.hidden = false;
     const link = el('boardLink');

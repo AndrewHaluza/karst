@@ -35,6 +35,7 @@ function ticket(over: Partial<TicketWithStages> = {}): TicketWithStages {
     type: null,
     projectId: null,
     parentTicketId: null,
+    priority: null,
     stages: [
       {
         ticketId: 1,
