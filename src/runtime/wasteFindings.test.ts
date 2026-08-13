@@ -40,6 +40,7 @@ function inv(attributed: AttributedRow[], unattributedRows: UnattributedRow[]): 
     attributed,
     unattributed: unattributedRows,
     totals: { rssBytes: 0, cpuPct: null },
+    cwdProbes: 0,
   };
 }
 

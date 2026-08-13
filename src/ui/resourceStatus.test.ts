@@ -6,8 +6,11 @@ function reading(overrides: Partial<ResourceReading>): ResourceReading {
   return {
     supported: true,
     degraded: false,
+    skipped: 0,
+    fastLane: false,
     inventory: {
       takenMs: 1_000,
+      cwdProbes: 0,
       attributed: [
         {
           pid: 100,
@@ -87,6 +90,7 @@ describe('buildResourceIndicator', () => {
       reading({
         inventory: {
           takenMs: 1_000,
+          cwdProbes: 0,
           attributed: [],
           unattributed: [],
           totals: { rssBytes: 60, cpuPct: null },

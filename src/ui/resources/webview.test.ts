@@ -51,6 +51,59 @@ describe('resources webview.html', () => {
     expect(script).toContain('state.history');
   });
 
+  it('labels the two chart series with toggleable legend buttons (UI-R28)', () => {
+    expect(HTML).toContain('CPU %');
+    expect(HTML).toContain('RSS');
+    expect(HTML).toContain('data-series="cpu"');
+    expect(HTML).toContain('data-series="rss"');
+    // The toggle is LOCAL presentation — it must never post a message.
+    const script = scriptBlock();
+    expect(script).toContain('muted[series] = !on');
+    expect(script).toContain('renderSpark(lastState)');
+    // The legend click handler contains no vscode.postMessage.
+    const handler = script.slice(
+      script.indexOf("for (const btn of document.querySelectorAll('.legendBtn'))"),
+      script.indexOf("window.addEventListener('message'"),
+    );
+    expect(handler).not.toContain('post(');
+  });
+
+  it('shows scale markers: per-series maxima and x-axis time ticks', () => {
+    expect(HTML).toContain('id="chartScale"');
+    expect(HTML).toContain('state.trend.cpuMaxDisplay');
+    expect(HTML).toContain('id="chartTicks"');
+    expect(HTML).toContain('state.trend.timeTicks');
+    // The values are HOST-formatted — the webview only re-escapes them.
+    expect(HTML).toContain('CPU ${esc(state.trend.cpuMaxDisplay)}');
+  });
+
+  it('gives the unattributed PID column a six-character mono width (000000)', () => {
+    const styles = [...HTML.matchAll(/<style>(.*?)<\/style>/gs)].map((m) => m[1]!).join('\n');
+    expect(styles).toMatch(/\.utable th\.pid,\.utable td\.pid\{width:6ch\}/);
+  });
+
+  it('renders the attributed ticket cell from the resolved key and title', () => {
+    expect(HTML).toContain('class="tkey"');
+    expect(HTML).toContain('r.ticketKey');
+    expect(HTML).toContain('class="ttitle"');
+    expect(HTML).toContain('r.ticketTitle');
+  });
+
+  it('renders the summary rail and the monitor facts lane', () => {
+    expect(HTML).toContain('Proven waste');
+    expect(HTML).toContain('state.wasteCount');
+    expect(HTML).toContain('id="summaryMeta"');
+    expect(HTML).toContain('id="facts"');
+    expect(HTML).toContain('state.facts');
+  });
+
+  it('renders a relative disk share bar from the host bytes', () => {
+    const script = scriptBlock();
+    expect(script).toContain('Math.max(...rows.map((d) => d.bytes), 1)');
+    expect(script).toContain('Math.round((d.bytes / max) * 100)');
+    expect(HTML).toContain('class="diskTrack"');
+  });
+
   it('renders cpuPct null as an em-dash, never a coerced zero', () => {
     expect(HTML).toContain('cpuPctDisplay');
   });

@@ -148,6 +148,34 @@ describe('buildInventory', () => {
     expect(inv.unattributed.find((r) => r.pid === 404)?.cwd).toBeNull();
   });
 
+  it('reports the number of cwd probes spent on the tick', async () => {
+    const s = snap(2_000, [
+      record(401, 0, HEAVY_RSS_BYTES + 30, 1, 1),
+      record(402, 0, HEAVY_RSS_BYTES + 20, 1, 1),
+    ]);
+    const f = facts();
+    const inv = await buildInventory({
+      snapshot: s,
+      previous: null,
+      known: [],
+      facts: f,
+      confirmCwd: true,
+    });
+    expect(inv.cwdProbes).toBe(2);
+  });
+
+  it('reports zero cwd probes when confirmCwd is off', async () => {
+    const s = snap(1_000, [record(401, 0, HEAVY_RSS_BYTES + 30, 1, 1)]);
+    const inv = await buildInventory({
+      snapshot: s,
+      previous: null,
+      known: [],
+      facts: facts(),
+      confirmCwd: false,
+    });
+    expect(inv.cwdProbes).toBe(0);
+  });
+
   it('probes a heavy-by-CPU row and skips a light row while budget remains', async () => {
     const first = snap(1_000, [record(501, 0, 1_000_000, 10, 1), record(502, 0, 1_000_000, 10, 1)]);
     const s = snap(2_000, [

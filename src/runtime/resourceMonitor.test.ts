@@ -173,6 +173,37 @@ describe('ResourceMonitor', () => {
     expect(readSnapshot).toHaveBeenCalledTimes(1);
   });
 
+  it('exposes the skipped-tick counter and the fast-lane state on the reading', async () => {
+    let resolveSnap!: (r: { supported: true; snapshot: ProcSnapshot }) => void;
+    const readSnapshot = vi.fn(
+      () =>
+        new Promise<{ supported: true; snapshot: ProcSnapshot }>((resolve) => {
+          resolveSnap = resolve;
+        }),
+    ) as unknown as ResourceMonitorDeps['readSnapshot'];
+    const monitor = new ResourceMonitor(makeDeps({ readSnapshot }));
+    monitor.start();
+    const p = monitor.refreshNow();
+    await vi.advanceTimersByTimeAsync(SLOW_LANE_INTERVAL_MS);
+    expect(monitor.reading().fastLane).toBe(false);
+    monitor.setPanelVisible(true);
+    await vi.advanceTimersByTimeAsync(FAST_LANE_INTERVAL_MS);
+    expect(monitor.reading().fastLane).toBe(true);
+    expect(monitor.reading().skipped).toBeGreaterThan(0);
+    resolveSnap(okSnapshot());
+    await p;
+    monitor.dispose();
+  });
+
+  it('reports a clean reading with zero skipped ticks after an uninterrupted tick', async () => {
+    const monitor = new ResourceMonitor(makeDeps({}));
+    await monitor.refreshNow();
+    const reading = monitor.reading();
+    expect(reading.skipped).toBe(0);
+    expect(reading.fastLane).toBe(false);
+    monitor.dispose();
+  });
+
   it('sets degraded on a null snapshot and retains the previous inventory', async () => {
     let call = 0;
     const readSnapshot = vi.fn(async () => {
