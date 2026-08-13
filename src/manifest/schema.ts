@@ -266,6 +266,20 @@ function validateDefaultModel(raw: unknown): string | undefined {
   return raw.trim() === '' ? undefined : raw;
 }
 
+/**
+ * Parse `defaultEffort`. Must be a string when present; a blank/whitespace value
+ * normalizes to undefined (no default) so a cleared field can't pin a bad
+ * effort. Whether the effort is SUPPORTED by the selected model is judged
+ * against the live catalog at Save (`assertProfileEffort`), never here.
+ */
+function validateDefaultEffort(raw: unknown): string | undefined {
+  if (raw === undefined) return undefined;
+  if (typeof raw !== 'string') {
+    throw new ManifestError('defaultEffort must be a string');
+  }
+  return raw.trim() === '' ? undefined : raw;
+}
+
 /** Default delay before a done ticket is auto-archived (§ auto-archiving). */
 export const DEFAULT_ARCHIVE_DONE_AFTER_DAYS = 3;
 
@@ -487,6 +501,7 @@ export function validateManifest(raw: unknown): Manifest {
     ticketing: validateTicketing(raw.ticketing),
     agentProvider: validateAgentProvider(raw.agentProvider),
     defaultModel: validateDefaultModel(raw.defaultModel),
+    defaultEffort: validateDefaultEffort(raw.defaultEffort),
     archiveDoneAfterDays: validateArchiveDoneAfterDays(raw.archiveDoneAfterDays),
     debug: validateDebug(raw.debug),
     closeDoneTerminalsWithTicket: validateCloseDoneTerminalsWithTicket(

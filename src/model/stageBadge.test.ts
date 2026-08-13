@@ -26,6 +26,7 @@ function ticket(
     archivedAt: null,
     updatedAt: null,
     model: null,
+    effort: null,
     agentProvider: null,
     sessionProvider: null,
     type: null,

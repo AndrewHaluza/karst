@@ -305,28 +305,30 @@ describe('routeAction', () => {
     expect(a.toggleBind).toHaveBeenCalledTimes(1);
   });
 
-  it('parses a switch-agent selection and dispatches it with both fields', () => {
+  it('parses a switch-agent selection and dispatches it with all three fields', () => {
     const a = actions();
     expect(parseWebviewMessage({
-      type: 'switch-agent', provider: 'codex', model: 'gpt-5.2-codex', ticketId: 999,
-    })).toEqual({ type: 'switch-agent', provider: 'codex', model: 'gpt-5.2-codex' });
-    routeAction({ type: 'switch-agent', provider: 'codex', model: 'gpt-5.2-codex' }, a);
-    expect(a.switchAgent).toHaveBeenCalledWith('codex', 'gpt-5.2-codex');
+      type: 'switch-agent', provider: 'codex', model: 'gpt-5.2-codex', effort: 'high', ticketId: 999,
+    })).toEqual({ type: 'switch-agent', provider: 'codex', model: 'gpt-5.2-codex', effort: 'high' });
+    routeAction({ type: 'switch-agent', provider: 'codex', model: 'gpt-5.2-codex', effort: 'high' }, a);
+    expect(a.switchAgent).toHaveBeenCalledWith('codex', 'gpt-5.2-codex', 'high');
   });
 
-  it('coerces a blank model to inherit (null)', () => {
+  it('coerces a blank model and effort to inherit (null)', () => {
     expect(parseWebviewMessage({ type: 'switch-agent', provider: 'claude' })).toEqual({
-      type: 'switch-agent', provider: 'claude', model: null,
+      type: 'switch-agent', provider: 'claude', model: null, effort: null,
     });
-    expect(parseWebviewMessage({ type: 'switch-agent', provider: 'claude', model: '' })).toEqual({
-      type: 'switch-agent', provider: 'claude', model: null,
+    expect(parseWebviewMessage({ type: 'switch-agent', provider: 'claude', model: '', effort: '' })).toEqual({
+      type: 'switch-agent', provider: 'claude', model: null, effort: null,
     });
   });
 
-  it('rejects a switch-agent to an unknown provider or a non-string model', () => {
-    expect(parseWebviewMessage({ type: 'switch-agent', provider: 'evil', model: 'x' })).toBeNull();
-    expect(parseWebviewMessage({ type: 'switch-agent', provider: 'codex', model: 42 })).toBeNull();
-    expect(parseWebviewMessage({ type: 'switch-agent', provider: 'codex', model: 'x'.repeat(300) })).toBeNull();
+  it('rejects a switch-agent to an unknown provider or a non-string model/effort', () => {
+    expect(parseWebviewMessage({ type: 'switch-agent', provider: 'evil', model: 'x', effort: 'high' })).toBeNull();
+    expect(parseWebviewMessage({ type: 'switch-agent', provider: 'codex', model: 42, effort: 'high' })).toBeNull();
+    expect(parseWebviewMessage({ type: 'switch-agent', provider: 'codex', model: 'x'.repeat(300), effort: 'high' })).toBeNull();
+    expect(parseWebviewMessage({ type: 'switch-agent', provider: 'codex', model: 'x', effort: 42 })).toBeNull();
+    expect(parseWebviewMessage({ type: 'switch-agent', provider: 'codex', model: 'x', effort: 'x'.repeat(300) })).toBeNull();
   });
 
   it('parses and dispatches copy-ticket-key with no payload', () => {

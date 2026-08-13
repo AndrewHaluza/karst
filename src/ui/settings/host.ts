@@ -7,6 +7,7 @@ import { injectPalette } from '../../model/palette.js';
 import { injectDesignSystem } from '../../model/designSystem.js';
 import { injectProviderIdentity } from '../../model/providerIdentity.js';
 import { injectAgentIdentity } from '../../model/agentIdentity.js';
+import { injectAgentPicker } from '../../model/agentPicker.js';
 import { injectCsp, newNonce } from '../../model/csp.js';
 import type { BrandIconPaths } from '../brandIcon.js';
 import { brandIconUri } from '../panelIcon.js';
@@ -26,9 +27,9 @@ export function makeSettingsPanelHost(
   context: vscode.ExtensionContext,
   brandIcon?: BrandIconPaths,
 ): SettingsPanelHost {
-  const html = injectAgentIdentity(injectProviderIdentity(
+  const html = injectAgentPicker(injectAgentIdentity(injectProviderIdentity(
     injectPalette(injectDesignSystem(readFileSync(join(HERE, 'webview.html'), 'utf8'))),
-  ));
+  )));
   return {
     createPanel(title: string): SettingsPanel {
       const panel = vscode.window.createWebviewPanel(

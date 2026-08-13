@@ -519,6 +519,16 @@ describe('openStore', () => {
     expect(cols).toContain('priority');
   });
 
+  it('carries the v44 per-ticket effort column', () => {
+    const store = openStore(':memory:');
+    cleanups.push(() => store.close());
+    const cols = store.db
+      .prepare("PRAGMA table_info('tickets')")
+      .all()
+      .map((r) => (r as { name: string }).name);
+    expect(cols).toContain('effort');
+  });
+
   it('migrates a v16 DB to v17 with attachment lookup and dedupe indexes without touching rows', () => {
     const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
     cleanups.push(() => rmSync(dir, { recursive: true, force: true }));

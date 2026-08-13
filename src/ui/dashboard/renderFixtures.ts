@@ -1,4 +1,5 @@
 import type { DashboardState } from './state.js';
+import type { ModelCatalog } from '../../agent/modelCatalog.js';
 import type {
   CommitRepoView,
   DoneHeroView,
@@ -854,6 +855,7 @@ export function renderStateFor(stage: InsideStageKey): DashboardState {
       providerLabel: 'Claude Code',
       modelId: null,
       modelLabel: 'Agent default',
+      effort: null,
       // The switch is available at every stage (869ehtcmz); only a running
       // Fix execution withholds it, and this fixture carries no recovery round.
       canSwitch: true,
@@ -861,7 +863,7 @@ export function renderStateFor(stage: InsideStageKey): DashboardState {
     stepper: [],
     currentStage: null,
     ship: { kind: 'none' },
-    agentSwitch: { cores: [], models: {} },
+    agentSwitch: { cores: [], models: {}, modelsByCore: {} as ModelCatalog, effort: null, modelInheritLabel: 'Agent default', effortInheritLabel: 'No effort (agent picks)' },
     servers: [],
     hasRunnableRepos: false,
     worktrees: [],

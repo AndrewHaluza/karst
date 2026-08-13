@@ -1669,18 +1669,25 @@ export function migrate(db: Database): void {
   }
 
   if (current < 44) {
-    // v44 adds the provider-native priority label parsed by the ticketing
-    // provider's `fetchTicket`/`searchTickets` (e.g. ClickUp's 'urgent'). A
-    // fresh DB already carries it (schema.sql); guard so the ALTER only runs
-    // for a legacy DB being upgraded. NOT backfilled: a pre-v44 ticket has no
-    // provider priority to derive, and NULL is the honest "provider never said"
-    // reading — the next fetch populates it. The `ticketColumns` guard is
-    // checked for a NON-empty set first, so a partial-schema DB (e.g. a lone
+    // v44, added independently on two branches and merged into one step:
+    // 1. the provider-native priority label parsed by the ticketing provider's
+    //    `fetchTicket`/`searchTickets` (e.g. ClickUp's 'urgent');
+    // 2. the per-ticket effort/variant override, the launch-path sibling of
+    //    `model`/`agent_provider` (§ Execution policy resolution).
+    // A fresh DB already carries both (schema.sql); each guard only runs the
+    // ALTER for a legacy DB being upgraded. NOTHING IS BACKFILLED: a pre-v44
+    // ticket has no provider priority to derive and no effort to synthesize —
+    // NULL is the honest "never said / inherit the default" reading, and the
+    // next fetch populates the priority. The `ticketColumns` guard is checked
+    // for a NON-empty set first, so a partial-schema DB (e.g. a lone
     // attachments table in a repair test) skips instead of failing to prepare
     // the ALTER.
     const cols = ticketColumns(db);
     if (cols.size > 0 && !cols.has('priority')) {
       db.exec('ALTER TABLE tickets ADD COLUMN priority TEXT');
+    }
+    if (cols.has('model') && !cols.has('effort')) {
+      db.exec('ALTER TABLE tickets ADD COLUMN effort TEXT');
     }
   }
 

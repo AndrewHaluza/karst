@@ -91,7 +91,7 @@ describe('parseTicketFormMessage', () => {
     expect(
       parseTicketFormMessage({ type: 'submit', key: 'P-1', title: 't', description: 'd' }),
     ).toEqual({
-      type: 'submit', key: 'P-1', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, agentProvider: null, ticketType: null, createInProvider: false, pullBase: true,
+      type: 'submit', key: 'P-1', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, effort: null, agentProvider: null, ticketType: null, createInProvider: false, pullBase: true,
     });
     // repos + approach + agent + model + agentProvider carried through when present
     expect(
@@ -99,7 +99,7 @@ describe('parseTicketFormMessage', () => {
         type: 'submit', key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex', ticketType: null, createInProvider: false,
       }),
     ).toEqual({
-      type: 'submit', key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex', ticketType: null, createInProvider: false, pullBase: true,
+      type: 'submit', key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', effort: null, agentProvider: 'codex', ticketType: null, createInProvider: false, pullBase: true,
     });
   });
 
@@ -107,14 +107,14 @@ describe('parseTicketFormMessage', () => {
     expect(
       parseTicketFormMessage({ type: 'save', key: 'P-1', title: 't', description: 'd' }),
     ).toEqual({
-      type: 'save', key: 'P-1', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, agentProvider: null, ticketType: null, createInProvider: false,
+      type: 'save', key: 'P-1', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, effort: null, agentProvider: null, ticketType: null, createInProvider: false,
     });
     expect(
       parseTicketFormMessage({
         type: 'save', key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex', ticketType: null, createInProvider: false,
       }),
     ).toEqual({
-      type: 'save', key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex', ticketType: null, createInProvider: false,
+      type: 'save', key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', effort: null, agentProvider: 'codex', ticketType: null, createInProvider: false,
     });
     expect(parseTicketFormMessage({ type: 'save', title: 't', description: 'd' })).toBeNull(); // missing key
     expect(parseTicketFormMessage({ type: 'save', key: 'P-1', description: 'd' })).toBeNull(); // missing title
@@ -129,12 +129,12 @@ describe('parseTicketFormMessage', () => {
     expect(
       parseTicketFormMessage({ type: 'submit', key: '', title: 't', description: 'd' }),
     ).toEqual({
-      type: 'submit', key: '', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, agentProvider: null, ticketType: null, createInProvider: false, pullBase: true,
+      type: 'submit', key: '', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, effort: null, agentProvider: null, ticketType: null, createInProvider: false, pullBase: true,
     });
     expect(
       parseTicketFormMessage({ type: 'save', key: '', title: 't', description: 'd' }),
     ).toEqual({
-      type: 'save', key: '', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, agentProvider: null, ticketType: null, createInProvider: false,
+      type: 'save', key: '', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, effort: null, agentProvider: null, ticketType: null, createInProvider: false,
     });
   });
 
@@ -239,14 +239,14 @@ describe('parseTicketFormMessage', () => {
         type: 'submit', key: 'P-1', title: 't', description: 'd', agentProvider: 'evil', ticketType: null,
       }),
     ).toEqual({
-      type: 'submit', key: 'P-1', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, agentProvider: null, ticketType: null, createInProvider: false, pullBase: true,
+      type: 'submit', key: 'P-1', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, effort: null, agentProvider: null, ticketType: null, createInProvider: false, pullBase: true,
     });
     expect(
       parseTicketFormMessage({
         type: 'save', key: 'P-1', title: 't', description: 'd', agentProvider: 'evil', ticketType: null,
       }),
     ).toEqual({
-      type: 'save', key: 'P-1', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, agentProvider: null, ticketType: null, createInProvider: false,
+      type: 'save', key: 'P-1', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, effort: null, agentProvider: null, ticketType: null, createInProvider: false,
     });
   });
 
@@ -288,6 +288,7 @@ describe('routeTicketFormAction', () => {
       setApproach: vi.fn(),
       setAgent: vi.fn(),
       setModel: vi.fn(),
+      setEffort: vi.fn(),
       setType: vi.fn(),
       setProvider: vi.fn(),
       analyze: vi.fn(),
@@ -397,6 +398,7 @@ describe('attachment messages', () => {
       setApproach: vi.fn(),
       setAgent: vi.fn(),
       setModel: vi.fn(),
+      setEffort: vi.fn(),
       setType: vi.fn(),
       setProvider: vi.fn(),
       analyze: vi.fn(),

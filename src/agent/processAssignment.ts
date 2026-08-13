@@ -42,6 +42,7 @@ export interface ProcessAssignmentSnapshot {
   agentName?: string;
   provider: AgentProvider;
   model?: string;
+  effort?: string;
   /**
    * The settings agent-pool profile this process is assigned to run as
    * (`processes.<key>.agent`), carried VERBATIM alongside `agentName`. The

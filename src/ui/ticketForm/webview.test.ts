@@ -148,38 +148,41 @@ describe('ticket-form webview.html', () => {
   });
 
   it('keeps an absent saved ticket model visible as an escaped saved option', () => {
-    const renderModelOptions = loadFunction('renderModelOptions');
-    const html = renderModelOptions(
-      [{ id: 'current', label: 'Current', providers: ['codex'] }],
-      'preview-<next>',
-      null,
-    ) as string;
-    expect(html).toContain('value="preview-&lt;next&gt;" selected');
-    expect(html).toContain('Saved model: preview-&lt;next&gt;');
+    // The ticket form hosts the UNIFIED agent identity picker, whose model
+    // option rendering lives in model/agentPicker.ts (apModelOptionsHtml, pinned
+    // by the shared module's own suite). This pins the surface to the shared
+    // component and the picker's inherited "unavailable saved model" behavior.
+    expect(HTML).toContain('id="agentIdentityPicker"');
+    expect(HTML).toContain('renderAgentIdentityPicker(');
+    expect(HTML).toContain('mountAgentPicker(root, {');
+    expect(HTML).toContain('KARST_AGENT_PICKER_JS');
   });
 
-  it('renders an agent-core (provider) picker next to the model picker', () => {
-    expect(HTML).toContain('id="agentSelectWrap"');
-    expect(HTML).toContain('id="agentTrigger"');
-    expect(HTML).toContain('id="providerLockHint"');
+  it('renders the unified agent identity picker (agent core + model + effort/variant)', () => {
+    expect(HTML).toContain('id="agentIdentityPicker"');
+    expect(HTML).toContain('KARST_AGENT_PICKER_CSS');
+    expect(HTML).toContain('KARST_AGENT_PICKER_JS');
+    expect(HTML).toContain('providerLockHint');
   });
 
-  it('locks the provider picker while a session is open, mirroring the model picker', () => {
-    const fnMatch = HTML.match(/function renderProviderPicker\([^)]*\)\s*{([\s\S]*?)\n {2}}/);
-    expect(fnMatch, 'renderProviderPicker() not found').toBeTruthy();
-    const body = fnMatch![1]!;
-    expect(body).toContain("el('agentTrigger').disabled = !!sessionOpen");
+  it('locks the unified picker while a session is open', () => {
+    expect(HTML).toMatch(/picker\.setDisabled\(!!sessionOpen\)/);
+    expect(HTML).toContain("el('providerLockHint').classList.toggle('hidden', !sessionOpen)");
   });
 
-  it('posts set-provider on change and carries agentProvider into submit/save', () => {
+  it('posts set-provider/set-model/set-effort on change and carries all three into submit/save', () => {
     expect(HTML).toMatch(/post\(\{\s*type:\s*'set-provider'/);
+    expect(HTML).toMatch(/post\(\{\s*type:\s*'set-model'/);
+    expect(HTML).toMatch(/post\(\{\s*type:\s*'set-effort'/);
     const submitBlock = HTML.slice(
       HTML.indexOf("el('submitBtn').addEventListener"),
       HTML.indexOf("el('saveBtn').addEventListener"),
     );
     expect(submitBlock).toContain('agentProvider');
+    expect(submitBlock).toContain('effort');
     const saveBlock = HTML.slice(HTML.indexOf("el('saveBtn').addEventListener"));
-    expect(saveBlock.slice(0, 800)).toContain('agentProvider');
+    expect(saveBlock).toContain('agentProvider');
+    expect(saveBlock).toContain('effort');
   });
 
   // The pull switch (§ scope): ON by default, and the value the user left it on
@@ -708,12 +711,13 @@ describe('ticket-form webview.html — UI-RULES.md remediation', () => {
     expect(script).toContain('karstBeginPending(detach, requestId);');
     expect(script).toContain('karstBeginPending(open, requestId);');
     expect(script).toContain('karstBeginPending(el(\'attachBtn\'), requestId);');
-    // set-repos / set-approach / set-agent / set-model / set-provider / set-type.
+    // set-repos / set-approach / set-agent / set-provider / set-type.
     expect(script).toContain("post({ type: 'set-repos', repos, requestId });");
     expect(script).toContain("post({ type: 'set-approach', id, requestId });");
     expect(script).toContain("post({ type: 'set-agent', id, requestId });");
-    expect(script).toContain("post({ type: 'set-model', id, requestId });");
     expect(script).toMatch(/post\(\{\s*type:\s*'set-provider'/);
+    expect(script).toMatch(/post\(\{\s*type:\s*'set-model'/);
+    expect(script).toMatch(/post\(\{\s*type:\s*'set-effort'/);
     expect(script).toContain("post({ type: 'set-type', id, requestId });");
   });
 
@@ -867,18 +871,14 @@ describe('ticket-form webview.html — selects, buttons, positioning fixes', () 
   });
 
   it('closes the agent-core menu and repaints the trigger on pick (create mode has no state push)', () => {
-    // In create mode the host's set-provider is a no-op (no ticket to persist),
-    // so nothing re-renders the trigger until submit — the pick must update the
-    // trigger + option states and close the menu locally, exactly as settings'
-    // selectAgent does. Before the fix the menu stayed open and the trigger
-    // kept showing the previous core.
-    const fnMatch = HTML.match(/function selectProvider\([^)]*\)\s*{([\s\S]*?)\n {2}}/);
-    expect(fnMatch, 'selectProvider() not found').toBeTruthy();
-    const body = fnMatch![1]!;
-    expect(body).toContain("trigger.innerHTML = agentBadgeHtml(");
-    expect(body).toContain("menu.classList.add('hidden')");
-    expect(body).toContain("trigger.setAttribute('aria-expanded', 'false')");
-    expect(body).toContain('aria-selected');
+    // The ticket form now hosts the UNIFIED agent identity picker, which owns
+    // its own menu open/close + trigger repaint (model/agentPicker.ts, pinned by
+    // the shared module's suite). The surface pins the local draft write that
+    // keeps create-mode picks authoritative for submit.
+    expect(HTML).toContain('mountAgentPicker(root, {');
+    expect(HTML).toMatch(/draft\.selectedAgentProvider = core \|\| null/);
+    expect(HTML).toMatch(/draft\.selectedModel = m \|\| null/);
+    expect(HTML).toMatch(/draft\.selectedEffort = e \|\| null/);
   });
 
   it('suppresses the k-btn press-scale and the pending/success flashes on the dropdown trigger', () => {
@@ -907,20 +907,20 @@ describe('ticket-form webview.html — selects, buttons, positioning fixes', () 
     expect(main).toMatch(/\.agentselect-opt:hover\{[^}]*background:var\(--k-surface-hover\)[^}]*color:var\(--k-text\)/);
   });
 
-  it('re-renders the model picker for the picked provider from the last catalog', () => {
-    // The Model select sits right below the agent-core picker and must follow
-    // it. In create mode the host no-ops set-provider (no state push follows),
-    // so selectProvider has to re-filter the models locally from the catalog
-    // the state push carried — otherwise the Model select keeps the previous
-    // agent core's models until the next full render.
-    const fn = functionSource('selectProvider');
-    expect(fn).toContain('renderModelPicker(');
-    expect(fn).toContain('modelsForProvider(');
-    expect(fn).toContain('lastDefaultProvider');
+  it('re-renders the unified picker for the pushed catalog + defaults', () => {
+    // The ticket form hosts the UNIFIED agent identity picker, which re-filters
+    // the model list locally from the catalog the state push carried. The
+    // surface pins that the render path stashes the pushed catalog + defaults
+    // and passes them to the shared mount.
+    const render = functionSource('renderAgentIdentityPicker');
+    expect(render).toContain('mountAgentPicker(root, {');
+    expect(render).toContain('catalog: lastModelCatalog');
+    expect(render).toContain('lastDefaultProvider');
     // The cascade needs the pushed default + session lock to render honestly.
-    const render = functionSource('render');
-    expect(render).toContain('lastModelCatalog = state.modelCatalog');
-    expect(render).toContain('lastDefaultModel = state.defaultModel');
+    const main = functionSource('render');
+    expect(main).toContain('lastModelCatalog = state.modelCatalog');
+    expect(main).toContain('lastDefaultModel = state.defaultModel');
+    expect(main).toContain('lastDefaultEffort = state.defaultEffort');
   });
 
   it('Cancel closes the form instead of posting a dead request-state', () => {

@@ -9,6 +9,7 @@
   /*KARST_DS_CSS*/
   /*KARST_XTERM_CSS*/
   /*KARST_AGENT_CSS*/
+  /*KARST_AGENT_PICKER_CSS*/
 
   :root{
     /* Status colors come from the shared ramp (--k-pending|running|attention|
@@ -1597,33 +1598,11 @@
       </button>
       <div id="agentPopover" class="popover agentPopover hidden" role="dialog" aria-label="Switch active agent">
         <div class="agentForm">
-          <div class="fieldRow">
-            <label class="fieldLabel" id="coreLabel">Agent core</label>
-            <div class="fieldControl">
-              <div class="select-shell agentCoreShell" id="coreShell">
-                <button type="button" class="select-trigger agentCoreTrigger" id="coreTrigger"
-                  aria-haspopup="listbox" aria-expanded="false" aria-labelledby="coreLabel"></button>
-                <div class="dropdown agentCoreMenu" id="coreMenu" role="listbox" aria-labelledby="coreLabel"></div>
-              </div>
-            </div>
-          </div>
-          <div class="fieldRow">
-            <label class="fieldLabel" id="modelLabel">Model</label>
-            <div class="fieldControl">
-              <div class="select-shell agentModelShell" id="modelShell">
-                <button type="button" class="select-trigger agentModelTrigger" id="modelTrigger"
-                  aria-haspopup="listbox" aria-expanded="false" aria-labelledby="modelLabel"></button>
-                <div class="model-pop agentModelPop" id="modelPop" role="listbox" aria-labelledby="modelLabel">
-                  <div class="model-search">
-                    <input type="text" id="modelSearch" placeholder="Search models…" aria-label="Search models" />
-                  </div>
-                  <div class="model-scroll" id="modelList"></div>
-                </div>
-                <select id="modelSelect" class="hidden"></select>
-              </div>
-            </div>
-          </div>
-          <div class="fieldHelp">Provider and model changes are staged. Closing this menu takes no action.</div>
+          <!-- The UNIFIED agent identity picker (agent core + model + effort/
+               variant) — the same element Settings-general, the graph config
+               and the ticket form use (model/agentPicker.ts). -->
+          <div id="agentSwitchPicker"></div>
+          <div class="fieldHelp">Agent core, model and effort changes are staged. Closing this menu takes no action.</div>
         </div>
         <div class="popActions">
           <button id="switchBtn" type="button" class="k-btn k-btn--primary" disabled>Switch agent…</button>
@@ -1738,6 +1717,8 @@
   // identity chip consumes agentIconHtml (B1), so the markers are load-bearing:
   // without them the chip would throw ReferenceError on the first process row.
   /*KARST_AGENT_JS*/
+
+  /*KARST_AGENT_PICKER_JS*/
 
   /*KARST_XTERM_JS*/
 
@@ -3277,84 +3258,52 @@
     }
   }
 
-  // The agent-switch popover stages a draft core/model selection and does
+  // The agent-switch popover stages a draft core/model/effort selection and does
   // nothing until Switch agent… is clicked. The draft is a suggestion, never
   // authority: the `switch-agent` message the host re-validates (isKnownProvider
   // + model-choice membership) before it confirms or persists.
   let draftCore = null;
   let draftModel = '';
+  let draftEffort = '';
+  // The shared picker instance; re-configured on each popover open (idempotent).
+  let switchPicker = null;
 
   function populateAgentPopover() {
     const s = lastState && lastState.agentSession;
     if (!s) return;
     draftCore = s.provider;
     draftModel = s.modelId || '';
-    renderCoreSelect();
-    renderModelSelect();
+    draftEffort = (lastState && lastState.agentSwitch && lastState.agentSwitch.effort) || '';
+    const root = el('agentSwitchPicker');
+    if (!root || typeof mountAgentPicker !== 'function') { updateSwitchState(); return; }
+    const cores = (lastState.agentSwitch.cores || []).map((c) => ({ id: c.id, label: c.label || c.id }));
+    switchPicker = mountAgentPicker(root, {
+      cores,
+      catalog: (lastState.agentSwitch.modelsByCore || lastState.agentSwitch.models) || {},
+      value: { core: draftCore || '', model: draftModel, effort: draftEffort },
+      inherit: {
+        core: 'Inherit (settings: ' + (AGENT_PROVIDER_LABELS[s.provider] || s.provider) + ')',
+        model: (s.modelId ? 'Inherit (settings: ' + (lastState.agentSwitch.modelInheritLabel || '') + ')' : 'No default (agent picks)'),
+        effort: (lastState.agentSwitch.effortInheritLabel || 'No effort (agent picks)'),
+      },
+      showEffort: true,
+      onChange: ({ core, model, effort }) => {
+        draftCore = core || null;
+        draftModel = model || '';
+        draftEffort = effort || '';
+        updateSwitchState();
+      },
+    });
     updateSwitchState();
   }
-
-  function renderCoreSelect() {
-    const menu = el('coreMenu');
-    if (!menu || !lastState) return;
-    const cores = lastState.agentSwitch.cores || [];
-    menu.innerHTML = cores.map((c) =>
-      `<div class="drop-item${c.id === draftCore ? ' active' : ''}" role="option"`
-      + ` data-value="${esc(c.id)}" aria-selected="${c.id === draftCore ? 'true' : 'false'}">`
-      + agentBadgeHtml(c.id) + '</div>').join('');
-    const trigger = el('coreTrigger');
-    if (trigger) {
-      trigger.innerHTML = '<span class="sel-label">' + agentBadgeHtml(draftCore || cores[0]?.id || '') + '</span>'
-        + '<span class="chev" aria-hidden="true"></span>';
-    }
-  }
-
-  function renderModelPopup() {
-    const listEl = el('modelList');
-    if (!listEl || !lastState) return;
-    const models = (lastState.agentSwitch.models || {})[draftCore] || [];
-    let html = '<div class="model-item' + (draftModel === '' ? ' active' : '') + '" role="option"'
-      + ' data-model-id="" aria-selected="' + (draftModel === '' ? 'true' : 'false') + '">'
-      + '<div><div class="model-name">No default (agent picks)</div>'
-      + '<div class="model-sub">Let the provider choose.</div></div></div>';
-    if (models.length === 0) {
-      html += '<div class="model-empty">No models listed for ' + esc(AGENT_PROVIDER_LABELS[draftCore] || draftCore || '') + '.</div>';
-    } else {
-      html += '<div class="model-group-label">' + agentBadgeHtml(draftCore || '') + '</div>';
-      for (const m of models) {
-        const id = m.model || '';
-        html += '<div class="model-item' + (id === draftModel ? ' active' : '') + '" role="option"'
-          + ' data-model-id="' + esc(id) + '" aria-selected="' + (id === draftModel ? 'true' : 'false') + '">'
-          + '<div><div class="model-name">' + esc(m.label) + '</div>'
-          + '<div class="model-sub">' + esc(id) + '</div></div></div>';
-      }
-    }
-    listEl.innerHTML = html;
-    // Update the hidden value carrier
-    const sel = el('modelSelect');
-    if (sel) {
-      sel.innerHTML = models.map((m) =>
-        `<option value="${esc(m.model || '')}">${esc(m.label)}</option>`).join('');
-      if (models.some((m) => (m.model || '') === draftModel)) sel.value = draftModel;
-      else { draftModel = ''; sel.value = ''; }
-    }
-    // Update trigger label
-    const trigger = el('modelTrigger');
-    if (trigger) {
-      const currentModel = models.find((m) => (m.model || '') === draftModel);
-      const label = currentModel ? currentModel.label : (draftModel || '');
-      trigger.innerHTML = '<span class="sel-label">' + agentIdentityHtml(draftCore || '', label, true) + '</span>'
-        + '<span class="chev" aria-hidden="true"></span>';
-    }
-  }
-
-  function renderModelSelect() { renderModelPopup(); }
 
   function updateSwitchState() {
     const btn = el('switchBtn');
     const s = lastState && lastState.agentSession;
     if (!btn || !s) return;
-    const changed = draftCore !== s.provider || (draftModel || null) !== (s.modelId || null);
+    const changed = draftCore !== s.provider
+      || (draftModel || null) !== (s.modelId || null)
+      || (draftEffort || null) !== (s.effort || null);
     btn.disabled = !changed;
   }
 
@@ -3412,106 +3361,13 @@
     closePopovers();
   });
 
-  // Core dropdown pick
-  el('coreMenu').addEventListener('click', (e) => {
-    const item = e.target.closest && e.target.closest('[data-value]');
-    if (!item) return;
-    draftCore = item.dataset.value || null;
-    renderCoreSelect();
-    renderModelPopup();
-    updateSwitchState();
-    const shell = item.closest('.select-shell');
-    if (shell) { shell.classList.remove('is-open'); shell.querySelector('.dropdown')?.classList.remove('open'); }
-  });
-  // Model dropdown pick
-  el('modelPop').addEventListener('click', (e) => {
-    const item = e.target.closest && e.target.closest('[data-model-id]');
-    if (!item) return;
-    draftModel = item.dataset.modelId || '';
-    renderModelPopup();
-    updateSwitchState();
-    const shell = item.closest('.select-shell');
-    if (shell) { shell.classList.remove('is-open'); shell.querySelector('.model-pop')?.classList.remove('open'); }
-  });
-  // Model search filter
-  el('modelSearch')?.addEventListener('input', (e) => {
-    const q = (e.target.value || '').trim().toLowerCase();
-    const models = (lastState?.agentSwitch.models || {})[draftCore] || [];
-    const listEl = el('modelList');
-    if (!listEl) return;
-    if (!q) { renderModelPopup(); return; }
-    let html = '<div class="model-item' + (draftModel === '' ? ' active' : '') + '" role="option"'
-      + ' data-model-id="" aria-selected="' + (draftModel === '' ? 'true' : 'false') + '">'
-      + '<div><div class="model-name">No default (agent picks)</div></div></div>';
-    html += '<div class="model-group-label">' + agentBadgeHtml(draftCore || '') + '</div>';
-    for (const m of models) {
-      const id = m.model || '';
-      const hay = (m.label + ' ' + id).toLowerCase();
-      if (hay.includes(q)) {
-        html += '<div class="model-item' + (id === draftModel ? ' active' : '') + '" role="option"'
-          + ' data-model-id="' + esc(id) + '" aria-selected="' + (id === draftModel ? 'true' : 'false') + '">'
-          + '<div><div class="model-name">' + esc(m.label) + '</div>'
-          + '<div class="model-sub">' + esc(id) + '</div></div></div>';
-      }
-    }
-    if (html.indexOf('model-item') === -1) {
-      html = '<div class="model-empty">No models match "' + esc(e.target.value) + '".</div>';
-    }
-    listEl.innerHTML = html;
-  });
-  el('modelSearch')?.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
-      const shell = el('modelShell');
-      if (shell) { shell.classList.remove('is-open'); shell.querySelector('.model-pop')?.classList.remove('open'); }
-    }
-  });
-  // Agent core dropdown open/close (inside the agent popover)
-  el('coreTrigger')?.addEventListener('click', (e) => {
-    e.stopPropagation();
-    const shell = el('coreShell');
-    if (!shell) return;
-    const opening = !shell.classList.contains('is-open');
-    // Close any other open shell
-    document.querySelectorAll('.select-shell.is-open').forEach((s) => {
-      s.classList.remove('is-open');
-      s.querySelector('.dropdown, .model-pop')?.classList.remove('open');
-    });
-    if (opening) {
-      shell.classList.add('is-open');
-      shell.querySelector('.dropdown')?.classList.add('open');
-    }
-  });
-  // Agent model dropdown open/close
-  el('modelTrigger')?.addEventListener('click', (e) => {
-    e.stopPropagation();
-    const shell = el('modelShell');
-    if (!shell) return;
-    const opening = !shell.classList.contains('is-open');
-    document.querySelectorAll('.select-shell.is-open').forEach((s) => {
-      s.classList.remove('is-open');
-      s.querySelector('.dropdown, .model-pop')?.classList.remove('open');
-    });
-    if (opening) {
-      shell.classList.add('is-open');
-      shell.querySelector('.model-pop')?.classList.add('open');
-      el('modelSearch')?.focus();
-    }
-  });
-  // Close open shells on outside click
-  document.addEventListener('click', (e) => {
-    if (e.target.closest && e.target.closest('.select-shell')) return;
-    document.querySelectorAll('.select-shell.is-open').forEach((s) => {
-      s.classList.remove('is-open');
-      s.querySelector('.dropdown, .model-pop')?.classList.remove('open');
-    });
-  });
   el('switchBtn').addEventListener('click', () => {
     if (el('switchBtn').disabled) return;
     closePopovers();
     // No requestId: the popover closes and the host owns the outcome (confirm
     // modal + relaunch); a stale/cancelled switch surfaces as a host toast or
     // the next state push, never as an invented verdict (UI-R14/R31).
-    post({ type: 'switch-agent', provider: draftCore, model: draftModel || null });
+    post({ type: 'switch-agent', provider: draftCore, model: draftModel || null, effort: draftEffort || null });
   });
   el('linkViews').addEventListener('change', () => {
     // Payload-free like the old bind button: the host owns the preference and

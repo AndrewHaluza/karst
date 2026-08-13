@@ -76,9 +76,10 @@ export type WebviewMessage =
    * Carries the selection VERBATIM — the host re-validates both against the
    * choices IT computed (isKnownProvider + model-choice membership) before
    * confirming or persisting, so the webview's draft is a suggestion, never
-   * authority.
+   * authority. `effort` is the optional effort/variant, staged like the model;
+   * the host validates it against the selected model's advertised efforts.
    */
-  | { type: 'switch-agent'; provider: AgentProvider; model: string | null }
+  | { type: 'switch-agent'; provider: AgentProvider; model: string | null; effort: string | null }
   /** Copy this ticket's key through the host clipboard (the closure owns the ticket). */
   | { type: 'copy-ticket-key' }
   /**
@@ -230,7 +231,7 @@ export interface DashboardActions {
   /** Flip the window's terminal↔dashboard binding. */
   toggleBind: () => void | Promise<void>;
   /** Apply a staged agent-core/model selection to this ticket's live session. */
-  switchAgent: (provider: AgentProvider, model: string | null) => void | Promise<void>;
+  switchAgent: (provider: AgentProvider, model: string | null, effort: string | null) => void | Promise<void>;
   /** Copy the ticket key to the clipboard. */
   copyTicketKey: () => void | Promise<void>;
   /**
@@ -370,7 +371,12 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
       const model = m.model === undefined ? '' : (typeof m.model === 'string' ? m.model : null);
       if (model === null) return null;
       if (model.length > MAX_MODEL_ID_CHARS) return null;
-      return { type: 'switch-agent', provider, model: model || null };
+      // Same contract for the effort/variant: absent/blank = inherit; a
+      // non-string or oversized value drops the whole message.
+      const effort = m.effort === undefined ? '' : (typeof m.effort === 'string' ? m.effort : null);
+      if (effort === null) return null;
+      if (effort.length > MAX_MODEL_ID_CHARS) return null;
+      return { type: 'switch-agent', provider, model: model || null, effort: effort || null };
     }
     case 'copy-ticket-key':
       return { type: 'copy-ticket-key' };
@@ -539,7 +545,7 @@ export function routeAction(
     case 'toggle-bind':
       return actions.toggleBind();
     case 'switch-agent':
-      return actions.switchAgent(msg.provider, msg.model);
+      return actions.switchAgent(msg.provider, msg.model, msg.effort);
     case 'copy-ticket-key':
       return actions.copyTicketKey();
     case 'stage-resume':
