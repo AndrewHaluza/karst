@@ -676,6 +676,20 @@ describe('settings placeholder-transform mirror', () => {
   });
 });
 
+describe('settings label-template mirror (UI-R34)', () => {
+  it('mirrors the followUp template token and the marker in the terminal default', () => {
+    // UI-R34: TICKET_LABEL_VARIABLES / DEFAULT_TERMINAL_NAME_TEMPLATE are
+    // mirrored into the webview (it cannot import TS). A drift shows one set of
+    // variables in Settings and another in the host engine.
+    expect(HTML).toContain(
+      "const LABEL_VARS = ['key', 'title', 'id', 'status', 'stage', 'repos', 'followUp']",
+    );
+    expect(HTML).toContain("const DEFAULT_TERMINAL_TEMPLATE = 'Karst: {followUp}{key} — {title}'");
+    expect(HTML).toContain('parentTicketId: null');
+    expect(HTML).toContain('followUp: ticket.parentTicketId != null ? \'↳ \' : \'\'');
+  });
+});
+
 // ---- tab-scoped Save ----------------------------------------------------
 
 /** The mirrored section vocabulary, lifted verbatim from the page's script. */
