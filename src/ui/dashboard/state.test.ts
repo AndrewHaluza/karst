@@ -45,6 +45,29 @@ describe('buildDashboardState', () => {
     expect(state.artifacts).toEqual([]);
   });
 
+  it('carries the parent relationship for a follow-up and null otherwise', () => {
+    const parent = createTicket(store, { key: 'PROJ-1', title: 'root work' });
+    const child = createTicket(store, {
+      key: 'PROJ-1-fu1',
+      title: 'root work',
+      parentTicketId: parent.id,
+    });
+    const childState = buildDashboardState(store, child.id);
+    expect(childState.parent).toEqual({ key: 'PROJ-1', title: 'root work' });
+    expect(buildDashboardState(store, parent.id).parent).toBeNull();
+  });
+
+  it('degrades to null when the linked parent was hard-deleted', () => {
+    const parent = createTicket(store, { key: 'PROJ-1', title: 'root work' });
+    const child = createTicket(store, {
+      key: 'PROJ-1-fu1',
+      title: 'root work',
+      parentTicketId: parent.id,
+    });
+    store.db.prepare('DELETE FROM tickets WHERE id = ?').run(parent.id);
+    expect(buildDashboardState(store, child.id).parent).toBeNull();
+  });
+
   it('derives the artifacts shelf from the same evidence the inside view renders', () => {
     const t = createTicket(store, { key: 'ART-ST', title: 'artifacts' });
     store.db.prepare("UPDATE tickets SET stage_current = 'uat' WHERE id = ?").run(t.id);

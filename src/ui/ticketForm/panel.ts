@@ -15,6 +15,7 @@ import {
   type ModelCatalog,
 } from '../../agent/modelCatalog.js';
 import { readRequestId, reportAction } from '../../model/actionResult.js';
+import { compactTicketLabel } from '../../model/followUp.js';
 
 /**
  * The subset of a `vscode.WebviewPanel` the ticket-form manager touches. Modeled
@@ -185,11 +186,14 @@ export class TicketFormManager {
     }
 
     // Edit-mode tab title reads as the human ticket label (`key — title`), not
-    // the internal SQL id. `ticketId` is always defined in edit mode.
-    const title =
-      mode === 'create'
-        ? 'New ticket'
-        : ticketLabel(getTicket(this.store, ticketId!), this.manifest().ticketLabelTemplate);
+    // the internal SQL id — prefixed with the one-char follow-up marker when
+    // the ticket is a follow-up (model/followUp.ts). `ticketId` is always
+    // defined in edit mode.
+    let title = 'New ticket';
+    if (mode === 'edit') {
+      const ticket = getTicket(this.store, ticketId!);
+      title = compactTicketLabel(ticket, ticketLabel(ticket, this.manifest().ticketLabelTemplate));
+    }
     const panel = this.host.createPanel(title);
     this.panels.set(key, panel);
     if (ticketId !== undefined) this.ticketByPanel.set(panel, ticketId);

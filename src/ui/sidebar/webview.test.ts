@@ -175,6 +175,15 @@ describe('sidebar webview.html', () => {
     expect(HTML).toContain('class="parentref"');
   });
 
+  it('renders exactly one follow-up marker per row — the parentref, never a Follow-up: prefix', () => {
+    // The row's follow-up identity is the rich parentref (`↳ <parentKey>`). The
+    // stored title is the plain task title, so the row source carries the
+    // parentref and no "Follow-up:" prefix — the two-marker duplication this
+    // ticket removes. (`Follow-up of` in the parentref tooltip has no colon.)
+    expect(HTML).toContain('class="parentref"');
+    expect(HTML).not.toContain('Follow-up:');
+  });
+
   it('caps the follow-up badge so the title keeps its share of the row (balance fix)', () => {
     // A long parent key used to take as much width as it needed (`flex:0 0
     // auto`, no max-width), so the title's flex:1 share shrank toward nothing.

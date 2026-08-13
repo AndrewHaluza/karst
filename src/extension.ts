@@ -134,6 +134,7 @@ import {
   renderTicketLabel,
   DEFAULT_TERMINAL_NAME_TEMPLATE,
 } from './store/ticketLabelTemplate.js';
+import { compactTicketLabel } from './model/followUp.js';
 import { ticketGlyph } from './model/ticketGlyph.js';
 import { glyphIconPath } from './ui/glyphIcon.js';
 import { brandIconPaths, type BrandIconPaths } from './ui/brandIcon.js';
@@ -2023,7 +2024,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   const changes = new TicketChangesManager(
     makeChangesPanelHost(context, brandIcon),
-    (ticketId) => `${ticketLabel(getTicket(localStore, ticketId))} — Changes`,
+    (ticketId) => {
+      const t = getTicket(localStore, ticketId);
+      return `${compactTicketLabel(t, ticketLabel(t))} — Changes`;
+    },
     async (ticketId, signal) => {
       const pathContext = worktreePathContext(currentManifest(), logger.warn, logger.info);
       const worktrees = listWorktreesByTicket(localStore, ticketId).map((worktree) => ({
@@ -4372,10 +4376,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const manifest = await resolveManifest(logger.info);
       if (!manifest) return; // no folder / scaffolded / invalid — message already shown
 
-      // Ticket label (key — title) for all the spin chrome, not the raw id.
+      // Ticket label (key — title) for all the spin chrome, not the raw id —
+      // prefixed with the one-char follow-up marker when applicable.
       let label: string;
       try {
-        label = ticketLabel(getTicket(localStore, ticketId), manifest.ticketLabelTemplate);
+        const t = getTicket(localStore, ticketId);
+        label = compactTicketLabel(t, ticketLabel(t, manifest.ticketLabelTemplate));
       } catch {
         void vscode.window.showErrorMessage(`Ticket #${ticketId} not found.`);
         return;

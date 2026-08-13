@@ -19,7 +19,7 @@ export function readSchema(): string {
 }
 
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 42;
+export const SCHEMA_VERSION = 43;
 
 /** v2 ticket-field columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -1637,6 +1637,35 @@ export function migrate(db: Database): void {
     db.exec(
       'CREATE INDEX IF NOT EXISTS idx_test_hooks_ticket ON test_hooks(ticket_id, id)',
     );
+  }
+
+  if (current < 43) {
+    // v43 normalizes legacy follow-up titles (869ehqx68). Creation used to
+    // store `Follow-up: <parent title>` as the title; that prefix is
+    // relationship identity, not part of the task title, so it is stripped.
+    // Stripped REPEATEDLY so a nested `Follow-up: Follow-up: X` (a follow-up of
+    // a follow-up re-prefixing an already-prefixed title) converges to the
+    // plain task title. Guarded to actual follow-ups (`parent_ticket_id IS NOT
+    // NULL`) matching the literal creation-time prefix, and to titles longer
+    // than the prefix (a bare `Follow-up: ` must not become empty), so a
+    // hand-written title is never touched. A fresh DB has no such rows — no-op.
+    // The step also only runs when the tickets table exists with the v14+
+    // parent column, so a partial-schema DB (e.g. a lone attachments table in
+    // a repair test) skips instead of failing to prepare the statement.
+    const cols = ticketColumns(db);
+    if (cols.has('title') && cols.has('parent_ticket_id')) {
+      const strip = db.prepare(
+        `UPDATE tickets SET title = substr(title, 12)
+          WHERE parent_ticket_id IS NOT NULL
+            AND title LIKE 'Follow-up: %'
+            AND length(title) > 11`,
+      );
+      db.transaction(() => {
+        while (strip.run().changes > 0) {
+          // keep stripping leading prefixes until none remain
+        }
+      })();
+    }
   }
 
   db.pragma(`user_version = ${SCHEMA_VERSION}`);

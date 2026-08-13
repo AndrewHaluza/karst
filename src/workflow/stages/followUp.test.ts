@@ -41,7 +41,7 @@ describe('createFollowUpTicket', () => {
     const child = createFollowUpTicket(store, parentId);
     expect(child.parentTicketId).toBe(parentId);
     expect(child.key).toBe('PROJ-1-fu1');
-    expect(child.title).toBe('Follow-up: Ship the thing');
+    expect(child.title).toBe('Ship the thing');
     expect(child.source).toBe('karst');
   });
 
@@ -66,6 +66,17 @@ describe('createFollowUpTicket', () => {
     createFollowUpTicket(store, parentId);
     const second = createFollowUpTicket(store, parentId);
     expect(second.key).toBe('PROJ-1-fu2');
+  });
+
+  it('stores the parent title verbatim — a follow-up of a follow-up never re-prefixes', () => {
+    const root = doneParent();
+    const first = createFollowUpTicket(store, root);
+    store.db.prepare("UPDATE tickets SET stage_current = 'done' WHERE id = ?").run(first.id);
+    const second = createFollowUpTicket(store, first.id);
+    expect(first.title).toBe('Ship the thing');
+    expect(second.title).toBe('Ship the thing');
+    expect(first.title!.startsWith('Follow-up:')).toBe(false);
+    expect(second.title!.startsWith('Follow-up:')).toBe(false);
   });
 
   it('rejects a parent ticket that has not reached done', () => {

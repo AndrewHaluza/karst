@@ -227,6 +227,21 @@ describe('TicketFormManager', () => {
     expect(panels[0]!.title).not.toContain(`#${t.id}`);
   });
 
+  it('prefixes the edit-panel title with the one-char marker for a follow-up ticket', () => {
+    const parent = createTicket(store, { key: 'CU-1234', title: 'Add PDF export' });
+    const child = createTicket(store, {
+      key: 'CU-1234-fu1',
+      title: 'Add PDF export',
+      parentTicketId: parent.id,
+    });
+    const { host, panels } = fakeHost();
+    const { factory } = recordingFactory();
+    const mgr = new TicketFormManager(store, () => MANIFEST, host, factory);
+
+    mgr.openEdit(child.id);
+    expect(panels[0]!.title).toBe('↳ CU-1234-fu1 — Add PDF export');
+  });
+
   it('reuses the edit panel for the same ticket instead of duplicating', () => {
     const t = createTicket(store, { key: 'P-1', title: 't' });
     const { host, panels } = fakeHost();

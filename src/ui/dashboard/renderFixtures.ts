@@ -846,6 +846,7 @@ export function renderStateFor(stage: InsideStageKey): DashboardState {
     ticketId: 0,
     key: null,
     title: null,
+    parent: null,
     stageCurrent: stage,
     agentState: null,
     agentSession: {

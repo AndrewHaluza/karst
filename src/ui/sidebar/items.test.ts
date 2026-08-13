@@ -72,6 +72,19 @@ describe('buildTicketNodes', () => {
     expect(node!.parentKey).toBeNull();
   });
 
+  it('labels a follow-up with the plain title, never a Follow-up: prefix', () => {
+    const parentKeys = new Map([[1, 'PROJ-1']]);
+    const [node] = buildTicketNodes(
+      [ticket({ id: 2, key: 'PROJ-1-fu1', title: 'Ship the thing', parentTicketId: 1 })],
+      undefined,
+      undefined,
+      parentKeys,
+    );
+    expect(node!.label).toBe('PROJ-1-fu1 — Ship the thing');
+    expect(node!.label.startsWith('Follow-up:')).toBe(false);
+    expect(node!.parentKey).toBe('PROJ-1');
+  });
+
   it('carries the current stage as the node description (visible when folded)', () => {
     const n = buildTicketNodes([ticket({ stageCurrent: 'impl' })])[0]!;
     expect(n.description).toContain('impl');
