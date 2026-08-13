@@ -1,6 +1,6 @@
 # Slice 3 — Sequential Execution and Guarded Completion
 
-**Entry gate:** Slice 2 exit gate holds **and** the worked cost comparison required by the design's Premise and Measurement section is recorded in `deterministic-execution-plan/measurement/cost-comparison.md`. If that comparison does not exist, Slice 3 does not start — deliberately. If it shows the graph costing materially more for an equal outcome, the budget primitives are revisited before this slice ships.
+**Entry gate:** Slice 2 exit gate holds **and** the worked cost comparison required by the design's Premise and Measurement section is recorded in `docs/plans/deterministic-execution-plan/measurement/cost-comparison.md`. If that comparison does not exist, Slice 3 does not start — deliberately. If it shows the graph costing materially more for an equal outcome, the budget primitives are revisited before this slice ships.
 
 **Ships:** atomic activation claims, the four executors at `maxParallel: 1`, the supervised transport with proven termination, immutable change sets and canonical integration, graph-aware Resume, the transactional IMPL marker guard, and the flip of the packaged default to `enabled: true`.
 
@@ -151,7 +151,7 @@ Same UI rules as Slice 1 Task 6 apply, and additionally: a modal or drawer does 
 
 **Changes:**
 1. `src/approaches/builtIn.ts`: `enabled: true`. This is the slice with a runtime behind it — flipping earlier means a ticket picking the approach gets an impl launch with no runtime, which is the failure this sequencing prevents.
-2. Run the post-Slice-3 measurement against the Slice-1 baseline on N real tickets and record it in `deterministic-execution-plan/measurement/post-slice-3.md`: implementation wall time, total token cost, human-intervention count, UAT-pass-on-first-attempt.
+2. Run the post-Slice-3 measurement against the Slice-1 baseline on N real tickets and record it in `docs/plans/deterministic-execution-plan/measurement/post-slice-3.md`: implementation wall time, total token cost, human-intervention count, UAT-pass-on-first-attempt.
 3. Apply the **abandonment criterion**: if the graph does not improve at least one of the four without worsening the others, revert the flip to `enabled: false` and stop — Slices 4–6 are not built. A result favorable on cost but unfavorable on intervention count falls under the same rule.
 
 **Verification:** the measurement file exists with the same queries as the baseline, and the flip state matches the criterion's outcome.

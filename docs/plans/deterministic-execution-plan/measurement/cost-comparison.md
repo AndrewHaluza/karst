@@ -2,7 +2,7 @@
 
 > Status: **worked estimate**, not measurement. This document satisfies the
 > Slice-3 entry gate named in
-> `deterministic-execution-plan/03-slice-3-…md` (line 3) and the design's
+> `docs/plans/deterministic-execution-plan/03-slice-3-…md` (line 3) and the design's
 > Premise and Measurement, Cost model obligation
 > (`docs/superpowers/specs/2026-08-09-dynamic-impl-graph-runtime-design.md`,
 > §Premise and Measurement).
@@ -11,7 +11,7 @@
 > (`docs/plans/2026-08-10-graph-runtime-review-remediation.md`, "Cost model",
 > line 929, and line 983) assigned this deliverable to "Task 16, item 2" of the
 > pre-restructure roadmap. The restructured roadmap
-> (`deterministic-execution-plan/00-ROADMAP.md`) kept the entry gate but
+> (`docs/plans/deterministic-execution-plan/00-ROADMAP.md`) kept the entry gate but
 > dropped the producing task — the Slice-1 half survived as Slice-1 T8
 > (`measurement/baseline.md`), the comparison did not. It is produced here by
 > the executor at the principal's direction so the gate can be evaluated.
@@ -22,7 +22,7 @@
 > of the design applies to it unchanged.
 >
 > Recorded: 2026-08-12. Supersedes nothing; superseded by
-> `deterministic-execution-plan/measurement/post-slice-3.md` (Slice-3 T12).
+> `docs/plans/deterministic-execution-plan/measurement/post-slice-3.md` (Slice-3 T12).
 
 ## The representative ticket
 
