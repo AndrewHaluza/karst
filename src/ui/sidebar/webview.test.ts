@@ -457,7 +457,8 @@ describe('sidebar webview.html', () => {
     // leaving the label hugging the left of a wide card; the ghost variant's
     // own centering now applies untouched (UI-R07).
     expect(script).not.toContain('hist-side');
-    // The mini-dashboard toolbar legitimately has a spacer (.dashbar .sp), so
+    // The mini-dashboard's own spacer story lives in the peek head row (the
+    // tools hug the right edge via justify-content:space-between), so
     // the "no spacer" claim is scoped to the history disclosure's own markup.
     const histFn = script.match(/function histToggle\([\s\S]*?\n  \}/)?.[0] ?? '';
     expect(histFn, histFn).not.toContain('class="sp"');
@@ -551,7 +552,7 @@ describe('sidebar webview.html', () => {
     expect(script).toContain('ctxMenuTriggerHtml(row, menuOpen)');
     expect(script).toContain('data-menu="${row.ticketId}"');
     // Scoped to the hover-strip `acts` block: Dashboard moved out of the strip
-    // (it still lives in the expanded dashbar), and the non-quick actions
+    // (it still lives in the expanded peek-tools), and the non-quick actions
     // (Edit/Archive/Follow Up) ride the shared context window, never the strip.
     const acts = script.match(/const acts = row\.archived[\s\S]*?const hoverStrip/)?.[0] ?? '';
     expect(acts, acts).toContain('data-act="spin"');
@@ -572,20 +573,64 @@ describe('sidebar webview.html', () => {
     expect(main).toContain('.ticket.open .row:hover .stage{opacity:1}');
   });
 
-  it('the expanded mini-dashboard carries a stable toolbar with Spin / Terminal / Dashboard + ⋯', () => {
+  it('the expanded mini-dashboard moves the quick actions to a top-right head-row toolbar', () => {
     const script = scriptBlock();
-    expect(script).toContain('function dashbarHtml(row, sessVerb, menuOpen)');
-    // The toolbar is the same three quick actions, in a bar.
+    // The follow-up (869ehda7y-fu2) moved the toolbar out of the bottom card
+    // footer (.dashbar) into the peek head row's top-right (the prototype's
+    // peek-tools). The same three quick actions, in a stable group.
+    expect(script).toContain('function toolsHtml(row, sessVerb, menuOpen)');
+    expect(script).toContain('class="peek-tools">');
+    // The head row pins the tools to the right edge with a spacer-free split.
+    expect(script).toContain('class="peek-copy">');
+    expect(script).toContain('class="peek-head">');
+    // Same three quick actions + the shared context-window trigger.
     expect(script).toContain('data-act="spin"');
     expect(script).toContain('data-act="open-session"');
     expect(script).toContain('data-act="open-dashboard"');
-    // Plus the shared context-window trigger.
-    expect(script).toContain('data-menu="${row.ticketId}"');
-    expect(script).toContain('ic.more');
-    // The bar is stable CSS, not a hover-only overlay.
+    expect(script).toContain('ctxMenuTriggerHtml(row, menuOpen)');
+    // The old bottom bar is gone — no card-footer toolbar, no spacer for it.
+    expect(script).not.toContain('function dashbarHtml(');
     const [main] = styleBlocks();
-    expect(main).toContain('.dashbar{display:flex;');
-    expect(main).toContain('.dashbar .sp{flex:1}');
+    expect(main).not.toContain('.dashbar');
+    expect(main).toContain('.peek-tools{display:flex;');
+    expect(main).toContain('.peek-head{display:flex;');
+  });
+
+  it('the contextual CTA is a labeled primary button pinned bottom-right, above no footer bar', () => {
+    const script = scriptBlock();
+    expect(script).toContain('function nextCtaHtml(next, row)');
+    // The CTA is wrapped by a right-aligned actions bar at the bottom of the
+    // mini-dashboard (the prototype's contextual actions), not floated beside
+    // the tools or in a card footer.
+    expect(script).toContain('class="peek-actions">${nextCtaHtml(peek.next, row)}');
+    expect(script).toContain('class="k-btn k-btn--primary"');
+    // A ticket with no next step renders no actions bar at all.
+    expect(script).toContain("(peek.next ? `<div class=\"peek-actions\">${nextCtaHtml(peek.next, row)}</div>` : '')");
+    const [main] = styleBlocks();
+    expect(main).toContain('.peek-actions{display:flex;justify-content:flex-end;');
+    expect(main).not.toContain('.peek-cta');
+  });
+
+  it('renders the agent identity line, gate progress and landing repos only when the peek carries them', () => {
+    const script = scriptBlock();
+    // Agent identity: the shared compact [icon] Core · Model component (UI-R10c).
+    expect(script).toContain('function peekAgentHtml(agent)');
+    expect(script).toContain('agentIdentityHtml(agent.provider, agent.model, true)');
+    expect(script).toContain("if (!agent || !agent.provider) return '';");
+    // Gate progress: a thin track + inline-width fill with progressbar semantics.
+    expect(script).toContain('function peekProgressHtml(progress)');
+    expect(script).toContain('role="progressbar"');
+    expect(script).toContain('style="width:${pct}%"');
+    // Ship landing rows: per-repo PR number + ready/conflict word (non-color carrier).
+    expect(script).toContain('function peekReposHtml(repos)');
+    expect(script).toContain('! Conflicts</span>');
+    expect(script).toContain('✓ Ready</span>');
+    expect(script).toContain('class="peek-repo-state');
+    // The head row renders progress above the separator, then agent/repos below.
+    expect(script).toContain('peekProgressHtml(peek.progress)');
+    expect(script).toContain('class="peek-sep"></div>');
+    expect(script).toContain('peekAgentHtml(peek.agent)');
+    expect(script).toContain('peekReposHtml(peek.repos)');
   });
 
   it('the ⋯ trigger is a real button with menu semantics and a POSITIONED context window (never clipped)', () => {
