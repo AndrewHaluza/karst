@@ -5,11 +5,11 @@ import {
   lastFailedGate,
   type GateStageKey,
 } from '../workflow/fixAttempts.js';
-import type { RailNeeds } from './railNeeds.js';
+import type { RailCta, RailNeeds } from './railNeeds.js';
 import { displayStatus, type StepperCell } from './stepper.js';
 import type { StageKey, StageStatus } from './types.js';
 
-export type { RailNeeds };
+export type { RailCta, RailNeeds };
 
 /**
  * The fix loop, drawn on the gate it retries.

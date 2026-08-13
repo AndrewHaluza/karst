@@ -126,19 +126,24 @@ describe('buildStageRail', () => {
     const r = rail([{ stageKey: 'ship', status: 'pending' }], {
       current: 'ship',
       needsUser: true,
-      needs: { detail: 'ready to open the PRs', action: 'Confirm ship' },
+      needs: { detail: 'ready to open the PRs', action: 'Confirm ship', cta: { kind: 'ship-confirm' } },
     });
     expect(seg(r, 'ship').needsUser).toBe(true);
     expect(seg(r, 'ship').needs).toEqual({
       detail: 'ready to open the PRs',
       action: 'Confirm ship',
+      cta: { kind: 'ship-confirm' },
     });
     expect(r.main.filter((s) => s.needsUser)).toHaveLength(1);
     expect(seg(r, 'done').needs).toBeNull();
   });
 
   it('never marks needs-you without a current segment to carry it', () => {
-    const r = rail([], { current: null, needsUser: true, needs: { detail: 'x', action: 'y' } });
+    const r = rail([], {
+      current: null,
+      needsUser: true,
+      needs: { detail: 'x', action: 'y', cta: { kind: 'open-session' } },
+    });
     expect(r.main.some((s) => s.needsUser)).toBe(false);
   });
 

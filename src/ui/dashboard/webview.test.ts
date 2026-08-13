@@ -252,16 +252,24 @@ describe('dashboard webview.html', () => {
     expect(track).not.toMatch(/=== 'ship'|'pending'/);
   });
 
-  it('makes the needs-you button navigational, never a second actor', () => {
-    // karst never performs an irreversible step from the track: merge is per-repo
-    // and its confirmation modal lives in the host, so a track-level Merge button
-    // could neither pick a repo nor carry the confirmation.
-    expect(HTML).toContain('data-goto');
-    expect(HTML).toMatch(/function gotoAction\(\)/);
-    const fn = HTML.slice(HTML.indexOf('function gotoAction()'));
+  it('makes the needs-you control act for confirm ship and a single merge, navigate otherwise', () => {
+    // The HOST decides what the control does (`s.needs.cta`), never the webview
+    // deriving it from the label. The acting kinds carry `data-act` so the
+    // generic delegated handler gives them the same pending lifecycle as the
+    // header's Confirm ship and the PR panel's Merge — the host's confirmation
+    // still guards the irreversible step. The navigational kinds keep
+    // `data-goto data-go` and gotoAction() scrolls to the owning control.
+    expect(HTML).toContain('goButton(s.needs)');
+    expect(HTML).toMatch(/cta\.kind === 'ship-confirm'/);
+    expect(HTML).toMatch(/data-act="ship-ticket"/);
+    expect(HTML).toMatch(/cta\.kind === 'merge'/);
+    expect(HTML).toMatch(/data-act="merge-pr" data-repo="/);
+    expect(HTML).toContain('data-goto data-go');
+    expect(HTML).toMatch(/function gotoAction\(kind\)/);
+    const fn = HTML.slice(HTML.indexOf('function gotoAction(kind)'));
     const body = fn.slice(0, fn.indexOf('\n  }'));
     expect(body).toContain('scrollIntoView');
-    expect(body, 'the track posts nothing').not.toContain('post(');
+    expect(body, 'the navigational path posts nothing').not.toContain('post(');
   });
 
   it('fills a phase pip only for a phase the agent reported', () => {
