@@ -36,6 +36,9 @@ function input(over: Partial<PeekInput> = {}): PeekInput {
     servers: [],
     gateRuns: [],
     mergeGate: null,
+    provider: null,
+    model: null,
+    prs: [],
     ...over,
   };
 }
@@ -68,7 +71,21 @@ describe('buildPeek — the expanded mini-dashboard summary', () => {
       title: 'Agent running',
       detail: 'session is live · jump to terminal',
       next: { kind: 'open-session', label: 'Open session' },
+      agent: null,
     });
+  });
+
+  it('names the working agent core and model on the live readings', () => {
+    const peek = buildPeek(
+      input({
+        stageCurrent: 'impl',
+        agentState: 'running',
+        sessionAction: SESS_OPEN,
+        provider: 'opencode',
+        model: 'opencode-go/deepseek-v4-flash',
+      }),
+    );
+    expect(peek.agent).toEqual({ provider: 'opencode', model: 'opencode-go/deepseek-v4-flash' });
   });
 
   it('a waiting agent reads as needs-you with the continue verb', () => {
@@ -78,6 +95,7 @@ describe('buildPeek — the expanded mini-dashboard summary', () => {
       title: 'Agent waiting for input',
       detail: 'resume impl',
       next: { kind: 'open-session', label: 'Continue session' },
+      agent: null,
     });
   });
 
@@ -119,7 +137,30 @@ describe('buildPeek — the expanded mini-dashboard summary', () => {
       title: '2 merge conflicts in api, web',
       detail: null,
       next: { kind: 'resolve-conflicts', label: 'Resolve conflicts', repo: 'api' },
+      repos: [
+        { repo: 'api', number: null, state: 'conflict' },
+        { repo: 'web', number: null, state: 'conflict' },
+      ],
     });
+  });
+
+  it('a conflicted ship lists conflicted repos first, then ready-pending ones, with PR numbers', () => {
+    expect(
+      buildPeek(
+        input({
+          stageCurrent: 'ship',
+          current: stage({ stageKey: 'ship', status: 'passed' }),
+          mergeGate: { kind: 'conflicted', repos: ['web'], pending: ['api'] },
+          prs: [
+            { repo: 'web', number: 413, status: 'open' },
+            { repo: 'api', number: 412, status: 'open' },
+          ],
+        }),
+      ).repos,
+    ).toEqual([
+      { repo: 'web', number: 413, state: 'conflict' },
+      { repo: 'api', number: 412, state: 'ready' },
+    ]);
   });
 
   it('a ship waiting on its PRs states how many are unmerged', () => {
@@ -135,7 +176,28 @@ describe('buildPeek — the expanded mini-dashboard summary', () => {
       title: '1 pull request awaiting merge',
       detail: 'web',
       next: null,
+      repos: [{ repo: 'web', number: null, state: 'ready' }],
     });
+  });
+
+  it('an awaiting ship drops merged PR rows and keeps the current number per repo', () => {
+    expect(
+      buildPeek(
+        input({
+          stageCurrent: 'ship',
+          current: stage({ stageKey: 'ship', status: 'passed' }),
+          mergeGate: { kind: 'awaiting', repos: ['api', 'web'] },
+          prs: [
+            { repo: 'api', number: 410, status: 'merged' },
+            { repo: 'api', number: 412, status: 'open' },
+            { repo: 'web', number: 413, status: 'open' },
+          ],
+        }),
+      ).repos,
+    ).toEqual([
+      { repo: 'api', number: 412, state: 'ready' },
+      { repo: 'web', number: 413, state: 'ready' },
+    ]);
   });
 
   it('a freshly-parked ship (no PR yet) reads as ready to confirm', () => {
@@ -180,7 +242,36 @@ describe('buildPeek — the expanded mini-dashboard summary', () => {
       title: 'UAT running',
       detail: '1/2 gates passed',
       next: null,
+      agent: null,
+      progress: { passed: 1, total: 2 },
     });
+  });
+
+  it('a running gate names the executing core when one is configured', () => {
+    const runs = [gateRun({ gateName: 'test', exitCode: 0 })];
+    expect(
+      buildPeek(
+        input({
+          stageCurrent: 'review',
+          current: stage({ stageKey: 'review', status: 'running' }),
+          gateRuns: runs,
+          provider: 'claude',
+          model: 'opus-4.1',
+        }),
+      ).agent,
+    ).toEqual({ provider: 'claude', model: 'opus-4.1' });
+  });
+
+  it('a running gate with no recorded rows yet has no progress bar to draw', () => {
+    expect(
+      buildPeek(
+        input({
+          stageCurrent: 'review',
+          current: stage({ stageKey: 'review', status: 'running' }),
+          gateRuns: [],
+        }),
+      ).progress,
+    ).toBeNull();
   });
 
   it('a running gate stage with no recorded rows yet says the gates are resolving', () => {
@@ -253,7 +344,15 @@ describe('buildPeek — the expanded mini-dashboard summary', () => {
       title: 'No active session',
       detail: 'fresh session',
       next: { kind: 'open-session', label: 'Start session' },
+      agent: null,
     });
+  });
+
+  it('impl names its configured core even with no live session', () => {
+    expect(
+      buildPeek(input({ stageCurrent: 'impl', agentState: 'none', provider: 'codex', model: 'gpt-5.6' }))
+        .agent,
+    ).toEqual({ provider: 'codex', model: 'gpt-5.6' });
   });
 
   it('impl with an idle session reads Session idle', () => {

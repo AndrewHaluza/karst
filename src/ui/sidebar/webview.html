@@ -11,6 +11,7 @@
 <!--KARST_CSP-->
 <style>
   /*KARST_DS_CSS*/
+  /*KARST_AGENT_CSS*/
 
   *{box-sizing:border-box}
   /* The view is an app shell, not a scrolling document: html/body fill the
@@ -191,29 +192,67 @@
 
   /* The stage-aware summary (peek.ts): the strongest current-state headline
      plus one small context line. Host-derived, so the standalone webview never
-     phrases domain state (UI-R31). */
+     phrases domain state (UI-R31). The head row puts the quick-action tools at
+     the top right (the prototype's peek-tools) and the contextual CTA at the
+     bottom, right-aligned — the action surface follows the prototype, not the
+     card-footer bar this view shipped with. */
   .peek{margin:var(--k-space-2) 0 var(--k-space-1)}
+  .peek-head{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--k-space-3)}
+  .peek-copy{min-width:0;flex:1}
   .peek-title{font-size:var(--k-text-sm);color:var(--k-text);font-weight:var(--k-weight-medium)}
   .peek-detail{font-size:var(--k-text-xs);color:var(--k-text-dim);margin-top:var(--k-space-1)}
+  /* The stable toolbar — Spin / Terminal / Dashboard / ⋯. Same quick actions
+     as the collapsed hover strip, moved to the mini-dashboard's top-right so
+     expanding never duplicates them (the hover strip is suppressed while open).
+     The head row's justify-content:space-between pins it to the right edge. */
+  .peek-tools{display:flex;align-items:center;gap:var(--k-space-1);flex:none;
+    margin-top:calc(-1 * var(--k-space-1))}
+
+  /* Gate progress (prototype progress): a thin local composition — a track +
+     a fill whose width is set inline from the host-derived passed/total.
+     Sits in the top zone (below the title/detail, above the separator). */
+  .peek-progress{height:var(--k-space-1);border-radius:var(--k-radius-lg);overflow:hidden;
+    margin-top:var(--k-space-3);
+    background:color-mix(in srgb,var(--k-running) 18%,transparent)}
+  .peek-progress>span{display:block;height:100%;border-radius:var(--k-radius-lg);
+    background:var(--k-running)}
+
+  /* Divider between the summary zone (title + detail + tools + progress) and
+     the metadata zone (agent identity / repos / meta). The rule is always
+     present when the expanded body has content — it is structural to the card,
+     not conditional on any one context row. */
+  .peek-sep{height:var(--k-border-w);background:var(--k-border);margin:var(--k-space-2) 0}
+
+  /* Agent identity (prototype agentline): who is working on the ticket — the
+     canonical [icon] Core · Model identity (UI-R10c), compact variant. */
+  .peek-agent{margin-top:0}
+
+  /* Ship landing rows (prototype repo-list): PR number + ready/conflict per
+     repo. The state word is the non-color carrier (UI-R28), color reinforces. */
+  .peek-repos{margin-top:var(--k-space-2);display:grid;gap:var(--k-space-2)}
+  .peek-repo{display:flex;align-items:center;gap:var(--k-space-3);font-size:var(--k-text-xs)}
+  .peek-repo-pr{font-family:var(--k-font-mono);color:var(--k-text-dim);flex:none}
+  .peek-repo-name{font-family:var(--k-font-mono);color:var(--k-text-dim);flex:1;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .peek-repo-state{flex:none;font-size:var(--k-text-2xs);font-weight:var(--k-weight-semibold)}
+  .peek-repo-state.ready{color:var(--k-passed)}
+  .peek-repo-state.conflict{color:var(--k-failed)}
 
   .meta{font-size:var(--k-text-2xs);color:var(--k-text-dim);
     font-family:var(--k-font-mono);margin:var(--k-space-2) 0 var(--k-space-1);word-break:break-word}
 
   /* Archived rows keep their labeled restore/delete pair in a plain flex row —
-     the live mini-dashboard toolbar (.dashbar) only exists for active rows. */
+     the live mini-dashboard toolbar only exists for active rows. */
   .actions{display:flex;gap:var(--k-space-3);margin-top:var(--k-space-4)}
 
-  /* The suggested next step — a labeled primary CTA above the toolbar. It may
-     share intent with a toolbar icon action ("Continue session" beside
+  /* The suggested next step — the labeled primary CTA pinned to the bottom of
+     the mini-dashboard, right-aligned (the prototype's contextual actions bar).
+     It may share intent with a toolbar icon action ("Continue session" beside
      Terminal); that is an emphasis, not the duplication the acceptance bans
-     (which is the collapsed hover strip, suppressed while expanded). */
-  .peek-cta{margin-top:var(--k-space-3)}
-
-  /* The stable action bar: Spin / Terminal / Dashboard + overflow trigger. Sits
-     at the bottom of the expanded surface like a card footer. */
-  .dashbar{display:flex;align-items:center;gap:var(--k-space-1);margin-top:var(--k-space-4);
-    padding-top:var(--k-space-2);border-top:var(--k-border-w) solid var(--k-border)}
-  .dashbar .sp{flex:1}
+     (which is the collapsed hover strip, suppressed while expanded). A ticket
+     whose only move is to watch renders no actions bar at all. */
+  .peek-actions{display:flex;justify-content:flex-end;margin-top:var(--k-space-3);
+    padding-top:var(--k-space-3);border-top:var(--k-border-w) solid var(--k-border)}
 
   /* The shared ticket-actions context window (Edit / Follow Up / Archive).
      POSITIONED — one fixed element, rebuilt per open — so the list's scroll
@@ -299,6 +338,7 @@
 
 <script>
   /*KARST_DS_JS*/
+  /*KARST_AGENT_JS*/
 
   const vscode = acquireVsCodeApi();
   const post = (m) => vscode.postMessage(m);
@@ -416,19 +456,19 @@
     return tokens.join(' · ');
   }
 
-  // The expanded mini-dashboard toolbar — the SAME quick actions the collapsed
-  // hover strip shows, moved into a stable bar so expanding never duplicates
-  // them (the hover strip is not rendered while the row is open). Spin is
-  // ticket-level and shown for every row; the host command owns the real
-  // capability/availability rules. The "⋯" is a trigger for the shared ticket
-  // context window (Edit / Follow Up / Archive) — a positioned popup, never the
-  // full-width in-flow menu the follow-up retired.
-  function dashbarHtml(row, sessVerb, menuOpen) {
-    return `<div class="dashbar">`
+  // The expanded mini-dashboard's quick-action toolbar — the SAME actions the
+  // collapsed hover strip shows, moved into the peek head row's top-right (the
+  // prototype's peek-tools) so expanding never duplicates them (the hover strip
+  // is not rendered while the row is open). Spin is ticket-level and shown for
+  // every row; the host command owns the real capability/availability rules.
+  // The "⋯" is a trigger for the shared ticket context window (Edit / Follow
+  // Up / Archive) — a positioned popup, never the full-width in-flow menu the
+  // follow-up retired.
+  function toolsHtml(row, sessVerb, menuOpen) {
+    return `<div class="peek-tools">`
       + `<button type="button" class="k-iconbtn" data-act="spin" data-id="${row.ticketId}" aria-label="Spin up worktree and dev servers" title="Spin up worktree and dev servers">${ic.spin}</button>`
       + `<button type="button" class="k-iconbtn" data-act="open-session" data-id="${row.ticketId}" aria-label="${sessVerb} session" title="${sessVerb} session">${ic.sess}</button>`
       + `<button type="button" class="k-iconbtn" data-act="open-dashboard" data-id="${row.ticketId}" aria-label="Open ticket dashboard" title="Open ticket dashboard">${ic.dash}</button>`
-      + `<span class="sp"></span>`
       + ctxMenuTriggerHtml(row, menuOpen)
       + `</div>`;
   }
@@ -491,18 +531,49 @@
     menuTrigger = null;
   }
 
-  // The contextual primary next action (peek.ts) — a LABELED button, distinct
-  // from the icon-only toolbar. `resolve-conflicts` carries the conflicted repo
+  // The contextual primary next action (peek.ts) — a LABELED primary button,
+  // pinned bottom-right in the mini-dashboard's actions bar (distinct from the
+  // icon-only top-right tools). `resolve-conflicts` carries the conflicted repo
   // so the host can re-verify against the store before opening a session.
   function nextCtaHtml(next, row) {
     switch (next.kind) {
       case 'open-session':
-        return `<button type="button" class="k-btn k-btn--primary peek-cta" data-act="open-session" data-id="${row.ticketId}" title="${esc(next.label)}">${esc(next.label)}</button>`;
+        return `<button type="button" class="k-btn k-btn--primary" data-act="open-session" data-id="${row.ticketId}" title="${esc(next.label)}">${esc(next.label)}</button>`;
       case 'create-follow-up':
-        return `<button type="button" class="k-btn k-btn--primary peek-cta" data-act="create-follow-up" data-id="${row.ticketId}" title="${esc(next.label)}">${esc(next.label)}</button>`;
+        return `<button type="button" class="k-btn k-btn--primary" data-act="create-follow-up" data-id="${row.ticketId}" title="${esc(next.label)}">${esc(next.label)}</button>`;
       case 'resolve-conflicts':
-        return `<button type="button" class="k-btn k-btn--primary peek-cta" data-act="resolve-conflicts" data-id="${row.ticketId}" data-repo="${esc(next.repo)}" title="${esc(next.label)}">${esc(next.label)}</button>`;
+        return `<button type="button" class="k-btn k-btn--primary" data-act="resolve-conflicts" data-id="${row.ticketId}" data-repo="${esc(next.repo)}" title="${esc(next.label)}">${esc(next.label)}</button>`;
     }
+  }
+
+  // The state-specific context rows (prototype v9): who is working (agent
+  // identity), how far a running gate is (progress), and the per-repo landing
+  // state (PR rows). Each renders only when the host-derived peek carries it.
+  function peekAgentHtml(agent) {
+    if (!agent || !agent.provider) return '';
+    // Compact variant of the shared [icon] Core · Model identity (UI-R10c).
+    return `<div class="peek-agent">${agentIdentityHtml(agent.provider, agent.model, true)}</div>`;
+  }
+
+  function peekProgressHtml(progress) {
+    if (!progress || progress.total <= 0) return '';
+    const pct = Math.min(100, Math.round((progress.passed / progress.total) * 100));
+    return `<div class="peek-progress" role="progressbar" aria-label="Gate progress" aria-valuenow="${progress.passed}" aria-valuemin="0" aria-valuemax="${progress.total}"><span style="width:${pct}%"></span></div>`;
+  }
+
+  function peekReposHtml(repos) {
+    if (!repos || !repos.length) return '';
+    return `<div class="peek-repos">`
+      + repos.map((r) => {
+          const pr = r.number != null ? `#${r.number}` : '';
+          const state = r.state === 'conflict'
+            ? `<span class="peek-repo-state conflict">! Conflicts</span>`
+            : `<span class="peek-repo-state ready">✓ Ready</span>`;
+          return `<div class="peek-repo">`
+            + (pr ? `<span class="peek-repo-pr">${esc(pr)}</span>` : '')
+            + `<span class="peek-repo-name">${esc(r.repo)}</span>${state}</div>`;
+        }).join('')
+      + `</div>`;
   }
 
   // One ticket row. `compact` switches to the completed-row treatment: check
@@ -544,30 +615,41 @@
         + `<button type="button" class="k-iconbtn" data-act="open-session" data-id="${row.ticketId}" aria-label="${sessVerb} session" title="${sessVerb} session">${ic.sess}</button>`
         + ctxMenuTriggerHtml(row, menuOpen);
     // The hover strip is only rendered while the row is COLLAPSED — expanding
-    // moves the same quick actions into the toolbar below, so the two are never
-    // visible at once (no duplicated quick actions).
+    // moves the same quick actions into the mini-dashboard's head-row tools, so
+    // the two are never visible at once (no duplicated quick actions).
     const hoverStrip = isOpen ? '' : `<span class="rowacts">${acts}</span>`;
 
-    // The stage-aware mini-dashboard content (peek.ts): strongest summary +
-    // one small context line + the suggested next step. Archived rows keep
-    // their restore/delete pair instead. A pre-upgrade snapshot has no peek
-    // and renders the plain meta only.
+    // The stage-aware mini-dashboard content (peek.ts): head row (strongest
+    // summary + the quick-action tools), the state-specific context (agent /
+    // progress / landing repos), the meta line, and the pinned bottom-right
+    // contextual CTA. Archived rows keep their restore/delete pair instead. A
+    // pre-upgrade snapshot has no peek and renders the plain meta only.
     const peek = row.peek;
-    const peekHtml = !row.archived && peek
-      ? `<div class="peek">`
-          + `<div class="peek-title">${esc(peek.title)}</div>`
-          + (peek.detail ? `<div class="peek-detail">${esc(peek.detail)}</div>` : '')
-        + `</div>`
-        + (peek.next ? nextCtaHtml(peek.next, row) : '')
-      : '';
     const meta = metaLine(row);
     const metaHtml = meta ? `<div class="meta">${meta}</div>` : '';
+    const peekHtml = !row.archived && peek
+      ? `<div class="peek">`
+          + `<div class="peek-head">`
+            + `<div class="peek-copy">`
+              + `<div class="peek-title">${esc(peek.title)}</div>`
+              + (peek.detail ? `<div class="peek-detail">${esc(peek.detail)}</div>` : '')
+            + `</div>`
+            + toolsHtml(row, sessVerb, menuOpen)
+          + `</div>`
+          + peekProgressHtml(peek.progress)
+          + `<div class="peek-sep"></div>`
+          + peekAgentHtml(peek.agent)
+          + peekReposHtml(peek.repos)
+          + metaHtml
+        + `</div>`
+        + (peek.next ? `<div class="peek-actions">${nextCtaHtml(peek.next, row)}</div>` : '')
+      : '';
     const bar = row.archived
       ? `<div class="actions">`
           + `<button type="button" class="k-btn k-btn--secondary" data-act="unarchive" data-id="${row.ticketId}" title="Restore ticket to the active list">${ic.unarch} Unarchive</button>`
           + `<button type="button" class="k-btn k-btn--danger" data-act="delete" data-id="${row.ticketId}" title="Delete ticket permanently">${ic.del} Delete</button>`
         + `</div>`
-      : dashbarHtml(row, sessVerb, menuOpen);
+      : '';
 
     // Decorative content of the row's main click target — never another
     // interactive control (UI-R09; see the `.rowopen` comment in <style>).
@@ -605,7 +687,7 @@
           if (!txt && !att) return '';
           return `<div class="nextact warn">⚠ ${txt}${att}</div>`; })()
       + peekHtml
-      + metaHtml
+      + (row.archived ? metaHtml : '')
       + bar
       + `</div></div>`;
   }

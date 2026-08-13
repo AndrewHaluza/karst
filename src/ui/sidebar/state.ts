@@ -26,6 +26,7 @@ import { repoDisplayPath, type PathContext } from '../worktreePath.js';
 import { buildPeek, type TicketPeek } from './peek.js';
 import { listGateRuns } from '../../store/gateRuns.js';
 import { mergeGateState } from '../../workflow/mergeGate.js';
+import { resolveProvider } from '../../agent/registry.js';
 
 /** A worktree row enriched with its display path (honors `worktreePathDisplay`). */
 export interface SidebarWorktree extends WorktreeView {
@@ -227,6 +228,9 @@ export function buildSidebarState(
               ? listGateRuns(store, t.id)
               : [],
           mergeGate: t.stageCurrent === 'ship' ? mergeGateState(store, t.id) : null,
+          provider: resolveProvider(t.agentProvider, opts.defaultProvider),
+          model: t.model,
+          prs,
         }),
       };
     });

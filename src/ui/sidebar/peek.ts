@@ -4,6 +4,7 @@ import type { SessionAction } from '../../agent/sessionAction.js';
 import { STAGE_TITLE } from '../../model/stageBadge.js';
 import type { MergeGateState } from '../../workflow/mergeGate.js';
 import type { StageKey } from '../../model/types.js';
+import type { AgentProvider } from '../../manifest/types.js';
 
 /**
  * The expanded sidebar row's mini-dashboard (§ 869ehda7y). Collapsed rows stay
@@ -33,17 +34,41 @@ export type PeekNext =
   | { kind: 'create-follow-up'; label: string }
   | { kind: 'resolve-conflicts'; label: string; repo: string };
 
+/** The agent identity for a context that names who is working (or would). */
+export interface PeekAgent {
+  /** Canonical agent-core id (claude/codex/antigravity/opencode). */
+  provider: string;
+  /** The ticket's launch model; null when inheriting the manifest default. */
+  model: string | null;
+}
+
+/** One repo row in the ship landing list: its PR number + whether it can merge. */
+export interface PeekRepo {
+  repo: string;
+  number: number | null;
+  state: 'ready' | 'conflict';
+}
+
 /**
  * The expanded row's summary. `title` is the strongest current-state line;
  * `detail` is one small supporting context line (null when the headline is
  * complete); `next` is the suggested next step, null when the toolbar already
  * covers it (a normal wait — the mini-dashboard never invents a "do this" for
- * a state whose only move is to watch).
+ * a state whose only move is to watch). `agent`/`progress`/`repos` are the
+ * state-specific context rows (prototype v9): who is working, how far a running
+ * gate is, and the per-repo landing state. Each is null/absent where the stage
+ * has nothing to say — the webview renders only what is present.
  */
 export interface TicketPeek {
   title: string;
   detail: string | null;
   next: PeekNext | null;
+  /** Agent identity line, when the context has (or is worked by) a core. */
+  agent?: PeekAgent | null;
+  /** Gate progress, when a gate stage is actively running with recorded rows. */
+  progress?: { passed: number; total: number } | null;
+  /** Per-repo landing rows, when the ticket is awaiting merge/conflicted. */
+  repos?: PeekRepo[] | null;
 }
 
 /** Everything `buildPeek` needs, gathered by the sidebar state builder. */
@@ -59,6 +84,15 @@ export interface PeekInput {
   gateRuns: readonly GateRun[];
   /** The merge gate reading; computed only for a ship-stage ticket. */
   mergeGate: MergeGateState | null;
+  /**
+   * The resolved launch core for this ticket (ticket override, else the
+   * manifest default); null when no core is configured anywhere.
+   */
+  provider: AgentProvider | null;
+  /** The ticket's per-ticket launch model; null = inherit the manifest default. */
+  model: string | null;
+  /** Open PRs (repo + number + status) backing the ship landing rows. */
+  prs: readonly { repo: string; number: number | null; status: string | null }[];
 }
 
 const GATE_KEYS: ReadonlySet<string> = new Set(['uat', 'review']);
@@ -66,6 +100,11 @@ const INTERACTIVE_KEYS: ReadonlySet<string> = new Set(['impl', 'fix']);
 
 function sessionNext(sa: SessionAction): PeekNext {
   return { kind: 'open-session', label: `${sa.label} session` };
+}
+
+/** The agent identity for a context, when a core is known; null otherwise. */
+function agentOf(input: PeekInput): PeekAgent | null {
+  return input.provider ? { provider: input.provider, model: input.model } : null;
 }
 
 function plural(n: number, one: string, many: string): string {
@@ -124,6 +163,10 @@ function gatePeek(input: PeekInput, stage: StageKey, status: Stage['status']): T
       detail:
         runs.length > 0 ? `${passed}/${runs.length} gates passed` : 'gates resolving per repository',
       next: null,
+      // Who is executing the run and how far it has got — the two things a
+      // running gate makes the user want to know.
+      agent: agentOf(input),
+      progress: runs.length > 0 ? { passed, total: runs.length } : null,
     };
   }
   if (status === 'passed') {
@@ -134,6 +177,34 @@ function gatePeek(input: PeekInput, stage: StageKey, status: Stage['status']): T
     };
   }
   return { title: `Awaiting ${label}`, detail: null, next: null };
+}
+
+/**
+ * The per-repo landing rows: one row per unmerged repo, its PR number (when a
+ * current PR row is known) and whether it is conflict-blocked or ready to merge.
+ * `conflicted` repos always precede their `pending` siblings, matching the
+ * gate's own ordering, so the conflict is the first thing the list reads.
+ */
+function shipRepos(
+  input: PeekInput,
+  gate: Extract<MergeGateState, { kind: 'conflicted' | 'awaiting' }>,
+): PeekRepo[] {
+  const numberByRepo = new Map<string, number | null>();
+  for (const p of input.prs) {
+    if (p.status === 'merged') continue;
+    if (p.repo) numberByRepo.set(p.repo, p.number);
+  }
+  const rows: PeekRepo[] = [];
+  const push = (repo: string, state: PeekRepo['state']): void => {
+    rows.push({ repo, number: numberByRepo.get(repo) ?? null, state });
+  };
+  if (gate.kind === 'conflicted') {
+    for (const repo of gate.repos) push(repo, 'conflict');
+    for (const repo of gate.pending) push(repo, 'ready');
+  } else {
+    for (const repo of gate.repos) push(repo, 'ready');
+  }
+  return rows;
 }
 
 /** The ship stage: the strongest state is the PR landing state. */
@@ -155,6 +226,7 @@ function shipPeek(input: PeekInput, status: Stage['status']): TicketPeek {
           ? `${plural(gate.pending.length, 'more PR pending', 'more PRs pending')}`
           : null,
       next: repo ? { kind: 'resolve-conflicts', label: 'Resolve conflicts', repo } : null,
+      repos: shipRepos(input, gate),
     };
   }
   if (gate?.kind === 'awaiting') {
@@ -162,6 +234,7 @@ function shipPeek(input: PeekInput, status: Stage['status']): TicketPeek {
       title: plural(gate.repos.length, 'pull request awaiting merge', 'pull requests awaiting merge'),
       detail: gate.repos.length > 0 ? gate.repos.join(', ') : null,
       next: null,
+      repos: shipRepos(input, gate),
     };
   }
   // `nothing-to-merge` (freshly parked pending the FIRST confirm click — no PR
@@ -175,17 +248,22 @@ function shipPeek(input: PeekInput, status: Stage['status']): TicketPeek {
 
 /** impl/fix: the strongest state is the agent/session runtime. */
 function interactivePeek(input: PeekInput): TicketPeek {
+  // The configured core is the one working here — named on every reading, so
+  // "who owns this" never depends on the session being live.
+  const agent = agentOf(input);
   if (input.agentState === 'idle') {
     return {
       title: 'Session idle',
       detail: input.sessionAction.detail,
       next: sessionNext(input.sessionAction),
+      agent,
     };
   }
   return {
     title: 'No active session',
     detail: input.sessionAction.detail,
     next: sessionNext(input.sessionAction),
+    agent,
   };
 }
 
@@ -234,6 +312,7 @@ export function buildPeek(input: PeekInput): TicketPeek {
       title: 'Agent running',
       detail: input.sessionAction.detail,
       next: sessionNext(input.sessionAction),
+      agent: agentOf(input),
     };
   }
   if (input.agentState === 'waiting' && !shipRunning) {
@@ -241,6 +320,7 @@ export function buildPeek(input: PeekInput): TicketPeek {
       title: 'Agent waiting for input',
       detail: input.sessionAction.detail,
       next: sessionNext(input.sessionAction),
+      agent: agentOf(input),
     };
   }
 
