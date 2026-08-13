@@ -1170,7 +1170,7 @@ describe('dashboard webview.html', () => {
     expect(HTML).toContain('<div class="fault blocked hidden" id="blocked">');
     expect(HTML).toMatch(/function renderBlocked\(state\)/);
     expect(HTML).toMatch(/cell && cell\.blocked/);
-    expect(HTML).toMatch(/box\.classList\.toggle\('hidden', !blocked\)/);
+    expect(HTML).toMatch(/box\.classList\.toggle\('hidden', !show\)/);
     expect(HTML).toContain('renderBlocked(state);');
   });
 
@@ -1188,36 +1188,39 @@ describe('dashboard webview.html', () => {
     expect(renderBlockedBody).not.toMatch(/data-stage="/);
   });
 
-  it('renders a waiting-to-merge banner instead of a fault, and offers no Resume for it', () => {
+  it('renders NO banner for an awaiting-merge wait — the wait lives in the header chip and Inside view', () => {
     // A ticket parked at `ship` blocked with `awaiting-merge` is not a fault —
-    // it's a normal wait for a PR to land, and (per stageResume.ts) a Resume
-    // click there would be refused anyway: only the merge gate observing the
-    // actual landing may clear that block, so a Resume button would be a dead
-    // affordance for this kind specifically. The RESUMABILITY verdict is the
-    // host's `resumable` flag, never a reason-string match in the webview.
+    // it's a normal wait for a PR to land. The header already shows a
+    // "Waiting to merge" chip (state.ship waiting-merge) and the Inside ship
+    // view's merge process rows carry the detail (per-repo PR state, conflict
+    // paths). A separate blocked banner would be a THIRD surface for the same
+    // fact — the legacy block this fault chain exists to remove. So the
+    // awaiting-merge branch renders nothing: the box stays hidden and empty,
+    // and the banner is reserved for resumable blocks (real faults) with a
+    // Resume action.
     const renderBlockedBody = HTML.slice(
       HTML.indexOf('function renderBlocked(state)'),
       HTML.indexOf('let toastTimer = 0;'),
     );
-    expect(renderBlockedBody).toMatch(/blocked\.resumable === false/);
-    // The non-resumable branch is the code between its own `if` and the next
-    // statement that builds the generic title — it must return before ever
-    // reaching the Resume-button markup.
+    // The RESUMABILITY verdict is the host's `resumable` flag, never a
+    // reason-string match in the webview, and the box is hidden for anything
+    // that must not render.
+    expect(renderBlockedBody).toMatch(/blocked\.resumable !== false/);
+    expect(renderBlockedBody).toMatch(/box\.classList\.toggle\('hidden', !show\)/);
+    // The non-resumable branch must hide the box and render nothing — it must
+    // return before ever reaching the Resume-button markup and must not paint
+    // a "Waiting to merge" banner.
     const nonResumableBranch = renderBlockedBody.slice(
-      renderBlockedBody.indexOf('if (blocked.resumable === false)'),
+      renderBlockedBody.indexOf('if (!show)'),
       renderBlockedBody.indexOf('const title = `${STAGE_TITLE'),
     );
-    expect(nonResumableBranch).toContain('Waiting to merge');
+    expect(nonResumableBranch).toMatch(/box\.innerHTML = ''/);
+    expect(nonResumableBranch).not.toContain('Waiting to merge');
     expect(nonResumableBranch).not.toMatch(/data-act="stage-resume"/);
-    // A wait is not a fault (UI-R28): the awaiting-merge branch swaps the red
-    // failure styling for the `waiting` treatment — the amber attention edge
-    // plus the pause glyph, so hue is not the only carrier — and the
-    // `.fault.waiting` CSS rule uses `--k-attention`, never `--k-failed`.
-    expect(nonResumableBranch).toContain("box.classList.add('waiting')");
-    expect(nonResumableBranch).toContain("karstIcon('player-pause'");
-    expect(HTML).toMatch(/\.fault\.waiting\{[^}]*var\(--k-attention\)[^}]*\}/);
-    expect(HTML).toMatch(/\.fault\.waiting\{[^}]*background:color-mix[^}]*\}/);
-    expect(HTML).not.toMatch(/\.fault\.waiting\{[^}]*var\(--k-failed\)/);
+    expect(nonResumableBranch).not.toMatch(/karstIcon\(/);
+    // The old amber `.fault.waiting` treatment is gone with the banner it
+    // styled — a wait is no longer a banner at all.
+    expect(HTML).not.toMatch(/\.fault\.waiting/);
   });
 
   it('posts stage-resume with the ticket id and the button\'s own stage key', () => {
@@ -2338,11 +2341,13 @@ describe('inside render round trip (executed in a VM)', () => {
     expect(h.htmlOf('rail')).not.toContain('<span class="spin"');
   });
 
-  it('renders a non-resumable block as a banner with no Resume button', () => {
+  it('renders NO banner for a non-resumable awaiting-merge block', () => {
     // `awaiting-merge` is the one block a retry cannot clear — the merge sweep
-    // clears it when the PR lands — so the banner shows the wait and no dead
-    // button. The resumability verdict is the host's `resumable` flag on the
-    // cell's `blocked`, never a reason-string match.
+    // clears it when the PR lands. It is not a fault: the wait is already
+    // carried by the header "Waiting to merge" chip and the Inside ship view's
+    // merge process rows, so the dashboard must not also paint a blocked
+    // banner for it (the legacy block this fault chain removes). Resumability
+    // is the host's `resumable` flag, never a reason-string match.
     const store = openStore(':memory:');
     const t = createTicket(store, { key: 'AWM-1', title: 'awaiting merge at ship' });
     setStage(store, t.id, 'ship', { status: 'passed', startedAt: '2026-08-09T10:00:00.000Z' });
@@ -2360,10 +2365,11 @@ describe('inside render round trip (executed in a VM)', () => {
 
     const h = bootPreviewHarness();
     h.receive({ type: 'state', state });
-    const banner = h.htmlOf('blocked');
-    expect(banner).toContain('Waiting to merge');
-    expect(banner).toContain('PR #412 is open and unmerged');
-    expect(banner).not.toContain('data-act="stage-resume"');
+    // The blocked banner stays hidden and empty for an awaiting-merge wait.
+    expect(h.classesOf('blocked')).toContain('hidden');
+    expect(h.htmlOf('blocked')).toBe('');
+    // The wait is NOT lost — the header ship chip carries it instead.
+    expect(h.classesOf('shipWait')).not.toContain('hidden');
   });
 
   it('offers Resume on an unmapped-repository block', () => {
