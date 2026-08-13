@@ -81,7 +81,7 @@ import {
   type PrDiffContext,
 } from '../prDescription.js';
 import { collectPrDiffContext } from '../prDiffContext.js';
-import { resolveRepoScope, resolveTicketType } from '../conventionContext.js';
+import { resolveRepoName, resolveRepoScope, resolveTicketType } from '../conventionContext.js';
 import { DEFAULT_PR_DESCRIPTION_TEMPLATE } from '../conventionPresets.js';
 
 /**
@@ -917,13 +917,18 @@ export async function shipTicket(
       // Commit before push: a stage marker means the agent thinks it is done, not
       // that it committed. Work left in the worktree would push an empty branch and
       // `gh pr create` would fail with "No commits between main and karst/…".
+      // `{repo}`/`{scope}` name the manifest repository ENTRY, never the
+      // worktree's local path — worktrees are keyed by path, the manifest by
+      // name, and a public artifact must not leak the machine's directory
+      // layout (PR bodies once shipped "Repository: /Users/nd/…").
+      const repoName = resolveRepoName(opts.manifest, wt.repo);
       const templateContext: ArtifactTemplateContext = {
         id: opts.ticketId,
         key,
         title,
-        repo: wt.repo,
+        repo: repoName,
         type: resolveTicketType(ticket, conventions),
-        scope: resolveRepoScope(opts.manifest, wt.repo),
+        scope: resolveRepoScope(opts.manifest, repoName),
         // Implementation metadata for the PR description template: the agent
         // that actually ran the impl session wins, then the per-ticket core
         // override, then the manifest default; the model mirrors the launch
