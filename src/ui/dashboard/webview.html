@@ -56,6 +56,7 @@
   .dhead h1.ticketTitle{min-width:0;flex:1;margin:0 var(--k-space-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--k-text-xl)}
   .ticketKey{min-height:var(--k-hit-min);padding:0 var(--k-space-3);border:0;border-radius:var(--k-radius-sm);background:transparent;color:var(--k-text-dim);font-family:var(--k-font-mono);font-size:var(--k-text-xs);cursor:pointer}
   .ticketKey:hover{background:var(--k-surface-hover);color:var(--k-text)}
+  .ticketParent{display:block;margin-top:var(--k-space-3);color:var(--k-text-dim);font-size:var(--k-text-xs);font-family:var(--k-font-mono)}
   .headerActions{display:flex;align-items:center;gap:var(--k-space-2);flex:none;margin-left:auto}
   .agentWrap,.menuWrap{position:relative}
   .agentButton{max-width:calc(var(--k-space-8) * 20);min-height:var(--k-control-h-lg);padding:0 var(--k-space-4);border:var(--k-border-w) solid transparent;border-radius:var(--k-radius-sm);background:transparent;color:var(--k-text);display:inline-flex;align-items:center;gap:var(--k-space-3);cursor:pointer;min-width:0}
@@ -1512,6 +1513,7 @@
     </button>
   </div>
   <h1 id="title" class="ticketTitle"></h1>
+  <span id="parentRef" class="ticketParent" hidden></span>
   <div class="headerActions">
     <div class="agentWrap">
       <button id="agentButton" type="button" class="agentButton" aria-expanded="false" aria-haspopup="dialog"
@@ -3077,6 +3079,16 @@
     }
   }
 
+  // The roomy dashboard keeps the plain title as primary content; the parent
+  // relationship renders as separate secondary metadata when the ticket is a
+  // follow-up (model/followUp.ts). Absence renders nothing, never a placeholder.
+  function renderParentRef(state) {
+    const ref = el('parentRef');
+    if (!ref) return;
+    ref.hidden = !state.parent;
+    ref.innerHTML = state.parent ? 'Follow-up of ' + esc(state.parent.key) : '';
+  }
+
   function renderAgentHeader(state) {
     const s = state.agentSession;
     const core = el('agentCore');
@@ -3749,6 +3761,7 @@
     // falls back to scope — the one the user is about to start.
     const sel = selectedStage || state.presentedStage || state.stageCurrent || 'scope';
     el('title').textContent = state.title || '(untitled)';
+    renderParentRef(state);
     renderTicketIdentity(state);
     renderAgentHeader(state);
     renderTrack(state.rail, state.approach, sel);

@@ -90,6 +90,12 @@ export interface DashboardState {
   ticketId: number;
   key: string | null;
   title: string | null;
+  /**
+   * The parent ticket's key + title, when this ticket is a follow-up; null
+   * otherwise. Relationship metadata for the roomy dashboard's secondary line
+   * — never part of the title (model/followUp.ts).
+   */
+  parent: { key: string; title: string | null } | null;
   stageCurrent: string | null;
   agentState: string | null;
   /** Resolved running-session identity and whether an in-place switch is safe. */
@@ -292,6 +298,18 @@ export function buildDashboardState(
   graphInside?: GraphInsideInput | null,
 ): DashboardState {
   const ticket = getTicket(store, ticketId); // throws on unknown id
+  // The parent relationship for the dashboard's secondary metadata line. A
+  // follow-up's identity is relationship metadata, never part of its title. A
+  // hard-deleted parent degrades to null — same policy as ticketContext.
+  let parent: { key: string; title: string | null } | null = null;
+  if (ticket.parentTicketId !== null) {
+    try {
+      const p = getTicket(store, ticket.parentTicketId);
+      parent = { key: p.key ?? `#${p.id}`, title: p.title };
+    } catch {
+      parent = null;
+    }
+  }
   const rounds = listRecoveryRounds(store, ticketId);
   const resolvedProvider = resolveProvider(ticket.agentProvider, defaultProvider);
   const agentSession = buildAgentSessionView({
@@ -541,6 +559,7 @@ export function buildDashboardState(
     ticketId: ticket.id,
     key: ticket.key,
     title: ticket.title,
+    parent,
     stageCurrent: ticket.stageCurrent,
     agentState: ticket.agentState,
     agentSession,

@@ -662,6 +662,15 @@ describe('dashboard webview.html', () => {
     expect(HTML).not.toMatch(/id="followUpBtn"/);
   });
 
+  it('renders the parent relationship line only when the ticket is a follow-up', () => {
+    // The roomy dashboard shows the relationship as SECONDARY metadata under
+    // the title — never inside the primary title.
+    const script = previewScriptSource();
+    expect(HTML).toMatch(/id="parentRef"/);
+    expect(script).toMatch(/state\.parent\s*\?/);
+    expect(script).toMatch(/Follow-up of '\s*\+ esc\(state\.parent\.key\)/);
+  });
+
   /**
    * Mergeability on the PR panel. The bug: ship probed once, said "clean", and
    * nothing ever re-asked — a PR that stopped being mergeable an hour later read
