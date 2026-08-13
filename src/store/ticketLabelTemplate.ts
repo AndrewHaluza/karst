@@ -9,12 +9,17 @@
 
 import { parseTemplateTokens, parseTokenBody } from '../template/token.js';
 import { applyTransforms, validateTemplateTransforms } from '../template/transforms.js';
+import { followUpTextPrefix } from '../model/followUp.js';
 
 /** The default template — matches the pre-config `ticketLabel` output exactly. */
 export const DEFAULT_TICKET_LABEL_TEMPLATE = '{key} — {title}';
 
-/** Terminal-name default — the historical `"Karst: <key> — <title>"` convention. */
-export const DEFAULT_TERMINAL_NAME_TEMPLATE = 'Karst: {key} — {title}';
+/**
+ * Terminal-name default — the historical `"Karst: <key> — <title>"` convention,
+ * plus the one-char follow-up marker. `{followUp}` renders `'↳ '` for a
+ * follow-up ticket and `''` otherwise, so a non-follow-up is unchanged.
+ */
+export const DEFAULT_TERMINAL_NAME_TEMPLATE = 'Karst: {followUp}{key} — {title}';
 
 /** The variable tokens a template may substitute (surfaced in the settings hint). */
 export const TICKET_LABEL_VARIABLES = [
@@ -24,6 +29,7 @@ export const TICKET_LABEL_VARIABLES = [
   'status',
   'stage',
   'repos',
+  'followUp',
 ] as const;
 
 /** The minimal ticket shape the label engine reads (structural; `Ticket` fits). */
@@ -34,6 +40,8 @@ export interface TicketLabelFields {
   stageCurrent: string | null;
   agentState: string | null;
   selectedRepos: string[];
+  /** Non-null when the ticket is a follow-up (domain fact — never title parsing). */
+  parentTicketId: number | null;
 }
 
 /** Resolve each `{var}` to its display value, mirroring the historical fallbacks. */
@@ -45,6 +53,7 @@ function substitutions(ticket: TicketLabelFields): Record<string, string> {
     status: ticket.agentState ?? '',
     stage: ticket.stageCurrent ?? '',
     repos: ticket.selectedRepos.join(', '),
+    followUp: followUpTextPrefix(ticket),
   };
 }
 

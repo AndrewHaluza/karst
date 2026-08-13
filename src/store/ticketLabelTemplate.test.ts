@@ -3,6 +3,7 @@ import {
   renderTicketLabel,
   validateLabelTemplate,
   DEFAULT_TICKET_LABEL_TEMPLATE,
+  DEFAULT_TERMINAL_NAME_TEMPLATE,
   type TicketLabelFields,
 } from './ticketLabelTemplate.js';
 
@@ -13,6 +14,7 @@ const base: TicketLabelFields = {
   stageCurrent: 'implement',
   agentState: 'working',
   selectedRepos: ['fe', 'be'],
+  parentTicketId: null,
 };
 
 describe('renderTicketLabel', () => {
@@ -56,12 +58,37 @@ describe('renderTicketLabel', () => {
       stageCurrent: null,
       agentState: null,
       selectedRepos: [],
+      parentTicketId: null,
     };
     expect(renderTicketLabel(fresh, '{status}')).toBe('#3 — (untitled)');
   });
 
   it('empty repos join to an empty string', () => {
     expect(renderTicketLabel({ ...base, selectedRepos: [] }, '{key} [{repos}]')).toBe('PROJ-142 []');
+  });
+
+  it('renders the one-char follow-up marker in the default terminal template', () => {
+    const fu = { ...base, key: 'PROJ-1-fu1', parentTicketId: 7 };
+    expect(renderTicketLabel(fu, DEFAULT_TERMINAL_NAME_TEMPLATE)).toBe(
+      'Karst: ↳ PROJ-1-fu1 — do things',
+    );
+    // A non-follow-up renders byte-identically to the historical default.
+    expect(renderTicketLabel(base, DEFAULT_TERMINAL_NAME_TEMPLATE)).toBe(
+      'Karst: PROJ-142 — do things',
+    );
+  });
+
+  it('{followUp} renders the marker prefix only for a follow-up ticket', () => {
+    expect(renderTicketLabel({ ...base, parentTicketId: 7 }, '{followUp}{key}')).toBe(
+      '↳ PROJ-142',
+    );
+    expect(renderTicketLabel({ ...base, parentTicketId: null }, '{followUp}{key}')).toBe(
+      'PROJ-142',
+    );
+  });
+
+  it('the default ticket label template never embeds the marker — the sidebar owns the rich marker', () => {
+    expect(renderTicketLabel({ ...base, parentTicketId: 7 })).toBe('PROJ-142 — do things');
   });
 });
 
@@ -89,6 +116,7 @@ describe('placeholder transforms', () => {
       stageCurrent: null,
       agentState: null,
       selectedRepos: [],
+      parentTicketId: null,
     };
     expect(renderTicketLabel(fresh, '{status|default:idle}')).toBe('idle');
     expect(renderTicketLabel(base, '{status|default:idle}')).toBe('working');
