@@ -447,17 +447,27 @@
   .track .seg.cur .mt{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
 
   /* The needs-you control. NOT `.act` — that was the retired activity strip's
-     class (the inside ledger now). It is NAVIGATIONAL: it scrolls the control
+     class (the inside ledger now). The host decides what it DOES (`s.needs.cta`):
+     for a whole-ticket confirm ship and a single mergeable merge it is a REAL
+     actor posting the same message the header's Confirm ship button and the PR
+     panel's Merge button post — the host's confirmation still guards the
+     irreversible step, and the pending lifecycle is the same `shipRequestId` /
+     `mergeRequests` the owning controls use. Every other shape (a multi-repo
+     wait, a conflict, an open session) is NAVIGATIONAL: it scrolls the control
      that owns the action into view and focuses it, so the rail never becomes a
-     second actor for an irreversible step.
-     merge is per-repo and its confirmation modal lives in the host, so a
-     rail-level Merge button could neither pick a repo nor carry the confirmation. */
+     second actor it cannot back with a confirmation. */
   .track .seg .go{font:inherit;font-size:var(--k-text-2xs);border:var(--k-border-w) solid currentColor;
     border-radius:var(--k-radius-sm);background:transparent;color:inherit;
     padding:var(--k-space-1) var(--k-space-4);cursor:pointer;flex:none;margin-left:auto}
   .track .seg .go:hover{background:color-mix(in srgb,currentColor 18%,transparent)}
   .track .seg .go:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);
     outline-offset:var(--k-focus-offset)}
+  /* Pending (a ship/merge request is in flight, or the host modal is up):
+     disabled + aria-busy is the re-trigger guard and the accessible signal; the
+     label is untouched (UI-R18). The outline stays visible so the pending state
+     still reads as a control with work underway, never a dead one. */
+  .track .seg .go[aria-busy="true"]{opacity:.65;cursor:default}
+  .track .seg .go[aria-busy="true"]:hover{background:transparent}
 
   /* impl's approach lives INSIDE impl's segment: one pip per declared phase, the
      reported ones filled. No stem, no chip, nothing hanging off the track. A
@@ -1943,8 +1953,7 @@
       let extra = '';
       if (s.current && needs) {
         extra = `<span class="mt">${esc(s.needs ? s.needs.detail : '')}</span>`
-          + `<button type="button" class="go" data-goto`
-          + `>${esc(s.needs ? s.needs.action : 'Open')}</button>`;
+          + goButton(s.needs);
       } else if (showsApproach) {
         extra = renderPips(approach);
       } else {
@@ -1977,6 +1986,30 @@
 
     el('rail').innerHTML = `<div class="track"><div class="lane">${segs}</div></div>`;
     place();
+  }
+
+  // The needs-you control, rendered from the host's `cta` verdict — never from
+  // the action LABEL, which is prose. Two of the kinds ACT, posting the same
+  // message as the header's Confirm ship / the PR panel's Merge (the host's
+  // confirmation still guards the irreversible step, and the shared pending
+  // markers — `shipRequestId` / `mergeRequests` — make the click report and
+  // settle exactly like the owning controls'). The rest NAVIGATE to the control
+  // that owns the action. A real actor carries `data-act` so the generic
+  // delegated handler gives it the full pending lifecycle; a navigational one
+  // carries `data-go` naming the kind for gotoAction().
+  function goButton(needs) {
+    const label = esc((needs && needs.action) || 'Open');
+    const cta = needs && needs.cta;
+    if (cta && cta.kind === 'ship-confirm') {
+      const busy = !!shipRequestId;
+      return `<button type="button" class="go" data-act="ship-ticket"${busy ? ' aria-busy="true" disabled' : ''}>${label}</button>`;
+    }
+    if (cta && cta.kind === 'merge') {
+      const busy = !!mergeRequests[cta.repo];
+      return `<button type="button" class="go" data-act="merge-pr" data-repo="${esc(cta.repo)}"${busy ? ' aria-busy="true" disabled' : ''}>${label}</button>`;
+    }
+    const kind = cta ? cta.kind : 'open-session';
+    return `<button type="button" class="go" data-goto data-go="${kind}">${label}</button>`;
   }
 
   // impl's approach, inside impl's own segment: the approach's NAME, and one pip
@@ -2052,17 +2085,21 @@
     if (over()) track.classList.add('bare');
   }
 
-  // The needs-you button is NAVIGATIONAL. It scrolls the control that owns the
-  // action into view and focuses it; it posts no host message and duplicates no
-  // actor. merge is per-repo and its confirmation modal lives in the host
-  // (workflow/mergePr.ts), so a rail-level Merge button could neither pick a repo
-  // nor carry the confirmation — and making ship's an actor while merge's is a
-  // pointer would be two rules where one will do.
-  function gotoAction() {
-    // The Now line's own primary action, when it has one (ship). Otherwise the PR
-    // panel, where the per-repo Merge and Resolve buttons live (merge).
-    const target = document.querySelector('#now [data-act]')
-      || document.querySelector('#prs .mgbtn');
+  // The NAVIGATIONAL needs-you cases. The acting kinds (ship-confirm, a single
+  // mergeable merge) never reach here — they carry `data-act` and post through
+  // the generic handler. What is left is exactly what the rail must not act on
+  // itself: a multi-repo wait (no single repo to pick, each merge carries its
+  // own host confirmation), a per-repo conflict session, and an open session.
+  // It scrolls the control that owns the action into view and focuses it; it
+  // posts no host message and duplicates no actor.
+  function gotoAction(kind) {
+    // merge-panel and resolve live on the PR panel, where each repo has its own
+    // Merge / Resolve control. An open session is the agent header — the
+    // dashboard's own session control (it names the live session and its
+    // state).
+    const target = kind === 'open-session'
+      ? document.querySelector('#agentButton')
+      : document.querySelector('#prs .mgbtn');
     const scrollTo = target || el('prs');
     if (!scrollTo) return;
     scrollTo.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
@@ -4105,9 +4142,13 @@
   // Clicking a stage re-points the strip. Purely local — no host round trip, so
   // it stays instant and survives every state push.
   document.addEventListener('click', (e) => {
-    // The needs-you button navigates; it never acts. Checked BEFORE the stage
-    // hook, because it lives inside a segment that also carries one.
-    if (e.target.closest('[data-goto]')) { gotoAction(); return; }
+    // The needs-you button navigates for the kinds the rail must not act on
+    // itself (multi-repo waits, per-repo conflicts, an open session); the acting
+    // kinds carry `data-act` and reach the posting handler below. Checked
+    // BEFORE the stage hook, because it lives inside a segment that also
+    // carries one.
+    const goBtn = e.target.closest('[data-goto]');
+    if (goBtn) { gotoAction(goBtn.dataset.go); return; }
     // Artifact navigation: Back (detail→origin, index→ticket) and opening an
     // artifact (shelf card or index row). Local, like stage selection.
     const artNav = e.target.closest('[data-art]');

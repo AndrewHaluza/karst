@@ -409,7 +409,11 @@ describe('buildDashboardState', () => {
     const state = buildDashboardState(store, t.id);
     const ship = state.rail.main.find((s) => s.cell.stageKey === 'ship')!;
     expect(ship.needsUser).toBe(true);
-    expect(ship.needs).toEqual({ detail: 'ready to open the PRs', action: 'Confirm ship' });
+    expect(ship.needs).toEqual({
+      detail: 'ready to open the PRs',
+      action: 'Confirm ship',
+      cta: { kind: 'ship-confirm' },
+    });
     expect(state.rail.main.filter((s) => s.needsUser)).toHaveLength(1);
   });
 
@@ -517,6 +521,7 @@ describe('buildDashboardState', () => {
     expect(ship.needs).toEqual({
       detail: '1 repo no longer merges cleanly',
       action: 'Resolve',
+      cta: { kind: 'resolve' },
     });
   });
 
@@ -527,6 +532,92 @@ describe('buildDashboardState', () => {
     const state = buildDashboardState(store, t.id);
     expect(state.rail.main.some((s) => s.needsUser)).toBe(false);
     expect(state.rail.main.every((s) => s.needs === null)).toBe(true);
+  });
+
+  it('acts on the ONE waiting repo when its current PR can merge', () => {
+    // A single unmerged repo whose PR is open is exactly the case the rail can
+    // act on: it names the repo and posts `merge-pr`, the host modal still
+    // guarding the irreversible step.
+    const t = createTicket(store, { key: 'N-8', title: 't' });
+    setStage(store, t.id, 'ship', {
+      status: 'passed',
+      endedAt: '2026-08-01T10:00:00.000Z',
+      blockedKind: 'awaiting-merge',
+      blockedReason: 'blocked: the pull request for "api" is not merged yet',
+      blockedAt: '2026-08-01T10:00:00.000Z',
+    });
+    store.db
+      .prepare("UPDATE tickets SET stage_current = 'ship', agent_state = 'idle' WHERE id = ?")
+      .run(t.id);
+    store.db
+      .prepare('INSERT INTO prs (ticket_id, repo, number, url, status) VALUES (?, ?, ?, ?, ?)')
+      .run(t.id, 'api', 12, 'https://github.com/o/r/pull/12', 'open');
+
+    const state = buildDashboardState(store, t.id);
+    const ship = state.rail.main.find((s) => s.cell.stageKey === 'ship')!;
+    expect(ship.needs).toEqual({
+      detail: '1 repo to merge',
+      action: 'Merge',
+      cta: { kind: 'merge', repo: 'api' },
+    });
+  });
+
+  it('points a multi-repo wait at the PR panel, never merging blindly', () => {
+    // A track-level button cannot pick which of several repos to merge — each
+    // merge is its own host-confirmed step, so the rail navigates to the panel
+    // that owns one Merge button per repo.
+    const t = createTicket(store, { key: 'N-9', title: 't' });
+    setStage(store, t.id, 'ship', {
+      status: 'passed',
+      endedAt: '2026-08-01T10:00:00.000Z',
+      blockedKind: 'awaiting-merge',
+      blockedReason: 'blocked: pull requests for api, web are not merged yet',
+      blockedAt: '2026-08-01T10:00:00.000Z',
+    });
+    store.db
+      .prepare("UPDATE tickets SET stage_current = 'ship', agent_state = 'idle' WHERE id = ?")
+      .run(t.id);
+    const ins = store.db.prepare(
+      'INSERT INTO prs (ticket_id, repo, number, url, status) VALUES (?, ?, ?, ?, ?)',
+    );
+    ins.run(t.id, 'api', 12, 'https://github.com/o/r/pull/12', 'open');
+    ins.run(t.id, 'web', 13, 'https://github.com/o/r/pull/13', 'open');
+
+    const state = buildDashboardState(store, t.id);
+    const ship = state.rail.main.find((s) => s.cell.stageKey === 'ship')!;
+    expect(ship.needs).toEqual({
+      detail: '2 repos to merge',
+      action: 'Merge',
+      cta: { kind: 'merge-panel' },
+    });
+  });
+
+  it('will not act on a single waiting repo whose PR cannot currently merge', () => {
+    // A draft/closed/unknown PR is not offered a merge by the PR panel; the rail
+    // must not fire an irreversible command the panel's own button would refuse,
+    // so a single NON-mergeable waiting repo still navigates to the panel.
+    const t = createTicket(store, { key: 'N-10', title: 't' });
+    setStage(store, t.id, 'ship', {
+      status: 'passed',
+      endedAt: '2026-08-01T10:00:00.000Z',
+      blockedKind: 'awaiting-merge',
+      blockedReason: 'blocked: the pull request for "api" is not merged yet',
+      blockedAt: '2026-08-01T10:00:00.000Z',
+    });
+    store.db
+      .prepare("UPDATE tickets SET stage_current = 'ship', agent_state = 'idle' WHERE id = ?")
+      .run(t.id);
+    store.db
+      .prepare('INSERT INTO prs (ticket_id, repo, number, url, status) VALUES (?, ?, ?, ?, ?)')
+      .run(t.id, 'api', 12, 'https://github.com/o/r/pull/12', 'draft');
+
+    const state = buildDashboardState(store, t.id);
+    const ship = state.rail.main.find((s) => s.cell.stageKey === 'ship')!;
+    expect(ship.needs).toEqual({
+      detail: '1 repo to merge',
+      action: 'Merge',
+      cta: { kind: 'merge-panel' },
+    });
   });
 
   it('draws the meter with the manifest’s narrowed uat budget', () => {

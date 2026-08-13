@@ -18,11 +18,37 @@ export interface RailNeeds {
   /** Why, in a few words. Never a sentence — the segment has no room for one. */
   detail: string;
   /**
-   * The label of the control this points AT. Never a new actor: the rail
-   * performs no irreversible step, it navigates to the one that does.
+   * The control's label — the SAME words the click that acts shows, and the
+   * same words the navigational click scrolls to. Never a second actor: the
+   * rail performs an irreversible step only when it IS the owner's control.
    */
   action: string;
+  /**
+   * What clicking the control beside this wording DOES, in machine terms. The
+   * webview renders from this closed union — it never derives "what to do"
+   * from the `action` string. The host is the one that knows whether the rail
+   * may act directly (ship is whole-ticket, one merge is one repo) or must
+   * point at the panel that owns the step.
+   */
+  cta: RailCta;
 }
+
+/**
+ * The rail's needs-you control's BEHAVIOUR, decided host-side.
+ *
+ * `ship-confirm` and `merge` ACT: they post the same message the header's
+ * Confirm ship button and the PR panel's Merge button post, and the host's
+ * confirmation still guards the irreversible step (merge keeps its modal). The
+ * rest NAVIGATE: a multi-repo wait has no single repo to act on and per-repo
+ * conflict sessions and the live session belong to the panel / header, so the
+ * control scrolls the owning control into view rather than duplicating it.
+ */
+export type RailCta =
+  | { kind: 'ship-confirm' }
+  | { kind: 'merge'; repo: string }
+  | { kind: 'merge-panel' }
+  | { kind: 'resolve' }
+  | { kind: 'open-session' };
 
 export interface RailNeedsInput {
   /** `ticket.stageCurrent` — a stored string that may name no known stage. */
@@ -47,6 +73,15 @@ export interface RailNeedsInput {
   shipAwaitingMerge: boolean;
   /** The merge gate's current read; only consulted when `shipAwaitingMerge`. */
   mergeGate: MergeGateState | null;
+  /**
+   * The repos whose CURRENT PR karst currently offers to merge — the host's own
+   * `canMerge` verdict (an open PR with a recorded url), derived from the same
+   * current-PR read the gate uses. Only consulted for the `awaiting` gate: a
+   * real merge is offered only when exactly one repo is waiting AND its PR can
+   * merge, so the rail never fires an irreversible command the panel's own
+   * disabled Merge button would refuse.
+   */
+  mergeableRepos: readonly string[];
 }
 
 const count = (repos: readonly string[]): string =>
@@ -68,28 +103,50 @@ const count = (repos: readonly string[]): string =>
 export function railNeeds(input: RailNeedsInput): RailNeeds | null {
   if (input.agentWaiting) {
     if (input.stage === 'ship' && input.shipStatus === 'running') return null;
-    return { detail: 'the agent asked you something', action: 'Open session' };
+    return {
+      detail: 'the agent asked you something',
+      action: 'Open session',
+      cta: { kind: 'open-session' },
+    };
   }
 
   if (input.stage === 'ship') {
     if (!input.shipAwaitingMerge) {
-      return { detail: 'ready to open the PRs', action: 'Confirm ship' };
+      return {
+        detail: 'ready to open the PRs',
+        action: 'Confirm ship',
+        cta: { kind: 'ship-confirm' },
+      };
     }
     const gate = input.mergeGate;
     if (!gate) return null;
     switch (gate.kind) {
       // A conflict is a WORDING difference, not a new state: ship has no
       // failed edge, so it must never read as something a retry could clear.
-      // Only a human rebase resolves it.
+      // Only a human rebase resolves it, per repo, so the rail points at the
+      // panel's Resolve controls rather than acting on an ambiguous set.
       case 'conflicted':
         return {
           detail: `${count(gate.repos)} ${
             gate.repos.length === 1 ? 'no longer merges' : 'no longer merge'
           } cleanly`,
           action: 'Resolve',
+          cta: { kind: 'resolve' },
         };
       case 'awaiting':
-        return { detail: `${count(gate.repos)} to merge`, action: 'Merge' };
+        // The one case where the rail may ACT: a single waiting repo whose PR
+        // can merge. The host's confirmation modal still guards the merge.
+        // Every other waiting shape — more than one repo, or a single repo
+        // whose PR is not currently mergeable — sends the user to the PR panel,
+        // where each repo has its own (host-confirmed) Merge button.
+        if (gate.repos.length === 1 && input.mergeableRepos.includes(gate.repos[0]!)) {
+          return {
+            detail: `${count(gate.repos)} to merge`,
+            action: 'Merge',
+            cta: { kind: 'merge', repo: gate.repos[0]! },
+          };
+        }
+        return { detail: `${count(gate.repos)} to merge`, action: 'Merge', cta: { kind: 'merge-panel' } };
       // Both landed states mean the gate is about to advance the ticket (or
       // already has, and this snapshot predates it). Nothing is wanted.
       case 'merged':
