@@ -637,6 +637,81 @@ describe('buildDashboardState — ship header slot', () => {
   });
 });
 
+describe('buildDashboardState — send back to implement', () => {
+  let store: Store;
+  let seq = 0;
+  beforeEach(() => {
+    store = openStore(':memory:');
+    seq = 0;
+  });
+  afterEach(() => store.close());
+
+  function at(stage: string): number {
+    seq += 1;
+    const t = createTicket(store, { key: `SB-${seq}`, title: 't' });
+    store.db.prepare('UPDATE tickets SET stage_current = ? WHERE id = ?').run(stage, t.id);
+    return t.id;
+  }
+
+  it('offers the action on a settled uat stage', () => {
+    const id = at('uat');
+    setStage(store, id, 'uat', { status: 'passed' });
+    expect(buildDashboardState(store, id).sendBack).toEqual({ available: true, stage: 'uat' });
+  });
+
+  it('offers the action on a settled review stage', () => {
+    const id = at('review');
+    setStage(store, id, 'review', { status: 'passed' });
+    expect(buildDashboardState(store, id).sendBack).toEqual({ available: true, stage: 'review' });
+  });
+
+  it('withholds the action at ship once any current PR has merged', () => {
+    const id = at('ship');
+    store.db
+      .prepare("INSERT INTO prs (ticket_id, repo, number, url, status) VALUES (?, 'api', 12, 'u', 'merged')")
+      .run(id);
+    expect(buildDashboardState(store, id).sendBack).toEqual({ available: false, reason: 'landed' });
+  });
+
+  it('offers the action at ship awaiting confirm (no PR yet)', () => {
+    const id = at('ship');
+    expect(buildDashboardState(store, id).sendBack).toEqual({ available: true, stage: 'ship' });
+  });
+
+  it('offers the action at ship while awaiting merge', () => {
+    const id = at('ship');
+    setStage(store, id, 'ship', { status: 'passed', startedAt: '2026-08-09T10:00:00.000Z' });
+    parkGateStage(store, {
+      ticketId: id, stageKey: 'ship', kind: 'awaiting-merge',
+      reason: 'PR #412 is open and unmerged', runAt: '2026-08-09T10:33:42.000Z', gates: [],
+    });
+    expect(buildDashboardState(store, id).sendBack).toEqual({ available: true, stage: 'ship' });
+  });
+
+  it('withholds the action while the stage is running (in-flight)', () => {
+    const id = at('uat');
+    setStage(store, id, 'uat', { status: 'running', startedAt: '2026-08-09T10:00:00.000Z' });
+    expect(buildDashboardState(store, id).sendBack).toEqual({ available: false, reason: 'in-flight' });
+  });
+
+  it('offers the action on a parked (blocked) gate — settled, not running', () => {
+    const id = at('uat');
+    setStage(store, id, 'uat', { status: 'running', startedAt: '2026-08-09T10:00:00.000Z' });
+    parkGateStage(store, {
+      ticketId: id, stageKey: 'uat', kind: 'capability-missing',
+      reason: 'playwright missing', runAt: '2026-08-09T10:33:42.000Z', gates: [],
+    });
+    expect(buildDashboardState(store, id).sendBack).toEqual({ available: true, stage: 'uat' });
+  });
+
+  it('never offers the action at scope/impl/fix/done', () => {
+    for (const stage of ['scope', 'impl', 'fix', 'done'] as const) {
+      const id = at(stage);
+      expect(buildDashboardState(store, id).sendBack).toEqual({ available: false, reason: 'stage' });
+    }
+  });
+});
+
 describe('buildDashboardState — runnable scope', () => {
   let store: Store;
   beforeEach(() => (store = openStore(':memory:')));

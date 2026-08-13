@@ -589,6 +589,7 @@
   #inside .vbar .sp{margin-left:auto}
   #inside .inside-head{min-height:38px;display:grid;grid-template-columns:auto minmax(0,1fr) auto;
     align-items:center;gap:var(--p-s2);padding:0 var(--p-s4);border-bottom:var(--k-border-w) solid var(--p-border)}
+  #inside .inside-head.has-actions{grid-template-columns:auto minmax(0,1fr) auto auto}
   #inside .inside-title{font-size:var(--p-sm);font-weight:var(--k-weight-semibold);color:var(--p-strong);white-space:nowrap}
   #inside .inside-live{min-width:0;overflow:hidden;white-space:nowrap;color:var(--p-muted);
     font-size:var(--p-sm);display:flex;align-items:center;gap:var(--p-s2);line-height:18px}
@@ -602,6 +603,19 @@
     margin-inline:var(--k-border-w);padding:0;color:var(--p-muted2);line-height:18px}
   #inside .inside-meta{color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs);
     line-height:18px;white-space:nowrap}
+  /* The current stage header's ⋯ menu — the ONE recovery surface. Only the
+     host's availability verdict renders it; the menu itself is a composed
+     popover exactly like the ticket-controls menu, from the same tokens. */
+  #inside .stageMenuWrap{position:relative;display:flex;align-items:center}
+  #inside .stageMenuBtn{width:var(--k-control-h-sm);height:var(--k-control-h-sm);padding:0;
+    display:inline-grid;place-items:center;border-radius:var(--k-radius-sm);color:var(--p-muted)}
+  #inside .stageMenuBtn:hover{background:var(--p-hover);color:var(--p-text)}
+  #inside .stageMenuBtn[aria-expanded="true"]{background:var(--p-surface2);color:var(--p-text)}
+  #inside .stageMenuBtn .k-icon{width:var(--p-s3);height:var(--p-s3)}
+  #inside .stageMenu{position:absolute;right:0;top:calc(100% + var(--p-s1));z-index:40;min-width:calc(var(--k-control-h-lg) * 10);
+    padding:var(--p-s2);border:var(--k-border-w) solid var(--k-border-strong);border-radius:var(--p-r2);
+    background:var(--k-surface);box-shadow:var(--k-elev-2)}
+  #inside .stageMenu .menuButton{min-height:var(--k-control-h-lg)}
   #inside .blurb{padding:var(--p-s3) var(--p-s4);color:var(--p-muted);font-size:var(--p-sm)}
 
   /* Agent identity primitive */
@@ -1714,6 +1728,17 @@
   // Cleared by the next state push (the host always sends one when the refresh
   // settles, including when nothing moved), so it can never stick.
   let prRefreshId = null;
+  // The stage header's ⋯ menu: which stage's menu is OPEN, or null. Local view
+  // state exactly like `openProcesses` — render() replaces #inside wholesale on
+  // every state push, so an open menu would snap shut on the very next one.
+  // Only the ⋯ button's click toggles it, and selecting a stage closes it.
+  let stageMenuStage = null;
+  // A "Send back to Implement" request is in flight (the host's confirmation
+  // modal is up). Set on the click BEFORE the host round trip, cleared by the
+  // next state push — extension.ts always refreshes in a `finally` (confirm,
+  // dismiss, refusal, or throw), so a push is guaranteed to arrive and settle
+  // the pending item (same contract as `mergeRequests`).
+  let sendBackRequestId = null;
   // Transient inside-progress overlays (the inside redesign): the live header
   // for one running operation (`active`) and the process row that replaces the
   // snapshot's row when it completes (`completed`). Keyed by stage. The FULL
@@ -2486,12 +2511,34 @@
       : `<div class="blurb">${esc(view.blurb)}</div>`;
 
     // The prototype's block: viewing bar, then the three-cell header (stage
-    // title · live operation · meta), then the ledger.
+    // title · live operation · meta), then the ledger. The fourth cell — the
+    // ⋯ menu — renders ONLY when the host's availability verdict says the
+    // CURRENT stage offers the recovery action (`state.sendBack`); everywhere
+    // else the header stays the same three cells, so scope/impl/fix/done,
+    // an in-flight run and a landed ship offer no menu at all.
+    const sb = state.sendBack;
+    const actions = sb && sb.available && view.stageKey === sb.stage;
+    const menuOpen = actions && stageMenuStage === view.stageKey;
+    const stageMenu = actions
+      ? `<span class="stageMenuWrap">`
+        + `<button type="button" class="k-iconbtn stageMenuBtn" data-stage-menu="${esc(view.stageKey)}"`
+        + ` aria-label="Stage actions" aria-haspopup="menu"`
+        + ` aria-expanded="${menuOpen ? 'true' : 'false'}">${karstIcon('dots', 16)}</button>`
+        + (menuOpen
+          ? `<div class="stageMenu" role="menu" aria-label="Stage actions">`
+            + `<button type="button" class="menuButton" role="menuitem" data-act="send-back-to-implement"`
+            + ` title="Move this ticket back to Implement — UAT and Review will run again">`
+            + `${karstIcon('history', 16)}<span>Send back to Implement</span></button>`
+            + `</div>`
+          : '')
+        + `</span>`
+      : '';
     el('inside').innerHTML = `<section class="inside${viewing ? ' viewing' : ''}" aria-labelledby="inside-title">${vbar}`
-      + `<div class="inside-head"${view.title ? ` title="${esc(view.title)}"` : ''}>`
+      + `<div class="inside-head${actions ? ' has-actions' : ''}"${view.title ? ` title="${esc(view.title)}"` : ''}>`
       + `<span class="inside-title" id="inside-title">Inside ${esc(view.stageKey)}</span>`
       + `<span class="inside-live ${esc(lstatus)}">${alive}</span>`
-      + `<span class="inside-meta">${esc(view.clock)}</span></div>${body}</section>`;
+      + `<span class="inside-meta">${esc(view.clock)}</span>`
+      + `${stageMenu}</div>${body}</section>`;
   }
 
   // The blocked banner: why karst could not ask the CURRENT stage's question
@@ -3682,6 +3729,9 @@
 
   function select(stage) {
     selectedStage = stage;
+    // Selecting a stage closes the current header's ⋯ menu — the menu belongs
+    // to the stage header being shown, and the header is about to change.
+    stageMenuStage = null;
     render(lastState);
     persist();
   }
@@ -3732,16 +3782,35 @@
       if (termBtn.dataset.term === 'close') closeTerminal();
       return;
     }
+    // The current stage header's ⋯ menu: a purely local toggle. The button
+    // carries no `data-act` (nothing posts) and no `data-stage` (nothing
+    // selects) — this is the only place it is handled.
+    const menuBtn = e.target.closest('[data-stage-menu]');
+    if (menuBtn) {
+      // Read the dashed dataset key exactly as the attribute is written — the
+      // harness (and any caller) must not need a camelCase guess.
+      const stage = menuBtn.dataset['stage-menu'];
+      stageMenuStage = stageMenuStage === null ? stage : null;
+      render(lastState);
+      return;
+    }
+    // A click anywhere else closes the open ⋯ menu, like every other popover —
+    // unless it lands on the menu itself (its item's data-act handler runs in
+    // the [data-act] listener that follows and closes it there).
+    if (stageMenuStage !== null && !e.target.closest('.stageMenu')) {
+      stageMenuStage = null;
+    }
     const node = e.target.closest('[data-stage]');
     if (node) { select(node.dataset.stage); return; }
     if (e.target.closest('[data-back]')) select(null);
   });
 
   // Esc mirrors one Back step (spec §8): detail → its origin, index → ticket,
-  // ticket → no artifact-navigation action. There is no modal to close. The
-  // ticket-data drawer also dismisses on Esc, like any dialog.
+  // ticket → no artifact-navigation action. The stage header's ⋯ menu also
+  // dismisses on Esc, like any dialog.
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && el('ticketDataDrawer').classList.contains('open')) { closeTicketData(); return; }
+    if (e.key === 'Escape' && stageMenuStage !== null) { stageMenuStage = null; render(lastState); return; }
     if (e.key === 'Escape' && termView) { closeTerminal(); return; }
     if (e.key === 'Escape' && artView) artifactBack();
   });
@@ -3855,6 +3924,20 @@
       if (prRefreshId) return;
       prRefreshId = karstRequestId();
       karstBeginPending(btn, prRefreshId);
+      if (lastState) render(lastState);
+      post({ type: act });
+      return;
+    }
+    // Send back to Implement: the host answers with a confirmation MODAL and
+    // then a state push (confirm, dismiss, refusal or throw — always). The
+    // pending item is settled by resolveSendBackOutcome() on that push, the
+    // same contract merge-pr documents; the in-flight requestId is what stops
+    // a second click re-opening the modal while one is up.
+    if (act === 'send-back-to-implement') {
+      if (sendBackRequestId) return;
+      stageMenuStage = null;
+      sendBackRequestId = karstRequestId();
+      karstBeginPending(btn, sendBackRequestId);
       if (lastState) render(lastState);
       post({ type: act });
       return;
@@ -3986,6 +4069,25 @@
     mergeRequests = {};
   }
 
+  // Settle an in-flight "Send back to Implement" against the fresh snapshot.
+  // The one outcome the webview can verify is the ticket actually moving to
+  // impl (extension.ts confirms via modal, then always pushes). Anything else
+  // — the user dismissed the modal, the host refused, or the ticket moved
+  // elsewhere — settles `null` (unknown), never `false`: a dismissal is not a
+  // failure, and the difference between "refused" and "cancelled" is a
+  // host-side signal this webview does not have (the same reasoning as
+  // resolveMergeOutcome).
+  function resolveSendBackOutcome(state) {
+    if (!sendBackRequestId) return;
+    const moved = state.stageCurrent === 'impl';
+    karstSettle(
+      sendBackRequestId,
+      moved ? true : null,
+      moved ? 'Sent back to Implement.' : 'The ticket was not moved.',
+    );
+    sendBackRequestId = null;
+  }
+
   // Re-measure the track when the DOM did not change but its available width
   // did. `renderTrack` calls place() itself on the render path; these three cover
   // the rest — a panel drag, the document finishing, and web fonts settling. A
@@ -4086,6 +4188,9 @@
       // PR list before rendering, so the button's pending state and its
       // terminal toast land in the same frame.
       resolveMergeOutcome(msg.state);
+      // Likewise the recovery action — the host pushes a snapshot after the
+      // modal (confirm or cancel), which is what settles the pending item.
+      resolveSendBackOutcome(msg.state);
       // Likewise the refresh icon: the host pushes state when the sweep settles
       // even if no verdict moved, precisely so the spin has an end. The result
       // is always reported ok:true — the webview cannot itself distinguish "PR

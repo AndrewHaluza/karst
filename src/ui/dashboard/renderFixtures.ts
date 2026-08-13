@@ -873,5 +873,6 @@ export function renderStateFor(stage: InsideStageKey): DashboardState {
     presentedStage: stage,
     approach: null,
     artifacts: [],
+    sendBack: { available: false, reason: 'stage' },
   };
 }

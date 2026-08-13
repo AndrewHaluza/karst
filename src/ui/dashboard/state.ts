@@ -22,6 +22,7 @@ import { listPhaseMarks } from '../../store/phaseMarks.js';
 import { listMergeChecksByTicket } from '../../store/mergeChecks.js';
 import type { GateStage } from '../../store/ticketGates.js';
 import { mergeGateState } from '../../workflow/mergeGate.js';
+import { sendBackState, type SendBackState } from '../../workflow/sendBack.js';
 import { buildMergeCheckPanelRows, type MergeCheckPanelRow } from '../../model/mergeCheckPanel.js';
 import { nowIso } from '../../model/time.js';
 import type { StageKey } from '../../model/types.js';
@@ -189,6 +190,15 @@ export interface DashboardState {
    * `artifact.get`.
    */
   artifacts: ArtifactSummary[];
+  /**
+   * The "Send back to Implement" recovery action's availability for the
+   * CURRENT stage, host-derived (`workflow/sendBack.ts`) in the same snapshot
+   * as the merge gate so the header and the action never disagree. The webview
+   * renders the current stage header's ⋯ menu ONLY when this is available,
+   * keyed to the stage whose header hosts it — scope/impl/fix/done, an
+   * in-flight run, or a landed ship offer no menu at all.
+   */
+  sendBack: SendBackState;
 }
 
 /**
@@ -319,6 +329,12 @@ export function buildDashboardState(
   // track's needs-you wording must not describe the same three-valued fact from
   // two different reads.
   const mergeGate = mergeGateState(store, ticketId);
+  // ONE read of the recovery action's availability, for the same reason: the
+  // stage header's ⋯ menu and the host's confirm path must agree about whether
+  // "Send back to Implement" exists at all. Derived here rather than on click
+  // so a stale panel can never offer an action the host would refuse — and the
+  // host re-derives it before mutating anyway.
+  const sendBack = sendBackState(store, ticketId);
   // ONE read of the marks, for the same reason — the Inside strip and the impl
   // segment's pips are two views of one set of facts.
   const marks = listPhaseMarks(store, ticketId);
@@ -568,6 +584,7 @@ export function buildDashboardState(
       prs,
       attach,
     }),
+    sendBack,
   };
 }
 

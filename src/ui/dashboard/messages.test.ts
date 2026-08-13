@@ -29,6 +29,7 @@ function actions(): DashboardActions {
     stopDriver: vi.fn(),
     shipTicket: vi.fn(),
     resumeTicket: vi.fn(),
+    sendBackToImplement: vi.fn(),
     createFollowUpTicket: vi.fn(),
     openStageLog: vi.fn(),
     resolveConflicts: vi.fn(),
@@ -197,6 +198,9 @@ describe('routeAction', () => {
     expect(parseWebviewMessage({ type: 'stop-driver' })).toEqual({ type: 'stop-driver' });
     expect(parseWebviewMessage({ type: 'ship-ticket' })).toEqual({ type: 'ship-ticket' });
     expect(parseWebviewMessage({ type: 'resume-ticket' })).toEqual({ type: 'resume-ticket' });
+    expect(parseWebviewMessage({ type: 'send-back-to-implement' })).toEqual({
+      type: 'send-back-to-implement',
+    });
   });
 
   it('dispatches stop-driver/ship-ticket/resume-ticket (no payload)', () => {
@@ -207,6 +211,14 @@ describe('routeAction', () => {
     expect(a.stopDriver).toHaveBeenCalledTimes(1);
     expect(a.shipTicket).toHaveBeenCalledTimes(1);
     expect(a.resumeTicket).toHaveBeenCalledTimes(1);
+  });
+
+  it('dispatches send-back-to-implement and drops a forged companion stage', () => {
+    const a = actions();
+    // The recovery is payload-free: a crafted `stage` field must not reach the
+    // host action (which derives availability + the current stage itself).
+    routeAction({ type: 'send-back-to-implement', stage: 'ship' }, a);
+    expect(a.sendBackToImplement).toHaveBeenCalledOnce();
   });
 
   it('parses and dispatches create-follow-up-ticket', () => {

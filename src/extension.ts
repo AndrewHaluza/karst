@@ -177,6 +177,7 @@ import { capForGate, lastFailedGate, type GateStageKey } from './workflow/fixAtt
 import { resumeConfiguredFixExecution } from './workflow/fixExecution.js';
 import { findTicketPr } from './store/prs.js';
 import { resumeBlockedStage } from './workflow/stageResume.js';
+import { sendBackState, sendBackToImplement } from './workflow/sendBack.js';
 import { buildConflictBrief } from './workflow/conflictSession.js';
 import { stopServer, stopTicketServers } from './runtime/supervisor.js';
 import { reapStaleServers, describeReap } from './runtime/worktreeServers.js';
@@ -2257,6 +2258,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // through the injected reader and posts the answer to this ticket's
         // panel (the postInsideProgress pattern).
         (stage) => dashboard.requestStageLog(ticketId, stage),
+        (message) => logger.debug(message),
       ),
     () => worktreePathContext(currentManifest(), logger.warn, logger.info),
     () => currentManifest()?.ticketLabelTemplate,
@@ -4796,6 +4798,9 @@ function makeDashboardActions(
   // the ticket panel: the stage key arrives from the webview, the read stays
   // host-side.
   requestStageLog: (stage: GateStage) => void,
+  // Verbose decision-point logging for the recovery action (`sendBackToImplement`),
+  // gated inside the logger so it is a no-op unless the manifest's debug flag is on.
+  debug: (message: string) => void,
 ): DashboardActions {
   const worktreeActions = makeWorktreeActions(
     {
@@ -4916,6 +4921,59 @@ function makeDashboardActions(
     // action already uses; `SessionManager.openSession` resolves --resume vs.
     // a fresh launch on its own.
     resumeTicket: () => void vscode.commands.executeCommand('karst.openSession', ticketId),
+    // The unified "Send back to Implement" recovery action (869ehkkzp).
+    //
+    // The confirmation is a MODAL and the mutation stays host-side: the webview
+    // posts only the payload-free message, and everything about whether — and
+    // which stage from — it happens is decided here against the store, right
+    // before it is mutated. Availability is re-derived AFTER the confirmation
+    // too (inside `sendBackToImplement`'s transaction), so a ticket a sweep or
+    // a teammate's merge moved while the modal was up is refused rather than
+    // mutated underneath its new state.
+    //
+    // The dashboard is refreshed on EVERY exit — confirm, dismiss, refusal,
+    // throw — because the webview's pending state is settled by a state push
+    // (the same contract `mergePr` documents). Skipping the push on the cancel
+    // path would leave the ⋯ menu item stuck pending.
+    sendBackToImplement: () => {
+      void (async () => {
+        try {
+          // The store decides availability: a stale panel can offer an action
+          // for a stage the ticket has since left or landed.
+          const state = sendBackState(store, ticketId);
+          if (!state.available) {
+            void vscode.window.showInformationMessage(
+              'This ticket cannot be sent back to Implement right now.',
+            );
+            return;
+          }
+          const fromShip = state.stage === 'ship';
+          const detail = fromShip
+            ? 'Move this ticket back to Implement? UAT and Review will need to run again. '
+                + 'Existing evidence will remain in history, and existing open pull requests are '
+                + 'kept as they are — they are not merged or closed.'
+            : 'Move this ticket back to Implement? UAT and Review will need to run again. '
+                + 'Existing evidence will remain in history.';
+          const choice = await vscode.window.showWarningMessage(
+            'Send back to Implement?',
+            { modal: true, detail },
+            'Send back to Implement',
+          );
+          if (!choice) return; // dismissed: nothing ran, and nothing is claimed
+          const result = sendBackToImplement(store, ticketId, { debug });
+          void vscode.window.showInformationMessage(
+            `Ticket moved back to Implement${result.from === 'ship' ? ' — open pull requests kept' : ''}.`,
+          );
+        } catch (e) {
+          logError('send back to implement failed', e);
+          void vscode.window.showErrorMessage(
+            `Could not send the ticket back: ${e instanceof Error ? e.message : String(e)}`,
+          );
+        } finally {
+          afterServerChange();
+        }
+      })();
+    },
     // Resume a parked gate stage (§ blocked state visible). All the "is this
     // even valid" checking lives in `resumeBlockedStage` (vscode-free, unit
     // tested) — this stays a thin binding: apply it, and only on success
