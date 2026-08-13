@@ -509,15 +509,22 @@ short version — the invariants that protect the design:
 
 ```bash
 npm install
-npm test          # vitest run (in-memory SQLite) — auto-rebuilds native dep for Node
-npm run typecheck # tsc --noEmit
-npm run build     # compile to dist/ + copy webview assets
+npm run test:unit  # vitest run (in-memory SQLite) — auto-rebuilds native dep for Node
+npm run test:e2e   # vitest e2e suite (src/**/*.e2e.test.ts)
+npm run typecheck  # tsc --noEmit
+npm run build      # compile to dist/ + copy webview assets
 ```
 
 Single test file:
 
 ```bash
 npx vitest run src/workflow/machine.test.ts
+```
+
+Single e2e file:
+
+```bash
+npx vitest run --config vitest.e2e.config.ts src/workflow/gates/targets.e2e.test.ts
 ```
 
 ### Running in the IDE
@@ -529,7 +536,7 @@ palette.
 
 **Native module / ABI note.** `better-sqlite3` is a native addon and must match
 the ABI of whatever runs it — VS Code's **Electron** for F5, plain **Node** for
-`npm test`. The project restores the matching binary automatically:
+`npm run test:unit`. The project restores the matching binary automatically:
 `dev:extension` (F5's preLaunchTask) installs the Electron-ABI prebuild,
 `pretest` rebuilds for the Node ABI. A `NODE_MODULE_VERSION` mismatch is fixed
 with `npm run rebuild:electron` / `npm run rebuild:node`. VS Code 1.126 runs

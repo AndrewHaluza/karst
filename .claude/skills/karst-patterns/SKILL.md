@@ -88,7 +88,8 @@ Edit **both** `src/agent/modelCatalog.ts` (`BUNDLED_CATALOG`) and root `model-ca
 
 - **Strict TDD, RED→GREEN.** Behavior lands with its test in the same commit; there is no trailing "add tests" commit in history.
 - Tests colocate as `<module>.test.ts` beside the source (`store/prs.ts` ↔ `store/prs.test.ts`). Integration suites use the `.integration.test.ts` suffix (`workflow/lifecycle.integration.test.ts`, `runtime/spin.integration.test.ts`).
-- `npm test` → vitest run, SQLite via `openStore(':memory:')`. Single file: `npx vitest run src/path/to.test.ts`. Typecheck: `npm run typecheck`.
+- `npm run test:unit` → vitest run, SQLite via `openStore(':memory:')`. Single file: `npx vitest run src/path/to.test.ts`. Typecheck: `npm run typecheck`.
+- `npm run test:e2e` → vitest run with `vitest.e2e.config.ts` (`src/**/*.e2e.test.ts`). Single file: `npx vitest run --config vitest.e2e.config.ts src/path/to.e2e.test.ts`.
 - Coverage target 80%+.
 - **Discovery tests over enumeration**: `ui/designSystem.test.ts` and `ui/webviewCsp.test.ts` walk the webview directories rather than listing them, so a new webview cannot ship outside the system silently. Prefer this shape for any invariant that must hold across a growing set.
 - **Differential tests** pin every TS→HTML mirrored constant (`SECTION_FIELDS`, `TICKET_TYPES`, `TRANSFORM_NAMES`, `deriveKey`) by running the webview copy against the host module.

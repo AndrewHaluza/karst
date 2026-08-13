@@ -21,7 +21,8 @@
   ],
   "scripts": {
     "lint": "tsc --noEmit",
-    "test": "vitest run",
+    "test:unit": "vitest run",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "typecheck": "tsc --noEmit",
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
     "compile": "tsc -p tsconfig.build.json",
@@ -31,7 +32,7 @@
     "rebuild:better-sqlite3": "node scripts/rebuild-better-sqlite3.mjs auto",
     "rebuild:electron": "node scripts/rebuild-better-sqlite3.mjs electron",
     "rebuild:node": "node scripts/rebuild-better-sqlite3.mjs node",
-    "pretest": "npm run rebuild:node",
+    "pretest:unit": "npm run rebuild:node",
     "dev:extension": "npm run build && npm run rebuild:electron"
   },
   "contributes": {
