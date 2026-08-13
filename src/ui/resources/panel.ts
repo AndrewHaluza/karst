@@ -2,7 +2,13 @@ import type { LogError } from '../../logging/logger.js';
 import type { ResourceMonitor, ResourceReading } from '../../runtime/resourceMonitor.js';
 import type { WorktreeDiskCache, DiskUsage } from '../../runtime/worktreeDisk.js';
 import type { PathContext } from '../worktreePath.js';
-import { buildResourcesState, toDiskRows, type DiskRowView, type ResourcesState } from './state.js';
+import {
+  buildResourcesState,
+  toDiskRows,
+  type DiskRowView,
+  type ResourcesState,
+  type TicketIdentity,
+} from './state.js';
 import {
   parseResourcesMessage,
   routeResourcesAction,
@@ -46,6 +52,13 @@ export interface ResourcesPanelDeps {
   /** The worktree paths to measure on demand — a getter, they change per spin. */
   worktreePaths: () => string[];
   pathContext?: () => PathContext | undefined;
+  /**
+   * Resolve the `tickets.id`s the attributed rows carry to the key/title the
+   * user can match against their board. Absent → rows render `#<id>`-free.
+   */
+  ticketIdentity?: (ids: readonly number[]) => ReadonlyMap<number, TicketIdentity>;
+  /** The scope line under the title ("Project <name> · this window"). */
+  scopeLabel?: () => string;
   /**
    * Host-side kill confirmation (UI-R33). Absent in tests; bound to
    * `showWarningMessage` in `extension.ts`.
@@ -175,21 +188,30 @@ export class ResourcesPanelManager {
 
   /** The state the panel would render right now — the read the tests assert on. */
   state(): ResourcesState {
+    return this.buildState(this.deps.monitor.reading());
+  }
+
+  private buildState(reading: ResourceReading): ResourcesState {
+    const ids = [
+      ...new Set(
+        (reading.inventory?.attributed ?? [])
+          .map((row) => row.ticketId)
+          .filter((id): id is number => id !== null),
+      ),
+    ];
+    const lifecycle = this.deps.ticketIdentity?.(ids) ?? new Map<number, TicketIdentity>();
     return buildResourcesState(
-      this.deps.monitor.reading(),
+      reading,
       this.diskRows.map((row) => ({ path: row.path, bytes: row.bytes, measuredMs: row.measuredMs })),
       this.deps.pathContext?.(),
+      { lifecycle, scopeLabel: this.deps.scopeLabel?.() ?? '' },
     );
   }
 
   private push(reading?: ResourceReading): void {
     if (!this.panel) return;
     try {
-      const state = buildResourcesState(
-        reading ?? this.deps.monitor.reading(),
-        this.diskRows.map((row) => ({ path: row.path, bytes: row.bytes, measuredMs: row.measuredMs })),
-        this.deps.pathContext?.(),
-      );
+      const state = this.buildState(reading ?? this.deps.monitor.reading());
       this.panel.postMessage({ type: 'state', state });
     } catch (err) {
       this.log('karst: resource state push failed', err);

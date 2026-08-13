@@ -340,6 +340,7 @@ import {
 import type { Project } from './store/projects.js';
 import { bindProject } from './project/bind.js';
 import { resolveProjectSlug } from './project/slug.js';
+import { listTicketLifecycle } from './store/runningServers.js';
 import { TicketFormManager } from './ui/ticketForm/panel.js';
 import {
   buildTicketFormActions,
@@ -2165,6 +2166,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return project ? listWorktreesByProject(localStore, project.id).map((w) => w.path) : [];
     },
     pathContext: () => worktreePathContext(currentManifest(), logger.warn, logger.info),
+    // The attributed lane carries only `tickets.id`; resolve it to the key/title
+    // the user can match against their board (the id is not a visible label).
+    ticketIdentity: (ids) =>
+      new Map([...listTicketLifecycle(localStore, ids)].map(([id, t]) => [id, { key: t.key, title: t.title }])),
+    scopeLabel: () => {
+      const project = currentProject();
+      return project ? `Project ${project.name ?? project.slug} · this window` : '';
+    },
     // The kill confirmation is HOST-side (UI-R33): the webview posts only a
     // `servers.id`, and a crafted message can never skip this modal.
     confirm: async (message) => {

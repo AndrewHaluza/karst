@@ -55,6 +55,8 @@ export interface Inventory {
   unattributed: UnattributedRow[];
   /** Sum across attributed rows only — karst's own footprint. */
   totals: { rssBytes: number; cpuPct: number | null };
+  /** How many bounded `liveCwd` probes were spent on this tick (slow lane only). */
+  cwdProbes: number;
 }
 
 export const UNATTRIBUTED_TOP_N = 5;
@@ -175,5 +177,5 @@ export async function buildInventory(opts: {
     `[resources] inventory: ${attributed.length} attributed, ${unattributed.length} unattributed, totals rss=${totals.rssBytes} cpu=${totals.cpuPct === null ? 'null' : totals.cpuPct}`,
   );
 
-  return { takenMs: snapshot.takenMs, attributed, unattributed, totals };
+  return { takenMs: snapshot.takenMs, attributed, unattributed, totals, cwdProbes: probes };
 }

@@ -7,8 +7,8 @@
   It decides NOTHING. Every number arrives pre-formatted, every label
   pre-resolved — the same split the usage panel uses, because a number formatted
   here would be a second implementation of a rule that already lives host-side
-  (UI-R31). The only local state is which control has focus and the sparkline
-  geometry, which is pure presentation.
+  (UI-R31). The only local state is which control has focus, which legend series
+  is muted, and the chart geometry, which is pure presentation.
 
   The kill confirmation is HOST-side (UI-R33): the webview posts only a
   `servers.id`; the host re-attributes and confirms before it signals anything.
@@ -16,6 +16,7 @@
   UI-R11/R13/R14/R18 are satisfied by routing every posting control through
   `karstAction` — local pending on click, aria-busy, no re-trigger, a watchdog
   that reports "unknown" on timeout, and a terminal `action-result` outcome.
+  The legend toggles post NOTHING: muting a chart series is local presentation.
 -->
 <!--KARST_CSP-->
 <style>
@@ -27,8 +28,10 @@
   .hidden{display:none}
 
   .rhead{display:flex;align-items:center;gap:var(--k-space-6);flex-wrap:wrap;margin-bottom:var(--k-space-6)}
+  .rhead .titles{min-width:0}
   .rhead h1{font-size:var(--k-text-xl);margin:0}
-  .rhead .sub{color:var(--k-text-dim);font-size:var(--k-text-sm)}
+  .rhead .sub{color:var(--k-text-dim);font-size:var(--k-text-sm);margin-top:var(--k-space-1)}
+  .rhead .live{color:var(--k-text-faint);font-size:var(--k-text-2xs);margin-top:var(--k-space-1);display:flex;align-items:center;gap:var(--k-space-2);flex-wrap:wrap}
   .rhead .actions{margin-left:auto;display:flex;gap:var(--k-space-2)}
 
   .note{border:var(--k-border-w) solid var(--k-warning);border-radius:var(--k-radius-lg);
@@ -36,9 +39,9 @@
     color:var(--k-warning);font-size:var(--k-text-md)}
   .note.plain{border-color:var(--k-border);color:var(--k-text-dim)}
 
-  /* Totals strip — same shape as the usage panel's stat cards. */
+  /* Totals strip — the summary rail: attributed footprint + proven waste. */
   .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(calc(var(--k-space-9) * 5),1fr));
-    gap:var(--k-space-5);margin-bottom:var(--k-space-8)}
+    gap:var(--k-space-5);margin-bottom:var(--k-space-4)}
   .stat{border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-lg);
     background:var(--k-surface);padding:var(--k-space-5) var(--k-space-6)}
   .stat .k{font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.04em;color:var(--k-text-dim)}
@@ -46,9 +49,15 @@
     line-height:var(--k-leading-tight)}
   .stat .n{font-size:var(--k-text-2xs);color:var(--k-text-faint);margin-top:var(--k-space-1);min-height:var(--k-space-6)}
   .stat.flag .v{color:var(--k-warning)}
+  .summaryMeta{color:var(--k-text-faint);font-size:var(--k-text-2xs);margin:0 0 var(--k-space-6)}
 
+  /* Trend + Monitor sit side by side on a wide panel and stack on a narrow one —
+     the same token-driven auto-fit the usage panel uses (no px breakpoint). */
+  .gridTop{display:grid;grid-template-columns:repeat(auto-fit,minmax(calc(var(--k-space-9) * 12),1fr));
+    gap:var(--k-space-5);align-items:stretch;margin-bottom:var(--k-space-6)}
   .panel{border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-lg);
     background:var(--k-surface);overflow:hidden;margin-bottom:var(--k-space-6)}
+  .gridTop .panel{margin-bottom:0}
   .phead{display:flex;align-items:center;gap:var(--k-space-4);
     padding:var(--k-space-5) var(--k-space-6);border-bottom:var(--k-border-w) solid var(--k-border);
     font-size:var(--k-text-md);font-weight:var(--k-weight-semibold)}
@@ -56,10 +65,44 @@
     color:var(--k-text-dim);font-weight:var(--k-weight-normal)}
   .pbody{padding:var(--k-space-3) var(--k-space-6) var(--k-space-5)}
 
-  #spark{display:block;width:100%;height:calc(var(--k-space-9) * 4)}
+  /* Trend chart: a legend, a scale note, and the plot itself. */
+  .trendHead{display:flex;align-items:center;gap:var(--k-space-4);margin-bottom:var(--k-space-3);flex-wrap:wrap}
+  .legend{display:flex;gap:var(--k-space-2)}
+  .legendBtn{display:inline-flex;align-items:center;gap:var(--k-space-2);min-height:var(--k-control-h-sm);
+    padding:0 var(--k-space-4);border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-pill);
+    background:var(--k-surface-sunken);color:var(--k-text-dim);font-size:var(--k-text-2xs);cursor:pointer}
+  .legendBtn[aria-pressed="true"]{color:var(--k-text)}
+  .legendBtn[aria-pressed="false"]{opacity:.42}
+  .legendBtn .swatch{width:var(--k-space-5);height:var(--k-space-1);border-radius:var(--k-radius-pill);display:inline-block;flex:none}
+  .swCpu{background:var(--k-series-2)}
+  .swRss{background:var(--k-series-1)}
+  .scaleNote{margin-left:auto;font-family:var(--k-font-mono);font-size:var(--k-text-2xs);color:var(--k-text-faint);white-space:nowrap}
+  .chartWrap{position:relative;height:calc(var(--k-space-9) * 4);background:var(--k-surface-sunken);
+    border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-sm);overflow:hidden}
+  .chartWrap svg{position:absolute;inset:0;width:100%;height:100%;display:block;overflow:visible}
   .series-rss{fill:none;stroke:var(--k-series-1);stroke-width:calc(var(--k-space-1) / 2)}
   .series-cpu{fill:none;stroke:var(--k-series-2);stroke-width:calc(var(--k-space-1) / 2)}
+  .series-rss.muted,.series-cpu.muted{opacity:.08}
+  .gridline{stroke:var(--k-border);stroke-width:var(--k-border-w);opacity:.5}
   .spark-empty{fill:var(--k-text-faint);font-family:var(--k-font-ui);font-size:var(--k-text-sm)}
+  .chartTicks{position:absolute;left:0;right:0;bottom:var(--k-space-1);height:var(--k-space-4);
+    color:var(--k-text-faint);font-size:var(--k-text-2xs);pointer-events:none}
+  .chartTicks span{position:absolute;transform:translateX(-50%)}
+  .chartTicks span:first-child{transform:translateX(0)}
+  .chartTicks span:last-child{transform:translateX(-100%)}
+  .chartScale{position:absolute;top:var(--k-space-2);left:var(--k-space-4);color:var(--k-text-faint);
+    font-size:var(--k-text-2xs);pointer-events:none;display:flex;gap:var(--k-space-5);font-family:var(--k-font-mono)}
+  .chartScale .cpu{color:var(--k-series-2)}
+  .chartScale .rss{color:var(--k-series-1)}
+
+  /* Monitor facts lane. */
+  .laneFacts{display:grid;gap:var(--k-space-1)}
+  .factRow{min-height:var(--k-control-h-md);display:flex;align-items:center;justify-content:space-between;
+    gap:var(--k-space-6);border-bottom:var(--k-border-w) solid var(--k-border);padding:var(--k-space-1) var(--k-space-2)}
+  .factRow:last-child{border-bottom:none}
+  .factLabel{color:var(--k-text-dim);font-size:var(--k-text-2xs)}
+  .factValue{font-family:var(--k-font-mono);font-size:var(--k-text-xs);text-align:right;white-space:nowrap}
+  .factValue.attn{color:var(--k-warning)}
 
   table{width:100%;border-collapse:collapse;font-size:var(--k-text-md)}
   .tscroll{overflow-x:auto}
@@ -74,6 +117,20 @@
   td.ellipsis{max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .attrib{font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.04em;color:var(--k-text-dim)}
 
+  /* The unattributed lane: a PID column as wide as six digits, a command column
+     that takes the freed space so the path is actually readable, and numeric
+     columns that stay as narrow as their content allows. */
+  .utable th.pid,.utable td.pid{width:6ch}
+  .utable th.cmd,.utable td.cmd{width:auto}
+  .utable td.cmd{min-width:0}
+  .utable th.amt,.utable td.amt{white-space:nowrap}
+
+  /* A ticket cell: the key is the identity, the title rides beneath it. */
+  .ticketCell{display:grid;gap:var(--k-space-1)}
+  .ticketCell .tkey{font-family:var(--k-font-mono);font-size:var(--k-text-xs);color:var(--k-text);font-weight:var(--k-weight-semibold)}
+  .ticketCell .ttitle{font-size:var(--k-text-2xs);color:var(--k-text-faint);max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .ticketCell .baseline{font-size:var(--k-text-2xs);color:var(--k-text-faint)}
+
   /* A waste row: reason, size, and either a Stop control or a visible
      explanation of why it cannot be stopped (UI-R19 — never title-only). */
   .wrow{display:flex;align-items:center;gap:var(--k-space-4);padding:var(--k-space-3) 0}
@@ -84,16 +141,21 @@
   .wrow .k-btn{flex:none}
   .meta{color:var(--k-text-faint);font-size:var(--k-text-2xs)}
 
-  .drow{display:flex;align-items:center;gap:var(--k-space-4);padding:var(--k-space-3) 0}
+  .drow{display:grid;grid-template-columns:minmax(0,1fr) var(--k-space-8);gap:var(--k-space-4);padding:var(--k-space-3) 0}
   .drow + .drow{border-top:var(--k-border-w) solid var(--k-border)}
   .drow .path{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--k-font-mono);font-size:var(--k-text-md)}
-  .drow .amt{margin-left:auto;font-family:var(--k-font-mono);font-size:var(--k-text-md);flex:none}
+  .drow .amt{font-family:var(--k-font-mono);font-size:var(--k-text-md);text-align:right;flex:none}
+  .diskTrack{height:var(--k-space-2);background:var(--k-surface-sunken);border-radius:var(--k-radius-xs);overflow:hidden}
+  .diskTrack i{display:block;height:100%;background:var(--k-series-1);border-radius:var(--k-radius-xs)}
   .measure-row{display:flex;align-items:center;gap:var(--k-space-4);margin-bottom:var(--k-space-3)}
 </style>
 
 <div class="rhead">
-  <h1>Resources</h1>
-  <span class="sub" id="sub"></span>
+  <div class="titles">
+    <h1>Resources</h1>
+    <div class="sub" id="sub"></div>
+    <div class="live" id="live"></div>
+  </div>
   <div class="actions">
     <button type="button" class="k-btn k-btn--secondary" id="refreshBtn">Refresh</button>
   </div>
@@ -108,11 +170,30 @@
 
 <div id="body" class="hidden">
   <div class="stats" id="stats"></div>
+  <div class="summaryMeta" id="summaryMeta"></div>
 
-  <div class="panel">
-    <div class="phead">5-minute trend<span class="count" id="trendCount"></span></div>
-    <div class="pbody">
-      <svg id="spark" viewBox="0 0 560 80" preserveAspectRatio="none" aria-hidden="true"></svg>
+  <div class="gridTop">
+    <div class="panel">
+      <div class="phead">5-minute trend<span class="count" id="trendCount"></span></div>
+      <div class="pbody">
+        <div class="trendHead">
+          <div class="legend" id="legend">
+            <button type="button" class="legendBtn" data-series="cpu" aria-pressed="true"><i class="swatch swCpu"></i>CPU %</button>
+            <button type="button" class="legendBtn" data-series="rss" aria-pressed="true"><i class="swatch swRss"></i>RSS</button>
+          </div>
+          <span class="scaleNote" id="scaleNote"></span>
+        </div>
+        <div class="chartWrap">
+          <svg id="spark" viewBox="0 0 560 80" preserveAspectRatio="none" aria-hidden="true"></svg>
+          <div class="chartScale" id="chartScale"></div>
+          <div class="chartTicks" id="chartTicks"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="phead">Monitor<span class="count">window-local</span></div>
+      <div class="pbody laneFacts" id="facts"></div>
     </div>
   </div>
 
@@ -140,14 +221,14 @@
   <div class="panel">
     <div class="phead">Unattributed (top 5)<span class="count" id="unknownCount"></span></div>
     <div class="tscroll">
-      <table>
+      <table class="utable">
         <thead>
           <tr>
-            <th class="num">PID</th>
-            <th>Command</th>
-            <th class="num">CPU</th>
-            <th class="num">RSS</th>
-            <th class="num">Procs</th>
+            <th class="pid">PID</th>
+            <th class="cmd">Command</th>
+            <th class="num amt">CPU</th>
+            <th class="num amt">RSS</th>
+            <th class="num amt">Procs</th>
           </tr>
         </thead>
         <tbody id="unknownBody"></tbody>
@@ -157,7 +238,7 @@
   </div>
 
   <div class="panel">
-    <div class="phead">Leaks<span class="count" id="wasteCount"></span></div>
+    <div class="phead">Proven waste<span class="count" id="wasteCount"></span></div>
     <div class="pbody" id="waste"></div>
   </div>
 
@@ -182,6 +263,8 @@
   const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
 
   let lastState = null;
+  // Which chart series the user has muted — LOCAL presentation, never a post.
+  const muted = { cpu: false, rss: false };
 
   const statCard = (label, value, note, flag) =>
     `<div class="stat${flag ? ' flag' : ''}"><div class="k">${esc(label)}</div>` +
@@ -190,37 +273,53 @@
   const renderStats = (state) => {
     const measuring = state.history.length === 0;
     el('stats').innerHTML = [
-      statCard('RSS', state.rssDisplay, measuring ? 'measuring' : 'resident set size'),
-      statCard('CPU', state.cpuPctDisplay, measuring ? 'measuring' : 'of one core, rolling'),
+      statCard('Attributed CPU', state.cpuPctDisplay, measuring ? 'measuring' : 'of one core, rolling'),
+      statCard('Attributed RSS', state.rssDisplay, measuring ? 'measuring' : 'resident set size'),
+      statCard('Proven waste', String(state.wasteCount), state.wasteCount === 1 ? 'finding' : 'findings', state.wasteCount > 0),
     ].join('');
+    el('summaryMeta').textContent =
+      `${state.attributedRoots} attributed roots · ${state.unattributedShown} unattributed shown`;
   };
 
-  const renderSpark = (history) => {
+  const renderSpark = (state) => {
+    const history = state.history;
     const svg = el('spark');
     if (history.length === 0) {
       svg.innerHTML = '<text x="4" y="45" class="spark-empty">measuring\u2026</text>';
-      return;
+    } else {
+      const W = 560, H = 80, PAD = 2;
+      const rss = history.map((s) => s.totals.rssBytes);
+      const cpu = history.map((s) => s.totals.cpuPct);
+      const rssMax = Math.max(...rss, 1);
+      const cpuVals = cpu.filter((v) => v !== null);
+      const cpuMax = Math.max(...cpuVals, 1);
+      const x = (i) => (history.length === 1 ? PAD : (i / (history.length - 1)) * (W - PAD * 2) + PAD);
+      const y = (v, max) => H - PAD - (v / max) * (H - PAD * 2);
+      const rssPts = rss.map((v, i) => `${x(i)},${y(v, rssMax)}`).join(' ');
+      const cpuPts = [];
+      cpu.forEach((v, i) => { if (v !== null) cpuPts.push(`${x(i)},${y(v, cpuMax)}`); });
+      const grid = [H * .25, H * .5, H * .75].map((gy) => `<line class="gridline" x1="0" y1="${gy}" x2="${W}" y2="${gy}"/>`).join('');
+      svg.innerHTML = grid +
+        `<polyline vector-effect="non-scaling-stroke" class="series-rss${muted.rss ? ' muted' : ''}" points="${rssPts}"></polyline>` +
+        (cpuPts.length ? `<polyline vector-effect="non-scaling-stroke" class="series-cpu${muted.cpu ? ' muted' : ''}" points="${cpuPts}"></polyline>` : '');
     }
-    const W = 560, H = 80, PAD = 2;
-    const rss = history.map((s) => s.totals.rssBytes);
-    const cpu = history.map((s) => s.totals.cpuPct);
-    const rssMax = Math.max(...rss, 1);
-    const cpuVals = cpu.filter((v) => v !== null);
-    const cpuMax = Math.max(...cpuVals, 1);
-    const x = (i) => (history.length === 1 ? PAD : (i / (history.length - 1)) * (W - PAD * 2) + PAD);
-    const y = (v, max) => H - PAD - (v / max) * (H - PAD * 2);
-    const rssPts = rss.map((v, i) => `${x(i)},${y(v, rssMax)}`).join(' ');
-    const cpuPts = [];
-    cpu.forEach((v, i) => { if (v !== null) cpuPts.push(`${x(i)},${y(v, cpuMax)}`); });
-    svg.innerHTML = `<polyline vector-effect="non-scaling-stroke" class="series-rss" points="${rssPts}"></polyline>` +
-      (cpuPts.length ? `<polyline vector-effect="non-scaling-stroke" class="series-cpu" points="${cpuPts}"></polyline>` : '');
+    // Scale markers: the per-series maxima, and the x-axis time ticks.
+    el('chartScale').innerHTML =
+      `<span class="cpu">CPU ${esc(state.trend.cpuMaxDisplay)}</span>` +
+      `<span class="rss">RSS ${esc(state.trend.rssMaxDisplay)}</span>`;
+    el('chartTicks').innerHTML = state.trend.timeTicks.map((t) =>
+      `<span style="left:${Math.round(t.fraction * 100)}%">${esc(t.label)}</span>`,
+    ).join('');
   };
 
   const renderAttributed = (rows) => {
     el('attrCount').textContent = rows.length;
-    el('attrBody').innerHTML = rows.map((r) =>
-      '<tr>' +
-        `<td class="ellipsis">${esc(r.ticketLabel || '—')}</td>` +
+    el('attrBody').innerHTML = rows.map((r) => {
+      const ticket = r.ticketKey || r.ticketTitle
+        ? `<div class="ticketCell"><span class="tkey">${esc(r.ticketKey || '')}</span><span class="ttitle">${esc(r.ticketTitle || '')}</span></div>`
+        : '<div class="ticketCell"><span class="baseline">baseline</span></div>';
+      return '<tr>' +
+        `<td>${ticket}</td>` +
         `<td class="ellipsis">${esc(r.label || '—')}</td>` +
         `<td class="num">${esc(r.pid)}</td>` +
         `<td class="num">${esc(r.cpuPctDisplay)}</td>` +
@@ -228,19 +327,19 @@
         `<td class="num">${esc(r.procCount)}</td>` +
         `<td class="num">${esc(r.uptimeDisplay || '—')}</td>` +
         `<td><span class="attrib">${esc(r.attribution)}</span></td>` +
-      '</tr>',
-    ).join('');
+      '</tr>';
+    }).join('');
   };
 
   const renderUnknown = (rows) => {
     el('unknownCount').textContent = rows.length;
     el('unknownBody').innerHTML = rows.map((u) =>
       '<tr>' +
-        `<td class="num">${esc(u.pid)}</td>` +
-        `<td class="ellipsis">${esc(u.comm)}</td>` +
-        `<td class="num">${esc(u.cpuPctDisplay)}</td>` +
-        `<td class="num">${esc(u.rssDisplay)}</td>` +
-        `<td class="num">${esc(u.procCount)}</td>` +
+        `<td class="num pid">${esc(u.pid)}</td>` +
+        `<td class="ellipsis cmd">${esc(u.comm)}</td>` +
+        `<td class="num amt">${esc(u.cpuPctDisplay)}</td>` +
+        `<td class="num amt">${esc(u.rssDisplay)}</td>` +
+        `<td class="num amt">${esc(u.procCount)}</td>` +
       '</tr>',
     ).join('');
     // The lane is machine-wide by construction — these are NOT claimed as karst's.
@@ -273,12 +372,29 @@
   const renderDisk = (rows) => {
     el('diskCount').textContent = rows.length;
     el('diskHint').textContent = rows.length ? 'measured on demand, cached 60 minutes' : 'measured only while this panel is open';
-    el('diskRows').innerHTML = rows.map((d) =>
-      '<div class="drow">' +
-        `<span class="path" title="${esc(d.display)}">${esc(d.display)}</span>` +
-        `<span class="amt">${esc(d.sizeDisplay)}</span>` +
-      '</div>',
-    ).join('');
+    // The bar width is a RELATIVE share of the largest measured worktree —
+    // presentation geometry, derived here from the bytes the host sent.
+    const max = Math.max(...rows.map((d) => d.bytes), 1);
+    el('diskRows').innerHTML = rows.map((d) => {
+      const share = Math.round((d.bytes / max) * 100);
+      return '<div class="drow">' +
+        '<div>' +
+          `<div class="path" title="${esc(d.display)}">${esc(d.display)}</div>` +
+          `<div class="diskTrack"><i style="width:${share}%"></i></div>` +
+        '</div>' +
+        `<div class="amt">${esc(d.sizeDisplay)}</div>` +
+      '</div>';
+    }).join('');
+  };
+
+  const renderFacts = (facts) => {
+    el('facts').innerHTML = facts.map((f) => {
+      const attn = f.label === 'Recent CPU' && f.value === 'rising' ? ' attn' : '';
+      return '<div class="factRow">' +
+        `<span class="factLabel">${esc(f.label)}</span>` +
+        `<span class="factValue${attn}">${esc(f.value)}</span>` +
+      '</div>';
+    }).join('');
   };
 
   const render = (state) => {
@@ -287,17 +403,31 @@
     el('unsupported').classList.toggle('hidden', state.supported);
     el('degraded').classList.toggle('hidden', !state.degraded);
     el('body').classList.toggle('hidden', !state.supported);
-    el('sub').textContent = state.supported ? '' : 'not supported on this platform';
+    el('sub').textContent = state.supported ? state.scopeLabel : 'not supported on this platform';
     if (!state.supported) return;
 
+    el('live').textContent = `Live · ${state.sampleAgeDisplay} · 5-minute window · not persisted`;
     renderStats(state);
-    el('trendCount').textContent = state.history.length;
-    renderSpark(state.history);
+    el('trendCount').textContent = `${state.history.length} / ${state.historyMax} samples`;
+    renderSpark(state);
+    el('scaleNote').textContent = 'derived CPU · resident memory';
     renderAttributed(state.rows);
     renderUnknown(state.unknown);
     renderWaste(state.waste);
     renderDisk(state.disk);
+    renderFacts(state.facts);
   };
+
+  // Legend toggles mute a series locally — pure presentation, never a post.
+  for (const btn of document.querySelectorAll('.legendBtn')) {
+    btn.addEventListener('click', () => {
+      const series = btn.dataset.series;
+      const on = btn.getAttribute('aria-pressed') === 'true';
+      btn.setAttribute('aria-pressed', String(!on));
+      muted[series] = !on;
+      if (lastState) renderSpark(lastState);
+    });
+  }
 
   window.addEventListener('message', (e) => {
     const msg = e.data;
