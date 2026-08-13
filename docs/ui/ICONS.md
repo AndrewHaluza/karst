@@ -45,7 +45,8 @@ path data inside a `.k-icon` svg — see §4.
 
 | Karst concept | Tabler glyph | Notes |
 |---|---|---|
-| Start service / spin | `bug` | debug-play glyph, canonical Tabler |
+| Start service / spin | `player-play` | play glyph, canonical Tabler |
+| Launch dev host (worktree) | `play-bug` | debug-play glyph — the worktree "launch dev" action, kept distinct from plain Start (ticket: bug icon appeared instead of play) |
 | Stop service / session | `player-stop` | stroked square, canonical Tabler |
 | Restart service / reload | `refresh` | circular arrow — also the settings "reload lists" glyph |
 | Open in browser / external | `external-link` | address row action |
