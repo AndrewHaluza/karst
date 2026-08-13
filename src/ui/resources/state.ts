@@ -77,6 +77,20 @@ export interface TrendTick {
   fraction: number;
 }
 
+/**
+ * One y-axis tick of the trend chart: a height fraction (0 = bottom, 1 = top /
+ * the plotted maximum) and the pre-formatted value of each series at that
+ * height. Formatted HERE, host-side, for the same UI-R31 reason every other
+ * display string is — the webview only re-escapes them.
+ */
+export interface TrendYTick {
+  fraction: number;
+  /** CPU value at this height, or '—' when the series is unmeasured. */
+  cpu: string;
+  /** RSS value at this height. */
+  rss: string;
+}
+
 /** One row of the Monitor facts lane. */
 export interface MonitorFact {
   label: string;
@@ -106,6 +120,8 @@ export interface ResourcesState {
     cpuMaxDisplay: string;
     rssMaxDisplay: string;
     timeTicks: TrendTick[];
+    /** Y-axis ticks: a value label per gridline, both series pre-formatted. */
+    yTicks: TrendYTick[];
   };
   /** Ring capacity the trend spans (`/ 150` of the "5-minute window"). */
   historyMax: number;
@@ -176,7 +192,13 @@ function sampleAgeDisplay(now: number, history: readonly ResourceSample[]): stri
   return `sampled ${Math.floor(secs / 60)}m ${Math.round(secs % 60)}s ago`;
 }
 
-/** Per-series maxima + whole-minute x-axis ticks derived from real timestamps. */
+/** Gridline heights as fractions of the plotted maximum. */
+const Y_TICK_FRACTIONS = [0.25, 0.5, 0.75] as const;
+
+/**
+ * Per-series maxima, whole-minute x-axis ticks derived from real timestamps,
+ * and y-axis ticks at clean fractions of the maximum.
+ */
 function trendView(history: readonly ResourceSample[]): ResourcesState['trend'] {
   const cpu = history.map((s) => s.totals.cpuPct).filter((v): v is number => v !== null);
   const rss = history.map((s) => s.totals.rssBytes);
@@ -202,7 +224,15 @@ function trendView(history: readonly ResourceSample[]): ResourcesState['trend'] 
     timeTicks.push({ label: 'now', fraction: 1 });
   }
 
-  return { cpuMaxDisplay: percent(cpuMax), rssMaxDisplay: formatBytes(rssMax), timeTicks };
+  // Each gridline is a fraction of the plot's maximum for BOTH series, so the
+  // label shows both values at that height — the same two units the plot mixes.
+  const yTicks: TrendYTick[] = Y_TICK_FRACTIONS.map((fraction) => ({
+    fraction,
+    cpu: cpuMax === null ? '—' : percent(cpuMax * fraction),
+    rss: formatBytes(rssMax * fraction),
+  }));
+
+  return { cpuMaxDisplay: percent(cpuMax), rssMaxDisplay: formatBytes(rssMax), timeTicks, yTicks };
 }
 
 /** Whether recent CPU is climbing, falling, or flat relative to earlier samples. */
