@@ -100,9 +100,11 @@
      expand/collapse target keeps its WCAG 2.5.8 size (UI-R29). The negative
      right margin tightens the gap between the chevron and the status glyph
      (the mini-dashboard redesign) WITHOUT shrinking the hit target — the
-     glyph pulls closer while the control keeps its full box. */
+     glyph pulls closer while the control keeps its full box. The follow-up
+     tightened it further (--k-space-2 instead of --k-space-1): the collapsed
+     row keeps the chevron and the status icon visually adjacent. */
   .chev{transition:transform var(--k-dur-fast) var(--k-ease-standard);
-    padding:0;margin-right:calc(-1 * var(--k-space-1))}
+    padding:0;margin-right:calc(-1 * var(--k-space-2))}
   .ticket.open .chev{transform:rotate(90deg)}
 
   /* The row's main click target — opens the ticket dashboard. A real <button>
@@ -175,8 +177,11 @@
   .ticket.open .rowacts{display:none}
   .ticket.open .row:hover .stage{opacity:1}
 
-  /* expanded body — the compact mini-dashboard */
-  .body{display:none;padding:var(--k-space-2) var(--k-space-4) var(--k-space-5) var(--k-space-9)}
+  /* expanded body — the compact mini-dashboard. Left padding matches the
+     collapsed row's own left padding (--k-space-2, the same slot the expand
+     chevron occupies), so the minidashboard starts aligned with the expand
+     chevron rather than indented under the glyph. */
+  .body{display:none;padding:var(--k-space-1) var(--k-space-4) var(--k-space-5) var(--k-space-2)}
   .ticket.open .body{display:block}
 
   .nextact{font-size:var(--k-text-sm);margin:var(--k-space-2) 0 var(--k-space-1);color:var(--k-text)}
@@ -204,19 +209,30 @@
      (which is the collapsed hover strip, suppressed while expanded). */
   .peek-cta{margin-top:var(--k-space-3)}
 
-  /* The stable action bar: Spin / Terminal / Dashboard + overflow menu. Sits
+  /* The stable action bar: Spin / Terminal / Dashboard + overflow trigger. Sits
      at the bottom of the expanded surface like a card footer. */
   .dashbar{display:flex;align-items:center;gap:var(--k-space-1);margin-top:var(--k-space-4);
     padding-top:var(--k-space-2);border-top:var(--k-border-w) solid var(--k-border)}
   .dashbar .sp{flex:1}
 
-  /* The overflow menu (Edit / Archive) — compact and IN-FLOW below the bar,
-     never an absolutely-positioned popup, so it can never be clipped by the
-     list's scroll container. */
-  .dashmenu{display:flex;flex-direction:column;gap:var(--k-space-1);
-    margin-top:var(--k-space-2);padding:var(--k-space-2);
-    border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-md);
-    background:var(--k-surface)}
+  /* The shared ticket-actions context window (Edit / Follow Up / Archive).
+     POSITIONED — one fixed element, rebuilt per open — so the list's scroll
+     container can never clip it, which is exactly what the old in-flow overflow
+     block got wrong (it spanned the full ticket-list width). The follow-up
+     retired that full-width block: the "⋯" now opens this compact window
+     anchored to the trigger, like the settings ctx-menu. */
+  .ctxmenu{position:fixed;z-index:var(--k-z-tooltip);display:none;min-width:calc(var(--k-space-8) * 9);
+    padding:var(--k-space-2);border-radius:var(--k-radius-md);
+    background:var(--k-surface);border:var(--k-border-w) solid var(--k-border-strong);box-shadow:var(--k-elev-3)}
+  .ctxmenu.open{display:block}
+  .ctxitem{display:flex;width:100%;align-items:center;gap:var(--k-space-3);text-align:left;
+    padding:var(--k-space-3) var(--k-space-4);border-radius:var(--k-radius-sm);cursor:pointer;
+    font:inherit;font-size:var(--k-text-base);background:transparent;color:var(--k-text);border:none}
+  .ctxitem:hover{background:var(--k-surface-hover)}
+  .ctxitem:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+  .ctxitem .k-icon{color:var(--k-text-dim);flex:none}
+  .ctxitem.danger{color:var(--k-danger)}
+  .ctxitem.danger .k-icon{color:var(--k-danger)}
 
   /* Section headers (CURRENT · N / RECENTLY DONE · N): lightweight uppercase
      labels, not cards — the list reads as one continuous scroll surface. */
@@ -276,6 +292,10 @@
 </div>
 <div class="facets" id="facets"></div>
 <div class="list" id="list"></div>
+<!-- The shared ticket-actions context window (Edit / Follow Up / Archive).
+     One fixed popup, populated per open, positioned at its trigger — sibling of
+     the scrolling list so it can never be clipped by it. -->
+<div class="ctxmenu" id="ctxMenu" role="menu"></div>
 
 <script>
   /*KARST_DS_JS*/
@@ -310,10 +330,14 @@
   // back to `rows` until the fresh state lands.
   let state = { facets:['all'], filter:'', counts:{}, sections:{current:[],recentlyDone:[],olderDone:[]}, done:[], rows:[] };
   const open = new Set();
-  // Which rows' overflow menu (Edit / Archive) is open. View state, like
-  // `open` — the host neither knows nor persists it, and it survives re-renders
-  // until the row's ticket disappears or the user toggles it.
-  const menu = new Set();
+  // The shared ticket-actions context window (Edit / Follow Up / Archive).
+  // `menuTicket` is the ticket whose "⋯" is open — ONE shared fixed popup, so
+  // only one row's menu can be open at a time (unlike `open`, which allows
+  // several rows expanded at once). The trigger element is kept so the window
+  // can be positioned at it and focus returned on close. View state, like
+  // `open` — the host neither knows nor persists it.
+  let menuTicket = null;
+  let menuTrigger = null;
   // The Older Completed disclosure is VIEW state, never ticket data: the host
   // neither knows nor persists it. `histUser` separates an explicit click
   // (which sticks across searches and re-renders) from the automatic search
@@ -335,6 +359,9 @@
     arch: karstIcon('archive', 13),
     unarch: karstIcon('history', 13),
     more: karstIcon('dots', 13),
+    // Follow-up uses Tabler's corner-down-right — the "carry on from here"
+    // arrow — per the follow-up ticket (869ehda7y-fu1).
+    follow: karstIcon('corner-down-right', 13),
     // The karst mark (approved #35 silhouette, monochrome for status tint) —
     // the status-tinted row marker.
     mark:'<svg aria-hidden="true" width="13" height="13" viewBox="0 0 215 215" fill="currentColor"><path d="M 96 20 L 25 67 L 25 156 L 98 203 L 98 180 L 44 145 L 44 78 L 97 44 Z"/><path d="M 151 42 L 138 58 L 170 78 L 170 144 L 138 165 L 150 180 L 188 156 L 188 67 Z"/><circle cx="106.5" cy="111.5" r="26.5"/></svg>',
@@ -393,28 +420,75 @@
   // hover strip shows, moved into a stable bar so expanding never duplicates
   // them (the hover strip is not rendered while the row is open). Spin is
   // ticket-level and shown for every row; the host command owns the real
-  // capability/availability rules. The overflow "⋯" is a disclosure button
-  // (aria-expanded) that reveals the in-flow Edit/Archive menu.
+  // capability/availability rules. The "⋯" is a trigger for the shared ticket
+  // context window (Edit / Follow Up / Archive) — a positioned popup, never the
+  // full-width in-flow menu the follow-up retired.
   function dashbarHtml(row, sessVerb, menuOpen) {
-    const menuId = 'dashmenu-' + row.ticketId;
     return `<div class="dashbar">`
       + `<button type="button" class="k-iconbtn" data-act="spin" data-id="${row.ticketId}" aria-label="Spin up worktree and dev servers" title="Spin up worktree and dev servers">${ic.spin}</button>`
       + `<button type="button" class="k-iconbtn" data-act="open-session" data-id="${row.ticketId}" aria-label="${sessVerb} session" title="${sessVerb} session">${ic.sess}</button>`
       + `<button type="button" class="k-iconbtn" data-act="open-dashboard" data-id="${row.ticketId}" aria-label="Open ticket dashboard" title="Open ticket dashboard">${ic.dash}</button>`
       + `<span class="sp"></span>`
-      + `<button type="button" class="k-iconbtn" data-menu="${row.ticketId}" aria-expanded="${menuOpen}"${menuOpen ? ` aria-controls="${menuId}"` : ''} aria-label="More ticket actions" title="More ticket actions">${ic.more}</button>`
+      + ctxMenuTriggerHtml(row, menuOpen)
       + `</div>`;
   }
 
-  // The overflow menu: Edit / Archive, deliberately secondary to the toolbar's
-  // Spin / Terminal / Dashboard. In-flow below the bar, so the list's scroll
-  // container can never clip it. Archive keeps its danger treatment (the same
-  // action that was already danger in the hover strip).
-  function overflowHtml(row) {
-    return `<div class="dashmenu" id="dashmenu-${row.ticketId}">`
-      + `<button type="button" class="k-btn k-btn--secondary" data-act="edit" data-id="${row.ticketId}" title="Edit ticket">${ic.edit} Edit ticket</button>`
-      + `<button type="button" class="k-btn k-btn--danger" data-act="archive" data-id="${row.ticketId}" title="Archive ticket, hiding it from the active list">${ic.arch} Archive</button>`
-      + `</div>`;
+  // The shared context window trigger (⋯): a real button with menu semantics
+  // (aria-haspopup + aria-expanded). Used BOTH in the collapsed hover strip
+  // (which the follow-up reverted to its prior behavior — Spin / Terminal /
+  // ⋯, with Edit / Archive back inside the window alongside the new Follow
+  // Up) and in the expanded dashbar.
+  function ctxMenuTriggerHtml(row, menuOpen) {
+    return `<button type="button" class="k-iconbtn" data-menu="${row.ticketId}" aria-expanded="${menuOpen}" aria-haspopup="menu" aria-label="More ticket actions" title="More ticket actions">${ic.more}</button>`;
+  }
+
+  // The shared ticket-actions context window: Edit / Follow Up / Archive,
+  // deliberately secondary to the toolbar's Spin / Terminal / Dashboard. One
+  // fixed popup (never a full-width in-flow block) positioned at its trigger
+  // when opened, so the list's scroll container can never clip it. Follow Up
+  // uses the corner-down-right icon; Archive keeps its danger treatment. The
+  // follow-up put ALL THREE in the "⋯" submenu ("both 'Archive' and 'Follow Up'
+  // should be accessible via the '...' submenu") — the host command guards the
+  // done-only rule itself, so the webview never has to second-guess it.
+  function ctxMenuItemsHtml(row) {
+    return `<button type="button" class="ctxitem" data-act="edit" data-id="${row.ticketId}" role="menuitem" title="Edit ticket">${ic.edit} Edit ticket</button>`
+      + `<button type="button" class="ctxitem" data-act="create-follow-up" data-id="${row.ticketId}" role="menuitem" title="Create a follow-up ticket">${ic.follow} Follow up</button>`
+      + `<button type="button" class="ctxitem danger" data-act="archive" data-id="${row.ticketId}" role="menuitem" title="Archive ticket, hiding it from the active list">${ic.arch} Archive</button>`;
+  }
+
+  // Open the shared context window at the given trigger. Rebuilds the items for
+  // that ticket, positions the fixed window at the trigger (flipping above when
+  // it would overflow the bottom), and hands focus to the first item.
+  function openCtxMenu(trigger, row) {
+    const menu = el('ctxMenu');
+    if (!menu) return;
+    closeCtxMenu(false);
+    menuTicket = row.ticketId;
+    menuTrigger = trigger;
+    menu.innerHTML = ctxMenuItemsHtml(row);
+    menu.classList.add('open');
+    trigger.setAttribute('aria-expanded', 'true');
+    const r = trigger.getBoundingClientRect();
+    const w = menu.offsetWidth || 176;
+    const left = Math.min(r.left, Math.max(8, window.innerWidth - w - 8));
+    const bottom = window.innerHeight - r.bottom;
+    menu.style.left = left + 'px';
+    menu.style.top = (bottom > 240 ? r.bottom + 4 : Math.max(8, r.top - menu.offsetHeight - 4)) + 'px';
+    const first = menu.querySelector('.ctxitem');
+    if (first && typeof first.focus === 'function') first.focus();
+  }
+
+  function closeCtxMenu(returnFocus) {
+    const menu = el('ctxMenu');
+    if (!menu || !menu.classList.contains('open')) return;
+    menu.classList.remove('open');
+    menu.innerHTML = '';
+    if (menuTrigger) {
+      menuTrigger.setAttribute('aria-expanded', 'false');
+      if (returnFocus && typeof menuTrigger.focus === 'function') menuTrigger.focus();
+    }
+    menuTicket = null;
+    menuTrigger = null;
   }
 
   // The contextual primary next action (peek.ts) — a LABELED button, distinct
@@ -441,7 +515,7 @@
     opts = opts || {};
     const compact = !!opts.compact;
     const isOpen = open.has(row.ticketId);
-    const menuOpen = menu.has(row.ticketId);
+    const menuOpen = menuTicket === row.ticketId;
     // A restored snapshot (vscode.getState) can predate stageLabel, so fall
     // back rather than render an empty pill on the first paint after upgrade.
     const stageText = row.stageLabel || row.description || '—';
@@ -462,12 +536,13 @@
     const acts = row.archived
       ? `<button type="button" class="k-iconbtn" data-act="unarchive" data-id="${row.ticketId}" aria-label="Restore ticket to the active list" title="Restore ticket to the active list">${ic.unarch}</button>`
         + `<button type="button" class="k-iconbtn k-iconbtn--danger" data-act="delete" data-id="${row.ticketId}" aria-label="Delete ticket permanently" title="Delete ticket permanently">${ic.del}</button>`
-      // The collapsed hover strip shows the three quick actions — Spin /
-      // Terminal / Dashboard. Edit and Archive are NOT here anymore: they are
-      // secondary and live in the expanded mini-dashboard's overflow menu.
+      // The collapsed hover strip reverted to its PRIOR behavior: Spin /
+      // Terminal + the ⋯ context-window trigger. Edit / Archive live inside
+      // that window (secondary), Dashboard belongs to the expanded toolbar —
+      // the follow-up took it out of the hover strip again.
       : `<button type="button" class="k-iconbtn" data-act="spin" data-id="${row.ticketId}" aria-label="Spin up worktree and dev servers" title="Spin up worktree and dev servers">${ic.spin}</button>`
         + `<button type="button" class="k-iconbtn" data-act="open-session" data-id="${row.ticketId}" aria-label="${sessVerb} session" title="${sessVerb} session">${ic.sess}</button>`
-        + `<button type="button" class="k-iconbtn" data-act="open-dashboard" data-id="${row.ticketId}" aria-label="Open ticket dashboard" title="Open ticket dashboard">${ic.dash}</button>`;
+        + ctxMenuTriggerHtml(row, menuOpen);
     // The hover strip is only rendered while the row is COLLAPSED — expanding
     // moves the same quick actions into the toolbar below, so the two are never
     // visible at once (no duplicated quick actions).
@@ -492,7 +567,7 @@
           + `<button type="button" class="k-btn k-btn--secondary" data-act="unarchive" data-id="${row.ticketId}" title="Restore ticket to the active list">${ic.unarch} Unarchive</button>`
           + `<button type="button" class="k-btn k-btn--danger" data-act="delete" data-id="${row.ticketId}" title="Delete ticket permanently">${ic.del} Delete</button>`
         + `</div>`
-      : dashbarHtml(row, sessVerb, menuOpen) + (menuOpen ? overflowHtml(row) : '');
+      : dashbarHtml(row, sessVerb, menuOpen);
 
     // Decorative content of the row's main click target — never another
     // interactive control (UI-R09; see the `.rowopen` comment in <style>).
@@ -624,6 +699,19 @@
     searchTimer = setTimeout(() => post({ type:'set-filter', query:q }), 150);
   });
 
+  // Locate a row's data by id across every section/facet the list renders — the
+  // shared context window's trigger only carries the ticketId, so the items
+  // (which need nothing but the id) are rebuilt from that.
+  function findRow(id) {
+    for (const r of state.rows || []) if (r.ticketId === id) return r;
+    for (const r of state.done || []) if (r.ticketId === id) return r;
+    const secs = state.sections || {};
+    for (const list of [secs.current, secs.recentlyDone, secs.olderDone]) {
+      for (const r of list || []) if (r.ticketId === id) return r;
+    }
+    return null;
+  }
+
   // Every posting control is delegated here — rows render by full innerHTML
   // replacement, so a per-element `karstAction` binding would go stale on the
   // next render. `data-act`/`data-open` controls use the runtime's pending
@@ -636,16 +724,20 @@
     const t = e.target.closest('[data-act],[data-open],[data-facet],[data-toggle],[data-history],[data-menu]');
     if (!t) return;
     if (t.dataset.menu) {
-      // The overflow disclosure (⋯): pure view state, like the row's expand —
-      // settlement is the next render, never a tracked request.
+      // The ⋯ trigger toggles the shared ticket context window. Pure view
+      // state, like the row's expand — settlement is the next render, never a
+      // tracked request.
       e.stopPropagation();
       const id = Number(t.dataset.menu);
-      if (menu.has(id)) menu.delete(id); else menu.add(id);
-      renderList();
+      const row = findRow(id);
+      if (row && menuTicket === id) closeCtxMenu(true);
+      else if (row) openCtxMenu(t, row);
       return;
     }
     if (t.dataset.act || t.dataset.open) {
       e.stopPropagation();
+      // A context-window item click: the window closes (the action then posts).
+      if (t.closest('#ctxMenu')) closeCtxMenu(false);
       if (karstIsPending(t) || t.disabled) { e.preventDefault(); return; }
       const type = t.dataset.act || 'open-ticket';
       const requestId = karstRequestId();
@@ -661,12 +753,14 @@
     }
     if (t.dataset.facet) {
       // Report only WHICH chip was clicked; the host owns the toggle/union logic.
+      closeCtxMenu(false);
       post({ type:'toggle-facet', facet: t.dataset.facet });
       return;
     }
     if (t.dataset.history) {
       // Explicit click: this choice STICKS (survives searches and re-renders);
       // the automatic search reveal never sets this flag.
+      closeCtxMenu(false);
       histUser = true;
       histOpen = !histOpen;
       renderList();
@@ -676,8 +770,20 @@
       e.stopPropagation();
       const id = Number(t.dataset.toggle);
       if (open.has(id)) open.delete(id); else open.add(id);
+      closeCtxMenu(false);
       renderList();
     }
+  });
+
+  // The context window is a popup: an outside click closes it, and Escape
+  // closes it returning focus to the trigger.
+  document.addEventListener('click', (e) => {
+    if (menuTicket === null) return;
+    if (e.target.closest('#ctxMenu') || e.target.closest('[data-menu]')) return;
+    closeCtxMenu(false);
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeCtxMenu(true);
   });
 
   window.addEventListener('message', (e) => {
@@ -696,9 +802,10 @@
         for (const r of list || []) ids.add(r.ticketId);
       }
       for (const id of [...open]) if (!ids.has(id)) open.delete(id);
-      // The overflow menu is keyed to a rendered row too — prune rows that
-      // disappeared (facet switch, filter, archive).
-      for (const id of [...menu]) if (!ids.has(id)) menu.delete(id);
+      // The context window is anchored to a trigger inside the re-rendered rows,
+      // so a state push always closes it (the popup's settled state is never a
+      // ticket fact, and the anchor is gone the moment the list redraws).
+      closeCtxMenu(false);
       // Keep the search box in sync only when the host changed the filter.
       if (el('search').value !== state.filter) el('search').value = state.filter;
       renderFacets();

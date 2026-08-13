@@ -60,19 +60,27 @@ machine-read JSON or markdown; diagnostics go to stderr and never corrupt it.
   can fire. It advances the ticket from \`impl\` or \`fix\` to the next stage.
   A session ending does NOT advance the ticket — you must fire this marker
   yourself when the stage's work is done.
-- \`phase <name>\` — append-only evidence that you REPORTED entering a phase
-  of your declared workflow (e.g. \`research\`, \`plan\`, \`implement\`). It
-  records an event; it never moves the ticket.
-- \`graph submit\` — internal: submits the fixed planner artifact
-  (\`graph.json\`) for the graph run named by the host-owned environment. It
-  takes no arguments, reads no ticket key, and is invoked ON YOUR BEHALF by
-  the graph runtime — never by you.
-- \`node complete|block|replan\` — internal: reports a graph NODE's outcome
-  (complete, blocked, or replan with an optional bounded \`--reason\`). It
-  accepts no id or destination in argv — every identity claim comes from the
-  host-owned environment, and the capability is consumed one-shot on the
-  first call. Invoked ON YOUR BEHALF by the graph runtime — never by you.
-- \`guide\` — this document.
+ - \`phase <name>\` — append-only evidence that you REPORTED entering a phase
+   of your declared workflow (e.g. \`research\`, \`plan\`, \`implement\`). It
+   records an event; it never moves the ticket.
+ - \`graph submit\` — internal: submits the fixed planner artifact
+   (\`graph.json\`) for the graph run named by the host-owned environment. It
+   takes no arguments, reads no ticket key, and is invoked ON YOUR BEHALF by
+   the graph runtime — never by you.
+ - \`node complete|block|replan\` — internal: reports a graph NODE's outcome
+   (complete, blocked, or replan with an optional bounded \`--reason\`). It
+   accepts no id or destination in argv — every identity claim comes from the
+   host-owned environment, and the capability is consumed one-shot on the
+   first call. Invoked ON YOUR BEHALF by the graph runtime — never by you.
+ - \`test <subcommand> …\` — the agent test driver: create tickets, inject
+   verdicts, simulate hooks, open/merge PRs, and read full state (\`test
+   get-state\`, \`test get-logs\`, \`test assert\`). This is a DEVELOPMENT tool
+   that deliberately bypasses gate verdicts — a \`test advance --verdict passed\`
+   can move a stage a real gate never ran, and \`test reset\` wipes a registry.
+   It exists to drive and inspect workflows from scripts, never as a way for a
+   working agent to report progress: the \`stage\` marker is the only verb that
+   records an agent's own done marker.
+ - \`guide\` — this document.
 
 The marker is deliberately narrow: \`stage\` accepts only \`impl\`/\`fix\` and
 only \`pass\`. A gate stage (\`uat\`/\`review\`/\`ship\`) is decided by exit

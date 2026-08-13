@@ -5,8 +5,21 @@ import { dirname, join } from 'node:path';
 
 const SCHEMA_PATH = join(dirname(fileURLToPath(import.meta.url)), 'schema.sql');
 
+/**
+ * The v1 base schema as text — what `migrate` runs for a fresh DB and what the
+ * CLI's `karst test reset` re-runs after dropping every table (it cannot call
+ * `migrate` itself: the CLI runs under `node:sqlite`, whose `DatabaseSync`
+ * lacks the `pragma`/`transaction` surface `migrate` is typed against). A fresh
+ * schema.sql IS the complete current schema — every later version's columns and
+ * tables are mirrored into it — so exec'ing it and stamping `SCHEMA_VERSION`
+ * reproduces exactly what `migrate()` produces on a brand-new registry.
+ */
+export function readSchema(): string {
+  return readFileSync(SCHEMA_PATH, 'utf8');
+}
+
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 41;
+export const SCHEMA_VERSION = 42;
 
 /** v2 ticket-field columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -1404,7 +1417,7 @@ export function migrate(db: Database): void {
     }
   }
 
-  if (current < 35) {
+  if (current < 35 || tableColumns(db, 'approach_graph_runs').size === 0) {
     // v35 adds the eight graph tables plus the `token_usage` graph-detachment
     // FKs (Slice 2, design "Persistence"). This is the ONE step wrapped in an
     // outer transaction (Decision 21): every other step autocommits and relies
@@ -1412,10 +1425,16 @@ export function migrate(db: Database): void {
     // `user_version` at 34 so the next open re-runs the same guarded steps.
     // `BEGIN IMMEDIATE` before the version read: the whole step — guarded DDL
     // and the version bump — commits together, or rolls back together.
+    //
+    // The outer guard is PRESENCE-based, not version-only: the graph tables
+    // landed at v35 on this branch, but develop's v35 (the agent test driver)
+    // shipped without them, so a registry migrated to v35 on develop must
+    // still gain them here — `CREATE TABLE IF NOT EXISTS` makes the re-run a
+    // no-op on a graph-shaped v35.
     db.exec('BEGIN IMMEDIATE');
     try {
       const inside = db.pragma('user_version', { simple: true }) as number;
-      if (inside < 35) {
+      if (inside < 35 || tableColumns(db, 'approach_graph_runs').size === 0) {
         db.exec(GRAPH_MIGRATION_DDL);
         const tokenCols35 = tableColumns(db, 'token_usage');
         if (tokenCols35.size > 0 && !tokenCols35.has('approach_planner_run_id')) {
@@ -1574,6 +1593,50 @@ export function migrate(db: Database): void {
     if (tokenCols41.size > 0 && !tokenCols41.has('fork_instance_id')) {
       db.exec('ALTER TABLE approach_graph_tokens ADD COLUMN fork_instance_id TEXT');
     }
+  }
+
+  if (current < 42) {
+    // v42 adds the AGENT TEST DRIVER's two evidence tables (Phase 1 of the
+    // agent-test-driver ticket): `test_logs` (structured log rows) and
+    // `test_hooks` (hook events the `karst test simulate-hook` subcommand
+    // dispatched). The tables landed at v35 on develop — the graph tables this
+    // branch added at v35-v41 were developed in parallel — so this merge step
+    // renumbers them to v42, after every graph step. A whole new table set, so
+    // the step is the same DDL as schema.sql rather than ALTERs, and every
+    // statement is IF NOT EXISTS — a fresh DB (already carrying it) and a
+    // re-open are both no-ops.
+    //
+    // NOTHING IS BACKFILLED. No prior karst recorded structured test logs or
+    // dispatched-hook events — the driver did not exist — and synthesizing
+    // rows would assert exactly the facts these tables exist to record.
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS test_logs (
+        id            INTEGER PRIMARY KEY,
+        ticket_id     INTEGER,
+        level         TEXT NOT NULL,
+        module        TEXT NOT NULL,
+        message       TEXT NOT NULL,
+        meta          TEXT,
+        recorded_at   TEXT NOT NULL
+      )
+    `);
+    db.exec(
+      'CREATE INDEX IF NOT EXISTS idx_test_logs_ticket ON test_logs(ticket_id, id)',
+    );
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS test_hooks (
+        id                INTEGER PRIMARY KEY,
+        ticket_id         INTEGER,
+        event             TEXT NOT NULL,
+        session_id        TEXT,
+        payload           TEXT,
+        agent_state_after TEXT,
+        recorded_at       TEXT NOT NULL
+      )
+    `);
+    db.exec(
+      'CREATE INDEX IF NOT EXISTS idx_test_hooks_ticket ON test_hooks(ticket_id, id)',
+    );
   }
 
   db.pragma(`user_version = ${SCHEMA_VERSION}`);

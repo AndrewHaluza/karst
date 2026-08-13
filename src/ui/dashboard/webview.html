@@ -1475,6 +1475,21 @@
   .termview .tstatus{font-size:var(--k-text-xs);color:var(--k-text-dim);padding:var(--k-space-2) var(--k-space-4)}
   .termview .termhost{flex:1;min-height:0;overflow:hidden}
   .termview .blurb{padding:var(--k-space-6);color:var(--k-text-dim)}
+
+  /* The ticket-data preview drawer (UI-R04: composed from tokens, no raw
+     dimensions; width uses the same token step as the ticket form's drawer).
+     `.k-scrim`/`.k-drawer` supply the surface, shadow and z-index; the open
+     transform and the scrim's opacity fade stay local, like the ticket form. */
+  .tdScrim{opacity:0;pointer-events:none;transition:opacity var(--k-dur-base) var(--k-ease-standard)}
+  .tdScrim.open{opacity:1;pointer-events:auto}
+  .tdDrawer{width:min(calc(var(--k-space-8) * 23),86vw);display:flex;flex-direction:column;transform:translateX(100%)}
+  .tdDrawer.open{transform:translateX(0)}
+  .tdDrawerHead{display:flex;align-items:center;gap:var(--k-space-5);padding:var(--k-space-7) var(--k-space-7) var(--k-space-5);border-bottom:var(--k-border-w) solid var(--k-border)}
+  .tdDrawerHead h3{margin:var(--k-space-0);font-size:var(--k-text-lg);line-height:var(--k-leading-normal);flex:1;min-width:0}
+  .tdDrawerBody{flex:1 1 auto;margin:var(--k-space-0);padding:var(--k-space-6) var(--k-space-7);overflow:auto;white-space:pre-wrap;font-family:var(--k-font-mono);font-size:var(--k-text-md);line-height:var(--k-leading-normal);color:var(--k-text)}
+  @media (prefers-reduced-motion:reduce){
+    .tdScrim,.tdDrawer{transition:none}
+  }
 </style>
 
 <div class="dhead">
@@ -1485,6 +1500,10 @@
       aria-label="Open ticket in provider" title="Open ticket in provider">
       <svg class="k-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 6h-6a2 2 0 0 0 -2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-6"/><path d="M11 13l9 -9"/><path d="M15 4h5v5"/></svg>
     </a>
+    <button id="ticketDataBtn" type="button" class="k-iconbtn" data-act="preview-ticket-data" hidden
+      aria-label="Preview ticket data" title="Preview ticket data">
+      <svg class="k-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21h-10a2 2 0 0 1 -2 -2v-14a2 2 0 0 1 2 -2h7l5 5v11a2 2 0 0 1 -2 2"/><path d="M9 9l1 0"/><path d="M9 13l6 0"/><path d="M9 17l6 0"/></svg>
+    </button>
   </div>
   <h1 id="title" class="ticketTitle"></h1>
   <div class="headerActions">
@@ -1584,6 +1603,21 @@
        repeated the same number twice in one header). -->
   <div class="panel span hidden" id="artPanel"><div class="phead">Artifacts<button id="artViewAll" type="button" class="k-btn k-btn--ghost k-btn--sm" data-art="index" title="Show every artifact this ticket has produced">View all <span id="artTotal"></span> ›</button></div><div class="pbody" id="artifacts"></div></div>
 </div>
+
+<!-- The ticket-data preview: a slide-over drawer over the dashboard, mirroring
+     the ticket form's brief drawer (.k-scrim/.k-drawer supply the surface; the
+     open/closed transform and the scrim's own opacity fade stay local). The
+     body renders state.brief as TEXT (textContent, never innerHTML) — the
+     brief is provider-authored markdown, so it can never inject. -->
+<div class="k-scrim tdScrim" id="ticketDataScrim"></div>
+<aside class="k-drawer tdDrawer" id="ticketDataDrawer" role="dialog" aria-modal="true"
+       aria-labelledby="ticketDataTitle" aria-hidden="true">
+  <div class="tdDrawerHead">
+    <h3 id="ticketDataTitle" class="tdDrawerTitle">Ticket data</h3>
+    <button type="button" class="k-iconbtn" id="ticketDataClose" aria-label="Close ticket data preview" title="Close ticket data preview">✕</button>
+  </div>
+  <div class="tdDrawerBody" id="ticketDataBody"></div>
+</aside>
 
 <!-- The artifact index/detail surface: the SAME webview, never a second tab.
      While active it replaces the dashboard body (body.art-nav hides .stepper
@@ -2979,6 +3013,12 @@
   // the key, and the anchor opens the board). The provider icon is the shared
   // injected badge; the key's `title` stays the plain affordance, never the
   // dynamic copy label, so a screen reader and a tooltip cannot drift.
+  //
+  // The preview button is where the ticket's data (state.brief) becomes
+  // readable: it appears ONLY when a brief exists, and opens the slide-over
+  // drawer — the old provider-mark `title` hover carried the whole brief on a
+  // tiny icon, where a tooltip that truncates and cannot be scrolled was no
+  // preview at all.
   function renderTicketIdentity(state) {
     const label = state.key || `#${state.ticketId}`;
     const keyBtn = el('keyBtn');
@@ -2986,11 +3026,9 @@
     keyBtn.setAttribute('aria-label', `Copy ticket key ${label}`);
     keyBtn.title = 'Copy ticket key';
     const mark = el('providerMark');
-    if (mark) {
-      mark.innerHTML = providerIconHtml(state.provider);
-      if (state.brief) mark.setAttribute('title', esc(state.brief));
-      else mark.removeAttribute('title');
-    }
+    if (mark) mark.innerHTML = providerIconHtml(state.provider);
+    const prevBtn = el('ticketDataBtn');
+    if (prevBtn) prevBtn.hidden = !state.brief;
     const link = el('boardLink');
     if (!link) return;
     if (state.ticketUrl) {
@@ -3142,6 +3180,34 @@
     // answers with the `bind` message, which is the terminal outcome (UI-R13).
     post({ type: 'toggle-bind' });
   });
+
+  // ---- ticket-data preview drawer ----
+  // A pure webview-local surface: the brief already rides DashboardState, so
+  // opening it posts nothing and needs no host ack (UI-R31 — no verdict is
+  // invented, there is simply no round trip). Focus moves into the dialog on
+  // open and returns to the trigger on close, per the modal-dialog contract.
+  let ticketDataTrigger = null;
+  function openTicketData() {
+    const state = lastState;
+    if (!state || !state.brief) return;
+    const body = el('ticketDataBody');
+    // textContent, never innerHTML: the brief is provider-authored markdown,
+    // so it is data, not structure.
+    body.textContent = state.brief;
+    ticketDataTrigger = document.activeElement;
+    el('ticketDataScrim').classList.add('open');
+    el('ticketDataDrawer').classList.add('open');
+    el('ticketDataDrawer').setAttribute('aria-hidden', 'false');
+    el('ticketDataClose').focus();
+  }
+  function closeTicketData() {
+    el('ticketDataScrim').classList.remove('open');
+    el('ticketDataDrawer').classList.remove('open');
+    el('ticketDataDrawer').setAttribute('aria-hidden', 'true');
+    if (ticketDataTrigger && ticketDataTrigger.focus) ticketDataTrigger.focus();
+  }
+  el('ticketDataClose').addEventListener('click', closeTicketData);
+  el('ticketDataScrim').addEventListener('click', closeTicketData);
 
   // ---------------------------------------------------------------------
   // Artifacts: shelf, index, detail (docs/design/artifacts/README.md)
@@ -3766,8 +3832,10 @@
   });
 
   // Esc mirrors one Back step (spec §8): detail → its origin, index → ticket,
-  // ticket → no artifact-navigation action. There is no modal to close.
+  // ticket → no artifact-navigation action. There is no modal to close. The
+  // ticket-data drawer also dismisses on Esc, like any dialog.
   document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && el('ticketDataDrawer').classList.contains('open')) { closeTicketData(); return; }
     if (e.key === 'Escape' && termView) { closeTerminal(); return; }
     if (e.key === 'Escape' && artView) artifactBack();
   });
@@ -3914,6 +3982,15 @@
       const stage = btn.dataset.console;
       if (!stage) return;
       openTerminal(stage);
+      return;
+    }
+
+    // The ticket-data preview is purely local: the brief already rides
+    // DashboardState, so there is NO host message to post — handled before
+    // the posting path, exactly like CONSOLE_ACT, so a host that knows
+    // nothing about this action never receives a message it cannot answer.
+    if (act === 'preview-ticket-data') {
+      openTicketData();
       return;
     }
 

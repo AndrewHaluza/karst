@@ -145,7 +145,7 @@ export interface DashboardState {
   sourceRef: string | null;
   /** External board URL for the ticket, or null (manual/unfetched → no link). */
   ticketUrl: string | null;
-  /** Synthesized context brief, shown as a hover on the provider link; or null. */
+  /** Synthesized context brief, shown in the header's ticket-data preview drawer; or null. */
   brief: string | null;
   /**
    * The stage graph as it is drawn: one segmented track the ticket travels
