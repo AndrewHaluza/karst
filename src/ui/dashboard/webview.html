@@ -2815,7 +2815,7 @@
     copy: 'copy',
     refresh: 'restart',
     'player-stop': 'stop',
-    'player-play': 'start',
+    bug: 'start',
   };
 
   /**
@@ -2850,7 +2850,7 @@
     isOnline(s)
       ? iact('restart-server', s.id, 'Restart', 'refresh')
         + iact('stop-server', s.id, 'Stop', 'player-stop')
-      : iact('spin-servers', null, 'Start service', 'player-play')
+      : iact('spin-servers', null, 'Start service', 'bug')
   );
 
   /**
@@ -2874,7 +2874,7 @@
     const startWhy = !none && !anyOffline ? 'Every service is already running' : null;
     const restartWhy = none ? 'No services to restart' : null;
     const stopWhy = !anyRunning ? 'No service is running' : null;
-    return iact('spin-servers', null, 'Start all services', 'player-play', startWhy)
+    return iact('spin-servers', null, 'Start all services', 'bug', startWhy)
       + iact('restart-servers', null, 'Restart all services', 'refresh', restartWhy)
       + iact('stop-servers', null, 'Stop all services', 'player-stop', stopWhy);
   }
@@ -2975,7 +2975,7 @@
         // gets no button at all — a dead control on every app repo is noise.
         + (w.launchable
           ? `<button type="button" class="k-iconbtn ib t-start" data-act="launch-worktree-extension" data-path="${esc(w.path)}"`
-            + ` aria-label="Launch dev host" title="Build this worktree and open its extension in a new dev window">${svgIcon('player-play')}</button>`
+            + ` aria-label="Launch dev host" title="Build this worktree and open its extension in a new dev window">${svgIcon('bug')}</button>`
           : '')
         + `</span></div>`;
     }).join('') : '<div class="empty">No worktrees.</div>';

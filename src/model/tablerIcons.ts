@@ -93,7 +93,12 @@ export const TABLER_ICONS: Record<string, string> = {
     '<path d="M15 4h4a1 1 0 0 1 1 1v2a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-2a1 1 0 0 1 1 -1"/>',
   pencil:
     '<path d="M4 20h4l10.5 -10.5a2.828 2.828 0 1 0 -4 -4l-10.5 10.5v4"/><path d="M13.5 6.5l4 4"/>',
-  'player-play': '<path d="M7 4v16l13 -8l-13 -8"/>',
+  bug:
+    '<path d="M9 9v-1a3 3 0 0 1 6 0v1"/>' +
+    '<path d="M8 9h8a6 6 0 0 1 1 3v3a5 5 0 0 1 -10 0v-3a6 6 0 0 1 1 -3"/>' +
+    '<path d="M3 13l4 0"/><path d="M17 13l4 0"/><path d="M12 20l0 -6"/>' +
+    '<path d="M4 19l3.35 -2"/><path d="M20 19l-3.35 -2"/>' +
+    '<path d="M4 7l3.75 2.4"/><path d="M20 7l-3.75 2.4"/>',
   'player-stop': '<path d="M5 7a2 2 0 0 1 2 -2h10a2 2 0 0 1 2 2v10a2 2 0 0 1 -2 2h-10a2 2 0 0 1 -2 -2l0 -10"/>',
   plus: '<path d="M12 5l0 14"/><path d="M5 12l14 0"/>',
   refresh:
