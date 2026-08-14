@@ -514,6 +514,7 @@ export function unarchiveTicket(store: Store, ticketId: number): void {
 const TICKET_CHILD_TABLES = [
   'stages',
   'worktrees',
+  'worktree_archives',
   'port_allocations',
   'baseline_refs',
   'servers',

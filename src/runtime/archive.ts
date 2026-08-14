@@ -9,6 +9,14 @@ import {
   recordArchive,
   getArchiveByPath,
   clearArchive,
+  setArchiveMethod,
+  setArchiveRef,
+  listCompactableArchives,
+  listArchiveBranches,
+  listArchiveRefs,
+  listActiveWorktreeBranches,
+  type ArchiveRow,
+  type CompactableArchive,
 } from '../store/worktreeArchives.js';
 
 export interface ArchiveTarget {
@@ -196,3 +204,246 @@ export async function restoreWorktree(
   clearArchive(store, row.id);
   return { outcome: 'restored' };
 }
+
+// ---------------------------------------------------------------------------
+// Compact: delete branch, ensure archive ref exists
+// ---------------------------------------------------------------------------
+
+export interface CompactResult {
+  outcome: 'compacted' | 'skipped';
+  reason?: string;
+}
+
+/**
+ * Compact an archived worktree: if no archive ref exists (clean tree), create a
+ * snapshot ref that points to the branch tip; then delete the branch.
+ *
+ * After compact, `refs/karst/archive/<slug>^` is always the branch tip commit.
+ * This invariant is what makes restore possible without the branch.
+ */
+export async function compactWorktree(
+  runner: GitRunner,
+  store: Store,
+  row: ArchiveRow | CompactableArchive,
+): Promise<CompactResult> {
+  if (row.method === 'git-ref-compact') {
+    return { outcome: 'skipped', reason: 'already compacted' };
+  }
+
+  const slug = slugOf(row.path);
+  const ref = `refs/karst/archive/${slug}`;
+
+  // Ensure the archive ref exists. For a clean tree (no uncommitted delta),
+  // `archiveRef` is empty — create a snapshot commit so restore can find the
+  // branch tip via <ref>^.
+  if (!row.archiveRef) {
+    // Verify the branch still exists before attempting snapshot.
+    const branchCheck = await runner(
+      ['rev-parse', '--verify', '--quiet', `refs/heads/${row.branch}`],
+      row.repo,
+    );
+    if (branchCheck.exitCode !== 0) {
+      return {
+        outcome: 'skipped',
+        reason: `branch ${row.branch} already gone; nothing to compact`,
+      };
+    }
+
+    // Create a commit whose parent is the branch tip. The tree is identical
+    // (clean worktree), but the ref gives restore a parent to reconstruct from.
+    const headSha = (
+      await run(runner, row.repo, ['rev-parse', `refs/heads/${row.branch}`])
+    ).trim();
+    const tree = await run(runner, row.repo, ['rev-parse', `${headSha}^{tree}`]);
+    const commit = await run(runner, row.repo, [
+      '-c',
+      'user.name=karst',
+      '-c',
+      'user.email=karst@local',
+      'commit-tree',
+      tree,
+      '-p',
+      headSha,
+      '-m',
+      `karst-archive:${slug}`,
+    ]);
+    await run(runner, row.repo, ['update-ref', ref, commit]);
+    // Persist the snapshot ref so restore can find it.
+    setArchiveRef(store, row.id, ref);
+  }
+
+  // Delete the branch.
+  const deleteResult = await runner(
+    ['branch', '-D', row.branch],
+    row.repo,
+  );
+  if (deleteResult.exitCode !== 0) {
+    return {
+      outcome: 'skipped',
+      reason: `failed to delete branch ${row.branch}: ${deleteResult.stderr || deleteResult.stdout}`,
+    };
+  }
+
+  setArchiveMethod(store, row.id, 'git-ref-compact');
+  return { outcome: 'compacted' };
+}
+
+// ---------------------------------------------------------------------------
+// Restore from compact: recreate branch from archive ref, then restore
+// ---------------------------------------------------------------------------
+
+/**
+ * Restore a worktree that was compacted (branch deleted). Recreates the branch
+ * from `archiveRef^` (the parent of the snapshot commit = branch tip), then
+ * delegates to the normal restore flow.
+ */
+export async function restoreFromCompact(
+  runner: GitRunner,
+  store: Store,
+  target: { ticketId: number; path: string },
+): Promise<RestoreResult> {
+  const row = getArchiveByPath(store, target.ticketId, target.path);
+  if (!row) return { outcome: 'skipped', reason: 'no archive record' };
+  if (row.method !== 'git-ref-compact') {
+    // Not compacted — delegate to the normal restore.
+    return restoreWorktree(runner, store, target);
+  }
+
+  if (!row.archiveRef) {
+    return {
+      outcome: 'skipped',
+      reason: 'compact archive has no ref; data loss suspected',
+    };
+  }
+
+  // Verify the archive ref exists.
+  const refCheck = await runner(
+    ['rev-parse', '--verify', '--quiet', row.archiveRef],
+    row.repo,
+  );
+  if (refCheck.exitCode !== 0) {
+    return {
+      outcome: 'skipped',
+      reason: `archive ref ${row.archiveRef} is gone; delta unrecoverable`,
+    };
+  }
+
+  // Determine the branch tip: the parent of the archive commit.
+  const parent = (
+    await run(runner, row.repo, ['rev-parse', `${row.archiveRef}^`])
+  ).trim();
+
+  // Recreate the branch from the parent (branch tip).
+  const branchCheck = await runner(
+    ['rev-parse', '--verify', '--quiet', `refs/heads/${row.branch}`],
+    row.repo,
+  );
+  if (branchCheck.exitCode === 0) {
+    // Branch already exists (unexpected after compact, but safe).
+  } else {
+    await run(runner, row.repo, ['branch', row.branch, parent]);
+  }
+
+  // Recreate the worktree on the branch.
+  createWorktree(store, {
+    ticketId: row.ticketId,
+    repoPath: row.repo,
+    slug: slugOf(row.path),
+    branch: row.branch,
+    baseRef: row.baseRef ?? row.branch,
+  });
+
+  // Replay uncommitted delta if the archive ref's tree differs from its parent.
+  const refTree = (
+    await run(runner, row.repo, ['rev-parse', `${row.archiveRef}^{tree}`])
+  ).trim();
+  const parentTree = (
+    await run(runner, row.repo, ['rev-parse', `${parent}^{tree}`])
+  ).trim();
+
+  if (refTree !== parentTree) {
+    await run(runner, row.path, ['cherry-pick', '-n', row.archiveRef]);
+    await run(runner, row.path, ['reset', '-q', 'HEAD']);
+  }
+
+  // Clean up.
+  await run(runner, row.repo, ['update-ref', '-d', row.archiveRef]);
+  clearArchive(store, row.id);
+  return { outcome: 'restored' };
+}
+
+// ---------------------------------------------------------------------------
+// Orphan sweep: delete branches and archive refs with no DB backing
+// ---------------------------------------------------------------------------
+
+export interface SweepResult {
+  prunedBranches: number;
+  prunedArchiveRefs: number;
+}
+
+/**
+ * Sweep orphan git refs: delete `karst/*` branches and `refs/karst/archive/*`
+ * refs that have no corresponding row in `worktrees` or `worktree_archives`.
+ *
+ * This reclaims branch refs accumulated from prior archives and manual deletions.
+ */
+export async function sweepOrphanRefs(
+  runner: GitRunner,
+  store: Store,
+): Promise<SweepResult> {
+  const result: SweepResult = { prunedBranches: 0, prunedArchiveRefs: 0 };
+
+  // Collect branches that ARE in use.
+  const activeBranches = listActiveWorktreeBranches(store);
+  const archiveBranches = listArchiveBranches(store);
+  const usedBranches = new Set<string>();
+  for (const b of activeBranches) usedBranches.add(`${b.repo}:${b.branch}`);
+  for (const b of archiveBranches) usedBranches.add(`${b.repo}:${b.branch}`);
+
+  // Collect archive refs that ARE in use.
+  const usedArchiveRefs = new Set(listArchiveRefs(store));
+
+  // Find and prune orphan branches via each repo that has archives or worktrees.
+  const repos = new Set<string>();
+  for (const b of activeBranches) repos.add(b.repo);
+  for (const b of archiveBranches) repos.add(b.repo);
+
+  for (const repoPath of repos) {
+    const listResult = await runner(
+      ['branch', '--list', 'karst/*'],
+      repoPath,
+    );
+    if (listResult.exitCode !== 0) continue;
+    const branches = listResult.stdout
+      .split('\n')
+      .map((l) => l.replace(/^\*?\s+/, '').trim())
+      .filter(Boolean);
+
+    for (const branch of branches) {
+      if (usedBranches.has(`${repoPath}:${branch}`)) continue;
+      const del = await runner(['branch', '-D', branch], repoPath);
+      if (del.exitCode === 0) result.prunedBranches += 1;
+    }
+  }
+
+  // Find and prune orphan archive refs.
+  const repoPath0 = [...repos][0];
+  if (repoPath0) {
+    const listArchResult = await runner(
+      ['for-each-ref', '--format=%(refname)', 'refs/karst/archive/'],
+      repoPath0,
+    );
+    if (listArchResult.exitCode === 0) {
+      const refs = listArchResult.stdout.split('\n').filter(Boolean);
+      for (const ref of refs) {
+        if (usedArchiveRefs.has(ref)) continue;
+        const del = await runner(['update-ref', '-d', ref], repoPath0);
+        if (del.exitCode === 0) result.prunedArchiveRefs += 1;
+      }
+    }
+  }
+
+  return result;
+}
+
+

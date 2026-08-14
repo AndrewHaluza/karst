@@ -90,6 +90,117 @@ export function clearArchive(store: Store, id: number): void {
 }
 
 /**
+ * Compactable archives: method is `git-ref` (not yet compacted) and the
+ * archive has existed long enough to justify compacting. Each row carries
+ * everything compact + restore need.
+ */
+export interface CompactableArchive {
+  id: number;
+  ticketId: number;
+  repo: string;
+  path: string;
+  branch: string;
+  baseRef: string | null;
+  archiveRef: string;
+  method: string;
+}
+
+export function listCompactableArchives(
+  store: Store,
+  olderThanMs: number,
+): CompactableArchive[] {
+  const cutoff = new Date(Date.now() - olderThanMs).toISOString();
+  return (
+    store.db
+      .prepare(
+        `SELECT id, ticket_id AS ticketId, repo, path, branch, base_ref AS baseRef,
+                archive_ref AS archiveRef, method
+         FROM worktree_archives
+         WHERE method = 'git-ref' AND archived_at < ?
+         ORDER BY id`,
+      )
+      .all(cutoff) as CompactableArchive[]
+  );
+}
+
+/** Update a single archive row's method after compact. */
+export function setArchiveMethod(store: Store, id: number, method: string): void {
+  store.db.prepare('UPDATE worktree_archives SET method = ? WHERE id = ?').run(method, id);
+}
+
+/** Update a single archive row's archive_ref (e.g. when compact creates a snapshot ref for a clean tree). */
+export function setArchiveRef(store: Store, id: number, archiveRef: string): void {
+  store.db.prepare('UPDATE worktree_archives SET archive_ref = ? WHERE id = ?').run(archiveRef, id);
+}
+
+/**
+ * All distinct branches referenced by archive rows (for orphan branch detection).
+ */
+export function listArchiveBranches(store: Store): { repo: string; branch: string }[] {
+  return (
+    store.db
+      .prepare(
+        `SELECT DISTINCT repo, branch FROM worktree_archives ORDER BY repo, branch`,
+      )
+      .all() as { repo: string; branch: string }[]
+  );
+}
+
+/**
+ * All distinct archive refs referenced by archive rows (for orphan ref detection).
+ */
+export function listArchiveRefs(store: Store): string[] {
+  return (
+    store.db
+      .prepare(
+        `SELECT DISTINCT archive_ref FROM worktree_archives WHERE archive_ref != '' ORDER BY archive_ref`,
+      )
+      .all() as { archive_ref: string }[]
+  ).map((r) => r.archive_ref);
+}
+
+/**
+ * All distinct branches referenced by active (non-archived) worktree rows
+ * (for orphan branch detection — a branch used by neither worktrees nor archives is orphaned).
+ */
+export function listActiveWorktreeBranches(store: Store): { repo: string; branch: string }[] {
+  return (
+    store.db
+      .prepare(
+        `SELECT DISTINCT repo, branch FROM worktrees WHERE branch IS NOT NULL ORDER BY repo, branch`,
+      )
+      .all() as { repo: string; branch: string }[]
+  );
+}
+
+/**
+ * Archive rows whose branch matches a given branch in a given repo, for
+ * determining whether a branch is backed by an archive.
+ */
+export function findArchivesByBranch(
+  store: Store,
+  repo: string,
+  branch: string,
+): ArchiveRow[] {
+  return (
+    store.db
+      .prepare('SELECT * FROM worktree_archives WHERE repo = ? AND branch = ? ORDER BY id')
+      .all(repo, branch) as Raw[]
+  ).map(toRow);
+}
+
+/**
+ * All archive rows (for git-ref cleanup on ticket delete).
+ */
+export function listAllArchivesForTicket(store: Store, ticketId: number): ArchiveRow[] {
+  return (
+    store.db
+      .prepare('SELECT * FROM worktree_archives WHERE ticket_id = ?')
+      .all(ticketId) as Raw[]
+  ).map(toRow);
+}
+
+/**
  * Worktrees eligible for bulk archiving: the ticket is archived or terminal
  * (`stage_current = 'done'`) AND its agent is not currently running. Only rows
  * with a branch are returned — archive/restore both need it.
