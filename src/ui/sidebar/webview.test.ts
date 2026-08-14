@@ -675,7 +675,7 @@ describe('sidebar webview.html', () => {
   it('Follow Up uses the corner-down-right icon in the context window', () => {
     const script = scriptBlock();
     expect(script).toContain("follow: karstIcon('corner-down-right', 13)");
-    expect(script).toContain('${ic.follow} Follow up</button>');
+    expect(script).toContain('${ic.follow} Create follow-up</button>');
   });
 
   it('a Done ticket renders Create follow-up as the expanded primary action', () => {
