@@ -801,6 +801,34 @@ describe('OpencodeAdapter headless execution', () => {
     expect(spawn.mock.calls[0]![1]).not.toContain('--auto');
   });
 
+  it('renders the JSONL console stream into readable lines before the caller sees it', async () => {
+    let seenOpts: { onOutput?: (chunk: { stream: 'stdout' | 'stderr'; text: string }) => void } | undefined;
+    const spawn: SpawnHeadless = async (_cmd, _args, _cwd, opts) => {
+      seenOpts = opts;
+      return { stdout: okNdjson, stderr: '', exitCode: 0 };
+    };
+    const rendered: Array<{ stream: 'stdout' | 'stderr'; text: string }> = [];
+    await new OpencodeAdapter(spawn).runHeadless({
+      prompt: 'go',
+      cwd: '/wt/a',
+      onOutput: (chunk) => rendered.push(chunk),
+    });
+    // A bash tool_use event arrives as `$ <command>` + output, never raw JSON.
+    seenOpts?.onOutput?.({
+      stream: 'stdout',
+      text:
+        JSON.stringify({
+          type: 'tool_use',
+          part: {
+            type: 'tool',
+            tool: 'bash',
+            state: { status: 'completed', input: { command: 'git status' }, output: 'clean\n' },
+          },
+        }) + '\n',
+    });
+    expect(rendered).toEqual([{ stream: 'stdout', text: '$ git status\nclean\n' }]);
+  });
+
   it('runs a resumed headless run via --session', async () => {
     const spawn = vi.fn(fakeSpawn({ stdout: okNdjson, exitCode: 0 }));
     await new OpencodeAdapter(spawn).runHeadless({ cwd: '/wt', prompt: 'continue', resume: 'ses_abc' });

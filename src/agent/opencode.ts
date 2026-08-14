@@ -19,6 +19,7 @@ import type {
   RunHeadlessOpts,
 } from './adapter.js';
 import { describeHeadlessFailure } from './cliFailure.js';
+import { renderConsoleStream } from './consoleFormat.js';
 import { spawnHeadlessCli, headlessPreview, type HeadlessSpawnOptions } from './headlessSpawn.js';
 import { attachUsage } from './tokenUsage.js';
 import type { TokenUsage } from './tokenUsage.js';
@@ -755,13 +756,33 @@ export class OpencodeAdapter implements AgentAdapter {
         .map((a) => (a === opts.prompt ? `<prompt:${opts.prompt.length} chars>` : a))
         .join(' ')} (cwd ${opts.cwd})`,
     );
-    const result = await this.spawnHeadless(OPENCODE_BIN, args, opts.cwd, {
-      signal: opts.signal,
-      timeoutMs: opts.timeoutMs,
-      onDebug: opts.debug,
-      onSpawned: opts.onSpawned,
-      onOutput: opts.onOutput,
-    });
+    // The console tail streams RAW JSONL (`--format json`): render each event
+    // as a readable line before it reaches the console. The stream is only for
+    // the console — the settle-time `stdout` still carries the raw bytes the
+    // parser reads, so rendering here never touches what `parseOpencodeJsonl`
+    // sees.
+    const consoleStream = opts.onOutput ? renderConsoleStream('opencode', opts.onOutput) : undefined;
+    opts.debug?.(
+      consoleStream
+        ? `[agent:opencode] console stream: rendering JSONL events as readable lines`
+        : `[agent:opencode] console stream: none — no onOutput hook`,
+    );
+    let result: HeadlessSpawnResult;
+    try {
+      result = await this.spawnHeadless(OPENCODE_BIN, args, opts.cwd, {
+        signal: opts.signal,
+        timeoutMs: opts.timeoutMs,
+        onDebug: opts.debug,
+        onSpawned: opts.onSpawned,
+        onOutput: consoleStream ? consoleStream.append : opts.onOutput,
+      });
+    } finally {
+      // A trailing partial JSON line that never got its newline (opencode does
+      // not guarantee one after the last event) is still a complete event —
+      // flush it to the console so the tail never loses the final rendered
+      // line, whatever the run's outcome.
+      consoleStream?.flush();
+    }
     if (result.exitCode !== 0) {
       opts.debug?.(
         `[agent:opencode] exit ${result.exitCode} — stdout: ${headlessPreview(result.stdout)}; stderr: ${headlessPreview(result.stderr)}`,
