@@ -12,7 +12,12 @@ import { describe, it, expect } from 'vitest';
 import { mkdtempSync, rmSync, symlinkSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { resolvePhysicalDomains, domainKeyOf, gitCommonDirFromFs } from './domains.js';
+import {
+  resolvePhysicalDomains,
+  domainKeyOf,
+  gitCommonDirFromFs,
+  resolveRepoWorktrees,
+} from './domains.js';
 import { canonicalPath } from '../../../runtime/pathScope.js';
 
 describe('domainKeyOf', () => {
@@ -81,6 +86,47 @@ describe('resolvePhysicalDomains', () => {
     );
     expect(domains).toHaveLength(1);
     expect(domains[0]!.gitCommonDir).toBeNull();
+  });
+});
+
+describe('resolveRepoWorktrees', () => {
+  const repos = {
+    extention: { repoPath: '/repo/karst' },
+    api: { repoPath: '/repo/api' },
+    web: { repoPath: '/repo/mono' },
+    docs: { repoPath: '/repo/mono' },
+  };
+  const worktrees = [
+    { repo: '/repo/karst', path: '/repo/karst/.karst/worktrees/T-1' },
+    { repo: '/repo/api', path: '/repo/api/.karst/worktrees/T-1' },
+    { repo: '/repo/mono', path: '/repo/mono/.karst/worktrees/T-1' },
+  ];
+
+  it('resolves each manifest repo NAME through its repoPath to the worktree path', () => {
+    const entries = resolveRepoWorktrees(repos, worktrees);
+    expect(entries).toEqual([
+      { repoName: 'extention', worktreePath: '/repo/karst/.karst/worktrees/T-1' },
+      { repoName: 'api', worktreePath: '/repo/api/.karst/worktrees/T-1' },
+      { repoName: 'web', worktreePath: '/repo/mono/.karst/worktrees/T-1' },
+      { repoName: 'docs', worktreePath: '/repo/mono/.karst/worktrees/T-1' },
+    ]);
+  });
+
+  it('a monorepo: two manifest entries sharing one repoPath resolve to the ONE worktree', () => {
+    const entries = resolveRepoWorktrees(repos, worktrees);
+    expect(entries.filter((e) => e.repoName === 'web' || e.repoName === 'docs')).toEqual([
+      { repoName: 'web', worktreePath: '/repo/mono/.karst/worktrees/T-1' },
+      { repoName: 'docs', worktreePath: '/repo/mono/.karst/worktrees/T-1' },
+    ]);
+  });
+
+  it('omits manifest entries whose repository has no worktree registered for the ticket', () => {
+    const entries = resolveRepoWorktrees({ ghost: { repoPath: '/repo/ghost' } }, worktrees);
+    expect(entries).toEqual([]);
+  });
+
+  it('an empty worktree list resolves to no entries', () => {
+    expect(resolveRepoWorktrees(repos, [])).toEqual([]);
   });
 });
 

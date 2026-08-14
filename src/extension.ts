@@ -230,6 +230,7 @@ import {
   domainKeyOf,
   gitCommonDirFromFs,
   resolvePhysicalDomains,
+  resolveRepoWorktrees,
   type DomainEntry,
 } from './approaches/graph/integration/domains.js';
 import { casStatus, GRAPH_RUN_TRANSITIONS, type GraphDb } from './store/graph/transitions.js';
@@ -3476,13 +3477,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (!run) return [];
     const manifest = currentManifest() ?? emptyManifest();
     const worktrees = listWorktreesByTicket(localStore, run.ticket_id);
-    const byRepo = new Map(worktrees.map((wt) => [wt.repo, wt.path]));
-    return Object.entries(manifest.repositories ?? {}).flatMap(
-      ([repoName]): DomainEntry[] => {
-        const path = byRepo.get(repoName);
-        return path ? [{ repoName, worktreePath: path }] : [];
-      },
-    );
+    // `worktrees.repo` stores the repo PATH, never the manifest name, so the
+    // manifest names resolve through their own repoPath (a monorepo's two
+    // entries sharing a repoPath resolve to the one worktree — the designed
+    // outcome, not a collision).
+    return resolveRepoWorktrees(manifest.repositories ?? {}, worktrees);
   };
 
   /**
@@ -3856,8 +3855,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return wt ? { repo: wt.repo, cwd: wt.path } : undefined;
       },
       cwdForRepo: (graphRunId, repo) => {
+        // The graph document claims repos by MANIFEST NAME; `worktrees.repo`
+        // stores the repo PATH, so the name resolves through its repoPath.
+        const def = (currentManifest() ?? emptyManifest()).repositories?.[repo];
+        if (!def) return undefined;
         const wt = listWorktreesByTicket(localStore, graphRunTicketId(graphRunId)).find(
-          (w) => w.repo === repo,
+          (w) => w.repo === def.repoPath,
         );
         return wt?.path;
       },
@@ -3907,15 +3910,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const config = graphApproachConfigFor(approachId);
     const manifest = currentManifest() ?? emptyManifest();
     const worktrees = listWorktreesByTicket(localStore, graphRunTicketId(graphRunId));
-    const wtByRepo = new Map(worktrees.map((wt) => [wt.repo, wt.path]));
+    // `worktrees.repo` stores the repo PATH, never the manifest name, so the
+    // manifest names resolve through their own repoPath (the same resolution
+    // `graphDomainsFor` uses — a monorepo's two entries sharing a repoPath
+    // resolve to the one worktree).
     const repositories = new Map<string, ResolvedRepository>();
-    for (const repoName of Object.keys(manifest.repositories ?? {})) {
-      const path = wtByRepo.get(repoName);
-      if (!path) continue;
-      repositories.set(repoName, {
-        id: repoName,
+    for (const entry of resolveRepoWorktrees(manifest.repositories ?? {}, worktrees)) {
+      repositories.set(entry.repoName, {
+        id: entry.repoName,
         root: '',
-        domain: domainKeyOf(canonicalPath(path), gitCommonDirFromFs(path)),
+        domain: domainKeyOf(canonicalPath(entry.worktreePath), gitCommonDirFromFs(entry.worktreePath)),
       });
     }
     const profiles = new Map<string, ProfileTier>();
