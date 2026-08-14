@@ -78,7 +78,7 @@ describe('OpencodeAdapter interactive commands', () => {
     expect(cmd.env).toEqual({});
   });
 
-  it('threads an effort as --variant (effort is the model variant)', () => {
+  it('drops an effort for the interactive TUI (opencode TUI has no --variant flag)', () => {
     const cmd = new OpencodeAdapter().buildInteractiveCommand({
       cwd: '/wt',
       model: 'openrouter/~openai/gpt-mini-latest',
@@ -89,8 +89,6 @@ describe('OpencodeAdapter interactive commands', () => {
     expect(cmd.args).toEqual([
       '--model',
       'openrouter/~openai/gpt-mini-latest',
-      '--variant',
-      'high',
       '--prompt',
       '/rpi KARST-1',
     ]);

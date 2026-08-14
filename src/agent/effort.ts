@@ -48,7 +48,11 @@ const EFFORT_CAPABILITIES: Readonly<Record<AgentProvider, EffortCapability>> = {
   claude: { interactive: true, headless: true, customValues: false },
   codex: { interactive: true, headless: true, customValues: false },
   antigravity: { interactive: true, headless: true, customValues: false },
-  opencode: { interactive: true, headless: true, customValues: false },
+  // opencode's interactive TUI (1.18.18) has no `--variant` flag — only
+  // `opencode run` accepts it. The adapter must not thread the effort into the
+  // TUI (it prints help and exits 1, killing the session at launch), so the
+  // interactive binding cannot express effort; headless keeps it.
+  opencode: { interactive: false, headless: true, customValues: false },
 };
 
 /** The adapter capability declaration for one provider. An adapter whose CLI
