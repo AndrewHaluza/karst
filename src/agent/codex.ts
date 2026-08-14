@@ -31,6 +31,7 @@ import { describeHeadlessFailure } from './cliFailure.js';
 import { renderConsoleStream } from './consoleFormat.js';
 import { spawnHeadlessCli, headlessPreview, type HeadlessSpawnOptions } from './headlessSpawn.js';
 import { hookFailureLogPath } from './hookFailureLog.js';
+import { SUPPORTED, unsupported, type AdapterSurfaces } from './surfaces.js';
 import { attachUsage, extractTokenUsage } from './tokenUsage.js';
 
 const CODEX_BIN = 'codex';
@@ -95,10 +96,19 @@ try {
 
 let launchSearch = '';
 try { launchSearch = new URL(argvEndpoint).search; } catch {}
+// The fallback URL comes off disk, so it is re-validated here: hook payloads
+// carry session ids and worktree paths, and a non-loopback candidate would send
+// them off-box. Mirrors the opencode bridge's check (869ej1zpv).
+function isLoopbackHost(hostname) {
+  const host = hostname.replace(/^\[|\]$/g, '');
+  return host === '127.0.0.1' || host === '::1' || host === 'localhost';
+}
+
 function candidateEndpoint(raw) {
   if (!raw) return null;
   try {
     const url = new URL(raw);
+    if (url.protocol !== 'http:' || !isLoopbackHost(url.hostname)) return null;
     if (launchSearch) url.search = launchSearch;
     return url.toString();
   } catch {
@@ -595,6 +605,25 @@ export class CodexAdapter implements AgentAdapter {
     lifecycleEvents: true,
     resume: true,
     interactiveUsage: true,
+  };
+
+  /** Declared seam positions (869ej1zpv R1) — pinned against argv by the conformance suite. */
+  readonly surfaces: AdapterSurfaces = {
+    model: SUPPORTED,
+    effortHeadless: SUPPORTED,
+    effortInteractive: SUPPORTED,
+    allowedTools: unsupported(
+      'codex has no per-run tool allowlist flag; its execution policy is the sandbox ' +
+        'mode (`--dangerously-bypass-approvals-and-sandbox`), carried by permissionMode',
+    ),
+    permissionMode: SUPPORTED,
+    resume: SUPPORTED,
+    sessionName: unsupported(
+      'codex names sessions only after the fact (`codex archive <name>`) — no launch-time flag',
+    ),
+    consoleStream: SUPPORTED,
+    hookChannel: SUPPORTED,
+    endpointRebind: SUPPORTED,
   };
 
   constructor(private readonly spawnHeadless: SpawnHeadless = defaultSpawn) {}

@@ -1034,3 +1034,140 @@ describe('OpencodeAdapter approach materialization', () => {
     expect(result.ownedPaths).toEqual([]);
   });
 });
+
+describe('generated karst-bridge plugin — endpoint rebind (869ej1zpv G3)', () => {
+  function receiver(): Promise<{
+    endpointUrl: string;
+    received: Promise<unknown>;
+    close(): Promise<void>;
+  }> {
+    let resolveBody!: (b: unknown) => void;
+    const received = new Promise<unknown>((resolve) => {
+      resolveBody = resolve;
+    });
+    const server = createServer((request, response) => {
+      let body = '';
+      request.setEncoding('utf8');
+      request.on('data', (chunk: string) => {
+        body += chunk;
+      });
+      request.on('end', () => {
+        resolveBody(JSON.parse(body));
+        response.writeHead(204);
+        response.end();
+      });
+    });
+    return new Promise((resolve, reject) => {
+      server.on('error', reject);
+      server.listen(0, '127.0.0.1', () => {
+        const address = server.address();
+        if (typeof address !== 'object' || address === null) {
+          reject(new Error('hook receiver did not bind a TCP port'));
+          return;
+        }
+        resolve({
+          endpointUrl: `http://127.0.0.1:${address.port}/hooks`,
+          received,
+          close: () =>
+            new Promise<void>((closeResolve, closeReject) => {
+              server.close((error) => (error ? closeReject(error) : closeResolve()));
+            }),
+        });
+      });
+    });
+  }
+
+  // A VS Code reload rebinds an ephemeral hook port. Before this, an opencode
+  // session that survived the reload POSTed into the dead launch-time port for
+  // the rest of its life — the codex bridge had the fallback, its sibling did
+  // not, which is the whole shape of this ticket.
+  it('falls back to the extension’s current endpoint when the launch-time port is gone', async () => {
+    const worktree = makeWorktree();
+    const configDir = join(worktree, '.karst-runtime');
+    mkdirSync(join(configDir, 'opencode'), { recursive: true });
+
+    // A launch-time endpoint that binds (so the URL is legal) and is then closed.
+    const dead = await receiver();
+    const deadUrl = `${dead.endpointUrl}?karstLaunch=gen-7`;
+    await dead.close();
+
+    const live = await receiver();
+    writeFileSync(join(configDir, 'opencode', 'current-endpoint'), live.endpointUrl);
+
+    try {
+      const cmd = new OpencodeAdapter().buildInteractiveCommand({
+        cwd: worktree,
+        hookChannel: { endpointUrl: deadUrl, configDir },
+      });
+      const mod = (await import(pathToFileURL(cmd.ownedPaths![0]!).href)) as {
+        KarstBridge: (ctx: { directory: string; worktree: string }) => Promise<{
+          event(input: unknown): Promise<void>;
+        }>;
+      };
+      const bridge = await mod.KarstBridge({ directory: worktree, worktree });
+      await bridge.event({
+        event: { type: 'session.created', properties: { info: { id: 'ses_1', directory: worktree } } },
+      });
+      expect(await live.received).toMatchObject({
+        hook_event_name: 'SessionStart',
+        session_id: 'ses_1',
+      });
+    } finally {
+      await live.close();
+    }
+  });
+
+  it('carries the launch generation onto the rebound endpoint', () => {
+    const worktree = makeWorktree();
+    const configDir = join(worktree, '.karst-runtime');
+    const cmd = new OpencodeAdapter().buildInteractiveCommand({
+      cwd: worktree,
+      hookChannel: { endpointUrl: 'http://127.0.0.1:1/hooks?karstLaunch=gen-7', configDir },
+    });
+    const body = readFileSync(cmd.ownedPaths![0]!, 'utf8');
+    // The generation rides the launch URL's query string and is re-applied to
+    // every candidate, or the endpoint's generation barrier rejects the
+    // rebound session.
+    expect(body).toContain('launchSearch');
+    expect(body).toContain(join(configDir, 'opencode', 'current-endpoint'));
+  });
+});
+
+describe('generated karst-bridge plugin — fallback endpoint validation', () => {
+  // Hook payloads carry session ids and worktree paths. The launch URL is
+  // loopback-checked at generation time; the fallback arrives off disk at run
+  // time, so it is re-checked in the bridge or a tampered file would exfiltrate
+  // them. Same check now lives in the codex bridge.
+  it('refuses a non-loopback fallback endpoint', async () => {
+    const worktree = makeWorktree();
+    const configDir = join(worktree, '.karst-runtime');
+    mkdirSync(join(configDir, 'opencode'), { recursive: true });
+    writeFileSync(
+      join(configDir, 'opencode', 'current-endpoint'),
+      'http://evil.example.com/hooks',
+    );
+    const cmd = new OpencodeAdapter().buildInteractiveCommand({
+      cwd: worktree,
+      // Port 1 is closed, so the launch candidate always fails and the fallback
+      // is the only remaining one.
+      hookChannel: { endpointUrl: 'http://127.0.0.1:1/hooks', configDir },
+    });
+    const mod = (await import(pathToFileURL(cmd.ownedPaths![0]!).href)) as {
+      KarstBridge: (ctx: { directory: string; worktree: string }) => Promise<{
+        event(input: unknown): Promise<void>;
+      }>;
+    };
+    const bridge = await mod.KarstBridge({ directory: worktree, worktree });
+    // Fails open (no throw), and the off-box candidate is never contacted.
+    await expect(
+      bridge.event({
+        event: {
+          type: 'session.created',
+          properties: { info: { id: 'ses_1', directory: worktree } },
+        },
+      }),
+    ).resolves.toBeUndefined();
+    const body = readFileSync(cmd.ownedPaths![0]!, 'utf8');
+    expect(body).toContain('isLoopbackHost');
+  });
+});

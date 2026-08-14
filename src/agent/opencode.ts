@@ -24,6 +24,8 @@ import { spawnHeadlessCli, headlessPreview, type HeadlessSpawnOptions } from './
 import { attachUsage } from './tokenUsage.js';
 import type { TokenUsage } from './tokenUsage.js';
 import { KARST_PLUGIN_NAME, renderWorkflowCommand } from './workflowCommand.js';
+import { SUPPORTED, unsupported, type AdapterSurfaces } from './surfaces.js';
+import { currentEndpointPath } from './hookFailureLog.js';
 
 const OPENCODE_BIN = 'opencode';
 const MAX_DIAGNOSTIC_CHARS = 8_000;
@@ -269,11 +271,64 @@ export function parseOpencodeJsonlUsage(stdout: string): TokenUsage | null {
  * (a local sender can't grow host memory), and every failure is swallowed so a
  * dead endpoint or a plugin defect never throws into the agent's event loop.
  */
-function renderHookBridge(endpointUrl: string): string {
+function renderHookBridge(endpointUrl: string, endpointFile: string | null): string {
   return String.raw`import { request } from 'node:http';
+import { readFileSync } from 'node:fs';
 
-const endpointUrl = ${JSON.stringify(endpointUrl)};
+// The launch-time URL is this window's endpoint while that window lives. A VS
+// Code reload rebinds an ephemeral hook port, so the extension writes its
+// current URL to a stable file on every activation; when the launch-time URL
+// stops answering (connection refused, or a foreign process on the stale port)
+// the plugin falls back to that file. Without this, an opencode session that
+// survived a reload posted into a dead port for the rest of its life — the
+// same defect the codex bridge already fixed for itself (869ej1zpv G3). The
+// launch-time query string carries the karstLaunch generation, so it is
+// re-applied to every candidate or the endpoint's generation barrier would
+// reject the rebound session.
+const launchEndpointUrl = ${JSON.stringify(endpointUrl)};
+const endpointFile = ${JSON.stringify(endpointFile)};
 const MAX_PAYLOAD_BYTES = 64 * 1024;
+
+let launchSearch = '';
+try { launchSearch = new URL(launchEndpointUrl).search; } catch {}
+
+// The fallback URL comes off disk, so it is re-validated here exactly as the
+// launch URL was validated at generation time: hook payloads carry session ids
+// and worktree paths, and a non-loopback candidate would send them off-box.
+function isLoopbackHost(hostname) {
+  const host = hostname.replace(/^\[|\]$/g, '');
+  return host === '127.0.0.1' || host === '::1' || host === 'localhost';
+}
+
+function candidateEndpoint(raw) {
+  if (!raw) return null;
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== 'http:' || !isLoopbackHost(url.hostname)) return null;
+    if (launchSearch) url.search = launchSearch;
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+// Resolved LAZILY and once: the launch endpoint answers for the whole life of a
+// session that outlives no reload, and this runs inside the agent's own
+// process, so a synchronous read per hook event would be pure waste. Read only
+// when the launch URL has actually stopped delivering.
+let fallbackResolved = false;
+let fallbackEndpoint = null;
+function readFallbackEndpoint() {
+  if (fallbackResolved) return fallbackEndpoint;
+  fallbackResolved = true;
+  if (endpointFile) {
+    try {
+      const content = readFileSync(endpointFile, 'utf8').trim();
+      if (content.length > 0) fallbackEndpoint = candidateEndpoint(content);
+    } catch {}
+  }
+  return fallbackEndpoint;
+}
 
 function asRecord(value) {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -380,14 +435,28 @@ function extractUsage(input) {
   return usage;
 }
 
-function send(payload, done) {
+// POST to one candidate. next() is called when THIS candidate did not deliver
+// (connection error, timeout, or a non-2xx answer — a foreign process holding
+// the stale port answers, so a status check is part of "delivered"); done() is
+// called exactly once, whichever way the walk ends.
+function sendTo(endpoint, body, done, next) {
+  // Exactly one outcome per attempt, like the codex bridge's attemptDone: a
+  // destroyed request emits 'error' AFTER its response ended, so without this
+  // a delivered payload would also be re-sent to the fallback endpoint and
+  // done() would fire twice.
+  let settled = false;
+  const succeed = () => {
+    if (settled) return;
+    settled = true;
+    if (done) done();
+  };
+  const advance = () => {
+    if (settled) return;
+    settled = true;
+    next();
+  };
   try {
-    const body = JSON.stringify(payload);
-    if (Buffer.byteLength(body, 'utf8') > MAX_PAYLOAD_BYTES) {
-      if (done) done();
-      return;
-    }
-    const target = new URL(endpointUrl);
+    const target = new URL(endpoint);
     const req = request({
       hostname: target.hostname,
       port: target.port,
@@ -400,15 +469,49 @@ function send(payload, done) {
       timeout: 2000,
     });
     // Fail open: a stale endpoint (IDE lifecycle race) must never block the agent.
-    req.on('error', () => { if (done) done(); });
+    req.on('error', () => advance());
     req.on('timeout', () => req.destroy());
+    req.on('response', (res) => {
+      const status = res.statusCode || 0;
+      const ok = status >= 200 && status < 300;
+      res.resume();
+      res.on('aborted', () => advance());
+      res.on('error', () => advance());
+      res.on('end', () => (ok ? succeed() : advance()));
+    });
     req.end(body);
-    if (done) {
-      req.on('response', (res) => {
-        res.resume();
-        res.on('end', done);
-      });
+  } catch {
+    advance();
+  }
+}
+
+function send(payload, done) {
+  try {
+    const body = JSON.stringify(payload);
+    if (Buffer.byteLength(body, 'utf8') > MAX_PAYLOAD_BYTES) {
+      if (done) done();
+      return;
     }
+    const launch = candidateEndpoint(launchEndpointUrl);
+    let attempt = 0;
+    const advance = () => {
+      attempt += 1;
+      // 1: the launch-time endpoint. 2: the extension's current one, read only
+      // now, and only when it differs from the one that just failed.
+      if (attempt === 1 && launch) {
+        sendTo(launch, body, done, advance);
+        return;
+      }
+      if (attempt <= 2) {
+        const fallback = readFallbackEndpoint();
+        if (fallback && fallback !== launch) {
+          sendTo(fallback, body, done, advance);
+          return;
+        }
+      }
+      if (done) done();
+    };
+    advance();
   } catch {
     if (done) done();
   }
@@ -576,10 +679,19 @@ function assertLoopbackEndpoint(endpointUrl: string): void {
  * identical, mirroring Codex's bridge write — re-launching a session must not
  * churn the file, and a plugin from another session's endpoint is replaced.
  */
-function writeKarstBridge(cwd: string, endpointUrl: string): string {
+function writeKarstBridge(
+  cwd: string,
+  endpointUrl: string,
+  configDir?: string,
+): string {
   assertLoopbackEndpoint(endpointUrl);
   const pluginPath = join(cwd, '.opencode', 'plugins', 'karst-bridge.js');
-  const body = renderHookBridge(endpointUrl);
+  // Absent configDir (older callers, tests) → no fallback file; the plugin then
+  // uses its launch-time URL alone, exactly as it did before.
+  const body = renderHookBridge(
+    endpointUrl,
+    configDir ? currentEndpointPath(configDir, 'opencode') : null,
+  );
   const current = existsSync(pluginPath) ? readFileSync(pluginPath, 'utf8') : null;
   if (current !== body) {
     mkdirSync(dirname(pluginPath), { recursive: true });
@@ -601,6 +713,25 @@ export class OpencodeAdapter implements AgentAdapter {
     lifecycleEvents: true,
     resume: true,
     interactiveUsage: true,
+  };
+
+  /** Declared seam positions (869ej1zpv R1) — pinned against argv by the conformance suite. */
+  readonly surfaces: AdapterSurfaces = {
+    model: SUPPORTED,
+    effortHeadless: SUPPORTED,
+    effortInteractive: unsupported(
+      'the opencode TUI (1.18.18) has no `--variant` flag — only `opencode run` accepts ' +
+        'it; passing it made the TUI print help and exit 1, killing the session at launch',
+    ),
+    allowedTools: unsupported(
+      'opencode narrows tools through its own permissions config, not a per-run CLI flag',
+    ),
+    permissionMode: SUPPORTED,
+    resume: SUPPORTED,
+    sessionName: unsupported('the opencode TUI has no launch-time session-name flag'),
+    consoleStream: SUPPORTED,
+    hookChannel: SUPPORTED,
+    endpointRebind: SUPPORTED,
   };
 
   constructor(private readonly spawnHeadless: SpawnHeadless = defaultSpawn) {}
@@ -630,7 +761,11 @@ export class OpencodeAdapter implements AgentAdapter {
       // to surface "Needs you" (869eg458d). Never pass it here. Headless `run`
       // keeps `--pure` on purpose: gate processes need no hooks and stay
       // isolated from the user's own plugins.
-      const pluginPath = writeKarstBridge(opts.cwd, opts.hookChannel.endpointUrl);
+      const pluginPath = writeKarstBridge(
+        opts.cwd,
+        opts.hookChannel.endpointUrl,
+        opts.hookChannel.configDir,
+      );
       ownedPaths = [pluginPath];
     }
     if (opts.resume && opts.resume.length > 0) {

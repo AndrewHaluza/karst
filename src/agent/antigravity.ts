@@ -19,6 +19,7 @@ import type {
   HeadlessResult,
 } from './adapter.js';
 import { renderWorkflowCommand, KARST_PLUGIN_NAME } from './workflowCommand.js';
+import { SUPPORTED, unsupported, type AdapterSurfaces } from './surfaces.js';
 import { describeHeadlessFailure } from './cliFailure.js';
 import { spawnHeadlessCli, headlessPreview, type HeadlessSpawnOptions } from './headlessSpawn.js';
 import { attachUsage, extractTokenUsage } from './tokenUsage.js';
@@ -74,8 +75,13 @@ function writeApproachPlugin(
     }
     const dest = join(pluginDir, art.relPath);
     if (art.kind === 'skill') {
+      // A skill IS its folder (SKILL.md + referenced siblings).
       cpSync(dirname(src), dirname(dest), { recursive: true });
     } else {
+      // `agent` — a single file, kept at its neutral `agents/<name>.md` path,
+      // the same place a solo agent is written below (869ej1zpv G6: this was
+      // the unnamed else-branch, so an approach shipping agents behaved
+      // differently per core with nothing stating the intent).
       mkdirSync(dirname(dest), { recursive: true });
       copyFileSync(src, dest);
     }
@@ -121,6 +127,32 @@ export class AntigravityAdapter implements AgentAdapter {
     interactiveUsage: true,
   };
   readonly requiredBinary = AGY_BIN;
+
+  /** Declared seam positions (869ej1zpv R1) — pinned against argv by the conformance suite. */
+  readonly surfaces: AdapterSurfaces = {
+    model: SUPPORTED,
+    effortHeadless: SUPPORTED,
+    effortInteractive: SUPPORTED,
+    allowedTools: unsupported(
+      'the agy CLI exposes no per-run tool allowlist flag; only the whole-session ' +
+        '`--dangerously-skip-permissions` switch, which permissionMode carries',
+    ),
+    permissionMode: SUPPORTED,
+    resume: SUPPORTED,
+    sessionName: unsupported('the agy CLI has no launch-time session-naming flag'),
+    consoleStream: unsupported(
+      'agy runs plain `-p`: its stdout is prose, not a line-per-event stream, so there ' +
+        'is nothing for consoleFormat to render live',
+    ),
+    hookChannel: unsupported(
+      'agy loads hooks.json but never RUNS the hook commands in the CLI conversation ' +
+        'path; lifecycle is READ from its conversation DB (agyConversationWatch.ts)',
+    ),
+    endpointRebind: unsupported(
+      'no hook channel to rebind — the conversation watch runs in the extension host and ' +
+        'is re-established by activation itself',
+    ),
+  };
 
   constructor(private readonly spawnHeadless: SpawnHeadless = defaultSpawn) {}
 
@@ -223,9 +255,15 @@ export class AntigravityAdapter implements AgentAdapter {
   async runHeadless(opts: RunHeadlessOpts): Promise<HeadlessResult> {
     const args = ['-p', opts.prompt];
     if (opts.resume) args.push('--conversation', opts.resume);
+    // A resolved model must pin the run exactly as it does on every other core
+    // (869ef1e6x, fixed for claude alone; this path kept falling back to the
+    // CLI's own default, so an agy ticket's classify / PR-description / gate
+    // calls ignored the model the ticket resolved — 869ej1zpv G1).
+    if (opts.model) args.push('--model', opts.model);
     if (opts.permissionMode === 'bypassPermissions') args.push('--dangerously-skip-permissions');
     if (opts.effort) args.push('--effort', opts.effort);
-    // allowedTools mapped or omitted if unsupported.
+    // `allowedTools` is declared unsupported on `surfaces` — the agy CLI has no
+    // per-run tool allowlist flag. Declared, never silently dropped.
 
     // The prompt is ticket prose — never logged in full. The debug line names
     // the invocation and redacts the prompt to its length (§ debug logging).
