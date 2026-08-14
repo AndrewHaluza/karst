@@ -151,12 +151,14 @@ function mapTokens(tokens: unknown): TokenUsage | undefined {
       : undefined;
   const input = count(record['input']);
   const output = count(record['output']);
+  const reasoning = count(record['reasoning']);
   const cacheRead = cache === null ? undefined : count(cache['read']);
   const cacheWrite = cache === null ? undefined : count(cache['write']);
   const total = count(record['total']);
   if (
     input === undefined &&
     output === undefined &&
+    reasoning === undefined &&
     cacheRead === undefined &&
     cacheWrite === undefined &&
     total === undefined
@@ -166,10 +168,12 @@ function mapTokens(tokens: unknown): TokenUsage | undefined {
   return {
     inputTokens: input ?? 0,
     outputTokens: output ?? 0,
+    reasoningTokens: reasoning ?? 0,
     cacheReadTokens: cacheRead ?? 0,
     cacheWriteTokens: cacheWrite ?? 0,
     totalTokens:
-      total ?? (input ?? 0) + (output ?? 0) + (cacheRead ?? 0) + (cacheWrite ?? 0),
+      total ??
+      (input ?? 0) + (output ?? 0) + (reasoning ?? 0) + (cacheRead ?? 0) + (cacheWrite ?? 0),
     model: null,
     estimated: false,
   };
@@ -412,7 +416,11 @@ function usageCount(value) {
 // PER-STEP, so they are deliberately NOT read here: the ledger compares
 // cumulative tallies, and a step-local count would read as a counter reset.
 // cache.read and cache.write are disjoint from input in opencode's report, so
-// they map straight across.
+// they map straight across. So is reasoning: opencode counts thinking tokens
+// in their own cumulative counter, NOT inside output (verified against a live
+// conversation DB — a session reporting 8_220 output reported 40_485 reasoning
+// beside it), and they are output-billed spend, so dropping them undercounted
+// every reasoning model's session.
 function extractUsage(input) {
   const info = asRecord(input && input.info);
   const session = asRecord(input && input.session);
@@ -425,10 +433,12 @@ function extractUsage(input) {
   const inputTokens = usageCount(tokens.input);
   const outputTokens = usageCount(tokens.output);
   if (inputTokens === null || outputTokens === null) return null;
+  const reasoning = usageCount(tokens.reasoning);
   const cacheRead = usageCount(cache && cache.read);
   const cacheWrite = usageCount(cache && cache.write);
   const total = usageCount(tokens.total);
   const usage = { input: inputTokens, output: outputTokens };
+  if (reasoning !== null) usage.reasoning = reasoning;
   if (cacheRead !== null) usage.cache_read = cacheRead;
   if (cacheWrite !== null) usage.cache_write = cacheWrite;
   if (total !== null) usage.total = total;
@@ -555,6 +565,7 @@ function tallySignature(usage) {
   return [
     usage.input,
     usage.output,
+    usage.reasoning ?? 0,
     usage.cache_read ?? 0,
     usage.cache_write ?? 0,
     usage.total ?? 0,

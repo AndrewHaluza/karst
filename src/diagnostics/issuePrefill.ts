@@ -236,13 +236,19 @@ export function coreLines(snapshot: FinalizedDiagnosticReport): string[] {
     const headless = typeof value.headlessCalls === 'number' ? value.headlessCalls : 0
     const interactive = typeof value.interactiveCalls === 'number' ? value.interactiveCalls : 0
     const sessions = typeof value.sessions === 'number' ? value.sessions : 0
+    // FRESH spend headlines the line, cache reads follow it — the same split
+    // every other surface makes. A raw tally here reads as a runaway agent on
+    // an ordinary cached session and sends the reader after the wrong problem.
     const tokens = asObject(value.headlessTokens)
-    const tokenTotal = typeof tokens?.total === 'number' ? formatTokens(tokens.total) : null
+    const rawTotal = typeof tokens?.total === 'number' ? tokens.total : null
+    const cacheRead = typeof tokens?.cacheRead === 'number' ? tokens.cacheRead : 0
+    const tokenTotal = rawTotal === null ? null : formatTokens(Math.max(0, rawTotal - cacheRead))
     const bits = [
       ...(headless > 0 ? [`${headless} headless`] : []),
       ...(interactive > 0 ? [`${interactive} interactive`] : []),
       ...(sessions > 0 ? [`${sessions} ${sessions === 1 ? 'session' : 'sessions'}`] : []),
       ...(tokenTotal !== null && tokenTotal !== '0' ? [`${tokenTotal} tokens`] : []),
+      ...(cacheRead > 0 ? [`${formatTokens(cacheRead)} cache read`] : []),
     ]
     if (bits.length > 0) parts.push(`${core} (${bits.join(' · ')})`)
   }

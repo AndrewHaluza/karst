@@ -308,7 +308,15 @@ export function readMergeChecks(
 export interface CoreUsageTokens {
   input: number
   output: number
+  /** The provider-faithful raw tally, cache reads included. */
   total: number
+  /**
+   * Cache READS inside that total. Carried so the report can headline FRESH
+   * spend like every other surface — a cached session's re-reads dominate the
+   * raw tally, and an issue whose headline says 3.9M for a 218k conversation
+   * sends the reader after the wrong problem.
+   */
+  cacheRead: number
 }
 
 export interface CoreUsageEvidence {
@@ -344,12 +352,13 @@ interface CoreTotalsRow {
   input: number
   output: number
   total: number
+  cache_read: number
   first_at: string | null
   last_at: string | null
 }
 
 function zeroTokens(): CoreUsageTokens {
-  return { input: 0, output: 0, total: 0 }
+  return { input: 0, output: 0, total: 0, cacheRead: 0 }
 }
 
 function earliest(values: readonly (string | null)[]): string | null {
@@ -392,6 +401,7 @@ export function readCoreUsage(
             COALESCE(SUM(input_tokens), 0) AS input,
             COALESCE(SUM(output_tokens), 0) AS output,
             COALESCE(SUM(total_tokens), 0) AS total,
+            COALESCE(SUM(cache_read_tokens), 0) AS cache_read,
             MIN(recorded_at) AS first_at,
             MAX(recorded_at) AS last_at
        FROM token_usage
@@ -406,6 +416,7 @@ export function readCoreUsage(
             COALESCE(SUM(s.output_tokens), 0) AS output,
             COALESCE(SUM(s.total_tokens),
                      COALESCE(SUM(s.input_tokens), 0) + COALESCE(SUM(s.output_tokens), 0)) AS total,
+            COALESCE(SUM(s.cache_read_tokens), 0) AS cache_read,
             MIN(s.observed_at) AS first_at,
             MAX(s.observed_at) AS last_at
        FROM interactive_usage_samples s
@@ -419,6 +430,7 @@ export function readCoreUsage(
   const sessionRows = store.db.prepare(
     `SELECT i.provider AS core,
             COUNT(*) AS calls,
+            0 AS cache_read,
             MIN(i.created_at) AS first_at,
             MAX(i.created_at) AS last_at
        FROM session_launch_intents i
@@ -464,6 +476,7 @@ export function readCoreUsage(
     tokens.input += row.input
     tokens.output += row.output
     tokens.total += row.total
+    tokens.cacheRead += row.cache_read
     held.firstSeenAt = earliest([held.firstSeenAt, row.first_at])
     held.lastSeenAt = latest([held.lastSeenAt, row.last_at])
     if (field === 'headless') held.headlessCalls += row.calls

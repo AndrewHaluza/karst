@@ -47,6 +47,8 @@ export interface InteractiveUsageSampleRow {
   providerSessionId: string;
   inputTokens: number;
   outputTokens: number;
+  /** v45: the provider's cumulative reasoning counter; NULL = it reported none. */
+  reasoningTokens: number | null;
   cacheReadTokens: number | null;
   cacheWriteTokens: number | null;
   totalTokens: number | null;
@@ -66,6 +68,7 @@ interface SampleRow {
   provider_session_id: string;
   input_tokens: number;
   output_tokens: number;
+  reasoning_tokens: number | null;
   cache_read_tokens: number | null;
   cache_write_tokens: number | null;
   total_tokens: number | null;
@@ -76,7 +79,8 @@ interface SampleRow {
 
 const SAMPLE_SELECT =
   `SELECT id, process_run_id, implementation_segment_id, source_event_id, provider,
-          provider_session_id, input_tokens, output_tokens, cache_read_tokens,
+          provider_session_id, input_tokens, output_tokens, reasoning_tokens,
+          cache_read_tokens,
           cache_write_tokens, total_tokens, counter_epoch, baseline_only, observed_at
      FROM interactive_usage_samples`;
 
@@ -90,6 +94,7 @@ function rowToSample(r: SampleRow): InteractiveUsageSampleRow {
     providerSessionId: r.provider_session_id,
     inputTokens: r.input_tokens,
     outputTokens: r.output_tokens,
+    reasoningTokens: r.reasoning_tokens,
     cacheReadTokens: r.cache_read_tokens,
     cacheWriteTokens: r.cache_write_tokens,
     totalTokens: r.total_tokens,
@@ -471,6 +476,7 @@ export function appendInteractiveUsageSample(
       ? {
           input: prior.input_tokens,
           output: prior.output_tokens,
+          reasoning: prior.reasoning_tokens ?? 0,
           cacheRead: prior.cache_read_tokens ?? 0,
           cacheWrite: prior.cache_write_tokens ?? 0,
           total: prior.total_tokens ?? undefined,
@@ -494,9 +500,10 @@ export function appendInteractiveUsageSample(
       .prepare(
         `INSERT INTO interactive_usage_samples
            (process_run_id, implementation_segment_id, source_event_id, provider,
-            provider_session_id, input_tokens, output_tokens, cache_read_tokens,
+            provider_session_id, input_tokens, output_tokens, reasoning_tokens,
+            cache_read_tokens,
             cache_write_tokens, total_tokens, counter_epoch, baseline_only, observed_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         binding.processRunId,
@@ -506,6 +513,7 @@ export function appendInteractiveUsageSample(
         sample.providerSessionId,
         sample.input,
         sample.output,
+        sample.reasoning ?? null,
         sample.cacheRead ?? null,
         sample.cacheWrite ?? null,
         sample.total ?? null,
@@ -527,11 +535,16 @@ export function appendInteractiveUsageSample(
         ? {
             input: sample.input,
             output: sample.output,
+            reasoning: sample.reasoning ?? 0,
             cacheRead: sample.cacheRead ?? 0,
             cacheWrite: sample.cacheWrite ?? 0,
             total:
               sample.total ??
-              (sample.input + sample.output + (sample.cacheRead ?? 0) + (sample.cacheWrite ?? 0)),
+              (sample.input +
+                sample.output +
+                (sample.reasoning ?? 0) +
+                (sample.cacheRead ?? 0) +
+                (sample.cacheWrite ?? 0)),
           }
         : interactiveUsageDelta(priorCounts!, sample);
 
@@ -544,10 +557,11 @@ export function appendInteractiveUsageSample(
         `INSERT INTO token_usage
            (project_id, ticket_id, process_run_id, implementation_segment_id,
             interactive_usage_sample_id, call_site, provider, model,
-            input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
+            input_tokens, output_tokens, reasoning_tokens, cache_read_tokens,
+            cache_write_tokens,
             total_tokens, estimated, outcome, recorded_at,
             approach_planner_run_id, approach_node_run_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'ok', ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'ok', ?, ?, ?)`,
       )
       .run(
         projectId?.project_id ?? null,
@@ -560,6 +574,7 @@ export function appendInteractiveUsageSample(
         binding.model,
         delta.input,
         delta.output,
+        delta.reasoning,
         delta.cacheRead,
         delta.cacheWrite,
         delta.total,

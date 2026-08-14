@@ -13,6 +13,7 @@ import type { TokenUsageEntry } from '../store/tokenUsage.js';
 const CLAUDE_ENVELOPE_USAGE = {
   inputTokens: 120,
   outputTokens: 45,
+  reasoningTokens: 0,
   cacheReadTokens: 900,
   cacheWriteTokens: 30,
   totalTokens: 1095,

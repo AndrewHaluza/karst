@@ -346,6 +346,8 @@ export function listImplementationTimeline(
 export interface SegmentTokenRow {
   inputTokens: number;
   outputTokens: number;
+  /** v45: reasoning tokens the core counted apart from output; absent = none. */
+  reasoningTokens?: number;
   cacheReadTokens: number;
   cacheWriteTokens: number;
   totalTokens: number;
@@ -358,6 +360,8 @@ export interface SegmentTokenSummary {
   calls: number;
   inputTokens: number;
   outputTokens: number;
+  /** v45: reasoning tokens, summed apart from output. */
+  reasoningTokens: number;
   cacheReadTokens: number;
   cacheWriteTokens: number;
   totalTokens: number;
@@ -376,6 +380,7 @@ export function summarizeSegmentTokens(
   if (rows.length === 0) return null;
   let inputTokens = 0;
   let outputTokens = 0;
+  let reasoningTokens = 0;
   let cacheReadTokens = 0;
   let cacheWriteTokens = 0;
   let totalTokens = 0;
@@ -384,6 +389,7 @@ export function summarizeSegmentTokens(
   for (const row of rows) {
     inputTokens += row.inputTokens;
     outputTokens += row.outputTokens;
+    reasoningTokens += row.reasoningTokens ?? 0;
     cacheReadTokens += row.cacheReadTokens;
     cacheWriteTokens += row.cacheWriteTokens;
     totalTokens += row.totalTokens;
@@ -394,6 +400,7 @@ export function summarizeSegmentTokens(
     calls: rows.length,
     inputTokens,
     outputTokens,
+    reasoningTokens,
     cacheReadTokens,
     cacheWriteTokens,
     totalTokens,
@@ -413,6 +420,7 @@ interface SegmentTotalsRow {
   calls: number;
   input_tokens: number;
   output_tokens: number;
+  reasoning_tokens: number;
   cache_read_tokens: number;
   cache_write_tokens: number;
   total_tokens: number;
@@ -441,6 +449,7 @@ export function readSegmentTokenTotals(
               COUNT(*) AS calls,
               SUM(input_tokens) AS input_tokens,
               SUM(output_tokens) AS output_tokens,
+              SUM(reasoning_tokens) AS reasoning_tokens,
               SUM(cache_read_tokens) AS cache_read_tokens,
               SUM(cache_write_tokens) AS cache_write_tokens,
               SUM(total_tokens) AS total_tokens,
@@ -459,6 +468,7 @@ export function readSegmentTokenTotals(
     calls: row.calls,
     inputTokens: row.input_tokens,
     outputTokens: row.output_tokens,
+    reasoningTokens: row.reasoning_tokens,
     cacheReadTokens: row.cache_read_tokens,
     cacheWriteTokens: row.cache_write_tokens,
     totalTokens: row.total_tokens,

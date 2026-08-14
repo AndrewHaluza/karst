@@ -478,6 +478,7 @@ describe('ticket + stage persistence', () => {
       usage: {
         inputTokens: 120,
         outputTokens: 30,
+        reasoningTokens: 0,
         cacheReadTokens: 0,
         cacheWriteTokens: 0,
         totalTokens: 150,
@@ -493,6 +494,7 @@ describe('ticket + stage persistence', () => {
       usage: {
         inputTokens: 7,
         outputTokens: 1,
+        reasoningTokens: 0,
         cacheReadTokens: 0,
         cacheWriteTokens: 0,
         totalTokens: 8,

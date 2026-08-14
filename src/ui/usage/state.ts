@@ -82,10 +82,19 @@ export interface UsageTicketRowView {
 
 export interface UsageTotalsView {
   calls: number;
+  /**
+   * FRESH spend — input, output, reasoning and cache WRITES. Cache READS are
+   * their own tile: they are context the provider re-sent and re-charged at a
+   * fraction of the fresh rate, and on a long session they are the great
+   * majority of the raw tally, so a headline that sums them reported an
+   * ordinary conversation as a runaway one.
+   */
   totalDisplay: string;
   totalExact: string;
   inputDisplay: string;
   outputDisplay: string;
+  /** v45: reasoning tokens — output-billed, counted apart from output. */
+  reasoningDisplay: string;
   cacheReadDisplay: string;
   cacheWriteDisplay: string;
   estimatedCalls: number;
@@ -135,6 +144,7 @@ const EMPTY_TOTALS: UsageTotalsView = {
   totalExact: '0',
   inputDisplay: '0',
   outputDisplay: '0',
+  reasoningDisplay: '0',
   cacheReadDisplay: '0',
   cacheWriteDisplay: '0',
   estimatedCalls: 0,
@@ -154,31 +164,43 @@ function ticketRowLabel(row: UsageTicketRow): string {
 
 function breakdown(
   rows: UsageGroupRow[],
-  total: number,
+  freshTotal: number,
   label: (key: string) => string,
 ): UsageBreakdownRow[] {
-  return rows.map((row) => ({
-    key: row.key,
-    label: label(row.key),
-    calls: row.calls,
-    totalTokens: row.totalTokens,
-    totalDisplay: formatTokens(row.totalTokens),
-    totalExact: formatExactTokens(row.totalTokens),
-    inputDisplay: formatTokens(row.inputTokens),
-    outputDisplay: formatTokens(row.outputTokens),
-    share: shareOfTotal(row.totalTokens, total),
-    estimated: row.calls > 0 && row.estimatedCalls === row.calls,
-  }));
+  // Every row's own figure is FRESH spend too — a call site or model that is
+  // mostly cache reads must not claim a share of the raw tally it never
+  // fresh-spent. `freshTokens` comes from the SAME SQL expression the query
+  // ordered on, so the rendered order always matches the rendered numbers.
+  return rows.map((row) => {
+    const fresh = row.freshTokens;
+    return {
+      key: row.key,
+      label: label(row.key),
+      calls: row.calls,
+      totalTokens: fresh,
+      totalDisplay: formatTokens(fresh),
+      totalExact: formatExactTokens(fresh),
+      inputDisplay: formatTokens(row.inputTokens),
+      outputDisplay: formatTokens(row.outputTokens),
+      share: shareOfTotal(fresh, freshTotal),
+      estimated: row.calls > 0 && row.estimatedCalls === row.calls,
+    };
+  });
 }
 
 function totalsView(stats: TokenUsageStats): UsageTotalsView {
   const t = stats.totals;
+  // The headline is fresh spend; cache reads keep their own tile. The clamp
+  // lives in the SQL that computes `freshTokens` — the two sums are
+  // independent and a legacy row can carry reads its total never counted.
+  const fresh = t.freshTokens;
   return {
     calls: t.calls,
-    totalDisplay: formatTokens(t.totalTokens),
-    totalExact: formatExactTokens(t.totalTokens),
+    totalDisplay: formatTokens(fresh),
+    totalExact: formatExactTokens(fresh),
     inputDisplay: formatTokens(t.inputTokens),
     outputDisplay: formatTokens(t.outputTokens),
+    reasoningDisplay: formatTokens(t.reasoningTokens),
     cacheReadDisplay: formatTokens(t.cacheReadTokens),
     cacheWriteDisplay: formatTokens(t.cacheWriteTokens),
     estimatedCalls: t.estimatedCalls,
@@ -196,21 +218,24 @@ function profileLabel(key: string): string {
   return key === '' ? 'unknown profile' : key;
 }
 
-function profileRows(rows: UsageProfileRow[], total: number): UsageProfileRowView[] {
-  return rows.map((row) => ({
-    key: row.profile,
-    label: profileLabel(row.profile),
-    calls: row.calls,
-    totalTokens: row.totalTokens,
-    totalDisplay: formatTokens(row.totalTokens),
-    totalExact: formatExactTokens(row.totalTokens),
-    inputDisplay: formatTokens(row.inputTokens),
-    outputDisplay: formatTokens(row.outputTokens),
-    share: shareOfTotal(row.totalTokens, total),
-    estimated: row.calls > 0 && row.estimatedCalls === row.calls,
-    provider: row.provider,
-    note: row.provider === null ? 'provider unknown' : row.provider,
-  }));
+function profileRows(rows: UsageProfileRow[], freshTotal: number): UsageProfileRowView[] {
+  return rows.map((row) => {
+    const fresh = row.freshTokens;
+    return {
+      key: row.profile,
+      label: profileLabel(row.profile),
+      calls: row.calls,
+      totalTokens: fresh,
+      totalDisplay: formatTokens(fresh),
+      totalExact: formatExactTokens(fresh),
+      inputDisplay: formatTokens(row.inputTokens),
+      outputDisplay: formatTokens(row.outputTokens),
+      share: shareOfTotal(fresh, freshTotal),
+      estimated: row.calls > 0 && row.estimatedCalls === row.calls,
+      provider: row.provider,
+      note: row.provider === null ? 'provider unknown' : row.provider,
+    };
+  });
 }
 
 /** The shell every state shares — also what an error or empty range renders. */
@@ -256,7 +281,10 @@ export function buildUsageState(store: Store, input: UsageStateInput = {}): Usag
   if (!parsed.ok) return { ...base(rangeId, sort, offset, limit), error: parsed.error };
 
   const stats = queryTokenUsageStats(store, parsed.query);
-  const total = stats.totals.totalTokens;
+  // The share denominator is FRESH spend, matching the headline (`totalsView`),
+  // every breakdown row and the ORDER BY — a raw-total denominator would let
+  // cache-read-heavy rows claim shares of tokens nothing fresh-spent.
+  const total = stats.totals.freshTokens;
 
   return {
     ...base(rangeId, sort, offset, limit),
@@ -265,20 +293,24 @@ export function buildUsageState(store: Store, input: UsageStateInput = {}): Usag
     byStage: breakdown(stats.byCallSite, total, aiCallSiteLabel),
     byModel: breakdown(stats.byModel, total, modelLabel),
     byProfile: profileRows(stats.byProfile, total),
-    tickets: stats.byTicket.map((row) => ({
-      ticketId: row.ticketId,
-      ticketKey: row.ticketKey,
-      label: ticketRowLabel(row),
-      calls: row.calls,
-      totalTokens: row.totalTokens,
-      totalDisplay: formatTokens(row.totalTokens),
-      totalExact: formatExactTokens(row.totalTokens),
-      inputDisplay: formatTokens(row.inputTokens),
-      outputDisplay: formatTokens(row.outputTokens),
-      lastAt: row.lastAt,
-      share: shareOfTotal(row.totalTokens, total),
-      estimated: row.calls > 0 && row.estimatedCalls === row.calls,
-    })),
+    tickets: stats.byTicket.map((row) => {
+      // Same expression the query sorted and paginated on.
+      const fresh = row.freshTokens;
+      return {
+        ticketId: row.ticketId,
+        ticketKey: row.ticketKey,
+        label: ticketRowLabel(row),
+        calls: row.calls,
+        totalTokens: fresh,
+        totalDisplay: formatTokens(fresh),
+        totalExact: formatExactTokens(fresh),
+        inputDisplay: formatTokens(row.inputTokens),
+        outputDisplay: formatTokens(row.outputTokens),
+        lastAt: row.lastAt,
+        share: shareOfTotal(fresh, total),
+        estimated: row.calls > 0 && row.estimatedCalls === row.calls,
+      };
+    }),
     page: {
       offset,
       limit,

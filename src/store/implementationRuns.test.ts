@@ -329,6 +329,7 @@ describe('implementation runs and segments', () => {
       calls: 2,
       inputTokens: 300,
       outputTokens: 150,
+      reasoningTokens: 0,
       cacheReadTokens: 10,
       cacheWriteTokens: 0,
       totalTokens: 460,
@@ -361,7 +362,7 @@ describe('implementation runs and segments', () => {
       projectId: null, ticketId, processRunId: timeline.run.processRunId,
       callSite: 'impl-run', provider: 'claude', outcome: 'ok',
       recordedAt: '2026-08-01T10:02:00.000Z', implementationSegmentId: segA!.id,
-      usage: { inputTokens: 100, outputTokens: 50, cacheReadTokens: 0, cacheWriteTokens: 0,
+      usage: { inputTokens: 100, outputTokens: 50, reasoningTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0,
                totalTokens: 150, model: 'opus', estimated: false },
     });
     // An estimated row is NOT measured spend: dropped from the total entirely.
@@ -369,21 +370,21 @@ describe('implementation runs and segments', () => {
       projectId: null, ticketId, processRunId: timeline.run.processRunId,
       callSite: 'impl-run', provider: 'claude', outcome: 'ok',
       recordedAt: '2026-08-01T10:03:00.000Z', implementationSegmentId: segA!.id,
-      usage: { inputTokens: 9000, outputTokens: 999, cacheReadTokens: 0, cacheWriteTokens: 0,
+      usage: { inputTokens: 9000, outputTokens: 999, reasoningTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0,
                totalTokens: 9999, model: 'opus', estimated: true },
     });
     recordTokenUsage(store, {
       projectId: null, ticketId, processRunId: timeline.run.processRunId,
       callSite: 'impl-run', provider: 'codex', outcome: 'error',
       recordedAt: '2026-08-01T10:07:00.000Z', implementationSegmentId: segB!.id,
-      usage: { inputTokens: 200, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0,
+      usage: { inputTokens: 200, outputTokens: 0, reasoningTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0,
                totalTokens: 200, model: 'sol', estimated: false },
     });
     recordTokenUsage(store, {
       projectId: null, ticketId, processRunId: timeline.run.processRunId,
       callSite: 'impl-run', provider: 'codex', outcome: 'ok',
       recordedAt: '2026-08-01T10:08:00.000Z', implementationSegmentId: segB!.id,
-      usage: { inputTokens: 60, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0,
+      usage: { inputTokens: 60, outputTokens: 0, reasoningTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0,
                totalTokens: 60, model: 'sol', estimated: false },
     });
 
@@ -393,6 +394,7 @@ describe('implementation runs and segments', () => {
         calls: 1,
         inputTokens: 100,
         outputTokens: 50,
+        reasoningTokens: 0,
         cacheReadTokens: 0,
         cacheWriteTokens: 0,
         totalTokens: 150,
@@ -404,6 +406,7 @@ describe('implementation runs and segments', () => {
         calls: 2,
         inputTokens: 260,
         outputTokens: 0,
+        reasoningTokens: 0,
         cacheReadTokens: 0,
         cacheWriteTokens: 0,
         totalTokens: 260,

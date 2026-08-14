@@ -52,6 +52,7 @@ function seed(ticketId: number | null, tokens: number, at = '2026-07-30T00:00:00
     usage: {
       inputTokens: tokens,
       outputTokens: 0,
+      reasoningTokens: 0,
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
       totalTokens: tokens,

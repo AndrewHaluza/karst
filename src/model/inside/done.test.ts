@@ -224,7 +224,7 @@ describe('doneReceipt', () => {
       { role: 'implementation', input: 100, output: 20, total: 120 },
       { role: 'quality', input: 20, output: 10, total: 30 },
     ];
-    const tokens: RecordedUsageSummary = { input: 120, output: 30, total: 150 };
+    const tokens: RecordedUsageSummary = { input: 120, output: 30, total: 150, cacheRead: 0 };
     const view = doneReceipt(receiptInput({ roles, tokens })) as Extract<
       DoneReceiptView,
       { status: 'complete' }
@@ -251,7 +251,7 @@ describe('doneReceipt', () => {
     // The reducer consumes the RECORDED summary — the store's WHERE estimated=0
     // is the contract; the input type carries no estimate flag at all.
     const view = doneReceipt(
-      receiptInput({ tokens: { input: 0, output: 0, total: 0 } }),
+      receiptInput({ tokens: { input: 0, output: 0, total: 0, cacheRead: 0 } }),
     ) as Extract<DoneReceiptView, { status: 'complete' }>;
     expect(view.tokens!.label).toContain('0');
   });
@@ -295,7 +295,7 @@ describe('doneReceipt', () => {
             }),
           ),
           roles: [{ role: 'implementation', input: 90, output: 10, total: 100 }],
-          tokens: { input: 90, output: 10, total: 100 },
+          tokens: { input: 90, output: 10, total: 100, cacheRead: 0 },
           attach: (target) => {
             targets.push(target);
             return { actionId: 'snapshot-1:action-0', kind: target.kind };
@@ -380,7 +380,7 @@ describe('done receipt: the hero line and the receipt grid', () => {
             }),
           },
         }),
-        tokens: { input: 87_700, output: 23_200, total: 110_900 } as RecordedUsageSummary,
+        tokens: { input: 87_700, output: 23_200, total: 110_900, cacheRead: 0 },
         roles: [
           { role: 'implementation', input: 40_000, output: 18_300, total: 58_300 },
           { role: 'ship', input: 4_000, output: 1_600, total: 5_600 },

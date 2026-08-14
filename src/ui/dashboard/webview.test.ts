@@ -2739,10 +2739,20 @@ describe('inside render round trip (executed in a VM)', () => {
     // Token pills are the prototype's Σ stat, with the exact count as the
     // hover title.
     expect(ol.match(/class="token-stat"/g)).toHaveLength(3);
-    expect(ol).toContain('title="18,600"');
+    expect(ol).toContain('title="18,600 fresh tokens"');
     // Timestamps occupy the dedicated right-aligned cells.
     expect(ol).toContain('<span class="segment-window">10:03–10:09</span>');
     expect(ol).toContain('<span class="phase-time">10:22</span>');
+  });
+
+  it('renders cache reads beside the headline, never inside it', () => {
+    // The headline is FRESH spend; a cached session's re-reads are their own
+    // muted figure with their own accessible title, so a 3.7M cache read can
+    // never present as 3.7M of conversation.
+    const fn = /function tokenStatHtml[\s\S]*?\n  \}/.exec(HTML)?.[0] ?? '';
+    expect(fn).toContain('t.cacheRead');
+    expect(fn).toContain('cache-read');
+    expect(fn).toContain('t.cacheReadExact');
   });
 
   it('feeds the timeline identity rows through the injected agent renderer (Task 4)', () => {

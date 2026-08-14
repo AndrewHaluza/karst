@@ -19,7 +19,7 @@ export function readSchema(): string {
 }
 
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 44;
+export const SCHEMA_VERSION = 45;
 
 /** v2 ticket-field columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -1683,6 +1683,29 @@ export function migrate(db: Database): void {
     const cols = ticketColumns(db);
     if (cols.has('model') && !cols.has('effort')) {
       db.exec('ALTER TABLE tickets ADD COLUMN effort TEXT');
+    }
+  }
+
+  if (current < 45) {
+    // v45: reasoning ("thinking") tokens as their own counter on both usage
+    // tables. opencode reports `tokens.reasoning` beside `output` — a live
+    // session carrying 8_220 output carried 40_485 reasoning — and karst read
+    // neither the interactive sample nor the headless envelope for it, so
+    // output-billed spend was missing from every total. The guards read the
+    // CURRENT columns, so a fresh DB (already carrying them via schema.sql) is
+    // a no-op and a re-open is idempotent. NOTHING IS BACKFILLED: a pre-v45 row
+    // was measured without the counter and its reasoning spend is unknowable —
+    // the ledger's DEFAULT 0 is the honest "this row never reported one", and
+    // an invented number would read as measured.
+    const usageCols = tableColumns(db, 'token_usage');
+    if (usageCols.size > 0 && !usageCols.has('reasoning_tokens')) {
+      db.exec(
+        'ALTER TABLE token_usage ADD COLUMN reasoning_tokens INTEGER NOT NULL DEFAULT 0',
+      );
+    }
+    const sampleCols = tableColumns(db, 'interactive_usage_samples');
+    if (sampleCols.size > 0 && !sampleCols.has('reasoning_tokens')) {
+      db.exec('ALTER TABLE interactive_usage_samples ADD COLUMN reasoning_tokens INTEGER');
     }
   }
 
