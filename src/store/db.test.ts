@@ -2248,4 +2248,38 @@ expect(migrated.db.pragma('user_version', { simple: true })).toBe(44);
       .get('PROJ-1') as { priority: string | null };
     expect(row.priority).toBeNull();
   });
+
+  // v44 was bumped INDEPENDENTLY on two branches — #215 added the per-ticket
+  // `effort` override, #216 added the provider-native `priority` label — and
+  // merged into one step. A registry migrated by the earlier build reports
+  // user_version = 44 while `tickets` still carries `effort` but NOT
+  // `priority`; the version-gated `current < 44` ALTER is then skipped forever
+  // and the ticket form's fetch dies with "no such column: priority"
+  // (869ej2cfz). The repair must therefore run OUTSIDE the version gate, like
+  // the servers.cwd repair above it.
+  it('repairs a v44 DB that never gained tickets.priority', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'v44-priority-'));
+    const path = join(dir, 'test.db');
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+
+    // Start from the current shape, then drop `priority` while keeping the
+    // version stamped at 44 — exactly the state the earlier v44 build left.
+    const seeded = openStore(path);
+    seeded.db.pragma('user_version = 44');
+    seeded.close();
+    const raw = new Database(path);
+    raw.exec('ALTER TABLE tickets DROP COLUMN priority');
+    raw.close();
+
+    const migrated = openStore(path);
+    cleanups.push(() => migrated.close());
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(44);
+
+    const cols = new Set(
+      (migrated.db.prepare("PRAGMA table_info('tickets')").all() as { name: string }[]).map(
+        (c) => c.name,
+      ),
+    );
+    expect(cols.has('priority')).toBe(true);
+  });
 });

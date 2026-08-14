@@ -1670,25 +1670,38 @@ export function migrate(db: Database): void {
 
   if (current < 44) {
     // v44, added independently on two branches and merged into one step:
-    // 1. the provider-native priority label parsed by the ticketing provider's
-    //    `fetchTicket`/`searchTickets` (e.g. ClickUp's 'urgent');
-    // 2. the per-ticket effort/variant override, the launch-path sibling of
+    // 1. the per-ticket effort/variant override, the launch-path sibling of
     //    `model`/`agent_provider` (§ Execution policy resolution).
-    // A fresh DB already carries both (schema.sql); each guard only runs the
+    // A fresh DB already carries it (schema.sql); the guard only runs the
     // ALTER for a legacy DB being upgraded. NOTHING IS BACKFILLED: a pre-v44
-    // ticket has no provider priority to derive and no effort to synthesize —
-    // NULL is the honest "never said / inherit the default" reading, and the
-    // next fetch populates the priority. The `ticketColumns` guard is checked
-    // for a NON-empty set first, so a partial-schema DB (e.g. a lone
-    // attachments table in a repair test) skips instead of failing to prepare
-    // the ALTER.
+    // ticket has no effort to synthesize — NULL is the honest "inherit the
+    // default" reading. The `ticketColumns` guard is checked for a NON-empty
+    // set first, so a partial-schema DB (e.g. a lone attachments table in a
+    // repair test) skips instead of failing to prepare the ALTER.
+    // (The provider-native `priority` label also shipped in v44 — see the
+    // ungated repair below, which is what actually lands it on an upgraded DB.)
     const cols = ticketColumns(db);
-    if (cols.size > 0 && !cols.has('priority')) {
-      db.exec('ALTER TABLE tickets ADD COLUMN priority TEXT');
-    }
     if (cols.has('model') && !cols.has('effort')) {
       db.exec('ALTER TABLE tickets ADD COLUMN effort TEXT');
     }
+  }
+
+  // The tickets.priority step cannot be version-gated, and repairing the
+  // CURRENT shape outside the gate is deliberate — the same reason the
+  // servers.cwd repair above runs ungated. v44 was bumped INDEPENDENTLY on two
+  // branches: the per-ticket `effort` override (#215) and the provider-native
+  // `priority` label (#216), merged into one step. A registry migrated by the
+  // earlier build reports user_version = 44 while `tickets` still lacks
+  // `priority` — not < 44 — so the version-gated ALTER would be skipped
+  // forever and the ticket form's fetch would die with "no such column:
+  // priority" (869ej2cfz). The guard reads the CURRENT columns, never the
+  // version, so a fresh DB (already carrying it via schema.sql) is a no-op and
+  // a legacy DB missing it is repaired however it got here. NOTHING IS
+  // BACKFILLED: a ticket that predates the column has no provider priority to
+  // derive, so it stays NULL and the next fetch populates it.
+  const priorityCols = ticketColumns(db);
+  if (priorityCols.size > 0 && !priorityCols.has('priority')) {
+    db.exec('ALTER TABLE tickets ADD COLUMN priority TEXT');
   }
 
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
