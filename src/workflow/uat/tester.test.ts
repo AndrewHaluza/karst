@@ -517,6 +517,19 @@ describe('buildTesterPrompt', () => {
     expect(prompt).toContain('OBSERVATIONS, not verdicts');
   });
 
+  it('carries the scope block so the Tester does not survey the repo first', () => {
+    const prompt = buildTesterPrompt(TARGETS[0]!, undefined, ['test:unit (web)']);
+    expect(prompt).toContain('Do NOT run repository-wide reconnaissance');
+    expect(prompt).toContain('git worktree list');
+    expect(prompt).toContain('test:unit (web)');
+    expect(prompt).toContain('Do NOT re-run them');
+  });
+
+  it('keeps the scope block even when user instructions replace the strategy', () => {
+    const prompt = buildTesterPrompt(TARGETS[0]!, 'Focus on API endpoint behavior.');
+    expect(prompt).toContain('Do NOT run repository-wide reconnaissance');
+  });
+
   it('treats blank or whitespace instructions as absent', () => {
     const blank = buildTesterPrompt(TARGETS[0]!, '   ');
     expect(blank).toContain('Act as the UAT tester');
