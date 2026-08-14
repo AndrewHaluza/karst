@@ -38,6 +38,7 @@ describe('extractTokenUsage', () => {
     expect(usage).toEqual<TokenUsage>({
       inputTokens: 120,
       outputTokens: 45,
+      reasoningTokens: 0,
       cacheReadTokens: 900,
       cacheWriteTokens: 30,
       totalTokens: 1095,
@@ -120,5 +121,26 @@ describe('estimateTokenUsage', () => {
 
   it('rounds a partial token up — a one-character prompt is not free', () => {
     expect(estimateTokens('x')).toBe(1);
+  });
+});
+
+describe('extractTokenUsage — reasoning tokens', () => {
+  it('reads a reasoning counter and bills it into the derived total', () => {
+    const usage = extractTokenUsage(
+      JSON.stringify({
+        usage: { input_tokens: 100, output_tokens: 20, reasoning_tokens: 400 },
+      }),
+    );
+    expect(usage?.reasoningTokens).toBe(400);
+    // Reasoning is output-billed spend, so a derived total must include it.
+    expect(usage?.totalTokens).toBe(520);
+  });
+
+  it('leaves the reasoning count at zero when the core reports none', () => {
+    const usage = extractTokenUsage(
+      JSON.stringify({ usage: { input_tokens: 10, output_tokens: 2 } }),
+    );
+    expect(usage?.reasoningTokens).toBe(0);
+    expect(usage?.totalTokens).toBe(12);
   });
 });

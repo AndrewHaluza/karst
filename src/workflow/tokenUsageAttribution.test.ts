@@ -35,6 +35,7 @@ function reportingAdapter(overrides: Partial<AgentAdapter> = {}): AgentAdapter {
       usage: {
         inputTokens: 100,
         outputTokens: 20,
+        reasoningTokens: 0,
         cacheReadTokens: 5,
         cacheWriteTokens: 0,
         totalTokens: 125,
@@ -155,6 +156,7 @@ describe('instrumented AI calls', () => {
           throw attachUsage(new Error('Claude usage limit reached.'), {
             inputTokens: 900,
             outputTokens: 0,
+            reasoningTokens: 0,
             cacheReadTokens: 0,
             cacheWriteTokens: 0,
             totalTokens: 900,

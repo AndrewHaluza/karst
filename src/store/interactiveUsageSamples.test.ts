@@ -105,6 +105,45 @@ function ledger(): ReturnType<typeof listTokenUsage> {
 }
 
 describe('appendInteractiveUsageSample — first observation', () => {
+  it('persists the reasoning counter and bills its delta — thinking is output-billed spend', () => {
+    launch('l1', 'implementation');
+    confirm('l1', SESSION);
+
+    appendInteractiveUsageSample(store, {
+      ticketId,
+      sample: sample({ eventId: 'evt-1', input: 100, output: 10, reasoning: 400 }),
+    });
+    const second = appendInteractiveUsageSample(store, {
+      ticketId,
+      sample: sample({ eventId: 'evt-2', input: 120, output: 15, reasoning: 900 }),
+    });
+    expect(second.kind === 'recorded' && second.delta.reasoning).toBe(500);
+    // 20 input + 5 output + 500 reasoning: the derived total counts it.
+    expect(second.kind === 'recorded' && second.delta.total).toBe(525);
+
+    const ledger = store.db
+      .prepare('SELECT reasoning_tokens, total_tokens FROM token_usage ORDER BY id')
+      .all() as { reasoning_tokens: number; total_tokens: number }[];
+    expect(ledger.map((r) => r.reasoning_tokens)).toEqual([400, 500]);
+    const samples = store.db
+      .prepare('SELECT reasoning_tokens FROM interactive_usage_samples ORDER BY id')
+      .all() as { reasoning_tokens: number | null }[];
+    expect(samples.map((r) => r.reasoning_tokens)).toEqual([400, 900]);
+  });
+
+  it('stores NULL reasoning when the provider reports no such counter', () => {
+    launch('l1', 'implementation');
+    confirm('l1', SESSION);
+    appendInteractiveUsageSample(store, {
+      ticketId,
+      sample: sample({ eventId: 'evt-1', input: 100, output: 10 }),
+    });
+    const row = store.db
+      .prepare('SELECT reasoning_tokens FROM interactive_usage_samples')
+      .get() as { reasoning_tokens: number | null };
+    expect(row.reasoning_tokens).toBeNull();
+  });
+
   it('records the FULL counts from a proven-new session (implicit zero) with the session process binding', () => {
     launch('l1', 'implementation');
     confirm('l1', SESSION);
@@ -114,12 +153,12 @@ describe('appendInteractiveUsageSample — first observation', () => {
       store,
       {
         ticketId,
-        sample: sample({ eventId: 'evt-1', input: 1_450, output: 320, cacheRead: 180, cacheWrite: 40, total: 1_990 }),
+        sample: sample({ eventId: 'evt-1', input: 1_450, output: 320, reasoning: 0, cacheRead: 180, cacheWrite: 40, total: 1_990 }),
       },
     );
     expect(result).toMatchObject({ kind: 'recorded' });
     expect(result.kind === 'recorded' && result.delta).toEqual({
-      input: 1_450, output: 320, cacheRead: 180, cacheWrite: 40, total: 1_990,
+      input: 1_450, output: 320, reasoning: 0, cacheRead: 180, cacheWrite: 40, total: 1_990,
     });
 
     const rows = store.db
@@ -151,6 +190,7 @@ describe('appendInteractiveUsageSample — first observation', () => {
       model: 'sol',
       inputTokens: 1_450,
       outputTokens: 320,
+      reasoningTokens: 0,
       cacheReadTokens: 180,
       cacheWriteTokens: 40,
       totalTokens: 1_990,
@@ -193,7 +233,7 @@ describe('appendInteractiveUsageSample — first observation', () => {
     );
     expect(second.kind).toBe('recorded');
     expect(second.kind === 'recorded' && second.delta).toEqual({
-      input: 500, output: 60, cacheRead: 0, cacheWrite: 0, total: 560,
+      input: 500, output: 60, reasoning: 0, cacheRead: 0, cacheWrite: 0, total: 560,
     });
     expect(ledger()).toHaveLength(1);
     expect(ledger()[0]).toMatchObject({ inputTokens: 500, outputTokens: 60, totalTokens: 560 });
@@ -284,11 +324,11 @@ describe('appendInteractiveUsageSample — cumulative deltas', () => {
 
     appendInteractiveUsageSample(
       store,
-      { ticketId, sample: sample({ eventId: 'e1', input: 1_000, output: 200, cacheRead: 100, cacheWrite: 20, total: 1_320 }) },
+      { ticketId, sample: sample({ eventId: 'e1', input: 1_000, output: 200, reasoning: 0, cacheRead: 100, cacheWrite: 20, total: 1_320 }) },
     );
     appendInteractiveUsageSample(
       store,
-      { ticketId, sample: sample({ eventId: 'e2', input: 1_450, output: 320, cacheRead: 180, cacheWrite: 40, total: 1_990 }) },
+      { ticketId, sample: sample({ eventId: 'e2', input: 1_450, output: 320, reasoning: 0, cacheRead: 180, cacheWrite: 40, total: 1_990 }) },
     );
 
     // Close the segment/process, resume the SAME provider session into a later
@@ -306,11 +346,11 @@ describe('appendInteractiveUsageSample — cumulative deltas', () => {
 
     const afterSwitch = appendInteractiveUsageSample(
       store,
-      { ticketId, sample: sample({ eventId: 'e3', input: 1_800, output: 380, cacheRead: 200, cacheWrite: 50, total: 2_430, observedAt: '2026-08-01T11:05:00.000Z' }) },
+      { ticketId, sample: sample({ eventId: 'e3', input: 1_800, output: 380, reasoning: 0, cacheRead: 200, cacheWrite: 50, total: 2_430, observedAt: '2026-08-01T11:05:00.000Z' }) },
     );
     expect(afterSwitch.kind).toBe('recorded');
     expect(afterSwitch.kind === 'recorded' && afterSwitch.delta).toEqual({
-      input: 350, output: 60, cacheRead: 20, cacheWrite: 10, total: 440,
+      input: 350, output: 60, reasoning: 0, cacheRead: 20, cacheWrite: 10, total: 440,
     });
 
     const entries = ledger();
@@ -578,7 +618,7 @@ describe('appendInteractiveUsageSample — cumulative deltas', () => {
     );
     expect(fixSample.kind).toBe('recorded');
     expect(fixSample.kind === 'recorded' && fixSample.delta).toEqual({
-      input: 250, output: 20, cacheRead: 0, cacheWrite: 0, total: 270,
+      input: 250, output: 20, reasoning: 0, cacheRead: 0, cacheWrite: 0, total: 270,
     });
 
     const fixEntry = ledger()[2]!;
@@ -689,7 +729,7 @@ describe('appendInteractiveUsageSample — live Fix ownership', () => {
     );
     expect(fixSample.kind).toBe('recorded');
     expect(fixSample.kind === 'recorded' && fixSample.delta).toEqual({
-      input: 700, output: 140, cacheRead: 0, cacheWrite: 0, total: 840,
+      input: 700, output: 140, reasoning: 0, cacheRead: 0, cacheWrite: 0, total: 840,
     });
 
     const fixEntry = ledger()[1]!;
@@ -885,7 +925,7 @@ describe('appendInteractiveUsageSample — only a RUNNING Fix process owns usage
     );
     expect(result.kind).toBe('recorded');
     expect(result.kind === 'recorded' && result.delta).toEqual({
-      input: 700, output: 140, cacheRead: 0, cacheWrite: 0, total: 840,
+      input: 700, output: 140, reasoning: 0, cacheRead: 0, cacheWrite: 0, total: 840,
     });
     const fixEntry = ledger()[1]!;
     expect(fixEntry).toMatchObject({
@@ -914,7 +954,7 @@ describe('appendInteractiveUsageSample — counter resets', () => {
     );
     expect(reset.kind).toBe('recorded');
     expect(reset.kind === 'recorded' && reset.delta).toEqual({
-      input: 300, output: 50, cacheRead: 0, cacheWrite: 0, total: 350,
+      input: 300, output: 50, reasoning: 0, cacheRead: 0, cacheWrite: 0, total: 350,
     });
     const resetRow = store.db
       .prepare('SELECT counter_epoch, baseline_only FROM interactive_usage_samples WHERE source_event_id = ?')
@@ -928,7 +968,7 @@ describe('appendInteractiveUsageSample — counter resets', () => {
       { ticketId, sample: sample({ eventId: 'e3', input: 350, output: 60 }) },
     );
     expect(third.kind === 'recorded' && third.delta).toEqual({
-      input: 50, output: 10, cacheRead: 0, cacheWrite: 0, total: 60,
+      input: 50, output: 10, reasoning: 0, cacheRead: 0, cacheWrite: 0, total: 60,
     });
   });
 
@@ -960,7 +1000,7 @@ describe('appendInteractiveUsageSample — counter resets', () => {
       { ticketId, sample: sample({ eventId: 'e3', input: 460, output: 60 }) },
     );
     expect(next.kind === 'recorded' && next.delta).toEqual({
-      input: 60, output: 10, cacheRead: 0, cacheWrite: 0, total: 70,
+      input: 60, output: 10, reasoning: 0, cacheRead: 0, cacheWrite: 0, total: 70,
     });
   });
 });
@@ -996,7 +1036,7 @@ describe('appendInteractiveUsageSample — durability', () => {
       });
       expect(second.kind).toBe('recorded');
       expect(second.kind === 'recorded' && second.delta).toEqual({
-        input: 450, output: 120, cacheRead: 0, cacheWrite: 0, total: 570,
+        input: 450, output: 120, reasoning: 0, cacheRead: 0, cacheWrite: 0, total: 570,
       });
       expect(listTokenUsage(reopened, { ticketId: t.id })[1]).toMatchObject({
         inputTokens: 450,
@@ -1038,7 +1078,7 @@ describe('appendInteractiveUsageSample — durability', () => {
         sample: sample({ eventId: 'e2', input: 5_500, output: 460 }),
       });
       expect(next.kind === 'recorded' && next.delta).toEqual({
-        input: 500, output: 60, cacheRead: 0, cacheWrite: 0, total: 560,
+        input: 500, output: 60, reasoning: 0, cacheRead: 0, cacheWrite: 0, total: 560,
       });
       reopened.close();
     } finally {

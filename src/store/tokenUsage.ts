@@ -28,6 +28,8 @@ export interface UsageTotals {
   calls: number;
   inputTokens: number;
   outputTokens: number;
+  /** v45: reasoning tokens the core counted apart from output. */
+  reasoningTokens: number;
   cacheReadTokens: number;
   cacheWriteTokens: number;
   totalTokens: number;
@@ -85,6 +87,7 @@ export const EMPTY_USAGE_TOTALS: UsageTotals = {
   calls: 0,
   inputTokens: 0,
   outputTokens: 0,
+  reasoningTokens: 0,
   cacheReadTokens: 0,
   cacheWriteTokens: 0,
   totalTokens: 0,
@@ -127,10 +130,11 @@ export interface TokenUsageEntry {
 const INSERT = `
 INSERT INTO token_usage (
   project_id, ticket_id, process_run_id, call_site, provider, model,
-  input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, total_tokens,
+  input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_write_tokens,
+  total_tokens,
   estimated, outcome, recorded_at, implementation_segment_id, interactive_usage_sample_id,
   approach_planner_run_id, approach_node_run_id
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`;
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`;
 
 /**
  * Append one call to the ledger. Throws only on a genuine store failure — the
@@ -150,6 +154,7 @@ export function recordTokenUsage(store: Store, entry: TokenUsageEntry): void {
       u.model,
       u.inputTokens,
       u.outputTokens,
+      u.reasoningTokens,
       u.cacheReadTokens,
       u.cacheWriteTokens,
       u.totalTokens,
@@ -211,6 +216,7 @@ function aggregates(p = ''): string {
   COUNT(*) AS calls,
   COALESCE(SUM(${p}input_tokens), 0) AS input_tokens,
   COALESCE(SUM(${p}output_tokens), 0) AS output_tokens,
+  COALESCE(SUM(${p}reasoning_tokens), 0) AS reasoning_tokens,
   COALESCE(SUM(${p}cache_read_tokens), 0) AS cache_read_tokens,
   COALESCE(SUM(${p}cache_write_tokens), 0) AS cache_write_tokens,
   COALESCE(SUM(${p}total_tokens), 0) AS total_tokens,
@@ -222,6 +228,7 @@ interface TotalsRow {
   calls: number;
   input_tokens: number;
   output_tokens: number;
+  reasoning_tokens: number;
   cache_read_tokens: number;
   cache_write_tokens: number;
   total_tokens: number;
@@ -234,6 +241,7 @@ function toTotals(row: TotalsRow): UsageTotals {
     calls: row.calls,
     inputTokens: row.input_tokens,
     outputTokens: row.output_tokens,
+    reasoningTokens: row.reasoning_tokens,
     cacheReadTokens: row.cache_read_tokens,
     cacheWriteTokens: row.cache_write_tokens,
     totalTokens: row.total_tokens,
@@ -403,6 +411,8 @@ export interface TokenUsageRow {
   model: string | null;
   inputTokens: number;
   outputTokens: number;
+  /** v45: reasoning tokens the core counted apart from output. */
+  reasoningTokens: number;
   cacheReadTokens: number;
   cacheWriteTokens: number;
   totalTokens: number;
@@ -433,6 +443,7 @@ interface TokenUsageRowRow {
   model: string | null;
   input_tokens: number;
   output_tokens: number;
+  reasoning_tokens: number;
   cache_read_tokens: number;
   cache_write_tokens: number;
   total_tokens: number;
@@ -454,6 +465,7 @@ function rowToUsage(r: TokenUsageRowRow): TokenUsageRow {
     model: r.model,
     inputTokens: r.input_tokens,
     outputTokens: r.output_tokens,
+    reasoningTokens: r.reasoning_tokens,
     cacheReadTokens: r.cache_read_tokens,
     cacheWriteTokens: r.cache_write_tokens,
     totalTokens: r.total_tokens,
@@ -500,7 +512,8 @@ export function listTokenUsage(
   return store.db
     .prepare(
       `SELECT id, ticket_id, process_run_id, call_site, provider, model,
-              input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
+              input_tokens, output_tokens, reasoning_tokens, cache_read_tokens,
+              cache_write_tokens,
               total_tokens, estimated, outcome, recorded_at,
               implementation_segment_id, approach_planner_run_id, approach_node_run_id
          FROM token_usage ${where}

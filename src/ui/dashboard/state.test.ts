@@ -190,13 +190,13 @@ describe('buildDashboardState', () => {
     recordTokenUsage(store, {
       projectId: null, ticketId: t.id, processRunId: run.id, callSite: 'impl-run',
       provider: 'codex', outcome: 'ok', recordedAt: '2026-08-01T10:01:00.000Z',
-      usage: { inputTokens: 100, outputTokens: 50, cacheReadTokens: 0, cacheWriteTokens: 0,
+      usage: { inputTokens: 100, outputTokens: 50, reasoningTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0,
                totalTokens: 150, model: 'gpt-5.6-sol', estimated: false },
     });
     recordTokenUsage(store, {
       projectId: null, ticketId: t.id, processRunId: run.id, callSite: 'impl-run',
       provider: 'codex', outcome: 'ok', recordedAt: '2026-08-01T10:02:00.000Z',
-      usage: { inputTokens: 999, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0,
+      usage: { inputTokens: 999, outputTokens: 0, reasoningTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0,
                totalTokens: 999, model: 'gpt-5.6-sol', estimated: true },
     });
 
@@ -271,6 +271,7 @@ describe('buildDashboardState', () => {
       usage: {
         inputTokens: 1,
         outputTokens: 1,
+        reasoningTokens: 0,
         cacheReadTokens: 0,
         cacheWriteTokens: 0,
         totalTokens: 2,
@@ -288,6 +289,7 @@ describe('buildDashboardState', () => {
       usage: {
         inputTokens: 1,
         outputTokens: 1,
+        reasoningTokens: 0,
         cacheReadTokens: 0,
         cacheWriteTokens: 0,
         totalTokens: 2,

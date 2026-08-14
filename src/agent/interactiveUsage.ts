@@ -30,6 +30,15 @@ export interface InteractiveUsageSample {
   providerSessionId: string;
   input: number;
   output: number;
+  /**
+   * Reasoning ("thinking") tokens, when the provider counts them apart from
+   * `output`. They are OUTPUT-BILLED spend that opencode reports in its own
+   * `tokens.reasoning` counter, so dropping them undercounted every reasoning
+   * model's session; they are never folded INTO `output`, for the same reason
+   * cache reads and writes stay disjoint — a counter karst rewrites can no
+   * longer be compared with what the provider itself reports.
+   */
+  reasoning?: number;
   /** Input tokens served from a prompt cache, when the provider distinguishes them. */
   cacheRead?: number;
   /** Input tokens written INTO a prompt cache — never folded into cacheRead. */
@@ -43,13 +52,14 @@ export interface InteractiveUsageSample {
 /** The counter half of a sample — what the delta math compares. */
 export type SampleCounts = Pick<
   InteractiveUsageSample,
-  'input' | 'output' | 'cacheRead' | 'cacheWrite' | 'total'
+  'input' | 'output' | 'reasoning' | 'cacheRead' | 'cacheWrite' | 'total'
 >;
 
 /** The non-negative increment one cumulative sample adds over the previous. */
 export interface UsageDelta {
   input: number;
   output: number;
+  reasoning: number;
   cacheRead: number;
   cacheWrite: number;
   total: number;
@@ -85,7 +95,7 @@ function presentCount(record: Record<string, unknown>, key: string): number | nu
  * `event_id` is required and must be a non-empty string — a stable provider
  * event id is the idempotency key, and an event without one must not reach the
  * store. `input`/`output` are required counts; `cache_read`/`cache_write`/
- * `total` are optional counts. A non-numeric field is not coerced to 0 (a 0
+ * `reasoning`/`total` are optional counts. A non-numeric field is not coerced to 0 (a 0
  * would read as a measured free call) — the whole payload is rejected, so a
  * malformed bridge can never put invented numbers into the ledger.
  */
@@ -102,37 +112,44 @@ export function normalizeInteractiveUsage(raw: unknown): Omit<
   if (input === undefined || input === null || output === undefined || output === null) {
     return null;
   }
+  const reasoning = presentCount(record, 'reasoning');
   const cacheRead = presentCount(record, 'cache_read');
   const cacheWrite = presentCount(record, 'cache_write');
   const total = presentCount(record, 'total');
-  if (cacheRead === null || cacheWrite === null || total === null) return null;
+  if (reasoning === null || cacheRead === null || cacheWrite === null || total === null) {
+    return null;
+  }
   return {
     eventId,
     input,
     output,
+    ...(reasoning !== undefined ? { reasoning } : {}),
     ...(cacheRead !== undefined ? { cacheRead } : {}),
     ...(cacheWrite !== undefined ? { cacheWrite } : {}),
     ...(total !== undefined ? { total } : {}),
   };
 }
 
-/** The four counters with absent cache counts read as zero. */
+/** The five counters with absent reasoning/cache counts read as zero. */
 export function normalizedCounts(sample: SampleCounts): {
   input: number;
   output: number;
+  reasoning: number;
   cacheRead: number;
   cacheWrite: number;
   total: number;
 } {
+  const reasoning = sample.reasoning ?? 0;
   const cacheRead = sample.cacheRead ?? 0;
   const cacheWrite = sample.cacheWrite ?? 0;
   return {
     input: sample.input,
     output: sample.output,
+    reasoning,
     cacheRead,
     cacheWrite,
     total:
-      sample.total ?? sample.input + sample.output + cacheRead + cacheWrite,
+      sample.total ?? sample.input + sample.output + reasoning + cacheRead + cacheWrite,
   };
 }
 
@@ -140,7 +157,7 @@ export function normalizedCounts(sample: SampleCounts): {
  * The increment a cumulative sample adds over the preceding one.
  *
  * A provider-reported total is preserved when both sides carry one; otherwise
- * the total is derived from the four normalized counters, exactly like
+ * the total is derived from the five normalized counters, exactly like
  * `tokenUsage.ts`'s normalization. A decreasing counter shows up here as a
  * negative component — callers must treat that as a provider counter reset
  * (see `hasCounterDecrease`), never as a billable negative delta.
@@ -154,6 +171,7 @@ export function interactiveUsageDelta(
   return {
     input: n.input - p.input,
     output: n.output - p.output,
+    reasoning: n.reasoning - p.reasoning,
     cacheRead: n.cacheRead - p.cacheRead,
     cacheWrite: n.cacheWrite - p.cacheWrite,
     total: n.total - p.total,
@@ -172,6 +190,7 @@ export function hasCounterDecrease(prev: SampleCounts, next: SampleCounts): bool
   return (
     delta.input < 0 ||
     delta.output < 0 ||
+    delta.reasoning < 0 ||
     delta.cacheRead < 0 ||
     delta.cacheWrite < 0 ||
     delta.total < 0

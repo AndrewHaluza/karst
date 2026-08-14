@@ -653,6 +653,12 @@ CREATE TABLE IF NOT EXISTS token_usage (
   model              TEXT,                 -- model id the core reported; NULL = it did not say
   input_tokens       INTEGER NOT NULL DEFAULT 0,
   output_tokens      INTEGER NOT NULL DEFAULT 0,
+  -- v45: reasoning ("thinking") tokens the core counted APART from output —
+  -- opencode's `tokens.reasoning`. Output-billed spend that was being dropped
+  -- entirely, so a reasoning model's session read as a fraction of its cost.
+  -- Disjoint from `output_tokens`, never folded into it, exactly like the two
+  -- cache counters. 0 = the core reported none (not "we did not look").
+  reasoning_tokens   INTEGER NOT NULL DEFAULT 0,
   cache_read_tokens  INTEGER NOT NULL DEFAULT 0,
   cache_write_tokens INTEGER NOT NULL DEFAULT 0,
   total_tokens       INTEGER NOT NULL DEFAULT 0,
@@ -729,6 +735,9 @@ CREATE TABLE IF NOT EXISTS interactive_usage_samples (
   provider_session_id TEXT NOT NULL,
   input_tokens INTEGER NOT NULL,
   output_tokens INTEGER NOT NULL,
+  -- v45: the provider's own cumulative reasoning counter. NULL = the provider
+  -- reported no such counter, which is a different fact from a reported 0.
+  reasoning_tokens INTEGER,
   cache_read_tokens INTEGER,
   cache_write_tokens INTEGER,
   total_tokens INTEGER,

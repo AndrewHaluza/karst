@@ -35,6 +35,7 @@ function seed(o: {
     usage: {
       inputTokens: input,
       outputTokens: output,
+      reasoningTokens: 0,
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
       totalTokens: input + output,
@@ -151,6 +152,7 @@ describe('buildUsageState', () => {
       usage: {
         inputTokens: 900,
         outputTokens: 0,
+        reasoningTokens: 0,
         cacheReadTokens: 0,
         cacheWriteTokens: 0,
         totalTokens: 900,
@@ -233,6 +235,7 @@ describe('buildUsageState', () => {
         usage: {
           inputTokens: o.input,
           outputTokens: o.output,
+          reasoningTokens: 0,
           cacheReadTokens: 0,
           cacheWriteTokens: 0,
           totalTokens: o.input + o.output,

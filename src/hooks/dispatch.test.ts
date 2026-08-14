@@ -515,6 +515,7 @@ describe('dispatchHook — UsageUpdate', () => {
       callSite: 'implementation',
       inputTokens: 450,
       outputTokens: 120,
+      reasoningTokens: 0,
       cacheReadTokens: 180,
       cacheWriteTokens: 40,
       totalTokens: 790,

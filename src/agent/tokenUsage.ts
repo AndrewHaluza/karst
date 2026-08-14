@@ -27,6 +27,14 @@
 export interface TokenUsage {
   inputTokens: number;
   outputTokens: number;
+  /**
+   * Reasoning ("thinking") tokens, when the core counts them apart from
+   * `outputTokens`. Output-billed spend — a core that reports them separately
+   * (opencode's `tokens.reasoning`) was contributing nothing to the ledger
+   * while they were dropped. Never folded INTO `outputTokens`: a counter karst
+   * rewrites can no longer be compared with what the provider reports.
+   */
+  reasoningTokens: number;
   /** Input tokens served from a prompt cache, when the core distinguishes them. */
   cacheReadTokens: number;
   /** Input tokens written INTO a prompt cache. */
@@ -48,6 +56,14 @@ const OUTPUT_KEYS = [
   'outputTokens',
   'completion_tokens',
   'completionTokens',
+] as const;
+const REASONING_KEYS = [
+  'reasoning_tokens',
+  'reasoningTokens',
+  'reasoning_output_tokens',
+  'reasoningOutputTokens',
+  'output_reasoning_tokens',
+  'reasoning',
 ] as const;
 const CACHE_READ_KEYS = [
   'cache_read_input_tokens',
@@ -86,12 +102,14 @@ function count(record: Record<string, unknown>, keys: readonly string[]): number
 function readCounts(record: Record<string, unknown>): Counts | null {
   const input = count(record, INPUT_KEYS);
   const output = count(record, OUTPUT_KEYS);
+  const reasoning = count(record, REASONING_KEYS);
   const cacheRead = count(record, CACHE_READ_KEYS);
   const cacheWrite = count(record, CACHE_WRITE_KEYS);
   const total = count(record, TOTAL_KEYS);
   if (
     input === undefined &&
     output === undefined &&
+    reasoning === undefined &&
     cacheRead === undefined &&
     cacheWrite === undefined &&
     total === undefined
@@ -101,6 +119,7 @@ function readCounts(record: Record<string, unknown>): Counts | null {
   return {
     input: input ?? 0,
     output: output ?? 0,
+    reasoning: reasoning ?? 0,
     cacheRead: cacheRead ?? 0,
     cacheWrite: cacheWrite ?? 0,
     ...(total !== undefined ? { total } : {}),
@@ -110,6 +129,7 @@ function readCounts(record: Record<string, unknown>): Counts | null {
 interface Counts {
   input: number;
   output: number;
+  reasoning: number;
   cacheRead: number;
   cacheWrite: number;
   total?: number;
@@ -201,20 +221,23 @@ export function extractTokenUsage(stdout: string): TokenUsage | null {
     (acc, { counts }) => ({
       input: acc.input + counts.input,
       output: acc.output + counts.output,
+      reasoning: acc.reasoning + counts.reasoning,
       cacheRead: acc.cacheRead + counts.cacheRead,
       cacheWrite: acc.cacheWrite + counts.cacheWrite,
       ...(counts.total !== undefined ? { total: (acc.total ?? 0) + counts.total } : {}),
     }),
-    { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    { input: 0, output: 0, reasoning: 0, cacheRead: 0, cacheWrite: 0 },
   );
 
   return {
     inputTokens: summed.input,
     outputTokens: summed.output,
+    reasoningTokens: summed.reasoning,
     cacheReadTokens: summed.cacheRead,
     cacheWriteTokens: summed.cacheWrite,
     totalTokens:
-      summed.total ?? summed.input + summed.output + summed.cacheRead + summed.cacheWrite,
+      summed.total ??
+      summed.input + summed.output + summed.reasoning + summed.cacheRead + summed.cacheWrite,
     model,
     estimated: false,
   };
@@ -266,6 +289,7 @@ export function estimateTokenUsage(prompt: string, completion: string): TokenUsa
   return {
     inputTokens,
     outputTokens,
+    reasoningTokens: 0,
     cacheReadTokens: 0,
     cacheWriteTokens: 0,
     totalTokens: inputTokens + outputTokens,

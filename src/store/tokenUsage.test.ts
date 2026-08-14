@@ -59,6 +59,7 @@ function seed(s: Seed = {}): void {
     usage: {
       inputTokens: input,
       outputTokens: output,
+      reasoningTokens: 0,
       cacheReadTokens: cacheRead,
       cacheWriteTokens: cacheWrite,
       totalTokens: input + output + cacheRead + cacheWrite,
@@ -165,6 +166,7 @@ describe('recordTokenUsage', () => {
       usage: {
         inputTokens: 40,
         outputTokens: 10,
+        reasoningTokens: 0,
         cacheReadTokens: 0,
         cacheWriteTokens: 0,
         totalTokens: 50,
@@ -196,6 +198,7 @@ describe('recordTokenUsage', () => {
       usage: {
         inputTokens: 1,
         outputTokens: 1,
+        reasoningTokens: 0,
         cacheReadTokens: 0,
         cacheWriteTokens: 0,
         totalTokens: 2,
@@ -229,6 +232,7 @@ describe('queryTokenUsageStats', () => {
       calls: 2,
       inputTokens: 30,
       outputTokens: 12,
+      reasoningTokens: 0,
       cacheReadTokens: 100,
       cacheWriteTokens: 3,
       totalTokens: 145,
@@ -360,6 +364,7 @@ describe('queryTokenUsageStats', () => {
       usage: {
         inputTokens: 500,
         outputTokens: 0,
+        reasoningTokens: 0,
         cacheReadTokens: 0,
         cacheWriteTokens: 0,
         totalTokens: 500,
@@ -478,6 +483,7 @@ describe('graph-run per-profile rollup (Slice-6 T2)', () => {
       usage: {
         inputTokens: o.input ?? 40,
         outputTokens: o.output ?? 10,
+        reasoningTokens: 0,
         cacheReadTokens: 0,
         cacheWriteTokens: 0,
         totalTokens: (o.input ?? 40) + (o.output ?? 10),
