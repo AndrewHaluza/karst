@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, rmSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -96,6 +97,63 @@ function run(command, args, extraEnv = {}) {
 
 function releaseAddonPath() {
   return join(moduleDir, 'build', 'Release', 'better_sqlite3.node');
+}
+
+/**
+ * ABI cache (`build/.abi-cache`): the last addon this install VERIFIED, keyed
+ * by target ABI + runtime version + a SHA-256 of the addon's bytes.
+ *
+ * The probe below is a `node -e` spawn on every `npm test` pretest; with 2-3
+ * tickets (or worktrees) running `npm run test:unit` concurrently that spawn
+ * multiplies. The cache lets node mode skip the probe ENTIRELY when the addon
+ * on disk is byte-identical to the one last verified — a hash, not an mtime,
+ * because a fresh `cp -R` materialize or a tar-extracted prebuild rewrites
+ * mtimes while an external flip (another target's `rebuild:electron`, a
+ * concurrent `npm test`) replaces the bytes. A hash match means the current
+ * addon IS the verified one, whatever copied it; a mismatch falls through to
+ * the probe, which remains the source of truth. The cache is never read for
+ * correctness — only to skip a redundant probe — and a cache write failure is
+ * swallowed, so a stale or missing cache degrades to today's behavior.
+ */
+function abiCachePath() {
+  return join(moduleDir, 'build', '.abi-cache');
+}
+
+function hashAddon() {
+  const addon = releaseAddonPath();
+  if (!existsSync(addon)) return null;
+  try {
+    return createHash('sha256').update(readFileSync(addon)).digest('hex');
+  } catch {
+    return null;
+  }
+}
+
+function abiCacheHits(abi, runtime) {
+  try {
+    const cache = JSON.parse(readFileSync(abiCachePath(), 'utf8'));
+    return (
+      cache !== null &&
+      typeof cache === 'object' &&
+      cache.abi === abi &&
+      cache.runtime === runtime &&
+      typeof cache.addonHash === 'string' &&
+      cache.addonHash === hashAddon()
+    );
+  } catch {
+    return false;
+  }
+}
+
+function writeAbiCache(abi, runtime) {
+  const addonHash = hashAddon();
+  if (addonHash === null) return;
+  try {
+    mkdirSync(dirname(abiCachePath()), { recursive: true });
+    writeFileSync(abiCachePath(), JSON.stringify({ abi, runtime, addonHash }), 'utf8');
+  } catch {
+    // A cache write must never fail a verified build.
+  }
 }
 
 /**
@@ -295,6 +353,7 @@ if (mode === 'electron') {
   const runtime = detectElectronRuntime();
   const abi = process.env.BETTER_SQLITE3_ABI ?? runtime?.abi ?? '140';
   ensureAddonFor('electron', abi, runtime?.electronVersion ?? null);
+  writeAbiCache(abi, runtime?.electronVersion ?? `electron-${abi}`);
   process.exit(0);
 }
 
@@ -329,11 +388,19 @@ if (mode === 'node') {
     process.exit(1);
   }
 
+  // Fast path: the addon on disk is byte-identical to the one last verified
+  // for this ABI+runtime, so skip the probe spawn (and any rebuild) entirely.
+  if (abiCacheHits(abi, process.version)) {
+    console.log(`better-sqlite3 addon cache hit (ABI ${abi}, ${process.version}) — skipping probe`);
+    process.exit(0);
+  }
+
   ensureAddonFor('node', abi, process.versions.node ?? null);
 
   // The ABI probe proved the addon loads under this Node; prove it also
   // CONSTRUCTS a database, so `npm test` never fails on the first open.
   assertLoadableUnderNode();
+  writeAbiCache(abi, process.version);
   process.exit(0);
 }
 

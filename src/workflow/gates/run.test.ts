@@ -160,16 +160,22 @@ describe('runCommand', () => {
   });
 
   it('keeps the normal result when child completion races its deadline', async () => {
+    // Child exits in 50ms vs a 500ms deadline — the same 5x headroom as the
+    // original 10ms/100ms, but large enough in ABSOLUTE terms that CPU
+    // starvation (2-3 tickets running the suite concurrently) can no longer
+    // delay the child's exit past the deadline and flip the verdict.
     const result = runCommand(
       'node',
-      ['-e', 'setTimeout(() => process.exit(0), 10)'],
+      ['-e', 'setTimeout(() => process.exit(0), 50)'],
       process.cwd(),
-      { timeoutMs: 100 },
+      { timeoutMs: 500 },
     );
 
     const r = await result;
     expect(r).toEqual({ exitCode: 0, output: '' });
-    await new Promise((resolve) => setTimeout(resolve, 150));
+    // Past the deadline: the timer must have been cleared by the close, so the
+    // result stays the normal one instead of being rewritten to a timeout.
+    await new Promise((resolve) => setTimeout(resolve, 550));
     expect(r).toEqual({ exitCode: 0, output: '' });
   });
 

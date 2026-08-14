@@ -82,9 +82,24 @@ describe('startHookEndpoint', () => {
     const wanted = ep.port;
     await ep.close();
 
-    ep = await startHookEndpoint(store, wanted);
+    // Between close and rebind the OS can hand the just-freed port to a
+    // CONCURRENT test's ephemeral `listen(0)` (ephemeral ports reuse freed
+    // ones), so the endpoint — which falls back on EADDRINUSE by design —
+    // lands on a different port. That is correct behavior, not a rebind
+    // failure, so retry until the remembered port is actually reclaimable.
+    let rebound = false;
+    for (let attempt = 0; attempt < 20 && !rebound; attempt++) {
+      const candidate = await startHookEndpoint(store, wanted);
+      if (candidate.port === wanted) {
+        ep = candidate;
+        rebound = true;
+      } else {
+        await candidate.close();
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+    }
 
-    expect(ep.port).toBe(wanted);
+    expect(rebound).toBe(true);
   });
 
   // Another window already holds the remembered port. Failing to listen would
