@@ -160,17 +160,33 @@ describe('runCommand', () => {
   });
 
   it('keeps the normal result when child completion races its deadline', async () => {
-    const result = runCommand(
-      'node',
-      ['-e', 'setTimeout(() => process.exit(0), 10)'],
-      process.cwd(),
-      { timeoutMs: 100 },
-    );
+    // The deadline is a FAKE timer so the race is deterministic: the child is
+    // real and exits on its own, and advancing past the deadline afterwards
+    // proves a late timeout can never overwrite the settled completion. A real
+    // 100ms deadline against a real 10ms child blew up under parallel load,
+    // where the node spawn alone can exceed the deadline — the timeout won,
+    // and the "normal completion wins the race" property it claims to pin was
+    // only ever tested on a machine faster than the gate's.
+    vi.useFakeTimers();
+    try {
+      const result = runCommand(
+        'node',
+        ['-e', 'setTimeout(() => process.exit(0), 10)'],
+        process.cwd(),
+        { timeoutMs: 100 },
+      );
 
-    const r = await result;
-    expect(r).toEqual({ exitCode: 0, output: '' });
-    await new Promise((resolve) => setTimeout(resolve, 150));
-    expect(r).toEqual({ exitCode: 0, output: '' });
+      // The child completes in real time; the fake deadline cannot fire early.
+      await vi.advanceTimersByTimeAsync(0);
+      const r = await result;
+      expect(r).toEqual({ exitCode: 0, output: '' });
+      // Past the deadline: the timer was cleared on completion, so the result
+      // is NOT overwritten by a late timeout.
+      await vi.advanceTimersByTimeAsync(150);
+      expect(r).toEqual({ exitCode: 0, output: '' });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('clears its deadline timer after normal completion', async () => {
