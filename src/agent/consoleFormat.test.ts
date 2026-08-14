@@ -3,7 +3,37 @@ import {
   StreamingConsoleFormat,
   opencodeConsoleLine,
   codexConsoleLine,
+  consoleLineRendererFor,
 } from './consoleFormat.js';
+
+describe('claude console output', () => {
+  it('renders only the readable result from the final JSON envelope', () => {
+    const line = JSON.stringify({
+      is_error: false,
+      duration_api_ms: 114_882,
+      session_id: 'ed2ecfaf-3677-4af2-a3e4-3b6b5559bbb4',
+      total_cost_usd: 1.91,
+      usage: { input_tokens: 32, cache_read_input_tokens: 1_481_107 },
+      permission_denials: [{ tool_name: 'Bash', tool_use_id: 'toolu_1' }],
+      result: '[\n  { "severity": "high", "title": "Reasoning tokens are dropped" }\n]',
+    });
+
+    expect(consoleLineRendererFor('claude')?.(line)).toBe(
+      '[\n  { "severity": "high", "title": "Reasoning tokens are dropped" }\n]\n',
+    );
+  });
+
+  it('preserves malformed output so provider failures remain diagnosable', () => {
+    expect(consoleLineRendererFor('claude')?.('not json')).toBe('not json\n');
+  });
+
+  it.each([
+    ['empty result', { session_id: 's', usage: { input_tokens: 1 }, result: '' }],
+    ['missing result', { session_id: 's', usage: { input_tokens: 1 } }],
+  ])('does not expose metadata from a valid envelope with %s', (_label, envelope) => {
+    expect(consoleLineRendererFor('claude')?.(JSON.stringify(envelope))).toBe('');
+  });
+});
 
 describe('opencodeConsoleLine', () => {
   it('passes non-JSON prose through verbatim with its newline', () => {
