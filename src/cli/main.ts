@@ -10,6 +10,7 @@ import { runPhaseCommand } from './phase.js';
 import { runGraphCommand } from './graph.js';
 import { runNodeCommand } from './node.js';
 import { runGuideCommand } from './guide.js';
+import { runCompactCommand } from './compact.js';
 import { resolveTicketByKey } from './resolveTicket.js';
 import { runTestCommand, parseTestArgs } from './test/main.js';
 import { runReset } from './test/reset.js';
@@ -246,8 +247,21 @@ export function runCli(argv: string[]): string {
     return runGuideCommand(rest);
   }
 
+  // Compact archived worktrees and sweep orphan branches/refs.
+  // Writable store (needs node:sqlite) + git operations on the repo.
+  if (subcommand === 'compact') {
+    if (!db) throw new Error('missing --db <path>');
+    const store = openWritableStore(db);
+    try {
+      const result = runCompactCommand(store, rest);
+      return JSON.stringify(result);
+    } finally {
+      store.close();
+    }
+  }
+
   throw new Error(
-    `unknown command '${subcommand ?? ''}' (want 'context', 'stage', 'phase', 'graph', 'node', 'test' or 'guide')`,
+    `unknown command '${subcommand ?? ''}' (want 'context', 'stage', 'phase', 'graph', 'node', 'test', 'guide' or 'compact')`,
   );
 }
 

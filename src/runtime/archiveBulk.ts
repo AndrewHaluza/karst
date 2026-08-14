@@ -2,8 +2,8 @@ import type { Store } from '../store/db.js';
 import type { GitRunner } from '../integrations/git.js';
 import type { PortAllocator } from '../resolver/allocator.js';
 import type { ProjectScope } from '../store/tickets.js';
-import { archiveWorktree } from './archive.js';
-import { listArchivableWorktrees } from '../store/worktreeArchives.js';
+import { archiveWorktree, compactWorktree, sweepOrphanRefs } from './archive.js';
+import { listArchivableWorktrees, listCompactableArchives } from '../store/worktreeArchives.js';
 import type { ReapedServer } from './worktreeServers.js';
 
 export interface BulkSummary {
@@ -50,5 +50,44 @@ export async function archiveInactiveWorktrees(
       summary.failed += 1;
     }
   }
+  return summary;
+}
+
+export interface CompactSummary {
+  compacted: number;
+  skipped: number;
+  failed: number;
+  sweep: { prunedBranches: number; prunedArchiveRefs: number };
+}
+
+/**
+ * Compact every archived worktree whose `git-ref` archive is older than
+ * `olderThanMs`, then sweep orphan branches and refs. Sequential and
+ * fault-isolated like `archiveInactiveWorktrees`.
+ */
+export async function compactArchivedWorktrees(
+  runner: GitRunner,
+  store: Store,
+  olderThanMs: number,
+): Promise<CompactSummary> {
+  const candidates = listCompactableArchives(store, olderThanMs);
+  const summary: CompactSummary = { compacted: 0, skipped: 0, failed: 0, sweep: { prunedBranches: 0, prunedArchiveRefs: 0 } };
+
+  for (const c of candidates) {
+    try {
+      const r = await compactWorktree(runner, store, c);
+      if (r.outcome === 'compacted') summary.compacted += 1;
+      else summary.skipped += 1;
+    } catch {
+      summary.failed += 1;
+    }
+  }
+
+  try {
+    summary.sweep = await sweepOrphanRefs(runner, store);
+  } catch {
+    // sweep failure is non-fatal — orphans are harmless leftovers
+  }
+
   return summary;
 }

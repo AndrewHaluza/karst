@@ -8,7 +8,13 @@ import { openStore, type Store } from '../store/db.js';
 import { makePortAllocator } from '../resolver/allocator.js';
 import { defaultGitRunner } from '../integrations/git.js';
 import { createWorktree } from './worktree.js';
-import { archiveWorktree, restoreWorktree } from './archive.js';
+import {
+  archiveWorktree,
+  restoreWorktree,
+  compactWorktree,
+  restoreFromCompact,
+  sweepOrphanRefs,
+} from './archive.js';
 import { listArchives } from '../store/worktreeArchives.js';
 
 function git(cwd: string, ...args: string[]): string {
@@ -322,5 +328,176 @@ describe('archive/restore worktree', () => {
       baseRef: 'develop',
     });
     expect(res.outcome).toBe('skipped');
+  });
+});
+
+describe('compact/restore worktree', () => {
+  let store: Store;
+  let repo: { path: string; cleanup: () => void };
+
+  beforeEach(() => {
+    store = openStore(':memory:');
+    repo = makeRepo();
+  });
+  afterEach(() => {
+    store.close();
+    repo.cleanup();
+  });
+
+  function spinWorktree() {
+    return createWorktree(store, {
+      ticketId: 1,
+      repoPath: repo.path,
+      slug: 'K-9',
+      baseRef: 'develop',
+    });
+  }
+
+  it('compacts a dirty archive: deletes branch, creates snapshot ref, restores correctly', async () => {
+    const rec = spinWorktree();
+    const alloc = makePortAllocator(store, [4000, 4100]);
+    writeFileSync(join(rec.path, 'index.js'), 'console.log(2);\n');
+    writeFileSync(join(rec.path, 'new.txt'), 'brand new\n');
+
+    const ar = await archiveWorktree(defaultGitRunner, store, alloc, {
+      ticketId: 1,
+      repoPath: repo.path,
+      path: rec.path,
+      branch: rec.branch,
+      baseRef: 'develop',
+    });
+    expect(ar.outcome).toBe('archived');
+    expect(ar.archiveRef).toBe('refs/karst/archive/K-9');
+
+    // Branch still exists after standard archive.
+    expect(refResolves(repo.path, 'refs/heads/karst/K-9')).toBe(true);
+
+    // Compact: delete branch, keep archive ref.
+    const row = listArchives(store, 1)[0]!;
+    const cr = await compactWorktree(defaultGitRunner, store, row);
+    expect(cr.outcome).toBe('compacted');
+    expect(refResolves(repo.path, 'refs/heads/karst/K-9')).toBe(false); // branch gone
+    expect(refResolves(repo.path, 'refs/karst/archive/K-9')).toBe(true); // ref kept
+
+    // Restore from compact.
+    const rr = await restoreFromCompact(defaultGitRunner, store, { ticketId: 1, path: rec.path });
+    expect(rr.outcome).toBe('restored');
+    expect(existsSync(rec.path)).toBe(true);
+    expect(readFileSync(join(rec.path, 'index.js'), 'utf8')).toBe('console.log(2);\n');
+    expect(readFileSync(join(rec.path, 'new.txt'), 'utf8')).toBe('brand new\n');
+    // Branch restored.
+    expect(refResolves(repo.path, 'refs/heads/karst/K-9')).toBe(true);
+    // Archive ref cleaned up.
+    expect(refResolves(repo.path, 'refs/karst/archive/K-9')).toBe(false);
+    expect(listArchives(store, 1)).toHaveLength(0);
+  });
+
+  it('compacts a clean archive: creates snapshot ref, deletes branch, restores cleanly', async () => {
+    const rec = spinWorktree();
+    const alloc = makePortAllocator(store, [4000, 4100]);
+
+    const ar = await archiveWorktree(defaultGitRunner, store, alloc, {
+      ticketId: 1,
+      repoPath: repo.path,
+      path: rec.path,
+      branch: rec.branch,
+      baseRef: 'develop',
+    });
+    expect(ar.outcome).toBe('archived');
+    expect(ar.archiveRef).toBe(''); // clean — no ref created
+
+    // Compact: must create a snapshot ref first.
+    const row = listArchives(store, 1)[0]!;
+    const cr = await compactWorktree(defaultGitRunner, store, row);
+    expect(cr.outcome).toBe('compacted');
+    expect(refResolves(repo.path, 'refs/heads/karst/K-9')).toBe(false);
+    expect(refResolves(repo.path, 'refs/karst/archive/K-9')).toBe(true); // snapshot created
+
+    // Restore from compact.
+    const rr = await restoreFromCompact(defaultGitRunner, store, { ticketId: 1, path: rec.path });
+    expect(rr.outcome).toBe('restored');
+    expect(existsSync(rec.path)).toBe(true);
+    expect(git(rec.path, 'status', '--porcelain')).toBe(''); // clean
+    expect(refResolves(repo.path, 'refs/karst/archive/K-9')).toBe(false);
+  });
+
+  it('skips already-compacted archives', async () => {
+    const rec = spinWorktree();
+    const alloc = makePortAllocator(store, [4000, 4100]);
+    await archiveWorktree(defaultGitRunner, store, alloc, {
+      ticketId: 1, repoPath: repo.path, path: rec.path, branch: rec.branch, baseRef: 'develop',
+    });
+    const row = listArchives(store, 1)[0]!;
+    await compactWorktree(defaultGitRunner, store, row);
+    const row2 = listArchives(store, 1)[0]!;
+    const cr2 = await compactWorktree(defaultGitRunner, store, row2);
+    expect(cr2.outcome).toBe('skipped');
+    expect(cr2.reason).toContain('already compacted');
+  });
+
+  it('restoreFromCompact delegates to normal restore when method is git-ref', async () => {
+    const rec = spinWorktree();
+    const alloc = makePortAllocator(store, [4000, 4100]);
+    writeFileSync(join(rec.path, 'index.js'), 'console.log(3);\n');
+    await archiveWorktree(defaultGitRunner, store, alloc, {
+      ticketId: 1, repoPath: repo.path, path: rec.path, branch: rec.branch, baseRef: 'develop',
+    });
+    // Do NOT compact — method stays git-ref.
+    const rr = await restoreFromCompact(defaultGitRunner, store, { ticketId: 1, path: rec.path });
+    expect(rr.outcome).toBe('restored');
+    expect(readFileSync(join(rec.path, 'index.js'), 'utf8')).toBe('console.log(3);\n');
+  });
+});
+
+describe('sweepOrphanRefs', () => {
+  let store: Store;
+  let repo: { path: string; cleanup: () => void };
+
+  beforeEach(() => {
+    store = openStore(':memory:');
+    repo = makeRepo();
+  });
+  afterEach(() => {
+    store.close();
+    repo.cleanup();
+  });
+
+  it('prunes orphan branches and archive refs, keeps active ones', async () => {
+    // Create two worktrees, archive both.
+    const r1 = createWorktree(store, { ticketId: 1, repoPath: repo.path, slug: 'K-1', baseRef: 'develop' });
+    const r2 = createWorktree(store, { ticketId: 2, repoPath: repo.path, slug: 'K-2', baseRef: 'develop' });
+    const alloc = makePortAllocator(store, [4000, 4100]);
+
+    writeFileSync(join(r1.path, 'a.txt'), 'a\n');
+    await archiveWorktree(defaultGitRunner, store, alloc, {
+      ticketId: 1, repoPath: repo.path, path: r1.path, branch: r1.branch, baseRef: 'develop',
+    });
+
+    writeFileSync(join(r2.path, 'b.txt'), 'b\n');
+    await archiveWorktree(defaultGitRunner, store, alloc, {
+      ticketId: 2, repoPath: repo.path, path: r2.path, branch: r2.branch, baseRef: 'develop',
+    });
+
+    // Both branches exist after standard archive.
+    expect(refResolves(repo.path, 'refs/heads/karst/K-1')).toBe(true);
+    expect(refResolves(repo.path, 'refs/heads/karst/K-2')).toBe(true);
+
+    // Compact K-2 only.
+    const row2 = listArchives(store, 2)[0]!;
+    await compactWorktree(defaultGitRunner, store, row2);
+    // K-2 branch deleted, K-2 archive ref kept.
+    expect(refResolves(repo.path, 'refs/heads/karst/K-2')).toBe(false);
+    expect(refResolves(repo.path, 'refs/karst/archive/K-2')).toBe(true);
+
+    // Create an orphan branch not tracked by any DB row.
+    git(repo.path, 'branch', 'karst/orphan-foo', 'develop');
+
+    const sr = await sweepOrphanRefs(defaultGitRunner, store);
+    // Orphan branch pruned, K-1 branch kept (still in worktrees + archives),
+    // K-2 branch already gone, K-2 archive ref kept (in archives).
+    expect(sr.prunedBranches).toBeGreaterThanOrEqual(1); // at least orphan-foo
+    expect(refResolves(repo.path, 'refs/heads/karst/orphan-foo')).toBe(false);
+    // Active archive refs survive.
+    expect(refResolves(repo.path, 'refs/karst/archive/K-2')).toBe(true);
   });
 });

@@ -272,7 +272,7 @@ import {
 } from './store/processRuns.js';
 import { pidAlive } from './runtime/pidAlive.js';
 import { archiveWorktree, restoreWorktree } from './runtime/archive.js';
-import { archiveInactiveWorktrees } from './runtime/archiveBulk.js';
+import { archiveInactiveWorktrees, compactArchivedWorktrees } from './runtime/archiveBulk.js';
 import { listArchives } from './store/worktreeArchives.js';
 import { makePortAllocator } from './resolver/allocator.js';
 import {
@@ -794,6 +794,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   } catch (err) {
     logError('karst: stranded fix-round sweep failed', err);
+  }
+  // Auto-compact: compact archived worktrees older than 7 days and sweep
+  // orphan branches/refs. Rides the activation sweep like autoArchiveDoneTickets
+  // — once per activation, no second interval to dispose. The compact function
+  // includes the orphan-ref sweep internally.
+  try {
+    const compactResult = await compactArchivedWorktrees(defaultGitRunner, localStore, 7 * 24 * 60 * 60 * 1000);
+    if (compactResult.compacted > 0 || compactResult.sweep.prunedBranches > 0 || compactResult.sweep.prunedArchiveRefs > 0) {
+      logger.info(
+        `karst: auto-compact compacted ${compactResult.compacted} archive(s), ` +
+          `swept ${compactResult.sweep.prunedBranches} orphan branch(es), ` +
+          `${compactResult.sweep.prunedArchiveRefs} orphan ref(s)`,
+      );
+    }
+  } catch (err) {
+    logError('karst: auto-compact failed', err);
   }
   // One adapter instance, shared by the session manager and the openSession
   // handler's approach materialization (the seam that turns a neutral package
@@ -5658,6 +5674,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             `worktrees — ${stillRunning.map((s) => `'${s.repo}' (pid ${s.pid ?? 'unknown'})`).join(', ')}.`,
         );
       }
+      provider.refresh();
+    }),
+    vscode.commands.registerCommand('karst.compactArchivedWorktrees', async () => {
+      const manifest = currentManifest();
+      if (!manifest) {
+        void vscode.window.showWarningMessage('Karst: no manifest loaded.');
+        return;
+      }
+      const result = await compactArchivedWorktrees(defaultGitRunner, localStore, 7 * 24 * 60 * 60 * 1000);
+      void vscode.window.showInformationMessage(
+        `Karst: compacted ${result.compacted} archive(s), skipped ${result.skipped}, failed ${result.failed}` +
+          ` — swept ${result.sweep.prunedBranches} orphan branch(es), ${result.sweep.prunedArchiveRefs} orphan ref(s).`,
+      );
       provider.refresh();
     }),
     vscode.commands.registerCommand('karst.refresh', () => provider.refresh()),
