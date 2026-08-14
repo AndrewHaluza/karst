@@ -3387,6 +3387,85 @@ describe('inside render round trip (executed in a VM)', () => {
     expect(html).toContain('<span class="glyph pass" aria-label="passed"></span>');
   });
 
+  it('renders per-round time and duration inside recovery evidence rows', () => {
+    const state = renderStateFor('uat');
+    const uat = { ...state.insideViews.uat };
+    uat.processes = [
+      ...uat.processes,
+      {
+        id: 'fix',
+        kind: 'fix',
+        label: 'Fix',
+        status: 'run',
+        evidence: {
+          kind: 'recovery',
+          rows: [
+            {
+              status: 'fail',
+              label: 'round 1',
+              detail: 'Fix started after UAT test failure · round 1 of 3',
+              time: '11:44:12 PM',
+              duration: '1m 15s',
+              durationExact: '75.000s',
+            },
+            {
+              status: 'run',
+              label: 'round 2',
+              detail: 'Fix started after UAT test failure · round 2 of 3',
+              time: '11:45:27 PM',
+              duration: '31.9s',
+              durationExact: '31.900s',
+            },
+          ],
+        },
+      },
+    ];
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: { ...state, insideViews: { ...state.insideViews, uat } } });
+    h.clickChevron('uat:fix');
+    const html = h.htmlOf('inside');
+    // Per-round timing renders in a dedicated .recovery-timing cell.
+    expect(html).toContain('class="recovery-timing"');
+    expect(html).toContain('11:44:12 PM');
+    expect(html).toContain('11:45:27 PM');
+    expect(html).toContain('<span class="ev-dur" title="75.000s">1m 15s</span>');
+    expect(html).toContain('<span class="ev-dur" title="31.900s">31.9s</span>');
+    // The glyph is still in the separate .recovery-result cell.
+    expect(html).toContain('<span class="glyph fail" aria-label="failed"></span>');
+    expect(html).toContain('<span class="glyph run" aria-label="running"></span>');
+  });
+
+  it('renders recovery rows without timing when time fields are absent', () => {
+    const state = renderStateFor('uat');
+    const uat = { ...state.insideViews.uat };
+    uat.processes = [
+      ...uat.processes,
+      {
+        id: 'fix',
+        kind: 'fix',
+        label: 'Fix',
+        status: 'run',
+        evidence: {
+          kind: 'recovery',
+          rows: [
+            { status: 'run', label: 'round 1', detail: 'Fix started after UAT test failure · round 1 of 2' },
+          ],
+        },
+      },
+    ];
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: { ...state, insideViews: { ...state.insideViews, uat } } });
+    h.clickChevron('uat:fix');
+    const html = h.htmlOf('inside');
+    // The timing cell is still present (structural), but empty — no ev-dur
+    // inside this specific recovery-timing span.
+    const timingIdx = html.lastIndexOf('class="recovery-timing"');
+    expect(timingIdx).toBeGreaterThan(-1);
+    const timingEnd = html.indexOf('</span>', timingIdx);
+    const timingCell = html.slice(timingIdx, timingEnd);
+    expect(timingCell).not.toContain('ev-dur');
+  });
+
   it('titles a duration with its exact span', () => {
     const state = renderStateFor('uat');
     const uat = { ...state.insideViews.uat };
