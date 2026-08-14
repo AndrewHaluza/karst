@@ -6723,6 +6723,9 @@ function makeDashboardActions(
       launchWorktree(path);
     },
     openPr: (url) => void vscode.env.openExternal(vscode.Uri.parse(url)),
+    // Copy the PR URL to the clipboard (the webview flashes its own feedback,
+    // like copy-server-url / copy-worktree-branch).
+    copyPrUrl: (url) => void vscode.env.clipboard.writeText(url),
     openTicketLink: (url) => void vscode.env.openExternal(vscode.Uri.parse(url)),
     editTicket,
     // Stop the auto-driver's next gate run for this ticket (it halts at the

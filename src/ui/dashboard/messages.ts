@@ -34,6 +34,12 @@ export type WebviewMessage =
    */
   | { type: 'launch-worktree-extension'; path: string }
   | { type: 'open-pr'; url: string }
+  /**
+   * Copy a pull request's URL through the host clipboard. Carries only the URL
+   * (validated as http), and the webview flashes its own optimistic feedback —
+   * the same contract as `copy-worktree-branch`.
+   */
+  | { type: 'copy-pr-url'; url: string }
   | { type: 'open-ticket-link'; url: string }
   | { type: 'edit-ticket' }
   | { type: 'stop-driver' }
@@ -216,6 +222,7 @@ export interface DashboardActions {
    */
   launchWorktreeExtension: (path: string) => void | Promise<void>;
   openPr: (url: string) => void | Promise<void>;
+  copyPrUrl: (url: string) => void | Promise<void>;
   openTicketLink: (url: string) => void | Promise<void>;
   editTicket: () => void | Promise<void>;
   stopDriver: () => void | Promise<void>;
@@ -356,6 +363,8 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
       return path ? { type: 'launch-worktree-extension', path: m.path as string } : null;
     case 'open-pr':
       return isHttpUrl(m.url) ? { type: 'open-pr', url: m.url } : null;
+    case 'copy-pr-url':
+      return isHttpUrl(m.url) ? { type: 'copy-pr-url', url: m.url } : null;
     case 'open-ticket-link':
       return isHttpUrl(m.url) ? { type: 'open-ticket-link', url: m.url } : null;
     case 'edit-ticket':
@@ -561,6 +570,8 @@ export function routeAction(
       return actions.launchWorktreeExtension(msg.path);
     case 'open-pr':
       return actions.openPr(msg.url);
+    case 'copy-pr-url':
+      return actions.copyPrUrl(msg.url);
     case 'open-ticket-link':
       return actions.openTicketLink(msg.url);
     case 'edit-ticket':

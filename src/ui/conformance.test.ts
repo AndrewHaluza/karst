@@ -57,7 +57,11 @@ const LITERAL_BUDGET: Record<string, number> = {
   // adds three justified component dimensions (300/360/430px, the same
   // exemption class as the breakpoints) — commented in webview.html and
   // pinned by the dashboard's own px allowlist test.
-  dashboard: 20,
+  // 21, not 20: the PR panel polish adds two deliberate geometry literals —
+  // `150px` (the URL copy control's width floor) and `3px` (the copy glyph's
+  // hover slide-in) — both commented in webview.html and pinned by that same
+  // allowlist test.
+  dashboard: 21,
   diffs: 1,
   ticketForm: 0,
   settings: 0,

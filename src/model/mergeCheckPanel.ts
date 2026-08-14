@@ -1,6 +1,6 @@
 import type { MergeCheckRow } from '../store/mergeChecks.js';
 import type { MergeState } from '../workflow/mergeCheck.js';
-import { formatPrStamp } from './prPanelView.js';
+import { formatAge, formatPrStamp } from './prPanelView.js';
 
 /**
  * How one repo's mergeability reads on the dashboard PR panel.
@@ -44,27 +44,6 @@ export interface MergeCheckPanelRow {
    * relative label has drifted. '' when the stamp could not be read.
    */
   checkedTitle: string;
-}
-
-const MINUTE = 60_000;
-const HOUR = 60 * MINUTE;
-const DAY = 24 * HOUR;
-
-/**
- * Age in coarse buckets.
- *
- * Deliberately coarser than `formatDuration`: this label only refreshes when the
- * host pushes state, so `4m 12s ago` would claim a precision the value does not
- * have. An unreadable stamp, or one in the future (clock skew), yields '' — the
- * row states no age rather than a wrong one.
- */
-function formatAge(checkedAt: string, now: string): string {
-  const ms = Date.parse(now) - Date.parse(checkedAt);
-  if (!Number.isFinite(ms) || ms < 0) return '';
-  if (ms < MINUTE) return 'just now';
-  if (ms < HOUR) return `${Math.floor(ms / MINUTE)}m ago`;
-  if (ms < DAY) return `${Math.floor(ms / HOUR)}h ago`;
-  return `${Math.floor(ms / DAY)}d ago`;
 }
 
 function plural(n: number, noun: string): string {

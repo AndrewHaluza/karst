@@ -1208,11 +1208,14 @@
   .empty{padding:var(--k-space-7) var(--k-space-6);color:var(--k-text-faint);font-size:var(--k-text-md)}
 
   .wt,.pr{display:flex;align-items:center;gap:var(--k-space-5);padding:var(--k-space-4) var(--k-space-3);border-radius:var(--k-radius-md);min-width:0}
+  /* Only the PR row wraps at narrow widths: the URL keeps a 150px floor and
+     `#42`/Merge drop below it. Worktrees keep their one-line-per-row layout. */
+  .pr{flex-wrap:wrap}
   .wt:hover,.pr:hover{background:var(--k-surface-hover)}
   /* 74px has no scale match — set by the longest repo label karst has shown in
      practice, not a spacing value. */
   .wt .wrepo{font-size:var(--k-text-md);min-width:74px;flex-shrink:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .wt .wacts,.pr .pacts{margin-left:auto;display:flex;gap:var(--k-space-2);flex-shrink:0}
+  .wt .wacts,.pr .pacts{margin-left:auto;display:flex;gap:var(--k-space-2);flex-shrink:0;flex:none}
   .wt .wbranch{display:flex;align-items:center;gap:var(--k-space-1);min-width:0;flex:1}
   .wt .wbr{font-family:var(--k-font-mono);font-size:var(--k-text-xs);color:var(--k-text-dim);overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
   .wt .wstats{display:flex;gap:var(--k-space-3);font-family:var(--k-font-mono);font-size:var(--k-text-xs);white-space:nowrap;flex-shrink:0}
@@ -1232,8 +1235,32 @@
   .pr .pst-merged{background:var(--k-series-2);color:var(--k-success-fg)}
   .pr .pst-closed{background:var(--k-danger);color:var(--k-danger-fg)}
   .pr .pst-draft,.pr .pst-unknown{background:var(--k-text-faint);color:var(--k-success-fg)}
-  .pr .pnum{font-family:var(--k-font-mono);color:var(--k-link)}
-  .pr .ptitle{flex:1;font-size:var(--k-text-md)}
+  /* The PR number IS the open control (UI-R09c): an underlined link-coloured
+     anchor, keyboard-focusable, in the same visual language as the ship view's
+     `pr-link`. With no recorded URL it degrades to plain text — a link that
+     opens nothing is worse than none. */
+  .pr .pnum{font-family:var(--k-font-mono);white-space:nowrap;flex:none}
+  .pr .pnum a{color:var(--k-link);text-decoration-line:underline;text-decoration-thickness:var(--k-border-w);
+    text-decoration-color:var(--k-border-strong);text-underline-offset:2px;cursor:pointer;font-weight:var(--k-weight-semibold);border-radius:var(--k-radius-sm)}
+  .pr .pnum a:hover{color:var(--k-link-active);text-decoration-color:currentColor}
+  .pr .pnum a:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+  /* The PR URL is the copy control (UI-R09c + R09b): a BUTTON styled as inline
+     text (an action, so a real button — keyboard-focusable, its own pending
+     state), whose visible text IS the URL. It is the row's ONE flexible item —
+     a long URL ellipsizes first, and `#42` and Merge never move. The 150px
+     floor keeps a narrow row from collapsing it to a dot; the copy glyph
+     appears on hover (Variant C). */
+  .pr .url-copy{flex:1;min-width:150px;display:inline-flex;align-items:center;gap:var(--k-space-2);overflow:hidden;cursor:pointer;
+    font:inherit;font-size:var(--k-text-md);color:var(--k-text-dim);background:none;border:none;padding:0;text-align:left;border-radius:var(--k-radius-sm)}
+  .pr .url-copy .u{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+  .pr .url-copy .glyph{opacity:0;transform:translateX(-3px);transition:opacity var(--k-dur-fast) var(--k-ease-standard),transform var(--k-dur-fast) var(--k-ease-standard);color:var(--k-text-dim);flex:none}
+  .pr .url-copy .glyph svg{width:var(--k-space-6);height:var(--k-space-6);display:block}
+  .pr .url-copy:hover .glyph{opacity:1;transform:none}
+  .pr .url-copy:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+  .pr .url-copy.ok .u{color:var(--k-success)}
+  /* The repo label: the manifest NAME (host-resolved), ellipsized with its path
+     in the tooltip — never a second path format, and never pushed off the row. */
+  .pr .prepo{font-size:var(--k-text-md);min-width:0;max-width:34%;flex-shrink:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   /* Merge verdict, indented under its PR so it reads as a fact ABOUT that PR and
      never as a second pull request. Shape (filled/hollow/ring) carries the state
      alongside colour, matching the servers panel's dot. */
@@ -1242,8 +1269,13 @@
   .mg .mgdot{width:var(--k-space-4);height:var(--k-space-4);border-radius:var(--k-radius-circle);flex:none}
   .mg-clean .mgdot{background:var(--k-success)}
   .mg-conflicted .mgdot{background:var(--k-danger)}
-  .mg-unknown .mgdot{border:calc(var(--k-border-w) * 2) solid var(--k-pending);width:var(--k-space-3);height:var(--k-space-3)}
+  /* A check that ERRORED is a fault, not a neutral pending state: every
+     `unknown` verdict carries a `reason` (git failed, git too old, no base ref),
+     so it reads red like a conflict — shape (hollow ring vs filled dot) keeps
+     the two distinguishable without colour alone (UI-R28). */
+  .mg-unknown .mgdot{border:calc(var(--k-border-w) * 2) solid var(--k-danger);width:var(--k-space-3);height:var(--k-space-3)}
   .mg-conflicted .mgtext{color:var(--k-danger)}
+  .mg-unknown .mgtext{color:var(--k-danger)}
   .mg .mgtext{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .mg .mgbtn{flex:none}
   /* The conflict list / the reason karst could not tell. Collapsed by default,
@@ -1263,10 +1295,17 @@
   /* git's own words: `pre-wrap` keeps the line breaks a multi-line git error has. */
   .mgreason{white-space:pre-wrap;color:var(--k-text-dim);word-break:break-word}
   /* PR metadata: from-to, opened, merged. Indented under its PR like the merge
-     verdict, so it reads as facts ABOUT that pull request. */
+     verdict, so it reads as facts ABOUT that pull request.
+     The branch is sized by AVAILABLE space (flex:1 1 0), so at normal widths a
+     long branch ellipsizes and the stamps (one flex:none group) stay flush right
+     and never move; the wrap point is driven ONLY by the stamp group's own width
+     — when the row is too narrow for the stamps they drop to a second line
+     intact, so an opened/merged date is never cut off. */
   .pmeta{display:flex;flex-wrap:wrap;align-items:center;gap:var(--k-space-3);margin:calc(var(--k-space-1) * -1) 0 var(--k-space-2) var(--k-space-6);padding:0 var(--k-space-3);
-    font-size:var(--k-text-xs);color:var(--k-text-dim)}
-  .pmeta .pbranch{font-family:var(--k-font-mono);color:var(--k-text)}
+    font-size:var(--k-text-xs);color:var(--k-text-dim);overflow:hidden}
+  .pmeta .pbranch{flex:1 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--k-font-mono);color:var(--k-text)}
+  .pmeta .pstamps{flex:none;display:flex;align-items:center;gap:var(--k-space-3);min-width:0}
+  .pmeta .pstamp{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .pmeta .pmerged{color:var(--k-series-2)}
   .pmeta .psep{color:var(--k-text-faint)}
   /* Comments collapse: the count is what a reader scans, the bodies are what they
@@ -1278,8 +1317,9 @@
   .pcm .pcmwho{font-weight:var(--k-weight-semibold);font-size:var(--k-text-xs)}
   .pcm .pcmwhen{margin-left:var(--k-space-3);font-size:var(--k-text-sm);color:var(--k-text-faint)}
   .pcm .pcmbody{white-space:pre-wrap;color:var(--k-text-dim);font-size:var(--k-text-sm);margin-top:var(--k-space-1)}
-  /* The merge control is `.k-btn--danger` (UI-R10b: the one irreversible action
-     on this panel), built in markup — no bespoke color rule left here. */
+  /* The merge control is `.k-btn--primary` (consequential-primary, UI-R10b:
+     "Merge is not automatically danger-colored merely because it is
+     consequential"), built in markup — no bespoke color rule left here. */
   .mgbtn{flex:none}
 
   /* ===================== Servers panel ==================================
@@ -3130,22 +3170,24 @@
   //
   // Merging is IRREVERSIBLE, so the click only asks: the host puts a modal in
   // front of the user (which also chooses the strategy) before anything runs.
-  // `.k-btn--danger` (UI-R10b) marks it as the one irreversible action on this
-  // panel. The pending state (aria-busy, via `mergeRequests`) exists so a click
-  // on an irreversible action is never silent while that dialog is up, and it
+  // `.k-btn--primary` (consequential-primary) is its treatment per UI-R10b —
+  // "Merge is not automatically danger-colored merely because it is
+  // consequential; required confirmation remains host-side". The pending state
+  // (aria-busy, via `mergeRequests`) exists so a click on an irreversible action
+  // is never silent while that dialog is up, and it
   // is cleared by the next state push — including the one the host sends after
   // a cancel, so the button can never stick (see `mergeRequests`' own comment).
   function mergeButton(p) {
     if (p.status === 'merged') return '';
     if (mergeRequests[p.repo]) {
-      return `<button type="button" class="k-btn k-btn--danger k-btn--sm mgbtn" aria-busy="true" disabled`
+      return `<button type="button" class="k-btn k-btn--primary k-btn--sm mgbtn" aria-busy="true" disabled`
         + ` title="Confirm the merge in the dialog">Merge</button>`;
     }
     if (!p.canMerge) {
       return `<button type="button" class="k-btn k-btn--secondary k-btn--sm mgbtn" disabled title="${esc(p.mergeBlockedReason)}">Merge</button>`;
     }
     const num = p.number ? ` #${p.number}` : '';
-    return `<button type="button" class="k-btn k-btn--danger k-btn--sm mgbtn" data-act="merge-pr" data-repo="${esc(p.repo)}"`
+    return `<button type="button" class="k-btn k-btn--primary k-btn--sm mgbtn" data-act="merge-pr" data-repo="${esc(p.repo)}"`
       + ` title="Merge PR${esc(num)} into ${esc(p.baseRef || 'its base')} — cannot be undone">Merge</button>`;
   }
 
@@ -3153,14 +3195,28 @@
   // how many comments it carries. Every part is a host-rendered string that is ''
   // when the fact is absent, so a PR karst has not fully probed simply shows less
   // — never a blank field, a placeholder, or "Invalid Date".
+  //
+  // The branch (flex:1 1 0) truncates at normal widths — its full value and the
+  // full stamps ride in `title`, so nothing is lost to the compaction. The stamps
+  // are ONE flex:none group so they wrap to a second line intact on narrow rows.
   function prMetaLine(p) {
-    const bits = [
-      p.branches ? `<span class="pbranch">${esc(p.branches)}</span>` : '',
-      p.opened ? `<span>${esc(p.opened)}</span>` : '',
-      p.merged ? `<span class="pmerged">${esc(p.merged)}</span>` : '',
+    const branch = p.branches
+      ? `<span class="pbranch" title="${esc(p.branches)}">${esc(p.branches)}</span>`
+      : '';
+    const stamps = [
+      p.opened
+        ? `<span class="pstamp"${p.openedTitle ? ` title="${esc(p.openedTitle)}"` : ''}>${esc(p.opened)}</span>`
+        : '',
+      p.merged
+        ? `<span class="pstamp pmerged"${p.mergedTitle ? ` title="${esc(p.mergedTitle)}"` : ''}>${esc(p.merged)}</span>`
+        : '',
     ].filter(Boolean);
+    const group = stamps.length
+      ? `<span class="pstamps"><span class="psep">·</span>${stamps.join('<span class="psep">·</span>')}</span>`
+      : '';
+    const bits = [branch, group].filter(Boolean);
     if (!bits.length) return '';
-    return `<div class="pmeta">${bits.join('<span class="psep">·</span>')}</div>`;
+    return `<div class="pmeta">${bits.join('')}</div>`;
   }
 
   // Comments collapse by default: the count is the fact a reader scans for, the
@@ -3194,21 +3250,37 @@
       : 'Re-check pull request status and mergeability now';
     refresh.title = refreshName;
     refresh.setAttribute('aria-label', refreshName);
-    el('prs').innerHTML = prs.length ? prs.map((p) => (
-      `<div class="prrow"><div class="pr"><span class="k-chip pst pst-${esc(p.status || 'unknown')}">${esc(p.status || '')}</span>`
-      // The DISPLAY path, per the worktree path-display preference — the same
-      // string the worktree rows show for this repo.
-      + `<span class="prepo">${esc(p.repoDisplay || p.repo)}</span>`
-      + `<span class="ptitle">${esc(p.url || '')}</span>`
-      + `<span class="pnum">#${esc(p.number)}</span>`
-      + `<span class="pacts"><button type="button" class="k-btn k-btn--secondary k-btn--sm" data-act="open-pr" data-url="${esc(p.url)}" title="Open this pull request">Open</button>`
-      + mergeButton(p)
-      + `</span></div>`
+    el('prs').innerHTML = prs.length ? prs.map((p) => {
+      // The PR number IS the open control (UI-R09c): with a recorded URL it is
+      // an underlined link-coloured anchor; with none it is plain text.
+      const hasUrl = !!p.url;
+      const numLabel = p.number != null ? `#${esc(p.number)}` : '';
+      const num = `<span class="pnum">${hasUrl
+        ? `<a href="#" data-act="open-pr" data-url="${esc(p.url)}" title="Open this pull request">${numLabel}</a>`
+        : numLabel}</span>`;
+      // The URL text IS the copy control (Variant C): a button styled as inline
+      // text — clicking copies it, a copy glyph appears on hover, and
+      // `data-copy` triggers the optimistic flash.
+      const copy = hasUrl
+        ? `<button type="button" class="ptitle url-copy" data-act="copy-pr-url" data-url="${esc(p.url)}" data-copy title="Copy pull request URL">`
+          + `<span class="u">${esc(p.url)}</span><span class="glyph">${svgIcon('copy')}</span></button>`
+        : '';
+      // The repo label is the manifest NAME when one resolves — the path (the
+      // row's identity) rides in `title`, never shown beside the name again.
+      const repoLabel = p.repoDisplay || p.repo;
+      const repoTitle = repoLabel !== p.repo ? p.repo : '';
+      return `<div class="prrow"><div class="pr"><span class="k-chip pst pst-${esc(p.status || 'unknown')}">${esc(p.status || '')}</span>`
+      // The repo NAME (host-resolved from the manifest), never the path — the
+      // same identity the inside ship rows show; the path rides in `title`.
+      + `<span class="prepo"${repoTitle ? ` title="${esc(repoTitle)}"` : ''}>${esc(repoLabel)}</span>`
+      + copy
+      + num
+      + `<span class="pacts">${mergeButton(p)}</span></div>`
       + prMetaLine(p)
       + mergeLine(byRepo[p.repo])
       + prComments(p)
-      + `</div>`
-    )).join('') : '<div class="empty">No pull requests.</div>';
+      + `</div>`;
+    }).join('') : '<div class="empty">No pull requests.</div>';
   }
 
   // The header's ticket identity: provider mark + copy-key button + a SEPARATE
@@ -4166,6 +4238,20 @@
   // the user needs to act on (the click is trivially repeatable), so this
   // confirms without waiting for a round trip. Never used for a mutation.
   function flashCopied(btn) {
+    // The PR URL copy control is text WITH a hover glyph, not an icon button:
+    // swap the text span's label and colour the URL green, keeping the glyph.
+    if (btn.classList.contains('url-copy')) {
+      const u = btn.querySelector('.u');
+      if (!u) return;
+      const prev = u.textContent;
+      u.textContent = 'Copied ✓';
+      btn.classList.add('ok');
+      setTimeout(() => {
+        u.textContent = prev;
+        btn.classList.remove('ok');
+      }, 1200);
+      return;
+    }
     // An icon button has no text to swap, so the GLYPH is what flashes — and the
     // confirmation moves onto aria-label too, so it is not a purely visual beat
     // for anyone reading the button by name.

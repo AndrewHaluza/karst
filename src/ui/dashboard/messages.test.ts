@@ -24,6 +24,7 @@ function actions(): DashboardActions {
     copyWorktreeBranch: vi.fn(),
     launchWorktreeExtension: vi.fn(),
     openPr: vi.fn(),
+    copyPrUrl: vi.fn(),
     openTicketLink: vi.fn(),
     editTicket: vi.fn(),
     stopDriver: vi.fn(),
@@ -100,6 +101,18 @@ describe('routeAction', () => {
     const a = actions();
     routeAction({ type: 'open-pr', url: 'http://pr/1' }, a);
     expect(a.openPr).toHaveBeenCalledWith('http://pr/1');
+  });
+
+  it('dispatches copy-pr-url by url, and refuses a non-http scheme like open-pr', () => {
+    const a = actions();
+    routeAction({ type: 'copy-pr-url', url: 'https://github.com/o/r/pull/1' }, a);
+    expect(a.copyPrUrl).toHaveBeenCalledWith('https://github.com/o/r/pull/1');
+    expect(parseWebviewMessage({ type: 'copy-pr-url', url: 'https://github.com/o/r/pull/1' })).toEqual({
+      type: 'copy-pr-url',
+      url: 'https://github.com/o/r/pull/1',
+    });
+    expect(parseWebviewMessage({ type: 'copy-pr-url', url: 'file:///etc/passwd' })).toBeNull();
+    expect(parseWebviewMessage({ type: 'copy-pr-url' })).toBeNull();
   });
 
   it('dispatches copy-server-url by server id', () => {

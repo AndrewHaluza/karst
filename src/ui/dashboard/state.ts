@@ -381,6 +381,10 @@ export function buildDashboardState(
     launchable: isCheckout(w.path),
   }));
 
+  // ONE clock read per push: the PR stamps, the merge rows and the stage strip
+  // must not date from different instants.
+  const now = nowIso();
+
   // Rendered through the SAME path-display preference as the worktree rows: the
   // ship stage names the same directories, and two formats for one path is the
   // bug this replaces.
@@ -408,7 +412,7 @@ export function buildDashboardState(
     .map((p) => p.repo);
   // The dashboard's PR rows, host-worded and host-decided like every other
   // panel string. Hoisted so the rail and the panel share one mergeability read.
-  const prRows = buildPrPanelRows(prs);
+  const prRows = buildPrPanelRows(prs, now, repoNameFor);
   // ONE read of the recovery action's availability, for the same reason: the
   // stage header's ⋯ menu and the host's confirm path must agree about whether
   // "Send back to Implement" exists at all. Derived here rather than on click
@@ -432,10 +436,6 @@ export function buildDashboardState(
   const blocked = needsUser(ticket);
   const implCell = stepper.find((c) => c.stageKey === 'impl') ?? null;
   const reported = implCell ? reportedPhases(marks, implCell).map((m) => m.phaseName) : [];
-
-  // ONE clock read per push: the merge rows and the stage strip must not date
-  // from two different instants.
-  const now = nowIso();
 
   // The snapshot-scoped action seam: the registry lives here in the host; only
   // the opaque {actionId, kind} pairs ride the view. The continuation label
