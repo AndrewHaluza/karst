@@ -315,12 +315,25 @@ export async function hasChangesFrom(
   const fetched = await git(['fetch', 'origin', baseRef], cwd);
   if (fetched.exitCode !== 0) return true;
 
+  // Also fetch the feature branch so the diff head resolves against the remote
+  // state — a local branch ref that is behind the remote produces an empty diff
+  // even though the remote branch holds the ticket's actual work.
+  let fetchedBranch: { exitCode: number } | null = null;
+  if (branch && branch.trim() !== '') {
+    fetchedBranch = await git(['fetch', 'origin', branch], cwd);
+  }
+
   // Diff against the ticket's branch BY NAME when it is known: a worktree
   // checked out on the base branch (or a session in the main checkout) must
   // still read as changed when the ticket branch holds work — `...HEAD` there
   // reads empty and ship would silently open no PR (fu1). Absent a branch,
   // fall back to the checkout's HEAD.
-  const head = branch && branch.trim() !== '' ? branch : 'HEAD';
+  const head =
+    branch && branch.trim() !== ''
+      ? fetchedBranch && fetchedBranch.exitCode === 0
+        ? `origin/${branch}`
+        : branch
+      : 'HEAD';
   const result = await git(['diff', '--quiet', `origin/${baseRef}...${head}`], cwd);
   if (result.exitCode === 0) return false;
   if (result.exitCode === 1) return true;

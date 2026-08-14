@@ -448,10 +448,10 @@ setTimeout(() => {
       expect(ghCalls).toEqual([]);
       expect(calls.some((args) => args[0] === 'push')).toBe(false);
       expect(calls).toContainEqual(['fetch', 'origin', 'develop']);
-      // fu1: the probe diffs the recorded branch BY NAME (the worktree row
-      // stores 'karst/x'), never the checkout HEAD — a worktree sitting on the
-      // base branch must still read as changed when the ticket branch holds work.
-      expect(calls).toContainEqual(['diff', '--quiet', 'origin/develop...karst/x']);
+      // fu1: the probe diffs `origin/<base>...origin/<branch>` so a stale local
+      // branch ref never produces an empty diff — the remote state is always used.
+      expect(calls).toContainEqual(['fetch', 'origin', 'karst/x']);
+      expect(calls).toContainEqual(['diff', '--quiet', 'origin/develop...origin/karst/x']);
       expect(events).toContainEqual({
         repo: '/repo/frontend',
         step: 'pr',
@@ -486,6 +486,7 @@ setTimeout(() => {
       expect(result.prs).toHaveLength(1);
       expect(order).toEqual([
         'git status',
+        'git fetch',
         'git fetch',
         'git diff',
         'git push',

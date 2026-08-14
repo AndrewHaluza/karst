@@ -69,13 +69,15 @@ export interface ScopeBlockOpts {
  * exists to remove.
  */
 function diffLine(subject: string, baseRef?: string | null, branch?: string | null): string {
-  // The head is the BRANCH by name when known, else the checkout's HEAD. A
-  // branch-named range resolves the ref itself, so it is the same diff from
-  // any checkout of the repo — a worktree (or session) sitting on the base
+  // The head is origin/<branch> when known (resolves against the remote state,
+  // so a stale local ref never produces an empty diff), else the checkout's
+  // HEAD. A branch-named range resolves the ref itself, so it is the same diff
+  // from any checkout of the repo — a worktree (or session) sitting on the base
   // branch reads the ticket's actual changes instead of an empty diff.
-  const head = branch && branch.trim() !== '' ? branch : 'HEAD';
+  const head =
+    branch && branch.trim() !== '' ? `origin/${branch}` : 'HEAD';
   const range = baseRef
-    ? `\`git diff origin/${baseRef}...${head}\` (or \`git diff ${baseRef}...${head}\` when the remote ref is absent)`
+    ? `\`git diff origin/${baseRef}...${head}\` (or \`git diff ${baseRef}...${branch ?? 'HEAD'}\` when the remote ref is absent)`
     : `\`git diff <base-branch>...${head}\``;
   return `- The changes to ${subject} are exactly: ${range}, plus any uncommitted work (\`git status --porcelain\`).`;
 }
@@ -99,9 +101,10 @@ export function buildScopeBlock(intent: ScopeIntent, opts: ScopeBlockOpts = {}):
   // checkout, instead of asserting "already on the correct branch" — a
   // promise the host could not keep, and one the agent must not swallow: a
   // silent empty `git diff origin/<base>...HEAD` reads as "no changes" while
-  // the ticket's branch carries the real diff. The diff range itself names
-  // the branch, so it resolves correctly from any checkout; the rev-parse is
-  // only to confirm where the agent is.
+  // the ticket's branch carries the real diff. The diff range uses
+  // `origin/<branch>` so it resolves against the remote state (a stale local
+  // ref never produces an empty diff); the rev-parse is only to confirm where
+  // the agent is.
   const orientation =
     branch !== null
       ? `- This ticket's branch is \`${branch}\`. Confirm you are in the right checkout with \`git rev-parse --abbrev-ref HEAD\` (it should print that branch); the diff range below names the branch, so it reads the same from any checkout.`

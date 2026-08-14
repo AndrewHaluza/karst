@@ -1292,7 +1292,7 @@ describe('runUat — Tester and verifier (Task 8)', () => {
     expect(res).toEqual({ kind: 'advanced', next: 'review' });
     expect(runHeadless).toHaveBeenCalledTimes(1);
     expect(capturedPrompt).toContain('karst/x');
-    expect(capturedPrompt).toContain('origin/develop...karst/x');
+    expect(capturedPrompt).toContain('origin/develop...origin/karst/x');
   });
 
   it('threads onTesterOutput and onTesterTargetProgress into the Tester', async () => {

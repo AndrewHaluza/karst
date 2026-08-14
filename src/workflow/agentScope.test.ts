@@ -15,14 +15,14 @@ describe('buildScopeBlock', () => {
 
   // fu1: "review agent xterm log shows no changes, but diffs are present". The
   // ticket's branch is on the worktree row and the host knows it — the diff
-  // range must name it so a checkout on the base branch (or the main checkout)
-  // still reads the ticket's actual changes instead of a silent empty `...HEAD`.
+  // range uses `origin/<branch>` so a stale local ref never produces an empty
+  // diff; the rev-parse is only to confirm where the agent is.
   it('names the ticket branch in the diff range when it is known', () => {
     const text = buildScopeBlock('review', {
       baseRef: 'develop',
       branch: 'karst/feat/planner-issue-planner-issue',
     }).join('\n');
-    expect(text).toContain('`git diff origin/develop...karst/feat/planner-issue-planner-issue`');
+    expect(text).toContain('`git diff origin/develop...origin/karst/feat/planner-issue-planner-issue`');
     expect(text).toContain('`git diff develop...karst/feat/planner-issue-planner-issue`');
     expect(text).not.toContain('...HEAD');
     // The orientation names the branch instead of asserting "already on the

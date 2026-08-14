@@ -122,10 +122,8 @@ describe('selectReviewTargets', () => {
   });
 
   // fu1: "review agent xterm log shows no changes, but diffs are present". The
-  // change probe must diff `origin/<base>...<branch>` BY NAME so a worktree
-  // checked out on the base branch still reads as changed when the ticket's
-  // branch holds work — a `...HEAD` there reads empty and the repo silently
-  // drops out of review.
+  // change probe must diff `origin/<base>...origin/<branch>` so a stale local
+  // branch ref never produces an empty diff — the remote state is always used.
   it('probes the diff against the worktree branch, not the checkout HEAD', async () => {
     const diffs: string[][] = [];
     const git: GitRunner = async (args, cwd) => {
@@ -140,7 +138,7 @@ describe('selectReviewTargets', () => {
       await selectReviewTargets(project, [{ repo: '/repos/web', path: '/wt/web', baseRef: 'develop', branch: 'karst/x' }], git),
     );
     expect(targets).toEqual([expect.objectContaining({ names: ['web'], path: '/wt/web' })]);
-    expect(diffs).toContainEqual(['diff', '--quiet', 'origin/develop...karst/x']);
+    expect(diffs).toContainEqual(['diff', '--quiet', 'origin/develop...origin/karst/x']);
   });
 
   it('falls back to probing HEAD when no branch is recorded', async () => {

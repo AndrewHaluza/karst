@@ -1262,7 +1262,7 @@ describe('review findings lane (Lane B)', () => {
     expect(runHeadless).toHaveBeenCalledTimes(1);
     expect(capturedPrompt).toContain('develop');
     expect(capturedPrompt).toContain('karst/x');
-    expect(capturedPrompt).toContain('origin/develop...karst/x');
+    expect(capturedPrompt).toContain('origin/develop...origin/karst/x');
   });
 
   // A failed/garbage agent call must not break the stage: the run still

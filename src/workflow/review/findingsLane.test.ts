@@ -680,12 +680,11 @@ describe('buildFindingsPrompt', () => {
   });
 
   // fu1: "review agent xterm log shows no changes, but diffs are present". The
-  // branch is known to the host (`worktrees.branch`) and the scope block must
-  // name it so the agent's diff range reads the ticket's changes from any
-  // checkout — not an empty `...HEAD` because the worktree sits on the base.
+  // branch is known to the host (`worktrees.branch`) and the scope block uses
+  // `origin/<branch>` so a stale local ref never produces an empty diff.
   it('names the ticket branch in the scope block when one is known', () => {
     const prompt = buildFindingsPrompt('/web', 'develop', 'karst/feat/x');
-    expect(prompt).toContain('git diff origin/develop...karst/feat/x');
+    expect(prompt).toContain('git diff origin/develop...origin/karst/feat/x');
     expect(prompt).not.toContain('...HEAD');
     expect(prompt).toContain('This ticket\'s branch is `karst/feat/x`');
   });
@@ -719,7 +718,7 @@ describe('buildFindingsPrompt', () => {
     }
     // The branch-named shape must keep the branch-named range.
     expect(buildFindingsPrompt('/web', 'develop', 'karst/feat/x', 'Focus on error handling.')).toContain(
-      'git diff origin/develop...karst/feat/x',
+      'git diff origin/develop...origin/karst/feat/x',
     );
   });
 

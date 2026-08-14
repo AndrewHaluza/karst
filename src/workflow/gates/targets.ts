@@ -119,21 +119,33 @@ async function hasReviewChanges(
   // changed. The timeout prevents an unreachable remote from stalling the
   // entire gate stage indefinitely (the hanging process is left to the OS TCP
   // timeout — it is a child of the extension host and will be cleaned up).
-  const fetched = await Promise.race([
-    git(['fetch', 'origin', base], cwd),
+  const fetchTimeout = () =>
     new Promise<{ exitCode: number; stdout: string; stderr: string }>((resolve) =>
       setTimeout(
         () => resolve({ exitCode: 1, stdout: '', stderr: 'git fetch timed out' }),
         fetchTimeoutMs,
       ),
-    ),
-  ]);
+    );
+  const fetched = await Promise.race([git(['fetch', 'origin', base], cwd), fetchTimeout()]);
   const compare = fetched.exitCode === 0 ? `origin/${base}` : base;
+  // Also fetch the feature branch so the diff head resolves against the remote
+  // state — a local branch ref that is behind the remote produces an empty diff
+  // even though the remote branch holds the ticket's actual work. Fall back to
+  // the local branch name when the fetch fails.
+  const fetchedBranch =
+    branch && branch.trim() !== ''
+      ? await Promise.race([git(['fetch', 'origin', branch], cwd), fetchTimeout()])
+      : null;
   // Diff against the ticket's branch BY NAME when it is known: a worktree
   // checked out on the base branch must still read as "changed" when the
   // ticket branch holds work — `...HEAD` there would read empty (fu1). Absent
   // a branch, fall back to the checkout's HEAD.
-  const head = branch && branch.trim() !== '' ? branch : 'HEAD';
+  const head =
+    branch && branch.trim() !== ''
+      ? fetchedBranch && fetchedBranch.exitCode === 0
+        ? `origin/${branch}`
+        : branch
+      : 'HEAD';
   const diff = await git(['diff', '--quiet', `${compare}...${head}`], cwd);
   if (diff.exitCode === 0) return { kind: 'changed', changed: false };
   if (diff.exitCode === 1) return { kind: 'changed', changed: true };
