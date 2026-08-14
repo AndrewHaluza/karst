@@ -138,6 +138,7 @@ describe('settings model picker', () => {
     const context = {
       modelCatalog: MODELS,
       modelCompatibility: MODELS,
+      recentModels: {},
       draft: { host: 'dirty-host' },
       lastSaved: { host: 'saved-host' },
       dirty: true,
@@ -176,6 +177,7 @@ describe('settings model picker', () => {
       ...currentState,
       models: nextModels,
       modelCompatibility: nextModels,
+      recentModels: {},
     });
   });
 });
@@ -1480,6 +1482,7 @@ describe('debug logging toggle (General tab)', () => {
       const KNOWN_AGENT_PROVIDERS = [];
       const implementedProviders = [];
       const modelCatalog = { claude: [], codex: [], antigravity: [], opencode: [] };
+      const recentModels = {};
       const AGENT_PROVIDER_LABELS = {};
       function markDirty() {}
       function esc(s) { return String(s); }
@@ -1529,6 +1532,7 @@ describe('close-done-terminals toggle (General tab)', () => {
       const KNOWN_AGENT_PROVIDERS = [];
       const implementedProviders = [];
       const modelCatalog = { claude: [], codex: [], antigravity: [], opencode: [] };
+      const recentModels = {};
       const AGENT_PROVIDER_LABELS = {};
       function markDirty() {}
       function esc(s) { return String(s); }

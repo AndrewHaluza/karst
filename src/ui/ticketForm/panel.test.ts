@@ -151,6 +151,30 @@ describe('TicketFormManager', () => {
     expect(first.state.models).toEqual(REMOTE_MODELS.codex);
   });
 
+  it('pushes the recently used models for the picker\'s "Last used" group', () => {
+    const { host, panels } = fakeHost();
+    const { factory } = recordingFactory();
+    const mgr = new TicketFormManager(
+      store,
+      () => MANIFEST,
+      host,
+      factory,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      () => REMOTE_MODELS,
+      undefined,
+      undefined,
+      () => ({ claude: ['claude-sonnet-5', 'claude-opus-5'] }),
+    );
+
+    mgr.openCreate();
+    const first = panels[0]!.posted[0] as { state: { recentModels: Record<string, string[]> } };
+    expect(first.state.recentModels).toEqual({ claude: ['claude-sonnet-5', 'claude-opus-5'] });
+  });
+
   it('refreshes every live panel from the current catalog and skips disposed panels', () => {
     const { host, panels } = fakeHost();
     const { factory } = recordingFactory();

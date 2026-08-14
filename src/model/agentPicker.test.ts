@@ -134,7 +134,7 @@ describe('agentPickerJs', () => {
 
   describe('apModelOptionsHtml', () => {
     const { apModelOptionsHtml } = load() as {
-      apModelOptionsHtml: (c: unknown, p: string, saved: string, inheritLabel: string) => string;
+      apModelOptionsHtml: (c: unknown, p: string, saved: string, inheritLabel: string, recentIds?: string[]) => string;
     };
 
     it('renders the inherit row first when labeled, then the cataloged models', () => {
@@ -158,6 +158,66 @@ describe('agentPickerJs', () => {
     it('escapes a saved model id so it cannot inject markup', () => {
       const out = apModelOptionsHtml(catalog, 'claude', '<img onerror=alert(1)>', '');
       expect(out).not.toContain('<img');
+    });
+
+    it('pins the last-used models under a group label, before the full list', () => {
+      const withMore = {
+        claude: [
+          ...(catalog.claude as { id: string; label: string; efforts: string[] }[]),
+          { id: 'claude-haiku-4-5', label: 'Haiku 4.5', efforts: [] },
+        ],
+      };
+      const out = apModelOptionsHtml(
+        withMore,
+        'claude',
+        '',
+        '',
+        ['claude-sonnet-5', 'claude-opus-5'],
+      );
+      const lastUsed = out.indexOf('Last used');
+      const sonnet = out.indexOf('data-ap-model="claude-sonnet-5"');
+      const opus = out.indexOf('data-ap-model="claude-opus-5"');
+      expect(lastUsed).toBeGreaterThan(-1);
+      expect(sonnet).toBeGreaterThan(-1);
+      expect(opus).toBeGreaterThan(-1);
+      expect(lastUsed).toBeLessThan(sonnet);
+      expect(sonnet).toBeLessThan(opus);
+    });
+
+    it('keeps last-used order as given (newest first) and drops catalog-absent ids', () => {
+      const out = apModelOptionsHtml(catalog, 'claude', '', '', ['ghost-model', 'claude-opus-5']);
+      expect(out).not.toContain('ghost-model');
+      expect(out.indexOf('data-ap-model="claude-opus-5"')).toBeLessThan(out.indexOf('data-ap-model="claude-sonnet-5"'));
+    });
+
+    it('caps the last-used group at five and dedupes repeated ids', () => {
+      const manyModels = {
+        claude: Array.from({ length: 8 }, (_, i) => ({
+          id: `m-${i}`,
+          label: `Model ${i}`,
+          efforts: [],
+        })),
+      };
+      const recent = ['m-0', 'm-1', 'm-2', 'm-3', 'm-4', 'm-5', 'm-6', 'm-7', 'm-0'];
+      const out = apModelOptionsHtml(manyModels, 'claude', '', '', recent);
+      // Group header once; the five NEWEST recent models come first, in the
+      // given order, before the remaining catalog models (which still render).
+      expect(out.split('Last used')).toHaveLength(2);
+      const ids = [...out.matchAll(/data-ap-model="(m-\d)"/g)].map((m) => m[1]);
+      expect(ids.slice(0, 5)).toEqual(['m-0', 'm-1', 'm-2', 'm-3', 'm-4']);
+      expect(ids.slice(5)).toEqual(['m-5', 'm-6', 'm-7']);
+    });
+
+    it('omits the group header when the recent set covers the whole catalog', () => {
+      const out = apModelOptionsHtml(catalog, 'codex', '', '', ['gpt-5.6-sol']);
+      expect(out).not.toContain('Last used');
+      expect(out).toContain('data-ap-model="gpt-5.6-sol"');
+    });
+
+    it('marks a recently used model that is the current selection as saved', () => {
+      const out = apModelOptionsHtml(catalog, 'claude', 'claude-sonnet-5', '', ['claude-sonnet-5']);
+      expect(out).toContain('data-ap-model="claude-sonnet-5" aria-selected="true"');
+      expect(out).toContain('saved');
     });
   });
 });

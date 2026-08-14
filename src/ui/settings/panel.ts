@@ -68,6 +68,13 @@ export class SettingsManager {
     private readonly version: () => string = () => '',
     /** Packaged built-in approach definitions (§ state.ts `packagedApproaches`). */
     private readonly packagedApproaches: () => ApproachDef[] = () => [],
+    /**
+     * The models most recently used per provider (newest first, ≤5) for the
+     * shared picker's "Last used" group. Injected like `modelCatalog` — the
+     * host computes it from the append-only token-usage ledger
+     * (`store/tokenUsage.ts` `listRecentlyUsedModels`).
+     */
+    private readonly recentModels: () => Record<string, string[]> = () => ({}),
   ) {}
 
   async open(): Promise<void> {
@@ -128,6 +135,7 @@ export class SettingsManager {
       type: 'models',
       models,
       modelCompatibility: compatibilityModelCatalog(models),
+      recentModels: this.recentModels(),
     });
   }
 
@@ -150,6 +158,7 @@ export class SettingsManager {
         this.projectSlug(),
         this.version(),
         this.packagedApproaches(),
+        this.recentModels(),
       ),
     });
   }

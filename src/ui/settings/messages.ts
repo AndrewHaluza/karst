@@ -47,7 +47,7 @@ export type SettingsWebviewMessage =
 /** Host → webview messages. */
 export type SettingsHostMessage =
   | { type: 'state'; state: SettingsState }
-  | { type: 'models'; models: ModelCatalog; modelCompatibility: ModelCatalog }
+  | { type: 'models'; models: ModelCatalog; modelCompatibility: ModelCatalog; recentModels: Record<string, string[]> }
   /** Fresh host-computed views for the inside-process assignment rows. */
   | { type: 'process-assignment-views'; rows: SettingsProcessAssignmentView[] }
   | { type: 'validation'; ok: boolean; error: string | null }

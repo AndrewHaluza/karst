@@ -54,6 +54,13 @@ export interface SettingsState {
   models: ModelCatalog;
   modelCompatibility: ModelCatalog;
   /**
+   * The models most recently used per provider, newest first, capped at 5 —
+   * the shared agent picker's "Last used" group (model/agentPicker.ts `recent`).
+   * Read from the append-only `token_usage` ledger by the host, so the group
+   * appears identically in Settings, the dashboard switch and the ticket form.
+   */
+  recentModels: Record<string, string[]>;
+  /**
    * Per-row views for the Agents tab's inside-process assignments (handoff
    * §7): role labels, descriptions, the four validation states and their
    * inline messages, the Default hints. Computed host-side from the manifest,
@@ -94,6 +101,7 @@ export function buildSettingsState(
   projectSlug: { value: string; derived: boolean } = { value: '', derived: true },
   version = '',
   packagedApproaches: ApproachDef[] = [],
+  recentModels: Record<string, string[]> = {},
 ): SettingsState {
   return {
     manifest,
@@ -105,6 +113,7 @@ export function buildSettingsState(
     approachCommands,
     models,
     modelCompatibility: compatibilityModelCatalog(models),
+    recentModels,
     processAssignments: buildProcessAssignmentViews(
       manifest,
       agents.map((a) => a.name),

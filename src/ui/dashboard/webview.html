@@ -3267,6 +3267,7 @@
     switchPicker = mountAgentPicker(root, {
       cores,
       catalog: (lastState.agentSwitch.modelsByCore || lastState.agentSwitch.models) || {},
+      recent: lastState.agentSwitch.recentByCore || {},
       value: { core: draftCore || '', model: draftModel, effort: draftEffort },
       inherit: {
         core: 'Inherit (settings: ' + (AGENT_PROVIDER_LABELS[s.provider] || s.provider) + ')',

@@ -2051,6 +2051,9 @@
   // Compatibility knowledge is deliberately broader than the picker catalog:
   // bundled ids remain known while newly discovered ids are added.
   let modelCompatibility = { claude: [], codex: [], antigravity: [], opencode: [] };
+  // Host-computed recently-used models per provider (newest first, ≤5) for the
+  // shared picker's "Last used" group (model/agentPicker.ts `recent`).
+  let recentModels = {};
   // Host-computed views for the inside-process assignment rows (handoff §7),
   // keyed by process key: role labels, descriptions, the four validation
   // states, the Default hints. The webview renders them verbatim.
@@ -2581,6 +2584,7 @@
       mountAgentPicker(apRoot, {
         cores: apCores,
         catalog: modelCatalog,
+        recent: recentModels,
         value: {
           core: draft.agentProvider || '',
           model: draft.defaultModel || '',
@@ -3640,6 +3644,7 @@
       mountAgentPicker(container, {
         cores: apCores,
         catalog: modelCatalog,
+        recent: recentModels,
         value: { core: profile.provider || '', model: profile.model || '', effort: profile.effort || '' },
         labels: { core: 'Core', model: 'Model', effort: 'Effort' },
         showEffort: true,
@@ -5342,9 +5347,10 @@
     renderProjectFooter();
   }
 
-  function refreshModelCatalog(models, compatibility) {
+  function refreshModelCatalog(models, compatibility, recent) {
     modelCatalog = models || { claude: [], codex: [], antigravity: [], opencode: [] };
     modelCompatibility = compatibility || modelCatalog;
+    if (recent) recentModels = recent;
     renderGeneral();
     renderApproaches();
     // A catalog change can flip a row's state (catalog-unavailable,
@@ -5359,6 +5365,7 @@
         ...prev,
         models: modelCatalog,
         modelCompatibility,
+        recentModels,
       });
     }
   }
@@ -5886,6 +5893,7 @@
         implementedProviders = msg.state.implementedProviders || ['claude'];
         modelCatalog = msg.state.models || { claude: [], codex: [], antigravity: [], opencode: [] };
         modelCompatibility = msg.state.modelCompatibility || modelCatalog;
+        recentModels = msg.state.recentModels || {};
         processAssignmentViews = indexProcessViews(msg.state.processAssignments || []);
         agentRows = msg.state.agents || [];
         approachCommands = msg.state.approachCommands || {};
@@ -5904,7 +5912,7 @@
         break;
       }
       case 'models': {
-        refreshModelCatalog(msg.models, msg.modelCompatibility);
+        refreshModelCatalog(msg.models, msg.modelCompatibility, msg.recentModels);
         break;
       }
       case 'validation': {
@@ -6078,6 +6086,7 @@
     implementedProviders = prev.implementedProviders || ['claude'];
     modelCatalog = prev.models || { claude: [], codex: [], antigravity: [], opencode: [] };
     modelCompatibility = prev.modelCompatibility || modelCatalog;
+    recentModels = prev.recentModels || {};
     processAssignmentViews = indexProcessViews(prev.processAssignments || []);
     agentRows = prev.agents || [];
     approachCommands = prev.approachCommands || {};

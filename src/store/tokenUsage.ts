@@ -163,6 +163,44 @@ export function recordTokenUsage(store: Store, entry: TokenUsageEntry): void {
 }
 
 /**
+ * The most recently used model ids per provider, newest first, capped per
+ * provider. This is the evidence the unified agent picker's "Last used" group
+ * renders — a provider with a long catalog (opencode) buries a user's habitual
+ * pick, so the picker pins the models they actually used to the top.
+ *
+ * Read from `token_usage`: the append-only ledger of every AI call, which is
+ * the authoritative record of "models actually used" (headless gates AND
+ * measured interactive sessions both land a row). `provider`/`model` filter to
+ * rows the core actually named; the GROUP BY collapses each (provider, model)
+ * pair to its most recent call, and global recency ordering (newest first)
+ * gives each provider its own newest-first list as it is populated. Rows whose
+ * core never named a model are not usage evidence of any model, so they are
+ * skipped. Project-scoped like every other ticket-adjacent read — the DB is
+ * shared by every IDE window.
+ */
+export function listRecentlyUsedModels(
+  store: Store,
+  projectId: number | null,
+  limit = 5,
+): Record<string, string[]> {
+  const rows = store.db
+    .prepare(
+      `SELECT provider, model, MAX(recorded_at) AS last_at
+         FROM token_usage
+        WHERE project_id = ? AND provider IS NOT NULL AND model IS NOT NULL AND model != ''
+        GROUP BY provider, model
+        ORDER BY last_at DESC`,
+    )
+    .all(projectId) as { provider: string; model: string; last_at: string }[];
+  const out: Record<string, string[]> = {};
+  for (const row of rows) {
+    const list = (out[row.provider] ??= []);
+    if (list.length < limit) list.push(row.model);
+  }
+  return out;
+}
+
+/**
  * The SUM/COUNT list every grouping shares, so the four queries cannot drift
  * apart. `p` prefixes the columns with a table alias for the per-ticket query,
  * which joins `tickets` — the two tables share `project_id`, so an unqualified

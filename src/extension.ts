@@ -311,7 +311,7 @@ import type {
   GraphCommandConfig,
 } from './manifest/types.js';
 import { instrumentAdapter } from './agent/instrumentedAdapter.js';
-import { recordTokenUsage } from './store/tokenUsage.js';
+import { recordTokenUsage, listRecentlyUsedModels } from './store/tokenUsage.js';
 import { UsagePanelManager, type UsagePanel, type UsagePanelHost } from './ui/usage/panel.js';
 import {
   ResourcesPanelManager,
@@ -1753,6 +1753,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     () => modelCatalog,
     context.globalStorageUri.fsPath,
     (ticketId, active) => activeTicket.set(ticketId, active),
+    // The recently-used models for the shared picker's "Last used" group,
+    // scoped to this window's project like every other ticket-adjacent read.
+    () => listRecentlyUsedModels(localStore, currentProject()?.id ?? null, 5),
   );
 
   // Full agent-pool rows for the Settings "Agents" tab. Unlike `listAgents`
@@ -1968,6 +1971,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // Packaged built-in approach definitions for the webview's delta mirror —
     // host-computed through the seam, never a literal in the HTML.
     () => [...packagedApproachDefs()],
+    // The recently-used models for the shared picker's "Last used" group,
+    // scoped to this window's project like every other ticket-adjacent read.
+    () => listRecentlyUsedModels(localStore, currentProject()?.id ?? null, 5),
   );
 
   // Discovery is deliberately detached from activation: bundled models render
