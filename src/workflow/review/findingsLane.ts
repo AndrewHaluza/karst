@@ -12,6 +12,7 @@
 import type { Store } from '../../store/db.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
 import type { ProcessAssignmentSnapshot } from '../../agent/processAssignment.js';
+import type { HeadlessOutputChunk } from '../../agent/headlessSpawn.js';
 import type { ReviewFindingsConfig, Severity } from '../../manifest/types.js';
 import type { FindingInput } from '../../store/reviewFindings.js';
 import { GATE_LANE_HEADLESS_TIMEOUT_MS } from '../../agent/headlessSpawn.js';
@@ -95,6 +96,25 @@ export interface RunFindingsLaneOpts {
    * pure collector, exactly like a pre-durability caller.
    */
   persistFindings?: (findings: readonly FindingInput[], processRunId?: number | null) => void;
+  /**
+   * Live-output hook, forwarded verbatim to every `adapter.runHeadless` call
+   * (each target asks its own call). RAW untrusted CLI prose — the caller
+   * that surfaces it (the console tail) must bound and sanitize it. Absent →
+   * no live chunks; the findings still parse from the settled output.
+   */
+  onOutput?: (chunk: HeadlessOutputChunk) => void;
+  /**
+   * Per-target progress (Task 13 mirror): called before each target's call
+   * (`status: 'active'`) and after it returns (`status: 'completed'`, with a
+   * one-line detail naming what came back). Lets the host push the same
+   * inside-progress overlay the gates use, so the dashboard header tracks a
+   * multi-target lane even with the console closed. Absent → no events.
+   */
+  onTargetProgress?: (event: {
+    repo: string;
+    status: 'active' | 'completed';
+    detail?: string;
+  }) => void;
   /**
    * Verbose decision-point logging (§ debug logging), prefixed `[gate]` — the
    * lane is part of the Review stage flow, so its lines ride the same stream
@@ -237,6 +257,7 @@ export async function runFindingsLane(opts: RunFindingsLaneOpts): Promise<Findin
       `[gate] review findings ticket ${opts.ticketId}: asking target ${target.repo} ` +
         `(worktree ${target.worktreePath})`,
     );
+    opts.onTargetProgress?.({ repo: target.repo, status: 'active' });
     try {
       const result = await adapter.runHeadless({
         prompt: buildFindingsPrompt(target.repo, target.baseRef, opts.process?.assignment.instructions),
@@ -244,6 +265,7 @@ export async function runFindingsLane(opts: RunFindingsLaneOpts): Promise<Findin
         model: opts.process?.assignment.model,
         signal: opts.signal,
         timeoutMs: opts.timeoutMs ?? GATE_LANE_HEADLESS_TIMEOUT_MS,
+        onOutput: opts.onOutput,
         tracking: {
           callSite: 'review-findings',
           ticketId: opts.ticketId,
@@ -272,6 +294,11 @@ export async function runFindingsLane(opts: RunFindingsLaneOpts): Promise<Findin
         `[gate] review findings ticket ${opts.ticketId}: target ${target.repo} returned ` +
           `${parsed.length} finding(s)`,
       );
+      opts.onTargetProgress?.({
+        repo: target.repo,
+        status: 'completed',
+        detail: `${parsed.length} finding${parsed.length === 1 ? '' : 's'}`,
+      });
       findings.push(...parsed);
     } catch (error) {
       // Residual fix: a rejection that lands ON an aborted signal is the Stop
@@ -336,6 +363,14 @@ export interface PlanAndRunFindingsLaneOpts {
   process?: FindingsProcessInput;
   /** Persist each target's findings as its call lands (see `RunFindingsLaneOpts`). */
   persistFindings?: (findings: readonly FindingInput[], processRunId?: number | null) => void;
+  /** Live-output hook — see `RunFindingsLaneOpts.onOutput`; threaded into the lane it runs. */
+  onOutput?: (chunk: HeadlessOutputChunk) => void;
+  /** Per-target progress — see `RunFindingsLaneOpts.onTargetProgress`; threaded into the lane it runs. */
+  onTargetProgress?: (event: {
+    repo: string;
+    status: 'active' | 'completed';
+    detail?: string;
+  }) => void;
   /** Verbose decision-point logging (§ debug logging) — threaded into the lane it runs. */
   debug?: (message: string) => void;
 }
@@ -377,6 +412,8 @@ export async function planAndRunFindingsLane(
           store: opts.store,
           process: opts.process,
           persistFindings: opts.persistFindings,
+          onOutput: opts.onOutput,
+          onTargetProgress: opts.onTargetProgress,
           debug: opts.debug,
         })
       : { kind: 'not-run' };

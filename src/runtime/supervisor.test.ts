@@ -66,6 +66,37 @@ createServer((req, res) => {
 `;
 
 /**
+ * A service that dies immediately with a distinctive stderr message — the
+ * `MODULE_NOT_FOUND`-style failure this suite reports. The spin error must
+ * surface this output, not just "the process exited with code 1".
+ */
+const EXIT_BOOT_SRC = `
+console.error('Cannot find module server.mjs');
+process.exit(1);
+`;
+
+/**
+ * A service that writes more output than the surfaced log tail may carry, then
+ * dies — to prove the tail is BOUNDED and marks its own truncation.
+ */
+const HUGE_EXIT_SRC = `
+for (let i = 0; i < 5000; i++) console.error('filler line ' + i);
+console.error('the real error at the very end');
+process.exit(1);
+`;
+
+/**
+ * A service that prints its own reason to the log, then never becomes healthy —
+ * to prove the health-timeout error carries the log tail too.
+ */
+const STUCK_WITH_OUTPUT_SRC = `
+import { createServer } from 'node:http';
+const port = Number(process.env.PORT);
+console.error('listening on 1337, not the allocated ' + port);
+createServer((_req, res) => { res.writeHead(503); res.end('never'); }).listen(port);
+`;
+
+/**
  * A launcher that forks a long-lived grandchild (like `npm run dev` → Vite),
  * writes the grandchild pid to GRANDCHILD_PID_FILE, and itself never gets
  * healthy — to prove killTree reaps the grandchild, not just the launcher.
@@ -126,6 +157,9 @@ describe('server supervisor', () => {
     writeFileSync(join(dir, 'deaf.mjs'), DEAF_SERVER_SRC);
     writeFileSync(join(dir, 'custom.mjs'), CUSTOM_HEALTH_SRC);
     writeFileSync(join(dir, 'launcher.mjs'), LAUNCHER_SRC);
+    writeFileSync(join(dir, 'exit.mjs'), EXIT_BOOT_SRC);
+    writeFileSync(join(dir, 'huge-exit.mjs'), HUGE_EXIT_SRC);
+    writeFileSync(join(dir, 'stuck.mjs'), STUCK_WITH_OUTPUT_SRC);
   });
   afterEach(() => {
     // Any server a case left running is a detached process that OUTLIVES vitest and
@@ -334,6 +368,85 @@ describe('server supervisor', () => {
         healthTimeoutMs: 1200,
       }),
     ).rejects.toThrow(/health|timeout/i);
+  });
+
+  // The reported spin failure (869ecy81w follow-up): a service whose process
+  // dies before it ever becomes healthy — e.g. `node server.mjs` where the file
+  // does not exist — surfaced ONLY "the process exited with code 1 before it
+  // became healthy. See the log: <path>", so the user had to open the log to
+  // learn the actual reason (MODULE_NOT_FOUND). The error must now carry the
+  // service's own output, bounded, so the cause is visible in the toast itself.
+  it('surfaces the process log tail when the service exits before becoming healthy', async () => {
+    const port = nextPort();
+    await expect(
+      startHot(store, {
+        ticketId: 1,
+        service: 'backend',
+        command: process.execPath,
+        args: [join(dir, 'exit.mjs')],
+        cwd: dir,
+        repoPath: dir,
+        env: { PORT: String(port) },
+        host: '127.0.0.1',
+        port,
+        healthUrl: `http://127.0.0.1:${port}/health`,
+        logPath: join(dir, 'svc.log'),
+      }),
+    ).rejects.toThrow(/Cannot find module server\.mjs/);
+  });
+
+  it('bounds the surfaced log tail so a runaway service cannot blow up the error', async () => {
+    const port = nextPort();
+    let message = '';
+    try {
+      await startHot(store, {
+        ticketId: 1,
+        service: 'backend',
+        command: process.execPath,
+        args: [join(dir, 'huge-exit.mjs')],
+        cwd: dir,
+        repoPath: dir,
+        env: { PORT: String(port) },
+        host: '127.0.0.1',
+        port,
+        healthUrl: `http://127.0.0.1:${port}/health`,
+        logPath: join(dir, 'svc.log'),
+      });
+    } catch (err) {
+      message = err instanceof Error ? err.message : String(err);
+    }
+
+    // The bound keeps the whole message small (no 250 KB log in a toast)…
+    expect(message.length).toBeLessThan(10_000);
+    // …but still carries the LAST line, which is where the cause is.
+    expect(message).toMatch(/the real error at the very end/);
+    expect(message).not.toMatch(/filler line 0/);
+  });
+
+  // The same diagnostic, on the OTHER failure shape: the process stays up but
+  // never answers the health URL (a slow build, a wrong port in config). The
+  // timeout message used to name only the URL and the window; a service that
+  // printed its own reason ("listening on 1337, not the allocated 5000") was
+  // invisible. The log tail makes the timeout explain itself.
+  it('surfaces the process log tail when health never passes', async () => {
+    const port = nextPort();
+    const logPath = join(dir, 'svc.log');
+    await expect(
+      startHot(store, {
+        ticketId: 1,
+        service: 'backend',
+        command: process.execPath,
+        args: [join(dir, 'stuck.mjs')],
+        cwd: dir,
+        repoPath: dir,
+        env: { PORT: String(port) },
+        host: '127.0.0.1',
+        port,
+        healthUrl: `http://127.0.0.1:${port}/health`,
+        logPath,
+        healthTimeoutMs: 1200,
+      }),
+    ).rejects.toThrow(/listening on 1337, not the allocated/);
   });
 
   // A foreign process on the port answers /health, so health alone cannot tell

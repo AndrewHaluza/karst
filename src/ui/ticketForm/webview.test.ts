@@ -915,10 +915,12 @@ describe('ticket-form webview.html — selects, buttons, positioning fixes', () 
     const render = functionSource('renderAgentIdentityPicker');
     expect(render).toContain('mountAgentPicker(root, {');
     expect(render).toContain('catalog: lastModelCatalog');
+    expect(render).toContain('recent: lastRecentModels');
     expect(render).toContain('lastDefaultProvider');
     // The cascade needs the pushed default + session lock to render honestly.
     const main = functionSource('render');
     expect(main).toContain('lastModelCatalog = state.modelCatalog');
+    expect(main).toContain('lastRecentModels = state.recentModels');
     expect(main).toContain('lastDefaultModel = state.defaultModel');
     expect(main).toContain('lastDefaultEffort = state.defaultEffort');
   });

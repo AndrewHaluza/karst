@@ -3,6 +3,7 @@ import type { StageKey } from '../model/types.js';
 import type { Manifest } from '../manifest/types.js';
 import type { DriveProcessBundle } from '../agent/processAssignment.js';
 import type { TesterGateRunner } from './uat/testerVerifier.js';
+import type { HeadlessOutputChunk } from '../agent/headlessSpawn.js';
 import type { InsideProgressEvent } from '../model/inside/progress.js';
 import { getTicket } from '../store/tickets.js';
 import {
@@ -165,6 +166,14 @@ export interface DriveTicketDeps {
    * pre-redesign behavior.
    */
   onInsideProgress?: (event: InsideProgressEvent) => void;
+  /**
+   * The host seam for a gate-lane AI process's LIVE output (Task 13): the
+   * Tester's and findings lane's headless CLI calls stream decoded chunks here
+   * as they arrive. RAW untrusted CLI prose — the host that surfaces it (the
+   * console tail) must bound and sanitize it. Absent → no live chunks; the
+   * settled output still lands in the process run/observations as before.
+   */
+  onAgentOutput?: (ticketId: number, processId: 'tester' | 'review', chunk: HeadlessOutputChunk) => void;
 }
 
 /**
@@ -259,6 +268,42 @@ export async function driveTicket(
                   },
                 });
               },
+              // Task 13: the Tester's headless output streams to the host's
+              // console tail, and each target's progress rides the same
+              // inside-progress overlay the gates use (the row stays 'run'
+              // while more targets remain — the completed row is the
+              // per-target outcome, never a terminal verdict). Debug lines
+              // name the event and its size, never the CLI prose itself.
+              onTesterOutput: (chunk) => {
+                deps.debug?.(
+                  `[driver] ticket ${id} tester output ${chunk.stream} +${chunk.text.length} chars`,
+                );
+                deps.onAgentOutput?.(id, 'tester', chunk);
+              },
+              onTesterTargetProgress: (event) => {
+                if (event.status === 'active') {
+                  deps.onInsideProgress?.({
+                    kind: 'active',
+                    ticketId: id,
+                    stage: 'uat',
+                    processId: 'tester',
+                    live: { status: 'run', label: event.repo.slice(0, 200) },
+                  });
+                } else {
+                  deps.onInsideProgress?.({
+                    kind: 'completed',
+                    ticketId: id,
+                    stage: 'uat',
+                    process: {
+                      id: 'tester',
+                      kind: 'tester',
+                      label: 'Tester',
+                      status: 'run',
+                      detail: `${event.repo.slice(0, 120)} — ${(event.detail ?? 'done').slice(0, 80)}`,
+                    },
+                  });
+                }
+              },
             },
             { tester, runVerifier: deps.runVerifier },
           );
@@ -305,6 +350,42 @@ export async function driveTicket(
                         : `gate ${name} — exit ${exitCode}`,
                   },
                 });
+              },
+              // Task 13: the findings lane's headless output streams to the
+              // host's console tail, and each target's progress rides the same
+              // inside-progress overlay the gates use (the row stays 'run'
+              // while more targets remain — the completed row is the
+              // per-target outcome, never a terminal verdict). Debug lines
+              // name the event and its size, never the CLI prose itself.
+              onFindingsOutput: (chunk) => {
+                deps.debug?.(
+                  `[driver] ticket ${id} review output ${chunk.stream} +${chunk.text.length} chars`,
+                );
+                deps.onAgentOutput?.(id, 'review', chunk);
+              },
+              onFindingsTargetProgress: (event) => {
+                if (event.status === 'active') {
+                  deps.onInsideProgress?.({
+                    kind: 'active',
+                    ticketId: id,
+                    stage: 'review',
+                    processId: 'review',
+                    live: { status: 'run', label: event.repo.slice(0, 200) },
+                  });
+                } else {
+                  deps.onInsideProgress?.({
+                    kind: 'completed',
+                    ticketId: id,
+                    stage: 'review',
+                    process: {
+                      id: 'review',
+                      kind: 'review',
+                      label: 'Review',
+                      status: 'run',
+                      detail: `${event.repo.slice(0, 120)} — ${(event.detail ?? 'done').slice(0, 80)}`,
+                    },
+                  });
+                }
               },
             },
             {

@@ -509,6 +509,16 @@ describe('openStore', () => {
     expect(cols).toContain('skipped');
   });
 
+  it('carries the v44 provider-native priority column', () => {
+    const store = openStore(':memory:');
+    cleanups.push(() => store.close());
+    const cols = store.db
+      .prepare("PRAGMA table_info('tickets')")
+      .all()
+      .map((r) => (r as { name: string }).name);
+    expect(cols).toContain('priority');
+  });
+
   it('carries the v44 per-ticket effort column', () => {
     const store = openStore(':memory:');
     cleanups.push(() => store.close());
@@ -2208,5 +2218,34 @@ expect(migrated.db.pragma('user_version', { simple: true })).toBe(44);
       { key: 'PROJ-1-fu2', title: 'Ship the thing' }, // nested prefix stripped fully
       { key: 'PROJ-2', title: 'Follow-up: a real task title' }, // not a follow-up
     ]);
+  });
+
+  it('v44 adds the provider-native priority column without backfilling a value', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'v44-'));
+    const path = join(dir, 'test.db');
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+
+    // Seed a current-shape DB, then roll its version back so the v44 step fires.
+    const seeded = openStore(path);
+    createTicket(seeded, { key: 'PROJ-1', title: 'thing' });
+    seeded.db.pragma('user_version = 43');
+    seeded.close();
+
+    const migrated = openStore(path);
+    cleanups.push(() => migrated.close());
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(44);
+
+    const cols = new Set(
+      (migrated.db.prepare("PRAGMA table_info('tickets')").all() as { name: string }[]).map(
+        (c) => c.name,
+      ),
+    );
+    expect(cols.has('priority')).toBe(true);
+    // Nothing is backfilled: a pre-v44 ticket has no provider priority to derive,
+    // so it stays NULL and reads as "the provider never said".
+    const row = migrated.db
+      .prepare('SELECT priority FROM tickets WHERE key = ?')
+      .get('PROJ-1') as { priority: string | null };
+    expect(row.priority).toBeNull();
   });
 });

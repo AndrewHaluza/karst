@@ -23,6 +23,7 @@
 import type { Store } from '../../store/db.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
 import type { ProcessAssignmentSnapshot } from '../../agent/processAssignment.js';
+import type { HeadlessOutputChunk } from '../../agent/headlessSpawn.js';
 import type { Severity } from '../../manifest/types.js';
 import { GATE_LANE_HEADLESS_TIMEOUT_MS } from '../../agent/headlessSpawn.js';
 import { openProcessRun, finishProcessRun } from '../../store/processRuns.js';
@@ -70,6 +71,21 @@ export interface RunUatTesterOpts {
    */
   timeoutMs?: number;
   warn?: WarnFn;
+  /**
+   * Live-output hook, forwarded verbatim to every `adapter.runHeadless` call
+   * (each target asks its own call). RAW untrusted CLI prose — the caller
+   * that surfaces it (the console tail) must bound and sanitize it. Absent →
+   * no live chunks; the observations still parse from the settled output.
+   */
+  onOutput?: (chunk: HeadlessOutputChunk) => void;
+  /**
+   * Per-target progress (Task 13 mirror): called before each target's call
+   * (`status: 'active'`) and after it returns (`status: 'completed'`, with a
+   * one-line detail naming what came back). Lets the host push the same
+   * inside-progress overlay the gates use, so the dashboard header tracks a
+   * multi-target Tester run even with the console closed. Absent → no events.
+   */
+  onTargetProgress?: (event: { repo: string; status: 'active' | 'completed'; detail?: string }) => void;
   /**
    * Verbose decision-point logging (§ debug logging), prefixed `[gate]` — the
    * Tester is part of the UAT stage flow, so its lines ride the same stream
@@ -212,12 +228,14 @@ export async function runUatTester(
         `[gate] uat tester ticket ${opts.ticketId}: asking target ${target.repo} ` +
           `(worktree ${target.worktreePath})`,
       );
+      opts.onTargetProgress?.({ repo: target.repo, status: 'active' });
       const result = await opts.adapter.runHeadless({
         prompt: buildTesterPrompt(target, opts.assignment.instructions),
         cwd: target.worktreePath,
         model: opts.assignment.model,
         signal: opts.signal,
         timeoutMs: opts.timeoutMs ?? GATE_LANE_HEADLESS_TIMEOUT_MS,
+        onOutput: opts.onOutput,
         tracking: {
           callSite: 'uat-tester',
           ticketId: opts.ticketId,
@@ -249,6 +267,11 @@ export async function runUatTester(
         `[gate] uat tester ticket ${opts.ticketId}: target ${target.repo} returned ` +
           `${parsed.length} observation(s)`,
       );
+      opts.onTargetProgress?.({
+        repo: target.repo,
+        status: 'completed',
+        detail: `${parsed.length} observation${parsed.length === 1 ? '' : 's'}`,
+      });
       collected.push(...parsed);
     }
     if (opts.signal?.aborted) {

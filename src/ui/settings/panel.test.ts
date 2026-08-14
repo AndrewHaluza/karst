@@ -41,6 +41,7 @@ function make(
   loaded: LoadedManifest,
   hasToken: () => Promise<boolean> = async () => false,
   modelCatalog: () => ModelCatalog = () => REMOTE_MODELS,
+  recentModels: () => Record<string, string[]> = () => ({}),
 ) {
   let panel!: FakePanel;
   const host = { createPanel: () => (panel = new FakePanel()) };
@@ -75,6 +76,10 @@ function make(
     undefined,
     undefined,
     modelCatalog,
+    undefined,
+    undefined,
+    undefined,
+    recentModels,
   );
   return { mgr, panel: () => panel };
 }
@@ -108,6 +113,33 @@ describe('SettingsManager', () => {
     await mgr.open();
     const state = panel().posted.find((m) => m.type === 'state') as any;
     expect(state.state.models).toEqual(REMOTE_MODELS);
+  });
+
+  it('pushes the recently used models for the picker\'s "Last used" group', async () => {
+    const { mgr, panel } = make(
+      { manifest: M, error: null },
+      undefined,
+      () => REMOTE_MODELS,
+      () => ({ claude: ['claude-sonnet-5', 'claude-opus-5'] }),
+    );
+    await mgr.open();
+    const state = panel().posted.find((m) => m.type === 'state') as any;
+    expect(state.state.recentModels).toEqual({ claude: ['claude-sonnet-5', 'claude-opus-5'] });
+  });
+
+  it('carries recent models on the models refresh', async () => {
+    const { mgr, panel } = make(
+      { manifest: M, error: null },
+      undefined,
+      () => REMOTE_MODELS,
+      () => ({ codex: ['gpt-5.6-sol'] }),
+    );
+    await mgr.open();
+    panel().posted.length = 0;
+    await mgr.refreshModels();
+    const refresh = panel().posted[0] as any;
+    expect(refresh.type).toBe('models');
+    expect(refresh.recentModels).toEqual({ codex: ['gpt-5.6-sol'] });
   });
 
   it('refreshes the live panel from the current catalog', async () => {

@@ -683,6 +683,14 @@ export interface InsideProcessView {
   tokens?: TokenUsageView;
   evidence?: ProcessEvidenceView;
   action?: TypedInsideAction;
+  /**
+   * Whether this process offers the terminal console view (a gate-lane AI
+   * process — the UAT Tester or the Review findings lane — that has a recorded
+   * run, and therefore a persisted output tail). Host-derived: the webview
+   * renders the console button ONLY from this flag and never guesses
+   * availability (UI-R31). Absent → no console entry.
+   */
+  console?: boolean;
 }
 
 /**

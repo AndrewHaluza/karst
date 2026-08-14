@@ -252,18 +252,22 @@ describe('dashboard webview.html', () => {
     expect(track).not.toMatch(/=== 'ship'|'pending'/);
   });
 
-  it('makes the needs-you control act for confirm ship and a single merge, navigate otherwise', () => {
+  it('makes the needs-you control act for confirm ship, a single merge, and a single conflict, navigate otherwise', () => {
     // The HOST decides what the control does (`s.needs.cta`), never the webview
     // deriving it from the label. The acting kinds carry `data-act` so the
     // generic delegated handler gives them the same pending lifecycle as the
-    // header's Confirm ship and the PR panel's Merge — the host's confirmation
-    // still guards the irreversible step. The navigational kinds keep
-    // `data-goto data-go` and gotoAction() scrolls to the owning control.
+    // header's Confirm ship, the PR panel's Merge and its Resolve conflicts
+    // button — the host's confirmation still guards the irreversible merge,
+    // and resolve-conflicts re-derives the brief from the store before handing
+    // it to a session. The navigational kinds keep `data-goto data-go` and
+    // gotoAction() scrolls to the owning control.
     expect(HTML).toContain('goButton(s.needs)');
     expect(HTML).toMatch(/cta\.kind === 'ship-confirm'/);
     expect(HTML).toMatch(/data-act="ship-ticket"/);
     expect(HTML).toMatch(/cta\.kind === 'merge'/);
     expect(HTML).toMatch(/data-act="merge-pr" data-repo="/);
+    expect(HTML).toMatch(/cta\.kind === 'resolve-conflicts'/);
+    expect(HTML).toMatch(/data-act="resolve-conflicts" data-repo="/);
     expect(HTML).toContain('data-goto data-go');
     expect(HTML).toMatch(/function gotoAction\(kind\)/);
     const fn = HTML.slice(HTML.indexOf('function gotoAction(kind)'));
@@ -922,7 +926,7 @@ describe('dashboard webview.html', () => {
       '2px', '2px', '2px', '2px',
       '1px', '1px', '1px',
       '12px', '12px', '12px', '12px',
-      '4px', '4px', '4px', '4px', '4px'];
+      '4px', '4px', '4px', '4px', '4px', '4px'];
     // The ported Inside block is the ONE exempt region (see its own header
     // comment): it is the A37 prototype's geometry, scoped under `#inside`,
     // and its pixel values ARE the design. Its colours still go through
@@ -1105,6 +1109,18 @@ describe('dashboard webview.html', () => {
     expect(HTML).toMatch(/id="providerMark"/);
     // The key itself must NOT be the board link any more.
     expect(HTML).not.toMatch(/class="k-chip keypill/);
+  });
+
+  it('renders a read-only provider-native priority chip in the header', () => {
+    // The chip is a plain span on the shared pill shape (UI-R08), never a
+    // control: priority is a provider fact, not an action. It is hidden unless
+    // the ticket was fetched with one.
+    expect(HTML).toMatch(/id="priorityChip"/);
+    expect(HTML).toMatch(/prio\.hidden = !value;/);
+    expect(HTML).toMatch(/prio\.textContent = value;/);
+    expect(HTML).toMatch(/Priority: /);
+    // It must not be a button/anchor that would invite interaction.
+    expect(HTML).not.toMatch(/id="priorityChip"[^>]*data-act/);
   });
 
   it('previews ticket data through a real button + modal drawer, never a hover', () => {
@@ -2147,6 +2163,7 @@ function bootPreviewHarness(): PreviewHarness {
     'shipWait',
     'providerMark',
     'keyBtn',
+    'priorityChip',
     'boardLink',
     'ticketDataBtn',
     'ticketDataScrim',
@@ -3370,6 +3387,85 @@ describe('inside render round trip (executed in a VM)', () => {
     expect(html).toContain('<span class="glyph pass" aria-label="passed"></span>');
   });
 
+  it('renders per-round time and duration inside recovery evidence rows', () => {
+    const state = renderStateFor('uat');
+    const uat = { ...state.insideViews.uat };
+    uat.processes = [
+      ...uat.processes,
+      {
+        id: 'fix',
+        kind: 'fix',
+        label: 'Fix',
+        status: 'run',
+        evidence: {
+          kind: 'recovery',
+          rows: [
+            {
+              status: 'fail',
+              label: 'round 1',
+              detail: 'Fix started after UAT test failure · round 1 of 3',
+              time: '11:44:12 PM',
+              duration: '1m 15s',
+              durationExact: '75.000s',
+            },
+            {
+              status: 'run',
+              label: 'round 2',
+              detail: 'Fix started after UAT test failure · round 2 of 3',
+              time: '11:45:27 PM',
+              duration: '31.9s',
+              durationExact: '31.900s',
+            },
+          ],
+        },
+      },
+    ];
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: { ...state, insideViews: { ...state.insideViews, uat } } });
+    h.clickChevron('uat:fix');
+    const html = h.htmlOf('inside');
+    // Per-round timing renders in a dedicated .recovery-timing cell.
+    expect(html).toContain('class="recovery-timing"');
+    expect(html).toContain('11:44:12 PM');
+    expect(html).toContain('11:45:27 PM');
+    expect(html).toContain('<span class="ev-dur" title="75.000s">1m 15s</span>');
+    expect(html).toContain('<span class="ev-dur" title="31.900s">31.9s</span>');
+    // The glyph is still in the separate .recovery-result cell.
+    expect(html).toContain('<span class="glyph fail" aria-label="failed"></span>');
+    expect(html).toContain('<span class="glyph run" aria-label="running"></span>');
+  });
+
+  it('renders recovery rows without timing when time fields are absent', () => {
+    const state = renderStateFor('uat');
+    const uat = { ...state.insideViews.uat };
+    uat.processes = [
+      ...uat.processes,
+      {
+        id: 'fix',
+        kind: 'fix',
+        label: 'Fix',
+        status: 'run',
+        evidence: {
+          kind: 'recovery',
+          rows: [
+            { status: 'run', label: 'round 1', detail: 'Fix started after UAT test failure · round 1 of 2' },
+          ],
+        },
+      },
+    ];
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: { ...state, insideViews: { ...state.insideViews, uat } } });
+    h.clickChevron('uat:fix');
+    const html = h.htmlOf('inside');
+    // The timing cell is still present (structural), but empty — no ev-dur
+    // inside this specific recovery-timing span.
+    const timingIdx = html.lastIndexOf('class="recovery-timing"');
+    expect(timingIdx).toBeGreaterThan(-1);
+    const timingEnd = html.indexOf('</span>', timingIdx);
+    const timingCell = html.slice(timingIdx, timingEnd);
+    expect(timingCell).not.toContain('ev-dur');
+  });
+
   it('titles a duration with its exact span', () => {
     const state = renderStateFor('uat');
     const uat = { ...state.insideViews.uat };
@@ -3538,6 +3634,23 @@ describe('send back to implement (executed in a VM)', () => {
     expect(html).toMatch(/aria-expanded="false"/);
     // The item is inside the closed menu — it appears once the menu opens.
     expect(html).not.toContain('Send back to Implement');
+  });
+
+  it('renders the same menu on the ship header before landing', () => {
+    // The ship header hosts the recovery action in the exact same location —
+    // the acceptance criterion that the action is identical across uat/review/
+    // ship before any PR has merged.
+    const state: DashboardState = {
+      ...renderStateFor('ship'),
+      stageCurrent: 'ship',
+      presentedStage: 'ship',
+      sendBack: { available: true, stage: 'ship' },
+    };
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state });
+    expect(h.htmlOf('inside')).toMatch(/data-stage-menu="ship"/);
+    h.click('[data-stage-menu]', { 'stage-menu': 'ship' });
+    expect(h.htmlOf('inside')).toContain('Send back to Implement');
   });
 
   it('renders no menu when the host withholds the action', () => {
@@ -4516,6 +4629,79 @@ describe('terminal console view (VM)', () => {
     expect(h.htmlOf('termView')).toBe('');
   });
 
+  it('renders a Console button on the Tester and Review process rows (host-flagged p.console)', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: renderStateFor('uat') });
+    const inside = h.htmlOf('inside');
+    // The Tester row carries the console entry with its process id; the button
+    // is host-flagged (p.console), never guessed.
+    expect(inside).toMatch(/data-proc-id="uat:tester"[\s\S]*?data-act="console" data-console="uat" data-console-proc="tester"/);
+    h.receive({ type: 'state', state: renderStateFor('review') });
+    const reviewInside = h.htmlOf('inside');
+    expect(reviewInside).toMatch(/data-proc-id="review:review"[\s\S]*?data-act="console" data-console="review" data-console-proc="review"/);
+  });
+
+  it('opens the agent console and posts agent-log-request with the process', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: renderStateFor('uat') });
+    h.click('[data-act]', { act: 'console', console: 'uat', consoleProc: 'tester' });
+    expect(h.bodyClasses).toContain('term-nav');
+    expect(h.htmlOf('termView')).toContain('Console · Tester');
+    expect(h.posted).toContainEqual({ type: 'agent-log-request', processId: 'tester' });
+    expect(h.posted).not.toContainEqual({ type: 'stage-log-request', stage: 'uat' });
+  });
+
+  it('writes the agent-log ok content into the live terminal for that process', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: renderStateFor('uat') });
+    h.click('[data-act]', { act: 'console', console: 'uat', consoleProc: 'tester' });
+    h.receive({ type: 'agent-log', processId: 'tester', result: { kind: 'ok', content: '\x1b[33mwarn\x1b[0m\n', truncated: false } });
+    expect(h.terminals()[0]!.written).toBe('\x1b[33mwarn\x1b[0m\n');
+  });
+
+  it('drops an agent-log answer for a console showing a DIFFERENT process', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: renderStateFor('uat') });
+    h.click('[data-act]', { act: 'console', console: 'uat', consoleProc: 'tester' });
+    h.receive({ type: 'agent-log', processId: 'review', result: { kind: 'ok', content: 'other', truncated: false } });
+    expect(h.terminals()[0]!.written).toBe('');
+  });
+
+  it('streams agent-output chunks into the open process console', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: renderStateFor('uat') });
+    h.click('[data-act]', { act: 'console', console: 'uat', consoleProc: 'tester' });
+    // The host's guaranteed agent-log answer settles loading first.
+    h.receive({ type: 'agent-log', processId: 'tester', result: { kind: 'ok', content: 'start', truncated: false } });
+    h.receive({ type: 'agent-output', processId: 'tester', text: '\nstill running' });
+    expect(h.terminals()[0]!.written).toBe('start\nstill running');
+  });
+
+  it('buffers agent-output that races the initial tail and flushes it after the agent-log answer', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: renderStateFor('uat') });
+    h.click('[data-act]', { act: 'console', console: 'uat', consoleProc: 'tester' });
+    // A live chunk lands BEFORE the guaranteed agent-log answer: it must not
+    // be dropped, and it must not be written ahead of the persisted tail.
+    h.receive({ type: 'agent-output', processId: 'tester', text: 'raced' });
+    expect(h.terminals()[0]!.written).toBe('');
+    h.receive({ type: 'agent-log', processId: 'tester', result: { kind: 'ok', content: 'tail\n', truncated: false } });
+    expect(h.terminals()[0]!.written).toBe('tail\nraced');
+  });
+
+  it('ignores agent-output for a console showing a different process or no console', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: renderStateFor('uat') });
+    h.click('[data-act]', { act: 'console', console: 'uat', consoleProc: 'tester' });
+    h.receive({ type: 'agent-log', processId: 'tester', result: { kind: 'ok', content: 'start', truncated: false } });
+    h.receive({ type: 'agent-output', processId: 'review', text: 'wrong process' });
+    expect(h.terminals()[0]!.written).toBe('start');
+    // A process console is NOT a stage console: a stage-log answer for the same
+    // stage is dropped while the process console is open.
+    h.receive({ type: 'stage-log', stage: 'uat', result: { kind: 'ok', content: 'stage', truncated: false } });
+    expect(h.terminals()[0]!.written).toBe('start');
+  });
+
   it('renders a Console button only for stages the host flags (view.console)', () => {
     const h = bootPreviewHarness();
     const state = renderStateFor('uat');
@@ -4523,6 +4709,29 @@ describe('terminal console view (VM)', () => {
     expect((state.insideViews as Record<string, { console?: boolean }>).uat!.console).toBe(true);
     h.receive({ type: 'state', state });
     expect(h.htmlOf('inside')).toContain('data-act="console"');
+  });
+
+  it('renders no PROCESS console button when the process is not host-flagged (p.console absent)', () => {
+    const h = bootPreviewHarness();
+    const state = renderStateFor('uat');
+    // Flip the Tester row's host flag off: availability is host-derived, so
+    // the row renders its console button ONLY when the host shipped `console`.
+    const view = state.insideViews.uat;
+    const noProcConsole = {
+      ...state,
+      insideViews: {
+        ...state.insideViews,
+        uat: {
+          ...view,
+          processes: view.processes.map((p) => (p.id === 'tester' ? { ...p, console: false } : p)),
+        },
+      },
+    };
+    h.receive({ type: 'state', state: noProcConsole });
+    const inside = h.htmlOf('inside');
+    // The gates row keeps its stage console button; the Tester row's is gone.
+    expect(inside).toMatch(/data-proc-id="uat:gates"[\s\S]*?data-act="console"/);
+    expect(inside).not.toMatch(/data-proc-id="uat:tester"[\s\S]*?data-console-proc="tester"/);
   });
 
   it('sits in the GATES row description area, icon-only, never in the header (869e7n906-fu1)', () => {

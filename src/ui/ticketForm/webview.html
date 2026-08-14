@@ -768,6 +768,7 @@
     // state push follows the pick — without these the Model select would keep
     // the previous agent core's models until the next full render).
     lastModelCatalog = state.modelCatalog || lastModelCatalog;
+    lastRecentModels = state.recentModels || lastRecentModels;
     lastDefaultModel = state.defaultModel ?? null;
     lastDefaultEffort = state.defaultEffort ?? null;
     lastSessionOpen = state.sessionOpen === true;
@@ -1040,6 +1041,9 @@
   // repaint above — create mode has no state push to answer with). Mirrors the
   // host's modelsForProvider(catalog, provider): the page cannot import TS.
   let lastModelCatalog = { claude: [], codex: [], antigravity: [], opencode: [] };
+  // Last pushed recently-used models per provider (newest first, ≤5) for the
+  // shared picker's "Last used" group (model/agentPicker.ts `recent`).
+  let lastRecentModels = {};
   let lastDefaultModel = null;
   let lastDefaultEffort = null;
   let lastSessionOpen = false;
@@ -1066,6 +1070,7 @@
     const picker = mountAgentPicker(root, {
       cores: apCores,
       catalog: lastModelCatalog,
+      recent: lastRecentModels,
       value: { core: sel || defaultProvider || 'claude', model, effort },
       inherit: {
         core: 'Inherit (settings: ' + esc(coreLabel) + ')',

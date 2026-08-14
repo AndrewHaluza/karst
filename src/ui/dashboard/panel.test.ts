@@ -7,7 +7,7 @@ import { createTicket, updateTicketFields } from '../../store/tickets.js';
 import { setStage } from '../../store/stages.js';
 import { manifest, processes, runnableRepo } from '../../manifest/fixtures.js';
 import { openProcessRun, finishProcessRun } from '../../store/processRuns.js';
-import { DashboardManager, type PanelHost, type FakePanel, type StageLogReader } from './panel.js';
+import { DashboardManager, type PanelHost, type FakePanel, type StageLogReader, type AgentLogReader } from './panel.js';
 import { buildGraphInsideInput } from './graphInside.js';
 import { LIVE_TICK_MS } from './liveTick.js';
 import { ACTION_GRACE_MS } from './panel.js';
@@ -1182,7 +1182,7 @@ describe('DashboardManager', () => {
   });
 
   describe('stage log requests', () => {
-    const makeHarness = (opts: { stageLogReader?: StageLogReader }): {
+    const makeHarness = (opts: { stageLogReader?: StageLogReader; agentLogReader?: AgentLogReader }): {
       manager: DashboardManager;
       posts: (ticketId: number) => unknown[];
     } => {
@@ -1208,6 +1208,7 @@ describe('DashboardManager', () => {
         undefined, undefined, undefined, undefined, undefined, undefined, undefined,
         undefined, undefined, undefined, undefined,
         opts.stageLogReader,
+        opts.agentLogReader,
       );
       manager.openDashboard(7);
       return { manager, posts: (ticketId) => byTicket.get(ticketId)?.posted ?? [] };
@@ -1226,6 +1227,51 @@ describe('DashboardManager', () => {
         stage: 'uat',
         result: { kind: 'ok', content: 'gate output', truncated: false },
       });
+    });
+
+    it('posts the agent-log reader result to the ticket panel', () => {
+      const { manager, posts } = makeHarness({
+        agentLogReader: (ticketId, processId) =>
+          ticketId === 7 && processId === 'tester'
+            ? { kind: 'ok', content: 'tester tail', truncated: false }
+            : { kind: 'error', message: 'no log' },
+      });
+      manager.requestAgentLog(7, 'tester');
+      expect(posts(7)).toContainEqual({
+        type: 'agent-log',
+        processId: 'tester',
+        result: { kind: 'ok', content: 'tester tail', truncated: false },
+      });
+    });
+
+    it('posts an agent-log reader error result verbatim', () => {
+      const { manager, posts } = makeHarness({
+        agentLogReader: () => ({ kind: 'error', message: 'No console output has been recorded for this process yet.' }),
+      });
+      manager.requestAgentLog(7, 'review');
+      expect(posts(7)).toContainEqual({
+        type: 'agent-log',
+        processId: 'review',
+        result: { kind: 'error', message: 'No console output has been recorded for this process yet.' },
+      });
+    });
+
+    it('degrades agent-log to a named refusal when no reader is configured', () => {
+      const { manager, posts } = makeHarness({});
+      manager.requestAgentLog(7, 'tester');
+      expect(posts(7)).toContainEqual({
+        type: 'agent-log',
+        processId: 'tester',
+        result: { kind: 'error', message: 'No console log source is configured.' },
+      });
+    });
+
+    it('posts a live agent-output chunk only to an OPEN panel', () => {
+      const { manager, posts } = makeHarness({});
+      manager.postAgentOutput(7, 'tester', 'live chunk');
+      expect(posts(7)).toContainEqual({ type: 'agent-output', processId: 'tester', text: 'live chunk' });
+      expect(() => manager.postAgentOutput(999, 'tester', 'x')).not.toThrow();
+      expect(posts(999)).toEqual([]);
     });
 
     it('posts a reader error result verbatim (UI-R13: the answer is the outcome)', () => {

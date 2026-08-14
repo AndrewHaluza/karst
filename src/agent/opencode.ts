@@ -290,7 +290,11 @@ function extractSessionId(input) {
   const direct = stringOf(input.sessionID);
   if (direct) return direct;
   const session = asRecord(input.session);
-  if (session) return stringOf(session.id);
+  const sessionId = session ? stringOf(session.id) : '';
+  if (sessionId) return sessionId;
+  // 'session.created' nests the Session under 'properties.info' (the SDK's
+  // EventSessionCreated) — the ONLY opencode event that delivers the
+  // interactive session id, and thus the capture step of resume-by-id (§5.3).
   const info = asRecord(input.info);
   return info ? stringOf(info.id) : '';
 }
@@ -302,11 +306,12 @@ function extractCwd(input, directory, worktree) {
     const session = asRecord(input.session);
     const sessionDir = session ? stringOf(session.dir) : '';
     if (sessionDir) return sessionDir;
+    const eventDir = stringOf(input.directory);
+    if (eventDir) return eventDir;
+    // 'session.created' nests the Session under 'properties.info' too.
     const info = asRecord(input.info);
     const infoDir = info ? stringOf(info.directory) : '';
     if (infoDir) return infoDir;
-    const eventDir = stringOf(input.directory);
-    if (eventDir) return eventDir;
   }
   // The plugin input's directory/worktree IS the session's launch cwd — the
   // same path the hook endpoint keys tickets on (events rarely carry it).
@@ -437,8 +442,15 @@ export const KarstBridge = async ({ directory, worktree }) => {
         // the round stays pending, never fixing, and the stranded-fix sweep
         // parks the stage "no fix execution in flight" while the agent is
         // actually working. Normalized to karst's own closed vocabulary, the
-        // same way the agy conversation watch synthesizes a SessionStart.
-        post('SessionStart', input, directory, worktree);
+        // same way the agy conversation watch synthesizes a SessionStart. It
+        // is also the resume-by-id capture step (§5.3, investigation #217):
+        // POSTing SessionStart persists 'tickets.session_id' so a later launch
+        // can '--session' the same conversation. The id is the point of the
+        // event, so a created event that carries none is dropped (post() would
+        // otherwise still fire on the fallback cwd).
+        if (extractSessionId(input)) {
+          post('SessionStart', input, directory, worktree);
+        }
       } else if (type === 'session.idle') {
         // The usage update is sequenced AFTER the lifecycle post settles so the
         // endpoint sees one session event then its tokens — never reordered.
@@ -527,21 +539,22 @@ function writeKarstBridge(cwd: string, endpointUrl: string): string {
 export class OpencodeAdapter implements AgentAdapter {
   readonly requiredBinary = OPENCODE_BIN;
   // lifecycleEvents is gated on the generated `.opencode/plugins/karst-bridge.js`
-  // (Task 7): opencode has no CLI hook flag, so the plugin IS the channel. It
-  // ships ONCE the channel is proven; `resume` stays false — the TUI has no
-  // launch-time resume flag, and headless resume runs via `--session`.
+  // (Task 7): opencode has no CLI hook flag, so the plugin IS the channel. The
+  // plugin captures the interactive session id from `session.created` and posts
+  // SessionStart, and the TUI accepts `-s/--session <id>` to continue it — so
+  // resume is real (verified against opencode 1.18.18, investigation #217).
   readonly capabilities: AgentCapabilities = {
     lifecycleEvents: true,
-    resume: false,
+    resume: true,
     interactiveUsage: true,
   };
 
   constructor(private readonly spawnHeadless: SpawnHeadless = defaultSpawn) {}
 
-  // `opts.sessionName` and `opts.resume` are deliberately dropped: the opencode
-  // TUI has no launch-time session-name flag and no interactive resume flag, so
-  // a resume id passed despite `resume:false` is ignored rather than emitted as
-  // an unsupported `-s` against a TUI that would hang on a nonexistent session.
+  // `opts.sessionName` is deliberately dropped: the opencode TUI has no
+  // launch-time session-name flag. `opts.resume` IS threaded as `--session`
+  // (the TUI's continue flag, verified against the installed CLI) — without it
+  // a captured id would never be applied to the launch.
   buildInteractiveCommand(
     opts: InteractiveCommandOpts,
   ): InteractiveCommand {
@@ -559,6 +572,10 @@ export class OpencodeAdapter implements AgentAdapter {
       // isolated from the user's own plugins.
       const pluginPath = writeKarstBridge(opts.cwd, opts.hookChannel.endpointUrl);
       ownedPaths = [pluginPath];
+    }
+    if (opts.resume && opts.resume.length > 0) {
+      // Continue a previously-captured session instead of a cold start (§5.3).
+      args.push('--session', opts.resume);
     }
     if (opts.model) args.push('--model', opts.model);
     if (opts.effort) args.push('--variant', opts.effort);
@@ -743,6 +760,7 @@ export class OpencodeAdapter implements AgentAdapter {
       timeoutMs: opts.timeoutMs,
       onDebug: opts.debug,
       onSpawned: opts.onSpawned,
+      onOutput: opts.onOutput,
     });
     if (result.exitCode !== 0) {
       opts.debug?.(

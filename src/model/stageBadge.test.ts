@@ -32,6 +32,7 @@ function ticket(
     type: null,
     projectId: null,
     parentTicketId: null,
+    priority: null,
     stages: stageCurrent
       ? [
           {

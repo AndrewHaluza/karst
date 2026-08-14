@@ -303,7 +303,7 @@ async function generateDescription(
       ticketId,
       stage: 'ship',
       process: {
-        id: 'pr-description',
+        id: 'pr',
         kind: 'pr-description',
         label: 'Pull request description',
         status: 'pass',
@@ -319,7 +319,7 @@ async function generateDescription(
       ticketId,
       stage: 'ship',
       process: {
-        id: 'pr-description',
+        id: 'pr',
         kind: 'pr-description',
         label: 'Pull request description',
         status: 'fail',

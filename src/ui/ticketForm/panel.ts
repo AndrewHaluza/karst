@@ -159,6 +159,13 @@ export class TicketFormManager {
      * nothing until `bindTicket` gives it a ticket. Absent → no report.
      */
     private readonly onViewActivated?: (ticketId: number, active: boolean) => void,
+    /**
+     * The models most recently used per provider (newest first, ≤5) for the
+     * shared picker's "Last used" group. Injected like `modelCatalog` — the
+     * host computes it from the append-only token-usage ledger
+     * (`store/tokenUsage.ts` `listRecentlyUsedModels`).
+     */
+    private readonly recentModels: () => Record<string, string[]> = () => ({}),
   ) {}
 
   /**
@@ -229,6 +236,7 @@ export class TicketFormManager {
         this.modelCatalog(),
         this.storageDir,
         pickerTouched,
+        this.recentModels(),
       );
       // The state builder emits filesystem paths; only the panel can turn one
       // into a URI the webview is allowed to load. Mapped here, at the last

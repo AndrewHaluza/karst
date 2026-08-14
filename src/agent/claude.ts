@@ -307,6 +307,7 @@ export class ClaudeAdapter implements AgentAdapter {
       timeoutMs: opts.timeoutMs,
       onDebug: opts.debug,
       onSpawned: opts.onSpawned,
+      onOutput: opts.onOutput,
     });
     if (r.exitCode !== 0) {
       opts.debug?.(

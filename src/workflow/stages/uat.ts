@@ -4,6 +4,7 @@ import type { Store } from '../../store/db.js';
 import type { StageRunResult } from '../../model/types.js';
 import type { Manifest, UatConfig } from '../../manifest/types.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
+import type { HeadlessOutputChunk } from '../../agent/headlessSpawn.js';
 import type { ProcessAssignmentSnapshot } from '../../agent/processAssignment.js';
 import type { GateRunInput } from '../../store/gateRuns.js';
 import { commitGateOutcome, type RunOutcome, type RecoveryTriggerInput } from '../gates/commit.js';
@@ -65,6 +66,22 @@ export interface RunUatOpts {
   onGateComplete?: (gateName: string, exitCode: number | null) => void;
   /** Called before each gate's work begins, with the gate's name. */
   onGateStart?: (gateName: string) => void;
+  /**
+   * Live-output hook for the Tester's headless calls (Task 13): forwarded
+   * verbatim into `runUatTester`. RAW untrusted CLI prose — the host that
+   * surfaces it must bound and sanitize it. Absent → no live chunks.
+   */
+  onTesterOutput?: (chunk: HeadlessOutputChunk) => void;
+  /**
+   * Per-target Tester progress (Task 13 mirror): forwarded verbatim into
+   * `runUatTester` so the host can push the same inside-progress overlay the
+   * gates use. Absent → no events.
+   */
+  onTesterTargetProgress?: (event: {
+    repo: string;
+    status: 'active' | 'completed';
+    detail?: string;
+  }) => void;
   /**
    * Verbose decision-point logging (§ debug logging), prefixed `[gate]`.
    * Absent → no debug lines; the host binds it to `Logger.debug` (a no-op
@@ -494,6 +511,8 @@ export async function runUat(
         signal: opts.signal,
         warn: deps.warn,
         debug: opts.debug,
+        onOutput: opts.onTesterOutput,
+        onTargetProgress: opts.onTesterTargetProgress,
       },
       { now },
     );
