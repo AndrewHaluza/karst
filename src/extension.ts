@@ -3334,7 +3334,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const tr = graphTransport;
     if (!gs || !tr) return undefined;
     const node = gs.db
-      .prepare('SELECT ticket_id FROM approach_node_runs WHERE id = ?')
+      .prepare('SELECT gr.ticket_id FROM approach_node_runs nr JOIN approach_graph_runs gr ON gr.id = nr.graph_run_id WHERE nr.id = ?')
       .get(runId) as { ticket_id: number } | undefined;
     if (node) return tr.sessionFor(node.ticket_id, runId);
     // A bootstrap planner run lives in `approach_planner_runs`, not the node
