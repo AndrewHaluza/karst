@@ -4095,56 +4095,36 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   /** Attach the planner-submit-on-close handler: when the planner's terminal
    *  closes, run `karst graph submit` on its behalf and drive the run. */
   const attachPlannerSubmitOnClose = (
-    session: { terminal?: { onDidClose(handler: (exitCode?: number) => void): void; dispose(): void } },
+    session: { terminal?: { onDidClose(handler: (exitCode?: number) => void): void } },
     graphRunId: number,
   ): void => {
-    let submitted = false;
-    const submit = async () => {
-      if (submitted) return;
-      submitted = true;
-      const identity = graphLaunchIdentities.get(graphRunId);
-      if (!identity) return;
-      const env: Record<string, string | undefined> = {
-        KARST_GRAPH_PROJECT: String(currentProject()?.id ?? 0),
-        KARST_TICKET_ID: String(identity.ticketId),
-        KARST_GRAPH_RUN_ID: String(identity.graphRunId),
-        KARST_LAUNCH_ID: String(identity.plannerRunId),
-        KARST_GRAPH_GENERATION: identity.generation,
-        KARST_GRAPH_CAPABILITY: identity.capability,
-        KARST_GRAPH_ARTIFACT_ROOT: graphArtifactRoot(identity.graphRunId),
-      };
-      try {
-        const out = runGraphCommand(graphCoordinatorStore!, env, ['graph', 'submit']);
-        const parsed = JSON.parse(out) as { ok: boolean; rejected?: string; reason?: string };
-        if (!parsed.ok) {
-          logger.warn(
-            `karst: graph submit rejected (${parsed.rejected ?? 'unknown'}) — ${parsed.reason ?? ''}`,
-          );
+    session.terminal?.onDidClose(() => {
+      void (async () => {
+        const identity = graphLaunchIdentities.get(graphRunId);
+        if (!identity) return;
+        const env: Record<string, string | undefined> = {
+          KARST_GRAPH_PROJECT: String(currentProject()?.id ?? 0),
+          KARST_TICKET_ID: String(identity.ticketId),
+          KARST_GRAPH_RUN_ID: String(identity.graphRunId),
+          KARST_LAUNCH_ID: String(identity.plannerRunId),
+          KARST_GRAPH_GENERATION: identity.generation,
+          KARST_GRAPH_CAPABILITY: identity.capability,
+          KARST_GRAPH_ARTIFACT_ROOT: graphArtifactRoot(identity.graphRunId),
+        };
+        try {
+          const out = runGraphCommand(graphCoordinatorStore!, env, ['graph', 'submit']);
+          const parsed = JSON.parse(out) as { ok: boolean; rejected?: string; reason?: string };
+          if (!parsed.ok) {
+            logger.warn(
+              `karst: graph submit rejected (${parsed.rejected ?? 'unknown'}) — ${parsed.reason ?? ''}`,
+            );
+          }
+        } catch (err) {
+          logError('karst: graph submit on planner close failed', err);
         }
-      } catch (err) {
-        logError('karst: graph submit on planner close failed', err);
-      }
-      await driveGraphRunContinuation(graphRunId);
-      // Force-close the terminal if the CLI did not exit on its own.
-      session.terminal?.dispose();
-    };
-    session.terminal?.onDidClose(() => { void submit(); });
-    // Watchdog: poll for graph.json in the artifact root. The opencode TUI
-    // prints its summary but stays interactive — onDidClose never fires.
-    // When graph.json appears, the planner is done and we can close.
-    const root = graphArtifactRoot(graphRunId);
-    if (root) {
-      const graphJsonPath = join(root, 'graph.json');
-      const watchdog = setInterval(() => {
-        if (submitted) { clearInterval(watchdog); return; }
-        if (existsSync(graphJsonPath)) {
-          clearInterval(watchdog);
-          void submit();
-        }
-      }, 3000);
-      // Safety cap: stop polling after 15 minutes to avoid leaking.
-      setTimeout(() => clearInterval(watchdog), 15 * 60 * 1000);
-    }
+        await driveGraphRunContinuation(graphRunId);
+      })();
+    });
   };
 
   /** Launch the elected replan planner (Slice-4 T5): the election produced a
@@ -4158,7 +4138,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       base === undefined ? '# Graph Replanner' : new TextDecoder().decode(base),
       launch.ticketContext,
       `Replan the graph (superseding revision ${launch.priorRevisionNumber}). The replan reasons and prior plan evidence are under the artifact root: ${launch.reasonsSnapshotPath}.`,
-      'Write the new graph.json and finish your session — karst compiles and runs the graph after you close.',
+      'Write the new graph.json and exit immediately — karst compiles and runs the graph after you close. Do not wait for further input.',
     ].join('\n\n');
     const wt = listWorktreesByTicket(localStore, graphRunTicketId(launch.graphRunId))[0];
     const result = await launchReplanPlanner(graphDriverDeps(), {
@@ -4204,7 +4184,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const prompt = [
       base === undefined ? '# Graph Planner' : new TextDecoder().decode(base),
       launch.ticketContext,
-      'Write your plan artifacts and `graph.json` under the artifact root (env `KARST_GRAPH_ARTIFACT_ROOT`), then finish your session — karst compiles and runs the graph after you close.',
+      'Write your plan artifacts and `graph.json` under the artifact root (env `KARST_GRAPH_ARTIFACT_ROOT`), then exit immediately — karst compiles and runs the graph after you close. Do not wait for further input.',
     ].join('\n\n');
     const wt = listWorktreesByTicket(localStore, graphRunTicketId(launch.graphRunId))[0];
     const result = await launchReplanPlanner(graphDriverDeps(), {

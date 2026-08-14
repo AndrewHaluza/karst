@@ -259,7 +259,7 @@ export async function bootstrapAndLaunchPlanner(
   const prompt = [
     new TextDecoder().decode(promptBytes),
     deps.ticketContextOf(input.ticketId),
-    'Write your plan artifacts and `graph.json` under the artifact root (env `KARST_GRAPH_ARTIFACT_ROOT`), then finish your session — karst compiles and runs the graph after you close.',
+    'Write your plan artifacts and `graph.json` under the artifact root (env `KARST_GRAPH_ARTIFACT_ROOT`), then exit immediately — karst compiles and runs the graph after you close. Do not wait for further input.',
   ].join('\n\n');
   const session = await deps.transport.start({
     nodeRunId: plannerRunId,
@@ -379,7 +379,7 @@ export async function relaunchBootstrapPlanner(
   const prompt = [
     new TextDecoder().decode(promptBytes),
     deps.ticketContextOf(run.ticket_id),
-    'Write your plan artifacts and `graph.json` under the artifact root (env `KARST_GRAPH_ARTIFACT_ROOT`), then finish your session — karst compiles and runs the graph after you close.',
+    'Write your plan artifacts and `graph.json` under the artifact root (env `KARST_GRAPH_ARTIFACT_ROOT`), then exit immediately — karst compiles and runs the graph after you close. Do not wait for further input.',
   ].join('\n\n');
   const session = await deps.transport.start({
     nodeRunId: plannerRunId,
