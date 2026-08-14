@@ -610,7 +610,36 @@ describe('process-run attribution', () => {
     // rides beside the total, and the estimate's tokens never enter it.
     expect(summarizeRecordedTokenUsageForProcess(store, 1, 'review')).toEqual({
       total: 150,
+      cacheRead: 0,
       estimatedCalls: 1,
+    });
+  });
+
+  it('carries measured cache reads beside the total, so the display can headline fresh spend', () => {
+    ticket(1, 'K-1', 'One');
+    const r = run();
+    recordTokenUsage(store, {
+      projectId: null,
+      ticketId: 1,
+      processRunId: r.id,
+      callSite: 'implementation',
+      provider: 'opencode',
+      outcome: 'ok',
+      usage: {
+        inputTokens: 215_929,
+        outputTokens: 4_114,
+        reasoningTokens: 0,
+        cacheReadTokens: 3_704_064,
+        cacheWriteTokens: 0,
+        totalTokens: 3_924_107,
+        model: null,
+        estimated: false,
+      },
+    });
+    expect(summarizeRecordedTokenUsageForProcess(store, 1, 'review')).toEqual({
+      total: 3_924_107,
+      cacheRead: 3_704_064,
+      estimatedCalls: 0,
     });
   });
 

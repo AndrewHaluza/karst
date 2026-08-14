@@ -82,10 +82,19 @@ export interface UsageTicketRowView {
 
 export interface UsageTotalsView {
   calls: number;
+  /**
+   * FRESH spend — input, output, reasoning and cache WRITES. Cache READS are
+   * their own tile: they are context the provider re-sent and re-charged at a
+   * fraction of the fresh rate, and on a long session they are the great
+   * majority of the raw tally, so a headline that sums them reported an
+   * ordinary conversation as a runaway one.
+   */
   totalDisplay: string;
   totalExact: string;
   inputDisplay: string;
   outputDisplay: string;
+  /** v45: reasoning tokens — output-billed, counted apart from output. */
+  reasoningDisplay: string;
   cacheReadDisplay: string;
   cacheWriteDisplay: string;
   estimatedCalls: number;
@@ -135,6 +144,7 @@ const EMPTY_TOTALS: UsageTotalsView = {
   totalExact: '0',
   inputDisplay: '0',
   outputDisplay: '0',
+  reasoningDisplay: '0',
   cacheReadDisplay: '0',
   cacheWriteDisplay: '0',
   estimatedCalls: 0,
@@ -173,12 +183,17 @@ function breakdown(
 
 function totalsView(stats: TokenUsageStats): UsageTotalsView {
   const t = stats.totals;
+  // The headline is fresh spend; cache reads keep their own tile. Clamped at
+  // zero — the two sums are independent and a legacy row can carry reads its
+  // total never counted, which must never render as a negative headline.
+  const fresh = Math.max(0, t.totalTokens - t.cacheReadTokens);
   return {
     calls: t.calls,
-    totalDisplay: formatTokens(t.totalTokens),
-    totalExact: formatExactTokens(t.totalTokens),
+    totalDisplay: formatTokens(fresh),
+    totalExact: formatExactTokens(fresh),
     inputDisplay: formatTokens(t.inputTokens),
     outputDisplay: formatTokens(t.outputTokens),
+    reasoningDisplay: formatTokens(t.reasoningTokens),
     cacheReadDisplay: formatTokens(t.cacheReadTokens),
     cacheWriteDisplay: formatTokens(t.cacheWriteTokens),
     estimatedCalls: t.estimatedCalls,

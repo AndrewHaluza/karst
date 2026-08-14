@@ -308,9 +308,18 @@ export type InsideEvidenceTarget =
  *   Antigravity). NOT zero and NOT "0 tokens": it renders as absent with a
  *   title explaining the core reports no per-session usage.
  */
+/**
+ * The Σ pill's claim. `total` is FRESH spend — input, output, reasoning and
+ * cache WRITES — and `cacheRead` rides beside it as its own figure, never
+ * inside it. A cache read is context the provider re-sent and re-charged at a
+ * fraction of the fresh rate, and on a long opencode session it is ~95% of the
+ * raw tally: headlining the sum reported 3.9M for a conversation whose own
+ * terminal showed 154.5K, which reads as a runaway agent rather than as
+ * ordinary prompt caching. Absent `cacheRead` = nothing was served from cache.
+ */
 export type TokenUsageView =
-  | { state: 'measured'; total: string; exact?: string }
-  | { state: 'estimated'; total: string; exact?: string }
+  | { state: 'measured'; total: string; exact?: string; cacheRead?: string; cacheReadExact?: string }
+  | { state: 'estimated'; total: string; exact?: string; cacheRead?: string; cacheReadExact?: string }
   | { state: 'unavailable'; title: string };
 
 /** One line inside a process's evidence block. */

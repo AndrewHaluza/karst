@@ -195,10 +195,14 @@
 
   const renderStats = (t) => {
     el('stats').innerHTML = [
-      statCard('Total tokens', t.totalDisplay, t.totalExact),
+      // The headline is FRESH spend. Cache reads keep their own tile beside
+      // it, never inside it: re-read context is charged at a fraction of the
+      // fresh rate and dominates a long session's raw tally.
+      statCard('Fresh tokens', t.totalDisplay, t.totalExact),
       statCard('Input', t.inputDisplay, ''),
       statCard('Output', t.outputDisplay, ''),
-      statCard('Cache read', t.cacheReadDisplay, ''),
+      statCard('Reasoning', t.reasoningDisplay, ''),
+      statCard('Cache read', t.cacheReadDisplay, 'billed apart from fresh'),
       statCard('Calls', String(t.calls), t.erroredCalls ? `${t.erroredCalls} failed` : ''),
       // Estimated calls get their own tile rather than a footnote: whether the
       // headline number was measured or approximated changes how it may be used.

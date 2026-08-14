@@ -73,6 +73,11 @@ export interface SessionTokensInput {
   total: number;
   /** Count of calls whose numbers are estimates, not reports. */
   estimatedCalls?: number;
+  /**
+   * Measured cache READS — context re-sent from the prompt cache. Subtracted
+   * out of the headline (see `TokenUsageView`) and shown as its own figure.
+   */
+  cacheRead?: number;
   /** Measured input tokens, when the record splits directions. */
   input?: number;
   /** Measured output tokens, when the record splits directions. */
@@ -161,6 +166,8 @@ interface TimelineEvent {
 export interface SegmentTokensInput {
   implementationSegmentId: number;
   total: number;
+  /** Cache reads inside that total — headlined apart, per `TokenUsageView`. */
+  cacheRead?: number;
 }
 
 function timelineEvents(
@@ -171,7 +178,9 @@ function timelineEvents(
 ): TimelineEvent[] {
   // The switch row states what the segment it moved TO went on to spend.
   const totalBySegment = new Map(
-    segmentTokens.filter((s) => s.total > 0).map((s) => [s.implementationSegmentId, s.total]),
+    segmentTokens
+      .filter((s) => s.total > 0)
+      .map((s) => [s.implementationSegmentId, { total: s.total, cacheRead: s.cacheRead ?? 0 }]),
   );
   const events: TimelineEvent[] = [];
   const { run, segments } = timeline;
@@ -209,7 +218,12 @@ function timelineEvents(
         // it. Absent → no pill: this reducer never claims a segment cost
         // nothing, only that nothing was recorded for it.
         ...(measured !== undefined
-          ? { tokens: tokenView({ total: measured }, measuresSessionUsage(segment.provider)) }
+          ? {
+              tokens: tokenView(
+                { total: measured.total, cacheRead: measured.cacheRead },
+                measuresSessionUsage(segment.provider),
+              ),
+            }
           : {}),
         // A switch is not progress: it carries no status node beyond the
         // shared note. Only the provider/model it moved to is stated. The
@@ -302,10 +316,19 @@ export function tokenView(tokens: SessionTokensInput, interactiveUsage = true): 
   if (!interactiveUsage) {
     return { state: 'unavailable', title: UNAVAILABLE_TOKEN_TITLE };
   }
+  // The headline is FRESH spend; cache reads are their own figure beside it.
+  // Clamped at zero: the two facts come from different SUMs and a row measured
+  // before the split can carry cache reads its total never counted — a
+  // negative headline would be a claim nothing measured.
+  const cacheRead = tokens.cacheRead ?? 0;
+  const fresh = Math.max(0, tokens.total - cacheRead);
   return {
     state: (tokens.estimatedCalls ?? 0) > 0 ? 'estimated' : 'measured',
-    total: formatTokens(tokens.total),
-    exact: formatExactTokens(tokens.total),
+    total: formatTokens(fresh),
+    exact: formatExactTokens(fresh),
+    ...(cacheRead > 0
+      ? { cacheRead: formatTokens(cacheRead), cacheReadExact: formatExactTokens(cacheRead) }
+      : {}),
   };
 }
 

@@ -291,3 +291,34 @@ describe('buildUsageState', () => {
     });
   });
 });
+
+describe('usage totals — fresh spend and reasoning', () => {
+  it('headlines FRESH tokens and states cache reads and reasoning separately', () => {
+    // A cached opencode session: 3.7M of the raw tally was the same context
+    // re-read from the prompt cache and must not present as conversation.
+    ticket(1, 'K-1', 'One');
+    recordTokenUsage(store, {
+      projectId: 1,
+      ticketId: 1,
+      callSite: 'implementation',
+      provider: 'opencode',
+      outcome: 'ok',
+      recordedAt: '2026-07-30T00:00:00.000Z',
+      usage: {
+        inputTokens: 215_929,
+        outputTokens: 4_114,
+        reasoningTokens: 40_485,
+        cacheReadTokens: 3_704_064,
+        cacheWriteTokens: 0,
+        totalTokens: 3_964_592,
+        model: null,
+        estimated: false,
+      },
+    });
+    const totals = buildUsageState(store, { projectId: 1, now: NOW }).totals;
+    expect(totals.totalDisplay).toBe('260.5k');
+    expect(totals.totalExact).toBe('260,528');
+    expect(totals.cacheReadDisplay).toBe('3.7M');
+    expect(totals.reasoningDisplay).toBe('40.5k');
+  });
+});

@@ -455,7 +455,11 @@ export function buildDashboardState(
   const tokensFor = (processId: string): SessionTokensInput | null => {
     const summary = summarizeRecordedTokenUsageForProcess(store, ticketId, processId);
     return summary.total > 0
-      ? { total: summary.total, estimatedCalls: summary.estimatedCalls }
+      ? {
+          total: summary.total,
+          cacheRead: summary.cacheRead,
+          estimatedCalls: summary.estimatedCalls,
+        }
       : null;
   };
   const recordedTotal = summarizeRecordedTokenUsage(store, ticketId);
@@ -510,6 +514,7 @@ export function buildDashboardState(
             ? readSegmentTokenTotals(store, timeline.run.id).map((t) => ({
                 implementationSegmentId: t.implementationSegmentId,
                 total: t.totalTokens,
+                cacheRead: t.cacheReadTokens,
               }))
             : [],
         ),

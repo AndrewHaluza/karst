@@ -563,6 +563,12 @@ export interface ProcessRecordedUsage {
    */
   total: number;
   /**
+   * Measured cache READS inside that total. Carried as its own fact so the
+   * display can headline FRESH spend — a long cached session's re-reads are
+   * ~95% of the raw tally and swamp the conversation's own cost.
+   */
+  cacheRead: number;
+  /**
    * Calls whose counts are estimates (`estimated = 1`). COUNTED, never summed —
    * an estimate is not measured spend, and the two facts must never add up.
    */
@@ -586,12 +592,18 @@ export function summarizeRecordedTokenUsageForProcess(
   const row = store.db
     .prepare(
       `SELECT COALESCE(SUM(CASE WHEN estimated = 0 THEN total_tokens ELSE 0 END), 0) AS total,
+              COALESCE(SUM(CASE WHEN estimated = 0 THEN cache_read_tokens ELSE 0 END), 0)
+                AS cache_read,
               COALESCE(SUM(CASE WHEN estimated = 1 THEN 1 ELSE 0 END), 0) AS estimated_calls
          FROM token_usage
         WHERE ticket_id = ? AND process_run_id IN (SELECT id FROM process_runs WHERE process_id = ?)`,
     )
-    .get(ticketId, processId) as { total: number; estimated_calls: number };
-  return { total: row.total, estimatedCalls: row.estimated_calls };
+    .get(ticketId, processId) as {
+    total: number;
+    cache_read: number;
+    estimated_calls: number;
+  };
+  return { total: row.total, cacheRead: row.cache_read, estimatedCalls: row.estimated_calls };
 }
 
 /** Measured spend of one ticket, grouped by the inside role that spent it. */

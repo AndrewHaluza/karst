@@ -420,6 +420,7 @@ interface SegmentTotalsRow {
   calls: number;
   input_tokens: number;
   output_tokens: number;
+  reasoning_tokens: number;
   cache_read_tokens: number;
   cache_write_tokens: number;
   total_tokens: number;
@@ -448,6 +449,7 @@ export function readSegmentTokenTotals(
               COUNT(*) AS calls,
               SUM(input_tokens) AS input_tokens,
               SUM(output_tokens) AS output_tokens,
+              SUM(reasoning_tokens) AS reasoning_tokens,
               SUM(cache_read_tokens) AS cache_read_tokens,
               SUM(cache_write_tokens) AS cache_write_tokens,
               SUM(total_tokens) AS total_tokens,
@@ -466,7 +468,7 @@ export function readSegmentTokenTotals(
     calls: row.calls,
     inputTokens: row.input_tokens,
     outputTokens: row.output_tokens,
-    reasoningTokens: 0,
+    reasoningTokens: row.reasoning_tokens,
     cacheReadTokens: row.cache_read_tokens,
     cacheWriteTokens: row.cache_write_tokens,
     totalTokens: row.total_tokens,

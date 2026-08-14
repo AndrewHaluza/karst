@@ -701,6 +701,7 @@
     font-family:var(--p-mono);font-size:9px;line-height:16px;white-space:nowrap}
   #inside .token-stat.live{border-color:var(--p-edge-run);color:var(--p-running)}
   #inside .token-stat .sigma{color:var(--p-muted2)}
+  #inside .token-stat .cache-read{color:var(--p-muted2);margin-left:var(--p-s1)}
 
   /* Process ledger */
   #inside .ledger{padding-bottom:var(--p-s2)}
@@ -2260,8 +2261,15 @@
     if (t.state === 'unavailable') {
       return `<span class="token-stat" title="${esc(t.title)}">usage unavailable</span>`;
     }
-    const tip = t.exact ? ` title="${esc(t.exact)}"` : '';
-    return `<span class="token-stat${live ? ' live' : ''}"${tip}><span class="sigma">Σ</span>${esc(t.total)} tok</span>`;
+    const tip = t.exact ? ` title="${esc(t.exact)} fresh tokens"` : '';
+    // Cache reads ride BESIDE the headline, never inside it: context the
+    // provider re-sent from its prompt cache is charged at a fraction of the
+    // fresh rate and on a long session is the great majority of the raw tally,
+    // so summing the two reported an ordinary conversation as a runaway one.
+    const cached = t.cacheRead
+      ? `<span class="cache-read" title="${esc(t.cacheReadExact || t.cacheRead)} tokens re-read from the prompt cache">+${esc(t.cacheRead)} cached</span>`
+      : '';
+    return `<span class="token-stat${live ? ' live' : ''}"${tip}><span class="sigma">Σ</span>${esc(t.total)} tok${cached}</span>`;
   }
 
   // ── per-kind evidence bodies ───────────────────────────────────────────
