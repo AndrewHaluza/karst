@@ -347,7 +347,7 @@ import {
   reconcileShipRuns,
   describeStaleShipRun,
 } from './store/shipRuns.js';
-import { advanceTicketOnShip } from './workflow/stages/done.js';
+import { advanceTicketOnShip, statusPushSkipNote } from './workflow/stages/done.js';
 import { advanceTicketOnStart } from './workflow/stages/start.js';
 import { createFollowUpTicket, TicketNotDoneError } from './workflow/stages/followUp.js';
 import {
@@ -1708,9 +1708,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
               manifest.ticketing,
               makeTicketingProvider(manifest.ticketing, fetch, makeTokenProvider(context)),
             );
-            if (!res.advanced && res.reason === 'no-ref') {
-              logError(`ticket #${ticketId} started without a status update: no provider ref`, undefined);
-            }
+            const note = statusPushSkipNote('started', ticketId, res);
+            if (note) logger.debug(note.message);
           } catch (e) {
             logError('ticket status update failed', e);
           }
@@ -2138,12 +2137,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         currentManifest()?.ticketing,
         makeTicketingProvider(currentManifest()?.ticketing, fetch, makeTokenProvider(context)),
       );
-      if (!res.advanced && res.reason === 'no-ref') {
-        logError(
-          `ticket #${ticketId} completed without a status update: no provider ref`,
-          undefined,
-        );
-      }
+      const note = statusPushSkipNote('completed', ticketId, res);
+      if (note) logger.debug(note.message);
     } catch (e) {
       logError('ticket status update failed', e);
       if (warn) {
