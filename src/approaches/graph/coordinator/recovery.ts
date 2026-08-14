@@ -60,6 +60,7 @@ import { casStatus, GRAPH_RUN_TRANSITIONS, NODE_RUN_TRANSITIONS } from '../../..
 import { nodeOverrideFor } from '../../../store/graph/nodeRuns.js';
 import { incrementLaunchAttempt } from './claim.js';
 import { sha256Hex } from './plannerRun.js';
+import { createPlannerRun } from '../../../store/graph/plannerRuns.js';
 import {
   beginReplanPlannerRun,
   electReplan,
@@ -80,6 +81,7 @@ export type RecoveryCategory =
   | 'prompt-resnapshot'
   | 'replan'
   | 'compile-new-revision'
+  | 'planner-relaunch'
   | 'discard-required'
   | 'config-then-resume'
   | 'explicit-resolution';
@@ -134,8 +136,28 @@ export type RecoveryResult =
       plannerRunNumber: number | null;
       launch: ReplanLaunchRequest | null;
     }
+  | {
+      kind: 'relaunched';
+      plannerRunId: number | null;
+      plannerRunNumber: number | null;
+      launch: BootstrapRelaunchRequest | null;
+    }
   | { kind: 'refused'; reason: RecoveryRefusalReason }
   | { kind: 'no-op' };
+
+/** The launch request a `planner-relaunch` recovery produces: re-open the run
+ *  to `planning` and relaunch a fresh bootstrap planner on the SAME graph run
+ *  (a dead bootstrap planner never produced a revision, so a replan — which
+ *  requires an active revision to supersede — cannot apply). The prompt was
+ *  re-snapshotted by the recovery; the host composes the session seed. */
+export interface BootstrapRelaunchRequest {
+  graphRunId: number;
+  plannerRunId: number;
+  plannerRunNumber: number;
+  promptSnapshotPath: string;
+  promptHash: string;
+  ticketContext: string;
+}
 
 interface BlockedRunRow {
   id: number;
@@ -167,6 +189,12 @@ export function recoveryCategoryFor(reason: string | null): RecoveryCategory {
   if (reason.startsWith('failed-to-launch')) return 'launch-retry';
   if (reason.startsWith('graph-plan-invalid')) return 'replan';
   if (reason.startsWith('planner-artifact-missing')) return 'replan';
+  // A bootstrap planner that died before ever submitting (its process gone, no
+  // revision ever produced) re-opens to `planning` and relaunches a fresh
+  // bootstrap planner on the same graph run — the "planner artifacts missing"
+  // tier, but there is no active revision to supersede, so a replan cannot
+  // apply. The reconcile writes `planner-stale` when it attributes the death.
+  if (reason.startsWith('planner-stale')) return 'planner-relaunch';
   if (reason.startsWith('instructions-missing')) return 'replan';
   if (reason.startsWith('command-definition-changed')) return 'compile-new-revision';
   if (reason.startsWith('prompt-config-changed')) return 'prompt-resnapshot';
@@ -418,6 +446,106 @@ function replanRecovery(
 }
 
 /**
+ * The `planner-relaunch` action (a dead bootstrap planner, before any revision
+ * exists). Unlike a replan — which requires an active revision to supersede —
+ * this re-opens the run `blocked → planning` and allocates a FRESH bootstrap
+ * planner run on the SAME graph run, snapshotting the effective prompt. The
+ * stage block clears only after the relaunch durably entered (the run is back
+ * at `planning` with a new planner run in hand); the host turns the returned
+ * launch request into a session.
+ *
+ * The prompt seams are required: the relaunch re-snapshots the effective
+ * planner prompt exactly like the initial bootstrap does. Without them the
+ * recovery refuses `explicit-resolution` — a bootstrap relaunch that could not
+ * seed its planner would be a silent bare launch.
+ */
+function plannerRelaunchRecovery(
+  deps: RecoveryDeps,
+  input: { ticketId: number; graphRunId: number },
+): RecoveryResult {
+  const db = deps.store.db;
+  if (!deps.readPrompt || !deps.writeSnapshot || !deps.plannerPromptPath || deps.ticketContext === undefined) {
+    emitGraphDiagnostic({ db, debug: deps.debug }, {
+      category: 'recovery',
+      graphRunId: input.graphRunId,
+      detail: 'refused (explicit-resolution): bootstrap relaunch requires the planner prompt seams',
+    });
+    return { kind: 'refused', reason: 'explicit-resolution' };
+  }
+  const promptBytes = deps.readPrompt(deps.plannerPromptPath);
+  if (promptBytes === undefined) {
+    emitGraphDiagnostic({ db, debug: deps.debug }, {
+      category: 'recovery',
+      graphRunId: input.graphRunId,
+      detail: 'refused (explicit-resolution): planner prompt unreadable for the bootstrap relaunch',
+    });
+    return { kind: 'refused', reason: 'explicit-resolution' };
+  }
+  const promptHash = sha256Hex(promptBytes);
+  const promptSnapshotPath = `prompts/${promptHash}`;
+  // Content-addressed, idempotent write BEFORE the transaction (like the
+  // initial bootstrap's snapshot), then ONE BEGIN IMMEDIATE transaction:
+  // CAS the run `blocked → planning`, allocate the fresh bootstrap planner run
+  // with the next monotonic number, record the prompt hash, and clear the
+  // stage block — all-or-nothing, so a raced window reads a no-op.
+  deps.writeSnapshot(input.graphRunId, promptSnapshotPath, promptBytes);
+  let plannerRunId = 0;
+  let plannerRunNumber = 0;
+  const claimed = deps.transaction(() => {
+    if (
+      !casStatus(db, 'approach_graph_runs', GRAPH_RUN_TRANSITIONS, input.graphRunId, 'blocked', 'planning')
+    ) {
+      return false; // a racing window already re-opened or cancelled the run
+    }
+    db.prepare('UPDATE approach_graph_runs SET blocked_reason = NULL, updated_at = ? WHERE id = ?').run(
+      deps.now(),
+      input.graphRunId,
+    );
+    const next = db
+      .prepare(
+        'SELECT COALESCE(MAX(planner_run_number), 0) + 1 AS next FROM approach_planner_runs WHERE graph_run_id = ?',
+      )
+      .get(input.graphRunId) as { next: number };
+    plannerRunNumber = next.next;
+    plannerRunId = createPlannerRun(db, {
+      graphRunId: input.graphRunId,
+      plannerRunNumber,
+      kind: 'bootstrap',
+    });
+    db.prepare(
+      'UPDATE approach_planner_runs SET prompt_hash = ?, artifact_snapshot_id = ? WHERE id = ?',
+    ).run(promptHash, promptSnapshotPath, plannerRunId);
+    // The visible stage block clears only now, INSIDE the same transaction:
+    // the relaunch has durably entered a recoverable state.
+    const block = stageBlock(deps.store, input.ticketId, 'impl');
+    if (block && block.kind === GRAPH_FAILED_BLOCKER) {
+      clearStageBlock(deps.store, input.ticketId, 'impl');
+    }
+    return true;
+  });
+  if (!claimed) return { kind: 'no-op' };
+  emitGraphDiagnostic({ db, debug: deps.debug }, {
+    category: 'recovery',
+    graphRunId: input.graphRunId,
+    plannerRunId,
+    detail: `bootstrap relaunched — planner run ${plannerRunId} (#${plannerRunNumber}), run re-opened to planning`,
+  });
+  return {
+    kind: 'relaunched',
+    plannerRunId,
+    plannerRunNumber,
+    launch: {
+      graphRunId: input.graphRunId,
+      plannerRunId,
+      plannerRunNumber,
+      promptSnapshotPath,
+      promptHash,
+      ticketContext: deps.ticketContext,
+    },
+  };
+}
+
+/**
  * Claim and run graph recovery for one blocked run. Returns what happened;
  * `refused` names the category that must not retry itself.
  */
@@ -442,6 +570,8 @@ export function recoverGraphRun(
     case 'replan':
     case 'compile-new-revision':
       return replanRecovery(deps, input);
+    case 'planner-relaunch':
+      return plannerRelaunchRecovery(deps, input);
     case 'discard-required':
       emitGraphDiagnostic({ db: deps.store.db, debug: deps.debug }, {
         category: 'recovery',

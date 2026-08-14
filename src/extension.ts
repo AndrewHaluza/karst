@@ -192,6 +192,7 @@ import { flipOnEndQuiescence } from './approaches/graph/coordinator/completion.j
 import { resolveGraphDiagnosticIdentity } from './approaches/graph/diagnostics.js';
 import { recoverGraphRun, type RecoveryDeps } from './approaches/graph/coordinator/recovery.js';
 import type { ReplanLaunchRequest } from './approaches/graph/coordinator/replan.js';
+import type { BootstrapRelaunchRequest } from './approaches/graph/coordinator/recovery.js';
 import { type ActivationDomain } from './approaches/graph/coordinator/leases.js';
 import { activationDomainKeys, type AllowlistCommandAccess } from './approaches/graph/coordinator/conflicts.js';
 import { parseGraphDocument } from './approaches/graph/parse.js';
@@ -2424,8 +2425,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         (id) => maybeDrive(id, 'stage-resume'),
         (path) => void launchWorktreeDevWindow(path),
         () => launchWorktreeConfig(),
-        () => graphRecoveryDeps(),
+        (graphRunId) => graphRecoveryDeps(graphRunId),
         (launch) => void launchReplanPlannerHost(launch),
+        (launch) => void launchBootstrapRelaunchHost(launch),
         // The stage key arrives from the webview; the manager resolves the read
         // through the injected reader and posts the answer to this ticket's
         // panel (the postInsideProgress pattern).
@@ -2556,8 +2558,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         );
       },
     },
-    () => graphRecoveryDeps(),
+    (graphRunId) => graphRecoveryDeps(graphRunId),
     (launch) => void launchReplanPlannerHost(launch),
+    (launch) => void launchBootstrapRelaunchHost(launch),
   ),
   // Live manifest getter, so the inside views resolve the REAL service names
   // and process assignments (panel.ts is manifest-free by contract).
@@ -3311,16 +3314,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     )();
   };
 
-  /** The live transport session for a node run, via its ticket. */
+  /** The live transport session for a node OR planner run, via its ticket. */
   const graphSessionFor = (nodeRunId: number) => {
     const gs = graphCoordinatorStore;
     const tr = graphTransport;
     if (!gs || !tr) return undefined;
-    const run = gs.db
+    const node = gs.db
       .prepare('SELECT ticket_id FROM approach_node_runs WHERE id = ?')
       .get(nodeRunId) as { ticket_id: number } | undefined;
-    if (!run) return undefined;
-    return tr.sessionFor(run.ticket_id, nodeRunId);
+    if (node) return tr.sessionFor(node.ticket_id, nodeRunId);
+    const planner = gs.db
+      .prepare(
+        `SELECT gr.ticket_id AS ticket_id
+         FROM approach_planner_runs pr JOIN approach_graph_runs gr ON gr.id = pr.graph_run_id
+         WHERE pr.id = ?`,
+      )
+      .get(nodeRunId) as { ticket_id: number } | undefined;
+    if (!planner) return undefined;
+    return tr.sessionFor(planner.ticket_id, nodeRunId);
   };
 
   /**
@@ -3386,8 +3397,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    *  prompt re-snapshot seam — content-addressed writes under the graph
    *  artifact root, and the effective-prompt resolution that consults the
    *  per-node `prompt` override. All decision logic lives in recovery.ts;
-   *  this binding only supplies the seam the host owns. */
-  const graphRecoveryDeps = (): RecoveryDeps => {
+   *  this binding only supplies the seam the host owns. The prompt seams
+   *  (`readPrompt`/`plannerPromptPath`/`ticketContext`) are resolved per run
+   *  so a `planner-relaunch` recovery can re-snapshot the effective planner
+   *  prompt and seed the relaunched bootstrap planner exactly like the initial
+   *  launch does. */
+  const graphRecoveryDeps = (graphRunId: number): RecoveryDeps => {
     const gs = graphCoordinatorStore;
     return {
       store: gs!,
@@ -3404,13 +3419,38 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           ? { prompt: override.value, promptOverride: true }
           : { promptOverride: false };
       },
-      writeSnapshot: (graphRunId, relativePath, bytes) => {
-        const root = graphArtifactRoot(graphRunId);
+      writeSnapshot: (runId, relativePath, bytes) => {
+        const root = graphArtifactRoot(runId);
         if (!root) return;
         const target = join(root, relativePath);
         mkdirSync(dirname(target), { recursive: true });
         writeFileSync(target, bytes);
       },
+      // The bootstrap relaunch's prompt seams: the effective planner prompt
+      // bytes (packaged overlaid with the project override), its artifact
+      // path, and the ticket's rendered context — resolved for THIS run so
+      // the relaunched bootstrap planner is seeded exactly like the initial.
+      readPrompt: () => {
+        try {
+          return graphDriverDeps().promptBytesOf('karst-graph-planner');
+        } catch {
+          return undefined;
+        }
+      },
+      plannerPromptPath:
+        graphApproachConfigFor(graphRunApproachId(graphRunId))?.planner.prompt?.artifact ??
+        'skills/graph-planner/SKILL.md',
+      ticketContext:
+        graphRunId > 0
+          ? renderTicketContext(
+              buildTicketContext(
+                localStore,
+                currentManifest(),
+                graphRunTicketId(graphRunId),
+                context.globalStorageUri.fsPath,
+              ),
+            )
+          : undefined,
     };
   };
 
@@ -4117,6 +4157,52 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   };
 
+  /** Launch a fresh bootstrap planner after the `planner-relaunch` recovery:
+   *  the recovery already re-opened the run to `planning` and allocated the
+   *  new bootstrap planner run; this host binding composes the bootstrap prompt
+   *  and starts the session through the same driver seam as a replan. */
+  const launchBootstrapRelaunchHost = async (launch: BootstrapRelaunchRequest): Promise<void> => {
+    const gs = graphCoordinatorStore;
+    if (!gs) return;
+    const base = graphDriverDeps().promptBytesOf('karst-graph-planner');
+    const prompt = [
+      base === undefined ? '# Graph Planner' : new TextDecoder().decode(base),
+      launch.ticketContext,
+      'Write your plan artifacts and `graph.json` under the artifact root (env `KARST_GRAPH_ARTIFACT_ROOT`), then finish your session — karst compiles and runs the graph after you close.',
+    ].join('\n\n');
+    const wt = listWorktreesByTicket(localStore, graphRunTicketId(launch.graphRunId))[0];
+    const result = await launchReplanPlanner(graphDriverDeps(), {
+      graphRunId: launch.graphRunId,
+      plannerRunId: launch.plannerRunId,
+      generation: '',
+      capability: '',
+      prompt,
+      cwd: wt?.path ?? '',
+      repo: wt?.repo ?? '',
+    }).catch((err) => {
+      logError(`karst: bootstrap relaunch failed for run ${launch.graphRunId}`, err);
+      return { kind: 'failed' as const, reason: 'planner session could not start' };
+    });
+    if (result.kind === 'launched') {
+      graphLaunchIdentities.set(launch.graphRunId, {
+        graphRunId: launch.graphRunId,
+        ticketId: graphRunTicketId(launch.graphRunId),
+        plannerRunId: launch.plannerRunId,
+        generation: result.generation,
+        capability: result.capability,
+      });
+      attachPlannerSubmitOnClose(result.session, launch.graphRunId);
+      result.session.terminal?.show();
+      provider.refresh();
+      dashboard.pushState(graphRunTicketId(launch.graphRunId));
+    } else if (result.kind === 'failed') {
+      logError(`karst: bootstrap relaunch failed for run ${launch.graphRunId}`, new Error(result.reason));
+      void vscode.window.showErrorMessage(
+        `Ticket #${graphRunTicketId(launch.graphRunId)}: the bootstrap planner could not start — ${result.reason}`,
+      );
+    }
+  };
+
   // Reload/crash reconcile (Slice 4 Task 3): one pass over every graph run
   // applying the crash matrix, next to the coordinator sweep. Process facts
   // are the real OS probes and `resumePipeline` is the completion pipeline —
@@ -4167,6 +4253,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
               `${result.cancelledTokens} token${result.cancelledTokens === 1 ? '' : 's'} cancelled, ` +
               `resumed ${result.resumed.length}, reverted ${result.reverted.length})`,
           );
+        }
+        // A run this pass blocked — a dead node OR a dead bootstrap planner —
+        // gets its `approach-graph-failed` stage block written now, so the
+        // dashboard offers the typed graph-recovery Resume (the reconcile
+        // wrapper is the one place a reconcile-created block is observed).
+        if (result.status === 'blocked') {
+          settleGraphRun(gs.db, run.id);
         }
       }
     } catch (err) {
@@ -6480,10 +6573,13 @@ function makeInsideActionHost(
   // The graph recovery action's host binding (Slice-4 T6): the atomic claim
   // wrapper plus the prompt re-snapshot seam. Bound in activate where the
   // snapshot root is known; the panel host only routes Resume to it.
-  graphRecoveryDeps: () => RecoveryDeps,
+  graphRecoveryDeps: (graphRunId: number) => RecoveryDeps,
   // Launch the elected replan planner session (Slice-4 T5) — the recovery
   // election returns a launch request; the host starts the session.
   graphReplanLaunch: (launch: ReplanLaunchRequest) => void,
+  // Launch a fresh bootstrap planner on a graph run whose previous bootstrap
+  // planner died before ever submitting — the `planner-relaunch` recovery.
+  graphBootstrapRelaunch: (launch: BootstrapRelaunchRequest) => void,
 ): InsideActionHost {
   return {
     openFile: (path) => void vscode.commands.executeCommand('vscode.open', vscode.Uri.file(path)),
@@ -6510,7 +6606,7 @@ function makeInsideActionHost(
         // the typed action runs graph-aware recovery: a retry on the same
         // revision, clearing the block only after it durably entered.
         const recovery = recoverGraphRun(
-          graphRecoveryDeps(),
+          graphRecoveryDeps(outcome.graphRunId),
           { ticketId: outcome.ticketId, graphRunId: outcome.graphRunId },
         );
         if (recovery.kind === 'retried') {
@@ -6521,6 +6617,11 @@ function makeInsideActionHost(
           if (recovery.launch) graphReplanLaunch(recovery.launch);
           void vscode.window.showInformationMessage(
             `Ticket #${ticketId}: the implementation graph was replanned (graph run ${outcome.graphRunId}).`,
+          );
+        } else if (recovery.kind === 'relaunched') {
+          if (recovery.launch) graphBootstrapRelaunch(recovery.launch);
+          void vscode.window.showInformationMessage(
+            `Ticket #${ticketId}: the implementation graph's bootstrap planner was relaunched (graph run ${outcome.graphRunId}).`,
           );
         } else if (recovery.kind === 'refused') {
           void vscode.window.showInformationMessage(
@@ -6627,9 +6728,12 @@ function makeDashboardActions(
   launchConfig: () => ReturnType<typeof parseLaunchWorktreeConfig>,
   // The graph recovery action's host binding (Slice-4 T6), bound in activate
   // where the snapshot root is known.
-  graphRecoveryDeps: () => RecoveryDeps,
+  graphRecoveryDeps: (graphRunId: number) => RecoveryDeps,
   // Launch the elected replan planner session (Slice-4 T5).
   graphReplanLaunch: (launch: ReplanLaunchRequest) => void,
+  // Launch a fresh bootstrap planner on a graph run whose previous bootstrap
+  // planner died before ever submitting — the `planner-relaunch` recovery.
+  graphBootstrapRelaunch: (launch: BootstrapRelaunchRequest) => void,
   // Resolve one gate stage's console log via the dashboard manager, which owns
   // the ticket panel: the stage key arrives from the webview, the read stays
   // host-side.
@@ -6828,11 +6932,12 @@ function makeDashboardActions(
         // The graph block is NOT cleared by a generic Resume (Slice-3 T9) —
         // the typed action runs graph-aware recovery instead.
         const recovery = recoverGraphRun(
-          graphRecoveryDeps(),
+          graphRecoveryDeps(outcome.graphRunId),
           { ticketId: outcome.ticketId, graphRunId: outcome.graphRunId },
         );
-        if (recovery.kind === 'retried' || recovery.kind === 'replanned') {
+        if (recovery.kind === 'retried' || recovery.kind === 'replanned' || recovery.kind === 'relaunched') {
           if (recovery.kind === 'replanned' && recovery.launch) graphReplanLaunch(recovery.launch);
+          if (recovery.kind === 'relaunched' && recovery.launch) graphBootstrapRelaunch(recovery.launch);
           afterServerChange();
           driveAfterResume(ticketId);
         } else if (recovery.kind === 'refused') {

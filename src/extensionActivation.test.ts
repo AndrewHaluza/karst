@@ -388,4 +388,26 @@ describe('extension activation', () => {
     expect(source).toContain('projectId: () => currentProject()?.id,');
     expect(source).toContain('onTicketCreated: (ticketId) => {');
   });
+
+  // A graph run stuck at `planning` whose bootstrap planner process is dead
+  // was never reconciled: `reconcileGraphRun` swept node runs only, and a
+  // `planning` run has no node runs — so the ticket sat at impl forever. The
+  // reconcile now sweeps the bootstrap planner run (dead → planner `stale` +
+  // run blocked recoverably), the reconcile wrapper writes the blocked run's
+  // `approach-graph-failed` stage block, and the typed recovery relaunches a
+  // fresh bootstrap planner on the SAME graph run, which the host launches.
+  // Pinned as source: extension.ts imports `vscode` and cannot load under
+  // vitest. The decision logic is pinned in reconcile.test.ts and
+  // recovery.test.ts; this pins the WIRING.
+  it('reconciles a dead bootstrap planner, settles its stage block, and wires the bootstrap relaunch', () => {
+    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+
+    // The reconcile wrapper settles a run this pass blocked (node OR planner),
+    // writing the stage block the dashboard's graph-recovery Resume reads.
+    expect(source).toMatch(/if \(result\.status === 'blocked'\) \{\s*settleGraphRun\(gs\.db, run\.id\);/);
+    // The recovery's `relaunched` result is handled in BOTH resume paths and
+    // launches a fresh bootstrap planner through a dedicated host binding.
+    expect(source).toContain("if (recovery.kind === 'relaunched' && recovery.launch) graphBootstrapRelaunch(recovery.launch);");
+    expect(source).toContain('const launchBootstrapRelaunchHost = async (launch: BootstrapRelaunchRequest)');
+  });
 });
