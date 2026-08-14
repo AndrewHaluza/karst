@@ -41,11 +41,18 @@ export interface ScopeBlockOpts {
   gatesPassed?: readonly string[];
 }
 
-/** The diff command the agent should use — the exact range, never a guess. */
-function diffCommand(baseRef?: string | null): string {
-  return baseRef
-    ? `git diff origin/${baseRef}...HEAD (fall back to \`git diff ${baseRef}...HEAD\` if the remote ref is absent)`
-    : `git diff <base-branch>...HEAD`;
+/**
+ * The diff line the agent should start from — the exact range, never a guess.
+ * Returned as a whole line rather than a bare command because the fallback ref
+ * needs its own code span: nesting one backtick pair inside another produced a
+ * mangled span, and a range the agent has to un-mangle is the guess this block
+ * exists to remove.
+ */
+function diffLine(subject: string, baseRef?: string | null): string {
+  const range = baseRef
+    ? `\`git diff origin/${baseRef}...HEAD\` (or \`git diff ${baseRef}...HEAD\` when the remote ref is absent)`
+    : `\`git diff <base-branch>...HEAD\``;
+  return `- The changes to ${subject} are exactly: ${range}, plus any uncommitted work (\`git status --porcelain\`).`;
 }
 
 /**
@@ -65,7 +72,7 @@ export function buildScopeBlock(intent: ScopeIntent, opts: ScopeBlockOpts = {}):
   return [
     `Orientation (already established — do NOT re-derive it):`,
     `- Your working directory IS this ticket's worktree, already checked out on the correct branch.`,
-    `- The changes to ${subject} are exactly: \`${diffCommand(opts.baseRef)}\` plus any uncommitted work (\`git status --porcelain\`).`,
+    diffLine(subject, opts.baseRef),
     ...gateLine,
     ``,
     `Scope rules (strict):`,

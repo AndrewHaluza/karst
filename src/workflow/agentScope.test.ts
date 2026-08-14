@@ -4,8 +4,13 @@ import { buildScopeBlock } from './agentScope.js';
 describe('buildScopeBlock', () => {
   it('names the exact diff range when the base ref is known', () => {
     const text = buildScopeBlock('review', { baseRef: 'develop' }).join('\n');
-    expect(text).toContain('git diff origin/develop...HEAD');
-    expect(text).toContain('git diff develop...HEAD');
+    expect(text).toContain('`git diff origin/develop...HEAD`');
+    expect(text).toContain('`git diff develop...HEAD`');
+    // Each command is its own code span — a nested pair renders as a mangled
+    // range the agent then has to guess at, which is what this block removes.
+    for (const line of buildScopeBlock('review', { baseRef: 'develop' })) {
+      expect((line.match(/`/g) ?? []).length % 2).toBe(0);
+    }
   });
 
   it('never interpolates a missing base ref', () => {
