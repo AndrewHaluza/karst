@@ -679,10 +679,22 @@ describe('buildFindingsPrompt', () => {
     expect(withUndefined).toContain('its base branch.');
   });
 
+  // fu1: "review agent xterm log shows no changes, but diffs are present". The
+  // branch is known to the host (`worktrees.branch`) and the scope block must
+  // name it so the agent's diff range reads the ticket's changes from any
+  // checkout — not an empty `...HEAD` because the worktree sits on the base.
+  it('names the ticket branch in the scope block when one is known', () => {
+    const prompt = buildFindingsPrompt('/web', 'develop', 'karst/feat/x');
+    expect(prompt).toContain('git diff origin/develop...karst/feat/x');
+    expect(prompt).not.toContain('...HEAD');
+    expect(prompt).toContain('This ticket\'s branch is `karst/feat/x`');
+  });
+
   it('replaces the review lines with user instructions, keeping the target context and output rules', () => {
     const prompt = buildFindingsPrompt(
       '/web',
       'develop',
+      'karst/feat/x',
       'Focus on error handling and regression patterns.',
     );
     expect(prompt).toContain('Focus on error handling and regression patterns.');
@@ -700,16 +712,19 @@ describe('buildFindingsPrompt', () => {
   it('carries the scope block, with the exact diff range, in both prompt shapes', () => {
     for (const prompt of [
       buildFindingsPrompt('/web', 'develop'),
-      buildFindingsPrompt('/web', 'develop', 'Focus on error handling.'),
+      buildFindingsPrompt('/web', 'develop', 'karst/feat/x', 'Focus on error handling.'),
     ]) {
       expect(prompt).toContain('Do NOT run repository-wide reconnaissance');
-      expect(prompt).toContain('git diff origin/develop...HEAD');
       expect(prompt).toContain('orchestration tool that launched you');
     }
+    // The branch-named shape must keep the branch-named range.
+    expect(buildFindingsPrompt('/web', 'develop', 'karst/feat/x', 'Focus on error handling.')).toContain(
+      'git diff origin/develop...karst/feat/x',
+    );
   });
 
   it('treats blank instructions as absent', () => {
-    const prompt = buildFindingsPrompt('/web', 'develop', '  ');
+    const prompt = buildFindingsPrompt('/web', 'develop', 'karst/feat/x', '  ');
     expect(prompt).toContain('Review the uncommitted and committed changes');
   });
 });

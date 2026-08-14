@@ -9,6 +9,14 @@ export interface ReviewWorktree {
   repo: string;
   path: string;
   baseRef: string | null;
+  /**
+   * The ticket's branch (`worktrees.branch`), when known. Change probes and
+   * the gate-lane scope blocks diff `origin/<base>...<branch>` BY NAME so a
+   * worktree checked out on the base branch (or a session in the main
+   * checkout) reads the ticket's real changes instead of a silent empty
+   * `...HEAD` (fu1). Absent → fall back to `HEAD`.
+   */
+  branch?: string | null;
 }
 
 export interface ReviewTarget extends ReviewWorktree {
@@ -89,6 +97,7 @@ async function hasReviewChanges(
   git: GitRunner,
   cwd: string,
   base: string,
+  branch?: string | null,
   fetchTimeoutMs: number = GIT_REMOTE_TIMEOUT_MS,
 ): Promise<ChangeProbe> {
   // Agents are allowed to leave implementation work uncommitted until ship.
@@ -120,7 +129,12 @@ async function hasReviewChanges(
     ),
   ]);
   const compare = fetched.exitCode === 0 ? `origin/${base}` : base;
-  const diff = await git(['diff', '--quiet', `${compare}...HEAD`], cwd);
+  // Diff against the ticket's branch BY NAME when it is known: a worktree
+  // checked out on the base branch must still read as "changed" when the
+  // ticket branch holds work — `...HEAD` there would read empty (fu1). Absent
+  // a branch, fall back to the checkout's HEAD.
+  const head = branch && branch.trim() !== '' ? branch : 'HEAD';
+  const diff = await git(['diff', '--quiet', `${compare}...${head}`], cwd);
   if (diff.exitCode === 0) return { kind: 'changed', changed: false };
   if (diff.exitCode === 1) return { kind: 'changed', changed: true };
   const reason = diff.stderr || diff.stdout || fetched.stderr || fetched.stdout;
@@ -169,7 +183,13 @@ export async function selectReviewTargets(
     const names = namesByPath.get(canonicalPath(worktree.repo)) ?? [];
     if (names.length === 0) unmapped.push(worktree.repo);
     const base = resolveBaselineBranchForPath(manifest, worktree.repo);
-    const probe = await hasReviewChanges(git, worktree.path, base, options?.gitFetchTimeoutMs);
+    const probe = await hasReviewChanges(
+      git,
+      worktree.path,
+      base,
+      worktree.branch,
+      options?.gitFetchTimeoutMs,
+    );
     if (probe.kind === 'unavailable') {
       return { kind: 'unavailable', blocker: probe.blocker, reason: probe.reason };
     }

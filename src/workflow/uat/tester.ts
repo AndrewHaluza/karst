@@ -43,6 +43,13 @@ export interface TesterTarget {
   /** The plain base branch name (`worktrees.base_ref`), when known. */
   baseRef?: string | null;
   /**
+   * `worktrees.branch` for this target — the ticket's own branch. Naming it in
+   * the scope block makes the diff range `origin/<base>...<branch>`, which
+   * resolves by branch name and reads the same from any checkout of the repo —
+   * a worktree on the base branch no longer reads as "no changes" (fu1).
+   */
+  branch?: string | null;
+  /**
    * Host-known, READ-ONLY context: the manifest-declared service start command
    * for the target, when the repository is runnable. The Tester may use it to
    * stand the service up; it is never AI output and never a credential.
@@ -183,7 +190,7 @@ export function buildTesterPrompt(
   return [
     ...strategy,
     // Never replaced by `instructions` — see `workflow/agentScope.ts`.
-    ...buildScopeBlock('test', { baseRef: target.baseRef, gatesPassed }),
+    ...buildScopeBlock('test', { baseRef: target.baseRef, branch: target.branch, gatesPassed }),
     ``,
     `Output rules (strict):`,
     `- Output ONLY a JSON array, nothing else: no preamble, no markdown fence, no commentary.`,

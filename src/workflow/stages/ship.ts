@@ -1110,7 +1110,7 @@ export async function shipTicket(
         onProgress({ repo: wt.repo, step: 'commit', status: 'pass' });
       }
 
-      if (base && !(await hasChangesFrom(git, wt.path, base))) {
+      if (base && !(await hasChangesFrom(git, wt.path, base, wt.branch))) {
         onProgress({
           repo: wt.repo,
           step: 'push',

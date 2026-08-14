@@ -307,6 +307,7 @@ export async function hasChangesFrom(
   git: GitRunner,
   cwd: string,
   baseRef: string,
+  branch?: string | null,
 ): Promise<boolean> {
   // If the remote cannot be refreshed, preserve shipping's existing behavior:
   // attempt the PR and let GitHub decide. A failed optimization must not turn a
@@ -314,7 +315,13 @@ export async function hasChangesFrom(
   const fetched = await git(['fetch', 'origin', baseRef], cwd);
   if (fetched.exitCode !== 0) return true;
 
-  const result = await git(['diff', '--quiet', `origin/${baseRef}...HEAD`], cwd);
+  // Diff against the ticket's branch BY NAME when it is known: a worktree
+  // checked out on the base branch (or a session in the main checkout) must
+  // still read as changed when the ticket branch holds work — `...HEAD` there
+  // reads empty and ship would silently open no PR (fu1). Absent a branch,
+  // fall back to the checkout's HEAD.
+  const head = branch && branch.trim() !== '' ? branch : 'HEAD';
+  const result = await git(['diff', '--quiet', `origin/${baseRef}...${head}`], cwd);
   if (result.exitCode === 0) return false;
   if (result.exitCode === 1) return true;
 

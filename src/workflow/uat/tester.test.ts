@@ -496,6 +496,17 @@ describe('buildTesterPrompt', () => {
     expect(prompt).toContain('its base branch.');
   });
 
+  // fu1: "review agent xterm log shows no changes, but diffs are present". The
+  // branch is known to the host (`worktrees.branch`) and the scope block must
+  // name it so the Tester's diff range reads the ticket's changes from any
+  // checkout — not an empty `...HEAD` because the worktree sits on the base.
+  it('names the ticket branch in the scope block when one is known', () => {
+    const prompt = buildTesterPrompt({ ...TARGETS[0]!, branch: 'karst/feat/x' });
+    expect(prompt).toContain('git diff origin/develop...karst/feat/x');
+    expect(prompt).not.toContain('...HEAD');
+    expect(prompt).toContain('This ticket\'s branch is `karst/feat/x`');
+  });
+
   it('replaces the role/strategy lines with user instructions, keeping the target context and output rules', () => {
     const prompt = buildTesterPrompt(
       TARGETS[0]!,
