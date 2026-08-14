@@ -4,9 +4,12 @@
  *
  * Both lanes drop a headless agent into a worktree with a two-line request and
  * nothing else, so the agent's first move is to work out where it is: `git
- * status`, `git branch -vv`, `git log`, `git worktree list` (this repo has
- * 160+ registered worktrees), and — because the repo's own instructions
- * mention it — `karst context`/registry queries. That reconnaissance is paid
+ * status`, `git branch -vv`, `git log`, `git worktree list` (karst's own repo
+ * has 160+ registered worktrees), and — wherever the target repo's own
+ * instructions mention one — orchestrator CLI/registry queries. The block is
+ * deliberately TOOL-AGNOSTIC prose: karst drives arbitrary projects, so it
+ * names no product, no branch and no gate of its own; the base ref and the
+ * passed-gate names are the caller's facts, injected. That reconnaissance is paid
  * for in tokens and wall clock BEFORE a single line of the diff is read, and
  * every fact it recovers is already known to the host: the worktree IS the
  * ticket's checkout, it IS on the right branch, and its base ref is passed in.
@@ -67,8 +70,8 @@ export function buildScopeBlock(intent: ScopeIntent, opts: ScopeBlockOpts = {}):
     `Scope rules (strict):`,
     `- Start by reading that diff. Do not survey the repository first.`,
     `- Do NOT run repository-wide reconnaissance: no \`git worktree list\`, no branch/remote mapping, ` +
-      `no \`git log\` over history outside the diff range, no karst CLI or database queries, ` +
-      `no reading other tickets' worktrees.`,
+      `no \`git log\` over history outside the diff range, no querying the orchestration tool that ` +
+      `launched you (its CLI or its state database), no reading other worktrees or checkouts.`,
     `- Widen beyond the diff only into a file the diff actually touches or directly calls, and only when a specific question requires it.`,
   ];
 }

@@ -17,7 +17,7 @@ describe('buildScopeBlock', () => {
   it('forbids the repo-wide reconnaissance both lanes were paying for', () => {
     const text = buildScopeBlock('review', { baseRef: 'main' }).join('\n');
     expect(text).toContain('git worktree list');
-    expect(text).toContain('karst CLI');
+    expect(text).toContain('orchestration tool that launched you');
     expect(text).toMatch(/Do NOT run repository-wide reconnaissance/);
     expect(text).toMatch(/Do NOT re-derive/i);
   });

@@ -704,7 +704,7 @@ describe('buildFindingsPrompt', () => {
     ]) {
       expect(prompt).toContain('Do NOT run repository-wide reconnaissance');
       expect(prompt).toContain('git diff origin/develop...HEAD');
-      expect(prompt).toContain('karst CLI');
+      expect(prompt).toContain('orchestration tool that launched you');
     }
   });
 
