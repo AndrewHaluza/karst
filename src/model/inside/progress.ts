@@ -1,4 +1,4 @@
-import type { InsideProcessView, InsideStageKey } from './types.js';
+import type { AgentExecutionView, InsideProcessView, InsideStageKey } from './types.js';
 
 /**
  * The live progress protocol (Task 13): a host-owned event describing ONE
@@ -29,6 +29,14 @@ export interface LiveOperationView {
   detail?: string;
   /** Preformatted elapsed time — the host's own wording. */
   duration?: string;
+  /**
+   * The AI identity running this operation, when there is one. Carried
+   * separately from `label`/`detail` so a headless AI step (the PR
+   * description model call) shows the same core+model chip WHILE it runs
+   * that its completed process row shows afterward — a live header is not
+   * entitled to invent an identity, only to state one it was given.
+   */
+  execution?: AgentExecutionView;
 }
 
 export type InsideProgressEvent =
@@ -88,6 +96,18 @@ function isProcessStatus(v: unknown): v is InsideProcessView['status'] {
   return typeof v === 'string' && (PROCESS_STATUSES as readonly string[]).includes(v);
 }
 
+/** Narrow an untrusted `live.execution` payload to an `AgentExecutionView`. */
+function isAgentExecutionView(v: unknown): v is AgentExecutionView {
+  if (typeof v !== 'object' || v === null) return false;
+  const x = v as Record<string, unknown>;
+  if (x.agentName !== undefined && !isBoundedText(x.agentName)) return false;
+  if (typeof x.provider !== 'string' || !isBoundedText(x.provider)) return false;
+  if (typeof x.providerLabel !== 'string' || !isBoundedText(x.providerLabel)) return false;
+  if (x.model !== null && (typeof x.model !== 'string' || !isBoundedText(x.model))) return false;
+  if (typeof x.modelLabel !== 'string' || !isBoundedText(x.modelLabel)) return false;
+  return true;
+}
+
 /**
  * Narrow an untrusted host-message payload to an `InsideProgressEvent`.
  *
@@ -110,6 +130,8 @@ export function validateInsideProgressEvent(raw: unknown): InsideProgressEvent |
     for (const key of ['label', 'detail', 'duration'] as const) {
       if (live[key] !== undefined && !isBoundedText(live[key])) return null;
     }
+    const execution = isAgentExecutionView(live.execution) ? live.execution : undefined;
+    if (live.execution !== undefined && !execution) return null;
     return {
       kind: 'active',
       ticketId: m.ticketId,
@@ -120,6 +142,7 @@ export function validateInsideProgressEvent(raw: unknown): InsideProgressEvent |
         ...(typeof live.label === 'string' ? { label: live.label } : {}),
         ...(typeof live.detail === 'string' ? { detail: live.detail } : {}),
         ...(typeof live.duration === 'string' ? { duration: live.duration } : {}),
+        ...(execution ? { execution } : {}),
       },
     };
   }

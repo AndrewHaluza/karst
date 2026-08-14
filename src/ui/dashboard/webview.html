@@ -2707,10 +2707,16 @@
     // decided (`processRowHtml` — "a second textual 'Completed' beside the
     // duration was ours, not the design's"). The word survives as the glyph's
     // accessible name, so nothing that cannot see the animation loses it.
+    // The running operation's AI identity — the same "AI" mark + agent core +
+    // model chip a completed process row shows, so it does not appear only
+    // once the step finishes: a headless AI call (the PR description model
+    // call) is entitled to say who is running it WHILE it runs.
+    const liveAi = lop && lop.execution ? '<span class="ai-mark">AI</span>' + agentIdHtml(lop.execution) : '';
     const alive = lop
       ? `<span class="glyph ${esc(lstatus)}" aria-label="${esc(statusWord(lstatus))}"></span>`
         + `<strong>${esc(lop.label || '')}</strong>`
         + (lop.detail ? `<span class="sep">·</span><span class="live-copy">${esc(lop.detail)}</span>` : '')
+        + (liveAi ? `<span class="sep">·</span>${liveAi}` : '')
         + (lop.duration ? `<span class="sep">·</span><span class="duration">${esc(lop.duration)}</span>` : '')
       : '';
 
