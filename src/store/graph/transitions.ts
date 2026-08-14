@@ -32,7 +32,7 @@ export class GraphStoreError extends Error {
 
 export const GRAPH_RUN_TRANSITIONS: Readonly<Record<string, readonly string[]>> = {
   planning: ['awaiting-confirmation', 'running', 'blocked', 'cancelled', 'stale'],
-  'awaiting-confirmation': ['running', 'cancelled', 'stale'],
+  'awaiting-confirmation': ['running', 'blocked', 'cancelled', 'stale'],
   running: ['draining', 'blocked', 'completed-awaiting-impl-marker', 'cancelled', 'stale'],
   draining: ['running', 'completed-awaiting-impl-marker', 'cancelled', 'stale'],
   // `blocked → planning` is the bootstrap-relaunch recovery exit: a bootstrap

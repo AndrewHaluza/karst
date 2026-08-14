@@ -48,6 +48,7 @@ describe('graph-run transition map', () => {
       'planning → running',
       'planning → blocked',
       'awaiting-confirmation → running',
+      'awaiting-confirmation → blocked',
       'running → draining',
       'draining → running',
       'running → blocked',
