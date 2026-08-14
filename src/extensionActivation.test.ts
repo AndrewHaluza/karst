@@ -308,9 +308,10 @@ describe('extension activation', () => {
   });
 
   // The ticket form's analysis runs through the SETTINGS Ticket-analysis
-  // assignment: when the row names a profile (`processes.ticketAnalysis.agent`)
-  // and declares no inline `instructions`, the execution boundary must resolve
-  // the profile's BODY and overlay it as the assignment's `instructions`
+  // assignment: when the row names a profile (`processes.ticketAnalysis.agent`),
+  // the execution boundary must resolve the profile's BODY and overlay it as
+  // the assignment's `instructions` — the ONLY prompt source now that the
+  // inline `processes.<key>.instructions` override is retired
   // (replacing the built-in analyzer role block). Without this wiring the
   // selected Settings agent makes no difference to the ticket analysis — the
   // reported bug. The overlay lives at the shared `processFor` seam, so the
@@ -322,10 +323,14 @@ describe('extension activation', () => {
     // single-subagent pick) and resolves its body…
     expect(source).toMatch(/assignment\.agent/);
     expect(source).toMatch(/soloAgentBody\(assignment\.agent\)/);
-    // …an author-declared inline `instructions` wins over the profile body…
-    expect(source).toMatch(/assignment\.instructions !== undefined\s*\? assignment\.instructions/);
+    // …with no second source able to outrank it: the retired inline override
+    // must not come back as a branch here.
+    expect(source).not.toMatch(/assignment\.instructions !== undefined/);
     // …and the resolved body is layered onto the assignment as `instructions`.
     expect(source).toContain('{ ...assignment, instructions }');
+    // Only the prompt-BEARING roles resolve a body, and that vocabulary is the
+    // shared one — never a literal re-declared here.
+    expect(source).toContain('new Set<ProcessRole>(PROMPT_BEARING_ROLES)');
     // The wrong #170 seam is gone: the ticket's own single-subagent pick never
     // hijacks the headless analysis (it drives the SESSION).
     expect(source).not.toContain('assignment: { ...bundle.assignment, instructions: body }');

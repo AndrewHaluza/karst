@@ -3508,11 +3508,11 @@
 
   document.addEventListener('input', (e) => {
     const t = e.target;
-    // agentName and instructions commit per keystroke WITHOUT a re-render, so
-    // the field being typed into never loses focus; the `change` listener
-    // above still commits them on blur.
+    // agentName commits per keystroke WITHOUT a re-render, so the field being
+    // typed into never loses focus; the `change` listener above still commits
+    // it on blur.
     if (!t.dataset) return;
-    if (t.dataset.procField === 'agentName' || t.dataset.procField === 'instructions') {
+    if (t.dataset.procField === 'agentName') {
       updateProcessAssignment(t.dataset.procKey, { [t.dataset.procField]: t.value }, { rerender: false });
       return;
     }
@@ -4410,11 +4410,13 @@
   // only the draft-bound field VALUES are read from draft.processes, so a
   // change reflects instantly while the states follow on the round trip.
   const PROCESS_KEYS = ['uatTester', 'uatFix', 'review', 'reviewFix', 'prDescription', 'ticketAnalysis'];
-  // The two roles whose prompts consume `processes.<key>.instructions` (UAT
-  // Tester / Review findings); the other roles keep their own fixed prompt
-  // paths, so they offer no Instructions control (no dead field). Mirrored
-  // from the consumption sites — pinned by webview.test.ts (UI-R34).
-  const PROCESS_KEYS_WITH_INSTRUCTIONS = ['uatTester', 'review'];
+  // The roles whose prompt IS the assigned profile's body (UAT Tester, Review
+  // findings, Ticket analysis); the others take identity only — provider,
+  // model and display name — and keep their own fixed prompt. The row says
+  // which, rather than leaving a picked profile to look equally effective
+  // everywhere. Mirrored from the host's PROMPT_BEARING_ROLES (extension.ts) —
+  // pinned by webview.test.ts (UI-R34).
+  const PROMPT_BEARING_PROCESS_KEYS = ['uatTester', 'review', 'ticketAnalysis'];
 
   /** Index the host's row views by process key for O(1) row lookup. */
   function indexProcessViews(rows) {
@@ -4517,6 +4519,9 @@
       + `<label for="proc-${key}-profile">Agent profile</label>`
       + `<select id="proc-${key}-profile" class="proc-select" data-proc-field="agent" data-proc-key="${key}"${describedBy}${invalid('agent')}>${profileOpts}</select>`
       + (v.profileHint ? `<span class="proc-hint">${esc(v.profileHint)}</span>` : '')
+      + (PROMPT_BEARING_PROCESS_KEYS.includes(key)
+        ? `<span class="proc-hint">The profile's instructions ARE this process's prompt (edit them in Agents). No profile = the built-in prompt.</span>`
+        : `<span class="proc-hint">Identity only: this process keeps its built-in prompt, so the profile's instructions are not used.</span>`)
       + `</div>`
       + `<div class="proc-cell proc-core-cell">`
       + `<label for="proc-${key}-provider">Agent core</label>`
@@ -4539,11 +4544,6 @@
       + `<input id="proc-${key}-name" type="text" class="proc-input" data-proc-field="agentName" data-proc-key="${key}"`
       + ` value="${esc(cfg.agentName || '')}" placeholder="Snapshot name (blank = role default)" aria-label="${esc(label)} — display name" />`
       + `</div>`
-      + (PROCESS_KEYS_WITH_INSTRUCTIONS.includes(key) ? `<div class="proc-cell proc-cell-wide">`
-        + `<label for="proc-${key}-instructions">Instructions</label>`
-        + `<textarea id="proc-${key}-instructions" class="proc-input" data-proc-field="instructions" data-proc-key="${key}" rows="4" aria-label="${esc(label)} — instructions" placeholder="Blank = the built-in prompt">${esc(cfg.instructions || '')}</textarea>`
-        + `<span class="proc-hint">Blank = the built-in prompt. Replaces the role/strategy section; the JSON output rules stay fixed.</span>`
-        + `</div>` : '')
       + `</div>`
       + (msg ? `<div class="proc-msg ${v.stateTone === 'error' ? 'is-error' : 'is-note'}" id="${msgId}" role="alert">${esc(msg)}</div>` : '')
       + `</div>`;

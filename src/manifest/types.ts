@@ -434,15 +434,9 @@ export interface ProcessAssignmentConfig {
   agent?: string;
   provider?: AgentProvider;
   model?: string;
-  /**
-   * Author-declared prompt instructions for the role: replaces the built-in
-   * role/strategy portion of the process's prompt. Blank/absent → the built-in
-   * prompt (backward compatible). The structured-output rules are never
-   * replaced — instructions sit above them. Consumed only by the UAT Tester
-   * (`uatTester`) and Review findings (`review`); the other roles keep their
-   * own fixed prompt paths and ignore the value.
-   */
-  instructions?: string;
+  // NOTE: there is deliberately no `instructions` field. A process's prompt is
+  // the BODY of the profile named by `agent` — one place to write it, one place
+  // to read it. The retired key is still reported at load (`inertKeys.ts`).
   enabled?: boolean; // default true
 }
 
