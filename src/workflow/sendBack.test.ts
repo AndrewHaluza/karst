@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { openStore, type Store } from '../store/db.js';
 import { createTicket, getTicket } from '../store/tickets.js';
 import { getStage, setStage } from '../store/stages.js';
+import { openStageRun } from '../store/stageRuns.js';
 import { transition } from './machine.js';
 import { parkGateStage } from '../store/stageBlocks.js';
 import { sendBackState, sendBackToImplement } from './sendBack.js';
@@ -16,6 +17,18 @@ function seedPr(
   store.db
     .prepare('INSERT INTO prs (ticket_id, repo, number, url, status) VALUES (?, ?, ?, ?, ?)')
     .run(ticketId, repo, number, `https://github.com/o/r/pull/${number}`, status);
+}
+
+/** Open a genuinely-active run on a gate stage, the way `openGateRun` does. */
+function openActiveRun(store: Store, ticketId: number, stage: 'uat' | 'review'): void {
+  openStageRun(store, {
+    ticketId,
+    stageKey: stage,
+    attempt: 0,
+    runAt: '2026-08-09T10:00:00.000Z',
+    pid: 4242,
+    startedAt: '2026-08-09T10:00:00.000Z',
+  });
 }
 
 /** Walk a fresh ticket to a passed gate stage the way the markers leave it. */
@@ -63,10 +76,32 @@ describe('sendBackState', () => {
     expect(sendBackState(store, id)).toEqual({ available: true, stage: 'uat' });
   });
 
-  it('is withheld at uat while a run is in flight', () => {
+  it('is available at uat the moment it is entered — before any run opens', () => {
+    // The machine enters every gate stage `running` (entryPatch). On its own that
+    // column never means "in flight": the driver may not have started, may have
+    // been stopped, or the row may predate stage_runs. With no active run the
+    // stage is settled and safe to move.
     walkTo(store, id, 'uat');
-    setStage(store, id, 'uat', { status: 'running', startedAt: '2026-08-09T10:00:00.000Z' });
+    expect(getStage(store, id, 'uat')!.status).toBe('running');
+    expect(sendBackState(store, id)).toEqual({ available: true, stage: 'uat' });
+  });
+
+  it('is withheld at uat while a run is genuinely in flight', () => {
+    walkTo(store, id, 'uat');
+    // The stage is being DRIVEN: a stage_runs row is open (status 'running').
+    openActiveRun(store, id, 'uat');
     expect(sendBackState(store, id)).toEqual({ available: false, reason: 'in-flight' });
+  });
+
+  it('is available at uat after a stopped run — settled, nothing in flight', () => {
+    walkTo(store, id, 'uat');
+    // The user pressed Stop mid-run: the run closed 'stopped', but the stage
+    // row still reads 'running' (the stopped path leaves the stored status).
+    openActiveRun(store, id, 'uat');
+    store.db
+      .prepare("UPDATE stage_runs SET status = 'finished', outcome = 'stopped' WHERE ticket_id = ? AND stage_key = ?")
+      .run(id, 'uat');
+    expect(sendBackState(store, id)).toEqual({ available: true, stage: 'uat' });
   });
 
   it('is available at review when settled', () => {
@@ -75,10 +110,24 @@ describe('sendBackState', () => {
     expect(sendBackState(store, id)).toEqual({ available: true, stage: 'review' });
   });
 
+  it('is withheld at review while its run is in flight', () => {
+    walkTo(store, id, 'review');
+    openActiveRun(store, id, 'review');
+    expect(sendBackState(store, id)).toEqual({ available: false, reason: 'in-flight' });
+  });
+
   it('is available at ship before landing — awaiting confirm with no PR yet', () => {
     walkTo(store, id, 'ship');
     // Freshly parked at ship pending its first confirm click: no PR, no block.
     expect(sendBackState(store, id)).toEqual({ available: true, stage: 'ship' });
+  });
+
+  it('is withheld at ship while the shipping saga is running', () => {
+    walkTo(store, id, 'ship');
+    // stages/ship marks the ship cell 'running' for the duration of the saga —
+    // ship records no stage_runs row, so its own cell is the in-flight signal.
+    setStage(store, id, 'ship', { status: 'running', endedAt: null });
+    expect(sendBackState(store, id)).toEqual({ available: false, reason: 'in-flight' });
   });
 
   it('is available at ship while awaiting merge', () => {
@@ -230,7 +279,7 @@ describe('sendBackToImplement', () => {
 
   it('refuses while a run is in flight (mutates nothing)', () => {
     walkTo(store, id, 'uat');
-    setStage(store, id, 'uat', { status: 'running', startedAt: '2026-08-09T10:00:00.000Z' });
+    openActiveRun(store, id, 'uat');
     expect(() => sendBackToImplement(store, id)).toThrow(/in-flight/);
     expect(getTicket(store, id).stageCurrent).toBe('uat');
   });

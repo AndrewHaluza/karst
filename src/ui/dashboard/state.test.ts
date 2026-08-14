@@ -882,10 +882,26 @@ describe('buildDashboardState — send back to implement', () => {
     expect(buildDashboardState(store, id).sendBack).toEqual({ available: true, stage: 'ship' });
   });
 
-  it('withholds the action while the stage is running (in-flight)', () => {
+  it('withholds the action while a run is genuinely in flight', () => {
     const id = at('uat');
     setStage(store, id, 'uat', { status: 'running', startedAt: '2026-08-09T10:00:00.000Z' });
+    openStageRun(store, {
+      ticketId: id,
+      stageKey: 'uat',
+      attempt: 0,
+      runAt: '2026-08-09T10:00:00.000Z',
+      pid: 4242,
+      startedAt: '2026-08-09T10:00:00.000Z',
+    });
     expect(buildDashboardState(store, id).sendBack).toEqual({ available: false, reason: 'in-flight' });
+  });
+
+  it('offers the action on an entered-but-not-driven gate — no active run', () => {
+    // The machine enters every gate stage `running` (entryPatch); with no open
+    // stage_runs row the stage is settled, never in flight.
+    const id = at('uat');
+    setStage(store, id, 'uat', { status: 'running', startedAt: '2026-08-09T10:00:00.000Z' });
+    expect(buildDashboardState(store, id).sendBack).toEqual({ available: true, stage: 'uat' });
   });
 
   it('offers the action on a parked (blocked) gate — settled, not running', () => {

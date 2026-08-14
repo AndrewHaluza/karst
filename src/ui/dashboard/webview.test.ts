@@ -3553,6 +3553,23 @@ describe('send back to implement (executed in a VM)', () => {
     expect(html).not.toContain('Send back to Implement');
   });
 
+  it('renders the same menu on the ship header before landing', () => {
+    // The ship header hosts the recovery action in the exact same location —
+    // the acceptance criterion that the action is identical across uat/review/
+    // ship before any PR has merged.
+    const state: DashboardState = {
+      ...renderStateFor('ship'),
+      stageCurrent: 'ship',
+      presentedStage: 'ship',
+      sendBack: { available: true, stage: 'ship' },
+    };
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state });
+    expect(h.htmlOf('inside')).toMatch(/data-stage-menu="ship"/);
+    h.click('[data-stage-menu]', { 'stage-menu': 'ship' });
+    expect(h.htmlOf('inside')).toContain('Send back to Implement');
+  });
+
   it('renders no menu when the host withholds the action', () => {
     const h = bootPreviewHarness();
     h.receive({ type: 'state', state: renderStateFor('uat') }); // unavailable fixture
