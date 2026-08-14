@@ -40,7 +40,7 @@ import {
   casStatus,
 } from '../../store/graph/transitions.js';
 import { graphRunById } from '../../store/graph/graphRuns.js';
-import { beginBootstrapPlannerRun, finishPlanning } from './coordinator/plannerRun.js';
+import { beginBootstrapPlannerRun, finishPlanning, relaunchBootstrapPlannerRun } from './coordinator/plannerRun.js';
 import { transitionPlannerRun } from '../../store/graph/plannerRuns.js';
 import { createRevision } from '../../store/graph/revisions.js';
 import { insertEntryTokens } from '../../store/graph/tokens.js';
@@ -283,6 +283,133 @@ export async function bootstrapAndLaunchPlanner(
     `[graph] run ${graphRunId}: bootstrap planner ${plannerRunId} launched (${resolved.provider}/${resolved.model ?? 'default'})`,
   );
   return { kind: 'launched', graphRunId, plannerRunId, generation, capability, session };
+}
+
+export type RelaunchBootstrapPlannerResult =
+  | {
+      kind: 'launched';
+      graphRunId: number;
+      plannerRunId: number;
+      generation: string;
+      capability: string;
+      session: SupervisedAgentSession;
+    }
+  | { kind: 'no-op' }
+  | { kind: 'instructions-missing'; reason: string }
+  | { kind: 'failed'; reason: string };
+
+/**
+ * Relaunch a planning run's bootstrap planner after its session died (the
+ * reconcile crash matrix's response): allocate a NEW bootstrap planner run on
+ * the EXISTING planning run and launch its session, mirroring
+ * `bootstrapAndLaunchPlanner` minus the graph-run creation. A run that left
+ * `planning` is a `no-op` — its new planner's submission could never be
+ * accepted. The host binds this to the reconcile `relaunchPlanner` callback.
+ */
+export async function relaunchBootstrapPlanner(
+  deps: GraphDriverDeps,
+  input: { graphRunId: number },
+): Promise<RelaunchBootstrapPlannerResult> {
+  const run = graphRunById(deps.db, input.graphRunId);
+  if (!run || run.status !== 'planning') return { kind: 'no-op' };
+  const config = deps.graphConfigOf(run.approach_id);
+  if (!config) {
+    return { kind: 'failed', reason: `approach "${run.approach_id}" declares no graph: block` };
+  }
+  const promptPath = config.planner.prompt?.artifact ?? 'skills/graph-planner/SKILL.md';
+  const promptBytes = deps.promptBytesOf('karst-graph-planner');
+  if (promptBytes === undefined) {
+    return {
+      kind: 'instructions-missing',
+      reason: `cannot read the graph planner prompt at "${promptPath}"`,
+    };
+  }
+  const begun = relaunchBootstrapPlannerRun(
+    {
+      db: deps.db,
+      transaction: deps.transaction,
+      promptPath,
+      readPrompt: (path) => (path === promptPath ? promptBytes : undefined),
+      writeSnapshot: deps.writeSnapshot,
+      projectSlug: '', // unused by the relaunch path (no graph run is created)
+      now: deps.now,
+    },
+    { graphRunId: input.graphRunId },
+  );
+  if (!begun.ok) {
+    return begun.code === 'instructions-missing'
+      ? { kind: 'instructions-missing', reason: begun.reason }
+      : { kind: 'failed', reason: begun.reason };
+  }
+  const { plannerRunId } = begun;
+  const resolved = resolveProfileFor(config, config.planner.profile);
+  const capability = randomBytes(32).toString('hex');
+  const generation = uuidv7();
+  const stamped = deps.transaction(() => {
+    deps.db
+      .prepare('UPDATE approach_planner_runs SET generation = ?, capability_hash = ? WHERE id = ?')
+      .run(generation, sha256Hex(new TextEncoder().encode(capability)), plannerRunId);
+    return (
+      transitionPlannerRun(deps.db, plannerRunId, 'ready', 'launching')
+      && transitionPlannerRun(deps.db, plannerRunId, 'launching', 'running')
+    );
+  });
+  if (!stamped) {
+    return { kind: 'failed', reason: `planner run ${plannerRunId} already moved (a second window?)` };
+  }
+  if (!resolved) {
+    return {
+      kind: 'failed',
+      reason: `planner profile "${config.planner.profile}" is not configured in approach "${run.approach_id}"`,
+    };
+  }
+  const workspace = deps.plannerCwdOf(input.graphRunId);
+  if (!workspace) {
+    return { kind: 'failed', reason: `no worktree registered for graph run ${input.graphRunId}` };
+  }
+  const artifactRoot = deps.artifactRootOf(input.graphRunId);
+  const env = deps.graphEnvOf({
+    launchId: plannerRunId,
+    graphRunId: input.graphRunId,
+    revisionId: 0,
+    generation,
+    capability,
+    artifactRoot,
+  });
+  const prompt = [
+    new TextDecoder().decode(promptBytes),
+    deps.ticketContextOf(run.ticket_id),
+    'Write your plan artifacts and `graph.json` under the artifact root (env `KARST_GRAPH_ARTIFACT_ROOT`), then finish your session — karst compiles and runs the graph after you close.',
+  ].join('\n\n');
+  const session = await deps.transport.start({
+    nodeRunId: plannerRunId,
+    ticketId: run.ticket_id,
+    graphRunId: input.graphRunId,
+    repo: workspace.repo,
+    cwd: workspace.cwd,
+    generation,
+    sessionName: deps.sessionNameOf(plannerRunId, 'planner'),
+    graphEnv: env,
+    adapter: deps.adapterFor(resolved.provider),
+    interactive: {
+      cwd: workspace.cwd,
+      initialPrompt: prompt,
+      model: resolved.model,
+      effort: resolved.effort,
+      sessionName: deps.sessionNameOf(plannerRunId, 'planner'),
+    },
+  } satisfies SupervisedLaunchRequest);
+  deps.debug?.(
+    `[graph] run ${input.graphRunId}: bootstrap planner ${plannerRunId} relaunched (${resolved.provider}/${resolved.model ?? 'default'})`,
+  );
+  return {
+    kind: 'launched',
+    graphRunId: input.graphRunId,
+    plannerRunId,
+    generation,
+    capability,
+    session,
+  };
 }
 
 /* ------------------------------------------------------------------ */
