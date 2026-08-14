@@ -33,6 +33,32 @@ export type AdvanceResult =
   | { advanced: false; reason: 'disabled' | 'no-ref' };
 
 /**
+ * The reportable shape for a status-push skip: the one severity the caller may
+ * emit (DEBUG) plus the line to emit. `null` → nothing to say.
+ */
+export type StatusPushSkip = { level: 'debug'; message: string } | null;
+
+/**
+ * Turn an `AdvanceResult` into the note the host should log, if any.
+ *
+ * `no-ref` is a NORMAL state, never a fault: a manual ticket has no provider
+ * task to move (`providerRef` returns null by design), so the push is skipped
+ * and the caller logs a DEBUG note — a missing ref must never read as an ERROR
+ * in the channel. `disabled` and `advanced` have nothing to say at all.
+ */
+export function statusPushSkipNote(
+  event: 'started' | 'completed',
+  ticketId: number,
+  result: AdvanceResult,
+): StatusPushSkip {
+  if (result.advanced || result.reason === 'disabled') return null;
+  return {
+    level: 'debug',
+    message: `ticket #${ticketId} ${event} without a status update: no provider ref`,
+  };
+}
+
+/**
  * Push the configured post-ship status, when configured and addressable. Owns the
  * whole decision so the (untestable) `vscode` binding holds one call and every
  * branch that could reach a live provider is covered by tests.
