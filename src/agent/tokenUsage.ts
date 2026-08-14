@@ -57,14 +57,20 @@ const OUTPUT_KEYS = [
   'completion_tokens',
   'completionTokens',
 ] as const;
-const REASONING_KEYS = [
-  'reasoning_tokens',
-  'reasoningTokens',
-  'reasoning_output_tokens',
-  'reasoningOutputTokens',
-  'output_reasoning_tokens',
-  'reasoning',
-] as const;
+/**
+ * Deliberately NOT scanned generically, unlike every other key group: cores
+ * disagree on the SEMANTICS behind the name `reasoning_tokens`, not just its
+ * spelling. opencode reports it DISJOINT from `output` (verified against a
+ * live conversation DB — a session with 8,220 output carried 40,485 reasoning
+ * beside it) and owns that mapping itself in `opencode.ts`'s `mapTokens`. Codex
+ * follows the OpenAI Responses API convention, where a flattened
+ * `reasoning_tokens` is a SUBSET of `output_tokens` (`output_tokens_details.
+ * reasoning_tokens`) — summing it here as if it were opencode's disjoint
+ * counter would double-count every reasoning-model Codex call. No verified
+ * Claude or Codex CLI envelope emits this key today (see the fixtures in
+ * `tokenUsage.test.ts`); if one starts to, its adapter must own the mapping
+ * explicitly, the same way opencode's does, not this shared scanner.
+ */
 const CACHE_READ_KEYS = [
   'cache_read_input_tokens',
   'cacheReadInputTokens',
@@ -102,14 +108,12 @@ function count(record: Record<string, unknown>, keys: readonly string[]): number
 function readCounts(record: Record<string, unknown>): Counts | null {
   const input = count(record, INPUT_KEYS);
   const output = count(record, OUTPUT_KEYS);
-  const reasoning = count(record, REASONING_KEYS);
   const cacheRead = count(record, CACHE_READ_KEYS);
   const cacheWrite = count(record, CACHE_WRITE_KEYS);
   const total = count(record, TOTAL_KEYS);
   if (
     input === undefined &&
     output === undefined &&
-    reasoning === undefined &&
     cacheRead === undefined &&
     cacheWrite === undefined &&
     total === undefined
@@ -119,7 +123,9 @@ function readCounts(record: Record<string, unknown>): Counts | null {
   return {
     input: input ?? 0,
     output: output ?? 0,
-    reasoning: reasoning ?? 0,
+    // Never scanned generically — see the comment on the (removed)
+    // REASONING_KEYS above. A core that reports reasoning owns its own mapper.
+    reasoning: 0,
     cacheRead: cacheRead ?? 0,
     cacheWrite: cacheWrite ?? 0,
     ...(total !== undefined ? { total } : {}),

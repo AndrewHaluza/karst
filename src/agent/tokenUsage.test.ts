@@ -125,22 +125,17 @@ describe('estimateTokenUsage', () => {
 });
 
 describe('extractTokenUsage — reasoning tokens', () => {
-  it('reads a reasoning counter and bills it into the derived total', () => {
+  it('never scans a generic `reasoning_tokens` key — cores disagree on subset vs disjoint semantics', () => {
+    // Codex follows the OpenAI convention where a flattened `reasoning_tokens`
+    // is a SUBSET of `output_tokens`; opencode reports it disjoint and owns
+    // that mapping itself (see opencode.ts's mapTokens). Summing it here for
+    // every core would double-count a Codex reasoning-model call.
     const usage = extractTokenUsage(
       JSON.stringify({
         usage: { input_tokens: 100, output_tokens: 20, reasoning_tokens: 400 },
       }),
     );
-    expect(usage?.reasoningTokens).toBe(400);
-    // Reasoning is output-billed spend, so a derived total must include it.
-    expect(usage?.totalTokens).toBe(520);
-  });
-
-  it('leaves the reasoning count at zero when the core reports none', () => {
-    const usage = extractTokenUsage(
-      JSON.stringify({ usage: { input_tokens: 10, output_tokens: 2 } }),
-    );
     expect(usage?.reasoningTokens).toBe(0);
-    expect(usage?.totalTokens).toBe(12);
+    expect(usage?.totalTokens).toBe(120);
   });
 });

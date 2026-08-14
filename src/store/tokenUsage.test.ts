@@ -597,7 +597,12 @@ describe('process-run attribution', () => {
     seed({ input: 120, output: 30, processRunId: r.id });
     seed({ input: 999, output: 999, estimated: true, processRunId: r.id });
 
-    expect(summarizeRecordedTokenUsage(store, 1)).toEqual({ input: 120, output: 30, total: 150 });
+    expect(summarizeRecordedTokenUsage(store, 1)).toEqual({
+      input: 120,
+      output: 30,
+      total: 150,
+      cacheRead: 0,
+    });
   });
 
   it('counts a process\'s estimated calls separately from its measured total', () => {

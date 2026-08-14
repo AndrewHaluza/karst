@@ -230,7 +230,12 @@ describe('instrumented AI calls', () => {
 
     expect(listTokenUsage(store, { ticketId: id, processRunId: run.id })).toHaveLength(1);
     expect(listTokenUsage(store, { processRunId: run.id })[0]!.ticketId).toBe(id);
-    expect(summarizeRecordedTokenUsage(store, id)).toEqual({ input: 0, output: 0, total: 0 });
+    expect(summarizeRecordedTokenUsage(store, id)).toEqual({
+      input: 0,
+      output: 0,
+      total: 0,
+      cacheRead: 0,
+    });
   });
 
   // Task 8: the UAT Tester's headless call goes through the REAL

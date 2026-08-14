@@ -528,6 +528,8 @@ export interface RecordedUsageSummary {
   input: number;
   output: number;
   total: number;
+  /** Measured cache reads inside that total — headlined apart, per `tokenView`. */
+  cacheRead: number;
 }
 
 /**
@@ -547,12 +549,13 @@ export function summarizeRecordedTokenUsage(
     .prepare(
       `SELECT COALESCE(SUM(input_tokens), 0) AS input,
               COALESCE(SUM(output_tokens), 0) AS output,
-              COALESCE(SUM(total_tokens), 0) AS total
+              COALESCE(SUM(total_tokens), 0) AS total,
+              COALESCE(SUM(cache_read_tokens), 0) AS cache_read
          FROM token_usage
         WHERE ticket_id = ? AND estimated = 0`,
     )
-    .get(ticketId) as { input: number; output: number; total: number };
-  return row;
+    .get(ticketId) as { input: number; output: number; total: number; cache_read: number };
+  return { input: row.input, output: row.output, total: row.total, cacheRead: row.cache_read };
 }
 
 /** Measured spend of one inside process — plus how many calls fell back. */

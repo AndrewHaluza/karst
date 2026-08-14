@@ -151,12 +151,14 @@ function mapTokens(tokens: unknown): TokenUsage | undefined {
       : undefined;
   const input = count(record['input']);
   const output = count(record['output']);
+  const reasoning = count(record['reasoning']);
   const cacheRead = cache === null ? undefined : count(cache['read']);
   const cacheWrite = cache === null ? undefined : count(cache['write']);
   const total = count(record['total']);
   if (
     input === undefined &&
     output === undefined &&
+    reasoning === undefined &&
     cacheRead === undefined &&
     cacheWrite === undefined &&
     total === undefined
@@ -166,11 +168,12 @@ function mapTokens(tokens: unknown): TokenUsage | undefined {
   return {
     inputTokens: input ?? 0,
     outputTokens: output ?? 0,
-    reasoningTokens: 0,
+    reasoningTokens: reasoning ?? 0,
     cacheReadTokens: cacheRead ?? 0,
     cacheWriteTokens: cacheWrite ?? 0,
     totalTokens:
-      total ?? (input ?? 0) + (output ?? 0) + (cacheRead ?? 0) + (cacheWrite ?? 0),
+      total ??
+      (input ?? 0) + (output ?? 0) + (reasoning ?? 0) + (cacheRead ?? 0) + (cacheWrite ?? 0),
     model: null,
     estimated: false,
   };

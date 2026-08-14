@@ -164,21 +164,27 @@ function ticketRowLabel(row: UsageTicketRow): string {
 
 function breakdown(
   rows: UsageGroupRow[],
-  total: number,
+  freshTotal: number,
   label: (key: string) => string,
 ): UsageBreakdownRow[] {
-  return rows.map((row) => ({
-    key: row.key,
-    label: label(row.key),
-    calls: row.calls,
-    totalTokens: row.totalTokens,
-    totalDisplay: formatTokens(row.totalTokens),
-    totalExact: formatExactTokens(row.totalTokens),
-    inputDisplay: formatTokens(row.inputTokens),
-    outputDisplay: formatTokens(row.outputTokens),
-    share: shareOfTotal(row.totalTokens, total),
-    estimated: row.calls > 0 && row.estimatedCalls === row.calls,
-  }));
+  // Every row's own figure is FRESH spend too — a call site or model that is
+  // mostly cache reads must not claim a share of the raw tally it never
+  // fresh-spent.
+  return rows.map((row) => {
+    const fresh = Math.max(0, row.totalTokens - row.cacheReadTokens);
+    return {
+      key: row.key,
+      label: label(row.key),
+      calls: row.calls,
+      totalTokens: fresh,
+      totalDisplay: formatTokens(fresh),
+      totalExact: formatExactTokens(fresh),
+      inputDisplay: formatTokens(row.inputTokens),
+      outputDisplay: formatTokens(row.outputTokens),
+      share: shareOfTotal(fresh, freshTotal),
+      estimated: row.calls > 0 && row.estimatedCalls === row.calls,
+    };
+  });
 }
 
 function totalsView(stats: TokenUsageStats): UsageTotalsView {
@@ -211,21 +217,24 @@ function profileLabel(key: string): string {
   return key === '' ? 'unknown profile' : key;
 }
 
-function profileRows(rows: UsageProfileRow[], total: number): UsageProfileRowView[] {
-  return rows.map((row) => ({
-    key: row.profile,
-    label: profileLabel(row.profile),
-    calls: row.calls,
-    totalTokens: row.totalTokens,
-    totalDisplay: formatTokens(row.totalTokens),
-    totalExact: formatExactTokens(row.totalTokens),
-    inputDisplay: formatTokens(row.inputTokens),
-    outputDisplay: formatTokens(row.outputTokens),
-    share: shareOfTotal(row.totalTokens, total),
-    estimated: row.calls > 0 && row.estimatedCalls === row.calls,
-    provider: row.provider,
-    note: row.provider === null ? 'provider unknown' : row.provider,
-  }));
+function profileRows(rows: UsageProfileRow[], freshTotal: number): UsageProfileRowView[] {
+  return rows.map((row) => {
+    const fresh = Math.max(0, row.totalTokens - row.cacheReadTokens);
+    return {
+      key: row.profile,
+      label: profileLabel(row.profile),
+      calls: row.calls,
+      totalTokens: fresh,
+      totalDisplay: formatTokens(fresh),
+      totalExact: formatExactTokens(fresh),
+      inputDisplay: formatTokens(row.inputTokens),
+      outputDisplay: formatTokens(row.outputTokens),
+      share: shareOfTotal(fresh, freshTotal),
+      estimated: row.calls > 0 && row.estimatedCalls === row.calls,
+      provider: row.provider,
+      note: row.provider === null ? 'provider unknown' : row.provider,
+    };
+  });
 }
 
 /** The shell every state shares — also what an error or empty range renders. */
@@ -271,7 +280,10 @@ export function buildUsageState(store: Store, input: UsageStateInput = {}): Usag
   if (!parsed.ok) return { ...base(rangeId, sort, offset, limit), error: parsed.error };
 
   const stats = queryTokenUsageStats(store, parsed.query);
-  const total = stats.totals.totalTokens;
+  // The share denominator is FRESH spend, matching the headline (`totalsView`)
+  // and every breakdown row — a raw-total denominator would let cache-read-
+  // heavy rows claim shares of tokens nothing fresh-spent.
+  const total = Math.max(0, stats.totals.totalTokens - stats.totals.cacheReadTokens);
 
   return {
     ...base(rangeId, sort, offset, limit),
@@ -280,20 +292,23 @@ export function buildUsageState(store: Store, input: UsageStateInput = {}): Usag
     byStage: breakdown(stats.byCallSite, total, aiCallSiteLabel),
     byModel: breakdown(stats.byModel, total, modelLabel),
     byProfile: profileRows(stats.byProfile, total),
-    tickets: stats.byTicket.map((row) => ({
-      ticketId: row.ticketId,
-      ticketKey: row.ticketKey,
-      label: ticketRowLabel(row),
-      calls: row.calls,
-      totalTokens: row.totalTokens,
-      totalDisplay: formatTokens(row.totalTokens),
-      totalExact: formatExactTokens(row.totalTokens),
-      inputDisplay: formatTokens(row.inputTokens),
-      outputDisplay: formatTokens(row.outputTokens),
-      lastAt: row.lastAt,
-      share: shareOfTotal(row.totalTokens, total),
-      estimated: row.calls > 0 && row.estimatedCalls === row.calls,
-    })),
+    tickets: stats.byTicket.map((row) => {
+      const fresh = Math.max(0, row.totalTokens - row.cacheReadTokens);
+      return {
+        ticketId: row.ticketId,
+        ticketKey: row.ticketKey,
+        label: ticketRowLabel(row),
+        calls: row.calls,
+        totalTokens: fresh,
+        totalDisplay: formatTokens(fresh),
+        totalExact: formatExactTokens(fresh),
+        inputDisplay: formatTokens(row.inputTokens),
+        outputDisplay: formatTokens(row.outputTokens),
+        lastAt: row.lastAt,
+        share: shareOfTotal(fresh, total),
+        estimated: row.calls > 0 && row.estimatedCalls === row.calls,
+      };
+    }),
     page: {
       offset,
       limit,

@@ -177,10 +177,16 @@ function timelineEvents(
   segmentTokens: readonly SegmentTokensInput[],
 ): TimelineEvent[] {
   // The switch row states what the segment it moved TO went on to spend.
+  // Filtered on FRESH spend (total minus cache reads), not the raw total: a
+  // segment that only re-read cached context has a raw total > 0 but nothing
+  // fresh, and keeping it here would hand `tokenView` a clamped-zero pill —
+  // "0 tok" reads as measured spend, which decision 8 forbids (absence must
+  // be stated, never a fabricated zero).
   const totalBySegment = new Map(
     segmentTokens
-      .filter((s) => s.total > 0)
-      .map((s) => [s.implementationSegmentId, { total: s.total, cacheRead: s.cacheRead ?? 0 }]),
+      .map((s) => ({ id: s.implementationSegmentId, total: s.total, cacheRead: s.cacheRead ?? 0 }))
+      .filter((s) => s.total - s.cacheRead > 0)
+      .map((s) => [s.id, { total: s.total, cacheRead: s.cacheRead }]),
   );
   const events: TimelineEvent[] = [];
   const { run, segments } = timeline;
