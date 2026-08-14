@@ -31,6 +31,10 @@ const now = () => '2026-07-30T10:00:00.000Z';
 function deps(over: Partial<UatDeps> = {}): UatDeps {
   return {
     now,
+    // Never answer a git probe: the Tester's checkout verification degrades to
+    // "unverifiable" and every test keeps its pre-verification behavior without
+    // spawning a real git.
+    git: async () => ({ exitCode: 1, stdout: '', stderr: '' }),
     planTargets: async () => ({ kind: 'targets', targets: [{ repo: '/web', path: '/wt/web', names: ['web'] }], unmapped: [] }),
     probe: () => ({ kind: 'ok', scripts: { test: 'vitest', e2e: 'playwright test' } }),
     runGates: async (gates, _cwd, opts) => {
@@ -1293,6 +1297,43 @@ describe('runUat — Tester and verifier (Task 8)', () => {
     expect(runHeadless).toHaveBeenCalledTimes(1);
     expect(capturedPrompt).toContain('karst/x');
     expect(capturedPrompt).toContain('origin/develop...origin/karst/x');
+  });
+
+  // 869ej1nfb: "UAT tester xterm console shows no diffs if they're there". The
+  // stage passes its git runner into the Tester, which verifies the checkout
+  // is actually on the ticket branch BEFORE spending a token. A wrong checkout
+  // records a deterministic critical observation and skips the call — no bogus
+  // "no changes to test" is ever produced — while the gates alone decide the
+  // verdict (observations stay advisory).
+  it('records a critical observation and skips the call when the worktree is on the wrong branch', async () => {
+    store.db
+      .prepare(
+        "INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref, deps_mode) VALUES (?, '/web', '/wt/web', 'karst/x', 'develop', 'inherited')",
+      )
+      .run(id);
+    const runHeadless = vi.fn(async () => ({ sessionId: '', verdict: null, raw: '[]' }));
+    const res = await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
+      testerDeps({
+        tester: { assignment: { agentName: 'UAT Agent', provider: 'claude' }, adapter: { ...testerAgent('[]'), runHeadless } },
+        planTargets: async () => ({
+          kind: 'targets',
+          targets: [{ repo: '/web', path: '/wt/web', names: ['web'] }],
+          unmapped: [],
+        }),
+        git: async (args) =>
+          args[0] === 'rev-parse'
+            ? { exitCode: 0, stdout: 'develop\n', stderr: '' }
+            : { exitCode: 1, stdout: '', stderr: '' },
+      }),
+    );
+    expect(res).toEqual({ kind: 'advanced', next: 'review' });
+    expect(runHeadless).not.toHaveBeenCalled();
+    const findings = listUatFindings(store, id);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toMatchObject({ severity: 'critical', repo: '/web' });
+    expect(findings[0]!.title).toContain('not the ticket branch "karst/x"');
   });
 
   it('threads onTesterOutput and onTesterTargetProgress into the Tester', async () => {
