@@ -169,9 +169,10 @@ function breakdown(
 ): UsageBreakdownRow[] {
   // Every row's own figure is FRESH spend too — a call site or model that is
   // mostly cache reads must not claim a share of the raw tally it never
-  // fresh-spent.
+  // fresh-spent. `freshTokens` comes from the SAME SQL expression the query
+  // ordered on, so the rendered order always matches the rendered numbers.
   return rows.map((row) => {
-    const fresh = Math.max(0, row.totalTokens - row.cacheReadTokens);
+    const fresh = row.freshTokens;
     return {
       key: row.key,
       label: label(row.key),
@@ -189,10 +190,10 @@ function breakdown(
 
 function totalsView(stats: TokenUsageStats): UsageTotalsView {
   const t = stats.totals;
-  // The headline is fresh spend; cache reads keep their own tile. Clamped at
-  // zero — the two sums are independent and a legacy row can carry reads its
-  // total never counted, which must never render as a negative headline.
-  const fresh = Math.max(0, t.totalTokens - t.cacheReadTokens);
+  // The headline is fresh spend; cache reads keep their own tile. The clamp
+  // lives in the SQL that computes `freshTokens` — the two sums are
+  // independent and a legacy row can carry reads its total never counted.
+  const fresh = t.freshTokens;
   return {
     calls: t.calls,
     totalDisplay: formatTokens(fresh),
@@ -219,7 +220,7 @@ function profileLabel(key: string): string {
 
 function profileRows(rows: UsageProfileRow[], freshTotal: number): UsageProfileRowView[] {
   return rows.map((row) => {
-    const fresh = Math.max(0, row.totalTokens - row.cacheReadTokens);
+    const fresh = row.freshTokens;
     return {
       key: row.profile,
       label: profileLabel(row.profile),
@@ -280,10 +281,10 @@ export function buildUsageState(store: Store, input: UsageStateInput = {}): Usag
   if (!parsed.ok) return { ...base(rangeId, sort, offset, limit), error: parsed.error };
 
   const stats = queryTokenUsageStats(store, parsed.query);
-  // The share denominator is FRESH spend, matching the headline (`totalsView`)
-  // and every breakdown row — a raw-total denominator would let cache-read-
-  // heavy rows claim shares of tokens nothing fresh-spent.
-  const total = Math.max(0, stats.totals.totalTokens - stats.totals.cacheReadTokens);
+  // The share denominator is FRESH spend, matching the headline (`totalsView`),
+  // every breakdown row and the ORDER BY — a raw-total denominator would let
+  // cache-read-heavy rows claim shares of tokens nothing fresh-spent.
+  const total = stats.totals.freshTokens;
 
   return {
     ...base(rangeId, sort, offset, limit),
@@ -293,7 +294,8 @@ export function buildUsageState(store: Store, input: UsageStateInput = {}): Usag
     byModel: breakdown(stats.byModel, total, modelLabel),
     byProfile: profileRows(stats.byProfile, total),
     tickets: stats.byTicket.map((row) => {
-      const fresh = Math.max(0, row.totalTokens - row.cacheReadTokens);
+      // Same expression the query sorted and paginated on.
+      const fresh = row.freshTokens;
       return {
         ticketId: row.ticketId,
         ticketKey: row.ticketKey,

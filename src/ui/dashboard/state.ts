@@ -452,9 +452,15 @@ export function buildDashboardState(
   // were all estimates reads as absent, never as a measured free call. The
   // estimate COUNT rides beside the measured total as a separate fact (a core
   // that fell back to estimates stays visible, never folded into the total).
+  // Gated on FRESH spend, not the raw tally: the pill headlines fresh (see
+  // `tokenView`), so a process whose every recorded token was a cache READ has
+  // a raw total > 0 but nothing fresh, and admitting it here renders a
+  // clamped "0 tok" — a fabricated zero, which decision 8 forbids (absence is
+  // stated, never a measured-looking nothing). Same rule as the segment
+  // timeline's filter in `model/inside/agent.ts`.
   const tokensFor = (processId: string): SessionTokensInput | null => {
     const summary = summarizeRecordedTokenUsageForProcess(store, ticketId, processId);
-    return summary.total > 0
+    return summary.total - summary.cacheRead > 0
       ? {
           total: summary.total,
           cacheRead: summary.cacheRead,
@@ -595,7 +601,10 @@ export function buildDashboardState(
         mergeChecks,
         gateRuns,
         rounds,
-        tokens: recordedTotal.total > 0 ? recordedTotal : null,
+        // Fresh-gated for the same reason `tokensFor` is: the receipt's Σ
+        // headlines fresh spend, so a ticket with only cache reads must state
+        // the absence rather than render a clamped "0 recorded tokens".
+        tokens: recordedTotal.total - recordedTotal.cacheRead > 0 ? recordedTotal : null,
         roles: roleTokens,
         // The done stage's own stamp — the hero's completion time. An
         // unstamped cell yields no time rather than a fabricated one.

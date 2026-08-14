@@ -33,6 +33,12 @@ export interface UsageTotals {
   cacheReadTokens: number;
   cacheWriteTokens: number;
   totalTokens: number;
+  /**
+   * The raw tally LESS cache reads — what every headline, sort and share
+   * denominator uses. Computed in SQL (see `aggregates`) so the displayed
+   * number and the ORDER BY can never be different quantities.
+   */
+  freshTokens: number;
   /** Calls whose counts were estimated because the core reported none. */
   estimatedCalls: number;
   /** Calls that failed. The tokens were still spent, so they still count. */
@@ -91,6 +97,7 @@ export const EMPTY_USAGE_TOTALS: UsageTotals = {
   cacheReadTokens: 0,
   cacheWriteTokens: 0,
   totalTokens: 0,
+  freshTokens: 0,
   estimatedCalls: 0,
   erroredCalls: 0,
 };
@@ -220,6 +227,15 @@ function aggregates(p = ''): string {
   COALESCE(SUM(${p}cache_read_tokens), 0) AS cache_read_tokens,
   COALESCE(SUM(${p}cache_write_tokens), 0) AS cache_write_tokens,
   COALESCE(SUM(${p}total_tokens), 0) AS total_tokens,
+  -- FRESH spend: the raw tally less cache READS, which are context the
+  -- provider re-sent and re-billed at a fraction of the fresh rate. Defined
+  -- HERE, once, in SQL — every display, every ORDER BY and every pagination
+  -- window reads the same expression, so a table can never be sorted on one
+  -- quantity while showing another. Clamped with MAX(0, …) because the two
+  -- sums are independent: a row measured before the split can carry reads its
+  -- total never counted.
+  MAX(0, COALESCE(SUM(${p}total_tokens), 0) - COALESCE(SUM(${p}cache_read_tokens), 0))
+    AS fresh_tokens,
   COALESCE(SUM(${p}estimated), 0) AS estimated_calls,
   COALESCE(SUM(CASE WHEN ${p}outcome = 'error' THEN 1 ELSE 0 END), 0) AS errored_calls`;
 }
@@ -232,6 +248,7 @@ interface TotalsRow {
   cache_read_tokens: number;
   cache_write_tokens: number;
   total_tokens: number;
+  fresh_tokens: number;
   estimated_calls: number;
   errored_calls: number;
 }
@@ -245,6 +262,7 @@ function toTotals(row: TotalsRow): UsageTotals {
     cacheReadTokens: row.cache_read_tokens,
     cacheWriteTokens: row.cache_write_tokens,
     totalTokens: row.total_tokens,
+    freshTokens: row.fresh_tokens,
     estimatedCalls: row.estimated_calls,
     erroredCalls: row.errored_calls,
   };
@@ -257,7 +275,11 @@ function toTotals(row: TotalsRow): UsageTotals {
  * key of this object before it gets here.
  */
 const SORT_EXPRESSIONS: Record<UsageSort, string> = {
-  total: 'total_tokens DESC',
+  // FRESH spend, matching what the table renders — ordering (and therefore the
+  // LIMIT/OFFSET page) on the raw tally while displaying fresh put rows in an
+  // order the numbers on screen contradicted, and could page a big-fresh row
+  // off the end behind a cache-heavy one.
+  total: 'fresh_tokens DESC',
   input: 'input_tokens DESC',
   output: 'output_tokens DESC',
   calls: 'calls DESC',
@@ -304,7 +326,7 @@ function groupBy(
       `SELECT COALESCE(${column}, '') AS key, ${aggregates()}
        FROM token_usage ${clause}
        GROUP BY COALESCE(${column}, '')
-       ORDER BY total_tokens DESC, key ASC`,
+       ORDER BY fresh_tokens DESC, key ASC`,
     )
     .all(...params) as (TotalsRow & { key: string })[];
   return rows.map((row) => ({ key: row.key, ...toTotals(row) }));
@@ -373,7 +395,7 @@ export function queryTokenUsageStats(store: Store, query: UsageQuery): TokenUsag
          LEFT JOIN approach_planner_runs pr ON pr.id = t.approach_planner_run_id
          ${graphWhere}
         GROUP BY COALESCE(nr.profile, pr.profile, ''), t.provider
-        ORDER BY total_tokens DESC, profile ASC, provider ASC`,
+        ORDER BY fresh_tokens DESC, profile ASC, provider ASC`,
     )
     .all(...graphFilter.params) as (TotalsRow & { profile: string; provider: string | null })[];
 

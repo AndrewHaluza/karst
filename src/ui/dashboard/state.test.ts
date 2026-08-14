@@ -207,6 +207,50 @@ describe('buildDashboardState', () => {
     expect(session.tokens).toMatchObject({ state: 'estimated' });
   });
 
+  it('states absence for a process whose every recorded token was a cache read', () => {
+    // The pill headlines FRESH spend, so a cache-only process has nothing to
+    // headline. Admitting it would render a clamped "0 tok", which reads as a
+    // measured free run — decision 8 forbids the fabricated zero.
+    const t = createTicket(store, { key: 'TK-2', title: 'cache only' });
+    const run = openProcessRun(store, {
+      ticketId: t.id, stageKey: 'impl', processId: 'session', attempt: 0,
+      startedAt: '2026-08-01T10:00:00.000Z',
+    });
+    recordTokenUsage(store, {
+      projectId: null, ticketId: t.id, processRunId: run.id, callSite: 'impl-run',
+      provider: 'opencode', outcome: 'ok', recordedAt: '2026-08-01T10:01:00.000Z',
+      usage: { inputTokens: 0, outputTokens: 0, reasoningTokens: 0, cacheReadTokens: 900_000,
+               cacheWriteTokens: 0, totalTokens: 900_000, model: null, estimated: false },
+    });
+
+    const state = buildDashboardState(store, t.id);
+    const session = state.insideViews.impl.processes.find((p) => p.id === 'session')!;
+    expect(session.tokens).toBeUndefined();
+  });
+
+  it('headlines fresh spend on the pill and carries the cache read beside it', () => {
+    const t = createTicket(store, { key: 'TK-3', title: 'cached session' });
+    const run = openProcessRun(store, {
+      ticketId: t.id, stageKey: 'impl', processId: 'session', attempt: 0,
+      startedAt: '2026-08-01T10:00:00.000Z',
+    });
+    recordTokenUsage(store, {
+      projectId: null, ticketId: t.id, processRunId: run.id, callSite: 'impl-run',
+      provider: 'opencode', outcome: 'ok', recordedAt: '2026-08-01T10:01:00.000Z',
+      usage: { inputTokens: 215_929, outputTokens: 4_114, reasoningTokens: 0,
+               cacheReadTokens: 3_704_064, cacheWriteTokens: 0, totalTokens: 3_924_107,
+               model: null, estimated: false },
+    });
+
+    const state = buildDashboardState(store, t.id);
+    const session = state.insideViews.impl.processes.find((p) => p.id === 'session')!;
+    expect(session.tokens).toMatchObject({
+      state: 'measured',
+      total: '220k',
+      cacheRead: '3.7M',
+    });
+  });
+
   it('shows the resolved agent core/model and enables switching', () => {
     const t = createTicket(store, { key: 'SW-1', title: 'switch' });
     updateTicketFields(store, t.id, { agentProvider: 'codex', model: 'gpt-5.6-sol' });

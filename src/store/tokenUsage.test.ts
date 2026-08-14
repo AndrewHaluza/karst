@@ -236,9 +236,69 @@ describe('queryTokenUsageStats', () => {
       cacheReadTokens: 100,
       cacheWriteTokens: 3,
       totalTokens: 145,
+      // The raw tally less the 100 cache reads — what every headline, ORDER BY
+      // and share denominator uses.
+      freshTokens: 45,
       estimatedCalls: 0,
       erroredCalls: 0,
     });
+  });
+
+  it('sorts and pages the ticket table on FRESH spend, matching what it displays', () => {
+    // The cache-heavy ticket has the bigger RAW tally (3.9M vs 300k) but far
+    // less fresh spend. Ordering on the raw total put it first while the table
+    // rendered fresh figures that said otherwise — and with a LIMIT it could
+    // page the genuinely expensive ticket off the end.
+    ticket(1, 'K-1', 'Cache heavy');
+    ticket(2, 'K-2', 'Fresh heavy');
+    seed({ ticketId: 1, input: 200_000, output: 4_000, cacheRead: 3_700_000 });
+    seed({ ticketId: 2, input: 250_000, output: 50_000, cacheRead: 0 });
+
+    const { byTicket } = queryTokenUsageStats(store, query({ projectId: 1, sort: 'total' }));
+    expect(byTicket.map((r) => r.ticketKey)).toEqual(['K-2', 'K-1']);
+    expect(byTicket[0]!.freshTokens).toBe(300_000);
+    expect(byTicket[1]!.freshTokens).toBe(204_000);
+    // The raw tally is still recorded faithfully — only the ordering changed.
+    expect(byTicket[1]!.totalTokens).toBe(3_904_000);
+
+    const firstPage = queryTokenUsageStats(
+      store,
+      query({ projectId: 1, sort: 'total', limit: 1, offset: 0 }),
+    );
+    expect(firstPage.byTicket.map((r) => r.ticketKey)).toEqual(['K-2']);
+  });
+
+  it('orders breakdown rows on fresh spend too, so the order matches the numbers', () => {
+    ticket(1, 'K-1', 'One');
+    seed({ callSite: 'implementation', input: 1_000, output: 100, cacheRead: 900_000 });
+    seed({ callSite: 'uat-tester', input: 5_000, output: 5_000, cacheRead: 0 });
+
+    const { byCallSite } = queryTokenUsageStats(store, query({ projectId: 1 }));
+    expect(byCallSite.map((r) => r.key)).toEqual(['uat-tester', 'implementation']);
+  });
+
+  it('never reports a negative fresh total when reads exceed a legacy row\'s tally', () => {
+    ticket(1, 'K-1', 'One');
+    // A pre-split row: cache reads recorded, but a total that never counted them.
+    recordTokenUsage(store, {
+      projectId: 1,
+      ticketId: 1,
+      callSite: 'implementation',
+      provider: 'opencode',
+      outcome: 'ok',
+      recordedAt: '2026-07-15T00:00:00.000Z',
+      usage: {
+        inputTokens: 10,
+        outputTokens: 5,
+        reasoningTokens: 0,
+        cacheReadTokens: 900,
+        cacheWriteTokens: 0,
+        totalTokens: 15,
+        model: null,
+        estimated: false,
+      },
+    });
+    expect(queryTokenUsageStats(store, query({ projectId: 1 })).totals.freshTokens).toBe(0);
   });
 
   it('counts an errored call — the tokens were spent either way', () => {
