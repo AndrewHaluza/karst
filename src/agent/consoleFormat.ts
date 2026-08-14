@@ -4,16 +4,13 @@ import type { AgentProvider } from '../manifest/types.js';
 /**
  * The readable rendering of a gate-lane agent CLI's structured event stream.
  *
- * The Tester and Review findings lane stream RAW CLI prose into the console
- * tail. For an agent core that runs `--format json` (opencode, codex) that
- * prose is NDJSON: one JSON event per line, every line a wall of keys the
- * console renders unreadably. This module is the ONE place that stream is
- * translated into the lines a person can follow — the commands the agent ran,
- * the text it wrote, the errors it hit — while everything that is not a
- * structured event (a CLI's own banner, a stray stderr line) passes through
- * unchanged.
+ * The Tester and Review findings lane stream RAW CLI output into the console
+ * tail. For opencode/codex that output is NDJSON; for Claude it is one final
+ * JSON document. Either shape is a wall of metadata the console renders
+ * unreadably. This module is the ONE place structured output is translated
+ * into text a person can follow, while unstructured prose passes unchanged.
  *
- * Two parts, deliberately split:
+ * Three parts, deliberately split:
  *
  * - `StreamingConsoleFormat` is provider-agnostic and line-based: it buffers
  *   the chunk stream, splits it into complete lines (a JSON event split across
@@ -23,6 +20,9 @@ import type { AgentProvider } from '../manifest/types.js';
  * - `opencodeConsoleLine` / `codexConsoleLine` are the per-provider renderers.
  *   They own the event vocabularies ONLY — the cut grammar of this module. The
  *   console sink itself stays provider-agnostic.
+ * - `claudeConsoleLine` renders Claude's already-bounded settle-time document.
+ *   It is deliberately excluded from `renderConsoleStream`: Claude has no line
+ *   events, and buffering its raw live callback would bypass the spawn bound.
  *
  * Total and never throws: a line that does not parse, an event of an unknown
  * type, or a renderer slip all fall back to the raw line — untrusted CLI prose
@@ -196,16 +196,37 @@ export function codexConsoleLine(line: string): string {
 }
 
 /**
- * The line renderer for one provider, or null when that core emits no
- * structured stream to render (869ej1zpv G2).
+ * Claude `--output-format json` emits one end-of-run document. Its `result`
+ * field is the agent's readable answer; the other fields are accounting and
+ * execution metadata. The adapter calls this only with the spawner's bounded
+ * settle-time stdout, then this renderer emits only that answer.
+ */
+export function claudeConsoleLine(line: string): string {
+  try {
+    const parsed = JSON.parse(line) as unknown;
+    const envelope = asRecord(parsed);
+    if (envelope !== null) {
+      const result = envelope['result'];
+      if (typeof result !== 'string' || result.length === 0) return '';
+      return result.endsWith('\n') ? result : `${result}\n`;
+    }
+  } catch {
+    // Unstructured CLI output remains useful diagnostic evidence.
+  }
+  return `${line}\n`;
+}
+
+/**
+ * The line/document renderer for one provider, or null when that core emits no
+ * structured output to render (869ej1zpv G2).
  *
  * The union used to be `'opencode' | 'codex'`, which made the OTHER two cores'
  * absence invisible at the type level — a readable console tail existed for
  * whichever cores had been wired, and nothing said whether that was a decision
- * or an oversight. It is a decision: claude runs `--output-format json` and agy
- * runs plain `-p`, so neither produces a line-per-event stream. Each states it
- * on its adapter's `surfaces.consoleStream`, and `adapterConformance.test.ts`
- * requires the declaration and the renderer here to agree.
+ * or an oversight. Claude's bounded final JSON document is rendered here;
+ * agy runs plain `-p`, so it has no structured output to translate. Each core
+ * states its position on `surfaces.consoleStream`, and
+ * `adapterConformance.test.ts` requires the declaration and renderer to agree.
  */
 export function consoleLineRendererFor(provider: AgentProvider): ConsoleLineRenderer | null {
   switch (provider) {
@@ -214,26 +235,24 @@ export function consoleLineRendererFor(provider: AgentProvider): ConsoleLineRend
     case 'codex':
       return codexConsoleLine;
     case 'claude':
+      return claudeConsoleLine;
     case 'antigravity':
-      // Not a stream — the raw text is forwarded unchanged. See the adapters'
-      // `surfaces.consoleStream` for the reason each core carries.
+      // Plain prose — the raw text is forwarded unchanged. See the adapter's
+      // `surfaces.consoleStream` for the declared reason.
       return null;
   }
 }
 
 /**
- * Wrap a caller's onOutput with the provider's streaming readable renderer.
- * A provider with no structured stream gets a pass-through, so a caller may
- * wrap unconditionally.
+ * Wrap a caller's onOutput with a line-streaming provider's readable renderer.
+ * Claude is intentionally absent from this type: its document is formatted
+ * only after the bounded headless spawn settles.
  */
 export function renderConsoleStream(
-  provider: AgentProvider,
+  provider: 'opencode' | 'codex',
   onOutput: (chunk: HeadlessOutputChunk) => void,
 ): { append: (chunk: HeadlessOutputChunk) => void; flush: () => void } {
-  const renderer = consoleLineRendererFor(provider);
-  if (renderer === null) {
-    return { append: (chunk) => onOutput(chunk), flush: () => {} };
-  }
+  const renderer = provider === 'opencode' ? opencodeConsoleLine : codexConsoleLine;
   const format = new StreamingConsoleFormat(renderer);
   return {
     append: (chunk) => {
