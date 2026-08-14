@@ -529,7 +529,12 @@ export function beginShipOperationPreparation(
         input.createdAt,
       );
   } catch (err) {
-    if (err instanceof Error && (err as { code?: string }).code === 'SQLITE_CONSTRAINT_UNIQUE') {
+    if (
+      typeof err === 'object' &&
+      err !== null &&
+      'code' in err &&
+      err.code === 'SQLITE_CONSTRAINT_UNIQUE'
+    ) {
       const existing = store.db
         .prepare(`${INTENT_SELECT} WHERE operation_key = ?`)
         .get(input.operationKey) as ShipOperationIntentRowShape | undefined;
