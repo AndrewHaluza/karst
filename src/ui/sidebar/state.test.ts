@@ -347,7 +347,7 @@ describe('buildSidebarState', () => {
 
     const row = buildSidebarState(store, { facets: ['done'], filter: '' }).done[0]!;
     expect(row.peek.title).toBe('Shipped');
-    expect(row.peek.next).toEqual({ kind: 'create-follow-up', label: 'Create follow-up ticket' });
+    expect(row.peek.next).toEqual({ kind: 'create-follow-up', label: 'Create follow-up' });
   });
 
   it('a ship ticket awaiting merge carries the landing state in its peek', () => {

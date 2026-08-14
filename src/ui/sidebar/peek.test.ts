@@ -120,7 +120,7 @@ describe('buildPeek — the expanded mini-dashboard summary', () => {
     ).toEqual({
       title: 'Shipped',
       detail: null,
-      next: { kind: 'create-follow-up', label: 'Create follow-up ticket' },
+      next: { kind: 'create-follow-up', label: 'Create follow-up' },
     });
   });
 

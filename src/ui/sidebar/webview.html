@@ -478,23 +478,24 @@
   // The shared context window trigger (⋯): a real button with menu semantics
   // (aria-haspopup + aria-expanded). Used BOTH in the collapsed hover strip
   // (which the follow-up reverted to its prior behavior — Spin / Terminal /
-  // ⋯, with Edit / Archive back inside the window alongside the new Follow
-  // Up) and in the expanded dashbar.
+  // ⋯, with Edit / Archive back inside the window alongside the new
+  // Create follow-up) and in the expanded dashbar.
   function ctxMenuTriggerHtml(row, menuOpen) {
     return `<button type="button" class="k-iconbtn" data-menu="${row.ticketId}" aria-expanded="${menuOpen}" aria-haspopup="menu" aria-label="More ticket actions" title="More ticket actions">${ic.more}</button>`;
   }
 
-  // The shared ticket-actions context window: Edit / Follow Up / Archive,
-  // deliberately secondary to the toolbar's Spin / Terminal / Dashboard. One
-  // fixed popup (never a full-width in-flow block) positioned at its trigger
-  // when opened, so the list's scroll container can never clip it. Follow Up
-  // uses the corner-down-right icon; Archive keeps its danger treatment. The
-  // follow-up put ALL THREE in the "⋯" submenu ("both 'Archive' and 'Follow Up'
-  // should be accessible via the '...' submenu") — the host command guards the
-  // done-only rule itself, so the webview never has to second-guess it.
+  // The shared ticket-actions context window: Edit / Create follow-up /
+  // Archive, deliberately secondary to the toolbar's Spin / Terminal /
+  // Dashboard. One fixed popup (never a full-width in-flow block) positioned at
+  // its trigger when opened, so the list's scroll container can never clip it.
+  // Create follow-up uses the corner-down-right icon; Archive keeps its danger
+  // treatment. The follow-up put ALL THREE in the "⋯" submenu ("both 'Archive'
+  // and 'Follow Up' should be accessible via the '...' submenu") — the host
+  // command guards the done-only rule itself, so the webview never has to
+  // second-guess it.
   function ctxMenuItemsHtml(row) {
     return `<button type="button" class="ctxitem" data-act="edit" data-id="${row.ticketId}" role="menuitem" title="Edit ticket">${ic.edit} Edit ticket</button>`
-      + `<button type="button" class="ctxitem" data-act="create-follow-up" data-id="${row.ticketId}" role="menuitem" title="Create a follow-up ticket">${ic.follow} Follow up</button>`
+      + `<button type="button" class="ctxitem" data-act="create-follow-up" data-id="${row.ticketId}" role="menuitem" title="Create a follow-up ticket">${ic.follow} Create follow-up</button>`
       + `<button type="button" class="ctxitem danger" data-act="archive" data-id="${row.ticketId}" role="menuitem" title="Archive ticket, hiding it from the active list">${ic.arch} Archive</button>`;
   }
 

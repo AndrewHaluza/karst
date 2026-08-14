@@ -328,7 +328,7 @@ export function buildPeek(input: PeekInput): TicketPeek {
     return {
       title: 'Shipped',
       detail: null,
-      next: { kind: 'create-follow-up', label: 'Create follow-up ticket' },
+      next: { kind: 'create-follow-up', label: 'Create follow-up' },
     };
   }
   if (stage === 'ship') return shipPeek(input, status);
