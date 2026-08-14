@@ -49,6 +49,38 @@ describe('buildDashboardState', () => {
     expect(state.artifacts).toEqual([]);
   });
 
+  it('resolves the PR repo to its manifest NAME and stamps adaptively', () => {
+    const t = createTicket(store, { key: 'PROJ-1', title: 'thing' });
+    setStage(store, t.id, 'ship', { status: 'passed' });
+    store.db
+      .prepare(
+        `INSERT INTO prs (ticket_id, repo, number, url, status, head_ref, base_ref, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        t.id,
+        '/wt/web',
+        42,
+        'https://github.com/o/r/pull/42',
+        'open',
+        'karst/feat/x',
+        'develop',
+        new Date(Date.now() - 2 * 3600 * 1000).toISOString(),
+      );
+    const state = buildDashboardState(
+      store, t.id,
+      undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined, undefined,
+      (repo) => (repo === '/wt/web' ? 'web' : undefined),
+    );
+    // The NAME wins over the display path; the identity stays the path.
+    expect(state.prs[0]!.repoDisplay).toBe('web');
+    expect(state.prs[0]!.repo).toBe('/wt/web');
+    // Adaptive stamp: fresh → relative label, full stamp preserved for the tooltip.
+    expect(state.prs[0]!.opened).toMatch(/^opened \d+h ago$/);
+    expect(state.prs[0]!.openedTitle).toMatch(/^opened /);
+  });
+
   it('carries the parent relationship for a follow-up and null otherwise', () => {
     const parent = createTicket(store, { key: 'PROJ-1', title: 'root work' });
     const child = createTicket(store, {

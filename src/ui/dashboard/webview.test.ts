@@ -9,7 +9,7 @@ import { injectProviderIdentity } from '../../model/providerIdentity.js';
 import { injectAgentIdentity } from '../../model/agentIdentity.js';
 import { implementationPrototypeFixture, renderFixtures, renderStateFor } from './renderFixtures.js';
 import type { RenderRepoCount } from './renderFixtures.js';
-import type { DashboardState } from './state.js';
+import type { DashboardState, PrPanelRow } from './state.js';
 import { buildDashboardState } from './state.js';
 import { openStore } from '../../store/db.js';
 import { createTicket } from '../../store/tickets.js';
@@ -919,6 +919,10 @@ describe('dashboard webview.html', () => {
     // switch's focus ring, and the quick-setting help's optical nudge. All ten
     // are the same exemption class as `74px` — a deliberate geometry with no
     // token equivalent.
+    // `150px` is the PR URL copy control's width floor — a "wide enough to
+    // read a URL" floor at the panel's small-text scale, same class as `200px`.
+    // `3px` is the copy glyph's hover slide-in offset — a motion nudge with no
+    // token step at 3px.
     const ALLOWED = ['46px', '72px', '640px', '82px', '74px', '4px', '180px', '288px', '6px', '400px',
       '300px', '360px', '430px', '110px', '160px', '104px',
       '1px', '1px', '1px', '1px', '1px', '1px',
@@ -926,7 +930,8 @@ describe('dashboard webview.html', () => {
       '2px', '2px', '2px', '2px',
       '1px', '1px', '1px',
       '12px', '12px', '12px', '12px',
-      '4px', '4px', '4px', '4px', '4px', '4px'];
+      '4px', '4px', '4px', '4px', '4px', '4px',
+      '150px', '3px'];
     // The ported Inside block is the ONE exempt region (see its own header
     // comment): it is the A37 prototype's geometry, scoped under `#inside`,
     // and its pixel values ARE the design. Its colours still go through
@@ -982,8 +987,12 @@ describe('dashboard webview.html', () => {
     expect(HTML).toMatch(/let shipRequestId = null/);
   });
 
-  it('gives merge the danger variant, ship and refresh the runtime pending lifecycle', () => {
-    expect(HTML).toMatch(/k-btn--danger k-btn--sm mgbtn" data-act="merge-pr"/);
+  it('gives merge the consequential-primary variant (UI-R10b), and ship and refresh the runtime pending lifecycle', () => {
+    // Merge is NOT danger-colored merely because it is consequential — the
+    // confirmation stays host-side (UI-R10b: "Merge is not automatically
+    // danger-colored merely because it is consequential").
+    expect(HTML).toMatch(/k-btn--primary k-btn--sm mgbtn" data-act="merge-pr"/);
+    expect(HTML).not.toMatch(/k-btn--danger k-btn--sm mgbtn" data-act="merge-pr"/);
     expect(HTML).toMatch(/shipRequestId = karstRequestId\(\)/);
     expect(HTML).toMatch(/karstBeginPending\(btn, shipRequestId\)/);
     expect(HTML).toMatch(/prRefreshId = karstRequestId\(\)/);
@@ -4788,5 +4797,88 @@ describe('terminal console view (VM)', () => {
     expect(HTML).toMatch(/\.termview\{[^}]*display:flex/);
     expect(HTML).toMatch(/\.termview\.hidden\{display:none\}/);
     expect(HTML.indexOf('.termview.hidden')).toBeGreaterThan(HTML.indexOf('.termview{'));
+  });
+});
+
+describe('PR panel row (Variant C, executed in a VM)', () => {
+  const prsHtml = (prs: PrPanelRow[]): string => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: { ...renderStateFor('ship'), prs } });
+    return h.htmlOf('prs');
+  };
+
+  const openRow = (): PrPanelRow => ({
+    repo: '/wt/web',
+    repoDisplay: 'web',
+    number: 42,
+    url: 'https://github.com/o/r/pull/42',
+    status: 'open',
+    branches: 'feat/ui → develop',
+    baseRef: 'develop',
+    opened: 'opened 2h ago',
+    openedTitle: 'opened 8/14/2026, 10:04:12 AM',
+    merged: '',
+    mergedTitle: '',
+    commentsLabel: '',
+    comments: [],
+    canMerge: true,
+    mergeBlockedReason: '',
+  });
+
+  it('makes the PR number the open link and the URL text the copy control, and drops the Open button', () => {
+    const html = prsHtml([openRow()]);
+    // The PR number IS the open control (UI-R09c): a link-coloured anchor.
+    expect(html).toMatch(
+      /<a href="#" data-act="open-pr" data-url="https:\/\/github\.com\/o\/r\/pull\/42" title="Open this pull request">#42<\/a>/,
+    );
+    // The URL text IS the copy control (Variant C): a button styled as inline
+    // text (UI-R09b), clicking copies, glyph on hover.
+    expect(html).toMatch(
+      /<button type="button" class="ptitle url-copy" data-act="copy-pr-url" data-url="https:\/\/github\.com\/o\/r\/pull\/42" data-copy title="Copy pull request URL">/,
+    );
+    // Redundancy is gone: no Open button, no inert URL text beside the number.
+    expect(html).not.toContain('>Open</button>');
+    expect(html).not.toMatch(/data-act="open-pr"[^>]*>Open</);
+    // The repo shows its NAME, with the path (the row's identity) in the tooltip.
+    expect(html).toMatch(/<span class="prepo" title="\/wt\/web">web<\/span>/);
+    // The row still offers the merge control (consequential-primary).
+    expect(html).toMatch(/k-btn--primary k-btn--sm mgbtn" data-act="merge-pr"/);
+  });
+
+  it('renders the meta line with a truncating branch and title-carrying stamps', () => {
+    const html = prsHtml([openRow()]);
+    expect(html).toMatch(/<span class="pbranch" title="feat\/ui → develop">feat\/ui → develop<\/span>/);
+    expect(html).toMatch(
+      /<span class="pstamp" title="opened 8\/14\/2026, 10:04:12 AM">opened 2h ago<\/span>/,
+    );
+    // Stamps are one flex:none group, so they wrap to a second line intact.
+    expect(html).toMatch(/<span class="pstamps"><span class="psep">·<\/span>/);
+  });
+
+  it('renders a merged row with the merged stamp, no Merge button, and a still-live link', () => {
+    const merged: PrPanelRow = {
+      ...openRow(),
+      status: 'merged',
+      merged: 'merged 1d ago',
+      mergedTitle: 'merged 8/15/2026, 9:12:00 AM',
+      canMerge: false,
+    };
+    const html = prsHtml([merged]);
+    expect(html).toContain('<span class="k-chip pst pst-merged">merged</span>');
+    expect(html).toMatch(
+      /<span class="pstamp pmerged" title="merged 8\/15\/2026, 9:12:00 AM">merged 1d ago<\/span>/,
+    );
+    expect(html).not.toContain('data-act="merge-pr"');
+    // A merged PR still opens and still copies.
+    expect(html).toContain('data-act="open-pr"');
+    expect(html).toContain('data-act="copy-pr-url"');
+  });
+
+  it('keeps the number as plain text when no URL is recorded — a link that opens nothing is worse than none', () => {
+    const noUrl: PrPanelRow = { ...openRow(), url: null, canMerge: false, mergeBlockedReason: 'no url' };
+    const html = prsHtml([noUrl]);
+    expect(html).toMatch(/<span class="pnum">#42<\/span>/);
+    expect(html).not.toContain('data-act="open-pr"');
+    expect(html).not.toContain('data-act="copy-pr-url"');
   });
 });
