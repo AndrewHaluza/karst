@@ -6,6 +6,7 @@ import {
   shipStartedEvent,
   type InsideProgressEvent,
 } from '../../model/inside/progress.js';
+import { executionView } from '../../model/inside/agent.js';
 import { randomUUID, createHash } from 'node:crypto';
 import { listWorktreesByTicket } from '../../store/dashboard.js';
 import { getTicket } from '../../store/tickets.js';
@@ -260,7 +261,22 @@ async function generateDescription(
     ticketId,
     stage: 'ship',
     processId: 'pr-description',
-    live: { status: 'run', label: 'Pull request description', detail: repo },
+    live: {
+      status: 'run',
+      label: 'Pull request description',
+      detail: repo,
+      // The chip a running headless AI step is entitled to show while it
+      // runs, not only in the completed row afterward (869e-confusing-ui).
+      ...(assignment
+        ? {
+            execution: executionView(
+              assignment.provider,
+              assignment.model ?? null,
+              assignment.agentName,
+            ),
+          }
+        : {}),
+    },
   });
   const at = nowIso();
   const processRun = openProcessRun(store, {
@@ -298,16 +314,17 @@ async function generateDescription(
     finishProcessRun(store, processRun.id, 'passed', nowIso());
     finishShipRepoStep(store, step.id, { status: 'passed', detail: 'generated', endedAt: nowIso() });
     onProgress({ repo, step: 'describe', status: 'pass' });
+    // Retract the header, never `completed`: `pr-description` names no row
+    // in the ship ledger (the real "Pull request" row is `id: 'pr'`, opened
+    // by a LATER step), so a `completed` event here used to reuse that same
+    // `id` and overlayProcesses merged it onto the real row — a finished
+    // describe call briefly relabeled and passed the still-pending "Pull
+    // request" row until the next snapshot corrected it (869e-confusing-ui).
     onInsideProgress({
-      kind: 'completed',
+      kind: 'cleared',
       ticketId,
       stage: 'ship',
-      process: {
-        id: 'pr-description',
-        kind: 'pr-description',
-        label: 'Pull request description',
-        status: 'pass',
-      },
+      processId: 'pr-description',
     });
     return body;
   } catch (err) {
@@ -315,15 +332,10 @@ async function generateDescription(
     finishProcessRun(store, processRun.id, 'failed', nowIso());
     finishShipRepoStep(store, step.id, { status: 'failed', detail, endedAt: nowIso() });
     onInsideProgress({
-      kind: 'completed',
+      kind: 'cleared',
       ticketId,
       stage: 'ship',
-      process: {
-        id: 'pr-description',
-        kind: 'pr-description',
-        label: 'Pull request description',
-        status: 'fail',
-      },
+      processId: 'pr-description',
     });
     throw err;
   }

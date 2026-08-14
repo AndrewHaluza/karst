@@ -26,7 +26,10 @@ export interface PrCommentRow {
 export interface PrPanelRow {
   /** The repository path — the row's IDENTITY, what a merge message names. */
   repo: string;
-  /** The repository as DISPLAYED, per the worktree path-display preference. */
+  /**
+   * The repository as DISPLAYED: its manifest NAME when one resolves (the
+   * runtime tables key by path), else the worktree path-display preference.
+   */
   repoDisplay: string;
   number: number | null;
   url: string | null;
@@ -40,10 +43,14 @@ export interface PrPanelRow {
    * rendered arrow string would be a second source for the same fact.
    */
   baseRef: string | null;
-  /** `opened <stamp>`, or ''. */
+  /** `opened <relative|date>`, or '' — the adaptive display (formatAge buckets). */
   opened: string;
-  /** `merged <stamp>`, or '' — an unmerged PR has no merge stamp, by definition. */
+  /** The full `opened <locale stamp>`, for the row's tooltip; '' when absent. */
+  openedTitle: string;
+  /** `merged <relative|date>`, or '' — an unmerged PR has no merge stamp. */
   merged: string;
+  /** The full `merged <locale stamp>`, for the row's tooltip; '' when absent. */
+  mergedTitle: string;
   /** `3 comments`, correctly singular, or '' when the thread is empty. */
   commentsLabel: string;
   comments: PrCommentRow[];
@@ -106,24 +113,87 @@ function mergability(status: string, url: string | null): { canMerge: boolean; r
   }
 }
 
-/** One panel row per PR, in the order given. */
-export function buildPrPanelRows(prs: readonly PrView[]): PrPanelRow[] {
+const MINUTE = 60_000;
+const HOUR = 60 * MINUTE;
+const DAY = 24 * HOUR;
+/** Fresh is relative; beyond a week a stamp becomes an absolute date. */
+const WEEK = 7 * DAY;
+
+/**
+ * Age in coarse buckets — the dashboard's ONE relative-age vocabulary, shared by
+ * the PR stamps and the merge-verdict lines (buildMergeCheckPanelRows).
+ *
+ * Deliberately coarser than `formatDuration`: the label only refreshes when the
+ * host pushes state, so `4m 12s ago` would claim a precision the value does not
+ * have. An unreadable stamp, or one in the future (clock skew), yields '' — the
+ * row states no age rather than a wrong one.
+ */
+export function formatAge(at: string, now: string): string {
+  const ms = Date.parse(now) - Date.parse(at);
+  if (!Number.isFinite(ms) || ms < 0) return '';
+  if (ms < MINUTE) return 'just now';
+  if (ms < HOUR) return `${Math.floor(ms / MINUTE)}m ago`;
+  if (ms < DAY) return `${Math.floor(ms / HOUR)}h ago`;
+  return `${Math.floor(ms / DAY)}d ago`;
+}
+
+/** One PR stamp as it reads on the row. */
+interface StampView {
+  /**
+   * The compact display label: relative while fresh (`2h ago`), an absolute
+   * date once a week has passed. '' when there is no readable stamp at all.
+   */
+  label: string;
+  /** The full locale stamp, for the tooltip. '' exactly when `label` is ''. */
+  title: string;
+}
+
+/**
+ * A stamp's display: relative while fresh, an absolute date past a week, with
+ * the full locale stamp preserved for the tooltip — the same adaptive pattern
+ * as the merge-verdict line's `4m ago` headline + `checked <stamp>` tooltip,
+ * so one panel uses one age vocabulary.
+ */
+function stampView(at: string | null, now: string): StampView {
+  const title = formatPrStamp(at);
+  if (!title) return { label: '', title: '' };
+  const ms = Date.parse(now) - Date.parse(at!);
+  const fresh = Number.isFinite(ms) && ms >= 0 && ms < WEEK;
+  return {
+    label: fresh ? formatAge(at!, now) : new Date(at!).toLocaleDateString(),
+    title,
+  };
+}
+
+/** One panel row per PR, in the order given. `now` is injected (no clock here). */
+export function buildPrPanelRows(
+  prs: readonly PrView[],
+  now: string,
+  /**
+   * Resolve a recorded repo value (keyed by path in the runtime tables) to its
+   * manifest NAME, exactly like the inside ship rows. Absent → the display
+   * path stands.
+   */
+  repoNameFor?: (repo: string) => string | undefined,
+): PrPanelRow[] {
   return prs.map((pr) => {
     const status = pr.status ?? 'unknown';
     const { canMerge, reason } = mergability(status, pr.url);
-    const openedAt = formatPrStamp(pr.createdAt);
-    const mergedAt = formatPrStamp(pr.mergedAt);
+    const opened = stampView(pr.createdAt, now);
+    const merged = stampView(pr.mergedAt, now);
     const count = pr.comments.length;
     return {
       repo: pr.repo,
-      repoDisplay: pr.repoDisplay || pr.repo,
+      repoDisplay: repoNameFor?.(pr.repo) ?? (pr.repoDisplay || pr.repo),
       number: pr.number,
       url: pr.url,
       status,
       branches: branchLine(pr.headRef, pr.baseRef),
       baseRef: pr.baseRef,
-      opened: openedAt ? `opened ${openedAt}` : '',
-      merged: mergedAt ? `merged ${mergedAt}` : '',
+      opened: opened.label ? `opened ${opened.label}` : '',
+      openedTitle: opened.title ? `opened ${opened.title}` : '',
+      merged: merged.label ? `merged ${merged.label}` : '',
+      mergedTitle: merged.title ? `merged ${merged.title}` : '',
       commentsLabel: count === 0 ? '' : `${count} ${count === 1 ? 'comment' : 'comments'}`,
       comments: pr.comments.map((c) => ({
         author: c.author,

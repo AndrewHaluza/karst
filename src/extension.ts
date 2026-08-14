@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { readFileSync, mkdirSync, existsSync, writeFileSync, statSync } from 'node:fs';
+import { readFileSync, mkdirSync, existsSync, writeFileSync, statSync, appendFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import {
@@ -21,6 +21,7 @@ import { FACETS, facetCounts } from './ui/sidebar/facets.js';
 import { openTicketFromList } from './ui/sidebar/navigation.js';
 import { DashboardManager, type DashboardPanel, type PanelHost } from './ui/dashboard/panel.js';
 import type { DashboardActions } from './ui/dashboard/messages.js';
+import type { AgentProcessId } from './ui/dashboard/messages.js';
 import { makeWorktreeActions } from './ui/dashboard/worktreeActions.js';
 import { loadWorktreeStats } from './ui/dashboard/worktreeStats.js';
 import { buildGateOptionsLoader } from './ui/dashboard/gateOptions.js';
@@ -85,7 +86,10 @@ import {
   type DriveProcessBundle,
   type ProcessAssignmentSnapshot,
 } from './agent/processAssignment.js';
-import type { ProcessRole } from './manifest/validate/processAssignments.js';
+import {
+  PROMPT_BEARING_ROLES,
+  type ProcessRole,
+} from './manifest/validate/processAssignments.js';
 import { runProcess } from './workflow/gates/run.js';
 import {
   recordSessionLaunchIntent,
@@ -143,11 +147,8 @@ import type { HookPayload } from './hooks/dispatch.js';
 import { dispatchHook } from './hooks/dispatch.js';
 import type { StageKey } from './model/types.js';
 import { buildTicketContext, renderTicketContext } from './context/ticketContext.js';
-import { resolveModelForProvider } from './agent/models.js';
-import {
-  renderTicketLabel,
-  DEFAULT_TERMINAL_NAME_TEMPLATE,
-} from './store/ticketLabelTemplate.js';
+import { resolveEffortForProvider, resolveModelForProvider } from './agent/models.js';
+import { terminalTicketName } from './store/ticketLabelTemplate.js';
 import { compactTicketLabel } from './model/followUp.js';
 import { ticketGlyph } from './model/ticketGlyph.js';
 import { glyphIconPath } from './ui/glyphIcon.js';
@@ -197,6 +198,7 @@ import { flipOnEndQuiescence } from './approaches/graph/coordinator/completion.j
 import { resolveGraphDiagnosticIdentity } from './approaches/graph/diagnostics.js';
 import { recoverGraphRun, type RecoveryDeps } from './approaches/graph/coordinator/recovery.js';
 import type { ReplanLaunchRequest } from './approaches/graph/coordinator/replan.js';
+import type { BootstrapRelaunchRequest } from './approaches/graph/coordinator/recovery.js';
 import { type ActivationDomain } from './approaches/graph/coordinator/leases.js';
 import { activationDomainKeys, type AllowlistCommandAccess } from './approaches/graph/coordinator/conflicts.js';
 import { parseGraphDocument } from './approaches/graph/parse.js';
@@ -318,7 +320,8 @@ import type {
   GraphCommandConfig,
 } from './manifest/types.js';
 import { instrumentAdapter } from './agent/instrumentedAdapter.js';
-import { recordTokenUsage } from './store/tokenUsage.js';
+import { AgentConsole } from './agent/agentConsole.js';
+import { recordTokenUsage, listRecentlyUsedModels } from './store/tokenUsage.js';
 import { UsagePanelManager, type UsagePanel, type UsagePanelHost } from './ui/usage/panel.js';
 import {
   ResourcesPanelManager,
@@ -352,7 +355,7 @@ import {
   reconcileShipRuns,
   describeStaleShipRun,
 } from './store/shipRuns.js';
-import { advanceTicketOnShip } from './workflow/stages/done.js';
+import { advanceTicketOnShip, statusPushSkipNote } from './workflow/stages/done.js';
 import { advanceTicketOnStart } from './workflow/stages/start.js';
 import { createFollowUpTicket, TicketNotDoneError } from './workflow/stages/followUp.js';
 import {
@@ -403,6 +406,7 @@ import { injectDesignSystem } from './model/designSystem.js';
 import { injectCsp, newNonce } from './model/csp.js';
 import { injectProviderIdentity } from './model/providerIdentity.js';
 import { injectAgentIdentity } from './model/agentIdentity.js';
+import { injectAgentPicker } from './model/agentPicker.js';
 import { injectXterm, readXtermAssets } from './model/xtermAssets.js';
 import { buildTicketArtifacts } from './model/artifacts.js';
 import {
@@ -1132,12 +1136,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * drivers' nullable callbacks — never collapsed to `undefined` by an
    * assertion at this seam.
    */
-  // The roles whose headless prompts consume `assignment.instructions` (UAT
-  // Tester, Review findings, Ticket analysis). A process-assignment PROFILE's
-  // body is resolved into `instructions` only for these — the Fix roles are
-  // interactive sessions and pr-description has a fixed prompt, so their
-  // profile body is never read and must not be resolved/carried.
-  const PROMPT_BEARING_ROLES = new Set<ProcessRole>(['uat-tester', 'review', 'ticket-analysis']);
+  // The roles whose headless prompts consume `assignment.instructions` — the
+  // vocabulary itself lives beside the role definitions
+  // (`manifest/validate/processAssignments.ts`), because the Settings row
+  // renders a different explanation per group and must not carry its own copy.
+  const promptBearingRoles = new Set<ProcessRole>(PROMPT_BEARING_ROLES);
   const processFor = (
     ticketId: number,
     role: ProcessRole,
@@ -1153,35 +1156,32 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       modelCatalog,
     );
     if (assignment === null) return null;
-    // The process-assignment PROFILE (the Settings agent-pool pick) is the
-    // process's own custom prompt: for the prompt-BEARING roles, resolve the
-    // assigned profile's body and use it as the process's `instructions`,
-    // replacing the built-in role block. An explicit `processes.<key>.instructions`
-    // (author-declared) WINS over the profile body; a missing / unreadable
-    // profile degrades to the built-in prompt, exactly like the launch path's
-    // solo-agent fallback. The Fix roles are interactive sessions and
-    // pr-description has a fixed prompt — their profile body is deliberately
-    // NOT resolved (a debug line would overclaim, and the value would ride the
-    // session assignment with no consumer).
+    // The process-assignment PROFILE (the Settings agent-pool pick) IS the
+    // process's prompt: for the prompt-BEARING roles, resolve the assigned
+    // profile's body and use it as the process's `instructions`, replacing the
+    // built-in role block. It is the ONLY source — the manifest-declared
+    // `processes.<key>.instructions` was retired precisely because a second
+    // source could silently outrank the profile the user picked in Settings.
+    // A missing / unreadable profile degrades to the built-in prompt, exactly
+    // like the launch path's solo-agent fallback. The Fix roles are interactive
+    // sessions and pr-description has a fixed prompt — their profile body is
+    // deliberately NOT resolved (a debug line would overclaim, and the value
+    // would ride the session assignment with no consumer).
     // `soloAgentBody` is only CALLED here (at execution time), long after the
     // helper is initialized, so the later `const` declaration is safe.
     const instructions =
-      assignment.instructions !== undefined
-        ? assignment.instructions
-        : PROMPT_BEARING_ROLES.has(role) && assignment.agent
-          ? (soloAgentBody(assignment.agent) ?? undefined)
-          : undefined;
-    if (instructions !== undefined && instructions !== assignment.instructions) {
+      promptBearingRoles.has(role) && assignment.agent
+        ? (soloAgentBody(assignment.agent) ?? undefined)
+        : undefined;
+    if (instructions !== undefined) {
       logger.debug(
         `[process] ${role} for ticket #${ticketId} runs through Settings profile ` +
-          `"${assignment.agent}" (instructions overlaid)`,
+          `"${assignment.agent}" (profile body is the prompt)`,
       );
     }
     return {
       assignment:
-        instructions === undefined || instructions === assignment.instructions
-          ? assignment
-          : { ...assignment, instructions },
+        instructions === undefined ? assignment : { ...assignment, instructions },
       // The process assignment is the execution identity. In particular, a
       // configured UAT/Review/Fix role may deliberately differ from the
       // ticket's interactive provider, so resolving through the ticket here
@@ -1217,7 +1217,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * Task 3: the configured ticket-analysis process for the ticket form
    * (nullable). The analyzer runs through the SETTINGS Ticket-analysis
    * assignment: `processFor` resolves the assigned profile's body as the
-   * analysis `instructions` (or the author-declared inline `instructions`),
+   * analysis `instructions`,
    * so changing the Settings → Agents → Inside process assignments →
    * Ticket analysis profile changes what the form's Improve / auto-improve
    * asks — the selected agent IS the difference. The ticket's own
@@ -1427,6 +1427,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     ticketId: number,
     targetProvider: AgentProvider,
     model: string | null,
+    effort: string | null,
   ): Promise<void> => {
     try {
       const outcome = await applyAgentSwitchSelection({
@@ -1437,6 +1438,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             provider: resolveProvider(ticket.agentProvider, currentManifest()?.agentProvider),
             ticketModel: ticket.model,
             defaultModel: currentManifest()?.defaultModel ?? null,
+            ticketEffort: ticket.effort,
+            defaultEffort: currentManifest()?.defaultEffort ?? null,
             fixExecutionActive: listRecoveryRounds(localStore, ticketId)
               .some((round) => round.status === 'fixing'),
           };
@@ -1456,15 +1459,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           );
           return choice === 'Switch and continue';
         },
-        persist: ({ provider: p, model: m }) => updateTicketFields(localStore, ticketId, {
+        persist: ({ provider: p, model: m, effort: e }) => updateTicketFields(localStore, ticketId, {
           agentProvider: p,
           model: m ?? '',
+          effort: e ?? '',
         }),
         dispose: () => sessions.disposeSession(ticketId),
         launch: async (options) => {
           await vscode.commands.executeCommand('karst.openSession', ticketId, options);
         },
-      }, modelCatalog, { provider: targetProvider, model });
+      }, modelCatalog, { provider: targetProvider, model, effort });
       // Keep the same outcome toasts as before (stale / launch-failed).
       if (outcome.kind === 'stale') {
         void vscode.window.showInformationMessage('The ticket state changed before the agent could be switched.');
@@ -1708,9 +1712,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
               manifest.ticketing,
               makeTicketingProvider(manifest.ticketing, fetch, makeTokenProvider(context)),
             );
-            if (!res.advanced && res.reason === 'no-ref') {
-              logError(`ticket #${ticketId} started without a status update: no provider ref`, undefined);
-            }
+            const note = statusPushSkipNote('started', ticketId, res);
+            if (note) logger.debug(note.message);
           } catch (e) {
             logError('ticket status update failed', e);
           }
@@ -1755,6 +1758,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     () => modelCatalog,
     context.globalStorageUri.fsPath,
     (ticketId, active) => activeTicket.set(ticketId, active),
+    // The recently-used models for the shared picker's "Last used" group,
+    // scoped to this window's project like every other ticket-adjacent read.
+    () => listRecentlyUsedModels(localStore, currentProject()?.id ?? null, 5),
   );
 
   // Full agent-pool rows for the Settings "Agents" tab. Unlike `listAgents`
@@ -1970,6 +1976,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // Packaged built-in approach definitions for the webview's delta mirror —
     // host-computed through the seam, never a literal in the HTML.
     () => [...packagedApproachDefs()],
+    // The recently-used models for the shared picker's "Last used" group,
+    // scoped to this window's project like every other ticket-adjacent read.
+    () => listRecentlyUsedModels(localStore, currentProject()?.id ?? null, 5),
   );
 
   // Discovery is deliberately detached from activation: bundled models render
@@ -2132,12 +2141,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         currentManifest()?.ticketing,
         makeTicketingProvider(currentManifest()?.ticketing, fetch, makeTokenProvider(context)),
       );
-      if (!res.advanced && res.reason === 'no-ref') {
-        logError(
-          `ticket #${ticketId} completed without a status update: no provider ref`,
-          undefined,
-        );
-      }
+      const note = statusPushSkipNote('completed', ticketId, res);
+      if (note) logger.debug(note.message);
     } catch (e) {
       logError('ticket status update failed', e);
       if (warn) {
@@ -2407,7 +2412,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           });
         },
         () => changes.open(ticketId),
-        (provider, model) => void switchAgentSession(ticketId, provider, model),
+        (provider, model, effort) => void switchAgentSession(ticketId, provider, model, effort),
         () => binder.toggle(),
         // Declared below with the sweep it forces (like `binder`, the two are
         // mutually referential); read only when a panel is actually open, which
@@ -2418,12 +2423,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         (id) => maybeDrive(id, 'stage-resume'),
         (path) => void launchWorktreeDevWindow(path),
         () => launchWorktreeConfig(),
-        () => graphRecoveryDeps(),
+        (graphRunId) => graphRecoveryDeps(graphRunId),
         (launch) => void launchReplanPlannerHost(launch),
+        (launch) => void launchBootstrapRelaunchHost(launch),
         // The stage key arrives from the webview; the manager resolves the read
         // through the injected reader and posts the answer to this ticket's
         // panel (the postInsideProgress pattern).
         (stage) => dashboard.requestStageLog(ticketId, stage),
+        // The process id arrives from the webview; the manager resolves the
+        // persisted console tail and posts the answer to this ticket's panel.
+        (processId) => dashboard.requestAgentLog(ticketId, processId),
         (message) => logger.debug(message),
       ),
     () => worktreePathContext(currentManifest(), logger.warn, logger.info),
@@ -2462,6 +2471,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
     () => ({
       defaultModel: currentManifest()?.defaultModel ?? null,
+      defaultEffort: currentManifest()?.defaultEffort ?? null,
       modelCatalog,
     }),
     (worktrees, signal) => loadWorktreeStats(worktrees, defaultGitRunner, logError, signal),
@@ -2546,8 +2556,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         );
       },
     },
-    () => graphRecoveryDeps(),
+    (graphRunId) => graphRecoveryDeps(graphRunId),
     (launch) => void launchReplanPlannerHost(launch),
+    (launch) => void launchBootstrapRelaunchHost(launch),
   ),
   // Live manifest getter, so the inside views resolve the REAL service names
   // and process assignments (panel.ts is manifest-free by contract).
@@ -2578,6 +2589,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       readStageLog(localStore, ticketId, stage, (path) => readFileSync(path, 'utf8'), (m) =>
         logger.debug(m),
       ),
+    // The terminal view's AGENT console source: the persisted tail file the
+    // gate-lane AI process wrote during its run (the webview names only a
+    // process id). Reads through the same bounded AgentConsole the driver
+    // streamed into, so a post-run console shows exactly what ran.
+    (ticketId, processId) => agentConsole.readLog(ticketId, processId),
   );
 
   // A karst.yml edit made OUTSIDE karst (hand edit in the editor, a teammate's
@@ -2761,6 +2777,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const artifactDirFor = (ticketId: number): string =>
     join(context.globalStorageUri.fsPath, 'artifacts', String(ticketId));
 
+  // The gate-lane AI processes' console sink (Task 13): the UAT Tester and the
+  // Review findings lane stream their headless CLI output here — bounded and
+  // sanitized, the retained tail persisted to the ticket's artifact dir (so it
+  // survives a host restart and is readable after the run), and each chunk
+  // pushed to an OPEN dashboard panel's terminal view in real time. `dashboard`
+  // is declared above; `readFileSync`/`appendFileSync`/`mkdirSync` are the
+  // host's fs bindings (this file is the vscode seam).
+  const agentConsole = new AgentConsole({
+    dirFor: artifactDirFor,
+    readFile: (path) => readFileSync(path, 'utf8'),
+    appendFile: (path, text) => appendFileSync(path, text),
+    mkdir: (path) => mkdirSync(path, { recursive: true }),
+    onOutput: (ticketId, processId, text) =>
+      dashboard.postAgentOutput(ticketId, processId, text),
+    debug: (message) => logger.debug(message),
+  });
+
   // Auto-run the deterministic uat/review gates for a ticket after the
   // impl/fix marker (or a prior gate) leaves it at a gate boundary. Single-flight
   // via `driver.begin`/`end`; never authors a transition itself — `runUat`/
@@ -2789,6 +2822,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           // snapshot right after, which supersedes it. No-op when the panel
           // is closed; validated again at the panel boundary.
           onInsideProgress: (event) => dashboard.postInsideProgress(ticketId, event),
+          // Live output from the gate-lane AI processes (the UAT Tester and the
+          // Review findings lane): bounded + sanitized by the AgentConsole, the
+          // retained tail persisted to the ticket's artifact dir, and each
+          // chunk pushed to an OPEN panel's terminal view in real time. The
+          // console tail is readable after the run through the same sink.
+          onAgentOutput: (id, processId, chunk) => agentConsole.append(id, processId, chunk),
           shouldContinue: () => driver.shouldContinue(ticketId),
           // Stop, as a signal rather than a between-stages poll: `requestStop`
           // aborts this, and the abort reaches the gate child already running.
@@ -3278,10 +3317,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const gs = graphCoordinatorStore;
     const tr = graphTransport;
     if (!gs || !tr) return undefined;
-    const run = gs.db
+    const node = gs.db
       .prepare('SELECT ticket_id FROM approach_node_runs WHERE id = ?')
       .get(runId) as { ticket_id: number } | undefined;
-    if (run) return tr.sessionFor(run.ticket_id, runId);
+    if (node) return tr.sessionFor(node.ticket_id, runId);
     // A bootstrap planner run lives in `approach_planner_runs`, not the node
     // table — the reconcile planning branch resolves planner ids too.
     const planner = gs.db
@@ -3354,8 +3393,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    *  prompt re-snapshot seam — content-addressed writes under the graph
    *  artifact root, and the effective-prompt resolution that consults the
    *  per-node `prompt` override. All decision logic lives in recovery.ts;
-   *  this binding only supplies the seam the host owns. */
-  const graphRecoveryDeps = (): RecoveryDeps => {
+   *  this binding only supplies the seam the host owns. The prompt seams
+   *  (`readPrompt`/`plannerPromptPath`/`ticketContext`) are resolved per run
+   *  so a `planner-relaunch` recovery can re-snapshot the effective planner
+   *  prompt and seed the relaunched bootstrap planner exactly like the initial
+   *  launch does. */
+  const graphRecoveryDeps = (graphRunId: number): RecoveryDeps => {
     const gs = graphCoordinatorStore;
     return {
       store: gs!,
@@ -3372,13 +3415,38 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           ? { prompt: override.value, promptOverride: true }
           : { promptOverride: false };
       },
-      writeSnapshot: (graphRunId, relativePath, bytes) => {
-        const root = graphArtifactRoot(graphRunId);
+      writeSnapshot: (runId, relativePath, bytes) => {
+        const root = graphArtifactRoot(runId);
         if (!root) return;
         const target = join(root, relativePath);
         mkdirSync(dirname(target), { recursive: true });
         writeFileSync(target, bytes);
       },
+      // The bootstrap relaunch's prompt seams: the effective planner prompt
+      // bytes (packaged overlaid with the project override), its artifact
+      // path, and the ticket's rendered context — resolved for THIS run so
+      // the relaunched bootstrap planner is seeded exactly like the initial.
+      readPrompt: () => {
+        try {
+          return graphDriverDeps().promptBytesOf('karst-graph-planner');
+        } catch {
+          return undefined;
+        }
+      },
+      plannerPromptPath:
+        graphApproachConfigFor(graphRunApproachId(graphRunId))?.planner.prompt?.artifact ??
+        'skills/graph-planner/SKILL.md',
+      ticketContext:
+        graphRunId > 0
+          ? renderTicketContext(
+              buildTicketContext(
+                localStore,
+                currentManifest(),
+                graphRunTicketId(graphRunId),
+                context.globalStorageUri.fsPath,
+              ),
+            )
+          : undefined,
     };
   };
 
@@ -4085,6 +4153,52 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   };
 
+  /** Launch a fresh bootstrap planner after the `planner-relaunch` recovery:
+   *  the recovery already re-opened the run to `planning` and allocated the
+   *  new bootstrap planner run; this host binding composes the bootstrap prompt
+   *  and starts the session through the same driver seam as a replan. */
+  const launchBootstrapRelaunchHost = async (launch: BootstrapRelaunchRequest): Promise<void> => {
+    const gs = graphCoordinatorStore;
+    if (!gs) return;
+    const base = graphDriverDeps().promptBytesOf('karst-graph-planner');
+    const prompt = [
+      base === undefined ? '# Graph Planner' : new TextDecoder().decode(base),
+      launch.ticketContext,
+      'Write your plan artifacts and `graph.json` under the artifact root (env `KARST_GRAPH_ARTIFACT_ROOT`), then finish your session — karst compiles and runs the graph after you close.',
+    ].join('\n\n');
+    const wt = listWorktreesByTicket(localStore, graphRunTicketId(launch.graphRunId))[0];
+    const result = await launchReplanPlanner(graphDriverDeps(), {
+      graphRunId: launch.graphRunId,
+      plannerRunId: launch.plannerRunId,
+      generation: '',
+      capability: '',
+      prompt,
+      cwd: wt?.path ?? '',
+      repo: wt?.repo ?? '',
+    }).catch((err) => {
+      logError(`karst: bootstrap relaunch failed for run ${launch.graphRunId}`, err);
+      return { kind: 'failed' as const, reason: 'planner session could not start' };
+    });
+    if (result.kind === 'launched') {
+      graphLaunchIdentities.set(launch.graphRunId, {
+        graphRunId: launch.graphRunId,
+        ticketId: graphRunTicketId(launch.graphRunId),
+        plannerRunId: launch.plannerRunId,
+        generation: result.generation,
+        capability: result.capability,
+      });
+      attachPlannerSubmitOnClose(result.session, launch.graphRunId);
+      result.session.terminal?.show();
+      provider.refresh();
+      dashboard.pushState(graphRunTicketId(launch.graphRunId));
+    } else if (result.kind === 'failed') {
+      logError(`karst: bootstrap relaunch failed for run ${launch.graphRunId}`, new Error(result.reason));
+      void vscode.window.showErrorMessage(
+        `Ticket #${graphRunTicketId(launch.graphRunId)}: the bootstrap planner could not start — ${result.reason}`,
+      );
+    }
+  };
+
   // Reload/crash reconcile (Slice 4 Task 3): one pass over every graph run
   // applying the crash matrix, next to the coordinator sweep. Process facts
   // are the real OS probes and `resumePipeline` is the completion pipeline —
@@ -4180,6 +4294,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
               `${result.cancelledTokens} token${result.cancelledTokens === 1 ? '' : 's'} cancelled, ` +
               `resumed ${result.resumed.length}, reverted ${result.reverted.length})`,
           );
+        }
+        // A run this pass blocked — a dead node OR a dead bootstrap planner —
+        // gets its `approach-graph-failed` stage block written now, so the
+        // dashboard offers the typed graph-recovery Resume (the reconcile
+        // wrapper is the one place a reconcile-created block is observed).
+        if (result.status === 'blocked') {
+          settleGraphRun(gs.db, run.id);
         }
       }
     } catch (err) {
@@ -5184,15 +5305,28 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             modelCatalog,
           );
 
+      // Resolve the launch effort the same way: the ticket's own effort wins,
+      // else the manifest default, else undefined (the agent CLI's default).
+      // Only carried when the RESOLVED model advertises it (§ Execution policy
+      // resolution). A host-only assignment override supplies it verbatim.
+      const effort = options.assignment
+        ? (options.assignment.effort ?? undefined)
+        : resolveEffortForProvider(
+            launchProvider,
+            t.effort,
+            currentManifest()?.defaultEffort,
+            model,
+            modelCatalog,
+          );
+
       // Terminal name/icon/color are frozen at creation, so the tab carries the
       // status-free brand mark from the start — never a stage-at-launch glyph
       // hue, which the tab would keep for the rest of its life (869egvp46-fu2).
-      // The template keeps the stage legible as text.
+      // The template keeps the stage legible as text. The one-char follow-up
+      // marker is FORCED at this seam (terminalTicketName) so a follow-up's
+      // terminal reads as a follow-up whatever the template says (869ehqx68-fu1).
       const naming = terminalNaming({
-        name: renderTicketLabel(
-          t,
-          currentManifest()?.terminalNameTemplate ?? DEFAULT_TERMINAL_NAME_TEMPLATE,
-        ),
+        name: terminalTicketName(t, currentManifest()?.terminalNameTemplate),
         brandIcon,
       });
 
@@ -5207,7 +5341,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           resumeId,
           naming,
           materialized.ownedPaths,
-          options,
+          { ...options, ...(effort ? { effort } : {}) },
           // Record the session manager's active provider/model snapshot, so a
           // later fix recovery reads the identity that ACTUALLY launched this
           // session — not the one a manifest edit resolves today. A host-only
@@ -6034,13 +6168,13 @@ function buildCliGuidePrefix(context: vscode.ExtensionContext): string {
  * failing to open at all.
  */
 function dashboardWebviewHtml(warn: (message: string) => void): string {
-  let html = injectAgentIdentity(
+  let html = injectAgentPicker(injectAgentIdentity(
     injectProviderIdentity(
       injectPalette(
         injectDesignSystem(readFileSync(join(HERE, 'ui', 'dashboard', 'webview.html'), 'utf8')),
       ),
     ),
-  );
+  ));
   try {
     html = injectXterm(html, readXtermAssets(join(HERE, 'vendor', 'xterm')));
   } catch (e) {
@@ -6500,10 +6634,13 @@ function makeInsideActionHost(
   // The graph recovery action's host binding (Slice-4 T6): the atomic claim
   // wrapper plus the prompt re-snapshot seam. Bound in activate where the
   // snapshot root is known; the panel host only routes Resume to it.
-  graphRecoveryDeps: () => RecoveryDeps,
+  graphRecoveryDeps: (graphRunId: number) => RecoveryDeps,
   // Launch the elected replan planner session (Slice-4 T5) — the recovery
   // election returns a launch request; the host starts the session.
   graphReplanLaunch: (launch: ReplanLaunchRequest) => void,
+  // Launch a fresh bootstrap planner on a graph run whose previous bootstrap
+  // planner died before ever submitting — the `planner-relaunch` recovery.
+  graphBootstrapRelaunch: (launch: BootstrapRelaunchRequest) => void,
 ): InsideActionHost {
   return {
     openFile: (path) => void vscode.commands.executeCommand('vscode.open', vscode.Uri.file(path)),
@@ -6530,7 +6667,7 @@ function makeInsideActionHost(
         // the typed action runs graph-aware recovery: a retry on the same
         // revision, clearing the block only after it durably entered.
         const recovery = recoverGraphRun(
-          graphRecoveryDeps(),
+          graphRecoveryDeps(outcome.graphRunId),
           { ticketId: outcome.ticketId, graphRunId: outcome.graphRunId },
         );
         if (recovery.kind === 'retried') {
@@ -6541,6 +6678,11 @@ function makeInsideActionHost(
           if (recovery.launch) graphReplanLaunch(recovery.launch);
           void vscode.window.showInformationMessage(
             `Ticket #${ticketId}: the implementation graph was replanned (graph run ${outcome.graphRunId}).`,
+          );
+        } else if (recovery.kind === 'relaunched') {
+          if (recovery.launch) graphBootstrapRelaunch(recovery.launch);
+          void vscode.window.showInformationMessage(
+            `Ticket #${ticketId}: the implementation graph's bootstrap planner was relaunched (graph run ${outcome.graphRunId}).`,
           );
         } else if (recovery.kind === 'refused') {
           void vscode.window.showInformationMessage(
@@ -6624,7 +6766,7 @@ function makeDashboardActions(
   // Apply a staged agent-core/model selection to the open session. The closure
   // owns the ticket id AND re-validates the selection against the catalog, so
   // the webview can only ever propose a switch, never direct one.
-  switchAgent: (provider: AgentProvider, model: string | null) => void,
+  switchAgent: (provider: AgentProvider, model: string | null, effort: string | null) => void,
   // Flip the window's terminal binding. Window-scoped, not ticket-scoped, so it
   // takes no id — every open dashboard reports the same toggle.
   toggleBind: () => void,
@@ -6647,13 +6789,18 @@ function makeDashboardActions(
   launchConfig: () => ReturnType<typeof parseLaunchWorktreeConfig>,
   // The graph recovery action's host binding (Slice-4 T6), bound in activate
   // where the snapshot root is known.
-  graphRecoveryDeps: () => RecoveryDeps,
+  graphRecoveryDeps: (graphRunId: number) => RecoveryDeps,
   // Launch the elected replan planner session (Slice-4 T5).
   graphReplanLaunch: (launch: ReplanLaunchRequest) => void,
+  // Launch a fresh bootstrap planner on a graph run whose previous bootstrap
+  // planner died before ever submitting — the `planner-relaunch` recovery.
+  graphBootstrapRelaunch: (launch: BootstrapRelaunchRequest) => void,
   // Resolve one gate stage's console log via the dashboard manager, which owns
   // the ticket panel: the stage key arrives from the webview, the read stays
   // host-side.
   requestStageLog: (stage: GateStage) => void,
+  // Resolve one gate-lane AI process's console tail via the dashboard manager.
+  requestAgentLog: (processId: AgentProcessId) => void,
   // Verbose decision-point logging for the recovery action (`sendBackToImplement`),
   // gated inside the logger so it is a no-op unless the manifest's debug flag is on.
   debug: (message: string) => void,
@@ -6747,6 +6894,9 @@ function makeDashboardActions(
       launchWorktree(path);
     },
     openPr: (url) => void vscode.env.openExternal(vscode.Uri.parse(url)),
+    // Copy the PR URL to the clipboard (the webview flashes its own feedback,
+    // like copy-server-url / copy-worktree-branch).
+    copyPrUrl: (url) => void vscode.env.clipboard.writeText(url),
     openTicketLink: (url) => void vscode.env.openExternal(vscode.Uri.parse(url)),
     editTicket,
     // Stop the auto-driver's next gate run for this ticket (it halts at the
@@ -6846,11 +6996,12 @@ function makeDashboardActions(
         // The graph block is NOT cleared by a generic Resume (Slice-3 T9) —
         // the typed action runs graph-aware recovery instead.
         const recovery = recoverGraphRun(
-          graphRecoveryDeps(),
+          graphRecoveryDeps(outcome.graphRunId),
           { ticketId: outcome.ticketId, graphRunId: outcome.graphRunId },
         );
-        if (recovery.kind === 'retried' || recovery.kind === 'replanned') {
+        if (recovery.kind === 'retried' || recovery.kind === 'replanned' || recovery.kind === 'relaunched') {
           if (recovery.kind === 'replanned' && recovery.launch) graphReplanLaunch(recovery.launch);
+          if (recovery.kind === 'relaunched' && recovery.launch) graphBootstrapRelaunch(recovery.launch);
           afterServerChange();
           driveAfterResume(ticketId);
         } else if (recovery.kind === 'refused') {
@@ -6883,6 +7034,10 @@ function makeDashboardActions(
     // owns the ticket panel, so the read (store + fs, bounded) happens here and
     // the `stage-log` answer is posted to the panel that asked.
     requestStageLog: (stage) => requestStageLog(stage),
+    // An `agent-log-request` for the terminal view of a gate-lane AI process
+    // (the UAT Tester / Review findings lane): the manager owns the panel, and
+    // the read of the persisted tail happens host-side.
+    requestAgentLog: (processId) => requestAgentLog(processId),
     // Open one artifact resource in a normal VS Code editor — the deliberate
     // escape from the semantic artifact UI into the file model (spec §12). The
     // webview names ONLY the artifact id and a resource index, so this re-reads

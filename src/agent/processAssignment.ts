@@ -22,8 +22,9 @@
  *              manifest.defaultModel, both through the provider-compatibility
  *              check (a known model of another provider is dropped, never
  *              launched wrong)
- *   instructions: config.instructions (verbatim — author-declared; absent →
- *              the built-in prompt; no ticket/manifest fallback exists)
+ *   instructions: NOT resolved here — the host's execution boundary resolves
+ *              the assigned profile's BODY (`agent`) into it. There is no
+ *              manifest-declared prompt any more; the profile is the prompt.
  */
 
 import type { AgentProvider, Manifest } from '../manifest/types.js';
@@ -42,6 +43,7 @@ export interface ProcessAssignmentSnapshot {
   agentName?: string;
   provider: AgentProvider;
   model?: string;
+  effort?: string;
   /**
    * The settings agent-pool profile this process is assigned to run as
    * (`processes.<key>.agent`), carried VERBATIM alongside `agentName`. The
@@ -52,11 +54,12 @@ export interface ProcessAssignmentSnapshot {
    */
   agent?: string;
   /**
-   * The prompt instructions the process's headless call is run with: an
-   * author-declared `processes.<key>.instructions`, or — when that is absent —
-   * the resolved body of the assigned profile (`agent`). Absent entirely → the
-   * process's built-in prompt. Snapshotted like the identity fields: a
-   * Settings edit mid-run must not rewrite the prompt a live run is reading.
+   * The prompt the process's headless call is run with: the resolved body of
+   * the assigned profile (`agent`), filled in by the host's execution boundary
+   * (`processFor`) — never by this resolver, which cannot read the filesystem
+   * pool. Absent → the process's built-in prompt. Snapshotted like the
+   * identity fields: a Settings edit mid-run must not rewrite the prompt a
+   * live run is reading.
    */
   instructions?: string;
 }
@@ -141,6 +144,5 @@ export function resolveProcessAssignment(
     // separately from `agentName`: `config.agentName` overrides the display
     // label without changing which profile drives the prompt.
     ...(config?.agent === undefined ? {} : { agent: config.agent }),
-    ...(config?.instructions === undefined ? {} : { instructions: config.instructions }),
   };
 }

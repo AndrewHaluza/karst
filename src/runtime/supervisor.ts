@@ -1,8 +1,8 @@
 import { spawn } from 'node:child_process';
-import { openSync, closeSync, readFileSync, existsSync, mkdirSync } from 'node:fs';
+import { openSync, closeSync, readFileSync, existsSync, mkdirSync, statSync, readSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { Store } from '../store/db.js';
-import { waitForHealth } from './health.js';
+import { waitForHealth, HealthAbortedError } from './health.js';
 import { killTree } from './processTree.js';
 import { isPortOpen, reclaimPort } from './portConflict.js';
 export { killTree } from './processTree.js';
@@ -93,6 +93,52 @@ function rejectAfter(ms: number, err: Error): Promise<never> {
   return new Promise((_, reject) => setTimeout(() => reject(err), ms).unref());
 }
 
+/**
+ * How much of a failed service's own log to carry into the start-failure error.
+ * Bounded so a runaway service (a 250 KB log) cannot blow up the error toast.
+ */
+const START_FAILURE_LOG_TAIL_BYTES = 2_000;
+
+/**
+ * Read the LAST `maxBytes` of a server log, for surfacing WHY a service failed
+ * to become healthy. Bounded (a runaway log must not blow up the error), and
+ * tolerant: a missing/unreadable log returns '' so the caller's message stands
+ * on its own.
+ */
+function readLogTail(logPath: string, maxBytes = START_FAILURE_LOG_TAIL_BYTES): string {
+  try {
+    const { size } = statSync(logPath);
+    if (size <= 0) return '';
+    const fd = openSync(logPath, 'r');
+    try {
+      const start = Math.max(0, size - maxBytes);
+      const buf = Buffer.alloc(size - start);
+      readSync(fd, buf, 0, buf.length, start);
+      return buf.toString('utf8');
+    } finally {
+      closeSync(fd);
+    }
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Wrap a start failure with the service's own log tail so the user sees WHY it
+ * died — a missing module, a wrong port in config — without opening the log
+ * file (the reported failure: `node server.mjs` with no such file surfaced only
+ * "the process exited with code 1"; the MODULE_NOT_FOUND was buried in the log).
+ * The log path is ALWAYS named (a failed start must stay debuggable); the tail
+ * is appended only when the log actually holds output.
+ */
+function startFailure(opts: StartHotOpts, err: unknown): Error {
+  const base = err instanceof Error ? err : new Error(String(err));
+  const tail = readLogTail(opts.logPath);
+  return new Error(
+    `${base.message}${tail.length > 0 ? `\nLast output:\n${tail}` : ''}\nSee the log: ${opts.logPath}`,
+  );
+}
+
 export async function startHot(store: Store, opts: StartHotOpts): Promise<ServerRecord> {
   // A port owner may answer the configured health URL (SPA fallbacks commonly
   // return index.html with 200 for every path) or may answer nothing useful at
@@ -180,7 +226,7 @@ export async function startHot(store: Store, opts: StartHotOpts): Promise<Server
       reject(
         new Error(
           `could not start '${opts.service}': the process exited ${how} before it became ` +
-            `healthy. See the log: ${opts.logPath}`,
+            `healthy.`,
         ),
       );
     });
@@ -229,7 +275,12 @@ export async function startHot(store: Store, opts: StartHotOpts): Promise<Server
       `[runtime] ${opts.service}: health gate failed (${err instanceof Error ? err.message : String(err)}) — killing pid ${pid}`,
     );
     killTree(pid);
-    throw err;
+    // A user cancellation is quiet — no log tail, no fault banner.
+    if (err instanceof HealthAbortedError) throw err;
+    // Surface the service's own output so the failure explains itself: a missing
+    // module, a wrong port in config, a compile error. Without this the user sees
+    // only "exited with code 1" / "health did not pass" and must open the log.
+    throw startFailure(opts, err);
   }
 
   // Single row per (ticket, service): drop any prior row for this service first

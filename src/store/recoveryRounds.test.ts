@@ -583,6 +583,32 @@ describe('recovery rounds — store', () => {
     expect(listRecoveryRounds(store, ticketId)[0]!.status).toBe('pending');
   });
 
+  it('reconcileStrandedFixRounds leaves alone a pending round with a PENDING fix launch intent', () => {
+    // A launch is genuinely in flight: `recordFixLaunchIntent` was called, the
+    // terminal was prepared, and the round awaits its SessionStart to confirm
+    // (`confirmFixLaunch`). That is NOT "no fix execution in flight" — parking
+    // the stage here is exactly how a review round-2 fix read blocked while the
+    // agent was actually working (REVIEW-2ND-ROUND-FIX-STUCK-WITH): the intent
+    // was recorded at 21:47:20 and the activation sweep parked the stage at
+    // 22:00 with "fix parked — no fix execution in flight".
+    transition(store, ticketId, 'uat', { kind: 'failed', reason: 'exit 1' }); // -> fix
+    const r = round();
+    recordFixLaunchIntent(store, {
+      ticketId,
+      launchId: 'launch-pending',
+      provider: 'opencode',
+      reason: 'initial',
+      sessionOrigin: 'new',
+      recoveryRoundId: r.id,
+      at: T0,
+    });
+
+    expect(reconcileStrandedFixRounds(store, T1)).toEqual([]);
+    expect(getTicket(store, ticketId).stages.find((s) => s.stageKey === 'fix')!.status).toBe('running');
+    // The intent itself is untouched — only the headline park is refused.
+    expect(getSessionLaunchIntent(store, 'launch-pending')!.status).toBe('pending');
+  });
+
   it('reconcileStrandedFixRounds parks a running fix row whose every round is terminal', () => {
     transition(store, ticketId, 'uat', { kind: 'failed', reason: 'exit 1' }); // -> fix
     const r = round();

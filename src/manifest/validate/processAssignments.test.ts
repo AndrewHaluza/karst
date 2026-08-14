@@ -97,31 +97,17 @@ describe('validateProcessAssignments', () => {
     expect(result?.uatTester).toEqual({ enabled: true });
   });
 
-  it('parses an instructions string into the typed config, preserving newlines', () => {
-    const result = validateProcessAssignments(
-      {
-        uatTester: {
-          instructions: 'Focus on API endpoint behavior.\nTest edge cases around authentication.',
-        },
-        review: { instructions: 'Check for regression patterns.' },
-      },
-    );
-    expect(result?.uatTester).toEqual({
-      instructions: 'Focus on API endpoint behavior.\nTest edge cases around authentication.',
-      enabled: true,
+  // RETIRED: the profile named by `agent` carries the prompt. A file that
+  // still declares one must LOAD (nobody's config breaks on an upgrade) with
+  // the value DROPPED — carrying it would give the manifest a second prompt
+  // source able to outrank the profile shown in Settings.
+  it('drops a legacy instructions value instead of failing the load', () => {
+    const result = validateProcessAssignments({
+      uatTester: { instructions: 'Focus on API endpoint behavior.', provider: 'codex' },
+      review: { instructions: ['not even a string'] },
     });
-    expect(result?.review).toEqual({ instructions: 'Check for regression patterns.', enabled: true });
-  });
-
-  it('rejects a non-string instructions value, naming the field', () => {
-    expect(() =>
-      validateProcessAssignments({ uatTester: { instructions: ['security'] } }),
-    ).toThrow('processes.uatTester.instructions must be a string');
-  });
-
-  it('normalizes a blank instructions to unset, like agentName', () => {
-    const result = validateProcessAssignments({ uatTester: { instructions: '   ' } });
-    expect(result?.uatTester).toEqual({ enabled: true });
+    expect(result?.uatTester).toEqual({ provider: 'codex', enabled: true });
+    expect(result?.review).toEqual({ enabled: true });
   });
 
   it('parses a plain agent reference verbatim (never guessed at)', () => {

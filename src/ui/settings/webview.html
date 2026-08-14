@@ -173,6 +173,11 @@
      src/model/agentIdentity.ts, injected here at load. */
   /*KARST_AGENT_CSS*/
 
+  /* The UNIFIED agent identity picker (agent core + model + effort/variant) —
+     the same element every surface mounts. Single source in
+     src/model/agentPicker.ts, injected here at load. */
+  /*KARST_AGENT_PICKER_CSS*/
+
   /* Agent provider custom select (icon + name inside dropdown) */
   .agentselect{position:relative;width:100%}
   .agentselect-trigger{width:100%;display:flex;align-items:center;justify-content:space-between;
@@ -1131,33 +1136,13 @@
         </div>
 
         <div class="form-grid">
-          <div class="field-label" id="agentProviderLabel">Agent provider</div>
+          <div class="field-label" id="defaultAgentLabel">Default implementation agent</div>
           <div class="field-control">
-            <div class="agentselect" id="agentSelectWrap">
-              <button type="button" class="agentselect-trigger k-btn" id="agentTrigger"
-                aria-label="Agent provider" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="agentProviderLabel"></button>
-              <div class="agentselect-menu hidden" id="agentMenu" role="listbox"></div>
-            </div>
-          </div>
-
-          <div class="field-label" id="defaultModelLabel">Default model</div>
-          <div class="field-control">
-            <div class="select-shell" id="modelShell">
-              <button type="button" class="select-trigger model-trigger" id="modelTrigger"
-                aria-haspopup="listbox" aria-expanded="false"
-                aria-label="Default model" aria-labelledby="defaultModelLabel"></button>
-              <div class="model-pop" id="modelPop" role="listbox" aria-labelledby="defaultModelLabel">
-                <div class="model-search">
-                  <input type="text" id="modelSearch" placeholder="Search models…" aria-label="Search models" />
-                </div>
-                <div class="model-scroll" id="modelList"></div>
-              </div>
-              <!-- The native select stays the VALUE carrier — the same change
-                   listener the plain control had still owns the draft write. -->
-              <select id="f-defaultModel" class="hidden"></select>
-            </div>
-            <div class="model-warning" id="modelWarning"></div>
-            <div class="field-help" id="modelHelp">Optional — “No default” lets the provider choose. The list is grouped by provider and searchable.</div>
+            <!-- The UNIFIED agent identity picker (agent core + model + effort/
+                 variant) mounts here — the same element the graph config,
+                 dashboard switch and ticket form use (model/agentPicker.ts). -->
+            <div id="defaultAgentPicker"></div>
+            <div class="field-help" id="agentDefaultHelp">Used for normal implementation sessions. “No default” lets the provider choose. Effort / variant appears only for models that advertise it. Inside process assignments are configured on the Agents page.</div>
           </div>
         </div>
       </div>
@@ -1185,7 +1170,7 @@
         <div class="template-form-row">
           <div class="field-label" id="terminalTemplateLabel">Terminal name template</div>
           <div class="field-control">
-            <input type="text" id="f-terminalTemplate" placeholder="Karst: {followUp}{key} — {title}" aria-labelledby="terminalTemplateLabel" />
+            <input type="text" id="f-terminalTemplate" placeholder="Karst: {key} — {title}" aria-labelledby="terminalTemplateLabel" />
             <div class="template-meta">
               <div class="template-preview" id="terminalPreview"></div>
               <button type="button" class="template-help-link" data-template-help="label">Variables &amp; transforms</button>
@@ -1855,6 +1840,11 @@
   // AGENT_PROVIDER_LABELS, agentBadgeHtml, agentIconHtml.
   /*KARST_AGENT_JS*/
 
+  // The UNIFIED agent identity picker (agent core + model + effort/variant) —
+  // the same element every surface mounts. Single source in
+  // src/model/agentPicker.ts, injected here at load. Defines mountAgentPicker.
+  /*KARST_AGENT_PICKER_JS*/
+
   const vscode = acquireVsCodeApi();
   const post = (m) => vscode.postMessage(m);
   const el = (id) => document.getElementById(id);
@@ -1977,10 +1967,12 @@
   }
 
   // Ticket-label template — mirror of src/store/ticketLabelTemplate.ts (the webview
-  // can't import TS). Keep the two in sync: default + variables + fallbacks.
+  // can't import TS). Keep the two in sync: default + variables + fallbacks. The
+  // one-char follow-up marker is NOT a token: the host forces it at the terminal
+  // seam (terminalTicketName), so the template never renders it (869ehqx68-fu1).
   const DEFAULT_LABEL_TEMPLATE = '{key} — {title}';
-  const DEFAULT_TERMINAL_TEMPLATE = 'Karst: {followUp}{key} — {title}';
-  const LABEL_VARS = ['key', 'title', 'id', 'status', 'stage', 'repos', 'followUp'];
+  const DEFAULT_TERMINAL_TEMPLATE = 'Karst: {key} — {title}';
+  const LABEL_VARS = ['key', 'title', 'id', 'status', 'stage', 'repos'];
   const SAMPLE_TICKET = {
     id: 142, key: 'PROJ-142', title: 'add login', stageCurrent: 'implement',
     agentState: 'working', selectedRepos: ['fe', 'be'], parentTicketId: null,
@@ -1994,7 +1986,6 @@
       status: ticket.agentState ?? '',
       stage: ticket.stageCurrent ?? '',
       repos: (ticket.selectedRepos || []).join(', '),
-      followUp: ticket.parentTicketId != null ? '↳ ' : '',
     };
     const out = tpl.replace(/\{(\w+(?:\|[^{}]*)?)\}/g, (_m, body) => {
       const token = parseTokenBody(body);
@@ -2060,6 +2051,9 @@
   // Compatibility knowledge is deliberately broader than the picker catalog:
   // bundled ids remain known while newly discovered ids are added.
   let modelCompatibility = { claude: [], codex: [], antigravity: [], opencode: [] };
+  // Host-computed recently-used models per provider (newest first, ≤5) for the
+  // shared picker's "Last used" group (model/agentPicker.ts `recent`).
+  let recentModels = {};
   // Host-computed views for the inside-process assignment rows (handoff §7),
   // keyed by process key: role labels, descriptions, the four validation
   // states, the Default hints. The webview renders them verbatim.
@@ -2214,7 +2208,7 @@
     general: [
       'host', 'portRange', 'baselineBranch', 'worktreePathDisplay',
       'ticketLabelTemplate', 'terminalNameTemplate', 'agentProvider', 'defaultModel',
-      'archiveDoneAfterDays', 'debug', 'closeDoneTerminalsWithTicket',
+      'defaultEffort', 'archiveDoneAfterDays', 'debug', 'closeDoneTerminalsWithTicket',
     ],
     git: ['conventions'],
     services: ['repositories'],
@@ -2570,32 +2564,42 @@
       || known.some((model) => (model.providers || []).includes(provider));
   }
 
-  function renderModelPicker() {
-    const provider = draft.agentProvider || 'claude';
-    const modelSelect = el('f-defaultModel');
-    modelSelect.innerHTML = renderModelOptions(provider, draft.defaultModel);
-    modelSelect.value = draft.defaultModel || '';
-    renderModelPickerTrigger();
-    renderModelPickerPopup();
-  }
-
   function renderGeneral() {
     el('f-host').value = draft.host || '';
     el('f-portMin').value = draft.portRange && draft.portRange[0] != null ? draft.portRange[0] : '';
     el('f-portMax').value = draft.portRange && draft.portRange[1] != null ? draft.portRange[1] : '';
     el('f-baseline').value = draft.baselineBranch || '';
     el('f-wtDisplay').value = draft.worktreePathDisplay || 'relative';
-    { const current = draft.agentProvider || 'claude';
-    el('agentTrigger').innerHTML = agentBadgeHtml(current) + '<span class="chev" aria-hidden="true"></span>';
-    el('agentMenu').innerHTML = KNOWN_AGENT_PROVIDERS.map((p) => {
-      const disabled = implementedProviders.indexOf(p) === -1;
-      return `<div class="agentselect-opt${p === current ? ' selected' : ''}" role="option"`
-        + ` tabindex="0" data-value="${esc(p)}" aria-selected="${p === current}"`
-        + `${disabled ? ' aria-disabled="true"' : ''}>`
-        + agentBadgeHtml(p) + (disabled ? ' <span style="opacity:.5;margin-left:var(--k-space-2)">(coming soon)</span>' : '')
-        + `</div>`;
-    }).join(''); }
-    renderModelPicker();
+    // The UNIFIED agent identity picker (agent core + model + effort/variant).
+    // The same element the graph config, dashboard switch and ticket form use;
+    // only the value source differs. Implemented providers render selectable;
+    // the rest show as "coming soon" via the shared component's disabled flag.
+    const apRoot = el('defaultAgentPicker');
+    if (apRoot) {
+      const apCores = KNOWN_AGENT_PROVIDERS.map((p) => ({
+        id: p,
+        label: AGENT_PROVIDER_LABELS[p] || p,
+        disabled: implementedProviders.indexOf(p) === -1,
+      }));
+      mountAgentPicker(apRoot, {
+        cores: apCores,
+        catalog: modelCatalog,
+        recent: recentModels,
+        value: {
+          core: draft.agentProvider || '',
+          model: draft.defaultModel || '',
+          effort: draft.defaultEffort || '',
+        },
+        inherit: { core: '', model: 'No default (agent picks)', effort: 'No effort (agent picks)' },
+        showEffort: true,
+        onChange: ({ core, model, effort }) => {
+          draft.agentProvider = core || undefined;
+          draft.defaultModel = model || undefined;
+          draft.defaultEffort = effort || undefined;
+          markDirty();
+        },
+      });
+    }
     el('f-archiveDoneAfterDays').value = draft.archiveDoneAfterDays ?? '';
     // Absent (undefined) renders unchecked — debug logging is off by default.
     el('f-debug').checked = draft.debug === true;
@@ -2729,55 +2733,6 @@
   el('f-baseline').addEventListener('input', () => { draft.baselineBranch = el('f-baseline').value; markDirty(); });
   el('f-wtDisplay').addEventListener('change', () => {
     draft.worktreePathDisplay = el('f-wtDisplay').value;
-    markDirty();
-  });
-  { const wrap = el('agentSelectWrap');
-  const trigger = el('agentTrigger');
-  const menu = el('agentMenu');
-  function selectAgent(p) {
-    draft.agentProvider = p;
-    if (draft.defaultModel && !isModelCompatibleWithProvider(p, draft.defaultModel)) {
-      draft.defaultModel = undefined;
-    }
-    trigger.innerHTML = agentBadgeHtml(p) + '<span class="chev" aria-hidden="true"></span>';
-    menu.querySelectorAll('.agentselect-opt').forEach((opt) => {
-      const v = opt.getAttribute('data-value');
-      opt.classList.toggle('selected', v === p);
-      opt.setAttribute('aria-selected', String(v === p));
-    });
-    menu.classList.add('hidden');
-    trigger.setAttribute('aria-expanded', 'false');
-    renderModelPicker();
-    markDirty();
-  }
-  trigger.addEventListener('click', () => {
-    const open = !menu.classList.contains('hidden');
-    menu.classList.toggle('hidden', open);
-    trigger.setAttribute('aria-expanded', String(!open));
-  });
-  menu.addEventListener('click', (e) => {
-    const opt = e.target.closest('.agentselect-opt');
-    if (!opt || opt.getAttribute('aria-disabled') === 'true') return;
-    selectAgent(opt.getAttribute('data-value'));
-  });
-  menu.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') { menu.classList.add('hidden'); trigger.setAttribute('aria-expanded', 'false'); trigger.focus(); }
-  });
-  trigger.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' || e.key === 'ArrowUp') { menu.classList.add('hidden'); trigger.setAttribute('aria-expanded', 'false'); }
-    if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault(); menu.classList.remove('hidden'); trigger.setAttribute('aria-expanded', 'true');
-      menu.querySelector('.agentselect-opt')?.focus();
-    }
-  });
-  document.addEventListener('click', (e) => { if (!wrap.contains(e.target)) { menu.classList.add('hidden'); trigger.setAttribute('aria-expanded', 'false'); } });
-  // Expose selectAgent for renderGeneral
-  window._selectAgentProvider = selectAgent;
-  // Initialize trigger
-  trigger.innerHTML = agentBadgeHtml(draft.agentProvider || 'claude') + '<span class="chev" aria-hidden="true"></span>'; }
-  el('f-defaultModel').addEventListener('change', () => {
-    // '' clears the default (dropped by writeManifest → no default persisted).
-    draft.defaultModel = el('f-defaultModel').value || undefined;
     markDirty();
   });
   el('f-archiveDoneAfterDays').addEventListener('change', () => {
@@ -3515,14 +3470,6 @@
       }
       return;
     }
-    if (t.dataset.gfProfileProvider) {
-      const entry = graphEntryFor(t);
-      if (entry && entry.graph && entry.graph.profiles && entry.graph.profiles[t.dataset.gfProfileProvider]) {
-        entry.graph.profiles[t.dataset.gfProfileProvider].provider = t.value;
-        markDirty();
-      }
-      return;
-    }
     if (t.dataset.gfCmdCwd || t.dataset.gfCmdAccess) {
       const entry = graphEntryFor(t);
       const field = t.dataset.gfCmdCwd ? 'cwd' : 'access';
@@ -3561,11 +3508,11 @@
 
   document.addEventListener('input', (e) => {
     const t = e.target;
-    // agentName and instructions commit per keystroke WITHOUT a re-render, so
-    // the field being typed into never loses focus; the `change` listener
-    // above still commits them on blur.
+    // agentName commits per keystroke WITHOUT a re-render, so the field being
+    // typed into never loses focus; the `change` listener above still commits
+    // it on blur.
     if (!t.dataset) return;
-    if (t.dataset.procField === 'agentName' || t.dataset.procField === 'instructions') {
+    if (t.dataset.procField === 'agentName') {
       updateProcessAssignment(t.dataset.procKey, { [t.dataset.procField]: t.value }, { rerender: false });
       return;
     }
@@ -3581,17 +3528,6 @@
       if (v === '') delete entry.graph.limits[t.dataset.gfLimit];
       else entry.graph.limits[t.dataset.gfLimit] = Number(v);
       markDirty();
-      return;
-    }
-    if (t.dataset.gfProfileModel || t.dataset.gfProfileEffort) {
-      const name = t.dataset.gfProfileModel || t.dataset.gfProfileEffort;
-      const field = t.dataset.gfProfileModel ? 'model' : 'effort';
-      if (entry && entry.graph && entry.graph.profiles && entry.graph.profiles[name]) {
-        const value = t.value.trim();
-        if (value === '') delete entry.graph.profiles[name][field];
-        else entry.graph.profiles[name][field] = value;
-        markDirty();
-      }
       return;
     }
     if (t.dataset.gfCmdCommand || t.dataset.gfCmdArgs || t.dataset.gfCmdTimeout) {
@@ -3682,6 +3618,48 @@
       .join('');
 
     el('approachList').innerHTML = rosterHtml;
+    mountGraphProfilePickers();
+  }
+
+  // Mount the UNIFIED agent identity picker (agent core + model + effort/variant)
+  // into every graph profile row. Each profile has its own value/onChange — a
+  // pick here writes ONLY that profile's provider/model/effort in the draft
+  // entry (karst-graph-engineering reuses the SAME core+model selects as the
+  // General tab). Re-mounting on a state push is idempotent (the shared
+  // component updates in place).
+  function mountGraphProfilePickers() {
+    const pickers = document.querySelectorAll('[data-gf-profile-picker]');
+    for (const container of pickers) {
+      const name = container.dataset.gfProfilePicker;
+      const card = container.closest && container.closest('[data-graph-config]');
+      if (!name || !card) continue;
+      const entry = (draft.approaches || []).find((a) => a.id === card.dataset.graphConfig);
+      if (!entry) continue;
+      const profile = (entry.graph && entry.graph.profiles && entry.graph.profiles[name]) || {};
+      const apCores = KNOWN_AGENT_PROVIDERS.map((p) => ({
+        id: p,
+        label: AGENT_PROVIDER_LABELS[p] || p,
+        disabled: implementedProviders.indexOf(p) === -1,
+      }));
+      mountAgentPicker(container, {
+        cores: apCores,
+        catalog: modelCatalog,
+        recent: recentModels,
+        value: { core: profile.provider || '', model: profile.model || '', effort: profile.effort || '' },
+        labels: { core: 'Core', model: 'Model', effort: 'Effort' },
+        showEffort: true,
+        onChange: ({ core, model, effort }) => {
+          if (!entry.graph) entry.graph = {};
+          if (!entry.graph.profiles) entry.graph.profiles = {};
+          if (!entry.graph.profiles[name]) entry.graph.profiles[name] = {};
+          const p = entry.graph.profiles[name];
+          if (core) p.provider = core; else delete p.provider;
+          if (model) p.model = model; else delete p.model;
+          if (effort) p.effort = effort; else delete p.effort;
+          markDirty();
+        },
+      });
+    }
   }
 
   // One roster card: 4px status rail, mono id + label, right-aligned action
@@ -3811,27 +3789,17 @@
       '<option value="' + esc(k) + '"' + (planner.profile === k ? ' selected' : '') + '>' + esc(k) + '</option>',
     ).join('');
 
-    // Execution profiles: provider is a radio/choice pattern rendering the
-    // canonical core identity (icon + name, UI-R10c); model/effort are
-    // subordinate metadata inputs.
+    // Execution profiles: each profile row hosts the UNIFIED agent identity
+    // picker (agent core + model + effort/variant) — the same element the
+    // General tab, dashboard switch and ticket form use (model/agentPicker.ts).
+    // The row renders a container; `mountGraphProfilePickers` mounts the shared
+    // component into it after the roster's innerHTML lands, so a core pick
+    // re-filters the model list for THAT profile only.
     const profileRows = profileKeys.map((name) => {
       const p = profiles[name] || {};
-      const provider = p.provider || 'claude';
-      const choices = GRAPH_PROVIDERS.map((prov) =>
-        '<label>'
-        + '<input type="radio" name="gf-provider-' + esc(name) + '" value="' + esc(prov) + '"'
-        + (prov === provider ? ' checked' : '')
-        + ' data-gf-profile-provider="' + esc(name) + '" />'
-        + agentBadgeHtml(prov)
-        + '</label>',
-      ).join('');
       return '<div class="graph-row">'
         + '<span class="graph-profile-name">' + esc(name) + '</span>'
-        + '<span class="graph-provider-choice">' + choices + '</span>'
-        + '<input type="text" data-gf-profile-model="' + esc(name) + '" value="' + esc(p.model || '') + '"'
-        + ' aria-label="' + esc(name) + ' model" placeholder="model" />'
-        + '<input type="text" data-gf-profile-effort="' + esc(name) + '" value="' + esc(p.effort || '') + '"'
-        + ' aria-label="' + esc(name) + ' effort" placeholder="effort" />'
+        + '<div class="graph-profile-picker" data-gf-profile-picker="' + esc(name) + '"></div>'
         + '</div>';
     }).join('');
 
@@ -4442,11 +4410,13 @@
   // only the draft-bound field VALUES are read from draft.processes, so a
   // change reflects instantly while the states follow on the round trip.
   const PROCESS_KEYS = ['uatTester', 'uatFix', 'review', 'reviewFix', 'prDescription', 'ticketAnalysis'];
-  // The two roles whose prompts consume `processes.<key>.instructions` (UAT
-  // Tester / Review findings); the other roles keep their own fixed prompt
-  // paths, so they offer no Instructions control (no dead field). Mirrored
-  // from the consumption sites — pinned by webview.test.ts (UI-R34).
-  const PROCESS_KEYS_WITH_INSTRUCTIONS = ['uatTester', 'review'];
+  // The roles whose prompt IS the assigned profile's body (UAT Tester, Review
+  // findings, Ticket analysis); the others take identity only — provider,
+  // model and display name — and keep their own fixed prompt. The row says
+  // which, rather than leaving a picked profile to look equally effective
+  // everywhere. Mirrored from the host's PROMPT_BEARING_ROLES (extension.ts) —
+  // pinned by webview.test.ts (UI-R34).
+  const PROMPT_BEARING_PROCESS_KEYS = ['uatTester', 'review', 'ticketAnalysis'];
 
   /** Index the host's row views by process key for O(1) row lookup. */
   function indexProcessViews(rows) {
@@ -4549,6 +4519,9 @@
       + `<label for="proc-${key}-profile">Agent profile</label>`
       + `<select id="proc-${key}-profile" class="proc-select" data-proc-field="agent" data-proc-key="${key}"${describedBy}${invalid('agent')}>${profileOpts}</select>`
       + (v.profileHint ? `<span class="proc-hint">${esc(v.profileHint)}</span>` : '')
+      + (PROMPT_BEARING_PROCESS_KEYS.includes(key)
+        ? `<span class="proc-hint">The profile's instructions ARE this process's prompt (edit them in Agents). No profile = the built-in prompt.</span>`
+        : `<span class="proc-hint">Identity only: this process keeps its built-in prompt, so the profile's instructions are not used.</span>`)
       + `</div>`
       + `<div class="proc-cell proc-core-cell">`
       + `<label for="proc-${key}-provider">Agent core</label>`
@@ -4571,11 +4544,6 @@
       + `<input id="proc-${key}-name" type="text" class="proc-input" data-proc-field="agentName" data-proc-key="${key}"`
       + ` value="${esc(cfg.agentName || '')}" placeholder="Snapshot name (blank = role default)" aria-label="${esc(label)} — display name" />`
       + `</div>`
-      + (PROCESS_KEYS_WITH_INSTRUCTIONS.includes(key) ? `<div class="proc-cell proc-cell-wide">`
-        + `<label for="proc-${key}-instructions">Instructions</label>`
-        + `<textarea id="proc-${key}-instructions" class="proc-input" data-proc-field="instructions" data-proc-key="${key}" rows="4" aria-label="${esc(label)} — instructions" placeholder="Blank = the built-in prompt">${esc(cfg.instructions || '')}</textarea>`
-        + `<span class="proc-hint">Blank = the built-in prompt. Replaces the role/strategy section; the JSON output rules stay fixed.</span>`
-        + `</div>` : '')
       + `</div>`
       + (msg ? `<div class="proc-msg ${v.stateTone === 'error' ? 'is-error' : 'is-note'}" id="${msgId}" role="alert">${esc(msg)}</div>` : '')
       + `</div>`;
@@ -5379,10 +5347,12 @@
     renderProjectFooter();
   }
 
-  function refreshModelCatalog(models, compatibility) {
+  function refreshModelCatalog(models, compatibility, recent) {
     modelCatalog = models || { claude: [], codex: [], antigravity: [], opencode: [] };
     modelCompatibility = compatibility || modelCatalog;
-    renderModelPicker();
+    if (recent) recentModels = recent;
+    renderGeneral();
+    renderApproaches();
     // A catalog change can flip a row's state (catalog-unavailable,
     // incompatible-model) — re-ask for host-computed views if the rows are on
     // screen.
@@ -5395,6 +5365,7 @@
         ...prev,
         models: modelCatalog,
         modelCompatibility,
+        recentModels,
       });
     }
   }
@@ -5546,145 +5517,6 @@
         break;
     }
   });
-
-  // ═══ Searchable grouped model picker (handoff §6.3) ═══════════════════════
-  // Host truth is `modelCatalog` + `modelCompatibility` (never a literal list).
-  // The picker groups by provider identity — the INJECTED label map, never a
-  // second literal — keeps a saved model that left the catalog visible as
-  // "unavailable", and never substitutes silently. The hidden native <select>
-  // is the VALUE carrier — the same change listener the native control had
-  // still owns the draft write.
-
-  function modelLabelFor(provider, id) {
-    if (!id) return '';
-    const found = (modelCatalog[provider] || []).find((m) => m.id === id);
-    return found ? found.label : id;
-  }
-
-  // The group header row renders the provider's identity badge (icon + name),
-  // so the model list reads as belonging to the core it is filtered to.
-  function modelGroupLabelHtml(provider) {
-    return '<div class="model-group-label">' + agentBadgeHtml(provider) + '</div>';
-  }
-
-  function renderModelPickerPopup() {
-    const shell = el('modelShell');
-    if (!shell) return;
-    const provider = draft.agentProvider || 'claude';
-    const saved = typeof draft.defaultModel === 'string' ? draft.defaultModel : '';
-    const list = modelCatalog[provider] || [];
-    const groupLabel = AGENT_PROVIDER_LABELS[provider] || provider;
-    // The "No default" row is always first: it is how the picker expresses an
-    // explicit none (handoff §7.2), and picking it clears the saved model.
-    let html = '<div class="model-item' + (saved === '' ? ' active' : '') + '" role="option"'
-      + ' data-model-id="" aria-selected="' + (saved === '' ? 'true' : 'false') + '">'
-      + '<div><div class="model-name">No default (agent picks)</div>'
-      + '<div class="model-sub">Let the provider choose.</div></div>'
-      + (saved === '' ? '<span class="model-tag">saved</span>' : '')
-      + '</div>';
-    if (list.length === 0) {
-      html += '<div class="model-empty">No models listed for ' + esc(groupLabel) + '.</div>';
-    } else {
-      html += modelGroupLabelHtml(provider);
-      for (const m of list) {
-        html += '<div class="model-item' + (m.id === saved ? ' active' : '') + '" role="option"'
-          + ' data-model-id="' + esc(m.id) + '" aria-selected="' + (m.id === saved ? 'true' : 'false') + '">'
-          + '<div><div class="model-name">' + esc(m.label) + '</div>'
-          + '<div class="model-sub">' + esc(m.id) + '</div></div>'
-          + (m.id === saved ? '<span class="model-tag">saved</span>' : '')
-          + '</div>';
-      }
-    }
-    if (saved && !list.some((m) => m.id === saved)) {
-      html += '<div class="model-group-label">Saved model (unavailable)</div>'
-        + '<div class="model-item active" role="option" data-model-id="' + esc(saved) + '" aria-selected="true">'
-        + '<div><div class="model-name">' + esc(saved) + '</div>'
-        + '<div class="model-sub">Not in the current ' + esc(groupLabel) + ' catalog.</div></div>'
-        + '<span class="model-tag">unavailable</span></div>';
-    }
-    const listEl = el('modelList');
-    if (listEl) listEl.innerHTML = html;
-    const warning = el('modelWarning');
-    if (warning) {
-      warning.classList.toggle('visible', Boolean(saved) && !list.some((m) => m.id === saved));
-      warning.textContent = saved && !list.some((m) => m.id === saved)
-        ? 'Saved model is not available for ' + esc(groupLabel) + ' — choose another model.'
-        : '';
-    }
-  }
-
-  function renderModelPickerTrigger() {
-    const trigger = el('modelTrigger');
-    if (!trigger) return;
-    const provider = draft.agentProvider || 'claude';
-    const saved = typeof draft.defaultModel === 'string' ? draft.defaultModel : '';
-    const label = saved ? modelLabelFor(provider, saved) : '';
-    // The trigger shows the full identity pattern — icon + provider · model —
-    // so the default is never a bare model name without its core.
-    trigger.innerHTML = '<span class="sel-label">' + agentIdentityHtml(provider, label, true) + '</span>'
-      + '<span class="chev" aria-hidden="true"></span>';
-    trigger.classList.toggle('is-unavailable', Boolean(saved) && !(modelCatalog[provider] || []).some((m) => m.id === saved));
-  }
-
-  // The search filter runs over the CURRENT provider's list (presentation only).
-  function bindModelPickerSearch() {
-    const input = el('modelSearch');
-    if (!input) return;
-    input.addEventListener('input', () => {
-      const q = input.value.trim().toLowerCase();
-      const provider = draft.agentProvider || 'claude';
-      const list = modelCatalog[provider] || [];
-      const saved = typeof draft.defaultModel === 'string' ? draft.defaultModel : '';
-      const listEl = el('modelList');
-      if (!listEl) return;
-      if (!q) { renderModelPickerPopup(); return; }
-      // "No default" always survives the filter — it is the picker's way to
-      // express an explicit none, not a model to match.
-      let html = '<div class="model-item' + (saved === '' ? ' active' : '') + '" role="option"'
-        + ' data-model-id="" aria-selected="' + (saved === '' ? 'true' : 'false') + '">'
-        + '<div class="model-name">No default (agent picks)</div></div>';
-      html += modelGroupLabelHtml(provider);
-      for (const m of list) {
-        const hay = (m.label + ' ' + m.id).toLowerCase();
-        if (hay.includes(q)) {
-          html += '<div class="model-item' + (m.id === saved ? ' active' : '') + '" role="option"'
-            + ' data-model-id="' + esc(m.id) + '" aria-selected="' + (m.id === saved ? 'true' : 'false') + '">'
-            + '<div><div class="model-name">' + esc(m.label) + '</div>'
-            + '<div class="model-sub">' + esc(m.id) + '</div></div></div>';
-        }
-      }
-      if (saved && !list.some((m) => m.id === saved) && (saved.toLowerCase().includes(q) || !q)) {
-        html += '<div class="model-group-label">Saved model (unavailable)</div>'
-          + '<div class="model-item active" role="option" data-model-id="' + esc(saved) + '" aria-selected="true">'
-          + '<div class="model-name">' + esc(saved) + '</div></div>';
-      }
-      if (html.indexOf('model-item') === -1) {
-        html = '<div class="model-item" role="option" data-model-id="" aria-selected="false">'
-          + '<div class="model-name">No default (agent picks)</div></div>'
-          + '<div class="model-empty">No models match "' + esc(input.value) + '".</div>';
-      }
-      listEl.innerHTML = html;
-    });
-    input.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && openMenuShell) { closeMenuShell(openMenuShell, true); }
-    });
-  }
-
-  // Picking a model writes the hidden select and lets its change listener own
-  // the draft update (one write path, same as the old native control).
-  function bindModelPickerPick() {
-    const shell = el('modelShell');
-    if (!shell) return;
-    shell.addEventListener('click', (e) => {
-      const item = e.target.closest && e.target.closest('[data-model-id]');
-      if (!item) return;
-      const sel = el('f-defaultModel');
-      sel.value = item.dataset.modelId || '';
-      sel.dispatchEvent(new Event('change'));
-      renderModelPickerTrigger();
-      closeMenuShell(shell, true);
-    });
-  }
 
   // ═══ Template helper popup (handoff §7.3 / §8) ════════════════════════════
   // Contextual variables + transforms at the point of use. Inserting a
@@ -6061,6 +5893,7 @@
         implementedProviders = msg.state.implementedProviders || ['claude'];
         modelCatalog = msg.state.models || { claude: [], codex: [], antigravity: [], opencode: [] };
         modelCompatibility = msg.state.modelCompatibility || modelCatalog;
+        recentModels = msg.state.recentModels || {};
         processAssignmentViews = indexProcessViews(msg.state.processAssignments || []);
         agentRows = msg.state.agents || [];
         approachCommands = msg.state.approachCommands || {};
@@ -6079,7 +5912,7 @@
         break;
       }
       case 'models': {
-        refreshModelCatalog(msg.models, msg.modelCompatibility);
+        refreshModelCatalog(msg.models, msg.modelCompatibility, msg.recentModels);
         break;
       }
       case 'validation': {
@@ -6253,6 +6086,7 @@
     implementedProviders = prev.implementedProviders || ['claude'];
     modelCatalog = prev.models || { claude: [], codex: [], antigravity: [], opencode: [] };
     modelCompatibility = prev.modelCompatibility || modelCatalog;
+    recentModels = prev.recentModels || {};
     processAssignmentViews = indexProcessViews(prev.processAssignments || []);
     agentRows = prev.agents || [];
     approachCommands = prev.approachCommands || {};
@@ -6268,10 +6102,8 @@
   }
   // Label the tab-scoped buttons even when there is no restored state to render.
   updateSaveEnabled();
-  // Wire the shared primitives once (dropdowns, model picker, template helper,
+  // Wire the shared primitives once (dropdowns, template helper,
   // context menu, name-override drawer, focus traps, project footer).
-  bindModelPickerSearch();
-  bindModelPickerPick();
   bindTemplateHelper();
   bindContextMenu();
   bindNameOverride();

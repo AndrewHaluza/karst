@@ -23,7 +23,10 @@ import {
   review as buildReview,
 } from '../../manifest/fixtures.js';
 import { gateSummary as hostGateSummary } from './gateDraft.js';
-import { PROCESS_KEYS } from '../../manifest/validate/processAssignments.js';
+import {
+  PROCESS_KEYS,
+  PROMPT_BEARING_PROCESS_KEYS,
+} from '../../manifest/validate/processAssignments.js';
 import { approachDelta } from '../../approaches/withBuiltInApproaches.js';
 import { BUILT_IN_APPROACHES } from '../../approaches/builtIn.js';
 import {
@@ -125,7 +128,6 @@ describe('settings model picker', () => {
   });
 
   it('merges a catalog refresh without replacing a dirty draft or its saved baseline', () => {
-    let renderCount = 0;
     let persisted: unknown;
     const currentState = {
       manifest: { host: 'saved-host' },
@@ -139,6 +141,7 @@ describe('settings model picker', () => {
     const context = {
       modelCatalog: MODELS,
       modelCompatibility: MODELS,
+      recentModels: {},
       draft: { host: 'dirty-host' },
       lastSaved: { host: 'saved-host' },
       dirty: true,
@@ -149,7 +152,8 @@ describe('settings model picker', () => {
       currentSection: 'general',
       saveCandidate: () => ({}),
       post: () => {},
-      renderModelPicker: () => { renderCount += 1; },
+      renderGeneral: () => {},
+      renderApproaches: () => {},
       vscode: {
         getState: () => currentState,
         setState: (value: unknown) => { persisted = value; },
@@ -172,11 +176,11 @@ describe('settings model picker', () => {
     expect(result.draft.host).toBe('dirty-host');
     expect(result.lastSaved.host).toBe('saved-host');
     expect(result.dirty).toBe(true);
-    expect(renderCount).toBe(1);
     expect(persisted).toEqual({
       ...currentState,
       models: nextModels,
       modelCompatibility: nextModels,
+      recentModels: {},
     });
   });
 });
@@ -701,16 +705,17 @@ describe('settings placeholder-transform mirror', () => {
 });
 
 describe('settings label-template mirror (UI-R34)', () => {
-  it('mirrors the followUp template token and the marker in the terminal default', () => {
+  it('mirrors the terminal template default and the shared variable set', () => {
     // UI-R34: TICKET_LABEL_VARIABLES / DEFAULT_TERMINAL_NAME_TEMPLATE are
     // mirrored into the webview (it cannot import TS). A drift shows one set of
-    // variables in Settings and another in the host engine.
+    // variables in Settings and another in the host engine. The follow-up
+    // marker is NOT a token — the host forces it at the terminal seam, so the
+    // mirror (like the engine) never renders it from a template.
     expect(HTML).toContain(
-      "const LABEL_VARS = ['key', 'title', 'id', 'status', 'stage', 'repos', 'followUp']",
+      "const LABEL_VARS = ['key', 'title', 'id', 'status', 'stage', 'repos']",
     );
-    expect(HTML).toContain("const DEFAULT_TERMINAL_TEMPLATE = 'Karst: {followUp}{key} — {title}'");
+    expect(HTML).toContain("const DEFAULT_TERMINAL_TEMPLATE = 'Karst: {key} — {title}'");
     expect(HTML).toContain('parentTicketId: null');
-    expect(HTML).toContain('followUp: ticket.parentTicketId != null ? \'↳ \' : \'\'');
   });
 });
 
@@ -1471,7 +1476,7 @@ describe('debug logging toggle (General tab)', () => {
         if (!elements[id]) elements[id] = { textContent: '', hidden: false };
         return elements[id];
       }
-      function renderModelPicker() {}
+      function mountAgentPicker() {}
       function renderPresetOptions() {}
       function renderDefaultTypeOptions() {}
       function renderLabelPreview() {}
@@ -1479,6 +1484,10 @@ describe('debug logging toggle (General tab)', () => {
       function agentBadgeHtml() { return ''; }
       const KNOWN_AGENT_PROVIDERS = [];
       const implementedProviders = [];
+      const modelCatalog = { claude: [], codex: [], antigravity: [], opencode: [] };
+      const recentModels = {};
+      const AGENT_PROVIDER_LABELS = {};
+      function markDirty() {}
       function esc(s) { return String(s); }
       const DEFAULT_PR_DESCRIPTION_TEMPLATE = '';
       ${functionSource('renderGeneral')}
@@ -1516,7 +1525,7 @@ describe('close-done-terminals toggle (General tab)', () => {
         if (!elements[id]) elements[id] = { textContent: '', hidden: false };
         return elements[id];
       }
-      function renderModelPicker() {}
+      function mountAgentPicker() {}
       function renderPresetOptions() {}
       function renderDefaultTypeOptions() {}
       function renderLabelPreview() {}
@@ -1525,6 +1534,10 @@ describe('close-done-terminals toggle (General tab)', () => {
       function agentBadgeHtml() { return ''; }
       const KNOWN_AGENT_PROVIDERS = [];
       const implementedProviders = [];
+      const modelCatalog = { claude: [], codex: [], antigravity: [], opencode: [] };
+      const recentModels = {};
+      const AGENT_PROVIDER_LABELS = {};
+      function markDirty() {}
       function esc(s) { return String(s); }
       const DEFAULT_PR_DESCRIPTION_TEMPLATE = '';
       ${functionSource('renderGeneral')}
@@ -2335,23 +2348,26 @@ describe('settings agents tab — process assignments', () => {
     );
   });
 
-  it('mirrors the host instructions-consumer vocabulary exactly', () => {
-    expect(HTML).toContain(`const PROCESS_KEYS_WITH_INSTRUCTIONS = ['uatTester', 'review'];`);
+  it('mirrors the host prompt-bearing vocabulary exactly', () => {
+    expect(HTML).toContain(
+      `const PROMPT_BEARING_PROCESS_KEYS = [${PROMPT_BEARING_PROCESS_KEYS.map((k) => `'${k}'`).join(', ')}];`,
+    );
   });
 
-  it('renders the instructions textarea only for uatTester and review rows', () => {
-    expect(HTML).toContain('data-proc-field="instructions"');
+  // The inline instructions field is RETIRED: a process's prompt is the
+  // assigned profile's body, so a second editor here would be a way to
+  // silently outrank the profile the row itself is showing.
+  it('offers no instructions field on any row, and says which rows the profile prompts', () => {
+    expect(HTML).not.toContain('data-proc-field="instructions"');
     const render = loadProcessRowRenderer();
-    const tester = render(
-      'uatTester',
-      { instructions: 'Focus on API endpoints.' },
-      view('uatTester', 'UAT Tester'),
-    );
-    expect(tester).toContain('data-proc-field="instructions"');
-    expect(tester).toContain('Focus on API endpoints.');
-    expect(tester).toContain('Blank = the built-in prompt');
+    const tester = render('uatTester', {}, view('uatTester', 'UAT Tester'));
+    expect(tester).not.toContain('data-proc-field="instructions"');
+    expect(tester).toContain("The profile's instructions ARE this process's prompt");
+    // A row that takes identity only says so, rather than leaving a picked
+    // profile looking equally effective everywhere.
     const fix = render('uatFix', {}, view('uatFix', 'UAT Fix'));
-    expect(fix).not.toContain('data-proc-field="instructions"');
+    expect(fix).toContain('Identity only');
+    expect(fix).not.toContain("ARE this process's prompt");
   });
 
   it('writes and clears the instructions field through updateProcessAssignment', () => {
@@ -2460,7 +2476,7 @@ describe('settings agents tab — process assignments', () => {
         claude: 'Claude Code', codex: 'Codex', antigravity: 'Antigravity CLI', opencode: 'OpenCode',
       };
       function agentBadgeHtml(p) { return '<span class="agentbadge"><span class="agentname">' + (AGENT_PROVIDER_LABELS[p] || p || '') + '</span></span>'; }
-      const PROCESS_KEYS_WITH_INSTRUCTIONS = ['uatTester', 'review'];
+      const PROMPT_BEARING_PROCESS_KEYS = ['uatTester', 'review', 'ticketAnalysis'];
       ${functionSource('renderModelOptions')}
       ${functionSource('renderProcessAssignmentRow')}
       renderProcessAssignmentRow
@@ -2874,19 +2890,25 @@ describe('settings v7 shared primitives', () => {
     expect(HTML).toContain('data-uninstall="${esc(id)}"');
   });
 
-  it('renders the template helper popup and the model picker popup', () => {
+  it('renders the template helper popup', () => {
     expect(HTML).toContain('id="helperPop"');
     expect(HTML).toContain('data-template-help');
     expect(HTML).toContain('data-insert-var');
     expect(HTML).toContain('data-insert-transform');
-    expect(HTML).toContain('id="modelShell"');
-    expect(HTML).toContain('id="modelPop"');
-    expect(HTML).toContain('id="modelSearch"');
-    expect(HTML).toContain('data-model-id');
   });
 
-  it('keeps the hidden native model select as the value carrier', () => {
-    expect(HTML).toContain('<select id="f-defaultModel" class="hidden"></select>');
+  it('hosts the UNIFIED agent identity picker (agent core + model + effort/variant) in the General tab', () => {
+    // The same element every surface mounts (model/agentPicker.ts) — not a
+    // bespoke per-tab picker.
+    expect(HTML).toContain('id="defaultAgentPicker"');
+    expect(HTML).toContain('mountAgentPicker(apRoot,');
+    expect(HTML).toContain('KARST_AGENT_PICKER_CSS');
+    expect(HTML).toContain('KARST_AGENT_PICKER_JS');
+  });
+
+  it('hosts the UNIFIED picker per graph execution profile', () => {
+    expect(HTML).toContain('data-gf-profile-picker');
+    expect(HTML).toContain('mountGraphProfilePickers');
   });
 });
 
@@ -3011,7 +3033,7 @@ describe('settings v7 matrix groups', () => {
         claude: 'Claude Code', codex: 'Codex', antigravity: 'Antigravity CLI', opencode: 'OpenCode',
       };
       function agentBadgeHtml(p) { return '<span class="agentbadge"><span class="agentname">' + (AGENT_PROVIDER_LABELS[p] || p || '') + '</span></span>'; }
-      const PROCESS_KEYS_WITH_INSTRUCTIONS = ['uatTester', 'review'];
+      const PROMPT_BEARING_PROCESS_KEYS = ['uatTester', 'review', 'ticketAnalysis'];
       ${functionSource('renderModelOptions')}
       ${functionSource('renderProcessAssignmentRow')}
       renderProcessAssignmentRow(${JSON.stringify(key)}, {}, {})
@@ -3040,7 +3062,7 @@ describe('settings v7 matrix groups', () => {
         claude: 'Claude Code', codex: 'Codex', antigravity: 'Antigravity CLI', opencode: 'OpenCode',
       };
       function agentBadgeHtml(p) { return '<span class="agentbadge"><span class="agentname">' + (AGENT_PROVIDER_LABELS[p] || p || '') + '</span></span>'; }
-      const PROCESS_KEYS_WITH_INSTRUCTIONS = ['uatTester', 'review'];
+      const PROMPT_BEARING_PROCESS_KEYS = ['uatTester', 'review', 'ticketAnalysis'];
       ${functionSource('renderModelOptions')}
       ${functionSource('renderProcessAssignmentRow')}
       renderProcessAssignmentRow('review', { agentName: 'My Review' }, {})
@@ -3057,29 +3079,14 @@ describe('settings v7 matrix groups', () => {
 });
 
 describe('settings v7 model picker no-default', () => {
-  it('leads the popup with a No default row that clears the saved model', () => {
-    const source = `
-      const modelCatalog = {
-        codex: [{ id: 'gpt-x', label: 'GPT X', providers: ['codex'] }],
-        claude: [], antigravity: [], opencode: [],
-      };
-      function agentBadgeHtml(p) { return '<span class="agentbadge"><span class="agentname">' + p + '</span></span>'; }
-      const AGENT_PROVIDER_LABELS = { claude: 'Claude Code', codex: 'Codex', antigravity: 'Antigravity CLI', opencode: 'OpenCode' };
-      let draft = { agentProvider: 'codex', defaultModel: 'gpt-x' };
-      const elements = {};
-      function el(id) {
-        if (!elements[id]) elements[id] = { innerHTML: '', classList: { toggle() {} } };
-        return elements[id];
-      }
-      ${functionSource('modelGroupLabelHtml')}
-      ${functionSource('renderModelPickerPopup')}
-      renderModelPickerPopup();
-      elements.modelList.innerHTML;
-    `;
-    const html = runInNewContext(source, { esc: (s: unknown) => String(s ?? '') }) as string;
-    expect(html).toContain('No default (agent picks)');
-    expect(html).toContain('data-model-id=""');
-    expect(html).toContain('GPT X');
+  it('the shared picker leads the model list with the inherit/none row', () => {
+    // The General tab's model picker is the UNIFIED agent identity picker now,
+    // whose model option rendering lives in model/agentPicker.ts. This pins the
+    // settings surface to that shared component's behavior rather than a
+    // bespoke duplicate (the shared module's own suite covers the details).
+    expect(HTML).toContain("mountAgentPicker(apRoot,");
+    expect(HTML).toContain("inherit: { core: '', model: 'No default (agent picks)', effort: 'No effort (agent picks)' }");
+    expect(HTML).toContain('KARST_AGENT_PICKER_JS');
   });
 });
 

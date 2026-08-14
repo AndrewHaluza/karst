@@ -1260,6 +1260,44 @@ describe('runUat — Tester and verifier (Task 8)', () => {
     expect(seen).toEqual([{ callSite: 'uat-tester', ticketId: id, processRunId: run.id }]);
   });
 
+  it('threads onTesterOutput and onTesterTargetProgress into the Tester', async () => {
+    const chunks: { stream: 'stdout' | 'stderr'; text: string }[] = [];
+    const progress: { repo: string; status: string; detail?: string }[] = [];
+    const captured: Array<{ onOutput?: (c: { stream: 'stdout' | 'stderr'; text: string }) => void }> = [];
+    const adapter: AgentAdapter = {
+      requiredBinary: 'fake',
+      capabilities: { lifecycleEvents: false, resume: false },
+      buildInteractiveCommand: () => {
+        throw new Error('not used by the tester');
+      },
+      runHeadless: async (headlessOpts) => {
+        captured.push(headlessOpts);
+        return { sessionId: '', verdict: null, raw: '[]' };
+      },
+    };
+    const res = await runUat(
+      store,
+      {
+        ticketId: id,
+        cwd: '/wt/web',
+        artifactDir,
+        onTesterOutput: (c) => chunks.push(c),
+        onTesterTargetProgress: (e) => progress.push(e),
+      },
+      testerDeps({ tester: { assignment: { provider: 'claude' }, adapter } }),
+    );
+    expect(res).toEqual({ kind: 'advanced', next: 'review' });
+    // The Tester received the live-output hook on the call it made.
+    expect(captured[0]!.onOutput).toBeDefined();
+    captured[0]!.onOutput?.({ stream: 'stderr', text: 'thinking' });
+    expect(chunks).toEqual([{ stream: 'stderr', text: 'thinking' }]);
+    // The Tester emitted per-target progress, and the stage passed it through.
+    expect(progress).toEqual([
+      { repo: '/wt/web', status: 'active' },
+      { repo: '/wt/web', status: 'completed', detail: '0 observations' },
+    ]);
+  });
+
   // Finding 13 follow-up: the execution-wide cap must never skip a repository.
   // Repo A fills the budget with 100 lows; repo B's later `critical` still gets
   // its adapter call and survives the single severity-ranked slice.

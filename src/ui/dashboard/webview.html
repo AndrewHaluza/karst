@@ -9,6 +9,7 @@
   /*KARST_DS_CSS*/
   /*KARST_XTERM_CSS*/
   /*KARST_AGENT_CSS*/
+  /*KARST_AGENT_PICKER_CSS*/
 
   :root{
     /* Status colors come from the shared ramp (--k-pending|running|attention|
@@ -56,6 +57,11 @@
   .dhead h1.ticketTitle{min-width:0;flex:1;margin:0 var(--k-space-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--k-text-xl)}
   .ticketKey{min-height:var(--k-hit-min);padding:0 var(--k-space-3);border:0;border-radius:var(--k-radius-sm);background:transparent;color:var(--k-text-dim);font-family:var(--k-font-mono);font-size:var(--k-text-xs);cursor:pointer}
   .ticketKey:hover{background:var(--k-surface-hover);color:var(--k-text)}
+  /* The header's provider-native priority chip. A READ-only provider fact, so
+     it is a plain span on the shared `.k-chip` pill shape (UI-R08), never a
+     control. Local color only: the priority label is provider-authored copy,
+     not a workflow state, so it gets no semantic feedback token. */
+  .prio{font-family:var(--k-font-mono);font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.4px;padding:var(--k-space-1) var(--k-space-4);border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-pill);color:var(--k-text-dim);flex:none}
   .ticketParent{display:block;margin-top:var(--k-space-3);color:var(--k-text-dim);font-size:var(--k-text-xs);font-family:var(--k-font-mono)}
   .headerActions{display:flex;align-items:center;gap:var(--k-space-2);flex:none;margin-left:auto}
   .agentWrap,.menuWrap{position:relative}
@@ -448,14 +454,15 @@
 
   /* The needs-you control. NOT `.act` — that was the retired activity strip's
      class (the inside ledger now). The host decides what it DOES (`s.needs.cta`):
-     for a whole-ticket confirm ship and a single mergeable merge it is a REAL
-     actor posting the same message the header's Confirm ship button and the PR
-     panel's Merge button post — the host's confirmation still guards the
-     irreversible step, and the pending lifecycle is the same `shipRequestId` /
-     `mergeRequests` the owning controls use. Every other shape (a multi-repo
-     wait, a conflict, an open session) is NAVIGATIONAL: it scrolls the control
-     that owns the action into view and focuses it, so the rail never becomes a
-     second actor it cannot back with a confirmation. */
+     for a whole-ticket confirm ship, a single mergeable merge and a single
+     conflicted repo it is a REAL actor posting the same message the header's
+     Confirm ship button, the PR panel's Merge button and its Resolve conflicts
+     button post — the host's confirmation still guards the irreversible merge
+     step, and resolve-conflicts re-derives the brief from the store before
+     handing it to a session. Every other shape (a multi-repo wait, a
+     multi-repo conflict, an open session) is NAVIGATIONAL: it scrolls the
+     control that owns the action into view and focuses it, so the rail never
+     becomes a second actor it cannot back with a confirmation. */
   .track .seg .go{font:inherit;font-size:var(--k-text-2xs);border:var(--k-border-w) solid currentColor;
     border-radius:var(--k-radius-sm);background:transparent;color:inherit;
     padding:var(--k-space-1) var(--k-space-4);cursor:pointer;flex:none;margin-left:auto}
@@ -936,12 +943,14 @@
   #inside .recovery-pill.exhausted{border-color:var(--p-failed);color:var(--p-failed)}
   #inside .recovery-history{margin-bottom:var(--p-s2);border:var(--k-border-w) solid var(--p-border);
     border-radius:var(--p-r1);overflow:hidden;background:var(--p-surface)}
-  #inside .recovery-round{display:grid;grid-template-columns:56px minmax(0,1fr) auto;gap:var(--p-s2);
+  #inside .recovery-round{display:grid;grid-template-columns:56px minmax(0,1fr) auto auto;gap:var(--p-s2);
     align-items:center;min-height:27px;padding:0 var(--p-s2);border-bottom:var(--k-border-w) solid var(--p-border)}
   #inside .recovery-round:last-child{border-bottom:0}
   #inside .recovery-num{color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs)}
   #inside .recovery-cause{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
     color:var(--p-text);font-size:var(--p-sm)}
+  #inside .recovery-timing{display:flex;align-items:center;gap:var(--p-s2);color:var(--p-muted2);
+    font-family:var(--p-mono);font-size:var(--p-xs);white-space:nowrap}
   #inside .recovery-result{display:inline-flex;align-items:center;justify-content:flex-end;gap:var(--p-s2);
     color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs);white-space:nowrap}
   #inside .recovery-result.run{color:var(--p-running)}
@@ -1130,6 +1139,7 @@
     #inside .session-foot{flex-wrap:wrap}
     #inside .session-foot .session-rule{margin-left:0;width:100%}
     #inside .recovery-round{grid-template-columns:48px minmax(0,1fr)}
+    #inside .recovery-timing{display:none}
     #inside .recovery-result{grid-column:2}
     /* handoff §10: a truncated path hides where the fix goes, so the unbounded
        cells WRAP here instead of ellipsising — and `overflow-wrap:anywhere`,
@@ -1198,11 +1208,14 @@
   .empty{padding:var(--k-space-7) var(--k-space-6);color:var(--k-text-faint);font-size:var(--k-text-md)}
 
   .wt,.pr{display:flex;align-items:center;gap:var(--k-space-5);padding:var(--k-space-4) var(--k-space-3);border-radius:var(--k-radius-md);min-width:0}
+  /* Only the PR row wraps at narrow widths: the URL keeps a 150px floor and
+     `#42`/Merge drop below it. Worktrees keep their one-line-per-row layout. */
+  .pr{flex-wrap:wrap}
   .wt:hover,.pr:hover{background:var(--k-surface-hover)}
   /* 74px has no scale match — set by the longest repo label karst has shown in
      practice, not a spacing value. */
   .wt .wrepo{font-size:var(--k-text-md);min-width:74px;flex-shrink:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .wt .wacts,.pr .pacts{margin-left:auto;display:flex;gap:var(--k-space-2);flex-shrink:0}
+  .wt .wacts,.pr .pacts{margin-left:auto;display:flex;gap:var(--k-space-2);flex-shrink:0;flex:none}
   .wt .wbranch{display:flex;align-items:center;gap:var(--k-space-1);min-width:0;flex:1}
   .wt .wbr{font-family:var(--k-font-mono);font-size:var(--k-text-xs);color:var(--k-text-dim);overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
   .wt .wstats{display:flex;gap:var(--k-space-3);font-family:var(--k-font-mono);font-size:var(--k-text-xs);white-space:nowrap;flex-shrink:0}
@@ -1222,8 +1235,32 @@
   .pr .pst-merged{background:var(--k-series-2);color:var(--k-success-fg)}
   .pr .pst-closed{background:var(--k-danger);color:var(--k-danger-fg)}
   .pr .pst-draft,.pr .pst-unknown{background:var(--k-text-faint);color:var(--k-success-fg)}
-  .pr .pnum{font-family:var(--k-font-mono);color:var(--k-link)}
-  .pr .ptitle{flex:1;font-size:var(--k-text-md)}
+  /* The PR number IS the open control (UI-R09c): an underlined link-coloured
+     anchor, keyboard-focusable, in the same visual language as the ship view's
+     `pr-link`. With no recorded URL it degrades to plain text — a link that
+     opens nothing is worse than none. */
+  .pr .pnum{font-family:var(--k-font-mono);white-space:nowrap;flex:none}
+  .pr .pnum a{color:var(--k-link);text-decoration-line:underline;text-decoration-thickness:var(--k-border-w);
+    text-decoration-color:var(--k-border-strong);text-underline-offset:2px;cursor:pointer;font-weight:var(--k-weight-semibold);border-radius:var(--k-radius-sm)}
+  .pr .pnum a:hover{color:var(--k-link-active);text-decoration-color:currentColor}
+  .pr .pnum a:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+  /* The PR URL is the copy control (UI-R09c + R09b): a BUTTON styled as inline
+     text (an action, so a real button — keyboard-focusable, its own pending
+     state), whose visible text IS the URL. It is the row's ONE flexible item —
+     a long URL ellipsizes first, and `#42` and Merge never move. The 150px
+     floor keeps a narrow row from collapsing it to a dot; the copy glyph
+     appears on hover (Variant C). */
+  .pr .url-copy{flex:1;min-width:150px;display:inline-flex;align-items:center;gap:var(--k-space-2);overflow:hidden;cursor:pointer;
+    font:inherit;font-size:var(--k-text-md);color:var(--k-text-dim);background:none;border:none;padding:0;text-align:left;border-radius:var(--k-radius-sm)}
+  .pr .url-copy .u{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+  .pr .url-copy .glyph{opacity:0;transform:translateX(-3px);transition:opacity var(--k-dur-fast) var(--k-ease-standard),transform var(--k-dur-fast) var(--k-ease-standard);color:var(--k-text-dim);flex:none}
+  .pr .url-copy .glyph svg{width:var(--k-space-6);height:var(--k-space-6);display:block}
+  .pr .url-copy:hover .glyph{opacity:1;transform:none}
+  .pr .url-copy:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+  .pr .url-copy.ok .u{color:var(--k-success)}
+  /* The repo label: the manifest NAME (host-resolved), ellipsized with its path
+     in the tooltip — never a second path format, and never pushed off the row. */
+  .pr .prepo{font-size:var(--k-text-md);min-width:0;max-width:34%;flex-shrink:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   /* Merge verdict, indented under its PR so it reads as a fact ABOUT that PR and
      never as a second pull request. Shape (filled/hollow/ring) carries the state
      alongside colour, matching the servers panel's dot. */
@@ -1232,8 +1269,13 @@
   .mg .mgdot{width:var(--k-space-4);height:var(--k-space-4);border-radius:var(--k-radius-circle);flex:none}
   .mg-clean .mgdot{background:var(--k-success)}
   .mg-conflicted .mgdot{background:var(--k-danger)}
-  .mg-unknown .mgdot{border:calc(var(--k-border-w) * 2) solid var(--k-pending);width:var(--k-space-3);height:var(--k-space-3)}
+  /* A check that ERRORED is a fault, not a neutral pending state: every
+     `unknown` verdict carries a `reason` (git failed, git too old, no base ref),
+     so it reads red like a conflict — shape (hollow ring vs filled dot) keeps
+     the two distinguishable without colour alone (UI-R28). */
+  .mg-unknown .mgdot{border:calc(var(--k-border-w) * 2) solid var(--k-danger);width:var(--k-space-3);height:var(--k-space-3)}
   .mg-conflicted .mgtext{color:var(--k-danger)}
+  .mg-unknown .mgtext{color:var(--k-danger)}
   .mg .mgtext{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .mg .mgbtn{flex:none}
   /* The conflict list / the reason karst could not tell. Collapsed by default,
@@ -1253,10 +1295,17 @@
   /* git's own words: `pre-wrap` keeps the line breaks a multi-line git error has. */
   .mgreason{white-space:pre-wrap;color:var(--k-text-dim);word-break:break-word}
   /* PR metadata: from-to, opened, merged. Indented under its PR like the merge
-     verdict, so it reads as facts ABOUT that pull request. */
+     verdict, so it reads as facts ABOUT that pull request.
+     The branch is sized by AVAILABLE space (flex:1 1 0), so at normal widths a
+     long branch ellipsizes and the stamps (one flex:none group) stay flush right
+     and never move; the wrap point is driven ONLY by the stamp group's own width
+     — when the row is too narrow for the stamps they drop to a second line
+     intact, so an opened/merged date is never cut off. */
   .pmeta{display:flex;flex-wrap:wrap;align-items:center;gap:var(--k-space-3);margin:calc(var(--k-space-1) * -1) 0 var(--k-space-2) var(--k-space-6);padding:0 var(--k-space-3);
-    font-size:var(--k-text-xs);color:var(--k-text-dim)}
-  .pmeta .pbranch{font-family:var(--k-font-mono);color:var(--k-text)}
+    font-size:var(--k-text-xs);color:var(--k-text-dim);overflow:hidden}
+  .pmeta .pbranch{flex:1 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--k-font-mono);color:var(--k-text)}
+  .pmeta .pstamps{flex:none;display:flex;align-items:center;gap:var(--k-space-3);min-width:0}
+  .pmeta .pstamp{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .pmeta .pmerged{color:var(--k-series-2)}
   .pmeta .psep{color:var(--k-text-faint)}
   /* Comments collapse: the count is what a reader scans, the bodies are what they
@@ -1268,8 +1317,9 @@
   .pcm .pcmwho{font-weight:var(--k-weight-semibold);font-size:var(--k-text-xs)}
   .pcm .pcmwhen{margin-left:var(--k-space-3);font-size:var(--k-text-sm);color:var(--k-text-faint)}
   .pcm .pcmbody{white-space:pre-wrap;color:var(--k-text-dim);font-size:var(--k-text-sm);margin-top:var(--k-space-1)}
-  /* The merge control is `.k-btn--danger` (UI-R10b: the one irreversible action
-     on this panel), built in markup — no bespoke color rule left here. */
+  /* The merge control is `.k-btn--primary` (consequential-primary, UI-R10b:
+     "Merge is not automatically danger-colored merely because it is
+     consequential"), built in markup — no bespoke color rule left here. */
   .mgbtn{flex:none}
 
   /* ===================== Servers panel ==================================
@@ -1568,6 +1618,7 @@
   <div class="ticketIdentity">
     <span id="providerMark" class="provicon" aria-hidden="true"></span>
     <button id="keyBtn" type="button" class="ticketKey" data-act="copy-ticket-key" data-copy title="Copy ticket key" aria-label="Copy ticket key"></button>
+    <span id="priorityChip" class="prio" hidden></span>
     <a id="boardLink" class="k-iconbtn" href="#" data-act="open-ticket-link" data-url="${esc(state.ticketUrl)}" hidden
       aria-label="Open ticket in provider" title="Open ticket in provider">
       <svg class="k-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 6h-6a2 2 0 0 0 -2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-6"/><path d="M11 13l9 -9"/><path d="M15 4h5v5"/></svg>
@@ -1591,33 +1642,11 @@
       </button>
       <div id="agentPopover" class="popover agentPopover hidden" role="dialog" aria-label="Switch active agent">
         <div class="agentForm">
-          <div class="fieldRow">
-            <label class="fieldLabel" id="coreLabel">Agent core</label>
-            <div class="fieldControl">
-              <div class="select-shell agentCoreShell" id="coreShell">
-                <button type="button" class="select-trigger agentCoreTrigger" id="coreTrigger"
-                  aria-haspopup="listbox" aria-expanded="false" aria-labelledby="coreLabel"></button>
-                <div class="dropdown agentCoreMenu" id="coreMenu" role="listbox" aria-labelledby="coreLabel"></div>
-              </div>
-            </div>
-          </div>
-          <div class="fieldRow">
-            <label class="fieldLabel" id="modelLabel">Model</label>
-            <div class="fieldControl">
-              <div class="select-shell agentModelShell" id="modelShell">
-                <button type="button" class="select-trigger agentModelTrigger" id="modelTrigger"
-                  aria-haspopup="listbox" aria-expanded="false" aria-labelledby="modelLabel"></button>
-                <div class="model-pop agentModelPop" id="modelPop" role="listbox" aria-labelledby="modelLabel">
-                  <div class="model-search">
-                    <input type="text" id="modelSearch" placeholder="Search models…" aria-label="Search models" />
-                  </div>
-                  <div class="model-scroll" id="modelList"></div>
-                </div>
-                <select id="modelSelect" class="hidden"></select>
-              </div>
-            </div>
-          </div>
-          <div class="fieldHelp">Provider and model changes are staged. Closing this menu takes no action.</div>
+          <!-- The UNIFIED agent identity picker (agent core + model + effort/
+               variant) — the same element Settings-general, the graph config
+               and the ticket form use (model/agentPicker.ts). -->
+          <div id="agentSwitchPicker"></div>
+          <div class="fieldHelp">Agent core, model and effort changes are staged. Closing this menu takes no action.</div>
         </div>
         <div class="popActions">
           <button id="switchBtn" type="button" class="k-btn k-btn--primary" disabled>Switch agent…</button>
@@ -1732,6 +1761,8 @@
   // identity chip consumes agentIconHtml (B1), so the markers are load-bearing:
   // without them the chip would throw ReferenceError on the first process row.
   /*KARST_AGENT_JS*/
+
+  /*KARST_AGENT_PICKER_JS*/
 
   /*KARST_XTERM_JS*/
 
@@ -1876,11 +1907,19 @@
   // reload. `termLoading` is the in-between state between the request and the
   // host's GUARANTEED answer (the stage-log message is always sent, ok or
   // error — UI-R13), which is also the terminal outcome.
+  // `termProcess` narrows the surface to ONE gate-lane AI process's console
+  // (tester/review) when a process console is open; null → the stage console.
   let termView = null;
+  let termProcess = null;
   let termLoading = false;
   let term = null;
   let termFit = null;
   let termResize = null;
+  // Live chunks that arrived while the agent console was still loading (before
+  // the guaranteed agent-log answer rendered the persisted tail). Flushed into
+  // the terminal right after that answer, so a chunk racing the answer is never
+  // silently dropped from the open view.
+  let termPending = '';
   // The console action is webview-LOCAL: it opens the terminal surface and
   // posts `stage-log-request`; it never reaches the host, so it has no
   // `routeAction` case. The literal is declared ONCE here and interpolated at
@@ -1989,14 +2028,19 @@
   }
 
   // The needs-you control, rendered from the host's `cta` verdict — never from
-  // the action LABEL, which is prose. Two of the kinds ACT, posting the same
-  // message as the header's Confirm ship / the PR panel's Merge (the host's
-  // confirmation still guards the irreversible step, and the shared pending
-  // markers — `shipRequestId` / `mergeRequests` — make the click report and
-  // settle exactly like the owning controls'). The rest NAVIGATE to the control
-  // that owns the action. A real actor carries `data-act` so the generic
-  // delegated handler gives it the full pending lifecycle; a navigational one
-  // carries `data-go` naming the kind for gotoAction().
+  // the action LABEL, which is prose. Three of the kinds ACT, posting the same
+  // message as the header's Confirm ship, the PR panel's Merge, and its Resolve
+  // conflicts button (the host's confirmation still guards the irreversible
+  // merge, and resolve-conflicts re-derives the brief from the store before
+  // handing it to a session). The shared pending markers — `shipRequestId` /
+  // `mergeRequests` — make the ship and merge clicks report and settle exactly
+  // like the owning controls'; resolve-conflicts is NOT one of the
+  // state-push-settled long-runners, so it rides the generic delegated path
+  // like the PR panel's own button (pending on click, dropped on a repeat,
+  // watchdog-armed, settled by the host's `action-result`). The rest NAVIGATE
+  // to the control that owns the action. A real actor carries `data-act` so
+  // the generic delegated handler gives it the full pending lifecycle; a
+  // navigational one carries `data-go` naming the kind for gotoAction().
   function goButton(needs) {
     const label = esc((needs && needs.action) || 'Open');
     const cta = needs && needs.cta;
@@ -2007,6 +2051,9 @@
     if (cta && cta.kind === 'merge') {
       const busy = !!mergeRequests[cta.repo];
       return `<button type="button" class="go" data-act="merge-pr" data-repo="${esc(cta.repo)}"${busy ? ' aria-busy="true" disabled' : ''}>${label}</button>`;
+    }
+    if (cta && cta.kind === 'resolve-conflicts') {
+      return `<button type="button" class="go" data-act="resolve-conflicts" data-repo="${esc(cta.repo)}">${label}</button>`;
     }
     const kind = cta ? cta.kind : 'open-session';
     return `<button type="button" class="go" data-goto data-go="${kind}">${label}</button>`;
@@ -2086,16 +2133,17 @@
   }
 
   // The NAVIGATIONAL needs-you cases. The acting kinds (ship-confirm, a single
-  // mergeable merge) never reach here — they carry `data-act` and post through
-  // the generic handler. What is left is exactly what the rail must not act on
-  // itself: a multi-repo wait (no single repo to pick, each merge carries its
-  // own host confirmation), a per-repo conflict session, and an open session.
-  // It scrolls the control that owns the action into view and focuses it; it
+  // mergeable merge, a single conflicted repo) never reach here — they carry
+  // `data-act` and post through the generic handler. What is left is exactly
+  // what the rail must not act on itself: a multi-repo wait or multi-repo
+  // conflict (no single repo to pick — each merge/Resolve control is per-repo
+  // and the merge carries its own host confirmation), and an open session. It
+  // scrolls the control that owns the action into view and focuses it; it
   // posts no host message and duplicates no actor.
   function gotoAction(kind) {
-    // merge-panel and resolve live on the PR panel, where each repo has its own
-    // Merge / Resolve control. An open session is the agent header — the
-    // dashboard's own session control (it names the live session and its
+    // merge-panel and resolve-panel live on the PR panel, where each repo has
+    // its own Merge / Resolve control. An open session is the agent header —
+    // the dashboard's own session control (it names the live session and its
     // state).
     const target = kind === 'open-session'
       ? document.querySelector('#agentButton')
@@ -2456,8 +2504,11 @@
     return `<div class="recovery-history">${ev.rows.map((r) => `<div class="recovery-round">`
       + `<span class="recovery-num">${esc(r.label)}</span>`
       + `<span class="recovery-cause">${esc(r.detail || '')}</span>`
+      + `<span class="recovery-timing">`
+      + (r.time ? `<span title="started ${esc(r.time)}">${esc(r.time)}</span>` : '')
+      + (r.duration ? `<span class="ev-dur"${r.durationExact ? ` title="${esc(r.durationExact)}"` : ''}>${esc(r.duration)}</span>` : '')
+      + `</span>`
       + `<span class="recovery-result ${esc(r.status || '')}">`
-      + (r.duration ? `<span class="ev-dur">${esc(r.duration)}</span>` : '')
       + `<span class="glyph ${esc(r.status || 'note')}" aria-label="${esc(statusWord(r.status || 'note'))}"></span>`
       + `</span>`
       + `</div>`).join('')}</div>`;
@@ -2574,11 +2625,16 @@
     // click handler is untouched. The gates row is the one row whose summary
     // IS the gate run, so this button shows the gates' test log (uat) or the
     // review gates' log (review) depending on which stage view is on screen.
-    const consoleBtn = consoleStage && p.id === 'gates'
+    // A gate-lane AI process (tester/review) offers the same console from its
+    // OWN description area when the host flags `p.console` (a run happened and
+    // a tail exists) — that button carries `data-console-proc` so the click
+    // posts an agent-log-request instead of a stage-log-request.
+    const consoleBtn = consoleStage && (p.id === 'gates' || p.console)
       ? `<button type="button" class="k-iconbtn ib t-open" data-act="${CONSOLE_ACT}"`
         + ` data-console="${esc(consoleStage)}"`
-        + ` aria-label="View this stage's console output in the dashboard"`
-        + ` title="View this stage's console output in the dashboard">${svgIcon('terminal-2')}</button>`
+        + (p.id !== 'gates' ? ` data-console-proc="${esc(p.id)}"` : '')
+        + ` aria-label="View this ${p.id === 'gates' ? "stage's" : "process's"} console output in the dashboard"`
+        + ` title="View this ${p.id === 'gates' ? "stage's" : "process's"} console output in the dashboard">${svgIcon('terminal-2')}</button>`
       : '';
     const detail = `<span class="op-detail ${esc(p.status)}${consoleBtn ? ' detail-console' : ''}">`
       + (p.detail ? `<span class="op-detail-text">${esc(p.detail)}</span>` : '')
@@ -2691,10 +2747,16 @@
     // decided (`processRowHtml` — "a second textual 'Completed' beside the
     // duration was ours, not the design's"). The word survives as the glyph's
     // accessible name, so nothing that cannot see the animation loses it.
+    // The running operation's AI identity — the same "AI" mark + agent core +
+    // model chip a completed process row shows, so it does not appear only
+    // once the step finishes: a headless AI call (the PR description model
+    // call) is entitled to say who is running it WHILE it runs.
+    const liveAi = lop && lop.execution ? '<span class="ai-mark">AI</span>' + agentIdHtml(lop.execution) : '';
     const alive = lop
       ? `<span class="glyph ${esc(lstatus)}" aria-label="${esc(statusWord(lstatus))}"></span>`
         + `<strong>${esc(lop.label || '')}</strong>`
         + (lop.detail ? `<span class="sep">·</span><span class="live-copy">${esc(lop.detail)}</span>` : '')
+        + (liveAi ? `<span class="sep">·</span>${liveAi}` : '')
         + (lop.duration ? `<span class="sep">·</span><span class="duration">${esc(lop.duration)}</span>` : '')
       : '';
 
@@ -3114,22 +3176,24 @@
   //
   // Merging is IRREVERSIBLE, so the click only asks: the host puts a modal in
   // front of the user (which also chooses the strategy) before anything runs.
-  // `.k-btn--danger` (UI-R10b) marks it as the one irreversible action on this
-  // panel. The pending state (aria-busy, via `mergeRequests`) exists so a click
-  // on an irreversible action is never silent while that dialog is up, and it
+  // `.k-btn--primary` (consequential-primary) is its treatment per UI-R10b —
+  // "Merge is not automatically danger-colored merely because it is
+  // consequential; required confirmation remains host-side". The pending state
+  // (aria-busy, via `mergeRequests`) exists so a click on an irreversible action
+  // is never silent while that dialog is up, and it
   // is cleared by the next state push — including the one the host sends after
   // a cancel, so the button can never stick (see `mergeRequests`' own comment).
   function mergeButton(p) {
     if (p.status === 'merged') return '';
     if (mergeRequests[p.repo]) {
-      return `<button type="button" class="k-btn k-btn--danger k-btn--sm mgbtn" aria-busy="true" disabled`
+      return `<button type="button" class="k-btn k-btn--primary k-btn--sm mgbtn" aria-busy="true" disabled`
         + ` title="Confirm the merge in the dialog">Merge</button>`;
     }
     if (!p.canMerge) {
       return `<button type="button" class="k-btn k-btn--secondary k-btn--sm mgbtn" disabled title="${esc(p.mergeBlockedReason)}">Merge</button>`;
     }
     const num = p.number ? ` #${p.number}` : '';
-    return `<button type="button" class="k-btn k-btn--danger k-btn--sm mgbtn" data-act="merge-pr" data-repo="${esc(p.repo)}"`
+    return `<button type="button" class="k-btn k-btn--primary k-btn--sm mgbtn" data-act="merge-pr" data-repo="${esc(p.repo)}"`
       + ` title="Merge PR${esc(num)} into ${esc(p.baseRef || 'its base')} — cannot be undone">Merge</button>`;
   }
 
@@ -3137,14 +3201,28 @@
   // how many comments it carries. Every part is a host-rendered string that is ''
   // when the fact is absent, so a PR karst has not fully probed simply shows less
   // — never a blank field, a placeholder, or "Invalid Date".
+  //
+  // The branch (flex:1 1 0) truncates at normal widths — its full value and the
+  // full stamps ride in `title`, so nothing is lost to the compaction. The stamps
+  // are ONE flex:none group so they wrap to a second line intact on narrow rows.
   function prMetaLine(p) {
-    const bits = [
-      p.branches ? `<span class="pbranch">${esc(p.branches)}</span>` : '',
-      p.opened ? `<span>${esc(p.opened)}</span>` : '',
-      p.merged ? `<span class="pmerged">${esc(p.merged)}</span>` : '',
+    const branch = p.branches
+      ? `<span class="pbranch" title="${esc(p.branches)}">${esc(p.branches)}</span>`
+      : '';
+    const stamps = [
+      p.opened
+        ? `<span class="pstamp"${p.openedTitle ? ` title="${esc(p.openedTitle)}"` : ''}>${esc(p.opened)}</span>`
+        : '',
+      p.merged
+        ? `<span class="pstamp pmerged"${p.mergedTitle ? ` title="${esc(p.mergedTitle)}"` : ''}>${esc(p.merged)}</span>`
+        : '',
     ].filter(Boolean);
+    const group = stamps.length
+      ? `<span class="pstamps"><span class="psep">·</span>${stamps.join('<span class="psep">·</span>')}</span>`
+      : '';
+    const bits = [branch, group].filter(Boolean);
     if (!bits.length) return '';
-    return `<div class="pmeta">${bits.join('<span class="psep">·</span>')}</div>`;
+    return `<div class="pmeta">${bits.join('')}</div>`;
   }
 
   // Comments collapse by default: the count is the fact a reader scans for, the
@@ -3178,21 +3256,37 @@
       : 'Re-check pull request status and mergeability now';
     refresh.title = refreshName;
     refresh.setAttribute('aria-label', refreshName);
-    el('prs').innerHTML = prs.length ? prs.map((p) => (
-      `<div class="prrow"><div class="pr"><span class="k-chip pst pst-${esc(p.status || 'unknown')}">${esc(p.status || '')}</span>`
-      // The DISPLAY path, per the worktree path-display preference — the same
-      // string the worktree rows show for this repo.
-      + `<span class="prepo">${esc(p.repoDisplay || p.repo)}</span>`
-      + `<span class="ptitle">${esc(p.url || '')}</span>`
-      + `<span class="pnum">#${esc(p.number)}</span>`
-      + `<span class="pacts"><button type="button" class="k-btn k-btn--secondary k-btn--sm" data-act="open-pr" data-url="${esc(p.url)}" title="Open this pull request">Open</button>`
-      + mergeButton(p)
-      + `</span></div>`
+    el('prs').innerHTML = prs.length ? prs.map((p) => {
+      // The PR number IS the open control (UI-R09c): with a recorded URL it is
+      // an underlined link-coloured anchor; with none it is plain text.
+      const hasUrl = !!p.url;
+      const numLabel = p.number != null ? `#${esc(p.number)}` : '';
+      const num = `<span class="pnum">${hasUrl
+        ? `<a href="#" data-act="open-pr" data-url="${esc(p.url)}" title="Open this pull request">${numLabel}</a>`
+        : numLabel}</span>`;
+      // The URL text IS the copy control (Variant C): a button styled as inline
+      // text — clicking copies it, a copy glyph appears on hover, and
+      // `data-copy` triggers the optimistic flash.
+      const copy = hasUrl
+        ? `<button type="button" class="ptitle url-copy" data-act="copy-pr-url" data-url="${esc(p.url)}" data-copy title="Copy pull request URL">`
+          + `<span class="u">${esc(p.url)}</span><span class="glyph">${svgIcon('copy')}</span></button>`
+        : '';
+      // The repo label is the manifest NAME when one resolves — the path (the
+      // row's identity) rides in `title`, never shown beside the name again.
+      const repoLabel = p.repoDisplay || p.repo;
+      const repoTitle = repoLabel !== p.repo ? p.repo : '';
+      return `<div class="prrow"><div class="pr"><span class="k-chip pst pst-${esc(p.status || 'unknown')}">${esc(p.status || '')}</span>`
+      // The repo NAME (host-resolved from the manifest), never the path — the
+      // same identity the inside ship rows show; the path rides in `title`.
+      + `<span class="prepo"${repoTitle ? ` title="${esc(repoTitle)}"` : ''}>${esc(repoLabel)}</span>`
+      + copy
+      + num
+      + `<span class="pacts">${mergeButton(p)}</span></div>`
       + prMetaLine(p)
       + mergeLine(byRepo[p.repo])
       + prComments(p)
-      + `</div>`
-    )).join('') : '<div class="empty">No pull requests.</div>';
+      + `</div>`;
+    }).join('') : '<div class="empty">No pull requests.</div>';
   }
 
   // The header's ticket identity: provider mark + copy-key button + a SEPARATE
@@ -3215,6 +3309,13 @@
     keyBtn.title = 'Copy ticket key';
     const mark = el('providerMark');
     if (mark) mark.innerHTML = providerIconHtml(state.provider);
+    const prio = el('priorityChip');
+    if (prio) {
+      const value = (state.priority || '').trim();
+      prio.hidden = !value;
+      prio.textContent = value;
+      prio.setAttribute('aria-label', value ? `Priority: ${value}` : '');
+    }
     const prevBtn = el('ticketDataBtn');
     if (prevBtn) prevBtn.hidden = false;
     const link = el('boardLink');
@@ -3264,84 +3365,53 @@
     }
   }
 
-  // The agent-switch popover stages a draft core/model selection and does
+  // The agent-switch popover stages a draft core/model/effort selection and does
   // nothing until Switch agent… is clicked. The draft is a suggestion, never
   // authority: the `switch-agent` message the host re-validates (isKnownProvider
   // + model-choice membership) before it confirms or persists.
   let draftCore = null;
   let draftModel = '';
+  let draftEffort = '';
+  // The shared picker instance; re-configured on each popover open (idempotent).
+  let switchPicker = null;
 
   function populateAgentPopover() {
     const s = lastState && lastState.agentSession;
     if (!s) return;
     draftCore = s.provider;
     draftModel = s.modelId || '';
-    renderCoreSelect();
-    renderModelSelect();
+    draftEffort = (lastState && lastState.agentSwitch && lastState.agentSwitch.effort) || '';
+    const root = el('agentSwitchPicker');
+    if (!root || typeof mountAgentPicker !== 'function') { updateSwitchState(); return; }
+    const cores = (lastState.agentSwitch.cores || []).map((c) => ({ id: c.id, label: c.label || c.id }));
+    switchPicker = mountAgentPicker(root, {
+      cores,
+      catalog: (lastState.agentSwitch.modelsByCore || lastState.agentSwitch.models) || {},
+      recent: lastState.agentSwitch.recentByCore || {},
+      value: { core: draftCore || '', model: draftModel, effort: draftEffort },
+      inherit: {
+        core: 'Inherit (settings: ' + (AGENT_PROVIDER_LABELS[s.provider] || s.provider) + ')',
+        model: (s.modelId ? 'Inherit (settings: ' + (lastState.agentSwitch.modelInheritLabel || '') + ')' : 'No default (agent picks)'),
+        effort: (lastState.agentSwitch.effortInheritLabel || 'No effort (agent picks)'),
+      },
+      showEffort: true,
+      onChange: ({ core, model, effort }) => {
+        draftCore = core || null;
+        draftModel = model || '';
+        draftEffort = effort || '';
+        updateSwitchState();
+      },
+    });
     updateSwitchState();
   }
-
-  function renderCoreSelect() {
-    const menu = el('coreMenu');
-    if (!menu || !lastState) return;
-    const cores = lastState.agentSwitch.cores || [];
-    menu.innerHTML = cores.map((c) =>
-      `<div class="drop-item${c.id === draftCore ? ' active' : ''}" role="option"`
-      + ` data-value="${esc(c.id)}" aria-selected="${c.id === draftCore ? 'true' : 'false'}">`
-      + agentBadgeHtml(c.id) + '</div>').join('');
-    const trigger = el('coreTrigger');
-    if (trigger) {
-      trigger.innerHTML = '<span class="sel-label">' + agentBadgeHtml(draftCore || cores[0]?.id || '') + '</span>'
-        + '<span class="chev" aria-hidden="true"></span>';
-    }
-  }
-
-  function renderModelPopup() {
-    const listEl = el('modelList');
-    if (!listEl || !lastState) return;
-    const models = (lastState.agentSwitch.models || {})[draftCore] || [];
-    let html = '<div class="model-item' + (draftModel === '' ? ' active' : '') + '" role="option"'
-      + ' data-model-id="" aria-selected="' + (draftModel === '' ? 'true' : 'false') + '">'
-      + '<div><div class="model-name">No default (agent picks)</div>'
-      + '<div class="model-sub">Let the provider choose.</div></div></div>';
-    if (models.length === 0) {
-      html += '<div class="model-empty">No models listed for ' + esc(AGENT_PROVIDER_LABELS[draftCore] || draftCore || '') + '.</div>';
-    } else {
-      html += '<div class="model-group-label">' + agentBadgeHtml(draftCore || '') + '</div>';
-      for (const m of models) {
-        const id = m.model || '';
-        html += '<div class="model-item' + (id === draftModel ? ' active' : '') + '" role="option"'
-          + ' data-model-id="' + esc(id) + '" aria-selected="' + (id === draftModel ? 'true' : 'false') + '">'
-          + '<div><div class="model-name">' + esc(m.label) + '</div>'
-          + '<div class="model-sub">' + esc(id) + '</div></div></div>';
-      }
-    }
-    listEl.innerHTML = html;
-    // Update the hidden value carrier
-    const sel = el('modelSelect');
-    if (sel) {
-      sel.innerHTML = models.map((m) =>
-        `<option value="${esc(m.model || '')}">${esc(m.label)}</option>`).join('');
-      if (models.some((m) => (m.model || '') === draftModel)) sel.value = draftModel;
-      else { draftModel = ''; sel.value = ''; }
-    }
-    // Update trigger label
-    const trigger = el('modelTrigger');
-    if (trigger) {
-      const currentModel = models.find((m) => (m.model || '') === draftModel);
-      const label = currentModel ? currentModel.label : (draftModel || '');
-      trigger.innerHTML = '<span class="sel-label">' + agentIdentityHtml(draftCore || '', label, true) + '</span>'
-        + '<span class="chev" aria-hidden="true"></span>';
-    }
-  }
-
-  function renderModelSelect() { renderModelPopup(); }
 
   function updateSwitchState() {
     const btn = el('switchBtn');
     const s = lastState && lastState.agentSession;
     if (!btn || !s) return;
-    const changed = draftCore !== s.provider || (draftModel || null) !== (s.modelId || null);
+    const changed = draftCore !== s.provider
+      || (draftModel || null) !== (s.modelId || null)
+      || (draftEffort || null) !== (s.effort || null);
     btn.disabled = !changed;
   }
 
@@ -3399,106 +3469,13 @@
     closePopovers();
   });
 
-  // Core dropdown pick
-  el('coreMenu').addEventListener('click', (e) => {
-    const item = e.target.closest && e.target.closest('[data-value]');
-    if (!item) return;
-    draftCore = item.dataset.value || null;
-    renderCoreSelect();
-    renderModelPopup();
-    updateSwitchState();
-    const shell = item.closest('.select-shell');
-    if (shell) { shell.classList.remove('is-open'); shell.querySelector('.dropdown')?.classList.remove('open'); }
-  });
-  // Model dropdown pick
-  el('modelPop').addEventListener('click', (e) => {
-    const item = e.target.closest && e.target.closest('[data-model-id]');
-    if (!item) return;
-    draftModel = item.dataset.modelId || '';
-    renderModelPopup();
-    updateSwitchState();
-    const shell = item.closest('.select-shell');
-    if (shell) { shell.classList.remove('is-open'); shell.querySelector('.model-pop')?.classList.remove('open'); }
-  });
-  // Model search filter
-  el('modelSearch')?.addEventListener('input', (e) => {
-    const q = (e.target.value || '').trim().toLowerCase();
-    const models = (lastState?.agentSwitch.models || {})[draftCore] || [];
-    const listEl = el('modelList');
-    if (!listEl) return;
-    if (!q) { renderModelPopup(); return; }
-    let html = '<div class="model-item' + (draftModel === '' ? ' active' : '') + '" role="option"'
-      + ' data-model-id="" aria-selected="' + (draftModel === '' ? 'true' : 'false') + '">'
-      + '<div><div class="model-name">No default (agent picks)</div></div></div>';
-    html += '<div class="model-group-label">' + agentBadgeHtml(draftCore || '') + '</div>';
-    for (const m of models) {
-      const id = m.model || '';
-      const hay = (m.label + ' ' + id).toLowerCase();
-      if (hay.includes(q)) {
-        html += '<div class="model-item' + (id === draftModel ? ' active' : '') + '" role="option"'
-          + ' data-model-id="' + esc(id) + '" aria-selected="' + (id === draftModel ? 'true' : 'false') + '">'
-          + '<div><div class="model-name">' + esc(m.label) + '</div>'
-          + '<div class="model-sub">' + esc(id) + '</div></div></div>';
-      }
-    }
-    if (html.indexOf('model-item') === -1) {
-      html = '<div class="model-empty">No models match "' + esc(e.target.value) + '".</div>';
-    }
-    listEl.innerHTML = html;
-  });
-  el('modelSearch')?.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
-      const shell = el('modelShell');
-      if (shell) { shell.classList.remove('is-open'); shell.querySelector('.model-pop')?.classList.remove('open'); }
-    }
-  });
-  // Agent core dropdown open/close (inside the agent popover)
-  el('coreTrigger')?.addEventListener('click', (e) => {
-    e.stopPropagation();
-    const shell = el('coreShell');
-    if (!shell) return;
-    const opening = !shell.classList.contains('is-open');
-    // Close any other open shell
-    document.querySelectorAll('.select-shell.is-open').forEach((s) => {
-      s.classList.remove('is-open');
-      s.querySelector('.dropdown, .model-pop')?.classList.remove('open');
-    });
-    if (opening) {
-      shell.classList.add('is-open');
-      shell.querySelector('.dropdown')?.classList.add('open');
-    }
-  });
-  // Agent model dropdown open/close
-  el('modelTrigger')?.addEventListener('click', (e) => {
-    e.stopPropagation();
-    const shell = el('modelShell');
-    if (!shell) return;
-    const opening = !shell.classList.contains('is-open');
-    document.querySelectorAll('.select-shell.is-open').forEach((s) => {
-      s.classList.remove('is-open');
-      s.querySelector('.dropdown, .model-pop')?.classList.remove('open');
-    });
-    if (opening) {
-      shell.classList.add('is-open');
-      shell.querySelector('.model-pop')?.classList.add('open');
-      el('modelSearch')?.focus();
-    }
-  });
-  // Close open shells on outside click
-  document.addEventListener('click', (e) => {
-    if (e.target.closest && e.target.closest('.select-shell')) return;
-    document.querySelectorAll('.select-shell.is-open').forEach((s) => {
-      s.classList.remove('is-open');
-      s.querySelector('.dropdown, .model-pop')?.classList.remove('open');
-    });
-  });
   el('switchBtn').addEventListener('click', () => {
     if (el('switchBtn').disabled) return;
     closePopovers();
     // No requestId: the popover closes and the host owns the outcome (confirm
     // modal + relaunch); a stale/cancelled switch surfaces as a host toast or
     // the next state push, never as an invented verdict (UI-R14/R31).
-    post({ type: 'switch-agent', provider: draftCore, model: draftModel || null });
+    post({ type: 'switch-agent', provider: draftCore, model: draftModel || null, effort: draftEffort || null });
   });
   el('linkViews').addEventListener('change', () => {
     // Payload-free like the old bind button: the host owns the preference and
@@ -3889,7 +3866,7 @@
     }
     box.classList.remove('hidden');
     document.body.classList.add('term-nav');
-    const title = STAGE_TITLE[termView] || termView;
+    const title = termProcess ? (termProcess === 'tester' ? 'Tester' : 'Review') : (STAGE_TITLE[termView] || termView);
     box.innerHTML = `<div class="thead"><span class="ttitle">Console · ${esc(title)}</span>`
       + `<span class="sp"><button type="button" class="k-btn k-btn--ghost k-btn--sm" data-term="close"`
       + ` title="Close the console view">Close</button></span></div>`
@@ -3899,14 +3876,18 @@
   }
 
   // A real <button> Console entry (UI-R09) posting the closed-vocabulary
-  // stage-log-request; the host's stage-log answer is the outcome (UI-R13).
-  function openTerminal(stage) {
-    if (termView === stage && term) return;
+  // stage-log-request (or, for a process console, agent-log-request); the
+  // host's answer is the outcome (UI-R13). `processId` (optional) narrows the
+  // surface to ONE gate-lane AI process's console; absent → the stage console.
+  function openTerminal(stage, processId) {
+    if (termView === stage && termProcess === (processId || null) && term) return;
     if (termView) closeTerminal();
     termView = stage;
+    termProcess = processId || null;
     termLoading = true;
     renderTermView();
-    post({ type: 'stage-log-request', stage });
+    if (processId) post({ type: 'agent-log-request', processId });
+    else post({ type: 'stage-log-request', stage });
   }
 
   function closeTerminal() {
@@ -3914,7 +3895,9 @@
     termFit = null;
     if (termResize) { termResize.disconnect(); termResize = null; }
     termView = null;
+    termProcess = null;
     termLoading = false;
+    termPending = '';
     renderTermView();
   }
 
@@ -4261,6 +4244,20 @@
   // the user needs to act on (the click is trivially repeatable), so this
   // confirms without waiting for a round trip. Never used for a mutation.
   function flashCopied(btn) {
+    // The PR URL copy control is text WITH a hover glyph, not an icon button:
+    // swap the text span's label and colour the URL green, keeping the glyph.
+    if (btn.classList.contains('url-copy')) {
+      const u = btn.querySelector('.u');
+      if (!u) return;
+      const prev = u.textContent;
+      u.textContent = 'Copied ✓';
+      btn.classList.add('ok');
+      setTimeout(() => {
+        u.textContent = prev;
+        btn.classList.remove('ok');
+      }, 1200);
+      return;
+    }
     // An icon button has no text to swap, so the GLYPH is what flashes — and the
     // confirmation moves onto aria-label too, so it is not a purely visual beat
     // for anyone reading the button by name.
@@ -4389,15 +4386,17 @@
     }
 
     // The terminal console view: open it and post the closed-vocabulary
-    // stage-log-request. No requestId — the host answers with the `stage-log`
-    // message itself (ok or error), which is the terminal outcome (UI-R13).
+    // stage-log-request (or agent-log-request for a process console). No
+    // requestId — the host answers with the `stage-log`/`agent-log` message
+    // itself (ok or error), which is the terminal outcome (UI-R13).
     // Reads `data-console`, never `data-stage` (the rail's select listener
     // matches any `[data-stage]` ancestor via closest() and must not re-point
-    // the strip for a console click).
+    // the strip for a console click). A `data-console-proc` narrows the
+    // surface to ONE gate-lane AI process's console.
     if (act === CONSOLE_ACT) {
       const stage = btn.dataset.console;
       if (!stage) return;
-      openTerminal(stage);
+      openTerminal(stage, btn.dataset.consoleProc);
       return;
     }
 
@@ -4561,7 +4560,7 @@
     // answer for a view that has since closed (or moved to another stage) is
     // dropped, not rendered.
     if (msg.type === 'stage-log') {
-      if (!termView || termView !== msg.stage) return;
+      if (!termView || termView !== msg.stage || termProcess) return;
       termLoading = false;
       const status = el('tstatus');
       if (msg.result.kind === 'ok') {
@@ -4572,6 +4571,41 @@
         const host = el('termHost');
         if (host) host.innerHTML = `<div class="blurb">${esc(msg.result.message)}</div>`;
       }
+      return;
+    }
+    // The AGENT console answer (the UAT Tester / Review findings lane): same
+    // contract as stage-log, matched against the open PROCESS — a stale answer
+    // for a console that closed or switched processes is dropped.
+    if (msg.type === 'agent-log') {
+      if (!termView || !termProcess || termProcess !== msg.processId) return;
+      termLoading = false;
+      const status = el('tstatus');
+      if (msg.result.kind === 'ok') {
+        if (status) status.textContent = msg.result.truncated ? 'Console output truncated' : '';
+        if (term) term.write(msg.result.content);
+      } else {
+        if (status) status.textContent = '';
+        const host = el('termHost');
+        if (host) host.innerHTML = `<div class="blurb">${esc(msg.result.message)}</div>`;
+      }
+      // Flush chunks that raced the persisted tail (buffered above), so the
+      // open console never silently skips live output that arrived while the
+      // answer was in flight.
+      if (termPending && term) {
+        term.write(termPending);
+        termPending = '';
+      }
+      return;
+    }
+    // A live chunk of the open agent console's output: appended to the terminal
+    // ONLY while that process's console is the open surface. The text is
+    // already sanitized and bounded host-side. While the initial tail is still
+    // loading (termLoading), the chunk is buffered — writing before the answer
+    // would interleave live text beneath the persisted tail it will render.
+    if (msg.type === 'agent-output') {
+      if (!termView || !termProcess || termProcess !== msg.processId) return;
+      if (termLoading) { termPending += msg.text; return; }
+      if (term) term.write(msg.text);
       return;
     }
     // The window's terminal binding. Host-owned: it is one preference shared by

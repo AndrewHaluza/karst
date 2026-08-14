@@ -9,7 +9,7 @@ import { injectProviderIdentity } from '../../model/providerIdentity.js';
 import { injectAgentIdentity } from '../../model/agentIdentity.js';
 import { implementationPrototypeFixture, renderFixtures, renderStateFor } from './renderFixtures.js';
 import type { RenderRepoCount } from './renderFixtures.js';
-import type { DashboardState } from './state.js';
+import type { DashboardState, PrPanelRow } from './state.js';
 import { buildDashboardState } from './state.js';
 import { openStore } from '../../store/db.js';
 import { createTicket } from '../../store/tickets.js';
@@ -252,18 +252,22 @@ describe('dashboard webview.html', () => {
     expect(track).not.toMatch(/=== 'ship'|'pending'/);
   });
 
-  it('makes the needs-you control act for confirm ship and a single merge, navigate otherwise', () => {
+  it('makes the needs-you control act for confirm ship, a single merge, and a single conflict, navigate otherwise', () => {
     // The HOST decides what the control does (`s.needs.cta`), never the webview
     // deriving it from the label. The acting kinds carry `data-act` so the
     // generic delegated handler gives them the same pending lifecycle as the
-    // header's Confirm ship and the PR panel's Merge — the host's confirmation
-    // still guards the irreversible step. The navigational kinds keep
-    // `data-goto data-go` and gotoAction() scrolls to the owning control.
+    // header's Confirm ship, the PR panel's Merge and its Resolve conflicts
+    // button — the host's confirmation still guards the irreversible merge,
+    // and resolve-conflicts re-derives the brief from the store before handing
+    // it to a session. The navigational kinds keep `data-goto data-go` and
+    // gotoAction() scrolls to the owning control.
     expect(HTML).toContain('goButton(s.needs)');
     expect(HTML).toMatch(/cta\.kind === 'ship-confirm'/);
     expect(HTML).toMatch(/data-act="ship-ticket"/);
     expect(HTML).toMatch(/cta\.kind === 'merge'/);
     expect(HTML).toMatch(/data-act="merge-pr" data-repo="/);
+    expect(HTML).toMatch(/cta\.kind === 'resolve-conflicts'/);
+    expect(HTML).toMatch(/data-act="resolve-conflicts" data-repo="/);
     expect(HTML).toContain('data-goto data-go');
     expect(HTML).toMatch(/function gotoAction\(kind\)/);
     const fn = HTML.slice(HTML.indexOf('function gotoAction(kind)'));
@@ -915,6 +919,10 @@ describe('dashboard webview.html', () => {
     // switch's focus ring, and the quick-setting help's optical nudge. All ten
     // are the same exemption class as `74px` — a deliberate geometry with no
     // token equivalent.
+    // `150px` is the PR URL copy control's width floor — a "wide enough to
+    // read a URL" floor at the panel's small-text scale, same class as `200px`.
+    // `3px` is the copy glyph's hover slide-in offset — a motion nudge with no
+    // token step at 3px.
     const ALLOWED = ['46px', '72px', '640px', '82px', '74px', '4px', '180px', '288px', '6px', '400px',
       '300px', '360px', '430px', '110px', '160px', '104px',
       '1px', '1px', '1px', '1px', '1px', '1px',
@@ -922,7 +930,8 @@ describe('dashboard webview.html', () => {
       '2px', '2px', '2px', '2px',
       '1px', '1px', '1px',
       '12px', '12px', '12px', '12px',
-      '4px', '4px', '4px', '4px', '4px'];
+      '4px', '4px', '4px', '4px', '4px', '4px',
+      '150px', '3px'];
     // The ported Inside block is the ONE exempt region (see its own header
     // comment): it is the A37 prototype's geometry, scoped under `#inside`,
     // and its pixel values ARE the design. Its colours still go through
@@ -978,8 +987,12 @@ describe('dashboard webview.html', () => {
     expect(HTML).toMatch(/let shipRequestId = null/);
   });
 
-  it('gives merge the danger variant, ship and refresh the runtime pending lifecycle', () => {
-    expect(HTML).toMatch(/k-btn--danger k-btn--sm mgbtn" data-act="merge-pr"/);
+  it('gives merge the consequential-primary variant (UI-R10b), and ship and refresh the runtime pending lifecycle', () => {
+    // Merge is NOT danger-colored merely because it is consequential — the
+    // confirmation stays host-side (UI-R10b: "Merge is not automatically
+    // danger-colored merely because it is consequential").
+    expect(HTML).toMatch(/k-btn--primary k-btn--sm mgbtn" data-act="merge-pr"/);
+    expect(HTML).not.toMatch(/k-btn--danger k-btn--sm mgbtn" data-act="merge-pr"/);
     expect(HTML).toMatch(/shipRequestId = karstRequestId\(\)/);
     expect(HTML).toMatch(/karstBeginPending\(btn, shipRequestId\)/);
     expect(HTML).toMatch(/prRefreshId = karstRequestId\(\)/);
@@ -1107,6 +1120,18 @@ describe('dashboard webview.html', () => {
     expect(HTML).not.toMatch(/class="k-chip keypill/);
   });
 
+  it('renders a read-only provider-native priority chip in the header', () => {
+    // The chip is a plain span on the shared pill shape (UI-R08), never a
+    // control: priority is a provider fact, not an action. It is hidden unless
+    // the ticket was fetched with one.
+    expect(HTML).toMatch(/id="priorityChip"/);
+    expect(HTML).toMatch(/prio\.hidden = !value;/);
+    expect(HTML).toMatch(/prio\.textContent = value;/);
+    expect(HTML).toMatch(/Priority: /);
+    // It must not be a button/anchor that would invite interaction.
+    expect(HTML).not.toMatch(/id="priorityChip"[^>]*data-act/);
+  });
+
   it('previews ticket data through a real button + modal drawer, never a hover', () => {
     // The trigger is a real <button> (UI-R09), icon-only with an accessible
     // name (UI-R24), ALWAYS present — a manual ticket bound via "Create in
@@ -1144,12 +1169,14 @@ describe('dashboard webview.html', () => {
 
   it('stages the agent switch in a popover that does nothing until Switch agent is clicked', () => {
     expect(HTML).toContain('id="agentPopover"');
-    expect(HTML).toContain('id="coreTrigger"');
-    expect(HTML).toContain('id="modelSelect"');
+    expect(HTML).toContain('id="agentSwitchPicker"');   // the UNIFIED picker
+    expect(HTML).toContain('mountAgentPicker(root, {');
+    expect(HTML).toContain('KARST_AGENT_PICKER_CSS');
+    expect(HTML).toContain('KARST_AGENT_PICKER_JS');
     expect(HTML).toContain('id="switchBtn"');
     expect(HTML).toMatch(/Closing this menu takes no action/);
-    expect(HTML).toMatch(/draftCore !== s\.provider \|\| /); // changed-draft gate
-    expect(HTML).toMatch(/post\(\{ type: 'switch-agent', provider: draftCore, model: draftModel \|\| null \}\)/);
+    expect(HTML).toMatch(/draftCore !== s\.provider/); // changed-draft gate
+    expect(HTML).toMatch(/post\(\{ type: 'switch-agent', provider: draftCore, model: draftModel \|\| null, effort: draftEffort \|\| null \}\)/);
     expect(HTML).not.toMatch(/data-act="switch-agent"/);      // no longer a Now-line button
   });
 
@@ -2145,6 +2172,7 @@ function bootPreviewHarness(): PreviewHarness {
     'shipWait',
     'providerMark',
     'keyBtn',
+    'priorityChip',
     'boardLink',
     'ticketDataBtn',
     'ticketDataScrim',
@@ -3368,6 +3396,85 @@ describe('inside render round trip (executed in a VM)', () => {
     expect(html).toContain('<span class="glyph pass" aria-label="passed"></span>');
   });
 
+  it('renders per-round time and duration inside recovery evidence rows', () => {
+    const state = renderStateFor('uat');
+    const uat = { ...state.insideViews.uat };
+    uat.processes = [
+      ...uat.processes,
+      {
+        id: 'fix',
+        kind: 'fix',
+        label: 'Fix',
+        status: 'run',
+        evidence: {
+          kind: 'recovery',
+          rows: [
+            {
+              status: 'fail',
+              label: 'round 1',
+              detail: 'Fix started after UAT test failure · round 1 of 3',
+              time: '11:44:12 PM',
+              duration: '1m 15s',
+              durationExact: '75.000s',
+            },
+            {
+              status: 'run',
+              label: 'round 2',
+              detail: 'Fix started after UAT test failure · round 2 of 3',
+              time: '11:45:27 PM',
+              duration: '31.9s',
+              durationExact: '31.900s',
+            },
+          ],
+        },
+      },
+    ];
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: { ...state, insideViews: { ...state.insideViews, uat } } });
+    h.clickChevron('uat:fix');
+    const html = h.htmlOf('inside');
+    // Per-round timing renders in a dedicated .recovery-timing cell.
+    expect(html).toContain('class="recovery-timing"');
+    expect(html).toContain('11:44:12 PM');
+    expect(html).toContain('11:45:27 PM');
+    expect(html).toContain('<span class="ev-dur" title="75.000s">1m 15s</span>');
+    expect(html).toContain('<span class="ev-dur" title="31.900s">31.9s</span>');
+    // The glyph is still in the separate .recovery-result cell.
+    expect(html).toContain('<span class="glyph fail" aria-label="failed"></span>');
+    expect(html).toContain('<span class="glyph run" aria-label="running"></span>');
+  });
+
+  it('renders recovery rows without timing when time fields are absent', () => {
+    const state = renderStateFor('uat');
+    const uat = { ...state.insideViews.uat };
+    uat.processes = [
+      ...uat.processes,
+      {
+        id: 'fix',
+        kind: 'fix',
+        label: 'Fix',
+        status: 'run',
+        evidence: {
+          kind: 'recovery',
+          rows: [
+            { status: 'run', label: 'round 1', detail: 'Fix started after UAT test failure · round 1 of 2' },
+          ],
+        },
+      },
+    ];
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: { ...state, insideViews: { ...state.insideViews, uat } } });
+    h.clickChevron('uat:fix');
+    const html = h.htmlOf('inside');
+    // The timing cell is still present (structural), but empty — no ev-dur
+    // inside this specific recovery-timing span.
+    const timingIdx = html.lastIndexOf('class="recovery-timing"');
+    expect(timingIdx).toBeGreaterThan(-1);
+    const timingEnd = html.indexOf('</span>', timingIdx);
+    const timingCell = html.slice(timingIdx, timingEnd);
+    expect(timingCell).not.toContain('ev-dur');
+  });
+
   it('titles a duration with its exact span', () => {
     const state = renderStateFor('uat');
     const uat = { ...state.insideViews.uat };
@@ -3536,6 +3643,23 @@ describe('send back to implement (executed in a VM)', () => {
     expect(html).toMatch(/aria-expanded="false"/);
     // The item is inside the closed menu — it appears once the menu opens.
     expect(html).not.toContain('Send back to Implement');
+  });
+
+  it('renders the same menu on the ship header before landing', () => {
+    // The ship header hosts the recovery action in the exact same location —
+    // the acceptance criterion that the action is identical across uat/review/
+    // ship before any PR has merged.
+    const state: DashboardState = {
+      ...renderStateFor('ship'),
+      stageCurrent: 'ship',
+      presentedStage: 'ship',
+      sendBack: { available: true, stage: 'ship' },
+    };
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state });
+    expect(h.htmlOf('inside')).toMatch(/data-stage-menu="ship"/);
+    h.click('[data-stage-menu]', { 'stage-menu': 'ship' });
+    expect(h.htmlOf('inside')).toContain('Send back to Implement');
   });
 
   it('renders no menu when the host withholds the action', () => {
@@ -4514,6 +4638,79 @@ describe('terminal console view (VM)', () => {
     expect(h.htmlOf('termView')).toBe('');
   });
 
+  it('renders a Console button on the Tester and Review process rows (host-flagged p.console)', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: renderStateFor('uat') });
+    const inside = h.htmlOf('inside');
+    // The Tester row carries the console entry with its process id; the button
+    // is host-flagged (p.console), never guessed.
+    expect(inside).toMatch(/data-proc-id="uat:tester"[\s\S]*?data-act="console" data-console="uat" data-console-proc="tester"/);
+    h.receive({ type: 'state', state: renderStateFor('review') });
+    const reviewInside = h.htmlOf('inside');
+    expect(reviewInside).toMatch(/data-proc-id="review:review"[\s\S]*?data-act="console" data-console="review" data-console-proc="review"/);
+  });
+
+  it('opens the agent console and posts agent-log-request with the process', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: renderStateFor('uat') });
+    h.click('[data-act]', { act: 'console', console: 'uat', consoleProc: 'tester' });
+    expect(h.bodyClasses).toContain('term-nav');
+    expect(h.htmlOf('termView')).toContain('Console · Tester');
+    expect(h.posted).toContainEqual({ type: 'agent-log-request', processId: 'tester' });
+    expect(h.posted).not.toContainEqual({ type: 'stage-log-request', stage: 'uat' });
+  });
+
+  it('writes the agent-log ok content into the live terminal for that process', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: renderStateFor('uat') });
+    h.click('[data-act]', { act: 'console', console: 'uat', consoleProc: 'tester' });
+    h.receive({ type: 'agent-log', processId: 'tester', result: { kind: 'ok', content: '\x1b[33mwarn\x1b[0m\n', truncated: false } });
+    expect(h.terminals()[0]!.written).toBe('\x1b[33mwarn\x1b[0m\n');
+  });
+
+  it('drops an agent-log answer for a console showing a DIFFERENT process', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: renderStateFor('uat') });
+    h.click('[data-act]', { act: 'console', console: 'uat', consoleProc: 'tester' });
+    h.receive({ type: 'agent-log', processId: 'review', result: { kind: 'ok', content: 'other', truncated: false } });
+    expect(h.terminals()[0]!.written).toBe('');
+  });
+
+  it('streams agent-output chunks into the open process console', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: renderStateFor('uat') });
+    h.click('[data-act]', { act: 'console', console: 'uat', consoleProc: 'tester' });
+    // The host's guaranteed agent-log answer settles loading first.
+    h.receive({ type: 'agent-log', processId: 'tester', result: { kind: 'ok', content: 'start', truncated: false } });
+    h.receive({ type: 'agent-output', processId: 'tester', text: '\nstill running' });
+    expect(h.terminals()[0]!.written).toBe('start\nstill running');
+  });
+
+  it('buffers agent-output that races the initial tail and flushes it after the agent-log answer', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: renderStateFor('uat') });
+    h.click('[data-act]', { act: 'console', console: 'uat', consoleProc: 'tester' });
+    // A live chunk lands BEFORE the guaranteed agent-log answer: it must not
+    // be dropped, and it must not be written ahead of the persisted tail.
+    h.receive({ type: 'agent-output', processId: 'tester', text: 'raced' });
+    expect(h.terminals()[0]!.written).toBe('');
+    h.receive({ type: 'agent-log', processId: 'tester', result: { kind: 'ok', content: 'tail\n', truncated: false } });
+    expect(h.terminals()[0]!.written).toBe('tail\nraced');
+  });
+
+  it('ignores agent-output for a console showing a different process or no console', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: renderStateFor('uat') });
+    h.click('[data-act]', { act: 'console', console: 'uat', consoleProc: 'tester' });
+    h.receive({ type: 'agent-log', processId: 'tester', result: { kind: 'ok', content: 'start', truncated: false } });
+    h.receive({ type: 'agent-output', processId: 'review', text: 'wrong process' });
+    expect(h.terminals()[0]!.written).toBe('start');
+    // A process console is NOT a stage console: a stage-log answer for the same
+    // stage is dropped while the process console is open.
+    h.receive({ type: 'stage-log', stage: 'uat', result: { kind: 'ok', content: 'stage', truncated: false } });
+    expect(h.terminals()[0]!.written).toBe('start');
+  });
+
   it('renders a Console button only for stages the host flags (view.console)', () => {
     const h = bootPreviewHarness();
     const state = renderStateFor('uat');
@@ -4521,6 +4718,29 @@ describe('terminal console view (VM)', () => {
     expect((state.insideViews as Record<string, { console?: boolean }>).uat!.console).toBe(true);
     h.receive({ type: 'state', state });
     expect(h.htmlOf('inside')).toContain('data-act="console"');
+  });
+
+  it('renders no PROCESS console button when the process is not host-flagged (p.console absent)', () => {
+    const h = bootPreviewHarness();
+    const state = renderStateFor('uat');
+    // Flip the Tester row's host flag off: availability is host-derived, so
+    // the row renders its console button ONLY when the host shipped `console`.
+    const view = state.insideViews.uat;
+    const noProcConsole = {
+      ...state,
+      insideViews: {
+        ...state.insideViews,
+        uat: {
+          ...view,
+          processes: view.processes.map((p) => (p.id === 'tester' ? { ...p, console: false } : p)),
+        },
+      },
+    };
+    h.receive({ type: 'state', state: noProcConsole });
+    const inside = h.htmlOf('inside');
+    // The gates row keeps its stage console button; the Tester row's is gone.
+    expect(inside).toMatch(/data-proc-id="uat:gates"[\s\S]*?data-act="console"/);
+    expect(inside).not.toMatch(/data-proc-id="uat:tester"[\s\S]*?data-console-proc="tester"/);
   });
 
   it('sits in the GATES row description area, icon-only, never in the header (869e7n906-fu1)', () => {
@@ -4577,5 +4797,88 @@ describe('terminal console view (VM)', () => {
     expect(HTML).toMatch(/\.termview\{[^}]*display:flex/);
     expect(HTML).toMatch(/\.termview\.hidden\{display:none\}/);
     expect(HTML.indexOf('.termview.hidden')).toBeGreaterThan(HTML.indexOf('.termview{'));
+  });
+});
+
+describe('PR panel row (Variant C, executed in a VM)', () => {
+  const prsHtml = (prs: PrPanelRow[]): string => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: { ...renderStateFor('ship'), prs } });
+    return h.htmlOf('prs');
+  };
+
+  const openRow = (): PrPanelRow => ({
+    repo: '/wt/web',
+    repoDisplay: 'web',
+    number: 42,
+    url: 'https://github.com/o/r/pull/42',
+    status: 'open',
+    branches: 'feat/ui → develop',
+    baseRef: 'develop',
+    opened: 'opened 2h ago',
+    openedTitle: 'opened 8/14/2026, 10:04:12 AM',
+    merged: '',
+    mergedTitle: '',
+    commentsLabel: '',
+    comments: [],
+    canMerge: true,
+    mergeBlockedReason: '',
+  });
+
+  it('makes the PR number the open link and the URL text the copy control, and drops the Open button', () => {
+    const html = prsHtml([openRow()]);
+    // The PR number IS the open control (UI-R09c): a link-coloured anchor.
+    expect(html).toMatch(
+      /<a href="#" data-act="open-pr" data-url="https:\/\/github\.com\/o\/r\/pull\/42" title="Open this pull request">#42<\/a>/,
+    );
+    // The URL text IS the copy control (Variant C): a button styled as inline
+    // text (UI-R09b), clicking copies, glyph on hover.
+    expect(html).toMatch(
+      /<button type="button" class="ptitle url-copy" data-act="copy-pr-url" data-url="https:\/\/github\.com\/o\/r\/pull\/42" data-copy title="Copy pull request URL">/,
+    );
+    // Redundancy is gone: no Open button, no inert URL text beside the number.
+    expect(html).not.toContain('>Open</button>');
+    expect(html).not.toMatch(/data-act="open-pr"[^>]*>Open</);
+    // The repo shows its NAME, with the path (the row's identity) in the tooltip.
+    expect(html).toMatch(/<span class="prepo" title="\/wt\/web">web<\/span>/);
+    // The row still offers the merge control (consequential-primary).
+    expect(html).toMatch(/k-btn--primary k-btn--sm mgbtn" data-act="merge-pr"/);
+  });
+
+  it('renders the meta line with a truncating branch and title-carrying stamps', () => {
+    const html = prsHtml([openRow()]);
+    expect(html).toMatch(/<span class="pbranch" title="feat\/ui → develop">feat\/ui → develop<\/span>/);
+    expect(html).toMatch(
+      /<span class="pstamp" title="opened 8\/14\/2026, 10:04:12 AM">opened 2h ago<\/span>/,
+    );
+    // Stamps are one flex:none group, so they wrap to a second line intact.
+    expect(html).toMatch(/<span class="pstamps"><span class="psep">·<\/span>/);
+  });
+
+  it('renders a merged row with the merged stamp, no Merge button, and a still-live link', () => {
+    const merged: PrPanelRow = {
+      ...openRow(),
+      status: 'merged',
+      merged: 'merged 1d ago',
+      mergedTitle: 'merged 8/15/2026, 9:12:00 AM',
+      canMerge: false,
+    };
+    const html = prsHtml([merged]);
+    expect(html).toContain('<span class="k-chip pst pst-merged">merged</span>');
+    expect(html).toMatch(
+      /<span class="pstamp pmerged" title="merged 8\/15\/2026, 9:12:00 AM">merged 1d ago<\/span>/,
+    );
+    expect(html).not.toContain('data-act="merge-pr"');
+    // A merged PR still opens and still copies.
+    expect(html).toContain('data-act="open-pr"');
+    expect(html).toContain('data-act="copy-pr-url"');
+  });
+
+  it('keeps the number as plain text when no URL is recorded — a link that opens nothing is worse than none', () => {
+    const noUrl: PrPanelRow = { ...openRow(), url: null, canMerge: false, mergeBlockedReason: 'no url' };
+    const html = prsHtml([noUrl]);
+    expect(html).toMatch(/<span class="pnum">#42<\/span>/);
+    expect(html).not.toContain('data-act="open-pr"');
+    expect(html).not.toContain('data-act="copy-pr-url"');
   });
 });

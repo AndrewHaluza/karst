@@ -3,6 +3,7 @@ import {
   KNOWN_MODELS,
   isModelCompatibleWithProvider,
   modelsForProvider,
+  resolveEffortForProvider,
   resolveModel,
   resolveModelForProvider,
 } from './models.js';
@@ -188,5 +189,41 @@ describe('resolveModelForProvider', () => {
     expect(
       resolveModelForProvider('codex', 'gpt-5.6-sol', undefined, LIVE_MODELS),
     ).toBe('gpt-5.6-sol');
+  });
+});
+
+describe('resolveEffortForProvider', () => {
+  const catalog = {
+    claude: [
+      { id: 'claude-opus-5', label: 'Opus 5', providers: ['claude'], efforts: ['low', 'medium', 'high', 'max'] },
+      { id: 'claude-sonnet-5', label: 'Sonnet 5', providers: ['claude'], efforts: ['low', 'medium', 'high'] },
+    ],
+    codex: [{ id: 'gpt-5.6-sol', label: 'GPT-5.6 Sol', providers: ['codex'], efforts: ['low', 'high'] }],
+    antigravity: [],
+    opencode: [],
+  } as unknown as import('./modelCatalog.js').ModelCatalog;
+
+  it('ticket effort wins over the manifest default', () => {
+    expect(resolveEffortForProvider('claude', 'high', 'low', 'claude-opus-5', catalog)).toBe('high');
+  });
+
+  it('falls back to the manifest default when the ticket has none', () => {
+    expect(resolveEffortForProvider('claude', null, 'max', 'claude-opus-5', catalog)).toBe('max');
+  });
+
+  it('returns undefined when nothing is configured', () => {
+    expect(resolveEffortForProvider('claude', null, null, 'claude-opus-5', catalog)).toBeUndefined();
+  });
+
+  it('drops a candidate the resolved model does not advertise (catalog moved)', () => {
+    expect(resolveEffortForProvider('claude', 'ultracode', null, 'claude-opus-5', catalog)).toBeUndefined();
+  });
+
+  it('returns undefined when no model resolved (nothing to cross-check)', () => {
+    expect(resolveEffortForProvider('claude', 'high', null, undefined, catalog)).toBeUndefined();
+  });
+
+  it('normalizes a blank effort to inherit', () => {
+    expect(resolveEffortForProvider('claude', '  ', 'max', 'claude-opus-5', catalog)).toBe('max');
   });
 });

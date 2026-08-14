@@ -34,6 +34,12 @@ export type WebviewMessage =
    */
   | { type: 'launch-worktree-extension'; path: string }
   | { type: 'open-pr'; url: string }
+  /**
+   * Copy a pull request's URL through the host clipboard. Carries only the URL
+   * (validated as http), and the webview flashes its own optimistic feedback —
+   * the same contract as `copy-worktree-branch`.
+   */
+  | { type: 'copy-pr-url'; url: string }
   | { type: 'open-ticket-link'; url: string }
   | { type: 'edit-ticket' }
   | { type: 'stop-driver' }
@@ -76,9 +82,10 @@ export type WebviewMessage =
    * Carries the selection VERBATIM — the host re-validates both against the
    * choices IT computed (isKnownProvider + model-choice membership) before
    * confirming or persisting, so the webview's draft is a suggestion, never
-   * authority.
+   * authority. `effort` is the optional effort/variant, staged like the model;
+   * the host validates it against the selected model's advertised efforts.
    */
-  | { type: 'switch-agent'; provider: AgentProvider; model: string | null }
+  | { type: 'switch-agent'; provider: AgentProvider; model: string | null; effort: string | null }
   /** Copy this ticket's key through the host clipboard (the closure owns the ticket). */
   | { type: 'copy-ticket-key' }
   /**
@@ -126,7 +133,15 @@ export type WebviewMessage =
    * row's recorded artifactPath from the store, reads it, and answers with
    * `stage-log`; the answer message (ok or error) is the terminal outcome.
    */
-  | { type: 'stage-log-request'; stage: GateStage };
+  | { type: 'stage-log-request'; stage: GateStage }
+  /**
+   * Ask the host to push one gate-lane AI process's console tail (the UAT
+   * Tester or the Review findings lane) for the terminal "detailed mode" view.
+   * Carries the PROCESS only — a closed vocabulary (`tester`/`review`): no
+   * path, no ticket id. The host resolves the persisted tail file and answers
+   * with `agent-log`; the answer message (ok or error) is the terminal outcome.
+   */
+  | { type: 'agent-log-request'; processId: AgentProcessId };
 
 /**
  * Host → webview messages. `state` pushes drive the stepper + panels;
@@ -153,6 +168,18 @@ export type HostMessage =
    * cut at the read cap (defensive; the recording itself caps at 1 MiB).
    */
   | { type: 'stage-log'; stage: GateStage; result: StageLogResult }
+  /**
+   * The answer to `agent-log-request`: the console tail for one gate-lane AI
+   * process, or a named refusal. Same closed `result` union as `stage-log`.
+   */
+  | { type: 'agent-log'; processId: AgentProcessId; result: StageLogResult }
+  /**
+   * A live chunk of one gate-lane AI process's console output, pushed while
+   * the process runs. The text is already sanitized and bounded host-side (the
+   * `AgentConsole` sink); the webview appends it to the open terminal for that
+   * process only.
+   */
+  | { type: 'agent-output'; processId: AgentProcessId; text: string }
   | ActionResultMessage;
 
 /**
@@ -195,6 +222,7 @@ export interface DashboardActions {
    */
   launchWorktreeExtension: (path: string) => void | Promise<void>;
   openPr: (url: string) => void | Promise<void>;
+  copyPrUrl: (url: string) => void | Promise<void>;
   openTicketLink: (url: string) => void | Promise<void>;
   editTicket: () => void | Promise<void>;
   stopDriver: () => void | Promise<void>;
@@ -208,6 +236,8 @@ export interface DashboardActions {
   openStageLog: (path: string) => void | Promise<void>;
   /** Push one gate stage's console log to the panel; the `stage-log` message is the outcome. */
   requestStageLog: (stage: GateStage) => void | Promise<void>;
+  /** Push one gate-lane AI process's console tail to the panel; the `agent-log` message is the outcome. */
+  requestAgentLog: (processId: AgentProcessId) => void | Promise<void>;
   /**
    * Hand one repo's merge conflict to an agent session, seeded with the conflict
    * context. Takes the repo (not a path) because the host resolves the worktree
@@ -230,7 +260,7 @@ export interface DashboardActions {
   /** Flip the window's terminal↔dashboard binding. */
   toggleBind: () => void | Promise<void>;
   /** Apply a staged agent-core/model selection to this ticket's live session. */
-  switchAgent: (provider: AgentProvider, model: string | null) => void | Promise<void>;
+  switchAgent: (provider: AgentProvider, model: string | null, effort: string | null) => void | Promise<void>;
   /** Copy the ticket key to the clipboard. */
   copyTicketKey: () => void | Promise<void>;
   /**
@@ -278,6 +308,19 @@ export type StageLogResult =
   | { kind: 'error'; message: string };
 
 /**
+ * The gate-lane AI process whose console the terminal view can open: the UAT
+ * Tester and the Review findings lane. A CLOSED vocabulary — the webview can
+ * only name one of these two, never an arbitrary process id.
+ */
+export type AgentProcessId = 'tester' | 'review';
+
+const AGENT_PROCESS_IDS: readonly string[] = ['tester', 'review'];
+
+function isAgentProcessId(v: unknown): v is AgentProcessId {
+  return typeof v === 'string' && (AGENT_PROCESS_IDS as readonly string[]).includes(v);
+}
+
+/**
  * Narrow an untrusted webview message to a `WebviewMessage`, validating BOTH the
  * discriminant and its companion field's type — the webview is a trust boundary,
  * so `serverId` must be a number and `path`/`url` must be strings before they
@@ -320,6 +363,8 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
       return path ? { type: 'launch-worktree-extension', path: m.path as string } : null;
     case 'open-pr':
       return isHttpUrl(m.url) ? { type: 'open-pr', url: m.url } : null;
+    case 'copy-pr-url':
+      return isHttpUrl(m.url) ? { type: 'copy-pr-url', url: m.url } : null;
     case 'open-ticket-link':
       return isHttpUrl(m.url) ? { type: 'open-ticket-link', url: m.url } : null;
     case 'edit-ticket':
@@ -370,7 +415,12 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
       const model = m.model === undefined ? '' : (typeof m.model === 'string' ? m.model : null);
       if (model === null) return null;
       if (model.length > MAX_MODEL_ID_CHARS) return null;
-      return { type: 'switch-agent', provider, model: model || null };
+      // Same contract for the effort/variant: absent/blank = inherit; a
+      // non-string or oversized value drops the whole message.
+      const effort = m.effort === undefined ? '' : (typeof m.effort === 'string' ? m.effort : null);
+      if (effort === null) return null;
+      if (effort.length > MAX_MODEL_ID_CHARS) return null;
+      return { type: 'switch-agent', provider, model: model || null, effort: effort || null };
     }
     case 'copy-ticket-key':
       return { type: 'copy-ticket-key' };
@@ -431,6 +481,12 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
     // non-gate stage (or a malformed payload) drops the whole message.
     case 'stage-log-request':
       return isGateStage(m.stage) ? { type: 'stage-log-request', stage: m.stage } : null;
+    // The process is narrowed to the closed AgentProcessId set; anything else
+    // drops the whole message.
+    case 'agent-log-request':
+      return isAgentProcessId(m.processId)
+        ? { type: 'agent-log-request', processId: m.processId }
+        : null;
     default:
       return null;
   }
@@ -514,6 +570,8 @@ export function routeAction(
       return actions.launchWorktreeExtension(msg.path);
     case 'open-pr':
       return actions.openPr(msg.url);
+    case 'copy-pr-url':
+      return actions.copyPrUrl(msg.url);
     case 'open-ticket-link':
       return actions.openTicketLink(msg.url);
     case 'edit-ticket':
@@ -539,7 +597,7 @@ export function routeAction(
     case 'toggle-bind':
       return actions.toggleBind();
     case 'switch-agent':
-      return actions.switchAgent(msg.provider, msg.model);
+      return actions.switchAgent(msg.provider, msg.model, msg.effort);
     case 'copy-ticket-key':
       return actions.copyTicketKey();
     case 'stage-resume':
@@ -552,5 +610,7 @@ export function routeAction(
       return actions.openArtifactResource(msg.artifactId, msg.index);
     case 'stage-log-request':
       return actions.requestStageLog(msg.stage);
+    case 'agent-log-request':
+      return actions.requestAgentLog(msg.processId);
   }
 }

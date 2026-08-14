@@ -28,6 +28,7 @@ import type {
 } from './adapter.js';
 import { renderWorkflowCommand } from './workflowCommand.js';
 import { describeHeadlessFailure } from './cliFailure.js';
+import { renderConsoleStream } from './consoleFormat.js';
 import { spawnHeadlessCli, headlessPreview, type HeadlessSpawnOptions } from './headlessSpawn.js';
 import { hookFailureLogPath } from './hookFailureLog.js';
 import { attachUsage, extractTokenUsage } from './tokenUsage.js';
@@ -748,12 +749,28 @@ export class CodexAdapter implements AgentAdapter {
         .map((a) => (a === opts.prompt ? `<prompt:${opts.prompt.length} chars>` : a))
         .join(' ')} (cwd ${opts.cwd})`,
     );
-    const result = await this.spawnHeadless(CODEX_BIN, args, opts.cwd, {
-      signal: opts.signal,
-      timeoutMs: opts.timeoutMs,
-      onDebug: opts.debug,
-      onSpawned: opts.onSpawned,
-    });
+    // The console tail streams RAW JSONL (`exec --json`): render each event as
+    // a readable line before it reaches the console. The stream is only for the
+    // console — the settle-time `stdout` still carries the raw bytes the parser
+    // reads, so rendering here never touches what `parseCodexJsonl` sees.
+    const consoleStream = opts.onOutput ? renderConsoleStream('codex', opts.onOutput) : undefined;
+    opts.debug?.(
+      consoleStream
+        ? `[agent:codex] console stream: rendering JSONL events as readable lines`
+        : `[agent:codex] console stream: none — no onOutput hook`,
+    );
+    let result: HeadlessSpawnResult;
+    try {
+      result = await this.spawnHeadless(CODEX_BIN, args, opts.cwd, {
+        signal: opts.signal,
+        timeoutMs: opts.timeoutMs,
+        onDebug: opts.debug,
+        onSpawned: opts.onSpawned,
+        onOutput: consoleStream ? consoleStream.append : opts.onOutput,
+      });
+    } finally {
+      consoleStream?.flush();
+    }
     if (result.exitCode !== 0) {
       opts.debug?.(
         `[agent:codex] exit ${result.exitCode} — stdout: ${headlessPreview(result.stdout)}; stderr: ${headlessPreview(result.stderr)}`,

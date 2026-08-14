@@ -1589,6 +1589,44 @@ describe('agentProvider', () => {
   });
 });
 
+describe('defaultEffort', () => {
+  it('defaults to undefined when omitted', () => {
+    const { path, cleanup } = fixture(VALID);
+    try {
+      expect(loadManifest(path).defaultEffort).toBeUndefined();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('preserves an explicit value', () => {
+    const { path, cleanup } = fixture(`${VALID}\ndefaultEffort: high\n`);
+    try {
+      expect(loadManifest(path).defaultEffort).toBe('high');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('normalizes a blank value to undefined', () => {
+    const { path, cleanup } = fixture(`${VALID}\ndefaultEffort: '  '\n`);
+    try {
+      expect(loadManifest(path).defaultEffort).toBeUndefined();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('throws on a non-string value', () => {
+    const { path, cleanup } = fixture(`${VALID}\ndefaultEffort: 42\n`);
+    try {
+      expect(() => loadManifest(path)).toThrow(/defaultEffort/i);
+    } finally {
+      cleanup();
+    }
+  });
+});
+
 describe('worktreePathDisplay', () => {
   it('defaults to relative when omitted', () => {
     const { path, cleanup } = fixture(VALID);
@@ -2165,7 +2203,9 @@ processes:
           agentName: 'My UAT Agent',
           provider: 'codex',
           model: 'gpt-5.6-sol',
-          instructions: 'Focus on API behavior.',
+          // The fixture declares a legacy `instructions:` — retired, so it is
+          // dropped rather than typed (the load still succeeds; `inertKeys.ts`
+          // reports it).
           enabled: false,
         },
         review: { provider: 'antigravity', enabled: true },

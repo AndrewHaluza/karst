@@ -231,6 +231,25 @@ describe('buildTicketFormActions', () => {
     expect(getTicket(store, t.id).brief).toContain('Login modal');
   });
 
+  it('fetchSource persists the provider-native priority from the brief', async () => {
+    const t = createTicket(store, { key: 'P-2', title: 't' });
+    deps.provider = fakeProvider({
+      fetchTicket: vi.fn(async () => ({ ...BRIEF, priority: 'urgent' })),
+    });
+    const actions = buildTicketFormActions(deps)(mkCtx(t.id));
+    await actions.fetchSource('CU-9');
+    expect(getTicket(store, t.id).priority).toBe('urgent');
+  });
+
+  it('fetchSource clears a stale priority when the provider stops reporting one', async () => {
+    const t = createTicket(store, { key: 'P-3', title: 't' });
+    updateTicketFields(store, t.id, { priority: 'urgent' });
+    // This brief carries no priority — the provider no longer exposes it.
+    const actions = buildTicketFormActions(deps)(mkCtx(t.id));
+    await actions.fetchSource('CU-9');
+    expect(getTicket(store, t.id).priority).toBeNull();
+  });
+
   /** Persist a brief with the given attachments and return the stored text. */
   async function briefWithAttachments(
     attachments: ContextBrief['attachments'],
@@ -1233,6 +1252,17 @@ describe('buildTicketFormActions', () => {
     expect(getTicket(store, t.id).model).toBe('claude-sonnet-5');
     actions.setModel('');
     expect(getTicket(store, t.id).model).toBeNull();
+  });
+
+  it('setEffort persists onto an existing ticket, and empty clears it to inherit', () => {
+    const t = createTicket(store, { key: 'P-EF', title: 't' });
+    const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, close: () => {} };
+    const actions = buildTicketFormActions(deps)(ctx);
+
+    actions.setEffort('high');
+    expect(getTicket(store, t.id).effort).toBe('high');
+    actions.setEffort('');
+    expect(getTicket(store, t.id).effort).toBeNull();
   });
 
   it('setProvider persists onto an existing ticket, re-pushes state, and empty clears it to inherit', () => {

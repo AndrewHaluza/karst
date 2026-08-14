@@ -90,6 +90,39 @@ describe('recoverGraphRun', () => {
     return { ticketId, graphRunId, revisionId };
   }
 
+  /** A blocked run in the bootstrap phase — no active revision exists yet (the
+   *  bootstrap planner died before submitting), the shape the `planner-stale`
+   *  reconcile writes. */
+  function blockedBootstrapGraph(reason: string): { ticketId: number; graphRunId: number } {
+    const ticketId = createTicket(store, { key: 'RC-3', title: 'thing' }).id;
+    store.db.prepare("UPDATE tickets SET stage_current = 'impl' WHERE id = ?").run(ticketId);
+    store.db
+      .prepare("UPDATE stages SET status = 'running' WHERE ticket_id = ? AND stage_key = 'impl'")
+      .run(ticketId);
+    const graphRunId = Number(
+      store.db
+        .prepare(
+          `INSERT INTO approach_graph_runs (ticket_id, stage_key, stage_attempt, approach_id, status, blocked_reason, created_at)
+           VALUES (?, 'impl', 0, 'x', 'blocked', ?, '2026-08-12T00:00:00.000Z')`,
+        )
+        .run(ticketId, reason)
+        .lastInsertRowid,
+    );
+    setStage(store, ticketId, 'impl', {
+      status: 'running',
+      blockedKind: 'approach-graph-failed',
+      blockedReason: `approach-graph-failed: ${reason} (graph run ${graphRunId})`,
+      blockedAt: '2026-08-12T00:00:00.000Z',
+    });
+    return { ticketId, graphRunId };
+  }
+
+  function plannerRunsOf(graphRunId: number): { id: number; kind: string; status: string }[] {
+    return store.db
+      .prepare('SELECT id, kind, status FROM approach_planner_runs WHERE graph_run_id = ? ORDER BY id')
+      .all(graphRunId) as { id: number; kind: string; status: string }[];
+  }
+
   /** A compile-valid canonical document (electReplan re-parses it). */
   function validGraph(maxReplans = 2): string {
     return JSON.stringify({
@@ -390,6 +423,59 @@ describe('recoverGraphRun', () => {
     expect(runRow(graphRunId).status).toBe('draining');
   });
 
+  it('a planner-stale reason relaunches the bootstrap planner on the same graph run', () => {
+    const { ticketId, graphRunId } = blockedBootstrapGraph('planner-stale: bootstrap planner 7 process (pid 42) is gone — Resume to relaunch the planner');
+    const writeSnapshot = vi.fn();
+    const result = recoverGraphRun(
+      makeDeps({
+        readPrompt: () => new TextEncoder().encode('planner prompt'),
+        writeSnapshot: writeSnapshot as unknown as RecoveryDeps['writeSnapshot'],
+        plannerPromptPath: '/pkg/graph-planner/SKILL.md',
+        ticketContext: 'ticket context',
+      }),
+      { ticketId, graphRunId },
+    );
+    expect(result.kind).toBe('relaunched');
+    if (result.kind !== 'relaunched') return;
+    expect(result.plannerRunId).not.toBeNull();
+    expect(result.plannerRunNumber).toBe(1);
+    expect(result.launch).not.toBeNull();
+    // The run re-opens to `planning` — a fresh bootstrap planner can submit.
+    expect(runRow(graphRunId)).toEqual({ status: 'planning', blocked_reason: null });
+    const planners = plannerRunsOf(graphRunId);
+    expect(planners).toHaveLength(1);
+    expect(planners[0]).toMatchObject({ kind: 'bootstrap', status: 'ready' });
+    // The snapshot was written content-addressed before the transaction.
+    const [snapshotRunId, relPath] = writeSnapshot.mock.calls[0] as unknown as [number, string];
+    expect(snapshotRunId).toBe(graphRunId);
+    expect(relPath).toBe(`prompts/${sha256Hex(new TextEncoder().encode('planner prompt'))}`);
+    // The visible stage block is gone: the relaunch durably entered.
+    expect(stageBlock(store, ticketId, 'impl')).toBeNull();
+  });
+
+  it('a planner-stale relaunch refuses explicit-resolution when the prompt seams are unwired', () => {
+    const { ticketId, graphRunId } = blockedBootstrapGraph('planner-stale: bootstrap planner 7 process gone');
+    const result = recoverGraphRun(makeDeps(), { ticketId, graphRunId });
+    expect(result).toEqual({ kind: 'refused', reason: 'explicit-resolution' });
+    expect(runRow(graphRunId).status).toBe('blocked');
+    expect(stageBlock(store, ticketId, 'impl')).not.toBeNull();
+  });
+
+  it('a planner-stale relaunch with an unreadable prompt refuses explicit-resolution', () => {
+    const { ticketId, graphRunId } = blockedBootstrapGraph('planner-stale: bootstrap planner 7 process gone');
+    const result = recoverGraphRun(
+      makeDeps({
+        readPrompt: () => undefined,
+        writeSnapshot: vi.fn() as unknown as RecoveryDeps['writeSnapshot'],
+        plannerPromptPath: '/pkg/graph-planner/SKILL.md',
+        ticketContext: 'ticket context',
+      }),
+      { ticketId, graphRunId },
+    );
+    expect(result).toEqual({ kind: 'refused', reason: 'explicit-resolution' });
+    expect(runRow(graphRunId).status).toBe('blocked');
+  });
+
   it('a run that is not blocked is not claimed (idempotent no-op)', () => {
     const { ticketId, graphRunId } = blockedGraph('node-blocked: x', [{ id: 9, status: 'blocked' }]);
     store.db.prepare('UPDATE approach_graph_runs SET status = ? WHERE id = ?').run('running', graphRunId);
@@ -428,6 +514,7 @@ describe('recoveryCategoryFor — the total function over the closed category se
       ['graph-plan-invalid: planner produced an invalid document', 'replan'],
       ['planner-artifact-missing: graph snapshot gone', 'replan'],
       ['instructions-missing: cannot read the graph planner prompt', 'replan'],
+      ['planner-stale: bootstrap planner 7 process (pid 42) is gone', 'planner-relaunch'],
       ['command-definition-changed: pinned fingerprint moved', 'compile-new-revision'],
       ['prompt-config-changed: node base prompt edited', 'prompt-resnapshot'],
       [null, 'explicit-resolution'],
@@ -444,6 +531,7 @@ describe('recoveryCategoryFor — the total function over the closed category se
       'prompt-resnapshot',
       'replan',
       'compile-new-revision',
+      'planner-relaunch',
       'discard-required',
       'config-then-resume',
       'explicit-resolution',

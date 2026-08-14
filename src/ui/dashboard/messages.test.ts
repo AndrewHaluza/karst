@@ -24,6 +24,7 @@ function actions(): DashboardActions {
     copyWorktreeBranch: vi.fn(),
     launchWorktreeExtension: vi.fn(),
     openPr: vi.fn(),
+    copyPrUrl: vi.fn(),
     openTicketLink: vi.fn(),
     editTicket: vi.fn(),
     stopDriver: vi.fn(),
@@ -43,6 +44,7 @@ function actions(): DashboardActions {
     insideAction: vi.fn(),
     openArtifactResource: vi.fn(),
     requestStageLog: vi.fn(),
+    requestAgentLog: vi.fn(),
   };
 }
 
@@ -99,6 +101,18 @@ describe('routeAction', () => {
     const a = actions();
     routeAction({ type: 'open-pr', url: 'http://pr/1' }, a);
     expect(a.openPr).toHaveBeenCalledWith('http://pr/1');
+  });
+
+  it('dispatches copy-pr-url by url, and refuses a non-http scheme like open-pr', () => {
+    const a = actions();
+    routeAction({ type: 'copy-pr-url', url: 'https://github.com/o/r/pull/1' }, a);
+    expect(a.copyPrUrl).toHaveBeenCalledWith('https://github.com/o/r/pull/1');
+    expect(parseWebviewMessage({ type: 'copy-pr-url', url: 'https://github.com/o/r/pull/1' })).toEqual({
+      type: 'copy-pr-url',
+      url: 'https://github.com/o/r/pull/1',
+    });
+    expect(parseWebviewMessage({ type: 'copy-pr-url', url: 'file:///etc/passwd' })).toBeNull();
+    expect(parseWebviewMessage({ type: 'copy-pr-url' })).toBeNull();
   });
 
   it('dispatches copy-server-url by server id', () => {
@@ -305,28 +319,30 @@ describe('routeAction', () => {
     expect(a.toggleBind).toHaveBeenCalledTimes(1);
   });
 
-  it('parses a switch-agent selection and dispatches it with both fields', () => {
+  it('parses a switch-agent selection and dispatches it with all three fields', () => {
     const a = actions();
     expect(parseWebviewMessage({
-      type: 'switch-agent', provider: 'codex', model: 'gpt-5.2-codex', ticketId: 999,
-    })).toEqual({ type: 'switch-agent', provider: 'codex', model: 'gpt-5.2-codex' });
-    routeAction({ type: 'switch-agent', provider: 'codex', model: 'gpt-5.2-codex' }, a);
-    expect(a.switchAgent).toHaveBeenCalledWith('codex', 'gpt-5.2-codex');
+      type: 'switch-agent', provider: 'codex', model: 'gpt-5.2-codex', effort: 'high', ticketId: 999,
+    })).toEqual({ type: 'switch-agent', provider: 'codex', model: 'gpt-5.2-codex', effort: 'high' });
+    routeAction({ type: 'switch-agent', provider: 'codex', model: 'gpt-5.2-codex', effort: 'high' }, a);
+    expect(a.switchAgent).toHaveBeenCalledWith('codex', 'gpt-5.2-codex', 'high');
   });
 
-  it('coerces a blank model to inherit (null)', () => {
+  it('coerces a blank model and effort to inherit (null)', () => {
     expect(parseWebviewMessage({ type: 'switch-agent', provider: 'claude' })).toEqual({
-      type: 'switch-agent', provider: 'claude', model: null,
+      type: 'switch-agent', provider: 'claude', model: null, effort: null,
     });
-    expect(parseWebviewMessage({ type: 'switch-agent', provider: 'claude', model: '' })).toEqual({
-      type: 'switch-agent', provider: 'claude', model: null,
+    expect(parseWebviewMessage({ type: 'switch-agent', provider: 'claude', model: '', effort: '' })).toEqual({
+      type: 'switch-agent', provider: 'claude', model: null, effort: null,
     });
   });
 
-  it('rejects a switch-agent to an unknown provider or a non-string model', () => {
-    expect(parseWebviewMessage({ type: 'switch-agent', provider: 'evil', model: 'x' })).toBeNull();
-    expect(parseWebviewMessage({ type: 'switch-agent', provider: 'codex', model: 42 })).toBeNull();
-    expect(parseWebviewMessage({ type: 'switch-agent', provider: 'codex', model: 'x'.repeat(300) })).toBeNull();
+  it('rejects a switch-agent to an unknown provider or a non-string model/effort', () => {
+    expect(parseWebviewMessage({ type: 'switch-agent', provider: 'evil', model: 'x', effort: 'high' })).toBeNull();
+    expect(parseWebviewMessage({ type: 'switch-agent', provider: 'codex', model: 42, effort: 'high' })).toBeNull();
+    expect(parseWebviewMessage({ type: 'switch-agent', provider: 'codex', model: 'x'.repeat(300), effort: 'high' })).toBeNull();
+    expect(parseWebviewMessage({ type: 'switch-agent', provider: 'codex', model: 'x', effort: 42 })).toBeNull();
+    expect(parseWebviewMessage({ type: 'switch-agent', provider: 'codex', model: 'x', effort: 'x'.repeat(300) })).toBeNull();
   });
 
   it('parses and dispatches copy-ticket-key with no payload', () => {
@@ -567,6 +583,42 @@ describe('stage-log-request', () => {
     routeAction({ type: 'stage-log-request', stage: 'done' }, {
       ...actions(),
       requestStageLog: () => void (called = true),
+    });
+    expect(called).toBe(false);
+  });
+});
+
+describe('agent-log-request', () => {
+  it('accepts a gate-lane AI process (tester/review) only — closed vocabulary (UI-R16)', () => {
+    expect(parseWebviewMessage({ type: 'agent-log-request', processId: 'tester' })).toEqual({
+      type: 'agent-log-request',
+      processId: 'tester',
+    });
+    expect(parseWebviewMessage({ type: 'agent-log-request', processId: 'review' })).toEqual({
+      type: 'agent-log-request',
+      processId: 'review',
+    });
+    // Any other process id, a missing id, or a wrong type drops the message.
+    expect(parseWebviewMessage({ type: 'agent-log-request', processId: 'gates' })).toBeNull();
+    expect(parseWebviewMessage({ type: 'agent-log-request', processId: 'impl' })).toBeNull();
+    expect(parseWebviewMessage({ type: 'agent-log-request' })).toBeNull();
+    expect(parseWebviewMessage({ type: 'agent-log-request', processId: 42 })).toBeNull();
+  });
+
+  it('routes to requestAgentLog with the validated process', () => {
+    const calls: string[] = [];
+    routeAction({ type: 'agent-log-request', processId: 'tester' }, {
+      ...actions(),
+      requestAgentLog: (processId) => void calls.push(processId),
+    });
+    expect(calls).toEqual(['tester']);
+  });
+
+  it('never routes an unparsed agent-log-request (unknown stays silent)', () => {
+    let called = false;
+    routeAction({ type: 'agent-log-request', processId: 'ship' }, {
+      ...actions(),
+      requestAgentLog: () => void (called = true),
     });
     expect(called).toBe(false);
   });

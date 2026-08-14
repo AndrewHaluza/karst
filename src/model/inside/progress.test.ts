@@ -161,3 +161,53 @@ describe('shipStepEvent (the live header names the step)', () => {
     expect(validateInsideProgressEvent(event)).toEqual(event);
   });
 });
+
+describe('gate-lane AI process progress events (Task 13)', () => {
+  it('validates the Tester active/completed events the driver emits', () => {
+    const active = {
+      kind: 'active',
+      ticketId: 7,
+      stage: 'uat',
+      processId: 'tester',
+      live: { status: 'run', label: '/wt/web' },
+    } as const;
+    expect(validateInsideProgressEvent(active)).toEqual(active);
+    const completed = {
+      kind: 'completed',
+      ticketId: 7,
+      stage: 'uat',
+      process: {
+        id: 'tester',
+        kind: 'tester',
+        label: 'Tester',
+        status: 'run',
+        detail: '/wt/web — 2 observations',
+      },
+    } as const;
+    expect(validateInsideProgressEvent(completed)).toEqual(completed);
+  });
+
+  it('validates the Review findings active/completed events the driver emits', () => {
+    const active = {
+      kind: 'active',
+      ticketId: 7,
+      stage: 'review',
+      processId: 'review',
+      live: { status: 'run', label: '/wt/api' },
+    } as const;
+    expect(validateInsideProgressEvent(active)).toEqual(active);
+    const completed = {
+      kind: 'completed',
+      ticketId: 7,
+      stage: 'review',
+      process: {
+        id: 'review',
+        kind: 'review',
+        label: 'Review',
+        status: 'run',
+        detail: '/wt/api — 1 finding',
+      },
+    } as const;
+    expect(validateInsideProgressEvent(completed)).toEqual(completed);
+  });
+});

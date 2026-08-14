@@ -36,18 +36,21 @@ export interface RailNeeds {
 /**
  * The rail's needs-you control's BEHAVIOUR, decided host-side.
  *
- * `ship-confirm` and `merge` ACT: they post the same message the header's
- * Confirm ship button and the PR panel's Merge button post, and the host's
- * confirmation still guards the irreversible step (merge keeps its modal). The
- * rest NAVIGATE: a multi-repo wait has no single repo to act on and per-repo
- * conflict sessions and the live session belong to the panel / header, so the
- * control scrolls the owning control into view rather than duplicating it.
+ * `ship-confirm`, `merge` and `resolve-conflicts` ACT: they post the same
+ * message the header's Confirm ship button, the PR panel's Merge button and
+ * its Resolve conflicts button post. The host's confirmation still guards the
+ * irreversible merge (it keeps its modal), and `resolve-conflicts` re-derives
+ * the brief from the store before handing it to a session. The rest NAVIGATE:
+ * a multi-repo wait or conflict has no single repo to act on, and the live
+ * session belongs to the header, so the control scrolls the owning control
+ * into view rather than duplicating it.
  */
 export type RailCta =
   | { kind: 'ship-confirm' }
   | { kind: 'merge'; repo: string }
   | { kind: 'merge-panel' }
-  | { kind: 'resolve' }
+  | { kind: 'resolve-conflicts'; repo: string }
+  | { kind: 'resolve-panel' }
   | { kind: 'open-session' };
 
 export interface RailNeedsInput {
@@ -123,16 +126,26 @@ export function railNeeds(input: RailNeedsInput): RailNeeds | null {
     switch (gate.kind) {
       // A conflict is a WORDING difference, not a new state: ship has no
       // failed edge, so it must never read as something a retry could clear.
-      // Only a human rebase resolves it, per repo, so the rail points at the
-      // panel's Resolve controls rather than acting on an ambiguous set.
-      case 'conflicted':
-        return {
-          detail: `${count(gate.repos)} ${
-            gate.repos.length === 1 ? 'no longer merges' : 'no longer merge'
-          } cleanly`,
-          action: 'Resolve',
-          cta: { kind: 'resolve' },
-        };
+      // Only a human rebase resolves it, per repo. A SINGLE conflicted repo is
+      // one the rail can act on — the resolve-conflicts session is per-repo
+      // and the host re-derives the brief from the store, so this click opens
+      // (or nudges) the exact session the PR panel's own Resolve button would
+      // (navigating there was the original gap). Several conflicted repos have
+      // no single target for a track-level button, so the rail points at the
+      // panel that owns one Resolve control per repo.
+      case 'conflicted': {
+        const detail = `${count(gate.repos)} ${
+          gate.repos.length === 1 ? 'no longer merges' : 'no longer merge'
+        } cleanly`;
+        if (gate.repos.length === 1) {
+          return {
+            detail,
+            action: 'Resolve',
+            cta: { kind: 'resolve-conflicts', repo: gate.repos[0]! },
+          };
+        }
+        return { detail, action: 'Resolve', cta: { kind: 'resolve-panel' } };
+      }
       case 'awaiting':
         // The one case where the rail may ACT: a single waiting repo whose PR
         // can merge. The host's confirmation modal still guards the merge.

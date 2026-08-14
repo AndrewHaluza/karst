@@ -6,6 +6,7 @@ import { recordGateRun } from '../../store/gateRuns.js';
 import { setMergeCheck } from '../../store/mergeChecks.js';
 import { recordPhaseMark } from '../../store/phaseMarks.js';
 import { recordTokenUsage } from '../../store/tokenUsage.js';
+import { upsertProject } from '../../store/projects.js';
 import { openProcessRun } from '../../store/processRuns.js';
 import { openStageRun } from '../../store/stageRuns.js';
 import { parkGateStage } from '../../store/stageBlocks.js';
@@ -46,6 +47,38 @@ describe('buildDashboardState', () => {
     expect(state.prs).toEqual([]);
     // No evidence → no artifacts section (spec §4.1: absence, never empty).
     expect(state.artifacts).toEqual([]);
+  });
+
+  it('resolves the PR repo to its manifest NAME and stamps adaptively', () => {
+    const t = createTicket(store, { key: 'PROJ-1', title: 'thing' });
+    setStage(store, t.id, 'ship', { status: 'passed' });
+    store.db
+      .prepare(
+        `INSERT INTO prs (ticket_id, repo, number, url, status, head_ref, base_ref, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        t.id,
+        '/wt/web',
+        42,
+        'https://github.com/o/r/pull/42',
+        'open',
+        'karst/feat/x',
+        'develop',
+        new Date(Date.now() - 2 * 3600 * 1000).toISOString(),
+      );
+    const state = buildDashboardState(
+      store, t.id,
+      undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined, undefined,
+      (repo) => (repo === '/wt/web' ? 'web' : undefined),
+    );
+    // The NAME wins over the display path; the identity stays the path.
+    expect(state.prs[0]!.repoDisplay).toBe('web');
+    expect(state.prs[0]!.repo).toBe('/wt/web');
+    // Adaptive stamp: fresh → relative label, full stamp preserved for the tooltip.
+    expect(state.prs[0]!.opened).toMatch(/^opened \d+h ago$/);
+    expect(state.prs[0]!.openedTitle).toMatch(/^opened /);
   });
 
   it('carries the parent relationship for a follow-up and null otherwise', () => {
@@ -225,6 +258,48 @@ describe('buildDashboardState', () => {
     expect(state.agentSwitch.models.codex!.some((m) => m.model === null)).toBe(true); // inherit choice
   });
 
+  it('exposes the recently used models per core for the picker\'s "Last used" group', () => {
+    const project = upsertProject(store, { slug: 'recent-proj' });
+    const t = createTicket(store, { key: 'RECENT', title: 'recent', projectId: project.id });
+    recordTokenUsage(store, {
+      projectId: project.id,
+      ticketId: t.id,
+      callSite: 'ticket-analysis',
+      provider: 'claude',
+      outcome: 'ok',
+      recordedAt: '2026-08-01T09:00:00.000Z',
+      usage: {
+        inputTokens: 1,
+        outputTokens: 1,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        totalTokens: 2,
+        model: 'claude-opus-5',
+        estimated: false,
+      },
+    });
+    recordTokenUsage(store, {
+      projectId: project.id,
+      ticketId: t.id,
+      callSite: 'ticket-analysis',
+      provider: 'claude',
+      outcome: 'ok',
+      recordedAt: '2026-08-02T09:00:00.000Z',
+      usage: {
+        inputTokens: 1,
+        outputTokens: 1,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        totalTokens: 2,
+        model: 'claude-sonnet-5',
+        estimated: false,
+      },
+    });
+
+    const state = buildDashboardState(store, t.id);
+    expect(state.agentSwitch.recentByCore.claude).toEqual(['claude-sonnet-5', 'claude-opus-5']);
+  });
+
   // The merge verdicts already feed the ship strip; the PR panel needs them at
   // the top level too, because that is where the conflict is acted on and the
   // webview cannot query the store.
@@ -385,6 +460,13 @@ describe('buildDashboardState', () => {
     expect(state.provider).toBe('clickup');
     expect(state.sourceRef).toBe('abc123');
     expect(state.ticketUrl).toBe('https://app.clickup.com/t/abc123');
+  });
+
+  it('carries the provider-native priority label when one was fetched', () => {
+    const t = createTicket(store, { key: 'CU-2', title: 't' });
+    expect(buildDashboardState(store, t.id).priority).toBeNull();
+    updateTicketFields(store, t.id, { priority: 'urgent' });
+    expect(buildDashboardState(store, t.id).priority).toBe('urgent');
   });
 
   it('has no ticket URL for a manual provider or a missing source ref', () => {
@@ -552,7 +634,50 @@ describe('buildDashboardState', () => {
     expect(ship.needs).toEqual({
       detail: '1 repo no longer merges cleanly',
       action: 'Resolve',
-      cta: { kind: 'resolve' },
+      cta: { kind: 'resolve-conflicts', repo: 'api' },
+    });
+  });
+
+  it('points a multi-repo conflict at the PR panel, never resolving blindly', () => {
+    // Resolve is per-repo (one conflict brief, one session): a track-level
+    // button cannot choose which of several conflicted repos to hand off, so
+    // the rail navigates to the panel that owns one Resolve control per repo.
+    const t = createTicket(store, { key: 'N-11', title: 't' });
+    setStage(store, t.id, 'ship', {
+      status: 'passed',
+      endedAt: '2026-08-01T10:00:00.000Z',
+      blockedKind: 'awaiting-merge',
+      blockedReason: 'blocked: pull requests for api, web are not merged yet',
+      blockedAt: '2026-08-01T10:00:00.000Z',
+    });
+    store.db
+      .prepare("UPDATE tickets SET stage_current = 'ship', agent_state = 'idle' WHERE id = ?")
+      .run(t.id);
+    const ins = store.db.prepare(
+      'INSERT INTO prs (ticket_id, repo, number, url, status) VALUES (?, ?, ?, ?, ?)',
+    );
+    ins.run(t.id, 'api', 12, 'https://github.com/o/r/pull/12', 'open');
+    ins.run(t.id, 'web', 13, 'https://github.com/o/r/pull/13', 'open');
+    for (const repo of ['api', 'web']) {
+      setMergeCheck(store, {
+        ticketId: t.id,
+        repo,
+        state: 'conflicted',
+        files: ['src/a.ts'],
+        reason: null,
+        headSha: 'h',
+        baseSha: 'b',
+        baseRef: 'main',
+        checkedAt: '2026-08-01T10:00:00.000Z',
+      });
+    }
+
+    const state = buildDashboardState(store, t.id);
+    const ship = state.rail.main.find((s) => s.cell.stageKey === 'ship')!;
+    expect(ship.needs).toEqual({
+      detail: '2 repos no longer merge cleanly',
+      action: 'Resolve',
+      cta: { kind: 'resolve-panel' },
     });
   });
 
@@ -875,10 +1000,26 @@ describe('buildDashboardState — send back to implement', () => {
     expect(buildDashboardState(store, id).sendBack).toEqual({ available: true, stage: 'ship' });
   });
 
-  it('withholds the action while the stage is running (in-flight)', () => {
+  it('withholds the action while a run is genuinely in flight', () => {
     const id = at('uat');
     setStage(store, id, 'uat', { status: 'running', startedAt: '2026-08-09T10:00:00.000Z' });
+    openStageRun(store, {
+      ticketId: id,
+      stageKey: 'uat',
+      attempt: 0,
+      runAt: '2026-08-09T10:00:00.000Z',
+      pid: 4242,
+      startedAt: '2026-08-09T10:00:00.000Z',
+    });
     expect(buildDashboardState(store, id).sendBack).toEqual({ available: false, reason: 'in-flight' });
+  });
+
+  it('offers the action on an entered-but-not-driven gate — no active run', () => {
+    // The machine enters every gate stage `running` (entryPatch); with no open
+    // stage_runs row the stage is settled, never in flight.
+    const id = at('uat');
+    setStage(store, id, 'uat', { status: 'running', startedAt: '2026-08-09T10:00:00.000Z' });
+    expect(buildDashboardState(store, id).sendBack).toEqual({ available: true, stage: 'uat' });
   });
 
   it('offers the action on a parked (blocked) gate — settled, not running', () => {

@@ -132,6 +132,11 @@
      src/model/agentIdentity.ts, injected here at load. */
   /*KARST_AGENT_CSS*/
 
+  /* The UNIFIED agent identity picker (agent core + model + effort/variant) —
+     the same element every surface mounts. Single source in
+     src/model/agentPicker.ts, injected here at load. */
+  /*KARST_AGENT_PICKER_CSS*/
+
   /* Agent provider custom select (icon + name inside dropdown) */
   .agentselect{position:relative;width:100%}
   .agentselect-trigger{width:100%;display:flex;align-items:center;justify-content:space-between;
@@ -538,20 +543,12 @@
         <select class="k-input" id="agentSelect"></select>
         <div class="empty hidden" id="agentEmpty">No agents available — add them in Settings.</div>
       </div>
-      <div id="providerPicker">
-        <label>Agent core</label>
-        <div class="agentselect" id="agentSelectWrap">
-          <button type="button" class="agentselect-trigger k-btn" id="agentTrigger"
-            aria-label="Agent core" aria-haspopup="listbox" aria-expanded="false"></button>
-          <div class="agentselect-menu hidden" id="agentMenu" role="listbox"></div>
-        </div>
-        <div class="sub hidden" id="providerLockHint">Locked while the session runs — close the terminal to change it.</div>
-      </div>
-      <div id="modelPicker">
-        <label for="modelSelect">Model</label>
-        <select class="k-input" id="modelSelect"></select>
-        <div class="sub hidden" id="modelLockHint">Locked while the session runs — close the terminal to change it.</div>
-      </div>
+      <!-- The UNIFIED agent identity picker (agent core + model + effort/variant)
+           — the same element Settings-general, the graph config and the
+           dashboard switch use (model/agentPicker.ts). The lock hint lives
+           beside it, driven by the session-open state. -->
+      <div id="agentIdentityPicker"></div>
+      <div class="sub hidden" id="providerLockHint">Locked while the session runs — close the terminal to change it.</div>
       <div id="typePicker">
         <label for="typeSelect">Type</label>
         <select class="k-input" id="typeSelect"></select>
@@ -606,6 +603,11 @@
   // src/model/agentIdentity.ts, injected here at load. Defines
   // AGENT_PROVIDER_LABELS, agentBadgeHtml, agentIconHtml.
   /*KARST_AGENT_JS*/
+
+  // The UNIFIED agent identity picker (agent core + model + effort/variant) —
+  // the same element every surface mounts. Single source in
+  // src/model/agentPicker.ts, injected here at load. Defines mountAgentPicker.
+  /*KARST_AGENT_PICKER_JS*/
 
   const vscode = acquireVsCodeApi();
   const post = (m) => vscode.postMessage(m);
@@ -761,15 +763,16 @@
     renderApproaches(state.approaches, state.selectedApproach);
     lastSelectedAgent = state.selectedAgent ?? null;
     renderAgentPicker(state.agents, state.selectedAgent);
-    renderProviderPicker(state.agentProviders, state.selectedAgentProvider, state.defaultAgentProvider, state.sessionOpen);
     // Stash the pushed catalog + defaults so a provider pick can re-render the
     // model picker locally (create mode: the host no-ops set-provider, so no
     // state push follows the pick — without these the Model select would keep
     // the previous agent core's models until the next full render).
     lastModelCatalog = state.modelCatalog || lastModelCatalog;
+    lastRecentModels = state.recentModels || lastRecentModels;
     lastDefaultModel = state.defaultModel ?? null;
+    lastDefaultEffort = state.defaultEffort ?? null;
     lastSessionOpen = state.sessionOpen === true;
-    renderModelPicker(state.models, state.selectedModel, state.defaultModel, state.sessionOpen);
+    renderAgentIdentityPicker(state.agentProviders, state.selectedAgentProvider, state.defaultAgentProvider, state.selectedModel, state.defaultModel, state.selectedEffort, state.defaultEffort, state.sessionOpen);
     lastTicketTypes = state.ticketTypes || [];
     lastDefaultType = state.defaultType || 'feat';
     renderTypePicker(state.ticketTypes, state.selectedType, state.defaultType);
@@ -1027,75 +1030,69 @@
     )).join('');
   }
 
-  // Agent-core (provider) picker: an "Inherit (settings)" option (empty value)
-  // plus the implemented providers pushed in `state.agentProviders`. Mirrors
-  // renderModelPicker exactly, including the session-open lock — the adapter is
-  // baked into the terminal at spawn, same as the model.
-  // Last default pushed, so a pick can repaint the trigger locally in create
-  // mode (the host no-ops set-provider there — no state push follows).
+  // Agent-core (provider) picker state: the UNIFIED identity picker
+  // (model/agentPicker.ts) handles the Inherit row, the session-open lock and
+  // the core/model/effort cascade; these locals only repaint the trigger
+  // locally in create mode (the host no-ops set-provider there — no state push
+  // follows). The adapter is baked into the terminal at spawn, same as the model.
   let lastDefaultProvider = 'claude';
   // Last pushed model catalog + defaults, so a provider pick can re-render the
   // Model select locally for the picked core (same reason as the trigger
   // repaint above — create mode has no state push to answer with). Mirrors the
   // host's modelsForProvider(catalog, provider): the page cannot import TS.
   let lastModelCatalog = { claude: [], codex: [], antigravity: [], opencode: [] };
+  // Last pushed recently-used models per provider (newest first, ≤5) for the
+  // shared picker's "Last used" group (model/agentPicker.ts `recent`).
+  let lastRecentModels = {};
   let lastDefaultModel = null;
+  let lastDefaultEffort = null;
   let lastSessionOpen = false;
   function modelsForProvider(provider) {
     return lastModelCatalog[provider] || [];
   }
-  function renderProviderPicker(providers, selectedProvider, defaultProvider, sessionOpen) {
-    const list = providers || [];
+
+  // The UNIFIED agent identity picker (agent core + model + effort/variant) —
+  // the same element Settings-general, the graph config and the dashboard
+  // switch use (model/agentPicker.ts). Idempotent: a state push re-renders the
+  // mounted picker in place rather than rebuilding it.
+  function renderAgentIdentityPicker(providers, selectedProvider, defaultProvider, selectedModel, defaultModel, selectedEffort, defaultEffort, sessionOpen) {
+    const root = el('agentIdentityPicker');
+    if (!root || typeof mountAgentPicker !== 'function') {
+      el('providerLockHint').classList.toggle('hidden', !sessionOpen);
+      return;
+    }
     lastDefaultProvider = defaultProvider || 'claude';
     const sel = draft.selectedAgentProvider ?? selectedProvider ?? '';
-    const current = sel || defaultProvider || 'claude';
-    el('agentTrigger').innerHTML = agentBadgeHtml(current) + '<span class="chev" aria-hidden="true"></span>';
-    // The inherit row names the DEFAULT CORE by its canonical identity label,
-    // never a raw manifest id.
-    const inheritLabel = AGENT_PROVIDER_LABELS[defaultProvider] || defaultProvider || 'claude';
-    const inheritOpt = `<div class="agentselect-opt${sel ? '' : ' selected'}" role="option" tabindex="0" data-value="" aria-selected="${!sel}">Inherit (settings: ${esc(inheritLabel)})</div>`;
-    const opts = list.map((p) => {
-      return `<div class="agentselect-opt${p === sel ? ' selected' : ''}" role="option"`
-        + ` tabindex="0" data-value="${esc(p)}" aria-selected="${p === sel}">`
-        + agentBadgeHtml(p) + `</div>`;
-    }).join('');
-    el('agentMenu').innerHTML = inheritOpt + opts;
-    el('agentTrigger').disabled = !!sessionOpen;
+    const coreLabel = AGENT_PROVIDER_LABELS[defaultProvider] || defaultProvider || 'claude';
+    const model = draft.selectedModel ?? selectedModel ?? '';
+    const effort = draft.selectedEffort ?? selectedEffort ?? '';
+    const apCores = (providers || []).map((p) => ({ id: p, label: AGENT_PROVIDER_LABELS[p] || p }));
+    const picker = mountAgentPicker(root, {
+      cores: apCores,
+      catalog: lastModelCatalog,
+      recent: lastRecentModels,
+      value: { core: sel || defaultProvider || 'claude', model, effort },
+      inherit: {
+        core: 'Inherit (settings: ' + esc(coreLabel) + ')',
+        model: defaultModel ? 'Inherit (settings: ' + esc(defaultModel) + ')' : 'Inherit (settings default)',
+        effort: defaultEffort ? 'Inherit (settings: ' + esc(defaultEffort) + ')' : 'No effort (agent picks)',
+      },
+      showEffort: true,
+      disabled: !!sessionOpen,
+      onChange: ({ core, model: m, effort: e }) => {
+        draft.selectedAgentProvider = core || null;
+        draft.selectedModel = m || null;
+        draft.selectedEffort = e || null;
+        // Create mode has no ticket, so the host no-ops set-provider; keep the
+        // draft authoritative for submit. Edit mode posts the change through
+        // the existing seams (which also re-filter the model picker host-side).
+        post({ type: 'set-provider', id: core || '', requestId: undefined });
+        post({ type: 'set-model', id: m || '', requestId: undefined });
+        post({ type: 'set-effort', id: e || '', requestId: undefined });
+      },
+    });
+    if (picker && picker.setDisabled) picker.setDisabled(!!sessionOpen);
     el('providerLockHint').classList.toggle('hidden', !sessionOpen);
-  }
-
-  // Model picker: an "Inherit (settings)" option (empty value) plus the models
-  // pushed in `state.models`. A persisted custom/stale model stays selectable:
-  // catalog refreshes must never silently rewrite a saved ticket.
-  function renderModelOptions(models, selectedModel, defaultModel) {
-    const list = models || [];
-    const sel = selectedModel || '';
-    const defLabel = defaultModel
-      ? `Inherit (settings: ${esc(defaultModel)})`
-      : 'Inherit (settings default)';
-    const opts = [`<option value=""${sel ? '' : ' selected'}>${defLabel}</option>`];
-    for (const m of list) {
-      opts.push(
-        `<option value="${esc(m.id)}"${m.id === sel ? ' selected' : ''}>${esc(m.label)}</option>`,
-      );
-    }
-    if (sel && !list.some((m) => m.id === sel)) {
-      opts.push(
-        `<option value="${esc(sel)}" selected>Saved model: ${esc(sel)}</option>`,
-      );
-    }
-    return opts.join('');
-  }
-
-  function renderModelPicker(models, selectedModel, defaultModel, sessionOpen) {
-    const sel = draft.selectedModel ?? selectedModel ?? '';
-    const select = el('modelSelect');
-    select.innerHTML = renderModelOptions(models, sel, defaultModel);
-    select.value = sel;
-    // The launch model is baked into the terminal command at spawn — it can't
-    // switch mid-session, so lock the picker while a session is live.
-    select.disabled = !!sessionOpen;
-    el('modelLockHint').classList.toggle('hidden', !sessionOpen);
   }
 
   // Type picker: "Inherit" (empty value, resolves to the manifest default) plus
@@ -1355,15 +1352,17 @@
       approach === 'single-subagent' && lastAgents.length
         ? (draft.selectedAgent ?? el('agentSelect').value ?? null) || null
         : null;
-    // Read the live <select> so the shown model is persisted even in create mode
-    // (draft.selectedModel stays null until an explicit change). Empty = inherit.
-    const model = (draft.selectedModel ?? el('modelSelect').value ?? '') || null;
+    // The UNIFIED picker writes the draft directly (draft.selectedModel /
+    // draft.selectedEffort), so create-mode picks persist onto the new ticket
+    // at submit. Empty = inherit.
+    const model = draft.selectedModel || null;
+    const effort = draft.selectedEffort || null;
     const agentProvider = draft.selectedAgentProvider || null;
     const ticketType = (draft.ticketType ?? el('typeSelect').value ?? '') || null;
     // Enter pending LOCALLY, before the round trip (UI-R11) — the host's `busy`
     // message that follows only confirms/clears it.
     setSubmitBusy(true);
-    post({ type: 'submit', key, title, description: el('desc').value, repos, approach, agent, model, agentProvider, ticketType, createInProvider: createInOn, pullBase: pullBaseOn });
+    post({ type: 'submit', key, title, description: el('desc').value, repos, approach, agent, model, effort, agentProvider, ticketType, createInProvider: createInOn, pullBase: pullBaseOn });
   });
 
   el('saveBtn').addEventListener('click', () => {
@@ -1386,10 +1385,11 @@
       approach === 'single-subagent' && lastAgents.length
         ? (draft.selectedAgent ?? el('agentSelect').value ?? null) || null
         : null;
-    const model = (draft.selectedModel ?? el('modelSelect').value ?? '') || null;
+    const model = draft.selectedModel || null;
+    const effort = draft.selectedEffort || null;
     const ticketType = (draft.ticketType ?? el('typeSelect').value ?? '') || null;
     setSaveBusy(true);
-    post({ type: 'save', key, title, description: el('desc').value, repos, approach, agent, model, agentProvider, ticketType, createInProvider: createInOn });
+    post({ type: 'save', key, title, description: el('desc').value, repos, approach, agent, model, effort, agentProvider, ticketType, createInProvider: createInOn });
   });
 
   // Typing an identity in Phase 1 reveals (or re-hides) Phase 2 live. When the
@@ -1852,71 +1852,6 @@
     karstBeginPending(select, requestId);
     post({ type: 'set-agent', id, requestId });
   });
-
-  // Pick a model (or "Inherit", value ''): record + post. In create mode the
-  // host no-ops the persist; submit carries the final value.
-  el('modelSelect').addEventListener('change', (e) => {
-    const select = e.target;
-    const id = select.value;
-    draft.selectedModel = id || null;
-    const requestId = karstRequestId();
-    karstBeginPending(select, requestId);
-    post({ type: 'set-model', id, requestId });
-  });
-
-  // Pick a provider (or "Inherit", value ''): record + post. In create mode the
-  // host no-ops the persist; submit carries the final value.
-  { const wrap = el('agentSelectWrap');
-  const trigger = el('agentTrigger');
-  const menu = el('agentMenu');
-  function selectProvider(p) {
-    draft.selectedAgentProvider = p || null;
-    // Repaint the trigger and the option states LOCALLY: in create mode the
-    // host's set-provider is a no-op (no ticket to persist), so no state push
-    // follows — without this the trigger kept showing the previous core and
-    // the menu stayed open until the next full render (same local update
-    // settings' selectAgent performs).
-    const current = p || lastDefaultProvider;
-    trigger.innerHTML = agentBadgeHtml(current) + '<span class="chev" aria-hidden="true"></span>';
-    menu.querySelectorAll('.agentselect-opt').forEach((opt) => {
-      const v = opt.getAttribute('data-value');
-      opt.classList.toggle('selected', v === p);
-      opt.setAttribute('aria-selected', String(v === p));
-    });
-    menu.classList.add('hidden');
-    trigger.setAttribute('aria-expanded', 'false');
-    // The Model select follows the agent core: re-render it for the picked
-    // provider's catalog. Without this a create-mode pick left the previous
-    // core's models in the select until the next state push (fetch/submit) —
-    // the host no-ops set-provider there, so nothing else answers the switch.
-    renderModelPicker(modelsForProvider(p || lastDefaultProvider), draft.selectedModel, lastDefaultModel, lastSessionOpen);
-    const requestId = karstRequestId();
-    karstBeginPending(trigger, requestId);
-    post({ type: 'set-provider', id: p, requestId });
-  }
-  trigger.addEventListener('click', () => {
-    if (trigger.disabled) return;
-    const open = !menu.classList.contains('hidden');
-    menu.classList.toggle('hidden', open);
-    trigger.setAttribute('aria-expanded', String(!open));
-  });
-  menu.addEventListener('click', (e) => {
-    const opt = e.target.closest('.agentselect-opt');
-    if (!opt) return;
-    selectProvider(opt.getAttribute('data-value'));
-  });
-  menu.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') { menu.classList.add('hidden'); trigger.setAttribute('aria-expanded', 'false'); trigger.focus(); }
-  });
-  trigger.addEventListener('keydown', (e) => {
-    if (trigger.disabled) return;
-    if (e.key === 'Escape' || e.key === 'ArrowUp') { menu.classList.add('hidden'); trigger.setAttribute('aria-expanded', 'false'); }
-    if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault(); menu.classList.remove('hidden'); trigger.setAttribute('aria-expanded', 'true');
-      menu.querySelector('.agentselect-opt')?.focus();
-    }
-  });
-  document.addEventListener('click', (e) => { if (!wrap.contains(e.target)) { menu.classList.add('hidden'); trigger.setAttribute('aria-expanded', 'false'); } }); }
 
   // Pick a conventional type (or "Inherit", value ''): record + post, same
   // shape as the model picker. Create mode holds it in the draft until submit.

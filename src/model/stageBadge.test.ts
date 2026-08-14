@@ -26,11 +26,13 @@ function ticket(
     archivedAt: null,
     updatedAt: null,
     model: null,
+    effort: null,
     agentProvider: null,
     sessionProvider: null,
     type: null,
     projectId: null,
     parentTicketId: null,
+    priority: null,
     stages: stageCurrent
       ? [
           {

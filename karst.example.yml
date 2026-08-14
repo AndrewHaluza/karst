@@ -227,8 +227,10 @@ agents:
 # load, because the pool lives on the filesystem. `agentName` overrides only the
 # display snapshot; blanks keep the defaults. `provider`/`model` beat the
 # ticket and manifest defaults; `enabled: false` turns the assignment off.
-# `instructions` (uatTester / review only) is an author-declared OVERRIDE that
-# wins over the profile body — a profile is sufficient without it.
+# There is no inline `instructions:` key — the profile body is the only prompt
+# source, so what Settings shows and what runs cannot disagree. A file that
+# still carries one keeps loading; karst reports it at load and drops it on the
+# next Settings save.
 #
 # Wiring notes: the profile body drives the PROMPT-BEARING roles — Ticket
 # analysis, uatTester, review (their headless calls run with the profile body).
@@ -242,9 +244,6 @@ agents:
 #     agentName: My UAT Agent
 #     provider: codex
 #     model: gpt-5.6-sol
-#     instructions: |          # optional override; wins over the profile body
-#       Focus on API endpoint behavior. Test edge cases around
-#       authentication and rate limiting. Ignore UI concerns.
 #   uatFix: { provider: codex }
 #   review: { agent: review, provider: antigravity }
 #   reviewFix: { provider: antigravity }

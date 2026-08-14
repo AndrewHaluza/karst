@@ -27,6 +27,7 @@ import {
 } from './state.js';
 import { parseInsideProgress, parseWebviewMessage, routeAction, type DashboardActions } from './messages.js';
 import type { InsideActionResult, StageLogResult } from './messages.js';
+import type { AgentProcessId } from './messages.js';
 import type { WorktreeStatsLoader } from './worktreeStats.js';
 import type { GateOptions, GateOptionsLoader } from './gateOptions.js';
 import type { GraphInsideInput, GraphActionTarget } from '../../model/inside/graph.js';
@@ -111,6 +112,9 @@ export type ActionsFactory = (ticketId: number) => DashboardActions;
 
 /** Resolve one gate stage's console log host-side (store + fs). */
 export type StageLogReader = (ticketId: number, stage: GateStage) => StageLogResult;
+
+/** Resolve one gate-lane AI process's console tail host-side (fs). */
+export type AgentLogReader = (ticketId: number, processId: AgentProcessId) => StageLogResult;
 
 /**
  * How long a superseded snapshot's action ids stay dispatchable — the window a
@@ -279,6 +283,12 @@ export class DashboardManager {
      * webview receives a named refusal rather than content (UI-R13).
      */
     private readonly stageLogReader?: StageLogReader,
+    /**
+     * Resolve a gate-lane AI process's console tail for the terminal view
+     * (the UAT Tester / Review findings lane). Absent → the webview receives
+     * a named refusal rather than content (UI-R13).
+     */
+    private readonly agentLogReader?: AgentLogReader,
   ) {}
 
   /**
@@ -728,6 +738,33 @@ export class DashboardManager {
       ? this.stageLogReader(ticketId, stage)
       : { kind: 'error', message: 'No console log source is configured.' };
     panel.postMessage({ type: 'stage-log', stage, result });
+  }
+
+  /**
+   * Answer an `agent-log-request`: resolve the process's console tail via the
+   * injected reader and post the `agent-log` message. The answer IS the
+   * terminal outcome — always sent (ok or error), never left to a watchdog
+   * (UI-R13).
+   */
+  requestAgentLog(ticketId: number, processId: AgentProcessId): void {
+    const panel = this.panels.get(ticketId);
+    if (!panel) return;
+    const result = this.agentLogReader
+      ? this.agentLogReader(ticketId, processId)
+      : { kind: 'error', message: 'No console log source is configured.' };
+    panel.postMessage({ type: 'agent-log', processId, result });
+  }
+
+  /**
+   * Push one sanitized live chunk of a gate-lane AI process's output to the
+   * ticket's panel; no-op if the panel is not open. The text is already
+   * sanitized and bounded host-side (the `AgentConsole` sink); this boundary
+   * forwards it verbatim to the open terminal view.
+   */
+  postAgentOutput(ticketId: number, processId: AgentProcessId, text: string): void {
+    const panel = this.panels.get(ticketId);
+    if (!panel) return;
+    panel.postMessage({ type: 'agent-output', processId, text });
   }
 
   /**

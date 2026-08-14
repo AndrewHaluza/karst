@@ -434,15 +434,9 @@ export interface ProcessAssignmentConfig {
   agent?: string;
   provider?: AgentProvider;
   model?: string;
-  /**
-   * Author-declared prompt instructions for the role: replaces the built-in
-   * role/strategy portion of the process's prompt. Blank/absent → the built-in
-   * prompt (backward compatible). The structured-output rules are never
-   * replaced — instructions sit above them. Consumed only by the UAT Tester
-   * (`uatTester`) and Review findings (`review`); the other roles keep their
-   * own fixed prompt paths and ignore the value.
-   */
-  instructions?: string;
+  // NOTE: there is deliberately no `instructions` field. A process's prompt is
+  // the BODY of the profile named by `agent` — one place to write it, one place
+  // to read it. The retired key is still reported at load (`inertKeys.ts`).
   enabled?: boolean; // default true
 }
 
@@ -504,9 +498,10 @@ export interface Manifest {
    */
   ticketLabelTemplate?: string;
   /**
-   * Terminal-name template with the same `{var}` tokens as ticketLabelTemplate
-   * plus `followUp` (the one-char `↳` marker, rendered only for a follow-up
-   * ticket). Undefined → the default `'Karst: {followUp}{key} — {title}'`.
+   * Terminal-name template with the same `{var}` tokens as ticketLabelTemplate.
+   * The one-char follow-up marker (`↳`) is NOT a token here: the host appends
+   * it at launch for follow-up tickets (model/followUp.ts), so it stays visible
+   * whatever this template says. Undefined → the default `'Karst: {key} — {title}'`.
    * Blank normalizes to undefined at validation. Rendered once at launch
    * (terminals are static).
    */
@@ -526,6 +521,14 @@ export interface Manifest {
    * normalized to undefined at validation.
    */
   defaultModel?: string;
+  /**
+   * Default effort/variant inherited by tickets that don't pick their own
+   * (§ Execution policy resolution). Undefined → the agent CLI's own default.
+   * Only meaningful when `defaultModel` advertises efforts in the catalog; a
+   * configured effort the selected model does not advertise is a configuration
+   * error at Save, never silently discarded (see `agent/effort.ts`).
+   */
+  defaultEffort?: string;
   /**
    * How many days a ticket stays visible at `done` before the periodic sweep
    * archives it (§ auto-archiving done tickets). Defaults to 3 — a ticket is

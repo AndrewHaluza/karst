@@ -19,6 +19,7 @@ import type {
   RunHeadlessOpts,
 } from './adapter.js';
 import { describeHeadlessFailure } from './cliFailure.js';
+import { renderConsoleStream } from './consoleFormat.js';
 import { spawnHeadlessCli, headlessPreview, type HeadlessSpawnOptions } from './headlessSpawn.js';
 import { attachUsage } from './tokenUsage.js';
 import type { TokenUsage } from './tokenUsage.js';
@@ -252,14 +253,16 @@ export function parseOpencodeJsonlUsage(stdout: string): TokenUsage | null {
  * payload `{ hook_event_name, cwd, session_id, message? }` to the loopback
  * endpoint — the opencode-native equivalent of Codex's `bridge.cjs`.
  *
- * Task 5: `session.idle` is the token-bearing completion event — its properties
- * carry the session snapshot whose `tokens` (`{ input, output, reasoning,
- * cache: { read, write } }`) are CUMULATIVE for the session, the same shape the
- * headless `step_finish` parser reads. When they are present and numeric, the
- * bridge posts a closed `UsageUpdate` beside the lifecycle event, keyed by the
- * plugin event's stable id. Cache reads and cache writes stay SEPARATE counters
- * — they are never folded into a single cached-input value. Token-less or
- * malformed events post no UsageUpdate at all.
+ * Task 5: `session.updated` is the token-bearing event — its properties nest
+ * the Session object under `info` whose `tokens` (`{ input, output, reasoning,
+ * cache: { read, write } }`) are CUMULATIVE for the session (opencode 1.18.18
+ * publishes `session.idle` with only a `sessionID`, so it can never carry the
+ * tally; verified against the installed CLI's source and a live conversation
+ * DB). When the counters are present and numeric, the bridge posts a closed
+ * `UsageUpdate` keyed by the plugin event's stable id, only when the tally
+ * advanced since the last posted observation. Cache reads and cache writes
+ * stay SEPARATE counters — they are never folded into a single cached-input
+ * value. Token-less or malformed events post no UsageUpdate at all.
  *
  * Safety mirrors `CODEX_HOOK_BRIDGE`: the endpoint is baked in at generation
  * time from a loopback-validated URL, the serialized payload is size-bounded
@@ -282,13 +285,21 @@ function stringOf(value) {
   return typeof value === 'string' && value.length > 0 ? value : '';
 }
 
-// opencode event payloads vary; extract defensively.
+// opencode event payloads vary; extract defensively. session.created carries
+// the session under info (a Session object) rather than a flat sessionID —
+// the launch-intent handshake needs its id, so both shapes resolve here.
 function extractSessionId(input) {
   if (!input) return '';
   const direct = stringOf(input.sessionID);
   if (direct) return direct;
   const session = asRecord(input.session);
-  return session ? stringOf(session.id) : '';
+  const sessionId = session ? stringOf(session.id) : '';
+  if (sessionId) return sessionId;
+  // 'session.created' nests the Session under 'properties.info' (the SDK's
+  // EventSessionCreated) — the ONLY opencode event that delivers the
+  // interactive session id, and thus the capture step of resume-by-id (§5.3).
+  const info = asRecord(input.info);
+  return info ? stringOf(info.id) : '';
 }
 
 function extractCwd(input, directory, worktree) {
@@ -300,6 +311,10 @@ function extractCwd(input, directory, worktree) {
     if (sessionDir) return sessionDir;
     const eventDir = stringOf(input.directory);
     if (eventDir) return eventDir;
+    // 'session.created' nests the Session under 'properties.info' too.
+    const info = asRecord(input.info);
+    const infoDir = info ? stringOf(info.directory) : '';
+    if (infoDir) return infoDir;
   }
   // The plugin input's directory/worktree IS the session's launch cwd — the
   // same path the hook endpoint keys tickets on (events rarely carry it).
@@ -335,11 +350,21 @@ function usageCount(value) {
 }
 
 // The session snapshot's cumulative tokens, read as opencode reports them:
-// tokens.input/tokens.output plus nested tokens.cache.read/tokens.cache.write.
+// session.updated nests the Session object under info.tokens — CUMULATIVE for
+// the session (verified against 1.18.18's schema and a live conversation DB).
+// The legacy snapshot shape nested the tally at session.tokens. A
+// message.part.updated step-finish part also carries tokens, but those are
+// PER-STEP, so they are deliberately NOT read here: the ledger compares
+// cumulative tallies, and a step-local count would read as a counter reset.
+// cache.read and cache.write are disjoint from input in opencode's report, so
+// they map straight across.
 function extractUsage(input) {
+  const info = asRecord(input && input.info);
   const session = asRecord(input && input.session);
   const tokens =
-    asRecord(session && session.tokens) || asRecord(input && input.tokens);
+    (info && asRecord(info.tokens)) ||
+    (session && asRecord(session.tokens)) ||
+    asRecord(input && input.tokens);
   if (!tokens) return null;
   const cache = asRecord(tokens.cache);
   const inputTokens = usageCount(tokens.input);
@@ -417,16 +442,74 @@ function postUsage(eventId, input, directory, worktree, done) {
   }, done);
 }
 
+// The last posted cumulative tally per session. opencode re-emits
+// session.updated on every session save, not only when the counters moved, so
+// the bridge must not re-post an unchanged observation (the ledger would
+// append a zero delta every save).
+const lastPostedTally = new Map();
+
+function tallySignature(usage) {
+  return [
+    usage.input,
+    usage.output,
+    usage.cache_read ?? 0,
+    usage.cache_write ?? 0,
+    usage.total ?? 0,
+  ].join(':');
+}
+
+function postUsageAdvanced(eventId, input, directory, worktree, done) {
+  const sessionId = extractSessionId(input);
+  const usage = extractUsage(input);
+  if (!eventId || !sessionId || !usage) {
+    if (done) done();
+    return;
+  }
+  const signature = tallySignature(usage);
+  if (lastPostedTally.get(sessionId) === signature) {
+    if (done) done();
+    return;
+  }
+  lastPostedTally.set(sessionId, signature);
+  postUsage(eventId, input, directory, worktree, done);
+}
+
 export const KarstBridge = async ({ directory, worktree }) => {
   return {
     event: async ({ event }) => {
       const type = event && event.type;
       const input = event && event.properties;
-      if (type === 'session.idle') {
-        // The usage update is sequenced AFTER the lifecycle post settles so the
-        // endpoint sees one session event then its tokens — never reordered.
+      if (type === 'session.created') {
+        // opencode's session-creation event — the SessionStart equivalent the
+        // launch-intent handshake needs (dispatch.ts confirms a prepared fix
+        // launch ONLY on SessionStart carrying the launch id). Without it a
+        // closed-session fix resume records its intent and then waits forever:
+        // the round stays pending, never fixing, and the stranded-fix sweep
+        // parks the stage "no fix execution in flight" while the agent is
+        // actually working. Normalized to karst's own closed vocabulary, the
+        // same way the agy conversation watch synthesizes a SessionStart. It
+        // is also the resume-by-id capture step (§5.3, investigation #217):
+        // POSTing SessionStart persists 'tickets.session_id' so a later launch
+        // can '--session' the same conversation. The id is the point of the
+        // event, so a created event that carries none is dropped (post() would
+        // otherwise still fire on the fallback cwd).
+        if (extractSessionId(input)) {
+          post('SessionStart', input, directory, worktree);
+        }
+      } else if (type === 'session.updated') {
+        // The token-bearing event: its properties nest the Session under
+        // info whose tokens are CUMULATIVE for the session (opencode 1.18.18
+        // emits session.idle with only a sessionID, so it never carries a
+        // tally). Posted only when the tally advanced since the last
+        // observation for this session.
+        postUsageAdvanced(event && event.id, input, directory, worktree);
+      } else if (type === 'session.idle') {
+        // Lifecycle only. opencode 1.18.18 emits session.idle with just a
+        // sessionID — no tokens — so there is no usage to attach. (Kept as a
+        // defensive fallback: if a future opencode adds tokens here,
+        // extractUsage picks them up and the tally guard above still dedupes.)
         post('session.idle', input, directory, worktree, undefined, () =>
-          postUsage(event && event.id, input, directory, worktree));
+          postUsageAdvanced(event && event.id, input, directory, worktree));
       } else if (type === 'session.error') {
         post('session.error', input, directory, worktree, extractErrorMessage(input));
       } else if (
@@ -510,21 +593,22 @@ function writeKarstBridge(cwd: string, endpointUrl: string): string {
 export class OpencodeAdapter implements AgentAdapter {
   readonly requiredBinary = OPENCODE_BIN;
   // lifecycleEvents is gated on the generated `.opencode/plugins/karst-bridge.js`
-  // (Task 7): opencode has no CLI hook flag, so the plugin IS the channel. It
-  // ships ONCE the channel is proven; `resume` stays false — the TUI has no
-  // launch-time resume flag, and headless resume runs via `--session`.
+  // (Task 7): opencode has no CLI hook flag, so the plugin IS the channel. The
+  // plugin captures the interactive session id from `session.created` and posts
+  // SessionStart, and the TUI accepts `-s/--session <id>` to continue it — so
+  // resume is real (verified against opencode 1.18.18, investigation #217).
   readonly capabilities: AgentCapabilities = {
     lifecycleEvents: true,
-    resume: false,
+    resume: true,
     interactiveUsage: true,
   };
 
   constructor(private readonly spawnHeadless: SpawnHeadless = defaultSpawn) {}
 
-  // `opts.sessionName` and `opts.resume` are deliberately dropped: the opencode
-  // TUI has no launch-time session-name flag and no interactive resume flag, so
-  // a resume id passed despite `resume:false` is ignored rather than emitted as
-  // an unsupported `-s` against a TUI that would hang on a nonexistent session.
+  // `opts.sessionName` is deliberately dropped: the opencode TUI has no
+  // launch-time session-name flag. `opts.resume` IS threaded as `--session`
+  // (the TUI's continue flag, verified against the installed CLI) — without it
+  // a captured id would never be applied to the launch.
   buildInteractiveCommand(
     opts: InteractiveCommandOpts,
   ): InteractiveCommand {
@@ -542,6 +626,10 @@ export class OpencodeAdapter implements AgentAdapter {
       // isolated from the user's own plugins.
       const pluginPath = writeKarstBridge(opts.cwd, opts.hookChannel.endpointUrl);
       ownedPaths = [pluginPath];
+    }
+    if (opts.resume && opts.resume.length > 0) {
+      // Continue a previously-captured session instead of a cold start (§5.3).
+      args.push('--session', opts.resume);
     }
     if (opts.model) args.push('--model', opts.model);
     if (opts.effort) args.push('--variant', opts.effort);
@@ -721,12 +809,33 @@ export class OpencodeAdapter implements AgentAdapter {
         .map((a) => (a === opts.prompt ? `<prompt:${opts.prompt.length} chars>` : a))
         .join(' ')} (cwd ${opts.cwd})`,
     );
-    const result = await this.spawnHeadless(OPENCODE_BIN, args, opts.cwd, {
-      signal: opts.signal,
-      timeoutMs: opts.timeoutMs,
-      onDebug: opts.debug,
-      onSpawned: opts.onSpawned,
-    });
+    // The console tail streams RAW JSONL (`--format json`): render each event
+    // as a readable line before it reaches the console. The stream is only for
+    // the console — the settle-time `stdout` still carries the raw bytes the
+    // parser reads, so rendering here never touches what `parseOpencodeJsonl`
+    // sees.
+    const consoleStream = opts.onOutput ? renderConsoleStream('opencode', opts.onOutput) : undefined;
+    opts.debug?.(
+      consoleStream
+        ? `[agent:opencode] console stream: rendering JSONL events as readable lines`
+        : `[agent:opencode] console stream: none — no onOutput hook`,
+    );
+    let result: HeadlessSpawnResult;
+    try {
+      result = await this.spawnHeadless(OPENCODE_BIN, args, opts.cwd, {
+        signal: opts.signal,
+        timeoutMs: opts.timeoutMs,
+        onDebug: opts.debug,
+        onSpawned: opts.onSpawned,
+        onOutput: consoleStream ? consoleStream.append : opts.onOutput,
+      });
+    } finally {
+      // A trailing partial JSON line that never got its newline (opencode does
+      // not guarantee one after the last event) is still a complete event —
+      // flush it to the console so the tail never loses the final rendered
+      // line, whatever the run's outcome.
+      consoleStream?.flush();
+    }
     if (result.exitCode !== 0) {
       opts.debug?.(
         `[agent:opencode] exit ${result.exitCode} — stdout: ${headlessPreview(result.stdout)}; stderr: ${headlessPreview(result.stderr)}`,

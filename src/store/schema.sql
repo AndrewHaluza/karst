@@ -33,6 +33,8 @@ CREATE TABLE IF NOT EXISTS tickets (
   archived_at       TEXT,                 -- soft-delete timestamp; NULL = active
   -- v5 model column (kept in sync with migrations.ts v5 ALTER):
   model             TEXT,                 -- per-ticket launch model id; NULL = inherit default
+  -- v44 effort column (kept in sync with migrations.ts v44 ALTER):
+  effort            TEXT,                 -- per-ticket effort/variant; NULL = inherit default
   -- v6 project column (kept in sync with migrations.ts v6 ALTER):
   project_id        INTEGER,              -- -> projects.id; NULL = unassigned (pre-v6 ticket)
   -- v12 agent_provider column (kept in sync with migrations.ts v12 ALTER):
@@ -45,6 +47,8 @@ CREATE TABLE IF NOT EXISTS tickets (
   type              TEXT,                 -- feat | fix | … ; NULL = inherit conventions.defaultType
   -- v24 per-ticket gate disable (kept in sync with migrations.ts v24 ALTER):
   disabled_gates    TEXT,                 -- JSON {"uat":["e2e"],"review":["lint"]}; NULL = nothing disabled
+  -- v44 provider-native priority label (kept in sync with migrations.ts v44 ALTER):
+  priority          TEXT,                 -- 'urgent' | 'high' | 'normal' | ... ; NULL = provider did not expose it
   created_at        TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at        TEXT NOT NULL DEFAULT (datetime('now'))
 );

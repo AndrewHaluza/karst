@@ -14,6 +14,7 @@ import { buildStepper, displayStatus, type StepperCell } from '../../model/stepp
 import { buildShipSlot, type ShipSlot } from '../../model/shipSlot.js';
 import { resolveProvider } from '../../agent/registry.js';
 import { IMPLEMENTED_PROVIDERS } from '../../agent/provider.js';
+import { resolveEffortForProvider } from '../../agent/models.js';
 import { AGENT_PROVIDER_LABELS } from '../../model/agentIdentity.js';
 import { buildStageRail, type StageRail } from '../../model/stageRail.js';
 import { listGateRuns } from '../../store/gateRuns.js';
@@ -52,6 +53,7 @@ import {
   summarizeRecordedTokenUsage,
   summarizeRecordedTokenUsageForProcess,
   summarizeRecordedTokenUsageByRole,
+  listRecentlyUsedModels,
 } from '../../store/tokenUsage.js';
 import type { InsideActionRegistry } from './insideActions.js';
 import type {
@@ -82,6 +84,8 @@ export type { PathContext, StepperCell, StageRail, PrPanelRow, MergeCheckPanelRo
 
 export interface DashboardAgentContext {
   defaultModel?: string | null;
+  /** Manifest default effort/variant, for the switch popover's inherit row. */
+  defaultEffort?: string | null;
   modelCatalog?: ModelCatalog;
 }
 
@@ -120,10 +124,21 @@ export interface DashboardState {
    * The agent-switch choices the header popover renders: every implemented core
    * (canonical label) and each core's model choices, keyed by provider id. The
    * webview cannot import TS, so the catalog arrives here, host-resolved.
+   * `modelsByCore` is the FULL model catalog (models + their advertised
+   * efforts) the shared agent identity picker renders from; `models` keeps the
+   * flattened legacy shape. `recentByCore` is the models most recently used per
+   * provider (newest first, ≤5) for the picker's "Last used" group. `effort`
+   * is the resolved current effort/variant, and the `*InheritLabel`s name the
+   * switch popover's inherit rows.
    */
   agentSwitch: {
     cores: { id: AgentProvider; label: string }[];
     models: Record<string, { model: string | null; label: string }[]>;
+    modelsByCore: ModelCatalog;
+    recentByCore: Record<string, string[]>;
+    effort: string | null;
+    modelInheritLabel: string;
+    effortInheritLabel: string;
   };
   servers: ServerView[];
   /** False when nothing in scope declares a service — nothing can ever start. */
@@ -152,6 +167,8 @@ export interface DashboardState {
   sourceRef: string | null;
   /** External board URL for the ticket, or null (manual/unfetched → no link). */
   ticketUrl: string | null;
+  /** Provider-native priority label (e.g. 'urgent'); null when not exposed. */
+  priority: string | null;
   /**
    * The user's authored instruction (the `description` column) — the prompt a
    * manual ticket was created from. Previewed in the ticket-data drawer when
@@ -323,6 +340,8 @@ export function buildDashboardState(
     provider: resolvedProvider,
     ticketModel: ticket.model,
     defaultModel: agentContext.defaultModel ?? null,
+    ticketEffort: ticket.effort,
+    defaultEffort: agentContext.defaultEffort ?? null,
     catalog: agentContext.modelCatalog ?? bundledModelCatalog(),
     stageCurrent: ticket.stageCurrent,
     fixExecutionActive: rounds.some((round) => round.status === 'fixing'),
@@ -331,6 +350,7 @@ export function buildDashboardState(
   const currentStage = stepper.find((c) => c.stageKey === ticket.stageCurrent) ?? null;
 
   const catalog = agentContext.modelCatalog ?? bundledModelCatalog();
+  const recentByCore = listRecentlyUsedModels(store, ticket.projectId, 5);
   const switchModels: Record<string, { model: string | null; label: string }[]> = {};
   for (const id of IMPLEMENTED_PROVIDERS) {
     switchModels[id] = agentSwitchModelChoices({
@@ -340,12 +360,30 @@ export function buildDashboardState(
       catalog,
     }).map(({ model, label }) => ({ model, label }));
   }
+  // The shared picker's inherit rows name the RESOLVED defaults, like the
+  // legacy model choices did. Effort inherits the manifest default when the
+  // ticket has none.
+  const inheritedEffort = resolveEffortForProvider(
+    resolvedProvider,
+    ticket.effort,
+    agentContext.defaultEffort ?? null,
+    agentSession.modelId ?? undefined,
+    catalog,
+  );
+  const effortInheritLabel = inheritedEffort ? `Inherit (settings: ${inheritedEffort})` : 'No effort (agent picks)';
+  const modelInheritLabel = agentSession.modelLabel === 'Agent default'
+    ? 'No default (agent picks)'
+    : agentSession.modelLabel;
 
   const worktrees = listWorktreesByTicket(store, ticketId).map((w) => ({
     ...w,
     repoDisplay: repoDisplayPath(w.repo, pathContext),
     launchable: isCheckout(w.path),
   }));
+
+  // ONE clock read per push: the PR stamps, the merge rows and the stage strip
+  // must not date from different instants.
+  const now = nowIso();
 
   // Rendered through the SAME path-display preference as the worktree rows: the
   // ship stage names the same directories, and two formats for one path is the
@@ -374,7 +412,7 @@ export function buildDashboardState(
     .map((p) => p.repo);
   // The dashboard's PR rows, host-worded and host-decided like every other
   // panel string. Hoisted so the rail and the panel share one mergeability read.
-  const prRows = buildPrPanelRows(prs);
+  const prRows = buildPrPanelRows(prs, now, repoNameFor);
   // ONE read of the recovery action's availability, for the same reason: the
   // stage header's ⋯ menu and the host's confirm path must agree about whether
   // "Send back to Implement" exists at all. Derived here rather than on click
@@ -398,10 +436,6 @@ export function buildDashboardState(
   const blocked = needsUser(ticket);
   const implCell = stepper.find((c) => c.stageKey === 'impl') ?? null;
   const reported = implCell ? reportedPhases(marks, implCell).map((m) => m.phaseName) : [];
-
-  // ONE clock read per push: the merge rows and the stage strip must not date
-  // from two different instants.
-  const now = nowIso();
 
   // The snapshot-scoped action seam: the registry lives here in the host; only
   // the opaque {actionId, kind} pairs ride the view. The continuation label
@@ -584,7 +618,15 @@ export function buildDashboardState(
     stepper,
     currentStage,
     ship: buildShipSlot(currentStage, 'repos' in mergeGate ? mergeGate : undefined),
-    agentSwitch: { cores: agentSwitchCoreChoices(), models: switchModels },
+    agentSwitch: {
+      cores: agentSwitchCoreChoices(),
+      models: switchModels,
+      modelsByCore: catalog,
+      recentByCore,
+      effort: agentSession.effort,
+      modelInheritLabel,
+      effortInheritLabel,
+    },
     servers: listServersByTicket(store, ticketId),
     // Drives whether "Start servers" is offered at all. A ticket scoping only
     // non-runnable repositories can never have a server, so presenting a live
@@ -596,6 +638,7 @@ export function buildDashboardState(
     provider: ticketing?.provider ?? null,
     sourceRef: ticket.sourceRef,
     ticketUrl: providerTicketUrl(ticketing?.provider, ticket.sourceRef),
+    priority: ticket.priority,
     description: ticket.description,
     brief: ticket.brief,
     rail: buildStageRail(stepper, ticket.stages, {

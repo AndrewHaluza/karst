@@ -270,6 +270,7 @@ export function startHookEndpoint(
               shouldApplyState,
               sessionProviderFor,
               options.recorder,
+              options.debug,
             );
           } catch (err) {
             observe('dispatch-failed', payload.hook_event_name);

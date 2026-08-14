@@ -1248,6 +1248,31 @@ describe('CodexAdapter headless execution', () => {
     expect(seenOpts?.timeoutMs).toBe(234_567);
   });
 
+  it('forwards onOutput into the headless spawn, rendering JSONL as readable lines', async () => {
+    let seenOpts: { onOutput?: (chunk: { stream: 'stdout' | 'stderr'; text: string }) => void } | undefined;
+    const spawn: SpawnHeadless = async (_cmd, _args, _cwd, opts) => {
+      seenOpts = opts;
+      return { stdout: okJsonl, stderr: '', exitCode: 0 };
+    };
+    const rendered: Array<{ stream: 'stdout' | 'stderr'; text: string }> = [];
+    const onOutput = (chunk: { stream: 'stdout' | 'stderr'; text: string }): void => {
+      rendered.push(chunk);
+    };
+    await new CodexAdapter(spawn).runHeadless({
+      prompt: 'hi',
+      cwd: '/wt/a',
+      onOutput,
+    });
+    // The adapter wraps the caller's onOutput with the readable renderer: a
+    // codex JSONL line arrives as the line a person can follow, not the raw
+    // event.
+    seenOpts?.onOutput?.({
+      stream: 'stdout',
+      text: JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'done' } }) + '\n',
+    });
+    expect(rendered).toEqual([{ stream: 'stdout', text: 'done\n' }]);
+  });
+
   it('runs a fresh JSONL exec', async () => {
     const spawn = vi.fn(fakeSpawn({ stdout: okJsonl, exitCode: 0 }));
     const result = await new CodexAdapter(spawn).runHeadless({

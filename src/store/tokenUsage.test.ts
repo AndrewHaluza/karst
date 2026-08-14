@@ -7,6 +7,7 @@ import {
   summarizeRecordedTokenUsage,
   summarizeRecordedTokenUsageForProcess,
   summarizeRecordedTokenUsageByRole,
+  listRecentlyUsedModels,
   EMPTY_USAGE_TOTALS,
 } from './tokenUsage.js';
 import { parseUsageQuery, type UsageQuery } from './tokenUsageQuery.js';
@@ -27,6 +28,7 @@ function ticket(id: number, key: string, title: string, projectId = 1): void {
 }
 
 interface Seed {
+  projectId?: number | null;
   ticketId?: number | null;
   processRunId?: number | null;
   callSite?: string;
@@ -47,7 +49,7 @@ function seed(s: Seed = {}): void {
   const cacheRead = s.cacheRead ?? 0;
   const cacheWrite = s.cacheWrite ?? 0;
   recordTokenUsage(store, {
-    projectId: 1,
+    projectId: s.projectId === undefined ? 1 : s.projectId,
     ticketId: s.ticketId === undefined ? 1 : s.ticketId,
     processRunId: s.processRunId === undefined ? null : s.processRunId,
     callSite: s.callSite ?? 'ticket-analysis',
@@ -666,5 +668,55 @@ describe('summarizeRecordedTokenUsageByRole', () => {
   it('omits roles with no recorded spend', () => {
     ticket(1, 'K-1', 'One');
     expect(summarizeRecordedTokenUsageByRole(store, 1)).toEqual([]);
+  });
+});
+
+describe('listRecentlyUsedModels', () => {
+  it('returns the most recently used models per provider, newest first', () => {
+    ticket(1, 'K-1', 'One');
+    seed({ provider: 'claude', model: 'claude-opus-5', at: '2026-07-01T00:00:00.000Z' });
+    seed({ provider: 'claude', model: 'claude-sonnet-5', at: '2026-07-03T00:00:00.000Z' });
+    seed({ provider: 'codex', model: 'gpt-5.6-sol', at: '2026-07-02T00:00:00.000Z' });
+    seed({ provider: 'claude', model: 'claude-opus-5', at: '2026-07-04T00:00:00.000Z' });
+
+    expect(listRecentlyUsedModels(store, 1)).toEqual({
+      claude: ['claude-opus-5', 'claude-sonnet-5'],
+      codex: ['gpt-5.6-sol'],
+    });
+  });
+
+  it('caps each provider at the limit, keeping the newest', () => {
+    ticket(1, 'K-1', 'One');
+    seed({ provider: 'claude', model: 'm-1', at: '2026-07-01T00:00:00.000Z' });
+    seed({ provider: 'claude', model: 'm-2', at: '2026-07-02T00:00:00.000Z' });
+    seed({ provider: 'claude', model: 'm-3', at: '2026-07-03T00:00:00.000Z' });
+    seed({ provider: 'claude', model: 'm-4', at: '2026-07-04T00:00:00.000Z' });
+    seed({ provider: 'claude', model: 'm-5', at: '2026-07-05T00:00:00.000Z' });
+    seed({ provider: 'claude', model: 'm-6', at: '2026-07-06T00:00:00.000Z' });
+
+    expect(listRecentlyUsedModels(store, 1, 3)).toEqual({ claude: ['m-6', 'm-5', 'm-4'] });
+  });
+
+  it('is scoped by project', () => {
+    ticket(1, 'K-1', 'One');
+    ticket(2, 'K-2', 'Two', 2);
+    seed({ provider: 'claude', model: 'claude-opus-5', at: '2026-07-01T00:00:00.000Z' });
+    seed({ ticketId: 2, projectId: 2, provider: 'codex', model: 'gpt-5.6-sol', at: '2026-07-02T00:00:00.000Z' });
+
+    expect(listRecentlyUsedModels(store, 1)).toEqual({ claude: ['claude-opus-5'] });
+    expect(listRecentlyUsedModels(store, 2)).toEqual({ codex: ['gpt-5.6-sol'] });
+  });
+
+  it('skips rows whose core never named a model or provider', () => {
+    ticket(1, 'K-1', 'One');
+    seed({ provider: 'claude', model: null, at: '2026-07-01T00:00:00.000Z' });
+    seed({ provider: 'claude', model: 'claude-opus-5', at: '2026-07-02T00:00:00.000Z' });
+
+    expect(listRecentlyUsedModels(store, 1)).toEqual({ claude: ['claude-opus-5'] });
+  });
+
+  it('returns an empty map when nothing has been used', () => {
+    ticket(1, 'K-1', 'One');
+    expect(listRecentlyUsedModels(store, 1)).toEqual({});
   });
 });

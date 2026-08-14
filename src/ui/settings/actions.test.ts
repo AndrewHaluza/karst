@@ -388,6 +388,52 @@ describe('settings actions — graph configuration saves (Slice-1 T6)', () => {
     // The host refuses an effort the selected model does not advertise (A10).
     expect((posted.find((m) => m.type === 'error') as any).message).toMatch(/effort/);
   });
+
+  it('reports a named error when the default effort is not advertised by the default model', async () => {
+    const { writes, harness: h } = writeSpy();
+    const { actions, posted } = h({ ...VALID, approaches: [] });
+    await actions.save(
+      {
+        ...VALID,
+        agentProvider: 'claude',
+        defaultModel: 'claude-sonnet-5',
+        defaultEffort: 'ultracode', // Sonnet 5 advertises low/medium/high only
+        approaches: [],
+      },
+      'general',
+    );
+
+    expect(writes).toEqual([]);
+    expect((posted.find((m) => m.type === 'error') as any).message).toMatch(/effort/);
+  });
+
+  it('accepts a default effort the default model advertises', async () => {
+    const catalog: ModelCatalog = {
+      claude: [{ id: 'claude-opus-5', label: 'Opus 5', providers: ['claude'], efforts: ['max'] }],
+      codex: [],
+      antigravity: [],
+      opencode: [],
+    };
+    const writes: Manifest[] = [];
+    const { actions, posted } = harness({
+      modelCatalog: () => catalog,
+      writeManifest: (_p, m) => { writes.push(m); },
+    });
+    await actions.save(
+      {
+        ...VALID,
+        agentProvider: 'claude',
+        defaultModel: 'claude-opus-5',
+        defaultEffort: 'max',
+        approaches: [],
+      },
+      'general',
+    );
+
+    expect(writes).toHaveLength(1);
+    expect(writes[0]!.defaultEffort).toBe('max');
+    expect(posted.some((m) => m.type === 'saved')).toBe(true);
+  });
 });
 
 describe('settings actions — built-in enable/disable', () => {

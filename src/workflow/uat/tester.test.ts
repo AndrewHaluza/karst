@@ -395,6 +395,54 @@ describe('runUatTester', () => {
     );
   });
 
+  it('forwards onOutput verbatim into each headless call', async () => {
+    const { adapter, calls } = fakeAdapter(async () => ({ sessionId: '', verdict: null, raw: '[]' }));
+    const chunks: { stream: 'stdout' | 'stderr'; text: string }[] = [];
+    await runUatTester(
+      store,
+      opts({
+        adapter,
+        onOutput: (chunk) => chunks.push(chunk),
+      }),
+      { now },
+    );
+    expect(calls[0]!.onOutput).toBeDefined();
+    calls[0]!.onOutput?.({ stream: 'stdout', text: 'hello' });
+    expect(chunks).toEqual([{ stream: 'stdout', text: 'hello' }]);
+  });
+
+  it('emits per-target active/completed progress with a detail naming what came back', async () => {
+    const { adapter } = fakeAdapter(async (opts) => {
+      const one = opts.cwd === '/wt/web';
+      return {
+        sessionId: '',
+        verdict: null,
+        raw: JSON.stringify(
+          one ? [{ severity: 'low', title: 'nit', detail: '' }] : [],
+        ),
+      };
+    });
+    const events: { repo: string; status: string; detail?: string }[] = [];
+    await runUatTester(
+      store,
+      opts({
+        adapter,
+        targets: [
+          { repo: '/web', worktreePath: '/wt/web' },
+          { repo: '/api', worktreePath: '/wt/api' },
+        ],
+        onTargetProgress: (event) => events.push(event),
+      }),
+      { now },
+    );
+    expect(events).toEqual([
+      { repo: '/web', status: 'active' },
+      { repo: '/web', status: 'completed', detail: '1 observation' },
+      { repo: '/api', status: 'active' },
+      { repo: '/api', status: 'completed', detail: '0 observations' },
+    ]);
+  });
+
   it('supersedes a still-running Tester run of the same process as stale the moment a fresh one opens', async () => {
     // A run still `running` when a second one opens is exactly the
     // destroyed-run case a host restart produces: the driver single-flights,
@@ -467,6 +515,19 @@ describe('buildTesterPrompt', () => {
     expect(prompt).toContain('Output rules (strict):');
     expect(prompt).toContain('JSON array');
     expect(prompt).toContain('OBSERVATIONS, not verdicts');
+  });
+
+  it('carries the scope block so the Tester does not survey the repo first', () => {
+    const prompt = buildTesterPrompt(TARGETS[0]!, undefined, ['test:unit (web)']);
+    expect(prompt).toContain('Do NOT run repository-wide reconnaissance');
+    expect(prompt).toContain('git worktree list');
+    expect(prompt).toContain('test:unit (web)');
+    expect(prompt).toContain('Do NOT re-run them');
+  });
+
+  it('keeps the scope block even when user instructions replace the strategy', () => {
+    const prompt = buildTesterPrompt(TARGETS[0]!, 'Focus on API endpoint behavior.');
+    expect(prompt).toContain('Do NOT run repository-wide reconnaissance');
   });
 
   it('treats blank or whitespace instructions as absent', () => {

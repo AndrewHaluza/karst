@@ -296,6 +296,9 @@ describe('writeManifest', () => {
         },
         agentProvider: 'codex',
         defaultModel: 'claude-opus-4-8',
+        // Same reason: absent defaultEffort would round-trip regardless of the
+        // overlay, so the populated manifest pins the explicit value.
+        defaultEffort: 'high',
         // Non-default on purpose: a missing writeManifest overlay would fall
         // back to the loader's default and the round-trip would still pass.
         archiveDoneAfterDays: 7,
@@ -654,8 +657,8 @@ processes:
           agentName: 'My UAT Agent',
           provider: 'codex',
           model: 'gpt-5.6-sol',
-          // A `|` block scalar keeps its single trailing newline (js-yaml clip).
-          instructions: 'Focus on API endpoint behavior.\nTest edge cases around authentication.\n',
+          // The retired `instructions:` in the fixture is dropped at load, so
+          // the write cannot carry it back out either — one prompt source.
           enabled: true,
         },
       });

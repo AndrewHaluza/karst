@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { openStore, type Store } from '../../store/db.js';
 import { createTicketFlow } from './create.js';
 import { updateTicketFields, getTicket } from '../../store/tickets.js';
-import { providerRef, advanceTicketOnShip } from './done.js';
+import { providerRef, advanceTicketOnShip, statusPushSkipNote } from './done.js';
 import type { TicketingProvider } from '../../integrations/ticketing.js';
 import type { TicketingConfig } from '../../manifest/types.js';
 
@@ -122,5 +122,29 @@ describe('advanceTicketOnShip', () => {
     };
 
     await expect(advanceTicketOnShip(store, id, ON, provider)).rejects.toThrow(/401/);
+  });
+});
+
+describe('statusPushSkipNote', () => {
+  it('returns null when the push advanced', () => {
+    expect(statusPushSkipNote('started', 3, { advanced: true, status: 'in progress' })).toBeNull();
+  });
+
+  it('returns null when the push is configured off', () => {
+    expect(statusPushSkipNote('completed', 3, { advanced: false, reason: 'disabled' })).toBeNull();
+  });
+
+  it('describes a no-ref skip as a DEBUG note, never an error', () => {
+    expect(statusPushSkipNote('started', 3, { advanced: false, reason: 'no-ref' })).toEqual({
+      level: 'debug',
+      message: 'ticket #3 started without a status update: no provider ref',
+    });
+  });
+
+  it('words the completed event as completed', () => {
+    expect(statusPushSkipNote('completed', 3, { advanced: false, reason: 'no-ref' })).toEqual({
+      level: 'debug',
+      message: 'ticket #3 completed without a status update: no provider ref',
+    });
   });
 });
