@@ -115,6 +115,80 @@ export function beginBootstrapPlannerRun(
   return { ok: true, graphRunId, plannerRunId, promptHash, promptSnapshotPath };
 }
 
+export interface BeginBootstrapRelaunchInput {
+  graphRunId: number;
+}
+
+export type BeginBootstrapRelaunchResult =
+  | {
+      ok: true;
+      plannerRunId: number;
+      plannerRunNumber: number;
+      promptHash: string;
+      promptSnapshotPath: string;
+    }
+  | { ok: false; code: 'not-found' | 'not-planning' | 'instructions-missing'; reason: string };
+
+/**
+ * Relaunch a planning run's bootstrap planner (the reconcile crash matrix's
+ * response to a demonstrably-dead planner session): allocate a NEW bootstrap
+ * planner run on the EXISTING graph run — never a second graph run — and
+ * snapshot the effective prompt, mirroring `beginBootstrapPlannerRun` minus
+ * the graph-run creation. A run that left `planning` is never relaunched (the
+ * relaunched planner's submission would be refused by the run's accept path),
+ * and an unreadable prompt blocks with `instructions-missing` and creates
+ * nothing — no planner run, no spend.
+ */
+export function relaunchBootstrapPlannerRun(
+  deps: PlannerRunDeps,
+  input: BeginBootstrapRelaunchInput,
+): BeginBootstrapRelaunchResult {
+  const run = graphRunById(deps.db, input.graphRunId);
+  if (!run) return { ok: false, code: 'not-found', reason: `graph run ${input.graphRunId} not found` };
+  if (run.status !== 'planning') {
+    return {
+      ok: false,
+      code: 'not-planning',
+      reason: `graph run ${input.graphRunId} is ${run.status}, not planning`,
+    };
+  }
+  const promptBytes = deps.readPrompt(deps.promptPath);
+  if (promptBytes === undefined) {
+    return {
+      ok: false,
+      code: 'instructions-missing',
+      reason: `cannot read the graph planner prompt at "${deps.promptPath}"`,
+    };
+  }
+  const promptHash = sha256Hex(promptBytes);
+  const now = deps.now();
+
+  let plannerRunId = 0;
+  let plannerRunNumber = 0;
+  let promptSnapshotPath = '';
+  deps.transaction(() => {
+    plannerRunNumber = nextPlannerRunNumber(deps.db, input.graphRunId);
+    plannerRunId = createPlannerRun(deps.db, {
+      graphRunId: input.graphRunId,
+      plannerRunNumber,
+      kind: 'bootstrap',
+    });
+    deps.db
+      .prepare(
+        `UPDATE approach_planner_runs
+         SET prompt_hash = ?, artifact_snapshot_id = ?
+         WHERE id = ?`,
+      )
+      .run(promptHash, `prompts/${promptHash}`, plannerRunId);
+    // Content-addressed snapshot write is part of the same all-or-nothing
+    // unit: a throw here rolls the run creation back.
+    promptSnapshotPath = `prompts/${promptHash}`;
+    deps.writeSnapshot(input.graphRunId, promptSnapshotPath, promptBytes);
+  });
+
+  return { ok: true, plannerRunId, plannerRunNumber, promptHash, promptSnapshotPath };
+}
+
 /**
  * The planning → awaiting-confirmation / running split: taken when the
  * compiled graph is accepted. `confirmGeneratedGraph` is the packaged

@@ -170,7 +170,10 @@ import {
 import { startHookEndpoint, type HookEndpoint } from './hooks/endpoint.js';
 import { startGraphWakeupEndpoint, type GraphWakeupEndpoint } from './hooks/graphEndpoint.js';
 import { runCoordinatorTick, activeGraphRunIds } from './approaches/graph/coordinator/sweep.js';
-import { reconcileGraphRun } from './approaches/graph/coordinator/reconcile.js';
+import {
+  reconcileGraphRun,
+  type ReconcileGraphRunDeps,
+} from './approaches/graph/coordinator/reconcile.js';
 import { discardUnknownProcess } from './approaches/graph/coordinator/discard.js';
 import { electReplan } from './approaches/graph/coordinator/replan.js';
 import {
@@ -207,6 +210,7 @@ import {
   confirmGraphRun,
   driveReadyNodeRuns,
   launchReplanPlanner,
+  relaunchBootstrapPlanner,
   resolveProfileFor,
   type GraphDriverDeps,
 } from './approaches/graph/driver.js';
@@ -3269,16 +3273,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     )();
   };
 
-  /** The live transport session for a node run, via its ticket. */
-  const graphSessionFor = (nodeRunId: number) => {
+  /** The live transport session for a node OR planner run, via its ticket. */
+  const graphSessionFor = (runId: number) => {
     const gs = graphCoordinatorStore;
     const tr = graphTransport;
     if (!gs || !tr) return undefined;
     const run = gs.db
       .prepare('SELECT ticket_id FROM approach_node_runs WHERE id = ?')
-      .get(nodeRunId) as { ticket_id: number } | undefined;
-    if (!run) return undefined;
-    return tr.sessionFor(run.ticket_id, nodeRunId);
+      .get(runId) as { ticket_id: number } | undefined;
+    if (run) return tr.sessionFor(run.ticket_id, runId);
+    // A bootstrap planner run lives in `approach_planner_runs`, not the node
+    // table — the reconcile planning branch resolves planner ids too.
+    const planner = gs.db
+      .prepare('SELECT ticket_id FROM approach_graph_runs gr JOIN approach_planner_runs p ON p.graph_run_id = gr.id WHERE p.id = ?')
+      .get(runId) as { ticket_id: number } | undefined;
+    if (!planner) return undefined;
+    return tr.sessionFor(planner.ticket_id, runId);
   };
 
   /**
@@ -4081,6 +4091,74 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // reconcile itself stays host-agnostic. Safe under concurrency: every
   // mutation is a durable conditional claim, so another window's live process
   // is left alone by attribution, never by this window's bookkeeping.
+  //
+  // The reconcile deps are built ONCE here and shared by the activation pass
+  // below and the sweep's planning pass in `runPrSync` — one construction, so
+  // a field added to one can never drift from the other.
+  const graphReconcileDeps = (): ReconcileGraphRunDeps => {
+    const gs = graphCoordinatorStore!;
+    return {
+      db: gs.db,
+      transaction: <T>(fn: () => T): T =>
+        (gs.db.transaction as unknown as (f: () => T, o: { begin: 'immediate' }) => () => T)(
+          fn,
+          { begin: 'immediate' },
+        )(),
+      now: () => new Date().toISOString(),
+      debug: (message) => logger.debug(message),
+      facts: systemAsyncProcessFacts,
+      sessionFor: (nodeRunId) => graphSessionFor(nodeRunId),
+      resumePipeline: (nodeRunId) => {
+        const node = gs.db
+          .prepare('SELECT graph_run_id FROM approach_node_runs WHERE id = ?')
+          .get(nodeRunId) as { graph_run_id: number } | undefined;
+        if (!node) return;
+        const deps = graphCompletionPipelineDeps(node.graph_run_id);
+        if (!deps) return;
+        void runCompletionPipeline(deps, { graphRunId: node.graph_run_id, nodeRunId });
+      },
+      relaunchPlanner: (graphRunId) => void relaunchBootstrapPlannerHost(graphRunId),
+    };
+  };
+
+  /** Relaunch a planning run's bootstrap planner whose session reconcile proved
+   *  demonstrably gone: allocate a NEW bootstrap planner run on the SAME
+   *  `planning` run and start its session, registering the launch identity so
+   *  submit-on-close and the dashboard reflect the revived planner. Never
+   *  throws — both reconcile callers fire it and forget. */
+  const relaunchBootstrapPlannerHost = async (graphRunId: number): Promise<void> => {
+    const gs = graphCoordinatorStore;
+    if (!gs) return;
+    const row = gs.db
+      .prepare('SELECT ticket_id FROM approach_graph_runs WHERE id = ?')
+      .get(graphRunId) as { ticket_id: number } | undefined;
+    if (!row) return;
+    const result = await relaunchBootstrapPlanner(graphDriverDeps(), { graphRunId }).catch((err) => {
+      logError(`karst: graph planner relaunch failed for run ${graphRunId}`, err);
+      return { kind: 'failed' as const, reason: 'planner session could not start' };
+    });
+    if (result.kind === 'launched') {
+      graphLaunchIdentities.set(graphRunId, {
+        graphRunId,
+        ticketId: row.ticket_id,
+        plannerRunId: result.plannerRunId,
+        generation: result.generation,
+        capability: result.capability,
+      });
+      // When the relaunched planner closes, submit its graph.json on its
+      // behalf exactly like the original launch, then drive the run.
+      attachPlannerSubmitOnClose(result.session, graphRunId);
+      result.session.terminal?.show();
+      provider.refresh();
+      dashboard.pushState(row.ticket_id);
+      logger.info(`karst: graph run ${graphRunId} planner relaunched for ticket #${row.ticket_id}`);
+    } else if (result.kind === 'no-op') {
+      logger.warn(`karst: graph planner relaunch for run ${graphRunId} was a no-op (run no longer planning)`);
+    } else {
+      logError(`karst: graph planner relaunch for run ${graphRunId} failed`, new Error(result.reason));
+    }
+  };
+
   const reconcileGraphRuns = async (): Promise<void> => {
     const gs = graphCoordinatorStore;
     if (!gs) return;
@@ -4089,30 +4167,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         .prepare('SELECT id FROM approach_graph_runs ORDER BY id')
         .all() as { id: number }[];
       for (const run of runs) {
-        const result = await reconcileGraphRun(
-          {
-            db: gs.db,
-            transaction: <T>(fn: () => T): T =>
-              (gs.db.transaction as unknown as (f: () => T, o: { begin: 'immediate' }) => () => T)(
-                fn,
-                { begin: 'immediate' },
-              )(),
-            now: () => new Date().toISOString(),
-            debug: (message) => logger.debug(message),
-            facts: systemAsyncProcessFacts,
-            sessionFor: (nodeRunId) => graphSessionFor(nodeRunId),
-            resumePipeline: (nodeRunId) => {
-              const node = gs.db
-                .prepare('SELECT graph_run_id FROM approach_node_runs WHERE id = ?')
-                .get(nodeRunId) as { graph_run_id: number } | undefined;
-              if (!node) return;
-              const deps = graphCompletionPipelineDeps(node.graph_run_id);
-              if (!deps) return;
-              void runCompletionPipeline(deps, { graphRunId: node.graph_run_id, nodeRunId });
-            },
-          },
-          { graphRunId: run.id },
-        );
+        const result = await reconcileGraphRun(graphReconcileDeps(), { graphRunId: run.id });
         if (
           result.transitions > 0 ||
           result.resumed.length > 0 ||
@@ -4348,6 +4403,26 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // (the "coordinator re-attaches it on the next sweep" promise), then
         // tick the runs whose continuation the coordinator owns.
         void reattachGraphSessions();
+        // A planning run whose bootstrap planner session DIED — not a revived
+        // terminal, which the re-attach above just re-registered — is relaunched
+        // by the reconcile crash matrix on this same sweep, so a planner that
+        // dies mid-run is brought back on the next tick, not only at the next
+        // activation. Order matters: reconcile runs AFTER re-attach, so a
+        // just-revived live planner is re-attached, never relaunched.
+        try {
+          const planningRuns = graphCoordinatorStore.db
+            .prepare("SELECT id FROM approach_graph_runs WHERE status = 'planning' ORDER BY id")
+            .all() as { id: number }[];
+          for (const planningRun of planningRuns) {
+            void reconcileGraphRun(graphReconcileDeps(), { graphRunId: planningRun.id }).catch(
+              (e) => {
+                logError(`karst: graph reconcile (sweep) failed for run ${planningRun.id}`, e);
+              },
+            );
+          }
+        } catch (e) {
+          logError('karst: graph planning reconcile (sweep) failed', e);
+        }
         let graphRuns: number[] = [];
         try {
           graphRuns = activeGraphRunIds(graphCoordinatorStore.db);

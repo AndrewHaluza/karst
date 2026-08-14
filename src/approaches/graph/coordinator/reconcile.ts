@@ -40,6 +40,7 @@
 import type { GraphDb } from '../../../store/graph/transitions.js';
 import { casStatus, GRAPH_RUN_TRANSITIONS, NODE_RUN_TRANSITIONS } from '../../../store/graph/transitions.js';
 import { cancelGraphToken } from '../../../store/graph/tokens.js';
+import { transitionPlannerRun } from '../../../store/graph/plannerRuns.js';
 import { markLeaseAmbiguous } from './leases.js';
 import {
   attributeServer,
@@ -76,6 +77,10 @@ export interface ReconcileGraphRunDeps {
    *  the host wires this to `runCompletionPipeline`. Reconcile only hands the
    *  node over; it never re-executes the reported outcome itself. */
   resumePipeline: (nodeRunId: number) => void;
+  /** Relaunch a planning run's bootstrap planner whose session is demonstrably
+   *  gone — the host binds this to the driver's `relaunchBootstrapPlanner`
+   *  (+ session registration). Reconcile only decides; it never launches. */
+  relaunchPlanner: (graphRunId: number) => void;
 }
 
 export interface ReconcileGraphRunResult {
@@ -129,6 +134,26 @@ function processOf(db: GraphDb, node: NodeRunRow): { pid: number; startedAt: str
   const row = db
     .prepare('SELECT pid, started_at FROM process_runs WHERE id = ?')
     .get(node.process_run_id) as ProcessRunRow | undefined;
+  if (!row || row.pid === null) return null;
+  return { pid: row.pid, startedAt: row.started_at };
+}
+
+interface PlannerRunRow {
+  id: number;
+  status: string;
+  owner_nonce: string | null;
+  process_run_id: number | null;
+}
+
+/** The bootstrap planner run's process identity, resolved the SAME way node
+ *  runs are (`processOf`): a null `process_run_id`, or a process_runs row
+ *  whose pid is null, is no evidence of death — never declared dead merely
+ *  because this window cannot see its terminal. */
+function plannerProcessOf(db: GraphDb, planner: PlannerRunRow): { pid: number; startedAt: string | null } | null {
+  if (planner.process_run_id === null) return null;
+  const row = db
+    .prepare('SELECT pid, started_at FROM process_runs WHERE id = ?')
+    .get(planner.process_run_id) as ProcessRunRow | undefined;
   if (!row || row.pid === null) return null;
   return { pid: row.pid, startedAt: row.started_at };
 }
@@ -396,6 +421,102 @@ async function reconcileCompleting(
 }
 
 /**
+ * The planning-run bootstrap-planner branch of the crash matrix (between the
+ * successor rule and the run-level gates): the planning run's NEWEST
+ * bootstrap planner run whose session is demonstrably gone — a `running`
+ * planner whose process is dead/foreign, or a `launching` planner whose
+ * persisted owner nonce (written BEFORE spawn) has no process identity, or
+ * whose process is dead/foreign — is marked `stale` and the planner is
+ * relaunched on the SAME graph run. The run STAYS `planning` so the
+ * relaunched planner's later submission is accepted by `acceptSubmittedPlan`.
+ * Reconcile only decides; the fire-and-forget `relaunchPlanner` callback
+ * launches. Everything else — a session in this window, a live attributable
+ * process (another window owns it), no pid evidence, an unprovable death, or
+ * a non-live planner status — is a no-op.
+ */
+async function reconcilePlanningPlanner(
+  deps: ReconcileGraphRunDeps,
+  run: GraphRunRow,
+): Promise<ReconcileGraphRunResult> {
+  const planner = deps.db
+    .prepare(
+      `SELECT id, status, owner_nonce, process_run_id FROM approach_planner_runs
+       WHERE graph_run_id = ? AND kind = 'bootstrap' ORDER BY id DESC LIMIT 1`,
+    )
+    .get(run.id) as PlannerRunRow | undefined;
+  if (!planner) return planningResult(deps, run, 0);
+  if (deps.sessionFor(planner.id)) return planningResult(deps, run, 0); // this window owns it
+  const proc = plannerProcessOf(deps.db, planner);
+
+  /** Mark the planner run `stale` + relaunch. The CAS-guarded `stale`
+   *  transition is the single-flight gate — only the window that moved the
+   *  run (raced windows read `false`) fires the launch, so a second window
+   *  never relaunches a planner another already revived. The fire-and-forget
+   *  `relaunchPlanner` callback runs AFTER the transaction commits: the
+   *  launch opens its own `BEGIN IMMEDIATE` transaction, and a nested `BEGIN`
+   *  on the same connection throws. */
+  const staleAndRelaunch = (message: string): ReconcileGraphRunResult => {
+    const won = deps.transaction(() => {
+      if (!transitionPlannerRun(deps.db, planner.id, planner.status, 'stale')) {
+        return false;
+      }
+      deps.debug?.(message);
+      return true;
+    });
+    if (!won) return planningResult(deps, run, 0);
+    deps.relaunchPlanner(run.id);
+    return planningResult(deps, run, 1);
+  };
+
+  if (planner.status === 'running') {
+    if (proc === null) return planningResult(deps, run, 0); // no pid evidence — never declared dead
+    const attribution = await attributeOf(deps.facts, proc);
+    if (attribution === 'dead' || attribution === 'foreign') {
+      return staleAndRelaunch(
+        `[graph] reconcile: run ${run.id} bootstrap planner ${planner.id} process (pid ${proc.pid}) is gone (${attribution}) — relaunching the planner`,
+      );
+    }
+    return planningResult(deps, run, 0); // attributable (another window) or unprovable
+  }
+
+  if (planner.status === 'launching') {
+    if (proc === null) {
+      // A persisted owner nonce with no process identity proves the spawn was
+      // never reached — provably crashed before spawn.
+      if (planner.owner_nonce !== null) {
+        return staleAndRelaunch(
+          `[graph] reconcile: run ${run.id} bootstrap planner ${planner.id} crashed before spawn (owner nonce, no process) — relaunching the planner`,
+        );
+      }
+      return planningResult(deps, run, 0); // unprovable — leave alone
+    }
+    const attribution = await attributeOf(deps.facts, proc);
+    if (attribution === 'dead' || attribution === 'foreign') {
+      return staleAndRelaunch(
+        `[graph] reconcile: run ${run.id} bootstrap planner ${planner.id} process (pid ${proc.pid}) is gone (${attribution}) — relaunching the planner`,
+      );
+    }
+    return planningResult(deps, run, 0);
+  }
+
+  // Other planner statuses (submitted, blocked, stale, cancelled, ready) are
+  // not a live-session-loss to relaunch.
+  return planningResult(deps, run, 0);
+}
+
+/** A planning-branch result with the run's status re-read after the pass. */
+function planningResult(
+  deps: ReconcileGraphRunDeps,
+  run: GraphRunRow,
+  transitions: number,
+): ReconcileGraphRunResult {
+  const after = deps.db
+    .prepare('SELECT status FROM approach_graph_runs WHERE id = ?')
+    .get(run.id) as { status: string };
+  return { graphRunId: run.id, status: after.status, transitions, resumed: [], reverted: [], cancelledTokens: 0 };
+}
+
+/**
  * One pass over one graph run, applying the crash matrix in order. Returns a
  * bounded result; every mutation is a CAS-guarded durable claim, so concurrent
  * windows reconcile safely and a raced transition is a no-op, never a throw.
@@ -453,6 +574,15 @@ export async function reconcileGraphRun(
         .get(run.id) as { status: string };
       run.status = raced.status;
     }
+  }
+
+  // 2.5. Planning-run bootstrap planner crash matrix: a planning run whose
+  //      newest bootstrap planner session is demonstrably gone is marked
+  //      `stale` and the planner relaunched on the SAME run — the run stays
+  //      `planning`, so the relaunched planner's later submission is accepted
+  //      by `acceptSubmittedPlan`.
+  if (run.status === 'planning') {
+    return await reconcilePlanningPlanner(deps, run);
   }
 
   // 3. Run-level gates: blocked stays, marker-ready stays, draining waits.

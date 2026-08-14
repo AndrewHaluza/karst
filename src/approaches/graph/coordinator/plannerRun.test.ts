@@ -18,6 +18,7 @@ import { plannerRunById } from '../../../store/graph/plannerRuns.js';
 import {
   beginBootstrapPlannerRun,
   finishPlanning,
+  relaunchBootstrapPlannerRun,
   sha256Hex,
   type PlannerRunDeps,
 } from './plannerRun.js';
@@ -142,6 +143,79 @@ describe('beginBootstrapPlannerRun', () => {
       n: number;
     };
     expect(graphRuns.n).toBe(0);
+  });
+});
+
+describe('relaunchBootstrapPlannerRun', () => {
+  it('allocates a NEW bootstrap planner run on the EXISTING planning run and snapshots the prompt', () => {
+    const { db, dir, ticketId, makeDeps } = harness();
+    writeFileSync(join(dir, 'graph-planner.md'), '# planner');
+    const first = beginBootstrapPlannerRun(makeDeps(), { ticketId, stageAttempt: 0, approachId: 'karst-graph-engineering' });
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    const relaunch = relaunchBootstrapPlannerRun(makeDeps(), { graphRunId: first.graphRunId });
+    expect(relaunch.ok).toBe(true);
+    if (!relaunch.ok) return;
+    const plannerRun = plannerRunById(db, relaunch.plannerRunId);
+    expect(plannerRun).toMatchObject({
+      graph_run_id: first.graphRunId,
+      planner_run_number: 2,
+      kind: 'bootstrap',
+      status: 'ready',
+      prompt_hash: relaunch.promptHash,
+      artifact_snapshot_id: relaunch.promptSnapshotPath,
+    });
+    // No SECOND graph run: the relaunch reuses the existing planning run.
+    const graphRuns = db.prepare('SELECT COUNT(*) AS n FROM approach_graph_runs').get() as {
+      n: number;
+    };
+    expect(graphRuns.n).toBe(1);
+    const run = graphRunById(db, first.graphRunId);
+    expect(run!.status).toBe('planning');
+    expect(relaunch.promptHash).toBe(sha256Hex(new TextEncoder().encode('# planner')));
+  });
+
+  it('refuses to relaunch a run that already left planning', () => {
+    const { db, dir, ticketId, makeDeps } = harness();
+    writeFileSync(join(dir, 'graph-planner.md'), '# planner');
+    const first = beginBootstrapPlannerRun(makeDeps(), { ticketId, stageAttempt: 0, approachId: 'karst-graph-engineering' });
+    if (!first.ok) throw new Error('expected success');
+    finishPlanning(db, first.graphRunId, false);
+    const relaunch = relaunchBootstrapPlannerRun(makeDeps(), { graphRunId: first.graphRunId });
+    expect(relaunch.ok).toBe(false);
+    if (relaunch.ok) return;
+    expect(relaunch.code).toBe('not-planning');
+    const plannerRuns = db.prepare('SELECT COUNT(*) AS n FROM approach_planner_runs').get() as {
+      n: number;
+    };
+    expect(plannerRuns.n).toBe(1);
+  });
+
+  it('returns not-found for a missing graph run', () => {
+    const { dir, makeDeps } = harness();
+    writeFileSync(join(dir, 'graph-planner.md'), '# planner');
+    const relaunch = relaunchBootstrapPlannerRun(makeDeps(), { graphRunId: 999 });
+    expect(relaunch.ok).toBe(false);
+    if (relaunch.ok) return;
+    expect(relaunch.code).toBe('not-found');
+  });
+
+  it('blocks with instructions-missing on an unreadable override and creates nothing', () => {
+    const { db, dir, ticketId, makeDeps } = harness();
+    writeFileSync(join(dir, 'graph-planner.md'), '# planner');
+    const first = beginBootstrapPlannerRun(makeDeps(), { ticketId, stageAttempt: 0, approachId: 'karst-graph-engineering' });
+    if (!first.ok) throw new Error('expected success');
+    const relaunch = relaunchBootstrapPlannerRun(
+      makeDeps({ readPrompt: () => undefined }),
+      { graphRunId: first.graphRunId },
+    );
+    expect(relaunch.ok).toBe(false);
+    if (relaunch.ok) return;
+    expect(relaunch.code).toBe('instructions-missing');
+    const plannerRuns = db.prepare('SELECT COUNT(*) AS n FROM approach_planner_runs').get() as {
+      n: number;
+    };
+    expect(plannerRuns.n).toBe(1);
   });
 });
 

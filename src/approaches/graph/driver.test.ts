@@ -22,6 +22,7 @@ import {
   confirmGraphRun,
   driveReadyNodeRuns,
   launchReplanPlanner,
+  relaunchBootstrapPlanner,
   sha256Hex,
 } from './driver.js';
 import type { SupervisedAgentSession, SupervisedLaunchRequest } from './transport/supervisedCliTransport.js';
@@ -682,5 +683,96 @@ describe('launchReplanPlanner', () => {
     expect(planner.generation).not.toBeNull();
     expect(planner.capability_hash).not.toBeNull();
     expect(h.starts).toHaveLength(1);
+  });
+});
+
+describe('relaunchBootstrapPlanner', () => {
+  it('allocates a new bootstrap planner run (#2) on the existing planning run and launches it', async () => {
+    const h = harness();
+    const graphRunId = createGraphRun(h.db, {
+      ticketId: h.ticketId,
+      stageAttempt: 0,
+      approachId: 'karst-graph-engineering',
+      now: NOW,
+    });
+    // The dead bootstrap planner run #1 (the reconcile sweep marked it stale).
+    h.db
+      .prepare(
+        `INSERT INTO approach_planner_runs (graph_run_id, planner_run_number, kind, status)
+         VALUES (?, 1, 'bootstrap', 'stale')`,
+      )
+      .run(graphRunId);
+
+    const result = await relaunchBootstrapPlanner(h.deps, { graphRunId });
+    expect(result.kind).toBe('launched');
+    if (result.kind !== 'launched') return;
+    const planners = h.db
+      .prepare(
+        'SELECT planner_run_number, kind, status, generation, capability_hash, prompt_hash FROM approach_planner_runs WHERE graph_run_id = ? ORDER BY id',
+      )
+      .all(graphRunId) as {
+      planner_run_number: number;
+      kind: string;
+      status: string;
+      generation: string | null;
+      capability_hash: string | null;
+      prompt_hash: string | null;
+    }[];
+    expect(planners).toHaveLength(2);
+    expect(planners[0]).toMatchObject({ planner_run_number: 1, kind: 'bootstrap', status: 'stale' });
+    expect(planners[1]).toMatchObject({ planner_run_number: 2, kind: 'bootstrap', status: 'running' });
+    expect(planners[1]!.generation).not.toBeNull();
+    expect(planners[1]!.capability_hash).not.toBeNull();
+    expect(planners[1]!.prompt_hash).not.toBeNull();
+    // The run stays planning — the relaunched planner's submission is accepted
+    // by `acceptSubmittedPlan` exactly like the first one's.
+    const run = h.db
+      .prepare('SELECT status FROM approach_graph_runs WHERE id = ?')
+      .get(graphRunId) as { status: string };
+    expect(run.status).toBe('planning');
+    // One session launched, for the new planner run.
+    expect(h.starts).toHaveLength(1);
+    const launch = h.starts[0] as { nodeRunId: number; graphEnv: Record<string, string> };
+    expect(launch.nodeRunId).toBe(result.plannerRunId);
+    expect(launch.graphEnv.KARST_GRAPH_CAPABILITY).toBeTruthy();
+  });
+
+  it('is a no-op for a run that already left planning', async () => {
+    const h = harness();
+    const graphRunId = createGraphRun(h.db, {
+      ticketId: h.ticketId,
+      stageAttempt: 0,
+      approachId: 'karst-graph-engineering',
+      now: NOW,
+    });
+    runningGraphRun(h, graphRunId);
+    const result = await relaunchBootstrapPlanner(h.deps, { graphRunId });
+    expect(result.kind).toBe('no-op');
+    expect(h.starts).toHaveLength(0);
+    const planners = h.db.prepare('SELECT COUNT(*) AS n FROM approach_planner_runs').get() as {
+      n: number;
+    };
+    expect(planners.n).toBe(0);
+  });
+
+  it('is a no-op for a missing graph run', async () => {
+    const h = harness();
+    const result = await relaunchBootstrapPlanner(h.deps, { graphRunId: 999 });
+    expect(result.kind).toBe('no-op');
+    expect(h.starts).toHaveLength(0);
+  });
+
+  it('returns instructions-missing when the planner prompt cannot be read', async () => {
+    const h = harness();
+    const graphRunId = createGraphRun(h.db, {
+      ticketId: h.ticketId,
+      stageAttempt: 0,
+      approachId: 'karst-graph-engineering',
+      now: NOW,
+    });
+    h.deps.promptBytesOf = () => undefined;
+    const result = await relaunchBootstrapPlanner(h.deps, { graphRunId });
+    expect(result.kind).toBe('instructions-missing');
+    expect(h.starts).toHaveLength(0);
   });
 });
