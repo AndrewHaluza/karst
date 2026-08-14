@@ -126,6 +126,13 @@ export interface TicketFormState {
    * page carries for its General-tab picker.
    */
   modelCatalog: ModelCatalog;
+  /**
+   * The models most recently used per provider, newest first, capped at 5 —
+   * the shared agent picker's "Last used" group (model/agentPicker.ts `recent`).
+   * Read from the append-only `token_usage` ledger by the host, so the group
+   * appears identically in the ticket form, Settings and the dashboard switch.
+   */
+  recentModels: Record<string, string[]>;
   /** Per-ticket model id; null = inherit the manifest default. */
   selectedModel: string | null;
   /** Manifest default model, for the "Inherit (settings: …)" label; null = none. */
@@ -223,6 +230,13 @@ export function buildTicketFormState(
    * cleared) and threads it through every state push.
    */
   pickerTouched = false,
+  /**
+   * The models most recently used per provider (newest first, ≤5) for the
+   * shared picker's "Last used" group. Injected like `modelCatalog` — the host
+   * computes it from the append-only token-usage ledger
+   * (`store/tokenUsage.ts` `listRecentlyUsedModels`).
+   */
+  recentModels: Record<string, string[]> = {},
 ): TicketFormState {
   // The built-in overlay seam: the ticket form resolves packaged built-ins
   // ONLY through `withBuiltInApproaches` (design, Selection and Enablement).
@@ -290,6 +304,7 @@ export function buildTicketFormState(
       selectedAgent: null,
       models: [...modelsForProvider(defaultAgentProvider, modelCatalog)],
       modelCatalog,
+      recentModels,
       selectedModel: null,
       defaultModel: manifest.defaultModel ?? null,
       selectedEffort: null,
@@ -340,6 +355,7 @@ export function buildTicketFormState(
       ...modelsForProvider(resolveProvider(ticket.agentProvider, manifest.agentProvider), modelCatalog),
     ],
     modelCatalog,
+    recentModels,
     selectedModel: ticket.model ?? null,
     defaultModel: manifest.defaultModel ?? null,
     selectedEffort: ticket.effort ?? null,

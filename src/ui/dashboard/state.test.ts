@@ -6,6 +6,7 @@ import { recordGateRun } from '../../store/gateRuns.js';
 import { setMergeCheck } from '../../store/mergeChecks.js';
 import { recordPhaseMark } from '../../store/phaseMarks.js';
 import { recordTokenUsage } from '../../store/tokenUsage.js';
+import { upsertProject } from '../../store/projects.js';
 import { openProcessRun } from '../../store/processRuns.js';
 import { openStageRun } from '../../store/stageRuns.js';
 import { parkGateStage } from '../../store/stageBlocks.js';
@@ -223,6 +224,48 @@ describe('buildDashboardState', () => {
     expect(state.agentSwitch.cores.find((c) => c.id === 'codex')?.label).toBe('Codex');
     expect(Array.isArray(state.agentSwitch.models.codex)).toBe(true);
     expect(state.agentSwitch.models.codex!.some((m) => m.model === null)).toBe(true); // inherit choice
+  });
+
+  it('exposes the recently used models per core for the picker\'s "Last used" group', () => {
+    const project = upsertProject(store, { slug: 'recent-proj' });
+    const t = createTicket(store, { key: 'RECENT', title: 'recent', projectId: project.id });
+    recordTokenUsage(store, {
+      projectId: project.id,
+      ticketId: t.id,
+      callSite: 'ticket-analysis',
+      provider: 'claude',
+      outcome: 'ok',
+      recordedAt: '2026-08-01T09:00:00.000Z',
+      usage: {
+        inputTokens: 1,
+        outputTokens: 1,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        totalTokens: 2,
+        model: 'claude-opus-5',
+        estimated: false,
+      },
+    });
+    recordTokenUsage(store, {
+      projectId: project.id,
+      ticketId: t.id,
+      callSite: 'ticket-analysis',
+      provider: 'claude',
+      outcome: 'ok',
+      recordedAt: '2026-08-02T09:00:00.000Z',
+      usage: {
+        inputTokens: 1,
+        outputTokens: 1,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        totalTokens: 2,
+        model: 'claude-sonnet-5',
+        estimated: false,
+      },
+    });
+
+    const state = buildDashboardState(store, t.id);
+    expect(state.agentSwitch.recentByCore.claude).toEqual(['claude-sonnet-5', 'claude-opus-5']);
   });
 
   // The merge verdicts already feed the ship strip; the PR panel needs them at

@@ -53,6 +53,7 @@ import {
   summarizeRecordedTokenUsage,
   summarizeRecordedTokenUsageForProcess,
   summarizeRecordedTokenUsageByRole,
+  listRecentlyUsedModels,
 } from '../../store/tokenUsage.js';
 import type { InsideActionRegistry } from './insideActions.js';
 import type {
@@ -125,13 +126,16 @@ export interface DashboardState {
    * webview cannot import TS, so the catalog arrives here, host-resolved.
    * `modelsByCore` is the FULL model catalog (models + their advertised
    * efforts) the shared agent identity picker renders from; `models` keeps the
-   * flattened legacy shape. `effort` is the resolved current effort/variant,
-   * and the `*InheritLabel`s name the switch popover's inherit rows.
+   * flattened legacy shape. `recentByCore` is the models most recently used per
+   * provider (newest first, ≤5) for the picker's "Last used" group. `effort`
+   * is the resolved current effort/variant, and the `*InheritLabel`s name the
+   * switch popover's inherit rows.
    */
   agentSwitch: {
     cores: { id: AgentProvider; label: string }[];
     models: Record<string, { model: string | null; label: string }[]>;
     modelsByCore: ModelCatalog;
+    recentByCore: Record<string, string[]>;
     effort: string | null;
     modelInheritLabel: string;
     effortInheritLabel: string;
@@ -346,6 +350,7 @@ export function buildDashboardState(
   const currentStage = stepper.find((c) => c.stageKey === ticket.stageCurrent) ?? null;
 
   const catalog = agentContext.modelCatalog ?? bundledModelCatalog();
+  const recentByCore = listRecentlyUsedModels(store, ticket.projectId, 5);
   const switchModels: Record<string, { model: string | null; label: string }[]> = {};
   for (const id of IMPLEMENTED_PROVIDERS) {
     switchModels[id] = agentSwitchModelChoices({
@@ -617,6 +622,7 @@ export function buildDashboardState(
       cores: agentSwitchCoreChoices(),
       models: switchModels,
       modelsByCore: catalog,
+      recentByCore,
       effort: agentSession.effort,
       modelInheritLabel,
       effortInheritLabel,

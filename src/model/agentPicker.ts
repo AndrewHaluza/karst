@@ -14,12 +14,23 @@
  *   mountAgentPicker(root, {
  *     cores,            // [{id, label}] — implemented cores offered
  *     catalog,          // { provider: [ModelOption] } with model `efforts`
+ *     recent,           // { provider: [modelId] } recently used, newest first (≤5)
  *     value,            // { core, model, effort } current selection
  *     inherit,          // { core?, model?, effort? } labels for "Inherit (settings: X)"
  *     disabled,         // lock the whole picker (session-open)
  *     showEffort,       // false = never render the effort/variant field
  *     onChange,         // ({ core, model, effort }) => void
  *   })
+ *
+ * `recent` feeds the model menu's "Last used" group (design § model UX): a
+ * provider with a long catalog (opencode) buries a user's habitual pick, so the
+ * models they actually used recently are pinned to the top of the list, newest
+ * first, up to 5, rendered in the SAME group shape as the "saved" rows. Only
+ * recent models still present in the catalog render — a recently used id that
+ * left the catalog is not a dead option. The host computes the list from the
+ * append-only `token_usage` ledger (`store/tokenUsage.ts`
+ * `listRecentlyUsedModels`), so every surface that mounts the picker gets the
+ * same "last used" group by passing the same shape.
  *
  * Effort is model-capability-aware (design § Execution policy resolution): the
  * effort/variant field renders ONLY when the selected model advertises efforts
@@ -177,7 +188,7 @@ function apCoreOptionsHtml(cores, current, inheritLabel) {
 }
 
 /** Model options for the selected core: inherit row (when labeled) then models. */
-function apModelOptionsHtml(catalog, provider, saved, inheritLabel) {
+function apModelOptionsHtml(catalog, provider, saved, inheritLabel, recentIds) {
   var list = (catalog && catalog[provider]) || [];
   var out = '';
   if (inheritLabel) {
@@ -188,8 +199,37 @@ function apModelOptionsHtml(catalog, provider, saved, inheritLabel) {
   if (list.length === 0) {
     out += '<div class="ap-empty">No models listed for this core.</div>';
   } else {
-    for (var i = 0; i < list.length; i++) {
-      var m = list[i];
+    // The "Last used" group: models the user actually used recently, newest
+    // first, up to 5, rendered BEFORE the full list. Only ids still in the
+    // catalog render — a recent id that left the catalog is not a dead option.
+    // A recently used model that IS the current selection draws its saved/active
+    // tag inside the group, exactly like it would in the flat list. When the
+    // recent set already covers the WHOLE catalog (a provider with few models),
+    // the header is omitted — a "Last used" label over a list that is all one
+    // group adds noise, not structure.
+    var recent = [];
+    var recentSet = {};
+    var recentList = recentIds || [];
+    for (var r = 0; r < recentList.length && recent.length < 5; r++) {
+      var rid = recentList[r];
+      if (recentSet[rid]) continue;
+      for (var i = 0; i < list.length; i++) {
+        if (list[i].id === rid) {
+          recent.push(list[i]);
+          recentSet[rid] = true;
+          break;
+        }
+      }
+    }
+    if (recent.length > 0 && recent.length < list.length) {
+      out += '<div class="ap-group-label">Last used</div>';
+    }
+    for (var k = 0; k < recent.length; k++) {
+      out += apModelItemHtml(recent[k], saved);
+    }
+    for (var j = 0; j < list.length; j++) {
+      if (recentSet[list[j].id]) continue;
+      var m = list[j];
       var sel = m.id === saved;
       out += '<div class="ap-model-item' + (sel ? ' active' : '') + '" role="option" tabindex="0"'
         + ' data-ap-model="' + apEsc(m.id) + '" aria-selected="' + (sel ? 'true' : 'false') + '">'
@@ -206,6 +246,17 @@ function apModelOptionsHtml(catalog, provider, saved, inheritLabel) {
       + apEsc(saved) + '</div></div></div>';
   }
   return out;
+}
+
+/** One model row — shared by the "Last used" group and the full list. */
+function apModelItemHtml(m, saved) {
+  var sel = m.id === saved;
+  return '<div class="ap-model-item' + (sel ? ' active' : '') + '" role="option" tabindex="0"'
+    + ' data-ap-model="' + apEsc(m.id) + '" aria-selected="' + (sel ? 'true' : 'false') + '">'
+    + '<div><div class="ap-model-name">' + apEsc(m.label) + '</div>'
+    + '<div class="ap-model-sub">' + apEsc(m.id) + '</div></div>'
+    + (sel ? '<span class="ap-model-tag">saved</span>' : '')
+    + '</div>';
 }
 
 /** The identity the core trigger shows: full pattern when a model is set. */
@@ -230,6 +281,7 @@ function mountAgentPicker(root, opts) {
   }
   var cores = o.cores || [];
   var catalog = o.catalog || {};
+  var recent = o.recent || {};
   var value = o.value || {};
   var inherit = o.inherit || {};
   var showEffort = o.showEffort !== false;
@@ -287,7 +339,7 @@ function mountAgentPicker(root, opts) {
       + ' aria-label="Search models" data-ap-search /></div>'
       + '<div class="ap-scroll" data-ap-list="model"></div>';
     $('[data-ap-list="model"]').innerHTML = apModelOptionsHtml(
-      catalog, state.core, state.model, inherit.model || '',
+      catalog, state.core, state.model, inherit.model || '', recent[state.core],
     );
     var coreLabel = modelLabel();
     $('[data-ap-trigger="core"]').innerHTML =
@@ -416,7 +468,7 @@ function mountAgentPicker(root, opts) {
     var q = (e.target.value || '').trim().toLowerCase();
     var listEl = $('[data-ap-list="model"]');
     if (!listEl) return;
-    if (!q) { listEl.innerHTML = apModelOptionsHtml(catalog, state.core, state.model, inherit.model || ''); return; }
+    if (!q) { listEl.innerHTML = apModelOptionsHtml(catalog, state.core, state.model, inherit.model || '', recent[state.core]); return; }
     var list = (catalog && catalog[state.core]) || [];
     var out = '';
     for (var i = 0; i < list.length; i++) {
@@ -458,6 +510,7 @@ function mountAgentPicker(root, opts) {
     _configure: function (next) {
       cores = (next && next.cores) || [];
       catalog = (next && next.catalog) || {};
+      recent = (next && next.recent) || {};
       inherit = (next && next.inherit) || {};
       showEffort = next ? next.showEffort !== false : true;
       disabled = !!(next && next.disabled);
