@@ -64,6 +64,7 @@ export type InsideActionTarget =
       session: { kind: 'planner' | 'node'; runId: number };
     }
   | { kind: 'graph-stop'; ticketId: number }
+  | { kind: 'graph-confirm'; ticketId: number; graphRunId: number }
   // Slice 4 Task 4: discard an ambiguous node run (`launch-unknown` /
   // `termination-unknown`). The nodeRunId is a RECORDED node-run row id — the
   // dispatch re-loads it and proves it belongs to the registry's ticket; the
@@ -149,6 +150,8 @@ export interface InsideActionHost {
   ): void | Promise<void>;
   /** Signal the coordinator to drain the ticket's live graph run. */
   graphStop(ticketId: number): void | Promise<void>;
+  /** Confirm a compiled graph plan that is durably awaiting the user. */
+  graphConfirm(ticketId: number, graphRunId: number): void | Promise<void>;
   /**
    * Discard an ambiguous node run (launch-unknown/termination-unknown) — the
    * ONE explicit exit for an unprovable process. The dispatch has already
@@ -357,6 +360,18 @@ export function dispatchInsideAction(
         return { outcome: 'rejected', reason: 'no live graph run to stop' };
       }
       void deps.host.graphStop(target.ticketId);
+      return { outcome: 'dispatched' };
+    }
+    case 'graph-confirm': {
+      const row = store.db
+        .prepare(
+          'SELECT status FROM approach_graph_runs WHERE id = ? AND ticket_id = ?',
+        )
+        .get(target.graphRunId, target.ticketId) as { status: string } | undefined;
+      if (row?.status !== 'awaiting-confirmation') {
+        return { outcome: 'rejected', reason: 'graph is not awaiting confirmation' };
+      }
+      void deps.host.graphConfirm(target.ticketId, target.graphRunId);
       return { outcome: 'dispatched' };
     }
     case 'graph-discard-node': {

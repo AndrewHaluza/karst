@@ -22,6 +22,8 @@ const GRAPH_ENV = buildGraphSessionEnv({
   capability: 'cap',
   artifactRoot: '/root',
   callbackUrl: 'http://127.0.0.1:9/wakeup',
+  callbackToken: 'route-token',
+  cliPath: '/ext/dist/cli/main.js',
   dbPath: '/db/karst.db',
   projectId: 7,
 });
@@ -37,6 +39,8 @@ describe('buildGraphSessionEnv', () => {
       KARST_GRAPH_CAPABILITY: 'cap',
       KARST_GRAPH_ARTIFACT_ROOT: '/root',
       KARST_GRAPH_CALLBACK_URL: 'http://127.0.0.1:9/wakeup',
+      KARST_GRAPH_CALLBACK_TOKEN: 'route-token',
+      KARST_GRAPH_CLI: '/ext/dist/cli/main.js',
       KARST_GRAPH_DB: '/db/karst.db',
       KARST_GRAPH_PROJECT: '7',
     });
@@ -53,6 +57,8 @@ describe('buildGraphSessionEnv', () => {
       capability: 'cap',
       artifactRoot: '/root',
       callbackUrl: 'http://127.0.0.1:9/wakeup',
+      callbackToken: 'route-token',
+      cliPath: '/ext/dist/cli/main.js',
       dbPath: '/db/karst.db',
       projectId: 7,
     });

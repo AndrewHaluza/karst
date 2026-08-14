@@ -149,10 +149,12 @@ describe('extension activation', () => {
     const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
 
     // The driver's relaunch is imported and invoked from a host closure that
-    // registers the launch identity and submit-on-close…
+    // captures the launch identity for the terminal-close fallback…
     expect(source).toContain('relaunchBootstrapPlanner,');
     expect(source).toContain('relaunchBootstrapPlanner(graphDriverDeps(), { graphRunId })');
-    expect(source).toContain('attachPlannerSubmitOnClose(result.session, graphRunId)');
+    expect(source).toContain('attachPlannerCloseFallback(result.session, identity)');
+    expect(source).toContain('KARST_GRAPH_PROJECT: String(identity.projectId)');
+    expect(source).toContain('KARST_GRAPH_ARTIFACT_ROOT: identity.artifactRoot');
     // …the reconcile deps bind the `relaunchPlanner` seam to that closure…
     expect(source).toMatch(
       /relaunchPlanner:\s*\(graphRunId\) => void relaunchBootstrapPlannerHost\(graphRunId\)/,

@@ -453,6 +453,15 @@ describe('recoverGraphRun', () => {
     expect(stageBlock(store, ticketId, 'impl')).toBeNull();
   });
 
+  it('restores a legacy planner-stale block with an accepted revision to confirmation', () => {
+    const { ticketId, graphRunId } = blockedGraph('planner-stale: submitted planner exited', []);
+    const result = recoverGraphRun(makeDeps(), { ticketId, graphRunId });
+    expect(result).toEqual({ kind: 'confirmation-restored' });
+    expect(runRow(graphRunId)).toEqual({ status: 'awaiting-confirmation', blocked_reason: null });
+    expect(stageBlock(store, ticketId, 'impl')).toBeNull();
+    expect(plannerRunsOf(graphRunId)).toEqual([]);
+  });
+
   it('a planner-stale relaunch refuses explicit-resolution when the prompt seams are unwired', () => {
     const { ticketId, graphRunId } = blockedBootstrapGraph('planner-stale: bootstrap planner 7 process gone');
     const result = recoverGraphRun(makeDeps(), { ticketId, graphRunId });

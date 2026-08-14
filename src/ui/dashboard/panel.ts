@@ -854,6 +854,7 @@ const NOOP_INSIDE_HOST: InsideActionHost = {
   openBoundedEvidence: () => undefined,
   graphOpenSession: () => undefined,
   graphStop: () => undefined,
+  graphConfirm: () => undefined,
   graphDiscardNode: () => undefined,
   graphEditOverride: () => undefined,
 };
@@ -870,6 +871,8 @@ function toRegisteredGraphTarget(
       return { kind: 'graph-open-session', ticketId, session: target.session };
     case 'graph-stop':
       return { kind: 'graph-stop', ticketId };
+    case 'graph-confirm':
+      return { kind: 'graph-confirm', ticketId, graphRunId: target.graphRunId };
     case 'graph-discard-node':
       return { kind: 'graph-discard-node', ticketId, nodeRunId: target.nodeRunId };
     case 'graph-edit-override':

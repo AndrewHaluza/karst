@@ -130,6 +130,7 @@ export interface EffectiveNodeConfig {
 
 export type RecoveryResult =
   | { kind: 'retried'; retried: number[]; resnapshotted: number[] }
+  | { kind: 'confirmation-restored' }
   | {
       kind: 'replanned';
       plannerRunId: number | null;
@@ -464,6 +465,41 @@ function plannerRelaunchRecovery(
   input: { ticketId: number; graphRunId: number },
 ): RecoveryResult {
   const db = deps.store.db;
+  const acceptedRevision = db
+    .prepare(
+      "SELECT id FROM approach_graph_revisions WHERE graph_run_id = ? AND status = 'active' LIMIT 1",
+    )
+    .get(input.graphRunId);
+  if (acceptedRevision !== undefined) {
+    const restored = deps.transaction(() => {
+      if (
+        !casStatus(
+          db,
+          'approach_graph_runs',
+          GRAPH_RUN_TRANSITIONS,
+          input.graphRunId,
+          'blocked',
+          'awaiting-confirmation',
+        )
+      ) {
+        return false;
+      }
+      db.prepare('UPDATE approach_graph_runs SET blocked_reason = NULL, updated_at = ? WHERE id = ?').run(
+        deps.now(),
+        input.graphRunId,
+      );
+      const block = stageBlock(deps.store, input.ticketId, 'impl');
+      if (block?.kind === GRAPH_FAILED_BLOCKER) clearStageBlock(deps.store, input.ticketId, 'impl');
+      return true;
+    });
+    if (!restored) return { kind: 'no-op' };
+    emitGraphDiagnostic({ db, debug: deps.debug }, {
+      category: 'recovery',
+      graphRunId: input.graphRunId,
+      detail: 'restored accepted graph to awaiting confirmation',
+    });
+    return { kind: 'confirmation-restored' };
+  }
   if (!deps.readPrompt || !deps.writeSnapshot || !deps.plannerPromptPath || deps.ticketContext === undefined) {
     emitGraphDiagnostic({ db, debug: deps.debug }, {
       category: 'recovery',

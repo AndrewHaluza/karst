@@ -147,6 +147,7 @@ export type GraphLiveSessionView = { kind: 'planner' | 'node'; runId: number };
  */
 export type GraphActionTarget =
   | { kind: 'graph-open-session'; session: { kind: 'planner' | 'node'; runId: number } }
+  | { kind: 'graph-confirm'; graphRunId: number }
   | { kind: 'graph-stop' }
   | { kind: 'graph-discard-node'; nodeRunId: number }
   | { kind: 'graph-edit-override'; nodeRunId: number };
@@ -464,9 +465,11 @@ export function graphInsideProcess(
       `run ${input.graphRun.id} · ${input.graphRun.status} · ${input.graphRun.approachId}`,
     ),
     status: graphRunStatus(input.graphRun.status),
-    ...(STOPPABLE_RUN_STATUSES.includes(input.graphRun.status) && input.attach
-      ? { action: input.attach({ kind: 'graph-stop' }) }
-      : {}),
+    ...(input.attach && input.graphRun.status === 'awaiting-confirmation'
+      ? { action: input.attach({ kind: 'graph-confirm', graphRunId: input.graphRun.id }) }
+      : STOPPABLE_RUN_STATUSES.includes(input.graphRun.status) && input.attach
+        ? { action: input.attach({ kind: 'graph-stop' }) }
+        : {}),
   });
 
   for (const planner of input.plannerRuns) {

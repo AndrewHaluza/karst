@@ -32,14 +32,16 @@ export class GraphStoreError extends Error {
 
 export const GRAPH_RUN_TRANSITIONS: Readonly<Record<string, readonly string[]>> = {
   planning: ['awaiting-confirmation', 'running', 'blocked', 'cancelled', 'stale'],
-  'awaiting-confirmation': ['running', 'blocked', 'cancelled', 'stale'],
+  'awaiting-confirmation': ['running', 'cancelled', 'stale'],
   running: ['draining', 'blocked', 'completed-awaiting-impl-marker', 'cancelled', 'stale'],
   draining: ['running', 'completed-awaiting-impl-marker', 'cancelled', 'stale'],
   // `blocked → planning` is the bootstrap-relaunch recovery exit: a bootstrap
   // planner that died before ever submitting (no active revision yet) blocks
   // the run at `planning`, and the typed recovery re-opens the run to
   // `planning` to launch a fresh bootstrap planner on the SAME graph run.
-  blocked: ['running', 'planning', 'cancelled', 'stale'],
+  // `blocked → awaiting-confirmation` repairs the short-lived v53 regression
+  // that parked already-accepted plans when their finished planner was gone.
+  blocked: ['running', 'planning', 'awaiting-confirmation', 'cancelled', 'stale'],
   'completed-awaiting-impl-marker': ['closed', 'cancelled', 'stale'],
   closed: [],
   stale: [],

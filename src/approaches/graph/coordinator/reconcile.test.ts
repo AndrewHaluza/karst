@@ -578,86 +578,17 @@ describe('reconcileGraphRun — reload and crash matrix', () => {
     });
   });
 
-  describe('an awaiting-confirmation run whose bootstrap planner session is gone', () => {
-    function toAwaitingConfirmation(ctx: Ctx): void {
-      ctx.db
-        .prepare("UPDATE approach_graph_runs SET status = 'awaiting-confirmation' WHERE id = ?")
-        .run(ctx.graphRunId);
-    }
-
-    it('a running planner with a demonstrably dead process blocks the run with planner-stale', async () => {
-      toAwaitingConfirmation(ctx);
-      insertPlannerRun(ctx, 301, 'running');
-      linkPlannerProcess(ctx, 301, 301, 6363, NOW);
-      const deps = ctx.makeDeps({
-        facts: makeFacts({ alive: { 6363: false } }),
-      });
-      const result = await reconcileGraphRun(deps, { graphRunId: ctx.graphRunId });
-      expect(runRow(ctx).status).toBe('blocked');
-      expect(runRow(ctx).blocked_reason).toMatch(/^planner-stale:/);
-      expect(plannerRow(ctx, 301).status).toBe('running');
-      expect(result.transitions).toBe(1);
-    });
-
-    it('a submitted planner with a demonstrably dead process blocks the run', async () => {
-      toAwaitingConfirmation(ctx);
-      insertPlannerRun(ctx, 302, 'submitted');
-      linkPlannerProcess(ctx, 302, 302, 6464, NOW);
-      const deps = ctx.makeDeps({
-        facts: makeFacts({ alive: { 6464: false } }),
-      });
-      const result = await reconcileGraphRun(deps, { graphRunId: ctx.graphRunId });
-      expect(runRow(ctx).status).toBe('blocked');
-      expect(runRow(ctx).blocked_reason).toMatch(/^planner-stale:/);
-      expect(result.transitions).toBe(1);
-    });
-
-    it('a running planner with a live attributable process is left alone (another window owns it)', async () => {
-      toAwaitingConfirmation(ctx);
-      insertPlannerRun(ctx, 303, 'running');
-      linkPlannerProcess(ctx, 303, 303, 6565, NOW);
-      const deps = ctx.makeDeps({
-        facts: makeFacts({ alive: { 6565: true }, startMs: { 6565: Date.parse(NOW) } }),
-      });
-      const result = await reconcileGraphRun(deps, { graphRunId: ctx.graphRunId });
-      expect(runRow(ctx).status).toBe('awaiting-confirmation');
-      expect(result.transitions).toBe(0);
-    });
-
-    it('a running planner with no pid evidence is never declared dead', async () => {
-      toAwaitingConfirmation(ctx);
-      insertPlannerRun(ctx, 304, 'running');
-      // No process_runs row linked — process_run_id is null.
-      const deps = ctx.makeDeps({
-        facts: makeFacts({}),
-      });
-      const result = await reconcileGraphRun(deps, { graphRunId: ctx.graphRunId });
-      expect(runRow(ctx).status).toBe('awaiting-confirmation');
-      expect(result.transitions).toBe(0);
-    });
-
-    it('an awaiting-confirmation run with no bootstrap planner run is a no-op', async () => {
-      toAwaitingConfirmation(ctx);
-      const result = await reconcileGraphRun(ctx.makeDeps(), { graphRunId: ctx.graphRunId });
-      expect(runRow(ctx).status).toBe('awaiting-confirmation');
-      expect(result.transitions).toBe(0);
-    });
-
-    it('CAS guard: a run already blocked by another window is not re-blocked', async () => {
-      toAwaitingConfirmation(ctx);
-      insertPlannerRun(ctx, 305, 'running');
-      linkPlannerProcess(ctx, 305, 305, 6767, NOW);
-      // Simulate another window already blocking the run.
-      ctx.db
-        .prepare("UPDATE approach_graph_runs SET status = 'blocked', blocked_reason = 'planner-stale: other window' WHERE id = ?")
-        .run(ctx.graphRunId);
-      const deps = ctx.makeDeps({
-        facts: makeFacts({ alive: { 6767: false } }),
-      });
-      const result = await reconcileGraphRun(deps, { graphRunId: ctx.graphRunId });
-      expect(runRow(ctx).status).toBe('blocked');
-      expect(runRow(ctx).blocked_reason).toBe('planner-stale: other window');
-      expect(result.transitions).toBe(0);
-    });
+  it('an accepted plan awaiting confirmation stays passive after its submitted planner exits', async () => {
+    ctx.db
+      .prepare("UPDATE approach_graph_runs SET status = 'awaiting-confirmation' WHERE id = ?")
+      .run(ctx.graphRunId);
+    insertPlannerRun(ctx, 302, 'submitted');
+    linkPlannerProcess(ctx, 302, 302, 6464, NOW);
+    const result = await reconcileGraphRun(
+      ctx.makeDeps({ facts: makeFacts({ alive: { 6464: false } }) }),
+      { graphRunId: ctx.graphRunId },
+    );
+    expect(runRow(ctx)).toEqual({ status: 'awaiting-confirmation', blocked_reason: null });
+    expect(result.transitions).toBe(0);
   });
 });

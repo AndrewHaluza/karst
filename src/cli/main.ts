@@ -15,6 +15,7 @@ import { resolveTicketByKey } from './resolveTicket.js';
 import { runTestCommand, parseTestArgs } from './test/main.js';
 import { runReset } from './test/reset.js';
 import { AssertionMismatchError } from './test/assert.js';
+import { notifyGraphWakeup } from '../hooks/graphEndpoint.js';
 
 /**
  * Write each manifest diagnostic (warning or notice) to stderr, one line,
@@ -274,17 +275,36 @@ function fail(message: string): never {
 const invokedDirectly =
   process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (invokedDirectly) {
-  try {
-    process.stdout.write(runCli(process.argv.slice(2)) + '\n');
-  } catch (e) {
-    // `karst test assert` reports a mismatch as exit code 1 WITH the diff JSON on
-    // stdout — the shell test scripts the driver ships branch on that exit code.
-    // The diff must stay off stderr (a parseable stdout is the CLI's contract),
-    // so it is rendered here rather than through the generic `fail` path.
-    if (e instanceof AssertionMismatchError) {
-      process.stdout.write(JSON.stringify({ ok: false, diff: e.diff }) + '\n');
-      process.exit(1);
+  void (async () => {
+    try {
+      const argv = process.argv.slice(2);
+      const output = runCli(argv);
+      process.stdout.write(output + '\n');
+      const command = parseGlobalFlags(argv).rest[0];
+      if (command === 'graph' || command === 'node') {
+        let committed = false;
+        try {
+          committed = (JSON.parse(output) as { ok?: unknown }).ok === true;
+        } catch {
+          // Non-JSON output is never a committed graph/node result.
+        }
+        if (committed) {
+          await notifyGraphWakeup(
+            process.env.KARST_GRAPH_CALLBACK_URL,
+            process.env.KARST_GRAPH_CALLBACK_TOKEN,
+          );
+        }
+      }
+    } catch (e) {
+      // `karst test assert` reports a mismatch as exit code 1 WITH the diff JSON on
+      // stdout — the shell test scripts the driver ships branch on that exit code.
+      // The diff must stay off stderr (a parseable stdout is the CLI's contract),
+      // so it is rendered here rather than through the generic `fail` path.
+      if (e instanceof AssertionMismatchError) {
+        process.stdout.write(JSON.stringify({ ok: false, diff: e.diff }) + '\n');
+        process.exit(1);
+      }
+      fail((e as Error).message);
     }
-    fail((e as Error).message);
-  }
+  })();
 }

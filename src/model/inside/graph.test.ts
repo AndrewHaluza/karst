@@ -10,6 +10,7 @@ import { describe, it, expect } from 'vitest';
 import {
   graphInsideProcess,
   sanitizeGraphText,
+  type GraphActionTarget,
   type GraphInsideInput,
 } from './graph.js';
 
@@ -197,6 +198,32 @@ describe('graphInsideProcess', () => {
     )!;
     if (closed.evidence?.kind !== 'rows') return;
     expect(closed.evidence.rows[0]!.action).toBeUndefined();
+  });
+
+  it('attaches a persistent confirm action while the accepted graph awaits confirmation', () => {
+    const targets: GraphActionTarget[] = [];
+    const process = graphInsideProcess(
+      input({
+        graphRun: {
+          id: 7,
+          status: 'awaiting-confirmation',
+          approachId: 'g',
+          stageAttempt: 0,
+          createdAt: '2026-08-11T00:00:00.000Z',
+        },
+        attach: (value) => {
+          targets.push(value);
+          return { actionId: 'snapshot-1:action-1', kind: value.kind };
+        },
+      }),
+    )!;
+    expect(process.evidence?.kind).toBe('rows');
+    if (process.evidence?.kind !== 'rows') return;
+    expect(targets).toContainEqual({
+      kind: 'graph-confirm',
+      graphRunId: 7,
+    });
+    expect(process.evidence.rows[0]!.action).toMatchObject({ kind: 'graph-confirm' });
   });
 
   it('attaches the discard exit to an ambiguous node run and Open to a live one, never both', () => {

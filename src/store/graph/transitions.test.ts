@@ -48,7 +48,6 @@ describe('graph-run transition map', () => {
       'planning → running',
       'planning → blocked',
       'awaiting-confirmation → running',
-      'awaiting-confirmation → blocked',
       'running → draining',
       'draining → running',
       'running → blocked',
@@ -57,6 +56,7 @@ describe('graph-run transition map', () => {
       // the run at `planning`, and recovery re-opens it to `planning` to launch
       // a fresh bootstrap planner on the same graph run.
       'blocked → planning',
+      'blocked → awaiting-confirmation',
       'running → completed-awaiting-impl-marker',
       'draining → completed-awaiting-impl-marker',
       'completed-awaiting-impl-marker → closed',

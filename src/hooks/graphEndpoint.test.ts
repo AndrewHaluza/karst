@@ -18,6 +18,7 @@
 import { describe, it, expect } from 'vitest';
 import { request as httpRequest } from 'node:http';
 import {
+  notifyGraphWakeup,
   startGraphWakeupEndpoint,
   type GraphWakeupEndpoint,
   type WakeupTarget,
@@ -63,6 +64,19 @@ async function startEndpoint(
 }
 
 describe('graph wake-up endpoint', () => {
+  it('notifies a registered loopback route with its body token', async () => {
+    const { schedules, register, close } = await startEndpoint();
+    const route = register(41);
+    expect(await notifyGraphWakeup(route.url, route.token)).toBe(true);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(schedules).toEqual([41]);
+    await close();
+  });
+
+  it('refuses non-loopback wake-up destinations', async () => {
+    expect(await notifyGraphWakeup('https://example.com/graph-wakeup', 'token')).toBe(false);
+  });
+
   it('accepts a valid wake-up with a fast response, then schedules the coordinator', async () => {
     const { endpoint, schedules, register, close } = await startEndpoint();
     const { url, token } = register(42);

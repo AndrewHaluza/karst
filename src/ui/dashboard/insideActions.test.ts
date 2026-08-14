@@ -93,16 +93,16 @@ function seedPr(id: number, ticketId: number, number: number | null = 40): void 
 
 /** Seed a graph run + an active revision; returns both row ids. */
 function seedGraph(
-  over: { ticketId?: number; runId?: number; status?: string } = {},
+  over: { ticketId?: number; runId?: number; stageAttempt?: number; status?: string } = {},
 ): { graphRunId: number; revisionId: number } {
   const graphRunId = over.runId ?? 1;
   store.db
     .prepare(
       `INSERT INTO approach_graph_runs
          (id, ticket_id, stage_key, stage_attempt, approach_id, status, created_at)
-       VALUES (?, ?, 'impl', 0, 'karst-graph-engineering', ?, '2026-08-12T00:00:00.000Z')`,
+       VALUES (?, ?, 'impl', ?, 'karst-graph-engineering', ?, '2026-08-12T00:00:00.000Z')`,
     )
-    .run(graphRunId, over.ticketId ?? 1, over.status ?? 'running');
+    .run(graphRunId, over.ticketId ?? 1, over.stageAttempt ?? 0, over.status ?? 'running');
   const revisionId = Number(
     store.db
       .prepare(
@@ -158,6 +158,8 @@ function host(calls: string[]): InsideActionHost {
     graphOpenSession: (ticketId, session) =>
       void calls.push(`graph-open:${ticketId}:${session.kind}:${session.runId}`),
     graphStop: (ticketId) => void calls.push(`graph-stop:${ticketId}`),
+    graphConfirm: (ticketId, graphRunId) =>
+      void calls.push(`graph-confirm:${ticketId}:${graphRunId}`),
     graphDiscardNode: (ticketId, nodeRunId) =>
       void calls.push(`graph-discard:${ticketId}:${nodeRunId}`),
     graphEditOverride: (ticketId, nodeRunId) =>
@@ -582,6 +584,26 @@ describe('dispatchInsideAction', () => {
     expect(dispatchInsideAction(store, r3, 'snapshot-7:action-0', deps([]))).toEqual({
       outcome: 'rejected',
       reason: 'no live graph run to stop',
+    });
+  });
+
+  it('dispatches graph-confirm only while the ticket awaits graph confirmation', () => {
+    seedGraph({ ticketId: 1, runId: 1, status: 'awaiting-confirmation' });
+    const r = registry(7);
+    r.register({ kind: 'graph-confirm', ticketId: 1, graphRunId: 1 });
+    const calls: string[] = [];
+    expect(dispatchInsideAction(store, r, 'snapshot-7:action-0', deps(calls))).toEqual({
+      outcome: 'dispatched',
+    });
+    expect(calls).toEqual(['graph-confirm:1:1']);
+
+    store.db.prepare("UPDATE approach_graph_runs SET status = 'cancelled' WHERE id = 1").run();
+    seedGraph({ ticketId: 1, runId: 2, stageAttempt: 1, status: 'awaiting-confirmation' });
+    const stale = registry(8);
+    stale.register({ kind: 'graph-confirm', ticketId: 1, graphRunId: 1 });
+    expect(dispatchInsideAction(store, stale, 'snapshot-8:action-0', deps([]))).toEqual({
+      outcome: 'rejected',
+      reason: 'graph is not awaiting confirmation',
     });
   });
 

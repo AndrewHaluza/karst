@@ -14,7 +14,8 @@
  *
  * Graph values use new names: `KARST_GRAPH_RUN_ID`, `KARST_GRAPH_REVISION_ID`,
  * `KARST_GRAPH_GENERATION`, `KARST_GRAPH_CAPABILITY`, `KARST_GRAPH_ARTIFACT_ROOT`,
- * `KARST_GRAPH_CALLBACK_URL`, `KARST_GRAPH_DB`, `KARST_GRAPH_PROJECT`. No other
+ * `KARST_GRAPH_CALLBACK_URL`, `KARST_GRAPH_CALLBACK_TOKEN`, `KARST_GRAPH_CLI`,
+ * `KARST_GRAPH_DB`, `KARST_GRAPH_PROJECT`. No other
  * key's meaning changes.
  */
 
@@ -33,6 +34,8 @@ export interface GraphSessionEnvInput {
   capability: string;
   artifactRoot: string;
   callbackUrl: string;
+  callbackToken: string;
+  cliPath: string;
   dbPath: string;
   projectId: number;
 }
@@ -47,6 +50,8 @@ export function buildGraphSessionEnv(input: GraphSessionEnvInput): Record<string
     KARST_GRAPH_CAPABILITY: input.capability,
     KARST_GRAPH_ARTIFACT_ROOT: input.artifactRoot,
     KARST_GRAPH_CALLBACK_URL: input.callbackUrl,
+    KARST_GRAPH_CALLBACK_TOKEN: input.callbackToken,
+    KARST_GRAPH_CLI: input.cliPath,
     KARST_GRAPH_DB: input.dbPath,
     KARST_GRAPH_PROJECT: String(input.projectId),
   };

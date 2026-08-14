@@ -237,6 +237,7 @@ export type InsideActionKind =
   | 'open-full-evidence'
   | 'open-bounded-evidence'
   | 'graph-open-session'
+  | 'graph-confirm'
   | 'graph-stop'
   | 'graph-discard-node'
   | 'graph-edit-override';

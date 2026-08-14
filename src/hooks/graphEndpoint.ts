@@ -20,7 +20,7 @@
  * canonical state and never depends on this callback.
  */
 
-import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { createServer, request as httpRequest, type IncomingMessage, type ServerResponse } from 'node:http';
 import { randomBytes } from 'node:crypto';
 
 /** The bounded routing identity the endpoint derives from a host-created
@@ -55,8 +55,67 @@ export interface GraphWakeupEndpointOptions {
 }
 
 const LOOPBACK_ADDRESSES = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
+const LOOPBACK_URL_HOSTS = new Set(['127.0.0.1', '[::1]', '[::ffff:127.0.0.1]']);
 const MAX_BODY_BYTES = 4096;
 const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
+
+/** Notify a host-created graph route after durable CLI state commits. The URL
+ * is still treated as untrusted because an agent can override environment
+ * variables for a child process; only the fixed loopback HTTP route is sent. */
+export function notifyGraphWakeup(
+  rawUrl: string | undefined,
+  token: string | undefined,
+  timeoutMs = 2_000,
+): Promise<boolean> {
+  if (!rawUrl || !token) return Promise.resolve(false);
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return Promise.resolve(false);
+  }
+  const isLoopbackHost = LOOPBACK_URL_HOSTS.has(url.hostname);
+  if (
+    url.protocol !== 'http:' ||
+    !isLoopbackHost ||
+    url.pathname !== '/graph-wakeup' ||
+    url.search !== '' ||
+    url.hash !== '' ||
+    url.username !== '' ||
+    url.password !== ''
+  ) {
+    return Promise.resolve(false);
+  }
+  const body = JSON.stringify({ token });
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (ok: boolean): void => {
+      if (settled) return;
+      settled = true;
+      resolve(ok);
+    };
+    const req = httpRequest(
+      url,
+      {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'content-length': Buffer.byteLength(body),
+        },
+      },
+      (res) => {
+        res.resume();
+        res.on('end', () => finish(res.statusCode === 202));
+      },
+    );
+    req.setTimeout(timeoutMs, () => {
+      req.destroy();
+      finish(false);
+    });
+    req.on('error', () => finish(false));
+    req.end(body);
+  });
+}
 
 interface Route {
   graphRunId: number;

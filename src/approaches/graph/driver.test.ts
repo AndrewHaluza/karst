@@ -226,6 +226,9 @@ describe('bootstrapAndLaunchPlanner', () => {
     const launch = h.starts[0] as { nodeRunId: number; graphEnv: Record<string, string> };
     expect(launch.nodeRunId).toBe(result.plannerRunId);
     expect(launch.graphEnv.KARST_GRAPH_CAPABILITY).toBeTruthy();
+    expect(
+      (h.starts[0] as { interactive: { initialPrompt: string } }).interactive.initialPrompt,
+    ).toContain('node "$KARST_GRAPH_CLI" graph submit');
   });
 
   it('returns instructions-missing when the planner prompt cannot be read', async () => {
@@ -735,6 +738,9 @@ describe('relaunchBootstrapPlanner', () => {
     const launch = h.starts[0] as { nodeRunId: number; graphEnv: Record<string, string> };
     expect(launch.nodeRunId).toBe(result.plannerRunId);
     expect(launch.graphEnv.KARST_GRAPH_CAPABILITY).toBeTruthy();
+    expect(
+      (h.starts[0] as { interactive: { initialPrompt: string } }).interactive.initialPrompt,
+    ).toContain('node "$KARST_GRAPH_CLI" graph submit');
   });
 
   it('is a no-op for a run that already left planning', async () => {

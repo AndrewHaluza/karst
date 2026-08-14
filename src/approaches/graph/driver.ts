@@ -74,6 +74,10 @@ import type { GraphApproachConfig, GraphCommandConfig } from '../../manifest/typ
 import type { GraphPromptIdentity } from '../../agent/graphPrompts.js';
 import { uuidv7 } from './coordinator/lineage.js';
 
+/** Planner completion is a durable CLI submission, not terminal lifecycle. */
+export const PLANNER_SUBMIT_INSTRUCTION =
+  'After writing every artifact and `graph.json`, run `node "$KARST_GRAPH_CLI" graph submit`. Wait for it to report `{"ok":true}`, then exit; karst observes the committed submission and does not depend on the terminal closing.';
+
 /** SHA-256 over UTF-8 bytes — the capability hash the run stores. */
 export function sha256Hex(bytes: Uint8Array): string {
   return createHash('sha256').update(bytes).digest('hex');
@@ -259,7 +263,7 @@ export async function bootstrapAndLaunchPlanner(
   const prompt = [
     new TextDecoder().decode(promptBytes),
     deps.ticketContextOf(input.ticketId),
-    'Write your plan artifacts and `graph.json` under the artifact root (env `KARST_GRAPH_ARTIFACT_ROOT`), then exit immediately — karst compiles and runs the graph after you close. Do not wait for further input.',
+    PLANNER_SUBMIT_INSTRUCTION,
   ].join('\n\n');
   const session = await deps.transport.start({
     nodeRunId: plannerRunId,
@@ -379,7 +383,7 @@ export async function relaunchBootstrapPlanner(
   const prompt = [
     new TextDecoder().decode(promptBytes),
     deps.ticketContextOf(run.ticket_id),
-    'Write your plan artifacts and `graph.json` under the artifact root (env `KARST_GRAPH_ARTIFACT_ROOT`), then exit immediately — karst compiles and runs the graph after you close. Do not wait for further input.',
+    PLANNER_SUBMIT_INSTRUCTION,
   ].join('\n\n');
   const session = await deps.transport.start({
     nodeRunId: plannerRunId,

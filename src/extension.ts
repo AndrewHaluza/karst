@@ -214,6 +214,7 @@ import {
   launchReplanPlanner,
   relaunchBootstrapPlanner,
   resolveProfileFor,
+  PLANNER_SUBMIT_INSTRUCTION,
   type GraphDriverDeps,
 } from './approaches/graph/driver.js';
 import { runGraphCommand } from './cli/graph.js';
@@ -2380,6 +2381,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // is created later in activate; the Inside Stop action reads it only after
   // activation has fully run, like `runPrSync` and `maybeDrive`.
   let stopGraphRun: ((ticketId: number) => Promise<void>) | undefined;
+  let confirmGraphRunForTicket: ((ticketId: number, graphRunId: number) => void) | undefined;
 
   const dashboard = new DashboardManager(
     localStore,
@@ -2523,6 +2525,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const handler = stopGraphRun;
         if (handler) void handler(ticketId);
       },
+      graphConfirm: (ticketId, graphRunId) => confirmGraphRunForTicket?.(ticketId, graphRunId),
       // Discard an ambiguous node run (Slice 4 Task 4) — the named exit for a
       // process whose fate cannot be proven. The coordinator's OWN connection
       // runs the one transaction (a contended BEGIN IMMEDIATE must abort, not
@@ -3741,13 +3744,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       .prepare('SELECT approach_id FROM approach_graph_runs WHERE id = ?')
       .get(graphRunId) as { approach_id: string } | undefined)?.approach_id ?? '';
 
-  /** The per-launch identity the host keeps until the planner session closes,
-   *  so it can run `karst graph submit` on the planner's behalf with the same
-   *  capability it minted at launch. */
-  const graphLaunchIdentities = new Map<
-    number,
-    { graphRunId: number; ticketId: number; plannerRunId: number; generation: string; capability: string }
-  >();
+  /** Immutable identity captured by one planner terminal's close fallback. */
+  type GraphLaunchIdentity = {
+    graphRunId: number;
+    ticketId: number;
+    plannerRunId: number;
+    generation: string;
+    capability: string;
+    projectId: number;
+    artifactRoot: string;
+  };
 
   /** The driver's host bindings: transport, prompts, adapters, git, and the
    *  manifest/registry seams the pure driver cannot reach. */
@@ -3764,8 +3770,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       debug: (message) => logger.debug(message),
       graphConfigOf: graphApproachConfigFor,
       artifactRootOf: graphArtifactRoot,
-      graphEnvOf: (input) =>
-        buildGraphSessionEnv({
+      graphEnvOf: (input) => {
+        const route = graphRouteFor(input.graphRunId);
+        return buildGraphSessionEnv({
           ticketId: graphRunTicketId(input.graphRunId),
           launchId: input.launchId,
           graphRunId: input.graphRunId,
@@ -3773,10 +3780,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           generation: input.generation,
           capability: input.capability,
           artifactRoot: input.artifactRoot,
-          callbackUrl: graphRouteFor(input.graphRunId).url,
+          callbackUrl: route.url,
+          callbackToken: route.token,
+          cliPath: join(context.extensionUri.fsPath, 'dist', 'cli', 'main.js'),
           dbPath,
           projectId: currentProject()?.id ?? 0,
-        }),
+        });
+      },
       adapterFor: (provider) =>
         instrument(resolveAdapter(provider as AgentProvider), provider as AgentProvider),
       transport: tr!,
@@ -4038,7 +4048,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
 
   /** Bootstrap a graph-approach ticket's first impl launch: create the run,
-   *  launch the planner session, and submit the plan when the planner closes. */
+   *  launch the planner session, and retain terminal close as a submission
+   *  fallback for older or interrupted planner prompts. */
   const launchGraphRun = async (ticketId: number): Promise<void> => {
     const gs = graphCoordinatorStore;
     if (!gs) return;
@@ -4065,16 +4076,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       );
       return;
     }
-    graphLaunchIdentities.set(result.graphRunId, {
+    const identity: GraphLaunchIdentity = {
       graphRunId: result.graphRunId,
       ticketId,
       plannerRunId: result.plannerRunId,
       generation: result.generation,
       capability: result.capability,
-    });
-    // When the planner closes, submit its graph.json on its behalf, then
-    // accept (compile) the plan and drive the run.
-    attachPlannerSubmitOnClose(result.session, result.graphRunId);
+      projectId: currentProject()?.id ?? 0,
+      artifactRoot: graphArtifactRoot(result.graphRunId),
+    };
+    attachPlannerCloseFallback(result.session, identity);
     result.session.terminal?.show();
     provider.refresh();
     dashboard.pushState(ticketId);
@@ -4092,38 +4103,50 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       void runGraphCoordinatorTick(graphRunId);
     }
   };
+  confirmGraphRunForTicket = (ticketId, graphRunId) => {
+    const gs = graphCoordinatorStore;
+    if (!gs) return;
+    const run = activeGraphRunFor(gs.db, ticketId);
+    if (run?.graphRunId === graphRunId && run.status === 'awaiting-confirmation') {
+      void confirmGraphRunHost(graphRunId);
+    }
+  };
 
-  /** Attach the planner-submit-on-close handler: when the planner's terminal
-   *  closes, run `karst graph submit` on its behalf and drive the run. */
-  const attachPlannerSubmitOnClose = (
+  /** Terminal-close fallback for a planner that did not complete the explicit
+   *  CLI submission. The immutable launch identity prevents a late close from
+   *  submitting on behalf of a newer planner. */
+  const attachPlannerCloseFallback = (
     session: { terminal?: { onDidClose(handler: (exitCode?: number) => void): void } },
-    graphRunId: number,
+    identity: GraphLaunchIdentity,
   ): void => {
     session.terminal?.onDidClose(() => {
       void (async () => {
-        const identity = graphLaunchIdentities.get(graphRunId);
-        if (!identity) return;
         const env: Record<string, string | undefined> = {
-          KARST_GRAPH_PROJECT: String(currentProject()?.id ?? 0),
+          KARST_GRAPH_PROJECT: String(identity.projectId),
           KARST_TICKET_ID: String(identity.ticketId),
           KARST_GRAPH_RUN_ID: String(identity.graphRunId),
           KARST_LAUNCH_ID: String(identity.plannerRunId),
           KARST_GRAPH_GENERATION: identity.generation,
           KARST_GRAPH_CAPABILITY: identity.capability,
-          KARST_GRAPH_ARTIFACT_ROOT: graphArtifactRoot(identity.graphRunId),
+          KARST_GRAPH_ARTIFACT_ROOT: identity.artifactRoot,
         };
         try {
-          const out = runGraphCommand(graphCoordinatorStore!, env, ['graph', 'submit']);
-          const parsed = JSON.parse(out) as { ok: boolean; rejected?: string; reason?: string };
-          if (!parsed.ok) {
-            logger.warn(
-              `karst: graph submit rejected (${parsed.rejected ?? 'unknown'}) — ${parsed.reason ?? ''}`,
-            );
+          const planner = graphCoordinatorStore?.db
+            .prepare('SELECT status FROM approach_planner_runs WHERE id = ?')
+            .get(identity.plannerRunId) as { status: string } | undefined;
+          if (planner?.status !== 'submitted') {
+            const out = runGraphCommand(graphCoordinatorStore!, env, ['graph', 'submit']);
+            const parsed = JSON.parse(out) as { ok: boolean; rejected?: string; reason?: string };
+            if (!parsed.ok) {
+              logger.warn(
+                `karst: graph submit rejected (${parsed.rejected ?? 'unknown'}) — ${parsed.reason ?? ''}`,
+              );
+            }
           }
         } catch (err) {
           logError('karst: graph submit on planner close failed', err);
         }
-        await driveGraphRunContinuation(graphRunId);
+        await driveGraphRunContinuation(identity.graphRunId);
       })();
     });
   };
@@ -4139,7 +4162,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       base === undefined ? '# Graph Replanner' : new TextDecoder().decode(base),
       launch.ticketContext,
       `Replan the graph (superseding revision ${launch.priorRevisionNumber}). The replan reasons and prior plan evidence are under the artifact root: ${launch.reasonsSnapshotPath}.`,
-      'Write the new graph.json and exit immediately — karst compiles and runs the graph after you close. Do not wait for further input.',
+      PLANNER_SUBMIT_INSTRUCTION,
     ].join('\n\n');
     const wt = listWorktreesByTicket(localStore, graphRunTicketId(launch.graphRunId))[0];
     const result = await launchReplanPlanner(graphDriverDeps(), {
@@ -4155,14 +4178,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return { kind: 'failed' as const, reason: 'planner session could not start' };
     });
     if (result.kind === 'launched') {
-      graphLaunchIdentities.set(launch.graphRunId, {
+      const identity: GraphLaunchIdentity = {
         graphRunId: launch.graphRunId,
         ticketId: graphRunTicketId(launch.graphRunId),
         plannerRunId: launch.plannerRunId,
         generation: result.generation,
         capability: result.capability,
-      });
-      attachPlannerSubmitOnClose(result.session, launch.graphRunId);
+        projectId: currentProject()?.id ?? 0,
+        artifactRoot: graphArtifactRoot(launch.graphRunId),
+      };
+      attachPlannerCloseFallback(result.session, identity);
       result.session.terminal?.show();
       provider.refresh();
       dashboard.pushState(graphRunTicketId(launch.graphRunId));
@@ -4185,7 +4210,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const prompt = [
       base === undefined ? '# Graph Planner' : new TextDecoder().decode(base),
       launch.ticketContext,
-      'Write your plan artifacts and `graph.json` under the artifact root (env `KARST_GRAPH_ARTIFACT_ROOT`), then exit immediately — karst compiles and runs the graph after you close. Do not wait for further input.',
+      PLANNER_SUBMIT_INSTRUCTION,
     ].join('\n\n');
     const wt = listWorktreesByTicket(localStore, graphRunTicketId(launch.graphRunId))[0];
     const result = await launchReplanPlanner(graphDriverDeps(), {
@@ -4201,14 +4226,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return { kind: 'failed' as const, reason: 'planner session could not start' };
     });
     if (result.kind === 'launched') {
-      graphLaunchIdentities.set(launch.graphRunId, {
+      const identity: GraphLaunchIdentity = {
         graphRunId: launch.graphRunId,
         ticketId: graphRunTicketId(launch.graphRunId),
         plannerRunId: launch.plannerRunId,
         generation: result.generation,
         capability: result.capability,
-      });
-      attachPlannerSubmitOnClose(result.session, launch.graphRunId);
+        projectId: currentProject()?.id ?? 0,
+        artifactRoot: graphArtifactRoot(launch.graphRunId),
+      };
+      attachPlannerCloseFallback(result.session, identity);
       result.session.terminal?.show();
       provider.refresh();
       dashboard.pushState(graphRunTicketId(launch.graphRunId));
@@ -4258,8 +4285,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   /** Relaunch a planning run's bootstrap planner whose session reconcile proved
    *  demonstrably gone: allocate a NEW bootstrap planner run on the SAME
-   *  `planning` run and start its session, registering the launch identity so
-   *  submit-on-close and the dashboard reflect the revived planner. Never
+   *  `planning` run and start its session, retaining its immutable launch
+   *  identity for the terminal-close fallback. Never
    *  throws — both reconcile callers fire it and forget. */
   const relaunchBootstrapPlannerHost = async (graphRunId: number): Promise<void> => {
     const gs = graphCoordinatorStore;
@@ -4273,16 +4300,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return { kind: 'failed' as const, reason: 'planner session could not start' };
     });
     if (result.kind === 'launched') {
-      graphLaunchIdentities.set(graphRunId, {
+      const identity: GraphLaunchIdentity = {
         graphRunId,
         ticketId: row.ticket_id,
         plannerRunId: result.plannerRunId,
         generation: result.generation,
         capability: result.capability,
-      });
-      // When the relaunched planner closes, submit its graph.json on its
-      // behalf exactly like the original launch, then drive the run.
-      attachPlannerSubmitOnClose(result.session, graphRunId);
+        projectId: currentProject()?.id ?? 0,
+        artifactRoot: graphArtifactRoot(graphRunId),
+      };
+      attachPlannerCloseFallback(result.session, identity);
       result.session.terminal?.show();
       provider.refresh();
       dashboard.pushState(row.ticket_id);
@@ -4323,6 +4350,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         if (result.status === 'blocked') {
           settleGraphRun(gs.db, run.id);
         }
+        await driveGraphRunContinuation(run.id);
       }
     } catch (err) {
       logError('karst: graph reconcile sweep failed', err);
@@ -4561,6 +4589,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                 logError(`karst: graph reconcile (sweep) failed for run ${planningRun.id}`, e);
               },
             );
+            void driveGraphRunContinuation(planningRun.id);
           }
         } catch (e) {
           logError('karst: graph planning reconcile (sweep) failed', e);
@@ -6662,6 +6691,7 @@ function makeInsideActionHost(
       session: { kind: 'planner' | 'node'; runId: number },
     ) => void;
     graphStop: (ticketId: number) => void | Promise<void>;
+    graphConfirm: (ticketId: number, graphRunId: number) => void | Promise<void>;
     graphDiscardNode: (ticketId: number, nodeRunId: number) => void | Promise<void>;
     graphEditOverride: (ticketId: number, nodeRunId: number) => void | Promise<void>;
   },
@@ -6708,6 +6738,10 @@ function makeInsideActionHost(
           void vscode.window.showInformationMessage(
             `Ticket #${ticketId}: the implementation graph was retried (graph run ${outcome.graphRunId}).`,
           );
+        } else if (recovery.kind === 'confirmation-restored') {
+          void vscode.window.showInformationMessage(
+            `Ticket #${ticketId}: the accepted implementation graph is ready to start again.`,
+          );
         } else if (recovery.kind === 'replanned') {
           if (recovery.launch) graphReplanLaunch(recovery.launch);
           void vscode.window.showInformationMessage(
@@ -6751,6 +6785,7 @@ function makeInsideActionHost(
     },
     graphOpenSession: (ticketId, session) => graphHost.graphOpenSession(ticketId, session),
     graphStop: (ticketId) => graphHost.graphStop(ticketId),
+    graphConfirm: (ticketId, graphRunId) => graphHost.graphConfirm(ticketId, graphRunId),
     graphDiscardNode: (ticketId, nodeRunId) => graphHost.graphDiscardNode(ticketId, nodeRunId),
     graphEditOverride: (ticketId, nodeRunId) => graphHost.graphEditOverride(ticketId, nodeRunId),
   };
@@ -7033,7 +7068,12 @@ function makeDashboardActions(
           graphRecoveryDeps(outcome.graphRunId),
           { ticketId: outcome.ticketId, graphRunId: outcome.graphRunId },
         );
-        if (recovery.kind === 'retried' || recovery.kind === 'replanned' || recovery.kind === 'relaunched') {
+        if (
+          recovery.kind === 'retried' ||
+          recovery.kind === 'confirmation-restored' ||
+          recovery.kind === 'replanned' ||
+          recovery.kind === 'relaunched'
+        ) {
           if (recovery.kind === 'replanned' && recovery.launch) graphReplanLaunch(recovery.launch);
           if (recovery.kind === 'relaunched' && recovery.launch) graphBootstrapRelaunch(recovery.launch);
           afterServerChange();

@@ -421,78 +421,6 @@ async function reconcileCompleting(
 }
 
 /**
- * The awaiting-confirmation branch: the plan was submitted and the graph is
- * waiting for user confirmation, but the planner process is dead. Block the
- * run so Recovery Resume becomes available — the user can resume (which
- * re-opens to planning for a fresh planner) or discard.
- */
-async function reconcileAwaitingConfirmation(
-  deps: ReconcileGraphRunDeps,
-  run: GraphRunRow,
-): Promise<ReconcileGraphRunResult> {
-  const planner = deps.db
-    .prepare(
-      `SELECT id, status, owner_nonce, process_run_id FROM approach_planner_runs
-       WHERE graph_run_id = ? AND kind = 'bootstrap' ORDER BY id DESC LIMIT 1`,
-    )
-    .get(run.id) as PlannerRunRow | undefined;
-  if (!planner) return awaitingConfirmationResult(deps, run, 0);
-  if (deps.sessionFor(planner.id)) return awaitingConfirmationResult(deps, run, 0); // this window owns it
-  const proc = plannerProcessOf(deps.db, planner);
-
-  const blockWithReason = (reason: string): ReconcileGraphRunResult => {
-    const won = deps.transaction(() => {
-      if (
-        !casStatus(
-          deps.db,
-          'approach_graph_runs',
-          GRAPH_RUN_TRANSITIONS,
-          run.id,
-          'awaiting-confirmation',
-          'blocked',
-        )
-      ) {
-        return false;
-      }
-      deps.db
-        .prepare('UPDATE approach_graph_runs SET blocked_reason = ?, updated_at = ? WHERE id = ?')
-        .run(reason, deps.now(), run.id);
-      deps.debug?.(`[graph] reconcile: run ${run.id} awaiting-confirmation blocked (${reason})`);
-      return true;
-    });
-    if (!won) return awaitingConfirmationResult(deps, run, 0);
-    return awaitingConfirmationResult(deps, run, 1);
-  };
-
-  if (planner.status === 'running' || planner.status === 'submitted') {
-    if (proc === null) return awaitingConfirmationResult(deps, run, 0); // no pid evidence — never declared dead
-    const attribution = await attributeOf(deps.facts, proc);
-    if (attribution === 'dead' || attribution === 'foreign') {
-      return blockWithReason(
-        `planner-stale: bootstrap planner ${planner.id} process (pid ${proc.pid}) is gone (${attribution}) while awaiting confirmation`,
-      );
-    }
-    return awaitingConfirmationResult(deps, run, 0); // attributable (another window) or unprovable
-  }
-
-  // Other planner statuses (launching, blocked, stale, cancelled, ready) are
-  // not a live-session-loss to block.
-  return awaitingConfirmationResult(deps, run, 0);
-}
-
-/** An awaiting-confirmation-branch result with the run's status re-read after the pass. */
-function awaitingConfirmationResult(
-  deps: ReconcileGraphRunDeps,
-  run: GraphRunRow,
-  transitions: number,
-): ReconcileGraphRunResult {
-  const after = deps.db
-    .prepare('SELECT status FROM approach_graph_runs WHERE id = ?')
-    .get(run.id) as { status: string };
-  return { graphRunId: run.id, status: after.status, transitions, resumed: [], reverted: [], cancelledTokens: 0 };
-}
-
-/**
  * The planning-run bootstrap-planner branch of the crash matrix (between the
  * successor rule and the run-level gates): the planning run's NEWEST
  * bootstrap planner run whose session is demonstrably gone — a `running`
@@ -655,15 +583,6 @@ export async function reconcileGraphRun(
   //      by `acceptSubmittedPlan`.
   if (run.status === 'planning') {
     return await reconcilePlanningPlanner(deps, run);
-  }
-
-  // 2.6. Awaiting-confirmation planner death: the plan was submitted and the
-  //      graph is waiting for the user to confirm, but the planner process is
-  //      dead. Block the run so Recovery Resume becomes available — the user
-  //      can resume (which re-opens to planning for a fresh planner) or
-  //      discard.
-  if (run.status === 'awaiting-confirmation') {
-    return await reconcileAwaitingConfirmation(deps, run);
   }
 
   // 3. Run-level gates: blocked stays, marker-ready stays, draining waits.
