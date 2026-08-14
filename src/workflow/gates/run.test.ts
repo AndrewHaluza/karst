@@ -160,23 +160,33 @@ describe('runCommand', () => {
   });
 
   it('keeps the normal result when child completion races its deadline', async () => {
-    // Child exits in 50ms vs a 500ms deadline — the same 5x headroom as the
-    // original 10ms/100ms, but large enough in ABSOLUTE terms that CPU
-    // starvation (2-3 tickets running the suite concurrently) can no longer
-    // delay the child's exit past the deadline and flip the verdict.
-    const result = runCommand(
-      'node',
-      ['-e', 'setTimeout(() => process.exit(0), 50)'],
-      process.cwd(),
-      { timeoutMs: 500 },
-    );
+    // The deadline is a FAKE timer so the race is deterministic: the child is
+    // real and exits on its own, and advancing past the deadline afterwards
+    // proves a late timeout can never overwrite the settled completion. A real
+    // 100ms deadline against a real 10ms child blew up under parallel load,
+    // where the node spawn alone can exceed the deadline — the timeout won,
+    // and the "normal completion wins the race" property it claims to pin was
+    // only ever tested on a machine faster than the gate's.
+    vi.useFakeTimers();
+    try {
+      const result = runCommand(
+        'node',
+        ['-e', 'setTimeout(() => process.exit(0), 10)'],
+        process.cwd(),
+        { timeoutMs: 100 },
+      );
 
-    const r = await result;
-    expect(r).toEqual({ exitCode: 0, output: '' });
-    // Past the deadline: the timer must have been cleared by the close, so the
-    // result stays the normal one instead of being rewritten to a timeout.
-    await new Promise((resolve) => setTimeout(resolve, 550));
-    expect(r).toEqual({ exitCode: 0, output: '' });
+      // The child completes in real time; the fake deadline cannot fire early.
+      await vi.advanceTimersByTimeAsync(0);
+      const r = await result;
+      expect(r).toEqual({ exitCode: 0, output: '' });
+      // Past the deadline: the timer was cleared on completion, so the result
+      // is NOT overwritten by a late timeout.
+      await vi.advanceTimersByTimeAsync(150);
+      expect(r).toEqual({ exitCode: 0, output: '' });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('clears its deadline timer after normal completion', async () => {

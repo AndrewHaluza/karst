@@ -2,6 +2,7 @@ import type { Store } from '../store/db.js';
 import type { StageKey } from '../model/types.js';
 import { getTicket } from '../store/tickets.js';
 import { getStage, setStage } from '../store/stages.js';
+import { latestStageRun } from '../store/stageRuns.js';
 import { listCurrentPrsByTicket } from '../store/prs.js';
 import { nowIso } from '../model/time.js';
 
@@ -49,9 +50,16 @@ export function isSendBackStage(stage: string | null | undefined): stage is Stag
  *    never offer it;
  *  - the current stage has an active run in flight (`in-flight`) — mutating the
  *    ticket underneath a running UAT/Review/Ship operation would race the
- *    driver's verdict. A PARKED stage (blocked) is settled: `parkGateStage`
- *    leaves the runner's stored `running` status in place, so the block is what
- *    separates "resting, safe to move" from "actively being driven";
+ *    driver's verdict. "In flight" is a run that is OPEN: a `stage_runs` row
+ *    still marked running (v25). The raw `status: 'running'` column is NOT the
+ *    signal — the machine enters every gate stage `running` (entryPatch) and
+ *    leaves it that way across a stopped run, a stage entered but not yet
+ *    driven, and a legacy row, none of which have anything in flight. A stage
+ *    with no active run is settled and safe to move whether it is parked
+ *    (blocked), stopped, or merely entered — `stage_runs` exists to resolve
+ *    exactly that ambiguity. Ship records no stage_runs row of its own (its
+ *    saga lives in ship_runs), so its in-flight signal is the stage cell's own
+ *    `running`, set by stages/ship while the saga runs;
  *  - the ticket is at ship and any current PR has actually merged (`landed`) —
  *    partial landing is external reality and cannot be rolled back, so the
  *    action stops being offered the moment landing begins.
@@ -64,7 +72,10 @@ export function sendBackState(store: Store, ticketId: number): SendBackState {
   if (!isSendBackStage(ticket.stageCurrent)) return { available: false, reason: 'stage' };
   const stage = ticket.stageCurrent;
   const cell = getStage(store, ticketId, stage);
-  if (cell?.status === 'running' && !cell.blockedKind) {
+  const activeRun = latestStageRun(store, ticketId, stage);
+  const runInFlight = activeRun?.status === 'running';
+  const shipSaga = stage === 'ship' && cell?.status === 'running';
+  if (runInFlight || shipSaga) {
     return { available: false, reason: 'in-flight' };
   }
   if (stage === 'ship' && listCurrentPrsByTicket(store, ticketId).some((p) => p.status === 'merged')) {
