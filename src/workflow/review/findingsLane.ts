@@ -41,6 +41,13 @@ export interface FindingsLaneTarget {
    * karst has no worktree row for this target, or none is known yet.
    */
   baseRef?: string | null;
+  /**
+   * `worktrees.branch` for this target — the ticket's own branch. Naming it in
+   * the scope block makes the diff range `origin/<base>...<branch>`, which
+   * resolves by branch name and reads the same from any checkout of the repo —
+   * a worktree on the base branch no longer reads as "no changes" (fu1).
+   */
+  branch?: string | null;
 }
 
 /**
@@ -143,6 +150,7 @@ export interface RunFindingsLaneOpts {
 export function buildFindingsPrompt(
   repo: string,
   baseRef?: string | null,
+  branch?: string | null,
   instructions?: string,
 ): string {
   const baseClause = baseRef
@@ -163,7 +171,7 @@ export function buildFindingsPrompt(
     ...strategy,
     // Never replaced by `instructions`: an author overriding the strategy is
     // choosing WHAT to look for, not licensing a repo-wide sweep before it.
-    ...buildScopeBlock('review', { baseRef }),
+    ...buildScopeBlock('review', { baseRef, branch }),
     ``,
     `Output rules (strict):`,
     `- Output ONLY a JSON array, nothing else: no preamble, no markdown fence, no commentary.`,
@@ -265,7 +273,12 @@ export async function runFindingsLane(opts: RunFindingsLaneOpts): Promise<Findin
     opts.onTargetProgress?.({ repo: target.repo, status: 'active' });
     try {
       const result = await adapter.runHeadless({
-        prompt: buildFindingsPrompt(target.repo, target.baseRef, opts.process?.assignment.instructions),
+        prompt: buildFindingsPrompt(
+          target.repo,
+          target.baseRef,
+          target.branch,
+          opts.process?.assignment.instructions,
+        ),
         cwd: target.worktreePath,
         model: opts.process?.assignment.model,
         signal: opts.signal,

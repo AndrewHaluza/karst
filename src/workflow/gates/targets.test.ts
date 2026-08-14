@@ -120,4 +120,40 @@ describe('selectReviewTargets', () => {
       reason: expect.stringMatching(/cannot determine review changes.*baseline unavailable/),
     });
   });
+
+  // fu1: "review agent xterm log shows no changes, but diffs are present". The
+  // change probe must diff `origin/<base>...<branch>` BY NAME so a worktree
+  // checked out on the base branch still reads as changed when the ticket's
+  // branch holds work — a `...HEAD` there reads empty and the repo silently
+  // drops out of review.
+  it('probes the diff against the worktree branch, not the checkout HEAD', async () => {
+    const diffs: string[][] = [];
+    const git: GitRunner = async (args, cwd) => {
+      if (args[0] === 'diff') {
+        diffs.push(args);
+        return { stdout: '', stderr: '', exitCode: 1 };
+      }
+      if (args[0] === 'fetch') return { stdout: '', stderr: '', exitCode: 0 };
+      return { stdout: '', stderr: '', exitCode: 0 };
+    };
+    const targets = targetsOf(
+      await selectReviewTargets(project, [{ repo: '/repos/web', path: '/wt/web', baseRef: 'develop', branch: 'karst/x' }], git),
+    );
+    expect(targets).toEqual([expect.objectContaining({ names: ['web'], path: '/wt/web' })]);
+    expect(diffs).toContainEqual(['diff', '--quiet', 'origin/develop...karst/x']);
+  });
+
+  it('falls back to probing HEAD when no branch is recorded', async () => {
+    const diffs: string[][] = [];
+    const git: GitRunner = async (args) => {
+      if (args[0] === 'diff') {
+        diffs.push(args);
+        return { stdout: '', stderr: '', exitCode: 1 };
+      }
+      if (args[0] === 'fetch') return { stdout: '', stderr: '', exitCode: 0 };
+      return { stdout: '', stderr: '', exitCode: 0 };
+    };
+    await selectReviewTargets(project, worktrees, git);
+    expect(diffs).toContainEqual(['diff', '--quiet', 'origin/develop...HEAD']);
+  });
 });

@@ -596,13 +596,15 @@ export async function runUat(
 function testerTargets(
   manifest: Manifest | undefined,
   targets: readonly UatTarget[],
-  worktrees: readonly { repo: string; baseRef: string | null }[],
+  worktrees: readonly { repo: string; baseRef: string | null; branch: string | null }[],
 ): TesterTarget[] {
   const baseRefByRepo = new Map(worktrees.map((w) => [w.repo, w.baseRef]));
+  const branchByRepo = new Map(worktrees.map((w) => [w.repo, w.branch]));
   return targets.map((t) => ({
     repo: t.repo,
     worktreePath: t.path,
     baseRef: baseRefByRepo.get(t.repo) ?? null,
+    branch: branchByRepo.get(t.repo) ?? null,
     service:
       manifest === undefined
         ? undefined

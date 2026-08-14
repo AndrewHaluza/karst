@@ -480,6 +480,11 @@ export async function runReview(
   // `worktrees.base_ref` per repository path, so the findings prompt can name
   // the exact range it must diff against instead of asking the agent to guess.
   const baseRefByRepo = new Map(worktrees.map((w) => [w.repo, w.baseRef]));
+  // `worktrees.branch` per repository path, so the scope block can name the
+  // ticket's branch: the diff range then resolves `origin/<base>...<branch>`
+  // BY NAME, which reads the same from any checkout — a worktree sitting on
+  // the base branch no longer reads as "no changes" (fu1).
+  const branchByRepo = new Map(worktrees.map((w) => [w.repo, w.branch]));
 
   // Resolves the config default, and (spec §8.14) skips the AI call entirely
   // when R3/R4/R5 already decided the run — see `planAndRunFindingsLane`.
@@ -489,6 +494,7 @@ export async function runReview(
       repo: t.repo,
       worktreePath: t.path,
       baseRef: baseRefByRepo.get(t.repo) ?? null,
+      branch: branchByRepo.get(t.repo) ?? null,
     })),
     findingsConfig: opts.manifest?.review?.findings,
     adapter: findingsAdapter,

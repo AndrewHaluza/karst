@@ -1260,6 +1260,41 @@ describe('runUat — Tester and verifier (Task 8)', () => {
     expect(seen).toEqual([{ callSite: 'uat-tester', ticketId: id, processRunId: run.id }]);
   });
 
+  // fu1: "review agent xterm log shows no changes, but diffs are present". The
+  // worktree's BRANCH is already in hand at this call site — the scope block
+  // must name it so the Tester's diff range `origin/<base>...<branch>` reads
+  // the ticket's changes from any checkout instead of an empty `...HEAD` on
+  // the base branch.
+  it("threads the worktree's branch into the Tester prompt", async () => {
+    store.db
+      .prepare(
+        "INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref, deps_mode) VALUES (?, '/web', '/wt/web', 'karst/x', 'develop', 'inherited')",
+      )
+      .run(id);
+    let capturedPrompt: string | undefined;
+    const runHeadless = vi.fn(async (headlessOpts: { prompt: string }) => {
+      capturedPrompt = headlessOpts.prompt;
+      return { sessionId: '', verdict: null, raw: '[]' };
+    });
+    const adapter: AgentAdapter = { ...testerAgent('[]'), runHeadless };
+    const res = await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
+      testerDeps({
+        tester: { assignment: { provider: 'claude' }, adapter },
+        planTargets: async () => ({
+          kind: 'targets',
+          targets: [{ repo: '/web', path: '/wt/web', names: ['web'] }],
+          unmapped: [],
+        }),
+      }),
+    );
+    expect(res).toEqual({ kind: 'advanced', next: 'review' });
+    expect(runHeadless).toHaveBeenCalledTimes(1);
+    expect(capturedPrompt).toContain('karst/x');
+    expect(capturedPrompt).toContain('origin/develop...karst/x');
+  });
+
   it('threads onTesterOutput and onTesterTargetProgress into the Tester', async () => {
     const chunks: { stream: 'stdout' | 'stderr'; text: string }[] = [];
     const progress: { repo: string; status: string; detail?: string }[] = [];

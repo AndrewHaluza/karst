@@ -1230,10 +1230,14 @@ describe('review findings lane (Lane B)', () => {
   // findings prompt must name it rather than leaving the agent to guess "its
   // base branch", which at `blockingSeverity: 'high'` can fail a ticket over
   // a commit that was never part of its diff.
-  it("threads the worktree's base ref into the findings prompt", async () => {
+  //
+  // fu1: the worktree's BRANCH is equally in hand — the scope block names it
+  // so the diff range `origin/<base>...<branch>` reads the ticket's changes
+  // from any checkout instead of a silent empty `...HEAD` on the base branch.
+  it("threads the worktree's base ref and branch into the findings prompt", async () => {
     store.db
       .prepare(
-        "INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref, deps_mode) VALUES (?, '/web', '/wt/web', 'b', 'develop', 'inherited')",
+        "INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref, deps_mode) VALUES (?, '/web', '/wt/web', 'karst/x', 'develop', 'inherited')",
       )
       .run(id);
     let capturedPrompt: string | undefined;
@@ -1257,6 +1261,8 @@ describe('review findings lane (Lane B)', () => {
     expect(res).toEqual({ kind: 'advanced', next: 'ship' });
     expect(runHeadless).toHaveBeenCalledTimes(1);
     expect(capturedPrompt).toContain('develop');
+    expect(capturedPrompt).toContain('karst/x');
+    expect(capturedPrompt).toContain('origin/develop...karst/x');
   });
 
   // A failed/garbage agent call must not break the stage: the run still

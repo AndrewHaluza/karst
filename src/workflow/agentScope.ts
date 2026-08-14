@@ -9,11 +9,22 @@
  * ticket's), and — wherever the target repo's own instructions mention one —
  * orchestrator CLI/registry queries. The block is
  * deliberately TOOL-AGNOSTIC prose: karst drives arbitrary projects, so it
- * names no product, no branch and no gate of its own; the base ref and the
- * passed-gate names are the caller's facts, injected. That reconnaissance is paid
+ * names no product and no gate of its own; the base ref, the ticket's BRANCH
+ * and the passed-gate names are the caller's facts, injected. That reconnaissance is paid
  * for in tokens and wall clock BEFORE a single line of the diff is read, and
  * every fact it recovers is already known to the host: the worktree IS the
- * ticket's checkout, it IS on the right branch, and its base ref is passed in.
+ * ticket's checkout, its BRANCH is on the worktree row (`worktrees.branch`,
+ * authoritative since creation), and its base ref is passed in.
+ *
+ * The branch is NAMED, not asserted, because "your working directory IS the
+ * ticket's worktree, already on the right branch" was a promise nothing
+ * enforced: a checkout adopted by path on another branch (or a session started
+ * in the main checkout) made `git diff origin/<base>...HEAD` read as NO
+ * changes while the ticket's branch held the real diff (fu1). Naming the
+ * branch turns that silent empty diff into the actual changes: `git diff
+ * origin/<base>...<branch>` resolves the branch BY NAME, so it is the same
+ * answer from any checkout of the repo, and the agent may confirm its
+ * location with exactly one `git rev-parse --abbrev-ref HEAD`.
  *
  * So the block STATES those facts and forbids re-deriving them. It is
  * deliberately a prompt-level fix and nothing more: the stage ordering was
@@ -34,6 +45,15 @@ export interface ScopeBlockOpts {
   /** The plain base branch name (`worktrees.base_ref`), when known. */
   baseRef?: string | null;
   /**
+   * The ticket's own branch (`worktrees.branch`), when known. Naming it makes
+   * the diff range `origin/<base>...<branch>` — correct from ANY checkout of
+   * the repo, not just the ticket worktree — and lets the agent confirm its
+   * location with one `git rev-parse --abbrev-ref HEAD`. Absent → fall back to
+   * `...HEAD` (a checkout that can read "no changes" when it is not on the
+   * ticket's branch).
+   */
+  branch?: string | null;
+  /**
    * Deterministic gates that already ran and PASSED, by name. Naming them is
    * what stops the Tester from re-running the suite the stage just ran: the
    * gates are the cheap deterministic half and they are already done.
@@ -48,10 +68,15 @@ export interface ScopeBlockOpts {
  * mangled span, and a range the agent has to un-mangle is the guess this block
  * exists to remove.
  */
-function diffLine(subject: string, baseRef?: string | null): string {
+function diffLine(subject: string, baseRef?: string | null, branch?: string | null): string {
+  // The head is the BRANCH by name when known, else the checkout's HEAD. A
+  // branch-named range resolves the ref itself, so it is the same diff from
+  // any checkout of the repo — a worktree (or session) sitting on the base
+  // branch reads the ticket's actual changes instead of an empty diff.
+  const head = branch && branch.trim() !== '' ? branch : 'HEAD';
   const range = baseRef
-    ? `\`git diff origin/${baseRef}...HEAD\` (or \`git diff ${baseRef}...HEAD\` when the remote ref is absent)`
-    : `\`git diff <base-branch>...HEAD\``;
+    ? `\`git diff origin/${baseRef}...${head}\` (or \`git diff ${baseRef}...${head}\` when the remote ref is absent)`
+    : `\`git diff <base-branch>...${head}\``;
   return `- The changes to ${subject} are exactly: ${range}, plus any uncommitted work (\`git status --porcelain\`).`;
 }
 
@@ -62,6 +87,7 @@ function diffLine(subject: string, baseRef?: string | null): string {
 export function buildScopeBlock(intent: ScopeIntent, opts: ScopeBlockOpts = {}): string[] {
   const subject = intent === 'review' ? 'review' : 'test';
   const gates = opts.gatesPassed ?? [];
+  const branch = opts.branch?.trim() || null;
   const gateLine =
     gates.length > 0
       ? [
@@ -69,10 +95,21 @@ export function buildScopeBlock(intent: ScopeIntent, opts: ScopeBlockOpts = {}):
             `spend your time on behavior they cannot check.`,
         ]
       : [];
+  // Name the branch and grant the ONE self-check that detects a wrong
+  // checkout, instead of asserting "already on the correct branch" — a
+  // promise the host could not keep, and one the agent must not swallow: a
+  // silent empty `git diff origin/<base>...HEAD` reads as "no changes" while
+  // the ticket's branch carries the real diff. The diff range itself names
+  // the branch, so it resolves correctly from any checkout; the rev-parse is
+  // only to confirm where the agent is.
+  const orientation =
+    branch !== null
+      ? `- This ticket's branch is \`${branch}\`. Confirm you are in the right checkout with \`git rev-parse --abbrev-ref HEAD\` (it should print that branch); the diff range below names the branch, so it reads the same from any checkout.`
+      : `- Your working directory IS this ticket's worktree, already checked out on the correct branch.`;
   return [
     `Orientation (already established — do NOT re-derive it):`,
-    `- Your working directory IS this ticket's worktree, already checked out on the correct branch.`,
-    diffLine(subject, opts.baseRef),
+    orientation,
+    diffLine(subject, opts.baseRef, branch),
     ...gateLine,
     ``,
     `Scope rules (strict):`,
