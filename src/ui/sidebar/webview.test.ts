@@ -40,6 +40,14 @@ describe('sidebar webview.html', () => {
     expect(HTML).toContain('${esc(stageChip)}');
   });
 
+  it('fills a stage chip with its approved background pair, falling back to the wash (869ej2cfz)', () => {
+    // Only Scope ships a --stg-bg today; every other stage keeps the colour-mix
+    // wash, so their chip appearance is unchanged.
+    expect(HTML).toMatch(
+      /\.stage\{[\s\S]*?background:var\(--stg-bg,color-mix\(in srgb, currentColor 16%, transparent\)\)\}/,
+    );
+  });
+
   it('states the stage (not status) in the chip, with the full phrase in the tooltip', () => {
     // stageChip is the bare stage key; stageText (the status phrase) is the title.
     expect(HTML).toContain('title="${esc(stageText)}">${esc(stageChip)}');

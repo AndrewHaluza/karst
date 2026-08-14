@@ -399,8 +399,10 @@
      colour as the ticket advances — the one thing a flat progress bar cannot say.
      `--stg-color` carries its own fallback: a stage key with no palette class (a
      row from a newer schema) then reads neutral instead of dropping the whole
-     declaration and rendering unwashed. */
-  .track .seg.passed{background:color-mix(in srgb,var(--stg-color,var(--k-pending)) 20%,transparent);
+     declaration and rendering unwashed. A stage with an approved background pair
+     (Scope) fills with `--stg-bg`; every other stage keeps the `color-mix` wash,
+     so their appearance is unchanged. */
+  .track .seg.passed{background:var(--stg-bg,color-mix(in srgb,var(--stg-color,var(--k-pending)) 20%,transparent));
     color:var(--stg-color,var(--k-pending))}
   /* Ordinary body text on the wash, NOT `--k-success-fg`. That token is the
      knockout foreground (`--vscode-editor-background`), and it is paired with a
@@ -409,7 +411,7 @@
      came out dark-on-dark in a dark theme and white-on-lavender in a light one,
      which is the widest label on the track and the one that says where the
      ticket is (UI-R29). The wash strength was chosen to carry body text. */
-  .track .seg.running{background:color-mix(in srgb,var(--stg-color,var(--k-pending)) 34%,transparent);
+  .track .seg.running{background:var(--stg-bg,color-mix(in srgb,var(--stg-color,var(--k-pending)) 34%,transparent));
     color:var(--k-text)}
   /* Failed reads as a break in the surface: hatched, never a flat fill. */
   .track .seg.failed{color:var(--k-failed);
