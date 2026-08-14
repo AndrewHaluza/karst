@@ -23,6 +23,35 @@ export interface DomainEntry {
   worktreePath: string;
 }
 
+/** The subset of a manifest repository entry this resolver needs. */
+export interface ResolvableRepositoryEntry {
+  repoPath: string;
+}
+
+/**
+ * Resolve the ticket's manifest repository entries to their worktree paths.
+ *
+ * The `worktrees.repo` column stores the repo PATH (the schema's
+ * "worktrees.repo (the repoPath)"), never the manifest NAME — so a manifest
+ * name resolves through its own `repoPath` before matching a worktree row.
+ * Two entries sharing a `repoPath` (a monorepo with several runnable
+ * processes) intentionally resolve to the same worktree. Entries whose
+ * repository has no worktree registered for the ticket are omitted.
+ *
+ * Host-agnostic: takes the manifest's repository map and the ticket's
+ * `listWorktreesByTicket` rows; the extension supplies both.
+ */
+export function resolveRepoWorktrees(
+  repositories: Readonly<Record<string, ResolvableRepositoryEntry>>,
+  worktrees: readonly { repo: string; path: string }[],
+): DomainEntry[] {
+  const byRepoPath = new Map(worktrees.map((wt) => [wt.repo, wt.path]));
+  return Object.entries(repositories).flatMap(([repoName, def]) => {
+    const path = byRepoPath.get(def.repoPath);
+    return path ? [{ repoName, worktreePath: path }] : [];
+  });
+}
+
 export interface PhysicalDomain {
   /** The durable identity used by leases and serialization. */
   key: string;
