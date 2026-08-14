@@ -253,14 +253,16 @@ export function parseOpencodeJsonlUsage(stdout: string): TokenUsage | null {
  * payload `{ hook_event_name, cwd, session_id, message? }` to the loopback
  * endpoint — the opencode-native equivalent of Codex's `bridge.cjs`.
  *
- * Task 5: `session.idle` is the token-bearing completion event — its properties
- * carry the session snapshot whose `tokens` (`{ input, output, reasoning,
- * cache: { read, write } }`) are CUMULATIVE for the session, the same shape the
- * headless `step_finish` parser reads. When they are present and numeric, the
- * bridge posts a closed `UsageUpdate` beside the lifecycle event, keyed by the
- * plugin event's stable id. Cache reads and cache writes stay SEPARATE counters
- * — they are never folded into a single cached-input value. Token-less or
- * malformed events post no UsageUpdate at all.
+ * Task 5: `session.updated` is the token-bearing event — its properties nest
+ * the Session object under `info` whose `tokens` (`{ input, output, reasoning,
+ * cache: { read, write } }`) are CUMULATIVE for the session (opencode 1.18.18
+ * publishes `session.idle` with only a `sessionID`, so it can never carry the
+ * tally; verified against the installed CLI's source and a live conversation
+ * DB). When the counters are present and numeric, the bridge posts a closed
+ * `UsageUpdate` keyed by the plugin event's stable id, only when the tally
+ * advanced since the last posted observation. Cache reads and cache writes
+ * stay SEPARATE counters — they are never folded into a single cached-input
+ * value. Token-less or malformed events post no UsageUpdate at all.
  *
  * Safety mirrors `CODEX_HOOK_BRIDGE`: the endpoint is baked in at generation
  * time from a loopback-validated URL, the serialized payload is size-bounded
@@ -348,11 +350,21 @@ function usageCount(value) {
 }
 
 // The session snapshot's cumulative tokens, read as opencode reports them:
-// tokens.input/tokens.output plus nested tokens.cache.read/tokens.cache.write.
+// session.updated nests the Session object under info.tokens — CUMULATIVE for
+// the session (verified against 1.18.18's schema and a live conversation DB).
+// The legacy snapshot shape nested the tally at session.tokens. A
+// message.part.updated step-finish part also carries tokens, but those are
+// PER-STEP, so they are deliberately NOT read here: the ledger compares
+// cumulative tallies, and a step-local count would read as a counter reset.
+// cache.read and cache.write are disjoint from input in opencode's report, so
+// they map straight across.
 function extractUsage(input) {
+  const info = asRecord(input && input.info);
   const session = asRecord(input && input.session);
   const tokens =
-    asRecord(session && session.tokens) || asRecord(input && input.tokens);
+    (info && asRecord(info.tokens)) ||
+    (session && asRecord(session.tokens)) ||
+    asRecord(input && input.tokens);
   if (!tokens) return null;
   const cache = asRecord(tokens.cache);
   const inputTokens = usageCount(tokens.input);
@@ -430,6 +442,38 @@ function postUsage(eventId, input, directory, worktree, done) {
   }, done);
 }
 
+// The last posted cumulative tally per session. opencode re-emits
+// session.updated on every session save, not only when the counters moved, so
+// the bridge must not re-post an unchanged observation (the ledger would
+// append a zero delta every save).
+const lastPostedTally = new Map();
+
+function tallySignature(usage) {
+  return [
+    usage.input,
+    usage.output,
+    usage.cache_read ?? 0,
+    usage.cache_write ?? 0,
+    usage.total ?? 0,
+  ].join(':');
+}
+
+function postUsageAdvanced(eventId, input, directory, worktree, done) {
+  const sessionId = extractSessionId(input);
+  const usage = extractUsage(input);
+  if (!eventId || !sessionId || !usage) {
+    if (done) done();
+    return;
+  }
+  const signature = tallySignature(usage);
+  if (lastPostedTally.get(sessionId) === signature) {
+    if (done) done();
+    return;
+  }
+  lastPostedTally.set(sessionId, signature);
+  postUsage(eventId, input, directory, worktree, done);
+}
+
 export const KarstBridge = async ({ directory, worktree }) => {
   return {
     event: async ({ event }) => {
@@ -452,11 +496,20 @@ export const KarstBridge = async ({ directory, worktree }) => {
         if (extractSessionId(input)) {
           post('SessionStart', input, directory, worktree);
         }
+      } else if (type === 'session.updated') {
+        // The token-bearing event: its properties nest the Session under
+        // info whose tokens are CUMULATIVE for the session (opencode 1.18.18
+        // emits session.idle with only a sessionID, so it never carries a
+        // tally). Posted only when the tally advanced since the last
+        // observation for this session.
+        postUsageAdvanced(event && event.id, input, directory, worktree);
       } else if (type === 'session.idle') {
-        // The usage update is sequenced AFTER the lifecycle post settles so the
-        // endpoint sees one session event then its tokens — never reordered.
+        // Lifecycle only. opencode 1.18.18 emits session.idle with just a
+        // sessionID — no tokens — so there is no usage to attach. (Kept as a
+        // defensive fallback: if a future opencode adds tokens here,
+        // extractUsage picks them up and the tally guard above still dedupes.)
         post('session.idle', input, directory, worktree, undefined, () =>
-          postUsage(event && event.id, input, directory, worktree));
+          postUsageAdvanced(event && event.id, input, directory, worktree));
       } else if (type === 'session.error') {
         post('session.error', input, directory, worktree, extractErrorMessage(input));
       } else if (

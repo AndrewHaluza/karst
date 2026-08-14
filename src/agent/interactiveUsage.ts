@@ -13,12 +13,13 @@ import type { AgentProvider } from '../manifest/types.js';
  * collapsed into a single `cachedInput` value.
  *
  * A sample is CUMULIVE for one provider session: the source reports a running
- * tally (as opencode's step-finish tokens and codex's turn usage do), and the
- * delta since the last persisted observation is what a process spent. The source
- * may only emit a sample when the provider supplied numeric counts AND a stable
- * event/message id — the id is what makes the ingestion idempotent, so an
- * event without one is dropped before it reaches the store. Nothing here ever
- * estimates from transcript size, terminal text, elapsed time, or model output.
+ * tally (as opencode's session.updated `info.tokens` and codex's turn usage
+ * do), and the delta since the last persisted observation is what a process
+ * spent. The source may only emit a sample when the provider supplied numeric
+ * counts AND a stable event/message id — the id is what makes the ingestion
+ * idempotent, so an event without one is dropped before it reaches the store.
+ * Nothing here ever estimates from transcript size, terminal text, elapsed
+ * time, or model output.
  */
 
 export interface InteractiveUsageSample {
