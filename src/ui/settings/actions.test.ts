@@ -131,6 +131,31 @@ describe('settings actions — validate', () => {
     expect(v).toMatchObject({ type: 'validation', ok: false });
     expect((v as any).error).toMatch(/portRange/);
   });
+
+  it('mirrors Save: refuses a graph profile effort the model does not advertise (A10)', () => {
+    // `validate` must agree with `save`, which delta-reduces approaches and
+    // runs the A10 effort checks. A draft carrying a bad graph effort passes
+    // plain validateManifest but must be reported invalid here, or the Save
+    // button enables over a draft the write would refuse.
+    const { actions, posted } = harness();
+    const builtin = BUILT_IN_APPROACHES[0]!;
+    actions.validate({
+      ...VALID,
+      approaches: [
+        {
+          ...builtin,
+          enabled: true,
+          graph: {
+            ...builtin.graph!,
+            profiles: { expert: { provider: 'claude', model: 'claude-opus-5', effort: 'extreme' } },
+          },
+        },
+      ],
+    });
+    const v = posted.find((m) => m.type === 'validation');
+    expect(v).toMatchObject({ type: 'validation', ok: false });
+    expect((v as any).error).toMatch(/effort/);
+  });
 });
 
 describe('settings actions — validateProcessAssignments', () => {
