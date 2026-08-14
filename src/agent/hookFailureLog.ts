@@ -10,9 +10,25 @@ import { dirname, join } from 'node:path';
  * forbidden (`diagnostics/nonInterference.test.ts`) from importing the launch
  * adapter that writes the script.
  */
-export function hookFailureLogPath(configDir: string): string {
-  return join(configDir, 'codex', 'hook-failures.jsonl');
+export function hookFailureLogPath(configDir: string, provider: BridgeProvider = 'codex'): string {
+  return join(configDir, provider, 'hook-failures.jsonl');
 }
+
+/**
+ * The providers whose hook channel is a SCRIPT karst generates and can
+ * therefore make re-read the live endpoint (869ej1zpv G3).
+ *
+ * `'codex'` is the historical default of every function here and stays the
+ * default argument, because the report reader and the existing bridge both
+ * name that directory. The list is what `writeCurrentEndpoint` iterates: the
+ * opencode plugin needs exactly the same rebind after a VS Code reload, and
+ * hardcoding one provider is what made a fix for one core a fix for one core.
+ * claude (a `--settings` file the CLI reads once) and agy (no executable hook
+ * channel at all) are absent by declaration — see their `surfaces.endpointRebind`.
+ */
+export const BRIDGE_PROVIDERS = ['codex', 'opencode'] as const;
+
+export type BridgeProvider = (typeof BRIDGE_PROVIDERS)[number];
 
 /**
  * The bridge stops appending once the file reaches this size — a hook that fails
@@ -80,8 +96,11 @@ export function bridgeOutcomeDetail(
  * whose bridge was configured with a stale port before the reload — POST to
  * the live endpoint instead of connection-refusing into `request-error`.
  */
-export function currentEndpointPath(configDir: string): string {
-  return join(configDir, 'codex', 'current-endpoint');
+export function currentEndpointPath(
+  configDir: string,
+  provider: BridgeProvider = 'codex',
+): string {
+  return join(configDir, provider, 'current-endpoint');
 }
 
 /**
@@ -93,11 +112,17 @@ export function writeCurrentEndpoint(
   configDir: string,
   endpointUrl: string,
 ): void {
-  try {
-    mkdirSync(dirname(currentEndpointPath(configDir)), { recursive: true });
-    writeFileSync(currentEndpointPath(configDir), endpointUrl, { mode: 0o600 });
-  } catch {
-    // Best-effort -- old bridge scripts fall back to process.argv[2].
+  // Written for EVERY bridge provider, not just codex: a revived opencode
+  // session's plugin reads the same file, and the reload that rebinds the port
+  // rebinds it for every live session at once.
+  for (const provider of BRIDGE_PROVIDERS) {
+    const target = currentEndpointPath(configDir, provider);
+    try {
+      mkdirSync(dirname(target), { recursive: true });
+      writeFileSync(target, endpointUrl, { mode: 0o600 });
+    } catch {
+      // Best-effort -- old bridge scripts fall back to their baked-in URL.
+    }
   }
 }
 
@@ -106,9 +131,12 @@ export function writeCurrentEndpoint(
  * `undefined` when the file does not exist or cannot be read (the bridge
  * falls back to its command-line argument in that case).
  */
-export function readCurrentEndpoint(configDir: string): string | undefined {
+export function readCurrentEndpoint(
+  configDir: string,
+  provider: BridgeProvider = 'codex',
+): string | undefined {
   try {
-    const text = readFileSync(currentEndpointPath(configDir), 'utf8').trim();
+    const text = readFileSync(currentEndpointPath(configDir, provider), 'utf8').trim();
     return text.length > 0 ? text : undefined;
   } catch {
     return undefined;

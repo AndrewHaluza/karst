@@ -127,6 +127,10 @@ export function instrumentAdapter(
   const instrumented: AgentAdapter = {
     requiredBinary: adapter.requiredBinary,
     capabilities: adapter.capabilities,
+    // The wrapped core's declared seam positions (869ej1zpv R1) must survive
+    // instrumentation: `extension.ts` wraps at both `resolveAdapter` sites, so
+    // dropping it here would make every runtime adapter read as undeclared.
+    ...(adapter.surfaces ? { surfaces: adapter.surfaces } : {}),
 
     buildInteractiveCommand: (opts: InteractiveCommandOpts): InteractiveCommand =>
       adapter.buildInteractiveCommand(opts),

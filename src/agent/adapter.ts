@@ -10,6 +10,7 @@
 import type { AiCallSite } from './aiCallSites.js';
 import type { HeadlessOutputChunk } from './headlessSpawn.js';
 import type { TokenUsage } from './tokenUsage.js';
+import type { AdapterSurfaces } from './surfaces.js';
 
 /**
  * What a call site declares so its spend can be attributed (§ token consumption
@@ -263,4 +264,13 @@ export interface AgentAdapter {
   materializeApproach?(opts: MaterializeOpts): Materialized;
 
   capabilities: AgentCapabilities;
+
+  /**
+   * This core's declared position on every optional surface of this seam
+   * (869ej1zpv rule R1, `surfaces.ts`). Optional here only so the many test
+   * fakes that implement `AgentAdapter` keep compiling — every adapter
+   * `registry.ts` can resolve MUST declare it, which
+   * `adapterConformance.test.ts` enforces against real argv.
+   */
+  surfaces?: AdapterSurfaces;
 }

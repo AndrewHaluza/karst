@@ -1,4 +1,5 @@
 import type { HeadlessOutputChunk } from './headlessSpawn.js';
+import type { AgentProvider } from '../manifest/types.js';
 
 /**
  * The readable rendering of a gate-lane agent CLI's structured event stream.
@@ -194,14 +195,46 @@ export function codexConsoleLine(line: string): string {
   }
 }
 
-/** Wrap a caller's onOutput with the provider's streaming readable renderer. */
+/**
+ * The line renderer for one provider, or null when that core emits no
+ * structured stream to render (869ej1zpv G2).
+ *
+ * The union used to be `'opencode' | 'codex'`, which made the OTHER two cores'
+ * absence invisible at the type level — a readable console tail existed for
+ * whichever cores had been wired, and nothing said whether that was a decision
+ * or an oversight. It is a decision: claude runs `--output-format json` and agy
+ * runs plain `-p`, so neither produces a line-per-event stream. Each states it
+ * on its adapter's `surfaces.consoleStream`, and `adapterConformance.test.ts`
+ * requires the declaration and the renderer here to agree.
+ */
+export function consoleLineRendererFor(provider: AgentProvider): ConsoleLineRenderer | null {
+  switch (provider) {
+    case 'opencode':
+      return opencodeConsoleLine;
+    case 'codex':
+      return codexConsoleLine;
+    case 'claude':
+    case 'antigravity':
+      // Not a stream — the raw text is forwarded unchanged. See the adapters'
+      // `surfaces.consoleStream` for the reason each core carries.
+      return null;
+  }
+}
+
+/**
+ * Wrap a caller's onOutput with the provider's streaming readable renderer.
+ * A provider with no structured stream gets a pass-through, so a caller may
+ * wrap unconditionally.
+ */
 export function renderConsoleStream(
-  provider: 'opencode' | 'codex',
+  provider: AgentProvider,
   onOutput: (chunk: HeadlessOutputChunk) => void,
 ): { append: (chunk: HeadlessOutputChunk) => void; flush: () => void } {
-  const format = new StreamingConsoleFormat(
-    provider === 'opencode' ? opencodeConsoleLine : codexConsoleLine,
-  );
+  const renderer = consoleLineRendererFor(provider);
+  if (renderer === null) {
+    return { append: (chunk) => onOutput(chunk), flush: () => {} };
+  }
+  const format = new StreamingConsoleFormat(renderer);
   return {
     append: (chunk) => {
       const text = format.append(chunk.stream, chunk.text);

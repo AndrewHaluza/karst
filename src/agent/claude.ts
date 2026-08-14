@@ -16,6 +16,7 @@ import { writeHookSettings } from './settings.js';
 import { describeHeadlessFailure } from './cliFailure.js';
 import { spawnHeadlessCli, headlessPreview, type HeadlessSpawnOptions } from './headlessSpawn.js';
 import { sanitizeSessionName } from './sessionName.js';
+import { SUPPORTED, unsupported, type AdapterSurfaces } from './surfaces.js';
 import { attachUsage, extractTokenUsage } from './tokenUsage.js';
 
 /** The Claude Code CLI binary; auth inherits the user's login (M0/T0.1). */
@@ -96,6 +97,26 @@ export class ClaudeAdapter implements AgentAdapter {
     interactiveUsage: true,
   };
   readonly requiredBinary = CLAUDE_BIN;
+
+  /** Declared seam positions (869ej1zpv R1) — pinned against argv by the conformance suite. */
+  readonly surfaces: AdapterSurfaces = {
+    model: SUPPORTED,
+    effortHeadless: SUPPORTED,
+    effortInteractive: SUPPORTED,
+    allowedTools: SUPPORTED,
+    permissionMode: SUPPORTED,
+    resume: SUPPORTED,
+    sessionName: SUPPORTED,
+    consoleStream: unsupported(
+      'claude runs `--output-format json`: a single end-of-run document, not a ' +
+        'line-per-event stream, so there is nothing for consoleFormat to render live',
+    ),
+    hookChannel: SUPPORTED,
+    endpointRebind: unsupported(
+      'the channel is a --settings FILE read once by the CLI at launch, not a script ' +
+        'karst controls; a rebound port needs a relaunch (see docs/agent-cores/HOOK-CONTRACT.md)',
+    ),
+  };
 
   constructor(private readonly spawnHeadless: SpawnHeadless = defaultSpawn) {}
 
