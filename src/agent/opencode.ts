@@ -726,6 +726,7 @@ export class OpencodeAdapter implements AgentAdapter {
       timeoutMs: opts.timeoutMs,
       onDebug: opts.debug,
       onSpawned: opts.onSpawned,
+      onOutput: opts.onOutput,
     });
     if (result.exitCode !== 0) {
       opts.debug?.(

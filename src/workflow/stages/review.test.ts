@@ -143,6 +143,44 @@ describe('runReview', () => {
     }
   });
 
+  it('threads onFindingsOutput and onFindingsTargetProgress into the findings lane', async () => {
+    const chunks: { stream: 'stdout' | 'stderr'; text: string }[] = [];
+    const progress: { repo: string; status: string; detail?: string }[] = [];
+    const captured: Array<{ onOutput?: (c: { stream: 'stdout' | 'stderr'; text: string }) => void }> = [];
+    const agent: AgentAdapter = {
+      requiredBinary: 'fake',
+      capabilities: { lifecycleEvents: false, resume: false },
+      buildInteractiveCommand: () => {
+        throw new Error('not used by the findings lane');
+      },
+      runHeadless: async (opts) => {
+        captured.push(opts);
+        return { sessionId: '', verdict: null, raw: '[]' };
+      },
+    };
+    const res = await runReview(
+      store,
+      {
+        ticketId: id,
+        cwd: '/wt/web',
+        artifactDir,
+        onFindingsOutput: (c) => chunks.push(c),
+        onFindingsTargetProgress: (e) => progress.push(e),
+      },
+      deps({ findingsAdapter: agent }),
+    );
+    expect(res).toEqual({ kind: 'advanced', next: 'ship' });
+    // The lane received the live-output hook on the call it made.
+    expect(captured[0]!.onOutput).toBeDefined();
+    captured[0]!.onOutput?.({ stream: 'stdout', text: 'streaming' });
+    expect(chunks).toEqual([{ stream: 'stdout', text: 'streaming' }]);
+    // The lane emitted per-target progress, and the stage passed it through.
+    expect(progress).toEqual([
+      { repo: '/wt/web', status: 'active' },
+      { repo: '/wt/web', status: 'completed', detail: '0 findings' },
+    ]);
+  });
+
   // Every other test in this file either supplies no `manifest.review` at all
   // or overrides only `uat`, so none of them would notice a regression that
   // disconnected `manifest.review` from what review actually runs — the pure

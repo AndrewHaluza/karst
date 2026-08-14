@@ -157,6 +157,72 @@ describe('spawnHeadlessCli', () => {
     expect(lines.some((line) => /timed out after 10ms/.test(line))).toBe(true);
   });
 
+  it('delivers decoded stdout/stderr chunks through onOutput as they arrive', async () => {
+    const child = fakeChild();
+    const spawnImpl = vi.fn(() => {
+      queueMicrotask(() => {
+        child.stdout.emit('data', Buffer.from('out-1\n'));
+        child.stderr.emit('data', Buffer.from('err-1\n'));
+        child.stdout.emit('data', Buffer.from('out-2\n'));
+        child.emit('close', 0);
+      });
+      return child;
+    }) as unknown as typeof spawn;
+    const chunks: { stream: 'stdout' | 'stderr'; text: string }[] = [];
+
+    const result = await spawnHeadlessCli(
+      'codex',
+      ['exec'],
+      '/wt/a',
+      { onOutput: (chunk) => chunks.push(chunk) },
+      spawnImpl,
+    );
+    expect(chunks).toEqual([
+      { stream: 'stdout', text: 'out-1\n' },
+      { stream: 'stderr', text: 'err-1\n' },
+      { stream: 'stdout', text: 'out-2\n' },
+    ]);
+    // The bounded buffers still hold the same bytes the seam captured.
+    expect(result.stdout).toBe('out-1\nout-2\n');
+    expect(result.stderr).toBe('err-1\n');
+  });
+
+  it('decodes multibyte characters split across chunks without replacement chars', async () => {
+    const child = fakeChild();
+    const spawnImpl = vi.fn(() => {
+      queueMicrotask(() => {
+        // The smiley's 4 UTF-8 bytes arrive split across two data events.
+        child.stdout.emit('data', Buffer.from('a \xf0\x9f', 'binary'));
+        child.stdout.emit('data', Buffer.from('\x98\x80 z', 'binary'));
+        child.emit('close', 0);
+      });
+      return child;
+    }) as unknown as typeof spawn;
+    const chunks: { stream: 'stdout' | 'stderr'; text: string }[] = [];
+
+    await spawnHeadlessCli(
+      'codex',
+      ['exec'],
+      '/wt/a',
+      { onOutput: (chunk) => chunks.push(chunk) },
+      spawnImpl,
+    );
+    expect(chunks.map((c) => c.text).join('')).toBe('a 😀 z');
+  });
+
+  it('does not call onOutput when none is supplied', async () => {
+    const child = fakeChild();
+    const spawnImpl = vi.fn(() => {
+      queueMicrotask(() => {
+        child.stdout.emit('data', Buffer.from('out'));
+        child.emit('close', 0);
+      });
+      return child;
+    }) as unknown as typeof spawn;
+
+    await spawnHeadlessCli('codex', ['exec'], '/wt/a', {}, spawnImpl);
+  });
+
   it('notifies onSpawned with the pid and runs its disposer when the process settles', async () => {
     const child = fakeChild(5555);
     const dispose = vi.fn();

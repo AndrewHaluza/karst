@@ -8,6 +8,7 @@
  */
 
 import type { AiCallSite } from './aiCallSites.js';
+import type { HeadlessOutputChunk } from './headlessSpawn.js';
 import type { TokenUsage } from './tokenUsage.js';
 
 /**
@@ -88,6 +89,15 @@ export interface RunHeadlessOpts {
    * the run settles. Absent → the spawner never calls it.
    */
   onSpawned?: (pid: number) => (() => void) | void;
+  /**
+   * Live-output hook, forwarded verbatim to the headless spawn's
+   * `HeadlessSpawnOptions.onOutput`: called with each decoded stdout/stderr
+   * chunk as it streams in, before the run settles. RAW untrusted CLI prose —
+   * the caller that surfaces it (the tester/findings console tail) must bound
+   * and sanitize it. Absent → no live chunks; the full output still arrives
+   * in `HeadlessResult.raw` on settle, exactly as before.
+   */
+  onOutput?: (chunk: HeadlessOutputChunk) => void;
 }
 
 export interface HeadlessResult {

@@ -586,6 +586,10 @@ function testerProcess(input: QualityProcessesInput): InsideProcessView {
                     : undefined,
         }
       : {}),
+    // The Tester's live output is console-observable whenever it has run: the
+    // persisted tail (Task 13) is host-read on request. Host-derived, so the
+    // webview renders the console button only for a run that actually happened.
+    ...(run ? { console: true } : {}),
     // The SAME evidence kind the Review process emits: one blueprint renders
     // both stages' levels and locations, so `high` looks like `high` wherever
     // it is read. Observations are advisory, so nothing here blocks.
@@ -636,6 +640,11 @@ function reviewProcess(input: QualityProcessesInput): InsideProcessView {
   });
   return {
     ...base,
+    // The Review process's live output is console-observable whenever it has
+    // run: the persisted tail (Task 13) is host-read on request. Host-derived,
+    // so the webview renders the console button only for a run that actually
+    // happened.
+    ...(run ? { console: true } : {}),
     // The kind-specific aggregate (B4): the blocking count, worded per handoff
     // §6 ("2 blocking"). Host-computed from the same count the evidence
     // carries; omitted when nothing blocks rather than claiming "0".
