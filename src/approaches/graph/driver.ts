@@ -35,6 +35,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import type { GraphDb } from '../../store/graph/transitions.js';
 import {
+  GraphStoreError,
   GRAPH_RUN_TRANSITIONS,
   NODE_RUN_TRANSITIONS,
   casStatus,
@@ -42,7 +43,7 @@ import {
 import { graphRunById } from '../../store/graph/graphRuns.js';
 import { beginBootstrapPlannerRun, finishPlanning, relaunchBootstrapPlannerRun } from './coordinator/plannerRun.js';
 import { transitionPlannerRun } from '../../store/graph/plannerRuns.js';
-import { createRevision } from '../../store/graph/revisions.js';
+import { activeRevision, createRevision } from '../../store/graph/revisions.js';
 import { insertEntryTokens } from '../../store/graph/tokens.js';
 import { parseGraphDocument, type GraphDocument } from './parse.js';
 import {
@@ -436,6 +437,29 @@ export type AcceptPlanResult =
 export function acceptSubmittedPlan(deps: GraphDriverDeps, graphRunId: number): AcceptPlanResult {
   const run = graphRunById(deps.db, graphRunId);
   if (!run || run.status !== 'planning') return { kind: 'no-op' };
+
+  // Idempotency: a run that already holds an active revision has ALREADY
+  // accepted its bootstrap plan — a prior accept committed its revision while
+  // the run still read `planning` (the `finishPlanning` return was once
+  // ignored, so the revision insert and the run transition could commit
+  // apart), or a relaunched planner submitted twice. The partial unique index
+  // on (graph_run_id) WHERE status='active' makes a second active revision a
+  // violation, so this repair moves the run past `planning` and reports the
+  // existing revision instead of inserting a duplicate. It runs BEFORE the
+  // snapshot read: a run whose plan is already accepted must not be judged
+  // against a snapshot it no longer needs.
+  const existing = activeRevision(deps.db, graphRunId);
+  if (existing) {
+    const confirm = configConfirmOf(deps, run.approach_id);
+    deps.transaction(() => {
+      finishPlanning(deps.db, graphRunId, confirm);
+    });
+    deps.debug?.(
+      `[graph] run ${graphRunId}: bootstrap plan already accepted — repaired run status to ${confirm ? 'awaiting-confirmation' : 'running'}, revision ${existing.id}`,
+    );
+    return { kind: 'accepted', revisionId: existing.id, revisionNumber: existing.revision_number };
+  }
+
   const planner = deps.db
     .prepare(
       `SELECT id, status, graph_snapshot_id FROM approach_planner_runs
@@ -475,7 +499,20 @@ export function acceptSubmittedPlan(deps: GraphDriverDeps, graphRunId: number): 
   const { compiled: c } = compiled;
   const confirm = configConfirmOf(deps, run.approach_id);
   const revisionNumber = 1;
-  const revisionId = deps.transaction(() => {
+  const outcome = deps.transaction(() => {
+    // Idempotency: a run that already holds an active revision has ALREADY
+    // accepted its bootstrap plan — a prior accept committed its revision (a
+    // raced duplicate continuation from the reconcile sweep and the PR-sync
+    // sweep, or a relaunched planner submitting twice). The partial unique
+    // index on (graph_run_id) WHERE status='active' makes a second active
+    // revision a violation, so this must repair the run's status (it may still
+    // read `planning` from the raced accept) and report the existing revision
+    // rather than insert a duplicate.
+    const existing = activeRevision(deps.db, graphRunId);
+    if (existing) {
+      finishPlanning(deps.db, graphRunId, confirm);
+      return { id: existing.id, revisionNumber: existing.revision_number, already: true } as const;
+    }
     const id = createRevision(deps.db, {
       graphRunId,
       revisionNumber,
@@ -502,13 +539,26 @@ export function acceptSubmittedPlan(deps: GraphDriverDeps, graphRunId: number): 
       })),
       deps.now(),
     );
-    finishPlanning(deps.db, graphRunId, confirm);
-    return id;
+    // finishPlanning is the accept's verdict on the run status: if it returns
+    // false the run left `planning` mid-transaction and NO active revision may
+    // be committed on a run the sweep will never schedule — roll back.
+    if (!finishPlanning(deps.db, graphRunId, confirm)) {
+      throw new GraphStoreError(
+        `acceptSubmittedPlan: run ${graphRunId} left planning before its transition`,
+      );
+    }
+    return { id, revisionNumber, already: false } as const;
   });
-  deps.debug?.(
-    `[graph] run ${graphRunId}: bootstrap plan accepted — revision ${revisionId} (#${revisionNumber}) → ${confirm ? 'awaiting-confirmation' : 'running'}`,
-  );
-  return { kind: 'accepted', revisionId, revisionNumber };
+  if (outcome.already) {
+    deps.debug?.(
+      `[graph] run ${graphRunId}: bootstrap plan already accepted — repaired run status to ${confirm ? 'awaiting-confirmation' : 'running'}, revision ${outcome.id}`,
+    );
+  } else {
+    deps.debug?.(
+      `[graph] run ${graphRunId}: bootstrap plan accepted — revision ${outcome.id} (#${outcome.revisionNumber}) → ${confirm ? 'awaiting-confirmation' : 'running'}`,
+    );
+  }
+  return { kind: 'accepted', revisionId: outcome.id, revisionNumber: outcome.revisionNumber };
 }
 
 function configConfirmOf(deps: GraphDriverDeps, approachId: string): boolean {

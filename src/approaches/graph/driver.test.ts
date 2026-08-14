@@ -346,6 +346,56 @@ describe('acceptSubmittedPlan', () => {
       .run(graphRunId);
     expect(acceptSubmittedPlan(h.deps, graphRunId).kind).toBe('no-op');
   });
+
+  it('repairs a planning run that already holds an active revision instead of inserting a second one', () => {
+    // The corrupt state the activation sweep and the PR-sync sweep can both
+    // drive at once: the run still reads `planning` while a prior accept
+    // already committed an active revision (its `finishPlanning` transition
+    // was lost). Accept must NOT throw the partial-unique-index UNIQUE
+    // constraint on every sweep — it repairs the run status and reports the
+    // existing revision.
+    const h = harness();
+    const graphRunId = createGraphRun(h.db, {
+      ticketId: h.ticketId,
+      stageAttempt: 0,
+      approachId: 'karst-graph-engineering',
+      now: NOW,
+    });
+    // A submitted bootstrap planner whose snapshot the run already accepted.
+    h.db
+      .prepare(
+        `INSERT INTO approach_planner_runs (graph_run_id, planner_run_number, kind, status, graph_snapshot_id, submitted_at)
+         VALUES (?, 1, 'bootstrap', 'submitted', 'fp1', ?)`,
+      )
+      .run(graphRunId, NOW);
+    const snapshotDir = join(h.root, String(graphRunId), 'snapshots');
+    mkdirSync(snapshotDir, { recursive: true });
+    writeFileSync(join(snapshotDir, 'fp1.json'), gateGraphJson());
+    // The already-accepted active revision (revision 1, in the past).
+    createRevision(h.db, {
+      graphRunId,
+      revisionNumber: 1,
+      canonicalGraph: gateGraphJson(),
+      fingerprint: 'fp-committed',
+      status: 'active',
+      now: NOW,
+    });
+
+    const result = acceptSubmittedPlan(h.deps, graphRunId);
+    expect(result.kind).toBe('accepted');
+    if (result.kind !== 'accepted') return;
+    // It reports the EXISTING revision, never a second active row.
+    expect(result.revisionId).toBe(1);
+    const count = h.db
+      .prepare('SELECT COUNT(*) AS n FROM approach_graph_revisions WHERE graph_run_id = ? AND status = \'active\'')
+      .get(graphRunId) as { n: number };
+    expect(count.n).toBe(1);
+    // And it repairs the run out of the stuck `planning` status.
+    const run = h.db
+      .prepare('SELECT status FROM approach_graph_runs WHERE id = ?')
+      .get(graphRunId) as { status: string };
+    expect(run.status).toBe('awaiting-confirmation');
+  });
 });
 
 describe('confirmGraphRun', () => {
