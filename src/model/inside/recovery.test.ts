@@ -61,10 +61,10 @@ const base: readonly InsideProcessView[] = [
   process('tester'),
 ];
 
-function evidenceRows(recovery: RecoveryProcessView): readonly { status: string; label: string; detail: string }[] {
+function evidenceRows(recovery: RecoveryProcessView): readonly { status: string; label: string; detail: string; time?: string; duration?: string; durationExact?: string }[] {
   const evidence = recovery.process.evidence;
   if (evidence?.kind !== 'recovery') throw new Error('expected recovery evidence');
-  return evidence.rows as readonly { status: string; label: string; detail: string }[];
+  return evidence.rows as readonly { status: string; label: string; detail: string; time?: string; duration?: string; durationExact?: string }[];
 }
 
 describe('recoveryProcess', () => {
@@ -171,6 +171,85 @@ describe('recoveryProcess', () => {
     const view = recoveryProcess([round({ fixProcessRunId: 7 })], [run], NOW)!;
     expect(view.process.duration).toBe('30.0s');
     expect(view.process.execution).toMatchObject({ provider: 'codex', model: 'sol' });
+  });
+
+  it('includes per-round time and duration on each evidence row', () => {
+    const view = recoveryProcess(
+      [
+        round({
+          id: 1,
+          round: 1,
+          status: 'passed',
+          startedAt: '2026-07-20T12:00:00.000Z',
+          endedAt: '2026-07-20T12:00:45.000Z',
+        }),
+        round({
+          id: 2,
+          round: 2,
+          maxRounds: 3,
+          status: 'fixing',
+          startedAt: '2026-07-20T12:05:00.000Z',
+          endedAt: null,
+        }),
+      ],
+      [],
+      '2026-07-20T12:05:31.900Z',
+    );
+    const rows = evidenceRows(view!);
+    expect(rows[0]!.time).toBeTruthy();
+    expect(rows[0]!.duration).toBe('45.0s');
+    expect(rows[0]!.durationExact).toBe('45.000s');
+    expect(rows[1]!.time).toBeTruthy();
+    expect(rows[1]!.duration).toBe('31.9s');
+    expect(rows[1]!.durationExact).toBe('31.900s');
+  });
+
+  it('omits timing fields when the round has no startedAt', () => {
+    const view = recoveryProcess(
+      [round({ id: 1, round: 1, status: 'pending', startedAt: undefined as unknown as string })],
+      [],
+      NOW,
+    );
+    const rows = evidenceRows(view!);
+    expect(rows[0]!.time).toBeUndefined();
+    expect(rows[0]!.duration).toBeUndefined();
+    expect(rows[0]!.durationExact).toBeUndefined();
+  });
+
+  it('shows elapsed time for a running round with no endedAt', () => {
+    const view = recoveryProcess(
+      [
+        round({
+          id: 1,
+          round: 1,
+          status: 'fixing',
+          startedAt: '2026-07-20T12:00:00.000Z',
+          endedAt: null,
+        }),
+      ],
+      [],
+      '2026-07-20T12:02:15.000Z',
+    );
+    const rows = evidenceRows(view!);
+    expect(rows[0]!.time).toBeTruthy();
+    expect(rows[0]!.duration).toBe('2m 15s');
+    expect(rows[0]!.durationExact).toBe('135.000s');
+  });
+
+  it('includes timing on all terminal recovery states', () => {
+    const startedAt = '2026-07-20T12:00:00.000Z';
+    const endedAt = '2026-07-20T12:00:10.000Z';
+    for (const status of ['passed', 'failed', 'exhausted', 'interrupted'] as const) {
+      const view = recoveryProcess(
+        [round({ id: 1, round: 1, status, startedAt, endedAt })],
+        [],
+        NOW,
+      );
+      const rows = evidenceRows(view!);
+      expect(rows[0]!.time).toBeTruthy();
+      expect(rows[0]!.duration).toBe('10.0s');
+      expect(rows[0]!.durationExact).toBe('10.000s');
+    }
   });
 
   it('shows the fix execution identity the round recorded', () => {

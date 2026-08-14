@@ -114,6 +114,13 @@ export function recoveryProcess(
         status: roundStatus(round),
         label: `round ${round.round}`,
         detail: roundDetail(round),
+        ...(round.startedAt
+          ? {
+              time: formatTime(round.startedAt),
+              duration: formatDuration(round.startedAt, round.endedAt ?? now),
+              durationExact: formatExactDuration(round.startedAt, round.endedAt ?? now),
+            }
+          : {}),
       };
     }),
     RECOVERY_ROWS_LIMIT,
