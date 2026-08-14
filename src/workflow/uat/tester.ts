@@ -255,6 +255,7 @@ export async function runUatTester(
         prompt: buildTesterPrompt(target, opts.assignment.instructions, opts.gatesPassed),
         cwd: target.worktreePath,
         model: opts.assignment.model,
+        effort: opts.assignment.effort,
         signal: opts.signal,
         timeoutMs: opts.timeoutMs ?? GATE_LANE_HEADLESS_TIMEOUT_MS,
         onOutput: opts.onOutput,

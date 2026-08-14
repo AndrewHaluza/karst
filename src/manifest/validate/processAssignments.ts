@@ -125,6 +125,10 @@ function validateProcessAssignment(
   const model = optionalString(raw.model, `${where}.model`);
   if (model !== undefined) config.model = model;
 
+  // The per-process effort/variant override, normalized like `defaultEffort`.
+  const effort = optionalString(raw.effort, `${where}.effort`);
+  if (effort !== undefined) config.effort = effort;
+
   // `instructions` is RETIRED and deliberately not parsed: the assigned
   // profile's body is the process's prompt. An existing file that still
   // declares one still LOADS (it is reported by `inertKeys.ts`, never an

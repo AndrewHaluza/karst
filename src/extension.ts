@@ -1169,6 +1169,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       {
         provider: t.agentProvider ?? undefined,
         model: t.model || undefined,
+        effort: t.effort || undefined,
       },
       modelCatalog,
     );

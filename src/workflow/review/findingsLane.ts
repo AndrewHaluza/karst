@@ -281,6 +281,7 @@ export async function runFindingsLane(opts: RunFindingsLaneOpts): Promise<Findin
         ),
         cwd: target.worktreePath,
         model: opts.process?.assignment.model,
+        effort: opts.process?.assignment.effort,
         signal: opts.signal,
         timeoutMs: opts.timeoutMs ?? GATE_LANE_HEADLESS_TIMEOUT_MS,
         onOutput: opts.onOutput,

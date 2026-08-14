@@ -777,6 +777,7 @@ export function buildTicketFormActions(
               ? { instructions: process.assignment.instructions }
               : {}),
             model: process.assignment.model ?? undefined,
+            effort: process.assignment.effort ?? undefined,
           });
           finishProcessRun(deps.store, run.id, 'passed', new Date().toISOString());
         } catch (error) {

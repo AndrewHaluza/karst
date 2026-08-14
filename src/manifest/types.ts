@@ -434,6 +434,13 @@ export interface ProcessAssignmentConfig {
   agent?: string;
   provider?: AgentProvider;
   model?: string;
+  /**
+   * Per-process effort/variant override — the unified agent picker's third
+   * field (agent core + model + effort, § agentPicker.ts). Only meaningful
+   * when the resolved model advertises the value in the catalog; a blank
+   * value normalizes to inherit (the manifest `defaultEffort` at launch).
+   */
+  effort?: string;
   // NOTE: there is deliberately no `instructions` field. A process's prompt is
   // the BODY of the profile named by `agent` — one place to write it, one place
   // to read it. The retired key is still reported at load (`inertKeys.ts`).
