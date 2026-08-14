@@ -282,7 +282,9 @@ function stringOf(value) {
   return typeof value === 'string' && value.length > 0 ? value : '';
 }
 
-// opencode event payloads vary; extract defensively.
+// opencode event payloads vary; extract defensively. session.created carries
+// the session under info (a Session object) rather than a flat sessionID —
+// the launch-intent handshake needs its id, so both shapes resolve here.
 function extractSessionId(input) {
   if (!input) return '';
   const direct = stringOf(input.sessionID);
@@ -433,14 +435,19 @@ export const KarstBridge = async ({ directory, worktree }) => {
       const type = event && event.type;
       const input = event && event.properties;
       if (type === 'session.created') {
-        // The resume-by-id contract (§5.3) needs the interactive session id
-        // captured WHILE a session runs. opencode delivers it ONLY at creation
-        // (EventSessionCreated: 'properties.info.id'/'directory'), so this is
-        // the capture step — POSTing SessionStart persists 'tickets.session_id'
-        // so a later launch can '--session' the same conversation instead of a
-        // fresh, fully-seeded one (investigation #217). The id is the point of
-        // the event, so a created event that carries none is dropped (post()
-        // would otherwise still fire on the fallback cwd).
+        // opencode's session-creation event — the SessionStart equivalent the
+        // launch-intent handshake needs (dispatch.ts confirms a prepared fix
+        // launch ONLY on SessionStart carrying the launch id). Without it a
+        // closed-session fix resume records its intent and then waits forever:
+        // the round stays pending, never fixing, and the stranded-fix sweep
+        // parks the stage "no fix execution in flight" while the agent is
+        // actually working. Normalized to karst's own closed vocabulary, the
+        // same way the agy conversation watch synthesizes a SessionStart. It
+        // is also the resume-by-id capture step (§5.3, investigation #217):
+        // POSTing SessionStart persists 'tickets.session_id' so a later launch
+        // can '--session' the same conversation. The id is the point of the
+        // event, so a created event that carries none is dropped (post() would
+        // otherwise still fire on the fallback cwd).
         if (extractSessionId(input)) {
           post('SessionStart', input, directory, worktree);
         }
