@@ -21,7 +21,7 @@
  *
  * State precedence (first match wins):
  *   disabled → unknown-profile → unknown-provider → catalog-unavailable →
- *   incompatible-model → omitted → valid.
+ *   incompatible-model → incompatible-effort → omitted → valid.
  */
 import type {
   AgentProvider,
@@ -33,12 +33,14 @@ import { IMPLEMENTED_PROVIDERS, resolveProvider } from '../../agent/provider.js'
 import {
   isModelCompatibleWithProvider,
   resolveModelForProvider,
+  resolveEffortForProvider,
 } from '../../agent/models.js';
+import { effortsForModel } from '../../agent/effort.js';
 import { DEFAULT_PROCESS_AGENT_NAMES } from '../../agent/processAssignment.js';
 import { AGENT_PROVIDER_LABELS } from '../../model/agentIdentity.js';
 import { bundledModelCatalog, type ModelCatalog } from '../../agent/modelCatalog.js';
 
-/** The handoff §7 assignment states; the four new ones are the last four. */
+/** The handoff §7 assignment states; the five new ones are the last five. */
 export type ProcessAssignmentState =
   | 'valid'
   | 'omitted'
@@ -46,6 +48,7 @@ export type ProcessAssignmentState =
   | 'unknown-profile'
   | 'unknown-provider'
   | 'incompatible-model'
+  | 'incompatible-effort'
   | 'catalog-unavailable';
 
 /**
@@ -66,7 +69,7 @@ export interface SettingsProcessAssignmentView {
   /** The inline message; '' when the row needs none. */
   stateMessage: string;
   /** Which control the message is about (drives aria-invalid/describedby). */
-  invalidField: 'agent' | 'provider' | 'model' | null;
+  invalidField: 'agent' | 'provider' | 'model' | 'effort' | null;
   /** Agent pool names offered by the Agent profile select. */
   profileOptions: readonly string[];
   /**
@@ -75,12 +78,21 @@ export interface SettingsProcessAssignmentView {
    * claim is made for an unknown core.
    */
   effectiveProvider: AgentProvider | null;
+  /**
+   * The model the effort/variant picker keys off — the row's own model, else
+   * the resolved default for the effective core. Undefined when no model can
+   * resolve for the row (no model set and no default): the effort field
+   * renders nothing for a model-less row.
+   */
+  effectiveModel: string | undefined;
   /** 'Default: UAT Agent' when no profile is set; '' otherwise. */
   profileHint: string;
   /** 'Default: Claude Code' when no core is set; '' otherwise. */
   coreHint: string;
   /** 'Default: Sonnet 5' when no model is set and a default resolves; ''. */
   modelHint: string;
+  /** 'Default: high' when no effort is set and a default resolves; ''. */
+  effortHint: string;
 }
 
 /** Handoff §7 role labels — the primary user-facing names. */
@@ -150,12 +162,34 @@ export function buildProcessAssignmentView(
   // The model that WOULD launch for this row: the manifest default, run through
   // the same provider-compatibility check the launch path applies.
   let modelHint = '';
-  if (cfg.model === undefined && effectiveProvider !== null) {
-    const resolved = resolveModelForProvider(effectiveProvider, null, manifest.defaultModel, catalog);
-    if (resolved !== undefined) {
+  let effectiveModel: string | undefined;
+  if (effectiveProvider !== null) {
+    const resolved = resolveModelForProvider(
+      effectiveProvider,
+      cfg.model ?? null,
+      manifest.defaultModel,
+      catalog,
+    );
+    if (cfg.model === undefined && resolved !== undefined) {
       const label = catalog[effectiveProvider].find((m) => m.id === resolved)?.label;
       modelHint = `Default: ${label ?? resolved}`;
     }
+    effectiveModel = resolved;
+  }
+
+  // The effort/variant that WOULD launch: the resolved default effort, run
+  // through the same model-capability check the launch path applies (only a
+  // value the resolved model advertises is carried).
+  let effortHint = '';
+  if (cfg.effort === undefined && effectiveProvider !== null && effectiveModel !== undefined) {
+    const resolved = resolveEffortForProvider(
+      effectiveProvider,
+      null,
+      manifest.defaultEffort,
+      effectiveModel,
+      catalog,
+    );
+    if (resolved !== undefined) effortHint = `Default: ${resolved}`;
   }
 
   let state: ProcessAssignmentState = 'valid';
@@ -208,7 +242,28 @@ export function buildProcessAssignmentView(
       `Model "${displayName(cfg.model)}" is not compatible with ${coreLabel(effectiveProvider)}. ` +
       `Pick a model for ${coreLabel(effectiveProvider)}.`;
     invalidField = 'model';
-  } else if (cfg.agent === undefined && provider === undefined && cfg.model === undefined) {
+  } else if (
+    effectiveProvider !== null &&
+    cfg.effort !== undefined &&
+    effectiveModel !== undefined &&
+    !(effortsForModel(effectiveProvider, effectiveModel, catalog) ?? []).includes(cfg.effort)
+  ) {
+    // An explicit effort the RESOLVED model does not advertise is a
+    // configuration failure, never silently discarded — the same rule the
+    // unified picker applies when offering effort values, mirrored here for a
+    // hand-authored manifest value the picker never produced.
+    state = 'incompatible-effort';
+    stateTone = 'error';
+    stateMessage =
+      `Effort "${displayName(cfg.effort)}" is not advertised by model ` +
+      `"${displayName(effectiveModel)}" (${coreLabel(effectiveProvider)}). Pick an advertised effort.`;
+    invalidField = 'effort';
+  } else if (
+    cfg.agent === undefined &&
+    provider === undefined &&
+    cfg.model === undefined &&
+    cfg.effort === undefined
+  ) {
     // Handoff: "Assignment omitted — Show approved default and a Default hint."
     state = 'omitted';
   }
@@ -223,9 +278,11 @@ export function buildProcessAssignmentView(
     invalidField,
     profileOptions,
     effectiveProvider,
+    effectiveModel,
     profileHint,
     coreHint,
     modelHint,
+    effortHint,
   };
 }
 

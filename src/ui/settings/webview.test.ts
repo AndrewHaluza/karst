@@ -78,53 +78,17 @@ describe('settings model picker', () => {
     expect(HTML).not.toContain('const KNOWN_MODELS');
   });
 
-  it('filters the host catalog by provider and keeps an absent saved default visible', () => {
-    const renderModelOptions = loadFunction('renderModelOptions', MODELS);
-    const html = renderModelOptions('codex', 'preview-<next>') as string;
-    expect(html).toContain('Codex Current');
-    expect(html).not.toContain('Claude Only');
-    expect(html).toContain('value="preview-&lt;next&gt;" selected');
-    expect(html).toContain('Saved model: preview-&lt;next&gt;');
-  });
-
-  it('keeps a saved supported default selected without duplicating it', () => {
-    const renderModelOptions = loadFunction('renderModelOptions', MODELS);
-    const html = renderModelOptions('codex', 'codex-current') as string;
-
-    expect(html).toContain('value="codex-current" selected');
-    expect(html.match(/value="codex-current"/g)).toHaveLength(1);
-    expect(html).not.toContain('Saved model: Codex Current');
-  });
-
-  it('does not clear a saved model merely because it is absent from the catalog', () => {
-    const isCompatible = loadFunction('isModelCompatibleWithProvider', MODELS);
-    expect(isCompatible('codex', 'preview-model')).toBe(true);
-  });
-
-  it('still rejects a model known only for another provider', () => {
-    const isCompatible = loadFunction('isModelCompatibleWithProvider', MODELS);
-    expect(isCompatible('codex', 'claude-only')).toBe(false);
-  });
-
-  it('uses bundled-plus-live compatibility knowledge when the picker list is narrower', () => {
-    const current = {
-      claude: [],
-      codex: [{ id: 'codex-live', label: 'Codex Live', providers: ['codex'] }],
-      antigravity: [],
-    };
-    const compatibility = {
-      claude: [{ id: 'claude-bundled', label: 'Claude Bundled', providers: ['claude'] }],
-      codex: [{ id: 'codex-live', label: 'Codex Live', providers: ['codex'] }],
-      antigravity: [],
-    };
-    const isCompatible = loadFunction(
-      'isModelCompatibleWithProvider',
-      current,
-      compatibility,
-    );
-
-    expect(isCompatible('codex', 'claude-bundled')).toBe(false);
-    expect(isCompatible('claude', 'codex-live')).toBe(false);
+  // The process-assignment rows' model picker is the UNIFIED agent identity
+  // picker now (mountProcessAssignmentPickers → mountAgentPicker from
+  // model/agentPicker.ts) — the shared component's own suite covers catalog
+  // filtering, saved-model survival and compatibility. The settings surface
+  // only has to mount it per row with the row's value, which the process
+  // assignment tests pin below; the bespoke per-row model select it replaced
+  // is gone.
+  it('has no bespoke per-row model select or compatibility helper anymore', () => {
+    expect(HTML).not.toContain('function renderModelOptions(');
+    expect(HTML).not.toContain('function isModelCompatibleWithProvider(');
+    expect(HTML).not.toContain('data-proc-field="model"');
   });
 
   it('merges a catalog refresh without replacing a dirty draft or its saved baseline', () => {
@@ -2411,9 +2375,13 @@ describe('settings agents tab — process assignments', () => {
     // The core cell is the identity dropdown (icon + name per choice, UI-R10c),
     // not a native select — the model/name fields are the remaining proc
     // fields that commit on change/input.
+    // The Agent cell is a MOUNT POINT for the UNIFIED agent identity picker
+    // (agent core + model + effort/variant): the row stamps the container with
+    // the key it edits and mountProcessAssignmentPickers() mounts the shared
+    // component into it — not a bespoke per-row select.
     expect(HTML).not.toContain('data-proc-field="provider"');
-    expect(HTML).toContain('data-proc-core-opt="');
-    expect(HTML).toContain('data-proc-field="model"');
+    expect(HTML).toContain('data-proc-picker="${key}"');
+    expect(HTML).toContain('mountProcessAssignmentPickers');
     expect(HTML).toContain('data-proc-field="agentName"');
     expect(HTML).toContain('data-proc-enabled="${key}"');
     expect(HTML).toContain('role="switch"');
@@ -2458,9 +2426,11 @@ describe('settings agents tab — process assignments', () => {
       invalidField: null,
       profileOptions: [],
       effectiveProvider: 'claude',
+      effectiveModel: undefined,
       profileHint: '',
       coreHint: '',
       modelHint: '',
+      effortHint: '',
       ...patch,
     };
   }
@@ -2477,7 +2447,6 @@ describe('settings agents tab — process assignments', () => {
       };
       function agentBadgeHtml(p) { return '<span class="agentbadge"><span class="agentname">' + (AGENT_PROVIDER_LABELS[p] || p || '') + '</span></span>'; }
       const PROMPT_BEARING_PROCESS_KEYS = ['uatTester', 'review', 'ticketAnalysis'];
-      ${functionSource('renderModelOptions')}
       ${functionSource('renderProcessAssignmentRow')}
       renderProcessAssignmentRow
     `;
@@ -2524,33 +2493,86 @@ describe('settings agents tab — process assignments', () => {
     expect(html).toContain('<option value="ghost" selected>ghost</option>');
   });
 
-  it('fills each model select from the host catalog for the row core', () => {
+  it('emits the unified picker mount point for each process row', () => {
     const render = loadProcessRowRenderer();
     const html = render('uatTester', { provider: 'codex', model: '' }, view('uatTester', 'UAT Tester', {
       effectiveProvider: 'codex',
     }));
-
     expect(html).toContain('data-proc-key="uatTester"');
-    expect(html).toContain('Codex Current');
-    expect(html).not.toContain('Claude Only');
-    expect(html).toContain('data-proc-core-opt="uatTester"');
-    expect(html).toContain('data-proc-field="model"');
+    // The Agent cell is a mount point for the shared picker, not a bespoke
+    // select: mountProcessAssignmentPickers() mounts the UNIFIED component
+    // (model/agentPicker.ts) into `.ap` right after the rows render.
+    expect(html).toContain('class="ap"');
+    expect(html).toContain('data-proc-picker="uatTester"');
   });
 
-  it('keeps a saved model visible when absent from the catalog', () => {
-    const render = loadProcessRowRenderer();
-    const html = render('review', { provider: 'codex', model: 'preview-x' }, view('review', 'Review', {
-      effectiveProvider: 'codex',
-    }));
-    expect(html).toContain('Saved model: preview-x');
+  it('delegates the row provider/model/effort to the shared picker through mountProcessAssignmentPickers', () => {
+    const mount = functionSource('mountProcessAssignmentPickers');
+    expect(mount).toContain('mountAgentPicker(');
+    expect(mount.replace(/\s+/g, ' ')).toContain("value: { core: cfg.provider || '', model: cfg.model || '', effort: cfg.effort || '', }");
+    expect(mount).toContain('catalog: modelCatalog');
+    expect(mount).toContain('recent: recentModels');
+    expect(mount).toContain('showEffort: true');
+    expect(mount.replace(/\s+/g, ' ')).toContain("updateProcessAssignment(key, { provider: core || '', model: model || '', effort: effort || '', });");
+    // No trace of the old bespoke per-row select remains.
+    expect(mount).not.toContain('data-proc-core-opt');
+    expect(HTML).not.toContain('function renderModelOptions(');
   });
 
-  it('keys the model select off the view core when the row declares none', () => {
-    const render = loadProcessRowRenderer();
-    const html = render('uatTester', {}, view('uatTester', 'UAT Tester', {
-      effectiveProvider: 'claude',
-    }));
-    expect(html).toContain('Claude Only');
+  it('mounts the shared picker once per process row and writes picks through updateProcessAssignment', () => {
+    const mounted: Array<{ container: unknown; opts: Record<string, unknown> }> = [];
+    const updates: Array<{ key: string; patch: Record<string, unknown> }> = [];
+    const draft: { processes: Record<string, Record<string, unknown>> } = {
+      processes: {
+        uatTester: { provider: 'codex', model: 'codex-current', effort: 'high' },
+        review: {},
+      },
+    };
+    const recentModels = {};
+    const sandbox: Record<string, unknown> = {
+      draft,
+      processAssignmentViews: {},
+      KNOWN_AGENT_PROVIDERS: ['claude', 'codex', 'antigravity', 'opencode'],
+      AGENT_PROVIDER_LABELS: {
+        claude: 'Claude Code', codex: 'Codex', antigravity: 'Antigravity CLI', opencode: 'OpenCode',
+      },
+      implementedProviders: ['claude', 'codex', 'antigravity', 'opencode'],
+      modelCatalog: CATALOG,
+      recentModels,
+      mountAgentPicker: (container: unknown, opts: Record<string, unknown>) => { mounted.push({ container, opts }); },
+      updateProcessAssignment: (key: string, patch: Record<string, unknown>) => {
+        updates.push({ key, patch });
+        const entry = { ...((draft.processes && draft.processes[key]) || {}) };
+        for (const [field, value] of Object.entries(patch)) {
+          if (value === '' || value === undefined || value === null) delete entry[field];
+          else entry[field] = value;
+        }
+        draft.processes = { ...(draft.processes || {}), [key]: entry };
+      },
+      document: {
+        querySelectorAll: (sel: string) =>
+          sel === '[data-proc-picker]'
+            ? [{ dataset: { procPicker: 'uatTester' } }, { dataset: { procPicker: 'review' } }]
+            : [],
+      },
+    };
+    const source = `${functionSource('mountProcessAssignmentPickers')} mountProcessAssignmentPickers();`;
+    runInNewContext(source, sandbox);
+
+    expect(mounted).toHaveLength(2);
+    const uat = mounted[0]!;
+    const review = mounted[1]!;
+    expect(uat.opts.value).toEqual({ core: 'codex', model: 'codex-current', effort: 'high' });
+    expect(uat.opts.catalog).toBe(CATALOG);
+    expect(uat.opts.recent).toBe(recentModels);
+    expect(uat.opts.showEffort).toBe(true);
+    expect(review.opts.value).toEqual({ core: '', model: '', effort: '' });
+
+    (uat.opts.onChange as (v: { core: string; model: string; effort: string }) => void)({
+      core: 'claude', model: '', effort: 'medium',
+    });
+    expect(updates).toContainEqual({ key: 'uatTester', patch: { provider: 'claude', model: '', effort: 'medium' } });
+    expect(draft.processes.uatTester).toEqual({ provider: 'claude', effort: 'medium' });
   });
 
   it('renders the Default hints from the host view', () => {
@@ -2559,10 +2581,13 @@ describe('settings agents tab — process assignments', () => {
       profileHint: 'Default: UAT Agent',
       coreHint: 'Default: Claude Code',
       modelHint: 'Default: Sonnet 4.6',
+      effortHint: 'Default: high',
     }));
     expect(html).toContain('Default: UAT Agent');
     expect(html).toContain('Default: Claude Code');
     expect(html).toContain('Default: Sonnet 4.6');
+    expect(html).toContain('Default: high');
+    expect(html).toContain('Default: Claude Code · Default: Sonnet 4.6 · Default: high');
   });
 
   it('renders the four validation states from the host view', () => {
@@ -2584,8 +2609,8 @@ describe('settings agents tab — process assignments', () => {
     expect(unknownProfile).toContain('id="proc-uatTester-msg"');
     expect(unknownProfile).toContain('class="proc-msg is-error"');
 
-    // Unknown provider: inline error and NO model picker claim — the model
-    // select is disabled and carries no saved-model row.
+    // Unknown provider: inline error on the picker CONTAINER (the mount point
+    // carries aria-invalid, UI-R25) — no model select claim, no saved row.
     const unknownProvider = render('review', { provider: 'copilot', model: 'x' }, view('review', 'Review', {
       state: 'unknown-provider',
       stateTone: 'error',
@@ -2594,12 +2619,12 @@ describe('settings agents tab — process assignments', () => {
       effectiveProvider: null,
     }));
     expect(unknownProvider).toContain('Agent core &quot;copilot&quot; is not supported');
-    expect(unknownProvider).toContain('data-proc-field="model"');
-    expect(unknownProvider).toContain(' disabled');
-    expect(unknownProvider).not.toContain('Saved model:');
+    expect(unknownProvider).toContain('data-proc-picker="review"');
+    expect(unknownProvider).toContain('aria-invalid="true"');
 
-    // Model incompatible with provider: inline error; the saved value is
-    // never silently substituted.
+    // Model incompatible with provider: inline error on the container; the
+    // saved value is never silently substituted (the shared picker keeps it
+    // visible on its own).
     const incompatible = render('review', { provider: 'codex', model: 'claude-opus-4-8' }, view('review', 'Review', {
       state: 'incompatible-model',
       stateTone: 'error',
@@ -2608,10 +2633,11 @@ describe('settings agents tab — process assignments', () => {
       effectiveProvider: 'codex',
     }));
     expect(incompatible).toContain('Model &quot;claude-opus-4-8&quot; is not compatible with Codex');
+    expect(incompatible).toContain('data-proc-picker="review"');
     expect(incompatible).toContain('aria-invalid="true"');
-    expect(incompatible).toContain('Saved model: claude-opus-4-8');
 
-    // Catalog unavailable: a NOTE (never an error) beside the kept saved id.
+    // Catalog unavailable: a NOTE (never an error); the saved id is kept by
+    // the shared picker, never by a row-level "Saved model" line.
     const catalogDown = render('prDescription', { provider: 'opencode', model: 'custom-x' }, view('prDescription', 'PR description', {
       state: 'catalog-unavailable',
       stateTone: 'note',
@@ -2621,7 +2647,7 @@ describe('settings agents tab — process assignments', () => {
     }));
     expect(catalogDown).toContain('No model list is available for OpenCode');
     expect(catalogDown).toContain('class="proc-msg is-note"');
-    expect(catalogDown).toContain('Saved model: custom-x');
+    expect(catalogDown).not.toContain('Saved model: custom-x');
   });
 
   it('renders the disabled explanation from the host view', () => {
@@ -2916,7 +2942,7 @@ describe('settings v7 process matrix', () => {
   it('emits the matrix head and UAT/Review/Ship group headers from the row renderer', () => {
     // The head is a separate static string prepended in renderProcessAssignments.
     expect(HTML).toContain("const MATRIX_HEAD = '<div class=\"matrix-head matrix-cols\">'");
-    expect(HTML).toContain('>Process</div><div>Agent profile</div><div>Agent core</div><div>Model</div><div>State</div>');
+    expect(HTML).toContain('>Process</div><div>Agent profile</div><div>Agent</div><div>State</div>');
     // Group headers come from a LOCAL map inside the row renderer so the
     // standalone sandbox (which loads only that function) stays self-contained.
     const renderer = functionSource('renderProcessAssignmentRow');
@@ -3034,7 +3060,6 @@ describe('settings v7 matrix groups', () => {
       };
       function agentBadgeHtml(p) { return '<span class="agentbadge"><span class="agentname">' + (AGENT_PROVIDER_LABELS[p] || p || '') + '</span></span>'; }
       const PROMPT_BEARING_PROCESS_KEYS = ['uatTester', 'review', 'ticketAnalysis'];
-      ${functionSource('renderModelOptions')}
       ${functionSource('renderProcessAssignmentRow')}
       renderProcessAssignmentRow(${JSON.stringify(key)}, {}, {})
     `, {
@@ -3063,7 +3088,6 @@ describe('settings v7 matrix groups', () => {
       };
       function agentBadgeHtml(p) { return '<span class="agentbadge"><span class="agentname">' + (AGENT_PROVIDER_LABELS[p] || p || '') + '</span></span>'; }
       const PROMPT_BEARING_PROCESS_KEYS = ['uatTester', 'review', 'ticketAnalysis'];
-      ${functionSource('renderModelOptions')}
       ${functionSource('renderProcessAssignmentRow')}
       renderProcessAssignmentRow('review', { agentName: 'My Review' }, {})
     `, {

@@ -216,6 +216,67 @@ describe('resolveProcessAssignment', () => {
     });
   });
 
+  it('carries the verbatim config effort when the resolved model advertises it', () => {
+    const manifest: Manifest = {
+      ...BASE,
+      processes: { uatTester: { provider: 'claude', model: 'claude-sonnet-5', effort: 'high' } },
+    };
+    expect(resolveProcessAssignment(manifest, 'uat-tester')).toMatchObject({
+      provider: 'claude',
+      model: 'claude-sonnet-5',
+      effort: 'high',
+    });
+  });
+
+  it('drops an explicit config effort the resolved model does not advertise', () => {
+    const manifest: Manifest = {
+      ...BASE,
+      processes: { uatTester: { provider: 'claude', model: 'claude-sonnet-5', effort: 'xhigh' } },
+    };
+    const snapshot = resolveProcessAssignment(manifest, 'uat-tester')!;
+    expect(snapshot.model).toBe('claude-sonnet-5');
+    expect('effort' in snapshot).toBe(false);
+  });
+
+  it('drops a config effort when no model resolves for the row', () => {
+    const manifest = buildManifest(
+      { api: { repoPath: '/repo/api', hasMigrations: false } },
+      { agentProvider: 'codex' },
+    );
+    const withEffort: Manifest = { ...manifest, processes: { review: { effort: 'high' } } };
+    const snapshot = resolveProcessAssignment(withEffort, 'review')!;
+    expect(snapshot.model).toBeUndefined();
+    expect('effort' in snapshot).toBe(false);
+  });
+
+  it('ticket effort wins over the manifest default, gated on the advertised model', () => {
+    const manifest = buildManifest(
+      { api: { repoPath: '/repo/api', hasMigrations: false } },
+      { agentProvider: 'claude', defaultModel: 'claude-sonnet-5', defaultEffort: 'low' },
+    );
+    expect(
+      resolveProcessAssignment(manifest, 'uat-tester', { effort: 'high' }),
+    ).toMatchObject({
+      model: 'claude-sonnet-5',
+      effort: 'high',
+    });
+  });
+
+  it('resolves the manifest default effort when none is set and the model advertises it', () => {
+    const manifest = buildManifest(
+      { api: { repoPath: '/repo/api', hasMigrations: false } },
+      { agentProvider: 'claude', defaultModel: 'claude-sonnet-5', defaultEffort: 'high' },
+    );
+    expect(resolveProcessAssignment(manifest, 'uat-tester')).toMatchObject({
+      model: 'claude-sonnet-5',
+      effort: 'high',
+    });
+  });
+
+  it('leaves effort off the snapshot when nothing is set and no default resolves', () => {
+    expect('effort' in (resolveProcessAssignment(BASE, 'uat-tester') ?? {})).toBe(false);
+  });
+
   it('returns null for every role whose configured process is disabled (Finding 2)', () => {
     for (const role of ['uat-tester', 'uat-fix', 'review', 'review-fix', 'ticket-analysis'] as const) {
       const manifest: Manifest = {

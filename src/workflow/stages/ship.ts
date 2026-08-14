@@ -149,11 +149,13 @@ async function describePr(
   ticketId: number,
   processRunId?: number | null,
   model?: string,
+  effort?: string,
 ): Promise<string> {
   const r = await adapter.runHeadless({
     prompt: buildPrDescriptionPrompt(ctx),
     cwd,
     model,
+    effort,
     tracking: { callSite: 'pr-description', ticketId, processRunId: processRunId ?? undefined },
   });
   return sanitizePrDescription(r.raw, ctx.title);
@@ -310,6 +312,7 @@ async function generateDescription(
       ticketId,
       processRun.id,
       assignment?.model,
+      assignment?.effort,
     );
     finishProcessRun(store, processRun.id, 'passed', nowIso());
     finishShipRepoStep(store, step.id, { status: 'passed', detail: 'generated', endedAt: nowIso() });

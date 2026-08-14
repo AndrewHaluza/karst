@@ -65,6 +65,12 @@ export interface AnalyzeInput {
    */
   model?: string;
   /**
+   * The resolved launch effort for this analysis (the ticket-analysis process
+   * assignment). Only carried when the resolved model advertises it — the same
+   * rule every launch applies. Absent → the agent CLI's own default.
+   */
+  effort?: string;
+  /**
    * The effective analysis instructions: the resolved body of the SETTINGS
    * Ticket-analysis profile (`processes.ticketAnalysis.agent`), or the
    * author-declared `processes.ticketAnalysis.instructions` — resolved
@@ -225,6 +231,7 @@ export async function analyzeTicket(
     prompt: buildPrompt(input),
     cwd: '.',
     model: input.model,
+    effort: input.effort,
     tracking: {
       callSite: 'ticket-analysis',
       ticketId: input.ticketId ?? null,

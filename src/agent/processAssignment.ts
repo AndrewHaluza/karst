@@ -22,6 +22,10 @@
  *              manifest.defaultModel, both through the provider-compatibility
  *              check (a known model of another provider is dropped, never
  *              launched wrong)
+ *   effort:    config.effort (verbatim — author-declared) → ticket effort →
+ *              manifest.defaultEffort, both dropped unless the RESOLVED model
+ *              advertises the value (the same rule `resolveEffortForProvider`
+ *              applies to every launch).
  *   instructions: NOT resolved here — the host's execution boundary resolves
  *              the assigned profile's BODY (`agent`) into it. There is no
  *              manifest-declared prompt any more; the profile is the prompt.
@@ -33,7 +37,7 @@ import {
   type ProcessRole,
 } from '../manifest/validate/processAssignments.js';
 import { resolveProvider } from './provider.js';
-import { resolveModelForProvider } from './models.js';
+import { resolveModelForProvider, resolveEffortForProvider } from './models.js';
 import { bundledModelCatalog, type ModelCatalog } from './modelCatalog.js';
 import { AGENT_PROVIDER_LABELS } from '../model/agentIdentity.js';
 import type { AgentAdapter } from './adapter.js';
@@ -82,6 +86,7 @@ export interface DriveProcessBundle {
 export interface ProcessTicketOverride {
   provider?: AgentProvider | null;
   model?: string | null;
+  effort?: string | null;
   agentName?: string | null;
 }
 
@@ -127,6 +132,21 @@ export function resolveProcessAssignment(
     config?.model ??
     resolveModelForProvider(provider, ticketOverride.model ?? null, manifest.defaultModel, catalog);
 
+  // Effort follows the model's precedence, but is only carried when the
+  // RESOLVED model advertises it — an explicit value for a model with no
+  // advertised efforts is a configuration error the settings view reports,
+  // never something silently launched. The verbatim config value is fed
+  // through the SAME rule as the ticket/default values (it wins precedence
+  // via the coalesce, but is still gated on the model): an author-declared
+  // effort for a model that does not advertise it is dropped, never launched.
+  const effort = resolveEffortForProvider(
+    provider,
+    config?.effort ?? ticketOverride.effort ?? null,
+    manifest.defaultEffort,
+    model,
+    catalog,
+  );
+
   const agentName =
     config?.agentName ??
     config?.agent ??
@@ -139,6 +159,10 @@ export function resolveProcessAssignment(
     agentName,
     provider,
     model,
+    // The resolved effort rides the snapshot only when the resolved model
+    // advertises it (`resolveEffortForProvider` refuses the rest); an absent
+    // value is left off so the launch keeps the agent CLI's own default.
+    ...(effort === undefined ? {} : { effort }),
     // The profile REFERENCE rides the snapshot so the host's execution
     // boundary can resolve its body as the process's instructions. Carried
     // separately from `agentName`: `config.agentName` overrides the display

@@ -144,4 +144,49 @@ describe('buildProcessAssignmentViews (handoff §7)', () => {
     const m: Manifest = { ...BASE, defaultModel: 'claude-opus-4-8' };
     expect(row(m, 'uatTester').modelHint).toBe('Default: Opus 4.8');
   });
+
+  it('keys the effort hint off the resolved default model and manifest default effort', () => {
+    const m: Manifest = {
+      ...BASE,
+      agentProvider: 'claude',
+      defaultModel: 'claude-sonnet-5',
+      defaultEffort: 'high',
+    };
+    const v = row(m, 'uatTester');
+    expect(v.effectiveModel).toBe('claude-sonnet-5');
+    expect(v.effortHint).toBe('Default: high');
+  });
+
+  it('renders no effort hint when the resolved model advertises no efforts', () => {
+    const m: Manifest = {
+      ...BASE,
+      defaultModel: 'claude-opus-4-8',
+      defaultEffort: 'xhigh',
+    };
+    const v = row(m, 'uatTester');
+    expect(v.effortHint).toBe('');
+  });
+
+  it('flags an explicit effort the resolved model does not advertise', () => {
+    const m: Manifest = {
+      ...BASE,
+      processes: { uatTester: { provider: 'claude', model: 'claude-sonnet-5', effort: 'xhigh' } },
+    };
+    const v = row(m, 'uatTester');
+    expect(v.state).toBe('incompatible-effort');
+    expect(v.stateTone).toBe('error');
+    expect(v.invalidField).toBe('effort');
+    expect(v.stateMessage).toContain('xhigh');
+    expect(v.stateMessage).toContain('claude-sonnet-5');
+  });
+
+  it('accepts an explicit effort the resolved model advertises', () => {
+    const m: Manifest = {
+      ...BASE,
+      processes: { uatTester: { provider: 'claude', model: 'claude-sonnet-5', effort: 'high' } },
+    };
+    const v = row(m, 'uatTester');
+    expect(v.state).toBe('valid');
+    expect(v.stateMessage).toBe('');
+  });
 });

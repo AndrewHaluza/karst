@@ -845,14 +845,15 @@
   }
   .proc-advanced-link:hover{color:var(--k-link);text-decoration:underline}
   .proc-advanced-link:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
-  .matrix-cols{grid-template-columns:minmax(calc(var(--k-space-8) * 6),1fr) minmax(calc(var(--k-space-8) * 7),1.1fr) minmax(calc(var(--k-space-8) * 6),.9fr) minmax(calc(var(--k-space-8) * 9),1.4fr) auto}
+  .matrix-cols{grid-template-columns:minmax(calc(var(--k-space-8) * 6),1fr) minmax(calc(var(--k-space-8) * 7),1.1fr) minmax(calc(var(--k-space-8) * 16),2.4fr) auto}
   .matrix-row .proc-cell-wide{grid-column:1 / -1}
   .matrix-row .proc-row-wrap{min-width:0}
-  /* The core cell's identity dropdown (UI-R10c): the trigger and every menu
-     option render the provider's icon + name (never a bare text option); the
-     empty choice is the plain "Default provider" text, claiming no identity. */
-  .proc-core-trigger .sel-label{display:flex;align-items:center;gap:var(--k-space-2)}
-  .proc-core-trigger .sel-label,.proc-core-menu .agentbadge{white-space:nowrap}
+  /* The Agent cell hosts the UNIFIED agent identity picker
+     (model/agentPicker.ts) — the same component every other agent-selecting
+     surface mounts. The picker carries its own labels; this cell only frames
+     it and shows the host-computed Default hints beneath. */
+  .proc-agent-cell{min-width:0}
+  .proc-agent-cell .ap{width:100%}
 
   /* Context / overflow menu (handoff §6.7). */
   .ctx-menu{
@@ -2536,34 +2537,6 @@
   });
 
   // ---- General ----
-  function renderModelOptions(provider, savedModel) {
-    const list = modelCatalog[provider] || [];
-    const saved = typeof savedModel === 'string' && savedModel.trim() ? savedModel : '';
-    const opts = [
-      `<option value=""${saved ? '' : ' selected'}>No default (agent picks)</option>`,
-    ];
-    for (const model of list) {
-      opts.push(
-        `<option value="${esc(model.id)}"${model.id === saved ? ' selected' : ''}>`
-        + `${esc(model.label)}</option>`,
-      );
-    }
-    if (saved && !list.some((model) => model.id === saved)) {
-      opts.push(
-        `<option value="${esc(saved)}" selected>Saved model: ${esc(saved)}</option>`,
-      );
-    }
-    return opts.join('');
-  }
-
-  function isModelCompatibleWithProvider(provider, id) {
-    const known = Object.values(modelCompatibility)
-      .flat()
-      .filter((model) => model.id === id);
-    return known.length === 0
-      || known.some((model) => (model.providers || []).includes(provider));
-  }
-
   function renderGeneral() {
     el('f-host').value = draft.host || '';
     el('f-portMin').value = draft.portRange && draft.portRange[0] != null ? draft.portRange[0] : '';
@@ -3495,16 +3468,10 @@
     // now (UI-R24, R26), and a button never fires `change`.
   });
 
-  // The core cell's dropdown commits on PICK, like the native select it
-  // replaced committed on `change`: close the menu, write the provider, and
-  // re-render so the model cell's options follow the new core.
-  document.addEventListener('click', (e) => {
-    const opt = e.target.closest && e.target.closest('[data-proc-core-opt]');
-    if (!opt) return;
-    const shell = opt.closest('.select-shell');
-    if (shell) closeMenuShell(shell, true);
-    updateProcessAssignment(opt.dataset.procCoreOpt, { provider: opt.dataset.value });
-  });
+  // The process-assignment rows' agent core + model + effort are the UNIFIED
+  // agent identity picker now (mountProcessAssignmentPickers → mountAgentPicker),
+  // whose own click handling commits a pick; there is no per-row core dropdown
+  // to listen for.
 
   document.addEventListener('input', (e) => {
     const t = e.target;
@@ -4425,10 +4392,13 @@
     return byKey;
   }
 
-  // Matrix column header (handoff §13): Process | Profile | Core | Model | State.
-  // Rendered above the rows; the rows themselves carry the same 5-column grid.
+  // Matrix column header (handoff §13): Process | Profile | Agent | State.
+  // The Agent column hosts the UNIFIED agent identity picker (agent core +
+  // model + effort/variant, model/agentPicker.ts) — the same component every
+  // other agent-selecting surface mounts, not a bespoke per-row picker.
+  // Rendered above the rows; the rows themselves carry the same 4-column grid.
   const MATRIX_HEAD = '<div class="matrix-head matrix-cols">'
-    + '<div>Process</div><div>Agent profile</div><div>Agent core</div><div>Model</div><div>State</div>'
+    + '<div>Process</div><div>Agent profile</div><div>Agent</div><div>State</div>'
     + '</div>';
 
   function renderProcessAssignments() {
@@ -4436,6 +4406,7 @@
     block.innerHTML = MATRIX_HEAD + PROCESS_KEYS
       .map((key) => renderProcessAssignmentRow(key, (draft.processes && draft.processes[key]) || {}, processAssignmentViews[key]))
       .join('');
+    mountProcessAssignmentPickers();
   }
 
   // Presentation-level grouping (handoff §13): the same closed PROCESS_KEYS
@@ -4446,22 +4417,20 @@
     const v = view || {};
     const enabled = cfg.enabled !== false;
     const agent = cfg.agent || '';
-    const provider = cfg.provider || '';
-    const model = cfg.model || '';
     const label = v.roleLabel || key;
     const msg = v.stateMessage || '';
     const msgId = 'proc-' + key + '-msg';
     // UI-R25: the control a state message is about carries aria-invalid and
-    // points at the message via aria-describedby.
+    // points at the message via aria-describedby. For the unified picker the
+    // container carries both — the picker mounts its controls into it.
     const describedBy = msg ? ` aria-describedby="${esc(msgId)}"` : '';
     const invalid = (field) => (v.invalidField === field ? ' aria-invalid="true"' : '');
     const toggleLabel = enabled
       ? 'Disable this process assignment'
       : 'Enable this process assignment';
-    const knownCore = v.effectiveProvider || null;
     // Agent profile options: the host-supplied agent pool, plus the saved
     // value when it is no longer in the pool — kept visible the same way the
-    // model select keeps an out-of-catalog saved id, with the state message
+    // model picker keeps an out-of-catalog saved id, with the state message
     // marking it unknown.
     let profileOpts = '<option value="">Role default</option>'
       + (v.profileOptions || []).map((name) =>
@@ -4470,39 +4439,12 @@
     if (agent && !(v.profileOptions || []).includes(agent)) {
       profileOpts += `<option value="${esc(agent)}" selected>${esc(agent)}</option>`;
     }
-    // The core cell is the identity component, NOT a text-only native select
-    // (UI-R10c): the trigger shows the current core's icon + name and the menu
-    // renders the same identity per choice. It rides the shared select-shell
-    // machinery (open/close, keyboard nav, outside click), so a pick commits
-    // through the same updateProcessAssignment path the native select used.
-    // The empty choice is the plain "Default provider" — a core is not chosen
-    // yet, so no identity is claimed. Built INSIDE the row renderer so the
-    // standalone test sandbox stays self-contained.
-    function coreDropdownHtml(key, provider, describedBy, invalidAttr) {
-      const badge = provider ? agentBadgeHtml(provider) : 'Default provider';
-      const opts = ['<div class="drop-item' + (provider === '' ? ' active' : '') + '" role="option"'
-        + ' data-value="" data-proc-core-opt="' + key + '" aria-selected="' + (provider === '' ? 'true' : 'false') + '">'
-        + 'Default provider</div>'];
-      for (const p of KNOWN_AGENT_PROVIDERS) {
-        opts.push('<div class="drop-item' + (p === provider ? ' active' : '') + '" role="option"'
-          + ' data-value="' + esc(p) + '" data-proc-core-opt="' + key + '"'
-          + ' aria-selected="' + (p === provider ? 'true' : 'false') + '">'
-          + agentBadgeHtml(p) + '</div>');
-      }
-      return '<div class="select-shell proc-core-shell">'
-        + `<button type="button" class="select-trigger proc-core-trigger" id="proc-${key}-provider"`
-        + ` aria-haspopup="listbox" aria-expanded="false"${describedBy}${invalidAttr}>`
-        + `<span class="sel-label">${badge}</span><span class="chev" aria-hidden="true"></span></button>`
-        + `<div class="dropdown proc-core-menu" role="listbox" aria-labelledby="proc-${key}-provider">${opts.join('')}</div>`
-        + '</div>';
-    }
-    const coreCell = coreDropdownHtml(key, provider, describedBy, invalid('provider'));
-    // An unknown saved core gets NO model picker claim: the model select is
-    // disabled with an empty option list and the state message explains why
-    // (handoff §7 — "Unknown provider: inline error and no model picker claim").
-    const modelOpts = knownCore
-      ? renderModelOptions(knownCore, v.state === 'unknown-provider' ? '' : model)
-      : renderModelOptions('', '');
+    // The Agent cell is a MOUNT POINT for the UNIFIED agent identity picker
+    // (agent core + model + effort/variant) — mountProcessAssignmentPickers()
+    // calls mountAgentPicker into it right after the rows render, exactly like
+    // the General tab and graph profiles mount the same component. The values
+    // live in the draft (draft.processes[key]); only the labels/hints/state
+    // come from the host view.
     // The one matrix group per section, emitted only on its FIRST row.
     const GROUP_OF = { uatTester: 'UAT', review: 'Review', prDescription: 'Ship' };
     const groupHtml = GROUP_OF[key]
@@ -4523,16 +4465,11 @@
         ? `<span class="proc-hint">The profile's instructions ARE this process's prompt (edit them in Agents). No profile = the built-in prompt.</span>`
         : `<span class="proc-hint">Identity only: this process keeps its built-in prompt, so the profile's instructions are not used.</span>`)
       + `</div>`
-      + `<div class="proc-cell proc-core-cell">`
-      + `<label for="proc-${key}-provider">Agent core</label>`
-      + coreCell
-      + (v.coreHint ? `<span class="proc-hint">${esc(v.coreHint)}</span>` : '')
-      + `</div>`
-      + `<div class="proc-cell">`
-      + `<label for="proc-${key}-model">Model</label>`
-      + `<select id="proc-${key}-model" class="proc-select" data-proc-field="model" data-proc-key="${key}"${describedBy}${invalid('model')}`
-      + `${knownCore ? '' : ` disabled title="${esc(msg)}"`}>${modelOpts}</select>`
-      + (v.modelHint ? `<span class="proc-hint">${esc(v.modelHint)}</span>` : '')
+      + `<div class="proc-cell proc-agent-cell">`
+      + `<div class="ap" data-proc-picker="${key}" data-proc-key="${key}"${describedBy}${invalid('provider')}${invalid('model')}${invalid('effort')}></div>`
+      + (v.coreHint || v.modelHint || v.effortHint
+        ? `<span class="proc-hint">${[v.coreHint, v.modelHint, v.effortHint].filter(Boolean).map(esc).join(' · ')}</span>`
+        : '')
       + `</div>`
       + `<div class="proc-cell proc-cell-state">`
       + `<button type="button" class="k-switch" role="switch" aria-checked="${enabled ? 'true' : 'false'}"`
@@ -4547,6 +4484,49 @@
       + `</div>`
       + (msg ? `<div class="proc-msg ${v.stateTone === 'error' ? 'is-error' : 'is-note'}" id="${msgId}" role="alert">${esc(msg)}</div>` : '')
       + `</div>`;
+  }
+
+  // Mount the UNIFIED agent identity picker (agent core + model + effort/variant)
+  // into every process-assignment row. Each row has its own value/onChange: a
+  // pick writes ONLY that process's provider/model/effort in the draft entry,
+  // through the same updateProcessAssignment write path every row control uses.
+  // Idempotent: a re-render on a state push re-mounts the shared component in
+  // place, exactly like the General tab and graph profile pickers.
+  function mountProcessAssignmentPickers() {
+    const pickers = document.querySelectorAll('[data-proc-picker]');
+    for (const container of pickers) {
+      const key = container.dataset.procPicker;
+      const cfg = (draft.processes && draft.processes[key]) || {};
+      const view = processAssignmentViews[key] || {};
+      const apCores = KNOWN_AGENT_PROVIDERS.map((p) => ({
+        id: p,
+        label: AGENT_PROVIDER_LABELS[p] || p,
+        disabled: implementedProviders.indexOf(p) === -1,
+      }));
+      mountAgentPicker(container, {
+        cores: apCores,
+        catalog: modelCatalog,
+        recent: recentModels,
+        value: {
+          core: cfg.provider || '',
+          model: cfg.model || '',
+          effort: cfg.effort || '',
+        },
+        inherit: {
+          core: 'Default provider',
+          model: 'No default (agent picks)',
+          effort: 'No effort (agent picks)',
+        },
+        showEffort: true,
+        onChange: ({ core, model, effort }) => {
+          updateProcessAssignment(key, {
+            provider: core || '',
+            model: model || '',
+            effort: effort || '',
+          });
+        },
+      });
+    }
   }
 
   // The one write path for the rows. It SPREADS the existing processes object
