@@ -26,6 +26,7 @@ import type { ProcessAssignmentSnapshot } from '../../agent/processAssignment.js
 import type { HeadlessOutputChunk } from '../../agent/headlessSpawn.js';
 import type { Severity } from '../../manifest/types.js';
 import { GATE_LANE_HEADLESS_TIMEOUT_MS } from '../../agent/headlessSpawn.js';
+import { defaultGitRunner, type GitRunner } from '../../integrations/git.js';
 import { openProcessRun, finishProcessRun } from '../../store/processRuns.js';
 import { stageAttempt } from '../../store/stages.js';
 import { recordUatFindings, type UatFindingInput } from '../../store/uatFindings.js';
@@ -70,6 +71,19 @@ export interface RunUatTesterOpts {
   attempt?: number;
   /** One signal for the whole run, so Stop reaches a call already in flight. */
   signal?: AbortSignal;
+  /**
+   * Injected git runner for the per-target CHECKOUT VERIFICATION (869ej1nfb):
+   * before a token is spent, the host confirms the worktree is actually on the
+   * ticket's branch. A mismatch means the Tester would read the diff of the
+   * WRONG checkout (or of a stale local branch ref that equals the base) and
+   * report "no changes to test" for a ticket that carries work — so the run
+   * records a deterministic `critical` observation naming the wrong checkout
+   * and SKIPS that target's call instead. Absent → no verification (the lane
+   * behaves exactly as before, and the prompt's own wrong-checkout rule still
+   * guards the agent). An unverifiable checkout (git cannot answer) also
+   * proceeds without verification.
+   */
+  git?: GitRunner;
   /**
    * The hard deadline for EACH headless call, in milliseconds. Absent → the
    * generous gate-lane bound (`GATE_LANE_HEADLESS_TIMEOUT_MS`): the Tester is
@@ -132,6 +146,19 @@ export type TesterRunResult =
   | { kind: 'interrupted' };
 
 export const DEFAULT_MAX_TESTER_OBSERVATIONS = 100;
+
+/**
+ * The branch the checkout at `cwd` is currently on, or null when it cannot be
+ * determined (git refused to answer, or the checkout is empty). A detached
+ * HEAD answers the literal `HEAD` — which never matches a ticket branch, so
+ * it correctly reads as a wrong checkout rather than an unverifiable one.
+ */
+export async function checkoutBranch(git: GitRunner, cwd: string): Promise<string | null> {
+  const r = await git(['rev-parse', '--abbrev-ref', 'HEAD'], cwd);
+  if (r.exitCode !== 0) return null;
+  const branch = r.stdout.trim();
+  return branch === '' ? null : branch;
+}
 
 /** Rank for the cap sort — lower survives a cut first. Closed over the same `Severity` vocabulary `uat_findings` records. */
 const SEVERITY_RANK: Readonly<Record<Severity, number>> = {
@@ -238,6 +265,7 @@ export async function runUatTester(
   const cap = opts.maxObservations ?? DEFAULT_MAX_TESTER_OBSERVATIONS;
   const collected: UatFindingInput[] = [];
   const debug = opts.debug;
+  const git = opts.git ?? defaultGitRunner;
   debug?.(
     `[gate] uat tester ticket ${opts.ticketId}: starting — ${opts.targets.length} target(s), ` +
       `cap ${cap}, assignment ${opts.assignment.agentName ?? '?'}/${opts.assignment.provider}` +
@@ -250,6 +278,33 @@ export async function runUatTester(
         `[gate] uat tester ticket ${opts.ticketId}: asking target ${target.repo} ` +
           `(worktree ${target.worktreePath})`,
       );
+      // 869ej1nfb: verify the checkout BEFORE spending a token. A worktree on
+      // the wrong branch (or a stale local branch ref that equals the base)
+      // reads as "no changes" while the ticket's real work is elsewhere — the
+      // console that reported "nothing to report as a UAT observation" for a
+      // ticket that carried work. When the target's branch is known and the
+      // checkout disagrees, this run records the mismatch as a DETERMINISTIC
+      // critical observation and skips the call: the agent could not have
+      // tested the right changes, and it must not be asked to invent ones.
+      const expectedBranch = target.branch?.trim() ?? '';
+      const observed =
+        expectedBranch !== '' ? await checkoutBranch(git, target.worktreePath) : null;
+      if (observed !== null && observed !== expectedBranch) {
+        const title =
+          `UAT skipped: checkout is on "${observed}", not the ticket branch "${expectedBranch}"` +
+          ' — nothing could be tested';
+        collected.push({ severity: 'critical', repo: target.repo, title });
+        debug?.(
+          `[gate] uat tester ticket ${opts.ticketId}: target ${target.repo} WRONG CHECKOUT ` +
+            `(on ${observed}, expected ${expectedBranch}) — skipped, recorded observation`,
+        );
+        opts.onTargetProgress?.({
+          repo: target.repo,
+          status: 'completed',
+          detail: 'wrong checkout — skipped',
+        });
+        continue;
+      }
       opts.onTargetProgress?.({ repo: target.repo, status: 'active' });
       const result = await opts.adapter.runHeadless({
         prompt: buildTesterPrompt(target, opts.assignment.instructions, opts.gatesPassed),

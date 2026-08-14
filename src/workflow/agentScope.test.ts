@@ -39,6 +39,32 @@ describe('buildScopeBlock', () => {
     }
   });
 
+  // 869ej1nfb: "UAT tester xterm console shows no diffs if they're there". The
+  // agent was dropped into a checkout on `develop` and read `git diff
+  // develop...<branch>` as empty because the local branch ref was stale at the
+  // base — then reported "no changes to exercise". A wrong checkout must be a
+  // HARD STOP (report it, never conclude "nothing to test"), and an empty diff
+  // must not read as proof of no changes.
+  it('treats a wrong checkout as a hard stop when the branch is known', () => {
+    const text = buildScopeBlock('test', { baseRef: 'develop', branch: 'karst/x' }).join('\n');
+    expect(text).toContain('it MUST print `karst/x`');
+    expect(text).toContain('you are in the WRONG checkout');
+    expect(text).toMatch(/do NOT `git diff`, do NOT conclude there are no changes/);
+    expect(text).toContain('Report exactly one observation');
+    expect(text).toContain('severity "critical"');
+    expect(text).toContain('An empty `git diff` is NOT proof of no changes');
+    expect(text).toContain('never output `[]` because a diff came back empty');
+    expect(text).not.toContain('already checked out on the correct branch');
+  });
+
+  it('never claims a wrong checkout or empty-diff guard when no branch is known', () => {
+    const text = buildScopeBlock('review', { baseRef: 'develop' }).join('\n');
+    expect(text).not.toContain('WRONG checkout');
+    expect(text).not.toContain('NOT proof of no changes');
+    expect(text).not.toContain('Report exactly one observation');
+    expect(text).toContain('already checked out on the correct branch');
+  });
+
   it('still falls back to HEAD when no branch is known', () => {
     const text = buildScopeBlock('review', { baseRef: 'develop' }).join('\n');
     expect(text).toContain('...HEAD');

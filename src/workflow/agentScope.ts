@@ -26,6 +26,18 @@
  * answer from any checkout of the repo, and the agent may confirm its
  * location with exactly one `git rev-parse --abbrev-ref HEAD`.
  *
+ * A wrong checkout is a HARD STOP, not a fallback: naming the branch only
+ * helps while the range can be read. When `origin/<branch>` does not exist
+ * (the branch was never pushed) and the agent is NOT on the ticket branch,
+ * the local `<branch>` ref can be a stale snapshot of the base commit, and
+ * `git diff <base>...<branch>` reads EMPTY while the ticket's real changes
+ * sit in a worktree the agent cannot see (869ej1nfb: the Tester dropped into
+ * a checkout on `develop`, resolved both sides of the range to one commit,
+ * and reported "no changes to exercise" for a ticket that carried work). So
+ * the block makes a location mismatch terminal — report it, never conclude
+ * "nothing to test" — and tells the agent that an empty diff is evidence it
+ * could not READ the changes, not that none exist.
+ *
  * So the block STATES those facts and forbids re-deriving them. It is
  * deliberately a prompt-level fix and nothing more: the stage ordering was
  * already gates-then-agent (`stages/uat.ts` runs the Tester only after the
@@ -90,6 +102,7 @@ export function buildScopeBlock(intent: ScopeIntent, opts: ScopeBlockOpts = {}):
   const subject = intent === 'review' ? 'review' : 'test';
   const gates = opts.gatesPassed ?? [];
   const branch = opts.branch?.trim() || null;
+  const baseRef = opts.baseRef?.trim() || null;
   const gateLine =
     gates.length > 0
       ? [
@@ -107,12 +120,22 @@ export function buildScopeBlock(intent: ScopeIntent, opts: ScopeBlockOpts = {}):
   // the agent is.
   const orientation =
     branch !== null
-      ? `- This ticket's branch is \`${branch}\`. Confirm you are in the right checkout with \`git rev-parse --abbrev-ref HEAD\` (it should print that branch); the diff range below names the branch, so it reads the same from any checkout.`
+      ? `- This ticket's branch is \`${branch}\`. Run \`git rev-parse --abbrev-ref HEAD\`: it MUST print \`${branch}\`. If it prints anything else, you are in the WRONG checkout — the ticket's changes cannot be read reliably from here, because the local \`${branch}\` ref may be a stale snapshot of the base. STOP: do NOT \`git diff\`, do NOT conclude there are no changes, do NOT output \`[]\`. Report exactly one observation — severity "critical", title "wrong checkout", detail naming the ticket branch and the branch you are actually on — then output \`[]\`.`
       : `- Your working directory IS this ticket's worktree, already checked out on the correct branch.`;
+  // The empty-diff guard. Only relevant when a branch is named: with a branch,
+  // the fallback range resolves the LOCAL `<branch>` ref when the remote ref is
+  // absent, and a stale local ref that equals the base reads as "no changes"
+  // while the ticket's work lives in the worktree (869ej1nfb). An empty diff is
+  // therefore a resolution FAILURE to investigate, never a clean bill of health.
+  const emptyDiffGuard =
+    branch !== null
+      ? `- An empty \`git diff\` is NOT proof of no changes. Before concluding "no changes to ${subject}", verify: \`git status --porcelain\` is empty, AND the ticket branch's tip differs from the base (\`git rev-parse ${branch}\` vs \`git rev-parse ${baseRef ?? '<base-branch>'}\`). If the range cannot be resolved — remote ref absent, local ref stale, or a checkout that is not on the ticket branch — report the resolution failure as an observation; never output \`[]\` because a diff came back empty.`
+      : null;
   return [
     `Orientation (already established — do NOT re-derive it):`,
     orientation,
     diffLine(subject, opts.baseRef, branch),
+    ...(emptyDiffGuard !== null ? [emptyDiffGuard] : []),
     ...gateLine,
     ``,
     `Scope rules (strict):`,

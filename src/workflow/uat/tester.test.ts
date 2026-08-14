@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { openStore, type Store } from '../../store/db.js';
 import { createTicketFlow } from '../stages/create.js';
 import { transition } from '../machine.js';
@@ -11,6 +11,7 @@ import {
   type TesterTarget,
 } from './tester.js';
 import type { AgentAdapter, HeadlessResult, RunHeadlessOpts } from '../../agent/adapter.js';
+import type { GitRunner } from '../../integrations/git.js';
 import { GATE_LANE_HEADLESS_TIMEOUT_MS } from '../../agent/headlessSpawn.js';
 
 const now = () => '2026-08-08T10:00:00.000Z';
@@ -20,6 +21,18 @@ const TARGETS: readonly TesterTarget[] = [
 ];
 
 const ASSIGNMENT = { agentName: 'UAT Agent', provider: 'claude' as const, model: 'claude-sonnet-5' };
+
+/** A git runner that answers `rev-parse --abbrev-ref HEAD` with `branch`. */
+function fakeGit(branch: string | null, exitCode = 0): GitRunner {
+  return async (args) => ({
+    exitCode: branch === null ? 1 : exitCode,
+    stdout: exitCode === 0 && branch !== null ? `${branch}\n` : '',
+    stderr: '',
+  });
+}
+
+/** A git runner that can never answer (cwd missing, git absent) — verification is skipped. */
+const neverGit: GitRunner = async () => ({ exitCode: 1, stdout: '', stderr: '' });
 
 function fakeAdapter(
   respond: (opts: RunHeadlessOpts) => Promise<HeadlessResult>,
@@ -67,6 +80,7 @@ describe('runUatTester', () => {
     targets: TARGETS,
     assignment: ASSIGNMENT,
     adapter: rawAdapter('[]').adapter,
+    git: neverGit,
     ...over,
   });
 
@@ -216,6 +230,118 @@ describe('runUatTester', () => {
     );
     expect(res.kind).toBe('observed');
     expect(listUatFindings(store, ticketId).map((f) => f.repo).sort()).toEqual(['/api', '/web']);
+  });
+
+  // 869ej1nfb: "UAT tester xterm console shows no diffs if they're there". A
+  // worktree on the wrong branch (or a stale local branch ref at the base)
+  // reads as "no changes" while the ticket's real work is elsewhere. The host
+  // verifies the checkout BEFORE the agent runs: a mismatch records a
+  // DETERMINISTIC critical observation and skips the token spend.
+  it('skips a target whose checkout is not on the ticket branch, recording a deterministic critical observation', async () => {
+    const { adapter, calls } = rawAdapter(
+      JSON.stringify([{ severity: 'high', title: 'login is broken', detail: '' }]),
+    );
+    const res = await runUatTester(
+      store,
+      opts({
+        adapter,
+        git: fakeGit('develop'),
+        targets: [{ repo: '/web', worktreePath: '/wt/web', branch: 'karst/x' }],
+      }),
+      { now },
+    );
+    expect(res).toEqual({ kind: 'observed', findingIds: [1] });
+    // No token was spent on a target the agent could not have tested.
+    expect(calls).toEqual([]);
+    const run = listProcessRuns(store, ticketId)[0]!;
+    expect(run).toMatchObject({ processId: 'tester', resultKind: 'observed' });
+    const findings = listUatFindings(store, ticketId);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toMatchObject({
+      processRunId: run.id,
+      severity: 'critical',
+      repo: '/web',
+      filePath: null,
+      line: null,
+    });
+    expect(findings[0]!.title).toContain('on "develop"');
+    expect(findings[0]!.title).toContain('karst/x');
+  });
+
+  it('runs the target normally when the checkout IS on the ticket branch', async () => {
+    const { adapter, calls } = rawAdapter('[]');
+    const res = await runUatTester(
+      store,
+      opts({
+        adapter,
+        git: fakeGit('karst/x'),
+        targets: [{ repo: '/web', worktreePath: '/wt/web', branch: 'karst/x' }],
+      }),
+      { now },
+    );
+    expect(res).toEqual({ kind: 'observed', findingIds: [] });
+    expect(calls).toHaveLength(1);
+    expect(listUatFindings(store, ticketId)).toEqual([]);
+  });
+
+  it('does not verify a target with no known branch — the call runs as before', async () => {
+    const runHeadless = vi.fn(async () => ({ sessionId: '', verdict: null, raw: '[]' }));
+    await runUatTester(
+      store,
+      opts({ adapter: { ...rawAdapter('[]').adapter, runHeadless }, targets: TARGETS }),
+      { now },
+    );
+    expect(runHeadless).toHaveBeenCalledTimes(1);
+  });
+
+  it('proceeds without verification when git cannot answer — an unreadable checkout is not a mismatch', async () => {
+    const { adapter, calls } = rawAdapter('[]');
+    const res = await runUatTester(
+      store,
+      opts({
+        adapter,
+        git: neverGit,
+        targets: [{ repo: '/web', worktreePath: '/wt/web', branch: 'karst/x' }],
+      }),
+      { now },
+    );
+    expect(res).toEqual({ kind: 'observed', findingIds: [] });
+    expect(calls).toHaveLength(1);
+    expect(listUatFindings(store, ticketId)).toEqual([]);
+  });
+
+  it('treats a detached HEAD as a wrong checkout when the ticket branch is known', async () => {
+    const { adapter, calls } = rawAdapter('[]');
+    const res = await runUatTester(
+      store,
+      opts({
+        adapter,
+        git: fakeGit('HEAD'),
+        targets: [{ repo: '/web', worktreePath: '/wt/web', branch: 'karst/x' }],
+      }),
+      { now },
+    );
+    expect(res).toEqual({ kind: 'observed', findingIds: [1] });
+    expect(calls).toEqual([]);
+    expect(listUatFindings(store, ticketId)[0]).toMatchObject({ severity: 'critical' });
+  });
+
+  it('names a wrong checkout in debug lines and per-target progress', async () => {
+    const lines: string[] = [];
+    const events: { repo: string; status: string; detail?: string }[] = [];
+    await runUatTester(
+      store,
+      opts({
+        adapter: rawAdapter('[]').adapter,
+        git: fakeGit('develop'),
+        targets: [{ repo: '/web', worktreePath: '/wt/web', branch: 'karst/x' }],
+        debug: (m) => lines.push(m),
+        onTargetProgress: (event) => events.push(event),
+      }),
+      { now },
+    );
+    expect(lines.some((l) => l.includes('WRONG CHECKOUT') && l.includes('develop'))).toBe(true);
+    expect(events).toEqual([{ repo: '/web', status: 'completed', detail: 'wrong checkout — skipped' }]);
   });
 
   // Finding 13: the cap used to apply PER target, so a 10-repository run could
