@@ -137,6 +137,7 @@ describe('OpencodeAdapter interactive commands', () => {
     expect(existsSync(pluginPath)).toBe(true);
     const body = readFileSync(pluginPath, 'utf8');
     expect(body).toContain('session.created');
+    expect(body).toContain('session.updated');
     expect(body).toContain('session.idle');
     expect(body).toContain('session.error');
     expect(body).toContain('permission.asked');
@@ -231,9 +232,14 @@ describe('OpencodeAdapter interactive commands', () => {
 /**
  * The generated bridge runs under Bun inside the opencode server, but it is a
  * plain ESM module — so vitest can import the generated file and drive its
- * `event` hook with captured opencode event fixtures. That is the proof the
- * plugin actually posts UsageUpdate: a session.idle carrying the session's
- * cumulative tokens produces one lifecycle POST and one usage POST, and a
+ * `event` hook with REAL opencode event shapes (verified against the installed
+ * 1.18.18 CLI source and a live conversation DB). opencode 1.18.18 emits
+ * `session.idle` with only a `sessionID` — the cumulative token tally rides
+ * `session.updated`'s `properties.info.tokens` (per-step `part.tokens` on
+ * `message.part.updated` is deliberately NOT read: the ledger compares
+ * cumulative tallies, and a step-local count would read as a counter reset).
+ * The tests prove the plugin actually posts UsageUpdate: a session.updated
+ * carrying the session's cumulative tokens produces a usage POST, and a
  * token-less or malformed event produces no usage POST at all.
  */
 describe('generated karst-bridge plugin — UsageUpdate', () => {
@@ -302,23 +308,21 @@ describe('generated karst-bridge plugin — UsageUpdate', () => {
     return mod.KarstBridge({ directory: worktree, worktree });
   }
 
-  it('posts a UsageUpdate with the session’s cumulative tokens on a token-bearing session.idle', async () => {
+  it('posts a UsageUpdate with the session’s cumulative tokens on a token-bearing session.updated', async () => {
     const worktree = makeWorktree();
-    const r = await receiver(2);
+    const r = await receiver(1);
     try {
       const bridge = await loadBridge(worktree, r.endpointUrl);
       await bridge.event({
         event: {
           id: 'evt-1',
-          type: 'session.idle',
+          type: 'session.updated',
           properties: {
             sessionID: 'ses_1',
-            cwd: '/wt',
-            reason: 'step-finish',
-            session: {
+            info: {
               id: 'ses_1',
+              directory: '/wt',
               tokens: {
-                total: 16_318,
                 input: 16_312,
                 output: 6,
                 reasoning: 0,
@@ -335,7 +339,6 @@ describe('generated karst-bridge plugin — UsageUpdate', () => {
         ),
       ]);
       expect(bodies).toEqual([
-        { hook_event_name: 'session.idle', cwd: '/wt', session_id: 'ses_1' },
         {
           hook_event_name: 'UsageUpdate',
           cwd: '/wt',
@@ -346,7 +349,6 @@ describe('generated karst-bridge plugin — UsageUpdate', () => {
             output: 6,
             cache_read: 180,
             cache_write: 40,
-            total: 16_318,
           },
         },
       ]);
@@ -355,7 +357,57 @@ describe('generated karst-bridge plugin — UsageUpdate', () => {
     }
   });
 
-  it('posts only the lifecycle event when the idle event carries no tokens', async () => {
+  it('re-posts only when the cumulative tally advanced — an unchanged session.updated stays silent', async () => {
+    const worktree = makeWorktree();
+    const r = await receiver(2);
+    try {
+      const bridge = await loadBridge(worktree, r.endpointUrl);
+      const updated = (id: string, input: number) => ({
+        event: {
+          id,
+          type: 'session.updated',
+          properties: {
+            sessionID: 'ses_1',
+            info: {
+              id: 'ses_1',
+              directory: '/wt',
+              tokens: { input, output: 6, reasoning: 0, cache: { write: 40, read: 180 } },
+            },
+          },
+        },
+      });
+      await bridge.event(updated('evt-1', 16_312));
+      // Same tally, new event id — the ledger must not see a zero delta, so no
+      // UsageUpdate may be posted for it.
+      await bridge.event(updated('evt-2', 16_312));
+      // Advanced tally — a new UsageUpdate must land.
+      await bridge.event(updated('evt-3', 17_000));
+      const bodies = await Promise.race([
+        r.received,
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('plugin posted no advanced usage')), 2_000),
+        ),
+      ]);
+      expect(bodies).toEqual([
+        {
+          hook_event_name: 'UsageUpdate',
+          cwd: '/wt',
+          session_id: 'ses_1',
+          usage: { event_id: 'evt-1', input: 16_312, output: 6, cache_read: 180, cache_write: 40 },
+        },
+        {
+          hook_event_name: 'UsageUpdate',
+          cwd: '/wt',
+          session_id: 'ses_1',
+          usage: { event_id: 'evt-3', input: 17_000, output: 6, cache_read: 180, cache_write: 40 },
+        },
+      ]);
+    } finally {
+      await r.close();
+    }
+  });
+
+  it('posts no usage when the idle event carries no tokens — session.idle is lifecycle-only', async () => {
     const worktree = makeWorktree();
     const r = await receiver(1);
     try {
@@ -364,7 +416,7 @@ describe('generated karst-bridge plugin — UsageUpdate', () => {
         event: {
           id: 'evt-2',
           type: 'session.idle',
-          properties: { sessionID: 'ses_1', cwd: '/wt', reason: 'manual' },
+          properties: { sessionID: 'ses_1' },
         },
       });
       const bodies = await Promise.race([
@@ -374,14 +426,14 @@ describe('generated karst-bridge plugin — UsageUpdate', () => {
         ),
       ]);
       expect(bodies).toEqual([
-        { hook_event_name: 'session.idle', cwd: '/wt', session_id: 'ses_1' },
+        { hook_event_name: 'session.idle', cwd: worktree, session_id: 'ses_1' },
       ]);
     } finally {
       await r.close();
     }
   });
 
-  it('drops malformed token counts — the lifecycle event still posts, no UsageUpdate', async () => {
+  it('drops malformed token counts — the session.updated lifecycle posts nothing, no UsageUpdate', async () => {
     const worktree = makeWorktree();
     const r = await receiver(1);
     try {
@@ -389,23 +441,23 @@ describe('generated karst-bridge plugin — UsageUpdate', () => {
       await bridge.event({
         event: {
           id: 'evt-3',
-          type: 'session.idle',
+          type: 'session.updated',
           properties: {
             sessionID: 'ses_1',
-            cwd: '/wt',
-            session: { id: 'ses_1', tokens: { input: 'lots', output: 6 } },
+            info: {
+              id: 'ses_1',
+              directory: '/wt',
+              tokens: { input: 'lots', output: 6 },
+            },
           },
         },
       });
-      const bodies = await Promise.race([
+      await expect(Promise.race([
         r.received,
         new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('plugin posted no lifecycle payload')), 2_000),
+          setTimeout(() => reject(new Error('no posts within 150ms')), 150),
         ),
-      ]);
-      expect(bodies).toEqual([
-        { hook_event_name: 'session.idle', cwd: '/wt', session_id: 'ses_1' },
-      ]);
+      ])).rejects.toThrow('no posts within 150ms');
     } finally {
       await r.close();
     }
