@@ -511,6 +511,12 @@ export async function runUat(
         signal: opts.signal,
         warn: deps.warn,
         debug: opts.debug,
+        // The gates that actually RAN and passed (a null exit code is "no such
+        // script", not a pass). Named in the prompt so the Tester does not
+        // re-run the deterministic half the stage just finished.
+        gatesPassed: entries
+          .filter((entry) => entry.result.exitCode === 0)
+          .map((entry) => entry.result.name),
         onOutput: opts.onTesterOutput,
         onTargetProgress: opts.onTesterTargetProgress,
       },

@@ -86,7 +86,10 @@ import {
   type DriveProcessBundle,
   type ProcessAssignmentSnapshot,
 } from './agent/processAssignment.js';
-import type { ProcessRole } from './manifest/validate/processAssignments.js';
+import {
+  PROMPT_BEARING_ROLES,
+  type ProcessRole,
+} from './manifest/validate/processAssignments.js';
 import { runProcess } from './workflow/gates/run.js';
 import {
   recordSessionLaunchIntent,
@@ -1128,12 +1131,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * drivers' nullable callbacks — never collapsed to `undefined` by an
    * assertion at this seam.
    */
-  // The roles whose headless prompts consume `assignment.instructions` (UAT
-  // Tester, Review findings, Ticket analysis). A process-assignment PROFILE's
-  // body is resolved into `instructions` only for these — the Fix roles are
-  // interactive sessions and pr-description has a fixed prompt, so their
-  // profile body is never read and must not be resolved/carried.
-  const PROMPT_BEARING_ROLES = new Set<ProcessRole>(['uat-tester', 'review', 'ticket-analysis']);
+  // The roles whose headless prompts consume `assignment.instructions` — the
+  // vocabulary itself lives beside the role definitions
+  // (`manifest/validate/processAssignments.ts`), because the Settings row
+  // renders a different explanation per group and must not carry its own copy.
+  const promptBearingRoles = new Set<ProcessRole>(PROMPT_BEARING_ROLES);
   const processFor = (
     ticketId: number,
     role: ProcessRole,
@@ -1149,35 +1151,32 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       modelCatalog,
     );
     if (assignment === null) return null;
-    // The process-assignment PROFILE (the Settings agent-pool pick) is the
-    // process's own custom prompt: for the prompt-BEARING roles, resolve the
-    // assigned profile's body and use it as the process's `instructions`,
-    // replacing the built-in role block. An explicit `processes.<key>.instructions`
-    // (author-declared) WINS over the profile body; a missing / unreadable
-    // profile degrades to the built-in prompt, exactly like the launch path's
-    // solo-agent fallback. The Fix roles are interactive sessions and
-    // pr-description has a fixed prompt — their profile body is deliberately
-    // NOT resolved (a debug line would overclaim, and the value would ride the
-    // session assignment with no consumer).
+    // The process-assignment PROFILE (the Settings agent-pool pick) IS the
+    // process's prompt: for the prompt-BEARING roles, resolve the assigned
+    // profile's body and use it as the process's `instructions`, replacing the
+    // built-in role block. It is the ONLY source — the manifest-declared
+    // `processes.<key>.instructions` was retired precisely because a second
+    // source could silently outrank the profile the user picked in Settings.
+    // A missing / unreadable profile degrades to the built-in prompt, exactly
+    // like the launch path's solo-agent fallback. The Fix roles are interactive
+    // sessions and pr-description has a fixed prompt — their profile body is
+    // deliberately NOT resolved (a debug line would overclaim, and the value
+    // would ride the session assignment with no consumer).
     // `soloAgentBody` is only CALLED here (at execution time), long after the
     // helper is initialized, so the later `const` declaration is safe.
     const instructions =
-      assignment.instructions !== undefined
-        ? assignment.instructions
-        : PROMPT_BEARING_ROLES.has(role) && assignment.agent
-          ? (soloAgentBody(assignment.agent) ?? undefined)
-          : undefined;
-    if (instructions !== undefined && instructions !== assignment.instructions) {
+      promptBearingRoles.has(role) && assignment.agent
+        ? (soloAgentBody(assignment.agent) ?? undefined)
+        : undefined;
+    if (instructions !== undefined) {
       logger.debug(
         `[process] ${role} for ticket #${ticketId} runs through Settings profile ` +
-          `"${assignment.agent}" (instructions overlaid)`,
+          `"${assignment.agent}" (profile body is the prompt)`,
       );
     }
     return {
       assignment:
-        instructions === undefined || instructions === assignment.instructions
-          ? assignment
-          : { ...assignment, instructions },
+        instructions === undefined ? assignment : { ...assignment, instructions },
       // The process assignment is the execution identity. In particular, a
       // configured UAT/Review/Fix role may deliberately differ from the
       // ticket's interactive provider, so resolving through the ticket here
@@ -1213,7 +1212,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * Task 3: the configured ticket-analysis process for the ticket form
    * (nullable). The analyzer runs through the SETTINGS Ticket-analysis
    * assignment: `processFor` resolves the assigned profile's body as the
-   * analysis `instructions` (or the author-declared inline `instructions`),
+   * analysis `instructions`,
    * so changing the Settings → Agents → Inside process assignments →
    * Ticket analysis profile changes what the form's Improve / auto-improve
    * asks — the selected agent IS the difference. The ticket's own

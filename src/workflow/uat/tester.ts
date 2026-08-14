@@ -30,6 +30,7 @@ import { openProcessRun, finishProcessRun } from '../../store/processRuns.js';
 import { stageAttempt } from '../../store/stages.js';
 import { recordUatFindings, type UatFindingInput } from '../../store/uatFindings.js';
 import { parseFindings, type WarnFn } from '../review/findings.js';
+import { buildScopeBlock } from '../agentScope.js';
 import { collapseDiagnostic } from '../../model/diagnosticText.js';
 import { nowIso } from '../../model/time.js';
 
@@ -104,6 +105,13 @@ export interface RunUatTesterOpts {
    * stays bounded per response).
    */
   maxObservations?: number;
+  /**
+   * Names of the deterministic gates the stage ALREADY ran and passed. Carried
+   * into the prompt so the Tester spends its budget on behavior the gates
+   * cannot check instead of re-running the suite that just went green. Absent
+   * → the prompt names no gates (never a fabricated list).
+   */
+  gatesPassed?: readonly string[];
 }
 
 /**
@@ -145,7 +153,11 @@ export interface TesterDeps {
  * lines with the author's own — the target context and the strict output
  * rules always remain.
  */
-export function buildTesterPrompt(target: TesterTarget, instructions?: string): string {
+export function buildTesterPrompt(
+  target: TesterTarget,
+  instructions?: string,
+  gatesPassed?: readonly string[],
+): string {
   const baseClause = target.baseRef
     ? `against its base branch, \`${target.baseRef}\` (compare against \`origin/${target.baseRef}\` when available, otherwise the local \`${target.baseRef}\`).`
     : `against its base branch.`;
@@ -170,6 +182,9 @@ export function buildTesterPrompt(target: TesterTarget, instructions?: string): 
         ];
   return [
     ...strategy,
+    // Never replaced by `instructions` — see `workflow/agentScope.ts`.
+    ...buildScopeBlock('test', { baseRef: target.baseRef, gatesPassed }),
+    ``,
     `Output rules (strict):`,
     `- Output ONLY a JSON array, nothing else: no preamble, no markdown fence, no commentary.`,
     `- Each element: {"severity": "critical"|"high"|"medium"|"low"|"info", "title": string, "detail": string, "file"?: string, "line"?: number}.`,
@@ -230,7 +245,7 @@ export async function runUatTester(
       );
       opts.onTargetProgress?.({ repo: target.repo, status: 'active' });
       const result = await opts.adapter.runHeadless({
-        prompt: buildTesterPrompt(target, opts.assignment.instructions),
+        prompt: buildTesterPrompt(target, opts.assignment.instructions, opts.gatesPassed),
         cwd: target.worktreePath,
         model: opts.assignment.model,
         signal: opts.signal,

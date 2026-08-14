@@ -35,6 +35,25 @@ const INERT_AGENT_KEYS = ['role', 'command', 'promptPath'] as const;
 
 const INACTIVE = 'declared but not yet active — karst parses these and does not read them yet';
 
+/**
+ * RETIRED keys: they had a consumer once and no longer do. A different notice
+ * from `INACTIVE` on purpose — "not yet" and "not any more" send an author to
+ * opposite conclusions, and this one has a replacement to name.
+ *
+ * `processes.<key>.instructions` was the inline prompt override for `uatTester`
+ * and `review`. A process's prompt is now exactly one thing: the body of the
+ * agent PROFILE assigned to it (`processes.<key>.agent`, edited in Settings →
+ * Agents). Two ways to say the same thing meant the Settings profile a user
+ * picked could be silently outranked by a line in the yml they had forgotten,
+ * with no surface saying which one was in force.
+ */
+const RETIRED_PROCESS_KEYS = ['instructions'] as const;
+
+const RETIRED_INSTRUCTIONS =
+  'retired — a process is prompted by the body of the agent profile assigned to it ' +
+  '(`processes.<key>.agent`, edited in Settings → Agents); this value is no longer read ' +
+  'and is dropped the next time Settings saves';
+
 function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
@@ -82,6 +101,28 @@ function agentsNotice(raw: Record<string, unknown>): string | undefined {
   return `agents.*.${keys} — ${INACTIVE}${required}`;
 }
 
+/**
+ * The retired `processes.<key>.instructions`, aggregated across every process
+ * that still declares one — a file that set it on both prompt-bearing roles
+ * must not emit the same sentence twice.
+ */
+function processesNotice(raw: Record<string, unknown>): string | undefined {
+  const processes = raw.processes;
+  if (!isObject(processes)) return undefined;
+
+  const found = new Set<string>();
+  for (const config of Object.values(processes)) {
+    if (!isObject(config)) continue;
+    for (const key of RETIRED_PROCESS_KEYS) {
+      if (config[key] !== undefined) found.add(key);
+    }
+  }
+  if (found.size === 0) return undefined;
+
+  const keys = RETIRED_PROCESS_KEYS.filter((k) => found.has(k)).join(', ');
+  return `processes.*.${keys} — ${RETIRED_INSTRUCTIONS}`;
+}
+
 /** Notice lines for every inert key this manifest actually declares. */
 export function detectInertKeys(raw: unknown): string[] {
   if (!isObject(raw)) return [];
@@ -90,5 +131,7 @@ export function detectInertKeys(raw: unknown): string[] {
   if (uat) notices.push(uat);
   const agents = agentsNotice(raw);
   if (agents) notices.push(agents);
+  const processes = processesNotice(raw);
+  if (processes) notices.push(processes);
   return notices;
 }

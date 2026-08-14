@@ -697,6 +697,17 @@ describe('buildFindingsPrompt', () => {
     expect(prompt).toContain('JSON array');
   });
 
+  it('carries the scope block, with the exact diff range, in both prompt shapes', () => {
+    for (const prompt of [
+      buildFindingsPrompt('/web', 'develop'),
+      buildFindingsPrompt('/web', 'develop', 'Focus on error handling.'),
+    ]) {
+      expect(prompt).toContain('Do NOT run repository-wide reconnaissance');
+      expect(prompt).toContain('git diff origin/develop...HEAD');
+      expect(prompt).toContain('orchestration tool that launched you');
+    }
+  });
+
   it('treats blank instructions as absent', () => {
     const prompt = buildFindingsPrompt('/web', 'develop', '  ');
     expect(prompt).toContain('Review the uncommitted and committed changes');

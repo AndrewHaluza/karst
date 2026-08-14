@@ -260,20 +260,20 @@ describe('resolveProcessAssignment', () => {
     });
   });
 
-  it('resolves instructions verbatim from the process config', () => {
-    const manifest: Manifest = {
+  // The retired inline override: the resolver must never produce an
+  // `instructions` value of its own, whatever a legacy config carries. The
+  // profile body is resolved at the host's execution boundary instead, so a
+  // second source here would be able to outrank the Settings pick invisibly.
+  it('never resolves instructions itself, even from a legacy inline value', () => {
+    const manifest = {
       ...BASE,
       processes: {
-        uatTester: { instructions: 'Focus on API endpoints.\nIgnore UI.' },
+        uatTester: { instructions: 'Focus on API endpoints.' },
         review: { instructions: 'Check for regression patterns.' },
       },
-    };
-    expect(resolveProcessAssignment(manifest, 'uat-tester')).toMatchObject({
-      instructions: 'Focus on API endpoints.\nIgnore UI.',
-    });
-    expect(resolveProcessAssignment(manifest, 'review')?.instructions).toBe(
-      'Check for regression patterns.',
-    );
+    } as unknown as Manifest;
+    expect('instructions' in (resolveProcessAssignment(manifest, 'uat-tester') ?? {})).toBe(false);
+    expect(resolveProcessAssignment(manifest, 'review')?.instructions).toBeUndefined();
   });
 
   it('carries no instructions key when none are configured', () => {

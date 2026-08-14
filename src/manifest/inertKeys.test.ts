@@ -49,6 +49,32 @@ describe('detectInertKeys', () => {
     expect(agentLine).not.toContain('promptPath');
   });
 
+  // The retired inline prompt override: the file still LOADS, but the author
+  // is told the value is dead and what replaced it — a key that silently does
+  // nothing is indistinguishable from one that is broken.
+  it('names a retired processes.*.instructions once, naming the profile that replaced it', () => {
+    const notices = detectInertKeys({
+      processes: {
+        uatTester: { agent: 'tester', instructions: 'Focus on checkout.' },
+        review: { instructions: 'Security first.' },
+        uatFix: { provider: 'codex' },
+      },
+    });
+    const line = notices.find((n) => n.startsWith('processes.'));
+    expect(line).toBeDefined();
+    expect(line).toContain('processes.*.instructions');
+    expect(line).toContain('retired');
+    expect(line).toContain('processes.<key>.agent');
+    // Aggregated: two declaring processes still produce ONE line.
+    expect(notices.filter((n) => n.startsWith('processes.'))).toHaveLength(1);
+  });
+
+  it('says nothing about processes when no retired key is declared', () => {
+    expect(
+      detectInertKeys({ processes: { uatTester: { agent: 'tester', provider: 'codex' } } }),
+    ).toEqual([]);
+  });
+
   it('tolerates a malformed manifest without throwing', () => {
     expect(() => detectInertKeys(null)).not.toThrow();
     expect(() => detectInertKeys('nonsense')).not.toThrow();

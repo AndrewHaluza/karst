@@ -2203,7 +2203,9 @@ processes:
           agentName: 'My UAT Agent',
           provider: 'codex',
           model: 'gpt-5.6-sol',
-          instructions: 'Focus on API behavior.',
+          // The fixture declares a legacy `instructions:` — retired, so it is
+          // dropped rather than typed (the load still succeeds; `inertKeys.ts`
+          // reports it).
           enabled: false,
         },
         review: { provider: 'antigravity', enabled: true },

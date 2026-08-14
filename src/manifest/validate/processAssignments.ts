@@ -61,6 +61,30 @@ export const PROCESS_KEY_BY_ROLE: Readonly<Record<ProcessRole, ProcessKey>> = {
   'ticket-analysis': 'ticketAnalysis',
 };
 
+/**
+ * The roles whose PROMPT is the assigned profile's body. The other three take
+ * the profile's identity only (provider/model/display name) and keep their own
+ * fixed prompt: the Fix roles are interactive sessions and pr-description's
+ * prompt is fixed.
+ *
+ * It lives HERE, beside the role vocabulary, because three surfaces have to
+ * agree on it and two of them cannot import the third: the host's execution
+ * boundary (`processFor`) resolves a body only for these, the Settings row
+ * tells the user which behavior a row has, and `webview.test.ts` pins the
+ * webview's mirror against this array (UI-R34). A second literal in any of
+ * them is a drift that shows a user a promise the host does not keep.
+ */
+export const PROMPT_BEARING_ROLES: readonly ProcessRole[] = [
+  'uat-tester',
+  'review',
+  'ticket-analysis',
+];
+
+/** `PROMPT_BEARING_ROLES` as manifest keys — what the Settings rows are keyed by. */
+export const PROMPT_BEARING_PROCESS_KEYS: readonly ProcessKey[] = PROMPT_BEARING_ROLES.map(
+  (role) => PROCESS_KEY_BY_ROLE[role],
+);
+
 const AGENT_PROVIDERS: readonly AgentProvider[] = ['claude', 'codex', 'antigravity', 'opencode'];
 
 function isObject(v: unknown): v is Record<string, unknown> {
@@ -101,8 +125,11 @@ function validateProcessAssignment(
   const model = optionalString(raw.model, `${where}.model`);
   if (model !== undefined) config.model = model;
 
-  const instructions = optionalString(raw.instructions, `${where}.instructions`);
-  if (instructions !== undefined) config.instructions = instructions;
+  // `instructions` is RETIRED and deliberately not parsed: the assigned
+  // profile's body is the process's prompt. An existing file that still
+  // declares one still LOADS (it is reported by `inertKeys.ts`, never an
+  // error) — the value is simply dropped, so nothing downstream can read a
+  // second, competing source of the same prompt.
 
   if (raw.enabled !== undefined && typeof raw.enabled !== 'boolean') {
     throw new ManifestError(`${where}.enabled must be a boolean`);

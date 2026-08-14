@@ -21,6 +21,7 @@ import { stageAttempt } from '../../store/stages.js';
 import { collapseDiagnostic } from '../../model/diagnosticText.js';
 import { nowIso } from '../../model/time.js';
 import { parseFindings, type WarnFn } from './findings.js';
+import { buildScopeBlock } from '../agentScope.js';
 import {
   gatesOutcomeBeforeFindings,
   DEFAULT_REVIEW_FINDINGS,
@@ -160,6 +161,10 @@ export function buildFindingsPrompt(
         ];
   return [
     ...strategy,
+    // Never replaced by `instructions`: an author overriding the strategy is
+    // choosing WHAT to look for, not licensing a repo-wide sweep before it.
+    ...buildScopeBlock('review', { baseRef }),
+    ``,
     `Output rules (strict):`,
     `- Output ONLY a JSON array, nothing else: no preamble, no markdown fence, no commentary.`,
     `- Each element: {"severity": "critical"|"high"|"medium"|"low"|"info", "title": string, "detail": string, "file"?: string, "line"?: number}.`,

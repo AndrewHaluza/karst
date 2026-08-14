@@ -657,8 +657,8 @@ processes:
           agentName: 'My UAT Agent',
           provider: 'codex',
           model: 'gpt-5.6-sol',
-          // A `|` block scalar keeps its single trailing newline (js-yaml clip).
-          instructions: 'Focus on API endpoint behavior.\nTest edge cases around authentication.\n',
+          // The retired `instructions:` in the fixture is dropped at load, so
+          // the write cannot carry it back out either — one prompt source.
           enabled: true,
         },
       });

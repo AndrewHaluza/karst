@@ -23,7 +23,10 @@ import {
   review as buildReview,
 } from '../../manifest/fixtures.js';
 import { gateSummary as hostGateSummary } from './gateDraft.js';
-import { PROCESS_KEYS } from '../../manifest/validate/processAssignments.js';
+import {
+  PROCESS_KEYS,
+  PROMPT_BEARING_PROCESS_KEYS,
+} from '../../manifest/validate/processAssignments.js';
 import { approachDelta } from '../../approaches/withBuiltInApproaches.js';
 import { BUILT_IN_APPROACHES } from '../../approaches/builtIn.js';
 import {
@@ -2345,23 +2348,26 @@ describe('settings agents tab — process assignments', () => {
     );
   });
 
-  it('mirrors the host instructions-consumer vocabulary exactly', () => {
-    expect(HTML).toContain(`const PROCESS_KEYS_WITH_INSTRUCTIONS = ['uatTester', 'review'];`);
+  it('mirrors the host prompt-bearing vocabulary exactly', () => {
+    expect(HTML).toContain(
+      `const PROMPT_BEARING_PROCESS_KEYS = [${PROMPT_BEARING_PROCESS_KEYS.map((k) => `'${k}'`).join(', ')}];`,
+    );
   });
 
-  it('renders the instructions textarea only for uatTester and review rows', () => {
-    expect(HTML).toContain('data-proc-field="instructions"');
+  // The inline instructions field is RETIRED: a process's prompt is the
+  // assigned profile's body, so a second editor here would be a way to
+  // silently outrank the profile the row itself is showing.
+  it('offers no instructions field on any row, and says which rows the profile prompts', () => {
+    expect(HTML).not.toContain('data-proc-field="instructions"');
     const render = loadProcessRowRenderer();
-    const tester = render(
-      'uatTester',
-      { instructions: 'Focus on API endpoints.' },
-      view('uatTester', 'UAT Tester'),
-    );
-    expect(tester).toContain('data-proc-field="instructions"');
-    expect(tester).toContain('Focus on API endpoints.');
-    expect(tester).toContain('Blank = the built-in prompt');
+    const tester = render('uatTester', {}, view('uatTester', 'UAT Tester'));
+    expect(tester).not.toContain('data-proc-field="instructions"');
+    expect(tester).toContain("The profile's instructions ARE this process's prompt");
+    // A row that takes identity only says so, rather than leaving a picked
+    // profile looking equally effective everywhere.
     const fix = render('uatFix', {}, view('uatFix', 'UAT Fix'));
-    expect(fix).not.toContain('data-proc-field="instructions"');
+    expect(fix).toContain('Identity only');
+    expect(fix).not.toContain("ARE this process's prompt");
   });
 
   it('writes and clears the instructions field through updateProcessAssignment', () => {
@@ -2470,7 +2476,7 @@ describe('settings agents tab — process assignments', () => {
         claude: 'Claude Code', codex: 'Codex', antigravity: 'Antigravity CLI', opencode: 'OpenCode',
       };
       function agentBadgeHtml(p) { return '<span class="agentbadge"><span class="agentname">' + (AGENT_PROVIDER_LABELS[p] || p || '') + '</span></span>'; }
-      const PROCESS_KEYS_WITH_INSTRUCTIONS = ['uatTester', 'review'];
+      const PROMPT_BEARING_PROCESS_KEYS = ['uatTester', 'review', 'ticketAnalysis'];
       ${functionSource('renderModelOptions')}
       ${functionSource('renderProcessAssignmentRow')}
       renderProcessAssignmentRow
@@ -3027,7 +3033,7 @@ describe('settings v7 matrix groups', () => {
         claude: 'Claude Code', codex: 'Codex', antigravity: 'Antigravity CLI', opencode: 'OpenCode',
       };
       function agentBadgeHtml(p) { return '<span class="agentbadge"><span class="agentname">' + (AGENT_PROVIDER_LABELS[p] || p || '') + '</span></span>'; }
-      const PROCESS_KEYS_WITH_INSTRUCTIONS = ['uatTester', 'review'];
+      const PROMPT_BEARING_PROCESS_KEYS = ['uatTester', 'review', 'ticketAnalysis'];
       ${functionSource('renderModelOptions')}
       ${functionSource('renderProcessAssignmentRow')}
       renderProcessAssignmentRow(${JSON.stringify(key)}, {}, {})
@@ -3056,7 +3062,7 @@ describe('settings v7 matrix groups', () => {
         claude: 'Claude Code', codex: 'Codex', antigravity: 'Antigravity CLI', opencode: 'OpenCode',
       };
       function agentBadgeHtml(p) { return '<span class="agentbadge"><span class="agentname">' + (AGENT_PROVIDER_LABELS[p] || p || '') + '</span></span>'; }
-      const PROCESS_KEYS_WITH_INSTRUCTIONS = ['uatTester', 'review'];
+      const PROMPT_BEARING_PROCESS_KEYS = ['uatTester', 'review', 'ticketAnalysis'];
       ${functionSource('renderModelOptions')}
       ${functionSource('renderProcessAssignmentRow')}
       renderProcessAssignmentRow('review', { agentName: 'My Review' }, {})
