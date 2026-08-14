@@ -122,9 +122,13 @@ describe('railNeeds', () => {
     ).toEqual({ detail: '1 repo to merge', action: 'Merge', cta: { kind: 'merge-panel' } });
   });
 
-  it('words a conflict as a conflict, never as a failure', () => {
+  it('acts on the SINGLE conflicted repo, handing it to a resolve-conflicts session', () => {
     // Ship has no failed edge: a conflict must never read as something a
-    // retry could clear, because only a human rebase can.
+    // retry could clear, because only a human rebase can. And a single
+    // conflicted repo is one the rail can ACT on — the resolve-conflicts
+    // session is per-repo and the host re-derives the brief from the store, so
+    // this click opens (or nudges) the very session the PR panel's own Resolve
+    // button would. Navigating there was the gap this ticket closes.
     expect(
       railNeeds(
         input({
@@ -137,11 +141,14 @@ describe('railNeeds', () => {
     ).toEqual({
       detail: '1 repo no longer merges cleanly',
       action: 'Resolve',
-      cta: { kind: 'resolve' },
+      cta: { kind: 'resolve-conflicts', repo: 'a' },
     });
   });
 
-  it('agrees the verb with the repo count', () => {
+  it('points a MULTI-repo conflict at the PR panel, never resolving blindly', () => {
+    // Resolve is per-repo (one conflict brief, one session): a track-level
+    // button cannot choose which of several conflicted repos to hand off, so
+    // the rail navigates to the panel that owns one Resolve control per repo.
     expect(
       railNeeds(
         input({
@@ -150,8 +157,12 @@ describe('railNeeds', () => {
           shipAwaitingMerge: true,
           mergeGate: { kind: 'conflicted', repos: ['a', 'b'], pending: [] },
         }),
-      )?.detail,
-    ).toBe('2 repos no longer merge cleanly');
+      ),
+    ).toEqual({
+      detail: '2 repos no longer merge cleanly',
+      action: 'Resolve',
+      cta: { kind: 'resolve-panel' },
+    });
   });
 
   it('has nothing to say once everything has landed', () => {

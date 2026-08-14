@@ -167,6 +167,8 @@ export interface DashboardState {
   sourceRef: string | null;
   /** External board URL for the ticket, or null (manual/unfetched → no link). */
   ticketUrl: string | null;
+  /** Provider-native priority label (e.g. 'urgent'); null when not exposed. */
+  priority: string | null;
   /**
    * The user's authored instruction (the `description` column) — the prompt a
    * manual ticket was created from. Previewed in the ticket-data drawer when
@@ -636,6 +638,7 @@ export function buildDashboardState(
     provider: ticketing?.provider ?? null,
     sourceRef: ticket.sourceRef,
     ticketUrl: providerTicketUrl(ticketing?.provider, ticket.sourceRef),
+    priority: ticket.priority,
     description: ticket.description,
     brief: ticket.brief,
     rail: buildStageRail(stepper, ticket.stages, {

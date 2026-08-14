@@ -57,6 +57,11 @@
   .dhead h1.ticketTitle{min-width:0;flex:1;margin:0 var(--k-space-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--k-text-xl)}
   .ticketKey{min-height:var(--k-hit-min);padding:0 var(--k-space-3);border:0;border-radius:var(--k-radius-sm);background:transparent;color:var(--k-text-dim);font-family:var(--k-font-mono);font-size:var(--k-text-xs);cursor:pointer}
   .ticketKey:hover{background:var(--k-surface-hover);color:var(--k-text)}
+  /* The header's provider-native priority chip. A READ-only provider fact, so
+     it is a plain span on the shared `.k-chip` pill shape (UI-R08), never a
+     control. Local color only: the priority label is provider-authored copy,
+     not a workflow state, so it gets no semantic feedback token. */
+  .prio{font-family:var(--k-font-mono);font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.4px;padding:var(--k-space-1) var(--k-space-4);border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-pill);color:var(--k-text-dim);flex:none}
   .ticketParent{display:block;margin-top:var(--k-space-3);color:var(--k-text-dim);font-size:var(--k-text-xs);font-family:var(--k-font-mono)}
   .headerActions{display:flex;align-items:center;gap:var(--k-space-2);flex:none;margin-left:auto}
   .agentWrap,.menuWrap{position:relative}
@@ -449,14 +454,15 @@
 
   /* The needs-you control. NOT `.act` — that was the retired activity strip's
      class (the inside ledger now). The host decides what it DOES (`s.needs.cta`):
-     for a whole-ticket confirm ship and a single mergeable merge it is a REAL
-     actor posting the same message the header's Confirm ship button and the PR
-     panel's Merge button post — the host's confirmation still guards the
-     irreversible step, and the pending lifecycle is the same `shipRequestId` /
-     `mergeRequests` the owning controls use. Every other shape (a multi-repo
-     wait, a conflict, an open session) is NAVIGATIONAL: it scrolls the control
-     that owns the action into view and focuses it, so the rail never becomes a
-     second actor it cannot back with a confirmation. */
+     for a whole-ticket confirm ship, a single mergeable merge and a single
+     conflicted repo it is a REAL actor posting the same message the header's
+     Confirm ship button, the PR panel's Merge button and its Resolve conflicts
+     button post — the host's confirmation still guards the irreversible merge
+     step, and resolve-conflicts re-derives the brief from the store before
+     handing it to a session. Every other shape (a multi-repo wait, a
+     multi-repo conflict, an open session) is NAVIGATIONAL: it scrolls the
+     control that owns the action into view and focuses it, so the rail never
+     becomes a second actor it cannot back with a confirmation. */
   .track .seg .go{font:inherit;font-size:var(--k-text-2xs);border:var(--k-border-w) solid currentColor;
     border-radius:var(--k-radius-sm);background:transparent;color:inherit;
     padding:var(--k-space-1) var(--k-space-4);cursor:pointer;flex:none;margin-left:auto}
@@ -937,12 +943,14 @@
   #inside .recovery-pill.exhausted{border-color:var(--p-failed);color:var(--p-failed)}
   #inside .recovery-history{margin-bottom:var(--p-s2);border:var(--k-border-w) solid var(--p-border);
     border-radius:var(--p-r1);overflow:hidden;background:var(--p-surface)}
-  #inside .recovery-round{display:grid;grid-template-columns:56px minmax(0,1fr) auto;gap:var(--p-s2);
+  #inside .recovery-round{display:grid;grid-template-columns:56px minmax(0,1fr) auto auto;gap:var(--p-s2);
     align-items:center;min-height:27px;padding:0 var(--p-s2);border-bottom:var(--k-border-w) solid var(--p-border)}
   #inside .recovery-round:last-child{border-bottom:0}
   #inside .recovery-num{color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs)}
   #inside .recovery-cause{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
     color:var(--p-text);font-size:var(--p-sm)}
+  #inside .recovery-timing{display:flex;align-items:center;gap:var(--p-s2);color:var(--p-muted2);
+    font-family:var(--p-mono);font-size:var(--p-xs);white-space:nowrap}
   #inside .recovery-result{display:inline-flex;align-items:center;justify-content:flex-end;gap:var(--p-s2);
     color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs);white-space:nowrap}
   #inside .recovery-result.run{color:var(--p-running)}
@@ -1131,6 +1139,7 @@
     #inside .session-foot{flex-wrap:wrap}
     #inside .session-foot .session-rule{margin-left:0;width:100%}
     #inside .recovery-round{grid-template-columns:48px minmax(0,1fr)}
+    #inside .recovery-timing{display:none}
     #inside .recovery-result{grid-column:2}
     /* handoff §10: a truncated path hides where the fix goes, so the unbounded
        cells WRAP here instead of ellipsising — and `overflow-wrap:anywhere`,
@@ -1569,6 +1578,7 @@
   <div class="ticketIdentity">
     <span id="providerMark" class="provicon" aria-hidden="true"></span>
     <button id="keyBtn" type="button" class="ticketKey" data-act="copy-ticket-key" data-copy title="Copy ticket key" aria-label="Copy ticket key"></button>
+    <span id="priorityChip" class="prio" hidden></span>
     <a id="boardLink" class="k-iconbtn" href="#" data-act="open-ticket-link" data-url="${esc(state.ticketUrl)}" hidden
       aria-label="Open ticket in provider" title="Open ticket in provider">
       <svg class="k-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 6h-6a2 2 0 0 0 -2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-6"/><path d="M11 13l9 -9"/><path d="M15 4h5v5"/></svg>
@@ -1857,11 +1867,19 @@
   // reload. `termLoading` is the in-between state between the request and the
   // host's GUARANTEED answer (the stage-log message is always sent, ok or
   // error — UI-R13), which is also the terminal outcome.
+  // `termProcess` narrows the surface to ONE gate-lane AI process's console
+  // (tester/review) when a process console is open; null → the stage console.
   let termView = null;
+  let termProcess = null;
   let termLoading = false;
   let term = null;
   let termFit = null;
   let termResize = null;
+  // Live chunks that arrived while the agent console was still loading (before
+  // the guaranteed agent-log answer rendered the persisted tail). Flushed into
+  // the terminal right after that answer, so a chunk racing the answer is never
+  // silently dropped from the open view.
+  let termPending = '';
   // The console action is webview-LOCAL: it opens the terminal surface and
   // posts `stage-log-request`; it never reaches the host, so it has no
   // `routeAction` case. The literal is declared ONCE here and interpolated at
@@ -1970,14 +1988,19 @@
   }
 
   // The needs-you control, rendered from the host's `cta` verdict — never from
-  // the action LABEL, which is prose. Two of the kinds ACT, posting the same
-  // message as the header's Confirm ship / the PR panel's Merge (the host's
-  // confirmation still guards the irreversible step, and the shared pending
-  // markers — `shipRequestId` / `mergeRequests` — make the click report and
-  // settle exactly like the owning controls'). The rest NAVIGATE to the control
-  // that owns the action. A real actor carries `data-act` so the generic
-  // delegated handler gives it the full pending lifecycle; a navigational one
-  // carries `data-go` naming the kind for gotoAction().
+  // the action LABEL, which is prose. Three of the kinds ACT, posting the same
+  // message as the header's Confirm ship, the PR panel's Merge, and its Resolve
+  // conflicts button (the host's confirmation still guards the irreversible
+  // merge, and resolve-conflicts re-derives the brief from the store before
+  // handing it to a session). The shared pending markers — `shipRequestId` /
+  // `mergeRequests` — make the ship and merge clicks report and settle exactly
+  // like the owning controls'; resolve-conflicts is NOT one of the
+  // state-push-settled long-runners, so it rides the generic delegated path
+  // like the PR panel's own button (pending on click, dropped on a repeat,
+  // watchdog-armed, settled by the host's `action-result`). The rest NAVIGATE
+  // to the control that owns the action. A real actor carries `data-act` so
+  // the generic delegated handler gives it the full pending lifecycle; a
+  // navigational one carries `data-go` naming the kind for gotoAction().
   function goButton(needs) {
     const label = esc((needs && needs.action) || 'Open');
     const cta = needs && needs.cta;
@@ -1988,6 +2011,9 @@
     if (cta && cta.kind === 'merge') {
       const busy = !!mergeRequests[cta.repo];
       return `<button type="button" class="go" data-act="merge-pr" data-repo="${esc(cta.repo)}"${busy ? ' aria-busy="true" disabled' : ''}>${label}</button>`;
+    }
+    if (cta && cta.kind === 'resolve-conflicts') {
+      return `<button type="button" class="go" data-act="resolve-conflicts" data-repo="${esc(cta.repo)}">${label}</button>`;
     }
     const kind = cta ? cta.kind : 'open-session';
     return `<button type="button" class="go" data-goto data-go="${kind}">${label}</button>`;
@@ -2067,16 +2093,17 @@
   }
 
   // The NAVIGATIONAL needs-you cases. The acting kinds (ship-confirm, a single
-  // mergeable merge) never reach here — they carry `data-act` and post through
-  // the generic handler. What is left is exactly what the rail must not act on
-  // itself: a multi-repo wait (no single repo to pick, each merge carries its
-  // own host confirmation), a per-repo conflict session, and an open session.
-  // It scrolls the control that owns the action into view and focuses it; it
+  // mergeable merge, a single conflicted repo) never reach here — they carry
+  // `data-act` and post through the generic handler. What is left is exactly
+  // what the rail must not act on itself: a multi-repo wait or multi-repo
+  // conflict (no single repo to pick — each merge/Resolve control is per-repo
+  // and the merge carries its own host confirmation), and an open session. It
+  // scrolls the control that owns the action into view and focuses it; it
   // posts no host message and duplicates no actor.
   function gotoAction(kind) {
-    // merge-panel and resolve live on the PR panel, where each repo has its own
-    // Merge / Resolve control. An open session is the agent header — the
-    // dashboard's own session control (it names the live session and its
+    // merge-panel and resolve-panel live on the PR panel, where each repo has
+    // its own Merge / Resolve control. An open session is the agent header —
+    // the dashboard's own session control (it names the live session and its
     // state).
     const target = kind === 'open-session'
       ? document.querySelector('#agentButton')
@@ -2437,8 +2464,11 @@
     return `<div class="recovery-history">${ev.rows.map((r) => `<div class="recovery-round">`
       + `<span class="recovery-num">${esc(r.label)}</span>`
       + `<span class="recovery-cause">${esc(r.detail || '')}</span>`
+      + `<span class="recovery-timing">`
+      + (r.time ? `<span title="started ${esc(r.time)}">${esc(r.time)}</span>` : '')
+      + (r.duration ? `<span class="ev-dur"${r.durationExact ? ` title="${esc(r.durationExact)}"` : ''}>${esc(r.duration)}</span>` : '')
+      + `</span>`
       + `<span class="recovery-result ${esc(r.status || '')}">`
-      + (r.duration ? `<span class="ev-dur">${esc(r.duration)}</span>` : '')
       + `<span class="glyph ${esc(r.status || 'note')}" aria-label="${esc(statusWord(r.status || 'note'))}"></span>`
       + `</span>`
       + `</div>`).join('')}</div>`;
@@ -2555,11 +2585,16 @@
     // click handler is untouched. The gates row is the one row whose summary
     // IS the gate run, so this button shows the gates' test log (uat) or the
     // review gates' log (review) depending on which stage view is on screen.
-    const consoleBtn = consoleStage && p.id === 'gates'
+    // A gate-lane AI process (tester/review) offers the same console from its
+    // OWN description area when the host flags `p.console` (a run happened and
+    // a tail exists) — that button carries `data-console-proc` so the click
+    // posts an agent-log-request instead of a stage-log-request.
+    const consoleBtn = consoleStage && (p.id === 'gates' || p.console)
       ? `<button type="button" class="k-iconbtn ib t-open" data-act="${CONSOLE_ACT}"`
         + ` data-console="${esc(consoleStage)}"`
-        + ` aria-label="View this stage's console output in the dashboard"`
-        + ` title="View this stage's console output in the dashboard">${svgIcon('terminal-2')}</button>`
+        + (p.id !== 'gates' ? ` data-console-proc="${esc(p.id)}"` : '')
+        + ` aria-label="View this ${p.id === 'gates' ? "stage's" : "process's"} console output in the dashboard"`
+        + ` title="View this ${p.id === 'gates' ? "stage's" : "process's"} console output in the dashboard">${svgIcon('terminal-2')}</button>`
       : '';
     const detail = `<span class="op-detail ${esc(p.status)}${consoleBtn ? ' detail-console' : ''}">`
       + (p.detail ? `<span class="op-detail-text">${esc(p.detail)}</span>` : '')
@@ -3196,6 +3231,13 @@
     keyBtn.title = 'Copy ticket key';
     const mark = el('providerMark');
     if (mark) mark.innerHTML = providerIconHtml(state.provider);
+    const prio = el('priorityChip');
+    if (prio) {
+      const value = (state.priority || '').trim();
+      prio.hidden = !value;
+      prio.textContent = value;
+      prio.setAttribute('aria-label', value ? `Priority: ${value}` : '');
+    }
     const prevBtn = el('ticketDataBtn');
     if (prevBtn) prevBtn.hidden = false;
     const link = el('boardLink');
@@ -3746,7 +3788,7 @@
     }
     box.classList.remove('hidden');
     document.body.classList.add('term-nav');
-    const title = STAGE_TITLE[termView] || termView;
+    const title = termProcess ? (termProcess === 'tester' ? 'Tester' : 'Review') : (STAGE_TITLE[termView] || termView);
     box.innerHTML = `<div class="thead"><span class="ttitle">Console · ${esc(title)}</span>`
       + `<span class="sp"><button type="button" class="k-btn k-btn--ghost k-btn--sm" data-term="close"`
       + ` title="Close the console view">Close</button></span></div>`
@@ -3756,14 +3798,18 @@
   }
 
   // A real <button> Console entry (UI-R09) posting the closed-vocabulary
-  // stage-log-request; the host's stage-log answer is the outcome (UI-R13).
-  function openTerminal(stage) {
-    if (termView === stage && term) return;
+  // stage-log-request (or, for a process console, agent-log-request); the
+  // host's answer is the outcome (UI-R13). `processId` (optional) narrows the
+  // surface to ONE gate-lane AI process's console; absent → the stage console.
+  function openTerminal(stage, processId) {
+    if (termView === stage && termProcess === (processId || null) && term) return;
     if (termView) closeTerminal();
     termView = stage;
+    termProcess = processId || null;
     termLoading = true;
     renderTermView();
-    post({ type: 'stage-log-request', stage });
+    if (processId) post({ type: 'agent-log-request', processId });
+    else post({ type: 'stage-log-request', stage });
   }
 
   function closeTerminal() {
@@ -3771,7 +3817,9 @@
     termFit = null;
     if (termResize) { termResize.disconnect(); termResize = null; }
     termView = null;
+    termProcess = null;
     termLoading = false;
+    termPending = '';
     renderTermView();
   }
 
@@ -4246,15 +4294,17 @@
     }
 
     // The terminal console view: open it and post the closed-vocabulary
-    // stage-log-request. No requestId — the host answers with the `stage-log`
-    // message itself (ok or error), which is the terminal outcome (UI-R13).
+    // stage-log-request (or agent-log-request for a process console). No
+    // requestId — the host answers with the `stage-log`/`agent-log` message
+    // itself (ok or error), which is the terminal outcome (UI-R13).
     // Reads `data-console`, never `data-stage` (the rail's select listener
     // matches any `[data-stage]` ancestor via closest() and must not re-point
-    // the strip for a console click).
+    // the strip for a console click). A `data-console-proc` narrows the
+    // surface to ONE gate-lane AI process's console.
     if (act === CONSOLE_ACT) {
       const stage = btn.dataset.console;
       if (!stage) return;
-      openTerminal(stage);
+      openTerminal(stage, btn.dataset.consoleProc);
       return;
     }
 
@@ -4418,7 +4468,7 @@
     // answer for a view that has since closed (or moved to another stage) is
     // dropped, not rendered.
     if (msg.type === 'stage-log') {
-      if (!termView || termView !== msg.stage) return;
+      if (!termView || termView !== msg.stage || termProcess) return;
       termLoading = false;
       const status = el('tstatus');
       if (msg.result.kind === 'ok') {
@@ -4429,6 +4479,41 @@
         const host = el('termHost');
         if (host) host.innerHTML = `<div class="blurb">${esc(msg.result.message)}</div>`;
       }
+      return;
+    }
+    // The AGENT console answer (the UAT Tester / Review findings lane): same
+    // contract as stage-log, matched against the open PROCESS — a stale answer
+    // for a console that closed or switched processes is dropped.
+    if (msg.type === 'agent-log') {
+      if (!termView || !termProcess || termProcess !== msg.processId) return;
+      termLoading = false;
+      const status = el('tstatus');
+      if (msg.result.kind === 'ok') {
+        if (status) status.textContent = msg.result.truncated ? 'Console output truncated' : '';
+        if (term) term.write(msg.result.content);
+      } else {
+        if (status) status.textContent = '';
+        const host = el('termHost');
+        if (host) host.innerHTML = `<div class="blurb">${esc(msg.result.message)}</div>`;
+      }
+      // Flush chunks that raced the persisted tail (buffered above), so the
+      // open console never silently skips live output that arrived while the
+      // answer was in flight.
+      if (termPending && term) {
+        term.write(termPending);
+        termPending = '';
+      }
+      return;
+    }
+    // A live chunk of the open agent console's output: appended to the terminal
+    // ONLY while that process's console is the open surface. The text is
+    // already sanitized and bounded host-side. While the initial tail is still
+    // loading (termLoading), the chunk is buffered — writing before the answer
+    // would interleave live text beneath the persisted tail it will render.
+    if (msg.type === 'agent-output') {
+      if (!termView || !termProcess || termProcess !== msg.processId) return;
+      if (termLoading) { termPending += msg.text; return; }
+      if (term) term.write(msg.text);
       return;
     }
     // The window's terminal binding. Host-owned: it is one preference shared by

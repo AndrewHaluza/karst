@@ -231,6 +231,25 @@ describe('buildTicketFormActions', () => {
     expect(getTicket(store, t.id).brief).toContain('Login modal');
   });
 
+  it('fetchSource persists the provider-native priority from the brief', async () => {
+    const t = createTicket(store, { key: 'P-2', title: 't' });
+    deps.provider = fakeProvider({
+      fetchTicket: vi.fn(async () => ({ ...BRIEF, priority: 'urgent' })),
+    });
+    const actions = buildTicketFormActions(deps)(mkCtx(t.id));
+    await actions.fetchSource('CU-9');
+    expect(getTicket(store, t.id).priority).toBe('urgent');
+  });
+
+  it('fetchSource clears a stale priority when the provider stops reporting one', async () => {
+    const t = createTicket(store, { key: 'P-3', title: 't' });
+    updateTicketFields(store, t.id, { priority: 'urgent' });
+    // This brief carries no priority — the provider no longer exposes it.
+    const actions = buildTicketFormActions(deps)(mkCtx(t.id));
+    await actions.fetchSource('CU-9');
+    expect(getTicket(store, t.id).priority).toBeNull();
+  });
+
   /** Persist a brief with the given attachments and return the stored text. */
   async function briefWithAttachments(
     attachments: ContextBrief['attachments'],

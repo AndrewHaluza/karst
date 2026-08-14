@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process';
+import { StringDecoder } from 'node:string_decoder';
 import { BoundedOutput } from '../runtime/boundedOutput.js';
 import { killTree } from '../runtime/processTree.js';
 
@@ -24,6 +25,12 @@ export interface HeadlessSpawnResult {
   exitCode: number;
 }
 
+/** One decoded chunk of a headless CLI's output, as it streams in. */
+export interface HeadlessOutputChunk {
+  stream: 'stdout' | 'stderr';
+  text: string;
+}
+
 export interface HeadlessSpawnOptions {
   signal?: AbortSignal;
   timeoutMs?: number;
@@ -43,6 +50,16 @@ export interface HeadlessSpawnOptions {
    * registration can never outlive its process.
    */
   onSpawned?: (pid: number) => (() => void) | void;
+  /**
+   * Live-output hook: called with each decoded chunk of stdout/stderr as it
+   * arrives, BEFORE the run settles. The text is UTF-8-decoded per stream
+   * (a multi-byte character split across two data events is never mangled),
+   * but it is otherwise raw — the SAME untrusted CLI prose `stdout`/`stderr`
+   * deliver at the end, so a caller that surfaces it (the tester/findings
+   * console tail) must bound and sanitize it itself. Absent → no live chunks;
+   * the caller still gets the full output on settle, exactly as before.
+   */
+  onOutput?: (chunk: HeadlessOutputChunk) => void;
 }
 
 function abortError(): Error {
@@ -180,8 +197,23 @@ export function spawnHeadlessCli(
     }
     options.signal?.addEventListener('abort', onAbort, { once: true });
 
-    child.stdout?.on('data', (chunk: Buffer) => stdout.append(chunk));
-    child.stderr?.on('data', (chunk: Buffer) => stderr.append(chunk));
+    const onOutput = options.onOutput;
+    // Per-stream decoders: the two streams interleave, so a shared decoder
+    // would mix their partial UTF-8 sequences. `StringDecoder` holds back a
+    // trailing partial byte until the next chunk completes it, so a multi-byte
+    // character split across two data events is never rendered as replacement
+    // chars in the live tail.
+    const stdoutDecoder = new StringDecoder('utf8');
+    const stderrDecoder = new StringDecoder('utf8');
+
+    child.stdout?.on('data', (chunk: Buffer) => {
+      stdout.append(chunk);
+      if (onOutput) onOutput({ stream: 'stdout', text: stdoutDecoder.write(chunk) });
+    });
+    child.stderr?.on('data', (chunk: Buffer) => {
+      stderr.append(chunk);
+      if (onOutput) onOutput({ stream: 'stderr', text: stderrDecoder.write(chunk) });
+    });
 
     child.once('error', (err: Error) => {
       if (settled) return;

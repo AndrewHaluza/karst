@@ -430,6 +430,13 @@ describe('buildDashboardState', () => {
     expect(state.ticketUrl).toBe('https://app.clickup.com/t/abc123');
   });
 
+  it('carries the provider-native priority label when one was fetched', () => {
+    const t = createTicket(store, { key: 'CU-2', title: 't' });
+    expect(buildDashboardState(store, t.id).priority).toBeNull();
+    updateTicketFields(store, t.id, { priority: 'urgent' });
+    expect(buildDashboardState(store, t.id).priority).toBe('urgent');
+  });
+
   it('has no ticket URL for a manual provider or a missing source ref', () => {
     const manual = createTicket(store, { key: 'M-1', title: 't' });
     updateTicketFields(store, manual.id, { sourceRef: 'abc123' });
@@ -595,7 +602,50 @@ describe('buildDashboardState', () => {
     expect(ship.needs).toEqual({
       detail: '1 repo no longer merges cleanly',
       action: 'Resolve',
-      cta: { kind: 'resolve' },
+      cta: { kind: 'resolve-conflicts', repo: 'api' },
+    });
+  });
+
+  it('points a multi-repo conflict at the PR panel, never resolving blindly', () => {
+    // Resolve is per-repo (one conflict brief, one session): a track-level
+    // button cannot choose which of several conflicted repos to hand off, so
+    // the rail navigates to the panel that owns one Resolve control per repo.
+    const t = createTicket(store, { key: 'N-11', title: 't' });
+    setStage(store, t.id, 'ship', {
+      status: 'passed',
+      endedAt: '2026-08-01T10:00:00.000Z',
+      blockedKind: 'awaiting-merge',
+      blockedReason: 'blocked: pull requests for api, web are not merged yet',
+      blockedAt: '2026-08-01T10:00:00.000Z',
+    });
+    store.db
+      .prepare("UPDATE tickets SET stage_current = 'ship', agent_state = 'idle' WHERE id = ?")
+      .run(t.id);
+    const ins = store.db.prepare(
+      'INSERT INTO prs (ticket_id, repo, number, url, status) VALUES (?, ?, ?, ?, ?)',
+    );
+    ins.run(t.id, 'api', 12, 'https://github.com/o/r/pull/12', 'open');
+    ins.run(t.id, 'web', 13, 'https://github.com/o/r/pull/13', 'open');
+    for (const repo of ['api', 'web']) {
+      setMergeCheck(store, {
+        ticketId: t.id,
+        repo,
+        state: 'conflicted',
+        files: ['src/a.ts'],
+        reason: null,
+        headSha: 'h',
+        baseSha: 'b',
+        baseRef: 'main',
+        checkedAt: '2026-08-01T10:00:00.000Z',
+      });
+    }
+
+    const state = buildDashboardState(store, t.id);
+    const ship = state.rail.main.find((s) => s.cell.stageKey === 'ship')!;
+    expect(ship.needs).toEqual({
+      detail: '2 repos no longer merge cleanly',
+      action: 'Resolve',
+      cta: { kind: 'resolve-panel' },
     });
   });
 
@@ -918,10 +968,26 @@ describe('buildDashboardState — send back to implement', () => {
     expect(buildDashboardState(store, id).sendBack).toEqual({ available: true, stage: 'ship' });
   });
 
-  it('withholds the action while the stage is running (in-flight)', () => {
+  it('withholds the action while a run is genuinely in flight', () => {
     const id = at('uat');
     setStage(store, id, 'uat', { status: 'running', startedAt: '2026-08-09T10:00:00.000Z' });
+    openStageRun(store, {
+      ticketId: id,
+      stageKey: 'uat',
+      attempt: 0,
+      runAt: '2026-08-09T10:00:00.000Z',
+      pid: 4242,
+      startedAt: '2026-08-09T10:00:00.000Z',
+    });
     expect(buildDashboardState(store, id).sendBack).toEqual({ available: false, reason: 'in-flight' });
+  });
+
+  it('offers the action on an entered-but-not-driven gate — no active run', () => {
+    // The machine enters every gate stage `running` (entryPatch); with no open
+    // stage_runs row the stage is settled, never in flight.
+    const id = at('uat');
+    setStage(store, id, 'uat', { status: 'running', startedAt: '2026-08-09T10:00:00.000Z' });
+    expect(buildDashboardState(store, id).sendBack).toEqual({ available: true, stage: 'uat' });
   });
 
   it('offers the action on a parked (blocked) gate — settled, not running', () => {

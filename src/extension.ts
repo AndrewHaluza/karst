@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { readFileSync, mkdirSync, existsSync, writeFileSync, statSync } from 'node:fs';
+import { readFileSync, mkdirSync, existsSync, writeFileSync, statSync, appendFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import {
@@ -21,6 +21,7 @@ import { FACETS, facetCounts } from './ui/sidebar/facets.js';
 import { openTicketFromList } from './ui/sidebar/navigation.js';
 import { DashboardManager, type DashboardPanel, type PanelHost } from './ui/dashboard/panel.js';
 import type { DashboardActions } from './ui/dashboard/messages.js';
+import type { AgentProcessId } from './ui/dashboard/messages.js';
 import { makeWorktreeActions } from './ui/dashboard/worktreeActions.js';
 import { loadWorktreeStats } from './ui/dashboard/worktreeStats.js';
 import { buildGateOptionsLoader } from './ui/dashboard/gateOptions.js';
@@ -311,6 +312,7 @@ import type {
   GraphCommandConfig,
 } from './manifest/types.js';
 import { instrumentAdapter } from './agent/instrumentedAdapter.js';
+import { AgentConsole } from './agent/agentConsole.js';
 import { recordTokenUsage, listRecentlyUsedModels } from './store/tokenUsage.js';
 import { UsagePanelManager, type UsagePanel, type UsagePanelHost } from './ui/usage/panel.js';
 import {
@@ -2428,6 +2430,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // through the injected reader and posts the answer to this ticket's
         // panel (the postInsideProgress pattern).
         (stage) => dashboard.requestStageLog(ticketId, stage),
+        // The process id arrives from the webview; the manager resolves the
+        // persisted console tail and posts the answer to this ticket's panel.
+        (processId) => dashboard.requestAgentLog(ticketId, processId),
         (message) => logger.debug(message),
       ),
     () => worktreePathContext(currentManifest(), logger.warn, logger.info),
@@ -2583,6 +2588,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       readStageLog(localStore, ticketId, stage, (path) => readFileSync(path, 'utf8'), (m) =>
         logger.debug(m),
       ),
+    // The terminal view's AGENT console source: the persisted tail file the
+    // gate-lane AI process wrote during its run (the webview names only a
+    // process id). Reads through the same bounded AgentConsole the driver
+    // streamed into, so a post-run console shows exactly what ran.
+    (ticketId, processId) => agentConsole.readLog(ticketId, processId),
   );
 
   // A karst.yml edit made OUTSIDE karst (hand edit in the editor, a teammate's
@@ -2766,6 +2776,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const artifactDirFor = (ticketId: number): string =>
     join(context.globalStorageUri.fsPath, 'artifacts', String(ticketId));
 
+  // The gate-lane AI processes' console sink (Task 13): the UAT Tester and the
+  // Review findings lane stream their headless CLI output here — bounded and
+  // sanitized, the retained tail persisted to the ticket's artifact dir (so it
+  // survives a host restart and is readable after the run), and each chunk
+  // pushed to an OPEN dashboard panel's terminal view in real time. `dashboard`
+  // is declared above; `readFileSync`/`appendFileSync`/`mkdirSync` are the
+  // host's fs bindings (this file is the vscode seam).
+  const agentConsole = new AgentConsole({
+    dirFor: artifactDirFor,
+    readFile: (path) => readFileSync(path, 'utf8'),
+    appendFile: (path, text) => appendFileSync(path, text),
+    mkdir: (path) => mkdirSync(path, { recursive: true }),
+    onOutput: (ticketId, processId, text) =>
+      dashboard.postAgentOutput(ticketId, processId, text),
+    debug: (message) => logger.debug(message),
+  });
+
   // Auto-run the deterministic uat/review gates for a ticket after the
   // impl/fix marker (or a prior gate) leaves it at a gate boundary. Single-flight
   // via `driver.begin`/`end`; never authors a transition itself — `runUat`/
@@ -2794,6 +2821,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           // snapshot right after, which supersedes it. No-op when the panel
           // is closed; validated again at the panel boundary.
           onInsideProgress: (event) => dashboard.postInsideProgress(ticketId, event),
+          // Live output from the gate-lane AI processes (the UAT Tester and the
+          // Review findings lane): bounded + sanitized by the AgentConsole, the
+          // retained tail persisted to the ticket's artifact dir, and each
+          // chunk pushed to an OPEN panel's terminal view in real time. The
+          // console tail is readable after the run through the same sink.
+          onAgentOutput: (id, processId, chunk) => agentConsole.append(id, processId, chunk),
           shouldContinue: () => driver.shouldContinue(ticketId),
           // Stop, as a signal rather than a between-stages poll: `requestStop`
           // aborts this, and the abort reaches the gate child already running.
@@ -6601,6 +6634,8 @@ function makeDashboardActions(
   // the ticket panel: the stage key arrives from the webview, the read stays
   // host-side.
   requestStageLog: (stage: GateStage) => void,
+  // Resolve one gate-lane AI process's console tail via the dashboard manager.
+  requestAgentLog: (processId: AgentProcessId) => void,
   // Verbose decision-point logging for the recovery action (`sendBackToImplement`),
   // gated inside the logger so it is a no-op unless the manifest's debug flag is on.
   debug: (message: string) => void,
@@ -6830,6 +6865,10 @@ function makeDashboardActions(
     // owns the ticket panel, so the read (store + fs, bounded) happens here and
     // the `stage-log` answer is posted to the panel that asked.
     requestStageLog: (stage) => requestStageLog(stage),
+    // An `agent-log-request` for the terminal view of a gate-lane AI process
+    // (the UAT Tester / Review findings lane): the manager owns the panel, and
+    // the read of the persisted tail happens host-side.
+    requestAgentLog: (processId) => requestAgentLog(processId),
     // Open one artifact resource in a normal VS Code editor — the deliberate
     // escape from the semantic artifact UI into the file model (spec §12). The
     // webview names ONLY the artifact id and a resource index, so this re-reads

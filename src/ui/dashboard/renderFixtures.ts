@@ -392,6 +392,7 @@ function reviewView(n: RenderRepoCount): InsideStageView {
     title: 'Review',
     dot: 'fail',
     clock: '09:20:11 · 3m 02s · attempt 2',
+    console: true,
     processes: [
       {
         id: 'gates',
@@ -422,6 +423,9 @@ function reviewView(n: RenderRepoCount): InsideStageView {
         duration: '2m 10s',
         execution: { ...CODEX_EXECUTION },
         tokens: { ...MEASURED_TOKENS },
+        // A recorded run → the console tail exists (Task 13): the webview
+        // renders the review process's console button from this host flag.
+        console: true,
         evidence: { kind: 'findings', rows: boundedRows(findings, FINDINGS_LIMIT), blocking: 2 },
       },
     ],
@@ -608,12 +612,15 @@ function uatView(n: RenderRepoCount): InsideStageView {
         evidence: {
           kind: 'recovery',
           rows: [
-            { status: 'pass', label: 'round 1', detail: 'gate test failed — max 3' },
-            { status: 'fail', label: 'round 2', detail: 'gate test failed again — max 3' },
+            { status: 'pass', label: 'round 1', detail: 'gate test failed — max 3', time: '11:44:12 PM', duration: '1m 15s', durationExact: '75.000s' },
+            { status: 'fail', label: 'round 2', detail: 'gate test failed again — max 3', time: '11:45:27 PM', duration: '48.2s', durationExact: '48.200s' },
             {
               status: 'fail',
               label: 'round 3',
               detail: 'gate test failed again — max 3 — no fix attempts left',
+              time: '11:46:15 PM',
+              duration: '31.9s',
+              durationExact: '31.900s',
             },
           ],
         },
@@ -634,6 +641,9 @@ function uatView(n: RenderRepoCount): InsideStageView {
         duration: '38.4s',
         execution: { ...CODEX_EXECUTION },
         tokens: { ...ESTIMATED_TOKENS },
+        // A recorded run → the console tail exists (Task 13): the webview
+        // renders the tester process's console button from this host flag.
+        console: true,
         evidence: { kind: 'findings', rows: observations, blocking: 0 },
       },
     ],
@@ -872,6 +882,7 @@ export function renderStateFor(stage: InsideStageKey): DashboardState {
     provider: null,
     sourceRef: null,
     ticketUrl: null,
+    priority: null,
     description: null,
     brief: null,
     rail: { main: [] },

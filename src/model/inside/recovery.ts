@@ -34,14 +34,21 @@ const RECOVERY_ROWS_LIMIT = 8;
 /** Cap on a round's trigger detail — untrusted gate/verifier prose. */
 const TRIGGER_DETAIL_MAX = 200;
 
-/** How one round's state reads. `interrupted` is a crash, not a verdict. */
+/**
+ * How one round's state reads. `interrupted` is a crash, not a verdict.
+ *
+ * `revalidating` is ACTIVE work, not a wait: the `stage fix pass` marker moved
+ * the ticket back to the gate stage and the driver is re-running its gates
+ * right now (the copy below even says "revalidation is running"). It renders
+ * the same spinner as `fixing` — an amber pause ("needs you", UI-R28b) beside
+ * running gates is the exact contradiction this mapping must never draw.
+ */
 function roundStatus(round: RecoveryRound): InsideStatus {
   switch (round.status) {
     case 'pending':
     case 'fixing':
-      return 'run';
     case 'revalidating':
-      return 'wait';
+      return 'run';
     case 'passed':
       return 'pass';
     case 'interrupted':
@@ -114,6 +121,13 @@ export function recoveryProcess(
         status: roundStatus(round),
         label: `round ${round.round}`,
         detail: roundDetail(round),
+        ...(round.startedAt
+          ? {
+              time: formatTime(round.startedAt),
+              duration: formatDuration(round.startedAt, round.endedAt ?? now),
+              durationExact: formatExactDuration(round.startedAt, round.endedAt ?? now),
+            }
+          : {}),
       };
     }),
     RECOVERY_ROWS_LIMIT,
