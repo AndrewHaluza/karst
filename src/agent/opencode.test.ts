@@ -127,6 +127,7 @@ describe('OpencodeAdapter interactive commands', () => {
     const pluginPath = join(worktree, '.opencode', 'plugins', 'karst-bridge.js');
     expect(existsSync(pluginPath)).toBe(true);
     const body = readFileSync(pluginPath, 'utf8');
+    expect(body).toContain('session.created');
     expect(body).toContain('session.idle');
     expect(body).toContain('session.error');
     expect(body).toContain('permission.asked');
@@ -532,6 +533,49 @@ describe('generated karst-bridge plugin — UsageUpdate', () => {
           setTimeout(() => reject(new Error('no posts within 150ms')), 150),
         ),
       ])).rejects.toThrow('no posts within 150ms');
+    } finally {
+      await r.close();
+    }
+  });
+
+  // opencode's launch-intent handshake is confirmed ONLY by a SessionStart
+  // carrying the launch id (dispatch.ts), and the plugin is opencode's entire
+  // hook channel — so the session's creation event MUST normalize to
+  // SessionStart, exactly as agy's conversation watch synthesizes one. Without
+  // it, a closed-session fix launch (no live session to nudge) records its
+  // intent and then waits forever: the round stays `pending`, never `fixing`,
+  // and the stranded-fix sweep parks the stage "no fix execution in flight"
+  // while the agent is actually working (REVIEW-2ND-ROUND-FIX-STUCK-WITH).
+  it('posts SessionStart for session.created — the launch-intent confirmation opencode would otherwise never send', async () => {
+    const worktree = makeWorktree();
+    const r = await receiver(1);
+    try {
+      const bridge = await loadBridge(worktree, r.endpointUrl);
+      await bridge.event({
+        event: {
+          id: 'evt-created',
+          type: 'session.created',
+          properties: {
+            info: {
+              id: 'ses_new',
+              projectID: 'proj-1',
+              directory: '/wt',
+              title: 'fix',
+              version: '1',
+              time: { created: 1, updated: 1 },
+            },
+          },
+        },
+      });
+      const bodies = await Promise.race([
+        r.received,
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('plugin posted no SessionStart')), 2_000),
+        ),
+      ]);
+      expect(bodies).toEqual([
+        { hook_event_name: 'SessionStart', cwd: '/wt', session_id: 'ses_new' },
+      ]);
     } finally {
       await r.close();
     }

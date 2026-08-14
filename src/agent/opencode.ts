@@ -282,13 +282,17 @@ function stringOf(value) {
   return typeof value === 'string' && value.length > 0 ? value : '';
 }
 
-// opencode event payloads vary; extract defensively.
+// opencode event payloads vary; extract defensively. session.created carries
+// the session under info (a Session object) rather than a flat sessionID —
+// the launch-intent handshake needs its id, so both shapes resolve here.
 function extractSessionId(input) {
   if (!input) return '';
   const direct = stringOf(input.sessionID);
   if (direct) return direct;
   const session = asRecord(input.session);
-  return session ? stringOf(session.id) : '';
+  if (session) return stringOf(session.id);
+  const info = asRecord(input.info);
+  return info ? stringOf(info.id) : '';
 }
 
 function extractCwd(input, directory, worktree) {
@@ -298,6 +302,9 @@ function extractCwd(input, directory, worktree) {
     const session = asRecord(input.session);
     const sessionDir = session ? stringOf(session.dir) : '';
     if (sessionDir) return sessionDir;
+    const info = asRecord(input.info);
+    const infoDir = info ? stringOf(info.directory) : '';
+    if (infoDir) return infoDir;
     const eventDir = stringOf(input.directory);
     if (eventDir) return eventDir;
   }
@@ -422,7 +429,17 @@ export const KarstBridge = async ({ directory, worktree }) => {
     event: async ({ event }) => {
       const type = event && event.type;
       const input = event && event.properties;
-      if (type === 'session.idle') {
+      if (type === 'session.created') {
+        // opencode's session-creation event — the SessionStart equivalent the
+        // launch-intent handshake needs (dispatch.ts confirms a prepared fix
+        // launch ONLY on SessionStart carrying the launch id). Without it a
+        // closed-session fix resume records its intent and then waits forever:
+        // the round stays pending, never fixing, and the stranded-fix sweep
+        // parks the stage "no fix execution in flight" while the agent is
+        // actually working. Normalized to karst's own closed vocabulary, the
+        // same way the agy conversation watch synthesizes a SessionStart.
+        post('SessionStart', input, directory, worktree);
+      } else if (type === 'session.idle') {
         // The usage update is sequenced AFTER the lifecycle post settles so the
         // endpoint sees one session event then its tokens — never reordered.
         post('session.idle', input, directory, worktree, undefined, () =>

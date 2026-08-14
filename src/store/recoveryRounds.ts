@@ -796,6 +796,17 @@ export interface StrandedFixRound {
  * the sweep that heals tickets parked by OLDER builds — the round-level pass
  * and the terminal-close sweep only settle executions that were ever started.
  *
+ * A PENDING fix launch intent is the one state PASS 2 must NOT park: the intent
+ * is recorded the moment a launch is prepared (before the terminal exists), and
+ * the round it names stays `pending` until the accepted SessionStart confirms it
+ * via `confirmFixLaunch`. That window is a launch genuinely in flight, not "no
+ * fix execution in flight" — parking it read a review round-2 fix as blocked
+ * while the agent was actually working (REVIEW-2ND-ROUND-FIX-STUCK-WITH). The
+ * sweep leaves any ticket whose round is waiting on a pending intent alone; the
+ * launch's own failure (an unreachable SessionStart, a terminal that never
+ * confirmed) is settled by the terminal-close sweep and the driver, never by
+ * this blanket park.
+ *
  * Global like the run sweeps and for the same reason: the registry is shared by
  * every IDE window, and a stranded fix is wrong in whichever project owns it.
  */
@@ -834,6 +845,9 @@ export function reconcileStrandedFixRounds(store: Store, at: string): StrandedFi
           AND NOT EXISTS (
             SELECT 1 FROM recovery_rounds
              WHERE ticket_id = tickets.id AND status = 'fixing')
+          AND NOT EXISTS (
+            SELECT 1 FROM session_launch_intents
+             WHERE ticket_id = tickets.id AND purpose = 'fix' AND status = 'pending')
         ORDER BY id`,
     )
     .all() as { id: number }[];

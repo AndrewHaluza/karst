@@ -252,7 +252,11 @@ agent states, hook events) are defined once in `src/model/types.ts` and
   normalized `permission.asked`/`permission.replied`, `session.idle` and
   `session.status` from the opencode plugin). Mapped to `agent_state` by
   `nextAgentState` in `src/hooks/dispatch.ts`; a stage transition is NEVER
-  inferred from a hook. opencode posts no `PostToolUse`/`UserPromptSubmit`, so
+  inferred from a hook. The opencode plugin normalizes `session.created` to
+  `SessionStart` too — that is what confirms a closed-session fix launch's
+  pending intent (`confirmFixLaunch`); without it the recovery round stays
+  `pending`, never `fixing`, and the stranded-fix sweep parks the fix stage.
+  opencode posts no `PostToolUse`/`UserPromptSubmit`, so
   its resolution and status events are the only signals that flip a
   `permission.asked` amber back to `running` — without them one answered
   prompt left the ticket reading "Needs you" for the whole remaining turn.
