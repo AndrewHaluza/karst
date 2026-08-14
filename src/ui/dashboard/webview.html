@@ -1867,11 +1867,19 @@
   // reload. `termLoading` is the in-between state between the request and the
   // host's GUARANTEED answer (the stage-log message is always sent, ok or
   // error — UI-R13), which is also the terminal outcome.
+  // `termProcess` narrows the surface to ONE gate-lane AI process's console
+  // (tester/review) when a process console is open; null → the stage console.
   let termView = null;
+  let termProcess = null;
   let termLoading = false;
   let term = null;
   let termFit = null;
   let termResize = null;
+  // Live chunks that arrived while the agent console was still loading (before
+  // the guaranteed agent-log answer rendered the persisted tail). Flushed into
+  // the terminal right after that answer, so a chunk racing the answer is never
+  // silently dropped from the open view.
+  let termPending = '';
   // The console action is webview-LOCAL: it opens the terminal surface and
   // posts `stage-log-request`; it never reaches the host, so it has no
   // `routeAction` case. The literal is declared ONCE here and interpolated at
@@ -2577,11 +2585,16 @@
     // click handler is untouched. The gates row is the one row whose summary
     // IS the gate run, so this button shows the gates' test log (uat) or the
     // review gates' log (review) depending on which stage view is on screen.
-    const consoleBtn = consoleStage && p.id === 'gates'
+    // A gate-lane AI process (tester/review) offers the same console from its
+    // OWN description area when the host flags `p.console` (a run happened and
+    // a tail exists) — that button carries `data-console-proc` so the click
+    // posts an agent-log-request instead of a stage-log-request.
+    const consoleBtn = consoleStage && (p.id === 'gates' || p.console)
       ? `<button type="button" class="k-iconbtn ib t-open" data-act="${CONSOLE_ACT}"`
         + ` data-console="${esc(consoleStage)}"`
-        + ` aria-label="View this stage's console output in the dashboard"`
-        + ` title="View this stage's console output in the dashboard">${svgIcon('terminal-2')}</button>`
+        + (p.id !== 'gates' ? ` data-console-proc="${esc(p.id)}"` : '')
+        + ` aria-label="View this ${p.id === 'gates' ? "stage's" : "process's"} console output in the dashboard"`
+        + ` title="View this ${p.id === 'gates' ? "stage's" : "process's"} console output in the dashboard">${svgIcon('terminal-2')}</button>`
       : '';
     const detail = `<span class="op-detail ${esc(p.status)}${consoleBtn ? ' detail-console' : ''}">`
       + (p.detail ? `<span class="op-detail-text">${esc(p.detail)}</span>` : '')
@@ -3774,7 +3787,7 @@
     }
     box.classList.remove('hidden');
     document.body.classList.add('term-nav');
-    const title = STAGE_TITLE[termView] || termView;
+    const title = termProcess ? (termProcess === 'tester' ? 'Tester' : 'Review') : (STAGE_TITLE[termView] || termView);
     box.innerHTML = `<div class="thead"><span class="ttitle">Console · ${esc(title)}</span>`
       + `<span class="sp"><button type="button" class="k-btn k-btn--ghost k-btn--sm" data-term="close"`
       + ` title="Close the console view">Close</button></span></div>`
@@ -3784,14 +3797,18 @@
   }
 
   // A real <button> Console entry (UI-R09) posting the closed-vocabulary
-  // stage-log-request; the host's stage-log answer is the outcome (UI-R13).
-  function openTerminal(stage) {
-    if (termView === stage && term) return;
+  // stage-log-request (or, for a process console, agent-log-request); the
+  // host's answer is the outcome (UI-R13). `processId` (optional) narrows the
+  // surface to ONE gate-lane AI process's console; absent → the stage console.
+  function openTerminal(stage, processId) {
+    if (termView === stage && termProcess === (processId || null) && term) return;
     if (termView) closeTerminal();
     termView = stage;
+    termProcess = processId || null;
     termLoading = true;
     renderTermView();
-    post({ type: 'stage-log-request', stage });
+    if (processId) post({ type: 'agent-log-request', processId });
+    else post({ type: 'stage-log-request', stage });
   }
 
   function closeTerminal() {
@@ -3799,7 +3816,9 @@
     termFit = null;
     if (termResize) { termResize.disconnect(); termResize = null; }
     termView = null;
+    termProcess = null;
     termLoading = false;
+    termPending = '';
     renderTermView();
   }
 
@@ -4274,15 +4293,17 @@
     }
 
     // The terminal console view: open it and post the closed-vocabulary
-    // stage-log-request. No requestId — the host answers with the `stage-log`
-    // message itself (ok or error), which is the terminal outcome (UI-R13).
+    // stage-log-request (or agent-log-request for a process console). No
+    // requestId — the host answers with the `stage-log`/`agent-log` message
+    // itself (ok or error), which is the terminal outcome (UI-R13).
     // Reads `data-console`, never `data-stage` (the rail's select listener
     // matches any `[data-stage]` ancestor via closest() and must not re-point
-    // the strip for a console click).
+    // the strip for a console click). A `data-console-proc` narrows the
+    // surface to ONE gate-lane AI process's console.
     if (act === CONSOLE_ACT) {
       const stage = btn.dataset.console;
       if (!stage) return;
-      openTerminal(stage);
+      openTerminal(stage, btn.dataset.consoleProc);
       return;
     }
 
@@ -4446,7 +4467,7 @@
     // answer for a view that has since closed (or moved to another stage) is
     // dropped, not rendered.
     if (msg.type === 'stage-log') {
-      if (!termView || termView !== msg.stage) return;
+      if (!termView || termView !== msg.stage || termProcess) return;
       termLoading = false;
       const status = el('tstatus');
       if (msg.result.kind === 'ok') {
@@ -4457,6 +4478,41 @@
         const host = el('termHost');
         if (host) host.innerHTML = `<div class="blurb">${esc(msg.result.message)}</div>`;
       }
+      return;
+    }
+    // The AGENT console answer (the UAT Tester / Review findings lane): same
+    // contract as stage-log, matched against the open PROCESS — a stale answer
+    // for a console that closed or switched processes is dropped.
+    if (msg.type === 'agent-log') {
+      if (!termView || !termProcess || termProcess !== msg.processId) return;
+      termLoading = false;
+      const status = el('tstatus');
+      if (msg.result.kind === 'ok') {
+        if (status) status.textContent = msg.result.truncated ? 'Console output truncated' : '';
+        if (term) term.write(msg.result.content);
+      } else {
+        if (status) status.textContent = '';
+        const host = el('termHost');
+        if (host) host.innerHTML = `<div class="blurb">${esc(msg.result.message)}</div>`;
+      }
+      // Flush chunks that raced the persisted tail (buffered above), so the
+      // open console never silently skips live output that arrived while the
+      // answer was in flight.
+      if (termPending && term) {
+        term.write(termPending);
+        termPending = '';
+      }
+      return;
+    }
+    // A live chunk of the open agent console's output: appended to the terminal
+    // ONLY while that process's console is the open surface. The text is
+    // already sanitized and bounded host-side. While the initial tail is still
+    // loading (termLoading), the chunk is buffered — writing before the answer
+    // would interleave live text beneath the persisted tail it will render.
+    if (msg.type === 'agent-output') {
+      if (!termView || !termProcess || termProcess !== msg.processId) return;
+      if (termLoading) { termPending += msg.text; return; }
+      if (term) term.write(msg.text);
       return;
     }
     // The window's terminal binding. Host-owned: it is one preference shared by

@@ -392,6 +392,7 @@ function reviewView(n: RenderRepoCount): InsideStageView {
     title: 'Review',
     dot: 'fail',
     clock: '09:20:11 · 3m 02s · attempt 2',
+    console: true,
     processes: [
       {
         id: 'gates',
@@ -422,6 +423,9 @@ function reviewView(n: RenderRepoCount): InsideStageView {
         duration: '2m 10s',
         execution: { ...CODEX_EXECUTION },
         tokens: { ...MEASURED_TOKENS },
+        // A recorded run → the console tail exists (Task 13): the webview
+        // renders the review process's console button from this host flag.
+        console: true,
         evidence: { kind: 'findings', rows: boundedRows(findings, FINDINGS_LIMIT), blocking: 2 },
       },
     ],
@@ -637,6 +641,9 @@ function uatView(n: RenderRepoCount): InsideStageView {
         duration: '38.4s',
         execution: { ...CODEX_EXECUTION },
         tokens: { ...ESTIMATED_TOKENS },
+        // A recorded run → the console tail exists (Task 13): the webview
+        // renders the tester process's console button from this host flag.
+        console: true,
         evidence: { kind: 'findings', rows: observations, blocking: 0 },
       },
     ],

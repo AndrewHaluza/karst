@@ -21,6 +21,27 @@ function adapter(raw: string | (() => Promise<string>)): AgentAdapter {
   };
 }
 
+/** An adapter that captures the opts of the ONE call it answers, for forward-assertions. */
+function capturingAdapter(
+  raw: string,
+): { adapter: AgentAdapter; calls: Array<{ onOutput?: (chunk: { stream: 'stdout' | 'stderr'; text: string }) => void }> } {
+  const calls: Array<{ onOutput?: (chunk: { stream: 'stdout' | 'stderr'; text: string }) => void }> = [];
+  return {
+    calls,
+    adapter: {
+      requiredBinary: 'fake',
+      capabilities: { lifecycleEvents: false, resume: false },
+      buildInteractiveCommand: () => {
+        throw new Error('not used');
+      },
+      runHeadless: async (opts) => {
+        calls.push(opts);
+        return { sessionId: '', verdict: null, raw };
+      },
+    },
+  };
+}
+
 const CONFIG = { enabled: true, blockingSeverity: 'high' as const, maxFindings: 50 };
 const DISABLED = { ...CONFIG, enabled: false };
 
@@ -407,6 +428,52 @@ describe('runFindingsLane', () => {
     };
     await runFindingsLane({ config: CONFIG, adapter: a, targets: [TARGET], ticketId: 42 });
     expect(seenTracking).toEqual({ callSite: 'review-findings', ticketId: 42, processRunId: null });
+  });
+
+  it('forwards onOutput verbatim into each headless call', async () => {
+    const { adapter: a, calls } = capturingAdapter('[]');
+    const chunks: { stream: 'stdout' | 'stderr'; text: string }[] = [];
+    await runFindingsLane({
+      config: CONFIG,
+      adapter: a,
+      targets: [TARGET],
+      ticketId: 1,
+      onOutput: (chunk) => chunks.push(chunk),
+    });
+    expect(calls[0]!.onOutput).toBeDefined();
+    calls[0]!.onOutput?.({ stream: 'stderr', text: 'progress' });
+    expect(chunks).toEqual([{ stream: 'stderr', text: 'progress' }]);
+  });
+
+  it('emits per-target active/completed progress with a detail naming what came back', async () => {
+    const events: { repo: string; status: string; detail?: string }[] = [];
+    const perTarget: AgentAdapter = {
+      ...adapter('[]'),
+      runHeadless: async (opts) => ({
+        sessionId: '',
+        verdict: null,
+        raw:
+          opts.cwd === '/wt/web'
+            ? JSON.stringify([{ severity: 'low', title: 'nit', detail: '', file: 'a.ts' }])
+            : '[]',
+      }),
+    };
+    await runFindingsLane({
+      config: CONFIG,
+      adapter: perTarget,
+      targets: [
+        { repo: '/web', worktreePath: '/wt/web' },
+        { repo: '/api', worktreePath: '/wt/api' },
+      ],
+      ticketId: 1,
+      onTargetProgress: (event) => events.push(event),
+    });
+    expect(events).toEqual([
+      { repo: '/web', status: 'active' },
+      { repo: '/web', status: 'completed', detail: '1 finding' },
+      { repo: '/api', status: 'active' },
+      { repo: '/api', status: 'completed', detail: '0 findings' },
+    ]);
   });
 
   it('attributes a failed call as a crash, distinct from a clean zero-findings run', async () => {

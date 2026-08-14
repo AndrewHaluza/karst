@@ -4,6 +4,7 @@ import type { Store } from '../../store/db.js';
 import type { StageRunResult } from '../../model/types.js';
 import type { Manifest } from '../../manifest/types.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
+import type { HeadlessOutputChunk } from '../../agent/headlessSpawn.js';
 import type { ProcessAssignmentSnapshot } from '../../agent/processAssignment.js';
 import { listGateRuns, type GateRunInput } from '../../store/gateRuns.js';
 import { finishProcessRun } from '../../store/processRuns.js';
@@ -77,6 +78,22 @@ export interface RunReviewOpts {
   onGateComplete?: (gateName: string, exitCode: number | null) => void;
   /** Called before each gate's work begins, with the gate's name. */
   onGateStart?: (gateName: string) => void;
+  /**
+   * Live-output hook for the findings lane's headless calls (Task 13):
+   * forwarded verbatim into `planAndRunFindingsLane`. RAW untrusted CLI prose —
+   * the host that surfaces it must bound and sanitize it. Absent → no live chunks.
+   */
+  onFindingsOutput?: (chunk: HeadlessOutputChunk) => void;
+  /**
+   * Per-target findings-lane progress (Task 13 mirror): forwarded verbatim into
+   * `planAndRunFindingsLane` so the host can push the same inside-progress
+   * overlay the gates use. Absent → no events.
+   */
+  onFindingsTargetProgress?: (event: {
+    repo: string;
+    status: 'active' | 'completed';
+    detail?: string;
+  }) => void;
   /**
    * Verbose decision-point logging (§ debug logging), prefixed `[gate]`.
    * Absent → no debug lines; the host binds it to `Logger.debug` (a no-op
@@ -494,6 +511,10 @@ export async function runReview(
     // The lane's own decision points (which target was asked, what came back,
     // a rejected call, the outcome) ride the stage's debug stream.
     debug: opts.debug,
+    // Task 13: live output + per-target progress from the findings lane's
+    // headless calls, forwarded to the host's console/overlay surfaces.
+    onOutput: opts.onFindingsOutput,
+    onTargetProgress: opts.onFindingsTargetProgress,
     // F2 — persisted the INSTANT each target's call returns, inside the lane,
     // before any aggregation rule reads them. These are completed model output
     // the user has already paid for (a single lane has cost 1.3M tokens), and

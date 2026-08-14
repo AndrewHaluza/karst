@@ -4629,6 +4629,79 @@ describe('terminal console view (VM)', () => {
     expect(h.htmlOf('termView')).toBe('');
   });
 
+  it('renders a Console button on the Tester and Review process rows (host-flagged p.console)', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: renderStateFor('uat') });
+    const inside = h.htmlOf('inside');
+    // The Tester row carries the console entry with its process id; the button
+    // is host-flagged (p.console), never guessed.
+    expect(inside).toMatch(/data-proc-id="uat:tester"[\s\S]*?data-act="console" data-console="uat" data-console-proc="tester"/);
+    h.receive({ type: 'state', state: renderStateFor('review') });
+    const reviewInside = h.htmlOf('inside');
+    expect(reviewInside).toMatch(/data-proc-id="review:review"[\s\S]*?data-act="console" data-console="review" data-console-proc="review"/);
+  });
+
+  it('opens the agent console and posts agent-log-request with the process', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: renderStateFor('uat') });
+    h.click('[data-act]', { act: 'console', console: 'uat', consoleProc: 'tester' });
+    expect(h.bodyClasses).toContain('term-nav');
+    expect(h.htmlOf('termView')).toContain('Console · Tester');
+    expect(h.posted).toContainEqual({ type: 'agent-log-request', processId: 'tester' });
+    expect(h.posted).not.toContainEqual({ type: 'stage-log-request', stage: 'uat' });
+  });
+
+  it('writes the agent-log ok content into the live terminal for that process', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: renderStateFor('uat') });
+    h.click('[data-act]', { act: 'console', console: 'uat', consoleProc: 'tester' });
+    h.receive({ type: 'agent-log', processId: 'tester', result: { kind: 'ok', content: '\x1b[33mwarn\x1b[0m\n', truncated: false } });
+    expect(h.terminals()[0]!.written).toBe('\x1b[33mwarn\x1b[0m\n');
+  });
+
+  it('drops an agent-log answer for a console showing a DIFFERENT process', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: renderStateFor('uat') });
+    h.click('[data-act]', { act: 'console', console: 'uat', consoleProc: 'tester' });
+    h.receive({ type: 'agent-log', processId: 'review', result: { kind: 'ok', content: 'other', truncated: false } });
+    expect(h.terminals()[0]!.written).toBe('');
+  });
+
+  it('streams agent-output chunks into the open process console', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: renderStateFor('uat') });
+    h.click('[data-act]', { act: 'console', console: 'uat', consoleProc: 'tester' });
+    // The host's guaranteed agent-log answer settles loading first.
+    h.receive({ type: 'agent-log', processId: 'tester', result: { kind: 'ok', content: 'start', truncated: false } });
+    h.receive({ type: 'agent-output', processId: 'tester', text: '\nstill running' });
+    expect(h.terminals()[0]!.written).toBe('start\nstill running');
+  });
+
+  it('buffers agent-output that races the initial tail and flushes it after the agent-log answer', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: renderStateFor('uat') });
+    h.click('[data-act]', { act: 'console', console: 'uat', consoleProc: 'tester' });
+    // A live chunk lands BEFORE the guaranteed agent-log answer: it must not
+    // be dropped, and it must not be written ahead of the persisted tail.
+    h.receive({ type: 'agent-output', processId: 'tester', text: 'raced' });
+    expect(h.terminals()[0]!.written).toBe('');
+    h.receive({ type: 'agent-log', processId: 'tester', result: { kind: 'ok', content: 'tail\n', truncated: false } });
+    expect(h.terminals()[0]!.written).toBe('tail\nraced');
+  });
+
+  it('ignores agent-output for a console showing a different process or no console', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: renderStateFor('uat') });
+    h.click('[data-act]', { act: 'console', console: 'uat', consoleProc: 'tester' });
+    h.receive({ type: 'agent-log', processId: 'tester', result: { kind: 'ok', content: 'start', truncated: false } });
+    h.receive({ type: 'agent-output', processId: 'review', text: 'wrong process' });
+    expect(h.terminals()[0]!.written).toBe('start');
+    // A process console is NOT a stage console: a stage-log answer for the same
+    // stage is dropped while the process console is open.
+    h.receive({ type: 'stage-log', stage: 'uat', result: { kind: 'ok', content: 'stage', truncated: false } });
+    expect(h.terminals()[0]!.written).toBe('start');
+  });
+
   it('renders a Console button only for stages the host flags (view.console)', () => {
     const h = bootPreviewHarness();
     const state = renderStateFor('uat');
@@ -4636,6 +4709,29 @@ describe('terminal console view (VM)', () => {
     expect((state.insideViews as Record<string, { console?: boolean }>).uat!.console).toBe(true);
     h.receive({ type: 'state', state });
     expect(h.htmlOf('inside')).toContain('data-act="console"');
+  });
+
+  it('renders no PROCESS console button when the process is not host-flagged (p.console absent)', () => {
+    const h = bootPreviewHarness();
+    const state = renderStateFor('uat');
+    // Flip the Tester row's host flag off: availability is host-derived, so
+    // the row renders its console button ONLY when the host shipped `console`.
+    const view = state.insideViews.uat;
+    const noProcConsole = {
+      ...state,
+      insideViews: {
+        ...state.insideViews,
+        uat: {
+          ...view,
+          processes: view.processes.map((p) => (p.id === 'tester' ? { ...p, console: false } : p)),
+        },
+      },
+    };
+    h.receive({ type: 'state', state: noProcConsole });
+    const inside = h.htmlOf('inside');
+    // The gates row keeps its stage console button; the Tester row's is gone.
+    expect(inside).toMatch(/data-proc-id="uat:gates"[\s\S]*?data-act="console"/);
+    expect(inside).not.toMatch(/data-proc-id="uat:tester"[\s\S]*?data-console-proc="tester"/);
   });
 
   it('sits in the GATES row description area, icon-only, never in the header (869e7n906-fu1)', () => {

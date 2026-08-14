@@ -845,5 +845,74 @@ describe('driveTicket', () => {
         const completed = events[0] as { process: { status: string } };
         expect(completed.process.status).toBe('note');
       });
+
+      it('streams agent output and per-target progress for the Tester and findings lane', async () => {
+        const events: unknown[] = [];
+        const output: { ticketId: number; processId: string; chunk: unknown }[] = [];
+        await driveTicket(
+          depsFor({
+            onInsideProgress: (event) => events.push(event),
+            onAgentOutput: (ticketId, processId, chunk) => output.push({ ticketId, processId, chunk }),
+          }),
+          id,
+          {
+            runUat: async (s, opts) => {
+              // The stage's Tester seam carries the wiring the driver threaded.
+              opts.onTesterOutput?.({ stream: 'stdout', text: 'running tests' });
+              opts.onTesterTargetProgress?.({ repo: '/web', status: 'active' });
+              opts.onTesterTargetProgress?.({ repo: '/web', status: 'completed', detail: '2 observations' });
+              return { kind: 'advanced', next: transition(s, opts.ticketId, 'uat', { kind: 'passed' }) };
+            },
+            runReview: async (s, opts) => {
+              opts.onFindingsOutput?.({ stream: 'stderr', text: 'scanning diff' });
+              opts.onFindingsTargetProgress?.({ repo: '/api', status: 'active' });
+              opts.onFindingsTargetProgress?.({ repo: '/api', status: 'completed', detail: '1 finding' });
+              return { kind: 'advanced', next: transition(s, opts.ticketId, 'review', { kind: 'passed' }) };
+            },
+          },
+        );
+        expect(output).toEqual([
+          { ticketId: id, processId: 'tester', chunk: { stream: 'stdout', text: 'running tests' } },
+          { ticketId: id, processId: 'review', chunk: { stream: 'stderr', text: 'scanning diff' } },
+        ]);
+        expect(events).toContainEqual({
+          kind: 'active',
+          ticketId: id,
+          stage: 'uat',
+          processId: 'tester',
+          live: { status: 'run', label: '/web' },
+        });
+        expect(events).toContainEqual({
+          kind: 'completed',
+          ticketId: id,
+          stage: 'uat',
+          process: {
+            id: 'tester',
+            kind: 'tester',
+            label: 'Tester',
+            status: 'run',
+            detail: '/web — 2 observations',
+          },
+        });
+        expect(events).toContainEqual({
+          kind: 'active',
+          ticketId: id,
+          stage: 'review',
+          processId: 'review',
+          live: { status: 'run', label: '/api' },
+        });
+        expect(events).toContainEqual({
+          kind: 'completed',
+          ticketId: id,
+          stage: 'review',
+          process: {
+            id: 'review',
+            kind: 'review',
+            label: 'Review',
+            status: 'run',
+            detail: '/api — 1 finding',
+          },
+        });
+      });
     });
 });

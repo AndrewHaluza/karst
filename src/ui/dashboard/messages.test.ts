@@ -43,6 +43,7 @@ function actions(): DashboardActions {
     insideAction: vi.fn(),
     openArtifactResource: vi.fn(),
     requestStageLog: vi.fn(),
+    requestAgentLog: vi.fn(),
   };
 }
 
@@ -569,6 +570,42 @@ describe('stage-log-request', () => {
     routeAction({ type: 'stage-log-request', stage: 'done' }, {
       ...actions(),
       requestStageLog: () => void (called = true),
+    });
+    expect(called).toBe(false);
+  });
+});
+
+describe('agent-log-request', () => {
+  it('accepts a gate-lane AI process (tester/review) only — closed vocabulary (UI-R16)', () => {
+    expect(parseWebviewMessage({ type: 'agent-log-request', processId: 'tester' })).toEqual({
+      type: 'agent-log-request',
+      processId: 'tester',
+    });
+    expect(parseWebviewMessage({ type: 'agent-log-request', processId: 'review' })).toEqual({
+      type: 'agent-log-request',
+      processId: 'review',
+    });
+    // Any other process id, a missing id, or a wrong type drops the message.
+    expect(parseWebviewMessage({ type: 'agent-log-request', processId: 'gates' })).toBeNull();
+    expect(parseWebviewMessage({ type: 'agent-log-request', processId: 'impl' })).toBeNull();
+    expect(parseWebviewMessage({ type: 'agent-log-request' })).toBeNull();
+    expect(parseWebviewMessage({ type: 'agent-log-request', processId: 42 })).toBeNull();
+  });
+
+  it('routes to requestAgentLog with the validated process', () => {
+    const calls: string[] = [];
+    routeAction({ type: 'agent-log-request', processId: 'tester' }, {
+      ...actions(),
+      requestAgentLog: (processId) => void calls.push(processId),
+    });
+    expect(calls).toEqual(['tester']);
+  });
+
+  it('never routes an unparsed agent-log-request (unknown stays silent)', () => {
+    let called = false;
+    routeAction({ type: 'agent-log-request', processId: 'ship' }, {
+      ...actions(),
+      requestAgentLog: () => void (called = true),
     });
     expect(called).toBe(false);
   });
