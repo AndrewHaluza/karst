@@ -527,6 +527,17 @@ describe('dashboard webview.html', () => {
     expect(HTML).toMatch(/pending: 'pending'/);
   });
 
+  it('fills travelled Scope segments with their approved background, else the wash (869ej2cfz)', () => {
+    // passed and running are the two fills that paint STAGE identity; the status
+    // overrides (needs/failed/skipped/sel) must stay untouched.
+    expect(HTML).toMatch(
+      /\.track \.seg\.passed\{background:var\(--stg-bg,color-mix\(in srgb,var\(--stg-color,var\(--k-pending\)\) 20%,transparent\)\);/,
+    );
+    expect(HTML).toMatch(
+      /\.track \.seg\.running\{background:var\(--stg-bg,color-mix\(in srgb,var\(--stg-color,var\(--k-pending\)\) 34%,transparent\)\);/,
+    );
+  });
+
   it('scopes every track selector, so it cannot collide with the strip', () => {
     // The dashboard owns `.ph*` (panel headers) and the inside ledger owns the
     // `.p*` row classes (the activity strip `.act` was retired with the
