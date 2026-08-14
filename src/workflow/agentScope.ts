@@ -4,9 +4,10 @@
  *
  * Both lanes drop a headless agent into a worktree with a two-line request and
  * nothing else, so the agent's first move is to work out where it is: `git
- * status`, `git branch -vv`, `git log`, `git worktree list` (karst's own repo
- * has 160+ registered worktrees), and — wherever the target repo's own
- * instructions mention one — orchestrator CLI/registry queries. The block is
+ * status`, `git branch -vv`, `git log`, `git worktree list` (which scales with
+ * however many worktrees the checkout has accumulated, none of them this
+ * ticket's), and — wherever the target repo's own instructions mention one —
+ * orchestrator CLI/registry queries. The block is
  * deliberately TOOL-AGNOSTIC prose: karst drives arbitrary projects, so it
  * names no product, no branch and no gate of its own; the base ref and the
  * passed-gate names are the caller's facts, injected. That reconnaissance is paid
