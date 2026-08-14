@@ -38,7 +38,7 @@
  */
 
 import type { GraphDb } from '../../../store/graph/transitions.js';
-import { casStatus, GRAPH_RUN_TRANSITIONS, NODE_RUN_TRANSITIONS } from '../../../store/graph/transitions.js';
+import { casStatus, GRAPH_RUN_TRANSITIONS, NODE_RUN_TRANSITIONS, PLANNER_RUN_TRANSITIONS } from '../../../store/graph/transitions.js';
 import { cancelGraphToken } from '../../../store/graph/tokens.js';
 import { markLeaseAmbiguous } from './leases.js';
 import {
@@ -395,6 +395,120 @@ async function reconcileCompleting(
   return 0;
 }
 
+/** Planner-run row for the `planning` sweep — mirrors the node-run shape. */
+interface PlannerRunRow {
+  id: number;
+  status: string;
+  owner_nonce: string | null;
+  process_run_id: number | null;
+}
+
+/**
+ * The `planning`-run sweep (the bootstrap-planner counterpart of the node-run
+ * matrix). A bootstrap planner is the ONLY live work before revision 1, and
+ * its process is attributed exactly like a `running` node run's:
+ *
+ *  - session present → this window owns it, left alone;
+ *  - no process identity → never judged dead (no pid evidence is no evidence);
+ *  - live attributable → another window's, left alone;
+ *  - demonstrably dead/foreign → the planner run is marked `stale` and the
+ *    run is blocked `planning → blocked` with a `planner-stale` reason, so the
+ *    typed recovery can relaunch a fresh bootstrap planner on the same run;
+ *  - unprovable death → never declared dead (no discard is invented here).
+ *
+ * Mirrors `reconcileRunning`'s four-way attribution; the only difference is
+ * that the sweep targets `approach_planner_runs` instead of node runs and the
+ * block reason names the bootstrap planner rather than a node.
+ */
+async function reconcilePlanningPlanner(
+  deps: ReconcileGraphRunDeps,
+  run: GraphRunRow,
+): Promise<ReconcileGraphRunResult> {
+  const planners = deps.db
+    .prepare(
+      `SELECT id, status, owner_nonce, process_run_id FROM approach_planner_runs
+       WHERE graph_run_id = ? AND status IN ('running', 'launching') ORDER BY id`,
+    )
+    .all(run.id) as PlannerRunRow[];
+  let transitions = 0;
+  for (const planner of planners) {
+    if (deps.sessionFor(planner.id)) continue; // this window owns it
+    const proc = plannerProcessOf(deps.db, planner);
+    if (proc === null) continue; // no pid evidence — never judged dead
+    const attribution = await attributeOf(deps.facts, proc);
+    if (attribution === 'attributable') continue; // another window
+    if (attribution !== 'dead' && attribution !== 'foreign') continue; // unprovable
+    const moved = deps.transaction(() => {
+      if (
+        !casStatus(
+          deps.db,
+          'approach_planner_runs',
+          PLANNER_RUN_TRANSITIONS,
+          planner.id,
+          planner.status,
+          'stale',
+        )
+      ) {
+        return false;
+      }
+      deps.db
+        .prepare('UPDATE approach_planner_runs SET ended_at = ? WHERE id = ?')
+        .run(deps.now(), planner.id);
+      if (
+        !casStatus(
+          deps.db,
+          'approach_graph_runs',
+          GRAPH_RUN_TRANSITIONS,
+          run.id,
+          'planning',
+          'blocked',
+        )
+      ) {
+        return true; // the planner is stale even if the run already moved
+      }
+      deps.db
+        .prepare('UPDATE approach_graph_runs SET blocked_reason = ?, updated_at = ? WHERE id = ?')
+        .run(
+          `planner-stale: bootstrap planner ${planner.id} process (pid ${proc.pid}) is gone (${attribution} at reconcile) — Resume to relaunch the planner`,
+          deps.now(),
+          run.id,
+        );
+      return true;
+    });
+    if (moved) {
+      transitions += 1;
+      deps.debug?.(
+        `[graph] reconcile: bootstrap planner ${planner.id} process gone — run ${run.id} blocked (planner-stale)`,
+      );
+    }
+  }
+  const after = deps.db
+    .prepare('SELECT status FROM approach_graph_runs WHERE id = ?')
+    .get(run.id) as { status: string };
+  return {
+    graphRunId: run.id,
+    status: after.status,
+    transitions,
+    resumed: [],
+    reverted: [],
+    cancelledTokens: 0,
+  };
+}
+
+/** The run's planner-linked process identity, or null when none exists (a null
+ *  pid is equally no evidence — the same rule node runs follow). */
+function plannerProcessOf(
+  db: GraphDb,
+  planner: PlannerRunRow,
+): { pid: number; startedAt: string | null } | null {
+  if (planner.process_run_id === null) return null;
+  const row = db
+    .prepare('SELECT pid, started_at FROM process_runs WHERE id = ?')
+    .get(planner.process_run_id) as ProcessRunRow | undefined;
+  if (!row || row.pid === null) return null;
+  return { pid: row.pid, startedAt: row.started_at };
+}
+
 /**
  * One pass over one graph run, applying the crash matrix in order. Returns a
  * bounded result; every mutation is a CAS-guarded durable claim, so concurrent
@@ -456,6 +570,16 @@ export async function reconcileGraphRun(
   }
 
   // 3. Run-level gates: blocked stays, marker-ready stays, draining waits.
+  //    A `planning` run is swept for its bootstrap planner FIRST — the planner
+  //    is the only live work before revision 1 exists, and a dead bootstrap
+  //    planner would otherwise leave the run parked at `planning` forever (the
+  //    coordinator sweep only ticks `running` runs, and the bootstrap planner
+  //    is not a node run). The sweep mirrors the node-run matrix: demonstrably
+  //    dead/foreign → planner `stale` + run blocked recoverably; live
+  //    attributable → another window's; unprovable → never declared dead.
+  if (run.status === 'planning') {
+    return await reconcilePlanningPlanner(deps, run);
+  }
   if (run.status !== 'running') return noopResult(run.id, run.status);
   const revision = db
     .prepare(

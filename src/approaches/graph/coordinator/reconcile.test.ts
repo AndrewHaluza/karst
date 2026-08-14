@@ -126,6 +126,47 @@ function linkProcess(ctx: Ctx, processRunId: number, pid: number | null, started
     .run(processRunId, processRunId);
 }
 
+/** Move the fixture's graph run to `planning` (the bootstrap phase). */
+function toPlanning(ctx: Ctx): void {
+  ctx.db.prepare("UPDATE approach_graph_runs SET status = 'planning' WHERE id = ?").run(ctx.graphRunId);
+}
+
+/** Insert a bootstrap planner run linked to a process run, returning the id. */
+function insertBootstrapPlanner(
+  ctx: Ctx,
+  id: number,
+  status: string,
+  extra: { processRunId?: number | null } = {},
+): void {
+  ctx.db
+    .prepare(
+      `INSERT INTO approach_planner_runs
+         (id, graph_run_id, planner_run_number, kind, status, process_run_id, started_at)
+       VALUES (?, ?, 1, 'bootstrap', ?, ?, ?)`,
+    )
+    .run(id, ctx.graphRunId, status, extra.processRunId ?? null, NOW);
+}
+
+/** Open a process_runs row for a planner run and link it. */
+function linkPlannerProcess(ctx: Ctx, processRunId: number, plannerRunId: number, pid: number | null, startedAt = NOW): void {
+  ctx.db
+    .prepare(
+      `INSERT INTO process_runs
+         (id, ticket_id, stage_key, process_id, attempt, pid, status, started_at)
+       VALUES (?, ?, 'impl', 'graph-planner', 0, ?, 'running', ?)`,
+    )
+    .run(processRunId, ctx.ticketId, pid, startedAt);
+  ctx.db
+    .prepare('UPDATE approach_planner_runs SET process_run_id = ? WHERE id = ?')
+    .run(processRunId, plannerRunId);
+}
+
+function plannerRow(ctx: Ctx, id: number): { status: string } {
+  return ctx.db
+    .prepare('SELECT status FROM approach_planner_runs WHERE id = ?')
+    .get(id) as { status: string };
+}
+
 function insertPendingToken(ctx: Ctx, edgeId = 'e1'): number {
   return Number(
     ctx.db
@@ -392,6 +433,57 @@ describe('reconcileGraphRun — reload and crash matrix', () => {
     });
     const result = await reconcileGraphRun(deps, { graphRunId: ctx.graphRunId });
     expect(runRow(ctx).status).toBe('running');
+    expect(result.transitions).toBe(0);
+  });
+
+  it('a planning run whose bootstrap planner process is demonstrably dead blocks the run recoverably and marks the planner stale', async () => {
+    toPlanning(ctx);
+    linkPlannerProcess(ctx, 201, 201, 4243, NOW);
+    insertBootstrapPlanner(ctx, 201, 'running', { processRunId: 201 });
+    const deps = ctx.makeDeps({
+      facts: makeFacts({ alive: { 4243: false } }),
+    });
+    const result = await reconcileGraphRun(deps, { graphRunId: ctx.graphRunId });
+    expect(plannerRow(ctx, 201).status).toBe('stale');
+    const run = runRow(ctx);
+    expect(run.status).toBe('blocked');
+    expect(run.blocked_reason).toMatch(/planner-stale/);
+    expect(result.transitions).toBe(1);
+    expect(result.status).toBe('blocked');
+  });
+
+  it('a planning run whose bootstrap planner has a live attributable process is left alone (another window owns it)', async () => {
+    toPlanning(ctx);
+    linkPlannerProcess(ctx, 202, 202, 4244, NOW);
+    insertBootstrapPlanner(ctx, 202, 'running', { processRunId: 202 });
+    const deps = ctx.makeDeps({
+      facts: makeFacts({ alive: { 4244: true }, startMs: { 4244: Date.parse(NOW) } }),
+    });
+    const result = await reconcileGraphRun(deps, { graphRunId: ctx.graphRunId });
+    expect(plannerRow(ctx, 202).status).toBe('running');
+    expect(runRow(ctx).status).toBe('planning');
+    expect(result.transitions).toBe(0);
+  });
+
+  it('a planning run whose bootstrap planner has no pid evidence is never declared dead', async () => {
+    toPlanning(ctx);
+    insertBootstrapPlanner(ctx, 203, 'running', { processRunId: null });
+    const result = await reconcileGraphRun(ctx.makeDeps(), { graphRunId: ctx.graphRunId });
+    expect(plannerRow(ctx, 203).status).toBe('running');
+    expect(runRow(ctx).status).toBe('planning');
+    expect(result.transitions).toBe(0);
+  });
+
+  it('a planning run whose bootstrap planner process death is unprovable is left alone', async () => {
+    toPlanning(ctx);
+    linkPlannerProcess(ctx, 204, 204, 4246, NOW);
+    insertBootstrapPlanner(ctx, 204, 'running', { processRunId: 204 });
+    const deps = ctx.makeDeps({
+      facts: makeFacts({ alive: { 4246: true }, startMs: { 4246: null } }),
+    });
+    const result = await reconcileGraphRun(deps, { graphRunId: ctx.graphRunId });
+    expect(plannerRow(ctx, 204).status).toBe('running');
+    expect(runRow(ctx).status).toBe('planning');
     expect(result.transitions).toBe(0);
   });
 });
