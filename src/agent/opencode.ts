@@ -609,6 +609,12 @@ export class OpencodeAdapter implements AgentAdapter {
   // launch-time session-name flag. `opts.resume` IS threaded as `--session`
   // (the TUI's continue flag, verified against the installed CLI) — without it
   // a captured id would never be applied to the launch.
+  // `opts.effort` is deliberately dropped too: the opencode TUI (1.18.18) has
+  // no `--variant` flag — only `opencode run` accepts it — so threading the
+  // effort here made the TUI print help and exit 1, killing the session at
+  // launch (the graph-planner crash this fix targets). The interactive TUI
+  // cannot preselect a model variant; the variant is chosen in the model
+  // picker. `runHeadless` keeps `--variant` because `opencode run` accepts it.
   buildInteractiveCommand(
     opts: InteractiveCommandOpts,
   ): InteractiveCommand {
@@ -632,7 +638,6 @@ export class OpencodeAdapter implements AgentAdapter {
       args.push('--session', opts.resume);
     }
     if (opts.model) args.push('--model', opts.model);
-    if (opts.effort) args.push('--variant', opts.effort);
     if (opts.extraArgs?.length) args.push(...opts.extraArgs);
     if (opts.initialPrompt) args.push('--prompt', opts.initialPrompt);
     return {

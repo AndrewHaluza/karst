@@ -22,7 +22,13 @@ const catalog = bundledModelCatalog();
 
 describe('effortCapabilities', () => {
   it('declares interactive and headless effort support separately per provider', () => {
-    for (const provider of ['claude', 'codex', 'antigravity', 'opencode'] as const) {
+    // opencode's interactive TUI (1.18.18) has no `--variant` flag (only
+    // `opencode run` accepts it), so the interactive binding cannot express
+    // effort; headless keeps it.
+    const opencode = effortCapabilities('opencode');
+    expect(opencode.interactive).toBe(false);
+    expect(opencode.headless).toBe(true);
+    for (const provider of ['claude', 'codex', 'antigravity'] as const) {
       const caps = effortCapabilities(provider);
       expect(caps.interactive).toBe(true);
       expect(caps.headless).toBe(true);
