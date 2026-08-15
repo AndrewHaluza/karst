@@ -1823,7 +1823,7 @@ describe('dashboard webview.html', () => {
     // string (B4); the webview concatenates nothing.
     const row = /function processRowHtml[\s\S]*?\n  \}/.exec(HTML)?.[0] ?? '';
     expect(row).toMatch(/const tail = `<span class="op-tail">\$\{identityHtml\(p\)\}/);
-    expect(row).toMatch(/p\.aggregate \? `<span class="count">\$\{esc\(p\.aggregate\)\}/);
+    expect(row).toMatch(/p\.aggregate \? `<span class="count"\$\{p\.aggregateTitle[\s\S]*?\$\{esc\(p\.aggregate\)\}/);
     expect(row).toMatch(/p\.time \? `<span class="op-time">\$\{esc\(p\.time\)\}/);
     expect(row).toMatch(/p\.duration \? `<span class="duration"\$\{p\.durationExact/);
   });
@@ -1833,7 +1833,7 @@ describe('dashboard webview.html', () => {
     // long paths; every template that interpolates them must escape first.
     expect(HTML).toMatch(/<span class="ev-key">\$\{esc\(r\.label\)\}<\/span>/);
     expect(HTML).toMatch(/<span class="ev-detail">\$\{esc\(r\.detail \|\| ''\)\}[\s\S]*?<\/span>/);
-    expect(HTML).toMatch(/<span class="op-name">\$\{esc\(p\.label\)\}/);
+    expect(HTML).toMatch(/<span class="op-name-text">\$\{esc\(p\.label\)\}<\/span>/);
     expect(HTML).toMatch(/\$\{esc\(p\.detail\)\}<\/span>/);
     expect(HTML).toMatch(/<span class="phase-time">\$\{esc\(r\.time \|\| r\.duration \|\| ''\)\}<\/span>/);
     // The object-link templates (commit hash, PR number) escape the label.
@@ -2660,7 +2660,7 @@ describe('inside render round trip (executed in a VM)', () => {
     const html = renderPrototypeImpl();
     const summary = html.slice(html.indexOf('<summary>'), html.indexOf('</summary>'));
     const glyph = summary.indexOf('<span class="glyph');
-    const label = summary.indexOf('<span class="op-name">');
+    const label = summary.indexOf('<span class="op-name"');
     const detail = summary.indexOf('<span class="op-detail');
     const tail = summary.indexOf('<span class="op-tail">');
     const chev = summary.indexOf('<span class="chev"');

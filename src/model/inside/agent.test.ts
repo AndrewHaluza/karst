@@ -466,9 +466,15 @@ describe('implementationSessionProcess', () => {
       NOW,
       attach,
     );
-    // 25 marks + the started row = 26 events; TIMELINE_LIMIT is 20.
-    expect(process.action).toMatchObject({ kind: 'open-full-evidence' });
+    // 25 marks + the started row = 26 events; TIMELINE_LIMIT is 20. The
+    // continuation lives on the "more" note row, not the process row's own
+    // `action` — that slot is claimed by the session-reveal control whenever
+    // there is a session to reveal (this run's status is the default
+    // 'running'), and the two must never compete for the one slot.
+    const moreRow = rows(process).find((r) => r.label === 'more');
+    expect(moreRow?.action).toMatchObject({ kind: 'open-full-evidence' });
     expect(label).toBe('Show 6 more');
+    expect(process.action).toMatchObject({ kind: 'open-session' });
   });
 
   it('ignores marks from other stages, other runs, and segments that never started', () => {
@@ -549,6 +555,80 @@ describe('implementationSessionProcess', () => {
     const markRow = rows(process).find((r) => r.label === 'research')!;
     expect(markRow.time).toBe(formatShortTime(runAt('12:10')));
     expect(markRow.detail).toBe(`reported · ${formatTime(runAt('12:10'))}`);
+  });
+
+  describe('open-session control', () => {
+    const attach = (target: InsideEvidenceTarget) => ({
+      actionId: 'snapshot-1:action-0',
+      kind: target.kind,
+    });
+
+    it('mints open-session while the run is still live (running)', () => {
+      const process = implementationSessionProcess(
+        cell('impl', 'running'),
+        tl([segment({ id: 1 })], { status: 'running', endedAt: null }),
+        [],
+        undefined,
+        undefined,
+        NOW,
+        attach,
+      );
+      expect(process.action).toMatchObject({ kind: 'open-session' });
+    });
+
+    it('mints open-session for an interrupted run — its terminal may still be revivable', () => {
+      const process = implementationSessionProcess(
+        cell('impl', 'running'),
+        tl([segment({ id: 1 })], { status: 'interrupted', endedAt: runAt('12:20') }),
+        [],
+        undefined,
+        undefined,
+        NOW,
+        attach,
+      );
+      expect(process.action).toMatchObject({ kind: 'open-session' });
+    });
+
+    it('mints no action for a passed run — the marker fired, the session is gone', () => {
+      const process = implementationSessionProcess(
+        cell('impl', 'passed'),
+        tl([segment({ id: 1, status: 'closed', endedAt: runAt('12:20') })], {
+          status: 'passed',
+          endedAt: runAt('12:20'),
+        }),
+        [],
+        undefined,
+        undefined,
+        NOW,
+        attach,
+      );
+      expect(process.action).toBeUndefined();
+    });
+
+    it('mints no action when the impl run never opened at all (no timeline)', () => {
+      const process = implementationSessionProcess(
+        cell('impl', 'pending'),
+        null,
+        [],
+        undefined,
+        undefined,
+        NOW,
+        attach,
+      );
+      expect(process.action).toBeUndefined();
+    });
+
+    it('mints no action when the host supplied no attach closure', () => {
+      const process = implementationSessionProcess(
+        cell('impl', 'running'),
+        tl([segment({ id: 1 })], { status: 'running', endedAt: null }),
+        [],
+        undefined,
+        undefined,
+        NOW,
+      );
+      expect(process.action).toBeUndefined();
+    });
   });
 
   it('reads the start as a green check once the session is marked done (Task 6.2)', () => {
@@ -1025,6 +1105,119 @@ describe('implementationSessionProcess segment tokens', () => {
       [],
     );
     expect(rows(process).find((r) => r.connector === 'switch')!.tokens).toBeUndefined();
+  });
+});
+
+// ── detail cell (869egdr2u-fu1: never an empty detail cell) ───────────────
+describe('implementationSessionProcess detail', () => {
+  it('states a running session', () => {
+    const process = implementationSessionProcess(
+      cell('impl', 'running'),
+      null,
+      [],
+      undefined,
+      undefined,
+      NOW,
+    );
+    expect(process.detail).toBeTruthy();
+    expect(process.detail).toMatch(/running/i);
+  });
+
+  it('states a stage that has not started', () => {
+    const process = implementationSessionProcess(
+      cell('impl', 'pending'),
+      null,
+      [],
+      undefined,
+      undefined,
+      NOW,
+    );
+    expect(process.detail).toBeTruthy();
+    expect(process.detail).toMatch(/not started/i);
+  });
+
+  it('states completion on the explicit done marker', () => {
+    const process = implementationSessionProcess(
+      cell('impl', 'passed'),
+      null,
+      [],
+      undefined,
+      undefined,
+      NOW,
+    );
+    expect(process.detail).toBeTruthy();
+    expect(process.detail!.toLowerCase()).toContain('marked done');
+  });
+
+  it('states a failed session', () => {
+    const process = implementationSessionProcess(
+      cell('impl', 'failed'),
+      null,
+      [],
+      undefined,
+      undefined,
+      NOW,
+    );
+    expect(process.detail).toBeTruthy();
+    expect(process.detail).toMatch(/fail/i);
+  });
+
+  it('reads a blocked stage as wait, never a spinner', () => {
+    // A parked stage keeps its stored `running` status while blocked
+    // (`stages.status` records what the runner was doing) — every other
+    // stage reads this through `displayStatus`, and session must too, or a
+    // blocked impl stage draws a spinner and says "Running" (defect 2).
+    const process = implementationSessionProcess(
+      cell('impl', 'running', {
+        blocked: { kind: 'unmapped-repository', reason: 'x', at: NOW, resumable: true },
+      }),
+      null,
+      [],
+      undefined,
+      undefined,
+      NOW,
+    );
+    expect(process.status).toBe('wait');
+    expect(process.statusLabel).toBe('Waiting');
+    expect(process.detail).toBeTruthy();
+  });
+
+  it('names the agent waiting on the user, from the explicit input, never inferred', () => {
+    // Defect 3: `ticket.agentState === 'waiting'` is threaded in explicitly —
+    // never re-derived from the timeline — and reads `wait` even while the
+    // session is otherwise running.
+    const process = implementationSessionProcess(
+      cell('impl', 'running'),
+      null,
+      [],
+      undefined,
+      undefined,
+      NOW,
+      undefined,
+      [],
+      true,
+    );
+    expect(process.status).toBe('wait');
+    expect(process.statusLabel).toBe('Waiting');
+    expect(process.detail).toBeTruthy();
+    expect(process.detail!.toLowerCase()).toMatch(/waiting on|answer|question/);
+  });
+
+  it('a blocked stage still reads wait when the agent is also waiting on the user', () => {
+    const process = implementationSessionProcess(
+      cell('impl', 'running', {
+        blocked: { kind: 'unmapped-repository', reason: 'x', at: NOW, resumable: true },
+      }),
+      null,
+      [],
+      undefined,
+      undefined,
+      NOW,
+      undefined,
+      [],
+      true,
+    );
+    expect(process.status).toBe('wait');
   });
 });
 

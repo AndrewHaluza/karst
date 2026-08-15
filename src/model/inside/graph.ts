@@ -196,6 +196,71 @@ export interface GraphInsideInput {
   now: string;
 }
 
+/**
+ * The closed graph-run status vocabulary — mirrors the `approach_graph_runs`
+ * CHECK constraint (`schema.sql`) exactly. This is the ONE place a graph-run
+ * status is turned into English: the webview must never parse or prettify a
+ * status string itself.
+ */
+const GRAPH_RUN_STATUSES = [
+  'planning',
+  'awaiting-confirmation',
+  'running',
+  'draining',
+  'blocked',
+  'completed-awaiting-impl-marker',
+  'closed',
+  'stale',
+  'cancelled',
+] as const;
+
+export type GraphRunStatus = (typeof GRAPH_RUN_STATUSES)[number];
+
+function isGraphRunStatus(status: string): status is GraphRunStatus {
+  return (GRAPH_RUN_STATUSES as readonly string[]).includes(status);
+}
+
+/**
+ * Host-worded copy for every graph-run status — exhaustive over
+ * `GraphRunStatus`, so a status added to the schema's CHECK constraint
+ * without a case here is a compile error (the `never` branch), not a leaked
+ * enum key reaching the panel.
+ */
+export function graphRunStatusLabel(status: GraphRunStatus): string {
+  switch (status) {
+    case 'planning':
+      return 'Planning';
+    case 'awaiting-confirmation':
+      return 'Awaiting confirmation';
+    case 'running':
+      return 'Running';
+    case 'draining':
+      return 'Draining';
+    case 'blocked':
+      return 'Blocked';
+    case 'completed-awaiting-impl-marker':
+      return 'Completed — awaiting implementation marker';
+    case 'closed':
+      return 'Closed';
+    case 'stale':
+      return 'Stale';
+    case 'cancelled':
+      return 'Cancelled';
+    default: {
+      const unreachable: never = status;
+      throw new Error(`unhandled graph run status: ${String(unreachable)}`);
+    }
+  }
+}
+
+/** Host-worded copy for a raw, possibly-stale status string read back from
+ *  the store: an unrecognized value (a status this build predates) falls
+ *  back to the raw key rather than throwing — the panel must never crash on
+ *  evidence written by a newer build. */
+function graphRunStatusCopy(status: string): string {
+  return isGraphRunStatus(status) ? graphRunStatusLabel(status) : status;
+}
+
 function graphRunStatus(status: string): InsideStatus {
   switch (status) {
     case 'planning':
@@ -462,7 +527,7 @@ export function graphInsideProcess(
   rows.push({
     label: 'graph',
     detail: sanitizeGraphText(
-      `run ${input.graphRun.id} · ${input.graphRun.status} · ${input.graphRun.approachId}`,
+      `run ${input.graphRun.id} · ${graphRunStatusCopy(input.graphRun.status)} · ${input.graphRun.approachId}`,
     ),
     status: graphRunStatus(input.graphRun.status),
     ...(input.attach && input.graphRun.status === 'awaiting-confirmation'
@@ -589,7 +654,8 @@ export function graphInsideProcess(
     kind: 'graph',
     label: 'Implementation graph',
     status: graphRunStatus(input.graphRun.status),
-    aggregate: sanitizeGraphText(input.graphRun.status),
+    aggregate: sanitizeGraphText(graphRunStatusCopy(input.graphRun.status)),
+    aggregateTitle: sanitizeGraphText(input.graphRun.status),
     evidence: {
       kind: 'rows',
       rows,

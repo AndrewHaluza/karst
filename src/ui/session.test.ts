@@ -612,6 +612,36 @@ describe('SessionManager', () => {
     expect(mgr.nudge(99, 'anything')).toBe(false);
   });
 
+  it('revealSession reveals an open terminal, like focusSession', () => {
+    const { adapter } = fakeAdapter();
+    const { host, terminals } = fakeHost();
+    const mgr = new SessionManager(host, channelFor);
+    mgr.openSession(adapter, 1, '/wt/a');
+    const before = terminals[0]!.shown;
+    expect(mgr.revealSession(1)).toBe(true);
+    expect(terminals[0]!.shown).toBe(before + 1);
+  });
+
+  // The inside panel's "Open session" reveal must adopt a revived terminal
+  // exactly like `nudge` does — a reload empties this window's `terminals`
+  // map while the agent it forgot is still running, and the dispatch that
+  // called this already proved a live implementation run exists.
+  it('revealSession adopts a revived terminal this host has not tracked yet', () => {
+    const revived = fakeRestored(7);
+    const { host } = fakeHost([revived]);
+    const mgr = new SessionManager(host, channelFor);
+
+    expect(mgr.revealSession(7)).toBe(true);
+    expect(revived.terminal.shown).toBe(1);
+    expect(mgr.isOpen(7)).toBe(true);
+  });
+
+  it('revealSession on a ticket with no live or revivable session is a no-op', () => {
+    const { host } = fakeHost([]);
+    const mgr = new SessionManager(host, channelFor);
+    expect(mgr.revealSession(99)).toBe(false);
+  });
+
   it('focusSession on an unopened ticket is a no-op', () => {
     const { adapter } = fakeAdapter();
     const { host } = fakeHost();

@@ -616,6 +616,24 @@ export class SessionManager {
     return true;
   }
 
+  /**
+   * Reveal the ticket's session terminal, adopting a revived one first when
+   * this window's own bookkeeping forgot it (a reload empties `terminals`
+   * while the agent it forgot is still running). Never launches: the inside
+   * panel's "Open session" control is a reveal-or-adopt, never a resume — the
+   * dispatch already proved a live implementation run exists before calling
+   * this, so `false` here means the run's terminal died between that read
+   * and this call, not that no session was ever open.
+   *
+   * Returns whether a terminal was revealed, mirroring `focusSession`.
+   */
+  revealSession(ticketId: number, preserveFocus?: boolean): boolean {
+    const tracked = this.terminals.get(ticketId) ?? this.adoptRevivedSession(ticketId);
+    if (!tracked) return false;
+    tracked.terminal.show(preserveFocus);
+    return true;
+  }
+
   /** Whether a session terminal is currently open for a ticket. */
   isOpen(ticketId: number): boolean {
     return this.terminals.has(ticketId);

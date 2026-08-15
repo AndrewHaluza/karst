@@ -3,7 +3,7 @@ import { bundledModelCatalog } from '../../agent/modelCatalog.js';
 import { PROVIDER_INTERACTIVE_USAGE } from '../../agent/provider.js';
 import type { ImplementationSegment, ImplementationTimeline } from '../../store/implementationRuns.js';
 import type { PhaseMark } from '../../store/phaseMarks.js';
-import type { StepperCell } from '../stepper.js';
+import { displayStatus, type StepperCell } from '../stepper.js';
 import { AGENT_PROVIDER_LABELS } from '../agentIdentity.js';
 import { formatExactTokens, formatTokens } from '../tokenFormat.js';
 import {
@@ -32,12 +32,6 @@ import { bounded } from './bounds.js';
  * impl done marker. The absence of such a mark stays evidence of nothing —
  * never "not done", never "skipped", only "not reported".
  */
-
-export interface SessionView {
-  sessionId: string | null;
-  agentState: string | null;
-  model: string | null;
-}
 
 /**
  * The marks this render is entitled to use: this stage, this attempt, each
@@ -338,18 +332,65 @@ export function tokenView(tokens: SessionTokensInput, interactiveUsage = true): 
   };
 }
 
-function sessionStatus(cell: StepperCell): InsideStatus {
-  switch (cell.status) {
+/**
+ * The row's status, read through `displayStatus` like every other stage
+ * process (`stageProcessStatus` in `model/inside/index.ts`) — a parked stage
+ * keeps its stored `running` status while blocked, so reading raw
+ * `cell.status` drew a spinner and said "Running" for a stage that was
+ * actually waiting on karst (defect 2).
+ *
+ * `agentWaiting` is the ticket's own `agent_state === 'waiting'` (the agent
+ * asked the user a question and is blocked on the answer, the same
+ * condition `cli/stage.ts`'s `assertMarkerNotWhileWaiting` refuses the done
+ * marker on) — an EXPLICIT input, never re-derived from the timeline. It
+ * wins over the stage's own status: a session that is otherwise `running`
+ * still reads `wait` while the agent is waiting on the user, and a stage
+ * already `blocked` stays `wait` regardless (defect 3).
+ */
+function sessionStatus(cell: StepperCell, agentWaiting: boolean): InsideStatus {
+  if (agentWaiting) return 'wait';
+  switch (displayStatus(cell)) {
     case 'passed':
       return 'pass';
     case 'failed':
       return 'fail';
     case 'running':
       return 'run';
+    case 'blocked':
+      return 'wait';
     case 'skipped':
       return 'skip';
     default:
       return 'pending';
+  }
+}
+
+/**
+ * The row's description cell (869egdr2u-fu1: never an empty detail cell) —
+ * host-worded, keyed by the SAME status reading `sessionStatus` produced, so
+ * the two can never disagree. States only facts karst recorded: a running
+ * session, the agent waiting on the user's answer, completion on the
+ * explicit done marker, a failed session, or a stage that has not started.
+ * Never infers agent progress — the file's own header rule.
+ */
+function sessionDetail(status: InsideStatus, agentWaiting: boolean): string {
+  switch (status) {
+    case 'run':
+      return 'agent session running';
+    case 'wait':
+      return agentWaiting
+        ? 'the agent asked a question — waiting on your answer'
+        : 'stage parked — waiting on karst';
+    case 'pass':
+      return 'implementation marked done';
+    case 'fail':
+      return 'agent session failed';
+    case 'skip':
+      return 'skipped';
+    case 'pending':
+      return 'not started';
+    default:
+      return '';
   }
 }
 
@@ -443,6 +484,7 @@ export function implementationSessionProcess(
   now: string,
   attach?: (target: InsideEvidenceTarget) => TypedInsideAction | undefined,
   segmentTokens: readonly SegmentTokensInput[] = [],
+  agentWaiting = false,
 ): InsideProcessView {
   const execution = timeline ? latestConfirmedSegment(timeline) : undefined;
 
@@ -456,6 +498,20 @@ export function implementationSessionProcess(
     rows = boundedRows.shown;
     withheld = boundedRows.remaining;
     if (boundedRows.remaining > 0) {
+      // The "more" note row carries its OWN reveal control — the stable run's
+      // full evidence — rather than the process row's single `action` slot,
+      // which the session-reveal control below claims whenever a session
+      // exists to reveal. Keeping this on the row means the two controls
+      // never compete: a bounded timeline can always be expanded from the
+      // row that already says "+N more", independent of whether the process
+      // row itself is currently offering "Open session".
+      const fullEvidenceAction = attach
+        ? attach({
+            kind: 'open-full-evidence',
+            processRunId: timeline.run.processRunId,
+            label: `Show ${withheld} more`,
+          })
+        : undefined;
       rows = [
         ...rows,
         {
@@ -463,23 +519,24 @@ export function implementationSessionProcess(
           label: 'more',
           detail: `+${boundedRows.remaining} more`,
           role: 'event',
+          ...(fullEvidenceAction ? { action: fullEvidenceAction } : {}),
         },
       ];
     }
   }
 
-  // The process row can open the stable run's full evidence — the one action a
-  // timeline row cannot carry without claiming a specific segment. It exists
-  // ONLY when the timeline was actually cut short: with nothing withheld the
-  // disclosure already shows every row, so a "Show all" beside it offered a
-  // second, weaker way to see what was on screen.
+  // The process row's control REVEALS the session's existing terminal — it
+  // never opens a console, because karst captures no log for the interactive
+  // session (`agentLogReader`/`requestAgentLog` serve only the gate-lane AI
+  // processes). Minted ONLY while the run is still live — `status !==
+  // 'passed'` is the exact fact `store/implementationRuns.ts`'s
+  // `liveImplementationRun` reads to decide the same question at dispatch
+  // time, so the mint and the ownership proof never disagree. A `passed` run
+  // has no terminal left to reveal: the marker already fired and the session
+  // that produced it is gone.
   const action =
-    attach && timeline && withheld > 0
-      ? attach({
-          kind: 'open-full-evidence',
-          processRunId: timeline.run.processRunId,
-          label: `Show ${withheld} more`,
-        })
+    attach && timeline && timeline.run.status !== 'passed'
+      ? attach({ kind: 'open-session' })
       : undefined;
 
   // Per-session usage exists for every implemented provider — codex/opencode
@@ -497,7 +554,8 @@ export function implementationSessionProcess(
 
   // One status reading feeds both the row's dot and its label — a second
   // derivation from `cell` is how the two would drift apart.
-  const status = sessionStatus(cell);
+  const status = sessionStatus(cell, agentWaiting);
+  const detail = sessionDetail(status, agentWaiting);
   const footer = implementationFooter(timeline, tokens);
 
   return {
@@ -506,6 +564,7 @@ export function implementationSessionProcess(
     label: 'Session',
     status,
     statusLabel: SESSION_STATUS_LABELS[status],
+    ...(detail ? { detail } : {}),
     ...(footer.length > 0 ? { footer } : {}),
     ...(action ? { action } : {}),
     ...(cell.startedAt

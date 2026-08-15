@@ -9,9 +9,11 @@
 import { describe, it, expect } from 'vitest';
 import {
   graphInsideProcess,
+  graphRunStatusLabel,
   sanitizeGraphText,
   type GraphActionTarget,
   type GraphInsideInput,
+  type GraphRunStatus,
 } from './graph.js';
 
 /** The injection fixture: planner-authored text with HTML, ANSI, and an
@@ -120,7 +122,8 @@ describe('graphInsideProcess', () => {
     expect(process.id).toBe('graph');
     expect(process.kind).toBe('graph');
     expect(process.status).toBe('run');
-    expect(process.aggregate).toBe('running');
+    expect(process.aggregate).toBe('Running');
+    expect(process.aggregateTitle).toBe('running');
     expect(process.evidence?.kind).toBe('rows');
     if (process.evidence?.kind !== 'rows') return;
     const rows = process.evidence.rows;
@@ -198,6 +201,49 @@ describe('graphInsideProcess', () => {
     )!;
     if (closed.evidence?.kind !== 'rows') return;
     expect(closed.evidence.rows[0]!.action).toBeUndefined();
+  });
+
+  it('words the raw completed-awaiting-impl-marker status for both the aggregate chip and the graph row detail, keeping the raw key only as the aggregate title', () => {
+    const process = graphInsideProcess(
+      input({
+        graphRun: {
+          id: 7,
+          status: 'completed-awaiting-impl-marker',
+          approachId: 'g',
+          stageAttempt: 0,
+          createdAt: '2026-08-11T00:00:00.000Z',
+        },
+      }),
+    )!;
+    expect(process.aggregate).toBe('Completed — awaiting implementation marker');
+    expect(process.aggregate).not.toContain('completed-awaiting-impl-marker');
+    expect(process.aggregateTitle).toBe('completed-awaiting-impl-marker');
+    if (process.evidence?.kind !== 'rows') return;
+    expect(process.evidence.rows[0]!.detail).not.toContain('completed-awaiting-impl-marker');
+    expect(process.evidence.rows[0]!.detail).toContain(
+      'Completed — awaiting implementation marker',
+    );
+  });
+
+  it('covers every closed graph-run status with host-worded copy (exhaustive)', () => {
+    const statuses: GraphRunStatus[] = [
+      'planning',
+      'awaiting-confirmation',
+      'running',
+      'draining',
+      'blocked',
+      'completed-awaiting-impl-marker',
+      'closed',
+      'stale',
+      'cancelled',
+    ];
+    for (const status of statuses) {
+      const label = graphRunStatusLabel(status);
+      expect(typeof label).toBe('string');
+      expect(label.length).toBeGreaterThan(0);
+      // The label is host-worded prose, never the raw hyphenated store key.
+      expect(label).not.toBe(status);
+    }
   });
 
   it('attaches a persistent confirm action while the accepted graph awaits confirmation', () => {

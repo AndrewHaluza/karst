@@ -20,7 +20,6 @@ import {
   tokenView,
   type SessionConfiguredInput,
   type SessionTokensInput,
-  type SessionView,
 } from './agent.js';
 
 export { bounded } from './bounds.js';

@@ -2596,6 +2596,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         );
       },
     },
+    // Reveal (never launch) the ticket's own interactive session — the same
+    // reveal-or-adopt path `nudge` uses, so a reload that emptied this
+    // window's session bookkeeping still finds the still-running agent.
+    (ticketId) => void sessions.revealSession(ticketId),
     (graphRunId) => graphRecoveryDeps(graphRunId),
     (launch) => void launchReplanPlannerHost(launch),
     (launch) => void launchBootstrapRelaunchHost(launch),
@@ -6743,6 +6747,12 @@ function makeInsideActionHost(
     graphDiscardNode: (ticketId: number, nodeRunId: number) => void | Promise<void>;
     graphEditOverride: (ticketId: number, nodeRunId: number) => void | Promise<void>;
   },
+  // The impl stage's Session row: reveal (never launch) the ticket's own
+  // interactive session terminal. The dispatch already proved a live
+  // implementation run exists; this goes through `SessionManager.revealSession`
+  // — the same reveal-or-adopt path `nudge` uses — so a reload that emptied
+  // this window's bookkeeping still finds the still-running agent.
+  revealSession: (ticketId: number) => void,
   // The graph recovery action's host binding (Slice-4 T6): the atomic claim
   // wrapper plus the prompt re-snapshot seam. Bound in activate where the
   // snapshot root is known; the panel host only routes Resume to it.
@@ -6849,6 +6859,7 @@ function makeInsideActionHost(
         { title, placeHolder: 'Recorded repository evidence' },
       );
     },
+    openSession: (ticketId) => revealSession(ticketId),
     graphOpenSession: (ticketId, session) => graphHost.graphOpenSession(ticketId, session),
     graphStop: (ticketId) => graphHost.graphStop(ticketId),
     graphConfirm: (ticketId, graphRunId) => graphHost.graphConfirm(ticketId, graphRunId),

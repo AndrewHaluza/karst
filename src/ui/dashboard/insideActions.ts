@@ -6,6 +6,7 @@ import { getShipCommitById } from '../../store/shipRuns.js';
 import { stageBlock } from '../../store/stageBlocks.js';
 import { getUatFindingById } from '../../store/uatFindings.js';
 import { getTicket } from '../../store/tickets.js';
+import { liveImplementationRun } from '../../store/implementationRuns.js';
 import { canonicalPath, isPathUnder } from '../../runtime/pathScope.js';
 import type { StageKey } from '../../model/types.js';
 import type {
@@ -54,6 +55,11 @@ export type InsideActionTarget =
       title: string;
       rows: readonly EvidenceRow[];
     }
+  // The impl stage's Session row: reveal the ticket's own interactive
+  // session terminal. No id rides the target — ownership is the ticket id
+  // the action was minted under, proven at dispatch by re-reading whether
+  // the ticket has a live implementation run (see `openSession` below).
+  | { kind: 'open-session'; ticketId: number }
   // Graph controls (Slice 3 Task 11). `session.runId` is a RECORDED
   // planner-run / node-run row id — the dispatch re-loads it and proves it
   // belongs to the registry's ticket before the host focuses anything. Stop
@@ -161,6 +167,15 @@ export interface InsideActionHost {
     title: string,
     rows: readonly EvidenceRow[],
   ): void | Promise<void>;
+  /**
+   * Reveal the ticket's own interactive session terminal — the impl stage's
+   * Session row. Never spawns and never nudges: the dispatch has already
+   * proven a live implementation run exists for the ticket, and the host
+   * side goes through the existing reveal-or-adopt path (a reload can leave
+   * this window's session bookkeeping empty while the agent itself is still
+   * running).
+   */
+  openSession(ticketId: number): void | Promise<void>;
   /**
    * Focus the terminal of a LIVE planner/node session. Never spawns: the
    * dispatch has already proven the run row exists and belongs to the ticket.
@@ -359,6 +374,18 @@ export function dispatchInsideAction(
     }
     case 'open-bounded-evidence': {
       void deps.host.openBoundedEvidence(target.ticketId, target.title, target.rows);
+      return { outcome: 'dispatched' };
+    }
+    case 'open-session': {
+      // Re-read whether the ticket still has a live implementation run — the
+      // same fact `implementationSessionProcess` minted the control on. A
+      // run that ended (the done marker fired) since the snapshot has no
+      // terminal left to reveal, so the id is refused rather than reaching
+      // for a session that is gone.
+      if (liveImplementationRun(store, target.ticketId) === undefined) {
+        return { outcome: 'rejected', reason: 'no live implementation session for this ticket' };
+      }
+      void deps.host.openSession(target.ticketId);
       return { outcome: 'dispatched' };
     }
     case 'graph-open-session': {

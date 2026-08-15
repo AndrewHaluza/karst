@@ -747,7 +747,13 @@
 
   #inside .op-name{display:flex;align-items:center;gap:var(--p-s2);min-height:18px;line-height:18px;
     font-size:var(--p-sm);font-weight:var(--k-weight-medium);color:var(--p-text);
-    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    min-width:0;overflow:hidden}
+  /* The label gets its own ellipsis box (min-width:0 + flex so it actually
+     shrinks inside the flex row) instead of the `AI` badge span fighting it
+     for the flex container's own text-overflow, which never rendered the
+     ellipsis — the label was clipped mid-word with no dots (869e-op-name). */
+  #inside .op-name-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+    min-width:0;flex:1 1 auto}
   #inside .op-detail{min-width:0;min-height:18px;line-height:18px;color:var(--p-muted);font-size:var(--p-sm);
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   #inside .op-detail.run{color:var(--p-running)}
@@ -807,17 +813,32 @@
     background:var(--p-tint-run);border-bottom:var(--k-border-w) solid var(--p-border);
     color:var(--p-muted);font-family:var(--p-mono);font-size:var(--p-xs);
     text-transform:uppercase;letter-spacing:.04em}
-  #inside .graph-node{display:grid;grid-template-columns:18px minmax(74px,110px) minmax(0,1fr) auto;
+  /* Five explicit tracks — glyph, name, meta, detail, control — one per row
+     child the renderer ever emits (`.ev-tail` is the 5th and last, present
+     only when the node carries an action). Grid auto-flow wraps a 5th item
+     to an implicit new row when the template names only 4 tracks, which is
+     what pushed the control out of the bordered box and onto its own
+     18px-wide row, wrapping the label (869e-graph-node-overflow). The
+     control's track is `auto` sized to its content and never shrunk, so the
+     button always lands inside the row at the right end. */
+  #inside .graph-node{display:grid;
+    grid-template-columns:18px minmax(60px,90px) minmax(60px,90px) minmax(0,1fr) auto;
     gap:var(--p-s2);align-items:center;min-height:26px;padding:0 var(--p-s2);
     border-bottom:var(--k-border-w) solid var(--p-border)}
   #inside .graph-node:last-child{border-bottom:0}
   #inside .graph-node .glyph{justify-self:start}
   #inside .graph-node-name{font-family:var(--p-mono);font-size:var(--p-xs);color:var(--p-text);
-    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
   #inside .graph-node-meta{color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs);
-    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
   #inside .graph-node-detail{display:flex;align-items:center;gap:var(--p-s2);min-width:0;
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--p-sm);line-height:18px}
+  /* The control's own column: never shrinks, never wraps its label, always
+     stays inside the bordered box at the row's right end. Local geometry
+     only — the button itself stays the shared `.k-btn` primitive
+     (UI-R07/R08). */
+  #inside .graph-node .ev-tail{flex:none;justify-self:end;white-space:nowrap}
+  #inside .graph-node .ev-tail .k-btn{white-space:nowrap;flex:none}
   #inside .graph-node-identity{color:var(--p-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   #inside .graph-node-visit{color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs);white-space:nowrap}
   #inside .graph-node-override{color:var(--p-running);font-family:var(--p-mono);font-size:var(--p-xs);white-space:nowrap}
@@ -1144,6 +1165,12 @@
     #inside .recovery-round{grid-template-columns:48px minmax(0,1fr)}
     #inside .recovery-timing{display:none}
     #inside .recovery-result{grid-column:2}
+    /* The node list's control stays in its own `auto` track and the meta
+       column (kind · status) drops rather than crushing the control's track
+       toward zero width — the crushed-and-escaped control at narrow panel
+       widths is 869e-graph-node-overflow. */
+    #inside .graph-node{grid-template-columns:18px minmax(56px,76px) minmax(0,1fr) auto}
+    #inside .graph-node-meta{display:none}
     /* handoff §10: a truncated path hides where the fix goes, so the unbounded
        cells WRAP here instead of ellipsising — and `overflow-wrap:anywhere`,
        because `white-space:normal` alone cannot break a long branch or SHA. */
@@ -2176,6 +2203,7 @@
     'resume-stage': 'Resume',
     'open-full-evidence': 'Show all',
     'open-bounded-evidence': 'Show all',
+    'open-session': 'Open session',
     'graph-open-session': 'Open session',
     'graph-confirm': 'Start graph',
     'graph-stop': 'Stop',
@@ -2190,6 +2218,7 @@
     'resume-stage': "Resume this ticket's stage",
     'open-full-evidence': 'Show every recorded row',
     'open-bounded-evidence': 'Show every repository row',
+    'open-session': 'Focus this session\'s terminal — never spawns one',
     'graph-open-session': 'Focus this session\'s terminal — never spawns one',
     'graph-confirm': 'Confirm the accepted plan and start graph execution',
     'graph-stop': 'Signal the graph coordinator to drain',
@@ -2622,13 +2651,14 @@
     // not the design's, and it crowded the tail out of the narrow widths.
     const tail = `<span class="op-tail">${identityHtml(p)}`
       + tokenStatHtml(p.tokens, p.status === 'run')
-      + (p.aggregate ? `<span class="count">${esc(p.aggregate)}</span>` : '')
+      + (p.aggregate ? `<span class="count"${p.aggregateTitle ? ` title="${esc(p.aggregateTitle)}"` : ''}>${esc(p.aggregate)}</span>` : '')
       + (p.count ? `<span class="count">${esc(p.count)}</span>` : '')
       + (p.time ? `<span class="op-time">${esc(p.time)}</span>` : '')
       + (p.duration ? `<span class="duration"${p.durationExact ? ` title="${esc(p.durationExact)}"` : ''}>${esc(p.duration)}</span>` : '')
       + (p.action ? insideActionBtnHtml(p.action) : '')
       + `</span>`;
-    const name = `<span class="op-name">${esc(p.label)}${ai}</span>`;
+    const name = `<span class="op-name" title="${esc(p.label)}">`
+      + `<span class="op-name-text">${esc(p.label)}</span>${ai}</span>`;
     const glyph = `<span class="glyph ${esc(p.status)}" aria-label="${esc(p.statusLabel || statusWord(p.status))}"></span>`;
     // The console (terminal detailed mode) entry point: the GATES row's
     // description area, icon-only (869e7n906-fu1). The label is not lost — it

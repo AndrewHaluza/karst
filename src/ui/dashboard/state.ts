@@ -497,6 +497,10 @@ export function buildDashboardState(
         )
       : insideStageForRuntimeStage(ticket.stageCurrent as StageKey, fixFallback);
 
+  // Computed once: this used to be called separately by the spread's guard
+  // and its element, building the whole projection twice and discarding one.
+  const graphInsideProcessOnce = graphInsideProcess(graphInside);
+
   const insideViews: Record<InsideStageKey, InsideStageView> = {
     scope: stageView(
       'scope',
@@ -527,10 +531,19 @@ export function buildDashboardState(
                 cacheRead: t.cacheReadTokens,
               }))
             : [],
+          // The ticket's own `agent_state === 'waiting'` — the agent asked
+          // the user a question and is blocked on the answer. Threaded in
+          // explicitly, never re-derived: it is the same fact
+          // `cli/stage.ts`'s `assertMarkerNotWhileWaiting` refuses the done
+          // marker on.
+          ticket.agentState === 'waiting',
         ),
         // The graph runtime's read-only projection (Slice 2 Task 10):
-        // appended when the host supplies it, inert otherwise.
-        ...(graphInsideProcess(graphInside) ? [graphInsideProcess(graphInside)!] : []),
+        // appended when the host supplies it, inert otherwise. Computed once
+        // — the guard and the spread previously each called
+        // `graphInsideProcess`, building the whole projection twice and
+        // discarding one.
+        ...(graphInsideProcessOnce ? [graphInsideProcessOnce] : []),
       ],
       now,
     ),

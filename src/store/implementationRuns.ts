@@ -137,8 +137,16 @@ export function currentImplementationRun(
   return row === undefined ? undefined : rowToRun(row);
 }
 
-/** A run that is still (or again) the ticket's live implementation. */
-function openRunForTicket(store: Store, ticketId: number): ImplementationRun | undefined {
+/**
+ * A run that is still (or again) the ticket's live implementation — the same
+ * fact that decides whether the impl stage's Session row can offer a "reveal
+ * the terminal" control: `running`/`interrupted` is a run whose session may
+ * still be open (or revivable) in some window, `passed` is a run whose
+ * terminal is gone for good. Exported so the inside reducer (mint) and the
+ * dispatch (ownership proof) read the SAME fact rather than two derivations
+ * that could drift apart.
+ */
+export function liveImplementationRun(store: Store, ticketId: number): ImplementationRun | undefined {
   const row = store.db
     .prepare(
       `${RUN_SELECT} WHERE ticket_id = ? AND status IN ('running','interrupted')
@@ -275,7 +283,7 @@ export function closeImplementationSegment(store: Store, segmentId: number, at: 
  * `node:sqlite` shim cannot nest BEGINs). No-op when nothing is running.
  */
 export function completeImplementationRun(store: Store, ticketId: number, endedAt: string): void {
-  const run = openRunForTicket(store, ticketId);
+  const run = liveImplementationRun(store, ticketId);
   if (run === undefined) return;
   store.db
     .prepare(

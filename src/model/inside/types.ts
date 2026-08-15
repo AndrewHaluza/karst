@@ -236,6 +236,7 @@ export type InsideActionKind =
   | 'resume-stage'
   | 'open-full-evidence'
   | 'open-bounded-evidence'
+  | 'open-session'
   | 'graph-open-session'
   | 'graph-confirm'
   | 'graph-stop'
@@ -279,6 +280,14 @@ export type InsideEvidenceTarget =
       rows: readonly EvidenceRow[];
       label?: string;
     }
+  // The impl stage's Session row: reveal the interactive session's OWN
+  // terminal, exactly like `graph-open-session` reveals a live planner/node
+  // session's — never a console (karst captures no log for this session,
+  // `agentLogReader` serves only the gate-lane AI processes). Carries NO
+  // path, terminal id, or session name: the ticket-scoped host resolves
+  // which terminal to reveal (or adopt, if this window forgot it across a
+  // reload) from the ticket id alone, per the opaque-capability rule above.
+  | { kind: 'open-session' }
   // Graph controls (Slice 3 Task 11): Open focuses a LIVE planner/node
   // session's terminal (never spawns one); Stop signals the coordinator to
   // drain. The `session.runId` is a recorded run row id — a persisted object,
@@ -667,6 +676,16 @@ export interface InsideProcessView {
    * verbatim and concatenates nothing (UI-R31). Absent → no aggregate.
    */
   aggregate?: string;
+  /**
+   * The raw stored status key `aggregate` was worded from — e.g. the graph
+   * run's `completed-awaiting-impl-marker` — rendered ONLY as the aggregate
+   * chip's `title` tooltip, never as visible copy. Absent → the chip carries
+   * no tooltip. This is the verdict fact `aggregate` already states in
+   * English; keeping the raw key alongside it (title-only) is what lets a
+   * reader who needs the literal stored value find it without the webview
+   * ever parsing or prettifying a status string itself.
+   */
+  aggregateTitle?: string;
   /** A bare count, for a process whose identity IS a number (scope's hot set). */
   count?: string;
   duration?: string;

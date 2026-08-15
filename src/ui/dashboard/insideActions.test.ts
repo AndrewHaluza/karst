@@ -4,6 +4,7 @@ import { recordFindings } from '../../store/reviewFindings.js';
 import { recordUatFindings } from '../../store/uatFindings.js';
 import { openShipRun, recordShipCommit } from '../../store/shipRuns.js';
 import { openProcessRun } from '../../store/processRuns.js';
+import { openImplementationRun, completeImplementationRun } from '../../store/implementationRuns.js';
 import { parkGateStage } from '../../store/stageBlocks.js';
 import {
   InsideActionRegistry,
@@ -157,6 +158,7 @@ function host(calls: string[]): InsideActionHost {
     openFullEvidence: (ticketId, processRunId) => void calls.push(`evidence:${ticketId}:${processRunId}`),
     openBoundedEvidence: (ticketId, title, rows) =>
       void calls.push(`bounded:${ticketId}:${title}:${rows.map((row) => row.label).join(',')}`),
+    openSession: (ticketId) => void calls.push(`open-session:${ticketId}`),
     graphOpenSession: (ticketId, session) =>
       void calls.push(`graph-open:${ticketId}:${session.kind}:${session.runId}`),
     graphStop: (ticketId) => void calls.push(`graph-stop:${ticketId}`),
@@ -531,6 +533,37 @@ describe('dispatchInsideAction', () => {
     r.register({ kind: 'open-full-evidence', ticketId: 2, processRunId: run.id });
     expect(dispatchInsideAction(store, r, 'snapshot-7:action-1', deps([]))).toEqual({
       outcome: 'unknown',
+    });
+  });
+
+  it('dispatches open-session only while the ticket has a live implementation run', () => {
+    const r = registry(7);
+    r.register({ kind: 'open-session', ticketId: 1 });
+    const calls: string[] = [];
+    // No implementation run recorded at all yet — rejected, never dispatched
+    // against a ticket that never opened a session.
+    expect(dispatchInsideAction(store, r, 'snapshot-7:action-0', deps(calls))).toEqual({
+      outcome: 'rejected',
+      reason: 'no live implementation session for this ticket',
+    });
+
+    openImplementationRun(store, {
+      ticketId: 1,
+      attempt: 0,
+      provider: 'claude',
+      startedAt: '2026-08-08T10:00:00.000Z',
+    });
+    expect(dispatchInsideAction(store, r, 'snapshot-7:action-0', deps(calls))).toEqual({
+      outcome: 'dispatched',
+    });
+    expect(calls).toEqual(['open-session:1']);
+
+    // The run ended (the done marker fired) — the same id must now refuse:
+    // the session that produced it is gone, there is nothing left to reveal.
+    completeImplementationRun(store, 1, '2026-08-08T11:00:00.000Z');
+    expect(dispatchInsideAction(store, r, 'snapshot-7:action-0', deps([]))).toEqual({
+      outcome: 'rejected',
+      reason: 'no live implementation session for this ticket',
     });
   });
 

@@ -929,6 +929,7 @@ const NOOP_INSIDE_HOST: InsideActionHost = {
   resumeStage: () => undefined,
   openFullEvidence: () => undefined,
   openBoundedEvidence: () => undefined,
+  openSession: () => undefined,
   graphOpenSession: () => undefined,
   graphStop: () => undefined,
   graphConfirm: () => undefined,
