@@ -37,9 +37,12 @@ export function openWritableStore(dbPath: string): Store {
      * runs `fn` in a single transaction. Nested BEGINs are not expected (the
      * machine wraps exactly one), so we keep it flat.
      */
-    transaction: <A extends unknown[], R>(fn: (...args: A) => R) => {
+    transaction: <A extends unknown[], R>(
+      fn: (...args: A) => R,
+      opts?: { begin?: 'immediate' },
+    ) => {
       return (...args: A): R => {
-        db.exec('BEGIN');
+        db.exec(opts?.begin === 'immediate' ? 'BEGIN IMMEDIATE' : 'BEGIN');
         try {
           const result = fn(...args);
           db.exec('COMMIT');

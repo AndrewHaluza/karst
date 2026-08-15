@@ -42,6 +42,9 @@
  *    applies (the canonical tree advanced under the node), a failed
  *    add/commit — is `integration-conflict`: BOTH the isolated workspace AND
  *    the canonical worktree are preserved for diagnosis and the graph blocks.
+ * 7. after the completed verdict and successor routing commit, invokes the
+ *    host's terminal-workspace cleanup. Cleanup is best-effort and can never
+ *    rewrite the node or graph verdict.
  *
  * Lease release (Slice 5 Task 2): a successful integration releases the node's
  * `held` leases in the SAME transaction that accepts the completion. Every
@@ -112,6 +115,9 @@ export interface CompletionPipelineDeps {
    *  when the node has none — the V1 canonical-worktree model. The change set
    *  is captured from the clone and landed into the CANONICAL worktree. */
   workspaceCwdOf: (nodeRunId: number, repoName: string) => string | undefined;
+  /** Best-effort terminal cleanup, injected by the host so this module stays
+   *  filesystem/store agnostic. It must preserve recoverable workspaces. */
+  cleanupNodeWorkspace: (input: { graphRunId: number; nodeRunId: number }) => void;
 }
 
 export type CompletionPipelineResult =
@@ -667,5 +673,14 @@ export async function runCompletionPipeline(
     releaseProcessSlot(deps.db, input.graphRunId);
   });
   graphDiag('integration', `node integrated${committed ? '' : ' (no changes)'} — completed`);
+  try {
+    deps.cleanupNodeWorkspace(input);
+  } catch (err) {
+    // The node is already durably completed and routed. Workspace cleanup is
+    // bookkeeping and must never rewrite or reject that terminal verdict.
+    deps.debug?.(
+      `[graph] workspace cleanup: node ${input.nodeRunId} failed after completion (${err instanceof Error ? err.message : String(err)})`,
+    );
+  }
   return { kind: 'integrated', committed };
 }

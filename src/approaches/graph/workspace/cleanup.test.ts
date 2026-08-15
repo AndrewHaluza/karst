@@ -14,9 +14,18 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { openStore } from '../../../store/db.js';
 import { createNodeWorkspace, type NodeWorkspaceDeps, type WorkspaceDomain } from './provider.js';
-import { cleanupNodeWorkspace, type CleanupNodeWorkspaceDeps } from './cleanup.js';
+import {
+  cleanupNodeWorkspace,
+  cleanupTerminalNodeWorkspace,
+  type CleanupNodeWorkspaceDeps,
+} from './cleanup.js';
 import { gitCommonDirFromFs } from '../integration/domains.js';
-import { workspaceBytesOf, workspacesForNode } from '../../../store/graph/nodeRuns.js';
+import {
+  releaseWorkspaceBytes,
+  removeWorkspacesForNode,
+  workspaceBytesOf,
+  workspacesForNode,
+} from '../../../store/graph/nodeRuns.js';
 import { defaultGitRunner } from '../../../integrations/git.js';
 import type { ProcessFacts } from '../../../runtime/serverIdentity.js';
 
@@ -263,4 +272,69 @@ describe('cleanupNodeWorkspace', () => {
       h.close();
     }
   });
+
+  it('re-reads the ledger under the lock when two terminal observers race', async () => {
+    const h = harness();
+    try {
+      const firstCwd = await createWorkspace(h, 6);
+      await createWorkspace(h, 7);
+      expect(workspaceBytesOf(h.db, h.graphRunId)).toBe(1_000);
+      let transactionNumber = 0;
+      const deps: CleanupNodeWorkspaceDeps = {
+        store: h.store,
+        facts: deadFacts,
+        transaction: <T>(fn: () => T): T => {
+          transactionNumber += 1;
+          if (transactionNumber === 2) {
+            // The run-close observer won after this completion observer had
+            // already seen the directory: it released node 6's 500-byte row.
+            withImmediate(h.db, () => {
+              removeWorkspacesForNode(h.db, 6);
+              releaseWorkspaceBytes(h.db, h.graphRunId, 500);
+            });
+          }
+          return withImmediate(h.db, fn);
+        },
+      };
+
+      const result = cleanupNodeWorkspace(deps, {
+        graphRunId: h.graphRunId,
+        nodeRunId: 6,
+        cwd: firstCwd,
+      });
+
+      expect(result.kind).toBe('no-op');
+      // Node 7 still owns 500 bytes. A stale pre-lock read would release node
+      // 6 twice and incorrectly clamp the whole graph total to zero.
+      expect(workspaceBytesOf(h.db, h.graphRunId)).toBe(500);
+      expect(workspacesForNode(h.db, 7)).toHaveLength(1);
+    } finally {
+      h.close();
+    }
+  });
+});
+
+describe('cleanupTerminalNodeWorkspace', () => {
+  it.each(['ready', 'running', 'blocked', 'termination-unknown'])(
+    'preserves a recoverable %s node workspace',
+    async (status) => {
+      const h = harness();
+      try {
+        const cwd = await createWorkspace(h, 8);
+        h.db.prepare('UPDATE approach_node_runs SET status = ? WHERE id = 8').run(status);
+
+        const result = cleanupTerminalNodeWorkspace(cleanupDeps(h), {
+          graphRunId: h.graphRunId,
+          nodeRunId: 8,
+        });
+
+        expect(result.kind).toBe('no-op');
+        expect(existsSync(cwd)).toBe(true);
+        expect(workspacesForNode(h.db, 8)).toHaveLength(1);
+        expect(workspaceBytesOf(h.db, h.graphRunId)).toBe(500);
+      } finally {
+        h.close();
+      }
+    },
+  );
 });

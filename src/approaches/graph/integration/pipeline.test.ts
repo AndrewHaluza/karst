@@ -11,19 +11,23 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync, readFileSync, chmodSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync, readFileSync, chmodSync, mkdirSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { openStore } from '../../../store/db.js';
+import { openStore, type Store } from '../../../store/db.js';
 import { runCompletionPipeline, INTEGRATION_COMMIT_PREFIX, type CompletionPipelineDeps } from './pipeline.js';
 import { domainKeyOf } from './domains.js';
 import { canonicalPath } from '../../../runtime/pathScope.js';
 import { acquireLease } from '../../../store/graph/leases.js';
 import type { AgentTransport, SupervisedAgentSession } from '../transport/supervisedCliTransport.js';
 import type { GitRunner } from '../../../integrations/git.js';
+import { cleanupNodeWorkspace } from '../workspace/cleanup.js';
+import { workspacesForNode } from '../../../store/graph/nodeRuns.js';
+import type { ProcessFacts } from '../../../runtime/serverIdentity.js';
 
 interface Harness {
+  store: Store;
   db: ReturnType<typeof openStore>['db'];
   graphRunId: number;
   revisionId: number;
@@ -79,6 +83,7 @@ function harness(): Harness {
   const { dir, baseSha } = makeRepo();
   const artifactRoot = mkdtempSync(join(tmpdir(), 'karst-artifacts-'));
   return {
+    store,
     db,
     graphRunId,
     revisionId,
@@ -92,6 +97,12 @@ function harness(): Harness {
     },
   };
 }
+
+const deadProcessFacts: ProcessFacts = {
+  isAlive: () => false,
+  liveCwd: () => null,
+  processStartMs: () => null,
+};
 
 function insertNodeRun(h: Harness, id: number, status: string): void {
   h.db
@@ -159,6 +170,7 @@ function makeDeps(
     // Slice 5 T5: the node's isolated workspace clone per repo, when one was
     // created (T1). Undefined = the V1 canonical-worktree model.
     workspaceCwdOf: () => undefined,
+    cleanupNodeWorkspace: () => undefined,
   };
   return { ...base, ...overrides };
 }
@@ -231,6 +243,69 @@ describe('runCompletionPipeline — claim validation', () => {
 });
 
 describe('runCompletionPipeline — integration', () => {
+  it('cleans the terminal node workspace after successful completion', async () => {
+    const h = harness();
+    cleanups.push(h.close);
+    insertNodeRun(h, 20, 'completing');
+    const workspaceRoot = mkdtempSync(join(tmpdir(), 'karst-node-complete-'));
+    const workspaceCwd = join(workspaceRoot, 'api');
+    mkdirSync(workspaceCwd);
+    writeFileSync(join(workspaceCwd, 'scratch.txt'), 'terminal workspace\n');
+    cleanups.push(() => rmSync(workspaceRoot, { recursive: true, force: true }));
+    h.db
+      .prepare(
+        `INSERT INTO approach_graph_workspaces
+           (graph_run_id, node_run_id, repo_name, cwd, byte_size, created_at)
+         VALUES (?, 20, 'api', ?, 64, '2026-08-12T00:00:00.000Z')`,
+      )
+      .run(h.graphRunId, workspaceCwd);
+    h.db
+      .prepare('UPDATE approach_graph_runs SET workspace_bytes = 64 WHERE id = ?')
+      .run(h.graphRunId);
+    const serverId = Number(
+      h.db
+        .prepare(
+          `INSERT INTO servers (ticket_id, repo, pid, status, cwd, started_at)
+           VALUES (?, 'api', 4200, 'running', ?, '2026-08-12T00:00:00.000Z')`,
+        )
+        .run(h.ticketId, workspaceCwd)
+        .lastInsertRowid,
+    );
+    const deps = {
+      ...makeDeps(h),
+      cleanupNodeWorkspace: (input: { graphRunId: number; nodeRunId: number }) =>
+        cleanupNodeWorkspace(
+          {
+            store: h.store,
+            transaction: <T>(fn: () => T): T =>
+              (h.db.transaction as unknown as (f: () => T, o: { begin: 'immediate' }) => () => T)(
+                fn,
+                { begin: 'immediate' },
+              )(),
+            facts: deadProcessFacts,
+          },
+          { ...input, cwd: workspaceRoot },
+        ),
+    } as CompletionPipelineDeps & {
+      cleanupNodeWorkspace: (input: { graphRunId: number; nodeRunId: number }) => unknown;
+    };
+
+    const result = await runCompletionPipeline(deps, {
+      graphRunId: h.graphRunId,
+      nodeRunId: 20,
+    });
+
+    expect(result).toEqual({ kind: 'integrated', committed: false });
+    expect(existsSync(workspaceRoot)).toBe(false);
+    expect(workspacesForNode(h.db, 20)).toEqual([]);
+    expect(
+      h.db.prepare('SELECT workspace_bytes FROM approach_graph_runs WHERE id = ?').get(h.graphRunId),
+    ).toEqual({ workspace_bytes: 0 });
+    expect(h.db.prepare('SELECT status FROM servers WHERE id = ?').get(serverId)).toEqual({
+      status: 'stopped',
+    });
+  });
+
   it('integrates a valid change set and completes the node, leaving the graph running', async () => {
     const h = harness();
     cleanups.push(h.close);
@@ -266,6 +341,24 @@ describe('runCompletionPipeline — integration', () => {
     );
     expect(result).toEqual({ kind: 'integrated', committed: false });
     expect(nodeRow(h, 22).status).toBe('completed');
+  });
+
+  it('keeps the completed verdict when terminal workspace cleanup throws', async () => {
+    const h = harness();
+    cleanups.push(h.close);
+    insertNodeRun(h, 25, 'completing');
+
+    const result = await runCompletionPipeline(
+      makeDeps(h, {
+        cleanupNodeWorkspace: () => {
+          throw new Error('cleanup unavailable');
+        },
+      }),
+      { graphRunId: h.graphRunId, nodeRunId: 25 },
+    );
+
+    expect(result).toEqual({ kind: 'integrated', committed: false });
+    expect(nodeRow(h, 25).status).toBe('completed');
   });
 
   it('a successful integration releases the node held leases in the same transaction (Slice 5 T2)', async () => {

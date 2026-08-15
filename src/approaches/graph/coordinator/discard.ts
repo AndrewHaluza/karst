@@ -25,6 +25,8 @@
  *     run blocks with `graph-topology-deadlock` — a recoverable blocker the
  *     recovery action refuses to auto-retry, leading to replan or an explicit
  *     resolution, so a discarded revision never leaves a silently dead graph.
+ *  7. after that transaction commits, clean the now-terminal node workspace;
+ *     cleanup is best-effort and never changes the discard verdict.
  *
  * V1 deadlock scope (documented, deliberately simple): the check fires only
  * when the discard leaves the active revision with NO END token, NO
@@ -81,6 +83,8 @@ export interface DiscardDeps {
   transaction: <T>(fn: () => T) => T;
   now: () => string;
   debug?: (message: string) => void;
+  /** Best-effort cleanup after the node is durably cancelled. */
+  cleanupNodeWorkspace: (input: { graphRunId: number; nodeRunId: number }) => void;
 }
 
 export interface DiscardInput {
@@ -161,7 +165,8 @@ function revisionIsTopologyDeadlocked(db: GraphDb, graphRunId: number): boolean 
  * nothing and the call is the idempotent no-op, never a partial mutation.
  */
 export function discardUnknownProcess(deps: DiscardDeps, input: DiscardInput): DiscardResult {
-  return deps.transaction(() => {
+  let cleanupInput: { graphRunId: number; nodeRunId: number } | undefined;
+  const result = deps.transaction((): DiscardResult => {
     const db = deps.db;
 
     // 1. Verify the node is in one of the two ambiguous statuses.
@@ -243,6 +248,19 @@ export function discardUnknownProcess(deps: DiscardDeps, input: DiscardInput): D
     deps.debug?.(
       `[graph] discard: node ${node.id} discarded (${node.status}) — ${cancelledTokens} token(s), ${releasedLeases} lease(s) released; graph ${graphBlockedWith ?? 'left running'}`,
     );
+    cleanupInput = { graphRunId, nodeRunId: node.id };
     return { discarded: true, cancelledTokens, releasedLeases, graphBlockedWith };
   });
+  if (cleanupInput) {
+    try {
+      deps.cleanupNodeWorkspace(cleanupInput);
+    } catch (err) {
+      // Discard already committed its terminal state. Cleanup cannot turn a
+      // successful explicit resolution back into a failed graph verdict.
+      deps.debug?.(
+        `[graph] workspace cleanup: node ${cleanupInput.nodeRunId} failed after discard (${err instanceof Error ? err.message : String(err)})`,
+      );
+    }
+  }
+  return result;
 }

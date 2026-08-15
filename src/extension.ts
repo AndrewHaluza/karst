@@ -204,6 +204,7 @@ import { type ActivationDomain } from './approaches/graph/coordinator/leases.js'
 import { activationDomainKeys, type AllowlistCommandAccess } from './approaches/graph/coordinator/conflicts.js';
 import { parseGraphDocument } from './approaches/graph/parse.js';
 import { nodeOverrideFor, type BaseHead } from './store/graph/nodeRuns.js';
+import { cleanupTerminalNodeWorkspace } from './approaches/graph/workspace/cleanup.js';
 import { allGraphRunsClosed } from './store/graph/graphRuns.js';
 import { reapClosedGraphSubtrees, describeGraphReap } from './approaches/graph/retention.js';
 import { reapOrphanedArtifactDirs, describeArtifactReap } from './runtime/artifactOrphans.js';
@@ -2620,6 +2621,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                 )(),
               now: () => new Date().toISOString(),
               debug: (message) => logger.debug(message),
+              cleanupNodeWorkspace: (input) =>
+                cleanupTerminalNodeWorkspace(
+                  {
+                    store: gs,
+                    transaction: <T>(fn: () => T): T =>
+                      (gs.db.transaction as unknown as (f: () => T, o: { begin: 'immediate' }) => () => T)(
+                        fn,
+                        { begin: 'immediate' },
+                      )(),
+                    debug: (message) => logger.debug(message),
+                  },
+                  input,
+                ),
             },
             { nodeRunId },
           );
@@ -3742,6 +3756,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           .get(nodeRunId, repoName) as { cwd: string } | undefined;
         return row?.cwd;
       },
+      cleanupNodeWorkspace: (input) =>
+        cleanupTerminalNodeWorkspace(
+          {
+            store: gs,
+            transaction: <T>(fn: () => T): T =>
+              (gs.db.transaction as unknown as (f: () => T, o: { begin: 'immediate' }) => () => T)(
+                fn,
+                { begin: 'immediate' },
+              )(),
+            debug: (message) => logger.debug(message),
+          },
+          input,
+        ),
     };
   };
 

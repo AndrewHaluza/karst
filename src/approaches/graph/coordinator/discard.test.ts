@@ -12,9 +12,15 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { openStore } from '../../../store/db.js';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { openStore, type Store } from '../../../store/db.js';
 import type { GraphDb } from '../../../store/graph/transitions.js';
 import { acquireLease } from '../../../store/graph/leases.js';
+import { workspacesForNode } from '../../../store/graph/nodeRuns.js';
+import type { ProcessFacts } from '../../../runtime/serverIdentity.js';
+import { cleanupNodeWorkspace } from '../workspace/cleanup.js';
 import { completeActivation } from './completion.js';
 import { discardUnknownProcess, type DiscardDeps } from './discard.js';
 
@@ -61,6 +67,7 @@ const GRAPH = {
 };
 
 interface Ctx {
+  store: Store;
   db: GraphDb & ReturnType<typeof openStore>['db'];
   graphRunId: number;
   revisionId: number;
@@ -104,10 +111,17 @@ function harness(): Ctx {
     transaction: <T>(fn: () => T): T => withImmediate(db, fn),
     now: () => NOW,
     debug: () => {},
+    cleanupNodeWorkspace: () => undefined,
     ...overrides,
   });
-  return { db, graphRunId, revisionId, ticketId, makeDeps };
+  return { store, db, graphRunId, revisionId, ticketId, makeDeps };
 }
+
+const deadProcessFacts: ProcessFacts = {
+  isAlive: () => false,
+  liveCwd: () => null,
+  processStartMs: () => null,
+};
 
 function nodeRun(
   ctx: Ctx,
@@ -185,6 +199,66 @@ function leaseRow(ctx: Ctx, nodeRunId: number): { status: string }[] {
 }
 
 describe('discardUnknownProcess', () => {
+  it('cleans the terminal node workspace after a successful discard', () => {
+    const ctx = harness();
+    const workspaceRoot = mkdtempSync(join(tmpdir(), 'karst-node-discard-'));
+    try {
+      const workspaceCwd = join(workspaceRoot, 'api');
+      mkdirSync(workspaceCwd);
+      writeFileSync(join(workspaceCwd, 'scratch.txt'), 'discarded workspace\n');
+      nodeRun(ctx, 10, 'a', 'termination-unknown');
+      claimToken(ctx, 10, 'a', 'e-a-b');
+      ctx.db
+        .prepare(
+          `INSERT INTO approach_graph_workspaces
+             (graph_run_id, node_run_id, repo_name, cwd, byte_size, created_at)
+           VALUES (?, 10, 'api', ?, 96, ?)`,
+        )
+        .run(ctx.graphRunId, workspaceCwd, NOW);
+      ctx.db
+        .prepare('UPDATE approach_graph_runs SET workspace_bytes = 96 WHERE id = ?')
+        .run(ctx.graphRunId);
+      const serverId = Number(
+        ctx.db
+          .prepare(
+            `INSERT INTO servers (ticket_id, repo, pid, status, cwd, started_at)
+             VALUES (?, 'api', 4201, 'running', ?, ?)`,
+          )
+          .run(ctx.ticketId, workspaceCwd, NOW)
+          .lastInsertRowid,
+      );
+      const deps = {
+        ...ctx.makeDeps(),
+        cleanupNodeWorkspace: (input: { graphRunId: number; nodeRunId: number }) =>
+          cleanupNodeWorkspace(
+            {
+              store: ctx.store,
+              transaction: <T>(fn: () => T): T => withImmediate(ctx.store.db, fn),
+              facts: deadProcessFacts,
+            },
+            { ...input, cwd: workspaceRoot },
+          ),
+      } as DiscardDeps & {
+        cleanupNodeWorkspace: (input: { graphRunId: number; nodeRunId: number }) => unknown;
+      };
+
+      const result = discardUnknownProcess(deps, { nodeRunId: 10 });
+
+      expect(result.discarded).toBe(true);
+      expect(existsSync(workspaceRoot)).toBe(false);
+      expect(workspacesForNode(ctx.db, 10)).toEqual([]);
+      expect(
+        ctx.db.prepare('SELECT workspace_bytes FROM approach_graph_runs WHERE id = ?').get(ctx.graphRunId),
+      ).toEqual({ workspace_bytes: 0 });
+      expect(ctx.db.prepare('SELECT status FROM servers WHERE id = ?').get(serverId)).toEqual({
+        status: 'stopped',
+      });
+    } finally {
+      ctx.store.close();
+      rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
   it('runs the full six-step transaction: token cancelled, run cancelled, budgets and lease released, graph left running', () => {
     const ctx = harness();
     ctx.db
@@ -214,6 +288,24 @@ describe('discardUnknownProcess', () => {
     expect(leaseRow(ctx, 11)).toEqual([{ status: 'released' }]);
     expect(graphCounters(ctx)).toEqual({ node_run_count: 1, expert_run_count: 0 });
     expect(graphRun(ctx)).toMatchObject({ status: 'running' });
+  });
+
+  it('keeps the cancelled verdict when terminal workspace cleanup throws', () => {
+    const ctx = harness();
+    nodeRun(ctx, 13, 'a', 'termination-unknown');
+    claimToken(ctx, 13, 'a', 'e-a-b');
+
+    const result = discardUnknownProcess(
+      ctx.makeDeps({
+        cleanupNodeWorkspace: () => {
+          throw new Error('cleanup unavailable');
+        },
+      }),
+      { nodeRunId: 13 },
+    );
+
+    expect(result.discarded).toBe(true);
+    expect(nodeRow(ctx, 13).status).toBe('cancelled');
   });
 
   it('releases both the graph and the expert budget contributions of an expert agent run', () => {

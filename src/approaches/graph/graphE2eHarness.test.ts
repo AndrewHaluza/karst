@@ -415,6 +415,7 @@ export function makeHarness(): Harness {
     },
     artifactRoot: () => artifactRoot,
     workspaceCwdOf: () => workspace,
+    cleanupNodeWorkspace: () => undefined,
   };
 
   // The coordinator sweep's host bindings (the extension's

@@ -10,6 +10,9 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { openStore, type Store } from '../store/db.js';
 import { createTicket } from '../store/tickets.js';
 import { stageAttempt } from '../store/stages.js';
@@ -21,6 +24,7 @@ import {
   GRAPH_FAILED_BLOCKER,
 } from './graphMarkerGuard.js';
 import { BUILT_IN_PACKAGE_ID } from '../approaches/builtIn.js';
+import { workspacesForNode } from '../store/graph/nodeRuns.js';
 
 describe('graphImplMarkerGuard', () => {
   let store: Store;
@@ -79,6 +83,82 @@ describe('graphImplMarkerGuard', () => {
       .prepare('SELECT stage_current FROM tickets WHERE id = ?')
       .get(ticketId) as { stage_current: string };
     expect(ticket.stage_current).toBe('uat');
+  });
+
+  it('cleans terminal node workspaces when the graph run closes', () => {
+    const { ticketId, graphRunId } = markerReadyTicket('GM-CLEAN');
+    const revisionId = (
+      store.db
+        .prepare('SELECT id FROM approach_graph_revisions WHERE graph_run_id = ?')
+        .get(graphRunId) as { id: number }
+    ).id;
+    const workspaceRoot = mkdtempSync(join(tmpdir(), 'karst-run-close-'));
+    const cancelledWorkspaceRoot = mkdtempSync(join(tmpdir(), 'karst-run-close-cancelled-'));
+    try {
+      const workspaceCwd = join(workspaceRoot, 'api');
+      const cancelledWorkspaceCwd = join(cancelledWorkspaceRoot, 'web');
+      mkdirSync(workspaceCwd);
+      mkdirSync(cancelledWorkspaceCwd);
+      writeFileSync(join(workspaceCwd, 'scratch.txt'), 'closed run workspace\n');
+      writeFileSync(join(cancelledWorkspaceCwd, 'scratch.txt'), 'cancelled node workspace\n');
+      store.db
+        .prepare(
+          `INSERT INTO approach_node_runs
+             (id, graph_run_id, revision_id, node_id, node_kind, visit_number, status)
+           VALUES (100, ?, ?, 'done-node', 'agent', 1, 'completed')`,
+        )
+        .run(graphRunId, revisionId);
+      store.db
+        .prepare(
+          `INSERT INTO approach_node_runs
+             (id, graph_run_id, revision_id, node_id, node_kind, visit_number, status)
+           VALUES (101, ?, ?, 'cancelled-node', 'agent', 1, 'cancelled')`,
+        )
+        .run(graphRunId, revisionId);
+      store.db
+        .prepare(
+          `INSERT INTO approach_graph_workspaces
+             (graph_run_id, node_run_id, repo_name, cwd, byte_size, created_at)
+           VALUES (?, 100, 'api', ?, 128, '2026-08-12T00:00:00.000Z')`,
+        )
+        .run(graphRunId, workspaceCwd);
+      store.db
+        .prepare(
+          `INSERT INTO approach_graph_workspaces
+             (graph_run_id, node_run_id, repo_name, cwd, byte_size, created_at)
+           VALUES (?, 101, 'web', ?, 32, '2026-08-12T00:00:00.000Z')`,
+        )
+        .run(graphRunId, cancelledWorkspaceCwd);
+      store.db
+        .prepare('UPDATE approach_graph_runs SET workspace_bytes = 160 WHERE id = ?')
+        .run(graphRunId);
+      const serverId = Number(
+        store.db
+          .prepare(
+            `INSERT INTO servers (ticket_id, repo, pid, status, cwd, started_at)
+             VALUES (?, 'api', NULL, 'running', ?, '2026-08-12T00:00:00.000Z')`,
+          )
+          .run(ticketId, workspaceCwd)
+          .lastInsertRowid,
+      );
+
+      const result = graphImplMarkerGuard(store, ticketId);
+
+      expect(result).toEqual({ ok: true, graphRunId });
+      expect(existsSync(workspaceRoot)).toBe(false);
+      expect(existsSync(cancelledWorkspaceRoot)).toBe(false);
+      expect(workspacesForNode(store.db, 100)).toEqual([]);
+      expect(workspacesForNode(store.db, 101)).toEqual([]);
+      expect(
+        store.db.prepare('SELECT workspace_bytes FROM approach_graph_runs WHERE id = ?').get(graphRunId),
+      ).toEqual({ workspace_bytes: 0 });
+      expect(store.db.prepare('SELECT status FROM servers WHERE id = ?').get(serverId)).toEqual({
+        status: 'stopped',
+      });
+    } finally {
+      rmSync(workspaceRoot, { recursive: true, force: true });
+      rmSync(cancelledWorkspaceRoot, { recursive: true, force: true });
+    }
   });
 
   it('a second marker is rejected without mutation (closed exactly once)', () => {

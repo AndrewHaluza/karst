@@ -8,9 +8,10 @@
  *     `transition`, it re-checks the current project/ticket/stage attempt,
  *     requires exactly one active graph run at `completed-awaiting-impl-marker`,
  *     re-reads every END-quiescence condition, and marks the graph run
- *     `closed`. Any earlier marker is rejected WITHOUT mutation. The graph
- *     status is an ENTRY CONDITION, never a verdict: the scheduler never
- *     writes or infers `passed`.
+ *     `closed`, then best-effort cleans any terminal workspace the node-level
+ *     completion path did not already remove. Any earlier marker is rejected
+ *     WITHOUT mutation. The graph status is an ENTRY CONDITION, never a
+ *     verdict: the scheduler never writes or infers `passed`.
  *
  *  2. the `approach-graph-failed` stage-block write (`blockGraphStage`) — the
  *     block lands through `store/stageBlocks.ts` infrastructure, keyed to the
@@ -35,6 +36,7 @@ import { casStatus, GRAPH_RUN_TRANSITIONS } from '../store/graph/transitions.js'
 import { quiescenceBlockedBy, earliestFaultNodeRun, faultNodeRunReason } from '../approaches/graph/coordinator/completion.js';
 import { GRAPH_FAILED_BLOCKER } from '../approaches/graph/coordinator/recovery.js';
 import { BUILT_IN_PACKAGE_ID } from '../approaches/builtInId.js';
+import { cleanupTerminalGraphRunWorkspaces } from '../approaches/graph/workspace/cleanup.js';
 
 export { GRAPH_FAILED_BLOCKER };
 
@@ -101,6 +103,7 @@ export function graphApproachMissingRun(store: Store, ticketId: number): boolean
  */
 export function graphImplMarkerGuard(store: Store, ticketId: number): GraphMarkerGuardResult {
   const attempt = stageAttempt(store, ticketId, 'impl');
+  let closedGraphRunId: number | undefined;
   try {
     transition(store, ticketId, 'impl', { kind: 'passed' }, () => {
       // 1. The graph run for THIS attempt must exist and be marker-ready.
@@ -130,6 +133,7 @@ export function graphImplMarkerGuard(store: Store, ticketId: number): GraphMarke
       ) {
         throw new Error(`graph run ${run.id} already closed`);
       }
+      closedGraphRunId = run.id;
       // 4. The marker just answered the wait — clear it, same as recovery.ts
       //    clears GRAPH_FAILED_BLOCKER, and ONLY if it's our own kind (never
       //    stomp an unrelated block).
@@ -138,7 +142,25 @@ export function graphImplMarkerGuard(store: Store, ticketId: number): GraphMarke
         clearStageBlock(store, ticketId, 'impl');
       }
     });
-    return { ok: true, graphRunId: graphRunFor(store, ticketId, attempt)?.id };
+    if (closedGraphRunId !== undefined) {
+      try {
+        cleanupTerminalGraphRunWorkspaces(
+          {
+            store,
+            transaction: <T>(fn: () => T): T =>
+              (store.db.transaction as unknown as (
+                f: () => T,
+                o: { begin: 'immediate' },
+              ) => () => T)(fn, { begin: 'immediate' })(),
+          },
+          { graphRunId: closedGraphRunId },
+        );
+      } catch {
+        // The run close and stage transition are already committed. Workspace
+        // cleanup is best-effort and must never change the marker verdict.
+      }
+    }
+    return { ok: true, graphRunId: closedGraphRunId };
   } catch (err) {
     return {
       ok: false,
@@ -224,4 +246,3 @@ export function blockedGraphRunFor(store: Store, ticketId: number): number | und
   const run = graphRunFor(store, ticketId, stageAttempt(store, ticketId, 'impl'));
   return run && run.status === 'blocked' ? run.id : undefined;
 }
-

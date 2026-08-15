@@ -17,6 +17,7 @@
  */
 
 import { existsSync, rmSync } from 'node:fs';
+import { dirname } from 'node:path';
 import type { Store } from '../../../store/db.js';
 import { stopServersUnder, type ReapedServer } from '../../../runtime/worktreeServers.js';
 import type { ProcessFacts } from '../../../runtime/serverIdentity.js';
@@ -49,22 +50,25 @@ function releaseLedger(
   nodeRunId: number,
   reaped: ReapedServer[],
 ): CleanupNodeWorkspaceResult {
-  const ledger = workspacesForNode(deps.store.db, nodeRunId);
-  const releasedBytes = ledger.reduce((sum, w) => sum + w.byte_size, 0);
-  if (ledger.length === 0) {
-    deps.debug?.(
-      `[graph] workspace cleanup: node ${nodeRunId} has no ledger rows (bytes already released)`,
-    );
-    return { kind: 'no-op', reaped };
-  }
-  deps.transaction(() => {
+  return deps.transaction(() => {
+    // Re-read under the write lock. Node completion and graph-run close can
+    // both observe the same terminal workspace; only the winner that removes
+    // the ledger may release its bytes.
+    const ledger = workspacesForNode(deps.store.db, nodeRunId);
+    const releasedBytes = ledger.reduce((sum, w) => sum + w.byte_size, 0);
+    if (ledger.length === 0) {
+      deps.debug?.(
+        `[graph] workspace cleanup: node ${nodeRunId} has no ledger rows (bytes already released)`,
+      );
+      return { kind: 'no-op', reaped };
+    }
     removeWorkspacesForNode(deps.store.db, nodeRunId);
     if (releasedBytes > 0) releaseWorkspaceBytes(deps.store.db, graphRunId, releasedBytes);
+    deps.debug?.(
+      `[graph] workspace cleanup: node ${nodeRunId} released ${releasedBytes} workspace bytes`,
+    );
+    return { kind: 'removed', reaped, releasedBytes };
   });
-  deps.debug?.(
-    `[graph] workspace cleanup: node ${nodeRunId} released ${releasedBytes} workspace bytes`,
-  );
-  return { kind: 'removed', reaped, releasedBytes };
 }
 
 /**
@@ -85,10 +89,19 @@ export function cleanupNodeWorkspace(
     );
     return releaseLedger(deps, input.graphRunId, input.nodeRunId, []);
   }
-  const reaped = stopServersUnder(deps.store, input.cwd, {
-    facts: deps.facts,
-    debug: deps.debug,
-  });
+  // Serialize the server-row reap. Two windows may both observe the directory
+  // before either removes it, but the second lock holder sees the first one's
+  // stopped rows and never signals the same process twice. Filesystem removal
+  // stays outside the transaction so an rm failure cannot roll a truthful
+  // stopped-server row back to `running`.
+  const reaped = deps.transaction(() =>
+    existsSync(input.cwd)
+      ? stopServersUnder(deps.store, input.cwd, {
+          facts: deps.facts,
+          debug: deps.debug,
+        })
+      : [],
+  );
   if (reaped.some((r) => r.outcome === 'kill-failed')) {
     deps.debug?.(
       `[graph] workspace cleanup: node ${input.nodeRunId} refused — a process under ${input.cwd} would not die`,
@@ -98,4 +111,76 @@ export function cleanupNodeWorkspace(
   rmSync(input.cwd, { recursive: true, force: true });
   deps.debug?.(`[graph] workspace cleanup: removed ${input.cwd}`);
   return releaseLedger(deps, input.graphRunId, input.nodeRunId, reaped);
+}
+
+/** The only node-run statuses whose workspace is no longer recoverable. */
+export const TERMINAL_WORKSPACE_NODE_STATUSES = ['completed', 'cancelled'] as const;
+
+/**
+ * Clean one terminal node run's workspace root. Ledger rows record one cwd per
+ * repository clone; the mandated layout puts all of them directly under the
+ * same node-run root, so one cleanup stops every descendant server and removes
+ * the whole workspace. Recoverable/runnable statuses are explicit no-ops.
+ */
+export function cleanupTerminalNodeWorkspace(
+  deps: CleanupNodeWorkspaceDeps,
+  input: { graphRunId: number; nodeRunId: number },
+): CleanupNodeWorkspaceResult {
+  const node = deps.store.db
+    .prepare('SELECT graph_run_id, status FROM approach_node_runs WHERE id = ?')
+    .get(input.nodeRunId) as { graph_run_id: number; status: string } | undefined;
+  if (
+    !node
+    || node.graph_run_id !== input.graphRunId
+    || !TERMINAL_WORKSPACE_NODE_STATUSES.includes(
+      node.status as (typeof TERMINAL_WORKSPACE_NODE_STATUSES)[number],
+    )
+  ) {
+    deps.debug?.(
+      `[graph] workspace cleanup: node ${input.nodeRunId} is ${node?.status ?? 'missing'} — preserving recoverable workspace`,
+    );
+    return { kind: 'no-op' };
+  }
+  const rows = workspacesForNode(deps.store.db, input.nodeRunId);
+  if (rows.length === 0) return { kind: 'no-op' };
+  const roots = [...new Set(rows.map((row) => dirname(row.cwd)))];
+  if (roots.length !== 1) {
+    deps.debug?.(
+      `[graph] workspace cleanup: node ${input.nodeRunId} has ${roots.length} workspace roots — refusing an ambiguous removal`,
+    );
+    return { kind: 'no-op' };
+  }
+  return cleanupNodeWorkspace(deps, { ...input, cwd: roots[0]! });
+}
+
+/** Clean every terminal node workspace left when a graph run closes. */
+export function cleanupTerminalGraphRunWorkspaces(
+  deps: CleanupNodeWorkspaceDeps,
+  input: { graphRunId: number },
+): CleanupNodeWorkspaceResult[] {
+  const nodes = deps.store.db
+    .prepare(
+      `SELECT id FROM approach_node_runs
+       WHERE graph_run_id = ? AND status IN ('completed', 'cancelled')
+       ORDER BY id`,
+    )
+    .all(input.graphRunId) as { id: number }[];
+  const results: CleanupNodeWorkspaceResult[] = [];
+  for (const node of nodes) {
+    try {
+      results.push(
+        cleanupTerminalNodeWorkspace(deps, {
+          graphRunId: input.graphRunId,
+          nodeRunId: node.id,
+        }),
+      );
+    } catch (err) {
+      // Run close is already committed. Cleanup is best-effort and one bad
+      // workspace must not prevent the remaining terminal nodes being reaped.
+      deps.debug?.(
+        `[graph] workspace cleanup: node ${node.id} failed after run close (${err instanceof Error ? err.message : String(err)})`,
+      );
+    }
+  }
+  return results;
 }
