@@ -224,6 +224,17 @@ export function completeActivation(
             } satisfies InsertGraphToken);
             if (successor !== undefined) inserted += 1;
           }
+        } else {
+          // Same silence, one branch over: the graph parsed, but the node this
+          // run belongs to is absent from it, so no edge can be walked and the
+          // consumed token has nowhere to go. Bounded wording only — the node
+          // id comes from stored state, never the untrusted graph body.
+          emitGraphDiagnostic({ db, debug: deps.debug }, {
+            category: 'completion-rejection',
+            graphRunId: run.graph_run_id,
+            nodeRunId: input.nodeRunId,
+            detail: 'node id absent from the canonical graph after consuming a token',
+          });
         }
       } else {
         // The token has already been consumed by the durable completion. A

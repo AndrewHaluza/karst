@@ -3267,13 +3267,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       runCoordinatorTick(
         {
           db: gs.db,
-          // The installed @types predate better-sqlite3's `{ begin }` option;
-          // the runtime (12.x) supports it, so the option is cast once here.
-          transaction: <T>(fn: () => T): T =>
-            (gs.db.transaction as unknown as (f: () => T, o: { begin: 'immediate' }) => () => T)(
-              fn,
-              { begin: 'immediate' },
-            )(),
+          transaction: <T>(fn: () => T): T => runImmediateTransaction(gs.db, fn),
           now: () => new Date().toISOString(),
           debug: (message) => logger.debug(message),
           baseHeadsOf: () => baseHeads,
@@ -3376,11 +3370,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           const elected = electReplan(
             {
               db,
-              transaction: <T>(fn: () => T): T =>
-                (db.transaction as unknown as (f: () => T, o: { begin: 'immediate' }) => () => T)(
-                  fn,
-                  { begin: 'immediate' },
-                )(),
+              transaction: <T>(fn: () => T): T => runImmediateTransaction(db, fn),
               now: () => new Date().toISOString(),
               debug: (message) => logger.debug(message),
             },
@@ -3401,10 +3391,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const result = flipOnEndQuiescence(
         {
           db,
-          transaction: <T>(fn: () => T): T =>
-            (db.transaction as unknown as (f: () => T, o: { begin: 'immediate' }) => () => T)(fn, {
-              begin: 'immediate',
-            })(),
+          transaction: <T>(fn: () => T): T => runImmediateTransaction(db, fn),
           now: () => new Date().toISOString(),
           debug: (message) => logger.debug(message),
         },
@@ -3431,8 +3418,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   /** Block a running graph run with a reason, atomically; false when it
    *  already moved (a second window or an earlier event). */
   const flipOrBlockGraph = (db: ReturnType<typeof openStore>['db'], graphRunId: number, reason: string): boolean => {
-    return (db.transaction as unknown as (f: () => boolean, o: { begin: 'immediate' }) => () => boolean)(
-      () => {
+    return runImmediateTransaction(db, () => {
         if (
           !casStatus(db, 'approach_graph_runs', GRAPH_RUN_TRANSITIONS, graphRunId, 'running', 'blocked')
         ) {
@@ -3443,10 +3429,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           new Date().toISOString(),
           graphRunId,
         );
-        return true;
-      },
-      { begin: 'immediate' },
-    )();
+      return true;
+    });
   };
 
   /** The live transport session for a node OR planner run, via its ticket. */
@@ -3539,10 +3523,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const gs = graphCoordinatorStore;
     return {
       store: gs!,
-      transaction: <T>(fn: () => T): T =>
-        (gs!.db.transaction as unknown as (f: () => T, o: { begin: 'immediate' }) => () => T)(fn, {
-          begin: 'immediate',
-        })(),
+      transaction: <T>(fn: () => T): T => runImmediateTransaction(gs!.db, fn),
       now: () => new Date().toISOString(),
       debug: (message) => logger.debug(message),
       resolveEffective: ({ revisionId, nodeId }) => {
@@ -3883,10 +3864,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const tr = graphTransport;
     return {
       db: gs!.db,
-      transaction: <T>(fn: () => T): T =>
-        (gs!.db.transaction as unknown as (f: () => T, o: { begin: 'immediate' }) => () => T)(fn, {
-          begin: 'immediate',
-        })(),
+      transaction: <T>(fn: () => T): T => runImmediateTransaction(gs!.db, fn),
       now: () => new Date().toISOString(),
       debug: (message) => logger.debug(message),
       graphConfigOf: graphApproachConfigFor,
@@ -4008,10 +3986,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         createNodeWorkspace(
           {
             db: gs!.db,
-            transaction: <T>(fn: () => T): T =>
-              (gs!.db.transaction as unknown as (f: () => T, o: { begin: 'immediate' }) => () => T)(fn, {
-                begin: 'immediate',
-              })(),
+            transaction: <T>(fn: () => T): T => runImmediateTransaction(gs!.db, fn),
             git: defaultGitRunner,
             maxAggregateWorkspaceBytes:
               graphApproachConfigFor(graphRunApproachId(input.graphRunId))?.limits
@@ -4383,11 +4358,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const gs = graphCoordinatorStore!;
     return {
       db: gs.db,
-      transaction: <T>(fn: () => T): T =>
-        (gs.db.transaction as unknown as (f: () => T, o: { begin: 'immediate' }) => () => T)(
-          fn,
-          { begin: 'immediate' },
-        )(),
+      transaction: <T>(fn: () => T): T => runImmediateTransaction(gs.db, fn),
       now: () => new Date().toISOString(),
       debug: (message) => logger.debug(message),
       facts: systemAsyncProcessFacts,
@@ -4499,11 +4470,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const result = await stopActiveGraph(
         {
           db: gs.db,
-          transaction: <T>(fn: () => T): T =>
-            (gs.db.transaction as unknown as (f: () => T, o: { begin: 'immediate' }) => () => T)(
-              fn,
-              { begin: 'immediate' },
-            )(),
+          transaction: <T>(fn: () => T): T => runImmediateTransaction(gs.db, fn),
           transport: tr,
           sessionsFor: (graphRunId) =>
             tr.sessions().filter((s) => s.graphRunId === graphRunId),

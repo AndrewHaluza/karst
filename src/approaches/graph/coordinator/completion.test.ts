@@ -284,6 +284,30 @@ describe('completeActivation', () => {
     expect(debug[0]).toContain('canonical graph could not be parsed after consuming a token');
     expect(debug[0]).not.toContain('{not valid JSON');
   });
+
+  it('diagnoses a node id absent from an otherwise parseable canonical graph', () => {
+    // The sibling silence: the graph parses, but the completing run's node is
+    // not in it, so no edge is walkable and the consumed token has nowhere to
+    // go. Same bounded seam, distinct wording — without it this reads exactly
+    // like a legitimate completion with zero successors.
+    const ctx = harness();
+    nodeRun(ctx, 17, 'a');
+    claimEntry(ctx, 17, 'e-a-end');
+    ctx.db
+      .prepare('UPDATE approach_node_runs SET node_id = ? WHERE id = ?')
+      .run('vanished', 17);
+    const debug: string[] = [];
+
+    const result = completeActivation(
+      { ...makeDeps(ctx), debug: (line) => debug.push(line) },
+      { nodeRunId: 17, effectiveOutcome: 'complete' },
+    );
+
+    expect(result).toEqual({ consumed: 1, inserted: 0 });
+    expect(debug).toHaveLength(1);
+    expect(debug[0]).toContain('[graph:completion-rejection]');
+    expect(debug[0]).toContain('node id absent from the canonical graph after consuming a token');
+  });
 });
 
 describe('flipOnEndQuiescence', () => {
