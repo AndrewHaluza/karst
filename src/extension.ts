@@ -6962,6 +6962,17 @@ function makeInsideActionHost(
             `Ticket #${ticketId}: the implementation graph cannot retry itself (${recovery.reason}) — open the Inside panel to discard the unknown process.`,
           );
         }
+        // Keep this legacy Resume route on the same post-recovery seam as the
+        // typed graph controls. It owns neither a second recovery nor launch:
+        // it only refreshes the surfaces and wakes work recovery made ready.
+        if (
+          recovery.kind === 'retried' ||
+          recovery.kind === 'confirmation-restored' ||
+          recovery.kind === 'replanned' ||
+          recovery.kind === 'relaunched'
+        ) {
+          onGraphRecovered(ticketId, outcome.graphRunId);
+        }
       }
     },
     openFullEvidence: (ticketId, processRunId) => {

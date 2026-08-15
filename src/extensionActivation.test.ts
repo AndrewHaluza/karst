@@ -508,4 +508,15 @@ describe('extension activation', () => {
     expect(source).toContain('void driveGraphRunContinuation(graphRunId);');
     expect(source).toContain('result.drained || result.terminated > 0');
   });
+
+  it('refreshes and wakes every successful graph recovery from the legacy resume-stage route', () => {
+    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+    const start = source.indexOf('resumeStage: (ticketId, stageKey) => {');
+    const end = source.indexOf('openFullEvidence:', start);
+    const resumeStage = source.slice(start, end);
+
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    expect(resumeStage).toContain('onGraphRecovered(ticketId, outcome.graphRunId);');
+  });
 });
