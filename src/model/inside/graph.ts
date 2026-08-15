@@ -148,7 +148,7 @@ export type GraphLiveSessionView = { kind: 'planner' | 'node'; runId: number };
 export type GraphActionTarget =
   | { kind: 'graph-open-session'; session: { kind: 'planner' | 'node'; runId: number } }
   | { kind: 'graph-confirm'; graphRunId: number }
-  | { kind: 'graph-stop' }
+  | { kind: 'graph-stop'; graphRunId: number }
   | { kind: 'graph-resume'; graphRunId: number }
   | { kind: 'graph-replan'; graphRunId: number }
   | { kind: 'graph-discard-node'; nodeRunId: number }
@@ -543,7 +543,7 @@ export function graphInsideProcess(
       : input.attach && input.graphRun.status === 'awaiting-confirmation'
         ? { action: input.attach({ kind: 'graph-confirm', graphRunId: input.graphRun.id }) }
         : STOPPABLE_RUN_STATUSES.includes(input.graphRun.status) && input.attach
-          ? { action: input.attach({ kind: 'graph-stop' }) }
+          ? { action: input.attach({ kind: 'graph-stop', graphRunId: input.graphRun.id }) }
           : {}),
   });
 
@@ -558,7 +558,7 @@ export function graphInsideProcess(
       label: 'stop graph',
       detail: 'Terminate any remaining graph sessions without changing the blocked stage',
       status: 'note',
-      action: input.attach({ kind: 'graph-stop' }),
+      action: input.attach({ kind: 'graph-stop', graphRunId: input.graphRun.id }),
     });
   }
 

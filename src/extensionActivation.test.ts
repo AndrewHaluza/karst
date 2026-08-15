@@ -499,4 +499,13 @@ describe('extension activation', () => {
     expect(source).toContain("if (recovery.kind === 'relaunched' && recovery.launch) graphBootstrapRelaunch(recovery.launch);");
     expect(source).toContain('const launchBootstrapRelaunchHost = async (launch: BootstrapRelaunchRequest)');
   });
+
+  it('refreshes and wakes recovered graph work, while describing blocked Stop accurately', () => {
+    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+
+    expect(source).toContain('onGraphRecovered(ticketId, graphRunId);');
+    expect(source).toContain('provider.refresh();\n      dashboard.pushState(ticketId);\n      void driveGraphRunContinuation(graphRunId);');
+    expect(source).toContain('void driveGraphRunContinuation(graphRunId);');
+    expect(source).toContain('result.drained || result.terminated > 0');
+  });
 });

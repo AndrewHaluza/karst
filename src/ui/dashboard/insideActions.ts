@@ -69,7 +69,7 @@ export type InsideActionTarget =
       ticketId: number;
       session: { kind: 'planner' | 'node'; runId: number };
     }
-  | { kind: 'graph-stop'; ticketId: number }
+  | { kind: 'graph-stop'; ticketId: number; graphRunId: number }
   | { kind: 'graph-resume'; ticketId: number; graphRunId: number }
   | { kind: 'graph-replan'; ticketId: number; graphRunId: number }
   | { kind: 'graph-confirm'; ticketId: number; graphRunId: number }
@@ -186,8 +186,8 @@ export interface InsideActionHost {
     ticketId: number,
     session: { kind: 'planner' | 'node'; runId: number },
   ): void | Promise<void>;
-  /** Signal the coordinator to drain the ticket's live graph run. */
-  graphStop(ticketId: number): void | Promise<void>;
+  /** Signal the coordinator to drain this capability's graph run, never a newer one. */
+  graphStop(ticketId: number, graphRunId: number): void | Promise<void>;
   /** Retry a blocked graph through its category-specific recovery path. */
   graphResume(ticketId: number, graphRunId: number): void | Promise<void>;
   /** Elect a new graph revision from a blocked run's recorded evidence. */
@@ -406,15 +406,17 @@ export function dispatchInsideAction(
       return { outcome: 'dispatched' };
     }
     case 'graph-stop': {
+      // Bind Stop to the run that minted its opaque capability. Selecting the
+      // latest ticket run here would let a stale panel stop a newer run.
       const row = store.db
         .prepare(
-          'SELECT status FROM approach_graph_runs WHERE ticket_id = ? ORDER BY id DESC LIMIT 1',
+          'SELECT status FROM approach_graph_runs WHERE id = ? AND ticket_id = ?',
         )
-        .get(target.ticketId) as { status: string } | undefined;
+        .get(target.graphRunId, target.ticketId) as { status: string } | undefined;
       if (row === undefined || !GRAPH_STOPPABLE_STATUSES.includes(row.status)) {
-        return { outcome: 'rejected', reason: 'no live graph run to stop' };
+        return { outcome: 'rejected', reason: 'graph run is not stoppable' };
       }
-      void deps.host.graphStop(target.ticketId);
+      void deps.host.graphStop(target.ticketId, target.graphRunId);
       return { outcome: 'dispatched' };
     }
     case 'graph-resume':

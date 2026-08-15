@@ -2455,7 +2455,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Deferred graph-stop binding (Slice 3 Task 11): the coordinator transport
   // is created later in activate; the Inside Stop action reads it only after
   // activation has fully run, like `runPrSync` and `maybeDrive`.
-  let stopGraphRun: ((ticketId: number) => Promise<void>) | undefined;
+  let stopGraphRun: ((ticketId: number, graphRunId: number) => Promise<void>) | undefined;
   let confirmGraphRunForTicket: ((ticketId: number, graphRunId: number) => void) | undefined;
 
   const dashboard = new DashboardManager(
@@ -2596,9 +2596,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       },
       // Declared here with the coordinator wiring it forces (like
       // `runPrSync`): bound later in activate, read only once a panel is open.
-      graphStop: (ticketId) => {
+      graphStop: (ticketId, graphRunId) => {
         const handler = stopGraphRun;
-        if (handler) void handler(ticketId);
+        if (handler) void handler(ticketId, graphRunId);
       },
       graphConfirm: (ticketId, graphRunId) => confirmGraphRunForTicket?.(ticketId, graphRunId),
       // Discard an ambiguous node run (Slice 4 Task 4) — the named exit for a
@@ -2659,6 +2659,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     (graphRunId) => graphRecoveryDeps(graphRunId),
     (launch) => void launchReplanPlannerHost(launch),
     (launch) => void launchBootstrapRelaunchHost(launch),
+    (ticketId, graphRunId) => {
+      provider.refresh();
+      dashboard.pushState(ticketId);
+      void driveGraphRunContinuation(graphRunId);
+    },
   ),
   // Live manifest getter, so the inside views resolve the REAL service names
   // and process assignments (panel.ts is manifest-free by contract).
@@ -4472,11 +4477,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // the run `running → draining` — the coordinator's own drain. NEVER to
   // `blocked`: a stop is a deliberate halt, not a fault the Resume would
   // retry.
-  stopGraphRun = async (ticketId: number): Promise<void> => {
+  stopGraphRun = async (ticketId: number, graphRunId: number): Promise<void> => {
     const gs = graphCoordinatorStore;
     const tr = graphTransport;
     if (!gs || !tr) return;
-    const run = stoppableGraphRunFor(gs.db, ticketId);
+    const run = stoppableGraphRunFor(gs.db, ticketId, graphRunId);
     if (!run) return;
     try {
       const result = await stopActiveGraph(
@@ -4498,9 +4503,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         `[graph] stop: run ${result.graphRunId} drained=${result.drained} terminated=${result.terminated} refused=${result.refused}`,
       );
       void vscode.window.showInformationMessage(
-        result.drained
+        result.drained || result.terminated > 0
           ? `Ticket #${ticketId}: implementation graph stopped — ${result.terminated} session${result.terminated === 1 ? '' : 's'} terminated${result.refused > 0 ? `, ${result.refused} refused` : ''}.`
-          : `Ticket #${ticketId}: the graph run already moved; nothing was stopped.`,
+          : `Ticket #${ticketId}: no graph sessions were stopped.`,
       );
       provider.refresh();
       dashboard.pushState(ticketId);
@@ -6824,7 +6829,7 @@ function makeInsideActionHost(
       ticketId: number,
       session: { kind: 'planner' | 'node'; runId: number },
     ) => void;
-    graphStop: (ticketId: number) => void | Promise<void>;
+    graphStop: (ticketId: number, graphRunId: number) => void | Promise<void>;
     graphConfirm: (ticketId: number, graphRunId: number) => void | Promise<void>;
     graphDiscardNode: (ticketId: number, nodeRunId: number) => void | Promise<void>;
     graphEditOverride: (ticketId: number, nodeRunId: number) => void | Promise<void>;
@@ -6845,6 +6850,8 @@ function makeInsideActionHost(
   // Launch a fresh bootstrap planner on a graph run whose previous bootstrap
   // planner died before ever submitting — the `planner-relaunch` recovery.
   graphBootstrapRelaunch: (launch: BootstrapRelaunchRequest) => void,
+  /** Refresh the graph surfaces and immediately continue recoverable work. */
+  onGraphRecovered: (ticketId: number, graphRunId: number) => void,
 ): InsideActionHost {
   /** Run either explicit graph recovery control. `recoverGraphRun` owns every
    * state transition; this host binding only launches the planner it elected
@@ -6872,6 +6879,7 @@ function makeInsideActionHost(
         return;
       }
       if (recovery.kind !== 'no-op') {
+        onGraphRecovered(ticketId, graphRunId);
         void vscode.window.showInformationMessage(
           mode === 'replan'
             ? `Ticket #${ticketId}: the implementation graph is replanning (graph run ${graphRunId}).`
@@ -6982,7 +6990,7 @@ function makeInsideActionHost(
     },
     openSession: (ticketId) => revealSession(ticketId),
     graphOpenSession: (ticketId, session) => graphHost.graphOpenSession(ticketId, session),
-    graphStop: (ticketId) => graphHost.graphStop(ticketId),
+    graphStop: (ticketId, graphRunId) => graphHost.graphStop(ticketId, graphRunId),
     graphResume: (ticketId, graphRunId) => recoverBlockedGraph(ticketId, graphRunId, 'resume'),
     graphReplan: (ticketId, graphRunId) => recoverBlockedGraph(ticketId, graphRunId, 'replan'),
     graphConfirm: (ticketId, graphRunId) => graphHost.graphConfirm(ticketId, graphRunId),

@@ -226,9 +226,19 @@ describe('graphInsideProcess', () => {
   });
 
   it('attaches the stop action to a running or blocked graph run and none once it is closed', () => {
-    const running = graphInsideProcess(input())!;
+    const runningTargets: GraphActionTarget[] = [];
+    const running = graphInsideProcess(
+      input({
+        attach: (target) => {
+          runningTargets.push(target);
+          return { actionId: 'snapshot-1:action-1', kind: target.kind };
+        },
+      }),
+    )!;
     if (running.evidence?.kind !== 'rows') return;
     expect(running.evidence.rows[0]!.action).toMatchObject({ kind: 'graph-stop' });
+    expect(runningTargets).toContainEqual({ kind: 'graph-stop', graphRunId: 7 });
+    const blockedTargets: GraphActionTarget[] = [];
     const blocked = graphInsideProcess(
       input({
         graphRun: {
@@ -238,12 +248,17 @@ describe('graphInsideProcess', () => {
           stageAttempt: 0,
           createdAt: '2026-08-11T00:00:00.000Z',
         },
+        attach: (target) => {
+          blockedTargets.push(target);
+          return { actionId: 'snapshot-1:action-1', kind: target.kind };
+        },
       }),
     )!;
     if (blocked.evidence?.kind !== 'rows') return;
     expect(blocked.evidence.rows.find((row) => row.label === 'stop graph')!.action).toMatchObject({
       kind: 'graph-stop',
     });
+    expect(blockedTargets).toContainEqual({ kind: 'graph-stop', graphRunId: 7 });
     const closed = graphInsideProcess(
       input({ graphRun: { id: 7, status: 'completed-awaiting-impl-marker', approachId: 'g', stageAttempt: 0, createdAt: '2026-08-11T00:00:00.000Z' } }),
     )!;

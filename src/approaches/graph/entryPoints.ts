@@ -69,16 +69,25 @@ export function activeGraphRunFor(db: GraphDb, ticketId: number): GraphRunSurfac
   return row ? { graphRunId: row.id, status: row.status } : undefined;
 }
 
-/** The newest graph run whose sessions an explicit Stop may terminate. */
-export function stoppableGraphRunFor(db: GraphDb, ticketId: number): GraphRunSurface | undefined {
+/** The named graph run (or, for legacy callers, newest one) whose sessions Stop may terminate. */
+export function stoppableGraphRunFor(
+  db: GraphDb,
+  ticketId: number,
+  graphRunId?: number,
+): GraphRunSurface | undefined {
   const placeholders = [...STOPPABLE_GRAPH_STATUSES].map(() => '?').join(', ');
+  const exactRun = graphRunId === undefined ? '' : 'AND id = ?';
   const row = db
     .prepare(
       `SELECT id, status FROM approach_graph_runs
-       WHERE ticket_id = ? AND status IN (${placeholders})
+       WHERE ticket_id = ? ${exactRun} AND status IN (${placeholders})
        ORDER BY id DESC LIMIT 1`,
     )
-    .get(ticketId, ...STOPPABLE_GRAPH_STATUSES) as { id: number; status: string } | undefined;
+    .get(
+      ticketId,
+      ...(graphRunId === undefined ? [] : [graphRunId]),
+      ...STOPPABLE_GRAPH_STATUSES,
+    ) as { id: number; status: string } | undefined;
   return row ? { graphRunId: row.id, status: row.status } : undefined;
 }
 

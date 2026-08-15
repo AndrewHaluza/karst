@@ -161,7 +161,7 @@ function host(calls: string[]): InsideActionHost {
     openSession: (ticketId) => void calls.push(`open-session:${ticketId}`),
     graphOpenSession: (ticketId, session) =>
       void calls.push(`graph-open:${ticketId}:${session.kind}:${session.runId}`),
-    graphStop: (ticketId) => void calls.push(`graph-stop:${ticketId}`),
+    graphStop: (ticketId, graphRunId) => void calls.push(`graph-stop:${ticketId}:${graphRunId}`),
     graphResume: (ticketId, graphRunId) => void calls.push(`graph-resume:${ticketId}:${graphRunId}`),
     graphReplan: (ticketId, graphRunId) => void calls.push(`graph-replan:${ticketId}:${graphRunId}`),
     graphConfirm: (ticketId, graphRunId) =>
@@ -641,41 +641,53 @@ describe('dispatchInsideAction', () => {
     });
   });
 
-  it('dispatches graph-stop while a live or blocked graph run exists for the ticket', () => {
+  it('dispatches graph-stop only to the graph run that minted the capability', () => {
     seedGraph({ ticketId: 1, runId: 1, status: 'running' });
     const r = registry(7);
-    r.register({ kind: 'graph-stop', ticketId: 1 });
+    r.register({ kind: 'graph-stop', ticketId: 1, graphRunId: 1 });
     const calls: string[] = [];
     expect(dispatchInsideAction(store, r, 'snapshot-7:action-0', deps(calls))).toEqual({
       outcome: 'dispatched',
     });
-    expect(calls).toEqual(['graph-stop:1']);
+    expect(calls).toEqual(['graph-stop:1:1']);
 
     store.db.prepare("UPDATE approach_graph_runs SET status = 'blocked' WHERE id = 1").run();
     const blocked = registry(7);
-    blocked.register({ kind: 'graph-stop', ticketId: 1 });
+    blocked.register({ kind: 'graph-stop', ticketId: 1, graphRunId: 1 });
     expect(dispatchInsideAction(store, blocked, 'snapshot-7:action-0', deps(calls))).toEqual({
       outcome: 'dispatched',
     });
-    expect(calls).toEqual(['graph-stop:1', 'graph-stop:1']);
+    expect(calls).toEqual(['graph-stop:1:1', 'graph-stop:1:1']);
+
+    // Once the original run has finished, a capability from its old panel must
+    // not be redirected to this newer running graph run.
+    store.db.prepare("UPDATE approach_graph_runs SET status = 'closed' WHERE id = 1").run();
+    seedGraph({ ticketId: 1, runId: 2, stageAttempt: 1, status: 'running' });
+    const stale = registry(8);
+    stale.register({ kind: 'graph-stop', ticketId: 1, graphRunId: 1 });
+    expect(dispatchInsideAction(store, stale, 'snapshot-8:action-0', deps(calls))).toEqual({
+      outcome: 'rejected',
+      reason: 'graph run is not stoppable',
+    });
+    expect(calls).toEqual(['graph-stop:1:1', 'graph-stop:1:1']);
 
     // A ticket with NO graph run is rejected — Stop never signals nothing.
     const r2 = registry(7, 2);
-    r2.register({ kind: 'graph-stop', ticketId: 2 });
+    r2.register({ kind: 'graph-stop', ticketId: 2, graphRunId: 99 });
     expect(dispatchInsideAction(store, r2, 'snapshot-7:action-0', deps([]))).toEqual({
       outcome: 'rejected',
-      reason: 'no live graph run to stop',
+      reason: 'graph run is not stoppable',
     });
 
     // A run that is no longer stoppable (closed) is rejected, never stopped.
     store.db
-      .prepare("UPDATE approach_graph_runs SET status = 'closed' WHERE id = 1")
+      .prepare("UPDATE approach_graph_runs SET status = 'closed' WHERE id = 2")
       .run();
     const r3 = registry(7);
-    r3.register({ kind: 'graph-stop', ticketId: 1 });
+    r3.register({ kind: 'graph-stop', ticketId: 1, graphRunId: 2 });
     expect(dispatchInsideAction(store, r3, 'snapshot-7:action-0', deps([]))).toEqual({
       outcome: 'rejected',
-      reason: 'no live graph run to stop',
+      reason: 'graph run is not stoppable',
     });
   });
 

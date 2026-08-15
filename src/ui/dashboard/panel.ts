@@ -950,7 +950,7 @@ function toRegisteredGraphTarget(
     case 'graph-open-session':
       return { kind: 'graph-open-session', ticketId, session: target.session };
     case 'graph-stop':
-      return { kind: 'graph-stop', ticketId };
+      return { kind: 'graph-stop', ticketId, graphRunId: target.graphRunId };
     case 'graph-resume':
       return { kind: 'graph-resume', ticketId, graphRunId: target.graphRunId };
     case 'graph-replan':

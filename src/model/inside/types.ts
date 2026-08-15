@@ -291,11 +291,11 @@ export type InsideEvidenceTarget =
   // reload) from the ticket id alone, per the opaque-capability rule above.
   | { kind: 'open-session' }
   // Graph controls (Slice 3 Task 11): Open focuses a LIVE planner/node
-  // session's terminal (never spawns one); Stop signals the coordinator to
-  // drain. The `session.runId` is a recorded run row id — a persisted object,
-  // never a client-supplied session name.
+  // session's terminal (never spawns one); Stop signals the named coordinator
+  // run to drain. These ids are recorded rows — persisted objects, never
+  // client-supplied session names.
   | { kind: 'graph-open-session'; session: { kind: 'planner' | 'node'; runId: number } }
-  | { kind: 'graph-stop' }
+  | { kind: 'graph-stop'; graphRunId: number }
   // Slice 4 Task 4: Discard an unknown process — the ONE explicit exit for a
   // `launch-unknown`/`termination-unknown` node run. DANGER: the process may
   // still be running; the row's visible copy names that risk (UI-R19), and the

@@ -180,6 +180,29 @@ describe('stop (coordinator-level controller)', () => {
     });
   });
 
+  it('finds only the graph run named by a Stop capability, never the latest ticket run', () => {
+    const ctx = harness('blocked');
+    const newerRunId = Number(
+      ctx.db
+        .prepare(
+          `INSERT INTO approach_graph_runs (ticket_id, stage_key, stage_attempt, approach_id, status, created_at)
+           VALUES (?, 'impl', 1, 'karst-graph-engineering', 'running', '2026-08-15T00:00:00.000Z')`,
+        )
+        .run(ctx.ticketId)
+        .lastInsertRowid,
+    );
+
+    expect(stoppableGraphRunFor(ctx.db, ctx.ticketId, ctx.graphRunId)).toEqual({
+      graphRunId: ctx.graphRunId,
+      status: 'blocked',
+    });
+    expect(stoppableGraphRunFor(ctx.db, ctx.ticketId, newerRunId)).toEqual({
+      graphRunId: newerRunId,
+      status: 'running',
+    });
+    expect(stoppableGraphRunFor(ctx.db, ctx.ticketId, 999)).toBeUndefined();
+  });
+
   it('terminates every running node process and drains the graph — never blocked', async () => {
     const ctx = harness('running');
     const terminated: number[] = [];
