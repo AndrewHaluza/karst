@@ -81,6 +81,28 @@ describe('ticketGlyph', () => {
     expect(ticketGlyph(t)).toBe('blue');
   });
 
+  it('a graph impl stage awaiting the impl marker reads needs-you, amber — the same way approach-graph-failed does', () => {
+    // The graph run is done but nothing advances until a human or agent fires
+    // `karst stage impl pass`; the stage row itself stays `running` (the
+    // driver never re-infers a verdict), so the needs-you signal has to come
+    // from the blockedKind, exactly like `approach-graph-failed`.
+    const t = ticket({
+      stageCurrent: 'impl',
+      agentState: 'idle',
+      stages: [
+        {
+          stageKey: 'impl',
+          status: 'running',
+          blockedKind: 'awaiting-impl-marker',
+          blockedReason: 'graph run 7 completed-awaiting-impl-marker',
+          blockedAt: '2026-08-01T10:00:00.000Z',
+        } as never,
+      ],
+    });
+    expect(needsUser(t)).toBe(true);
+    expect(ticketGlyph(t)).toBe('amber');
+  });
+
   it('a running agent at an awaiting-merge ship reads in-progress, not needs-you', () => {
     // The "Resolve conflicts" click opened a session: the ticket is being
     // worked right now, so the awaiting-merge block YIELDS its needs-you

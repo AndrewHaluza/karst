@@ -270,8 +270,12 @@ function graphRunStatus(status: string): InsideStatus {
       return 'run';
     case 'blocked':
     case 'stale':
-      return 'wait';
+      // The graph's own work is done, but nothing advances until a human or
+      // agent fires `karst stage impl pass` — the same "asked nothing is
+      // never green" / `awaiting-merge` shape as ship's post-pass wait, never
+      // the `closed` bucket below.
     case 'completed-awaiting-impl-marker':
+      return 'wait';
     case 'closed':
       return 'pass';
     case 'cancelled':

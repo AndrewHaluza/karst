@@ -83,7 +83,16 @@ export type BlockerKind =
   // stranding the graph's stage signal is the same failure class as clearing
   // `awaiting-merge`. `needsUser` renders it amber; Resume returns the typed
   // `graph-recovery` action instead.
-  | 'approach-graph-failed';
+  | 'approach-graph-failed'
+  // Same shape as `awaiting-merge`: not "karst could not ask" — the graph's
+  // own work finished (`completed-awaiting-impl-marker`) and is waiting on a
+  // human or agent to fire `karst stage impl pass`. The impl stage row itself
+  // stays `running` (the driver never re-infers a verdict from graph state),
+  // so this is the ONLY signal `needsUser` has to read the wait as amber
+  // instead of the ticket silently reading as if nothing were happening.
+  // Written by `workflow/graphMarkerGuard.ts`'s `markGraphAwaitingImplMarker`
+  // the moment the graph flips quiescent, cleared the moment the marker fires.
+  | 'awaiting-impl-marker';
 
 /**
  * What one stage run did. A runner no longer implies a transition by returning:

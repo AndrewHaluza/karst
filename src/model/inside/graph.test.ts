@@ -192,6 +192,39 @@ describe('graphInsideProcess', () => {
     expect(node.action).toMatchObject({ kind: 'graph-edit-override' });
   });
 
+  it('a run completed-awaiting-impl-marker reads as waiting, not passed — the graph is done but the marker has not been fired (869 completed-awaiting-impl-marker green bug)', () => {
+    const process = graphInsideProcess(
+      input({
+        graphRun: {
+          id: 7,
+          status: 'completed-awaiting-impl-marker',
+          approachId: 'g',
+          stageAttempt: 0,
+          createdAt: '2026-08-11T00:00:00.000Z',
+        },
+      }),
+    )!;
+    // The run itself is done, but nothing advances until a human or agent
+    // fires `karst stage impl pass` — that is a wait, exactly like the
+    // `awaiting-merge` ship precedent, never the same green bucket as `closed`.
+    expect(process.status).toBe('wait');
+    if (process.evidence?.kind !== 'rows') return;
+    expect(process.evidence.rows[0]!.status).toBe('wait');
+    // `closed` is a genuine pass and must stay green.
+    const closed = graphInsideProcess(
+      input({
+        graphRun: {
+          id: 7,
+          status: 'closed',
+          approachId: 'g',
+          stageAttempt: 0,
+          createdAt: '2026-08-11T00:00:00.000Z',
+        },
+      }),
+    )!;
+    expect(closed.status).toBe('pass');
+  });
+
   it('attaches the stop action to a running graph run and none once it is closed', () => {
     const running = graphInsideProcess(input())!;
     if (running.evidence?.kind !== 'rows') return;

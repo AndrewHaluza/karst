@@ -72,7 +72,13 @@ export function needsUser(t: TicketWithStages): boolean {
     // A blocked implementation graph is parked on the user (Slice-3 T9): the
     // graph needs a human decision (recover/replan/discard), never a silent
     // generic retry — amber everywhere, like awaiting-merge.
-    current?.blockedKind === 'approach-graph-failed'
+    current?.blockedKind === 'approach-graph-failed' ||
+    // The graph's own work finished but nothing advances until a human or
+    // agent fires `karst stage impl pass` — the impl stage row itself stays
+    // `running`, so this blockedKind is the only place that wait is visible.
+    // Same shape as `awaiting-merge`: the question was asked (the graph
+    // completed), just not yet answered.
+    current?.blockedKind === 'awaiting-impl-marker'
   );
 }
 

@@ -367,7 +367,7 @@ describe('documented failures of the current dynamic graph implementation', () =
     }
   });
 
-  it.fails(
+  it(
     'a graph-approach ticket with NO graph run falls through to the PLAIN impl marker (must not advance)',
     async () => {
       // MISSING CONNECTION: `runStageCommand` routes to the graph marker guard
@@ -607,18 +607,18 @@ describe('documented failures of the current dynamic graph implementation', () =
     }
   });
 
-  it.fails(
-    'an out-of-claim UNTRACKED file is currently SILENTLY DROPPED instead of violating the claim',
+  it(
+    'an out-of-claim UNTRACKED file violates the claim, exactly like a tracked one',
     async () => {
-      // LOGICAL ERROR: the change set is captured with `git diff --name-status
-      // HEAD`, which lists only TRACKED changes. Untracked files are enumerated
+      // The change set used to be captured with `git diff --name-status HEAD`,
+      // which lists only TRACKED changes. Untracked files were enumerated
       // separately (`git ls-files --others`) but used ONLY to decide what to
-      // COPY into the canonical worktree — they are never validated against the
-      // node's declared writes. So an agent that creates a new file OUTSIDE its
-      // declared claim is neither reported (the claim validation sees an empty
-      // change set) nor integrated (the copy is claim-filtered): the file is
-      // silently LOST from the tree and no violation is recorded. The correct
-      // behaviour is the same `resource-claim-violated` park as a tracked
+      // COPY into the canonical worktree — never validated against the node's
+      // declared writes. So an agent that created a new file OUTSIDE its claim
+      // was neither reported (claim validation saw an empty change set) nor
+      // integrated (the copy is claim-filtered): the file was silently LOST and
+      // no violation recorded. Capture now merges untracked paths into the same
+      // validation, so this parks `resource-claim-violated` like any tracked
       // out-of-claim change.
       const h = makeHarness();
       try {
@@ -631,7 +631,7 @@ describe('documented failures of the current dynamic graph implementation', () =
           .get(graphRunId) as { id: number; generation: string | null };
         // The agent created a NEW untracked file outside the declared `src/`
         // claim.
-        writeFileSync(join(h.workspace, 'OUTSIDE.ts'), 'outside\n');
+        writeFileSync(join(h.workspace, 'unclaimed-new.ts'), 'outside\n');
         runNodeCommand(
           h.store,
           graphEnv(h, {
@@ -656,7 +656,7 @@ describe('documented failures of the current dynamic graph implementation', () =
         // The canonical worktree must NOT contain the out-of-claim file.
         const exists = (() => {
           try {
-            return readFileSync(join(h.worktree, 'OUTSIDE.ts')).length >= 0;
+            return readFileSync(join(h.worktree, 'unclaimed-new.ts')).length >= 0;
           } catch {
             return false;
           }

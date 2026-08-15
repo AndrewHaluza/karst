@@ -97,7 +97,12 @@ function blockedDetail(row?: StepperStageRow): Record<'blocked', StepperCell['bl
       // the cause is addressed (there editing karst.yml or re-scoping), so the
       // dashboard must offer the control. Matches `workflow/stageResume.ts`,
       // which refuses exactly `awaiting-merge` and nothing else.
-      resumable: row.blockedKind !== 'awaiting-merge',
+      // `awaiting-impl-marker` is the same shape as `awaiting-merge`: a
+      // genuine wait, not a fault, and `stageResume.ts` refuses to clear it —
+      // a Resume button here would always no-op. It is already surfaced by
+      // the graph Inside view's own rows and the amber glyph, so the legacy
+      // banner would just be a second, wrong-worded copy of that wait.
+      resumable: row.blockedKind !== 'awaiting-merge' && row.blockedKind !== 'awaiting-impl-marker',
     },
   };
 }

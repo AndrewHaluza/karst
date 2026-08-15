@@ -47,6 +47,11 @@ export function resumeBlockedStage(
   const block = stageBlock(store, panelTicketId, stageKey);
   if (!block) return { kind: 'refused' };
   if (block.kind === 'awaiting-merge') return { kind: 'refused' };
+  // Same reasoning as `awaiting-merge`: the question was asked (the graph
+  // finished) and answered "not yet". Clearing it here would strand the
+  // ticket the same way — `markGraphAwaitingImplMarker`'s own guard clears it
+  // the moment the marker actually fires, which a generic Resume can't do.
+  if (block.kind === 'awaiting-impl-marker') return { kind: 'refused' };
   if (block.kind === 'approach-graph-failed') {
     const graphRunId = blockedGraphRunFor(store, panelTicketId);
     if (graphRunId === undefined) return { kind: 'refused' };

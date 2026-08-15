@@ -206,7 +206,7 @@ import { nodeOverrideFor, type BaseHead } from './store/graph/nodeRuns.js';
 import { allGraphRunsClosed } from './store/graph/graphRuns.js';
 import { reapClosedGraphSubtrees, describeGraphReap } from './approaches/graph/retention.js';
 import { reapOrphanedArtifactDirs, describeArtifactReap } from './runtime/artifactOrphans.js';
-import { blockGraphStage } from './workflow/graphMarkerGuard.js';
+import { blockGraphStage, markGraphAwaitingImplMarker } from './workflow/graphMarkerGuard.js';
 import { DEFAULT_GRAPH_LIMITS } from './manifest/graphConfig.js';
 import {
   acceptSubmittedPlan,
@@ -3399,6 +3399,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       );
       if (result.flipped) {
         logger.debug(`[graph] run ${graphRunId} quiescent — waiting for the impl marker`);
+        // Make the wait visible on the stage row itself (needs-you amber),
+        // the same way blockGraphStage makes a graph fault visible.
+        markGraphAwaitingImplMarker(
+          graphCoordinatorStore!,
+          run.ticket_id,
+          graphRunId,
+          () => new Date().toISOString(),
+        );
       }
       return;
     }
