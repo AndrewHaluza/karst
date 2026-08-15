@@ -80,6 +80,15 @@ machine-read JSON or markdown; diagnostics go to stderr and never corrupt it.
    It exists to drive and inspect workflows from scripts, never as a way for a
    working agent to report progress: the \`stage\` marker is the only verb that
    records an agent's own done marker.
+ - \`test create-ticket --title <title> [--key <key>] [--type <type>]
+   [--approach <approach>] [--description <desc>] [--project <slug>]\` —
+   create a ticket, idempotent by key: re-running the same \`--key\` (or the
+   key derived from the title) returns the existing ticket instead of
+   duplicating it. Scope it to a project with \`--project <slug>\` — the
+   project named by \`--manifest\` is the fallback — or the ticket exists in
+   the DB but never appears on any board (every board query filters by
+   \`project_id\`). A project-less create is only useful for throwaway
+   fixtures, never for work you need to see or drive again.
  - \`guide\` — this document.
 
 The marker is deliberately narrow: \`stage\` accepts only \`impl\`/\`fix\` and
