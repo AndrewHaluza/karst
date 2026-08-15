@@ -92,6 +92,9 @@ export type RecoveryRefusalReason =
   | 'config-then-resume'
   | 'explicit-resolution';
 
+/** How a user-triggered graph recovery should treat the recorded block. */
+export type GraphRecoveryMode = 'resume' | 'replan';
+
 export interface RecoveryDeps {
   store: Store;
   /** BEGIN IMMEDIATE-wrapped, all-or-nothing; a throw rolls back. */
@@ -587,7 +590,7 @@ function plannerRelaunchRecovery(
  */
 export function recoverGraphRun(
   deps: RecoveryDeps,
-  input: { ticketId: number; graphRunId: number },
+  input: { ticketId: number; graphRunId: number; mode?: GraphRecoveryMode },
 ): RecoveryResult {
   const { store } = deps;
   const ticket = getTicket(store, input.ticketId);
@@ -597,6 +600,11 @@ export function recoverGraphRun(
     .prepare('SELECT id, status, blocked_reason FROM approach_graph_runs WHERE id = ?')
     .get(input.graphRunId) as BlockedRunRow | undefined;
   if (!run || run.status !== 'blocked') return { kind: 'no-op' };
+
+  // Replan is the explicit human alternative to category-aware Resume. It
+  // deliberately enters the existing election path, which owns the budget,
+  // single-winner drain, and revision lifecycle; it never advances the stage.
+  if (input.mode === 'replan') return replanRecovery(deps, input);
 
   const category = recoveryCategoryFor(run.blocked_reason);
   switch (category) {

@@ -149,6 +149,8 @@ export type GraphActionTarget =
   | { kind: 'graph-open-session'; session: { kind: 'planner' | 'node'; runId: number } }
   | { kind: 'graph-confirm'; graphRunId: number }
   | { kind: 'graph-stop' }
+  | { kind: 'graph-resume'; graphRunId: number }
+  | { kind: 'graph-replan'; graphRunId: number }
   | { kind: 'graph-discard-node'; nodeRunId: number }
   | { kind: 'graph-edit-override'; nodeRunId: number };
 
@@ -342,13 +344,15 @@ function nodeRunStatus(status: string): InsideStatus {
 
 /**
  * The graph-run statuses a Stop action is offered on: the coordinator is
- * live and a drain is a meaningful signal. A closed, blocked, or stale run
- * carries no stop action — Stop never reads as a reset.
+ * live and a drain is a meaningful signal. A blocked run may still have a
+ * process the user needs to terminate; Stop leaves that blocked state intact,
+ * never reading as a reset or stage transition.
  */
 const STOPPABLE_RUN_STATUSES: readonly string[] = [
   'planning',
   'awaiting-confirmation',
   'running',
+  'blocked',
 ] as const;
 
 function hasLiveSession(
@@ -534,12 +538,29 @@ export function graphInsideProcess(
       `run ${input.graphRun.id} · ${graphRunStatusCopy(input.graphRun.status)} · ${input.graphRun.approachId}`,
     ),
     status: graphRunStatus(input.graphRun.status),
-    ...(input.attach && input.graphRun.status === 'awaiting-confirmation'
-      ? { action: input.attach({ kind: 'graph-confirm', graphRunId: input.graphRun.id }) }
-      : STOPPABLE_RUN_STATUSES.includes(input.graphRun.status) && input.attach
-        ? { action: input.attach({ kind: 'graph-stop' }) }
-        : {}),
+    ...(input.attach && input.graphRun.status === 'blocked'
+      ? { action: input.attach({ kind: 'graph-resume', graphRunId: input.graphRun.id }) }
+      : input.attach && input.graphRun.status === 'awaiting-confirmation'
+        ? { action: input.attach({ kind: 'graph-confirm', graphRunId: input.graphRun.id }) }
+        : STOPPABLE_RUN_STATUSES.includes(input.graphRun.status) && input.attach
+          ? { action: input.attach({ kind: 'graph-stop' }) }
+          : {}),
   });
+
+  if (input.attach && input.graphRun.status === 'blocked') {
+    rows.push({
+      label: 'replan',
+      detail: 'Start a new graph revision from the recorded failure evidence',
+      status: 'wait',
+      action: input.attach({ kind: 'graph-replan', graphRunId: input.graphRun.id }),
+    });
+    rows.push({
+      label: 'stop graph',
+      detail: 'Terminate any remaining graph sessions without changing the blocked stage',
+      status: 'note',
+      action: input.attach({ kind: 'graph-stop' }),
+    });
+  }
 
   for (const planner of input.plannerRuns) {
     rows.push({

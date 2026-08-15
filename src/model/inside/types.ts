@@ -240,6 +240,8 @@ export type InsideActionKind =
   | 'graph-open-session'
   | 'graph-confirm'
   | 'graph-stop'
+  | 'graph-resume'
+  | 'graph-replan'
   | 'graph-discard-node'
   | 'graph-edit-override';
 

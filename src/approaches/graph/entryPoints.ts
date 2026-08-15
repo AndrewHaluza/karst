@@ -41,6 +41,14 @@ export const ACTIVE_GRAPH_STATUSES: ReadonlySet<string> = new Set([
   'completed-awaiting-impl-marker',
 ]);
 
+/** Statuses whose recorded sessions Stop may terminate. `blocked` deliberately
+ * stays out of `ACTIVE_GRAPH_STATUSES`: it is not runnable, but remaining
+ * processes may still need an explicit non-advancing stop. */
+const STOPPABLE_GRAPH_STATUSES: ReadonlySet<string> = new Set([
+  ...ACTIVE_GRAPH_STATUSES,
+  'blocked',
+]);
+
 export type GraphTicketSurface = 'active-graph' | 'graph-marker' | 'none';
 
 export interface GraphRunSurface {
@@ -58,6 +66,19 @@ export function activeGraphRunFor(db: GraphDb, ticketId: number): GraphRunSurfac
        ORDER BY id DESC LIMIT 1`,
     )
     .get(ticketId, ...ACTIVE_GRAPH_STATUSES) as { id: number; status: string } | undefined;
+  return row ? { graphRunId: row.id, status: row.status } : undefined;
+}
+
+/** The newest graph run whose sessions an explicit Stop may terminate. */
+export function stoppableGraphRunFor(db: GraphDb, ticketId: number): GraphRunSurface | undefined {
+  const placeholders = [...STOPPABLE_GRAPH_STATUSES].map(() => '?').join(', ');
+  const row = db
+    .prepare(
+      `SELECT id, status FROM approach_graph_runs
+       WHERE ticket_id = ? AND status IN (${placeholders})
+       ORDER BY id DESC LIMIT 1`,
+    )
+    .get(ticketId, ...STOPPABLE_GRAPH_STATUSES) as { id: number; status: string } | undefined;
   return row ? { graphRunId: row.id, status: row.status } : undefined;
 }
 

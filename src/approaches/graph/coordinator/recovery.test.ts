@@ -247,6 +247,21 @@ describe('recoverGraphRun', () => {
     expect(nodeRow(7).status).toBe('blocked');
   });
 
+  it('an explicit graph replan elects a new revision after a non-retryable block', () => {
+    const { ticketId, graphRunId } = blockedGraph(
+      'integration-conflict: git commit refused in web',
+      [{ id: 7, status: 'blocked' }],
+      validGraph(2),
+    );
+    const result = recoverGraphRun(
+      makeDeps(),
+      { ticketId, graphRunId, mode: 'replan' },
+    );
+    expect(result.kind).toBe('replanned');
+    expect(runRow(graphRunId)).toEqual({ status: 'draining', blocked_reason: null });
+    expect(stageBlock(store, ticketId, 'impl')).toBeNull();
+  });
+
   it('an output-artifact-missing fault refuses until the artifact is corrected', () => {
     const { ticketId, graphRunId } = blockedGraph('output-artifact-missing: artifact "r" produced nothing', [
       { id: 7, status: 'output-artifact-missing' },

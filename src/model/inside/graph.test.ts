@@ -225,10 +225,25 @@ describe('graphInsideProcess', () => {
     expect(closed.status).toBe('pass');
   });
 
-  it('attaches the stop action to a running graph run and none once it is closed', () => {
+  it('attaches the stop action to a running or blocked graph run and none once it is closed', () => {
     const running = graphInsideProcess(input())!;
     if (running.evidence?.kind !== 'rows') return;
     expect(running.evidence.rows[0]!.action).toMatchObject({ kind: 'graph-stop' });
+    const blocked = graphInsideProcess(
+      input({
+        graphRun: {
+          id: 7,
+          status: 'blocked',
+          approachId: 'g',
+          stageAttempt: 0,
+          createdAt: '2026-08-11T00:00:00.000Z',
+        },
+      }),
+    )!;
+    if (blocked.evidence?.kind !== 'rows') return;
+    expect(blocked.evidence.rows.find((row) => row.label === 'stop graph')!.action).toMatchObject({
+      kind: 'graph-stop',
+    });
     const closed = graphInsideProcess(
       input({ graphRun: { id: 7, status: 'completed-awaiting-impl-marker', approachId: 'g', stageAttempt: 0, createdAt: '2026-08-11T00:00:00.000Z' } }),
     )!;
@@ -303,6 +318,32 @@ describe('graphInsideProcess', () => {
       graphRunId: 7,
     });
     expect(process.evidence.rows[0]!.action).toMatchObject({ kind: 'graph-confirm' });
+  });
+
+  it('attaches explicit resume and replan controls for a blocked graph run', () => {
+    const targets: GraphActionTarget[] = [];
+    const process = graphInsideProcess(
+      input({
+        graphRun: {
+          id: 7,
+          status: 'blocked',
+          approachId: 'g',
+          stageAttempt: 0,
+          createdAt: '2026-08-11T00:00:00.000Z',
+        },
+        attach: (target) => {
+          targets.push(target);
+          return { actionId: `snapshot-1:action-${targets.length}`, kind: target.kind };
+        },
+      }),
+    )!;
+    if (process.evidence?.kind !== 'rows') return;
+    expect(targets).toContainEqual({ kind: 'graph-resume', graphRunId: 7 });
+    expect(targets).toContainEqual({ kind: 'graph-replan', graphRunId: 7 });
+    expect(process.evidence.rows[0]!.action).toMatchObject({ kind: 'graph-resume' });
+    expect(process.evidence.rows.find((row) => row.label === 'replan')!.action).toMatchObject({
+      kind: 'graph-replan',
+    });
   });
 
   it('attaches the discard exit to an ambiguous node run and Open to a live one, never both', () => {

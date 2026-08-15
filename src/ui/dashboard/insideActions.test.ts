@@ -162,6 +162,8 @@ function host(calls: string[]): InsideActionHost {
     graphOpenSession: (ticketId, session) =>
       void calls.push(`graph-open:${ticketId}:${session.kind}:${session.runId}`),
     graphStop: (ticketId) => void calls.push(`graph-stop:${ticketId}`),
+    graphResume: (ticketId, graphRunId) => void calls.push(`graph-resume:${ticketId}:${graphRunId}`),
+    graphReplan: (ticketId, graphRunId) => void calls.push(`graph-replan:${ticketId}:${graphRunId}`),
     graphConfirm: (ticketId, graphRunId) =>
       void calls.push(`graph-confirm:${ticketId}:${graphRunId}`),
     graphDiscardNode: (ticketId, nodeRunId) =>
@@ -639,7 +641,7 @@ describe('dispatchInsideAction', () => {
     });
   });
 
-  it('dispatches graph-stop only while a live graph run exists for the ticket', () => {
+  it('dispatches graph-stop while a live or blocked graph run exists for the ticket', () => {
     seedGraph({ ticketId: 1, runId: 1, status: 'running' });
     const r = registry(7);
     r.register({ kind: 'graph-stop', ticketId: 1 });
@@ -648,6 +650,14 @@ describe('dispatchInsideAction', () => {
       outcome: 'dispatched',
     });
     expect(calls).toEqual(['graph-stop:1']);
+
+    store.db.prepare("UPDATE approach_graph_runs SET status = 'blocked' WHERE id = 1").run();
+    const blocked = registry(7);
+    blocked.register({ kind: 'graph-stop', ticketId: 1 });
+    expect(dispatchInsideAction(store, blocked, 'snapshot-7:action-0', deps(calls))).toEqual({
+      outcome: 'dispatched',
+    });
+    expect(calls).toEqual(['graph-stop:1', 'graph-stop:1']);
 
     // A ticket with NO graph run is rejected — Stop never signals nothing.
     const r2 = registry(7, 2);
@@ -666,6 +676,30 @@ describe('dispatchInsideAction', () => {
     expect(dispatchInsideAction(store, r3, 'snapshot-7:action-0', deps([]))).toEqual({
       outcome: 'rejected',
       reason: 'no live graph run to stop',
+    });
+  });
+
+  it('dispatches graph recovery controls only while the recorded run is blocked', () => {
+    seedGraph({ ticketId: 1, runId: 1, status: 'blocked' });
+    const calls: string[] = [];
+    const actions = registry(7);
+    actions.register({ kind: 'graph-resume', ticketId: 1, graphRunId: 1 });
+    actions.register({ kind: 'graph-replan', ticketId: 1, graphRunId: 1 });
+
+    expect(dispatchInsideAction(store, actions, 'snapshot-7:action-0', deps(calls))).toEqual({
+      outcome: 'dispatched',
+    });
+    expect(dispatchInsideAction(store, actions, 'snapshot-7:action-1', deps(calls))).toEqual({
+      outcome: 'dispatched',
+    });
+    expect(calls).toEqual(['graph-resume:1:1', 'graph-replan:1:1']);
+
+    store.db.prepare("UPDATE approach_graph_runs SET status = 'running' WHERE id = 1").run();
+    const stale = registry(8);
+    stale.register({ kind: 'graph-resume', ticketId: 1, graphRunId: 1 });
+    expect(dispatchInsideAction(store, stale, 'snapshot-8:action-0', deps([]))).toEqual({
+      outcome: 'rejected',
+      reason: 'graph is not blocked',
     });
   });
 

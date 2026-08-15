@@ -13,6 +13,7 @@ import { openStore } from '../../store/db.js';
 import {
   ACTIVE_GRAPH_STATUSES,
   activeGraphRunFor,
+  stoppableGraphRunFor,
   graphTicketSurface,
   nudgeSurface,
   shouldDriveGraphTicket,
@@ -170,6 +171,15 @@ describe('driveTicket surface', () => {
 });
 
 describe('stop (coordinator-level controller)', () => {
+  it('finds a blocked graph for Stop without treating it as a runnable graph', () => {
+    const ctx = harness('blocked');
+    expect(activeGraphRunFor(ctx.db, ctx.ticketId)).toBeUndefined();
+    expect(stoppableGraphRunFor(ctx.db, ctx.ticketId)).toEqual({
+      graphRunId: ctx.graphRunId,
+      status: 'blocked',
+    });
+  });
+
   it('terminates every running node process and drains the graph — never blocked', async () => {
     const ctx = harness('running');
     const terminated: number[] = [];

@@ -70,6 +70,8 @@ export type InsideActionTarget =
       session: { kind: 'planner' | 'node'; runId: number };
     }
   | { kind: 'graph-stop'; ticketId: number }
+  | { kind: 'graph-resume'; ticketId: number; graphRunId: number }
+  | { kind: 'graph-replan'; ticketId: number; graphRunId: number }
   | { kind: 'graph-confirm'; ticketId: number; graphRunId: number }
   // Slice 4 Task 4: discard an ambiguous node run (`launch-unknown` /
   // `termination-unknown`). The nodeRunId is a RECORDED node-run row id — the
@@ -186,6 +188,10 @@ export interface InsideActionHost {
   ): void | Promise<void>;
   /** Signal the coordinator to drain the ticket's live graph run. */
   graphStop(ticketId: number): void | Promise<void>;
+  /** Retry a blocked graph through its category-specific recovery path. */
+  graphResume(ticketId: number, graphRunId: number): void | Promise<void>;
+  /** Elect a new graph revision from a blocked run's recorded evidence. */
+  graphReplan(ticketId: number, graphRunId: number): void | Promise<void>;
   /** Confirm a compiled graph plan that is durably awaiting the user. */
   graphConfirm(ticketId: number, graphRunId: number): void | Promise<void>;
   /**
@@ -212,12 +218,13 @@ export type InsideDispatchOutcome =
 /**
  * The graph-run statuses Stop may signal on — the coordinator is live and a
  * drain is meaningful. Mirrors the pure projection's own stoppable set; a
- * closed/blocked/stale run is never stopped by this id.
+ * blocked stop terminates remaining sessions but does not alter the block.
  */
 const GRAPH_STOPPABLE_STATUSES: readonly string[] = [
   'planning',
   'awaiting-confirmation',
   'running',
+  'blocked',
 ] as const;
 
 /** Prove a planner/node run row belongs to the registry's ticket. */
@@ -408,6 +415,23 @@ export function dispatchInsideAction(
         return { outcome: 'rejected', reason: 'no live graph run to stop' };
       }
       void deps.host.graphStop(target.ticketId);
+      return { outcome: 'dispatched' };
+    }
+    case 'graph-resume':
+    case 'graph-replan': {
+      const row = store.db
+        .prepare(
+          'SELECT status FROM approach_graph_runs WHERE id = ? AND ticket_id = ?',
+        )
+        .get(target.graphRunId, target.ticketId) as { status: string } | undefined;
+      if (row?.status !== 'blocked') {
+        return { outcome: 'rejected', reason: 'graph is not blocked' };
+      }
+      if (target.kind === 'graph-resume') {
+        void deps.host.graphResume(target.ticketId, target.graphRunId);
+      } else {
+        void deps.host.graphReplan(target.ticketId, target.graphRunId);
+      }
       return { outcome: 'dispatched' };
     }
     case 'graph-confirm': {

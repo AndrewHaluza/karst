@@ -932,6 +932,8 @@ const NOOP_INSIDE_HOST: InsideActionHost = {
   openSession: () => undefined,
   graphOpenSession: () => undefined,
   graphStop: () => undefined,
+  graphResume: () => undefined,
+  graphReplan: () => undefined,
   graphConfirm: () => undefined,
   graphDiscardNode: () => undefined,
   graphEditOverride: () => undefined,
@@ -949,6 +951,10 @@ function toRegisteredGraphTarget(
       return { kind: 'graph-open-session', ticketId, session: target.session };
     case 'graph-stop':
       return { kind: 'graph-stop', ticketId };
+    case 'graph-resume':
+      return { kind: 'graph-resume', ticketId, graphRunId: target.graphRunId };
+    case 'graph-replan':
+      return { kind: 'graph-replan', ticketId, graphRunId: target.graphRunId };
     case 'graph-confirm':
       return { kind: 'graph-confirm', ticketId, graphRunId: target.graphRunId };
     case 'graph-discard-node':

@@ -188,6 +188,7 @@ import {
   activeGraphRunFor,
   nudgeSurface,
   shouldDriveGraphTicket,
+  stoppableGraphRunFor,
   stopActiveGraph,
 } from './approaches/graph/entryPoints.js';
 import { reattachableSessionIdentity } from './approaches/graph/coordinator/reattach.js';
@@ -4475,7 +4476,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const gs = graphCoordinatorStore;
     const tr = graphTransport;
     if (!gs || !tr) return;
-    const run = activeGraphRunFor(gs.db, ticketId);
+    const run = stoppableGraphRunFor(gs.db, ticketId);
     if (!run) return;
     try {
       const result = await stopActiveGraph(
@@ -6845,6 +6846,45 @@ function makeInsideActionHost(
   // planner died before ever submitting — the `planner-relaunch` recovery.
   graphBootstrapRelaunch: (launch: BootstrapRelaunchRequest) => void,
 ): InsideActionHost {
+  /** Run either explicit graph recovery control. `recoverGraphRun` owns every
+   * state transition; this host binding only launches the planner it elected
+   * and reports the resulting non-verdict outcome. */
+  const recoverBlockedGraph = (
+    ticketId: number,
+    graphRunId: number,
+    mode: 'resume' | 'replan',
+  ): void => {
+    try {
+      const recovery = recoverGraphRun(
+        graphRecoveryDeps(graphRunId),
+        { ticketId, graphRunId, mode },
+      );
+      if (recovery.kind === 'replanned' && recovery.launch) {
+        graphReplanLaunch(recovery.launch);
+      }
+      if (recovery.kind === 'relaunched' && recovery.launch) {
+        graphBootstrapRelaunch(recovery.launch);
+      }
+      if (recovery.kind === 'refused') {
+        void vscode.window.showInformationMessage(
+          `Ticket #${ticketId}: the implementation graph cannot ${mode} itself (${recovery.reason}).`,
+        );
+        return;
+      }
+      if (recovery.kind !== 'no-op') {
+        void vscode.window.showInformationMessage(
+          mode === 'replan'
+            ? `Ticket #${ticketId}: the implementation graph is replanning (graph run ${graphRunId}).`
+            : `Ticket #${ticketId}: the implementation graph recovery started (graph run ${graphRunId}).`,
+        );
+      }
+    } catch (err) {
+      void vscode.window.showErrorMessage(
+        `Could not ${mode} the implementation graph: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  };
+
   return {
     openFile: (path, line) => {
       void (async () => {
@@ -6943,6 +6983,8 @@ function makeInsideActionHost(
     openSession: (ticketId) => revealSession(ticketId),
     graphOpenSession: (ticketId, session) => graphHost.graphOpenSession(ticketId, session),
     graphStop: (ticketId) => graphHost.graphStop(ticketId),
+    graphResume: (ticketId, graphRunId) => recoverBlockedGraph(ticketId, graphRunId, 'resume'),
+    graphReplan: (ticketId, graphRunId) => recoverBlockedGraph(ticketId, graphRunId, 'replan'),
     graphConfirm: (ticketId, graphRunId) => graphHost.graphConfirm(ticketId, graphRunId),
     graphDiscardNode: (ticketId, nodeRunId) => graphHost.graphDiscardNode(ticketId, nodeRunId),
     graphEditOverride: (ticketId, nodeRunId) => graphHost.graphEditOverride(ticketId, nodeRunId),
