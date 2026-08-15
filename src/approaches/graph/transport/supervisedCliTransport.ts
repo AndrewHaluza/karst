@@ -122,10 +122,11 @@ export interface SupervisedCliTransport extends AgentTransport {
   adopt(session: SupervisedAgentSession): void;
 }
 
-const CAPABILITIES: AgentTransportCapabilities = {
+/** The supervised CLI transport's actual capability contract. */
+export const SUPERVISED_CLI_TRANSPORT_CAPABILITIES = {
   exactModel: false,
   attributedTermination: true,
-};
+} as const satisfies AgentTransportCapabilities;
 
 export function createSupervisedCliTransport(deps: SupervisedTransportDeps): SupervisedCliTransport {
   const facts = deps.facts;
@@ -134,7 +135,7 @@ export function createSupervisedCliTransport(deps: SupervisedTransportDeps): Sup
   const sessions = new Map<string, SupervisedAgentSession>();
 
   return {
-    capabilities: () => CAPABILITIES,
+    capabilities: () => SUPERVISED_CLI_TRANSPORT_CAPABILITIES,
 
     async start(request: SupervisedLaunchRequest): Promise<SupervisedAgentSession> {
       const ownerNonce = randomBytes(16).toString('hex');

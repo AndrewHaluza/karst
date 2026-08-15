@@ -273,6 +273,8 @@ describe('dashboard webview.html', () => {
     const fn = HTML.slice(HTML.indexOf('function gotoAction(kind)'));
     const body = fn.slice(0, fn.indexOf('\n  }'));
     expect(body).toContain('scrollIntoView');
+    expect(body).toContain("kind === 'graph-panel'");
+    expect(body).toContain("document.querySelector('#inside')");
     expect(body, 'the navigational path posts nothing').not.toContain('post(');
   });
 

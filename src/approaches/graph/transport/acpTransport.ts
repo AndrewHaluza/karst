@@ -347,6 +347,12 @@ export function createAcpTransport(deps: AcpTransportDeps): AcpTransport {
                   `closing the process_runs row failed (${String(error)})`);
               }
             }
+            // Terminal ACP sessions cannot receive another event, permission
+            // response, or lifecycle action. Drop both registry entries so a
+            // finished peer is never exposed as a live graph session and its
+            // protocol handle cannot leak for the lifetime of the extension.
+            sessions.delete(key);
+            handles.delete(key);
             return;
           case 'permission-requested':
             deps.onPermissionRequest?.({ nodeRunId: request.nodeRunId, ...event });

@@ -1053,7 +1053,7 @@ function completeDeterministic(deps: GraphDriverDeps, nodeRunId: number, effecti
     casStatus(deps.db, 'approach_node_runs', NODE_RUN_TRANSITIONS, nodeRunId, 'completing', 'integrating');
     casStatus(deps.db, 'approach_node_runs', NODE_RUN_TRANSITIONS, nodeRunId, 'integrating', 'completed');
     completeActivation(
-      { db: deps.db, transaction: <T>(fn: () => T): T => fn(), now: deps.now },
+      { db: deps.db, transaction: <T>(fn: () => T): T => fn(), now: deps.now, debug: deps.debug },
       { nodeRunId, effectiveOutcome },
     );
     // A command node reserved a process slot at claim; release it on its

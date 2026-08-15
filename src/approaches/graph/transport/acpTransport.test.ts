@@ -320,7 +320,7 @@ describe('AcpTransport outcome/termination boundary', () => {
     // transport: it arrives only via the guarded completion protocol.
     expect(close).toEqual([{ processRunId: 77, status: 'interrupted' }]);
     expect(session.pid).toBe(4242);
-    expect(transport.sessionFor(1, 11)).toBe(session);
+    expect(transport.sessionFor(1, 11)).toBeUndefined();
     // A second end event closes nothing (the accounting row is already closed
     // — the store's guarded close is what ignores it; the transport fires once).
     h.emit({ type: 'session-ended', reason: 'cancelled' });
@@ -340,6 +340,22 @@ describe('AcpTransport outcome/termination boundary', () => {
     await transport.start(LAUNCH);
     h.emit({ type: 'session-ended', reason: 'error', message: 'connection reset' });
     expect(close).toEqual([{ processRunId: 77, status: 'interrupted' }]);
+  });
+
+  it('forgets a terminal ACP session and its handle after ending', async () => {
+    // A terminal transport session has no further lifecycle work to supervise.
+    // Keeping either map entry leaks the handle and lets stale session lookups
+    // appear live after the ACP peer has ended it.
+    const h = harness(4242);
+    const transport = createAcpTransport(h.deps);
+    await transport.start(LAUNCH);
+
+    h.emit({ type: 'session-ended', reason: 'cancelled' });
+
+    expect(transport.sessions()).toEqual([]);
+    expect(transport.sessionFor(1, 11)).toBeUndefined();
+    await transport.requestPermission(1, 11, 'late-request', true);
+    expect(h.handle.permissionReplies).toEqual([]);
   });
 
   it('a peer-delegation message is refused and never forwarded', async () => {

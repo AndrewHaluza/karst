@@ -1,5 +1,5 @@
 import type { MergeGateState } from '../workflow/mergeGate.js';
-import type { StageStatus } from './types.js';
+import type { BlockerKind, StageStatus } from './types.js';
 
 /**
  * The words a needs-you segment carries: why the ticket stopped, and what the
@@ -51,11 +51,14 @@ export type RailCta =
   | { kind: 'merge-panel' }
   | { kind: 'resolve-conflicts'; repo: string }
   | { kind: 'resolve-panel' }
+  | { kind: 'graph-panel' }
   | { kind: 'open-session' };
 
 export interface RailNeedsInput {
   /** `ticket.stageCurrent` — a stored string that may name no known stage. */
   stage: string | null;
+  /** The current stage's blocked-kind, when it is parked on a graph decision. */
+  blockedKind?: BlockerKind | null;
   /** The agent asked a question (`agentState === 'waiting'`). */
   agentWaiting: boolean;
   /**
@@ -96,8 +99,8 @@ const count = (repos: readonly string[]): string =>
  * confirm will still be there afterwards. A RUNNING ship is the one exception —
  * ship is the driver's own agent work, and the hook that set the waiting state
  * fired inside that run, so the banner would contradict the shipping line
- * (869ed7bpd). Mirrors `needsUser`'s `waitingWhileShipRuns` and `buildNowLine`'s
- * ship branch.
+ * (869ed7bpd). Mirrors `needsUser`'s `waitingWhileShipRuns` and the header
+ * `ShipSlot` model's ship branch.
  *
  * Returns null when nothing is blocked on the user — including once everything
  * has landed, where the gate is about to advance the ticket on its own and
@@ -111,6 +114,28 @@ export function railNeeds(input: RailNeedsInput): RailNeeds | null {
       action: 'Open session',
       cta: { kind: 'open-session' },
     };
+  }
+
+  // A graph has two distinct user-owned waits. They share the Inside graph
+  // view as their owner: its recovery controls make the first decision, while
+  // its completed row gives the exact impl-marker instruction for the second.
+  // Neither is a generic agent session — graph sessions are separate from the
+  // ticket session and may already be terminal.
+  if (input.stage === 'impl') {
+    switch (input.blockedKind) {
+      case 'approach-graph-failed':
+        return {
+          detail: 'the graph needs a recovery decision',
+          action: 'Open graph',
+          cta: { kind: 'graph-panel' },
+        };
+      case 'awaiting-impl-marker':
+        return {
+          detail: 'the graph needs the implementation marker',
+          action: 'Open graph',
+          cta: { kind: 'graph-panel' },
+        };
+    }
   }
 
   if (input.stage === 'ship') {

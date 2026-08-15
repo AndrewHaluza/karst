@@ -24,6 +24,26 @@ describe('railNeeds', () => {
     });
   });
 
+  it('points a failed implementation graph at its recovery controls', () => {
+    expect(
+      railNeeds(input({ stage: 'impl', blockedKind: 'approach-graph-failed' })),
+    ).toEqual({
+      detail: 'the graph needs a recovery decision',
+      action: 'Open graph',
+      cta: { kind: 'graph-panel' },
+    });
+  });
+
+  it('points an implementation graph awaiting its marker at graph guidance', () => {
+    expect(
+      railNeeds(input({ stage: 'impl', blockedKind: 'awaiting-impl-marker' })),
+    ).toEqual({
+      detail: 'the graph needs the implementation marker',
+      action: 'Open graph',
+      cta: { kind: 'graph-panel' },
+    });
+  });
+
   it('lets the waiting agent outrank a PARKED ship — it is the live question', () => {
     // A waiting agent at a parked ship is a question on screen right now; the
     // confirm will still be there afterwards.

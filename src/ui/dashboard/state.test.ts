@@ -590,6 +590,37 @@ describe('buildDashboardState', () => {
     expect(state.rail.main.filter((s) => s.needsUser)).toHaveLength(1);
   });
 
+  it('explains each graph-specific needs-you state on the implementation rail', () => {
+    const t = createTicket(store, { key: 'N-GRAPH', title: 't' });
+    setStage(store, t.id, 'impl', {
+      status: 'running',
+      blockedKind: 'approach-graph-failed',
+      blockedReason: 'node needs recovery',
+      blockedAt: '2026-08-15T00:00:00.000Z',
+    });
+    store.db.prepare("UPDATE tickets SET stage_current = 'impl' WHERE id = ?").run(t.id);
+
+    const failed = buildDashboardState(store, t.id);
+    expect(failed.rail.main.find((s) => s.cell.stageKey === 'impl')?.needs).toEqual({
+      detail: 'the graph needs a recovery decision',
+      action: 'Open graph',
+      cta: { kind: 'graph-panel' },
+    });
+
+    setStage(store, t.id, 'impl', {
+      status: 'running',
+      blockedKind: 'awaiting-impl-marker',
+      blockedReason: 'graph completed',
+      blockedAt: '2026-08-15T00:01:00.000Z',
+    });
+    const awaitingMarker = buildDashboardState(store, t.id);
+    expect(awaitingMarker.rail.main.find((s) => s.cell.stageKey === 'impl')?.needs).toEqual({
+      detail: 'the graph needs the implementation marker',
+      action: 'Open graph',
+      cta: { kind: 'graph-panel' },
+    });
+  });
+
   it('does NOT mark a RUNNING ship needs-you when the agent state reads waiting', () => {
     // The hook that set 'waiting' fired inside ship's own headless run: the
     // ticket is shipping, not parked on the user (869ed7bpd). Every surface —

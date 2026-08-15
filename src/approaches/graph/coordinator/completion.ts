@@ -37,6 +37,8 @@ export interface CompletionDeps {
   /** BEGIN IMMEDIATE-wrapped, all-or-nothing; a throw rolls back. */
   transaction: <T>(fn: () => T) => T;
   now: () => string;
+  /** Bounded graph diagnostics for a consumed token whose revision is corrupt. */
+  debug?: (message: string) => void;
   /** Mints the fork-execution identity (UUIDv7) for a self-loop successor.
    *  Injected by the host; defaults to the real clock (Slice 5 Task 4). */
   uuidv7?: () => string;
@@ -223,6 +225,17 @@ export function completeActivation(
             if (successor !== undefined) inserted += 1;
           }
         }
+      } else {
+        // The token has already been consumed by the durable completion. A
+        // malformed canonical graph therefore cannot be silent: emit only
+        // stable, bounded wording through the shared diagnostic pipeline,
+        // never parser prose or the untrusted graph body.
+        emitGraphDiagnostic({ db, debug: deps.debug }, {
+          category: 'completion-rejection',
+          graphRunId: run.graph_run_id,
+          nodeRunId: input.nodeRunId,
+          detail: 'canonical graph could not be parsed after consuming a token',
+        });
       }
     }
     return { consumed, inserted };

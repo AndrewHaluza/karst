@@ -32,6 +32,7 @@ import type { AgentAdapter } from '../../agent/adapter.js';
 import { createGraphRun } from '../../store/graph/graphRuns.js';
 import { createRevision } from '../../store/graph/revisions.js';
 import { insertEntryTokens } from '../../store/graph/tokens.js';
+import { SUPERVISED_CLI_TRANSPORT_CAPABILITIES } from './transport/supervisedCliTransport.js';
 
 const NOW = '2026-08-13T00:00:00.000Z';
 
@@ -129,7 +130,7 @@ function harness(config: GraphApproachConfig = graphApproachConfig()): Harness {
     providerSessionId: null,
   };
   const transport = {
-    capabilities: () => ({ exactModel: true, attributedTermination: true }),
+    capabilities: () => SUPERVISED_CLI_TRANSPORT_CAPABILITIES,
     start: async (request: SupervisedLaunchRequest) => {
       starts.push(request as unknown as Record<string, unknown>);
       return { ...session, nodeRunId: request.nodeRunId, graphRunId: request.graphRunId, cwd: request.cwd };

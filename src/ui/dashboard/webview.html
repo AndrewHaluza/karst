@@ -462,9 +462,10 @@
      button post — the host's confirmation still guards the irreversible merge
      step, and resolve-conflicts re-derives the brief from the store before
      handing it to a session. Every other shape (a multi-repo wait, a
-     multi-repo conflict, an open session) is NAVIGATIONAL: it scrolls the
-     control that owns the action into view and focuses it, so the rail never
-     becomes a second actor it cannot back with a confirmation. */
+     multi-repo conflict, an open session, or graph guidance) is
+     NAVIGATIONAL: it scrolls the control that owns the action into view and
+     focuses it, so the rail never becomes a second actor it cannot back with
+     a confirmation. */
   .track .seg .go{font:inherit;font-size:var(--k-text-2xs);border:var(--k-border-w) solid currentColor;
     border-radius:var(--k-radius-sm);background:transparent;color:inherit;
     padding:var(--k-space-1) var(--k-space-4);cursor:pointer;flex:none;margin-left:auto}
@@ -2167,18 +2168,22 @@
   // `data-act` and post through the generic handler. What is left is exactly
   // what the rail must not act on itself: a multi-repo wait or multi-repo
   // conflict (no single repo to pick — each merge/Resolve control is per-repo
-  // and the merge carries its own host confirmation), and an open session. It
-  // scrolls the control that owns the action into view and focuses it; it
-  // posts no host message and duplicates no actor.
+  // and the merge carries its own host confirmation), an open session, and the
+  // graph panel that owns recovery/impl-marker guidance. It scrolls the
+  // control that owns the action into view and focuses it; it posts no host
+  // message and duplicates no actor.
   function gotoAction(kind) {
     // merge-panel and resolve-panel live on the PR panel, where each repo has
     // its own Merge / Resolve control. An open session is the agent header —
     // the dashboard's own session control (it names the live session and its
-    // state).
-    const target = kind === 'open-session'
-      ? document.querySelector('#agentButton')
-      : document.querySelector('#prs .mgbtn');
-    const scrollTo = target || el('prs');
+    // state). Graph waits belong to the selected Inside view, never the agent
+    // header: a terminal graph may have no live session to focus.
+    const target = kind === 'graph-panel'
+      ? document.querySelector('#inside')
+      : kind === 'open-session'
+        ? document.querySelector('#agentButton')
+        : document.querySelector('#prs .mgbtn');
+    const scrollTo = target || (kind === 'graph-panel' ? el('inside') : el('prs'));
     if (!scrollTo) return;
     scrollTo.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     if (target && typeof target.focus === 'function') target.focus();

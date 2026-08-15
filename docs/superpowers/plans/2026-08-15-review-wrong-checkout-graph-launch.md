@@ -33,6 +33,34 @@ in the current tree, and #248 now documents them as `it.fails` tests.** What the
 
 ---
 
+## Update — fixes landed in `6fa8211`
+
+This report records the pre-fix review snapshot at `bdae9de`. Commit `6fa8211` closed the launch
+and workspace findings it identified:
+
+- Exact-model support is now declared by each adapter through `AdapterSurfaces`; the agent-node
+  gate reads that per-adapter declaration, rather than a transport-wide `exactModel: false` value.
+  The four shipped adapters declare support and conformance tests pin the real argv seam.
+- A recovery-rearmed `launching` node with neither an owner nonce nor a process row is re-driven by
+  `driveReadyNodeRuns`; reconciliation treats that same shape as provably unspawned rather than an
+  ambiguous process. Launch parking releases its reserved process slot, keeps the red-block reason,
+  and a lost `launching → running` CAS does not report a successful launch.
+- Agent workspaces now match claim-time base heads by physical-domain key, carry the git common-dir
+  identity into workspace creation, and decode stored base heads through the hardened store reader.
+  Multi-repository launches therefore receive their own recorded base commits rather than the first
+  repository's head.
+- The graph E2E coverage now runs the real supervised transport capability contract and promotes the
+  former `it.fails` cases to passing regressions.
+
+The old `CLAUDE.md` reference to `model/nowLine.ts` is stale: the standalone Now line was removed.
+Its former ship decision is now the host-side header-slot model in
+`src/model/shipSlot.ts`, rendered from `DashboardState.ship` by the dashboard webview.
+
+The sections below remain the original evidence for why the remediation was required; this update
+supersedes their “NOT fixed” and “remaining gap” conclusions.
+
+---
+
 ## 1. Graph launch path — NOT fixed
 
 ### 1.1 Exact-model gate blocks ALL agent nodes (root cause, still present)

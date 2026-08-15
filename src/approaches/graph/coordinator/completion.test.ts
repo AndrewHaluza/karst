@@ -259,6 +259,31 @@ describe('completeActivation', () => {
       { edge_id: 'e-a-end', status: 'pending', destination_end: 1 },
     ]);
   });
+
+  it('diagnoses an unparseable canonical graph after consuming its claimed token', () => {
+    // A corrupted persisted graph must not silently eat a claimed token. The
+    // diagnostic is emitted through the bounded graph-diagnostic seam, never
+    // from raw canonical JSON or parser prose.
+    const ctx = harness();
+    nodeRun(ctx, 17, 'a');
+    claimEntry(ctx, 17, 'e-a-end');
+    ctx.db
+      .prepare('UPDATE approach_graph_revisions SET canonical_graph = ? WHERE id = ?')
+      .run('{not valid JSON', ctx.revisionId);
+    const debug: string[] = [];
+
+    const result = completeActivation(
+      { ...makeDeps(ctx), debug: (line) => debug.push(line) },
+      { nodeRunId: 17, effectiveOutcome: 'complete' },
+    );
+
+    expect(result).toEqual({ consumed: 1, inserted: 0 });
+    expect(tokenStatuses(ctx)).toEqual([{ edge_id: 'e-a-end', status: 'consumed', destination_end: 0 }]);
+    expect(debug).toHaveLength(1);
+    expect(debug[0]).toContain('[graph:completion-rejection]');
+    expect(debug[0]).toContain('canonical graph could not be parsed after consuming a token');
+    expect(debug[0]).not.toContain('{not valid JSON');
+  });
 });
 
 describe('flipOnEndQuiescence', () => {

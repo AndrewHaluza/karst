@@ -678,6 +678,7 @@ export function buildDashboardState(
       needs: blocked
         ? railNeeds({
             stage: ticket.stageCurrent,
+            blockedKind: currentStage?.blocked?.kind,
             agentWaiting: (ticket.agentState ?? 'none') === 'waiting',
             // A RUNNING ship is the driver's own work, so the agent-waiting
             // banner must not outrank it (869ed7bpd). `needsUser` already
