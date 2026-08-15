@@ -33,6 +33,7 @@
 
 import { createHash, randomBytes } from 'node:crypto';
 import { join } from 'node:path';
+import { canonicalPath } from '../../runtime/pathScope.js';
 import type { GraphDb } from '../../store/graph/transitions.js';
 import {
   GraphStoreError,
@@ -45,6 +46,7 @@ import { beginBootstrapPlannerRun, finishPlanning, relaunchBootstrapPlannerRun }
 import { transitionPlannerRun } from '../../store/graph/plannerRuns.js';
 import { activeRevision, createRevision } from '../../store/graph/revisions.js';
 import { insertEntryTokens } from '../../store/graph/tokens.js';
+import { decodeBaseHeads } from '../../store/graph/nodeRuns.js';
 import { parseGraphDocument, type GraphDocument } from './parse.js';
 import {
   compileGraphDocument,
@@ -62,6 +64,7 @@ import {
   type CreateNodeWorkspaceResult,
   type WorkspaceDomain,
 } from './workspace/provider.js';
+import { domainKeyOf } from './integration/domains.js';
 import { recordArtifactInstance } from './artifacts/resolve.js';
 import { snapshotFile } from './artifacts/snapshot.js';
 import type {
@@ -141,6 +144,8 @@ export interface GraphDriverDeps {
   plannerCwdOf: (graphRunId: number) => { repo: string; cwd: string } | undefined;
   /** The canonical worktree path for a repo of a graph run's ticket. */
   cwdForRepo: (graphRunId: number, repo: string) => string | undefined;
+  /** The Git common-dir identity for a canonical worktree. */
+  gitCommonDirOf: (cwd: string) => string | null;
   /** The node's isolated workspace clone for a repo; undefined → canonical. */
   workspaceOf: (graphRunId: number, nodeRunId: number, repo: string) => string | undefined;
   /** Create (or re-create) an agent node's isolated workspace clones. */
@@ -724,30 +729,42 @@ export interface DriveReadyNodesResult {
   blocked: number;
 }
 
-interface ReadyNodeRow {
+interface RunnableNodeRow {
   id: number;
   revision_id: number;
   node_id: string;
+  status: string;
+  owner_nonce: string | null;
+  process_run_id: number | null;
 }
 
-/** Execute every `ready` node run of a `running` graph run, in id order. A
- *  join/gate/command completes deterministically in one transaction; an agent
- *  node gets its workspace and a supervised session and stays `running` until
- *  its agent reports an outcome via `karst node …`. */
+/** Execute every runnable node run of a `running` graph run, in id order. A
+ *  runnable row is either `ready`, or a recovery-rearmed `launching` row with
+ *  no owner nonce and no process row — provably never spawned and safe to
+ *  launch again from the periodic continuation. A join/gate/command completes
+ *  deterministically in one transaction; an agent node gets its workspace and
+ *  a supervised session and stays `running` until its agent reports an outcome
+ *  via `karst node …`. */
 export async function driveReadyNodeRuns(
   deps: GraphDriverDeps,
   graphRunId: number,
 ): Promise<DriveReadyNodesResult> {
   const run = graphRunById(deps.db, graphRunId);
   if (!run || run.status !== 'running') return { launched: 0, completed: 0, blocked: 0 };
-  const ready = deps.db
+  const runnable = deps.db
     .prepare(
-      `SELECT id, revision_id, node_id FROM approach_node_runs
-       WHERE graph_run_id = ? AND status = 'ready' ORDER BY id`,
+      `SELECT id, revision_id, node_id, status, owner_nonce, process_run_id
+       FROM approach_node_runs
+       WHERE graph_run_id = ?
+         AND (
+           status = 'ready'
+           OR (status = 'launching' AND owner_nonce IS NULL AND process_run_id IS NULL)
+         )
+       ORDER BY id`,
     )
-    .all(graphRunId) as ReadyNodeRow[];
+    .all(graphRunId) as RunnableNodeRow[];
   const result: DriveReadyNodesResult = { launched: 0, completed: 0, blocked: 0 };
-  for (const row of ready) {
+  for (const row of runnable) {
     try {
       const outcome = await executeReadyNode(deps, graphRunId, row);
       if (outcome === 'launched') result.launched += 1;
@@ -767,7 +784,7 @@ type ReadyNodeOutcome = 'launched' | 'completed' | 'blocked';
 async function executeReadyNode(
   deps: GraphDriverDeps,
   graphRunId: number,
-  row: ReadyNodeRow,
+  row: RunnableNodeRow,
 ): Promise<ReadyNodeOutcome> {
   const revision = deps.db
     .prepare('SELECT canonical_graph FROM approach_graph_revisions WHERE id = ?')
@@ -848,6 +865,7 @@ async function executeReadyNode(
     deps.db
       .prepare('UPDATE approach_node_runs SET generation = ?, capability_hash = ? WHERE id = ?')
       .run(nodeGeneration, sha256Hex(new TextEncoder().encode(nodeCapability)), row.id);
+    if (row.status === 'launching') return true;
     return casStatus(deps.db, 'approach_node_runs', NODE_RUN_TRANSITIONS, row.id, 'ready', 'launching');
   });
   if (!claimed) {
@@ -906,9 +924,15 @@ async function executeReadyNode(
     parkLaunchFailure(deps, graphRunId, row.id);
     return 'blocked';
   }
-  deps.transaction(() => {
-    casStatus(deps.db, 'approach_node_runs', NODE_RUN_TRANSITIONS, row.id, 'launching', 'running');
-  });
+  const launched = deps.transaction(() =>
+    casStatus(deps.db, 'approach_node_runs', NODE_RUN_TRANSITIONS, row.id, 'launching', 'running'),
+  );
+  if (!launched) {
+    deps.debug?.(
+      `[graph] run ${graphRunId}: agent node ${row.node_id} (run ${row.id}) launched but lost launching→running CAS`,
+    );
+    return 'blocked';
+  }
   deps.debug?.(
     `[graph] run ${graphRunId}: agent node ${row.node_id} (run ${row.id}) launched in ${cwd}`,
   );
@@ -937,7 +961,7 @@ function runTicketId(deps: GraphDriverDeps, graphRunId: number): number {
 async function prepareAgentWorkspace(
   deps: GraphDriverDeps,
   graphRunId: number,
-  row: ReadyNodeRow,
+  row: RunnableNodeRow,
   node: {
     resources: { reads: { repo: string; paths: string[] }[]; writes: { repo: string; paths: string[] }[] };
   },
@@ -949,17 +973,14 @@ async function prepareAgentWorkspace(
   for (const repo of repos) {
     const cwd = deps.cwdForRepo(graphRunId, repo);
     if (!cwd) continue;
-    let baseCommit = '';
-    try {
-      const base = deps.db
-        .prepare('SELECT base_heads FROM approach_node_runs WHERE id = ?')
-        .get(row.id) as { base_heads: string | null } | undefined;
-      const heads = base?.base_heads ? (JSON.parse(base.base_heads) as { commit: string }[]) : [];
-      baseCommit = heads[0]?.commit ?? '';
-    } catch {
-      baseCommit = '';
-    }
-    domains.push({ repoName: repo, canonicalWorktreePath: cwd, gitCommonDir: null, baseCommit });
+    const gitCommonDir = deps.gitCommonDirOf(cwd);
+    const domainKey = domainKeyOf(canonicalPath(cwd), gitCommonDir);
+    const base = deps.db
+      .prepare('SELECT base_heads FROM approach_node_runs WHERE id = ?')
+      .get(row.id) as { base_heads: string | null } | undefined;
+    const baseCommit =
+      decodeBaseHeads(base?.base_heads ?? null).find((head) => head.domainKey === domainKey)?.commit ?? '';
+    domains.push({ repoName: repo, canonicalWorktreePath: cwd, gitCommonDir, baseCommit });
   }
   if (domains.length === 0) return { kind: 'created', paths: [] };
   return deps.createWorkspace({ graphRunId, nodeRunId: row.id, domains });
@@ -1070,6 +1091,13 @@ function parkLaunchFailure(deps: GraphDriverDeps, graphRunId: number, nodeRunId:
         .prepare('UPDATE approach_graph_runs SET blocked_reason = ?, updated_at = ? WHERE id = ?')
         .run(`failed-to-launch: node run ${nodeRunId}`, deps.now(), graphRunId);
     }
+    deps.db
+      .prepare(
+        `UPDATE approach_graph_runs
+         SET active_processes = MAX(active_processes - 1, 0), updated_at = ?
+         WHERE id = ?`,
+      )
+      .run(deps.now(), graphRunId);
   });
 }
 
