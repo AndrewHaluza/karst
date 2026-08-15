@@ -38,6 +38,7 @@ import { GRAPH_FAILED_BLOCKER } from '../approaches/graph/coordinator/recovery.j
 import { BUILT_IN_PACKAGE_ID } from '../approaches/builtInId.js';
 import { cleanupTerminalGraphRunWorkspaces } from '../approaches/graph/workspace/cleanup.js';
 import { runImmediateTransaction } from '../store/transactions.js';
+import { assertMarkerNotWhileWaiting, liveAgentState } from './markerGuard.js';
 
 export { GRAPH_FAILED_BLOCKER };
 
@@ -164,6 +165,27 @@ export function graphImplMarkerGuard(store: Store, ticketId: number): GraphMarke
       reason: err instanceof Error ? err.message : String(err),
     };
   }
+}
+
+/**
+ * The impl marker's second legitimate caller: a trusted host action (a
+ * dashboard click), never agent-facing argv. `cli/stage.ts`'s
+ * `runStageCommand` is still the ONLY parser that turns untrusted argv into a
+ * marker call — this function has no argv, takes only a ticket id the panel
+ * already proved belongs to the open registry, and enforces the SAME
+ * `assertMarkerNotWhileWaiting` invariant `runStageCommand` does, read live
+ * so a question asked after the panel's snapshot still refuses the click. A
+ * host caller that skipped this and called `graphImplMarkerGuard` directly
+ * would fire the marker while the agent is mid-question — exactly the
+ * premature-advance `assertMarkerNotWhileWaiting` exists to stop.
+ */
+export function fireGraphImplMarkerFromHost(store: Store, ticketId: number): GraphMarkerGuardResult {
+  try {
+    assertMarkerNotWhileWaiting(liveAgentState(store, ticketId));
+  } catch (err) {
+    return { ok: false, reason: err instanceof Error ? err.message : String(err) };
+  }
+  return graphImplMarkerGuard(store, ticketId);
 }
 
 /**

@@ -259,11 +259,14 @@ describe('graphInsideProcess', () => {
       kind: 'graph-stop',
     });
     expect(blockedTargets).toContainEqual({ kind: 'graph-stop', graphRunId: 7 });
-    const closed = graphInsideProcess(
+    // Awaiting the impl marker is not actionless: it carries its own
+    // mark-impl control (asserted in its own test below) — never the
+    // 'stop graph' action a still-live run carries.
+    const awaitingMarker = graphInsideProcess(
       input({ graphRun: { id: 7, status: 'completed-awaiting-impl-marker', approachId: 'g', stageAttempt: 0, createdAt: '2026-08-11T00:00:00.000Z' } }),
     )!;
-    if (closed.evidence?.kind !== 'rows') return;
-    expect(closed.evidence.rows[0]!.action).toBeUndefined();
+    if (awaitingMarker.evidence?.kind !== 'rows') return;
+    expect(awaitingMarker.evidence.rows[0]!.action).toMatchObject({ kind: 'graph-mark-impl' });
   });
 
   it('words the raw completed-awaiting-impl-marker status for both the aggregate chip and the graph row detail, keeping the raw key only as the aggregate title', () => {
@@ -359,6 +362,28 @@ describe('graphInsideProcess', () => {
     expect(process.evidence.rows.find((row) => row.label === 'replan')!.action).toMatchObject({
       kind: 'graph-replan',
     });
+  });
+
+  it('attaches a mark-impl control to a run awaiting the implementation marker', () => {
+    const targets: GraphActionTarget[] = [];
+    const process = graphInsideProcess(
+      input({
+        graphRun: {
+          id: 9,
+          status: 'completed-awaiting-impl-marker',
+          approachId: 'g',
+          stageAttempt: 0,
+          createdAt: '2026-08-11T00:00:00.000Z',
+        },
+        attach: (target) => {
+          targets.push(target);
+          return { actionId: `snapshot-1:action-${targets.length}`, kind: target.kind };
+        },
+      }),
+    )!;
+    if (process.evidence?.kind !== 'rows') return;
+    expect(targets).toContainEqual({ kind: 'graph-mark-impl', graphRunId: 9 });
+    expect(process.evidence.rows[0]!.action).toMatchObject({ kind: 'graph-mark-impl' });
   });
 
   it('attaches the discard exit to an ambiguous node run and Open to a live one, never both', () => {

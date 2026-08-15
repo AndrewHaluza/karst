@@ -209,7 +209,11 @@ import { cleanupTerminalNodeWorkspace } from './approaches/graph/workspace/clean
 import { allGraphRunsClosed } from './store/graph/graphRuns.js';
 import { reapClosedGraphSubtrees, describeGraphReap } from './approaches/graph/retention.js';
 import { reapOrphanedArtifactDirs, describeArtifactReap } from './runtime/artifactOrphans.js';
-import { blockGraphStage, markGraphAwaitingImplMarker } from './workflow/graphMarkerGuard.js';
+import {
+  blockGraphStage,
+  markGraphAwaitingImplMarker,
+  fireGraphImplMarkerFromHost,
+} from './workflow/graphMarkerGuard.js';
 import { DEFAULT_GRAPH_LIMITS } from './manifest/graphConfig.js';
 import {
   acceptSubmittedPlan,
@@ -2603,6 +2607,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         if (handler) void handler(ticketId, graphRunId);
       },
       graphConfirm: (ticketId, graphRunId) => confirmGraphRunForTicket?.(ticketId, graphRunId),
+      // Fire the impl marker for a run that finished all its node work and is
+      // durably waiting (Slice 7). Runs the SAME guarded transition
+      // `karst stage impl pass` runs, including the waiting-agent refusal —
+      // see `fireGraphImplMarkerFromHost`'s doc comment for why this must
+      // never call `graphImplMarkerGuard` directly.
+      graphMarkImpl: (ticketId, graphRunId) => {
+        const result = fireGraphImplMarkerFromHost(localStore, ticketId);
+        if (result.ok) {
+          void vscode.window.showInformationMessage(
+            `Ticket #${ticketId}: the implementation marker fired (graph run ${graphRunId}) — advancing to uat.`,
+          );
+        } else {
+          void vscode.window.showWarningMessage(
+            `Ticket #${ticketId}: could not fire the implementation marker (${result.reason}).`,
+          );
+        }
+        provider.refresh();
+        dashboard.pushState(ticketId);
+      },
       // Discard an ambiguous node run (Slice 4 Task 4) — the named exit for a
       // process whose fate cannot be proven. The coordinator's OWN connection
       // runs the one transaction (a contended BEGIN IMMEDIATE must abort, not
@@ -6810,6 +6833,7 @@ function makeInsideActionHost(
     ) => void;
     graphStop: (ticketId: number, graphRunId: number) => void | Promise<void>;
     graphConfirm: (ticketId: number, graphRunId: number) => void | Promise<void>;
+    graphMarkImpl: (ticketId: number, graphRunId: number) => void | Promise<void>;
     graphDiscardNode: (ticketId: number, nodeRunId: number) => void | Promise<void>;
     graphEditOverride: (ticketId: number, nodeRunId: number) => void | Promise<void>;
   },
@@ -6984,6 +7008,7 @@ function makeInsideActionHost(
     graphResume: (ticketId, graphRunId) => recoverBlockedGraph(ticketId, graphRunId, 'resume'),
     graphReplan: (ticketId, graphRunId) => recoverBlockedGraph(ticketId, graphRunId, 'replan'),
     graphConfirm: (ticketId, graphRunId) => graphHost.graphConfirm(ticketId, graphRunId),
+    graphMarkImpl: (ticketId, graphRunId) => graphHost.graphMarkImpl(ticketId, graphRunId),
     graphDiscardNode: (ticketId, nodeRunId) => graphHost.graphDiscardNode(ticketId, nodeRunId),
     graphEditOverride: (ticketId, nodeRunId) => graphHost.graphEditOverride(ticketId, nodeRunId),
   };

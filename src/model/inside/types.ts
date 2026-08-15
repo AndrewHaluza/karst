@@ -242,6 +242,7 @@ export type InsideActionKind =
   | 'graph-stop'
   | 'graph-resume'
   | 'graph-replan'
+  | 'graph-mark-impl'
   | 'graph-discard-node'
   | 'graph-edit-override';
 

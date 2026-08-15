@@ -6,6 +6,9 @@ import { graphImplMarkerGuard, graphApproachMissingRun } from '../workflow/graph
 import { BUILT_IN_PACKAGE_ID } from '../approaches/builtInId.js';
 import { markImplementDone } from '../workflow/stages/implement.js';
 import { markFixDone } from '../workflow/fixExecution.js';
+import { assertMarkerNotWhileWaiting } from '../workflow/markerGuard.js';
+
+export { assertMarkerNotWhileWaiting };
 
 /**
  * The `karst stage <impl|fix> pass` CLI — a thin wrapper over `transition()`
@@ -95,31 +98,6 @@ export type TransitionFn = (
   from: StageKey,
   verdict: Verdict,
 ) => StageKey;
-
-/**
- * The one marker state a stage may not be marked done in: the agent asked the
- * user a question and is blocked on their input. A stage whose agent is
- * WAITING cannot be complete — the agent literally stopped to ask, so its
- * work is not done. Refusing the marker here is what stops the "marker fired
- * when the agent asked me a question" premature-advance (the writing-plans
- * handoff asks "Which approach?" — the ticket must stay at impl until the
- * user answers and the agent actually finishes).
- *
- * `null` (no agent yet) and `running`/`idle` are NOT refused: `running` is
- * the normal state while the agent fires the marker from within its session,
- * and `idle` is a finished session the marker may legitimately close.
- */
-export function assertMarkerNotWhileWaiting(
-  agentState: string | null | undefined,
-): void {
-  if (agentState === 'waiting') {
-    throw new Error(
-      'cannot mark this stage done: the agent is currently waiting for your input ' +
-        '(it asked a question). A stage whose agent is waiting on the user is not complete — ' +
-        'answer the question, then re-fire the marker when the work is actually done.',
-    );
-  }
-}
 
 /** Parse argv and apply the transition for `ticketId`; returns the next stage. */
 export function runStageCommand(

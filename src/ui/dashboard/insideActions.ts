@@ -72,6 +72,13 @@ export type InsideActionTarget =
   | { kind: 'graph-stop'; ticketId: number; graphRunId: number }
   | { kind: 'graph-resume'; ticketId: number; graphRunId: number }
   | { kind: 'graph-replan'; ticketId: number; graphRunId: number }
+  // Slice 7: fire the impl marker for a run that finished all its node work
+  // and is durably waiting — the same guarded transition `karst stage impl
+  // pass` runs, invoked from the trusted host instead of agent-facing argv.
+  // The CLI-only rule this seam mirrors (`workflow/graphMarkerGuard.ts`) is a
+  // security property of the AGENT-facing surface (prompt injection reaches
+  // CLI argv); it says nothing about a host-triggered click.
+  | { kind: 'graph-mark-impl'; ticketId: number; graphRunId: number }
   | { kind: 'graph-confirm'; ticketId: number; graphRunId: number }
   // Slice 4 Task 4: discard an ambiguous node run (`launch-unknown` /
   // `termination-unknown`). The nodeRunId is a RECORDED node-run row id — the
@@ -194,6 +201,16 @@ export interface InsideActionHost {
   graphReplan(ticketId: number, graphRunId: number): void | Promise<void>;
   /** Confirm a compiled graph plan that is durably awaiting the user. */
   graphConfirm(ticketId: number, graphRunId: number): void | Promise<void>;
+  /**
+   * Fire the impl marker for a run at `completed-awaiting-impl-marker`. Runs
+   * the SAME `graphImplMarkerGuard` transition `karst stage impl pass` runs —
+   * re-checks the current attempt, re-reads quiescence, closes the run and
+   * advances the stage atomically. Returns the guard's own result so the
+   * dashboard can report the exact refusal reason on the rare TOCTOU loss
+   * (a concurrent window already closed it, or a later event unblocked
+   * further nodes since the snapshot was taken).
+   */
+  graphMarkImpl(ticketId: number, graphRunId: number): void | Promise<void>;
   /**
    * Discard an ambiguous node run (launch-unknown/termination-unknown) — the
    * ONE explicit exit for an unprovable process. The dispatch has already
@@ -446,6 +463,23 @@ export function dispatchInsideAction(
         return { outcome: 'rejected', reason: 'graph is not awaiting confirmation' };
       }
       void deps.host.graphConfirm(target.ticketId, target.graphRunId);
+      return { outcome: 'dispatched' };
+    }
+    case 'graph-mark-impl': {
+      // Bound the click to the run that minted the capability, exactly like
+      // graph-stop — a stale panel must never fire the marker for a newer
+      // run. The real refusal authority is graphImplMarkerGuard's own
+      // in-transaction re-check; this dispatch-time read only avoids opening
+      // a session/toast for an id that is plainly stale.
+      const row = store.db
+        .prepare(
+          'SELECT status FROM approach_graph_runs WHERE id = ? AND ticket_id = ?',
+        )
+        .get(target.graphRunId, target.ticketId) as { status: string } | undefined;
+      if (row?.status !== 'completed-awaiting-impl-marker') {
+        return { outcome: 'rejected', reason: 'graph is not awaiting the implementation marker' };
+      }
+      void deps.host.graphMarkImpl(target.ticketId, target.graphRunId);
       return { outcome: 'dispatched' };
     }
     case 'graph-discard-node': {

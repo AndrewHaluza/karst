@@ -19,6 +19,7 @@ import { stageAttempt } from '../store/stages.js';
 import { stageBlock } from '../store/stageBlocks.js';
 import {
   graphImplMarkerGuard,
+  fireGraphImplMarkerFromHost,
   blockGraphStage,
   graphApproachMissingRun,
   GRAPH_FAILED_BLOCKER,
@@ -338,6 +339,85 @@ describe('graphImplMarkerGuard', () => {
       (store.db.prepare('SELECT status FROM approach_graph_runs WHERE id = ?').get(graphRunId) as { status: string })
         .status,
     ).toBe('completed-awaiting-impl-marker');
+  });
+});
+
+describe('fireGraphImplMarkerFromHost', () => {
+  let store: Store;
+  beforeEach(() => (store = openStore(':memory:')));
+  afterEach(() => store.close());
+
+  function markerReadyTicket(key: string): { ticketId: number; graphRunId: number } {
+    store.db.prepare("INSERT OR IGNORE INTO projects (slug) VALUES ('proj')").run();
+    const projectId = (
+      store.db.prepare("SELECT id FROM projects WHERE slug = 'proj'").get() as { id: number }
+    ).id;
+    const ticketId = createTicket(store, { key, title: 'thing', projectId }).id;
+    store.db.prepare("UPDATE tickets SET stage_current = 'impl' WHERE id = ?").run(ticketId);
+    store.db
+      .prepare(`UPDATE stages SET status = 'running' WHERE ticket_id = ? AND stage_key = 'impl'`)
+      .run(ticketId);
+    const attempt = stageAttempt(store, ticketId, 'impl');
+    const graphRunId = Number(
+      store.db
+        .prepare(
+          `INSERT INTO approach_graph_runs (ticket_id, stage_key, stage_attempt, approach_id, status, created_at)
+           VALUES (?, 'impl', ?, 'x', 'completed-awaiting-impl-marker', '2026-08-12T00:00:00.000Z')`,
+        )
+        .run(ticketId, attempt)
+        .lastInsertRowid,
+    );
+    const revisionId = Number(
+      store.db
+        .prepare(
+          `INSERT INTO approach_graph_revisions
+             (graph_run_id, revision_number, canonical_graph, fingerprint, status, created_at)
+           VALUES (?, 1, '{}', 'fp', 'active', '2026-08-12T00:00:00.000Z')`,
+        )
+        .run(graphRunId)
+        .lastInsertRowid,
+    );
+    store.db
+      .prepare(
+        `INSERT INTO approach_graph_tokens
+           (revision_id, source_node_run_id, is_entry, edge_id, destination_node_id,
+            destination_end, fork_instance, fork_lineage, status, created_at)
+         VALUES (?, NULL, 1, 'e1', 'END', 1, 0, 'root', 'consumed', '2026-08-12T00:00:00.000Z')`,
+      )
+      .run(revisionId);
+    return { ticketId, graphRunId };
+  }
+
+  it('fires the marker and advances the ticket when the agent is not waiting', () => {
+    const { ticketId, graphRunId } = markerReadyTicket('HM-1');
+    store.db.prepare("UPDATE tickets SET agent_state = 'idle' WHERE id = ?").run(ticketId);
+
+    const result = fireGraphImplMarkerFromHost(store, ticketId);
+
+    expect(result.ok).toBe(true);
+    expect(result.graphRunId).toBe(graphRunId);
+    const ticket = store.db.prepare('SELECT stage_current FROM tickets WHERE id = ?').get(ticketId) as {
+      stage_current: string;
+    };
+    expect(ticket.stage_current).toBe('uat');
+  });
+
+  it('refuses without mutating anything while the agent is waiting for the user', () => {
+    const { ticketId, graphRunId } = markerReadyTicket('HM-2');
+    store.db.prepare("UPDATE tickets SET agent_state = 'waiting' WHERE id = ?").run(ticketId);
+
+    const result = fireGraphImplMarkerFromHost(store, ticketId);
+
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/waiting for your input/);
+    const run = store.db.prepare('SELECT status FROM approach_graph_runs WHERE id = ?').get(graphRunId) as {
+      status: string;
+    };
+    expect(run.status).toBe('completed-awaiting-impl-marker');
+    const ticket = store.db.prepare('SELECT stage_current FROM tickets WHERE id = ?').get(ticketId) as {
+      stage_current: string;
+    };
+    expect(ticket.stage_current).toBe('impl');
   });
 });
 

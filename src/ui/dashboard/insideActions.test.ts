@@ -166,6 +166,8 @@ function host(calls: string[]): InsideActionHost {
     graphReplan: (ticketId, graphRunId) => void calls.push(`graph-replan:${ticketId}:${graphRunId}`),
     graphConfirm: (ticketId, graphRunId) =>
       void calls.push(`graph-confirm:${ticketId}:${graphRunId}`),
+    graphMarkImpl: (ticketId, graphRunId) =>
+      void calls.push(`graph-mark-impl:${ticketId}:${graphRunId}`),
     graphDiscardNode: (ticketId, nodeRunId) =>
       void calls.push(`graph-discard:${ticketId}:${nodeRunId}`),
     graphEditOverride: (ticketId, nodeRunId) =>
@@ -732,6 +734,25 @@ describe('dispatchInsideAction', () => {
     expect(dispatchInsideAction(store, stale, 'snapshot-8:action-0', deps([]))).toEqual({
       outcome: 'rejected',
       reason: 'graph is not awaiting confirmation',
+    });
+  });
+
+  it('dispatches graph-mark-impl only while the run awaits the implementation marker', () => {
+    seedGraph({ ticketId: 1, runId: 1, status: 'completed-awaiting-impl-marker' });
+    const r = registry(7);
+    r.register({ kind: 'graph-mark-impl', ticketId: 1, graphRunId: 1 });
+    const calls: string[] = [];
+    expect(dispatchInsideAction(store, r, 'snapshot-7:action-0', deps(calls))).toEqual({
+      outcome: 'dispatched',
+    });
+    expect(calls).toEqual(['graph-mark-impl:1:1']);
+
+    store.db.prepare("UPDATE approach_graph_runs SET status = 'closed' WHERE id = 1").run();
+    const stale = registry(8);
+    stale.register({ kind: 'graph-mark-impl', ticketId: 1, graphRunId: 1 });
+    expect(dispatchInsideAction(store, stale, 'snapshot-8:action-0', deps([]))).toEqual({
+      outcome: 'rejected',
+      reason: 'graph is not awaiting the implementation marker',
     });
   });
 

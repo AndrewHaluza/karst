@@ -935,6 +935,7 @@ const NOOP_INSIDE_HOST: InsideActionHost = {
   graphResume: () => undefined,
   graphReplan: () => undefined,
   graphConfirm: () => undefined,
+  graphMarkImpl: () => undefined,
   graphDiscardNode: () => undefined,
   graphEditOverride: () => undefined,
 };
@@ -957,6 +958,8 @@ function toRegisteredGraphTarget(
       return { kind: 'graph-replan', ticketId, graphRunId: target.graphRunId };
     case 'graph-confirm':
       return { kind: 'graph-confirm', ticketId, graphRunId: target.graphRunId };
+    case 'graph-mark-impl':
+      return { kind: 'graph-mark-impl', ticketId, graphRunId: target.graphRunId };
     case 'graph-discard-node':
       return { kind: 'graph-discard-node', ticketId, nodeRunId: target.nodeRunId };
     case 'graph-edit-override':
