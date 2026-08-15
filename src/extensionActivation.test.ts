@@ -176,6 +176,9 @@ describe('extension activation', () => {
 
     expect(source).toContain("activeGraph.status === 'completed-awaiting-impl-marker'");
     expect(source).toContain('karst stage impl pass');
+    expect(source.indexOf("activeGraph.status === 'completed-awaiting-impl-marker'")).toBeLessThan(
+      source.indexOf("if (!options.providerReady && !guardCapability('sessions', ticketId)) return;"),
+    );
   });
 
   // Reattach only revives a session whose terminal SURVIVED a reload; a
