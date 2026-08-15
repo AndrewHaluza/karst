@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openStore, type Store } from '../store/db.js';
@@ -65,6 +66,43 @@ describe('openWritableStore', () => {
     const row = check.db.prepare('SELECT title FROM tickets WHERE id = ?').get(1) as { title: string };
     expect(row.title).toBe('demo'); // unchanged — rolled back
     check.close();
+  });
+
+  it('offers better-sqlite-compatible immediate transactions that lock before the body', () => {
+    const store = openWritableStore(dbPath);
+    let contenderWasBlocked = false;
+    try {
+      const transaction = store.db.transaction(() => {
+        const contender = spawnSync(
+          process.execPath,
+          [
+            '-e',
+            `const { DatabaseSync } = require('node:sqlite');
+             const db = new DatabaseSync(process.argv[1]);
+             db.exec('PRAGMA busy_timeout = 0');
+             try {
+               db.prepare('UPDATE tickets SET title = ? WHERE id = 1').run('contender');
+               db.close();
+               process.exit(0);
+             } catch (err) {
+               console.error(err instanceof Error ? err.message : String(err));
+               db.close();
+               process.exit(2);
+             }`,
+            dbPath,
+          ],
+          { encoding: 'utf8' },
+        );
+        contenderWasBlocked =
+          contender.status === 2 && /busy|locked/i.test(contender.stderr);
+      });
+
+      transaction.immediate();
+
+      expect(contenderWasBlocked).toBe(true);
+    } finally {
+      store.close();
+    }
   });
 
   it('runs the attachment conditional dedupe upsert through node:sqlite', () => {

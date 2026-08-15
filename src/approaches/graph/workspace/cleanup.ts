@@ -17,7 +17,7 @@
  */
 
 import { existsSync, rmSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { basename, dirname, isAbsolute, join, normalize } from 'node:path';
 import type { Store } from '../../../store/db.js';
 import { stopServersUnder, type ReapedServer } from '../../../runtime/worktreeServers.js';
 import type { ProcessFacts } from '../../../runtime/serverIdentity.js';
@@ -25,7 +25,9 @@ import {
   removeWorkspacesForNode,
   releaseWorkspaceBytes,
   workspacesForNode,
+  type WorkspaceRow,
 } from '../../../store/graph/nodeRuns.js';
+import { nodeWorkspaceDir } from './provider.js';
 
 export interface CleanupNodeWorkspaceDeps {
   store: Store;
@@ -116,6 +118,74 @@ export function cleanupNodeWorkspace(
 /** The only node-run statuses whose workspace is no longer recoverable. */
 export const TERMINAL_WORKSPACE_NODE_STATUSES = ['completed', 'cancelled'] as const;
 
+interface TerminalWorkspaceNodeRow {
+  graph_run_id: number;
+  status: string;
+  ticket_id: number;
+  project_slug: string | null;
+}
+
+function safePathSegment(value: string): boolean {
+  return value.length > 0 && value !== '.' && value !== '..' && basename(value) === value;
+}
+
+/**
+ * Recover the global-storage prefix from a ledger path only after proving the
+ * rest of the path is the exact authoritative layout. Every cwd must be one
+ * immediate repository child of that same node root; no common-parent guess
+ * is ever eligible for recursive removal.
+ */
+function validatedNodeWorkspaceRoot(
+  node: TerminalWorkspaceNodeRow,
+  nodeRunId: number,
+  rows: readonly WorkspaceRow[],
+): string | null {
+  if (!node.project_slug || !safePathSegment(node.project_slug)) return null;
+  const first = rows[0];
+  if (!first || !isAbsolute(first.cwd) || normalize(first.cwd) !== first.cwd) return null;
+
+  const candidate = dirname(first.cwd);
+  const workspaceRoot = dirname(candidate);
+  const graphRunRoot = dirname(workspaceRoot);
+  const ticketRoot = dirname(graphRunRoot);
+  const projectRoot = dirname(ticketRoot);
+  const graphRoot = dirname(projectRoot);
+  if (
+    basename(graphRoot) !== 'graph'
+    || basename(projectRoot) !== node.project_slug
+    || basename(ticketRoot) !== String(node.ticket_id)
+    || basename(graphRunRoot) !== String(node.graph_run_id)
+    || basename(workspaceRoot) !== 'workspaces'
+    || basename(candidate) !== String(nodeRunId)
+  ) {
+    return null;
+  }
+
+  const globalStorageRoot = dirname(graphRoot);
+  const expected = nodeWorkspaceDir(
+    globalStorageRoot,
+    node.project_slug,
+    node.ticket_id,
+    node.graph_run_id,
+    nodeRunId,
+  );
+  if (candidate !== expected) return null;
+
+  for (const row of rows) {
+    if (
+      row.graph_run_id !== node.graph_run_id
+      || !safePathSegment(row.repo_name)
+      || !isAbsolute(row.cwd)
+      || normalize(row.cwd) !== row.cwd
+      || dirname(row.cwd) !== expected
+      || row.cwd !== join(expected, row.repo_name)
+    ) {
+      return null;
+    }
+  }
+  return expected;
+}
+
 /**
  * Clean one terminal node run's workspace root. Ledger rows record one cwd per
  * repository clone; the mandated layout puts all of them directly under the
@@ -127,8 +197,15 @@ export function cleanupTerminalNodeWorkspace(
   input: { graphRunId: number; nodeRunId: number },
 ): CleanupNodeWorkspaceResult {
   const node = deps.store.db
-    .prepare('SELECT graph_run_id, status FROM approach_node_runs WHERE id = ?')
-    .get(input.nodeRunId) as { graph_run_id: number; status: string } | undefined;
+    .prepare(
+      `SELECT n.graph_run_id, n.status, g.ticket_id, p.slug AS project_slug
+       FROM approach_node_runs n
+       JOIN approach_graph_runs g ON g.id = n.graph_run_id
+       JOIN tickets t ON t.id = g.ticket_id
+       LEFT JOIN projects p ON p.id = t.project_id
+       WHERE n.id = ?`,
+    )
+    .get(input.nodeRunId) as TerminalWorkspaceNodeRow | undefined;
   if (
     !node
     || node.graph_run_id !== input.graphRunId
@@ -143,14 +220,14 @@ export function cleanupTerminalNodeWorkspace(
   }
   const rows = workspacesForNode(deps.store.db, input.nodeRunId);
   if (rows.length === 0) return { kind: 'no-op' };
-  const roots = [...new Set(rows.map((row) => dirname(row.cwd)))];
-  if (roots.length !== 1) {
+  const workspaceRoot = validatedNodeWorkspaceRoot(node, input.nodeRunId, rows);
+  if (!workspaceRoot) {
     deps.debug?.(
-      `[graph] workspace cleanup: node ${input.nodeRunId} has ${roots.length} workspace roots — refusing an ambiguous removal`,
+      `[graph] workspace cleanup: node ${input.nodeRunId} has an invalid workspace ledger — refusing removal`,
     );
     return { kind: 'no-op' };
   }
-  return cleanupNodeWorkspace(deps, { ...input, cwd: roots[0]! });
+  return cleanupNodeWorkspace(deps, { ...input, cwd: workspaceRoot });
 }
 
 /** Clean every terminal node workspace left when a graph run closes. */

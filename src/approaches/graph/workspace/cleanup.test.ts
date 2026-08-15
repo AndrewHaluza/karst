@@ -9,11 +9,16 @@
 
 import { describe, it, expect } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { openStore } from '../../../store/db.js';
-import { createNodeWorkspace, type NodeWorkspaceDeps, type WorkspaceDomain } from './provider.js';
+import {
+  createNodeWorkspace,
+  nodeWorkspaceDir,
+  type NodeWorkspaceDeps,
+  type WorkspaceDomain,
+} from './provider.js';
 import {
   cleanupNodeWorkspace,
   cleanupTerminalNodeWorkspace,
@@ -30,11 +35,7 @@ import { defaultGitRunner } from '../../../integrations/git.js';
 import type { ProcessFacts } from '../../../runtime/serverIdentity.js';
 
 function withImmediate<T>(db: ReturnType<typeof openStore>['db'], fn: () => T): T {
-  const runner = (db.transaction as unknown as (f: () => T, o: { begin: 'immediate' }) => () => T)(
-    fn,
-    { begin: 'immediate' },
-  );
-  return runner();
+  return db.transaction(fn).immediate();
 }
 
 const deadFacts: ProcessFacts = {
@@ -83,7 +84,15 @@ function harness(): Harness {
   const store = openStore(':memory:');
   const db = store.db;
   db.pragma('busy_timeout = 0');
-  const ticketId = Number(db.prepare("INSERT INTO tickets (key) VALUES ('T-1')").run().lastInsertRowid);
+  const projectId = Number(
+    db.prepare("INSERT INTO projects (slug) VALUES ('proj')").run().lastInsertRowid,
+  );
+  const ticketId = Number(
+    db
+      .prepare("INSERT INTO tickets (key, project_id) VALUES ('T-1', ?)")
+      .run(projectId)
+      .lastInsertRowid,
+  );
   const graphRunId = Number(
     db
       .prepare(
@@ -315,6 +324,142 @@ describe('cleanupNodeWorkspace', () => {
 });
 
 describe('cleanupTerminalNodeWorkspace', () => {
+  it('removes a terminal node only through its validated workspace-layout root', async () => {
+    const h = harness();
+    try {
+      const cwd = await createWorkspace(h, 8);
+      const workspaceRoot = nodeWorkspaceDir(
+        h.globalRoot,
+        'proj',
+        h.ticketId,
+        h.graphRunId,
+        8,
+      );
+      h.db.prepare("UPDATE approach_node_runs SET status = 'completed' WHERE id = 8").run();
+
+      const result = cleanupTerminalNodeWorkspace(cleanupDeps(h), {
+        graphRunId: h.graphRunId,
+        nodeRunId: 8,
+      });
+
+      expect(result.kind).toBe('removed');
+      expect(existsSync(cwd)).toBe(false);
+      expect(existsSync(workspaceRoot)).toBe(false);
+      expect(workspacesForNode(h.db, 8)).toEqual([]);
+    } finally {
+      h.close();
+    }
+  });
+
+  it('refuses a repo-name dot ledger that would delete the shared workspaces directory', () => {
+    const h = harness();
+    try {
+      const maliciousRoot = nodeWorkspaceDir(
+        h.globalRoot,
+        'proj',
+        h.ticketId,
+        h.graphRunId,
+        9,
+      );
+      const recoverableRoot = nodeWorkspaceDir(
+        h.globalRoot,
+        'proj',
+        h.ticketId,
+        h.graphRunId,
+        10,
+      );
+      const recoverableCwd = join(recoverableRoot, 'web');
+      mkdirSync(maliciousRoot, { recursive: true });
+      mkdirSync(recoverableCwd, { recursive: true });
+      writeFileSync(join(maliciousRoot, 'keep.txt'), 'terminal but unsafe\n');
+      writeFileSync(join(recoverableCwd, 'keep.txt'), 'recoverable sibling\n');
+      h.db
+        .prepare(
+          `INSERT INTO approach_node_runs
+             (id, graph_run_id, revision_id, node_id, node_kind, visit_number, status)
+           VALUES (9, ?, ?, 'malicious', 'agent', 1, 'completed'),
+                  (10, ?, ?, 'recoverable', 'agent', 1, 'running')`,
+        )
+        .run(h.graphRunId, h.revisionId, h.graphRunId, h.revisionId);
+      h.db
+        .prepare(
+          `INSERT INTO approach_graph_workspaces
+             (graph_run_id, node_run_id, repo_name, cwd, byte_size, created_at)
+           VALUES (?, 9, '.', ?, 40, '2026-08-12T00:00:00.000Z'),
+                  (?, 10, 'web', ?, 60, '2026-08-12T00:00:00.000Z')`,
+        )
+        .run(h.graphRunId, maliciousRoot, h.graphRunId, recoverableCwd);
+      h.db
+        .prepare('UPDATE approach_graph_runs SET workspace_bytes = 100 WHERE id = ?')
+        .run(h.graphRunId);
+
+      const result = cleanupTerminalNodeWorkspace(cleanupDeps(h), {
+        graphRunId: h.graphRunId,
+        nodeRunId: 9,
+      });
+
+      expect(result.kind).toBe('no-op');
+      expect(existsSync(maliciousRoot)).toBe(true);
+      expect(existsSync(recoverableRoot)).toBe(true);
+      expect(workspacesForNode(h.db, 9)).toHaveLength(1);
+      expect(workspacesForNode(h.db, 10)).toHaveLength(1);
+      expect(workspaceBytesOf(h.db, h.graphRunId)).toBe(100);
+    } finally {
+      h.close();
+    }
+  });
+
+  it('refuses a ledger cwd rooted under a different node run', () => {
+    const h = harness();
+    try {
+      const recoverableRoot = nodeWorkspaceDir(
+        h.globalRoot,
+        'proj',
+        h.ticketId,
+        h.graphRunId,
+        12,
+      );
+      const maliciousCwd = join(recoverableRoot, 'api');
+      const recoverableCwd = join(recoverableRoot, 'web');
+      mkdirSync(maliciousCwd, { recursive: true });
+      mkdirSync(recoverableCwd, { recursive: true });
+      writeFileSync(join(maliciousCwd, 'keep.txt'), 'malformed ledger target\n');
+      writeFileSync(join(recoverableCwd, 'keep.txt'), 'recoverable sibling\n');
+      h.db
+        .prepare(
+          `INSERT INTO approach_node_runs
+             (id, graph_run_id, revision_id, node_id, node_kind, visit_number, status)
+           VALUES (11, ?, ?, 'malformed', 'agent', 1, 'cancelled'),
+                  (12, ?, ?, 'recoverable', 'agent', 1, 'ready')`,
+        )
+        .run(h.graphRunId, h.revisionId, h.graphRunId, h.revisionId);
+      h.db
+        .prepare(
+          `INSERT INTO approach_graph_workspaces
+             (graph_run_id, node_run_id, repo_name, cwd, byte_size, created_at)
+           VALUES (?, 11, 'api', ?, 40, '2026-08-12T00:00:00.000Z'),
+                  (?, 12, 'web', ?, 60, '2026-08-12T00:00:00.000Z')`,
+        )
+        .run(h.graphRunId, maliciousCwd, h.graphRunId, recoverableCwd);
+      h.db
+        .prepare('UPDATE approach_graph_runs SET workspace_bytes = 100 WHERE id = ?')
+        .run(h.graphRunId);
+
+      const result = cleanupTerminalNodeWorkspace(cleanupDeps(h), {
+        graphRunId: h.graphRunId,
+        nodeRunId: 11,
+      });
+
+      expect(result.kind).toBe('no-op');
+      expect(existsSync(recoverableRoot)).toBe(true);
+      expect(workspacesForNode(h.db, 11)).toHaveLength(1);
+      expect(workspacesForNode(h.db, 12)).toHaveLength(1);
+      expect(workspaceBytesOf(h.db, h.graphRunId)).toBe(100);
+    } finally {
+      h.close();
+    }
+  });
+
   it.each(['ready', 'running', 'blocked', 'termination-unknown'])(
     'preserves a recoverable %s node workspace',
     async (status) => {

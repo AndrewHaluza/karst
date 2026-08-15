@@ -22,7 +22,8 @@ import { canonicalPath } from '../../../runtime/pathScope.js';
 import { acquireLease } from '../../../store/graph/leases.js';
 import type { AgentTransport, SupervisedAgentSession } from '../transport/supervisedCliTransport.js';
 import type { GitRunner } from '../../../integrations/git.js';
-import { cleanupNodeWorkspace } from '../workspace/cleanup.js';
+import { cleanupTerminalNodeWorkspace } from '../workspace/cleanup.js';
+import { nodeWorkspaceDir } from '../workspace/provider.js';
 import { workspacesForNode } from '../../../store/graph/nodeRuns.js';
 import type { ProcessFacts } from '../../../runtime/serverIdentity.js';
 
@@ -60,7 +61,15 @@ function makeRepo(): { dir: string; baseSha: string } {
 function harness(): Harness {
   const store = openStore(':memory:');
   const db = store.db;
-  const ticketId = Number(db.prepare("INSERT INTO tickets (key) VALUES ('T-1')").run().lastInsertRowid);
+  const projectId = Number(
+    db.prepare("INSERT INTO projects (slug) VALUES ('proj')").run().lastInsertRowid,
+  );
+  const ticketId = Number(
+    db
+      .prepare("INSERT INTO tickets (key, project_id) VALUES ('T-1', ?)")
+      .run(projectId)
+      .lastInsertRowid,
+  );
   const graphRunId = Number(
     db
       .prepare(
@@ -247,11 +256,18 @@ describe('runCompletionPipeline — integration', () => {
     const h = harness();
     cleanups.push(h.close);
     insertNodeRun(h, 20, 'completing');
-    const workspaceRoot = mkdtempSync(join(tmpdir(), 'karst-node-complete-'));
+    const globalRoot = mkdtempSync(join(tmpdir(), 'karst-node-complete-'));
+    const workspaceRoot = nodeWorkspaceDir(
+      globalRoot,
+      'proj',
+      h.ticketId,
+      h.graphRunId,
+      20,
+    );
     const workspaceCwd = join(workspaceRoot, 'api');
-    mkdirSync(workspaceCwd);
+    mkdirSync(workspaceCwd, { recursive: true });
     writeFileSync(join(workspaceCwd, 'scratch.txt'), 'terminal workspace\n');
-    cleanups.push(() => rmSync(workspaceRoot, { recursive: true, force: true }));
+    cleanups.push(() => rmSync(globalRoot, { recursive: true, force: true }));
     h.db
       .prepare(
         `INSERT INTO approach_graph_workspaces
@@ -274,17 +290,13 @@ describe('runCompletionPipeline — integration', () => {
     const deps = {
       ...makeDeps(h),
       cleanupNodeWorkspace: (input: { graphRunId: number; nodeRunId: number }) =>
-        cleanupNodeWorkspace(
+        cleanupTerminalNodeWorkspace(
           {
             store: h.store,
-            transaction: <T>(fn: () => T): T =>
-              (h.db.transaction as unknown as (f: () => T, o: { begin: 'immediate' }) => () => T)(
-                fn,
-                { begin: 'immediate' },
-              )(),
+            transaction: <T>(fn: () => T): T => h.db.transaction(fn).immediate(),
             facts: deadProcessFacts,
           },
-          { ...input, cwd: workspaceRoot },
+          input,
         ),
     } as CompletionPipelineDeps & {
       cleanupNodeWorkspace: (input: { graphRunId: number; nodeRunId: number }) => unknown;

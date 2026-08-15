@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { basename, dirname, isAbsolute, join } from 'node:path';
 
 import { openStore, type Store } from './store/db.js';
+import { runImmediateTransaction } from './store/transactions.js';
 import { describeStoreOpenFailure } from './extension/storeOpenFailure.js';
 import { watchExternalChanges } from './store/externalChanges.js';
 import { SidebarViewManager } from './ui/sidebar/panel.js';
@@ -2614,22 +2615,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           const result = discardUnknownProcess(
             {
               db: gs.db,
-              transaction: <T>(fn: () => T): T =>
-                (gs.db.transaction as unknown as (f: () => T, o: { begin: 'immediate' }) => () => T)(
-                  fn,
-                  { begin: 'immediate' },
-                )(),
+              transaction: <T>(fn: () => T): T => runImmediateTransaction(gs.db, fn),
               now: () => new Date().toISOString(),
               debug: (message) => logger.debug(message),
               cleanupNodeWorkspace: (input) =>
                 cleanupTerminalNodeWorkspace(
                   {
                     store: gs,
-                    transaction: <T>(fn: () => T): T =>
-                      (gs.db.transaction as unknown as (f: () => T, o: { begin: 'immediate' }) => () => T)(
-                        fn,
-                        { begin: 'immediate' },
-                      )(),
+                    transaction: <T>(fn: () => T): T => runImmediateTransaction(gs.db, fn),
                     debug: (message) => logger.debug(message),
                   },
                   input,
@@ -3727,11 +3720,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (!gs || !tr) return undefined;
     return {
       db: gs.db,
-      transaction: <T>(fn: () => T): T =>
-        (gs.db.transaction as unknown as (f: () => T, o: { begin: 'immediate' }) => () => T)(
-          fn,
-          { begin: 'immediate' },
-        )(),
+      transaction: <T>(fn: () => T): T => runImmediateTransaction(gs.db, fn),
       now: () => new Date().toISOString(),
       debug: (message) => logger.debug(message),
       git: defaultGitRunner,
@@ -3760,11 +3749,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         cleanupTerminalNodeWorkspace(
           {
             store: gs,
-            transaction: <T>(fn: () => T): T =>
-              (gs.db.transaction as unknown as (f: () => T, o: { begin: 'immediate' }) => () => T)(
-                fn,
-                { begin: 'immediate' },
-              )(),
+            transaction: <T>(fn: () => T): T => runImmediateTransaction(gs.db, fn),
             debug: (message) => logger.debug(message),
           },
           input,

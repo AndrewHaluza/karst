@@ -25,6 +25,7 @@ import {
 } from './graphMarkerGuard.js';
 import { BUILT_IN_PACKAGE_ID } from '../approaches/builtIn.js';
 import { workspacesForNode } from '../store/graph/nodeRuns.js';
+import { nodeWorkspaceDir } from '../approaches/graph/workspace/provider.js';
 
 describe('graphImplMarkerGuard', () => {
   let store: Store;
@@ -33,7 +34,11 @@ describe('graphImplMarkerGuard', () => {
 
   /** A ticket whose impl graph run is marker-ready, fully quiescent. */
   function markerReadyTicket(key: string): { ticketId: number; graphRunId: number; attempt: number } {
-    const ticketId = createTicket(store, { key, title: 'thing' }).id;
+    store.db.prepare("INSERT OR IGNORE INTO projects (slug) VALUES ('proj')").run();
+    const projectId = (
+      store.db.prepare("SELECT id FROM projects WHERE slug = 'proj'").get() as { id: number }
+    ).id;
+    const ticketId = createTicket(store, { key, title: 'thing', projectId }).id;
     store.db.prepare("UPDATE tickets SET stage_current = 'impl' WHERE id = ?").run(ticketId);
     store.db
       .prepare(`UPDATE stages SET status = 'running' WHERE ticket_id = ? AND stage_key = 'impl'`)
@@ -92,13 +97,14 @@ describe('graphImplMarkerGuard', () => {
         .prepare('SELECT id FROM approach_graph_revisions WHERE graph_run_id = ?')
         .get(graphRunId) as { id: number }
     ).id;
-    const workspaceRoot = mkdtempSync(join(tmpdir(), 'karst-run-close-'));
-    const cancelledWorkspaceRoot = mkdtempSync(join(tmpdir(), 'karst-run-close-cancelled-'));
+    const globalRoot = mkdtempSync(join(tmpdir(), 'karst-run-close-'));
+    const workspaceRoot = nodeWorkspaceDir(globalRoot, 'proj', ticketId, graphRunId, 100);
+    const cancelledWorkspaceRoot = nodeWorkspaceDir(globalRoot, 'proj', ticketId, graphRunId, 101);
     try {
       const workspaceCwd = join(workspaceRoot, 'api');
       const cancelledWorkspaceCwd = join(cancelledWorkspaceRoot, 'web');
-      mkdirSync(workspaceCwd);
-      mkdirSync(cancelledWorkspaceCwd);
+      mkdirSync(workspaceCwd, { recursive: true });
+      mkdirSync(cancelledWorkspaceCwd, { recursive: true });
       writeFileSync(join(workspaceCwd, 'scratch.txt'), 'closed run workspace\n');
       writeFileSync(join(cancelledWorkspaceCwd, 'scratch.txt'), 'cancelled node workspace\n');
       store.db
@@ -156,8 +162,110 @@ describe('graphImplMarkerGuard', () => {
         status: 'stopped',
       });
     } finally {
-      rmSync(workspaceRoot, { recursive: true, force: true });
-      rmSync(cancelledWorkspaceRoot, { recursive: true, force: true });
+      rmSync(globalRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('uses the real better-sqlite immediate runner before terminal cleanup reads', () => {
+    store.close();
+    const dir = mkdtempSync(join(tmpdir(), 'karst-run-close-lock-'));
+    const dbPath = join(dir, 'karst.db');
+    store = openStore(dbPath);
+    const { ticketId, graphRunId } = markerReadyTicket('GM-IMMEDIATE');
+    const revisionId = (
+      store.db
+        .prepare('SELECT id FROM approach_graph_revisions WHERE graph_run_id = ?')
+        .get(graphRunId) as { id: number }
+    ).id;
+    const workspaceRoot = nodeWorkspaceDir(dir, 'proj', ticketId, graphRunId, 102);
+    const workspaceCwd = join(workspaceRoot, 'api');
+    mkdirSync(workspaceCwd, { recursive: true });
+    writeFileSync(join(workspaceCwd, 'scratch.txt'), 'lock boundary\n');
+    store.db
+      .prepare(
+        `INSERT INTO approach_node_runs
+           (id, graph_run_id, revision_id, node_id, node_kind, visit_number, status)
+         VALUES (102, ?, ?, 'done-node', 'agent', 1, 'completed')`,
+      )
+      .run(graphRunId, revisionId);
+    store.db
+      .prepare(
+        `INSERT INTO approach_graph_workspaces
+           (graph_run_id, node_run_id, repo_name, cwd, byte_size, created_at)
+         VALUES (?, 102, 'api', ?, 16, '2026-08-12T00:00:00.000Z')`,
+      )
+      .run(graphRunId, workspaceCwd);
+    store.db
+      .prepare('UPDATE approach_graph_runs SET workspace_bytes = 16 WHERE id = ?')
+      .run(graphRunId);
+
+    const contender = openStore(dbPath);
+    contender.db.pragma('busy_timeout = 0');
+    const primaryDb = store.db;
+    let transactionNumber = 0;
+    let cleanupTransactionObserved = false;
+    let contenderWasBlocked = false;
+    type Tx<T> = (() => T) & {
+      default: () => T;
+      deferred: () => T;
+      immediate: () => T;
+      exclusive: () => T;
+    };
+    const observedDb = new Proxy(primaryDb, {
+      get(target, property) {
+        if (property === 'transaction') {
+          return <T>(fn: () => T): Tx<T> => {
+            transactionNumber += 1;
+            const observeLock = transactionNumber === 2;
+            const body = (): T => {
+              if (observeLock) {
+                cleanupTransactionObserved = true;
+                try {
+                  contender.db
+                    .prepare('UPDATE tickets SET title = ? WHERE id = ?')
+                    .run('contender', ticketId);
+                } catch (err) {
+                  if (/busy|locked/i.test(err instanceof Error ? err.message : String(err))) {
+                    contenderWasBlocked = true;
+                  } else {
+                    throw err;
+                  }
+                }
+              }
+              return fn();
+            };
+            const transaction = target.transaction(body);
+            return Object.assign(
+              () => transaction(),
+              {
+                default: () => transaction.default(),
+                deferred: () => transaction.deferred(),
+                immediate: () => transaction.immediate(),
+                exclusive: () => transaction.exclusive(),
+              },
+            );
+          };
+        }
+        const value = Reflect.get(target, property, target);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+    const observedStore: Store = {
+      db: observedDb as Store['db'],
+      close: () => {},
+    };
+
+    try {
+      const result = graphImplMarkerGuard(observedStore, ticketId);
+
+      expect(result).toEqual({ ok: true, graphRunId });
+      expect(cleanupTransactionObserved).toBe(true);
+      expect(contenderWasBlocked).toBe(true);
+    } finally {
+      contender.close();
+      store.close();
+      rmSync(dir, { recursive: true, force: true });
+      store = openStore(':memory:');
     }
   });
 

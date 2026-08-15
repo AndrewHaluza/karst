@@ -37,6 +37,7 @@ import { quiescenceBlockedBy, earliestFaultNodeRun, faultNodeRunReason } from '.
 import { GRAPH_FAILED_BLOCKER } from '../approaches/graph/coordinator/recovery.js';
 import { BUILT_IN_PACKAGE_ID } from '../approaches/builtInId.js';
 import { cleanupTerminalGraphRunWorkspaces } from '../approaches/graph/workspace/cleanup.js';
+import { runImmediateTransaction } from '../store/transactions.js';
 
 export { GRAPH_FAILED_BLOCKER };
 
@@ -147,11 +148,7 @@ export function graphImplMarkerGuard(store: Store, ticketId: number): GraphMarke
         cleanupTerminalGraphRunWorkspaces(
           {
             store,
-            transaction: <T>(fn: () => T): T =>
-              (store.db.transaction as unknown as (
-                f: () => T,
-                o: { begin: 'immediate' },
-              ) => () => T)(fn, { begin: 'immediate' })(),
+            transaction: <T>(fn: () => T): T => runImmediateTransaction(store.db, fn),
           },
           { graphRunId: closedGraphRunId },
         );

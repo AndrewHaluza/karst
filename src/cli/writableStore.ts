@@ -2,6 +2,38 @@ import { DatabaseSync } from 'node:sqlite';
 import type { Store } from '../store/db.js';
 import { assertExactSchema, assertMigratedSchema } from './assertMigrated.js';
 
+type BeginMode = 'BEGIN' | 'BEGIN IMMEDIATE' | 'BEGIN EXCLUSIVE';
+
+/** node:sqlite implementation of better-sqlite3's transaction-family API. */
+function transactionFamily<A extends unknown[], R>(
+  db: DatabaseSync,
+  fn: (...args: A) => R,
+  defaultMode: BeginMode,
+): ((...args: A) => R) & {
+  default: (...args: A) => R;
+  deferred: (...args: A) => R;
+  immediate: (...args: A) => R;
+  exclusive: (...args: A) => R;
+} {
+  const runner = (mode: BeginMode) => (...args: A): R => {
+    db.exec(mode);
+    try {
+      const result = fn(...args);
+      db.exec('COMMIT');
+      return result;
+    } catch (err) {
+      db.exec('ROLLBACK');
+      throw err;
+    }
+  };
+  return Object.assign(runner(defaultMode), {
+    default: runner(defaultMode),
+    deferred: runner('BEGIN'),
+    immediate: runner('BEGIN IMMEDIATE'),
+    exclusive: runner('BEGIN EXCLUSIVE'),
+  });
+}
+
 /**
  * Open the karst registry read-WRITE using Node's BUILT-IN `node:sqlite`
  * (sibling of `openReadonlyStore`). Rationale: the marker CLI (`karst stage …`)
@@ -37,22 +69,8 @@ export function openWritableStore(dbPath: string): Store {
      * runs `fn` in a single transaction. Nested BEGINs are not expected (the
      * machine wraps exactly one), so we keep it flat.
      */
-    transaction: <A extends unknown[], R>(
-      fn: (...args: A) => R,
-      opts?: { begin?: 'immediate' },
-    ) => {
-      return (...args: A): R => {
-        db.exec(opts?.begin === 'immediate' ? 'BEGIN IMMEDIATE' : 'BEGIN');
-        try {
-          const result = fn(...args);
-          db.exec('COMMIT');
-          return result;
-        } catch (err) {
-          db.exec('ROLLBACK');
-          throw err;
-        }
-      };
-    },
+    transaction: <A extends unknown[], R>(fn: (...args: A) => R) =>
+      transactionFamily(db, fn, 'BEGIN'),
   };
 
   return {
@@ -93,19 +111,8 @@ export function openGraphWritableStore(dbPath: string): Store {
 
   const shim = {
     prepare: (sql: string) => db.prepare(sql),
-    transaction: <A extends unknown[], R>(fn: (...args: A) => R) => {
-      return (...args: A): R => {
-        db.exec('BEGIN IMMEDIATE');
-        try {
-          const result = fn(...args);
-          db.exec('COMMIT');
-          return result;
-        } catch (err) {
-          db.exec('ROLLBACK');
-          throw err;
-        }
-      };
-    },
+    transaction: <A extends unknown[], R>(fn: (...args: A) => R) =>
+      transactionFamily(db, fn, 'BEGIN IMMEDIATE'),
   };
 
   return {

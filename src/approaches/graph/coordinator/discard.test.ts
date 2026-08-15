@@ -20,7 +20,8 @@ import type { GraphDb } from '../../../store/graph/transitions.js';
 import { acquireLease } from '../../../store/graph/leases.js';
 import { workspacesForNode } from '../../../store/graph/nodeRuns.js';
 import type { ProcessFacts } from '../../../runtime/serverIdentity.js';
-import { cleanupNodeWorkspace } from '../workspace/cleanup.js';
+import { cleanupTerminalNodeWorkspace } from '../workspace/cleanup.js';
+import { nodeWorkspaceDir } from '../workspace/provider.js';
 import { completeActivation } from './completion.js';
 import { discardUnknownProcess, type DiscardDeps } from './discard.js';
 
@@ -76,17 +77,21 @@ interface Ctx {
 }
 
 function withImmediate<T>(db: ReturnType<typeof openStore>['db'], fn: () => T): T {
-  const runner = (db.transaction as unknown as (f: () => T, o: { begin: 'immediate' }) => () => T)(
-    fn,
-    { begin: 'immediate' },
-  );
-  return runner();
+  return db.transaction(fn).immediate();
 }
 
 function harness(): Ctx {
   const store = openStore(':memory:');
   const db = store.db;
-  const ticketId = Number(db.prepare("INSERT INTO tickets (key) VALUES ('D-1')").run().lastInsertRowid);
+  const projectId = Number(
+    db.prepare("INSERT INTO projects (slug) VALUES ('proj')").run().lastInsertRowid,
+  );
+  const ticketId = Number(
+    db
+      .prepare("INSERT INTO tickets (key, project_id) VALUES ('D-1', ?)")
+      .run(projectId)
+      .lastInsertRowid,
+  );
   const graphRunId = Number(
     db
       .prepare(
@@ -201,10 +206,17 @@ function leaseRow(ctx: Ctx, nodeRunId: number): { status: string }[] {
 describe('discardUnknownProcess', () => {
   it('cleans the terminal node workspace after a successful discard', () => {
     const ctx = harness();
-    const workspaceRoot = mkdtempSync(join(tmpdir(), 'karst-node-discard-'));
+    const globalRoot = mkdtempSync(join(tmpdir(), 'karst-node-discard-'));
+    const workspaceRoot = nodeWorkspaceDir(
+      globalRoot,
+      'proj',
+      ctx.ticketId,
+      ctx.graphRunId,
+      10,
+    );
     try {
       const workspaceCwd = join(workspaceRoot, 'api');
-      mkdirSync(workspaceCwd);
+      mkdirSync(workspaceCwd, { recursive: true });
       writeFileSync(join(workspaceCwd, 'scratch.txt'), 'discarded workspace\n');
       nodeRun(ctx, 10, 'a', 'termination-unknown');
       claimToken(ctx, 10, 'a', 'e-a-b');
@@ -230,13 +242,13 @@ describe('discardUnknownProcess', () => {
       const deps = {
         ...ctx.makeDeps(),
         cleanupNodeWorkspace: (input: { graphRunId: number; nodeRunId: number }) =>
-          cleanupNodeWorkspace(
+          cleanupTerminalNodeWorkspace(
             {
               store: ctx.store,
-              transaction: <T>(fn: () => T): T => withImmediate(ctx.store.db, fn),
+              transaction: <T>(fn: () => T): T => ctx.store.db.transaction(fn).immediate(),
               facts: deadProcessFacts,
             },
-            { ...input, cwd: workspaceRoot },
+            input,
           ),
       } as DiscardDeps & {
         cleanupNodeWorkspace: (input: { graphRunId: number; nodeRunId: number }) => unknown;
@@ -255,7 +267,7 @@ describe('discardUnknownProcess', () => {
       });
     } finally {
       ctx.store.close();
-      rmSync(workspaceRoot, { recursive: true, force: true });
+      rmSync(globalRoot, { recursive: true, force: true });
     }
   });
 
