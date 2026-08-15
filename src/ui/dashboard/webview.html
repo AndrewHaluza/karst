@@ -3463,6 +3463,13 @@
   // Popover open/close runs alongside — not instead of — the stage-selection
   // and [data-act] document listeners below. A click on either trigger toggles
   // its popover; a click anywhere else (outside any .popover) closes both.
+  function eventWithin(e, selector) {
+    const t = e.target;
+    if (t && t.closest && t.closest(selector)) return true;
+    const path = typeof e.composedPath === 'function' ? e.composedPath() : [];
+    return path.some((node) => node && node.matches && node.matches(selector));
+  }
+
   document.addEventListener('click', (e) => {
     const t = e.target;
     if (t && t.closest('#agentButton')) {
@@ -3477,7 +3484,10 @@
       if (opening) openMenuPopover();
       return;
     }
-    if (t && t.closest('.popover')) return;
+    // A picker selection synchronously replaces its option DOM before this
+    // document listener runs. event.target is then detached, but composedPath
+    // still carries the popover that owned the click.
+    if (eventWithin(e, '.popover')) return;
     closePopovers();
   });
 

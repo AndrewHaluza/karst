@@ -24,7 +24,10 @@ function load(): Record<string, unknown> {
   // The picker reuses `agentBadgeHtml`/`agentIdentityHtml` from the injected
   // agent identity runtime, so the emitted agent JS must be in scope too.
   // eslint-disable-next-line @typescript-eslint/no-implied-eval
-  return new Function(`${agentIdentityJs()}\n${js}\nreturn { apEfforts, apEffortOptions, apCoreOptionsHtml, apModelOptionsHtml };`)();
+  return new Function(`${agentIdentityJs()}\n${js}\nreturn {
+    apEfforts, apEffortOptions, apCoreOptionsHtml, apModelOptionsHtml,
+    apCoreSelection: typeof apCoreSelection === 'function' ? apCoreSelection : undefined,
+  };`)();
 }
 
 function esc(s: string): string {
@@ -48,6 +51,34 @@ describe('agentPickerJs', () => {
     expect(js).toContain('function apEffortOptions(');
     expect(js).toContain('function apCoreOptionsHtml(');
     expect(js).toContain('function apModelOptionsHtml(');
+  });
+
+  it('clears the prior provider model and effort when selecting a different core', () => {
+    const { apCoreSelection } = load() as {
+      apCoreSelection?: (
+        current: { core: string; model: string; effort: string },
+        core: string,
+      ) => { core: string; model: string; effort: string };
+    };
+
+    expect(apCoreSelection).toBeTypeOf('function');
+    expect(apCoreSelection!({ core: 'claude', model: 'claude-opus-5', effort: 'high' }, 'codex')).toEqual({
+      core: 'codex',
+      model: '',
+      effort: '',
+    });
+  });
+
+  it('preserves model and effort when reselecting the current core', () => {
+    const { apCoreSelection } = load() as {
+      apCoreSelection: (
+        current: { core: string; model: string; effort: string },
+        core: string,
+      ) => { core: string; model: string; effort: string };
+    };
+    const current = { core: 'claude', model: 'claude-opus-5', effort: 'high' };
+
+    expect(apCoreSelection(current, 'claude')).toEqual(current);
   });
 
   describe('apEfforts', () => {
