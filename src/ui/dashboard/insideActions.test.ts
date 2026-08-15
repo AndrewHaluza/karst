@@ -48,7 +48,9 @@ function reviewFindingId(over: { ticketId?: number; repo?: string; file?: string
         severity: 'high',
         repo: over.repo ?? '/web',
         file: over.file ?? 'src/foo.ts',
-        line: over.line ?? 12,
+        // `line` in over respects an EXPLICIT null (a finding with no line);
+        // absent defaults to 12 so the resolve tests pin the carried line.
+        line: 'line' in over ? over.line : 12,
         title: 'x',
         detail: 'y',
         source: 'agent',
@@ -207,6 +209,28 @@ describe('InsideActionRegistry', () => {
     const fresh = registry(8);
     expect(fresh.resolve(action.actionId)).toBeNull();
   });
+
+  it('mints the SAME id for the SAME target within one registry — a live repaint re-mints the same rows', () => {
+    // A live repaint reuses the registry and re-mints every row; memoizing by
+    // target keeps the webview's displayed id valid instead of growing a new
+    // id per row per tick (869eja6uv).
+    const r = registry(7);
+    const target: InsideActionTarget = {
+      kind: 'open-file',
+      ticketId: 1,
+      evidence: { source: 'review-finding', id: 3 },
+    };
+    expect(r.register(target).actionId).toBe('snapshot-7:action-0');
+    expect(r.register(target).actionId).toBe('snapshot-7:action-0');
+    // A distinct target still gets its own id.
+    expect(
+      r.register({
+        kind: 'open-file',
+        ticketId: 1,
+        evidence: { source: 'review-finding', id: 4 },
+      }).actionId,
+    ).toBe('snapshot-7:action-1');
+  });
 });
 
 describe('resolveOpenFileTarget', () => {
@@ -219,7 +243,7 @@ describe('resolveOpenFileTarget', () => {
       { kind: 'open-file', ticketId: 1, evidence: { source: 'review-finding', id } },
       deps,
     );
-    expect(resolved).toEqual({ path: '/wt/web/src/foo.ts' });
+    expect(resolved).toEqual({ path: '/wt/web/src/foo.ts', line: 12 });
   });
 
   it('opens a uat finding the same way', () => {
@@ -229,7 +253,17 @@ describe('resolveOpenFileTarget', () => {
       { kind: 'open-file', ticketId: 1, evidence: { source: 'uat-finding', id } },
       deps,
     );
-    expect(resolved).toEqual({ path: '/wt/web/e2e/spec.ts' });
+    expect(resolved).toEqual({ path: '/wt/web/e2e/spec.ts', line: null });
+  });
+
+  it('carries a finding without a recorded line as null, never a fabricated 0', () => {
+    const id = reviewFindingId({ file: 'src/foo.ts', line: null });
+    const resolved = resolveOpenFileTarget(
+      store,
+      { kind: 'open-file', ticketId: 1, evidence: { source: 'review-finding', id } },
+      deps,
+    );
+    expect(resolved).toEqual({ path: '/wt/web/src/foo.ts', line: null });
   });
 
   it('rejects evidence that belongs to another ticket', () => {
@@ -326,7 +360,7 @@ describe('resolveOpenFileTarget', () => {
       { kind: 'open-file', ticketId: 1, evidence: { source: 'review-finding', id } },
       deps,
     );
-    expect(resolved).toEqual({ path: '/wt/web/src/not/here/yet.ts' });
+    expect(resolved).toEqual({ path: '/wt/web/src/not/here/yet.ts', line: 12 });
   });
 });
 
@@ -353,6 +387,21 @@ describe('dispatchInsideAction', () => {
       outcome: 'dispatched',
     });
     expect(calls).toEqual(['file:/wt/web/src/foo.ts']);
+  });
+
+  it('passes the finding line to the host so the editor positions the cursor', () => {
+    const id = reviewFindingId({ file: 'src/foo.ts', line: 4450 });
+    const r = registry(7);
+    r.register({ kind: 'open-file', ticketId: 1, evidence: { source: 'review-finding', id } });
+    const opened: Array<{ path: string; line: number | null | undefined }> = [];
+    expect(
+      dispatchInsideAction(store, r, 'snapshot-7:action-0', {
+        host: { ...host([]), openFile: (path, line) => void opened.push({ path, line }) },
+        worktreeForRepo: (repo) => worktrees.get(repo),
+        fs,
+      }),
+    ).toEqual({ outcome: 'dispatched' });
+    expect(opened).toEqual([{ path: '/wt/web/src/foo.ts', line: 4450 }]);
   });
 
   it('dispatches open-pr only for a PR row owned by this ticket', () => {

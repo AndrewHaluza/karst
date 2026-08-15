@@ -459,23 +459,40 @@ export class DashboardManager {
     // A fresh action registry PER SNAPSHOT: every state push is authoritative,
     // so the ids it mints are the only live capabilities. The registry itself
     // (with its host-only targets) never leaves this manager.
-    const generation = (this.generations.get(ticketId) ?? 0) + 1;
-    this.generations.set(ticketId, generation);
-    const registry = new InsideActionRegistry(generation, ticketId);
-    // The snapshot the user was LOOKING AT stays dispatchable for a short
-    // WALL-CLOCK window. A click is posted against the ids of the render on
-    // screen, and with a repaint every second that render can be superseded
-    // while the message is in flight — rejecting it would report "no longer
-    // available" for a button the user just pressed. Bounded and short: a
-    // capability must still die promptly.
-    const superseded = this.registries.get(ticketId);
-    if (superseded) {
-      const grace = this.priorRegistries.get(ticketId) ?? [];
-      grace.push({ registry: superseded, supersededAt: Date.now() });
-      this.priorRegistries.set(ticketId, grace);
+    //
+    // A LIVE repaint is the SAME snapshot re-read, and the webview only updates
+    // running clocks in place — it does not re-render its rows, so it keeps
+    // displaying the ids of the build it last RENDERED. Superseding the
+    // registry once a second would push those displayed ids into the grace
+    // window and let them age out of it while a long-running stage (a gate, a
+    // review findings lane) is still ticking, turning a click on a finding's
+    // file link into "This action is no longer available" (869eja6uv). So a
+    // repaint REUSES the current registry — the ids it already holds stay live,
+    // and `register` memoizes by target so a re-mint of the same row is the
+    // same id rather than unbounded growth. A real push (which re-renders the
+    // webview with freshly minted ids) is what supersedes.
+    const existing = this.registries.get(ticketId);
+    let registry: InsideActionRegistry;
+    if (supplemental || !existing) {
+      const generation = (this.generations.get(ticketId) ?? 0) + 1;
+      this.generations.set(ticketId, generation);
+      registry = new InsideActionRegistry(generation, ticketId);
+      // The snapshot the user was LOOKING AT stays dispatchable for a short
+      // WALL-CLOCK window. A click is posted against the ids of the render on
+      // screen, and with a repaint every second that render can be superseded
+      // while the message is in flight — rejecting it would report "no longer
+      // available" for a button the user just pressed. Bounded and short: a
+      // capability must still die promptly.
+      if (existing) {
+        const grace = this.priorRegistries.get(ticketId) ?? [];
+        grace.push({ registry: existing, supersededAt: Date.now() });
+        this.priorRegistries.set(ticketId, grace);
+      }
+      this.pruneGrace(ticketId);
+      this.registries.set(ticketId, registry);
+    } else {
+      registry = existing;
     }
-    this.pruneGrace(ticketId);
-    this.registries.set(ticketId, registry);
     // The graph projection's controls (Slice 3 Task 11 / Slice 4 Task 4) ride
     // the SAME opaque typed-action seam: the projection is pure, so the host
     // injects the attach closure that mints ids in THIS snapshot's registry.
