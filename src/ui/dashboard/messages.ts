@@ -151,7 +151,16 @@ export type WebviewMessage =
  * absent from `DashboardState`.
  */
 export type HostMessage =
-  | { type: 'state'; state: DashboardState }
+  | {
+      type: 'state';
+      state: DashboardState;
+      /** Clock-only repaint; the webview may defer it during interaction. */
+      live?: boolean;
+      /** False when no worktree/gate-options follow this state message. */
+      supplemental?: boolean;
+      /** False when this snapshot must not settle requestless actions. */
+      settlesActions?: boolean;
+    }
   | { type: 'worktree-stats'; stats: WorktreeStats[] }
   | { type: 'inside-progress'; event: InsideProgressEvent }
   | { type: 'bind'; enabled: boolean }

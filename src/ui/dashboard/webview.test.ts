@@ -4624,7 +4624,36 @@ describe('deferring a live repaint', () => {
 
   it('defers only a LIVE push; a push that carries news always renders', () => {
     expect(HTML).toMatch(/msg\.live && !liveRepaintSafe\(\)/);
-    expect(HTML).toContain('if (!msg.live) worktreeStats = {};');
+    expect(HTML).toContain("if (!msg.live && msg.supplemental !== false) worktreeStats = {};");
+  });
+});
+
+describe('passive store-state refreshes', () => {
+  it('do not settle unrelated dashboard actions that are still pending', () => {
+    const h = bootPreviewHarness();
+    const state = renderStateFor('uat');
+    h.receive({ type: 'state', state });
+
+    h.click('[data-act]', { act: 'ship-ticket' });
+    h.click('[data-act]', { act: 'merge-pr', repo: '/repo/a' });
+    h.click('[data-act]', { act: 'refresh-prs' });
+    h.click('[data-act]', { act: 'send-back-to-implement' });
+    expect(h.posted).toEqual([
+      { type: 'ship-ticket' },
+      { type: 'merge-pr', repo: '/repo/a' },
+      { type: 'refresh-prs' },
+      { type: 'send-back-to-implement' },
+    ]);
+
+    // Interactive usage changed the store snapshot, but none of these actions
+    // produced this message. Their request ids must remain pending.
+    h.receive({ type: 'state', state, supplemental: false, settlesActions: false });
+
+    h.click('[data-act]', { act: 'ship-ticket' });
+    h.click('[data-act]', { act: 'merge-pr', repo: '/repo/a' });
+    h.click('[data-act]', { act: 'refresh-prs' });
+    h.click('[data-act]', { act: 'send-back-to-implement' });
+    expect(h.posted).toHaveLength(4);
   });
 });
 

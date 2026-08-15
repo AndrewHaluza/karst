@@ -12,6 +12,7 @@ import { buildGraphInsideInput } from './graphInside.js';
 import { LIVE_TICK_MS } from './liveTick.js';
 import { ACTION_GRACE_MS } from './panel.js';
 import type { WorktreeStats, WorktreeStatsLoader } from './worktreeStats.js';
+import type { GateOptions, GateOptionsLoader } from './gateOptions.js';
 
 const PANEL_SOURCE = readFileSync(
   join(dirname(fileURLToPath(import.meta.url)), 'panel.ts'),
@@ -218,6 +219,104 @@ describe('DashboardManager', () => {
     const { host } = fakeHost();
     const mgr = new DashboardManager(store, host, () => ({}) as never);
     expect(() => mgr.pushState(t.id)).not.toThrow();
+  });
+
+  it('pushStoreState reports store news without restarting supplemental loaders', () => {
+    const t = createTicket(store, { key: 'A', title: 'a' });
+    const { host, panels } = fakeHost();
+    const loadStats: WorktreeStatsLoader = vi.fn(
+      () => new Promise<WorktreeStats[]>(() => {}),
+    );
+    const loadGateOptions: GateOptionsLoader = vi.fn(
+      () => new Promise<GateOptions>(() => {}),
+    );
+    const mgr = new DashboardManager(
+      store, host, () => ({}) as never,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, loadStats, undefined, loadGateOptions,
+    );
+    mgr.openDashboard(t.id);
+
+    mgr.pushStoreState(t.id);
+
+    const stateMessages = panels[0]!.posted.filter(
+      (message): message is {
+        type: 'state';
+        live?: boolean;
+        supplemental?: boolean;
+        settlesActions?: boolean;
+      } =>
+        typeof message === 'object' && message !== null && (message as { type?: string }).type === 'state',
+    );
+    expect(stateMessages).toHaveLength(2);
+    expect(stateMessages[1]!.live).toBeUndefined();
+    expect(stateMessages[1]!.supplemental).toBe(false);
+    expect(stateMessages[1]!.settlesActions).toBe(false);
+    expect(loadStats).toHaveBeenCalledOnce();
+    expect(loadGateOptions).toHaveBeenCalledOnce();
+  });
+
+  it('pushPassiveState reloads supplemental facts without settling dashboard actions', () => {
+    const t = createTicket(store, { key: 'A', title: 'a' });
+    const { host, panels } = fakeHost();
+    const loadStats: WorktreeStatsLoader = vi.fn(async () => []);
+    const loadGateOptions: GateOptionsLoader = vi.fn(async () => ({ uat: [], review: [] }));
+    const mgr = new DashboardManager(
+      store, host, () => ({}) as never,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, loadStats, undefined, loadGateOptions,
+    );
+    mgr.openDashboard(t.id);
+
+    mgr.pushPassiveState(t.id);
+
+    const stateMessages = panels[0]!.posted.filter(
+      (message): message is {
+        type: 'state';
+        supplemental?: boolean;
+        settlesActions?: boolean;
+      } =>
+        typeof message === 'object' && message !== null && (message as { type?: string }).type === 'state',
+    );
+    expect(stateMessages).toHaveLength(2);
+    expect(stateMessages[1]!.supplemental).toBeUndefined();
+    expect(stateMessages[1]!.settlesActions).toBe(false);
+    expect(loadStats).toHaveBeenCalledTimes(2);
+    expect(loadGateOptions).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps the gate-options follow-up passive after a passive state refresh', async () => {
+    const t = createTicket(store, { key: 'A', title: 'a' });
+    const { host, panels } = fakeHost();
+    const loadStats: WorktreeStatsLoader = vi.fn(
+      () => new Promise<WorktreeStats[]>(() => {}),
+    );
+    const loadGateOptions: GateOptionsLoader = vi.fn(async () => ({
+      uat: [{ name: 'e2e', disabled: false }],
+      review: [],
+    }));
+    const mgr = new DashboardManager(
+      store, host, () => ({}) as never,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, loadStats, undefined, loadGateOptions,
+    );
+    mgr.openDashboard(t.id);
+
+    mgr.pushPassiveState(t.id);
+
+    await vi.waitFor(() => {
+      const messages = panels[0]!.posted.filter(
+        (message): message is { type: 'state'; settlesActions?: boolean } =>
+          typeof message === 'object'
+          && message !== null
+          && (message as { type?: string }).type === 'state',
+      );
+      expect(messages).toHaveLength(3);
+      expect(messages.slice(1).map((message) => message.settlesActions)).toEqual([
+        false,
+        false,
+      ]);
+    });
   });
 
   it('a stop-server webview message dispatches to the supervisor action', () => {

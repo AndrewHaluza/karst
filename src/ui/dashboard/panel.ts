@@ -383,7 +383,11 @@ export class DashboardManager {
       }
       if (this.liveTicks.has(ticketId)) return; // still ticking; nothing to catch up
       try {
-        this.pushSnapshot(ticketId, false);
+        this.pushSnapshot(ticketId, {
+          supplemental: false,
+          live: true,
+          settlesActions: false,
+        });
       } catch (err) {
         this.logError('karst: dashboard visibility repaint failed', err);
       }
@@ -437,14 +441,49 @@ export class DashboardManager {
 
   /** Push a fresh state snapshot to a ticket panel; no-op if not open. */
   pushState(ticketId: number): void {
-    this.pushSnapshot(ticketId, true);
+    this.pushSnapshot(ticketId, {
+      supplemental: true,
+      live: false,
+      settlesActions: true,
+    });
+  }
+
+  /**
+   * Push a complete snapshot for host-external news without claiming it is the
+   * response to any dashboard action currently in flight.
+   */
+  pushPassiveState(ticketId: number): void {
+    this.pushSnapshot(ticketId, {
+      supplemental: true,
+      live: false,
+      settlesActions: false,
+    });
+  }
+
+  /**
+   * Push news that changed only store-backed state. Unlike `pushState`, this
+   * fully re-renders the snapshot but does not restart the async worktree or
+   * gate-option loaders. It also cannot settle a pending dashboard action:
+   * store news such as a usage delta is not that action's response.
+   */
+  pushStoreState(ticketId: number): void {
+    this.pushSnapshot(ticketId, {
+      supplemental: false,
+      live: false,
+      settlesActions: false,
+    });
   }
 
   /**
    * Build and post one snapshot.
    *
-   * `supplemental` is what separates a real push from a live repaint. The
-   * async loaders beside the state — worktree Git totals (`git` per worktree)
+   * `supplemental` controls whether async filesystem facts are reloaded, `live`
+   * tells the webview whether the snapshot is only a clock repaint, and
+   * `settlesActions` says whether it is the host response an in-flight action
+   * is waiting for. Store-backed news (such as a token delta) needs a full
+   * render without restarting filesystem work or settling an unrelated action.
+   *
+   * The async loaders beside the state — worktree Git totals (`git` per worktree)
    * and the resolved gate names (a walk of every scoped repo) — answer
    * questions that change when the WORKTREE or the MANIFEST changes, not when
    * a gate advances a second. Re-running them on every tick would abort and
@@ -453,7 +492,11 @@ export class DashboardManager {
    * for the same reason: the glyph it tints changes with the ticket's status,
    * and every status change arrives on a real push.
    */
-  private pushSnapshot(ticketId: number, supplemental: boolean): void {
+  private pushSnapshot(
+    ticketId: number,
+    mode: { supplemental: boolean; live: boolean; settlesActions: boolean },
+  ): void {
+    const { supplemental, live, settlesActions } = mode;
     const panel = this.panels.get(ticketId);
     if (!panel) return;
     // A fresh action registry PER SNAPSHOT: every state push is authoritative,
@@ -530,11 +573,17 @@ export class DashboardManager {
     // while the user is mid-interaction (an action in flight, a text selection
     // being made) — a snapshot pushed once a second must never redraw over
     // what someone is doing, and only the sender knows which kind it is.
-    panel.postMessage({ type: 'state', state, ...(supplemental ? {} : { live: true }) });
+    panel.postMessage({
+      type: 'state',
+      state,
+      ...(live ? { live: true } : {}),
+      ...(!supplemental && !live ? { supplemental: false } : {}),
+      ...(!settlesActions ? { settlesActions: false } : {}),
+    });
     if (supplemental) {
       this.pushWorktreeStats(ticketId, panel, state.worktrees);
       this.refreshIcon(ticketId, panel);
-      this.pushGateOptions(ticketId, panel);
+      this.pushGateOptions(ticketId, panel, settlesActions);
     }
     this.scheduleLiveTick(ticketId, state);
   }
@@ -575,7 +624,11 @@ export class DashboardManager {
       this.liveTicks.delete(ticketId);
       if (!this.panels.has(ticketId)) return;
       try {
-        this.pushSnapshot(ticketId, false);
+        this.pushSnapshot(ticketId, {
+          supplemental: false,
+          live: true,
+          settlesActions: false,
+        });
       } catch (err) {
         // A tick is a repaint, never a mutation: a failed read (a deleted
         // ticket, a locked DB) must not take the extension host down, and it
@@ -698,7 +751,11 @@ export class DashboardManager {
    * still-live panel may post — a slower earlier probe must never overwrite a
    * newer answer, the same guard `pushWorktreeStats` carries.
    */
-  private pushGateOptions(ticketId: number, panel: DashboardPanel): void {
+  private pushGateOptions(
+    ticketId: number,
+    panel: DashboardPanel,
+    settlesActions: boolean,
+  ): void {
     if (!this.loadGateOptions) return;
     this.gateControllers.get(ticketId)?.abort();
     const controller = new AbortController();
@@ -710,14 +767,17 @@ export class DashboardManager {
         if (this.panels.get(ticketId) !== panel) return;
         if (this.gateRequests.get(ticketId) !== request) return;
         this.gateControllers.delete(ticketId);
-        // Remember the resolved names so `pushState` can render them as
-        // pending gate rows. Only a CHANGE re-pushes the snapshot: the
-        // resolution itself came from a `pushState`, and an unconditional
-        // re-push would feed `pushGateOptions` from `pushState` forever.
+        // Remember the resolved names so the follow-up snapshot can render
+        // them as pending gate rows. Preserve the originating snapshot's
+        // action-settlement authority: an async supplement to passive news is
+        // still passive. Only a CHANGE re-pushes, or this would loop forever.
         const previous = this.gateOptionsCache.get(ticketId);
         this.gateOptionsCache.set(ticketId, options);
         panel.postMessage({ type: 'gate-options', options });
-        if (!previous || !sameGateOptions(previous, options)) this.pushState(ticketId);
+        if (!previous || !sameGateOptions(previous, options)) {
+          if (settlesActions) this.pushState(ticketId);
+          else this.pushPassiveState(ticketId);
+        }
       },
       (error) => {
         if (this.panels.get(ticketId) !== panel) return;

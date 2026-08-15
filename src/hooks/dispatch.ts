@@ -166,23 +166,24 @@ function nextAgentState(payload: HookPayload): AgentState | null {
  * narrow the usage payload, and append the measured cumulative sample to the
  * provider session's ledger, attributed to the ticket's currently bound
  * process. A malformed payload or an unattributable session changes nothing.
- * Usage is not a liveness signal — no agent_state is written, and nothing here
- * is fanned out, so a burst of usage events can never re-kick the stage driver.
+ * Usage is not a liveness signal — no agent_state is written. Returns true only
+ * when displayed spend changed, so the host can refresh usage surfaces without
+ * treating baselines, duplicates, or rejected samples as lifecycle activity.
  */
 function ingestUsageUpdate(
   store: Store,
   payload: HookPayload,
   sessionProviderFor?: SessionProviderFor,
   debug?: (msg: string) => void,
-): void {
+): boolean {
   if (!payload.session_id) {
     debug?.(`[usage] skipped: no session_id`);
-    return;
+    return false;
   }
   const ticketId = ticketIdForWorktreePath(store, payload.cwd!);
   if (ticketId === null) {
     debug?.(`[usage] skipped: unknown worktree ${payload.cwd}`);
-    return;
+    return false;
   }
 
   // Usage belongs to the provider SESSION that emitted it, not whichever
@@ -200,12 +201,12 @@ function ingestUsageUpdate(
   const provider = durableProvider ?? sessionProviderFor?.(ticketId);
   if (provider === undefined || provider === null) {
     debug?.(`[usage] ticket ${ticketId}: no provider (durable=${durableProvider}, fallback=${sessionProviderFor?.(ticketId)})`);
-    return;
+    return false;
   }
   const normalized = normalizeInteractiveUsage(payload.usage);
   if (normalized === null) {
     debug?.(`[usage] ticket ${ticketId}: malformed usage payload`);
-    return;
+    return false;
   }
   debug?.(`[usage] ticket ${ticketId}: provider=${provider}, session=${payload.session_id}, input=${normalized.input}, output=${normalized.output}`);
   const result = appendInteractiveUsageSample(store, {
@@ -218,6 +219,7 @@ function ingestUsageUpdate(
     },
   });
   debug?.(`[usage] ticket ${ticketId}: append result=${result.kind}`);
+  return result.kind === 'recorded';
 }
 
 /**
@@ -261,8 +263,13 @@ export function dispatchHook(
 
   // Usage is not a lifecycle event: it rides the same URL-guarded, generation-
   // checked path, but it records spend and never touches session or liveness.
+  // A newly recorded delta is fanned out so already-open usage surfaces re-read
+  // the ledger; baselines, duplicates and rejected samples changed no displayed
+  // spend and therefore notify nothing.
   if (payload.hook_event_name === 'UsageUpdate') {
-    ingestUsageUpdate(store, payload, sessionProviderFor, debug);
+    if (ingestUsageUpdate(store, payload, sessionProviderFor, debug)) {
+      notify?.(ticketId, payload);
+    }
     return;
   }
 
