@@ -927,8 +927,16 @@ describe('OpencodeAdapter headless execution', () => {
     const result = await new OpencodeAdapter(spawn).runHeadless({
       cwd: '/wt', prompt: '- inspect', permissionMode: 'bypassPermissions', model: 'openrouter/~openai/gpt-mini-latest',
     });
-    expect(spawn).toHaveBeenCalledWith('opencode', ['run', '--format', 'json', '--pure', '--auto', '--model', 'openrouter/~openai/gpt-mini-latest', '--', '- inspect'], '/wt', { signal: undefined });
+    expect(spawn).toHaveBeenCalledWith('opencode', ['run', '--format', 'json', '--pure', '--dir', '/wt', '--auto', '--model', 'openrouter/~openai/gpt-mini-latest', '--', '- inspect'], '/wt', { signal: undefined });
     expect(result).toEqual({ sessionId: 'ses_abc', verdict: null, raw: 'HELLO', usage: expect.objectContaining({ inputTokens: 16312 }) });
+  });
+
+  it('pins the headless run to the worktree via --dir so a nested linked worktree is not mis-resolved', async () => {
+    const spawn = vi.fn(fakeSpawn({ stdout: okNdjson, exitCode: 0 }));
+    await new OpencodeAdapter(spawn).runHeadless({ cwd: '/wt/tree', prompt: 'go' });
+    const args = spawn.mock.calls[0]![1];
+    expect(args).toContain('--dir');
+    expect(args[args.indexOf('--dir') + 1]).toBe('/wt/tree');
   });
 
   it('threads an effort as --variant into a headless run', async () => {
@@ -977,7 +985,7 @@ describe('OpencodeAdapter headless execution', () => {
   it('runs a resumed headless run via --session', async () => {
     const spawn = vi.fn(fakeSpawn({ stdout: okNdjson, exitCode: 0 }));
     await new OpencodeAdapter(spawn).runHeadless({ cwd: '/wt', prompt: 'continue', resume: 'ses_abc' });
-    expect(spawn).toHaveBeenCalledWith('opencode', ['run', '--format', 'json', '--pure', '--session', 'ses_abc', '--', 'continue'], '/wt', { signal: undefined });
+    expect(spawn).toHaveBeenCalledWith('opencode', ['run', '--format', 'json', '--pure', '--dir', '/wt', '--session', 'ses_abc', '--', 'continue'], '/wt', { signal: undefined });
   });
 
   it('reports bounded diagnostics + usage on a nonzero exit', async () => {

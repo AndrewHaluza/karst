@@ -945,6 +945,12 @@ export class OpencodeAdapter implements AgentAdapter {
     // `buildInteractiveCommand` gives the interactive session: every headless
     // run (review findings lane, classify, fix-resume) must not inherit plugins
     // that add context, latency, or other projects' hook channels (869ef1e6x).
+    // `--dir` pins the run to the worktree cwd: opencode 1.18.18 mis-resolves a
+    // nested linked-git-worktree cwd to the parent checkout, so the review
+    // lane's git tools ran on the parent's `develop` and reported a blocking
+    // "wrong checkout" finding for code never read. The flag is `run`-only —
+    // NOT a top-level `opencode` flag — so the interactive path is unaffected.
+    args.push('--dir', opts.cwd);
     if (opts.permissionMode === 'bypassPermissions') args.push('--auto');
     if (opts.model) args.push('--model', opts.model);
     if (opts.effort) args.push('--variant', opts.effort);
