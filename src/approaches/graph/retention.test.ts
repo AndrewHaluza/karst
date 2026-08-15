@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openStore } from '../../store/db.js';
 import { createGraphRun, allGraphRunsClosed } from '../../store/graph/graphRuns.js';
-import { reapClosedGraphSubtrees, removeTicketGraphSubtree } from './retention.js';
+import { reapClosedGraphSubtrees, removeTicketGraphSubtree, describeGraphReap } from './retention.js';
 
 function harness(): {
   store: ReturnType<typeof openStore>;
@@ -122,5 +122,13 @@ describe('removeTicketGraphSubtree', () => {
     const dir = seed(7);
     removeTicketGraphSubtree(join(graphRoot, 'project'), 7);
     expect(existsSync(dir)).toBe(false);
+  });
+});
+
+describe('describeGraphReap', () => {
+  it('names the project, ticket, and why in one line', () => {
+    expect(describeGraphReap({ projectSlug: 'acme', ticketId: 9 })).toMatch(
+      /acme.*9|9.*acme/,
+    );
   });
 });

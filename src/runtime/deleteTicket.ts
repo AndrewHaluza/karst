@@ -10,6 +10,10 @@ export interface PermanentDeleteLifecycle {
    *  also removes the ticket's graph byte subtree after its rows (Slice 2
    *  Task 8; the activation sweep covers the absent case). */
   graphBytesRoot?: string;
+  /** The `<globalStorage>/artifacts` root; when set, deleteTicket also removes
+   *  the ticket's gate console-log dir after its rows (the activation sweep
+   *  covers the absent case). */
+  artifactsRoot?: string;
 }
 
 /**
@@ -23,7 +27,7 @@ export async function deleteTicketPermanently(
   ticketId: number,
   lifecycle: PermanentDeleteLifecycle,
 ): Promise<void> {
-  deleteTicket(store, ticketId, lifecycle.graphBytesRoot);
+  deleteTicket(store, ticketId, lifecycle.graphBytesRoot, lifecycle.artifactsRoot);
   // Both operations are synchronous: the DB tombstone is visible before any
   // local in-flight action can resume, then its panel is invalidated before the
   // first asynchronous yield in filesystem cleanup.
