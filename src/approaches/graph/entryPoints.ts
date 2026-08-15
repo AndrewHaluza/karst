@@ -2,7 +2,8 @@
  * Entry-point matrix for graph tickets (Slice 3 Task 7).
  *
  * While a graph run is `planning`/`awaiting-confirmation`/`running`/
- * `draining`, the coordinator owns continuation and the generic session
+ * `draining`/`completed-awaiting-impl-marker`, the coordinator owns
+ * continuation and the generic session
  * surfaces must not spawn, adopt, nudge, or drive:
  *
  * | Entry point    | Behavior while a graph run is active                     |
@@ -16,9 +17,8 @@
  * | driveTicket    | not invoked for a graph ticket at impl                  |
  * | resumeFix      | unreachable at impl; belongs to fix                      |
  *
- * A run in `completed-awaiting-impl-marker` has no active work, so the
- * surfaces behave normally again — which is what makes the Inside "Complete
- * implementation" action usable beside a refreshed session.
+ * A run in `completed-awaiting-impl-marker` stays on the graph surface: its
+ * work is complete, but only the graph marker guard may advance the ticket.
  *
  * Stop is a coordinator-level controller, not `DriverController`: it
  * terminates every running node process through `AgentTransport.terminate`
@@ -38,6 +38,7 @@ export const ACTIVE_GRAPH_STATUSES: ReadonlySet<string> = new Set([
   'awaiting-confirmation',
   'running',
   'draining',
+  'completed-awaiting-impl-marker',
 ]);
 
 export type GraphTicketSurface = 'active-graph' | 'graph-marker' | 'none';
@@ -60,8 +61,8 @@ export function activeGraphRunFor(db: GraphDb, ticketId: number): GraphRunSurfac
   return row ? { graphRunId: row.id, status: row.status } : undefined;
 }
 
-/** The openSession surface: active graph → reveal-only; a marker-ready run
- *  restores the normal surface. */
+/** The openSession surface: an active graph remains graph-owned, including
+ *  while the implementation marker is awaited. */
 export function graphTicketSurface(db: GraphDb, ticketId: number): GraphTicketSurface {
   const run = activeGraphRunFor(db, ticketId);
   if (run) return 'active-graph';

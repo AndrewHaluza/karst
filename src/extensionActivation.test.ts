@@ -171,6 +171,13 @@ describe('extension activation', () => {
     expect(source).toContain('its session is not attached to this window');
   });
 
+  it('directs a graph run awaiting its impl marker to the guarded marker command', () => {
+    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+
+    expect(source).toContain("activeGraph.status === 'completed-awaiting-impl-marker'");
+    expect(source).toContain('karst stage impl pass');
+  });
+
   // Reattach only revives a session whose terminal SURVIVED a reload; a
   // planning run whose bootstrap planner session DIED outright (dead process,
   // no terminal) is the remaining hole. The reconcile crash matrix decides the

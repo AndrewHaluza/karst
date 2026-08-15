@@ -5161,10 +5161,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (!options.providerReady && !guardCapability('sessions', ticketId)) return;
       // A graph ticket with an active run is owned by the graph coordinator:
       // REVEAL the live node terminal, never spawn a second agent (entry-point
-      // matrix, Slice 3 Task 7). `graph-marker`/`none` fall through to the
-      // normal continue-or-start flow below.
+      // matrix, Slice 3 Task 7).
       const activeGraph = activeGraphRunFor(localStore.db, ticketId);
       if (activeGraph) {
+        if (activeGraph.status === 'completed-awaiting-impl-marker') {
+          void vscode.window.showInformationMessage(
+            `Ticket #${ticketId}: the implementation graph is complete — run \`karst stage impl pass\` to advance.`,
+          );
+          return;
+        }
         let session = graphTransport?.sessions().find((s) => s.ticketId === ticketId);
         // The terminal may be a revived one this window has not re-attached yet
         // (a reload between the session's launch and this click). Re-attach it

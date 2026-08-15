@@ -2,7 +2,7 @@
  * Entry-point matrix tests (Slice 3 Task 7).
  *
  * One test per matrix row: openSession reveals (never spawns) while the graph
- * is active and behaves normally at `completed-awaiting-impl-marker`; nudge
+ * is active, including while awaiting the implementation marker; nudge
  * is a no-op; adoption matches only live node/planner runs; driveTicket is
  * not invoked for a graph ticket at impl; resumeFix is unreachable at impl.
  * Stop drains the graph and terminates its processes.
@@ -110,10 +110,13 @@ describe('openSession surface', () => {
     }
   });
 
-  it('a run at completed-awaiting-impl-marker restores the normal surface', () => {
+  it('keeps a run awaiting the implementation marker on the graph surface', () => {
     const ctx = harness('completed-awaiting-impl-marker');
-    expect(graphTicketSurface(ctx.db, ctx.ticketId)).toBe('graph-marker');
-    expect(activeGraphRunFor(ctx.db, ctx.ticketId)).toBeUndefined();
+    expect(graphTicketSurface(ctx.db, ctx.ticketId)).toBe('active-graph');
+    expect(activeGraphRunFor(ctx.db, ctx.ticketId)).toEqual({
+      graphRunId: ctx.graphRunId,
+      status: 'completed-awaiting-impl-marker',
+    });
   });
 
   it('no graph run → the normal surface', () => {
