@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openStore, type Store } from '../../store/db.js';
-import { getTicket, getTicketByKey } from '../../store/tickets.js';
+import { getTicket, getTicketByKey, listTickets } from '../../store/tickets.js';
+import { getProjectBySlug, upsertProject } from '../../store/projects.js';
 import { transition } from '../../workflow/machine.js';
 import { runCli } from '../main.js';
 import { parseTestArgs, runTestCommand } from './main.js';
@@ -103,6 +104,80 @@ describe('create-ticket', () => {
     expect(() =>
       runCreateTicket(store, parseCreateTicketArgs(['--title', 'A', '--key', 'T-1', '--type', 'nope'])),
     ).toThrow(/unknown ticket type/);
+  });
+
+  it('scopes the ticket to --project <slug> so it appears on that board', () => {
+    const project = upsertProject(store, { slug: 'acme' });
+    const out = runCreateTicket(
+      store,
+      parseCreateTicketArgs(['--title', 'Scoped', '--key', 'SCOPED-1', '--project', 'acme']),
+    );
+    const parsed = JSON.parse(out) as { id: number; projectId: number | null; project: string | null };
+    expect(parsed.projectId).toBe(project.id);
+    expect(parsed.project).toBe('acme');
+
+    const ticket = getTicket(store, parsed.id);
+    expect(ticket.projectId).toBe(project.id);
+    // The whole point: the ticket is visible on the project's board.
+    expect(listTickets(store, { projectId: project.id }).map((t) => t.key)).toContain('SCOPED-1');
+  });
+
+  it('creates the project row on first sight when --project names an unknown slug', () => {
+    const out = runCreateTicket(
+      store,
+      parseCreateTicketArgs(['--title', 'Fresh', '--key', 'FRESH-1', '--project', 'brand-new']),
+    );
+    const parsed = JSON.parse(out) as { id: number; projectId: number | null };
+    expect(parsed.projectId).not.toBeNull();
+    const project = getProjectBySlug(store, 'brand-new');
+    expect(project).toBeDefined();
+    expect(parsed.projectId).toBe(project!.id);
+    expect(listTickets(store, { projectId: project!.id }).map((t) => t.key)).toContain('FRESH-1');
+  });
+
+  it('uses the manifest-derived projectSlug as a fallback when --project is absent', () => {
+    const project = upsertProject(store, { slug: 'acme' });
+    const out = runTestCommand(store, undefined, 'acme', [
+      'test',
+      'create-ticket',
+      '--title',
+      'Fallback',
+      '--key',
+      'FALLBACK-1',
+    ]);
+    const parsed = JSON.parse(out) as { projectId: number | null };
+    expect(parsed.projectId).toBe(project.id);
+  });
+
+  it('lets an explicit --project flag win over the manifest-derived slug', () => {
+    upsertProject(store, { slug: 'from-manifest' });
+    const explicit = upsertProject(store, { slug: 'explicit' });
+    const out = runTestCommand(store, undefined, 'from-manifest', [
+      'test',
+      'create-ticket',
+      '--title',
+      'Wins',
+      '--key',
+      'WINS-1',
+      '--project',
+      'explicit',
+    ]);
+    const parsed = JSON.parse(out) as { projectId: number | null };
+    expect(parsed.projectId).toBe(explicit.id);
+  });
+
+  it('keeps idempotency per project: the same key in two projects is two tickets', () => {
+    const a = upsertProject(store, { slug: 'pa' });
+    const b = upsertProject(store, { slug: 'pb' });
+    const first = JSON.parse(
+      runCreateTicket(store, parseCreateTicketArgs(['--title', 'A', '--key', 'T-1', '--project', 'pa'])),
+    ) as { id: number };
+    const second = JSON.parse(
+      runCreateTicket(store, parseCreateTicketArgs(['--title', 'A', '--key', 'T-1', '--project', 'pb'])),
+    ) as { id: number };
+    expect(second.id).not.toBe(first.id);
+    expect(getTicketByKey(store, 'T-1', { projectId: a.id })?.id).toBe(first.id);
+    expect(getTicketByKey(store, 'T-1', { projectId: b.id })?.id).toBe(second.id);
   });
 });
 
@@ -552,6 +627,55 @@ describe('end-to-end via runCli', () => {
   it('refuses an unknown subcommand and requires --db', () => {
     expect(() => runCli(['test', 'bogus', '--db', 'x.db'])).toThrow(/unknown test subcommand/);
     expect(() => runCli(['test', 'get-state', '--ticket', 'A-1'])).toThrow(/db/);
+  });
+
+  it('create-ticket falls back to the manifest project slug through runCli', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-test-driver-'));
+    try {
+      const db = join(dir, 'karst.db');
+      const manifestPath = join(dir, 'karst.yml');
+      writeFileSync(
+        manifestPath,
+        'id: proj-cli\n' +
+          'host: localhost\n' +
+          'portRange: [4000, 4999]\n' +
+          'baselineBranch: develop\n' +
+          'repositories:\n' +
+          '  api:\n' +
+          '    repoPath: ../api\n',
+      );
+      runCli(['test', 'reset', '--db', db]);
+
+      const created = JSON.parse(
+        runCli([
+          'test',
+          'create-ticket',
+          '--db',
+          db,
+          '--manifest',
+          manifestPath,
+          '--title',
+          'Via manifest',
+          '--key',
+          'MANIFEST-1',
+        ]),
+      ) as { id: number; projectId: number | null };
+      expect(created.projectId).not.toBeNull();
+
+      const check = openStore(db);
+      try {
+        const project = getProjectBySlug(check, 'proj-cli');
+        expect(project).toBeDefined();
+        expect(created.projectId).toBe(project!.id);
+        expect(listTickets(check, { projectId: project!.id }).map((t) => t.key)).toContain(
+          'MANIFEST-1',
+        );
+      } finally {
+        check.close();
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

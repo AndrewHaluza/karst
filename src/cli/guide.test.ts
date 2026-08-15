@@ -41,6 +41,16 @@ describe('karst guide — content', () => {
   it('explains done means merged', () => {
     expect(AGENT_GUIDE).toMatch(/done means merged/i);
   });
+
+  it('documents test create-ticket with its --project flag', () => {
+    expect(AGENT_GUIDE).toContain('create-ticket');
+    expect(AGENT_GUIDE).toContain('--project');
+  });
+
+  it('explains create-ticket idempotency and project scoping', () => {
+    expect(AGENT_GUIDE).toMatch(/idempotent/i);
+    expect(AGENT_GUIDE).toMatch(/project/i);
+  });
 });
 
 describe('karst guide — parse', () => {

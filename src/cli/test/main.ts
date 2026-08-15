@@ -94,7 +94,7 @@ export function runTestCommand(
 
   switch (subcommand) {
     case 'create-ticket':
-      return runCreateTicket(store, parseCreateTicketArgs(rest));
+      return runCreateTicket(store, parseCreateTicketArgs(rest), projectSlug);
     case 'set-stage': {
       const t = requireTicket(store, ticketKey, projectSlug, subcommand);
       return runSetStage(store, t.id, parseSetStageArgs(rest));
