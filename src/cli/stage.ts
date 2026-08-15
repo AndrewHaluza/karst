@@ -2,7 +2,8 @@ import type { Store } from '../store/db.js';
 import type { StageKey, Verdict } from '../model/types.js';
 import { MARKER_STAGES, isMarkerStage, type MarkerStage } from '../agent/markerStage.js';
 import { transition as defaultTransition } from '../workflow/machine.js';
-import { graphImplMarkerGuard } from '../workflow/graphMarkerGuard.js';
+import { graphImplMarkerGuard, graphApproachMissingRun } from '../workflow/graphMarkerGuard.js';
+import { BUILT_IN_PACKAGE_ID } from '../approaches/builtInId.js';
 import { markImplementDone } from '../workflow/stages/implement.js';
 import { markFixDone } from '../workflow/fixExecution.js';
 
@@ -168,6 +169,16 @@ export function runStageCommand(
         throw new Error(`graph marker refused: ${result.reason}`);
       }
       return 'uat';
+    }
+    // A graph-approach ticket with NO graph run at all (bootstrap failed, the
+    // run was cancelled, a misconfiguration) must never fall through to the
+    // plain marker below — that would advance the ticket with zero graph
+    // work performed. Refuse the marker, name why, and leave the ticket
+    // exactly where it is.
+    if (store.db && graphApproachMissingRun(store, ticketId)) {
+      throw new Error(
+        `graph marker refused: no graph run for ticket ${ticketId} (approach ${BUILT_IN_PACKAGE_ID})`,
+      );
     }
     // The impl marker routes through markImplementDone, never directly through
     // the generic transition: completing the stable implementation run (closing

@@ -12,19 +12,13 @@
  * exit gate (Decision 31).
  */
 
-import { join } from 'node:path';
 import type { ApproachDef, GraphApproachConfig } from '../manifest/types.js';
 import { DEFAULT_GRAPH_LIMITS } from '../manifest/graphConfig.js';
+import { BUILT_IN_PACKAGE_ID } from './builtInId.js';
 
-export const BUILT_IN_PACKAGE_ID = 'karst-graph-engineering';
-
-/** Relative path of the packaged prompt tree under the extension root. */
-export const BUILT_IN_PACKAGE_PATH = `.agents/skills/${BUILT_IN_PACKAGE_ID}`;
-
-/** Resolve the packaged package directory under an extension root. */
-export function builtInPackageDir(extRoot: string): string {
-  return join(extRoot, BUILT_IN_PACKAGE_PATH);
-}
+// Identity lives in the leaf `builtInId.ts` so a module that only needs to NAME
+// the built-in never imports the module holding the packaged array.
+export { BUILT_IN_PACKAGE_ID, BUILT_IN_PACKAGE_PATH, builtInPackageDir } from './builtInId.js';
 
 const PACKAGED_GRAPH: GraphApproachConfig = {
   planner: {

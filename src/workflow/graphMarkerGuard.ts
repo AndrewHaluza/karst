@@ -29,13 +29,21 @@
 import type { Store } from '../store/db.js';
 import { getTicket } from '../store/tickets.js';
 import { transition } from './machine.js';
-import { parkGateStage } from '../store/stageBlocks.js';
+import { parkGateStage, stageBlock, clearStageBlock } from '../store/stageBlocks.js';
 import { stageAttempt } from '../store/stages.js';
 import { casStatus, GRAPH_RUN_TRANSITIONS } from '../store/graph/transitions.js';
 import { quiescenceBlockedBy, earliestFaultNodeRun, faultNodeRunReason } from '../approaches/graph/coordinator/completion.js';
 import { GRAPH_FAILED_BLOCKER } from '../approaches/graph/coordinator/recovery.js';
+import { BUILT_IN_PACKAGE_ID } from '../approaches/builtInId.js';
 
 export { GRAPH_FAILED_BLOCKER };
+
+/**
+ * Same shape as `GRAPH_FAILED_BLOCKER`: not "karst could not ask" — the
+ * question was asked (the graph finished) and is simply unanswered yet. See
+ * `BlockerKind`'s `awaiting-impl-marker` member for the full rationale.
+ */
+export const GRAPH_MARKER_WAIT_BLOCKER = 'awaiting-impl-marker' as const;
 
 export interface GraphMarkerGuardResult {
   ok: boolean;
@@ -61,6 +69,25 @@ function graphRunFor(
        WHERE ticket_id = ? AND stage_attempt = ?`,
     )
     .get(ticketId, stageAttempt) as GraphRunRow | undefined;
+}
+
+/**
+ * True when a ticket is on the built-in graph approach but has NO graph run
+ * at all — bootstrap failed, the run was cancelled before it was created, or
+ * a misconfiguration skipped it. Done must mean the work happened: such a
+ * ticket must never fall through to the plain impl marker, which would
+ * advance it to `uat` with zero graph work performed. Only the built-in
+ * `karst-graph-engineering` approach id is graph-runtime-backed (a `graph:`
+ * block on any other approach id is inert — see `manifest/types.ts`), so
+ * that id is the only safe, manifest-free signal available at this layer.
+ */
+export function graphApproachMissingRun(store: Store, ticketId: number): boolean {
+  const ticket = getTicket(store, ticketId);
+  if (ticket.approach !== BUILT_IN_PACKAGE_ID) return false;
+  const row = store.db
+    .prepare('SELECT 1 AS x FROM approach_graph_runs WHERE ticket_id = ? LIMIT 1')
+    .get(ticketId);
+  return row === undefined;
 }
 
 /**
@@ -103,6 +130,13 @@ export function graphImplMarkerGuard(store: Store, ticketId: number): GraphMarke
       ) {
         throw new Error(`graph run ${run.id} already closed`);
       }
+      // 4. The marker just answered the wait — clear it, same as recovery.ts
+      //    clears GRAPH_FAILED_BLOCKER, and ONLY if it's our own kind (never
+      //    stomp an unrelated block).
+      const block = stageBlock(store, ticketId, 'impl');
+      if (block && block.kind === GRAPH_MARKER_WAIT_BLOCKER) {
+        clearStageBlock(store, ticketId, 'impl');
+      }
     });
     return { ok: true, graphRunId: graphRunFor(store, ticketId, attempt)?.id };
   } catch (err) {
@@ -143,6 +177,35 @@ export function blockGraphStage(
     stageKey: 'impl',
     kind: GRAPH_FAILED_BLOCKER,
     reason: `${GRAPH_FAILED_BLOCKER}: ${reason} (graph run ${run.id})`,
+    runAt: now(),
+    gates: [],
+  });
+}
+
+/**
+ * The `awaiting-impl-marker` stage-block write: the graph flipped
+ * `completed-awaiting-impl-marker` (`flipOnEndQuiescence`), so the wait is
+ * now visible on the stage row itself, the same way `blockGraphStage` makes
+ * a graph fault visible. Written only while the ticket is still AT `impl`
+ * and only while the run is genuinely marker-ready — a raced close (the
+ * marker landed between the flip and this call) is a no-op, never a stale
+ * block on a stage that already advanced.
+ */
+export function markGraphAwaitingImplMarker(
+  store: Store,
+  ticketId: number,
+  graphRunId: number,
+  now: () => string,
+): void {
+  const ticket = getTicket(store, ticketId);
+  if (ticket.stageCurrent !== 'impl') return; // stage-scoped write path
+  const run = graphRunFor(store, ticketId, stageAttempt(store, ticketId, 'impl'));
+  if (!run || run.id !== graphRunId || run.status !== 'completed-awaiting-impl-marker') return;
+  parkGateStage(store, {
+    ticketId,
+    stageKey: 'impl',
+    kind: GRAPH_MARKER_WAIT_BLOCKER,
+    reason: `${GRAPH_MARKER_WAIT_BLOCKER}: graph run ${run.id} completed, waiting for the impl marker`,
     runAt: now(),
     gates: [],
   });

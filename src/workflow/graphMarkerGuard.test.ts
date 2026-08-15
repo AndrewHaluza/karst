@@ -17,8 +17,10 @@ import { stageBlock } from '../store/stageBlocks.js';
 import {
   graphImplMarkerGuard,
   blockGraphStage,
+  graphApproachMissingRun,
   GRAPH_FAILED_BLOCKER,
 } from './graphMarkerGuard.js';
+import { BUILT_IN_PACKAGE_ID } from '../approaches/builtIn.js';
 
 describe('graphImplMarkerGuard', () => {
   let store: Store;
@@ -148,6 +150,42 @@ describe('graphImplMarkerGuard', () => {
       (store.db.prepare('SELECT status FROM approach_graph_runs WHERE id = ?').get(graphRunId) as { status: string })
         .status,
     ).toBe('completed-awaiting-impl-marker');
+  });
+});
+
+describe('graphApproachMissingRun', () => {
+  let store: Store;
+  beforeEach(() => (store = openStore(':memory:')));
+  afterEach(() => store.close());
+
+  it('is true for a built-in graph-approach ticket with no graph run at all', () => {
+    const ticketId = createTicket(store, { key: 'NR-1', title: 'thing' }).id;
+    store.db.prepare('UPDATE tickets SET approach = ? WHERE id = ?').run(BUILT_IN_PACKAGE_ID, ticketId);
+    expect(graphApproachMissingRun(store, ticketId)).toBe(true);
+  });
+
+  it('is false for a non-graph-approach ticket (unaffected legitimate path)', () => {
+    const ticketId = createTicket(store, { key: 'NR-2', title: 'thing' }).id;
+    store.db.prepare('UPDATE tickets SET approach = ? WHERE id = ?').run('single-subagent', ticketId);
+    expect(graphApproachMissingRun(store, ticketId)).toBe(false);
+  });
+
+  it('is false for a ticket with no approach at all', () => {
+    const ticketId = createTicket(store, { key: 'NR-3', title: 'thing' }).id;
+    expect(graphApproachMissingRun(store, ticketId)).toBe(false);
+  });
+
+  it('is false once a graph run exists, whatever its status', () => {
+    const ticketId = createTicket(store, { key: 'NR-4', title: 'thing' }).id;
+    store.db.prepare('UPDATE tickets SET approach = ? WHERE id = ?').run(BUILT_IN_PACKAGE_ID, ticketId);
+    const attempt = stageAttempt(store, ticketId, 'impl');
+    store.db
+      .prepare(
+        `INSERT INTO approach_graph_runs (ticket_id, stage_key, stage_attempt, approach_id, status, created_at)
+         VALUES (?, 'impl', ?, 'x', 'planning', '2026-08-12T00:00:00.000Z')`,
+      )
+      .run(ticketId, attempt);
+    expect(graphApproachMissingRun(store, ticketId)).toBe(false);
   });
 });
 
