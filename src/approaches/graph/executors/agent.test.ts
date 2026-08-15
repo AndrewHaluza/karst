@@ -13,6 +13,7 @@ import {
   type RunAgentNodeDeps,
   type RunAgentNodeInput,
 } from './agent.js';
+import { SUPPORTED, unsupported } from '../../../agent/surfaces.js';
 import type { AgentNode } from '../parse.js';
 import type {
   AgentTransport,
@@ -92,7 +93,11 @@ function harness(transport: FakeTransport): {
     ticketId: 1,
     graphRunId: 2,
     revisionId: 3,
-    adapter: {} as never,
+    adapter: {
+      surfaces: {
+        exactModel: SUPPORTED,
+      },
+    } as never,
     repo: 'api',
     cwd: '/wt/n1',
     node: agentNode(),
@@ -143,11 +148,46 @@ describe('runAgentNode', () => {
   it('a fallback-incapable core red-blocks BEFORE any spend', async () => {
     const transport = fakeTransport(false);
     const h = harness(transport);
+    h.input.adapter = {
+      surfaces: {
+        exactModel: unsupported(
+          'this adapter cannot prevent model fallback or prove which model ran in the session',
+        ),
+      },
+    } as never;
     const result = await runAgentNode(h.deps, h.input);
     expect(result).toMatchObject({ kind: 'red-blocked' });
     if (result.kind !== 'red-blocked') return;
     expect(result.reason).toContain('exact-model-capability');
     expect(transport.starts).toHaveLength(0);
     expect(h.prompts).toHaveLength(0);
+  });
+
+  it('launches when the adapter declares exact-model support even if the transport constant is false', async () => {
+    const transport = fakeTransport(false);
+    const h = harness(transport);
+    h.input.adapter = {
+      surfaces: {
+        exactModel: SUPPORTED,
+      },
+    } as never;
+    const result = await runAgentNode(h.deps, h.input);
+    expect(result.kind).toBe('launched');
+    expect(transport.starts).toHaveLength(1);
+  });
+
+  it('red-blocks when the adapter declares exact-model unsupported', async () => {
+    const transport = fakeTransport(true);
+    const h = harness(transport);
+    h.input.adapter = {
+      surfaces: {
+        exactModel: unsupported(
+          'this adapter cannot prevent model fallback or prove which model ran in the session',
+        ),
+      },
+    } as never;
+    const result = await runAgentNode(h.deps, h.input);
+    expect(result).toMatchObject({ kind: 'red-blocked' });
+    expect(transport.starts).toHaveLength(0);
   });
 });

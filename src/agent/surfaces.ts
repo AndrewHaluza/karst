@@ -42,6 +42,12 @@ export function unsupported(reason: string): SurfaceSupport {
  * by whichever one the author had open.
  */
 export interface AdapterSurfaces {
+  /**
+   * The adapter pins the requested model exactly for interactive launches, so
+   * a graph agent node can prove which model ran and avoid core-level
+   * fallback.
+   */
+  readonly exactModel: SurfaceSupport;
   /** `RunHeadlessOpts.model` / `InteractiveCommandOpts.model` → the core's model flag. */
   readonly model: SurfaceSupport;
   /** `effort` → the core's reasoning-effort flag, headless. */
