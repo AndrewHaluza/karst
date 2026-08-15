@@ -1043,9 +1043,11 @@ describe('DashboardManager', () => {
       expect(pushed[1]!.live).toBe(true);
     });
 
-    it('keeps a superseded id dispatchable for the grace WINDOW, not for one tick', () => {
-      // The window has to cover a webview→host round trip. Tying it to "the
-      // previous snapshot" made its real length the tick period.
+    it('keeps an id dispatchable across live repaints — a repaint is not a supersede', () => {
+      // A live repaint re-reads the same snapshot and the webview updates clocks
+      // in place without re-rendering its rows, so the ids it displays must stay
+      // live for as long as a run ticks (869eja6uv). Only a real push — which
+      // re-renders the webview with freshly minted ids — supersedes.
       const t = createTicket(store, { key: 'A', title: 'a' });
       store.db.prepare("UPDATE tickets SET stage_current = 'done' WHERE id = ?").run(t.id);
       store.db
@@ -1075,12 +1077,55 @@ describe('DashboardManager', () => {
       )?.[1];
       expect(actionId).toBeDefined();
 
-      // Three repaints later — more than one generation back — it still works.
+      // A long run: many repaints, no real push — the displayed id never ages
+      // into the grace window.
       vi.advanceTimersByTime(LIVE_TICK_MS * 3);
       expect(mgr.dispatchInsideAction(t.id, actionId!)).toMatchObject({ ok: true });
+      vi.advanceTimersByTime(ACTION_GRACE_MS * 3);
+      expect(mgr.dispatchInsideAction(t.id, actionId!)).toMatchObject({ ok: true });
+    });
 
-      // Past the window it is gone, however few snapshots have replaced it.
-      vi.advanceTimersByTime(ACTION_GRACE_MS);
+    it('keeps a REAL-push-superseded id dispatchable only for the grace window', () => {
+      // The grace window covers a webview→host round trip when a real push lands
+      // between a render and the click. A real push re-renders the webview with
+      // fresh ids, so the superseded ids expire once the window closes.
+      const t = createTicket(store, { key: 'A', title: 'a' });
+      store.db.prepare("UPDATE tickets SET stage_current = 'done' WHERE id = ?").run(t.id);
+      store.db
+        .prepare(
+          `INSERT INTO prs (ticket_id, repo, number, url, status, merged_at)
+           VALUES (?, ?, ?, ?, 'merged', ?)`,
+        )
+        .run(t.id, '/repo/a', 12, 'https://github.com/o/r/pull/12', new Date().toISOString());
+      openProcessRun(store, {
+        ticketId: t.id,
+        stageKey: 'uat',
+        processId: 'tester',
+        attempt: 1,
+        startedAt: new Date().toISOString(),
+      });
+      const { host, panels } = fakeHost();
+      const mgr = new DashboardManager(
+        store, host, () => ({}) as never,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        undefined, undefined, undefined, undefined, undefined, undefined,
+        { openPr: () => {} } as never,
+      );
+
+      mgr.openDashboard(t.id);
+      const actionId = /"actionId":"(snapshot-1:action-\d+)"/.exec(
+        JSON.stringify(panels[0]!.posted),
+      )?.[1];
+      expect(actionId).toBeDefined();
+
+      // A real push supersedes the registry; the old id is still dispatchable
+      // within the window.
+      mgr.pushState(t.id);
+      expect(mgr.dispatchInsideAction(t.id, actionId!)).toMatchObject({ ok: true });
+
+      // Past the window it is gone (a tick past the strict cutoff, like the
+      // grace pruner's `<` comparison).
+      vi.advanceTimersByTime(ACTION_GRACE_MS + LIVE_TICK_MS);
       expect(mgr.dispatchInsideAction(t.id, actionId!)).toMatchObject({ ok: false });
     });
 

@@ -42,6 +42,12 @@ export function unsupported(reason: string): SurfaceSupport {
  * by whichever one the author had open.
  */
 export interface AdapterSurfaces {
+  /**
+   * The adapter pins the requested model exactly for interactive launches, so
+   * a graph agent node can prove which model ran and avoid core-level
+   * fallback.
+   */
+  readonly exactModel: SurfaceSupport;
   /** `RunHeadlessOpts.model` / `InteractiveCommandOpts.model` → the core's model flag. */
   readonly model: SurfaceSupport;
   /** `effort` → the core's reasoning-effort flag, headless. */
@@ -57,10 +63,9 @@ export interface AdapterSurfaces {
   /** `sessionName` → the core's launch-time session-naming flag. */
   readonly sessionName: SurfaceSupport;
   /**
-   * A structured event stream on stdout that `consoleFormat.ts` can render into
-   * readable console-tail lines. `unsupported` means the core's headless output
-   * is not a structured stream at all (a single end-of-run document), so the raw
-   * text is forwarded unchanged.
+   * Structured stdout that `consoleFormat.ts` can render into readable console
+   * text. This may be an event stream or a buffered final document. `unsupported`
+   * means the core emits plain prose, so the raw text is forwarded unchanged.
    */
   readonly consoleStream: SurfaceSupport;
   /**

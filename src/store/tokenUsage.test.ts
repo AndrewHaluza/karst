@@ -59,6 +59,7 @@ function seed(s: Seed = {}): void {
     usage: {
       inputTokens: input,
       outputTokens: output,
+      reasoningTokens: 0,
       cacheReadTokens: cacheRead,
       cacheWriteTokens: cacheWrite,
       totalTokens: input + output + cacheRead + cacheWrite,
@@ -165,6 +166,7 @@ describe('recordTokenUsage', () => {
       usage: {
         inputTokens: 40,
         outputTokens: 10,
+        reasoningTokens: 0,
         cacheReadTokens: 0,
         cacheWriteTokens: 0,
         totalTokens: 50,
@@ -196,6 +198,7 @@ describe('recordTokenUsage', () => {
       usage: {
         inputTokens: 1,
         outputTokens: 1,
+        reasoningTokens: 0,
         cacheReadTokens: 0,
         cacheWriteTokens: 0,
         totalTokens: 2,
@@ -229,12 +232,73 @@ describe('queryTokenUsageStats', () => {
       calls: 2,
       inputTokens: 30,
       outputTokens: 12,
+      reasoningTokens: 0,
       cacheReadTokens: 100,
       cacheWriteTokens: 3,
       totalTokens: 145,
+      // The raw tally less the 100 cache reads — what every headline, ORDER BY
+      // and share denominator uses.
+      freshTokens: 45,
       estimatedCalls: 0,
       erroredCalls: 0,
     });
+  });
+
+  it('sorts and pages the ticket table on FRESH spend, matching what it displays', () => {
+    // The cache-heavy ticket has the bigger RAW tally (3.9M vs 300k) but far
+    // less fresh spend. Ordering on the raw total put it first while the table
+    // rendered fresh figures that said otherwise — and with a LIMIT it could
+    // page the genuinely expensive ticket off the end.
+    ticket(1, 'K-1', 'Cache heavy');
+    ticket(2, 'K-2', 'Fresh heavy');
+    seed({ ticketId: 1, input: 200_000, output: 4_000, cacheRead: 3_700_000 });
+    seed({ ticketId: 2, input: 250_000, output: 50_000, cacheRead: 0 });
+
+    const { byTicket } = queryTokenUsageStats(store, query({ projectId: 1, sort: 'total' }));
+    expect(byTicket.map((r) => r.ticketKey)).toEqual(['K-2', 'K-1']);
+    expect(byTicket[0]!.freshTokens).toBe(300_000);
+    expect(byTicket[1]!.freshTokens).toBe(204_000);
+    // The raw tally is still recorded faithfully — only the ordering changed.
+    expect(byTicket[1]!.totalTokens).toBe(3_904_000);
+
+    const firstPage = queryTokenUsageStats(
+      store,
+      query({ projectId: 1, sort: 'total', limit: 1, offset: 0 }),
+    );
+    expect(firstPage.byTicket.map((r) => r.ticketKey)).toEqual(['K-2']);
+  });
+
+  it('orders breakdown rows on fresh spend too, so the order matches the numbers', () => {
+    ticket(1, 'K-1', 'One');
+    seed({ callSite: 'implementation', input: 1_000, output: 100, cacheRead: 900_000 });
+    seed({ callSite: 'uat-tester', input: 5_000, output: 5_000, cacheRead: 0 });
+
+    const { byCallSite } = queryTokenUsageStats(store, query({ projectId: 1 }));
+    expect(byCallSite.map((r) => r.key)).toEqual(['uat-tester', 'implementation']);
+  });
+
+  it('never reports a negative fresh total when reads exceed a legacy row\'s tally', () => {
+    ticket(1, 'K-1', 'One');
+    // A pre-split row: cache reads recorded, but a total that never counted them.
+    recordTokenUsage(store, {
+      projectId: 1,
+      ticketId: 1,
+      callSite: 'implementation',
+      provider: 'opencode',
+      outcome: 'ok',
+      recordedAt: '2026-07-15T00:00:00.000Z',
+      usage: {
+        inputTokens: 10,
+        outputTokens: 5,
+        reasoningTokens: 0,
+        cacheReadTokens: 900,
+        cacheWriteTokens: 0,
+        totalTokens: 15,
+        model: null,
+        estimated: false,
+      },
+    });
+    expect(queryTokenUsageStats(store, query({ projectId: 1 })).totals.freshTokens).toBe(0);
   });
 
   it('counts an errored call — the tokens were spent either way', () => {
@@ -360,6 +424,7 @@ describe('queryTokenUsageStats', () => {
       usage: {
         inputTokens: 500,
         outputTokens: 0,
+        reasoningTokens: 0,
         cacheReadTokens: 0,
         cacheWriteTokens: 0,
         totalTokens: 500,
@@ -478,6 +543,7 @@ describe('graph-run per-profile rollup (Slice-6 T2)', () => {
       usage: {
         inputTokens: o.input ?? 40,
         outputTokens: o.output ?? 10,
+        reasoningTokens: 0,
         cacheReadTokens: 0,
         cacheWriteTokens: 0,
         totalTokens: (o.input ?? 40) + (o.output ?? 10),
@@ -591,7 +657,12 @@ describe('process-run attribution', () => {
     seed({ input: 120, output: 30, processRunId: r.id });
     seed({ input: 999, output: 999, estimated: true, processRunId: r.id });
 
-    expect(summarizeRecordedTokenUsage(store, 1)).toEqual({ input: 120, output: 30, total: 150 });
+    expect(summarizeRecordedTokenUsage(store, 1)).toEqual({
+      input: 120,
+      output: 30,
+      total: 150,
+      cacheRead: 0,
+    });
   });
 
   it('counts a process\'s estimated calls separately from its measured total', () => {
@@ -604,7 +675,36 @@ describe('process-run attribution', () => {
     // rides beside the total, and the estimate's tokens never enter it.
     expect(summarizeRecordedTokenUsageForProcess(store, 1, 'review')).toEqual({
       total: 150,
+      cacheRead: 0,
       estimatedCalls: 1,
+    });
+  });
+
+  it('carries measured cache reads beside the total, so the display can headline fresh spend', () => {
+    ticket(1, 'K-1', 'One');
+    const r = run();
+    recordTokenUsage(store, {
+      projectId: null,
+      ticketId: 1,
+      processRunId: r.id,
+      callSite: 'implementation',
+      provider: 'opencode',
+      outcome: 'ok',
+      usage: {
+        inputTokens: 215_929,
+        outputTokens: 4_114,
+        reasoningTokens: 0,
+        cacheReadTokens: 3_704_064,
+        cacheWriteTokens: 0,
+        totalTokens: 3_924_107,
+        model: null,
+        estimated: false,
+      },
+    });
+    expect(summarizeRecordedTokenUsageForProcess(store, 1, 'review')).toEqual({
+      total: 3_924_107,
+      cacheRead: 3_704_064,
+      estimatedCalls: 0,
     });
   });
 

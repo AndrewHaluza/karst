@@ -2151,7 +2151,7 @@ interface PreviewHarness {
   /** Click one evidence disclosure chevron, exactly like a user expanding/collapsing a process. */
   clickChevron(key: string): void;
   /** Click through the delegated document listeners at ONE selector. */
-  click(sel: string, dataset: Record<string, string>): void;
+  click(sel: string, dataset: Record<string, string>, pathSelectors?: string[]): void;
   /** Press a key on the document keydown listener. */
   key(key: string): void;
   htmlOf(id: string): string;
@@ -2373,7 +2373,7 @@ function bootPreviewHarness(): PreviewHarness {
     // target that is not inside those elements. The node carries the minimal
     // element surface the delegated action handler touches (pending state,
     // disabled, preventDefault).
-    click: (sel: string, dataset: Record<string, string>) => {
+    click: (sel: string, dataset: Record<string, string>, pathSelectors: string[] = []) => {
       const node = {
         dataset,
         closest: (s: string) => (s === sel ? node : null),
@@ -2383,8 +2383,15 @@ function bootPreviewHarness(): PreviewHarness {
         hasAttribute: () => false,
         disabled: false,
       };
+      const pathNode = {
+        matches: (s: string) => pathSelectors.includes(s),
+      };
       for (const handler of docListeners.get('click') ?? []) {
-        handler({ target: node, preventDefault: () => {} });
+        handler({
+          target: node,
+          preventDefault: () => {},
+          composedPath: () => [node, pathNode],
+        });
       }
     },
     // Press a key on the document's keydown listener (Esc mirrors Back).
@@ -2739,10 +2746,20 @@ describe('inside render round trip (executed in a VM)', () => {
     // Token pills are the prototype's Σ stat, with the exact count as the
     // hover title.
     expect(ol.match(/class="token-stat"/g)).toHaveLength(3);
-    expect(ol).toContain('title="18,600"');
+    expect(ol).toContain('title="18,600 fresh tokens"');
     // Timestamps occupy the dedicated right-aligned cells.
     expect(ol).toContain('<span class="segment-window">10:03–10:09</span>');
     expect(ol).toContain('<span class="phase-time">10:22</span>');
+  });
+
+  it('renders cache reads beside the headline, never inside it', () => {
+    // The headline is FRESH spend; a cached session's re-reads are their own
+    // muted figure with their own accessible title, so a 3.7M cache read can
+    // never present as 3.7M of conversation.
+    const fn = /function tokenStatHtml[\s\S]*?\n  \}/.exec(HTML)?.[0] ?? '';
+    expect(fn).toContain('t.cacheRead');
+    expect(fn).toContain('cache-read');
+    expect(fn).toContain('t.cacheReadExact');
   });
 
   it('feeds the timeline identity rows through the injected agent renderer (Task 4)', () => {
@@ -3582,6 +3599,28 @@ describe('agent popover round trip (executed in a VM)', () => {
     const before = h.posted.length;
     h.click('body', {});
     expect(h.posted.length).toBe(before);
+  });
+
+  it('stays open when a picker selection replaces the clicked option before document bubbling', () => {
+    const store = openStore(':memory:');
+    const t = createTicket(store, { key: 'SW-H', title: 'switch' });
+    store.db.prepare("UPDATE tickets SET stage_current = 'impl' WHERE id = ?").run(t.id);
+    const state = buildDashboardState(
+      store, t.id, undefined, undefined, undefined, undefined, 'claude',
+      { defaultModel: null },
+    );
+    store.close();
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state });
+    h.click('#agentButton', {});
+
+    // The shared picker re-renders its option list synchronously. By the time
+    // the click reaches document, event.target is detached and closest()
+    // cannot recover the popover ancestor; composedPath() still records it.
+    h.click('[data-ap-core]', {}, ['.popover']);
+
+    expect(h.classesOf('agentPopover')).toEqual(expect.arrayContaining(['open']));
+    expect(h.classesOf('agentPopover')).not.toContain('hidden');
   });
 
   it('opens each header popover with the .open class, not just minus hidden (PR #166)', () => {

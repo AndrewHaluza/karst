@@ -404,6 +404,37 @@ describe('implementationSessionProcess', () => {
     });
   });
 
+  it('tokenView headlines FRESH tokens and carries cache reads beside them', () => {
+    // A real opencode session: 3.7M of 3.9M was the same context re-read from
+    // the prompt cache. Folding that into the headline made the session read
+    // as twenty times its own conversation.
+    expect(tokenView({ total: 3_922_207, cacheRead: 3_704_064 })).toEqual({
+      state: 'measured',
+      total: '218.1k',
+      exact: '218,143',
+      cacheRead: '3.7M',
+      cacheReadExact: '3,704,064',
+    });
+  });
+
+  it('omits the cache-read figure when nothing was served from cache', () => {
+    expect(tokenView({ total: 12_435, cacheRead: 0 })).toEqual({
+      state: 'measured',
+      total: '12.4k',
+      exact: '12,435',
+    });
+  });
+
+  it('never headlines a negative — a cache read larger than the total clamps to zero', () => {
+    // The two facts come from different SUMs; a legacy row measured before the
+    // headline split can carry cache reads its total never counted.
+    expect(tokenView({ total: 100, cacheRead: 900 })).toMatchObject({
+      total: '0',
+      exact: '0',
+      cacheRead: '900',
+    });
+  });
+
   it('keeps legacy impl marks that predate run attribution', () => {
     const process = implementationSessionProcess(
       cell('impl', 'running'),

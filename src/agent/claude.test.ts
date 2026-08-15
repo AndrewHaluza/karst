@@ -728,4 +728,96 @@ describe('ClaudeAdapter.runHeadless', () => {
     await adapter.runHeadless({ prompt: 'go', cwd: '/wt/a', debug });
     expect(seenOpts?.onDebug).toBe(debug);
   });
+
+  it('emits only the readable result from the settled Claude envelope', async () => {
+    const envelope = JSON.stringify({
+      is_error: false,
+      duration_api_ms: 114_882,
+      session_id: 'ed2ecfaf-3677-4af2-a3e4-3b6b5559bbb4',
+      usage: { input_tokens: 32, cache_read_input_tokens: 1_481_107 },
+      result: '[\n  { "severity": "high", "title": "Readable finding" }\n]',
+    });
+    const spawn: SpawnHeadless = async () => ({ stdout: envelope, stderr: '', exitCode: 0 });
+    const rendered: Array<{ stream: 'stdout' | 'stderr'; text: string }> = [];
+
+    await new ClaudeAdapter(spawn).runHeadless({
+      prompt: 'go',
+      cwd: '/wt/a',
+      onOutput: (chunk) => rendered.push(chunk),
+    });
+
+    expect(rendered).toEqual([
+      {
+        stream: 'stdout',
+        text: '[\n  { "severity": "high", "title": "Readable finding" }\n]\n',
+      },
+    ]);
+  });
+
+  it('formats bounded settled stdout instead of retaining the raw live document stream', async () => {
+    const envelope = JSON.stringify({
+      is_error: false,
+      session_id: 'bounded-session',
+      result: 'Readable bounded result',
+    });
+    const spawn: SpawnHeadless = async (_cmd, _args, _cwd, opts) => {
+      opts?.onOutput?.({ stream: 'stdout', text: 'x'.repeat(16 * 1024) });
+      return { stdout: envelope, stderr: '', exitCode: 0 };
+    };
+    const rendered: Array<{ stream: 'stdout' | 'stderr'; text: string }> = [];
+
+    await new ClaudeAdapter(spawn).runHeadless({
+      prompt: 'go',
+      cwd: '/wt/a',
+      onOutput: (chunk) => rendered.push(chunk),
+    });
+
+    expect(rendered).toEqual([
+      { stream: 'stdout', text: 'Readable bounded result\n' },
+    ]);
+  });
+
+  it('streams stderr before settlement without replaying it when the spawn rejects', async () => {
+    const rendered: Array<{ stream: 'stdout' | 'stderr'; text: string }> = [];
+    let rejectSpawn: ((error: Error) => void) | undefined;
+    const spawn: SpawnHeadless = (_cmd, _args, _cwd, opts) =>
+      new Promise((_resolve, reject) => {
+        rejectSpawn = reject;
+        opts?.onOutput?.({ stream: 'stderr', text: 'provider failed before settlement\n' });
+      });
+
+    const run = new ClaudeAdapter(spawn).runHeadless({
+      prompt: 'go',
+      cwd: '/wt/a',
+      onOutput: (chunk) => rendered.push(chunk),
+    });
+
+    await Promise.resolve();
+    expect(rendered).toEqual([
+      { stream: 'stderr', text: 'provider failed before settlement\n' },
+    ]);
+
+    rejectSpawn?.(new Error('spawn failed'));
+    await expect(run).rejects.toThrow('spawn failed');
+    expect(rendered).toEqual([
+      { stream: 'stderr', text: 'provider failed before settlement\n' },
+    ]);
+  });
+
+  it('emits a large settled result in UTF-8 byte-bounded console chunks', async () => {
+    const result = '界'.repeat(50_000);
+    const envelope = JSON.stringify({ session_id: 'large-result', result });
+    const rendered: Array<{ stream: 'stdout' | 'stderr'; text: string }> = [];
+
+    await new ClaudeAdapter(async () => ({ stdout: envelope, stderr: '', exitCode: 0 }))
+      .runHeadless({
+        prompt: 'go',
+        cwd: '/wt/a',
+        onOutput: (chunk) => rendered.push(chunk),
+      });
+
+    expect(rendered.length).toBeGreaterThan(1);
+    expect(rendered.every((chunk) => Buffer.byteLength(chunk.text) <= 64 * 1024)).toBe(true);
+    expect(rendered.map((chunk) => chunk.text).join('')).toBe(`${result}\n`);
+  });
 });

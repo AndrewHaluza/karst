@@ -267,6 +267,13 @@ function apCoreTriggerLabel(provider, modelLabel) {
   return apEsc(provider || '');
 }
 
+/** A core switch never carries provider-specific model/effort state across. */
+function apCoreSelection(current, core) {
+  var nextCore = core || '';
+  if (nextCore === current.core) return current;
+  return { core: nextCore, model: '', effort: '' };
+}
+
 /** Render the whole picker into the given root. Returns the live value object. */
 function mountAgentPicker(root, opts) {
   if (!root) return null;
@@ -425,9 +432,7 @@ function mountAgentPicker(root, opts) {
     var t = e.target;
     var coreOpt = t.closest ? t.closest('[data-ap-core]') : null;
     if (coreOpt) {
-      state.core = coreOpt.getAttribute('data-ap-core');
-      state.model = '';
-      state.effort = '';
+      state = apCoreSelection(state, coreOpt.getAttribute('data-ap-core'));
       var shell = $('[data-ap-shell="core"]');
       closeMenu(shell, false);
       render();

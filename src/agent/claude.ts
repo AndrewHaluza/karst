@@ -18,9 +18,30 @@ import { spawnHeadlessCli, headlessPreview, type HeadlessSpawnOptions } from './
 import { sanitizeSessionName } from './sessionName.js';
 import { SUPPORTED, unsupported, type AdapterSurfaces } from './surfaces.js';
 import { attachUsage, extractTokenUsage } from './tokenUsage.js';
+import { claudeConsoleLine } from './consoleFormat.js';
 
 /** The Claude Code CLI binary; auth inherits the user's login (M0/T0.1). */
 const CLAUDE_BIN = 'claude';
+const CLAUDE_CONSOLE_CHUNK_BYTES = 64 * 1024;
+
+/** Emit UTF-8 byte-bounded console messages without splitting a code point. */
+function emitConsoleText(
+  onOutput: NonNullable<RunHeadlessOpts['onOutput']>,
+  stream: 'stdout' | 'stderr',
+  text: string,
+): void {
+  const encoded = Buffer.from(text, 'utf8');
+  let start = 0;
+  while (start < encoded.byteLength) {
+    let end = Math.min(start + CLAUDE_CONSOLE_CHUNK_BYTES, encoded.byteLength);
+    // When the byte cut lands inside a multi-byte sequence, walk back to the
+    // leading byte. `start` is always a boundary, and UTF-8 code points are at
+    // most four bytes, so a 64 KiB chunk can never walk all the way to start.
+    while (end < encoded.byteLength && (encoded[end]! & 0xc0) === 0x80) end -= 1;
+    onOutput({ stream, text: encoded.subarray(start, end).toString('utf8') });
+    start = end;
+  }
+}
 
 /**
  * Reject a `soloAgent.name` that could escape the plugin's `agents/` dir when
@@ -100,6 +121,7 @@ export class ClaudeAdapter implements AgentAdapter {
 
   /** Declared seam positions (869ej1zpv R1) — pinned against argv by the conformance suite. */
   readonly surfaces: AdapterSurfaces = {
+    exactModel: SUPPORTED,
     model: SUPPORTED,
     effortHeadless: SUPPORTED,
     effortInteractive: SUPPORTED,
@@ -107,10 +129,7 @@ export class ClaudeAdapter implements AgentAdapter {
     permissionMode: SUPPORTED,
     resume: SUPPORTED,
     sessionName: SUPPORTED,
-    consoleStream: unsupported(
-      'claude runs `--output-format json`: a single end-of-run document, not a ' +
-        'line-per-event stream, so there is nothing for consoleFormat to render live',
-    ),
+    consoleStream: SUPPORTED,
     hookChannel: SUPPORTED,
     endpointRebind: unsupported(
       'the channel is a --settings FILE read once by the CLI at launch, not a script ' +
@@ -323,13 +342,43 @@ export class ClaudeAdapter implements AgentAdapter {
         .map((a) => (a === opts.prompt ? `<prompt:${opts.prompt.length} chars>` : a))
         .join(' ')} (cwd ${opts.cwd})`,
     );
+    // Claude emits one newline-free JSON document rather than JSONL. Do NOT
+    // pass the live chunks to a document buffer: HeadlessSpawnOptions.onOutput
+    // sees bytes before the spawner's BoundedOutput cap. Format only the
+    // already-bounded settle-time stdout so a runaway core cannot grow a
+    // second, unbounded copy in the extension host.
+    opts.debug?.(
+      opts.onOutput
+        ? `[agent:claude] console output: rendering the bounded JSON result as readable text`
+        : `[agent:claude] console stream: none — no onOutput hook`,
+    );
+    // stdout is intentionally ignored here; only the spawner's bounded final
+    // stdout is formatted below. stderr is unstructured diagnostics, so stream
+    // it immediately: AgentConsole bounds/persists it as it arrives, including
+    // before an abort, timeout or extension-host restart.
+    const consoleOutput = opts.onOutput;
+    let streamedStderr = false;
     const r = await this.spawnHeadless(CLAUDE_BIN, args, opts.cwd, {
       signal: opts.signal,
       timeoutMs: opts.timeoutMs,
       onDebug: opts.debug,
       onSpawned: opts.onSpawned,
-      onOutput: opts.onOutput,
+      onOutput: consoleOutput
+        ? (chunk) => {
+            if (chunk.stream !== 'stderr' || chunk.text.length === 0) return;
+            streamedStderr = true;
+            emitConsoleText(consoleOutput, 'stderr', chunk.text);
+          }
+        : undefined,
     });
+    if (consoleOutput) {
+      if (r.stdout.length > 0) {
+        emitConsoleText(consoleOutput, 'stdout', claudeConsoleLine(r.stdout));
+      }
+      if (!streamedStderr && r.stderr.length > 0) {
+        emitConsoleText(consoleOutput, 'stderr', r.stderr);
+      }
+    }
     if (r.exitCode !== 0) {
       opts.debug?.(
         `[agent:claude] exit ${r.exitCode} — stdout: ${headlessPreview(r.stdout)}; stderr: ${headlessPreview(r.stderr)}`,

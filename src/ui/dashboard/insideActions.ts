@@ -92,6 +92,16 @@ const ACTION_ID_PATTERN = /^snapshot-(\d+):action-(\d+)$/;
 export class InsideActionRegistry {
   private readonly targets = new Map<string, InsideActionTarget>();
   private next = 0;
+  /**
+   * Ids already minted for a target, keyed by the target's JSON shape. A live
+   * repaint re-mints the SAME rows (the registry is REUSED across repaints —
+   * see `DashboardManager.pushSnapshot`), and reusing an already-minted target's
+   * id keeps the registry stable instead of growing a fresh id per row per tick.
+   * The webview only ever displays one build's ids at a time, so the id the
+   * current snapshot carries is exactly the id an earlier build of the same
+   * target minted — reusing it keeps both the snapshot and the display valid.
+   */
+  private readonly byKey = new Map<string, TypedInsideAction>();
 
   constructor(
     private readonly generation: number,
@@ -100,10 +110,15 @@ export class InsideActionRegistry {
 
   /** Mint an id for a target and remember it. The view receives only the id + kind. */
   register(target: InsideActionTarget): TypedInsideAction {
+    const key = JSON.stringify(target);
+    const existing = this.byKey.get(key);
+    if (existing) return existing;
     const actionId = `snapshot-${this.generation}:action-${this.next}`;
     this.next += 1;
     this.targets.set(actionId, target);
-    return { actionId, kind: target.kind };
+    const action = { actionId, kind: target.kind };
+    this.byKey.set(key, action);
+    return action;
   }
 
   /** Resolve an opaque id to its target, or null for unknown/stale/foreign ids. */
@@ -120,6 +135,7 @@ export class InsideActionRegistry {
   /** Drop every capability — panel disposal must never leave stale ids live. */
   dispose(): void {
     this.targets.clear();
+    this.byKey.clear();
   }
 }
 
@@ -130,7 +146,12 @@ export interface InsideFileFs {
 }
 
 export interface InsideActionHost {
-  openFile(path: string): void | Promise<void>;
+  /**
+   * Open a file in the editor. `line` is the evidence's referenced line (1-based,
+   * when one was recorded) — the host positions the cursor on it; null/absent
+   * opens at the top. The path is already containment- and ownership-checked.
+   */
+  openFile(path: string, line?: number | null): void | Promise<void>;
   openPr(ticketId: number, prId: number): void | Promise<void>;
   openCommit(ticketId: number, shipCommitId: number): void | Promise<void>;
   resumeStage(ticketId: number, stageKey: StageKey): void | Promise<void>;
@@ -226,7 +247,7 @@ export function resolveOpenFileTarget(
   store: Store,
   target: Extract<InsideActionTarget, { kind: 'open-file' }>,
   deps: { worktreeForRepo: (repo: string) => string | undefined; fs: InsideFileFs },
-): { path: string } | { error: string } {
+): { path: string; line: number | null } | { error: string } {
   const row =
     target.evidence.source === 'review-finding'
       ? getFindingById(store, target.evidence.id)
@@ -264,7 +285,7 @@ export function resolveOpenFileTarget(
   const canonicalBase = canonicalPath(deps.fs.realpathSync(existing));
   const resolved = missing.length === 0 ? canonicalBase : `${canonicalBase}/${missing.join('/')}`;
   if (!isPathUnder(resolved, root)) return { error: 'path escapes the recorded worktree' };
-  return { path: resolved };
+  return { path: resolved, line: row.line ?? null };
 }
 
 /**
@@ -289,7 +310,7 @@ export function dispatchInsideAction(
     case 'open-file': {
       const resolved = resolveOpenFileTarget(store, target, deps);
       if ('error' in resolved) return { outcome: 'rejected', reason: resolved.error };
-      void deps.host.openFile(resolved.path);
+      void deps.host.openFile(resolved.path, resolved.line);
       return { outcome: 'dispatched' };
     }
     case 'open-pr': {

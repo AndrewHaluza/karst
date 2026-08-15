@@ -276,11 +276,25 @@ export function buildSettingsActions(deps: SettingsActionsDeps): SettingsActions
 
     return {
       validate(manifest: Manifest): void {
+        // The live validation must mirror `save`'s guard exactly: reduce
+        // approaches to the DELTA against the packaged built-in (the webview
+        // posts the overlaid effective list) and run the A10 effort checks. A
+        // validate that only called validateManifest would enable the Save
+        // button over a draft the write itself refuses (a graph profile effort
+        // the selected model does not advertise), so the two verdicts never
+        // diverge.
+        const delta = {
+          ...manifest,
+          approaches:
+            manifest.approaches !== undefined ? approachDelta(manifest.approaches) : manifest.approaches,
+        };
         try {
-          validateManifest(manifest);
+          validateManifest(delta);
+          validateGraphEfforts(delta, deps.modelCatalog());
+          validateDefaultEffort(delta, deps.modelCatalog());
           ctx.post({ type: 'validation', ok: true, error: null });
         } catch (e) {
-          if (!(e instanceof ManifestError)) throw e;
+          if (!(e instanceof ManifestError) && !(e instanceof EffortError)) throw e;
           ctx.post({ type: 'validation', ok: false, error: errorMessage(e) });
         }
       },

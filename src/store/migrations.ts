@@ -1687,18 +1687,27 @@ export function migrate(db: Database): void {
   }
 
   if (current < 45) {
-    // v45: `recovery_rounds.interrupt_count` — how many times a round's fix
-    // execution has been interrupted. An interrupt consumes no round, but the
-    // driver must not reopen an interrupted round into a crash-loop forever:
-    // a fix that keeps dying without the marker would otherwise relaunch on
-    // every terminal close, bounded only by `round < maxRounds`, which a crash
-    // never advances. The counter is the backstop. A fresh DB already carries
-    // it (schema.sql); a legacy DB gains it by ALTER. NOTHING IS BACKFILLED:
-    // a round interrupted by a pre-v45 build has no count to synthesize —
-    // its first post-upgrade interrupt sets the count that bounds it.
-    const roundCols = tableColumns(db, 'recovery_rounds');
-    if (roundCols.size > 0 && !roundCols.has('interrupt_count')) {
-      db.exec('ALTER TABLE recovery_rounds ADD COLUMN interrupt_count INTEGER NOT NULL DEFAULT 0');
+    // v45: reasoning ("thinking") tokens as their own counter on both usage
+    // tables. opencode reports `tokens.reasoning` beside `output` — a live
+    // session carrying 8_220 output carried 40_485 reasoning — and karst read
+    // neither the interactive sample nor the headless envelope for it, so
+    // output-billed spend was missing from every total. The guards read the
+    // CURRENT columns, so a fresh DB (already carrying them via schema.sql) is
+    // a no-op and a re-open is idempotent. NOTHING IS BACKFILLED: a pre-v45 row
+    // was measured without the counter and its reasoning spend is unknowable —
+    // the ledger's DEFAULT 0 is the honest "this row never reported one", and
+    // an invented number would read as measured.
+    // (The `recovery_rounds.interrupt_count` counter also shipped in v45 — see
+    // the ungated repair below, which is what actually lands it on an upgraded DB.)
+    const usageCols = tableColumns(db, 'token_usage');
+    if (usageCols.size > 0 && !usageCols.has('reasoning_tokens')) {
+      db.exec(
+        'ALTER TABLE token_usage ADD COLUMN reasoning_tokens INTEGER NOT NULL DEFAULT 0',
+      );
+    }
+    const sampleCols = tableColumns(db, 'interactive_usage_samples');
+    if (sampleCols.size > 0 && !sampleCols.has('reasoning_tokens')) {
+      db.exec('ALTER TABLE interactive_usage_samples ADD COLUMN reasoning_tokens INTEGER');
     }
   }
 
@@ -1718,6 +1727,25 @@ export function migrate(db: Database): void {
   const priorityCols = ticketColumns(db);
   if (priorityCols.size > 0 && !priorityCols.has('priority')) {
     db.exec('ALTER TABLE tickets ADD COLUMN priority TEXT');
+  }
+
+  // The recovery_rounds.interrupt_count step cannot be version-gated, and
+  // repairing the CURRENT shape outside the gate is deliberate — the same
+  // reason the servers.cwd and tickets.priority repairs above run ungated.
+  // v45 was bumped INDEPENDENTLY on two branches: the usage reasoning-token
+  // counters (#247) and the recovery-round interrupt counter (this ticket),
+  // merged into one step. A registry migrated by the earlier build reports
+  // user_version = 45 while `recovery_rounds` still lacks `interrupt_count` —
+  // not < 45 — so the version-gated ALTER would be skipped forever and the
+  // driver's recovery loop would read a schema it never extended. The guard
+  // reads the CURRENT columns, never the version, so a fresh DB (already
+  // carrying it via schema.sql) is a no-op and a legacy DB missing it is
+  // repaired however it got here. NOTHING IS BACKFILLED: a round interrupted by
+  // a pre-v45 build has no count to synthesize — its first post-upgrade
+  // interrupt sets the count that bounds it.
+  const roundCols = tableColumns(db, 'recovery_rounds');
+  if (roundCols.size > 0 && !roundCols.has('interrupt_count')) {
+    db.exec('ALTER TABLE recovery_rounds ADD COLUMN interrupt_count INTEGER NOT NULL DEFAULT 0');
   }
 
   db.pragma(`user_version = ${SCHEMA_VERSION}`);

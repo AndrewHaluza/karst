@@ -345,11 +345,92 @@ describe('generated karst-bridge plugin — UsageUpdate', () => {
             event_id: 'evt-1',
             input: 16_312,
             output: 6,
+            reasoning: 0,
             cache_read: 180,
             cache_write: 40,
           },
         },
       ]);
+    } finally {
+      await r.close();
+    }
+  });
+
+  it('carries the reasoning counter — output-billed thinking is not free', async () => {
+    const worktree = makeWorktree();
+    const r = await receiver(1);
+    try {
+      const bridge = await loadBridge(worktree, r.endpointUrl);
+      await bridge.event({
+        event: {
+          id: 'evt-r',
+          type: 'session.updated',
+          properties: {
+            sessionID: 'ses_r',
+            info: {
+              id: 'ses_r',
+              directory: '/wt',
+              tokens: {
+                input: 100,
+                output: 8_220,
+                reasoning: 40_485,
+                cache: { write: 0, read: 5_527_808 },
+              },
+            },
+          },
+        },
+      });
+      const bodies = await Promise.race([
+        r.received,
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('plugin posted no usage payload')), 2_000),
+        ),
+      ]);
+      expect((bodies as { usage: unknown }[])[0]!.usage).toEqual({
+        event_id: 'evt-r',
+        input: 100,
+        output: 8_220,
+        reasoning: 40_485,
+        cache_read: 5_527_808,
+        cache_write: 0,
+      });
+    } finally {
+      await r.close();
+    }
+  });
+
+  it('re-posts only when ONLY the reasoning counter advanced', async () => {
+    const worktree = makeWorktree();
+    const r = await receiver(2);
+    const tokens = (reasoning: number) => ({
+      input: 100,
+      output: 10,
+      reasoning,
+      cache: { write: 0, read: 0 },
+    });
+    try {
+      const bridge = await loadBridge(worktree, r.endpointUrl);
+      for (const [id, reasoning] of [['evt-a', 400], ['evt-b', 900]] as const) {
+        await bridge.event({
+          event: {
+            id,
+            type: 'session.updated',
+            properties: {
+              sessionID: 'ses_x',
+              info: { id: 'ses_x', directory: '/wt', tokens: tokens(reasoning) },
+            },
+          },
+        });
+      }
+      const bodies = await Promise.race([
+        r.received,
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('plugin posted no usage payload')), 2_000),
+        ),
+      ]);
+      expect(
+        (bodies as { usage: { reasoning: number } }[]).map((b) => b.usage.reasoning),
+      ).toEqual([400, 900]);
     } finally {
       await r.close();
     }
@@ -391,13 +472,27 @@ describe('generated karst-bridge plugin — UsageUpdate', () => {
           hook_event_name: 'UsageUpdate',
           cwd: '/wt',
           session_id: 'ses_1',
-          usage: { event_id: 'evt-1', input: 16_312, output: 6, cache_read: 180, cache_write: 40 },
+          usage: {
+            event_id: 'evt-1',
+            input: 16_312,
+            output: 6,
+            reasoning: 0,
+            cache_read: 180,
+            cache_write: 40,
+          },
         },
         {
           hook_event_name: 'UsageUpdate',
           cwd: '/wt',
           session_id: 'ses_1',
-          usage: { event_id: 'evt-3', input: 17_000, output: 6, cache_read: 180, cache_write: 40 },
+          usage: {
+            event_id: 'evt-3',
+            input: 17_000,
+            output: 6,
+            reasoning: 0,
+            cache_read: 180,
+            cache_write: 40,
+          },
         },
       ]);
     } finally {
@@ -771,7 +866,7 @@ describe('parseOpencodeJsonl', () => {
     expect(sessionId).toBe('ses_abc');
     expect(raw).toBe('HELLO');
     expect(usage).toEqual({
-      inputTokens: 16312, outputTokens: 6, cacheReadTokens: 0, cacheWriteTokens: 0,
+      inputTokens: 16312, outputTokens: 6, reasoningTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0,
       totalTokens: 16318, model: null, estimated: false,
     });
   });
@@ -832,8 +927,16 @@ describe('OpencodeAdapter headless execution', () => {
     const result = await new OpencodeAdapter(spawn).runHeadless({
       cwd: '/wt', prompt: '- inspect', permissionMode: 'bypassPermissions', model: 'openrouter/~openai/gpt-mini-latest',
     });
-    expect(spawn).toHaveBeenCalledWith('opencode', ['run', '--format', 'json', '--pure', '--auto', '--model', 'openrouter/~openai/gpt-mini-latest', '--', '- inspect'], '/wt', { signal: undefined });
+    expect(spawn).toHaveBeenCalledWith('opencode', ['run', '--format', 'json', '--pure', '--dir', '/wt', '--auto', '--model', 'openrouter/~openai/gpt-mini-latest', '--', '- inspect'], '/wt', { signal: undefined });
     expect(result).toEqual({ sessionId: 'ses_abc', verdict: null, raw: 'HELLO', usage: expect.objectContaining({ inputTokens: 16312 }) });
+  });
+
+  it('pins the headless run to the worktree via --dir so a nested linked worktree is not mis-resolved', async () => {
+    const spawn = vi.fn(fakeSpawn({ stdout: okNdjson, exitCode: 0 }));
+    await new OpencodeAdapter(spawn).runHeadless({ cwd: '/wt/tree', prompt: 'go' });
+    const args = spawn.mock.calls[0]![1];
+    expect(args).toContain('--dir');
+    expect(args[args.indexOf('--dir') + 1]).toBe('/wt/tree');
   });
 
   it('threads an effort as --variant into a headless run', async () => {
@@ -882,7 +985,7 @@ describe('OpencodeAdapter headless execution', () => {
   it('runs a resumed headless run via --session', async () => {
     const spawn = vi.fn(fakeSpawn({ stdout: okNdjson, exitCode: 0 }));
     await new OpencodeAdapter(spawn).runHeadless({ cwd: '/wt', prompt: 'continue', resume: 'ses_abc' });
-    expect(spawn).toHaveBeenCalledWith('opencode', ['run', '--format', 'json', '--pure', '--session', 'ses_abc', '--', 'continue'], '/wt', { signal: undefined });
+    expect(spawn).toHaveBeenCalledWith('opencode', ['run', '--format', 'json', '--pure', '--dir', '/wt', '--session', 'ses_abc', '--', 'continue'], '/wt', { signal: undefined });
   });
 
   it('reports bounded diagnostics + usage on a nonzero exit', async () => {

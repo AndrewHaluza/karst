@@ -114,13 +114,18 @@ export async function runAgentNode(
 ): Promise<AgentNodeLaunchResult> {
   // Capability gate BEFORE any spend: a core that can neither prevent model
   // fallback nor prove which model ran red-blocks without launching.
-  if (!deps.transport.capabilities().exactModel) {
+  const exactModel = input.adapter.surfaces?.exactModel;
+  if (!exactModel?.supported) {
+    const reason =
+      exactModel && !exactModel.supported
+        ? exactModel.reason
+        : 'the adapter does not declare exact-model support';
     deps.onDebug?.(
       `[graph] agent node ${input.nodeRunId}: core lacks exact-model capability — red-blocking before spend`,
     );
     return {
       kind: 'red-blocked',
-      reason: 'exact-model-capability: the core cannot prove which model ran',
+      reason: `exact-model-capability: ${reason}`,
     };
   }
   const resolved = deps.resolveProfile(input.node.profile);

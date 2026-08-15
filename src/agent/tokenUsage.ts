@@ -27,6 +27,14 @@
 export interface TokenUsage {
   inputTokens: number;
   outputTokens: number;
+  /**
+   * Reasoning ("thinking") tokens, when the core counts them apart from
+   * `outputTokens`. Output-billed spend — a core that reports them separately
+   * (opencode's `tokens.reasoning`) was contributing nothing to the ledger
+   * while they were dropped. Never folded INTO `outputTokens`: a counter karst
+   * rewrites can no longer be compared with what the provider reports.
+   */
+  reasoningTokens: number;
   /** Input tokens served from a prompt cache, when the core distinguishes them. */
   cacheReadTokens: number;
   /** Input tokens written INTO a prompt cache. */
@@ -49,6 +57,20 @@ const OUTPUT_KEYS = [
   'completion_tokens',
   'completionTokens',
 ] as const;
+/**
+ * Deliberately NOT scanned generically, unlike every other key group: cores
+ * disagree on the SEMANTICS behind the name `reasoning_tokens`, not just its
+ * spelling. opencode reports it DISJOINT from `output` (verified against a
+ * live conversation DB — a session with 8,220 output carried 40,485 reasoning
+ * beside it) and owns that mapping itself in `opencode.ts`'s `mapTokens`. Codex
+ * follows the OpenAI Responses API convention, where a flattened
+ * `reasoning_tokens` is a SUBSET of `output_tokens` (`output_tokens_details.
+ * reasoning_tokens`) — summing it here as if it were opencode's disjoint
+ * counter would double-count every reasoning-model Codex call. No verified
+ * Claude or Codex CLI envelope emits this key today (see the fixtures in
+ * `tokenUsage.test.ts`); if one starts to, its adapter must own the mapping
+ * explicitly, the same way opencode's does, not this shared scanner.
+ */
 const CACHE_READ_KEYS = [
   'cache_read_input_tokens',
   'cacheReadInputTokens',
@@ -101,6 +123,9 @@ function readCounts(record: Record<string, unknown>): Counts | null {
   return {
     input: input ?? 0,
     output: output ?? 0,
+    // Never scanned generically — see the comment on the (removed)
+    // REASONING_KEYS above. A core that reports reasoning owns its own mapper.
+    reasoning: 0,
     cacheRead: cacheRead ?? 0,
     cacheWrite: cacheWrite ?? 0,
     ...(total !== undefined ? { total } : {}),
@@ -110,6 +135,7 @@ function readCounts(record: Record<string, unknown>): Counts | null {
 interface Counts {
   input: number;
   output: number;
+  reasoning: number;
   cacheRead: number;
   cacheWrite: number;
   total?: number;
@@ -201,20 +227,23 @@ export function extractTokenUsage(stdout: string): TokenUsage | null {
     (acc, { counts }) => ({
       input: acc.input + counts.input,
       output: acc.output + counts.output,
+      reasoning: acc.reasoning + counts.reasoning,
       cacheRead: acc.cacheRead + counts.cacheRead,
       cacheWrite: acc.cacheWrite + counts.cacheWrite,
       ...(counts.total !== undefined ? { total: (acc.total ?? 0) + counts.total } : {}),
     }),
-    { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    { input: 0, output: 0, reasoning: 0, cacheRead: 0, cacheWrite: 0 },
   );
 
   return {
     inputTokens: summed.input,
     outputTokens: summed.output,
+    reasoningTokens: summed.reasoning,
     cacheReadTokens: summed.cacheRead,
     cacheWriteTokens: summed.cacheWrite,
     totalTokens:
-      summed.total ?? summed.input + summed.output + summed.cacheRead + summed.cacheWrite,
+      summed.total ??
+      summed.input + summed.output + summed.reasoning + summed.cacheRead + summed.cacheWrite,
     model,
     estimated: false,
   };
@@ -266,6 +295,7 @@ export function estimateTokenUsage(prompt: string, completion: string): TokenUsa
   return {
     inputTokens,
     outputTokens,
+    reasoningTokens: 0,
     cacheReadTokens: 0,
     cacheWriteTokens: 0,
     totalTokens: inputTokens + outputTokens,

@@ -73,6 +73,7 @@ describe('deleteTicketPermanently', () => {
       usage: {
         inputTokens: 60,
         outputTokens: 20,
+        reasoningTokens: 0,
         cacheReadTokens: 0,
         cacheWriteTokens: 0,
         totalTokens: 80,

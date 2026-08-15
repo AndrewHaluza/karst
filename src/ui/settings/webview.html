@@ -3057,7 +3057,12 @@
   }
 
   document.addEventListener('click', (e) => {
-    const t = e.target;
+    // Resolve the click target to the closest interactive control: the switch
+    // track is a <span> CHILD of the <button data-*-enabled>, so a click on the
+    // visible track targets the span (empty dataset) — without this the
+    // approaches/agent/repo/proc toggles would never respond. Inputs and the
+    // name-rename field keep their own target (they carry their own data).
+    const t = e.target.closest && e.target.closest('button, a, input, select, textarea') || e.target;
     if (!t.dataset) return;
 
     if (t.dataset.cmd !== undefined) {
@@ -5306,11 +5311,14 @@
     // manifest (packaged built-in included), so the posted draft must be
     // reduced to the delta vs the packaged definition before it can reach the
     // file — the host re-applies the same reduction at save (belt and braces,
-    // UI-R34 pins the two together).
-    if (currentSection === 'approaches') {
-      draft.approaches = toApproachDeltas(draft.approaches, packagedApproaches);
-    }
-    topbarSaveRequestId = postAction(el('saveBtn'), 'save', { manifest: draft, section: currentSection });
+    // UI-R34 pins the two together). The reduction happens on a COPY, never by
+    // mutating `draft.approaches`: reducing in place drops the packaged
+    // built-ins from the live roster and leaves the tab dirty forever, because
+    // the reduced draft never equals the file's effective list again.
+    const manifest = currentSection === 'approaches'
+      ? { ...draft, approaches: toApproachDeltas(draft.approaches, packagedApproaches) }
+      : draft;
+    topbarSaveRequestId = postAction(el('saveBtn'), 'save', { manifest, section: currentSection });
   }
 
   el('discardBtn').addEventListener('click', () => discardSection(currentSection));

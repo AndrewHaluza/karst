@@ -3894,6 +3894,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         );
         return wt?.path;
       },
+      gitCommonDirOf: gitCommonDirFromFs,
       workspaceOf: (graphRunId, nodeRunId, repo) =>
         (gs?.db
           .prepare(
@@ -6744,7 +6745,25 @@ function makeInsideActionHost(
   graphBootstrapRelaunch: (launch: BootstrapRelaunchRequest) => void,
 ): InsideActionHost {
   return {
-    openFile: (path) => void vscode.commands.executeCommand('vscode.open', vscode.Uri.file(path)),
+    openFile: (path, line) => {
+      void (async () => {
+        try {
+          const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(path));
+          const options: vscode.TextDocumentShowOptions = { preview: true };
+          if (line !== undefined && line !== null && Number.isFinite(line) && line > 0) {
+            // The evidence's 1-based line → the editor's 0-based caret position:
+            // the cursor lands on the referenced line (869eja6uv).
+            options.selection = new vscode.Range(line - 1, 0, line - 1, 0);
+          }
+          await vscode.window.showTextDocument(doc, options);
+        } catch (e) {
+          // The dispatch already proved the deepest ancestor exists, but the
+          // file itself can be gone (worktree removed). Mirrors openStageLog's
+          // failure copy: a missing file is "cannot open", never a verdict.
+          void vscode.window.showWarningMessage(`Cannot open the file at ${path}.`);
+        }
+      })();
+    },
     openPr: (_ticketId, prId) => {
       const pr = getPrById(store, prId);
       if (pr) void vscode.env.openExternal(vscode.Uri.parse(pr.url));

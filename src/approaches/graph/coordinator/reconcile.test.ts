@@ -254,13 +254,13 @@ describe('reconcileGraphRun — reload and crash matrix', () => {
     expect(result.transitions).toBe(1);
   });
 
-  it('a launching node with no owner nonce is launch-unknown and blocks the run', async () => {
+  it('a launching node with no owner nonce and no process is retryable and blocks the run', async () => {
     insertNodeRun(ctx, 105, 'launching', { ownerNonce: null });
     const result = await reconcileGraphRun(ctx.makeDeps(), { graphRunId: ctx.graphRunId });
-    expect(nodeRow(ctx, 105).status).toBe('launch-unknown');
+    expect(nodeRow(ctx, 105).status).toBe('blocked');
     const run = runRow(ctx);
     expect(run.status).toBe('blocked');
-    expect(run.blocked_reason).toMatch(/launch-unknown/);
+    expect(run.blocked_reason).toMatch(/node-blocked/);
     expect(result.transitions).toBe(1);
   });
 

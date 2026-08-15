@@ -435,6 +435,45 @@ describe('repository enabled toggle', () => {
     expect(HTML).toMatch(/enabled:\s*next/);
     expect(HTML).toMatch(/t\.setAttribute\('aria-checked', String\(next\)\)/);
   });
+
+  it('resolves a click on the switch track span to the switch button (closest)', () => {
+    // The switch is <button class="k-switch" data-repo-enabled="...">
+    //   <span class="k-switch-track"></span>
+    // </button>. Clicking the VISIBLE track targets the span, whose dataset is
+    // empty — so the delegated handler must resolve the target to the closest
+    // interactive control or the toggle never fires (the span swallows the
+    // click). This is the same class of bug as the approaches/agent/proc
+    // toggles.
+    const clickHandler = HTML.slice(
+      HTML.indexOf("document.addEventListener('click',"),
+      HTML.indexOf('if (t.dataset.cmd !== undefined)'),
+    );
+    expect(clickHandler).toMatch(/e\.target\.closest\s*&&\s*e\.target\.closest\('button, a, input, select, textarea'\) \|\| e\.target/);
+  });
+});
+
+describe('settings approaches toggle — click target resolution', () => {
+  it('the delegated click handler resolves a switch-track click to the closest control', () => {
+    // Same markup shape as the repo toggle: <button data-approach-enabled>
+    // wraps <span class="k-switch-track">. A click on the visible track must
+    // reach the button's data-approach-enabled handler, so the target is
+    // resolved to the closest interactive control, never read raw.
+    const clickHandler = HTML.slice(
+      HTML.indexOf("document.addEventListener('click',"),
+      HTML.indexOf('if (t.dataset.cmd !== undefined)'),
+    );
+    expect(clickHandler).toMatch(/closest\('button, a, input, select, textarea'\)/);
+  });
+
+  it('the approaches toggle handler reads aria-checked from the resolved switch button', () => {
+    const block = HTML.slice(
+      HTML.indexOf('if (t.dataset.approachEnabled !== undefined)'),
+      HTML.indexOf('if (t.dataset.agentEnabled !== undefined)'),
+    );
+    expect(block).toContain('set-approach-enabled');
+    expect(block).toMatch(/next = t\.getAttribute\('aria-checked'\) !== 'true'/);
+    expect(block).toContain("postAction(t, 'set-approach-enabled'");
+  });
 });
 
 describe('repository field placeholders', () => {
@@ -927,6 +966,56 @@ describe('settings approach-delta mirror (UI-R34)', () => {
       const webview = mirror(effective, packaged);
       expect(webview, JSON.stringify(effective)).toEqual(host);
     }
+  });
+});
+
+describe('settings approaches topbar save — does not mutate the draft', () => {
+  // The drawer already posts `{ ...draft, approaches: toApproachDeltas(...) }`
+  // (a COPY). The topbar Save MUST do the same: mutating `draft.approaches` to
+  // the delta drops the packaged built-ins from the roster view and leaves the
+  // tab permanently dirty after a save (the reduced draft never equals the
+  // file's effective list).
+  function runTopbarSave(draftApproaches: unknown[]): {
+    posted: Record<string, unknown>[];
+    draft: { approaches: unknown[] };
+  } {
+    const deltaMirror = runInNewContext(
+      `${functionSource('toApproachDeltas')}\n${functionSource('deepEq')}\n({ toApproachDeltas })`,
+      {},
+    ) as { toApproachDeltas: (app: unknown[], pkg: unknown[]) => unknown[] };
+    const posted: Record<string, unknown>[] = [];
+    const draft = { approaches: draftApproaches };
+    const source = `
+      ${functionSource('saveCurrentSection')}
+      saveCurrentSection();
+    `;
+    runInNewContext(source, {
+      valid: true,
+      currentSectionDirty: () => true,
+      currentSection: 'approaches',
+      draft,
+      packagedApproaches: BUILT_IN_APPROACHES as unknown[],
+      toApproachDeltas: deltaMirror.toApproachDeltas,
+      postAction: (_el: unknown, type: string, payload: Record<string, unknown>) => {
+        posted.push({ type, ...payload });
+      },
+      el: () => ({}),
+      topbarSaveRequestId: null,
+    });
+    return { posted, draft };
+  }
+
+  it('posts the delta-reduced manifest while leaving draft.approaches untouched', () => {
+    const packaged = [...BUILT_IN_APPROACHES] as unknown[];
+    const custom = { id: 'tdd', label: 'TDD', recommended: true };
+    const { posted, draft } = runTopbarSave([...packaged, custom]);
+
+    expect(posted).toHaveLength(1);
+    expect((posted[0] as { manifest: { approaches: unknown[] } }).manifest.approaches).toEqual([
+      custom, // custom passes through; the packaged built-in reduces to absence
+    ]);
+    // The draft is the EFFECTIVE overlaid list and must stay that way.
+    expect(draft.approaches).toEqual([...packaged, custom]);
   });
 });
 

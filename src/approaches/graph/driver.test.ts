@@ -13,6 +13,8 @@ import { tmpdir } from 'node:os';
 import { openStore } from '../../store/db.js';
 import { graphApproachConfig } from '../../manifest/fixtures.js';
 import type { GraphApproachConfig } from '../../manifest/types.js';
+import { SUPPORTED, unsupported } from '../../agent/surfaces.js';
+import { domainKeyOf } from './integration/domains.js';
 import type { CompileContext } from './compile.js';
 import type { GraphDriverDeps, GraphDriverDeps as Deps } from './driver.js';
 import {
@@ -92,6 +94,9 @@ function fakeAdapter(): AgentAdapter {
     runHeadless: async () => ({ sessionId: 's', verdict: null, raw: '' }),
     buildInteractiveCommand: () => ({ command: 'opencode', args: [], env: {} }),
     capabilities: { lifecycleEvents: true, resume: true },
+    surfaces: {
+      exactModel: SUPPORTED,
+    } as never,
   };
 }
 
@@ -173,6 +178,7 @@ function harness(config: GraphApproachConfig = graphApproachConfig()): Harness {
     runProcess: async () => ({ kind: 'completed', exitCode: 0, output: '' }),
     plannerCwdOf: () => ({ repo: 'api', cwd: join(root, 'wt') }),
     cwdForRepo: (_graphRunId, repo) => join(root, `wt-${repo}`),
+    gitCommonDirOf: () => null,
     workspaceOf: () => undefined,
     createWorkspace: async () => ({ kind: 'created', paths: [{ repoName: 'api', cwd: join(root, 'ws'), domainKey: 'd' }] }),
     sessionNameOf: (id, kind) => `${kind} ${id}`,
@@ -651,6 +657,418 @@ describe('driveReadyNodeRuns', () => {
     const launch = h.starts[0] as { nodeRunId: number; graphEnv: Record<string, string> };
     expect(launch.nodeRunId).toBe(nodeRunId);
     expect(launch.graphEnv.KARST_GRAPH_CAPABILITY).toBeTruthy();
+  });
+
+  it('re-drives a retry-armed launching agent node with no owner nonce or process', async () => {
+    const h = harness();
+    const graphRunId = createGraphRun(h.db, {
+      ticketId: h.ticketId,
+      stageAttempt: 0,
+      approachId: 'karst-graph-engineering',
+      now: NOW,
+    });
+    runningGraphRun(h, graphRunId);
+    h.db
+      .prepare(
+        `INSERT INTO approach_planner_runs (graph_run_id, planner_run_number, kind, status, graph_snapshot_id, submitted_at)
+         VALUES (?, 1, 'bootstrap', 'submitted', 'fp1', ?)`,
+      )
+      .run(graphRunId, NOW);
+    const doc = gateGraphJson({
+      entries: ['impl'],
+      artifacts: [
+        {
+          id: 'task',
+          path: 'artifacts/task.md',
+          producer: '$planner',
+          consumers: ['impl'],
+          mediaType: 'text/markdown',
+          maxBytes: 1000,
+          required: true,
+        },
+      ],
+      nodes: [
+        {
+          id: 'impl',
+          kind: 'agent',
+          label: 'Implement',
+          profile: 'worker',
+          instructionsArtifact: 'task',
+          inputs: [],
+          outputs: [],
+          resources: { reads: [{ repo: 'api', paths: ['src'] }], writes: [{ repo: 'api', paths: ['src/api'] }] },
+          outcomes: ['complete', 'blocked', 'replan'],
+          budget: { maxVisits: 1 },
+        },
+      ],
+      edges: [{ id: 'e1', from: 'impl', on: 'complete', to: 'END' }],
+    });
+    const revisionId = createRevision(h.db, {
+      graphRunId,
+      revisionNumber: 1,
+      canonicalGraph: doc,
+      fingerprint: 'fp',
+      status: 'active',
+      now: NOW,
+    });
+    const nodeRunId = Number(
+      h.db
+        .prepare(
+          `INSERT INTO approach_node_runs
+             (graph_run_id, revision_id, node_id, node_kind, visit_number, status, launch_attempt, owner_nonce, process_run_id)
+           VALUES (?, ?, 'impl', 'agent', 1, 'launching', 2, NULL, NULL)`,
+        )
+        .run(graphRunId, revisionId)
+        .lastInsertRowid,
+    );
+    const artRoot = h.deps.artifactRootOf(graphRunId);
+    mkdirSync(join(artRoot, 'artifacts'), { recursive: true });
+    writeFileSync(join(artRoot, 'artifacts', 'task.md'), '# task');
+    const plannerRunId = plannerRunIdFor(h.db, graphRunId);
+    const taskSnap = h.deps.readBytes(graphRunId, 'artifacts/task.md')!;
+    h.db
+      .prepare(
+        `INSERT INTO approach_artifact_instances
+           (graph_run_id, revision_id, artifact_id, producer_planner_run_id, snapshot_path, sha256, media_type, byte_size, created_at)
+         VALUES (?, ?, 'task', ?, ?, ?, 'text/markdown', ?, ?)`,
+      )
+      .run(graphRunId, revisionId, plannerRunId, 'artifacts/task.md', sha256Hex(taskSnap), taskSnap.length, NOW);
+
+    const result = await driveReadyNodeRuns(h.deps, graphRunId);
+    expect(result.launched).toBe(1);
+    const node = h.db
+      .prepare('SELECT status FROM approach_node_runs WHERE id = ?')
+      .get(nodeRunId) as { status: string };
+    expect(node.status).toBe('running');
+  });
+
+  it('releases the active process slot when launch parking blocks the node', async () => {
+    const h = harness();
+    h.deps.adapterFor = () =>
+      ({
+        ...fakeAdapter(),
+        surfaces: {
+          exactModel: unsupported(
+            'this adapter cannot prevent model fallback or prove which model ran in the session',
+          ),
+        } as never,
+      }) as AgentAdapter;
+    const graphRunId = createGraphRun(h.db, {
+      ticketId: h.ticketId,
+      stageAttempt: 0,
+      approachId: 'karst-graph-engineering',
+      now: NOW,
+    });
+    runningGraphRun(h, graphRunId);
+    h.db.prepare('UPDATE approach_graph_runs SET active_processes = 1 WHERE id = ?').run(graphRunId);
+    h.db
+      .prepare(
+        `INSERT INTO approach_planner_runs (graph_run_id, planner_run_number, kind, status, graph_snapshot_id, submitted_at)
+         VALUES (?, 1, 'bootstrap', 'submitted', 'fp1', ?)`,
+      )
+      .run(graphRunId, NOW);
+    const doc = gateGraphJson({
+      entries: ['impl'],
+      artifacts: [
+        {
+          id: 'task',
+          path: 'artifacts/task.md',
+          producer: '$planner',
+          consumers: ['impl'],
+          mediaType: 'text/markdown',
+          maxBytes: 1000,
+          required: true,
+        },
+      ],
+      nodes: [
+        {
+          id: 'impl',
+          kind: 'agent',
+          label: 'Implement',
+          profile: 'worker',
+          instructionsArtifact: 'task',
+          inputs: [],
+          outputs: [],
+          resources: { reads: [{ repo: 'api', paths: ['src'] }], writes: [{ repo: 'api', paths: ['src/api'] }] },
+          outcomes: ['complete', 'blocked', 'replan'],
+          budget: { maxVisits: 1 },
+        },
+      ],
+      edges: [{ id: 'e1', from: 'impl', on: 'complete', to: 'END' }],
+    });
+    const revisionId = createRevision(h.db, {
+      graphRunId,
+      revisionNumber: 1,
+      canonicalGraph: doc,
+      fingerprint: 'fp',
+      status: 'active',
+      now: NOW,
+    });
+    const [tokenId] = insertEntryTokens(
+      h.db,
+      revisionId,
+      [{ edgeId: 'entry-impl', destinationNodeId: 'impl', destinationEnd: false }],
+      NOW,
+    );
+    const nodeRunId = Number(
+      h.db
+        .prepare(
+          `INSERT INTO approach_node_runs (graph_run_id, revision_id, node_id, node_kind, visit_number, status)
+           VALUES (?, ?, 'impl', 'agent', 1, 'ready')`,
+        )
+        .run(graphRunId, revisionId)
+        .lastInsertRowid,
+    );
+    h.db
+      .prepare('UPDATE approach_graph_tokens SET status = \'claimed\', claiming_node_run_id = ? WHERE id = ?')
+      .run(nodeRunId, tokenId);
+    const artRoot = h.deps.artifactRootOf(graphRunId);
+    mkdirSync(join(artRoot, 'artifacts'), { recursive: true });
+    writeFileSync(join(artRoot, 'artifacts', 'task.md'), '# task');
+    const plannerRunId = plannerRunIdFor(h.db, graphRunId);
+    const taskSnap = h.deps.readBytes(graphRunId, 'artifacts/task.md')!;
+    h.db
+      .prepare(
+        `INSERT INTO approach_artifact_instances
+           (graph_run_id, revision_id, artifact_id, producer_planner_run_id, snapshot_path, sha256, media_type, byte_size, created_at)
+         VALUES (?, ?, 'task', ?, ?, ?, 'text/markdown', ?, ?)`,
+      )
+      .run(graphRunId, revisionId, plannerRunId, 'artifacts/task.md', sha256Hex(taskSnap), taskSnap.length, NOW);
+
+    const result = await driveReadyNodeRuns(h.deps, graphRunId);
+    expect(result.blocked).toBe(1);
+    const run = h.db
+      .prepare('SELECT active_processes FROM approach_graph_runs WHERE id = ?')
+      .get(graphRunId) as { active_processes: number };
+    expect(run.active_processes).toBe(0);
+  });
+
+  it('does not report a launch when launching-to-running lost the CAS race', async () => {
+    const h = harness();
+    const baseStart = h.deps.transport.start;
+    h.deps.transport.start = async (request) => {
+      h.db.prepare("UPDATE approach_node_runs SET status = 'blocked' WHERE id = ?").run(request.nodeRunId);
+      return baseStart(request);
+    };
+    const graphRunId = createGraphRun(h.db, {
+      ticketId: h.ticketId,
+      stageAttempt: 0,
+      approachId: 'karst-graph-engineering',
+      now: NOW,
+    });
+    runningGraphRun(h, graphRunId);
+    h.db
+      .prepare(
+        `INSERT INTO approach_planner_runs (graph_run_id, planner_run_number, kind, status, graph_snapshot_id, submitted_at)
+         VALUES (?, 1, 'bootstrap', 'submitted', 'fp1', ?)`,
+      )
+      .run(graphRunId, NOW);
+    const doc = gateGraphJson({
+      entries: ['impl'],
+      artifacts: [
+        {
+          id: 'task',
+          path: 'artifacts/task.md',
+          producer: '$planner',
+          consumers: ['impl'],
+          mediaType: 'text/markdown',
+          maxBytes: 1000,
+          required: true,
+        },
+      ],
+      nodes: [
+        {
+          id: 'impl',
+          kind: 'agent',
+          label: 'Implement',
+          profile: 'worker',
+          instructionsArtifact: 'task',
+          inputs: [],
+          outputs: [],
+          resources: { reads: [{ repo: 'api', paths: ['src'] }], writes: [{ repo: 'api', paths: ['src/api'] }] },
+          outcomes: ['complete', 'blocked', 'replan'],
+          budget: { maxVisits: 1 },
+        },
+      ],
+      edges: [{ id: 'e1', from: 'impl', on: 'complete', to: 'END' }],
+    });
+    const revisionId = createRevision(h.db, {
+      graphRunId,
+      revisionNumber: 1,
+      canonicalGraph: doc,
+      fingerprint: 'fp',
+      status: 'active',
+      now: NOW,
+    });
+    const [tokenId] = insertEntryTokens(
+      h.db,
+      revisionId,
+      [{ edgeId: 'entry-impl', destinationNodeId: 'impl', destinationEnd: false }],
+      NOW,
+    );
+    const nodeRunId = Number(
+      h.db
+        .prepare(
+          `INSERT INTO approach_node_runs (graph_run_id, revision_id, node_id, node_kind, visit_number, status)
+           VALUES (?, ?, 'impl', 'agent', 1, 'ready')`,
+        )
+        .run(graphRunId, revisionId)
+        .lastInsertRowid,
+    );
+    h.db
+      .prepare('UPDATE approach_graph_tokens SET status = \'claimed\', claiming_node_run_id = ? WHERE id = ?')
+      .run(nodeRunId, tokenId);
+    const artRoot = h.deps.artifactRootOf(graphRunId);
+    mkdirSync(join(artRoot, 'artifacts'), { recursive: true });
+    writeFileSync(join(artRoot, 'artifacts', 'task.md'), '# task');
+    const plannerRunId = plannerRunIdFor(h.db, graphRunId);
+    const taskSnap = h.deps.readBytes(graphRunId, 'artifacts/task.md')!;
+    h.db
+      .prepare(
+        `INSERT INTO approach_artifact_instances
+           (graph_run_id, revision_id, artifact_id, producer_planner_run_id, snapshot_path, sha256, media_type, byte_size, created_at)
+         VALUES (?, ?, 'task', ?, ?, ?, 'text/markdown', ?, ?)`,
+      )
+      .run(graphRunId, revisionId, plannerRunId, 'artifacts/task.md', sha256Hex(taskSnap), taskSnap.length, NOW);
+
+    const result = await driveReadyNodeRuns(h.deps, graphRunId);
+    expect(result.launched).toBe(0);
+    expect(result.blocked).toBe(1);
+    const node = h.db
+      .prepare('SELECT status FROM approach_node_runs WHERE id = ?')
+      .get(nodeRunId) as { status: string };
+    expect(node.status).toBe('blocked');
+  });
+
+  it('matches base heads per physical domain and carries gitCommonDir into workspace creation', async () => {
+    const h = harness();
+    const deps = h.deps as typeof h.deps & { gitCommonDirOf?: (cwd: string) => string | null };
+    const apiCwd = '/wt-api';
+    const webCwd = '/wt-web';
+    const apiCommon = '/git/api';
+    const webCommon = '/git/web';
+    const created: { domains: { repoName: string; gitCommonDir: string | null; baseCommit: string }[] }[] = [];
+    deps.cwdForRepo = (_graphRunId, repo) => (repo === 'api' ? apiCwd : repo === 'web' ? webCwd : undefined);
+    deps.gitCommonDirOf = (cwd) => (cwd === apiCwd ? apiCommon : cwd === webCwd ? webCommon : null);
+    deps.createWorkspace = vi.fn(async (input) => {
+      created.push({ domains: input.domains });
+      return {
+        kind: 'created' as const,
+        paths: [{ repoName: 'api', cwd: join(h.root, 'ws'), domainKey: 'd-api' }],
+      };
+    });
+    const graphRunId = createGraphRun(h.db, {
+      ticketId: h.ticketId,
+      stageAttempt: 0,
+      approachId: 'karst-graph-engineering',
+      now: NOW,
+    });
+    runningGraphRun(h, graphRunId);
+    h.db
+      .prepare(
+        `INSERT INTO approach_planner_runs (graph_run_id, planner_run_number, kind, status, graph_snapshot_id, submitted_at)
+         VALUES (?, 1, 'bootstrap', 'submitted', 'fp1', ?)`,
+      )
+      .run(graphRunId, NOW);
+    const doc = gateGraphJson({
+      entries: ['impl'],
+      artifacts: [
+        {
+          id: 'task',
+          path: 'artifacts/task.md',
+          producer: '$planner',
+          consumers: ['impl'],
+          mediaType: 'text/markdown',
+          maxBytes: 1000,
+          required: true,
+        },
+      ],
+      nodes: [
+        {
+          id: 'impl',
+          kind: 'agent',
+          label: 'Implement',
+          profile: 'worker',
+          instructionsArtifact: 'task',
+          inputs: [],
+          outputs: [],
+          resources: {
+            reads: [
+              { repo: 'api', paths: ['src/api'] },
+              { repo: 'web', paths: ['src/web'] },
+            ],
+            writes: [{ repo: 'web', paths: ['src/web'] }],
+          },
+          outcomes: ['complete', 'blocked', 'replan'],
+          budget: { maxVisits: 1 },
+        },
+      ],
+      edges: [{ id: 'e1', from: 'impl', on: 'complete', to: 'END' }],
+    });
+    const revisionId = createRevision(h.db, {
+      graphRunId,
+      revisionNumber: 1,
+      canonicalGraph: doc,
+      fingerprint: 'fp',
+      status: 'active',
+      now: NOW,
+    });
+    const [tokenId] = insertEntryTokens(
+      h.db,
+      revisionId,
+      [{ edgeId: 'entry-impl', destinationNodeId: 'impl', destinationEnd: false }],
+      NOW,
+    );
+    const nodeRunId = Number(
+      h.db
+        .prepare(
+          `INSERT INTO approach_node_runs
+             (graph_run_id, revision_id, node_id, node_kind, visit_number, status, base_heads)
+           VALUES (?, ?, 'impl', 'agent', 1, 'ready', ?)`,
+        )
+        .run(
+          graphRunId,
+          revisionId,
+          JSON.stringify([
+            { domainKey: domainKeyOf(apiCwd, apiCommon), commit: 'api-base' },
+            { domainKey: domainKeyOf(webCwd, webCommon), commit: 'web-base' },
+          ]),
+        )
+        .lastInsertRowid,
+    );
+    h.db
+      .prepare('UPDATE approach_graph_tokens SET status = \'claimed\', claiming_node_run_id = ? WHERE id = ?')
+      .run(nodeRunId, tokenId);
+    const artRoot = h.deps.artifactRootOf(graphRunId);
+    mkdirSync(join(artRoot, 'artifacts'), { recursive: true });
+    writeFileSync(join(artRoot, 'artifacts', 'task.md'), '# task');
+    const plannerRunId = plannerRunIdFor(h.db, graphRunId);
+    const taskSnap = h.deps.readBytes(graphRunId, 'artifacts/task.md')!;
+    h.db
+      .prepare(
+        `INSERT INTO approach_artifact_instances
+           (graph_run_id, revision_id, artifact_id, producer_planner_run_id, snapshot_path, sha256, media_type, byte_size, created_at)
+         VALUES (?, ?, 'task', ?, ?, ?, 'text/markdown', ?, ?)`,
+      )
+      .run(graphRunId, revisionId, plannerRunId, 'artifacts/task.md', sha256Hex(taskSnap), taskSnap.length, NOW);
+
+    const result = await driveReadyNodeRuns(h.deps, graphRunId);
+    expect(result.launched).toBe(1);
+    expect(created).toHaveLength(1);
+    expect(created[0]!.domains).toEqual([
+      {
+        repoName: 'api',
+        canonicalWorktreePath: apiCwd,
+        gitCommonDir: apiCommon,
+        baseCommit: 'api-base',
+      },
+      {
+        repoName: 'web',
+        canonicalWorktreePath: webCwd,
+        gitCommonDir: webCommon,
+        baseCommit: 'web-base',
+      },
+    ]);
   });
 });
 

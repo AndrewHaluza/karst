@@ -166,17 +166,27 @@ function usageBlock(input: DoneReceiptInput): ReceiptBlockView {
   if (input.tokens === null) {
     return { label: 'AI usage', value: 'No token usage recorded yet', details: [] };
   }
-  const details =
-    input.tokens.input > 0 && input.tokens.output > 0
+  // The headline is FRESH spend, like every other Σ pill (`tokenView`):
+  // cache reads are context the provider re-sent and re-billed at a fraction
+  // of the fresh rate, and on a long session dwarf the conversation's own
+  // cost. Clamped at zero — a row measured before this split can carry reads
+  // its total never counted.
+  const fresh = Math.max(0, input.tokens.total - input.tokens.cacheRead);
+  const details = [
+    ...(input.tokens.input > 0 && input.tokens.output > 0
       ? [`${formatTokens(input.tokens.input)} input · ${formatTokens(input.tokens.output)} output`]
-      : [];
+      : []),
+    ...(input.tokens.cacheRead > 0
+      ? [`${formatTokens(input.tokens.cacheRead)} cache read (billed apart from fresh)`]
+      : []),
+  ];
   const breakdown: ReceiptBreakdownItem[] = input.roles.map((role) => ({
     amount: formatTokens(role.total),
     label: role.role,
   }));
   return {
     label: 'AI usage',
-    value: `${formatTokens(input.tokens.total)} recorded tokens`,
+    value: `${formatTokens(fresh)} recorded tokens`,
     details,
     ...(breakdown.length > 0 ? { breakdown } : {}),
   };
@@ -301,7 +311,9 @@ export function doneReceipt(input: DoneReceiptInput): DoneReceiptView {
     tokens:
       input.tokens === null
         ? null
-        : { label: `${formatTokens(input.tokens.total)} tokens recorded` },
+        : {
+            label: `${formatTokens(Math.max(0, input.tokens.total - input.tokens.cacheRead))} tokens recorded`,
+          },
     evidence: {
       kind: 'receipt',
       rows,

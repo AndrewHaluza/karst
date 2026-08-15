@@ -35,6 +35,7 @@ function reportingAdapter(overrides: Partial<AgentAdapter> = {}): AgentAdapter {
       usage: {
         inputTokens: 100,
         outputTokens: 20,
+        reasoningTokens: 0,
         cacheReadTokens: 5,
         cacheWriteTokens: 0,
         totalTokens: 125,
@@ -155,6 +156,7 @@ describe('instrumented AI calls', () => {
           throw attachUsage(new Error('Claude usage limit reached.'), {
             inputTokens: 900,
             outputTokens: 0,
+            reasoningTokens: 0,
             cacheReadTokens: 0,
             cacheWriteTokens: 0,
             totalTokens: 900,
@@ -228,7 +230,12 @@ describe('instrumented AI calls', () => {
 
     expect(listTokenUsage(store, { ticketId: id, processRunId: run.id })).toHaveLength(1);
     expect(listTokenUsage(store, { processRunId: run.id })[0]!.ticketId).toBe(id);
-    expect(summarizeRecordedTokenUsage(store, id)).toEqual({ input: 0, output: 0, total: 0 });
+    expect(summarizeRecordedTokenUsage(store, id)).toEqual({
+      input: 0,
+      output: 0,
+      total: 0,
+      cacheRead: 0,
+    });
   });
 
   // Task 8: the UAT Tester's headless call goes through the REAL
