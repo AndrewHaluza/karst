@@ -790,9 +790,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // ever leave, and the driver answers it with "already in flight; leaving it"
   // on every trigger. Interrupting it puts the ticket back where a human can
   // act on it instead of watching a fix elapse for hours.
+  //
+  // Tickets whose round this sweep just interrupted are collected for the
+  // activation-sweep drive below: the driver reopens the round within budget
+  // and resumes the fix instead of leaving the ticket parked at fix forever.
+  const strandedFixResumes = new Set<number>();
   try {
     for (const s of reconcileStrandedFixRounds(localStore, new Date().toISOString())) {
       logger.info(describeStrandedFixRound(s));
+      if (s.kind === 'execution') strandedFixResumes.add(s.ticketId);
     }
   } catch (err) {
     logError('karst: stranded fix-round sweep failed', err);
@@ -933,8 +939,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // flight" on every trigger, and the ticket sits at fix indefinitely — the
       // ten-hour fix this closes. A round that is not fixing (pending, or
       // already completed by the marker) is left strictly alone.
+      let interrupted = false;
       try {
         if (interruptActiveFixExecution(localStore, ticketId, new Date().toISOString())) {
+          interrupted = true;
           logger.info(
             `stage driver: ticket ${ticketId} fix session closed without the marker — ` +
               `recovery round interrupted; the ticket rests at fix for a human`,
@@ -966,7 +974,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       provider.refresh();
       dashboard.pushState(ticketId);
-      maybeDrive(ticketId, 'session-closed');
+      // A fix round this sweep JUST interrupted (a crash, not a wait) is driven
+      // straight through the driver, which reopens the round within budget and
+      // resumes the fix — `maybeDrive` would not, because `shouldStartDriver`
+      // never auto-drives a fix ticket, and `interrupted` is only ever true for
+      // a round the interrupt above actually settled. Anything else takes the
+      // normal gate-trigger path.
+      if (interrupted) {
+        logger.info(`stage driver: ticket ${ticketId} fix round interrupted — driving to reopen within budget`);
+        void driveTicket(ticketId);
+      } else {
+        maybeDrive(ticketId, 'session-closed');
+      }
     },
     undefined,
     (ticketId, launchId) =>
@@ -4419,10 +4438,28 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // tickets would resolve their services against the wrong repo paths.
   const startupProject = currentProject();
   if (startupProject) {
+    // The project's own tickets — the stranded-fix sweep above is GLOBAL (the
+    // registry is shared by every window), so the drive set must be narrowed to
+    // THIS window's project before any terminal is opened or manifest resolved:
+    // driving another project's ticket would resolve its services against the
+    // wrong repo paths, exactly what the ticketsToSweep scoping prevents.
+    const projectTicketIds = new Set(
+      listTickets(localStore, { projectId: startupProject.id }).map((t) => t.id),
+    );
     for (const id of ticketsToSweep(
       listTickets(localStore, { projectId: startupProject.id }),
     )) {
       maybeDrive(id, 'activation-sweep');
+    }
+    // Stranded fix tickets the round sweep above interrupted (a crash, not a
+    // wait) are driven straight through the driver, which reopens the round
+    // within budget and resumes the fix. `driver.begin` single-flights any
+    // overlap, and a stranded fix ticket is never selected by `ticketsToSweep`
+    // anyway.
+    for (const id of strandedFixResumes) {
+      if (!projectTicketIds.has(id)) continue;
+      logger.info(`stage driver: activation-sweep → reopen interrupted fix round for ticket ${id}`);
+      void driveTicket(id);
     }
   }
 

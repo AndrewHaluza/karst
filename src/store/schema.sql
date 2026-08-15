@@ -278,7 +278,8 @@ CREATE TABLE IF NOT EXISTS recovery_rounds (
   review_revalidation_stage_run_id INTEGER REFERENCES stage_runs(id) ON DELETE SET NULL,
   status TEXT NOT NULL CHECK (status IN ('pending','fixing','revalidating','passed','failed','exhausted','interrupted')),
   started_at TEXT NOT NULL,
-  ended_at TEXT
+  ended_at TEXT,
+  interrupt_count INTEGER NOT NULL DEFAULT 0
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_recovery_round
   ON recovery_rounds(ticket_id, source_stage, round);

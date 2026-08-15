@@ -81,6 +81,10 @@ export interface RecoveryRound {
   status: RecoveryStatus;
   startedAt: string;
   endedAt: string | null;
+  /** How many times this round's fix execution has been interrupted (a crash
+   *  consumes no round, so this is the only thing that advances on a crash —
+   *  the driver's reopen bound). */
+  interruptCount: number;
 }
 
 interface RecoveryRoundRow {
@@ -100,6 +104,7 @@ interface RecoveryRoundRow {
   status: string;
   started_at: string;
   ended_at: string | null;
+  interrupt_count: number;
 }
 
 const SOURCE_PROCESS_IDS: readonly string[] = ['gates', 'tester', 'review'];
@@ -200,6 +205,7 @@ function rowToRound(r: RecoveryRoundRow): RecoveryRound {
     status: (STATUSES.includes(r.status) ? r.status : 'interrupted') as RecoveryStatus,
     startedAt: r.started_at,
     endedAt: r.ended_at,
+    interruptCount: r.interrupt_count,
   };
 }
 
@@ -207,7 +213,7 @@ const ROUND_SELECT =
   `SELECT id, ticket_id, source_stage, source_process_id, source_stage_run_id,
           source_process_run_id, trigger_kind, trigger_detail, round, max_rounds,
           fix_process_run_id, uat_revalidation_stage_run_id,
-          review_revalidation_stage_run_id, status, started_at, ended_at
+          review_revalidation_stage_run_id, status, started_at, ended_at, interrupt_count
      FROM recovery_rounds`;
 
 function roundById(store: Store, id: number): RecoveryRound | undefined {
@@ -231,6 +237,28 @@ export function activeRecoverySeries(
     .prepare(
       `${ROUND_SELECT} WHERE ticket_id = ? AND source_stage = ?
           AND status NOT IN ('passed','failed','exhausted','interrupted')
+        ORDER BY id DESC LIMIT 1`,
+    )
+    .get(ticketId, sourceStage) as RecoveryRoundRow | undefined;
+  return row === undefined ? null : rowToRound(row);
+}
+
+/**
+ * The ticket's latest `interrupted` round for ONE source stage — the crash path
+ * that consumed no additional round. An interrupt is NOT terminal history: the
+ * driver may reopen it (see `reopenInterruptedRound`) when budget remains, so
+ * this read exists for that decision rather than folding the round into the
+ * active series (which must keep excluding it — a pending fix never reads as
+ * crashed, and a crashed fix never reads as live).
+ */
+export function latestInterruptedRound(
+  store: Store,
+  ticketId: number,
+  sourceStage: RecoverySourceStage,
+): RecoveryRound | null {
+  const row = store.db
+    .prepare(
+      `${ROUND_SELECT} WHERE ticket_id = ? AND source_stage = ? AND status = 'interrupted'
         ORDER BY id DESC LIMIT 1`,
     )
     .get(ticketId, sourceStage) as RecoveryRoundRow | undefined;
@@ -715,9 +743,13 @@ export function interruptFixExecution(store: Store, roundId: number, at: string)
     if (round.fixProcessRunId !== null) {
       finishProcessRun(store, round.fixProcessRunId, 'interrupted', at);
     }
+    // v45: a crash consumes no round, but it DOES advance `interrupt_count` —
+    // the one thing that bounds the driver's reopen of this round, so a fix
+    // that keeps dying without the marker cannot relaunch forever.
     store.db
       .prepare(
-        `UPDATE recovery_rounds SET status = 'interrupted', ended_at = ?
+        `UPDATE recovery_rounds SET status = 'interrupted', ended_at = ?,
+           interrupt_count = interrupt_count + 1
           WHERE id = ? AND status = 'fixing'`,
       )
       .run(at, roundId);
@@ -917,4 +949,32 @@ export function exhaustRecoveryRound(
     parkFixStage(store, ticketId, FIX_PARKED_EXHAUSTED, endedAt);
   }
   return changes;
+}
+
+/**
+ * The inverse of `interruptFixExecution`: move an interrupted round back to
+ * `pending` so the driver can resume it. An interrupt consumes NO additional
+ * round, so a crash within budget is resumable — never terminal history.
+ * Constrained to (id, ticket_id, status='interrupted') exactly like
+ * `exhaustRecoveryRound` constrains to 'pending': a pending/fixing round is
+ * never overwritten, and another ticket's round is left strictly alone. The
+ * fix stage row is NOT re-stamped here — `beginLiveFixExecution` /
+ * `confirmFixLaunch` call `markFixStageLive` when a real execution attaches.
+ * `interrupt_count` is left UNCHANGED — it is the crash tally that bounds
+ * future reopens, never reset by one. Returns whether the round actually
+ * reopened.
+ */
+export function reopenInterruptedRound(
+  store: Store,
+  ticketId: number,
+  roundId: number,
+): boolean {
+  return (
+    store.db
+      .prepare(
+        `UPDATE recovery_rounds SET status = 'pending', ended_at = NULL
+          WHERE id = ? AND ticket_id = ? AND status = 'interrupted'`,
+      )
+      .run(roundId, ticketId).changes === 1
+  );
 }

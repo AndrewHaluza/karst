@@ -148,7 +148,9 @@ export function recoveryProcess(
           ? `Fix started after ${triggerProse(latest)} · round ${latest.round} of ${latest.maxRounds}`
           : latest.status === 'revalidating'
             ? `Fix completed; ${STAGE_TITLES[latest.sourceStage]} revalidation is running`
-            : undefined;
+            : latest.status === 'interrupted'
+              ? 'the fix session ended before it was done — it can be resumed'
+              : undefined;
 
   return {
     triggerProcessId: latest.sourceProcessId,

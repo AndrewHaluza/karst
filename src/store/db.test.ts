@@ -2282,4 +2282,46 @@ expect(migrated.db.pragma('user_version', { simple: true })).toBe(45);
     );
     expect(cols.has('priority')).toBe(true);
   });
+
+  // v45 was bumped INDEPENDENTLY on two branches — the usage reasoning-token
+  // counters (#247) and the recovery-round `interrupt_count` counter — and
+  // merged into one step. A registry migrated by the earlier build reports
+  // user_version = 45 while `recovery_rounds` still carries everything else but
+  // NOT `interrupt_count`; the version-gated `current < 45` ALTER is then
+  // skipped forever and the driver's recovery loop reads a schema it never
+  // extended. The repair must therefore run OUTSIDE the version gate, like the
+  // tickets.priority repair above it.
+  it('repairs a v45 DB that never gained recovery_rounds.interrupt_count', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'v45-interrupt-'));
+    const path = join(dir, 'test.db');
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+
+    // Start from the current shape, then drop `interrupt_count` while keeping
+    // the version stamped at 45 — exactly the state the earlier v45 build left.
+    const seeded = openStore(path);
+    seeded.db.pragma('user_version = 45');
+    seeded.close();
+    const raw = new Database(path);
+    raw.exec('ALTER TABLE recovery_rounds DROP COLUMN interrupt_count');
+    raw.close();
+
+    const migrated = openStore(path);
+    cleanups.push(() => migrated.close());
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(45);
+
+    const cols = new Set(
+      (migrated.db.prepare("PRAGMA table_info('recovery_rounds')").all() as { name: string }[]).map(
+        (c) => c.name,
+      ),
+    );
+    expect(cols.has('interrupt_count')).toBe(true);
+    // Nothing is backfilled: a round interrupted by a pre-v45 build has no count
+    // to synthesize, so the ledger's DEFAULT 0 reads as "never interrupted".
+    const row = migrated.db
+      .prepare('SELECT interrupt_count FROM recovery_rounds LIMIT 1')
+      .get() as { interrupt_count: number } | undefined;
+    if (row) {
+      expect(row.interrupt_count).toBe(0);
+    }
+  });
 });

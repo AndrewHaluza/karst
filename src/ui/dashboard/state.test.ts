@@ -1145,6 +1145,26 @@ describe('insideViews (the six-stage inside presentation)', () => {
     expect(state.presentedStage).toBe('uat');
   });
 
+  it('projects fix onto the interrupted round’s source stage — never the uat default', () => {
+    // A ticket whose ONLY recovery round is interrupted (a fix session that
+    // died without the marker) is still causally attached to the round's
+    // source stage — an interrupted Review round must present Review, not the
+    // 'uat' fallback a stage with no qualifying round would draw.
+    const ticketId = ticketAt('fix');
+    store.db
+      .prepare(
+        `INSERT INTO recovery_rounds
+           (ticket_id, source_stage, source_process_id, trigger_kind, trigger_detail,
+            round, max_rounds, status, started_at, ended_at)
+         VALUES (?, 'review', 'review', 'blocking-review-findings', 'blocking findings',
+                 1, 2, 'interrupted', ?, ?)`,
+      )
+      .run(ticketId, '2026-08-09T10:00:00.000Z', '2026-08-09T10:30:00.000Z');
+
+    const state = buildDashboardState(store, ticketId);
+    expect(state.presentedStage).toBe('review');
+  });
+
   it('renders the quality stages as process lists with recovery inserted causally', () => {
     const ticketId = ticketAt('uat');
     const views = buildDashboardState(store, ticketId).insideViews;

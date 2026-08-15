@@ -445,7 +445,10 @@ describe('driveTicket', () => {
     expect(fixStage.verdict).toBe('fix parked — no failed gate to resume');
   });
 
-  it('parks the fix stage row when the only round is terminal — the ticket rests at fix for a human', async () => {
+  it('reopens an interrupted round within budget and resumes the fix', async () => {
+    // An interrupted fix session consumes NO additional round — a round 1 of 3
+    // that crashed without the marker is not history; the driver reopens it to
+    // pending and resumes the fix.
     const round = openRecoveryRound(store, {
       ticketId: id, sourceStage: 'uat', sourceProcessId: 'gates',
       sourceStageRunId: null, sourceProcessRunId: null,
@@ -453,6 +456,55 @@ describe('driveTicket', () => {
       startedAt: '2026-08-01T10:00:00.000Z',
     });
     store.db.prepare("UPDATE recovery_rounds SET status = 'interrupted', ended_at = ? WHERE id = ?").run('2026-08-01T11:00:00.000Z', round.id);
+    transition(store, id, 'uat', { kind: 'failed', reason: 'exit 1' }); // -> fix
+
+    const outcome = await driveTicket(deps(), id);
+
+    expect(outcome.stage).toBe('fix');
+    expect(resumed).toEqual([
+      { ticketId: id, gate: 'uat', attempts: 1, roundId: round.id, process: null },
+    ]);
+    expect(listRecoveryRounds(store, id)[0]!.status).toBe('pending');
+  });
+
+  it('parks a round interrupted AT the cap — an exhausted round is history, never resumed', async () => {
+    // Round 1 of 1: the interrupt consumed the only attempt, so reopening would
+    // re-spend an exhausted budget. The ticket rests at fix for a human.
+    const round = openRecoveryRound(store, {
+      ticketId: id, sourceStage: 'uat', sourceProcessId: 'gates',
+      sourceStageRunId: null, sourceProcessRunId: null,
+      triggerKind: 'gate-failure', triggerDetail: 'exit 1', maxRounds: 1,
+      startedAt: '2026-08-01T10:00:00.000Z',
+    });
+    store.db.prepare("UPDATE recovery_rounds SET status = 'interrupted', ended_at = ? WHERE id = ?").run('2026-08-01T11:00:00.000Z', round.id);
+    transition(store, id, 'uat', { kind: 'failed', reason: 'exit 1' }); // -> fix
+
+    const outcome = await driveTicket(deps(), id);
+
+    expect(outcome.stage).toBe('fix');
+    expect(resumed).toEqual([]);
+    expect(logs.some((l) => l.includes('only terminal recovery rounds'))).toBe(true);
+    const fixStage = getTicket(store, id).stages.find((s) => s.stageKey === 'fix')!;
+    expect(fixStage.status).toBe('failed');
+    expect(fixStage.verdict).toBe('fix parked — no resumable recovery round');
+  });
+
+  it('does NOT reopen an interrupted round whose crash count reached the budget — the crash-loop backstop', async () => {
+    // A crash consumes no round, so `roundFixDecision` alone would say "resume"
+    // forever (the number never advances). v45 bounds the reopen by
+    // `interrupt_count < max_rounds`: a fix that kept dying without the marker
+    // must not relaunch on every terminal close indefinitely.
+    const round = openRecoveryRound(store, {
+      ticketId: id, sourceStage: 'uat', sourceProcessId: 'gates',
+      sourceStageRunId: null, sourceProcessRunId: null,
+      triggerKind: 'gate-failure', triggerDetail: 'exit 1', maxRounds: 3,
+      startedAt: '2026-08-01T10:00:00.000Z',
+    });
+    store.db
+      .prepare(
+        "UPDATE recovery_rounds SET status = 'interrupted', ended_at = ?, interrupt_count = 3 WHERE id = ?",
+      )
+      .run('2026-08-01T11:00:00.000Z', round.id);
     transition(store, id, 'uat', { kind: 'failed', reason: 'exit 1' }); // -> fix
 
     const outcome = await driveTicket(deps(), id);
