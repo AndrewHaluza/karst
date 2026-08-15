@@ -3875,6 +3875,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         );
         return wt?.path;
       },
+      gitCommonDirOf: gitCommonDirFromFs,
       workspaceOf: (graphRunId, nodeRunId, repo) =>
         (gs?.db
           .prepare(

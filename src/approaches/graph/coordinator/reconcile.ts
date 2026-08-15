@@ -255,7 +255,9 @@ async function runHasLiveProcess(deps: ReconcileGraphRunDeps, graphRunId: number
  * so the node parks at the rest state current recovery already handles
  * (`blocked`, with a `node-blocked` reason). No nonce, or an identity whose
  * process cannot be attributed, is ambiguous: `launch-unknown`, which blocks
- * and is never auto-retried (the discard action is the named exit).
+ * and is never auto-retried (the discard action is the named exit). A row with
+ * no owner nonce and no process identity is also provably never spawned: the
+ * recovery retry manufactures exactly that shape before a second launch.
  */
 async function reconcileLaunching(
   deps: ReconcileGraphRunDeps,
@@ -282,14 +284,14 @@ async function reconcileLaunching(
     }
     return deps.transaction(() => {
       if (
-        !casStatus(deps.db, 'approach_node_runs', NODE_RUN_TRANSITIONS, node.id, 'launching', 'launch-unknown')
+        !casStatus(deps.db, 'approach_node_runs', NODE_RUN_TRANSITIONS, node.id, 'launching', 'blocked')
       ) {
         return 0;
       }
       blockRun(
         deps,
         graphRunId,
-        `launch-unknown: node ${node.id} crashed after a possible spawn with no identity — discard the unknown process to recover`,
+        `node-blocked: node ${node.id} has no launch identity (no owner nonce, no process) — Resume to relaunch the reserved visit`,
       );
       return 1;
     });

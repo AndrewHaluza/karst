@@ -41,6 +41,7 @@ import type { BaseHead } from '../../store/graph/nodeRuns.js';
 import type { SupervisedAgentSession, SupervisedLaunchRequest } from './transport/supervisedCliTransport.js';
 import { createSupervisedCliTransport } from './transport/supervisedCliTransport.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
+import { SUPPORTED } from '../../agent/surfaces.js';
 import { domainKeyOf } from './integration/domains.js';
 import { canonicalPath } from '../../runtime/pathScope.js';
 
@@ -280,6 +281,9 @@ export function makeHarness(): Harness {
     runHeadless: async () => ({ sessionId: 's', verdict: null, raw: '' }),
     buildInteractiveCommand: () => ({ command: 'opencode', args: [], env: {} }),
     capabilities: { lifecycleEvents: true, resume: true },
+    surfaces: {
+      exactModel: SUPPORTED,
+    } as never,
   };
 
   const compileContextOf = (document?: { artifacts: { id: string; path: string }[] }): CompileContext => ({
@@ -368,6 +372,7 @@ export function makeHarness(): Harness {
     runProcess: async () => ({ kind: 'completed', exitCode: 0, output: '' }),
     plannerCwdOf: () => ({ repo: 'api', cwd: worktree }),
     cwdForRepo: () => worktree,
+    gitCommonDirOf: (cwd) => gitCommonDir(cwd),
     workspaceOf: () => undefined,
     createWorkspace: async () => ({
       kind: 'created',

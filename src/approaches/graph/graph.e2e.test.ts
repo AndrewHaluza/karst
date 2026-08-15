@@ -28,6 +28,8 @@ import { describe, it, expect } from 'vitest';
 import { writeFileSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { runCli } from '../../cli/main.js';
+import type { AgentAdapter } from '../../agent/adapter.js';
+import { SUPPORTED, unsupported } from '../../agent/surfaces.js';
 import { bootstrapAndLaunchPlanner, acceptSubmittedPlan, confirmGraphRun, driveReadyNodeRuns } from './driver.js';
 import { runGraphCommand } from '../../cli/graph.js';
 import { runNodeCommand } from '../../cli/node.js';
@@ -666,32 +668,42 @@ describe('documented failures of the current dynamic graph implementation', () =
     },
   );
 
-  it.fails(
-    'the REAL supervised transport declares exactModel:false, so EVERY agent node red-blocks before launch',
+  it(
+    'an agent node still launches when the transport reports exactModel:false, because the adapter declares support',
     async () => {
-      // ROOT CAUSE of "the dynamic graph approach is broken": `runAgentNode`
-      // (executors/agent.ts) red-blocks ANY agent-node launch whose transport
-      // cannot prove which model ran (`!capabilities().exactModel`), BEFORE
-      // any spend. The REAL `createSupervisedCliTransport` declares
-      // `exactModel: false` (supervisedCliTransport.ts), so through the real
-      // host every agent node red-blocks, `parkLaunchFailure` parks it, and a
-      // running graph with nothing but agent nodes can never proceed. (The
-      // planner launches only because it calls `transport.start` directly,
-      // bypassing the gate.) The repair must either make the transport prove
-      // the exact model or stop gating the launch on it.
-      const transport = realTransport();
-      expect(transport.capabilities().exactModel).toBe(true);
+      const h = makeHarness();
+      try {
+        h.transport.capabilities = () => ({ exactModel: false, attributedTermination: true });
+        const { graphRunId } = await bootAndSubmit(h);
+        confirmGraphRun(h.deps, graphRunId);
+        const driven = await claimAndDrive(h, graphRunId);
+        expect(driven.launched).toBe(1);
+        const node = h.store.db
+          .prepare('SELECT status FROM approach_node_runs WHERE graph_run_id = ?')
+          .get(graphRunId) as { status: string };
+        expect(node.status).toBe('running');
+        expect(h.transport.started.filter((s) => s.sessionName?.startsWith('Karst node'))).toHaveLength(1);
+      } finally {
+        h.close();
+      }
     },
   );
 
-  it('an agent node whose transport cannot prove the exact model is red-blocked and never launched', async () => {
-    // The observable consequence of the exact-model contract through the full
-    // lifecycle: with a transport that mirrors the real one (exactModel:
-    // false), `driveReadyNodeRuns` parks the node `failed-to-launch` and
-    // blocks the graph instead of launching a session.
+  it('an agent node whose adapter does not declare exact-model support is red-blocked and never launched', async () => {
     const h = makeHarness();
     try {
-      h.transport.capabilities = () => ({ exactModel: false, attributedTermination: true });
+      h.deps.adapterFor = () =>
+        ({
+          requiredBinary: 'opencode',
+          runHeadless: async () => ({ sessionId: 's', verdict: null, raw: '' }),
+          buildInteractiveCommand: () => ({ command: 'opencode', args: [], env: {} }),
+          capabilities: { lifecycleEvents: true, resume: true },
+          surfaces: {
+            exactModel: unsupported(
+              'this adapter cannot prevent model fallback or prove which model ran in the session',
+            ),
+          } as never,
+        }) as AgentAdapter;
       const { graphRunId } = await bootAndSubmit(h);
       confirmGraphRun(h.deps, graphRunId);
       const driven = await claimAndDrive(h, graphRunId);
@@ -714,28 +726,36 @@ describe('documented failures of the current dynamic graph implementation', () =
     }
   });
 
-  it.fails(
-    'a node retried to `launching` by the recovery sweep is never re-driven (wedged until a reload)',
+  it(
+    'a node retried to `launching` by the recovery sweep is re-driven without a reload',
     async () => {
-      // MISSING CONNECTION: after a launch failure, the recovery sweep retries
-      // the reserved node `blocked → launching` (a fresh launch attempt). But
-      // NO surface re-drives a `launching` node: `driveReadyNodeRuns` only
-      // executes `ready` node runs, and the `reconcileLaunching` sweep that
-      // would mark it `launch-unknown` runs only at activation. So a graph run
-      // with a retried node sits at `launching` — one `active_processes` slot
-      // held, no session, no way forward — until an extension reload. The
-      // driver (or the coordinator tick) must re-drive `launching` node runs.
       const h = makeHarness();
       try {
-        h.transport.capabilities = () => ({ exactModel: false, attributedTermination: true });
+        const supportedAdapterFor = h.deps.adapterFor;
+        h.deps.adapterFor = () =>
+          ({
+            requiredBinary: 'opencode',
+            runHeadless: async () => ({ sessionId: 's', verdict: null, raw: '' }),
+            buildInteractiveCommand: () => ({ command: 'opencode', args: [], env: {} }),
+            capabilities: { lifecycleEvents: true, resume: true },
+            surfaces: {
+              exactModel: unsupported(
+                'this adapter cannot prevent model fallback or prove which model ran in the session',
+              ),
+            } as never,
+          }) as AgentAdapter;
         const { graphRunId } = await bootAndSubmit(h);
         confirmGraphRun(h.deps, graphRunId);
         await claimAndDrive(h, graphRunId);
+        h.deps.adapterFor = supportedAdapterFor;
         // The recovery sweep's retry: the parked node is re-armed to launch.
         h.store.db
           .prepare(
             "UPDATE approach_node_runs SET status = 'launching', launch_attempt = launch_attempt + 1 WHERE graph_run_id = ? AND status = 'blocked'",
           )
+          .run(graphRunId);
+        h.store.db
+          .prepare("UPDATE approach_graph_runs SET status = 'running', blocked_reason = NULL WHERE id = ?")
           .run(graphRunId);
         // A subsequent drive must re-launch the node — but the driver only
         // executes `ready` runs, so it stays `launching` (wedged).

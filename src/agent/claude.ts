@@ -121,6 +121,7 @@ export class ClaudeAdapter implements AgentAdapter {
 
   /** Declared seam positions (869ej1zpv R1) — pinned against argv by the conformance suite. */
   readonly surfaces: AdapterSurfaces = {
+    exactModel: SUPPORTED,
     model: SUPPORTED,
     effortHeadless: SUPPORTED,
     effortInteractive: SUPPORTED,
