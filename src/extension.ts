@@ -203,6 +203,9 @@ import { type ActivationDomain } from './approaches/graph/coordinator/leases.js'
 import { activationDomainKeys, type AllowlistCommandAccess } from './approaches/graph/coordinator/conflicts.js';
 import { parseGraphDocument } from './approaches/graph/parse.js';
 import { nodeOverrideFor, type BaseHead } from './store/graph/nodeRuns.js';
+import { allGraphRunsClosed } from './store/graph/graphRuns.js';
+import { reapClosedGraphSubtrees, describeGraphReap } from './approaches/graph/retention.js';
+import { reapOrphanedArtifactDirs, describeArtifactReap } from './runtime/artifactOrphans.js';
 import { blockGraphStage } from './workflow/graphMarkerGuard.js';
 import { DEFAULT_GRAPH_LIMITS } from './manifest/graphConfig.js';
 import {
@@ -373,6 +376,7 @@ import {
   unarchiveTicket,
 } from './store/tickets.js';
 import type { Project } from './store/projects.js';
+import { getProjectBySlug } from './store/projects.js';
 import { bindProject } from './project/bind.js';
 import { resolveProjectSlug } from './project/slug.js';
 import { listTicketLifecycle } from './store/runningServers.js';
@@ -818,6 +822,57 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   } catch (err) {
     logError('karst: auto-compact failed', err);
+  }
+  // Graph byte-subtree and artifact-dir orphan sweeps. A ticket's graph
+  // subtree and gate console-log dir are removed on hard delete, but bytes can
+  // outlive the delete that should have removed them: a delete that predates
+  // this wiring, an unbound project at delete time, or a foreign removal. Both
+  // live in global storage OUTSIDE every worktree, so — like `reapStaleServers`
+  // and for the same reason — the net is an activation sweep, GLOBAL across
+  // projects, and its predicate is a READ over state the registry already
+  // keeps current. A subtree whose ticket is gone (or whose every graph run is
+  // `closed`) and a console dir whose ticket no longer exists are removed;
+  // anything whose ticket still exists is left strictly alone. Reported, never
+  // silent — unreported removal of evidence bytes is the failure this closes.
+  try {
+    for (const r of reapClosedGraphSubtrees(
+      join(context.globalStorageUri.fsPath, 'graph'),
+      {
+        ticketExists: (projectSlug, ticketId) => {
+          const project = getProjectBySlug(localStore, projectSlug);
+          if (!project) return false;
+          try {
+            return getTicket(localStore, ticketId).projectId === project.id;
+          } catch {
+            return false;
+          }
+        },
+        allGraphRunsClosed: (ticketId) => allGraphRunsClosed(localStore.db, ticketId),
+      },
+    ).removed) {
+      logger.info(describeGraphReap(r));
+    }
+  } catch (err) {
+    logError('karst: graph byte-subtree sweep failed', err);
+  }
+  try {
+    for (const ticketId of reapOrphanedArtifactDirs(
+      join(context.globalStorageUri.fsPath, 'artifacts'),
+      {
+        ticketExists: (ticketId) => {
+          try {
+            getTicket(localStore, ticketId);
+            return true;
+          } catch {
+            return false;
+          }
+        },
+      },
+    ).removed) {
+      logger.info(describeArtifactReap(ticketId));
+    }
+  } catch (err) {
+    logError('karst: artifact-dir orphan sweep failed', err);
   }
   // One adapter instance, shared by the session manager and the openSession
   // handler's approach materialization (the seam that turns a neutral package
@@ -2820,6 +2875,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // the per-ticket layout the runners themselves expect.
   const artifactDirFor = (ticketId: number): string =>
     join(context.globalStorageUri.fsPath, 'artifacts', String(ticketId));
+
+  // The graph byte subtree root for THIS window's project: `<globalStorage>/
+  // graph/<projectSlug>`, the parent every ticket's subtree hangs under
+  // (Decision 15). Undefined when the project is unbound — the retention sweep
+  // covers whatever a delete with no project cannot name.
+  const graphBytesRootFor = (): string | undefined => {
+    const project = currentProject();
+    return project ? join(context.globalStorageUri.fsPath, 'graph', project.slug) : undefined;
+  };
 
   // The gate-lane AI processes' console sink (Task 13): the UAT Tester and the
   // Review findings lane stream their headless CLI output here — bounded and
@@ -5720,6 +5784,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         await deleteTicketPermanently(localStore, ticketId, {
           closePanel: (id) => ticketForm.closeTicket(id),
           reap: (id) => reapAttachments(context.globalStorageUri.fsPath, id),
+          graphBytesRoot: graphBytesRootFor(),
+          artifactsRoot: join(context.globalStorageUri.fsPath, 'artifacts'),
         });
       } catch (err) {
         const message =

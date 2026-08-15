@@ -510,9 +510,22 @@ export function unarchiveTicket(store: Store, ticketId: number): void {
   }
 }
 
-/** Related tables keyed by `ticket_id`, cleared on hard-delete (no FK cascade). */
+/** Related tables keyed by `ticket_id`, cleared on hard-delete (no FK cascade).
+ *
+ * The four append-only/current-state evidence tables (`gate_runs`, `stage_runs`,
+ * `phase_marks`, `merge_checks`) declare no FK to `tickets` — a hard delete used
+ * to leave their rows answering queries by a ticket id nothing owns. They are
+ * ticket-owned evidence and die with the ticket (archive keeps them), so they
+ * belong HERE, not as a cascade: the explicit leaf-first delete is the product
+ * deletion contract, never SQLite's discovery. */
 const TICKET_CHILD_TABLES = [
   'stages',
+  // Leaf before its parent: `gate_runs.stage_run_id` references `stage_runs`
+  // (ON DELETE SET NULL), so the rows that name a run go first.
+  'gate_runs',
+  'stage_runs',
+  'phase_marks',
+  'merge_checks',
   'worktrees',
   'worktree_archives',
   'port_allocations',
@@ -543,10 +556,17 @@ const TICKET_CHILD_TABLES = [
  *
  * When `graphBytesRoot` (the `<globalStorage>/graph/<projectSlug>` directory)
  * is provided, the ticket's graph byte subtree is removed AFTER the rows
- * commit — the retention sweep covers the case where it is absent. Archive
- * removes nothing (see archiveTicket).
+ * commit — the retention sweep covers the case where it is absent. Likewise
+ * `artifactsRoot` (the `<globalStorage>/artifacts` directory) removes the
+ * ticket's gate console-log dir, with the same sweep covering the absent case.
+ * Archive removes nothing (see archiveTicket).
  */
-export function deleteTicket(store: Store, ticketId: number, graphBytesRoot?: string): void {
+export function deleteTicket(
+  store: Store,
+  ticketId: number,
+  graphBytesRoot?: string,
+  artifactsRoot?: string,
+): void {
   const del = store.db.transaction((): void => {
     // 1. Detach the global accounting ledger. `token_usage` is shared global
     // spend, not ticket-owned evidence: its rows survive the ticket as
@@ -610,6 +630,9 @@ export function deleteTicket(store: Store, ticketId: number, graphBytesRoot?: st
   del();
   if (graphBytesRoot !== undefined) {
     rmSync(join(graphBytesRoot, String(ticketId)), { recursive: true, force: true });
+  }
+  if (artifactsRoot !== undefined) {
+    rmSync(join(artifactsRoot, String(ticketId)), { recursive: true, force: true });
   }
 }
 

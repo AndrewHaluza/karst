@@ -35,6 +35,14 @@ export function removeTicketGraphSubtree(
   rmSync(join(graphBytesRoot, String(ticketId)), { recursive: true, force: true });
 }
 
+/** One line naming a subtree this sweep removed, for the output channel. */
+export function describeGraphReap(r: { projectSlug: string; ticketId: number }): string {
+  return (
+    `karst: removed graph byte subtree for ${r.projectSlug}/${r.ticketId} ` +
+    '(ticket gone or every graph run closed)'
+  );
+}
+
 /**
  * The activation sweep: remove every `<graphRoot>/<projectSlug>/<ticketId>/`
  * subtree whose ticket no longer exists or whose graph run is `closed`.

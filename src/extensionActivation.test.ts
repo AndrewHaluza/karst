@@ -93,6 +93,41 @@ describe('extension activation', () => {
     expect(source).toMatch(/reapStaleServers\(localStore[,{][\s\S]{0,200}?logger\.info\(\s*describeReap\(/);
   });
 
+  // A ticket's graph byte subtree and gate console-log dir are removed on hard
+  // delete, but bytes can outlive the delete that should have removed them — a
+  // delete that predates this fix, a foreign removal, an absent project at
+  // delete time. Both live in global storage outside every worktree, so like
+  // `reapStaleServers` the net must be an ACTIVATION sweep, and like every
+  // activation sweep it is reported, never silent. The wiring is pinned here:
+  // the two sweeps run with the SAME store predicate, and every removed byte
+  // names itself on the output channel.
+  it('reaps orphaned graph byte subtrees and artifact console-log dirs on activation, and says which it removed', () => {
+    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+
+    // The graph sweep resolves the ticket predicate from the shared store — a
+    // subtree is removed when its ticket is gone from its project or its every
+    // graph run is closed.
+    expect(source).toContain('reapClosedGraphSubtrees(');
+    expect(source).toMatch(/getProjectBySlug\(localStore, projectSlug\)/);
+    expect(source).toMatch(/allGraphRunsClosed\(localStore\.db, ticketId\)/);
+    expect(source).toMatch(/logger\.info\(\s*describeGraphReap\(/);
+    // The artifact-dir sweep reuses the same liveness reading and reports each
+    // removed dir on the output channel.
+    expect(source).toContain('reapOrphanedArtifactDirs(');
+    expect(source).toMatch(/logger\.info\(\s*describeArtifactReap\(/);
+  });
+
+  // The delete command wires the byte halves of permanent delete through the
+  // runtime lifecycle: the graph byte root (the window project's subtree) and
+  // the artifact console-log root. Without the graph root, a hard delete leaves
+  // graph snapshots/workspaces that only a later sweep (or nothing) cleans.
+  it('passes the graph byte root and the artifact root from the delete command', () => {
+    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+
+    expect(source).toMatch(/graphBytesRoot:\s*[^,}\n]+,/);
+    expect(source).toContain("artifactsRoot: join(context.globalStorageUri.fsPath, 'artifacts')");
+  });
+
   it('reconciles terminals VS Code revives after the activation scan', () => {
     const source = readFileSync(
       join(process.cwd(), 'src', 'extension.ts'),

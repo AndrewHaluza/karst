@@ -1,4 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { openStore } from '../store/db.js';
 import { createTicket, getTicket } from '../store/tickets.js';
 import { openProcessRun, listProcessRuns } from '../store/processRuns.js';
@@ -113,6 +116,35 @@ describe('deleteTicketPermanently', () => {
     expect(surviving[0]!.ticketId).toBeNull();
     expect(surviving[0]!.processRunId).toBeNull();
     expect(surviving[0]!.totalTokens).toBe(80);
+    store.close();
+  });
+
+  // The byte halves of permanent delete — the graph byte subtree and the gate
+  // console-log dir — are threaded through the lifecycle roots exactly like the
+  // row half: removed AFTER the rows commit, missing directories being normal.
+  it('removes the graph byte subtree and the artifact console-log dir through the lifecycle roots', async () => {
+    const store = openStore(':memory:');
+    const ticket = createTicket(store, { key: 'DELETE-4', title: 'bytes' });
+    const dir = mkdtempSync(join(tmpdir(), 'karst-del-bytes-'));
+    try {
+      const graphBytesRoot = join(dir, 'graph', 'project');
+      const artifactsRoot = join(dir, 'artifacts');
+      for (const root of [graphBytesRoot, artifactsRoot]) {
+        mkdirSync(join(root, String(ticket.id), 'artifacts'), { recursive: true });
+      }
+
+      await deleteTicketPermanently(store, ticket.id, {
+        closePanel: () => {},
+        reap: async () => {},
+        graphBytesRoot,
+        artifactsRoot,
+      });
+
+      expect(existsSync(join(graphBytesRoot, String(ticket.id)))).toBe(false);
+      expect(existsSync(join(artifactsRoot, String(ticket.id)))).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
     store.close();
   });
 });

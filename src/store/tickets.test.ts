@@ -32,6 +32,10 @@ import { STAGE_KEYS } from '../model/types.js';
 import { openProcessRun, listProcessRuns } from './processRuns.js';
 import { recordTokenUsage, listTokenUsage } from './tokenUsage.js';
 import { recordFindings, listFindings } from './reviewFindings.js';
+import { openStageRun } from './stageRuns.js';
+import { recordGateRun } from './gateRuns.js';
+import { recordPhaseMark } from './phaseMarks.js';
+import { setMergeCheck } from './mergeChecks.js';
 
 describe('ticketLabel', () => {
   const base: Ticket = {
@@ -452,6 +456,118 @@ describe('ticket + stage persistence', () => {
     expect(listTickets(store, { includeArchived: true })).toHaveLength(0);
     const stageRows = store.db.prepare('SELECT * FROM stages WHERE ticket_id = ?').all(t.id);
     expect(stageRows).toHaveLength(0);
+  });
+
+  // The four append-only / current-state evidence tables are keyed by
+  // `ticket_id` but declare NO foreign key to `tickets`, so a hard delete used
+  // to leave their rows orphaned — a ticket gone, its gate/phase/merge history
+  // still answering queries by a ticket id nothing owns. They are part of the
+  // product deletion contract now (`TICKET_CHILD_TABLES`), not a leak that
+  // relies on SQLite's discovery.
+  it('deleteTicket removes append-only gate/phase evidence and merge checks too', () => {
+    const t = createTicket(store, { key: 'D-2', title: 'evidence' });
+    const stageRunId = openStageRun(store, {
+      ticketId: t.id,
+      stageKey: 'uat',
+      attempt: 0,
+      runAt: '2026-08-01T10:00:00.000Z',
+      startedAt: '2026-08-01T10:00:00.000Z',
+    });
+    recordGateRun(store, {
+      ticketId: t.id,
+      stageKey: 'uat',
+      attempt: 0,
+      runAt: '2026-08-01T10:00:00.000Z',
+      stageRunId,
+      gates: [{ gateName: 'test', exitCode: 0 }],
+    });
+    recordPhaseMark(store, {
+      ticketId: t.id,
+      stageKey: 'impl',
+      attempt: 0,
+      phaseName: 'plan',
+      markedAt: '2026-08-01T10:00:00.000Z',
+    });
+    setMergeCheck(store, {
+      ticketId: t.id,
+      repo: '/web',
+      state: 'clean',
+      files: [],
+      reason: null,
+      headSha: null,
+      baseSha: null,
+      baseRef: 'develop',
+      checkedAt: '2026-08-01T10:00:00.000Z',
+    });
+    for (const table of ['gate_runs', 'stage_runs', 'phase_marks', 'merge_checks']) {
+      const n = store.db
+        .prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE ticket_id = ?`)
+        .get(t.id) as { n: number };
+      expect(n.n, table).toBeGreaterThan(0);
+    }
+
+    deleteTicket(store, t.id);
+
+    for (const table of ['gate_runs', 'stage_runs', 'phase_marks', 'merge_checks']) {
+      const n = store.db
+        .prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE ticket_id = ?`)
+        .get(t.id) as { n: number };
+      expect(n.n, table).toBe(0);
+    }
+  });
+
+  it('archive keeps append-only gate/phase evidence and merge checks', () => {
+    const t = createTicket(store, { key: 'D-3', title: 'kept' });
+    recordGateRun(store, {
+      ticketId: t.id,
+      stageKey: 'uat',
+      attempt: 0,
+      runAt: '2026-08-01T10:00:00.000Z',
+      gates: [{ gateName: 'test', exitCode: 0 }],
+    });
+    setMergeCheck(store, {
+      ticketId: t.id,
+      repo: '/web',
+      state: 'clean',
+      files: [],
+      reason: null,
+      headSha: null,
+      baseSha: null,
+      baseRef: 'develop',
+      checkedAt: '2026-08-01T10:00:00.000Z',
+    });
+    archiveTicket(store, t.id);
+    for (const table of ['gate_runs', 'merge_checks']) {
+      const n = store.db
+        .prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE ticket_id = ?`)
+        .get(t.id) as { n: number };
+      expect(n.n, table).toBe(1);
+    }
+  });
+
+  // The gate console logs (uat/review tail files) live under
+  // `<globalStorage>/artifacts/<ticketId>/`; when `artifactsRoot` is passed
+  // the hard delete removes the dir with the rows. Absent → the dir is left,
+  // exactly like the graph bytes (a later sweep covers that case).
+  it('deleteTicket removes the artifact console-log dir when artifactsRoot is given, and leaves it otherwise', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-art-delete-'));
+    try {
+      const t = createTicket(store, { key: 'D-4', title: 'logs' });
+      const artifactsRoot = join(dir, 'artifacts');
+      mkdirSync(join(artifactsRoot, String(t.id)), { recursive: true });
+      writeFileSync(join(artifactsRoot, String(t.id), 'uat-ticket-1.log'), 'log');
+
+      deleteTicket(store, t.id, undefined, artifactsRoot);
+      expect(existsSync(join(artifactsRoot, String(t.id)))).toBe(false);
+
+      const t2 = createTicket(store, { key: 'D-5', title: 'logs 2' });
+      mkdirSync(join(artifactsRoot, String(t2.id)), { recursive: true });
+      writeFileSync(join(artifactsRoot, String(t2.id), 'x'), 'y');
+      deleteTicket(store, t2.id);
+      expect(existsSync(join(artifactsRoot, String(t2.id)))).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   // The product deletion contract (v27): foreign keys are ON in openStore, so a
