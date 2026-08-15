@@ -328,6 +328,16 @@ async function captureDomainChangeSet(
     for (const entry of entries) {
       if (!merged.has(entry.path)) merged.set(entry.path, entry);
     }
+    // A file a node created but never `git add`-ed is invisible to `git diff
+    // --name-status` — it must still enter claim validation as an `added`
+    // entry, or an out-of-claim untracked file is silently dropped rather
+    // than parking the node (the defect this closes). `--exclude-standard`
+    // keeps karst's own excluded scaffolding (`.karst/`, `.karst-plugin/`,
+    // …) out of both validation and reporting.
+    const untracked = await captureUntrackedPaths(deps.git, cwd);
+    for (const path of untracked) {
+      if (!merged.has(path)) merged.set(path, { path, kind: 'added' });
+    }
   }
   return { entries: [...merged.values()], workspaceCwds };
 }

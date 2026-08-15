@@ -108,6 +108,24 @@ describe('captureUntrackedPaths', () => {
     writeFileSync(join(dir, '.gitignore'), '*.log\n');
     expect(await captureUntrackedPaths(runner, dir)).toEqual(['.gitignore', 'new.ts']);
   });
+
+  it('an out-of-claim untracked file must flow into the SAME claim validation as a tracked one', async () => {
+    // Regression for the defect the dynamic-graph e2e test names: untracked
+    // paths were enumerated only to decide what to COPY into the canonical
+    // worktree, never fed into `validateChangeSet` — so an agent-created file
+    // outside its declared claim was silently dropped, not reported as a
+    // violation. `captureDomainChangeSet` (pipeline.ts) now merges untracked
+    // paths into the captured entries as `added`; this pins that an untracked
+    // path is treated exactly like a tracked one by validation.
+    const dir = makeRepo();
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    writeFileSync(join(dir, 'OUTSIDE.ts'), 'outside\n');
+    const untracked = await captureUntrackedPaths(runner, dir);
+    const entries = untracked.map((path) => ({ path, kind: 'added' as const }));
+    const result = validateChangeSet(['src'], entries);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.violations).toEqual(['OUTSIDE.ts']);
+  });
 });
 
 describe('validateChangeSet', () => {
