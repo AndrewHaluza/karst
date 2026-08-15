@@ -484,7 +484,12 @@ describe('dispatchHook — UsageUpdate', () => {
     );
   }
 
-  function usageUpdate(sessionId: string, usage: unknown, launchId?: string): void {
+  function usageUpdate(
+    sessionId: string,
+    usage: unknown,
+    launchId?: string,
+    notify?: Parameters<typeof dispatchHook>[2],
+  ): void {
     dispatchHook(
       store,
       {
@@ -494,7 +499,7 @@ describe('dispatchHook — UsageUpdate', () => {
         usage,
         ...(launchId !== undefined ? { launchId } : {}),
       },
-      undefined,
+      notify,
       () => true,
       () => 'claude',
     );
@@ -522,6 +527,36 @@ describe('dispatchHook — UsageUpdate', () => {
     });
     // Usage is not a liveness signal.
     expect(getTicket(store, id).agentState).toBe('running'); // still the SessionStart state
+  });
+
+  it('notifies views after a UsageUpdate records a new ledger delta', () => {
+    const id = ticketAt();
+    startImplementation(id, 'sess-1');
+    const notify = vi.fn();
+    const payload = {
+      hook_event_name: 'UsageUpdate',
+      cwd: WT,
+      session_id: 'sess-1',
+      usage: { event_id: 'e1', input: 1_000, output: 200, cache_read: 500 },
+    };
+
+    dispatchHook(store, payload, notify, () => true, () => 'claude');
+
+    expect(listTokenUsage(store, { ticketId: id })).toHaveLength(1);
+    expect(notify).toHaveBeenCalledOnce();
+    expect(notify).toHaveBeenCalledWith(id, payload);
+  });
+
+  it('does not notify views when a UsageUpdate repeats an already-recorded event', () => {
+    const id = ticketAt();
+    startImplementation(id, 'sess-1');
+    usageUpdate('sess-1', { event_id: 'e1', input: 1_000, output: 200 });
+    const notify = vi.fn();
+
+    usageUpdate('sess-1', { event_id: 'e1', input: 1_000, output: 200 }, undefined, notify);
+
+    expect(listTokenUsage(store, { ticketId: id })).toHaveLength(1);
+    expect(notify).not.toHaveBeenCalled();
   });
 
   it('attributes a fix session’s updates to the Fix process run with call_site fix-resume', () => {
@@ -779,7 +814,7 @@ describe('dispatchHook — UsageUpdate', () => {
     expect(rows).toEqual([{ source_event_id: 'e1' }]);
   });
 
-  it('baselines a resumed session with no prior sample — nothing reaches the ledger', () => {
+  it('baselines a resumed session without notifying views — nothing reaches the ledger', () => {
     const id = ticketAt();
     recordSessionLaunchIntent(store, {
       ticketId: id, launchId: 'launch-r', purpose: 'implementation',
@@ -793,32 +828,38 @@ describe('dispatchHook — UsageUpdate', () => {
       () => true,
       () => 'claude',
     );
-    usageUpdate('sess-1', { event_id: 'e1', input: 5_000, output: 400 });
+    const notify = vi.fn();
+    usageUpdate('sess-1', { event_id: 'e1', input: 5_000, output: 400 }, undefined, notify);
 
     expect(listTokenUsage(store, { ticketId: id })).toHaveLength(0);
+    expect(notify).not.toHaveBeenCalled();
     const baseline = lastInteractiveUsageSample(store, 'claude', 'sess-1')!;
     expect(baseline.baselineOnly).toBe(true);
   });
 
-  it('drops malformed or partial usage before it reaches the store', () => {
+  it('drops malformed or partial usage without notifying views', () => {
     const id = ticketAt();
     startImplementation(id, 'sess-1');
-    usageUpdate('sess-1', { event_id: 'e1', input: 'not-a-number', output: 200 });
-    usageUpdate('sess-1', { input: 1_000, output: 200 }); // no event id
-    usageUpdate('sess-1', { event_id: 'e3', input: -5, output: 200 });
-    usageUpdate('sess-1', 'usage');
+    const notify = vi.fn();
+    usageUpdate('sess-1', { event_id: 'e1', input: 'not-a-number', output: 200 }, undefined, notify);
+    usageUpdate('sess-1', { input: 1_000, output: 200 }, undefined, notify); // no event id
+    usageUpdate('sess-1', { event_id: 'e3', input: -5, output: 200 }, undefined, notify);
+    usageUpdate('sess-1', 'usage', undefined, notify);
 
     expect(listTokenUsage(store, { ticketId: id })).toHaveLength(0);
+    expect(notify).not.toHaveBeenCalled();
     expect(store.db.prepare('SELECT COUNT(*) AS n FROM interactive_usage_samples').get()).toEqual({
       n: 0,
     });
   });
 
-  it('drops an update for a session with no confirmed binding', () => {
+  it('drops an unattributed update without notifying views', () => {
     const id = ticketAt();
+    const notify = vi.fn();
     // No SessionStart ever confirmed an intent for sess-1.
-    usageUpdate('sess-1', { event_id: 'e1', input: 100, output: 20 });
+    usageUpdate('sess-1', { event_id: 'e1', input: 100, output: 20 }, undefined, notify);
     expect(listTokenUsage(store, { ticketId: id })).toHaveLength(0);
+    expect(notify).not.toHaveBeenCalled();
     expect(store.db.prepare('SELECT COUNT(*) AS n FROM interactive_usage_samples').get()).toEqual({
       n: 0,
     });

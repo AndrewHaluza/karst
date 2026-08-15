@@ -1837,10 +1837,10 @@
   let shipRequestId = null;
   // Per-repo merge-in-flight request ids, keyed by repo path. NOT persisted: a
   // merge is a one-shot host round trip, and an id restored from a reload
-  // would claim a merge is underway that nobody is running. Cleared on every
-  // state push — extension.ts's mergePr always refreshes in a `finally`
-  // (success, refusal, cancel, or throw), so a push is guaranteed to arrive
-  // and end the pending state; it is never left to a watchdog alone.
+  // would claim a merge is underway that nobody is running. Cleared on the
+  // action-settling state push — extension.ts's mergePr always refreshes in a
+  // `finally` (success, refusal, cancel, or throw), so that push is guaranteed
+  // to arrive and end the pending state; it is never left to a watchdog alone.
   let mergeRequests = {};
   // Which merge-check disclosures (`.mgd`) are open, keyed by repo. Local view
   // state, exactly like `selectedStage`: render() replaces #prs wholesale on
@@ -1864,8 +1864,8 @@
   // A user-requested PR re-probe is in flight. Set on the click, BEFORE the host
   // round trip, because that probe runs `gh` and a `git fetch` per repo — seconds
   // in which a button with no busy state looks inert and gets pressed again.
-  // Cleared by the next state push (the host always sends one when the refresh
-  // settles, including when nothing moved), so it can never stick.
+  // Cleared by the next action-settling state push (the host always sends one
+  // when the refresh settles, including when nothing moved), so it cannot stick.
   let prRefreshId = null;
   // The stage header's ⋯ menu: which stage's menu is OPEN, or null. Local view
   // state exactly like `openProcesses` — render() replaces #inside wholesale on
@@ -1874,9 +1874,9 @@
   let stageMenuStage = null;
   // A "Send back to Implement" request is in flight (the host's confirmation
   // modal is up). Set on the click BEFORE the host round trip, cleared by the
-  // next state push — extension.ts always refreshes in a `finally` (confirm,
-  // dismiss, refusal, or throw), so a push is guaranteed to arrive and settle
-  // the pending item (same contract as `mergeRequests`).
+  // next action-settling state push — extension.ts always refreshes in a
+  // `finally` (confirm, dismiss, refusal, or throw), so that push is guaranteed
+  // to arrive and settle the pending item (same contract as `mergeRequests`).
   let sendBackRequestId = null;
   // Transient inside-progress overlays (the inside redesign): the live header
   // for one running operation (`active`) and the process row that replaces the
@@ -4662,24 +4662,23 @@
         lastState = msg.state;
         return;
       }
-      // Resolve an in-flight ship FIRST, so render() draws either the held
-      // spinner or the settled line — never a flash of the stale "Confirm ship".
-      resolveShipping(msg.state);
-      // Likewise merge — settle every outstanding request against the fresh
-      // PR list before rendering, so the button's pending state and its
-      // terminal toast land in the same frame.
-      resolveMergeOutcome(msg.state);
-      // Likewise the recovery action — the host pushes a snapshot after the
-      // modal (confirm or cancel), which is what settles the pending item.
-      resolveSendBackOutcome(msg.state);
-      // Likewise the refresh icon: the host pushes state when the sweep settles
-      // even if no verdict moved, precisely so the spin has an end. The result
-      // is always reported ok:true — the webview cannot itself distinguish "PR
-      // status changed" from "confirmed unchanged", and both are a successful
-      // refresh (UI-R31: no verdict is invented here).
-      if (prRefreshId) {
-        karstSettle(prRefreshId, true);
-        prRefreshId = null;
+      // Passive store news and live clock repaints carry no answer about a
+      // pending action. Only the action's own host refresh may settle it.
+      if (msg.settlesActions !== false) {
+        // Resolve an in-flight ship FIRST, so render() draws either the held
+        // spinner or the settled line — never stale "Confirm ship" content.
+        resolveShipping(msg.state);
+        // Likewise merge — settle every outstanding request against the fresh
+        // PR list before rendering, so pending state and toast land together.
+        resolveMergeOutcome(msg.state);
+        // Likewise recovery — the post-modal snapshot settles the pending item.
+        resolveSendBackOutcome(msg.state);
+        // Likewise refresh: the host sends an action-settling snapshot when its
+        // sweep ends, including when nothing moved. Both outcomes are success.
+        if (prRefreshId) {
+          karstSettle(prRefreshId, true);
+          prRefreshId = null;
+        }
       }
       // The full snapshot supersedes the inside live overlay: progress.ts is
       // explicit that the snapshot is authoritative. A snapshot that actually
@@ -4700,12 +4699,10 @@
       }
       // The matching async totals message follows this snapshot. Until then,
       // omit numbers rather than showing values for an older working tree.
-      // NOT on a live repaint: that push deliberately re-runs no loader (it is
-      // a store read, nothing more), so no totals message follows it and
-      // clearing here would blank the numbers once a second and never refill
-      // them. The tree they describe has not changed either — a repaint is the
-      // same worktrees, re-read.
-      if (!msg.live) worktreeStats = {};
+      // NOT on a live repaint OR a store-only news push: neither re-runs the
+      // loader, so no totals message follows and clearing here would blank
+      // still-current numbers. The worktree they describe did not change.
+      if (!msg.live && msg.supplemental !== false) worktreeStats = {};
       // A live repaint is the same snapshot re-read — only the running rows'
       // clocks advanced. A full render would rebuild the inside block and
       // recreate the running spinner elements (restarting their CSS animation

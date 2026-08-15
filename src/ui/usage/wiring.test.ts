@@ -34,6 +34,12 @@ describe('token-usage host wiring', () => {
     expect(EXTENSION).toMatch(/UsagePanelManager\([\s\S]{0,200}projectId: \(\) => currentProject\(\)/);
   });
 
+  it('refreshes open usage surfaces when an interactive token delta lands', () => {
+    expect(EXTENSION).toMatch(
+      /if \(payload\.hook_event_name === 'UsageUpdate'\) \{\s*tokenUsagePanel\.refresh\(\);\s*dashboard\.pushStoreState\(ticketId\);\s*return;\s*\}/,
+    );
+  });
+
   it('ships the webview into dist — an uncopied asset fails only at runtime', () => {
     expect(COPY_ASSETS).toContain("'ui/usage/webview.html'");
   });

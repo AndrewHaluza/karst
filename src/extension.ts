@@ -3057,6 +3057,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // conversation watch below: a watch event is a hook event, and the two
   // channels must never disagree about ownership, refresh or the generation.
   const notifyHook = (ticketId: number, payload: HookPayload): void => {
+    // UsageUpdate changes only the token ledger. Refresh the two surfaces that
+    // read it, then stop: usage is not lifecycle activity and must never kick
+    // the stage driver or alter session ownership.
+    if (payload.hook_event_name === 'UsageUpdate') {
+      tokenUsagePanel.refresh();
+      dashboard.pushStoreState(ticketId);
+      return;
+    }
     if (payload.hook_event_name === 'SessionStart') {
       recoveryLifecycle.sessionStarted(ticketId, payload.launchId);
     }
@@ -4946,7 +4954,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // it once per open panel was N calls for one change.
       provider.refresh();
       for (const ticketId of dashboard.openTicketIds()) {
-        dashboard.pushState(ticketId);
+        // A CLI write requires a complete redraw (including supplemental
+        // facts), but it is not the answer to a dashboard action in flight.
+        dashboard.pushPassiveState(ticketId);
       }
     }),
   );
