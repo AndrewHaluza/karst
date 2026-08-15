@@ -15,6 +15,8 @@ import {
   completeRevalidation,
   attachRevalidationStageRun,
   exhaustRecoveryRound,
+  latestInterruptedRound,
+  reopenInterruptedRound,
   reconcileStrandedFixRounds,
   listRecoveryRounds,
   parkFixStage,
@@ -530,6 +532,83 @@ describe('recovery rounds — store', () => {
     store.db.prepare("UPDATE recovery_rounds SET status = 'revalidating' WHERE id = ?").run(r.id);
     expect(exhaustRecoveryRound(store, ticketId, r.id, T1)).toBe(false);
     expect(listRecoveryRounds(store, ticketId)[0]!.status).toBe('revalidating');
+  });
+
+  it('latestInterruptedRound returns the LATEST interrupted round for the gate', () => {
+    const first = round();
+    const second = round({ triggerDetail: 'exit 2', startedAt: T1 });
+    expect(latestInterruptedRound(store, ticketId, 'uat')).toBeNull();
+    store.db
+      .prepare("UPDATE recovery_rounds SET status = 'interrupted', ended_at = ? WHERE id = ?")
+      .run(T1, first.id);
+    expect(latestInterruptedRound(store, ticketId, 'uat')?.id).toBe(first.id);
+    store.db
+      .prepare("UPDATE recovery_rounds SET status = 'interrupted', ended_at = ? WHERE id = ?")
+      .run(T2, second.id);
+    expect(latestInterruptedRound(store, ticketId, 'uat')?.id).toBe(second.id);
+    // A different gate's interrupted round is not this gate's.
+    const reviewRound = round({ sourceStage: 'review', startedAt: T2 });
+    store.db
+      .prepare("UPDATE recovery_rounds SET status = 'interrupted', ended_at = ? WHERE id = ?")
+      .run(T2, reviewRound.id);
+    expect(latestInterruptedRound(store, ticketId, 'uat')?.id).toBe(second.id);
+    expect(latestInterruptedRound(store, ticketId, 'review')?.id).toBe(reviewRound.id);
+  });
+
+  it('latestInterruptedRound is null when the only round is another status', () => {
+    const r = round();
+    expect(latestInterruptedRound(store, ticketId, 'uat')).toBeNull(); // pending
+    store.db
+      .prepare("UPDATE recovery_rounds SET status = 'failed', ended_at = ? WHERE id = ?")
+      .run(T1, r.id);
+    expect(latestInterruptedRound(store, ticketId, 'uat')).toBeNull(); // failed
+  });
+
+  it('reopenInterruptedRound moves an interrupted round back to pending, clearing ended_at', () => {
+    const r = round();
+    store.db
+      .prepare("UPDATE recovery_rounds SET status = 'interrupted', ended_at = ? WHERE id = ?")
+      .run(T1, r.id);
+    expect(reopenInterruptedRound(store, ticketId, r.id)).toBe(true);
+    expect(listRecoveryRounds(store, ticketId)[0]).toMatchObject({
+      status: 'pending',
+      endedAt: null,
+    });
+    // An already-pending round is an idempotent no-op.
+    expect(reopenInterruptedRound(store, ticketId, r.id)).toBe(false);
+  });
+
+  it('reopenInterruptedRound refuses a round that is not interrupted', () => {
+    const r = round(); // pending
+    expect(reopenInterruptedRound(store, ticketId, r.id)).toBe(false);
+    expect(listRecoveryRounds(store, ticketId)[0]!.status).toBe('pending');
+    store.db.prepare("UPDATE recovery_rounds SET status = 'fixing' WHERE id = ?").run(r.id);
+    expect(reopenInterruptedRound(store, ticketId, r.id)).toBe(false);
+    expect(listRecoveryRounds(store, ticketId)[0]!.status).toBe('fixing');
+    // Another ticket cannot reopen this ticket's round.
+    const otherId = createTicketFlow(store, { key: 'T-2', title: 'other' }).id;
+    expect(reopenInterruptedRound(store, otherId, r.id)).toBe(false);
+    expect(listRecoveryRounds(store, ticketId)[0]!.status).toBe('fixing');
+  });
+
+  it('interruptFixExecution increments interrupt_count — the crash-loop backstop', () => {
+    // A crash consumes no round, but it must advance the counter that bounds
+    // the driver's reopen, or a fix that keeps dying relaunches forever.
+    const r = round();
+    beginLiveFixExecution(store, { ticketId, roundId: r.id, startedAt: T0 });
+    expect(interruptFixExecution(store, r.id, T1)).toBe(true);
+    expect(listRecoveryRounds(store, ticketId)[0]).toMatchObject({
+      status: 'interrupted',
+      interruptCount: 1,
+    });
+    // Reopen (a crash is resumable) and crash again: the tally keeps climbing.
+    expect(reopenInterruptedRound(store, ticketId, r.id)).toBe(true);
+    beginLiveFixExecution(store, { ticketId, roundId: r.id, startedAt: T2 });
+    expect(interruptFixExecution(store, r.id, T2)).toBe(true);
+    expect(listRecoveryRounds(store, ticketId)[0]).toMatchObject({
+      status: 'interrupted',
+      interruptCount: 2,
+    });
   });
 
   it('reconcileStrandedFixRounds interrupts a fixing round whose Fix run is no longer running', () => {

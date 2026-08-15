@@ -473,7 +473,11 @@ export function buildDashboardState(
   // the stage its active recovery round is causally attached to.
   const fixFallback: 'uat' | 'review' =
     rounds.find(
-      (r) => r.status === 'pending' || r.status === 'fixing' || r.status === 'revalidating',
+      (r) =>
+        r.status === 'pending' ||
+        r.status === 'fixing' ||
+        r.status === 'revalidating' ||
+        r.status === 'interrupted',
     )?.sourceStage ?? 'uat';
   const presentedStage: InsideStageKey =
     ticket.stageCurrent === null || ticket.stageCurrent === 'fix'

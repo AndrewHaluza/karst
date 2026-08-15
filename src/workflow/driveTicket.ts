@@ -8,8 +8,10 @@ import type { InsideProgressEvent } from '../model/inside/progress.js';
 import { getTicket } from '../store/tickets.js';
 import {
   exhaustRecoveryRound,
+  latestInterruptedRound,
   listRecoveryRounds,
   recoveryDecision,
+  reopenInterruptedRound,
 } from '../store/recoveryRounds.js';
 import { nowIso } from '../model/time.js';
 import { runStageDriver, type StageOutcome, type DriverStatus } from './driver.js';
@@ -413,7 +415,35 @@ export async function driveTicket(
       // decision must never be re-derived from it. The stages-attempt fallback
       // below exists only for tickets parked at fix before rounds did.
       const gate = lastFailedGate(stages);
-      const round = gate === null ? null : recoveryDecision(deps.store, ticketId, gate);
+      let round = gate === null ? null : recoveryDecision(deps.store, ticketId, gate);
+      // An interrupted fix session consumes NO additional round — a crash within
+      // budget is resumable, never terminal history. `activeRecoverySeries`
+      // excludes `interrupted` rounds, so the reopen restores the round to
+      // `pending` BEFORE the resume branch below reads it again. Bounded by
+      // `interrupt_count < max_rounds` (v45): a crash never advances the round
+      // number, so without this counter a fix that keeps dying without the
+      // marker would be relaunched on every terminal close forever. Once the
+      // round has crashed as many times as its budget allows, it stays
+      // interrupted history and the terminal-rounds branch parks the ticket.
+      if (round === null && gate !== null) {
+        const interrupted = latestInterruptedRound(deps.store, ticketId, gate);
+        if (
+          interrupted !== null &&
+          interrupted.interruptCount < interrupted.maxRounds &&
+          roundFixDecision({
+            roundId: interrupted.id,
+            round: interrupted.round,
+            maxRounds: interrupted.maxRounds,
+          }).kind === 'resume'
+        ) {
+          reopenInterruptedRound(deps.store, ticketId, interrupted.id);
+          round = recoveryDecision(deps.store, ticketId, gate);
+          deps.debug?.(
+            `[driver] ticket ${ticketId} at fix: reopened interrupted recovery round ${interrupted.id} ` +
+              `(${interrupted.interruptCount + 1} crash${interrupted.interruptCount + 1 === 1 ? '' : 'es'}, budget ${interrupted.maxRounds})`,
+          );
+        }
+      }
       if (round !== null && round.status === 'pending') {
         // `round !== null` is only reachable when `gate` resolved, but the
         // correlation is not expressible to the type system.

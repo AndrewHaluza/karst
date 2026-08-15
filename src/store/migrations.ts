@@ -19,7 +19,7 @@ export function readSchema(): string {
 }
 
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 44;
+export const SCHEMA_VERSION = 45;
 
 /** v2 ticket-field columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -1683,6 +1683,22 @@ export function migrate(db: Database): void {
     const cols = ticketColumns(db);
     if (cols.has('model') && !cols.has('effort')) {
       db.exec('ALTER TABLE tickets ADD COLUMN effort TEXT');
+    }
+  }
+
+  if (current < 45) {
+    // v45: `recovery_rounds.interrupt_count` — how many times a round's fix
+    // execution has been interrupted. An interrupt consumes no round, but the
+    // driver must not reopen an interrupted round into a crash-loop forever:
+    // a fix that keeps dying without the marker would otherwise relaunch on
+    // every terminal close, bounded only by `round < maxRounds`, which a crash
+    // never advances. The counter is the backstop. A fresh DB already carries
+    // it (schema.sql); a legacy DB gains it by ALTER. NOTHING IS BACKFILLED:
+    // a round interrupted by a pre-v45 build has no count to synthesize —
+    // its first post-upgrade interrupt sets the count that bounds it.
+    const roundCols = tableColumns(db, 'recovery_rounds');
+    if (roundCols.size > 0 && !roundCols.has('interrupt_count')) {
+      db.exec('ALTER TABLE recovery_rounds ADD COLUMN interrupt_count INTEGER NOT NULL DEFAULT 0');
     }
   }
 

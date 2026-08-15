@@ -25,6 +25,7 @@ function round(extra: Partial<RecoveryRound> = {}): RecoveryRound {
     status: 'pending',
     startedAt: '2026-07-20T12:00:00.000Z',
     endedAt: null,
+    interruptCount: 0,
     ...extra,
   };
 }
@@ -121,6 +122,17 @@ describe('recoveryProcess', () => {
     );
     expect(exhausted.process.detail).toBe(
       'Recovery exhausted after 2 rounds. Resolve the remaining failure manually.',
+    );
+  });
+
+  it('names an interrupted round on the COLLAPSED fix row — never silent', () => {
+    // The fix session died without the marker (the interrupted status is a
+    // crash, not a verdict): the collapsed row must say so and name that the
+    // round can be resumed, never render silent.
+    const interrupted = recoveryProcess([round({ status: 'interrupted' })], [], NOW)!;
+    expect(interrupted.process.status).toBe('note');
+    expect(interrupted.process.detail).toBe(
+      'the fix session ended before it was done — it can be resumed',
     );
   });
 
