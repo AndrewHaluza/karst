@@ -288,34 +288,59 @@ function graphRunStatus(status: string): InsideStatus {
   }
 }
 
-function plannerStatus(status: string): InsideStatus {
-  switch (status) {
-    case 'ready':
-      return 'pending';
-    case 'launching':
-    case 'running':
-    case 'submitted':
-      return 'run';
-    case 'blocked':
-    case 'launch-unknown':
-      return 'wait';
-    case 'cancelled':
-    case 'stale':
-      return 'note';
-    default:
-      return 'pending';
-  }
+/** `closed`/`cancelled`/`stale`: the run itself will never mutate again. */
+const TERMINAL_GRAPH_RUN_STATUSES: ReadonlySet<string> = new Set(['closed', 'cancelled', 'stale']);
+
+/**
+ * A planner/revision row's OWN status is a durable historical fact — "the
+ * bootstrap planner was submitted", "this is the active revision" — and never
+ * gets rewritten once the parent run is terminal, because there is nothing
+ * left to advance it to. Rendered blind to the parent, `submitted`/`active`
+ * read `'run'` (a spinner) forever, even next to a `closed` graph run: #352
+ * showed a bootstrap planner and revision still spinning beside a graph the
+ * marker had already closed. Terminal-run rows clamp any 'run' reading to the
+ * run's own outcome — `pass` for `closed` (the row's work is what the closed
+ * run delivered), `note` otherwise (`cancelled`/`stale` never confirms it).
+ */
+function clampToRunOutcome(status: InsideStatus, runStatus: string): InsideStatus {
+  if (status !== 'run' || !TERMINAL_GRAPH_RUN_STATUSES.has(runStatus)) return status;
+  return runStatus === 'closed' ? 'pass' : 'note';
 }
 
-function revisionStatus(status: string): InsideStatus {
-  switch (status) {
-    case 'active':
-      return 'run';
-    case 'completed':
-      return 'pass';
-    default:
-      return 'note';
-  }
+function plannerStatus(status: string, runStatus: string): InsideStatus {
+  const raw = ((): InsideStatus => {
+    switch (status) {
+      case 'ready':
+        return 'pending';
+      case 'launching':
+      case 'running':
+      case 'submitted':
+        return 'run';
+      case 'blocked':
+      case 'launch-unknown':
+        return 'wait';
+      case 'cancelled':
+      case 'stale':
+        return 'note';
+      default:
+        return 'pending';
+    }
+  })();
+  return clampToRunOutcome(raw, runStatus);
+}
+
+function revisionStatus(status: string, runStatus: string): InsideStatus {
+  const raw = ((): InsideStatus => {
+    switch (status) {
+      case 'active':
+        return 'run';
+      case 'completed':
+        return 'pass';
+      default:
+        return 'note';
+    }
+  })();
+  return clampToRunOutcome(raw, runStatus);
 }
 
 function nodeRunStatus(status: string): InsideStatus {
@@ -571,7 +596,7 @@ export function graphInsideProcess(
       detail: sanitizeGraphText(
         `${planner.kind} · ${planner.status} · compile attempt ${planner.compileAttempt}`,
       ),
-      status: plannerStatus(planner.status),
+      status: plannerStatus(planner.status, input.graphRun.status),
     });
   }
 
@@ -630,7 +655,7 @@ export function graphInsideProcess(
         `rev ${input.revision.revisionNumber} · ${input.revision.status}` +
           (input.revision.fingerprint ? ` · ${input.revision.fingerprint.slice(0, 12)}` : ''),
       ),
-      status: revisionStatus(input.revision.status),
+      status: revisionStatus(input.revision.status, input.graphRun.status),
     });
   }
 

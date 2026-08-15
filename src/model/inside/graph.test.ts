@@ -141,6 +141,30 @@ describe('graphInsideProcess', () => {
     expect(process.evidence.nodes).toHaveLength(1);
   });
 
+  it('clamps a still-submitted planner and still-active revision to the run outcome once the run is closed', () => {
+    // The planner/revision rows are durable historical facts — nothing ever
+    // rewrites 'submitted'/'active' once the parent run stops mutating — so
+    // rendering them blind to the run reads as an eternal spinner beside a
+    // closed run (#352: the graph closed via the impl marker while its
+    // bootstrap planner and revision still showed 'run').
+    const closed = graphInsideProcess(
+      input({ graphRun: { id: 7, status: 'closed', approachId: 'g', stageAttempt: 0, createdAt: '2026-08-11T00:00:00.000Z' } }),
+    )!;
+    if (closed.evidence?.kind !== 'rows') return;
+    const planner = closed.evidence.rows.find((r) => r.label === 'planner 1')!;
+    const revision = closed.evidence.rows.find((r) => r.label === 'revision')!;
+    expect(planner.status).toBe('pass');
+    expect(revision.status).toBe('pass');
+    // Not every terminal outcome confirms the row: a run that never landed
+    // must not read as a pass either.
+    const cancelled = graphInsideProcess(
+      input({ graphRun: { id: 7, status: 'cancelled', approachId: 'g', stageAttempt: 0, createdAt: '2026-08-11T00:00:00.000Z' } }),
+    )!;
+    if (cancelled.evidence?.kind !== 'rows') return;
+    expect(cancelled.evidence.rows.find((r) => r.label === 'planner 1')!.status).toBe('note');
+    expect(cancelled.evidence.rows.find((r) => r.label === 'revision')!.status).toBe('note');
+  });
+
   it('shows the node identity, visit count and budget, and its live session action', () => {
     const process = graphInsideProcess(input())!;
     if (process.evidence?.kind !== 'rows') return;
