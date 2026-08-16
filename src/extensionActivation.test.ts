@@ -162,8 +162,10 @@ describe('extension activation', () => {
     expect(source.indexOf('void reconcileGraphRuns();')).toBeLessThan(
       source.indexOf('void reattachGraphSessions();'),
     );
-    // …the coordinator sweep re-attaches on every tick…
-    expect(source.indexOf('void reattachGraphSessions();')).toBeLessThan(
+    // …the coordinator sweep re-attaches on every tick, and AWAITS it so the
+    // reconcile that follows cannot judge a revived session before it is
+    // re-registered (a race that reads a live node as dead)…
+    expect(source.indexOf('await reattachGraphSessions();')).toBeLessThan(
       source.indexOf('activeGraphRunIds(graphCoordinatorStore.db)'),
     );
     // …and openSession re-attaches BEFORE showing the "not attached" message.
@@ -181,16 +183,16 @@ describe('extension activation', () => {
     );
   });
 
-  // Reattach only revives a session whose terminal SURVIVED a reload; a
-  // planning run whose bootstrap planner session DIED outright (dead process,
-  // no terminal) is the remaining hole. The reconcile crash matrix decides the
-  // death and the host relaunches the planner on the SAME planning run — and
-  // the PR sweep reconciles `planning` runs (after reattach, before the
-  // running-run tick) so a planner that dies mid-session is relaunched on the
-  // next sweep, not only at the next activation. Pinned as source like every
-  // wiring case in this file: the seam is bound and the sweep walks planning
-  // runs through the SAME shared deps construction as the activation pass.
-  it('binds the planner relaunch seam and reconciles planning runs on the sweep', () => {
+  // Reattach only revives a session whose terminal SURVIVED a reload; a run
+  // whose session DIED outright (dead process, no terminal) is the remaining
+  // hole. The reconcile crash matrix decides the death and the host relaunches
+  // the planner on the SAME planning run — and the PR sweep reconciles EVERY
+  // run (after reattach, before the running-run tick) so a death mid-session is
+  // recovered on the next sweep, not only at the next activation. Pinned as
+  // source like every wiring case in this file: the seam is bound and the sweep
+  // walks runs through the SAME wrapper the activation pass uses, so a
+  // reconcile-created block still reaches `settleGraphRun`.
+  it('binds the planner relaunch seam and reconciles every run on the sweep', () => {
     const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
 
     // The driver's relaunch is imported and invoked from a host closure that
@@ -204,20 +206,28 @@ describe('extension activation', () => {
     expect(source).toMatch(
       /relaunchPlanner:\s*\(graphRunId\) => void relaunchBootstrapPlannerHost\(graphRunId\)/,
     );
-    // …and the deps are ONE construction shared by the activation pass and the
-    // sweep's planning pass (the factored helper appears at both call sites)…
-    expect(source.match(/graphReconcileDeps\(\)/g)).toHaveLength(2);
-    // …with the seam present BEFORE the running-run tick loop, and the planning
+    // …the deps are ONE construction, reached only through the shared
+    // `reconcileGraphRuns` wrapper (the activation pass and the sweep both call
+    // it, so neither can drift from the other or skip `settleGraphRun`)…
+    expect(source.match(/graphReconcileDeps\(\)/g)).toHaveLength(1);
+    expect(source).toContain('if (result.status === \'blocked\') {');
+    expect(source).toContain('settleGraphRun(gs.db, run.id);');
+    // …the wrapper reconciles EVERY run, not only the `planning` ones: a node
+    // whose process died leaves its run `running` forever otherwise, since
+    // nothing else observes a dead node between activations.
+    expect(source).toContain("SELECT id FROM approach_graph_runs ORDER BY id");
+    expect(source).not.toContain("SELECT id FROM approach_graph_runs WHERE status = 'planning'");
+    // …with the seam present BEFORE the running-run tick loop, and the sweep's
     // reconcile AFTER reattach but BEFORE that loop (a just-revived live
-    // planner is re-attached, never relaunched).
+    // session is re-attached, never relaunched).
     expect(source.indexOf('relaunchPlanner:')).toBeLessThan(
       source.indexOf('activeGraphRunIds(graphCoordinatorStore.db)'),
     );
-    const planningQuery = source.indexOf(
-      "SELECT id FROM approach_graph_runs WHERE status = 'planning'",
+    const sweepReconcile = source.indexOf('await reconcileGraphRuns();');
+    expect(sweepReconcile).toBeGreaterThan(source.indexOf('await reattachGraphSessions();'));
+    expect(sweepReconcile).toBeLessThan(
+      source.indexOf('activeGraphRunIds(graphCoordinatorStore.db)'),
     );
-    expect(planningQuery).toBeGreaterThan(source.indexOf('void reattachGraphSessions();'));
-    expect(planningQuery).toBeLessThan(source.indexOf('activeGraphRunIds(graphCoordinatorStore.db)'));
   });
 
   // A process run is opened durably before the process starts, so a run whose
