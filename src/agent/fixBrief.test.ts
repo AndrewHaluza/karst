@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { Finding } from '../store/reviewFindings.js';
+import type { GateRun } from '../store/gateRuns.js';
 import { renderFixBrief } from './fixBrief.js';
 
 function finding(over: Partial<Finding> = {}): Finding {
@@ -17,6 +18,27 @@ function finding(over: Partial<Finding> = {}): Finding {
     detail: 'detail',
     source: 'agent',
     createdAt: '2026-08-01T10:00:00.000Z',
+    ...over,
+  };
+}
+
+function gate(over: Partial<GateRun> = {}): GateRun {
+  return {
+    id: 1,
+    ticketId: 1,
+    stageKey: 'review',
+    attempt: 0,
+    runAt: '2026-08-01T10:00:00.000Z',
+    gateName: 'lint (web)',
+    exitCode: 1,
+    startedAt: null,
+    endedAt: null,
+    repo: '/web',
+    command: 'npm',
+    args: ['run', 'lint'],
+    skipped: false,
+    stageRunId: null,
+    summary: null,
     ...over,
   };
 }
@@ -86,5 +108,69 @@ describe('renderFixBrief', () => {
       [finding({ severity: 'critical', title: 'stale finding' })],
     );
     expect(brief).not.toContain('stale finding');
+  });
+
+  it('includes the failing gates output excerpts, so the fix is pointed at the defect', () => {
+    const brief = renderFixBrief(
+      'PROJ-10',
+      [{ stageKey: 'review', status: 'failed', verdict: 'gates failed: lint (web)' }],
+      [],
+      [
+        gate({
+          gateName: 'lint (web)',
+          exitCode: 1,
+          summary: 'src/pages/index.vue:23:9 Replace `x` with `y`',
+        }),
+      ],
+    );
+    expect(brief).toContain('The failing gates reported:');
+    expect(brief).toContain('- lint (web) (exit 1)');
+    expect(brief).toContain('src/pages/index.vue:23:9 Replace `x` with `y`');
+  });
+
+  it('lists only the latest batch of failing gates, never a superseded run', () => {
+    const brief = renderFixBrief(
+      'PROJ-11',
+      [{ stageKey: 'review', status: 'failed', verdict: 'gates failed: lint (web)' }],
+      [],
+      [
+        gate({
+          runAt: '2026-08-01T09:00:00.000Z',
+          gateName: 'lint (web)',
+          summary: 'stale failure from an earlier attempt',
+        }),
+        gate({
+          runAt: '2026-08-01T10:00:00.000Z',
+          gateName: 'lint (web)',
+          summary: 'the current failure',
+        }),
+        gate({ runAt: '2026-08-01T10:00:00.000Z', gateName: 'typecheck (web)', exitCode: 0 }),
+      ],
+    );
+    expect(brief).toContain('the current failure');
+    expect(brief).not.toContain('stale failure');
+  });
+
+  it('never attributes a failing gate to a different stage than the one that failed', () => {
+    // The ticket is parked at fix because review failed; a uat gate from the
+    // ticket's history must not read as part of this failure.
+    const brief = renderFixBrief(
+      'PROJ-12',
+      [{ stageKey: 'review', status: 'failed', verdict: 'gates failed: lint (web)' }],
+      [],
+      [gate({ stageKey: 'uat', gateName: 'test (web)', exitCode: 1, summary: 'uat broke' })],
+    );
+    expect(brief).not.toContain('The failing gates reported:');
+    expect(brief).not.toContain('uat broke');
+  });
+
+  it('says nothing about gate output when none of the failing gates recorded a summary', () => {
+    const brief = renderFixBrief(
+      'PROJ-13',
+      [{ stageKey: 'review', status: 'failed', verdict: 'gates failed: lint (web)' }],
+      [],
+      [gate({ gateName: 'lint (web)', exitCode: 1, summary: null })],
+    );
+    expect(brief).not.toContain('The failing gates reported:');
   });
 });

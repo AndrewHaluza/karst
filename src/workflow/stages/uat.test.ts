@@ -935,6 +935,42 @@ describe('runUat', () => {
     // Two gates (test, e2e) for the single 'web' target.
     expect(completed).toEqual(['test', 'e2e']);
   });
+
+  it('persists a bounded summary of a FAILING gate output, and none for a passing gate', async () => {
+    await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      deps({
+        runGates: async (gates, _cwd, opts) => {
+          const results = gates.map((g, i) => {
+            const startedAt = now();
+            const endedAt = now();
+            // Long enough that the summarized TAIL drops the harmless preamble,
+            // like a real Prettier run over a big tree.
+            const output =
+              g.name === 'test'
+                ? Array.from({ length: 20 }, (_, k) => `Checking file ${k}...`).join('\n') +
+                  '\nsrc/pages/index.vue:23:9 Replace `x` with `y`\n1 file would be reformatted.'
+                : 'ok';
+            opts?.onGateComplete?.(g.name, g.name === 'test' ? 1 : 0, startedAt, endedAt, i, output);
+            return { name: g.name, exitCode: g.name === 'test' ? 1 : 0, output, startedAt, endedAt };
+          });
+          return { kind: 'ran', results };
+        },
+      }),
+    );
+
+    const runs = listGateRuns(store, id);
+    const failing = runs.find((r) => r.gateName.startsWith('test'))!;
+    const passing = runs.find((r) => r.gateName.startsWith('e2e'))!;
+    expect(failing.exitCode).toBe(1);
+    // The summary is the failing output's actionable tail — the "what failed"
+    // a fix session reads back instead of the artifact log.
+    expect(failing.summary).toContain('src/pages/index.vue:23:9');
+    expect(failing.summary).not.toContain('Checking file 0');
+    expect(passing.exitCode).toBe(0);
+    expect(passing.summary).toBeNull();
+  });
 });
 
 describe('resolveTargetGates', () => {

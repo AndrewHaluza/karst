@@ -222,4 +222,30 @@ describe('onGateStart', () => {
     );
     expect(seen).toEqual([['e2e', null, null, null]]);
   });
+
+  it('carries the gate output through onGateComplete, so a failure summary can be derived at append time', async () => {
+    const seen: Array<[string, number | null, string]> = [];
+    await runGateList(
+      [
+        { name: 'lint', command: 'node', args: ['-e', "process.stderr.write('src/pages/index.vue:23:9 Replace `x`\\n'); process.exit(1)"], script: null, required: true },
+      ],
+      process.cwd(),
+      { onGateComplete: (name, exitCode, _startedAt, _endedAt, _index, output) => seen.push([name, exitCode, output ?? '']) },
+    );
+    expect(seen).toHaveLength(1);
+    expect(seen[0]![0]).toBe('lint');
+    expect(seen[0]![1]).toBe(1);
+    expect(seen[0]![2]).toContain('src/pages/index.vue:23:9 Replace `x`');
+  });
+
+  it('carries the output of a required gate whose script is missing, so its synthesized failure is recorded', async () => {
+    const seen: Array<[string, string]> = [];
+    await runGateList(
+      [{ name: 'integration', command: 'npm', args: ['run', 'test:integration'], script: 'test:integration', required: true }],
+      process.cwd(),
+      { now: () => '2026-07-30T10:00:00.000Z', scriptsAvailable: () => false, onGateComplete: (name, _exit, _s, _e, _i, output) => seen.push([name, output ?? '']) },
+    );
+    expect(seen).toHaveLength(1);
+    expect(seen[0]![1]).toContain('which package.json does not define');
+  });
 });

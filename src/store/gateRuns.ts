@@ -43,6 +43,14 @@ export interface GateRun {
    * backfilled, because a historical row cannot name a run nothing recorded.
    */
   stageRunId: number | null;
+  /**
+   * v46: a bounded excerpt of the gate's own output, written ONLY for a gate
+   * that FAILED (non-null non-zero exit code). This is the "what failed (file,
+   * line, rule)" a fix session or `karst context` reads back as data — the
+   * full output stays in the artifact log, whose text format is not a data
+   * contract. NULL for a pass, a skip, an absent script, and every pre-v46 row.
+   */
+  summary: string | null;
 }
 
 /** One gate as a runner reports it, before it has an id or a batch stamp. */
@@ -62,6 +70,12 @@ export interface GateRunInput {
   args?: readonly string[] | null;
   /** v24: recorded because it was disabled for this ticket, not because it ran. */
   skipped?: boolean;
+  /**
+   * v46: a bounded excerpt of the gate's output for a gate that FAILED (see
+   * `GateRun.summary`). Absent/null for a gate that passed, never ran, or was
+   * skipped — only a failure has a summary to read.
+   */
+  summary?: string | null;
 }
 
 export interface GateRunBatch {
@@ -90,6 +104,7 @@ interface GateRunRow {
   args: string | null; // JSON array, or NULL
   skipped: number | null;
   stage_run_id: number | null;
+  summary: string | null;
 }
 
 /**
@@ -146,6 +161,7 @@ function rowToGateRun(r: GateRunRow): GateRun {
     // both are "not skipped", and neither is guessed at.
     skipped: r.skipped === 1,
     stageRunId: r.stage_run_id,
+    summary: r.summary,
   };
 }
 
@@ -169,8 +185,8 @@ export function recordGateRun(store: Store, batch: GateRunBatch): void {
   const insert = store.db.prepare(
     `INSERT INTO gate_runs
        (ticket_id, stage_key, attempt, run_at, gate_name, exit_code, started_at, ended_at,
-        repo, command, args, skipped, stage_run_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        repo, command, args, skipped, stage_run_id, summary)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   for (const g of batch.gates) {
     insert.run(
@@ -187,6 +203,7 @@ export function recordGateRun(store: Store, batch: GateRunBatch): void {
       g.args ? JSON.stringify(g.args) : null,
       g.skipped ? 1 : null,
       batch.stageRunId ?? null,
+      g.summary ?? null,
     );
   }
 }
@@ -201,7 +218,7 @@ export function listGateRuns(store: Store, ticketId: number): GateRun[] {
   return store.db
     .prepare(
       `SELECT id, ticket_id, stage_key, attempt, run_at, gate_name, exit_code,
-              started_at, ended_at, repo, command, args, skipped, stage_run_id
+              started_at, ended_at, repo, command, args, skipped, stage_run_id, summary
          FROM gate_runs
         WHERE ticket_id = ?
         ORDER BY id`,

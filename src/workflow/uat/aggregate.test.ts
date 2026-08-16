@@ -142,6 +142,7 @@ describe('reviewIdentitiesFrom', () => {
       startedAt: null,
       endedAt: null,
       skipped: false,
+      summary: null,
       ...identity,
     };
   }

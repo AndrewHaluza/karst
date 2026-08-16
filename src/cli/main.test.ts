@@ -96,6 +96,33 @@ describe('runCli — stage marker', () => {
   it('names every verb it accepts when the subcommand is unknown', () => {
     expect(() => runCli(['bogus', '--db', dbPath])).toThrow(/phase/);
   });
+
+  it('names the current stage and the valid marker when the fired one is stale (gate stage)', () => {
+    const seed = openStore(dbPath);
+    transition(seed, 1, 'impl', { kind: 'passed' }); // -> uat
+    seed.close();
+
+    expect(() => runCli(['stage', 'impl', 'pass', '--db', dbPath, '--ticket', 'K-1'])).toThrow(
+      /already at stage 'uat'/,
+    );
+    expect(() => runCli(['stage', 'impl', 'pass', '--db', dbPath, '--ticket', 'K-1'])).toThrow(
+      /gate exit codes/,
+    );
+  });
+
+  it('names the fix marker when a stale impl marker is fired at fix', () => {
+    const seed = openStore(dbPath);
+    transition(seed, 1, 'impl', { kind: 'passed' });
+    transition(seed, 1, 'uat', { kind: 'failed', reason: 'exit 1' }); // -> fix
+    seed.close();
+
+    expect(() => runCli(['stage', 'impl', 'pass', '--db', dbPath, '--ticket', 'K-1'])).toThrow(
+      /already at stage 'fix'/,
+    );
+    expect(() => runCli(['stage', 'impl', 'pass', '--db', dbPath, '--ticket', 'K-1'])).toThrow(
+      /'stage fix pass'/,
+    );
+  });
 });
 
 describe('runCli — populated attachment context over node:sqlite', () => {

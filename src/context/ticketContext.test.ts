@@ -269,7 +269,7 @@ describe('ticket context — stage/gate/finding state (closes G15)', () => {
       status: 'running',
       verdict: null,
       blocked: null,
-      gates: [{ name: 'lint (web)', exitCode: 1, skipped: false }],
+      gates: [{ name: 'lint (web)', exitCode: 1, skipped: false, summary: null }],
       findings: [
         { severity: 'critical', repo: '/web', file: 'src/db.ts', line: 42, title: 'SQL injection', detail: 'd' },
       ],
@@ -333,7 +333,7 @@ describe('ticket context — stage/gate/finding state (closes G15)', () => {
 
     const ctx = buildTicketContext(store, undefined, t.id);
     expect(ctx.stage?.stageKey).toBe('uat');
-    expect(ctx.stage?.gates).toEqual([{ name: 'test (web)', exitCode: 0, skipped: false }]);
+    expect(ctx.stage?.gates).toEqual([{ name: 'test (web)', exitCode: 0, skipped: false, summary: null }]);
     expect(ctx.stage?.findings).toEqual([]);
   });
 
@@ -354,11 +354,41 @@ describe('ticket context — stage/gate/finding state (closes G15)', () => {
 
     const ctx = buildTicketContext(store, undefined, t.id);
     expect(ctx.stage?.gates).toEqual([
-      { name: 'test', exitCode: 0, skipped: false },
-      { name: 'e2e', exitCode: null, skipped: true },
+      { name: 'test', exitCode: 0, skipped: false, summary: null },
+      { name: 'e2e', exitCode: null, skipped: true, summary: null },
     ]);
     const md = renderTicketContext(ctx);
     expect(md).toContain('disabled for this ticket');
+  });
+
+  it('surfaces a failing gate output excerpt in the context, not just the exit code', () => {
+    const t = createTicket(store, { key: 'PROJ-5', title: 't' });
+    store.db.prepare('UPDATE tickets SET stage_current = ? WHERE id = ?').run('review', t.id);
+    setStage(store, t.id, 'review', { status: 'failed', verdict: 'gates failed: lint (web)' });
+    recordGateRun(store, {
+      ticketId: t.id,
+      stageKey: 'review',
+      attempt: 0,
+      runAt: '2026-08-01T10:00:00.000Z',
+      gates: [
+        {
+          gateName: 'lint (web)',
+          exitCode: 1,
+          summary: 'src/pages/index.vue:23:9 Replace `x` with `y`',
+        },
+      ],
+    });
+
+    const ctx = buildTicketContext(store, undefined, t.id);
+    expect(ctx.stage?.gates).toEqual([
+      { name: 'lint (web)', exitCode: 1, skipped: false, summary: 'src/pages/index.vue:23:9 Replace `x` with `y`' },
+    ]);
+    const md = renderTicketContext(ctx);
+    // The verdict names the gate; the summary says what to fix — both reach the
+    // agent so it never has to open the artifact log to learn the failure.
+    expect(md).toContain('- verdict: gates failed: lint (web)');
+    expect(md).toContain('- lint (web): exit 1');
+    expect(md).toContain('src/pages/index.vue:23:9 Replace `x` with `y`');
   });
 
   it('names a block, when the current stage is parked', () => {

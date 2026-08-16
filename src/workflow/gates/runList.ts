@@ -31,10 +31,13 @@ export interface RunGatesOptions {
    * Called after each gate finishes, with the gate's name AND its recorded
    * outcome (`null` = the repo could not answer — the "nothing to run" note,
    * never a verdict), the row's own timing (null when none exists, exactly
-   * like the recorded result) and the gate's index in the list. Lets callers
-   * push dashboard progress ("gate 2 of 4, elapsed 1m23s") and persist the
-   * gate's evidence row the moment it lands — a host death between two gates
-   * must not take the finished gate's record with it.
+   * like the recorded result), the gate's index in the list, and the gate's
+   * combined output. Lets callers push dashboard progress ("gate 2 of 4,
+   * elapsed 1m23s") and persist the gate's evidence row the moment it lands —
+   * a host death between two gates must not take the finished gate's record
+   * with it. `output` is the bounded captured stdout+stderr, so a caller that
+   * records a failure summary (v46) can derive it HERE, at the same instant
+   * the row is appended, instead of re-reading the artifact later.
    */
   onGateComplete?: (
     gateName: string,
@@ -42,6 +45,7 @@ export interface RunGatesOptions {
     startedAt: string | null,
     endedAt: string | null,
     index: number,
+    output?: string,
   ) => void;
   /**
    * Called BEFORE each gate's work begins, with the gate's name — the live
@@ -91,7 +95,7 @@ export async function runGateList(
         startedAt,
         endedAt,
       });
-      opts.onGateComplete?.(gate.name, 1, startedAt, endedAt, index);
+      opts.onGateComplete?.(gate.name, 1, startedAt, endedAt, index, results[results.length - 1]!.output);
       continue;
     }
 
@@ -111,7 +115,7 @@ export async function runGateList(
         exitCode: null,
         output: `no "${gate.script}" script available — nothing to run`,
       });
-      opts.onGateComplete?.(gate.name, null, null, null, index);
+      opts.onGateComplete?.(gate.name, null, null, null, index, results[results.length - 1]!.output);
       continue;
     }
     const endedAt = now();
@@ -125,7 +129,7 @@ export async function runGateList(
       startedAt,
       endedAt,
     });
-    opts.onGateComplete?.(gate.name, outcome.kind === 'completed' ? outcome.exitCode : 1, startedAt, endedAt, index);
+    opts.onGateComplete?.(gate.name, outcome.kind === 'completed' ? outcome.exitCode : 1, startedAt, endedAt, index, results[results.length - 1]!.output);
   }
   return { kind: 'ran', results };
 }

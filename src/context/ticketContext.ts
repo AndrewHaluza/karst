@@ -86,6 +86,14 @@ export interface TicketContextGate {
    * for this ticket.
    */
   skipped: boolean;
+  /**
+   * v46: a bounded excerpt of the failing gate's own output — the "what failed
+   * (file, line, rule)" a linter or test runner printed. Present only when the
+   * gate FAILED and a summary was captured; null for a pass/skip/absent row
+   * and for pre-v46 evidence. The full output stays in the artifact log named
+   * by `artifactPath`.
+   */
+  summary: string | null;
 }
 
 /** One review finding from the latest batch — the same fields `fixBrief.ts` renders. */
@@ -346,6 +354,7 @@ export function buildTicketContext(
           name: g.gateName,
           exitCode: g.exitCode,
           skipped: g.skipped,
+          summary: g.summary ?? null,
         })),
         // Findings are review-only evidence (Lane B writes nothing for uat).
         findings:
@@ -465,17 +474,21 @@ export function renderTicketContext(ctx: TicketContext): string {
     }
     if (s.artifactPath) lines.push(`- log: ${s.artifactPath}`);
     if (s.gates.length > 0) {
-      lines.push(
-        '- gates:',
-        ...s.gates.map((g) => {
-          const state = g.skipped
-            ? 'skipped (disabled for this ticket)'
-            : g.exitCode === null
-              ? 'not run (no such script)'
-              : `exit ${g.exitCode}`;
-          return `  - ${g.name}: ${state}`;
-        }),
-      );
+      lines.push('- gates:');
+      for (const g of s.gates) {
+        const state = g.skipped
+          ? 'skipped (disabled for this ticket)'
+          : g.exitCode === null
+            ? 'not run (no such script)'
+            : `exit ${g.exitCode}`;
+        lines.push(`  - ${g.name}: ${state}`);
+        // v46: the failing gate's bounded output excerpt — the "what failed
+        // (file, line, rule)" the verdict string cannot carry, surfaced so a
+        // session never has to open the artifact log just to learn what broke.
+        if (g.summary) {
+          for (const line of g.summary.split('\n')) lines.push(`      ${line}`);
+        }
+      }
     }
     if (s.findings.length > 0) {
       lines.push(
