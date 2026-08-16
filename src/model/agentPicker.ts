@@ -40,6 +40,12 @@
  * efforts plus the inherit/none row. A saved effort that left the catalog stays
  * visible and selected so it is never silently rewritten.
  *
+ * Model rows also render the model's advertised capability tags (`multimodal`,
+ * `text-only`, `audio`, `vision`) as small chips under the model name, so a
+ * user can tell at a glance what a model accepts. Tags come from the curated
+ * catalog entries only (the live CLI tiers report id/label), and the picker
+ * renders whatever the host supplies — there is no tag vocabulary in this file.
+ *
  * CSS + JS are emitted as plain statements swapped into each webview's markers
  * (`KARST_AGENT_PICKER_CSS` / `KARST_AGENT_PICKER_JS`), before
  * `injectCsp` nonces the document. The runtime is a plain-JS string (no
@@ -108,6 +114,8 @@ export function agentPickerCss(): string {
 .ap-model-item .ap-model-name{font-weight:500;font-size:var(--k-text-base)}
 .ap-model-item .ap-model-sub{font-size:var(--k-text-xs);color:var(--k-text-dim);margin-top:var(--k-space-1)}
 .ap-model-item .ap-model-tag{font-size:var(--k-text-2xs);color:var(--k-text-faint);flex:0 0 auto}
+.ap-model-tags{display:flex;flex-wrap:wrap;gap:var(--k-space-1);margin-top:var(--k-space-2)}
+.ap-tag{font-size:var(--k-text-2xs);line-height:1;color:var(--k-text-dim);border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-sm);padding:var(--k-space-1) var(--k-space-2);white-space:nowrap}
 .ap-empty{padding:var(--k-space-4);color:var(--k-text-faint);font-size:var(--k-text-sm);text-align:center}
 .ap-effort-field[hidden]{display:none}
 .ap-effort{width:100%;min-height:var(--k-control-h-lg);
@@ -143,6 +151,26 @@ function apEfforts(catalog, provider, modelId) {
     if (list[i].id === modelId) return list[i].efforts;
   }
   return undefined;
+}
+
+/** Advertised capability tags of a model in the live catalog; undefined = none. */
+function apTags(catalog, provider, modelId) {
+  if (!modelId) return undefined;
+  var list = (catalog && catalog[provider]) || [];
+  for (var i = 0; i < list.length; i++) {
+    if (list[i].id === modelId) return list[i].tags;
+  }
+  return undefined;
+}
+
+/** One row of capability-tag chips; empty when the model advertises none. */
+function apModelTagsHtml(tags) {
+  if (!tags || tags.length === 0) return '';
+  var out = '<div class="ap-model-tags">';
+  for (var i = 0; i < tags.length; i++) {
+    out += '<span class="ap-tag">' + apEsc(tags[i]) + '</span>';
+  }
+  return out + '</div>';
 }
 
 /** The effort options HTML for a model: inherit/none row + advertised efforts. */
@@ -225,16 +253,19 @@ function apModelOptionsHtml(catalog, provider, saved, inheritLabel, recentIds) {
       out += '<div class="ap-group-label">Last used</div>';
     }
     for (var k = 0; k < recent.length; k++) {
-      out += apModelItemHtml(recent[k], saved);
+      out += apModelItemHtml(recent[k], saved, apTags(catalog, provider, recent[k].id));
     }
     for (var j = 0; j < list.length; j++) {
       if (recentSet[list[j].id]) continue;
       var m = list[j];
       var sel = m.id === saved;
+      var mTags = apTags(catalog, provider, m.id);
       out += '<div class="ap-model-item' + (sel ? ' active' : '') + '" role="option" tabindex="0"'
         + ' data-ap-model="' + apEsc(m.id) + '" aria-selected="' + (sel ? 'true' : 'false') + '">'
         + '<div><div class="ap-model-name">' + apEsc(m.label) + '</div>'
-        + '<div class="ap-model-sub">' + apEsc(m.id) + '</div></div>'
+        + '<div class="ap-model-sub">' + apEsc(m.id) + '</div>'
+        + apModelTagsHtml(mTags)
+        + '</div>'
         + (sel ? '<span class="ap-model-tag">saved</span>' : '')
         + '</div>';
     }
@@ -249,12 +280,14 @@ function apModelOptionsHtml(catalog, provider, saved, inheritLabel, recentIds) {
 }
 
 /** One model row — shared by the "Last used" group and the full list. */
-function apModelItemHtml(m, saved) {
+function apModelItemHtml(m, saved, tags) {
   var sel = m.id === saved;
   return '<div class="ap-model-item' + (sel ? ' active' : '') + '" role="option" tabindex="0"'
     + ' data-ap-model="' + apEsc(m.id) + '" aria-selected="' + (sel ? 'true' : 'false') + '">'
     + '<div><div class="ap-model-name">' + apEsc(m.label) + '</div>'
-    + '<div class="ap-model-sub">' + apEsc(m.id) + '</div></div>'
+    + '<div class="ap-model-sub">' + apEsc(m.id) + '</div>'
+    + apModelTagsHtml(tags)
+    + '</div>'
     + (sel ? '<span class="ap-model-tag">saved</span>' : '')
     + '</div>';
 }
@@ -481,7 +514,9 @@ function mountAgentPicker(root, opts) {
       if (hay.indexOf(q) >= 0) {
         out += '<div class="ap-model-item" role="option" tabindex="0" data-ap-model="'
           + apEsc(list[i].id) + '"><div><div class="ap-model-name">' + apEsc(list[i].label)
-          + '</div><div class="ap-model-sub">' + apEsc(list[i].id) + '</div></div></div>';
+          + '</div><div class="ap-model-sub">' + apEsc(list[i].id) + '</div>'
+          + apModelTagsHtml(apTags(catalog, state.core, list[i].id))
+          + '</div></div>';
       }
     }
     if (!out) out = '<div class="ap-empty">No models match "' + apEsc(e.target.value) + '".</div>';

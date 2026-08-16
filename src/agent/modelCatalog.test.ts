@@ -19,12 +19,37 @@ describe('validateModelList', () => {
     ])).toEqual([{ id: 'opus', label: 'Opus', providers: ['claude'], efforts: ['low', 'medium', 'high'] }]);
   });
 
+  it('parses an optional tags list and normalizes it', () => {
+    expect(validateModelList('claude', [
+      { id: 'opus', label: 'Opus', tags: ['multimodal', 'vision'] },
+    ])).toEqual([{ id: 'opus', label: 'Opus', providers: ['claude'], tags: ['multimodal', 'vision'] }]);
+  });
+
+  it('parses a model with both efforts and tags', () => {
+    expect(validateModelList('claude', [
+      { id: 'opus', label: 'Opus', efforts: ['low', 'high'], tags: ['multimodal', 'vision'] },
+    ])).toEqual([
+      { id: 'opus', label: 'Opus', providers: ['claude'], efforts: ['low', 'high'], tags: ['multimodal', 'vision'] },
+    ]);
+  });
+
   it.each([
     ['non-array efforts', [{ id: 'model', label: 'Model', efforts: 'high' }]],
     ['blank effort', [{ id: 'model', label: 'Model', efforts: [' ', 'high'] }]],
     ['unsafe effort', [{ id: 'model', label: 'Model', efforts: ['hi gh'] }]],
     ['duplicate effort', [{ id: 'model', label: 'Model', efforts: ['high', 'high'] }]],
   ])('rejects a list with %s', (_reason, models) => {
+    expect(validateModelList('codex', models)).toBeUndefined();
+  });
+
+  it.each([
+    ['non-array tags', [{ id: 'model', label: 'Model', tags: 'multimodal' }]],
+    ['empty tags', [{ id: 'model', label: 'Model', tags: [] }]],
+    ['blank tag', [{ id: 'model', label: 'Model', tags: [' ', 'vision'] }]],
+    ['unsafe tag', [{ id: 'model', label: 'Model', tags: ['mul ti'] }]],
+    ['duplicate tag', [{ id: 'model', label: 'Model', tags: ['vision', 'vision'] }]],
+    ['unknown tag', [{ id: 'model', label: 'Model', tags: ['video'] }]],
+  ])('rejects a model with %s', (_reason, models) => {
     expect(validateModelList('codex', models)).toBeUndefined();
   });
 
@@ -89,6 +114,16 @@ describe('bundledModelCatalog', () => {
     const sonnet = catalog.claude.find((m) => m.id === 'claude-sonnet-5');
     expect(opus?.efforts).toContain('high');
     expect(sonnet?.efforts).toContain('low');
+  });
+
+  it('carries the curated capability tags for flagship models', () => {
+    const catalog = bundledModelCatalog();
+    const opus = catalog.claude.find((m) => m.id === 'claude-opus-5');
+    const gemini = catalog.antigravity.find((m) => m.id === 'gemini-3.6-flash-high');
+    const gptOss = catalog.antigravity.find((m) => m.id === 'gpt-oss-120b-medium');
+    expect(opus?.tags).toEqual(['multimodal', 'vision']);
+    expect(gemini?.tags).toEqual(['multimodal', 'vision', 'audio']);
+    expect(gptOss?.tags).toEqual(['text-only']);
   });
 
   /**
