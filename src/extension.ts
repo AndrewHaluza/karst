@@ -4723,28 +4723,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // Re-attach sessions a terminal revival delivered after the last sweep
         // (the "coordinator re-attaches it on the next sweep" promise), then
         // tick the runs whose continuation the coordinator owns.
-        void reattachGraphSessions();
-        // A planning run whose bootstrap planner session DIED — not a revived
-        // terminal, which the re-attach above just re-registered — is relaunched
-        // by the reconcile crash matrix on this same sweep, so a planner that
-        // dies mid-run is brought back on the next tick, not only at the next
-        // activation. Order matters: reconcile runs AFTER re-attach, so a
-        // just-revived live planner is re-attached, never relaunched.
-        try {
-          const planningRuns = graphCoordinatorStore.db
-            .prepare("SELECT id FROM approach_graph_runs WHERE status = 'planning' ORDER BY id")
-            .all() as { id: number }[];
-          for (const planningRun of planningRuns) {
-            void reconcileGraphRun(graphReconcileDeps(), { graphRunId: planningRun.id }).catch(
-              (e) => {
-                logError(`karst: graph reconcile (sweep) failed for run ${planningRun.id}`, e);
-              },
-            );
-            void driveGraphRunContinuation(planningRun.id);
-          }
-        } catch (e) {
-          logError('karst: graph planning reconcile (sweep) failed', e);
-        }
+        await reattachGraphSessions();
+        // A run whose session DIED — not a revived terminal, which the
+        // re-attach above just re-registered — is recovered by the reconcile
+        // crash matrix on this same sweep, so a death mid-run is brought back
+        // on the next tick, not only at the next activation. This walks EVERY
+        // run, not just the `planning` ones: a node whose process died leaves
+        // its run `running` with the node `running` forever, because nothing
+        // else observes a dead node between activations (the reported defect —
+        // the graph sat `running` on a node whose terminal had closed). It is
+        // the SAME wrapper the activation pass calls, so the reconcile-created
+        // block still reaches `settleGraphRun` and the dashboard offers the
+        // typed graph-recovery Resume. Order matters: reconcile runs AFTER
+        // re-attach (awaited), so a just-revived live session is re-attached,
+        // never judged dead.
+        await reconcileGraphRuns();
         let graphRuns: number[] = [];
         try {
           graphRuns = activeGraphRunIds(graphCoordinatorStore.db);

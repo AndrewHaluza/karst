@@ -190,7 +190,8 @@ export function createSupervisedCliTransport(deps: SupervisedTransportDeps): Sup
         providerSessionId: null,
         terminal,
       };
-      sessions.set(`${request.ticketId}:${request.nodeRunId}`, session);
+      const key = `${request.ticketId}:${request.nodeRunId}`;
+      sessions.set(key, session);
       emitGraphDiagnostic(
         { debug: deps.debug, identityOf: deps.graphIdentityOf },
         {
@@ -205,11 +206,15 @@ export function createSupervisedCliTransport(deps: SupervisedTransportDeps): Sup
       // with the exit verdict, exactly once (the terminal close handler fires
       // once per terminal, and the store's guarded close ignores anything
       // already closed).
-      if (processRunId !== null && deps.closeProcessRun) {
-        terminal.onDidClose((exitCode) => {
+      terminal.onDidClose((exitCode) => {
+        // A closed terminal is no longer a live session. Leaving it in this
+        // registry makes reconcile treat a dead node as owned by this window
+        // forever, so the graph remains stuck at `running`.
+        if (sessions.get(key) === session) sessions.delete(key);
+        if (processRunId !== null && deps.closeProcessRun) {
           try {
-            deps.closeProcessRun?.(
-              processRunId!,
+            deps.closeProcessRun(
+              processRunId,
               exitCode === 0 ? 'passed' : exitCode !== undefined ? 'failed' : 'interrupted',
               deps.now(),
             );
@@ -218,8 +223,8 @@ export function createSupervisedCliTransport(deps: SupervisedTransportDeps): Sup
               `[graph] node ${request.nodeRunId}: closing the process_runs row failed (${String(error)})`,
             );
           }
-        });
-      }
+        }
+      });
       return session;
     },
 
@@ -259,22 +264,26 @@ export function createSupervisedCliTransport(deps: SupervisedTransportDeps): Sup
     sessions: () => [...sessions.values()],
     sessionFor: (ticketId, nodeRunId) => sessions.get(`${ticketId}:${nodeRunId}`),
     adopt: (session) => {
-      sessions.set(`${session.ticketId}:${session.nodeRunId}`, session);
+      const key = `${session.ticketId}:${session.nodeRunId}`;
+      sessions.set(key, session);
       // The revived terminal's eventual close is the re-attached session's end,
       // exactly as it is for a freshly-spawned one (`start` wires the same
       // handler): close the accounting row with the exit verdict, once.
-      if (session.processRunId !== null && session.terminal && deps.closeProcessRun) {
+      if (session.terminal) {
         session.terminal.onDidClose((exitCode) => {
-          try {
-            deps.closeProcessRun?.(
-              session.processRunId!,
-              exitCode === 0 ? 'passed' : exitCode !== undefined ? 'failed' : 'interrupted',
-              deps.now(),
-            );
-          } catch (error) {
-            deps.debug?.(
-              `[graph] node ${session.nodeRunId}: closing the process_runs row failed (${String(error)})`,
-            );
+          if (sessions.get(key) === session) sessions.delete(key);
+          if (session.processRunId !== null && deps.closeProcessRun) {
+            try {
+              deps.closeProcessRun(
+                session.processRunId,
+                exitCode === 0 ? 'passed' : exitCode !== undefined ? 'failed' : 'interrupted',
+                deps.now(),
+              );
+            } catch (error) {
+              deps.debug?.(
+                `[graph] node ${session.nodeRunId}: closing the process_runs row failed (${String(error)})`,
+              );
+            }
           }
         });
       }

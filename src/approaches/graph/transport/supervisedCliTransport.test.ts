@@ -105,7 +105,7 @@ const LAUNCH = {
 
 describe('SupervisedCLITransport', () => {
   it('forwards the session icon path to the terminal host', async () => {
-    const terminal = { processId: async () => 4242 } as never;
+    const terminal = fakeTerminal(4242);
     const calls: Array<Record<string, unknown>> = [];
     const h = harness(undefined, {
       createTerminal: (opts) => {
@@ -247,6 +247,7 @@ describe('SupervisedCLITransport', () => {
     expect(close).toEqual([]);
     closeHandler?.(0);
     expect(close).toEqual([{ processRunId: 77, status: 'passed' }]);
+    expect(transport.sessionFor(adopted.ticketId, adopted.nodeRunId)).toBeUndefined();
   });
 
   it('terminates an attributable pid via the process group and reports the kill outcome', async () => {
@@ -446,6 +447,25 @@ describe('SupervisedCLITransport', () => {
     await transport.start(LAUNCH);
     closeHandler?.(undefined);
     expect(close).toEqual([{ processRunId: 77, status: 'interrupted' }]);
+  });
+
+  it('removes a closed terminal from the live session registry so reconciliation can recover it', async () => {
+    const terminal = fakeTerminal(4242);
+    let closeHandler: ((exitCode?: number) => void) | undefined;
+    terminal.onDidClose = (handler) => {
+      closeHandler = handler;
+    };
+    const transport = createSupervisedCliTransport({
+      ...harness(4242).deps,
+      terminalHost: { createTerminal: () => terminal },
+    });
+    await transport.start(LAUNCH);
+    expect(transport.sessionFor(LAUNCH.ticketId, LAUNCH.nodeRunId)).toBeDefined();
+
+    closeHandler?.(undefined);
+
+    expect(transport.sessionFor(LAUNCH.ticketId, LAUNCH.nodeRunId)).toBeUndefined();
+    expect(transport.sessions()).toEqual([]);
   });
 
   it('pins SessionManager: its terminals map stays keyed by ticket id only', () => {    const source = readFileSync(join(import.meta.dirname, '..', '..', '..', 'ui', 'session.ts'), 'utf8');
