@@ -238,6 +238,28 @@ describe('bootstrapAndLaunchPlanner', () => {
     ).toContain('node "$KARST_GRAPH_CLI" graph submit');
   });
 
+  it('leaves a planner whose spawn threw at launching with its nonce — the shape reconcile relaunches', async () => {
+    const h = harness();
+    h.deps.transport.start = async () => {
+      throw new Error('adapter misconfigured');
+    };
+    const result = await bootstrapAndLaunchPlanner(h.deps, {
+      ticketId: h.ticketId,
+      stageAttempt: 0,
+      approachId: 'karst-graph-engineering',
+      projectSlug: 'acme',
+    });
+    expect(result.kind).toBe('failed');
+    const planner = h.db
+      .prepare('SELECT status, owner_nonce, process_run_id FROM approach_planner_runs ORDER BY id')
+      .get() as { status: string; owner_nonce: string | null; process_run_id: number | null };
+    // `running` with no process is the shape `reconcilePlanningPlanner`
+    // deliberately never judges dead — it would strand the run forever.
+    expect(planner.status).toBe('launching');
+    expect(planner.owner_nonce).not.toBeNull();
+    expect(planner.process_run_id).toBeNull();
+  });
+
   it('returns instructions-missing when the planner prompt cannot be read', async () => {
     const h = harness();
     h.deps.promptBytesOf = () => undefined;
@@ -1257,6 +1279,42 @@ describe('launchReplanPlanner', () => {
     expect(planner.capability_hash).not.toBeNull();
     expect(h.starts).toHaveLength(1);
   });
+
+  it('leaves a replan planner whose spawn threw at launching with its nonce', async () => {
+    const h = harness();
+    const graphRunId = createGraphRun(h.db, {
+      ticketId: h.ticketId,
+      stageAttempt: 0,
+      approachId: 'karst-graph-engineering',
+      now: NOW,
+    });
+    h.db
+      .prepare(
+        `INSERT INTO approach_planner_runs (graph_run_id, planner_run_number, kind, status)
+         VALUES (?, 2, 'replan', 'ready')`,
+      )
+      .run(graphRunId);
+    const plannerRunId = plannerRunIdFor(h.db, graphRunId);
+    h.deps.transport.start = async () => {
+      throw new Error('adapter misconfigured');
+    };
+    const result = await launchReplanPlanner(h.deps, {
+      graphRunId,
+      plannerRunId,
+      generation: '',
+      capability: '',
+      prompt: '# replan',
+      cwd: join(h.root, 'wt'),
+      repo: 'api',
+    });
+    expect(result.kind).toBe('failed');
+    const planner = h.db
+      .prepare('SELECT status, owner_nonce, process_run_id FROM approach_planner_runs WHERE id = ?')
+      .get(plannerRunId) as { status: string; owner_nonce: string | null; process_run_id: number | null };
+    expect(planner.status).toBe('launching');
+    expect(planner.owner_nonce).not.toBeNull();
+    expect(planner.process_run_id).toBeNull();
+  });
 });
 
 describe('relaunchBootstrapPlanner', () => {
@@ -1311,6 +1369,35 @@ describe('relaunchBootstrapPlanner', () => {
     expect(
       (h.starts[0] as { interactive: { initialPrompt: string } }).interactive.initialPrompt,
     ).toContain('node "$KARST_GRAPH_CLI" graph submit');
+  });
+
+  it('leaves a relaunched planner whose spawn threw at launching with its nonce', async () => {
+    const h = harness();
+    const graphRunId = createGraphRun(h.db, {
+      ticketId: h.ticketId,
+      stageAttempt: 0,
+      approachId: 'karst-graph-engineering',
+      now: NOW,
+    });
+    h.db
+      .prepare(
+        `INSERT INTO approach_planner_runs (graph_run_id, planner_run_number, kind, status)
+         VALUES (?, 1, 'bootstrap', 'stale')`,
+      )
+      .run(graphRunId);
+    h.deps.transport.start = async () => {
+      throw new Error('adapter misconfigured');
+    };
+    const result = await relaunchBootstrapPlanner(h.deps, { graphRunId });
+    expect(result.kind).toBe('failed');
+    const planner = h.db
+      .prepare(
+        'SELECT status, owner_nonce, process_run_id FROM approach_planner_runs WHERE graph_run_id = ? ORDER BY id DESC LIMIT 1',
+      )
+      .get(graphRunId) as { status: string; owner_nonce: string | null; process_run_id: number | null };
+    expect(planner.status).toBe('launching');
+    expect(planner.owner_nonce).not.toBeNull();
+    expect(planner.process_run_id).toBeNull();
   });
 
   it('is a no-op for a run that already left planning', async () => {

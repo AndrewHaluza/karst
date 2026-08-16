@@ -196,6 +196,48 @@ export function resolveProfileFor(
 }
 
 /**
+ * Claim a planner run for launch: stamp its launch identity and move it
+ * `ready → launching`, in ONE transaction — exactly the node claim's shape.
+ *
+ * It stops at `launching`, and that stop is the whole point. Stamping
+ * `running` here would be a claim that a session exists before anything has
+ * spawned, and `transport.start` can still throw (a misconfigured adapter,
+ * `buildInteractiveCommand`, the terminal host). A `running` planner with no
+ * process is precisely the shape `reconcilePlanningPlanner` refuses to judge
+ * dead — no pid evidence normally means another window owns a live session —
+ * so the run would sit at `planning` forever, with no session, no process and
+ * no sweep that would ever look again. A `launching` planner carrying its
+ * owner nonce and no process is the opposite: proof the spawn was never
+ * reached, which reconcile marks `stale` and relaunches.
+ */
+function claimPlannerLaunch(
+  deps: GraphDriverDeps,
+  plannerRunId: number,
+  identity: { generation: string; capability: string; ownerNonce: string },
+): boolean {
+  return deps.transaction(() => {
+    deps.db
+      .prepare(
+        'UPDATE approach_planner_runs SET generation = ?, capability_hash = ?, owner_nonce = ? WHERE id = ?',
+      )
+      .run(
+        identity.generation,
+        sha256Hex(new TextEncoder().encode(identity.capability)),
+        identity.ownerNonce,
+        plannerRunId,
+      );
+    return transitionPlannerRun(deps.db, plannerRunId, 'ready', 'launching');
+  });
+}
+
+/** Close a planner claim once its session exists: `launching → running`. A
+ *  lost CAS means another window already moved the row, so this launch is not
+ *  reported as one (the node path reads the same way). */
+function markPlannerRunning(deps: GraphDriverDeps, plannerRunId: number): boolean {
+  return deps.transaction(() => transitionPlannerRun(deps.db, plannerRunId, 'launching', 'running'));
+}
+
+/**
  * Create the graph run + bootstrap planner run (snapshotting the effective
  * planner prompt), stamp generation/capability, and launch the planner
  * session in the ticket's canonical worktree. Never falls through to a plain
@@ -233,27 +275,11 @@ export async function bootstrapAndLaunchPlanner(
     return { kind: 'instructions-missing', reason: begun.reason };
   }
   const { graphRunId, plannerRunId } = begun;
+  // Every check that can refuse this launch runs BEFORE the claim: a run that
+  // never leaves `ready` needs no recovery, while one parked at `launching`
+  // invites the reconcile sweep to relaunch a planner whose profile or
+  // worktree will refuse it again on every pass.
   const resolved = resolveProfileFor(config, config.planner.profile);
-  const capability = randomBytes(32).toString('hex');
-  const generation = uuidv7();
-  // Like the node claim: the ownership proof is committed WITH the transition
-  // out of `ready`, so no window ever observes a `launching` planner run
-  // without launch identity (`reconcilePlanningPlanner` reads its absence).
-  const plannerOwnerNonce = randomBytes(16).toString('hex');
-  const stamped = deps.transaction(() => {
-    deps.db
-      .prepare(
-        'UPDATE approach_planner_runs SET generation = ?, capability_hash = ?, owner_nonce = ? WHERE id = ?',
-      )
-      .run(generation, sha256Hex(new TextEncoder().encode(capability)), plannerOwnerNonce, plannerRunId);
-    return (
-      transitionPlannerRun(deps.db, plannerRunId, 'ready', 'launching')
-      && transitionPlannerRun(deps.db, plannerRunId, 'launching', 'running')
-    );
-  });
-  if (!stamped) {
-    return { kind: 'failed', reason: `planner run ${plannerRunId} already moved (a second window?)` };
-  }
   if (!resolved) {
     return {
       kind: 'failed',
@@ -263,6 +289,20 @@ export async function bootstrapAndLaunchPlanner(
   const workspace = deps.plannerCwdOf(graphRunId);
   if (!workspace) {
     return { kind: 'failed', reason: `no worktree registered for graph run ${graphRunId}` };
+  }
+  const capability = randomBytes(32).toString('hex');
+  const generation = uuidv7();
+  // Like the node claim: the ownership proof is committed WITH the transition
+  // out of `ready`, so no window ever observes a `launching` planner run
+  // without launch identity (`reconcilePlanningPlanner` reads its absence).
+  const plannerOwnerNonce = randomBytes(16).toString('hex');
+  const claimed = claimPlannerLaunch(deps, plannerRunId, {
+    generation,
+    capability,
+    ownerNonce: plannerOwnerNonce,
+  });
+  if (!claimed) {
+    return { kind: 'failed', reason: `planner run ${plannerRunId} already moved (a second window?)` };
   }
   const artifactRoot = deps.artifactRootOf(graphRunId);
   const env = deps.graphEnvOf({
@@ -279,26 +319,39 @@ export async function bootstrapAndLaunchPlanner(
     PLANNER_SUBMIT_INSTRUCTION,
   ].join('\n\n');
   const naming = deps.sessionNamingOf(graphRunId, plannerRunId, 'planner');
-  const session = await deps.transport.start({
-    nodeRunId: plannerRunId,
-    ticketId: input.ticketId,
-    graphRunId,
-    repo: workspace.repo,
-    cwd: workspace.cwd,
-    generation,
-    ownerNonce: plannerOwnerNonce,
-    sessionName: naming.name,
-    ...(naming.iconPath ? { sessionIconPath: naming.iconPath } : {}),
-    graphEnv: env,
-    adapter: deps.adapterFor(resolved.provider),
-    interactive: {
+  let session: SupervisedAgentSession;
+  try {
+    session = await deps.transport.start({
+      nodeRunId: plannerRunId,
+      ticketId: input.ticketId,
+      graphRunId,
+      repo: workspace.repo,
       cwd: workspace.cwd,
-      initialPrompt: prompt,
-      model: resolved.model,
-      effort: resolved.effort,
+      generation,
+      ownerNonce: plannerOwnerNonce,
       sessionName: naming.name,
-    },
-  } satisfies SupervisedLaunchRequest);
+      ...(naming.iconPath ? { sessionIconPath: naming.iconPath } : {}),
+      graphEnv: env,
+      adapter: deps.adapterFor(resolved.provider),
+      interactive: {
+        cwd: workspace.cwd,
+        initialPrompt: prompt,
+        model: resolved.model,
+        effort: resolved.effort,
+        sessionName: naming.name,
+      },
+    } satisfies SupervisedLaunchRequest);
+  } catch (err) {
+    // The row stays `launching` with its nonce and no process — the one shape
+    // reconcile can prove never spawned, and therefore relaunch.
+    deps.debug?.(
+      `[graph] run ${graphRunId}: bootstrap planner ${plannerRunId} failed to spawn (${String(err)}) — left launching for the sweep`,
+    );
+    return { kind: 'failed', reason: `planner run ${plannerRunId} failed to spawn: ${String(err)}` };
+  }
+  if (!markPlannerRunning(deps, plannerRunId)) {
+    return { kind: 'failed', reason: `planner run ${plannerRunId} already moved (a second window?)` };
+  }
   deps.debug?.(
     `[graph] run ${graphRunId}: bootstrap planner ${plannerRunId} launched (${resolved.provider}/${resolved.model ?? 'default'})`,
   );
@@ -362,27 +415,9 @@ export async function relaunchBootstrapPlanner(
       : { kind: 'failed', reason: begun.reason };
   }
   const { plannerRunId } = begun;
+  // Refuse before the claim, exactly as the bootstrap path does: a planner
+  // left at `ready` is not a launch the sweep will keep retrying.
   const resolved = resolveProfileFor(config, config.planner.profile);
-  const capability = randomBytes(32).toString('hex');
-  const generation = uuidv7();
-  // Like the node claim: the ownership proof is committed WITH the transition
-  // out of `ready`, so no window ever observes a `launching` planner run
-  // without launch identity (`reconcilePlanningPlanner` reads its absence).
-  const plannerOwnerNonce = randomBytes(16).toString('hex');
-  const stamped = deps.transaction(() => {
-    deps.db
-      .prepare(
-        'UPDATE approach_planner_runs SET generation = ?, capability_hash = ?, owner_nonce = ? WHERE id = ?',
-      )
-      .run(generation, sha256Hex(new TextEncoder().encode(capability)), plannerOwnerNonce, plannerRunId);
-    return (
-      transitionPlannerRun(deps.db, plannerRunId, 'ready', 'launching')
-      && transitionPlannerRun(deps.db, plannerRunId, 'launching', 'running')
-    );
-  });
-  if (!stamped) {
-    return { kind: 'failed', reason: `planner run ${plannerRunId} already moved (a second window?)` };
-  }
   if (!resolved) {
     return {
       kind: 'failed',
@@ -392,6 +427,20 @@ export async function relaunchBootstrapPlanner(
   const workspace = deps.plannerCwdOf(input.graphRunId);
   if (!workspace) {
     return { kind: 'failed', reason: `no worktree registered for graph run ${input.graphRunId}` };
+  }
+  const capability = randomBytes(32).toString('hex');
+  const generation = uuidv7();
+  // Like the node claim: the ownership proof is committed WITH the transition
+  // out of `ready`, so no window ever observes a `launching` planner run
+  // without launch identity (`reconcilePlanningPlanner` reads its absence).
+  const plannerOwnerNonce = randomBytes(16).toString('hex');
+  const claimed = claimPlannerLaunch(deps, plannerRunId, {
+    generation,
+    capability,
+    ownerNonce: plannerOwnerNonce,
+  });
+  if (!claimed) {
+    return { kind: 'failed', reason: `planner run ${plannerRunId} already moved (a second window?)` };
   }
   const artifactRoot = deps.artifactRootOf(input.graphRunId);
   const env = deps.graphEnvOf({
@@ -408,26 +457,37 @@ export async function relaunchBootstrapPlanner(
     PLANNER_SUBMIT_INSTRUCTION,
   ].join('\n\n');
   const naming = deps.sessionNamingOf(input.graphRunId, plannerRunId, 'planner');
-  const session = await deps.transport.start({
-    nodeRunId: plannerRunId,
-    ticketId: run.ticket_id,
-    graphRunId: input.graphRunId,
-    repo: workspace.repo,
-    cwd: workspace.cwd,
-    generation,
-    ownerNonce: plannerOwnerNonce,
-    sessionName: naming.name,
-    ...(naming.iconPath ? { sessionIconPath: naming.iconPath } : {}),
-    graphEnv: env,
-    adapter: deps.adapterFor(resolved.provider),
-    interactive: {
+  let session: SupervisedAgentSession;
+  try {
+    session = await deps.transport.start({
+      nodeRunId: plannerRunId,
+      ticketId: run.ticket_id,
+      graphRunId: input.graphRunId,
+      repo: workspace.repo,
       cwd: workspace.cwd,
-      initialPrompt: prompt,
-      model: resolved.model,
-      effort: resolved.effort,
+      generation,
+      ownerNonce: plannerOwnerNonce,
       sessionName: naming.name,
-    },
-  } satisfies SupervisedLaunchRequest);
+      ...(naming.iconPath ? { sessionIconPath: naming.iconPath } : {}),
+      graphEnv: env,
+      adapter: deps.adapterFor(resolved.provider),
+      interactive: {
+        cwd: workspace.cwd,
+        initialPrompt: prompt,
+        model: resolved.model,
+        effort: resolved.effort,
+        sessionName: naming.name,
+      },
+    } satisfies SupervisedLaunchRequest);
+  } catch (err) {
+    deps.debug?.(
+      `[graph] run ${input.graphRunId}: bootstrap planner ${plannerRunId} failed to spawn (${String(err)}) — left launching for the sweep`,
+    );
+    return { kind: 'failed', reason: `planner run ${plannerRunId} failed to spawn: ${String(err)}` };
+  }
+  if (!markPlannerRunning(deps, plannerRunId)) {
+    return { kind: 'failed', reason: `planner run ${plannerRunId} already moved (a second window?)` };
+  }
   deps.debug?.(
     `[graph] run ${input.graphRunId}: bootstrap planner ${plannerRunId} relaunched (${resolved.provider}/${resolved.model ?? 'default'})`,
   );
@@ -1170,57 +1230,65 @@ export async function launchReplanPlanner(
 ): Promise<LaunchReplanResult> {
   const run = graphRunById(deps.db, launch.graphRunId);
   if (!run) return { kind: 'no-op' };
+  const config = deps.graphConfigOf(run.approach_id);
+  const resolved = config ? resolveProfileFor(config, config.planner.profile) : undefined;
+  if (!resolved) {
+    return { kind: 'failed', reason: `planner profile of approach "${run.approach_id}" is unresolved` };
+  }
   const capability = launch.capability || randomBytes(32).toString('hex');
   const generation = launch.generation || uuidv7();
   // Like the node claim: the ownership proof is committed WITH the transition
   // out of `ready`, so no window ever observes a `launching` planner run
   // without launch identity (`reconcilePlanningPlanner` reads its absence).
   const plannerOwnerNonce = randomBytes(16).toString('hex');
-  const stamped = deps.transaction(() => {
-    deps.db
-      .prepare(
-        'UPDATE approach_planner_runs SET generation = ?, capability_hash = ?, owner_nonce = ? WHERE id = ?',
-      )
-      .run(generation, sha256Hex(new TextEncoder().encode(capability)), plannerOwnerNonce, launch.plannerRunId);
-    return (
-      transitionPlannerRun(deps.db, launch.plannerRunId, 'ready', 'launching')
-      && transitionPlannerRun(deps.db, launch.plannerRunId, 'launching', 'running')
-    );
-  });
-  if (!stamped) return { kind: 'failed', reason: `planner run ${launch.plannerRunId} already moved` };
-  const config = deps.graphConfigOf(run.approach_id);
-  const resolved = config ? resolveProfileFor(config, config.planner.profile) : undefined;
-  if (!resolved) {
-    return { kind: 'failed', reason: `planner profile of approach "${run.approach_id}" is unresolved` };
-  }
-  const naming = deps.sessionNamingOf(launch.graphRunId, launch.plannerRunId, 'planner');
-  const session = await deps.transport.start({
-    nodeRunId: launch.plannerRunId,
-    ticketId: run.ticket_id,
-    graphRunId: launch.graphRunId,
-    repo: launch.repo,
-    cwd: launch.cwd,
+  const claimed = claimPlannerLaunch(deps, launch.plannerRunId, {
     generation,
+    capability,
     ownerNonce: plannerOwnerNonce,
-    sessionName: naming.name,
-    ...(naming.iconPath ? { sessionIconPath: naming.iconPath } : {}),
-    graphEnv: deps.graphEnvOf({
-      launchId: launch.plannerRunId,
+  });
+  if (!claimed) return { kind: 'failed', reason: `planner run ${launch.plannerRunId} already moved` };
+  const naming = deps.sessionNamingOf(launch.graphRunId, launch.plannerRunId, 'planner');
+  let session: SupervisedAgentSession;
+  try {
+    session = await deps.transport.start({
+      nodeRunId: launch.plannerRunId,
+      ticketId: run.ticket_id,
       graphRunId: launch.graphRunId,
-      revisionId: 0,
-      generation,
-      capability,
-      artifactRoot: deps.artifactRootOf(launch.graphRunId),
-    }),
-    adapter: deps.adapterFor(resolved.provider),
-    interactive: {
+      repo: launch.repo,
       cwd: launch.cwd,
-      initialPrompt: launch.prompt,
-      model: resolved.model,
-      effort: resolved.effort,
+      generation,
+      ownerNonce: plannerOwnerNonce,
       sessionName: naming.name,
-    },
-  } satisfies SupervisedLaunchRequest);
+      ...(naming.iconPath ? { sessionIconPath: naming.iconPath } : {}),
+      graphEnv: deps.graphEnvOf({
+        launchId: launch.plannerRunId,
+        graphRunId: launch.graphRunId,
+        revisionId: 0,
+        generation,
+        capability,
+        artifactRoot: deps.artifactRootOf(launch.graphRunId),
+      }),
+      adapter: deps.adapterFor(resolved.provider),
+      interactive: {
+        cwd: launch.cwd,
+        initialPrompt: launch.prompt,
+        model: resolved.model,
+        effort: resolved.effort,
+        sessionName: naming.name,
+      },
+    } satisfies SupervisedLaunchRequest);
+  } catch (err) {
+    deps.debug?.(
+      `[graph] run ${launch.graphRunId}: replan planner ${launch.plannerRunId} failed to spawn (${String(err)}) — left launching`,
+    );
+    return {
+      kind: 'failed',
+      reason: `planner run ${launch.plannerRunId} failed to spawn: ${String(err)}`,
+    };
+  }
+  if (!markPlannerRunning(deps, launch.plannerRunId)) {
+    return { kind: 'failed', reason: `planner run ${launch.plannerRunId} already moved` };
+  }
   deps.debug?.(`[graph] run ${launch.graphRunId}: replan planner ${launch.plannerRunId} launched`);
   return { kind: 'launched', session, generation, capability };
 }
