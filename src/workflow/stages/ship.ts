@@ -1027,7 +1027,16 @@ export async function shipTicket(
         onProgress({ repo: wt.repo, step: 'commit', status: 'run' });
         const at = nowIso();
         const preHead = (await headCommit(git, wt.path)) ?? '';
-        const preIndexTree = (await git(['write-tree'], wt.path)).stdout.trim();
+        // A failed `git write-tree` (a transient index lock held by a concurrent
+        // git process) must be a READ failure, never a silently-captured `''`:
+        // the compare-and-swap then compares the real tree against the empty
+        // string and refuses with a false `index-diverged` — a misdiagnosed read
+        // failure reported as the world having moved.
+        const preIndex = await git(['write-tree'], wt.path);
+        if (preIndex.exitCode !== 0) {
+          throw new Error(describeGitFailure('git write-tree', preIndex));
+        }
+        const preIndexTree = preIndex.stdout.trim();
         const { fingerprint } = await workingTreeSummary(git, wt.path);
         const identity = await gitIdentity(git, wt.path);
         const quarantineKey = randomUUID();

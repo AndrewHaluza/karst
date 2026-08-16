@@ -394,6 +394,11 @@ describe('ship_runs', () => {
       expect(
         parseShipPreState(JSON.stringify({ ...commitPreState, preHead: 42 }), 'commit'),
       ).toBeNull();
+      // An empty preIndexTree is a failed `git write-tree` read that must never
+      // be adopted: the CAS would otherwise compare the real tree against `''`.
+      expect(
+        parseShipPreState(JSON.stringify({ ...commitPreState, preIndexTree: '' }), 'commit'),
+      ).toBeNull();
       expect(
         parseShipPreState(JSON.stringify({ ...commitPreState, author: { name: 'x' } }), 'commit'),
       ).toBeNull();

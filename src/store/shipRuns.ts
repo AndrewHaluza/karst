@@ -942,6 +942,7 @@ export function parseShipPreState(
       if (
         !isStr(preHead) ||
         !isStr(preIndexTree) ||
+        preIndexTree === '' ||
         !isStr(worktreeFingerprint) ||
         !isStr(message) ||
         !isIdentity(author) ||
