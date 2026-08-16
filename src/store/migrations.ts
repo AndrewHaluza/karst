@@ -1762,22 +1762,23 @@ export function migrate(db: Database): void {
     db.exec('ALTER TABLE recovery_rounds ADD COLUMN interrupt_count INTEGER NOT NULL DEFAULT 0');
   }
 
-  if (current < 46) {
-    // v46: the bounded failure summary on a FAILED gate's `gate_runs` row. A
-    // gate's output lives only in the artifact log, whose text format is not a
-    // data contract — so a failed gate read back out of the store said only
-    // `exit 1`, the ticket context rendered the bare verdict string, and a fix
-    // session had to open the log to learn the actual Prettier/ESLint/test
-    // failure. The summary captures a bounded excerpt of the failing output at
-    // the moment the row is appended and is read back as data. The guard reads
-    // the CURRENT columns, so a fresh DB (already carrying it via schema.sql)
-    // is a no-op and a re-open is idempotent. NOTHING IS BACKFILLED: a pre-v46
-    // failing gate's output is in its artifact log, not derivable from the
-    // stored row.
-    const gateCols = tableColumns(db, 'gate_runs');
-    if (gateCols.size > 0 && !gateCols.has('summary')) {
-      db.exec('ALTER TABLE gate_runs ADD COLUMN summary TEXT');
-    }
+  // The gate_runs.summary step cannot be version-gated, and repairing the
+  // CURRENT shape outside the gate is deliberate — the same reason the
+  // servers.cwd, tickets.priority and recovery_rounds.interrupt_count repairs
+  // above run ungated. v46 was bumped INDEPENDENTLY on two branches: graph
+  // sessions' `servers.kind` (#257) and this failure summary (#259), merged
+  // into two separate steps sharing one version number. A registry migrated
+  // by the earlier build (servers.kind only) reports user_version = 46 while
+  // `gate_runs` still lacks `summary` — not < 46 — so the version-gated ALTER
+  // was skipped forever and every dashboard/ticket-list fetch that reads
+  // gate_runs died with "no such column: summary". The guard reads the
+  // CURRENT columns, never the version, so a fresh DB (already carrying it via
+  // schema.sql) is a no-op and a legacy DB missing it is repaired however it
+  // got here. NOTHING IS BACKFILLED: a pre-v46 failing gate's output is in its
+  // artifact log, not derivable from the stored row.
+  const gateCols = tableColumns(db, 'gate_runs');
+  if (gateCols.size > 0 && !gateCols.has('summary')) {
+    db.exec('ALTER TABLE gate_runs ADD COLUMN summary TEXT');
   }
 
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
