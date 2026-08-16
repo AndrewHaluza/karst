@@ -150,6 +150,7 @@ export function createSupervisedCliTransport(deps: SupervisedTransportDeps): Sup
         shellPath: built.command,
         shellArgs: built.args,
         env: { ...built.env, ...request.graphEnv },
+        ...(request.sessionIconPath ? { iconPath: request.sessionIconPath } : {}),
       });
       const pid = (await terminal.processId()) ?? null;
       // A null pid is still a launch attempt: the row is recorded so the

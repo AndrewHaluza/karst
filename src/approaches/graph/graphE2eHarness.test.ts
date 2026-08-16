@@ -378,7 +378,7 @@ export function makeHarness(): Harness {
       kind: 'created',
       paths: [{ repoName: 'api', cwd: workspace, domainKey: 'd' }],
     }),
-    sessionNameOf: (id, kind) => `${kind} ${id}`,
+    sessionNamingOf: (_graphRunId, runId, kind) => ({ name: `Karst ${kind} ${runId}` }),
     cliNodeCompletionCommand: () => 'node "/dist/cli/main.js" node complete',
   };
 

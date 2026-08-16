@@ -54,6 +54,8 @@ export interface CreateTransportTerminalOpts {
   shellArgs: string[];
   env: Record<string, string>;
   hideFromUser?: boolean;
+  /** The karst brand mark for the terminal tab (a path to the logo asset). */
+  iconPath?: string;
 }
 
 /** One node activation's launch request. */
@@ -68,6 +70,8 @@ export interface AgentNodeLaunch {
   /** The launch generation, frozen for this launch attempt. */
   generation: string;
   sessionName?: string;
+  /** The karst brand mark for the terminal tab; `sessionName` stays the text. */
+  sessionIconPath?: string;
   /** Graph-environment additions (KARST_GRAPH_*) composed by the launcher;
    *  merged over the adapter-built environment. */
   graphEnv: Record<string, string>;

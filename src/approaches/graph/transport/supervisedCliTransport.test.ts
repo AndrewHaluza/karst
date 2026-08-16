@@ -20,7 +20,7 @@ import {
   createSupervisedCliTransport,
   type SupervisedTransportDeps,
 } from './supervisedCliTransport.js';
-import type { TransportTerminal, SupervisedAgentSession } from './agentTransport.js';
+import type { TransportTerminal, TransportTerminalHost, SupervisedAgentSession } from './agentTransport.js';
 import type { AgentAdapter, InteractiveCommand } from '../../../agent/adapter.js';
 
 /** A terminal fake that resolves a configured pid immediately after spawn. */
@@ -55,7 +55,7 @@ interface Harness {
   sessions: { ticketId: number; repo: string; pid: number | null; cwd: string; startedAt: string }[];
 }
 
-function harness(pid?: number): Harness {
+function harness(pid?: number, terminalHost?: TransportTerminalHost): Harness {
   const calls: Harness['calls'] = {
     order: [],
     nonce: '',
@@ -67,13 +67,15 @@ function harness(pid?: number): Harness {
       calls.order.push('persist');
       calls.nonce = nonce;
     },
-    terminalHost: {
-      createTerminal: (opts) => {
-        calls.order.push('spawn');
-        calls.terminal = { cwd: opts.cwd, shellPath: opts.shellPath, shellArgs: opts.shellArgs, env: opts.env };
-        return fakeTerminal(pid);
+    terminalHost:
+      terminalHost ??
+      {
+        createTerminal: (opts) => {
+          calls.order.push('spawn');
+          calls.terminal = { cwd: opts.cwd, shellPath: opts.shellPath, shellArgs: opts.shellArgs, env: opts.env };
+          return fakeTerminal(pid);
+        },
       },
-    },
     recordSession: (row) => {
       calls.order.push('record');
       sessions.push(row);
@@ -102,6 +104,25 @@ const LAUNCH = {
 };
 
 describe('SupervisedCLITransport', () => {
+  it('forwards the session icon path to the terminal host', async () => {
+    const terminal = { processId: async () => 4242 } as never;
+    const calls: Array<Record<string, unknown>> = [];
+    const h = harness(undefined, {
+      createTerminal: (opts) => {
+        calls.push(opts as unknown as Record<string, unknown>);
+        return terminal;
+      },
+    });
+    const transport = createSupervisedCliTransport(h.deps);
+    await transport.start({
+      ...LAUNCH,
+      sessionName: 'Karst: K-1 — fix',
+      sessionIconPath: '/icon/karst.svg',
+    });
+    expect(calls[0]!.iconPath).toBe('/icon/karst.svg');
+    expect(calls[0]!.name).toBe('Karst: K-1 — fix');
+  });
+
   it('persists the owner nonce BEFORE spawn and identity immediately after', async () => {
     const h = harness(4242);
     const transport = createSupervisedCliTransport(h.deps);
