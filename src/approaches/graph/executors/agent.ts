@@ -26,6 +26,7 @@
  */
 
 import type { AgentNode } from '../parse.js';
+import type { TerminalNamingBag } from '../../../ui/terminalNaming.js';
 import type {
   AgentTransport,
   SupervisedAgentSession,
@@ -66,6 +67,8 @@ export interface RunAgentNodeDeps {
     revisionId: number;
     generation: string;
   }) => Record<string, string>;
+  /** The terminal naming bag for a graph session (name + brand icon). */
+  sessionNamingOf: (graphRunId: number, runId: number, kind: 'planner' | 'node') => TerminalNamingBag;
   onDebug?: (message: string) => void;
 }
 
@@ -138,6 +141,7 @@ export async function runAgentNode(
     effort: resolved.effort,
     promptHash: deps.promptHash(prompt),
   };
+  const naming = deps.sessionNamingOf(input.graphRunId, input.nodeRunId, 'node');
   const launch: SupervisedLaunchRequest = {
     nodeRunId: input.nodeRunId,
     ticketId: input.ticketId,
@@ -145,7 +149,8 @@ export async function runAgentNode(
     repo: input.repo,
     cwd: input.cwd,
     generation: input.generation,
-    sessionName: `Karst node ${input.nodeRunId}`,
+    sessionName: naming.name,
+    ...(naming.iconPath ? { sessionIconPath: naming.iconPath } : {}),
     graphEnv: deps.graphEnv({
       nodeRunId: input.nodeRunId,
       ticketId: input.ticketId,
@@ -159,7 +164,7 @@ export async function runAgentNode(
       model: resolved.model,
       effort: resolved.effort,
       initialPrompt: prompt,
-      sessionName: `Karst node ${input.nodeRunId}`,
+      sessionName: naming.name,
     },
   };
   const session = await deps.transport.start(launch);

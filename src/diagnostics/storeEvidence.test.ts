@@ -53,6 +53,21 @@ describe('diagnostic store evidence', () => {
     })
   })
 
+  it('readServers excludes graph-agent rows', () => {
+    store = openStore(':memory:')
+    const project = upsertProject(store, { slug: 'p' })
+    const ticket = createTicket(store, { projectId: project.id, key: 'K-1', title: 't' })
+    store.db.prepare(
+      "INSERT INTO servers (ticket_id, repo, pid, status, cwd, started_at, kind) VALUES (?, 'api', 1, 'running', '/wt/api', '2026-08-12T00:00:00.000Z', 'service')",
+    ).run(ticket.id)
+    store.db.prepare(
+      "INSERT INTO servers (ticket_id, repo, pid, status, cwd, started_at, kind) VALUES (?, 'api', 2, 'running', '/wt/api', '2026-08-12T00:00:00.000Z', 'agent')",
+    ).run(ticket.id)
+    const result = readServers(store, ticket.id, 10)
+    expect(result.rows).toHaveLength(1)
+    expect(result.rows[0]!.repo).toBe('api')
+  })
+
   it('projects topology and PR state without addresses, URLs, reasons, SHAs, or conflict paths', () => {
     store = openStore(':memory:')
     store.db.prepare(

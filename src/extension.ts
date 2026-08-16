@@ -3831,8 +3831,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     recordSession: (row) => {
       graphCoordinatorStore?.db
         .prepare(
-          `INSERT INTO servers (ticket_id, repo, pid, status, cwd, started_at)
-           VALUES (?, ?, ?, 'running', ?, ?)`,
+          `INSERT INTO servers (ticket_id, repo, pid, status, cwd, started_at, kind)
+           VALUES (?, ?, ?, 'running', ?, ?, 'agent')`,
         )
         .run(row.ticketId, row.repo, row.pid, row.cwd, row.startedAt);
     },
@@ -4027,7 +4027,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             domains: input.domains,
           },
         ),
-      sessionNameOf: (runId, kind) => `Karst ${kind} ${runId}`,
+      sessionNamingOf: (graphRunId, runId, kind) => {
+        // A graph session's terminal reads like any other session terminal:
+        // the manifest's terminal-name template + the brand mark. The ticket is
+        // resolved through the graph run so a session can be named for the
+        // ticket it belongs to, not for an opaque run id ("Karst planner 4").
+        let name = `Karst ${kind} ${runId}`;
+        try {
+          const ticket = getTicket(localStore, graphRunTicketId(graphRunId));
+          name = terminalTicketName(ticket, currentManifest()?.terminalNameTemplate);
+        } catch {
+          // The graph run (or its ticket) vanished after the launch was queued
+          // — fall back to the opaque name rather than letting the naming
+          // resolver throw out of a terminal creation.
+        }
+        return terminalNaming({ name, brandIcon });
+      },
       cliNodeCompletionCommand: () =>
         `node "${join(context.extensionUri.fsPath, 'dist', 'cli', 'main.js')}" node complete`,
     };
@@ -6787,6 +6802,9 @@ function makeGraphTerminalHost(identity: TerminalIdentityRegistry): TransportTer
         shellArgs: opts.shellArgs,
         env: opts.env,
         hideFromUser: opts.hideFromUser,
+        // The brand mark rides the graph tab exactly like a regular session's
+        // (Terminal.creationOptions is readonly — the launch glyph is frozen).
+        ...(opts.iconPath ? { iconPath: vscode.Uri.file(opts.iconPath) } : {}),
       });
       // Remembered in the same per-window registry the session terminals use:
       // the graph env carries KARST_TICKET_ID + KARST_LAUNCH_ID, so a reload

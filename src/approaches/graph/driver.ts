@@ -76,6 +76,7 @@ import type { AgentAdapter } from '../../agent/adapter.js';
 import type { ProcessOutcome } from '../../workflow/gates/run.js';
 import type { GraphApproachConfig, GraphCommandConfig } from '../../manifest/types.js';
 import type { GraphPromptIdentity } from '../../agent/graphPrompts.js';
+import type { TerminalNamingBag } from '../../ui/terminalNaming.js';
 import { uuidv7 } from './coordinator/lineage.js';
 
 /** Planner completion is a durable CLI submission, not terminal lifecycle. */
@@ -154,8 +155,8 @@ export interface GraphDriverDeps {
     nodeRunId: number;
     domains: WorkspaceDomain[];
   }) => Promise<CreateNodeWorkspaceResult>;
-  /** The session's display name. */
-  sessionNameOf: (runId: number, kind: 'planner' | 'node') => string;
+  /** The terminal naming bag for a graph session (name + brand icon). */
+  sessionNamingOf: (graphRunId: number, runId: number, kind: 'planner' | 'node') => TerminalNamingBag;
   /** The shell command that reports a node outcome (`karst node …`). */
   cliNodeCompletionCommand: () => string;
 }
@@ -271,6 +272,7 @@ export async function bootstrapAndLaunchPlanner(
     deps.ticketContextOf(input.ticketId),
     PLANNER_SUBMIT_INSTRUCTION,
   ].join('\n\n');
+  const naming = deps.sessionNamingOf(graphRunId, plannerRunId, 'planner');
   const session = await deps.transport.start({
     nodeRunId: plannerRunId,
     ticketId: input.ticketId,
@@ -278,7 +280,8 @@ export async function bootstrapAndLaunchPlanner(
     repo: workspace.repo,
     cwd: workspace.cwd,
     generation,
-    sessionName: deps.sessionNameOf(plannerRunId, 'planner'),
+    sessionName: naming.name,
+    ...(naming.iconPath ? { sessionIconPath: naming.iconPath } : {}),
     graphEnv: env,
     adapter: deps.adapterFor(resolved.provider),
     interactive: {
@@ -286,7 +289,7 @@ export async function bootstrapAndLaunchPlanner(
       initialPrompt: prompt,
       model: resolved.model,
       effort: resolved.effort,
-      sessionName: deps.sessionNameOf(plannerRunId, 'planner'),
+      sessionName: naming.name,
     },
   } satisfies SupervisedLaunchRequest);
   deps.debug?.(
@@ -391,6 +394,7 @@ export async function relaunchBootstrapPlanner(
     deps.ticketContextOf(run.ticket_id),
     PLANNER_SUBMIT_INSTRUCTION,
   ].join('\n\n');
+  const naming = deps.sessionNamingOf(input.graphRunId, plannerRunId, 'planner');
   const session = await deps.transport.start({
     nodeRunId: plannerRunId,
     ticketId: run.ticket_id,
@@ -398,7 +402,8 @@ export async function relaunchBootstrapPlanner(
     repo: workspace.repo,
     cwd: workspace.cwd,
     generation,
-    sessionName: deps.sessionNameOf(plannerRunId, 'planner'),
+    sessionName: naming.name,
+    ...(naming.iconPath ? { sessionIconPath: naming.iconPath } : {}),
     graphEnv: env,
     adapter: deps.adapterFor(resolved.provider),
     interactive: {
@@ -406,7 +411,7 @@ export async function relaunchBootstrapPlanner(
       initialPrompt: prompt,
       model: resolved.model,
       effort: resolved.effort,
-      sessionName: deps.sessionNameOf(plannerRunId, 'planner'),
+      sessionName: naming.name,
     },
   } satisfies SupervisedLaunchRequest);
   deps.debug?.(
@@ -899,6 +904,7 @@ async function executeReadyNode(
           capability: nodeCapability,
           artifactRoot: deps.artifactRootOf(graphRunId),
         }),
+      sessionNamingOf: (graphRunId, runId, kind) => deps.sessionNamingOf(graphRunId, runId, kind),
       onDebug: deps.debug,
     },
     {
@@ -1149,6 +1155,7 @@ export async function launchReplanPlanner(
   if (!resolved) {
     return { kind: 'failed', reason: `planner profile of approach "${run.approach_id}" is unresolved` };
   }
+  const naming = deps.sessionNamingOf(launch.graphRunId, launch.plannerRunId, 'planner');
   const session = await deps.transport.start({
     nodeRunId: launch.plannerRunId,
     ticketId: run.ticket_id,
@@ -1156,7 +1163,8 @@ export async function launchReplanPlanner(
     repo: launch.repo,
     cwd: launch.cwd,
     generation,
-    sessionName: deps.sessionNameOf(launch.plannerRunId, 'planner'),
+    sessionName: naming.name,
+    ...(naming.iconPath ? { sessionIconPath: naming.iconPath } : {}),
     graphEnv: deps.graphEnvOf({
       launchId: launch.plannerRunId,
       graphRunId: launch.graphRunId,
@@ -1171,7 +1179,7 @@ export async function launchReplanPlanner(
       initialPrompt: launch.prompt,
       model: resolved.model,
       effort: resolved.effort,
-      sessionName: deps.sessionNameOf(launch.plannerRunId, 'planner'),
+      sessionName: naming.name,
     },
   } satisfies SupervisedLaunchRequest);
   deps.debug?.(`[graph] run ${launch.graphRunId}: replan planner ${launch.plannerRunId} launched`);

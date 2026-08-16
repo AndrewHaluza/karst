@@ -54,6 +54,23 @@ describe('dashboard store queries', () => {
     expect(serverAddress(store, 9999)).toBeNull(); // unknown id
   });
 
+  it('excludes graph-agent rows from the services list', () => {
+    const other = createTicket(store, { key: 'G-2', title: 'Graph ticket' });
+    store.db
+      .prepare(
+        "INSERT INTO servers (ticket_id, repo, pid, status, cwd, started_at, kind) VALUES (?, 'web', 1, 'running', '/wt/web', '2026-08-12T00:00:00.000Z', 'service')",
+      )
+      .run(other.id);
+    store.db
+      .prepare(
+        "INSERT INTO servers (ticket_id, repo, pid, status, cwd, started_at, kind) VALUES (?, 'web', 2, 'running', '/wt/web', '2026-08-12T00:00:00.000Z', 'agent')",
+      )
+      .run(other.id);
+    const servers = listServersByTicket(store, other.id);
+    expect(servers).toHaveLength(1);
+    expect(servers[0]!.status).toBe('running');
+  });
+
   it('listServersByTicket includes stopped (offline) servers, running first', () => {
     const a = createTicket(store, { key: 'A', title: 'a' });
     seedServer(store, a.id, 'web', 5173, 'running');

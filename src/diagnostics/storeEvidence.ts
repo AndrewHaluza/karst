@@ -213,7 +213,7 @@ export function readServers(store: Store, ticketId: number, cap: number): Bounde
     `SELECT repo, status, (host IS NOT NULL AND port IS NOT NULL) AS has_address,
             COUNT(*) OVER() AS total_count
        FROM servers
-      WHERE ticket_id = ?
+      WHERE ticket_id = ? AND kind = 'service'
       ORDER BY id DESC
       LIMIT ?`,
   ).all(ticketId, limit + 1) as Array<{

@@ -51,6 +51,16 @@ export function latestGraphRunFor(
     .get(ticketId) as GraphRunRow | undefined;
 }
 
+/** The 1-based ordinal of `runId` among the ticket's OWN graph runs — the
+ *  display number, never the global row id. A fresh ticket's first run reads
+ *  `run 1`, whatever `approach_graph_runs.id` the registry has reached. */
+export function graphRunOrdinal(store: Store, ticketId: number, runId: number): number {
+  const row = store.db
+    .prepare('SELECT COUNT(*) AS n FROM approach_graph_runs WHERE ticket_id = ? AND id <= ?')
+    .get(ticketId, runId) as { n: number };
+  return row.n;
+}
+
 /** Which run table a session's row id lives in — `node`, `planner`, or
  *  neither (a row deleted since the session launched → the session is not
  *  offered, because its kind cannot be proven). */
@@ -198,6 +208,7 @@ export function buildGraphInsideInput(
     enabled: true,
     graphRun: {
       id: run.id,
+      runNumber: graphRunOrdinal(deps.store, ticketId, run.id),
       status: run.status,
       approachId: run.approach_id,
       stageAttempt: run.stage_attempt,
