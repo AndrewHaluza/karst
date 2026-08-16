@@ -264,6 +264,29 @@ describe('reconcileGraphRun — reload and crash matrix', () => {
     expect(result.transitions).toBe(1);
   });
 
+  it('states the CURRENT cause on the node it blocks — never a reason left by an earlier park', async () => {
+    // The node's own `reason` is what the Inside graph view renders per node
+    // (`ui/dashboard/graphInside.ts`). A node parked once (here: a launch
+    // failure) and blocked LATER for an unrelated cause kept the first
+    // reason, so the row named a cause that was no longer true while the
+    // run-level `blocked_reason` named the real one.
+    insertNodeRun(ctx, 110, 'launching', { ownerNonce: 'nonce-1' });
+    ctx.db
+      .prepare("UPDATE approach_node_runs SET reason = 'stop-drained-orphan' WHERE id = ?")
+      .run(110);
+
+    await reconcileGraphRun(ctx.makeDeps(), { graphRunId: ctx.graphRunId });
+
+    const node = ctx.db
+      .prepare('SELECT status, reason FROM approach_node_runs WHERE id = ?')
+      .get(110) as { status: string; reason: string | null };
+    expect(node.status).toBe('blocked');
+    expect(node.reason).not.toBe('stop-drained-orphan');
+    expect(node.reason).toMatch(/crashed before spawn/);
+    // …and it is the same cause the run-level block reports.
+    expect(runRow(ctx).blocked_reason).toContain(node.reason!);
+  });
+
   it('a running node whose process is demonstrably dead is marked stale and the run blocks recoverably', async () => {
     linkProcess(ctx, 106, 4343, NOW);
     insertNodeRun(ctx, 106, 'running', { processRunId: 106 });

@@ -58,7 +58,7 @@ import { clearStageBlock, stageBlock } from '../../../store/stageBlocks.js';
 import { getTicket } from '../../../store/tickets.js';
 import { casStatus, GRAPH_RUN_TRANSITIONS, NODE_RUN_TRANSITIONS } from '../../../store/graph/transitions.js';
 import { nodeOverrideFor } from '../../../store/graph/nodeRuns.js';
-import { incrementLaunchAttempt } from './claim.js';
+import { clearLaunchIdentity, incrementLaunchAttempt } from './claim.js';
 import { sha256Hex } from './plannerRun.js';
 import { createPlannerRun } from '../../../store/graph/plannerRuns.js';
 import {
@@ -306,6 +306,8 @@ function retryReservedVisits(
       if (
         casStatus(db, 'approach_node_runs', NODE_RUN_TRANSITIONS, node.id, node.status, 'launching')
       ) {
+        // The dead attempt's identity goes with it — see `clearLaunchIdentity`.
+        clearLaunchIdentity(db, node.id);
         incrementLaunchAttempt(db, node.id);
         retried.push(node.id);
       }

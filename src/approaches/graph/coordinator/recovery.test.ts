@@ -208,6 +208,60 @@ describe('recoverGraphRun', () => {
     expect(stageBlock(store, ticketId, 'impl')).toBeNull();
   });
 
+  it('clears the dead launch identity so the driver can launch the retried visit', () => {
+    // A node blocked by `reconcileLaunching` carries the identity of the launch
+    // that died (owner nonce, process run, generation). `driveReadyNodeRuns`
+    // selects `status = 'launching' AND owner_nonce IS NULL AND
+    // process_run_id IS NULL` (driver.ts), so a retry that leaves the dead
+    // identity in place is never launchable — and the next reconcile tick
+    // re-attributes the same dead pid and blocks the run again, forever.
+    const { ticketId, graphRunId } = blockedGraph(
+      'node-blocked: node 5 launch process (pid 39438) is gone — Resume to relaunch the reserved visit',
+      [{ id: 5, status: 'blocked' }],
+    );
+    claimToken(5);
+    const procRunId = Number(
+      store.db
+        .prepare(
+          `INSERT INTO process_runs (ticket_id, stage_key, process_id, attempt, provider, pid, status, started_at)
+           VALUES (?, 'impl', 'graph-node', 0, 'opencode', 39438, 'interrupted', '2026-08-12T00:00:00.000Z')`,
+        )
+        .run(ticketId).lastInsertRowid,
+    );
+    store.db
+      .prepare(
+        "UPDATE approach_node_runs SET owner_nonce = 'dead-nonce', process_run_id = ?, generation = 'dead-gen' WHERE id = 5",
+      )
+      .run(procRunId);
+
+    const result = recoverGraphRun(makeDeps(), { ticketId, graphRunId });
+
+    expect(result.kind).toBe('retried');
+    const identity = store.db
+      .prepare('SELECT status, owner_nonce, process_run_id, generation FROM approach_node_runs WHERE id = 5')
+      .get() as {
+      status: string;
+      owner_nonce: string | null;
+      process_run_id: number | null;
+      generation: string | null;
+    };
+    expect(identity).toEqual({
+      status: 'launching',
+      owner_nonce: null,
+      process_run_id: null,
+      generation: null,
+    });
+    // …and that is exactly the shape the driver's launchable query matches.
+    const launchable = store.db
+      .prepare(
+        `SELECT id FROM approach_node_runs
+         WHERE graph_run_id = ? AND status = 'launching'
+           AND owner_nonce IS NULL AND process_run_id IS NULL`,
+      )
+      .all(graphRunId) as { id: number }[];
+    expect(launchable.map((r) => r.id)).toEqual([5]);
+  });
+
   it('failed-to-launch and stale node runs retry on the same reserved visit', () => {
     const { ticketId, graphRunId } = blockedGraph('node-blocked: node 7 process gone', [
       { id: 7, status: 'failed-to-launch' },

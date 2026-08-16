@@ -177,6 +177,29 @@ async function attributeOf(
   );
 }
 
+/**
+ * Move a node run to a rest state AND state the cause ON THE NODE. The node's
+ * own `reason` is what the Inside graph view renders per node, and it is
+ * written by other parkers (`parkLaunchFailure`, the replan budget), so a
+ * status change here that left it alone made the row keep a reason belonging
+ * to an earlier park — naming a cause that is no longer true. Returns false
+ * when the CAS lost (another window moved the row); the reason is written
+ * only on the transition that actually happened.
+ */
+function parkNode(
+  deps: ReconcileGraphRunDeps,
+  nodeRunId: number,
+  from: string,
+  to: string,
+  reason: string,
+): boolean {
+  if (!casStatus(deps.db, 'approach_node_runs', NODE_RUN_TRANSITIONS, nodeRunId, from, to)) {
+    return false;
+  }
+  deps.db.prepare('UPDATE approach_node_runs SET reason = ? WHERE id = ?').run(reason, nodeRunId);
+  return true;
+}
+
 /** Block the run with a reason, CAS-guarded: a run another window already
  *  blocked is a no-op, never a re-write of its reason. */
 function blockRun(deps: ReconcileGraphRunDeps, graphRunId: number, reason: string): void {
@@ -269,30 +292,16 @@ async function reconcileLaunching(
   if (proc === null) {
     if (node.owner_nonce !== null) {
       return deps.transaction(() => {
-        if (
-          !casStatus(deps.db, 'approach_node_runs', NODE_RUN_TRANSITIONS, node.id, 'launching', 'blocked')
-        ) {
-          return 0;
-        }
-        blockRun(
-          deps,
-          graphRunId,
-          `node-blocked: node ${node.id} crashed before spawn (owner nonce, no process) — Resume to relaunch the reserved visit`,
-        );
+        const reason = `node-blocked: node ${node.id} crashed before spawn (owner nonce, no process) — Resume to relaunch the reserved visit`;
+        if (!parkNode(deps, node.id, 'launching', 'blocked', reason)) return 0;
+        blockRun(deps, graphRunId, reason);
         return 1;
       });
     }
     return deps.transaction(() => {
-      if (
-        !casStatus(deps.db, 'approach_node_runs', NODE_RUN_TRANSITIONS, node.id, 'launching', 'blocked')
-      ) {
-        return 0;
-      }
-      blockRun(
-        deps,
-        graphRunId,
-        `node-blocked: node ${node.id} has no launch identity (no owner nonce, no process) — Resume to relaunch the reserved visit`,
-      );
+      const reason = `node-blocked: node ${node.id} has no launch identity (no owner nonce, no process) — Resume to relaunch the reserved visit`;
+      if (!parkNode(deps, node.id, 'launching', 'blocked', reason)) return 0;
+      blockRun(deps, graphRunId, reason);
       return 1;
     });
   }
@@ -300,30 +309,16 @@ async function reconcileLaunching(
   if (attribution === 'attributable') return 0; // another window owns the launch
   if (attribution === 'dead' || attribution === 'foreign') {
     return deps.transaction(() => {
-      if (
-        !casStatus(deps.db, 'approach_node_runs', NODE_RUN_TRANSITIONS, node.id, 'launching', 'blocked')
-      ) {
-        return 0;
-      }
-      blockRun(
-        deps,
-        graphRunId,
-        `node-blocked: node ${node.id} launch process (pid ${proc.pid}) is gone — Resume to relaunch the reserved visit`,
-      );
+      const reason = `node-blocked: node ${node.id} launch process (pid ${proc.pid}) is gone — Resume to relaunch the reserved visit`;
+      if (!parkNode(deps, node.id, 'launching', 'blocked', reason)) return 0;
+      blockRun(deps, graphRunId, reason);
       return 1;
     });
   }
   return deps.transaction(() => {
-    if (
-      !casStatus(deps.db, 'approach_node_runs', NODE_RUN_TRANSITIONS, node.id, 'launching', 'launch-unknown')
-    ) {
-      return 0;
-    }
-    blockRun(
-      deps,
-      graphRunId,
-      `launch-unknown: node ${node.id} launch identity is unprovable — discard the unknown process to recover`,
-    );
+    const reason = `launch-unknown: node ${node.id} launch identity is unprovable — discard the unknown process to recover`;
+    if (!parkNode(deps, node.id, 'launching', 'launch-unknown', reason)) return 0;
+    blockRun(deps, graphRunId, reason);
     return 1;
   });
 }
@@ -344,28 +339,15 @@ async function reconcileRunning(
   if (attribution === 'attributable') return 0;
   if (attribution === 'dead' || attribution === 'foreign') {
     return deps.transaction(() => {
-      if (!casStatus(deps.db, 'approach_node_runs', NODE_RUN_TRANSITIONS, node.id, 'running', 'stale')) {
-        return 0;
-      }
-      blockRun(
-        deps,
-        graphRunId,
-        `node-blocked: node ${node.id} process (pid ${proc.pid}) is gone (${attribution} at reconcile) — Resume to relaunch the reserved visit`,
-      );
+      const reason = `node-blocked: node ${node.id} process (pid ${proc.pid}) is gone (${attribution} at reconcile) — Resume to relaunch the reserved visit`;
+      if (!parkNode(deps, node.id, 'running', 'stale', reason)) return 0;
+      blockRun(deps, graphRunId, reason);
       return 1;
     });
   }
   return deps.transaction(() => {
-    if (
-      !casStatus(
-        deps.db,
-        'approach_node_runs',
-        NODE_RUN_TRANSITIONS,
-        node.id,
-        'running',
-        'termination-unknown',
-      )
-    ) {
+    const reason = `termination-unknown: node ${node.id} process (pid ${proc.pid}) death is unprovable — discard the unknown process to recover`;
+    if (!parkNode(deps, node.id, 'running', 'termination-unknown', reason)) {
       return 0;
     }
     // Slice 5 Task 2: a lease of a node whose process death is unprovable is

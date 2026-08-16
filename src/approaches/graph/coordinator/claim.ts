@@ -320,6 +320,27 @@ export function claimedNodeRunForToken(db: GraphDb, tokenId: number): NodeRunRow
     .get(tokenId) as NodeRunRow | undefined;
 }
 
+/**
+ * Drop the identity of a launch that is over — the owner nonce, the process
+ * run and the generation of the attempt that died. A retry MUST do this: the
+ * driver's launchable query is `status = 'launching' AND owner_nonce IS NULL
+ * AND process_run_id IS NULL`, so a retried run that keeps a dead nonce is
+ * never launched, and the next reconcile tick re-attributes the same dead pid
+ * and blocks the run again — a Resume that can only ever loop. The identity of
+ * the NEXT attempt is written by the transport at spawn
+ * (`persistOwnerNonce`/`openProcessRun`), never carried over from the last.
+ */
+export function clearLaunchIdentity(db: GraphDb, nodeRunId: number): boolean {
+  const res = db
+    .prepare(
+      `UPDATE approach_node_runs
+       SET owner_nonce = NULL, process_run_id = NULL, generation = NULL
+       WHERE id = ?`,
+    )
+    .run(nodeRunId);
+  return res.changes === 1;
+}
+
 /** A launch retry bumps the attempt counter on the reserved run; it never
  *  creates another logical visit and never re-pends the token. */
 export function incrementLaunchAttempt(db: GraphDb, nodeRunId: number): boolean {
