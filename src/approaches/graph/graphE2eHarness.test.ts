@@ -635,7 +635,6 @@ export function realTransport(): ReturnType<typeof createSupervisedCliTransport>
         onDidClose: () => undefined,
       }),
     },
-    persistOwnerNonce: () => undefined,
     recordSession: () => undefined,
     now: () => NOW,
   });

@@ -29,9 +29,15 @@
  *                       auto-retried; the T4 discard is the named exit
  *   config-then-resume  budget exhaustion — configuration change within
  *                       hard caps, then explicit Resume
- *   explicit-resolution integration conflict, output/artifact/resource-claim
- *                       faults, topology deadlock, unrecognized reasons —
- *                       corrected artifacts/claims or replan/expert
+ *   artifact-recheck    output-artifact-missing / artifact-unsafe — a human
+ *                       corrects the artifact out of band; an explicit Resume
+ *                       RE-PROBES it through the same artifact resolution that
+ *                       faulted and retries the reserved visit only when the
+ *                       correction is real, else refuses explicit-resolution
+ *                       (`artifactRecheck.ts`). Never automatic.
+ *   explicit-resolution integration conflict, resource-claim violation,
+ *                       topology deadlock, unrecognized reasons —
+ *                       corrected claims or replan/expert
  *                       diagnosis, then explicit Resume
  *
  * The retry happens in ONE `BEGIN IMMEDIATE` transaction: it CAS-claims the
@@ -56,8 +62,8 @@
 import type { Store } from '../../../store/db.js';
 import { clearStageBlock, stageBlock } from '../../../store/stageBlocks.js';
 import { getTicket } from '../../../store/tickets.js';
-import { casStatus, GRAPH_RUN_TRANSITIONS, NODE_RUN_TRANSITIONS } from '../../../store/graph/transitions.js';
-import { nodeOverrideFor } from '../../../store/graph/nodeRuns.js';
+import { casStatus, GRAPH_RUN_TRANSITIONS } from '../../../store/graph/transitions.js';
+import { nodeOverrideFor, transitionNodeRun } from '../../../store/graph/nodeRuns.js';
 import { clearLaunchIdentity, incrementLaunchAttempt } from './claim.js';
 import { sha256Hex } from './plannerRun.js';
 import { createPlannerRun } from '../../../store/graph/plannerRuns.js';
@@ -69,6 +75,7 @@ import {
   type ReplanLaunchRequest,
 } from './replan.js';
 import { emitGraphDiagnostic } from '../diagnostics.js';
+import { ARTIFACT_FAULT_STATUSES, recheckArtifactFaults } from './artifactRecheck.js';
 
 /** The one graph blocker kind (defined here, on the graph side; the stage
  *  boundary module and the model's `BlockerKind` refer to this string). */
@@ -84,6 +91,7 @@ export type RecoveryCategory =
   | 'planner-relaunch'
   | 'discard-required'
   | 'config-then-resume'
+  | 'artifact-recheck'
   | 'explicit-resolution';
 
 /** The closed refusal reasons a `refused` recovery returns. */
@@ -121,6 +129,13 @@ export interface RecoveryDeps {
   readPrompt?: (path: string) => Uint8Array | undefined;
   plannerPromptPath?: string;
   ticketContext?: string;
+  /**
+   * The graph run's content-addressed artifact root — the SAME root the
+   * integration pipeline validated the node's required outputs against. The
+   * artifact-fault Resume re-probes through it; absent, a fault can never be
+   * proven corrected and the recovery refuses (`artifactRecheck.ts`).
+   */
+  artifactRoot?: (graphRunId: number) => string | undefined;
 }
 
 export interface EffectiveNodeConfig {
@@ -202,8 +217,12 @@ export function recoveryCategoryFor(reason: string | null): RecoveryCategory {
   if (reason.startsWith('instructions-missing')) return 'replan';
   if (reason.startsWith('command-definition-changed')) return 'compile-new-revision';
   if (reason.startsWith('prompt-config-changed')) return 'prompt-resnapshot';
-  if (reason.startsWith('output-artifact-missing')) return 'explicit-resolution';
-  if (reason.startsWith('artifact-unsafe')) return 'explicit-resolution';
+  // The two artifact faults are explicit-resolution in SPIRIT — a human must
+  // correct the artifact out of band — but they are not a dead end: an
+  // explicit Resume re-probes the same artifact resolution that faulted, and
+  // retries the reserved visit only when the correction is real.
+  if (reason.startsWith('output-artifact-missing')) return 'artifact-recheck';
+  if (reason.startsWith('artifact-unsafe')) return 'artifact-recheck';
   if (reason.startsWith('resource-claim-violated')) return 'explicit-resolution';
   if (reason.startsWith('integration-conflict')) return 'explicit-resolution';
   if (reason.startsWith('graph-topology-deadlock')) return 'explicit-resolution';
@@ -214,7 +233,9 @@ function blockedNodeRows(db: RecoveryDeps['store']['db'], graphRunId: number): B
   return db
     .prepare(
       `SELECT id, revision_id, node_id, node_kind, status FROM approach_node_runs
-       WHERE graph_run_id = ? AND status IN ('blocked','failed-to-launch','stale')
+       WHERE graph_run_id = ? AND status IN ('blocked','failed-to-launch','stale',${ARTIFACT_FAULT_STATUSES.map(
+         (s) => `'${s}'`,
+       ).join(',')})
        ORDER BY id`,
     )
     .all(graphRunId) as BlockedNodeRow[];
@@ -268,6 +289,23 @@ function retryReservedVisits(
   category: RecoveryCategory,
 ): RecoveryResult {
   const db = deps.store.db;
+
+  // Every retry — whatever category asked for it — re-probes the artifact
+  // faults FIRST. A node parked for a missing/unsafe required output may only
+  // be relaunched once that artifact validates again; otherwise the relaunch
+  // walks straight back into the same fault, which is what the permanent
+  // refusal was protecting against. A still-faulted artifact refuses the whole
+  // Resume: the graph is blocked by that fault too and cannot proceed past it.
+  const recheck = recheckArtifactFaults(db, input.graphRunId, deps.artifactRoot);
+  if (!recheck.ok) {
+    emitGraphDiagnostic({ db, debug: deps.debug }, {
+      category: 'recovery',
+      graphRunId: input.graphRunId,
+      detail: `refused (explicit-resolution): ${recheck.detail} — correct it, then Resume`,
+    });
+    return { kind: 'refused', reason: 'explicit-resolution' };
+  }
+
   const nodes = blockedNodeRows(db, input.graphRunId);
 
   const snapshots = new Map<number, string>();
@@ -303,9 +341,10 @@ function retryReservedVisits(
         db.prepare('UPDATE approach_node_runs SET prompt_hash = ? WHERE id = ?').run(hash, node.id);
         resnapshotted.push(node.id);
       }
-      if (
-        casStatus(db, 'approach_node_runs', NODE_RUN_TRANSITIONS, node.id, node.status, 'launching')
-      ) {
+      // The declared node-run transition, through the store helper that owns
+      // it — `blocked` / `failed-to-launch` / `stale` / the two artifact faults
+      // → `launching`. No map is widened here: every edge already exists.
+      if (transitionNodeRun(db, node.id, node.status, 'launching')) {
         // The dead attempt's identity goes with it — see `clearLaunchIdentity`.
         clearLaunchIdentity(db, node.id);
         incrementLaunchAttempt(db, node.id);
@@ -376,7 +415,9 @@ function replanRecovery(
   const firstBlocked = db
     .prepare(
       `SELECT id FROM approach_node_runs
-       WHERE graph_run_id = ? AND status IN ('blocked','failed-to-launch','stale')
+       WHERE graph_run_id = ? AND status IN ('blocked','failed-to-launch','stale',${ARTIFACT_FAULT_STATUSES.map(
+         (s) => `'${s}'`,
+       ).join(',')})
        ORDER BY id LIMIT 1`,
     )
     .get(input.graphRunId) as { id: number } | undefined;
@@ -612,6 +653,7 @@ export function recoverGraphRun(
   switch (category) {
     case 'launch-retry':
     case 'prompt-resnapshot':
+    case 'artifact-recheck':
       return retryReservedVisits(deps, input, category);
     case 'replan':
     case 'compile-new-revision':

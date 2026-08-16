@@ -3773,11 +3773,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // and terminated only through attribution (systemAsyncProcessFacts).
   graphTransport = createSupervisedCliTransport({
     terminalHost: makeGraphTerminalHost(terminalIdentity),
-    persistOwnerNonce: (nodeRunId, nonce) => {
-      graphCoordinatorStore?.db
-        .prepare('UPDATE approach_node_runs SET owner_nonce = ? WHERE id = ?')
-        .run(nonce, nodeRunId);
-    },
     // Token accounting (Slice 3 T10): every graph launch — planner and node —
     // opens exactly one `process_runs` row, which the interactive usage
     // sampler binds to. Opened with the resolved pid (null when the terminal

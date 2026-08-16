@@ -486,6 +486,24 @@ describe('discardUnknownProcess', () => {
     expect(tokens).toEqual([{ status: 'claimed' }]);
   });
 
+  it('refuses an artifact-faulted node — its process fate is known, so discard is not its exit', () => {
+    // `output-artifact-missing` / `artifact-unsafe` are faults of the ARTIFACT,
+    // not of the process: the pipeline proved termination before validating
+    // outputs. Their exit is the artifact re-check + explicit Resume
+    // (`coordinator/artifactRecheck.ts`), which retries the reserved visit —
+    // discarding the visit would throw away recoverable work.
+    const ctx = harness();
+    for (const [id, status] of [[92, 'output-artifact-missing'], [93, 'artifact-unsafe']] as const) {
+      nodeRun(ctx, id, 'a', status, { visitNumber: id });
+      claimToken(ctx, id, 'a', 'e-a-b');
+      expect(discardUnknownProcess(ctx.makeDeps(), { nodeRunId: id })).toEqual({
+        discarded: false,
+        reason: 'not-ambiguous',
+      });
+      expect(nodeRow(ctx, id).status).toBe(status);
+    }
+  });
+
   it('returns not-found for an unknown node run or a foreign graph run id', () => {
     const ctx = harness();
     expect(discardUnknownProcess(ctx.makeDeps(), { nodeRunId: 999 })).toEqual({

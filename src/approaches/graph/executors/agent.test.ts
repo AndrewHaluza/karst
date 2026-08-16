@@ -103,6 +103,7 @@ function harness(transport: FakeTransport): {
     cwd: '/wt/n1',
     node: agentNode(),
     generation: 'gen-1',
+    ownerNonce: 'a'.repeat(32),
     instructionsSnapshot: '/snap/instr',
     inputSnapshots: ['/snap/task'],
   };

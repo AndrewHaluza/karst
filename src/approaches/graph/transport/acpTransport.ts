@@ -36,7 +36,6 @@
  * the host binds a real ACP client later. Host-agnostic: no vscode import.
  */
 
-import { randomBytes } from 'node:crypto';
 import type {
   AgentNodeLaunch,
   AgentTransport,
@@ -192,8 +191,6 @@ export interface AcpTransportDeps {
   endpoint: string;
   /** The injected ACP client seam. */
   acp: AcpClient;
-  /** Persist the owner nonce on the node run — MUST run before session start. */
-  persistOwnerNonce: (nodeRunId: number, nonce: string) => void;
   /** Register the session in the `servers` registry (cwd-keyed). */
   recordSession: (row: {
     ticketId: number;
@@ -286,8 +283,9 @@ export function createAcpTransport(deps: AcpTransportDeps): AcpTransport {
     capabilities: () => CAPABILITIES,
 
     async start(request: AcpLaunchRequest): Promise<SupervisedAgentSession> {
-      const ownerNonce = randomBytes(16).toString('hex');
-      deps.persistOwnerNonce(request.nodeRunId, ownerNonce);
+      // The ownership proof is the CALLER's, persisted inside the claim
+      // transaction that moved the row out of `ready` — never minted here.
+      const ownerNonce = request.ownerNonce;
       const handle = await deps.acp.startSession({
         sessionName: request.sessionName ?? `Karst node ${request.nodeRunId}`,
         cwd: request.cwd,

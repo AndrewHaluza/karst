@@ -80,8 +80,11 @@ export const ACTIVE_NODE_STATUSES = [
  * still-running graph run blocks the run (the sweep's first-fault guard) and
  * is what the stage block's EARLIEST-fault reason is computed from. Exactly
  * the statuses `recoveryCategoryFor` can retry or refuse; ambiguous and
- * explicit-resolution statuses are included because a fault is a fault — the
- * discard/resolution exits work on a blocked run just as well.
+ * explicit-resolution statuses are included because a fault is a fault — each
+ * has its OWN exit on a blocked run: the launch retry, the T4 discard (the
+ * ambiguous pair only — `discard.ts` refuses everything else), and the
+ * artifact re-check + Resume for the two artifact faults
+ * (`coordinator/artifactRecheck.ts`).
  */
 export const FAULT_NODE_STATUSES = [
   'blocked',

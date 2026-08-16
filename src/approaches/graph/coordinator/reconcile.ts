@@ -279,7 +279,10 @@ async function runHasLiveProcess(deps: ReconcileGraphRunDeps, graphRunId: number
  * process cannot be attributed, is ambiguous: `launch-unknown`, which blocks
  * and is never auto-retried (the discard action is the named exit). A row with
  * no owner nonce and no process identity is also provably never spawned: the
- * recovery retry manufactures exactly that shape before a second launch.
+ * recovery retry manufactures exactly that shape before a second launch, and
+ * it is the ONLY producer of it — the driver commits the owner nonce inside
+ * the transaction that moves the row `ready → launching`, so a launch in
+ * flight in another window is never observable without launch identity.
  */
 async function reconcileLaunching(
   deps: ReconcileGraphRunDeps,

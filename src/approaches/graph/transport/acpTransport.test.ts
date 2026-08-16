@@ -4,8 +4,8 @@
  * ACP implements the SAME `AgentTransport` boundary as `SupervisedCLITransport`
  * and is selected only when the core supports it (`acpSupportedFor` — empty in
  * V1, so every core keeps `SupervisedCLITransport`). It mirrors the CLI
- * transport's lifecycle exactly: owner nonce persisted BEFORE the session
- * starts, process/start identity recorded immediately after, process_runs
+ * transport's lifecycle exactly: the caller-persisted owner nonce carried onto
+ * the session, process/start identity recorded immediately after, process_runs
  * accounting, servers-registry registration keyed by cwd, and termination
  * only through the attributed facts + serverIdentity path.
  *
@@ -93,10 +93,6 @@ function harness(pid?: number): Harness {
   const deps: AcpTransportDeps = {
     endpoint: 'http://127.0.0.1:4103',
     acp,
-    persistOwnerNonce: (nodeRunId, nonce) => {
-      calls.order.push('persist');
-      calls.nonce = nonce;
-    },
     recordSession: (row) => {
       calls.order.push('record');
       sessions.push(row);
@@ -131,18 +127,18 @@ const LAUNCH: AcpLaunchRequest = {
   repo: 'api',
   cwd: '/wt/n1',
   generation: 'gen-1',
+  ownerNonce: 'a'.repeat(32),
   sessionName: 'Karst node 11',
   graphEnv: { KARST_GRAPH_RUN_ID: '2', KARST_GRAPH_CALLBACK_URL: 'http://127.0.0.1:9/wakeup' },
   initialPrompt: 'the node prompt',
 };
 
 describe('AcpTransport lifecycle mirrors SupervisedCLITransport', () => {
-  it('persists the owner nonce BEFORE the session starts and records identity immediately after', async () => {
+  it('carries the caller-persisted owner nonce and records identity immediately after the session starts', async () => {
     const h = harness(4242);
     const transport = createAcpTransport(h.deps);
     const session = await transport.start(LAUNCH);
-    expect(h.calls.order).toEqual(['persist', 'start', 'record']);
-    expect(h.calls.nonce).toMatch(/^[0-9a-f]{32}$/); // ≥ 128 bits, CSPRNG
+    expect(h.calls.order).toEqual(['start', 'record']);
     expect(h.calls.started).toMatchObject({
       sessionName: 'Karst node 11',
       cwd: '/wt/n1',
@@ -159,7 +155,8 @@ describe('AcpTransport lifecycle mirrors SupervisedCLITransport', () => {
       startedAt: '2026-08-12T00:00:00.000Z',
       providerSessionId: 'acp-session-1',
     });
-    expect(session.ownerNonce).toBe(h.calls.nonce);
+    // The nonce is the CLAIM transaction's — the transport never mints one.
+    expect(session.ownerNonce).toBe(LAUNCH.ownerNonce);
     expect(session.terminal).toBeUndefined(); // ACP has no terminal surface
     expect(h.sessions).toHaveLength(1);
     expect(h.sessions[0]).toMatchObject({ ticketId: 1, repo: 'api', pid: 4242, cwd: '/wt/n1' });
@@ -200,7 +197,7 @@ describe('AcpTransport lifecycle mirrors SupervisedCLITransport', () => {
     const session = await transport.start(LAUNCH);
     expect(opened).toEqual([LAUNCH.nodeRunId]);
     expect(session.processRunId).toBe(77);
-    expect(h.calls.order).toEqual(['persist', 'start', 'open', 'record']);
+    expect(h.calls.order).toEqual(['start', 'open', 'record']);
   });
 
   it('a locked database never fails the launch', async () => {

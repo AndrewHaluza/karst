@@ -32,7 +32,6 @@
  * Host-agnostic: terminal host, store writes, probes and clock are injected.
  */
 
-import { randomBytes } from 'node:crypto';
 import type {
   AgentNodeLaunch,
   AgentTransport,
@@ -62,8 +61,6 @@ export type {
 
 export interface SupervisedTransportDeps {
   terminalHost: TransportTerminalHost;
-  /** Persist the owner nonce on the node run — MUST run before spawn. */
-  persistOwnerNonce: (nodeRunId: number, nonce: string) => void;
   /** Register the session in the `servers` registry (cwd-keyed). */
   recordSession: (row: {
     ticketId: number;
@@ -138,8 +135,9 @@ export function createSupervisedCliTransport(deps: SupervisedTransportDeps): Sup
     capabilities: () => SUPERVISED_CLI_TRANSPORT_CAPABILITIES,
 
     async start(request: SupervisedLaunchRequest): Promise<SupervisedAgentSession> {
-      const ownerNonce = randomBytes(16).toString('hex');
-      deps.persistOwnerNonce(request.nodeRunId, ownerNonce);
+      // The ownership proof is the CALLER's, persisted inside the claim
+      // transaction that moved the row out of `ready` — never minted here.
+      const ownerNonce = request.ownerNonce;
       const built = request.adapter.buildInteractiveCommand({
         ...request.interactive,
         cwd: request.cwd,

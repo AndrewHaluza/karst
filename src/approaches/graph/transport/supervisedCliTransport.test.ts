@@ -3,7 +3,7 @@
  *
  * The sole bridge from `AgentAdapter` to `AgentTransport`: it calls
  * `buildInteractiveCommand`, owns the spawn and the supervision on top of it,
- * persists an owner nonce BEFORE spawn, records process/start identity
+ * carries the caller-persisted owner nonce, records process/start identity
  * immediately after spawn, and terminates only on attributed evidence
  * (`runtime/serverIdentity.ts` — no invented probe). Graph sessions register
  * with the existing `servers` registry keyed by their workspace cwd, so
@@ -63,10 +63,6 @@ function harness(pid?: number, terminalHost?: TransportTerminalHost): Harness {
   };
   const sessions: Harness['sessions'] = [];
   const deps: SupervisedTransportDeps = {
-    persistOwnerNonce: (nodeRunId, nonce) => {
-      calls.order.push('persist');
-      calls.nonce = nonce;
-    },
     terminalHost:
       terminalHost ??
       {
@@ -98,6 +94,7 @@ const LAUNCH = {
   repo: 'api',
   cwd: '/wt/n1',
   generation: 'gen-1',
+  ownerNonce: 'a'.repeat(32),
   adapter: adapterFor({ command: 'claude', args: ['--resume'], env: { KARST_TICKET_ID: '1' } }),
   interactive: { cwd: '/wt/n1' },
   graphEnv: { KARST_GRAPH_RUN_ID: '2', KARST_GRAPH_CALLBACK_URL: 'http://127.0.0.1:9/wakeup' },
@@ -123,12 +120,11 @@ describe('SupervisedCLITransport', () => {
     expect(calls[0]!.name).toBe('Karst: K-1 — fix');
   });
 
-  it('persists the owner nonce BEFORE spawn and identity immediately after', async () => {
+  it('carries the caller-persisted owner nonce onto the session and records identity after spawn', async () => {
     const h = harness(4242);
     const transport = createSupervisedCliTransport(h.deps);
     const session = await transport.start(LAUNCH);
-    expect(h.calls.order).toEqual(['persist', 'spawn', 'record']);
-    expect(h.calls.nonce).toMatch(/^[0-9a-f]{32}$/); // ≥ 128 bits, CSPRNG
+    expect(h.calls.order).toEqual(['spawn', 'record']);
     expect(h.calls.terminal).toMatchObject({ cwd: '/wt/n1', shellPath: 'claude', shellArgs: ['--resume'] });
     expect(session).toMatchObject({
       nodeRunId: 11,
@@ -140,7 +136,9 @@ describe('SupervisedCLITransport', () => {
       startedAt: '2026-08-12T00:00:00.000Z',
       providerSessionId: null,
     });
-    expect(session.ownerNonce).toBe(h.calls.nonce);
+    // The nonce is the CLAIM transaction's — the transport never mints one,
+    // so no window observes a `launching` row without launch identity.
+    expect(session.ownerNonce).toBe(LAUNCH.ownerNonce);
     expect(h.sessions).toHaveLength(1);
     expect(h.sessions[0]).toMatchObject({ ticketId: 1, repo: 'api', pid: 4242, cwd: '/wt/n1' });
   });
@@ -190,7 +188,7 @@ describe('SupervisedCLITransport', () => {
     transport.adopt(adopted);
     expect(transport.sessions()).toHaveLength(1);
     expect(transport.sessionFor(1, 55)).toBe(adopted);
-    expect(h.calls.order).toEqual([]); // no persist/spawn/record — nothing new launched
+    expect(h.calls.order).toEqual([]); // no spawn/record — nothing new launched
   });
 
   it('adopting an already-known (ticketId, nodeRunId) is idempotent — the registry entry is replaced, not duplicated', async () => {
@@ -383,7 +381,7 @@ describe('SupervisedCLITransport', () => {
     expect(session.processRunId).toBe(77);
     // The accounting row opens as part of the launch, before the session is
     // handed back — never a second time for the same launch.
-    expect(h.calls.order).toEqual(['persist', 'spawn', 'open', 'record']);
+    expect(h.calls.order).toEqual(['spawn', 'open', 'record']);
   });
 
   it('a transport that cannot record usage opens no row and never fabricates a zero', async () => {

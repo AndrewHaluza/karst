@@ -46,6 +46,10 @@ export function createNodeRun(db: GraphDb, input: CreateNodeRun): number {
   return Number(res.lastInsertRowid);
 }
 
+/** Move one node run through the DECLARED node-run transition map. Recovery's
+ *  retry is the live caller: `blocked` / `failed-to-launch` / `stale` and the
+ *  two artifact faults (`output-artifact-missing`, `artifact-unsafe`) all
+ *  declare `→ launching`, so a retry never needs a map widened for it. */
 export function transitionNodeRun(db: GraphDb, id: number, from: string, to: string): boolean {
   return casStatus(db, 'approach_node_runs', NODE_RUN_TRANSITIONS, id, from, to);
 }

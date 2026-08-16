@@ -748,10 +748,17 @@ describe('documented failures of the current dynamic graph implementation', () =
         confirmGraphRun(h.deps, graphRunId);
         await claimAndDrive(h, graphRunId);
         h.deps.adapterFor = supportedAdapterFor;
-        // The recovery sweep's retry: the parked node is re-armed to launch.
+        // The recovery sweep's retry: the parked node is re-armed to launch,
+        // and the dead attempt's launch identity goes with it — exactly what
+        // `retryNodeRuns` does through `clearLaunchIdentity`. The identity is
+        // written by the CLAIM transaction now, so a re-arm that kept the dead
+        // nonce would (correctly) not be launchable.
         h.store.db
           .prepare(
-            "UPDATE approach_node_runs SET status = 'launching', launch_attempt = launch_attempt + 1 WHERE graph_run_id = ? AND status = 'blocked'",
+            `UPDATE approach_node_runs
+             SET status = 'launching', launch_attempt = launch_attempt + 1,
+                 owner_nonce = NULL, process_run_id = NULL, generation = NULL
+             WHERE graph_run_id = ? AND status = 'blocked'`,
           )
           .run(graphRunId);
         h.store.db

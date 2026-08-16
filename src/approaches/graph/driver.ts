@@ -236,10 +236,16 @@ export async function bootstrapAndLaunchPlanner(
   const resolved = resolveProfileFor(config, config.planner.profile);
   const capability = randomBytes(32).toString('hex');
   const generation = uuidv7();
+  // Like the node claim: the ownership proof is committed WITH the transition
+  // out of `ready`, so no window ever observes a `launching` planner run
+  // without launch identity (`reconcilePlanningPlanner` reads its absence).
+  const plannerOwnerNonce = randomBytes(16).toString('hex');
   const stamped = deps.transaction(() => {
     deps.db
-      .prepare('UPDATE approach_planner_runs SET generation = ?, capability_hash = ? WHERE id = ?')
-      .run(generation, sha256Hex(new TextEncoder().encode(capability)), plannerRunId);
+      .prepare(
+        'UPDATE approach_planner_runs SET generation = ?, capability_hash = ?, owner_nonce = ? WHERE id = ?',
+      )
+      .run(generation, sha256Hex(new TextEncoder().encode(capability)), plannerOwnerNonce, plannerRunId);
     return (
       transitionPlannerRun(deps.db, plannerRunId, 'ready', 'launching')
       && transitionPlannerRun(deps.db, plannerRunId, 'launching', 'running')
@@ -280,6 +286,7 @@ export async function bootstrapAndLaunchPlanner(
     repo: workspace.repo,
     cwd: workspace.cwd,
     generation,
+    ownerNonce: plannerOwnerNonce,
     sessionName: naming.name,
     ...(naming.iconPath ? { sessionIconPath: naming.iconPath } : {}),
     graphEnv: env,
@@ -358,10 +365,16 @@ export async function relaunchBootstrapPlanner(
   const resolved = resolveProfileFor(config, config.planner.profile);
   const capability = randomBytes(32).toString('hex');
   const generation = uuidv7();
+  // Like the node claim: the ownership proof is committed WITH the transition
+  // out of `ready`, so no window ever observes a `launching` planner run
+  // without launch identity (`reconcilePlanningPlanner` reads its absence).
+  const plannerOwnerNonce = randomBytes(16).toString('hex');
   const stamped = deps.transaction(() => {
     deps.db
-      .prepare('UPDATE approach_planner_runs SET generation = ?, capability_hash = ? WHERE id = ?')
-      .run(generation, sha256Hex(new TextEncoder().encode(capability)), plannerRunId);
+      .prepare(
+        'UPDATE approach_planner_runs SET generation = ?, capability_hash = ?, owner_nonce = ? WHERE id = ?',
+      )
+      .run(generation, sha256Hex(new TextEncoder().encode(capability)), plannerOwnerNonce, plannerRunId);
     return (
       transitionPlannerRun(deps.db, plannerRunId, 'ready', 'launching')
       && transitionPlannerRun(deps.db, plannerRunId, 'launching', 'running')
@@ -402,6 +415,7 @@ export async function relaunchBootstrapPlanner(
     repo: workspace.repo,
     cwd: workspace.cwd,
     generation,
+    ownerNonce: plannerOwnerNonce,
     sessionName: naming.name,
     ...(naming.iconPath ? { sessionIconPath: naming.iconPath } : {}),
     graphEnv: env,
@@ -746,7 +760,11 @@ interface RunnableNodeRow {
 /** Execute every runnable node run of a `running` graph run, in id order. A
  *  runnable row is either `ready`, or a recovery-rearmed `launching` row with
  *  no owner nonce and no process row — provably never spawned and safe to
- *  launch again from the periodic continuation. A join/gate/command completes
+ *  launch again from the periodic continuation. That reading is only sound
+ *  because the launch identity is committed WITH the `ready → launching`
+ *  transition (see `executeReadyNode`): a row another window is mid-launching
+ *  already carries its nonce, so this query can never select it and start a
+ *  second agent on the same reserved visit. A join/gate/command completes
  *  deterministically in one transaction; an agent node gets its workspace and
  *  a supervised session and stays `running` until its agent reports an outcome
  *  via `karst node …`. */
@@ -866,10 +884,23 @@ async function executeReadyNode(
   }
   const nodeCapability = randomBytes(32).toString('hex');
   const nodeGeneration = uuidv7();
+  // The launch identity is written INSIDE the claim transaction, with the
+  // generation and the capability hash. The owner nonce used to be minted by
+  // the transport and written after this transaction committed, which left the
+  // row observable — to another WINDOW's coordinator, sharing this database —
+  // as `launching` with no owner nonce and no process: the exact shape the
+  // launchable query below and `reconcileLaunching` read as "provably never
+  // spawned". A second window would have launched a second agent on the same
+  // reserved visit. Committing the identity with the claim closes that window;
+  // the retry path (`clearLaunchIdentity`) is the only producer of the
+  // no-identity shape, which is what keeps that reading true.
+  const nodeOwnerNonce = randomBytes(16).toString('hex');
   const claimed = deps.transaction(() => {
     deps.db
-      .prepare('UPDATE approach_node_runs SET generation = ?, capability_hash = ? WHERE id = ?')
-      .run(nodeGeneration, sha256Hex(new TextEncoder().encode(nodeCapability)), row.id);
+      .prepare(
+        'UPDATE approach_node_runs SET generation = ?, capability_hash = ?, owner_nonce = ? WHERE id = ?',
+      )
+      .run(nodeGeneration, sha256Hex(new TextEncoder().encode(nodeCapability)), nodeOwnerNonce, row.id);
     if (row.status === 'launching') return true;
     return casStatus(deps.db, 'approach_node_runs', NODE_RUN_TRANSITIONS, row.id, 'ready', 'launching');
   });
@@ -917,6 +948,7 @@ async function executeReadyNode(
       cwd,
       node,
       generation: nodeGeneration,
+      ownerNonce: nodeOwnerNonce,
       instructionsSnapshot: instructionsSnapshotOf(
         deps,
         graphRunId,
@@ -1140,10 +1172,16 @@ export async function launchReplanPlanner(
   if (!run) return { kind: 'no-op' };
   const capability = launch.capability || randomBytes(32).toString('hex');
   const generation = launch.generation || uuidv7();
+  // Like the node claim: the ownership proof is committed WITH the transition
+  // out of `ready`, so no window ever observes a `launching` planner run
+  // without launch identity (`reconcilePlanningPlanner` reads its absence).
+  const plannerOwnerNonce = randomBytes(16).toString('hex');
   const stamped = deps.transaction(() => {
     deps.db
-      .prepare('UPDATE approach_planner_runs SET generation = ?, capability_hash = ? WHERE id = ?')
-      .run(generation, sha256Hex(new TextEncoder().encode(capability)), launch.plannerRunId);
+      .prepare(
+        'UPDATE approach_planner_runs SET generation = ?, capability_hash = ?, owner_nonce = ? WHERE id = ?',
+      )
+      .run(generation, sha256Hex(new TextEncoder().encode(capability)), plannerOwnerNonce, launch.plannerRunId);
     return (
       transitionPlannerRun(deps.db, launch.plannerRunId, 'ready', 'launching')
       && transitionPlannerRun(deps.db, launch.plannerRunId, 'launching', 'running')
@@ -1163,6 +1201,7 @@ export async function launchReplanPlanner(
     repo: launch.repo,
     cwd: launch.cwd,
     generation,
+    ownerNonce: plannerOwnerNonce,
     sessionName: naming.name,
     ...(naming.iconPath ? { sessionIconPath: naming.iconPath } : {}),
     graphEnv: deps.graphEnvOf({

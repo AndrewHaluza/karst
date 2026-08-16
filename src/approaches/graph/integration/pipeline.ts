@@ -206,7 +206,7 @@ function boundedGitReason(stderr: string): string {
  * document that cannot be re-parsed declares nothing (compile guaranteed it
  * once; a gap is not a constraint).
  */
-function declaredOutputPaths(
+export function declaredOutputPaths(
   db: GraphDb,
   revisionId: number,
   nodeId: string,

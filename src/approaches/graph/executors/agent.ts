@@ -87,6 +87,9 @@ export interface RunAgentNodeInput {
   node: AgentNode;
   /** Frozen launch generation for this launch attempt. */
   generation: string;
+  /** The launch's ownership proof, persisted by the claim transaction that
+   *  moved the node run out of `ready` — carried, never minted here. */
+  ownerNonce: string;
   /** Path of the instructions artifact snapshot. */
   instructionsSnapshot: string;
   /** Paths of the declared input artifact snapshots. */
@@ -149,6 +152,7 @@ export async function runAgentNode(
     repo: input.repo,
     cwd: input.cwd,
     generation: input.generation,
+    ownerNonce: input.ownerNonce,
     sessionName: naming.name,
     ...(naming.iconPath ? { sessionIconPath: naming.iconPath } : {}),
     graphEnv: deps.graphEnv({

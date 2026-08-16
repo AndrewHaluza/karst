@@ -69,6 +69,15 @@ export interface AgentNodeLaunch {
   cwd: string;
   /** The launch generation, frozen for this launch attempt. */
   generation: string;
+  /**
+   * The launch's ownership proof (CSPRNG ≥ 128 bits), frozen for this attempt
+   * exactly like `generation` — and, like it, persisted by the CALLER inside
+   * the same transaction that moves the row out of `ready`. A transport must
+   * never mint its own: the nonce written after the claim commits leaves the
+   * row observable to another window as `launching` with no launch identity,
+   * which is the shape "provably never spawned" is read from.
+   */
+  ownerNonce: string;
   sessionName?: string;
   /** The karst brand mark for the terminal tab; `sessionName` stays the text. */
   sessionIconPath?: string;

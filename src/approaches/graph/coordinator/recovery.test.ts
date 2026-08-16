@@ -16,6 +16,9 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { openStore, type Store } from '../../../store/db.js';
 import { createTicket } from '../../../store/tickets.js';
 import { setStage } from '../../../store/stages.js';
@@ -32,8 +35,12 @@ import {
 
 describe('recoverGraphRun', () => {
   let store: Store;
+  const tempRoots: string[] = [];
   beforeEach(() => (store = openStore(':memory:')));
-  afterEach(() => store.close());
+  afterEach(() => {
+    store.close();
+    while (tempRoots.length > 0) rmSync(tempRoots.pop()!, { recursive: true, force: true });
+  });
 
   interface Fixture {
     ticketId: number;
@@ -316,13 +323,140 @@ describe('recoverGraphRun', () => {
     expect(stageBlock(store, ticketId, 'impl')).toBeNull();
   });
 
-  it('an output-artifact-missing fault refuses until the artifact is corrected', () => {
-    const { ticketId, graphRunId } = blockedGraph('output-artifact-missing: artifact "r" produced nothing', [
-      { id: 7, status: 'output-artifact-missing' },
-    ]);
+  /** A document whose single node `n` produces the REQUIRED artifact `r` —
+   *  the shape whose missing/unsafe output parks a node at the two artifact
+   *  fault statuses. */
+  function artifactGraph(): string {
+    return JSON.stringify({
+      version: 1,
+      title: 't',
+      rationaleArtifact: 'r',
+      entries: ['n'],
+      artifacts: [
+        {
+          id: 'r',
+          path: 'r.md',
+          producer: 'n',
+          consumers: [],
+          mediaType: 'text/markdown',
+          maxBytes: 1024,
+          required: true,
+        },
+      ],
+      nodes: [
+        {
+          id: 'n',
+          kind: 'agent',
+          label: 'n',
+          profile: 'default',
+          instructionsArtifact: 'i',
+          inputs: [],
+          outputs: ['r'],
+          resources: { reads: [], writes: [] },
+          outcomes: ['complete', 'blocked'],
+          budget: { maxVisits: 2 },
+        },
+      ],
+      edges: [{ id: 'e-n-end', from: 'n', on: 'complete', to: 'END' }],
+      budgets: { maxNodeRuns: 10, maxExpertRuns: 1, maxReplans: 2 },
+    });
+  }
+
+  /** The artifact root the host wires: a real directory, because the re-probe
+   *  is the SAME `validateRequiredOutputs` the pipeline used to fault. */
+  function artifactRootDeps(root: string): RecoveryDeps {
+    return makeDeps({ artifactRoot: () => root });
+  }
+
+  function tempRoot(): string {
+    const root = mkdtempSync(join(tmpdir(), 'karst-recovery-'));
+    tempRoots.push(root);
+    return root;
+  }
+
+  it('an output-artifact-missing fault refuses while the artifact is still missing', () => {
+    const { ticketId, graphRunId } = blockedGraph(
+      'output-artifact-missing: artifact "r" produced nothing',
+      [{ id: 7, status: 'output-artifact-missing' }],
+      artifactGraph(),
+    );
+    const result = recoverGraphRun(artifactRootDeps(tempRoot()), { ticketId, graphRunId });
+    expect(result).toEqual({ kind: 'refused', reason: 'explicit-resolution' });
+    expect(nodeRow(7).status).toBe('output-artifact-missing');
+    expect(runRow(graphRunId).status).toBe('blocked');
+    expect(stageBlock(store, ticketId, 'impl')).not.toBeNull();
+  });
+
+  it('an explicit Resume retries the reserved visit once the artifact is corrected', () => {
+    const { ticketId, graphRunId } = blockedGraph(
+      'output-artifact-missing: artifact "r" produced nothing',
+      [{ id: 7, status: 'output-artifact-missing' }],
+      artifactGraph(),
+    );
+    claimToken(7);
+    const root = tempRoot();
+    // The human corrected it out of band: the required output now exists.
+    writeFileSync(join(root, 'r.md'), '# corrected');
+    const result = recoverGraphRun(artifactRootDeps(root), { ticketId, graphRunId });
+    expect(result).toEqual({ kind: 'retried', retried: [7], resnapshotted: [] });
+    expect(nodeRow(7).status).toBe('launching');
+    expect(nodeRow(7).launch_attempt).toBe(1);
+    expect(runRow(graphRunId)).toEqual({ status: 'running', blocked_reason: null });
+    expect(stageBlock(store, ticketId, 'impl')).toBeNull();
+  });
+
+  it('an artifact-unsafe fault refuses while unsafe and retries once the bytes are corrected', () => {
+    const { ticketId, graphRunId } = blockedGraph(
+      'artifact-unsafe: artifact "r" failed validation',
+      [{ id: 7, status: 'artifact-unsafe' }],
+      artifactGraph(),
+    );
+    const root = tempRoot();
+    // Still unsafe: a NUL byte is not the declared text media type.
+    writeFileSync(join(root, 'r.md'), Buffer.from([0x23, 0x00, 0x61]));
+    expect(recoverGraphRun(artifactRootDeps(root), { ticketId, graphRunId })).toEqual({
+      kind: 'refused',
+      reason: 'explicit-resolution',
+    });
+    expect(nodeRow(7).status).toBe('artifact-unsafe');
+
+    writeFileSync(join(root, 'r.md'), '# corrected');
+    const result = recoverGraphRun(artifactRootDeps(root), { ticketId, graphRunId });
+    expect(result).toEqual({ kind: 'retried', retried: [7], resnapshotted: [] });
+    expect(nodeRow(7).status).toBe('launching');
+  });
+
+  it('refuses an artifact fault when the artifact root is unwired — never assumed corrected', () => {
+    const { ticketId, graphRunId } = blockedGraph(
+      'output-artifact-missing: artifact "r" produced nothing',
+      [{ id: 7, status: 'output-artifact-missing' }],
+      artifactGraph(),
+    );
     const result = recoverGraphRun(makeDeps(), { ticketId, graphRunId });
     expect(result).toEqual({ kind: 'refused', reason: 'explicit-resolution' });
     expect(nodeRow(7).status).toBe('output-artifact-missing');
+  });
+
+  it('a launch-retry Resume re-probes an artifact-faulted node instead of relaunching it blindly', () => {
+    const { ticketId, graphRunId } = blockedGraph(
+      'node-blocked: node 5 (agent said blocked)',
+      [
+        { id: 5, status: 'blocked' },
+        { id: 7, status: 'output-artifact-missing' },
+      ],
+      artifactGraph(),
+    );
+    const root = tempRoot();
+    expect(recoverGraphRun(artifactRootDeps(root), { ticketId, graphRunId })).toEqual({
+      kind: 'refused',
+      reason: 'explicit-resolution',
+    });
+    expect(nodeRow(5).status).toBe('blocked');
+    expect(nodeRow(7).status).toBe('output-artifact-missing');
+
+    writeFileSync(join(root, 'r.md'), '# corrected');
+    const result = recoverGraphRun(artifactRootDeps(root), { ticketId, graphRunId });
+    expect(result).toEqual({ kind: 'retried', retried: [5, 7], resnapshotted: [] });
   });
 
   it('graph-topology-deadlock refuses — a discarded revision is never auto-retried', () => {
@@ -584,8 +718,8 @@ describe('recoveryCategoryFor — the total function over the closed category se
       ['launch-unknown: node 8 crash after possible spawn with no identity', 'discard-required'],
       ['node-blocked: node 8 (termination-unknown)', 'discard-required'],
       ['graph-budget-exhausted', 'config-then-resume'],
-      ['output-artifact-missing: artifact "r" produced nothing', 'explicit-resolution'],
-      ['artifact-unsafe: artifact "r" failed validation', 'explicit-resolution'],
+      ['output-artifact-missing: artifact "r" produced nothing', 'artifact-recheck'],
+      ['artifact-unsafe: artifact "r" failed validation', 'artifact-recheck'],
       ['resource-claim-violated: b.ts', 'explicit-resolution'],
       ['integration-conflict: git add refused in web', 'explicit-resolution'],
       ['graph-topology-deadlock', 'explicit-resolution'],
@@ -612,6 +746,7 @@ describe('recoveryCategoryFor — the total function over the closed category se
       'planner-relaunch',
       'discard-required',
       'config-then-resume',
+      'artifact-recheck',
       'explicit-resolution',
     ]);
     for (const reason of ['x', '', 'node-blocked: a', 'launch-unknown: b', 'graph-budget-exhausted']) {
