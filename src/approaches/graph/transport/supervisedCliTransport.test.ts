@@ -404,6 +404,38 @@ describe('SupervisedCLITransport', () => {
     expect(session.processRunId).toBeNull();
   });
 
+  it('a locked servers registry never fails the launch and never orphans the terminal', async () => {
+    // `recordSession` runs with a LIVE terminal already spawned. A throw that
+    // escaped `start` left that terminal in no registry, with no close
+    // handler: untrackable by `sessions()`, unreachable by `stopServersUnder`
+    // / `reapStaleServers`, never closed out — the 869ed2n50 leak class.
+    const terminal = fakeTerminal(4242);
+    let closeHandler: ((exitCode?: number) => void) | undefined;
+    terminal.onDidClose = (handler) => {
+      closeHandler = handler;
+    };
+    const close: Array<{ processRunId: number; status: string }> = [];
+    const transport = createSupervisedCliTransport({
+      ...harness(4242).deps,
+      terminalHost: { createTerminal: () => terminal },
+      openProcessRun: () => 77,
+      closeProcessRun: (processRunId, status) => {
+        close.push({ processRunId, status });
+      },
+      recordSession: () => {
+        throw new Error('database is locked');
+      },
+    });
+    const session = await transport.start(LAUNCH);
+    expect(session.pid).toBe(4242);
+    expect(transport.sessionFor(LAUNCH.ticketId, LAUNCH.nodeRunId)).toBeDefined();
+
+    closeHandler?.(0);
+
+    expect(transport.sessionFor(LAUNCH.ticketId, LAUNCH.nodeRunId)).toBeUndefined();
+    expect(close).toEqual([{ processRunId: 77, status: 'passed' }]);
+  });
+
   it('closes the process run when the terminal closes, once, with the exit verdict', async () => {
     const close: Array<{ processRunId: number; status: string }> = [];
     const terminal = fakeTerminal(4242);

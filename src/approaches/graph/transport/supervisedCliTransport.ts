@@ -15,7 +15,12 @@
  * - every session registers with the existing `servers` registry keyed by its
  *   workspace `cwd`, so `removeWorktree` → `stopServersUnder` and the global
  *   `reapStaleServers` sweep both see it — the 869ed2n50 detached-process
- *   class, by name;
+ *   class, by name. Once the terminal is alive, `start` NEVER rejects: the
+ *   session enters the in-memory registry and its close is wired before any
+ *   store write is attempted, and every such write is swallowed. A throw
+ *   escaping here would hand the caller a rejection while a live terminal sat
+ *   in no registry, with no `servers` row and no close handler — the very
+ *   leak this registration exists to prevent;
  * - graph sessions bypass `SessionManager` entirely and are keyed
  *   `(ticketId, nodeRunId)` in the transport's own registry.
  *
@@ -80,7 +85,8 @@ export interface SupervisedTransportDeps {
    * absence means the transport cannot report usage, and the session records
    * `processRunId: null` — an unknown, never a fabricated zero. The host
    * wraps the write so a locked database can never fail the launch; the
-   * transport swallows a throw the same way.
+   * transport swallows a throw the same way — as it does for EVERY write it
+   * performs once the terminal is alive (`recordSession` included).
    */
   openProcessRun?: (request: SupervisedLaunchRequest, pid: number | null) => number | undefined;
   /**
@@ -168,13 +174,6 @@ export function createSupervisedCliTransport(deps: SupervisedTransportDeps): Sup
           );
         }
       }
-      deps.recordSession({
-        ticketId: request.ticketId,
-        repo: request.repo,
-        pid,
-        cwd: request.cwd,
-        startedAt: startedAt ?? deps.now(),
-      });
       const session: SupervisedAgentSession = {
         nodeRunId: request.nodeRunId,
         ticketId: request.ticketId,
@@ -189,17 +188,14 @@ export function createSupervisedCliTransport(deps: SupervisedTransportDeps): Sup
         terminal,
       };
       const key = `${request.ticketId}:${request.nodeRunId}`;
+      // The terminal is ALIVE from here on, so it is registered and its close
+      // is wired BEFORE anything fallible runs. A write that threw after the
+      // spawn used to reject `start` with a live terminal in no registry, no
+      // `servers` row and no close handler — invisible to `sessions()`,
+      // unreachable by `stopServersUnder`/`reapStaleServers`, never closed
+      // out: the 869ed2n50 detached-process class, re-opened one line below
+      // the guard that closes it.
       sessions.set(key, session);
-      emitGraphDiagnostic(
-        { debug: deps.debug, identityOf: deps.graphIdentityOf },
-        {
-          category: 'launch',
-          graphRunId: request.graphRunId,
-          nodeRunId: request.nodeRunId,
-          generation: request.generation,
-          detail: `launched in ${request.repo} (pid ${pid ?? 'none'})`,
-        },
-      );
       // The terminal's close is the session's end: close the accounting row
       // with the exit verdict, exactly once (the terminal close handler fires
       // once per terminal, and the store's guarded close ignores anything
@@ -223,6 +219,33 @@ export function createSupervisedCliTransport(deps: SupervisedTransportDeps): Sup
           }
         }
       });
+      try {
+        deps.recordSession({
+          ticketId: request.ticketId,
+          repo: request.repo,
+          pid,
+          cwd: request.cwd,
+          startedAt: startedAt ?? deps.now(),
+        });
+      } catch (error) {
+        // Swallowed for the same reason `openProcessRun` is: the irreversible
+        // part (the spawn) already succeeded, and a locked database must never
+        // turn a live session into a rejected launch. The session stays in the
+        // in-memory registry, so this window can still see and terminate it.
+        deps.debug?.(
+          `[graph] node ${request.nodeRunId}: recording the servers row failed (${String(error)}) — the session is tracked in memory only`,
+        );
+      }
+      emitGraphDiagnostic(
+        { debug: deps.debug, identityOf: deps.graphIdentityOf },
+        {
+          category: 'launch',
+          graphRunId: request.graphRunId,
+          nodeRunId: request.nodeRunId,
+          generation: request.generation,
+          detail: `launched in ${request.repo} (pid ${pid ?? 'none'})`,
+        },
+      );
       return session;
     },
 

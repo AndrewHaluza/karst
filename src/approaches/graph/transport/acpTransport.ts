@@ -303,13 +303,6 @@ export function createAcpTransport(deps: AcpTransportDeps): AcpTransport {
             `opening the process_runs row failed (${String(error)}) — the launch continues unattributed`);
         }
       }
-      deps.recordSession({
-        ticketId: request.ticketId,
-        repo: request.repo,
-        pid,
-        cwd: request.cwd,
-        startedAt: startedAt ?? deps.now(),
-      });
       const session: SupervisedAgentSession = {
         nodeRunId: request.nodeRunId,
         ticketId: request.ticketId,
@@ -365,6 +358,23 @@ export function createAcpTransport(deps: AcpTransportDeps): AcpTransport {
             return;
         }
       });
+      // Last, and swallowed: the peer is ALIVE and already registered, so a
+      // locked database must never reject `start` and leave it tracked by
+      // nothing — untrackable by `sessions()`, unreachable by `terminate`,
+      // never closed out. The CLI transport swallows the same write for the
+      // same reason (869ed2n50).
+      try {
+        deps.recordSession({
+          ticketId: request.ticketId,
+          repo: request.repo,
+          pid,
+          cwd: request.cwd,
+          startedAt: startedAt ?? deps.now(),
+        });
+      } catch (error) {
+        diag('launch', request.graphRunId, request.nodeRunId, request.generation,
+          `recording the servers row failed (${String(error)}) — the session is tracked in memory only`);
+      }
       return session;
     },
 

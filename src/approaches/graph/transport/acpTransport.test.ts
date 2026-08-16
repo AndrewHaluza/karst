@@ -212,6 +212,27 @@ describe('AcpTransport lifecycle mirrors SupervisedCLITransport', () => {
     expect(session.pid).toBe(4242);
     expect(session.processRunId).toBeNull();
   });
+
+  it('a locked servers registry never fails the launch and never orphans the ACP session', async () => {
+    // `recordSession` runs with a LIVE peer already started. A throw that
+    // escaped `start` left it in no registry and with no event subscription:
+    // untrackable by `sessions()`, unreachable by `terminate`, never closed
+    // out — the CLI transport's leak, in the sibling.
+    const h = harness(4242);
+    const transport = createAcpTransport({
+      ...h.deps,
+      recordSession: () => {
+        throw new Error('database is locked');
+      },
+    });
+    const session = await transport.start(LAUNCH);
+    expect(session.pid).toBe(4242);
+    expect(transport.sessionFor(1, 11)).toBeDefined();
+
+    h.emit({ type: 'session-ended', reason: 'completed' });
+
+    expect(transport.sessionFor(1, 11)).toBeUndefined();
+  });
 });
 
 describe('AcpTransport termination mirrors SupervisedCLITransport', () => {
