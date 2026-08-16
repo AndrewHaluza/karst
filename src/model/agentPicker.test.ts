@@ -27,6 +27,7 @@ function load(): Record<string, unknown> {
   return new Function(`${agentIdentityJs()}\n${js}\nreturn {
     apEfforts, apEffortOptions, apCoreOptionsHtml, apModelOptionsHtml,
     apCoreSelection: typeof apCoreSelection === 'function' ? apCoreSelection : undefined,
+    apTags, apModelTagsHtml,
   };`)();
 }
 
@@ -36,8 +37,8 @@ function esc(s: string): string {
 
 const catalog = {
   claude: [
-    { id: 'claude-opus-5', label: 'Opus 5', efforts: ['low', 'medium', 'high', 'max'] },
-    { id: 'claude-sonnet-5', label: 'Sonnet 5', efforts: ['low', 'medium', 'high'] },
+    { id: 'claude-opus-5', label: 'Opus 5', efforts: ['low', 'medium', 'high', 'max'], tags: ['multimodal', 'vision'] },
+    { id: 'claude-sonnet-5', label: 'Sonnet 5', efforts: ['low', 'medium', 'high'], tags: ['text-only'] },
   ],
   codex: [{ id: 'gpt-5.6-sol', label: 'GPT-5.6 Sol', efforts: ['minimal', 'low', 'medium', 'high'] }],
   antigravity: [{ id: 'gemini-3.6-flash-high', label: 'Gemini 3.6 Flash (High)' }],
@@ -96,6 +97,46 @@ describe('agentPickerJs', () => {
       expect(apEfforts(catalog, 'claude', 'my-custom')).toBeUndefined();
       expect(apEfforts(catalog, 'claude', '')).toBeUndefined();
       expect(apEfforts(catalog, 'claude', null as unknown as string)).toBeUndefined();
+    });
+  });
+
+  describe('apTags', () => {
+    const { apTags } = load() as { apTags: (c: unknown, p: string, m: string) => string[] | undefined };
+
+    it('returns the advertised capability tags of a cataloged model', () => {
+      expect(apTags(catalog, 'claude', 'claude-opus-5')).toEqual(['multimodal', 'vision']);
+    });
+
+    it('returns undefined for a model whose entry advertises none', () => {
+      expect(apTags(catalog, 'antigravity', 'gemini-3.6-flash-high')).toBeUndefined();
+    });
+
+    it('returns undefined for an unknown model id or a blank model', () => {
+      expect(apTags(catalog, 'claude', 'my-custom')).toBeUndefined();
+      expect(apTags(catalog, 'claude', '')).toBeUndefined();
+      expect(apTags(catalog, 'claude', null as unknown as string)).toBeUndefined();
+    });
+  });
+
+  describe('apModelTagsHtml', () => {
+    const { apModelTagsHtml } = load() as { apModelTagsHtml: (tags: string[] | undefined) => string };
+
+    it('renders a chip per tag', () => {
+      const out = apModelTagsHtml(['multimodal', 'vision']);
+      expect(out).toContain('class="ap-tag"');
+      expect(out).toContain('>multimodal<');
+      expect(out).toContain('>vision<');
+    });
+
+    it('returns empty for undefined, empty, or null input', () => {
+      expect(apModelTagsHtml(undefined)).toBe('');
+      expect(apModelTagsHtml([])).toBe('');
+      expect(apModelTagsHtml(null as unknown as string[])).toBe('');
+    });
+
+    it('escapes a hostile tag so it cannot inject markup', () => {
+      const out = apModelTagsHtml(['<img onerror=alert(1)>']);
+      expect(out).not.toContain('<img');
     });
   });
 
@@ -249,6 +290,25 @@ describe('agentPickerJs', () => {
       const out = apModelOptionsHtml(catalog, 'claude', 'claude-sonnet-5', '', ['claude-sonnet-5']);
       expect(out).toContain('data-ap-model="claude-sonnet-5" aria-selected="true"');
       expect(out).toContain('saved');
+    });
+
+    it('renders a model with tags as chips in its row', () => {
+      const out = apModelOptionsHtml(catalog, 'claude', 'claude-opus-5', '');
+      expect(out).toContain('class="ap-tag"');
+      expect(out).toContain('>multimodal<');
+      expect(out).toContain('>vision<');
+    });
+
+    it('renders no tag-chip block for a model that advertises none', () => {
+      const out = apModelOptionsHtml(catalog, 'antigravity', 'gemini-3.6-flash-high', '');
+      expect(out).not.toContain('ap-model-tags');
+    });
+
+    it('renders tags in the last-used group rows too', () => {
+      const out = apModelOptionsHtml(catalog, 'claude', '', '', ['claude-sonnet-5']);
+      expect(out).toContain('Last used');
+      expect(out.indexOf('class="ap-tag"')).toBeGreaterThan(out.indexOf('Last used'));
+      expect(out).toContain('>text-only<');
     });
   });
 });
