@@ -204,7 +204,9 @@ function boundedGitReason(stderr: string): string {
  * The node's DECLARED output staging paths, keyed by artifact id: the
  * canonical document's artifact defs resolve against the artifact root. A
  * document that cannot be re-parsed declares nothing (compile guaranteed it
- * once; a gap is not a constraint).
+ * once; a gap is not a constraint). Exported so the recovery re-probe
+ * (`coordinator/artifactRecheck.ts`) asks the SAME question this pipeline
+ * asked — one rendering of "where the output was expected", never two.
  */
 export function declaredOutputPaths(
   db: GraphDb,
