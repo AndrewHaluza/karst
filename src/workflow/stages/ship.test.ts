@@ -525,6 +525,47 @@ setTimeout(() => {
     expect(getTicket(store, id).stageCurrent).toBe('ship');
   });
 
+  // A `git write-tree` that FAILS at the pre-index capture (e.g. a transient
+  // index lock held by a concurrent git process) must be a READ failure, never
+  // a silently-captured `''`: the old capture took `stdout.trim()` with no
+  // exit-code check, so the locked index recorded an empty preIndexTree and the
+  // compare-and-swap compared the REAL tree against it — a guaranteed
+  // `index-diverged` that read "the world moved" for a command that never ran.
+  it('a write-tree that fails at capture is a failed read, never an index-diverged refusal', async () => {
+    const worktree = join(dir, 'fe');
+    seedWorktree(store, id, '/repo/frontend', worktree);
+    await initRealRepo(worktree);
+    writeFileSync(join(worktree, 'left.txt'), 'work');
+    let writeTreeCalls = 0;
+    const git: GitRunner = async (args, cwd, opts) => {
+      if (args[0] === 'write-tree' && writeTreeCalls++ === 0) {
+        return {
+          stdout: '',
+          stderr:
+            "fatal: Unable to create '.git/index.lock': File exists.\n" +
+            'Another git process seems to be running in this repository.',
+          exitCode: 128,
+        };
+      }
+      return defaultGitRunner(args, cwd, opts);
+    };
+    const { gh, ...ghCalls } = fakeGh();
+
+    await expect(
+      shipTicket(store, { ticketId: id }, gh, fakeAdapter(), git),
+    ).rejects.toThrow(/git write-tree failed \(exit 128\)/);
+
+    // The refused read parks ship as failed with the bounded diagnostic — it is
+    // never reported as a divergence, and gh is never called.
+    expect(ghCalls.calls).toBe(0);
+    const ship = getTicket(store, id).stages.find((s) => s.stageKey === 'ship');
+    expect(ship?.status).toBe('failed');
+    expect(ship?.verdict).toContain('git write-tree failed (exit 128)');
+    expect(ship?.verdict).not.toContain('index-diverged');
+    expect(ship?.verdict).not.toContain('\n');
+    expect(getTicket(store, id).stageCurrent).toBe('ship');
+  });
+
   // A git status that FAILED must never read as "nothing to commit": the work
   // the agent left may simply be unreadable, and pushing an empty branch would
   // open a PR that never carried the work. Nonzero parks ship with a bounded
