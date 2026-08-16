@@ -235,8 +235,15 @@ describe('runStageCommand', () => {
       runStageCommand(store, id, ['stage', 'impl', 'pass']);
       const passed = listImplementationTimeline(store, id)!;
 
-      // The ticket already left impl — the stale marker is refused.
-      expect(() => runStageCommand(store, id, ['stage', 'impl', 'pass'])).toThrow(/current stage/);
+      // The ticket already left impl — the stale marker is refused, and the
+      // refusal names the gate stage it is actually waiting at instead of the
+      // machine's bare mismatch.
+      expect(() => runStageCommand(store, id, ['stage', 'impl', 'pass'])).toThrow(
+        /already at stage 'uat'/,
+      );
+      expect(() => runStageCommand(store, id, ['stage', 'impl', 'pass'])).toThrow(
+        /gate exit codes/,
+      );
 
       const after = listImplementationTimeline(store, id)!;
       expect(after.run).toEqual(passed.run);
@@ -304,12 +311,99 @@ describe('runStageCommand', () => {
 
       // The ticket already left fix — the stale marker is refused.
       transition(store, id, 'fix', { kind: 'passed' });
-      expect(() => runStageCommand(store, id, ['stage', 'fix', 'pass'])).toThrow(/current stage/);
+      expect(() => runStageCommand(store, id, ['stage', 'fix', 'pass'])).toThrow(
+        /already at stage 'uat'/,
+      );
 
       expect(listRecoveryRounds(store, id)).toEqual(beforeRounds);
       expect(listProcessRuns(store, id)).toEqual(beforeRuns);
     } finally {
       store.close();
     }
+  });
+
+  it('a stale impl marker at fix names the fix marker instead of the bare mismatch', () => {
+    const store = openStore(':memory:');
+    try {
+      const id = createTicketFlow(store, { key: 'T-1', title: 't' }).id;
+      transition(store, id, 'scope', { kind: 'passed' });
+      transition(store, id, 'impl', { kind: 'passed' });
+      transition(store, id, 'uat', { kind: 'failed', reason: 'exit 1' });
+
+      // The user finished a fix session but fired the seeded impl marker — the
+      // most common self-inflicted refusal, and the one the report asked to
+      // read as instruction, not as a machine error.
+      expect(() => runStageCommand(store, id, ['stage', 'impl', 'pass'])).toThrow(
+        /already at stage 'fix'/,
+      );
+      expect(() => runStageCommand(store, id, ['stage', 'impl', 'pass'])).toThrow(
+        /'stage fix pass', not 'stage impl pass'/,
+      );
+    } finally {
+      store.close();
+    }
+  });
+
+  it('a stale fix marker at impl names the impl marker', () => {
+    const store = openStore(':memory:');
+    try {
+      const id = createTicketFlow(store, { key: 'T-1', title: 't' }).id;
+      transition(store, id, 'scope', { kind: 'passed' });
+
+      expect(() => runStageCommand(store, id, ['stage', 'fix', 'pass'])).toThrow(
+        /already at stage 'impl'/,
+      );
+      expect(() => runStageCommand(store, id, ['stage', 'fix', 'pass'])).toThrow(
+        /'stage impl pass'/,
+      );
+    } finally {
+      store.close();
+    }
+  });
+
+  it('a marker fired at a done ticket is refused as done, never as a stage mismatch', () => {
+    const store = openStore(':memory:');
+    try {
+      const id = createTicketFlow(store, { key: 'T-1', title: 't' }).id;
+      transition(store, id, 'scope', { kind: 'passed' });
+      transition(store, id, 'impl', { kind: 'passed' });
+      transition(store, id, 'uat', { kind: 'passed' });
+      transition(store, id, 'review', { kind: 'passed' });
+      transition(store, id, 'ship', { kind: 'passed' });
+
+      expect(() => runStageCommand(store, id, ['stage', 'impl', 'pass'])).toThrow(
+        /already at stage 'done'/,
+      );
+      expect(() => runStageCommand(store, id, ['stage', 'impl', 'pass'])).toThrow(/no marker to fire/);
+    } finally {
+      store.close();
+    }
+  });
+
+  it('uses the caller-supplied ticket snapshot for the stale-stage refusal, without reading the store', () => {
+    const store = {} as Store;
+    const transition = vi.fn().mockReturnValue('uat');
+    // The test seam hands a ticket with a divergent stageCurrent and no `db` —
+    // the refusal must come from the snapshot, not from a store read that would
+    // throw on a stub.
+    expect(() =>
+      runStageCommand(store, 42, ['stage', 'impl', 'pass'], transition, {
+        agentState: 'running',
+        stageCurrent: 'fix',
+      }),
+    ).toThrow(/stage fix pass/);
+    expect(transition).not.toHaveBeenCalled();
+  });
+
+  it('does not refuse a marker that matches the ticket snapshot', () => {
+    const transition = vi.fn().mockReturnValue('uat');
+    const store = {} as Store;
+    expect(() =>
+      runStageCommand(store, 42, ['stage', 'impl', 'pass'], transition, {
+        agentState: 'running',
+        stageCurrent: 'impl',
+      }),
+    ).not.toThrow();
+    expect(transition).toHaveBeenCalled();
   });
 });

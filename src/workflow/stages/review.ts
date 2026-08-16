@@ -11,6 +11,7 @@ import { finishProcessRun } from '../../store/processRuns.js';
 import { commitGateOutcome, type RunOutcome, type RecoveryTriggerInput } from '../gates/commit.js';
 import { openGateRun } from '../gates/evidence.js';
 import { nowIso } from '../../model/time.js';
+import { summarizeGateFailure } from '../../model/gateSummary.js';
 import { listWorktreesByTicket } from '../../store/dashboard.js';
 import { defaultGitRunner, type GitRunner } from '../../integrations/git.js';
 import { probeScripts, type ScriptProbe } from '../gates/probe.js';
@@ -260,6 +261,12 @@ export async function runReview(
         repo: entry.identity.repo,
         command: entry.identity.command,
         args: entry.identity.args,
+        // v46: a bounded excerpt of what the failing gate printed — the data a
+        // fix session (or `karst context`) reads back instead of the log.
+        summary:
+          entry.result.exitCode !== null && entry.result.exitCode !== 0
+            ? summarizeGateFailure(entry.result.output)
+            : null,
       })),
     );
   };
@@ -415,7 +422,7 @@ export async function runReview(
       // POSITION like the aggregation below: two manifest entries sharing a
       // worktree can declare the same gate name, so a name lookup would attach
       // the wrong identity to the row.
-      onGateComplete: (name, exitCode, startedAt, endedAt, index) => {
+      onGateComplete: (name, exitCode, startedAt, endedAt, index, output) => {
         const gate = resolution.gates[index];
         evidence.append([{
           gateName: `${name} (${label})`,
@@ -425,6 +432,11 @@ export async function runReview(
           repo: target.repo,
           command: gate?.command ?? name,
           args: gate?.args ?? [],
+          // v46: captured HERE, at the same instant the row lands, so the
+          // failure summary is evidence a later session can read without
+          // opening the artifact log.
+          summary:
+            exitCode !== null && exitCode !== 0 ? summarizeGateFailure(output ?? '') : null,
         }]);
         opts.onGateComplete?.(name, exitCode);
       },

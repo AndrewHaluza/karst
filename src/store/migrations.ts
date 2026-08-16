@@ -19,7 +19,7 @@ export function readSchema(): string {
 }
 
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 45;
+export const SCHEMA_VERSION = 46;
 
 /** v2 ticket-field columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -1746,6 +1746,24 @@ export function migrate(db: Database): void {
   const roundCols = tableColumns(db, 'recovery_rounds');
   if (roundCols.size > 0 && !roundCols.has('interrupt_count')) {
     db.exec('ALTER TABLE recovery_rounds ADD COLUMN interrupt_count INTEGER NOT NULL DEFAULT 0');
+  }
+
+  if (current < 46) {
+    // v46: the bounded failure summary on a FAILED gate's `gate_runs` row. A
+    // gate's output lives only in the artifact log, whose text format is not a
+    // data contract — so a failed gate read back out of the store said only
+    // `exit 1`, the ticket context rendered the bare verdict string, and a fix
+    // session had to open the log to learn the actual Prettier/ESLint/test
+    // failure. The summary captures a bounded excerpt of the failing output at
+    // the moment the row is appended and is read back as data. The guard reads
+    // the CURRENT columns, so a fresh DB (already carrying it via schema.sql)
+    // is a no-op and a re-open is idempotent. NOTHING IS BACKFILLED: a pre-v46
+    // failing gate's output is in its artifact log, not derivable from the
+    // stored row.
+    const gateCols = tableColumns(db, 'gate_runs');
+    if (gateCols.size > 0 && !gateCols.has('summary')) {
+      db.exec('ALTER TABLE gate_runs ADD COLUMN summary TEXT');
+    }
   }
 
   db.pragma(`user_version = ${SCHEMA_VERSION}`);

@@ -38,6 +38,7 @@ function run(
     command: null,
     args: null,
     skipped: false,
+    summary: null,
     ...extra,
   };
 }

@@ -260,6 +260,7 @@ import {
 import { parseLaunchWorktreeConfig } from './commands/launchWorktreeConfig.js';
 import { getDisabledGates, setDisabledGates, type GateStage } from './store/ticketGates.js';
 import { latestFindingBatch } from './store/reviewFindings.js';
+import { listGateRuns } from './store/gateRuns.js';
 import { defaultGhRunnerAsync } from './integrations/github.js';
 import { syncPrStatuses } from './workflow/prSync.js';
 import { syncMergeChecks } from './workflow/mergeSync.js';
@@ -3077,7 +3078,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const t = getTicket(localStore, ticketId);
     const label = t.key ?? `#${ticketId}`;
     const brief =
-      renderFixBrief(label, t.stages, latestFindingBatch(localStore, ticketId)) ??
+      renderFixBrief(
+        label,
+        t.stages,
+        latestFindingBatch(localStore, ticketId),
+        listGateRuns(localStore, ticketId),
+      ) ??
       `A gate failed for ticket ${label}. Re-run the checks, fix what they report, and confirm they pass.`;
     const marker = renderDoneMarkerInstruction(
       buildCliStagePrefix(context, dbPath, 'fix'),
@@ -5397,7 +5403,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // "continue". `currentStage` carries both (state.ts → buildStepper).
       const fixBrief =
         t.stageCurrent === 'fix'
-          ? renderFixBrief(t.key ?? `#${ticketId}`, t.stages, latestFindingBatch(localStore, ticketId))
+          ? renderFixBrief(
+              t.key ?? `#${ticketId}`,
+              t.stages,
+              latestFindingBatch(localStore, ticketId),
+              listGateRuns(localStore, ticketId),
+            )
           : null;
       let seedPrompt = resumeId
         ? `${fixBrief ?? `Continue the in-progress work on ticket ${t.key ?? `#${ticketId}`}. Re-read live state if needed.`}${markerInstruction ? `\n\n${markerInstruction}` : ''}`

@@ -84,6 +84,7 @@ function gateRun(over: Partial<GateRun> = {}): GateRun {
     command: null,
     args: null,
     skipped: false,
+    summary: null,
     ...over,
   };
 }

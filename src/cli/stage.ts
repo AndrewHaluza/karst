@@ -99,13 +99,73 @@ export type TransitionFn = (
   verdict: Verdict,
 ) => StageKey;
 
+/** The ticket a marker is fired for, as far as the CLI knows it. */
+export interface StageCommandTicket {
+  agentState?: string | null;
+  stageCurrent?: string | null;
+}
+
+/**
+ * The stages whose verdict comes from gate exit codes — the ones a marker can
+ * never advance. Kept local so this parse path (the marker boundary) names them
+ * itself rather than importing the machine's notion of a gate stage.
+ */
+const GATE_DECIDED_STAGES: readonly string[] = ['uat', 'review', 'ship'];
+
+/**
+ * Name the marker refusal when the fired stage is not the ticket's current one.
+ *
+ * The machine's backstop (`transition`) says only *that* the stages disagree;
+ * this says what to do instead. A marker fired at a ticket that already left
+ * the stage is the most common self-inflicted refusal — "I finished testing
+ * and fired `stage impl pass` but the ticket had already moved to review" —
+ * and the raw mismatch reads as a machine error, not as an instruction. The
+ * marker surface is deliberately two stages wide (`impl`/`fix`), so the useful
+ * correction is always: name the current stage, and name the marker that IS
+ * valid there (or explain that none is).
+ */
+function markerRefusalMessage(ticketId: number, from: MarkerStage, current: string): string {
+  const where = `ticket ${ticketId} is already at stage '${current}'`;
+  if (current === 'fix' && from === 'impl') {
+    return `${where} — the marker for fix is 'stage fix pass', not 'stage impl pass'.`;
+  }
+  if (current === 'impl' && from === 'fix') {
+    return `${where} — the marker for impl is 'stage impl pass'.`;
+  }
+  if (current === 'done') {
+    return `${where} — a done ticket has no marker to fire.`;
+  }
+  if ((GATE_DECIDED_STAGES as readonly string[]).includes(current)) {
+    return (
+      `${where}. '${current}' is decided by its gate exit codes, never by the marker — ` +
+      `nothing you run advances it, and there is no marker to fire there. Re-read ` +
+      '`karst context` to see where the ticket actually is before acting.'
+    );
+  }
+  return `${where}, not '${from}'.`;
+}
+
+/** The ticket's current stage, preferring the caller's snapshot over a store read. */
+function currentStageOf(
+  store: Store,
+  ticketId: number,
+  ticket?: StageCommandTicket,
+): string | null {
+  if (ticket?.stageCurrent !== undefined) return ticket.stageCurrent;
+  if (!store.db) return null;
+  const row = store.db
+    .prepare('SELECT stage_current AS stageCurrent FROM tickets WHERE id = ?')
+    .get(ticketId) as { stageCurrent: string | null } | undefined;
+  return row?.stageCurrent ?? null;
+}
+
 /** Parse argv and apply the transition for `ticketId`; returns the next stage. */
 export function runStageCommand(
   store: Store,
   ticketId: number,
   argv: string[],
   transition: TransitionFn = defaultTransition,
-  ticket?: { agentState?: string | null },
+  ticket?: StageCommandTicket,
 ): StageKey {
   const { stage, verdict } = parseStageArgs(argv);
   // The marker is the agent's claim that the stage's work is done. If the
@@ -126,6 +186,18 @@ export function runStageCommand(
           )?.agent_state ?? null
         : undefined;
   assertMarkerNotWhileWaiting(agentState);
+  // A marker fired for a stage the ticket already left is the agent's most
+  // common self-inflicted refusal, and the machine's generic mismatch message
+  // is the cryptic part of it — "stage 'impl' is not ticket 355's current
+  // stage (review)" tells the agent its command was wrong but not what the
+  // right one is. Name the current stage and the marker that IS valid there
+  // BEFORE any transition (the graph guard and the run bookkeeping below stay
+  // untouched — a refused marker mutates nothing). The machine keeps its own
+  // guard as the backstop for every non-CLI transition.
+  const current = currentStageOf(store, ticketId, ticket);
+  if (current !== null && current !== stage) {
+    throw new Error(markerRefusalMessage(ticketId, stage, current));
+  }
   // A graph ticket's impl marker routes through the graph marker guard (the
   // ONLY graph/stage boundary, Slice-3 T9): the graph run closes and the
   // stage advances in one transaction, and an earlier/non-quiescent marker is

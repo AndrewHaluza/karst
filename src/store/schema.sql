@@ -107,9 +107,14 @@ CREATE TABLE IF NOT EXISTS gate_runs (
   skipped       INTEGER,              -- v24: 1 = resolved but deliberately not run (user disabled it for
                                        -- this ticket). NULL/0 = it ran, or a pre-v24 row. DISTINCT from
                                        -- exit_code IS NULL, which means the repo defines no such script.
-  stage_run_id  INTEGER               -- v25: -> stage_runs.id, the invocation that produced this row.
+  stage_run_id  INTEGER,              -- v25: -> stage_runs.id, the invocation that produced this row.
                                        -- NULL = a pre-v25 row, or a batch written by a caller that opened
                                        -- no run. Never backfilled.
+  summary       TEXT                  -- v46: a bounded excerpt of the gate's own output, written ONLY for
+                                       -- a gate that FAILED (non-null non-zero exit code). NULL = it passed,
+                                       -- skipped, the repo had no such script, or a pre-v46 row. The full
+                                       -- output stays in the artifact log; this is the "what failed (file,
+                                       -- line, rule)" a fix session or `karst context` reads back as data.
 );
 CREATE INDEX IF NOT EXISTS idx_gate_runs_ticket ON gate_runs(ticket_id, stage_key, id);
 
