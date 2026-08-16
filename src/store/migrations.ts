@@ -1711,6 +1711,20 @@ export function migrate(db: Database): void {
     }
   }
 
+  if (current < 46) {
+    // v46: `servers.kind` distinguishes a real service from a graph agent
+    // session. Graph sessions register in `servers` so the reapers kill them
+    // (869ed2n50), but the services DISPLAY must not read them as services.
+    // The guard reads the CURRENT columns, so a fresh DB (already carrying it
+    // via schema.sql) is a no-op and a re-open is idempotent. NOTHING IS
+    // BACKFILLED: a pre-v46 row predates the distinction and is a service (the
+    // DEFAULT), which is the honest answer — every pre-v46 row was one.
+    const serverCols = tableColumns(db, 'servers');
+    if (serverCols.size > 0 && !serverCols.has('kind')) {
+      db.exec("ALTER TABLE servers ADD COLUMN kind TEXT NOT NULL DEFAULT 'service'");
+    }
+  }
+
   // The tickets.priority step cannot be version-gated, and repairing the
   // CURRENT shape outside the gate is deliberate — the same reason the
   // servers.cwd repair above runs ungated. v44 was bumped INDEPENDENTLY on two

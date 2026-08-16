@@ -182,7 +182,7 @@ function harness(config: GraphApproachConfig = graphApproachConfig()): Harness {
     gitCommonDirOf: () => null,
     workspaceOf: () => undefined,
     createWorkspace: async () => ({ kind: 'created', paths: [{ repoName: 'api', cwd: join(root, 'ws'), domainKey: 'd' }] }),
-    sessionNameOf: (id, kind) => `${kind} ${id}`,
+    sessionNamingOf: (_graphRunId, runId, kind) => ({ name: `Karst ${kind} ${runId}` }),
     cliNodeCompletionCommand: () => 'node "/ext/dist/cli/main.js" node complete',
   };
   return { db, root, ticketId, starts, deps, config };

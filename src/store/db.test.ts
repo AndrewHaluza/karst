@@ -172,6 +172,41 @@ describe('openStore', () => {
     expect(store.db.pragma('user_version', { simple: true })).toBe(46);
   });
 
+  it('migrates a v45 DB to v46, adding servers.kind defaulting to service', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, 'karst.db');
+    const legacy = new Database(path);
+    legacy.exec(
+      `CREATE TABLE servers (
+         id INTEGER PRIMARY KEY, ticket_id INTEGER, repo TEXT NOT NULL, host TEXT,
+         port INTEGER, pid INTEGER, status TEXT NOT NULL, log_path TEXT,
+         started_at TEXT NOT NULL DEFAULT (datetime('now')), cwd TEXT)`,
+    );
+    legacy
+      .prepare(
+        "INSERT INTO servers (ticket_id, repo, host, port, pid, status, cwd) VALUES (1,'api','h',3000,4242,'running','/wt/api')",
+      )
+      .run();
+    legacy.pragma('user_version = 45');
+    legacy.close();
+
+    const migrated = openStore(path);
+    cleanups.push(() => migrated.close());
+
+    const cols = new Set(
+      (migrated.db.prepare("PRAGMA table_info('servers')").all() as { name: string }[]).map(
+        (c) => c.name,
+      ),
+    );
+    expect(cols.has('kind')).toBe(true);
+    // The pre-v46 row was a service — the DEFAULT is the honest answer, never a guess.
+    expect(
+      migrated.db.prepare("SELECT kind FROM servers WHERE ticket_id = 1").get(),
+    ).toEqual({ kind: 'service' });
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(46);
+  });
+
   it('fresh DB carries the nine graph tables and the token_usage graph FKs (v35)', () => {
     const store = openStore(':memory:');
     cleanups.push(() => store.close());

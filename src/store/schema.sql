@@ -574,7 +574,13 @@ CREATE TABLE IF NOT EXISTS servers (
   -- `servers` by position (every query here names its columns), so the order
   -- has no behavioral effect either way; this just keeps the two schemas
   -- byte-for-byte comparable.
-  cwd           TEXT
+  cwd           TEXT,
+  -- The registry doubles as the reaper surface AND the services display. A
+  -- graph planner/node session is a real running process that must be reaped
+  -- (869ed2n50 class), but it is NOT a service: kind distinguishes the two so
+  -- the display readers can drop agent sessions while the reapers keep them.
+  -- Placed LAST, matching where the ALTER necessarily appends on an upgrade.
+  kind          TEXT NOT NULL DEFAULT 'service'   -- service | agent (graph session)
 );
 
 -- One PR per (ticket, repo). `status` and every v16 metadata column below are

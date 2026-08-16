@@ -1344,7 +1344,7 @@ describe('buildDashboardState — graph inside projection (Slice-2 T10)', () => 
 
     const wired = buildDashboardState(store, t.id, undefined, undefined, () => [], () => true, undefined, {}, () => 1, () => [], () => null, null, undefined, () => false, () => undefined, {
       enabled: true,
-      graphRun: { id: 7, status: 'running', approachId: 'karst-graph-engineering', stageAttempt: 0, createdAt: '2026-08-11T00:00:00.000Z' },
+      graphRun: { id: 7, runNumber: 7, status: 'running', approachId: 'karst-graph-engineering', stageAttempt: 0, createdAt: '2026-08-11T00:00:00.000Z' },
       plannerRuns: [],
       nodeRuns: [],
       overrides: [],

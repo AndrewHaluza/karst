@@ -15,6 +15,7 @@ import type {
   TransportTerminal,
 } from '../../approaches/graph/transport/agentTransport.js';
 import { buildGraphInsideInput, type GraphInsideDeps } from './graphInside.js';
+import { createGraphRun } from '../../store/graph/graphRuns.js';
 
 let store: Store;
 
@@ -321,5 +322,21 @@ describe('buildGraphInsideInput', () => {
       .run(graphRunId, revisionId);
     const input = buildGraphInsideInput(deps(), 1)!;
     expect(input.nodeRuns[0]).toMatchObject({ nodeId: 'worker', revisionId });
+  });
+
+  it('numbers the run per ticket, not by the global row id', () => {
+    const h = deps();
+    const { graphRunId } = seedGraph({});
+    // A second ticket's first run must still read run 1, even though its row id
+    // is larger than every existing run's.
+    const other = createGraphRun(store.db, {
+      ticketId: 2,
+      stageAttempt: 0,
+      approachId: 'karst-graph-engineering',
+      now: '2026-08-12T00:00:00.000Z',
+    });
+    expect(other).toBeGreaterThan(graphRunId);
+    expect(buildGraphInsideInput(h, 2)!.graphRun!.runNumber).toBe(1);
+    expect(buildGraphInsideInput(h, 1)!.graphRun!.runNumber).toBe(1);
   });
 });

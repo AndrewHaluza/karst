@@ -160,6 +160,11 @@ export interface GraphInsideInput {
   enabled: boolean;
   graphRun: {
     id: number;
+    /** The 1-based run ordinal among THIS ticket's graph runs — the display
+     *  number. The global row `id` above is the identity; `runNumber` is how
+     *  it reads on the strip ("run 1" for a new ticket whatever the DB-wide
+     *  autoincrement has reached). */
+    runNumber: number;
     status: string;
     approachId: string;
     stageAttempt: number;
@@ -561,7 +566,7 @@ export function graphInsideProcess(
   rows.push({
     label: 'graph',
     detail: sanitizeGraphText(
-      `run ${input.graphRun.id} · ${graphRunStatusCopy(input.graphRun.status)} · ${input.graphRun.approachId}`,
+      `run ${input.graphRun.runNumber} · ${graphRunStatusCopy(input.graphRun.status)} · ${input.graphRun.approachId}`,
     ),
     status: graphRunStatus(input.graphRun.status),
     ...(input.attach && input.graphRun.status === 'blocked'

@@ -26,6 +26,7 @@ function input(overrides?: Partial<GraphInsideInput>): GraphInsideInput {
     enabled: true,
     graphRun: {
       id: 7,
+      runNumber: 7,
       status: 'running',
       approachId: 'karst-graph-engineering',
       stageAttempt: 0,
@@ -141,6 +142,15 @@ describe('graphInsideProcess', () => {
     expect(process.evidence.nodes).toHaveLength(1);
   });
 
+  it('renders the per-ticket run ordinal, never the global run id', () => {
+    const view = graphInsideProcess(
+      input({ graphRun: { ...input({}).graphRun!, id: 99, runNumber: 2 } }),
+    )!;
+    if (view.evidence?.kind !== 'rows') return;
+    expect(view.evidence.rows[0]!.detail).toContain('run 2');
+    expect(view.evidence.rows[0]!.detail).not.toContain('run 99');
+  });
+
   it('clamps a still-submitted planner and still-active revision to the run outcome once the run is closed', () => {
     // The planner/revision rows are durable historical facts — nothing ever
     // rewrites 'submitted'/'active' once the parent run stops mutating — so
@@ -148,7 +158,7 @@ describe('graphInsideProcess', () => {
     // closed run (#352: the graph closed via the impl marker while its
     // bootstrap planner and revision still showed 'run').
     const closed = graphInsideProcess(
-      input({ graphRun: { id: 7, status: 'closed', approachId: 'g', stageAttempt: 0, createdAt: '2026-08-11T00:00:00.000Z' } }),
+      input({ graphRun: { id: 7, runNumber: 7, status: 'closed', approachId: 'g', stageAttempt: 0, createdAt: '2026-08-11T00:00:00.000Z' } }),
     )!;
     if (closed.evidence?.kind !== 'rows') return;
     const planner = closed.evidence.rows.find((r) => r.label === 'planner 1')!;
@@ -158,7 +168,7 @@ describe('graphInsideProcess', () => {
     // Not every terminal outcome confirms the row: a run that never landed
     // must not read as a pass either.
     const cancelled = graphInsideProcess(
-      input({ graphRun: { id: 7, status: 'cancelled', approachId: 'g', stageAttempt: 0, createdAt: '2026-08-11T00:00:00.000Z' } }),
+      input({ graphRun: { id: 7, runNumber: 7, status: 'cancelled', approachId: 'g', stageAttempt: 0, createdAt: '2026-08-11T00:00:00.000Z' } }),
     )!;
     if (cancelled.evidence?.kind !== 'rows') return;
     expect(cancelled.evidence.rows.find((r) => r.label === 'planner 1')!.status).toBe('note');
@@ -221,6 +231,7 @@ describe('graphInsideProcess', () => {
       input({
         graphRun: {
           id: 7,
+          runNumber: 7,
           status: 'completed-awaiting-impl-marker',
           approachId: 'g',
           stageAttempt: 0,
@@ -239,6 +250,7 @@ describe('graphInsideProcess', () => {
       input({
         graphRun: {
           id: 7,
+          runNumber: 7,
           status: 'closed',
           approachId: 'g',
           stageAttempt: 0,
@@ -267,6 +279,7 @@ describe('graphInsideProcess', () => {
       input({
         graphRun: {
           id: 7,
+          runNumber: 7,
           status: 'blocked',
           approachId: 'g',
           stageAttempt: 0,
@@ -287,7 +300,7 @@ describe('graphInsideProcess', () => {
     // mark-impl control (asserted in its own test below) — never the
     // 'stop graph' action a still-live run carries.
     const awaitingMarker = graphInsideProcess(
-      input({ graphRun: { id: 7, status: 'completed-awaiting-impl-marker', approachId: 'g', stageAttempt: 0, createdAt: '2026-08-11T00:00:00.000Z' } }),
+      input({ graphRun: { id: 7, runNumber: 7, status: 'completed-awaiting-impl-marker', approachId: 'g', stageAttempt: 0, createdAt: '2026-08-11T00:00:00.000Z' } }),
     )!;
     if (awaitingMarker.evidence?.kind !== 'rows') return;
     expect(awaitingMarker.evidence.rows[0]!.action).toMatchObject({ kind: 'graph-mark-impl' });
@@ -298,6 +311,7 @@ describe('graphInsideProcess', () => {
       input({
         graphRun: {
           id: 7,
+          runNumber: 7,
           status: 'completed-awaiting-impl-marker',
           approachId: 'g',
           stageAttempt: 0,
@@ -342,6 +356,7 @@ describe('graphInsideProcess', () => {
       input({
         graphRun: {
           id: 7,
+          runNumber: 7,
           status: 'awaiting-confirmation',
           approachId: 'g',
           stageAttempt: 0,
@@ -368,6 +383,7 @@ describe('graphInsideProcess', () => {
       input({
         graphRun: {
           id: 7,
+          runNumber: 7,
           status: 'blocked',
           approachId: 'g',
           stageAttempt: 0,
@@ -394,6 +410,7 @@ describe('graphInsideProcess', () => {
       input({
         graphRun: {
           id: 9,
+          runNumber: 7,
           status: 'completed-awaiting-impl-marker',
           approachId: 'g',
           stageAttempt: 0,
@@ -558,6 +575,7 @@ describe('graphInsideProcess', () => {
       input({
         graphRun: {
           id: 7,
+          runNumber: 7,
           status: 'blocked',
           approachId: 'karst-graph-engineering',
           stageAttempt: 0,

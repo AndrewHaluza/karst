@@ -87,6 +87,7 @@ function harness(transport: FakeTransport): {
       return `hash:${text.length}`;
     },
     graphEnv: () => ({ KARST_GRAPH_RUN_ID: '2' }),
+    sessionNamingOf: (_graphRunId, runId, kind) => ({ name: `Karst ${kind} ${runId}`, iconPath: '/icon/karst.svg' }),
   };
   const input: RunAgentNodeInput = {
     nodeRunId: 11,
@@ -109,6 +110,18 @@ function harness(transport: FakeTransport): {
 }
 
 describe('runAgentNode', () => {
+  it('names the node session from the injected naming bag', async () => {
+    const transport = fakeTransport(true);
+    const h = harness(transport);
+    const result = await runAgentNode(h.deps, h.input);
+    expect(result.kind).toBe('launched');
+    if (result.kind !== 'launched') return;
+    const launch = transport.starts[0]!;
+    expect(launch.sessionName).toBe('Karst node 11');
+    expect(launch.sessionIconPath).toBe('/icon/karst.svg');
+    expect(launch.interactive.sessionName).toBe('Karst node 11');
+  });
+
   it('launches a fresh session: no --resume, no prior-node transcript', async () => {
     const transport = fakeTransport(true);
     const h = harness(transport);
