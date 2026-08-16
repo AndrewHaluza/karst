@@ -88,8 +88,9 @@ export function listServersByTicket(store: Store, ticketId: number): ServerView[
       // Running AND stopped: stopped servers are retained (stopServer marks, not
       // deletes) so they surface as offline and can be restarted. Running float
       // to the top; then alphabetical by repository for a stable order.
-      `SELECT id, ticket_id, repo, host, port, status FROM servers WHERE ticket_id = ?
-       ORDER BY CASE WHEN status = 'running' THEN 0 ELSE 1 END, repo`,
+      `SELECT id, ticket_id, repo, host, port, status FROM servers
+        WHERE ticket_id = ? AND kind = 'service'
+        ORDER BY CASE WHEN status = 'running' THEN 0 ELSE 1 END, repo`,
     )
     .all(ticketId) as ServerRow[];
   return rows.map((r) => ({

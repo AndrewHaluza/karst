@@ -19,7 +19,7 @@ export function readSchema(): string {
 }
 
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 45;
+export const SCHEMA_VERSION = 46;
 
 /** v2 ticket-field columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -1708,6 +1708,20 @@ export function migrate(db: Database): void {
     const sampleCols = tableColumns(db, 'interactive_usage_samples');
     if (sampleCols.size > 0 && !sampleCols.has('reasoning_tokens')) {
       db.exec('ALTER TABLE interactive_usage_samples ADD COLUMN reasoning_tokens INTEGER');
+    }
+  }
+
+  if (current < 46) {
+    // v46: `servers.kind` distinguishes a real service from a graph agent
+    // session. Graph sessions register in `servers` so the reapers kill them
+    // (869ed2n50), but the services DISPLAY must not read them as services.
+    // The guard reads the CURRENT columns, so a fresh DB (already carrying it
+    // via schema.sql) is a no-op and a re-open is idempotent. NOTHING IS
+    // BACKFILLED: a pre-v46 row predates the distinction and is a service (the
+    // DEFAULT), which is the honest answer — every pre-v46 row was one.
+    const serverCols = tableColumns(db, 'servers');
+    if (serverCols.size > 0 && !serverCols.has('kind')) {
+      db.exec("ALTER TABLE servers ADD COLUMN kind TEXT NOT NULL DEFAULT 'service'");
     }
   }
 

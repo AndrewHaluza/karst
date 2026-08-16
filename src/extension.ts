@@ -3831,8 +3831,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     recordSession: (row) => {
       graphCoordinatorStore?.db
         .prepare(
-          `INSERT INTO servers (ticket_id, repo, pid, status, cwd, started_at)
-           VALUES (?, ?, ?, 'running', ?, ?)`,
+          `INSERT INTO servers (ticket_id, repo, pid, status, cwd, started_at, kind)
+           VALUES (?, ?, ?, 'running', ?, ?, 'agent')`,
         )
         .run(row.ticketId, row.repo, row.pid, row.cwd, row.startedAt);
     },
