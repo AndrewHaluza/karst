@@ -3569,6 +3569,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         mkdirSync(dirname(target), { recursive: true });
         writeFileSync(target, bytes);
       },
+      // The artifact-fault re-probe's root: the SAME content-addressed root the
+      // integration pipeline validated the node's required outputs against, so
+      // an explicit Resume re-asks the question that faulted rather than
+      // assuming a human's correction. Absent, the recheck fails closed.
+      artifactRoot: (runId) => graphArtifactRoot(runId),
       // The bootstrap relaunch's prompt seams: the effective planner prompt
       // bytes (packaged overlaid with the project override), its artifact
       // path, and the ticket's rendered context — resolved for THIS run so
