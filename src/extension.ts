@@ -4518,17 +4518,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           transport: tr,
           sessionsFor: (graphRunId) =>
             tr.sessions().filter((s) => s.graphRunId === graphRunId),
+          facts: systemAsyncProcessFacts,
           debug: (message) => logger.debug(message),
         },
         { ticketId, graphRunId: run.graphRunId },
       );
       logger.info(
-        `[graph] stop: run ${result.graphRunId} drained=${result.drained} terminated=${result.terminated} refused=${result.refused}`,
+        `[graph] stop: run ${result.graphRunId} outcome=${result.outcome} drained=${result.drained} terminated=${result.terminated} refused=${result.refused}`,
       );
+      // The message states what happened. A run whose live process this window
+      // cannot reach was NOT stopped, and saying so is the whole point of the
+      // outcome: draining it would strand it behind a false success.
       void vscode.window.showInformationMessage(
-        result.drained || result.terminated > 0
-          ? `Ticket #${ticketId}: implementation graph stopped — ${result.terminated} session${result.terminated === 1 ? '' : 's'} terminated${result.refused > 0 ? `, ${result.refused} refused` : ''}.`
-          : `Ticket #${ticketId}: no graph sessions were stopped.`,
+        result.outcome === 'live-process-unreachable'
+          ? `Ticket #${ticketId}: the implementation graph was NOT stopped — a node process is still running but is not attached to this window. Stop it from the window that launched it, or reload and try again.`
+          : result.drained || result.terminated > 0
+            ? `Ticket #${ticketId}: implementation graph stopped — ${result.terminated} session${result.terminated === 1 ? '' : 's'} terminated${result.refused > 0 ? `, ${result.refused} refused` : ''}.`
+            : `Ticket #${ticketId}: no graph sessions were stopped.`,
       );
       provider.refresh();
       dashboard.pushState(ticketId);

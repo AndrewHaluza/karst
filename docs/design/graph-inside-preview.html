@@ -1,0 +1,619 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Graph Inside — Interactive Preview</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      /* Karst palette tokens (mirrors palette.ts) */
+      --k-pending: #6e7681;
+      --k-running: #3794ff;
+      --k-attention: #cca700;
+      --k-passed: #4bb64b;
+      --k-failed: #f14c4c;
+      /* Stage colors (mirrors stagePalette.ts) */
+      --stage-scope: #8FA3B8;
+      --stage-impl: #7f7bf5;
+      --stage-uat: #d18616;
+      --stage-review: #2ea8b5;
+      --stage-fix: #f14c4c;
+      --stage-ship: #d162c4;
+      --stage-done: #4bb64b;
+      /* Surface tokens */
+      --bg: #111318;
+      --surface: #191c23;
+      --surface-2: #20242d;
+      --tint-run: rgba(55,148,255,.08);
+      --tint-fail: rgba(241,76,76,.08);
+      --tint-wait: rgba(204,167,0,.08);
+      --border: #343a46;
+      --text: #f0f2f5;
+      --muted: #9da6b4;
+      --muted2: #697383;
+      --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+      --r1: 6px;
+      --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px;
+      --border-w: 1px;
+    }
+    * { box-sizing: border-box; margin: 0; }
+    body { background: var(--bg); color: var(--text); font: 13px/1.5 var(--mono); padding: 24px; }
+    h1 { font: 600 22px/1.2 var(--mono); margin-bottom: 4px; }
+    h2 { font: 600 15px/1.3 var(--mono); margin: 24px 0 8px; color: var(--muted); }
+    .subtitle { color: var(--muted); font-size: 12px; margin-bottom: 24px; }
+
+    /* Controls */
+    .controls { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 24px; padding: 12px; background: var(--surface); border: var(--border-w) solid var(--border); border-radius: var(--r1); }
+    .controls label { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); cursor: pointer; padding: 4px 8px; border-radius: var(--r1); border: var(--border-w) solid transparent; transition: border-color .15s; }
+    .controls label:hover { border-color: var(--border); }
+    .controls label.active { border-color: var(--k-running); color: var(--text); }
+    .controls input[type="radio"] { accent-color: var(--k-running); }
+    .controls select { background: var(--surface-2); color: var(--text); border: var(--border-w) solid var(--border); border-radius: var(--r1); padding: 4px 8px; font: 11px var(--mono); }
+
+    /* Layout */
+    .panel { background: var(--surface); border: var(--border-w) solid var(--border); border-radius: var(--r1); overflow: hidden; margin-bottom: 16px; }
+    .panel-header { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: var(--border-w) solid var(--border); }
+    .panel-header .dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+    .panel-header .title { font: 600 13px var(--mono); flex: 1; }
+    .panel-header .aggregate { font-size: 11px; padding: 2px 8px; border: var(--border-w) solid var(--border); border-radius: 999px; color: var(--muted); }
+    .panel-body { padding: 0; }
+
+    /* Glyph (mirrors #inside .glyph) */
+    .glyph { position: relative; width: 16px; height: 16px; display: inline-grid; place-items: center; flex: none;
+      border: var(--border-w) solid currentColor; border-radius: 50%; color: var(--k-pending); line-height: 1; }
+    .glyph.pass { color: var(--k-passed); }
+    .glyph.fail { color: var(--k-failed); }
+    .glyph.pending, .glyph.note { color: var(--k-pending); }
+    .glyph.skip { color: var(--k-pending); }
+    .glyph.wait { color: var(--k-attention); }
+    .glyph.run { color: var(--k-running); }
+    .glyph.pass:before { content: ""; width: 6px; height: 3px; border-left: 1.5px solid currentColor;
+      border-bottom: 1.5px solid currentColor; transform: translateY(-1px) rotate(-45deg); }
+    .glyph.fail:before, .glyph.fail:after { content: ""; position: absolute; width: 7px; height: 1.5px;
+      border-radius: var(--border-w); background: currentColor; left: 50%; top: 50%; transform-origin: center; }
+    .glyph.fail:before { transform: translate(-50%, -50%) rotate(45deg); }
+    .glyph.fail:after { transform: translate(-50%, -50%) rotate(-45deg); }
+    .glyph.pending:before, .glyph.note:before { content: ""; width: 3px; height: 3px;
+      border-radius: 50%; background: currentColor; }
+    .glyph.run:before { content: ""; width: 8px; height: 8px; border: 1.5px solid currentColor;
+      border-right-color: transparent; border-radius: 50%; animation: spin 1s linear infinite; }
+    .glyph.wait:before, .glyph.wait:after { content: ""; position: absolute; width: 1.5px; height: 6px;
+      top: 4px; border-radius: var(--border-w); background: currentColor; }
+    .glyph.wait:before { left: 5px; }
+    .glyph.wait:after { right: 5px; }
+    .glyph.skip:before { content: ""; width: 7px; height: 1px; background: currentColor; transform: rotate(-45deg); }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Graph nodes container (mirrors #inside .graph-nodes) */
+    .graph-nodes { border: var(--border-w) solid var(--border); border-radius: var(--r1); overflow: hidden; background: var(--surface); }
+    .graph-node-group { padding: var(--s1) var(--s2) var(--s1); background: var(--tint-run); border-bottom: var(--border-w) solid var(--border);
+      color: var(--muted); font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: .04em; }
+    .graph-node { display: grid;
+      grid-template-columns: 18px minmax(60px,90px) minmax(60px,90px) minmax(0,1fr) auto;
+      gap: var(--s2); align-items: center; min-height: 26px; padding: 0 var(--s2);
+      border-bottom: var(--border-w) solid var(--border); }
+    .graph-node:last-child { border-bottom: 0; }
+    .graph-node .glyph { justify-self: start; }
+    .graph-node-name { font-family: var(--mono); font-size: 11px; color: var(--text);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+    .graph-node-meta { color: var(--muted2); font-family: var(--mono); font-size: 11px;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+    .graph-node-detail { display: flex; align-items: center; gap: var(--s2); min-width: 0;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; line-height: 18px; }
+    .graph-node .ev-tail { flex: none; justify-self: end; white-space: nowrap; }
+    .graph-node .ev-tail .k-btn { white-space: nowrap; flex: none; }
+    .graph-node-identity { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .graph-node-visit { color: var(--muted2); font-family: var(--mono); font-size: 11px; white-space: nowrap; }
+    .graph-node-override { color: var(--k-running); font-family: var(--mono); font-size: 11px; white-space: nowrap; }
+    .graph-node-fact { color: var(--muted2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .graph-node-reason { color: var(--k-attention); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    /* Evidence rows (mirrors #inside .evidence-row) */
+    .evidence-row { display: grid; grid-template-columns: minmax(74px,100px) minmax(0,1fr) auto;
+      gap: var(--s2); align-items: center; min-height: 26px; padding: 0 var(--s2); }
+    .ev-key { color: var(--text); font-family: var(--mono); font-size: 11px;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ev-detail { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      font-size: 12px; line-height: 18px; }
+    .ev-state { min-height: 18px; display: inline-flex; align-items: center;
+      justify-content: flex-end; line-height: 18px; text-transform: lowercase; white-space: nowrap;
+      font-family: var(--mono); font-size: 11px; color: var(--muted2); gap: var(--s2); }
+    .ev-state.pass { color: var(--k-passed); }
+    .ev-state.run { color: var(--k-running); }
+    .ev-state.wait { color: var(--k-attention); }
+    .ev-state.fail { color: var(--k-failed); }
+    .ev-state.skip { color: var(--k-pending); }
+
+    /* Button */
+    .k-btn { display: inline-flex; align-items: center; gap: 4px; border: var(--border-w) solid var(--border);
+      background: var(--surface-2); color: var(--text); border-radius: var(--r1); padding: 2px 8px;
+      font: 11px var(--mono); cursor: pointer; white-space: nowrap; transition: border-color .15s; }
+    .k-btn:hover { border-color: var(--k-running); }
+    .k-btn.primary { border-color: var(--k-running); color: var(--k-running); }
+    .k-btn.danger { border-color: var(--k-failed); color: var(--k-failed); }
+
+    /* Two-column layout */
+    .columns { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    @media (max-width: 900px) { .columns { grid-template-columns: 1fr; } }
+
+    /* Status legend */
+    .legend { display: flex; flex-wrap: wrap; gap: 12px; margin: 12px 0; padding: 10px; background: var(--surface); border: var(--border-w) solid var(--border); border-radius: var(--r1); }
+    .legend-item { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); }
+
+    /* Responsive: hide meta column on narrow */
+    @media (max-width: 680px) {
+      .graph-node { grid-template-columns: 18px minmax(56px,76px) minmax(0,1fr) auto; }
+      .graph-node-meta { display: none; }
+    }
+
+    .section-label { font: 600 11px var(--mono); color: var(--muted2); text-transform: uppercase; letter-spacing: .06em; margin: 16px 0 6px; }
+  </style>
+</head>
+<body>
+  <h1>Graph Inside — Interactive Preview</h1>
+  <p class="subtitle">Status-grouped node list and evidence rows from <code>src/model/inside/graph.ts</code> · Pure projection of <code>GraphInsideInput</code></p>
+
+  <!-- Controls -->
+  <div class="controls">
+    <label class="active" onclick="setScenario('running')"><input type="radio" name="scenario" value="running" checked> Running</label>
+    <label onclick="setScenario('planning')"><input type="radio" name="scenario" value="planning"> Planning</label>
+    <label onclick="setScenario('blocked')"><input type="radio" name="scenario" value="blocked"> Blocked</label>
+    <label onclick="setScenario('completed')"><input type="radio" name="scenario" value="completed"> Completed</label>
+    <label onclick="setScenario('awaiting')"><input type="radio" name="scenario" value="awaiting"> Awaiting Marker</label>
+    <label onclick="setScenario('multi-rev')"><input type="radio" name="scenario" value="multi-rev"> Multi-Revision</label>
+    <span style="flex:1"></span>
+    <label>maxParallel:
+      <select id="maxParallel" onchange="render()">
+        <option value="1">1 (serialized)</option>
+        <option value="3" selected>3</option>
+        <option value="8">8</option>
+      </select>
+    </label>
+    <label>maxNodeRuns:
+      <select id="maxNodeRuns" onchange="render()">
+        <option value="20">20</option>
+        <option value="40" selected>40</option>
+        <option value="100">100</option>
+      </select>
+    </label>
+  </div>
+
+  <!-- Status legend -->
+  <div class="legend">
+    <div class="legend-item"><span class="glyph pass"></span> pass</div>
+    <div class="legend-item"><span class="glyph fail"></span> fail</div>
+    <div class="legend-item"><span class="glyph run"></span> run</div>
+    <div class="legend-item"><span class="glyph wait"></span> wait</div>
+    <div class="legend-item"><span class="glyph pending"></span> pending</div>
+    <div class="legend-item"><span class="glyph note"></span> note</div>
+    <div class="legend-item"><span class="glyph skip"></span> skip</div>
+  </div>
+
+  <div class="columns">
+    <!-- Left: Process view (evidence rows + graph nodes) -->
+    <div>
+      <div class="section-label">Process: Implementation graph</div>
+      <div class="panel" id="processPanel">
+        <div class="panel-header" id="processHeader"></div>
+        <div class="panel-body" id="processBody"></div>
+      </div>
+
+      <div class="section-label">Node list (status-grouped)</div>
+      <div id="nodeListContainer"></div>
+    </div>
+
+    <!-- Right: Scenario data inspector -->
+    <div>
+      <div class="section-label">GraphInsideInput</div>
+      <div class="panel" style="max-height: 600px; overflow: auto;">
+        <pre id="inputInspector" style="padding:12px; font-size:11px; line-height:1.4; color:var(--muted); white-space:pre-wrap; word-break:break-all;"></pre>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ─── Scenarios ───────────────────────────────────────────────────────────
+    // Each scenario is a partial GraphInsideInput (see src/model/inside/graph.ts)
+    const SCENARIOS = {
+      running: {
+        graphRun: { id: 12, status: 'running', approachId: 'karst-rpi', stageAttempt: 1, createdAt: '2026-08-16T10:00:00Z' },
+        plannerRuns: [
+          { plannerRunNumber: 1, kind: 'bootstrap', status: 'completed', compileAttempt: 1, reason: null },
+        ],
+        nodeRuns: [
+          { nodeRunId: 1, nodeId: 'analyze-structure', nodeKind: 'agent', revisionId: 1, visitNumber: 1, status: 'completed', outcome: 'passed', reason: null, provider: 'claude', model: 'sonnet-4', effort: 'high', profile: null, launchAttempt: 1 },
+          { nodeRunId: 2, nodeId: 'implement-core', nodeKind: 'agent', revisionId: 1, visitNumber: 1, status: 'running', outcome: null, reason: null, provider: 'claude', model: 'sonnet-4', effort: 'high', profile: null, launchAttempt: 1 },
+          { nodeRunId: 3, nodeId: 'write-tests', nodeKind: 'agent', revisionId: 1, visitNumber: 1, status: 'ready', outcome: null, reason: null, provider: 'codex', model: 'o3', effort: 'medium', profile: null, launchAttempt: 1 },
+          { nodeRunId: 4, nodeId: 'update-docs', nodeKind: 'agent', revisionId: 1, visitNumber: 1, status: 'blocked', outcome: null, reason: 'waiting for implement-core', provider: null, model: null, effort: null, profile: null, launchAttempt: 1 },
+        ],
+        overrides: [
+          { revisionId: 1, nodeId: 'write-tests', kinds: ['model'] },
+        ],
+        deferrals: [],
+        execution: { maxParallel: 3, maxNodeRuns: 40 },
+        revision: { revisionNumber: 1, status: 'active', fingerprint: 'a1b2c3d4e5f6' },
+        diagnostics: [],
+        artifacts: [
+          { artifactId: 'plan-v1.json', byteSize: 2048, mediaType: 'application/json', createdAt: '2026-08-16T10:02:00Z' },
+        ],
+        liveSessions: [
+          { kind: 'node', runId: 2 },
+        ],
+      },
+      planning: {
+        graphRun: { id: 13, status: 'planning', approachId: 'karst-rpi', stageAttempt: 1, createdAt: '2026-08-16T10:30:00Z' },
+        plannerRuns: [
+          { plannerRunNumber: 1, kind: 'bootstrap', status: 'running', compileAttempt: 1, reason: null },
+        ],
+        nodeRuns: [],
+        overrides: [],
+        deferrals: [],
+        execution: { maxParallel: 3, maxNodeRuns: 40 },
+        revision: null,
+        diagnostics: [],
+        artifacts: [],
+        liveSessions: [
+          { kind: 'planner', runId: 1 },
+        ],
+      },
+      blocked: {
+        graphRun: { id: 14, status: 'blocked', approachId: 'karst-rpi', stageAttempt: 2, createdAt: '2026-08-16T09:00:00Z' },
+        plannerRuns: [
+          { plannerRunNumber: 1, kind: 'bootstrap', status: 'completed', compileAttempt: 1, reason: null },
+          { plannerRunNumber: 2, kind: 'replan', status: 'blocked', compileAttempt: 1, reason: 'compile error in generated plan' },
+        ],
+        nodeRuns: [
+          { nodeRunId: 10, nodeId: 'setup-scaffold', nodeKind: 'agent', revisionId: 1, visitNumber: 1, status: 'completed', outcome: 'passed', reason: null, provider: 'claude', model: 'sonnet-4', effort: 'high', profile: null, launchAttempt: 1 },
+          { nodeRunId: 11, nodeId: 'broken-module', nodeKind: 'agent', revisionId: 1, visitNumber: 1, status: 'completed', outcome: 'failed', reason: 'test suite failed: 3/47', provider: 'claude', model: 'sonnet-4', effort: 'high', profile: null, launchAttempt: 1 },
+          { nodeRunId: 12, nodeId: 'retry-fix', nodeKind: 'agent', revisionId: 2, visitNumber: 1, status: 'ready', outcome: null, reason: null, provider: null, model: null, effort: null, profile: null, launchAttempt: 1 },
+        ],
+        overrides: [],
+        deferrals: [
+          { nodeId: 'retry-fix', reason: 'maxParallel 1 — serialized', waitSince: '2026-08-16T09:15:00Z' },
+        ],
+        execution: { maxParallel: 1, maxNodeRuns: 40 },
+        revision: { revisionNumber: 2, status: 'active', fingerprint: 'f6e5d4c3b2a1' },
+        diagnostics: [
+          { code: 'TS2345', where: 'src/core.ts:42', message: 'Argument of type "string" is not assignable to parameter of type "number"' },
+          { code: 'TEST_FAIL', where: 'src/core.test.ts:18', message: 'expected true to be false' },
+        ],
+        artifacts: [],
+        liveSessions: [],
+      },
+      completed: {
+        graphRun: { id: 15, status: 'closed', approachId: 'karst-rpi', stageAttempt: 1, createdAt: '2026-08-16T08:00:00Z' },
+        plannerRuns: [
+          { plannerRunNumber: 1, kind: 'bootstrap', status: 'completed', compileAttempt: 1, reason: null },
+        ],
+        nodeRuns: [
+          { nodeRunId: 20, nodeId: 'analyze-structure', nodeKind: 'agent', revisionId: 1, visitNumber: 1, status: 'completed', outcome: 'passed', reason: null, provider: 'claude', model: 'sonnet-4', effort: 'high', profile: null, launchAttempt: 1 },
+          { nodeRunId: 21, nodeId: 'implement-core', nodeKind: 'agent', revisionId: 1, visitNumber: 1, status: 'completed', outcome: 'passed', reason: null, provider: 'claude', model: 'sonnet-4', effort: 'high', profile: null, launchAttempt: 1 },
+          { nodeRunId: 22, nodeId: 'write-tests', nodeKind: 'agent', revisionId: 1, visitNumber: 1, status: 'completed', outcome: 'passed', reason: null, provider: 'codex', model: 'o3', effort: 'medium', profile: null, launchAttempt: 1 },
+          { nodeRunId: 23, nodeId: 'update-docs', nodeKind: 'agent', revisionId: 1, visitNumber: 1, status: 'completed', outcome: 'passed', reason: null, provider: 'claude', model: 'sonnet-4', effort: 'high', profile: null, launchAttempt: 1 },
+        ],
+        overrides: [],
+        deferrals: [],
+        execution: { maxParallel: 3, maxNodeRuns: 40 },
+        revision: { revisionNumber: 1, status: 'completed', fingerprint: 'a1b2c3d4e5f6' },
+        diagnostics: [],
+        artifacts: [
+          { artifactId: 'plan-v1.json', byteSize: 2048, mediaType: 'application/json', createdAt: '2026-08-16T08:02:00Z' },
+          { artifactId: 'build-output.tar.gz', byteSize: 153600, mediaType: 'application/gzip', createdAt: '2026-08-16T08:45:00Z' },
+        ],
+        liveSessions: [],
+      },
+      awaiting: {
+        graphRun: { id: 16, status: 'completed-awaiting-impl-marker', approachId: 'karst-rpi', stageAttempt: 1, createdAt: '2026-08-16T07:00:00Z' },
+        plannerRuns: [
+          { plannerRunNumber: 1, kind: 'bootstrap', status: 'completed', compileAttempt: 1, reason: null },
+        ],
+        nodeRuns: [
+          { nodeRunId: 30, nodeId: 'analyze-structure', nodeKind: 'agent', revisionId: 1, visitNumber: 1, status: 'completed', outcome: 'passed', reason: null, provider: 'claude', model: 'sonnet-4', effort: 'high', profile: null, launchAttempt: 1 },
+          { nodeRunId: 31, nodeId: 'implement-core', nodeKind: 'agent', revisionId: 1, visitNumber: 1, status: 'completed', outcome: 'passed', reason: null, provider: 'claude', model: 'sonnet-4', effort: 'high', profile: null, launchAttempt: 1 },
+        ],
+        overrides: [],
+        deferrals: [],
+        execution: { maxParallel: 3, maxNodeRuns: 40 },
+        revision: { revisionNumber: 1, status: 'completed', fingerprint: 'a1b2c3d4e5f6' },
+        diagnostics: [],
+        artifacts: [],
+        liveSessions: [],
+      },
+      'multi-rev': {
+        graphRun: { id: 17, status: 'running', approachId: 'karst-rpi', stageAttempt: 1, createdAt: '2026-08-16T10:00:00Z' },
+        plannerRuns: [
+          { plannerRunNumber: 1, kind: 'bootstrap', status: 'completed', compileAttempt: 1, reason: null },
+          { plannerRunNumber: 2, kind: 'replan', status: 'completed', compileAttempt: 1, reason: 'node 5 failed' },
+        ],
+        nodeRuns: [
+          { nodeRunId: 40, nodeId: 'setup-scaffold', nodeKind: 'agent', revisionId: 1, visitNumber: 1, status: 'completed', outcome: 'passed', reason: null, provider: 'claude', model: 'sonnet-4', effort: 'high', profile: null, launchAttempt: 1 },
+          { nodeRunId: 41, nodeId: 'implement-a', nodeKind: 'agent', revisionId: 1, visitNumber: 1, status: 'completed', outcome: 'passed', reason: null, provider: 'claude', model: 'sonnet-4', effort: 'high', profile: null, launchAttempt: 1 },
+          { nodeRunId: 42, nodeId: 'implement-b', nodeKind: 'agent', revisionId: 1, visitNumber: 1, status: 'completed', outcome: 'failed', reason: 'build error', provider: 'codex', model: 'o3', effort: 'high', profile: null, launchAttempt: 1 },
+          { nodeRunId: 43, nodeId: 'fix-b-retry', nodeKind: 'agent', revisionId: 2, visitNumber: 1, status: 'running', outcome: null, reason: null, provider: 'claude', model: 'sonnet-4', effort: 'high', profile: null, launchAttempt: 1 },
+          { nodeRunId: 44, nodeId: 'write-tests', nodeKind: 'agent', revisionId: 2, visitNumber: 1, status: 'ready', outcome: null, reason: null, provider: null, model: null, effort: null, profile: null, launchAttempt: 1 },
+          { nodeRunId: 45, nodeId: 'update-docs', nodeKind: 'agent', revisionId: 2, visitNumber: 1, status: 'waiting-resource', outcome: null, reason: null, provider: null, model: null, effort: null, profile: null, launchAttempt: 1 },
+          { nodeRunId: 46, nodeId: 'stale-node', nodeKind: 'agent', revisionId: 1, visitNumber: 2, status: 'stale', outcome: null, reason: 'replanned', provider: null, model: null, effort: null, profile: null, launchAttempt: 1 },
+          { nodeRunId: 47, nodeId: 'cancelled-node', nodeKind: 'agent', revisionId: 1, visitNumber: 2, status: 'cancelled', outcome: null, reason: 'user cancelled', provider: null, model: null, effort: null, profile: null, launchAttempt: 1 },
+          { nodeRunId: 48, nodeId: 'launch-unknown', nodeKind: 'agent', revisionId: 2, visitNumber: 1, status: 'launch-unknown', outcome: null, reason: 'process may still be running', provider: 'claude', model: 'sonnet-4', effort: 'medium', profile: null, launchAttempt: 2 },
+        ],
+        overrides: [
+          { revisionId: 2, nodeId: 'write-tests', kinds: ['model', 'effort'] },
+        ],
+        deferrals: [
+          { nodeId: 'write-tests', reason: 'maxParallel 3 — all slots occupied', waitSince: '2026-08-16T10:10:00Z' },
+        ],
+        execution: { maxParallel: 3, maxNodeRuns: 40 },
+        revision: { revisionNumber: 2, status: 'active', fingerprint: 'b2c3d4e5f6a7' },
+        diagnostics: [
+          { code: 'BUILD_ERR', where: 'src/b.ts:12', message: 'Module not found: ./missing' },
+        ],
+        artifacts: [
+          { artifactId: 'plan-v1.json', byteSize: 3072, mediaType: 'application/json', createdAt: '2026-08-16T10:02:00Z' },
+          { artifactId: 'plan-v2.json', byteSize: 2560, mediaType: 'application/json', createdAt: '2026-08-16T10:08:00Z' },
+        ],
+        liveSessions: [
+          { kind: 'node', runId: 43 },
+        ],
+      },
+    };
+
+    // ─── Graph projection logic (mirrors src/model/inside/graph.ts) ──────────
+    const GRAPH_NODE_GROUPS = ['active', 'ready', 'resource-waiting', 'completed', 'blocked', 'stale', 'cancelled', 'other'];
+    const GRAPH_ACTIVE_STATUSES = ['launching', 'running', 'completing', 'integrating'];
+    const GRAPH_RUN_STATUSES = ['planning', 'awaiting-confirmation', 'running', 'draining', 'blocked', 'completed-awaiting-impl-marker', 'closed', 'stale', 'cancelled'];
+    const TERMINAL_RUN_STATUSES = new Set(['closed', 'cancelled', 'stale']);
+    const STOPPABLE_RUN_STATUSES = ['planning', 'awaiting-confirmation', 'running', 'blocked'];
+    const AMBIGUOUS_NODE_STATUSES = ['launch-unknown', 'termination-unknown'];
+    const NODE_OVERRIDE_EDITABLE = ['ready', 'blocked', 'failed-to-launch'];
+
+    function graphRunStatusLabel(s) {
+      return { planning:'Planning', 'awaiting-confirmation':'Awaiting confirmation', running:'Running', draining:'Draining', blocked:'Blocked', 'completed-awaiting-impl-marker':'Completed — awaiting implementation marker', closed:'Closed', stale:'Stale', cancelled:'Cancelled' }[s] || s;
+    }
+    function graphRunStatus(s) {
+      if (['planning','awaiting-confirmation','running','draining'].includes(s)) return 'run';
+      if (['blocked','stale','completed-awaiting-impl-marker'].includes(s)) return 'wait';
+      if (s === 'closed') return 'pass';
+      if (s === 'cancelled') return 'note';
+      return 'pending';
+    }
+    function clampToRunOutcome(status, runStatus) {
+      if (status !== 'run' || !TERMINAL_RUN_STATUSES.has(runStatus)) return status;
+      return runStatus === 'closed' ? 'pass' : 'note';
+    }
+    function plannerStatus(status, runStatus) {
+      const raw = { ready:'pending', launching:'run', running:'run', submitted:'run', blocked:'wait', 'launch-unknown':'wait', cancelled:'note', stale:'note' }[status] || 'pending';
+      return clampToRunOutcome(raw, runStatus);
+    }
+    function revisionStatus(status, runStatus) {
+      const raw = { active:'run', completed:'pass' }[status] || 'note';
+      return clampToRunOutcome(raw, runStatus);
+    }
+    function nodeRunStatus(status) {
+      if (['ready','waiting-resource'].includes(status)) return 'pending';
+      if (['launching','running','completing','integrating'].includes(status)) return 'run';
+      if (status === 'completed') return 'pass';
+      if (['blocked','failed-to-launch','launch-unknown','termination-unknown'].includes(status)) return 'wait';
+      if (['stale','cancelled'].includes(status)) return 'note';
+      return 'pending';
+    }
+    function nodeGroupFor(status) {
+      if (GRAPH_ACTIVE_STATUSES.includes(status)) return 'active';
+      const map = { ready:'ready', 'waiting-resource':'resource-waiting', completed:'completed', blocked:'blocked', stale:'stale', cancelled:'cancelled' };
+      return map[status] || 'other';
+    }
+    function nodeIdentityDetail(n) {
+      return [n.provider, n.model, n.effort, n.profile ? `profile ${n.profile}` : null]
+        .filter(p => p != null && p !== '').join(' · ');
+    }
+    function statusWord(status) {
+      return { pass:'passed', fail:'failed', run:'running', wait:'waiting', pending:'pending', note:'note', skip:'skipped' }[status] || status;
+    }
+    function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+    // ─── HTML renderers (mirrors webview.html graphNodeListHtml / evidenceRowsHtml) ──
+    function graphNodeListHtml(nodes, maxNodeRuns) {
+      let lastGroup = '';
+      return `<div class="graph-nodes">${nodes.map(n => {
+        const head = n.group !== lastGroup
+          ? `<div class="graph-node-group">${esc(graphNodeGroupLabel(n.group))}</div>` : '';
+        lastGroup = n.group;
+        const glyph = `<span class="glyph ${esc(n.displayStatus)}" aria-label="${esc(statusWord(n.displayStatus))}"></span>`;
+        const visit = `visit ${n.visitNumber}/${maxNodeRuns}`;
+        const actionHtml = n.action
+          ? `<span class="ev-tail"><button class="k-btn ${n.action.kind === 'graph-discard-node' ? 'danger' : 'primary'}">${esc(n.action.label || actionLabel(n.action.kind))}</button></span>`
+          : '';
+        return head + `<div class="graph-node">${glyph}`
+          + `<span class="graph-node-name">${esc(n.nodeId)}</span>`
+          + `<span class="graph-node-meta">${esc(n.nodeKind)} · ${esc(n.status)}</span>`
+          + `<span class="graph-node-detail">`
+          + (n.identity ? `<span class="graph-node-identity">${esc(n.identity)}</span>` : '')
+          + `<span class="graph-node-visit">${esc(visit)}</span>`
+          + (n.override ? `<span class="graph-node-override">${esc(n.override)}</span>` : '')
+          + (n.outcome ? `<span class="graph-node-fact">${esc(n.outcome)}</span>` : '')
+          + (n.reason ? `<span class="graph-node-reason">${esc(n.reason)}</span>` : '')
+          + `</span>`
+          + actionHtml
+          + `</div>`;
+      }).join('')}</div>`;
+    }
+
+    function graphNodeGroupLabel(g) {
+      return { active:'Active', ready:'Ready', 'resource-waiting':'Resource waiting', completed:'Completed', blocked:'Blocked', stale:'Stale', cancelled:'Cancelled', other:'Other' }[g] || g;
+    }
+
+    function actionLabel(kind) {
+      return { 'graph-open-session':'Open', 'graph-stop':'Stop', 'graph-resume':'Resume', 'graph-replan':'Replan', 'graph-mark-impl':'Mark done', 'graph-discard-node':'Discard', 'graph-edit-override':'Edit' }[kind] || kind;
+    }
+
+    function evidenceRowsHtml(rows) {
+      return rows.map(r => `<div class="evidence-row">`
+        + `<span class="ev-key">${esc(r.label)}</span>`
+        + `<span class="ev-detail">${esc(r.detail || '')}</span>`
+        + (r.action
+          ? `<span class="ev-state"><button class="k-btn ${r.action.kind === 'graph-stop' ? 'danger' : 'primary'}">${esc(actionLabel(r.action.kind))}</button></span>`
+          : `<span class="ev-state ${esc(r.status || '')}"><span class="glyph ${esc(r.status || 'pending')}" aria-label="${esc(statusWord(r.status || 'pending'))}"></span></span>`)
+        + `</div>`).join('');
+    }
+
+    // ─── Graph projection (pure function, mirrors graphInsideProcess) ────────
+    function projectGraph(input) {
+      if (!input.graphRun) return null;
+      const rows = [];
+      const rs = input.graphRun.status;
+
+      // Graph run row
+      const runAction = STOPPABLE_RUN_STATUSES.includes(rs)
+        ? { actionId: 'stop', kind: 'graph-stop', label: 'Stop' }
+        : rs === 'blocked'
+          ? { actionId: 'resume', kind: 'graph-resume', label: 'Resume' }
+          : rs === 'awaiting-confirmation'
+            ? { actionId: 'confirm', kind: 'graph-confirm', label: 'Confirm' }
+            : rs === 'completed-awaiting-impl-marker'
+              ? { actionId: 'mark', kind: 'graph-mark-impl', label: 'Mark done' }
+              : undefined;
+
+      rows.push({
+        label: 'graph',
+        detail: `run ${input.graphRun.id} · ${graphRunStatusLabel(rs)} · ${input.graphRun.approachId}`,
+        status: graphRunStatus(rs),
+        action: runAction,
+      });
+
+      // Blocked: replan + stop
+      if (rs === 'blocked') {
+        rows.push({ label: 'replan', detail: 'Start a new graph revision from the recorded failure evidence', status: 'wait', action: { actionId: 'replan', kind: 'graph-replan', label: 'Replan' } });
+        rows.push({ label: 'stop graph', detail: 'Terminate any remaining graph sessions without changing the blocked stage', status: 'note', action: { actionId: 'stop', kind: 'graph-stop', label: 'Stop' } });
+      }
+
+      // Planner runs
+      for (const p of input.plannerRuns) {
+        rows.push({
+          label: `planner ${p.plannerRunNumber}`,
+          detail: `${p.kind} · ${p.status} · compile attempt ${p.compileAttempt}`,
+          status: plannerStatus(p.status, rs),
+        });
+      }
+
+      // Deferrals
+      for (const d of input.deferrals) {
+        const waited = Math.max(0, Date.now() - Date.parse(d.waitSince));
+        rows.push({
+          label: `deferred ${d.nodeId}`,
+          detail: `${d.reason} · waiting ${Math.floor(waited / 1000)}s`,
+          status: 'wait',
+        });
+      }
+
+      // Revision
+      if (input.revision) {
+        rows.push({
+          label: 'revision',
+          detail: `rev ${input.revision.revisionNumber} · ${input.revision.status}` + (input.revision.fingerprint ? ` · ${input.revision.fingerprint.slice(0, 12)}` : ''),
+          status: revisionStatus(input.revision.status, rs),
+        });
+      }
+
+      // Diagnostics
+      for (const d of input.diagnostics) {
+        rows.push({ label: d.code, detail: `${d.where} — ${d.message}`, status: 'fail' });
+      }
+
+      // Artifacts
+      for (const a of input.artifacts) {
+        const size = a.byteSize < 1024 ? `${a.byteSize} B` : a.byteSize < 1048576 ? `${(a.byteSize/1024).toFixed(1)} KB` : `${(a.byteSize/1048576).toFixed(1)} MB`;
+        rows.push({ label: a.artifactId, detail: `${a.mediaType} · ${size}`, status: 'pass' });
+      }
+
+      // Node list (sorted by group)
+      const maxNodeRuns = input.execution.maxNodeRuns;
+      const nodes = [...input.nodeRuns]
+        .sort((a, b) => {
+          const ga = GRAPH_NODE_GROUPS.indexOf(nodeGroupFor(a.status));
+          const gb = GRAPH_NODE_GROUPS.indexOf(nodeGroupFor(b.status));
+          return ga - gb || a.nodeRunId - b.nodeRunId;
+        })
+        .map(n => {
+          const kinds = input.overrides.find(o => o.revisionId === n.revisionId && o.nodeId === n.nodeId)?.kinds;
+          let action;
+          if (AMBIGUOUS_NODE_STATUSES.includes(n.status)) {
+            action = { actionId: `discard-${n.nodeRunId}`, kind: 'graph-discard-node', label: 'Discard' };
+          } else if (input.liveSessions.some(s => s.kind === 'node' && s.runId === n.nodeRunId)) {
+            action = { actionId: `open-${n.nodeRunId}`, kind: 'graph-open-session', label: 'Open' };
+          } else if (n.nodeKind === 'agent' && NODE_OVERRIDE_EDITABLE.includes(n.status)) {
+            action = { actionId: `edit-${n.nodeRunId}`, kind: 'graph-edit-override', label: 'Edit' };
+          }
+          return {
+            nodeRunId: n.nodeRunId, nodeId: n.nodeId, nodeKind: n.nodeKind, status: n.status,
+            group: nodeGroupFor(n.status), displayStatus: nodeRunStatus(n.status),
+            identity: nodeIdentityDetail(n),
+            ...(kinds && kinds.length > 0 ? { override: `override ${kinds.join(',')}` } : {}),
+            ...(n.outcome ? { outcome: n.outcome } : {}),
+            ...(n.reason ? { reason: n.reason } : {}),
+            ...(action ? { action } : {}),
+            visitNumber: n.visitNumber,
+          };
+        });
+
+      return { rows, nodes, graphStatus: graphRunStatus(rs), graphStatusLabel: graphRunStatusLabel(rs), rawStatus: rs, maxNodeRuns };
+    }
+
+    // ─── Render ──────────────────────────────────────────────────────────────
+    let currentScenario = 'running';
+
+    function setScenario(name) {
+      currentScenario = name;
+      document.querySelectorAll('.controls label').forEach(l => {
+        const radio = l.querySelector('input');
+        l.classList.toggle('active', radio && radio.value === name);
+      });
+      render();
+    }
+
+    function render() {
+      const input = { ...SCENARIOS[currentScenario] };
+      input.execution = {
+        maxParallel: parseInt(document.getElementById('maxParallel').value),
+        maxNodeRuns: parseInt(document.getElementById('maxNodeRuns').value),
+      };
+      input.liveSessions = SCENARIOS[currentScenario].liveSessions || [];
+      input.now = new Date().toISOString();
+
+      // Also update deferral wait times relative to now
+      input.deferrals = (SCENARIOS[currentScenario].deferrals || []).map(d => ({
+        ...d,
+        waitSince: new Date(Date.now() - 30000).toISOString(),
+      }));
+
+      const result = projectGraph(input);
+      if (!result) return;
+
+      // Process header
+      const header = document.getElementById('processHeader');
+      header.innerHTML = `
+        <span class="glyph ${esc(result.graphStatus)}"></span>
+        <span class="title">Implementation graph</span>
+        <span class="aggregate" title="${esc(result.rawStatus)}">${esc(result.graphStatusLabel)}</span>
+      `;
+
+      // Evidence rows
+      const body = document.getElementById('processBody');
+      body.innerHTML = evidenceRowsHtml(result.rows);
+
+      // Node list
+      const nodeContainer = document.getElementById('nodeListContainer');
+      if (result.nodes.length > 0) {
+        nodeContainer.innerHTML = graphNodeListHtml(result.nodes, result.maxNodeRuns);
+      } else {
+        nodeContainer.innerHTML = `<div class="panel" style="padding:16px; color:var(--muted); font-size:12px; text-align:center;">No node runs yet</div>`;
+      }
+
+      // Inspector
+      document.getElementById('inputInspector').textContent = JSON.stringify(input, null, 2);
+    }
+
+    // Initial render
+    render();
+  </script>
+</body>
+</html>

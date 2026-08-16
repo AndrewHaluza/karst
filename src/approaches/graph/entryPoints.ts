@@ -31,6 +31,8 @@
 import type { GraphDb } from '../../store/graph/transitions.js';
 import { GRAPH_RUN_TRANSITIONS, casStatus } from '../../store/graph/transitions.js';
 import type { AgentTransport, SupervisedAgentSession } from './transport/supervisedCliTransport.js';
+import type { ProcessFactsSource } from '../../runtime/serverIdentity.js';
+import { graphRunHasLiveNodeProcess } from './coordinator/liveness.js';
 
 /** Graph run statuses in which the coordinator owns the ticket's surface. */
 export const ACTIVE_GRAPH_STATUSES: ReadonlySet<string> = new Set([
@@ -153,16 +155,32 @@ export interface StopActiveGraphDeps {
   /** BEGIN IMMEDIATE-wrapped, all-or-nothing. */
   transaction: <T>(fn: () => T) => T;
   transport: AgentTransport;
-  /** The active graph's sessions (the transport's own registry). */
+  /** The active graph's sessions (the transport's own registry) — this
+   *  WINDOW's in-memory bookkeeping, empty after a reload and in every other
+   *  window, which is why it is never the only thing Stop consults. */
   sessionsFor: (graphRunId: number) => SupervisedAgentSession[];
+  /** OS process probes (`runtime/serverIdentity.ts`) — the durable evidence
+   *  behind "is anything of this run still alive". */
+  facts: ProcessFactsSource;
   debug?: (message: string) => void;
 }
+
+/**
+ * What Stop actually did — never a claim it did not earn.
+ *  - `drained`: the run moved `running → draining`;
+ *  - `live-process-unreachable`: this window observed no session, but a node
+ *    run's recorded pid is alive — the run is left `running`;
+ *  - `not-running`: the run was not `running` when the CAS ran (already
+ *    draining, blocked, or moved by another window).
+ */
+export type StopOutcome = 'drained' | 'live-process-unreachable' | 'not-running';
 
 export interface StopActiveGraphResult {
   graphRunId: number;
   drained: boolean;
   terminated: number;
   refused: number;
+  outcome: StopOutcome;
 }
 
 /**
@@ -171,6 +189,20 @@ export interface StopActiveGraphResult {
  * `running → draining` — NEVER to `blocked`. A proof that is not a kill
  * (`denied`/`unknown`) is a refusal: the node row stays `running` and the
  * lease stays held; the caller maps it per the design's outcome table.
+ *
+ * The drain is CONDITIONAL on Stop having actually reached the run's work.
+ * `sessionsFor` is this window's in-memory transport registry: after a reload,
+ * and from every other window, a genuinely running graph's sessions are
+ * invisible. `draining` is a state no sweep revisits — `reconcileGraphRun`
+ * returns a no-op for any run that is not `running`, and the only
+ * `draining → running` path is replan acceptance, which a plain Stop never
+ * fires — so draining a run whose processes were NOT reached strands it
+ * forever behind a `drained: true` that never happened. So when no session was
+ * observed, Stop asks the durable question instead ("does any node run carry a
+ * pid the OS says is alive"): alive → refuse to drain and say so, leaving the
+ * run `running` where the sweep and a Stop from the owning window can still
+ * reach it; nothing alive → there is no work left to strand and the drain is
+ * honest.
  */
 export async function stopActiveGraph(
   deps: StopActiveGraphDeps,
@@ -195,6 +227,18 @@ export async function stopActiveGraph(
       refused += 1;
     }
   }
+  if (sessions.length === 0 && (await graphRunHasLiveNodeProcess(deps.db, deps.facts, input.graphRunId))) {
+    deps.debug?.(
+      `[graph] stop: run ${input.graphRunId} has a live node process this window cannot reach — not drained`,
+    );
+    return {
+      graphRunId: input.graphRunId,
+      drained: false,
+      terminated,
+      refused,
+      outcome: 'live-process-unreachable',
+    };
+  }
   const drained = deps.transaction(() =>
     casStatus(
       deps.db,
@@ -205,5 +249,11 @@ export async function stopActiveGraph(
       'draining',
     ),
   );
-  return { graphRunId: input.graphRunId, drained, terminated, refused };
+  return {
+    graphRunId: input.graphRunId,
+    drained,
+    terminated,
+    refused,
+    outcome: drained ? 'drained' : 'not-running',
+  };
 }

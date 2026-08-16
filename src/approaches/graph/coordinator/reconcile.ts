@@ -42,6 +42,7 @@ import { casStatus, GRAPH_RUN_TRANSITIONS, NODE_RUN_TRANSITIONS } from '../../..
 import { cancelGraphToken } from '../../../store/graph/tokens.js';
 import { transitionPlannerRun } from '../../../store/graph/plannerRuns.js';
 import { markLeaseAmbiguous } from './leases.js';
+import { graphRunHasLiveNodeProcess } from './liveness.js';
 import {
   attributeServer,
   type Attribution,
@@ -260,16 +261,14 @@ function cancelForLeftTicket(
  *  rule must never accuse a process that may be another window's. */
 async function runHasLiveProcess(deps: ReconcileGraphRunDeps, graphRunId: number): Promise<boolean> {
   const nodes = deps.db
-    .prepare(
-      'SELECT id, status, owner_nonce, process_run_id FROM approach_node_runs WHERE graph_run_id = ?',
-    )
-    .all(graphRunId) as NodeRunRow[];
+    .prepare('SELECT id FROM approach_node_runs WHERE graph_run_id = ?')
+    .all(graphRunId) as { id: number }[];
   for (const node of nodes) {
     if (deps.sessionFor(node.id)) return true;
-    const proc = processOf(deps.db, node);
-    if (proc && (await deps.facts.isAlive(proc.pid))) return true;
   }
-  return false;
+  // The durable half is shared with Stop (`coordinator/liveness.ts`) — both
+  // callers must answer "is anything still alive" the same way.
+  return await graphRunHasLiveNodeProcess(deps.db, deps.facts, graphRunId);
 }
 
 /**

@@ -22,6 +22,7 @@ import {
   type StopActiveGraphDeps,
 } from './entryPoints.js';
 import type { AgentTransport, SupervisedAgentSession } from './transport/supervisedCliTransport.js';
+import type { ProcessFactsSource } from '../../runtime/serverIdentity.js';
 
 interface Ctx {
   db: ReturnType<typeof openStore>['db'];
@@ -66,6 +67,7 @@ function harness(runStatus = 'running'): Ctx {
       )(),
     transport: fakeTransport(),
     sessionsFor: () => [],
+    facts: deadFacts(),
   };
   return { db, ticketId, graphRunId, revisionId, makeDeps: (overrides) => ({ ...base, ...overrides }) };
 }
@@ -78,6 +80,27 @@ function fakeTransport(): AgentTransport {
     },
     terminate: async () => ({ kind: 'attributable', kill: 'killed' }),
   };
+}
+
+/** Process facts for a host on which nothing the run recorded is alive. */
+function deadFacts(): ProcessFactsSource {
+  return { isAlive: () => false, liveCwd: () => null, processStartMs: () => null };
+}
+
+/** Open a `process_runs` row with a pid and link it to a node run. */
+function linkProcess(ctx: Ctx, nodeRunId: number, pid: number): void {
+  const processRunId = Number(
+    ctx.db
+      .prepare(
+        `INSERT INTO process_runs
+           (ticket_id, stage_key, process_id, attempt, pid, status, started_at)
+         VALUES (?, 'impl', 'graph-node', 0, ?, 'running', '2026-08-12T00:00:00.000Z')`,
+      )
+      .run(ctx.ticketId, pid).lastInsertRowid,
+  );
+  ctx.db
+    .prepare('UPDATE approach_node_runs SET process_run_id = ? WHERE id = ?')
+    .run(processRunId, nodeRunId);
 }
 
 function insertNodeRun(ctx: Ctx, id: number, status: string): void {
@@ -228,6 +251,43 @@ describe('stop (coordinator-level controller)', () => {
     const result = await stopActiveGraph(deps, { ticketId: ctx.ticketId, graphRunId: ctx.graphRunId });
     expect(result).toMatchObject({ drained: true, terminated: 1, refused: 1 });
     expect(terminated).toEqual([11, 12]);
+    const run = ctx.db
+      .prepare('SELECT status FROM approach_graph_runs WHERE id = ?')
+      .get(ctx.graphRunId) as { status: string };
+    expect(run.status).toBe('draining');
+  });
+
+  it('never drains a run whose node process is alive but invisible to this window', async () => {
+    const ctx = harness('running');
+    insertNodeRun(ctx, 11, 'running');
+    linkProcess(ctx, 11, 4242);
+    const deps = ctx.makeDeps({
+      sessionsFor: () => [],
+      facts: { isAlive: (pid) => pid === 4242, liveCwd: () => null, processStartMs: () => null },
+    });
+    const result = await stopActiveGraph(deps, { ticketId: ctx.ticketId, graphRunId: ctx.graphRunId });
+    expect(result).toMatchObject({
+      drained: false,
+      terminated: 0,
+      outcome: 'live-process-unreachable',
+    });
+    // The run stays `running`: `draining` is swept by nothing, so a drain that
+    // killed nothing would strand a live graph forever.
+    const run = ctx.db
+      .prepare('SELECT status FROM approach_graph_runs WHERE id = ?')
+      .get(ctx.graphRunId) as { status: string };
+    expect(run.status).toBe('running');
+  });
+
+  it('drains a run with no session and no live process — there is nothing left to strand', async () => {
+    const ctx = harness('running');
+    insertNodeRun(ctx, 11, 'running');
+    linkProcess(ctx, 11, 4242);
+    const result = await stopActiveGraph(ctx.makeDeps({ sessionsFor: () => [] }), {
+      ticketId: ctx.ticketId,
+      graphRunId: ctx.graphRunId,
+    });
+    expect(result).toMatchObject({ drained: true, terminated: 0, outcome: 'drained' });
     const run = ctx.db
       .prepare('SELECT status FROM approach_graph_runs WHERE id = ?')
       .get(ctx.graphRunId) as { status: string };
