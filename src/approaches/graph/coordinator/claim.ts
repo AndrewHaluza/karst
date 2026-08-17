@@ -327,8 +327,11 @@ export function claimedNodeRunForToken(db: GraphDb, tokenId: number): NodeRunRow
  * AND process_run_id IS NULL`, so a retried run that keeps a dead nonce is
  * never launched, and the next reconcile tick re-attributes the same dead pid
  * and blocks the run again — a Resume that can only ever loop. The identity of
- * the NEXT attempt is written by the transport at spawn
- * (`persistOwnerNonce`/`openProcessRun`), never carried over from the last.
+ * the NEXT attempt is minted by the driver and committed INSIDE the
+ * transaction that claims the row (`executeReadyNode`/`claimPlannerLaunch`),
+ * never carried over from the last — so this clear is the ONLY producer of a
+ * `launching` row without identity, which is what lets reconcile read that
+ * shape as "retried, waiting to launch" rather than "mid-launch elsewhere".
  */
 export function clearLaunchIdentity(db: GraphDb, nodeRunId: number): boolean {
   const res = db
