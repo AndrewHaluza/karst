@@ -88,6 +88,7 @@ function harness(): Ctx {
     sessionFor: () => undefined,
     resumePipeline: () => {},
     relaunchPlanner: () => {},
+    relaunchReplanPlanner: () => {},
   };
   return {
     store,
@@ -141,28 +142,41 @@ function insertPendingToken(ctx: Ctx, edgeId = 'e1'): number {
   );
 }
 
+/** Park the graph run (and its revision) at `draining` — the state a replan
+ *  planner works in, and the one status with no exit but replan acceptance. */
+function toDraining(ctx: Ctx): void {
+  ctx.db.prepare("UPDATE approach_graph_runs SET status = 'draining' WHERE id = ?").run(ctx.graphRunId);
+  ctx.db.prepare("UPDATE approach_graph_revisions SET status = 'draining' WHERE id = ?").run(ctx.revisionId);
+}
+
 /** Park the graph run at `planning` (the state the bootstrap planner works in). */
 function toPlanning(ctx: Ctx): void {
   ctx.db.prepare("UPDATE approach_graph_runs SET status = 'planning' WHERE id = ?").run(ctx.graphRunId);
 }
 
-/** Insert a bootstrap-kind planner run row for the graph run. */
+/** Insert a planner run row for the graph run (bootstrap unless told otherwise). */
 function insertPlannerRun(
   ctx: Ctx,
   id: number,
   status: string,
-  extra: { ownerNonce?: string | null; processRunId?: number | null; plannerRunNumber?: number } = {},
+  extra: {
+    ownerNonce?: string | null;
+    processRunId?: number | null;
+    plannerRunNumber?: number;
+    kind?: 'bootstrap' | 'replan';
+  } = {},
 ): void {
   ctx.db
     .prepare(
       `INSERT INTO approach_planner_runs
          (id, graph_run_id, planner_run_number, kind, status, owner_nonce, process_run_id)
-       VALUES (?, ?, ?, 'bootstrap', ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       id,
       ctx.graphRunId,
       extra.plannerRunNumber ?? 1,
+      extra.kind ?? 'bootstrap',
       status,
       extra.ownerNonce ?? null,
       extra.processRunId ?? null,
@@ -598,6 +612,164 @@ describe('reconcileGraphRun — reload and crash matrix', () => {
       expect(plannerRow(ctx, 208).status).toBe('stale');
       expect(insideTransaction).toBe(false);
       expect(result.transitions).toBe(1);
+    });
+  });
+
+  describe('a draining run whose replan planner session is gone', () => {
+    it('a running replan planner with a demonstrably dead process is marked stale and relaunched on the same draining run', async () => {
+      toDraining(ctx);
+      insertPlannerRun(ctx, 401, 'running', { kind: 'replan' });
+      linkPlannerProcess(ctx, 401, 401, 7171, NOW);
+      const relaunched: number[] = [];
+      const deps = ctx.makeDeps({
+        facts: makeFacts({ alive: { 7171: false } }),
+        relaunchReplanPlanner: (graphRunId) => relaunched.push(graphRunId),
+      });
+      const result = await reconcileGraphRun(deps, { graphRunId: ctx.graphRunId });
+      expect(plannerRow(ctx, 401).status).toBe('stale');
+      expect(relaunched).toEqual([ctx.graphRunId]);
+      // The run STAYS draining: `draining` has no `blocked` edge, and the
+      // fresh replan planner's submission is only accepted while it drains.
+      expect(runRow(ctx).status).toBe('draining');
+      expect(result.transitions).toBe(1);
+    });
+
+    it('a launching replan planner with an owner nonce and no process proves a pre-spawn crash and relaunches', async () => {
+      toDraining(ctx);
+      insertPlannerRun(ctx, 402, 'launching', { kind: 'replan', ownerNonce: 'nonce-r1' });
+      const relaunched: number[] = [];
+      const deps = ctx.makeDeps({
+        relaunchReplanPlanner: (graphRunId) => relaunched.push(graphRunId),
+      });
+      const result = await reconcileGraphRun(deps, { graphRunId: ctx.graphRunId });
+      expect(plannerRow(ctx, 402).status).toBe('stale');
+      expect(relaunched).toEqual([ctx.graphRunId]);
+      expect(runRow(ctx).status).toBe('draining');
+      expect(result.transitions).toBe(1);
+    });
+
+    it('a running replan planner with no pid evidence is never declared dead', async () => {
+      toDraining(ctx);
+      insertPlannerRun(ctx, 403, 'running', { kind: 'replan' });
+      const deps = ctx.makeDeps({
+        relaunchReplanPlanner: () => {
+          throw new Error('must not relaunch without pid evidence');
+        },
+      });
+      const result = await reconcileGraphRun(deps, { graphRunId: ctx.graphRunId });
+      expect(plannerRow(ctx, 403).status).toBe('running');
+      expect(runRow(ctx).status).toBe('draining');
+      expect(result.transitions).toBe(0);
+    });
+
+    it('a running replan planner with a live attributable process is left alone (another window owns it)', async () => {
+      toDraining(ctx);
+      insertPlannerRun(ctx, 404, 'running', { kind: 'replan' });
+      linkPlannerProcess(ctx, 404, 404, 7272, NOW);
+      const relaunched: number[] = [];
+      const deps = ctx.makeDeps({
+        facts: makeFacts({ alive: { 7272: true }, startMs: { 7272: Date.parse(NOW) } }),
+        relaunchReplanPlanner: (graphRunId) => relaunched.push(graphRunId),
+      });
+      const result = await reconcileGraphRun(deps, { graphRunId: ctx.graphRunId });
+      expect(plannerRow(ctx, 404).status).toBe('running');
+      expect(relaunched).toEqual([]);
+      expect(result.transitions).toBe(0);
+    });
+
+    it('a launching replan planner with no nonce and no process is left alone (unprovable)', async () => {
+      toDraining(ctx);
+      insertPlannerRun(ctx, 405, 'launching', { kind: 'replan', ownerNonce: null });
+      const relaunched: number[] = [];
+      const deps = ctx.makeDeps({
+        relaunchReplanPlanner: (graphRunId) => relaunched.push(graphRunId),
+      });
+      const result = await reconcileGraphRun(deps, { graphRunId: ctx.graphRunId });
+      expect(plannerRow(ctx, 405).status).toBe('launching');
+      expect(relaunched).toEqual([]);
+      expect(result.transitions).toBe(0);
+    });
+
+    it('a replan planner this window still holds a session for is left alone', async () => {
+      toDraining(ctx);
+      insertPlannerRun(ctx, 406, 'running', { kind: 'replan' });
+      linkPlannerProcess(ctx, 406, 406, 7373, NOW);
+      const relaunched: number[] = [];
+      const deps = ctx.makeDeps({
+        facts: makeFacts({ alive: { 7373: false } }),
+        sessionFor: () => ({ pid: 7373 }),
+        relaunchReplanPlanner: (graphRunId) => relaunched.push(graphRunId),
+      });
+      const result = await reconcileGraphRun(deps, { graphRunId: ctx.graphRunId });
+      expect(plannerRow(ctx, 406).status).toBe('running');
+      expect(relaunched).toEqual([]);
+      expect(result.transitions).toBe(0);
+    });
+
+    it('judges only the NEWEST replan planner — a superseded stale one never relaunches', async () => {
+      toDraining(ctx);
+      insertPlannerRun(ctx, 407, 'stale', { kind: 'replan', plannerRunNumber: 2 });
+      insertPlannerRun(ctx, 408, 'running', { kind: 'replan', plannerRunNumber: 3 });
+      linkPlannerProcess(ctx, 408, 408, 7474, NOW);
+      const relaunched: number[] = [];
+      const deps = ctx.makeDeps({
+        facts: makeFacts({ alive: { 7474: true }, startMs: { 7474: Date.parse(NOW) } }),
+        relaunchReplanPlanner: (graphRunId) => relaunched.push(graphRunId),
+      });
+      const result = await reconcileGraphRun(deps, { graphRunId: ctx.graphRunId });
+      expect(relaunched).toEqual([]);
+      expect(result.transitions).toBe(0);
+    });
+
+    it('never judges the bootstrap planner of a draining run (its work is done)', async () => {
+      toDraining(ctx);
+      insertPlannerRun(ctx, 409, 'submitted', { kind: 'bootstrap' });
+      linkPlannerProcess(ctx, 409, 409, 7575, NOW);
+      const relaunched: number[] = [];
+      const deps = ctx.makeDeps({
+        facts: makeFacts({ alive: { 7575: false } }),
+        relaunchReplanPlanner: (graphRunId) => relaunched.push(graphRunId),
+        relaunchPlanner: (graphRunId) => relaunched.push(graphRunId),
+      });
+      const result = await reconcileGraphRun(deps, { graphRunId: ctx.graphRunId });
+      expect(plannerRow(ctx, 409).status).toBe('submitted');
+      expect(relaunched).toEqual([]);
+      expect(result.transitions).toBe(0);
+    });
+
+    it('relaunches AFTER the stale transition commits — never inside its transaction', async () => {
+      toDraining(ctx);
+      insertPlannerRun(ctx, 410, 'running', { kind: 'replan' });
+      linkPlannerProcess(ctx, 410, 410, 7676, NOW);
+      let insideTransaction = true;
+      const deps = ctx.makeDeps({
+        facts: makeFacts({ alive: { 7676: false } }),
+        relaunchReplanPlanner: (graphRunId) => {
+          withImmediate(ctx.db, () => {
+            ctx.db.prepare('SELECT 1 FROM approach_graph_runs WHERE id = ?').get(graphRunId);
+          });
+          insideTransaction = false;
+        },
+      });
+      const result = await reconcileGraphRun(deps, { graphRunId: ctx.graphRunId });
+      expect(plannerRow(ctx, 410).status).toBe('stale');
+      expect(insideTransaction).toBe(false);
+      expect(result.transitions).toBe(1);
+    });
+
+    it('a draining run whose ticket left impl is still cancelled before any planner judgement', async () => {
+      toDraining(ctx);
+      insertPlannerRun(ctx, 411, 'running', { kind: 'replan' });
+      linkPlannerProcess(ctx, 411, 411, 7777, NOW);
+      ctx.db.prepare("UPDATE tickets SET stage_current = 'uat' WHERE id = ?").run(ctx.ticketId);
+      const relaunched: number[] = [];
+      const deps = ctx.makeDeps({
+        facts: makeFacts({ alive: { 7777: false } }),
+        relaunchReplanPlanner: (graphRunId) => relaunched.push(graphRunId),
+      });
+      await reconcileGraphRun(deps, { graphRunId: ctx.graphRunId });
+      expect(runRow(ctx).status).toBe('cancelled');
+      expect(relaunched).toEqual([]);
     });
   });
 

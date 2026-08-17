@@ -16,7 +16,8 @@
  *     with a live process anywhere is left strictly alone;
  *  3. run-level: `blocked` stays, `completed-awaiting-impl-marker` stays, a
  *     draining revision waits for its active work (the replan machinery owns
- *     the continuation);
+ *     the continuation) — but a draining RUN whose replan planner died is
+ *     revived first (2.6), because nothing else ever leaves `draining`;
  *  4. node-level sweep per the matrix: `launching` (owner nonce proves a
  *     pre-spawn crash → retryable; no nonce → `launch-unknown`), `running`
  *     (dead → `stale` + recoverable block; unprovable → `termination-unknown`
@@ -82,6 +83,11 @@ export interface ReconcileGraphRunDeps {
    *  gone — the host binds this to the driver's `relaunchBootstrapPlanner`
    *  (+ session registration). Reconcile only decides; it never launches. */
   relaunchPlanner: (graphRunId: number) => void;
+  /** Relaunch a DRAINING run's replan planner whose session is demonstrably
+   *  gone. Separate seam from `relaunchPlanner` because the two launch
+   *  different things: a bootstrap planner plans the first revision, a replan
+   *  planner compiles the next one onto a run that is already draining. */
+  relaunchReplanPlanner: (graphRunId: number) => void;
 }
 
 export interface ReconcileGraphRunResult {
@@ -138,6 +144,9 @@ function processOf(db: GraphDb, node: NodeRunRow): { pid: number; startedAt: str
   if (!row || row.pid === null) return null;
   return { pid: row.pid, startedAt: row.started_at };
 }
+
+/** The two planner kinds the crash matrix judges, each on its own run status. */
+type PlannerKind = 'bootstrap' | 'replan';
 
 interface PlannerRunRow {
   id: number;
@@ -407,29 +416,41 @@ async function reconcileCompleting(
 }
 
 /**
- * The planning-run bootstrap-planner branch of the crash matrix (between the
- * successor rule and the run-level gates): the planning run's NEWEST
- * bootstrap planner run whose session is demonstrably gone — a `running`
- * planner whose process is dead/foreign, or a `launching` planner whose
- * persisted owner nonce (written BEFORE spawn) has no process identity, or
- * whose process is dead/foreign — is marked `stale` and the planner is
- * relaunched on the SAME graph run. The run STAYS `planning` so the
- * relaunched planner's later submission is accepted by `acceptSubmittedPlan`.
- * Reconcile only decides; the fire-and-forget `relaunchPlanner` callback
- * launches. Everything else — a session in this window, a live attributable
- * process (another window owns it), no pid evidence, an unprovable death, or
- * a non-live planner status — is a no-op.
+ * The planner branch of the crash matrix (between the successor rule and the
+ * run-level gates), shared by both planner kinds because the decision is the
+ * same one: the run's NEWEST planner run of that kind whose session is
+ * demonstrably gone — a `running` planner whose process is dead/foreign, or a
+ * `launching` planner whose owner nonce (committed with the claim, BEFORE
+ * spawn) has no process identity, or whose process is dead/foreign — is
+ * marked `stale` and relaunched on the SAME graph run.
+ *
+ * Each kind is judged only in the run status it works in, and the run stays
+ * in that status: a `bootstrap` planner at `planning`, so the relaunched
+ * planner's submission is accepted by `acceptSubmittedPlan`; a `replan`
+ * planner at `draining`, so its submission is accepted by the replan
+ * machinery. Judging the other kind's planner would be a category error —
+ * a draining run's bootstrap planner has already done its work and exited,
+ * and relaunching it would recompile a revision that was superseded.
+ *
+ * Reconcile only decides; the fire-and-forget relaunch callback launches, and
+ * only after the `stale` transition commits — the launch opens its own
+ * `BEGIN IMMEDIATE`, and a nested `BEGIN` on the same connection throws.
+ * Everything else — a session in this window, a live attributable process
+ * (another window owns it), no pid evidence, an unprovable death, or a
+ * non-live planner status — is a no-op.
  */
-async function reconcilePlanningPlanner(
+async function reconcilePlannerRun(
   deps: ReconcileGraphRunDeps,
   run: GraphRunRow,
+  kind: PlannerKind,
 ): Promise<ReconcileGraphRunResult> {
+  const relaunch = kind === 'bootstrap' ? deps.relaunchPlanner : deps.relaunchReplanPlanner;
   const planner = deps.db
     .prepare(
       `SELECT id, status, owner_nonce, process_run_id FROM approach_planner_runs
-       WHERE graph_run_id = ? AND kind = 'bootstrap' ORDER BY id DESC LIMIT 1`,
+       WHERE graph_run_id = ? AND kind = ? ORDER BY id DESC LIMIT 1`,
     )
-    .get(run.id) as PlannerRunRow | undefined;
+    .get(run.id, kind) as PlannerRunRow | undefined;
   if (!planner) return planningResult(deps, run, 0);
   if (deps.sessionFor(planner.id)) return planningResult(deps, run, 0); // this window owns it
   const proc = plannerProcessOf(deps.db, planner);
@@ -450,7 +471,7 @@ async function reconcilePlanningPlanner(
       return true;
     });
     if (!won) return planningResult(deps, run, 0);
-    deps.relaunchPlanner(run.id);
+    relaunch(run.id);
     return planningResult(deps, run, 1);
   };
 
@@ -459,7 +480,7 @@ async function reconcilePlanningPlanner(
     const attribution = await attributeOf(deps.facts, proc);
     if (attribution === 'dead' || attribution === 'foreign') {
       return staleAndRelaunch(
-        `[graph] reconcile: run ${run.id} bootstrap planner ${planner.id} process (pid ${proc.pid}) is gone (${attribution}) — relaunching the planner`,
+        `[graph] reconcile: run ${run.id} ${kind} planner ${planner.id} process (pid ${proc.pid}) is gone (${attribution}) — relaunching the planner`,
       );
     }
     return planningResult(deps, run, 0); // attributable (another window) or unprovable
@@ -471,7 +492,7 @@ async function reconcilePlanningPlanner(
       // never reached — provably crashed before spawn.
       if (planner.owner_nonce !== null) {
         return staleAndRelaunch(
-          `[graph] reconcile: run ${run.id} bootstrap planner ${planner.id} crashed before spawn (owner nonce, no process) — relaunching the planner`,
+          `[graph] reconcile: run ${run.id} ${kind} planner ${planner.id} crashed before spawn (owner nonce, no process) — relaunching the planner`,
         );
       }
       return planningResult(deps, run, 0); // unprovable — leave alone
@@ -479,7 +500,7 @@ async function reconcilePlanningPlanner(
     const attribution = await attributeOf(deps.facts, proc);
     if (attribution === 'dead' || attribution === 'foreign') {
       return staleAndRelaunch(
-        `[graph] reconcile: run ${run.id} bootstrap planner ${planner.id} process (pid ${proc.pid}) is gone (${attribution}) — relaunching the planner`,
+        `[graph] reconcile: run ${run.id} ${kind} planner ${planner.id} process (pid ${proc.pid}) is gone (${attribution}) — relaunching the planner`,
       );
     }
     return planningResult(deps, run, 0);
@@ -568,7 +589,19 @@ export async function reconcileGraphRun(
   //      `planning`, so the relaunched planner's later submission is accepted
   //      by `acceptSubmittedPlan`.
   if (run.status === 'planning') {
-    return await reconcilePlanningPlanner(deps, run);
+    return await reconcilePlannerRun(deps, run, 'bootstrap');
+  }
+
+  // 2.6. Draining-run replan planner crash matrix. `draining` is entered to
+  //      let a replan planner compile the next revision, and it is the one
+  //      run status with no exit of its own — only that planner's accepted
+  //      submission leaves it. So a replan planner whose session is gone
+  //      strands the ticket exactly as a lost bootstrap planner strands a
+  //      planning run, and it is judged on the same evidence. The run STAYS
+  //      draining: `draining` has no `blocked` edge, and the fresh planner's
+  //      submission is only accepted while it drains.
+  if (run.status === 'draining') {
+    return await reconcilePlannerRun(deps, run, 'replan');
   }
 
   // 3. Run-level gates: blocked stays, marker-ready stays, draining waits.

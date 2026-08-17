@@ -177,7 +177,7 @@ import {
   type ReconcileGraphRunDeps,
 } from './approaches/graph/coordinator/reconcile.js';
 import { discardUnknownProcess } from './approaches/graph/coordinator/discard.js';
-import { electReplan } from './approaches/graph/coordinator/replan.js';
+import { beginReplanPlannerRun, electReplan } from './approaches/graph/coordinator/replan.js';
 import {
   createSupervisedCliTransport,
   type SupervisedCliTransport,
@@ -4417,7 +4417,48 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         void runCompletionPipeline(deps, { graphRunId: node.graph_run_id, nodeRunId });
       },
       relaunchPlanner: (graphRunId) => void relaunchBootstrapPlannerHost(graphRunId),
+      relaunchReplanPlanner: (graphRunId) => void relaunchReplanPlannerHost(graphRunId),
     };
+  };
+
+  /** Relaunch a DRAINING run's replan planner whose session reconcile proved
+   *  demonstrably gone. `draining` is the one run status nothing else ever
+   *  leaves — only the replan planner's accepted submission does — so a lost
+   *  replan planner strands the ticket exactly as a lost bootstrap planner
+   *  strands a planning run. `beginReplanPlannerRun` is the SAME allocator the
+   *  replan election uses (it re-checks `draining` + quiescence itself, and
+   *  the reconcile pass has already marked the dead planner `stale`, so the
+   *  one-planner rule is satisfied), and the launch goes through the same host
+   *  seam. Never throws — reconcile fires it and forgets. */
+  const relaunchReplanPlannerHost = async (graphRunId: number): Promise<void> => {
+    const gs = graphCoordinatorStore;
+    if (!gs) return;
+    try {
+      const rd = graphRecoveryDeps(graphRunId);
+      if (!rd.readPrompt || !rd.writeSnapshot || !rd.plannerPromptPath || rd.ticketContext === undefined) {
+        return; // the planner launch seams are unwired — nothing to launch
+      }
+      const begun = beginReplanPlannerRun(
+        {
+          db: gs.db,
+          transaction: <T>(fn: () => T): T => runImmediateTransaction(gs.db, fn),
+          now: () => new Date().toISOString(),
+          debug: (message) => logger.debug(message),
+          writeSnapshot: rd.writeSnapshot,
+          readPrompt: rd.readPrompt,
+          promptPath: rd.plannerPromptPath,
+          ticketContext: rd.ticketContext,
+        },
+        { graphRunId },
+      );
+      if (!begun.ok) {
+        logger.debug(`[graph] replan planner relaunch deferred for run ${graphRunId}: ${begun.reason}`);
+        return;
+      }
+      await launchReplanPlannerHost(begun.launch);
+    } catch (err) {
+      logError(`karst: graph replan planner relaunch failed for run ${graphRunId}`, err);
+    }
   };
 
   /** Relaunch a planning run's bootstrap planner whose session reconcile proved
