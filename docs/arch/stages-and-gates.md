@@ -1,0 +1,62 @@
+# Stages, gates, and the stage driver
+
+The stage machine, the evidence it writes, and the host seam that drives it. Related: `docs/arch/cli.md` (the marker the CLI fires), `docs/arch/github-and-merge.md` (the PR state the ship gate reads), `docs/arch/store-and-schema.md` (the tables named here).
+
+## Contents
+
+- Stage machine
+- impl→uat is an explicit marker
+- DONE MEANS MERGED
+- A ticket waiting to land is BLOCKED, not pending
+- Gate results and reported phases are append-only evidence
+- Evidence is written WHEN IT HAPPENS
+- A gate may be switched off for ONE ticket
+- Nothing in the extension host may block its event loop
+- The stage driver's host seam
+- Single-writer stage mutation
+
+## Stage machine
+
+Stage machine (`src/workflow/machine.ts` + `graph.ts`): verdict-keyed transitions.
+`Verdict = {kind:'passed'} | {kind:'failed';reason?} | null`. null NEVER transitions;
+missing edge THROWS. Deterministic verdicts only (exit codes, never agent self-report).
+
+## impl→uat is an explicit marker, never inferred from the Stop hook
+
+impl→uat is explicit marker (`markImplementDone`), never inferred from Stop hook.
+The marker is REFUSED while `tickets.agent_state = 'waiting'` — the agent asked
+the user a question and is blocked on their input, so the stage is not done.
+`cli/stage.ts`'s `assertMarkerNotWhileWaiting` is the choke point: the CLI is the
+ONLY entry that ever fires a marker (impl and fix both), so the guard lives there.
+
+## DONE MEANS MERGED — an ENTRY CONDITION on `done`, never a stage of its own
+
+The graph is `ship ─pass→ done`; a landing is not work karst performs. **`ship` is where the ticket waits**: it passes its own work, then holds, `status: 'passed'` with a `blocked_kind = 'awaiting-merge'` block naming the unmerged PRs, until every PR reads merged. `workflow/mergeGate.ts` is the whole decision and it is a READ over state karst already keeps current (`prs.status` via `prSync`, `merge_checks` via `mergeSync`) plus at most one `transition` — it never runs git, never calls gh, and never merges anything. **Any PR status that is not literally `merged` — including `unknown` — is UNMERGED**: a lookup that failed must never read as a landing. Two entry points, and the split is load-bearing: `resolveShipLanding` runs from ship's own tail and is entitled to trust `nothing-to-merge`, while `settleShipGate` additionally requires the `awaiting-merge` block to already be present — a ticket freshly parked at `ship` pending its FIRST confirm click has no PR yet and so also reads `nothing-to-merge`, and without that guard the sweep would walk it straight to `done`. `settleShipGate` is otherwise idempotent and a no-op unless the ticket is AT `ship`, because the landing is observed from three unrelated places: ship itself (nothing to merge), the per-repo Merge click (`mergePr.ts` → `completedTicket`), and the background PR sweep noticing a merge a teammate did on GitHub — the ONLY path that can see that one, which is why `settleShipGates` rides the sweep in `extension.ts` rather than being a dashboard concern. **`nothing-to-merge` is a genuine pass**, not an empty case: a ticket whose work produced no diff opens no PR (ship's `hasChangesFrom` path) and has delivered everything it had; it is unreachable from a ship that FAILED to open a PR it needed, because that throws and parks at `ship`. The provider status push fires from whichever path actually reached `done`, once (`pushDoneStatus`, window-scoped so no dashboard need be open); the manifest keys keep their `advanceOnShip`/`shipStatus` names for compatibility.
+
+## A ticket waiting to land is BLOCKED, not pending, and that is how a conflict reads `Needs you`
+
+The wait is expressed with the block columns `stages` already has (`blocked_kind`/`blocked_reason`/`blocked_at`, `store/stageBlocks.ts`) rather than a second column set or a second stage. `awaiting-merge` is the one `BlockerKind` member that does not mean "karst could not ask": the question WAS asked (ship opened its PRs) and answered "not yet". `needsUser` (`model/ticketGlyph.ts`) reads it directly alongside the pending-confirm rule, so the ticket goes amber everywhere at once. The one yield: while an agent session is RUNNING (`agent_state='running'`), the needs-you reading pauses and the ticket reads in-progress — the block stays stored, so the reading returns the moment the session ends. No other needs-you source was added and none should be; a conflict is a *wording* difference, not a state one. `mergeGateState` separates `conflicted` from `awaiting` only so the UI can say "resolve this" instead of "click Merge"; the ship strip fails the row for the repo that cannot land. A conflict must NEVER be a `failed` verdict: `ship` has no `failed` edge, so it would park the ticket with no way out, and a retry cannot resolve a conflict — only a human rebase can. Both the gate and the strip read the CURRENT PR per repo (`listCurrentPrsByTicket`, `CURRENT_PR_ORDER`); a repo re-shipped after a merge holds both rows, and the stale merged one would answer for a branch still open. **The `awaiting-merge` block is the one block Resume may NOT clear** (`workflow/stageResume.ts`): every other `BlockerKind` means "karst could not ask the question, retry it", but this one means the question was asked and answered "not yet" — clearing it STRANDS the ticket, because `settleShipGate` needs exactly that block to tell "waiting to land" from "parked pending the first confirm click". The dashboard matches the refusal rather than offering a dead control: `renderBlocked` renders NO banner for that kind at all. Ship's own tail keeps the pre-gate split: the landed path's `transition` is UNGUARDED (that is ship's verdict), while the not-landed block write is swallowed — the PRs are already open and the irreversible part succeeded, so bookkeeping over stored state must never turn a successful ship into a failed one. The parked row is stamped `endedAt` like any other passed stage; a passed row with a null `ended_at` reads as still running. Retiring a stage → move every ticket sitting in it somewhere valid in a migration (v25 walks `stage_current = 'merge'` back to `ship` with a placeholder block the next sweep re-checks for real); dead stage rows from a past migration are left in place, because a past migration is a record, not something to rewrite.
+
+## Gate results and reported phases are append-only evidence
+
+Gate results (`gate_runs`) and reported phases (`phase_marks`) are **append-only evidence** — `stages` is keyed `(ticket_id, stage_key)` and a retry overwrites it, so these are the only place a prior attempt survives. Both are written inside a transaction that commits with the stage outcome, whether that outcome is a verdict (`transition`'s `premutate`) or a block (`parkGateStage`, `store/stageBlocks.ts`) — `gate_runs` has two writers and both read `attempt` BEFORE any bump, so a run is filed under the attempt that ran. Surrogate `id` PK, deliberately: the natural key is not unique (a fail→fix→pass cycle files two invocations under one attempt), and `run_at` is what groups one invocation.
+
+## Evidence is written WHEN IT HAPPENS, not when the run ends
+
+A gate run used to collect every `gate_runs` row in memory and commit the lot inside `finish()`, so an extension-host restart mid-run discarded all of it and left the stage reading `running` from a timestamp belonging to a run that no longer existed. `stage_runs` (v25) exists only to resolve that ambiguity: `workflow/gates/evidence.ts`'s `openGateRun` opens a row BEFORE the first gate starts, and `uat.ts`/`review.ts` append to it the instant each piece of evidence is produced — **one `gate_runs` row per GATE as that gate finishes, appended from `runGateList`'s `onGateComplete`, never batched to the end of a target; and findings per TARGET as each lane call returns (`findingsLane.ts`'s `persistFindings`), before any aggregation rule reads them**. A host that dies mid-target-list or mid-lane keeps every gate that finished and every target that answered. `openStageRun` marks any still-`running` row of the same ticket+stage `stale` the moment it is SUPERSEDED — the driver single-flights per ticket, so a second open run can only mean the first one's host died — and the activation sweep (`reconcileStageRuns`, global like the server sweep) marks stale whatever a dead pid left behind; a row with NO pid, or one alive in another window, is left strictly alone. None of this loosens the VERDICT: it is still all-or-nothing, committed only by `commitGateOutcome`'s single transaction, and a throw there still leaves the ticket exactly where it was — only the EVIDENCE stopped being lost.
+
+## A gate may be switched off for ONE ticket, and that is a filter over resolution's OUTPUT, never a change to resolution
+
+`tickets.disabled_gates` (v24, JSON `{uat:[],review:[]}`, NULL = nothing disabled) is read at run time by `stages/uat.ts` and `stages/review.ts` and applied by `workflow/gates/disable.ts`'s `partitionDisabled` — `workflow/gates/resolve.ts` never sees it, so "what did the config declare or the repo offer" keeps exactly one answer. A disabled gate is still RECORDED: one `gate_runs` row with `skipped = 1` and no exit code, which is a different fact from `exit_code IS NULL` ("the repo defines no such script, NOT a pass") — `model/inside/gates.ts` renders the two as `skip` and `note`. Skipped rows never enter `entries`, so no aggregator can mistake one for a question that was asked. A stage whose every gate the user disabled still PARKS (`nothing-to-run`), never passes; only the block's reason names the disable. The store writer is per-stage (`setDisabledGates(store, id, stage, names)`) for the same reason Settings Save is per-tab. The dashboard's toggle list is the RESOLVED names, computed async host-side (`ui/dashboard/gateOptions.ts`) — the raw manifest list would offer a toggle for a gate that never runs, and omit one that does.
+
+## Nothing that runs in the extension host may block its event loop
+
+The hook endpoint, every webview, and the whole UI share it. Gates shell out to arbitrary repo scripts (`npm run test:unit` — minutes), and the session-close sweep fires them from an ordinary terminal close, so a sync spawn froze every other session's hook channel. All gate commands go through `workflow/gates/run.ts` (`runCommand`, async `spawn`); `spawnSync` is banned on this path. Guard: `gates/run.test.ts` "leaves the event loop free while the child runs".
+
+## The stage driver's host seam is `workflow/driveTicket.ts`, and `extension.ts` holds nothing but the vscode bindings
+
+`driveTicket` owns the `StageRunResult` branching, the fix-resume decision (`fixResumeDecision` — per-gate budget, `uat.maxFixAttempts` narrows UAT only) and ONE `AbortController` per run; the extension supplies logging, refreshes and `resumeFixSession`. Both `result.kind` switches end in a `const unreachable: never` that THROWS: the two-`if`-and-fallthrough it replaces read an unknown variant as `advanced`, and because the driver's loop is an unbroken await chain, that starves the timers a test timeout needs — it hangs rather than fails, so exhaustiveness here is not stylistic. `DriverController.signalFor` is what makes Stop reach a gate already running (`shouldContinue` is only polled between stages); a fresh controller per `begin` because a signal cannot be un-aborted. A runner's `blocked` is passed to the driver VERBATIM — never re-wrapped as `advanced` at the ticket's unchanged stage, which re-parks the same gate forever.
+
+## Single-writer stage mutation
+
+All stage mutation via `setStage`; agent_state via `setAgentState` (single-writer).
