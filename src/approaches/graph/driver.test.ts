@@ -25,6 +25,7 @@ import {
   driveReadyNodeRuns,
   launchReplanPlanner,
   relaunchBootstrapPlanner,
+  readPlannerDiagnostics,
   sha256Hex,
 } from './driver.js';
 import type { SupervisedAgentSession, SupervisedLaunchRequest } from './transport/supervisedCliTransport.js';
@@ -335,8 +336,8 @@ describe('acceptSubmittedPlan', () => {
     expect(planArtifacts.n).toBe(1);
   });
 
-  it('blocks the run with graph-plan-invalid for an uncompilable document', () => {
-    const h = harness();
+  /** A planning run with a submitted bootstrap planner and a snapshot. */
+  function submittedPlan(h: Harness, snapshotId: string, json: string): number {
     const graphRunId = createGraphRun(h.db, {
       ticketId: h.ticketId,
       stageAttempt: 0,
@@ -346,15 +347,102 @@ describe('acceptSubmittedPlan', () => {
     h.db
       .prepare(
         `INSERT INTO approach_planner_runs (graph_run_id, planner_run_number, kind, status, graph_snapshot_id, submitted_at)
-         VALUES (?, 1, 'bootstrap', 'submitted', 'fp2', ?)`,
+         VALUES (?, 1, 'bootstrap', 'submitted', ?, ?)`,
       )
-      .run(graphRunId, NOW);
+      .run(graphRunId, snapshotId, NOW);
     const snapshotDir = join(h.root, String(graphRunId), 'snapshots');
     mkdirSync(snapshotDir, { recursive: true });
-    writeFileSync(join(snapshotDir, 'fp2.json'), JSON.stringify({ version: 1, title: 'Bad', entries: [] }));
+    writeFileSync(join(snapshotDir, `${snapshotId}.json`), json);
+    return graphRunId;
+  }
+
+  const INVALID_DOC = JSON.stringify({ version: 1, title: 'Bad', entries: [] });
+
+  it('blocks the run with graph-plan-invalid once the compile attempts are exhausted', () => {
+    const h = harness();
+    const graphRunId = submittedPlan(h, 'fp2', INVALID_DOC);
+    // Two attempts already consumed — this rejection is the last one.
+    h.db.prepare('UPDATE approach_planner_runs SET compile_attempt = 2 WHERE graph_run_id = ?').run(graphRunId);
 
     const result = acceptSubmittedPlan(h.deps, graphRunId);
     expect(result.kind).toBe('rejected');
+    const run = h.db
+      .prepare('SELECT status, blocked_reason FROM approach_graph_runs WHERE id = ?')
+      .get(graphRunId) as { status: string; blocked_reason: string | null };
+    expect(run.status).toBe('blocked');
+    expect(run.blocked_reason).toContain('graph-plan-invalid');
+    const planner = h.db
+      .prepare('SELECT compile_attempt FROM approach_planner_runs WHERE graph_run_id = ?')
+      .get(graphRunId) as { compile_attempt: number };
+    expect(planner.compile_attempt).toBe(3);
+  });
+
+  it('G2: a first rejection re-prompts the SAME planner run instead of blocking', () => {
+    const h = harness();
+    const graphRunId = submittedPlan(h, 'fp2', INVALID_DOC);
+    const plannerRunId = plannerRunIdFor(h.db, graphRunId);
+
+    const result = acceptSubmittedPlan(h.deps, graphRunId);
+    expect(result.kind).toBe('repair-requested');
+    if (result.kind !== 'repair-requested') return;
+    expect(result.plannerRunId).toBe(plannerRunId);
+    expect(result.attempt).toBe(1);
+    expect(result.diagnostics.length).toBeGreaterThan(0);
+    // The run is NOT blocked — it stays planning for the re-prompt.
+    const run = h.db
+      .prepare('SELECT status, blocked_reason FROM approach_graph_runs WHERE id = ?')
+      .get(graphRunId) as { status: string; blocked_reason: string | null };
+    expect(run.status).toBe('planning');
+    expect(run.blocked_reason).toBeNull();
+    // No NEW planner run is created; the durable counter is the same column
+    // `compileWithRepair` keeps, and the planner is re-promptable (`blocked`).
+    const planners = h.db
+      .prepare('SELECT id, status, compile_attempt FROM approach_planner_runs WHERE graph_run_id = ?')
+      .all(graphRunId) as { id: number; status: string; compile_attempt: number }[];
+    expect(planners).toHaveLength(1);
+    expect(planners[0]!.status).toBe('blocked');
+    expect(planners[0]!.compile_attempt).toBe(1);
+    // G3: the diagnostics are persisted where the re-prompt reads them.
+    expect(readPlannerDiagnostics(h.deps, graphRunId, plannerRunId).length).toBeGreaterThan(0);
+  });
+
+  it('G1b: declines to judge a plan while the manifest is unresolved', () => {
+    const h = harness();
+    const graphRunId = submittedPlan(h, 'fp2', gateGraphJson());
+    const plannerRunId = plannerRunIdFor(h.db, graphRunId);
+    const deps: Deps = {
+      ...h.deps,
+      // The window's manifest has not resolved — every repository claim would
+      // read `unknown-repository` against an empty map.
+      manifestResolvedFor: () => ({ resolved: false, reason: 'manifest unresolved' }),
+      compileContextOf: () => ({ ...compileContextOf(), repositories: new Map() }),
+    };
+
+    const result = acceptSubmittedPlan(deps, graphRunId);
+    expect(result.kind).toBe('undecidable');
+    const run = h.db
+      .prepare('SELECT status, blocked_reason FROM approach_graph_runs WHERE id = ?')
+      .get(graphRunId) as { status: string; blocked_reason: string | null };
+    expect(run.status).toBe('planning');
+    expect(run.blocked_reason).toBeNull();
+    // Nothing is consumed: no attempt, no diagnostics file, no planner move.
+    const planner = h.db
+      .prepare('SELECT status, compile_attempt FROM approach_planner_runs WHERE id = ?')
+      .get(plannerRunId) as { status: string; compile_attempt: number };
+    expect(planner.status).toBe('submitted');
+    expect(planner.compile_attempt).toBe(0);
+    expect(readPlannerDiagnostics(h.deps, graphRunId, plannerRunId)).toEqual([]);
+    // And the very same plan IS judged once the manifest resolves.
+    expect(acceptSubmittedPlan(h.deps, graphRunId).kind).toBe('accepted');
+  });
+
+  it('G1b: a resolved manifest still rejects a plan claiming an unknown repository', () => {
+    const h = harness();
+    const graphRunId = submittedPlan(h, 'fp2', INVALID_DOC);
+    h.db.prepare('UPDATE approach_planner_runs SET compile_attempt = 2 WHERE graph_run_id = ?').run(graphRunId);
+    const deps: Deps = { ...h.deps, manifestResolvedFor: () => ({ resolved: true }) };
+
+    expect(acceptSubmittedPlan(deps, graphRunId).kind).toBe('rejected');
     const run = h.db
       .prepare('SELECT status, blocked_reason FROM approach_graph_runs WHERE id = ?')
       .get(graphRunId) as { status: string; blocked_reason: string | null };

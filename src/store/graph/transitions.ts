@@ -61,7 +61,11 @@ export const PLANNER_RUN_TRANSITIONS: Readonly<Record<string, readonly string[]>
   ready: ['launching', 'cancelled', 'stale'],
   launching: ['running', 'launch-unknown', 'cancelled', 'stale'],
   running: ['submitted', 'blocked', 'cancelled', 'stale'],
-  submitted: ['stale'],
+  // `submitted → blocked` is the compile-repair turn: the document the planner
+  // submitted was REJECTED by the compiler and the run has an attempt left, so
+  // the same planner run is re-prompted with the diagnostics (blocked →
+  // launching → running → submitted). No new planner run, no extra budget.
+  submitted: ['stale', 'blocked'],
   blocked: ['launching', 'cancelled', 'stale'],
   'launch-unknown': ['cancelled'],
   stale: [],

@@ -95,6 +95,9 @@ describe('planner-run store', () => {
       'running → cancelled',
       'running → stale',
       'submitted → stale',
+      // The compile-repair turn: a submitted document the compiler rejected
+      // with an attempt left re-prompts the SAME planner run.
+      'submitted → blocked',
       'blocked → launching',
       'blocked → cancelled',
       'blocked → stale',

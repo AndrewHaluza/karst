@@ -224,6 +224,7 @@ import {
   driveReadyNodeRuns,
   launchReplanPlanner,
   relaunchBootstrapPlanner,
+  readPlannerDiagnostics,
   resolveProfileFor,
   PLANNER_SUBMIT_INSTRUCTION,
   type GraphDriverDeps,
@@ -3967,6 +3968,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           buildTicketContext(localStore, currentManifest(), ticketId, context.globalStorageUri.fsPath),
         ),
       compileContextOf: (graphRunId, document) => graphCompileContext(graphRunId, document),
+      manifestResolvedFor: (graphRunId) => graphManifestResolution(graphRunId),
       physicalDomainsOf: (graphRunId, document, nodeId) => {
         const node = document.nodes.find((n) => n.id === nodeId);
         if (!node || node.kind === 'join') return [];
@@ -4067,6 +4069,31 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     };
   };
 
+  /** G1b: whether this window's manifest is RESOLVED well enough to JUDGE a
+   *  plan. `graphCompileContext` falls back to `emptyManifest()`, whose empty
+   *  repository map turns every valid repository claim into
+   *  `unknown-repository` and blocks the run permanently — so an unloaded
+   *  manifest, or one that declares repositories yet resolves none to a
+   *  worktree, must make the compile DECLINE rather than reject. A manifest
+   *  that correctly declares zero repositories is resolved. */
+  const graphManifestResolution = (
+    graphRunId: number,
+  ): { resolved: true } | { resolved: false; reason: string } => {
+    const manifest = currentManifest();
+    if (!manifest) return { resolved: false, reason: 'the manifest is not loaded in this window' };
+    const declared = Object.keys(manifest.repositories ?? {});
+    if (declared.length === 0) return { resolved: true };
+    const worktrees = listWorktreesByTicket(localStore, graphRunTicketId(graphRunId));
+    const resolved = resolveRepoWorktrees(manifest.repositories ?? {}, worktrees);
+    if (resolved.length === 0) {
+      return {
+        resolved: false,
+        reason: `no declared repository resolves to a worktree of ticket #${graphRunTicketId(graphRunId)}`,
+      };
+    }
+    return { resolved: true };
+  };
+
   /** The compile context for a graph run: profiles/commands/repositories from
    *  the live manifest, project maxima from the graph config, and
    *  `artifactFileExists` over the parsed document's declared staging paths. */
@@ -4154,6 +4181,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (!run) return;
       if (run.status === 'planning') {
         const accepted = acceptSubmittedPlan(graphDriverDeps(), graphRunId);
+        if (accepted.kind === 'undecidable') {
+          // Nothing destructive: the run stays `planning` and the next tick
+          // judges the same submission against a resolved manifest.
+          logger.debug(
+            `[graph] run ${graphRunId}: plan left unjudged this tick — ${accepted.reason}`,
+          );
+          return;
+        }
+        if (accepted.kind === 'repair-requested') {
+          // G2: the same planner run gets its next compile attempt, re-prompted
+          // with the diagnostics — asynchronously, on this tick's host seam.
+          await launchPlannerRepairHost(graphRunId, accepted.plannerRunId, accepted.attempt);
+          return;
+        }
         if (accepted.kind === 'accepted' || accepted.kind === 'rejected') {
           provider.refresh();
           dashboard.pushState(graphRunTicketId(graphRunId));
@@ -4305,6 +4346,109 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     });
   };
 
+  /** G3: the compile diagnostics section of a planner prompt. `blockInvalidPlan`
+   *  (and the repair path) write `diagnostics/planner-<id>.json`; this is the
+   *  one reader. Prompt composition stays in the host — the driver only
+   *  exposes the raw strings. `plannerRunId` addresses a specific run's
+   *  diagnostics; without one the NEWEST planner run's file for the graph run
+   *  is used (the replan case, where the failed planner is a prior run). */
+  const graphDiagnosticsSection = (
+    graphRunId: number,
+    plannerRunId?: number,
+  ): string | undefined => {
+    const gs = graphCoordinatorStore;
+    if (!gs) return undefined;
+    const deps = graphDriverDeps();
+    const candidates =
+      plannerRunId !== undefined
+        ? [plannerRunId]
+        : (
+            gs.db
+              .prepare(
+                'SELECT id FROM approach_planner_runs WHERE graph_run_id = ? ORDER BY id DESC',
+              )
+              .all(graphRunId) as { id: number }[]
+          ).map((r) => r.id);
+    for (const id of candidates) {
+      const diagnostics = readPlannerDiagnostics(deps, graphRunId, id);
+      if (diagnostics.length === 0) continue;
+      return [
+        'The compiler REJECTED the previous `graph.json` with these diagnostics.',
+        'Each line is `code: where: message` from the karst graph compiler — fix every one of them; do not resubmit the same document.',
+        '```',
+        ...diagnostics.slice(0, 50).map((d) => String(d).slice(0, 500)),
+        '```',
+      ].join('\n');
+    }
+    return undefined;
+  };
+
+  /** G2's host half: re-prompt the SAME bootstrap planner run for its next
+   *  compile attempt, carrying the compiler's diagnostics. No new planner run
+   *  is allocated (so no planner-run or expert-run budget is charged); the
+   *  driver already recorded the attempt and moved the planner run to the
+   *  `blocked` status a re-prompt claims from. */
+  const launchPlannerRepairHost = async (
+    graphRunId: number,
+    plannerRunId: number,
+    attempt: number,
+  ): Promise<void> => {
+    const gs = graphCoordinatorStore;
+    if (!gs) return;
+    const base = graphDriverDeps().promptBytesOf('karst-graph-planner');
+    const diagnostics = graphDiagnosticsSection(graphRunId, plannerRunId);
+    const prompt = [
+      base === undefined ? '# Graph Planner' : new TextDecoder().decode(base),
+      renderTicketContext(
+        buildTicketContext(
+          localStore,
+          currentManifest(),
+          graphRunTicketId(graphRunId),
+          context.globalStorageUri.fsPath,
+        ),
+      ),
+      diagnostics ?? 'The compiler rejected the previous `graph.json`.',
+      `This is compile attempt ${attempt + 1}: write a corrected \`graph.json\` and submit it again.`,
+      PLANNER_SUBMIT_INSTRUCTION,
+    ].join('\n\n');
+    const wt = listWorktreesByTicket(localStore, graphRunTicketId(graphRunId))[0];
+    const result = await launchReplanPlanner(graphDriverDeps(), {
+      graphRunId,
+      plannerRunId,
+      generation: '',
+      capability: '',
+      prompt,
+      cwd: wt?.path ?? '',
+      repo: wt?.repo ?? '',
+    }).catch((err) => {
+      logError(`karst: planner compile repair failed for run ${graphRunId}`, err);
+      return { kind: 'failed' as const, reason: 'planner session could not start' };
+    });
+    if (result.kind === 'launched') {
+      const identity: GraphLaunchIdentity = {
+        graphRunId,
+        ticketId: graphRunTicketId(graphRunId),
+        plannerRunId,
+        generation: result.generation,
+        capability: result.capability,
+        projectId: currentProject()?.id ?? 0,
+        artifactRoot: graphArtifactRoot(graphRunId),
+      };
+      attachPlannerCloseFallback(result.session, identity);
+      result.session.terminal?.show();
+      provider.refresh();
+      dashboard.pushState(graphRunTicketId(graphRunId));
+      logger.info(
+        `karst: graph run ${graphRunId} planner re-prompted with the compile diagnostics (attempt ${attempt + 1})`,
+      );
+    } else if (result.kind === 'failed') {
+      logError(
+        `karst: planner compile repair failed for run ${graphRunId}`,
+        new Error(result.reason),
+      );
+    }
+  };
+
   /** Launch the elected replan planner (Slice-4 T5): the election produced a
    *  launch request with the replan reasons as a file artifact; compose the
    *  prompt and start the session through the driver. */
@@ -4312,10 +4456,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const gs = graphCoordinatorStore;
     if (!gs) return;
     const base = graphDriverDeps().promptBytesOf('karst-graph-planner');
+    // G3: a replan elected from `graph-plan-invalid` used to re-run a planner
+    // that had never been told what was wrong — the diagnostics were written
+    // where nothing read them. They travel with the replan prompt now.
+    const diagnostics = graphDiagnosticsSection(launch.graphRunId);
     const prompt = [
       base === undefined ? '# Graph Replanner' : new TextDecoder().decode(base),
       launch.ticketContext,
       `Replan the graph (superseding revision ${launch.priorRevisionNumber}). The replan reasons and prior plan evidence are under the artifact root: ${launch.reasonsSnapshotPath}.`,
+      ...(diagnostics ? [diagnostics] : []),
       PLANNER_SUBMIT_INSTRUCTION,
     ].join('\n\n');
     const wt = listWorktreesByTicket(localStore, graphRunTicketId(launch.graphRunId))[0];
