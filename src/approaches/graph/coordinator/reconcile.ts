@@ -18,8 +18,11 @@
  *     draining revision waits for its active work (the replan machinery owns
  *     the continuation) — but a draining RUN whose replan planner died is
  *     revived first (2.6), because nothing else ever leaves `draining`;
- *  4. node-level sweep per the matrix: `launching` (owner nonce proves a
- *     pre-spawn crash → retryable; no nonce → `launch-unknown`), `running`
+ *  4. node-level sweep per the matrix: `launching` (an owner nonce with no
+ *     process proves a pre-spawn crash → retryable park; NO owner nonce and no
+ *     process is the recovery-rearmed retry shape, left strictly alone for the
+ *     driver's periodic relaunch; a process whose death is unprovable →
+ *     `launch-unknown`), `running`
  *     (dead → `stale` + recoverable block; unprovable → `termination-unknown`
  *     with leases marked `ambiguous-process`; live attributable → left alone),
  *     and
@@ -294,14 +297,21 @@ async function runHasLiveProcess(deps: ReconcileGraphRunDeps, graphRunId: number
  * The `launching` rows: a persisted owner nonce (written BEFORE spawn) with no
  * process identity proves the spawn was never reached — provably retryable,
  * so the node parks at the rest state current recovery already handles
- * (`blocked`, with a `node-blocked` reason). No nonce, or an identity whose
- * process cannot be attributed, is ambiguous: `launch-unknown`, which blocks
- * and is never auto-retried (the discard action is the named exit). A row with
- * no owner nonce and no process identity is also provably never spawned: the
- * recovery retry manufactures exactly that shape before a second launch, and
- * it is the ONLY producer of it — the driver commits the owner nonce inside
- * the transaction that moves the row `ready → launching`, so a launch in
- * flight in another window is never observable without launch identity.
+ * (`blocked`, with a `node-blocked` reason). A row with no owner nonce and no
+ * process identity is the recovery-rearmed retry shape: `retryReservedVisits`
+ * CASes the node `→ launching` AND clears the dead attempt's identity
+ * (`clearLaunchIdentity`) in the SAME transaction, and it is the ONLY producer
+ * of that shape — the driver commits a fresh owner nonce inside the
+ * transaction that re-launches the row, so a launch in flight in another
+ * window is never observable without launch identity. The armed row is waiting
+ * for the driver's periodic relaunch (`driveReadyNodeRuns` selects exactly
+ * `launching` + no owner nonce + no process as launchable), so reconcile NEVER
+ * parks it: parking would re-block the run the recovery just un-blocked, and
+ * in a multi-window setup another window's reconcile landing between the
+ * retry and the relaunch is what turns a Resume into a loop the user must
+ * click out of. An identity whose process cannot be attributed is ambiguous:
+ * `launch-unknown`, which blocks and is never auto-retried (the discard action
+ * is the named exit).
  */
 async function reconcileLaunching(
   deps: ReconcileGraphRunDeps,
@@ -319,12 +329,14 @@ async function reconcileLaunching(
         return 1;
       });
     }
-    return deps.transaction(() => {
-      const reason = `node-blocked: node ${node.id} has no launch identity (no owner nonce, no process) — Resume to relaunch the reserved visit`;
-      if (!parkNode(deps, node.id, 'launching', 'blocked', reason)) return 0;
-      blockRun(deps, graphRunId, reason);
-      return 1;
-    });
+    // No owner nonce and no process row: the recovery-rearmed retry shape,
+    // armed by `retryReservedVisits`/`clearLaunchIdentity` and waiting for the
+    // driver's periodic relaunch (`driveReadyNodeRuns` selects it as
+    // launchable). It is NOT a crash to recover — parking it re-blocks the run
+    // the recovery just un-blocked, and a concurrent window's reconcile landing
+    // between the retry and the relaunch is exactly the "Resume did nothing"
+    // loop. Left alone, the next sweep's continuation relaunches it.
+    return 0;
   }
   const attribution = await attributeOf(deps.facts, proc);
   if (attribution === 'attributable') return 0; // another window owns the launch

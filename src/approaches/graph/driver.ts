@@ -1124,7 +1124,7 @@ async function executeReadyNode(
             return bytes === undefined ? undefined : new TextDecoder().decode(bytes);
           })
           .filter((s): s is string => s !== undefined),
-      ticketContext: deps.ticketContextOf(runTicketId(deps, graphRunId)),
+      ticketContext: nodeTicketContext(deps, graphRunId, row, repo, cwd),
       nodePrompt: nodePromptWithReporter(deps),
       promptHash: (text) => sha256Hex(new TextEncoder().encode(text)),
       graphEnv: (launch) =>
@@ -1192,6 +1192,57 @@ function runTicketId(deps: GraphDriverDeps, graphRunId: number): number {
       ticket_id: number;
     }
   ).ticket_id;
+}
+
+/** The ticket context for an agent NODE: the generic ticket context (which
+ *  names the canonical repo/worktree paths) plus the node-workspace directive
+ *  naming the isolated clone the session actually runs in. Resolved per launch
+ *  so a resumed node gets the CURRENT workspace's directive. */
+function nodeTicketContext(
+  deps: GraphDriverDeps,
+  graphRunId: number,
+  row: RunnableNodeRow,
+  repo: string,
+  cwd: string,
+): string {
+  const canonicalWorktree = deps.cwdForRepo(graphRunId, repo) ?? '';
+  if (canonicalWorktree === '') return deps.ticketContextOf(runTicketId(deps, graphRunId));
+  const domainKey = domainKeyOf(canonicalPath(canonicalWorktree), deps.gitCommonDirOf(canonicalWorktree));
+  const base = deps.db
+    .prepare('SELECT base_heads FROM approach_node_runs WHERE id = ?')
+    .get(row.id) as { base_heads: string | null } | undefined;
+  const baseCommit =
+    decodeBaseHeads(base?.base_heads ?? null).find((head) => head.domainKey === domainKey)?.commit ?? '';
+  return [
+    deps.ticketContextOf(runTicketId(deps, graphRunId)),
+    nodeWorkspaceDirective({ workspace: cwd, canonicalWorktree, baseCommit }),
+  ].join('\n\n');
+}
+
+/** A node-scoped context addition that names the ISOLATED WORKSPACE a node
+ *  actually runs in. The ticket context's "Repositories in scope" and
+ *  "Worktrees & branches" sections name the CANONICAL locations — the manifest
+ *  `repoPath` (the main checkout) and the ticket worktree — which is accurate
+ *  for a plain implementation session but NOT for a graph node: its session
+ *  runs in an isolated clone under the artifact root. An agent that trusts the
+ *  context follows the named canonical path and edits the main checkout instead
+ *  of its workspace (the "implementation started into main WT" report), so the
+ *  directive states the workspace explicitly and forbids escaping it.
+ *
+ * Pure: no fs, no store — the caller resolves the paths. */
+export function nodeWorkspaceDirective(input: {
+  workspace: string;
+  canonicalWorktree: string;
+  baseCommit: string;
+}): string {
+  return [
+    '## Node workspace',
+    `Your workspace for this node is: \`${input.workspace}\``,
+    `It is an isolated clone of the ticket's worktree \`${input.canonicalWorktree}\`` +
+      (input.baseCommit ? ` at \`${input.baseCommit}\`` : ''),
+    'The paths the ticket context names — Repositories in scope, Worktrees & branches — are the CANONICAL locations, not where you work.',
+    'Edit files ONLY inside your workspace above; never traverse out of it (e.g. `../..`) to reach the canonical checkout.',
+  ].join('\n');
 }
 
 /** The isolated workspace clone(s) for an agent node's declared repos. Falls
