@@ -925,6 +925,31 @@ setTimeout(() => {
       expect(body).toContain('## Summary');
       expect(body).toContain('- add search');
       expect(body).toContain('src/a.ts | 3 ++');
+      expect(body).not.toMatch(/^## Summary\n## Summary/);
+    });
+
+    it('deduplicates the summary heading when the AI body opens with ## Summary', async () => {
+      seedWorktree(store, id, 'frontend', join(dir, 'fe'));
+      const { gh, creates } = recordingGh();
+      const adapter: AgentAdapter = {
+        ...fakeAdapter(),
+        runHeadless: async () => ({
+          sessionId: 's',
+          verdict: null,
+          raw: '## Summary\n\nGenerated body.',
+        }),
+      };
+      const git: GitRunner = async (args) => {
+        if (args[0] === 'diff') return { stdout: '', stderr: '', exitCode: 1 };
+        return { stdout: '', stderr: '', exitCode: 0 };
+      };
+
+      await shipTicket(store, { ticketId: id }, gh, adapter, git);
+
+      const body = creates[0]![creates[0]!.indexOf('--body') + 1]!;
+      expect(body).not.toMatch(/^## Summary\n## Summary/);
+      const summaryCount = (body.match(/^## Summary$/gm) ?? []).length;
+      expect(summaryCount).toBe(1);
     });
 
     it('still describes when the diff cannot be read — a failed read never fails ship', async () => {

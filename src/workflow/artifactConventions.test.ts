@@ -124,6 +124,39 @@ describe('artifact convention rendering', () => {
     expect(usesDescription('## Summary\n{description}')).toBe(true);
     expect(usesDescription('{title}: description')).toBe(false);
   });
+
+  it('deduplicates a leading ## Summary heading when the template already starts with one', () => {
+    const template = '## Summary\n{description}\n\nTicket: {key}';
+    const desc = '## Summary\n\nReal content here.';
+    const result = renderArtifactTemplate('pullRequestDescription', template, {
+      ...context,
+      description: desc,
+    });
+    expect(result).not.toMatch(/^## Summary\n## Summary/);
+    const summaryCount = (result.match(/^## Summary$/gm) ?? []).length;
+    expect(summaryCount).toBe(1);
+  });
+
+  it('preserves a leading ## Summary heading when the template does not start with one', () => {
+    const template = '{description}\n\nTicket: {key}';
+    const desc = '## Summary\n\nReal content here.';
+    const result = renderArtifactTemplate('pullRequestDescription', template, {
+      ...context,
+      description: desc,
+    });
+    expect(result).toMatch(/^## Summary\n\nReal content here\./);
+  });
+
+  it('does not strip ## Summary from a description without a leading heading', () => {
+    const template = '## Summary\n{description}\n\nTicket: {key}';
+    const desc = 'Just a summary line.';
+    const result = renderArtifactTemplate('pullRequestDescription', template, {
+      ...context,
+      description: desc,
+    });
+    expect(result).toMatch(/^## Summary\nJust a summary line\./);
+    expect(result).not.toMatch(/^## Summary\n## Summary/);
+  });
 });
 
 describe('placeholder transforms', () => {

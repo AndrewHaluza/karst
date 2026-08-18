@@ -87,6 +87,19 @@ export function usesDescription(template: string): boolean {
   return hasVariable(template, 'description');
 }
 
+/**
+ * Strip a leading `## Summary` heading from `description` when the template
+ * already opens with one — preventing the duplicated headline that ships when
+ * the deterministic renderer or an AI model produces a body starting with
+ * `## Summary` and the template wraps it in another.
+ */
+export function stripLeadingSummaryHeading(description: string, template: string): string {
+  if (template.startsWith('## Summary') && description.startsWith('## Summary')) {
+    return description.replace(/^## Summary\n?/, '');
+  }
+  return description;
+}
+
 /** Render a validated template once; substituted values are never rescanned. */
 export function renderArtifactTemplate(
   field: ArtifactConventionName,
@@ -101,7 +114,7 @@ export function renderArtifactTemplate(
     repo: context.repo,
     type: context.type,
     scope: context.scope,
-    description: context.description ?? '',
+    description: stripLeadingSummaryHeading(context.description ?? '', template),
     provider: context.provider ?? '',
     model: context.model ?? '',
     approach: context.approach ?? '',
