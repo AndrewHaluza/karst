@@ -1356,6 +1356,50 @@ describe('acceptSubmittedReplan', () => {
       .get() as { n: number };
     expect(entries.n).toBe(1);
   });
+
+  it('G1b: declines to judge a replan while the manifest is unresolved', () => {
+    const h = harness();
+    const graphRunId = createGraphRun(h.db, {
+      ticketId: h.ticketId,
+      stageAttempt: 0,
+      approachId: 'karst-graph-engineering',
+      now: NOW,
+    });
+    createRevision(h.db, {
+      graphRunId,
+      revisionNumber: 1,
+      canonicalGraph: '{}',
+      fingerprint: 'old',
+      status: 'draining',
+      now: NOW,
+    });
+    h.db.prepare("UPDATE approach_graph_runs SET status = 'draining' WHERE id = ?").run(graphRunId);
+    h.db
+      .prepare(
+        `INSERT INTO approach_planner_runs (graph_run_id, planner_run_number, kind, status, graph_snapshot_id, submitted_at)
+         VALUES (?, 2, 'replan', 'submitted', 'rpl', ?)`,
+      )
+      .run(graphRunId, NOW);
+    const snapshotDir = join(h.root, String(graphRunId), 'snapshots');
+    mkdirSync(snapshotDir, { recursive: true });
+    writeFileSync(join(snapshotDir, 'rpl.json'), gateGraphJson());
+
+    const deps: Deps = {
+      ...h.deps,
+      // Every repository claim would read `unknown-repository` against an
+      // empty map — the replan must NOT be rejected for the window's state.
+      manifestResolvedFor: () => ({ resolved: false, reason: 'manifest unresolved' }),
+      compileContextOf: () => ({ ...compileContextOf(), repositories: new Map() }),
+    };
+    const result = acceptSubmittedReplan(deps, graphRunId);
+    expect(result.kind).toBe('undecidable');
+    const run = h.db
+      .prepare('SELECT status FROM approach_graph_runs WHERE id = ?')
+      .get(graphRunId) as { status: string };
+    expect(run.status).toBe('draining');
+    // The very same replan IS judged once the manifest resolves.
+    expect(acceptSubmittedReplan(h.deps, graphRunId).kind).toBe('accepted');
+  });
 });
 
 describe('launchReplanPlanner', () => {

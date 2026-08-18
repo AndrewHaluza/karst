@@ -695,6 +695,7 @@ function configConfirmOf(deps: GraphDriverDeps, approachId: string): boolean {
 export type AcceptReplanResult =
   | { kind: 'accepted'; revisionId: number; revisionNumber: number }
   | { kind: 'no-op' }
+  | { kind: 'undecidable'; reason: string }
   | { kind: 'rejected'; reason: string };
 
 /**
@@ -720,6 +721,19 @@ export function acceptSubmittedReplan(
     | { id: number; status: string; graph_snapshot_id: string | null }
     | undefined;
   if (!planner || !planner.graph_snapshot_id) return { kind: 'no-op' };
+
+  // G1b: a replan is never judged against an unresolved manifest either — the
+  // same empty repository map that turns every valid claim into
+  // `unknown-repository`. The run stays `draining` and the next tick judges it
+  // against a manifest that resolved.
+  const resolution = deps.manifestResolvedFor?.(graphRunId) ?? { resolved: true as const };
+  if (!resolution.resolved) {
+    deps.debug?.(
+      `[graph] run ${graphRunId}: replan not judged — ${resolution.reason}; left draining for the next tick`,
+    );
+    return { kind: 'undecidable', reason: resolution.reason };
+  }
+
   const bytes = deps.readBytes(graphRunId, join('snapshots', `${planner.graph_snapshot_id}.json`));
   if (bytes === undefined) return { kind: 'rejected', reason: 'submitted replan snapshot is unreadable' };
   const parsed = parseGraphDocument(new TextDecoder().decode(bytes));
