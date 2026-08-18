@@ -25,6 +25,14 @@ resource claims and validates the actual changes against the writes the
 planner declared for this node — a change outside the declared claim is
 rejected.
 
+**Output artifact paths are relative to `$KARST_GRAPH_ARTIFACT_ROOT`, an
+absolute directory set in your process environment — NOT relative to your
+repository workspace.** A declared output like `results/fix-result.md` must
+be written to `$KARST_GRAPH_ARTIFACT_ROOT/results/fix-result.md`. A file
+written inside a repo workspace instead of under the artifact root is
+invisible to karst's validation and reports as a missing required output,
+even though you produced content.
+
 ## Reporting your outcome
 
 When your work is done, use the karst node completion CLI with the capability
