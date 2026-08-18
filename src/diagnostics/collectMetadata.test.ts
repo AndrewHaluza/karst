@@ -638,4 +638,161 @@ describe('collectMetadata', () => {
     expect(draft.metadata.cores).toEqual({ status: 'unavailable', reason: 'reader_failed' })
     expect(JSON.stringify(draft)).not.toContain('PRIVATE_CORES_FAILURE')
   })
+
+  it('reports the graph section present but empty for a ticket with no graph runs', async () => {
+    store = openStore(':memory:')
+    const localStore = store
+    const project = upsertProject(localStore, { slug: 'one' })
+    const ticket = createTicket(localStore, { projectId: project.id, key: 'X', title: 'x' })
+    const draft = await collectMetadata({
+      store: localStore,
+      project,
+      manifest: manifest({}),
+      ticketId: ticket.id,
+      runtime: {
+        extensionVersion: '1', editorVersion: '1', platform: 'darwin', arch: 'arm64',
+        remoteNamePresent: false, uiKind: 'desktop', developmentMode: false,
+      },
+      logs: makeBoundedLogBuffer(),
+      reportId: 'report-graph-empty',
+      generatedAt: '2026-07-28T00:00:00.000Z',
+      aliases: createPseudonymizer(new Uint8Array(32).fill(6)),
+    })
+    expect(draft.metadata.graph).toEqual({
+      status: 'available',
+      data: { runs: [], plannerRuns: [], nodeRuns: [] },
+    })
+  })
+
+  it('surfaces a blocked graph run, its planner/node runs and active revision, redacting free text', async () => {
+    store = openStore(':memory:')
+    const localStore = store
+    const project = upsertProject(localStore, { slug: 'one' })
+    const ticket = createTicket(localStore, { projectId: project.id, key: 'X', title: 'x' })
+    localStore.db.prepare(
+      `INSERT INTO approach_graph_runs
+         (id, ticket_id, stage_key, stage_attempt, approach_id, status, blocked_reason,
+          planner_run_count, expert_run_count, node_run_count, replan_count,
+          created_at, updated_at, completed_at, workspace_bytes, active_processes)
+       VALUES (1, ?, 'impl', 1, 'karst-graph-engineering', 'blocked',
+               'graph-plan-invalid: unknown-repository: implement-setup: node "implement-setup" claims unknown repository "extention" at /private/worktree, token=sk-proj-ABCDEFGHIJKLMNOPQRSTUV',
+               1, 0, 1, 0,
+               '2026-08-16T00:00:00.000Z', '2026-08-16T01:00:00.000Z', NULL, 4096, 0)`,
+    ).run(ticket.id)
+    localStore.db.prepare(
+      `INSERT INTO approach_graph_revisions
+         (id, graph_run_id, revision_number, canonical_graph, fingerprint, status, created_at)
+       VALUES (1, 1, 3, 'CANONICAL_GRAPH_BODY_MUST_NEVER_APPEAR', 'fp-abc123', 'active',
+               '2026-08-16T00:00:00.000Z')`,
+    ).run()
+    localStore.db.prepare(
+      `INSERT INTO approach_planner_runs
+         (id, graph_run_id, planner_run_number, kind, status, profile,
+          compile_attempt, launch_attempt, reason, started_at, submitted_at, ended_at)
+       VALUES (1, 1, 1, 'bootstrap', 'blocked', 'default',
+               0, 1, 'graph-plan-invalid: unknown-repository at /private/worktree',
+               '2026-08-16T00:00:00.000Z', '2026-08-16T00:05:00.000Z', '2026-08-16T00:06:00.000Z')`,
+    ).run()
+    localStore.db.prepare(
+      `INSERT INTO approach_node_runs
+         (id, graph_run_id, revision_id, node_id, node_kind, visit_number, status, outcome, reason)
+       VALUES (1, 1, 1, 'implement-setup', 'agent', 1, 'blocked', 'error', 'unknown-repository')`,
+    ).run()
+
+    const draft = await collectMetadata({
+      store: localStore,
+      project,
+      manifest: manifest({}),
+      ticketId: ticket.id,
+      runtime: {
+        extensionVersion: '1', editorVersion: '1', platform: 'darwin', arch: 'arm64',
+        remoteNamePresent: false, uiKind: 'desktop', developmentMode: false,
+      },
+      logs: makeBoundedLogBuffer(),
+      reportId: 'report-graph-blocked',
+      generatedAt: '2026-08-16T02:00:00.000Z',
+      aliases: createPseudonymizer(new Uint8Array(32).fill(6)),
+    })
+    const section = draft.metadata.graph
+    expect(section?.status).toBe('available')
+    const data = (section as { data: any }).data
+    expect(data.runs).toHaveLength(1)
+    expect(data.runs[0]).toMatchObject({
+      id: 1,
+      approachId: 'karst-graph-engineering',
+      status: 'blocked',
+      plannerRunCount: 1,
+      nodeRunCount: 1,
+      workspaceBytes: 4096,
+      activeRevision: { number: 3, fingerprint: 'fp-abc123' },
+    })
+    // The blocked_reason surfaces as diagnostic prose, but the embedded token
+    // is sanitized through the same pipeline as every other free-text field.
+    expect(data.runs[0].blockedReason).toContain('unknown-repository')
+    expect(data.runs[0].blockedReason).not.toContain('sk-proj-ABCDEFGHIJKLMNOPQRSTUV')
+
+    expect(data.plannerRuns).toHaveLength(1)
+    expect(data.plannerRuns[0]).toMatchObject({
+      id: 1,
+      graphRunId: 1,
+      kind: 'bootstrap',
+      status: 'blocked',
+      profile: 'default',
+      compileAttempt: 0,
+      launchAttempt: 1,
+    })
+    expect(data.plannerRuns[0].reason).toContain('unknown-repository')
+
+    expect(data.nodeRuns).toHaveLength(1)
+    expect(data.nodeRuns[0]).toMatchObject({
+      id: 1,
+      graphRunId: 1,
+      nodeId: 'implement-setup',
+      status: 'blocked',
+      outcome: 'error',
+      reason: 'unknown-repository',
+    })
+
+    const serialized = JSON.stringify(draft)
+    expect(serialized).not.toContain('CANONICAL_GRAPH_BODY_MUST_NEVER_APPEAR')
+    expect(serialized).not.toContain('sk-proj-ABCDEFGHIJKLMNOPQRSTUV')
+    // A finalized report accepts the new section.
+    expect(() => finalizeReport({ ...draft, contextStatus: 'declined' })).not.toThrow()
+  })
+
+  it('marks the graph section unavailable on its reader failure', async () => {
+    store = openStore(':memory:')
+    const localStore = store
+    const project = upsertProject(localStore, { slug: 'one' })
+    const ticket = createTicket(localStore, { projectId: project.id, key: 'X', title: 'x' })
+    const originalPrepare = localStore.db.prepare.bind(localStore.db)
+    const failingStore = {
+      ...localStore,
+      db: new Proxy(localStore.db, {
+        get(target, property, receiver) {
+          if (property !== 'prepare') return Reflect.get(target, property, receiver)
+          return (sql: string) => {
+            if (/\bFROM\s+approach_graph_runs\b/i.test(sql)) throw new Error('PRIVATE_GRAPH_FAILURE')
+            return originalPrepare(sql)
+          }
+        },
+      }),
+    } as Store
+    const draft = await collectMetadata({
+      store: failingStore,
+      project,
+      manifest: manifest({}),
+      ticketId: ticket.id,
+      runtime: {
+        extensionVersion: '1', editorVersion: '1', platform: 'darwin', arch: 'arm64',
+        remoteNamePresent: false, uiKind: 'desktop', developmentMode: false,
+      },
+      logs: makeBoundedLogBuffer(),
+      reportId: 'report-graph-fail',
+      generatedAt: '2026-07-28T00:00:00.000Z',
+      aliases: createPseudonymizer(new Uint8Array(32).fill(6)),
+    })
+    expect(draft.metadata.graph).toEqual({ status: 'unavailable', reason: 'reader_failed' })
+    expect(JSON.stringify(draft)).not.toContain('PRIVATE_GRAPH_FAILURE')
+  })
 })

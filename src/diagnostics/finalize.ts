@@ -59,6 +59,7 @@ const SECTION_NAMES = new Set([
   'stages',
   'gateRuns',
   'phaseMarks',
+  'graph',
   'cores',
   'topology',
   'pullRequest',
