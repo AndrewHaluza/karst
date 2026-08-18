@@ -172,6 +172,7 @@ import {
 import { startHookEndpoint, type HookEndpoint } from './hooks/endpoint.js';
 import { startGraphWakeupEndpoint, type GraphWakeupEndpoint } from './hooks/graphEndpoint.js';
 import { runCoordinatorTick, activeGraphRunIds } from './approaches/graph/coordinator/sweep.js';
+import { reconcilableGraphRunIds } from './approaches/graph/coordinator/reconcileScope.js';
 import {
   reconcileGraphRun,
   type ReconcileGraphRunDeps,
@@ -540,6 +541,18 @@ const PROJECT_ADOPTION_KEY = 'karst.projectAdoptionDone';
  * stacks.
  */
 const PR_SYNC_INTERVAL_MS = 60_000;
+
+/**
+ * How often the graph coordinator sweep ticks, independent of `runPrSync`
+ * (G4). The sweep's own liveness promise — "a completion that committed to
+ * the database is always eventually scheduled" — must not depend on GitHub
+ * being reachable, so it no longer rides the tail of the PR sync's two
+ * awaited `gh`/`git` phases. 15s is well under `PR_SYNC_INTERVAL_MS` (60s):
+ * graph activations are meant to launch promptly once a token is pending,
+ * and a bounded (≤ 100 transitions) tick against the local SQLite registry
+ * is cheap enough to run four times as often with no network cost.
+ */
+const GRAPH_SWEEP_INTERVAL_MS = 15_000;
 
 /**
  * How stale a stored merge verdict may get before the sweep re-probes it. Unlike
@@ -4499,15 +4512,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   };
 
+  // G1b: scoped to this window's project and to non-terminal statuses
+  // (`reconcilableGraphRunIds`) — the registry is shared by every IDE window
+  // (`docs/arch/store-and-schema.md`), so an unscoped listing here reconciles
+  // and drives continuation for other projects' runs too, including ones
+  // already `closed`. `draining` stays in the eligible set: it is the one
+  // status nothing else ever leaves (commit 2f7f741).
   const reconcileGraphRuns = async (): Promise<void> => {
     const gs = graphCoordinatorStore;
-    if (!gs) return;
+    const project = currentProject();
+    if (!gs || !project) return;
     try {
-      const runs = gs.db
-        .prepare('SELECT id FROM approach_graph_runs ORDER BY id')
-        .all() as { id: number }[];
-      for (const run of runs) {
-        const result = await reconcileGraphRun(graphReconcileDeps(), { graphRunId: run.id });
+      const runIds = reconcilableGraphRunIds(gs.db, { projectId: project.id });
+      for (const graphRunId of runIds) {
+        const result = await reconcileGraphRun(graphReconcileDeps(), { graphRunId });
         if (
           result.transitions > 0 ||
           result.resumed.length > 0 ||
@@ -4515,7 +4533,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           result.cancelledTokens > 0
         ) {
           logger.info(
-            `[graph] reconcile: run ${run.id} → ${result.status}` +
+            `[graph] reconcile: run ${graphRunId} → ${result.status}` +
               ` (${result.transitions} transition${result.transitions === 1 ? '' : 's'}, ` +
               `${result.cancelledTokens} token${result.cancelledTokens === 1 ? '' : 's'} cancelled, ` +
               `resumed ${result.resumed.length}, reverted ${result.reverted.length})`,
@@ -4526,19 +4544,60 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // dashboard offers the typed graph-recovery Resume (the reconcile
         // wrapper is the one place a reconcile-created block is observed).
         if (result.status === 'blocked') {
-          settleGraphRun(gs.db, run.id);
+          settleGraphRun(gs.db, graphRunId);
         }
-        await driveGraphRunContinuation(run.id);
+        await driveGraphRunContinuation(graphRunId);
       }
     } catch (err) {
       logError('karst: graph reconcile sweep failed', err);
     }
   };
-  void reconcileGraphRuns();
-  // A reload re-attaches every graph session whose terminal survived it, so a
-  // ticket owned by a live run is never reported as "session not attached"
-  // until the first coordinator sweep (the promise the message makes).
-  void reattachGraphSessions();
+  // G4: the graph coordinator sweep is its OWN tick, independent of
+  // `runPrSync`'s GitHub calls — a throw from `syncPrStatuses` (offline, no
+  // auth, rate limit) must never starve the graph of the one path that
+  // brings a stalled run back (a wake-up hit a dead port, a session died
+  // between activations). Its own re-entrancy guard drops a tick that lands
+  // while a slow sweep is still going; its try/catch means one failure only
+  // delays the next tick, never the graph's own liveness promise.
+  let graphSweepRunning = false;
+  const runGraphSweep = async (): Promise<void> => {
+    const gs = graphCoordinatorStore;
+    if (!gs) return;
+    if (graphSweepRunning) return;
+    graphSweepRunning = true;
+    try {
+      // Re-attach sessions a terminal revival delivered after the last sweep
+      // (the "coordinator re-attaches it on the next sweep" promise), then
+      // tick the runs whose continuation the coordinator owns.
+      await reattachGraphSessions();
+      // A run whose session DIED — not a revived terminal, which the
+      // re-attach above just re-registered — is recovered by the reconcile
+      // crash matrix on this same sweep, so a death mid-run is brought back
+      // on the next tick, not only at the next activation. Order matters:
+      // reconcile runs AFTER re-attach (awaited), so a just-revived live
+      // session is re-attached, never judged dead.
+      await reconcileGraphRuns();
+      const project = currentProject();
+      if (project) {
+        let graphRuns: number[] = [];
+        try {
+          graphRuns = activeGraphRunIds(gs.db, { projectId: project.id });
+        } catch (e) {
+          logError('karst: graph run listing failed', e);
+        }
+        for (const graphRunId of graphRuns) {
+          void runGraphCoordinatorTick(graphRunId);
+        }
+      }
+    } catch (err) {
+      logError('karst: graph coordinator sweep failed', err);
+    } finally {
+      graphSweepRunning = false;
+    }
+  };
+  void runGraphSweep();
+  const graphSweepTimer = setInterval(() => void runGraphSweep(), GRAPH_SWEEP_INTERVAL_MS);
+  context.subscriptions.push({ dispose: () => clearInterval(graphSweepTimer) });
 
   // The Inside Stop binding (Slice 3 Task 11): terminates every live session
   // of the ticket's active graph through the supervised transport, then moves
@@ -4761,40 +4820,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // Bookkeeping over state that is already stored: the next tick retries.
         logError('karst: merge gate settle failed', e);
       }
-      // Graph coordinator sweep (Slice 3 Task 2). Rides this tick exactly
-      // like settleShipGates: a completion that committed to the database is
-      // always eventually scheduled, even when its wake-up hit a dead port.
-      // The tick is bounded (≤ 100 transitions), reads canonical state fresh,
-      // and a failure only delays the next tick — never depends on a callback.
-      if (graphCoordinatorStore) {
-        // Re-attach sessions a terminal revival delivered after the last sweep
-        // (the "coordinator re-attaches it on the next sweep" promise), then
-        // tick the runs whose continuation the coordinator owns.
-        await reattachGraphSessions();
-        // A run whose session DIED — not a revived terminal, which the
-        // re-attach above just re-registered — is recovered by the reconcile
-        // crash matrix on this same sweep, so a death mid-run is brought back
-        // on the next tick, not only at the next activation. This walks EVERY
-        // run, not just the `planning` ones: a node whose process died leaves
-        // its run `running` with the node `running` forever, because nothing
-        // else observes a dead node between activations (the reported defect —
-        // the graph sat `running` on a node whose terminal had closed). It is
-        // the SAME wrapper the activation pass calls, so the reconcile-created
-        // block still reaches `settleGraphRun` and the dashboard offers the
-        // typed graph-recovery Resume. Order matters: reconcile runs AFTER
-        // re-attach (awaited), so a just-revived live session is re-attached,
-        // never judged dead.
-        await reconcileGraphRuns();
-        let graphRuns: number[] = [];
-        try {
-          graphRuns = activeGraphRunIds(graphCoordinatorStore.db);
-        } catch (e) {
-          logError('karst: graph run listing failed', e);
-        }
-        for (const graphRunId of graphRuns) {
-          void runGraphCoordinatorTick(graphRunId);
-        }
-      }
+      // The graph coordinator sweep (G4) is no longer part of `runPrSync` —
+      // it has its own tick (`runGraphSweep`, `GRAPH_SWEEP_INTERVAL_MS`)
+      // that does not depend on the gh/git calls above succeeding.
       // Done tickets are archived on a DELAY (manifest `archiveDoneAfterDays`,
       // default 3 days), never when they reach done — and a ticket can sit at
       // done for any duration, so this is a sweep, not a transition hook. It

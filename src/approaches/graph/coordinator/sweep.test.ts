@@ -18,7 +18,7 @@ import {
   pendingTokensForRevision,
 } from '../../../store/graph/tokens.js';
 import { acquireLease } from '../../../store/graph/leases.js';
-import { runCoordinatorTick, type SweepDeps } from './sweep.js';
+import { runCoordinatorTick, activeGraphRunIds, type SweepDeps } from './sweep.js';
 import type { GraphDocument, ApproachEdge, ApproachNode } from '../parse.js';
 
 interface Ctx {
@@ -695,5 +695,27 @@ describe('scheduler admission, deferrals and the process ceiling (Slice 5 Task 3
     expect(runIdForNode(ctx.db, ctx.revisionId, 'narrow')).toBeUndefined();
     const deferral = deferralRow(ctx.db, 'narrow');
     expect(deferral?.reason).toMatch(/parallel-slot-busy/);
+  });
+});
+
+describe('activeGraphRunIds (G1a — project scope)', () => {
+  it('only returns running runs whose ticket belongs to the scoped project', () => {
+    const { db } = openStore(':memory:');
+    db.prepare("INSERT INTO tickets (id, key, project_id) VALUES (1, 'A-1', 1)").run();
+    db.prepare("INSERT INTO tickets (id, key, project_id) VALUES (2, 'B-1', 2)").run();
+    const insertRun = (id: number, ticketId: number, stageAttempt: number, status: string): void => {
+      db.prepare(
+        `INSERT INTO approach_graph_runs
+           (id, ticket_id, stage_key, stage_attempt, approach_id, status, created_at)
+         VALUES (?, ?, 'impl', ?, 'a', ?, '2026-08-12T00:00:00.000Z')`,
+      ).run(id, ticketId, stageAttempt, status);
+    };
+    insertRun(1, 1, 1, 'running'); // project 1, running — included
+    insertRun(2, 2, 1, 'running'); // project 2, running — excluded (other project)
+    insertRun(3, 1, 2, 'blocked'); // project 1, not running — excluded (wrong status)
+
+    expect(activeGraphRunIds(db, { projectId: 1 })).toEqual([1]);
+    expect(activeGraphRunIds(db, { projectId: 2 })).toEqual([2]);
+    expect(activeGraphRunIds(db, { projectId: 3 })).toEqual([]);
   });
 });
