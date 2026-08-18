@@ -23,10 +23,11 @@ export interface ModelOption {
   efforts?: readonly string[];
   /**
    * Model capability tags (closed vocabulary, see `MODEL_TAGS`). Absent →
-   * the model's capabilities are unknown, which is a claim of nothing. The
-   * live CLI tiers report id/label only, so discovered models carry no tags;
-   * only the curated bundled catalog and the published feed supply them.
-   * Mirrored into `model-catalog.json` (the equality test pins both copies).
+   * the model's capabilities are unknown, which is a claim of nothing.
+   * CLI discovery tiers report id/label only, but `loadModelCatalog` overlays
+   * curated tags onto resolved models whose id matches a bundled or feed entry;
+   * an unmatched id still carries none. Mirrored into `model-catalog.json`
+   * (the equality test pins both copies).
    */
   tags?: readonly ModelTag[];
 }

@@ -5,6 +5,7 @@ import {
   validateModelList,
   type ModelCatalog,
   type ModelOption,
+  type ModelTag,
 } from './modelCatalog.js';
 import {
   discoverAntigravityModels,
@@ -375,26 +376,53 @@ export async function loadModelCatalog(
       throw new Error(`No valid model catalog is available for ${provider}`);
     }
 
+    // Curated-tag overlay: CLI discovery reports id/label only, so discovered
+    // models lack tags that the bundled catalog and feed already declare. Any
+    // resolved row whose id matches a curated entry inherits that entry's tags;
+    // a row that already carries tags is never overridden. Feed entries win over
+    // bundled entries on conflict. The overlay runs before the cache write so
+    // CLI-discovered lists persist with tags.
+    const curatedTags = new Map<string, readonly ModelTag[]>();
+    const bundledRow = bundledList;
+    if (bundledRow) {
+      for (const m of bundledRow) {
+        if (m.tags) curatedTags.set(m.id, m.tags);
+      }
+    }
+    const feedRow = feedRaw;
+    if (feedRow) {
+      for (const m of feedRow) {
+        if (m.tags) curatedTags.set(m.id, m.tags);
+      }
+    }
+    const enriched = models === cli || models === fromFeed || models === cached
+      ? models.map((m) => {
+        if (m.tags !== undefined) return m;
+        const tags = curatedTags.get(m.id);
+        return tags ? { ...m, tags } : m;
+      })
+      : models;
+
     if (cli) {
-      catalog[provider] = cli;
+      catalog[provider] = enriched;
       sources[provider] = 'cli';
       if (cache) {
         pendingCacheWrites.push({
           provider,
-          entry: { models: cli, source: 'cli', fetchedAt: Date.now() },
+          entry: { models: enriched, source: 'cli', fetchedAt: Date.now() },
         });
       }
     } else if (fromFeed) {
-      catalog[provider] = fromFeed;
+      catalog[provider] = enriched;
       sources[provider] = 'feed';
       if (cache) {
         pendingCacheWrites.push({
           provider,
-          entry: { models: fromFeed, source: 'feed', fetchedAt: Date.now() },
+          entry: { models: enriched, source: 'feed', fetchedAt: Date.now() },
         });
       }
     } else if (cached) {
-      catalog[provider] = cached;
+      catalog[provider] = enriched;
       sources[provider] = 'cache';
     } else {
       catalog[provider] = models;
