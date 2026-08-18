@@ -561,6 +561,132 @@ describe('fetchModelFeed', () => {
   });
 });
 
+describe('loadModelCatalog curated-tag overlay', () => {
+  function taggedCatalog(): ModelCatalog {
+    return {
+      claude: models('claude', 'bundled-claude'),
+      codex: [
+        { id: 'gpt-5.6-sol', label: 'GPT-5.6 Sol', providers: ['codex'], tags: ['multimodal', 'vision'] },
+      ],
+      antigravity: models('antigravity', 'bundled-antigravity'),
+      opencode: [],
+    };
+  }
+
+  function taggedBaseDeps(cache: CatalogCache, fetchImpl: typeof fetch): CatalogLoaderDeps {
+    return {
+      ...baseDeps(cache, fetchImpl),
+      bundledCatalog: taggedCatalog(),
+    };
+  }
+
+  it('inherits curated tags for a CLI-discovered id that matches a bundled entry', async () => {
+    const result = await loadModelCatalog({
+      ...taggedBaseDeps(new MemoryCache(), completeFeed()),
+      cliLoaders: {
+        claude: unavailable,
+        codex: async () => ({
+          status: 'available',
+          models: [{ id: 'gpt-5.6-sol', label: 'GPT-5.6 Sol', providers: ['codex'] }],
+        }),
+        antigravity: unavailable,
+        opencode: unavailable,
+      },
+    });
+
+    expect(result.sources.codex).toBe('cli');
+    expect(result.catalog.codex).toEqual([{
+      id: 'gpt-5.6-sol',
+      label: 'GPT-5.6 Sol',
+      providers: ['codex'],
+      tags: ['multimodal', 'vision'],
+    }]);
+  });
+
+  it('keeps no tags on a discovered id with no curated match', async () => {
+    const result = await loadModelCatalog({
+      ...taggedBaseDeps(new MemoryCache(), completeFeed()),
+      cliLoaders: {
+        claude: unavailable,
+        codex: available('codex', 'cli-codex'),
+        antigravity: unavailable,
+        opencode: unavailable,
+      },
+    });
+
+    expect(result.sources.codex).toBe('cli');
+    const row = result.catalog.codex[0]!;
+    expect(row.id).toBe('cli-codex');
+    expect(row).not.toHaveProperty('tags');
+  });
+
+  it('keeps a curated feed row\'s own declared tags unchanged', async () => {
+    const result = await loadModelCatalog({
+      ...taggedBaseDeps(new MemoryCache(), feed({
+        claude: [{ id: 'feed-claude', label: 'Feed Claude' }],
+        codex: [{ id: 'gpt-5.6-sol', label: 'GPT-5.6 Sol', tags: ['text-only'] }],
+        antigravity: [{ id: 'feed-antigravity', label: 'Feed Antigravity' }],
+      })),
+      cliLoaders: {
+        claude: unavailable,
+        codex: unavailable,
+        antigravity: unavailable,
+        opencode: unavailable,
+      },
+    });
+
+    expect(result.sources.codex).toBe('feed');
+    expect(result.catalog.codex).toEqual([{
+      id: 'gpt-5.6-sol',
+      label: 'GPT-5.6 Sol',
+      providers: ['codex'],
+      tags: ['text-only'],
+    }]);
+  });
+
+  it('enriched CLI tags reach the cache write', async () => {
+    const cache = new MemoryCache();
+
+    await loadModelCatalog({
+      ...taggedBaseDeps(cache, completeFeed()),
+      cliLoaders: {
+        claude: unavailable,
+        codex: async () => ({
+          status: 'available',
+          models: [{ id: 'gpt-5.6-sol', label: 'GPT-5.6 Sol', providers: ['codex'] }],
+        }),
+        antigravity: unavailable,
+        opencode: unavailable,
+      },
+    });
+
+    const cached = cache.entries.get('codex');
+    expect(cached).toBeDefined();
+    expect(cached!.source).toBe('cli');
+    expect(cached!.models).toEqual([{
+      id: 'gpt-5.6-sol',
+      label: 'GPT-5.6 Sol',
+      providers: ['codex'],
+      tags: ['multimodal', 'vision'],
+    }]);
+  });
+
+  it('the opencode provider (bundled []) still resolves to []', async () => {
+    const result = await loadModelCatalog({
+      ...taggedBaseDeps(new MemoryCache(), completeFeed()),
+      cliLoaders: {
+        claude: unavailable,
+        codex: unavailable,
+        antigravity: unavailable,
+        opencode: unavailable,
+      },
+    });
+
+    expect(result.sources.opencode).toBe('bundled');
+    expect(result.catalog.opencode).toEqual([]);
+  });
+});
+
 describe('loadModelCatalog feed failures', () => {
   const nonHttpsResponse = feedResponse({ claude: [{ id: 'feed-claude', label: 'Feed Claude' }] });
   Object.defineProperty(nonHttpsResponse, 'url', { value: 'http://example.test/model-catalog.json' });

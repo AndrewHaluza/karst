@@ -42,9 +42,10 @@
  *
  * Model rows also render the model's advertised capability tags (`multimodal`,
  * `text-only`, `audio`, `vision`) as small chips under the model name, so a
- * user can tell at a glance what a model accepts. Tags come from the curated
- * catalog entries only (the live CLI tiers report id/label), and the picker
- * renders whatever the host supplies — there is no tag vocabulary in this file.
+ * user can tell at a glance what a model accepts. Tags may come from curated
+ * catalog entries or be overlaid by `loadModelCatalog` for discovered models
+ * whose id matches a curated entry; the picker renders whatever the host
+ * supplies — there is no tag vocabulary in this file.
  *
  * CSS + JS are emitted as plain statements swapped into each webview's markers
  * (`KARST_AGENT_PICKER_CSS` / `KARST_AGENT_PICKER_JS`), before
