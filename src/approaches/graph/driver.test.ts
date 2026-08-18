@@ -406,6 +406,32 @@ describe('acceptSubmittedPlan', () => {
     expect(readPlannerDiagnostics(h.deps, graphRunId, plannerRunId).length).toBeGreaterThan(0);
   });
 
+  it('a lost submitted→blocked CAS leaves compile_attempt unchanged (never burns a budgeted attempt)', () => {
+    const h = harness();
+    const graphRunId = submittedPlan(h, 'fp2', INVALID_DOC);
+    const plannerRunId = plannerRunIdFor(h.db, graphRunId);
+    // Simulate another window winning the race INSIDE rejectPlan's own
+    // transaction attempt: the wrapped `transaction` moves the planner run out
+    // of `submitted` immediately before the real transaction runs, so the
+    // `submitted → blocked` CAS inside it is guaranteed to lose.
+    const deps: Deps = {
+      ...h.deps,
+      transaction: <T>(fn: () => T): T => {
+        h.db.prepare("UPDATE approach_planner_runs SET status = 'stale' WHERE id = ?").run(plannerRunId);
+        return h.db.transaction(fn)();
+      },
+    };
+
+    const result = acceptSubmittedPlan(deps, graphRunId);
+    expect(result.kind).toBe('undecidable');
+    const planner = h.db
+      .prepare('SELECT status, compile_attempt FROM approach_planner_runs WHERE id = ?')
+      .get(plannerRunId) as { status: string; compile_attempt: number };
+    // The CAS lost — the attempt counter must NOT have been consumed.
+    expect(planner.compile_attempt).toBe(0);
+    expect(planner.status).toBe('stale');
+  });
+
   it('G1b: declines to judge a plan while the manifest is unresolved', () => {
     const h = harness();
     const graphRunId = submittedPlan(h, 'fp2', gateGraphJson());

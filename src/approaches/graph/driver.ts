@@ -851,11 +851,17 @@ function rejectPlan(
     return blockInvalidPlan(deps, graphRunId, plannerRunId, diagnostics, decision.attempt);
   }
   const reprompted = deps.transaction(() => {
+    // The CAS is attempted FIRST: a lost race (another window already moved
+    // this planner run) must not burn an attempt from the budget. Returning
+    // `false` from a `deps.transaction` callback does NOT roll back the
+    // transaction — only a throw does — so the attempt was recorded even on
+    // a lost race when this ran in the other order.
+    if (!transitionPlannerRun(deps.db, plannerRunId, 'submitted', 'blocked')) return false;
     recordCompileAttempt(deps, plannerRunId, decision.attempt);
     deps.db
       .prepare('UPDATE approach_planner_runs SET reason = ? WHERE id = ?')
       .run(`graph-plan-invalid: ${(diagnostics[0] ?? 'invalid document').slice(0, 2000)}`, plannerRunId);
-    return transitionPlannerRun(deps.db, plannerRunId, 'submitted', 'blocked');
+    return true;
   });
   if (!reprompted) {
     // The planner run moved under us (another window is already repairing it)

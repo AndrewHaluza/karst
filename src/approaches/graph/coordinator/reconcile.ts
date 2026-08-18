@@ -44,6 +44,7 @@ import { cancelGraphToken } from '../../../store/graph/tokens.js';
 import { transitionPlannerRun } from '../../../store/graph/plannerRuns.js';
 import { markLeaseAmbiguous } from './leases.js';
 import { graphRunHasLiveNodeProcess } from './liveness.js';
+import { MAX_COMPILE_ATTEMPTS } from './repair.js';
 import {
   attributeServer,
   type Attribution,
@@ -88,6 +89,15 @@ export interface ReconcileGraphRunDeps {
    *  different things: a bootstrap planner plans the first revision, a replan
    *  planner compiles the next one onto a run that is already draining. */
   relaunchReplanPlanner: (graphRunId: number) => void;
+  /** Re-prompt a bootstrap planner run stuck `blocked` awaiting its compile
+   *  repair re-prompt (G2's fire-once launch never happened, or died between
+   *  the transaction and the spawn). The host binds this to
+   *  `launchPlannerRepairHost`; the actual single-flight claim is the SAME
+   *  `blocked → launching` CAS the live accept-path launch already performs
+   *  (`claimPlannerLaunch`), so firing this twice concurrently is safe — the
+   *  loser's launch reports `already moved`. `attempt` is the planner run's
+   *  current durable `compile_attempt` (the next re-prompt is attempt + 1). */
+  relaunchCompileRepair: (graphRunId: number, plannerRunId: number, attempt: number) => void;
 }
 
 export interface ReconcileGraphRunResult {
@@ -454,6 +464,33 @@ async function reconcilePlannerRun(
   if (!planner) return planningResult(deps, run, 0);
   if (deps.sessionFor(planner.id)) return planningResult(deps, run, 0); // this window owns it
   const proc = plannerProcessOf(deps.db, planner);
+
+  // G2's fire-once re-prompt, made recoverable from the sweep: a bootstrap
+  // planner sitting `blocked` (its submitted document was rejected and an
+  // attempt remains — `rejectPlan` only ever produces this shape when
+  // `compile_attempt < MAX_COMPILE_ATTEMPTS`) with no live session and no live
+  // process is a re-prompt that never happened, or died in flight. Judged with
+  // the SAME evidence discipline as every other row here: a live attributable
+  // process (another window already relaunching it) is left strictly alone.
+  // The `submitted → blocked` transition NEVER exists for a replan planner
+  // (only `acceptSubmittedPlan`'s bootstrap path calls `rejectPlan`), so this
+  // is bootstrap-only by construction.
+  if (kind === 'bootstrap' && planner.status === 'blocked') {
+    if (proc !== null) {
+      const attribution = await attributeOf(deps.facts, proc);
+      if (attribution === 'attributable') return planningResult(deps, run, 0);
+    }
+    const attemptRow = deps.db
+      .prepare('SELECT compile_attempt FROM approach_planner_runs WHERE id = ?')
+      .get(planner.id) as { compile_attempt: number } | undefined;
+    const attempt = attemptRow?.compile_attempt ?? 0;
+    if (attempt >= MAX_COMPILE_ATTEMPTS) return planningResult(deps, run, 0); // exhausted — never re-prompted
+    deps.debug?.(
+      `[graph] reconcile: run ${run.id} bootstrap planner ${planner.id} blocked awaiting compile repair — re-prompting (attempt ${attempt})`,
+    );
+    deps.relaunchCompileRepair(run.id, planner.id, attempt);
+    return planningResult(deps, run, 0);
+  }
 
   /** Mark the planner run `stale` + relaunch. The CAS-guarded `stale`
    *  transition is the single-flight gate — only the window that moved the

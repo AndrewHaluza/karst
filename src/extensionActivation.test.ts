@@ -215,16 +215,19 @@ describe('extension activation', () => {
       'reconcilableGraphRunIds(gs.db, { projectId: project.id })',
     );
     expect(source).not.toContain("SELECT id FROM approach_graph_runs ORDER BY id");
-    // …with the seam present BEFORE the running-run tick loop, and the sweep's
-    // reconcile AFTER reattach but BEFORE that loop (a just-revived live
-    // session is re-attached, never relaunched).
+    // …with the seam present BEFORE the running-run tick loop.
     expect(source.indexOf('relaunchPlanner:')).toBeLessThan(
       source.indexOf('activeGraphRunIds(gs.db, { projectId: project.id })'),
     );
-    const sweepReconcile = source.indexOf('await reconcileGraphRuns();');
-    expect(sweepReconcile).toBeGreaterThan(source.indexOf('await reattachGraphSessions();'));
-    expect(sweepReconcile).toBeLessThan(
-      source.indexOf('activeGraphRunIds(gs.db, { projectId: project.id })'),
+    // The reconcile pass runs on its OWN cadence (INFO-6), separate from the
+    // coordinator tick's reattach/activation loop — both still run once at
+    // activation, independent of each other.
+    expect(source).toContain('await reconcileGraphRuns();');
+    expect(source).toContain('void runGraphSweep();');
+    expect(source).toContain('void runGraphReconcileSweep();');
+    expect(source).toContain('setInterval(() => void runGraphSweep(), GRAPH_SWEEP_INTERVAL_MS)');
+    expect(source).toContain(
+      'setInterval(() => void runGraphReconcileSweep(), GRAPH_RECONCILE_INTERVAL_MS)',
     );
   });
 
