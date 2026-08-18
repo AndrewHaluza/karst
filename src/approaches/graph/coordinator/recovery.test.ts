@@ -600,6 +600,46 @@ describe('recoverGraphRun', () => {
     expect(stageBlock(store, ticketId, 'impl')).toBeNull();
   });
 
+  it('a graph-plan-invalid block with NO accepted revision relaunches the bootstrap planner', () => {
+    // The bootstrap plan itself was rejected (e.g. `unknown-repository` against
+    // a manifest that had not resolved yet), so no revision was ever accepted.
+    // A replan has nothing to supersede — the exit is a fresh bootstrap
+    // planner, never a dead-end `explicit-resolution` refusal.
+    const { ticketId, graphRunId } = blockedBootstrapGraph(
+      'graph-plan-invalid: unknown-repository: implement-setup: node "implement-setup" claims unknown repository "extention"',
+    );
+    const result = recoverGraphRun(
+      makeDeps({
+        readPrompt: () => new TextEncoder().encode('planner prompt'),
+        writeSnapshot: vi.fn() as unknown as RecoveryDeps['writeSnapshot'],
+        plannerPromptPath: '/pkg/graph-planner/SKILL.md',
+        ticketContext: 'ticket context',
+      }),
+      { ticketId, graphRunId },
+    );
+    expect(result.kind).toBe('relaunched');
+    expect(runRow(graphRunId)).toEqual({ status: 'planning', blocked_reason: null });
+    expect(plannerRunsOf(graphRunId)).toMatchObject([{ kind: 'bootstrap', status: 'ready' }]);
+    expect(stageBlock(store, ticketId, 'impl')).toBeNull();
+  });
+
+  it('an explicit replan on a run with NO accepted revision relaunches the bootstrap planner', () => {
+    const { ticketId, graphRunId } = blockedBootstrapGraph(
+      'graph-plan-invalid: unknown-repository: implement-setup',
+    );
+    const result = recoverGraphRun(
+      makeDeps({
+        readPrompt: () => new TextEncoder().encode('planner prompt'),
+        writeSnapshot: vi.fn() as unknown as RecoveryDeps['writeSnapshot'],
+        plannerPromptPath: '/pkg/graph-planner/SKILL.md',
+        ticketContext: 'ticket context',
+      }),
+      { ticketId, graphRunId, mode: 'replan' },
+    );
+    expect(result.kind).toBe('relaunched');
+    expect(runRow(graphRunId)).toEqual({ status: 'planning', blocked_reason: null });
+  });
+
   it('a replan-category refusal when maxReplans is exhausted blocks the node graph-budget-exhausted', () => {
     const { ticketId, graphRunId } = blockedGraph(
       'graph-plan-invalid: planner produced an invalid document',

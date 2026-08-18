@@ -381,8 +381,14 @@ function replanRecovery(
 ): RecoveryResult {
   const db = deps.store.db;
 
-  // A replan has nothing to drain without an active revision; refusing here
-  // (rather than leaving the re-opened run dangling) keeps the exit honest.
+  // A replan has nothing to drain without an active revision — but that shape
+  // is NOT a dead end: it is the run whose BOOTSTRAP plan was rejected
+  // (`graph-plan-invalid`, e.g. `unknown-repository` judged against a manifest
+  // that had not resolved), so no revision was ever accepted. The exit is the
+  // bootstrap relaunch tier, which re-opens `blocked → planning` and allocates
+  // a fresh bootstrap planner. Refusing here left such a run permanently
+  // unrecoverable: Resume and Retry both read `explicit-resolution` with
+  // nothing a human could actually resolve.
   const hasActiveRevision =
     db
       .prepare(
@@ -393,9 +399,9 @@ function replanRecovery(
     emitGraphDiagnostic({ db, debug: deps.debug }, {
       category: 'recovery',
       graphRunId: input.graphRunId,
-      detail: 'refused (explicit-resolution): replan requires an active revision',
+      detail: 'replan has no active revision — relaunching the bootstrap planner instead',
     });
-    return { kind: 'refused', reason: 'explicit-resolution' };
+    return plannerRelaunchRecovery(deps, input);
   }
 
   const claimed = deps.transaction(() => {
