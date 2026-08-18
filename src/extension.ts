@@ -172,6 +172,7 @@ import {
 import { startHookEndpoint, type HookEndpoint } from './hooks/endpoint.js';
 import { startGraphWakeupEndpoint, type GraphWakeupEndpoint } from './hooks/graphEndpoint.js';
 import { runCoordinatorTick, activeGraphRunIds } from './approaches/graph/coordinator/sweep.js';
+import { reconcilableGraphRunIds } from './approaches/graph/coordinator/reconcileScope.js';
 import {
   reconcileGraphRun,
   type ReconcileGraphRunDeps,
@@ -223,6 +224,7 @@ import {
   driveReadyNodeRuns,
   launchReplanPlanner,
   relaunchBootstrapPlanner,
+  readPlannerDiagnostics,
   resolveProfileFor,
   PLANNER_SUBMIT_INSTRUCTION,
   type GraphDriverDeps,
@@ -540,6 +542,32 @@ const PROJECT_ADOPTION_KEY = 'karst.projectAdoptionDone';
  * stacks.
  */
 const PR_SYNC_INTERVAL_MS = 60_000;
+
+/**
+ * How often the graph coordinator sweep ticks, independent of `runPrSync`
+ * (G4). The sweep's own liveness promise — "a completion that committed to
+ * the database is always eventually scheduled" — must not depend on GitHub
+ * being reachable, so it no longer rides the tail of the PR sync's two
+ * awaited `gh`/`git` phases. 15s is well under `PR_SYNC_INTERVAL_MS` (60s):
+ * graph activations are meant to launch promptly once a token is pending,
+ * and a bounded (≤ 100 transitions) tick against the local SQLite registry
+ * is cheap enough to run four times as often with no network cost.
+ */
+const GRAPH_SWEEP_INTERVAL_MS = 15_000;
+
+/**
+ * How often the graph RECONCILE pass ticks (INFO-6) — deliberately its OWN,
+ * slower cadence, separate from `GRAPH_SWEEP_INTERVAL_MS`. Reconcile probes
+ * OS process liveness (async, per run) for every non-terminal run in the
+ * project — materially more expensive than the coordinator tick's bounded,
+ * local-SQLite-only pass. 60s is the rate BOTH shared before the 15s sweep
+ * split (this is a restoration, not a new number): the coordinator tick stays
+ * fast for prompt activation, and the crash-recovery pass stays at the old,
+ * cheaper-for-the-OS rate. Reconcile also runs once at activation
+ * (`runGraphReconcileSweep()` below), so a stalled run from a prior session is
+ * still recovered promptly on open, not after a first 60s wait.
+ */
+const GRAPH_RECONCILE_INTERVAL_MS = 60_000;
 
 /**
  * How stale a stored merge verdict may get before the sweep re-probes it. Unlike
@@ -3954,6 +3982,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           buildTicketContext(localStore, currentManifest(), ticketId, context.globalStorageUri.fsPath),
         ),
       compileContextOf: (graphRunId, document) => graphCompileContext(graphRunId, document),
+      manifestResolvedFor: (graphRunId) => graphManifestResolution(graphRunId),
       physicalDomainsOf: (graphRunId, document, nodeId) => {
         const node = document.nodes.find((n) => n.id === nodeId);
         if (!node || node.kind === 'join') return [];
@@ -4054,6 +4083,31 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     };
   };
 
+  /** G1b: whether this window's manifest is RESOLVED well enough to JUDGE a
+   *  plan. `graphCompileContext` falls back to `emptyManifest()`, whose empty
+   *  repository map turns every valid repository claim into
+   *  `unknown-repository` and blocks the run permanently — so an unloaded
+   *  manifest, or one that declares repositories yet resolves none to a
+   *  worktree, must make the compile DECLINE rather than reject. A manifest
+   *  that correctly declares zero repositories is resolved. */
+  const graphManifestResolution = (
+    graphRunId: number,
+  ): { resolved: true } | { resolved: false; reason: string } => {
+    const manifest = currentManifest();
+    if (!manifest) return { resolved: false, reason: 'the manifest is not loaded in this window' };
+    const declared = Object.keys(manifest.repositories ?? {});
+    if (declared.length === 0) return { resolved: true };
+    const worktrees = listWorktreesByTicket(localStore, graphRunTicketId(graphRunId));
+    const resolved = resolveRepoWorktrees(manifest.repositories ?? {}, worktrees);
+    if (resolved.length === 0) {
+      return {
+        resolved: false,
+        reason: `no declared repository resolves to a worktree of ticket #${graphRunTicketId(graphRunId)}`,
+      };
+    }
+    return { resolved: true };
+  };
+
   /** The compile context for a graph run: profiles/commands/repositories from
    *  the live manifest, project maxima from the graph config, and
    *  `artifactFileExists` over the parsed document's declared staging paths. */
@@ -4131,6 +4185,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   /** Drive the post-tick continuation of a graph run: accept a submitted plan,
    *  execute claimed node runs, and finish completing nodes. Called after every
    *  coordinator tick, a submit, a confirm, and a replan launch. */
+  // A run parked `undecidable` (its manifest unresolved) looks identical to a
+  // healthy run doing nothing unless it is named. Tracked per run so entry and
+  // exit each log exactly once, never once per 15s tick: keyed by the reason
+  // string, so a NEW reason (a different unresolved cause) is its own entry.
+  const undecidableGraphRuns = new Map<number, string>();
+
   const driveGraphRunContinuation = async (graphRunId: number): Promise<void> => {
     const gs = graphCoordinatorStore;
     if (!gs) return;
@@ -4141,6 +4201,29 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (!run) return;
       if (run.status === 'planning') {
         const accepted = acceptSubmittedPlan(graphDriverDeps(), graphRunId);
+        if (accepted.kind === 'undecidable') {
+          // Nothing destructive: the run stays `planning` and the next tick
+          // judges the same submission against a resolved manifest. Raised
+          // above debug (a no-op unless debug mode is on) so a parked run is
+          // visible, but only on entry into the state (or a reason change) —
+          // never on every tick.
+          if (undecidableGraphRuns.get(graphRunId) !== accepted.reason) {
+            undecidableGraphRuns.set(graphRunId, accepted.reason);
+            logger.warn(
+              `[graph] run ${graphRunId}: plan left unjudged — ${accepted.reason}`,
+            );
+          }
+          return;
+        }
+        if (undecidableGraphRuns.delete(graphRunId)) {
+          logger.info(`[graph] run ${graphRunId}: plan is judgeable again — resuming`);
+        }
+        if (accepted.kind === 'repair-requested') {
+          // G2: the same planner run gets its next compile attempt, re-prompted
+          // with the diagnostics — asynchronously, on this tick's host seam.
+          await launchPlannerRepairHost(graphRunId, accepted.plannerRunId, accepted.attempt);
+          return;
+        }
         if (accepted.kind === 'accepted' || accepted.kind === 'rejected') {
           provider.refresh();
           dashboard.pushState(graphRunTicketId(graphRunId));
@@ -4292,6 +4375,131 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     });
   };
 
+  /** G3: the compile diagnostics section of a planner prompt. `blockInvalidPlan`
+   *  (and the repair path) write `diagnostics/planner-<id>.json`; this is the
+   *  one reader. Prompt composition stays in the host — the driver only
+   *  exposes the raw strings. `plannerRunId` addresses a specific run's
+   *  diagnostics; without one the NEWEST planner run's file for the graph run
+   *  is used (the replan case, where the failed planner is a prior run). */
+  const graphDiagnosticsSection = (
+    graphRunId: number,
+    plannerRunId?: number,
+  ): string | undefined => {
+    const gs = graphCoordinatorStore;
+    if (!gs) return undefined;
+    const deps = graphDriverDeps();
+    const candidates =
+      plannerRunId !== undefined
+        ? [plannerRunId]
+        : (
+            gs.db
+              .prepare(
+                'SELECT id FROM approach_planner_runs WHERE graph_run_id = ? ORDER BY id DESC',
+              )
+              .all(graphRunId) as { id: number }[]
+          ).map((r) => r.id);
+    for (const id of candidates) {
+      const diagnostics = readPlannerDiagnostics(deps, graphRunId, id);
+      if (diagnostics.length === 0) continue;
+      return [
+        'The compiler REJECTED the previous `graph.json` with these diagnostics.',
+        'Each line is `code: where: message` from the karst graph compiler — fix every one of them; do not resubmit the same document.',
+        '```',
+        ...diagnostics.slice(0, 50).map((d) => String(d).slice(0, 500)),
+        '```',
+      ].join('\n');
+    }
+    return undefined;
+  };
+
+  /** Refuse to launch a graph planner session with no resolved worktree —
+   *  cwd/repo `''` is not a recoverable state, it is an agent spawned nowhere.
+   *  Shared by all three planner-launch host bindings below: the durable
+   *  graph-run/planner-run state is left exactly as it was (still `blocked`/
+   *  `planning`/`draining`), so the next reconcile or sweep tick retries the
+   *  SAME launch once the worktree exists — no separate "worktree missing"
+   *  state is invented. */
+  const resolveGraphLaunchWorktree = (
+    graphRunId: number,
+    ticketId: number,
+  ): { path: string; repo: string } | undefined => {
+    const wt = listWorktreesByTicket(localStore, ticketId)[0];
+    if (!wt) {
+      logger.warn(
+        `karst: graph run ${graphRunId} (ticket #${ticketId}): refusing to launch a planner — no worktree resolved yet; will retry`,
+      );
+      return undefined;
+    }
+    return { path: wt.path, repo: wt.repo };
+  };
+
+  /** G2's host half: re-prompt the SAME bootstrap planner run for its next
+   *  compile attempt, carrying the compiler's diagnostics. No new planner run
+   *  is allocated (so no planner-run or expert-run budget is charged); the
+   *  driver already recorded the attempt and moved the planner run to the
+   *  `blocked` status a re-prompt claims from. */
+  const launchPlannerRepairHost = async (
+    graphRunId: number,
+    plannerRunId: number,
+    attempt: number,
+  ): Promise<void> => {
+    const gs = graphCoordinatorStore;
+    if (!gs) return;
+    const base = graphDriverDeps().promptBytesOf('karst-graph-planner');
+    const diagnostics = graphDiagnosticsSection(graphRunId, plannerRunId);
+    const prompt = [
+      base === undefined ? '# Graph Planner' : new TextDecoder().decode(base),
+      renderTicketContext(
+        buildTicketContext(
+          localStore,
+          currentManifest(),
+          graphRunTicketId(graphRunId),
+          context.globalStorageUri.fsPath,
+        ),
+      ),
+      diagnostics ?? 'The compiler rejected the previous `graph.json`.',
+      `This is compile attempt ${attempt + 1}: write a corrected \`graph.json\` and submit it again.`,
+      PLANNER_SUBMIT_INSTRUCTION,
+    ].join('\n\n');
+    const worktree = resolveGraphLaunchWorktree(graphRunId, graphRunTicketId(graphRunId));
+    if (!worktree) return;
+    const result = await launchReplanPlanner(graphDriverDeps(), {
+      graphRunId,
+      plannerRunId,
+      generation: '',
+      capability: '',
+      prompt,
+      cwd: worktree.path,
+      repo: worktree.repo,
+    }).catch((err) => {
+      logError(`karst: planner compile repair failed for run ${graphRunId}`, err);
+      return { kind: 'failed' as const, reason: 'planner session could not start' };
+    });
+    if (result.kind === 'launched') {
+      const identity: GraphLaunchIdentity = {
+        graphRunId,
+        ticketId: graphRunTicketId(graphRunId),
+        plannerRunId,
+        generation: result.generation,
+        capability: result.capability,
+        projectId: currentProject()?.id ?? 0,
+        artifactRoot: graphArtifactRoot(graphRunId),
+      };
+      attachPlannerCloseFallback(result.session, identity);
+      result.session.terminal?.show();
+      provider.refresh();
+      dashboard.pushState(graphRunTicketId(graphRunId));
+      logger.info(
+        `karst: graph run ${graphRunId} planner re-prompted with the compile diagnostics (attempt ${attempt + 1})`,
+      );
+    } else if (result.kind === 'failed') {
+      logError(
+        `karst: planner compile repair failed for run ${graphRunId}`,
+        new Error(result.reason),
+      );
+    }
+  };
+
   /** Launch the elected replan planner (Slice-4 T5): the election produced a
    *  launch request with the replan reasons as a file artifact; compose the
    *  prompt and start the session through the driver. */
@@ -4299,21 +4507,27 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const gs = graphCoordinatorStore;
     if (!gs) return;
     const base = graphDriverDeps().promptBytesOf('karst-graph-planner');
+    // G3: a replan elected from `graph-plan-invalid` used to re-run a planner
+    // that had never been told what was wrong — the diagnostics were written
+    // where nothing read them. They travel with the replan prompt now.
+    const diagnostics = graphDiagnosticsSection(launch.graphRunId);
     const prompt = [
       base === undefined ? '# Graph Replanner' : new TextDecoder().decode(base),
       launch.ticketContext,
       `Replan the graph (superseding revision ${launch.priorRevisionNumber}). The replan reasons and prior plan evidence are under the artifact root: ${launch.reasonsSnapshotPath}.`,
+      ...(diagnostics ? [diagnostics] : []),
       PLANNER_SUBMIT_INSTRUCTION,
     ].join('\n\n');
-    const wt = listWorktreesByTicket(localStore, graphRunTicketId(launch.graphRunId))[0];
+    const worktree = resolveGraphLaunchWorktree(launch.graphRunId, graphRunTicketId(launch.graphRunId));
+    if (!worktree) return;
     const result = await launchReplanPlanner(graphDriverDeps(), {
       graphRunId: launch.graphRunId,
       plannerRunId: launch.plannerRunId,
       generation: '',
       capability: '',
       prompt,
-      cwd: wt?.path ?? '',
-      repo: wt?.repo ?? '',
+      cwd: worktree.path,
+      repo: worktree.repo,
     }).catch((err) => {
       logError(`karst: replan planner launch failed for run ${launch.graphRunId}`, err);
       return { kind: 'failed' as const, reason: 'planner session could not start' };
@@ -4353,15 +4567,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       launch.ticketContext,
       PLANNER_SUBMIT_INSTRUCTION,
     ].join('\n\n');
-    const wt = listWorktreesByTicket(localStore, graphRunTicketId(launch.graphRunId))[0];
+    const worktree = resolveGraphLaunchWorktree(launch.graphRunId, graphRunTicketId(launch.graphRunId));
+    if (!worktree) return;
     const result = await launchReplanPlanner(graphDriverDeps(), {
       graphRunId: launch.graphRunId,
       plannerRunId: launch.plannerRunId,
       generation: '',
       capability: '',
       prompt,
-      cwd: wt?.path ?? '',
-      repo: wt?.repo ?? '',
+      cwd: worktree.path,
+      repo: worktree.repo,
     }).catch((err) => {
       logError(`karst: bootstrap relaunch failed for run ${launch.graphRunId}`, err);
       return { kind: 'failed' as const, reason: 'planner session could not start' };
@@ -4395,9 +4610,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // mutation is a durable conditional claim, so another window's live process
   // is left alone by attribution, never by this window's bookkeeping.
   //
-  // The reconcile deps are built ONCE here and shared by the activation pass
-  // below and the sweep's planning pass in `runPrSync` — one construction, so
-  // a field added to one can never drift from the other.
+  // The reconcile deps are built ONCE here and shared by every call of
+  // `reconcileGraphRuns` — the immediate `runGraphReconcileSweep()` at
+  // activation and its own `GRAPH_RECONCILE_INTERVAL_MS` timer — one
+  // construction, so a field added to one call site can never drift from
+  // another.
   const graphReconcileDeps = (): ReconcileGraphRunDeps => {
     const gs = graphCoordinatorStore!;
     return {
@@ -4418,6 +4635,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       },
       relaunchPlanner: (graphRunId) => void relaunchBootstrapPlannerHost(graphRunId),
       relaunchReplanPlanner: (graphRunId) => void relaunchReplanPlannerHost(graphRunId),
+      // G2/1: the sweep-driven half of the fire-once compile re-prompt — a
+      // planner run stuck `blocked` because the accept-path launch never
+      // happened or died in flight is re-prompted through the SAME host seam
+      // the live accept path uses. The single-flight claim is the
+      // `blocked → launching` CAS already inside `launchReplanPlanner`
+      // (`claimPlannerLaunch`), so a raced double-fire is safe by construction.
+      relaunchCompileRepair: (graphRunId, plannerRunId, attempt) =>
+        void launchPlannerRepairHost(graphRunId, plannerRunId, attempt),
     };
   };
 
@@ -4499,15 +4724,43 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   };
 
+  // A run belongs to a project, so a window with none resolved correctly
+  // skips the graph sweep and reconcile entirely (that skip is the very fix
+  // f3b648e made — driving another project's run is the bug). The SILENCE
+  // was not correct: this is the one funnel both the coordinator tick and
+  // the reconcile pass resolve their project through, so the transition into
+  // and out of "no project" logs exactly once each way, never once per tick.
+  let graphSweepIdleForProject = false;
+  const graphSweepProject = (): ReturnType<typeof currentProject> => {
+    const project = currentProject();
+    if (!project) {
+      if (!graphSweepIdleForProject) {
+        graphSweepIdleForProject = true;
+        logger.info('[graph] sweep idle — no project resolved for this window');
+      }
+      return undefined;
+    }
+    if (graphSweepIdleForProject) {
+      graphSweepIdleForProject = false;
+      logger.info(`[graph] sweep resumed — project ${project.id} resolved`);
+    }
+    return project;
+  };
+
+  // G1b: scoped to this window's project and to non-terminal statuses
+  // (`reconcilableGraphRunIds`) — the registry is shared by every IDE window
+  // (`docs/arch/store-and-schema.md`), so an unscoped listing here reconciles
+  // and drives continuation for other projects' runs too, including ones
+  // already `closed`. `draining` stays in the eligible set: it is the one
+  // status nothing else ever leaves (commit 2f7f741).
   const reconcileGraphRuns = async (): Promise<void> => {
     const gs = graphCoordinatorStore;
-    if (!gs) return;
+    const project = graphSweepProject();
+    if (!gs || !project) return;
     try {
-      const runs = gs.db
-        .prepare('SELECT id FROM approach_graph_runs ORDER BY id')
-        .all() as { id: number }[];
-      for (const run of runs) {
-        const result = await reconcileGraphRun(graphReconcileDeps(), { graphRunId: run.id });
+      const runIds = reconcilableGraphRunIds(gs.db, { projectId: project.id });
+      for (const graphRunId of runIds) {
+        const result = await reconcileGraphRun(graphReconcileDeps(), { graphRunId });
         if (
           result.transitions > 0 ||
           result.resumed.length > 0 ||
@@ -4515,7 +4768,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           result.cancelledTokens > 0
         ) {
           logger.info(
-            `[graph] reconcile: run ${run.id} → ${result.status}` +
+            `[graph] reconcile: run ${graphRunId} → ${result.status}` +
               ` (${result.transitions} transition${result.transitions === 1 ? '' : 's'}, ` +
               `${result.cancelledTokens} token${result.cancelledTokens === 1 ? '' : 's'} cancelled, ` +
               `resumed ${result.resumed.length}, reverted ${result.reverted.length})`,
@@ -4526,19 +4779,86 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // dashboard offers the typed graph-recovery Resume (the reconcile
         // wrapper is the one place a reconcile-created block is observed).
         if (result.status === 'blocked') {
-          settleGraphRun(gs.db, run.id);
+          settleGraphRun(gs.db, graphRunId);
         }
-        await driveGraphRunContinuation(run.id);
+        await driveGraphRunContinuation(graphRunId);
       }
     } catch (err) {
       logError('karst: graph reconcile sweep failed', err);
     }
   };
-  void reconcileGraphRuns();
-  // A reload re-attaches every graph session whose terminal survived it, so a
-  // ticket owned by a live run is never reported as "session not attached"
-  // until the first coordinator sweep (the promise the message makes).
-  void reattachGraphSessions();
+  // G4/INFO-6: the graph coordinator sweep is its OWN tick, independent of
+  // `runPrSync`'s GitHub calls — a throw from `syncPrStatuses` (offline, no
+  // auth, rate limit) must never starve the graph of the one path that
+  // brings a stalled run back (a wake-up hit a dead port, a session died
+  // between activations). Its own re-entrancy guard drops a tick that lands
+  // while a slow sweep is still going; its try/catch means one failure only
+  // delays the next tick, never the graph's own liveness promise.
+  //
+  // The cheap half (re-attach + claim/token bookkeeping, no OS process
+  // probes) runs every GRAPH_SWEEP_INTERVAL_MS. The reconcile pass — async OS
+  // process-liveness probes per run — is materially more expensive and rides
+  // its own, slower GRAPH_RECONCILE_INTERVAL_MS (60s, the rate both shared
+  // before this split), plus once at activation (below). A completion
+  // committed to the database is still always eventually scheduled: the
+  // reconcile pass is what recovers a DEAD session, and the coordinator tick
+  // is what drives a run whose session is alive and already progressing —
+  // neither guarantee depends on the other's cadence.
+  let graphSweepRunning = false;
+  const runGraphSweep = async (): Promise<void> => {
+    const gs = graphCoordinatorStore;
+    if (!gs) return;
+    if (graphSweepRunning) return;
+    graphSweepRunning = true;
+    try {
+      // Re-attach sessions a terminal revival delivered after the last sweep
+      // (the "coordinator re-attaches it on the next sweep" promise), then
+      // tick the runs whose continuation the coordinator owns.
+      await reattachGraphSessions();
+      const project = graphSweepProject();
+      if (project) {
+        let graphRuns: number[] = [];
+        try {
+          graphRuns = activeGraphRunIds(gs.db, { projectId: project.id });
+        } catch (e) {
+          logError('karst: graph run listing failed', e);
+        }
+        for (const graphRunId of graphRuns) {
+          void runGraphCoordinatorTick(graphRunId);
+        }
+      }
+    } catch (err) {
+      logError('karst: graph coordinator sweep failed', err);
+    } finally {
+      graphSweepRunning = false;
+    }
+  };
+
+  let graphReconcileRunning = false;
+  const runGraphReconcileSweep = async (): Promise<void> => {
+    const gs = graphCoordinatorStore;
+    if (!gs) return;
+    if (graphReconcileRunning) return;
+    graphReconcileRunning = true;
+    try {
+      // A run whose session DIED — not a revived terminal, which the
+      // coordinator sweep's re-attach handles — is recovered by the
+      // reconcile crash matrix, so a death mid-run is brought back here, not
+      // only at the next activation.
+      await reconcileGraphRuns();
+    } catch (err) {
+      logError('karst: graph reconcile sweep failed', err);
+    } finally {
+      graphReconcileRunning = false;
+    }
+  };
+
+  void runGraphSweep();
+  void runGraphReconcileSweep();
+  const graphSweepTimer = setInterval(() => void runGraphSweep(), GRAPH_SWEEP_INTERVAL_MS);
+  const graphReconcileTimer = setInterval(() => void runGraphReconcileSweep(), GRAPH_RECONCILE_INTERVAL_MS);
+  context.subscriptions.push({ dispose: () => clearInterval(graphSweepTimer) });
+  context.subscriptions.push({ dispose: () => clearInterval(graphReconcileTimer) });
 
   // The Inside Stop binding (Slice 3 Task 11): terminates every live session
   // of the ticket's active graph through the supervised transport, then moves
@@ -4761,40 +5081,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // Bookkeeping over state that is already stored: the next tick retries.
         logError('karst: merge gate settle failed', e);
       }
-      // Graph coordinator sweep (Slice 3 Task 2). Rides this tick exactly
-      // like settleShipGates: a completion that committed to the database is
-      // always eventually scheduled, even when its wake-up hit a dead port.
-      // The tick is bounded (≤ 100 transitions), reads canonical state fresh,
-      // and a failure only delays the next tick — never depends on a callback.
-      if (graphCoordinatorStore) {
-        // Re-attach sessions a terminal revival delivered after the last sweep
-        // (the "coordinator re-attaches it on the next sweep" promise), then
-        // tick the runs whose continuation the coordinator owns.
-        await reattachGraphSessions();
-        // A run whose session DIED — not a revived terminal, which the
-        // re-attach above just re-registered — is recovered by the reconcile
-        // crash matrix on this same sweep, so a death mid-run is brought back
-        // on the next tick, not only at the next activation. This walks EVERY
-        // run, not just the `planning` ones: a node whose process died leaves
-        // its run `running` with the node `running` forever, because nothing
-        // else observes a dead node between activations (the reported defect —
-        // the graph sat `running` on a node whose terminal had closed). It is
-        // the SAME wrapper the activation pass calls, so the reconcile-created
-        // block still reaches `settleGraphRun` and the dashboard offers the
-        // typed graph-recovery Resume. Order matters: reconcile runs AFTER
-        // re-attach (awaited), so a just-revived live session is re-attached,
-        // never judged dead.
-        await reconcileGraphRuns();
-        let graphRuns: number[] = [];
-        try {
-          graphRuns = activeGraphRunIds(graphCoordinatorStore.db);
-        } catch (e) {
-          logError('karst: graph run listing failed', e);
-        }
-        for (const graphRunId of graphRuns) {
-          void runGraphCoordinatorTick(graphRunId);
-        }
-      }
+      // The graph coordinator sweep (G4) is no longer part of `runPrSync` —
+      // it has its own tick (`runGraphSweep`, `GRAPH_SWEEP_INTERVAL_MS`)
+      // that does not depend on the gh/git calls above succeeding.
       // Done tickets are archived on a DELAY (manifest `archiveDoneAfterDays`,
       // default 3 days), never when they reach done — and a ticket can sit at
       // done for any duration, so this is a sweep, not a transition hook. It

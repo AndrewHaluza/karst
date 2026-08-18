@@ -39,12 +39,36 @@ The document is versioned JSON with exactly these top-level fields:
 Unknown top-level fields, unknown node fields, unknown artifact fields, and
 unknown edge fields are **rejected**, never ignored.
 
+`entries` is the list of node ids the graph starts from — real node ids only,
+each one an id a `nodes[]` entry actually declares. `$entry` is **not** a
+value you write in `entries`; it is the compiler's own synthetic start node,
+implied by `entries` and never spelled out by you except in the one field
+below that names it explicitly.
+
 ### Identifiers
 
-Node ids, artifact ids, edge ids, profile names, repository names, and command
-ids use a bounded safe identifier grammar: ASCII letters, digits, `-`, `_`,
-`.`; no spaces, no slashes, no `..`. `$planner` and `$entry` are reserved
-sentinels and may not be used as node ids.
+Node ids, artifact ids, edge ids, profile names, repository names, command
+ids, `entries[]` entries, and every id an edge or a join names (`edges[].id`,
+`edges[].from`, `edges[].to` when it is not `"END"`, `join.waitFor[]`) use a
+bounded safe identifier grammar: lowercase ASCII letters, digits, and `-`,
+starting with a letter, up to 64 characters. `$planner` and `$entry` are
+reserved sentinels and are rejected wherever this identifier grammar is
+checked — including `entries[]`, node ids, `edges[].from`/`edges[].to`, and
+`join.waitFor[]`.
+
+Two fields are the sole, narrow exceptions, each accepting its sentinel
+literally instead of running the identifier check:
+
+- `artifacts[].producer` — `"$planner"` or a node id. Nowhere else may
+  `$planner` appear.
+- `nodes[].forkFrom` (join nodes only) — `"$entry"` or a node id. Nowhere
+  else may `$entry` appear — not in `entries`, not as an edge endpoint, not
+  as `waitFor`.
+
+Repository names, profile names, and command ids are never invented: use only
+the repositories, profiles, and commands the ticket context lists for this
+project. A name that is not in that project's set is rejected even if it is a
+syntactically valid identifier.
 
 ### Artifacts
 
@@ -217,6 +241,66 @@ budget, or the graph is rejected.
 - A join cannot be inside its own loop in a way that makes pairing undecidable.
 - Conditional partial joins are not supported — replan into explicit gates
   rather than a join that may wait forever.
+
+### Minimal complete example
+
+A smallest legal `graph.json` — one entry, one agent node, one edge to END.
+Substitute real repository and profile names from the ticket context for
+`"app"` and `"worker"`; everything else is shape:
+
+```json
+{
+  "version": 1,
+  "title": "Implement the fix",
+  "rationaleArtifact": "plan-rationale",
+  "entries": ["implement"],
+  "artifacts": [
+    {
+      "id": "plan-rationale",
+      "path": "artifacts/plan/PLAN.md",
+      "producer": "$planner",
+      "consumers": ["implement"],
+      "mediaType": "text/markdown",
+      "maxBytes": 262144,
+      "required": true
+    },
+    {
+      "id": "task-brief",
+      "path": "artifacts/tasks/implement.md",
+      "producer": "$planner",
+      "consumers": ["implement"],
+      "mediaType": "text/markdown",
+      "maxBytes": 65536,
+      "required": true
+    }
+  ],
+  "nodes": [
+    {
+      "id": "implement",
+      "kind": "agent",
+      "label": "Implement the change",
+      "profile": "worker",
+      "instructionsArtifact": "task-brief",
+      "inputs": ["plan-rationale", "task-brief"],
+      "outputs": [],
+      "resources": {
+        "reads": [{ "repo": "app", "paths": ["src"] }],
+        "writes": [{ "repo": "app", "paths": ["src"] }]
+      },
+      "outcomes": ["complete", "blocked", "replan"],
+      "budget": { "maxVisits": 1 }
+    }
+  ],
+  "edges": [
+    { "id": "implement-complete", "from": "implement", "on": "complete", "to": "END" }
+  ],
+  "budgets": { "maxNodeRuns": 5, "maxExpertRuns": 1, "maxReplans": 1 }
+}
+```
+
+`entries` names the real node id `"implement"` — never `"$entry"`. Both
+artifacts are `$planner`-produced, so their files (`PLAN.md`, the task brief)
+must exist on disk before you emit this document.
 
 ## Process
 

@@ -19,8 +19,11 @@ import {
 import {
   readCoreUsage,
   readGateRuns,
+  readGraphRuns,
   readMergeChecks,
+  readNodeRuns,
   readPhaseMarks,
+  readPlannerRuns,
   readPullRequests,
   readServers,
   readStages,
@@ -260,6 +263,8 @@ export async function collectMetadata(input: MetadataSources): Promise<Diagnosti
   }
 
   await yieldToHost(input.isCancelled)
+  metadata.graph = collectGraph(input, safe)
+  await yieldToHost(input.isCancelled)
   metadata.topology = collectTopology(input, safe, repositories)
   await yieldToHost(input.isCancelled)
   metadata.pullRequest = collectPullRequests(input, safe, repositories)
@@ -317,6 +322,74 @@ export async function collectProjectMetadata(
       'raw paths, commands, URLs, host addresses and unrelated project data',
     ],
     redactions,
+  }
+}
+
+/**
+ * The graph subsystem that owns the ticket's `impl` stage (G6,
+ * `docs/arch/graph-run-reliability.md`). Read-only, ticket-scoped: graph runs,
+ * their planner runs and node runs, and each run's active revision — number
+ * and fingerprint only, NEVER the canonical graph document. `blockedReason`
+ * and a planner's `reason` are diagnostic prose that may embed a path or a
+ * repository name, so both pass through the same `safe()` sanitize pipeline
+ * every other free-text field in this module uses, not a hand-rolled filter.
+ */
+function collectGraph(
+  input: MetadataSources,
+  safe: (value: string | null) => string | null,
+): DiagnosticSection {
+  try {
+    const cap = DIAGNOSTIC_LIMITS.maxRowsPerSection
+    const runs = readGraphRuns(input.store, input.ticketId, cap)
+    const plannerRuns = readPlannerRuns(input.store, input.ticketId, cap)
+    const nodeRuns = readNodeRuns(input.store, input.ticketId, cap)
+    const omitted = runs.omitted + plannerRuns.omitted + nodeRuns.omitted
+    const data = {
+      runs: runs.rows.map((row) => ({
+        id: row.id,
+        approachId: safe(row.approachId),
+        status: row.status,
+        blockedReason: safe(row.blockedReason),
+        plannerRunCount: row.plannerRunCount,
+        expertRunCount: row.expertRunCount,
+        nodeRunCount: row.nodeRunCount,
+        replanCount: row.replanCount,
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+        completedAt: row.completedAt,
+        workspaceBytes: row.workspaceBytes,
+        activeProcesses: row.activeProcesses,
+        activeRevision: row.activeRevision
+          ? { number: row.activeRevision.number, fingerprint: safe(row.activeRevision.fingerprint) }
+          : null,
+      })),
+      plannerRuns: plannerRuns.rows.map((row) => ({
+        id: row.id,
+        graphRunId: row.graphRunId,
+        kind: row.kind,
+        status: row.status,
+        profile: safe(row.profile),
+        compileAttempt: row.compileAttempt,
+        launchAttempt: row.launchAttempt,
+        reason: safe(row.reason),
+        startedAt: row.startedAt,
+        submittedAt: row.submittedAt,
+        endedAt: row.endedAt,
+      })),
+      nodeRuns: nodeRuns.rows.map((row) => ({
+        id: row.id,
+        graphRunId: row.graphRunId,
+        nodeId: safe(row.nodeId),
+        status: row.status,
+        outcome: safe(row.outcome),
+        reason: safe(row.reason),
+      })),
+    }
+    return omitted > 0
+      ? { status: 'truncated', data: json(data), omitted, reason: 'rows' }
+      : available(data)
+  } catch {
+    return { status: 'unavailable', reason: 'reader_failed' }
   }
 }
 

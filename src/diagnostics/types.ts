@@ -22,6 +22,7 @@ export type DiagnosticSectionName =
   | 'stages'
   | 'gateRuns'
   | 'phaseMarks'
+  | 'graph'
   | 'cores'
   | 'topology'
   | 'pullRequest'

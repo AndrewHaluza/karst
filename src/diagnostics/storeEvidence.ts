@@ -305,6 +305,191 @@ export function readMergeChecks(
   }
 }
 
+export interface GraphRunRevisionEvidence {
+  readonly number: number
+  readonly fingerprint: string
+}
+
+export interface GraphRunEvidence {
+  readonly id: number
+  readonly approachId: string
+  readonly status: string
+  readonly blockedReason: string | null
+  readonly plannerRunCount: number
+  readonly expertRunCount: number
+  readonly nodeRunCount: number
+  readonly replanCount: number
+  readonly createdAt: string
+  readonly updatedAt: string | null
+  readonly completedAt: string | null
+  readonly workspaceBytes: number
+  readonly activeProcesses: number
+  readonly activeRevision: GraphRunRevisionEvidence | null
+}
+
+export interface PlannerRunEvidence {
+  readonly id: number
+  readonly graphRunId: number
+  readonly kind: string
+  readonly status: string
+  readonly profile: string | null
+  readonly compileAttempt: number
+  readonly launchAttempt: number
+  readonly reason: string | null
+  readonly startedAt: string | null
+  readonly submittedAt: string | null
+  readonly endedAt: string | null
+}
+
+export interface NodeRunEvidence {
+  readonly id: number
+  readonly graphRunId: number
+  readonly nodeId: string
+  readonly status: string
+  readonly outcome: string | null
+  readonly reason: string | null
+}
+
+/**
+ * Graph runs owned by a ticket's `impl` stage, with the active revision's
+ * number and fingerprint attached — never the canonical graph document itself
+ * (G6, `docs/arch/graph-run-reliability.md`). Read-only, ticket-scoped, same
+ * bounded-row shape as every other evidence reader in this module.
+ */
+export function readGraphRuns(store: Store, ticketId: number, cap: number): BoundedRows<GraphRunEvidence> {
+  const limit = checkedCap(cap)
+  const rows = store.db.prepare(
+    `SELECT r.id, r.approach_id, r.status, r.blocked_reason,
+            r.planner_run_count, r.expert_run_count, r.node_run_count, r.replan_count,
+            r.created_at, r.updated_at, r.completed_at, r.workspace_bytes, r.active_processes,
+            rev.revision_number AS active_revision_number, rev.fingerprint AS active_revision_fingerprint,
+            COUNT(*) OVER() AS total_count
+       FROM approach_graph_runs r
+       LEFT JOIN approach_graph_revisions rev
+         ON rev.graph_run_id = r.id AND rev.status = 'active'
+      WHERE r.ticket_id = ?
+      ORDER BY r.id DESC
+      LIMIT ?`,
+  ).all(ticketId, limit + 1) as Array<{
+    id: number
+    approach_id: string
+    status: string
+    blocked_reason: string | null
+    planner_run_count: number
+    expert_run_count: number
+    node_run_count: number
+    replan_count: number
+    created_at: string
+    updated_at: string | null
+    completed_at: string | null
+    workspace_bytes: number
+    active_processes: number
+    active_revision_number: number | null
+    active_revision_fingerprint: string | null
+    total_count: number
+  }>
+  const result = bounded(rows, limit, rows[0]?.total_count ?? 0)
+  return {
+    ...result,
+    rows: result.rows.map((row) => ({
+      id: row.id,
+      approachId: row.approach_id,
+      status: row.status,
+      blockedReason: row.blocked_reason,
+      plannerRunCount: row.planner_run_count,
+      expertRunCount: row.expert_run_count,
+      nodeRunCount: row.node_run_count,
+      replanCount: row.replan_count,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      completedAt: row.completed_at,
+      workspaceBytes: row.workspace_bytes,
+      activeProcesses: row.active_processes,
+      activeRevision: row.active_revision_number !== null && row.active_revision_fingerprint !== null
+        ? { number: row.active_revision_number, fingerprint: row.active_revision_fingerprint }
+        : null,
+    })),
+  }
+}
+
+export function readPlannerRuns(store: Store, ticketId: number, cap: number): BoundedRows<PlannerRunEvidence> {
+  const limit = checkedCap(cap)
+  const rows = store.db.prepare(
+    `SELECT p.id, p.graph_run_id, p.kind, p.status, p.profile,
+            p.compile_attempt, p.launch_attempt, p.reason,
+            p.started_at, p.submitted_at, p.ended_at,
+            COUNT(*) OVER() AS total_count
+       FROM approach_planner_runs p
+       JOIN approach_graph_runs r ON r.id = p.graph_run_id
+      WHERE r.ticket_id = ?
+      ORDER BY p.id DESC
+      LIMIT ?`,
+  ).all(ticketId, limit + 1) as Array<{
+    id: number
+    graph_run_id: number
+    kind: string
+    status: string
+    profile: string | null
+    compile_attempt: number
+    launch_attempt: number
+    reason: string | null
+    started_at: string | null
+    submitted_at: string | null
+    ended_at: string | null
+    total_count: number
+  }>
+  const result = bounded(rows, limit, rows[0]?.total_count ?? 0)
+  return {
+    ...result,
+    rows: result.rows.map((row) => ({
+      id: row.id,
+      graphRunId: row.graph_run_id,
+      kind: row.kind,
+      status: row.status,
+      profile: row.profile,
+      compileAttempt: row.compile_attempt,
+      launchAttempt: row.launch_attempt,
+      reason: row.reason,
+      startedAt: row.started_at,
+      submittedAt: row.submitted_at,
+      endedAt: row.ended_at,
+    })),
+  }
+}
+
+export function readNodeRuns(store: Store, ticketId: number, cap: number): BoundedRows<NodeRunEvidence> {
+  const limit = checkedCap(cap)
+  const rows = store.db.prepare(
+    `SELECT n.id, n.graph_run_id, n.node_id, n.status, n.outcome, n.reason,
+            COUNT(*) OVER() AS total_count
+       FROM approach_node_runs n
+       JOIN approach_graph_runs r ON r.id = n.graph_run_id
+      WHERE r.ticket_id = ?
+      ORDER BY n.id DESC
+      LIMIT ?`,
+  ).all(ticketId, limit + 1) as Array<{
+    id: number
+    graph_run_id: number
+    node_id: string
+    status: string
+    outcome: string | null
+    reason: string | null
+    total_count: number
+  }>
+  const result = bounded(rows, limit, rows[0]?.total_count ?? 0)
+  return {
+    ...result,
+    rows: result.rows.map((row) => ({
+      id: row.id,
+      graphRunId: row.graph_run_id,
+      nodeId: row.node_id,
+      status: row.status,
+      outcome: row.outcome,
+      reason: row.reason,
+    })),
+  }
+}
+
 export interface CoreUsageTokens {
   input: number
   output: number

@@ -503,10 +503,30 @@ export function runCoordinatorTick(
   return result;
 }
 
-/** All graph runs currently eligible for scheduling. */
-export function activeGraphRunIds(db: GraphDb): number[] {
+/**
+ * All graph runs currently eligible for scheduling, scoped to one project
+ * (G1a). `approach_graph_runs` has no `project_id` column of its own; the
+ * registry DB is shared by every IDE window (`docs/arch/store-and-schema.md`),
+ * so an unscoped read here ticks every OTHER project's runs too — a window
+ * on project B would then claim activations for project A's graph, and the
+ * compile that follows judges A's plan against B's manifest. Scope joins
+ * through `ticket_id → tickets.project_id`, the same pattern every other
+ * project-scoped store read uses (see `store/tokenUsage.ts`).
+ *
+ * `store/projects.ts`'s adoption pass backfills every ticket's `project_id`
+ * on first project creation, so a live window's `projectId` is never matched
+ * against a `NULL` row in practice; scope is required — there is no
+ * unscoped caller left after G1a.
+ */
+export function activeGraphRunIds(db: GraphDb, scope: { projectId: number }): number[] {
   const rows = db
-    .prepare("SELECT id FROM approach_graph_runs WHERE status = 'running' ORDER BY id")
-    .all() as { id: number }[];
+    .prepare(
+      `SELECT r.id AS id
+         FROM approach_graph_runs r
+         JOIN tickets t ON t.id = r.ticket_id
+        WHERE r.status = 'running' AND t.project_id = ?
+        ORDER BY r.id`,
+    )
+    .all(scope.projectId) as { id: number }[];
   return rows.map((r) => r.id);
 }

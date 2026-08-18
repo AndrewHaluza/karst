@@ -89,6 +89,7 @@ function harness(): Ctx {
     resumePipeline: () => {},
     relaunchPlanner: () => {},
     relaunchReplanPlanner: () => {},
+    relaunchCompileRepair: () => {},
   };
   return {
     store,
@@ -612,6 +613,80 @@ describe('reconcileGraphRun — reload and crash matrix', () => {
       expect(plannerRow(ctx, 208).status).toBe('stale');
       expect(insideTransaction).toBe(false);
       expect(result.transitions).toBe(1);
+    });
+  });
+
+  describe('a planning run whose bootstrap planner is BLOCKED awaiting its compile re-prompt', () => {
+    it('a blocked planner with attempts remaining and no live process is handed to the compile-repair relaunch', async () => {
+      toPlanning(ctx);
+      insertPlannerRun(ctx, 220, 'blocked');
+      ctx.db.prepare('UPDATE approach_planner_runs SET compile_attempt = 1 WHERE id = ?').run(220);
+      const relaunched: { graphRunId: number; plannerRunId: number; attempt: number }[] = [];
+      const deps = ctx.makeDeps({
+        relaunchCompileRepair: (graphRunId, plannerRunId, attempt) =>
+          relaunched.push({ graphRunId, plannerRunId, attempt }),
+      });
+      const result = await reconcileGraphRun(deps, { graphRunId: ctx.graphRunId });
+      expect(relaunched).toEqual([{ graphRunId: ctx.graphRunId, plannerRunId: 220, attempt: 1 }]);
+      expect(plannerRow(ctx, 220).status).toBe('blocked');
+      expect(runRow(ctx).status).toBe('planning');
+      expect(result.transitions).toBe(0);
+    });
+
+    it('a blocked planner already exhausted (compile_attempt >= MAX) is never re-prompted', async () => {
+      toPlanning(ctx);
+      insertPlannerRun(ctx, 221, 'blocked');
+      ctx.db.prepare('UPDATE approach_planner_runs SET compile_attempt = 3 WHERE id = ?').run(221);
+      const deps = ctx.makeDeps({
+        relaunchCompileRepair: () => {
+          throw new Error('must not relaunch an exhausted planner');
+        },
+      });
+      const result = await reconcileGraphRun(deps, { graphRunId: ctx.graphRunId });
+      expect(plannerRow(ctx, 221).status).toBe('blocked');
+      expect(result.transitions).toBe(0);
+    });
+
+    it('a blocked planner whose window still holds a live session is left alone', async () => {
+      toPlanning(ctx);
+      insertPlannerRun(ctx, 222, 'blocked');
+      const deps = ctx.makeDeps({
+        sessionFor: (id) => (id === 222 ? { pid: 1234 } : undefined),
+        relaunchCompileRepair: () => {
+          throw new Error('must not relaunch while this window owns a live session');
+        },
+      });
+      const result = await reconcileGraphRun(deps, { graphRunId: ctx.graphRunId });
+      expect(plannerRow(ctx, 222).status).toBe('blocked');
+      expect(result.transitions).toBe(0);
+    });
+
+    it('a blocked planner with a live attributable process (another window mid-relaunch) is left alone', async () => {
+      toPlanning(ctx);
+      insertPlannerRun(ctx, 223, 'blocked');
+      linkPlannerProcess(ctx, 223, 223, 9090, NOW);
+      const deps = ctx.makeDeps({
+        facts: makeFacts({ alive: { 9090: true }, startMs: { 9090: Date.parse(NOW) } }),
+        relaunchCompileRepair: () => {
+          throw new Error('must not relaunch over a live attributable process');
+        },
+      });
+      const result = await reconcileGraphRun(deps, { graphRunId: ctx.graphRunId });
+      expect(plannerRow(ctx, 223).status).toBe('blocked');
+      expect(result.transitions).toBe(0);
+    });
+
+    it('a blocked replan planner is never judged by the compile-repair path (replan is not fire-once)', async () => {
+      toDraining(ctx);
+      insertPlannerRun(ctx, 224, 'blocked', { kind: 'replan' });
+      const deps = ctx.makeDeps({
+        relaunchCompileRepair: () => {
+          throw new Error('must not relaunch a replan planner via compile-repair');
+        },
+      });
+      const result = await reconcileGraphRun(deps, { graphRunId: ctx.graphRunId });
+      expect(plannerRow(ctx, 224).status).toBe('blocked');
+      expect(result.transitions).toBe(0);
     });
   });
 

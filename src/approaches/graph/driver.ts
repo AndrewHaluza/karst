@@ -54,6 +54,11 @@ import {
   type CompileResult,
 } from './compile.js';
 import { submitReplanDocument } from './coordinator/replan.js';
+import {
+  MAX_COMPILE_ATTEMPTS,
+  nextCompileAttempt,
+  recordCompileAttempt,
+} from './coordinator/repair.js';
 import { completeActivation } from './coordinator/completion.js';
 import { runJoinNode } from './executors/join.js';
 import { evaluateGate, gateStateFromStore } from './executors/gate.js';
@@ -132,6 +137,14 @@ export interface GraphDriverDeps {
    *  document is supplied so `artifactFileExists` can map artifact ids to
    *  their declared staging paths under the artifact root. */
   compileContextOf: (graphRunId: number, document?: GraphDocument) => CompileContext;
+  /** Whether the host's manifest is RESOLVED well enough for the compile
+   *  context above to judge a plan. A plan must never be judged against an
+   *  unresolved manifest: an empty repository map turns every valid repository
+   *  claim into `unknown-repository` and blocks the run permanently. Absent →
+   *  the host makes no claim and the plan is judged (the pre-G1b behaviour). */
+  manifestResolvedFor?: (
+    graphRunId: number,
+  ) => { resolved: true } | { resolved: false; reason: string };
   /** The physical domain keys a replan-submitting document's node claims
    *  (the lease-deferral check); absent → replan submissions are refused
    *  rather than guessed. */
@@ -226,7 +239,14 @@ function claimPlannerLaunch(
         identity.ownerNonce,
         plannerRunId,
       );
-    return transitionPlannerRun(deps.db, plannerRunId, 'ready', 'launching');
+    // `ready` is the ordinary claim; `blocked` is the compile-repair re-prompt
+    // of the SAME planner run (its submitted document was rejected and an
+    // attempt remains). Both are declared edges of PLANNER_RUN_TRANSITIONS.
+    const row = deps.db
+      .prepare('SELECT status FROM approach_planner_runs WHERE id = ?')
+      .get(plannerRunId) as { status: string } | undefined;
+    const from = row?.status === 'blocked' ? 'blocked' : 'ready';
+    return transitionPlannerRun(deps.db, plannerRunId, from, 'launching');
   });
 }
 
@@ -508,6 +528,19 @@ export async function relaunchBootstrapPlanner(
 export type AcceptPlanResult =
   | { kind: 'accepted'; revisionId: number; revisionNumber: number }
   | { kind: 'no-op' }
+  /** There IS a submitted plan, but nothing here can judge it yet (the host's
+   *  manifest is unresolved). The run stays `planning` and the next tick tries
+   *  again — never a rejection, never a block. */
+  | { kind: 'undecidable'; reason: string }
+  /** The document was rejected and the planner run has a compile attempt left:
+   *  the SAME planner run must be re-prompted with these diagnostics. The run
+   *  stays `planning`; the host fulfils the re-prompt on the next tick. */
+  | {
+      kind: 'repair-requested';
+      plannerRunId: number;
+      attempt: number;
+      diagnostics: string[];
+    }
   | { kind: 'rejected'; diagnostics: string[] };
 
 /**
@@ -555,16 +588,26 @@ export function acceptSubmittedPlan(deps: GraphDriverDeps, graphRunId: number): 
     | undefined;
   if (!planner || !planner.graph_snapshot_id) return { kind: 'no-op' };
 
+  // G1b: a plan is never judged against an unresolved manifest. The run stays
+  // `planning` and the next tick judges it against a manifest that resolved.
+  const resolution = deps.manifestResolvedFor?.(graphRunId) ?? { resolved: true as const };
+  if (!resolution.resolved) {
+    deps.debug?.(
+      `[graph] run ${graphRunId}: bootstrap plan not judged — ${resolution.reason}; left planning for the next tick`,
+    );
+    return { kind: 'undecidable', reason: resolution.reason };
+  }
+
   const snapshotPath = join('snapshots', `${planner.graph_snapshot_id}.json`);
   const bytes = deps.readBytes(graphRunId, snapshotPath);
   if (bytes === undefined) {
-    return blockInvalidPlan(deps, graphRunId, planner.id, [
+    return rejectPlan(deps, graphRunId, planner.id, [
       'planner-no-output: submitted snapshot is unreadable',
     ]);
   }
   const parsed = parseGraphDocument(new TextDecoder().decode(bytes));
   if (!parsed.ok) {
-    return blockInvalidPlan(
+    return rejectPlan(
       deps,
       graphRunId,
       planner.id,
@@ -573,7 +616,7 @@ export function acceptSubmittedPlan(deps: GraphDriverDeps, graphRunId: number): 
   }
   const compiled = compileGraphDocument(parsed.document, deps.compileContextOf(graphRunId, parsed.document));
   if (!compiled.ok) {
-    return blockInvalidPlan(
+    return rejectPlan(
       deps,
       graphRunId,
       planner.id,
@@ -745,6 +788,96 @@ function recordPlannerArtifacts(
   }
 }
 
+/** The one place the compile diagnostics are persisted: `diagnostics/planner-
+ *  <id>.json` under the run's artifact root, where the repair re-prompt and
+ *  the replan launch both read them back. */
+function writeDiagnosticsFile(
+  deps: GraphDriverDeps,
+  graphRunId: number,
+  plannerRunId: number,
+  diagnostics: string[],
+): void {
+  try {
+    deps.writeSnapshot(
+      graphRunId,
+      diagnosticsPathFor(plannerRunId),
+      new TextEncoder().encode(JSON.stringify(diagnostics, null, 2)),
+    );
+  } catch (err) {
+    deps.debug?.(`[graph] run ${graphRunId}: diagnostics write failed (${String(err)})`);
+  }
+}
+
+/** The artifact-root-relative path of a planner run's compile diagnostics. */
+export function diagnosticsPathFor(plannerRunId: number): string {
+  return `diagnostics/planner-${plannerRunId}.json`;
+}
+
+/** Read a planner run's persisted compile diagnostics back (host-agnostic:
+ *  through the injected `readBytes`), so the re-prompt can quote exactly what
+ *  the compiler rejected. */
+export function readPlannerDiagnostics(
+  deps: Pick<GraphDriverDeps, 'readBytes'>,
+  graphRunId: number,
+  plannerRunId: number,
+): string[] {
+  const bytes = deps.readBytes(graphRunId, diagnosticsPathFor(plannerRunId));
+  if (bytes === undefined) return [];
+  try {
+    const parsed = JSON.parse(new TextDecoder().decode(bytes)) as unknown;
+    return Array.isArray(parsed) ? parsed.map((d) => String(d)) : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * G2: a rejected document is not terminal on attempt one. The planner run's
+ * durable `compile_attempt` counter (the SAME counter `compileWithRepair`
+ * keeps) decides: with an attempt left the diagnostics are persisted, the
+ * attempt is recorded, the planner run moves `submitted → blocked` — the one
+ * status it can be re-prompted from — and the run STAYS `planning` while the
+ * host fulfils the re-prompt on the next tick. Only an exhausted run blocks
+ * with `graph-plan-invalid`.
+ */
+function rejectPlan(
+  deps: GraphDriverDeps,
+  graphRunId: number,
+  plannerRunId: number,
+  diagnostics: string[],
+): AcceptPlanResult {
+  const decision = nextCompileAttempt(deps.db, plannerRunId);
+  if (decision.exhausted) {
+    return blockInvalidPlan(deps, graphRunId, plannerRunId, diagnostics, decision.attempt);
+  }
+  const reprompted = deps.transaction(() => {
+    // The CAS is attempted FIRST: a lost race (another window already moved
+    // this planner run) must not burn an attempt from the budget. Returning
+    // `false` from a `deps.transaction` callback does NOT roll back the
+    // transaction — only a throw does — so the attempt was recorded even on
+    // a lost race when this ran in the other order.
+    if (!transitionPlannerRun(deps.db, plannerRunId, 'submitted', 'blocked')) return false;
+    recordCompileAttempt(deps, plannerRunId, decision.attempt);
+    deps.db
+      .prepare('UPDATE approach_planner_runs SET reason = ? WHERE id = ?')
+      .run(`graph-plan-invalid: ${(diagnostics[0] ?? 'invalid document').slice(0, 2000)}`, plannerRunId);
+    return true;
+  });
+  if (!reprompted) {
+    // The planner run moved under us (another window is already repairing it)
+    // — nothing destructive to do; the run stays `planning`.
+    deps.debug?.(
+      `[graph] run ${graphRunId}: compile repair for planner ${plannerRunId} lost the submitted→blocked CAS — another window owns it`,
+    );
+    return { kind: 'undecidable', reason: 'planner run already moved' };
+  }
+  writeDiagnosticsFile(deps, graphRunId, plannerRunId, diagnostics);
+  deps.debug?.(
+    `[graph] run ${graphRunId}: bootstrap plan rejected on compile attempt ${decision.attempt}/${MAX_COMPILE_ATTEMPTS} — re-prompting planner ${plannerRunId} with ${diagnostics.length} diagnostic(s)`,
+  );
+  return { kind: 'repair-requested', plannerRunId, attempt: decision.attempt, diagnostics };
+}
+
 /** Park a planning run whose plan was rejected: `planning → blocked` with the
  *  compile diagnostics written beside the snapshot (the graph-aware Resume
  *  reads the reason and elects a replan). */
@@ -753,9 +886,11 @@ function blockInvalidPlan(
   graphRunId: number,
   plannerRunId: number,
   diagnostics: string[],
+  attempt?: number,
 ): AcceptPlanResult {
   const reason = `graph-plan-invalid: ${diagnostics[0] ?? 'planner produced an invalid document'}`;
   const blocked = deps.transaction(() => {
+    if (attempt !== undefined) recordCompileAttempt(deps, plannerRunId, attempt);
     deps.db
       .prepare('UPDATE approach_planner_runs SET reason = ?, ended_at = ? WHERE id = ?')
       .run(reason.slice(0, 2000), deps.now(), plannerRunId);
@@ -768,15 +903,7 @@ function blockInvalidPlan(
     return true;
   });
   if (blocked) {
-    try {
-      deps.writeSnapshot(
-        graphRunId,
-        `diagnostics/planner-${plannerRunId}.json`,
-        new TextEncoder().encode(JSON.stringify(diagnostics, null, 2)),
-      );
-    } catch (err) {
-      deps.debug?.(`[graph] run ${graphRunId}: diagnostics write failed (${String(err)})`);
-    }
+    writeDiagnosticsFile(deps, graphRunId, plannerRunId, diagnostics);
     deps.debug?.(`[graph] run ${graphRunId}: bootstrap plan rejected — ${reason}`);
   }
   return { kind: 'rejected', diagnostics };

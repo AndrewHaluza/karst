@@ -3,7 +3,7 @@
 // resolves at runtime. Kept tiny and dependency-free.
 import { copyFileSync, mkdirSync, readdirSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { dirname, join } from 'node:path';
+import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -58,7 +58,11 @@ function copyTree(fromDir, toDir) {
       copyTree(from, to);
     } else {
       copyFileSync(from, to);
-      console.log(`copied .agents/skills/karst-graph-engineering/${entry}`);
+      // The recursive walk visits files of the SAME basename (SKILL.md) at
+      // distinct paths (the package root, graph-planner/, graph-node/) — log
+      // the real path relative to the repo root, not just the basename, or a
+      // build log misleadingly reads as the same file copied three times.
+      console.log(`copied ${relative(root, to)}`);
     }
   }
 }

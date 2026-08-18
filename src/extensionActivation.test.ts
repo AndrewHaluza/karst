@@ -158,15 +158,11 @@ describe('extension activation', () => {
     expect(transportSource).toContain('adopt(session: SupervisedAgentSession): void;');
     // The pure resolver gates on the same adoption rule as the entry-point matrix.
     expect(source).toContain('reattachableSessionIdentity(');
-    // Activation re-attaches right after the reload reconcile…
-    expect(source.indexOf('void reconcileGraphRuns();')).toBeLessThan(
-      source.indexOf('void reattachGraphSessions();'),
-    );
-    // …the coordinator sweep re-attaches on every tick, and AWAITS it so the
+    // The coordinator sweep re-attaches on every tick, and AWAITS it so the
     // reconcile that follows cannot judge a revived session before it is
     // re-registered (a race that reads a live node as dead)…
     expect(source.indexOf('await reattachGraphSessions();')).toBeLessThan(
-      source.indexOf('activeGraphRunIds(graphCoordinatorStore.db)'),
+      source.indexOf('activeGraphRunIds(gs.db, { projectId: project.id })'),
     );
     // …and openSession re-attaches BEFORE showing the "not attached" message.
     expect(source).toMatch(/if \(!session\) await reattachGraphSessions\(\);/);
@@ -211,22 +207,27 @@ describe('extension activation', () => {
     // it, so neither can drift from the other or skip `settleGraphRun`)…
     expect(source.match(/graphReconcileDeps\(\)/g)).toHaveLength(1);
     expect(source).toContain('if (result.status === \'blocked\') {');
-    expect(source).toContain('settleGraphRun(gs.db, run.id);');
-    // …the wrapper reconciles EVERY run, not only the `planning` ones: a node
-    // whose process died leaves its run `running` forever otherwise, since
-    // nothing else observes a dead node between activations.
-    expect(source).toContain("SELECT id FROM approach_graph_runs ORDER BY id");
-    expect(source).not.toContain("SELECT id FROM approach_graph_runs WHERE status = 'planning'");
-    // …with the seam present BEFORE the running-run tick loop, and the sweep's
-    // reconcile AFTER reattach but BEFORE that loop (a just-revived live
-    // session is re-attached, never relaunched).
-    expect(source.indexOf('relaunchPlanner:')).toBeLessThan(
-      source.indexOf('activeGraphRunIds(graphCoordinatorStore.db)'),
+    expect(source).toContain('settleGraphRun(gs.db, graphRunId);');
+    // …the wrapper reconciles runs scoped to this window's project and
+    // filtered to non-terminal statuses (G1b) — the registry is shared by
+    // every IDE window, and a `closed` run has nothing left to reconcile.
+    expect(source).toContain(
+      'reconcilableGraphRunIds(gs.db, { projectId: project.id })',
     );
-    const sweepReconcile = source.indexOf('await reconcileGraphRuns();');
-    expect(sweepReconcile).toBeGreaterThan(source.indexOf('await reattachGraphSessions();'));
-    expect(sweepReconcile).toBeLessThan(
-      source.indexOf('activeGraphRunIds(graphCoordinatorStore.db)'),
+    expect(source).not.toContain("SELECT id FROM approach_graph_runs ORDER BY id");
+    // …with the seam present BEFORE the running-run tick loop.
+    expect(source.indexOf('relaunchPlanner:')).toBeLessThan(
+      source.indexOf('activeGraphRunIds(gs.db, { projectId: project.id })'),
+    );
+    // The reconcile pass runs on its OWN cadence (INFO-6), separate from the
+    // coordinator tick's reattach/activation loop — both still run once at
+    // activation, independent of each other.
+    expect(source).toContain('await reconcileGraphRuns();');
+    expect(source).toContain('void runGraphSweep();');
+    expect(source).toContain('void runGraphReconcileSweep();');
+    expect(source).toContain('setInterval(() => void runGraphSweep(), GRAPH_SWEEP_INTERVAL_MS)');
+    expect(source).toContain(
+      'setInterval(() => void runGraphReconcileSweep(), GRAPH_RECONCILE_INTERVAL_MS)',
     );
   });
 
@@ -503,7 +504,7 @@ describe('extension activation', () => {
 
     // The reconcile wrapper settles a run this pass blocked (node OR planner),
     // writing the stage block the dashboard's graph-recovery Resume reads.
-    expect(source).toMatch(/if \(result\.status === 'blocked'\) \{\s*settleGraphRun\(gs\.db, run\.id\);/);
+    expect(source).toMatch(/if \(result\.status === 'blocked'\) \{\s*settleGraphRun\(gs\.db, graphRunId\);/);
     // The recovery's `relaunched` result is handled in BOTH resume paths and
     // launches a fresh bootstrap planner through a dedicated host binding.
     expect(source).toContain("if (recovery.kind === 'relaunched' && recovery.launch) graphBootstrapRelaunch(recovery.launch);");

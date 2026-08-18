@@ -55,13 +55,47 @@ export type CompileRepairResult =
       diagnostics: CompileDiagnostic[];
     };
 
-/** Record the attempt counter on the planner run, durably, per attempt. */
+/** Record the attempt counter on the planner run, durably, per attempt. The
+ *  `compile_attempt` column is the ONE durable attempt counter — the live
+ *  accept path (`acceptSubmittedPlan`) records through this same helper, so
+ *  there is never a second counter to drift from it. */
+export function recordCompileAttempt(
+  deps: Pick<CompileRepairDeps, 'db'>,
+  plannerRunId: number,
+  attempt: number,
+): void {
+  deps.db
+    .prepare('UPDATE approach_planner_runs SET compile_attempt = ? WHERE id = ?')
+    .run(attempt, plannerRunId);
+}
+
+export interface CompileAttemptDecision {
+  /** The attempt number this rejection consumes (1-based). */
+  attempt: number;
+  /** True when no attempt remains — the caller must fail to
+   *  `graph-plan-invalid` rather than re-prompt. */
+  exhausted: boolean;
+}
+
+/**
+ * The pure attempt-counting decision, shared by the async orchestration below
+ * and the synchronous live accept path: given the planner run's durable
+ * `compile_attempt`, name the attempt a fresh rejection consumes and whether
+ * the run has any attempt left.
+ */
+export function nextCompileAttempt(
+  db: GraphDb,
+  plannerRunId: number,
+): CompileAttemptDecision {
+  const row = db
+    .prepare('SELECT compile_attempt FROM approach_planner_runs WHERE id = ?')
+    .get(plannerRunId) as { compile_attempt: number } | undefined;
+  const attempt = (row?.compile_attempt ?? 0) + 1;
+  return { attempt, exhausted: attempt >= MAX_COMPILE_ATTEMPTS };
+}
+
 function recordAttempt(deps: CompileRepairDeps, plannerRunId: number, attempt: number): void {
-  deps.transaction(() => {
-    deps.db
-      .prepare('UPDATE approach_planner_runs SET compile_attempt = ? WHERE id = ?')
-      .run(attempt, plannerRunId);
-  });
+  deps.transaction(() => recordCompileAttempt(deps, plannerRunId, attempt));
 }
 
 export function compileWithRepair(
