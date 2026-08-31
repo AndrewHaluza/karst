@@ -27,6 +27,7 @@ import {
   relaunchBootstrapPlanner,
   readPlannerDiagnostics,
   sha256Hex,
+  nodeWorkspaceDirective,
 } from './driver.js';
 import type { SupervisedAgentSession, SupervisedLaunchRequest } from './transport/supervisedCliTransport.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
@@ -794,6 +795,103 @@ describe('driveReadyNodeRuns', () => {
     const launch = h.starts[0] as { nodeRunId: number; graphEnv: Record<string, string> };
     expect(launch.nodeRunId).toBe(nodeRunId);
     expect(launch.graphEnv.KARST_GRAPH_CAPABILITY).toBeTruthy();
+  });
+
+  it('names the isolated workspace in the node prompt so the agent never edits the canonical checkout', async () => {
+    // The reported defect: the node's ticket context named the repository by
+    // its CANONICAL path (`extention: /Users/nd/Work/projects/karst/`), and
+    // the implementation agent trusted it — touching files in the MAIN
+    // checkout via `../..` escapes instead of its isolated workspace. The
+    // launch prompt must therefore state the workspace explicitly and forbid
+    // escaping it.
+    const h = harness();
+    const graphRunId = createGraphRun(h.db, {
+      ticketId: h.ticketId,
+      stageAttempt: 0,
+      approachId: 'karst-graph-engineering',
+      now: NOW,
+    });
+    runningGraphRun(h, graphRunId);
+    h.db
+      .prepare(
+        `INSERT INTO approach_planner_runs (graph_run_id, planner_run_number, kind, status, graph_snapshot_id, submitted_at)
+         VALUES (?, 1, 'bootstrap', 'submitted', 'fp1', ?)`,
+      )
+      .run(graphRunId, NOW);
+    const doc = gateGraphJson({
+      entries: ['impl'],
+      artifacts: [
+        {
+          id: 'task',
+          path: 'artifacts/task.md',
+          producer: '$planner',
+          consumers: ['impl'],
+          mediaType: 'text/markdown',
+          maxBytes: 1000,
+          required: true,
+        },
+      ],
+      nodes: [
+        {
+          id: 'impl',
+          kind: 'agent',
+          label: 'Implement',
+          profile: 'worker',
+          instructionsArtifact: 'task',
+          inputs: [],
+          outputs: [],
+          resources: { reads: [{ repo: 'api', paths: ['src'] }], writes: [{ repo: 'api', paths: ['src/api'] }] },
+          outcomes: ['complete', 'blocked', 'replan'],
+          budget: { maxVisits: 1 },
+        },
+      ],
+      edges: [{ id: 'e1', from: 'impl', on: 'complete', to: 'END' }],
+    });
+    const revisionId = createRevision(h.db, {
+      graphRunId,
+      revisionNumber: 1,
+      canonicalGraph: doc,
+      fingerprint: 'fp',
+      status: 'active',
+      now: NOW,
+    });
+    const nodeRunId = Number(
+      h.db
+        .prepare(
+          `INSERT INTO approach_node_runs (graph_run_id, revision_id, node_id, node_kind, visit_number, status)
+           VALUES (?, ?, 'impl', 'agent', 1, 'ready')`,
+        )
+        .run(graphRunId, revisionId)
+        .lastInsertRowid,
+    );
+    const artRoot = h.deps.artifactRootOf(graphRunId);
+    mkdirSync(join(artRoot, 'artifacts'), { recursive: true });
+    writeFileSync(join(artRoot, 'artifacts', 'task.md'), '# task');
+    const plannerRunId = plannerRunIdFor(h.db, graphRunId);
+    const taskSnap = h.deps.readBytes(graphRunId, 'artifacts/task.md')!;
+    h.db
+      .prepare(
+        `INSERT INTO approach_artifact_instances
+           (graph_run_id, revision_id, artifact_id, producer_planner_run_id, snapshot_path, sha256, media_type, byte_size, created_at)
+         VALUES (?, ?, 'task', ?, ?, ?, 'text/markdown', ?, ?)`,
+      )
+      .run(graphRunId, revisionId, plannerRunId, 'artifacts/task.md', sha256Hex(taskSnap), taskSnap.length, NOW);
+
+    const result = await driveReadyNodeRuns(h.deps, graphRunId);
+    expect(result.launched).toBe(1);
+    const launch = h.starts[0] as {
+      interactive: { initialPrompt: string };
+      cwd: string;
+    };
+    const prompt = launch.interactive.initialPrompt;
+    expect(prompt).toContain('## Node workspace');
+    // The workspace the node session actually runs in — the isolated clone.
+    expect(prompt).toContain(join(h.root, 'ws'));
+    // The canonical worktree the clone came from — named, but marked NOT the
+    // work target.
+    expect(prompt).toContain(join(h.root, 'wt-api'));
+    expect(prompt).toContain('CANONICAL locations, not where you work');
+    expect(launch.cwd).toBe(join(h.root, 'ws'));
   });
 
   it('re-drives a retry-armed launching agent node with no owner nonce or process', async () => {
@@ -1595,5 +1693,30 @@ describe('relaunchBootstrapPlanner', () => {
     const result = await relaunchBootstrapPlanner(h.deps, { graphRunId });
     expect(result.kind).toBe('instructions-missing');
     expect(h.starts).toHaveLength(0);
+  });
+});
+
+describe('nodeWorkspaceDirective', () => {
+  it('names the workspace and canonical worktree and forbids escaping the workspace', () => {
+    const directive = nodeWorkspaceDirective({
+      workspace: '/graph/369/8/workspaces/8/extention',
+      canonicalWorktree: '/Users/nd/Work/projects/karst/.karst/worktrees/test-dynamic-graph-001',
+      baseCommit: '6820a4b',
+    });
+    expect(directive).toContain('/graph/369/8/workspaces/8/extention');
+    expect(directive).toContain('/Users/nd/Work/projects/karst/.karst/worktrees/test-dynamic-graph-001');
+    expect(directive).toContain('6820a4b');
+    expect(directive).toContain('CANONICAL locations, not where you work');
+    expect(directive).toContain('never traverse out of it');
+  });
+
+  it('omits the base commit when none is known', () => {
+    const directive = nodeWorkspaceDirective({
+      workspace: '/ws/extention',
+      canonicalWorktree: '/wt/extention',
+      baseCommit: '',
+    });
+    expect(directive).toContain('Your workspace for this node is: `/ws/extention`');
+    expect(directive).not.toContain(' at `');
   });
 });

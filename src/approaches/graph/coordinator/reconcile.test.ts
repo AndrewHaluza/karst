@@ -269,14 +269,49 @@ describe('reconcileGraphRun — reload and crash matrix', () => {
     expect(result.transitions).toBe(1);
   });
 
-  it('a launching node with no owner nonce and no process is retryable and blocks the run', async () => {
+  it('a launching node with no owner nonce and no process is the recovery-rearmed retry — reconcile leaves it alone', async () => {
     insertNodeRun(ctx, 105, 'launching', { ownerNonce: null });
     const result = await reconcileGraphRun(ctx.makeDeps(), { graphRunId: ctx.graphRunId });
-    expect(nodeRow(ctx, 105).status).toBe('blocked');
+    // The armed retry shape is waiting for the driver's periodic relaunch:
+    // `driveReadyNodeRuns` selects exactly `launching` + no owner nonce + no
+    // process as launchable (the recovery armed it by clearing the dead
+    // attempt's identity). Parking it re-blocks the run the recovery just
+    // un-blocked — in a multi-window setup another window's reconcile can land
+    // between the retry and the relaunch, so a Resume reads as "did nothing"
+    // and the user has to click again. Reconcile never parks it.
+    expect(nodeRow(ctx, 105).status).toBe('launching');
     const run = runRow(ctx);
-    expect(run.status).toBe('blocked');
-    expect(run.blocked_reason).toMatch(/node-blocked/);
-    expect(result.transitions).toBe(1);
+    expect(run.status).toBe('running');
+    expect(run.blocked_reason).toBeNull();
+    expect(result.transitions).toBe(0);
+  });
+
+  it('a Resume-armed node is never re-blocked by a concurrent window reconcile — the Resume loop regression', async () => {
+    // The reported loop: "Resume to relaunch the reserved visit worked only
+    // from the Nth time". The recovery arms the node (`blocked → launching`,
+    // dead identity cleared) and the run (`blocked → running`); a SECOND
+    // window's reconcile pass — which has no session for the node and sees the
+    // armed `launching` shape — must not re-block it. Parking would turn the
+    // relaunch into a re-click loop exactly as observed.
+    insertNodeRun(ctx, 120, 'blocked', { ownerNonce: null });
+    ctx.db.prepare("UPDATE approach_graph_runs SET status = 'blocked', blocked_reason = ? WHERE id = ?")
+      .run('node-blocked: node 120 process (pid 2214) is gone (dead at reconcile) — Resume to relaunch the reserved visit', ctx.graphRunId);
+    const recovery = recoverGraphRun(
+      { store: ctx.store, transaction: ctx.makeDeps().transaction, now: () => NOW, debug: () => {} } satisfies RecoveryDeps,
+      { ticketId: ctx.ticketId, graphRunId: ctx.graphRunId },
+    );
+    expect(recovery.kind).toBe('retried');
+    expect(nodeRow(ctx, 120).status).toBe('launching');
+
+    // Another window's reconcile observes the armed node: no session, no pid,
+    // no owner nonce — the exact shape reconcile used to park as
+    // "no launch identity". It must leave it for the driver.
+    const secondWindow = await reconcileGraphRun(ctx.makeDeps(), { graphRunId: ctx.graphRunId });
+    expect(secondWindow.transitions).toBe(0);
+    expect(nodeRow(ctx, 120).status).toBe('launching');
+    const run = runRow(ctx);
+    expect(run.status).toBe('running');
+    expect(run.blocked_reason).toBeNull();
   });
 
   it('states the CURRENT cause on the node it blocks — never a reason left by an earlier park', async () => {
