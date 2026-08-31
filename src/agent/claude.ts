@@ -322,7 +322,7 @@ export class ClaudeAdapter implements AgentAdapter {
    * here it is left null.
    */
   async runHeadless(opts: RunHeadlessOpts): Promise<HeadlessResult> {
-    const args = ['-p', opts.prompt, '--output-format', 'json'];
+    const args = ['-p', '--output-format', 'json'];
     if (opts.resume) args.push('--resume', opts.resume);
     // A resolved launch model must pin the run: without `--model` the CLI falls
     // back to its own default (settings.json `"model"`, or the alias), which was
@@ -334,6 +334,11 @@ export class ClaudeAdapter implements AgentAdapter {
     if (opts.allowedTools && opts.allowedTools.length > 0) {
       args.push('--allowedTools', opts.allowedTools.join(','));
     }
+    // `--` ends option parsing so the prompt is always a positional, even when
+    // it starts with dashes (e.g. a reviewer prompt's `---` YAML frontmatter) —
+    // otherwise the CLI reads `---…` as an unknown option and exits 1 (same fix
+    // as buildInteractiveCommand above).
+    args.push('--', opts.prompt);
 
     // The prompt is ticket prose — never logged in full. The debug line names
     // the invocation and redacts the prompt to its length (§ debug logging).

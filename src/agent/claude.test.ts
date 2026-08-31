@@ -606,6 +606,26 @@ describe('ClaudeAdapter.runHeadless', () => {
     expect(seen.args[seen.args.indexOf('--output-format') + 1]).toBe('json');
   });
 
+  // SHIP-ADOPT-PR-WHEN-PUSH-NEVER §2: the reviewer prompt's leading `---` YAML
+  // frontmatter was passed as -p's immediate value, and the CLI read it as an
+  // unknown option ("error: unknown option '--- name: reviewer ...'"). The
+  // prompt must always land as a positional after `--`, exactly like
+  // buildInteractiveCommand already does.
+  it('inserts -- before the prompt so a leading --- frontmatter never parses as an option', async () => {
+    const seen: { args: string[] } = { args: [] };
+    const spawn: SpawnHeadless = async (_cmd, args) => {
+      seen.args = args;
+      return { stdout: JSON.stringify({ session_id: 's', result: 'x' }), stderr: '', exitCode: 0 };
+    };
+    const adapter = new ClaudeAdapter(spawn);
+    const prompt = '---\nname: reviewer\ndescription: find bugs\n---\nlook for bugs';
+    await adapter.runHeadless({ prompt, cwd: '/wt/a' });
+    const dashIndex = seen.args.indexOf('--');
+    expect(dashIndex).toBeGreaterThanOrEqual(0);
+    expect(seen.args[dashIndex + 1]).toBe(prompt);
+    expect(seen.args[dashIndex + 2]).toBeUndefined();
+  });
+
   it('passes --model when one is resolved so the run never falls back to the CLI default', async () => {
     const seen: { args: string[] } = { args: [] };
     const spawn: SpawnHeadless = async (_cmd, args) => {
