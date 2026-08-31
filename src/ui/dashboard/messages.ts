@@ -141,7 +141,15 @@ export type WebviewMessage =
    * path, no ticket id. The host resolves the persisted tail file and answers
    * with `agent-log`; the answer message (ok or error) is the terminal outcome.
    */
-  | { type: 'agent-log-request'; processId: AgentProcessId };
+  | { type: 'agent-log-request'; processId: AgentProcessId }
+  /**
+   * Select a round of a gate stage's attempt history to view. Carries the
+   * stage (narrowed to the two that carry rounds) and the attempt key, both
+   * re-resolved host-side against the ticket's actual attempt history — same
+   * property as `set-disabled-gates`: a crafted or stale message cannot aim
+   * the view at anything the host doesn't already know about.
+   */
+  | { type: 'select-gate-attempt'; stage: GateStage; key: string };
 
 /**
  * Host → webview messages. `state` pushes drive the stepper + panels;
@@ -496,6 +504,15 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
       return isAgentProcessId(m.processId)
         ? { type: 'agent-log-request', processId: m.processId }
         : null;
+    // The stage is narrowed to GATE_STAGES; the key is a bounded, non-empty
+    // string — no coercion. The host re-resolves both against the ticket's
+    // actual attempt history before rendering anything.
+    case 'select-gate-attempt': {
+      const key = typeof m.key === 'string' ? m.key : '';
+      return isGateStage(m.stage) && key.length > 0 && key.length <= MAX_GATE_ATTEMPT_KEY_CHARS
+        ? { type: 'select-gate-attempt', stage: m.stage, key }
+        : null;
+    }
     default:
       return null;
   }
@@ -524,6 +541,9 @@ export const MAX_ARTIFACT_ID_CHARS = 64;
 
 /** Longest model id accepted from a webview. Real model ids are short CLI values; 128 is a bounded ceiling. */
 const MAX_MODEL_ID_CHARS = 128;
+
+/** Longest gate attempt key accepted from a webview. Real keys are short round identifiers. */
+const MAX_GATE_ATTEMPT_KEY_CHARS = 64;
 
 /**
  * Narrow an untrusted host→webview inside-progress payload to a closed

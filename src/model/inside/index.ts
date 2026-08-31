@@ -27,6 +27,14 @@ export type { SessionConfiguredInput, SessionTokensInput } from './agent.js';
 export { implementationSessionProcess } from './agent.js';
 export { uatProcesses, reviewProcesses } from './gates.js';
 export type { QualityProcessesInput } from './gates.js';
+export {
+  ATTEMPT_TABS_LIMIT,
+  attemptKey,
+  listGateAttempts,
+  batchForAttempt,
+  processRunForAttempt,
+} from './rounds.js';
+export type { AttemptKey, GateAttemptView, ListGateAttemptsInput } from './rounds.js';
 export { insertCausalFix, recoveryProcess } from './recovery.js';
 export type { RecoveryProcessView } from './recovery.js';
 export { shipProcesses } from './ship.js';

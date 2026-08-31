@@ -1,5 +1,6 @@
 import type { StageKey } from '../types.js';
 import { displayStatus, type StepperCell } from '../stepper.js';
+import type { AttemptKey, GateAttemptView } from './rounds.js';
 
 /**
  * How an operation row reads.
@@ -771,6 +772,29 @@ export interface InsideStageView {
    * the Console button ONLY from this flag and never guesses availability.
    */
   console?: boolean;
+  /**
+   * The round switcher's tabs for a gate stage (Option B, T1's
+   * `listGateAttempts`) — oldest to newest, bounded to `ATTEMPT_TABS_LIMIT`.
+   * Absent, or fewer than 2 entries, for a non-gate stage or a gate stage that
+   * never looped: the control costs nothing on a ticket with a single
+   * attempt. `state.ts` (T4) populates this; this module only declares the
+   * shape.
+   */
+  attempts?: readonly GateAttemptView[];
+  /**
+   * The attempt currently backing this stage's processes — the key
+   * `QualityProcessesInput.selectedAttempt` was resolved to, so the webview
+   * can mark the matching tab `aria-selected`. Absent when the stage carries
+   * no `attempts` (nothing to select among).
+   */
+  selectedAttempt?: AttemptKey;
+  /**
+   * Host-authored banner copy shown above the ledger when the selection is
+   * NOT the latest attempt — e.g. "viewing round 2 — not the current result".
+   * The webview renders it verbatim (UI-R31) and never derives it from
+   * `selectedAttempt` itself. Absent → no banner.
+   */
+  attemptNote?: string;
 }
 
 /**

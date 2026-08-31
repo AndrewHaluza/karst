@@ -75,6 +75,7 @@ import {
 } from '../../model/inside/types.js';
 import { scopeProcesses, implementationSessionProcess } from '../../model/inside/index.js';
 import { uatProcesses, reviewProcesses } from '../../model/inside/gates.js';
+import { listGateAttempts, type AttemptKey, type GateAttemptView } from '../../model/inside/rounds.js';
 import { shipProcesses } from '../../model/inside/ship.js';
 import { doneReceipt, type DoneReceiptView } from '../../model/inside/done.js';
 import type { SessionConfiguredInput, SessionTokensInput } from '../../model/inside/agent.js';
@@ -320,6 +321,19 @@ export function buildDashboardState(
    * its argument positions.
    */
   graphInside?: GraphInsideInput | null,
+  /**
+   * The round switcher's current selection (Option B, T4), keyed by gate
+   * stage. Absent/undefined for a key → the effective selection falls back to
+   * that stage's latest attempt, which is BYTE-FOR-BYTE what every reducer
+   * downstream already renders for `selectedAttempt: null` — this is what
+   * keeps `buildDashboardState`'s output unchanged for a caller that never
+   * supplies this map. A key naming an attempt this stage no longer holds
+   * (stale panel selection, a snapshot for a different ticket) degrades the
+   * same way: silently to latest, never a thrown error and never an empty
+   * stage. Appended LAST so every existing positional caller keeps its
+   * argument positions.
+   */
+  attemptSelection?: Partial<Record<'uat' | 'review', string>>,
 ): DashboardState {
   const ticket = getTicket(store, ticketId); // throws on unknown id
   // The parent relationship for the dashboard's secondary metadata line. A
@@ -474,6 +488,49 @@ export function buildDashboardState(
   const cellOf = (key: StageKey): StepperCell =>
     stepper.find((c) => c.stageKey === key) ?? { stageKey: key, status: 'pending' };
 
+  // The round switcher's effective selection for one gate stage (T4): the
+  // requested key if some recorded attempt actually holds it, otherwise the
+  // newest attempt. A stage with 0 or 1 attempt emits no tabs at all (T1's
+  // own contract), so `attemptSwitcherFor` degrades to "nothing to select"
+  // without a caller here having to special-case the un-looped ticket.
+  const attemptSwitcherFor = (
+    attempts: readonly GateAttemptView[],
+    requested: string | undefined,
+  ): {
+    selectedKey: AttemptKey | null;
+    view?: { attempts: readonly GateAttemptView[]; selectedAttempt: AttemptKey; attemptNote?: string };
+  } => {
+    if (attempts.length < 2) return { selectedKey: null };
+    const requestedMatch = requested !== undefined ? attempts.find((a) => a.key === requested) : undefined;
+    const effective = requestedMatch ?? attempts.find((a) => a.latest);
+    if (effective === undefined) return { selectedKey: null };
+    // Host-authored, worded from the reader's side: a settled historical
+    // attempt is announced so a viewer never mistakes it for the live
+    // picture (UI-R31 — the webview renders this verbatim and composes
+    // nothing). The newest attempt carries no note; there is nothing to warn
+    // about when the tab selected is the one already live.
+    const attemptNote = effective.latest
+      ? undefined
+      : effective.round !== undefined
+        ? `viewing round ${effective.round} — not the current result`
+        : `viewing ${effective.label} — not the current result`;
+    return {
+      // The LATEST tab is the default path, so it selects `null` — not its own
+      // key. A key restricts every downstream read to rows that carry a stage
+      // run id, and a `process_runs` row written before v25 carries none:
+      // selecting the latest key would have emptied the Tester/Review evidence
+      // of exactly the view that renders by default. `null` is the read the
+      // panel has always done, so the default view stays byte-for-byte itself
+      // and only a HISTORICAL selection narrows anything.
+      selectedKey: effective.latest ? null : effective.key,
+      view: {
+        attempts,
+        selectedAttempt: effective.key,
+        ...(attemptNote ? { attemptNote } : {}),
+      },
+    };
+  };
+
   // The console (terminal detailed mode) is offered for a gate stage that
   // actually has a recorded artifact log — never for a stage that has not
   // run, and never for non-gate stages (UI-R31: availability is host-derived).
@@ -500,6 +557,28 @@ export function buildDashboardState(
   // Computed once: this used to be called separately by the spread's guard
   // and its element, building the whole projection twice and discarding one.
   const graphInsideProcessOnce = graphInsideProcess(graphInside);
+
+  // The round switcher's tabs and effective selection, one read per gate
+  // stage, shared by the process reducer (which batch/run backs the ledger)
+  // and the stage shell (which tab renders selected, and the banner). Two
+  // reads of this would risk the ledger and the tab disagreeing about which
+  // attempt is showing.
+  const uatAttempts = listGateAttempts({
+    gateRuns,
+    processRuns,
+    rounds,
+    stageKey: 'uat',
+    running: displayStatus(cellOf('uat')) === 'running',
+  });
+  const uatSwitch = attemptSwitcherFor(uatAttempts, attemptSelection?.uat);
+  const reviewAttempts = listGateAttempts({
+    gateRuns,
+    processRuns,
+    rounds,
+    stageKey: 'review',
+    running: displayStatus(cellOf('review')) === 'running',
+  });
+  const reviewSwitch = attemptSwitcherFor(reviewAttempts, attemptSelection?.review);
 
   const insideViews: Record<InsideStageKey, InsideStageView> = {
     scope: stageView(
@@ -566,9 +645,11 @@ export function buildDashboardState(
         // The gate rows name the service the way Settings names it, never the
         // path the evidence table keys by — the same injection ship uses.
         repoNameFor,
+        selectedAttempt: uatSwitch.selectedKey,
       }),
       now,
       consoleFor('uat'),
+      uatSwitch.view,
     ),
     review: stageView(
       'review',
@@ -587,9 +668,11 @@ export function buildDashboardState(
         attach,
         resolvedGates: resolvedGates?.review ?? [],
         repoNameFor,
+        selectedAttempt: reviewSwitch.selectedKey,
       }),
       now,
       consoleFor('review'),
+      reviewSwitch.view,
     ),
     ship: stageView(
       'ship',
@@ -748,6 +831,14 @@ function stageView(
   processes: readonly InsideProcessView[],
   now: string,
   console?: boolean,
+  /**
+   * The round switcher's tabs/selection/banner for a gate stage (T4). Absent
+   * for every non-gate stage, and for a gate stage with fewer than 2 recorded
+   * attempts — `attemptSwitcherFor` in `buildDashboardState` already returns
+   * no view in that case, so the control costs nothing on a ticket that never
+   * looped.
+   */
+  roundSwitcher?: { attempts: readonly GateAttemptView[]; selectedAttempt: AttemptKey; attemptNote?: string },
 ): InsideStageView {
   const live = liveFor(processes);
   return {
@@ -768,6 +859,7 @@ function stageView(
     // explicit false beats an absent answer), and stays absent for a stage
     // that never got a console answer at all.
     ...(console !== undefined ? { console } : {}),
+    ...(roundSwitcher ? roundSwitcher : {}),
   };
 }
 

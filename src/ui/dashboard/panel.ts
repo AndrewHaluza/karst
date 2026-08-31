@@ -185,6 +185,17 @@ export class DashboardManager {
    * nobody is looking at.
    */
   private readonly liveTicks = new Map<number, ReturnType<typeof setTimeout>>();
+  /**
+   * The round switcher's current selection per ticket (Option B, T5) —
+   * host-held, like every other panel read: the webview posts a selection,
+   * the panel remembers it and re-renders through the normal state push. A
+   * ticket with no selection is absent from the map entirely, which is what
+   * keeps `buildDashboardState`'s `attemptSelection` argument (and therefore
+   * its output) unchanged for every ticket that never touched a tab. Dies
+   * with the panel (cleared on dispose) so a selection never leaks to a later
+   * ticket that happens to reuse the id.
+   */
+  private readonly attemptSelections = new Map<number, ReadonlyMap<GateStage, string>>();
 
   /**
    * `pathContext` is a getter (optional) so worktree paths render per the current
@@ -328,6 +339,19 @@ export class DashboardManager {
       // message the host never acted on.
       const parsed = parseWebviewMessage(raw);
       if (!parsed) return;
+      if (parsed.type === 'select-gate-attempt') {
+        // Pure read: the selection is panel memory only — it never touches
+        // the store, never mutates the ticket, and has no
+        // `DashboardActions` method (messages.ts's `routeAction` deliberately
+        // does not carry it). Recording it and re-rendering through the
+        // normal state push is the whole handling.
+        const current = this.attemptSelections.get(ticketId) ?? new Map<GateStage, string>();
+        const next = new Map(current);
+        next.set(parsed.stage, parsed.key);
+        this.attemptSelections.set(ticketId, next);
+        this.pushState(ticketId);
+        return;
+      }
       if (parsed.type === 'inside-action') {
         // An inside dispatch's outcome is known synchronously; the generic
         // seam's unconditional ack would report a rejected or stale dispatch
@@ -408,6 +432,9 @@ export class DashboardManager {
       this.gateRequests.delete(ticketId);
       this.gateControllers.delete(ticketId);
       this.gateOptionsCache.delete(ticketId);
+      // The round switcher's selection dies with the panel — a later open of
+      // the same ticket id starts at the default (latest attempt) selection.
+      this.attemptSelections.delete(ticketId);
       // The panel's action capabilities die with it: a disposed panel's ids
       // must never dispatch against a later snapshot.
       this.registries.get(ticketId)?.dispose();
@@ -567,7 +594,16 @@ export class DashboardManager {
       // The graph runtime's read-only projection (Slice 3 Task 11): built
       // host-side, null for a ticket with no graph run.
       graphInside,
+      // The round switcher's current selection (Option B, T5): the state
+      // builder resolves a stale/unknown key to that stage's latest attempt
+      // itself, so the panel need not validate it against the snapshot.
+      this.attemptSelectionFor(ticketId),
     );
+    // A key the new snapshot no longer resolved to is dropped from panel
+    // memory: `selectedAttempt` reports what the builder actually rendered,
+    // so a mismatch means the requested key named no attempt this round —
+    // there is nothing left worth remembering for the NEXT snapshot either.
+    this.pruneStaleAttemptSelections(ticketId, state);
     // `live` marks a REPAINT of data the panel already had, as opposed to a
     // push that reports something happening. The webview defers a live repaint
     // while the user is mid-interaction (an action in flight, a text selection
@@ -654,6 +690,36 @@ export class DashboardManager {
       grace.shift()!.registry.dispose();
     }
     if (grace.length === 0) this.priorRegistries.delete(ticketId);
+  }
+
+  /** This ticket's round switcher selection, plain-object shaped for `buildDashboardState`. */
+  private attemptSelectionFor(ticketId: number): Partial<Record<'uat' | 'review', string>> {
+    return Object.fromEntries(this.attemptSelections.get(ticketId) ?? []);
+  }
+
+  /**
+   * Drop any selection the snapshot just rendered did NOT resolve to — the
+   * state builder falls back to latest for a key naming no recorded attempt
+   * (a stale panel selection, or a ticket that has since re-run the stage),
+   * and a selection that has already stopped meaning anything should not
+   * keep being requested on every following push.
+   */
+  private pruneStaleAttemptSelections(ticketId: number, state: DashboardState): void {
+    const current = this.attemptSelections.get(ticketId);
+    if (!current || current.size === 0) return;
+    let changed = false;
+    const next = new Map(current);
+    for (const stage of ['uat', 'review'] as const) {
+      const requested = current.get(stage);
+      if (requested === undefined) continue;
+      if (state.insideViews[stage]?.selectedAttempt !== requested) {
+        next.delete(stage);
+        changed = true;
+      }
+    }
+    if (!changed) return;
+    if (next.size === 0) this.attemptSelections.delete(ticketId);
+    else this.attemptSelections.set(ticketId, next);
   }
 
   /**

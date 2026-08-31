@@ -7,6 +7,10 @@ import { createTicket, updateTicketFields } from '../../store/tickets.js';
 import { setStage } from '../../store/stages.js';
 import { manifest, processes, runnableRepo } from '../../manifest/fixtures.js';
 import { openProcessRun, finishProcessRun } from '../../store/processRuns.js';
+import { openStageRun } from '../../store/stageRuns.js';
+import { recordGateRun } from '../../store/gateRuns.js';
+import { openRecoveryRound } from '../../store/recoveryRounds.js';
+import { attemptKey } from '../../model/inside/rounds.js';
 import { DashboardManager, type PanelHost, type FakePanel, type StageLogReader, type AgentLogReader } from './panel.js';
 import { buildGraphInsideInput } from './graphInside.js';
 import { LIVE_TICK_MS } from './liveTick.js';
@@ -1446,6 +1450,161 @@ describe('DashboardManager', () => {
         stage: 'uat',
         result: { kind: 'error', message: 'No console log source is configured.' },
       });
+    });
+  });
+
+  describe('round switcher selection (Option B, T5)', () => {
+    /**
+     * Two full UAT rounds plus the live attempt (mirrors state.test.ts's own
+     * `seedTwoRoundUatHistory`) — enough attempts for a tab selection to have
+     * somewhere to land, and for "stale key" to mean something.
+     */
+    function seedTwoRoundUatHistory(store: Store): { ticketId: number; stageRunIds: [number, number, number] } {
+      const t = createTicket(store, { key: 'RS-1', title: 'round switcher' });
+      store.db.prepare("UPDATE tickets SET stage_current = 'uat' WHERE id = ?").run(t.id);
+      setStage(store, t.id, 'uat', { status: 'running', startedAt: '2026-08-20T09:00:00.000Z' });
+
+      const sr1 = openStageRun(store, {
+        ticketId: t.id, stageKey: 'uat', attempt: 0,
+        runAt: '2026-08-20T09:00:00.000Z', startedAt: '2026-08-20T09:00:00.000Z',
+      });
+      recordGateRun(store, {
+        ticketId: t.id, stageKey: 'uat', attempt: 0, runAt: '2026-08-20T09:00:00.000Z', stageRunId: sr1,
+        gates: [{ gateName: 'test (web)', exitCode: 1, startedAt: '2026-08-20T09:00:00.000Z', endedAt: '2026-08-20T09:01:00.000Z' }],
+      });
+      openRecoveryRound(store, {
+        ticketId: t.id, sourceStage: 'uat', sourceProcessId: 'gates', sourceStageRunId: sr1,
+        sourceProcessRunId: null, triggerKind: 'gate-failure', triggerDetail: 'test (web) failed',
+        maxRounds: 3, startedAt: '2026-08-20T09:01:00.000Z',
+      });
+
+      const sr2 = openStageRun(store, {
+        ticketId: t.id, stageKey: 'uat', attempt: 1,
+        runAt: '2026-08-20T10:00:00.000Z', startedAt: '2026-08-20T10:00:00.000Z',
+      });
+      recordGateRun(store, {
+        ticketId: t.id, stageKey: 'uat', attempt: 1, runAt: '2026-08-20T10:00:00.000Z', stageRunId: sr2,
+        gates: [{ gateName: 'test (web)', exitCode: 1, startedAt: '2026-08-20T10:00:00.000Z', endedAt: '2026-08-20T10:01:00.000Z' }],
+      });
+      openRecoveryRound(store, {
+        ticketId: t.id, sourceStage: 'uat', sourceProcessId: 'gates', sourceStageRunId: sr2,
+        sourceProcessRunId: null, triggerKind: 'gate-failure', triggerDetail: 'test (web) failed again',
+        maxRounds: 3, startedAt: '2026-08-20T10:01:00.000Z',
+      });
+
+      const sr3 = openStageRun(store, {
+        ticketId: t.id, stageKey: 'uat', attempt: 2,
+        runAt: '2026-08-20T11:00:00.000Z', startedAt: '2026-08-20T11:00:00.000Z',
+      });
+      recordGateRun(store, {
+        ticketId: t.id, stageKey: 'uat', attempt: 2, runAt: '2026-08-20T11:00:00.000Z', stageRunId: sr3,
+        gates: [{ gateName: 'test (web)', exitCode: 0, startedAt: '2026-08-20T11:00:00.000Z', endedAt: '2026-08-20T11:01:00.000Z' }],
+      });
+      openProcessRun(store, {
+        ticketId: t.id, stageKey: 'uat', processId: 'tester', attempt: 2, stageRunId: sr3,
+        provider: 'codex', startedAt: '2026-08-20T11:02:00.000Z',
+      });
+
+      return { ticketId: t.id, stageRunIds: [sr1, sr2, sr3] };
+    }
+
+    function lastState(panel: FakePanel): any {
+      return (panel.posted.filter((m: any) => m.type === 'state').at(-1) as any).state;
+    }
+
+    it('records a selection posted from the webview and reaches the state builder', () => {
+      const { ticketId, stageRunIds } = seedTwoRoundUatHistory(store);
+      const requested = attemptKey(stageRunIds[0], '');
+      const { host, panels } = fakeHost();
+      const mgr = new DashboardManager(store, host, () => ({}) as never);
+
+      mgr.openDashboard(ticketId);
+      // Before any selection, the default is the latest attempt.
+      expect(lastState(panels[0]!).insideViews.uat.selectedAttempt).toBe(attemptKey(stageRunIds[2], ''));
+
+      panels[0]!.emit({ type: 'select-gate-attempt', stage: 'uat', key: requested });
+
+      const uat = lastState(panels[0]!).insideViews.uat;
+      expect(uat.selectedAttempt).toBe(requested);
+      expect(uat.attemptNote).toBe('viewing round 1 — not the current result');
+    });
+
+    it('survives a subsequent snapshot/re-render (e.g. the live tick)', () => {
+      const { ticketId, stageRunIds } = seedTwoRoundUatHistory(store);
+      const requested = attemptKey(stageRunIds[0], '');
+      const { host, panels } = fakeHost();
+      const mgr = new DashboardManager(store, host, () => ({}) as never);
+
+      mgr.openDashboard(ticketId);
+      panels[0]!.emit({ type: 'select-gate-attempt', stage: 'uat', key: requested });
+
+      // A later, unrelated snapshot push (a passive re-render) must still
+      // reflect the earlier selection — it is host-held panel state, not a
+      // one-shot response to the message that set it.
+      mgr.pushPassiveState(ticketId);
+
+      expect(lastState(panels[0]!).insideViews.uat.selectedAttempt).toBe(requested);
+    });
+
+    it('resets the selection when the panel opens a different ticket', () => {
+      const { ticketId: ticketA, stageRunIds } = seedTwoRoundUatHistory(store);
+      const ticketB = createTicket(store, { key: 'RS-2', title: 'other ticket' });
+      const requested = attemptKey(stageRunIds[0], '');
+      const { host, panels } = fakeHost();
+      const mgr = new DashboardManager(store, host, () => ({}) as never);
+
+      mgr.openDashboard(ticketA);
+      panels[0]!.emit({ type: 'select-gate-attempt', stage: 'uat', key: requested });
+      expect(lastState(panels[0]!).insideViews.uat.selectedAttempt).toBe(requested);
+
+      // Opening a DIFFERENT ticket's panel must not carry ticket A's selection
+      // into ticket B's rendering — a selection scoped to one ticket must
+      // never leak into another.
+      mgr.openDashboard(ticketB.id);
+      const uatB = lastState(panels[1]!).insideViews.uat;
+      expect(uatB.selectedAttempt).toBeUndefined();
+
+      // Re-opening (revealing) ticket A's still-open panel does not re-push,
+      // but confirm its own selection is untouched by the other ticket's open.
+      expect(lastState(panels[0]!).insideViews.uat.selectedAttempt).toBe(requested);
+    });
+
+    it('leaves state unchanged for an unhandled or invalid message', () => {
+      const { ticketId, stageRunIds } = seedTwoRoundUatHistory(store);
+      const { host, panels } = fakeHost();
+      const mgr = new DashboardManager(store, host, () => ({}) as never);
+
+      mgr.openDashboard(ticketId);
+      const before = lastState(panels[0]!).insideViews.uat.selectedAttempt;
+      const postCountBefore = panels[0]!.posted.length;
+
+      // Missing `key`.
+      panels[0]!.emit({ type: 'select-gate-attempt', stage: 'uat' });
+      // Invalid `stage`.
+      panels[0]!.emit({ type: 'select-gate-attempt', stage: 'bogus', key: 'x' });
+      // Unrelated message type entirely.
+      panels[0]!.emit({ type: 'not-a-real-message' });
+
+      expect(panels[0]!.posted.length).toBe(postCountBefore);
+      expect(lastState(panels[0]!).insideViews.uat.selectedAttempt).toBe(before);
+      void stageRunIds;
+    });
+
+    it('drops a selection whose key no longer exists in a new snapshot, falling back to latest', () => {
+      const { ticketId, stageRunIds } = seedTwoRoundUatHistory(store);
+      const { host, panels } = fakeHost();
+      const mgr = new DashboardManager(store, host, () => ({}) as never);
+
+      mgr.openDashboard(ticketId);
+      // Select a key that names no recorded attempt at all.
+      panels[0]!.emit({ type: 'select-gate-attempt', stage: 'uat', key: 'sr:999999' });
+      // The state builder degrades silently to latest for a stale key.
+      expect(lastState(panels[0]!).insideViews.uat.selectedAttempt).toBe(attemptKey(stageRunIds[2], ''));
+
+      // A later push must still resolve to latest — the panel must not keep
+      // re-requesting a key that never matched anything.
+      mgr.pushPassiveState(ticketId);
+      expect(lastState(panels[0]!).insideViews.uat.selectedAttempt).toBe(attemptKey(stageRunIds[2], ''));
     });
   });
 });
