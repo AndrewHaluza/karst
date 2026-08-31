@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { prepareCommand } from '../../runtime/command.js';
+import { resolveCommandCwd } from '../../runtime/commandCwd.js';
 import { BoundedOutput } from '../../runtime/boundedOutput.js';
 import { killTree } from '../../runtime/processTree.js';
 
@@ -69,7 +70,12 @@ export function runProcess(
       return;
     }
 
-    const p = prepareCommand(command, args);
+    // Anchor a relative command to the directory the gate runs in BEFORE the
+    // platform shim looks it up: `prepareCommand`'s Windows lookup resolves a
+    // command carrying a separator against the extension host's cwd, so
+    // `.venv/bin/pytest` could never be found there. On POSIX this is
+    // equivalent to what execvp already does after the child chdirs.
+    const p = prepareCommand(resolveCommandCwd(command, cwd), args);
     onDebug?.(
       `[gate] process: spawning ${p.command}${p.args.length > 0 ? ` ${p.args.join(' ')}` : ''} in ${cwd}`,
     );

@@ -278,6 +278,13 @@ reads the diff and runs gates; it has nothing to bootstrap.
 
 - **Spawned without a shell**, `detached`, with the target **worktree root** as
   `cwd` — not the original repository directory.
+- **How `command` is found.** A bare name (`pytest`, `go`, `cargo`) is a **PATH
+  lookup**, and the PATH is the one the **extension host** inherited — not a
+  login shell's, so a tool installed only by a shell rc file or activated only
+  inside a virtualenv will not be found. A command containing a separator
+  (`./gradlew`, `.venv/bin/pytest`) is resolved against the gate's `cwd`, so a
+  project-local toolchain works without touching PATH; prefer that form when a
+  repository ships its own tooling.
 - **Timeout: 15 minutes.** A gate that exceeds it is killed (process tree) and
   the run reports the timeout. Split or narrow anything slower.
 - **Output cap: 1 MiB**, bounded as it streams.
@@ -334,6 +341,7 @@ Match on the message; each row is cause → fix.
 | Message / symptom | Cause | Fix |
 |---|---|---|
 | `no gates configured and package.json defines none of: …` | probe found nothing and nothing was declared | declare gates for that stage (§4.2). Non-Node repo → `kind: command` |
+| `no gates configured and this repository has no package.json` | the non-Node case: nothing declared, and there is no file to probe | declare `kind: command` gates (§4.2, §9.3). Do **not** add a `package.json` whose scripts only shim out to the real toolchain |
 | `cannot read package.json: …` (parked, `capability-missing`) | environmental — permissions, unreadable path | not an agent fix; report it. Declaring all-`command` gates does bypass the probe entirely |
 | review failed with a `package.json` parse error | malformed `package.json` in a target | fix the JSON in the repository |
 | `no gate ran: <names>` | gates resolved but every one was killed or never answered | check the 15-minute timeout and whether a Stop aborted the run |
@@ -403,6 +411,13 @@ question at review — rule 2 holds per target.
 
 ### 9.3 Python repository, findings advisory only
 
+The case that most often reads as "karst does not support this project". It
+needs no shim script and no `package.json`: a declared gate list is consulted
+**before** the probe, so the probe never runs. `python -m` is used rather than
+the bare `pytest`/`ruff` console scripts so the gate follows whichever
+interpreter is first on the inherited PATH (§6) instead of a separately
+installed entry point.
+
 ```yaml
 uat:
   gates:
@@ -415,6 +430,14 @@ review:
   findings:
     enabled: true
     blockingSeverity: none   # recorded as evidence, never blocks
+```
+
+If the interpreter is a project virtualenv that is **not** on the extension
+host's PATH, name it by path — a command containing a separator resolves
+against the worktree root (§6):
+
+```yaml
+    - { name: pytest, kind: command, command: .venv/bin/python, args: [-m, pytest, -q] }
 ```
 
 ---

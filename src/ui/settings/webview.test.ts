@@ -1963,6 +1963,16 @@ describe('settings quality tab — gate editor', () => {
     expect(html).toContain('data-add-gate="uat"');
   });
 
+  it('names command gates in the empty state so a non-Node repo is not stuck', () => {
+    // The probe is npm-script-shaped, so stating only the fallback tells a
+    // Python or Go project that karst has nothing for it. The way out — add a
+    // Command gate right here — has to be visible at the exact moment the user
+    // is looking at an empty list.
+    const renderGateList = loadRenderGateList({ api: {} });
+    const html = renderGateList('uat', []);
+    expect(html).toContain('Command');
+  });
+
   it('states the global-list fallback when an override list is empty', () => {
     // An empty override is indistinguishable from no override
     // (declaredGatesFor only takes a non-empty list), so the repo runs the

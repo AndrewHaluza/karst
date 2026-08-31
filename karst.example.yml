@@ -259,6 +259,29 @@ agents:
 # ABSENT (the default) yields the probe pipeline: karst looks for
 # known package.json scripts. Only three keys under `uat:` are read today —
 # `maxFixAttempts`, `gates` (plus per-repository `gates`) and `testerVerifier`.
+#
+# NOT A NODE PROJECT? Auto-discovery is the ONLY npm-shaped part of gating, and
+# it is skipped entirely the moment you declare `gates:` below — a declared list
+# wins before package.json is even read. A `kind: command` gate needs no
+# package.json and no shell; do NOT write a package.json shim script for karst.
+# Cookbook — drop the pair you need into `uat.gates` / `review.gates`:
+#
+#   python: - { name: test,      kind: command, command: pytest, args: [-q] }
+#           - { name: lint,      kind: command, command: ruff,   args: [check, .] }
+#           - { name: typecheck, kind: command, command: mypy,   args: ['.'] }
+#   rust:   - { name: test,      kind: command, command: cargo,  args: [test] }
+#           - { name: clippy,    kind: command, command: cargo,  args: [clippy, --, -D, warnings] }
+#   go:     - { name: test,      kind: command, command: go,     args: [test, ./...] }
+#           - { name: vet,       kind: command, command: go,     args: [vet, ./...] }
+#   java:   - { name: test,      kind: command, command: ./gradlew, args: [test] }
+#   make:   - { name: test,      kind: command, command: make,   args: [test] }
+#
+# `command` is argv-based and spawned WITHOUT a shell, so there is no quoting
+# surface: every argument is its own `args` entry, and `cargo test && rm -rf /`
+# in a `command` is a missing binary, not a second command. A relative command
+# (`./gradlew`, `.venv/bin/pytest`) resolves against the repository worktree; a
+# bare name (`pytest`) is a PATH lookup, so a virtualenv must already be on the
+# PATH the extension host inherited.
 uat:
   # WIRED. Fix→UAT→fix retries before the ticket parks. Narrows UAT only; review
   # has its own `review.maxFixAttempts`.
@@ -436,7 +459,8 @@ ticketing:
 
 # Review stage gates (optional). Absent yields the default pipeline: karst
 # probes package.json for lint/typecheck/build/format and runs whichever
-# exist. `test` is deliberately not among them — UAT already runs it first on
+# exist. Non-Node repo: declare `gates:` with `kind: command` entries and the
+# package.json probe is never consulted — see the cookbook above `uat:`. `test` is deliberately not among them — UAT already runs it first on
 # the same worktree, so review re-asking it would be the exact duplicated
 # question `requireIndependentSignal` below exists to catch.
 review:

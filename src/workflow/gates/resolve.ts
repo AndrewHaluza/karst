@@ -113,10 +113,24 @@ export function resolveGates(
     }),
   );
   if (discovered.length === 0) {
+    // Auto-discovery is npm-script-shaped, so this is where every non-Node
+    // repository lands. The escape hatch is one branch up — declared gates win
+    // before the probe is read, and a `kind: command` gate needs no
+    // package.json at all — but a reason that named only the Node path taught
+    // the opposite, and projects wrote package.json-shaped shim scripts to work
+    // around a limit karst does not have. So the blocker says what to do next.
+    const found =
+      probe.kind === 'absent'
+        ? 'this repository has no package.json'
+        : `package.json defines none of: ${probeList.join(', ')}`;
     return {
       kind: 'unavailable',
       blocker: 'nothing-to-run',
-      reason: `no gates configured and package.json defines none of: ${probeList.join(', ')}`,
+      reason:
+        `no gates configured and ${found}. For a non-Node toolchain, declare ` +
+        `"kind: command" gates under uat.gates / review.gates in karst.yml ` +
+        `(e.g. command: pytest) — a command gate runs no npm script and needs ` +
+        `no package.json.`,
     };
   }
   return { kind: 'gates', gates: discovered };
