@@ -37,6 +37,15 @@ export interface TicketDraftFields {
    * create (`clickup`); the host re-checks at the trust boundary.
    */
   createInProvider: boolean;
+  /**
+   * True when the Key field content is the title-derived preview, not text the
+   * user typed or pasted (§ manual ticket creation). The webview computes this
+   * as `!refTouched`. When true, the host re-resolves the key through
+   * `generateTicketKey` at persist time so a same-titled manual ticket gets a
+   * unique (suffixed) key instead of the previewed duplicate. Absent/false =
+   * the key is user-owned and kept verbatim.
+   */
+  keyAutoDerived?: boolean;
 }
 
 /**
@@ -258,6 +267,7 @@ function parseDraftFields(m: Record<string, unknown>): TicketDraftFields | null 
     agentProvider,
     ticketType,
     createInProvider,
+    keyAutoDerived: m.keyAutoDerived === true,
   };
 }
 
@@ -443,6 +453,7 @@ export function routeTicketFormAction(
         agentProvider: msg.agentProvider,
         ticketType: msg.ticketType,
         createInProvider: msg.createInProvider,
+        keyAutoDerived: msg.keyAutoDerived,
         pullBase: msg.pullBase,
       });
       return;
@@ -460,6 +471,7 @@ export function routeTicketFormAction(
         agentProvider: msg.agentProvider,
         ticketType: msg.ticketType,
         createInProvider: msg.createInProvider,
+        keyAutoDerived: msg.keyAutoDerived,
       });
       return;
     case 'request-state':
