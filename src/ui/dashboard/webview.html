@@ -678,6 +678,54 @@
   #inside .stageMenu .menuButton{min-height:var(--k-control-h-lg)}
   #inside .blurb{padding:var(--p-s3) var(--p-s4);color:var(--p-muted);font-size:var(--p-sm)}
 
+  /* Round switcher (Option B, T6 — docs/plans/round-switcher.md): the tabs
+     scope BOTH Gates and the Tester/Review process for one gate stage, so
+     they live in the header region — a sibling strip right under
+     `.inside-head`, sharing its border and surface — rather than inside any
+     one process row. Absent entirely whenever the host omits `view.attempts`
+     or ships fewer than 2 (UI-R31: the host states the fact — nothing here
+     recomputes attempt count). */
+  #inside .attempt-tabs{display:flex;align-items:center;gap:var(--p-s2);flex-wrap:wrap;
+    padding:var(--p-s2) var(--p-s4);border-bottom:var(--k-border-w) solid var(--p-border);
+    background:var(--p-surface2)}
+  /* A real <button role="tab">, not a styled <a> or <div> (UI-R09): it is
+     focusable and clickable by native semantics, and the roving `tabindex`
+     below is the only thing standing in for the browser's own tab-panel
+     wiring (there is no separate tabpanel — selecting an attempt re-renders
+     the whole ledger, so `aria-controls` would name a moving target). */
+  #inside .attempt-tab{display:inline-flex;align-items:center;gap:var(--p-s1);
+    height:var(--k-control-h-sm);padding:0 var(--p-s2);border:var(--k-border-w) solid transparent;
+    border-radius:var(--k-radius-sm);color:var(--p-muted);background:transparent;
+    font-family:var(--p-mono);font-size:var(--p-xs);white-space:nowrap}
+  #inside .attempt-tab:hover{background:var(--p-hover);color:var(--p-text)}
+  /* Selected state is border + surface + weight, not colour alone (UI-R28) —
+     the visible status word beside the glyph carries the pass/fail meaning;
+     this carries only "which tab is current". */
+  #inside .attempt-tab[aria-selected="true"]{background:var(--p-surface);
+    border-color:var(--p-border);color:var(--p-strong);font-weight:var(--k-weight-semibold)}
+  /* UI-R23: focus stays visibly identifiable, same ring token as every other
+     control in this file. */
+  #inside .attempt-tab:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);
+    outline-offset:var(--k-focus-offset)}
+  /* The glyph reuses the ledger's own icon-only primitive (UI-R28b: shape,
+     never colour, carries the verdict) at a smaller size for the tab strip;
+     `#inside .glyph.run:before{animation:none}` under reduced motion (line
+     ~1196) already covers this instance — no separate override needed. */
+  #inside .attempt-tab .glyph{width:12px;height:12px}
+  #inside .attempt-tab-status{text-transform:lowercase}
+  #inside .attempt-tab-status.pass{color:var(--p-passed)}
+  #inside .attempt-tab-status.fail{color:var(--p-failed)}
+  #inside .attempt-tab-status.run{color:var(--p-running)}
+  #inside .attempt-tab-status.wait{color:var(--p-attention)}
+  #inside .attempt-tab-status.skip{color:var(--p-skip)}
+  #inside .attempt-tab-status.pending,#inside .attempt-tab-status.note{color:var(--p-muted2)}
+  /* The attemptNote banner: host-authored prose only (UI-R31 — the webview
+     composes no copy of its own), shown above the ledger exactly while the
+     selected attempt is not the latest one. */
+  #inside .attempt-note{padding:var(--p-s2) var(--p-s4);color:var(--p-attention);
+    font-size:var(--p-sm);border-bottom:var(--k-border-w) solid var(--p-border);
+    background:var(--p-tint-wait)}
+
   /* Agent identity primitive */
   #inside .agent-id{display:inline-flex;align-items:center;gap:var(--p-s1);min-width:0;height:18px;
     color:var(--p-muted);font-family:var(--p-mono);font-size:var(--p-xs);line-height:14px;vertical-align:middle}
@@ -2269,6 +2317,52 @@
     return INSIDE_STATUS_LABEL[status] || status || '';
   }
 
+  // Round switcher (Option B, T6): the attempt tabs scoping ONE gate stage's
+  // whole process list (Gates + Tester/Review), so they render once in the
+  // stage header, never per process row (docs/plans/round-switcher.md T6).
+  //
+  // `view.attempts` is absent OR holds fewer than 2 entries whenever the
+  // stage never looped — `attemptSwitcherFor`/`stageView` (state.ts) already
+  // withhold it in that case, so this renders NOTHING (no wrapper, no empty
+  // tablist) rather than re-deriving the same "costs nothing" rule here.
+  //
+  // Selection is host-held (round-switcher.md "Selection state"): a click
+  // posts `select-gate-attempt` through the file's ONE `[data-act]` dispatch
+  // path (below) and waits for the next snapshot to move `aria-selected` —
+  // there is no local optimistic flip, the same rule the stage menu and
+  // send-back actions already follow for a host-authoritative state.
+  function attemptTabsHtml(view) {
+    const attempts = view.attempts;
+    if (!attempts || attempts.length < 2) return '';
+    const keys = attempts.map((a) => a.key).join(',');
+    const tabs = attempts.map((a, i) => {
+      const selected = a.key === view.selectedAttempt;
+      // The glyph is icon-only (UI-R28b — no visible word inside the
+      // primitive itself); the visible status word sits beside it as
+      // "surrounding row copy", which UI-R28b explicitly allows and UI-R28
+      // requires so the verdict never rides colour alone.
+      const glyph = `<span class="glyph ${esc(a.status)}" aria-hidden="true"></span>`;
+      const statusText = `<span class="attempt-tab-status ${esc(a.status)}">${esc(a.statusLabel)}</span>`;
+      // Roving tabindex (WAI-ARIA tabs pattern): only the selected tab sits
+      // in the Tab order; Left/Right move both focus and the host selection
+      // between siblings (below) without adding a second stop per tab.
+      // The id is STAGE-scoped: the ordinal alone would collide the moment a
+      // second stage's tablist is ever rendered beside this one, and
+      // `getElementById` would then move focus into the wrong stage's strip.
+      return `<button type="button" class="attempt-tab" role="tab" id="attempt-tab-${esc(view.stageKey)}-${i}"`
+        + ` aria-selected="${selected ? 'true' : 'false'}" tabindex="${selected ? '0' : '-1'}"`
+        + ` data-act="select-gate-attempt" data-stage="${esc(view.stageKey)}"`
+        + ` data-key="${esc(a.key)}" data-index="${i}" data-keys="${esc(keys)}">`
+        + `${glyph}<span class="attempt-tab-label">${esc(a.label)}</span>${statusText}</button>`;
+    }).join('');
+    return `<div class="attempt-tabs" role="tablist" aria-label="Attempts">${tabs}</div>`;
+  }
+
+  /** The attemptNote banner: host-authored prose, verbatim, above the ledger. */
+  function attemptNoteHtml(view) {
+    return view.attemptNote ? `<div class="attempt-note">${esc(view.attemptNote)}</div>` : '';
+  }
+
   // ── the prototype's shared primitives ──────────────────────────────────
   // The identity run: [agent name ·] core mark + core · model. Every part is
   // host-shipped (`AgentExecutionView`); the mark is the CANONICAL provider
@@ -2821,9 +2915,9 @@
     // `view.console` flag — only the stage key travels on, so the click
     // handler posts exactly the stage whose log is available.
     const consoleStage = view.console ? view.stageKey : null;
-    const body = procs.length
+    const body = attemptNoteHtml(view) + (procs.length
       ? `<div class="ledger">${procs.map((p) => processRowHtml(p, `${view.stageKey}:${p.id}`, processOpen(p, `${view.stageKey}:${p.id}`), consoleStage)).join('')}</div>`
-      : `<div class="blurb">${esc(view.blurb)}</div>`;
+      : `<div class="blurb">${esc(view.blurb)}</div>`);
 
     // The prototype's block: viewing bar, then the three-cell header (stage
     // title · live operation · meta), then the ledger. The fourth cell — the
@@ -2853,7 +2947,7 @@
       + `<span class="inside-title" id="inside-title">Inside ${esc(view.stageKey)}</span>`
       + `<span class="inside-live ${esc(lstatus)}">${alive}</span>`
       + `<span class="inside-meta">${esc(view.clock)}</span>`
-      + `${stageMenu}</div>${body}</section>`;
+      + `${stageMenu}</div>${attemptTabsHtml(view)}${body}</section>`;
   }
 
   // A LIVE repaint is the same snapshot re-read — nothing structural changed,
@@ -4286,6 +4380,30 @@
       e.preventDefault();
       e.target.closest('.gateSwitch').click();
     }
+    // Round switcher (T6): Left/Right move the attempt selection. The tab
+    // carries its own ordinal (`data-index`) and the whole stage's ordered
+    // key list (`data-keys`) — no DOM traversal of the tablist needed, and
+    // no wrap at either end (the WAI-ARIA tabs pattern permits either; a flat
+    // ordinal list of at most ATTEMPT_TABS_LIMIT reads better without wrap).
+    // Reuses the tab's OWN click, so this is the same one dispatch path the
+    // pointer takes — never a second way to post the selection.
+    if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && e.target && e.target.closest) {
+      const tab = e.target.closest('[data-act]');
+      if (tab && tab.dataset.act === 'select-gate-attempt') {
+        const keys = (tab.dataset.keys || '').split(',').filter(Boolean);
+        const index = Number(tab.dataset.index);
+        const nextIndex = e.key === 'ArrowRight' ? index + 1 : index - 1;
+        const nextKey = keys[nextIndex];
+        if (nextKey !== undefined) {
+          e.preventDefault();
+          post({ type: 'select-gate-attempt', stage: tab.dataset.stage, key: nextKey });
+          // Focus follows selection immediately (the roving-tabindex pattern);
+          // the next snapshot's re-render then carries the real aria-selected.
+          const next = document.getElementById(`attempt-tab-${tab.dataset.stage}-${nextIndex}`);
+          if (next && next.focus) next.focus();
+        }
+      }
+    }
   });
 
   // Tracks which merge disclosures (`.mgd`) are open, so the next render — fired
@@ -4469,6 +4587,19 @@
     // nothing about this action never receives a message it cannot answer.
     if (act === 'preview-ticket-data') {
       openTicketData();
+      return;
+    }
+
+    // Round switcher (T6): a pure selection, like the header's stage-menu
+    // toggle — no requestId/pending, the host answers with its next snapshot
+    // (`selectedAttempt` re-derived) rather than a terminal ack this control
+    // has nothing to settle. `stage`/`key` are exactly what messages.ts
+    // validates; nothing else rides on this wire.
+    if (act === 'select-gate-attempt') {
+      const stage = btn.dataset.stage;
+      const key = btn.dataset.key;
+      if (!stage || !key) return;
+      post({ type: act, stage, key });
       return;
     }
 

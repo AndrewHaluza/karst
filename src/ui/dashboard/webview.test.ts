@@ -17,6 +17,7 @@ import { setStage } from '../../store/stages.js';
 import { parkGateStage } from '../../store/stageBlocks.js';
 import { EVIDENCE_KINDS } from '../../model/inside/types.js';
 import type { InsideProcessView, InsideStageKey, InsideStageView } from '../../model/inside/types.js';
+import type { AttemptKey, GateAttemptView } from '../../model/inside/rounds.js';
 import type { ArtifactSummary } from '../../model/artifacts.js';
 
 const HTML = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'webview.html'), 'utf8');
@@ -2156,6 +2157,13 @@ interface PreviewHarness {
   click(sel: string, dataset: Record<string, string>, pathSelectors?: string[]): void;
   /** Press a key on the document keydown listener. */
   key(key: string): void;
+  /**
+   * Press a key on the document's delegated keydown listener through a fake
+   * target at ONE selector — the keyboard twin of `click` above, for the
+   * round switcher's Left/Right arrow handling (T6). `dataset` carries
+   * whatever the tab itself renders (`act`, `stage`, `key`, `index`, `keys`).
+   */
+  keyOn(sel: string, key: string, dataset: Record<string, string>): void;
   htmlOf(id: string): string;
   textOf(id: string): string;
   classesOf(id: string): string[];
@@ -2399,6 +2407,18 @@ function bootPreviewHarness(): PreviewHarness {
     // Press a key on the document's keydown listener (Esc mirrors Back).
     key: (key: string) => {
       for (const handler of docListeners.get('keydown') ?? []) handler({ key });
+    },
+    // Same fake-target shape as `click` above, delivered to the keydown
+    // listeners instead of the click listeners.
+    keyOn: (sel, key, dataset) => {
+      const node = {
+        dataset,
+        closest: (s: string) => (s === sel ? node : null),
+        focus: () => {},
+      };
+      for (const handler of docListeners.get('keydown') ?? []) {
+        handler({ key, target: node, preventDefault: () => {} });
+      }
     },
     htmlOf: (id) => elements[id]!.innerHTML,
     textOf: (id) => elements[id]!.textContent,
@@ -3809,6 +3829,133 @@ describe('send back to implement (executed in a VM)', () => {
     // Same contract as merge-pr/refresh-prs: the host answers with a state push,
     // not an immediate ack, so the wire carries exactly the payload-free action.
     expect(HYDRATED).toMatch(/if \(act === 'send-back-to-implement'\)[\s\S]*?post\(\{ type: act \}\)/);
+  });
+});
+
+describe('round switcher — attempt tabs (T6, executed in a VM)', () => {
+  // Three attempts: R1 (the failing attempt that opened round 1), attempt 2
+  // (an intermediate re-run the plan's ordinal labelling names by position),
+  // and latest (the newest, unlabelled attempt — `listGateAttempts`' default
+  // selection). Exactly `rounds.ts`' GateAttemptView shape.
+  function threeAttempts(selected: string): {
+    attempts: readonly GateAttemptView[];
+    selectedAttempt: AttemptKey;
+    attemptNote?: string;
+  } {
+    const attempts: GateAttemptView[] = [
+      { key: 'sr:10', label: 'R1', status: 'fail', statusLabel: 'failed', round: 1, latest: false },
+      { key: 'sr:11', label: 'attempt 2', status: 'fail', statusLabel: 'failed', latest: false },
+      { key: 'sr:12', label: 'latest', status: 'pass', statusLabel: 'passed', latest: true },
+    ];
+    return {
+      attempts,
+      selectedAttempt: selected,
+      ...(selected === 'sr:12' ? {} : { attemptNote: 'Viewing R1 — not the latest attempt.' }),
+    };
+  }
+
+  function uatWithAttempts(selected = 'sr:12'): DashboardState {
+    const state = renderStateFor('uat');
+    return {
+      ...state,
+      insideViews: {
+        ...state.insideViews,
+        uat: { ...state.insideViews.uat, ...threeAttempts(selected) },
+      },
+    };
+  }
+
+  it('renders no tablist at all when attempts is absent', () => {
+    const html = renderWith(renderStateFor('uat'));
+    expect(html).not.toContain('role="tablist"');
+    expect(html).not.toContain('select-gate-attempt');
+  });
+
+  it('renders no tablist for a stage with a single recorded attempt', () => {
+    const state = renderStateFor('uat');
+    const uat = {
+      ...state.insideViews.uat,
+      attempts: [{ key: 'sr:12', label: 'latest', status: 'pass' as const, statusLabel: 'passed', latest: true }],
+      selectedAttempt: 'sr:12',
+    };
+    const html = renderWith({ ...state, insideViews: { ...state.insideViews, uat } });
+    expect(html).not.toContain('role="tablist"');
+  });
+
+  it('renders one tab per attempt, the selected one marked aria-selected', () => {
+    const html = renderWith(uatWithAttempts('sr:11'));
+    expect(html).toContain('role="tablist"');
+    expect(html.match(/role="tab"/g)).toHaveLength(3);
+    // Host-authored label AND a visible status word beside the glyph — colour
+    // is never the only carrier (UI-R28), and the glyph itself stays icon-only
+    // (UI-R28b: the visible word lives beside it, not inside the primitive).
+    expect(html).toContain('>R1<');
+    expect(html).toContain('>attempt 2<');
+    expect(html).toContain('>latest<');
+    expect(html).toContain('>failed<');
+    expect(html).toContain('>passed<');
+    // Exactly the selected attempt carries aria-selected="true".
+    const tabs = [...html.matchAll(/<button[^>]*role="tab"[^>]*>/g)].map((m) => m[0]);
+    expect(tabs).toHaveLength(3);
+    const selected = tabs.filter((t) => t.includes('aria-selected="true"'));
+    expect(selected).toHaveLength(1);
+    expect(selected[0]).toContain('data-key="sr:11"');
+  });
+
+  it('escapes the attempt key and label through the existing esc() helper', () => {
+    expect(HYDRATED).toMatch(/data-key="\$\{esc\(a\.key\)\}"/);
+  });
+
+  it('renders the attemptNote banner verbatim above the ledger, only when present', () => {
+    const withNote = renderWith(uatWithAttempts('sr:10'));
+    expect(withNote).toContain('Viewing R1 — not the latest attempt.');
+    const latest = renderWith(uatWithAttempts('sr:12'));
+    expect(latest).not.toContain('Viewing R1');
+    // The banner appears before the ledger/blurb body, not inside it.
+    const bannerAt = withNote.indexOf('Viewing R1');
+    const ledgerAt = withNote.indexOf('class="ledger"');
+    expect(bannerAt).toBeGreaterThan(-1);
+    if (ledgerAt >= 0) expect(bannerAt).toBeLessThan(ledgerAt);
+  });
+
+  it('clicking a tab posts select-gate-attempt with the stage and the tab\'s key', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: uatWithAttempts('sr:12') });
+    h.click('[data-act]', { act: 'select-gate-attempt', stage: 'uat', key: 'sr:10' });
+    expect(h.posted).toEqual([{ type: 'select-gate-attempt', stage: 'uat', key: 'sr:10' }]);
+  });
+
+  it('posts through the file\'s one generic [data-act] dispatch path — no second wire', () => {
+    // Same delegated `document.addEventListener('click', ...)` every other
+    // action posts through — never a bespoke listener bound to the tablist.
+    expect(HYDRATED).toMatch(
+      /if \(act === 'select-gate-attempt'\)[\s\S]{0,300}post\(\{ type: act, stage[\s\S]{0,60}key[\s\S]{0,20}\}\)/,
+    );
+  });
+
+  it('ArrowRight/ArrowLeft move the selection and post the neighbouring attempt', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: uatWithAttempts('sr:11') });
+    h.keyOn('[data-act]', 'ArrowRight', {
+      act: 'select-gate-attempt', stage: 'uat', key: 'sr:11', index: '1', keys: 'sr:10,sr:11,sr:12',
+    });
+    expect(h.posted).toEqual([{ type: 'select-gate-attempt', stage: 'uat', key: 'sr:12' }]);
+    h.keyOn('[data-act]', 'ArrowLeft', {
+      act: 'select-gate-attempt', stage: 'uat', key: 'sr:11', index: '1', keys: 'sr:10,sr:11,sr:12',
+    });
+    expect(h.posted).toEqual([
+      { type: 'select-gate-attempt', stage: 'uat', key: 'sr:12' },
+      { type: 'select-gate-attempt', stage: 'uat', key: 'sr:10' },
+    ]);
+  });
+
+  it('ArrowRight at the last tab does not wrap and posts nothing', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: uatWithAttempts('sr:12') });
+    h.keyOn('[data-act]', 'ArrowRight', {
+      act: 'select-gate-attempt', stage: 'uat', key: 'sr:12', index: '2', keys: 'sr:10,sr:11,sr:12',
+    });
+    expect(h.posted).toEqual([]);
   });
 });
 

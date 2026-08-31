@@ -8,6 +8,7 @@ import type { Severity } from '../../manifest/types.js';
 import type { StepperCell } from '../stepper.js';
 import type { StageKey, StageStatus } from '../types.js';
 import { reviewProcesses, uatProcesses, type QualityProcessesInput } from './gates.js';
+import { attemptKey } from './rounds.js';
 import { formatTime, type EvidenceRow, type InsideProcessView } from './types.js';
 
 const NOW = '2026-07-20T12:30:00.000Z';
@@ -1051,5 +1052,131 @@ describe('gates process status while the stage runs its AI phase', () => {
     );
     expect(views[0]!.status).toBe('pass');
     expect(views.find((p) => p.id === 'review')!.status).toBe('run');
+  });
+});
+
+describe('round selection (T3): selectedAttempt resolves through the T1 selectors', () => {
+  it('is byte-identical whether selectedAttempt is omitted or explicitly null (the regression guard)', () => {
+    const input = qualityInput({
+      cell: cell('uat', 'passed'),
+      gateRuns: [
+        run('uat', 'test (web)', 1, { runAt: '2026-07-20T11:00:00.000Z', stageRunId: 1 }),
+        run('uat', 'test (web)', 0, { runAt: NOW, stageRunId: 2 }),
+      ],
+      processRuns: [
+        processRun({ id: 1, stageRunId: 1, status: 'passed', resultKind: 'observed' }),
+        processRun({ id: 2, stageRunId: 2, status: 'passed', resultKind: 'observed' }),
+      ],
+      rounds: [round({ sourceStageRunId: 1 })],
+    });
+    const withoutKey = uatProcesses(input);
+    const withNull = uatProcesses({ ...input, selectedAttempt: null });
+    expect(withNull).toEqual(withoutKey);
+  });
+
+  it("selecting an older attempt renders that attempt's own gate batch, not the latest", () => {
+    const views = uatProcesses(
+      qualityInput({
+        cell: cell('uat', 'passed'),
+        gateRuns: [
+          run('uat', 'test (web)', 1, { runAt: '2026-07-20T11:00:00.000Z', stageRunId: 1, repo: '/web' }),
+          run('uat', 'test (web)', 0, { runAt: NOW, stageRunId: 2, repo: '/web' }),
+        ],
+        selectedAttempt: attemptKey(1, ''),
+      }),
+    );
+    const gates = views.find((p) => p.id === 'gates')!;
+    expect(gates.count).toBe('0/1');
+    expect(gates.status).toBe('fail');
+  });
+
+  it("the Tester's observations follow the selected run, not the latest one", () => {
+    const views = uatProcesses(
+      qualityInput({
+        gateRuns: [
+          run('uat', 'test (web)', 0, { runAt: '2026-07-20T11:00:00.000Z', stageRunId: 1 }),
+          run('uat', 'test (web)', 0, { runAt: NOW, stageRunId: 2 }),
+        ],
+        processRuns: [
+          processRun({ id: 1, stageRunId: 1, status: 'passed', resultKind: 'observed' }),
+          processRun({ id: 2, stageRunId: 2, status: 'passed', resultKind: 'observed' }),
+        ],
+        uatFindings: [
+          uatFinding('high', { processRunId: 1, title: 'round 1 issue' }),
+          uatFinding('low', { processRunId: 2, title: 'latest issue' }),
+        ],
+        selectedAttempt: attemptKey(1, ''),
+      }),
+    );
+    const tester = views.find((p) => p.id === 'tester')!;
+    expect(rowsOf(tester).map((r) => r.detail)).toEqual(['round 1 issue']);
+  });
+
+  it('review findings follow the selected batch, not the newest one', () => {
+    const views = reviewProcesses(
+      qualityInput({
+        cell: cell('review', 'passed'),
+        gateRuns: [
+          run('review', 'lint (web)', 0, { runAt: '2026-07-20T11:00:00.000Z', stageRunId: 1 }),
+          run('review', 'lint (web)', 0, { runAt: NOW, stageRunId: 2 }),
+        ],
+        processRuns: [
+          processRun({
+            id: 1,
+            stageKey: 'review',
+            processId: 'review',
+            stageRunId: 1,
+            status: 'passed',
+            resultKind: 'validated',
+          }),
+          processRun({
+            id: 2,
+            stageKey: 'review',
+            processId: 'review',
+            stageRunId: 2,
+            status: 'passed',
+            resultKind: 'validated',
+          }),
+        ],
+        findings: [
+          finding('high', { processRunId: 1, title: 'round 1 finding' }),
+          finding('low', { processRunId: 2, title: 'latest finding' }),
+        ],
+        selectedAttempt: attemptKey(1, ''),
+      }),
+    );
+    const review = views.find((p) => p.id === 'review')!;
+    expect(rowsOf(review).map((r) => r.detail)).toEqual(['round 1 finding']);
+  });
+
+  it('a settled historical attempt never renders a spinner, "so far" copy, or a resolved-gates forecast', () => {
+    const views = uatProcesses(
+      qualityInput({
+        cell: cell('uat', 'running', { startedAt: '2026-07-20T12:00:00.000Z' }),
+        gateRuns: [
+          run('uat', 'test (web)', 0, { runAt: '2026-07-20T11:00:00.000Z', stageRunId: 1 }),
+          run('uat', 'test (web)', 0, { runAt: NOW, stageRunId: 2 }),
+        ],
+        resolvedGates: [{ name: 'test', disabled: false }],
+        selectedAttempt: attemptKey(1, ''),
+      }),
+    );
+    const gates = views.find((p) => p.id === 'gates')!;
+    expect(gates.status).not.toBe('run');
+    expect(gates.detail).not.toContain('so far');
+    expect(gates.detail).not.toContain('will run when the stage runs');
+  });
+
+  it('a selected attempt with no matching run renders absence, never a different attempt\'s run', () => {
+    const views = uatProcesses(
+      qualityInput({
+        gateRuns: [run('uat', 'test (web)', 0, { runAt: NOW, stageRunId: 2 })],
+        processRuns: [processRun({ id: 2, stageRunId: 2, status: 'passed', resultKind: 'observed' })],
+        selectedAttempt: 'sr:999',
+      }),
+    );
+    const tester = views.find((p) => p.id === 'tester')!;
+    expect(tester.execution).toBeUndefined();
+    expect(tester.detail).toBe('no recorded run for this attempt');
   });
 });

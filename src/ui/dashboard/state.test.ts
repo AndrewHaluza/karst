@@ -10,8 +10,10 @@ import { upsertProject } from '../../store/projects.js';
 import { openProcessRun } from '../../store/processRuns.js';
 import { openStageRun } from '../../store/stageRuns.js';
 import { parkGateStage } from '../../store/stageBlocks.js';
+import { openRecoveryRound } from '../../store/recoveryRounds.js';
 import { MAX_DIAGNOSTIC_CHARS } from '../../model/diagnosticText.js';
 import { formatTime } from '../../model/inside/types.js';
+import { attemptKey } from '../../model/inside/rounds.js';
 import { InsideActionRegistry } from './insideActions.js';
 import { buildDashboardState } from './state.js';
 import type { ArtifactSummary } from '../../model/artifacts.js';
@@ -1360,5 +1362,140 @@ describe('buildDashboardState — graph inside projection (Slice-2 T10)', () => 
     expect(impl.processes.map((p) => p.id)).toEqual(['session', 'graph']);
     expect(impl.processes[1]!.label).toBe('Implementation graph');
     expect(impl.processes[1]!.status).toBe('run');
+  });
+});
+
+describe('buildDashboardState — round switcher selection (Option B, T4)', () => {
+  let store: Store;
+  beforeEach(() => (store = openStore(':memory:')));
+  afterEach(() => store.close());
+
+  /**
+   * Two full UAT rounds: attempt 1 fails and opens round 1, the fix runs,
+   * attempt 2 fails and opens round 2, attempt 3 is the live/latest attempt
+   * (still passing). Returns the ticket id and each attempt's `stageRunId` so
+   * a test can build the canonical `attemptKey` for a selection.
+   */
+  function seedTwoRoundUatHistory(): { ticketId: number; stageRunIds: [number, number, number] } {
+    const t = createTicket(store, { key: 'RS-1', title: 'round switcher' });
+    store.db.prepare("UPDATE tickets SET stage_current = 'uat' WHERE id = ?").run(t.id);
+    setStage(store, t.id, 'uat', { status: 'running', startedAt: '2026-08-20T09:00:00.000Z' });
+
+    // Attempt 1: fails, opens round 1.
+    const sr1 = openStageRun(store, {
+      ticketId: t.id, stageKey: 'uat', attempt: 0,
+      runAt: '2026-08-20T09:00:00.000Z', startedAt: '2026-08-20T09:00:00.000Z',
+    });
+    recordGateRun(store, {
+      ticketId: t.id, stageKey: 'uat', attempt: 0, runAt: '2026-08-20T09:00:00.000Z', stageRunId: sr1,
+      gates: [{ gateName: 'test (web)', exitCode: 1, startedAt: '2026-08-20T09:00:00.000Z', endedAt: '2026-08-20T09:01:00.000Z' }],
+    });
+    openRecoveryRound(store, {
+      ticketId: t.id, sourceStage: 'uat', sourceProcessId: 'gates', sourceStageRunId: sr1,
+      sourceProcessRunId: null, triggerKind: 'gate-failure', triggerDetail: 'test (web) failed',
+      maxRounds: 3, startedAt: '2026-08-20T09:01:00.000Z',
+    });
+
+    // Attempt 2 (round 1's revalidation): fails again, opens round 2.
+    const sr2 = openStageRun(store, {
+      ticketId: t.id, stageKey: 'uat', attempt: 1,
+      runAt: '2026-08-20T10:00:00.000Z', startedAt: '2026-08-20T10:00:00.000Z',
+    });
+    recordGateRun(store, {
+      ticketId: t.id, stageKey: 'uat', attempt: 1, runAt: '2026-08-20T10:00:00.000Z', stageRunId: sr2,
+      gates: [{ gateName: 'test (web)', exitCode: 1, startedAt: '2026-08-20T10:00:00.000Z', endedAt: '2026-08-20T10:01:00.000Z' }],
+    });
+    openRecoveryRound(store, {
+      ticketId: t.id, sourceStage: 'uat', sourceProcessId: 'gates', sourceStageRunId: sr2,
+      sourceProcessRunId: null, triggerKind: 'gate-failure', triggerDetail: 'test (web) failed again',
+      maxRounds: 3, startedAt: '2026-08-20T10:01:00.000Z',
+    });
+
+    // Attempt 3: the live attempt, still running (gates passed, Tester running).
+    const sr3 = openStageRun(store, {
+      ticketId: t.id, stageKey: 'uat', attempt: 2,
+      runAt: '2026-08-20T11:00:00.000Z', startedAt: '2026-08-20T11:00:00.000Z',
+    });
+    recordGateRun(store, {
+      ticketId: t.id, stageKey: 'uat', attempt: 2, runAt: '2026-08-20T11:00:00.000Z', stageRunId: sr3,
+      gates: [{ gateName: 'test (web)', exitCode: 0, startedAt: '2026-08-20T11:00:00.000Z', endedAt: '2026-08-20T11:01:00.000Z' }],
+    });
+    openProcessRun(store, {
+      ticketId: t.id, stageKey: 'uat', processId: 'tester', attempt: 2, stageRunId: sr3,
+      provider: 'codex', startedAt: '2026-08-20T11:02:00.000Z',
+    });
+
+    return { ticketId: t.id, stageRunIds: [sr1, sr2, sr3] };
+  }
+
+  it('defaults to the latest attempt and carries no banner when no selection is supplied', () => {
+    const { ticketId, stageRunIds } = seedTwoRoundUatHistory();
+    const uat = buildDashboardState(store, ticketId).insideViews.uat;
+    expect(uat.attempts).toHaveLength(3);
+    expect(uat.attempts!.map((a) => a.label)).toEqual([
+      'attempt 1 · R1',
+      'attempt 2 · R2',
+      'live',
+    ]);
+    expect(uat.selectedAttempt).toBe(attemptKey(stageRunIds[2], ''));
+    expect(uat.attemptNote).toBeUndefined();
+    // The live attempt's own gates/ledger render — same as the pre-switcher read.
+    expect(uat.processes.find((p) => p.id === 'gates')!.status).toBe('pass');
+  });
+
+  it('keeps the AI evidence of a run that carries no stage run id on the default view', () => {
+    // Review round 1, [high]: the latest tab used to select its OWN key, and a
+    // key restricts every read to rows carrying a `stage_run_id`. A
+    // `process_runs` row written before v25 carries none, so the Tester the
+    // panel had always shown vanished from the DEFAULT view the moment a
+    // ticket looped. The latest tab is the default path and selects nothing.
+    const { ticketId } = seedTwoRoundUatHistory();
+    store.db.prepare("UPDATE process_runs SET stage_run_id = NULL WHERE process_id = 'tester'").run();
+    const uat = buildDashboardState(store, ticketId).insideViews.uat;
+    const tester = uat.processes.find((p) => p.id === 'tester')!;
+    expect(tester.detail).not.toBe('no recorded run for this attempt');
+    expect(tester.execution).toBeDefined();
+  });
+
+  it('selects an explicitly requested historical attempt and renders its batch, with a banner', () => {
+    const { ticketId, stageRunIds } = seedTwoRoundUatHistory();
+    const requested = attemptKey(stageRunIds[0], '');
+    const state = buildDashboardState(
+      store, ticketId, undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      { uat: requested },
+    );
+    const uat = state.insideViews.uat;
+    expect(uat.selectedAttempt).toBe(requested);
+    expect(uat.attemptNote).toBe('viewing round 1 — not the current result');
+    // Round 1's own (failing) batch renders, not the live attempt's.
+    expect(uat.processes.find((p) => p.id === 'gates')!.status).toBe('fail');
+  });
+
+  it('falls back to latest, silently, when the requested key names no recorded attempt', () => {
+    const { ticketId, stageRunIds } = seedTwoRoundUatHistory();
+    const state = buildDashboardState(
+      store, ticketId, undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      { uat: 'sr:99999-does-not-exist' },
+    );
+    const uat = state.insideViews.uat;
+    expect(uat.selectedAttempt).toBe(attemptKey(stageRunIds[2], ''));
+    expect(uat.attemptNote).toBeUndefined();
+    expect(uat.processes.find((p) => p.id === 'gates')!.status).toBe('pass');
+  });
+
+  it('emits no attempts array at all for a stage with fewer than 2 attempts', () => {
+    const t = createTicket(store, { key: 'RS-2', title: 'no loop' });
+    store.db.prepare("UPDATE tickets SET stage_current = 'uat' WHERE id = ?").run(t.id);
+    setStage(store, t.id, 'uat', { status: 'passed', startedAt: '2026-08-20T09:00:00.000Z', endedAt: '2026-08-20T09:30:00.000Z' });
+    recordGateRun(store, {
+      ticketId: t.id, stageKey: 'uat', attempt: 0, runAt: '2026-08-20T09:00:00.000Z',
+      gates: [{ gateName: 'test (web)', exitCode: 0 }],
+    });
+    const uat = buildDashboardState(store, t.id).insideViews.uat;
+    expect(uat.attempts).toBeUndefined();
+    expect(uat.selectedAttempt).toBeUndefined();
+    expect(uat.attemptNote).toBeUndefined();
   });
 });

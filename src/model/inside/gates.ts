@@ -9,6 +9,12 @@ import type { StageKey } from '../types.js';
 import { executionView, tokenView, type SessionConfiguredInput, type SessionTokensInput } from './agent.js';
 import { bounded } from './bounds.js';
 import { insertCausalFix, recoveryProcess } from './recovery.js';
+import {
+  batchForAttempt,
+  latestAttemptKey,
+  processRunForAttempt,
+  type AttemptKey,
+} from './rounds.js';
 import type { InsideEvidenceTarget, TypedInsideAction } from './types.js';
 import {
   formatDuration,
@@ -59,6 +65,33 @@ export function latestBatch(runs: readonly GateRun[], stageKey: StageKey): GateR
   );
   return latest === null ? [] : mine.filter((r) => r.runAt === latest);
 }
+
+/**
+ * Whether a selection names a SETTLED (non-latest) attempt (T3).
+ *
+ * `null`/absent is never settled — that is the un-looped "latest" path every
+ * existing reducer already reproduces exactly. An explicit key is settled
+ * unless it happens to name the newest recorded batch: a reader who selects
+ * the tab already labelled `latest`/`live` still sees the live picture, not a
+ * frozen one. A key that matches no recorded batch (a stale selection, or an
+ * attempt whose rows never carried this stage's gates) is settled too — there
+ * is nothing live left for it to be.
+ */
+function isSettledSelection(
+  runs: readonly GateRun[],
+  stageKey: StageKey,
+  selectedAttempt: AttemptKey | null,
+): boolean {
+  if (selectedAttempt === null) return false;
+  // Asked of the attempt SERIES, never of a row picked out of a batch: rows of
+  // one batch need not agree about `stageRunId` (a legacy row carries none),
+  // so `batch[0]` could name a key no attempt holds and make the newest
+  // attempt read as settled.
+  return selectedAttempt !== latestAttemptKey(runs, stageKey);
+}
+
+/** Host-authored absence copy for an AI process whose selected attempt recorded no run. */
+const NO_RUN_FOR_ATTEMPT_DETAIL = 'no recorded run for this attempt';
 
 /**
  * One recorded gate as a row.
@@ -205,6 +238,15 @@ export interface QualityProcessesInput {
   services: readonly string[];
   /** Injected so a running process's elapsed time is testable. */
   now: string;
+  /**
+   * The round switcher's current selection (Option B, T3) — an `AttemptKey`
+   * from `rounds.ts`'s `listGateAttempts`, or `null`/absent for "the latest
+   * attempt", which reproduces every reducer's pre-switcher behaviour
+   * BYTE-FOR-BYTE. Selecting a key re-derives the gate batch, the AI process
+   * run, and that run's findings/observations from THAT attempt alone — never
+   * a mix of one attempt's gates with another's findings.
+   */
+  selectedAttempt?: AttemptKey | null;
   /** The configured AI assignment — shown only before a recorded execution. */
   configured?: SessionConfiguredInput | null;
   /** A RECORDED token summary for the stage's AI process; omitted when unmeasured. */
@@ -229,19 +271,6 @@ export interface QualityProcessesInput {
    * the raw recorded value rather than rendering nothing.
    */
   repoNameFor?: (repo: string) => string | undefined;
-}
-
-/** The latest invocation of a process, by its explicit run id. */
-function latestProcessRun(
-  runs: readonly ProcessRun[],
-  processId: string,
-): ProcessRun | undefined {
-  let best: ProcessRun | undefined;
-  for (const run of runs) {
-    if (run.processId !== processId) continue;
-    if (best === undefined || run.id > best.id) best = run;
-  }
-  return best;
 }
 
 /**
@@ -326,12 +355,21 @@ function gatesProcess(
   resolved: readonly { name: string; disabled: boolean }[] = [],
   repoNameFor?: (repo: string) => string | undefined,
   processRuns: readonly ProcessRun[] = [],
+  selectedAttempt: AttemptKey | null = null,
 ): InsideProcessView {
   // One mapping, used by BOTH the per-gate rows and the failure sentence: a
   // row that named the service while the summary above it named the path
   // would read as two different repositories.
   const repoLabel = (repo: string): string => repoNameFor?.(repo) ?? repo;
-  const batch = latestBatch(runs, stageKey).filter((r) => r.gateName !== CHANGES_GATE);
+  const batch = batchForAttempt(runs, stageKey, selectedAttempt).filter(
+    (r) => r.gateName !== CHANGES_GATE,
+  );
+  // A SETTLED (non-latest, or unmatched) selection can never be running,
+  // waiting or blocked, and never forecasts gates that "would run": a past
+  // attempt already happened, in full, or it did not happen at all — there is
+  // no "so far" for it. `selectedAttempt === null` (the default/latest path)
+  // is never settled, which is what keeps that path byte-for-byte unchanged.
+  const settled = isSettledSelection(runs, stageKey, selectedAttempt);
   let passed = 0;
   let failed = 0;
   let skipped = 0;
@@ -347,9 +385,12 @@ function gatesProcess(
   // running, and the row must not draw a spinner or promise the first gate's
   // row beside its own block banner.
   const shown = displayStatus(cell);
-  const finished = shown === 'passed' || shown === 'failed';
-  const running = shown === 'running';
-  const blocked = shown === 'blocked';
+  // A settled attempt reads as finished no matter what the STAGE (the live
+  // cell) is doing right now — the stage may well be running a LATER attempt,
+  // but that says nothing about whether THIS one is still in flight.
+  const finished = settled || shown === 'passed' || shown === 'failed';
+  const running = !settled && shown === 'running';
+  const blocked = !settled && shown === 'blocked';
   // Gates are only the stage's FIRST question. While the stage stays `running`
   // the gates process must not keep drawing a spinner after every gate has
   // answered: the stage is still running because its AI process (the Tester
@@ -364,12 +405,13 @@ function gatesProcess(
   // the conservative answer: the gates are (still) running.
   const batchStageRunId = batch.length > 0 ? (batch[0]!.stageRunId ?? null) : null;
   const aiProcessId = stageKey === 'review' ? 'review' : 'tester';
-  const aiRun = latestProcessRun(processRuns, aiProcessId);
+  const aiRun = processRunForAttempt(processRuns, aiProcessId, selectedAttempt);
   const gatesDone =
-    batchStageRunId !== null &&
-    aiRun !== undefined &&
-    aiRun.stageRunId === batchStageRunId &&
-    aiRun.status !== 'stale';
+    settled ||
+    (batchStageRunId !== null &&
+      aiRun !== undefined &&
+      aiRun.stageRunId === batchStageRunId &&
+      aiRun.status !== 'stale');
   // Before anything ran, the resolved names (`gateOptions.ts`) are the gates
   // that WOULD run — a forecast, ROWS ONLY: it never touches the counts or
   // the aggregate, because a gate that has not run has no outcome. Recorded
@@ -533,7 +575,8 @@ function servicesProcess(cell: StepperCell, services: readonly string[]): Inside
  * `resultKind` is what states the outcome.
  */
 function testerProcess(input: QualityProcessesInput): InsideProcessView {
-  const run = latestProcessRun(input.processRuns, 'tester');
+  const selectedAttempt = input.selectedAttempt ?? null;
+  const run = processRunForAttempt(input.processRuns, 'tester', selectedAttempt);
   const observations = run
     ? input.uatFindings.filter((f) => f.processRunId === run.id)
     : [];
@@ -585,7 +628,14 @@ function testerProcess(input: QualityProcessesInput): InsideProcessView {
                     ? 'interrupted — no outcome'
                     : undefined,
         }
-      : {}),
+      : // A key was explicitly selected (not the default/latest path) and no
+        // run matched it — the T1 known limit: a legacy run with a null
+        // `stageRunId` can never match an explicit key. This is ABSENCE, not
+        // "unknown": it must never fall back to a different attempt's run,
+        // which would attribute one attempt's evidence to another.
+        selectedAttempt !== null
+        ? { detail: NO_RUN_FOR_ATTEMPT_DETAIL }
+        : {}),
     // The Tester's live output is console-observable whenever it has run: the
     // persisted tail (Task 13) is host-read on request. Host-derived, so the
     // webview renders the console button only for a run that actually happened.
@@ -604,8 +654,20 @@ function testerProcess(input: QualityProcessesInput): InsideProcessView {
  * the recorded `resultKind` states whether they actually did.
  */
 function reviewProcess(input: QualityProcessesInput): InsideProcessView {
-  const run = latestProcessRun(input.processRuns, 'review');
-  const batch = latestFindingsBatch(input.findings);
+  const selectedAttempt = input.selectedAttempt ?? null;
+  const run = processRunForAttempt(input.processRuns, 'review', selectedAttempt);
+  // The default/latest path (`selectedAttempt === null`) keeps the greatest-
+  // `runAt` reduction exactly as before — findings carry no stage run id of
+  // their own to key by. A selected run's findings are those THAT run
+  // recorded (`processRunId`), never a different attempt's batch: this is
+  // what stops a selection from mixing one attempt's gates with another's
+  // findings.
+  const batch =
+    selectedAttempt === null
+      ? latestFindingsBatch(input.findings)
+      : run
+        ? input.findings.filter((f) => f.processRunId === run.id)
+        : [];
   const blocking = batch.filter((f) => BLOCKING_STATUS_SEVERITIES.has(f.severity)).length;
   const boundedRows = bounded(
     batch.map((f): EvidenceRow => {
@@ -664,7 +726,9 @@ function reviewProcess(input: QualityProcessesInput): InsideProcessView {
                     ? 'interrupted — no outcome'
                     : undefined,
         }
-      : {}),
+      : selectedAttempt !== null
+        ? { detail: NO_RUN_FOR_ATTEMPT_DETAIL }
+        : {}),
     evidence: { kind: 'findings', rows, blocking },
   };
 }
@@ -680,6 +744,7 @@ export function uatProcesses(input: QualityProcessesInput): InsideProcessView[] 
       input.resolvedGates ?? [],
       input.repoNameFor,
       input.processRuns,
+      input.selectedAttempt ?? null,
     ),
     servicesProcess(input.cell, input.services),
     testerProcess(input),
@@ -702,6 +767,7 @@ export function reviewProcesses(input: QualityProcessesInput): InsideProcessView
       input.resolvedGates ?? [],
       input.repoNameFor,
       input.processRuns,
+      input.selectedAttempt ?? null,
     ),
     servicesProcess(input.cell, input.services),
     reviewProcess(input),

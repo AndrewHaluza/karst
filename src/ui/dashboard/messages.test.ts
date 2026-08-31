@@ -415,6 +415,39 @@ describe('routeAction', () => {
   });
 });
 
+describe('select-gate-attempt', () => {
+  it('parses a well-formed select-gate-attempt message', () => {
+    expect(parseWebviewMessage({ type: 'select-gate-attempt', stage: 'uat', key: 'round-2' }))
+      .toEqual({ type: 'select-gate-attempt', stage: 'uat', key: 'round-2' });
+  });
+
+  it('drops a select-gate-attempt message naming a stage that resolves no gates', () => {
+    for (const stage of ['ship', 'impl', 'merge', '', 'UAT']) {
+      expect(parseWebviewMessage({ type: 'select-gate-attempt', stage, key: 'round-2' }))
+        .toBeNull();
+    }
+  });
+
+  it('drops a select-gate-attempt message with a missing, blank or non-string key', () => {
+    for (const key of [undefined, '', 7, { toString: () => 'round-2' }]) {
+      expect(parseWebviewMessage({ type: 'select-gate-attempt', stage: 'uat', key }))
+        .toBeNull();
+    }
+  });
+
+  it('caps an absurdly long key rather than routing it', () => {
+    expect(parseWebviewMessage({
+      type: 'select-gate-attempt', stage: 'uat', key: 'x'.repeat(65),
+    })).toBeNull();
+  });
+
+  it('accepts a key at the 64-char boundary', () => {
+    const key = 'x'.repeat(64);
+    expect(parseWebviewMessage({ type: 'select-gate-attempt', stage: 'review', key }))
+      .toEqual({ type: 'select-gate-attempt', stage: 'review', key });
+  });
+});
+
 describe('inside-action', () => {
   it('parses the closed message: type + actionId only', () => {
     expect(parseWebviewMessage({ type: 'inside-action', actionId: 'snapshot-7:action-3' })).toEqual({
