@@ -41,6 +41,28 @@ describe('resolveGates', () => {
     });
   });
 
+  // The escape hatch has always existed — a declared `kind: command` gate is
+  // resolved before the probe is even read — but the blocker named only the
+  // Node path, so a Python or Rust repo read "karst is Node-only" and reached
+  // for a package.json-shaped shim script instead. The reason has to say what
+  // to do next, and it must say it for BOTH probe outcomes: a repo with no
+  // package.json at all is the common non-Node case.
+  it('points a repo with no package.json at command gates', () => {
+    const res = resolveGates({ kind: 'absent' }, [], PROBE_LIST);
+    expect(res.kind).toBe('unavailable');
+    if (res.kind !== 'unavailable') return;
+    expect(res.reason).toContain('no package.json');
+    expect(res.reason).toContain('kind: command');
+    expect(res.reason).toContain('karst.yml');
+  });
+
+  it('points a Node repo missing the probed scripts at command gates too', () => {
+    const res = resolveGates({ kind: 'ok', scripts: { build: 'tsc' } }, [], PROBE_LIST);
+    expect(res.kind).toBe('unavailable');
+    if (res.kind !== 'unavailable') return;
+    expect(res.reason).toContain('kind: command');
+  });
+
   // A malformed package.json is a repository defect an agent can fix; a
   // permission error is environmental and an agent cannot chmod its way out.
   it('makes a malformed package.json a required, failing gate', () => {

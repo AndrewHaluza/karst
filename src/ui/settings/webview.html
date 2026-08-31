@@ -5010,7 +5010,8 @@
     const empty = (gates || []).length === 0
       ? `<div class="gate-empty">${overrideRepo !== null
           ? 'No gates here — this repository runs the global list.'
-          : 'No gates declared — karst probes the repository\'s package.json scripts instead.'}</div>`
+          : 'No gates declared — karst probes the repository\'s package.json scripts instead. '
+            + 'Not a Node project? Add a Command gate (e.g. pytest, cargo test) — it runs no npm script.'}</div>`
       : '';
     return rows
       + empty

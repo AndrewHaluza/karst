@@ -11,6 +11,7 @@ The stage machine, the evidence it writes, and the host seam that drives it. Rel
 - Gate results and reported phases are append-only evidence
 - Evidence is written WHEN IT HAPPENS
 - A gate may be switched off for ONE ticket
+- Auto-discovery is npm-shaped; gating is not
 - Nothing in the extension host may block its event loop
 - The stage driver's host seam
 - Single-writer stage mutation
@@ -48,6 +49,12 @@ A gate run used to collect every `gate_runs` row in memory and commit the lot in
 ## A gate may be switched off for ONE ticket, and that is a filter over resolution's OUTPUT, never a change to resolution
 
 `tickets.disabled_gates` (v24, JSON `{uat:[],review:[]}`, NULL = nothing disabled) is read at run time by `stages/uat.ts` and `stages/review.ts` and applied by `workflow/gates/disable.ts`'s `partitionDisabled` — `workflow/gates/resolve.ts` never sees it, so "what did the config declare or the repo offer" keeps exactly one answer. A disabled gate is still RECORDED: one `gate_runs` row with `skipped = 1` and no exit code, which is a different fact from `exit_code IS NULL` ("the repo defines no such script, NOT a pass") — `model/inside/gates.ts` renders the two as `skip` and `note`. Skipped rows never enter `entries`, so no aggregator can mistake one for a question that was asked. A stage whose every gate the user disabled still PARKS (`nothing-to-run`), never passes; only the block's reason names the disable. The store writer is per-stage (`setDisabledGates(store, id, stage, names)`) for the same reason Settings Save is per-tab. The dashboard's toggle list is the RESOLVED names, computed async host-side (`ui/dashboard/gateOptions.ts`) — the raw manifest list would offer a toggle for a gate that never runs, and omit one that does.
+
+## Auto-discovery is npm-shaped; gating is not, and the blocker must say so
+
+`resolveGates` (`workflow/gates/resolve.ts`) returns declared gates **before it reads the probe at all** — so a repository whose gates are every one of them `kind: command` never touches `package.json`, and neither an absent nor a malformed one can block it. Only the ZERO-CONFIG path is Node-shaped: `probeScripts` reads `package.json` scripts, and a discovered gate is invoked as `npm run <script>`. That split is deliberate and is not a gap to close by teaching the probe other ecosystems — a `kind: command` gate is argv-based, spawned without a shell, and already expresses `pytest`, `cargo test`, `go test ./...` and `./gradlew test` exactly. **The defect was never the capability; it was that the `nothing-to-run` reason named only the npm path**, so a Python or Rust project read "karst is Node-only" and wrote a `package.json` whose scripts shimmed out to its real toolchain — the precise thing the command kind exists to make unnecessary. The reason therefore names the escape hatch, and distinguishes "no package.json at all" (the ordinary non-Node case) from "package.json defines none of the probed scripts" (a Node repo that is simply missing them); the Settings empty state and `karst.example.yml` carry the same sentence, because the moment the user needs it is the moment they are looking at an empty gate list. Guards: `gates/resolve.test.ts` "points a repo with no package.json at command gates", `ui/settings/webview.test.ts` "names command gates in the empty state".
+
+A gate `command` carrying a path separator is resolved against the gate's `cwd` before the platform shim sees it (`runtime/commandCwd.ts`), so `.venv/bin/pytest` and `./gradlew` mean the worktree — a bare name stays a PATH lookup, because that is what `pytest` or `go` is asking for. On POSIX this only makes explicit what `execvp` already does after the child chdirs; on Windows it is load-bearing, since `resolveOnPath`'s existence check would otherwise run against the extension host's directory and fall through to an ENOENT.
 
 ## Nothing that runs in the extension host may block its event loop
 

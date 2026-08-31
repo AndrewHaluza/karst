@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runCommand, runProcess } from './run.js';
@@ -268,5 +268,37 @@ describe('runProcess', () => {
   it('runCommand still reduces a spawn failure to exit 1', async () => {
     const r = await runCommand('karst-no-such-binary-xyz', [], process.cwd());
     expect(r.exitCode).toBe(1);
+  });
+});
+
+describe('relative gate commands', () => {
+  // A project-local toolchain (Python's `.venv/bin/`, `./gradlew`) is the
+  // ordinary case outside Node. On POSIX this already worked — libuv chdirs
+  // into the child's cwd before execvp — and these tests pin that, because
+  // `resolveCommandCwd` now rewrites the command before the spawn and must not
+  // change the answer here. Its actual fix is on Windows, where the lookup in
+  // `resolveOnPath` runs against the extension host's cwd; that path is
+  // covered by `runtime/command.test.ts`.
+  it('runs a command relative to the gate cwd, not the process cwd', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-relcmd-'));
+    try {
+      const script = join(dir, 'gate.sh');
+      writeFileSync(script, '#!/bin/sh\nexit 7\n');
+      chmodSync(script, 0o755);
+      const r = await runCommand('./gate.sh', [], dir);
+      expect(r.exitCode).toBe(7);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('still lets PATH answer a bare command name', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-barecmd-'));
+    try {
+      const r = await runCommand('node', ['-e', 'process.exit(0)'], dir);
+      expect(r.exitCode).toBe(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
