@@ -31,6 +31,18 @@ export interface ArchivableWorktree {
   baseRef: string;
 }
 
+export interface ArchivableWorktreesOptions extends ProjectScope {
+  /**
+   * Only tickets actually archived (`archived_at` set), not merely `done`.
+   * The manual bulk-archive command sweeps archived-or-done; the background
+   * auto-sweep rides the done-archive tick and must key on `archived_at` alone,
+   * so a freshly-merged ticket's folder isn't reaped `archiveDoneAfterDays`
+   * early — the done-archive's delay is what decides when a done ticket leaves
+   * the board, and this sweep must not undercut it.
+   */
+  onlyArchived?: boolean;
+}
+
 interface Raw {
   id: number;
   ticket_id: number;
@@ -212,17 +224,20 @@ export function listAllArchivesForTicket(store: Store, ticketId: number): Archiv
  */
 export function listArchivableWorktrees(
   store: Store,
-  scope: ProjectScope = {},
+  options: ArchivableWorktreesOptions = {},
 ): ArchivableWorktree[] {
-  const projectClause = scope.projectId !== undefined ? 'AND t.project_id = ?' : '';
-  const params = scope.projectId !== undefined ? [scope.projectId] : [];
+  const projectClause = options.projectId !== undefined ? 'AND t.project_id = ?' : '';
+  const params = options.projectId !== undefined ? [options.projectId] : [];
+  const inactiveClause = options.onlyArchived
+    ? 't.archived_at IS NOT NULL'
+    : "(t.archived_at IS NOT NULL OR t.stage_current = 'done')";
   const rows = store.db
     .prepare(
       `SELECT w.ticket_id AS ticketId, w.repo AS repoPath, w.path AS path,
               w.branch AS branch, w.base_ref AS baseRef
        FROM worktrees w
        JOIN tickets t ON t.id = w.ticket_id
-       WHERE (t.archived_at IS NOT NULL OR t.stage_current = 'done')
+       WHERE ${inactiveClause}
          AND (t.agent_state IS NULL OR t.agent_state != 'running')
          ${projectClause}
        ORDER BY w.path`,

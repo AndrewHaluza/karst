@@ -67,6 +67,31 @@ describe('worktreeArchives store', () => {
     expect(got).toEqual(['karst/A', 'karst/D']);
   });
 
+  it('listArchivableWorktrees with onlyArchived selects archived but not merely-done tickets', () => {
+    const archived = createTicket(store, { key: 'A2', title: 'a2', source: 'manual' });
+    const done = createTicket(store, { key: 'D2', title: 'd2', source: 'manual' });
+
+    store.db.prepare("UPDATE tickets SET archived_at = datetime('now') WHERE id = ?").run(archived.id);
+    store.db.prepare("UPDATE tickets SET stage_current = 'done' WHERE id = ?").run(done.id);
+
+    const mkWt = (id: number, key: string) =>
+      store.db
+        .prepare(
+          `INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref, deps_mode)
+           VALUES (?, '/repo', ?, ?, 'main', 'inherited')`,
+        )
+        .run(id, `/repo/.karst/worktrees/${key}`, `karst/${key}`);
+    mkWt(archived.id, 'A2');
+    mkWt(done.id, 'D2');
+
+    // onlyArchived must exclude a `done`-but-not-yet-archived ticket: its folder
+    // survives until `archiveDoneAfterDays` stamps `archived_at`.
+    const got = listArchivableWorktrees(store, { onlyArchived: true })
+      .map((w) => w.branch)
+      .sort();
+    expect(got).toEqual(['karst/A2']);
+  });
+
   it('listArchivableWorktrees scopes to a project when given one, and is unscoped by default', () => {
     const p1 = store.db
       .prepare('INSERT INTO projects (slug, name) VALUES (?, ?)')

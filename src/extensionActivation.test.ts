@@ -53,6 +53,32 @@ describe('extension activation', () => {
     );
   });
 
+  // The done-ticket sweep only stamps `archived_at`; it never removes the
+  // worktree folder, so an auto-archived ticket's dir would sit on disk forever
+  // (the archive-compact plan's 'No auto-sweep' gap — the manual
+  // `archiveInactiveWorktrees` command only runs when a human invokes it). The
+  // inactive-worktree sweep must therefore ride the SAME PR tick, right after
+  // done-ticket archiving, scoped to the current project (`project.id`, not the
+  // command's `currentProject()?.id`) — that scoping line is what tells this
+  // pin apart from the manual command registration. It must also pass
+  // `onlyArchived: true`: the auto path keys on `archived_at` alone so it never
+  // undercuts `archiveDoneAfterDays` by reaping a done-but-still-on-the-board
+  // ticket's folder three days early — that broad predicate stays the manual
+  // command's job.
+  it('auto-archives inactive worktree folders on the PR sweep, after done tickets', () => {
+    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+
+    expect(source).toMatch(
+      /autoArchiveDoneTickets\(localStore, \{[\s\S]{0,3000}?archiveInactiveWorktrees\(/,
+    );
+    expect(source).toMatch(
+      /archiveInactiveWorktrees\([\s\S]{0,400}?projectId: project\.id/,
+    );
+    expect(source).toMatch(
+      /archiveInactiveWorktrees\([\s\S]{0,400}?onlyArchived: true/,
+    );
+  });
+
   // Closing a ticket with its DONE terminals is a SETTING (`closeDoneTerminals
   // WithTicket`), off by default — so the wiring has two halves, both pinned
   // here: the archive command and the auto-archive sweep must each consult the
