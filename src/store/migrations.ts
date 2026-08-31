@@ -19,7 +19,7 @@ export function readSchema(): string {
 }
 
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 46;
+export const SCHEMA_VERSION = 47;
 
 /** v2 ticket-field columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -1722,6 +1722,73 @@ export function migrate(db: Database): void {
     const serverCols = tableColumns(db, 'servers');
     if (serverCols.size > 0 && !serverCols.has('kind')) {
       db.exec("ALTER TABLE servers ADD COLUMN kind TEXT NOT NULL DEFAULT 'service'");
+    }
+  }
+
+  if (current < 47) {
+    // v47: collapse duplicate `prs` rows for the same (ticket_id, repo, url)
+    // and add a UNIQUE index so it cannot regress. The idempotency guard ship
+    // used to re-adopt a repo's PR (`existingOpen`) matched only
+    // `status = 'open'`, but `updatePrDetail` overwrites that status with the
+    // PR's real upstream state right after the row is created — 'draft' for a
+    // draft PR — so the very next retry missed the guard, re-adopted the same
+    // GitHub PR via `findOpenPr`, and the plain INSERT it used back then added
+    // a second row for the same PR (a real report showed two rows both #3461,
+    // both 'draft'). `recordShippedPr` (store/prs.ts) is the idempotent
+    // replacement; this step cleans up what the old INSERT already wrote.
+    //
+    // For each duplicate group, keep the row with the most non-null v16
+    // metadata columns (head_ref/base_ref/created_at/merged_at/comments) —
+    // the "richest" answer gh has given so far — breaking ties by the lowest
+    // rowid (the original row). Every other row in the group is deleted.
+    // Idempotent: a DB with no duplicates (fresh or already-migrated) touches
+    // nothing here, and re-running finds no groups left to collapse.
+    const prsCols = tableColumns(db, 'prs');
+    const dupGroups =
+      prsCols.size > 0
+        ? (db
+            .prepare(
+              `SELECT ticket_id, repo, url, COUNT(*) AS n
+                 FROM prs
+                WHERE url IS NOT NULL
+                GROUP BY ticket_id, repo, url
+               HAVING COUNT(*) > 1`,
+            )
+            .all() as Array<{ ticket_id: number; repo: string; url: string; n: number }>)
+        : [];
+    if (dupGroups.length > 0) {
+      const rowsForGroup = db.prepare(
+        `SELECT rowid, head_ref, base_ref, created_at, merged_at, comments
+           FROM prs WHERE ticket_id = ? AND repo = ? AND url = ?
+          ORDER BY rowid ASC`,
+      );
+      const deleteRow = db.prepare('DELETE FROM prs WHERE rowid = ?');
+      for (const group of dupGroups) {
+        const rows = rowsForGroup.all(group.ticket_id, group.repo, group.url) as Array<{
+          rowid: number;
+          head_ref: string | null;
+          base_ref: string | null;
+          created_at: string | null;
+          merged_at: string | null;
+          comments: string | null;
+        }>;
+        const richness = (r: (typeof rows)[number]): number =>
+          [r.head_ref, r.base_ref, r.created_at, r.merged_at, r.comments].filter(
+            (v) => v !== null,
+          ).length;
+        let keep = rows[0]!;
+        for (const r of rows.slice(1)) {
+          if (richness(r) > richness(keep)) keep = r;
+        }
+        for (const r of rows) {
+          if (r.rowid !== keep.rowid) deleteRow.run(r.rowid);
+        }
+      }
+    }
+    if (prsCols.size > 0) {
+      db.exec(
+        'CREATE UNIQUE INDEX IF NOT EXISTS idx_prs_ticket_repo_url ON prs(ticket_id, repo, url)',
+      );
     }
   }
 

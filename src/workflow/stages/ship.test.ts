@@ -650,6 +650,100 @@ setTimeout(() => {
     expect(getTicket(store, id).stageCurrent).toBe('ship');
   });
 
+  // Defect 1: a push failure in ONE repo used to `throw` out of the whole
+  // `for (const wt of worktrees)` loop, so every repo after the failing one
+  // never got committed/pushed/PR'd — a 4-repo ticket with 2 changed repos
+  // produced only 1 PR. The loop must isolate each worktree so a failure in
+  // one repo still lets the others ship.
+  it('a push failure in one repo still ships the others, and the aggregate error names the failed repo', async () => {
+    seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+    seedWorktree(store, id, '/repo/backend', join(dir, 'be'));
+    const { gh } = fakeGh();
+    const git: GitRunner = async (args, cwd) => {
+      if (args[0] === 'diff') return { stdout: '', stderr: '', exitCode: 1 };
+      if (args[0] === 'push' && cwd === join(dir, 'fe')) {
+        return { stdout: '', stderr: 'fatal: unable to access remote', exitCode: 128 };
+      }
+      return { stdout: '', stderr: '', exitCode: 0 };
+    };
+
+    await expect(shipTicket(store, { ticketId: id }, gh, fakeAdapter(), git)).rejects.toThrow(
+      /frontend.*unable to access remote/s,
+    );
+
+    // The repo that succeeded still has its PR row — a retry must skip it.
+    const prs = listPrsByTicket(store, id);
+    expect(prs).toHaveLength(1);
+    expect(prs[0]?.repo).toBe('/repo/backend');
+
+    // Ship has no `failed` edge: the ticket stays parked at `ship`, with a
+    // verdict naming the repo that failed and why.
+    const ship = getTicket(store, id).stages.find((s) => s.stageKey === 'ship');
+    expect(ship?.status).toBe('failed');
+    expect(ship?.verdict).toContain('/repo/frontend');
+    expect(ship?.verdict).toContain('unable to access remote');
+    expect(getTicket(store, id).stageCurrent).toBe('ship');
+  });
+
+  // The per-repo isolation above must not swallow a STORE failure: SQLite is
+  // the source of truth, so a failing write means the next repo's durable
+  // bookkeeping cannot be trusted either. It aborts the whole loop.
+  it('a store failure aborts the whole ship instead of being recorded as one repo failing', async () => {
+    seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+    seedWorktree(store, id, '/repo/backend', join(dir, 'be'));
+    const { gh } = fakeGh();
+    // Make the PR-row write fail the way better-sqlite3 reports a constraint
+    // violation — a `SQLITE_`-prefixed `code` on the thrown error.
+    const realPrepare = store.db.prepare.bind(store.db);
+    (store.db as { prepare: typeof store.db.prepare }).prepare = ((sql: string) => {
+      if (sql.includes('INSERT INTO prs')) {
+        return {
+          run: () => {
+            const err = new Error('UNIQUE constraint failed: prs.ticket_id') as Error & {
+              code: string;
+            };
+            err.code = 'SQLITE_CONSTRAINT_UNIQUE';
+            throw err;
+          },
+          get: () => undefined,
+          all: () => [],
+        };
+      }
+      return realPrepare(sql);
+    }) as typeof store.db.prepare;
+
+    await expect(
+      shipTicket(store, { ticketId: id }, gh, fakeAdapter(), fakeGit().git),
+    ).rejects.toThrow(/UNIQUE constraint failed/);
+
+    (store.db as { prepare: typeof store.db.prepare }).prepare = realPrepare;
+    // Aborted, not aggregated: the message is the store's own, and it is NOT
+    // wrapped in the "ship failed for N repo(s)" aggregate.
+    const ship = getTicket(store, id).stages.find((s) => s.stageKey === 'ship');
+    expect(ship?.verdict).not.toContain('repo(s)');
+  });
+
+  // The aggregate verdict concatenates every failed repo's reason, and each
+  // reason carries a tool's own stderr — bounded so a chatty failure cannot
+  // grow the stage row without limit.
+  it('bounds each repo failure in the aggregate verdict', async () => {
+    seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+    const { gh } = fakeGh();
+    const git: GitRunner = async (args) => {
+      if (args[0] === 'diff') return { stdout: '', stderr: '', exitCode: 1 };
+      if (args[0] === 'push') return { stdout: '', stderr: 'x'.repeat(5000), exitCode: 128 };
+      return { stdout: '', stderr: '', exitCode: 0 };
+    };
+
+    await expect(shipTicket(store, { ticketId: id }, gh, fakeAdapter(), git)).rejects.toThrow(
+      /ship failed for 1 repo\(s\)/,
+    );
+
+    const ship = getTicket(store, id).stages.find((s) => s.stageKey === 'ship');
+    expect(ship?.verdict).toContain('…');
+    expect(ship?.verdict?.length ?? 0).toBeLessThan(600);
+  });
+
   // Idempotency (§5.3): a re-run must not re-push a repo whose PR already opened.
   it('does not push a repo that already has an open PR', async () => {
     seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
@@ -1856,6 +1950,33 @@ setTimeout(() => {
     expect(calls).toBe(2);
     expect(listPrsByTicket(store, id)).toHaveLength(2);
     expect(res.prs).toHaveLength(2);
+  });
+
+  // Defect 3: `updatePrDetail` overwrites the row's status with the PR's real
+  // upstream state right after ship creates it — 'draft' for a draft PR. The
+  // old idempotency guard matched only `status = 'open'`, so a re-ship after
+  // that overwrite missed it, re-adopted the same GitHub PR via `findOpenPr`,
+  // and the old plain INSERT added a SECOND row for the same PR. A live
+  // report showed exactly this: two rows both #3461, both 'draft'.
+  it('a re-ship against a repo whose stored PR status is draft skips it and does not insert a second row', async () => {
+    seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+    store.db
+      .prepare(
+        "INSERT INTO prs (ticket_id, repo, number, url, status) VALUES (?, ?, 3461, 'https://github.com/o/r/pull/3461', 'draft')",
+      )
+      .run(id, '/repo/frontend');
+    const { gh } = fakeGh();
+    const { git, calls } = fakeGit();
+
+    const res = await shipTicket(store, { ticketId: id }, gh, fakeAdapter(), git);
+
+    // Nothing re-ran for this repo — the draft PR is still live.
+    expect(mutating(calls)).toEqual([]);
+    const prs = listPrsByTicket(store, id);
+    expect(prs).toHaveLength(1);
+    expect(prs[0]?.status).toBe('draft');
+    expect(prs[0]?.number).toBe(3461);
+    expect(res.prs).toEqual([{ repo: '/repo/frontend', number: 3461, url: 'https://github.com/o/r/pull/3461' }]);
   });
 
   // The guard on the tail transition (only advance when still AT ship) is not

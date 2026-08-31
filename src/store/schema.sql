@@ -602,6 +602,11 @@ CREATE TABLE IF NOT EXISTS prs (
   comments      TEXT                  -- v16: JSON array of {author,at,body}; see store/prComments.ts
 );
 
+-- v47: one row per (ticket, repo, url) — see recordShippedPr (store/prs.ts) and
+-- the v47 migration step, which collapses any pre-existing duplicates before a
+-- legacy DB gains this index.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_prs_ticket_repo_url ON prs(ticket_id, repo, url);
+
 -- Whether a ticket's branch still merges into its base, per repo, as of the last
 -- ship. NOT append-only, unlike gate_runs and phase_marks, and the difference is
 -- the point: those record that an event happened, this records what is true NOW.

@@ -18,7 +18,10 @@ import {
   workingTreeSummary,
   defaultGitRunner,
   runGitBytes,
+  GIT_PUSH_TIMEOUT_MS,
+  GIT_TIMEOUT_MS,
   type GitRunner,
+  type GitRunOptions,
 } from './git.js';
 import { MAX_DIAGNOSTIC_CHARS } from '../model/diagnosticText.js';
 
@@ -202,6 +205,21 @@ describe('pushBranch', () => {
   it('falls back to the exit code when git said nothing at all', async () => {
     const git: GitRunner = async () => ({ stdout: '', stderr: '', exitCode: 1 });
     await expect(pushBranch(git, '/wt/fe')).rejects.toThrow(/git exit 1/);
+  });
+
+  // Defect 2: the generic 60s timeout (GIT_TIMEOUT_MS) killed a real network
+  // push before it finished — production logs showed repeated
+  // `git timed out after 60000ms: git push -u origin HEAD` failures. Push is
+  // network-bound, unlike local reads, so it gets its own, much longer budget.
+  it('runs with the longer push timeout, not the generic 60s one', async () => {
+    let seenOptions: GitRunOptions | undefined;
+    const git: GitRunner = async (_args, _cwd, options) => {
+      seenOptions = options;
+      return { stdout: '', stderr: '', exitCode: 0 };
+    };
+    await pushBranch(git, '/wt/fe');
+    expect(seenOptions?.timeoutMs).toBe(GIT_PUSH_TIMEOUT_MS);
+    expect(GIT_PUSH_TIMEOUT_MS).toBeGreaterThan(GIT_TIMEOUT_MS);
   });
 });
 
