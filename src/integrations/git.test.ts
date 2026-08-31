@@ -7,6 +7,7 @@ import {
   commitAllIfDirty,
   compareAndSwapHeadAndIndex,
   describeGitFailure,
+  hasChangesFrom,
   headCommit,
   listCommitsFrom,
   prepareCommitInQuarantine,
@@ -146,6 +147,51 @@ describe('commitAllIfDirty', () => {
       add: { stderr: 'fatal: pathspec did not match', exitCode: 128 },
     });
     await expect(commitAllIfDirty(git, '/wt/fe', 'm')).rejects.toThrow(/git add failed in \/wt\/fe/);
+  });
+});
+
+describe('hasChangesFrom', () => {
+  /** A runner keyed by verb, with `fetch` keyed by the ref it is fetching. */
+  function runner(
+    replies: Record<string, { stdout?: string; stderr?: string; exitCode?: number }>,
+  ): { git: GitRunner; seen: string[][] } {
+    const seen: string[][] = [];
+    const git: GitRunner = async (args) => {
+      seen.push(args);
+      const key = args[0] === 'fetch' ? `fetch:${args[2]}` : args[0]!;
+      const r = replies[key] ?? {};
+      return { stdout: r.stdout ?? '', stderr: r.stderr ?? '', exitCode: r.exitCode ?? 0 };
+    };
+    return { git, seen };
+  }
+
+  it('diffs the remote base against the remote branch when both fetches succeed', async () => {
+    const { git, seen } = runner({ diff: { exitCode: 1 } });
+    expect(await hasChangesFrom(git, '/wt/fe', 'develop', 'karst/x')).toBe(true);
+    expect(seen).toContainEqual(['diff', '--quiet', 'origin/develop...origin/karst/x']);
+  });
+
+  // fu1: an unreachable remote is not a verdict. Reading it as "assume changes"
+  // ships a branch that carries none — the push then spends its whole timeout on
+  // the same unreachable remote. The local base ref answers this offline.
+  it('falls back to the LOCAL base ref when the base fetch fails, and answers no changes', async () => {
+    const { git, seen } = runner({
+      'fetch:develop': { stderr: 'could not resolve host', exitCode: 128 },
+      'fetch:karst/x': { stderr: 'could not resolve host', exitCode: 128 },
+      'rev-parse': { stdout: 'abc123\n' },
+      diff: { exitCode: 0 },
+    });
+    expect(await hasChangesFrom(git, '/wt/fe', 'develop', 'karst/x')).toBe(false);
+    expect(seen).toContainEqual(['diff', '--quiet', 'develop...karst/x']);
+  });
+
+  it('still reports changes when the base fetch fails and no local base ref resolves', async () => {
+    const { git, seen } = runner({
+      'fetch:develop': { exitCode: 128 },
+      'rev-parse': { stderr: 'unknown revision', exitCode: 128 },
+    });
+    expect(await hasChangesFrom(git, '/wt/fe', 'develop', 'karst/x')).toBe(true);
+    expect(seen.some((args) => args[0] === 'diff')).toBe(false);
   });
 });
 
