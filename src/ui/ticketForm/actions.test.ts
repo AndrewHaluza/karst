@@ -534,6 +534,35 @@ describe('buildTicketFormActions', () => {
     expect(keys).toEqual(['FIX-LOGIN-REDIRECT', 'FIX-LOGIN-REDIRECT-2']);
   });
 
+  it('auto-derived (non-blank preview) submissions of the SAME title still get distinct keys', async () => {
+    const mk = () => buildTicketFormActions(deps)({
+      post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {},
+    });
+    // Simulates the webview: the Key field holds the derived preview (non-empty),
+    // and keyAutoDerived tells the host it is NOT user-owned.
+    const fields = { key: 'FIX-LOGIN-REDIRECT', title: 'Fix login redirect', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null, createInProvider: false, keyAutoDerived: true };
+
+    await mk().submit({ ...fields });
+    await mk().submit({ ...fields });
+    const keys = listTickets(store).map((t) => t.key).sort();
+    expect(keys).toEqual(['FIX-LOGIN-REDIRECT', 'FIX-LOGIN-REDIRECT-2']);
+  });
+
+  it('a user-owned key is kept verbatim even when it matches another ticket (no auto re-key)', async () => {
+    const mk = () => buildTicketFormActions(deps)({
+      post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {},
+    });
+    const base = { title: 'Fix login redirect', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null, createInProvider: false };
+
+    // createTicketFlow is idempotent by key, so a repeated user-owned key reuses
+    // the same row — the point is that it is NOT re-keyed to `-2` the way an
+    // auto-derived key would be. The key stays verbatim.
+    await mk().submit({ ...base, key: 'FIX-LOGIN-REDIRECT', keyAutoDerived: false });
+    await mk().submit({ ...base, key: 'FIX-LOGIN-REDIRECT', keyAutoDerived: false });
+    const keys = listTickets(store).map((t) => t.key);
+    expect(keys).toEqual(['FIX-LOGIN-REDIRECT']);
+  });
+
   it('two blank-key submissions generate distinct keys — no collision', async () => {
     const actionsA = buildTicketFormActions(deps)({
       post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {},

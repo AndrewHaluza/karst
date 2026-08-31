@@ -227,8 +227,12 @@ function persistDraft(
   // share the exact same key whether it's persisted via createTicketFlow or
   // updateTicketCore below — never generated twice, never lost between the two
   // branches.
-  const key = input.key
-    || generateTicketKey(deps.store, { projectId: deps.projectId }, input.title);
+  // A blank key, or a key the webview auto-derived from the title (not user
+  // owned), is resolved here so the store's collision logic (`-2`, `-3`…)
+  // actually runs. A user-typed/pasted key is kept verbatim.
+  const key = input.keyAutoDerived || !input.key
+    ? generateTicketKey(deps.store, { projectId: deps.projectId }, input.title)
+    : input.key;
   let ticketId: number;
   if (ctx.ticketId !== undefined) {
     updateTicketCore(deps.store, ctx.ticketId, { key, title: input.title });
