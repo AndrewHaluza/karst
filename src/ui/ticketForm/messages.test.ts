@@ -91,15 +91,15 @@ describe('parseTicketFormMessage', () => {
     expect(
       parseTicketFormMessage({ type: 'submit', key: 'P-1', title: 't', description: 'd' }),
     ).toEqual({
-      type: 'submit', key: 'P-1', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, effort: null, agentProvider: null, ticketType: null, createInProvider: false, pullBase: true,
+      type: 'submit', key: 'P-1', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, effort: null, agentProvider: null, ticketType: null, createInProvider: false, keyAutoDerived: false, pullBase: true,
     });
     // repos + approach + agent + model + agentProvider carried through when present
     expect(
       parseTicketFormMessage({
-        type: 'submit', key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex', ticketType: null, createInProvider: false,
+        type: 'submit', key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex', ticketType: null, createInProvider: false, keyAutoDerived: false,
       }),
     ).toEqual({
-      type: 'submit', key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', effort: null, agentProvider: 'codex', ticketType: null, createInProvider: false, pullBase: true,
+      type: 'submit', key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', effort: null, agentProvider: 'codex', ticketType: null, createInProvider: false, keyAutoDerived: false, pullBase: true,
     });
   });
 
@@ -107,14 +107,14 @@ describe('parseTicketFormMessage', () => {
     expect(
       parseTicketFormMessage({ type: 'save', key: 'P-1', title: 't', description: 'd' }),
     ).toEqual({
-      type: 'save', key: 'P-1', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, effort: null, agentProvider: null, ticketType: null, createInProvider: false,
+      type: 'save', key: 'P-1', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, effort: null, agentProvider: null, ticketType: null, createInProvider: false, keyAutoDerived: false,
     });
     expect(
       parseTicketFormMessage({
-        type: 'save', key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex', ticketType: null, createInProvider: false,
+        type: 'save', key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex', ticketType: null, createInProvider: false, keyAutoDerived: false,
       }),
     ).toEqual({
-      type: 'save', key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', effort: null, agentProvider: 'codex', ticketType: null, createInProvider: false,
+      type: 'save', key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', effort: null, agentProvider: 'codex', ticketType: null, createInProvider: false, keyAutoDerived: false,
     });
     expect(parseTicketFormMessage({ type: 'save', title: 't', description: 'd' })).toBeNull(); // missing key
     expect(parseTicketFormMessage({ type: 'save', key: 'P-1', description: 'd' })).toBeNull(); // missing title
@@ -129,12 +129,12 @@ describe('parseTicketFormMessage', () => {
     expect(
       parseTicketFormMessage({ type: 'submit', key: '', title: 't', description: 'd' }),
     ).toEqual({
-      type: 'submit', key: '', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, effort: null, agentProvider: null, ticketType: null, createInProvider: false, pullBase: true,
+      type: 'submit', key: '', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, effort: null, agentProvider: null, ticketType: null, createInProvider: false, keyAutoDerived: false, pullBase: true,
     });
     expect(
       parseTicketFormMessage({ type: 'save', key: '', title: 't', description: 'd' }),
     ).toEqual({
-      type: 'save', key: '', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, effort: null, agentProvider: null, ticketType: null, createInProvider: false,
+      type: 'save', key: '', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, effort: null, agentProvider: null, ticketType: null, createInProvider: false, keyAutoDerived: false,
     });
   });
 
@@ -239,14 +239,14 @@ describe('parseTicketFormMessage', () => {
         type: 'submit', key: 'P-1', title: 't', description: 'd', agentProvider: 'evil', ticketType: null,
       }),
     ).toEqual({
-      type: 'submit', key: 'P-1', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, effort: null, agentProvider: null, ticketType: null, createInProvider: false, pullBase: true,
+      type: 'submit', key: 'P-1', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, effort: null, agentProvider: null, ticketType: null, createInProvider: false, keyAutoDerived: false, pullBase: true,
     });
     expect(
       parseTicketFormMessage({
         type: 'save', key: 'P-1', title: 't', description: 'd', agentProvider: 'evil', ticketType: null,
       }),
     ).toEqual({
-      type: 'save', key: 'P-1', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, effort: null, agentProvider: null, ticketType: null, createInProvider: false,
+      type: 'save', key: 'P-1', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, effort: null, agentProvider: null, ticketType: null, createInProvider: false, keyAutoDerived: false,
     });
   });
 
@@ -259,6 +259,35 @@ describe('parseTicketFormMessage', () => {
     }
     expect(parseTicketFormMessage({ type: 'open-ticket-link' })).toBeNull();
     expect(parseTicketFormMessage({ type: 'open-ticket-link', url: 42 })).toBeNull();
+  });
+
+  it('records keyAutoDerived (auto-derived key) on submit and save', () => {
+    const auto = { key: 'FIX-LOGIN-REDIRECT', title: 'Fix login redirect', description: 'd' };
+    const submit = parseTicketFormMessage({ type: 'submit', ...auto, keyAutoDerived: true });
+    expect(submit && submit.type === 'submit' && submit.keyAutoDerived).toBe(true);
+    const save = parseTicketFormMessage({ type: 'save', ...auto, keyAutoDerived: true });
+    expect(save && save.type === 'save' && save.keyAutoDerived).toBe(true);
+    // Absent/malformed reads as false — a stale or crafted page must not claim auto-derivation.
+    const absent = parseTicketFormMessage({ type: 'submit', ...auto });
+    expect(absent && absent.type === 'submit' && absent.keyAutoDerived).toBe(false);
+  });
+
+  it('routes keyAutoDerived through to the submit and save actions', () => {
+    const seen: string[] = [];
+    const actions: TicketFormActions = {
+      submit: (i) => { seen.push(`submit:${i.keyAutoDerived}`); },
+      save: (i) => { seen.push(`save:${i.keyAutoDerived}`); },
+      fetchSource: () => {}, searchTickets: () => {}, searchStatuses: () => {},
+      suggestSignals: () => {}, saveSignals: () => {}, setRepos: () => {},
+      setApproach: () => {}, setAgent: () => {}, setModel: () => {}, setEffort: () => {},
+      setProvider: () => {}, setType: () => {}, analyze: () => {}, attachPick: async () => {},
+      attachBytes: async () => {}, detachAttachment: async () => {}, openAttachment: async () => {},
+      openTicketLink: () => {}, createProviderTicket: () => {}, requestState: () => {},
+      closeForm: () => {},
+    };
+    routeTicketFormAction({ type: 'submit', key: 'K', title: 't', description: '', keyAutoDerived: true }, actions);
+    routeTicketFormAction({ type: 'save', key: 'K', title: 't', description: '', keyAutoDerived: false }, actions);
+    expect(seen).toEqual(['submit:true', 'save:false']);
   });
 
   it('rejects malformed shapes (trust boundary)', () => {
@@ -332,7 +361,7 @@ describe('routeTicketFormAction', () => {
     expect(actions.searchStatuses).toHaveBeenCalled();
     expect(actions.saveSignals).toHaveBeenCalledWith('be', ['api']);
     expect(actions.submit).toHaveBeenCalledWith({
-      key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex', ticketType: null, createInProvider: false, pullBase: true,
+      key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex', ticketType: null, createInProvider: false, keyAutoDerived: false, pullBase: true,
     });
     expect(actions.analyze).toHaveBeenCalledWith('go');
     expect(actions.analyze).toHaveBeenCalledWith('go again');
@@ -355,7 +384,7 @@ describe('routeTicketFormAction', () => {
       actions,
     );
     expect(actions.save).toHaveBeenCalledWith({
-      key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex', ticketType: null, createInProvider: false,
+      key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex', ticketType: null, createInProvider: false, keyAutoDerived: false,
     });
   });
 
