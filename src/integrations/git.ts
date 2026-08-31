@@ -34,6 +34,8 @@ export interface GitResult {
 
 export interface GitRunOptions {
   signal?: AbortSignal;
+  /** Override the default per-call timeout (`GIT_TIMEOUT_MS`). */
+  timeoutMs?: number;
 }
 
 export type GitRunner = (
@@ -61,6 +63,14 @@ export type GitBytesRunner = (
  * host, or git blocking on a credential prompt with no tty to answer it.
  */
 export const GIT_TIMEOUT_MS = 60_000;
+/**
+ * `pushBranch` gets its own, much longer budget: a push is network-bound (it
+ * waits on the remote, not on local disk), so the generic 60s timeout for
+ * local reads kills a real push well before a slow network or a large
+ * branch finishes — production logs showed repeated
+ * `git timed out after 60000ms: git push -u origin HEAD` failures.
+ */
+export const GIT_PUSH_TIMEOUT_MS = 600_000;
 export const GIT_MAX_OUTPUT_BYTES = 1024 * 1024;
 export const GIT_TERMINATION_GRACE_MS = 5_000;
 
@@ -256,15 +266,21 @@ export const defaultGitRunner: GitRunner = (args, cwd, options) =>
   runGit(
     args,
     cwd,
-    GIT_TIMEOUT_MS,
+    options?.timeoutMs ?? GIT_TIMEOUT_MS,
     GIT_MAX_OUTPUT_BYTES,
     GIT_TERMINATION_GRACE_MS,
     options?.signal,
   );
 
 /** `git <args>` in `cwd`, throwing git's own reason (never a bare colon) on failure. */
-async function run(git: GitRunner, args: string[], cwd: string, what: string): Promise<string> {
-  const r = await git(args, cwd);
+async function run(
+  git: GitRunner,
+  args: string[],
+  cwd: string,
+  what: string,
+  options?: GitRunOptions,
+): Promise<string> {
+  const r = await git(args, cwd, options);
   if (r.exitCode !== 0) {
     const reason = r.stderr.trim() || r.stdout.trim() || `git exit ${r.exitCode}`;
     throw new Error(`git ${what} failed in ${cwd}: ${reason}`);
@@ -353,7 +369,9 @@ export async function hasChangesFrom(
  * up-to-date").
  */
 export async function pushBranch(git: GitRunner, cwd: string): Promise<void> {
-  await run(git, ['push', '-u', 'origin', 'HEAD'], cwd, 'push');
+  await run(git, ['push', '-u', 'origin', 'HEAD'], cwd, 'push', {
+    timeoutMs: GIT_PUSH_TIMEOUT_MS,
+  });
 }
 
 /**

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { openStore, type Store } from './db.js';
 import { createTicket } from './tickets.js';
 import { listPrsByTicket } from './dashboard.js';
-import { updatePrStatus, updatePrDetail, findTicketPr, listSyncablePrs } from './prs.js';
+import { updatePrStatus, updatePrDetail, findTicketPr, listSyncablePrs, recordShippedPr } from './prs.js';
 
 function seedPr(
   store: Store,
@@ -270,5 +270,74 @@ describe('findTicketPr', () => {
     const a = createTicket(store, { key: 'A', title: 'a' });
     seedPr(store, a.id, 'api', 12, 'open');
     expect(findTicketPr(store, a.id, 'api')).toBeNull();
+  });
+});
+
+describe('recordShippedPr', () => {
+  let store: Store;
+  beforeEach(() => (store = openStore(':memory:')));
+  afterEach(() => store.close());
+
+  it('inserts a fresh row when none exists for (ticket, repo, url)', () => {
+    const a = createTicket(store, { key: 'A', title: 'a' });
+    recordShippedPr(store, {
+      ticketId: a.id,
+      repo: 'api',
+      number: 12,
+      url: 'https://github.com/o/r/pull/12',
+    });
+    const prs = listPrsByTicket(store, a.id);
+    expect(prs).toHaveLength(1);
+    expect(prs[0]?.number).toBe(12);
+  });
+
+  // Defect 3: this is what the plain INSERT in ship.ts used to do — call it
+  // twice for the same PR and it must update the ONE row, never create a
+  // second one, however the row's status changed in between (open -> draft is
+  // exactly what `updatePrDetail` does right after ship creates a PR).
+  it('updates the existing row instead of inserting a duplicate, however its status changed', () => {
+    const a = createTicket(store, { key: 'A', title: 'a' });
+    const url = 'https://github.com/o/r/pull/3461';
+    recordShippedPr(store, { ticketId: a.id, repo: 'api', number: 3461, url });
+    updatePrStatus(store, { ticketId: a.id, repo: 'api', url, status: 'draft' });
+
+    // A re-ship re-adopts the same PR (findOpenPr) and records it again.
+    recordShippedPr(store, { ticketId: a.id, repo: 'api', number: 3461, url });
+
+    const prs = listPrsByTicket(store, a.id);
+    expect(prs).toHaveLength(1);
+    expect(prs[0]?.number).toBe(3461);
+  });
+
+  // F4: a status already probed from GitHub is a real answer. Re-recording a
+  // PR ship merely re-adopted must not downgrade 'draft' back to a guessed
+  // 'open' — the `fetchPrDetail` probe that follows may fail, and its
+  // 'unknown' is dropped rather than stored, so the guess would stick.
+  it('keeps the stored status when it updates an existing row', () => {
+    const a = createTicket(store, { key: 'A', title: 'a' });
+    const url = 'https://github.com/o/r/pull/3461';
+    recordShippedPr(store, { ticketId: a.id, repo: 'api', number: 3461, url });
+    updatePrStatus(store, { ticketId: a.id, repo: 'api', url, status: 'draft' });
+
+    recordShippedPr(store, { ticketId: a.id, repo: 'api', number: 3461, url });
+
+    expect(listPrsByTicket(store, a.id)[0]?.status).toBe('draft');
+  });
+
+  it('keys on (ticket_id, repo, url) — a different repo or url is a different row', () => {
+    const a = createTicket(store, { key: 'A', title: 'a' });
+    recordShippedPr(store, {
+      ticketId: a.id,
+      repo: 'api',
+      number: 1,
+      url: 'https://github.com/o/r/pull/1',
+    });
+    recordShippedPr(store, {
+      ticketId: a.id,
+      repo: 'web',
+      number: 2,
+      url: 'https://github.com/o/r/pull/2',
+    });
+    expect(listPrsByTicket(store, a.id)).toHaveLength(2);
   });
 });

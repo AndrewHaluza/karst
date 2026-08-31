@@ -57,6 +57,51 @@ export function updatePrStatus(store: Store, input: UpdatePrStatusInput): void {
     .run(input.status, input.ticketId, input.repo, input.url);
 }
 
+export interface RecordShippedPrInput {
+  ticketId: number;
+  repo: string;
+  number: number | null;
+  url: string;
+}
+
+/**
+ * Idempotent write for the row ship creates right after opening (or adopting)
+ * a PR (Defect 3: the plain INSERT this replaced could double-insert once
+ * `updatePrDetail` overwrote `status` from 'open' to the PR's real upstream
+ * state — 'draft' for a draft PR — because the retry guard only matched
+ * `status = 'open'` and so missed it, re-adopted the same GitHub PR, and
+ * inserted a second row for the same (ticket, repo, url)).
+ *
+ * Keyed by (ticket_id, repo, url) — the same identity `updatePrDetail` uses.
+ * A matching row has its `number` refreshed and KEEPS its stored status; a
+ * fresh row is inserted as 'open'. Either way there is exactly one row per
+ * (ticket, repo, url) afterward.
+ *
+ * Not resetting the status is the same F4 rule `updatePrDetail` follows: a
+ * status already probed from GitHub is a real answer, and re-shipping a PR
+ * karst merely re-adopted does not make a draft PR undrafted. Overwriting it
+ * with 'open' would be a guess replacing a fact — and it would STICK, because
+ * the `fetchPrDetail` probe that follows is allowed to fail (it degrades to
+ * `UNKNOWN_PR_DETAIL`, whose 'unknown' status `updatePrDetail` drops rather
+ * than storing).
+ */
+export function recordShippedPr(store: Store, input: RecordShippedPrInput): void {
+  const existing = store.db
+    .prepare(`SELECT rowid FROM prs WHERE ticket_id = ? AND repo = ? AND url = ?`)
+    .get(input.ticketId, input.repo, input.url) as { rowid: number } | undefined;
+  if (existing) {
+    store.db
+      .prepare(`UPDATE prs SET number = ? WHERE rowid = ?`)
+      .run(input.number, existing.rowid);
+    return;
+  }
+  store.db
+    .prepare(
+      `INSERT INTO prs (ticket_id, repo, number, url, status) VALUES (?, ?, ?, ?, 'open')`,
+    )
+    .run(input.ticketId, input.repo, input.number, input.url);
+}
+
 export interface UpdatePrDetailInput {
   ticketId: number;
   repo: string;
