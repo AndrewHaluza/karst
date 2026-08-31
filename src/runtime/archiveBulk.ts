@@ -1,9 +1,12 @@
 import type { Store } from '../store/db.js';
 import type { GitRunner } from '../integrations/git.js';
 import type { PortAllocator } from '../resolver/allocator.js';
-import type { ProjectScope } from '../store/tickets.js';
 import { archiveWorktree, compactWorktree, sweepOrphanRefs } from './archive.js';
-import { listArchivableWorktrees, listCompactableArchives } from '../store/worktreeArchives.js';
+import {
+  listArchivableWorktrees,
+  listCompactableArchives,
+  type ArchivableWorktreesOptions,
+} from '../store/worktreeArchives.js';
 import type { ReapedServer } from './worktreeServers.js';
 
 export interface BulkSummary {
@@ -32,9 +35,9 @@ export async function archiveInactiveWorktrees(
   runner: GitRunner,
   store: Store,
   allocator: PortAllocator,
-  scope: ProjectScope = {},
+  options: ArchivableWorktreesOptions = {},
 ): Promise<BulkSummary> {
-  const candidates = listArchivableWorktrees(store, scope);
+  const candidates = listArchivableWorktrees(store, options);
   const seen = new Set<string>();
   const summary: BulkSummary = { archived: 0, skipped: 0, failed: 0, reapedServers: [] };
 

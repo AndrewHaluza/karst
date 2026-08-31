@@ -5101,6 +5101,55 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       } catch (e) {
         logError('karst: done ticket auto-archive failed', e);
       }
+      // The ticket sweep above only stamps `archived_at`; it never removes the
+      // worktree folder, so an auto-archived ticket's dir would sit on disk
+      // forever — the archive-compact plan's 'No auto-sweep' gap. This rides
+      // the same tick (once at activation, then every PR_SYNC_INTERVAL_MS, no
+      // second interval to dispose) to sweep those folders for real.
+      //
+      // It keys on `archived_at` ALONE (`onlyArchived`), not the broad
+      // archived-or-done predicate the manual command uses: a freshly-merged
+      // ticket must keep its folder until `archiveDoneAfterDays` lets the
+      // done-archive above stamp `archived_at` — this sweep undercutting that
+      // delay is what would reap a done-but-on-the-board ticket 3 days early.
+      // The selection predicate also guards agent-not-running, and like the
+      // rest of the tick this is fault-isolated: a failure only delays the
+      // next sweep. Scoped to the current project so one IDE window never
+      // reaps another's worktrees.
+      let worktreesSwept = false;
+      try {
+        const archiveAllocator = makePortAllocator(
+          localStore,
+          (currentManifest() ?? emptyManifest()).portRange,
+        );
+        const archivedTrees = await archiveInactiveWorktrees(
+          defaultGitRunner,
+          localStore,
+          archiveAllocator,
+          { projectId: project.id, onlyArchived: true },
+        );
+        worktreesSwept =
+          archivedTrees.archived > 0 ||
+          archivedTrees.failed > 0 ||
+          archivedTrees.reapedServers.length > 0;
+        if (archivedTrees.archived > 0 || archivedTrees.failed > 0) {
+          logger.info(
+            `karst: auto-swept ${archivedTrees.archived} inactive worktree(s), ` +
+              `skipped ${archivedTrees.skipped}, failed ${archivedTrees.failed}`,
+          );
+        }
+        // A background sweep must not spam a popup every PR tick for a server
+        // it cannot stop (the same worktree retries next sweep), so a kill that
+        // FAILED — a live server serving a deleted tree — is promoted to the
+        // warn level in the Karst output channel, not left at info. Successful
+        // reaps stay at info.
+        for (const s of archivedTrees.reapedServers) {
+          if (s.outcome === 'kill-failed') logger.warn(describeReap(s));
+          else logger.info(describeReap(s));
+        }
+      } catch (e) {
+        logError('karst: inactive worktree auto-archive failed', e);
+      }
       // The same setting gates the background sweep: a ticket the sweep
       // archives is closed exactly like one archived by a click, so its done
       // terminals go with it — off by default, and never a live session.
@@ -5119,7 +5168,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       // A forced sweep pushes unconditionally: "nothing changed" is the answer
       // the user asked for, and it is also what clears the panel's spinner.
-      if (force || changed > 0 || mergeChanged > 0 || landed.length > 0 || archived.length > 0) {
+      if (force || changed > 0 || mergeChanged > 0 || landed.length > 0 || archived.length > 0 || worktreesSwept) {
         provider.refresh();
         dashboard.pushAll();
       }
