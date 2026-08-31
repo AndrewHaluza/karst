@@ -202,6 +202,19 @@ describe('ticket-form webview.html', () => {
     const saveBlock = HTML.slice(HTML.indexOf("el('saveBtn').addEventListener"));
     expect(saveBlock.slice(0, 1200)).not.toContain('pullBase');
   });
+
+  // The webview tells the host whether the key it carries is user-owned or the
+  // title-derived preview: when the user has NOT touched the Key field, the
+  // content is auto-derived and keyAutoDerived must say so. Both persist paths
+  // carry it so the host never guesses.
+  it('sends keyAutoDerived on submit and save, mirroring refTouched', () => {
+    const submit = HTML.match(/post\(\{ type: 'submit',([^\n]+)\);/);
+    expect(submit, 'submit post not found').toBeTruthy();
+    expect(submit![1]).toContain('keyAutoDerived: !refTouched');
+    const save = HTML.match(/post\(\{ type: 'save',([^\n]+)\);/);
+    expect(save, 'save post not found').toBeTruthy();
+    expect(save![1]).toContain('keyAutoDerived: !refTouched');
+  });
 });
 
 // ---- ticket search (the Key field's dropdown) ----

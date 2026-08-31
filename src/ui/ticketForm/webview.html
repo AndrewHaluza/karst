@@ -1362,7 +1362,7 @@
     // Enter pending LOCALLY, before the round trip (UI-R11) — the host's `busy`
     // message that follows only confirms/clears it.
     setSubmitBusy(true);
-    post({ type: 'submit', key, title, description: el('desc').value, repos, approach, agent, model, effort, agentProvider, ticketType, createInProvider: createInOn, pullBase: pullBaseOn });
+    post({ type: 'submit', key, title, description: el('desc').value, repos, approach, agent, model, effort, agentProvider, ticketType, createInProvider: createInOn, keyAutoDerived: !refTouched, pullBase: pullBaseOn });
   });
 
   el('saveBtn').addEventListener('click', () => {
@@ -1389,7 +1389,7 @@
     const effort = draft.selectedEffort || null;
     const ticketType = (draft.ticketType ?? el('typeSelect').value ?? '') || null;
     setSaveBusy(true);
-    post({ type: 'save', key, title, description: el('desc').value, repos, approach, agent, model, effort, agentProvider, ticketType, createInProvider: createInOn });
+    post({ type: 'save', key, title, description: el('desc').value, repos, approach, agent, model, effort, agentProvider, ticketType, createInProvider: createInOn, keyAutoDerived: !refTouched });
   });
 
   // Typing an identity in Phase 1 reveals (or re-hides) Phase 2 live. When the
