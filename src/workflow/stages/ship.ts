@@ -1295,6 +1295,36 @@ export async function shipTicket(
               detail,
               endedAt: nowIso(),
             });
+            // This run's push never landed, but a PR for the branch may already
+            // exist on GitHub — opened by hand, or by an attempt whose result
+            // write was lost. Without this probe, ship never reaches the `pr`
+            // step, so `prs` never gets a row and `karst context`/the dashboard
+            // report no PR at all for a repo that actually has one open on
+            // GitHub. Adoption here must never fail the push error it is
+            // reporting alongside.
+            try {
+              const adopted = await findOpenPr(gh, wt.path);
+              if (adopted) {
+                recordShippedPr(store, {
+                  ticketId: opts.ticketId,
+                  repo: wt.repo,
+                  number: adopted.number,
+                  url: adopted.url,
+                });
+                const adoptedDetail = await fetchPrDetail(gh, adopted.url, wt.path).catch(
+                  () => UNKNOWN_PR_DETAIL,
+                );
+                updatePrDetail(store, {
+                  ticketId: opts.ticketId,
+                  repo: wt.repo,
+                  url: adopted.url,
+                  detail: adoptedDetail,
+                });
+                prs.push({ repo: wt.repo, number: adopted.number, url: adopted.url });
+              }
+            } catch {
+              // Observability must not compound the push failure being thrown.
+            }
             throw err;
           }
           markShipOperationApplied(store, pushOp.intentId, {

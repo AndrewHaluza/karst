@@ -708,6 +708,36 @@ setTimeout(() => {
     expect(getTicket(store, id).stageCurrent).toBe('ship');
   });
 
+  // SHIP-ADOPT-PR-WHEN-PUSH-NEVER §1: a PR for this branch may already exist
+  // on GitHub — opened by hand, or by an attempt whose result write was lost —
+  // even though THIS run's own push never landed. Adoption must not depend on
+  // reaching the `pr` step.
+  it('adopts an existing open PR even when this run’s own push fails', async () => {
+    seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+    const git: GitRunner = async (args) => {
+      if (args[0] === 'diff') return { stdout: '', stderr: '', exitCode: 1 };
+      if (args[0] === 'push') {
+        return { stdout: '', stderr: 'fatal: unable to access remote', exitCode: 128 };
+      }
+      return { stdout: '', stderr: '', exitCode: 0 };
+    };
+    const URL = 'https://github.com/o/r/pull/18';
+    const { gh } = ghWithExistingPr(URL);
+
+    await expect(shipTicket(store, { ticketId: id }, gh, fakeAdapter(), git)).rejects.toThrow(
+      /unable to access remote/,
+    );
+
+    const prs = listPrsByTicket(store, id);
+    expect(prs).toHaveLength(1);
+    expect(prs[0]?.url).toBe(URL);
+    expect(prs[0]?.number).toBe(18);
+    // The push failure is still what ship reports — adoption is silent bookkeeping.
+    const ship = getTicket(store, id).stages.find((s) => s.stageKey === 'ship');
+    expect(ship?.status).toBe('failed');
+    expect(ship?.verdict).toContain('unable to access remote');
+  });
+
   // Defect 1: a push failure in ONE repo used to `throw` out of the whole
   // `for (const wt of worktrees)` loop, so every repo after the failing one
   // never got committed/pushed/PR'd — a 4-repo ticket with 2 changed repos
