@@ -620,6 +620,42 @@ function noteReusedPr(repo: string, onProgress: ShipProgress): void {
 }
 
 /**
+ * Say that a branch carrying no effective change from its base publishes,
+ * describes and opens nothing — the whole remaining tail of a repo's ship.
+ *
+ * One renderer for both places that reach this verdict: the probe that runs
+ * BEFORE the commit for a clean worktree (fu1 — an untouched repo never enters
+ * the commit machinery at all), and the one after a commit landed.
+ */
+function noteNothingToShip(
+  onProgress: ShipProgress,
+  repo: string,
+  base: string,
+  describes: boolean,
+): void {
+  onProgress({
+    repo,
+    step: 'push',
+    status: 'note',
+    detail: `no push needed — no changes from ${base}`,
+  });
+  if (describes) {
+    onProgress({
+      repo,
+      step: 'describe',
+      status: 'note',
+      detail: `no description needed — no changes from ${base}`,
+    });
+  }
+  onProgress({
+    repo,
+    step: 'pr',
+    status: 'note',
+    detail: `no PR needed — no changes from ${base}`,
+  });
+}
+
+/**
  * Give an adopted PR a description if — and only if — it has none.
  *
  * The asymmetry is the whole point. A PR opened by hand commonly has an empty
@@ -1070,7 +1106,29 @@ export async function shipTicket(
         if (dirtyCheck.exitCode !== 0) {
           throw new Error(describeGitFailure('git status --porcelain', dirtyCheck));
         }
-        if (dirtyCheck.stdout.trim() === '') {
+        const clean = dirtyCheck.stdout.trim() === '';
+
+        // fu1: a repo the ticket never touched is settled BEFORE the commit
+        // machinery runs, not after it. A clean worktree whose branch carries no
+        // effective change from the base — the shape a multi-repo ticket produces
+        // for every repo it did not edit — is a no-op for every step, and saying
+        // so up front is what keeps ship off the network for it entirely.
+        // A DIRTY worktree is never answered here: the commit below is exactly
+        // what changes the answer, so its probe runs after the commit lands.
+        const preCommitChanges =
+          clean && base ? await hasChangesFrom(git, wt.path, base, wt.branch) : null;
+        if (base && preCommitChanges === false) {
+          onProgress({
+            repo: wt.repo,
+            step: 'commit',
+            status: 'note',
+            detail: `no changes from ${base} — nothing to commit`,
+          });
+          noteNothingToShip(onProgress, wt.repo, base, adapter !== undefined);
+          continue;
+        }
+
+        if (clean) {
           onProgress({
             repo: wt.repo,
             step: 'commit',
@@ -1176,79 +1234,81 @@ export async function shipTicket(
           onProgress({ repo: wt.repo, step: 'commit', status: 'pass' });
         }
 
-        if (base && !(await hasChangesFrom(git, wt.path, base, wt.branch))) {
-          onProgress({
-            repo: wt.repo,
-            step: 'push',
-            status: 'note',
-            detail: `no push needed — no changes from ${base}`,
-          });
-          if (adapter) {
-            onProgress({
-              repo: wt.repo,
-              step: 'describe',
-              status: 'note',
-              detail: `no description needed — no changes from ${base}`,
-            });
-          }
-          onProgress({
-            repo: wt.repo,
-            step: 'pr',
-            status: 'note',
-            detail: `no PR needed — no changes from ${base}`,
-          });
+        // A clean worktree already answered this above — asking twice would fetch
+        // the remote a second time for the same fact.
+        const changedFromBase =
+          preCommitChanges ?? (base ? await hasChangesFrom(git, wt.path, base, wt.branch) : true);
+        if (base && !changedFromBase) {
+          noteNothingToShip(onProgress, wt.repo, base, adapter !== undefined);
           continue;
         }
 
         // Push — pre-state and intent persisted BEFORE the external call, so a
         // crash after git accepted the push but before the result write is
         // reconciled by remote ref, never re-guessed.
-        onProgress({ repo: wt.repo, step: 'push', status: 'run' });
         const pushAt = nowIso();
         const localHead = (await headCommit(git, wt.path)) ?? '';
         const ref = wt.branch ?? 'HEAD';
         const preRemoteHead = await remoteRefSha(git, wt.path, 'origin', ref);
-        const pushOp = openStepWithPreparation(store, {
-          run,
-          repo: wt.repo,
-          step: 'push',
-          operationKey: `${run.id}:${wt.repo}:push`,
-          preState: { step: 'push', localHead, remote: 'origin', ref, preRemoteHead },
-          detail: ref,
-          at: pushAt,
-        });
-        finalizeShipOperationIntent(
-          store,
-          pushOp.intentId,
-          { step: 'push', localHead, remote: 'origin', ref, preRemoteHead },
-          pushAt,
-        );
-        try {
-          await pushBranch(git, wt.path);
-        } catch (err) {
-          const detail = err instanceof Error ? err.message : String(err);
-          reconcileShipOperation(store, pushOp.intentId, 'failed', {
-            resolvedAt: nowIso(),
-            detail,
+
+        // fu1: the remote already carries this exact HEAD — an earlier attempt's
+        // push landed and only its result write was lost. Re-pushing publishes
+        // nothing, and against a slow or unreachable remote it spends the whole
+        // push budget only to fail a stage whose work is already on origin. The
+        // remote-tracking ref is trustworthy here because the change probe above
+        // fetched this branch from origin moments ago; an unreadable HEAD (`''`)
+        // never matches and always pushes.
+        if (localHead !== '' && preRemoteHead === localHead) {
+          onProgress({
+            repo: wt.repo,
+            step: 'push',
+            status: 'note',
+            detail: `already published — origin/${ref} is at ${localHead.slice(0, 7)}`,
           });
+        } else {
+          onProgress({ repo: wt.repo, step: 'push', status: 'run' });
+          const pushOp = openStepWithPreparation(store, {
+            run,
+            repo: wt.repo,
+            step: 'push',
+            operationKey: `${run.id}:${wt.repo}:push`,
+            preState: { step: 'push', localHead, remote: 'origin', ref, preRemoteHead },
+            detail: ref,
+            at: pushAt,
+          });
+          finalizeShipOperationIntent(
+            store,
+            pushOp.intentId,
+            { step: 'push', localHead, remote: 'origin', ref, preRemoteHead },
+            pushAt,
+          );
+          try {
+            await pushBranch(git, wt.path);
+          } catch (err) {
+            const detail = err instanceof Error ? err.message : String(err);
+            reconcileShipOperation(store, pushOp.intentId, 'failed', {
+              resolvedAt: nowIso(),
+              detail,
+            });
+            finishShipRepoStep(store, pushOp.stepId, {
+              status: 'failed',
+              detail,
+              endedAt: nowIso(),
+            });
+            throw err;
+          }
+          markShipOperationApplied(store, pushOp.intentId, {
+            appliedAt: nowIso(),
+            resolvedAt: nowIso(),
+          });
+          reconcileShipOperation(store, pushOp.intentId, 'reconciled', { resolvedAt: nowIso() });
           finishShipRepoStep(store, pushOp.stepId, {
-            status: 'failed',
-            detail,
+            status: 'passed',
+            detail: ref,
             endedAt: nowIso(),
           });
-          throw err;
+          onProgress({ repo: wt.repo, step: 'push', status: 'pass' });
         }
-        markShipOperationApplied(store, pushOp.intentId, {
-          appliedAt: nowIso(),
-          resolvedAt: nowIso(),
-        });
-        reconcileShipOperation(store, pushOp.intentId, 'reconciled', { resolvedAt: nowIso() });
-        finishShipRepoStep(store, pushOp.stepId, {
-          status: 'passed',
-          detail: ref,
-          endedAt: nowIso(),
-        });
-        onProgress({ repo: wt.repo, step: 'push', status: 'pass' });
 
         // The `prs` table only knows about PRs karst itself opened, so a PR opened
         // by hand — or by a run whose row was lost — used to make ship fail with

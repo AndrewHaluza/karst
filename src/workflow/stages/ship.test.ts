@@ -154,7 +154,14 @@ const MERGE_TREE_CONFLICT_ONE =
 function gitWithMergeProbe(probe: { exitCode: number; stdout?: string; stderr?: string }): GitRunner {
   return async (args) => {
     if (args[0] === 'diff') return { stdout: '', stderr: '', exitCode: 1 };
-    if (args[0] === 'rev-parse') return { stdout: 'abc1234\n', stderr: '', exitCode: 0 };
+    if (args[0] === 'rev-parse') {
+      // The remote-tracking ref is BEHIND local HEAD, so the push is real work
+      // (a remote already at HEAD is the no-op case, covered on its own).
+      if (args[2]?.startsWith('refs/remotes/')) {
+        return { stdout: '0000001\n', stderr: '', exitCode: 0 };
+      }
+      return { stdout: 'abc1234\n', stderr: '', exitCode: 0 };
+    }
     if (args[0] === 'merge-tree') {
       return { stdout: probe.stdout ?? '', stderr: probe.stderr ?? '', exitCode: probe.exitCode };
     }
@@ -459,6 +466,57 @@ setTimeout(() => {
         detail: 'no PR needed — no changes from develop',
       });
       expect(getTicket(store, id).stageCurrent).toBe('done');
+    });
+
+    // fu1: a repo the ticket never touched is settled BEFORE the commit step —
+    // the probe used to run after it, so a clean-but-untouched worktree still
+    // walked the commit machinery on its way to doing nothing.
+    it('notes the commit step as a no-op and never reaches the commit machinery', async () => {
+      seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+      const calls: string[][] = [];
+      const git: GitRunner = async (args) => {
+        calls.push(args);
+        if (args[0] === 'diff') return { stdout: '', stderr: '', exitCode: 0 };
+        return { stdout: '', stderr: '', exitCode: 0 };
+      };
+      const events: ShipStepEvent[] = [];
+
+      await shipTicket(store, { ticketId: id }, fakeGh().gh, fakeAdapter(), git, (e) =>
+        events.push(e),
+      );
+
+      expect(events).toContainEqual({
+        repo: '/repo/frontend',
+        step: 'commit',
+        status: 'note',
+        detail: 'no changes from develop — nothing to commit',
+      });
+      expect(calls.some((args) => args[0] === 'write-tree')).toBe(false);
+    });
+
+    // fu1: the remote already carries this exact HEAD (an earlier attempt's push
+    // landed before its result write). Re-pushing buys nothing and, on a slow or
+    // unreachable remote, spends the whole push budget to fail the stage.
+    it('skips the push when the remote ref is already at the local HEAD', async () => {
+      seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+      const calls: string[][] = [];
+      const git: GitRunner = async (args) => {
+        calls.push(args);
+        if (args[0] === 'diff') return { stdout: '', stderr: '', exitCode: 1 };
+        if (args[0] === 'rev-parse') return { stdout: 'abc1234def\n', stderr: '', exitCode: 0 };
+        return { stdout: '', stderr: '', exitCode: 0 };
+      };
+      const events: ShipStepEvent[] = [];
+
+      await shipTicket(store, { ticketId: id }, fakeGh().gh, undefined, git, (e) => events.push(e));
+
+      expect(calls.some((args) => args[0] === 'push')).toBe(false);
+      expect(events).toContainEqual({
+        repo: '/repo/frontend',
+        step: 'push',
+        status: 'note',
+        detail: 'already published — origin/karst/x is at abc1234',
+      });
     });
 
     it('preserves normal PR creation when an effective change is present', async () => {
@@ -1897,6 +1955,9 @@ setTimeout(() => {
         if (args[0] === 'fetch') {
           return { stdout: '', stderr: "fatal: couldn't find remote ref develop", exitCode: 128 };
         }
+        // The branch DOES carry work — an unreachable base is what makes the
+        // merge answer unknown, not an empty diff (which would skip the repo).
+        if (args[0] === 'diff') return { stdout: '', stderr: '', exitCode: 1 };
         return { stdout: '', stderr: '', exitCode: 0 };
       };
 

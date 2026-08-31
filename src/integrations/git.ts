@@ -325,11 +325,19 @@ export async function hasChangesFrom(
   baseRef: string,
   branch?: string | null,
 ): Promise<boolean> {
-  // If the remote cannot be refreshed, preserve shipping's existing behavior:
-  // attempt the PR and let GitHub decide. A failed optimization must not turn a
-  // potentially valid ship into a new hard failure.
+  // An unreachable remote is not a verdict (fu1). It used to read as "assume
+  // changes", which ships a branch carrying none: the push then spends its whole
+  // timeout on a remote that was already unreachable and fails the stage for a
+  // repo the ticket never touched. The LOCAL base ref answers the same question
+  // offline; only when nothing resolves does the old behavior stand — attempt
+  // the PR and let GitHub decide.
   const fetched = await git(['fetch', 'origin', baseRef], cwd);
-  if (fetched.exitCode !== 0) return true;
+  let baseSpec = `origin/${baseRef}`;
+  if (fetched.exitCode !== 0) {
+    const localBase = await git(['rev-parse', '--verify', `${baseRef}^{commit}`], cwd);
+    if (localBase.exitCode !== 0) return true;
+    baseSpec = baseRef;
+  }
 
   // Also fetch the feature branch so the diff head resolves against the remote
   // state — a local branch ref that is behind the remote produces an empty diff
@@ -350,7 +358,7 @@ export async function hasChangesFrom(
         ? `origin/${branch}`
         : branch
       : 'HEAD';
-  const result = await git(['diff', '--quiet', `origin/${baseRef}...${head}`], cwd);
+  const result = await git(['diff', '--quiet', `${baseSpec}...${head}`], cwd);
   if (result.exitCode === 0) return false;
   if (result.exitCode === 1) return true;
 
