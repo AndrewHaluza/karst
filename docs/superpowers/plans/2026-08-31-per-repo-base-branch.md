@@ -282,7 +282,9 @@ export function assertSharedRepoBaseOverrides(
 - [ ] **Step 4: Run the test and watch it pass**
 
 Run: `npx vitest run src/workflow/baseRef.test.ts`
-Expected: PASS (the `resolveTicketBaseRef` cases that use `baseRefs` will still fail until Task 2 — if so, land Task 2 first and re-run; the ordering below assumes you do Task 2 first if the store field does not exist yet).
+Expected: PASS.
+
+**Execution order:** Task 2 lands BEFORE this task. These tests call `updateTicketFields(store, id, { baseRefs })` and read `ticket.baseRefs`, neither of which exists until Task 2 adds the column and the field, so running this task first would commit a red suite and break the plan's own RED→GREEN, one-commit-per-task rule. The full order is **2, 1, 3, 4, 5, 6, 11, 7, 8, 9, 10**.
 
 - [ ] **Step 5: Commit**
 
@@ -653,7 +655,7 @@ git commit -m "feat(runtime): list local and origin branches as base-branch cand
 - Consumes: `GitRunner`.
 - Produces:
 ```ts
-export type RebaseOutcome = 'rebased' | 'already-based' | 'dirty' | 'fetch-failed' | 'conflict' | 'failed';
+export type RebaseOutcome = 'rebased' | 'already-based' | 'dirty' | 'base-missing' | 'conflict' | 'failed';
 export interface RebaseResult {
   outcome: RebaseOutcome;
   /** Human-readable reason; '' on success. Git's own words when git refused. */
@@ -670,6 +672,13 @@ export interface RebaseWorktreeOpts {
 export function rebaseWorktreeOntoBase(opts: RebaseWorktreeOpts): Promise<RebaseResult>;
 ```
 
+**Four rules this module exists to get right — each one is a test below:**
+
+1. **A base may be local-only.** The picker (Task 4) lists local heads AND `origin/*`, and the field is free text, so `origin/<base>` is a guess, not a fact. Each base is RESOLVED: best-effort `git fetch origin <base>` (a failure is NOT fatal — an offline clone with the branch already local is a perfectly good base), then `git rev-parse --verify origin/<base>`, then `git rev-parse --verify <base>`. Only when neither resolves is the change refused (`base-missing`). A dead remote never blocks a base this clone already has.
+2. **The upstream is the branch point, not a remote-tracking ref.** `--onto <newRef> <upstream>` replays everything after `<upstream>`. Using `origin/<oldBase>` replays whatever the stale remote-tracking ref lacks — the exact history duplication `--onto` exists to prevent. The upstream is `git merge-base HEAD <oldRef>`: the commit this branch actually left the old base at.
+3. **Dirty means dirty, not untracked.** `git status --porcelain` reports build output and editor scratch as `??`, none of which obstructs a rebase. Use `--untracked-files=no`.
+4. **Conflict is a git STATE, not English prose.** Classify by probing `git rev-parse --verify --quiet REBASE_HEAD` (exit 0 = a rebase is in progress), never by grepping `/conflict/i` — git's output is localized and its wordings change. Abort ONLY when a rebase is actually in progress ("invalid upstream" never started one, and an unconditional `--abort` there fails silently), and CHECK the abort's own exit code: a failed cleanup leaves a worktree mid-rebase and must be reported, not swallowed.
+
 - [ ] **Step 1: Write the failing test**
 
 ```ts
@@ -681,18 +690,30 @@ import { rebaseWorktreeOntoBase } from './rebaseWorktree.js';
 const ok = (stdout = ''): GitResult => ({ stdout, stderr: '', exitCode: 0 });
 const fail = (stderr: string, exitCode = 1): GitResult => ({ stdout: '', stderr, exitCode });
 
-/** Scripts one reply per `git` sub-command, and records the call order. */
+/**
+ * Scripts one reply per `git` sub-command and records the call order. Keys are
+ * matched as a prefix of the joined argv, longest key first, so a specific key
+ * ('rev-parse --verify origin/epic/x') wins over a general one ('rev-parse').
+ */
 function scripted(replies: Record<string, GitResult>): { git: GitRunner; calls: string[][] } {
   const calls: string[][] = [];
+  const keys = Object.keys(replies).sort((a, b) => b.length - a.length);
   const git: GitRunner = async (args) => {
     calls.push(args);
-    for (const [prefix, reply] of Object.entries(replies)) {
-      if (args.join(' ').startsWith(prefix)) return reply;
-    }
+    const line = args.join(' ');
+    for (const key of keys) if (line.startsWith(key)) return replies[key]!;
     return ok();
   };
   return { git, calls };
 }
+
+/** Both bases resolve as remote-tracking refs, the tree is clean, HEAD forked at `m1`. */
+const HAPPY: Record<string, GitResult> = {
+  'status --porcelain': ok(''),
+  'rev-parse --verify origin/epic/x': ok('aaa\n'),
+  'rev-parse --verify origin/develop': ok('bbb\n'),
+  'merge-base': ok('m1\n'),
+};
 
 describe('rebaseWorktreeOntoBase', () => {
   it('is a no-op when the base has not changed', async () => {
@@ -703,47 +724,122 @@ describe('rebaseWorktreeOntoBase', () => {
   });
 
   it('refuses a dirty worktree before touching anything', async () => {
-    const { git, calls } = scripted({ 'status --porcelain': ok(' M src/a.ts\n') });
+    const { git, calls } = scripted({ ...HAPPY, 'status --porcelain': ok(' M src/a.ts\n') });
     const r = await rebaseWorktreeOntoBase({ git, cwd: '/wt', fromBase: 'develop', toBase: 'epic/x' });
     expect(r.outcome).toBe('dirty');
     expect(calls.some((a) => a[0] === 'rebase')).toBe(false);
   });
 
-  it('reports a fetch failure without rebasing', async () => {
+  it('ignores untracked files — build output is not a reason to refuse', async () => {
+    const { git, calls } = scripted(HAPPY);
+    const r = await rebaseWorktreeOntoBase({ git, cwd: '/wt', fromBase: 'develop', toBase: 'epic/x' });
+    expect(r.outcome).toBe('rebased');
+    expect(calls).toContainEqual(['status', '--porcelain', '--untracked-files=no']);
+  });
+
+  it('rebases --onto the resolved new base from the branch point', async () => {
+    const { git, calls } = scripted(HAPPY);
+    const r = await rebaseWorktreeOntoBase({ git, cwd: '/wt', fromBase: 'develop', toBase: 'epic/x' });
+    expect(r.outcome).toBe('rebased');
+    expect(calls).toContainEqual(['merge-base', 'HEAD', 'origin/develop']);
+    expect(calls).toContainEqual(['rebase', '--onto', 'origin/epic/x', 'm1']);
+  });
+
+  it('fetches BOTH bases, so neither remote-tracking ref is stale', async () => {
+    const { git, calls } = scripted(HAPPY);
+    await rebaseWorktreeOntoBase({ git, cwd: '/wt', fromBase: 'develop', toBase: 'epic/x' });
+    expect(calls).toContainEqual(['fetch', 'origin', 'epic/x']);
+    expect(calls).toContainEqual(['fetch', 'origin', 'develop']);
+  });
+
+  it('uses a LOCAL-only base when the remote has no such branch', async () => {
     const { git, calls } = scripted({
-      'status --porcelain': ok(''),
-      fetch: fail('could not resolve host github.com'),
+      ...HAPPY,
+      fetch: fail("couldn't find remote ref epic/x"),
+      'rev-parse --verify origin/epic/x': fail('unknown revision', 128),
+      'rev-parse --verify epic/x': ok('ccc\n'),
     });
     const r = await rebaseWorktreeOntoBase({ git, cwd: '/wt', fromBase: 'develop', toBase: 'epic/x' });
-    expect(r.outcome).toBe('fetch-failed');
-    expect(r.reason).toContain('could not resolve host');
+    expect(r.outcome).toBe('rebased');
+    expect(calls).toContainEqual(['rebase', '--onto', 'epic/x', 'm1']);
+  });
+
+  it('rebases anyway when the fetch fails but both refs are already local', async () => {
+    const { git } = scripted({ ...HAPPY, fetch: fail('could not resolve host github.com') });
+    const r = await rebaseWorktreeOntoBase({ git, cwd: '/wt', fromBase: 'develop', toBase: 'epic/x' });
+    expect(r.outcome).toBe('rebased');
+  });
+
+  it('refuses when the new base resolves nowhere', async () => {
+    const { git, calls } = scripted({
+      ...HAPPY,
+      'rev-parse --verify origin/epic/x': fail('unknown revision', 128),
+      'rev-parse --verify epic/x': fail('unknown revision', 128),
+    });
+    const r = await rebaseWorktreeOntoBase({ git, cwd: '/wt', fromBase: 'develop', toBase: 'epic/x' });
+    expect(r.outcome).toBe('base-missing');
+    expect(r.reason).toContain('epic/x');
     expect(calls.some((a) => a[0] === 'rebase')).toBe(false);
   });
 
-  it('rebases --onto the new base from the old one', async () => {
-    const { git, calls } = scripted({ 'status --porcelain': ok('') });
+  it('refuses when the OLD base resolves nowhere — the branch point is unknowable', async () => {
+    const { git, calls } = scripted({
+      ...HAPPY,
+      'rev-parse --verify origin/develop': fail('unknown revision', 128),
+      'rev-parse --verify develop': fail('unknown revision', 128),
+    });
     const r = await rebaseWorktreeOntoBase({ git, cwd: '/wt', fromBase: 'develop', toBase: 'epic/x' });
-    expect(r.outcome).toBe('rebased');
-    expect(calls).toContainEqual([
-      'rebase',
-      '--onto',
-      'origin/epic/x',
-      'origin/develop',
-    ]);
+    expect(r.outcome).toBe('base-missing');
+    expect(r.reason).toContain('develop');
+    expect(calls.some((a) => a[0] === 'rebase')).toBe(false);
   });
 
-  it('aborts and reports a conflict, leaving no rebase in progress', async () => {
+  it('falls back to the old base ref itself when no merge base exists', async () => {
+    const { git, calls } = scripted({ ...HAPPY, 'merge-base': fail('no merge base', 1) });
+    const r = await rebaseWorktreeOntoBase({ git, cwd: '/wt', fromBase: 'develop', toBase: 'epic/x' });
+    expect(r.outcome).toBe('rebased');
+    expect(calls).toContainEqual(['rebase', '--onto', 'origin/epic/x', 'origin/develop']);
+  });
+
+  it('classifies a conflict by rebase STATE, not by git prose, and aborts', async () => {
     const { git, calls } = scripted({
-      'status --porcelain': ok(''),
-      rebase: fail('CONFLICT (content): Merge conflict in src/a.ts'),
+      ...HAPPY,
+      // Deliberately NOT the English word "conflict": classification must not read prose.
+      rebase: fail('konnte nicht anwenden: 1a2b3c'),
+      'rev-parse --verify --quiet REBASE_HEAD': ok('deadbeef\n'),
     });
     const r = await rebaseWorktreeOntoBase({ git, cwd: '/wt', fromBase: 'develop', toBase: 'epic/x' });
     expect(r.outcome).toBe('conflict');
-    expect(r.reason).toContain('CONFLICT');
+    expect(r.reason).toContain('konnte nicht anwenden');
     expect(calls).toContainEqual(['rebase', '--abort']);
+  });
+
+  it('does NOT abort when no rebase ever started', async () => {
+    const { git, calls } = scripted({
+      ...HAPPY,
+      rebase: fail('fatal: invalid upstream', 128),
+      'rev-parse --verify --quiet REBASE_HEAD': fail('', 1),
+    });
+    const r = await rebaseWorktreeOntoBase({ git, cwd: '/wt', fromBase: 'develop', toBase: 'epic/x' });
+    expect(r.outcome).toBe('failed');
+    expect(calls).not.toContainEqual(['rebase', '--abort']);
+  });
+
+  it('reports a failed abort instead of swallowing it — the tree is left mid-rebase', async () => {
+    const { git } = scripted({
+      ...HAPPY,
+      rebase: fail('could not apply 1a2b3c'),
+      'rebase --abort': fail('fatal: could not move back to refs/heads/x', 128),
+      'rev-parse --verify --quiet REBASE_HEAD': ok('deadbeef\n'),
+    });
+    const r = await rebaseWorktreeOntoBase({ git, cwd: '/wt', fromBase: 'develop', toBase: 'epic/x' });
+    expect(r.outcome).toBe('failed');
+    expect(r.reason).toContain('could not move back');
   });
 });
 ```
+
+Note on the scripted helper: `'rebase --abort'` and `'rebase'` are both prefixes of the abort argv, which is why the helper matches the LONGEST key first. Keep that ordering.
 
 - [ ] **Step 2: Run the test and watch it fail**
 
@@ -762,7 +858,7 @@ export type RebaseOutcome =
   | 'rebased'
   | 'already-based'
   | 'dirty'
-  | 'fetch-failed'
+  | 'base-missing'
   | 'conflict'
   | 'failed';
 
@@ -781,29 +877,64 @@ export interface RebaseWorktreeOpts {
   debug?: (line: string) => void;
 }
 
-const words = (r: GitResult): string => r.stderr.trim() || r.stdout.trim() || `git exit ${r.exitCode}`;
+const words = (r: GitResult): string =>
+  r.stderr.trim() || r.stdout.trim() || `git exit ${r.exitCode}`;
+
+/**
+ * Turn a PLAIN branch name into a ref this clone can actually name.
+ *
+ * The fetch is BEST EFFORT: an offline clone that already has the branch is a
+ * legal base, and a picker that lists local heads means `origin/<name>` is a
+ * guess. Remote-tracking ref first (it is the one that moves with the team),
+ * the local head second, and `null` when the branch is nowhere — the only case
+ * that refuses the change.
+ */
+async function resolveBaseRef(
+  git: GitRunner,
+  cwd: string,
+  name: string,
+): Promise<string | null> {
+  await git(['fetch', REMOTE, name], cwd).catch(() => null);
+  for (const ref of [`${REMOTE}/${name}`, name]) {
+    const probe = await git(['rev-parse', '--verify', ref], cwd).catch(() => null);
+    if (probe && probe.exitCode === 0) return ref;
+  }
+  return null;
+}
+
+/** Whether git left a rebase in progress — the only honest conflict signal. */
+async function rebaseInProgress(git: GitRunner, cwd: string): Promise<boolean> {
+  const probe = await git(['rev-parse', '--verify', '--quiet', 'REBASE_HEAD'], cwd).catch(
+    () => null,
+  );
+  return probe !== null && probe.exitCode === 0;
+}
 
 /**
  * Move a ticket's branch off `fromBase` and onto `toBase`.
  *
- * `--onto` is the whole point: a plain `git rebase origin/<new>` would replay
- * every commit the OLD base had that the new one lacks, so the ticket's PR would
- * grow the epic's history. `--onto origin/<new> origin/<old>` replays exactly the
- * commits this branch added.
+ * `--onto` is the whole point: a plain `git rebase <new>` would replay every
+ * commit the OLD base had that the new one lacks, so the ticket's PR would grow
+ * the epic's history. The upstream is the BRANCH POINT (`merge-base HEAD
+ * <oldRef>`), not `origin/<oldBase>` — a stale remote-tracking ref as upstream
+ * reintroduces exactly the duplication `--onto` is here to avoid.
  *
- * Refuses rather than risks: a dirty tree is a refusal (a rebase would stash or
- * fail halfway), and a conflict is ABORTED, so the caller never inherits a
- * worktree with a rebase in progress. Every outcome is reported; nothing here
- * throws.
+ * Refuses rather than risks: a base that resolves nowhere and a dirty tree are
+ * refusals, and a conflict is ABORTED so the caller never inherits a worktree
+ * mid-rebase. Dirtiness ignores untracked files (build output is not a reason to
+ * refuse), and a conflict is detected by git STATE, never by matching prose.
+ * Nothing here throws.
  */
 export async function rebaseWorktreeOntoBase(opts: RebaseWorktreeOpts): Promise<RebaseResult> {
-  const { git, cwd, fromBase, toBase, debug } = opts;
-  if (fromBase.trim() === toBase.trim()) {
+  const { git, cwd, debug } = opts;
+  const fromBase = opts.fromBase.trim();
+  const toBase = opts.toBase.trim();
+  if (fromBase === toBase) {
     return { outcome: 'already-based', reason: '' };
   }
   debug?.(`[runtime] rebase ${cwd}: ${fromBase} -> ${toBase}`);
 
-  const status = await git(['status', '--porcelain'], cwd);
+  const status = await git(['status', '--porcelain', '--untracked-files=no'], cwd);
   if (status.exitCode !== 0) {
     return { outcome: 'failed', reason: words(status) };
   }
@@ -815,27 +946,57 @@ export async function rebaseWorktreeOntoBase(opts: RebaseWorktreeOpts): Promise<
     };
   }
 
-  const fetched = await git(['fetch', REMOTE, toBase], cwd);
-  if (fetched.exitCode !== 0) {
-    debug?.(`[runtime] rebase ${cwd}: fetch failed`);
-    return { outcome: 'fetch-failed', reason: words(fetched) };
+  const toRef = await resolveBaseRef(git, cwd, toBase);
+  if (!toRef) {
+    debug?.(`[runtime] rebase ${cwd}: refused — no such branch ${toBase}`);
+    return {
+      outcome: 'base-missing',
+      reason: `no branch "${toBase}" locally or on ${REMOTE}`,
+    };
+  }
+  const fromRef = await resolveBaseRef(git, cwd, fromBase);
+  if (!fromRef) {
+    debug?.(`[runtime] rebase ${cwd}: refused — no such branch ${fromBase}`);
+    return {
+      outcome: 'base-missing',
+      reason: `no branch "${fromBase}" locally or on ${REMOTE} — the branch point cannot be found`,
+    };
   }
 
-  const rebased = await git(
-    ['rebase', '--onto', `${REMOTE}/${toBase}`, `${REMOTE}/${fromBase}`],
-    cwd,
-  );
+  // The branch point, not the remote-tracking ref: `--onto <new> <upstream>`
+  // replays everything AFTER upstream, so a stale upstream replays commits the
+  // new base already has. No merge base at all (unrelated histories) falls back
+  // to the ref itself, which is the best answer left.
+  const mergeBase = await git(['merge-base', 'HEAD', fromRef], cwd);
+  const upstream = mergeBase.exitCode === 0 && mergeBase.stdout.trim() !== ''
+    ? mergeBase.stdout.trim()
+    : fromRef;
+
+  const rebased = await git(['rebase', '--onto', toRef, upstream], cwd);
   if (rebased.exitCode !== 0) {
     const reason = words(rebased);
-    // Leave no rebase in progress: the next thing to touch this tree (a gate, the
-    // agent, ship) would otherwise fail with a message about an unrelated state.
-    await git(['rebase', '--abort'], cwd);
-    const conflicted = /conflict/i.test(reason);
-    debug?.(`[runtime] rebase ${cwd}: ${conflicted ? 'conflict' : 'failed'} — aborted`);
-    return { outcome: conflicted ? 'conflict' : 'failed', reason };
+    if (!(await rebaseInProgress(git, cwd))) {
+      // Nothing started — an invalid upstream, a refusal git made up front. An
+      // unconditional `--abort` here fails on its own and tells the user nothing.
+      debug?.(`[runtime] rebase ${cwd}: failed before starting`);
+      return { outcome: 'failed', reason };
+    }
+    const aborted = await git(['rebase', '--abort'], cwd);
+    if (aborted.exitCode !== 0) {
+      // The worst outcome there is: a tree left mid-rebase. Never swallowed —
+      // the next thing to touch this worktree will fail for reasons that look
+      // unrelated.
+      debug?.(`[runtime] rebase ${cwd}: ABORT FAILED — worktree left mid-rebase`);
+      return {
+        outcome: 'failed',
+        reason: `${reason} — and the rebase could not be aborted: ${words(aborted)}`,
+      };
+    }
+    debug?.(`[runtime] rebase ${cwd}: conflict — aborted`);
+    return { outcome: 'conflict', reason };
   }
 
-  debug?.(`[runtime] rebase ${cwd}: rebased onto ${toBase}`);
+  debug?.(`[runtime] rebase ${cwd}: rebased onto ${toRef}`);
   return { outcome: 'rebased', reason: '' };
 }
 ```
@@ -843,7 +1004,7 @@ export async function rebaseWorktreeOntoBase(opts: RebaseWorktreeOpts): Promise<
 - [ ] **Step 4: Run the test and watch it pass**
 
 Run: `npx vitest run src/runtime/rebaseWorktree.test.ts`
-Expected: PASS.
+Expected: PASS — all 13 cases.
 
 - [ ] **Step 5: Commit**
 
@@ -983,6 +1144,26 @@ export function changeBaseRef(opts: ChangeBaseRefOpts): Promise<ChangeBaseRefRes
 ```
 
 **Ordering is the contract:** rebase FIRST, and only write `worktrees.base_ref` if the rebase succeeded (or was skipped). A stored base that git never moved to is the one state that silently corrupts every downstream diff, gate target and PR.
+
+**Depends on Task 11**, which adds the `worktrees.needs_force_push` column this task writes. Task 11 is executed BEFORE this task.
+
+Add this case to the test file, beside the others:
+
+```ts
+it('arms the force push when — and only when — the branch was rewritten', async () => {
+  const armed = async (rebase: boolean) => {
+    const { store, manifest, ticketId, repoPath } = seed();
+    await changeBaseRef({ store, manifest, ticketId, repoPath, toBase: 'epic/checkout', rebase, git: cleanGit });
+    const row = store.db
+      .prepare('SELECT needs_force_push FROM worktrees WHERE ticket_id = ? AND repo = ?')
+      .get(ticketId, repoPath) as { needs_force_push: number | null };
+    return row.needs_force_push;
+  };
+  expect(await armed(true)).toBe(1);
+  // Re-targeting alone rewrites nothing — an ordinary push still fast-forwards.
+  expect(await armed(false)).toBeFalsy();
+});
+```
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1207,6 +1388,18 @@ export async function changeBaseRef(opts: ChangeBaseRefOpts): Promise<ChangeBase
     .run(toBase, ticketId, repoPath);
   clearMergeCheck(store, ticketId, repoPath);
 
+  // A rebase REWROTE every commit on this branch. If the branch is already on
+  // origin — and for a ticket with an open PR it always is — the next ordinary
+  // push is a non-fast-forward and will be REJECTED. Record it here, where the
+  // rewrite is known, and let ship consume the flag (Task 11). Telling the user
+  // in UI copy that they "will need a force-push" is not handling it.
+  if (rebase?.outcome === 'rebased') {
+    store.db
+      .prepare('UPDATE worktrees SET needs_force_push = 1 WHERE ticket_id = ? AND repo = ?')
+      .run(ticketId, repoPath);
+    debug?.(`[runtime] change base ${repoPath}: branch rewritten — force push armed`);
+  }
+
   let prRetarget: (PrEditAttempt & { number: number }) | null = null;
   const pr = store.db
     .prepare(
@@ -1400,7 +1593,7 @@ git commit -m "feat(ticket-form): pick a base branch per scoped repo before the 
 - Consumes: `changeBaseRef` (Task 7), `listBaseBranchCandidates` (Task 4).
 - Produces: inbound message `{ type: 'change-base-ref'; repo: string; baseRef: string; rebase: boolean }` (`repo` is the worktree's repoPath), and the dashboard state field `worktrees[].baseRef` surfaced on the scope card.
 
-**UX shape:** each worktree row on the scope card shows `Base <branch>`. Its action opens a small confirm surface with the branch combobox (same `<input list>` + `<datalist>` control as Task 8, so the two surfaces read as one idea) and a switch, defaulted ON: **"Rebase the branch onto the new base"**. The copy under it states the two outcomes plainly, because this is the destructive half: rebasing rewrites the ticket branch's commits, and a branch already pushed will need a force-push at ship time. Switching the rebase OFF re-targets only — useful when the branch was cut from the right commit and only the PR target is wrong. A refusal (`dirty`, `conflict`, `fetch-failed`) renders as an inline error naming git's own words and changes nothing; the ticket keeps its old base. A successful change reports what it did: rebased or not, PR #N re-targeted or not, merge check cleared.
+**UX shape:** each worktree row on the scope card shows `Base <branch>`. Its action opens a small confirm surface with the branch combobox (same `<input list>` + `<datalist>` control as Task 8, so the two surfaces read as one idea) and a switch, defaulted ON: **"Rebase the branch onto the new base"**. The copy under it states the two outcomes plainly, because this is the destructive half: rebasing rewrites the ticket branch's commits, and a branch already pushed will need a force-push at ship time. Switching the rebase OFF re-targets only — useful when the branch was cut from the right commit and only the PR target is wrong. A refusal (`dirty`, `conflict`, `base-missing`, `failed`) renders as an inline error naming git's own words and changes nothing; the ticket keeps its old base. A successful change reports what it did: rebased or not, PR #N re-targeted or not, merge check cleared.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1483,7 +1676,7 @@ In `docs/arch/worktrees-and-servers.md`, under "The base is pulled before a work
 ```markdown
 ## The base branch is per TICKET and per REPOSITORY, and the worktree row is the authority
 
-`workflow/baseRef.ts` is the only place a base branch is decided, and its order is load-bearing: `worktrees.base_ref` first (the branch was ALREADY cut from it, so it is the only answer matching what git did — a later manifest edit must not silently retarget an open PR), then the ticket's pre-spin override (`tickets.base_refs`, keyed by manifest repository NAME), then the manifest default. `confirmScope`/`spinTicket` read `resolvePlannedBaseRef` (no worktree exists yet); `gates/targets.ts` and `ship.ts` read `resolveTicketBaseRef`. Entries sharing a `repoPath` share ONE worktree and therefore one branch point, so a per-ticket override is validated by `assertSharedRepoBaseOverrides` exactly as the manifest's own defaults are by `assertSharedRepoBaselineBranches`. Changing the base of a SPUN ticket goes through `workflow/changeBaseRef.ts`, and its order is also the contract: the branch moves first (`runtime/rebaseWorktree.ts`, `git rebase --onto origin/<new> origin/<old>` — a plain rebase would replay the old base's history into the ticket's PR), and `base_ref` is written only once git agrees. A dirty tree and a conflict are REFUSALS that change nothing (the conflict is `--abort`ed, so no tree is left mid-rebase). After the write, the stale `merge_checks` row is deleted — it describes a merge against a base this ticket no longer targets — and an open PR is re-targeted with `gh pr edit --base`, whose refusal is reported, never thrown.
+`workflow/baseRef.ts` is the only place a base branch is decided, and its order is load-bearing: `worktrees.base_ref` first (the branch was ALREADY cut from it, so it is the only answer matching what git did — a later manifest edit must not silently retarget an open PR), then the ticket's pre-spin override (`tickets.base_refs`, keyed by manifest repository NAME), then the manifest default. `confirmScope`/`spinTicket` read `resolvePlannedBaseRef` (no worktree exists yet); `gates/targets.ts` and `ship.ts` read `resolveTicketBaseRef`. Entries sharing a `repoPath` share ONE worktree and therefore one branch point, so a per-ticket override is validated by `assertSharedRepoBaseOverrides` exactly as the manifest's own defaults are by `assertSharedRepoBaselineBranches`. Changing the base of a SPUN ticket goes through `workflow/changeBaseRef.ts`, and its order is also the contract: the branch moves first (`runtime/rebaseWorktree.ts`, `git rebase --onto origin/<new> origin/<old>` — a plain rebase would replay the old base's history into the ticket's PR), and `base_ref` is written only once git agrees. A dirty tree and a conflict are REFUSALS that change nothing (the conflict is `--abort`ed, so no tree is left mid-rebase). After the write, the stale `merge_checks` row is deleted — it describes a merge against a base this ticket no longer targets — and an open PR is re-targeted with `gh pr edit --base`, whose refusal is reported, never thrown. A rebase REWRITES the branch, so `worktrees.needs_force_push` is armed and ship's next push carries `--force-with-lease=<ref>:<the sha ship just probed>` — an exact compare-and-swap, never a bare `--force`, and the lease is consumed (cleared) by the same statement that reads it, so one rewrite arms exactly one force push.
 ```
 
 In `docs/arch/store-and-schema.md`, add `tickets.base_refs` to the schema notes with one line: *a JSON map of manifest repository NAME → plain branch name, the PRE-spin override; after spin, `worktrees.base_ref` is the authority.*
@@ -1511,3 +1704,216 @@ git commit -m "docs: record the per-ticket per-repo base branch invariant"
 - **"Proper UI with best UX"** → the picker lives on the repo row that already exists in both surfaces, is a free-text combobox so an unfetched remote branch is never a dead end, defaults are shown as placeholders rather than pre-filled values (so "unset" and "same as default" stay distinguishable), and the destructive half (rebase) is an explicit switch with its consequence stated.
 - **Not covered, deliberately:** changing the base of an ARCHIVED ticket, and a bulk "change base for every repo at once" action. Both are additive on top of `changeBaseRef` and neither is in the ticket. Flagged here rather than silently omitted.
 - **Known risk to watch during execution:** Task 3 changes what `gates/targets.ts` and `ship.ts` consider the base. Existing tests in those files assert the manifest value; where they do, update the fixture to seed a matching `worktrees.base_ref` rather than weakening the assertion.
+
+---
+
+### Task 11: Push the rewritten branch (executed BEFORE Task 7)
+
+**Files:**
+- Modify: `src/store/schema.sql` (`worktrees.needs_force_push INTEGER`)
+- Modify: `src/store/migrations.ts` (guarded ALTER, `SCHEMA_VERSION` 48 → 49)
+- Modify: `src/store/db.test.ts` (every version assertion 48 → 49)
+- Modify: `src/integrations/git.ts` (`pushBranch` gains a lease)
+- Modify: `src/workflow/stages/ship.ts` (the push step reads and clears the flag)
+- Test: `src/integrations/git.test.ts`, `src/workflow/stages/ship.test.ts`
+
+**Why this task exists:** Task 5's rebase rewrites every commit on the ticket branch. For a spun ticket the branch is already on `origin`, so ship's next `git push -u origin HEAD` is a non-fast-forward and is REJECTED. Without this task the plan's own primary flow — change base → rebase → re-target PR → ship — ends in a push failure the plan never handles.
+
+**Why `--force-with-lease` with an EXPLICIT expected value, never bare `--force`:** ship already probes `preRemoteHead` for its push saga (`ship.ts:1275`). Handing that exact sha to the lease makes the push a compare-and-swap: it succeeds only if the remote branch is still where ship just saw it, and fails safely if a teammate (or a second karst window) pushed in between. A bare `--force` overwrites whatever is there; a bare `--force-with-lease` trusts a remote-tracking ref that may be stale in this worktree. The repo already reasons this way about pids and merges — an unverified overwrite is the failure mode, not the fix.
+
+**Interfaces:**
+- Consumes: `worktrees.needs_force_push` (this task creates it), `preRemoteHead` (already computed at `ship.ts:1275`).
+- Produces:
+  - `pushBranch(git: GitRunner, cwd: string, opts?: { forceWithLease?: { ref: string; expected: string } }): Promise<void>`
+  - `takeForcePushLease(store: Store, ticketId: number, repo: string): boolean` in `src/store/worktrees.ts` (or wherever worktree writes live) — returns whether the flag was set AND clears it in the same statement.
+
+- [ ] **Step 1: Write the failing tests**
+
+In `src/integrations/git.test.ts`:
+
+```ts
+describe('pushBranch', () => {
+  it('pushes ordinarily when no lease is given', async () => {
+    const calls: string[][] = [];
+    const git: GitRunner = async (args) => {
+      calls.push(args);
+      return { stdout: '', stderr: '', exitCode: 0 };
+    };
+    await pushBranch(git, '/wt');
+    expect(calls).toEqual([['push', '-u', 'origin', 'HEAD']]);
+  });
+
+  it('force-pushes with an explicit lease value, never a bare force', async () => {
+    const calls: string[][] = [];
+    const git: GitRunner = async (args) => {
+      calls.push(args);
+      return { stdout: '', stderr: '', exitCode: 0 };
+    };
+    await pushBranch(git, '/wt', {
+      forceWithLease: { ref: 'karst/feat/x', expected: 'abc123' },
+    });
+    expect(calls).toEqual([
+      ['push', '-u', '--force-with-lease=karst/feat/x:abc123', 'origin', 'HEAD'],
+    ]);
+    expect(calls[0]).not.toContain('--force');
+  });
+
+  it('reports a rejected lease as a push failure', async () => {
+    const git: GitRunner = async () => ({
+      stdout: '',
+      stderr: '! [rejected] karst/feat/x -> karst/feat/x (stale info)',
+      exitCode: 1,
+    });
+    await expect(
+      pushBranch(git, '/wt', { forceWithLease: { ref: 'karst/feat/x', expected: 'abc123' } }),
+    ).rejects.toThrow(/stale info/);
+  });
+});
+```
+
+In `src/store/worktrees.test.ts` (create the file if the repo has no test beside that module — read `src/store/worktrees.ts` first to confirm the module path):
+
+```ts
+describe('takeForcePushLease', () => {
+  it('answers false and stays false when nothing armed it', () => {
+    const store = openStore(':memory:');
+    // insert a worktree row for ticket 1 / repo '/r' with needs_force_push NULL
+    expect(takeForcePushLease(store, 1, '/r')).toBe(false);
+  });
+
+  it('answers true exactly once — the flag is consumed, not read', () => {
+    const store = openStore(':memory:');
+    // insert a worktree row with needs_force_push = 1
+    expect(takeForcePushLease(store, 1, '/r')).toBe(true);
+    expect(takeForcePushLease(store, 1, '/r')).toBe(false);
+  });
+});
+```
+
+Fill in the two row INSERTs against the real `worktrees` columns (`ticket_id, repo, path, branch, base_ref, deps_mode`) — real statements, not comments.
+
+In `src/workflow/stages/ship.test.ts`, add one case in the style of the file's existing push tests: a ticket whose worktree has `needs_force_push = 1` produces a push argv containing `--force-with-lease=<ref>:<preRemoteHead>`, and the flag is cleared afterwards; a ticket without the flag pushes ordinarily.
+
+- [ ] **Step 2: Run the tests and watch them fail**
+
+Run: `npx vitest run src/integrations/git.test.ts src/store/worktrees.test.ts`
+Expected: FAIL — `no such column: needs_force_push`, and the lease argv is not produced.
+
+- [ ] **Step 3: Add the column**
+
+`src/store/schema.sql`, in the `worktrees` table:
+
+```sql
+  needs_force_push INTEGER,
+```
+
+`src/store/migrations.ts` — bump `export const SCHEMA_VERSION = 49;` and add the guarded step immediately before the final `user_version` pragma, in the exact style of the v48 step landed by Task 2 (including its table-exists guard):
+
+```ts
+  // v49 — a base change rebases the ticket branch, which rewrites its commits;
+  // the next push must carry a lease or the remote rejects it. Nothing to
+  // backfill: no pre-v49 branch was rewritten by karst.
+  if (tableColumns(db, 'worktrees').includes('base_ref') &&
+      !tableColumns(db, 'worktrees').includes('needs_force_push')) {
+    db.exec('ALTER TABLE worktrees ADD COLUMN needs_force_push INTEGER');
+  }
+```
+
+Update every `SCHEMA_VERSION` assertion in `src/store/db.test.ts` from 48 to 49 (Task 2's report notes there are ~56 of them — change them all; do not weaken any).
+
+- [ ] **Step 4: Implement the lease**
+
+In `src/integrations/git.ts`, replace `pushBranch`:
+
+```ts
+/** An exact compare-and-swap for a force push: overwrite ONLY this value. */
+export interface PushLease {
+  /** The remote branch name (no `refs/heads/` prefix, no remote prefix). */
+  ref: string;
+  /** The sha the caller last saw at that ref. */
+  expected: string;
+}
+
+export interface PushBranchOptions {
+  /**
+   * Force-push under a lease. Present only when karst itself rewrote the
+   * branch (a base change rebase) — an ordinary push would be rejected as a
+   * non-fast-forward.
+   */
+  forceWithLease?: PushLease;
+}
+
+/**
+ * Publish the worktree's branch so a PR can be opened from it.
+ *
+ * `HEAD` rather than the branch name: it is what the worktree is actually on,
+ * where the stored name is what karst believed at creation. `-u` sets upstream,
+ * which is what `gh pr create` reads to find the head branch.
+ *
+ * Re-running is safe — an already-pushed, unchanged branch exits 0.
+ *
+ * The lease is a compare-and-swap, never a bare `--force`: it names the exact
+ * sha the caller last saw on the remote, so a teammate's push landing in the
+ * gap REJECTS this one instead of being silently overwritten. A bare
+ * `--force-with-lease` would trust this worktree's remote-tracking ref, which
+ * may be stale; the explicit value is the whole point.
+ */
+export async function pushBranch(
+  git: GitRunner,
+  cwd: string,
+  opts: PushBranchOptions = {},
+): Promise<void> {
+  const lease = opts.forceWithLease;
+  const args = lease
+    ? ['push', '-u', `--force-with-lease=${lease.ref}:${lease.expected}`, 'origin', 'HEAD']
+    : ['push', '-u', 'origin', 'HEAD'];
+  await run(git, args, cwd, 'push', { timeoutMs: GIT_PUSH_TIMEOUT_MS });
+}
+```
+
+In the store module that owns `worktrees` writes:
+
+```ts
+/**
+ * Whether this branch was rewritten since its last push — and clear the flag in
+ * the same statement, so a lease is consumed exactly once. A flag that survived
+ * its push would force-push every later ship for the life of the ticket.
+ */
+export function takeForcePushLease(store: Store, ticketId: number, repo: string): boolean {
+  const result = store.db
+    .prepare(
+      `UPDATE worktrees SET needs_force_push = NULL
+        WHERE ticket_id = ? AND repo = ? AND needs_force_push = 1`,
+    )
+    .run(ticketId, repo);
+  return result.changes > 0;
+}
+```
+
+In `src/workflow/stages/ship.ts`'s push step (~line 1264-1290, where `preRemoteHead` and `ref` are already in scope), take the lease and pass it:
+
+```ts
+const lease = takeForcePushLease(store, ticketId, wt.repo) && preRemoteHead
+  ? { ref, expected: preRemoteHead }
+  : undefined;
+await pushBranch(git, wt.path, { forceWithLease: lease });
+```
+
+If `preRemoteHead` is absent (the branch was never pushed), no lease is needed — an ordinary push creates the branch. Keep the saga's existing pre/post-state recording untouched: the lease changes the push's argv, not its ownership accounting.
+
+- [ ] **Step 5: Run the tests and watch them pass**
+
+Run: `npx vitest run src/integrations/git.test.ts src/store/worktrees.test.ts src/store/db.test.ts src/workflow/stages/ship.test.ts`
+Expected: PASS.
+
+- [ ] **Step 6: Typecheck**
+
+Run: `npm run typecheck`
+Expected: no errors.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add src/store/schema.sql src/store/migrations.ts src/store/db.test.ts src/store/worktrees.ts src/store/worktrees.test.ts src/integrations/git.ts src/integrations/git.test.ts src/workflow/stages/ship.ts src/workflow/stages/ship.test.ts
+git commit -m "feat(ship): push a rebased ticket branch under an explicit lease"
+```
