@@ -32,6 +32,8 @@ export interface Ticket {
   agent: string | null;
   /** Parsed from the `selected_repos` JSON column; `[]` when unset/invalid. */
   selectedRepos: string[];
+  /** Parsed from the `base_refs` JSON column; `{}` when unset/invalid. */
+  baseRefs: Record<string, string>;
   /** Soft-delete timestamp; `null` = active. Archived tickets hide by default. */
   archivedAt: string | null;
   /** Last mutation timestamp; bumped by every writer here. Surfaced so a ticket
@@ -96,6 +98,7 @@ interface TicketRow {
   approach: string | null;
   agent: string | null;
   selected_repos: string | null;
+  base_refs: string | null;
   archived_at: string | null;
   updated_at: string | null;
   model: string | null;
@@ -129,6 +132,22 @@ function parseSelectedRepos(raw: string | null): string[] {
   }
 }
 
+/** Parse the `base_refs` JSON column into a record, tolerating bad data. */
+function parseBaseRefs(raw: string | null): Record<string, string> {
+  if (!raw) return {};
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return {};
+    const out: Record<string, string> = {};
+    for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof value === 'string' && value.trim() !== '') out[key] = value.trim();
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
 function rowToTicket(r: TicketRow): Ticket {
   return {
     id: r.id,
@@ -145,6 +164,7 @@ function rowToTicket(r: TicketRow): Ticket {
     approach: r.approach,
     agent: r.agent,
     selectedRepos: parseSelectedRepos(r.selected_repos),
+    baseRefs: parseBaseRefs(r.base_refs),
     archivedAt: r.archived_at,
     updatedAt: r.updated_at,
     model: r.model,
@@ -377,6 +397,8 @@ export interface TicketFieldsPatch {
   approach?: string;
   agent?: string;
   selectedRepos?: string[];
+  /** Per-repo base branch chosen before the ticket is spun; keyed by repo path/name. */
+  baseRefs?: Record<string, string>;
   /** Per-ticket launch model id; empty string clears it back to inherit. */
   model?: string;
   /** Per-ticket effort/variant override; empty string clears it back to inherit. */
@@ -415,6 +437,9 @@ export function updateTicketFields(
   if (patch.agent !== undefined) columns.agent = patch.agent;
   if (patch.selectedRepos !== undefined) {
     columns.selected_repos = JSON.stringify(patch.selectedRepos);
+  }
+  if (patch.baseRefs !== undefined) {
+    columns.base_refs = JSON.stringify(patch.baseRefs);
   }
   // An explicit empty string clears the per-ticket model back to "inherit" (NULL).
   if (patch.model !== undefined) columns.model = patch.model === '' ? null : patch.model;

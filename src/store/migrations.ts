@@ -19,7 +19,7 @@ export function readSchema(): string {
 }
 
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 47;
+export const SCHEMA_VERSION = 48;
 
 /** v2 ticket-field columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -1846,6 +1846,14 @@ export function migrate(db: Database): void {
   const gateCols = tableColumns(db, 'gate_runs');
   if (gateCols.size > 0 && !gateCols.has('summary')) {
     db.exec('ALTER TABLE gate_runs ADD COLUMN summary TEXT');
+  }
+
+  // v48 — per-repo base branch chosen before the ticket is spun. Nothing to
+  // backfill: an absent value means "use the manifest default", which is
+  // exactly what every pre-v48 ticket did.
+  const baseRefCols = tableColumns(db, 'tickets');
+  if (baseRefCols.size > 0 && !baseRefCols.has('base_refs')) {
+    db.exec('ALTER TABLE tickets ADD COLUMN base_refs TEXT');
   }
 
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
