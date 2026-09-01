@@ -272,7 +272,7 @@ describe('spawnHeadlessCli (real processes)', () => {
         const pid = Number(readFileSync(path, 'utf8').trim());
         if (Number.isInteger(pid)) return pid;
       }
-      await new Promise((resolve) => setTimeout(resolve, 10));
+      await new Promise((resolve) => setTimeout(resolve, 20));
     }
     throw new Error(`pid file ${path} never appeared`);
   }
@@ -285,7 +285,10 @@ describe('spawnHeadlessCli (real processes)', () => {
    * as gates/run.test.ts's expectProcessDead.
    */
   async function expectProcessDead(pid: number): Promise<void> {
-    for (let attempt = 0; attempt < 50; attempt++) {
+    // 5s of polling, not 0.5s: under the unit gate's parallel load a
+    // SIGKILLed grandchild stays a findable zombie well past 500ms, and the
+    // group kill's contract is eventual death.
+    for (let attempt = 0; attempt < 250; attempt++) {
       try {
         process.kill(pid, 0);
       } catch {

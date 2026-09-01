@@ -14,13 +14,16 @@ function waitForPidFile(path: string): boolean {
 }
 
 async function expectProcessDead(pid: number): Promise<void> {
-  for (let attempt = 0; attempt < 50; attempt++) {
+  // 5s of polling, not 0.5s: under the unit gate's parallel load a SIGKILLed
+  // grandchild stays a findable zombie well past 500ms, and the group kill's
+  // contract is eventual death.
+  for (let attempt = 0; attempt < 250; attempt++) {
     try {
       process.kill(pid, 0);
     } catch {
       return;
     }
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await new Promise((resolve) => setTimeout(resolve, 20));
   }
   expect(() => process.kill(pid, 0)).toThrow();
 }

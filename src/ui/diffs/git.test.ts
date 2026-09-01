@@ -34,7 +34,12 @@ import {
   type WorktreeSpec,
 } from './git.js';
 
-const TEST_GIT_OPTIONS = { timeout: 5_000, maxBuffer: 8 * 1024 * 1024, encoding: 'utf8' } as const;
+// Each fixture call spawns REAL git. Under the unit gate's full parallel run
+// (other tickets' suites, an extension host, e2e) a single `git commit` has
+// exceeded 5s, and `execFileSync`'s timeout kills it with no vitest failure of
+// its own — the file simply dies. The budget matches the config's 30s global
+// testTimeout, which exists for exactly this class of real-git test.
+const TEST_GIT_OPTIONS = { timeout: 30_000, maxBuffer: 8 * 1024 * 1024, encoding: 'utf8' } as const;
 
 function fixtureGit(cwd: string, args: string[]): string {
   return execFileSync('git', args, { cwd, ...TEST_GIT_OPTIONS });
