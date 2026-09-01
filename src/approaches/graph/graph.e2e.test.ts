@@ -487,6 +487,46 @@ describe('documented failures of the current dynamic graph implementation', () =
     }
   });
 
+  it('an agent node claiming NO repository is refused at acceptance, not parked at launch', async () => {
+    // A node with no claim has no workspace to run in. Accepting such a plan
+    // used to cost a full planner cycle and then dead-end the run at drive
+    // time; the compile diagnostic refuses it while the replan loop can act.
+    const h = makeHarness();
+    try {
+      const graphJson = JSON.parse(agentGraphJson()) as Record<string, unknown> & {
+        nodes: Record<string, unknown>[];
+      };
+      graphJson.nodes[0]!['resources'] = { reads: [], writes: [] };
+      writePlannerSubmission(h, JSON.stringify(graphJson));
+      const launched = await bootstrapAndLaunchPlanner(h.deps, {
+        ticketId: h.ticketId,
+        stageAttempt: 0,
+        approachId: GRAPH_APPROACH,
+        projectSlug: 'e2e',
+      });
+      expect(launched.kind).toBe('launched');
+      if (launched.kind !== 'launched') return;
+      const submitted = JSON.parse(
+        runGraphCommand(
+          h.store,
+          graphEnv(h, {
+            graphRunId: String(launched.graphRunId),
+            launchId: String(launched.plannerRunId),
+            generation: launched.generation,
+            capability: launched.capability,
+          }),
+          ['graph', 'submit'],
+          () => NOW,
+        ),
+      ) as { ok: boolean };
+      expect(submitted.ok).toBe(true);
+      const accepted = acceptSubmittedPlan(h.deps, launched.graphRunId);
+      expect(accepted.kind).not.toBe('accepted');
+    } finally {
+      h.close();
+    }
+  });
+
   it('a duplicate node completion is an idempotent rejection, never a double successor', async () => {
     const h = makeHarness();
     try {
@@ -688,6 +728,26 @@ describe('documented failures of the current dynamic graph implementation', () =
       }
     },
   );
+
+  it('an agent node whose claimed repository has no worktree parks with a reason naming it', async () => {
+    const h = makeHarness();
+    try {
+      h.deps.cwdForRepo = () => undefined;
+      const { graphRunId } = await bootAndSubmit(h);
+      confirmGraphRun(h.deps, graphRunId);
+      const driven = await claimAndDrive(h, graphRunId);
+      expect(driven.launched).toBe(0);
+      expect(driven.blocked).toBe(1);
+      const node = h.store.db
+        .prepare('SELECT status, failure_category, reason FROM approach_node_runs WHERE graph_run_id = ?')
+        .get(graphRunId) as { status: string; failure_category: string | null; reason: string | null };
+      expect(node.status).toBe('blocked');
+      expect(node.failure_category).toBe('failed-to-launch');
+      expect(node.reason).toContain('no claimed repository resolves to a worktree');
+    } finally {
+      h.close();
+    }
+  });
 
   it('an agent node whose adapter does not declare exact-model support is red-blocked and never launched', async () => {
     const h = makeHarness();

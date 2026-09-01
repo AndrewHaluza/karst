@@ -124,6 +124,28 @@ describe('loadManifest', () => {
     }
   });
 
+  it('accepts repository names that differ in case', () => {
+    const yaml = VALID.replace('  backend:', '  BE:').replace('target: backend', 'target: BE');
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(Object.keys(loadManifest(path).repositories)).toEqual(['BE', 'frontend']);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('rejects two repository names that differ only by case', () => {
+    const yaml = VALID.replace('  frontend:', '  BACKEND:');
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(() => loadManifest(path)).toThrow(
+        /repositories "backend" and "BACKEND" differ only by case/,
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
   it('throws a clear error on an unknown dependsOn.target', () => {
     const yaml = VALID.replace('target: backend', 'target: nonexistent');
     const { path, cleanup } = fixture(yaml);

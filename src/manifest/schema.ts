@@ -11,6 +11,7 @@ import type {
   ArtifactConventions,
 } from './types.js';
 import { ManifestError } from './error.js';
+import { repoIdCollisions } from '../runtime/repoId.js';
 import {
   isObject,
   requireString,
@@ -447,6 +448,24 @@ function validateArtifactConventions(raw: unknown): ArtifactConventions | undefi
 }
 
 /** Validate a parsed YAML value into a typed Manifest, or throw ManifestError. */
+/**
+ * Repository names must stay distinct once canonicalized. A graph document
+ * claims repositories by canonical (case-folded) id, so `BE` and `be` would be
+ * one ambiguous target downstream — rejected HERE, at the manifest, where the
+ * author can rename the key, rather than three layers away at graph compile.
+ */
+function assertDistinctRepoIds(repositories: Record<string, RepositoryDef>): void {
+  const collision = repoIdCollisions(Object.keys(repositories))[0];
+  if (collision) {
+    throw new ManifestError(
+      `repositories "${collision[0]}" and "${collision[1]}" differ only by case; ` +
+        'repository names must be distinct case-insensitively — rename one of the two ' +
+        'keys in karst.yml (and update every reference to it) so the names differ by ' +
+        'more than case',
+    );
+  }
+}
+
 export function validateManifest(raw: unknown): Manifest {
   if (!isObject(raw)) throw new ManifestError('top level must be a mapping');
 
@@ -479,6 +498,7 @@ export function validateManifest(raw: unknown): Manifest {
     repositories[name] = validateRepository(repoRaw, name);
   }
 
+  assertDistinctRepoIds(repositories);
   validateGraph(repositories);
   assertSharedRepoBaselineBranches(repositories, baselineBranch);
 

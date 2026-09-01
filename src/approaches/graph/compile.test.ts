@@ -53,7 +53,7 @@ const REF_JSON = JSON.stringify({
       instructionsArtifact: 'task',
       inputs: ['task'],
       outputs: ['result'],
-      resources: { reads: [], writes: [] },
+      resources: { reads: [{ repo: 'api', paths: ['src'] }], writes: [] },
       outcomes: ['complete', 'blocked', 'replan'],
       budget: { maxVisits: 1 },
     },
@@ -101,7 +101,7 @@ const FORK_JSON = JSON.stringify({
       instructionsArtifact: 'task',
       inputs: ['task'],
       outputs: [],
-      resources: { reads: [], writes: [] },
+      resources: { reads: [{ repo: 'api', paths: ['src'] }], writes: [] },
       outcomes: ['complete', 'blocked', 'replan'],
       budget: { maxVisits: 1 },
     },
@@ -229,10 +229,10 @@ describe('compileGraphDocument — the reference graph compiles', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.compiled.canonicalJson).toBe(
-      '{"artifacts":[{"consumers":["a"],"id":"task","maxBytes":1024,"mediaType":"text/markdown","path":"artifacts/plan/task.md","producer":"$planner","required":true},{"consumers":[],"id":"result","maxBytes":1024,"mediaType":"text/markdown","path":"artifacts/results/result.md","producer":"a","required":true}],"budgets":{"maxExpertRuns":1,"maxNodeRuns":4,"maxReplans":0},"edges":[{"from":"a","id":"a-done","on":"complete","to":"v"},{"from":"v","id":"v-pass","on":"passed","to":"END"},{"from":"v","id":"v-fail","on":"failed","to":"END"}],"entries":["a"],"nodes":[{"budget":{"maxVisits":1},"id":"a","inputs":["task"],"instructionsArtifact":"task","kind":"agent","label":"Do the work","outcomes":["complete","blocked","replan"],"outputs":["result"],"profile":"worker","resources":{"reads":[],"writes":[]}},{"budget":{"maxVisits":2},"command":"test","id":"v","kind":"command","label":"Verify","outcomes":["passed","failed","infrastructure-error"],"repositories":["api"]}],"rationaleArtifact":"task","title":"Reference graph","version":1}',
+      '{"artifacts":[{"consumers":["a"],"id":"task","maxBytes":1024,"mediaType":"text/markdown","path":"artifacts/plan/task.md","producer":"$planner","required":true},{"consumers":[],"id":"result","maxBytes":1024,"mediaType":"text/markdown","path":"artifacts/results/result.md","producer":"a","required":true}],"budgets":{"maxExpertRuns":1,"maxNodeRuns":4,"maxReplans":0},"edges":[{"from":"a","id":"a-done","on":"complete","to":"v"},{"from":"v","id":"v-pass","on":"passed","to":"END"},{"from":"v","id":"v-fail","on":"failed","to":"END"}],"entries":["a"],"nodes":[{"budget":{"maxVisits":1},"id":"a","inputs":["task"],"instructionsArtifact":"task","kind":"agent","label":"Do the work","outcomes":["complete","blocked","replan"],"outputs":["result"],"profile":"worker","resources":{"reads":[{"paths":["src"],"repo":"api"}],"writes":[]}},{"budget":{"maxVisits":2},"command":"test","id":"v","kind":"command","label":"Verify","outcomes":["passed","failed","infrastructure-error"],"repositories":["api"]}],"rationaleArtifact":"task","title":"Reference graph","version":1}',
     );
     expect(result.compiled.fingerprint).toBe(
-      'aa5fe61e0657cd6bfa26e9463319fc45879469777cde056f08d96b37d2866e34',
+      '132deb0421b53269ac7051c89a1b0b6c0e00584dcf0516eeb0793a1acce59485',
     );
   });
 
@@ -500,6 +500,17 @@ describe('compileGraphDocument — profiles, commands, repositories', () => {
       'a',
     );
   });
+
+  it('rejects an agent node that claims no repository at all', () => {
+    expectError(
+      ref((d) => {
+        const node = (d.nodes as unknown[])[0] as Record<string, unknown>;
+        node['resources'] = { reads: [], writes: [] };
+      }),
+      'no-repository-claim',
+      'a',
+    );
+  });
 });
 
 describe('compileGraphDocument — gate policies', () => {
@@ -629,7 +640,7 @@ describe('compileGraphDocument — fork/join structure', () => {
       instructionsArtifact: 'task',
       inputs: ['task'],
       outputs: [],
-      resources: { reads: [], writes: [] },
+      resources: { reads: [{ repo: 'api', paths: ['src'] }], writes: [] },
       outcomes: ['complete', 'blocked', 'replan'],
       budget: { maxVisits: 1 },
     });
@@ -774,7 +785,7 @@ describe('compileGraphDocument — overlaps and the serialization warning', () =
       instructionsArtifact: 'task',
       inputs: ['task'],
       outputs: [],
-      resources: { reads: [], writes: [] },
+      resources: { reads: [{ repo: 'api', paths: ['src'] }], writes: [] },
       outcomes: ['complete', 'blocked', 'replan'],
       budget: { maxVisits: 1 },
     };
@@ -890,7 +901,7 @@ describe('compileGraphDocument — fork-lineage depth bound (Slice 5 T4)', () =>
       instructionsArtifact: 'task',
       inputs: ['task'],
       outputs: [],
-      resources: { reads: [], writes: [] },
+      resources: { reads: [{ repo: 'api', paths: ['src'] }], writes: [] },
       outcomes: ['complete', 'blocked', 'replan'],
       budget: { maxVisits },
     }));

@@ -16,6 +16,7 @@ import {
   resolvePhysicalDomains,
   domainKeyOf,
   gitCommonDirFromFs,
+  repoWorktreeIndex,
   resolveRepoWorktrees,
 } from './domains.js';
 import { canonicalPath } from '../../../runtime/pathScope.js';
@@ -162,5 +163,25 @@ describe('gitCommonDirFromFs', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('repoWorktreeIndex', () => {
+  it('keys the ticket worktrees by the CANONICAL repository id', () => {
+    const index = repoWorktreeIndex([
+      { repoName: 'DBGW', worktreePath: '/repo/arcus/wt' },
+      { repoName: 'web-contract', worktreePath: '/repo/contract/wt' },
+    ]);
+    expect(index.get('dbgw')).toBe('/repo/arcus/wt');
+    expect(index.get('web-contract')).toBe('/repo/contract/wt');
+    expect(index.get('DBGW')).toBeUndefined();
+  });
+
+  it('keeps the first entry when two names share a canonical id', () => {
+    const index = repoWorktreeIndex([
+      { repoName: 'BE', worktreePath: '/repo/be/wt' },
+      { repoName: 'be', worktreePath: '/repo/other/wt' },
+    ]);
+    expect(index.get('be')).toBe('/repo/be/wt');
   });
 });

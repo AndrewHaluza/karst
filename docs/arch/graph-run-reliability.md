@@ -104,6 +104,32 @@ process, or Resume the reserved visit. Both are correct as safety defaults;
 neither is surfaced anywhere except the dashboard of the right project, so an
 unattended graph simply stops.
 
+## G8 — repository identifiers had two halves that disagreed (fixed)
+
+A claim's `repo` was parsed against a lowercase-only safe-identifier grammar,
+while the compile context keyed its repository map by the VERBATIM manifest
+name. For a manifest declaring `BE:` / `DBGW:` no value satisfied both: the
+uppercase spelling failed the grammar, the lowercase spelling missed the map.
+Every agent node in such a project was rejected at parse or blocked at compile.
+
+Both halves now canonicalize through `canonicalRepoId` (`src/runtime/repoId.ts`):
+the parser accepts a repository claim in the manifest's own casing and returns
+it case-folded, and `graphCompileContext` / `repoWorktreeIndex` key by the same
+form. Two manifest keys that canonicalize alike are ambiguous, so they are
+rejected at MANIFEST validation (`assertDistinctRepoIds`), where the author can
+rename the key — never three layers away at graph compile.
+
+Two consequences of the same investigation are fixed with it:
+
+- An agent node whose claims resolve to no worktree used to hit
+  `parkLaunchFailure` with a generic reason (and `ready → blocked`, an illegal
+  edge, threw). It now parks through `launching` with a reason naming the
+  claimed repositories.
+- The planner prompt carries a **Legal values for this run** block
+  (`plannerVocabulary`) listing the exact repository, profile, and command ids
+  the run compiles against — a run with no commands says so, instead of leaving
+  the planner to infer a set it cannot see.
+
 ## Already fixed on this branch
 
 Run 4's `draining` stall is the defect commit `2f7f741` addresses:

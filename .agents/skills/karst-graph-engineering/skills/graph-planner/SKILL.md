@@ -66,9 +66,19 @@ literally instead of running the identifier check:
   as `waitFor`.
 
 Repository names, profile names, and command ids are never invented: use only
-the repositories, profiles, and commands the ticket context lists for this
-project. A name that is not in that project's set is rejected even if it is a
-syntactically valid identifier.
+the ids the prompt's **Legal values for this run** block lists. That block is
+authoritative — it names the exact repository, profile, and command ids this
+run compiles against, and a name outside those sets is rejected even if it is a
+syntactically valid identifier. When it says the run declares no commands,
+`command` nodes are unusable for this plan; build it from agent, gate, and join
+nodes.
+
+Repository ids are case-folded: a manifest key of `BE` or `DBGW` is claimed as
+`be` / `dbgw`, exactly as the legal-values block spells it. Every agent node's
+`resources` must claim at least one repository that resolves to a worktree of
+this ticket — a node with no resolvable repository has no workspace to run in.
+Claiming none fails compilation (`no-repository-claim`); claiming only
+repositories that resolve to nothing parks the node at launch.
 
 ### Artifacts
 

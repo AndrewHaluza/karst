@@ -88,6 +88,58 @@ import { uuidv7 } from './coordinator/lineage.js';
 export const PLANNER_SUBMIT_INSTRUCTION =
   'After writing every artifact and `graph.json`, run `node "$KARST_GRAPH_CLI" graph submit`. Wait for it to report `{"ok":true}`, then exit; karst observes the committed submission and does not depend on the terminal closing.';
 
+/**
+ * The exact vocabulary a plan for THIS run may name.
+ *
+ * The planner skill forbids inventing repository, profile and command ids, but
+ * the ids it may use were never handed to it — it had to infer them from the
+ * ticket context, where a repository appears under its manifest spelling and a
+ * command does not appear at all. This block states the legal sets, in the
+ * canonical form a document must carry, so a plan written in good faith
+ * compiles.
+ */
+export function plannerVocabulary(context: CompileContext): string {
+  const list = (values: Iterable<string>): string[] => [...values].sort();
+  const fmt = (values: string[]): string => values.map((v) => `\`${v}\``).join(', ');
+  const repositories = list(context.repositories.keys());
+  const profiles = list(context.profiles.keys());
+  const commands = list(context.commands.keys());
+  return [
+    '## Legal values for this run',
+    'Use ONLY these ids; anything else fails to compile.',
+    `- repositories: ${
+      repositories.length
+        ? `${fmt(repositories)} (the canonical, case-folded manifest names — claim them exactly as spelled here)`
+        : 'none — this run cannot claim repositories'
+    }`,
+    `- profiles: ${profiles.length ? fmt(profiles) : 'none'}`,
+    `- commands: ${
+      commands.length ? fmt(commands) : 'none — this run cannot use `command` nodes'
+    }`,
+  ].join('\n');
+}
+
+/**
+ * `plannerVocabulary` for a run, best-effort.
+ *
+ * Building a compile context walks the manifest, the worktrees and the command
+ * allowlist and touches the filesystem. That work exists to compile a document,
+ * where a failure has a diagnostic path; it must not be able to fail a planner
+ * LAUNCH, which only wants prompt text. A throw degrades the prompt to no
+ * vocabulary block instead.
+ */
+export function plannerVocabularyFor(
+  contextOf: () => CompileContext,
+  onDebug?: (message: string) => void,
+): string {
+  try {
+    return plannerVocabulary(contextOf());
+  } catch (err) {
+    onDebug?.(`[driver] planner vocabulary unavailable: ${String(err)}`);
+    return '';
+  }
+}
+
 /** SHA-256 over UTF-8 bytes — the capability hash the run stores. */
 export function sha256Hex(bytes: Uint8Array): string {
   return createHash('sha256').update(bytes).digest('hex');
@@ -336,8 +388,11 @@ export async function bootstrapAndLaunchPlanner(
   const prompt = [
     new TextDecoder().decode(promptBytes),
     deps.ticketContextOf(input.ticketId),
+    plannerVocabularyFor(() => deps.compileContextOf(graphRunId), deps.debug),
     PLANNER_SUBMIT_INSTRUCTION,
-  ].join('\n\n');
+  ]
+    .filter((part) => part !== '')
+    .join('\n\n');
   const naming = deps.sessionNamingOf(graphRunId, plannerRunId, 'planner');
   let session: SupervisedAgentSession;
   try {
@@ -474,8 +529,11 @@ export async function relaunchBootstrapPlanner(
   const prompt = [
     new TextDecoder().decode(promptBytes),
     deps.ticketContextOf(run.ticket_id),
+    plannerVocabularyFor(() => deps.compileContextOf(input.graphRunId), deps.debug),
     PLANNER_SUBMIT_INSTRUCTION,
-  ].join('\n\n');
+  ]
+    .filter((part) => part !== '')
+    .join('\n\n');
   const naming = deps.sessionNamingOf(input.graphRunId, plannerRunId, 'planner');
   let session: SupervisedAgentSession;
   try {
@@ -1073,6 +1131,13 @@ async function executeReadyNode(
     return 'completed';
   }
   const workspace = await prepareAgentWorkspace(deps, graphRunId, row, node);
+  if (workspace.kind === 'unresolved') {
+    const claimed = workspace.repos.length === 0 ? 'none' : workspace.repos.join(', ');
+    const reason = `no claimed repository resolves to a worktree of this ticket (claimed: ${claimed})`;
+    parkLaunchFailure(deps, graphRunId, row.id, reason);
+    deps.debug?.(`[graph] run ${graphRunId}: agent node ${row.node_id} parked — ${reason}`);
+    return 'blocked';
+  }
   if (workspace.kind !== 'created') {
     parkLaunchFailure(deps, graphRunId, row.id);
     return 'blocked';
@@ -1245,9 +1310,14 @@ export function nodeWorkspaceDirective(input: {
   ].join('\n');
 }
 
-/** The isolated workspace clone(s) for an agent node's declared repos. Falls
- *  back to no clone (empty path list) only when the graph declares no repos —
- *  the V1 canonical model. */
+/**
+ * The isolated workspace clone(s) for an agent node's declared repos.
+ *
+ * Every agent node runs in an isolated clone, so a node with no resolvable
+ * domain has no workspace to run in: it returns `unresolved` naming the repos
+ * that resolved to nothing (a node declaring no repo at all names none), and
+ * the caller parks it with that diagnostic instead of a bare launch failure.
+ */
 async function prepareAgentWorkspace(
   deps: GraphDriverDeps,
   graphRunId: number,
@@ -1255,7 +1325,7 @@ async function prepareAgentWorkspace(
   node: {
     resources: { reads: { repo: string; paths: string[] }[]; writes: { repo: string; paths: string[] }[] };
   },
-): Promise<CreateNodeWorkspaceResult> {
+): Promise<CreateNodeWorkspaceResult | { kind: 'unresolved'; repos: string[] }> {
   const repos = [
     ...new Set([...node.resources.reads, ...node.resources.writes].map((c) => c.repo)),
   ];
@@ -1272,7 +1342,7 @@ async function prepareAgentWorkspace(
       decodeBaseHeads(base?.base_heads ?? null).find((head) => head.domainKey === domainKey)?.commit ?? '';
     domains.push({ repoName: repo, canonicalWorktreePath: cwd, gitCommonDir, baseCommit });
   }
-  if (domains.length === 0) return { kind: 'created', paths: [] };
+  if (domains.length === 0) return { kind: 'unresolved', repos };
   return deps.createWorkspace({ graphRunId, nodeRunId: row.id, domains });
 }
 
@@ -1360,22 +1430,37 @@ function completeDeterministic(deps: GraphDriverDeps, nodeRunId: number, effecti
 }
 
 /** Park a node whose launch could not proceed: `ready | launching → blocked`
- *  with a reason, blocking the run so the graph-aware Resume owns the retry. */
-function parkLaunchFailure(deps: GraphDriverDeps, graphRunId: number, nodeRunId: number): void {
+ *  with a reason, blocking the run so the graph-aware Resume owns the retry.
+ *  `ready → blocked` is not a legal edge, so a node parked before it claimed
+ *  passes through `launching` — the same two steps a claimed launch takes. */
+function parkLaunchFailure(
+  deps: GraphDriverDeps,
+  graphRunId: number,
+  nodeRunId: number,
+  /** What could not be launched — recorded verbatim as the node's reason. */
+  reason = 'launch failed before the session started',
+): void {
   deps.transaction(() => {
     const row = deps.db
       .prepare('SELECT status FROM approach_node_runs WHERE id = ?')
       .get(nodeRunId) as { status: string } | undefined;
     if (!row) return;
-    const from = row.status === 'launching' ? 'launching' : 'ready';
-    if (!casStatus(deps.db, 'approach_node_runs', NODE_RUN_TRANSITIONS, nodeRunId, from, 'blocked')) {
+    if (
+      row.status === 'ready' &&
+      !casStatus(deps.db, 'approach_node_runs', NODE_RUN_TRANSITIONS, nodeRunId, 'ready', 'launching')
+    ) {
+      return;
+    }
+    if (
+      !casStatus(deps.db, 'approach_node_runs', NODE_RUN_TRANSITIONS, nodeRunId, 'launching', 'blocked')
+    ) {
       return;
     }
     deps.db
       .prepare(
         'UPDATE approach_node_runs SET failure_category = ?, reason = ?, ended_at = ? WHERE id = ?',
       )
-      .run('failed-to-launch', 'launch failed before the session started', deps.now(), nodeRunId);
+      .run('failed-to-launch', reason, deps.now(), nodeRunId);
     if (casStatus(deps.db, 'approach_graph_runs', GRAPH_RUN_TRANSITIONS, graphRunId, 'running', 'blocked')) {
       deps.db
         .prepare('UPDATE approach_graph_runs SET blocked_reason = ?, updated_at = ? WHERE id = ?')

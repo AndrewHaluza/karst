@@ -95,6 +95,7 @@ export type CompileDiagnosticCode =
   | 'unknown-command-repository'
   | 'command-repository-not-permitted'
   | 'unknown-repository'
+  | 'no-repository-claim'
   | 'unknown-gate-node'
   | 'unknown-gate-outcome'
   | 'unknown-gate-artifact'
@@ -927,6 +928,17 @@ export function compileGraphDocument(
       }
     }
     if (node.kind === 'agent') {
+      // Every agent node runs in an isolated clone of the repositories it
+      // claims, so a node claiming none has no workspace to run in. Reject it
+      // here, where the diagnostic feeds the submit/replan loop, instead of
+      // parking the node — and the whole run — at launch time.
+      if (node.resources.reads.length === 0 && node.resources.writes.length === 0) {
+        error(
+          'no-repository-claim',
+          node.id,
+          `node "${node.id}" claims no repository; an agent node must claim at least one repository to have a workspace`,
+        );
+      }
       for (const claim of [...node.resources.reads, ...node.resources.writes]) {
         if (!context.repositories.has(claim.repo)) {
           error('unknown-repository', node.id, `node "${node.id}" claims unknown repository "${claim.repo}"`);

@@ -260,6 +260,24 @@ function whereClause(...conditions: string[]): string {
 }
 
 /**
+ * Find a ticket by its numeric id, or `undefined` when none matches — the
+ * total counterpart of `getTicket`, which throws. Scope by project the same way
+ * `getTicketByKey` does, so an id from another project's board resolves to
+ * nothing rather than to a stranger's ticket.
+ */
+export function findTicketById(
+  store: Store,
+  id: number,
+  scope: ProjectScope = {},
+): Ticket | undefined {
+  const { sql, params } = scopeClause(scope);
+  const row = store.db
+    .prepare(`SELECT * FROM tickets ${whereClause('id = ?', sql)} LIMIT 1`)
+    .get(id, ...params) as TicketRow | undefined;
+  return row ? rowToTicket(row) : undefined;
+}
+
+/**
  * Find a ticket by its key, or `undefined` when none matches. Scope by project
  * whenever the caller has one: two projects may legitimately carry the same key
  * (both tracking `PROJ-1`), and an unscoped lookup would return whichever was

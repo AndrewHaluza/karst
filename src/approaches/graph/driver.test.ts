@@ -240,6 +240,36 @@ describe('bootstrapAndLaunchPlanner', () => {
     ).toContain('node "$KARST_GRAPH_CLI" graph submit');
   });
 
+  it('names the legal repository, profile and command values in the planner prompt', async () => {
+    const h = harness();
+    await bootstrapAndLaunchPlanner(h.deps, {
+      ticketId: h.ticketId,
+      stageAttempt: 0,
+      approachId: 'karst-graph-engineering',
+      projectSlug: 'acme',
+    });
+    const prompt = (h.starts[0] as { interactive: { initialPrompt: string } }).interactive
+      .initialPrompt;
+    expect(prompt).toContain('## Legal values for this run');
+    expect(prompt).toContain('repositories: `api`');
+    expect(prompt).toContain('profiles: `expert`, `worker`');
+    expect(prompt).toContain('commands: `test`');
+  });
+
+  it('says a run declares NO commands rather than listing an empty set', async () => {
+    const h = harness();
+    h.deps.compileContextOf = () => ({ ...compileContextOf(), commands: new Map() });
+    await bootstrapAndLaunchPlanner(h.deps, {
+      ticketId: h.ticketId,
+      stageAttempt: 0,
+      approachId: 'karst-graph-engineering',
+      projectSlug: 'acme',
+    });
+    const prompt = (h.starts[0] as { interactive: { initialPrompt: string } }).interactive
+      .initialPrompt;
+    expect(prompt).toContain('commands: none — this run cannot use `command` nodes');
+  });
+
   it('leaves a planner whose spawn threw at launching with its nonce — the shape reconcile relaunches', async () => {
     const h = harness();
     h.deps.transport.start = async () => {
