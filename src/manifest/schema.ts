@@ -459,7 +459,9 @@ function assertDistinctRepoIds(repositories: Record<string, RepositoryDef>): voi
   if (collision) {
     throw new ManifestError(
       `repositories "${collision[0]}" and "${collision[1]}" differ only by case; ` +
-        'repository names must be distinct case-insensitively',
+        'repository names must be distinct case-insensitively — rename one of the two ' +
+        'keys in karst.yml (and update every reference to it) so the names differ by ' +
+        'more than case',
     );
   }
 }

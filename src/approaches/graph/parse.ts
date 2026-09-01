@@ -277,6 +277,9 @@ function checkRepoIdentifier(sink: DiagSink, value: unknown, where: string): str
     diag(sink, 'invalid-identifier', where, 'expected a safe identifier');
     return undefined;
   }
+  // Belt-and-braces: the sentinels start with `$`, which the grammar below
+  // already rejects. Kept so the reserved set stays enforced here if the
+  // grammar ever widens, not because a sentinel can reach it today.
   if (RESERVED_IDS.has(value)) {
     diag(sink, 'reserved-identifier', where, `"${value}" is a reserved sentinel`);
     return undefined;

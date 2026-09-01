@@ -22,6 +22,10 @@ What the manifest models, and the rules that keep a Settings write from silently
 
 `karst.yml` has `repositories:`; `start`/`health`/`ports`/`dependsOn` live under an optional `service:` block, so "port without a runnable process" is unrepresentable. `repoPath`/`hasMigrations`/`signals` stay repository-level — they describe the source tree and stay true whether or not anything runs. Gate on runnability ONLY via `manifest/runnable.ts` (`isRunnable` is a type guard, so `service` needs no `!`); scattering `?.` at call sites is how `svc.ports[0]!` used to throw. Non-runnable repos ARE scoped, DO get a worktree, and are absent from `ResolveResult.services`/`startOrder` — `ResolveResult.nonRunnable` names them so consumers state it rather than infer it from an absence.
 
+## Repository keys must be distinct CASE-INSENSITIVELY
+
+A graph document claims repositories by canonical (case-folded) id, so `BE:` and `be:` in one manifest would be one ambiguous target downstream. `assertDistinctRepoIds` (inside `validateManifest`) refuses the pair, naming the fix: rename one key and every reference to it. This is a load-time refusal — a pre-existing manifest carrying two case-variant keys stops loading entirely (the extension is disabled for that project) rather than failing only its graph runs, which is deliberate: the ambiguity is not confinable to graphs.
+
 ## Legacy `services:` manifests migrate IN MEMORY
 
 Legacy `services:` manifests migrate IN MEMORY (`manifest/migrate.ts`) + warn; `writeManifest`/`writeRepoSignals` upgrade the file on the next explicit save. Loading never writes (js-yaml drops comments). A file with BOTH keys is refused, never guessed. `ManifestError.withPath` attaches the file — validators only know field names, and a user may have several manifests.

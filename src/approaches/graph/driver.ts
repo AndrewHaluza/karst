@@ -119,6 +119,27 @@ export function plannerVocabulary(context: CompileContext): string {
   ].join('\n');
 }
 
+/**
+ * `plannerVocabulary` for a run, best-effort.
+ *
+ * Building a compile context walks the manifest, the worktrees and the command
+ * allowlist and touches the filesystem. That work exists to compile a document,
+ * where a failure has a diagnostic path; it must not be able to fail a planner
+ * LAUNCH, which only wants prompt text. A throw degrades the prompt to no
+ * vocabulary block instead.
+ */
+export function plannerVocabularyFor(
+  contextOf: () => CompileContext,
+  onDebug?: (message: string) => void,
+): string {
+  try {
+    return plannerVocabulary(contextOf());
+  } catch (err) {
+    onDebug?.(`[driver] planner vocabulary unavailable: ${String(err)}`);
+    return '';
+  }
+}
+
 /** SHA-256 over UTF-8 bytes — the capability hash the run stores. */
 export function sha256Hex(bytes: Uint8Array): string {
   return createHash('sha256').update(bytes).digest('hex');
@@ -367,9 +388,11 @@ export async function bootstrapAndLaunchPlanner(
   const prompt = [
     new TextDecoder().decode(promptBytes),
     deps.ticketContextOf(input.ticketId),
-    plannerVocabulary(deps.compileContextOf(graphRunId)),
+    plannerVocabularyFor(() => deps.compileContextOf(graphRunId), deps.debug),
     PLANNER_SUBMIT_INSTRUCTION,
-  ].join('\n\n');
+  ]
+    .filter((part) => part !== '')
+    .join('\n\n');
   const naming = deps.sessionNamingOf(graphRunId, plannerRunId, 'planner');
   let session: SupervisedAgentSession;
   try {
@@ -506,9 +529,11 @@ export async function relaunchBootstrapPlanner(
   const prompt = [
     new TextDecoder().decode(promptBytes),
     deps.ticketContextOf(run.ticket_id),
-    plannerVocabulary(deps.compileContextOf(input.graphRunId)),
+    plannerVocabularyFor(() => deps.compileContextOf(input.graphRunId), deps.debug),
     PLANNER_SUBMIT_INSTRUCTION,
-  ].join('\n\n');
+  ]
+    .filter((part) => part !== '')
+    .join('\n\n');
   const naming = deps.sessionNamingOf(input.graphRunId, plannerRunId, 'planner');
   let session: SupervisedAgentSession;
   try {
