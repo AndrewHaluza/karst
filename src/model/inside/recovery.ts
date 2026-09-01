@@ -66,6 +66,8 @@ function triggerProse(round: RecoveryRound): string {
       return `${STAGE_TITLES[round.sourceStage]} test failure`;
     case 'tester-verifier-failure':
       return 'UAT verifier failure';
+    case 'blocking-tester-observations':
+      return 'UAT blocking observations';
     case 'blocking-review-findings':
       return 'Review blocking findings';
     default:

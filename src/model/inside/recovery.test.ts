@@ -143,6 +143,23 @@ describe('recoveryProcess', () => {
     expect(evidenceRows(verifier)[0]!.detail).toBe('Fix started after UAT verifier failure · round 1 of 2');
     const findings = recoveryProcess([round({ triggerKind: 'blocking-review-findings' })], [], NOW)!;
     expect(evidenceRows(findings)[0]!.detail).toBe('Fix started after Review blocking findings · round 1 of 2');
+    // The UAT twin of the review findings round (Task 3.2). Without its own
+    // case it falls to the `default` and the Inside block renders the raw
+    // machine string ("uat tester observations: 1 high") where its twin
+    // renders curated prose.
+    const observations = recoveryProcess(
+      [
+        round({
+          triggerKind: 'blocking-tester-observations',
+          triggerDetail: 'uat tester observations: 1 high',
+        }),
+      ],
+      [],
+      NOW,
+    )!;
+    expect(evidenceRows(observations)[0]!.detail).toBe(
+      'Fix started after UAT blocking observations · round 1 of 2',
+    );
   });
 
   it('maps round states onto the process status vocabulary', () => {
