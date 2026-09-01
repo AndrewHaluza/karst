@@ -18,7 +18,7 @@ import type {
   RunHeadlessOpts,
   HeadlessResult,
 } from './adapter.js';
-import { renderWorkflowCommand, KARST_PLUGIN_NAME } from './workflowCommand.js';
+import { renderWorkflowCommand, KARST_PLUGIN_NAME, slugCommandName } from './workflowCommand.js';
 import { SUPPORTED, unsupported, type AdapterSurfaces } from './surfaces.js';
 import { describeHeadlessFailure } from './cliFailure.js';
 import { spawnHeadlessCli, headlessPreview, type HeadlessSpawnOptions } from './headlessSpawn.js';
@@ -214,7 +214,11 @@ export class AntigravityAdapter implements AgentAdapter {
       // repository's, so leave it alone rather than rewriting its skills.
       if (!existsSync(karstDir)) {
         ownedKarstDir = karstDir;
-        const skillDir = join(karstDir, 'skills', opts.pkg.id);
+        // The approach id is legal as a manifest/package id, but a `:` (or other
+        // non-word punctuation) would break the generated skill name, its dir,
+        // and its `$`-invocation on agy — slug it into kebab (UNKNOWN-COMMAND-ISSUE).
+        const idSlug = slugCommandName(opts.pkg.id);
+        const skillDir = join(karstDir, 'skills', idSlug);
         mkdirSync(skillDir, { recursive: true });
         writeFileSync(
           join(karstDir, 'plugin.json'),
@@ -231,7 +235,7 @@ export class AntigravityAdapter implements AgentAdapter {
         });
         const skill = [
           '---',
-          `name: ${opts.pkg.id}`,
+          `name: ${idSlug}`,
           `description: Run the ${opts.pkg.label} workflow for a Karst ticket.`,
           '---',
           '',
@@ -249,7 +253,7 @@ export class AntigravityAdapter implements AgentAdapter {
         ...(ownsPlugin ? [pluginDir] : []),
         ...(ownedKarstDir ? [ownedKarstDir] : []),
       ],
-      ...(hasWorkflow ? { invocation: `$${opts.pkg.id}` } : {}),
+      ...(hasWorkflow ? { invocation: `$${slugCommandName(opts.pkg.id)}` } : {}),
     };
   }
 

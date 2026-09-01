@@ -26,7 +26,7 @@ import type {
   Materialized,
   RunHeadlessOpts,
 } from './adapter.js';
-import { renderWorkflowCommand } from './workflowCommand.js';
+import { renderWorkflowCommand, slugCommandName } from './workflowCommand.js';
 import { describeHeadlessFailure } from './cliFailure.js';
 import { renderConsoleStream } from './consoleFormat.js';
 import { spawnHeadlessCli, headlessPreview, type HeadlessSpawnOptions } from './headlessSpawn.js';
@@ -663,7 +663,11 @@ export class CodexAdapter implements AgentAdapter {
   materializeApproach(opts: MaterializeOpts): Materialized {
     assertSafeName('approach id', opts.pkg.id);
     const owned = new Set<string>();
-    const prefix = `karst-${opts.pkg.id}`;
+    // The approach id is legal as a manifest/package id, but a `:` (or other
+    // non-word punctuation) would break the generated skill name and its
+    // `$`-invocation on codex — slug it into kebab (UNKNOWN-COMMAND-ISSUE).
+    const idSlug = slugCommandName(opts.pkg.id);
+    const prefix = `karst-${idSlug}`;
 
     for (const artifact of opts.pkg.artifacts ?? []) {
       const source = join(opts.baseDir, opts.pkg.id, artifact.relPath);
