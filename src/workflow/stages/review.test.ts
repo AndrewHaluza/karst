@@ -60,6 +60,7 @@ function deps(over: Partial<ReviewDeps> = {}): ReviewDeps {
     unmapped: [],
     }),
     probe: () => ({ kind: 'ok', scripts: ALL_SCRIPTS }),
+    checkDeps: async () => ({ ok: true }),
     runGates: async (gates, _cwd, opts) => {
       // Mirrors the real `runGateList` contract: each result row fires
       // `onGateComplete` (with the row's timing and index) — the per-gate
@@ -121,6 +122,27 @@ describe('runReview', () => {
     ]);
     expect(listGateRuns(store, id).every((r) => r.stageKey === 'review')).toBe(true);
     expect(new Set(listGateRuns(store, id).map((r) => r.runAt)).size).toBe(1);
+  });
+
+  it('parks without a verdict when installed deps drifted from the lockfile', async () => {
+    const res = await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      deps({
+        checkDeps: async () => ({
+          ok: false,
+          kind: 'dependency-drift',
+          reason: 'missing: @arcus-team/web-contract@0.5.0',
+        }),
+      }),
+    );
+    expect(res).toEqual({
+      kind: 'blocked',
+      blocker: 'capability-missing',
+      reason: expect.stringContaining("npm install"),
+    });
+    expect(getTicket(store, id).stageCurrent).toBe('review');
+    expect(listGateRuns(store, id)).toEqual([]);
   });
 
   it('threads the stage debug callback into the findings lane, so the reviewer’s decision points land in the stream', async () => {

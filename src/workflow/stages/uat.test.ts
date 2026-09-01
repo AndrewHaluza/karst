@@ -37,6 +37,7 @@ function deps(over: Partial<UatDeps> = {}): UatDeps {
     git: async () => ({ exitCode: 1, stdout: '', stderr: '' }),
     planTargets: async () => ({ kind: 'targets', targets: [{ repo: '/web', path: '/wt/web', names: ['web'] }], unmapped: [] }),
     probe: () => ({ kind: 'ok', scripts: { test: 'vitest', e2e: 'playwright test' } }),
+    checkDeps: async () => ({ ok: true }),
     runGates: async (gates, _cwd, opts) => {
       // Mirrors the real `runGateList` contract: each result row fires
       // `onGateComplete` (with the row's timing and index) — the per-gate
@@ -86,6 +87,27 @@ describe('runUat', () => {
       'e2e (/wt/web)',
       'test (/wt/web)',
     ]);
+  });
+
+  it('parks without a verdict when installed deps drifted from the lockfile', async () => {
+    const res = await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      deps({
+        checkDeps: async () => ({
+          ok: false,
+          kind: 'dependency-drift',
+          reason: 'missing: @arcus-team/web-contract@0.5.0',
+        }),
+      }),
+    );
+    expect(res).toEqual({
+      kind: 'blocked',
+      blocker: 'capability-missing',
+      reason: expect.stringContaining("npm install"),
+    });
+    expect(getTicket(store, id).stageCurrent).toBe('uat');
+    expect(listGateRuns(store, id)).toEqual([]);
   });
 
   it('a failing gate -> routes to fix and files evidence under the attempt that ran', async () => {
