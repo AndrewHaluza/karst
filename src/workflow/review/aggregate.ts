@@ -399,7 +399,7 @@ export function aggregateReview(
     return {
       kind: 'blocked',
       blocker: 'capability-missing',
-      reason: `${FINDINGS_FAILURE_PREFIX}unreadable output from ${findingsLane.unreadable!.join(', ')} — no findings could be read`,
+      reason: `${FINDINGS_FAILURE_PREFIX}unreadable output from ${(findingsLane.unreadable ?? []).join(', ')} — no findings could be read`,
     };
   }
   if (findingsLane.kind === 'ran' && opts.findingsBlockingSeverity !== 'none') {

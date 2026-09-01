@@ -79,6 +79,11 @@ export interface ShipProcessesInput {
    * here only to surface unresolved blocking severities as a warning row —
    * ship has no `failed` edge (graph.ts), so this is the human's only signal
    * that evidence recorded earlier in the ticket's life is still unresolved.
+   *
+   * REVIEW FINDINGS ONLY. This row reads `review_findings` and is gated by
+   * `review.findings.blockingSeverity`. Tester observations live in a
+   * different table (`store/uatFindings.ts`) behind a different knob
+   * (`uat.testerObservations.blockingSeverity`) and are NOT surfaced here.
    */
   findings?: readonly Finding[];
   /** The manifest's `review.findings.blockingSeverity`; `'none'` disables the row entirely. */
@@ -97,7 +102,8 @@ const SHIP_SEVERITY_RANK: Readonly<Record<Severity, number>> = {
 /**
  * A warning row naming unresolved blocking-severity findings still on record
  * for the ticket at the ship stage. `ship` has no `failed` edge (graph.ts),
- * so a blocking finding recorded earlier (review, or a Tester observation)
+ * so a blocking REVIEW finding recorded earlier (this row reads
+ * `review_findings` only — never `uat_findings`/Tester observations)
  * can route nowhere on its own — this is a READ of existing evidence, no
  * action beyond the file locations the findings already carry (`docs/arch/diagnostics.md`:
  * reporting observes and never reaches back). Undefined when the threshold is

@@ -13,6 +13,7 @@ The stage machine, the evidence it writes, and the host seam that drives it. Rel
 - A gate may be switched off for ONE ticket
 - Auto-discovery is npm-shaped; gating is not
 - UAT Tester observations are advisory BY DEFAULT
+- Review findings decide review: R6 fails, R6b blocks on an unreadable answer
 - Nothing in the extension host may block its event loop
 - The stage driver's host seam
 - Single-writer stage mutation
@@ -65,6 +66,15 @@ The AI UAT Tester (`workflow/uat/tester.ts`) records OBSERVATIONS. They are evid
 2. `uat.testerObservations.blockingSeverity` — **the ONE knob that makes an observation itself a verdict.** Its default is `'none'`, and an absent `uat:` block, an absent `testerObservations:` block, and an absent `blockingSeverity:` all read as `'none'`: **every existing manifest keeps today's advisory behavior byte-identically.** Set to a severity, `runUatTester` counts the recorded observations at or above it (over the FINAL capped list, so a truncated observation never counts) and reports `blocking`; `stages/uat.ts` — never `aggregateUat` — turns a nonzero count into `{ kind: 'failed', reason: 'uat tester observations: 1 high' }` with a recovery round attributed to `sourceProcessId: 'tester'` (`triggerKind: 'blocking-tester-observations'`), exactly mirroring the verifier's failure path. The check runs AFTER the verifier, so the deterministic boundary keeps precedence.
 
 The reason prefixes (`TESTER_VERIFIER_FAILURE_PREFIX`, `TESTER_OBSERVATIONS_FAILURE_PREFIX`) live once in `uat/testerVerifier.ts` and are how the stage attributes a failed verdict — never a second copy of the string. Guards: `uat/tester.test.ts` "reports blocking observations when the threshold is set" / "never counts an observation the cap truncated away", `stages/uat.test.ts` "fails uat when a blocking Tester observation was recorded" / "passes uat when observations are advisory (threshold none)".
+
+## Review findings decide review: R6 fails, R6b blocks on an unreadable answer
+
+`aggregateReview` (`workflow/review/aggregate.ts`) numbers its rules; the findings lane owns two of them, and they are ordered after the deterministic gates (R5 — "a red gate always wins the wording", because a failing gate is cheaper to act on than a model's prose).
+
+- **R6 — a blocking finding FAILS review.** The lane's `capability-missing` parks (the core could not be asked: environmental, not a code defect). Otherwise, when the lane `ran` and `review.findings.blockingSeverity` is not `'none'`, any finding at or above the threshold produces a `failed` verdict, which routes to the fix loop. `'none'` disables the verdict but NOT the evidence — findings are still recorded by the caller.
+- **R6b — an UNREADABLE answer BLOCKS, it does not fail.** When the lane `ran`, the threshold is on, at least one target's output came back `unreadable` (`findings.ts`'s `FindingsParseShape`), and NOT ONE finding was read across all targets, review is `blocked` with `blocker: 'capability-missing'` and a reason naming the targets. This is the rule that closes the original bug: a core that answered in prose used to parse as zero findings and pass review vacuously into `ship`, which has no `failed` edge, stranding real `high` findings with no route back to the fix loop. It blocks rather than fails deliberately — an unreadable answer is the CORE misbehaving, not the code being wrong, so it must not spend a fix round.
+
+R6b is the aggregate's half of the defence; the parser's half is `findings.ts`'s extraction fallback, which is gated on "no findings-shaped container was recognized" (never on "nothing parsed at all") so that narration around the report, a bare-scalar narration line, or a provider's own output envelope cannot hide a real finding. Note R6b's conjunction: a run that read SOME findings is decided by R6 on what it read, not blocked on a sibling target's unreadable answer.
 
 ## Nothing that runs in the extension host may block its event loop
 

@@ -16,12 +16,21 @@
  * carrying a `findings` array, or (for a JSONL stream where each line is one
  * finding) a bare finding object itself. Every candidate JSON value —
  * however it parsed — is scanned; nothing is dropped for landing on line 2
- * instead of line 1. …and only when NEITHER shape reads does it fall back to
+ * instead of line 1. …and whenever that read produces NO findings-shaped
+ * container (not merely when nothing parsed at all) it falls back to
  * extraction: every ```-fenced block's body first, then every balanced
- * top-level `[...]`/`{...}` span, each still handed to `JSON.parse`. A
- * chat-tuned core that narrates its tool calls before printing the array it
- * was asked for is the ordinary case, not the exotic one — reading that as
- * zero findings turned a `high` finding into a silent pass.
+ * top-level `[...]`/`{...}` span, each still handed to `JSON.parse`, run over
+ * the raw text and over the string leaves of whatever did parse. A chat-tuned
+ * core that narrates its tool calls before printing the array it was asked for
+ * is the ordinary case, not the exotic one — reading that as zero findings
+ * turned a `high` finding into a silent pass. Gating extraction on "something
+ * parsed" rather than "findings were recognized" re-opens exactly that bug two
+ * ways: one narration line that is a bare JSON scalar (`100`, `true`,
+ * `"done"`) satisfies the JSONL read, and a provider's own output envelope
+ * (`{"result":"…prose with a fenced findings block…"}`) satisfies the
+ * whole-document read — in both cases the real report is still sitting in the
+ * text, unread. "Findings-shaped" has exactly one definition here,
+ * `findingCandidatesFrom`, and the gate reuses it.
  *
  * **Trust boundaries enforced here, each independently:**
  * - `severity` must be an exact member of the closed `Severity` union
@@ -255,7 +264,13 @@ function balancedSpans(text: string): string[] {
   return spans;
 }
 
-function parseJsonEvents(text: string): unknown[] {
+/**
+ * The primary read: the whole trimmed document as one JSON value, else one
+ * value per line. No extraction — that is a separate, separately-gated step
+ * (`extractedJsonValues`), because "something parsed" is NOT the same question
+ * as "a findings-shaped container was found".
+ */
+function primaryJsonValues(text: string): unknown[] {
   const trimmed = text.trim();
   if (trimmed === '') return [];
 
@@ -269,21 +284,67 @@ function parseJsonEvents(text: string): unknown[] {
     const value = tryParseJson(lineTrimmed);
     if (value !== undefined) values.push(value);
   }
-  if (values.length > 0) return values;
+  return values;
+}
 
-  // Neither shape read: the document is prose with JSON somewhere inside it —
-  // the ordinary answer from a chat-tuned core that narrates its work before
-  // printing the report it was asked for. Fences first (exact), then the
-  // balanced scan (heuristic); every candidate still goes through JSON.parse.
-  const scanned =
-    trimmed.length > SCAN_MAX_CHARS ? trimmed.slice(trimmed.length - SCAN_MAX_CHARS) : trimmed;
-  const candidates = [...fencedBlocks(scanned), ...balancedSpans(scanned)];
+/** Bound on how many string leaves of an already-parsed value are re-scanned as text, and how deep the walk goes. A provider envelope is shallow; this is only ever meant to reach the one prose/report field it carries. */
+const SCAN_MAX_STRING_LEAVES = 64;
+const SCAN_MAX_LEAF_DEPTH = 8;
+
+/**
+ * Every string leaf of an already-parsed JSON value that could plausibly
+ * contain an embedded JSON document. This is what lets extraction see through
+ * a provider's own output envelope (`{"result":"…prose with a fenced findings
+ * block…"}`): the envelope parsed, so the balanced scan over the RAW text only
+ * ever re-yields the envelope, and the model's real answer lives inside a JSON
+ * string where the fence's newlines are escaped. Bounded in both breadth and
+ * depth; no I/O.
+ */
+function stringLeaves(value: unknown, out: string[], depth = 0): void {
+  if (out.length >= SCAN_MAX_STRING_LEAVES || depth > SCAN_MAX_LEAF_DEPTH) return;
+  if (typeof value === 'string') {
+    if (value.includes('[') || value.includes('{')) out.push(value);
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) stringLeaves(item, out, depth + 1);
+    return;
+  }
+  if (isPlainRecord(value)) {
+    for (const item of Object.values(value)) stringLeaves(item, out, depth + 1);
+  }
+}
+
+/**
+ * The extraction fallback: every ```-fenced block's body first (exact), then
+ * every balanced top-level `[...]`/`{...}` span (heuristic), each still handed
+ * to `JSON.parse`. Run over each source in turn, sharing one
+ * `SCAN_MAX_CANDIDATES` budget; each source is capped to its TAIL at
+ * `SCAN_MAX_CHARS`, because the report a model is asked for is the last thing
+ * it writes. Purely lexical — no filesystem or network I/O.
+ *
+ * Identical parsed values are kept once: the SAME array is routinely yielded
+ * twice (once as a fence body, once as the balanced span inside that fence),
+ * and counting it twice would double every finding in a fenced report. This
+ * drops nothing — a repeat contributes no information — and it also keeps the
+ * `SCAN_MAX_CANDIDATES` budget spent on distinct values.
+ */
+function extractedJsonValues(sources: readonly string[]): unknown[] {
   const extracted: unknown[] = [];
-  for (const candidate of candidates) {
-    const value = tryParseJson(candidate.trim());
-    if (value !== undefined) {
+  const seen = new Set<string>();
+  for (const source of sources) {
+    const trimmed = source.trim();
+    if (trimmed === '') continue;
+    const scanned =
+      trimmed.length > SCAN_MAX_CHARS ? trimmed.slice(trimmed.length - SCAN_MAX_CHARS) : trimmed;
+    for (const candidate of [...fencedBlocks(scanned), ...balancedSpans(scanned)]) {
+      const value = tryParseJson(candidate.trim());
+      if (value === undefined) continue;
+      const key = JSON.stringify(value) ?? 'undefined';
+      if (seen.has(key)) continue;
+      seen.add(key);
       extracted.push(value);
-      if (extracted.length >= SCAN_MAX_CANDIDATES) break;
+      if (extracted.length >= SCAN_MAX_CANDIDATES) return extracted;
     }
   }
   return extracted;
@@ -312,6 +373,13 @@ function findingCandidatesFrom(value: unknown): FindingCandidates {
     if ('severity' in value || 'title' in value) return { candidates: [value], recognized: true };
   }
   return { candidates: [], recognized: false };
+}
+
+/** The string leaves of every primary-parsed value, as extra text for the scan to read. */
+function leafSources(values: readonly unknown[]): string[] {
+  const leaves: string[] = [];
+  for (const value of values) stringLeaves(value, leaves);
+  return leaves;
 }
 
 function parseSeverityStrict(raw: unknown): Severity | null {
@@ -470,7 +538,19 @@ export function parseFindingsResult(
   ctx: ParseFindingsContext,
   warn: WarnFn = defaultWarn,
 ): FindingsParseResult {
-  const events = parseJsonEvents(raw);
+  // The extraction fallback is gated on "no findings-shaped container was
+  // recognized", NOT on "nothing parsed at all". A single narration line that
+  // happens to be a bare JSON scalar (`100`, `true`, `"done"`) populates the
+  // JSONL read, and a provider envelope parses as a whole document — either one
+  // would otherwise suppress extraction entirely and turn a pretty-printed
+  // `high` finding into a silent zero-findings pass. `findingCandidatesFrom` is
+  // the single notion of "findings-shaped"; this reuses it rather than
+  // inventing a second one.
+  const primary = primaryJsonValues(raw);
+  const events = primary.some((value) => findingCandidatesFrom(value).recognized)
+    ? primary
+    : [...primary, ...extractedJsonValues([raw, ...leafSources(primary)])];
+
   if (events.length === 0) {
     warn(
       `review findings: ${ctx.repo}'s review output was not recognizable JSON or JSONL — treated as zero findings, not as an error.`,

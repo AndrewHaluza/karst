@@ -746,6 +746,16 @@ export function buildDashboardState(
         // still "this attempt"'s findings, and a LATER attempt (a fresh fail)
         // silently drops them, exactly the "cleared" reading a permanent-noise
         // row cannot give.
+        //
+        // Intended reach (deliberate, not an oversight): because `attempt`
+        // climbs only on a failed verdict, this row is SILENT on the ordinary
+        // fail→fix→clean-pass path — and a ticket with unresolved
+        // current-attempt blocking findings cannot reach ship anyway, since R6
+        // fails review first. The row is a BACKSTOP, not the primary gate: it
+        // catches a `review.findings.blockingSeverity` threshold lowered AFTER
+        // the review passed, and a ticket advanced to ship by hand. The
+        // attempt scoping is the trade that buys that backstop without a
+        // permanent, unclearable false-red row (see the ruling above).
         findings: findingsForAttempt(
           store,
           ticketId,
