@@ -19,6 +19,7 @@ import { probeScripts, type ScriptProbe } from '../gates/probe.js';
 import { resolveGates, type GateResolution, type ResolvedGate } from '../gates/resolve.js';
 import { partitionDisabled, type StageGateResolution } from '../gates/disable.js';
 import { runGateList } from '../gates/runList.js';
+import { checkNodeDeps, type NodeDepsCheck } from '../gates/depsCheck.js';
 import { planUatTargets, type UatTarget } from '../uat/targets.js';
 import { declaredGatesFor, PROBE_SCRIPTS } from '../uat/gates.js';
 import { runUatTester, type TesterTarget, type TesterRunResult } from '../uat/tester.js';
@@ -110,6 +111,11 @@ export interface UatDeps {
    * verifier, the stage parks (the verifier could not be asked).
    */
   runVerifier?: TesterGateRunner;
+  /**
+   * Pre-gate lockfile-drift check for npm script gates (defaults to
+   * `checkNodeDeps`). An injected seam so unit tests never spawn npm.
+   */
+  checkDeps?: (cwd: string) => Promise<NodeDepsCheck>;
   /** Where the Tester's boundary diagnostics land (a failed AI call, garbage output). */
   warn?: WarnFn;
 }
@@ -187,6 +193,7 @@ export async function runUat(
   const planTargets = deps.planTargets ?? planUatTargets;
   const probe = deps.probe ?? probeScripts;
   const runGates = deps.runGates ?? runGateList;
+  const checkDeps = deps.checkDeps ?? checkNodeDeps;
   const git = deps.git ?? defaultGitRunner;
   const runAt = now();
 
@@ -411,6 +418,25 @@ export async function runUat(
       recordEntries([malformed]);
       sections.push(`# package.json (${label}, exit 1)\n${scriptProbe.message}`);
       continue;
+    }
+
+    // A dependency tree that drifted from the lockfile is a SETUP failure, not
+    // a code verdict: every gate in a resolve-up worktree fails identically at
+    // once, which reads as a pre-existing repo regression. Park (no attempt
+    // consumed) and name the repair instead of attributing it to the ticket.
+    if (resolution.gates.some((g) => g.script !== null)) {
+      const depsCheck = await checkDeps(target.path, { signal: opts.signal, onDebug: opts.debug });
+      if (!depsCheck.ok) {
+        const reason =
+          depsCheck.kind === 'dependency-drift'
+            ? `${label}: installed dependencies are inconsistent with package-lock.json — ` +
+              `${depsCheck.reason} — run 'npm install' (or 'npm ci') in ${target.path}`
+            : `${label}: could not verify installed dependencies — ${depsCheck.reason}`;
+        opts.debug?.(
+          `[gate] uat ticket ${opts.ticketId}: target ${label} ${depsCheck.kind} (${depsCheck.reason})`,
+        );
+        return finish({ kind: 'blocked', blocker: 'capability-missing', reason }, [reason]);
+      }
     }
 
     const scripts = scriptProbe.kind === 'ok' ? scriptProbe.scripts : {};

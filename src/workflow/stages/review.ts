@@ -16,6 +16,7 @@ import { listWorktreesByTicket } from '../../store/dashboard.js';
 import { defaultGitRunner, type GitRunner } from '../../integrations/git.js';
 import { probeScripts, type ScriptProbe } from '../gates/probe.js';
 import { runGateList } from '../gates/runList.js';
+import { checkNodeDeps, type NodeDepsCheck } from '../gates/depsCheck.js';
 import { planReviewTargets, type ReviewGateTarget } from '../review/targets.js';
 import { resolveReviewGates } from '../review/gates.js';
 import { getDisabledGates } from '../../store/ticketGates.js';
@@ -107,6 +108,11 @@ export interface ReviewDeps {
   planTargets?: typeof planReviewTargets;
   probe?: (cwd: string) => ScriptProbe;
   runGates?: typeof runGateList;
+  /**
+   * Pre-gate lockfile-drift check for npm script gates (defaults to
+   * `checkNodeDeps`). An injected seam so unit tests never spawn npm.
+   */
+  checkDeps?: (cwd: string) => Promise<NodeDepsCheck>;
   git?: GitRunner;
   now?: () => string;
   /**
@@ -154,6 +160,7 @@ export async function runReview(
   const planTargets = deps.planTargets ?? planReviewTargets;
   const probe = deps.probe ?? probeScripts;
   const runGates = deps.runGates ?? runGateList;
+  const checkDeps = deps.checkDeps ?? checkNodeDeps;
   const git = deps.git ?? defaultGitRunner;
   const runAt = now();
 
@@ -402,6 +409,25 @@ export async function runReview(
       recordEntries([malformed]);
       sections.push(`# package.json (${label}, exit 1)\n${scriptProbe.message}`);
       continue;
+    }
+
+    // A dependency tree that drifted from the lockfile is a SETUP failure, not
+    // a code verdict: every gate in a resolve-up worktree fails identically at
+    // once, which reads as a pre-existing repo regression. Park (no attempt
+    // consumed) and name the repair instead of attributing it to the ticket.
+    if (resolution.gates.some((g) => g.script !== null)) {
+      const depsCheck = await checkDeps(target.path, { signal: opts.signal, onDebug: opts.debug });
+      if (!depsCheck.ok) {
+        const reason =
+          depsCheck.kind === 'dependency-drift'
+            ? `${label}: installed dependencies are inconsistent with package-lock.json — ` +
+              `${depsCheck.reason} — run 'npm install' (or 'npm ci') in ${target.path}`
+            : `${label}: could not verify installed dependencies — ${depsCheck.reason}`;
+        opts.debug?.(
+          `[gate] review ticket ${opts.ticketId}: target ${label} ${depsCheck.kind} (${depsCheck.reason})`,
+        );
+        return finish({ kind: 'blocked', blocker: 'capability-missing', reason }, [reason]);
+      }
     }
 
     const scripts = scriptProbe.kind === 'ok' ? scriptProbe.scripts : {};

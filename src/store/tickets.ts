@@ -576,6 +576,8 @@ const TICKET_CHILD_TABLES = [
   'servers',
   'prs',
   'ticket_attachments',
+  'test_logs',
+  'test_hooks',
 ] as const;
 
 /**
@@ -590,10 +592,10 @@ const TICKET_CHILD_TABLES = [
  * removed leaf-first, THEN ticket-owned evidence (findings, then the process
  * runs that are the roots of the `ON DELETE SET NULL` references) goes, then
  * the graph evidence subtree leaf-first (Slice 2 Task 8: tokens, overrides,
- * leases, artifact instances, node runs, planner runs, revisions, graph runs —
- * no `ON DELETE CASCADE` fires on any of the eight, correctness never depends
- * on a cascade), and only finally the older child tables and the ticket row
- * itself. With foreign keys ON, any other order can surface a
+ * leases, workspaces, artifact instances, node runs, planner runs, revisions,
+ * graph runs — no `ON DELETE CASCADE` fires on any of the nine, correctness
+ * never depends on a cascade), and only finally the older child tables and the
+ * ticket row itself. With foreign keys ON, any other order can surface a
  * `SQLITE_CONSTRAINT_FOREIGNKEY` — or, worse, silently delete spend that
  * belongs to the ledger, not the ticket.
  *
@@ -660,6 +662,7 @@ export function deleteTicket(
       store.db.prepare('DELETE FROM approach_resource_leases WHERE graph_run_id = ?').run(graphRunId);
       store.db.prepare('DELETE FROM approach_node_deferrals WHERE graph_run_id = ?').run(graphRunId);
       store.db.prepare('DELETE FROM approach_artifact_instances WHERE graph_run_id = ?').run(graphRunId);
+      store.db.prepare('DELETE FROM approach_graph_workspaces WHERE graph_run_id = ?').run(graphRunId);
       store.db.prepare('DELETE FROM approach_node_runs WHERE graph_run_id = ?').run(graphRunId);
       store.db.prepare('DELETE FROM approach_planner_runs WHERE graph_run_id = ?').run(graphRunId);
       store.db.prepare('DELETE FROM approach_graph_revisions WHERE graph_run_id = ?').run(graphRunId);

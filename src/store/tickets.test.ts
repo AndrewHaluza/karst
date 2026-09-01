@@ -916,6 +916,13 @@ describe('deleteTicket — graph evidence (Slice-2 T8)', () => {
          VALUES (?, ?, 'a', 'resource-conflict: x', ?, ?)`,
       )
       .run(graphRunId, revisionId, '2026-08-11T00:00:00.000Z', '2026-08-11T00:00:00.000Z');
+    store.db
+      .prepare(
+        `INSERT INTO approach_graph_workspaces
+           (graph_run_id, node_run_id, repo_name, cwd, byte_size, created_at)
+         VALUES (?, ?, 'api', '/workspace/api', 256, '2026-08-11T00:00:00.000Z')`,
+      )
+      .run(graphRunId, nodeRunId);
     return { ticketId: t.id, graphRunId, plannerRunId, revisionId, nodeRunId };
   }
 
@@ -935,6 +942,7 @@ describe('deleteTicket — graph evidence (Slice-2 T8)', () => {
         'approach_resource_leases',
         'approach_node_deferrals',
         'approach_artifact_instances',
+        'approach_graph_workspaces',
         'approach_node_runs',
         'approach_planner_runs',
         'approach_graph_revisions',
@@ -947,6 +955,25 @@ describe('deleteTicket — graph evidence (Slice-2 T8)', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it('deleteTicket removes the test-only ticket-scoped rows (test_logs, test_hooks)', () => {
+    const t = createTicket(store, { key: 'T-TEST', title: 't' });
+    store.db
+      .prepare(
+        `INSERT INTO test_logs (ticket_id, level, module, message, recorded_at)
+         VALUES (?, 'info', '[test]', 'm', '2026-08-11T00:00:00.000Z')`,
+      )
+      .run(t.id);
+    store.db
+      .prepare(
+        `INSERT INTO test_hooks (ticket_id, event, recorded_at)
+         VALUES (?, 'SessionStart', '2026-08-11T00:00:00.000Z')`,
+      )
+      .run(t.id);
+    deleteTicket(store, t.id);
+    expect((store.db.prepare('SELECT COUNT(*) AS n FROM test_logs').get() as { n: number }).n).toBe(0);
+    expect((store.db.prepare('SELECT COUNT(*) AS n FROM test_hooks').get() as { n: number }).n).toBe(0);
   });
 
   it('archive removes neither rows nor bytes', () => {

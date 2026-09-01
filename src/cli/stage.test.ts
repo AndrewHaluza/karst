@@ -15,7 +15,8 @@ import {
 } from '../store/sessionLaunchIntents.js';
 import { listImplementationTimeline } from '../store/implementationRuns.js';
 import { listProcessRuns } from '../store/processRuns.js';
-import { getTicket, setAgentState } from '../store/tickets.js';
+import { getTicket, setAgentState, updateTicketFields } from '../store/tickets.js';
+import { BUILT_IN_PACKAGE_ID } from '../approaches/builtInId.js';
 import {
   openRecoveryRound,
   beginLiveFixExecution,
@@ -405,5 +406,47 @@ describe('runStageCommand', () => {
       }),
     ).not.toThrow();
     expect(transition).toHaveBeenCalled();
+  });
+
+  it('a non-graph ticket with a leftover cancelled graph run still advances through the plain impl marker', () => {
+    const store = openStore(':memory:');
+    try {
+      const id = createTicketFlow(store, { key: 'T-GHOST', title: 't' }).id;
+      transition(store, id, 'scope', { kind: 'passed' });
+      store.db
+        .prepare(
+          `INSERT INTO approach_graph_runs
+             (ticket_id, stage_key, stage_attempt, approach_id, status, created_at)
+           VALUES (?, 'impl', 0, 'karst-graph-engineering', 'cancelled', '2026-09-01T00:00:00.000Z')`,
+        )
+        .run(id);
+      const next = runStageCommand(store, id, ['stage', 'impl', 'pass']);
+      expect(next).toBe('uat');
+      expect(getTicket(store, id).stageCurrent).toBe('uat');
+    } finally {
+      store.close();
+    }
+  });
+
+  it('a graph-approach ticket with a cancelled graph run stays refused at impl', () => {
+    const store = openStore(':memory:');
+    try {
+      const id = createTicketFlow(store, { key: 'T-GRAPH', title: 't' }).id;
+      transition(store, id, 'scope', { kind: 'passed' });
+      updateTicketFields(store, id, { approach: BUILT_IN_PACKAGE_ID });
+      store.db
+        .prepare(
+          `INSERT INTO approach_graph_runs
+             (ticket_id, stage_key, stage_attempt, approach_id, status, created_at)
+           VALUES (?, 'impl', 0, 'karst-graph-engineering', 'cancelled', '2026-09-01T00:00:00.000Z')`,
+        )
+        .run(id);
+      expect(() => runStageCommand(store, id, ['stage', 'impl', 'pass'])).toThrow(
+        /graph marker refused/,
+      );
+      expect(getTicket(store, id).stageCurrent).toBe('impl');
+    } finally {
+      store.close();
+    }
   });
 });
