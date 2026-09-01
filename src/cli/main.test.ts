@@ -272,6 +272,7 @@ id: proj3
 host: localhost
 portRange: [4000, 4999]
 baselineBranch: develop
+debug: true
 repositories:
   backend:
     repoPath: ../backend
@@ -290,6 +291,33 @@ uat:
       expect(written).toContain('not yet active');
       // stdout is consumed by an agent — it must stay parseable.
       expect(() => JSON.parse(out)).not.toThrow();
+    } finally {
+      writeSpy.mockRestore();
+    }
+  });
+
+  it('omits inert-key notices unless manifest debug is on', () => {
+    const quietManifest = join(dir, 'quiet.yml');
+    writeFileSync(
+      quietManifest,
+      `
+id: proj4
+host: localhost
+portRange: [4000, 4999]
+baselineBranch: develop
+repositories:
+  backend:
+    repoPath: ../backend
+uat:
+  secrets:
+    - API_KEY
+`,
+    );
+    const writeSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    try {
+      runCli(['context', 'K-1', '--db', dbPath, '--manifest', quietManifest, '--json']);
+      const written = writeSpy.mock.calls.map((c) => String(c[0])).join('');
+      expect(written).not.toContain('not yet active');
     } finally {
       writeSpy.mockRestore();
     }

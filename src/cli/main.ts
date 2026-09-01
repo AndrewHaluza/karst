@@ -37,7 +37,9 @@ function loadProjectSlug(manifestPath: string | undefined): string | undefined {
   try {
     const { manifest, warnings, notices } = loadManifestWithDiagnostics(manifestPath);
     writeManifestDiagnostics(warnings);
-    writeManifestDiagnostics(notices);
+    // Notices are INFO facts (keys declared but not yet read) — they belong on
+    // the manifest's verbose/debug channel, not on every marker invocation.
+    if (manifest.debug === true) writeManifestDiagnostics(notices);
     return manifest.id;
   } catch {
     return undefined;
@@ -131,7 +133,7 @@ export function runCli(argv: string[]): string {
       try {
         const loaded = loadManifestWithDiagnostics(manifestPath);
         writeManifestDiagnostics(loaded.warnings);
-        writeManifestDiagnostics(loaded.notices);
+        if (loaded.manifest.debug === true) writeManifestDiagnostics(loaded.notices);
         manifest = loaded.manifest;
       } catch (e) {
         // A missing/invalid manifest is non-fatal — services just won't render.
