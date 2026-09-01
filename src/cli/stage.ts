@@ -4,6 +4,7 @@ import { MARKER_STAGES, isMarkerStage, type MarkerStage } from '../agent/markerS
 import { transition as defaultTransition } from '../workflow/machine.js';
 import { graphImplMarkerGuard, graphApproachMissingRun } from '../workflow/graphMarkerGuard.js';
 import { BUILT_IN_PACKAGE_ID } from '../approaches/builtInId.js';
+import { getTicket } from '../store/tickets.js';
 import { markImplementDone } from '../workflow/stages/implement.js';
 import { markFixDone } from '../workflow/fixExecution.js';
 import { assertMarkerNotWhileWaiting } from '../workflow/markerGuard.js';
@@ -204,15 +205,27 @@ export function runStageCommand(
   // rejected without mutation. The graph has no stable implementation run, so
   // markImplementDone's run bookkeeping never applies.
   if (stage === 'impl') {
-    // The store is the real db-backed store in production; the test seam may
-    // stub it without `db` — the graph check simply does not apply then.
-    const hasGraphRun = store.db
-      ? (
-          store.db
-            .prepare('SELECT 1 AS n FROM approach_graph_runs WHERE ticket_id = ? LIMIT 1')
-            .get(ticketId) as { n: number } | undefined
-        ) !== undefined
+    // The graph marker guard is the ONLY graph/stage boundary. Its routing
+    // must apply only to graph-approach tickets: a `direct` ticket with a
+    // leftover graph-run row (a mid-flight approach switch, a partial
+    // bootstrap) is not a graph ticket, and routing it to the guard would
+    // strand it at impl with no exit. The guard's own no-run sibling
+    // (`graphApproachMissingRun`) gates on the same approach id for the same
+    // reason. The store is the real db-backed store in production; the test
+    // seam may stub it without `db` — the graph check simply does not apply
+    // then.
+    const isGraphApproach = store.db
+      ? getTicket(store, ticketId).approach === BUILT_IN_PACKAGE_ID
       : false;
+    const hasGraphRun =
+      isGraphApproach &&
+      (store.db
+        ? (
+            store.db
+              .prepare('SELECT 1 AS n FROM approach_graph_runs WHERE ticket_id = ? LIMIT 1')
+              .get(ticketId) as { n: number } | undefined
+          ) !== undefined
+        : false);
     if (hasGraphRun) {
       const result = graphImplMarkerGuard(store, ticketId);
       if (!result.ok) {
