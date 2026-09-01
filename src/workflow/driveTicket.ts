@@ -439,8 +439,9 @@ export async function driveTicket(
           reopenInterruptedRound(deps.store, ticketId, interrupted.id);
           round = recoveryDecision(deps.store, ticketId, gate);
           deps.debug?.(
-            `[driver] ticket ${ticketId} at fix: reopened interrupted recovery round ${interrupted.id} ` +
-              `(${interrupted.interruptCount + 1} crash${interrupted.interruptCount + 1 === 1 ? '' : 'es'}, budget ${interrupted.maxRounds})`,
+            `[driver] ticket ${ticketId} at fix: reopened interrupted recovery round ${interrupted.round} ` +
+              `(round id ${interrupted.id}, ${interrupted.interruptCount + 1} ` +
+              `crash${interrupted.interruptCount + 1 === 1 ? '' : 'es'}, budget ${interrupted.maxRounds})`,
           );
         }
       }
@@ -451,8 +452,8 @@ export async function driveTicket(
         const decision = roundFixDecision(round);
         if (decision.kind === 'resume') {
           deps.debug?.(
-            `[driver] ticket ${ticketId} at fix: resuming round ${decision.roundId} ` +
-              `(attempt ${decision.attempts + 1} of ${round.maxRounds})`,
+            `[driver] ticket ${ticketId} at fix: resuming round ${decision.attempts} ` +
+              `(round id ${decision.roundId}, attempt ${decision.attempts + 1} of ${round.maxRounds})`,
           );
           // Task 3: the Fix process resolves EXACTLY once here, by the gate
           // that failed; the bundle (or its configured absence, null) rides the
@@ -467,8 +468,8 @@ export async function driveTicket(
           // round this ticket owns can transition; anything else is a no-op.
           exhaustRecoveryRound(deps.store, ticketId, decision.roundId, nowIso());
           deps.debug?.(
-            `[driver] ticket ${ticketId} at fix: recovery round ${decision.roundId} exhausted ` +
-              `(${round.maxRounds} rounds)`,
+            `[driver] ticket ${ticketId} at fix: recovery round ${decision.attempts} exhausted ` +
+              `(round id ${decision.roundId}, ${round.maxRounds} rounds)`,
           );
           deps.log(
             `stage driver: ticket ${ticketId} parked at fix — ${decision.attempts} ` +

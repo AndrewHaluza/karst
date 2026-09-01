@@ -22,6 +22,7 @@ describe('REPRO: an interrupted fix round within budget is reopened and resumed'
   let id: number;
   let artifactDir: string;
   let resumed: any[];
+  let debugLines: string[];
 
   function failReview(runAt: string): number {
     const evidence = openGateRun(store, { ticketId: id, stageKey: 'review', runAt });
@@ -54,6 +55,7 @@ describe('REPRO: an interrupted fix round within budget is reopened and resumed'
     transition(store, id, 'uat', { kind: 'passed' }); // -> review
     artifactDir = mkdtempSync(join(tmpdir(), 'karst-repro-round1-'));
     resumed = [];
+    debugLines = [];
   });
   afterEach(() => {
     store.close();
@@ -71,6 +73,7 @@ describe('REPRO: an interrupted fix round within budget is reopened and resumed'
       resumeFix: (ticketId, gate, attempts, roundId, process) =>
         resumed.push({ ticketId, gate, attempts, roundId, process }),
       log: () => {},
+      debug: (m) => debugLines.push(m),
       ...over,
     };
   }
@@ -101,5 +104,15 @@ describe('REPRO: an interrupted fix round within budget is reopened and resumed'
       { ticketId: id, gate: 'review', attempts: 1, roundId: r1.id, process: null },
     ]);
     expect(listRecoveryRounds(store, id)[0]!.status).toBe('pending');
+    // The debug line names the PER-TICKET round number (1), never the global
+    // recovery_rounds.id row — a row id that climbs across the whole registry
+    // would read as "79 rounds in this ticket".
+    const resume = debugLines.find((l) => l.includes('resuming round'));
+    expect(resume).toContain('resuming round 1');
+    expect(resume).toContain(`round id ${r1.id}`);
+    expect(resume).toContain('attempt 2 of 3');
+    const reopen = debugLines.find((l) => l.includes('reopened interrupted'));
+    expect(reopen).toContain('reopened interrupted recovery round 1');
+    expect(reopen).toContain(`round id ${r1.id}`);
   });
 });
