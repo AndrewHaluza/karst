@@ -112,10 +112,20 @@ export function recoveryProcess(
   processRuns: readonly ProcessRun[],
   now: string,
   configured?: SessionConfiguredInput | null,
+  // The owning stage's OWN current verdict (uat/review), never re-derived
+  // from the round: a review-origin round can be left `failed` when its
+  // revalidation was interrupted by an UNRELATED uat failure (openRecoveryRound
+  // fails the old round and opens a new one attributed to the stage that
+  // actually failed) — the round series then never revisits review, even
+  // though the driver goes on to re-run and pass it normally. Without this,
+  // the collapsed Fix row keeps reporting that stale `failed` round forever,
+  // reading as a currently-blocking fix on a stage that has since passed.
+  stagePassed?: boolean,
 ): RecoveryProcessView | null {
   if (rounds.length === 0) return null;
   const latest = rounds[rounds.length - 1]!;
   const fixRun = processRuns.find((r) => r.id === latest.fixProcessRunId);
+  const status: InsideStatus = stagePassed === true ? 'pass' : roundStatus(latest);
 
   const boundedRows = bounded(
     rounds.map((round): EvidenceRow => {
@@ -142,17 +152,19 @@ export function recoveryProcess(
   // The COLLAPSED fix row is never silent (handoff §11 + §3.8): every state
   // names what is happening, the exhausted one states what to do.
   const detail =
-    latest.status === 'exhausted'
-      ? `Recovery exhausted after ${latest.maxRounds} ${latest.maxRounds === 1 ? 'round' : 'rounds'}. Resolve the remaining failure manually.`
-      : latest.status === 'failed'
-        ? 'the fix did not hold — the next round names the new cause'
-        : latest.status === 'pending' || latest.status === 'fixing'
-          ? `Fix started after ${triggerProse(latest)} · round ${latest.round} of ${latest.maxRounds}`
-          : latest.status === 'revalidating'
-            ? `Fix completed; ${STAGE_TITLES[latest.sourceStage]} revalidation is running`
-            : latest.status === 'interrupted'
-              ? 'the fix session ended before it was done — it can be resumed'
-              : undefined;
+    status === 'pass' && latest.status !== 'passed'
+      ? `${STAGE_TITLES[latest.sourceStage]} passed on a later attempt — this round's own failure is history`
+      : latest.status === 'exhausted'
+        ? `Recovery exhausted after ${latest.maxRounds} ${latest.maxRounds === 1 ? 'round' : 'rounds'}. Resolve the remaining failure manually.`
+        : latest.status === 'failed'
+          ? 'the fix did not hold — the next round names the new cause'
+          : latest.status === 'pending' || latest.status === 'fixing'
+            ? `Fix started after ${triggerProse(latest)} · round ${latest.round} of ${latest.maxRounds}`
+            : latest.status === 'revalidating'
+              ? `Fix completed; ${STAGE_TITLES[latest.sourceStage]} revalidation is running`
+              : latest.status === 'interrupted'
+                ? 'the fix session ended before it was done — it can be resumed'
+                : undefined;
 
   return {
     triggerProcessId: latest.sourceProcessId,
@@ -160,7 +172,7 @@ export function recoveryProcess(
       id: 'fix',
       kind: 'fix',
       label: 'Fix',
-      status: roundStatus(latest),
+      status,
       ...(detail ? { detail } : {}),
       ...(fixRun?.startedAt
         ? {
