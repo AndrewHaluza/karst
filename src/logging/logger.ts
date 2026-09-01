@@ -56,6 +56,15 @@ export interface Logger {
    */
   debug(message: string): void;
   /**
+   * Whether debug mode is currently on — `debug` has been called with `true`
+   * via `setDebugEnabled` and has not been turned off since. Reads the same
+   * live flag `debug` gates on, so a caller that ALSO needs to do side work
+   * when a debug line fires (e.g. persist it to a ticket trail) can gate that
+   * work on exactly the condition `debug` uses — never a second copy of the
+   * decision.
+   */
+  isDebugEnabled(): boolean;
+  /**
    * Toggle the gated debug level at runtime — the extension calls this
    * whenever the manifest is (re)loaded, so `debug: true` in karst.yml takes
    * effect without a window reload.
@@ -178,6 +187,7 @@ export function makeLogger(
       if (!debugEnabled) return;
       write('debug', 'DEBUG', message);
     },
+    isDebugEnabled: (): boolean => debugEnabled,
     setDebugEnabled: (enabled: boolean): void => {
       debugEnabled = enabled;
       // Phase 6: debug-mode reports need room for the verbose entries without
