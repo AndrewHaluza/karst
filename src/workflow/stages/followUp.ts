@@ -43,14 +43,22 @@ export function createFollowUpTicket(
   store: Store,
   parentTicketId: number,
   scope: ProjectScope = {},
+  debug?: (message: string) => void,
 ): Ticket {
   const parent = getTicket(store, parentTicketId);
+  debug?.(
+    `[driver] follow-up for ticket #${parentTicketId}: parent stage is '${parent.stageCurrent ?? 'none'}'`,
+  );
   if (parent.stageCurrent !== 'done') {
+    debug?.(
+      `[driver] follow-up for ticket #${parentTicketId}: parent not done — refusing`,
+    );
     throw new TicketNotDoneError(parentTicketId, parent.stageCurrent);
   }
 
   const parentKey = parent.key ?? `#${parent.id}`;
   const key = nextFollowUpKey(store, parentKey, scope);
+  debug?.(`[driver] follow-up for ticket #${parentTicketId}: creating child '${key}'`);
   const child = createTicket(store, {
     key,
     title: parent.title ?? parentKey,
@@ -67,5 +75,6 @@ export function createFollowUpTicket(
     agentProvider: parent.agentProvider ?? undefined,
   });
 
+  debug?.(`[driver] follow-up for ticket #${parentTicketId}: child #${child.id} ('${key}') created`);
   return getTicket(store, child.id);
 }

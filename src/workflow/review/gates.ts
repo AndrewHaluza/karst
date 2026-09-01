@@ -62,13 +62,14 @@ export function resolveReviewGates(
   config: ReviewConfig | undefined,
   names: readonly string[],
   disabledNames: readonly string[] = [],
+  debug?: (message: string) => void,
 ): StageGateResolution {
   const keys: (string | null)[] = names.length > 0 ? [...names] : [null];
   const byIdentity = new Map<string, ResolvedGate>();
   let unavailable: Extract<GateResolution, { kind: 'unavailable' }> | null = null;
 
   for (const name of keys) {
-    const resolved = resolveGates(probe, declaredReviewGatesFor(config, name), REVIEW_PROBE_SCRIPTS);
+    const resolved = resolveGates(probe, declaredReviewGatesFor(config, name), REVIEW_PROBE_SCRIPTS, debug);
     if (resolved.kind === 'unavailable') {
       unavailable ??= resolved;
       continue;
@@ -83,10 +84,21 @@ export function resolveReviewGates(
     }
   }
 
-  const { kept, skipped } = partitionDisabled([...byIdentity.values()], disabledNames);
-  if (kept.length > 0 || skipped.length > 0) return { kind: 'gates', gates: kept, skipped };
+  const { kept, skipped } = partitionDisabled([...byIdentity.values()], disabledNames, debug);
+  if (kept.length > 0 || skipped.length > 0) {
+    debug?.(
+      `[gate] review resolve: ${kept.length} kept, ${skipped.length} disabled for this ticket ` +
+        `(disabled: ${skipped.map((g) => g.name).join(', ') || 'none'})`,
+    );
+    return { kind: 'gates', gates: kept, skipped };
+  }
   // Zero gates, nothing disabled, and no unavailability is the malformed-
   // package.json case, which the caller (`stages/review.ts`) turns into a
   // named failure rather than a park.
+  debug?.(
+    unavailable
+      ? `[gate] review resolve: zero gates — unavailable (${unavailable.blocker}: ${unavailable.reason})`
+      : `[gate] review resolve: zero gates resolved for names ${keys.join(', ')}`,
+  );
   return unavailable ?? { kind: 'gates', gates: [], skipped: [] };
 }

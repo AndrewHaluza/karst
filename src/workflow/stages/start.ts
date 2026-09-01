@@ -28,13 +28,19 @@ export async function advanceTicketOnStart(
   ticketId: number,
   ticketing: TicketingConfig | undefined,
   provider: TicketingProvider,
+  debug?: (message: string) => void,
 ): Promise<AdvanceResult> {
+  debug?.(`[ticketing] start ticket ${ticketId}: advanceOnStart ${ticketing?.advanceOnStart ? 'enabled' : 'disabled'}`);
   if (!ticketing?.advanceOnStart) return { advanced: false, reason: 'disabled' };
   const status = (ticketing.startStatus ?? '').trim() || DEFAULT_START_STATUS;
 
   const ref = providerRef(getTicket(store, ticketId));
-  if (!ref) return { advanced: false, reason: 'no-ref' };
+  if (!ref) {
+    debug?.(`[ticketing] start ticket ${ticketId}: no provider ref — skipping status push`);
+    return { advanced: false, reason: 'no-ref' };
+  }
 
+  debug?.(`[ticketing] start ticket ${ticketId}: pushing '${status}' to ref '${ref}'`);
   await provider.updateStatus(ref, status);
   return { advanced: true, status };
 }

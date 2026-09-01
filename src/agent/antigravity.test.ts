@@ -195,6 +195,40 @@ describe('AntigravityAdapter', () => {
         adapter.runHeadless({ prompt: 'do', cwd: '/test' })
       ).rejects.toThrow(/Antigravity usage limit reached/);
     });
+
+    it('emits debug lines at spawn, console-stream decision, and exit', async () => {
+      const lines: string[] = [];
+      const adapter = new AntigravityAdapter(
+        fakeSpawn({ stdout: 'ok', exitCode: 0 }),
+      );
+
+      await adapter.runHeadless({
+        prompt: 'do the thing',
+        cwd: '/test',
+        debug: (m) => lines.push(m),
+      });
+
+      expect(lines[0]).toMatch(/\[agent:antigravity\] spawn: -p <prompt:12 chars> \(cwd \/test\)/);
+      expect(lines).toContainEqual(
+        expect.stringMatching(/\[agent:antigravity\] console stream: none — no onOutput hook/),
+      );
+    });
+
+    it('emits a console-stream debug line when an onOutput hook is present', async () => {
+      const lines: string[] = [];
+      const adapter = new AntigravityAdapter(fakeSpawn({ stdout: 'ok', exitCode: 0 }));
+
+      await adapter.runHeadless({
+        prompt: 'do',
+        cwd: '/test',
+        onOutput: () => {},
+        debug: (m) => lines.push(m),
+      });
+
+      expect(lines).toContainEqual(
+        expect.stringMatching(/\[agent:antigravity\] console stream: forwarding live chunks/),
+      );
+    });
   });
 
   describe('materializeApproach', () => {

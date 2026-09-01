@@ -277,6 +277,11 @@ export class AntigravityAdapter implements AgentAdapter {
         .map((a) => (a === opts.prompt ? `<prompt:${opts.prompt.length} chars>` : a))
         .join(' ')} (cwd ${opts.cwd})`,
     );
+    opts.debug?.(
+      opts.onOutput
+        ? `[agent:antigravity] console stream: forwarding live chunks`
+        : `[agent:antigravity] console stream: none — no onOutput hook`,
+    );
     const r = await this.spawnHeadless(AGY_BIN, args, opts.cwd, {
       signal: opts.signal,
       timeoutMs: opts.timeoutMs,

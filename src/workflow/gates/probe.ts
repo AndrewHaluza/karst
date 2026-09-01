@@ -17,21 +17,31 @@ export type ScriptProbe =
   | { kind: 'io-error'; message: string };
 
 /** Read `<cwd>/package.json`'s scripts block, saying WHY when it cannot. */
-export function probeScripts(cwd: string): ScriptProbe {
+export function probeScripts(cwd: string, debug?: (message: string) => void): ScriptProbe {
   let raw: string;
   try {
     raw = readFileSync(join(cwd, 'package.json'), 'utf8');
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
-    if (code === 'ENOENT' || code === 'ENOTDIR') return { kind: 'absent' };
+    if (code === 'ENOENT' || code === 'ENOTDIR') {
+      debug?.(`[gate] probe ${cwd}: no package.json`);
+      return { kind: 'absent' };
+    }
     const message = error instanceof Error ? error.message : String(error);
+    debug?.(`[gate] probe ${cwd}: io-error (${message})`);
     return { kind: 'io-error', message };
   }
   try {
     const parsed = JSON.parse(raw) as { scripts?: Record<string, string> };
-    return { kind: 'ok', scripts: parsed.scripts ?? {} };
+    const scripts = parsed.scripts ?? {};
+    debug?.(
+      `[gate] probe ${cwd}: ${Object.keys(scripts).length} script(s) read — ` +
+        `${Object.keys(scripts).slice(0, 8).join(', ') || 'none'}`,
+    );
+    return { kind: 'ok', scripts };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    debug?.(`[gate] probe ${cwd}: malformed package.json (${message})`);
     return { kind: 'malformed', message };
   }
 }

@@ -101,6 +101,37 @@ describe('scopeTicket (warnings)', () => {
     expect(records[0]!.repoPath).toBe(fe.path);
   });
 
+  it('confirmScope emits debug lines at entry, decision, and exit', async () => {
+    const t = createTicketFlow(store, { key: 'PROJ-4', title: 't' });
+    const lines: string[] = [];
+    const records = await confirmScope(store, manifest, t.id, ['frontend', 'backend'], {
+      pullBase: false,
+      debug: (m) => lines.push(m),
+    });
+    expect(records).toHaveLength(2);
+    // Entry names the hot set and the branch; per-repo lines name each worktree;
+    // exit names the created worktrees.
+    expect(lines[0]).toMatch(/\[runtime\] scope ticket \d+: creating worktrees for 2 hot repo\(s\)/);
+    expect(lines.some((l) => l.includes("creating worktree for '") && l.includes("from 'develop'"))).toBe(true);
+    expect(lines[lines.length - 1]).toMatch(/\[runtime\] scope ticket \d+: created 2 worktree\(s\)/);
+  });
+
+  it('confirmScope emits a dedupe debug line for two entries sharing one repoPath', async () => {
+    const shared = runnableRepo({ start: 'npm run api' }, { repoPath: fe.path });
+    const sharedManifest = buildManifest(
+      { api: shared, web: runnableRepo({ start: 'npm run web' }, { repoPath: fe.path }) },
+      { portRange: [4000, 4100] },
+    );
+    const t = createTicketFlow(store, { key: 'PROJ-5', title: 't' });
+    const lines: string[] = [];
+    const records = await confirmScope(store, sharedManifest, t.id, ['api', 'web'], {
+      pullBase: false,
+      debug: (m) => lines.push(m),
+    });
+    expect(records).toHaveLength(1);
+    expect(lines.some((l) => l.includes('already seen — deduping'))).toBe(true);
+  });
+
   // Two repository ENTRIES sharing one repoPath (a monorepo with two runnable
   // processes) make a single worktree, not two — the worktree slug is
   // per-ticket, so both entries resolve to the same path/branch. Restores the

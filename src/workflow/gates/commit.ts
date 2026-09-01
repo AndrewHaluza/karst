@@ -83,6 +83,12 @@ export interface CommitGateOutcomeInput {
   recoveryTrigger?: RecoveryTriggerInput;
   /** Clock for the run's `ended_at`; injected so tests are deterministic. */
   now?: () => string;
+  /**
+   * Verbose decision-point logging (§ debug logging), prefixed `[gate]`.
+   * Absent → no debug lines; the host binds it to `Logger.debug` (a no-op
+   * unless the manifest's `debug` flag is on).
+   */
+  debug?: (message: string) => void;
 }
 
 /**
@@ -107,6 +113,14 @@ export function commitGateOutcome(
   const { ticketId, stageKey, runAt, artifactPath, gates, outcome, findings, stageRunId } =
     input;
   const now = input.now ?? nowIso;
+  input.debug?.(
+    `[gate] ${stageKey} ticket ${ticketId}: committing outcome ` +
+      (outcome.kind === 'verdict'
+        ? `verdict ${outcome.verdict.kind}`
+        : outcome.kind === 'blocked'
+          ? `blocked (${outcome.blocker}: ${outcome.reason})`
+          : 'stopped'),
+  );
 
   // The recovery trigger is validated against the actual outcome BEFORE
   // anything mutates: a trigger is legal only with a failed verdict from a gate

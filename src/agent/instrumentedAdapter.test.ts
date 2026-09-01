@@ -68,6 +68,61 @@ describe('instrumentAdapter', () => {
     expect(seenDebug!('[AGENT:CLAUDE] x')).toBe('[agent:claude] x');
   });
 
+  it('emits its own entry, decision, and exit debug lines via the host callback', async () => {
+    const s = sink();
+    const lines: string[] = [];
+    const inner = fakeAdapter({
+      runHeadless: async () => ({ sessionId: 's1', verdict: null, raw: 'answer' }),
+    });
+    const adapter = instrumentAdapter(inner, {
+      sink: s,
+      debug: (message: string) => {
+        lines.push(message);
+        return message;
+      },
+    });
+
+    await adapter.runHeadless({
+      prompt: 'hi',
+      cwd: '.',
+      tracking: { callSite: 'pr-description', ticketId: 42 },
+    });
+
+    expect(lines[0]).toMatch(/\[agent\] instrumented runHeadless \(pr-description for ticket 42\)/);
+    expect(lines).toContainEqual(
+      expect.stringMatching(/\[agent\] instrumented runHeadless \(pr-description\): call returned — recording usage as ok/),
+    );
+  });
+
+  it('emits an error debug line when the inner call throws', async () => {
+    const s = sink();
+    const lines: string[] = [];
+    const inner = fakeAdapter({
+      runHeadless: async () => {
+        throw new Error('boom');
+      },
+    });
+    const adapter = instrumentAdapter(inner, {
+      sink: s,
+      debug: (message: string) => {
+        lines.push(message);
+        return message;
+      },
+    });
+
+    await expect(
+      adapter.runHeadless({
+        prompt: 'hi',
+        cwd: '.',
+        tracking: { callSite: 'ticket-analysis', ticketId: 3 },
+      }),
+    ).rejects.toThrow(/boom/);
+
+    expect(lines).toContainEqual(
+      expect.stringMatching(/\[agent\] instrumented runHeadless \(ticket-analysis\): call failed — recording usage as error/),
+    );
+  });
+
   it('records the provider-reported counts under the declared call site and ticket', async () => {
     const s = sink();
     const adapter = instrumentAdapter(fakeAdapter(), {

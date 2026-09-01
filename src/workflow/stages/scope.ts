@@ -60,6 +60,12 @@ export interface ConfirmScopeOptions {
    * turning an unreachable remote into a failed ticket creation.
    */
   onPullFailed?: (repoPath: string, baseRef: string, reason: string) => void;
+  /**
+   * Verbose decision-point logging (§ debug logging), prefixed `[runtime]`.
+   * Absent → no debug lines; the host binds it to `Logger.debug` (a no-op
+   * unless the manifest's `debug` flag is on).
+   */
+  debug?: (message: string) => void;
 }
 
 /**
@@ -85,13 +91,23 @@ export async function confirmScope(
   const records: WorktreeRecord[] = [];
   const ticket = getTicket(store, ticketId);
   const { slug, branch } = ticketWorktreeNames(ticket, manifest);
+  opts.debug?.(
+    `[runtime] scope ticket ${ticketId}: creating worktrees for ${hot.length} hot repo(s) ` +
+      `off '${branch}' (pull base ${pullBase ? 'on' : 'off'})`,
+  );
 
   for (const name of hot) {
     const repo = manifest.repositories[name];
     if (!repo) {
+      opts.debug?.(`[runtime] scope ticket ${ticketId}: unknown repo '${name}' in hot set`);
       throw new Error(`unknown repository '${name}' in hot set (not in manifest)`);
     }
-    if (seen.has(repo.repoPath)) continue;
+    if (seen.has(repo.repoPath)) {
+      opts.debug?.(
+        `[runtime] scope ticket ${ticketId}: repoPath '${repo.repoPath}' already seen — deduping`,
+      );
+      continue;
+    }
     seen.add(repo.repoPath);
 
     const baseRef = resolvePlannedBaseRef(ticket, manifest, name);
@@ -100,10 +116,18 @@ export async function confirmScope(
       const pulled = await pullBaseRef(git, repo.repoPath, baseRef);
       startPoint = pulled.startPoint;
       if (!pulled.refreshed && pulled.reason) {
+        opts.debug?.(
+          `[runtime] scope ticket ${ticketId}: pull of '${baseRef}' in ` +
+            `'${repo.repoPath}' did not refresh (${pulled.reason})`,
+        );
         opts.onPullFailed?.(repo.repoPath, baseRef, pulled.reason);
       }
     }
 
+    opts.debug?.(
+      `[runtime] scope ticket ${ticketId}: creating worktree for '${repo.repoPath}' ` +
+        `from '${baseRef}'@${startPoint}`,
+    );
     records.push(
       createWorktree(store, {
         ticketId,
@@ -116,5 +140,9 @@ export async function confirmScope(
     );
   }
 
+  opts.debug?.(
+    `[runtime] scope ticket ${ticketId}: created ${records.length} worktree(s) ` +
+      `(${records.map((r) => r.repoPath).join(', ') || 'none'})`,
+  );
   return records;
 }

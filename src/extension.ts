@@ -1825,6 +1825,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           await confirmScope(localStore, manifest, ticketId, hot, {
             pullBase,
             onPullFailed: warnBaseNotPulled,
+            debug: (message) => logger.debug(message),
           });
           // Scope is complete the moment its worktrees exist (scope has only a
           // pass edge → impl; it is not a gate). Pass it so the ticket advances
@@ -1855,6 +1856,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
               ticketId,
               manifest.ticketing,
               makeTicketingProvider(manifest.ticketing, fetch, makeTokenProvider(context)),
+              (message) => logger.debug(message),
             );
             const note = statusPushSkipNote('started', ticketId, res);
             if (note) logger.debug(note.message);
@@ -5655,7 +5657,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             currentManifest() ?? emptyManifest(),
             ticketId,
             draft.selectedRepos,
-            { onPullFailed: warnBaseNotPulled },
+            { onPullFailed: warnBaseNotPulled, debug: (message) => logger.debug(message) },
           );
           // Scope has only a pass edge → impl (it is not a gate), so pass it: the
           // session then opens in the impl worktree, and the dashboard reads impl.
@@ -6146,7 +6148,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (ticketId === undefined) return;
       let child;
       try {
-        child = createFollowUpTicket(localStore, ticketId, { projectId: currentProject()?.id });
+        child = createFollowUpTicket(localStore, ticketId, { projectId: currentProject()?.id },
+          (message) => logger.debug(message));
       } catch (err) {
         const message =
           err instanceof TicketNotDoneError

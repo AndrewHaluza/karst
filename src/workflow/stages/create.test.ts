@@ -87,4 +87,28 @@ describe('createTicketFlow', () => {
     const again = createTicketFlow(store, { key: 'SAME-1', title: 'second', projectId: 1 });
     expect(again.id).toBe(first.id);
   });
+
+  it('emits debug lines at entry, decision branches, and exit', () => {
+    const lines: string[] = [];
+    const opts = { debug: (m: string) => lines.push(m) };
+
+    createTicketFlow(store, { key: 'DBG-1', title: 'new' }, opts);
+    expect(lines).toContainEqual(expect.stringMatching(/\[create\] ticket: key 'DBG-1' \(project none\)/));
+    expect(lines).toContainEqual(expect.stringMatching(/\[create\] ticket: key 'DBG-1' is new — creating/));
+
+    createTicketFlow(store, { key: 'DBG-1', title: 'again' }, opts);
+    expect(lines).toContainEqual(expect.stringMatching(/\[create\] ticket: key 'DBG-1' exists — reusing ticket #\d+/));
+  });
+
+  it('emits a debug line naming the resurrection of an archived ticket', () => {
+    const lines: string[] = [];
+    const first = createTicketFlow(store, { key: 'DBG-ARC', title: 'first' });
+    archiveTicket(store, first.id);
+
+    createTicketFlow(store, { key: 'DBG-ARC', title: 'recreated' }, { debug: (m) => lines.push(m) });
+
+    expect(lines).toContainEqual(
+      expect.stringMatching(/\[create\] ticket: key 'DBG-ARC' archived — resurrecting ticket #\d+/),
+    );
+  });
 });
