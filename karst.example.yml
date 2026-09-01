@@ -299,13 +299,6 @@ uat:
   # process), and a command that cannot run parks without spending a round.
   # Absent → the Tester's observations are advisory and the gates decide alone.
   testerVerifier: { name: verify-uat, kind: command, command: ./scripts/verify-uat.sh }
-  # MANIFEST KNOB ONLY (Task 3.1) — not yet wired into the verdict. `'none'`
-  # (the default, and the shipped behavior) keeps every Tester observation
-  # advisory: it can never pass, fail, or transition UAT on its own. Setting
-  # a Severity here is reserved for a later task, which will turn an
-  # observation at or above it into a failed UAT verdict.
-  testerObservations:
-    blockingSeverity: none
   repositories:
     frontend:
       # WIRED, and it REPLACES the global list for this repository — it is not
@@ -328,6 +321,7 @@ uat:
   # origins: [https://api.stripe.com]
   # authBootstrap: { path: .auth/state.json, secrets: [SESSION_TOKEN] }
   # author: { agent: uat-author, enabled: true }
+  # testerObservations: { blockingSeverity: high }
 
 # Optional project-wide conventions for the git artifacts KARST ITSELF creates:
 # the ticket's worktree BRANCH (scope stage) and the fallback commit + new pull

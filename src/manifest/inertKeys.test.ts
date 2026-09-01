@@ -18,6 +18,15 @@ describe('detectInertKeys', () => {
     expect(notices[0]).not.toContain('maxFixAttempts');
   });
 
+  it('names uat.testerObservations as inert (Task 3.1 — not yet wired)', () => {
+    const notices = detectInertKeys({
+      uat: { maxFixAttempts: 3, testerObservations: { blockingSeverity: 'high' } },
+    });
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toContain('uat.testerObservations');
+    expect(notices[0]).toContain('not yet active');
+  });
+
   it('does not fire for an absent uat block', () => {
     expect(detectInertKeys({ host: 'x' })).toEqual([]);
   });

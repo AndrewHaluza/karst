@@ -25,6 +25,7 @@ const INERT_UAT_KEYS = [
   'origins',
   'authBootstrap',
   'author',
+  'testerObservations',
 ] as const;
 
 /** `uat.repositories.<name>.*` keys with no consumer. `gates` is wired per-repo. */
