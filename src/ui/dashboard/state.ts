@@ -18,7 +18,7 @@ import { resolveEffortForProvider } from '../../agent/models.js';
 import { AGENT_PROVIDER_LABELS } from '../../model/agentIdentity.js';
 import { buildStageRail, type StageRail } from '../../model/stageRail.js';
 import { listGateRuns } from '../../store/gateRuns.js';
-import { listFindings, latestFindingBatch } from '../../store/reviewFindings.js';
+import { listFindings, findingsForAttempt } from '../../store/reviewFindings.js';
 import { listPhaseMarks } from '../../store/phaseMarks.js';
 import { listMergeChecksByTicket } from '../../store/mergeChecks.js';
 import { listCurrentPrsByTicket } from '../../store/prs.js';
@@ -733,7 +733,24 @@ export function buildDashboardState(
         repoNameFor,
         processRuns,
         tokens: tokensFor('pr-description'),
-        findings: latestFindingBatch(store, ticketId),
+        // Ruling (fix round 1, overriding the brief's `latestFindingBatch`):
+        // findings are append-only with no resolve path, and a clean re-review
+        // records NO batch at all (`workflow/gates/evidence.ts`'s early return
+        // on zero findings). `latestFindingBatch`'s greatest-`runAt` reduction
+        // therefore keeps re-surfacing a fixed-and-passed ticket's stale batch
+        // forever — it is never superseded by an empty one that was never
+        // written. Scoped to the review STAGE's CURRENT `attempt` instead:
+        // `attempt` only climbs on a FAILED verdict (`workflow/machine.ts`) and
+        // holds on a pass, so a fail-then-fix-then-pass re-review shares its
+        // attempt number with the fail it followed — the fail's findings are
+        // still "this attempt"'s findings, and a LATER attempt (a fresh fail)
+        // silently drops them, exactly the "cleared" reading a permanent-noise
+        // row cannot give.
+        findings: findingsForAttempt(
+          store,
+          ticketId,
+          ticket.stages.find((s) => s.stageKey === 'review')?.attempt ?? 0,
+        ),
         findingsBlockingSeverity,
       }),
       now,

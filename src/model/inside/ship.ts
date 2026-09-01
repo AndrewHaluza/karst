@@ -115,10 +115,23 @@ function shipFindingsWarning(input: ShipProcessesInput): InsideProcessView | und
     blocking[0]!.severity,
   );
   return {
+    // `kind` mirrors `id`, like every other row in this file (`commit`,
+    // `push`, `pr`, `merge`) — the webview's `DEFAULT_OPEN_PROCESS_KINDS`
+    // lookup and any future per-kind styling key off this field, and a
+    // mismatched pair here would answer "what renderer am I" two different
+    // ways for the one row in the stage that isn't always present.
     id: 'ship-findings',
-    kind: 'findings',
+    kind: 'ship-findings',
     label: 'Findings',
-    status: 'fail',
+    // NOT `'fail'`: this row's status is the ship PROCESS's own verdict
+    // (UI-R14/UI-R28b), and nothing at ship failed — the finding failed
+    // review, several stages ago. `'wait'` reads as the amber "needs your
+    // attention" state (`--p-attention` in webview.html), same as an open PR
+    // waiting to merge, with an explicit `statusLabel` so neither the visible
+    // word nor a screen reader ever says "waiting" for evidence that will
+    // never resolve on its own.
+    status: 'wait',
+    statusLabel: 'needs attention',
     detail: `${blocking.length} ${worst} finding${blocking.length === 1 ? '' : 's'} — send back to Implement to fix it`,
   };
 }
@@ -773,7 +786,14 @@ function mergeProcess(input: ShipProcessesInput): InsideProcessView {
   };
 }
 
-/** The ship stage's processes: commit, push, pr, merge, in registry order. */
+/**
+ * The ship stage's processes: commit, push, pr, merge, in `INSIDE_PROCESSES.
+ * ship` registry order (`registry.ts`) — preceded by the `ship-findings`
+ * warning row when unresolved blocking findings are on record. That row is
+ * NOT part of the registered roster: unlike every id in `INSIDE_PROCESSES`,
+ * which always renders (even as an empty/pending row), `ship-findings` is
+ * entirely absent whenever nothing blocks, which is the common case.
+ */
 export function shipProcesses(input: ShipProcessesInput): InsideProcessView[] {
   const warning = shipFindingsWarning(input);
   return [

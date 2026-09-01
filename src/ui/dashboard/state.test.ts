@@ -11,6 +11,7 @@ import { openProcessRun } from '../../store/processRuns.js';
 import { openStageRun } from '../../store/stageRuns.js';
 import { parkGateStage } from '../../store/stageBlocks.js';
 import { openRecoveryRound } from '../../store/recoveryRounds.js';
+import { recordFindings } from '../../store/reviewFindings.js';
 import { MAX_DIAGNOSTIC_CHARS } from '../../model/diagnosticText.js';
 import { formatTime } from '../../model/inside/types.js';
 import { attemptKey } from '../../model/inside/rounds.js';
@@ -1242,6 +1243,54 @@ describe('insideViews (the six-stage inside presentation)', () => {
     expect(shipMerge.status).toBe('wait');
     // The done receipt stays pending — nothing is merged.
     expect(state.insideViews.done.processes[0]!.status).toBe('wait');
+  });
+
+  it('warns at ship when a blocking finding was recorded under the ticket\'s CURRENT review attempt', () => {
+    const ticketId = ticketAt('ship');
+    setStage(store, ticketId, 'review', { attempt: 2 });
+    recordFindings(store, {
+      ticketId,
+      attempt: 2,
+      runAt: '2026-08-09T10:00:00.000Z',
+      findings: [{ severity: 'high', repo: '', title: 'still open', detail: '', source: 'agent' }],
+    });
+    const state = buildDashboardState(
+      store, ticketId,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined,
+      'high',
+    );
+    expect(state.insideViews.ship.processes.find((p) => p.id === 'ship-findings')).toBeDefined();
+  });
+
+  it('fix round 1, ruling 1: clears the ship warning once the ticket has moved past the attempt that recorded it', () => {
+    // A ticket that got a `high` finding at review attempt 1, was sent back
+    // to Implement, fixed, and cleanly re-reviewed (which climbs review's
+    // `attempt` to 2 on the fail and records NO new batch on the clean pass,
+    // per `workflow/gates/evidence.ts`'s early return on zero findings) must
+    // NOT still show the attempt-1 finding forever — `latestFindingBatch`
+    // could never clear it, because nothing superseded it with a later batch.
+    const ticketId = ticketAt('ship');
+    setStage(store, ticketId, 'review', { attempt: 1 });
+    recordFindings(store, {
+      ticketId,
+      attempt: 1,
+      runAt: '2026-08-09T10:00:00.000Z',
+      findings: [{ severity: 'high', repo: '', title: 'fixed already', detail: '', source: 'agent' }],
+    });
+    // The fail→fix→clean-re-review climbed review's attempt to 2; no new
+    // batch was ever recorded for attempt 2.
+    setStage(store, ticketId, 'review', { attempt: 2 });
+
+    const state = buildDashboardState(
+      store, ticketId,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined,
+      'high',
+    );
+    expect(state.insideViews.ship.processes.find((p) => p.id === 'ship-findings')).toBeUndefined();
   });
 
   it('mints opaque actions onto evidence rows only when a registry is supplied', () => {

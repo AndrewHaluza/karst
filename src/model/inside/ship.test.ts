@@ -1270,6 +1270,13 @@ describe('ship process rows carry their own span', () => {
     );
     const warning = views.find((v) => v.id === 'ship-findings');
     expect(warning).toBeDefined();
+    expect(warning!.kind).toBe('ship-findings');
+    // Never 'fail' — nothing at ship failed; the finding failed review,
+    // stages ago (UI-R14/UI-R28b). 'wait' + an explicit statusLabel is the
+    // amber "needs attention" reading with control copy that never says
+    // "waiting" for evidence that cannot resolve on its own.
+    expect(warning!.status).toBe('wait');
+    expect(warning!.statusLabel).toBe('needs attention');
     expect(warning!.detail).toBe('1 high finding — send back to Implement to fix it');
   });
 
@@ -1280,7 +1287,11 @@ describe('ship process rows carry their own span', () => {
         findingsBlockingSeverity: 'high',
       }),
     );
-    expect(views.find((v) => v.id === 'ship-findings')).toBeUndefined();
+    // Asserts the whole roster, not just the absent id: a regression that
+    // prepended SOME row (under any id) for a below-threshold finding would
+    // slip past a bare `.find(...).toBeUndefined()` if it also relabeled the
+    // row — this pins the count back to the registered four.
+    expect(views.map((v) => v.id)).toEqual(['commit', 'push', 'pr', 'merge']);
   });
 
   it('shows no warning when the threshold is none', () => {
@@ -1290,6 +1301,6 @@ describe('ship process rows carry their own span', () => {
         findingsBlockingSeverity: 'none',
       }),
     );
-    expect(views.find((v) => v.id === 'ship-findings')).toBeUndefined();
+    expect(views.map((v) => v.id)).toEqual(['commit', 'push', 'pr', 'merge']);
   });
 });
