@@ -138,7 +138,7 @@ function shipFindingsWarning(input: ShipProcessesInput): InsideProcessView | und
     // never resolve on its own.
     status: 'wait',
     statusLabel: 'needs attention',
-    detail: `${blocking.length} ${worst} finding${blocking.length === 1 ? '' : 's'} — send back to Implement to fix it`,
+    detail: `${blocking.length} ${worst} finding${blocking.length === 1 ? '' : 's'} — send back to Implement to fix ${blocking.length === 1 ? 'it' : 'them'}`,
   };
 }
 

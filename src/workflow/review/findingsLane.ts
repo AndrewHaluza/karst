@@ -364,7 +364,11 @@ export async function runFindingsLane(opts: RunFindingsLaneOpts): Promise<Findin
     `[gate] review findings ticket ${opts.ticketId}: ran with ${findings.length} finding(s)` +
       (crashes.length > 0 ? `, ${crashes.length} target(s) failed to answer` : ''),
   );
-  const ran: Extract<FindingsLaneOutcome, { kind: 'ran' }> = { kind: 'ran', findings };
+  const ran: Extract<FindingsLaneOutcome, { kind: 'ran' }> = {
+    kind: 'ran',
+    findings,
+    targetCount: opts.targets.length,
+  };
   if (crashes.length > 0) ran.crashes = crashes;
   if (unreadable.length > 0) ran.unreadable = unreadable;
   if (processRun !== null) ran.processRunId = processRun.id;

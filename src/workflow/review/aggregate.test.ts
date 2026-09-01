@@ -241,7 +241,11 @@ describe('aggregateReview', () => {
   });
 
   it('R6: a finding at the configured threshold fails, naming the severities', () => {
-    const lane: FindingsLaneOutcome = { kind: 'ran', findings: [finding('high'), finding('high')] };
+    const lane: FindingsLaneOutcome = {
+      kind: 'ran',
+      findings: [finding('high'), finding('high')],
+      targetCount: 1,
+    };
     expect(
       aggregateReview([lintWeb], [], lane, {
         requireIndependentSignal: true,
@@ -255,7 +259,7 @@ describe('aggregateReview', () => {
   });
 
   it('R6: a finding above the threshold (more severe) also fails', () => {
-    const lane: FindingsLaneOutcome = { kind: 'ran', findings: [finding('critical')] };
+    const lane: FindingsLaneOutcome = { kind: 'ran', findings: [finding('critical')], targetCount: 1 };
     expect(
       aggregateReview([lintWeb], [], lane, {
         requireIndependentSignal: true,
@@ -265,7 +269,7 @@ describe('aggregateReview', () => {
   });
 
   it('R6: a finding below the threshold is recorded evidence, not a failure', () => {
-    const lane: FindingsLaneOutcome = { kind: 'ran', findings: [finding('medium')] };
+    const lane: FindingsLaneOutcome = { kind: 'ran', findings: [finding('medium')], targetCount: 1 };
     expect(
       aggregateReview([lintWeb], [], lane, {
         requireIndependentSignal: true,
@@ -275,7 +279,11 @@ describe('aggregateReview', () => {
   });
 
   it("R6: blockingSeverity 'none' never fails a ticket, however severe the findings", () => {
-    const lane: FindingsLaneOutcome = { kind: 'ran', findings: [finding('critical'), finding('critical')] };
+    const lane: FindingsLaneOutcome = {
+      kind: 'ran',
+      findings: [finding('critical'), finding('critical')],
+      targetCount: 1,
+    };
     expect(
       aggregateReview([lintWeb], [], lane, {
         requireIndependentSignal: true,
@@ -285,7 +293,12 @@ describe('aggregateReview', () => {
   });
 
   it('R6b: blocks when the findings lane ran and every target was unreadable', () => {
-    const lane: FindingsLaneOutcome = { kind: 'ran', findings: [], unreadable: ['extention'] };
+    const lane: FindingsLaneOutcome = {
+      kind: 'ran',
+      findings: [],
+      unreadable: ['extention'],
+      targetCount: 1,
+    };
     const outcome = aggregateReview([lintWeb], [], lane, {
       requireIndependentSignal: false,
       findingsBlockingSeverity: 'high',
@@ -295,8 +308,28 @@ describe('aggregateReview', () => {
     expect((outcome as { reason: string }).reason).toContain('unreadable');
   });
 
+  // Review finding: R6b previously gated on `findings.length === 0` alone,
+  // which conflates "every target was unreadable" with "one target was
+  // unreadable, the others legitimately answered clean" — both produce zero
+  // findings, but only the first has produced no signal at all. A two-repo
+  // review where one repo's core misbehaves must not discard the other
+  // repo's genuine clean pass.
+  it('R6b: does NOT block when only one of several targets is unreadable and the rest answered clean', () => {
+    const lane: FindingsLaneOutcome = {
+      kind: 'ran',
+      findings: [],
+      unreadable: ['extention'],
+      targetCount: 2,
+    };
+    const outcome = aggregateReview([lintWeb], [], lane, {
+      requireIndependentSignal: false,
+      findingsBlockingSeverity: 'high',
+    });
+    expect(outcome).toEqual({ kind: 'verdict', verdict: { kind: 'passed' }, warnings: [] });
+  });
+
   it('R6b: passes when the lane ran clean (recognized, empty)', () => {
-    const lane: FindingsLaneOutcome = { kind: 'ran', findings: [] };
+    const lane: FindingsLaneOutcome = { kind: 'ran', findings: [], targetCount: 1 };
     const outcome = aggregateReview([lintWeb], [], lane, {
       requireIndependentSignal: false,
       findingsBlockingSeverity: 'high',
@@ -309,6 +342,7 @@ describe('aggregateReview', () => {
       kind: 'ran',
       findings: [finding('high')],
       unreadable: ['extention'],
+      targetCount: 2,
     };
     const outcome = aggregateReview([lintWeb], [], lane, {
       requireIndependentSignal: false,
@@ -322,7 +356,12 @@ describe('aggregateReview', () => {
   });
 
   it('R6b: does not block on unreadable when the threshold is none', () => {
-    const lane: FindingsLaneOutcome = { kind: 'ran', findings: [], unreadable: ['extention'] };
+    const lane: FindingsLaneOutcome = {
+      kind: 'ran',
+      findings: [],
+      unreadable: ['extention'],
+      targetCount: 1,
+    };
     const outcome = aggregateReview([lintWeb], [], lane, {
       requireIndependentSignal: false,
       findingsBlockingSeverity: 'none',
@@ -344,7 +383,7 @@ describe('aggregateReview', () => {
   });
 
   it('R5 > R6: a red gate wins over a blocking finding — gates are cheaper to act on', () => {
-    const lane: FindingsLaneOutcome = { kind: 'ran', findings: [finding('critical')] };
+    const lane: FindingsLaneOutcome = { kind: 'ran', findings: [finding('critical')], targetCount: 1 };
     expect(
       aggregateReview([testWebRed], [], lane, {
         requireIndependentSignal: true,
@@ -358,7 +397,7 @@ describe('aggregateReview', () => {
   });
 
   it('R6 > R7: a blocking finding wins over the independent-signal rule', () => {
-    const lane: FindingsLaneOutcome = { kind: 'ran', findings: [finding('critical')] };
+    const lane: FindingsLaneOutcome = { kind: 'ran', findings: [finding('critical')], targetCount: 1 };
     expect(
       aggregateReview([testWeb], [uatRanTest], lane, {
         requireIndependentSignal: true,
@@ -406,7 +445,7 @@ describe('aggregateReview', () => {
         ctx,
         () => {},
       );
-      const lane: FindingsLaneOutcome = { kind: 'ran', findings: claimedPass };
+      const lane: FindingsLaneOutcome = { kind: 'ran', findings: claimedPass, targetCount: 1 };
       expect(
         aggregateReview([testWebRed], [], lane, {
           requireIndependentSignal: true,
@@ -433,7 +472,7 @@ describe('aggregateReview', () => {
         () => {},
       );
       expect(disguised).toHaveLength(1);
-      const lane: FindingsLaneOutcome = { kind: 'ran', findings: disguised };
+      const lane: FindingsLaneOutcome = { kind: 'ran', findings: disguised, targetCount: 1 };
       expect(
         aggregateReview([lintWeb], [], lane, {
           requireIndependentSignal: true,

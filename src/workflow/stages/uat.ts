@@ -634,7 +634,7 @@ export async function runUat(
       `[gate] uat ticket ${opts.ticketId}: gates passed but ${testerResult.blocking} tester ` +
         `observation(s) are at or above the configured blocking severity — failing uat`,
     );
-    return finish({ kind: 'verdict', verdict: { kind: 'failed', reason } });
+    return finish({ kind: 'verdict', verdict: { kind: 'failed', reason } }, outcome.warnings);
   }
 
   return finish({ kind: 'verdict', verdict: outcome.verdict }, outcome.warnings);

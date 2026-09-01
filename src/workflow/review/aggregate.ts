@@ -80,6 +80,14 @@ export type FindingsLaneOutcome =
        * exists to prevent.
        */
       unreadable?: readonly string[];
+      /**
+       * Total targets the lane asked. Required so R6b can tell "every target
+       * was unreadable" (block — no signal at all) apart from "one target was
+       * unreadable, the rest legitimately answered clean" (a genuine pass for
+       * the clean targets must not be discarded because one repo's core
+       * misbehaved).
+       */
+      targetCount: number;
       /** The Review process run this invocation opened; absent = none was opened. */
       processRunId?: number | null;
     }
@@ -387,13 +395,19 @@ export function aggregateReview(
   if (findingsLane.kind === 'capability-missing') {
     return { kind: 'blocked', blocker: 'capability-missing', reason: findingsLane.reason };
   }
-  // R6b — the lane ran, the threshold is on, and not one target produced a
-  // readable answer. Blocked, not failed: an unreadable answer is the core
-  // misbehaving, not the code being wrong, so it must not spend a fix round.
+  // R6b — the lane ran, the threshold is on, and EVERY target's answer was
+  // unreadable — not merely one of several. Blocked, not failed: an
+  // unreadable answer is the core misbehaving, not the code being wrong, so
+  // it must not spend a fix round. Gated on `targetCount`, not on
+  // `findings.length === 0` alone: a lane with two targets where one is
+  // unreadable and the other genuinely answered clean also has zero
+  // findings, but that clean target's real pass must not be discarded
+  // because a sibling repo's core misbehaved.
   if (
     findingsLane.kind === 'ran' &&
     opts.findingsBlockingSeverity !== 'none' &&
     (findingsLane.unreadable?.length ?? 0) > 0 &&
+    (findingsLane.unreadable?.length ?? 0) >= findingsLane.targetCount &&
     findingsLane.findings.length === 0
   ) {
     return {

@@ -101,7 +101,7 @@ describe('runFindingsLane', () => {
       ticketId: 1,
       debug: (m) => lines.push(m),
     });
-    expect(outcome).toEqual({ kind: 'ran', findings: [], crashes: ['boom'] });
+    expect(outcome).toEqual({ kind: 'ran', findings: [], crashes: ['boom'], targetCount: 1 });
     expect(lines.some((l) => l.includes('/web call failed') && l.includes('boom'))).toBe(true);
 
     const stopped: string[] = [];
@@ -161,6 +161,7 @@ describe('runFindingsLane', () => {
     expect(outcome).toEqual({
       kind: 'ran',
       findings: [{ severity: 'medium', repo: '/web', file: null, line: null, title: 'x', detail: 'y', source: 'agent' }],
+      targetCount: 1,
     });
   });
 
@@ -256,7 +257,7 @@ describe('runFindingsLane', () => {
       targets: [TARGET],
       ticketId: 1,
     });
-    expect(outcome).toEqual({ kind: 'ran', findings: [], crashes: ['boom'] });
+    expect(outcome).toEqual({ kind: 'ran', findings: [], crashes: ['boom'], targetCount: 1 });
   });
 
   // Finding 1: a failed/rejected call must not be silent — the lane still
@@ -272,7 +273,7 @@ describe('runFindingsLane', () => {
       ticketId: 1,
       warn,
     });
-    expect(outcome).toEqual({ kind: 'ran', findings: [], crashes: ['boom'] });
+    expect(outcome).toEqual({ kind: 'ran', findings: [], crashes: ['boom'], targetCount: 1 });
     expect(warn).toHaveBeenCalledTimes(1);
     const [message] = warn.mock.calls[0] as [string];
     expect(message).toContain('/web');
@@ -314,7 +315,7 @@ describe('runFindingsLane', () => {
       ticketId: 1,
       warn,
     });
-    expect(outcome).toEqual({ kind: 'ran', findings: [], unreadable: ['/web'] });
+    expect(outcome).toEqual({ kind: 'ran', findings: [], unreadable: ['/web'], targetCount: 1 });
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn.mock.calls[0]?.[0]).toContain('not recognizable JSON');
     expect(consoleWarn).not.toHaveBeenCalled();
@@ -328,7 +329,7 @@ describe('runFindingsLane', () => {
       targets: [TARGET],
       ticketId: 1,
     });
-    expect(outcome).toEqual({ kind: 'ran', findings: [], unreadable: ['/web'] });
+    expect(outcome).toEqual({ kind: 'ran', findings: [], unreadable: ['/web'], targetCount: 1 });
   });
 
   // Phase 1 regression, exercised at the lane level: a core that narrates its
@@ -364,6 +365,7 @@ describe('runFindingsLane', () => {
           source: 'agent',
         },
       ],
+      targetCount: 1,
     });
   });
 
@@ -374,7 +376,7 @@ describe('runFindingsLane', () => {
       targets: [TARGET],
       ticketId: 1,
     });
-    expect(outcome).toEqual({ kind: 'ran', findings: [], unreadable: ['/web'] });
+    expect(outcome).toEqual({ kind: 'ran', findings: [], unreadable: ['/web'], targetCount: 1 });
   });
 
   it('asks every target and combines what each one reports', async () => {
@@ -529,7 +531,7 @@ describe('runFindingsLane', () => {
       targets: [TARGET],
       ticketId: 1,
     });
-    expect(outcome).toEqual({ kind: 'ran', findings: [], crashes: ['spawn ENOENT'] });
+    expect(outcome).toEqual({ kind: 'ran', findings: [], crashes: ['spawn ENOENT'], targetCount: 1 });
   });
 
   it('threads the process assignment instructions into the prompt and still parses the output', async () => {
@@ -556,6 +558,7 @@ describe('runFindingsLane', () => {
     expect(outcome).toEqual({
       kind: 'ran',
       findings: [expect.objectContaining({ severity: 'high', title: 'leak' })],
+      targetCount: 1,
     });
     expect(runHeadless.mock.calls[0]![0].prompt).toContain('Check error handling.');
     expect(runHeadless.mock.calls[0]![0].prompt).toContain('Output rules (strict):');
@@ -679,7 +682,7 @@ describe('planAndRunFindingsLane', () => {
       adapter: adapter('[]'),
       ticketId: 1,
     });
-    expect(outcome).toEqual({ kind: 'ran', findings: [] });
+    expect(outcome).toEqual({ kind: 'ran', findings: [], targetCount: 1 });
     expect(blockingSeverity).toBe('high'); // DEFAULT_REVIEW_FINDINGS
   });
 
@@ -692,7 +695,7 @@ describe('planAndRunFindingsLane', () => {
       ticketId: 1,
       warn,
     });
-    expect(outcome).toEqual({ kind: 'ran', findings: [], crashes: ['boom'] });
+    expect(outcome).toEqual({ kind: 'ran', findings: [], crashes: ['boom'], targetCount: 1 });
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn.mock.calls[0]?.[0]).toContain('boom');
   });

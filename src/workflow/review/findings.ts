@@ -216,20 +216,52 @@ function fencedBlocks(text: string): string[] {
 }
 
 /**
- * Balanced `[...]` / `{...}` substrings of `text`, scanning top-level opens
- * only (a nested brace inside an accepted span is never a second candidate).
- * String literals and their escapes are tracked so a bracket inside a JSON
- * string never closes a span. This is a LEXICAL scan, not a parser: every
- * candidate it yields is still handed to `JSON.parse`, and a candidate that
- * does not parse is simply skipped.
+ * Bound on how deep `balancedSpans`' bracket stack is allowed to grow. Exists
+ * only so a pathological run of opener characters (no matching closers) can't
+ * grow the stack unbounded before end of text; a closer beyond this depth
+ * simply finds no frame to pop and is treated as stray — safe degradation,
+ * not a correctness requirement (real JSON never nests this deep).
+ */
+const SCAN_MAX_DEPTH = 1_000;
+
+/**
+ * Balanced `[...]` / `{...}` substrings of `text`, using a stack so that a
+ * SINGLE unmatched opener elsewhere in the surrounding prose (interval
+ * notation like `[0, 1)`, a truncated `[3` reference, a stray `{`) cannot
+ * swallow every subsequent close and make the real report look permanently
+ * unbalanced (`i - start` never returning to zero) — confirmed by review as a
+ * real defect: one dangling opener, and depth never returns to 0 for the rest
+ * of the document, so nothing is ever emitted.
+ *
+ * Each successful pop that empties the stack is a genuine top-level span,
+ * pushed immediately as before. A pop that leaves the stack NON-EMPTY — at
+ * ANY residual depth — is kept as a single fallback candidate, unconditionally
+ * overwritten on every such pop so only the LAST one before end of text
+ * survives (the report a model is asked for is the last thing it writes,
+ * matching `SCAN_MAX_CHARS`'s tail-scan rationale). This is deliberately not
+ * restricted to a fixed residual depth: prose can accumulate more than one
+ * dangling opener (two separate interval-notation asides before the real
+ * report, say), and a fixed depth would then never see the real report's own
+ * close. Recency alone is the correct signal — within one group, an outer
+ * span's close always happens strictly after its inner content's close (a
+ * single left-to-right pass), so the overwrite naturally lands on the most
+ * complete candidate of the most recent group. The fallback is used only when
+ * the scan found no genuine top-level span at all, so a document that closes
+ * normally never gets an extra, possibly duplicate, candidate.
+ *
+ * A closer whose type doesn't match the top of the stack is a stray
+ * character (prose, not JSON) — the stack is left untouched and the
+ * character is skipped. String literals and their escapes are tracked so a
+ * bracket inside a JSON string never opens or closes a span. This is a
+ * LEXICAL scan, not a parser: every candidate it yields is still handed to
+ * `JSON.parse`, and a candidate that does not parse is simply skipped.
  */
 function balancedSpans(text: string): string[] {
   const spans: string[] = [];
-  let depth = 0;
-  let start = -1;
+  const stack: { opener: string; pos: number }[] = [];
   let inString = false;
   let escaped = false;
-  let opener = '';
+  let fallback: string | undefined;
   for (let i = 0; i < text.length; i += 1) {
     const ch = text[i]!;
     if (inString) {
@@ -239,28 +271,28 @@ function balancedSpans(text: string): string[] {
       continue;
     }
     if (ch === '"') {
-      if (depth > 0) inString = true;
+      if (stack.length > 0) inString = true;
       continue;
     }
     if (ch === '[' || ch === '{') {
-      if (depth === 0) {
-        start = i;
-        opener = ch;
-      }
-      depth += 1;
+      if (stack.length < SCAN_MAX_DEPTH) stack.push({ opener: ch, pos: i });
       continue;
     }
     if (ch === ']' || ch === '}') {
-      if (depth === 0) continue;
-      depth -= 1;
-      if (depth === 0 && start >= 0) {
-        const closesOpener = (opener === '[' && ch === ']') || (opener === '{' && ch === '}');
-        if (closesOpener) spans.push(text.slice(start, i + 1));
-        start = -1;
+      const top = stack[stack.length - 1];
+      if (top === undefined) continue; // stray closer, no matching opener at all
+      const matches = (top.opener === '[' && ch === ']') || (top.opener === '{' && ch === '}');
+      if (!matches) continue; // mismatched type — stray closer, leave the stack as-is
+      stack.pop();
+      if (stack.length === 0) {
+        spans.push(text.slice(top.pos, i + 1));
         if (spans.length >= SCAN_MAX_SPANS) break;
+      } else {
+        fallback = text.slice(top.pos, i + 1);
       }
     }
   }
+  if (spans.length === 0 && fallback !== undefined) spans.push(fallback);
   return spans;
 }
 
@@ -316,12 +348,25 @@ function stringLeaves(value: unknown, out: string[], depth = 0): void {
 }
 
 /**
+ * How far before the naive tail cut to look for a `` ``` `` fence marker to
+ * cut at instead, so the slice never starts strictly inside an opening
+ * fence's marker (`` ``` `` plus its optional language tag). A model that
+ * writes a huge tool-narration transcript before its fenced report can have
+ * that report's opening fence land exactly at the `SCAN_MAX_CHARS` boundary;
+ * without this, the slice could sever the marker itself and `fencedBlocks`
+ * would never recognize the (still-complete) body that follows.
+ */
+const FENCE_LOOKBACK_CHARS = 200;
+
+/**
  * The extraction fallback: every ```-fenced block's body first (exact), then
  * every balanced top-level `[...]`/`{...}` span (heuristic), each still handed
  * to `JSON.parse`. Run over each source in turn, sharing one
  * `SCAN_MAX_CANDIDATES` budget; each source is capped to its TAIL at
  * `SCAN_MAX_CHARS`, because the report a model is asked for is the last thing
- * it writes. Purely lexical — no filesystem or network I/O.
+ * it writes — biased backward, within `FENCE_LOOKBACK_CHARS`, to the nearest
+ * preceding fence marker so the cut cannot land inside one. Purely lexical —
+ * no filesystem or network I/O.
  *
  * Identical parsed values are kept once: the SAME array is routinely yielded
  * twice (once as a fence body, once as the balanced span inside that fence),
@@ -335,8 +380,13 @@ function extractedJsonValues(sources: readonly string[]): unknown[] {
   for (const source of sources) {
     const trimmed = source.trim();
     if (trimmed === '') continue;
-    const scanned =
-      trimmed.length > SCAN_MAX_CHARS ? trimmed.slice(trimmed.length - SCAN_MAX_CHARS) : trimmed;
+    let cutAt = trimmed.length > SCAN_MAX_CHARS ? trimmed.length - SCAN_MAX_CHARS : 0;
+    if (cutAt > 0) {
+      const lookbackFloor = Math.max(0, cutAt - FENCE_LOOKBACK_CHARS);
+      const nearestFence = trimmed.lastIndexOf('```', cutAt);
+      if (nearestFence >= lookbackFloor) cutAt = nearestFence;
+    }
+    const scanned = trimmed.slice(cutAt);
     for (const candidate of [...fencedBlocks(scanned), ...balancedSpans(scanned)]) {
       const value = tryParseJson(candidate.trim());
       if (value === undefined) continue;
