@@ -200,3 +200,13 @@ export function listMergeChecksByTicket(store: Store, ticketId: number): MergeCh
     .all(ticketId)
     .map((r) => rowToMergeCheck(r as MergeCheckDbRow));
 }
+
+/**
+ * Drop a repository's merge check. A base branch change invalidates it
+ * completely — the recorded `base_sha`, `files` and `state` all describe a merge
+ * against a base this ticket no longer targets — and a stale CLEAN check is
+ * worse than no check at all.
+ */
+export function clearMergeCheck(store: Store, ticketId: number, repo: string): void {
+  store.db.prepare('DELETE FROM merge_checks WHERE ticket_id = ? AND repo = ?').run(ticketId, repo);
+}
