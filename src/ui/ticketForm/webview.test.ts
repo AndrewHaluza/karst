@@ -215,6 +215,19 @@ describe('ticket-form webview.html', () => {
     expect(save, 'save post not found').toBeTruthy();
     expect(save![1]).toContain('keyAutoDerived: !refTouched');
   });
+
+  it("posts set-base-ref when a repo's base-branch input changes (§ per-repo base branch)", () => {
+    expect(HTML).toContain("post({ type: 'set-base-ref', repo, baseRef: value });");
+  });
+
+  it('carries baseRefs on submit and save', () => {
+    const submit = HTML.match(/post\(\{ type: 'submit',([^\n]+)\);/);
+    expect(submit, 'submit post not found').toBeTruthy();
+    expect(submit![1]).toContain('baseRefs');
+    const save = HTML.match(/post\(\{ type: 'save',([^\n]+)\);/);
+    expect(save, 'save post not found').toBeTruthy();
+    expect(save![1]).toContain('baseRefs');
+  });
 });
 
 // ---- ticket search (the Key field's dropdown) ----

@@ -278,6 +278,7 @@ import { buildConflictBrief } from './workflow/conflictSession.js';
 import { stopServer, stopTicketServers } from './runtime/supervisor.js';
 import { reapStaleServers, describeReap } from './runtime/worktreeServers.js';
 import { systemAsyncProcessFacts } from './runtime/serverIdentity.js';
+import { listBaseBranchCandidates } from './runtime/branchList.js';
 import { reconcileStageRuns, describeStaleStageRun } from './store/stageRuns.js';
 import {
   reconcileProcessRuns,
@@ -1739,6 +1740,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   };
 
+  // Base-branch candidates already fetched (§ per-repo base branch), keyed by
+  // `repoPath`. One cache for the whole window: `buildTicketFormActions`'s
+  // `setRepos` warms an entry lazily the first time a row is selected in ANY
+  // ticket-form panel, and `TicketFormManager`'s `branchCandidates` getter
+  // reads the same object on every state push — so a branch listed once
+  // never re-fetches for a different panel on the same repo.
+  const baseBranchCandidates = new Map<string, string[]>();
+
   const ticketForm = new TicketFormManager(
     localStore,
     () => currentManifest() ?? emptyManifest(),
@@ -1877,6 +1886,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       openFile: async (path: string) => {
         await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(path));
       },
+      listBaseBranches: (repoPath: string) => listBaseBranchCandidates(defaultGitRunner, repoPath),
+      branchCandidatesCache: baseBranchCandidates,
     }),
     listInstalledApproachIds,
     listAgents,
@@ -1890,6 +1901,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // The recently-used models for the shared picker's "Last used" group,
     // scoped to this window's project like every other ticket-adjacent read.
     () => listRecentlyUsedModels(localStore, currentProject()?.id ?? null, 5),
+    // Same cache `setRepos` warms above, read fresh on every state push.
+    () => Object.fromEntries(baseBranchCandidates),
   );
 
   // Full agent-pool rows for the Settings "Agents" tab. Unlike `listAgents`

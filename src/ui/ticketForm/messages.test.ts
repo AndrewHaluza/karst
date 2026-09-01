@@ -91,7 +91,7 @@ describe('parseTicketFormMessage', () => {
     expect(
       parseTicketFormMessage({ type: 'submit', key: 'P-1', title: 't', description: 'd' }),
     ).toEqual({
-      type: 'submit', key: 'P-1', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, effort: null, agentProvider: null, ticketType: null, createInProvider: false, keyAutoDerived: false, pullBase: true,
+      type: 'submit', key: 'P-1', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, effort: null, agentProvider: null, ticketType: null, createInProvider: false, keyAutoDerived: false, baseRefs: {}, pullBase: true,
     });
     // repos + approach + agent + model + agentProvider carried through when present
     expect(
@@ -99,7 +99,7 @@ describe('parseTicketFormMessage', () => {
         type: 'submit', key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex', ticketType: null, createInProvider: false, keyAutoDerived: false,
       }),
     ).toEqual({
-      type: 'submit', key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', effort: null, agentProvider: 'codex', ticketType: null, createInProvider: false, keyAutoDerived: false, pullBase: true,
+      type: 'submit', key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', effort: null, agentProvider: 'codex', ticketType: null, createInProvider: false, keyAutoDerived: false, baseRefs: {}, pullBase: true,
     });
   });
 
@@ -107,18 +107,69 @@ describe('parseTicketFormMessage', () => {
     expect(
       parseTicketFormMessage({ type: 'save', key: 'P-1', title: 't', description: 'd' }),
     ).toEqual({
-      type: 'save', key: 'P-1', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, effort: null, agentProvider: null, ticketType: null, createInProvider: false, keyAutoDerived: false,
+      type: 'save', key: 'P-1', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, effort: null, agentProvider: null, ticketType: null, createInProvider: false, keyAutoDerived: false, baseRefs: {},
     });
     expect(
       parseTicketFormMessage({
         type: 'save', key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex', ticketType: null, createInProvider: false, keyAutoDerived: false,
       }),
     ).toEqual({
-      type: 'save', key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', effort: null, agentProvider: 'codex', ticketType: null, createInProvider: false, keyAutoDerived: false,
+      type: 'save', key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', effort: null, agentProvider: 'codex', ticketType: null, createInProvider: false, keyAutoDerived: false, baseRefs: {},
     });
     expect(parseTicketFormMessage({ type: 'save', title: 't', description: 'd' })).toBeNull(); // missing key
     expect(parseTicketFormMessage({ type: 'save', key: 'P-1', description: 'd' })).toBeNull(); // missing title
     expect(parseTicketFormMessage({ type: 'save', key: 'P-1', title: 't' })).toBeNull(); // missing description
+  });
+
+  it('parses set-base-ref', () => {
+    expect(parseTicketFormMessage({ type: 'set-base-ref', repo: 'fe', baseRef: 'epic/x' })).toEqual({
+      type: 'set-base-ref',
+      repo: 'fe',
+      baseRef: 'epic/x',
+    });
+  });
+
+  it('rejects set-base-ref without a repo', () => {
+    expect(parseTicketFormMessage({ type: 'set-base-ref', baseRef: 'epic/x' })).toBeNull();
+    expect(parseTicketFormMessage({ type: 'set-base-ref', repo: '', baseRef: 'epic/x' })).toBeNull();
+  });
+
+  it('treats a blank base ref as clearing the override', () => {
+    expect(parseTicketFormMessage({ type: 'set-base-ref', repo: 'fe', baseRef: '  ' })).toEqual({
+      type: 'set-base-ref',
+      repo: 'fe',
+      baseRef: '',
+    });
+    // absent baseRef degrades the same way as blank, not to a crash
+    expect(parseTicketFormMessage({ type: 'set-base-ref', repo: 'fe' })).toEqual({
+      type: 'set-base-ref',
+      repo: 'fe',
+      baseRef: '',
+    });
+  });
+
+  it('carries baseRefs through submit, keeping only string values', () => {
+    const parsed = parseTicketFormMessage({
+      type: 'submit',
+      key: 'P-1',
+      title: 't',
+      description: 'd',
+      repos: ['fe'],
+      baseRefs: { fe: 'epic/x', be: 42, junk: null },
+    });
+    expect(parsed).toMatchObject({ type: 'submit', baseRefs: { fe: 'epic/x' } });
+  });
+
+  it('carries baseRefs through save the same way', () => {
+    const parsed = parseTicketFormMessage({
+      type: 'save',
+      key: 'P-1',
+      title: 't',
+      description: 'd',
+      repos: ['fe'],
+      baseRefs: { fe: 'epic/x' },
+    });
+    expect(parsed).toMatchObject({ type: 'save', baseRefs: { fe: 'epic/x' } });
   });
 
   // A blank key is valid — manual ticket creation leaves it to be generated
@@ -129,12 +180,12 @@ describe('parseTicketFormMessage', () => {
     expect(
       parseTicketFormMessage({ type: 'submit', key: '', title: 't', description: 'd' }),
     ).toEqual({
-      type: 'submit', key: '', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, effort: null, agentProvider: null, ticketType: null, createInProvider: false, keyAutoDerived: false, pullBase: true,
+      type: 'submit', key: '', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, effort: null, agentProvider: null, ticketType: null, createInProvider: false, keyAutoDerived: false, baseRefs: {}, pullBase: true,
     });
     expect(
       parseTicketFormMessage({ type: 'save', key: '', title: 't', description: 'd' }),
     ).toEqual({
-      type: 'save', key: '', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, effort: null, agentProvider: null, ticketType: null, createInProvider: false, keyAutoDerived: false,
+      type: 'save', key: '', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, effort: null, agentProvider: null, ticketType: null, createInProvider: false, keyAutoDerived: false, baseRefs: {},
     });
   });
 
@@ -239,14 +290,14 @@ describe('parseTicketFormMessage', () => {
         type: 'submit', key: 'P-1', title: 't', description: 'd', agentProvider: 'evil', ticketType: null,
       }),
     ).toEqual({
-      type: 'submit', key: 'P-1', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, effort: null, agentProvider: null, ticketType: null, createInProvider: false, keyAutoDerived: false, pullBase: true,
+      type: 'submit', key: 'P-1', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, effort: null, agentProvider: null, ticketType: null, createInProvider: false, keyAutoDerived: false, baseRefs: {}, pullBase: true,
     });
     expect(
       parseTicketFormMessage({
         type: 'save', key: 'P-1', title: 't', description: 'd', agentProvider: 'evil', ticketType: null,
       }),
     ).toEqual({
-      type: 'save', key: 'P-1', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, effort: null, agentProvider: null, ticketType: null, createInProvider: false, keyAutoDerived: false,
+      type: 'save', key: 'P-1', title: 't', description: 'd', repos: [], approach: null, agent: null, model: null, effort: null, agentProvider: null, ticketType: null, createInProvider: false, keyAutoDerived: false, baseRefs: {},
     });
   });
 
@@ -278,7 +329,7 @@ describe('parseTicketFormMessage', () => {
       submit: (i) => { seen.push(`submit:${i.keyAutoDerived}`); },
       save: (i) => { seen.push(`save:${i.keyAutoDerived}`); },
       fetchSource: () => {}, searchTickets: () => {}, searchStatuses: () => {},
-      suggestSignals: () => {}, saveSignals: () => {}, setRepos: () => {},
+      suggestSignals: () => {}, saveSignals: () => {}, setRepos: () => {}, setBaseRef: () => {},
       setApproach: () => {}, setAgent: () => {}, setModel: () => {}, setEffort: () => {},
       setProvider: () => {}, setType: () => {}, analyze: () => {}, attachPick: async () => {},
       attachBytes: async () => {}, detachAttachment: async () => {}, openAttachment: async () => {},
@@ -314,6 +365,7 @@ describe('routeTicketFormAction', () => {
       suggestSignals: vi.fn(),
       saveSignals: vi.fn(),
       setRepos: vi.fn(),
+      setBaseRef: vi.fn(),
       setApproach: vi.fn(),
       setAgent: vi.fn(),
       setModel: vi.fn(),
@@ -361,7 +413,7 @@ describe('routeTicketFormAction', () => {
     expect(actions.searchStatuses).toHaveBeenCalled();
     expect(actions.saveSignals).toHaveBeenCalledWith('be', ['api']);
     expect(actions.submit).toHaveBeenCalledWith({
-      key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex', ticketType: null, createInProvider: false, keyAutoDerived: false, pullBase: true,
+      key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex', ticketType: null, createInProvider: false, keyAutoDerived: false, baseRefs: {}, pullBase: true,
     });
     expect(actions.analyze).toHaveBeenCalledWith('go');
     expect(actions.analyze).toHaveBeenCalledWith('go again');
@@ -384,7 +436,7 @@ describe('routeTicketFormAction', () => {
       actions,
     );
     expect(actions.save).toHaveBeenCalledWith({
-      key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex', ticketType: null, createInProvider: false, keyAutoDerived: false,
+      key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex', ticketType: null, createInProvider: false, keyAutoDerived: false, baseRefs: {},
     });
   });
 
@@ -424,6 +476,7 @@ describe('attachment messages', () => {
       suggestSignals: vi.fn(),
       saveSignals: vi.fn(),
       setRepos: vi.fn(),
+      setBaseRef: vi.fn(),
       setApproach: vi.fn(),
       setAgent: vi.fn(),
       setModel: vi.fn(),

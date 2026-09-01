@@ -11,6 +11,7 @@ import {
   generateTicketKey,
 } from '../../store/tickets.js';
 import { createTicketFlow } from '../../workflow/stages/create.js';
+import { resolvePlannedBaseRef, assertSharedRepoBaseOverrides } from '../../workflow/baseRef.js';
 import { openProcessRun, finishProcessRun } from '../../store/processRuns.js';
 import { scoreRepos } from '../../workflow/classify/gate.js';
 import { suggestSignals as suggestSignalsAI } from '../../workflow/classify/suggest.js';
@@ -150,6 +151,20 @@ export interface TicketFormActionsDeps {
   pickAttachment: () => Promise<string[]>;
   /** Reveal a file in the editor (real: `vscode.env.openExternal` / `vscode.open`). */
   openFile: (path: string) => void | Promise<void>;
+  /**
+   * List the base-branch candidates for a repository (real: bound to
+   * `listBaseBranchCandidates(defaultGitRunner, repoPath)`). Never throws
+   * (the underlying lister already swallows git failures to `[]`) — a picker
+   * that can't list branches still has to render.
+   */
+  listBaseBranches?: (repoPath: string) => Promise<string[]>;
+  /**
+   * Per-panel cache of already-fetched base-branch candidates, keyed by
+   * `repoPath`. Owned by the host (one per open panel) and shared with the
+   * state builder via `TicketFormManager`'s `branchCandidates` getter — this
+   * module only WARMS it (see `setRepos`), never reads it back for state.
+   */
+  branchCandidatesCache?: Map<string, string[]>;
 }
 
 function errorMessage(e: unknown): string {
@@ -262,6 +277,7 @@ function persistDraft(
     effort: input.effort ?? '',
     agentProvider: input.agentProvider ?? '',
     type: input.ticketType ?? '',
+    baseRefs: input.baseRefs ?? {},
   });
   deps.onChange();
   return ticketId;
@@ -646,6 +662,49 @@ export function buildTicketFormActions(
       if (ctx.ticketId !== undefined) {
         updateTicketFields(deps.store, ctx.ticketId, { selectedRepos: repos });
       }
+      // Lazily warm the branch-candidate cache: a row's candidates load only
+      // once it is actually selected, so opening the form never fans out a
+      // for-each-ref per manifest repository (§ per-repo base branch).
+      if (deps.listBaseBranches && deps.branchCandidatesCache) {
+        const cache = deps.branchCandidatesCache;
+        const listBaseBranches = deps.listBaseBranches;
+        for (const name of repos) {
+          const repository = deps.manifest.repositories[name];
+          if (!repository || cache.has(repository.repoPath)) continue;
+          // Claim the slot immediately so a rapid re-toggle before the fetch
+          // resolves does not start a second lookup for the same path.
+          cache.set(repository.repoPath, []);
+          void listBaseBranches(repository.repoPath).then((candidates) => {
+            cache.set(repository.repoPath, candidates);
+            ctx.pushState();
+          });
+        }
+      }
+    },
+
+    setBaseRef(repo: string, baseRef: string): void {
+      if (ctx.ticketId === undefined) return;
+      const ticket = getTicket(deps.store, ctx.ticketId);
+      // Build a NEW record — never mutate the ticket's persisted overrides.
+      const current = { ...(ticket.baseRefs ?? {}) };
+      const trimmed = baseRef.trim();
+      // The manifest default is resolved WITHOUT this repo's own override, so
+      // an override equal to that default reads as "no override" rather than
+      // comparing against itself.
+      const withoutThisRepo = { ...current };
+      delete withoutThisRepo[repo];
+      const manifestDefault = resolvePlannedBaseRef({ baseRefs: withoutThisRepo }, deps.manifest, repo);
+      const next =
+        trimmed === '' || trimmed === manifestDefault
+          ? withoutThisRepo
+          : { ...withoutThisRepo, [repo]: trimmed };
+      try {
+        assertSharedRepoBaseOverrides(deps.manifest, next);
+      } catch (e) {
+        ctx.post({ type: 'error', message: errorMessage(e) });
+        return;
+      }
+      updateTicketFields(deps.store, ctx.ticketId, { baseRefs: next });
     },
 
     setApproach(id: string): void {

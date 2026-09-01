@@ -166,6 +166,14 @@ export class TicketFormManager {
      * (`store/tokenUsage.ts` `listRecentlyUsedModels`).
      */
     private readonly recentModels: () => Record<string, string[]> = () => ({}),
+    /**
+     * Base-branch candidates already fetched, keyed by `repoPath` (§ per-repo
+     * base branch). A live getter over the SAME cache `buildTicketFormActions`
+     * warms lazily (its `setRepos` populates it and calls `pushState`), so a
+     * row's candidates appear on the very next state push after selection —
+     * never fetched up front for every manifest repository.
+     */
+    private readonly branchCandidates: () => Record<string, string[]> = () => ({}),
   ) {}
 
   /**
@@ -237,6 +245,7 @@ export class TicketFormManager {
         this.storageDir,
         pickerTouched,
         this.recentModels(),
+        this.branchCandidates(),
       );
       // The state builder emits filesystem paths; only the panel can turn one
       // into a URI the webview is allowed to load. Mapped here, at the last

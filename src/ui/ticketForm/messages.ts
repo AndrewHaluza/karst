@@ -46,6 +46,13 @@ export interface TicketDraftFields {
    * the key is user-owned and kept verbatim.
    */
   keyAutoDerived?: boolean;
+  /**
+   * Per-repository base-branch overrides, keyed by manifest repository name
+   * (§ per-repo base branch). Absent/blank for a repo = follow the manifest
+   * default. Only meaningful for a repo that is scoped (`repos`), but nothing
+   * here enforces that — the host resolves it via `resolvePlannedBaseRef`.
+   */
+  baseRefs?: Record<string, string>;
 }
 
 /**
@@ -75,6 +82,11 @@ export type TicketFormMessage =
   | { type: 'suggest-signals'; service: string }
   | { type: 'save-signals'; service: string; signals: string[] }
   | { type: 'set-repos'; repos: string[] }
+  // Per-repo base-branch override (§ per-repo base branch). `baseRef` may be
+  // blank (or whitespace-only) — that clears the override and falls back to
+  // the manifest default; it is never a dead end because the field is free
+  // text, not a closed vocabulary.
+  | { type: 'set-base-ref'; repo: string; baseRef: string }
   | { type: 'set-approach'; id: string }
   | { type: 'set-agent'; id: string }
   // id may be '' — the "Inherit (settings)" choice, which clears the model.
@@ -174,6 +186,14 @@ export interface TicketFormActions {
   suggestSignals: (service: string) => void | Promise<void>;
   saveSignals: (service: string, signals: string[]) => void | Promise<void>;
   setRepos: (repos: string[]) => void | Promise<void>;
+  /**
+   * Persist (or clear) a per-repo base-branch override. A blank `baseRef`
+   * clears the override; a value equal to the manifest default is stored as
+   * NOTHING (dropped), so the ticket keeps following the manifest afterwards.
+   * Reports a shared-repoPath conflict (`assertSharedRepoBaseOverrides`)
+   * through the form's existing `error` channel.
+   */
+  setBaseRef: (repo: string, baseRef: string) => void | Promise<void>;
   setApproach: (id: string) => void | Promise<void>;
   setAgent: (id: string) => void | Promise<void>;
   setModel: (id: string) => void | Promise<void>;
@@ -226,6 +246,21 @@ function decodedBase64ByteLength(base64: string): number {
   return Math.floor((base64.length * 3) / 4) - padding;
 }
 
+/**
+ * Keep only string values from an untrusted `baseRefs` payload — never trust
+ * the webview to have sent a well-formed record. A non-object (or absent)
+ * input degrades to `{}` (no overrides), same as every other malformed-vs-
+ * absent field in this parser.
+ */
+function parseBaseRefsMessage(v: unknown): Record<string, string> {
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) return {};
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(v as Record<string, unknown>)) {
+    if (typeof value === 'string') out[key] = value;
+  }
+  return out;
+}
+
 /** Validate the shared draft-persist fields (submit and save both carry these). */
 function parseDraftFields(m: Record<string, unknown>): TicketDraftFields | null {
   const str = (k: string): boolean => typeof m[k] === 'string' && (m[k] as string).length > 0;
@@ -268,6 +303,7 @@ function parseDraftFields(m: Record<string, unknown>): TicketDraftFields | null 
     ticketType,
     createInProvider,
     keyAutoDerived: m.keyAutoDerived === true,
+    baseRefs: parseBaseRefsMessage(m.baseRefs),
   };
 }
 
@@ -302,6 +338,15 @@ export function parseTicketFormMessage(raw: unknown): TicketFormMessage | null {
         : null;
     case 'set-repos':
       return isStringArray(m.repos) ? { type: 'set-repos', repos: m.repos } : null;
+    case 'set-base-ref': {
+      // repo must be a non-empty string — a missing/blank repo can't target
+      // any override. baseRef may be blank/whitespace-only: that's the "back
+      // to the default" signal, coerced to '' here so the action never has to
+      // re-trim an untrusted value.
+      if (typeof m.repo !== 'string' || m.repo.length === 0) return null;
+      const baseRef = typeof m.baseRef === 'string' ? m.baseRef.trim() : '';
+      return { type: 'set-base-ref', repo: m.repo, baseRef };
+    }
     case 'set-approach':
       return str('id') ? { type: 'set-approach', id: m.id as string } : null;
     case 'set-agent':
@@ -403,6 +448,9 @@ export function routeTicketFormAction(
     case 'set-repos':
       actions.setRepos(msg.repos);
       return;
+    case 'set-base-ref':
+      actions.setBaseRef(msg.repo, msg.baseRef);
+      return;
     case 'set-approach':
       actions.setApproach(msg.id);
       return;
@@ -454,6 +502,7 @@ export function routeTicketFormAction(
         ticketType: msg.ticketType,
         createInProvider: msg.createInProvider,
         keyAutoDerived: msg.keyAutoDerived,
+        baseRefs: msg.baseRefs,
         pullBase: msg.pullBase,
       });
       return;
@@ -472,6 +521,7 @@ export function routeTicketFormAction(
         ticketType: msg.ticketType,
         createInProvider: msg.createInProvider,
         keyAutoDerived: msg.keyAutoDerived,
+        baseRefs: msg.baseRefs,
       });
       return;
     case 'request-state':

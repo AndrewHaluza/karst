@@ -1255,6 +1255,57 @@ describe('buildTicketFormActions', () => {
     expect(reloaded.selectedRepos).toEqual(['fe', 'be']);
   });
 
+  it('stores a base ref override on the ticket', () => {
+    const t = createTicket(store, { key: 'P-BR', title: 't' });
+    // Give fe/be distinct repoPaths for this test — MANIFEST's default (both
+    // '/repo') deliberately shares a path so the "refuses" test below has a
+    // real conflict to reject; an isolated override needs no such collision.
+    deps.manifest = buildManifest(
+      { fe: svc({ signals: ['ui'], repoPath: '/repo/fe' }), be: svc({ signals: ['api'], repoPath: '/repo/be' }) },
+      { portRange: [4000, 4100] },
+    );
+    const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, close: () => {} };
+    const actions = buildTicketFormActions(deps)(ctx);
+
+    actions.setBaseRef('fe', 'epic/x');
+    expect(getTicket(store, t.id).baseRefs).toEqual({ fe: 'epic/x' });
+  });
+
+  it('drops an override that equals the manifest default', () => {
+    const t = createTicket(store, { key: 'P-BR-2', title: 't' });
+    const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, close: () => {} };
+    const actions = buildTicketFormActions(deps)(ctx);
+
+    // MANIFEST's baseline branch (the manifest default with no repo-level
+    // override) is 'develop' — see manifest/fixtures.ts.
+    actions.setBaseRef('fe', 'develop');
+    expect(getTicket(store, t.id).baseRefs).toEqual({});
+  });
+
+  it('refuses two different bases for entries sharing a repoPath', () => {
+    const t = createTicket(store, { key: 'P-BR-3', title: 't' });
+    const posted: TicketFormHostMessage[] = [];
+    // MANIFEST's `fe` and `be` both default to repoPath '/repo' (see svc()
+    // in manifest/fixtures.ts) — one deduped worktree, so they cannot be
+    // given different base branches.
+    const ctx: TicketFormActionsCtx = {
+      post: (m) => posted.push(m),
+      pushState: () => {},
+      mode: 'edit',
+      ticketId: t.id,
+      bindTicket: () => {},
+      close: () => {},
+    };
+    const actions = buildTicketFormActions(deps)(ctx);
+
+    actions.setBaseRef('fe', 'epic/x');
+    // Reported through the form's existing error channel — the same `error`
+    // post used by every other validation failure in this module.
+    expect(posted.find((m) => m.type === 'error')).toBeTruthy();
+    // The rejected override must not have been persisted.
+    expect(getTicket(store, t.id).baseRefs).toEqual({});
+  });
+
   it('setAgent persists onto an existing ticket', () => {
     const t = createTicket(store, { key: 'P-A', title: 't' });
     const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, close: () => {} };
