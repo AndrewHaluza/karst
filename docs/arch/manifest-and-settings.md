@@ -8,6 +8,7 @@ What the manifest models, and the rules that keep a Settings write from silently
 - Settings Save is TAB-SCOPED
 - A REPOSITORY is the primary entity; a SERVICE is an optional relation
 - Legacy services: manifests migrate IN MEMORY
+- `uat.testerObservations.blockingSeverity` is a manifest knob only
 - New Manifest field checklist
 
 ## A Settings process-assignment profile IS the process's prompt
@@ -29,6 +30,10 @@ A graph document claims repositories by canonical (case-folded) id, so `BE:` and
 ## Legacy `services:` manifests migrate IN MEMORY
 
 Legacy `services:` manifests migrate IN MEMORY (`manifest/migrate.ts`) + warn; `writeManifest`/`writeRepoSignals` upgrade the file on the next explicit save. Loading never writes (js-yaml drops comments). A file with BOTH keys is refused, never guessed. `ManifestError.withPath` attaches the file — validators only know field names, and a user may have several manifests.
+
+## `uat.testerObservations.blockingSeverity` is a manifest knob only
+
+`UatConfig.testerObservations?.blockingSeverity` (`Severity | 'none'`, validated in `manifest/validate/uat.ts` against the same closed vocabulary as `review.findings.blockingSeverity`) is the ONE knob a project can set to opt a Tester observation's severity into blocking UAT's verdict. Task 3.1 adds only the field, its validation, and the `karst.example.yml` cookbook entry — it does NOT wire into `driveTicket` or `uat/testerVerifier.ts`. An absent `uat:` key, an absent `testerObservations:` key, and an absent `blockingSeverity:` all read as `'none'`, so every existing manifest and every manifest that omits the block keeps today's advisory-only Tester behavior byte-identically. A later task reads this field to decide the verdict.
 
 ## New `Manifest` field checklist
 

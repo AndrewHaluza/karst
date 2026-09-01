@@ -359,6 +359,13 @@ export interface UatConfig {
    * and the ordinary UAT gates decide progression alone.
    */
   testerVerifier?: GateDef;
+  /**
+   * Task 3.1: the manifest knob only — a LATER task wires this into the
+   * actual UAT verdict. `undefined` reads as `'none'` (see
+   * `UatTesterObservationsConfig.blockingSeverity`), matching every existing
+   * manifest's behavior byte-for-byte.
+   */
+  testerObservations?: UatTesterObservationsConfig;
   env: Record<string, string>;
   secrets: string[];
   passthrough: string[];
@@ -370,6 +377,17 @@ export interface UatConfig {
 
 /** Closed severity vocabulary for review findings (§6.7's `review_findings.severity`). */
 export type Severity = 'critical' | 'high' | 'medium' | 'low' | 'info';
+
+export interface UatTesterObservationsConfig {
+  /**
+   * The worst severity a Tester observation may carry without failing UAT's
+   * verdict. `'none'` (the default, and the shipped behavior) keeps every
+   * observation advisory — see `uat/testerVerifier.ts`. Any Severity turns an
+   * observation at or above it into a failed UAT verdict that opens a
+   * Tester-attributed recovery round, exactly like the review lane's R6.
+   */
+  blockingSeverity: Severity | 'none';
+}
 
 /**
  * Review's Lane B config (Tasks 11–13 build the lane itself; this block only
