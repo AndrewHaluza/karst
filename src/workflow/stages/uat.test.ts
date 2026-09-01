@@ -1084,6 +1084,72 @@ describe('runUat — Tester and verifier (Task 8)', () => {
     expect(listProcessRuns(store, id)[0]).toMatchObject({ processId: 'tester', resultKind: 'observed' });
   });
 
+  // Task 3.2: the opt-in threshold. `'none'` (the default, and every manifest
+  // that omits the block) keeps the shipped advisory behavior byte-identically.
+  it('fails uat when a blocking Tester observation was recorded', async () => {
+    const res = await runUat(
+      store,
+      {
+        ticketId: id,
+        cwd: '/wt/web',
+        artifactDir,
+        manifest: manifest(
+          {},
+          { uat: uatConfig({ testerObservations: { blockingSeverity: 'high' } }) },
+        ),
+      },
+      testerDeps({
+        tester: {
+          assignment: { agentName: 'UAT Agent', provider: 'claude' },
+          adapter: testerAgent(
+            JSON.stringify([
+              { severity: 'high', title: 'login is broken', detail: '' },
+              { severity: 'low', title: 'nit', detail: '' },
+            ]),
+          ),
+        },
+      }),
+    );
+    expect(res).toEqual({ kind: 'advanced', next: 'fix' });
+    expect(uatStage(store, id).verdict).toContain('uat tester observations: 1 high');
+    // Attributed to the Tester PROCESS, exactly like the verifier's failure.
+    const rounds = listRecoveryRounds(store, id);
+    expect(rounds).toHaveLength(1);
+    expect(rounds[0]).toMatchObject({
+      sourceStage: 'uat',
+      sourceProcessId: 'tester',
+      triggerKind: 'blocking-tester-observations',
+      triggerDetail: 'uat tester observations: 1 high',
+      status: 'pending',
+    });
+    expect(rounds[0]!.sourceProcessRunId).toBe(listProcessRuns(store, id)[0]!.id);
+    // The observations are still recorded as evidence.
+    expect(listUatFindings(store, id)).toHaveLength(2);
+  });
+
+  it('passes uat when observations are advisory (threshold none)', async () => {
+    const res = await runUat(
+      store,
+      {
+        ticketId: id,
+        cwd: '/wt/web',
+        artifactDir,
+        manifest: manifest({}, { uat: uatConfig({ testerObservations: { blockingSeverity: 'none' } }) }),
+      },
+      testerDeps({
+        tester: {
+          assignment: { agentName: 'UAT Agent', provider: 'claude' },
+          adapter: testerAgent(
+            JSON.stringify([{ severity: 'critical', title: 'data loss', detail: '' }]),
+          ),
+        },
+      }),
+    );
+    expect(res).toEqual({ kind: 'advanced', next: 'review' });
+    expect(listRecoveryRounds(store, id)).toEqual([]);
+    expect(listUatFindings(store, id)).toHaveLength(1);
+  });
+
   it('an unreadable Tester answer is advisory too: the stage does not fail, and the gates alone decide', async () => {
     const res = await runUat(
       store,

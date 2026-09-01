@@ -12,6 +12,7 @@ The stage machine, the evidence it writes, and the host seam that drives it. Rel
 - Evidence is written WHEN IT HAPPENS
 - A gate may be switched off for ONE ticket
 - Auto-discovery is npm-shaped; gating is not
+- UAT Tester observations are advisory BY DEFAULT
 - Nothing in the extension host may block its event loop
 - The stage driver's host seam
 - Single-writer stage mutation
@@ -55,6 +56,15 @@ A gate run used to collect every `gate_runs` row in memory and commit the lot in
 `resolveGates` (`workflow/gates/resolve.ts`) returns declared gates **before it reads the probe at all** — so a repository whose gates are every one of them `kind: command` never touches `package.json`, and neither an absent nor a malformed one can block it. Only the ZERO-CONFIG path is Node-shaped: `probeScripts` reads `package.json` scripts, and a discovered gate is invoked as `npm run <script>`. That split is deliberate and is not a gap to close by teaching the probe other ecosystems — a `kind: command` gate is argv-based, spawned without a shell, and already expresses `pytest`, `cargo test`, `go test ./...` and `./gradlew test` exactly. **The defect was never the capability; it was that the `nothing-to-run` reason named only the npm path**, so a Python or Rust project read "karst is Node-only" and wrote a `package.json` whose scripts shimmed out to its real toolchain — the precise thing the command kind exists to make unnecessary. The reason therefore names the escape hatch, and distinguishes "no package.json at all" (the ordinary non-Node case) from "package.json defines none of the probed scripts" (a Node repo that is simply missing them); the Settings empty state and `karst.example.yml` carry the same sentence, because the moment the user needs it is the moment they are looking at an empty gate list. Guards: `gates/resolve.test.ts` "points a repo with no package.json at command gates", `ui/settings/webview.test.ts` "names command gates in the empty state".
 
 A gate `command` carrying a path separator is resolved against the gate's `cwd` before the platform shim sees it (`runtime/commandCwd.ts`), so `.venv/bin/pytest` and `./gradlew` mean the worktree — a bare name stays a PATH lookup, because that is what `pytest` or `go` is asking for. On POSIX this only makes explicit what `execvp` already does after the child chdirs; on Windows it is load-bearing, since `resolveOnPath`'s existence check would otherwise run against the extension host's directory and fall through to an ENOENT.
+
+## UAT Tester observations are advisory BY DEFAULT, and one knob makes them a verdict
+
+The AI UAT Tester (`workflow/uat/tester.ts`) records OBSERVATIONS. They are evidence: `aggregateUat` never sees them — the pure gate aggregate stays free of AI output, and that does not change — so by default an observation can never pass, fail, transition, or spend a recovery round. Two things, and only two, can make the Tester decide UAT:
+
+1. `uat.testerVerifier` — the deterministic boundary whose COMPLETED nonzero exit fails UAT (`tester-verifier-failure`).
+2. `uat.testerObservations.blockingSeverity` — **the ONE knob that makes an observation itself a verdict.** Its default is `'none'`, and an absent `uat:` block, an absent `testerObservations:` block, and an absent `blockingSeverity:` all read as `'none'`: **every existing manifest keeps today's advisory behavior byte-identically.** Set to a severity, `runUatTester` counts the recorded observations at or above it (over the FINAL capped list, so a truncated observation never counts) and reports `blocking`; `stages/uat.ts` — never `aggregateUat` — turns a nonzero count into `{ kind: 'failed', reason: 'uat tester observations: 1 high' }` with a recovery round attributed to `sourceProcessId: 'tester'` (`triggerKind: 'blocking-tester-observations'`), exactly mirroring the verifier's failure path. The check runs AFTER the verifier, so the deterministic boundary keeps precedence.
+
+The reason prefixes (`TESTER_VERIFIER_FAILURE_PREFIX`, `TESTER_OBSERVATIONS_FAILURE_PREFIX`) live once in `uat/testerVerifier.ts` and are how the stage attributes a failed verdict — never a second copy of the string. Guards: `uat/tester.test.ts` "reports blocking observations when the threshold is set" / "never counts an observation the cap truncated away", `stages/uat.test.ts` "fails uat when a blocking Tester observation was recorded" / "passes uat when observations are advisory (threshold none)".
 
 ## Nothing that runs in the extension host may block its event loop
 

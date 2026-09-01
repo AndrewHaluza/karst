@@ -16,7 +16,10 @@
  * annotation in `karst.example.yml`.
  */
 
-/** `uat.*` keys with no consumer. `maxFixAttempts` and `gates` are wired — never list them. */
+/**
+ * `uat.*` keys with no consumer. `maxFixAttempts`, `gates`, `testerVerifier`
+ * and `testerObservations` are wired — never list them.
+ */
 const INERT_UAT_KEYS = [
   'testDir',
   'env',
@@ -25,7 +28,6 @@ const INERT_UAT_KEYS = [
   'origins',
   'authBootstrap',
   'author',
-  'testerObservations',
 ] as const;
 
 /** `uat.repositories.<name>.*` keys with no consumer. `gates` is wired per-repo. */
