@@ -61,6 +61,26 @@ interface GraphRunRow {
   blocked_reason: string | null;
 }
 
+/** Run states that will never become `completed-awaiting-impl-marker`. */
+const TERMINAL_GRAPH_RUN_STATUSES: ReadonlySet<string> = new Set(['closed', 'cancelled', 'stale']);
+
+/**
+ * Name why a non-marker-ready run refuses the impl marker. A terminal run is
+ * the dead end: it will never become marker-ready, so the message says so and
+ * names the only way past impl instead of leaving the reader hunting for a
+ * fix that does not exist. A blocked run carries its durable blocker.
+ */
+function graphRunNotMarkerReadyMessage(run: GraphRunRow): string {
+  if (TERMINAL_GRAPH_RUN_STATUSES.has(run.status)) {
+    return (
+      `graph run ${run.id} is ${run.status} — a terminal state, so it will never become ` +
+      `marker-ready; the only way past impl is a new graph run for this ticket`
+    );
+  }
+  const blocked = run.blocked_reason !== null ? ` — ${run.blocked_reason}` : '';
+  return `graph run ${run.id} is ${run.status}, not marker-ready${blocked}`;
+}
+
 /** The ticket's graph run for a (ticket, stage attempt) pair, if any. */
 function graphRunFor(
   store: Store,
@@ -114,7 +134,7 @@ export function graphImplMarkerGuard(store: Store, ticketId: number): GraphMarke
         throw new Error(`no graph run for ticket ${ticketId} attempt ${attempt}`);
       }
       if (run.status !== 'completed-awaiting-impl-marker') {
-        throw new Error(`graph run ${run.id} is ${run.status}, not marker-ready`);
+        throw new Error(graphRunNotMarkerReadyMessage(run));
       }
       // 2. Quiescence is re-read INSIDE the transaction: a completion that
       //    landed between the outside check and here blocks the marker.

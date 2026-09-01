@@ -167,6 +167,31 @@ describe('graphImplMarkerGuard', () => {
     }
   });
 
+  it('says a cancelled run is terminal and will never become marker-ready', () => {
+    const { ticketId } = markerReadyTicket('GM-TERM');
+    store.db
+      .prepare("UPDATE approach_graph_runs SET status = 'cancelled' WHERE ticket_id = ?")
+      .run(ticketId);
+    const result = graphImplMarkerGuard(store, ticketId);
+    expect(result.ok).toBe(false);
+    expect(result.reason).toContain('cancelled');
+    expect(result.reason).toContain('terminal');
+    expect(result.reason).toContain('never become marker-ready');
+  });
+
+  it('names the blocked reason when a run is blocked, not marker-ready', () => {
+    const { ticketId } = markerReadyTicket('GM-BLOCKED');
+    store.db
+      .prepare(
+        "UPDATE approach_graph_runs SET status = 'blocked', blocked_reason = 'graph-budget-exhausted' WHERE ticket_id = ?",
+      )
+      .run(ticketId);
+    const result = graphImplMarkerGuard(store, ticketId);
+    expect(result.ok).toBe(false);
+    expect(result.reason).toContain('blocked');
+    expect(result.reason).toContain('graph-budget-exhausted');
+  });
+
   it('uses the real better-sqlite immediate runner before terminal cleanup reads', () => {
     store.close();
     const dir = mkdtempSync(join(tmpdir(), 'karst-run-close-lock-'));
