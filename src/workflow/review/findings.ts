@@ -155,8 +155,24 @@ function tryParseJson(text: string): unknown {
  */
 const SCAN_MAX_CHARS = 2_000_000;
 
-/** Bound on how many candidate substrings the scan will hand to `JSON.parse`. */
+/**
+ * Bound on how many findings-shaped values the extraction fallback will keep
+ * once a candidate has actually parsed via `JSON.parse`. This is the real
+ * "nothing is dropped" budget: it is spent only on values that parsed, so
+ * noise that never parses (prose fragments, tool-output fragments that merely
+ * look bracketed) costs nothing against it and cannot push the real report
+ * out of the window.
+ */
 const SCAN_MAX_CANDIDATES = 64;
+
+/**
+ * Safety bound on how many raw candidate substrings a single scan will ever
+ * collect, independent of whether any of them parse. This exists only so a
+ * pathological document (thousands of bracket-looking fragments) cannot grow
+ * an unbounded array before `JSON.parse` even runs — it is not the "nothing
+ * is dropped" budget; `SCAN_MAX_CANDIDATES` (spent on parsed values) is.
+ */
+const SCAN_MAX_SPANS = 10_000;
 
 /**
  * Every ```-fenced block's body, in document order. A fence is the shape a
@@ -169,7 +185,7 @@ function fencedBlocks(text: string): string[] {
   for (const match of text.matchAll(fence)) {
     const body = match[1];
     if (body !== undefined) blocks.push(body);
-    if (blocks.length >= SCAN_MAX_CANDIDATES) break;
+    if (blocks.length >= SCAN_MAX_SPANS) break;
   }
   return blocks;
 }
@@ -216,7 +232,7 @@ function balancedSpans(text: string): string[] {
         const closesOpener = (opener === '[' && ch === ']') || (opener === '{' && ch === '}');
         if (closesOpener) spans.push(text.slice(start, i + 1));
         start = -1;
-        if (spans.length >= SCAN_MAX_CANDIDATES) break;
+        if (spans.length >= SCAN_MAX_SPANS) break;
       }
     }
   }
@@ -249,7 +265,10 @@ function parseJsonEvents(text: string): unknown[] {
   const extracted: unknown[] = [];
   for (const candidate of candidates) {
     const value = tryParseJson(candidate.trim());
-    if (value !== undefined) extracted.push(value);
+    if (value !== undefined) {
+      extracted.push(value);
+      if (extracted.length >= SCAN_MAX_CANDIDATES) break;
+    }
   }
   return extracted;
 }
