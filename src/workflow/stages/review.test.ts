@@ -1283,13 +1283,18 @@ describe('review findings lane (Lane B)', () => {
     expect(listFindings(store, id)).toEqual([]);
   });
 
-  it('a garbage (unparseable) agent response still reaches a gate-based verdict', async () => {
+  // R6b: an agent response that carries no readable JSON at all is not a
+  // clean review — it is the vacuous-pass bug this whole plan closes. The
+  // lane still runs and reaches `ran` (never breaking the stage), but the
+  // aggregate now blocks rather than reading unreadable output as "nothing
+  // wrong", so this response can no longer wave a ticket through to ship.
+  it('an unreadable (fully prose) agent response blocks instead of reaching a vacuous pass', async () => {
     const res = await runReview(
       store,
       { ticketId: id, cwd: '/wt/web', artifactDir },
       deps({ findingsAdapter: findingsAgent('sure, looks fine to me!') }),
     );
-    expect(res).toEqual({ kind: 'advanced', next: 'ship' });
+    expect(res).toMatchObject({ kind: 'blocked', blocker: 'capability-missing' });
     expect(listFindings(store, id)).toEqual([]);
   });
 
@@ -1308,7 +1313,7 @@ describe('review findings lane (Lane B)', () => {
       { ticketId: id, cwd: '/wt/web', artifactDir },
       deps({ findingsAdapter: findingsAgent('sure, looks fine to me!'), warn }),
     );
-    expect(res).toEqual({ kind: 'advanced', next: 'ship' });
+    expect(res).toMatchObject({ kind: 'blocked', blocker: 'capability-missing' });
     expect(warn).toHaveBeenCalled();
     expect(warn.mock.calls.some(([message]) => message.includes('not recognizable JSON'))).toBe(true);
     expect(consoleWarn).not.toHaveBeenCalled();

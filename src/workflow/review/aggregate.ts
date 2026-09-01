@@ -72,6 +72,14 @@ export type FindingsLaneOutcome =
       findings: readonly FindingInput[];
       /** One collapsed one-line diagnostic per target whose call THREW. Absent = every call succeeded. */
       crashes?: readonly string[];
+      /**
+       * Repos whose call returned output no findings-shaped container could be
+       * read out of. Distinct from a clean review (`findings: []` with nothing
+       * here): a review whose ONLY answer was unreadable has produced no
+       * signal at all, and reading that as a pass is the vacuous green R6
+       * exists to prevent.
+       */
+      unreadable?: readonly string[];
       /** The Review process run this invocation opened; absent = none was opened. */
       processRunId?: number | null;
     }
@@ -378,6 +386,21 @@ export function aggregateReview(
   // reached the store as evidence (recorded by the caller, not read again here).
   if (findingsLane.kind === 'capability-missing') {
     return { kind: 'blocked', blocker: 'capability-missing', reason: findingsLane.reason };
+  }
+  // R6b — the lane ran, the threshold is on, and not one target produced a
+  // readable answer. Blocked, not failed: an unreadable answer is the core
+  // misbehaving, not the code being wrong, so it must not spend a fix round.
+  if (
+    findingsLane.kind === 'ran' &&
+    opts.findingsBlockingSeverity !== 'none' &&
+    (findingsLane.unreadable?.length ?? 0) > 0 &&
+    findingsLane.findings.length === 0
+  ) {
+    return {
+      kind: 'blocked',
+      blocker: 'capability-missing',
+      reason: `${FINDINGS_FAILURE_PREFIX}unreadable output from ${findingsLane.unreadable!.join(', ')} — no findings could be read`,
+    };
   }
   if (findingsLane.kind === 'ran' && opts.findingsBlockingSeverity !== 'none') {
     const threshold = SEVERITY_RANK[opts.findingsBlockingSeverity];

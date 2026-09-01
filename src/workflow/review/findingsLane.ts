@@ -20,7 +20,7 @@ import { openProcessRun, type ProcessRun } from '../../store/processRuns.js';
 import { stageAttempt } from '../../store/stages.js';
 import { collapseDiagnostic } from '../../model/diagnosticText.js';
 import { nowIso } from '../../model/time.js';
-import { parseFindings, type WarnFn } from './findings.js';
+import { parseFindingsResult, type WarnFn } from './findings.js';
 import { buildScopeBlock } from '../agentScope.js';
 import {
   gatesOutcomeBeforeFindings,
@@ -261,6 +261,10 @@ export async function runFindingsLane(opts: RunFindingsLaneOpts): Promise<Findin
   // "the agent looked and found nothing" vs "the agent could not be asked"
   // distinction (Task 8). Never the raw message: it is untrusted CLI prose.
   const crashes: string[] = [];
+  // Repos whose call returned output no findings-shaped container could be
+  // read out of (`shape: 'unreadable'`) — distinct from a target that
+  // answered cleanly with nothing to report.
+  const unreadable: string[] = [];
   for (const target of opts.targets) {
     if (opts.signal?.aborted) {
       debug?.(`[gate] review findings ticket ${opts.ticketId}: stopped before asking`);
@@ -297,11 +301,12 @@ export async function runFindingsLane(opts: RunFindingsLaneOpts): Promise<Findin
         debug?.(`[gate] review findings ticket ${opts.ticketId}: stopped during a call`);
         return stopped();
       }
-      const parsed = parseFindings(
+      const { findings: parsed, shape } = parseFindingsResult(
         result.raw,
         { repo: target.repo, worktreePath: target.worktreePath, max: opts.config.maxFindings },
         opts.warn,
       );
+      if (shape === 'unreadable') unreadable.push(target.repo);
       // F2 per target, not per lane: the call's output is completed, paid-for
       // model output, and persisting it now — before the next target's call,
       // before any aggregation — is what keeps a host restart mid-lane from
@@ -361,6 +366,7 @@ export async function runFindingsLane(opts: RunFindingsLaneOpts): Promise<Findin
   );
   const ran: Extract<FindingsLaneOutcome, { kind: 'ran' }> = { kind: 'ran', findings };
   if (crashes.length > 0) ran.crashes = crashes;
+  if (unreadable.length > 0) ran.unreadable = unreadable;
   if (processRun !== null) ran.processRunId = processRun.id;
   return ran;
 }

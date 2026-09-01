@@ -284,6 +284,35 @@ describe('aggregateReview', () => {
     ).toEqual({ kind: 'verdict', verdict: { kind: 'passed' }, warnings: [] });
   });
 
+  it('R6b: blocks when the findings lane ran and every target was unreadable', () => {
+    const lane: FindingsLaneOutcome = { kind: 'ran', findings: [], unreadable: ['extention'] };
+    const outcome = aggregateReview([lintWeb], [], lane, {
+      requireIndependentSignal: false,
+      findingsBlockingSeverity: 'high',
+    });
+    expect(outcome.kind).toBe('blocked');
+    expect(outcome).toMatchObject({ blocker: 'capability-missing' });
+    expect((outcome as { reason: string }).reason).toContain('unreadable');
+  });
+
+  it('R6b: passes when the lane ran clean (recognized, empty)', () => {
+    const lane: FindingsLaneOutcome = { kind: 'ran', findings: [] };
+    const outcome = aggregateReview([lintWeb], [], lane, {
+      requireIndependentSignal: false,
+      findingsBlockingSeverity: 'high',
+    });
+    expect(outcome).toEqual({ kind: 'verdict', verdict: { kind: 'passed' }, warnings: [] });
+  });
+
+  it('R6b: does not block on unreadable when the threshold is none', () => {
+    const lane: FindingsLaneOutcome = { kind: 'ran', findings: [], unreadable: ['extention'] };
+    const outcome = aggregateReview([lintWeb], [], lane, {
+      requireIndependentSignal: false,
+      findingsBlockingSeverity: 'none',
+    });
+    expect(outcome).toEqual({ kind: 'verdict', verdict: { kind: 'passed' }, warnings: [] });
+  });
+
   it('R6: capability-missing blocks rather than failing — the agent core could not be asked', () => {
     const lane: FindingsLaneOutcome = {
       kind: 'capability-missing',
