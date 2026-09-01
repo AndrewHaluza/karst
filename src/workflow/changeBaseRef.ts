@@ -77,20 +77,31 @@ export async function changeBaseRef(opts: ChangeBaseRefOpts): Promise<ChangeBase
     }
   }
 
-  store.db
-    .prepare('UPDATE worktrees SET base_ref = ? WHERE ticket_id = ? AND repo = ?')
-    .run(toBase, ticketId, repoPath);
-  clearMergeCheck(store, ticketId, repoPath);
-
   // A rebase REWROTE every commit on this branch. If the branch is already on
   // origin — and for a ticket with an open PR it always is — the next ordinary
   // push is a non-fast-forward and will be REJECTED. Record it here, where the
   // rewrite is known, and let ship consume the flag (Task 11). Telling the user
   // in UI copy that they "will need a force-push" is not handling it.
-  if (rebase?.outcome === 'rebased') {
-    store.db
-      .prepare('UPDATE worktrees SET needs_force_push = 1 WHERE ticket_id = ? AND repo = ?')
-      .run(ticketId, repoPath);
+  //
+  // Both columns land in ONE statement: a crash between two separate UPDATEs
+  // would leave the branch moved (git already did it) with the rewrite
+  // unrecorded, so the next push is rejected with no flag to explain why.
+  // `needs_force_push` is only ever ARMED here (never cleared): a call that
+  // did not itself rebase (`rebase: false`, or outcome `already-based`) must
+  // leave a flag some earlier change already armed exactly as it found it —
+  // only `takeForcePushLease`/`armForcePushLease` (ship's push) ever clear it.
+  const rebased = rebase?.outcome === 'rebased' ? 1 : 0;
+  store.db
+    .prepare(
+      `UPDATE worktrees
+          SET base_ref = ?,
+              needs_force_push = CASE WHEN ? = 1 THEN 1 ELSE needs_force_push END
+        WHERE ticket_id = ? AND repo = ?`,
+    )
+    .run(toBase, rebased, ticketId, repoPath);
+  clearMergeCheck(store, ticketId, repoPath);
+
+  if (rebased) {
     debug?.(`[runtime] change base ${repoPath}: branch rewritten — force push armed`);
   }
 

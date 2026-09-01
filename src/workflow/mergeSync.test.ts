@@ -4,6 +4,8 @@ import { createTicket } from '../store/tickets.js';
 import { listMergeChecksByTicket, setMergeCheck } from '../store/mergeChecks.js';
 import type { GitRunner, GitResult } from '../integrations/git.js';
 import { syncMergeChecks } from './mergeSync.js';
+import { resolveBaselineBranchForPath } from '../manifest/baselineBranch.js';
+import { manifest as buildManifest, repo as buildRepo } from '../manifest/fixtures.js';
 
 function seedPr(store: Store, ticketId: number, repo: string, number: number, status: string): void {
   store.db
@@ -262,6 +264,38 @@ describe('syncMergeChecks', () => {
     await syncMergeChecks(store, git, { scope: { projectId: 1 } });
 
     expect(seen[0]!.args).toEqual(['fetch', 'origin', 'develop']);
+  });
+
+  // Regression for the extension.ts wiring bug: a ticket-level base override
+  // (`epic/checkout`) is recorded on `worktrees.base_ref` — the only value that
+  // matches what git actually cut the branch from. `resolveBaselineBranchForPath`
+  // re-derives PURELY from the manifest and knows nothing about that override, so
+  // it must never be handed in as `baseRefFor`: doing so overwrites a correct
+  // per-ticket verdict with one measured against a base the PR does not target.
+  // The default (no `baseRefFor` at all) is the only wiring that stays correct.
+  it('never lets the manifest-derived resolver override a per-ticket base', async () => {
+    const manifest = buildManifest(
+      { api: buildRepo({ repoPath: '/repo/api', baselineBranch: 'develop' }) },
+      { baselineBranch: 'develop' },
+    );
+
+    const t = createTicket(store, { key: 'A', title: 'a', projectId: 1 });
+    seedPr(store, t.id, 'api', 12, 'open');
+    // The worktree was actually cut from `epic/checkout` (a ticket override) —
+    // NOT the manifest default.
+    seedWorktree(store, t.id, 'api', '/repo/api', 'epic/checkout');
+
+    // This is exactly what src/extension.ts:5078 used to pass as `baseRefFor`.
+    // It disagrees with the worktree's recorded base.
+    expect(resolveBaselineBranchForPath(manifest, '/repo/api')).toBe('develop');
+
+    const { git, seen } = scriptedGit(CLEAN);
+    await syncMergeChecks(store, git, { scope: { projectId: 1 } });
+
+    // Without that override wired in, the sweep must measure against the base
+    // the PR actually targets.
+    expect(seen[0]!.args).toEqual(['fetch', 'origin', 'epic/checkout']);
+    expect(listMergeChecksByTicket(store, t.id)[0]!.baseRef).toBe('epic/checkout');
   });
 
   // Same rule as ship: the probe is advisory. It must never be able to break the

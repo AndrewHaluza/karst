@@ -735,6 +735,44 @@ setTimeout(() => {
     expect(row.needs_force_push).toBeNull();
   });
 
+  // The lease is consumed BEFORE the push runs. If the push then fails (a
+  // teammate's push won the race, `--force-with-lease` rejects, the network
+  // drops), the flag must not stay cleared — the branch is STILL rewritten,
+  // so an ordinary retry push would be rejected as a non-fast-forward
+  // forever. The flag must survive the failure so the retry force-pushes.
+  it('re-arms the force-push flag when the leased push itself fails', async () => {
+    const worktree = join(dir, 'fe');
+    seedWorktree(store, id, '/repo/frontend', worktree);
+    store.db
+      .prepare(`UPDATE worktrees SET needs_force_push = 1 WHERE ticket_id = ? AND repo = ?`)
+      .run(id, '/repo/frontend');
+    const remoteSha = 'a'.repeat(40);
+    const localSha = 'b'.repeat(40);
+    const git: GitRunner = async (args) => {
+      if (args[0] === 'diff') return { stdout: '', stderr: '', exitCode: 1 };
+      if (args[0] === 'rev-parse' && args[1] === 'HEAD') {
+        return { stdout: localSha, stderr: '', exitCode: 0 };
+      }
+      if (args[0] === 'rev-parse' && args[2] === 'refs/remotes/origin/karst/x') {
+        return { stdout: remoteSha, stderr: '', exitCode: 0 };
+      }
+      if (args[0] === 'push') {
+        return { stdout: '', stderr: 'stale info', exitCode: 1 };
+      }
+      return { stdout: '', stderr: '', exitCode: 0 };
+    };
+    const { gh } = fakeGh();
+
+    await expect(
+      shipTicket(store, { ticketId: id }, gh, fakeAdapter(), git),
+    ).rejects.toThrow();
+
+    const row = store.db
+      .prepare(`SELECT needs_force_push FROM worktrees WHERE ticket_id = ? AND repo = ?`)
+      .get(id, '/repo/frontend') as { needs_force_push: number | null };
+    expect(row.needs_force_push).toBe(1);
+  });
+
   it('pushes ordinarily when the force-push flag is not armed', async () => {
     seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
     const { gh } = fakeGh();

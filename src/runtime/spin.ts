@@ -137,7 +137,7 @@ export async function spinTicket(
 
   // Validate every hot repo (git repo + has baselineBranch) before any mutation,
   // so a bad branch/path fails fast with a friendly SpinError and nothing partial.
-  preflightSpin(manifest, slug, hot, branch);
+  preflightSpin(manifest, slug, hot, branch, ticket);
 
   const allocator = makePortAllocator(store, manifest.portRange);
   // Stop any servers a prior spin left running for this ticket BEFORE releasing

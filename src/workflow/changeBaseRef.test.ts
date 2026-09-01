@@ -167,4 +167,33 @@ describe('changeBaseRef', () => {
     // Re-targeting alone rewrites nothing — an ordinary push still fast-forwards.
     expect(await armed(false)).toBeFalsy();
   });
+
+  // A crash between two separate UPDATEs would leave the branch moved (git
+  // already rebased) with the rewrite unrecorded — the next push then gets
+  // rejected as a non-fast-forward with no `needs_force_push` flag to explain
+  // why. Both columns must land in ONE statement.
+  it('writes base_ref and needs_force_push in a single UPDATE statement', async () => {
+    const { store, manifest: m, ticketId, repoPath } = seed();
+    const realPrepare = store.db.prepare.bind(store.db);
+    const worktreeUpdates: string[] = [];
+    (store.db as { prepare: typeof store.db.prepare }).prepare = ((sql: string) => {
+      if (/UPDATE\s+worktrees\s+SET/i.test(sql)) worktreeUpdates.push(sql);
+      return realPrepare(sql);
+    }) as typeof store.db.prepare;
+
+    await changeBaseRef({
+      store,
+      manifest: m,
+      ticketId,
+      repoPath,
+      toBase: 'epic/checkout',
+      git: cleanGit,
+    });
+
+    (store.db as { prepare: typeof store.db.prepare }).prepare = realPrepare;
+
+    expect(worktreeUpdates).toHaveLength(1);
+    expect(worktreeUpdates[0]).toMatch(/base_ref/);
+    expect(worktreeUpdates[0]).toMatch(/needs_force_push/);
+  });
 });

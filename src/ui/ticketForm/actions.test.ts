@@ -1306,6 +1306,67 @@ describe('buildTicketFormActions', () => {
     expect(getTicket(store, t.id).baseRefs).toEqual({});
   });
 
+  // The webview's setBaseRef rejection leaves stale text in the input, which
+  // collectBaseRefs() re-sends on Submit — persistDraft must not trust it.
+  it('submit refuses conflicting base refs for entries sharing a repoPath, and creates nothing', async () => {
+    // MANIFEST's `fe` and `be` share repoPath '/repo' by default.
+    const posted: TicketFormHostMessage[] = [];
+    const ctx: TicketFormActionsCtx = {
+      post: (m) => posted.push(m), pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {},
+    };
+    const actions = buildTicketFormActions(deps)(ctx);
+
+    await actions.submit({
+      key: 'NEW-BR', title: 't', description: '', repos: ['fe', 'be'], approach: null, agent: null,
+      model: null, ticketType: null, createInProvider: false,
+      baseRefs: { fe: 'epic/x' },
+    });
+
+    expect(posted.find((m) => m.type === 'error')).toBeTruthy();
+    expect(listTickets(store)).toHaveLength(0);
+    expect(startTicket).not.toHaveBeenCalled();
+  });
+
+  it('save refuses conflicting base refs for entries sharing a repoPath, and creates nothing', async () => {
+    const posted: TicketFormHostMessage[] = [];
+    const ctx: TicketFormActionsCtx = {
+      post: (m) => posted.push(m), pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {},
+    };
+    const actions = buildTicketFormActions(deps)(ctx);
+
+    await actions.save({
+      key: 'DRAFT-BR', title: 't', description: '', repos: ['fe', 'be'], approach: null, agent: null,
+      model: null, ticketType: null, createInProvider: false,
+      baseRefs: { fe: 'epic/x' },
+    });
+
+    expect(posted.find((m) => m.type === 'error')).toBeTruthy();
+    expect(listTickets(store)).toHaveLength(0);
+  });
+
+  // An edit-mode submit must not silently overwrite the ticket's key/title
+  // with a rejected baseRefs payload attached — the assert must run BEFORE
+  // any field is written, not after some fields already landed.
+  it('an edit-mode submit with conflicting base refs leaves the existing ticket untouched', async () => {
+    const t = createTicket(store, { key: 'P-BR-EDIT', title: 'original title' });
+    const posted: TicketFormHostMessage[] = [];
+    const ctx: TicketFormActionsCtx = {
+      post: (m) => posted.push(m), pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, close: () => {},
+    };
+    const actions = buildTicketFormActions(deps)(ctx);
+
+    await actions.submit({
+      key: 'P-BR-EDIT', title: 'a hijacked title', description: '', repos: ['fe', 'be'], approach: null,
+      agent: null, model: null, ticketType: null, createInProvider: false,
+      baseRefs: { fe: 'epic/x' },
+    });
+
+    expect(posted.find((m) => m.type === 'error')).toBeTruthy();
+    expect(getTicket(store, t.id).title).toBe('original title');
+    expect(getTicket(store, t.id).baseRefs).toEqual({});
+    expect(startTicket).not.toHaveBeenCalled();
+  });
+
   it('setAgent persists onto an existing ticket', () => {
     const t = createTicket(store, { key: 'P-A', title: 't' });
     const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, close: () => {} };

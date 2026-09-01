@@ -298,7 +298,6 @@ import { makePortAllocator } from './resolver/allocator.js';
 import {
   defaultGitRunner,
 } from './integrations/git.js';
-import { resolveBaselineBranchForPath } from './manifest/baselineBranch.js';
 import { loadManifest, loadManifestWithDiagnostics, type Manifest } from './manifest/load.js';
 import { DEFAULT_ARCHIVE_DONE_AFTER_DAYS } from './manifest/schema.js';
 import type { PathContext } from './ui/dashboard/state.js';
@@ -5072,13 +5071,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // project from fetching once per repo per minute forever.
       let mergeChanged = 0;
       try {
+        // No `baseRefFor` override: `syncMergeChecks` already defaults to
+        // `pr.baseRef` (which is `worktrees.base_ref` — see `listSyncablePrs`),
+        // the same per-ticket, per-repository base the resolver in
+        // `workflow/baseRef.ts` produces. Re-deriving from the manifest here
+        // would undo a live `changeBaseRef` override and probe the wrong base
+        // (see docs/arch/worktrees-and-servers.md, "The base branch is per
+        // TICKET and per REPOSITORY").
         mergeChanged = await syncMergeChecks(localStore, defaultGitRunner, {
           scope: { projectId: project.id },
           minAgeMs: force ? 0 : MERGE_SYNC_MIN_AGE_MS,
-          baseRefFor: (repo) => {
-            const m = currentManifest();
-            return m ? resolveBaselineBranchForPath(m, repo) : null;
-          },
         });
       } catch (e) {
         // The PR statuses above already landed; a failed merge sweep must not

@@ -235,6 +235,17 @@ function persistDraft(
   deps: TicketFormActionsDeps,
   input: TicketDraftFields,
 ): number {
+  // Validate BEFORE any write. `setBaseRef` runs this same assert on every
+  // interactive change, but a rejection there leaves the stale text sitting in
+  // the webview's input — `collectBaseRefs()` re-sends it on Submit/Save
+  // regardless. Without this check here, an override `setBaseRef` already
+  // refused would land in the store anyway, and spin (which dedups by
+  // repoPath) would cut the shared worktree from whichever manifest entry it
+  // iterates first — exactly the invariant the assert exists to protect.
+  // Runs first, before `key`/`updateTicketCore`/etc., so a rejection leaves
+  // an existing (edit-mode) ticket completely untouched rather than partially
+  // overwritten, and creates nothing in create mode.
+  assertSharedRepoBaseOverrides(deps.manifest, input.baseRefs ?? {});
   // The key is optional on the webview's manual-entry path (§ manual ticket
   // creation): a blank key means "derive one from the title now" (the webview
   // previews the same derivation while you type, so this is normally a no-op
@@ -912,7 +923,16 @@ export function buildTicketFormActions(
     },
 
     async submit(input): Promise<void> {
-      const ticketId = persistDraft(ctx, deps, input);
+      let ticketId: number;
+      try {
+        ticketId = persistDraft(ctx, deps, input);
+      } catch (e) {
+        // A rejected base-ref override (or any other validation persistDraft
+        // enforces) must not create or half-write a ticket — nothing has been
+        // written yet, so reporting and returning here is a clean no-op.
+        ctx.post({ type: 'error', message: errorMessage(e) });
+        return;
+      }
 
       // The create-mode "Also create in ClickUp" checkbox: mint + bind the
       // provider task BEFORE the launch. The Karst ticket is already persisted

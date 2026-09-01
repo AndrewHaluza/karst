@@ -63,6 +63,31 @@ describe('preflightSpin', () => {
     ).not.toThrow();
   });
 
+  // The worktree is about to be cut from the TICKET's override, not the
+  // manifest default — validating the manifest default here would either wrongly
+  // block a valid override (this test) or wrongly pass one naming a branch
+  // absent from the clone (the next test), failing only later inside
+  // `git worktree add`.
+  it('validates the ticket override branch, not the manifest default', () => {
+    const r = repo('epic/checkout'); // only this branch exists in the clone
+    const m = manifest('develop', { frontend: svc(r) });
+    const ticket = { baseRefs: { frontend: 'epic/checkout' } };
+
+    expect(() =>
+      preflightSpin(m, '1-frontend', ['frontend'], undefined, ticket),
+    ).not.toThrow();
+  });
+
+  it('fails fast when the ticket override branch is absent, even though the manifest default exists', () => {
+    const r = repo('develop'); // only the manifest default exists in the clone
+    const m = manifest('develop', { frontend: svc(r) });
+    const ticket = { baseRefs: { frontend: 'epic/checkout' } };
+
+    expect(() => preflightSpin(m, '1-frontend', ['frontend'], undefined, ticket)).toThrow(
+      /branch 'epic\/checkout' not found/,
+    );
+  });
+
   it('names the repository, not a service, when it is missing from the manifest', () => {
     expect(() => preflightSpin(manifest('develop', {}), '1-x', ['ghost'])).toThrow(
       /repository 'ghost' is not in the manifest/,

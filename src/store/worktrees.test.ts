@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { openStore, type Store } from './db.js';
-import { takeForcePushLease } from './worktrees.js';
+import { takeForcePushLease, armForcePushLease } from './worktrees.js';
 
 function seedWorktree(store: Store, ticketId: number, repo: string, needsForcePush: 1 | null): void {
   store.db
@@ -28,5 +28,24 @@ describe('takeForcePushLease', () => {
     seedWorktree(store, 1, '/r', 1);
     expect(takeForcePushLease(store, 1, '/r')).toBe(true);
     expect(takeForcePushLease(store, 1, '/r')).toBe(false);
+  });
+});
+
+describe('armForcePushLease', () => {
+  let store: Store;
+  beforeEach(() => {
+    store = openStore(':memory:');
+  });
+  afterEach(() => store.close());
+
+  // A push that consumed the lease and then FAILED (rejected --force-with-lease,
+  // dropped connection) must be able to hand the flag back — the branch is
+  // still rewritten, so a plain retry push must not be attempted.
+  it('re-arms a lease already consumed, so the next take succeeds', () => {
+    seedWorktree(store, 1, '/r', 1);
+    expect(takeForcePushLease(store, 1, '/r')).toBe(true);
+    // The push using this taken lease failed; re-arm it.
+    armForcePushLease(store, 1, '/r');
+    expect(takeForcePushLease(store, 1, '/r')).toBe(true);
   });
 });
