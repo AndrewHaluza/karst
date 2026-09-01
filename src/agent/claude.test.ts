@@ -556,6 +556,27 @@ describe('ClaudeAdapter.materializeApproach', () => {
     );
     expect(body).not.toContain('--ticket');
   });
+
+  it('slugs a namespaced approach id into a legal /karst:<id> command name', () => {
+    const baseDir = makeDir();
+    const sessionDir = makeDir();
+
+    const result = adapter.materializeApproach!({
+      baseDir,
+      sessionDir,
+      pkg: {
+        id: 'superpowers:writing-plans',
+        label: 'Write a plan first',
+        workflow: [{ name: 'plan' }, { name: 'implement' }],
+      },
+    });
+
+    expect(result.invocation).toBe('/karst:superpowers-writing-plans');
+    const cmdPath = join(sessionDir, '.karst-plugin', 'karst', 'commands', 'superpowers-writing-plans.md');
+    expect(existsSync(cmdPath)).toBe(true);
+    const body = readFileSync(cmdPath, 'utf8');
+    expect(body).toContain('# Write a plan first');
+  });
 });
 
 describe('ClaudeAdapter.runHeadless', () => {

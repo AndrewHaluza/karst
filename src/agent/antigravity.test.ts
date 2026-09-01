@@ -342,5 +342,25 @@ describe('AntigravityAdapter', () => {
       expect(res.invocation).toBe('$do-it');
       expect(body).toContain('**step1**');
     });
+
+    it('slugs a namespaced approach id into a legal workflow skill name', () => {
+      const dir = getTmp();
+      const adapter = new AntigravityAdapter();
+      const res = adapter.materializeApproach({
+        pkg: {
+          id: 'superpowers:writing-plans',
+          label: 'Write a plan first',
+          workflow: [{ name: 'plan' }, { name: 'implement' }],
+        },
+        baseDir: '/base',
+        sessionDir: dir,
+      });
+
+      expect(res.invocation).toBe('$superpowers-writing-plans');
+      const skillDir = join(dir, '.agents', 'plugins', 'karst', 'skills', 'superpowers-writing-plans');
+      expect(existsSync(join(skillDir, 'SKILL.md'))).toBe(true);
+      const body = readFileSync(join(skillDir, 'SKILL.md'), 'utf8');
+      expect(body).toContain('name: superpowers-writing-plans');
+    });
   });
 });

@@ -223,4 +223,16 @@ describe('orchestratorCommandBasename', () => {
     const inv = buildWorkflowInvocation(id, 'K').split(' ')[0];
     expect(inv).toBe(`/${KARST_PLUGIN_NAME}:${orchestratorCommandBasename(id)}`);
   });
+  it('slugs a namespaced approach id (colons are command-name separators)', () => {
+    // `superpowers:writing-plans` is a legal approach id, but the `:` breaks the
+    // generated slash command on every core (UNKNOWN-COMMAND-ISSUE). It must be
+    // slugged into kebab so `/karst:superpowers:writing-plans` becomes the valid
+    // `/karst:superpowers-writing-plans`.
+    expect(orchestratorCommandBasename('superpowers:writing-plans')).toBe(
+      'superpowers-writing-plans',
+    );
+    expect(buildWorkflowInvocation('superpowers:writing-plans', 'KEY-1')).toBe(
+      '/karst:superpowers-writing-plans KEY-1',
+    );
+  });
 });

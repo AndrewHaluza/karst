@@ -1519,4 +1519,23 @@ describe('CodexAdapter approach materialization', () => {
       ).toThrow(/unsafe|reserved/i);
     },
   );
+
+  it('slugs a namespaced approach id into a legal workflow skill name', () => {
+    const worktree = makeWorktree();
+    const result = new CodexAdapter().materializeApproach!({
+      baseDir: makeBasePackage('superpowers:writing-plans', []),
+      sessionDir: worktree,
+      pkg: {
+        id: 'superpowers:writing-plans',
+        label: 'Write a plan first',
+        workflow: [{ name: 'plan' }, { name: 'implement' }],
+      },
+    });
+
+    expect(result.invocation).toBe('$karst-superpowers-writing-plans');
+    const skillDir = join(worktree, '.agents/skills/karst-superpowers-writing-plans');
+    expect(existsSync(join(skillDir, 'SKILL.md'))).toBe(true);
+    const body = readFileSync(join(skillDir, 'SKILL.md'), 'utf8');
+    expect(body).toContain('name: karst-superpowers-writing-plans');
+  });
 });

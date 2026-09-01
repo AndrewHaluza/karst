@@ -10,9 +10,29 @@ import type { WorkflowPhase } from '../manifest/types.js';
  */
 export const KARST_PLUGIN_NAME = 'karst';
 
-/** Basename (no `.md`) of the generated orchestrator file for an approach. */
+/**
+ * Slug an approach id into a command/skill basename that is legal in every
+ * agent's command namespace. An approach id like `superpowers:writing-plans` is
+ * legal in the manifest and as a package directory, but the `:` (a namespace
+ * separator on claude, codex, and agy) and any other non-word punctuation break
+ * the generated command/skill name — claude parsed `/karst:superpowers:writing-plans`
+ * as plugin `karst` + command `superpowers` with `:writing-plans` left over as
+ * args, reporting "Unknown command" (UNKNOWN-COMMAND-ISSUE). Lowercased kebab
+ * matches what every agent discovers under its own plugin/skills dir.
+ */
+export function slugCommandName(raw: string): string {
+  return raw
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/gu, '-')
+    .replace(/^-+|-+$/gu, '');
+}
+
+/**
+ * Basename (no `.md`) of the generated orchestrator file for an approach,
+ * slugged so the slash command it registers is valid on every core.
+ */
 export function orchestratorCommandBasename(approachId: string): string {
-  return approachId;
+  return slugCommandName(approachId);
 }
 
 /**
