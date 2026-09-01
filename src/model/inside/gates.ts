@@ -611,7 +611,7 @@ function testerProcess(input: QualityProcessesInput): InsideProcessView {
   const base = aiProcessBase(input.cell, run, input.configured, input.tokens, input.now, {
     id: 'tester',
     label: 'Tester',
-    failedResultKinds: ['verification-failed'],
+    failedResultKinds: ['verification-failed', 'unreadable-output'],
   });
   return {
     ...base,
@@ -622,11 +622,13 @@ function testerProcess(input: QualityProcessesInput): InsideProcessView {
               ? `${observations.length} observation${observations.length === 1 ? '' : 's'} — advisory`
               : run.resultKind === 'verification-failed'
                 ? 'verifier failed — the observation did not hold'
-                : run.resultKind === 'execution-failed'
-                  ? 'adapter execution failed'
-                  : run.resultKind === 'interrupted'
-                    ? 'interrupted — no outcome'
-                    : undefined,
+                : run.resultKind === 'unreadable-output'
+                  ? 'output unreadable — no observations recorded'
+                  : run.resultKind === 'execution-failed'
+                    ? 'adapter execution failed'
+                    : run.resultKind === 'interrupted'
+                      ? 'interrupted — no outcome'
+                      : undefined,
         }
       : // A key was explicitly selected (not the default/latest path) and no
         // run matched it — the T1 known limit: a legacy run with a null

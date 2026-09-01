@@ -18,6 +18,16 @@ describe('detectInertKeys', () => {
     expect(notices[0]).not.toContain('maxFixAttempts');
   });
 
+  // Task 3.2 wired the key: `uat.testerObservations.blockingSeverity` decides a
+  // UAT verdict, so it is LIVE and must never be reported as inert again.
+  it('never names uat.testerObservations — it has a consumer (Task 3.2)', () => {
+    expect(
+      detectInertKeys({
+        uat: { maxFixAttempts: 3, testerObservations: { blockingSeverity: 'high' } },
+      }),
+    ).toEqual([]);
+  });
+
   it('does not fire for an absent uat block', () => {
     expect(detectInertKeys({ host: 'x' })).toEqual([]);
   });

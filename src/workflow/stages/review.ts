@@ -623,8 +623,20 @@ export async function runReview(
   // verdict, never a recovery round), blocking findings as `blocking`, and a
   // clean lane as `validated`. The artifact path rides along so the inside
   // view can expose the run's log.
+  //
+  // R6b (Task 2.4): every target's answer was unreadable, so `aggregateReview`
+  // returns `blocked`/`capability-missing`, not a failed verdict — R6b never
+  // sets `crashes` either (no call threw). Left unhandled, this fell through to
+  // the `else` branch and recorded a run whose only answer was unreadable as
+  // `passed`/`validated`, contradicting the block. There is no dedicated
+  // "unreadable" result kind in this closed vocabulary — an unreadable answer
+  // is, for the process run's purposes, the same failure to produce anything
+  // usable as a thrown call, so it is recorded the same way: `failed`/
+  // `execution-failed`.
   const crashes: readonly string[] =
     findingsLane.kind === 'ran' ? (findingsLane.crashes ?? []) : [];
+  const unreadableTargets: readonly string[] =
+    findingsLane.kind === 'ran' ? (findingsLane.unreadable ?? []) : [];
   const processRunId =
     findingsLane.kind === 'ran' ? (findingsLane.processRunId ?? null) : null;
   if (processRunId !== null) {
@@ -632,8 +644,14 @@ export async function runReview(
       outcome.kind === 'verdict' &&
       outcome.verdict.kind === 'failed' &&
       (outcome.verdict.reason ?? '').startsWith(FINDINGS_FAILURE_PREFIX);
+    const unreadableBlock =
+      findingsLane.kind === 'ran' &&
+      unreadableTargets.length > 0 &&
+      findingsLane.findings.length === 0 &&
+      outcome.kind === 'blocked' &&
+      outcome.blocker === 'capability-missing';
     const artifactPath = join(opts.artifactDir, `review-ticket-${opts.ticketId}.log`);
-    if (crashes.length > 0) {
+    if (crashes.length > 0 || unreadableBlock) {
       finishProcessRun(store, processRunId, 'failed', now(), 'execution-failed', artifactPath);
     } else if (blocking) {
       finishProcessRun(store, processRunId, 'failed', now(), 'blocking', artifactPath);

@@ -1,8 +1,11 @@
 /**
  * The deterministic Tester verifier boundary (Task 8).
  *
- * The AI UAT Tester's observations are advisory — they can never pass, fail,
- * transition, or spend a recovery round by themselves. The optional
+ * The AI UAT Tester's observations are advisory BY DEFAULT — they can never
+ * pass, fail, transition, or spend a recovery round by themselves. The ONE
+ * knob that makes them a verdict is `uat.testerObservations.blockingSeverity`
+ * (`uat/tester.ts` counts, `stages/uat.ts` decides); its default `'none'`
+ * leaves the behavior below exactly as shipped. The optional
  * `uat.testerVerifier` GateDef is the host-authored deterministic check whose
  * COMPLETED exit code is the sole Tester-specific UAT verdict: 0 completes the
  * Tester, a completed nonzero exit fails UAT (opening a Tester-attributed
@@ -74,6 +77,15 @@ export interface TesterVerifierDeps {
  * the same pattern review's `FINDINGS_FAILURE_PREFIX` uses.
  */
 export const TESTER_VERIFIER_FAILURE_PREFIX = 'uat tester verifier failed: ';
+
+/**
+ * The prefix that attributes a failed UAT verdict to the Tester's OBSERVATIONS
+ * (not its verifier gate) — the same pattern review's `FINDINGS_FAILURE_PREFIX`
+ * uses. Reached only when `uat.testerObservations.blockingSeverity` is set to a
+ * severity; at the default `'none'` no verdict ever carries it. Declared once,
+ * here, so the stage and its tests never hold a second copy of the string.
+ */
+export const TESTER_OBSERVATIONS_FAILURE_PREFIX = 'uat tester observations: ';
 
 /**
  * The single declared gate's invocation — the same `npm run <script>` mapping

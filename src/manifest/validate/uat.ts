@@ -1,14 +1,18 @@
 import { ManifestError } from '../error.js';
 import type {
   GateKind,
+  Severity,
   UatAuthBootstrap,
   UatAuthor,
   UatConfig,
   UatGateDef,
   UatRepositoryOverride,
+  UatTesterObservationsConfig,
 } from '../types.js';
 
 const GATE_KINDS: readonly GateKind[] = ['script', 'command'];
+const SEVERITIES: readonly Severity[] = ['critical', 'high', 'medium', 'low', 'info'];
+const BLOCKING_SEVERITIES: readonly (Severity | 'none')[] = [...SEVERITIES, 'none'];
 
 /** Value shapes that read as a pasted credential rather than a config literal. */
 const CREDENTIAL_PREFIXES = ['sk_live_', 'sk_test_', 'ghp_', 'AKIA', 'SG.'];
@@ -159,6 +163,30 @@ function validateAuthor(raw: unknown): UatAuthor | undefined {
   return author;
 }
 
+/**
+ * Task 3.1: the manifest knob only. `'none'` (absent block, absent key) keeps
+ * every Tester observation advisory — see `uat/testerVerifier.ts`. Rejects
+ * anything outside the closed `Severity` vocabulary plus `'none'`, naming the
+ * config path, matching `review.findings.blockingSeverity`'s wording.
+ */
+function validateTesterObservations(raw: unknown): UatTesterObservationsConfig | undefined {
+  if (raw === undefined) return undefined;
+  if (!isObject(raw)) throw new ManifestError('uat.testerObservations must be a mapping');
+  let blockingSeverity: Severity | 'none' = 'none';
+  if (raw.blockingSeverity !== undefined) {
+    if (
+      typeof raw.blockingSeverity !== 'string' ||
+      !BLOCKING_SEVERITIES.includes(raw.blockingSeverity as Severity | 'none')
+    ) {
+      throw new ManifestError(
+        `uat.testerObservations.blockingSeverity must be one of: ${BLOCKING_SEVERITIES.join(', ')}`,
+      );
+    }
+    blockingSeverity = raw.blockingSeverity as Severity | 'none';
+  }
+  return { blockingSeverity };
+}
+
 function validateRepositories(raw: unknown): Record<string, UatRepositoryOverride> {
   if (raw === undefined) return {};
   if (!isObject(raw)) throw new ManifestError('uat.repositories must be a mapping');
@@ -219,6 +247,8 @@ export function validateUat(raw: unknown): UatConfig | undefined {
   if (raw.testerVerifier !== undefined) {
     config.testerVerifier = validateGate(raw.testerVerifier, 0, 'uat.testerVerifier');
   }
+  const testerObservations = validateTesterObservations(raw.testerObservations);
+  if (testerObservations !== undefined) config.testerObservations = testerObservations;
   const authBootstrap = validateAuthBootstrap(raw.authBootstrap);
   if (authBootstrap !== undefined) config.authBootstrap = authBootstrap;
   const author = validateAuthor(raw.author);

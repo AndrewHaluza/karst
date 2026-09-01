@@ -92,7 +92,7 @@ describe('runUatTester', () => {
       ]),
     );
     const res = await runUatTester(store, opts({ adapter }), { now });
-    expect(res).toEqual({ kind: 'observed', findingIds: [1, 2] });
+    expect(res).toEqual({ kind: 'observed', findingIds: [1, 2], blocking: 0 });
     const run = listProcessRuns(store, ticketId)[0]!;
     expect(run).toMatchObject({
       processId: 'tester',
@@ -133,11 +133,63 @@ describe('runUatTester', () => {
     expect(listUatFindings(store, ticketId).map((f) => f.severity)).toEqual(['critical', 'low']);
   });
 
-  it('malformed output is observed with no findings, not an error', async () => {
-    const { adapter } = rawAdapter('sure, looks fine to me!');
+  // Task 3.2: the observations stay advisory BY DEFAULT. The one manifest knob
+  // `uat.testerObservations.blockingSeverity` (threaded in as
+  // `observationsBlockingSeverity`) is what makes them countable as blocking;
+  // the STAGE turns a nonzero count into a verdict.
+  it('reports blocking observations when the threshold is set', async () => {
+    const { adapter } = rawAdapter(
+      JSON.stringify([
+        { severity: 'high', title: 'login is broken', detail: '' },
+        { severity: 'low', title: 'nit', detail: '' },
+      ]),
+    );
+    const res = await runUatTester(
+      store,
+      opts({ adapter, observationsBlockingSeverity: 'high' }),
+      { now },
+    );
+    expect(res).toMatchObject({ kind: 'observed', blocking: 1, blockingSummary: '1 high' });
+  });
+
+  it('reports no blocking observations when the threshold is none', async () => {
+    const { adapter } = rawAdapter(
+      JSON.stringify([{ severity: 'critical', title: 'data loss', detail: '' }]),
+    );
     const res = await runUatTester(store, opts({ adapter }), { now });
-    expect(res).toEqual({ kind: 'observed', findingIds: [] });
-    expect(listProcessRuns(store, ticketId)[0]!.resultKind).toBe('observed');
+    expect(res).toMatchObject({ kind: 'observed', blocking: 0 });
+    expect(res).not.toHaveProperty('blockingSummary');
+  });
+
+  it('never counts an observation the cap truncated away', async () => {
+    const { adapter } = rawAdapter(
+      JSON.stringify([
+        { severity: 'critical', title: 'data loss', detail: '' },
+        { severity: 'high', title: 'also bad', detail: '' },
+      ]),
+    );
+    const res = await runUatTester(
+      store,
+      opts({ adapter, maxObservations: 1, observationsBlockingSeverity: 'high' }),
+      { now },
+    );
+    // The `high` was cut by the cap; only the surviving `critical` counts.
+    expect(res).toMatchObject({ kind: 'observed', blocking: 1, blockingSummary: '1 critical' });
+  });
+
+  it('closes the run as unreadable-output when the core answered prose', async () => {
+    const { adapter } = rawAdapter('I ran the tests and everything looked fine.');
+    const res = await runUatTester(store, opts({ adapter }), { now });
+    expect(res).toEqual({ kind: 'unreadable-output' });
+    const run = listProcessRuns(store, ticketId).at(-1)!;
+    expect(run.resultKind).toBe('unreadable-output');
+    expect(run.status).toBe('failed');
+  });
+
+  it('still closes as observed when every target answered an empty array', async () => {
+    const { adapter } = rawAdapter('[]');
+    const res = await runUatTester(store, opts({ adapter }), { now });
+    expect(res).toEqual({ kind: 'observed', findingIds: [], blocking: 0 });
   });
 
   it('an adapter crash is execution-failed, finished failed, and never transitions anything', async () => {
@@ -250,7 +302,7 @@ describe('runUatTester', () => {
       }),
       { now },
     );
-    expect(res).toEqual({ kind: 'observed', findingIds: [1] });
+    expect(res).toEqual({ kind: 'observed', findingIds: [1], blocking: 0 });
     // No token was spent on a target the agent could not have tested.
     expect(calls).toEqual([]);
     const run = listProcessRuns(store, ticketId)[0]!;
@@ -279,7 +331,7 @@ describe('runUatTester', () => {
       }),
       { now },
     );
-    expect(res).toEqual({ kind: 'observed', findingIds: [] });
+    expect(res).toEqual({ kind: 'observed', findingIds: [], blocking: 0 });
     expect(calls).toHaveLength(1);
     expect(listUatFindings(store, ticketId)).toEqual([]);
   });
@@ -305,7 +357,7 @@ describe('runUatTester', () => {
       }),
       { now },
     );
-    expect(res).toEqual({ kind: 'observed', findingIds: [] });
+    expect(res).toEqual({ kind: 'observed', findingIds: [], blocking: 0 });
     expect(calls).toHaveLength(1);
     expect(listUatFindings(store, ticketId)).toEqual([]);
   });
@@ -321,7 +373,7 @@ describe('runUatTester', () => {
       }),
       { now },
     );
-    expect(res).toEqual({ kind: 'observed', findingIds: [1] });
+    expect(res).toEqual({ kind: 'observed', findingIds: [1], blocking: 0 });
     expect(calls).toEqual([]);
     expect(listUatFindings(store, ticketId)[0]).toMatchObject({ severity: 'critical' });
   });
@@ -466,7 +518,7 @@ describe('runUatTester', () => {
       opts({ adapter, debug: (m) => lines.push(m) }),
       { now },
     );
-    expect(res).toEqual({ kind: 'observed', findingIds: [1] });
+    expect(res).toEqual({ kind: 'observed', findingIds: [1], blocking: 0 });
     // Entry: what is being attempted — targets and the execution cap.
     expect(lines.some((l) => l.includes('uat tester ticket') && l.includes('1 target(s)'))).toBe(
       true,

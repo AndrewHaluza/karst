@@ -3,15 +3,26 @@
  * the required gates pass. It asks an agent core for structured OBSERVATIONS
  * of a ticket's behavior and records them as advisory evidence.
  *
- * The observations can never pass, fail, transition, or spend a recovery
- * round by themselves: `aggregateUat` never sees them, and only the optional
+ * BY DEFAULT the observations can never pass, fail, transition, or spend a
+ * recovery round by themselves: `aggregateUat` never sees them (and never
+ * will — the pure gate aggregate stays free of AI output), and the optional
  * deterministic `uat.testerVerifier` boundary (the stage's job, in
- * `uat/testerVerifier.ts`) is a Tester-specific verdict source. The process
+ * `uat/testerVerifier.ts`) is a Tester-specific verdict source.
+ *
+ * There is exactly ONE knob that makes an observation a verdict:
+ * `uat.testerObservations.blockingSeverity` (threaded in here as
+ * `observationsBlockingSeverity`). Absent, or `'none'` — which is the default
+ * and what every manifest that omits the block reads as — nothing changes:
+ * observations are recorded and are advisory, exactly as shipped. Set to a
+ * severity, this module COUNTS the recorded observations at or above it
+ * (`blocking`) and the UAT STAGE turns a nonzero count into a failed verdict
+ * with a Tester-attributed recovery round. The count is never a verdict here.
+ * The process
  * run is opened HERE, before the first AI call, with the resolved assignment
  * snapshot — so the row exists durably (a host restart mid-call leaves a
  * `running` row the activation sweep marks stale), carries WHO ran it as it
  * was at launch, and is finished with an explicit result kind
- * (`observed`/`execution-failed`/`interrupted`).
+ * (`observed`/`execution-failed`/`unreadable-output`/`interrupted`).
  *
  * The prompt/parse boundary is review's own `parseFindings` (`review/findings.ts`):
  * whole-document JSON then JSONL, a closed severity vocabulary, in-worktree
@@ -30,7 +41,7 @@ import { defaultGitRunner, type GitRunner } from '../../integrations/git.js';
 import { openProcessRun, finishProcessRun } from '../../store/processRuns.js';
 import { stageAttempt } from '../../store/stages.js';
 import { recordUatFindings, type UatFindingInput } from '../../store/uatFindings.js';
-import { parseFindings, type WarnFn } from '../review/findings.js';
+import { parseFindingsResult, type FindingsParseShape, type WarnFn } from '../review/findings.js';
 import { buildScopeBlock } from '../agentScope.js';
 import { collapseDiagnostic } from '../../model/diagnosticText.js';
 import { nowIso } from '../../model/time.js';
@@ -133,16 +144,52 @@ export interface RunUatTesterOpts {
    * → the prompt names no gates (never a fabricated list).
    */
   gatesPassed?: readonly string[];
+  /**
+   * `uat.testerObservations.blockingSeverity` (Task 3.2). ABSENT → `'none'`,
+   * which is the shipped behavior: observations are advisory and `blocking` is
+   * always 0. Set to a severity, every recorded observation at or above it is
+   * counted into the result's `blocking` — counted over the FINAL capped list,
+   * so an observation the cap truncated away can never block. The count is
+   * reported, never acted on here: the UAT stage owns the verdict.
+   */
+  observationsBlockingSeverity?: Severity | 'none';
 }
 
 /**
  * The closed Tester result. `observed` is the ONLY advisory success — it
  * carries the ids of the recorded rows; `execution-failed` is an adapter crash
- * (the stage warns and lets the gates decide); `interrupted` is a Stop.
+ * (the stage warns and lets the gates decide); `unreadable-output` is every
+ * asked target answering something no findings could be read out of;
+ * `interrupted` is a Stop.
  */
 export type TesterRunResult =
-  | { kind: 'observed'; findingIds: number[] }
+  | {
+      kind: 'observed';
+      findingIds: number[];
+      /**
+       * How many of the RECORDED observations are at or above
+       * `observationsBlockingSeverity`. Always 0 at the default `'none'` — the
+       * advisory behavior. A nonzero count is what the UAT stage turns into a
+       * failed verdict; this module states the count and nothing more.
+       */
+      blocking: number;
+      /**
+       * The severity breakdown of those blocking observations (`"1 high"`,
+       * `"2 critical, 1 high"`), in the same wording review's findings verdict
+       * uses. Present only when `blocking > 0`, so the advisory result shape is
+       * unchanged.
+       */
+      blockingSummary?: string;
+    }
   | { kind: 'execution-failed'; message: string }
+  /**
+   * Every target answered, and not one answer carried a findings-shaped
+   * container we could read. Distinct from `observed` with zero findings: a
+   * clean run is silent BY SAYING SO (`[]`), and reading an unreadable answer
+   * as a clean one is what turned a `high` observation into "0 observations —
+   * advisory". Advisory still: the ordinary UAT gates decide the stage.
+   */
+  | { kind: 'unreadable-output' }
   | { kind: 'interrupted' };
 
 export const DEFAULT_MAX_TESTER_OBSERVATIONS = 100;
@@ -168,6 +215,36 @@ const SEVERITY_RANK: Readonly<Record<Severity, number>> = {
   low: 3,
   info: 4,
 };
+
+/** Severities from most to least severe — the order a breakdown is read in. */
+const SEVERITIES_BY_RANK = (Object.keys(SEVERITY_RANK) as Severity[]).sort(
+  (a, b) => SEVERITY_RANK[a] - SEVERITY_RANK[b],
+);
+
+/**
+ * The observations at or above `threshold`, summarized. `'none'` (the default)
+ * yields zero and no summary — the advisory behavior. Pure, and applied to the
+ * FINAL capped list so a truncated observation never counts.
+ */
+export function countBlockingObservations(
+  observations: readonly { severity: Severity }[],
+  threshold: Severity | 'none',
+): { blocking: number; blockingSummary?: string } {
+  if (threshold === 'none') return { blocking: 0 };
+  const limit = SEVERITY_RANK[threshold];
+  const counts = new Map<Severity, number>();
+  let blocking = 0;
+  for (const o of observations) {
+    if (SEVERITY_RANK[o.severity] > limit) continue;
+    blocking += 1;
+    counts.set(o.severity, (counts.get(o.severity) ?? 0) + 1);
+  }
+  if (blocking === 0) return { blocking: 0 };
+  const blockingSummary = SEVERITIES_BY_RANK.filter((s) => counts.has(s))
+    .map((s) => `${counts.get(s)} ${s}`)
+    .join(', ');
+  return { blocking, blockingSummary };
+}
 
 export interface TesterDeps {
   /** Injected clock, so tests are deterministic. */
@@ -264,6 +341,9 @@ export async function runUatTester(
 
   const cap = opts.maxObservations ?? DEFAULT_MAX_TESTER_OBSERVATIONS;
   const collected: UatFindingInput[] = [];
+  // One shape per target actually ASKED — the deterministic wrong-checkout
+  // `continue` below pushes nothing here, since it never asked the core.
+  const shapes: FindingsParseShape[] = [];
   const debug = opts.debug;
   const git = opts.git ?? defaultGitRunner;
   debug?.(
@@ -326,7 +406,7 @@ export async function runUatTester(
       // Finding 13 follow-up: the budget is NOT a reason to skip a target;
       // every configured repository is asked, and the cap is applied once,
       // after collection.
-      const parsed = parseFindings(
+      const parseResult = parseFindingsResult(
         result.raw,
         {
           repo: target.repo,
@@ -334,7 +414,9 @@ export async function runUatTester(
           max: cap,
         },
         opts.warn,
-      ).map((f) => ({
+      );
+      shapes.push(parseResult.shape);
+      const parsed = parseResult.findings.map((f) => ({
         severity: f.severity,
         repo: f.repo,
         file: f.file,
@@ -343,7 +425,7 @@ export async function runUatTester(
       }));
       debug?.(
         `[gate] uat tester ticket ${opts.ticketId}: target ${target.repo} returned ` +
-          `${parsed.length} observation(s)`,
+          `${parsed.length} observation(s) (${parseResult.shape})`,
       );
       opts.onTargetProgress?.({
         repo: target.repo,
@@ -356,6 +438,17 @@ export async function runUatTester(
       debug?.(`[gate] uat tester ticket ${opts.ticketId}: stopped — interrupted`);
       close('interrupted', 'interrupted');
       return { kind: 'interrupted' };
+    }
+    // Every target that was actually ASKED came back unreadable, and nothing
+    // deterministic was recorded either: there is no evidence here, and calling
+    // that "0 observations" is the bug this branch exists to close.
+    if (shapes.length > 0 && shapes.every((s) => s === 'unreadable') && collected.length === 0) {
+      debug?.(
+        `[gate] uat tester ticket ${opts.ticketId}: ${shapes.length} target(s) answered ` +
+          `unreadable output — recorded no observations`,
+      );
+      close('failed', 'unreadable-output');
+      return { kind: 'unreadable-output' };
     }
     // The execution-wide cap is applied ONCE over everything every target
     // contributed, ranked by severity (critical first) and stable — ties keep
@@ -382,10 +475,19 @@ export async function runUatTester(
       createdAt: now(),
     });
     close('passed', 'observed');
+    // Counted over the FINAL capped list, never over `collected` — an
+    // observation the cap truncated away was not recorded and must not block.
+    const threshold = opts.observationsBlockingSeverity ?? 'none';
+    const { blocking, blockingSummary } = countBlockingObservations(observations, threshold);
     debug?.(
-      `[gate] uat tester ticket ${opts.ticketId}: recorded ${findingIds.length} finding(s) — observed`,
+      `[gate] uat tester ticket ${opts.ticketId}: recorded ${findingIds.length} finding(s) — observed` +
+        (threshold === 'none'
+          ? ' (observations advisory — blockingSeverity none)'
+          : ` (blockingSeverity ${threshold} → ${blocking} blocking)`),
     );
-    return { kind: 'observed', findingIds };
+    return blockingSummary === undefined
+      ? { kind: 'observed', findingIds, blocking }
+      : { kind: 'observed', findingIds, blocking, blockingSummary };
   } catch (error) {
     // Abort can surface as a rejected adapter promise instead of a fulfilled
     // result. Stop is terminal in either shape: it must not turn into an

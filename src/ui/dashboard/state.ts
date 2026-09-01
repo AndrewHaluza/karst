@@ -8,7 +8,7 @@ import {
   type WorktreeView,
 } from '../../store/dashboard.js';
 import { isKarstCheckout } from '../../commands/launchWorktree.js';
-import type { TicketProvider, AgentProvider } from '../../manifest/types.js';
+import type { TicketProvider, AgentProvider, Severity } from '../../manifest/types.js';
 import { providerTicketUrl } from '../../integrations/ticketUrl.js';
 import { buildStepper, displayStatus, type StepperCell } from '../../model/stepper.js';
 import { buildShipSlot, type ShipSlot } from '../../model/shipSlot.js';
@@ -18,7 +18,7 @@ import { resolveEffortForProvider } from '../../agent/models.js';
 import { AGENT_PROVIDER_LABELS } from '../../model/agentIdentity.js';
 import { buildStageRail, type StageRail } from '../../model/stageRail.js';
 import { listGateRuns } from '../../store/gateRuns.js';
-import { listFindings } from '../../store/reviewFindings.js';
+import { listFindings, findingsForAttempt } from '../../store/reviewFindings.js';
 import { listPhaseMarks } from '../../store/phaseMarks.js';
 import { listTicketLogs } from '../../store/ticketLogs.js';
 import { listMergeChecksByTicket } from '../../store/mergeChecks.js';
@@ -368,6 +368,15 @@ export function buildDashboardState(
    * free text either way. Appended LAST for the same reason.
    */
   baseBranchCandidatesFor: (repoPath: string) => string[] = () => [],
+  /**
+   * The manifest's `review.findings.blockingSeverity` (Task 4.1). Injected
+   * (the state builder never reads the manifest) and defaults to `'none'`,
+   * which keeps the ship-stage warning row silent for a caller that never
+   * supplies this — the same "absent degrades to no signal" policy every
+   * other injected manifest fact in this builder follows. Appended LAST so
+   * every existing positional caller keeps its argument positions.
+   */
+  findingsBlockingSeverity: Severity | 'none' = 'none',
 ): DashboardState {
   const ticket = getTicket(store, ticketId); // throws on unknown id
   // The parent relationship for the dashboard's secondary metadata line. A
@@ -725,6 +734,35 @@ export function buildDashboardState(
         repoNameFor,
         processRuns,
         tokens: tokensFor('pr-description'),
+        // Ruling (fix round 1, overriding the brief's `latestFindingBatch`):
+        // findings are append-only with no resolve path, and a clean re-review
+        // records NO batch at all (`workflow/gates/evidence.ts`'s early return
+        // on zero findings). `latestFindingBatch`'s greatest-`runAt` reduction
+        // therefore keeps re-surfacing a fixed-and-passed ticket's stale batch
+        // forever — it is never superseded by an empty one that was never
+        // written. Scoped to the review STAGE's CURRENT `attempt` instead:
+        // `attempt` only climbs on a FAILED verdict (`workflow/machine.ts`) and
+        // holds on a pass, so a fail-then-fix-then-pass re-review shares its
+        // attempt number with the fail it followed — the fail's findings are
+        // still "this attempt"'s findings, and a LATER attempt (a fresh fail)
+        // silently drops them, exactly the "cleared" reading a permanent-noise
+        // row cannot give.
+        //
+        // Intended reach (deliberate, not an oversight): because `attempt`
+        // climbs only on a failed verdict, this row is SILENT on the ordinary
+        // fail→fix→clean-pass path — and a ticket with unresolved
+        // current-attempt blocking findings cannot reach ship anyway, since R6
+        // fails review first. The row is a BACKSTOP, not the primary gate: it
+        // catches a `review.findings.blockingSeverity` threshold lowered AFTER
+        // the review passed, and a ticket advanced to ship by hand. The
+        // attempt scoping is the trade that buys that backstop without a
+        // permanent, unclearable false-red row (see the ruling above).
+        findings: findingsForAttempt(
+          store,
+          ticketId,
+          ticket.stages.find((s) => s.stageKey === 'review')?.attempt ?? 0,
+        ),
+        findingsBlockingSeverity,
       }),
       now,
     ),

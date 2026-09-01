@@ -52,7 +52,7 @@ const FAIL = uatDeps(1);
  * UAT (which probes `test`/`e2e`) does not — the independence rule of §6.4 R7.
  */
 const adapter: AgentAdapter = {
-  runHeadless: async () => ({ sessionId: 's', verdict: null, raw: 'PR body.' }),
+  runHeadless: async () => ({ sessionId: 's', verdict: null, raw: '[]' }),
   buildInteractiveCommand: () => ({ command: 'claude', args: [], env: {} }),
   requiredBinary: 'claude',
   capabilities: { lifecycleEvents: true, resume: true },
@@ -61,11 +61,12 @@ const adapter: AgentAdapter = {
 /**
  * The findings lane (Lane B) defaults to ON (constraints.md), so this spine
  * needs an agent core wired for review or every gate-clean run would park
- * capability-missing instead of reaching ship. `adapter`'s raw output ('PR
- * body.') is not JSON, which is exactly the "garbage response" case the lane
- * must degrade gracefully from — zero findings, verdict still decided by the
- * gates. That is deliberate here: this spine is about the STAGE MACHINE, not
- * Lane B, which has its own dedicated coverage in `stages/review.test.ts`.
+ * capability-missing instead of reaching ship. `adapter`'s raw output ('[]')
+ * is a clean, recognized-empty findings answer — this spine is about the
+ * STAGE MACHINE, not Lane B (which has its own dedicated coverage in
+ * `stages/review.test.ts`), and an unreadable answer now blocks review
+ * (R6b) rather than degrading to a gate-decided verdict, so this fixture
+ * must answer readably to keep exercising the stage machine past review.
  */
 function reviewDeps(exitCode: number): ReviewDeps {
   return {

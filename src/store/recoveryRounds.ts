@@ -52,6 +52,12 @@ export type RecoverySourceProcessId = 'gates' | 'tester' | 'review';
 export type RecoveryTriggerKind =
   | 'gate-failure'
   | 'tester-verifier-failure'
+  /**
+   * A UAT Tester observation at or above `uat.testerObservations.blockingSeverity`
+   * (default `'none'` — never produced unless a project opts in). The UAT twin of
+   * `blocking-review-findings`.
+   */
+  | 'blocking-tester-observations'
   | 'blocking-review-findings';
 export type RecoveryStatus =
   | 'pending'
@@ -111,6 +117,7 @@ const SOURCE_PROCESS_IDS: readonly string[] = ['gates', 'tester', 'review'];
 const TRIGGER_KINDS: readonly string[] = [
   'gate-failure',
   'tester-verifier-failure',
+  'blocking-tester-observations',
   'blocking-review-findings',
 ];
 const STATUSES: readonly string[] = [

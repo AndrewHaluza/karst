@@ -404,6 +404,53 @@ uat:
       cleanup();
     }
   });
+
+  // Task 3.1: uat.testerObservations.blockingSeverity — the ONE manifest knob
+  // that lets a project opt a Tester observation's severity into blocking
+  // UAT's verdict. Defaults to 'none' so every existing manifest, and every
+  // manifest that omits the block entirely, behaves byte-identically.
+  it('reads uat.testerObservations.blockingSeverity', () => {
+    const yaml = `${VALID}
+uat:
+  maxFixAttempts: 2
+  testerObservations:
+    blockingSeverity: high
+`;
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(loadManifest(path).uat?.testerObservations?.blockingSeverity).toBe('high');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('defaults uat.testerObservations.blockingSeverity to none', () => {
+    const yaml = `${VALID}
+uat:
+  maxFixAttempts: 2
+`;
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(loadManifest(path).uat?.testerObservations?.blockingSeverity ?? 'none').toBe('none');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('rejects an unknown uat.testerObservations.blockingSeverity', () => {
+    const yaml = `${VALID}
+uat:
+  maxFixAttempts: 2
+  testerObservations:
+    blockingSeverity: URGENT
+`;
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(() => loadManifest(path)).toThrow(/blockingSeverity/);
+    } finally {
+      cleanup();
+    }
+  });
 });
 
 describe('repositories without a service', () => {

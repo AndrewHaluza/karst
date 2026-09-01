@@ -678,6 +678,16 @@ export class DashboardManager {
       // Cached candidates, warmed by `prefetchBranchCandidates` below — never
       // fetched HERE, since this builder must stay synchronous.
       (repoPath) => this.branchCandidates.get(repoPath) ?? [],
+      // Task 4.1: the ship-stage warning row's threshold. Absent manifest, or
+      // the findings lane switched off entirely (`enabled: false` — the
+      // shipped example config's alternative to lowering blockingSeverity),
+      // both read as `'none'`: an `enabled: false` project records no
+      // findings at all, so a leftover `blockingSeverity: 'high'` beside it
+      // must not light up a row nothing on record can ever satisfy.
+      (() => {
+        const findings = this.manifest?.()?.review?.findings;
+        return findings?.enabled === false ? 'none' : (findings?.blockingSeverity ?? 'none');
+      })(),
     );
     // A key the new snapshot no longer resolved to is dropped from panel
     // memory: `selectedAttempt` reports what the builder actually rendered,

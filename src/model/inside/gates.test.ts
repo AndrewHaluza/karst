@@ -476,6 +476,17 @@ describe('uatProcesses', () => {
     expect(views.map((p) => p.id)).not.toContain('fix');
   });
 
+  it('renders an unreadable Tester answer distinctly from zero observations', () => {
+    const tester = processRun({ id: 5, status: 'passed', resultKind: 'unreadable-output' });
+    const views = uatProcesses(
+      qualityInput({
+        processRuns: [tester],
+      }),
+    );
+    const row = views.find((p) => p.id === 'tester')!;
+    expect(row.detail).toBe('output unreadable — no observations recorded');
+  });
+
   it('scopes observations to the LATEST tester run by invocation id', () => {
     const tester = processRun({ id: 9, status: 'passed', resultKind: 'observed' });
     const views = uatProcesses(

@@ -5,7 +5,8 @@ import { dirname, join } from 'node:path';
 import { openStore, type Store } from '../../store/db.js';
 import { createTicket, updateTicketFields } from '../../store/tickets.js';
 import { setStage } from '../../store/stages.js';
-import { manifest, processes, runnableRepo } from '../../manifest/fixtures.js';
+import { manifest, processes, review, runnableRepo } from '../../manifest/fixtures.js';
+import { recordFindings } from '../../store/reviewFindings.js';
 import { openProcessRun, finishProcessRun } from '../../store/processRuns.js';
 import { openStageRun } from '../../store/stageRuns.js';
 import { recordGateRun } from '../../store/gateRuns.js';
@@ -406,6 +407,41 @@ describe('DashboardManager', () => {
     expect(tester?.configuredExecution).toMatchObject({ provider: 'codex', model: expect.any(String) });
     const services = uat.processes.find((p: any) => p.id === 'services');
     expect(services?.detail).not.toBe('');
+  });
+
+  it('stays silent on the ship-findings row when the findings lane is disabled (Task 4.1 fix round 1, ruling 4)', () => {
+    // The shipped example config's alternative to lowering blockingSeverity
+    // is `enabled: false` — the lane records no findings at all when off, so
+    // a leftover high blockingSeverity beside it must not light up a row
+    // nothing on record can ever satisfy.
+    const t = createTicket(store, { key: 'FD-1', title: 'findings disabled' });
+    store.db.prepare("UPDATE tickets SET stage_current = 'ship' WHERE id = ?").run(t.id);
+    setStage(store, t.id, 'review', { attempt: 1 });
+    recordFindings(store, {
+      ticketId: t.id,
+      attempt: 1,
+      runAt: '2026-09-01T00:00:00.000Z',
+      findings: [{ severity: 'high', repo: '', title: 'stale', detail: '', source: 'agent' }],
+    });
+    const m = manifest(
+      {},
+      { review: review({ findings: { enabled: false, blockingSeverity: 'high', maxFindings: 50 } }) },
+    );
+    const { host, panels } = fakeHost();
+    const mgr = new DashboardManager(
+      store,
+      host,
+      () => ({}) as never,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      () => m,
+    );
+
+    mgr.openDashboard(t.id);
+
+    const state = (panels[0]!.posted.find((msg: any) => msg.type === 'state') as any).state;
+    const ship = state.insideViews.ship;
+    expect(ship.processes.find((p: any) => p.id === 'ship-findings')).toBeUndefined();
   });
 
   it('reports a rejected inside action as a failure, not a success', () => {

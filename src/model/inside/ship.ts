@@ -1,5 +1,7 @@
 import type { MergeCheckRow } from '../../store/mergeChecks.js';
 import type { ProcessRun } from '../../store/processRuns.js';
+import type { Finding } from '../../store/reviewFindings.js';
+import type { Severity } from '../../manifest/types.js';
 import {
   parseShipPreState,
   type ShipEvidence,
@@ -72,6 +74,72 @@ export interface ShipProcessesInput {
   processRuns?: readonly ProcessRun[];
   /** Recorded spend of the PR-description process; omitted when unmeasured. */
   tokens?: SessionTokensInput | null;
+  /**
+   * The ticket's latest review-findings batch (`latestFindingBatch`). Read
+   * here only to surface unresolved blocking severities as a warning row —
+   * ship has no `failed` edge (graph.ts), so this is the human's only signal
+   * that evidence recorded earlier in the ticket's life is still unresolved.
+   *
+   * REVIEW FINDINGS ONLY. This row reads `review_findings` and is gated by
+   * `review.findings.blockingSeverity`. Tester observations live in a
+   * different table (`store/uatFindings.ts`) behind a different knob
+   * (`uat.testerObservations.blockingSeverity`) and are NOT surfaced here.
+   */
+  findings?: readonly Finding[];
+  /** The manifest's `review.findings.blockingSeverity`; `'none'` disables the row entirely. */
+  findingsBlockingSeverity?: Severity | 'none';
+}
+
+/** Rank for severity comparisons — lower is worse. Kept local per-module, like `aggregate.ts` and `tester.ts`. */
+const SHIP_SEVERITY_RANK: Readonly<Record<Severity, number>> = {
+  critical: 0,
+  high: 1,
+  medium: 2,
+  low: 3,
+  info: 4,
+};
+
+/**
+ * A warning row naming unresolved blocking-severity findings still on record
+ * for the ticket at the ship stage. `ship` has no `failed` edge (graph.ts),
+ * so a blocking REVIEW finding recorded earlier (this row reads
+ * `review_findings` only — never `uat_findings`/Tester observations)
+ * can route nowhere on its own — this is a READ of existing evidence, no
+ * action beyond the file locations the findings already carry (`docs/arch/diagnostics.md`:
+ * reporting observes and never reaches back). Undefined when the threshold is
+ * `'none'`/absent or nothing on record meets it.
+ */
+function shipFindingsWarning(input: ShipProcessesInput): InsideProcessView | undefined {
+  const threshold = input.findingsBlockingSeverity;
+  if (!threshold || threshold === 'none') return undefined;
+  const findings = input.findings ?? [];
+  const limit = SHIP_SEVERITY_RANK[threshold];
+  const blocking = findings.filter((f) => SHIP_SEVERITY_RANK[f.severity] <= limit);
+  if (blocking.length === 0) return undefined;
+  const worst = blocking.reduce(
+    (w, f) => (SHIP_SEVERITY_RANK[f.severity] < SHIP_SEVERITY_RANK[w] ? f.severity : w),
+    blocking[0]!.severity,
+  );
+  return {
+    // `kind` mirrors `id`, like every other row in this file (`commit`,
+    // `push`, `pr`, `merge`) — the webview's `DEFAULT_OPEN_PROCESS_KINDS`
+    // lookup and any future per-kind styling key off this field, and a
+    // mismatched pair here would answer "what renderer am I" two different
+    // ways for the one row in the stage that isn't always present.
+    id: 'ship-findings',
+    kind: 'ship-findings',
+    label: 'Findings',
+    // NOT `'fail'`: this row's status is the ship PROCESS's own verdict
+    // (UI-R14/UI-R28b), and nothing at ship failed — the finding failed
+    // review, several stages ago. `'wait'` reads as the amber "needs your
+    // attention" state (`--p-attention` in webview.html), same as an open PR
+    // waiting to merge, with an explicit `statusLabel` so neither the visible
+    // word nor a screen reader ever says "waiting" for evidence that will
+    // never resolve on its own.
+    status: 'wait',
+    statusLabel: 'needs attention',
+    detail: `${blocking.length} ${worst} finding${blocking.length === 1 ? '' : 's'} — send back to Implement to fix ${blocking.length === 1 ? 'it' : 'them'}`,
+  };
 }
 
 /**
@@ -724,9 +792,18 @@ function mergeProcess(input: ShipProcessesInput): InsideProcessView {
   };
 }
 
-/** The ship stage's processes: commit, push, pr, merge, in registry order. */
+/**
+ * The ship stage's processes: commit, push, pr, merge, in `INSIDE_PROCESSES.
+ * ship` registry order (`registry.ts`) — preceded by the `ship-findings`
+ * warning row when unresolved blocking findings are on record. That row is
+ * NOT part of the registered roster: unlike every id in `INSIDE_PROCESSES`,
+ * which always renders (even as an empty/pending row), `ship-findings` is
+ * entirely absent whenever nothing blocks, which is the common case.
+ */
 export function shipProcesses(input: ShipProcessesInput): InsideProcessView[] {
+  const warning = shipFindingsWarning(input);
   return [
+    ...(warning ? [warning] : []),
     commitProcess(input),
     pushProcess(input),
     prProcess(input),

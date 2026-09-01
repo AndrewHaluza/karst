@@ -1305,13 +1305,18 @@ describe('review findings lane (Lane B)', () => {
     expect(listFindings(store, id)).toEqual([]);
   });
 
-  it('a garbage (unparseable) agent response still reaches a gate-based verdict', async () => {
+  // R6b: an agent response that carries no readable JSON at all is not a
+  // clean review — it is the vacuous-pass bug this whole plan closes. The
+  // lane still runs and reaches `ran` (never breaking the stage), but the
+  // aggregate now blocks rather than reading unreadable output as "nothing
+  // wrong", so this response can no longer wave a ticket through to ship.
+  it('an unreadable (fully prose) agent response blocks instead of reaching a vacuous pass', async () => {
     const res = await runReview(
       store,
       { ticketId: id, cwd: '/wt/web', artifactDir },
       deps({ findingsAdapter: findingsAgent('sure, looks fine to me!') }),
     );
-    expect(res).toEqual({ kind: 'advanced', next: 'ship' });
+    expect(res).toMatchObject({ kind: 'blocked', blocker: 'capability-missing' });
     expect(listFindings(store, id)).toEqual([]);
   });
 
@@ -1330,7 +1335,7 @@ describe('review findings lane (Lane B)', () => {
       { ticketId: id, cwd: '/wt/web', artifactDir },
       deps({ findingsAdapter: findingsAgent('sure, looks fine to me!'), warn }),
     );
-    expect(res).toEqual({ kind: 'advanced', next: 'ship' });
+    expect(res).toMatchObject({ kind: 'blocked', blocker: 'capability-missing' });
     expect(warn).toHaveBeenCalled();
     expect(warn.mock.calls.some(([message]) => message.includes('not recognizable JSON'))).toBe(true);
     expect(consoleWarn).not.toHaveBeenCalled();
@@ -1546,6 +1551,20 @@ describe('runReview — findings process run (Task 8)', () => {
       sourceProcessRunId: run.id,
       triggerKind: 'blocking-review-findings',
     });
+  });
+
+  // R6b (Task 2.4): a run whose only answer was unreadable must not be
+  // recorded as `validated` — that would contradict the `blocked` outcome
+  // and read, in the process history, as a review that actually happened.
+  it('finishes the Review process run execution-failed, never validated, on an R6b unreadable block', async () => {
+    const res = await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}, { review: reviewConfig() }) },
+      reviewProcessDeps('sure, looks fine to me!'),
+    );
+    expect(res).toMatchObject({ kind: 'blocked', blocker: 'capability-missing' });
+    const run = listProcessRuns(store, id)[0]!;
+    expect(run).toMatchObject({ resultKind: 'execution-failed', status: 'failed' });
   });
 
   it('a deterministic gate failure keeps the round\'s source process run null, however the process was wired', async () => {

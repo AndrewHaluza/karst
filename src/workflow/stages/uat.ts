@@ -26,6 +26,7 @@ import { runUatTester, type TesterTarget, type TesterRunResult } from '../uat/te
 import {
   runTesterVerifier,
   TESTER_VERIFIER_FAILURE_PREFIX,
+  TESTER_OBSERVATIONS_FAILURE_PREFIX,
   type TesterGateRunner,
 } from '../uat/testerVerifier.js';
 import type { WarnFn } from '../review/findings.js';
@@ -251,18 +252,26 @@ export async function runUat(
    * still in hand — never reconstructed later from `stages.verdict` or the
    * live manifest. A deterministic failed gate is its own source: `gates`,
    * with no AI process run. A completed nonzero `testerVerifier` exit is the
-   * Tester PROCESS's failure: `tester`, carrying the Tester run's id. Blocks,
-   * stops and passes carry no trigger.
+   * Tester PROCESS's failure: `tester`, carrying the Tester run's id — and so
+   * is an observation at or above `uat.testerObservations.blockingSeverity`
+   * (default `'none'`, which produces no such verdict at all). Blocks, stops
+   * and passes carry no trigger.
    */
   const recoveryTriggerFor = (outcome: RunOutcome): RecoveryTriggerInput | null => {
     if (outcome.kind !== 'verdict' || outcome.verdict.kind !== 'failed') return null;
     const triggerDetail = outcome.verdict.reason ?? 'uat gates failed';
     const fromVerifier = triggerDetail.startsWith(TESTER_VERIFIER_FAILURE_PREFIX);
+    const fromObservations = triggerDetail.startsWith(TESTER_OBSERVATIONS_FAILURE_PREFIX);
+    const fromTester = fromVerifier || fromObservations;
     return {
-      sourceProcessId: fromVerifier ? 'tester' : 'gates',
+      sourceProcessId: fromTester ? 'tester' : 'gates',
       sourceStageRunId: evidence.runId,
-      sourceProcessRunId: fromVerifier ? testerRunId : null,
-      triggerKind: fromVerifier ? 'tester-verifier-failure' : 'gate-failure',
+      sourceProcessRunId: fromTester ? testerRunId : null,
+      triggerKind: fromVerifier
+        ? 'tester-verifier-failure'
+        : fromObservations
+          ? 'blocking-tester-observations'
+          : 'gate-failure',
       triggerDetail,
       maxRounds: capForGate('uat', opts.manifest?.uat?.maxFixAttempts, opts.manifest?.review?.maxFixAttempts),
     };
@@ -547,8 +556,10 @@ export async function runUat(
   // The AI Tester contributes OBSERVATIONS only: its findings can never pass,
   // fail, transition, or spend a recovery round by themselves. The optional
   // `uat.testerVerifier` is the deterministic boundary whose COMPLETED exit
-  // code is the sole Tester-specific verdict; without one, the Tester's
-  // observations are advisory and this gate verdict decides progression.
+  // code is the sole Tester-specific DETERMINISTIC verdict; the one way an
+  // observation itself becomes a verdict is the opt-in
+  // `uat.testerObservations.blockingSeverity` applied below. At its default
+  // `'none'` the observations are advisory and this gate verdict decides.
   let testerResult: TesterRunResult | null = null;
   if (deps.tester) {
     testerResult = await runUatTester(
@@ -572,6 +583,12 @@ export async function runUat(
           .map((entry) => entry.result.name),
         onOutput: opts.onTesterOutput,
         onTargetProgress: opts.onTesterTargetProgress,
+        // The ONE knob that can make an observation a verdict. Coalesced at
+        // every read: the loader leaves the block undefined when absent but
+        // materializes `{ blockingSeverity: 'none' }` when it is present and
+        // empty, and both must read as the advisory default.
+        observationsBlockingSeverity:
+          opts.manifest?.uat?.testerObservations?.blockingSeverity ?? 'none',
       },
       { now },
     );
@@ -596,6 +613,12 @@ export async function runUat(
     // Advisory absence, exactly like review's lane: a failed AI call must not
     // break the run's gates — it is reported, and the gates decide.
     deps.warn?.(`uat tester: call failed, contributing no observations: ${testerResult.message}`);
+  }
+  if (testerResult?.kind === 'unreadable-output') {
+    // Advisory absence, handled exactly like `execution-failed`: an answer
+    // nothing could be read out of must not break the run's gates — it is
+    // reported, and the gates decide.
+    deps.warn?.('uat tester: every target answered unreadable output, contributing no observations');
   }
 
   const verifierGate = opts.manifest?.uat?.testerVerifier;
@@ -634,6 +657,24 @@ export async function runUat(
         throw new Error(`unrecognized verifier outcome: ${JSON.stringify(unreachable)}`);
       }
     }
+  }
+
+  // ---- The opt-in observation threshold (Task 3.2) ----
+  // `uat.testerObservations.blockingSeverity` is the ONE way an OBSERVATION
+  // becomes a verdict. At the default `'none'` — and for every manifest that
+  // omits the block — `blocking` is 0 and this is dead code: the gates (and the
+  // verifier, when configured) decide exactly as before. Placed AFTER the
+  // verifier so the deterministic boundary keeps precedence, and expressed the
+  // same way the verifier's failure is: a failed verdict whose reason carries
+  // the shared prefix, which `recoveryTriggerFor` reads to attribute the
+  // recovery round to `sourceProcessId: 'tester'`.
+  if (testerResult?.kind === 'observed' && testerResult.blocking > 0) {
+    const reason = `${TESTER_OBSERVATIONS_FAILURE_PREFIX}${testerResult.blockingSummary ?? `${testerResult.blocking} blocking`}`;
+    opts.debug?.(
+      `[gate] uat ticket ${opts.ticketId}: gates passed but ${testerResult.blocking} tester ` +
+        `observation(s) are at or above the configured blocking severity — failing uat`,
+    );
+    return finish({ kind: 'verdict', verdict: { kind: 'failed', reason } }, outcome.warnings);
   }
 
   return finish({ kind: 'verdict', verdict: outcome.verdict }, outcome.warnings);
