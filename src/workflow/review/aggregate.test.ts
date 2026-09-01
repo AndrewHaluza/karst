@@ -304,6 +304,23 @@ describe('aggregateReview', () => {
     expect(outcome).toEqual({ kind: 'verdict', verdict: { kind: 'passed' }, warnings: [] });
   });
 
+  it('R6b: a partially-readable run with a real finding is NOT shadowed — it reaches the severity filter and fails', () => {
+    const lane: FindingsLaneOutcome = {
+      kind: 'ran',
+      findings: [finding('high')],
+      unreadable: ['extention'],
+    };
+    const outcome = aggregateReview([lintWeb], [], lane, {
+      requireIndependentSignal: false,
+      findingsBlockingSeverity: 'high',
+    });
+    expect(outcome).toEqual({
+      kind: 'verdict',
+      verdict: { kind: 'failed', reason: 'review findings: 1 high' },
+      warnings: [],
+    });
+  });
+
   it('R6b: does not block on unreadable when the threshold is none', () => {
     const lane: FindingsLaneOutcome = { kind: 'ran', findings: [], unreadable: ['extention'] };
     const outcome = aggregateReview([lintWeb], [], lane, {

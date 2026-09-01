@@ -1531,6 +1531,20 @@ describe('runReview — findings process run (Task 8)', () => {
     });
   });
 
+  // R6b (Task 2.4): a run whose only answer was unreadable must not be
+  // recorded as `validated` — that would contradict the `blocked` outcome
+  // and read, in the process history, as a review that actually happened.
+  it('finishes the Review process run execution-failed, never validated, on an R6b unreadable block', async () => {
+    const res = await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}, { review: reviewConfig() }) },
+      reviewProcessDeps('sure, looks fine to me!'),
+    );
+    expect(res).toMatchObject({ kind: 'blocked', blocker: 'capability-missing' });
+    const run = listProcessRuns(store, id)[0]!;
+    expect(run).toMatchObject({ resultKind: 'execution-failed', status: 'failed' });
+  });
+
   it('a deterministic gate failure keeps the round\'s source process run null, however the process was wired', async () => {
     const res = await runReview(
       store,
