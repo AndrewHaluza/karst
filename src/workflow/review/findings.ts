@@ -16,7 +16,12 @@
  * carrying a `findings` array, or (for a JSONL stream where each line is one
  * finding) a bare finding object itself. Every candidate JSON value —
  * however it parsed — is scanned; nothing is dropped for landing on line 2
- * instead of line 1.
+ * instead of line 1. …and only when NEITHER shape reads does it fall back to
+ * extraction: every ```-fenced block's body first, then every balanced
+ * top-level `[...]`/`{...}` span, each still handed to `JSON.parse`. A
+ * chat-tuned core that narrates its tool calls before printing the array it
+ * was asked for is the ordinary case, not the exotic one — reading that as
+ * zero findings turned a `high` finding into a silent pass.
  *
  * **Trust boundaries enforced here, each independently:**
  * - `severity` must be an exact member of the closed `Severity` union
@@ -142,6 +147,82 @@ function tryParseJson(text: string): unknown {
  * array of findings is exactly the shape review's own `--output-format json`
  * prompt asks the agent for.
  */
+/**
+ * Bound on how much of a raw response the balanced scan will walk. A core that
+ * streams tens of MB of tool narration must not turn one parse into a
+ * quadratic scan; past this bound only the TAIL is scanned, because the report
+ * a model is asked for is the last thing it writes.
+ */
+const SCAN_MAX_CHARS = 2_000_000;
+
+/** Bound on how many candidate substrings the scan will hand to `JSON.parse`. */
+const SCAN_MAX_CANDIDATES = 64;
+
+/**
+ * Every ```-fenced block's body, in document order. A fence is the shape a
+ * chat-tuned core reaches for even when told not to, and its body is exact —
+ * so it is tried before the heuristic bracket scan below.
+ */
+function fencedBlocks(text: string): string[] {
+  const blocks: string[] = [];
+  const fence = /```[ \t]*[A-Za-z0-9_-]*[ \t]*\r?\n([\s\S]*?)```/g;
+  for (const match of text.matchAll(fence)) {
+    const body = match[1];
+    if (body !== undefined) blocks.push(body);
+    if (blocks.length >= SCAN_MAX_CANDIDATES) break;
+  }
+  return blocks;
+}
+
+/**
+ * Balanced `[...]` / `{...}` substrings of `text`, scanning top-level opens
+ * only (a nested brace inside an accepted span is never a second candidate).
+ * String literals and their escapes are tracked so a bracket inside a JSON
+ * string never closes a span. This is a LEXICAL scan, not a parser: every
+ * candidate it yields is still handed to `JSON.parse`, and a candidate that
+ * does not parse is simply skipped.
+ */
+function balancedSpans(text: string): string[] {
+  const spans: string[] = [];
+  let depth = 0;
+  let start = -1;
+  let inString = false;
+  let escaped = false;
+  let opener = '';
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i]!;
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === '\\') escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') {
+      if (depth > 0) inString = true;
+      continue;
+    }
+    if (ch === '[' || ch === '{') {
+      if (depth === 0) {
+        start = i;
+        opener = ch;
+      }
+      depth += 1;
+      continue;
+    }
+    if (ch === ']' || ch === '}') {
+      if (depth === 0) continue;
+      depth -= 1;
+      if (depth === 0 && start >= 0) {
+        const closesOpener = (opener === '[' && ch === ']') || (opener === '{' && ch === '}');
+        if (closesOpener) spans.push(text.slice(start, i + 1));
+        start = -1;
+        if (spans.length >= SCAN_MAX_CANDIDATES) break;
+      }
+    }
+  }
+  return spans;
+}
+
 function parseJsonEvents(text: string): unknown[] {
   const trimmed = text.trim();
   if (trimmed === '') return [];
@@ -156,7 +237,21 @@ function parseJsonEvents(text: string): unknown[] {
     const value = tryParseJson(lineTrimmed);
     if (value !== undefined) values.push(value);
   }
-  return values;
+  if (values.length > 0) return values;
+
+  // Neither shape read: the document is prose with JSON somewhere inside it —
+  // the ordinary answer from a chat-tuned core that narrates its work before
+  // printing the report it was asked for. Fences first (exact), then the
+  // balanced scan (heuristic); every candidate still goes through JSON.parse.
+  const scanned =
+    trimmed.length > SCAN_MAX_CHARS ? trimmed.slice(trimmed.length - SCAN_MAX_CHARS) : trimmed;
+  const candidates = [...fencedBlocks(scanned), ...balancedSpans(scanned)];
+  const extracted: unknown[] = [];
+  for (const candidate of candidates) {
+    const value = tryParseJson(candidate.trim());
+    if (value !== undefined) extracted.push(value);
+  }
+  return extracted;
 }
 
 /** One parsed JSON value's contribution: candidates, and whether a findings-shaped container was recognized at all (independent of whether it was empty). */
