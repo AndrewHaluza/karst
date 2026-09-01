@@ -243,9 +243,11 @@ import {
   domainKeyOf,
   gitCommonDirFromFs,
   resolvePhysicalDomains,
+  repoWorktreeIndex,
   resolveRepoWorktrees,
   type DomainEntry,
 } from './approaches/graph/integration/domains.js';
+import { canonicalRepoId } from './runtime/repoId.js';
 import { casStatus, GRAPH_RUN_TRANSITIONS, type GraphDb } from './store/graph/transitions.js';
 import { canonicalPath } from './runtime/pathScope.js';
 import { createHookChannelRecorder } from './diagnostics/hookChannel.js';
@@ -4010,11 +4012,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const commands: AllowlistCommandAccess = new Map(
           Object.entries(config?.commands ?? {}).map(([id, def]) => [id, def.access] as const),
         );
-        const worktreeByRepo = new Map(
-          graphDomainsFor(graphRunId).map((entry) => [entry.repoName, entry.worktreePath]),
-        );
+        const worktreeByRepo = repoWorktreeIndex(graphDomainsFor(graphRunId));
         const physicalDomainOf = (repoName: string): string | null => {
-          const worktreePath = worktreeByRepo.get(repoName);
+          const worktreePath = worktreeByRepo.get(canonicalRepoId(repoName));
           return worktreePath
             ? domainKeyOf(canonicalPath(worktreePath), gitCommonDirFromFs(worktreePath))
             : null;
@@ -4042,16 +4042,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const wt = listWorktreesByTicket(localStore, graphRunTicketId(graphRunId))[0];
         return wt ? { repo: wt.repo, cwd: wt.path } : undefined;
       },
-      cwdForRepo: (graphRunId, repo) => {
-        // The graph document claims repos by MANIFEST NAME; `worktrees.repo`
-        // stores the repo PATH, so the name resolves through its repoPath.
-        const def = (currentManifest() ?? emptyManifest()).repositories?.[repo];
-        if (!def) return undefined;
-        const wt = listWorktreesByTicket(localStore, graphRunTicketId(graphRunId)).find(
-          (w) => w.repo === def.repoPath,
-        );
-        return wt?.path;
-      },
+      cwdForRepo: (graphRunId, repo) =>
+        // The graph document claims repos by CANONICAL manifest name (a claim
+        // canonicalizes at parse), and `worktrees.repo` stores the repo PATH —
+        // so the name resolves through its repoPath, then through the canonical
+        // index, which is what makes an uppercase manifest key claimable.
+        repoWorktreeIndex(graphDomainsFor(graphRunId)).get(canonicalRepoId(repo)),
       gitCommonDirOf: gitCommonDirFromFs,
       workspaceOf: (graphRunId, nodeRunId, repo) =>
         (gs?.db
@@ -4141,9 +4137,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // `graphDomainsFor` uses — a monorepo's two entries sharing a repoPath
     // resolve to the one worktree).
     const repositories = new Map<string, ResolvedRepository>();
+    // Keyed by the CANONICAL repository id — the one form a claim can carry —
+    // so a manifest key of any casing is nameable by a graph document.
     for (const entry of resolveRepoWorktrees(manifest.repositories ?? {}, worktrees)) {
-      repositories.set(entry.repoName, {
-        id: entry.repoName,
+      const id = canonicalRepoId(entry.repoName);
+      repositories.set(id, {
+        id,
         root: '',
         domain: domainKeyOf(canonicalPath(entry.worktreePath), gitCommonDirFromFs(entry.worktreePath)),
       });
@@ -4159,7 +4158,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         fingerprint: sha256HexCommand(def),
         access: def.access,
         timeoutSeconds: def.timeoutSeconds,
-        permittedRepositories: Object.keys(manifest.repositories ?? {}),
+        permittedRepositories: Object.keys(manifest.repositories ?? {}).map(canonicalRepoId),
       });
     }
     const artifactPaths = new Map(

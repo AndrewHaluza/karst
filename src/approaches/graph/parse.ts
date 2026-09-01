@@ -12,6 +12,7 @@
  * This module is pure: it imports no store, no vscode, no provider.
  */
 
+import { canonicalRepoId } from '../../runtime/repoId.js';
 import { normalizeGraphPath } from './paths.js';
 
 export const GRAPH_DOCUMENT_VERSION = 1;
@@ -199,6 +200,9 @@ export type GraphParseResult =
   | { ok: false; diagnostics: GraphParseDiagnostic[] };
 
 const IDENTIFIER_RE = /^[a-z][a-z0-9-]{0,63}$/;
+/** Repository claims alone accept the manifest's own casing (`BE`, `DBGW`) and
+ *  canonicalize; every other identifier stays lowercase-only. */
+const REPO_IDENTIFIER_RE = /^[A-Za-z][A-Za-z0-9-]{0,63}$/;
 const RESERVED_IDS = new Set(['$planner', '$entry']);
 const MEDIA_TYPES = new Set<MediaType>(['text/markdown', 'application/json', 'text/plain']);
 const OPERATORS = new Set<ComparisonOperator>(['lt', 'lte', 'eq', 'gte', 'gt']);
@@ -259,6 +263,29 @@ function checkIdentifier(sink: DiagSink, value: unknown, where: string): string 
     return undefined;
   }
   return value;
+}
+
+/**
+ * A repository claim: the bounded safe-identifier grammar widened to the
+ * manifest's own casing, returned in canonical (case-folded) form. The
+ * compile context keys its repository map the same way, so `BE`, `be` and
+ * `Be` all resolve to the one manifest entry — the two halves of the
+ * identifier can no longer disagree (see `runtime/repoId.ts`).
+ */
+function checkRepoIdentifier(sink: DiagSink, value: unknown, where: string): string | undefined {
+  if (typeof value !== 'string' || value.length === 0 || value.length > GRAPH_LIMITS.maxIdentifierLength) {
+    diag(sink, 'invalid-identifier', where, 'expected a safe identifier');
+    return undefined;
+  }
+  if (RESERVED_IDS.has(value)) {
+    diag(sink, 'reserved-identifier', where, `"${value}" is a reserved sentinel`);
+    return undefined;
+  }
+  if (!REPO_IDENTIFIER_RE.test(value)) {
+    diag(sink, 'invalid-identifier', where, 'expected letters, digits, hyphens');
+    return undefined;
+  }
+  return canonicalRepoId(value);
 }
 
 /** Bounded string check. */
@@ -473,7 +500,7 @@ function checkClaim(
     return undefined;
   }
   unknownFields(sink, value, ['repo', 'paths'], where);
-  const repo = checkIdentifier(sink, value['repo'], `${where}.repo`);
+  const repo = checkRepoIdentifier(sink, value['repo'], `${where}.repo`);
   const pathsRaw = checkList(sink, value['paths'], `${where}.paths`);
   const paths: string[] = [];
   if (pathsRaw) {
@@ -576,7 +603,7 @@ function checkNode(sink: DiagSink, value: unknown, where: string): ApproachNode 
   if (kind === 'command') {
     unknownFields(sink, value, ['id', 'kind', 'label', 'command', 'repositories', 'outcomes', 'budget'], where);
     const command = checkIdentifier(sink, value['command'], `${where}.command`);
-    const repositories = checkIdentifierList(sink, value['repositories'], `${where}.repositories`);
+    const repositories = checkRepoIdentifierList(sink, value['repositories'], `${where}.repositories`);
     const outcomes = checkOutcomes(sink, value['outcomes'], `${where}.outcomes`, COMMAND_OUTCOMES);
     if (id === undefined || label === undefined || budget === undefined || command === undefined || repositories === undefined || outcomes === undefined) {
       return undefined;
@@ -632,6 +659,22 @@ function checkIdentifierList(
   const ids: string[] = [];
   list.forEach((item, index) => {
     const id = checkIdentifier(sink, item, `${where}[${index}]`);
+    if (id !== undefined) ids.push(id);
+  });
+  return ids;
+}
+
+/** `checkRepoIdentifier` over a list — the command node's `repositories`. */
+function checkRepoIdentifierList(
+  sink: DiagSink,
+  value: unknown,
+  where: string,
+): string[] | undefined {
+  const list = checkList(sink, value, where);
+  if (!list) return undefined;
+  const ids: string[] = [];
+  list.forEach((item, index) => {
+    const id = checkRepoIdentifier(sink, item, `${where}[${index}]`);
     if (id !== undefined) ids.push(id);
   });
   return ids;

@@ -19,7 +19,7 @@ The invoking agent reads ticket content it did not author, so prompt injection r
 
 ## A bare ticket key is resolved via `--manifest`
 
-The `karst` CLI takes a bare ticket key, so `--manifest` is what tells it which project's key that is (`cli/resolveTicket.ts`); both `context` and `stage` fall back to an unscoped lookup so an unadopted ticket still resolves.
+The `karst` CLI takes a bare ticket key, so `--manifest` is what tells it which project's key that is (`cli/resolveTicket.ts`); both `context` and `stage` fall back to an unscoped lookup so an unadopted ticket still resolves. A purely numeric argument is tried as a `tickets.id` LAST — after both key lookups miss — because agent sessions are handed `KARST_TICKET_ID` (an id) while every verb takes a key; a ticket whose KEY is that number always wins, and the failure reads `no ticket found for key or id`.
 
 ## The CLI cannot migrate
 

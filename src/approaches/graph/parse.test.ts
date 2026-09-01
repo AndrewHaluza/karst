@@ -112,6 +112,60 @@ function expectDiagnostic(
   return match[0]!;
 }
 
+describe('parseGraphDocument — repository identifiers are case-insensitive', () => {
+  it('accepts an uppercase repository claim and canonicalizes it', () => {
+    const result = parseGraphDocument(
+      doc((d) => {
+        const node = (d.nodes as unknown[])[0] as Record<string, unknown>;
+        const resources = node['resources'] as Record<string, unknown>;
+        resources['reads'] = [{ repo: 'DBGW', paths: ['src'] }];
+        resources['writes'] = [{ repo: 'BE', paths: ['src/api'] }];
+      }),
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const node = result.document.nodes[0]!;
+    if (node.kind !== 'agent') throw new Error('expected an agent node');
+    expect(node.resources.reads[0]!.repo).toBe('dbgw');
+    expect(node.resources.writes[0]!.repo).toBe('be');
+  });
+
+  it('accepts an uppercase command repository and canonicalizes it', () => {
+    const result = parseGraphDocument(
+      doc((d) => {
+        const node = (d.nodes as unknown[])[1] as Record<string, unknown>;
+        node['repositories'] = ['DBGW'];
+      }),
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const node = result.document.nodes[1]!;
+    if (node.kind !== 'command') throw new Error('expected a command node');
+    expect(node.repositories).toEqual(['dbgw']);
+  });
+
+  it('still rejects a repository claim outside the safe-identifier grammar', () => {
+    expectDiagnostic(
+      doc((d) => {
+        const node = (d.nodes as unknown[])[0] as Record<string, unknown>;
+        (node['resources'] as Record<string, unknown>)['reads'] = [
+          { repo: 'web_backend', paths: ['src'] },
+        ];
+      }),
+      'invalid-identifier',
+      'nodes[0].resources.reads[0].repo',
+    );
+  });
+
+  it('keeps non-repository identifiers lowercase-only', () => {
+    expectDiagnostic(
+      doc((d) => (((d.nodes as unknown[])[0] as Record<string, unknown>)['profile'] = 'Expert')),
+      'invalid-identifier',
+      'nodes[0].profile',
+    );
+  });
+});
+
 describe('parseGraphDocument — valid documents', () => {
   it('parses the reference document into typed structures', () => {
     const result = parseGraphDocument(doc());

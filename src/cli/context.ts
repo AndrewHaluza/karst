@@ -75,7 +75,7 @@ export function runContextCommand(
 ): string {
   const ticket = resolveTicketByKey(store, parsed.key, manifest?.id);
   if (!ticket) {
-    throw new Error(`no ticket found for key '${parsed.key}'`);
+    throw new Error(`no ticket found for key or id '${parsed.key}'`);
   }
   const storageDir = dbPath === undefined ? undefined : resolve(dirname(dbPath));
   const ctx = buildTicketContext(store, manifest, ticket.id, storageDir);

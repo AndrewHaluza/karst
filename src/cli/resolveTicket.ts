@@ -1,5 +1,5 @@
 import type { Store } from '../store/db.js';
-import { getTicketByKey, type Ticket } from '../store/tickets.js';
+import { findTicketById, getTicketByKey, type Ticket } from '../store/tickets.js';
 import { getProjectBySlug } from '../store/projects.js';
 
 /**
@@ -25,5 +25,14 @@ export function resolveTicketByKey(
   const projectId = projectSlug ? getProjectBySlug(store, projectSlug)?.id : undefined;
   const scoped =
     projectId !== undefined ? getTicketByKey(store, key, { projectId }) : undefined;
-  return scoped ?? getTicketByKey(store, key);
+  const byKey = scoped ?? getTicketByKey(store, key);
+  if (byKey) return byKey;
+  // The environment hands agent sessions `KARST_TICKET_ID` (a row id) while
+  // every verb takes a KEY, so a bare number is accepted as an id — but only
+  // after both key lookups miss, so a ticket whose key IS that number always
+  // wins.
+  if (!/^[0-9]+$/.test(key)) return undefined;
+  const id = Number(key);
+  const scopedById = projectId !== undefined ? findTicketById(store, id, { projectId }) : undefined;
+  return scopedById ?? findTicketById(store, id);
 }

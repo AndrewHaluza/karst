@@ -689,6 +689,26 @@ describe('documented failures of the current dynamic graph implementation', () =
     },
   );
 
+  it('an agent node whose claimed repository has no worktree parks with a reason naming it', async () => {
+    const h = makeHarness();
+    try {
+      h.deps.cwdForRepo = () => undefined;
+      const { graphRunId } = await bootAndSubmit(h);
+      confirmGraphRun(h.deps, graphRunId);
+      const driven = await claimAndDrive(h, graphRunId);
+      expect(driven.launched).toBe(0);
+      expect(driven.blocked).toBe(1);
+      const node = h.store.db
+        .prepare('SELECT status, failure_category, reason FROM approach_node_runs WHERE graph_run_id = ?')
+        .get(graphRunId) as { status: string; failure_category: string | null; reason: string | null };
+      expect(node.status).toBe('blocked');
+      expect(node.failure_category).toBe('failed-to-launch');
+      expect(node.reason).toContain('no claimed repository resolves to a worktree');
+    } finally {
+      h.close();
+    }
+  });
+
   it('an agent node whose adapter does not declare exact-model support is red-blocked and never launched', async () => {
     const h = makeHarness();
     try {

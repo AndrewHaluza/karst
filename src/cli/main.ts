@@ -155,7 +155,7 @@ export function runCli(argv: string[]): string {
       // share the DB: without it, a key two projects both use resolves to
       // whichever row is older, and the marker advances the wrong board.
       const found = resolveTicketByKey(store, ticket, loadProjectSlug(manifestPath));
-      if (!found) throw new Error(`no ticket found for key '${ticket}'`);
+      if (!found) throw new Error(`no ticket found for key or id '${ticket}'`);
       return runStageCommand(store, found.id, rest, undefined, found);
     } finally {
       store.close();
@@ -173,7 +173,7 @@ export function runCli(argv: string[]): string {
     const store = openWritableStore(db);
     try {
       const found = resolveTicketByKey(store, ticket, loadProjectSlug(manifestPath));
-      if (!found) throw new Error(`no ticket found for key '${ticket}'`);
+      if (!found) throw new Error(`no ticket found for key or id '${ticket}'`);
       return runPhaseCommand(store, found.id, rest);
     } finally {
       store.close();

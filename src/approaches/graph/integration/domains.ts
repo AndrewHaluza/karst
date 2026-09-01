@@ -16,6 +16,7 @@
 import { readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { canonicalPath } from '../../../runtime/pathScope.js';
+import { canonicalRepoId } from '../../../runtime/repoId.js';
 
 /** One manifest repository entry of the ticket: its name and worktree path. */
 export interface DomainEntry {
@@ -50,6 +51,22 @@ export function resolveRepoWorktrees(
     const path = byRepoPath.get(def.repoPath);
     return path ? [{ repoName, worktreePath: path }] : [];
   });
+}
+
+/**
+ * Index the ticket's resolved entries by the CANONICAL repository id — the one
+ * form a graph document can claim (`runtime/repoId.ts`). A manifest key of any
+ * casing (`BE`, `DBGW`) is therefore reachable from a node claim; two keys that
+ * canonicalize alike are rejected at manifest validation, so first-wins here is
+ * unreachable in a valid manifest and merely keeps this total.
+ */
+export function repoWorktreeIndex(entries: readonly DomainEntry[]): Map<string, string> {
+  const index = new Map<string, string>();
+  for (const entry of entries) {
+    const id = canonicalRepoId(entry.repoName);
+    if (!index.has(id)) index.set(id, entry.worktreePath);
+  }
+  return index;
 }
 
 export interface PhysicalDomain {

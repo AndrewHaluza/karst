@@ -66,6 +66,26 @@ describe('runContextCommand', () => {
     });
   }
 
+  it('resolves a numeric ticket id when no ticket carries it as a key', () => {
+    seed();
+    const out = runContextCommand(store, MANIFEST, { key: '1', format: 'json' });
+    expect(JSON.parse(out).key).toBe('PROJ-9');
+  });
+
+  it('prefers a ticket whose KEY is the numeric argument over the id', () => {
+    seed();
+    createTicket(store, { key: '1', title: 'Numeric key' });
+    const out = runContextCommand(store, MANIFEST, { key: '1', format: 'json' });
+    expect(JSON.parse(out).title).toBe('Numeric key');
+  });
+
+  it('says a key is neither a key nor an id when nothing resolves', () => {
+    seed();
+    expect(() => runContextCommand(store, MANIFEST, { key: '404', format: 'json' })).toThrow(
+      /no ticket found for key or id '404'/,
+    );
+  });
+
   it('renders json by default with the aggregated shape', () => {
     seed();
     const out = runContextCommand(store, MANIFEST, { key: 'PROJ-9', format: 'json' });
