@@ -1066,22 +1066,3 @@ CREATE TABLE IF NOT EXISTS test_hooks (
   recorded_at       TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_test_hooks_ticket ON test_hooks(ticket_id, id);
-
---
--- `ticket_logs` is the RUNTIME per-ticket debug trail: every debug line the
--- driver run of a ticket emits (stage ordering, gate decisions, process
--- state), captured at the host seam while the manifest's `debug` flag is on
--- and read back by the dashboard's Inside component so a human can trace what
--- a specific ticket's stages did. Append-only evidence like gate_runs; the
--- writer bounds retention per ticket so the table cannot grow unbounded.
--- `level`/`module` mirror the prefix that names the line's origin
--- ([driver], [gate], [agent:claude], …).
-CREATE TABLE IF NOT EXISTS ticket_logs (
-  id            INTEGER PRIMARY KEY,  -- rowid alias: insertion order IS log order
-  ticket_id     INTEGER NOT NULL,     -- -> tickets.id
-  level         TEXT NOT NULL,        -- debug (the only level captured today)
-  module        TEXT NOT NULL,        -- [driver], [gate], [agent:claude], …
-  message       TEXT NOT NULL,        -- the redacted debug line
-  recorded_at   TEXT NOT NULL         -- ISO-8601
-);
-CREATE INDEX IF NOT EXISTS idx_ticket_logs_ticket ON ticket_logs(ticket_id, id);

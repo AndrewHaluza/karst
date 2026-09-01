@@ -34,11 +34,11 @@ describe('merged schema migration', () => {
       .prepare("SELECT name FROM sqlite_master WHERE type='table'")
       .all()
       .map((r) => (r as { name: string }).name);
-    expect(version).toBe(50);
+    expect(version).toBe(51);
     expect(tables).toContain('approach_graph_runs');
     expect(tables).toContain('approach_graph_tokens');
     expect(tables).toContain('test_logs');
     expect(tables).toContain('test_hooks');
-    expect(tables).toContain('ticket_logs');
+    expect(tables).not.toContain('ticket_logs');
   });
 });

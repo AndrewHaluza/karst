@@ -32,23 +32,6 @@ export interface StageOp {
 /** The state dot beside the "Inside <stage>" header. */
 export type InsideDot = 'done' | 'run' | 'wait' | 'fail' | 'idle' | 'pend';
 
-/**
- * One line of a ticket's captured debug trail for a stage.
- *
- * Host-authored and read-only in the webview (UI-R31). The module prefix names
- * the line's origin ([driver], [gate], [agent:claude], …); the message is the
- * redacted debug line. The recorded time lets a reader correlate the trail with
- * the stage's clock.
- */
-export interface InsideDebugLogLine {
-  /** The origin prefix, e.g. `[driver]`. */
-  module: string;
-  /** The redacted debug message. */
-  message: string;
-  /** ISO-8601 recorded time. */
-  recordedAt: string;
-}
-
 /** Display titles for the strip header. */
 export const STAGE_TITLES: Readonly<Record<StageKey, string>> = {
   scope: 'Scope',
@@ -812,16 +795,6 @@ export interface InsideStageView {
    * `selectedAttempt` itself. Absent → no banner.
    */
   attemptNote?: string;
-  /**
-   * The ticket's captured debug trail for this stage, newest last. Populated
-   * host-side from `ticket_logs` when the manifest's `debug` flag is on;
-   * absent (or empty) when debug was never enabled for this ticket. The
-   * webview renders it as a read-only "Debug log" section — a trace of the
-   * stage's ordering and decisions, so a state can be diagnosed from the
-   * record rather than guessed at. Untrusted prose is already sanitized by the
-   * logging pipeline before capture.
-   */
-  debugLogs?: readonly InsideDebugLogLine[];
 }
 
 /**

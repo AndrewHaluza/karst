@@ -19,7 +19,7 @@ export function readSchema(): string {
 }
 
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 50;
+export const SCHEMA_VERSION = 51;
 
 /** v2 ticket-field columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -1879,6 +1879,13 @@ export function migrate(db: Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_ticket_logs_ticket ON ticket_logs(ticket_id, id);
   `);
+
+  // v51 — debug lines belong solely in the extension's Output channel
+  // (`logger.debug`, already gated on the manifest's `debug` flag). The v50
+  // `ticket_logs` duplicate — a DB-backed trail surfaced in the dashboard's
+  // Inside component — is dropped; nothing to preserve, it was a rendering
+  // surface, not a record of user data.
+  db.exec('DROP TABLE IF EXISTS ticket_logs;');
 
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }

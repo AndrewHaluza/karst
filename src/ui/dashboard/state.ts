@@ -20,7 +20,6 @@ import { buildStageRail, type StageRail } from '../../model/stageRail.js';
 import { listGateRuns } from '../../store/gateRuns.js';
 import { listFindings } from '../../store/reviewFindings.js';
 import { listPhaseMarks } from '../../store/phaseMarks.js';
-import { listTicketLogs } from '../../store/ticketLogs.js';
 import { listMergeChecksByTicket } from '../../store/mergeChecks.js';
 import { listCurrentPrsByTicket } from '../../store/prs.js';
 import type { GateStage } from '../../store/ticketGates.js';
@@ -756,21 +755,6 @@ export function buildDashboardState(
       now,
     ),
   };
-
-  // The ticket's captured debug trail rides the PRESENTED stage's view — the
-  // one the Inside component is actually showing — so a state can be diagnosed
-  // from the record without duplicating the trail onto every stage. Read from
-  // the store (a synchronous, store-only read like every other table this
-  // builder touches); empty when the manifest's `debug` flag was never on.
-  const debugLogs = listTicketLogs(store, ticketId).map((l) => ({
-    module: l.module,
-    message: l.message,
-    recordedAt: l.recordedAt,
-  }));
-  const presentedView = insideViews[presentedStage];
-  if (debugLogs.length > 0 && presentedView) {
-    presentedView.debugLogs = debugLogs;
-  }
 
   return {
     ticketId: ticket.id,
