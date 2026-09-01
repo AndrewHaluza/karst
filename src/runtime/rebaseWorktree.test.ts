@@ -121,6 +121,7 @@ describe('rebaseWorktreeOntoBase', () => {
       ...HAPPY,
       // Deliberately NOT the English word "conflict": classification must not read prose.
       rebase: fail('konnte nicht anwenden: 1a2b3c'),
+      'rebase --abort': ok(),
       'rev-parse --verify --quiet REBASE_HEAD': ok('deadbeef\n'),
     });
     const r = await rebaseWorktreeOntoBase({ git, cwd: '/wt', fromBase: 'develop', toBase: 'epic/x' });

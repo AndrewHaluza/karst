@@ -130,12 +130,7 @@ export async function rebaseWorktreeOntoBase(opts: RebaseWorktreeOpts): Promise<
       return { outcome: 'failed', reason };
     }
     const aborted = await git(['rebase', '--abort'], cwd);
-    // A genuinely failed `--abort` reports its OWN distinct git failure (a
-    // different exit code and wording than the apply failure that triggered
-    // it — real git never echoes the same "could not apply" text back from
-    // `--abort`). Guard on that distinctness rather than the bare exit code:
-    // it is what actually separates "abort itself broke" from noise.
-    if (aborted.exitCode !== 0 && words(aborted) !== reason) {
+    if (aborted.exitCode !== 0) {
       // The worst outcome there is: a tree left mid-rebase. Never swallowed —
       // the next thing to touch this worktree will fail for reasons that look
       // unrelated.
