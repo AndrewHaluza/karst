@@ -1,7 +1,7 @@
 import { join } from 'node:path';
 import type { Store } from '../store/db.js';
 import type { Manifest } from '../manifest/types.js';
-import { resolveBaselineBranch } from '../manifest/baselineBranch.js';
+import { resolvePlannedBaseRef } from '../workflow/baseRef.js';
 import { makePortAllocator, type PortAllocator } from '../resolver/allocator.js';
 import { resolve } from '../resolver/resolve.js';
 import { createWorktree, removeWorktree, type WorktreeRecord } from './worktree.js';
@@ -132,7 +132,8 @@ export async function spinTicket(
   // One rename-invariant slug per ticket (key-or-id + title) and one rendered
   // branch name; all worktrees for this ticket share both, so the worktree loop
   // below dedups by repo.
-  const { slug, branch } = ticketWorktreeNames(getTicket(store, ticketId), manifest);
+  const ticket = getTicket(store, ticketId);
+  const { slug, branch } = ticketWorktreeNames(ticket, manifest);
 
   // Validate every hot repo (git repo + has baselineBranch) before any mutation,
   // so a bad branch/path fails fast with a friendly SpinError and nothing partial.
@@ -185,7 +186,7 @@ export async function spinTicket(
           repoPath: repo.repoPath,
           slug,
           branch,
-          baseRef: resolveBaselineBranch(manifest, repo),
+          baseRef: resolvePlannedBaseRef(ticket, manifest, name),
         });
         worktreeByRepo.set(repo.repoPath, wt);
         created.push(wt);

@@ -67,7 +67,7 @@ import { setMergeCheck } from '../../store/mergeChecks.js';
 import { mergeOpStatus } from '../../model/mergeCheckView.js';
 import type { WorktreeView } from '../../store/dashboard.js';
 import type { ArtifactConventions, Manifest } from '../../manifest/types.js';
-import { resolveBaselineBranchForPath } from '../../manifest/baselineBranch.js';
+import { resolveTicketBaseRef } from '../baseRef.js';
 import {
   renderArtifactTemplate,
   usesDescription,
@@ -815,7 +815,7 @@ async function recordMergeChecks(
     onProgress({ repo: wt.repo, step: 'merge', status: 'run' });
     try {
       const baseRef = manifest
-        ? resolveBaselineBranchForPath(manifest, wt.repo)
+        ? resolveTicketBaseRef(store, ticketId, wt.repo, manifest)
         : wt.baseRef;
       const check = await checkMergeable(git, wt.path, baseRef);
       setMergeCheck(store, {
@@ -1075,7 +1075,7 @@ export async function shipTicket(
         // declares today. Live configuration only; never used to rewrite
         // provenance for the already-created worktree (see `provenanceBase`).
         const base = opts.manifest
-          ? resolveBaselineBranchForPath(opts.manifest, wt.repo)
+          ? resolveTicketBaseRef(store, opts.ticketId, wt.repo, opts.manifest)
           : wt.baseRef ?? undefined;
 
         if (provenanceBase === undefined) {

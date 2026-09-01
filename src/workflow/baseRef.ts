@@ -33,6 +33,15 @@ export function resolvePlannedBaseRef(
   return repository ? resolveBaselineBranch(manifest, repository) : manifest.baselineBranch;
 }
 
+/** `getTicket` throws on a missing row; a base-branch lookup must not. */
+function ticketOrNull(store: Store, ticketId: number): { baseRefs?: Record<string, string> } | null {
+  try {
+    return getTicket(store, ticketId);
+  } catch {
+    return null;
+  }
+}
+
 export function resolveTicketBaseRef(
   store: Store,
   ticketId: number,
@@ -45,7 +54,11 @@ export function resolveTicketBaseRef(
   const stored = nonBlank(row?.base_ref ?? undefined);
   if (stored) return stored;
 
-  const ticket = getTicket(store, ticketId);
+  // `getTicket` THROWS on a missing row, and this resolver runs on gate paths
+  // where a ticket may legitimately not exist (a bare-cwd run, a fixture, a row
+  // archived mid-run). Resolving a base branch is never the place to fail a
+  // gate: no ticket simply means no override, and the manifest answers.
+  const ticket = ticketOrNull(store, ticketId);
   if (ticket) {
     for (const [name, repository] of Object.entries(manifest.repositories)) {
       if (repository.repoPath !== repoPath) continue;

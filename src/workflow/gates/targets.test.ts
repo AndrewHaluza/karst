@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { manifest, runnableRepo, dependsOn } from '../../manifest/fixtures.js';
 import { selectReviewTargets, type ReviewWorktree, type ReviewTarget } from './targets.js';
 import type { GitRunner } from '../../integrations/git.js';
+import { openStore } from '../../store/db.js';
+import { createTicket } from '../../store/tickets.js';
 
 /** Unwraps the `targets` arm, failing loudly if the selection came back unavailable. */
 function targetsOf(selection: Awaited<ReturnType<typeof selectReviewTargets>>): ReviewTarget[] {
@@ -153,5 +155,38 @@ describe('selectReviewTargets', () => {
     };
     await selectReviewTargets(project, worktrees, git);
     expect(diffs).toContainEqual(['diff', '--quiet', 'origin/develop...HEAD']);
+  });
+
+  it('reports the worktree row base, not the manifest default', async () => {
+    const store = openStore(':memory:');
+    const ticket = createTicket(store, { key: 'T-1', title: 't' });
+    store.db
+      .prepare(
+        `INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref, deps_mode)
+         VALUES (?, '/repos/api', '/wt/api', 'karst/t-1', 'epic/checkout', 'inherited')`,
+      )
+      .run(ticket.id);
+
+    const calls: string[][] = [];
+    const git: GitRunner = async (args) => {
+      calls.push(args);
+      return { stdout: '', stderr: '', exitCode: args[0] === 'diff' ? 1 : 0 };
+    };
+
+    const targets = targetsOf(
+      await selectReviewTargets(
+        manifest({ api: runnableRepo({}, { repoPath: '/repos/api' }) }),
+        [{ repo: '/repos/api', path: '/wt/api', baseRef: null }],
+        git,
+        { store, ticketId: ticket.id },
+      ),
+    );
+
+    expect(targets).toEqual([expect.objectContaining({ names: ['api'], path: '/wt/api' })]);
+    expect(calls).toContainEqual(['fetch', 'origin', 'epic/checkout']);
+    expect(calls).toContainEqual(['diff', '--quiet', 'origin/epic/checkout...HEAD']);
+    expect(calls.every((a) => a.join(' ') !== 'fetch origin develop')).toBe(true);
+
+    store.close();
   });
 });

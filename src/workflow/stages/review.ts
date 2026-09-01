@@ -272,7 +272,7 @@ export async function runReview(
   };
 
   const planned = opts.manifest
-    ? await planTargets(opts.manifest, worktrees, git)
+    ? await planTargets(opts.manifest, worktrees, git, { store, ticketId: opts.ticketId })
     : {
         kind: 'targets' as const,
         targets: [{ repo: opts.cwd, path: opts.cwd, names: [] }],

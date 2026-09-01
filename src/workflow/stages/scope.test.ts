@@ -8,6 +8,7 @@ import type { Manifest } from '../../manifest/types.js';
 import { httpSlot, manifest as buildManifest, runnableRepo } from '../../manifest/fixtures.js';
 import { createTicketFlow } from './create.js';
 import { scopeTicket, confirmScope } from './scope.js';
+import { updateTicketFields } from '../../store/tickets.js';
 
 function git(cwd: string, ...args: string[]): void {
   const r = spawnSync('git', args, { cwd, encoding: 'utf8' });
@@ -81,6 +82,16 @@ describe('scopeTicket (warnings)', () => {
       expect(existsSync(rec.path)).toBe(true);
       expect(rec.baseRef).toBe('develop');
     }
+  });
+
+  it('cuts the worktree from the ticket override, not the manifest default', async () => {
+    git(fe.path, 'branch', 'epic/checkout');
+    const t = createTicketFlow(store, { key: 'S-1', title: 'scoped' });
+    updateTicketFields(store, t.id, { baseRefs: { frontend: 'epic/checkout' } });
+
+    const records = await confirmScope(store, manifest, t.id, ['frontend'], { pullBase: false });
+
+    expect(records[0]!.baseRef).toBe('epic/checkout');
   });
 
   it('confirmScope with a frontend-only set creates just one worktree', async () => {

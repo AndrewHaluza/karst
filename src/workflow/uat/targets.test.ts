@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { planUatTargets, type UatTarget } from './targets.js';
 import { manifest, repo, svc } from '../../manifest/fixtures.js';
 import type { GitRunner } from '../../integrations/git.js';
+import { openStore, type Store } from '../../store/db.js';
 
 // Every repo reports a change, so selection is not what is under test here.
 const changed: GitRunner = async (args) =>
@@ -17,6 +18,15 @@ function targetsOf(selection: Awaited<ReturnType<typeof planUatTargets>>): UatTa
   return selection.targets;
 }
 
+
+/**
+ * A ticket with no worktree rows: the base resolver then falls back to the
+ * manifest, which is what these selection tests are about.
+ */
+function ticket(): { store: Store; ticketId: number } {
+  return { store: openStore(':memory:'), ticketId: 1 };
+}
+
 describe('planUatTargets', () => {
   it('deduplicates two repository entries that share one repoPath', async () => {
     const targets = targetsOf(
@@ -27,6 +37,7 @@ describe('planUatTargets', () => {
         }),
         [{ repo: '/mono', path: '/wt/mono', baseRef: null }],
         changed,
+        ticket(),
       ),
     );
     // One monorepo, one worktree, one run of npm test — but both names, because
@@ -49,6 +60,7 @@ describe('planUatTargets', () => {
           { repo: '/api', path: '/wt/api', baseRef: null },
         ],
         changed,
+        ticket(),
       ),
     );
     expect(targets.map((t) => t.path).sort()).toEqual(['/wt/api', '/wt/web']);
@@ -60,6 +72,7 @@ describe('planUatTargets', () => {
         manifest({ docs: repo({ repoPath: '/docs' }) }),
         [{ repo: '/docs', path: '/wt/docs', baseRef: null }],
         changed,
+        ticket(),
       ),
     );
     expect(targets).toHaveLength(1);
@@ -87,6 +100,7 @@ describe('planUatTargets', () => {
           { repo: '/mono', path: '/wt/mono', baseRef: null },
         ],
         changed,
+        ticket(),
       ),
     );
     expect(targets).toHaveLength(1);
@@ -107,6 +121,7 @@ describe('planUatTargets', () => {
       manifest({ api: repo({ repoPath: '/api', service: svc() }) }),
       [{ repo: '/api', path: '/wt/api', baseRef: null }],
       failing,
+      ticket(),
     );
     expect(selection).toEqual({
       kind: 'unavailable',
