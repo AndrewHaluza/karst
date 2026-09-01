@@ -678,6 +678,9 @@ export class DashboardManager {
       // Cached candidates, warmed by `prefetchBranchCandidates` below — never
       // fetched HERE, since this builder must stay synchronous.
       (repoPath) => this.branchCandidates.get(repoPath) ?? [],
+      // Task 4.1: the ship-stage warning row's threshold. Absent manifest →
+      // `'none'`, which keeps the row silent rather than guessing a default.
+      this.manifest?.()?.review?.findings?.blockingSeverity ?? 'none',
     );
     // A key the new snapshot no longer resolved to is dropped from panel
     // memory: `selectedAttempt` reports what the builder actually rendered,

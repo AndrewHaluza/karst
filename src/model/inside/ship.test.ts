@@ -1,11 +1,31 @@
 import { describe, it, expect } from 'vitest';
 import type { ShipCommit, ShipEvidence, ShipRepoEvidence, ShipRepoStepEvidence, ShipRun, ShipStep } from '../../store/shipRuns.js';
 import type { MergeCheckRow } from '../../store/mergeChecks.js';
+import type { Finding } from '../../store/reviewFindings.js';
 import type { StepperCell } from '../stepper.js';
 import type { StageKey, StageStatus } from '../types.js';
 import { shipProcesses, type ShipProcessesInput } from './ship.js';
 import { formatTime, type InsideEvidenceTarget, type ShipPrView } from './types.js';
 import type { EvidenceRow, InsideProcessView } from './types.js';
+
+function finding(over: Partial<Finding> = {}): Finding {
+  return {
+    id: 1,
+    ticketId: 1,
+    attempt: 1,
+    runAt: NOW,
+    processRunId: null,
+    severity: 'low',
+    repo: '',
+    file: null,
+    line: null,
+    title: 'a finding',
+    detail: '',
+    source: 'agent',
+    createdAt: NOW,
+    ...over,
+  };
+}
 
 const NOW = '2026-07-20T12:30:00.000Z';
 
@@ -1230,5 +1250,46 @@ describe('ship process rows carry their own span', () => {
     );
     expect(views[1]!.time).toBeUndefined();
     expect(views[1]!.duration).toBeUndefined();
+  });
+
+  it('warns when blocking-severity findings exist for a ticket parked at ship', () => {
+    const views = shipProcesses(
+      shipInput({
+        findings: [
+          finding({
+            id: 1,
+            severity: 'high',
+            repo: 'extention',
+            title: 'Auto-sweep removes worktrees',
+            file: 'src/extension.ts',
+            line: 5118,
+          }),
+        ],
+        findingsBlockingSeverity: 'high',
+      }),
+    );
+    const warning = views.find((v) => v.id === 'ship-findings');
+    expect(warning).toBeDefined();
+    expect(warning!.detail).toBe('1 high finding — send back to Implement to fix it');
+  });
+
+  it('shows no warning when every finding is below the threshold', () => {
+    const views = shipProcesses(
+      shipInput({
+        findings: [finding({ severity: 'low' })],
+        findingsBlockingSeverity: 'high',
+      }),
+    );
+    expect(views.find((v) => v.id === 'ship-findings')).toBeUndefined();
+  });
+
+  it('shows no warning when the threshold is none', () => {
+    const views = shipProcesses(
+      shipInput({
+        findings: [finding({ severity: 'high' })],
+        findingsBlockingSeverity: 'none',
+      }),
+    );
+    expect(views.find((v) => v.id === 'ship-findings')).toBeUndefined();
   });
 });

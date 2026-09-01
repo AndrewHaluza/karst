@@ -1,5 +1,7 @@
 import type { MergeCheckRow } from '../../store/mergeChecks.js';
 import type { ProcessRun } from '../../store/processRuns.js';
+import type { Finding } from '../../store/reviewFindings.js';
+import type { Severity } from '../../manifest/types.js';
 import {
   parseShipPreState,
   type ShipEvidence,
@@ -72,6 +74,53 @@ export interface ShipProcessesInput {
   processRuns?: readonly ProcessRun[];
   /** Recorded spend of the PR-description process; omitted when unmeasured. */
   tokens?: SessionTokensInput | null;
+  /**
+   * The ticket's latest review-findings batch (`latestFindingBatch`). Read
+   * here only to surface unresolved blocking severities as a warning row —
+   * ship has no `failed` edge (graph.ts), so this is the human's only signal
+   * that evidence recorded earlier in the ticket's life is still unresolved.
+   */
+  findings?: readonly Finding[];
+  /** The manifest's `review.findings.blockingSeverity`; `'none'` disables the row entirely. */
+  findingsBlockingSeverity?: Severity | 'none';
+}
+
+/** Rank for severity comparisons — lower is worse. Kept local per-module, like `aggregate.ts` and `tester.ts`. */
+const SHIP_SEVERITY_RANK: Readonly<Record<Severity, number>> = {
+  critical: 0,
+  high: 1,
+  medium: 2,
+  low: 3,
+  info: 4,
+};
+
+/**
+ * A warning row naming unresolved blocking-severity findings still on record
+ * for the ticket at the ship stage. `ship` has no `failed` edge (graph.ts),
+ * so a blocking finding recorded earlier (review, or a Tester observation)
+ * can route nowhere on its own — this is a READ of existing evidence, no
+ * action beyond the file locations the findings already carry (`docs/arch/diagnostics.md`:
+ * reporting observes and never reaches back). Undefined when the threshold is
+ * `'none'`/absent or nothing on record meets it.
+ */
+function shipFindingsWarning(input: ShipProcessesInput): InsideProcessView | undefined {
+  const threshold = input.findingsBlockingSeverity;
+  if (!threshold || threshold === 'none') return undefined;
+  const findings = input.findings ?? [];
+  const limit = SHIP_SEVERITY_RANK[threshold];
+  const blocking = findings.filter((f) => SHIP_SEVERITY_RANK[f.severity] <= limit);
+  if (blocking.length === 0) return undefined;
+  const worst = blocking.reduce(
+    (w, f) => (SHIP_SEVERITY_RANK[f.severity] < SHIP_SEVERITY_RANK[w] ? f.severity : w),
+    blocking[0]!.severity,
+  );
+  return {
+    id: 'ship-findings',
+    kind: 'findings',
+    label: 'Findings',
+    status: 'fail',
+    detail: `${blocking.length} ${worst} finding${blocking.length === 1 ? '' : 's'} — send back to Implement to fix it`,
+  };
 }
 
 /**
@@ -726,7 +775,9 @@ function mergeProcess(input: ShipProcessesInput): InsideProcessView {
 
 /** The ship stage's processes: commit, push, pr, merge, in registry order. */
 export function shipProcesses(input: ShipProcessesInput): InsideProcessView[] {
+  const warning = shipFindingsWarning(input);
   return [
+    ...(warning ? [warning] : []),
     commitProcess(input),
     pushProcess(input),
     prProcess(input),

@@ -8,7 +8,7 @@ import {
   type WorktreeView,
 } from '../../store/dashboard.js';
 import { isKarstCheckout } from '../../commands/launchWorktree.js';
-import type { TicketProvider, AgentProvider } from '../../manifest/types.js';
+import type { TicketProvider, AgentProvider, Severity } from '../../manifest/types.js';
 import { providerTicketUrl } from '../../integrations/ticketUrl.js';
 import { buildStepper, displayStatus, type StepperCell } from '../../model/stepper.js';
 import { buildShipSlot, type ShipSlot } from '../../model/shipSlot.js';
@@ -18,7 +18,7 @@ import { resolveEffortForProvider } from '../../agent/models.js';
 import { AGENT_PROVIDER_LABELS } from '../../model/agentIdentity.js';
 import { buildStageRail, type StageRail } from '../../model/stageRail.js';
 import { listGateRuns } from '../../store/gateRuns.js';
-import { listFindings } from '../../store/reviewFindings.js';
+import { listFindings, latestFindingBatch } from '../../store/reviewFindings.js';
 import { listPhaseMarks } from '../../store/phaseMarks.js';
 import { listMergeChecksByTicket } from '../../store/mergeChecks.js';
 import { listCurrentPrsByTicket } from '../../store/prs.js';
@@ -367,6 +367,15 @@ export function buildDashboardState(
    * free text either way. Appended LAST for the same reason.
    */
   baseBranchCandidatesFor: (repoPath: string) => string[] = () => [],
+  /**
+   * The manifest's `review.findings.blockingSeverity` (Task 4.1). Injected
+   * (the state builder never reads the manifest) and defaults to `'none'`,
+   * which keeps the ship-stage warning row silent for a caller that never
+   * supplies this — the same "absent degrades to no signal" policy every
+   * other injected manifest fact in this builder follows. Appended LAST so
+   * every existing positional caller keeps its argument positions.
+   */
+  findingsBlockingSeverity: Severity | 'none' = 'none',
 ): DashboardState {
   const ticket = getTicket(store, ticketId); // throws on unknown id
   // The parent relationship for the dashboard's secondary metadata line. A
@@ -724,6 +733,8 @@ export function buildDashboardState(
         repoNameFor,
         processRuns,
         tokens: tokensFor('pr-description'),
+        findings: latestFindingBatch(store, ticketId),
+        findingsBlockingSeverity,
       }),
       now,
     ),
