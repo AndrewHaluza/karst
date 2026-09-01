@@ -77,7 +77,23 @@
  * anywhere (findings nested an extra level, a provider's own output-format
  * envelope) also warns rather than silently returning `[]` — an explicit
  * empty container (`[]`, `{"findings":[]}`) stays silent, since that IS a
- * clean review. Exceeding `ctx.max` truncates and logs the drop count for
+ * clean review.
+ *
+ * That log-level distinction used to be the only place it existed — every
+ * caller still got back a bare `Finding[]`, so "the model answered `[]`, a
+ * clean review" and "we could not read the model's answer at all" were the
+ * same array to code that never looks at logs. That is exactly how a `high`
+ * finding once rendered as "0 observations" and a review passed green on
+ * nothing. `parseFindingsResult` makes the distinction load-bearing instead
+ * of cosmetic, returning a `FindingsParseShape` alongside the array:
+ * `'unreadable'` when no JSON was found at all, or JSON was found but no
+ * findings-shaped container was ever recognized in it; `'empty'` when a
+ * container WAS recognized and legitimately held nothing, OR held only
+ * findings that failed validation (a model that answered badly is not a
+ * model whose answer we could not read); `'parsed'` when at least one
+ * finding survived. `parseFindings` stays a thin wrapper returning just the
+ * `findings` array, unchanged, for callers that do not need the shape.
+ * Exceeding `ctx.max` truncates and logs the drop count for
  * the same reason: a silent truncation reads as "that was all of them" — and
  * the kept `max` are chosen by severity (critical first, stable within a
  * rank), not by document order, so attacker-controlled ordering cannot push
@@ -424,23 +440,42 @@ function bySeverityStable(findings: readonly Finding[]): Finding[] {
     .map(({ finding }) => finding);
 }
 
+/** Which of the three shapes a parse landed on — see `FindingsParseResult`. */
+export type FindingsParseShape = 'parsed' | 'empty' | 'unreadable';
+
+/**
+ * A parse's findings, plus the shape that produced them. `'unreadable'`
+ * means the boundary could not make sense of the output at all (no JSON, or
+ * JSON that never carried a findings-shaped container) — that is distinct
+ * from `'empty'`, where a findings container WAS recognized and legitimately
+ * held nothing (or held only findings that failed validation). Callers that
+ * only need the array keep using `parseFindings`; callers that must not
+ * conflate "the model said nothing is wrong" with "we could not read the
+ * model's answer" use this.
+ */
+export interface FindingsParseResult {
+  findings: Finding[];
+  shape: FindingsParseShape;
+}
+
 /**
  * Parse one review invocation's raw output into findings ready for
- * `recordFindings`'s batch. Never throws; unparseable input returns `[]`
- * (logged as such, distinctly from a legitimate empty result). See the
- * module doc comment for the full boundary contract.
+ * `recordFindings`'s batch, plus the shape that produced them (see
+ * `FindingsParseResult`). Never throws; unparseable input returns `[]` with
+ * `shape: 'unreadable'` (logged as such, distinctly from a legitimate empty
+ * result). See the module doc comment for the full boundary contract.
  */
-export function parseFindings(
+export function parseFindingsResult(
   raw: string,
   ctx: ParseFindingsContext,
   warn: WarnFn = defaultWarn,
-): Finding[] {
+): FindingsParseResult {
   const events = parseJsonEvents(raw);
   if (events.length === 0) {
     warn(
       `review findings: ${ctx.repo}'s review output was not recognizable JSON or JSONL — treated as zero findings, not as an error.`,
     );
-    return [];
+    return { findings: [], shape: 'unreadable' };
   }
 
   const eventCandidates = events.map((event) => findingCandidatesFrom(event));
@@ -467,14 +502,28 @@ export function parseFindings(
     );
   }
 
+  const shape: FindingsParseShape = !anyRecognized ? 'unreadable' : parsed.length > 0 ? 'parsed' : 'empty';
+
   const max = Math.max(0, Math.floor(ctx.max));
   if (parsed.length > max) {
     const dropped = parsed.length - max;
     warn(
       `review findings: ${ctx.repo} reported ${parsed.length} findings, above the max of ${max} — dropped ${dropped}, kept the first ${max} by severity.`,
     );
-    return bySeverityStable(parsed).slice(0, max);
+    return { findings: bySeverityStable(parsed).slice(0, max), shape };
   }
 
-  return parsed;
+  return { findings: parsed, shape };
+}
+
+/**
+ * Thin wrapper over `parseFindingsResult` for callers that only need the
+ * array — the original signature and behavior, unchanged.
+ */
+export function parseFindings(
+  raw: string,
+  ctx: ParseFindingsContext,
+  warn: WarnFn = defaultWarn,
+): Finding[] {
+  return parseFindingsResult(raw, ctx, warn).findings;
 }
