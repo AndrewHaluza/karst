@@ -1,4 +1,5 @@
 import type { Manifest } from '../../manifest/types.js';
+import type { Store } from '../../store/db.js';
 import type { GitRunner } from '../../integrations/git.js';
 import type { BlockerKind } from '../../model/types.js';
 import {
@@ -46,8 +47,18 @@ export async function planUatTargets(
   manifest: Manifest,
   worktrees: readonly ReviewWorktree[],
   git: GitRunner,
+  /**
+   * Required, not optional: each target is diffed against the base its worktree
+   * was CUT from (`worktrees.base_ref`), not the manifest default. Making the
+   * caller supply the ticket is what stops a gate silently diffing against a
+   * base this ticket never used.
+   */
+  ticket: { store: Store; ticketId: number },
 ): Promise<UatTargetSelection> {
-  const selection = await selectReviewTargets(manifest, worktrees, git);
+  const selection = await selectReviewTargets(manifest, worktrees, git, {
+    store: ticket.store,
+    ticketId: ticket.ticketId,
+  });
   if (selection.kind === 'unavailable') return selection;
   return {
     kind: 'targets',

@@ -45,6 +45,7 @@ function actions(): DashboardActions {
     openArtifactResource: vi.fn(),
     requestStageLog: vi.fn(),
     requestAgentLog: vi.fn(),
+    changeBaseRef: vi.fn(),
   };
 }
 
@@ -293,6 +294,38 @@ describe('routeAction', () => {
       type: 'merge-pr',
       repo: 'api',
     });
+  });
+
+  it('parses change-base-ref', () => {
+    expect(
+      parseWebviewMessage({ type: 'change-base-ref', repo: '/repo', baseRef: 'epic/x', rebase: true }),
+    ).toEqual({ type: 'change-base-ref', repo: '/repo', baseRef: 'epic/x', rebase: true });
+  });
+
+  // A missing switch reads as ON — a base change without a rebase would leave
+  // the branch sitting on the old base, which is the unsafe reading.
+  it('defaults rebase ON when the flag is absent — the safe read of a missing switch', () => {
+    expect(
+      parseWebviewMessage({ type: 'change-base-ref', repo: '/repo', baseRef: 'epic/x' }),
+    ).toMatchObject({ rebase: true });
+    expect(
+      parseWebviewMessage({ type: 'change-base-ref', repo: '/repo', baseRef: 'epic/x', rebase: false }),
+    ).toMatchObject({ rebase: false });
+  });
+
+  it('rejects change-base-ref with a blank base, or a missing/non-string repo', () => {
+    expect(parseWebviewMessage({ type: 'change-base-ref', repo: '/repo', baseRef: '  ' })).toBeNull();
+    expect(parseWebviewMessage({ type: 'change-base-ref', repo: '/repo' })).toBeNull();
+    expect(parseWebviewMessage({ type: 'change-base-ref', baseRef: 'epic/x' })).toBeNull();
+    expect(parseWebviewMessage({ type: 'change-base-ref', repo: '', baseRef: 'epic/x' })).toBeNull();
+    expect(parseWebviewMessage({ type: 'change-base-ref', repo: 7, baseRef: 'epic/x' })).toBeNull();
+  });
+
+  it('dispatches change-base-ref to the injected action with the trimmed base', async () => {
+    const a = actions();
+    (a.changeBaseRef as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true });
+    await routeAction({ type: 'change-base-ref', repo: '/repo', baseRef: '  epic/x  ', rebase: false }, a);
+    expect(a.changeBaseRef).toHaveBeenCalledWith('/repo', 'epic/x', false);
   });
 
   // The panel's refresh icon. Payload-free like the other panel-level controls:

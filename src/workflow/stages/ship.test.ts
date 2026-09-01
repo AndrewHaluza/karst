@@ -17,13 +17,19 @@ import { defaultGitRunner, runGit, type GitRunner } from '../../integrations/git
 import type { AgentAdapter } from '../../agent/adapter.js';
 import { manifest, repo } from '../../manifest/fixtures.js';
 
-function seedWorktree(store: Store, ticketId: number, repo: string, path: string): void {
+function seedWorktree(
+  store: Store,
+  ticketId: number,
+  repo: string,
+  path: string,
+  baseRef = 'develop',
+): void {
   store.db
     .prepare(
       `INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref, deps_mode)
-       VALUES (?, ?, ?, 'karst/x', 'develop', 'inherited')`,
+       VALUES (?, ?, ?, 'karst/x', ?, 'inherited')`,
     )
-    .run(ticketId, repo, path);
+    .run(ticketId, repo, path, baseRef);
 }
 
 function walkToShip(store: Store, id: number): void {
@@ -273,8 +279,13 @@ setTimeout(() => {
     ]);
   });
 
-  it('targets the current repository baseline instead of the worktree creation-time base', async () => {
-    seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+  // Inverted deliberately (per-repo base branches): the worktree row is the
+  // authority, because the branch was ALREADY cut from it and a manifest edit
+  // must not silently retarget an open PR. A ticket that wants a different base
+  // changes it through `changeBaseRef`, which moves the branch AND the row
+  // together — never the manifest behind the branch's back.
+  it('targets the worktree row base, not a manifest baseline edited after the cut', async () => {
+    seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'), 'release');
     const calls: string[][] = [];
     const gh: GhRunner = async (args) => {
       calls.push(args);
@@ -288,8 +299,9 @@ setTimeout(() => {
       store,
       {
         ticketId: id,
+        // The manifest says `main`; the worktree was cut from `release`. The row wins.
         manifest: manifest({
-          frontend: repo({ repoPath: '/repo/frontend', baselineBranch: 'release' }),
+          frontend: repo({ repoPath: '/repo/frontend', baselineBranch: 'main' }),
         }),
       },
       gh,
@@ -298,6 +310,7 @@ setTimeout(() => {
     );
 
     expect(calls.find((args) => args[1] === 'create')).toContain('release');
+    expect(calls.find((args) => args[1] === 'create')).not.toContain('main');
     expect(listMergeChecksByTicket(store, id)[0]!.baseRef).toBe('release');
   });
 
@@ -681,6 +694,93 @@ setTimeout(() => {
     for (const c of mutating(calls)) expect(c.args[0]).toMatch(/^(status|push)$/);
     expect(calls.filter((c) => c.args[0] === 'push').map((c) => c.args)).toEqual([
       ['push', '-u', 'origin', 'HEAD'],
+      ['push', '-u', 'origin', 'HEAD'],
+    ]);
+  });
+
+  // Task 5's rebase rewrites every commit on an already-pushed ticket branch —
+  // an ordinary push is a non-fast-forward and is rejected. `needs_force_push`
+  // is the durable signal that this exact push must carry a lease instead.
+  it('force-pushes under a lease built from the just-probed remote head when the flag is armed', async () => {
+    const worktree = join(dir, 'fe');
+    seedWorktree(store, id, '/repo/frontend', worktree);
+    store.db
+      .prepare(`UPDATE worktrees SET needs_force_push = 1 WHERE ticket_id = ? AND repo = ?`)
+      .run(id, '/repo/frontend');
+    const remoteSha = 'a'.repeat(40);
+    const localSha = 'b'.repeat(40);
+    const calls: string[][] = [];
+    const git: GitRunner = async (args) => {
+      calls.push(args);
+      if (args[0] === 'diff') return { stdout: '', stderr: '', exitCode: 1 };
+      if (args[0] === 'rev-parse' && args[1] === 'HEAD') {
+        return { stdout: localSha, stderr: '', exitCode: 0 };
+      }
+      if (args[0] === 'rev-parse' && args[2] === 'refs/remotes/origin/karst/x') {
+        return { stdout: remoteSha, stderr: '', exitCode: 0 };
+      }
+      return { stdout: '', stderr: '', exitCode: 0 };
+    };
+    const { gh } = fakeGh();
+
+    await shipTicket(store, { ticketId: id }, gh, fakeAdapter(), git);
+
+    expect(calls.filter((a) => a[0] === 'push')).toEqual([
+      ['push', '-u', `--force-with-lease=karst/x:${remoteSha}`, 'origin', 'HEAD'],
+    ]);
+    // Consumed — a second ship on the same ticket pushes ordinarily.
+    const row = store.db
+      .prepare(`SELECT needs_force_push FROM worktrees WHERE ticket_id = ? AND repo = ?`)
+      .get(id, '/repo/frontend') as { needs_force_push: number | null };
+    expect(row.needs_force_push).toBeNull();
+  });
+
+  // The lease is consumed BEFORE the push runs. If the push then fails (a
+  // teammate's push won the race, `--force-with-lease` rejects, the network
+  // drops), the flag must not stay cleared — the branch is STILL rewritten,
+  // so an ordinary retry push would be rejected as a non-fast-forward
+  // forever. The flag must survive the failure so the retry force-pushes.
+  it('re-arms the force-push flag when the leased push itself fails', async () => {
+    const worktree = join(dir, 'fe');
+    seedWorktree(store, id, '/repo/frontend', worktree);
+    store.db
+      .prepare(`UPDATE worktrees SET needs_force_push = 1 WHERE ticket_id = ? AND repo = ?`)
+      .run(id, '/repo/frontend');
+    const remoteSha = 'a'.repeat(40);
+    const localSha = 'b'.repeat(40);
+    const git: GitRunner = async (args) => {
+      if (args[0] === 'diff') return { stdout: '', stderr: '', exitCode: 1 };
+      if (args[0] === 'rev-parse' && args[1] === 'HEAD') {
+        return { stdout: localSha, stderr: '', exitCode: 0 };
+      }
+      if (args[0] === 'rev-parse' && args[2] === 'refs/remotes/origin/karst/x') {
+        return { stdout: remoteSha, stderr: '', exitCode: 0 };
+      }
+      if (args[0] === 'push') {
+        return { stdout: '', stderr: 'stale info', exitCode: 1 };
+      }
+      return { stdout: '', stderr: '', exitCode: 0 };
+    };
+    const { gh } = fakeGh();
+
+    await expect(
+      shipTicket(store, { ticketId: id }, gh, fakeAdapter(), git),
+    ).rejects.toThrow();
+
+    const row = store.db
+      .prepare(`SELECT needs_force_push FROM worktrees WHERE ticket_id = ? AND repo = ?`)
+      .get(id, '/repo/frontend') as { needs_force_push: number | null };
+    expect(row.needs_force_push).toBe(1);
+  });
+
+  it('pushes ordinarily when the force-push flag is not armed', async () => {
+    seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+    const { gh } = fakeGh();
+    const { git, calls } = fakeGit();
+
+    await shipTicket(store, { ticketId: id }, gh, fakeAdapter(), git);
+
+    expect(calls.filter((c) => c.args[0] === 'push').map((c) => c.args)).toEqual([
       ['push', '-u', 'origin', 'HEAD'],
     ]);
   });

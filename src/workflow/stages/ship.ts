@@ -9,6 +9,7 @@ import {
 import { executionView } from '../../model/inside/agent.js';
 import { randomUUID, createHash } from 'node:crypto';
 import { listWorktreesByTicket } from '../../store/dashboard.js';
+import { takeForcePushLease, armForcePushLease } from '../../store/worktrees.js';
 import { getTicket } from '../../store/tickets.js';
 import { resolveShipLanding } from '../mergeGate.js';
 import { setStage } from '../../store/stages.js';
@@ -67,7 +68,7 @@ import { setMergeCheck } from '../../store/mergeChecks.js';
 import { mergeOpStatus } from '../../model/mergeCheckView.js';
 import type { WorktreeView } from '../../store/dashboard.js';
 import type { ArtifactConventions, Manifest } from '../../manifest/types.js';
-import { resolveBaselineBranchForPath } from '../../manifest/baselineBranch.js';
+import { resolveTicketBaseRef } from '../baseRef.js';
 import {
   renderArtifactTemplate,
   usesDescription,
@@ -815,7 +816,7 @@ async function recordMergeChecks(
     onProgress({ repo: wt.repo, step: 'merge', status: 'run' });
     try {
       const baseRef = manifest
-        ? resolveBaselineBranchForPath(manifest, wt.repo)
+        ? resolveTicketBaseRef(store, ticketId, wt.repo, manifest)
         : wt.baseRef;
       const check = await checkMergeable(git, wt.path, baseRef);
       setMergeCheck(store, {
@@ -1075,7 +1076,7 @@ export async function shipTicket(
         // declares today. Live configuration only; never used to rewrite
         // provenance for the already-created worktree (see `provenanceBase`).
         const base = opts.manifest
-          ? resolveBaselineBranchForPath(opts.manifest, wt.repo)
+          ? resolveTicketBaseRef(store, opts.ticketId, wt.repo, opts.manifest)
           : wt.baseRef ?? undefined;
 
         if (provenanceBase === undefined) {
@@ -1282,9 +1283,21 @@ export async function shipTicket(
             { step: 'push', localHead, remote: 'origin', ref, preRemoteHead },
             pushAt,
           );
+          const lease =
+            takeForcePushLease(store, opts.ticketId, wt.repo) && preRemoteHead
+              ? { ref, expected: preRemoteHead }
+              : undefined;
           try {
-            await pushBranch(git, wt.path);
+            await pushBranch(git, wt.path, { forceWithLease: lease });
           } catch (err) {
+            // The lease was taken (cleared) above, before this push ran. The
+            // push failing does not undo the rewrite it was guarding against —
+            // the branch is still rebased — so a lease taken for THIS attempt
+            // must be handed back, or every retry from here on is a plain push
+            // that a rewritten, already-published branch will always reject.
+            if (lease) {
+              armForcePushLease(store, opts.ticketId, wt.repo);
+            }
             const detail = err instanceof Error ? err.message : String(err);
             reconcileShipOperation(store, pushOp.intentId, 'failed', {
               resolvedAt: nowIso(),

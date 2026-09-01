@@ -81,8 +81,8 @@ export function buildGateOptionsLoader(deps: {
     try {
       const worktrees = listWorktreesByTicket(deps.store, ticketId);
       const [uatPlan, reviewPlan] = await Promise.all([
-        planUatTargets(manifest, worktrees, git),
-        planReviewTargets(manifest, worktrees, git),
+        planUatTargets(manifest, worktrees, git, { store: deps.store, ticketId }),
+        planReviewTargets(manifest, worktrees, git, { store: deps.store, ticketId }),
       ]);
       if (signal.aborted) return empty;
 

@@ -1,7 +1,9 @@
 import type { Manifest } from '../../manifest/types.js';
 import type { GitRunner } from '../../integrations/git.js';
 import type { BlockerKind } from '../../model/types.js';
+import type { Store } from '../../store/db.js';
 import { resolveBaselineBranchForPath } from '../../manifest/baselineBranch.js';
+import { resolveTicketBaseRef } from '../baseRef.js';
 import { canonicalPath } from '../../runtime/pathScope.js';
 
 export interface ReviewWorktree {
@@ -164,6 +166,19 @@ export interface SelectReviewTargetsOptions {
    * pass a short value to avoid waiting for the real 30-second timeout.
    */
   gitFetchTimeoutMs?: number;
+  /**
+   * The store and ticket this selection runs for. When both are supplied, the
+   * base each worktree is diffed against is resolved `worktrees.base_ref`
+   * first (§ base branch resolver) instead of the manifest default — the same
+   * branch the worktree was actually cut from.
+   *
+   * Optional ONLY for the ticket-less callers (a bare-cwd gate run has no
+   * worktree row to read); `planUatTargets`/`planReviewTargets` require them,
+   * so every real gate run resolves the ticket's own base. Omitting them where
+   * a ticket exists silently reintroduces the manifest-wins bug.
+   */
+  store?: Store;
+  ticketId?: number;
 }
 
 /**
@@ -194,7 +209,10 @@ export async function selectReviewTargets(
   for (const worktree of worktrees) {
     const names = namesByPath.get(canonicalPath(worktree.repo)) ?? [];
     if (names.length === 0) unmapped.push(worktree.repo);
-    const base = resolveBaselineBranchForPath(manifest, worktree.repo);
+    const base =
+      options?.store && options.ticketId !== undefined
+        ? resolveTicketBaseRef(options.store, options.ticketId, worktree.repo, manifest)
+        : resolveBaselineBranchForPath(manifest, worktree.repo);
     const probe = await hasReviewChanges(
       git,
       worktree.path,

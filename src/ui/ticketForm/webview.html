@@ -249,6 +249,18 @@
      R26). `.repochip` supplies only the tick/score layout the primitive does
      not; the pressed look itself comes from `.k-chip[aria-pressed="true"]`. */
   .chips{display:flex;flex-wrap:wrap;gap:var(--k-space-4)}
+  /* One repo picker "row" = the toggle chip plus its (selected-only) base-branch
+     secondary line, stacked so the base control reads as part of the same repo
+     rather than a separate section (§ per-repo base branch). */
+  .repo-row{display:flex;flex-direction:column;align-items:flex-start;gap:var(--k-space-2)}
+  /* A labeled field on one line — the base-branch control's own shape, distinct
+     from the block `label` + full-width input pattern used elsewhere on this
+     page (that layout would read as its own section; this reads as a repo's
+     secondary line). */
+  .k-field--inline{display:flex;align-items:center;gap:var(--k-space-3);margin:var(--k-space-0)}
+  .k-field__label{font-size:var(--k-text-xs);opacity:.7;margin:var(--k-space-0)}
+  input.k-input--sm{width:auto;flex:0 0 auto;min-width:calc(var(--k-space-8) * 5);
+    height:var(--k-control-h-sm);font-size:var(--k-text-sm);padding:var(--k-space-0) var(--k-space-4)}
   .repochip .tick{font-size:var(--k-text-2xs);opacity:0}
   .repochip[aria-pressed="true"] .tick{opacity:1}
   .repochip .score{font-family:var(--k-font-mono);font-size:var(--k-text-2xs);opacity:.6}
@@ -632,6 +644,10 @@
   let draft = {
     mode: 'create', repos: {}, approach: null, selectedAgent: null, selectedModel: null,
     selectedAgentProvider: null,
+    // Per-repo base-branch overrides the user has typed this session (§
+    // per-repo base branch). Absent for a repo = show the manifest default
+    // (or the persisted override on the next full render).
+    baseRefs: {},
   };
   // Current ticketing provider, kept in sync by renderProvider() on every state
   // push. `manual` is the only provider where the key is optional (§ manual
@@ -759,7 +775,7 @@
     // itself no longer shows a title — the Title input is the single source.
     const drawerTitle = briefHeading(state.brief) || state.title || '';
     renderFetched(state.brief, drawerTitle);
-    renderRepos(state.repos);
+    renderRepos(state.repos, state.repoBases);
     renderApproaches(state.approaches, state.selectedApproach);
     lastSelectedAgent = state.selectedAgent ?? null;
     renderAgentPicker(state.agents, state.selectedAgent);
@@ -929,8 +945,43 @@
   // Whether a repo is effectively selected (user toggle wins; else scored default).
   function repoSelected(r) { return Boolean(draft.repos[r.service] ?? r.selected); }
 
-  function renderRepos(repos) {
+  // Most recently pushed base-branch rows (§ per-repo base branch), one per
+  // manifest repository regardless of selection — the webview decides locally
+  // which repos are SELECTED (same split as `lastRepos`/`repoSelected`).
+  let lastRepoBases = [];
+  function baseRowFor(service) { return lastRepoBases.find((b) => b.repo === service); }
+
+  /**
+   * The base-branch secondary line for a SELECTED repo row (§ per-repo base
+   * branch). Empty input shows the manifest default as its PLACEHOLDER, not a
+   * pre-filled value, so "unset" and "same as default" stay distinguishable.
+   * The `<datalist>` offers `listBaseBranchCandidates` results — never a
+   * closed vocabulary, since an epic branch may exist only on a remote this
+   * clone hasn't fetched (the field stays free text either way).
+   */
+  function renderBaseField(repo, row) {
+    if (!row) return '';
+    const value = draft.baseRefs[repo] ?? row.value ?? '';
+    // The "changed" affordance the design system already uses for an
+    // overridden default (`.badge`, §11.8 non-interactive compact
+    // information) — not a new component.
+    const changed = value.trim() !== '' && value.trim() !== row.default;
+    const listId = 'base-branches-' + esc(repo);
+    const options = (row.candidates || []).map((c) => `<option value="${esc(c)}"></option>`).join('');
+    return `<label class="k-field k-field--inline" data-base-for="${esc(repo)}">`
+      + `<span class="k-field__label">Base</span>`
+      + `<input class="k-input k-input--sm" type="text" list="${listId}"`
+      + ` placeholder="${esc(row.default)}" value="${esc(value)}"`
+      + ` data-base-input="${esc(repo)}" data-base-default="${esc(row.default)}"`
+      + ` aria-label="Base branch for ${esc(repo)}">`
+      + `<span class="badge${changed ? '' : ' hidden'}" data-base-changed>changed</span>`
+      + `<datalist id="${listId}">${options}</datalist>`
+      + `</label>`;
+  }
+
+  function renderRepos(repos, repoBases) {
     lastRepos = repos || [];
+    lastRepoBases = repoBases || [];
     if (!repos || !repos.length) {
       el('repoList').innerHTML = '<div class="k-empty"><div class="k-empty-title">No repositories</div></div>';
       syncStepper();
@@ -938,7 +989,10 @@
     }
     // Toggle chips: a real button element carrying aria-pressed (UI-R09, R26) — `data-repo`
     // drives the click handler (delegated) which flips `draft.repos` and posts
-    // `set-repos`.
+    // `set-repos`. The base-branch control belongs on the SELECTED repo row
+    // only — an unselected repo carries no base control (§ per-repo base
+    // branch): wrapped together in `.repo-row` so the secondary line reads as
+    // part of the same row, not a separate section.
     el('repoList').innerHTML = repos.map((r) => {
       const on = repoSelected(r);
       // The classifier score is a relevance hint, not user-facing data — keep it
@@ -950,13 +1004,44 @@
       const titleText = [r.score ? `classifier score: ${r.score}` : '', hint]
         .filter(Boolean).join(' · ');
       const title = titleText ? ` title="${esc(titleText)}"` : '';
-      return `<button type="button" class="k-chip repochip" data-repo="${esc(r.service)}" aria-pressed="${on}"${title}>`
+      const chip = `<button type="button" class="k-chip repochip" data-repo="${esc(r.service)}" aria-pressed="${on}"${title}>`
         + `<span class="tick" aria-hidden="true">✓</span>`
         + `<span>${esc(r.service)}</span>`
         + (r.runnable === false ? `<span class="badge chip-badge">no service</span>` : '')
         + `</button>`;
+      const base = on ? renderBaseField(r.service, baseRowFor(r.service)) : '';
+      return `<div class="repo-row">${chip}${base}</div>`;
     }).join('');
     syncStepper();
+  }
+
+  /**
+   * Per-repo base-branch input changed (§ per-repo base branch). Updates the
+   * live draft (so a later submit/save carries it even before the host's next
+   * state push) and the "changed" badge in place — never a full re-render,
+   * which would drop focus/cursor mid-keystroke. Posts the trimmed value; a
+   * blank value is the "back to the default" signal the host clears on.
+   */
+  function onBaseRefInput(repo, input) {
+    const value = input.value.trim();
+    draft.baseRefs[repo] = value;
+    const label = input.closest('label');
+    const badge = label && label.querySelector('[data-base-changed]');
+    if (badge) {
+      const changed = value !== '' && value !== input.dataset.baseDefault;
+      badge.classList.toggle('hidden', !changed);
+    }
+    post({ type: 'set-base-ref', repo, baseRef: value });
+  }
+
+  /** Every currently-visible base-branch input, keyed by repo — for the submit/save payload. */
+  function collectBaseRefs() {
+    const out = {};
+    document.querySelectorAll('[data-base-input]').forEach((input) => {
+      const value = input.value.trim();
+      if (value !== '') out[input.dataset.baseInput] = value;
+    });
+    return out;
   }
 
   function renderApproaches(approaches, selected) {
@@ -1362,7 +1447,8 @@
     // Enter pending LOCALLY, before the round trip (UI-R11) — the host's `busy`
     // message that follows only confirms/clears it.
     setSubmitBusy(true);
-    post({ type: 'submit', key, title, description: el('desc').value, repos, approach, agent, model, effort, agentProvider, ticketType, createInProvider: createInOn, keyAutoDerived: !refTouched, pullBase: pullBaseOn });
+    const baseRefs = collectBaseRefs();
+    post({ type: 'submit', key, title, description: el('desc').value, repos, approach, agent, model, effort, agentProvider, ticketType, createInProvider: createInOn, keyAutoDerived: !refTouched, baseRefs, pullBase: pullBaseOn });
   });
 
   el('saveBtn').addEventListener('click', () => {
@@ -1389,7 +1475,8 @@
     const effort = draft.selectedEffort || null;
     const ticketType = (draft.ticketType ?? el('typeSelect').value ?? '') || null;
     setSaveBusy(true);
-    post({ type: 'save', key, title, description: el('desc').value, repos, approach, agent, model, effort, agentProvider, ticketType, createInProvider: createInOn, keyAutoDerived: !refTouched });
+    const baseRefs = collectBaseRefs();
+    post({ type: 'save', key, title, description: el('desc').value, repos, approach, agent, model, effort, agentProvider, ticketType, createInProvider: createInOn, keyAutoDerived: !refTouched, baseRefs });
   });
 
   // Typing an identity in Phase 1 reveals (or re-hides) Phase 2 live. When the
@@ -1825,7 +1912,7 @@
     const requestId = karstRequestId();
     karstBeginPending(list, requestId);
     post({ type: 'set-repos', repos, requestId });
-    renderRepos(lastRepos);
+    renderRepos(lastRepos, lastRepoBases);
     syncAnalyzeBtn();
   }
   // Pick an approach card: record it, post, re-render (moves the checked
@@ -1862,6 +1949,14 @@
     const requestId = karstRequestId();
     karstBeginPending(select, requestId);
     post({ type: 'set-type', id, requestId });
+  });
+
+  // Per-repo base-branch inputs are rebuilt on every renderRepos() call, so
+  // (like the repo chips themselves) their handler is delegated on the
+  // document rather than bound per element.
+  document.addEventListener('input', (e) => {
+    const input = e.target.closest && e.target.closest('[data-base-input]');
+    if (input) onBaseRefInput(input.dataset.baseInput, input);
   });
 
   document.addEventListener('click', (e) => {
@@ -2033,7 +2128,7 @@
         // prompt) so the button disables until brief/prompt/repos move again.
         lastAnalyzed = currentParts();
         const state = vscode.getState();
-        renderRepos(lastRepos);
+        renderRepos(lastRepos, lastRepoBases);
         renderApproaches(
           state ? state.approaches : lastApproaches,
           state ? state.selectedApproach : lastSelectedApproach,

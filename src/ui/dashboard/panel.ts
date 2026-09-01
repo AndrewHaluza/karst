@@ -8,7 +8,8 @@ import type { GateStage } from '../../store/ticketGates.js';
 import { existsSync, realpathSync } from 'node:fs';
 import type { InsideProgressEvent } from '../../model/inside/progress.js';
 import type { SessionConfiguredInput } from '../../model/inside/agent.js';
-import { listWorktreesByTicket } from '../../store/dashboard.js';
+import { listWorktreesByTicket, type WorktreeView } from '../../store/dashboard.js';
+import { resolveBaselineBranchForPath } from '../../manifest/baselineBranch.js';
 import { resolveProcessAssignment } from '../../agent/processAssignment.js';
 import { resolveProvider } from '../../agent/provider.js';
 import { resolveModelForProvider } from '../../agent/models.js';
@@ -117,6 +118,13 @@ export type StageLogReader = (ticketId: number, stage: GateStage) => StageLogRes
 export type AgentLogReader = (ticketId: number, processId: AgentProcessId) => StageLogResult;
 
 /**
+ * List the base-branch candidates for a worktree's repoPath, pre-bound by the
+ * host to `listBaseBranchCandidates` (Task 4) with the git runner it needs.
+ * Never throws (the underlying lister already swallows git failures to `[]`).
+ */
+export type BranchCandidatesLoader = (repoPath: string) => Promise<string[]>;
+
+/**
  * How long a superseded snapshot's action ids stay dispatchable — the window a
  * click already in flight when a repaint landed has to survive. Sized for a
  * webview→host round trip, not for the repaint cadence.
@@ -196,6 +204,14 @@ export class DashboardManager {
    * ticket that happens to reuse the id.
    */
   private readonly attemptSelections = new Map<number, ReadonlyMap<GateStage, string>>();
+  /**
+   * Base-branch candidates per repoPath (§ per-repo base branch — live
+   * change), warmed lazily by `prefetchBranchCandidates` and shared across
+   * every open ticket: a repoPath's git listing does not vary by ticket. A
+   * repoPath absent from the map has not been fetched yet — `[]` in state
+   * until then, never a host round trip the webview waits on.
+   */
+  private readonly branchCandidates = new Map<string, string[]>();
 
   /**
    * `pathContext` is a getter (optional) so worktree paths render per the current
@@ -300,6 +316,16 @@ export class DashboardManager {
      * a named refusal rather than content (UI-R13).
      */
     private readonly agentLogReader?: AgentLogReader,
+    /**
+     * List a repoPath's base-branch candidates (Task 4's
+     * `listBaseBranchCandidates`, pre-bound with the git runner by the host).
+     * `changeBaseRef` itself (Task 7) is bound into `DashboardActions` by the
+     * `actionsFor` factory, like every other mutating action — this loader is
+     * separate because it feeds `buildDashboardState`, which only the manager
+     * calls. Absent → every worktree's combobox renders with no candidates;
+     * the input stays free text either way.
+     */
+    private readonly loadBranchCandidates?: BranchCandidatesLoader,
   ) {}
 
   /**
@@ -356,7 +382,9 @@ export class DashboardManager {
         // An inside dispatch's outcome is known synchronously; the generic
         // seam's unconditional ack would report a rejected or stale dispatch
         // as success (UI-R13). Post the returned result for this request.
-        const result = routeAction(raw, actions);
+        // (`inside-action` never resolves to `Promise<InsideActionResult>` —
+        // only `change-base-ref`, handled in its own branch below, does.)
+        const result = routeAction(raw, actions) as InsideActionResult | void | Promise<void>;
         if (isInsideActionResult(result)) {
           if (requestId) {
             panel.postMessage({
@@ -370,6 +398,48 @@ export class DashboardManager {
         }
         // A void/promise-returning factory keeps its exact old semantics.
         void reportAction(requestId, (message) => panel.postMessage(message), () => result);
+        return;
+      }
+      if (parsed.type === 'change-base-ref') {
+        // Refusal (dirty/conflict/base-missing/failed) must change NOTHING:
+        // a repaint here would risk showing a new base the change never
+        // actually reached. Success repaints so the scope card's `baseRef`
+        // reflects what git actually did — the ONE case (besides
+        // `select-gate-attempt`) this pump repaints outside a `state` push
+        // the caller already scheduled. Same isInsideActionResult contract as
+        // `inside-action`, just asynchronous: the outcome is a promise of one.
+        const result = routeAction(raw, actions) as Promise<InsideActionResult>;
+        void result.then(
+          (outcome) => {
+            if (outcome.ok) this.pushState(ticketId);
+            if (!requestId) return;
+            try {
+              panel.postMessage({
+                type: 'action-result',
+                requestId,
+                ok: outcome.ok,
+                ...(outcome.message ? { message: outcome.message } : {}),
+              });
+            } catch {
+              // A disposed panel. The change already ran (or was refused); losing
+              // the receipt is not a reason to surface an error nobody can act on.
+            }
+          },
+          (err: unknown) => {
+            this.logError('karst: change base ref failed', err);
+            if (!requestId) return;
+            try {
+              panel.postMessage({
+                type: 'action-result',
+                requestId,
+                ok: false,
+                message: 'Changing the base branch failed.',
+              });
+            } catch {
+              // A disposed panel.
+            }
+          },
+        );
         return;
       }
       void reportAction(requestId, (message) => panel.postMessage(message), () => {
@@ -598,6 +668,16 @@ export class DashboardManager {
       // builder resolves a stale/unknown key to that stage's latest attempt
       // itself, so the panel need not validate it against the snapshot.
       this.attemptSelectionFor(ticketId),
+      // The manifest's resolved default base branch, for the scope card's
+      // "changed" affordance (§ per-repo base branch — live change). Absent
+      // manifest → `''`, which never marks a real branch as overridden.
+      (repoPath) => {
+        const manifest = this.manifest?.();
+        return manifest ? resolveBaselineBranchForPath(manifest, repoPath) : '';
+      },
+      // Cached candidates, warmed by `prefetchBranchCandidates` below — never
+      // fetched HERE, since this builder must stay synchronous.
+      (repoPath) => this.branchCandidates.get(repoPath) ?? [],
     );
     // A key the new snapshot no longer resolved to is dropped from panel
     // memory: `selectedAttempt` reports what the builder actually rendered,
@@ -618,6 +698,7 @@ export class DashboardManager {
     });
     if (supplemental) {
       this.pushWorktreeStats(ticketId, panel, state.worktrees);
+      this.prefetchBranchCandidates(ticketId, panel, state.worktrees);
       this.refreshIcon(ticketId, panel);
       this.pushGateOptions(ticketId, panel, settlesActions);
     }
@@ -779,6 +860,38 @@ export class DashboardManager {
     // NULL is configured ABSENCE (`enabled: false`), not "unknown" — the caller
     // renders it as a disabled process, never as a missing lookup.
     return snapshot ? { provider: snapshot.provider, model: snapshot.model ?? null } : null;
+  }
+
+  /**
+   * Warm `branchCandidates` for every worktree this snapshot rendered that
+   * has not been fetched yet (§ per-repo base branch — live change). Never
+   * refetches a repoPath already cached — the listing does not change while
+   * the panel is open, and a warm cache must not cost a git call on every
+   * tick. Once resolved, a passive repaint (never `pushState`: this is
+   * host-external news, not the response to any in-flight action) lets the
+   * scope card's combobox pick up the newly loaded options.
+   */
+  private prefetchBranchCandidates(
+    ticketId: number,
+    panel: DashboardPanel,
+    worktrees: readonly WorktreeView[],
+  ): void {
+    if (!this.loadBranchCandidates) return;
+    const missing = [...new Set(worktrees.map((w) => w.repo))].filter(
+      (repo) => !this.branchCandidates.has(repo),
+    );
+    if (missing.length === 0) return;
+    void Promise.all(
+      missing.map((repo) =>
+        this.loadBranchCandidates!(repo).then(
+          (names) => this.branchCandidates.set(repo, names),
+          () => this.branchCandidates.set(repo, []),
+        ),
+      ),
+    ).then(() => {
+      if (this.panels.get(ticketId) !== panel) return;
+      this.pushPassiveState(ticketId);
+    });
   }
 
   /**

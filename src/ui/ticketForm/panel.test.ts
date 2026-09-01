@@ -91,6 +91,7 @@ function recordingFactory(
       suggestSignals: () => {},
       saveSignals: () => {},
       setRepos: () => {},
+      setBaseRef: () => {},
       setApproach: () => {},
       setAgent: () => {},
       setModel: () => {},

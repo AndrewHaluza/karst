@@ -366,6 +366,23 @@ export async function hasChangesFrom(
   throw new Error(`git diff failed in ${cwd}: ${reason}`);
 }
 
+/** An exact compare-and-swap for a force push: overwrite ONLY this value. */
+export interface PushLease {
+  /** The remote branch name (no `refs/heads/` prefix, no remote prefix). */
+  ref: string;
+  /** The sha the caller last saw at that ref. */
+  expected: string;
+}
+
+export interface PushBranchOptions {
+  /**
+   * Force-push under a lease. Present only when karst itself rewrote the
+   * branch (a base change rebase) — an ordinary push would be rejected as a
+   * non-fast-forward.
+   */
+  forceWithLease?: PushLease;
+}
+
 /**
  * Publish the worktree's branch so a PR can be opened from it.
  *
@@ -375,11 +392,23 @@ export async function hasChangesFrom(
  *
  * Re-running is safe — an already-pushed, unchanged branch exits 0 ("Everything
  * up-to-date").
+ *
+ * The lease is a compare-and-swap, never a bare `--force`: it names the exact
+ * sha the caller last saw on the remote, so a teammate's push landing in the
+ * gap REJECTS this one instead of being silently overwritten. A bare
+ * `--force-with-lease` would trust this worktree's remote-tracking ref, which
+ * may be stale; the explicit value is the whole point.
  */
-export async function pushBranch(git: GitRunner, cwd: string): Promise<void> {
-  await run(git, ['push', '-u', 'origin', 'HEAD'], cwd, 'push', {
-    timeoutMs: GIT_PUSH_TIMEOUT_MS,
-  });
+export async function pushBranch(
+  git: GitRunner,
+  cwd: string,
+  opts: PushBranchOptions = {},
+): Promise<void> {
+  const lease = opts.forceWithLease;
+  const args = lease
+    ? ['push', '-u', `--force-with-lease=${lease.ref}:${lease.expected}`, 'origin', 'HEAD']
+    : ['push', '-u', 'origin', 'HEAD'];
+  await run(git, args, cwd, 'push', { timeoutMs: GIT_PUSH_TIMEOUT_MS });
 }
 
 /**

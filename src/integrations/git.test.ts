@@ -267,6 +267,42 @@ describe('pushBranch', () => {
     expect(seenOptions?.timeoutMs).toBe(GIT_PUSH_TIMEOUT_MS);
     expect(GIT_PUSH_TIMEOUT_MS).toBeGreaterThan(GIT_TIMEOUT_MS);
   });
+
+  it('pushes ordinarily when no lease is given', async () => {
+    const calls: string[][] = [];
+    const git: GitRunner = async (args) => {
+      calls.push(args);
+      return { stdout: '', stderr: '', exitCode: 0 };
+    };
+    await pushBranch(git, '/wt');
+    expect(calls).toEqual([['push', '-u', 'origin', 'HEAD']]);
+  });
+
+  it('force-pushes with an explicit lease value, never a bare force', async () => {
+    const calls: string[][] = [];
+    const git: GitRunner = async (args) => {
+      calls.push(args);
+      return { stdout: '', stderr: '', exitCode: 0 };
+    };
+    await pushBranch(git, '/wt', {
+      forceWithLease: { ref: 'karst/feat/x', expected: 'abc123' },
+    });
+    expect(calls).toEqual([
+      ['push', '-u', '--force-with-lease=karst/feat/x:abc123', 'origin', 'HEAD'],
+    ]);
+    expect(calls[0]).not.toContain('--force');
+  });
+
+  it('reports a rejected lease as a push failure', async () => {
+    const git: GitRunner = async () => ({
+      stdout: '',
+      stderr: '! [rejected] karst/feat/x -> karst/feat/x (stale info)',
+      exitCode: 1,
+    });
+    await expect(
+      pushBranch(git, '/wt', { forceWithLease: { ref: 'karst/feat/x', expected: 'abc123' } }),
+    ).rejects.toThrow(/stale info/);
+  });
 });
 
 describe('defaultGitRunner', () => {

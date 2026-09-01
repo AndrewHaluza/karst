@@ -27,6 +27,7 @@ function ticket(over: Partial<TicketWithStages> = {}): TicketWithStages {
     approach: null,
     agent: null,
     selectedRepos: [],
+    baseRefs: {},
     archivedAt: null,
     updatedAt: null,
     model: null,

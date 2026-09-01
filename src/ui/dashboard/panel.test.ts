@@ -609,6 +609,86 @@ describe('DashboardManager', () => {
     expect(panels).toHaveLength(2);
   });
 
+  describe('change-base-ref', () => {
+    const addWorktree = (ticketId: number, baseRef = 'develop'): void => {
+      store.db
+        .prepare(
+          'INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref) VALUES (?, ?, ?, ?, ?)',
+        )
+        .run(ticketId, '/repo/a', '/wt/a', 'karst/A', baseRef);
+    };
+
+    it('calls changeBaseRef and reports a refusal without changing the stored base', async () => {
+      const t = createTicket(store, { key: 'CB1', title: 'change base' });
+      addWorktree(t.id, 'develop');
+      const { host, panels } = fakeHost();
+      const changeBaseRef = vi.fn().mockResolvedValue({
+        ok: false,
+        message: 'the worktree has uncommitted changes',
+      });
+      const mgr = new DashboardManager(store, host, () => ({ changeBaseRef }) as never);
+      mgr.openDashboard(t.id);
+      panels[0]!.posted.length = 0; // drop the open-time state push
+      panels[0]!.emit({
+        type: 'change-base-ref',
+        repo: '/repo/a',
+        baseRef: 'epic/x',
+        rebase: true,
+        requestId: 'r1',
+      });
+      await vi.waitFor(() =>
+        expect(panels[0]!.posted.find((m: any) => m.type === 'action-result')).toBeDefined(),
+      );
+      expect(changeBaseRef).toHaveBeenCalledWith('/repo/a', 'epic/x', true);
+      const result = panels[0]!.posted.find((m: any) => m.type === 'action-result');
+      expect(result).toMatchObject({
+        type: 'action-result',
+        requestId: 'r1',
+        ok: false,
+        message: 'the worktree has uncommitted changes',
+      });
+      // No repaint carrying a new base — the ticket keeps its old base.
+      expect(panels[0]!.posted.some((m: any) => m.type === 'state')).toBe(false);
+      const row = store.db
+        .prepare('SELECT base_ref FROM worktrees WHERE ticket_id = ?')
+        .get(t.id) as { base_ref: string };
+      expect(row.base_ref).toBe('develop');
+    });
+
+    it('repaints the scope card with the new base after a successful change', async () => {
+      const t = createTicket(store, { key: 'CB2', title: 'change base' });
+      addWorktree(t.id, 'develop');
+      const { host, panels } = fakeHost();
+      const changeBaseRef = vi.fn().mockImplementation(async () => {
+        // The real `changeBaseRef` workflow writes the new base before
+        // resolving; the fake mirrors that ordering so the repaint has
+        // something new to show.
+        store.db
+          .prepare('UPDATE worktrees SET base_ref = ? WHERE ticket_id = ? AND repo = ?')
+          .run('epic/x', t.id, '/repo/a');
+        return { ok: true, message: 'Rebased onto epic/x' };
+      });
+      const mgr = new DashboardManager(store, host, () => ({ changeBaseRef }) as never);
+      mgr.openDashboard(t.id);
+      panels[0]!.posted.length = 0;
+      panels[0]!.emit({
+        type: 'change-base-ref',
+        repo: '/repo/a',
+        baseRef: 'epic/x',
+        rebase: true,
+        requestId: 'r2',
+      });
+      await vi.waitFor(() =>
+        expect(panels[0]!.posted.find((m: any) => m.type === 'action-result')).toBeDefined(),
+      );
+      const result = panels[0]!.posted.find((m: any) => m.type === 'action-result');
+      expect(result).toMatchObject({ type: 'action-result', requestId: 'r2', ok: true });
+      const pushed = panels[0]!.posted.find((m: any) => m.type === 'state') as any;
+      expect(pushed).toBeDefined();
+      expect(pushed.state.worktrees[0]).toMatchObject({ repo: '/repo/a', baseRef: 'epic/x' });
+    });
+  });
+
   describe('worktree stats', () => {
     const addWorktree = (ticketId: number): void => {
       store.db

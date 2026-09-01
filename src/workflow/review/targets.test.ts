@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { planReviewTargets, type ReviewGateTarget } from './targets.js';
 import { manifest, repo, svc } from '../../manifest/fixtures.js';
 import type { GitRunner } from '../../integrations/git.js';
+import { openStore, type Store } from '../../store/db.js';
 
 // Every repo reports a change, so affected-set selection is not what is under
 // test here — `gates/targets.test.ts` owns that.
@@ -17,6 +18,15 @@ function targetsOf(selection: Awaited<ReturnType<typeof planReviewTargets>>): Re
   return selection.targets;
 }
 
+
+/**
+ * A ticket with no worktree rows: the base resolver then falls back to the
+ * manifest, which is what these selection tests are about.
+ */
+function ticket(): { store: Store; ticketId: number } {
+  return { store: openStore(':memory:'), ticketId: 1 };
+}
+
 describe('planReviewTargets', () => {
   it('collapses two repository entries sharing one repoPath into one target, keeping both names', async () => {
     const targets = targetsOf(
@@ -27,6 +37,7 @@ describe('planReviewTargets', () => {
         }),
         [{ repo: '/mono', path: '/wt/mono', baseRef: null }],
         changed,
+        ticket(),
       ),
     );
     // One monorepo, one worktree, one run of the review gates — but both names,
@@ -51,6 +62,7 @@ describe('planReviewTargets', () => {
           { repo: '/mono', path: '/wt/mono', baseRef: null },
         ],
         changed,
+        ticket(),
       ),
     );
     expect(targets).toHaveLength(1);
@@ -69,6 +81,7 @@ describe('planReviewTargets', () => {
           { repo: '/api', path: '/wt/api', baseRef: null },
         ],
         changed,
+        ticket(),
       ),
     );
     expect(targets.map((t) => t.path).sort()).toEqual(['/wt/api', '/wt/web']);
@@ -80,6 +93,7 @@ describe('planReviewTargets', () => {
         manifest({ docs: repo({ repoPath: '/docs' }) }),
         [{ repo: '/docs', path: '/wt/docs', baseRef: null }],
         changed,
+        ticket(),
       ),
     );
     expect(targets).toHaveLength(1);
@@ -98,6 +112,7 @@ describe('planReviewTargets', () => {
         manifest({ api: repo({ repoPath: '/api', service: svc() }) }),
         [{ repo: '/api', path: '/wt/api', baseRef: null }],
         failing,
+        ticket(),
       ),
     ).toEqual({
       kind: 'unavailable',

@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import type { Manifest } from '../manifest/types.js';
-import { resolveBaselineBranch } from '../manifest/baselineBranch.js';
+import { resolvePlannedBaseRef } from '../workflow/baseRef.js';
 import { worktreePaths, canonicalPath, worktreeRegisteredAt } from './worktree.js';
 
 /**
@@ -61,6 +61,16 @@ export function preflightSpin(
   hot: string[],
   /** Rendered branch for this ticket; omitted → the historical `karst/<slug>`. */
   ticketBranch?: string,
+  /**
+   * The ticket's own pre-spin base overrides (`tickets.base_refs`), when the
+   * caller has one. Validating `resolveBaselineBranch` (the manifest default)
+   * instead of `resolvePlannedBaseRef` (this ticket's ACTUAL planned base) would
+   * pass preflight for a repo whose worktree is about to be cut from a branch
+   * this check never looked at — an override naming a branch absent from the
+   * clone then fails later, mid `git worktree add`, breaking the "fails fast,
+   * nothing partial" contract this function exists for.
+   */
+  ticket?: { baseRefs?: Record<string, string> },
 ): void {
   const problems: string[] = [];
   const seen = new Set<string>();
@@ -82,8 +92,10 @@ export function preflightSpin(
       continue;
     }
 
-    // `<branch>^{commit}` verifies the ref resolves to a commit in this repo.
-    const branch = resolveBaselineBranch(manifest, repo);
+    // The branch the worktree will ACTUALLY be cut from: the ticket's override
+    // when it has one, else the manifest default — same resolver `spinTicket`
+    // and `createWorktree` answer to (`workflow/baseRef.ts`).
+    const branch = resolvePlannedBaseRef(ticket ?? {}, manifest, name);
     if (!gitOk(repoPath, ['rev-parse', '--verify', '--quiet', `${branch}^{commit}`])) {
       problems.push(`branch '${branch}' not found in ${repoPath}`);
     }

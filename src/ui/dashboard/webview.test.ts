@@ -121,6 +121,35 @@ describe('dashboard webview.html', () => {
     expect(HTML).toMatch(/Build this worktree and open its extension in a new dev window/);
   });
 
+  it('renders a base-branch control on the scope card and posts change-base-ref', () => {
+    // The label always shows: the worktree's own baseRef, or the manifest
+    // default when unset — never an empty cell.
+    expect(HTML).toMatch(/w\.baseRef \|\| w\.baseDefault \|\| /);
+    expect(HTML).toContain('data-act="toggle-base-form"');
+    // The confirm form: the SAME combobox shape as the ticket-form picker
+    // (Task 8) — a free-text input with a `<datalist>` of candidates — plus
+    // the rebase switch, defaulted ON (a missing/never-touched switch reads
+    // as ON — the safe reading of a missing flag).
+    expect(HTML).toContain('data-base-input=');
+    expect(HTML).toMatch(/<datalist id="\$\{listId\}">/);
+    expect(HTML).toContain('w.baseCandidates');
+    expect(HTML).toContain('data-act="toggle-rebase-switch"');
+    expect(HTML).toMatch(/role="switch" aria-checked="\$\{rebaseOn\}"/);
+    expect(HTML).toMatch(/baseFormRebase\[repo\] !== false/);
+    // The destructive-half copy: stated plainly, and never tells the user to
+    // force-push themselves — Karst arms the lease automatically.
+    expect(HTML).toMatch(/Rebasing rewrites the ticket branch's commits/);
+    expect(HTML).not.toMatch(/force-push (it |the branch )?yourself/i);
+    // The submit posts the closed message shape messages.ts validates.
+    expect(HTML).toContain("if (act === 'change-base-ref')");
+    expect(HTML).toMatch(/post\(\{ type: act, repo, baseRef, rebase, requestId \}\)/);
+    // A refusal must change nothing: no repaint happens from this branch —
+    // only the shared action-result channel (karstSettle) reports it, and a
+    // success closes the form via the SAME channel rather than optimistically
+    // here.
+    expect(HTML).toMatch(/if \(msg\.ok === true\)[\s\S]{0,200}baseFormOpen/);
+  });
+
   it('renders ephemeral additions and deletions by host-owned repo identity', () => {
     expect(HTML).toMatch(/worktreeStats\[w\.repo\]/);
     expect(HTML).toContain("msg.type === 'worktree-stats'");
@@ -448,9 +477,18 @@ describe('dashboard webview.html', () => {
     // is the ONE local-only action: the delegated handler answers it in an explicit
     // branch BEFORE the posting path, so it never becomes a host message (same
     // carve-out as the constant CONSOLE_ACT, which reads `data-console`).
+    // `toggle-base-form`/`toggle-rebase-switch` (§ per-repo base branch — live
+    // change) are the same carve-out: opening the confirm form and flipping
+    // its rebase switch are pure client-side draft state, answered in their
+    // own branch before the posting path — only `change-base-ref` itself,
+    // posted on submit, is a real host message.
     const emitted = [...HTML.matchAll(/data-act="([^"$]+)"/g)]
       .map((m) => m[1]!)
-      .filter((act) => act !== 'preview-ticket-data');
+      .filter(
+        (act) => act !== 'preview-ticket-data'
+          && act !== 'toggle-base-form'
+          && act !== 'toggle-rebase-switch',
+      );
     expect(emitted.length).toBeGreaterThan(0);
     for (const act of new Set(emitted)) {
       expect(declared, `unvalidated action: ${act}`).toContain(`'${act}'`);

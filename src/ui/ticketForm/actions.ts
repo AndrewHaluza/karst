@@ -11,6 +11,7 @@ import {
   generateTicketKey,
 } from '../../store/tickets.js';
 import { createTicketFlow } from '../../workflow/stages/create.js';
+import { resolvePlannedBaseRef, assertSharedRepoBaseOverrides } from '../../workflow/baseRef.js';
 import { openProcessRun, finishProcessRun } from '../../store/processRuns.js';
 import { scoreRepos } from '../../workflow/classify/gate.js';
 import { suggestSignals as suggestSignalsAI } from '../../workflow/classify/suggest.js';
@@ -150,6 +151,20 @@ export interface TicketFormActionsDeps {
   pickAttachment: () => Promise<string[]>;
   /** Reveal a file in the editor (real: `vscode.env.openExternal` / `vscode.open`). */
   openFile: (path: string) => void | Promise<void>;
+  /**
+   * List the base-branch candidates for a repository (real: bound to
+   * `listBaseBranchCandidates(defaultGitRunner, repoPath)`). Never throws
+   * (the underlying lister already swallows git failures to `[]`) — a picker
+   * that can't list branches still has to render.
+   */
+  listBaseBranches?: (repoPath: string) => Promise<string[]>;
+  /**
+   * Per-panel cache of already-fetched base-branch candidates, keyed by
+   * `repoPath`. Owned by the host (one per open panel) and shared with the
+   * state builder via `TicketFormManager`'s `branchCandidates` getter — this
+   * module only WARMS it (see `setRepos`), never reads it back for state.
+   */
+  branchCandidatesCache?: Map<string, string[]>;
 }
 
 function errorMessage(e: unknown): string {
@@ -220,6 +235,17 @@ function persistDraft(
   deps: TicketFormActionsDeps,
   input: TicketDraftFields,
 ): number {
+  // Validate BEFORE any write. `setBaseRef` runs this same assert on every
+  // interactive change, but a rejection there leaves the stale text sitting in
+  // the webview's input — `collectBaseRefs()` re-sends it on Submit/Save
+  // regardless. Without this check here, an override `setBaseRef` already
+  // refused would land in the store anyway, and spin (which dedups by
+  // repoPath) would cut the shared worktree from whichever manifest entry it
+  // iterates first — exactly the invariant the assert exists to protect.
+  // Runs first, before `key`/`updateTicketCore`/etc., so a rejection leaves
+  // an existing (edit-mode) ticket completely untouched rather than partially
+  // overwritten, and creates nothing in create mode.
+  assertSharedRepoBaseOverrides(deps.manifest, input.baseRefs ?? {});
   // The key is optional on the webview's manual-entry path (§ manual ticket
   // creation): a blank key means "derive one from the title now" (the webview
   // previews the same derivation while you type, so this is normally a no-op
@@ -262,6 +288,7 @@ function persistDraft(
     effort: input.effort ?? '',
     agentProvider: input.agentProvider ?? '',
     type: input.ticketType ?? '',
+    baseRefs: input.baseRefs ?? {},
   });
   deps.onChange();
   return ticketId;
@@ -646,6 +673,49 @@ export function buildTicketFormActions(
       if (ctx.ticketId !== undefined) {
         updateTicketFields(deps.store, ctx.ticketId, { selectedRepos: repos });
       }
+      // Lazily warm the branch-candidate cache: a row's candidates load only
+      // once it is actually selected, so opening the form never fans out a
+      // for-each-ref per manifest repository (§ per-repo base branch).
+      if (deps.listBaseBranches && deps.branchCandidatesCache) {
+        const cache = deps.branchCandidatesCache;
+        const listBaseBranches = deps.listBaseBranches;
+        for (const name of repos) {
+          const repository = deps.manifest.repositories[name];
+          if (!repository || cache.has(repository.repoPath)) continue;
+          // Claim the slot immediately so a rapid re-toggle before the fetch
+          // resolves does not start a second lookup for the same path.
+          cache.set(repository.repoPath, []);
+          void listBaseBranches(repository.repoPath).then((candidates) => {
+            cache.set(repository.repoPath, candidates);
+            ctx.pushState();
+          });
+        }
+      }
+    },
+
+    setBaseRef(repo: string, baseRef: string): void {
+      if (ctx.ticketId === undefined) return;
+      const ticket = getTicket(deps.store, ctx.ticketId);
+      // Build a NEW record — never mutate the ticket's persisted overrides.
+      const current = { ...(ticket.baseRefs ?? {}) };
+      const trimmed = baseRef.trim();
+      // The manifest default is resolved WITHOUT this repo's own override, so
+      // an override equal to that default reads as "no override" rather than
+      // comparing against itself.
+      const withoutThisRepo = { ...current };
+      delete withoutThisRepo[repo];
+      const manifestDefault = resolvePlannedBaseRef({ baseRefs: withoutThisRepo }, deps.manifest, repo);
+      const next =
+        trimmed === '' || trimmed === manifestDefault
+          ? withoutThisRepo
+          : { ...withoutThisRepo, [repo]: trimmed };
+      try {
+        assertSharedRepoBaseOverrides(deps.manifest, next);
+      } catch (e) {
+        ctx.post({ type: 'error', message: errorMessage(e) });
+        return;
+      }
+      updateTicketFields(deps.store, ctx.ticketId, { baseRefs: next });
     },
 
     setApproach(id: string): void {
@@ -853,7 +923,16 @@ export function buildTicketFormActions(
     },
 
     async submit(input): Promise<void> {
-      const ticketId = persistDraft(ctx, deps, input);
+      let ticketId: number;
+      try {
+        ticketId = persistDraft(ctx, deps, input);
+      } catch (e) {
+        // A rejected base-ref override (or any other validation persistDraft
+        // enforces) must not create or half-write a ticket — nothing has been
+        // written yet, so reporting and returning here is a clean no-op.
+        ctx.post({ type: 'error', message: errorMessage(e) });
+        return;
+      }
 
       // The create-mode "Also create in ClickUp" checkbox: mint + bind the
       // provider task BEFORE the launch. The Karst ticket is already persisted

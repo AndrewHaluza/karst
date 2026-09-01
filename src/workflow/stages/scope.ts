@@ -1,6 +1,6 @@
 import type { Store } from '../../store/db.js';
 import type { Manifest } from '../../manifest/types.js';
-import { resolveBaselineBranch } from '../../manifest/baselineBranch.js';
+import { resolvePlannedBaseRef } from '../baseRef.js';
 import { createWorktree, type WorktreeRecord } from '../../runtime/worktree.js';
 import { pullBaseRef } from '../../runtime/pullBase.js';
 import { defaultGitRunner, type GitRunner } from '../../integrations/git.js';
@@ -83,7 +83,8 @@ export async function confirmScope(
   const git = opts.git ?? defaultGitRunner;
   const seen = new Set<string>();
   const records: WorktreeRecord[] = [];
-  const { slug, branch } = ticketWorktreeNames(getTicket(store, ticketId), manifest);
+  const ticket = getTicket(store, ticketId);
+  const { slug, branch } = ticketWorktreeNames(ticket, manifest);
 
   for (const name of hot) {
     const repo = manifest.repositories[name];
@@ -93,7 +94,7 @@ export async function confirmScope(
     if (seen.has(repo.repoPath)) continue;
     seen.add(repo.repoPath);
 
-    const baseRef = resolveBaselineBranch(manifest, repo);
+    const baseRef = resolvePlannedBaseRef(ticket, manifest, name);
     let startPoint = baseRef;
     if (pullBase) {
       const pulled = await pullBaseRef(git, repo.repoPath, baseRef);

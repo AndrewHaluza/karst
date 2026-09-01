@@ -13,6 +13,7 @@ import { resolveTicketType } from '../../workflow/conventionContext.js';
 import { buildStepper, type StepperCell } from '../../model/stepper.js';
 import { providerTicketUrl } from '../../integrations/ticketUrl.js';
 import { isRunnable } from '../../manifest/runnable.js';
+import { resolveBaselineBranch } from '../../manifest/baselineBranch.js';
 import {
   bundledModelCatalog,
   type ModelCatalog,
@@ -39,6 +40,27 @@ export interface RepoRow {
    */
   runnable: boolean;
   selected: boolean;
+}
+
+/**
+ * One repo's base-branch picker row (§ per-repo base branch). Emitted for
+ * EVERY manifest repository, not only selected ones: the webview owns
+ * selection state locally (client-side `draft.repos`, same as `RepoRow`), so
+ * it needs the row's default/candidates ready whenever the user selects it,
+ * without a second host round trip for anything but the git listing itself.
+ */
+export interface RepoBaseRow {
+  repo: string;
+  /** Persisted override, or '' when the ticket has none (follows the manifest). */
+  value: string;
+  /** The manifest's resolved default branch for this repo, for the placeholder. */
+  default: string;
+  /**
+   * Local heads + `origin/*`, loaded lazily (empty until the row has been
+   * selected at least once in this panel's life — see actions.ts `setRepos`).
+   * Never a closed vocabulary: the input stays free text.
+   */
+  candidates: string[];
 }
 
 /**
@@ -101,6 +123,8 @@ export interface TicketFormState {
   /** Services still lacking signal words — the classify gate targets these. */
   unclassified: string[];
   repos: RepoRow[];
+  /** Per-repo base-branch picker rows (§ per-repo base branch), one per manifest repository. */
+  repoBases: RepoBaseRow[];
   approaches: ApproachRow[];
   selectedApproach: string | null;
   /**
@@ -237,6 +261,14 @@ export function buildTicketFormState(
    * (`store/tokenUsage.ts` `listRecentlyUsedModels`).
    */
   recentModels: Record<string, string[]> = {},
+  /**
+   * Base-branch candidates already fetched for a repo, keyed by `repoPath`
+   * (not repo name — two manifest entries may share a path). Injected so this
+   * module stays host-agnostic; the real host owns a per-panel cache, warmed
+   * lazily by `actions.ts` `setRepos` the first time a row is selected — never
+   * fetched for every manifest repository up front.
+   */
+  branchCandidates: Record<string, string[]> = {},
 ): TicketFormState {
   // The built-in overlay seam: the ticket form resolves packaged built-ins
   // ONLY through `withBuiltInApproaches` (design, Selection and Enablement).
@@ -283,6 +315,14 @@ export function buildTicketFormState(
     });
   };
 
+  const makeRepoBases = (baseRefs: Record<string, string>): RepoBaseRow[] =>
+    repoEntries.map(([name, def]) => ({
+      repo: name,
+      value: baseRefs[name] ?? '',
+      default: resolveBaselineBranch(manifest, def),
+      candidates: branchCandidates[def.repoPath] ?? [],
+    }));
+
   if (ticketId === undefined) {
     return {
       mode: 'create',
@@ -297,6 +337,7 @@ export function buildTicketFormState(
       ticketUrl: null,
       unclassified,
       repos: makeRepos(new Set(), new Map()),
+      repoBases: makeRepoBases({}),
       approaches,
       selectedApproach: defaultApproach(approaches),
       pickerTouched,
@@ -346,6 +387,7 @@ export function buildTicketFormState(
     ticketUrl: providerTicketUrl(provider, ticket.sourceRef),
     unclassified,
     repos: makeRepos(selectedSet, scores),
+    repoBases: makeRepoBases(ticket.baseRefs ?? {}),
     approaches,
     selectedApproach: ticket.approach ?? defaultApproach(approaches),
     pickerTouched,

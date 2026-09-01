@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS tickets (
   approach          TEXT,                 -- chosen development approach id
   agent             TEXT,                 -- chosen single-subagent id (nullable)
   selected_repos    TEXT,                 -- JSON array of confirmed repository names
+  base_refs         TEXT,                 -- v48: JSON object of per-repo base branch overrides
   -- v3 lifecycle column (kept in sync with migrations.ts v3 ALTER):
   archived_at       TEXT,                 -- soft-delete timestamp; NULL = active
   -- v5 model column (kept in sync with migrations.ts v5 ALTER):
@@ -521,6 +522,7 @@ CREATE TABLE IF NOT EXISTS worktrees (
   branch        TEXT,
   base_ref      TEXT,                 -- branch point, for staleness (§9)
   deps_mode     TEXT NOT NULL DEFAULT 'inherited',  -- inherited | local (§8.2)
+  needs_force_push INTEGER,    -- set when a base change rebased this branch (§ per-repo base)
   created_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

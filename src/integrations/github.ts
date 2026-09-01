@@ -287,6 +287,30 @@ export async function updatePrBody(
 }
 
 /**
+ * Re-target an open PR at a different base branch via `gh pr edit --base`.
+ *
+ * Result, never a throw — for the same reason as `updatePrBody`: this runs
+ * against a PR that is already open, so a refusal (no write permission, a dead
+ * network) is a note on an otherwise-successful base change, not an exception
+ * that parks the ticket.
+ */
+export async function updatePrBase(
+  gh: GhRunner,
+  ref: string,
+  cwd: string,
+  base: string,
+): Promise<PrEditAttempt> {
+  let r: GhResult;
+  try {
+    r = await gh(['pr', 'edit', ref, '--base', base], cwd);
+  } catch (e) {
+    return { ok: false, reason: e instanceof Error ? e.message : String(e) };
+  }
+  if (r.exitCode === 0) return { ok: true, reason: '' };
+  return { ok: false, reason: r.stderr?.trim() || r.stdout.trim() || `gh exit ${r.exitCode}` };
+}
+
+/**
  * The dashboard's PR vocabulary. A superset of gh's `state` (OPEN/CLOSED/MERGED)
  * because a draft — state OPEN with `isDraft` — earns its own label, and because
  * every failure to determine the true state must have a name the caller can

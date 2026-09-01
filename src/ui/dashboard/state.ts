@@ -90,6 +90,22 @@ export interface DashboardAgentContext {
   modelCatalog?: ModelCatalog;
 }
 
+/**
+ * A worktree row for the scope card, plus what its base-branch control needs
+ * (§ per-repo base branch — live change): the manifest's resolved default (so
+ * the row can mark an override, same "changed" affordance the ticket-form
+ * picker uses) and the candidate branches for its combobox — the SAME shape
+ * Task 8's `RepoBaseRow.candidates` carries, so the two surfaces read as one
+ * idea. Candidates are loaded lazily host-side and empty until warmed; the
+ * input stays free text either way.
+ */
+export interface DashboardWorktreeView extends WorktreeView {
+  /** The manifest's resolved default branch for this repo (never the override). */
+  baseDefault: string;
+  /** Local heads + `origin/*`, loaded lazily. Never a closed vocabulary. */
+  baseCandidates: string[];
+}
+
 /** Fully serializable dashboard state pushed to the webview via postMessage. */
 export interface DashboardState {
   ticketId: number;
@@ -144,7 +160,7 @@ export interface DashboardState {
   servers: ServerView[];
   /** False when nothing in scope declares a service — nothing can ever start. */
   hasRunnableRepos: boolean;
-  worktrees: WorktreeView[];
+  worktrees: DashboardWorktreeView[];
   /**
    * The pull requests, already worded: from-to branches, opened/merged stamps,
    * comments, and whether merging is offered (`model/prPanelView.ts`). Rendered
@@ -334,6 +350,23 @@ export function buildDashboardState(
    * argument positions.
    */
   attemptSelection?: Partial<Record<'uat' | 'review', string>>,
+  /**
+   * The manifest's resolved default base branch for a worktree's repoPath
+   * (§ per-repo base branch — live change). Injected (the state builder never
+   * reads the manifest) — absent → `''`, which never marks a base as
+   * overridden (an empty default cannot equal any real branch name).
+   * Appended LAST so every existing positional caller keeps its argument
+   * positions.
+   */
+  baseBranchDefaultFor: (repoPath: string) => string = () => '',
+  /**
+   * The base-branch candidates for a worktree's repoPath, for its combobox —
+   * loaded lazily and cached host-side (`listBaseBranchCandidates`), same
+   * split as `loadStats`: a git listing is not something this synchronous
+   * builder can perform itself. Absent/unwarmed → `[]`, and the input stays
+   * free text either way. Appended LAST for the same reason.
+   */
+  baseBranchCandidatesFor: (repoPath: string) => string[] = () => [],
 ): DashboardState {
   const ticket = getTicket(store, ticketId); // throws on unknown id
   // The parent relationship for the dashboard's secondary metadata line. A
@@ -389,10 +422,12 @@ export function buildDashboardState(
     ? 'No default (agent picks)'
     : agentSession.modelLabel;
 
-  const worktrees = listWorktreesByTicket(store, ticketId).map((w) => ({
+  const worktrees: DashboardWorktreeView[] = listWorktreesByTicket(store, ticketId).map((w) => ({
     ...w,
     repoDisplay: repoDisplayPath(w.repo, pathContext),
     launchable: isCheckout(w.path),
+    baseDefault: baseBranchDefaultFor(w.repo),
+    baseCandidates: baseBranchCandidatesFor(w.repo),
   }));
 
   // ONE clock read per push: the PR stamps, the merge rows and the stage strip

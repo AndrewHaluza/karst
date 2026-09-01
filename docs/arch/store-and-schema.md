@@ -8,6 +8,7 @@ The registry is shared by every IDE window, so every rule here is about scoping 
 - Projects scope the board across IDE windows
 - Global storage is shared by every window
 - The artifact shelf is a READ over existing evidence
+- The per-ticket base-branch columns
 - New schema column checklist
 
 ## SQLite is source of truth
@@ -25,6 +26,10 @@ Global storage is shared by every window: anything written there needs a per-win
 ## The artifact shelf is a READ over existing evidence, never a new write surface
 
 `model/artifacts.ts` derives semantic artifacts (uat-report, review, ship-summary) from `stages`, `gate_runs`, `review_findings`, `uat_findings`, `process_runs`, `ship_runs`, and `prs` — the same evidence rows the inside views already render. Origin `core` is resolved from the immutable identity snapshot `process_runs.provider` (captured at launch, never rewritten), falling back to `tickets.session_provider` then `tickets.agent_provider` — never invented. The detail payload rides the same snapshot (no async `artifact.get` round trip); the only failure mode is a missing resource file, reported by the host opener exactly like `openStageLog` (extension.ts:4599). Staleness is whether impl/fix re-ran after the artifact — a stale artifact still renders its content, it just warns it no longer validates current code. `DashboardState.artifacts` is the single host-side derivation (state.ts); the webview's index/detail are local renders. `artifact-open-resource` carries artifact id + resource index — never a path — and the host re-derives before opening.
+
+## The per-ticket base-branch columns
+
+`tickets.base_refs` (schema v48) is a JSON map of manifest repository NAME → plain branch name, the PRE-spin override; after spin, `worktrees.base_ref` is the authority (`docs/arch/worktrees-and-servers.md`'s base-branch section). `worktrees.needs_force_push` (schema v49) is armed only when `changeBaseRef`'s rebase actually rewrote the branch, and is read and cleared by the same statement (`takeForcePushLease`) so one rewrite arms exactly one force push.
 
 ## New schema column checklist
 

@@ -278,6 +278,11 @@ import { buildConflictBrief } from './workflow/conflictSession.js';
 import { stopServer, stopTicketServers } from './runtime/supervisor.js';
 import { reapStaleServers, describeReap } from './runtime/worktreeServers.js';
 import { systemAsyncProcessFacts } from './runtime/serverIdentity.js';
+import { listBaseBranchCandidates } from './runtime/branchList.js';
+import {
+  changeBaseRef as changeBaseRefWorkflow,
+  type ChangeBaseRefResult,
+} from './workflow/changeBaseRef.js';
 import { reconcileStageRuns, describeStaleStageRun } from './store/stageRuns.js';
 import {
   reconcileProcessRuns,
@@ -293,7 +298,6 @@ import { makePortAllocator } from './resolver/allocator.js';
 import {
   defaultGitRunner,
 } from './integrations/git.js';
-import { resolveBaselineBranchForPath } from './manifest/baselineBranch.js';
 import { loadManifest, loadManifestWithDiagnostics, type Manifest } from './manifest/load.js';
 import { DEFAULT_ARCHIVE_DONE_AFTER_DAYS } from './manifest/schema.js';
 import type { PathContext } from './ui/dashboard/state.js';
@@ -1739,6 +1743,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   };
 
+  // Base-branch candidates already fetched (§ per-repo base branch), keyed by
+  // `repoPath`. One cache for the whole window: `buildTicketFormActions`'s
+  // `setRepos` warms an entry lazily the first time a row is selected in ANY
+  // ticket-form panel, and `TicketFormManager`'s `branchCandidates` getter
+  // reads the same object on every state push — so a branch listed once
+  // never re-fetches for a different panel on the same repo.
+  const baseBranchCandidates = new Map<string, string[]>();
+
   const ticketForm = new TicketFormManager(
     localStore,
     () => currentManifest() ?? emptyManifest(),
@@ -1877,6 +1889,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       openFile: async (path: string) => {
         await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(path));
       },
+      listBaseBranches: (repoPath: string) => listBaseBranchCandidates(defaultGitRunner, repoPath),
+      branchCandidatesCache: baseBranchCandidates,
     }),
     listInstalledApproachIds,
     listAgents,
@@ -1890,6 +1904,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // The recently-used models for the shared picker's "Last used" group,
     // scoped to this window's project like every other ticket-adjacent read.
     () => listRecentlyUsedModels(localStore, currentProject()?.id ?? null, 5),
+    // Same cache `setRepos` warms above, read fresh on every state push.
+    () => Object.fromEntries(baseBranchCandidates),
   );
 
   // Full agent-pool rows for the Settings "Agents" tab. Unlike `listAgents`
@@ -2758,6 +2774,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // process id). Reads through the same bounded AgentConsole the driver
     // streamed into, so a post-run console shows exactly what ran.
     (ticketId, processId) => agentConsole.readLog(ticketId, processId),
+    // The base-branch combobox's candidates (§ per-repo base branch — live
+    // change), same lister the ticket-form picker uses (Task 8) — never a
+    // closed vocabulary, and never throws (the lister swallows git failures).
+    (repoPath) => listBaseBranchCandidates(defaultGitRunner, repoPath),
   );
 
   // A karst.yml edit made OUTSIDE karst (hand edit in the editor, a teammate's
@@ -5051,13 +5071,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // project from fetching once per repo per minute forever.
       let mergeChanged = 0;
       try {
+        // No `baseRefFor` override: `syncMergeChecks` already defaults to
+        // `pr.baseRef` (which is `worktrees.base_ref` — see `listSyncablePrs`),
+        // the same per-ticket, per-repository base the resolver in
+        // `workflow/baseRef.ts` produces. Re-deriving from the manifest here
+        // would undo a live `changeBaseRef` override and probe the wrong base
+        // (see docs/arch/worktrees-and-servers.md, "The base branch is per
+        // TICKET and per REPOSITORY").
         mergeChanged = await syncMergeChecks(localStore, defaultGitRunner, {
           scope: { projectId: project.id },
           minAgeMs: force ? 0 : MERGE_SYNC_MIN_AGE_MS,
-          baseRefFor: (repo) => {
-            const m = currentManifest();
-            return m ? resolveBaselineBranchForPath(m, repo) : null;
-          },
         });
       } catch (e) {
         // The PR statuses above already landed; a failed merge sweep must not
@@ -7421,6 +7444,30 @@ function makeInsideActionHost(
   };
 }
 
+/**
+ * Word a successful `changeBaseRef` outcome for the dashboard's action-result
+ * toast (§ per-repo base branch — live change): rebased or not, PR retargeted
+ * or not, merge check cleared — never a generic "done" (see `panel.ts`'s
+ * `change-base-ref` branch, which posts this verbatim as `message`).
+ */
+function describeChangeBaseRef(result: ChangeBaseRefResult): string {
+  if (result.toBase === result.fromBase) return `Already based on ${result.toBase}.`;
+  const parts: string[] = [
+    result.rebase?.outcome === 'rebased'
+      ? `Rebased onto ${result.toBase}.`
+      : `Re-targeted to ${result.toBase} (not rebased).`,
+  ];
+  if (result.prRetarget) {
+    parts.push(
+      result.prRetarget.ok
+        ? `PR #${result.prRetarget.number} re-targeted.`
+        : `PR #${result.prRetarget.number} re-target refused.`,
+    );
+  }
+  parts.push('Merge check cleared.');
+  return parts.join(' ');
+}
+
 function makeDashboardActions(
   store: Store,
   ticketId: number,
@@ -7889,6 +7936,33 @@ function makeDashboardActions(
       // Re-push so the row re-renders from what was actually stored, never
       // from what the click assumed.
       afterServerChange();
+    },
+    // Change a spun ticket's base branch for one repository (§ per-repo base
+    // branch — live change). `repo` is the worktree's repoPath; the manifest
+    // is read FRESH (like ship) so a mid-session `karst.yml` edit controls
+    // the resolved default. A refusal is reported via a THROW — the seam this
+    // resolves through (panel.ts's `change-base-ref` branch) reports `ok`
+    // from the resolved value, so `ok: false` is expressed by throwing, not
+    // by returning it — no repaint happens, and `worktrees.base_ref` is
+    // untouched (the workflow itself never writes it on a refusal).
+    changeBaseRef: async (repo, baseRef, rebase) => {
+      const manifestNow = manifest();
+      if (!manifestNow) {
+        return { ok: false, message: 'No manifest is loaded — nothing to change.' };
+      }
+      const result = await changeBaseRefWorkflow({
+        store,
+        manifest: manifestNow,
+        ticketId,
+        repoPath: repo,
+        toBase: baseRef,
+        rebase,
+        git: defaultGitRunner,
+        gh: defaultGhRunnerAsync,
+        debug,
+      });
+      if (!result.ok) return { ok: false, message: result.reason };
+      return { ok: true, message: describeChangeBaseRef(result) };
     },
   };
 }

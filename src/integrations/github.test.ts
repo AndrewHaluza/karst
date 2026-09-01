@@ -13,6 +13,7 @@ import {
   UNKNOWN_PR_DETAIL,
   mergePr,
   updatePrBody,
+  updatePrBase,
   fetchPrBody,
   prFromAlreadyExists,
   type GhRunner,
@@ -663,5 +664,32 @@ describe('mergePr', () => {
     };
     const r = await mergePr(gh, '9', '/wt', 'squash');
     expect(r).toEqual({ ok: false, reason: 'spawn blew up' });
+  });
+});
+
+describe('updatePrBase', () => {
+  it('edits the PR base and reports success', async () => {
+    const calls: string[][] = [];
+    const gh: GhRunner = async (args) => {
+      calls.push(args);
+      return { stdout: '', stderr: '', exitCode: 0 };
+    };
+    expect(await updatePrBase(gh, '42', '/wt', 'epic/checkout')).toEqual({ ok: true, reason: '' });
+    expect(calls).toEqual([['pr', 'edit', '42', '--base', 'epic/checkout']]);
+  });
+
+  it('reports gh’s refusal verbatim instead of throwing', async () => {
+    const gh: GhRunner = async () => ({ stdout: '', stderr: 'no write access', exitCode: 1 });
+    expect(await updatePrBase(gh, '42', '/wt', 'epic/checkout')).toEqual({
+      ok: false,
+      reason: 'no write access',
+    });
+  });
+
+  it('turns a thrown runner into a reason', async () => {
+    const gh: GhRunner = async () => {
+      throw new Error('gh not installed');
+    };
+    expect((await updatePrBase(gh, '42', '/wt', 'main')).reason).toBe('gh not installed');
   });
 });

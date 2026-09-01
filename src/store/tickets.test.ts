@@ -53,6 +53,7 @@ describe('ticketLabel', () => {
     approach: null,
     agent: null,
     selectedRepos: [],
+    baseRefs: {},
     archivedAt: null,
     updatedAt: null,
     model: null,
@@ -1001,5 +1002,36 @@ describe('deleteTicket — graph evidence (Slice-2 T8)', () => {
       approach_node_run_id: null,
       total_tokens: 150,
     });
+  });
+});
+
+describe('baseRefs', () => {
+  it('defaults to an empty object', () => {
+    const store = openStore(':memory:');
+    const id = createTicket(store, { key: 'B-1', title: 't' }).id;
+    expect(getTicket(store, id)!.baseRefs).toEqual({});
+  });
+
+  it('round-trips a per-repo override', () => {
+    const store = openStore(':memory:');
+    const id = createTicket(store, { key: 'B-2', title: 't' }).id;
+    updateTicketFields(store, id, { baseRefs: { api: 'epic/checkout', web: 'develop' } });
+    expect(getTicket(store, id)!.baseRefs).toEqual({ api: 'epic/checkout', web: 'develop' });
+  });
+
+  it('tolerates a corrupt column, exactly like selected_repos', () => {
+    const store = openStore(':memory:');
+    const id = createTicket(store, { key: 'B-3', title: 't' }).id;
+    store.db.prepare('UPDATE tickets SET base_refs = ? WHERE id = ?').run('not json', id);
+    expect(getTicket(store, id)!.baseRefs).toEqual({});
+  });
+
+  it('drops non-string values rather than trusting the column', () => {
+    const store = openStore(':memory:');
+    const id = createTicket(store, { key: 'B-4', title: 't' }).id;
+    store.db
+      .prepare('UPDATE tickets SET base_refs = ? WHERE id = ?')
+      .run(JSON.stringify({ api: 3, web: 'develop' }), id);
+    expect(getTicket(store, id)!.baseRefs).toEqual({ web: 'develop' });
   });
 });
