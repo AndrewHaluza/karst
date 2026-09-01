@@ -6,7 +6,6 @@ import { transition } from '../../workflow/machine.js';
 import { recordGateRun } from '../../store/gateRuns.js';
 import { setMergeCheck } from '../../store/mergeChecks.js';
 import { recordPhaseMark } from '../../store/phaseMarks.js';
-import { appendTicketLog } from '../../store/ticketLogs.js';
 import { recordTokenUsage } from '../../store/tokenUsage.js';
 import { upsertProject } from '../../store/projects.js';
 import { openProcessRun } from '../../store/processRuns.js';
@@ -52,34 +51,6 @@ describe('buildDashboardState', () => {
     expect(state.prs).toEqual([]);
     // No evidence → no artifacts section (spec §4.1: absence, never empty).
     expect(state.artifacts).toEqual([]);
-  });
-
-  it('rides the ticket debug trail on the presented stage view when present', () => {
-    const t = createTicket(store, { key: 'PROJ-1', title: 'thing' });
-    // Walk the ticket to uat so stageCurrent (and thus presentedStage) is uat.
-    transition(store, t.id, 'scope', { kind: 'passed' });
-    transition(store, t.id, 'impl', { kind: 'passed' });
-    appendTicketLog(store, { ticketId: t.id, module: '[driver]', message: 'dispatching uat runner', recordedAt: 'a' });
-    appendTicketLog(store, { ticketId: t.id, module: '[gate]', message: 'uat resolve: 1 kept', recordedAt: 'b' });
-
-    const state = buildDashboardState(store, t.id);
-    // The presented stage is uat (the ticket's current stage).
-    expect(state.presentedStage).toBe('uat');
-    expect(state.insideViews.uat.debugLogs).toEqual([
-      { module: '[driver]', message: 'dispatching uat runner', recordedAt: 'a' },
-      { module: '[gate]', message: 'uat resolve: 1 kept', recordedAt: 'b' },
-    ]);
-    // A non-presented stage carries no trail.
-    expect(state.insideViews.scope.debugLogs).toBeUndefined();
-  });
-
-  it('leaves debugLogs absent when the ticket has no captured trail', () => {
-    const t = createTicket(store, { key: 'PROJ-1', title: 'thing' });
-    transition(store, t.id, 'scope', { kind: 'passed' });
-    transition(store, t.id, 'impl', { kind: 'passed' });
-
-    const state = buildDashboardState(store, t.id);
-    expect(state.insideViews.uat.debugLogs).toBeUndefined();
   });
 
   it('resolves the PR repo to its manifest NAME and stamps adaptively', () => {

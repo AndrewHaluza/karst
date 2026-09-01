@@ -12,8 +12,6 @@ import { fileURLToPath } from 'node:url';
 import { basename, dirname, isAbsolute, join } from 'node:path';
 
 import { openStore, type Store } from './store/db.js';
-import { appendTicketLog, debugModule } from './store/ticketLogs.js';
-import { nowIso } from './model/time.js';
 import { runImmediateTransaction } from './store/transactions.js';
 import { describeStoreOpenFailure } from './extension/storeOpenFailure.js';
 import { watchExternalChanges } from './store/externalChanges.js';
@@ -3065,22 +3063,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           runVerifier: runProcess,
           log: (message) => logger.info(message),
           // Verbose decision-point lines (manifest `debug` flag): gated inside
-          // the logger, so this binding is a no-op unless debug is on. Each line
-          // is ALSO appended to the ticket's `ticket_logs` trail so the
-          // dashboard's Inside component can render the ticket's own debug
-          // history — captured at the one seam that knows the ticket id. The
-          // append is gated on the SAME flag `logger.debug` uses, so a debug-off
-          // run never pays a store write per decision point.
-          debug: (message) => {
-            logger.debug(message);
-            if (!logger.isDebugEnabled()) return;
-            appendTicketLog(localStore, {
-              ticketId,
-              module: debugModule(message),
-              message,
-              recordedAt: nowIso(),
-            });
-          },
+          // the logger, so this binding is a no-op unless debug is on. Surfaces
+          // only in the Karst output channel — see Debug Logging Rules.
+          debug: (message) => logger.debug(message),
           // Findings-lane boundary diagnostics (a failed AI call, garbage
           // output, an untrustworthy `file`) — routed to `Logger.warn` so
           // they read as warnings in the output channel rather than as

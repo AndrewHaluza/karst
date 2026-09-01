@@ -833,25 +833,6 @@
   #inside .op-body{margin:0 0 var(--p-s2) 36px;border-left:var(--k-border-w) solid var(--p-border);
     padding:var(--p-s2) 0 var(--p-s2) var(--p-s3)}
 
-  /* The debug log: a native disclosure (UI-R09 <details>/<summary>) under the
-     ledger, listing the ticket's captured debug trail for this stage. Mono
-     copy, muted prefix, each line on its own row so long messages wrap instead
-     of ellipsizing — a log is a deliberate detail surface (UI-R32). */
-  #inside .debug-log{margin:var(--p-s2) 36px 0;border-top:var(--k-border-w) solid var(--p-border);
-    padding-top:var(--p-s2)}
-  #inside .debug-log summary{list-style:none;cursor:pointer;color:var(--p-muted);
-    font-size:var(--p-sm);font-weight:600;user-select:none}
-  #inside .debug-log summary::-webkit-details-marker{display:none}
-  #inside .debug-log summary:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);
-    outline-offset:var(--k-focus-offset);border-radius:var(--p-r1)}
-  #inside .debug-log-body{margin-top:var(--p-s2);padding:var(--p-s2);background:var(--p-surface2);
-    border-radius:var(--p-r1);max-height:240px;overflow-y:auto}
-  #inside .dbg-line{display:grid;grid-template-columns:auto minmax(0,1fr);gap:var(--p-s2);
-    padding:var(--p-s1) 0;border-bottom:var(--k-border-w) solid var(--p-border);font-size:var(--p-xs)}
-  #inside .dbg-line:last-child{border-bottom:0}
-  #inside .dbg-mod{color:var(--p-muted2);font-family:var(--p-mono);white-space:nowrap}
-  #inside .dbg-msg{color:var(--p-text);font-family:var(--p-mono);overflow-wrap:anywhere}
-
   /* Generic evidence rows */
   #inside .evidence-row{display:grid;grid-template-columns:minmax(74px,100px) minmax(0,1fr) auto;
     gap:var(--p-s2);align-items:center;min-height:26px;padding:0 var(--p-s2)}
@@ -2392,21 +2373,6 @@
     return view.attemptNote ? `<div class="attempt-note">${esc(view.attemptNote)}</div>` : '';
   }
 
-  // The ticket's captured debug trail for this stage, as a read-only disclosure
-  // (UI-R09: native <details>/<summary>). The trail is host-authored (UI-R31);
-  // each line's module prefix and already-redacted message are escaped as
-  // untrusted-ish prose (UI-R32) even though the logging pipeline sanitized it
-  // before capture. Rendered only when the host shipped a non-empty trail.
-  function debugLogHtml(view) {
-    if (!view.debugLogs || view.debugLogs.length === 0) return '';
-    const rows = view.debugLogs.map((l) =>
-      `<div class="dbg-line"><span class="dbg-mod">${esc(l.module)}</span>`
-      + `<span class="dbg-msg">${esc(l.message)}</span></div>`,
-    ).join('');
-    return `<details class="debug-log"><summary>Debug log (${view.debugLogs.length})</summary>`
-      + `<div class="debug-log-body">${rows}</div></details>`;
-  }
-
   // ── the prototype's shared primitives ──────────────────────────────────
   // The identity run: [agent name ·] core mark + core · model. Every part is
   // host-shipped (`AgentExecutionView`); the mark is the CANONICAL provider
@@ -2961,7 +2927,7 @@
     const consoleStage = view.console ? view.stageKey : null;
     const body = attemptNoteHtml(view) + (procs.length
       ? `<div class="ledger">${procs.map((p) => processRowHtml(p, `${view.stageKey}:${p.id}`, processOpen(p, `${view.stageKey}:${p.id}`), consoleStage)).join('')}</div>`
-      : `<div class="blurb">${esc(view.blurb)}</div>`) + debugLogHtml(view);
+      : `<div class="blurb">${esc(view.blurb)}</div>`);
 
     // The prototype's block: viewing bar, then the three-cell header (stage
     // title · live operation · meta), then the ledger. The fourth cell — the

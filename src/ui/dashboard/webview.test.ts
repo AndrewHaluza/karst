@@ -2480,30 +2480,6 @@ describe('inside render round trip (executed in a VM)', () => {
     expect(clickChevron(html, 'uat', 'gates')).toBe('uat:gates');
   });
 
-  it('renders the ticket debug trail as a native disclosure, per line (UI-R09/R32)', () => {
-    // When the host ships a non-empty `debugLogs` on the presented stage view,
-    // renderInside shows a collapsible "Debug log" section listing each line's
-    // module prefix and message, escaped.
-    const state = renderStateFor('uat');
-    const view = { ...state.insideViews.uat, debugLogs: [
-      { module: '[driver]', message: 'ticket 1: dispatching uat runner', recordedAt: 'a' },
-      { module: '[gate]', message: 'uat resolve: 1 kept <script>alert(1)</script>', recordedAt: 'b' },
-    ] };
-    const h = bootPreviewHarness();
-    h.receive({ type: 'state', state: { ...state, insideViews: { ...state.insideViews, uat: view } } });
-    const html = h.htmlOf('inside');
-    expect(html).toContain('<details class="debug-log"><summary>Debug log (2)</summary>');
-    expect(html).toContain('<span class="dbg-mod">[driver]</span>');
-    expect(html).toContain('dispatching uat runner');
-    // Lines are escaped against the DOM (UI-R32).
-    expect(html).toContain('&lt;script&gt;');
-  });
-
-  it('renders no debug log section when the host ships no trail', () => {
-    const html = renderInsideFor('uat');
-    expect(html).not.toContain('class="debug-log"');
-  });
-
   it('restores a disclosed process row across a full re-render (B3)', () => {
     // The F1 fix must not regress: the open-state key the toggle listener
     // stores (the row's own data-proc-id) is the exact key the renderer
