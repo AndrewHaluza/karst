@@ -11,7 +11,7 @@
  * snapshot — so the row exists durably (a host restart mid-call leaves a
  * `running` row the activation sweep marks stale), carries WHO ran it as it
  * was at launch, and is finished with an explicit result kind
- * (`observed`/`execution-failed`/`interrupted`).
+ * (`observed`/`execution-failed`/`unreadable-output`/`interrupted`).
  *
  * The prompt/parse boundary is review's own `parseFindings` (`review/findings.ts`):
  * whole-document JSON then JSONL, a closed severity vocabulary, in-worktree
@@ -30,7 +30,7 @@ import { defaultGitRunner, type GitRunner } from '../../integrations/git.js';
 import { openProcessRun, finishProcessRun } from '../../store/processRuns.js';
 import { stageAttempt } from '../../store/stages.js';
 import { recordUatFindings, type UatFindingInput } from '../../store/uatFindings.js';
-import { parseFindings, type WarnFn } from '../review/findings.js';
+import { parseFindingsResult, type FindingsParseShape, type WarnFn } from '../review/findings.js';
 import { buildScopeBlock } from '../agentScope.js';
 import { collapseDiagnostic } from '../../model/diagnosticText.js';
 import { nowIso } from '../../model/time.js';
@@ -138,11 +138,21 @@ export interface RunUatTesterOpts {
 /**
  * The closed Tester result. `observed` is the ONLY advisory success — it
  * carries the ids of the recorded rows; `execution-failed` is an adapter crash
- * (the stage warns and lets the gates decide); `interrupted` is a Stop.
+ * (the stage warns and lets the gates decide); `unreadable-output` is every
+ * asked target answering something no findings could be read out of;
+ * `interrupted` is a Stop.
  */
 export type TesterRunResult =
   | { kind: 'observed'; findingIds: number[] }
   | { kind: 'execution-failed'; message: string }
+  /**
+   * Every target answered, and not one answer carried a findings-shaped
+   * container we could read. Distinct from `observed` with zero findings: a
+   * clean run is silent BY SAYING SO (`[]`), and reading an unreadable answer
+   * as a clean one is what turned a `high` observation into "0 observations —
+   * advisory". Advisory still: the ordinary UAT gates decide the stage.
+   */
+  | { kind: 'unreadable-output' }
   | { kind: 'interrupted' };
 
 export const DEFAULT_MAX_TESTER_OBSERVATIONS = 100;
@@ -264,6 +274,9 @@ export async function runUatTester(
 
   const cap = opts.maxObservations ?? DEFAULT_MAX_TESTER_OBSERVATIONS;
   const collected: UatFindingInput[] = [];
+  // One shape per target actually ASKED — the deterministic wrong-checkout
+  // `continue` below pushes nothing here, since it never asked the core.
+  const shapes: FindingsParseShape[] = [];
   const debug = opts.debug;
   const git = opts.git ?? defaultGitRunner;
   debug?.(
@@ -326,7 +339,7 @@ export async function runUatTester(
       // Finding 13 follow-up: the budget is NOT a reason to skip a target;
       // every configured repository is asked, and the cap is applied once,
       // after collection.
-      const parsed = parseFindings(
+      const parseResult = parseFindingsResult(
         result.raw,
         {
           repo: target.repo,
@@ -334,7 +347,9 @@ export async function runUatTester(
           max: cap,
         },
         opts.warn,
-      ).map((f) => ({
+      );
+      shapes.push(parseResult.shape);
+      const parsed = parseResult.findings.map((f) => ({
         severity: f.severity,
         repo: f.repo,
         file: f.file,
@@ -343,7 +358,7 @@ export async function runUatTester(
       }));
       debug?.(
         `[gate] uat tester ticket ${opts.ticketId}: target ${target.repo} returned ` +
-          `${parsed.length} observation(s)`,
+          `${parsed.length} observation(s) (${parseResult.shape})`,
       );
       opts.onTargetProgress?.({
         repo: target.repo,
@@ -356,6 +371,17 @@ export async function runUatTester(
       debug?.(`[gate] uat tester ticket ${opts.ticketId}: stopped — interrupted`);
       close('interrupted', 'interrupted');
       return { kind: 'interrupted' };
+    }
+    // Every target that was actually ASKED came back unreadable, and nothing
+    // deterministic was recorded either: there is no evidence here, and calling
+    // that "0 observations" is the bug this branch exists to close.
+    if (shapes.length > 0 && shapes.every((s) => s === 'unreadable') && collected.length === 0) {
+      debug?.(
+        `[gate] uat tester ticket ${opts.ticketId}: ${shapes.length} target(s) answered ` +
+          `unreadable output — recorded no observations`,
+      );
+      close('failed', 'unreadable-output');
+      return { kind: 'unreadable-output' };
     }
     // The execution-wide cap is applied ONCE over everything every target
     // contributed, ranked by severity (critical first) and stable — ties keep

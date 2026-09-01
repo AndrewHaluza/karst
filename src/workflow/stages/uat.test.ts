@@ -1084,6 +1084,27 @@ describe('runUat — Tester and verifier (Task 8)', () => {
     expect(listProcessRuns(store, id)[0]).toMatchObject({ processId: 'tester', resultKind: 'observed' });
   });
 
+  it('an unreadable Tester answer is advisory too: the stage does not fail, and the gates alone decide', async () => {
+    const res = await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      testerDeps({
+        tester: {
+          assignment: { agentName: 'UAT Agent', provider: 'claude' },
+          adapter: testerAgent('I ran the tests and everything looked fine.'),
+        },
+      }),
+    );
+    expect(res).toEqual({ kind: 'advanced', next: 'review' });
+    expect(listUatFindings(store, id)).toEqual([]);
+    expect(listRecoveryRounds(store, id)).toEqual([]);
+    expect(getTicket(store, id).stageCurrent).toBe('review');
+    expect(listProcessRuns(store, id)[0]).toMatchObject({
+      processId: 'tester',
+      resultKind: 'unreadable-output',
+    });
+  });
+
   it('does not reuse review AI-result reduction as authority: no blocking-review-findings round ever opens from uat', async () => {
     await runUat(
       store,

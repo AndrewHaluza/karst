@@ -133,11 +133,19 @@ describe('runUatTester', () => {
     expect(listUatFindings(store, ticketId).map((f) => f.severity)).toEqual(['critical', 'low']);
   });
 
-  it('malformed output is observed with no findings, not an error', async () => {
-    const { adapter } = rawAdapter('sure, looks fine to me!');
+  it('closes the run as unreadable-output when the core answered prose', async () => {
+    const { adapter } = rawAdapter('I ran the tests and everything looked fine.');
+    const res = await runUatTester(store, opts({ adapter }), { now });
+    expect(res).toEqual({ kind: 'unreadable-output' });
+    const run = listProcessRuns(store, ticketId).at(-1)!;
+    expect(run.resultKind).toBe('unreadable-output');
+    expect(run.status).toBe('failed');
+  });
+
+  it('still closes as observed when every target answered an empty array', async () => {
+    const { adapter } = rawAdapter('[]');
     const res = await runUatTester(store, opts({ adapter }), { now });
     expect(res).toEqual({ kind: 'observed', findingIds: [] });
-    expect(listProcessRuns(store, ticketId)[0]!.resultKind).toBe('observed');
   });
 
   it('an adapter crash is execution-failed, finished failed, and never transitions anything', async () => {

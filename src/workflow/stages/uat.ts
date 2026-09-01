@@ -557,6 +557,12 @@ export async function runUat(
     // break the run's gates — it is reported, and the gates decide.
     deps.warn?.(`uat tester: call failed, contributing no observations: ${testerResult.message}`);
   }
+  if (testerResult?.kind === 'unreadable-output') {
+    // Advisory absence, handled exactly like `execution-failed`: an answer
+    // nothing could be read out of must not break the run's gates — it is
+    // reported, and the gates decide.
+    deps.warn?.('uat tester: every target answered unreadable output, contributing no observations');
+  }
 
   const verifierGate = opts.manifest?.uat?.testerVerifier;
   if (verifierGate !== undefined) {
