@@ -522,6 +522,7 @@ CREATE TABLE IF NOT EXISTS worktrees (
   branch        TEXT,
   base_ref      TEXT,                 -- branch point, for staleness (§9)
   deps_mode     TEXT NOT NULL DEFAULT 'inherited',  -- inherited | local (§8.2)
+  needs_force_push INTEGER,    -- set when a base change rebased this branch (§ per-repo base)
   created_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

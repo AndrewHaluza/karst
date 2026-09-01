@@ -19,7 +19,7 @@ export function readSchema(): string {
 }
 
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 48;
+export const SCHEMA_VERSION = 49;
 
 /** v2 ticket-field columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -1854,6 +1854,14 @@ export function migrate(db: Database): void {
   const baseRefCols = tableColumns(db, 'tickets');
   if (baseRefCols.size > 0 && !baseRefCols.has('base_refs')) {
     db.exec('ALTER TABLE tickets ADD COLUMN base_refs TEXT');
+  }
+
+  // v49 — a base change rebases the ticket branch, which rewrites its commits;
+  // the next push must carry a lease or the remote rejects it. Nothing to
+  // backfill: no pre-v49 branch was rewritten by karst.
+  const worktreeCols = tableColumns(db, 'worktrees');
+  if (worktreeCols.has('base_ref') && !worktreeCols.has('needs_force_push')) {
+    db.exec('ALTER TABLE worktrees ADD COLUMN needs_force_push INTEGER');
   }
 
   db.pragma(`user_version = ${SCHEMA_VERSION}`);

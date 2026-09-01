@@ -698,6 +698,55 @@ setTimeout(() => {
     ]);
   });
 
+  // Task 5's rebase rewrites every commit on an already-pushed ticket branch —
+  // an ordinary push is a non-fast-forward and is rejected. `needs_force_push`
+  // is the durable signal that this exact push must carry a lease instead.
+  it('force-pushes under a lease built from the just-probed remote head when the flag is armed', async () => {
+    const worktree = join(dir, 'fe');
+    seedWorktree(store, id, '/repo/frontend', worktree);
+    store.db
+      .prepare(`UPDATE worktrees SET needs_force_push = 1 WHERE ticket_id = ? AND repo = ?`)
+      .run(id, '/repo/frontend');
+    const remoteSha = 'a'.repeat(40);
+    const localSha = 'b'.repeat(40);
+    const calls: string[][] = [];
+    const git: GitRunner = async (args) => {
+      calls.push(args);
+      if (args[0] === 'diff') return { stdout: '', stderr: '', exitCode: 1 };
+      if (args[0] === 'rev-parse' && args[1] === 'HEAD') {
+        return { stdout: localSha, stderr: '', exitCode: 0 };
+      }
+      if (args[0] === 'rev-parse' && args[2] === 'refs/remotes/origin/karst/x') {
+        return { stdout: remoteSha, stderr: '', exitCode: 0 };
+      }
+      return { stdout: '', stderr: '', exitCode: 0 };
+    };
+    const { gh } = fakeGh();
+
+    await shipTicket(store, { ticketId: id }, gh, fakeAdapter(), git);
+
+    expect(calls.filter((a) => a[0] === 'push')).toEqual([
+      ['push', '-u', `--force-with-lease=karst/x:${remoteSha}`, 'origin', 'HEAD'],
+    ]);
+    // Consumed — a second ship on the same ticket pushes ordinarily.
+    const row = store.db
+      .prepare(`SELECT needs_force_push FROM worktrees WHERE ticket_id = ? AND repo = ?`)
+      .get(id, '/repo/frontend') as { needs_force_push: number | null };
+    expect(row.needs_force_push).toBeNull();
+  });
+
+  it('pushes ordinarily when the force-push flag is not armed', async () => {
+    seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+    const { gh } = fakeGh();
+    const { git, calls } = fakeGit();
+
+    await shipTicket(store, { ticketId: id }, gh, fakeAdapter(), git);
+
+    expect(calls.filter((c) => c.args[0] === 'push').map((c) => c.args)).toEqual([
+      ['push', '-u', 'origin', 'HEAD'],
+    ]);
+  });
+
   // A push that fails means the PR cannot open. Opening it anyway is impossible;
   // asking a model for a description first would just burn a call.
   it('a failed push aborts the ship, records why, and never calls gh', async () => {

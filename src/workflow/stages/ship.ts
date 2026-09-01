@@ -9,6 +9,7 @@ import {
 import { executionView } from '../../model/inside/agent.js';
 import { randomUUID, createHash } from 'node:crypto';
 import { listWorktreesByTicket } from '../../store/dashboard.js';
+import { takeForcePushLease } from '../../store/worktrees.js';
 import { getTicket } from '../../store/tickets.js';
 import { resolveShipLanding } from '../mergeGate.js';
 import { setStage } from '../../store/stages.js';
@@ -1282,8 +1283,12 @@ export async function shipTicket(
             { step: 'push', localHead, remote: 'origin', ref, preRemoteHead },
             pushAt,
           );
+          const lease =
+            takeForcePushLease(store, opts.ticketId, wt.repo) && preRemoteHead
+              ? { ref, expected: preRemoteHead }
+              : undefined;
           try {
-            await pushBranch(git, wt.path);
+            await pushBranch(git, wt.path, { forceWithLease: lease });
           } catch (err) {
             const detail = err instanceof Error ? err.message : String(err);
             reconcileShipOperation(store, pushOp.intentId, 'failed', {
