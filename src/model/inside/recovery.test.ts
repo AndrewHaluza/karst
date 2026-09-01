@@ -73,6 +73,24 @@ describe('recoveryProcess', () => {
     expect(recoveryProcess([], [], NOW)).toBeNull();
   });
 
+  // A review-origin round can be left `failed` when its revalidation is
+  // interrupted by an UNRELATED uat failure: openRecoveryRound fails the old
+  // round and opens a new one attributed to uat, so the round series never
+  // revisits review even though the driver goes on to re-run and pass it —
+  // the exact ticket 380 sequence (round 79 `review`/failed, round 80
+  // `uat`/passed) that left "Inside Review" reading Fix as failed forever.
+  it('reads as passed once the owning stage itself currently reads passed, even with a terminal failed round', () => {
+    const failedRound = round({ id: 1, sourceStage: 'review', status: 'failed' });
+    const stillFailing = recoveryProcess([failedRound], [], NOW, undefined, false);
+    expect(stillFailing!.process.status).toBe('fail');
+
+    const view = recoveryProcess([failedRound], [], NOW, undefined, true);
+    expect(view!.process.status).toBe('pass');
+    expect(view!.process.detail).toBe(
+      "Review passed on a later attempt — this round's own failure is history",
+    );
+  });
+
   it('names the LATEST round as the trigger process', () => {
     const view = recoveryProcess(
       [

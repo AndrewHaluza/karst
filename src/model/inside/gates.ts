@@ -754,7 +754,13 @@ export function uatProcesses(input: QualityProcessesInput): InsideProcessView[] 
   const stageRounds = input.rounds.filter((r) => r.sourceStage === 'uat');
   return insertCausalFix(
     processes,
-    recoveryProcess(stageRounds, input.processRuns, input.now, input.configured),
+    recoveryProcess(
+      stageRounds,
+      input.processRuns,
+      input.now,
+      input.configured,
+      displayStatus(input.cell) === 'passed',
+    ),
   );
 }
 
@@ -777,6 +783,12 @@ export function reviewProcesses(input: QualityProcessesInput): InsideProcessView
   const stageRounds = input.rounds.filter((r) => r.sourceStage === 'review');
   return insertCausalFix(
     processes,
-    recoveryProcess(stageRounds, input.processRuns, input.now, input.configured),
+    recoveryProcess(
+      stageRounds,
+      input.processRuns,
+      input.now,
+      input.configured,
+      displayStatus(input.cell) === 'passed',
+    ),
   );
 }

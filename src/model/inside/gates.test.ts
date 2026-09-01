@@ -610,6 +610,9 @@ describe('uatProcesses', () => {
   it('renders one fix row for an exhausted series, with every round in its evidence', () => {
     const views = uatProcesses(
       qualityInput({
+        // An exhausted series parks the ticket at fix — the stage itself
+        // never reads `passed` while that's true, unlike the fixture default.
+        cell: cell('uat', 'running'),
         rounds: [
           round({ id: 1, round: 1, status: 'failed' }),
           round({ id: 2, round: 2, status: 'exhausted' }),
