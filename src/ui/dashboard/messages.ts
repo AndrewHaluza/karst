@@ -149,7 +149,18 @@ export type WebviewMessage =
    * property as `set-disabled-gates`: a crafted or stale message cannot aim
    * the view at anything the host doesn't already know about.
    */
-  | { type: 'select-gate-attempt'; stage: GateStage; key: string };
+  | { type: 'select-gate-attempt'; stage: GateStage; key: string }
+  /**
+   * Change a spun ticket's base branch for one repository (§ per-repo base
+   * branch — live change). `repo` is the WORKTREE's repoPath, never a
+   * manifest entry name — base refs are per worktree. `rebase` defaults to ON
+   * when the flag is absent (the safe reading of a missing switch: a base
+   * change without a rebase leaves the branch sitting on the old base). The
+   * host re-resolves everything against the ticket's actual worktree before
+   * touching git, so a crafted or stale message cannot aim the change at a
+   * repository this ticket never scoped, or skip the refusal path.
+   */
+  | { type: 'change-base-ref'; repo: string; baseRef: string; rebase: boolean };
 
 /**
  * Host → webview messages. `state` pushes drive the stepper + panels;
@@ -305,6 +316,15 @@ export interface DashboardActions {
    * cannot name an arbitrary file to open.
    */
   openArtifactResource: (artifactId: string, index: number) => void | Promise<void>;
+  /**
+   * Change a spun ticket's base branch for one repository. Resolves to the
+   * terminal outcome (UI-R13): `ok: false` means the change was REFUSED
+   * (`dirty`/`conflict`/`base-missing`/`failed`) and nothing was touched —
+   * `message` names git's own reason. `ok: true` means the base moved;
+   * `message` reports what actually happened (rebased or not, PR retargeted
+   * or not, merge check cleared) so the toast is never a generic "done".
+   */
+  changeBaseRef: (repo: string, baseRef: string, rebase: boolean) => Promise<InsideActionResult>;
 }
 
 /**
@@ -513,6 +533,17 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
         ? { type: 'select-gate-attempt', stage: m.stage, key }
         : null;
     }
+    // `repo` is the worktree's repoPath, matched like `resolve-conflicts`/
+    // `merge-pr` (typed, non-empty, never trimmed — a path is not free text).
+    // `baseRef` IS trimmed and must be non-blank: a blank base names nothing
+    // to change to. `rebase` defaults ON when absent — the safe reading of a
+    // missing switch (see the type's own doc).
+    case 'change-base-ref': {
+      const repo = typeof m.repo === 'string' ? m.repo : '';
+      const baseRef = typeof m.baseRef === 'string' ? m.baseRef.trim() : '';
+      if (repo.length === 0 || baseRef.length === 0) return null;
+      return { type: 'change-base-ref', repo, baseRef, rebase: m.rebase !== false };
+    }
     default:
       return null;
   }
@@ -569,7 +600,7 @@ export function parseInsideProgress(raw: unknown): InsideProgressEvent | null {
 export function routeAction(
   raw: unknown,
   actions: DashboardActions,
-): InsideActionResult | void | Promise<void> {
+): InsideActionResult | void | Promise<void> | Promise<InsideActionResult> {
   const msg = parseWebviewMessage(raw);
   if (!msg) return;
   switch (msg.type) {
@@ -641,5 +672,7 @@ export function routeAction(
       return actions.requestStageLog(msg.stage);
     case 'agent-log-request':
       return actions.requestAgentLog(msg.processId);
+    case 'change-base-ref':
+      return actions.changeBaseRef(msg.repo, msg.baseRef, msg.rebase);
   }
 }

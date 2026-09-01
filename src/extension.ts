@@ -279,6 +279,10 @@ import { stopServer, stopTicketServers } from './runtime/supervisor.js';
 import { reapStaleServers, describeReap } from './runtime/worktreeServers.js';
 import { systemAsyncProcessFacts } from './runtime/serverIdentity.js';
 import { listBaseBranchCandidates } from './runtime/branchList.js';
+import {
+  changeBaseRef as changeBaseRefWorkflow,
+  type ChangeBaseRefResult,
+} from './workflow/changeBaseRef.js';
 import { reconcileStageRuns, describeStaleStageRun } from './store/stageRuns.js';
 import {
   reconcileProcessRuns,
@@ -2771,6 +2775,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // process id). Reads through the same bounded AgentConsole the driver
     // streamed into, so a post-run console shows exactly what ran.
     (ticketId, processId) => agentConsole.readLog(ticketId, processId),
+    // The base-branch combobox's candidates (§ per-repo base branch — live
+    // change), same lister the ticket-form picker uses (Task 8) — never a
+    // closed vocabulary, and never throws (the lister swallows git failures).
+    (repoPath) => listBaseBranchCandidates(defaultGitRunner, repoPath),
   );
 
   // A karst.yml edit made OUTSIDE karst (hand edit in the editor, a teammate's
@@ -7385,6 +7393,30 @@ function makeInsideActionHost(
   };
 }
 
+/**
+ * Word a successful `changeBaseRef` outcome for the dashboard's action-result
+ * toast (§ per-repo base branch — live change): rebased or not, PR retargeted
+ * or not, merge check cleared — never a generic "done" (see `panel.ts`'s
+ * `change-base-ref` branch, which posts this verbatim as `message`).
+ */
+function describeChangeBaseRef(result: ChangeBaseRefResult): string {
+  if (result.toBase === result.fromBase) return `Already based on ${result.toBase}.`;
+  const parts: string[] = [
+    result.rebase?.outcome === 'rebased'
+      ? `Rebased onto ${result.toBase}.`
+      : `Re-targeted to ${result.toBase} (not rebased).`,
+  ];
+  if (result.prRetarget) {
+    parts.push(
+      result.prRetarget.ok
+        ? `PR #${result.prRetarget.number} re-targeted.`
+        : `PR #${result.prRetarget.number} re-target refused.`,
+    );
+  }
+  parts.push('Merge check cleared.');
+  return parts.join(' ');
+}
+
 function makeDashboardActions(
   store: Store,
   ticketId: number,
@@ -7853,6 +7885,33 @@ function makeDashboardActions(
       // Re-push so the row re-renders from what was actually stored, never
       // from what the click assumed.
       afterServerChange();
+    },
+    // Change a spun ticket's base branch for one repository (§ per-repo base
+    // branch — live change). `repo` is the worktree's repoPath; the manifest
+    // is read FRESH (like ship) so a mid-session `karst.yml` edit controls
+    // the resolved default. A refusal is reported via a THROW — the seam this
+    // resolves through (panel.ts's `change-base-ref` branch) reports `ok`
+    // from the resolved value, so `ok: false` is expressed by throwing, not
+    // by returning it — no repaint happens, and `worktrees.base_ref` is
+    // untouched (the workflow itself never writes it on a refusal).
+    changeBaseRef: async (repo, baseRef, rebase) => {
+      const manifestNow = manifest();
+      if (!manifestNow) {
+        return { ok: false, message: 'No manifest is loaded — nothing to change.' };
+      }
+      const result = await changeBaseRefWorkflow({
+        store,
+        manifest: manifestNow,
+        ticketId,
+        repoPath: repo,
+        toBase: baseRef,
+        rebase,
+        git: defaultGitRunner,
+        gh: defaultGhRunnerAsync,
+        debug,
+      });
+      if (!result.ok) return { ok: false, message: result.reason };
+      return { ok: true, message: describeChangeBaseRef(result) };
     },
   };
 }

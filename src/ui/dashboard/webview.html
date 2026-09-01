@@ -1300,6 +1300,16 @@
   .wt .wstats{display:flex;gap:var(--k-space-3);font-family:var(--k-font-mono);font-size:var(--k-text-xs);white-space:nowrap;flex-shrink:0}
   .wt .wadd{color:var(--k-passed)}
   .wt .wdel{color:var(--k-failed)}
+  /* The base-branch control (§ per-repo base branch — live change): the label
+     line sits right under the worktree row, and the confirm form (combobox +
+     rebase switch) opens in place — no modal, same "confirm surface" pattern
+     the merge/send-back controls already use elsewhere on this page. */
+  .wtwrap{display:flex;flex-direction:column}
+  .wbase{display:flex;align-items:center;gap:var(--k-space-3);padding:var(--k-space-0) var(--k-space-3) var(--k-space-2)}
+  .wbaselabel{font-size:var(--k-text-xs);color:var(--k-text-dim)}
+  .wbasebr{font-family:var(--k-font-mono);color:var(--k-text-faint)}
+  .wbaseform{display:flex;flex-direction:column;gap:var(--k-space-3);padding:var(--k-space-2) var(--k-space-3) var(--k-space-4)}
+  .wbaseformacts{display:flex;gap:var(--k-space-2)}
   /* Built on `.k-chip` (UI-R08: the same pill primitive as keypill/fixtoggle/
      approach .aid); only the monospace uppercase treatment stays local. Every
      status renders one of the variants below, so the chip's own default fill
@@ -3251,6 +3261,60 @@
       + `<tbody>${rows}</tbody></table></div>`;
   }
 
+  // Whether the base-change confirm form is open, per repoPath (§ per-repo
+  // base branch — live change) — module-level so a re-render (worktree-stats,
+  // a live tick) does not close a form the user has open, same pattern as
+  // `openMergeRepos` below. `baseFormRebase` mirrors the switch's OWN state
+  // (default ON — the safe reading of a missing/never-touched switch, same
+  // default `messages.ts` applies host-side). `baseFormDraft` keeps a
+  // mid-typed value across a re-render that isn't itself caused by this input.
+  let baseFormOpen = {};
+  let baseFormRebase = {};
+  let baseFormDraft = {};
+  /** requestId -> repo, for the ONE base-change request in flight per repo. */
+  let baseChangeRequests = {};
+
+  /**
+   * The base-branch line + its confirm form for one worktree row (§ per-repo
+   * base branch — live change). The label always renders; the form only when
+   * open. Reuses `.k-field`/`.k-switch` (shared, DESIGN-SYSTEM §5) — no new
+   * component. The combobox is the SAME `<input list>` + `<datalist>` shape
+   * the ticket-form picker uses (Task 8), so the two surfaces read as one
+   * idea; candidates are `listBaseBranchCandidates`, loaded lazily host-side
+   * (empty until warmed — the input stays free text either way).
+   */
+  function renderBaseControl(w) {
+    const repo = w.repo;
+    const current = w.baseRef || w.baseDefault || '';
+    const label = `<div class="wbase"><span class="wbaselabel">Base <span class="wbasebr">${esc(current || '—')}</span></span>`
+      + `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-act="toggle-base-form" data-repo="${esc(repo)}">`
+      + `${baseFormOpen[repo] ? 'Cancel' : 'Change base'}</button></div>`;
+    if (!baseFormOpen[repo]) return label;
+    const listId = 'wbase-list-' + esc(repo);
+    const options = (w.baseCandidates || []).map((c) => `<option value="${esc(c)}"></option>`).join('');
+    const draft = baseFormDraft[repo] || '';
+    // Missing/never-touched reads as ON (`messages.ts`'s own default): a base
+    // change without a rebase leaves the branch sitting on the old base.
+    const rebaseOn = baseFormRebase[repo] !== false;
+    return label + `<div class="wbaseform">`
+      + `<div class="k-field"><label for="wbaseinput-${esc(repo)}">New base branch for ${esc(w.repoDisplay || repo)}</label>`
+      + `<input class="k-input" id="wbaseinput-${esc(repo)}" type="text" list="${listId}" value="${esc(draft)}"`
+      + ` placeholder="${esc(current)}" data-base-input="${esc(repo)}">`
+      + `<datalist id="${listId}">${options}</datalist></div>`
+      + `<button type="button" class="k-switch" role="switch" aria-checked="${rebaseOn}"`
+      + ` data-act="toggle-rebase-switch" data-repo="${esc(repo)}">`
+      + `<span class="k-switch-track" aria-hidden="true"></span>Rebase the branch onto the new base</button>`
+      // This is the destructive half, stated plainly (never "force-push
+      // yourself" — Karst arms the lease automatically at ship time).
+      + `<div class="k-field-help">Rebasing rewrites the ticket branch's commits. `
+      + `Karst arms the force-push automatically at ship time. Turning this off `
+      + `only re-targets the pull request — useful when the branch was already `
+      + `cut from the right commit.</div>`
+      + `<div class="wbaseformacts">`
+      + `<button type="button" class="k-btn k-btn--primary k-btn--sm" data-act="change-base-ref" data-repo="${esc(repo)}">Change base</button>`
+      + `</div></div>`;
+  }
+
   function renderWorktrees(wts) {
     el('wtCount').textContent = wts.length ? `${wts.length}` : '';
     el('wtChanges').disabled = wts.length === 0;
@@ -3266,7 +3330,7 @@
           // without waiting for a round trip — see flashCopied() below.
           + `<button type="button" class="k-iconbtn ib t-copy" data-act="copy-worktree-branch" data-branch="${esc(w.branch)}" data-copy aria-label="Copy branch name" title="Copy branch name">${svgIcon('copy')}</button></span>`
         : '';
-      return `<div class="wt"><span class="wrepo">${esc(w.repoDisplay || w.repo)}</span>`
+      const row = `<div class="wt"><span class="wrepo">${esc(w.repoDisplay || w.repo)}</span>`
         + branch + totals + `<span class="wacts">`
         + `<button type="button" class="k-iconbtn ib t-open" data-act="open-worktree-terminal" data-path="${esc(w.path)}"`
         + ` aria-label="Open terminal" title="Open a terminal in this worktree">${svgIcon('terminal-2')}</button>`
@@ -3280,6 +3344,7 @@
             + ` aria-label="Launch dev host" title="Build this worktree and open its extension in a new dev window">${svgIcon('play-bug')}</button>`
           : '')
         + `</span></div>`;
+      return `<div class="wtwrap" data-wtwrap="${esc(w.repo)}">${row}${renderBaseControl(w)}</div>`;
     }).join('') : '<div class="empty">No worktrees.</div>';
   }
 
@@ -4603,6 +4668,52 @@
       return;
     }
 
+    // Open/close the base-change confirm form (§ per-repo base branch — live
+    // change). Purely local — no host message: the form only stages a draft
+    // until "Change base" is pressed. Cancelling drops the draft, same as a
+    // closed picker discarding an untyped value.
+    if (act === 'toggle-base-form') {
+      const repo = btn.dataset.repo;
+      if (!repo) return;
+      baseFormOpen = { ...baseFormOpen, [repo]: !baseFormOpen[repo] };
+      if (!baseFormOpen[repo]) delete baseFormDraft[repo];
+      if (lastState) renderWorktrees(lastState.worktrees || []);
+      return;
+    }
+    // The rebase switch: a local toggle, applied to the `change-base-ref`
+    // payload only when the form is submitted — same as `pullBase` in the
+    // ticket form (Task 8). Flips its own attribute in place rather than a
+    // full re-render, which would drop focus out of the base-branch input.
+    if (act === 'toggle-rebase-switch') {
+      const repo = btn.dataset.repo;
+      if (!repo) return;
+      const next = btn.getAttribute('aria-checked') !== 'true';
+      baseFormRebase = { ...baseFormRebase, [repo]: next };
+      btn.setAttribute('aria-checked', String(next));
+      return;
+    }
+    // Change a spun ticket's base branch for one repository. `rebase` reads
+    // the switch's OWN current state (defaulted ON, same as `messages.ts`'s
+    // reading of a missing flag). A blank base posts nothing — the host would
+    // reject it anyway (messages.ts), and there is nothing useful to ask it.
+    // Settles through the SAME `action-result` channel as every other
+    // mutating control (UI-R13): a refusal shows as the host's own reason via
+    // `karstSettle`'s error toast and changes nothing on screen — no repaint
+    // repaints the base label until the host's own `state` push does.
+    if (act === 'change-base-ref') {
+      const repo = btn.dataset.repo;
+      if (!repo || karstIsPending(btn) || btn.disabled) return;
+      const input = document.querySelector('[data-base-input="' + CSS.escape(repo) + '"]');
+      const baseRef = input ? input.value.trim() : '';
+      if (!baseRef) return;
+      const rebase = baseFormRebase[repo] !== false;
+      const requestId = karstRequestId();
+      karstBeginPending(btn, requestId);
+      baseChangeRequests = { ...baseChangeRequests, [repo]: requestId };
+      post({ type: act, repo, baseRef, rebase, requestId });
+      return;
+    }
+
     // Every other posting control settles on the host's genuine `action-result`
     // ack (UI-R11–R14): pending on click, dropped (not queued) on a repeat,
     // and the runtime's own watchdog covers a host that never answers.
@@ -4645,6 +4756,16 @@
     // state above, not instead of it — the button still reports whatever the
     // host's real ack says, same as every other control.
     if (btn.hasAttribute('data-copy')) flashCopied(btn);
+  });
+
+  // Keep a mid-typed base-branch draft across a re-render that isn't caused by
+  // this input itself (a live tick, worktree stats landing) — same reasoning
+  // as the ticket-form picker's own `draft.baseRefs` (Task 8), just local-only
+  // here since nothing is persisted until "Change base" is pressed.
+  document.addEventListener('input', (e) => {
+    const input = e.target.closest('[data-base-input]');
+    if (!input) return;
+    baseFormDraft[input.dataset.baseInput] = input.value;
   });
 
   // The inside ledger's disclosure state. A process row IS a native
@@ -4831,6 +4952,23 @@
     // requestId on the wire, by design — see the click handler above); every
     // other posting control settles through this one line.
     if (msg.type === 'action-result') {
+      // A base-change SUCCESS closes its own form — the scope card's label
+      // already reflects the new base from the `state` push that preceded
+      // this ack (panel.ts pushes state before the result). A REFUSAL leaves
+      // the form open with the draft intact — the reason lands via
+      // karstSettle's error toast below, and nothing here repaints a base
+      // the change never reached (UI-R13).
+      const baseRepo = Object.keys(baseChangeRequests).find(
+        (repo) => baseChangeRequests[repo] === msg.requestId,
+      );
+      if (baseRepo) {
+        delete baseChangeRequests[baseRepo];
+        if (msg.ok === true) {
+          baseFormOpen = { ...baseFormOpen, [baseRepo]: false };
+          delete baseFormDraft[baseRepo];
+          if (lastState) renderWorktrees(lastState.worktrees || []);
+        }
+      }
       karstSettle(msg.requestId, msg.ok, msg.message);
       return;
     }
