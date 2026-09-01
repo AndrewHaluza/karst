@@ -54,12 +54,22 @@ export async function planUatTargets(
    * base this ticket never used.
    */
   ticket: { store: Store; ticketId: number },
+  debug?: (message: string) => void,
 ): Promise<UatTargetSelection> {
   const selection = await selectReviewTargets(manifest, worktrees, git, {
     store: ticket.store,
     ticketId: ticket.ticketId,
+    debug,
   });
-  if (selection.kind === 'unavailable') return selection;
+  if (selection.kind === 'unavailable') {
+    debug?.(
+      `[gate] uat targets ticket ${ticket.ticketId}: unavailable (${selection.blocker}: ${selection.reason})`,
+    );
+    return selection;
+  }
+  debug?.(
+    `[gate] uat targets ticket ${ticket.ticketId}: ${selection.targets.length} target(s) after dedupe`,
+  );
   return {
     kind: 'targets',
     targets: dedupeTargetsByRepoPath(selection.targets),

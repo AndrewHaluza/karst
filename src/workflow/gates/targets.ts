@@ -179,6 +179,12 @@ export interface SelectReviewTargetsOptions {
    */
   store?: Store;
   ticketId?: number;
+  /**
+   * Verbose decision-point logging (§ debug logging), prefixed `[gate]`.
+   * Absent → no debug lines; the host binds it to `Logger.debug` (a no-op
+   * unless the manifest's `debug` flag is on).
+   */
+  debug?: (message: string) => void;
 }
 
 /**
@@ -206,6 +212,9 @@ export async function selectReviewTargets(
 
   const changed = new Set<string>();
   const unmapped: string[] = [];
+  options?.debug?.(
+    `[gate] targets: planning over ${worktrees.length} worktree(s) for ${Object.keys(namesByPath).length} repo path(s)`,
+  );
   for (const worktree of worktrees) {
     const names = namesByPath.get(canonicalPath(worktree.repo)) ?? [];
     if (names.length === 0) unmapped.push(worktree.repo);
@@ -221,8 +230,16 @@ export async function selectReviewTargets(
       options?.gitFetchTimeoutMs,
     );
     if (probe.kind === 'unavailable') {
+      options?.debug?.(
+        `[gate] targets: worktree '${worktree.path}' changes unavailable ` +
+          `(${probe.blocker}: ${probe.reason})`,
+      );
       return { kind: 'unavailable', blocker: probe.blocker, reason: probe.reason };
     }
+    options?.debug?.(
+      `[gate] targets: worktree '${worktree.path}' ${probe.changed ? 'CHANGED' : 'unchanged'} ` +
+        `against '${base}'${names.length ? ` (names: ${names.join(', ')})` : ''}`,
+    );
     if (probe.changed) {
       for (const name of names) changed.add(name);
     }
@@ -235,11 +252,21 @@ export async function selectReviewTargets(
     for (const [name, repository] of Object.entries(manifest.repositories)) {
       if (affected.has(name) || repository.enabled === false || !repository.service) continue;
       if (repository.service.dependsOn.some((relation) => affected.has(relation.target))) {
+        options?.debug?.(
+          `[gate] targets: expanded '${name}' — depends on a changed target`,
+        );
         affected.add(name);
         expanded = true;
       }
     }
   }
+
+  options?.debug?.(
+    `[gate] targets: affected ${affected.size} repo name(s) → ${worktrees.flatMap((worktree) => {
+      const names = namesByPath.get(canonicalPath(worktree.repo)) ?? [];
+      return names.some((name) => affected.has(name)) ? [{ ...worktree, names }] : [];
+    }).length} target(s)`,
+  );
 
   return {
     kind: 'targets',

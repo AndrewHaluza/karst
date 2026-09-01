@@ -35,12 +35,20 @@ export interface GatePartition {
 export function partitionDisabled(
   gates: readonly ResolvedGate[],
   disabledNames: readonly string[],
+  debug?: (message: string) => void,
 ): GatePartition {
-  if (disabledNames.length === 0) return { kept: [...gates], skipped: [] };
+  if (disabledNames.length === 0) {
+    debug?.(`[gate] partition: ${gates.length} gate(s), none disabled for this ticket`);
+    return { kept: [...gates], skipped: [] };
+  }
   const disabled = new Set(disabledNames);
   const kept: ResolvedGate[] = [];
   const skipped: ResolvedGate[] = [];
   for (const gate of gates) (disabled.has(gate.name) ? skipped : kept).push(gate);
+  debug?.(
+    `[gate] partition: ${gates.length} gate(s) cut by ${disabledNames.length} disable(s) — ` +
+      `${kept.length} kept, ${skipped.length} skipped (${skipped.map((g) => g.name).join(', ') || 'none'})`,
+  );
   return { kept, skipped };
 }
 

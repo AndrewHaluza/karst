@@ -158,6 +158,16 @@ describe('makeLogger', () => {
     expect(captured).not.toContain('super-secret-value');
     expect(captured).toContain('[REDACTED:assignment]');
   });
+
+  it('isDebugEnabled reads the same live flag debug gates on', () => {
+    const sink = fakeSink();
+    const log = makeLogger(sink, FIXED);
+    expect(log.isDebugEnabled()).toBe(false);
+    log.setDebugEnabled(true);
+    expect(log.isDebugEnabled()).toBe(true);
+    log.setDebugEnabled(false);
+    expect(log.isDebugEnabled()).toBe(false);
+  });
 });
 
 describe('makeBoundedLogBuffer — debug retention', () => {

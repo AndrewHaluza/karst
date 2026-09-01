@@ -27,8 +27,22 @@ export interface CreateTicketInput {
   projectId?: number;
 }
 
-export function createTicketFlow(store: Store, input: CreateTicketInput): Ticket {
+export interface CreateTicketFlowOpts {
+  /**
+   * Verbose decision-point logging (§ debug logging). Absent → no debug lines;
+   * the host binds it to `Logger.debug` (a no-op unless the manifest's `debug`
+   * flag is on).
+   */
+  debug?: (message: string) => void;
+}
+
+export function createTicketFlow(
+  store: Store,
+  input: CreateTicketInput,
+  opts: CreateTicketFlowOpts = {},
+): Ticket {
   const scope = { projectId: input.projectId };
+  opts.debug?.(`[create] ticket: key '${input.key}' (project ${input.projectId ?? 'none'})`);
 
   // Idempotent by key *within a project*: recreating (or refetching) the same
   // ticket reuses the existing row instead of duplicating it. Existing fields
@@ -38,12 +52,17 @@ export function createTicketFlow(store: Store, input: CreateTicketInput): Ticket
     // Resurrect: an archived ticket recreated by key returns to the active list
     // rather than silently staying hidden (the row is reused, no key duplicate).
     if (existing.archivedAt !== null) {
+      opts.debug?.(
+        `[create] ticket: key '${input.key}' archived — resurrecting ticket #${existing.id}`,
+      );
       unarchiveTicket(store, existing.id);
       return getTicketByKey(store, input.key, scope)!; // refreshed (archivedAt cleared)
     }
+    opts.debug?.(`[create] ticket: key '${input.key}' exists — reusing ticket #${existing.id}`);
     return existing;
   }
 
+  opts.debug?.(`[create] ticket: key '${input.key}' is new — creating`);
   return createTicket(store, {
     key: input.key,
     title: input.title,

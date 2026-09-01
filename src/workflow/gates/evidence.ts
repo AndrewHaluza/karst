@@ -61,11 +61,20 @@ export interface OpenGateRunInput {
   manifest?: Manifest;
   /** This process, so an activation sweep can tell a dead run from a live one. */
   pid?: number | null;
+  /**
+   * Verbose decision-point logging (§ debug logging), prefixed `[gate]`.
+   * Absent → no debug lines; the host binds it to `Logger.debug` (a no-op
+   * unless the manifest's `debug` flag is on).
+   */
+  debug?: (message: string) => void;
 }
 
 export function openGateRun(store: Store, input: OpenGateRunInput): GateRunEvidence {
   const { ticketId, stageKey, runAt } = input;
   const attempt = stageAttempt(store, ticketId, stageKey);
+  input.debug?.(
+    `[gate] ${stageKey} ticket ${ticketId}: opening gate run (attempt ${attempt})`,
+  );
   const runId = openStageRun(store, {
     ticketId,
     stageKey,

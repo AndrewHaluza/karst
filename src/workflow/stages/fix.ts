@@ -24,6 +24,12 @@ import { transition } from '../machine.js';
 export interface RunFixOpts {
   ticketId: number;
   cwd: string;
+  /**
+   * Verbose decision-point logging (§ debug logging). Absent → no debug lines;
+   * the host binds it to `Logger.debug` (a no-op unless the manifest's `debug`
+   * flag is on).
+   */
+  debug?: (message: string) => void;
 }
 
 export async function runFix(
@@ -32,12 +38,20 @@ export async function runFix(
   adapter: AgentAdapter,
 ): Promise<StageKey> {
   const ticket = getTicket(store, opts.ticketId);
+  opts.debug?.(
+    `[driver] fix ticket ${opts.ticketId}: resuming session ` +
+      `${ticket.sessionId ? `'${ticket.sessionId}'` : '(none)'} in ${opts.cwd}`,
+  );
   if (!ticket.sessionId) {
+    opts.debug?.(
+      `[driver] fix ticket ${opts.ticketId}: cannot fix — no captured session_id to resume`,
+    );
     throw new Error(
       `cannot fix ticket ${opts.ticketId}: no captured session_id to --resume`,
     );
   }
 
+  opts.debug?.(`[driver] fix ticket ${opts.ticketId}: running headless resume`);
   await adapter.runHeadless({
     prompt: 'Address the failing review gates, then stop.',
     cwd: opts.cwd,
@@ -46,5 +60,6 @@ export async function runFix(
   });
 
   // Revalidate: fix pass re-enters uat (the deterministic re-gate).
+  opts.debug?.(`[driver] fix ticket ${opts.ticketId}: resume done — transition fix→uat`);
   return transition(store, opts.ticketId, 'fix', { kind: 'passed' });
 }

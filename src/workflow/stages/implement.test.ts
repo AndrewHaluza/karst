@@ -88,4 +88,12 @@ describe('markImplementDone', () => {
     expect(after.run.endedAt).not.toBeNull();
     expect(listProcessRuns(store, ticketId)[0]!.status).toBe('passed');
   });
+
+  it('emits debug lines at entry and exit', () => {
+    const lines: string[] = [];
+    const next = markImplementDone(store, ticketId, undefined, (m) => lines.push(m));
+    expect(next).toBe('uat');
+    expect(lines[0]).toMatch(/\[driver\] impl marker: ticket \d+ marked done — advancing impl→uat/);
+    expect(lines).toContainEqual(expect.stringMatching(/\[driver\] impl marker: ticket \d+ now at 'uat'/));
+  });
 });

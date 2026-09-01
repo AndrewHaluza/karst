@@ -64,4 +64,24 @@ describe('runFix', () => {
     expect(listProcessRuns(store, id)).toEqual([]);
     expect(listRecoveryRounds(store, id)).toEqual([]);
   });
+
+  it('emits debug lines at entry, the no-session decision, and exit', async () => {
+    const { adapter } = fakeAdapter();
+    const lines: string[] = [];
+    const next = await runFix(store, { ticketId: id, cwd: '/wt', debug: (m) => lines.push(m) }, adapter);
+    expect(next).toBe('uat');
+    expect(lines[0]).toMatch(/\[driver\] fix ticket \d+: resuming session 'sess-abc'/);
+    expect(lines).toContainEqual(expect.stringMatching(/\[driver\] fix ticket \d+: running headless resume/));
+    expect(lines).toContainEqual(expect.stringMatching(/\[driver\] fix ticket \d+: resume done — transition fix→uat/));
+  });
+
+  it('emits a debug line naming the missing-session throw', async () => {
+    store.db.prepare('UPDATE tickets SET session_id = NULL WHERE id = ?').run(id);
+    const { adapter } = fakeAdapter();
+    const lines: string[] = [];
+    await expect(
+      runFix(store, { ticketId: id, cwd: '/wt', debug: (m) => lines.push(m) }, adapter),
+    ).rejects.toThrow();
+    expect(lines).toContainEqual(expect.stringMatching(/\[driver\] fix ticket \d+: cannot fix — no captured session_id/));
+  });
 });

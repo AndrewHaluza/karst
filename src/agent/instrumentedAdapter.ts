@@ -136,6 +136,9 @@ export function instrumentAdapter(
       adapter.buildInteractiveCommand(opts),
 
     async runHeadless(opts: RunHeadlessOpts): Promise<HeadlessResult> {
+      options.debug?.(
+        `[agent] instrumented runHeadless (${opts.tracking?.callSite ?? 'unknown'} for ticket ${opts.tracking?.ticketId ?? '?'})`,
+      );
       let result: HeadlessResult;
       try {
         result = await adapter.runHeadless({
@@ -146,12 +149,18 @@ export function instrumentAdapter(
             : {}),
         });
       } catch (error) {
+        options.debug?.(
+          `[agent] instrumented runHeadless (${opts.tracking?.callSite ?? 'unknown'}): call failed — recording usage as error`,
+        );
         // A failure after the provider counted the input is still spend. When
         // it reported nothing, the prompt was sent regardless — estimate the
         // input and claim no output, since none came back.
         record(opts, resolveUsage(usageFromError(error), opts.prompt, '', opts.model), 'error');
         throw error;
       }
+      options.debug?.(
+        `[agent] instrumented runHeadless (${opts.tracking?.callSite ?? 'unknown'}): call returned — recording usage as ok`,
+      );
       record(opts, resolveUsage(result.usage, opts.prompt, result.raw, opts.model), 'ok');
       return result;
     },

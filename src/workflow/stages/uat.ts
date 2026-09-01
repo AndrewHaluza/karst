@@ -94,7 +94,7 @@ export interface RunUatOpts {
 
 export interface UatDeps {
   planTargets?: typeof planUatTargets;
-  probe?: (cwd: string) => ScriptProbe;
+  probe?: (cwd: string, debug?: (message: string) => void) => ScriptProbe;
   runGates?: typeof runGateList;
   git?: GitRunner;
   now?: () => string;
@@ -155,13 +155,14 @@ export function resolveTargetGates(
   config: UatConfig | undefined,
   names: readonly string[],
   disabledNames: readonly string[] = [],
+  debug?: (message: string) => void,
 ): StageGateResolution {
   const keys: (string | null)[] = names.length > 0 ? [...names] : [null];
   const byIdentity = new Map<string, ResolvedGate>();
   let unavailable: Extract<GateResolution, { kind: 'unavailable' }> | null = null;
 
   for (const name of keys) {
-    const resolved = resolveGates(probe, declaredGatesFor(config, name), PROBE_SCRIPTS);
+    const resolved = resolveGates(probe, declaredGatesFor(config, name), PROBE_SCRIPTS, debug);
     if (resolved.kind === 'unavailable') {
       unavailable ??= resolved;
       continue;
@@ -176,11 +177,22 @@ export function resolveTargetGates(
     }
   }
 
-  const { kept, skipped } = partitionDisabled([...byIdentity.values()], disabledNames);
-  if (kept.length > 0 || skipped.length > 0) return { kind: 'gates', gates: kept, skipped };
+  const { kept, skipped } = partitionDisabled([...byIdentity.values()], disabledNames, debug);
+  if (kept.length > 0 || skipped.length > 0) {
+    debug?.(
+      `[gate] uat resolve: ${kept.length} kept, ${skipped.length} disabled for this ticket ` +
+        `(disabled: ${skipped.map((g) => g.name).join(', ') || 'none'})`,
+    );
+    return { kind: 'gates', gates: kept, skipped };
+  }
   // Zero gates, nothing disabled, and no unavailability is the malformed-
   // package.json case, which the caller turns into a named failure rather than
   // a park.
+  debug?.(
+    unavailable
+      ? `[gate] uat resolve: zero gates — unavailable (${unavailable.blocker}: ${unavailable.reason})`
+      : `[gate] uat resolve: zero gates resolved for names ${keys.join(', ')}`,
+  );
   return unavailable ?? { kind: 'gates', gates: [], skipped: [] };
 }
 
@@ -207,6 +219,7 @@ export async function runUat(
     runAt,
     manifest: opts.manifest,
     pid: process.pid,
+    debug: opts.debug,
   });
 
   const worktrees = opts.manifest ? listWorktreesByTicket(store, opts.ticketId) : [];
@@ -277,6 +290,7 @@ export async function runUat(
       stageRunId: evidence.runId,
       recoveryTrigger: recoveryTriggerFor(outcome) ?? undefined,
       now,
+      debug: opts.debug,
     });
   };
 
@@ -304,7 +318,7 @@ export async function runUat(
   };
 
   const planned = opts.manifest
-    ? await planTargets(opts.manifest, worktrees, git, { store, ticketId: opts.ticketId })
+    ? await planTargets(opts.manifest, worktrees, git, { store, ticketId: opts.ticketId }, opts.debug)
     : {
         kind: 'targets' as const,
         targets: [{ repo: opts.cwd, path: opts.cwd, names: [] }],
@@ -365,8 +379,8 @@ export async function runUat(
 
   for (const target of targets) {
     const label = target.names.join(', ') || target.repo;
-    const scriptProbe = probe(target.path);
-    const resolution = resolveTargetGates(scriptProbe, opts.manifest?.uat, target.names, disabledNames);
+    const scriptProbe = probe(target.path, opts.debug);
+    const resolution = resolveTargetGates(scriptProbe, opts.manifest?.uat, target.names, disabledNames, opts.debug);
 
     // Environmental: karst could not ask this repository anything. Park rather
     // than reduce — a block is not a verdict about the ticket's code. Earlier

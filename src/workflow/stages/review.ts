@@ -106,7 +106,7 @@ export interface RunReviewOpts {
 
 export interface ReviewDeps {
   planTargets?: typeof planReviewTargets;
-  probe?: (cwd: string) => ScriptProbe;
+  probe?: (cwd: string, debug?: (message: string) => void) => ScriptProbe;
   runGates?: typeof runGateList;
   /**
    * Pre-gate lockfile-drift check for npm script gates (defaults to
@@ -174,6 +174,7 @@ export async function runReview(
     runAt,
     manifest: opts.manifest,
     pid: process.pid,
+    debug: opts.debug,
   });
 
   const worktrees = opts.manifest ? listWorktreesByTicket(store, opts.ticketId) : [];
@@ -252,6 +253,7 @@ export async function runReview(
       stageRunId: evidence.runId,
       recoveryTrigger: recoveryTriggerFor(outcome) ?? undefined,
       now,
+      debug: opts.debug,
     });
   };
 
@@ -279,7 +281,7 @@ export async function runReview(
   };
 
   const planned = opts.manifest
-    ? await planTargets(opts.manifest, worktrees, git, { store, ticketId: opts.ticketId })
+    ? await planTargets(opts.manifest, worktrees, git, { store, ticketId: opts.ticketId }, opts.debug)
     : {
         kind: 'targets' as const,
         targets: [{ repo: opts.cwd, path: opts.cwd, names: [] }],
@@ -339,12 +341,13 @@ export async function runReview(
 
   for (const target of targets) {
     const label = target.names.join(', ') || target.repo;
-    const scriptProbe = probe(target.path);
+    const scriptProbe = probe(target.path, opts.debug);
     const resolution = resolveReviewGates(
       scriptProbe,
       opts.manifest?.review,
       target.names,
       disabledNames,
+      opts.debug,
     );
 
     if (resolution.kind === 'unavailable') {

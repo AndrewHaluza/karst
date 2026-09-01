@@ -12,6 +12,8 @@ import { fileURLToPath } from 'node:url';
 import { basename, dirname, isAbsolute, join } from 'node:path';
 
 import { openStore, type Store } from './store/db.js';
+import { appendTicketLog, debugModule } from './store/ticketLogs.js';
+import { nowIso } from './model/time.js';
 import { runImmediateTransaction } from './store/transactions.js';
 import { describeStoreOpenFailure } from './extension/storeOpenFailure.js';
 import { watchExternalChanges } from './store/externalChanges.js';
@@ -1825,6 +1827,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           await confirmScope(localStore, manifest, ticketId, hot, {
             pullBase,
             onPullFailed: warnBaseNotPulled,
+            debug: (message) => logger.debug(message),
           });
           // Scope is complete the moment its worktrees exist (scope has only a
           // pass edge → impl; it is not a gate). Pass it so the ticket advances
@@ -1855,6 +1858,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
               ticketId,
               manifest.ticketing,
               makeTicketingProvider(manifest.ticketing, fetch, makeTokenProvider(context)),
+              (message) => logger.debug(message),
             );
             const note = statusPushSkipNote('started', ticketId, res);
             if (note) logger.debug(note.message);
@@ -3061,8 +3065,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           runVerifier: runProcess,
           log: (message) => logger.info(message),
           // Verbose decision-point lines (manifest `debug` flag): gated inside
-          // the logger, so this binding is a no-op unless debug is on.
-          debug: (message) => logger.debug(message),
+          // the logger, so this binding is a no-op unless debug is on. Each line
+          // is ALSO appended to the ticket's `ticket_logs` trail so the
+          // dashboard's Inside component can render the ticket's own debug
+          // history — captured at the one seam that knows the ticket id. The
+          // append is gated on the SAME flag `logger.debug` uses, so a debug-off
+          // run never pays a store write per decision point.
+          debug: (message) => {
+            logger.debug(message);
+            if (!logger.isDebugEnabled()) return;
+            appendTicketLog(localStore, {
+              ticketId,
+              module: debugModule(message),
+              message,
+              recordedAt: nowIso(),
+            });
+          },
           // Findings-lane boundary diagnostics (a failed AI call, garbage
           // output, an untrustworthy `file`) — routed to `Logger.warn` so
           // they read as warnings in the output channel rather than as
@@ -5655,7 +5673,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             currentManifest() ?? emptyManifest(),
             ticketId,
             draft.selectedRepos,
-            { onPullFailed: warnBaseNotPulled },
+            { onPullFailed: warnBaseNotPulled, debug: (message) => logger.debug(message) },
           );
           // Scope has only a pass edge → impl (it is not a gate), so pass it: the
           // session then opens in the impl worktree, and the dashboard reads impl.
@@ -6146,7 +6164,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (ticketId === undefined) return;
       let child;
       try {
-        child = createFollowUpTicket(localStore, ticketId, { projectId: currentProject()?.id });
+        child = createFollowUpTicket(localStore, ticketId, { projectId: currentProject()?.id },
+          (message) => logger.debug(message));
       } catch (err) {
         const message =
           err instanceof TicketNotDoneError

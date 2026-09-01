@@ -90,4 +90,23 @@ describe('createFollowUpTicket', () => {
     expect(child.projectId).toBe(1);
     expect(child.key).toBe('PROJ-1-fu1');
   });
+
+  it('emits debug lines at entry, the not-done refusal, and exit', () => {
+    const parentId = doneParent();
+    const lines: string[] = [];
+    const child = createFollowUpTicket(store, parentId, {}, (m) => lines.push(m));
+    expect(child.key).toBe('PROJ-1-fu1');
+    expect(lines[0]).toMatch(/\[driver\] follow-up for ticket #\d+: parent stage is 'done'/);
+    expect(lines).toContainEqual(expect.stringMatching(/\[driver\] follow-up for ticket #\d+: creating child 'PROJ-1-fu1'/));
+    expect(lines).toContainEqual(expect.stringMatching(/\[driver\] follow-up for ticket #\d+: child #\d+ \('PROJ-1-fu1'\) created/));
+  });
+
+  it('emits a debug line naming the not-done refusal', () => {
+    const t = createTicket(store, { key: 'PROJ-2', title: 'still working' });
+    const lines: string[] = [];
+    expect(() => createFollowUpTicket(store, t.id, {}, (m) => lines.push(m))).toThrow(TicketNotDoneError);
+    expect(lines).toContainEqual(
+      expect.stringMatching(/\[driver\] follow-up for ticket #\d+: parent not done — refusing/),
+    );
+  });
 });

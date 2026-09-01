@@ -19,7 +19,7 @@ export function readSchema(): string {
 }
 
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 49;
+export const SCHEMA_VERSION = 50;
 
 /** v2 ticket-field columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -1863,6 +1863,22 @@ export function migrate(db: Database): void {
   if (worktreeCols.has('base_ref') && !worktreeCols.has('needs_force_push')) {
     db.exec('ALTER TABLE worktrees ADD COLUMN needs_force_push INTEGER');
   }
+
+  // v50 — the runtime per-ticket debug trail (`ticket_logs`), read back by the
+  // dashboard's Inside component. CREATE TABLE IF NOT EXISTS so a fresh DB
+  // (schema.sql already carries it) is a no-op; nothing to backfill — pre-v50
+  // tickets have no captured debug trail, which is the truthful answer.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS ticket_logs (
+      id            INTEGER PRIMARY KEY,
+      ticket_id     INTEGER NOT NULL,
+      level         TEXT NOT NULL,
+      module        TEXT NOT NULL,
+      message       TEXT NOT NULL,
+      recorded_at   TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_ticket_logs_ticket ON ticket_logs(ticket_id, id);
+  `);
 
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }

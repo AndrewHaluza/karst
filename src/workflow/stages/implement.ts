@@ -35,8 +35,12 @@ export function markImplementDone(
   store: Store,
   ticketId: number,
   transitionFn: ImplementTransition = transition,
+  debug?: (message: string) => void,
 ): StageKey {
-  return transitionFn(store, ticketId, 'impl', { kind: 'passed' }, () => {
+  debug?.(`[driver] impl marker: ticket ${ticketId} marked done — advancing impl→uat`);
+  const next = transitionFn(store, ticketId, 'impl', { kind: 'passed' }, () => {
     completeImplementationRun(store, ticketId, nowIso());
   });
+  debug?.(`[driver] impl marker: ticket ${ticketId} now at '${next}'`);
+  return next;
 }

@@ -80,17 +80,25 @@ export function resolveGates(
   probe: ScriptProbe,
   declared: readonly DeclaredGate[],
   probeList: readonly string[],
+  debug?: (message: string) => void,
 ): GateResolution {
   // Explicit gates always win — checked before the probe result matters at
   // all, so a set of declared gates that are all `kind: 'command'` (needing no
   // package.json) is never blocked by an unreadable or malformed one.
-  if (declared.length > 0) return { kind: 'gates', gates: declared.map(resolveDeclared) };
+  if (declared.length > 0) {
+    debug?.(
+      `[gate] resolve: ${declared.length} declared gate(s) win before the probe — ` +
+        declared.map((g) => g.name).join(', '),
+    );
+    return { kind: 'gates', gates: declared.map(resolveDeclared) };
+  }
 
   // Nothing declared: only now does the probe result matter, since with no
   // explicit config the probe outcome IS the question.
 
   // Environmental: an agent cannot chmod its way out of an unreadable repo.
   if (probe.kind === 'io-error') {
+    debug?.(`[gate] resolve: probe io-error — blocking (${probe.message})`);
     return {
       kind: 'unavailable',
       blocker: 'capability-missing',
@@ -100,7 +108,10 @@ export function resolveGates(
 
   // A repository defect an agent CAN fix, so it must reach a verdict rather than
   // a block — an empty required set makes the aggregate fail it by name.
-  if (probe.kind === 'malformed') return { kind: 'gates', gates: [] };
+  if (probe.kind === 'malformed') {
+    debug?.(`[gate] resolve: probe malformed — empty required gate set (${probe.message})`);
+    return { kind: 'gates', gates: [] };
+  }
 
   const scripts = probe.kind === 'ok' ? probe.scripts : {};
   const discovered = probeList.filter((s) => scripts[s] !== undefined).map<ResolvedGate>(
@@ -123,6 +134,7 @@ export function resolveGates(
       probe.kind === 'absent'
         ? 'this repository has no package.json'
         : `package.json defines none of: ${probeList.join(', ')}`;
+    debug?.(`[gate] resolve: nothing discovered (${found}) — nothing-to-run`);
     return {
       kind: 'unavailable',
       blocker: 'nothing-to-run',
@@ -133,5 +145,9 @@ export function resolveGates(
         `no package.json.`,
     };
   }
+  debug?.(
+    `[gate] resolve: discovered ${discovered.length} gate(s) from probe — ` +
+      discovered.map((g) => g.name).join(', '),
+  );
   return { kind: 'gates', gates: discovered };
 }

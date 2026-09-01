@@ -113,4 +113,28 @@ describe('advanceTicketOnStart', () => {
 
     await expect(advanceTicketOnStart(store, id, ON, provider)).rejects.toThrow(/401/);
   });
+
+  it('emits debug lines at entry, decision branches, and exit', async () => {
+    const store = openStore(':memory:');
+    const id = fetchedTicket(store);
+    const lines: string[] = [];
+    const provider = recorder();
+
+    await advanceTicketOnStart(store, id, ON, provider, (m) => lines.push(m));
+
+    expect(lines).toContainEqual(expect.stringMatching(/\[ticketing\] start ticket \d+: advanceOnStart enabled/));
+    expect(lines).toContainEqual(expect.stringMatching(/\[ticketing\] start ticket \d+: pushing 'in dev' to ref 'abc123'/));
+  });
+
+  it('emits a debug line naming the no-ref skip, not an error', async () => {
+    const store = openStore(':memory:');
+    const id = createTicketFlow(store, { key: 'abc123', title: 't' }).id;
+    const lines: string[] = [];
+    const provider = recorder();
+
+    const res = await advanceTicketOnStart(store, id, ON, provider, (m) => lines.push(m));
+
+    expect(res).toEqual({ advanced: false, reason: 'no-ref' });
+    expect(lines).toContainEqual(expect.stringMatching(/\[ticketing\] start ticket \d+: no provider ref — skipping status push/));
+  });
 });
