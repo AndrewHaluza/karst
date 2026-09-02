@@ -54,7 +54,7 @@ describe('buildTicketArtifacts', () => {
       ticketId,
       stageKey: 'uat',
       attempt,
-      runAt: '2026-08-01T10:00:00.000Z',
+      runAt: `2026-08-01T1${attempt}:00:00.000Z`,
       gates: gates.map((g) => ({ gateName: g.name, exitCode: g.exitCode, repo, skipped: g.skipped })),
     });
   }

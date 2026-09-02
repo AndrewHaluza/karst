@@ -1612,7 +1612,9 @@ describe('runReview — findings process run (Task 8)', () => {
     expect(run).toMatchObject({ resultKind: 'execution-failed', status: 'failed' });
     // The artifact is where the crash is exposed: the one-line collapsed
     // boundary diagnostic lands in the run's artifact.
-    expect(run.artifactPath).toBe(join(artifactDir, `review-ticket-${id}.log`));
+    // The artifact path includes the stage_run_id so each run gets its own
+    // log file rather than overwriting the prior attempt's (Issue #7).
+    expect(run.artifactPath).toMatch(new RegExp(`review-ticket-${id}-\\d+\\.log$`));
     expect(readFileSync(run.artifactPath!, 'utf8')).toContain('spawn ENOENT');
     // A crash is not a finding: no recovery round was opened for it.
     expect(listRecoveryRounds(store, id)).toEqual([]);

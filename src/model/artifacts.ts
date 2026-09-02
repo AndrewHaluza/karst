@@ -415,16 +415,23 @@ function gateEntries(gateRuns: readonly GateRun[], stage: ArtifactStage): GateRu
 }
 
 /**
- * The entries of the LATEST attempt only. Gate evidence is append-only, so an
- * earlier attempt's rows survive forever — but the artifact presents the
- * CURRENT version, and mixing attempts would fold a failed attempt into a
- * passed one (and vice versa) until the verdict read as noise. Attempts still
- * count separately as VERSIONS (see versionAttempts).
+ * The entries of the LATEST run invocation only. Gate evidence is append-only,
+ * so an earlier run's rows survive forever — but the artifact presents the
+ * CURRENT version, and mixing runs would fold a failed attempt into a passed
+ * one (and vice versa) until the verdict read as noise. Runs count separately
+ * as VERSIONS (see versionAttempts).
+ *
+ * Keys on `runAt` (the batch stamp, unique per invocation) — NOT on `attempt`,
+ * which only advances on failure so every passing re-validation shares one
+ * attempt value with the failing run that preceded it (Issue #5).
  */
 function latestAttemptEntries(entries: readonly GateRun[]): readonly GateRun[] {
   if (entries.length === 0) return entries;
-  const latest = Math.max(...entries.map((g) => g.attempt));
-  return entries.filter((g) => g.attempt === latest);
+  const latest = entries.reduce<string | null>(
+    (max, g) => (max === null || g.runAt > max ? g.runAt : max),
+    null,
+  );
+  return latest === null ? [] : entries.filter((g) => g.runAt === latest);
 }
 
 /** Mirror of the inside view's aggregate: asked nothing is never green. */
@@ -504,18 +511,23 @@ function resourceFrom(path: string | null, out: ArtifactResource[]): void {
   out.push({ name, path });
 }
 
-/** Distinct attempts across a gate stage's evidence = one version each. */
+/**
+ * Distinct run invocations across a gate stage's evidence = one version each.
+ * Keys on `runAt` (gate runs) / `startedAt` (process runs) — the batch stamp
+ * unique per invocation — NOT on `attempt`, which only bumps on failure and
+ * collapses every passing re-validation into the failing run's number (Issue #5).
+ */
 function versionAttempts(
   entries: readonly GateRun[],
   processRuns: readonly ProcessRun[],
   stage: ArtifactStage,
-): number[] {
-  const attempts = new Set<number>();
-  for (const e of entries) attempts.add(e.attempt);
+): number {
+  const stamps = new Set<string>();
+  for (const e of entries) stamps.add(e.runAt);
   for (const p of processRuns) {
-    if (p.stageKey === stage) attempts.add(p.attempt);
+    if (p.stageKey === stage) stamps.add(p.startedAt);
   }
-  return [...attempts].sort((a, b) => a - b);
+  return stamps.size;
 }
 
 function uatReport(input: ArtifactInput): ArtifactSummary | null {
@@ -546,7 +558,7 @@ function uatReport(input: ArtifactInput): ArtifactSummary | null {
         : {}),
     }));
   const createdAt = stage?.endedAt ?? stage?.startedAt ?? null;
-  const attempts = versionAttempts(allEntries, processRuns, 'uat');
+  const attemptCount = versionAttempts(allEntries, processRuns, 'uat');
   const failedStage = stage?.status === 'failed';
   const summary =
     entries.length > 0
@@ -573,8 +585,8 @@ function uatReport(input: ArtifactInput): ArtifactSummary | null {
     status: failedStage ? 'failed' : aggregatePassed(entries) ? 'passed' : 'info',
     freshness: freshnessFor(ticket.stages, 'uat', createdAt),
     origin: originFor('uat', processRuns, ticket),
-    versionCount: attempts.length || 1,
-    currentVersionLabel: `v${attempts.length || 1}`,
+    versionCount: attemptCount || 1,
+    currentVersionLabel: `v${attemptCount || 1}`,
     createdAt,
     metrics,
     gates: entries.map((g) => ({ name: g.gateName, exitCode: g.exitCode })),
@@ -596,7 +608,7 @@ function reviewReport(input: ArtifactInput): ArtifactSummary | null {
 
   const blocking = findings.filter((f) => f.severity === 'high' || f.severity === 'critical').length;
   const createdAt = stage?.endedAt ?? stage?.startedAt ?? null;
-  const attempts = versionAttempts(allEntries, processRuns, 'review');
+  const attemptCount = versionAttempts(allEntries, processRuns, 'review');
   const failedStage = stage?.status === 'failed';
   const bySeverity = new Map<string, number>();
   for (const f of findings) bySeverity.set(f.severity, (bySeverity.get(f.severity) ?? 0) + 1);
@@ -623,8 +635,8 @@ function reviewReport(input: ArtifactInput): ArtifactSummary | null {
         : gateSummary(entries),    status: failedStage ? 'failed' : findings.length > 0 ? 'attention' : aggregatePassed(entries) ? 'passed' : 'info',
     freshness: freshnessFor(ticket.stages, 'review', createdAt),
     origin: originFor('review', processRuns, ticket),
-    versionCount: attempts.length || 1,
-    currentVersionLabel: `v${attempts.length || 1}`,
+    versionCount: attemptCount || 1,
+    currentVersionLabel: `v${attemptCount || 1}`,
     createdAt,
     metrics,
     gates: entries.map((g) => ({ name: g.gateName, exitCode: g.exitCode })),

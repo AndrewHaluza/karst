@@ -582,11 +582,13 @@ export function migrate(db: Database): void {
     // Nothing on `stages` is touched.
     //
     // NOT backfilled, and cannot be: `stages` keeps only the LAST run's verdict,
-    // and the artifact filenames are fixed (`review-ticket-<id>.log`), so every
-    // retry overwrote its predecessor's log. There is no source from which past
-    // gate results could be derived — inventing rows here would be exactly the
-    // inference the no-inference guarantee forbids. In-flight tickets show no
-    // recorded gates until their next gate run.
+    // and pre-v53 artifact filenames were single-slot (`review-ticket-<id>.log`),
+    // so every retry overwrote its predecessor's log. v53 keys the log path on
+    // `stage_run_id` (`review-ticket-<id>-<runId>.log`), but past runs' logs are
+    // gone — there is no source from which past gate results could be derived.
+    // Inventing rows here would be exactly the inference the no-inference
+    // guarantee forbids. In-flight tickets show no recorded gates until their
+    // next gate run.
     db.exec(`
       CREATE TABLE IF NOT EXISTS gate_runs (
         id            INTEGER PRIMARY KEY,
