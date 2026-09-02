@@ -113,6 +113,7 @@ import type { AgentAdapter, Materialized } from './agent/adapter.js';
 import { bundledModelCatalog } from './agent/modelCatalog.js';
 import type { ModelCatalog } from './agent/modelCatalog.js';
 import { applyAgentSwitchSelection } from './agent/sessionSwitch.js';
+import { AGENT_PROVIDER_LABELS } from './model/agentIdentity.js';
 import {
   catalogDiagnosticSeverity,
   formatCatalogDiagnostic,
@@ -1611,7 +1612,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (outcome.kind === 'stale') {
         void vscode.window.showInformationMessage('The ticket state changed before the agent could be switched.');
       } else if (outcome.kind === 'unavailable') {
-        void vscode.window.showWarningMessage(`${PROVIDER_LABELS[outcome.provider] || outcome.provider} is not available — ensure the CLI is installed and on PATH.`);
+        void vscode.window.showWarningMessage(`${AGENT_PROVIDER_LABELS[outcome.provider] || outcome.provider} is not available — ensure the CLI is installed and on PATH.`);
       } else if (outcome.kind === 'launch-failed') {
         void vscode.window.showErrorMessage(
           `The agent selection was saved, but its session could not start: ${outcome.error instanceof Error ? outcome.error.message : String(outcome.error)}`,
