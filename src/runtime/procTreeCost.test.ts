@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, beforeEach } from 'vitest';
 import type { ProcRecord, ProcSnapshot } from './procSnapshot.js';
 import { collectTree, sumCosts, treeCost } from './procTreeCost.js';
+import { getCpuCoreCount, __resetCpuCoreCountCache } from './cpuCores.js';
 
 function record(
   pid: number,
@@ -70,7 +71,7 @@ describe('treeCost', () => {
   it('yields 50 for 0.5 CPU-seconds over a 1 s wall gap', () => {
     const first = snap(1_000, [record(100, 0, 10, 10, 1)]);
     const second = snap(2_000, [record(100, 0, 10, 10.5, 1)]);
-    expect(treeCost(second, first, 100)?.cpuPct).toBe(50);
+    expect(treeCost(second, first, 100, 1)?.cpuPct).toBe(50);
   });
 
   it('yields 200 for 2.0 CPU-seconds across a 4-process tree over 1 s', () => {
@@ -86,7 +87,7 @@ describe('treeCost', () => {
       record(102, 100, 10, 5.5, 1),
       record(103, 101, 10, 5.5, 1),
     ]);
-    expect(treeCost(second, first, 100)?.cpuPct).toBe(200);
+    expect(treeCost(second, first, 100, 1)?.cpuPct).toBe(200);
   });
 
   it('excludes a pid whose startedMs differs (a different process)', () => {
@@ -98,7 +99,7 @@ describe('treeCost', () => {
       record(100, 0, 10, 12, 1),
       record(101, 100, 10, 6, 9_999),
     ]);
-    const cost = treeCost(second, first, 100);
+    const cost = treeCost(second, first, 100, 1);
     expect(cost?.cpuPct).toBe(200);
     expect(cost?.rssBytes).toBe(20);
   });
@@ -127,9 +128,64 @@ describe('treeCost', () => {
       record(100, 0, 10, 12, 1),
       record(101, 100, 40, 9, 7_000),
     ]);
-    const cost = treeCost(second, first, 100);
+    const cost = treeCost(second, first, 100, 1);
     expect(cost?.rssBytes).toBe(50);
     expect(cost?.cpuPct).toBe(200);
+  });
+});
+
+describe('treeCost CPU% normalization', () => {
+  beforeEach(() => {
+    __resetCpuCoreCountCache();
+  });
+
+  it('yields 50 for 0.5 CPU-seconds over 1s on 1 core', () => {
+    const first = snap(1_000, [record(100, 0, 10, 10, 1)]);
+    const second = snap(2_000, [record(100, 0, 10, 10.5, 1)]);
+    expect(treeCost(second, first, 100, 1)?.cpuPct).toBe(50);
+  });
+
+  it('yields 25 for 0.5 CPU-seconds over 1s on 2 cores', () => {
+    const first = snap(1_000, [record(100, 0, 10, 10, 1)]);
+    const second = snap(2_000, [record(100, 0, 10, 10.5, 1)]);
+    expect(treeCost(second, first, 100, 2)?.cpuPct).toBe(25);
+  });
+
+  it('yields 12.5 → 13 (rounded) for 0.5 CPU-seconds over 1s on 4 cores', () => {
+    const first = snap(1_000, [record(100, 0, 10, 10, 1)]);
+    const second = snap(2_000, [record(100, 0, 10, 10.5, 1)]);
+    expect(treeCost(second, first, 100, 4)?.cpuPct).toBe(13);
+  });
+
+  it('yields 200/8 = 25 for 2.0 CPU-seconds across 4-process tree over 1s on 8 cores', () => {
+    const first = snap(1_000, [
+      record(100, 0, 10, 10, 1),
+      record(101, 100, 10, 5, 1),
+      record(102, 100, 10, 5, 1),
+      record(103, 101, 10, 5, 1),
+    ]);
+    const second = snap(2_000, [
+      record(100, 0, 10, 10.5, 1),
+      record(101, 100, 10, 5.5, 1),
+      record(102, 100, 10, 5.5, 1),
+      record(103, 101, 10, 5.5, 1),
+    ]);
+    expect(treeCost(second, first, 100, 8)?.cpuPct).toBe(25);
+  });
+
+  it('defaults to getCpuCoreCount() when cpuCoreCount not provided', () => {
+    const first = snap(1_000, [record(100, 0, 10, 10, 1)]);
+    const second = snap(2_000, [record(100, 0, 10, 10.5, 1)]);
+    // On this machine (10 cores), 50% per core = 5% total
+    const actualCores = getCpuCoreCount();
+    expect(treeCost(second, first, 100)?.cpuPct).toBe(Math.round(50 / actualCores));
+  });
+
+  it('clamps negative core count to 1', () => {
+    const first = snap(1_000, [record(100, 0, 10, 10, 1)]);
+    const second = snap(2_000, [record(100, 0, 10, 10.5, 1)]);
+    expect(treeCost(second, first, 100, -1)?.cpuPct).toBe(50);
+    expect(treeCost(second, first, 100, 0)?.cpuPct).toBe(50);
   });
 });
 

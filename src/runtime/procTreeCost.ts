@@ -1,4 +1,5 @@
 import type { ProcRecord, ProcSnapshot } from './procSnapshot.js';
+import { getCpuCoreCount } from './cpuCores.js';
 
 /**
  * Per-leader process-tree cost, rolled up from a single snapshot's own ppid
@@ -65,11 +66,15 @@ export function collectTree(snapshot: ProcSnapshot, leader: number): ProcRecord[
  * changed is a different process, and its cumulative counter must never be
  * differenced against another process's. A negative result (counters went
  * backwards because processes left the tree) is clamped to 0.
+ *
+ * @param cpuCoreCount — Number of logical CPU cores. Defaults to `getCpuCoreCount()`.
+ *   CPU% is normalized by this value (percent of total capacity, not one core).
  */
 export function treeCost(
   snapshot: ProcSnapshot,
   previous: ProcSnapshot | null,
   leader: number,
+  cpuCoreCount?: number,
 ): TreeCost | null {
   const tree = collectTree(snapshot, leader);
   if (tree.length === 0) return null;
@@ -89,7 +94,10 @@ export function treeCost(
         }
       }
       const deltaSeconds = current - prior;
-      cpuPct = Math.max(0, (deltaSeconds / (wallDeltaMs / 1000)) * 100);
+      const rawPct = Math.max(0, (deltaSeconds / (wallDeltaMs / 1000)) * 100);
+      const cores = cpuCoreCount ?? getCpuCoreCount();
+      const normalizedCores = Math.max(1, Math.floor(cores));
+      cpuPct = Math.round(rawPct / normalizedCores);
     }
   }
 
