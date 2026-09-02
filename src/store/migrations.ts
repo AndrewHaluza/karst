@@ -19,7 +19,7 @@ export function readSchema(): string {
 }
 
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 52;
+export const SCHEMA_VERSION = 53;
 
 /** v2 ticket-field columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -347,6 +347,122 @@ INSERT INTO approach_node_runs_v37
 DROP TABLE approach_node_runs;
 ALTER TABLE approach_node_runs_v37 RENAME TO approach_node_runs;
 CREATE INDEX IF NOT EXISTS idx_node_runs_revision ON approach_node_runs(revision_id, id);
+`;
+
+/**
+ * v53's `recovery_rounds` rebuild (Task 1A, recovery-round-exhaustion): SQLite
+ * cannot ALTER a CHECK constraint, so widening `status` with 'refused'/'reset'
+ * and adding `CHECK (round <= max_rounds)` require the standard create → copy
+ * → drop → rename table rebuild, mirroring v37's `approach_node_runs` shape.
+ * `episode` is new (byte-identical in intent to schema.sql's column) and
+ * backfills to 1 for every existing row — per-stage episode history is not
+ * derivable from stored rows, and 1 is the truthful "one episode so far"
+ * answer.
+ *
+ * The copy's SELECT also REPAIRS two real corruptions (ticket 46) so the new
+ * CHECK does not reject them on the way in — this makes already-stored data
+ * internally consistent, not "backfilling data migrations can't derive"
+ * (`docs/arch/store-and-schema.md`):
+ *  - `round > max_rounds` (rows 11 and 16): repaired by RAISING the snapshot to
+ *    `max_rounds = round`, never by lowering `round`. `round` is identity — it
+ *    is in the unique index — and ticket 46 holds both (round 5, max 5) and
+ *    (round 6, max 5) for one stage, so clamping the ordinal collides them onto
+ *    round 5 and the migration throws on the index, taking the whole registry
+ *    down with it. The budget snapshot is the safe half to move, and the
+ *    relabelling below is what actually records "this round never had a budget".
+ *  - a clamped round whose status was 'exhausted' is relabelled 'refused' —
+ *    "born with no budget" is a different fact from "spent the budget", and
+ *    T1A's migration is the ONLY writer of 'refused' (no live writer exists
+ *    or should exist once T1B's episode-scoped numbering lands, per the plan).
+ * `fix_process_run_id`, every timestamp, and every other column are carried
+ * through unchanged.
+ *
+ * Exported so the interruption-atomicity test can drive the REAL step DDL.
+ */
+export const RECOVERY_ROUNDS_V53_DDL = `
+CREATE TABLE recovery_rounds_v53 (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ticket_id INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+  source_stage TEXT NOT NULL CHECK (source_stage IN ('uat','review')),
+  source_process_id TEXT NOT NULL,
+  source_stage_run_id INTEGER REFERENCES stage_runs(id) ON DELETE SET NULL,
+  source_process_run_id INTEGER REFERENCES process_runs(id) ON DELETE SET NULL,
+  trigger_kind TEXT NOT NULL,
+  trigger_detail TEXT NOT NULL,
+  episode INTEGER NOT NULL DEFAULT 1,
+  round INTEGER NOT NULL,
+  max_rounds INTEGER NOT NULL,
+  fix_process_run_id INTEGER REFERENCES process_runs(id) ON DELETE SET NULL,
+  uat_revalidation_stage_run_id INTEGER REFERENCES stage_runs(id) ON DELETE SET NULL,
+  review_revalidation_stage_run_id INTEGER REFERENCES stage_runs(id) ON DELETE SET NULL,
+  status TEXT NOT NULL CHECK (status IN ('pending','fixing','revalidating','passed','failed','exhausted','interrupted','refused','reset')),
+  started_at TEXT NOT NULL,
+  ended_at TEXT,
+  interrupt_count INTEGER NOT NULL DEFAULT 0,
+  CHECK (round <= max_rounds)
+);
+INSERT INTO recovery_rounds_v53
+  SELECT id, ticket_id, source_stage, source_process_id, source_stage_run_id,
+         source_process_run_id, trigger_kind, trigger_detail,
+         1 AS episode,
+         round,
+         CASE WHEN round > max_rounds THEN round ELSE max_rounds END AS max_rounds,
+         fix_process_run_id, uat_revalidation_stage_run_id,
+         review_revalidation_stage_run_id,
+         CASE WHEN round > max_rounds AND status = 'exhausted' THEN 'refused'
+              ELSE status END AS status,
+         started_at, ended_at, interrupt_count
+  FROM recovery_rounds;
+DROP TABLE recovery_rounds;
+ALTER TABLE recovery_rounds_v53 RENAME TO recovery_rounds;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_recovery_round
+  ON recovery_rounds(ticket_id, source_stage, episode, round);
+`;
+
+/**
+ * v53's `stages` rebuild (Task 1A): SQLite cannot ALTER a CHECK constraint, so
+ * adding `CHECK (ended_at IS NULL OR started_at IS NULL OR ended_at >=
+ * started_at)` (Issue #4's root corruption class) requires the standard
+ * create → copy → drop → rename rebuild. `stages` carries no FK of its own
+ * and — per `PRAGMA foreign_key_list` reasoning over schema.sql — nothing
+ * else declares a FK referencing `stages` (its PRIMARY KEY is the composite
+ * `(ticket_id, stage_key)`, never a FK target), so the drop/rename window
+ * cannot orphan a foreign row; `foreign_keys = OFF` is suspended only because
+ * it must be for ANY rebuild inside a transaction, matching v37.
+ *
+ * The copy's SELECT REPAIRS the one real corruption (ticket 46's uat row) so
+ * the new CHECK does not reject it: `ended_at < started_at` is clamped to
+ * `ended_at = started_at`. The corruption is a stale end stamp inherited from
+ * a DIFFERENT run (entryPatch's running-branch omission, fixed by T1B), so
+ * the start is the only defensible bound — this makes already-stored data
+ * internally consistent, not deriving new information.
+ *
+ * Exported so the interruption-atomicity test can drive the REAL step DDL.
+ */
+export const STAGES_V53_DDL = `
+CREATE TABLE stages_v53 (
+  ticket_id     INTEGER NOT NULL,
+  stage_key     TEXT NOT NULL,
+  status        TEXT NOT NULL,
+  attempt       INTEGER NOT NULL DEFAULT 0,
+  verdict       TEXT,
+  artifact_path TEXT,
+  started_at    TEXT,
+  ended_at      TEXT,
+  blocked_kind   TEXT,
+  blocked_reason TEXT,
+  blocked_at     TEXT,
+  PRIMARY KEY (ticket_id, stage_key),
+  CHECK (ended_at IS NULL OR started_at IS NULL OR ended_at >= started_at)
+);
+INSERT INTO stages_v53
+  SELECT ticket_id, stage_key, status, attempt, verdict, artifact_path, started_at,
+         CASE WHEN ended_at IS NOT NULL AND started_at IS NOT NULL AND ended_at < started_at
+              THEN started_at ELSE ended_at END AS ended_at,
+         blocked_kind, blocked_reason, blocked_at
+  FROM stages;
+DROP TABLE stages;
+ALTER TABLE stages_v53 RENAME TO stages;
 `;
 
 /**
@@ -1891,6 +2007,64 @@ export function migrate(db: Database): void {
   const ticketColsV52 = tableColumns(db, 'tickets');
   if (ticketColsV52.size > 0 && !ticketColsV52.has('paused_at')) {
     db.exec('ALTER TABLE tickets ADD COLUMN paused_at TEXT');
+  }
+
+  if (current < 53) {
+    // v53 (Task 1A, recovery-round-exhaustion): six schema changes land as
+    // ONE version bump — see RECOVERY_ROUNDS_V53_DDL / STAGES_V53_DDL above
+    // for the two non-additive rebuilds (SQLite cannot ALTER a CHECK
+    // constraint) and their row repairs. `review_findings.identity` is
+    // additive (no CHECK to widen), so it takes a plain guarded ALTER.
+    //
+    // Both rebuild guards read the CURRENT table SQL — a fresh DB
+    // (schema.sql already carries the widened shape) skips the rebuild
+    // entirely, and a re-open on an already-migrated DB is a no-op. The whole
+    // rebuild (both tables' DDL + the version bump) runs inside ONE
+    // transaction, mirroring v35/v37's interruption-atomicity pattern: a
+    // poisoned step rolls back the lot and user_version stays below 53, so
+    // the next open re-runs the same guarded steps. Foreign-key enforcement
+    // is suspended for the swap (it cannot change inside a transaction); the
+    // renames restore the names every FK clause references.
+    const roundsSql53 = (
+      db
+        .prepare(
+          "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'recovery_rounds'",
+        )
+        .get() as { sql: string } | undefined
+    )?.sql;
+    const stagesSql53 = (
+      db
+        .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'stages'")
+        .get() as { sql: string } | undefined
+    )?.sql;
+    const needsRoundsRebuild = !!roundsSql53 && !roundsSql53.includes("'refused'");
+    const needsStagesRebuild = !!stagesSql53 && !stagesSql53.includes('ended_at >= started_at');
+
+    if (needsRoundsRebuild || needsStagesRebuild) {
+      db.pragma('foreign_keys = OFF');
+      try {
+        db.exec('BEGIN IMMEDIATE');
+        try {
+          if (needsRoundsRebuild) db.exec(RECOVERY_ROUNDS_V53_DDL);
+          if (needsStagesRebuild) db.exec(STAGES_V53_DDL);
+          db.pragma('user_version = 53');
+          db.exec('COMMIT');
+        } catch (e) {
+          db.exec('ROLLBACK');
+          throw e;
+        }
+      } finally {
+        db.pragma('foreign_keys = ON');
+      }
+    }
+
+    // review_findings.identity: NULL for every pre-v53 row and any writer
+    // that predates the hash — not derivable after the fact, every reader
+    // must degrade.
+    const findingsCols53 = tableColumns(db, 'review_findings');
+    if (findingsCols53.size > 0 && !findingsCols53.has('identity')) {
+      db.exec('ALTER TABLE review_findings ADD COLUMN identity TEXT');
+    }
   }
 
   db.pragma(`user_version = ${SCHEMA_VERSION}`);

@@ -32,7 +32,16 @@ function entryPatch(next: StageKey, at: string): StagePatch {
   if (needsConfirm(next)) {
     return { status: 'pending', verdict: null, startedAt: at, endedAt: null };
   }
-  return { status: 'running', verdict: null, startedAt: at };
+  // `endedAt` is cleared for the same reason the confirm branch above clears
+  // it, and the omission here was a live corruption: `setStage` patches only
+  // the fields it is given, so a stage RE-ENTERED running kept the `ended_at`
+  // of whatever ran last — a different run entirely. That left rows reading
+  // `running` with an `ended_at` 33 minutes BEFORE their `started_at`, which
+  // reads as a stage that finished before it began and made a live UAT look
+  // hung. Every other writer that enters a stage `running` already cleared it
+  // (sendBack.ts, stages/ship.ts, recoveryRounds.ts's markFixStageLive); this
+  // was the only path that did not, and it is the most travelled one.
+  return { status: 'running', verdict: null, startedAt: at, endedAt: null };
 }
 
 /**
