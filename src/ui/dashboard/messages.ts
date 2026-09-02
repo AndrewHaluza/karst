@@ -461,12 +461,12 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
       // A missing/blank model means "inherit"; a NON-string model drops the
       // whole message rather than being coerced to a value the webview never
       // offered.
-      const model = m.model === undefined ? '' : (typeof m.model === 'string' ? m.model : null);
+      const model = m.model == null ? '' : (typeof m.model === 'string' ? m.model : null);
       if (model === null) return null;
       if (model.length > MAX_MODEL_ID_CHARS) return null;
       // Same contract for the effort/variant: absent/blank = inherit; a
       // non-string or oversized value drops the whole message.
-      const effort = m.effort === undefined ? '' : (typeof m.effort === 'string' ? m.effort : null);
+      const effort = m.effort == null ? '' : (typeof m.effort === 'string' ? m.effort : null);
       if (effort === null) return null;
       if (effort.length > MAX_MODEL_ID_CHARS) return null;
       return { type: 'switch-agent', provider, model: model || null, effort: effort || null };
