@@ -432,6 +432,39 @@ describe('buildTicketArtifacts', () => {
     expect(all[0]!.status).toBe('passed');
   });
 
+  it('a gate run and its process run sharing stageRunId count as ONE version, not two', () => {
+    // One UAT invocation produces both a gate-run batch and a tester process
+    // run — different timestamps (runAt vs startedAt), same stageRunId. The
+    // version count must be 1, not 2 (the overcount the review caught).
+    const t = ticket({ stageCurrent: 'uat' });
+    stage(t.id, 'uat', 'passed', '2026-08-01T09:00:00.000Z', '2026-08-01T10:00:00.000Z');
+    const stageRunId = store.db
+      .prepare(
+        `INSERT INTO stage_runs (ticket_id, stage_key, attempt, run_at, status, started_at)
+         VALUES (?, 'uat', 0, ?, 'finished', ?)`,
+      )
+      .run(t.id, '2026-08-01T10:00:00.000Z', '2026-08-01T10:00:00.000Z').lastInsertRowid as number;
+    store.db
+      .prepare(
+        `INSERT INTO gate_runs
+           (ticket_id, stage_key, attempt, run_at, gate_name, exit_code, started_at, ended_at, repo, command, stage_run_id)
+         VALUES (?, 'uat', 0, ?, 'test', 0, ?, ?, 'api', 'npm test', ?)`,
+      )
+      .run(t.id, '2026-08-01T10:00:00.000Z', '2026-08-01T10:00:00.000Z', '2026-08-01T10:05:00.000Z', stageRunId);
+    const procRun = openProcessRun(store, {
+      ticketId: t.id,
+      stageKey: 'uat',
+      processId: 'tester',
+      attempt: 0,
+      startedAt: '2026-08-01T10:02:00.000Z',
+      stageRunId,
+    });
+    finishProcessRun(store, procRun.id, 'passed', '2026-08-01T10:04:00.000Z');
+    const all = buildTicketArtifacts(store, t.id);
+    expect(all).toHaveLength(1);
+    expect(all[0]!.versionCount).toBe(1);
+  });
+
   it('lists the stage log as the artifact resource, basename only', () => {
     const t = ticket({ stageCurrent: 'uat' });
     stage(t.id, 'uat', 'passed', '2026-08-01T09:00:00.000Z', '2026-08-01T10:00:00.000Z');

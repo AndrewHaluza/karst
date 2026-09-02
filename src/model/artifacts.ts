@@ -513,21 +513,31 @@ function resourceFrom(path: string | null, out: ArtifactResource[]): void {
 
 /**
  * Distinct run invocations across a gate stage's evidence = one version each.
- * Keys on `runAt` (gate runs) / `startedAt` (process runs) — the batch stamp
- * unique per invocation — NOT on `attempt`, which only bumps on failure and
- * collapses every passing re-validation into the failing run's number (Issue #5).
+ *
+ * Keys on `stageRunId` (the `stage_runs` row, one per invocation) — NOT on
+ * `attempt`, which only bumps on failure and collapses every passing
+ * re-validation into the failing run's number (Issue #5). Gate runs and
+ * process runs of the SAME invocation share a `stageRunId`, so deduplicating
+ * on it counts one version per invocation regardless of how many run types
+ * produced evidence (gate batch + tester/findings process run = still 1).
+ *
+ * Pre-v25 rows (NULL `stageRunId`) fall back to `runAt` / `startedAt` — a
+ * legacy row carries no run id, so its batch stamp is the only identity
+ * available, and a NULL stamp still counts as one via the fallback set.
  */
 function versionAttempts(
   entries: readonly GateRun[],
   processRuns: readonly ProcessRun[],
   stage: ArtifactStage,
 ): number {
-  const stamps = new Set<string>();
-  for (const e of entries) stamps.add(e.runAt);
-  for (const p of processRuns) {
-    if (p.stageKey === stage) stamps.add(p.startedAt);
+  const runIds = new Set<number | string>();
+  for (const e of entries) {
+    runIds.add(e.stageRunId ?? e.runAt);
   }
-  return stamps.size;
+  for (const p of processRuns) {
+    if (p.stageKey === stage) runIds.add(p.stageRunId ?? p.startedAt);
+  }
+  return runIds.size;
 }
 
 function uatReport(input: ArtifactInput): ArtifactSummary | null {
