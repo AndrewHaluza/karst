@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openStore, type Store } from '../store/db.js';
-import { getTicket } from '../store/tickets.js';
+import { getTicket, pauseTicket } from '../store/tickets.js';
 import { stageBlock } from '../store/stageBlocks.js';
 import { listProcessRuns } from '../store/processRuns.js';
 import { listUatFindings } from '../store/uatFindings.js';
@@ -194,6 +194,13 @@ describe('driveTicket', () => {
 
     const t = getTicket(store, id);
     expect(ticketsToSweep([{ id: t.id, stageCurrent: t.stageCurrent, stages: t.stages }])).toEqual([]);
+  });
+
+  it('skips driving when ticket is paused', async () => {
+    pauseTicket(store, id);
+    const outcome = await driveTicket(deps(), id);
+    expect(outcome.status).toBe('paused');
+    expect(logs.some((l) => l.includes('is paused — skipping drive'))).toBe(true);
   });
 
   it('parks when a manifest is present and no worktree maps to it', async () => {

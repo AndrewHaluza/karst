@@ -105,6 +105,9 @@ export const TABLER_ICONS: Record<string, string> = {
     '<path d="M9.5 14.5l-1.5 1.5"/><path d="M2.5 14.5l1.5 1.5"/>' +
     '<path d="M2.5 21.5l1.5 -1.5"/><path d="M8 20l1.5 1.5"/>' +
     '<path d="M13 16l8 -5l-13 -8v8"/>',
+  'player-pause':
+    '<path d="M6 5m0 1a1 1 0 0 1 1 -1h2a1 1 0 0 1 1 1v12a1 1 0 0 1 -1 1h-2a1 1 0 0 1 -1 -1z"/>' +
+    '<path d="M14 5m0 1a1 1 0 0 1 1 -1h2a1 1 0 0 1 1 1v12a1 1 0 0 1 -1 1h-2a1 1 0 0 1 -1 -1z"/>',
   'player-play': '<path d="M7 4v16l13 -8l-13 -8"/>',
   'player-stop': '<path d="M5 7a2 2 0 0 1 2 -2h10a2 2 0 0 1 2 2v10a2 2 0 0 1 -2 2h-10a2 2 0 0 1 -2 -2l0 -10"/>',
   plus: '<path d="M12 5l0 14"/><path d="M5 12l14 0"/>',

@@ -119,6 +119,8 @@ export interface DashboardState {
   parent: { key: string; title: string | null } | null;
   stageCurrent: string | null;
   agentState: string | null;
+  paused: boolean;
+  pausedAt: string | null;
   /** Resolved running-session identity and whether an in-place switch is safe. */
   agentSession: AgentSessionView;
   stepper: StepperCell[];
@@ -801,6 +803,8 @@ export function buildDashboardState(
     parent,
     stageCurrent: ticket.stageCurrent,
     agentState: ticket.agentState,
+    paused: ticket.pausedAt !== null,
+    pausedAt: ticket.pausedAt,
     agentSession,
     stepper,
     currentStage,

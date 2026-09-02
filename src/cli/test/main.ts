@@ -1,5 +1,5 @@
 import type { Store } from '../../store/db.js';
-import type { Ticket } from '../../store/tickets.js';
+import { pauseTicket, unpauseTicket, type Ticket } from '../../store/tickets.js';
 import { resolveTicketByKey } from '../resolveTicket.js';
 import { parseCreateTicketArgs, runCreateTicket } from './createTicket.js';
 import { parseSetStageArgs, runSetStage } from './setStage.js';
@@ -40,6 +40,8 @@ const SUBCOMMANDS: readonly string[] = [
   'get-logs',
   'get-hooks',
   'assert',
+  'pause',
+  'unpause',
   'reset',
 ];
 
@@ -144,6 +146,16 @@ export function runTestCommand(
     case 'assert': {
       const t = requireTicket(store, ticketKey, projectSlug, subcommand);
       return runAssert(store, t.id, parseAssertArgs(rest));
+    }
+    case 'pause': {
+      const t = requireTicket(store, ticketKey, projectSlug, subcommand);
+      pauseTicket(store, t.id);
+      return JSON.stringify({ ok: true, ticketId: t.id, paused: true });
+    }
+    case 'unpause': {
+      const t = requireTicket(store, ticketKey, projectSlug, subcommand);
+      unpauseTicket(store, t.id);
+      return JSON.stringify({ ok: true, ticketId: t.id, paused: false });
     }
     default:
       // `reset` is dispatched by the CLI entry before a store exists; reaching

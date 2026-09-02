@@ -45,6 +45,7 @@ function waitingWhileShipRuns(t: TicketWithStages): boolean {
  * right.
  */
 export function needsUser(t: TicketWithStages): boolean {
+  if (t.pausedAt != null) return false;
   // A RUNNING agent is actively working the ticket — the session the
   // "Resolve conflicts" button opens is exactly this — so the ticket is in
   // progress, not parked on the user, whatever the stage's block says. The
@@ -89,6 +90,7 @@ export function needsUser(t: TicketWithStages): boolean {
  * and so cannot know that a parked confirm stage is waiting on a human.
  */
 export function ticketGlyph(t: TicketWithStages): Glyph {
+  if (t.pausedAt != null) return 'gray';
   if (needsUser(t)) return 'amber';
   // The same running-ship exception, applied to the residual `waiting` the
   // glyph function would otherwise paint amber: pass the running state so the

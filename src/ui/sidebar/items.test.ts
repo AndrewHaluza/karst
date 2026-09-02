@@ -8,6 +8,7 @@ function ticket(over: Partial<TicketWithStages> = {}): TicketWithStages {
     key: 'PROJ-1',
     title: 'a thing',
     source: 'manual',
+    pausedAt: null,
     stageCurrent: 'impl',
     agentState: 'none',
     sessionId: null,

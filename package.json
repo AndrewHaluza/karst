@@ -139,6 +139,16 @@
         "icon": "$(history)"
       },
       {
+        "command": "karst.pauseTicket",
+        "title": "Karst: Pause Ticket Execution",
+        "icon": "$(debug-pause)"
+      },
+      {
+        "command": "karst.unpauseTicket",
+        "title": "Karst: Resume Ticket Execution",
+        "icon": "$(debug-start)"
+      },
+      {
         "command": "karst.deleteTicket",
         "title": "Karst: Delete Ticket",
         "icon": "$(trash)"

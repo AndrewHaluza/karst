@@ -50,6 +50,8 @@ CREATE TABLE IF NOT EXISTS tickets (
   disabled_gates    TEXT,                 -- JSON {"uat":["e2e"],"review":["lint"]}; NULL = nothing disabled
   -- v44 provider-native priority label (kept in sync with migrations.ts v44 ALTER):
   priority          TEXT,                 -- 'urgent' | 'high' | 'normal' | ... ; NULL = provider did not expose it
+  -- v52 task pause timestamp (kept in sync with migrations.ts v52 ALTER):
+  paused_at         TEXT,                 -- soft pause timestamp; NULL = active, non-null = execution paused
   created_at        TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at        TEXT NOT NULL DEFAULT (datetime('now'))
 );

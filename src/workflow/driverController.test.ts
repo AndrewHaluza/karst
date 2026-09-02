@@ -14,6 +14,14 @@ describe('ticketsToSweep', () => {
     expect(ticketsToSweep(tickets)).toEqual([]);
   });
 
+  it('excludes paused tickets', () => {
+    const tickets = [
+      { id: 1, stageCurrent: 'uat', pausedAt: '2026-09-02T12:00:00.000Z', stages: [] },
+      { id: 2, stageCurrent: 'review', pausedAt: null, stages: [] },
+    ];
+    expect(ticketsToSweep(tickets)).toEqual([2]);
+  });
+
   it('returns empty for an empty ticket list', () => {
     expect(ticketsToSweep([])).toEqual([]);
   });

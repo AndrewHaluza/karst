@@ -59,6 +59,8 @@ describe('parseTestArgs — the `test` verb parser', () => {
       'get-logs',
       'get-hooks',
       'assert',
+      'pause',
+      'unpause',
       'reset',
     ];
     for (const sub of subcommands) {
@@ -461,6 +463,23 @@ describe('get-logs / get-hooks', () => {
     const hooks = JSON.parse(runGetHooks(store, t.id)) as { event: string; agentState: string }[];
     expect(hooks.map((h) => h.event)).toEqual(['SessionStart', 'PostToolUse']);
     expect(hooks[0]!.agentState).toBe('running');
+  });
+});
+
+describe('pause / unpause', () => {
+  it('pause stamps the flag and unpause clears it, both reported in the JSON result', () => {
+    const t = createTicketJson('P-1');
+    expect(getTicket(store, t.id).pausedAt).toBeNull();
+
+    expect(runTestCommand(store, 'P-1', undefined, ['test', 'pause'])).toBe(
+      JSON.stringify({ ok: true, ticketId: t.id, paused: true }),
+    );
+    expect(getTicket(store, t.id).pausedAt).not.toBeNull();
+
+    expect(runTestCommand(store, 'P-1', undefined, ['test', 'unpause'])).toBe(
+      JSON.stringify({ ok: true, ticketId: t.id, paused: false }),
+    );
+    expect(getTicket(store, t.id).pausedAt).toBeNull();
   });
 });
 

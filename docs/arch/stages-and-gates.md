@@ -16,6 +16,7 @@ The stage machine, the evidence it writes, and the host seam that drives it. Rel
 - Review findings decide review: R6 fails, R6b blocks on an unreadable answer
 - Nothing in the extension host may block its event loop
 - The stage driver's host seam
+- Pause: a ticket that starts nothing
 - Single-writer stage mutation
 
 ## Stage machine
@@ -83,6 +84,27 @@ The hook endpoint, every webview, and the whole UI share it. Gates shell out to 
 ## The stage driver's host seam is `workflow/driveTicket.ts`, and `extension.ts` holds nothing but the vscode bindings
 
 `driveTicket` owns the `StageRunResult` branching, the fix-resume decision (`fixResumeDecision` — per-gate budget, `uat.maxFixAttempts` narrows UAT only) and ONE `AbortController` per run; the extension supplies logging, refreshes and `resumeFixSession`. Both `result.kind` switches end in a `const unreachable: never` that THROWS: the two-`if`-and-fallthrough it replaces read an unknown variant as `advanced`, and because the driver's loop is an unbroken await chain, that starves the timers a test timeout needs — it hangs rather than fails, so exhaustiveness here is not stylistic. `DriverController.signalFor` is what makes Stop reach a gate already running (`shouldContinue` is only polled between stages); a fresh controller per `begin` because a signal cannot be un-aborted. A runner's `blocked` is passed to the driver VERBATIM — never re-wrapped as `advanced` at the ticket's unchanged stage, which re-parks the same gate forever.
+
+## Pause: a ticket that starts nothing on its own
+
+`tickets.paused_at` (v52; `null` = active) is the ONE flag that says "karst starts no new work on this ticket". Written only by `pauseTicket`/`unpauseTicket` (`store/tickets.ts`), same single-writer discipline as `setStage`.
+
+Pause is a REFUSAL TO START, never a kill:
+
+- **Interactive terminals stay open.** The user is looking at them; closing them would destroy the very context the pause exists to preserve. Pause stops karst from *launching* sessions, gates, graph nodes and ship sagas — it does not reach into what a human already has on screen.
+- **No stage, verdict or run row is rewritten.** A `running` graph run stays `running`; a stage stays where it is. Unpause therefore needs no recovery step — the ticket simply becomes schedulable again.
+
+Every automatic entry point checks it, each at the one read it schedules from — so a fifth trigger cannot slip past by construction:
+
+| Path | Where the refusal lives |
+| --- | --- |
+| Stage driver (all triggers: hook, sweep, session close, resume) | `driveTicket` at its entry (host-agnostic, so it holds under vitest), and `maybeDrive` again so the trigger is logged as skipped |
+| Background sweep selection | `ticketsToSweep` (`workflow/driverController.ts`) |
+| Graph coordinator scheduling | `activeGraphRunIds`'s SQL (`coordinator/sweep.ts`) — `AND t.paused_at IS NULL` |
+| Graph continuation (planners, nodes, relaunches) | `driveGraphRunContinuation` in `extension.ts`. Reconcile still RUNS — it only probes liveness and spends no tokens, so a paused ticket stays accurately reconciled |
+| Stranded-ship recovery at activation | The activation loop, before `runShipSaga` |
+
+Surfaces: `ticketGlyph`/`stageBadge` read it first (gray, "Paused" — a paused ticket is never amber "needs you", because nothing is waiting on the user). The dashboard's ⋯ menu carries Pause/Resume plus a header pill, `karst.pauseTicket`/`karst.unpauseTicket` carry the same seam for the palette, `karst test pause|unpause` drives it in tests, and `karst context` reports `paused`/`pausedAt` so an agent can see it too.
 
 ## Single-writer stage mutation
 

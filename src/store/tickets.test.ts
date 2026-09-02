@@ -18,6 +18,8 @@ import {
   updateTicketFields,
   archiveTicket,
   unarchiveTicket,
+  pauseTicket,
+  unpauseTicket,
   deleteTicket,
   listTickets,
   listArchivedTickets,
@@ -43,6 +45,7 @@ describe('ticketLabel', () => {
     key: 'PROJ-142',
     title: 'do things',
     source: 'manual',
+    pausedAt: null,
     stageCurrent: 'scope',
     agentState: 'none',
     sessionId: null,
@@ -446,6 +449,19 @@ describe('ticket + stage persistence', () => {
     unarchiveTicket(store, t.id);
     const done = getTicket(store, t.id).stages.find((s) => s.stageKey === 'done')!;
     expect(done.endedAt).toBeNull();
+  });
+
+  it('pauseTicket stamps pausedAt and unpauseTicket clears it', () => {
+    const t = createTicket(store, { key: 'P-1', title: 'pausable' });
+    expect(getTicket(store, t.id).pausedAt).toBeNull();
+
+    pauseTicket(store, t.id);
+    const paused = getTicket(store, t.id);
+    expect(paused.pausedAt).not.toBeNull();
+
+    unpauseTicket(store, t.id);
+    const resumed = getTicket(store, t.id);
+    expect(resumed.pausedAt).toBeNull();
   });
 
   it('deleteTicket hard-removes the ticket and its stage rows', () => {
