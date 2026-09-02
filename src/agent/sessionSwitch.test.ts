@@ -193,6 +193,15 @@ describe('applyAgentSwitchSelection', () => {
     expect(order).toEqual([]);
   });
 
+  it('allows a custom opencode model not in the catalog (provider/model format)', async () => {
+    const { deps, order } = flow();
+    await expect(
+      applyAgentSwitchSelection(deps, CATALOG, { provider: 'opencode', model: 'openrouter/z-ai/glm-5.2', effort: null }),
+    ).resolves.toEqual({ kind: 'switched' });
+    expect(order).toContain('persist:opencode:openrouter/z-ai/glm-5.2');
+  });
+
+
   it('rejects an unknown provider', async () => {
     const { deps, order } = flow();
     await expect(

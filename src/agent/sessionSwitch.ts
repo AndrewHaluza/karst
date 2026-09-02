@@ -9,6 +9,13 @@ import {
 import { IMPLEMENTED_PROVIDERS, isKnownProvider } from './provider.js';
 import { AGENT_PROVIDER_LABELS } from '../model/agentIdentity.js';
 
+/** Whether a model is valid for a provider (in catalog OR custom-compatible). */
+function isValidModelForProvider(provider: AgentProvider, modelId: string | null | undefined, catalog: ModelCatalog): boolean {
+  if (!modelId) return true;
+  const choices = modelsForProvider(provider, catalog).map((m) => m.id);
+  return choices.includes(modelId) || isModelCompatibleWithProvider(provider, modelId, catalog);
+}
+
 /**
  * The provider display names — ONE source of truth: the agent identity
  * registry (`model/agentIdentity.ts`). This module used to carry its own
@@ -175,15 +182,10 @@ export async function applyAgentSwitchSelection(
   if (!canSwitchAgentSession(initial.stageCurrent, initial.fixExecutionActive)) {
     return { kind: 'stale' };
   }
-  // The staged model must be one of the choices the webview was built from —
-  // the host re-validates its own offer, never the webview's word.
-  const modelChoices = agentSwitchModelChoices({
-    provider: selection.provider,
-    ticketModel: initial.ticketModel,
-    defaultModel: initial.defaultModel,
-    catalog,
-  });
-  if (!modelChoices.some((choice) => choice.model === selection.model)) return { kind: 'stale' };
+  // The staged model must be valid for the provider — the host re-validates
+  // its own offer, never the webview's word. Allow catalog models AND custom
+  // models that are compatible with the provider (e.g. opencode provider/model IDs).
+  if (!isValidModelForProvider(selection.provider, selection.model, catalog)) return { kind: 'stale' };
 
   // The staged effort must be advertised by the SELECTED model — the same
   // validation the launch path applies (`resolveEffortForProvider`), so a
