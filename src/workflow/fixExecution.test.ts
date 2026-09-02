@@ -135,6 +135,13 @@ describe('resumeFixExecution — driver -> agent handoff', () => {
 
   function roundId(): number {
     failUat(store, id);
+    // `transition` (inside `commitGateOutcome`) stamps the fix stage's
+    // `startedAt` with the real wall clock, not the fixture `now`, so it must
+    // be backdated here to stay coherent with the fixed T1/T2 the tests below
+    // use for the fix execution's `endedAt`.
+    store.db
+      .prepare("UPDATE stages SET started_at = ? WHERE ticket_id = ? AND stage_key = 'fix'")
+      .run(now(), id);
     return listRecoveryRounds(store, id)[0]!.id;
   }
 

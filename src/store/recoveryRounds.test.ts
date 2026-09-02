@@ -361,6 +361,7 @@ describe('recovery rounds — store', () => {
     // The ticket must actually BE at fix for the re-stamp to land — the machine's
     // transition review-fail → fix is what the production flow uses.
     transition(store, ticketId, 'uat', { kind: 'failed', reason: 'exit 1' }); // -> fix
+    store.db.prepare("UPDATE stages SET started_at = ? WHERE ticket_id = ? AND stage_key = 'fix'").run(T0, ticketId);
     const r = round();
     beginLiveFixExecution(store, { ticketId, roundId: r.id, startedAt: T1 });
 
@@ -376,6 +377,7 @@ describe('recovery rounds — store', () => {
 
   it('parkFixStage re-stamps only a running fix row of a ticket at fix, and only once', () => {
     transition(store, ticketId, 'uat', { kind: 'failed', reason: 'exit 1' }); // -> fix
+    store.db.prepare("UPDATE stages SET started_at = ? WHERE ticket_id = ? AND stage_key = 'fix'").run(T0, ticketId);
 
     expect(parkFixStage(store, ticketId, FIX_PARKED_NO_EXECUTION, T1)).toBe(true);
     const parked = getTicket(store, ticketId).stages.find((s) => s.stageKey === 'fix')!;
@@ -404,6 +406,7 @@ describe('recovery rounds — store', () => {
 
   it('a parked fix row reads running again the moment a fix execution begins', () => {
     transition(store, ticketId, 'uat', { kind: 'failed', reason: 'exit 1' }); // -> fix
+    store.db.prepare("UPDATE stages SET started_at = ? WHERE ticket_id = ? AND stage_key = 'fix'").run(T0, ticketId);
     const r = round();
     parkFixStage(store, ticketId, FIX_PARKED_NO_EXECUTION, T1);
 
@@ -417,6 +420,7 @@ describe('recovery rounds — store', () => {
 
   it('a parked fix row reads running again when the closed-session launch confirms', () => {
     transition(store, ticketId, 'uat', { kind: 'failed', reason: 'exit 1' }); // -> fix
+    store.db.prepare("UPDATE stages SET started_at = ? WHERE ticket_id = ? AND stage_key = 'fix'").run(T0, ticketId);
     const r = round();
     parkFixStage(store, ticketId, FIX_PARKED_NO_EXECUTION, T1);
     recordFixLaunchIntent(store, {
@@ -514,6 +518,7 @@ describe('recovery rounds — store', () => {
 
   it('exhaustRecoveryRound re-stamps the fix stage row as parked at the cap', () => {
     transition(store, ticketId, 'uat', { kind: 'failed', reason: 'exit 1' }); // -> fix
+    store.db.prepare("UPDATE stages SET started_at = ? WHERE ticket_id = ? AND stage_key = 'fix'").run(T0, ticketId);
     const r = round();
 
     expect(exhaustRecoveryRound(store, ticketId, r.id, T1)).toBe(true);
@@ -634,6 +639,7 @@ describe('recovery rounds — store', () => {
 
   it('reconcileStrandedFixRounds parks a fix stage row that reads running with no round at all', () => {
     transition(store, ticketId, 'uat', { kind: 'failed', reason: 'exit 1' }); // -> fix, no round
+    store.db.prepare("UPDATE stages SET started_at = ? WHERE ticket_id = ? AND stage_key = 'fix'").run(T0, ticketId);
 
     const stranded = reconcileStrandedFixRounds(store, T1);
 
@@ -652,6 +658,7 @@ describe('recovery rounds — store', () => {
     // The launch never happened and never will (nothing drives fix tickets):
     // a pending round with no fix run and no launch intent is a parked ticket.
     transition(store, ticketId, 'uat', { kind: 'failed', reason: 'exit 1' }); // -> fix
+    store.db.prepare("UPDATE stages SET started_at = ? WHERE ticket_id = ? AND stage_key = 'fix'").run(T0, ticketId);
     round();
 
     const stranded = reconcileStrandedFixRounds(store, T1);
@@ -690,6 +697,7 @@ describe('recovery rounds — store', () => {
 
   it('reconcileStrandedFixRounds parks a running fix row whose every round is terminal', () => {
     transition(store, ticketId, 'uat', { kind: 'failed', reason: 'exit 1' }); // -> fix
+    store.db.prepare("UPDATE stages SET started_at = ? WHERE ticket_id = ? AND stage_key = 'fix'").run(T0, ticketId);
     const r = round();
     store.db.prepare("UPDATE recovery_rounds SET status = 'interrupted', ended_at = ? WHERE id = ?").run(T0, r.id);
 
@@ -710,6 +718,7 @@ describe('recovery rounds — store', () => {
 
   it('hasFixingRound is true only while a fix execution is actually attached', () => {
     transition(store, ticketId, 'uat', { kind: 'failed', reason: 'exit 1' }); // -> fix
+    store.db.prepare("UPDATE stages SET started_at = ? WHERE ticket_id = ? AND stage_key = 'fix'").run(T0, ticketId);
     expect(hasFixingRound(store, ticketId)).toBe(false); // no round yet
     const r = round();
     expect(hasFixingRound(store, ticketId)).toBe(false); // pending is not fixing

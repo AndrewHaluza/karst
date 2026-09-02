@@ -24,7 +24,7 @@ describe('autoArchiveDoneTickets', () => {
   it('archives a done ticket whose delay has elapsed', () => {
     const t = createTicket(store, { key: 'A-1', title: 'done long ago' });
     driveToDone(store, t.id);
-    setStage(store, t.id, 'done', { endedAt: OLD });
+    setStage(store, t.id, 'done', { startedAt: OLD, endedAt: OLD });
 
     const archived = autoArchiveDoneTickets(store, { afterDays: 3, now: new Date(NOW) });
     expect(archived).toEqual([t.id]);
@@ -42,7 +42,10 @@ describe('autoArchiveDoneTickets', () => {
   it('archives at exactly the cutoff (inclusive)', () => {
     const t = createTicket(store, { key: 'C-1', title: 'boundary' });
     driveToDone(store, t.id);
-    setStage(store, t.id, 'done', { endedAt: '2026-08-07T00:00:00.000Z' });
+    setStage(store, t.id, 'done', {
+      startedAt: '2026-08-07T00:00:00.000Z',
+      endedAt: '2026-08-07T00:00:00.000Z',
+    });
 
     expect(autoArchiveDoneTickets(store, { afterDays: 3, now: new Date(NOW) })).toEqual([
       t.id,
@@ -52,7 +55,7 @@ describe('autoArchiveDoneTickets', () => {
   it('skips a ticket that left done before the sweep ran', () => {
     const t = createTicket(store, { key: 'D-1', title: 'no longer done' });
     driveToDone(store, t.id);
-    setStage(store, t.id, 'done', { endedAt: OLD });
+    setStage(store, t.id, 'done', { startedAt: OLD, endedAt: OLD });
     store.db.prepare("UPDATE tickets SET stage_current = 'ship' WHERE id = ?").run(t.id);
 
     expect(autoArchiveDoneTickets(store, { afterDays: 3, now: new Date(NOW) })).toEqual([]);
@@ -61,7 +64,7 @@ describe('autoArchiveDoneTickets', () => {
   it('skips a ticket a human archived before the sweep — and never un-archives', () => {
     const t = createTicket(store, { key: 'E-1', title: 'archived by hand' });
     driveToDone(store, t.id);
-    setStage(store, t.id, 'done', { endedAt: OLD });
+    setStage(store, t.id, 'done', { startedAt: OLD, endedAt: OLD });
     store.db.prepare("UPDATE tickets SET archived_at = datetime('now') WHERE id = ?").run(t.id);
 
     expect(autoArchiveDoneTickets(store, { afterDays: 3, now: new Date(NOW) })).toEqual([]);
@@ -71,7 +74,7 @@ describe('autoArchiveDoneTickets', () => {
   it('is idempotent — a second run archives nothing', () => {
     const t = createTicket(store, { key: 'F-1', title: 'twice' });
     driveToDone(store, t.id);
-    setStage(store, t.id, 'done', { endedAt: OLD });
+    setStage(store, t.id, 'done', { startedAt: OLD, endedAt: OLD });
 
     expect(autoArchiveDoneTickets(store, { afterDays: 3, now: new Date(NOW) })).toEqual([
       t.id,
@@ -97,10 +100,13 @@ describe('autoArchiveDoneTickets', () => {
   it('a re-entered done stage restarts the delay — the done row was overwritten', () => {
     const t = createTicket(store, { key: 'I-1', title: 'redone' });
     driveToDone(store, t.id);
-    setStage(store, t.id, 'done', { endedAt: OLD });
+    setStage(store, t.id, 'done', { startedAt: OLD, endedAt: OLD });
     // The machine overwrites `ended_at` when the ticket re-enters done, so the
     // sweep must read a FRESH clock and hold off again.
-    setStage(store, t.id, 'done', { endedAt: '2026-08-09T00:00:00.000Z' });
+    setStage(store, t.id, 'done', {
+      startedAt: '2026-08-09T00:00:00.000Z',
+      endedAt: '2026-08-09T00:00:00.000Z',
+    });
 
     expect(autoArchiveDoneTickets(store, { afterDays: 3, now: new Date(NOW) })).toEqual([]);
   });
@@ -112,7 +118,7 @@ describe('autoArchiveDoneTickets', () => {
     const theirs = createTicket(store, { key: 'Q-1', title: 'other window', projectId: 2 });
     for (const id of [mine.id, theirs.id]) {
       driveToDone(store, id);
-      setStage(store, id, 'done', { endedAt: OLD });
+      setStage(store, id, 'done', { startedAt: OLD, endedAt: OLD });
     }
 
     expect(

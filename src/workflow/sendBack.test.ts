@@ -133,7 +133,11 @@ describe('sendBackState', () => {
   it('is available at ship while awaiting merge', () => {
     walkTo(store, id, 'ship');
     seedPr(store, id, 'api', 'open');
-    setStage(store, id, 'ship', { status: 'passed', endedAt: '2026-08-09T10:00:00.000Z' });
+    setStage(store, id, 'ship', {
+      status: 'passed',
+      startedAt: '2026-08-09T09:00:00.000Z',
+      endedAt: '2026-08-09T10:00:00.000Z',
+    });
     parkGateStage(store, {
       ticketId: id,
       stageKey: 'ship',
@@ -148,7 +152,11 @@ describe('sendBackState', () => {
   it('is available at ship while conflicted', () => {
     walkTo(store, id, 'ship');
     seedPr(store, id, 'api', 'open');
-    setStage(store, id, 'ship', { status: 'passed', endedAt: '2026-08-09T10:00:00.000Z' });
+    setStage(store, id, 'ship', {
+      status: 'passed',
+      startedAt: '2026-08-09T09:00:00.000Z',
+      endedAt: '2026-08-09T10:00:00.000Z',
+    });
     parkGateStage(store, {
       ticketId: id,
       stageKey: 'ship',
@@ -246,7 +254,11 @@ describe('sendBackToImplement', () => {
   it('moves a ship ticket back to impl without touching its open PRs', () => {
     walkTo(store, id, 'ship');
     seedPr(store, id, 'api', 'open');
-    setStage(store, id, 'ship', { status: 'passed', endedAt: '2026-08-09T10:00:00.000Z' });
+    setStage(store, id, 'ship', {
+      status: 'passed',
+      startedAt: '2026-08-09T09:00:00.000Z',
+      endedAt: '2026-08-09T10:00:00.000Z',
+    });
     parkGateStage(store, {
       ticketId: id,
       stageKey: 'ship',
