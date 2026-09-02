@@ -1610,6 +1610,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // Keep the same outcome toasts as before (stale / launch-failed).
       if (outcome.kind === 'stale') {
         void vscode.window.showInformationMessage('The ticket state changed before the agent could be switched.');
+      } else if (outcome.kind === 'unavailable') {
+        void vscode.window.showWarningMessage(`${PROVIDER_LABELS[outcome.provider] || outcome.provider} is not available — ensure the CLI is installed and on PATH.`);
       } else if (outcome.kind === 'launch-failed') {
         void vscode.window.showErrorMessage(
           `The agent selection was saved, but its session could not start: ${outcome.error instanceof Error ? outcome.error.message : String(outcome.error)}`,
