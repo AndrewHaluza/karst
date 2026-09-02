@@ -218,17 +218,8 @@
     <div class="phead">Attributed to karst<span class="count" id="attrCount"></span></div>
     <div class="tscroll">
       <table>
-        <thead>
-          <tr>
-            <th>Ticket</th>
-            <th>Repo / label</th>
-            <th class="num">PID</th>
-            <th class="num">CPU</th>
-            <th class="num">RSS</th>
-            <th class="num">Procs</th>
-            <th class="num">Up</th>
-            <th>Attribution</th>
-          </tr>
+        <thead id="attrHead">
+          <tr></tr>
         </thead>
         <tbody id="attrBody"></tbody>
       </table>
@@ -239,14 +230,8 @@
     <div class="phead">Unattributed (top 5)<span class="count" id="unknownCount"></span></div>
     <div class="tscroll">
       <table class="utable">
-        <thead>
-          <tr>
-            <th class="pid">PID</th>
-            <th class="cmd">Command</th>
-            <th class="num amt">CPU</th>
-            <th class="num amt">RSS</th>
-            <th class="num amt">Procs</th>
-          </tr>
+        <thead id="unkHead">
+          <tr></tr>
         </thead>
         <tbody id="unknownBody"></tbody>
       </table>
@@ -282,6 +267,54 @@
   let lastState = null;
   // Which chart series the user has muted — LOCAL presentation, never a post.
   const muted = { cpu: false, rss: false };
+
+  // Sort state for the two tables — LOCAL presentation, never a post.
+  // Cycle: default (null) → asc → desc → default.
+  const sortState = {
+    attr: { key: null, dir: null },
+    unknown: { key: null, dir: null },
+  };
+
+  const ATTR_COLS = [
+    { key: 'ticket', label: 'Ticket', num: false, accessor: (r) => (r.ticketKey || r.ticketTitle || '').toLowerCase() },
+    { key: 'label', label: 'Repo / label', num: false, accessor: (r) => (r.label || '').toLowerCase() },
+    { key: 'pid', label: 'PID', num: true, accessor: (r) => r.pid },
+    { key: 'cpu', label: 'CPU', num: true, accessor: (r) => r.cpuPct ?? -1 },
+    { key: 'rss', label: 'RSS', num: true, accessor: (r) => r.rssBytes },
+    { key: 'procs', label: 'Procs', num: true, accessor: (r) => r.procCount },
+    { key: 'up', label: 'Up', num: true, accessor: (r) => r.uptimeMs ?? -1 },
+    { key: 'attribution', label: 'Attribution', num: false, accessor: (r) => (r.attribution || '').toLowerCase() },
+  ];
+
+  const UNK_COLS = [
+    { key: 'pid', label: 'PID', num: true, cls: 'pid', accessor: (r) => r.pid },
+    { key: 'cmd', label: 'Command', num: false, cls: 'cmd', accessor: (r) => (r.comm || '').toLowerCase() },
+    { key: 'cpu', label: 'CPU', num: true, cls: 'amt', accessor: (r) => r.cpuPctDisplay === '—' ? -1 : parseFloat(r.cpuPctDisplay) || -1 },
+    { key: 'rss', label: 'RSS', num: true, cls: 'amt', accessor: (r) => {
+      const m = (r.rssDisplay || '').match(/^([\d.]+)\s*(B|KB|MB|GB)$/);
+      if (!m) return -1;
+      const n = parseFloat(m[1]);
+      const u = m[2];
+      return u === 'B' ? n : u === 'KB' ? n * 1024 : u === 'MB' ? n * 1024 ** 2 : n * 1024 ** 3;
+    }},
+    { key: 'procs', label: 'Procs', num: true, cls: 'amt', accessor: (r) => r.procCount },
+  ];
+
+  const sortRows = (rows, cols, state) => {
+    if (!state.key || !state.dir) return rows;
+    const col = cols.find((c) => c.key === state.key);
+    if (!col) return rows;
+    const dir = state.dir === 'asc' ? 1 : -1;
+    return [...rows].sort((a, b) => {
+      const va = col.accessor(a);
+      const vb = col.accessor(b);
+      if (va === vb) return 0;
+      if (va === -1) return 1;
+      if (vb === -1) return -1;
+      if (typeof va === 'string') return va.localeCompare(vb) * dir;
+      return (va - vb) * dir;
+    });
+  };
 
   const statCard = (label, value, note, flag) =>
     `<div class="stat${flag ? ' flag' : ''}"><div class="k">${esc(label)}</div>` +
@@ -347,7 +380,31 @@
 
   const renderAttributed = (rows) => {
     el('attrCount').textContent = rows.length;
-    el('attrBody').innerHTML = rows.map((r) => {
+    const sorted = sortRows(rows, ATTR_COLS, sortState.attr);
+    // Render header with sort buttons — UI-R09: a real button, not a click on <th>.
+    el('attrHead').querySelector('tr').innerHTML = ATTR_COLS.map((c) => {
+      const cls = c.num ? ' class="num"' : '';
+      const ariaSort = sortState.attr.key === c.key
+        ? (sortState.attr.dir === 'asc' ? ' aria-sort="ascending"' : ' aria-sort="descending"')
+        : '';
+      const arrow = sortState.attr.key === c.key ? (sortState.attr.dir === 'asc' ? ' \u25B2' : ' \u25BC') : '';
+      return `<th${cls}${ariaSort}><button type="button" class="k-btn k-btn--link" data-sort="${esc(c.key)}">${esc(c.label)}${arrow}</button></th>`;
+    }).join('');
+    for (const btn of el('attrHead').querySelectorAll('[data-sort]')) {
+      btn.addEventListener('click', () => {
+        const key = btn.dataset.sort;
+        const cur = sortState.attr;
+        if (cur.key === key) {
+          cur.dir = cur.dir === null ? 'asc' : cur.dir === 'asc' ? 'desc' : null;
+          if (cur.dir === null) cur.key = null;
+        } else {
+          cur.key = key;
+          cur.dir = 'asc';
+        }
+        if (lastState) render(lastState);
+      });
+    }
+    el('attrBody').innerHTML = sorted.map((r) => {
       const ticket = r.ticketKey || r.ticketTitle
         ? `<div class="ticketCell"><span class="tkey">${esc(r.ticketKey || '')}</span><span class="ttitle">${esc(r.ticketTitle || '')}</span></div>`
         : '<div class="ticketCell"><span class="baseline">baseline</span></div>';
@@ -366,7 +423,30 @@
 
   const renderUnknown = (rows) => {
     el('unknownCount').textContent = rows.length;
-    el('unknownBody').innerHTML = rows.map((u) =>
+    const sorted = sortRows(rows, UNK_COLS, sortState.unknown);
+    el('unkHead').querySelector('tr').innerHTML = UNK_COLS.map((c) => {
+      const cls = c.num ? ' num' : '';
+      const ariaSort = sortState.unknown.key === c.key
+        ? (sortState.unknown.dir === 'asc' ? ' aria-sort="ascending"' : ' aria-sort="descending"')
+        : '';
+      const arrow = sortState.unknown.key === c.key ? (sortState.unknown.dir === 'asc' ? ' \u25B2' : ' \u25BC') : '';
+      return `<th class="${esc(c.cls)}${cls}"${ariaSort}><button type="button" class="k-btn k-btn--link" data-sort="${esc(c.key)}">${esc(c.label)}${arrow}</button></th>`;
+    }).join('');
+    for (const btn of el('unkHead').querySelectorAll('[data-sort]')) {
+      btn.addEventListener('click', () => {
+        const key = btn.dataset.sort;
+        const cur = sortState.unknown;
+        if (cur.key === key) {
+          cur.dir = cur.dir === null ? 'asc' : cur.dir === 'asc' ? 'desc' : null;
+          if (cur.dir === null) cur.key = null;
+        } else {
+          cur.key = key;
+          cur.dir = 'asc';
+        }
+        if (lastState) render(lastState);
+      });
+    }
+    el('unknownBody').innerHTML = sorted.map((u) =>
       '<tr>' +
         `<td class="num pid">${esc(u.pid)}</td>` +
         `<td class="ellipsis cmd">${esc(u.comm)}</td>` +

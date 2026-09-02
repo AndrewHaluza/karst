@@ -197,4 +197,54 @@ describe('resources webview.html', () => {
     expect(HTML).not.toMatch(/post\(\{[^}]*\bpid:/);
     expect(HTML).not.toMatch(/post\(\{[^}]*\bpath:/);
   });
+
+  it('renders sort controls as real buttons inside <th>, never click handlers on <th> (UI-R09)', () => {
+    const script = scriptBlock();
+    // Sort must NOT use data-sort on <th> — the button inside carries it.
+    expect(script).not.toMatch(/<th[^>]*data-sort/);
+    // Every sort column uses a button inside <th>.
+    expect(script).toMatch(/<button type="button" class="k-btn k-btn--link" data-sort="\$\{esc\(c\.key\)\}">/);
+  });
+
+  it('sets aria-sort on the active sort column header', () => {
+    const script = scriptBlock();
+    expect(script).toContain('aria-sort="ascending"');
+    expect(script).toContain('aria-sort="descending"');
+  });
+
+  it('appends a Unicode sort indicator to the active column label', () => {
+    const script = scriptBlock();
+    expect(script).toContain('\\u25B2');
+    expect(script).toContain('\\u25BC');
+  });
+
+  it('cycles sort state through default → asc → desc → default', () => {
+    const script = scriptBlock();
+    // The click handler implements the cycle: null → asc → desc → null.
+    expect(script).toContain("cur.dir === null ? 'asc' : cur.dir === 'asc' ? 'desc' : null");
+  });
+
+  it('sort is LOCAL to the webview — never posts a message', () => {
+    const script = scriptBlock();
+    // Extract the attributed sort handler block.
+    const sortHandlers = script.split("data-sort=\"${esc(c.key)}\"");
+    // Both tables re-render via render(lastState), never post.
+    expect(script).toContain('if (lastState) render(lastState)');
+    // No post() call should appear inside the sort click handlers.
+    const handlerBlock = script.slice(
+      script.indexOf("btn.addEventListener('click', () => {"),
+      script.indexOf("el('attrBody')"),
+    );
+    expect(handlerBlock).not.toContain('post(');
+  });
+
+  it('defines column definitions for both attributed and unattributed tables', () => {
+    const script = scriptBlock();
+    expect(script).toContain('const ATTR_COLS');
+    expect(script).toContain('const UNK_COLS');
+    expect(script).toContain("key: 'ticket'");
+    expect(script).toContain("key: 'label'");
+    expect(script).toContain("key: 'attribution'");
+    expect(script).toContain("key: 'cmd'");
+  });
 });
