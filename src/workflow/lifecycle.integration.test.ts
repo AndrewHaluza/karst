@@ -20,6 +20,9 @@ import type { AgentAdapter } from '../agent/adapter.js';
 import type { GhRunner } from '../integrations/github.js';
 import type { GitRunner } from '../integrations/git.js';
 import { manifest as buildManifest, runnableRepo } from '../manifest/fixtures.js';
+import { runStageCommand } from '../cli/stage.js';
+import { BUILT_IN_PACKAGE_ID } from '../approaches/builtInId.js';
+import { stageAttempt } from '../store/stages.js';
 
 /**
  * MVP definition-of-done (plan line 474), driven over the REAL stage modules and
@@ -194,5 +197,69 @@ describe('MVP lifecycle (workflow spine)', () => {
     markImplementDone(store, id);
     await runUat(store, { ticketId: id, cwd: '/wt', artifactDir: dir }, FAIL);
     expect(getTicket(store, id).stageCurrent).toBe('fix');
+  });
+});
+
+describe('Abandoned graph run — direct ticket can pass impl', () => {
+  let store: Store;
+  let dir: string;
+
+  beforeEach(() => {
+    store = openStore(':memory:');
+    dir = mkdtempSync(join(tmpdir(), 'karst-abandoned-graph-'));
+  });
+  afterEach(() => {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('a direct-approach ticket with a cancelled graph run can pass impl', () => {
+    const id = createTicketFlow(store, { key: 'E2E-1', title: 'e2e' }).id;
+    // Set up as direct approach with a cancelled graph run (simulating abandoned attempt)
+    transition(store, id, 'scope', { kind: 'passed' });
+    store.db.prepare("UPDATE tickets SET stage_current = 'impl', approach = 'direct' WHERE id = ?").run(id);
+    store.db.prepare("UPDATE stages SET status = 'running' WHERE ticket_id = ? AND stage_key = 'impl'").run(id);
+    const attempt = stageAttempt(store, id, 'impl');
+    store.db
+      .prepare(
+        `INSERT INTO approach_graph_runs (ticket_id, stage_key, stage_attempt, approach_id, status, blocked_reason, created_at)
+         VALUES (?, 'impl', ?, 'x', 'cancelled', 'abandoned: gateway node claimed dbgw paths against the web-contract domain', '2026-08-12T00:00:00.000Z')`,
+      )
+      .run(id, attempt);
+
+    // Fire impl marker — should succeed via markImplementDone, not graph guard
+    const nextStage = runStageCommand(store, id, ['stage', 'impl', 'pass']);
+    expect(nextStage).toBe('uat');
+
+    // Verify ticket advanced
+    const ticket = store.db.prepare('SELECT stage_current FROM tickets WHERE id = ?').get(id) as { stage_current: string };
+    expect(ticket.stage_current).toBe('uat');
+  });
+
+  it('a graph-approach ticket with cancelled run is refused with clear message', () => {
+    const id = createTicketFlow(store, { key: 'E2E-2', title: 'e2e graph' }).id;
+    transition(store, id, 'scope', { kind: 'passed' });
+    store.db.prepare("UPDATE tickets SET stage_current = 'impl', approach = ? WHERE id = ?").run(BUILT_IN_PACKAGE_ID, id);
+    store.db.prepare("UPDATE stages SET status = 'running' WHERE ticket_id = ? AND stage_key = 'impl'").run(id);
+    const attempt = stageAttempt(store, id, 'impl');
+    const graphRunId = Number(
+      store.db
+        .prepare(
+          `INSERT INTO approach_graph_runs (ticket_id, stage_key, stage_attempt, approach_id, status, blocked_reason, created_at)
+           VALUES (?, 'impl', ?, 'x', 'cancelled', 'abandoned', '2026-08-12T00:00:00.000Z')`,
+        )
+        .run(id, attempt)
+        .lastInsertRowid,
+    );
+    store.db
+      .prepare(
+        `INSERT INTO approach_graph_revisions (graph_run_id, revision_number, canonical_graph, fingerprint, status, created_at)
+         VALUES (?, 1, '{}', 'fp', 'active', '2026-08-12T00:00:00.000Z')`,
+      )
+      .run(graphRunId);
+
+    expect(() => runStageCommand(store, id, ['stage', 'impl', 'pass'])).toThrow(
+      /graph marker refused: graph run \d+ is cancelled — a terminal state, so it will never become marker-ready/,
+    );
   });
 });
