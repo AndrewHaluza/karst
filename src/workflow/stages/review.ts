@@ -574,6 +574,9 @@ export async function runReview(
     // a host restart discard a whole run with nothing recorded anywhere.
     persistFindings: (findings, processRunId) =>
       evidence.appendFindings(findings, processRunId),
+    // Issue #2: thread `review.openChanges` so the findings prompt agrees with
+    // the configured behavior — OFF (default) → committed changes only.
+    openChanges: opts.manifest?.review?.openChanges,
   });
   // Captured here — before the verdict exists — so the trigger below names the
   // exact process run that produced a blocking verdict, when it is the lane's.
