@@ -287,7 +287,7 @@ export async function runUat(
    */
   const finish = (outcome: RunOutcome, notes: readonly string[] = []): StageRunResult => {
     mkdirSync(opts.artifactDir, { recursive: true });
-    const artifactPath = join(opts.artifactDir, `uat-ticket-${opts.ticketId}.log`);
+    const artifactPath = join(opts.artifactDir, `uat-ticket-${opts.ticketId}-${evidence.runId}.log`);
     writeFileSync(artifactPath, [...notes.map((note) => `! ${note}`), ...sections].join('\n\n'));
     return commitGateOutcome(store, {
       ticketId: opts.ticketId,

@@ -17,6 +17,7 @@ function round(extra: Partial<RecoveryRound> = {}): RecoveryRound {
     sourceProcessRunId: null,
     triggerKind: 'gate-failure',
     triggerDetail: 'exit 1',
+    episode: 1,
     round: 1,
     maxRounds: 2,
     fixProcessRunId: null,

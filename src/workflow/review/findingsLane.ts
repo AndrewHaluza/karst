@@ -132,6 +132,13 @@ export interface RunFindingsLaneOpts {
    * The prompt is never logged — only counts, names and outcomes.
    */
   debug?: (message: string) => void;
+  /**
+   * Whether the agent should also read uncommitted working-tree changes
+   * (`review.openChanges`, default OFF). Threaded into `buildFindingsPrompt`
+   * so the prompt's instructions agree with the configured behavior — the
+   * three-way contradiction that caused review non-convergence (Issue #2).
+   */
+  openChanges?: boolean;
 }
 
 /**
@@ -152,10 +159,21 @@ export function buildFindingsPrompt(
   baseRef?: string | null,
   branch?: string | null,
   instructions?: string,
+  openChanges?: boolean,
 ): string {
   const baseClause = baseRef
     ? `against its base branch, \`${baseRef}\` (compare against \`origin/${baseRef}\` when available, otherwise the local \`${baseRef}\`).`
     : `against its base branch.`;
+  // `openChanges` (default OFF) controls whether the agent reads uncommitted
+  // work. When OFF, the agent reviews committed changes ONLY — the three-way
+  // contradiction that caused review non-convergence (Issue #2) was one prompt
+  // saying "uncommitted and committed", another saying "read that diff" over a
+  // committed-only range, and a third saying "never output [] because a diff
+  // came back empty". Two reviewers obeyed different instructions; both were
+  // compliant. Now all three lines agree: OFF → committed only.
+  const changesPhrase = openChanges
+    ? 'uncommitted and committed changes'
+    : 'committed changes (the diff against the base branch — do NOT review uncommitted working-tree changes)';
   // User instructions REPLACE the role/scope block; the target context line
   // and the output rules below are never replaced.
   const instructionsText = instructions?.trim() ?? '';
@@ -163,7 +181,7 @@ export function buildFindingsPrompt(
     instructionsText.length > 0
       ? [instructionsText, `Repository: ${repo} ${baseClause}`, '']
       : [
-          `Review the uncommitted and committed changes in this worktree (repository: ${repo}) ${baseClause}`,
+          `Review the ${changesPhrase} in this worktree (repository: ${repo}) ${baseClause}`,
           `Report findings about the DIFF ONLY — code you did not touch is out of scope, however wrong it looks.`,
           ``,
         ];
@@ -171,7 +189,7 @@ export function buildFindingsPrompt(
     ...strategy,
     // Never replaced by `instructions`: an author overriding the strategy is
     // choosing WHAT to look for, not licensing a repo-wide sweep before it.
-    ...buildScopeBlock('review', { baseRef, branch }),
+    ...buildScopeBlock('review', { baseRef, branch, openChanges }),
     ``,
     `Output rules (strict):`,
     `- Output ONLY a JSON array, nothing else: no preamble, no markdown fence, no commentary.`,
@@ -282,6 +300,7 @@ export async function runFindingsLane(opts: RunFindingsLaneOpts): Promise<Findin
           target.baseRef,
           target.branch,
           opts.process?.assignment.instructions,
+          opts.openChanges,
         ),
         cwd: target.worktreePath,
         model: opts.process?.assignment.model,
@@ -402,6 +421,8 @@ export interface PlanAndRunFindingsLaneOpts {
   }) => void;
   /** Verbose decision-point logging (§ debug logging) — threaded into the lane it runs. */
   debug?: (message: string) => void;
+  /** Whether the agent reads uncommitted changes — see `RunFindingsLaneOpts.openChanges`. */
+  openChanges?: boolean;
 }
 
 /**
@@ -444,6 +465,7 @@ export async function planAndRunFindingsLane(
           onOutput: opts.onOutput,
           onTargetProgress: opts.onTargetProgress,
           debug: opts.debug,
+          openChanges: opts.openChanges,
         })
       : { kind: 'not-run' };
   return { outcome, blockingSeverity: config.blockingSeverity };

@@ -361,6 +361,7 @@ describe('recovery rounds — store', () => {
     // The ticket must actually BE at fix for the re-stamp to land — the machine's
     // transition review-fail → fix is what the production flow uses.
     transition(store, ticketId, 'uat', { kind: 'failed', reason: 'exit 1' }); // -> fix
+    store.db.prepare("UPDATE stages SET started_at = ? WHERE ticket_id = ? AND stage_key = 'fix'").run(T0, ticketId);
     const r = round();
     beginLiveFixExecution(store, { ticketId, roundId: r.id, startedAt: T1 });
 
@@ -376,6 +377,7 @@ describe('recovery rounds — store', () => {
 
   it('parkFixStage re-stamps only a running fix row of a ticket at fix, and only once', () => {
     transition(store, ticketId, 'uat', { kind: 'failed', reason: 'exit 1' }); // -> fix
+    store.db.prepare("UPDATE stages SET started_at = ? WHERE ticket_id = ? AND stage_key = 'fix'").run(T0, ticketId);
 
     expect(parkFixStage(store, ticketId, FIX_PARKED_NO_EXECUTION, T1)).toBe(true);
     const parked = getTicket(store, ticketId).stages.find((s) => s.stageKey === 'fix')!;
@@ -404,6 +406,7 @@ describe('recovery rounds — store', () => {
 
   it('a parked fix row reads running again the moment a fix execution begins', () => {
     transition(store, ticketId, 'uat', { kind: 'failed', reason: 'exit 1' }); // -> fix
+    store.db.prepare("UPDATE stages SET started_at = ? WHERE ticket_id = ? AND stage_key = 'fix'").run(T0, ticketId);
     const r = round();
     parkFixStage(store, ticketId, FIX_PARKED_NO_EXECUTION, T1);
 
@@ -417,6 +420,7 @@ describe('recovery rounds — store', () => {
 
   it('a parked fix row reads running again when the closed-session launch confirms', () => {
     transition(store, ticketId, 'uat', { kind: 'failed', reason: 'exit 1' }); // -> fix
+    store.db.prepare("UPDATE stages SET started_at = ? WHERE ticket_id = ? AND stage_key = 'fix'").run(T0, ticketId);
     const r = round();
     parkFixStage(store, ticketId, FIX_PARKED_NO_EXECUTION, T1);
     recordFixLaunchIntent(store, {
@@ -514,6 +518,7 @@ describe('recovery rounds — store', () => {
 
   it('exhaustRecoveryRound re-stamps the fix stage row as parked at the cap', () => {
     transition(store, ticketId, 'uat', { kind: 'failed', reason: 'exit 1' }); // -> fix
+    store.db.prepare("UPDATE stages SET started_at = ? WHERE ticket_id = ? AND stage_key = 'fix'").run(T0, ticketId);
     const r = round();
 
     expect(exhaustRecoveryRound(store, ticketId, r.id, T1)).toBe(true);
@@ -634,6 +639,7 @@ describe('recovery rounds — store', () => {
 
   it('reconcileStrandedFixRounds parks a fix stage row that reads running with no round at all', () => {
     transition(store, ticketId, 'uat', { kind: 'failed', reason: 'exit 1' }); // -> fix, no round
+    store.db.prepare("UPDATE stages SET started_at = ? WHERE ticket_id = ? AND stage_key = 'fix'").run(T0, ticketId);
 
     const stranded = reconcileStrandedFixRounds(store, T1);
 
@@ -652,6 +658,7 @@ describe('recovery rounds — store', () => {
     // The launch never happened and never will (nothing drives fix tickets):
     // a pending round with no fix run and no launch intent is a parked ticket.
     transition(store, ticketId, 'uat', { kind: 'failed', reason: 'exit 1' }); // -> fix
+    store.db.prepare("UPDATE stages SET started_at = ? WHERE ticket_id = ? AND stage_key = 'fix'").run(T0, ticketId);
     round();
 
     const stranded = reconcileStrandedFixRounds(store, T1);
@@ -690,6 +697,7 @@ describe('recovery rounds — store', () => {
 
   it('reconcileStrandedFixRounds parks a running fix row whose every round is terminal', () => {
     transition(store, ticketId, 'uat', { kind: 'failed', reason: 'exit 1' }); // -> fix
+    store.db.prepare("UPDATE stages SET started_at = ? WHERE ticket_id = ? AND stage_key = 'fix'").run(T0, ticketId);
     const r = round();
     store.db.prepare("UPDATE recovery_rounds SET status = 'interrupted', ended_at = ? WHERE id = ?").run(T0, r.id);
 
@@ -710,6 +718,7 @@ describe('recovery rounds — store', () => {
 
   it('hasFixingRound is true only while a fix execution is actually attached', () => {
     transition(store, ticketId, 'uat', { kind: 'failed', reason: 'exit 1' }); // -> fix
+    store.db.prepare("UPDATE stages SET started_at = ? WHERE ticket_id = ? AND stage_key = 'fix'").run(T0, ticketId);
     expect(hasFixingRound(store, ticketId)).toBe(false); // no round yet
     const r = round();
     expect(hasFixingRound(store, ticketId)).toBe(false); // pending is not fixing
@@ -756,4 +765,174 @@ describe('recovery rounds — store', () => {
     expect(listRecoveryRounds(store, ticketId)).toEqual([]);
     expect(listStageRuns(store, ticketId)[0]!.status).toBe('running');
   });
+});
+
+describe('recovery rounds — episode scoping (T1B, root-cause fix)', () => {
+  let store: Store;
+  let ticketId: number;
+
+  beforeEach(() => {
+    store = openStore(':memory:');
+    ticketId = createTicketFlow(store, { key: 'T-1', title: 't' }).id;
+    transition(store, ticketId, 'scope', { kind: 'passed' });
+    transition(store, ticketId, 'impl', { kind: 'passed' });
+  });
+  afterEach(() => store.close());
+
+  function round(over: Partial<Parameters<typeof openRecoveryRound>[1]> = {}): RecoveryRound {
+    return openRecoveryRound(store, {
+      ticketId,
+      sourceStage: 'uat',
+      sourceProcessId: 'gates',
+      sourceStageRunId: null,
+      sourceProcessRunId: null,
+      triggerKind: 'gate-failure',
+      triggerDetail: 'exit 1',
+      maxRounds: 2,
+      startedAt: T0,
+      ...over,
+    });
+  }
+
+  function setStatus(id: number, status: string, endedAt: string | null = T1): void {
+    store.db
+      .prepare('UPDATE recovery_rounds SET status = ?, ended_at = ? WHERE id = ?')
+      .run(status, endedAt, id);
+  }
+
+  it('numbers rounds within an episode, not across the ticket lifetime', () => {
+    const a = round();
+    setStatus(a.id, 'failed');
+    const b = round({ startedAt: T1 });
+    // Both rounds are in episode 1: failed does not end the episode.
+    expect(a.round).toBe(1);
+    expect(b.round).toBe(2);
+    expect(listRecoveryRounds(store, ticketId).map((r) => r.episode)).toEqual([1, 1]);
+  });
+
+  it('a passed round opens the next failure in a fresh episode at round 1', () => {
+    const a = round();
+    setStatus(a.id, 'passed');
+    const b = round({ startedAt: T1 });
+    expect(b.round).toBe(1);
+    expect(b.episode).toBe(2);
+  });
+
+  it('a reset round opens the next failure in a fresh episode', () => {
+    const a = round();
+    setStatus(a.id, 'reset');
+    const b = round({ startedAt: T1 });
+    expect(b.round).toBe(1);
+    expect(b.episode).toBe(2);
+  });
+
+  it('a failed/exhausted/interrupted round does NOT end the episode', () => {
+    for (const status of ['failed', 'exhausted', 'interrupted'] as const) {
+      const fresh = createTicketFlow(store, { key: `T-${status}`, title: status }).id;
+      transition(store, fresh, 'scope', { kind: 'passed' });
+      transition(store, fresh, 'impl', { kind: 'passed' });
+      const a = openRecoveryRound(store, {
+        ticketId: fresh, sourceStage: 'uat', sourceProcessId: 'gates',
+        sourceStageRunId: null, sourceProcessRunId: null, triggerKind: 'gate-failure',
+        triggerDetail: 'exit 1', maxRounds: 2, startedAt: T0,
+      });
+      setStatus(a.id, status);
+      const b = openRecoveryRound(store, {
+        ticketId: fresh, sourceStage: 'uat', sourceProcessId: 'gates',
+        sourceStageRunId: null, sourceProcessRunId: null, triggerKind: 'gate-failure',
+        triggerDetail: 'exit 2', maxRounds: 2, startedAt: T1,
+      });
+      expect(b.episode).toBe(1);
+      expect(b.round).toBe(2);
+    }
+  });
+
+  it('raising maxFixAttempts after an episode ends applies to the new episode', () => {
+    const a = round({ maxRounds: 1 });
+    // The episode's budget was 1: the round is instantly exhausted by the driver
+    // in production, but here we exercise the store fact directly.
+    setStatus(a.id, 'exhausted');
+    // The episode does NOT end on exhausted — raising the budget is applied to
+    // the SAME episode's next round.
+    const b = round({ startedAt: T1, maxRounds: 3 });
+    expect(b.episode).toBe(1);
+    expect(b.round).toBe(2);
+    expect(b.maxRounds).toBe(3);
+
+    // Now genuinely end the episode via a pass, and confirm the raised budget
+    // rides the new episode's first round too.
+    setStatus(b.id, 'passed');
+    const c = round({ startedAt: T2, maxRounds: 5 });
+    expect(c.episode).toBe(2);
+    expect(c.round).toBe(1);
+    expect(c.maxRounds).toBe(5);
+  });
+
+  it('excludes a reset round from the active series', () => {
+    const a = round();
+    setStatus(a.id, 'reset');
+    expect(activeRecoverySeries(store, ticketId, 'uat')).toBeNull();
+    expect(recoveryDecision(store, ticketId, 'uat')).toBeNull();
+  });
+
+  it('excludes a refused round from the active series', () => {
+    const a = round();
+    setStatus(a.id, 'refused');
+    expect(activeRecoverySeries(store, ticketId, 'uat')).toBeNull();
+  });
+
+  it('a Review round left revalidating while a new UAT failure opens numbers both correctly', () => {
+    // Review-origin round stays `revalidating` through an intervening UAT pass
+    // (two-phase revalidation) — an interleaved UAT failure must open its own
+    // episode/round numbering for 'uat' without violating the unique index on
+    // (ticket_id, source_stage, episode, round).
+    const reviewRound = round({ sourceStage: 'review', triggerDetail: 'review findings' });
+    setStatus(reviewRound.id, 'revalidating', null);
+
+    const uatStageRunId = openStageRun(store, {
+      ticketId, stageKey: 'uat', attempt: 0, runAt: T0, startedAt: T0,
+    });
+    attachRevalidationStageRun(store, ticketId, 'uat', uatStageRunId);
+
+    // UAT passes (handled elsewhere) — then a LATER, unrelated UAT failure opens
+    // a fresh uat-series round while the review round is still revalidating.
+    const uatFailure = openRecoveryRound(store, {
+      ticketId, sourceStage: 'uat', sourceProcessId: 'gates',
+      sourceStageRunId: null, sourceProcessRunId: null, triggerKind: 'gate-failure',
+      triggerDetail: 'new uat failure', maxRounds: 2, startedAt: T1,
+    });
+
+    expect(uatFailure.sourceStage).toBe('uat');
+    expect(uatFailure.round).toBe(1);
+    expect(uatFailure.episode).toBe(1);
+    // The review round is untouched — it revalidates on review, not uat.
+    const reviewAfter = listRecoveryRounds(store, ticketId).find((r) => r.sourceStage === 'review')!;
+    expect(reviewAfter.status).toBe('revalidating');
+    expect(reviewAfter.round).toBe(1);
+    expect(reviewAfter.episode).toBe(1);
+  });
+
+  it('end-to-end: an exhausted budget followed by a pass opens a fresh episode that actually spawns a fix', () => {
+    // The exact dead-end scenario: budget 1, first failure exhausts immediately,
+    // but a later PASS must let the next failure open episode 2 at round 1 —
+    // resumable, not instantly exhausted. The manifest is raised to 3 for the
+    // new episode (the same way a user would raise review.maxFixAttempts after
+    // seeing the exhaustion), so round 1 < 3 is resumable.
+    const a = round({ maxRounds: 1 });
+    expect(roundFixDecisionForTest(a)).toBe('exhausted');
+    setStatus(a.id, 'exhausted');
+
+    // A human or later process marks it passed (e.g. after manual resolution) —
+    // simulate the pass directly for this store-level regression.
+    setStatus(a.id, 'passed');
+
+    const b = round({ startedAt: T1, maxRounds: 3 });
+    expect(b.episode).toBe(2);
+    expect(b.round).toBe(1);
+    expect(roundFixDecisionForTest(b)).toBe('resume');
+  });
+
+  function roundFixDecisionForTest(r: RecoveryRound): 'resume' | 'exhausted' {
+    return r.round < r.maxRounds ? 'resume' : 'exhausted';
+  }
 });

@@ -157,7 +157,8 @@ describe('archive/restore worktree', () => {
       );
       CREATE TABLE stages (
         ticket_id INTEGER NOT NULL, stage_key TEXT NOT NULL, status TEXT NOT NULL,
-        attempt INTEGER NOT NULL, blocked_kind TEXT, blocked_reason TEXT,
+        attempt INTEGER NOT NULL, verdict TEXT, artifact_path TEXT,
+        blocked_kind TEXT, blocked_reason TEXT,
         blocked_at TEXT, started_at TEXT, ended_at TEXT,
         PRIMARY KEY (ticket_id, stage_key)
       );

@@ -39,6 +39,13 @@ describe('markerStageFor', () => {
     expect(markerStageFor('impl')).toBe('impl');
   });
 
+  it.each(['uat', 'review', 'ship', 'done'] as const)(
+    'returns null for %s (a gate stage, no marker to fire)',
+    (stage) => {
+      expect(markerStageFor(stage)).toBeNull();
+    },
+  );
+
   it('returns null at every stage that has no marker to fire (869edna84)', () => {
     // Only impl and fix have an interactive continuation (resumeDecision). A
     // seed written at any other stage would name an earlier stage's marker,

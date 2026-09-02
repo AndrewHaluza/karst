@@ -73,7 +73,12 @@ CREATE TABLE IF NOT EXISTS stages (
   blocked_kind   TEXT,                -- BlockerKind; NULL = not blocked
   blocked_reason TEXT,                -- the specific text a human needs
   blocked_at     TEXT,
-  PRIMARY KEY (ticket_id, stage_key)
+  PRIMARY KEY (ticket_id, stage_key),
+  -- v53: a re-entry must never inherit a PRIOR, different run's ended_at (the
+  -- inverted pair observed on ticket 46's uat row — Issue #4). Both sides can
+  -- be NULL (never entered / still running), but once both are stamped the
+  -- end cannot precede the start.
+  CHECK (ended_at IS NULL OR started_at IS NULL OR ended_at >= started_at)
 );
 
 -- One row per gate, per gate-runner invocation (uat/review evidence). APPEND-ONLY:
@@ -270,6 +275,19 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_session_launch_pending
 -- Append-only like stage_runs and process_runs: a failed/abandoned round is
 -- marked, never deleted, because the fact that a recovery happened and did not
 -- land is exactly what this table exists to record.
+-- v53 `episode`: the current attempt-cycle for (ticket, source_stage). A
+-- `passed` or human `reset` round ends the episode, so the fix budget
+-- (`max_rounds`) binds PER EPISODE, not over the stage's lifetime — see
+-- `currentEpisode` (recoveryRounds.ts) and `docs/arch/store-and-schema.md`.
+-- Every pre-v53 row backfills to 1: per-stage episode history is not
+-- derivable from stored rows, and 1 is the truthful "one episode so far"
+-- answer for a round that predates the concept.
+--
+-- v53 also widens `status` with 'refused' (a round born with `round >
+-- max_rounds` — no budget, no fix ever offered; T1A's migration is the only
+-- writer, see below) and 'reset' (a human-cleared round; Task 2), and adds
+-- `CHECK (round <= max_rounds)` now that episode-scoped numbering (T1B) makes
+-- that inequality an invariant rather than a lifetime-count bug.
 CREATE TABLE IF NOT EXISTS recovery_rounds (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   ticket_id INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
@@ -279,18 +297,20 @@ CREATE TABLE IF NOT EXISTS recovery_rounds (
   source_process_run_id INTEGER REFERENCES process_runs(id) ON DELETE SET NULL,
   trigger_kind TEXT NOT NULL,  -- 'gate-failure' | 'tester-verifier-failure' | 'blocking-tester-observations' | 'blocking-review-findings' (closed)
   trigger_detail TEXT NOT NULL, -- the causal detail captured at failure time
+  episode INTEGER NOT NULL DEFAULT 1,
   round INTEGER NOT NULL,
   max_rounds INTEGER NOT NULL,
   fix_process_run_id INTEGER REFERENCES process_runs(id) ON DELETE SET NULL,
   uat_revalidation_stage_run_id INTEGER REFERENCES stage_runs(id) ON DELETE SET NULL,
   review_revalidation_stage_run_id INTEGER REFERENCES stage_runs(id) ON DELETE SET NULL,
-  status TEXT NOT NULL CHECK (status IN ('pending','fixing','revalidating','passed','failed','exhausted','interrupted')),
+  status TEXT NOT NULL CHECK (status IN ('pending','fixing','revalidating','passed','failed','exhausted','interrupted','refused','reset')),
   started_at TEXT NOT NULL,
   ended_at TEXT,
-  interrupt_count INTEGER NOT NULL DEFAULT 0
+  interrupt_count INTEGER NOT NULL DEFAULT 0,
+  CHECK (round <= max_rounds)
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_recovery_round
-  ON recovery_rounds(ticket_id, source_stage, round);
+  ON recovery_rounds(ticket_id, source_stage, episode, round);
 
 -- v28: one segment per provider session inside an implementation run. The first
 -- segment is confirmed by the initial launch's SessionStart; a switch opens a
@@ -390,7 +410,13 @@ CREATE TABLE IF NOT EXISTS review_findings (
   title       TEXT NOT NULL,        -- capped at TITLE_MAX, single line
   detail      TEXT NOT NULL,        -- capped at DETAIL_MAX
   source      TEXT NOT NULL,        -- 'agent' | 'human'
-  created_at  TEXT NOT NULL
+  created_at  TEXT NOT NULL,
+  -- v53: a stable cross-attempt identity (hash of repo + file + normalized
+  -- title + a normalized detail prefix; deliberately excludes `line`, which
+  -- shifts across a fix) so a re-raised finding can be recognized rather than
+  -- read as new (Issue #2). NULL for every pre-v53 row and any writer that
+  -- predates the hash — not derivable after the fact, every reader degrades.
+  identity    TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_review_findings_ticket
   ON review_findings(ticket_id, run_at, id);

@@ -429,7 +429,10 @@ describe('ticket + stage persistence', () => {
     for (const stage of ['scope', 'impl', 'uat', 'review', 'ship'] as const) {
       transition(store, t.id, stage, { kind: 'passed' });
     }
-    setStage(store, t.id, 'done', { endedAt: '2026-08-01T00:00:00.000Z' });
+    setStage(store, t.id, 'done', {
+      startedAt: '2026-08-01T00:00:00.000Z',
+      endedAt: '2026-08-01T00:00:00.000Z',
+    });
     archiveTicket(store, t.id);
     unarchiveTicket(store, t.id);
 

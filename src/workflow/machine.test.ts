@@ -306,11 +306,14 @@ describe('transition (stage machine core)', () => {
   // detectable here, rather than risk landing in the same millisecond as the
   // first and passing by accident.
   it('refuses a second concurrent transition from the same stage', () => {
-    transition(store, ticketId, 'scope', { kind: 'passed' });
-    transition(store, ticketId, 'impl', { kind: 'passed' }); // now at uat
-
     vi.useFakeTimers();
     try {
+      // uat's own startedAt must precede the endedAt stamped below it, so the
+      // clock starts fixed here rather than at the real wall-clock "now".
+      vi.setSystemTime(new Date('2019-12-31T00:00:00.000Z'));
+      transition(store, ticketId, 'scope', { kind: 'passed' });
+      transition(store, ticketId, 'impl', { kind: 'passed' }); // now at uat
+
       vi.setSystemTime(new Date('2020-01-01T00:00:00.000Z'));
       expect(transition(store, ticketId, 'uat', { kind: 'passed' })).toBe('review');
       const reviewStartedAt = stageOf(store, ticketId, 'review').startedAt;

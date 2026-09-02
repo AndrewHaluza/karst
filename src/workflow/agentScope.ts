@@ -71,6 +71,16 @@ export interface ScopeBlockOpts {
    * gates are the cheap deterministic half and they are already done.
    */
   gatesPassed?: readonly string[];
+  /**
+   * Whether the agent should also read uncommitted working-tree changes
+   * (manifest's `review.openChanges`, default OFF). When OFF, the scope block
+   * tells the agent to review committed changes ONLY — the three-way
+   * contradiction that caused review non-convergence (Issue #2) was the prompt
+   * saying "uncommitted and committed" while the diff range was committed-only
+   * and the empty-diff guard said "never output [] because a diff came back
+   * empty". Now all three lines agree.
+   */
+  openChanges?: boolean;
 }
 
 /**
@@ -80,7 +90,7 @@ export interface ScopeBlockOpts {
  * mangled span, and a range the agent has to un-mangle is the guess this block
  * exists to remove.
  */
-function diffLine(subject: string, baseRef?: string | null, branch?: string | null): string {
+function diffLine(subject: string, baseRef?: string | null, branch?: string | null, openChanges?: boolean): string {
   // The head is origin/<branch> when known (resolves against the remote state,
   // so a stale local ref never produces an empty diff), else the checkout's
   // HEAD. A branch-named range resolves the ref itself, so it is the same diff
@@ -91,7 +101,10 @@ function diffLine(subject: string, baseRef?: string | null, branch?: string | nu
   const range = baseRef
     ? `\`git diff origin/${baseRef}...${head}\` (or \`git diff ${baseRef}...${branch ?? 'HEAD'}\` when the remote ref is absent)`
     : `\`git diff <base-branch>...${head}\``;
-  return `- The changes to ${subject} are exactly: ${range}, plus any uncommitted work (\`git status --porcelain\`).`;
+  const uncommitted = openChanges
+    ? `, plus any uncommitted work (\`git status --porcelain\`)`
+    : ` (committed changes only — do NOT include uncommitted working-tree changes)`;
+  return `- The changes to ${subject} are exactly: ${range}${uncommitted}.`;
 }
 
 /**
@@ -134,7 +147,7 @@ export function buildScopeBlock(intent: ScopeIntent, opts: ScopeBlockOpts = {}):
   return [
     `Orientation (already established — do NOT re-derive it):`,
     orientation,
-    diffLine(subject, opts.baseRef, branch),
+    diffLine(subject, opts.baseRef, branch, opts.openChanges),
     ...(emptyDiffGuard !== null ? [emptyDiffGuard] : []),
     ...gateLine,
     ``,

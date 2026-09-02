@@ -241,7 +241,7 @@ export async function runReview(
    */
   const finish = (outcome: RunOutcome, notes: readonly string[] = []): StageRunResult => {
     mkdirSync(opts.artifactDir, { recursive: true });
-    const artifactPath = join(opts.artifactDir, `review-ticket-${opts.ticketId}.log`);
+    const artifactPath = join(opts.artifactDir, `review-ticket-${opts.ticketId}-${evidence.runId}.log`);
     writeFileSync(artifactPath, [...notes.map((note) => `! ${note}`), ...sections].join('\n\n'));
     return commitGateOutcome(store, {
       ticketId: opts.ticketId,
@@ -574,6 +574,9 @@ export async function runReview(
     // a host restart discard a whole run with nothing recorded anywhere.
     persistFindings: (findings, processRunId) =>
       evidence.appendFindings(findings, processRunId),
+    // Issue #2: thread `review.openChanges` so the findings prompt agrees with
+    // the configured behavior — OFF (default) → committed changes only.
+    openChanges: opts.manifest?.review?.openChanges,
   });
   // Captured here — before the verdict exists — so the trigger below names the
   // exact process run that produced a blocking verdict, when it is the lane's.
@@ -655,7 +658,7 @@ export async function runReview(
       findingsLane.findings.length === 0 &&
       outcome.kind === 'blocked' &&
       outcome.blocker === 'capability-missing';
-    const artifactPath = join(opts.artifactDir, `review-ticket-${opts.ticketId}.log`);
+    const artifactPath = join(opts.artifactDir, `review-ticket-${opts.ticketId}-${evidence.runId}.log`);
     if (crashes.length > 0 || unreadableBlock) {
       finishProcessRun(store, processRunId, 'failed', now(), 'execution-failed', artifactPath);
     } else if (blocking) {

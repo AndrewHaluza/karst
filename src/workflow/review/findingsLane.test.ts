@@ -772,7 +772,8 @@ describe('buildFindingsPrompt', () => {
   });
 
   it('treats blank instructions as absent', () => {
+    // openChanges defaults to OFF → committed changes only.
     const prompt = buildFindingsPrompt('/web', 'develop', 'karst/feat/x', '  ');
-    expect(prompt).toContain('Review the uncommitted and committed changes');
+    expect(prompt).toContain('Review the committed changes');
   });
 });
