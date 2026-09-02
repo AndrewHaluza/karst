@@ -451,6 +451,7 @@ import { buildDepsIndicator } from './ui/depsIndicator.js';
 import { buildResourceIndicator } from './ui/resourceStatus.js';
 import { WorktreeDiskCache } from './runtime/worktreeDisk.js';
 import { ResourceMonitor } from './runtime/resourceMonitor.js';
+import { getCpuCoreCount } from './runtime/cpuCores.js';
 import { aiCallSiteLabel } from './agent/aiCallSites.js';
 import { GettingStartedManager } from './ui/gettingStarted/panel.js';
 import { buildGettingStartedActions } from './ui/gettingStarted/actions.js';
@@ -2346,6 +2347,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     worktreeRoots,
     debug: (message) => logger.debug(message),
     logError,
+    cpuCoreCount: getCpuCoreCount(),
   });
   resourceMonitor = resourceMonitorInstance;
   resourceMonitorInstance.start();

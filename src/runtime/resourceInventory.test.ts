@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
 import type { ProcRecord, ProcSnapshot } from './procSnapshot.js';
 import type { ProcessFactsSource } from './serverIdentity.js';
 import {
@@ -8,6 +8,7 @@ import {
   UNATTRIBUTED_TOP_N,
   type KnownPid,
 } from './resourceInventory.js';
+import { getCpuCoreCount, __resetCpuCoreCountCache } from './cpuCores.js';
 
 function record(
   pid: number,
@@ -183,7 +184,7 @@ describe('buildInventory', () => {
       record(502, 0, 1_000_000, 10.5, 1),
     ]);
     const f = facts();
-    await buildInventory({ snapshot: s, previous: first, known: [], facts: f, confirmCwd: true });
+    await buildInventory({ snapshot: s, previous: first, known: [], facts: f, confirmCwd: true, cpuCoreCount: 1 });
     const probed = f.liveCwd.mock.calls.map(([pid]) => pid as number);
     expect(probed).toEqual([502]);
   });
@@ -245,5 +246,47 @@ describe('buildInventory', () => {
     });
     expect(inv.attributed).toHaveLength(0);
     expect(f.isAlive).not.toHaveBeenCalled();
+  });
+});
+
+describe('buildInventory CPU% normalization', () => {
+  beforeEach(() => {
+    __resetCpuCoreCountCache();
+  });
+
+  it('passes cpuCoreCount to treeCost and normalizes totals', async () => {
+    const first = snap(1_000, [
+      record(100, 0, 10, 10, 1),
+      record(101, 100, 10, 5, 1),
+    ]);
+    const second = snap(2_000, [
+      record(100, 0, 10, 10.5, 1),
+      record(101, 100, 10, 5.5, 1),
+    ]);
+    // 1.0 CPU-seconds over 1s = 100% of one core = 50% on 2 cores
+    const inv = await buildInventory({
+      snapshot: second,
+      previous: first,
+      known: [serverEntry(100)],
+      facts: facts(),
+      confirmCwd: false,
+      cpuCoreCount: 2,
+    });
+    expect(inv.totals.cpuPct).toBe(50);
+  });
+
+  it('uses getCpuCoreCount() when cpuCoreCount not provided', async () => {
+    const first = snap(1_000, [record(100, 0, 10, 10, 1)]);
+    const second = snap(2_000, [record(100, 0, 10, 10.5, 1)]);
+    const inv = await buildInventory({
+      snapshot: second,
+      previous: first,
+      known: [serverEntry(100)],
+      facts: facts(),
+      confirmCwd: false,
+    });
+    // Should be normalized by actual core count
+    expect(inv.totals.cpuPct).not.toBe(50);
+    expect(inv.totals.cpuPct).toBeLessThanOrEqual(50);
   });
 });
