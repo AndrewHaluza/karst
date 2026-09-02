@@ -1,5 +1,5 @@
 import type { Store } from '../store/db.js';
-import type { StageKey } from '../model/types.js';
+import { STAGE_KEYS, type StageKey } from '../model/types.js';
 import type { Manifest } from '../manifest/types.js';
 import type { DriveProcessBundle } from '../agent/processAssignment.js';
 import type { TesterGateRunner } from './uat/testerVerifier.js';
@@ -201,6 +201,14 @@ export async function driveTicket(
   ticketId: number,
   runners: DriveTicketRunners = {},
 ): Promise<StageOutcome> {
+  const ticket = getTicket(deps.store, ticketId);
+  if (ticket.pausedAt !== null) {
+    deps.debug?.(`[driver] ticket ${ticketId} is paused — skipping drive`);
+    deps.log(`stage driver: ticket ${ticketId} is paused — skipping drive`);
+    const stage: StageKey = (STAGE_KEYS.find((k) => k === ticket.stageCurrent) ?? 'scope') as StageKey;
+    return { stage, status: 'paused' };
+  }
+
   const uat = runners.runUat ?? runUat;
   const review = runners.runReview ?? runReview;
 

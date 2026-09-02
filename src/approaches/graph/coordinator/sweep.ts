@@ -517,6 +517,12 @@ export function runCoordinatorTick(
  * on first project creation, so a live window's `projectId` is never matched
  * against a `NULL` row in practice; scope is required — there is no
  * unscoped caller left after G1a.
+ *
+ * A PAUSED ticket (`tickets.paused_at` non-null) is excluded here, at the one
+ * read the coordinator schedules from: pause must cost nothing, and a graph
+ * run is the most expensive thing karst starts on its own. The run row stays
+ * `running` — pause is not a stop — so unpausing puts it straight back in this
+ * list with no recovery step.
  */
 export function activeGraphRunIds(db: GraphDb, scope: { projectId: number }): number[] {
   const rows = db
@@ -524,7 +530,7 @@ export function activeGraphRunIds(db: GraphDb, scope: { projectId: number }): nu
       `SELECT r.id AS id
          FROM approach_graph_runs r
          JOIN tickets t ON t.id = r.ticket_id
-        WHERE r.status = 'running' AND t.project_id = ?
+        WHERE r.status = 'running' AND t.project_id = ? AND t.paused_at IS NULL
         ORDER BY r.id`,
     )
     .all(scope.projectId) as { id: number }[];

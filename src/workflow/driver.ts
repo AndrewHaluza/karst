@@ -25,7 +25,7 @@ export type DriverBoundaryReason =
  * pure sequencer over the runner results.
  */
 
-export type DriverStatus = 'running' | 'stopped' | 'blocked';
+export type DriverStatus = 'running' | 'stopped' | 'blocked' | 'paused';
 
 export interface StageOutcome {
   stage: StageKey;

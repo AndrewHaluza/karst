@@ -223,6 +223,9 @@ export interface TicketContext {
    * shows the failed gate stage's evidence while the ticket waits at `fix`.
    */
   stageCurrent: string | null;
+  /** Whether the task execution is currently paused. */
+  paused: boolean;
+  pausedAt: string | null;
   /** Read-only stage/gate/finding state (§ context loader, closes G15). Null only for a stage key not present on the ticket's own rows — should not happen in practice. */
   stage: TicketContextStage | null;
 }
@@ -379,6 +382,8 @@ export function buildTicketContext(
     approach: t.approach,
     agent: t.agent,
     stageCurrent: t.stageCurrent,
+    paused: t.pausedAt !== null,
+    pausedAt: t.pausedAt,
     selectedRepos: t.selectedRepos,
     worktrees: listWorktreesByTicket(store, ticketId).map((w) => ({
       repo: w.repo,

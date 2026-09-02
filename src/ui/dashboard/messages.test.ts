@@ -12,6 +12,8 @@ const MESSAGES_SOURCE = readFileSync(
 function actions(): DashboardActions {
   return {
     stopServer: vi.fn(),
+    pauseExecution: vi.fn(),
+    unpauseExecution: vi.fn(),
     restartServer: vi.fn(),
     openServer: vi.fn(),
     copyServerUrl: vi.fn(),

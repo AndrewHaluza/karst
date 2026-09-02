@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { join, resolve } from 'node:path';
 import { openStore, type Store } from '../store/db.js';
-import { createTicket, updateTicketFields } from '../store/tickets.js';
+import { createTicket, updateTicketFields, pauseTicket } from '../store/tickets.js';
 import { insertAttachment } from '../store/attachments.js';
 import { upsertProject } from '../store/projects.js';
 import { parseContextArgs, runContextCommand, composeContextCommand } from './context.js';
@@ -93,6 +93,16 @@ describe('runContextCommand', () => {
     expect(parsed.key).toBe('PROJ-9');
     expect(parsed.prompt).toBe('Audit the app');
     expect(parsed.repos[0].name).toBe('frontend');
+    expect(parsed.paused).toBe(false);
+  });
+
+  it('reports paused true in json context when ticket is paused', () => {
+    seed();
+    pauseTicket(store, 1);
+    const out = runContextCommand(store, MANIFEST, { key: 'PROJ-9', format: 'json' });
+    const parsed = JSON.parse(out);
+    expect(parsed.paused).toBe(true);
+    expect(parsed.pausedAt).not.toBeNull();
   });
 
   it('serializes the stage run exactly as the agent consumes it — status, start, gate-set change', () => {

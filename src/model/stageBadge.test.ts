@@ -13,6 +13,7 @@ function ticket(
     key: 'PROJ-1',
     title: 'a thing',
     source: 'manual',
+    pausedAt: null,
     stageCurrent,
     agentState: 'none',
     sessionId: null,

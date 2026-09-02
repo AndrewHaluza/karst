@@ -27,11 +27,13 @@ export function ticketsToSweep(
   tickets: readonly {
     id: number;
     stageCurrent: string | null;
+    pausedAt?: string | null;
     stages: readonly { stageKey: string; blockedKind: string | null }[];
   }[],
 ): number[] {
   return tickets
     .filter((t) => {
+      if (t.pausedAt !== undefined && t.pausedAt !== null) return false;
       if (!shouldStartDriver(t.stageCurrent as StageKey)) return false;
       const current = t.stages.find((s) => s.stageKey === t.stageCurrent);
       return !current?.blockedKind;

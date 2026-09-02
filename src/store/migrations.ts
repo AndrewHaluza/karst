@@ -19,7 +19,7 @@ export function readSchema(): string {
 }
 
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 51;
+export const SCHEMA_VERSION = 52;
 
 /** v2 ticket-field columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -1886,6 +1886,12 @@ export function migrate(db: Database): void {
   // Inside component — is dropped; nothing to preserve, it was a rendering
   // surface, not a record of user data.
   db.exec('DROP TABLE IF EXISTS ticket_logs;');
+
+  // v52 — task pause timestamp column (`tickets.paused_at`).
+  const ticketColsV52 = tableColumns(db, 'tickets');
+  if (ticketColsV52.size > 0 && !ticketColsV52.has('paused_at')) {
+    db.exec('ALTER TABLE tickets ADD COLUMN paused_at TEXT');
+  }
 
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }

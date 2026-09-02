@@ -96,6 +96,10 @@ export type WebviewMessage =
    * moved to another stage must not be resumable by this message.
    */
   | { type: 'stage-resume'; ticketId: number; stageKey: StageKey }
+  /** Pause task execution for this ticket (payload-free: the panel owns the ticket). */
+  | { type: 'pause-execution' }
+  /** Unpause task execution for this ticket (payload-free: the panel owns the ticket). */
+  | { type: 'unpause-execution' }
   /**
    * Switch ONE named gate off (or back on) for this ticket alone.
    *
@@ -298,6 +302,10 @@ export interface DashboardActions {
    * place, right against the store it is about to mutate.
    */
   resumeStage: (ticketId: number, stageKey: StageKey) => void | Promise<void>;
+  /** Pause task execution for this panel's ticket (freeze all background driving). */
+  pauseExecution: () => void | Promise<void>;
+  /** Unpause (resume) task execution for this panel's ticket. */
+  unpauseExecution: () => void | Promise<void>;
   /**
    * Switch one gate off (or on) for this ticket. Takes the stage and the gate
    * NAME — never a command or a script — so the webview can express only which
@@ -412,6 +420,10 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
       return { type: 'ship-ticket' };
     case 'resume-ticket':
       return { type: 'resume-ticket' };
+    case 'pause-execution':
+      return { type: 'pause-execution' };
+    case 'unpause-execution':
+      return { type: 'unpause-execution' };
     // Payload-free like the panel-level server controls: a companion field is
     // dropped, so the recovery can only ever move the ticket the panel owns.
     case 'send-back-to-implement':
@@ -662,6 +674,10 @@ export function routeAction(
       return actions.copyTicketKey();
     case 'stage-resume':
       return actions.resumeStage(msg.ticketId, msg.stageKey);
+    case 'pause-execution':
+      return actions.pauseExecution();
+    case 'unpause-execution':
+      return actions.unpauseExecution();
     case 'set-disabled-gates':
       return actions.setDisabledGate(msg.stage, msg.name, msg.disabled);
     case 'inside-action':

@@ -718,4 +718,27 @@ describe('activeGraphRunIds (G1a — project scope)', () => {
     expect(activeGraphRunIds(db, { projectId: 2 })).toEqual([2]);
     expect(activeGraphRunIds(db, { projectId: 3 })).toEqual([]);
   });
+
+  it('excludes a running run whose ticket is paused, and includes it again once unpaused', () => {
+    const { db } = openStore(':memory:');
+    db.prepare("INSERT INTO tickets (id, key, project_id) VALUES (1, 'A-1', 1)").run();
+    db.prepare("INSERT INTO tickets (id, key, project_id) VALUES (2, 'A-2', 1)").run();
+    const insertRun = (id: number, ticketId: number): void => {
+      db.prepare(
+        `INSERT INTO approach_graph_runs
+           (id, ticket_id, stage_key, stage_attempt, approach_id, status, created_at)
+         VALUES (?, ?, 'impl', 1, 'a', 'running', '2026-08-12T00:00:00.000Z')`,
+      ).run(id, ticketId);
+    };
+    insertRun(1, 1);
+    insertRun(2, 2);
+
+    db.prepare("UPDATE tickets SET paused_at = '2026-09-02T00:00:00.000Z' WHERE id = 1").run();
+    expect(activeGraphRunIds(db, { projectId: 1 })).toEqual([2]);
+
+    // Pause never touches the run row, so unpausing restores scheduling with
+    // no recovery step of its own.
+    db.prepare('UPDATE tickets SET paused_at = NULL WHERE id = 1').run();
+    expect(activeGraphRunIds(db, { projectId: 1 })).toEqual([1, 2]);
+  });
 });

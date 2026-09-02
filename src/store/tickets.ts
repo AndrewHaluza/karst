@@ -77,6 +77,8 @@ export interface Ticket {
    * provider did not expose one (a manual ticket, or an unfetched one).
    */
   priority: string | null;
+  /** Task execution pause timestamp; `null` = active, non-null = execution paused. */
+  pausedAt: string | null;
 }
 
 export interface TicketWithStages extends Ticket {
@@ -109,6 +111,7 @@ interface TicketRow {
   project_id: number | null;
   parent_ticket_id: number | null;
   priority: string | null;
+  paused_at: string | null;
 }
 
 /**
@@ -177,6 +180,7 @@ function rowToTicket(r: TicketRow): Ticket {
     projectId: r.project_id,
     parentTicketId: r.parent_ticket_id,
     priority: r.priority,
+    pausedAt: r.paused_at ?? null,
   };
 }
 
@@ -551,6 +555,25 @@ export function unarchiveTicket(store: Store, ticketId: number): void {
   if (ticket.stageCurrent === 'done') {
     setStage(store, ticketId, 'done', { endedAt: nowIso() });
   }
+}
+
+/**
+ * Pause task execution: stamp `paused_at` now so driver, auto-heal, graph runs,
+ * and automated session launches skip this ticket. Single-writer discipline.
+ */
+export function pauseTicket(store: Store, ticketId: number): void {
+  store.db
+    .prepare("UPDATE tickets SET paused_at = datetime('now'), updated_at = datetime('now') WHERE id = ?")
+    .run(ticketId);
+}
+
+/**
+ * Resume task execution (unpause): clear `paused_at`. Single-writer discipline.
+ */
+export function unpauseTicket(store: Store, ticketId: number): void {
+  store.db
+    .prepare("UPDATE tickets SET paused_at = NULL, updated_at = datetime('now') WHERE id = ?")
+    .run(ticketId);
 }
 
 /** Related tables keyed by `ticket_id`, cleared on hard-delete (no FK cascade).

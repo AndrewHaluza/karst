@@ -65,6 +65,7 @@ export function stageBadge(t: TicketWithStages): StageBadge {
   // stage since removed from the graph) is not a StageKey, and is treated the
   // same as none rather than indexing the title map with it.
   const stage = STAGE_KEYS.find((k) => k === t.stageCurrent) ?? null;
+  if (t.pausedAt != null) return { label: 'Paused', glyph: 'gray', stage };
   if (stage === null) return { label: 'Not started', glyph, stage };
 
   const title = STAGE_TITLE[stage];

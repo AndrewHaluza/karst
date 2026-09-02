@@ -1745,6 +1745,7 @@
     <span id="toast" class="toast" aria-live="polite"></span>
     <button id="confirmShip" type="button" class="k-btn k-btn--primary k-btn--sm shipAction" data-act="ship-ticket" title="Ship this ticket — commit, push, and open pull requests" hidden>Confirm ship</button>
     <span id="shipWait" class="shipWait hidden" role="status"><span class="attentionMark" aria-hidden="true">❚❚</span><span>Waiting to merge</span></span>
+    <span id="pauseWait" class="shipWait hidden" role="status"><span class="attentionMark" aria-hidden="true">❚❚</span><span>Execution paused</span><button type="button" class="k-btn k-btn--secondary k-btn--sm" data-act="unpause-execution" style="margin-left:var(--k-space-2)">Resume</button></span>
     <div class="menuWrap">
       <button id="moreBtn" type="button" class="k-iconbtn" aria-expanded="false" aria-haspopup="menu" aria-label="Ticket controls" title="Ticket controls">
         <svg class="k-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"/><path d="M12 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"/><path d="M19 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"/></svg>
@@ -1753,6 +1754,12 @@
         <div class="menuHeading">Ticket</div>
         <button type="button" class="menuButton" data-act="edit-ticket" role="menuitem">
           <svg class="k-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 20h4l10.5 -10.5a2.828 2.828 0 1 0 -4 -4l-10.5 10.5v4"/><path d="M13.5 6.5l4 4"/></svg><span>Edit ticket</span>
+        </button>
+        <button type="button" class="menuButton" id="pauseItem" data-act="pause-execution" role="menuitem">
+          <svg class="k-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 5m0 1a1 1 0 0 1 1 -1h2a1 1 0 0 1 1 1v12a1 1 0 0 1 -1 1h-2a1 1 0 0 1 -1 -1z"/><path d="M14 5m0 1a1 1 0 0 1 1 -1h2a1 1 0 0 1 1 1v12a1 1 0 0 1 -1 1h-2a1 1 0 0 1 -1 -1z"/></svg><span>Pause execution</span>
+        </button>
+        <button type="button" class="menuButton hidden" id="resumeItem" data-act="unpause-execution" role="menuitem">
+          <svg class="k-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 4v16l13 -8l-13 -8"/></svg><span>Resume execution</span>
         </button>
         <button type="button" class="menuButton hidden" id="followUpItem" data-act="create-follow-up-ticket" role="menuitem">
           <svg class="k-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6v6a3 3 0 0 0 3 3h10l-4 -4m0 8l4 -4"/></svg><span>Create follow-up</span>
@@ -4297,7 +4304,20 @@
     renderArtifacts(state);
     renderArtView();
     renderFollowUp(state);
+    renderPause(state);
     restoreFocus(mark);
+  }
+
+  function renderPause(state) {
+    const isPaused = !!state.paused;
+    // Paused hides the Pause item and shows Resume — plus the header status
+    // pill, so the state is visible without opening the ⋯ menu.
+    const pauseItem = el('pauseItem');
+    const resumeItem = el('resumeItem');
+    const pauseWait = el('pauseWait');
+    if (pauseItem) pauseItem.classList.toggle('hidden', isPaused);
+    if (resumeItem) resumeItem.classList.toggle('hidden', !isPaused);
+    if (pauseWait) pauseWait.classList.toggle('hidden', !isPaused);
   }
 
   // Follow-up only makes sense once the work shipped — same gate the

@@ -391,6 +391,8 @@ import {
   clearApproachFromTickets,
   archiveTicket,
   unarchiveTicket,
+  pauseTicket,
+  unpauseTicket,
 } from './store/tickets.js';
 import type { Project } from './store/projects.js';
 import { getProjectBySlug } from './store/projects.js';
@@ -3213,6 +3215,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   let gateToolsWarned = false;
   const maybeDrive = (ticketId: number, trigger: string): void => {
     const t = getTicket(localStore, ticketId);
+    // Paused is the FIRST gate: a paused ticket must not spend a process, a
+    // token, or a terminal on any trigger — hook, sweep, session close, or an
+    // explicit resume. `driveTicket` refuses again at its own entry, but the
+    // refusal belongs here too so the trigger is logged as skipped rather than
+    // as a drive that did nothing.
+    if (t.pausedAt != null) {
+      logger.debug(`stage driver: ${trigger} → ticket ${ticketId} skipped (paused)`);
+      return;
+    }
     if (!shouldStartDriver(t.stageCurrent as StageKey)) return;
     // A graph ticket at impl with an active graph run is driven by the graph
     // coordinator, never by the stage driver (Slice 3 Task 7 entry-point
@@ -4222,6 +4233,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         .prepare('SELECT status FROM approach_graph_runs WHERE id = ?')
         .get(graphRunId) as { status: string } | undefined;
       if (!run) return;
+      // Pause gates the CONTINUATION, not the reconcile that precedes it:
+      // reconcile only probes liveness and keeps the run's recorded state
+      // honest (it spends no tokens), while continuation is what launches
+      // planners, nodes and sessions. A paused ticket therefore stays
+      // accurately reconciled and starts nothing.
+      const pausedOwner = getTicket(localStore, graphRunTicketId(graphRunId));
+      if (pausedOwner.pausedAt != null) {
+        logger.debug(`[graph] run ${graphRunId}: continuation skipped — ticket is paused`);
+        return;
+      }
       if (run.status === 'planning') {
         const accepted = acceptSubmittedPlan(graphDriverDeps(), graphRunId);
         if (accepted.kind === 'undecidable') {
@@ -5039,6 +5060,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       { projectId: startupProject.id },
     )) {
       if (!guardCapability('ship')) continue;
+      // A paused ticket starts nothing on its own, and a ship saga is work:
+      // it describes with a model, pushes, and opens PRs. The stranded run
+      // stays stranded until the user unpauses — the same recovery then runs
+      // at the next activation.
+      if (getTicket(localStore, stranded.ticketId).pausedAt != null) {
+        logger.info(
+          `karst: stranded ship for ticket ${stranded.ticketId} left alone — the ticket is paused`,
+        );
+        continue;
+      }
       logger.info(describeStrandedShip(stranded));
       void runShipSaga(stranded.ticketId).catch((e) => {
         logError('karst: stranded ship resume failed', e);
@@ -6230,6 +6261,26 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       unarchiveTicket(localStore, ticketId);
       provider.refresh();
+    }),
+    // Pause/unpause from the sidebar context menu. Same seam as the dashboard
+    // action: the store flag is stamped BEFORE the running round is asked to
+    // stop, and unpause nudges the driver through `maybeDrive` rather than
+    // driving directly, so §5.4's single-flight rules still hold.
+    vscode.commands.registerCommand('karst.pauseTicket', async (arg: unknown) => {
+      const ticketId = ticketIdArg(arg);
+      if (ticketId === undefined) return;
+      pauseTicket(localStore, ticketId);
+      driver.requestStop(ticketId);
+      provider.refresh();
+      dashboard.pushState(ticketId);
+    }),
+    vscode.commands.registerCommand('karst.unpauseTicket', async (arg: unknown) => {
+      const ticketId = ticketIdArg(arg);
+      if (ticketId === undefined) return;
+      unpauseTicket(localStore, ticketId);
+      provider.refresh();
+      dashboard.pushState(ticketId);
+      maybeDrive(ticketId, 'unpause');
     }),
     vscode.commands.registerCommand('karst.deleteTicket', async (arg: unknown) => {
       const ticketId = ticketIdArg(arg);
@@ -7774,6 +7825,22 @@ function makeDashboardActions(
           );
         }
       }
+    },
+    // Pause: stamp the store flag FIRST so any in-flight driver round that
+    // checks between stages sees it, then ask the running round to stop. The
+    // interactive terminals stay open by design — the user is looking at them;
+    // pause only stops karst from starting new work on this ticket.
+    pauseExecution: () => {
+      pauseTicket(store, ticketId);
+      driver.requestStop(ticketId);
+      afterServerChange();
+    },
+    // Unpause: clear the flag, then nudge the driver through the same
+    // §5.4-safe seam a cleared block uses — resume is one more trigger.
+    unpauseExecution: () => {
+      unpauseTicket(store, ticketId);
+      afterServerChange();
+      driveAfterResume(ticketId);
     },
     // Opens the ticket form in edit mode on the new ticket so the user can type
     // the actual follow-up ask straight away — the command itself copies

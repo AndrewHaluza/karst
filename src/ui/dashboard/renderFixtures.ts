@@ -858,6 +858,8 @@ export function renderStateFor(stage: InsideStageKey): DashboardState {
     key: null,
     title: null,
     parent: null,
+    paused: false,
+    pausedAt: null,
     stageCurrent: stage,
     agentState: null,
     agentSession: {
