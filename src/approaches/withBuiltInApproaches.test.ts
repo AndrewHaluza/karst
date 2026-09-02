@@ -79,6 +79,21 @@ describe('withBuiltInApproaches', () => {
     expect(entry.graph!.commands.test).toBeUndefined(); // no packaged commands
   });
 
+  it('opencode profile override never inherits a packaged effort (A10 opencode-pair)', () => {
+    const project = graphApproach({
+      graph: graphApproachConfig({
+        profiles: { expert: { provider: 'opencode', model: 'opencode-go/deepseek-v4-flash' } },
+      }),
+    });
+    const effective = withBuiltInApproaches(baseManifest([project]));
+    const entry = effective.approaches!.find((a) => a.id === builtInId)!;
+    expect(entry.graph!.profiles.expert).toEqual({
+      provider: 'opencode',
+      model: 'opencode-go/deepseek-v4-flash',
+      // no `effort` — the packaged "high" (claude) must not leak through.
+    });
+  });
+
   it('never merges two entries positionally', () => {
     const project = graphApproach({ id: 'other-id' });
     const effective = withBuiltInApproaches(
