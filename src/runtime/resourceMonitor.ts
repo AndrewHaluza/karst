@@ -14,6 +14,7 @@ import { listRunningServers, listTicketLifecycle } from '../store/runningServers
 import { markServerStopped } from './supervisor.js';
 import type { Store } from '../store/db.js';
 import type { LogError } from '../logging/logger.js';
+import { getCpuCoreCount } from './cpuCores.js';
 
 /**
  * The single host-agnostic object that owns the two sampling lanes, the ring
@@ -63,6 +64,7 @@ export interface ResourceMonitorDeps {
   readSnapshot?: typeof readProcSnapshot;
   debug?: (message: string) => void;
   logError?: LogError;
+  cpuCoreCount?: number;
 }
 
 const noop = (): void => {};
@@ -77,6 +79,7 @@ export class ResourceMonitor {
   private readonly readSnapshot: typeof readProcSnapshot;
   private readonly debug: (message: string) => void;
   private readonly logError: LogError;
+  private readonly cpuCoreCount: number;
 
   private slowTimer: ReturnType<typeof setInterval> | undefined;
   private fastTimer: ReturnType<typeof setInterval> | undefined;
@@ -102,6 +105,7 @@ export class ResourceMonitor {
     this.readSnapshot = deps.readSnapshot ?? readProcSnapshot;
     this.debug = deps.debug ?? noop;
     this.logError = deps.logError ?? noop;
+    this.cpuCoreCount = deps.cpuCoreCount ?? getCpuCoreCount();
   }
 
   /**
@@ -268,6 +272,7 @@ export class ResourceMonitor {
         known,
         facts: this.facts,
         confirmCwd,
+        cpuCoreCount: this.cpuCoreCount,
         debug: this.debug,
       });
 
