@@ -290,7 +290,7 @@
   const renderStats = (state) => {
     const measuring = state.history.length === 0;
     el('stats').innerHTML = [
-      statCard('Attributed CPU', state.cpuPctDisplay, measuring ? 'measuring' : 'of one core, rolling'),
+      statCard('Attributed CPU', state.cpuPctDisplay, measuring ? 'measuring' : 'of total capacity, rolling'),
       statCard('Attributed RSS', state.rssDisplay, measuring ? 'measuring' : 'resident set size'),
       statCard('Proven waste', String(state.wasteCount), state.wasteCount === 1 ? 'finding' : 'findings', state.wasteCount > 0),
     ].join('');
