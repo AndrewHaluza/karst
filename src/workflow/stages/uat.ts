@@ -448,12 +448,17 @@ export async function runUat(
     // once, which reads as a pre-existing repo regression. Park (no attempt
     // consumed) and name the repair instead of attributing it to the ticket.
     if (resolution.gates.some((g) => g.script !== null)) {
-      const depsCheck = await checkDeps(target.path, { signal: opts.signal, onDebug: opts.debug });
+      const depsCheck = await checkDeps(target.path, {
+        signal: opts.signal,
+        onDebug: opts.debug,
+        repoRoot: target.repo,
+      });
       if (!depsCheck.ok) {
+        const repairDir = depsCheck.dir ?? target.path;
         const reason =
           depsCheck.kind === 'dependency-drift'
             ? `${label}: installed dependencies are inconsistent with package-lock.json — ` +
-              `${depsCheck.reason} — run 'npm install' (or 'npm ci') in ${target.path}`
+              `${depsCheck.reason} — run 'npm install' (or 'npm ci') in ${repairDir}`
             : `${label}: could not verify installed dependencies — ${depsCheck.reason}`;
         opts.debug?.(
           `[gate] uat ticket ${opts.ticketId}: target ${label} ${depsCheck.kind} (${depsCheck.reason})`,

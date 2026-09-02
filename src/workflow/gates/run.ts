@@ -33,10 +33,10 @@ export interface RunCommandOptions {
  * stopped asking.
  */
 export type ProcessOutcome =
-  | { kind: 'completed'; exitCode: number; output: string }
-  | { kind: 'spawnFailed'; message: string; output: string }
-  | { kind: 'timedOut'; output: string }
-  | { kind: 'aborted'; output: string };
+  | { kind: 'completed'; exitCode: number; output: string; stdout?: string }
+  | { kind: 'spawnFailed'; message: string; output: string; stdout?: string }
+  | { kind: 'timedOut'; output: string; stdout?: string }
+  | { kind: 'aborted'; output: string; stdout?: string };
 
 export interface RunProcessOptions extends RunCommandOptions {
   /**
@@ -59,6 +59,11 @@ export function runProcess(
     const terminationGraceMs =
       options.terminationGraceMs ?? DEFAULT_GATE_TERMINATION_GRACE_MS;
     const output = new BoundedOutput(Math.max(0, maxOutputBytes));
+    // stdout captured a SECOND time, on its own. `output` is the human record
+    // and interleaves stderr; a machine-readable stdout (`npm ls --json`) is
+    // destroyed by that interleave, and a caller that parses the combined
+    // stream reports "unparseable" for output that parsed fine.
+    const stdoutOnly = new BoundedOutput(Math.max(0, maxOutputBytes));
     const startedAt = Date.now();
     const onDebug = options.onDebug;
 
@@ -117,7 +122,7 @@ export function runProcess(
         `[gate] process: ${outcome.kind}${outcome.kind === 'completed' ? ` (exit ${outcome.exitCode})` : ''} ` +
           `— ${output.render().length} byte(s) captured`,
       );
-      resolve(outcome);
+      resolve({ ...outcome, stdout: stdoutOnly.render() });
     };
 
     const terminate = (): void => {
@@ -141,7 +146,10 @@ export function runProcess(
     }
     options.signal?.addEventListener('abort', onAbort, { once: true });
 
-    child.stdout?.on('data', (chunk: Buffer) => output.append(chunk));
+    child.stdout?.on('data', (chunk: Buffer) => {
+      output.append(chunk);
+      stdoutOnly.append(chunk);
+    });
     child.stderr?.on('data', (chunk: Buffer) => output.append(chunk));
 
     child.once('error', (err: Error) => {
