@@ -497,6 +497,12 @@ function mountAgentPicker(root, opts) {
     var effort = e.target && e.target.getAttribute && e.target.getAttribute('data-ap-effort');
     if (effort !== null) {
       state.effort = e.target.value || '';
+      // opencode: effort IS the model variant — picking one must drop the
+      // other, same rule model-select already applies in reverse (line ~479).
+      if (state.effort && state.core === 'opencode') {
+        state.model = '';
+        renderModel();
+      }
       emit();
     }
   });
