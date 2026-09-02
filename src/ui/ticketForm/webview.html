@@ -1163,11 +1163,16 @@
         effort: defaultEffort ? 'Inherit (settings: ' + esc(defaultEffort) + ')' : 'No effort (agent picks)',
       },
       showEffort: true,
+      modelEffortMode: (sel || defaultProvider || 'claude') === 'opencode' ? 'mutual-exclusion' : 'independent',
       disabled: !!sessionOpen,
       onChange: ({ core, model: m, effort: e }) => {
         draft.selectedAgentProvider = core || null;
         draft.selectedModel = m || null;
         draft.selectedEffort = e || null;
+        // When core changes, update the mutual exclusion mode
+        if (picker && picker._configure) {
+          picker._configure({ modelEffortMode: core === 'opencode' ? 'mutual-exclusion' : 'independent' });
+        }
         // Create mode has no ticket, so the host no-ops set-provider; keep the
         // draft authoritative for submit. Edit mode posts the change through
         // the existing seams (which also re-filter the model picker host-side).

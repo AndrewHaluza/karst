@@ -217,7 +217,7 @@ function apCoreOptionsHtml(cores, current, inheritLabel) {
 }
 
 /** Model options for the selected core: inherit row (when labeled) then models. */
-function apModelOptionsHtml(catalog, provider, saved, inheritLabel, recentIds) {
+function apModelOptionsHtml(catalog, provider, saved, inheritLabel, recentIds, customModel) {
   var list = (catalog && catalog[provider]) || [];
   var out = '';
   if (inheritLabel) {
@@ -226,7 +226,11 @@ function apModelOptionsHtml(catalog, provider, saved, inheritLabel, recentIds) {
       + '<div><div class="ap-model-name">' + apEsc(inheritLabel) + '</div></div></div>';
   }
   if (list.length === 0) {
-    out += '<div class="ap-empty">No models listed for this core.</div>';
+    // For providers with empty catalogs (e.g., opencode), offer a custom model entry
+    out += '<div class="ap-model-item' + (saved === '__custom__' ? ' active' : '') + '" role="option" tabindex="0"'
+      + ' data-ap-model="__custom__" aria-selected="' + (saved === '__custom__' ? 'true' : 'false') + '">'
+      + '<div><div class="ap-model-name">Custom model…</div>'
+      + '<div class="ap-model-sub">Enter provider/model ID (e.g. openrouter/z-ai/glm-5.2)</div></div></div>';
   } else {
     // The "Last used" group: models the user actually used recently, newest
     // first, up to 5, rendered BEFORE the full list. Only ids still in the
@@ -271,11 +275,13 @@ function apModelOptionsHtml(catalog, provider, saved, inheritLabel, recentIds) {
         + '</div>';
     }
   }
-  if (saved && list.length > 0 && !list.some(function (m) { return m.id === saved; })) {
-    out += '<div class="ap-group-label">Saved model (unavailable)</div>'
+  // Show custom model entry if user has entered one (not in catalog) and it's the saved selection
+  // Also show it for empty-catalog providers when a custom model is selected
+  if (saved && customModel && saved !== '__custom__' && !list.some(function (m) { return m.id === saved; })) {
+    out += '<div class="ap-group-label">Custom model</div>'
       + '<div class="ap-model-item active" role="option" tabindex="0" data-ap-model="'
       + apEsc(saved) + '" aria-selected="true"><div><div class="ap-model-name">'
-      + apEsc(saved) + '</div></div></div>';
+      + apEsc(saved) + '</div><div class="ap-model-sub">Custom model (not in catalog)</div></div></div>';
   }
   return out;
 }
@@ -326,12 +332,14 @@ function mountAgentPicker(root, opts) {
   var value = o.value || {};
   var inherit = o.inherit || {};
   var showEffort = o.showEffort !== false;
+  var modelEffortMode = o.modelEffortMode || 'independent';
   var disabled = !!o.disabled;
   var onChange = o.onChange;
   var state = {
     core: value.core || '',
     model: value.model || '',
     effort: value.effort || '',
+    customModel: '',
   };
   var labelModel = o.labels && o.labels.model ? o.labels.model : 'Model';
   var labelEffort = o.labels && o.labels.effort ? o.labels.effort : 'Effort / variant';
@@ -381,6 +389,7 @@ function mountAgentPicker(root, opts) {
       + '<div class="ap-scroll" data-ap-list="model"></div>';
     $('[data-ap-list="model"]').innerHTML = apModelOptionsHtml(
       catalog, state.core, state.model, inherit.model || '', recent[state.core],
+      state.customModel || '',
     );
     var coreLabel = modelLabel();
     $('[data-ap-trigger="core"]').innerHTML =
@@ -475,7 +484,45 @@ function mountAgentPicker(root, opts) {
     }
     var modelOpt = t.closest ? t.closest('[data-ap-model]') : null;
     if (modelOpt) {
-      state.model = modelOpt.getAttribute('data-ap-model');
+      var modelValue = modelOpt.getAttribute('data-ap-model');
+      if (modelValue === '__custom__') {
+        // Show custom model input
+        var listEl = $('[data-ap-list="model"]');
+        if (listEl) {
+          listEl.innerHTML = '<div class="ap-search" style="padding:var(--k-space-3)">'
+            + '<input type="text" placeholder="Enter provider/model (e.g. openrouter/z-ai/glm-5.2)"'
+            + ' aria-label="Custom model ID" data-ap-custom-model style="width:100%"></div>';
+          var input = listEl.querySelector('[data-ap-custom-model]');
+          if (input) {
+            input.focus();
+            input.addEventListener('keydown', function (ev) {
+              if (ev.key === 'Enter') {
+                var val = (input.value || '').trim();
+                // Basic validation: require provider/model format (must contain /)
+                if (val && val.indexOf('/') >= 0) {
+                  state.model = val;
+                  state.customModel = val;
+                  state.effort = '';
+                  var ms = $('[data-ap-shell="model"]');
+                  closeMenu(ms, false);
+                  renderModel();
+                  emit();
+                }
+              } else if (ev.key === 'Escape') {
+                // Don't re-render, just close the input - the custom model stays selected
+                var ms = $('[data-ap-shell="model"]');
+                closeMenu(ms, true);
+              }
+            });
+            input.addEventListener('blur', function () {
+              // Don't close immediately on blur - let the user click away
+              setTimeout(function () { renderModel(); }, 100);
+            });
+          }
+        }
+        return;
+      }
+      state.model = modelValue;
       state.effort = '';
       var ms = $('[data-ap-shell="model"]');
       closeMenu(ms, false);
@@ -497,9 +544,9 @@ function mountAgentPicker(root, opts) {
     var effort = e.target && e.target.getAttribute && e.target.getAttribute('data-ap-effort');
     if (effort !== null) {
       state.effort = e.target.value || '';
-      // opencode: effort IS the model variant — picking one must drop the
-      // other, same rule model-select already applies in reverse (line ~479).
-      if (state.effort && state.core === 'opencode') {
+      // When model and effort are mutually exclusive (e.g., opencode where effort IS the model variant),
+      // picking one clears the other.
+      if (state.effort && modelEffortMode === 'mutual-exclusion') {
         state.model = '';
         renderModel();
       }
@@ -513,7 +560,7 @@ function mountAgentPicker(root, opts) {
     var q = (e.target.value || '').trim().toLowerCase();
     var listEl = $('[data-ap-list="model"]');
     if (!listEl) return;
-    if (!q) { listEl.innerHTML = apModelOptionsHtml(catalog, state.core, state.model, inherit.model || '', recent[state.core]); return; }
+    if (!q) { listEl.innerHTML = apModelOptionsHtml(catalog, state.core, state.model, inherit.model || '', recent[state.core], state.customModel || ''); return; }
     var list = (catalog && catalog[state.core]) || [];
     var out = '';
     for (var i = 0; i < list.length; i++) {
@@ -525,6 +572,16 @@ function mountAgentPicker(root, opts) {
           + apModelTagsHtml(apTags(catalog, state.core, list[i].id))
           + '</div></div>';
       }
+    }
+    // Include custom model in search results if it matches
+    if (state.customModel && state.customModel.toLowerCase().indexOf(q) >= 0) {
+      var customLabel = state.customModel;
+      var customSub = 'Custom model (not in catalog)';
+      out = '<div class="ap-group-label">Custom model</div>'
+        + '<div class="ap-model-item" role="option" tabindex="0" data-ap-model="'
+        + apEsc(state.customModel) + '"><div><div class="ap-model-name">' + apEsc(customLabel)
+        + '</div><div class="ap-model-sub">' + apEsc(customSub) + '</div></div></div>'
+        + out;
     }
     if (!out) out = '<div class="ap-empty">No models match "' + apEsc(e.target.value) + '".</div>';
     listEl.innerHTML = out;
@@ -549,20 +606,29 @@ function mountAgentPicker(root, opts) {
       state.core = (v && v.core) || '';
       state.model = (v && v.model) || '';
       state.effort = (v && v.effort) || '';
+      // If model is set but not in catalog, treat it as a custom model
+      if (state.model && catalog && catalog[state.core]) {
+        var inCatalog = catalog[state.core].some(function (m) { return m.id === state.model; });
+        if (!inCatalog) state.customModel = state.model;
+      }
       render();
     },
     setDisabled: setDisabled,
     // Reconfigure the option source + callbacks without rebuilding the DOM —
     // the re-mount path on a state push.
     _configure: function (next) {
+      var oldMode = modelEffortMode;
       cores = (next && next.cores) || [];
       catalog = (next && next.catalog) || {};
       recent = (next && next.recent) || {};
       inherit = (next && next.inherit) || {};
       showEffort = next ? next.showEffort !== false : true;
+      modelEffortMode = (next && next.modelEffortMode) || 'independent';
       disabled = !!(next && next.disabled);
       onChange = next && next.onChange;
       setDisabled(disabled);
+      // Re-render if the mutual exclusion mode changed (affects which field clears which)
+      if (oldMode !== modelEffortMode) render();
     },
   };
   root.__apInstance = instance;

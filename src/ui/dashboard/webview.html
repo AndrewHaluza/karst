@@ -3614,10 +3614,15 @@
         effort: (lastState.agentSwitch.effortInheritLabel || 'No effort (agent picks)'),
       },
       showEffort: true,
+      modelEffortMode: draftCore === 'opencode' ? 'mutual-exclusion' : 'independent',
       onChange: ({ core, model, effort }) => {
         draftCore = core || null;
         draftModel = model || '';
         draftEffort = effort || '';
+        // When core changes, update the mutual exclusion mode
+        if (switchPicker && switchPicker._configure) {
+          switchPicker._configure({ modelEffortMode: core === 'opencode' ? 'mutual-exclusion' : 'independent' });
+        }
         updateSwitchState();
       },
     });

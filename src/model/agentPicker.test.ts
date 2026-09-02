@@ -206,7 +206,7 @@ describe('agentPickerJs', () => {
 
   describe('apModelOptionsHtml', () => {
     const { apModelOptionsHtml } = load() as {
-      apModelOptionsHtml: (c: unknown, p: string, saved: string, inheritLabel: string, recentIds?: string[]) => string;
+      apModelOptionsHtml: (c: unknown, p: string, saved: string, inheritLabel: string, recentIds?: string[], customModel?: string) => string;
     };
 
     it('renders the inherit row first when labeled, then the cataloged models', () => {
@@ -216,14 +216,15 @@ describe('agentPickerJs', () => {
       expect(out).toContain('data-ap-model="claude-opus-5" aria-selected="false"');
     });
 
-    it('shows an empty note for a core with no cataloged models', () => {
+    it('shows a custom model entry for a core with no cataloged models', () => {
       const out = apModelOptionsHtml(catalog, 'opencode', '', '');
-      expect(out).toContain('No models listed for this core.');
+      expect(out).toContain('Custom model');
+      expect(out).toContain('data-ap-model="__custom__"');
     });
 
-    it('keeps a saved model that left the catalog visible as unavailable', () => {
-      const out = apModelOptionsHtml(catalog, 'claude', 'my-custom-model', '');
-      expect(out).toContain('Saved model (unavailable)');
+    it('keeps a saved model not in catalog visible as custom model', () => {
+      const out = apModelOptionsHtml(catalog, 'claude', 'my-custom-model', '', [], 'my-custom-model');
+      expect(out).toContain('Custom model');
       expect(out).toContain('data-ap-model="my-custom-model"');
     });
 

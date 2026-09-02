@@ -2547,6 +2547,7 @@
     // The same element the graph config, dashboard switch and ticket form use;
     // only the value source differs. Implemented providers render selectable;
     // the rest show as "coming soon" via the shared component's disabled flag.
+    let defaultAgentPicker = null;
     const apRoot = el('defaultAgentPicker');
     if (apRoot) {
       const apCores = KNOWN_AGENT_PROVIDERS.map((p) => ({
@@ -2554,7 +2555,7 @@
         label: AGENT_PROVIDER_LABELS[p] || p,
         disabled: implementedProviders.indexOf(p) === -1,
       }));
-      mountAgentPicker(apRoot, {
+      defaultAgentPicker = mountAgentPicker(apRoot, {
         cores: apCores,
         catalog: modelCatalog,
         recent: recentModels,
@@ -2565,10 +2566,14 @@
         },
         inherit: { core: '', model: 'No default (agent picks)', effort: 'No effort (agent picks)' },
         showEffort: true,
+        modelEffortMode: (draft.agentProvider || '') === 'opencode' ? 'mutual-exclusion' : 'independent',
         onChange: ({ core, model, effort }) => {
           draft.agentProvider = core || undefined;
           draft.defaultModel = model || undefined;
           draft.defaultEffort = effort || undefined;
+          if (defaultAgentPicker && defaultAgentPicker._configure) {
+            defaultAgentPicker._configure({ modelEffortMode: core === 'opencode' ? 'mutual-exclusion' : 'independent' });
+          }
           markDirty();
         },
       });
@@ -3620,6 +3625,7 @@
         value: { core: profile.provider || '', model: profile.model || '', effort: profile.effort || '' },
         labels: { core: 'Core', model: 'Model', effort: 'Effort' },
         showEffort: true,
+        modelEffortMode: (profile.provider || '') === 'opencode' ? 'mutual-exclusion' : 'independent',
         onChange: ({ core, model, effort }) => {
           if (!entry.graph) entry.graph = {};
           if (!entry.graph.profiles) entry.graph.profiles = {};
@@ -4523,6 +4529,7 @@
           effort: 'No effort (agent picks)',
         },
         showEffort: true,
+        modelEffortMode: (cfg.provider || '') === 'opencode' ? 'mutual-exclusion' : 'independent',
         onChange: ({ core, model, effort }) => {
           updateProcessAssignment(key, {
             provider: core || '',
