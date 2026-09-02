@@ -1,6 +1,7 @@
 import { attributeServer, type Attribution, type ProcessFacts, type ProcessFactsSource, type ServerIdentity } from './serverIdentity.js';
 import { collectTree, sumCosts, treeCost, type TreeCost } from './procTreeCost.js';
 import type { ProcSnapshot } from './procSnapshot.js';
+import { getCpuCoreCount } from './cpuCores.js';
 
 /**
  * Turn one snapshot plus the known-pid sources into the three lanes the
@@ -71,9 +72,10 @@ export async function buildInventory(opts: {
   facts: ProcessFactsSource;
   /** Probe live cwds for heavy unknowns. False on the fast lane. */
   confirmCwd: boolean;
+  cpuCoreCount?: number;
   debug?: (message: string) => void;
 }): Promise<Inventory> {
-  const { snapshot, previous, known, facts, confirmCwd, debug } = opts;
+  const { snapshot, previous, known, facts, confirmCwd, cpuCoreCount, debug } = opts;
   debug?.(`[resources] inventory: ${known.length} known pids, ${snapshot.records.size} processes`);
 
   const attributed: AttributedRow[] = [];
@@ -86,7 +88,7 @@ export async function buildInventory(opts: {
     if (seen.has(pid)) continue; // a duplicate pid is counted once, first entry wins
     seen.add(pid);
 
-    const cost = treeCost(snapshot, previous, pid);
+    const cost = treeCost(snapshot, previous, pid, cpuCoreCount);
     let attribution: Attribution;
     if (entry.identity !== undefined) {
       const [alive, live, started] = await Promise.all([
@@ -138,7 +140,7 @@ export async function buildInventory(opts: {
 
   const candidates: UnattributedRow[] = [];
   for (const pid of roots) {
-    const cost = treeCost(snapshot, previous, pid);
+    const cost = treeCost(snapshot, previous, pid, cpuCoreCount);
     if (cost === null) continue;
     candidates.push({
       pid,
