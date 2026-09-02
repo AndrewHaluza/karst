@@ -66,7 +66,9 @@ export type RecoveryStatus =
   | 'passed'
   | 'failed'
   | 'exhausted'
-  | 'interrupted';
+  | 'interrupted'
+  | 'refused'
+  | 'reset';
 
 /** Terminal statuses — a round in one of these will never change again. */
 
@@ -79,6 +81,7 @@ export interface RecoveryRound {
   sourceProcessRunId: number | null;
   triggerKind: RecoveryTriggerKind;
   triggerDetail: string;
+  episode: number;
   round: number;
   maxRounds: number;
   fixProcessRunId: number | null;
@@ -102,6 +105,7 @@ interface RecoveryRoundRow {
   source_process_run_id: number | null;
   trigger_kind: string;
   trigger_detail: string;
+  episode: number;
   round: number;
   max_rounds: number;
   fix_process_run_id: number | null;
@@ -128,6 +132,8 @@ const STATUSES: readonly string[] = [
   'failed',
   'exhausted',
   'interrupted',
+  'refused',
+  'reset',
 ];
 
 /**
@@ -202,6 +208,7 @@ function rowToRound(r: RecoveryRoundRow): RecoveryRound {
       ? r.trigger_kind
       : 'gate-failure') as RecoveryTriggerKind,
     triggerDetail: r.trigger_detail,
+    episode: r.episode,
     sourceStageRunId: r.source_stage_run_id,
     sourceProcessRunId: r.source_process_run_id,
     round: r.round,
@@ -218,7 +225,7 @@ function rowToRound(r: RecoveryRoundRow): RecoveryRound {
 
 const ROUND_SELECT =
   `SELECT id, ticket_id, source_stage, source_process_id, source_stage_run_id,
-          source_process_run_id, trigger_kind, trigger_detail, round, max_rounds,
+          source_process_run_id, trigger_kind, trigger_detail, episode, round, max_rounds,
           fix_process_run_id, uat_revalidation_stage_run_id,
           review_revalidation_stage_run_id, status, started_at, ended_at, interrupt_count
      FROM recovery_rounds`;
@@ -231,9 +238,34 @@ function roundById(store: Store, id: number): RecoveryRound | undefined {
 }
 
 /**
+ * The current episode for (ticket, source_stage): a `passed` or `reset` round
+ * ends an episode, so the next failure opens in `ended_episodes + 1`. A
+ * `failed`/`exhausted`/`interrupted`/`refused` round does NOT end the episode,
+ * so the next round stays in the same one — `exhausted` is NOT a pass, so
+ * raising the manifest budget re-opens the same episode at the next round
+ * rather than dead-ending forever (Issue #1, the root cause).
+ *
+ * Episodes are strictly sequential: episode N+1 cannot open until episode N
+ * has a `passed`/`reset` round, so `COUNT(DISTINCT episode WHERE status IN
+ * ('passed','reset')) + 1` is both the count of ended episodes plus one and
+ * the next episode number — the two are the same number.
+ */
+function currentEpisode(store: Store, ticketId: number, sourceStage: RecoverySourceStage): number {
+  const row = store.db
+    .prepare(
+      `SELECT COUNT(DISTINCT episode) AS ended FROM recovery_rounds
+        WHERE ticket_id = ? AND source_stage = ?
+          AND status IN ('passed','reset')`,
+    )
+    .get(ticketId, sourceStage) as { ended: number } | undefined;
+  return (row?.ended ?? 0) + 1;
+}
+
+/**
  * The ticket's latest round for ONE source stage that is still ACTIVE —
- * a terminal round (passed/failed/exhausted/interrupted) is history, not a
- * series the driver can resume or the store can attach revalidation to.
+ * a terminal round (passed/failed/exhausted/interrupted/refused/reset) is
+ * history, not a series the driver can resume or the store can attach
+ * revalidation to.
  */
 export function activeRecoverySeries(
   store: Store,
@@ -243,8 +275,8 @@ export function activeRecoverySeries(
   const row = store.db
     .prepare(
       `${ROUND_SELECT} WHERE ticket_id = ? AND source_stage = ?
-          AND status NOT IN ('passed','failed','exhausted','interrupted')
-        ORDER BY id DESC LIMIT 1`,
+           AND status NOT IN ('passed','failed','exhausted','interrupted','refused','reset')
+         ORDER BY id DESC LIMIT 1`,
     )
     .get(ticketId, sourceStage) as RecoveryRoundRow | undefined;
   return row === undefined ? null : rowToRound(row);
@@ -408,22 +440,23 @@ export function openRecoveryRound(store: Store, input: OpenRecoveryRoundInput): 
       }
     }
 
+    const episode = currentEpisode(store, input.ticketId, input.sourceStage);
     const prev = store.db
       .prepare(
         `SELECT MAX(round) AS max_round FROM recovery_rounds
-          WHERE ticket_id = ? AND source_stage = ?`,
+          WHERE ticket_id = ? AND source_stage = ? AND episode = ?`,
       )
-      .get(input.ticketId, input.sourceStage) as { max_round: number | null } | undefined;
+      .get(input.ticketId, input.sourceStage, episode) as { max_round: number | null } | undefined;
     const roundNumber = (prev?.max_round ?? 0) + 1;
 
     const info = store.db
       .prepare(
         `INSERT INTO recovery_rounds
            (ticket_id, source_stage, source_process_id, source_stage_run_id,
-            source_process_run_id, trigger_kind, trigger_detail, round, max_rounds,
+            source_process_run_id, trigger_kind, trigger_detail, episode, round, max_rounds,
             fix_process_run_id, uat_revalidation_stage_run_id,
             review_revalidation_stage_run_id, status, started_at, ended_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, 'pending', ?, NULL)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, 'pending', ?, NULL)`,
       )
       .run(
         input.ticketId,
@@ -433,6 +466,7 @@ export function openRecoveryRound(store: Store, input: OpenRecoveryRoundInput): 
         input.sourceProcessRunId,
         input.triggerKind,
         input.triggerDetail,
+        episode,
         roundNumber,
         input.maxRounds,
         input.startedAt,

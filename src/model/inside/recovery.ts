@@ -52,9 +52,11 @@ function roundStatus(round: RecoveryRound): InsideStatus {
     case 'passed':
       return 'pass';
     case 'interrupted':
+    case 'reset':
       return 'note';
     case 'failed':
     case 'exhausted':
+    case 'refused':
       return 'fail';
   }
 }
