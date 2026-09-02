@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  renderGateOnlyInstruction,
   renderWorkflowCommand,
   renderDoneMarkerInstruction,
   buildWorkflowInvocation,
@@ -201,6 +202,26 @@ describe('renderDoneMarkerInstruction', () => {
     const cmd = 'node "/ext/dist/cli/main.js" stage impl pass --db "/x.db" --ticket';
     const body = renderWorkflowCommand({ id: 'rpi', label: 'RPI', phases: rpiPhases, stageCommand: cmd });
     expect(body).toContain(renderDoneMarkerInstruction(cmd, '$ARGUMENTS'));
+  });
+});
+
+describe('renderGateOnlyInstruction', () => {
+  it('names no command to run', () => {
+    const s = renderGateOnlyInstruction();
+    expect(s.toLowerCase()).not.toContain('stage impl pass');
+    expect(s.toLowerCase()).not.toContain('stage fix pass');
+    expect(s.toLowerCase()).not.toContain('run `');
+  });
+
+  it('says the stage is decided by its gate exit codes', () => {
+    const s = renderGateOnlyInstruction();
+    expect(s.toLowerCase()).toContain('gate');
+    expect(s.toLowerCase()).toContain('exit code');
+  });
+
+  it('says the job is to make the gates pass', () => {
+    const s = renderGateOnlyInstruction();
+    expect(s.toLowerCase()).toContain('pass');
   });
 });
 

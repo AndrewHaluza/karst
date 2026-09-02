@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { buildSessionSeed } from './seed.js';
+import { markerStageFor } from './markerStage.js';
+import { renderGateOnlyInstruction, renderDoneMarkerInstruction } from './workflowCommand.js';
 
 // A representative pre-rendered ticket-context block (see ticketContext.test.ts
 // for the shaping coverage). buildSessionSeed only composes sections.
@@ -99,5 +101,25 @@ describe('buildSessionSeed', () => {
     expect(buildSessionSeed(CONTEXT, 'do the thing', undefined, 'RUN THE MARKER')).toBe(
       buildSessionSeed(CONTEXT, 'do the thing', undefined, 'RUN THE MARKER', undefined),
     );
+  });
+
+  // Issue #6: a ticket seeded at a gate stage (uat/review/ship) has no marker to
+  // fire — markerStageFor returns null there — but the seed must still say
+  // something about how the stage ends, per the same extension.ts wiring used
+  // for a review-stage ticket's session.
+  it('carries the gate sentence and no marker command for a review-stage ticket', () => {
+    const markerStage = markerStageFor('review');
+    expect(markerStage).toBeNull();
+    const markerInstruction =
+      markerStage === null
+        ? renderGateOnlyInstruction()
+        : renderDoneMarkerInstruction('node cli.js stage review pass --ticket', 'PROJ-9');
+    const seed = buildSessionSeed(CONTEXT, null, undefined, markerInstruction);
+    expect(seed).toBeDefined();
+    expect(seed!.toLowerCase()).toContain('gate exit codes');
+    expect(seed!.toLowerCase()).not.toContain('stage review pass');
+    expect(seed!.toLowerCase()).not.toContain('stage impl pass');
+    expect(seed!.toLowerCase()).not.toContain('stage fix pass');
+    expect(seed!.toLowerCase()).not.toContain('done marker');
   });
 });

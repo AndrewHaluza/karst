@@ -166,6 +166,7 @@ import {
   buildWorkflowInvocation,
   renderWorkflowCommand,
   renderDoneMarkerInstruction,
+  renderGateOnlyInstruction,
   KARST_PLUGIN_NAME,
   orchestratorCommandBasename,
 } from './agent/workflowCommand.js';
@@ -5817,9 +5818,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // The concrete ticket key is the arg (the seed is plain text — no
       // `$ARGUMENTS` substitution).
       const markerStage = markerStageFor(t.stageCurrent as StageKey | null);
+      // A null marker stage means the current stage is a gate — say what the
+      // agent should do instead of the marker rather than saying nothing at
+      // all (Issue #6): the stage is decided by its gate exit codes, and there
+      // is no command to run.
       const markerInstruction =
         markerStage === null
-          ? null
+          ? renderGateOnlyInstruction()
           : renderDoneMarkerInstruction(
               buildCliStagePrefix(context, dbPath, markerStage),
               t.key ?? String(ticketId),

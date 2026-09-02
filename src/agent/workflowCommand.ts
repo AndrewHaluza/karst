@@ -70,6 +70,23 @@ export function renderDoneMarkerInstruction(stageCommand: string, ticketArg: str
 }
 
 /**
+ * The non-marker counterpart to `renderDoneMarkerInstruction` (§5.4, 869edna84):
+ * seeded when `markerStageFor` returns null, i.e. the ticket's current stage is
+ * a gate (`uat`/`review`/`ship`) with no done marker to fire at all. Without
+ * this, a session opened at a gate stage was told nothing about how the stage
+ * ends. Names NO command — a gate's verdict comes only from its exit codes,
+ * never from the agent self-reporting — so there is nothing to run here.
+ */
+export function renderGateOnlyInstruction(): string {
+  return (
+    "This stage is decided by its gate exit codes, not by anything you report — " +
+    'there is no marker command to run here. Your job is to make the gates pass: ' +
+    'do the work the gate is checking for, and Karst will detect the result and ' +
+    'advance the ticket on its own once the checks are green.'
+  );
+}
+
+/**
  * Render the markdown body for the generated `/karst:<id>` slash command. Pure:
  * no fs, no side effects. Written to `karst/commands/<id>.md` inside the
  * karst-authored plugin at materialize time.
