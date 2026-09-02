@@ -36,6 +36,19 @@ describe('classifyNpmProblems', () => {
       reason: 'npm ls output was not parseable JSON',
     });
   });
+
+  it('names the count when the whole tree is missing rather than listing three of it', () => {
+    const problems = Array.from(
+      { length: 1018 },
+      (_, i) => `missing: pkg-${i}@1.0.0, required by Web@27.0.98`,
+    );
+    const result = classifyNpmProblems(JSON.stringify({ problems }));
+    expect(result).toEqual({
+      ok: false,
+      kind: 'dependency-drift',
+      reason: expect.stringContaining('1018 dependencies missing'),
+    });
+  });
 });
 
 describe('checkNodeDeps', () => {
@@ -97,6 +110,49 @@ describe('checkNodeDeps', () => {
     }
   });
 
+  it('parses stdout alone — interleaved npm error lines are not parse input', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-deps-stdout-'));
+    try {
+      writeFileSync(join(dir, 'package-lock.json'), '{}');
+      const json = JSON.stringify({ problems: [] });
+      const run = async (): Promise<ProcessOutcome> => ({
+        kind: 'completed',
+        exitCode: 1,
+        output: `npm error code ELSPROBLEMS\n${json}`,
+        stdout: json,
+      });
+      const result = await checkNodeDeps(dir, {}, run);
+      expect(result).toEqual({ ok: true });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('probes the main checkout when the worktree resolves up to it', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'karst-deps-root-'));
+    const worktree = join(root, '.karst', 'worktrees', 'tkt');
+    try {
+      mkdirSync(worktree, { recursive: true });
+      mkdirSync(join(root, 'node_modules'));
+      writeFileSync(join(root, 'package-lock.json'), '{}');
+      writeFileSync(join(worktree, 'package-lock.json'), '{}');
+      const seen: string[] = [];
+      const run = async (
+        _command: string,
+        _args: readonly string[],
+        cwd: string,
+      ): Promise<ProcessOutcome> => {
+        seen.push(cwd);
+        return { kind: 'completed', exitCode: 0, output: '{}', stdout: '{}' };
+      };
+      const result = await checkNodeDeps(worktree, { repoRoot: root }, run);
+      expect(result).toEqual({ ok: true });
+      expect(seen).toEqual([root]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('reports unreadable when npm could not be spawned', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'karst-deps-unread-'));
     try {
@@ -107,7 +163,9 @@ describe('checkNodeDeps', () => {
         output: '',
       });
       const result = await checkNodeDeps(dir, {}, run);
-      expect(result).toEqual({ ok: false, kind: 'unreadable', reason: 'npm not found' });
+      expect(result).toEqual(
+        expect.objectContaining({ ok: false, kind: 'unreadable', reason: 'npm not found' }),
+      );
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
