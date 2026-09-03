@@ -600,7 +600,8 @@ export function readCoreUsage(
             COALESCE(SUM(s.input_tokens), 0) AS input,
             COALESCE(SUM(s.output_tokens), 0) AS output,
             COALESCE(SUM(s.total_tokens),
-                     COALESCE(SUM(s.input_tokens), 0) + COALESCE(SUM(s.output_tokens), 0)) AS total,
+                     COALESCE(SUM(s.input_tokens), 0) + COALESCE(SUM(s.output_tokens), 0)
+                       + COALESCE(SUM(s.cache_read_tokens), 0)) AS total,
             COALESCE(SUM(s.cache_read_tokens), 0) AS cache_read,
             MIN(s.observed_at) AS first_at,
             MAX(s.observed_at) AS last_at
