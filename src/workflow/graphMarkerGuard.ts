@@ -134,11 +134,7 @@ export function graphImplMarkerGuard(store: Store, ticketId: number): GraphMarke
         throw new Error(`no graph run for ticket ${ticketId} attempt ${attempt}`);
       }
       if (run.status !== 'completed-awaiting-impl-marker') {
-        const ticket = getTicket(store, ticketId);
-        const approachContext = ticket.approach && ticket.approach !== BUILT_IN_PACKAGE_ID
-          ? ` (ticket approach: ${ticket.approach})`
-          : '';
-        throw new Error(`${graphRunNotMarkerReadyMessage(run)}${approachContext}`);
+        throw new Error(graphRunNotMarkerReadyMessage(run));
       }
       // 2. Quiescence is re-read INSIDE the transaction: a completion that
       //    landed between the outside check and here blocks the marker.

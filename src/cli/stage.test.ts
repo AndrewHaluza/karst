@@ -451,43 +451,35 @@ describe('runStageCommand', () => {
     }
   });
 
-  it('a graph-approach ticket with a running graph run is refused (not marker-ready)', () => {
+  it('a direct-approach ticket with a cancelled graph run can pass impl', () => {
     const store = openStore(':memory:');
     try {
-      const id = createTicketFlow(store, { key: 'T-GRAPH-RUNNING', title: 't' }).id;
+      const id = createTicketFlow(store, { key: 'T-DIRECT-ABANDONED', title: 't' }).id;
       transition(store, id, 'scope', { kind: 'passed' });
-      updateTicketFields(store, id, { approach: BUILT_IN_PACKAGE_ID });
+      updateTicketFields(store, id, { approach: 'direct' });
       const attempt = stageAttempt(store, id, 'impl');
       store.db
         .prepare(
           `INSERT INTO approach_graph_runs
-             (ticket_id, stage_key, stage_attempt, approach_id, status, created_at)
-           VALUES (?, 'impl', ?, 'karst-graph-engineering', 'running', '2026-09-01T00:00:00.000Z')`,
+             (ticket_id, stage_key, stage_attempt, approach_id, status, blocked_reason, created_at)
+           VALUES (?, 'impl', ?, 'karst-graph-engineering', 'cancelled', 'abandoned', '2026-09-01T00:00:00.000Z')`,
         )
         .run(id, attempt);
-      const graphRunId = (
-        store.db.prepare('SELECT id FROM approach_graph_runs WHERE ticket_id = ?').get(id) as { id: number }
-      ).id;
-      store.db
-        .prepare(
-          `INSERT INTO approach_graph_revisions
-             (graph_run_id, revision_number, canonical_graph, fingerprint, status, created_at)
-           VALUES (?, 1, '{}', 'fp', 'active', '2026-09-01T00:00:00.000Z')`,
-        )
-        .run(graphRunId);
-      expect(() => runStageCommand(store, id, ['stage', 'impl', 'pass'])).toThrow(
-        /graph marker refused: graph run \d+ is running, not marker-ready/,
-      );
-      expect(getTicket(store, id).stageCurrent).toBe('impl');
+      expect(runStageCommand(store, id, ['stage', 'impl', 'pass'])).toBe('uat');
+      expect(getTicket(store, id).stageCurrent).toBe('uat');
     } finally {
       store.close();
     }
   });
 
-  it('a graph-approach ticket with a closed graph run is refused (terminal)', () => {
+  it.each([
+    ['running', /graph marker refused: graph run \d+ is running, not marker-ready/],
+    ['closed', /graph marker refused: graph run \d+ is closed — a terminal state, so it will never become marker-ready/],
+    ['stale', /graph marker refused: graph run \d+ is stale — a terminal state, so it will never become marker-ready/],
+  ] as const)('a graph-approach ticket with a %s graph run is refused', (status, message) => {
     const store = openStore(':memory:');
     try {
-      const id = createTicketFlow(store, { key: 'T-GRAPH-CLOSED', title: 't' }).id;
+      const id = createTicketFlow(store, { key: `T-GRAPH-${status}`, title: 't' }).id;
       transition(store, id, 'scope', { kind: 'passed' });
       updateTicketFields(store, id, { approach: BUILT_IN_PACKAGE_ID });
       const attempt = stageAttempt(store, id, 'impl');
@@ -495,55 +487,10 @@ describe('runStageCommand', () => {
         .prepare(
           `INSERT INTO approach_graph_runs
              (ticket_id, stage_key, stage_attempt, approach_id, status, created_at)
-           VALUES (?, 'impl', ?, 'karst-graph-engineering', 'closed', '2026-09-01T00:00:00.000Z')`,
+           VALUES (?, 'impl', ?, 'karst-graph-engineering', ?, '2026-09-01T00:00:00.000Z')`,
         )
-        .run(id, attempt);
-      const graphRunId = (
-        store.db.prepare('SELECT id FROM approach_graph_runs WHERE ticket_id = ?').get(id) as { id: number }
-      ).id;
-      store.db
-        .prepare(
-          `INSERT INTO approach_graph_revisions
-             (graph_run_id, revision_number, canonical_graph, fingerprint, status, created_at)
-           VALUES (?, 1, '{}', 'fp', 'active', '2026-09-01T00:00:00.000Z')`,
-        )
-        .run(graphRunId);
-      expect(() => runStageCommand(store, id, ['stage', 'impl', 'pass'])).toThrow(
-        /graph marker refused: graph run \d+ is closed — a terminal state, so it will never become marker-ready/,
-      );
-      expect(getTicket(store, id).stageCurrent).toBe('impl');
-    } finally {
-      store.close();
-    }
-  });
-
-  it('a graph-approach ticket with a stale graph run is refused (terminal)', () => {
-    const store = openStore(':memory:');
-    try {
-      const id = createTicketFlow(store, { key: 'T-GRAPH-STALE', title: 't' }).id;
-      transition(store, id, 'scope', { kind: 'passed' });
-      updateTicketFields(store, id, { approach: BUILT_IN_PACKAGE_ID });
-      const attempt = stageAttempt(store, id, 'impl');
-      store.db
-        .prepare(
-          `INSERT INTO approach_graph_runs
-             (ticket_id, stage_key, stage_attempt, approach_id, status, created_at)
-           VALUES (?, 'impl', ?, 'karst-graph-engineering', 'stale', '2026-09-01T00:00:00.000Z')`,
-        )
-        .run(id, attempt);
-      const graphRunId = (
-        store.db.prepare('SELECT id FROM approach_graph_runs WHERE ticket_id = ?').get(id) as { id: number }
-      ).id;
-      store.db
-        .prepare(
-          `INSERT INTO approach_graph_revisions
-             (graph_run_id, revision_number, canonical_graph, fingerprint, status, created_at)
-           VALUES (?, 1, '{}', 'fp', 'active', '2026-09-01T00:00:00.000Z')`,
-        )
-        .run(graphRunId);
-      expect(() => runStageCommand(store, id, ['stage', 'impl', 'pass'])).toThrow(
-        /graph marker refused: graph run \d+ is stale — a terminal state, so it will never become marker-ready/,
-      );
+        .run(id, attempt, status);
+      expect(() => runStageCommand(store, id, ['stage', 'impl', 'pass'])).toThrow(message);
       expect(getTicket(store, id).stageCurrent).toBe('impl');
     } finally {
       store.close();

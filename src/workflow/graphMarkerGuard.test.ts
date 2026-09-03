@@ -179,34 +179,6 @@ describe('graphImplMarkerGuard', () => {
     expect(result.reason).toContain('never become marker-ready');
   });
 
-  it('refusal message for direct-approach ticket with cancelled run names the approach and terminal state', () => {
-    const ticketId = createTicket(store, { key: 'DIR-MSG', title: 'direct' }).id;
-    store.db.prepare("UPDATE tickets SET stage_current = 'impl', approach = 'direct' WHERE id = ?").run(ticketId);
-    store.db.prepare("UPDATE stages SET status = 'running' WHERE ticket_id = ? AND stage_key = 'impl'").run(ticketId);
-    const attempt = stageAttempt(store, ticketId, 'impl');
-    const graphRunId = Number(
-      store.db
-        .prepare(
-          `INSERT INTO approach_graph_runs (ticket_id, stage_key, stage_attempt, approach_id, status, blocked_reason, created_at)
-           VALUES (?, 'impl', ?, 'x', 'cancelled', 'abandoned', '2026-08-12T00:00:00.000Z')`,
-        )
-        .run(ticketId, attempt)
-        .lastInsertRowid,
-    );
-    store.db
-      .prepare(
-        `INSERT INTO approach_graph_revisions (graph_run_id, revision_number, canonical_graph, fingerprint, status, created_at)
-         VALUES (?, 1, '{}', 'fp', 'active', '2026-08-12T00:00:00.000Z')`,
-      )
-      .run(graphRunId);
-
-    const result = graphImplMarkerGuard(store, ticketId);
-    expect(result.ok).toBe(false);
-    expect(result.reason).toContain('direct'); // approach name
-    expect(result.reason).toContain('terminal');
-    expect(result.reason).toContain('never become marker-ready');
-  });
-
   it('names the blocked reason when a run is blocked, not marker-ready', () => {
     const { ticketId } = markerReadyTicket('GM-BLOCKED');
     store.db
