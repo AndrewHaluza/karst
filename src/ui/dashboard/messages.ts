@@ -164,7 +164,14 @@ export type WebviewMessage =
    * touching git, so a crafted or stale message cannot aim the change at a
    * repository this ticket never scoped, or skip the refusal path.
    */
-  | { type: 'change-base-ref'; repo: string; baseRef: string; rebase: boolean };
+  | { type: 'change-base-ref'; repo: string; baseRef: string; rebase: boolean }
+  /**
+   * Retry a gate stage (uat/review) by resetting it to pending so the driver
+   * re-runs it. Carries the stage — a closed vocabulary narrowed to the two
+   * gate stages — validated host-side against the ticket's current stage and
+   * status before anything is touched.
+   */
+  | { type: 'rerun-gate'; stage: GateStage };
 
 /**
  * Host → webview messages. `state` pushes drive the stepper + panels;
@@ -312,6 +319,13 @@ export interface DashboardActions {
    * question to withdraw, never what to run.
    */
   setDisabledGate: (stage: GateStage, name: string, disabled: boolean) => void | Promise<void>;
+  /**
+   * Retry a gate stage by resetting it to pending so the driver re-runs it.
+   * Takes the stage — narrowed to the two gate stages — so the webview can
+   * only ask for a retry of a stage it can see. The host validates against
+   * the ticket's current stage and status before touching the store.
+   */
+  rerunGate: (stage: GateStage) => void | Promise<void>;
   /**
    * Dispatch one opaque inside action id against the ticket's CURRENT action
    * registry. The host resolves the id; the webview cannot name a target.
@@ -556,6 +570,8 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
       if (repo.length === 0 || baseRef.length === 0) return null;
       return { type: 'change-base-ref', repo, baseRef, rebase: m.rebase !== false };
     }
+    case 'rerun-gate':
+      return isGateStage(m.stage) ? { type: 'rerun-gate', stage: m.stage } : null;
     default:
       return null;
   }
@@ -690,5 +706,7 @@ export function routeAction(
       return actions.requestAgentLog(msg.processId);
     case 'change-base-ref':
       return actions.changeBaseRef(msg.repo, msg.baseRef, msg.rebase);
+    case 'rerun-gate':
+      return actions.rerunGate(msg.stage);
   }
 }

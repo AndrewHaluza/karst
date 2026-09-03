@@ -2956,18 +2956,28 @@
     // else the header stays the same three cells, so scope/impl/fix/done,
     // an in-flight run and a landed ship offer no menu at all.
     const sb = state.sendBack;
+    const rg = state.rerunGate;
     const actions = sb && sb.available && view.stageKey === sb.stage;
-    const menuOpen = actions && stageMenuStage === view.stageKey;
-    const stageMenu = actions
+    const retryActions = rg && rg.available && view.stageKey === rg.stage;
+    const menuOpen = (actions || retryActions) && stageMenuStage === view.stageKey;
+    const stageMenu = (actions || retryActions)
       ? `<span class="stageMenuWrap">`
         + `<button type="button" class="k-iconbtn stageMenuBtn" data-stage-menu="${esc(view.stageKey)}"`
         + ` aria-label="Stage actions" aria-haspopup="menu"`
         + ` aria-expanded="${menuOpen ? 'true' : 'false'}">${karstIcon('dots', 16)}</button>`
         + (menuOpen
           ? `<div class="stageMenu" role="menu" aria-label="Stage actions">`
-            + `<button type="button" class="menuButton" role="menuitem" data-act="send-back-to-implement"`
-            + ` title="Move this ticket back to Implement — UAT and Review will run again">`
-            + `${karstIcon('history', 16)}<span>Send back to Implement</span></button>`
+            + (retryActions
+              ? `<button type="button" class="menuButton" role="menuitem" data-act="rerun-gate"`
+                + ` data-stage="${esc(rg.stage)}"`
+                + ` title="Re-run this stage from scratch">`
+                + `${karstIcon('refresh', 16)}<span>Retry ${rg.stage === 'uat' ? 'UAT' : 'Review'}</span></button>`
+              : '')
+            + (actions
+              ? `<button type="button" class="menuButton" role="menuitem" data-act="send-back-to-implement"`
+                + ` title="Move this ticket back to Implement — UAT and Review will run again">`
+                + `${karstIcon('history', 16)}<span>Send back to Implement</span></button>`
+              : '')
             + `</div>`
           : '')
         + `</span>`
@@ -4671,6 +4681,19 @@
       karstBeginPending(btn, sendBackRequestId);
       if (lastState) render(lastState);
       post({ type: act });
+      return;
+    }
+    // Retry gate: the host answers with a confirmation MODAL and then a state
+    // push, same contract as send-back-to-implement.
+    if (act === 'rerun-gate') {
+      if (sendBackRequestId) return;
+      const stage = btn.getAttribute('data-stage');
+      if (!stage) return;
+      stageMenuStage = null;
+      sendBackRequestId = karstRequestId();
+      karstBeginPending(btn, sendBackRequestId);
+      if (lastState) render(lastState);
+      post({ type: act, stage });
       return;
     }
 
