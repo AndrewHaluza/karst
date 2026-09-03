@@ -44,6 +44,11 @@
  * required gates pass; `stages/review.ts` runs the lane after its gates), so
  * there is no execution order to change — only the agent's own first step.
  *
+ * When the host supplies a snapshot ref, the range becomes snapshot-based and
+ * already includes uncommitted work. That removes the empty-diff failure mode
+ * that appears when work is left uncommitted until ship, while keeping the
+ * branch-based path unchanged when no snapshot is supplied.
+ *
  * The block is appended AFTER the strategy lines (which a user's own
  * `instructions` may replace) and BEFORE the output rules, and is never
  * replaceable: an author overriding the strategy is choosing WHAT to look for,
@@ -81,6 +86,15 @@ export interface ScopeBlockOpts {
    * empty". Now all three lines agree.
    */
   openChanges?: boolean;
+  /**
+   * A disposable snapshot ref (`refs/karst/snapshot/...`) whose commit carries
+   * the worktree's committed AND uncommitted content as one tree
+   * (`workflow/reviewSnapshot.ts`). When present it REPLACES the branch as the
+   * diff head, so the range is complete no matter what the agent left
+   * uncommitted, and `openChanges` no longer changes the range. Absent → the
+   * branch-based range, exactly as before.
+   */
+  snapshotRef?: string | null;
 }
 
 /**
@@ -90,7 +104,24 @@ export interface ScopeBlockOpts {
  * mangled span, and a range the agent has to un-mangle is the guess this block
  * exists to remove.
  */
-function diffLine(subject: string, baseRef?: string | null, branch?: string | null, openChanges?: boolean): string {
+function diffLine(
+  subject: string,
+  baseRef?: string | null,
+  branch?: string | null,
+  openChanges?: boolean,
+  snapshotRef?: string | null,
+): string {
+  const snapshot = snapshotRef?.trim() || null;
+  if (snapshot !== null) {
+    const range = baseRef
+      ? `\`git diff origin/${baseRef}...${snapshot}\` (or \`git diff ${baseRef}...${snapshot}\` when the remote ref is absent)`
+      : `\`git diff <base-branch>...${snapshot}\``;
+    return (
+      `- The changes to ${subject} are exactly: ${range}. That ref is a snapshot of this worktree ` +
+      `taken by the orchestrator: it ALREADY includes uncommitted and untracked work, so do NOT ` +
+      `run \`git status\` to look for more, and do NOT treat missing commits on the branch as missing work.`
+    );
+  }
   // The head is origin/<branch> when known (resolves against the remote state,
   // so a stale local ref never produces an empty diff), else the checkout's
   // HEAD. A branch-named range resolves the ref itself, so it is the same diff
@@ -116,6 +147,7 @@ export function buildScopeBlock(intent: ScopeIntent, opts: ScopeBlockOpts = {}):
   const gates = opts.gatesPassed ?? [];
   const branch = opts.branch?.trim() || null;
   const baseRef = opts.baseRef?.trim() || null;
+  const snapshotRef = opts.snapshotRef?.trim() || null;
   const gateLine =
     gates.length > 0
       ? [
@@ -141,13 +173,15 @@ export function buildScopeBlock(intent: ScopeIntent, opts: ScopeBlockOpts = {}):
   // while the ticket's work lives in the worktree (869ej1nfb). An empty diff is
   // therefore a resolution FAILURE to investigate, never a clean bill of health.
   const emptyDiffGuard =
-    branch !== null
-      ? `- An empty \`git diff\` is NOT proof of no changes. Before concluding "no changes to ${subject}", verify: \`git status --porcelain\` is empty, AND the ticket branch's tip differs from the base (\`git rev-parse ${branch}\` vs \`git rev-parse ${baseRef ?? '<base-branch>'}\`). If the range cannot be resolved — remote ref absent, local ref stale, or a checkout that is not on the ticket branch — report the resolution failure as an observation; never output \`[]\` because a diff came back empty.`
-      : null;
+    snapshotRef !== null
+      ? `- That range is authoritative: it resolves without a remote and already contains uncommitted work. If it comes back EMPTY, this worktree genuinely matches the base — report exactly one observation (severity "info", title "no changes to ${subject}") rather than silently outputting \`[]\`.`
+      : branch !== null
+        ? `- An empty \`git diff\` is NOT proof of no changes. Before concluding "no changes to ${subject}", verify: \`git status --porcelain\` is empty, AND the ticket branch's tip differs from the base (\`git rev-parse ${branch}\` vs \`git rev-parse ${baseRef ?? '<base-branch>'}\`). If the range cannot be resolved — remote ref absent, local ref stale, or a checkout that is not on the ticket branch — report the resolution failure as an observation; never output \`[]\` because a diff came back empty.`
+        : null;
   return [
     `Orientation (already established — do NOT re-derive it):`,
     orientation,
-    diffLine(subject, opts.baseRef, branch, opts.openChanges),
+    diffLine(subject, opts.baseRef, branch, opts.openChanges, snapshotRef),
     ...(emptyDiffGuard !== null ? [emptyDiffGuard] : []),
     ...gateLine,
     ``,

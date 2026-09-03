@@ -19,6 +19,7 @@ import { manifest, uat as uatConfig, review as reviewConfig } from '../../manife
 import type { Manifest } from '../../manifest/types.js';
 import { resolveProcessAssignment } from '../../agent/processAssignment.js';
 import { runReview, type OpenDiff, type ReviewDeps } from './review.js';
+import * as findingsLaneModule from '../review/findingsLane.js';
 import { runUat, type UatDeps } from './uat.js';
 import { setDisabledGates } from '../../store/ticketGates.js';
 
@@ -1340,6 +1341,22 @@ describe('review findings lane (Lane B)', () => {
     expect(warn.mock.calls.some(([message]) => message.includes('not recognizable JSON'))).toBe(true);
     expect(consoleWarn).not.toHaveBeenCalled();
     consoleWarn.mockRestore();
+  });
+
+  it('passes its resolved git runner into the findings lane options', async () => {
+    const git = vi.fn();
+    const spy = vi.spyOn(findingsLaneModule, 'planAndRunFindingsLane').mockResolvedValue({
+      outcome: { kind: 'not-run' },
+      blockingSeverity: 'high',
+    });
+    await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}, { review: reviewConfig({ openChanges: true }) }) },
+      deps({ git }),
+    );
+    expect(spy).toHaveBeenCalled();
+    expect(spy.mock.calls[0]![0]).toMatchObject({ git });
+    spy.mockRestore();
   });
 
   it('keeps the findings of a run whose transition throws', async () => {

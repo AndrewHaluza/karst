@@ -3,6 +3,7 @@ import { openStore } from '../../store/db.js';
 import { createTicketFlow } from '../stages/create.js';
 import { listProcessRuns } from '../../store/processRuns.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
+import type { RunHeadlessOpts } from '../../agent/adapter.js';
 import type { AggregateEntry } from './aggregate.js';
 import { buildFindingsPrompt, planAndRunFindingsLane, runFindingsLane } from './findingsLane.js';
 import { GATE_LANE_HEADLESS_TIMEOUT_MS } from '../../agent/headlessSpawn.js';
@@ -24,8 +25,8 @@ function adapter(raw: string | (() => Promise<string>)): AgentAdapter {
 /** An adapter that captures the opts of the ONE call it answers, for forward-assertions. */
 function capturingAdapter(
   raw: string,
-): { adapter: AgentAdapter; calls: Array<{ onOutput?: (chunk: { stream: 'stdout' | 'stderr'; text: string }) => void }> } {
-  const calls: Array<{ onOutput?: (chunk: { stream: 'stdout' | 'stderr'; text: string }) => void }> = [];
+): { adapter: AgentAdapter; calls: RunHeadlessOpts[] } {
+  const calls: RunHeadlessOpts[] = [];
   return {
     calls,
     adapter: {
@@ -775,5 +776,18 @@ describe('buildFindingsPrompt', () => {
     // openChanges defaults to OFF → committed changes only.
     const prompt = buildFindingsPrompt('/web', 'develop', 'karst/feat/x', '  ');
     expect(prompt).toContain('Review the committed changes');
+  });
+
+  it('keeps today\'s uncommitted prose when openChanges is on and git is absent', async () => {
+    const { adapter: headless, calls } = capturingAdapter('[]');
+    await runFindingsLane({
+      config: { enabled: true, blockingSeverity: 'high', maxFindings: 50 },
+      adapter: headless,
+      targets: [{ repo: '/web', worktreePath: '/wt/web', baseRef: 'develop', branch: 'karst/x' }],
+      ticketId: 1,
+      openChanges: true,
+    });
+    expect(calls[0]!.prompt).toContain('uncommitted and committed changes');
+    expect(calls[0]!.prompt).not.toContain('refs/karst/snapshot/');
   });
 });

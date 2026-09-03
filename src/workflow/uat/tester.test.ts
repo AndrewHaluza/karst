@@ -10,6 +10,7 @@ import {
   type RunUatTesterOpts,
   type TesterTarget,
 } from './tester.js';
+import * as reviewSnapshot from '../reviewSnapshot.js';
 import type { AgentAdapter, HeadlessResult, RunHeadlessOpts } from '../../agent/adapter.js';
 import type { GitRunner } from '../../integrations/git.js';
 import { GATE_LANE_HEADLESS_TIMEOUT_MS } from '../../agent/headlessSpawn.js';
@@ -29,6 +30,19 @@ function fakeGit(branch: string | null, exitCode = 0): GitRunner {
     stdout: exitCode === 0 && branch !== null ? `${branch}\n` : '',
     stderr: '',
   });
+}
+
+function scriptedGit(
+  replies: Record<string, { stdout?: string; stderr?: string; exitCode?: number }>,
+): { git: GitRunner; calls: string[][] } {
+  const calls: string[][] = [];
+  const git: GitRunner = async (args) => {
+    calls.push(args);
+    const key = args.join(' ');
+    const r = replies[key] ?? replies[args[0]!] ?? {};
+    return { stdout: r.stdout ?? '', stderr: r.stderr ?? '', exitCode: r.exitCode ?? 0 };
+  };
+  return { git, calls };
 }
 
 /** A git runner that can never answer (cwd missing, git absent) — verification is skipped. */
@@ -396,6 +410,110 @@ describe('runUatTester', () => {
     expect(events).toEqual([{ repo: '/web', status: 'completed', detail: 'wrong checkout — skipped' }]);
   });
 
+  it('the prompt carries the snapshot range when a snapshot succeeds', async () => {
+    const create = vi.spyOn(reviewSnapshot, 'createReviewSnapshot').mockResolvedValue(
+      'refs/karst/snapshot/1/abc123abc123abcd',
+    );
+    const cleanup = vi.spyOn(reviewSnapshot, 'deleteReviewSnapshot').mockResolvedValue();
+    const { adapter, calls: headlessCalls } = rawAdapter('[]');
+    await runUatTester(
+      store,
+      opts({
+        adapter,
+        git: fakeGit('karst/x'),
+        targets: [{ repo: '/web', worktreePath: '/wt/web', branch: 'karst/x', baseRef: 'develop' }],
+      }),
+      { now },
+    );
+    expect(headlessCalls[0]!.prompt).toContain('refs/karst/snapshot/');
+    expect(headlessCalls[0]!.prompt).not.toContain('committed changes only');
+    expect(create).toHaveBeenCalled();
+    expect(cleanup).toHaveBeenCalled();
+    create.mockRestore();
+    cleanup.mockRestore();
+  });
+
+  it('a snapshot failure falls back to the branch range and still runs the target', async () => {
+    const create = vi.spyOn(reviewSnapshot, 'createReviewSnapshot').mockResolvedValue(null);
+    const cleanup = vi.spyOn(reviewSnapshot, 'deleteReviewSnapshot').mockResolvedValue();
+    const { adapter, calls: headlessCalls } = rawAdapter('[]');
+    await runUatTester(
+      store,
+      opts({
+        adapter,
+        git: fakeGit('karst/x'),
+        targets: [{ repo: '/web', worktreePath: '/wt/web', branch: 'karst/x', baseRef: 'develop' }],
+      }),
+      { now },
+    );
+    expect(headlessCalls).toHaveLength(1);
+    expect(headlessCalls[0]!.prompt).toContain('git diff origin/develop...origin/karst/x');
+    expect(create).toHaveBeenCalled();
+    expect(cleanup).not.toHaveBeenCalled();
+    create.mockRestore();
+    cleanup.mockRestore();
+  });
+
+  it('the snapshot ref is deleted after the run', async () => {
+    const create = vi.spyOn(reviewSnapshot, 'createReviewSnapshot').mockResolvedValue(
+      'refs/karst/snapshot/1/abc123abc123abcd',
+    );
+    const cleanup = vi.spyOn(reviewSnapshot, 'deleteReviewSnapshot').mockResolvedValue();
+    const { adapter } = rawAdapter('[]');
+    await runUatTester(
+      store,
+      opts({
+        adapter,
+        git: fakeGit('karst/x'),
+        targets: [{ repo: '/web', worktreePath: '/wt/web', branch: 'karst/x', baseRef: 'develop' }],
+      }),
+      { now },
+    );
+    expect(create).toHaveBeenCalled();
+    expect(cleanup).toHaveBeenCalled();
+    create.mockRestore();
+    cleanup.mockRestore();
+  });
+
+  it('the ref is deleted even when the adapter throws', async () => {
+    const create = vi.spyOn(reviewSnapshot, 'createReviewSnapshot').mockResolvedValue(
+      'refs/karst/snapshot/1/abc123abc123abcd',
+    );
+    const cleanup = vi.spyOn(reviewSnapshot, 'deleteReviewSnapshot').mockResolvedValue();
+    const { adapter } = fakeAdapter(async () => {
+      throw new Error('spawn ENOENT');
+    });
+    const res = await runUatTester(
+      store,
+      opts({
+        adapter,
+        git: fakeGit('karst/x'),
+        targets: [{ repo: '/web', worktreePath: '/wt/web', branch: 'karst/x', baseRef: 'develop' }],
+      }),
+      { now },
+    );
+    expect(res).toEqual({ kind: 'execution-failed', message: 'spawn ENOENT' });
+    expect(create).toHaveBeenCalled();
+    expect(cleanup).toHaveBeenCalled();
+    create.mockRestore();
+    cleanup.mockRestore();
+  });
+
+  it('opts.git absent means no snapshot calls and the prompt stays branch-based', async () => {
+    const { adapter, calls: headlessCalls } = rawAdapter('[]');
+    await runUatTester(
+      store,
+      opts({
+        adapter,
+        git: undefined,
+        targets: [{ repo: '/web', worktreePath: '/wt/web', branch: 'karst/x', baseRef: 'develop' }],
+      }),
+      { now },
+    );
+    expect(headlessCalls[0]!.prompt).toContain('git diff origin/develop...origin/karst/x');
+    expect(headlessCalls[0]!.prompt).not.toContain('refs/karst/snapshot/');
+  });
+
   // Finding 13: the cap used to apply PER target, so a 10-repository run could
   // persist ten times the documented execution cap. It is ONE execution-wide
   // budget: two targets each returning more than half the cap must persist
@@ -716,6 +834,17 @@ describe('buildTesterPrompt', () => {
   it('keeps the scope block even when user instructions replace the strategy', () => {
     const prompt = buildTesterPrompt(TARGETS[0]!, 'Focus on API endpoint behavior.');
     expect(prompt).toContain('Do NOT run repository-wide reconnaissance');
+  });
+
+  it('uses the snapshot range when a snapshot ref is present', () => {
+    const prompt = buildTesterPrompt(
+      TARGETS[0]!,
+      undefined,
+      undefined,
+      'refs/karst/snapshot/7/abc123abc123abcd',
+    );
+    expect(prompt).toContain('refs/karst/snapshot/7/abc123abc123abcd');
+    expect(prompt).not.toContain('committed changes only');
   });
 
   it('treats blank or whitespace instructions as absent', () => {
