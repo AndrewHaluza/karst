@@ -905,6 +905,31 @@ describe('driveTicket', () => {
         expect(completed.process.status).toBe('note');
       });
 
+      it('streams live gate output for both gate stages, tagged with stage and gate', async () => {
+        const output: { ticketId: number; stage: string; gate: string; text: string }[] = [];
+        await driveTicket(
+          depsFor({
+            onGateOutput: (ticketId, stage, gate, chunk) =>
+              output.push({ ticketId, stage, gate, text: chunk.text }),
+          }),
+          id,
+          {
+            runUat: async (s, opts) => {
+              opts.onGateOutput?.('test (web)', { stream: 'stdout', text: 'ran 3 tests' });
+              return { kind: 'advanced', next: transition(s, opts.ticketId, 'uat', { kind: 'passed' }) };
+            },
+            runReview: async (s, opts) => {
+              opts.onGateOutput?.('lint (web)', { stream: 'stderr', text: 'no problems' });
+              return { kind: 'advanced', next: transition(s, opts.ticketId, 'review', { kind: 'passed' }) };
+            },
+          },
+        );
+        expect(output).toEqual([
+          { ticketId: id, stage: 'uat', gate: 'test (web)', text: 'ran 3 tests' },
+          { ticketId: id, stage: 'review', gate: 'lint (web)', text: 'no problems' },
+        ]);
+      });
+
       it('streams agent output and per-target progress for the Tester and findings lane', async () => {
         const events: unknown[] = [];
         const output: { ticketId: number; processId: string; chunk: unknown }[] = [];

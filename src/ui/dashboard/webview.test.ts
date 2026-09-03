@@ -4981,6 +4981,51 @@ describe('terminal console view (VM)', () => {
     expect(h.terminals()[0]!.written).toBe('start');
   });
 
+  it('streams stage-output chunks into the open stage console', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: renderStateFor('uat') });
+    h.click('[data-act]', { act: 'console', console: 'uat' });
+    h.receive({ type: 'stage-log', stage: 'uat', result: { kind: 'ok', content: 'recorded', truncated: false } });
+    h.receive({ type: 'stage-output', stage: 'uat', text: '\n$ test\nrunning' });
+    expect(h.terminals()[0]!.written).toBe('recorded\n$ test\nrunning');
+  });
+
+  it('buffers stage-output that races the stage-log answer and flushes it after', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: renderStateFor('uat') });
+    h.click('[data-act]', { act: 'console', console: 'uat' });
+    h.receive({ type: 'stage-output', stage: 'uat', text: 'raced' });
+    expect(h.terminals()[0]!.written).toBe('');
+    h.receive({ type: 'stage-log', stage: 'uat', result: { kind: 'ok', content: 'tail\n', truncated: false } });
+    expect(h.terminals()[0]!.written).toBe('tail\nraced');
+  });
+
+  it('ignores stage-output for another stage, or while a PROCESS console is open', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: renderStateFor('uat') });
+    h.click('[data-act]', { act: 'console', console: 'uat' });
+    h.receive({ type: 'stage-log', stage: 'uat', result: { kind: 'ok', content: 'start', truncated: false } });
+    h.receive({ type: 'stage-output', stage: 'review', text: 'wrong stage' });
+    expect(h.terminals()[0]!.written).toBe('start');
+    h.click('[data-act]', { act: 'console', console: 'uat', consoleProc: 'tester' });
+    h.receive({ type: 'agent-log', processId: 'tester', result: { kind: 'ok', content: '', truncated: false } });
+    h.receive({ type: 'stage-output', stage: 'uat', text: 'gate text' });
+    expect(h.terminals().at(-1)!.written).toBe('');
+  });
+
+  it('recovers a refused stage console when live gate output arrives after it', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: renderStateFor('uat') });
+    h.click('[data-act]', { act: 'console', console: 'uat' });
+    // Mid-run there is no recorded artifact yet, so the answer is a refusal —
+    // but the gates ARE running, and their live output must still appear.
+    h.receive({ type: 'stage-log', stage: 'uat', result: { kind: 'error', message: 'No console output has been recorded for this stage yet.' } });
+    h.receive({ type: 'stage-output', stage: 'uat', text: '\n$ test\nrunning' });
+    // A fresh Terminal replaced the refusal blurb, and it carries the live text.
+    expect(h.terminals().length).toBe(2);
+    expect(h.terminals().at(-1)!.written).toBe('\n$ test\nrunning');
+  });
+
   it('renders a Console button only for stages the host flags (view.console)', () => {
     const h = bootPreviewHarness();
     const state = renderStateFor('uat');

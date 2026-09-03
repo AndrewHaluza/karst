@@ -16,6 +16,7 @@ import { listWorktreesByTicket } from '../../store/dashboard.js';
 import { defaultGitRunner, type GitRunner } from '../../integrations/git.js';
 import { probeScripts, type ScriptProbe } from '../gates/probe.js';
 import { runGateList } from '../gates/runList.js';
+import type { GateOutputChunk } from '../gates/run.js';
 import { checkNodeDeps, type NodeDepsCheck } from '../gates/depsCheck.js';
 import { planReviewTargets, type ReviewGateTarget } from '../review/targets.js';
 import { resolveReviewGates } from '../review/gates.js';
@@ -80,6 +81,13 @@ export interface RunReviewOpts {
   onGateComplete?: (gateName: string, exitCode: number | null) => void;
   /** Called before each gate's work begins, with the gate's name. */
   onGateStart?: (gateName: string) => void;
+  /**
+   * Live output from the deterministic gate lane, chunk by chunk, tagged with
+   * the gate's name — the gates' counterpart of the agent lane's live hook.
+   * RAW untrusted CLI prose; the host that surfaces it sanitizes it (the
+   * `GateConsole` sink). Absent → no live chunks.
+   */
+  onGateOutput?: (gateName: string, chunk: GateOutputChunk) => void;
   /**
    * Live-output hook for the findings lane's headless calls (Task 13):
    * forwarded verbatim into `planAndRunFindingsLane`. RAW untrusted CLI prose —
@@ -448,6 +456,7 @@ export async function runReview(
       now,
       scriptsAvailable: (script) => scripts[script] !== undefined,
       onGateStart: opts.onGateStart,
+      onGateOutput: opts.onGateOutput,
       onDebug: opts.debug,
       // Each gate row is appended the INSTANT that gate finishes — inside the
       // runner's own loop, before the next gate starts, so a host death between

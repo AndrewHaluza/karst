@@ -19,6 +19,7 @@ import { probeScripts, type ScriptProbe } from '../gates/probe.js';
 import { resolveGates, type GateResolution, type ResolvedGate } from '../gates/resolve.js';
 import { partitionDisabled, type StageGateResolution } from '../gates/disable.js';
 import { runGateList } from '../gates/runList.js';
+import type { GateOutputChunk } from '../gates/run.js';
 import { checkNodeDeps, type NodeDepsCheck } from '../gates/depsCheck.js';
 import { planUatTargets, type UatTarget } from '../uat/targets.js';
 import { declaredGatesFor, PROBE_SCRIPTS } from '../uat/gates.js';
@@ -69,6 +70,13 @@ export interface RunUatOpts {
   onGateComplete?: (gateName: string, exitCode: number | null) => void;
   /** Called before each gate's work begins, with the gate's name. */
   onGateStart?: (gateName: string) => void;
+  /**
+   * Live output from the deterministic gate lane, chunk by chunk, tagged with
+   * the gate's name — the gates' counterpart of the agent lane's live hook.
+   * RAW untrusted CLI prose; the host that surfaces it sanitizes it (the
+   * `GateConsole` sink). Absent → no live chunks.
+   */
+  onGateOutput?: (gateName: string, chunk: GateOutputChunk) => void;
   /**
    * Live-output hook for the Tester's headless calls (Task 13): forwarded
    * verbatim into `runUatTester`. RAW untrusted CLI prose — the host that
@@ -477,6 +485,7 @@ export async function runUat(
       now,
       scriptsAvailable: (script) => scripts[script] !== undefined,
       onGateStart: opts.onGateStart,
+      onGateOutput: opts.onGateOutput,
       onDebug: opts.debug,
       // Each gate row is appended the INSTANT that gate finishes — inside the
       // runner's own loop, before the next gate starts. A host death between

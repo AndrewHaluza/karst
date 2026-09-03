@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { StringDecoder } from 'node:string_decoder';
 import { prepareCommand } from '../../runtime/command.js';
 import { resolveCommandCwd } from '../../runtime/commandCwd.js';
 import { BoundedOutput } from '../../runtime/boundedOutput.js';
@@ -24,6 +25,19 @@ export interface RunCommandOptions {
    * unless the manifest's `debug` flag is on).
    */
   onDebug?: (message: string) => void;
+  /**
+   * Live output: called with each decoded stdout/stderr chunk AS IT ARRIVES,
+   * before the process closes. Absent → nothing streams (the bounded capture
+   * in `output` is unaffected either way). The text is raw, untrusted CLI
+   * prose — every consumer sanitizes it at its own boundary.
+   */
+  onOutput?: (chunk: GateOutputChunk) => void;
+}
+
+/** One decoded chunk of a gate process's live output. */
+export interface GateOutputChunk {
+  stream: 'stdout' | 'stderr';
+  text: string;
 }
 
 /**
@@ -146,11 +160,27 @@ export function runProcess(
     }
     options.signal?.addEventListener('abort', onAbort, { once: true });
 
+    // Decoders per stream: a multi-byte character split across two data events
+    // must not reach a console as two replacement characters.
+    const onOutputChunk = options.onOutput;
+    const stdoutDecoder = new StringDecoder('utf8');
+    const stderrDecoder = new StringDecoder('utf8');
+
     child.stdout?.on('data', (chunk: Buffer) => {
       output.append(chunk);
       stdoutOnly.append(chunk);
+      if (onOutputChunk) {
+        const text = stdoutDecoder.write(chunk);
+        if (text.length > 0) onOutputChunk({ stream: 'stdout', text });
+      }
     });
-    child.stderr?.on('data', (chunk: Buffer) => output.append(chunk));
+    child.stderr?.on('data', (chunk: Buffer) => {
+      output.append(chunk);
+      if (onOutputChunk) {
+        const text = stderrDecoder.write(chunk);
+        if (text.length > 0) onOutputChunk({ stream: 'stderr', text });
+      }
+    });
 
     child.once('error', (err: Error) => {
       if (timedOut || aborted) {
