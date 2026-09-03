@@ -88,12 +88,45 @@ function splitCommand(start: string): { command: string; args: string[] } {
  * else lives near it.
  */
 export function allocationRanges(manifest: Manifest, hot: readonly string[]): [number, number][] {
-  const ranges: [number, number][] = [manifest.portRange];
+  const collected: [number, number][] = [manifest.portRange];
   for (const name of hot) {
     const repo = manifest.repositories[name];
-    if (repo && isRunnable(repo) && repo.service.portRange) ranges.push(repo.service.portRange);
+    if (repo && isRunnable(repo) && repo.service.portRange) collected.push(repo.service.portRange);
   }
-  return ranges;
+  return mergeRanges(collected);
+}
+
+/**
+ * Overlapping and duplicate windows merged into the fewest that cover the same
+ * ports, ascending.
+ *
+ * Services commonly share one override, monorepo entries repeat it verbatim, and
+ * an override that merely narrows the manifest range overlaps it. `portsIn`
+ * collapses the repeated PORTS at the end, so the ranges were never a
+ * correctness problem — but each duplicate window is a window the probe walks,
+ * budgets for, and reports on twice before that collapse happens.
+ *
+ * Adjacent windows ([4000,4099] and [4100,4199]) merge too: they describe one
+ * contiguous span, and splitting the walk at an arbitrary seam buys nothing. An
+ * inverted range (`max < min`) is left exactly as given — `portsIn` yields
+ * nothing for it, and silently "repairing" a hand-edited manifest here would
+ * hide the mistake rather than let the port probe find nothing and move on.
+ */
+export function mergeRanges(
+  ranges: readonly (readonly [number, number])[],
+): [number, number][] {
+  const sane = ranges.filter(([min, max]) => min <= max);
+  const inverted = ranges.filter(([min, max]) => min > max).map(([min, max]): [number, number] => [min, max]);
+  const sorted = [...sane].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+
+  const merged: [number, number][] = [];
+  for (const [min, max] of sorted) {
+    const last = merged[merged.length - 1];
+    // `last[1] + 1` so touching windows merge, not just overlapping ones.
+    if (last && min <= last[1] + 1) last[1] = Math.max(last[1], max);
+    else merged.push([min, max]);
+  }
+  return [...merged, ...inverted];
 }
 
 /**

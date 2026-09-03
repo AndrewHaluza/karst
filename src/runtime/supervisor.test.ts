@@ -10,6 +10,7 @@ import {
   stopTicketServers,
   pruneOrphanServers,
   tailLog,
+  abandonVerdict,
 } from './supervisor.js';
 import { freePortWindow, removeTempDir, waitUntilListening } from './fixtures.js';
 import { listenerPids } from './portConflict.js';
@@ -151,6 +152,48 @@ let portCounter = 48200;
 function nextPort(): number {
   return portCounter++;
 }
+
+// The abandoned-start decision, as a table. The loop that drives it polls a
+// real port and a real process group; the RULE is what matters, and it differs
+// per platform because only POSIX can prove a process group is empty.
+describe('abandonVerdict', () => {
+  it('lets health decide as soon as something is listening', () => {
+    for (const group of ['alive', 'empty', 'unknown'] as const) {
+      for (const graceElapsed of [false, true]) {
+        expect(abandonVerdict({ portOpen: true, group, graceElapsed })).toBe('serving');
+      }
+    }
+  });
+
+  it('abandons at once when the group is provably empty (POSIX)', () => {
+    // Nothing is left that could ever bind the port: waiting only delays the
+    // same failure, which is the whole reason this check exists.
+    expect(abandonVerdict({ portOpen: false, group: 'empty', graceElapsed: false })).toBe(
+      'abandoned',
+    );
+  });
+
+  it('keeps waiting while the group still has processes in it', () => {
+    expect(abandonVerdict({ portOpen: false, group: 'alive', graceElapsed: false })).toBe('wait');
+  });
+
+  it('hands a still-populated group back to health once the grace is over', () => {
+    expect(abandonVerdict({ portOpen: false, group: 'alive', graceElapsed: true })).toBe('serving');
+  });
+
+  // The reported regression: on Windows a process group cannot be probed at
+  // all, so treating "cannot tell" as "empty" failed every daemonising launcher
+  // one poll after it exited — the grace period existed but never applied.
+  it('waits out the whole grace when the group cannot be probed (Windows)', () => {
+    expect(abandonVerdict({ portOpen: false, group: 'unknown', graceElapsed: false })).toBe('wait');
+  });
+
+  it('abandons an unprobeable group only after the grace has elapsed', () => {
+    expect(abandonVerdict({ portOpen: false, group: 'unknown', graceElapsed: true })).toBe(
+      'abandoned',
+    );
+  });
+});
 
 describe('server supervisor', () => {
   let store: Store;

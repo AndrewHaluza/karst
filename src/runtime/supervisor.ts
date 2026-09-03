@@ -163,16 +163,53 @@ const DAEMONISE_GRACE_MS = 2_000;
 /** How often the abandoned-start check re-asks while inside that grace. */
 const ABANDON_POLL_MS = 250;
 
-/** Does anything remain in the child's process group? */
-function groupAlive(pid: number): boolean {
-  if (process.platform === 'win32') return false; // no process groups to ask about
+/**
+ * What the OS says about the child's process group.
+ *
+ * `unknown` is its own answer, deliberately: Windows has no process group to
+ * signal-probe, and collapsing "cannot tell" into "empty" is how the grace
+ * period stopped applying there — a daemonising launcher was failed one poll
+ * after it exited, on a platform where karst has no evidence either way.
+ */
+type GroupLiveness = 'alive' | 'empty' | 'unknown';
+
+function groupLiveness(pid: number): GroupLiveness {
+  if (process.platform === 'win32') return 'unknown'; // no process groups to ask about
   try {
     process.kill(-pid, 0);
-    return true;
+    return 'alive';
   } catch (err) {
     // EPERM means the group exists and we were refused — very much alive.
-    return (err as NodeJS.ErrnoException).code === 'EPERM';
+    return (err as NodeJS.ErrnoException).code === 'EPERM' ? 'alive' : 'empty';
   }
+}
+
+export interface AbandonInputs {
+  /** Is anything listening on the service's port? */
+  portOpen: boolean;
+  group: GroupLiveness;
+  /** Has the daemonise grace period elapsed? */
+  graceElapsed: boolean;
+}
+
+/**
+ * The abandoned-start rule, as one pure decision:
+ *
+ *  - `serving` — stop asking; this is the health check's question now.
+ *  - `wait` — undecided, poll again.
+ *  - `abandoned` — nothing can ever answer; fail now instead of at the deadline.
+ *
+ * A listener settles it whatever else is true. An `empty` group is PROOF that
+ * nothing is left, so it abandons immediately — that fast failure is the point.
+ * An `unknown` group is not proof of anything, so it must wait the grace out
+ * first, and only then conclude; a group still `alive` past the grace is a slow
+ * starter, which health, not this, is there to time out.
+ */
+export function abandonVerdict(inputs: AbandonInputs): 'serving' | 'wait' | 'abandoned' {
+  if (inputs.portOpen) return 'serving';
+  if (inputs.group === 'empty') return 'abandoned';
+  if (!inputs.graceElapsed) return 'wait';
+  return inputs.group === 'alive' ? 'serving' : 'abandoned';
 }
 
 /**
@@ -191,11 +228,13 @@ function abandonedStart(opts: StartHotOpts, pid: number, exited: Promise<void>):
       const deadline = Date.now() + DAEMONISE_GRACE_MS;
       for (;;) {
         await new Promise((r) => setTimeout(r, ABANDON_POLL_MS).unref());
-        if (await isPortOpen(opts.host, opts.port)) return; // something bound it — let health decide
-        if (groupAlive(pid)) {
-          if (Date.now() >= deadline) return; // still running: this is health's question, not ours
-          continue;
-        }
+        const verdict = abandonVerdict({
+          portOpen: await isPortOpen(opts.host, opts.port),
+          group: groupLiveness(pid),
+          graceElapsed: Date.now() >= deadline,
+        });
+        if (verdict === 'serving') return; // something bound it, or is still coming up
+        if (verdict === 'wait') continue;
         opts.debug?.(
           `[runtime] ${opts.service}: launcher exited, process group empty, nothing on ` +
             `${opts.host}:${opts.port} — abandoning the start`,
