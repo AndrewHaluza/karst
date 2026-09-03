@@ -16,6 +16,7 @@ import {
 import { listImplementationTimeline } from '../store/implementationRuns.js';
 import { listProcessRuns } from '../store/processRuns.js';
 import { getTicket, setAgentState, updateTicketFields } from '../store/tickets.js';
+import { stageAttempt } from '../store/stages.js';
 import { BUILT_IN_PACKAGE_ID } from '../approaches/builtInId.js';
 import {
   openRecoveryRound,
@@ -444,6 +445,52 @@ describe('runStageCommand', () => {
       expect(() => runStageCommand(store, id, ['stage', 'impl', 'pass'])).toThrow(
         /graph marker refused/,
       );
+      expect(getTicket(store, id).stageCurrent).toBe('impl');
+    } finally {
+      store.close();
+    }
+  });
+
+  it('a direct-approach ticket with a cancelled graph run can pass impl', () => {
+    const store = openStore(':memory:');
+    try {
+      const id = createTicketFlow(store, { key: 'T-DIRECT-ABANDONED', title: 't' }).id;
+      transition(store, id, 'scope', { kind: 'passed' });
+      updateTicketFields(store, id, { approach: 'direct' });
+      const attempt = stageAttempt(store, id, 'impl');
+      store.db
+        .prepare(
+          `INSERT INTO approach_graph_runs
+             (ticket_id, stage_key, stage_attempt, approach_id, status, blocked_reason, created_at)
+           VALUES (?, 'impl', ?, 'karst-graph-engineering', 'cancelled', 'abandoned', '2026-09-01T00:00:00.000Z')`,
+        )
+        .run(id, attempt);
+      expect(runStageCommand(store, id, ['stage', 'impl', 'pass'])).toBe('uat');
+      expect(getTicket(store, id).stageCurrent).toBe('uat');
+    } finally {
+      store.close();
+    }
+  });
+
+  it.each([
+    ['running', /graph marker refused: graph run \d+ is running, not marker-ready/],
+    ['closed', /graph marker refused: graph run \d+ is closed — a terminal state, so it will never become marker-ready/],
+    ['stale', /graph marker refused: graph run \d+ is stale — a terminal state, so it will never become marker-ready/],
+  ] as const)('a graph-approach ticket with a %s graph run is refused', (status, message) => {
+    const store = openStore(':memory:');
+    try {
+      const id = createTicketFlow(store, { key: `T-GRAPH-${status}`, title: 't' }).id;
+      transition(store, id, 'scope', { kind: 'passed' });
+      updateTicketFields(store, id, { approach: BUILT_IN_PACKAGE_ID });
+      const attempt = stageAttempt(store, id, 'impl');
+      store.db
+        .prepare(
+          `INSERT INTO approach_graph_runs
+             (ticket_id, stage_key, stage_attempt, approach_id, status, created_at)
+           VALUES (?, 'impl', ?, 'karst-graph-engineering', ?, '2026-09-01T00:00:00.000Z')`,
+        )
+        .run(id, attempt, status);
+      expect(() => runStageCommand(store, id, ['stage', 'impl', 'pass'])).toThrow(message);
       expect(getTicket(store, id).stageCurrent).toBe('impl');
     } finally {
       store.close();
