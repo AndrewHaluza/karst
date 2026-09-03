@@ -172,11 +172,18 @@ export function buildScopeBlock(intent: ScopeIntent, opts: ScopeBlockOpts = {}):
   // absent, and a stale local ref that equals the base reads as "no changes"
   // while the ticket's work lives in the worktree (869ej1nfb). An empty diff is
   // therefore a resolution FAILURE to investigate, never a clean bill of health.
+  //
+  // When openChanges is false (default), the diff range is committed-only.
+  // An empty committed diff IS proof there are no committed changes to review.
+  // The agent must NOT be told to run `git status --porcelain` — that would
+  // defeat the purpose of openChanges: false and cause non-convergence (B2).
   const emptyDiffGuard =
     snapshotRef !== null
       ? `- That range is authoritative: it resolves without a remote and already contains uncommitted work. If it comes back EMPTY, this worktree genuinely matches the base — report exactly one observation (severity "info", title "no changes to ${subject}") rather than silently outputting \`[]\`.`
       : branch !== null
-        ? `- An empty \`git diff\` is NOT proof of no changes. Before concluding "no changes to ${subject}", verify: \`git status --porcelain\` is empty, AND the ticket branch's tip differs from the base (\`git rev-parse ${branch}\` vs \`git rev-parse ${baseRef ?? '<base-branch>'}\`). If the range cannot be resolved — remote ref absent, local ref stale, or a checkout that is not on the ticket branch — report the resolution failure as an observation; never output \`[]\` because a diff came back empty.`
+        ? opts.openChanges
+          ? `- An empty \`git diff\` is NOT proof of no changes. Before concluding "no changes to ${subject}", verify: \`git status --porcelain\` is empty, AND the ticket branch's tip differs from the base (\`git rev-parse ${branch}\` vs \`git rev-parse ${baseRef ?? '<base-branch>'}\`). If the range cannot be resolved — remote ref absent, local ref stale, or a checkout that is not on the ticket branch — report the resolution failure as an observation; never output \`[]\` because a diff came back empty.`
+          : `- The diff range above shows COMMITTED changes only. If it comes back EMPTY, there are no committed changes to ${subject} — report exactly one observation (severity "info", title "no changes to ${subject}") rather than silently outputting \`[]\`. Do NOT run \`git status\` or look for uncommitted work; this review is scoped to committed changes only.`
         : null;
   return [
     `Orientation (already established — do NOT re-derive it):`,

@@ -45,8 +45,10 @@ describe('buildScopeBlock', () => {
   // base — then reported "no changes to exercise". A wrong checkout must be a
   // HARD STOP (report it, never conclude "nothing to test"), and an empty diff
   // must not read as proof of no changes.
+  // When openChanges: true (the test lane default), the empty-diff guard still
+  // tells the agent to verify with git status.
   it('treats a wrong checkout as a hard stop when the branch is known', () => {
-    const text = buildScopeBlock('test', { baseRef: 'develop', branch: 'karst/x' }).join('\n');
+    const text = buildScopeBlock('test', { baseRef: 'develop', branch: 'karst/x', openChanges: true }).join('\n');
     expect(text).toContain('it MUST print `karst/x`');
     expect(text).toContain('you are in the WRONG checkout');
     expect(text).toMatch(/do NOT `git diff`, do NOT conclude there are no changes/);
@@ -141,6 +143,37 @@ describe('buildScopeBlock', () => {
     const text = buildScopeBlock('test').join('\n');
     expect(text).not.toContain('undefined');
     expect(text).not.toContain('origin/null');
+  });
+
+  it('openChanges: false removes the git status verification from the empty-diff guard', () => {
+    // When openChanges is false (default), the diff range is committed-only.
+    // An empty committed diff IS proof there are no committed changes to review.
+    // The agent must NOT be told to run `git status --porcelain` to look for
+    // uncommitted work — that would defeat the purpose of openChanges: false.
+    const text = buildScopeBlock('review', {
+      baseRef: 'develop',
+      branch: 'karst/x',
+      openChanges: false,
+    }).join('\n');
+    expect(text).toContain('committed changes only');
+    expect(text).not.toContain('git status --porcelain');
+    expect(text).not.toContain('An empty `git diff` is NOT proof of no changes');
+    // Instead, the guard should say an empty committed diff means no changes to review
+    expect(text).toContain('EMPTY');
+    expect(text.toLowerCase()).toMatch(/no changes to review/);
+  });
+
+  it('openChanges: true keeps the git status verification in the empty-diff guard', () => {
+    // When openChanges is true, the agent should also check uncommitted work.
+    // The empty-diff guard should still tell the agent to verify with git status.
+    const text = buildScopeBlock('review', {
+      baseRef: 'develop',
+      branch: 'karst/x',
+      openChanges: true,
+    }).join('\n');
+    expect(text).toContain('plus any uncommitted work');
+    expect(text).toContain('git status --porcelain');
+    expect(text).toContain('An empty `git diff` is NOT proof of no changes');
   });
 
   it('forbids the repo-wide reconnaissance both lanes were paying for', () => {
