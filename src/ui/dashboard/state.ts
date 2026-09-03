@@ -25,6 +25,7 @@ import { listCurrentPrsByTicket } from '../../store/prs.js';
 import type { GateStage } from '../../store/ticketGates.js';
 import { mergeGateState } from '../../workflow/mergeGate.js';
 import { sendBackState, type SendBackState } from '../../workflow/sendBack.js';
+import { retryGateState, type RetryGateState } from '../../workflow/retryGate.js';
 import { buildMergeCheckPanelRows, type MergeCheckPanelRow } from '../../model/mergeCheckPanel.js';
 import { graphInsideProcess, type GraphInsideInput } from '../../model/inside/graph.js';
 import { nowIso } from '../../model/time.js';
@@ -251,6 +252,12 @@ export interface DashboardState {
    * in-flight run, or a landed ship offer no menu at all.
    */
   sendBack: SendBackState;
+  /**
+   * The "Retry gate" recovery action's availability for the CURRENT stage,
+   * host-derived (`workflow/retryGate.ts`) in the same snapshot as sendBack.
+   * The webview renders the retry option in the stage menu when available.
+   */
+  rerunGate: RetryGateState;
 }
 
 /**
@@ -482,6 +489,7 @@ export function buildDashboardState(
   // so a stale panel can never offer an action the host would refuse — and the
   // host re-derives it before mutating anyway.
   const sendBack = sendBackState(store, ticketId);
+  const rerunGate = retryGateState(store, ticketId);
   // ONE read of the marks, for the same reason — the Inside strip and the impl
   // segment's pips are two views of one set of facts.
   const marks = listPhaseMarks(store, ticketId);
@@ -881,6 +889,7 @@ export function buildDashboardState(
       attach,
     }),
     sendBack,
+    rerunGate,
   };
 }
 

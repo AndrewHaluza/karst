@@ -894,6 +894,7 @@
      row is the separator there, and `:first-of-type` is NEVER used (the
      panel's section-head div precedes every row, so it would never match). */
   .quality-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--k-space-7);align-items:start}
+  .quality-grid--two{grid-template-columns:repeat(2,minmax(0,1fr))}
   .quality-panel{
     border:var(--k-border-w) solid var(--vscode-panel-border);border-radius:var(--k-radius-lg);
     padding:var(--k-space-6);background:var(--vscode-editorWidget-background,transparent);
@@ -1582,7 +1583,7 @@
       </div>
 
       <div class="section-block">
-        <div class="quality-grid">
+        <div class="quality-grid quality-grid--two">
           <div class="quality-panel">
             <div class="section-head">
               <div>
@@ -1599,8 +1600,17 @@
             </div>
             <div class="q-row">
               <div>
-                <label for="f-uatTesterSeverity">Tester blocking severity</label>
-                <div class="field-help">Tester observations at or above this severity fail UAT to <code>fix</code>.
+                <div class="toggle">
+                  <input type="checkbox" id="f-uatTesterEnabled" />
+                  <label for="f-uatTesterEnabled">Tester observations</label>
+                </div>
+                <div class="field-help">A headless agent pass that scans the change and reports observations into UAT.</div>
+              </div>
+            </div>
+            <div class="q-row" id="uatTesterOptions" hidden>
+              <div>
+                <label for="f-uatTesterSeverity">Blocking severity</label>
+                <div class="field-help">Observations at or above this severity fail UAT to <code>fix</code>.
                   <code>none</code> makes them advisory.</div>
               </div>
               <select id="f-uatTesterSeverity"></select>
@@ -1611,7 +1621,7 @@
             <div class="section-head">
               <div>
                 <div class="section-title">Review policy</div>
-                <div class="section-desc">Structured evidence review and its fix loop.</div>
+                <div class="section-desc">Structured evidence review, its fix loop, and the findings pass that feeds it.</div>
               </div>
             </div>
             <div class="q-row">
@@ -1638,15 +1648,6 @@
                 </div>
                 <div class="field-help">A finished review reveals the ticket's Changes panel for
                   every affected repository.</div>
-              </div>
-            </div>
-          </div>
-
-          <div class="quality-panel">
-            <div class="section-head">
-              <div>
-                <div class="section-title">Findings</div>
-                <div class="section-desc">The agent findings pass that feeds the review, and when it blocks.</div>
               </div>
             </div>
             <div class="q-row">
@@ -1679,13 +1680,15 @@
       </div>
 
       <div class="section-block">
-        <div class="section-head">
-          <div>
-            <div class="section-title">Gates</div>
-            <div class="section-desc">One editor for UAT and Review gates. A repository override <strong>replaces</strong> the global list for that repository.</div>
+        <div class="quality-panel">
+          <div class="section-head">
+            <div>
+              <div class="section-title">Gates</div>
+              <div class="section-desc">One editor for UAT and Review gates. A repository override <strong>replaces</strong> the global list for that repository.</div>
+            </div>
           </div>
+          <div id="qualityGates"></div>
         </div>
-        <div id="qualityGates"></div>
       </div>
     </div>
   </div>
@@ -2100,7 +2103,8 @@
     openChanges: false,
     findings: { enabled: true, blockingSeverity: 'high', maxFindings: 50 },
   };
-  // Mirrors validate/uat.ts's maxFixAttempts fallback.
+  // Mirrors validate/uat.ts's maxFixAttempts fallback and testerObservations default.
+  // testerObservations.blockingSeverity: 'none' keeps observations advisory by default.
   const UAT_DEFAULTS = { maxFixAttempts: 3, testerObservations: { blockingSeverity: 'none' } };
   const SEVERITIES = ['critical', 'high', 'medium', 'low', 'info', 'none'];
 
@@ -5072,7 +5076,11 @@
   // these three functions. Guarded by "preserves inert uat keys when the
   // quality tab is saved" (webview.test.ts).
   function updateUat(patch) {
-    draft.uat = { ...(draft.uat || {}), ...patch };
+    const next = { ...(draft.uat || {}), ...patch };
+    if (patch.testerObservations === undefined) {
+      delete next.testerObservations;
+    }
+    draft.uat = next;
     markDirty();
   }
 
@@ -5232,6 +5240,10 @@
     el('f-findingsSeverity').innerHTML = SEVERITIES.map((s) => `<option value="${s}">${s}</option>`).join('');
     el('f-findingsSeverity').value = findings.blockingSeverity || REVIEW_DEFAULTS.findings.blockingSeverity;
     el('f-findingsMax').value = findings.maxFindings != null ? findings.maxFindings : REVIEW_DEFAULTS.findings.maxFindings;
+    el('f-uatTesterEnabled').checked = draft.uat?.testerObservations != null;
+    el('f-uatTesterSeverity').innerHTML = SEVERITIES.map((s) => `<option value="${s}">${s}</option>`).join('');
+    el('f-uatTesterSeverity').value = uatTester.blockingSeverity || UAT_DEFAULTS.testerObservations.blockingSeverity;
+    el('uatTesterOptions').hidden = !el('f-uatTesterEnabled').checked;
     const uatGates = uat.gates || [];
     const reviewGates = review.gates || [];
     const uatRepositories = uat.repositories || {};
@@ -5279,6 +5291,18 @@
   });
   el('f-findingsMax').addEventListener('input', () => {
     updateFindings({ maxFindings: Number(el('f-findingsMax').value) || 1 });
+  });
+  el('f-uatTesterEnabled').addEventListener('change', () => {
+    const enabled = el('f-uatTesterEnabled').checked;
+    updateUat({ testerObservations: enabled ? { blockingSeverity: el('f-uatTesterSeverity').value || UAT_DEFAULTS.testerObservations.blockingSeverity } : undefined });
+    el('uatTesterOptions').hidden = !enabled;
+    markDirty();
+    renderQuality();
+  });
+  el('f-uatTesterSeverity').addEventListener('change', () => {
+    if (el('f-uatTesterEnabled').checked) {
+      updateUat({ testerObservations: { blockingSeverity: el('f-uatTesterSeverity').value } });
+    }
   });
 
   el('f-ticketTeamId').addEventListener('input', () => {
@@ -6125,7 +6149,7 @@
      so these queries stay within the zero-literal budget. */
   @media (max-width: 61.25em){
     .form-grid,.detail-grid,.template-form-row{grid-template-columns:minmax(0,1fr);gap:var(--k-space-3)}
-    .quality-grid{grid-template-columns:minmax(0,1fr)}
+    .quality-grid,.quality-grid--two{grid-template-columns:minmax(0,1fr)}
     .matrix-head{display:none}
     .matrix-cols{grid-template-columns:minmax(0,1fr)}
     .matrix-row .proc-cell{padding:var(--k-space-2) var(--k-space-0)}

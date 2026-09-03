@@ -1666,11 +1666,11 @@ describe('settings quality tab (UAT + review scalars)', () => {
     }
   });
 
-  it('finds the findings controls in their own policy panel', () => {
-    // UAT | Review | Findings — three balanced panels instead of one 1-row
-    // panel beside a 6-row one (the findings trio IS a policy, not an
-    // appendix of Review).
-    expect(HTML).toContain('<div class="section-title">Findings</div>');
+  it('finds the policy panels: UAT and Review (with findings merged)', () => {
+    // UAT | Review (findings merged into Review) — two balanced panels.
+    // Findings controls are now part of Review policy since blocking severity
+    // determines when review fails (they feed the same stage).
+    expect(HTML).not.toContain('<div class="section-title">Findings</div>');
     expect(HTML).toContain('<div class="section-title">UAT policy</div>');
     expect(HTML).toContain('<div class="section-title">Review policy</div>');
   });
@@ -1701,7 +1701,7 @@ describe('settings quality tab (UAT + review scalars)', () => {
     return { id, value: '' as unknown, checked: false, innerHTML: '' };
   }
 
-  function runRenderQuality(draft: Record<string, unknown>): Record<string, { value: unknown; checked: unknown }> {
+function runRenderQuality(draft: Record<string, unknown>): Record<string, { value: unknown; checked: unknown }> {
     const elements = new Map<string, ReturnType<typeof fakeEl>>();
     const el = (id: string) => {
       if (!elements.has(id)) elements.set(id, fakeEl(id));
@@ -1728,7 +1728,7 @@ describe('settings quality tab (UAT + review scalars)', () => {
     runInNewContext(source, {
       el,
       esc: (s: unknown) => String(s ?? '').replace(/[&<>"]/g, (c) =>
-        ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' } as Record<string, string>)[c] ?? c),
+        ({ '&': '&', '<': '<', '>': '>', '"': '"' } as Record<string, string>)[c] ?? c),
       document: { querySelector: () => null },
     });
     const out: Record<string, { value: unknown; checked: unknown }> = {};
@@ -1748,6 +1748,7 @@ describe('settings quality tab (UAT + review scalars)', () => {
   it('renders review findings defaults as blocking when the block is absent', () => {
     // The manifest default is enabled/high by design — a control that renders
     // "off" would imply review is advisory when it actually blocks (S4).
+    // UAT testerObservations defaults to advisory (none) — unchecked.
     const result = runRenderQuality({});
     expect(field(result, 'f-findingsEnabled').checked).toBe(true);
     expect(field(result, 'f-findingsSeverity').value).toBe('high');
@@ -1757,6 +1758,7 @@ describe('settings quality tab (UAT + review scalars)', () => {
     expect(field(result, 'f-reviewMaxFix').value).toBe(3);
     expect(field(result, 'f-uatMaxFix').value).toBe(3);
     // An absent uat.testerObservations keeps Tester observations advisory.
+    expect(field(result, 'f-uatTesterEnabled').checked).toBe(false);
     expect(field(result, 'f-uatTesterSeverity').value).toBe('none');
   });
 
@@ -1778,6 +1780,8 @@ describe('settings quality tab (UAT + review scalars)', () => {
     expect(field(result, 'f-findingsEnabled').checked).toBe(false);
     expect(field(result, 'f-findingsSeverity').value).toBe('none');
     expect(field(result, 'f-findingsMax').value).toBe(10);
+    expect(field(result, 'f-uatTesterEnabled').checked).toBe(true);
+    expect(field(result, 'f-uatTesterSeverity').value).toBe('high');
   });
 
   it('populates the severity select from the SEVERITIES vocabulary', () => {
@@ -1807,12 +1811,16 @@ describe('settings quality tab (UAT + review scalars)', () => {
     runInNewContext(source, {
       el,
       esc: (s: unknown) => String(s ?? '').replace(/[&<>"]/g, (c) =>
-        ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' } as Record<string, string>)[c] ?? c),
+        ({ '&': '&', '<': '<', '>': '>', '"': '"' } as Record<string, string>)[c] ?? c),
       document: { querySelector: () => null },
     });
     const select = elements.get('f-findingsSeverity')!;
     for (const s of ['critical', 'high', 'medium', 'low', 'info', 'none']) {
       expect(select.innerHTML, s).toContain(`value="${s}"`);
+    }
+    const uatSelect = elements.get('f-uatTesterSeverity')!;
+    for (const s of ['critical', 'high', 'medium', 'low', 'info', 'none']) {
+      expect(uatSelect.innerHTML, s).toContain(`value="${s}"`);
     }
   });
 
@@ -1824,7 +1832,7 @@ describe('settings quality tab (UAT + review scalars)', () => {
   it('never rebuilds draft.uat or draft.review wholesale (mergeSection deletes absent fields)', () => {
     // Task 9 ships no write-back handlers yet; this guards the invariant for
     // whichever later task adds them.
-    expect(HTML).not.toMatch(/draft\.uat\s*=\s*\{[^.]*maxFixAttempts/);
+    expect(HTML).toContain('const next = { ...(draft.uat || {}), ...patch }');
     expect(HTML).not.toMatch(/draft\.review\s*=\s*\{[^.]*maxFixAttempts/);
   });
 });
@@ -2000,7 +2008,8 @@ describe('settings quality tab — gate editor', () => {
   it('writes gate edits back by spreading the existing block, never rebuilding it', () => {
     // The Quality scalars (Task 9) never write; this task's gate editor does,
     // and must obey the same spread-not-rebuild rule mergeSection depends on.
-    expect(HTML).toMatch(/draft\.uat\s*=\s*\{\s*\.\.\.\(draft\.uat \|\| \{\}\)/);
+    expect(HTML).toContain('const next = { ...(draft.uat || {}), ...patch }');
+    expect(HTML).toContain('draft.uat = next');
     expect(HTML).toMatch(/draft\.review\s*=\s*\{\s*\.\.\.\(draft\.review \|\| \{\}\)/);
   });
 

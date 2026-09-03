@@ -893,5 +893,6 @@ export function renderStateFor(stage: InsideStageKey): DashboardState {
     approach: null,
     artifacts: [],
     sendBack: { available: false, reason: 'stage' },
+    rerunGate: { available: false, reason: 'not-gate-stage' },
   };
 }

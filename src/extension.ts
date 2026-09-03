@@ -279,6 +279,7 @@ import { resumeConfiguredFixExecution } from './workflow/fixExecution.js';
 import { findTicketPr } from './store/prs.js';
 import { resumeBlockedStage } from './workflow/stageResume.js';
 import { sendBackState, sendBackToImplement } from './workflow/sendBack.js';
+import { retryGateStage, retryGateState } from './workflow/retryGate.js';
 import { buildConflictBrief } from './workflow/conflictSession.js';
 import { stopServer, stopTicketServers } from './runtime/supervisor.js';
 import { reapStaleServers, describeReap } from './runtime/worktreeServers.js';
@@ -7794,6 +7795,42 @@ function makeDashboardActions(
           logError('send back to implement failed', e);
           void vscode.window.showErrorMessage(
             `Could not send the ticket back: ${e instanceof Error ? e.message : String(e)}`,
+          );
+        } finally {
+          afterServerChange();
+        }
+      })();
+    },
+    // Retry a gate stage (uat/review) by resetting it to pending so the driver
+    // re-runs it. Lighter than "Send back to Implement": only the current gate
+    // stage is touched, and the ticket stays where it is in the graph.
+    rerunGate: (stage) => {
+      void (async () => {
+        try {
+          const state = retryGateState(store, ticketId);
+          if (!state.available) {
+            void vscode.window.showInformationMessage(
+              'This stage cannot be retried right now.',
+            );
+            return;
+          }
+          const stageLabel = stage === 'uat' ? 'UAT' : 'Review';
+          const choice = await vscode.window.showWarningMessage(
+            `Retry ${stageLabel}?`,
+            { modal: true, detail: `Re-run the ${stageLabel} stage. Existing evidence will remain in history.` },
+            'Retry',
+          );
+          if (!choice) return;
+          const result = retryGateStage(store, ticketId, stage);
+          if (!result.ok) {
+            void vscode.window.showInformationMessage(`Could not retry: ${result.reason}`);
+            return;
+          }
+          void vscode.window.showInformationMessage(`${stageLabel} stage reset — retrying.`);
+        } catch (e) {
+          logError('retry gate failed', e);
+          void vscode.window.showErrorMessage(
+            `Could not retry the stage: ${e instanceof Error ? e.message : String(e)}`,
           );
         } finally {
           afterServerChange();

@@ -33,6 +33,7 @@ function actions(): DashboardActions {
     shipTicket: vi.fn(),
     resumeTicket: vi.fn(),
     sendBackToImplement: vi.fn(),
+    rerunGate: vi.fn(),
     createFollowUpTicket: vi.fn(),
     openStageLog: vi.fn(),
     resolveConflicts: vi.fn(),
