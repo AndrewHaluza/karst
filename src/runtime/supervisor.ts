@@ -2,9 +2,9 @@ import { spawn } from 'node:child_process';
 import { openSync, closeSync, readFileSync, existsSync, mkdirSync, statSync, readSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { Store } from '../store/db.js';
-import { waitForHealth, HealthAbortedError } from './health.js';
+import { waitForHealth, HealthAbortedError, HealthTimeoutError } from './health.js';
 import { killTree } from './processTree.js';
-import { isPortOpen, reclaimPort } from './portConflict.js';
+import { isPortOpen, reclaimPort, listenerPids } from './portConflict.js';
 export { killTree } from './processTree.js';
 
 /**
@@ -131,12 +131,95 @@ function readLogTail(logPath: string, maxBytes = START_FAILURE_LOG_TAIL_BYTES): 
  * The log path is ALWAYS named (a failed start must stay debuggable); the tail
  * is appended only when the log actually holds output.
  */
-function startFailure(opts: StartHotOpts, err: unknown): Error {
+function startFailure(opts: StartHotOpts, err: unknown, portState = ''): Error {
   const base = err instanceof Error ? err : new Error(String(err));
   const tail = readLogTail(opts.logPath);
   return new Error(
-    `${base.message}${tail.length > 0 ? `\nLast output:\n${tail}` : ''}\nSee the log: ${opts.logPath}`,
+    `${base.message}${portState}${tail.length > 0 ? `\nLast output:\n${tail}` : ''}\nSee the log: ${opts.logPath}`,
   );
+}
+
+/**
+ * How long after a launcher exits karst waits before calling the start dead.
+ * A launcher that daemonises (`docker compose up -d`) exits BEFORE the process
+ * it left behind has bound its port, so an immediate verdict would fail a start
+ * that is merely a few hundred milliseconds from healthy.
+ */
+const DAEMONISE_GRACE_MS = 2_000;
+/** How often the abandoned-start check re-asks while inside that grace. */
+const ABANDON_POLL_MS = 250;
+
+/** Does anything remain in the child's process group? */
+function groupAlive(pid: number): boolean {
+  if (process.platform === 'win32') return false; // no process groups to ask about
+  try {
+    process.kill(-pid, 0);
+    return true;
+  } catch (err) {
+    // EPERM means the group exists and we were refused — very much alive.
+    return (err as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
+/**
+ * Reject as soon as a start is ABANDONED: the launcher has exited, its process
+ * group is empty, and nothing is listening on the port. Each of those alone is
+ * legal — a daemonising launcher exits 0, a slow build has not bound yet — but
+ * together they mean there is no process left that could ever answer the health
+ * URL, so waiting out the deadline only delays the same failure by 30 seconds
+ * and then blames it on the health check.
+ *
+ * Never resolves: it is raced against the health wait and only ever rejects.
+ */
+function abandonedStart(opts: StartHotOpts, pid: number, exited: Promise<void>): Promise<never> {
+  return new Promise<never>((_, reject) => {
+    void exited.then(async () => {
+      const deadline = Date.now() + DAEMONISE_GRACE_MS;
+      for (;;) {
+        await new Promise((r) => setTimeout(r, ABANDON_POLL_MS).unref());
+        if (await isPortOpen(opts.host, opts.port)) return; // something bound it — let health decide
+        if (groupAlive(pid)) {
+          if (Date.now() >= deadline) return; // still running: this is health's question, not ours
+          continue;
+        }
+        opts.debug?.(
+          `[runtime] ${opts.service}: launcher exited, process group empty, nothing on ` +
+            `${opts.host}:${opts.port} — abandoning the start`,
+        );
+        reject(
+          new Error(
+            `could not start '${opts.service}': the process exited and left nothing listening on ` +
+              `${opts.host}:${opts.port}.`,
+          ),
+        );
+        return;
+      }
+    });
+  });
+}
+
+/**
+ * What the PORT showed when the health gate gave up — the half of the failure
+ * "health check <url> did not pass within 30000ms" never mentioned. "Nothing is
+ * listening" and "something is listening but never answered" are different
+ * faults with different fixes, and the message that names neither sends the
+ * reader to the wrong one. Best-effort: a probe that cannot answer adds nothing
+ * rather than delaying or replacing the real error.
+ */
+async function describePortState(opts: StartHotOpts): Promise<string> {
+  try {
+    if (!(await isPortOpen(opts.host, opts.port))) {
+      return `\nNothing is listening on ${opts.host}:${opts.port} — the service never bound its port.`;
+    }
+    const pids = await listenerPids(opts.host, opts.port);
+    const who = pids.length > 0 ? `pid ${pids.join(', ')}` : 'a process karst cannot identify';
+    return (
+      `\nSomething is listening on ${opts.host}:${opts.port} (${who}) but it never answered ` +
+      `${opts.healthUrl} with a 2xx.`
+    );
+  } catch {
+    return '';
+  }
 }
 
 export async function startHot(store: Store, opts: StartHotOpts): Promise<ServerRecord> {
@@ -219,8 +302,17 @@ export async function startHot(store: Store, opts: StartHotOpts): Promise<Server
   // 'running', so the dashboard offered a server nothing could stop or restart.
   // Only a NON-ZERO exit counts: a launcher that daemonises (`docker compose up
   // -d`) legitimately exits 0 and gets healthy afterwards.
+  // Every exit, whatever its code, so the abandoned-start check below can ask
+  // what the launcher LEFT BEHIND. A clean exit is not a failure by itself —
+  // that is the whole point of the daemonise path — but it is the moment the
+  // question becomes answerable.
+  let noteExit = (): void => {};
+  const childExited = new Promise<void>((resolve) => {
+    noteExit = resolve;
+  });
   const exitedBadly = new Promise<never>((_, reject) => {
     child.once('exit', (code, signal) => {
+      noteExit();
       if (code === 0) return; // daemonised launcher — keep waiting for health
       const how = code === null ? `on ${signal}` : `with code ${code}`;
       reject(
@@ -256,6 +348,9 @@ export async function startHot(store: Store, opts: StartHotOpts): Promise<Server
   }
   opts.debug?.(`[runtime] ${opts.service}: spawned pid ${pid}; waiting on ${opts.healthUrl}`);
 
+  const abandoned = abandonedStart(opts, pid, childExited);
+  abandoned.catch(() => {});
+
   try {
     // Race the spawn failure: an error that arrives after a pid did (EACCES on
     // the binary, say) would otherwise sit unheard until the health check times
@@ -267,6 +362,7 @@ export async function startHot(store: Store, opts: StartHotOpts): Promise<Server
       }),
       spawnFailed,
       exitedBadly,
+      abandoned,
     ]);
   } catch (err) {
     // Health failed or the start was cancelled — reap the whole tree, not just
@@ -274,13 +370,19 @@ export async function startHot(store: Store, opts: StartHotOpts): Promise<Server
     opts.debug?.(
       `[runtime] ${opts.service}: health gate failed (${err instanceof Error ? err.message : String(err)}) — killing pid ${pid}`,
     );
+    // A health TIMEOUT names only what karst watched, so add what the port
+    // showed. Asked BEFORE the kill, deliberately: afterwards the port is free
+    // because karst just freed it, and the answer would describe the aftermath
+    // instead of the fault. Every other failure already says what happened (the
+    // process exited, the command is missing) and needs no port reading.
+    const portState = err instanceof HealthTimeoutError ? await describePortState(opts) : '';
     killTree(pid);
     // A user cancellation is quiet — no log tail, no fault banner.
     if (err instanceof HealthAbortedError) throw err;
     // Surface the service's own output so the failure explains itself: a missing
     // module, a wrong port in config, a compile error. Without this the user sees
     // only "exited with code 1" / "health did not pass" and must open the log.
-    throw startFailure(opts, err);
+    throw startFailure(opts, err, portState);
   }
 
   // Single row per (ticket, service): drop any prior row for this service first
