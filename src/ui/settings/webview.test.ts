@@ -1688,7 +1688,7 @@ describe('settings quality tab (UAT + review scalars)', () => {
    * drift from the validators it stands in for.
    */
   it('mirrors the validators exactly', () => {
-    expect(HTML).toContain("const UAT_DEFAULTS = { maxFixAttempts: 3 };");
+    expect(HTML).toContain("const UAT_DEFAULTS = { maxFixAttempts: 3, testerObservations: { blockingSeverity: 'none' } };");
     expect(HTML).toContain(
       "const SEVERITIES = ['critical', 'high', 'medium', 'low', 'info', 'none'];",
     );
@@ -1708,7 +1708,7 @@ describe('settings quality tab (UAT + review scalars)', () => {
       return elements.get(id)!;
     };
     const source = `
-      const UAT_DEFAULTS = { maxFixAttempts: 3 };
+      const UAT_DEFAULTS = { maxFixAttempts: 3, testerObservations: { blockingSeverity: 'none' } };
       const REVIEW_DEFAULTS = {
         maxFixAttempts: 3,
         requireIndependentSignal: true,
@@ -1756,11 +1756,13 @@ describe('settings quality tab (UAT + review scalars)', () => {
     expect(field(result, 'f-reviewOpenChanges').checked).toBe(false);
     expect(field(result, 'f-reviewMaxFix').value).toBe(3);
     expect(field(result, 'f-uatMaxFix').value).toBe(3);
+    // An absent uat.testerObservations keeps Tester observations advisory.
+    expect(field(result, 'f-uatTesterSeverity').value).toBe('none');
   });
 
   it('hydrates from explicit values when the blocks are present', () => {
     const result = runRenderQuality({
-      uat: { maxFixAttempts: 5 },
+      uat: { maxFixAttempts: 5, testerObservations: { blockingSeverity: 'high' } },
       review: {
         maxFixAttempts: 2,
         requireIndependentSignal: false,
@@ -1769,6 +1771,7 @@ describe('settings quality tab (UAT + review scalars)', () => {
       },
     });
     expect(field(result, 'f-uatMaxFix').value).toBe(5);
+    expect(field(result, 'f-uatTesterSeverity').value).toBe('high');
     expect(field(result, 'f-reviewMaxFix').value).toBe(2);
     expect(field(result, 'f-reviewIndependent').checked).toBe(false);
     expect(field(result, 'f-reviewOpenChanges').checked).toBe(true);
@@ -1784,7 +1787,7 @@ describe('settings quality tab (UAT + review scalars)', () => {
       return elements.get(id)!;
     };
     const source = `
-      const UAT_DEFAULTS = { maxFixAttempts: 3 };
+      const UAT_DEFAULTS = { maxFixAttempts: 3, testerObservations: { blockingSeverity: 'none' } };
       const REVIEW_DEFAULTS = {
         maxFixAttempts: 3,
         requireIndependentSignal: true,

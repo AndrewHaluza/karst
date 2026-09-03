@@ -27,7 +27,7 @@
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
     "compile": "tsc -p tsconfig.build.json",
     "copy-assets": "node scripts/copy-assets.mjs",
-    "build": "npm run clean && node scripts/build-extension.mjs --production && npm run copy-assets",
+    "build": "npm run clean && node scripts/build-extension.mjs --production && npm run copy-assets && node scripts/verify-build.mjs",
     "vscode:prepublish": "npm run build",
     "rebuild:better-sqlite3": "node scripts/rebuild-better-sqlite3.mjs auto",
     "rebuild:electron": "node scripts/rebuild-better-sqlite3.mjs electron",
@@ -248,6 +248,7 @@
     "@vitest/coverage-v8": "^4.1.10",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
+    "esbuild": "^0.28.1",
     "tsx": "^4.23.0",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"

@@ -983,7 +983,12 @@ describe('dashboard webview.html', () => {
       '12px', '12px', '12px', '12px',
       '4px', '4px', '4px', '4px', '4px', '4px',
       '150px', '3px',
-      '380px'];
+      '380px',
+      // `280px` is the worktree-base popover's fixed width — a `position:fixed`
+      // surface that must not resize with its content (the layout shift this
+      // width exists to prevent), and no space step expresses it. Same
+      // exemption class as `200px`/`150px`.
+      '280px'];
     // The ported Inside block is the ONE exempt region (see its own header
     // comment): it is the A37 prototype's geometry, scoped under `#inside`,
     // and its pixel values ARE the design. Its colours still go through

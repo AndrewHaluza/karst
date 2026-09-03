@@ -24,3 +24,5 @@ The `karst` CLI takes a bare ticket key, so `--manifest` is what tells it which 
 ## The CLI cannot migrate
 
 (it opens with `node:sqlite`, read-only for `context`). Both CLI stores assert `user_version >= SCHEMA_VERSION` up front (`cli/assertMigrated.ts`) and fail naming the file and both versions — otherwise a stale registry surfaces as a raw `no such column: repo` that tells the invoking agent nothing.
+
+`dist/cli/main.js` is a second, separately bundled esbuild entrypoint (`scripts/build-extension.mjs`, alongside `dist/extension.js`), and `scripts/verify-build.mjs` smoke-runs `guide` after every build to catch it going missing.
