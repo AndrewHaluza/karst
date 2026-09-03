@@ -65,7 +65,12 @@ const LITERAL_BUDGET: Record<string, number> = {
   // literal — `380px` (the narrow-layout @media breakpoint, which cannot read
   // a custom property) — commented in webview.html and pinned by the
   // dashboard's own px allowlist test.
-  dashboard: 23,
+  // 24, not 23: the worktree-base popover's fixed width adds one justified
+  // geometry literal — `280px`, the width a `position:fixed` surface must hold
+  // so it does not resize with its content (the layout shift the width exists
+  // to prevent) — commented in webview.html and pinned by the dashboard's own
+  // px allowlist test.
+  dashboard: 24,
   diffs: 1,
   ticketForm: 0,
   settings: 0,
