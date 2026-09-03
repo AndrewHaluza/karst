@@ -1,8 +1,14 @@
 import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { openSync, closeSync, readFileSync, existsSync, mkdirSync, statSync, readSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { Store } from '../store/db.js';
-import { waitForHealth, HealthAbortedError, HealthTimeoutError } from './health.js';
+import {
+  waitForHealth,
+  HealthAbortedError,
+  HealthTimeoutError,
+  INSTANCE_ENV,
+} from './health.js';
 import { killTree } from './processTree.js';
 import { isPortOpen, reclaimPort, listenerPids } from './portConflict.js';
 export { killTree } from './processTree.js';
@@ -44,6 +50,14 @@ export interface StartHotOpts {
    * reaped; anything outside it is a stranger and never touched.
    */
   repoPath: string;
+  /**
+   * Require the health response to identify itself as this start
+   * (`service.healthIdentity`). karst mints one token per start, puts it in the
+   * spawn env as `KARST_INSTANCE_TOKEN`, and accepts the health check only from
+   * a response that echoes it in `X-Karst-Instance`. Off → reachability is the
+   * whole test, and another worktree's service on the port passes for ours.
+   */
+  requireIdentity?: boolean;
   healthTimeoutMs?: number;
   /** Abort the health-gated start early (spin cancellation). */
   signal?: AbortSignal;
@@ -271,11 +285,19 @@ export async function startHot(store: Store, opts: StartHotOpts): Promise<Server
   mkdirSync(dirname(opts.logPath), { recursive: true });
   const logFd = openSync(opts.logPath, 'a');
 
+  // One token per START, not per service or per ticket: a restart must not be
+  // satisfiable by the process the previous run left behind on the same port.
+  const instanceToken = opts.requireIdentity ? randomUUID() : undefined;
+
   let child;
   try {
     child = spawn(opts.command, opts.args, {
       cwd: opts.cwd,
-      env: { ...process.env, ...opts.env },
+      env: {
+        ...process.env,
+        ...opts.env,
+        ...(instanceToken ? { [INSTANCE_ENV]: instanceToken } : {}),
+      },
       stdio: ['ignore', logFd, logFd],
       // Own process group so killTree can reap grandchildren (e.g. `npm run dev`
       // → Vite). Without this a health-fail/cancel orphans the real server.
@@ -359,6 +381,7 @@ export async function startHot(store: Store, opts: StartHotOpts): Promise<Server
       waitForHealth(opts.healthUrl, {
         timeoutMs: opts.healthTimeoutMs,
         signal: opts.signal,
+        requireInstance: instanceToken,
       }),
       spawnFailed,
       exitedBadly,

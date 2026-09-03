@@ -308,6 +308,7 @@ export async function spinTicket(
         host: manifest.host,
         port: ownPort,
         healthUrl,
+        requireIdentity: service.healthIdentity === true,
         logPath: serverLogPath(cwd, name),
         repoPath: repo.repoPath,
         signal,

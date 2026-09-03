@@ -475,6 +475,106 @@ describe('server supervisor', () => {
     expect(message).not.toMatch(/nothing is listening/i);
   });
 
+  // Identity (`service.healthIdentity`). Reachability alone cannot tell "my
+  // service came up" from "someone else's service holds this port" — the
+  // reported wrong PASS, where a spin was greenlit against another worktree's
+  // gateway and everything downstream was wired to it.
+  describe('health identity', () => {
+    /** Echoes the token karst put in the env — the contract a service keeps. */
+    const ECHO_SRC = `
+import { createServer } from 'node:http';
+createServer((_req, res) => {
+  res.writeHead(200, { 'x-karst-instance': process.env.KARST_INSTANCE_TOKEN ?? '' });
+  res.end('ok');
+}).listen(Number(process.env.PORT));
+`;
+
+    it('passes when the service echoes the token karst gave this start', async () => {
+      const port = nextPort();
+      writeFileSync(join(dir, 'echo.mjs'), ECHO_SRC);
+      const rec = await startHot(store, {
+        ticketId: 1,
+        service: 'backend',
+        command: process.execPath,
+        args: [join(dir, 'echo.mjs')],
+        cwd: dir,
+        repoPath: dir,
+        env: { PORT: String(port) },
+        host: '127.0.0.1',
+        port,
+        healthUrl: `http://127.0.0.1:${port}/health`,
+        logPath: join(dir, 'svc.log'),
+        requireIdentity: true,
+        healthTimeoutMs: 8_000,
+      });
+      expect(rec.status).toBe('running');
+      stopServer(store, rec.id);
+    });
+
+    it('refuses a healthy 200 from a service that is not this start', async () => {
+      const port = nextPort();
+      // A foreign instance: 200 on /health, but its own token — precisely the
+      // sibling worktree's server the port probe could not distinguish.
+      writeFileSync(
+        join(dir, 'foreign.mjs'),
+        `import { createServer } from 'node:http';
+         createServer((_q, res) => {
+           res.writeHead(200, { 'x-karst-instance': 'some-other-start' });
+           res.end('ok');
+         }).listen(Number(process.env.PORT));`,
+      );
+      let message = '';
+      await startHot(store, {
+        ticketId: 1,
+        service: 'backend',
+        command: process.execPath,
+        args: [join(dir, 'foreign.mjs')],
+        cwd: dir,
+        repoPath: dir,
+        env: { PORT: String(port) },
+        host: '127.0.0.1',
+        port,
+        healthUrl: `http://127.0.0.1:${port}/health`,
+        logPath: join(dir, 'svc.log'),
+        requireIdentity: true,
+        healthTimeoutMs: 8_000,
+      }).catch((err: Error) => {
+        message = err.message;
+      });
+      expect(message).toMatch(/another instance/i);
+    });
+
+    it('does not set the token, or check identity, when the service did not ask for it', async () => {
+      const port = nextPort();
+      // Answers 200 only when the env var is ABSENT: proves karst mints no token
+      // for a service that never opted in.
+      writeFileSync(
+        join(dir, 'no-token.mjs'),
+        `import { createServer } from 'node:http';
+         createServer((_q, res) => {
+           const leaked = process.env.KARST_INSTANCE_TOKEN;
+           res.writeHead(leaked ? 500 : 200); res.end(leaked ?? 'ok');
+         }).listen(Number(process.env.PORT));`,
+      );
+      const rec = await startHot(store, {
+        ticketId: 1,
+        service: 'backend',
+        command: process.execPath,
+        args: [join(dir, 'no-token.mjs')],
+        cwd: dir,
+        repoPath: dir,
+        env: { PORT: String(port) },
+        host: '127.0.0.1',
+        port,
+        healthUrl: `http://127.0.0.1:${port}/health`,
+        logPath: join(dir, 'svc.log'),
+        healthTimeoutMs: 8_000,
+      });
+      expect(rec.status).toBe('running');
+      stopServer(store, rec.id);
+    });
+  });
+
   it('rejects after a timeout when the service never gets healthy', async () => {
     const port = nextPort();
     await expect(

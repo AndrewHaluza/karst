@@ -41,4 +41,6 @@ Legacy `services:` manifests migrate IN MEMORY (`manifest/migrate.ts`) + warn; `
 
 ## New `Manifest` field checklist
 
+`service.healthIdentity` (opt-in, default off) is the one service field that changes what READY means — the service must echo `KARST_INSTANCE_TOKEN` back in `X-Karst-Instance` or it never becomes healthy; see `docs/arch/worktrees-and-servers.md`. The Settings toggle deletes the key rather than writing `false`, so an untouched service keeps a clean yml.
+
 New `Manifest` field checklist: add to `types.ts` + `validateManifest` (schema.ts, default it) + **`writeManifest` overlay (write.ts)** or Save silently drops it. Guard: writeManifest.test.ts "round-trips every modeled section". Repository/service fields also go in `manifest/fixtures.ts` — the shared test builders every suite uses, so a shape change is one file, not 26.
