@@ -170,6 +170,7 @@ describe('writeManifest', () => {
             service: {
               start: 'npm run dev',
               health: 'http://{host}:{port}/health',
+              healthIdentity: true,
               ports: [{ name: 'http', env: 'PORT', default: 3000 }],
               portRange: [5000, 5100],
               dependsOn: [],

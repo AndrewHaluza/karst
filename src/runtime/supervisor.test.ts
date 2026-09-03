@@ -10,8 +10,11 @@ import {
   stopTicketServers,
   pruneOrphanServers,
   tailLog,
+  abandonVerdict,
 } from './supervisor.js';
 import { freePortWindow, removeTempDir, waitUntilListening } from './fixtures.js';
+import { listenerPids } from './portConflict.js';
+import { killTree } from './processTree.js';
 
 /**
  * A fixture dev server: comes up on PORT, serves /health 200 only after a delay
@@ -110,6 +113,17 @@ writeFileSync(process.env.GRANDCHILD_PID_FILE, String(grand.pid));
 setInterval(() => {}, 1e9);
 `;
 
+/**
+ * A launcher that exits 0 having started nothing — the `docker compose up -d`
+ * shape when the daemonised process it was supposed to leave behind died (or
+ * was never started). Nothing is left to become healthy, yet the health gate
+ * waited out its whole deadline before saying so.
+ */
+const EXIT_ZERO_SRC = `
+console.error('nothing to run here');
+process.exit(0);
+`;
+
 /** Poll `url` until it answers 200, so a fixture is provably up before the test acts. */
 async function waitUntilServing(url: string, timeoutMs = 5_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
@@ -139,6 +153,48 @@ function nextPort(): number {
   return portCounter++;
 }
 
+// The abandoned-start decision, as a table. The loop that drives it polls a
+// real port and a real process group; the RULE is what matters, and it differs
+// per platform because only POSIX can prove a process group is empty.
+describe('abandonVerdict', () => {
+  it('lets health decide as soon as something is listening', () => {
+    for (const group of ['alive', 'empty', 'unknown'] as const) {
+      for (const graceElapsed of [false, true]) {
+        expect(abandonVerdict({ portOpen: true, group, graceElapsed })).toBe('serving');
+      }
+    }
+  });
+
+  it('abandons at once when the group is provably empty (POSIX)', () => {
+    // Nothing is left that could ever bind the port: waiting only delays the
+    // same failure, which is the whole reason this check exists.
+    expect(abandonVerdict({ portOpen: false, group: 'empty', graceElapsed: false })).toBe(
+      'abandoned',
+    );
+  });
+
+  it('keeps waiting while the group still has processes in it', () => {
+    expect(abandonVerdict({ portOpen: false, group: 'alive', graceElapsed: false })).toBe('wait');
+  });
+
+  it('hands a still-populated group back to health once the grace is over', () => {
+    expect(abandonVerdict({ portOpen: false, group: 'alive', graceElapsed: true })).toBe('serving');
+  });
+
+  // The reported regression: on Windows a process group cannot be probed at
+  // all, so treating "cannot tell" as "empty" failed every daemonising launcher
+  // one poll after it exited — the grace period existed but never applied.
+  it('waits out the whole grace when the group cannot be probed (Windows)', () => {
+    expect(abandonVerdict({ portOpen: false, group: 'unknown', graceElapsed: false })).toBe('wait');
+  });
+
+  it('abandons an unprobeable group only after the grace has elapsed', () => {
+    expect(abandonVerdict({ portOpen: false, group: 'unknown', graceElapsed: true })).toBe(
+      'abandoned',
+    );
+  });
+});
+
 describe('server supervisor', () => {
   let store: Store;
   let dir: string;
@@ -160,6 +216,7 @@ describe('server supervisor', () => {
     writeFileSync(join(dir, 'exit.mjs'), EXIT_BOOT_SRC);
     writeFileSync(join(dir, 'huge-exit.mjs'), HUGE_EXIT_SRC);
     writeFileSync(join(dir, 'stuck.mjs'), STUCK_WITH_OUTPUT_SRC);
+    writeFileSync(join(dir, 'exit-zero.mjs'), EXIT_ZERO_SRC);
   });
   afterEach(() => {
     // Any server a case left running is a detached process that OUTLIVES vitest and
@@ -348,6 +405,217 @@ describe('server supervisor', () => {
     expect(rows[0]!.status).toBe('running');
 
     stopServer(store, rec2.id);
+  });
+
+  // The reported failure: a health gate that spends its whole deadline on a
+  // process that is ALREADY GONE, then blames the health check. A launcher that
+  // exits 0 is legitimately allowed to daemonise, so the exit alone proves
+  // nothing — but once its process group is empty AND nothing is listening on
+  // the port, there is nothing left that could ever become healthy.
+  it('fails at once when a launcher exits leaving nothing listening, instead of waiting out the deadline', async () => {
+    const port = nextPort();
+    const started = Date.now();
+    await expect(
+      startHot(store, {
+        ticketId: 1,
+        service: 'backend',
+        command: process.execPath,
+        args: [join(dir, 'exit-zero.mjs')],
+        cwd: dir,
+        repoPath: dir,
+        env: { PORT: String(port) },
+        host: '127.0.0.1',
+        port,
+        healthUrl: `http://127.0.0.1:${port}/health`,
+        logPath: join(dir, 'svc.log'),
+        healthTimeoutMs: 30_000,
+      }),
+    ).rejects.toThrow(/exited.*nothing (is )?listening|nothing (is )?listening/i);
+    expect(Date.now() - started).toBeLessThan(15_000); // never waited out the 30s
+  });
+
+  // A launcher that exits 0 and DOES leave a healthy daemon behind must still
+  // pass — the fast-fail must not turn daemonising into a failure.
+  it('still accepts a launcher that exits 0 leaving a healthy process behind', async () => {
+    const port = nextPort();
+    writeFileSync(
+      join(dir, 'daemonise.mjs'),
+      `import { spawn } from 'node:child_process';
+       spawn(process.execPath, [${JSON.stringify(join(dir, 'server.mjs'))}], {
+         env: { ...process.env, PORT: String(${port}) },
+         detached: true,
+         stdio: 'ignore',
+       }).unref();
+       process.exit(0);`,
+    );
+    const rec = await startHot(store, {
+      ticketId: 1,
+      service: 'backend',
+      command: process.execPath,
+      args: [join(dir, 'daemonise.mjs')],
+      cwd: dir,
+      repoPath: dir,
+      env: { PORT: String(port) },
+      host: '127.0.0.1',
+      port,
+      healthUrl: `http://127.0.0.1:${port}/health`,
+      logPath: join(dir, 'svc.log'),
+      healthTimeoutMs: 10_000,
+    });
+    expect(rec.status).toBe('running');
+    // The daemon outlives its launcher and this test's row, so reap it by port.
+    const pids = await listenerPids('127.0.0.1', port);
+    for (const pid of pids) killTree(pid);
+  });
+
+  // "health check <url> did not pass within 30000ms" is true and useless: it
+  // names what karst watched, never what the port actually showed. The timeout
+  // must say whether anything was listening at all — the difference between "my
+  // service never bound" and "something else answers here".
+  it('names the port state when the health check times out with nothing listening', async () => {
+    const port = nextPort();
+    let message = '';
+    await startHot(store, {
+      ticketId: 1,
+      service: 'backend',
+      command: process.execPath,
+      // Alive, but never binds anything: the health URL can never pass.
+      args: ['-e', 'setInterval(() => {}, 1e9)'],
+      cwd: dir,
+      repoPath: dir,
+      env: { PORT: String(port) },
+      host: '127.0.0.1',
+      port,
+      healthUrl: `http://127.0.0.1:${port}/health`,
+      logPath: join(dir, 'svc.log'),
+      healthTimeoutMs: 1200,
+    }).catch((err: Error) => {
+      message = err.message;
+    });
+    expect(message).toMatch(/nothing is listening on 127\.0\.0\.1:/i);
+  });
+
+  it('reports the listener when the health check times out against an occupied port', async () => {
+    const port = nextPort();
+    let message = '';
+    await startHot(store, {
+      ticketId: 1,
+      service: 'backend',
+      command: process.execPath,
+      args: [join(dir, 'never.mjs')],
+      cwd: dir,
+      repoPath: dir,
+      env: { PORT: String(port) },
+      host: '127.0.0.1',
+      port,
+      healthUrl: `http://127.0.0.1:${port}/health`,
+      logPath: join(dir, 'svc.log'),
+      healthTimeoutMs: 1500,
+    }).catch((err: Error) => {
+      message = err.message;
+    });
+    expect(message).toMatch(/something is listening on 127\.0\.0\.1:/i);
+    expect(message).not.toMatch(/nothing is listening/i);
+  });
+
+  // Identity (`service.healthIdentity`). Reachability alone cannot tell "my
+  // service came up" from "someone else's service holds this port" — the
+  // reported wrong PASS, where a spin was greenlit against another worktree's
+  // gateway and everything downstream was wired to it.
+  describe('health identity', () => {
+    /** Echoes the token karst put in the env — the contract a service keeps. */
+    const ECHO_SRC = `
+import { createServer } from 'node:http';
+createServer((_req, res) => {
+  res.writeHead(200, { 'x-karst-instance': process.env.KARST_INSTANCE_TOKEN ?? '' });
+  res.end('ok');
+}).listen(Number(process.env.PORT));
+`;
+
+    it('passes when the service echoes the token karst gave this start', async () => {
+      const port = nextPort();
+      writeFileSync(join(dir, 'echo.mjs'), ECHO_SRC);
+      const rec = await startHot(store, {
+        ticketId: 1,
+        service: 'backend',
+        command: process.execPath,
+        args: [join(dir, 'echo.mjs')],
+        cwd: dir,
+        repoPath: dir,
+        env: { PORT: String(port) },
+        host: '127.0.0.1',
+        port,
+        healthUrl: `http://127.0.0.1:${port}/health`,
+        logPath: join(dir, 'svc.log'),
+        requireIdentity: true,
+        healthTimeoutMs: 8_000,
+      });
+      expect(rec.status).toBe('running');
+      stopServer(store, rec.id);
+    });
+
+    it('refuses a healthy 200 from a service that is not this start', async () => {
+      const port = nextPort();
+      // A foreign instance: 200 on /health, but its own token — precisely the
+      // sibling worktree's server the port probe could not distinguish.
+      writeFileSync(
+        join(dir, 'foreign.mjs'),
+        `import { createServer } from 'node:http';
+         createServer((_q, res) => {
+           res.writeHead(200, { 'x-karst-instance': 'some-other-start' });
+           res.end('ok');
+         }).listen(Number(process.env.PORT));`,
+      );
+      let message = '';
+      await startHot(store, {
+        ticketId: 1,
+        service: 'backend',
+        command: process.execPath,
+        args: [join(dir, 'foreign.mjs')],
+        cwd: dir,
+        repoPath: dir,
+        env: { PORT: String(port) },
+        host: '127.0.0.1',
+        port,
+        healthUrl: `http://127.0.0.1:${port}/health`,
+        logPath: join(dir, 'svc.log'),
+        requireIdentity: true,
+        healthTimeoutMs: 8_000,
+      }).catch((err: Error) => {
+        message = err.message;
+      });
+      expect(message).toMatch(/another instance/i);
+    });
+
+    it('does not set the token, or check identity, when the service did not ask for it', async () => {
+      const port = nextPort();
+      // Answers 200 only when the env var is ABSENT: proves karst mints no token
+      // for a service that never opted in.
+      writeFileSync(
+        join(dir, 'no-token.mjs'),
+        `import { createServer } from 'node:http';
+         createServer((_q, res) => {
+           const leaked = process.env.KARST_INSTANCE_TOKEN;
+           res.writeHead(leaked ? 500 : 200); res.end(leaked ?? 'ok');
+         }).listen(Number(process.env.PORT));`,
+      );
+      const rec = await startHot(store, {
+        ticketId: 1,
+        service: 'backend',
+        command: process.execPath,
+        args: [join(dir, 'no-token.mjs')],
+        cwd: dir,
+        repoPath: dir,
+        env: { PORT: String(port) },
+        host: '127.0.0.1',
+        port,
+        healthUrl: `http://127.0.0.1:${port}/health`,
+        logPath: join(dir, 'svc.log'),
+        healthTimeoutMs: 8_000,
+      });
+      expect(rec.status).toBe('running');
+      stopServer(store, rec.id);
+    });
   });
 
   it('rejects after a timeout when the service never gets healthy', async () => {

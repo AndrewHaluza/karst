@@ -112,6 +112,7 @@ export async function ensureBaseline(
     host: manifest.host,
     port,
     healthUrl,
+    requireIdentity: svc.healthIdentity === true,
     logPath: serverLogPath(checkout, `${service}.baseline`),
     repoPath: repo.repoPath,
   });

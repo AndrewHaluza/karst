@@ -75,15 +75,45 @@ export function makeDryRunAllocator(range: [number, number]): PortAllocator {
   };
 }
 
-export function makePortAllocator(store: Store, range: [number, number]): PortAllocator {
+export interface PortAllocatorOptions {
+  /**
+   * Ports something is LISTENING on right now (`runtime/portProbe.ts`), treated
+   * exactly like an existing allocation: never handed out, never recorded.
+   *
+   * `port_allocations` answers what karst gave away, which is a different
+   * question from what is bound — a server leaked by a worktree nobody will spin
+   * again, or a process started outside karst, holds a port the registry calls
+   * free. Handing that port out fails the spin inside the child (EADDRINUSE),
+   * where the only symptom karst sees is a health check that never passes.
+   *
+   * Advisory, by construction: the probe is best-effort and a stale set only
+   * costs a port that would have been usable, since `startHot` still attributes
+   * and reclaims whatever it finds on the port it is handed.
+   */
+  busy?: ReadonlySet<number>;
+}
+
+export function makePortAllocator(
+  store: Store,
+  range: [number, number],
+  options: PortAllocatorOptions = {},
+): PortAllocator {
   const selectUsed = store.db.prepare('SELECT port FROM port_allocations');
   const insert = store.db.prepare(
     'INSERT INTO port_allocations (ticket_id, repo, port_name, port) VALUES (?, ?, ?, ?)',
   );
   const deleteByTicket = store.db.prepare('DELETE FROM port_allocations WHERE ticket_id = ?');
 
+  /**
+   * Every port this allocation must avoid: the recorded allocations plus the
+   * live listeners the registry cannot see. The two are unioned rather than
+   * merged into the table — a busy port is a fact about this moment, not an
+   * allocation, and recording it would leak a port out of the range for good.
+   */
   function currentUsed(): Set<number> {
-    return new Set(selectUsed.all().map((r) => (r as { port: number }).port));
+    const used = new Set(selectUsed.all().map((r) => (r as { port: number }).port));
+    for (const port of options.busy ?? []) used.add(port);
+    return used;
   }
 
   const allocate = store.db.transaction(

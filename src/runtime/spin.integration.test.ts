@@ -589,9 +589,11 @@ describe('spinTicket integration', () => {
   });
 
   // The other half: the port is held by a process OUTSIDE every repository — an
-  // unrelated app. Karst never kills a stranger: the spin rejects with the port
-  // named, and the squatter survives untouched.
-  it('rejects the spin when an unrelated process holds the allocated port', async () => {
+  // unrelated app. Karst never kills a stranger, and it no longer has to fail
+  // over one either: a port karst could not reclaim is excluded from allocation
+  // before the block is chosen, so the spin takes the next free pair and the
+  // squatter survives untouched.
+  it('allocates around an unrelated process holding a port, leaving it untouched', async () => {
     const bePort = port();
     const fePort = port();
     const backend = makeRepo(root, 'backend', { 'server.mjs': BACKEND_SRC });
@@ -608,7 +610,44 @@ describe('spinTicket integration', () => {
       await waitUntilListening(fePort);
 
       const ticket = createTicket(store, { key: 'PROJ-SQ2', title: 'squat foreign' });
-      await expect(spinTicket(store, manifest, ticket.id, ['frontend'])).rejects.toThrow(/in use/);
+      const result = await spinTicket(store, manifest, ticket.id, ['frontend']);
+
+      const feServer = result.servers.find((s) => s.service === 'frontend')!;
+      expect(feServer.status).toBe('running');
+      expect(feServer.port).not.toBe(fePort); // steered around the stranger
+      expect(result.reclaimedPids).toEqual([]); // nothing was killed for it
+
+      await new Promise((r) => setTimeout(r, 200));
+      expect(alive(squatter.pid!)).toBe(true); // untouched
+    } finally {
+      squatter.kill('SIGKILL');
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  // Steering around a stranger needs somewhere to steer TO. When the range holds
+  // exactly one port and a stranger is on it, the refusal is the old one — named
+  // port, named holder, nothing signalled.
+  it('still refuses when the only port in the range is held by a stranger', async () => {
+    const bePort = port();
+    const fePort = port();
+    const backend = makeRepo(root, 'backend', { 'server.mjs': BACKEND_SRC });
+    const frontend = makeRepo(root, 'frontend', { 'server.mjs': FRONTEND_SRC });
+    const outside = mkdtempSync(join(tmpdir(), 'karst-out-'));
+    const manifest = feBeManifest({ backend, frontend, bePort, fePort, span: 0 });
+
+    const squatter = spawn(process.execPath, ['-e', DEAF_EVAL], {
+      cwd: outside,
+      env: { ...process.env, PORT: String(fePort) },
+      stdio: 'ignore',
+    });
+    try {
+      await waitUntilListening(fePort);
+
+      const ticket = createTicket(store, { key: 'PROJ-SQ3', title: 'squat only port' });
+      await expect(spinTicket(store, manifest, ticket.id, ['frontend'])).rejects.toThrow(
+        /no free contiguous block|in use/,
+      );
 
       await new Promise((r) => setTimeout(r, 200));
       expect(alive(squatter.pid!)).toBe(true); // untouched

@@ -17,6 +17,7 @@ import {
 import { renderHealthUrl } from './healthUrl.js';
 import { serverLogPath } from './serverLog.js';
 import { preflightSpin } from './preflight.js';
+import { portsToAvoid } from './portProbe.js';
 import { getTicket } from '../store/tickets.js';
 import { ticketWorktreeNames } from './ticketBranch.js';
 import { isRunnable } from '../manifest/runnable.js';
@@ -40,6 +41,15 @@ export interface SpinOptions {
    * unless the manifest's `debug` flag is on).
    */
   debug?: (message: string) => void;
+  /**
+   * Live-listener discovery for the allocator, injected so tests never depend on
+   * this machine's open ports. Defaults to `runtime/portProbe.ts`.
+   */
+  probeBusyPorts?: (
+    host: string,
+    ranges: readonly (readonly [number, number])[],
+    repoPaths: readonly string[],
+  ) => Promise<Set<number>>;
 }
 
 /**
@@ -68,6 +78,69 @@ export function expandEnvTokens(start: string, env: Record<string, string>): str
 function splitCommand(start: string): { command: string; args: string[] } {
   const parts = start.trim().split(/\s+/);
   return { command: parts[0]!, args: parts.slice(1) };
+}
+
+/**
+ * Every port window this spin's allocator may draw from: the manifest range,
+ * plus the per-service `portRange` override of each hot runnable repo. Probing
+ * only the manifest range would leave an overriding service allocating blind —
+ * exactly the service most likely to have a range of its own because something
+ * else lives near it.
+ */
+export function allocationRanges(manifest: Manifest, hot: readonly string[]): [number, number][] {
+  const collected: [number, number][] = [manifest.portRange];
+  for (const name of hot) {
+    const repo = manifest.repositories[name];
+    if (repo && isRunnable(repo) && repo.service.portRange) collected.push(repo.service.portRange);
+  }
+  return mergeRanges(collected);
+}
+
+/**
+ * Overlapping and duplicate windows merged into the fewest that cover the same
+ * ports, ascending.
+ *
+ * Services commonly share one override, monorepo entries repeat it verbatim, and
+ * an override that merely narrows the manifest range overlaps it. `portsIn`
+ * collapses the repeated PORTS at the end, so the ranges were never a
+ * correctness problem — but each duplicate window is a window the probe walks,
+ * budgets for, and reports on twice before that collapse happens.
+ *
+ * Adjacent windows ([4000,4099] and [4100,4199]) merge too: they describe one
+ * contiguous span, and splitting the walk at an arbitrary seam buys nothing. An
+ * inverted range (`max < min`) is left exactly as given — `portsIn` yields
+ * nothing for it, and silently "repairing" a hand-edited manifest here would
+ * hide the mistake rather than let the port probe find nothing and move on.
+ */
+export function mergeRanges(
+  ranges: readonly (readonly [number, number])[],
+): [number, number][] {
+  const sane = ranges.filter(([min, max]) => min <= max);
+  const inverted = ranges.filter(([min, max]) => min > max).map(([min, max]): [number, number] => [min, max]);
+  const sorted = [...sane].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+
+  const merged: [number, number][] = [];
+  for (const [min, max] of sorted) {
+    const last = merged[merged.length - 1];
+    // `last[1] + 1` so touching windows merge, not just overlapping ones.
+    if (last && min <= last[1] + 1) last[1] = Math.max(last[1], max);
+    else merged.push([min, max]);
+  }
+  return [...merged, ...inverted];
+}
+
+/**
+ * The repository roots this spin may reclaim a port inside — deduped, since
+ * entries sharing a `repoPath` are one checkout. A dev server under any of them
+ * is `startHot`'s to kill, which is what makes its port allocatable.
+ */
+export function hotRepoPaths(manifest: Manifest, hot: readonly string[]): string[] {
+  const paths = new Set<string>();
+  for (const name of hot) {
+    const repo = manifest.repositories[name];
+    if (repo) paths.add(repo.repoPath);
+  }
+  return [...paths];
 }
 
 /**
@@ -139,7 +212,24 @@ export async function spinTicket(
   // so a bad branch/path fails fast with a friendly SpinError and nothing partial.
   preflightSpin(manifest, slug, hot, branch, ticket);
 
-  const allocator = makePortAllocator(store, manifest.portRange);
+  // Ports something is LISTENING on cannot be allocated, whatever the registry
+  // says: a leaked server from a worktree nobody will spin again, or a process
+  // started outside karst, holds a port `port_allocations` calls free, and the
+  // spin that draws it dies of EADDRINUSE inside the child — where the only
+  // symptom is a health check that never passes. Every window the allocator may
+  // draw from is probed: the manifest range plus each hot service's own
+  // override. Best-effort and bounded (`runtime/portProbe.ts`) — a probe that
+  // cannot answer must never be the reason a spin does not start.
+  const probe =
+    opts.probeBusyPorts ??
+    ((host, ranges, repoPaths) => portsToAvoid(store, host, ranges, repoPaths, { debug }));
+  const busy = await probe(manifest.host, allocationRanges(manifest, hot), hotRepoPaths(manifest, hot));
+  if (busy.size > 0) {
+    debug?.(
+      `[runtime] ticket ${ticketId}: ${busy.size} occupied port(s) excluded from allocation`,
+    );
+  }
+  const allocator = makePortAllocator(store, manifest.portRange, { busy });
   // Stop any servers a prior spin left running for this ticket BEFORE releasing
   // ports. Otherwise the old process keeps its port bound while release() frees
   // the row, re-resolve re-picks the same port, and startHot spawns a second
@@ -251,6 +341,7 @@ export async function spinTicket(
         host: manifest.host,
         port: ownPort,
         healthUrl,
+        requireIdentity: service.healthIdentity === true,
         logPath: serverLogPath(cwd, name),
         repoPath: repo.repoPath,
         signal,

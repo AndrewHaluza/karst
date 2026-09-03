@@ -284,6 +284,7 @@ import { retryGateStage, retryGateState } from './workflow/retryGate.js';
 import { buildConflictBrief } from './workflow/conflictSession.js';
 import { stopServer, stopTicketServers } from './runtime/supervisor.js';
 import { reapStaleServers, describeReap } from './runtime/worktreeServers.js';
+import { reapOrphanedPorts, describeOrphanReap } from './runtime/orphanPorts.js';
 import { systemAsyncProcessFacts } from './runtime/serverIdentity.js';
 import { listBaseBranchCandidates } from './runtime/branchList.js';
 import {
@@ -365,7 +366,7 @@ import {
 } from './approaches/pkg.js';
 import { readAgentFile, writeAgentFile, removeAgentFile } from './agents/pkg.js';
 import { buildAgentPool, type PoolAgent } from './agents/pool.js';
-import { spinTicket, SpinCancelledError } from './runtime/spin.js';
+import { spinTicket, SpinCancelledError, allocationRanges, hotRepoPaths } from './runtime/spin.js';
 import { confirmScope } from './workflow/stages/scope.js';
 import { transition } from './workflow/machine.js';
 import { driveTicket as driveTicketRun } from './workflow/driveTicket.js';
@@ -5342,6 +5343,36 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
     }
   };
+  // Orphaned-port sweep: the leak class no row-based reap can see. A server
+  // karst started keeps its port and its memory when its `servers` row leaves
+  // with the ticket (archived, deleted, or written before `servers.cwd`
+  // existed) — reparented to init, serving a worktree nobody will spin again.
+  // Two such processes had held ports of karst's own range for 13 hours and two
+  // days; each one permanently costs the range a slot, and a range of 100 ports
+  // is 50 concurrent worktrees.
+  //
+  // Evidence is the PROCESS, never a recollection: karst asks who listens on
+  // its own ranges and where that process runs, and signals only one whose live
+  // cwd is inside a `.karst/worktrees/` directory of a repository this manifest
+  // declares — a path only karst creates. A cwd the OS will not report, a
+  // listener anywhere else, or a pid a running row still claims is left alone.
+  // Reported, never silent, and stated as the outcome (see `describeOrphanReap`).
+  void (async () => {
+    const manifest = currentManifest();
+    if (!manifest) return; // no manifest, no ranges to sweep and no repos to scope by
+    try {
+      const reaped = await reapOrphanedPorts(localStore, {
+        host: manifest.host,
+        ranges: allocationRanges(manifest, Object.keys(manifest.repositories)),
+        repoPaths: hotRepoPaths(manifest, Object.keys(manifest.repositories)),
+        debug: (message) => logger.debug(message),
+      });
+      for (const s of reaped) logger.info(describeOrphanReap(s));
+    } catch (err) {
+      logError('karst: orphaned-port sweep failed', err);
+    }
+  })();
+
   void runPrSync();
   const prSyncTimer = setInterval(() => void runPrSync(), PR_SYNC_INTERVAL_MS);
   context.subscriptions.push({ dispose: () => clearInterval(prSyncTimer) });

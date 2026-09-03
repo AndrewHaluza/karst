@@ -6,9 +6,28 @@ export interface HealthOptions {
   maxIntervalMs?: number;
   /** Abort the wait early (spin cancellation); rejects with HealthAbortedError. */
   signal?: AbortSignal;
+  /**
+   * Require the health response to identify itself as THIS start, by echoing
+   * this token in `X-Karst-Instance` (opt-in per service). Without it,
+   * reachability is the whole test: any 200 on the port passes, including one
+   * from another worktree's service that happens to hold it — a wrong PASS,
+   * which is worse than a failure because everything downstream is then wired
+   * to the wrong gateway. See `docs/arch/worktrees-and-servers.md`.
+   */
+  requireInstance?: string;
 }
 
-const DEFAULTS: Required<Omit<HealthOptions, 'signal'>> = {
+/** The header a service echoes karst's per-start token in. */
+export const INSTANCE_HEADER = 'x-karst-instance';
+
+/**
+ * The env var karst sets to the token, for the service to echo back. Named for
+ * the service's benefit: it appears in the process environment the author reads
+ * when wiring the header up.
+ */
+export const INSTANCE_ENV = 'KARST_INSTANCE_TOKEN';
+
+const DEFAULTS: Required<Omit<HealthOptions, 'signal' | 'requireInstance'>> = {
   timeoutMs: 30_000,
   intervalMs: 150,
   maxIntervalMs: 1_000,
@@ -26,6 +45,44 @@ export class HealthAbortedError extends Error {
     super(`health check ${url} was aborted`);
     this.name = 'HealthAbortedError';
   }
+}
+
+/**
+ * The port answers, healthily, and it is NOT this start: a service of another
+ * worktree (or another run) holds the port. Distinct from a timeout because the
+ * fix is different — nothing about this service will make that other process go
+ * away — and because reporting it as "did not pass" would describe a service
+ * that came up perfectly, somewhere else.
+ */
+export class HealthForeignInstanceError extends Error {
+  constructor(url: string, expected: string, found: string) {
+    super(
+      `health check ${url} was answered by another instance — expected ${expected}, ` +
+        `the service on that port reported ${found}. Something else is serving this port.`,
+    );
+    this.name = 'HealthForeignInstanceError';
+  }
+}
+
+/**
+ * Does this 2xx belong to the start karst is waiting on?
+ *
+ * Three answers, and only one of them is a pass:
+ *  - no token required → identity is not being checked; any 2xx passes.
+ *  - the header matches → this is our process.
+ *  - the header is ABSENT → not yet ours. A service that has not read the env
+ *    var yet (still booting, or a stale build) must not be accepted on the
+ *    strength of a bare 200, or the check buys nothing.
+ *  - a DIFFERENT token → someone else is serving this port; fail, don't wait.
+ */
+function instanceVerdict(
+  res: { headers: { get(name: string): string | null } },
+  expected: string | undefined,
+): { ok: true } | { ok: false; found: string | null } {
+  if (expected === undefined) return { ok: true };
+  const found = res.headers.get(INSTANCE_HEADER);
+  if (found === expected) return { ok: true };
+  return { ok: false, found };
 }
 
 /**
@@ -87,11 +144,23 @@ export async function waitForHealth(url: string, opts: HealthOptions = {}): Prom
     );
     try {
       const res = await fetch(url, { signal: probe.signal });
-      if (res.ok) return;
+      if (res.ok) {
+        const verdict = instanceVerdict(res, opts.requireInstance);
+        if (verdict.ok) return;
+        // A different instance is not something waiting can fix; an absent
+        // header may still be a service that has not finished booting, so that
+        // one keeps polling and ends as an ordinary timeout.
+        if (verdict.found !== null) {
+          throw new HealthForeignInstanceError(url, opts.requireInstance!, verdict.found);
+        }
+      }
     } catch (err) {
       // An abort surfaces here as a DOMException; distinguish it from a
       // connection-refused (server not up yet), which we retry.
       if (signal?.aborted) throw new HealthAbortedError(url);
+      // A foreign instance is a verdict, not a probe failure: it came from the
+      // `try` above, and retrying would only re-ask a question already answered.
+      if (err instanceof HealthForeignInstanceError) throw err;
       if (probe.signal.aborted) throw new HealthTimeoutError(url, timeoutMs);
       void err; // not listening yet — fall through to retry
     } finally {
