@@ -239,7 +239,7 @@ export function decideReclaim(
 }
 
 /** Resolve each potentially expensive fact once for one listener pid. */
-async function snapshotProcessFacts(source: ProcessFactsSource, pid: number): Promise<ProcessFacts> {
+export async function snapshotProcessFacts(source: ProcessFactsSource, pid: number): Promise<ProcessFacts> {
   const alive = await source.isAlive(pid);
   if (!alive) {
     return { isAlive: () => false, liveCwd: () => null, processStartMs: () => null };
