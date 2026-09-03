@@ -1,7 +1,7 @@
 import { nowIso } from '../../model/time.js';
 import type { GateResult } from './result.js';
 import type { ResolvedGate } from './resolve.js';
-import { runProcess } from './run.js';
+import { runProcess, type GateOutputChunk } from './run.js';
 
 /**
  * Run a resolved gate list sequentially in one worktree.
@@ -60,6 +60,13 @@ export interface RunGatesOptions {
    * the gate's process lifecycle is visible in the same stream.
    */
   onDebug?: (message: string) => void;
+  /**
+   * Live output from the gate currently running, chunk by chunk, tagged with
+   * the gate's name. Lets a caller stream a running gate into an open console
+   * instead of showing it only once the artifact is written. Raw CLI prose —
+   * sanitized at the console boundary, never here.
+   */
+  onGateOutput?: (gateName: string, chunk: GateOutputChunk) => void;
 }
 
 export async function runGateList(
@@ -102,6 +109,7 @@ export async function runGateList(
     const outcome = await runProcess(gate.command, gate.args, cwd, {
       signal: opts.signal,
       onDebug,
+      onOutput: opts.onGateOutput ? (chunk) => opts.onGateOutput?.(gate.name, chunk) : undefined,
     });
 
     if (outcome.kind === 'aborted') return { kind: 'stopped', results };

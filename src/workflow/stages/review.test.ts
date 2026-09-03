@@ -1955,3 +1955,36 @@ describe('runUat and runReview record identities R7 can actually compare (differ
     expect(reviewRes).toEqual({ kind: 'advanced', next: 'ship' });
   });
 });
+
+describe('runReview live gate output', () => {
+  it('threads its onGateOutput hook into the gate runner', async () => {
+    const store = openStore(':memory:');
+    const id = createTicketFlow(store, { key: 'T-live', title: 't' }).id;
+    walkToReview(store, id);
+    const artifactDir = mkdtempSync(join(tmpdir(), 'karst-review-live-'));
+    const seen: { gate: string; text: string }[] = [];
+    await runReview(
+      store,
+      {
+        ticketId: id,
+        cwd: '/wt/web',
+        artifactDir,
+        onGateOutput: (gate, chunk) => seen.push({ gate, text: chunk.text }),
+      },
+      deps({
+        runGates: async (gates, _cwd, opts) => {
+          for (const g of gates) {
+            opts?.onGateOutput?.(g.name, { stream: 'stdout', text: `${g.name}-chatter` });
+          }
+          return {
+            kind: 'ran',
+            results: gates.map((g) => ({ name: g.name, exitCode: 0, output: 'ok', startedAt: now(), endedAt: now() })),
+          };
+        },
+      }),
+    );
+    expect(seen.map((s) => s.text)).toContain('lint-chatter');
+    store.close();
+    rmSync(artifactDir, { recursive: true, force: true });
+  });
+});

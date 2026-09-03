@@ -1034,6 +1034,18 @@ export class DashboardManager {
   }
 
   /**
+   * Push one sanitized live chunk of a gate stage's deterministic gate output
+   * to the ticket's panel; no-op if the panel is not open. Sanitized host-side
+   * (the `GateConsole` sink); this boundary forwards it verbatim to the open
+   * stage console.
+   */
+  postStageOutput(ticketId: number, stage: GateStage, text: string): void {
+    const panel = this.panels.get(ticketId);
+    if (!panel) return;
+    panel.postMessage({ type: 'stage-output', stage, text });
+  }
+
+  /**
    * Dispatch one opaque inside action id against the ticket's CURRENT action
    * registry. Rejects (logged) when the target fails its checks; unknown ids
    * are silently dropped — a stale or foreign id is not a fault to surface.

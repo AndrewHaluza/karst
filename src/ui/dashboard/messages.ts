@@ -219,6 +219,13 @@ export type HostMessage =
    * process only.
    */
   | { type: 'agent-output'; processId: AgentProcessId; text: string }
+  /**
+   * A live chunk of a gate STAGE's deterministic gate output, pushed while the
+   * gates run. Sanitized host-side (the `GateConsole` sink); the webview
+   * appends it to the open console for that stage only — the durable record
+   * stays the stage artifact the post-run `stage-log` answer reads.
+   */
+  | { type: 'stage-output'; stage: GateStage; text: string }
   | ActionResultMessage;
 
 /**

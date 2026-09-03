@@ -347,6 +347,7 @@ import type {
 } from './manifest/types.js';
 import { instrumentAdapter } from './agent/instrumentedAdapter.js';
 import { AgentConsole } from './agent/agentConsole.js';
+import { GateConsole } from './workflow/gates/gateConsole.js';
 import { recordTokenUsage, listRecentlyUsedModels } from './store/tokenUsage.js';
 import { UsagePanelManager, type UsagePanel, type UsagePanelHost } from './ui/usage/panel.js';
 import {
@@ -3069,6 +3070,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     debug: (message) => logger.debug(message),
   });
 
+  // The DETERMINISTIC gate lane's console sink: each chunk of a running gate's
+  // output is sanitized here and pushed to an OPEN dashboard panel's stage
+  // console, so gate execution is visible while it runs. Not a persister — the
+  // stage artifact stays the durable record the post-run console reads.
+  const gateConsole = new GateConsole({
+    onOutput: (ticketId, stage, text) => dashboard.postStageOutput(ticketId, stage, text),
+    debug: (message) => logger.debug(message),
+  });
+
   // Auto-run the deterministic uat/review gates for a ticket after the
   // impl/fix marker (or a prior gate) leaves it at a gate boundary. Single-flight
   // via `driver.begin`/`end`; never authors a transition itself — `runUat`/
@@ -3078,6 +3088,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   async function driveTicket(ticketId: number): Promise<void> {
     if (!driver.begin(ticketId)) return; // a run is already in flight
     logger.info(`stage driver: begin ticket ${ticketId}`);
+    // A new run's first gate re-announces itself in the console, rather than
+    // continuing under the previous run's last gate header.
+    gateConsole.reset(ticketId, 'uat');
+    gateConsole.reset(ticketId, 'review');
     try {
       await driveTicketRun(
         {
@@ -3103,6 +3117,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           // chunk pushed to an OPEN panel's terminal view in real time. The
           // console tail is readable after the run through the same sink.
           onAgentOutput: (id, processId, chunk) => agentConsole.append(id, processId, chunk),
+          // Live output from the deterministic gates of the uat/review stages:
+          // sanitized by the GateConsole and pushed to an OPEN panel's stage
+          // console as it arrives.
+          onGateOutput: (id, stage, gateName, chunk) =>
+            gateConsole.append(id, stage, gateName, chunk),
           shouldContinue: () => driver.shouldContinue(ticketId),
           // Stop, as a signal rather than a between-stages poll: `requestStop`
           // aborts this, and the abort reaches the gate child already running.
