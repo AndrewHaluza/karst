@@ -40,6 +40,11 @@ package-lock.json
 # Vendored webview libs ship as dist/vendor/xterm copies, never as npm packages.
 node_modules/@xterm/**
 
+# Keep only the two runtime dependencies (better-sqlite3 + js-yaml). Everything
+# else is devDependencies and must not bloat the VSIX. vsce resolves the
+# .vscodeignore before packaging, so this glob prunes ~120 dev packages.
+node_modules/** !node_modules/better-sqlite3/** !node_modules/js-yaml/**
+
 # Keep: dist/**, node_modules/** (better-sqlite3 loaded at runtime),
 #       package.json, README.md, karst.example.yml,
 #       karst.uat-review-setup.md (both root assets are copied into dist/,

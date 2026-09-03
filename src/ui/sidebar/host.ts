@@ -35,7 +35,7 @@ export function makeSidebarViewHost(
   context: vscode.ExtensionContext,
 ): { host: SidebarViewHost; provider: vscode.WebviewViewProvider; badge: BadgeCache } {
   const html = injectPalette(
-    injectAgentIdentity(injectDesignSystem(readFileSync(join(HERE, 'webview.html'), 'utf8'))),
+    injectAgentIdentity(injectDesignSystem(readFileSync(join(HERE, 'ui', 'sidebar', 'webview.html'), 'utf8'))),
   );
   let onResolve: ((view: SidebarView) => void) | undefined;
   // The badge outlives any single resolve: VS Code re-resolves the view when it

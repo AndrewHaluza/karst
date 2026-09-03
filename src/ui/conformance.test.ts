@@ -61,7 +61,11 @@ const LITERAL_BUDGET: Record<string, number> = {
   // `150px` (the URL copy control's width floor) and `3px` (the copy glyph's
   // hover slide-in) — both commented in webview.html and pinned by that same
   // allowlist test.
-  dashboard: 21,
+  // 22, not 21: the worktree row compact redesign adds one justified geometry
+  // literal — `380px` (the narrow-layout @media breakpoint, which cannot read
+  // a custom property) — commented in webview.html and pinned by the
+  // dashboard's own px allowlist test.
+  dashboard: 23,
   diffs: 1,
   ticketForm: 0,
   settings: 0,

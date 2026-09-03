@@ -1587,7 +1587,7 @@
             <div class="section-head">
               <div>
                 <div class="section-title">UAT policy</div>
-                <div class="section-desc">Deterministic UAT gates; the Tester remains advisory.</div>
+                <div class="section-desc">Deterministic UAT gates and the Tester observations policy.</div>
               </div>
             </div>
             <div class="q-row">
@@ -1596,6 +1596,14 @@
                 <div class="field-help">Retries a failed UAT gets before the ticket parks.</div>
               </div>
               <input type="number" min="1" id="f-uatMaxFix" />
+            </div>
+            <div class="q-row">
+              <div>
+                <label for="f-uatTesterSeverity">Tester blocking severity</label>
+                <div class="field-help">Tester observations at or above this severity fail UAT to <code>fix</code>.
+                  <code>none</code> makes them advisory.</div>
+              </div>
+              <select id="f-uatTesterSeverity"></select>
             </div>
           </div>
 
@@ -2093,7 +2101,7 @@
     findings: { enabled: true, blockingSeverity: 'high', maxFindings: 50 },
   };
   // Mirrors validate/uat.ts's maxFixAttempts fallback.
-  const UAT_DEFAULTS = { maxFixAttempts: 3 };
+  const UAT_DEFAULTS = { maxFixAttempts: 3, testerObservations: { blockingSeverity: 'none' } };
   const SEVERITIES = ['critical', 'high', 'medium', 'low', 'info', 'none'];
 
   // Mirrors src/ui/settings/gateDraft.ts (S2: ONE gate shape shared by uat.gates
@@ -5209,7 +5217,10 @@
     const uat = draft.uat || UAT_DEFAULTS;
     const review = draft.review || REVIEW_DEFAULTS;
     const findings = review.findings || REVIEW_DEFAULTS.findings;
+    const uatTester = uat.testerObservations || UAT_DEFAULTS.testerObservations;
     el('f-uatMaxFix').value = uat.maxFixAttempts != null ? uat.maxFixAttempts : UAT_DEFAULTS.maxFixAttempts;
+    el('f-uatTesterSeverity').innerHTML = SEVERITIES.map((s) => `<option value="${s}">${s}</option>`).join('');
+    el('f-uatTesterSeverity').value = uatTester.blockingSeverity || UAT_DEFAULTS.testerObservations.blockingSeverity;
     el('f-reviewMaxFix').value = review.maxFixAttempts != null ? review.maxFixAttempts : REVIEW_DEFAULTS.maxFixAttempts;
     el('f-reviewIndependent').checked = review.requireIndependentSignal != null
       ? Boolean(review.requireIndependentSignal)
@@ -5247,6 +5258,9 @@
   // the spread-preserving contract those three enforce.
   el('f-uatMaxFix').addEventListener('input', () => {
     updateUat({ maxFixAttempts: Number(el('f-uatMaxFix').value) || 1 });
+  });
+  el('f-uatTesterSeverity').addEventListener('change', () => {
+    updateUat({ testerObservations: { blockingSeverity: el('f-uatTesterSeverity').value } });
   });
   el('f-reviewMaxFix').addEventListener('input', () => {
     updateReview({ maxFixAttempts: Number(el('f-reviewMaxFix').value) || 1 });

@@ -178,10 +178,6 @@ describe('dashboard webview.html', () => {
    * line. Wrapped in a span it had nothing to push against and printed flush
    * against the label.
    */
-  it('keeps the worktrees count a direct child of its panel header', () => {
-    expect(HTML).toContain('<div class="phead">Worktrees<span class="count" id="wtCount"></span>');
-  });
-
   it('keeps every injection marker — each one fails silently when lost', () => {
     // injectCsp no-ops on a marker-less document by design, and the provider
     // markers are load-bearing at runtime (renderTicketIdentity calls
@@ -975,6 +971,9 @@ describe('dashboard webview.html', () => {
     // read a URL" floor at the panel's small-text scale, same class as `200px`.
     // `3px` is the copy glyph's hover slide-in offset — a motion nudge with no
     // token step at 3px.
+    // `380px` is the worktree row's narrow-layout @media breakpoint — an
+    // @media condition cannot read a custom property, so it is literal by
+    // construction, the same exemption class as `300px`/`360px`/`430px`.
     const ALLOWED = ['46px', '72px', '640px', '82px', '74px', '4px', '180px', '288px', '6px', '400px',
       '300px', '360px', '430px', '110px', '160px', '104px',
       '1px', '1px', '1px', '1px', '1px', '1px',
@@ -983,7 +982,8 @@ describe('dashboard webview.html', () => {
       '1px', '1px', '1px',
       '12px', '12px', '12px', '12px',
       '4px', '4px', '4px', '4px', '4px', '4px',
-      '150px', '3px'];
+      '150px', '3px',
+      '380px'];
     // The ported Inside block is the ONE exempt region (see its own header
     // comment): it is the A37 prototype's geometry, scoped under `#inside`,
     // and its pixel values ARE the design. Its colours still go through
@@ -2265,7 +2265,6 @@ function bootPreviewHarness(): PreviewHarness {
     'srvCount',
     'srvOps',
     'worktrees',
-    'wtCount',
     'wtChanges',
     'prs',
     'prCount',

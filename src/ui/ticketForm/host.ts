@@ -29,7 +29,7 @@ export function makeTicketFormPanelHost(
   brandIcon?: BrandIconPaths,
 ): TicketFormPanelHost {
   const html = injectAgentPicker(injectAgentIdentity(injectProviderIdentity(
-    injectPalette(injectDesignSystem(readFileSync(join(HERE, 'webview.html'), 'utf8'))),
+    injectPalette(injectDesignSystem(readFileSync(join(HERE, 'ui', 'ticketForm', 'webview.html'), 'utf8'))),
   )));
   return {
     createPanel(title: string): TicketFormPanel {

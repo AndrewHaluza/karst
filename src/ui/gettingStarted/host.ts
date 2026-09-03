@@ -22,7 +22,7 @@ export function makeGettingStartedPanelHost(
   context: vscode.ExtensionContext,
   brandIcon?: BrandIconPaths,
 ): GettingStartedPanelHost {
-  const html = injectPalette(injectDesignSystem(readFileSync(join(HERE, 'webview.html'), 'utf8')));
+  const html = injectPalette(injectDesignSystem(readFileSync(join(HERE, 'ui', 'gettingStarted', 'webview.html'), 'utf8')));
   return {
     createPanel(title: string): GettingStartedPanel {
       const panel = vscode.window.createWebviewPanel(

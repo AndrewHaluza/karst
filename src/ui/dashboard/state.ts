@@ -104,6 +104,8 @@ export interface DashboardWorktreeView extends WorktreeView {
   baseDefault: string;
   /** Local heads + `origin/*`, loaded lazily. Never a closed vocabulary. */
   baseCandidates: string[];
+  /** The manifest repository name for this repo's path (host-resolved). */
+  serviceName: string | undefined;
 }
 
 /** Fully serializable dashboard state pushed to the webview via postMessage. */
@@ -439,6 +441,7 @@ export function buildDashboardState(
     launchable: isCheckout(w.path),
     baseDefault: baseBranchDefaultFor(w.repo),
     baseCandidates: baseBranchCandidatesFor(w.repo),
+    serviceName: repoNameFor(w.repo),
   }));
 
   // ONE clock read per push: the PR stamps, the merge rows and the stage strip

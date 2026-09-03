@@ -28,7 +28,7 @@ export function makeSettingsPanelHost(
   brandIcon?: BrandIconPaths,
 ): SettingsPanelHost {
   const html = injectAgentPicker(injectAgentIdentity(injectProviderIdentity(
-    injectPalette(injectDesignSystem(readFileSync(join(HERE, 'webview.html'), 'utf8'))),
+    injectPalette(injectDesignSystem(readFileSync(join(HERE, 'ui', 'settings', 'webview.html'), 'utf8'))),
   )));
   return {
     createPanel(title: string): SettingsPanel {

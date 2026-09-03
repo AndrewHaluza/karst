@@ -1288,7 +1288,7 @@
 
   .wt,.pr{display:flex;align-items:center;gap:var(--k-space-5);padding:var(--k-space-4) var(--k-space-3);border-radius:var(--k-radius-md);min-width:0}
   /* Only the PR row wraps at narrow widths: the URL keeps a 150px floor and
-     `#42`/Merge drop below it. Worktrees keep their one-line-per-row layout. */
+     `#42`/Merge drop below it. Worktrees wrap only the branch at narrow widths. */
   .pr{flex-wrap:wrap}
   .wt:hover,.pr:hover{background:var(--k-surface-hover)}
   /* 74px has no scale match — set by the longest repo label karst has shown in
@@ -1300,16 +1300,29 @@
   .wt .wstats{display:flex;gap:var(--k-space-3);font-family:var(--k-font-mono);font-size:var(--k-text-xs);white-space:nowrap;flex-shrink:0}
   .wt .wadd{color:var(--k-passed)}
   .wt .wdel{color:var(--k-failed)}
-  /* The base-branch control (§ per-repo base branch — live change): the label
-     line sits right under the worktree row, and the confirm form (combobox +
-     rebase switch) opens in place — no modal, same "confirm surface" pattern
-     the merge/send-back controls already use elsewhere on this page. */
-  .wtwrap{display:flex;flex-direction:column}
-  .wbase{display:flex;align-items:center;gap:var(--k-space-3);padding:var(--k-space-0) var(--k-space-3) var(--k-space-2)}
-  .wbaselabel{font-size:var(--k-text-xs);color:var(--k-text-dim)}
-  .wbasebr{font-family:var(--k-font-mono);color:var(--k-text-faint)}
-  .wbaseform{display:flex;flex-direction:column;gap:var(--k-space-3);padding:var(--k-space-2) var(--k-space-3) var(--k-space-4)}
-  .wbaseformacts{display:flex;gap:var(--k-space-2)}
+  /* Separator between stats and actions */
+  .wt .wsep{width:var(--k-border-w);height:12px;background:var(--k-border);flex-shrink:0}
+  /* Narrow fallback — only the branch wraps to line 2 */
+  @media (max-width:380px){
+    .wt{flex-wrap:wrap;gap:var(--k-space-1) var(--k-space-3)}
+    .wt .wbranch{flex-basis:100%}
+    .wt .wstats{margin-left:auto}
+    .wt .wsep{display:none}
+  }
+  /* Base branch — inline label inside the row */
+  .wt .wbase{display:inline-flex;align-items:center;gap:var(--k-space-1);color:var(--k-text-dim);font-size:var(--k-text-2xs);white-space:nowrap;flex-shrink:0}
+  .wt .wbase .wbasebr{font-family:var(--k-font-mono);color:var(--k-text-faint)}
+  .wt .wbase .wbase-edit{cursor:pointer;color:var(--k-text-dim);background:none;border:none;padding:0;font-size:var(--k-text-2xs);line-height:1;opacity:.6}
+  .wt .wbase .wbase-edit:hover{opacity:1}
+  /* Worktree wrapper — position context for the base-form popover */
+  .wtwrap{position:relative}
+  /* Base-form popover — fixed to viewport so panel overflow:hidden cannot clip
+     it (UI-R04: same tokens as agent-switch and ticket-controls popovers). */
+  .wbase-popover{display:none;position:fixed;z-index:50;padding:var(--k-space-4);border:var(--k-border-w) solid var(--k-border-strong);border-radius:var(--k-radius-lg);background:var(--k-surface);box-shadow:var(--k-elev-2)}
+  .wbase-popover.open{display:block}
+  .wbase-popover .k-field{margin-bottom:var(--k-space-3)}
+  .wbase-popover .k-field-help{margin-top:var(--k-space-2)}
+  .wbaseformacts{display:flex;justify-content:flex-end;gap:var(--k-space-2);margin-top:var(--k-space-3)}
   /* Built on `.k-chip` (UI-R08: the same pill primitive as keypill/fixtoggle/
      approach .aid); only the monospace uppercase treatment stays local. Every
      status renders one of the variants below, so the chip's own default fill
@@ -1804,7 +1817,7 @@
   <!-- The count is a direct child of .phead, like every other panel's: nested in
        a wrapper its `margin-left:auto` had nothing to push against, so it read
        as "Worktrees2" and the button sat wherever the text ended. -->
-  <div class="panel"><div class="phead">Worktrees<span class="count" id="wtCount"></span><button id="wtChanges" class="k-iconbtn iconbtn" data-act="show-changes" type="button"
+  <div class="panel"><div class="phead">Worktrees<button id="wtChanges" class="k-iconbtn iconbtn" data-act="show-changes" type="button"
     aria-label="Show ticket changes" title="Show ticket changes"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 6a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/><path d="M16 18a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/><path d="M11 6h5a2 2 0 0 1 2 2v8"/><path d="M14 9l-3 -3l3 -3"/><path d="M13 18h-5a2 2 0 0 1 -2 -2v-8"/><path d="M10 15l3 3l-3 3"/></svg></button></div><div class="pbody" id="worktrees"></div></div>
   <div class="panel span"><div class="phead">Pull requests<span class="count" id="prCount"></span><button id="prRefresh" class="k-iconbtn iconbtn" data-act="refresh-prs" type="button"
     aria-label="Re-check pull request status and mergeability now" title="Re-check pull request status and mergeability now">
@@ -3282,48 +3295,52 @@
   let baseChangeRequests = {};
 
   /**
-   * The base-branch line + its confirm form for one worktree row (§ per-repo
-   * base branch — live change). The label always renders; the form only when
-   * open. Reuses `.k-field`/`.k-switch` (shared, DESIGN-SYSTEM §5) — no new
-   * component. The combobox is the SAME `<input list>` + `<datalist>` shape
-   * the ticket-form picker uses (Task 8), so the two surfaces read as one
-   * idea; candidates are `listBaseBranchCandidates`, loaded lazily host-side
-   * (empty until warmed — the input stays free text either way).
+   * The base-branch pill for one worktree row — always rendered inline inside
+   * `.wt`. Shows the current base as a compact chip; the edit icon appears on
+   * hover and toggles the popover form.
    */
   function renderBaseControl(w) {
-    const repo = w.repo;
     const current = w.baseRef || w.baseDefault || '';
-    const label = `<div class="wbase"><span class="wbaselabel">Base <span class="wbasebr">${esc(current || '—')}</span></span>`
-      + `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-act="toggle-base-form" data-repo="${esc(repo)}">`
-      + `${baseFormOpen[repo] ? 'Cancel' : 'Change base'}</button></div>`;
-    if (!baseFormOpen[repo]) return label;
+    return `<span class="wbase">`
+      + `<svg viewBox="0 0 16 16" fill="currentColor" width="12" height="12"><path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354Z"/></svg>`
+      + `<span class="wbasebr">${esc(current || '---')}</span>`
+      + `<button type="button" class="wbase-edit k-iconbtn" data-act="toggle-base-form" data-repo="${esc(w.repo)}"`
+      + ` aria-label="Change base branch" title="Change base branch">✎</button>`
+      + `</span>`;
+  }
+
+  /**
+   * The base-branch popover form — only rendered when `baseFormOpen[repo]`
+   * is true. Sits OUTSIDE `.wt` (inside `.wtwrap`) so it overlays content
+   * without shifting the row height.
+   */
+  function renderBasePopover(w) {
+    const repo = w.repo;
+    if (!baseFormOpen[repo]) return '';
+    const current = w.baseRef || w.baseDefault || '';
     const listId = 'wbase-list-' + esc(repo);
     const options = (w.baseCandidates || []).map((c) => `<option value="${esc(c)}"></option>`).join('');
     const draft = baseFormDraft[repo] || '';
-    // Missing/never-touched reads as ON (`messages.ts`'s own default): a base
-    // change without a rebase leaves the branch sitting on the old base.
     const rebaseOn = baseFormRebase[repo] !== false;
-    return label + `<div class="wbaseform">`
-      + `<div class="k-field"><label for="wbaseinput-${esc(repo)}">New base branch for ${esc(w.repoDisplay || repo)}</label>`
+    return `<div class="wbase-popover open" data-wbase-popover="${esc(repo)}">`
+      + `<div class="k-field"><label for="wbaseinput-${esc(repo)}">New base branch for ${esc(w.serviceName || w.repoDisplay || repo)}</label>`
       + `<input class="k-input" id="wbaseinput-${esc(repo)}" type="text" list="${listId}" value="${esc(draft)}"`
       + ` placeholder="${esc(current)}" data-base-input="${esc(repo)}">`
       + `<datalist id="${listId}">${options}</datalist></div>`
       + `<button type="button" class="k-switch" role="switch" aria-checked="${rebaseOn}"`
       + ` data-act="toggle-rebase-switch" data-repo="${esc(repo)}">`
       + `<span class="k-switch-track" aria-hidden="true"></span>Rebase the branch onto the new base</button>`
-      // This is the destructive half, stated plainly (never "force-push
-      // yourself" — Karst arms the lease automatically at ship time).
       + `<div class="k-field-help">Rebasing rewrites the ticket branch's commits. `
       + `Karst arms the force-push automatically at ship time. Turning this off `
       + `only re-targets the pull request — useful when the branch was already `
       + `cut from the right commit.</div>`
       + `<div class="wbaseformacts">`
+      + `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-act="toggle-base-form" data-repo="${esc(repo)}">Cancel</button>`
       + `<button type="button" class="k-btn k-btn--primary k-btn--sm" data-act="change-base-ref" data-repo="${esc(repo)}">Change base</button>`
       + `</div></div>`;
   }
 
   function renderWorktrees(wts) {
-    el('wtCount').textContent = wts.length ? `${wts.length}` : '';
     el('wtChanges').disabled = wts.length === 0;
     el('worktrees').innerHTML = wts.length ? wts.map((w) => {
       const stats = worktreeStats[w.repo];
@@ -3337,8 +3354,11 @@
           // without waiting for a round trip — see flashCopied() below.
           + `<button type="button" class="k-iconbtn ib t-copy" data-act="copy-worktree-branch" data-branch="${esc(w.branch)}" data-copy aria-label="Copy branch name" title="Copy branch name">${svgIcon('copy')}</button></span>`
         : '';
-      const row = `<div class="wt"><span class="wrepo">${esc(w.repoDisplay || w.repo)}</span>`
-        + branch + totals + `<span class="wacts">`
+      const repoLabel = w.serviceName || w.repoDisplay || w.repo;
+      const repoTitle = w.serviceName ? (w.repoDisplay || w.repo) : '';
+      const row = `<div class="wt"><span class="wrepo"${repoTitle ? ` title="${esc(repoTitle)}"` : ''}>${esc(repoLabel)}</span>`
+        + renderBaseControl(w) + branch + totals
+        + `<span class="wsep"></span><span class="wacts">`
         + `<button type="button" class="k-iconbtn ib t-open" data-act="open-worktree-terminal" data-path="${esc(w.path)}"`
         + ` aria-label="Open terminal" title="Open a terminal in this worktree">${svgIcon('terminal-2')}</button>`
         + `<button type="button" class="k-iconbtn ib t-copy" data-act="open-worktree-folder" data-path="${esc(w.path)}"`
@@ -3351,7 +3371,7 @@
             + ` aria-label="Launch dev host" title="Build this worktree and open its extension in a new dev window">${svgIcon('play-bug')}</button>`
           : '')
         + `</span></div>`;
-      return `<div class="wtwrap" data-wtwrap="${esc(w.repo)}">${row}${renderBaseControl(w)}</div>`;
+      return `<div class="wtwrap" data-wtwrap="${esc(w.repo)}">${row}${renderBasePopover(w)}</div>`;
     }).join('') : '<div class="empty">No worktrees.</div>';
   }
 
@@ -3696,6 +3716,17 @@
     // still carries the popover that owned the click.
     if (eventWithin(e, '.popover')) return;
     closePopovers();
+    // Base-form popover: close on outside click (same pattern as agent/menu
+    // popovers). Clicks on the pill's edit icon or inside the popover itself
+    // are handled by the [data-act] listener and never reach here.
+    if (!eventWithin(e, '.wbase-popover') && !eventWithin(e, '.wbase')) {
+      const openRepo = Object.keys(baseFormOpen).find((r) => baseFormOpen[r]);
+      if (openRepo) {
+        baseFormOpen = { ...baseFormOpen, [openRepo]: false };
+        delete baseFormDraft[openRepo];
+        if (lastState) renderWorktrees(lastState.worktrees || []);
+      }
+    }
   });
 
   el('switchBtn').addEventListener('click', () => {
@@ -4459,7 +4490,17 @@
     if (e.key === 'Escape' && el('ticketDataDrawer').classList.contains('open')) { closeTicketData(); return; }
     if (e.key === 'Escape' && stageMenuStage !== null) { stageMenuStage = null; render(lastState); return; }
     if (e.key === 'Escape' && termView) { closeTerminal(); return; }
-    if (e.key === 'Escape' && artView) artifactBack();
+    if (e.key === 'Escape' && artView) { artifactBack(); return; }
+    // Base-form popover: close on Escape
+    if (e.key === 'Escape') {
+      const openRepo = Object.keys(baseFormOpen).find((r) => baseFormOpen[r]);
+      if (openRepo) {
+        baseFormOpen = { ...baseFormOpen, [openRepo]: false };
+        delete baseFormDraft[openRepo];
+        if (lastState) renderWorktrees(lastState.worktrees || []);
+        return;
+      }
+    }
     // Gate switch keyboard toggle (Space/Enter)
     if ((e.key === ' ' || e.key === 'Enter') && e.target && e.target.closest && e.target.closest('.gateSwitch')) {
       e.preventDefault();
@@ -4698,6 +4739,22 @@
       baseFormOpen = { ...baseFormOpen, [repo]: !baseFormOpen[repo] };
       if (!baseFormOpen[repo]) delete baseFormDraft[repo];
       if (lastState) renderWorktrees(lastState.worktrees || []);
+      // Position the fixed popover below the edit icon
+      if (baseFormOpen[repo]) {
+        const pop = document.querySelector('[data-wbase-popover="' + CSS.escape(repo) + '"]');
+        const icon = document.querySelector('.wbase-edit[data-repo="' + CSS.escape(repo) + '"]');
+        if (pop && icon) {
+          const r = icon.getBoundingClientRect();
+          const pw = 280;
+          let left = r.left;
+          let top = r.bottom + 4;
+          if (left + pw > window.innerWidth) left = window.innerWidth - pw - 8;
+          if (left < 8) left = 8;
+          pop.style.left = left + 'px';
+          pop.style.top = top + 'px';
+          pop.style.width = pw + 'px';
+        }
+      }
       return;
     }
     // The rebase switch: a local toggle, applied to the `change-base-ref`
