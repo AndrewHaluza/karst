@@ -577,6 +577,7 @@ export async function runReview(
     // Issue #2: thread `review.openChanges` so the findings prompt agrees with
     // the configured behavior — OFF (default) → committed changes only.
     openChanges: opts.manifest?.review?.openChanges,
+    git,
   });
   // Captured here — before the verdict exists — so the trigger below names the
   // exact process run that produced a blocking verdict, when it is the lane's.

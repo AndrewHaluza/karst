@@ -71,6 +71,72 @@ describe('buildScopeBlock', () => {
     expect(text).not.toContain('This ticket\'s branch is');
   });
 
+  it('snapshotRef replaces the branch as the diff head', () => {
+    const text = buildScopeBlock('review', {
+      baseRef: 'develop',
+      branch: 'feature-branch',
+      snapshotRef: 'refs/karst/snapshot/7/abc123abc123abcd',
+    }).join('\n');
+    expect(text).toContain('`git diff origin/develop...refs/karst/snapshot/7/abc123abc123abcd`');
+    expect(text).not.toContain('origin/feature-branch');
+  });
+
+  it('snapshotRef states uncommitted work is already included', () => {
+    const text = buildScopeBlock('test', {
+      baseRef: 'develop',
+      snapshotRef: 'refs/karst/snapshot/7/abc123abc123abcd',
+    }).join('\n');
+    expect(text).toContain('ALREADY includes uncommitted and untracked work');
+  });
+
+  it('snapshotRef suppresses the committed-only wording', () => {
+    const text = buildScopeBlock('review', {
+      baseRef: 'develop',
+      snapshotRef: 'refs/karst/snapshot/7/abc123abc123abcd',
+    }).join('\n');
+    expect(text).not.toContain('committed changes only');
+  });
+
+  it('snapshotRef wins over openChanges false', () => {
+    const text = buildScopeBlock('review', {
+      baseRef: 'develop',
+      openChanges: false,
+      snapshotRef: 'refs/karst/snapshot/7/abc123abc123abcd',
+    }).join('\n');
+    expect(text).toContain('`git diff origin/develop...refs/karst/snapshot/7/abc123abc123abcd`');
+    expect(text).not.toContain('committed changes only');
+  });
+
+  it('snapshotRef swaps the empty-diff guard', () => {
+    const text = buildScopeBlock('test', {
+      baseRef: 'develop',
+      branch: 'karst/x',
+      snapshotRef: 'refs/karst/snapshot/7/abc123abc123abcd',
+    }).join('\n');
+    expect(text).toContain('That range is authoritative');
+    expect(text).not.toContain('An empty `git diff` is NOT proof of no changes');
+  });
+
+  it('absent snapshotRef is byte-identical to today', () => {
+    const omitted = buildScopeBlock('review', { baseRef: 'develop', branch: 'karst/x' }).join('\n');
+    const explicitUndefined = buildScopeBlock('review', {
+      baseRef: 'develop',
+      branch: 'karst/x',
+      snapshotRef: undefined,
+    }).join('\n');
+    expect(explicitUndefined).toBe(omitted);
+  });
+
+  it('blank snapshotRef is treated as absent', () => {
+    const text = buildScopeBlock('review', {
+      baseRef: 'develop',
+      branch: 'karst/x',
+      snapshotRef: '   ',
+    }).join('\n');
+    expect(text).toContain('origin/develop...origin/karst/x');
+    expect(text).not.toContain('refs/karst/snapshot');
+  });
+
   it('never interpolates a missing base ref', () => {
     const text = buildScopeBlock('test').join('\n');
     expect(text).not.toContain('undefined');

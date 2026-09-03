@@ -43,6 +43,7 @@ import { stageAttempt } from '../../store/stages.js';
 import { recordUatFindings, type UatFindingInput } from '../../store/uatFindings.js';
 import { parseFindingsResult, type FindingsParseShape, type WarnFn } from '../review/findings.js';
 import { buildScopeBlock } from '../agentScope.js';
+import { createReviewSnapshot, deleteReviewSnapshot } from '../reviewSnapshot.js';
 import { collapseDiagnostic } from '../../model/diagnosticText.js';
 import { nowIso } from '../../model/time.js';
 
@@ -268,6 +269,7 @@ export function buildTesterPrompt(
   target: TesterTarget,
   instructions?: string,
   gatesPassed?: readonly string[],
+  snapshotRef?: string | null,
 ): string {
   const baseClause = target.baseRef
     ? `against its base branch, \`${target.baseRef}\` (compare against \`origin/${target.baseRef}\` when available, otherwise the local \`${target.baseRef}\`).`
@@ -294,7 +296,12 @@ export function buildTesterPrompt(
   return [
     ...strategy,
     // Never replaced by `instructions` — see `workflow/agentScope.ts`.
-    ...buildScopeBlock('test', { baseRef: target.baseRef, branch: target.branch, gatesPassed }),
+    ...buildScopeBlock('test', {
+      baseRef: target.baseRef,
+      branch: target.branch,
+      gatesPassed,
+      snapshotRef,
+    }),
     ``,
     `Output rules (strict):`,
     `- Output ONLY a JSON array, nothing else: no preamble, no markdown fence, no commentary.`,
@@ -346,6 +353,7 @@ export async function runUatTester(
   const shapes: FindingsParseShape[] = [];
   const debug = opts.debug;
   const git = opts.git ?? defaultGitRunner;
+  const snapshotted: { repo: string; worktreePath: string }[] = [];
   debug?.(
     `[gate] uat tester ticket ${opts.ticketId}: starting — ${opts.targets.length} target(s), ` +
       `cap ${cap}, assignment ${opts.assignment.agentName ?? '?'}/${opts.assignment.provider}` +
@@ -386,8 +394,27 @@ export async function runUatTester(
         continue;
       }
       opts.onTargetProgress?.({ repo: target.repo, status: 'active' });
+      const snapshotRef = opts.git
+        ? await createReviewSnapshot(opts.git, {
+            ticketId: opts.ticketId,
+            repoPath: target.repo,
+            worktreePath: target.worktreePath,
+            debug: opts.debug,
+          })
+        : null;
+      if (snapshotRef !== null) {
+        snapshotted.push({ repo: target.repo, worktreePath: target.worktreePath });
+      }
+      debug?.(
+        `[gate] uat tester ${target.repo}: snapshot ${snapshotRef ?? 'unavailable — using the branch range'}`,
+      );
       const result = await opts.adapter.runHeadless({
-        prompt: buildTesterPrompt(target, opts.assignment.instructions, opts.gatesPassed),
+        prompt: buildTesterPrompt(
+          target,
+          opts.assignment.instructions,
+          opts.gatesPassed,
+          snapshotRef,
+        ),
         cwd: target.worktreePath,
         model: opts.assignment.model,
         effort: opts.assignment.effort,
@@ -506,5 +533,16 @@ export async function runUatTester(
     );
     close('failed', 'execution-failed');
     return { kind: 'execution-failed', message: collapsed };
+  } finally {
+    if (opts.git) {
+      for (const s of snapshotted) {
+        await deleteReviewSnapshot(opts.git, {
+          ticketId: opts.ticketId,
+          repoPath: s.repo,
+          worktreePath: s.worktreePath,
+          debug: opts.debug,
+        });
+      }
+    }
   }
 }
