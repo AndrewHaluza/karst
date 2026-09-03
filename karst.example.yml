@@ -56,6 +56,12 @@ archiveDoneAfterDays: 3
 # qualify. Off by default; dead tabs stay until you close them.
 # closeDoneTerminalsWithTicket: false
 
+# Show a ticket's changed files in the IDE's Source Control view — collapsible
+# groups per worktree and per commit — instead of the "Ticket changes" panel
+# (Settings → General). Clicking a file opens the same diff either way. Off by
+# default.
+# diffsInSourceControl: false
+
 repositories:
   backend:
     repoPath: /absolute/path/to/backend

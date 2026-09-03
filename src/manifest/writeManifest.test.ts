@@ -310,6 +310,9 @@ describe('writeManifest', () => {
         // whether or not the overlay wrote it, so the populated manifest pins the
         // explicit value.
         closeDoneTerminalsWithTicket: true,
+        // Same reason: absent diffsInSourceControl would round-trip regardless of
+        // the overlay, so the populated manifest pins the explicit value.
+        diffsInSourceControl: true,
         id: 'karst-extension',
       };
       writeManifest(path, full);

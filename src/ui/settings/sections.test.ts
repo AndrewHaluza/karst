@@ -52,6 +52,7 @@ describe('settings sections — vocabulary', () => {
         'debug',
         'defaultEffort',
         'defaultModel',
+        'diffsInSourceControl',
         'host',
         'portRange',
         'processes',

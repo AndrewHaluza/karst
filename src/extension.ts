@@ -41,6 +41,7 @@ import {
   type PreparedDiffResource,
 } from './ui/diffs/git.js';
 import { buildTicketChangesSnapshot } from './ui/diffs/snapshot.js';
+import { TicketScmController, type ScmHost } from './ui/diffs/scmController.js';
 import {
   DisposableBag,
   type VirtualDocumentAttempt,
@@ -2244,28 +2245,34 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   };
 
+  const ticketWorktreeSpecs = (ticketId: number) => {
+    const pathContext = worktreePathContext(currentManifest(), logger.warn, logger.info);
+    return listWorktreesByTicket(localStore, ticketId).map((worktree) => ({
+      label: repoDisplayPath(worktree.repo, pathContext),
+      path: worktree.path,
+      branch: worktree.branch,
+      baseRef: worktree.baseRef,
+    }));
+  };
+  const loadTicketChanges = async (ticketId: number, signal?: AbortSignal) => {
+    const worktrees = ticketWorktreeSpecs(ticketId);
+    const snapshot = await buildTicketChangesSnapshot(
+      ticketId,
+      worktrees,
+      (spec, inspectSignal) => inspectWorktree(defaultGitRunner, spec, inspectSignal),
+      undefined,
+      signal,
+    );
+    return { snapshot, worktrees };
+  };
+
   const changes = new TicketChangesManager(
     makeChangesPanelHost(context, brandIcon),
     (ticketId) => {
       const t = getTicket(localStore, ticketId);
       return `${compactTicketLabel(t, ticketLabel(t))} — Changes`;
     },
-    async (ticketId, signal) => {
-      const pathContext = worktreePathContext(currentManifest(), logger.warn, logger.info);
-      const worktrees = listWorktreesByTicket(localStore, ticketId).map((worktree) => ({
-        label: repoDisplayPath(worktree.repo, pathContext),
-        path: worktree.path,
-        branch: worktree.branch,
-        baseRef: worktree.baseRef,
-      }));
-      return buildTicketChangesSnapshot(
-        ticketId,
-        worktrees,
-        (spec, inspectSignal) => inspectWorktree(defaultGitRunner, spec, inspectSignal),
-        undefined,
-        signal,
-      );
-    },
+    async (ticketId, signal) => (await loadTicketChanges(ticketId, signal)).snapshot,
     openTicketDiff,
     (message) => void vscode.window.showWarningMessage(message),
     logError,
@@ -2274,6 +2281,58 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   );
   shutdownTicketChanges = () => changes.dispose();
   context.subscriptions.push(changes);
+
+  const scmHost: ScmHost = {
+    createView: (id, title) => {
+      const sc = vscode.scm.createSourceControl(id, title);
+      // Karst's SCM view is read-only: no commit box, no staging.
+      sc.inputBox.visible = false;
+      return {
+        setTitle: (next) => {
+          (sc as any).label = next;
+        },
+        createGroup: (groupId, label) => {
+          const group = sc.createResourceGroup(groupId, label);
+          group.hideWhenEmpty = true;
+          return {
+            setResources: (resources) => {
+              group.resourceStates = resources.map((resource) => ({
+                resourceUri: vscode.Uri.file(resource.absolutePath),
+                command: {
+                  command: 'karst.openTicketScmDiff',
+                  title: 'Open Changes',
+                  arguments: [resource.changeId],
+                },
+                decorations: {
+                  tooltip: resource.oldPath
+                    ? `${resource.status} — ${resource.oldPath} → ${resource.path}`
+                    : `${resource.status} — ${resource.path}`,
+                },
+              }));
+            },
+            dispose: () => group.dispose(),
+          };
+        },
+        dispose: () => sc.dispose(),
+      };
+    },
+    focus: async () => {
+      await vscode.commands.executeCommand('workbench.view.scm');
+    },
+    warn: (message) => void vscode.window.showWarningMessage(message),
+  };
+  const ticketScm = new TicketScmController({
+    host: scmHost,
+    load: loadTicketChanges,
+    openDiff: (target) => openTicketDiff(target, undefined),
+    logError,
+    titleFor: (ticketId) => {
+      const t = getTicket(localStore, ticketId);
+      return `Karst — ${compactTicketLabel(t, ticketLabel(t))}`;
+    },
+    debug: logger.debug,
+  });
+  context.subscriptions.push({ dispose: () => ticketScm.dispose() });
 
   /**
    * Push the configured post-delivery status to the ticketing provider, for a
@@ -2570,7 +2629,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             seedPrompt: prompt,
           });
         },
-        () => changes.open(ticketId),
+        () => {
+          // Manifest-gated (`diffsInSourceControl`, OFF by default): the ticket's
+          // changed files render in the IDE's Source Control view instead of the
+          // changes panel. Clicking a file opens the same diff either way.
+          if ((currentManifest() ?? emptyManifest()).diffsInSourceControl === true) {
+            void ticketScm.show(ticketId);
+            return;
+          }
+          changes.open(ticketId);
+        },
         (provider, model, effort) => void switchAgentSession(ticketId, provider, model, effort),
         () => binder.toggle(),
         // Declared below with the sweep it forces (like `binder`, the two are
@@ -6205,6 +6273,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (manifest) manifests.set(manifest, manifestPathOrThrow());
       ticketForm.openEdit(child.id);
       void vscode.window.showInformationMessage(`Created follow-up ticket ${child.key}.`);
+    }),
+    vscode.commands.registerCommand('karst.openTicketScmDiff', async (arg: unknown) => {
+      if (typeof arg !== 'string' || arg.length === 0) return;
+      await ticketScm.openChange(arg);
     }),
     vscode.commands.registerCommand('karst.archiveTicket', async (arg: unknown) => {
       const ticketId = ticketIdArg(arg);

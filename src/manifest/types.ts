@@ -577,6 +577,14 @@ export interface Manifest {
    * live session is never touched either way (only exited terminals qualify).
    */
   closeDoneTerminalsWithTicket?: boolean;
+
+  /**
+   * Open a ticket's changed-file list in the IDE's native Source Control view
+   * (collapsible groups per worktree and per commit) instead of the "Ticket
+   * changes" webview panel. Clicking a file opens the same diff editor either
+   * way. Defaults to off: absent and `false` both mean the webview panel.
+   */
+  diffsInSourceControl?: boolean;
   /**
    * UAT gates, credentials and (Phase 2) authored-step config. Absent yields the
    * default pipeline: karst probes package.json for known scripts. `origins` and

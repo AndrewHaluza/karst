@@ -1223,6 +1223,21 @@
         </div>
       </div>
 
+      <div class="field">
+        <div class="field-label" id="scmDiffsLabel">Show changes in Source Control</div>
+        <div class="field-control">
+          <div class="toggle">
+            <input type="checkbox" id="f-diffsInSourceControl" aria-describedby="scmDiffsHint" />
+            <label for="f-diffsInSourceControl">Enabled</label>
+          </div>
+          <div class="field-help" id="scmDiffsHint">
+            Show a ticket's changed files in the IDE's Source Control view — collapsible
+            groups per worktree and per commit — instead of opening the Ticket changes
+            panel. Clicking a file opens the same diff either way.
+          </div>
+        </div>
+      </div>
+
     </div>
 
     <!-- Git -->
@@ -2218,6 +2233,7 @@
       'host', 'portRange', 'baselineBranch', 'worktreePathDisplay',
       'ticketLabelTemplate', 'terminalNameTemplate', 'agentProvider', 'defaultModel',
       'defaultEffort', 'archiveDoneAfterDays', 'debug', 'closeDoneTerminalsWithTicket',
+      'diffsInSourceControl',
     ],
     git: ['conventions'],
     services: ['repositories'],
@@ -2273,7 +2289,7 @@
     if (/\bapproach(es)?\b/.test(msg)) return 'approaches';
     if (/^agents?\b/.test(msg)) return 'agents';
     if (/^processes\b/.test(msg)) return 'agents';
-    if (/\b(host|portRange|baselineBranch|worktreePathDisplay|ticketLabelTemplate|terminalNameTemplate|agentProvider|defaultModel|archiveDoneAfterDays|debug|closeDoneTerminalsWithTicket)\b/.test(msg)) {
+    if (/\b(host|portRange|baselineBranch|worktreePathDisplay|ticketLabelTemplate|terminalNameTemplate|agentProvider|defaultModel|archiveDoneAfterDays|debug|closeDoneTerminalsWithTicket|diffsInSourceControl)\b/.test(msg)) {
       return 'general';
     }
     return null;
@@ -2586,6 +2602,8 @@
     el('f-debug').checked = draft.debug === true;
     // Absent (undefined) renders unchecked — closing done terminals is off by default.
     el('f-closeDoneTerminalsWithTicket').checked = draft.closeDoneTerminalsWithTicket === true;
+    // Absent (undefined) renders unchecked — diffs open in the changes panel by default.
+    el('f-diffsInSourceControl').checked = draft.diffsInSourceControl === true;
     el('f-labelTemplate').value = draft.ticketLabelTemplate || '';
     el('f-terminalTemplate').value = draft.terminalNameTemplate || '';
     const conventions = draft.conventions || {};
@@ -2744,6 +2762,12 @@
     // read past.
     if (el('f-closeDoneTerminalsWithTicket').checked) draft.closeDoneTerminalsWithTicket = true;
     else delete draft.closeDoneTerminalsWithTicket;
+    markDirty();
+  });
+  el('f-diffsInSourceControl').addEventListener('change', () => {
+    // Unchecking deletes the field entirely — absent IS the off default.
+    if (el('f-diffsInSourceControl').checked) draft.diffsInSourceControl = true;
+    else delete draft.diffsInSourceControl;
     markDirty();
   });
   el('f-labelTemplate').addEventListener('input', () => {

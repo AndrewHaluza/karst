@@ -56,6 +56,7 @@ export const SECTION_FIELDS: Record<SettingsSection, readonly (keyof Manifest)[]
     'archiveDoneAfterDays',
     'debug',
     'closeDoneTerminalsWithTicket',
+    'diffsInSourceControl',
   ],
   git: ['conventions'],
   services: ['repositories'],

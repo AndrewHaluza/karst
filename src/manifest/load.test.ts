@@ -1879,6 +1879,57 @@ describe('closeDoneTerminalsWithTicket', () => {
   });
 });
 
+describe('diffsInSourceControl', () => {
+  it('is undefined when omitted (diffs open in the changes webview panel)', () => {
+    const { path, cleanup } = fixture(VALID);
+    try {
+      expect(loadManifest(path).diffsInSourceControl).toBeUndefined();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('parses diffsInSourceControl: true', () => {
+    const { path, cleanup } = fixture(`${VALID}\ndiffsInSourceControl: true\n`);
+    try {
+      expect(loadManifest(path).diffsInSourceControl).toBe(true);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('parses diffsInSourceControl: false', () => {
+    const { path, cleanup } = fixture(`${VALID}\ndiffsInSourceControl: false\n`);
+    try {
+      expect(loadManifest(path).diffsInSourceControl).toBe(false);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('throws on a non-boolean — a string "true" is a YAML typo', () => {
+    const { path, cleanup } = fixture(`${VALID}\ndiffsInSourceControl: "true"\n`);
+    try {
+      expect(() => loadManifest(path)).toThrow(
+        /diffsInSourceControl must be a boolean/,
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('throws on a non-boolean number', () => {
+    const { path, cleanup } = fixture(`${VALID}\ndiffsInSourceControl: 1\n`);
+    try {
+      expect(() => loadManifest(path)).toThrow(
+        /diffsInSourceControl must be a boolean/,
+      );
+    } finally {
+      cleanup();
+    }
+  });
+});
+
 describe('ticketLabelTemplate', () => {
   it('is undefined when omitted', () => {
     const { path, cleanup } = fixture(VALID);

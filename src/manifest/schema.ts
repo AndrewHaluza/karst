@@ -327,6 +327,20 @@ function validateCloseDoneTerminalsWithTicket(raw: unknown): boolean | undefined
 }
 
 /**
+ * Parse `diffsInSourceControl` (default undefined → the changes webview
+ * panel). Must be a boolean when present, like `debug` — a string `"true"`
+ * is a YAML typo and must fail loudly rather than silently rerouting the
+ * diffs UI.
+ */
+function validateDiffsInSourceControl(raw: unknown): boolean | undefined {
+  if (raw === undefined) return undefined;
+  if (typeof raw !== 'boolean') {
+    throw new ManifestError('diffsInSourceControl must be a boolean');
+  }
+  return raw;
+}
+
+/**
  * Parse the project `id`. Must be a string when present; blank/whitespace
  * normalizes to undefined so a cleared field falls back to the path-derived
  * slug rather than pinning every ticket to an empty project. Trimmed, because
@@ -527,6 +541,7 @@ export function validateManifest(raw: unknown): Manifest {
     closeDoneTerminalsWithTicket: validateCloseDoneTerminalsWithTicket(
       raw.closeDoneTerminalsWithTicket,
     ),
+    diffsInSourceControl: validateDiffsInSourceControl(raw.diffsInSourceControl),
     uat: validateUat(raw.uat),
     review: validateReview(raw.review, Object.keys(repositories)),
   };
