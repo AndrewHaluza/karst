@@ -49,6 +49,8 @@ function actions(): DashboardActions {
     requestStageLog: vi.fn(),
     requestAgentLog: vi.fn(),
     changeBaseRef: vi.fn(),
+    requestServerLogs: vi.fn(),
+    closeServerLogs: vi.fn(),
   };
 }
 

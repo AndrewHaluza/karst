@@ -1586,6 +1586,7 @@
      while active, restoring it on Back/Esc. */
   body.art-nav .stepper,body.art-nav .grid{display:none}
   body.term-nav .stepper,body.term-nav .grid{display:none}
+  body.log-nav .stepper,body.log-nav .grid{display:none}
   .artview{padding:var(--k-space-7) 0 var(--k-space-9);max-width:720px;color:var(--k-text)}
   .arthead{display:flex;align-items:center;gap:var(--k-space-4);margin-bottom:var(--k-space-6);flex-wrap:wrap}
   .arthead h2{margin:0;font-size:var(--k-text-lg);font-weight:var(--k-weight-semibold)}
@@ -1699,6 +1700,23 @@
   .termview .tstatus{font-size:var(--k-text-xs);color:var(--k-text-dim);padding:var(--k-space-2) var(--k-space-4)}
   .termview .termhost{flex:1;min-height:0;overflow:hidden}
   .termview .blurb{padding:var(--k-space-6);color:var(--k-text-dim)}
+
+  /* Combined server logs surface: tabs per server + merged chronological view.
+     body.log-nav hides .stepper and .grid, like body.art-nav and body.term-nav. */
+  .logsview{position:fixed;inset:0;z-index:8;display:flex;flex-direction:column;background:var(--k-bg);color:var(--k-text);font-family:var(--k-font-mono)}
+  .logsview.hidden{display:none}
+  .logsview .thead{display:flex;align-items:center;gap:var(--k-space-4);padding:var(--k-space-3) var(--k-space-4);border-bottom:var(--k-border-w) solid var(--k-border)}
+  .logsview .ttitle{font-weight:var(--k-weight-semibold)}
+  .logsview .tstatus{font-size:var(--k-text-xs);color:var(--k-text-dim);padding:var(--k-space-2) var(--k-space-4)}
+  .logsview .tabs{display:flex;gap:var(--k-space-2);padding:var(--k-space-2) var(--k-space-4);border-bottom:var(--k-border-w) solid var(--k-border);overflow-x:auto}
+  .logsview .tab{padding:var(--k-space-2) var(--k-space-3);font-size:var(--k-text-xs);font-family:var(--k-font-mono);color:var(--k-text-dim);background:transparent;border:none;border-radius:var(--k-radius-sm);cursor:pointer;white-space:nowrap}
+  .logsview .tab:hover{color:var(--k-text);background:var(--k-bg-muted)}
+  .logsview .tab.active{color:var(--k-text);background:var(--k-bg-muted);font-weight:var(--k-weight-semibold)}
+  .logsview .loghost{flex:1;min-height:0;overflow:hidden;font-size:var(--k-text-xs);line-height:1.5}
+  .logsview .loghost .merged{white-space:pre-wrap;word-break:break-all;padding:var(--k-space-3) var(--k-space-4)}
+  .logsview .loghost .service-prefix{font-weight:var(--k-weight-semibold);color:var(--k-accent)}
+  .logsview .loghost .ts{color:var(--k-text-dim)}
+  .logsview .blurb{padding:var(--k-space-6);color:var(--k-text-dim)}
 
   /* The ticket-data preview drawer (UI-R04: composed from tokens, no raw
      dimensions; width uses the same token step as the ticket form's drawer).
@@ -1855,6 +1873,7 @@
      and .grid); Back and Esc return to the ticket dashboard (spec §7–8). -->
 <div id="artView" class="artview hidden" tabindex="-1"></div>
 <div id="termView" class="termview hidden" tabindex="-1"></div>
+<div id="logsView" class="logsview hidden" tabindex="-1"></div>
 
 <script>
   /*KARST_DS_JS*/
@@ -2044,6 +2063,14 @@
   // still carries the console data-act value (same pattern as any action name
   // the pin would otherwise flag as unvalidated).
   const CONSOLE_ACT = 'console';
+
+  // Combined server logs state: tracks which tab is active, the server log
+  // buffers, and the merged chronological view.
+  let logsView = null;
+  let logsActiveTab = 'merged';
+  let logsServerBuffers = {};
+  let logsMergedLines = [];
+  let logsLoading = false;
 
   // Under a rail node there is room for one number, not a sentence. The full
   // stamp belongs to the Inside header, which has a line to itself.
@@ -3223,7 +3250,8 @@
     const stopWhy = !anyRunning ? 'No service is running' : null;
     return iact('spin-servers', null, 'Start all services', 'player-play', startWhy)
       + iact('restart-servers', null, 'Restart all services', 'refresh', restartWhy)
-      + iact('stop-servers', null, 'Stop all services', 'player-stop', stopWhy);
+      + iact('stop-servers', null, 'Stop all services', 'player-stop', stopWhy)
+      + iact('server-logs-request', null, 'View server logs', 'terminal-2', none ? 'No services to show logs for' : null);
   }
 
   /**
@@ -4190,6 +4218,105 @@
     renderTermView();
   }
 
+  // Combined server logs surface: tabs per server + merged chronological view.
+  function openServerLogs() {
+    if (logsView) return;
+    logsView = 'open';
+    logsActiveTab = 'merged';
+    logsServerBuffers = {};
+    logsMergedLines = [];
+    logsLoading = true;
+    renderLogsView();
+    post({ type: 'server-logs-request' });
+  }
+
+  function closeServerLogs() {
+    logsView = null;
+    logsActiveTab = 'merged';
+    logsServerBuffers = {};
+    logsMergedLines = [];
+    logsLoading = false;
+    renderLogsView();
+    post({ type: 'server-logs-close' });
+  }
+
+  function renderLogsView() {
+    const box = el('logsView');
+    if (!box) return;
+    if (!logsView) {
+      box.classList.add('hidden');
+      box.innerHTML = '';
+      document.body.classList.remove('log-nav');
+      return;
+    }
+    box.classList.remove('hidden');
+    document.body.classList.add('log-nav');
+    const services = Object.keys(logsServerBuffers);
+    const tabs = services.length
+      ? `<div class="tabs"><button type="button" class="tab${logsActiveTab === 'merged' ? ' active' : ''}" data-log-tab="merged">Merged</button>`
+        + services.map((s) => `<button type="button" class="tab${logsActiveTab === s ? ' active' : ''}" data-log-tab="${esc(s)}">${esc(s)}</button>`).join('')
+        + `</div>`
+      : '';
+    box.innerHTML = `<div class="thead"><span class="ttitle">Server Logs</span>`
+      + `<span class="sp"><button type="button" class="k-btn k-btn--ghost k-btn--sm" data-log-close`
+      + ` title="Close the logs view">Close</button></span></div>`
+      + `<div class="tstatus" id="logsStatus" role="status">${esc(logsLoading ? 'Loading server logs…' : '')}</div>`
+      + tabs
+      + `<div id="logsHost" class="loghost"></div>`;
+    renderLogsContent();
+  }
+
+  function renderLogsContent() {
+    const host = el('logsHost');
+    if (!host) return;
+    if (logsActiveTab === 'merged') {
+      if (logsMergedLines.length === 0) {
+        host.innerHTML = `<div class="blurb">${logsLoading ? 'Loading…' : 'No log output available.'}</div>`;
+      } else {
+        host.innerHTML = `<div class="merged">${logsMergedLines.map((l) => `<span class="service-prefix">[${esc(l.service)}]</span> <span class="ts">${esc(l.ts)}</span> ${esc(l.text)}`).join('\n')}</div>`;
+      }
+    } else {
+      const buf = logsServerBuffers[logsActiveTab];
+      if (!buf || buf.length === 0) {
+        host.innerHTML = `<div class="blurb">${logsLoading ? 'Loading…' : 'No log output for this service.'}</div>`;
+      } else {
+        host.innerHTML = `<div class="merged">${buf.join('\n')}</div>`;
+      }
+    }
+  }
+
+  function handleServerLogsInitial(servers) {
+    logsServerBuffers = {};
+    logsMergedLines = [];
+    for (const s of servers) {
+      const lines = s.content ? s.content.split('\n') : [];
+      logsServerBuffers[s.service] = lines;
+      const ts = new Date().toISOString().slice(11, 19);
+      for (const line of lines) {
+        if (line) logsMergedLines.push({ service: s.service, ts, text: line });
+      }
+    }
+    logsMergedLines.sort((a, b) => a.ts.localeCompare(b.ts));
+    logsLoading = false;
+    renderLogsView();
+  }
+
+  function handleServerLogOutput(service, text) {
+    const lines = text.split('\n');
+    if (!logsServerBuffers[service]) logsServerBuffers[service] = [];
+    const ts = new Date().toISOString().slice(11, 19);
+    for (const line of lines) {
+      if (line) {
+        logsServerBuffers[service].push(line);
+        logsMergedLines.push({ service, ts, text: line });
+      }
+    }
+    logsMergedLines.sort((a, b) => a.ts.localeCompare(b.ts));
+    if (logsActiveTab === service || logsActiveTab === 'merged') {
+      renderLogsContent();
+    }
+  }
+
   // Create the Terminal only on first open of a view. Guarded for the test
   // harness (no real xterm in the VM): an absent library degrades to a visible
   // refusal, never a silent blank.
@@ -4489,6 +4616,17 @@
       if (termBtn.dataset.term === 'close') closeTerminal();
       return;
     }
+    const logClose = e.target.closest('[data-log-close]');
+    if (logClose) {
+      closeServerLogs();
+      return;
+    }
+    const logTab = e.target.closest('[data-log-tab]');
+    if (logTab) {
+      logsActiveTab = logTab.dataset.logTab;
+      renderLogsView();
+      return;
+    }
     // The current stage header's ⋯ menu: a purely local toggle. The button
     // carries no `data-act` (nothing posts) and no `data-stage` (nothing
     // selects) — this is the only place it is handled.
@@ -4519,6 +4657,7 @@
     if (e.key === 'Escape' && el('ticketDataDrawer').classList.contains('open')) { closeTicketData(); return; }
     if (e.key === 'Escape' && stageMenuStage !== null) { stageMenuStage = null; render(lastState); return; }
     if (e.key === 'Escape' && termView) { closeTerminal(); return; }
+    if (e.key === 'Escape' && logsView) { closeServerLogs(); return; }
     if (e.key === 'Escape' && artView) { artifactBack(); return; }
     // Base-form popover: close on Escape
     if (e.key === 'Escape') {
@@ -4746,6 +4885,12 @@
       const stage = btn.dataset.console;
       if (!stage) return;
       openTerminal(stage, btn.dataset.consoleProc);
+      return;
+    }
+
+    // Combined server logs: open the logs view and post the request.
+    if (act === 'server-logs-request') {
+      openServerLogs();
       return;
     }
 
@@ -5058,6 +5203,21 @@
       if (termLoading) { termPending += msg.text; return; }
       if (termBlurbed) restoreTerminal();
       if (term) term.write(msg.text);
+      return;
+    }
+    // The combined server logs initial answer: all server log contents for this
+    // ticket. The webview renders the initial content and starts the merged view.
+    if (msg.type === 'server-logs') {
+      if (!logsView) return;
+      handleServerLogsInitial(msg.servers || []);
+      return;
+    }
+    // A live chunk of one server's log output: appended to that server's log
+    // buffer and, if the merged view is active, interleaved into the
+    // chronological view.
+    if (msg.type === 'server-log-output') {
+      if (!logsView) return;
+      handleServerLogOutput(msg.service, msg.text);
       return;
     }
     // The window's terminal binding. Host-owned: it is one preference shared by

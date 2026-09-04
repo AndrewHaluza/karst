@@ -9,6 +9,7 @@ export interface ServerView {
   host: string | null;
   port: number | null;
   status: string;
+  logPath: string | null;
 }
 
 export interface WorktreeView {
@@ -64,6 +65,7 @@ interface ServerRow {
   host: string | null;
   port: number | null;
   status: string;
+  log_path: string | null;
 }
 
 /**
@@ -88,7 +90,7 @@ export function listServersByTicket(store: Store, ticketId: number): ServerView[
       // Running AND stopped: stopped servers are retained (stopServer marks, not
       // deletes) so they surface as offline and can be restarted. Running float
       // to the top; then alphabetical by repository for a stable order.
-      `SELECT id, ticket_id, repo, host, port, status FROM servers
+      `SELECT id, ticket_id, repo, host, port, status, log_path FROM servers
         WHERE ticket_id = ? AND kind = 'service'
         ORDER BY CASE WHEN status = 'running' THEN 0 ELSE 1 END, repo`,
     )
@@ -100,6 +102,7 @@ export function listServersByTicket(store: Store, ticketId: number): ServerView[
     host: r.host,
     port: r.port,
     status: r.status,
+    logPath: r.log_path,
   }));
 }
 

@@ -27,6 +27,7 @@ import { makeWorktreeActions } from './ui/dashboard/worktreeActions.js';
 import { loadWorktreeStats } from './ui/dashboard/worktreeStats.js';
 import { buildGateOptionsLoader } from './ui/dashboard/gateOptions.js';
 import { readStageLog } from './ui/dashboard/stageLogReader.js';
+import { ServerLogsReader } from './ui/dashboard/serverLogsReader.js';
 import {
   TicketChangesManager,
   type ChangesPanel,
@@ -2663,6 +2664,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // The process id arrives from the webview; the manager resolves the
         // persisted console tail and posts the answer to this ticket's panel.
         (processId) => dashboard.requestAgentLog(ticketId, processId),
+        // Combined server logs: read all server log files and start polling.
+        () => dashboard.requestServerLogs(ticketId),
+        () => dashboard.closeServerLogs(ticketId),
         (message) => logger.debug(message),
       ),
     () => worktreePathContext(currentManifest(), logger.warn, logger.info),
@@ -2862,6 +2866,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // change), same lister the ticket-form picker uses (Task 8) — never a
     // closed vocabulary, and never throws (the lister swallows git failures).
     (repoPath) => listBaseBranchCandidates(defaultGitRunner, repoPath),
+    // The combined server logs reader: reads server log files from disk and
+    // streams live updates via polling.
+    new ServerLogsReader((m) => logger.debug(m)),
   );
 
   // A karst.yml edit made OUTSIDE karst (hand edit in the editor, a teammate's
@@ -7744,6 +7751,9 @@ function makeDashboardActions(
   requestStageLog: (stage: GateStage) => void,
   // Resolve one gate-lane AI process's console tail via the dashboard manager.
   requestAgentLog: (processId: AgentProcessId) => void,
+  // Combined server logs: read all server log files and start polling.
+  requestServerLogs: () => void,
+  closeServerLogs: () => void,
   // Verbose decision-point logging for the recovery action (`sendBackToImplement`),
   // gated inside the logger so it is a no-op unless the manifest's debug flag is on.
   debug: (message: string) => void,
@@ -8038,6 +8048,11 @@ function makeDashboardActions(
     // (the UAT Tester / Review findings lane): the manager owns the panel, and
     // the read of the persisted tail happens host-side.
     requestAgentLog: (processId) => requestAgentLog(processId),
+    // Combined server logs: read all server log files and start polling for
+    // live updates. The manager owns the panel, so the read happens here.
+    requestServerLogs: () => requestServerLogs(),
+    // Close the combined server logs view and stop polling.
+    closeServerLogs: () => closeServerLogs(),
     // Open one artifact resource in a normal VS Code editor — the deliberate
     // escape from the semantic artifact UI into the file model (spec §12). The
     // webview names ONLY the artifact id and a resource index, so this re-reads

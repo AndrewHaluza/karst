@@ -8,7 +8,7 @@ import type { GateStage } from '../../store/ticketGates.js';
 import { existsSync, realpathSync } from 'node:fs';
 import type { InsideProgressEvent } from '../../model/inside/progress.js';
 import type { SessionConfiguredInput } from '../../model/inside/agent.js';
-import { listWorktreesByTicket, type WorktreeView } from '../../store/dashboard.js';
+import { listWorktreesByTicket, listServersByTicket, type WorktreeView } from '../../store/dashboard.js';
 import { resolveBaselineBranchForPath } from '../../manifest/baselineBranch.js';
 import { resolveProcessAssignment } from '../../agent/processAssignment.js';
 import { resolveProvider } from '../../agent/provider.js';
@@ -29,6 +29,7 @@ import {
 import { parseInsideProgress, parseWebviewMessage, routeAction, type DashboardActions } from './messages.js';
 import type { InsideActionResult, StageLogResult } from './messages.js';
 import type { AgentProcessId } from './messages.js';
+import type { ServerLogsReader } from './serverLogsReader.js';
 import type { WorktreeStatsLoader } from './worktreeStats.js';
 import type { GateOptions, GateOptionsLoader } from './gateOptions.js';
 import type { GraphInsideInput, GraphActionTarget } from '../../model/inside/graph.js';
@@ -326,6 +327,11 @@ export class DashboardManager {
      * the input stays free text either way.
      */
     private readonly loadBranchCandidates?: BranchCandidatesLoader,
+    /**
+     * Read and stream server log files for the combined logs view. Absent →
+     * the webview receives a named refusal rather than content (UI-R13).
+     */
+    private readonly serverLogsReader?: ServerLogsReader,
   ) {}
 
   /**
@@ -1043,6 +1049,46 @@ export class DashboardManager {
     const panel = this.panels.get(ticketId);
     if (!panel) return;
     panel.postMessage({ type: 'stage-output', stage, text });
+  }
+
+  /**
+   * Answer a `server-logs-request`: read all server log files via the injected
+   * reader, start polling for live updates, and post the `server-logs` message.
+   * The answer IS the terminal outcome — always sent (ok or error), never left
+   * to a watchdog (UI-R13).
+   */
+  requestServerLogs(ticketId: number): void {
+    const panel = this.panels.get(ticketId);
+    if (!panel) return;
+    if (!this.serverLogsReader) {
+      panel.postMessage({ type: 'server-logs', servers: [] });
+      return;
+    }
+    const servers = listServersByTicket(this.store, ticketId);
+    const logServers = servers.map((s) => ({ service: s.service, logPath: s.logPath }));
+    const result = this.serverLogsReader.readLogs(logServers);
+    panel.postMessage({ type: 'server-logs', servers: result.servers });
+    this.serverLogsReader.startPolling(logServers, ticketId, (tid, service, text) =>
+      this.postServerLogOutput(tid, service, text),
+    );
+  }
+
+  /**
+   * Answer a `server-logs-close`: stop polling for server log updates. No-op
+   * if the panel is not open or no reader is configured.
+   */
+  closeServerLogs(ticketId: number): void {
+    this.serverLogsReader?.stopPolling(ticketId);
+  }
+
+  /**
+   * Push one sanitized live chunk of a server's log output to the ticket's
+   * panel; no-op if the panel is not open.
+   */
+  postServerLogOutput(ticketId: number, service: string, text: string): void {
+    const panel = this.panels.get(ticketId);
+    if (!panel) return;
+    panel.postMessage({ type: 'server-log-output', service, text });
   }
 
   /**
