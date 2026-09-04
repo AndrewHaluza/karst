@@ -1,0 +1,7 @@
+/* Shared Tabler icon treatment (docs/ui/ICONS.md §4): one viewBox, one
+   stroke, currentColor, no fill. The glyph markup comes from the injected
+   runtime or is inlined from the catalog; this rule is what keeps every
+   surface on the SAME stroke regardless of how the icon reached the DOM. */
+.k-icon{display:inline-block;vertical-align:-0.125em;flex:none;fill:none;
+stroke:currentColor;stroke-width:__TABLER_STROKE__;
+stroke-linecap:round;stroke-linejoin:round}

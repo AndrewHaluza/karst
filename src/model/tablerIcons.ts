@@ -31,7 +31,21 @@
  * `/*KARST_DS_JS*\/` and `tablerIconsCss()` rides `/*KARST_DS_CSS*\/` with
  * `injectDesignSystem`, so every webview has the catalog and `karstIcon()` by
  * construction — a new screen never needs a second icon mechanism (UI-R01).
+ *
+ * The CSS/JS bodies live as real sibling `tablerIcons.webview.css`/
+ * `tablerIcons.webview.js` source files rather than TS template-literal
+ * strings, read at call time the way `extension.ts` reads `webview.html`
+ * (`scripts/copy-assets.mjs` carries both next to the compiled output). The
+ * catalog data and the size/stroke/viewBox constants stay TS-typed exports
+ * below and are baked into the emitted text by a plain placeholder swap —
+ * the same mechanism `injectDesignSystem` already uses for the markers.
  */
+
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const HERE = dirname(fileURLToPath(import.meta.url));
 
 /**
  * Tabler Icons (https://tabler-icons.io/)
@@ -139,15 +153,9 @@ export const TABLER_ICON_SIZE = 16;
  * token-derived size) stays local, exactly like any other screen-local layout.
  */
 export function tablerIconsCss(): string {
-  return [
-    '/* Shared Tabler icon treatment (docs/ui/ICONS.md §4): one viewBox, one',
-    '   stroke, currentColor, no fill. The glyph markup comes from the injected',
-    '   runtime or is inlined from the catalog; this rule is what keeps every',
-    '   surface on the SAME stroke regardless of how the icon reached the DOM. */',
-    `.k-icon{display:inline-block;vertical-align:-0.125em;flex:none;fill:none;`,
-    `stroke:currentColor;stroke-width:${TABLER_STROKE};`,
-    `stroke-linecap:round;stroke-linejoin:round}`,
-  ].join('\n');
+  return readFileSync(join(HERE, 'tablerIcons.webview.css'), 'utf8')
+    .replace('__TABLER_STROKE__', String(TABLER_STROKE))
+    .trim();
 }
 
 /**
@@ -158,22 +166,9 @@ export function tablerIconsCss(): string {
  * time, same contract as `applyTransforms`).
  */
 export function tablerIconsJs(): string {
-  return `
-// ── Karst Tabler icon runtime (docs/ui/ICONS.md §3) ──────────────────────────
-var KARST_TABLER_ICONS = ${JSON.stringify(TABLER_ICONS)};
-
-/**
- * Full inline svg for a catalog glyph. size is CSS px (default 16); cls is an
- * optional extra class beside .k-icon. Unknown name → '' — never a throw.
- */
-function karstIcon(name, size, cls) {
-  var paths = KARST_TABLER_ICONS[name];
-  if (!paths) return '';
-  size = size || ${TABLER_ICON_SIZE};
-  var k = 'k-icon' + (cls ? ' ' + cls : '');
-  return '<svg class="' + k + '" width="' + size + '" height="' + size
-    + '" viewBox="0 0 ${TABLER_VIEWBOX} ${TABLER_VIEWBOX}" aria-hidden="true" focusable="false">'
-    + paths + '</svg>';
-}
-`.trim();
+  return readFileSync(join(HERE, 'tablerIcons.webview.js'), 'utf8')
+    .replace('__TABLER_ICONS_JSON__', JSON.stringify(TABLER_ICONS))
+    .replace('__TABLER_ICON_SIZE__', String(TABLER_ICON_SIZE))
+    .replaceAll('__TABLER_VIEWBOX__', String(TABLER_VIEWBOX))
+    .trim();
 }
