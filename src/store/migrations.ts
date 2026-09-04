@@ -19,7 +19,7 @@ export function readSchema(): string {
 }
 
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 53;
+export const SCHEMA_VERSION = 54;
 
 /** v2 ticket-field columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -2066,6 +2066,24 @@ export function migrate(db: Database): void {
     const findingsCols53 = tableColumns(db, 'review_findings');
     if (findingsCols53.size > 0 && !findingsCols53.has('identity')) {
       db.exec('ALTER TABLE review_findings ADD COLUMN identity TEXT');
+    }
+  }
+
+  if (current < 54) {
+    // v54: `servers.container` records the docker container a service runs in.
+    // A pid is a recollection the OS may have reissued (which is why
+    // `serverIdentity.ts` refuses to signal an unattributable one); a container
+    // NAME is not reissued, so it is the handle every stop and reap path uses to
+    // make sure the container itself is gone — killing the attached client alone
+    // would leave it running with its port bound. NULL means "not a container",
+    // which is the honest answer for every pre-v54 row: none of them were.
+    //
+    // The guard reads the CURRENT columns, never the version, so a fresh DB
+    // (already carrying it via schema.sql) is a no-op and a re-open is
+    // idempotent.
+    const serverCols54 = tableColumns(db, 'servers');
+    if (serverCols54.size > 0 && !serverCols54.has('container')) {
+      db.exec('ALTER TABLE servers ADD COLUMN container TEXT');
     }
   }
 
