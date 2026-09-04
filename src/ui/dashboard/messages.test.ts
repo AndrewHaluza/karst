@@ -12,6 +12,7 @@ const MESSAGES_SOURCE = readFileSync(
 function actions(): DashboardActions {
   return {
     stopServer: vi.fn(),
+    saveEnvOverrides: vi.fn(),
     pauseExecution: vi.fn(),
     unpauseExecution: vi.fn(),
     restartServer: vi.fn(),
@@ -450,6 +451,37 @@ describe('routeAction', () => {
     const a = actions();
     routeAction({ type: 'set-disabled-gates', stage: 'review', name: 'lint', disabled: false }, a);
     expect(a.setDisabledGate).toHaveBeenCalledWith('review', 'lint', false);
+  });
+});
+
+describe('env-overrides-save', () => {
+  it('parses a well-formed env-overrides-save message', () => {
+    expect(parseWebviewMessage({ type: 'env-overrides-save', scope: 'api', text: 'A=1\nB=2' }))
+      .toEqual({ type: 'env-overrides-save', scope: 'api', text: 'A=1\nB=2' });
+  });
+
+  it('keeps an empty body — that is how a scope is cleared', () => {
+    expect(parseWebviewMessage({ type: 'env-overrides-save', scope: '*', text: '' }))
+      .toEqual({ type: 'env-overrides-save', scope: '*', text: '' });
+  });
+
+  it('drops a message with a missing or non-string scope', () => {
+    for (const scope of [undefined, '', 7, { toString: () => 'api' }]) {
+      expect(parseWebviewMessage({ type: 'env-overrides-save', scope, text: 'A=1' })).toBeNull();
+    }
+  });
+
+  it('caps an absurdly long scope or body rather than routing it', () => {
+    expect(parseWebviewMessage({ type: 'env-overrides-save', scope: 'x'.repeat(300), text: '' }))
+      .toBeNull();
+    expect(parseWebviewMessage({ type: 'env-overrides-save', scope: 'api', text: 'x'.repeat(20000) }))
+      .toBeNull();
+  });
+
+  it('routes env-overrides-save to saveEnvOverrides with both fields', () => {
+    const a = actions();
+    routeAction({ type: 'env-overrides-save', scope: 'api', text: 'A=1' }, a);
+    expect(a.saveEnvOverrides).toHaveBeenCalledWith('api', 'A=1');
   });
 });
 

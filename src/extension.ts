@@ -268,6 +268,8 @@ import {
 } from './commands/launchWorktree.js';
 import { parseLaunchWorktreeConfig } from './commands/launchWorktreeConfig.js';
 import { getDisabledGates, setDisabledGates, type GateStage } from './store/ticketGates.js';
+import { ALL_SERVICES, setServiceEnvOverrides } from './store/ticketEnvOverrides.js';
+import { parseEnvText } from './runtime/env.js';
 import { latestFindingBatch } from './store/reviewFindings.js';
 import { listGateRuns } from './store/gateRuns.js';
 import { defaultGhRunnerAsync } from './integrations/github.js';
@@ -8199,6 +8201,25 @@ function makeDashboardActions(
       setDisabledGates(store, ticketId, stage, next);
       // Re-push so the row re-renders from what was actually stored, never
       // from what the click assumed.
+      afterServerChange();
+    },
+    // Save ONE scope of the ticket's env overrides. The scope is validated
+    // against the ticket's own selected repositories (or the all-services `*`)
+    // before anything is written: the editor offers exactly those, so a scope
+    // outside them is a crafted or stale message, never a user's intent. The
+    // body is parsed by the SAME parser that reads a repository's `.env`, and
+    // the result only ever reaches a spawn env — no `.env` on disk is written.
+    saveEnvOverrides: async (scope, text) => {
+      const known = getTicket(store, ticketId).selectedRepos;
+      if (scope !== ALL_SERVICES && !known.includes(scope)) {
+        void vscode.window.showWarningMessage(
+          `“${scope}” is not a repository this ticket scopes — nothing was saved.`,
+        );
+        return;
+      }
+      setServiceEnvOverrides(store, ticketId, scope, parseEnvText(text));
+      // Re-push so the editor re-renders from what was actually stored (keys
+      // the parser dropped included), never from what the user typed.
       afterServerChange();
     },
     // Change a spun ticket's base branch for one repository (§ per-repo base
