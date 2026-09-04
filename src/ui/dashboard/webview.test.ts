@@ -1234,6 +1234,8 @@ describe('dashboard webview.html', () => {
     expect(HTML).toContain('KARST_AGENT_PICKER_CSS');
     expect(HTML).toContain('KARST_AGENT_PICKER_JS');
     expect(HTML).toContain('id="switchBtn"');
+    // The inherit rows for model/effort belong to the settings default core.
+    expect(HTML).toContain("inheritCore: lastState.agentSwitch.inheritCore || ''");
     expect(HTML).toMatch(/Closing this menu takes no action/);
     expect(HTML).toMatch(/draftCore !== s\.provider/); // changed-draft gate
     expect(HTML).toMatch(/post\(\{ type: 'switch-agent', provider: draftCore, model: draftModel \|\| null, effort: draftEffort \|\| null \}\)/);

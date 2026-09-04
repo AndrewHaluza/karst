@@ -162,6 +162,13 @@ export interface DashboardState {
     effort: string | null;
     modelInheritLabel: string;
     effortInheritLabel: string;
+    /**
+     * The manifest's default agent core — the core `modelInheritLabel` and
+     * `effortInheritLabel` describe. The picker offers those inherit rows only
+     * while the picked core IS this one (a Claude default is not inheritable
+     * under opencode). Null when the host declares no default core.
+     */
+    inheritCore: AgentProvider | null;
   };
   servers: ServerView[];
   /** False when nothing in scope declares a service — nothing can ever start. */
@@ -844,6 +851,7 @@ export function buildDashboardState(
       effort: agentSession.effort,
       modelInheritLabel,
       effortInheritLabel,
+      inheritCore: defaultProvider ?? null,
     },
     servers: listServersByTicket(store, ticketId),
     // Drives whether "Start servers" is offered at all. A ticket scoping only

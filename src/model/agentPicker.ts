@@ -17,6 +17,7 @@
  *     recent,           // { provider: [modelId] } recently used, newest first (≤5)
  *     value,            // { core, model, effort } current selection
  *     inherit,          // { core?, model?, effort? } labels for "Inherit (settings: X)"
+ *     inheritCore,      // the core those inherit labels were configured for
  *     disabled,         // lock the whole picker (session-open)
  *     showEffort,       // false = never render the effort/variant field
  *     onChange,         // ({ core, model, effort }) => void
@@ -31,6 +32,19 @@
  * append-only `token_usage` ledger (`store/tokenUsage.ts`
  * `listRecentlyUsedModels`), so every surface that mounts the picker gets the
  * same "last used" group by passing the same shape.
+ *
+ * `recent` also decides where a CORE SWITCH lands: the new core starts on ITS
+ * OWN last used model (the newest recent id still in that core's catalog), and
+ * on no effort — an effort belongs to the model that advertises it. A core with
+ * no usable recent model lands on the inherit/agent-picks row as before.
+ *
+ * `inheritCore` names the core the `inherit` labels were configured for (the
+ * settings default, or the parent level's core). A model/effort inherited from
+ * settings belongs to THAT core, so the picker offers those two inherit rows
+ * only while the picked core is that core — "Inherit (settings: Sonnet 5)"
+ * under opencode would inherit a value opencode can never use. The core row's
+ * own inherit label always stands, and a host that declares no `inheritCore`
+ * keeps every label (the Settings-general picker IS the inherited level).
  *
  * Effort is model-capability-aware (design § Execution policy resolution): the
  * effort/variant field renders ONLY when the selected model advertises efforts

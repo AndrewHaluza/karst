@@ -27,7 +27,7 @@ function load(): Record<string, unknown> {
   return new Function(`${agentIdentityJs()}\n${js}\nreturn {
     apEfforts, apEffortOptions, apCoreOptionsHtml, apModelOptionsHtml,
     apCoreSelection: typeof apCoreSelection === 'function' ? apCoreSelection : undefined,
-    apTags, apModelTagsHtml,
+    apTags, apModelTagsHtml, apInheritLabels,
   };`)();
 }
 
@@ -80,6 +80,77 @@ describe('agentPickerJs', () => {
     const current = { core: 'claude', model: 'claude-opus-5', effort: 'high' };
 
     expect(apCoreSelection(current, 'claude')).toEqual(current);
+  });
+
+  it('preselects the new core\'s last used model when one is still cataloged', () => {
+    const { apCoreSelection } = load() as {
+      apCoreSelection: (
+        current: { core: string; model: string; effort: string },
+        core: string,
+        recentIds?: string[],
+        catalog?: unknown,
+      ) => { core: string; model: string; effort: string };
+    };
+
+    expect(apCoreSelection(
+      { core: 'claude', model: 'claude-opus-5', effort: 'high' },
+      'codex',
+      ['gpt-5.6-sol'],
+      catalog,
+    )).toEqual({ core: 'codex', model: 'gpt-5.6-sol', effort: '' });
+  });
+
+  it('leaves the model unset when the new core\'s last used model left the catalog', () => {
+    const { apCoreSelection } = load() as {
+      apCoreSelection: (
+        current: { core: string; model: string; effort: string },
+        core: string,
+        recentIds?: string[],
+        catalog?: unknown,
+      ) => { core: string; model: string; effort: string };
+    };
+
+    expect(apCoreSelection(
+      { core: 'claude', model: 'claude-opus-5', effort: 'high' },
+      'codex',
+      ['ghost-model'],
+      catalog,
+    )).toEqual({ core: 'codex', model: '', effort: '' });
+  });
+
+  describe('apInheritLabels', () => {
+    const { apInheritLabels } = load() as {
+      apInheritLabels: (
+        inherit: { core?: string; model?: string; effort?: string },
+        inheritCore: string,
+        core: string,
+      ) => { core: string; model: string; effort: string };
+    };
+    const inherit = {
+      core: 'Inherit (settings: Claude Code)',
+      model: 'Inherit (settings: Opus 5)',
+      effort: 'Inherit (settings: high)',
+    };
+
+    it('keeps the model/effort inherit labels when the selected core IS the inherited one', () => {
+      expect(apInheritLabels(inherit, 'claude', 'claude')).toEqual(inherit);
+    });
+
+    it('drops the model/effort inherit labels for a different core', () => {
+      expect(apInheritLabels(inherit, 'claude', 'opencode')).toEqual({
+        core: inherit.core,
+        model: '',
+        effort: '',
+      });
+    });
+
+    it('keeps them when no inherited core is known (host declares none)', () => {
+      expect(apInheritLabels(inherit, '', 'opencode')).toEqual(inherit);
+    });
+
+    it('keeps them while the core itself is inherited (no explicit pick)', () => {
+      expect(apInheritLabels(inherit, 'claude', '')).toEqual(inherit);
+    });
   });
 
   describe('apEfforts', () => {

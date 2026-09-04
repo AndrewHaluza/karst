@@ -350,6 +350,19 @@ describe('buildDashboardState', () => {
     expect(state.agentSwitch.recentByCore.claude).toEqual(['claude-sonnet-5', 'claude-opus-5']);
   });
 
+  // The picker suppresses the model/effort inherit rows under a core that is
+  // not the one the defaults were configured for, so it must be told which core
+  // that is — an inherited Claude model is not inheritable under opencode.
+  it('names the core the switch popover’s inherit labels belong to', () => {
+    const t = createTicket(store, { key: 'PROJ-1', title: 'thing' });
+
+    expect(buildDashboardState(store, t.id).agentSwitch.inheritCore).toBeNull();
+    expect(
+      buildDashboardState(store, t.id, undefined, undefined, undefined, undefined, 'claude')
+        .agentSwitch.inheritCore,
+    ).toBe('claude');
+  });
+
   // The merge verdicts already feed the ship strip; the PR panel needs them at
   // the top level too, because that is where the conflict is acted on and the
   // webview cannot query the store.

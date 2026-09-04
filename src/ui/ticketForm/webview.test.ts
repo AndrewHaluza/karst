@@ -905,6 +905,9 @@ describe('ticket-form webview.html — selects, buttons, positioning fixes', () 
     expect(HTML).toMatch(/draft\.selectedAgentProvider = core \|\| null/);
     expect(HTML).toMatch(/draft\.selectedModel = m \|\| null/);
     expect(HTML).toMatch(/draft\.selectedEffort = e \|\| null/);
+    // The settings default core owns the model/effort inherit rows; the shared
+    // picker drops them once another core is picked.
+    expect(HTML).toContain("inheritCore: defaultProvider || ''");
   });
 
   it('suppresses the k-btn press-scale and the pending/success flashes on the dropdown trigger', () => {

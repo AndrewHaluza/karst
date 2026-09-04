@@ -187,15 +187,23 @@ export async function applyAgentSwitchSelection(
   // models that are compatible with the provider (e.g. opencode provider/model IDs).
   if (!isValidModelForProvider(selection.provider, selection.model, catalog)) return { kind: 'stale' };
 
-  // The staged effort must be advertised by the SELECTED model — the same
-  // validation the launch path applies (`resolveEffortForProvider`), so a
-  // staged effort the model does not advertise is refused here rather than
-  // silently dropped at launch.
+  // The staged effort must be advertised by the model the LAUNCH will use —
+  // the same resolution the launch path applies (`resolveModelForProvider` then
+  // `resolveEffortForProvider`). Cross-checking the raw selection instead means
+  // an effort staged over an INHERITED model (`model === null`, the picker's
+  // "Inherit (settings: …)" row) has no model to check against and is dropped,
+  // which silently discarded every such pick (IMROVEMENTS-IN-AGENT-PICKER).
+  const toModel = resolveModelForProvider(
+    selection.provider,
+    selection.model,
+    initial.defaultModel,
+    catalog,
+  );
   const toEffort = resolveEffortForProvider(
     selection.provider,
     selection.effort,
     initial.defaultEffort,
-    selection.model ?? undefined,
+    toModel,
     catalog,
   );
 

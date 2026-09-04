@@ -876,7 +876,7 @@ export function renderStateFor(stage: InsideStageKey): DashboardState {
     stepper: [],
     currentStage: null,
     ship: { kind: 'none' },
-    agentSwitch: { cores: [], models: {}, modelsByCore: {} as ModelCatalog, recentByCore: {}, effort: null, modelInheritLabel: 'Agent default', effortInheritLabel: 'No effort (agent picks)' },
+    agentSwitch: { cores: [], models: {}, modelsByCore: {} as ModelCatalog, recentByCore: {}, effort: null, modelInheritLabel: 'Agent default', effortInheritLabel: 'No effort (agent picks)', inheritCore: null },
     servers: [],
     hasRunnableRepos: false,
     worktrees: [],

@@ -87,9 +87,9 @@
   .popover{display:none;position:absolute;z-index:50;top:calc(100% + var(--k-space-3));right:0;border:var(--k-border-w) solid var(--k-border-strong);border-radius:var(--k-radius-lg);background:var(--k-surface);box-shadow:var(--k-elev-2)}
   .popover.hidden{display:none}
   .popover.open{display:block}
-  .agentPopover{width:calc(var(--k-control-h-lg) * 14);padding:0}
+  .agentPopover{width:calc(var(--k-control-h-lg) * 20);max-width:calc(100vw - var(--k-space-8));padding:0}
   .menuPopover{width:calc(var(--k-control-h-lg) * 12);padding:var(--k-space-4)}
-  .agentForm{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:var(--k-space-3) var(--k-space-4);padding:var(--k-space-4);align-items:center}
+  .agentForm{display:grid;grid-template-columns:minmax(0,1fr);gap:var(--k-space-3);padding:var(--k-space-4)}
   /* The label column is max-content, never a fixed step: "Agent core" is wider
      than any spacing token, and a 20px column let the right-aligned label spill
      out of the popover's left edge and over whatever sat beside it. `contents`
@@ -3733,6 +3733,10 @@
       catalog: (lastState.agentSwitch.modelsByCore || lastState.agentSwitch.models) || {},
       recent: lastState.agentSwitch.recentByCore || {},
       value: { core: draftCore || '', model: draftModel, effort: draftEffort },
+      // The model/effort inherit rows describe the SETTINGS default core; the
+      // picker drops them once another core is picked (an inherited Claude
+      // model is not a thing opencode can inherit).
+      inheritCore: lastState.agentSwitch.inheritCore || '',
       inherit: {
         core: 'Inherit (settings: ' + (AGENT_PROVIDER_LABELS[s.provider] || s.provider) + ')',
         model: (s.modelId ? 'Inherit (settings: ' + (lastState.agentSwitch.modelInheritLabel || '') + ')' : 'No default (agent picks)'),
