@@ -1,3 +1,5 @@
+import { isPortOpen } from './portConflict.js';
+
 export interface HealthOptions {
   /** Total time to wait before giving up. */
   timeoutMs?: number;
@@ -32,6 +34,29 @@ const DEFAULTS: Required<Omit<HealthOptions, 'signal' | 'requireInstance'>> = {
   intervalMs: 150,
   maxIntervalMs: 1_000,
 };
+
+/**
+ * A `tcp://host:port` health target, or null for an HTTP(S) one.
+ *
+ * Not every service speaks HTTP. A container running postgres, redis or a
+ * message broker answers nothing a `fetch` can read, so an HTTP-only gate could
+ * only ever time out and kill it — which would make exactly the services people
+ * run as images unusable. "The port accepts a connection" is the honest health
+ * question for those, and it is the same question `isPortOpen` already answers
+ * for port reclaim.
+ */
+function tcpTarget(url: string): { host: string; port: number } | null {
+  if (!url.startsWith('tcp://')) return null;
+  try {
+    const parsed = new URL(url);
+    const port = Number(parsed.port);
+    if (!Number.isInteger(port) || port <= 0) return null;
+    // `URL` brackets an IPv6 literal; `connect` wants it bare.
+    return { host: parsed.hostname.replace(/^\[|\]$/g, ''), port };
+  } catch {
+    return null;
+  }
+}
 
 export class HealthTimeoutError extends Error {
   constructor(url: string, timeoutMs: number) {
@@ -107,6 +132,8 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
  * `waitForHealth` cannot answer, because by then both look identical.
  */
 export async function isServing(url: string, timeoutMs = 1_000): Promise<boolean> {
+  const tcp = tcpTarget(url);
+  if (tcp) return isPortOpen(tcp.host, tcp.port, timeoutMs);
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
     return res.ok;
@@ -143,15 +170,22 @@ export async function waitForHealth(url: string, opts: HealthOptions = {}): Prom
       remainingMs,
     );
     try {
-      const res = await fetch(url, { signal: probe.signal });
-      if (res.ok) {
-        const verdict = instanceVerdict(res, opts.requireInstance);
-        if (verdict.ok) return;
-        // A different instance is not something waiting can fix; an absent
-        // header may still be a service that has not finished booting, so that
-        // one keeps polling and ends as an ordinary timeout.
-        if (verdict.found !== null) {
-          throw new HealthForeignInstanceError(url, opts.requireInstance!, verdict.found);
+      const tcp = tcpTarget(url);
+      if (tcp) {
+        // A raw TCP target carries no response headers, so instance identity
+        // cannot be asserted here: an open port is the whole verdict.
+        if (await isPortOpen(tcp.host, tcp.port, Math.min(remainingMs, 1_000))) return;
+      } else {
+        const res = await fetch(url, { signal: probe.signal });
+        if (res.ok) {
+          const verdict = instanceVerdict(res, opts.requireInstance);
+          if (verdict.ok) return;
+          // A different instance is not something waiting can fix; an absent
+          // header may still be a service that has not finished booting, so that
+          // one keeps polling and ends as an ordinary timeout.
+          if (verdict.found !== null) {
+            throw new HealthForeignInstanceError(url, opts.requireInstance!, verdict.found);
+          }
         }
       }
     } catch (err) {

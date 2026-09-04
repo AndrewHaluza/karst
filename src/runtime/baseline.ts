@@ -6,8 +6,8 @@ import type { Manifest } from '../manifest/types.js';
 import { resolveBaselineBranch } from '../manifest/baselineBranch.js';
 import { isRunnable } from '../manifest/runnable.js';
 import { startHot, type ServerRecord } from './supervisor.js';
-import { renderHealthUrl } from './healthUrl.js';
 import { serverLogPath } from './serverLog.js';
+import { serviceLaunch } from './serviceLaunch.js';
 
 interface RunningRow {
   id: number;
@@ -15,13 +15,14 @@ interface RunningRow {
   port: number;
   host: string;
   log_path: string;
+  container: string | null;
 }
 
 /** Find a running baseline singleton (NULL ticket_id) for a service, if any. */
 function findRunningBaseline(store: Store, service: string): ServerRecord | null {
   const row = store.db
     .prepare(
-      `SELECT id, pid, port, host, log_path FROM servers
+      `SELECT id, pid, port, host, log_path, container FROM servers
        WHERE repo = ? AND ticket_id IS NULL AND status = 'running'`,
     )
     .get(service) as RunningRow | undefined;
@@ -35,6 +36,7 @@ function findRunningBaseline(store: Store, service: string): ServerRecord | null
     pid: row.pid,
     status: 'running',
     logPath: row.log_path,
+    container: row.container,
   };
 }
 
@@ -56,12 +58,6 @@ function ensureBaselineCheckout(repoPath: string, service: string, branch: strin
     }
   }
   return dir;
-}
-
-/** Split a `start` command string into command + args (simple whitespace split). */
-function splitCommand(start: string): { command: string; args: string[] } {
-  const parts = start.trim().split(/\s+/);
-  return { command: parts[0]!, args: parts.slice(1) };
 }
 
 /**
@@ -96,19 +92,28 @@ export async function ensureBaseline(
     service,
     resolveBaselineBranch(manifest, repo),
   );
-  const { command, args } = splitCommand(svc.start);
-
-  const healthUrl = svc.health
-    ? renderHealthUrl(svc.health, manifest.host, port)
-    : `http://${manifest.host}:${port}/health`;
+  const env = { [httpSlot.env]: String(port) };
+  // A baseline runs whatever kind of service the manifest declares — a command
+  // or a container — through the same derivation spin uses, so the singleton can
+  // never end up started one way and reaped another.
+  const { command, args, container, healthUrl } = serviceLaunch({
+    service: svc,
+    name: service,
+    ticketId: null,
+    env,
+    host: manifest.host,
+    port,
+    cwd: checkout,
+  });
 
   return startHot(store, {
     ticketId: null, // baseline singleton
     service,
     command,
     args,
+    container,
     cwd: checkout,
-    env: { [httpSlot.env]: String(port) },
+    env,
     host: manifest.host,
     port,
     healthUrl,

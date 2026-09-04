@@ -39,6 +39,14 @@ export interface RepoRow {
    * told rather than surprised.
    */
   runnable: boolean;
+  /**
+   * True when the repository's service runs a Docker image rather than a command
+   * in the worktree. The picker labels it, because what `spin` will do to the
+   * machine differs — a container is pulled, published on a port, and removed on
+   * teardown — and a row that looked identical to a command service would hide
+   * that.
+   */
+  docker: boolean;
   selected: boolean;
 }
 
@@ -310,6 +318,7 @@ export function buildTicketFormState(
         signals: def.signals ?? [],
         score,
         runnable: isRunnable(def),
+        docker: def.service?.docker !== undefined,
         selected: hasExplicit ? selectedSet.has(name) : score > 0 || soleRepo,
       };
     });

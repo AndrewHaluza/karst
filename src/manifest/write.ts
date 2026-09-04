@@ -113,7 +113,12 @@ export function writeManifest(path: string, manifest: Manifest): void {
       service: repo.service
         ? {
             ...rawService,
-            start: repo.service.start,
+            // A container service owns no start command, and vice versa: write
+            // the one this service has and DROP the other (undefined → omitted),
+            // or a repository switched from a command to an image would be
+            // written with both — the one shape validation rejects outright.
+            start: repo.service.docker ? undefined : repo.service.start,
+            docker: repo.service.docker,
             health: repo.service.health,
             healthIdentity: repo.service.healthIdentity,
             ports: repo.service.ports,

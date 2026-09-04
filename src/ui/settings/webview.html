@@ -2412,6 +2412,8 @@
     if (!msg) return null;
     let m = msg.match(/^repository "([^"]+)"\.(repoPath|baselineBranch)\b/);
     if (m) return { key: m[1] + '.' + m[2] };
+    m = msg.match(/^repository "([^"]+)" service\.docker\.(image|containerPort)\b/);
+    if (m) return { key: m[1] + '.docker.' + m[2] };
     m = msg.match(/^repository "([^"]+)" service\.(start|health)\b/);
     if (m) return { key: m[1] + '.' + m[2] };
     m = msg.match(/^repository "([^"]+)" service\.portRange\b/);
@@ -2846,6 +2848,30 @@
 
   // ---- Repositories ----
   function serviceNames() { return Object.keys(draft.repositories || {}); }
+  /** A docker env map as one KEY=value per line — the shape the textarea edits. */
+  function envLines(env) {
+    return Object.entries(env || {}).map(([k, v]) => k + '=' + v).join('\n');
+  }
+  /**
+   * Parse that textarea back. Only the FIRST `=` splits, so a value may contain
+   * one; a line with no `=` names a variable with no value and is dropped rather
+   * than written as an empty one the author never meant.
+   */
+  function parseEnvLines(text) {
+    const out = {};
+    for (const line of String(text).split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      const eq = trimmed.indexOf('=');
+      if (eq <= 0) continue;
+      out[trimmed.slice(0, eq).trim()] = trimmed.slice(eq + 1);
+    }
+    return out;
+  }
+  /** One entry per non-blank line — volumes and command arguments both. */
+  function parseLines(text) {
+    return String(text).split('\n').map((l) => l.trim()).filter(Boolean);
+  }
   /** Only repositories that declare a service can be depended on — they own ports. */
   function runnableNames() {
     return serviceNames().filter((n) => draft.repositories[n] && draft.repositories[n].service);
@@ -2893,6 +2919,13 @@
     const migrationsId = safeId('f-svc-migrations', name);
     const runnableId = safeId('f-svc-runnable', name);
     const startId = safeId('f-svc-start', name);
+    const dockerModeId = safeId('f-svc-docker-mode', name);
+    const dockerImageId = safeId('f-svc-docker-image', name);
+    const dockerPortId = safeId('f-svc-docker-port', name);
+    const dockerEnvId = safeId('f-svc-docker-env', name);
+    const dockerVolumesId = safeId('f-svc-docker-volumes', name);
+    const dockerArgsId = safeId('f-svc-docker-args', name);
+    const dockerImageErrId = safeId('err', name + '.docker.image');
     const healthId = safeId('f-svc-health', name);
     const healthIdentityId = safeId('f-svc-health-identity', name);
     const repoPathErrId = safeId('err', name + '.repoPath');
@@ -2912,8 +2945,13 @@
     // Baseline | Runtime | Actions in the same grid as the roster head, with
     // the toggle as the row opener and the detail editor below. The selected
     // (open) row keeps its highlight while details are shown.
+    // The runtime badge answers "what will spin actually do here?", so a
+    // container service says so: it is pulled, published on a port and removed
+    // on teardown, none of which a command service does.
     const runtimeBadge = svc
-      ? '<span class="badge good">service</span>'
+      ? (svc.docker
+        ? '<span class="badge good">docker</span>'
+        : '<span class="badge good">service</span>')
       : '<span class="badge">worktree only</span>';
     return `<div class="card ${isOpen ? 'open is-selected' : ''}" data-card="${esc(name)}">`
       + `<div class="card-head roster-row repo-cols">`
@@ -2961,9 +2999,27 @@
       + `<div class="field-hint">Off means karst gives this repo a worktree but never starts it. No port, no health check.</div>`
 
       + (svc
-        ? `<label for="${startId}">Start command</label>`
-          + `<input type="text" id="${startId}" placeholder="npm run dev" data-svc-field="start" data-svc="${esc(name)}" data-touch-key="${esc(name)}.start" aria-describedby="${startErrId}" value="${esc(svc.start || '')}"/>`
-          + `<div class="field-error hidden" id="${startErrId}" role="alert" data-field-error="${esc(name)}.start"></div>`
+        ? `<div class="toggle" style="margin-top:10px">`
+          + `<input type="checkbox" id="${dockerModeId}" data-docker-mode="${esc(name)}" ${svc.docker ? 'checked' : ''}/>`
+          + `<label style="margin:0" for="${dockerModeId}">Run a Docker image</label>`
+          + `</div>`
+          + `<div class="field-hint">On, karst runs a container instead of a command in the worktree, publishes your allocated port onto it, and removes it when the ticket is torn down.</div>`
+          + (svc.docker
+            ? `<label for="${dockerImageId}">Image</label>`
+              + `<input type="text" id="${dockerImageId}" placeholder="postgres:16" data-docker-field="image" data-svc="${esc(name)}" data-touch-key="${esc(name)}.docker.image" aria-describedby="${dockerImageErrId}" value="${esc(svc.docker.image || '')}"/>`
+              + `<div class="field-error hidden" id="${dockerImageErrId}" role="alert" data-field-error="${esc(name)}.docker.image"></div>`
+              + `<label for="${dockerPortId}">Port inside the container</label>`
+              + `<input type="number" id="${dockerPortId}" placeholder="5432" data-docker-field="containerPort" data-svc="${esc(name)}" value="${esc(svc.docker.containerPort || '')}"/>`
+              + `<div class="field-hint">The port the image itself listens on. Karst publishes the allocated host port onto it, so this never has to change per ticket.</div>`
+              + `<label for="${dockerEnvId}">Environment <span class="field-hint">(one KEY=value per line)</span></label>`
+              + `<textarea id="${dockerEnvId}" rows="3" placeholder="POSTGRES_PASSWORD=dev" data-docker-field="env" data-svc="${esc(name)}">${esc(envLines(svc.docker.env))}</textarea>`
+              + `<label for="${dockerVolumesId}">Volumes <span class="field-hint">(one source:/path/in/container per line)</span></label>`
+              + `<textarea id="${dockerVolumesId}" rows="2" placeholder="./data:/var/lib/postgresql/data" data-docker-field="volumes" data-svc="${esc(name)}">${esc((svc.docker.volumes || []).join('\n'))}</textarea>`
+              + `<label for="${dockerArgsId}">Command override <span class="field-hint">(one argument per line, blank uses the image's own)</span></label>`
+              + `<textarea id="${dockerArgsId}" rows="2" placeholder="postgres" data-docker-field="args" data-svc="${esc(name)}">${esc((svc.docker.args || []).join('\n'))}</textarea>`
+            : `<label for="${startId}">Start command</label>`
+              + `<input type="text" id="${startId}" placeholder="npm run dev" data-svc-field="start" data-svc="${esc(name)}" data-touch-key="${esc(name)}.start" aria-describedby="${startErrId}" value="${esc(svc.start || '')}"/>`
+              + `<div class="field-error hidden" id="${startErrId}" role="alert" data-field-error="${esc(name)}.start"></div>`)
           + `<label for="${healthId}">Health check</label>`
           + `<input type="text" id="${healthId}" placeholder="http://{host}:{port}/health" data-svc-field="health" data-svc="${esc(name)}" data-touch-key="${esc(name)}.health" aria-describedby="${healthErrId}" value="${esc(svc.health || '')}"/>`
           + `<div class="field-error hidden" id="${healthErrId}" role="alert" data-field-error="${esc(name)}.health"></div>`
@@ -3375,6 +3431,17 @@
       markDirty();
       return;
     }
+    if (t.dataset.dockerField) {
+      const svcDef = (draft.repositories[t.dataset.svc] || {}).service;
+      if (!svcDef || !svcDef.docker) return;
+      const field = t.dataset.dockerField;
+      if (field === 'containerPort') svcDef.docker.containerPort = Number(t.value) || 0;
+      else if (field === 'env') svcDef.docker.env = parseEnvLines(t.value);
+      else if (field === 'volumes' || field === 'args') svcDef.docker[field] = parseLines(t.value);
+      else svcDef.docker[field] = t.value;
+      markDirty();
+      return;
+    }
     if (t.dataset.portField) {
       const svc = t.dataset.svc, idx = Number(t.dataset.idx), field = t.dataset.portField;
       const port = (draft.repositories[svc].service || {}).ports?.[idx];
@@ -3428,6 +3495,20 @@
     if (!t.dataset) return;
     if (t.dataset.svcName !== undefined) {
       renameService(t.dataset.svcName, t.value);
+      return;
+    }
+    if (t.dataset.dockerMode !== undefined) {
+      const svcDef = (draft.repositories[t.dataset.dockerMode] || {}).service;
+      if (!svcDef) return;
+      if (t.checked) {
+        // A service runs ONE process: turning the image on drops the command, or
+        // the manifest would be written with both — the shape validation rejects.
+        svcDef.docker = { image: '', containerPort: 0, env: {}, volumes: [], args: [] };
+        svcDef.start = '';
+      } else {
+        delete svcDef.docker;
+      }
+      markDirty(); renderServices();
       return;
     }
     if (t.dataset.svcField === 'hasMigrations') {

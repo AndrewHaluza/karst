@@ -277,6 +277,26 @@ describe('buildTicketFormState — repo auto-selection & approach default', () =
     expect(s.repos.every((r) => r.runnable)).toBe(true);
   });
 
+  it('marks a container service as docker, and a command service as not', () => {
+    const m: Manifest = {
+      ...MANIFEST,
+      repositories: {
+        db: runnableRepo(
+          {
+            ports: [slot('port', 'PORT', 5432)],
+            docker: { image: 'postgres:16', containerPort: 5432, env: {}, volumes: [], args: [] },
+          },
+          { repoPath: '/repo/db', signals: [] },
+        ),
+        api: svc({ repoPath: '/repo/api', signals: [] }),
+      },
+    };
+    const s = buildTicketFormState(store, m, () => [], () => []);
+    // What spin does to the machine differs, so the picker says which it is.
+    expect(s.repos.find((r) => r.service === 'db')!.docker).toBe(true);
+    expect(s.repos.find((r) => r.service === 'api')!.docker).toBe(false);
+  });
+
   it('does not auto-select any repo in a multi-service stack with no score hits', () => {
     const s = buildTicketFormState(store, MANIFEST, () => [], () => []);
     expect(s.repos.every((r) => r.selected === false)).toBe(true);

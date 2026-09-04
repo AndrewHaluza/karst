@@ -11,6 +11,7 @@ import {
 } from './health.js';
 import { killTree } from './processTree.js';
 import { isPortOpen, reclaimPort, listenerPids } from './portConflict.js';
+import { removeContainer, removeContainerAsync } from './dockerContainer.js';
 export { killTree } from './processTree.js';
 
 /**
@@ -30,6 +31,8 @@ export interface ServerRecord {
   pid: number;
   status: 'running' | 'stopped';
   logPath: string;
+  /** The docker container this service runs in, or null for a plain command. */
+  container: string | null;
 }
 
 export interface StartHotOpts {
@@ -50,6 +53,18 @@ export interface StartHotOpts {
    * reaped; anything outside it is a stranger and never touched.
    */
   repoPath: string;
+  /**
+   * The docker container this service runs in (`runtime/dockerCommand.ts`), when
+   * the manifest declared an image rather than a start command.
+   *
+   * Two things follow from it, and both are the difference between a container
+   * service and a leak: any LEFTOVER container of the same name is removed
+   * before the spawn (docker refuses to start a second container under a name
+   * already taken, so a crashed previous run would block every retry), and the
+   * name is recorded on the row so every stop and reap path can remove the
+   * container itself rather than only the client attached to it.
+   */
+  container?: string;
   /**
    * Require the health response to identify itself as this start
    * (`service.healthIdentity`). karst mints one token per start, puts it in the
@@ -276,6 +291,15 @@ async function describePortState(opts: StartHotOpts): Promise<string> {
 }
 
 export async function startHot(store: Store, opts: StartHotOpts): Promise<ServerRecord> {
+  // A container service names its container deterministically, so a container
+  // left behind by a crashed run (or by a kill that reached the client and not
+  // the daemon) still holds that name. `docker run` fails outright on the
+  // conflict, which would make every retry fail for a reason the user cannot see
+  // from the log. Remove it first — awaited, because the spawn depends on it —
+  // and tolerate every failure: "no such container" is the normal answer.
+  if (opts.container) {
+    await removeContainerAsync(opts.container, { debug: opts.debug });
+  }
   // A port owner may answer the configured health URL (SPA fallbacks commonly
   // return index.html with 200 for every path) or may answer nothing useful at
   // all. Health therefore cannot identify the owner. Attribute every occupied
@@ -439,6 +463,11 @@ export async function startHot(store: Store, opts: StartHotOpts): Promise<Server
     // process exited, the command is missing) and needs no port reading.
     const portState = err instanceof HealthTimeoutError ? await describePortState(opts) : '';
     killTree(pid);
+    // Killing the attached client leaves the CONTAINER running, and no `servers`
+    // row exists yet — so nothing downstream will ever learn this name. Remove it
+    // here or a timed-out, abandoned or cancelled start leaks a container holding
+    // the port. Fire-and-forget: `docker rm -f` on an absent container is a no-op.
+    if (opts.container) removeContainer(opts.container, { debug: opts.debug });
     // A user cancellation is quiet — no log tail, no fault banner.
     if (err instanceof HealthAbortedError) throw err;
     // Surface the service's own output so the failure explains itself: a missing
@@ -457,8 +486,8 @@ export async function startHot(store: Store, opts: StartHotOpts): Promise<Server
 
   const info = store.db
     .prepare(
-      `INSERT INTO servers (ticket_id, repo, host, port, pid, status, log_path, cwd, started_at)
-       VALUES (?, ?, ?, ?, ?, 'running', ?, ?, ?)`,
+      `INSERT INTO servers (ticket_id, repo, host, port, pid, status, log_path, cwd, started_at, container)
+       VALUES (?, ?, ?, ?, ?, 'running', ?, ?, ?, ?)`,
     )
     // `cwd` is recorded because the child is spawned `detached` — its own session
     // with no controlling tty — so nothing can ever reach it by hanging up a
@@ -468,7 +497,17 @@ export async function startHot(store: Store, opts: StartHotOpts): Promise<Server
     // captured `spawnedAt`, not the schema's `datetime('now')` default) for the
     // same reason: it is the other half of that attribution. See
     // runtime/worktreeServers.ts and runtime/serverIdentity.ts.
-    .run(opts.ticketId, opts.service, opts.host, opts.port, pid, opts.logPath, opts.cwd, spawnedAt);
+    .run(
+      opts.ticketId,
+      opts.service,
+      opts.host,
+      opts.port,
+      pid,
+      opts.logPath,
+      opts.cwd,
+      spawnedAt,
+      opts.container ?? null,
+    );
 
   return {
     id: Number(info.lastInsertRowid),
@@ -479,12 +518,14 @@ export async function startHot(store: Store, opts: StartHotOpts): Promise<Server
     pid,
     status: 'running',
     logPath: opts.logPath,
+    container: opts.container ?? null,
   };
 }
 
 interface ServerRow {
   pid: number | null;
   status: string;
+  container: string | null;
 }
 
 /**
@@ -497,7 +538,7 @@ interface ServerRow {
  */
 export function stopServer(store: Store, id: number): void {
   const row = store.db
-    .prepare('SELECT pid, status FROM servers WHERE id = ?')
+    .prepare('SELECT pid, status, container FROM servers WHERE id = ?')
     .get(id) as ServerRow | undefined;
   if (!row) return;
 
@@ -505,6 +546,13 @@ export function stopServer(store: Store, id: number): void {
     // Group kill so a launcher's grandchildren (Vite etc.) die with it.
     killTree(row.pid);
   }
+  // The client is not the container. `docker run` attached gives karst a pid it
+  // can group-kill, but the container survives that kill — port still bound,
+  // memory still held — so it is removed by NAME, which is the handle that
+  // cannot go stale. Unconditional: an already-stopped row may still have a
+  // container behind it (a kill that reached the client only), and `docker rm
+  // -f` on a container that is gone is a no-op.
+  if (row.container) removeContainer(row.container);
   markServerStopped(store, id);
 }
 

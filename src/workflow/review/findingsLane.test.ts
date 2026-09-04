@@ -7,6 +7,7 @@ import type { RunHeadlessOpts } from '../../agent/adapter.js';
 import type { AggregateEntry } from './aggregate.js';
 import { buildFindingsPrompt, planAndRunFindingsLane, runFindingsLane } from './findingsLane.js';
 import { GATE_LANE_HEADLESS_TIMEOUT_MS } from '../../agent/headlessSpawn.js';
+import type { GitRunner } from '../../integrations/git.js';
 
 function adapter(raw: string | (() => Promise<string>)): AgentAdapter {
   return {
@@ -789,5 +790,100 @@ describe('buildFindingsPrompt', () => {
     });
     expect(calls[0]!.prompt).toContain('uncommitted and committed changes');
     expect(calls[0]!.prompt).not.toContain('refs/karst/snapshot/');
+  });
+});
+
+
+/**
+ * The wrong-checkout guard. A weak reviewer model reported this against a
+ * worktree provably on the ticket's branch, blocking a ticket over a diff it
+ * had actually read — and because the finding was PERSISTED, every later fix
+ * attempt was handed the same stale critical.
+ */
+describe('runFindingsLane — disproven wrong-checkout claims', () => {
+  const CLAIM = JSON.stringify([
+    {
+      severity: 'critical',
+      title: 'wrong checkout',
+      detail: 'Expected branch karst/x but HEAD is on develop.',
+    },
+  ]);
+  const target = { repo: '/web', worktreePath: '/wt/web', baseRef: 'develop', branch: 'karst/x' };
+  const gitOn = (branch: string): GitRunner =>
+    vi.fn(async () => ({ stdout: `${branch}\n`, stderr: '', exitCode: 0 })) as unknown as GitRunner;
+
+  it('drops the claim, and never persists it, when HEAD really is the branch', async () => {
+    const persistFindings = vi.fn();
+    const warn = vi.fn();
+    const outcome = await runFindingsLane({
+      config: CONFIG,
+      adapter: adapter(CLAIM),
+      targets: [target],
+      ticketId: 1,
+      git: gitOn('karst/x'),
+      persistFindings,
+      warn,
+    });
+
+    expect(outcome.kind).toBe('ran');
+    expect(outcome.kind === 'ran' && outcome.findings).toEqual([]);
+    // Persisted findings outlive the run: dropping it after the write would
+    // leave the fix stage receiving it forever.
+    expect(persistFindings).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('wrong checkout'));
+  });
+
+  it('KEEPS the claim when the checkout really is wrong', async () => {
+    const persistFindings = vi.fn();
+    const outcome = await runFindingsLane({
+      config: CONFIG,
+      adapter: adapter(CLAIM),
+      targets: [target],
+      ticketId: 1,
+      git: gitOn('develop'),
+      persistFindings,
+    });
+
+    expect(outcome.kind === 'ran' && outcome.findings).toHaveLength(1);
+    expect(persistFindings).toHaveBeenCalled();
+  });
+
+  it('KEEPS the claim when no git runner can settle it', async () => {
+    const outcome = await runFindingsLane({
+      config: CONFIG,
+      adapter: adapter(CLAIM),
+      targets: [target],
+      ticketId: 1,
+    });
+    expect(outcome.kind === 'ran' && outcome.findings).toHaveLength(1);
+  });
+
+  it('does not probe git when no such claim was made', async () => {
+    const git = gitOn('karst/x');
+    await runFindingsLane({
+      config: CONFIG,
+      adapter: adapter('[]'),
+      targets: [target],
+      ticketId: 1,
+      git,
+    });
+    // The normal path pays no git call.
+    expect(git).not.toHaveBeenCalled();
+  });
+
+  it('leaves every other finding of the same call untouched', async () => {
+    const mixed = JSON.stringify([
+      { severity: 'critical', title: 'wrong checkout', detail: 'HEAD is on develop.' },
+      { severity: 'high', title: 'unbounded loop', detail: 'spins forever on an empty list.' },
+    ]);
+    const outcome = await runFindingsLane({
+      config: CONFIG,
+      adapter: adapter(mixed),
+      targets: [target],
+      ticketId: 1,
+      git: gitOn('karst/x'),
+    });
+    const kept = outcome.kind === 'ran' ? outcome.findings : [];
+    expect(kept.map((f) => f.title)).toEqual(['unbounded loop']);
   });
 });

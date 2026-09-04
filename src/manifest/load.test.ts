@@ -531,7 +531,7 @@ repositories:
     const yaml = `${DOCS}    service:\n      ports:\n        - { name: http, env: PORT, default: 3000 }\n`;
     const { path, cleanup } = fixture(yaml);
     try {
-      expect(() => loadManifest(path)).toThrow(/service\.start/);
+      expect(() => loadManifest(path)).toThrow(/must declare either `start` \(a command\) or `docker`/);
     } finally {
       cleanup();
     }
@@ -2384,6 +2384,150 @@ processes:
     const { path, cleanup } = fixture(yaml);
     try {
       expect(() => loadManifest(path)).toThrow(/processes\.uatTester\.enabled must be a boolean/);
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+/**
+ * A service whose process is a container: `docker:` replaces `start:` and is
+ * validated with the same strictness — an author who cannot be told which image
+ * to run, on which port inside the container, has nothing karst can spin.
+ */
+const DOCKER = `
+host: localhost
+portRange: [4000, 4999]
+baselineBranch: develop
+repositories:
+  db:
+    repoPath: ../db
+    service:
+      docker:
+        image: postgres:16
+        containerPort: 5432
+        env:
+          POSTGRES_PASSWORD: dev
+        volumes:
+          - ./data:/var/lib/postgresql/data
+        args: ['postgres', '-c', 'log_statement=all']
+      ports:
+        - { name: http, env: PORT, default: 5432 }
+      dependsOn: []
+`;
+
+describe('loadManifest — docker services', () => {
+  it('parses a docker service block', () => {
+    const { path, cleanup } = fixture(DOCKER);
+    try {
+      const svc = loadManifest(path).repositories.db!.service!;
+      expect(svc.start).toBe('');
+      expect(svc.docker).toEqual({
+        image: 'postgres:16',
+        containerPort: 5432,
+        env: { POSTGRES_PASSWORD: 'dev' },
+        volumes: ['./data:/var/lib/postgresql/data'],
+        args: ['postgres', '-c', 'log_statement=all'],
+      });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('defaults env/volumes/args to empty when omitted', () => {
+    const yaml = `
+host: localhost
+portRange: [4000, 4999]
+baselineBranch: develop
+repositories:
+  db:
+    repoPath: ../db
+    service:
+      docker: { image: redis:7, containerPort: 6379 }
+      ports:
+        - { name: http, env: PORT, default: 6379 }
+      dependsOn: []
+`;
+    const { path, cleanup } = fixture(yaml);
+    try {
+      const svc = loadManifest(path).repositories.db!.service!;
+      expect(svc.docker).toEqual({
+        image: 'redis:7',
+        containerPort: 6379,
+        env: {},
+        volumes: [],
+        args: [],
+      });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('rejects a service declaring neither start nor docker', () => {
+    const yaml = DOCKER.replace(/      docker:[\s\S]*?      ports:/, '      ports:');
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(() => loadManifest(path)).toThrow(/must declare either `start` \(a command\) or `docker`/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('rejects a service declaring BOTH start and docker', () => {
+    const yaml = DOCKER.replace('      docker:', '      start: npm run dev\n      docker:');
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(() => loadManifest(path)).toThrow(/never both/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('rejects a docker block without an image', () => {
+    const yaml = DOCKER.replace('        image: postgres:16\n', '');
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(() => loadManifest(path)).toThrow(/service\.docker\.image/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('rejects a docker block without a container port', () => {
+    const yaml = DOCKER.replace('        containerPort: 5432\n', '');
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(() => loadManifest(path)).toThrow(/service\.docker\.containerPort/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('rejects a non-string env value', () => {
+    const yaml = DOCKER.replace('POSTGRES_PASSWORD: dev', 'POSTGRES_PASSWORD: 5');
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(() => loadManifest(path)).toThrow(/service\.docker\.env\.POSTGRES_PASSWORD must be a string/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('rejects a volume that is not `src:dst`', () => {
+    const yaml = DOCKER.replace('- ./data:/var/lib/postgresql/data', '- ./data');
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(() => loadManifest(path)).toThrow(/service\.docker\.volumes\[0\]/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('rejects `docker` at repository level, naming where it goes', () => {
+    const yaml = DOCKER.replace('    service:\n      docker:', '    docker:\n      x:\n    service:\n      docker:');
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(() => loadManifest(path)).toThrow(/runtime field "docker" at repository level/);
     } finally {
       cleanup();
     }

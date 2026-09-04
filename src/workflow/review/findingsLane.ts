@@ -24,6 +24,7 @@ import { nowIso } from '../../model/time.js';
 import { parseFindingsResult, type WarnFn } from './findings.js';
 import { buildScopeBlock } from '../agentScope.js';
 import { createReviewSnapshot, deleteReviewSnapshot } from '../reviewSnapshot.js';
+import { dropDisprovenCheckoutClaims, isWrongCheckoutClaim, verifyCheckout } from './checkoutClaim.js';
 import {
   gatesOutcomeBeforeFindings,
   DEFAULT_REVIEW_FINDINGS,
@@ -346,12 +347,31 @@ export async function runFindingsLane(opts: RunFindingsLaneOpts): Promise<Findin
           debug?.(`[gate] review findings ticket ${opts.ticketId}: stopped during a call`);
           return stopped();
         }
-        const { findings: parsed, shape } = parseFindingsResult(
+        const { findings: rawFindings, shape } = parseFindingsResult(
           result.raw,
           { repo: target.repo, worktreePath: target.worktreePath, max: opts.config.maxFindings },
           opts.warn,
         );
         if (shape === 'unreadable') unreadable.push(target.repo);
+        // The ONE claim the host can check for itself (`checkoutClaim.ts`).
+        // Checked BEFORE persisting: a disproven critical that reaches the
+        // store outlives the run — the fix stage is handed it again on every
+        // later attempt, so dropping it afterwards would fix nothing. The probe
+        // runs only when a claim was actually made, so the normal path pays no
+        // git call.
+        let parsed = rawFindings;
+        if (target.branch && opts.git && rawFindings.some(isWrongCheckoutClaim)) {
+          const verdict = await verifyCheckout(opts.git, target.worktreePath, target.branch);
+          debug?.(
+            `[gate] review findings ticket ${opts.ticketId}: target ${target.repo} claimed a wrong ` +
+              `checkout — host says '${verdict}' for branch '${target.branch}'`,
+          );
+          parsed = dropDisprovenCheckoutClaims(rawFindings, verdict, {
+            branch: target.branch,
+            repo: target.repo,
+            warn: opts.warn,
+          });
+        }
         if (parsed.length > 0) opts.persistFindings?.(parsed, processRun?.id ?? null);
         debug?.(
           `[gate] review findings ticket ${opts.ticketId}: target ${target.repo} returned ` +

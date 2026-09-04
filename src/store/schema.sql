@@ -610,7 +610,14 @@ CREATE TABLE IF NOT EXISTS servers (
   -- (869ed2n50 class), but it is NOT a service: kind distinguishes the two so
   -- the display readers can drop agent sessions while the reapers keep them.
   -- Placed LAST, matching where the ALTER necessarily appends on an upgrade.
-  kind          TEXT NOT NULL DEFAULT 'service'   -- service | agent (graph session)
+  kind          TEXT NOT NULL DEFAULT 'service',  -- service | agent (graph session)
+  -- The docker container this service runs in (v54), NULL when the service is a
+  -- plain command. The attached `docker run` client is what `pid` names, and
+  -- killing it does NOT stop the container — so the NAME is the handle the stop
+  -- and reap paths use to remove the container itself. Unlike a pid it is never
+  -- reissued, so it stays valid even when attribution refuses to signal.
+  -- Placed LAST, matching where the ALTER necessarily appends on an upgrade.
+  container     TEXT
 );
 
 -- One PR per (ticket, repo). `status` and every v16 metadata column below are

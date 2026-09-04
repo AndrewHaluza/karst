@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtempSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
@@ -15,6 +15,16 @@ import {
 import { freePortWindow, removeTempDir, waitUntilListening } from './fixtures.js';
 import { listenerPids } from './portConflict.js';
 import { killTree } from './processTree.js';
+import { removeContainer, removeContainerAsync } from './dockerContainer.js';
+
+// Container removal really spawns `docker`; stub it so these cases assert the
+// contract (which name, and when) without a docker daemon on the machine.
+vi.mock('./dockerContainer.js', () => ({
+  removeContainer: vi.fn(),
+  removeContainerAsync: vi.fn(async () => {}),
+}));
+const removeContainerMock = vi.mocked(removeContainer);
+const removeContainerAsyncMock = vi.mocked(removeContainerAsync);
 
 /**
  * A fixture dev server: comes up on PORT, serves /health 200 only after a delay
@@ -1119,5 +1129,125 @@ describe('pruneOrphanServers', () => {
 
     expect(exists(a)).toBe(false);
     expect(exists(baseline)).toBe(true);
+  });
+});
+
+
+/**
+ * A container service is spawned like any other — the `docker run` client is a
+ * normal child — but the CONTAINER outlives a kill aimed at that client, so the
+ * name is the part that has to be recorded and acted on.
+ */
+describe('supervisor — container services', () => {
+  let store: Store;
+  let dir: string;
+
+  beforeEach(() => {
+    store = openStore(':memory:');
+    dir = mkdtempSync(join(tmpdir(), 'karst-supervisor-docker-'));
+    removeContainerMock.mockClear();
+    removeContainerAsyncMock.mockClear();
+  });
+
+  afterEach(() => {
+    store.close();
+    removeTempDir(dir);
+  });
+
+  const startContainerService = async (): Promise<{ id: number; port: number }> => {
+    const port = nextPort();
+    const rec = await startHot(store, {
+      ticketId: 1,
+      service: 'db',
+      command: process.execPath,
+      args: [join(dir, 'server.mjs')],
+      cwd: dir,
+      repoPath: dir,
+      env: { PORT: String(port) },
+      host: '127.0.0.1',
+      port,
+      healthUrl: `http://127.0.0.1:${port}/health`,
+      logPath: join(dir, 'db.log'),
+      container: 'karst-t1-db',
+    });
+    expect(rec.container).toBe('karst-t1-db');
+    return { id: rec.id, port };
+  };
+
+  beforeEach(() => {
+    writeFileSync(join(dir, 'server.mjs'), SERVER_SRC);
+  });
+
+  it('clears a leftover container of the same name BEFORE spawning', async () => {
+    const { id } = await startContainerService();
+    // docker refuses a second container under a name already taken, so a
+    // container left by a crashed run would make every retry fail.
+    expect(removeContainerAsyncMock).toHaveBeenCalledWith('karst-t1-db', expect.anything());
+    stopServer(store, id);
+  });
+
+  it('records the container name on the row', async () => {
+    const { id } = await startContainerService();
+    const row = store.db
+      .prepare('SELECT container FROM servers WHERE id = ?')
+      .get(id) as { container: string | null };
+    expect(row.container).toBe('karst-t1-db');
+    stopServer(store, id);
+  });
+
+  it('removes the container when the server is stopped', async () => {
+    const { id } = await startContainerService();
+    stopServer(store, id);
+    // Killing the attached client does NOT stop the container: without this the
+    // container keeps its port bound and its memory held, with nothing pointing
+    // at it any more.
+    expect(removeContainerMock).toHaveBeenCalledWith('karst-t1-db');
+  });
+
+  it('removes the container when the start never becomes healthy', async () => {
+    const port = nextPort();
+    await expect(
+      startHot(store, {
+        ticketId: 1,
+        service: 'db',
+        command: process.execPath,
+        args: [join(dir, 'server.mjs')],
+        cwd: dir,
+        repoPath: dir,
+        // Never serves /health 200 within the timeout.
+        env: { PORT: String(port), READY_AFTER_MS: '60000' },
+        host: '127.0.0.1',
+        port,
+        healthUrl: `http://127.0.0.1:${port}/health`,
+        logPath: join(dir, 'db.log'),
+        container: 'karst-t1-db',
+        healthTimeoutMs: 700,
+      }),
+    ).rejects.toThrow();
+    // No `servers` row was inserted, so no stop or reap path will ever learn
+    // this container's name: if the failing start does not remove it here, the
+    // container keeps running with the port bound and nothing pointing at it.
+    expect(removeContainerMock).toHaveBeenCalledWith('karst-t1-db', expect.anything());
+  });
+
+  it('removes nothing for a plain command service', async () => {
+    const port = nextPort();
+    const rec = await startHot(store, {
+      ticketId: 2,
+      service: 'backend',
+      command: process.execPath,
+      args: [join(dir, 'server.mjs')],
+      cwd: dir,
+      repoPath: dir,
+      env: { PORT: String(port) },
+      host: '127.0.0.1',
+      port,
+      healthUrl: `http://127.0.0.1:${port}/health`,
+      logPath: join(dir, 'backend.log'),
+    });
+    expect(rec.container).toBeNull();
+    stopServer(store, rec.id);
+    expect(removeContainerMock).not.toHaveBeenCalled();
+    expect(removeContainerAsyncMock).not.toHaveBeenCalled();
   });
 });

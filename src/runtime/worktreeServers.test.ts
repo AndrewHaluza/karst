@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -6,6 +6,12 @@ import { join } from 'node:path';
 import { openStore, type Store } from '../store/db.js';
 import { stopServersUnder, reapStaleServers, describeReap } from './worktreeServers.js';
 import type { ProcessFacts, LiveCwd } from './serverIdentity.js';
+import { removeContainer } from './dockerContainer.js';
+
+// The container removal is a real `docker rm -f` spawn; stub it so the reap
+// cases can assert WHICH container was removed without a docker daemon.
+vi.mock('./dockerContainer.js', () => ({ removeContainer: vi.fn() }));
+const removeContainerMock = vi.mocked(removeContainer);
 
 /** A detached, long-lived process standing in for a dev server. */
 function spawnIdle(): ChildProcess {
@@ -59,6 +65,7 @@ interface Row {
   pid: number | null;
   status?: string;
   ticketId?: number | null;
+  container?: string | null;
 }
 
 describe('worktreeServers', () => {
@@ -70,10 +77,18 @@ describe('worktreeServers', () => {
     const ticketId = row.ticketId === undefined ? 1 : row.ticketId;
     const info = store.db
       .prepare(
-        `INSERT INTO servers (ticket_id, repo, host, port, pid, status, log_path, cwd, started_at)
-         VALUES (?, ?, 'localhost', 3000, ?, ?, '/l', ?, ?)`,
+        `INSERT INTO servers (ticket_id, repo, host, port, pid, status, log_path, cwd, started_at, container)
+         VALUES (?, ?, 'localhost', 3000, ?, ?, '/l', ?, ?, ?)`,
       )
-      .run(ticketId, row.repo, row.pid, row.status ?? 'running', row.cwd, FIXED_STARTED_AT);
+      .run(
+        ticketId,
+        row.repo,
+        row.pid,
+        row.status ?? 'running',
+        row.cwd,
+        FIXED_STARTED_AT,
+        row.container ?? null,
+      );
     return Number(info.lastInsertRowid);
   };
 
@@ -84,6 +99,7 @@ describe('worktreeServers', () => {
     };
 
   beforeEach(() => {
+    removeContainerMock.mockClear();
     store = openStore(':memory:');
     dir = mkdtempSync(join(tmpdir(), 'karst-wtsrv-'));
   });
@@ -120,6 +136,7 @@ describe('worktreeServers', () => {
           pid: child.pid,
           cwd: wt,
           reason: 'worktree-removed',
+          container: null,
           outcome: 'killed',
         },
       ]);
@@ -221,7 +238,15 @@ describe('worktreeServers', () => {
       }
 
       expect(reaped).toEqual([
-        { id, repo: 'frontend', pid: 999999, cwd: wt, reason: 'worktree-removed', outcome: 'kill-failed' },
+        {
+          id,
+          repo: 'frontend',
+          pid: 999999,
+          cwd: wt,
+          reason: 'worktree-removed',
+          outcome: 'kill-failed',
+          container: null,
+        },
       ]);
       // Untouched — 'running' is still the true state.
       expect(statusOf(id)).toEqual({ status: 'running', pid: 999999 });
@@ -245,6 +270,7 @@ describe('worktreeServers', () => {
           pid: child.pid,
           cwd: gone,
           reason: 'directory-gone',
+          container: null,
           outcome: 'killed',
         },
       ]);
@@ -323,8 +349,64 @@ describe('worktreeServers', () => {
     });
   });
 
+  describe('container services', () => {
+    it('removes the container of a server under a removed worktree', () => {
+      const wt = join(dir, 'worktrees', 'abc');
+      mkdirSync(wt, { recursive: true });
+      const child = spawnIdle();
+      spawned.push(child);
+      insert({ repo: 'db', cwd: wt, pid: child.pid!, container: 'karst-t1-db' });
+
+      const [reaped] = stopServersUnder(store, wt, { facts: attributingFacts() });
+
+      expect(removeContainerMock).toHaveBeenCalledWith('karst-t1-db', expect.anything());
+      expect(reaped!.container).toBe('karst-t1-db');
+    });
+
+    it('removes the container even when the pid cannot be attributed', () => {
+      const wt = join(dir, 'worktrees', 'abc');
+      mkdirSync(wt, { recursive: true });
+      const id = insert({ repo: 'db', cwd: wt, pid: 999999, container: 'karst-t1-db' });
+
+      // Dead (or reissued) pid: nothing may be SIGNALLED, because the process
+      // group may now belong to a stranger. The container name cannot be
+      // reissued, so it is still removable — and a container left running is
+      // exactly the leak the row would otherwise hide.
+      const [reaped] = stopServersUnder(store, wt, {
+        facts: attributingFacts({ isAlive: () => false }),
+      });
+
+      expect(reaped!.outcome).toBe('row-cleared');
+      expect(removeContainerMock).toHaveBeenCalledWith('karst-t1-db', expect.anything());
+      expect(statusOf(id).status).toBe('stopped');
+    });
+
+    it('removes nothing for a plain command service', () => {
+      const wt = join(dir, 'worktrees', 'abc');
+      mkdirSync(wt, { recursive: true });
+      insert({ repo: 'frontend', cwd: wt, pid: 999999 });
+
+      stopServersUnder(store, wt, { facts: attributingFacts({ isAlive: () => false }) });
+
+      expect(removeContainerMock).not.toHaveBeenCalled();
+    });
+
+    it('names the removed container in the reported line', () => {
+      const line = describeReap({
+        id: 1,
+        repo: 'db',
+        pid: 4242,
+        cwd: '/w/abc',
+        reason: 'worktree-removed',
+        outcome: 'killed',
+        container: 'karst-t1-db',
+      });
+      expect(line).toContain("Removed container 'karst-t1-db'");
+    });
+  });
+
   describe('describeReap', () => {
-    const base = { id: 1, repo: 'frontend', pid: 333080, cwd: '/w/abc' } as const;
+    const base = { id: 1, repo: 'frontend', pid: 333080, cwd: '/w/abc', container: null } as const;
 
     it('states a kill, its reason and its path', () => {
       expect(describeReap({ ...base, reason: 'directory-gone', outcome: 'killed' })).toContain(

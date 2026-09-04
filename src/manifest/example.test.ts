@@ -15,7 +15,22 @@ describe('karst.example.yml', () => {
   it('loads and validates with no deprecation warnings', () => {
     const { manifest, warnings } = loadManifestWithDiagnostics(path);
     expect(warnings).toEqual([]);
-    expect(Object.keys(manifest.repositories).sort()).toEqual(['backend', 'frontend', 'tooling']);
+    expect(Object.keys(manifest.repositories).sort()).toEqual([
+      'backend',
+      'db',
+      'frontend',
+      'tooling',
+    ]);
+    // The example documents all three shapes: a command service, a CONTAINER
+    // service, and a repository that runs nothing at all.
+    expect(manifest.repositories.db!.service!.docker).toEqual({
+      image: 'postgres:16',
+      containerPort: 5432,
+      env: { POSTGRES_PASSWORD: 'dev' },
+      volumes: ['./.karst/pgdata:/var/lib/postgresql/data'],
+      args: [],
+    });
+    expect(manifest.repositories.db!.service!.start).toBe('');
   });
 
   it('documents a runnable repository', () => {
