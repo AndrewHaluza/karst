@@ -34,8 +34,40 @@ export interface DependsOn {
  * `repoPath`, `hasMigrations` and `signals` live on `RepositoryDef` instead:
  * they describe the source tree, and stay true whether or not anything runs.
  */
+/**
+ * A service whose process is a CONTAINER rather than a command in the worktree.
+ *
+ * It is not a second runtime: `runtime/dockerCommand.ts` renders this block into
+ * the same `docker run …` argv `startHot` spawns for any other service, so port
+ * reclaim, the health gate, the log file, the `servers` row and `killTree` are
+ * unchanged. The one thing this block adds is a NAME — deterministic, recorded,
+ * and never reissued the way a pid is — which is what lets every stop and reap
+ * path remove the container itself instead of only the client attached to it.
+ */
+export interface DockerDef {
+  /** Image reference, e.g. `postgres:16`. */
+  image: string;
+  /**
+   * The port INSIDE the container. The allocated host port is published onto it,
+   * so a container's own fixed port never has to move for a second ticket.
+   */
+  containerPort: number;
+  /** `-e` variables. Merged OVER the resolved service env, so the block wins. */
+  env: Record<string, string>;
+  /** `-v` mounts, `src:dst[:opts]`. A relative `src` resolves against the worktree. */
+  volumes: string[];
+  /** Command/arguments after the image — an override of the image's own CMD. */
+  args: string[];
+}
+
 export interface ServiceDef {
+  /**
+   * The start command, or `''` when `docker` carries the process instead.
+   * Exactly one of the two is declared; validation rejects both and neither.
+   */
   start: string;
+  /** Run this image instead of `start`. See `DockerDef`. */
+  docker?: DockerDef;
   health?: string;
   ports: PortSlot[]; // validated non-empty — a service without a port cannot be addressed
   /**

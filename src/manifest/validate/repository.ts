@@ -18,6 +18,7 @@ import type {
   RepositoryDef,
   ServiceDef,
 } from '../types.js';
+import { validateDocker } from './docker.js';
 import {
   assertUnique,
   isObject,
@@ -26,7 +27,7 @@ import {
 } from './primitives.js';
 
 /** Runtime fields that belong under `service:` and nowhere else. */
-const RUNTIME_FIELDS = ['start', 'health', 'ports', 'dependsOn', 'portRange'] as const;
+const RUNTIME_FIELDS = ['start', 'health', 'ports', 'dependsOn', 'portRange', 'docker'] as const;
 
 /**
  * A string that is required when `strict` (the repository is enabled), and
@@ -141,7 +142,28 @@ function validateService(raw: unknown, repo: string, strict: boolean): ServiceDe
   const where = `repository "${repo}" service`;
   if (!isObject(raw)) throw new ManifestError(`${where} must be an object`);
 
-  const start = strictString(raw.start, `${where}.start`, strict);
+  // A service is EITHER a command in the worktree or a container image, never
+  // both and never neither: two declarations give karst two processes to start
+  // for one port, and none gives it nothing to start at all. Checked before the
+  // field validators so the author reads the structural problem first, rather
+  // than "start must be a non-empty string" on a file that clearly says `docker`.
+  const hasDocker = raw.docker !== undefined;
+  const hasStart = typeof raw.start === 'string' && raw.start.trim() !== '';
+  if (strict && hasDocker && hasStart) {
+    throw new ManifestError(
+      `${where} declares both \`start\` and \`docker\` — a service runs one process, never both. ` +
+        `Delete whichever this repository does not run.`,
+    );
+  }
+  if (strict && !hasDocker && raw.start === undefined) {
+    throw new ManifestError(
+      `${where} must declare either \`start\` (a command) or \`docker\` (an image to run).`,
+    );
+  }
+  const docker = hasDocker ? validateDocker(raw.docker, `${where}.docker`, strict) : undefined;
+  // With a container carrying the process, `start` is not owed — it normalizes
+  // to '' the way every other unset optional string here does.
+  const start = docker ? optionalString(raw.start, `${where}.start`) ?? '' : strictString(raw.start, `${where}.start`, strict);
   // `health` is OPTIONAL, so blank means "not set" — the same normalization
   // every other optional string in this manifest uses (defaultModel,
   // ticketLabelTemplate, shipStatus). The settings UI seeds an empty input for
@@ -171,6 +193,7 @@ function validateService(raw: unknown, repo: string, strict: boolean): ServiceDe
 
   return {
     start,
+    ...(docker ? { docker } : {}),
     health,
     ports,
     portRange,
