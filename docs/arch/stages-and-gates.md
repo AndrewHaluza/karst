@@ -10,6 +10,7 @@ The stage machine, the evidence it writes, and the host seam that drives it. Rel
 - A ticket waiting to land is BLOCKED, not pending
 - Gate results and reported phases are append-only evidence
 - Evidence is written WHEN IT HAPPENS
+- Gate output is a LIVE stream and a post-run artifact
 - A gate may be switched off for ONE ticket
 - Auto-discovery is npm-shaped; gating is not
 - UAT Tester observations are advisory BY DEFAULT
@@ -48,6 +49,10 @@ Gate results (`gate_runs`) and reported phases (`phase_marks`) are **append-only
 ## Evidence is written WHEN IT HAPPENS, not when the run ends
 
 A gate run used to collect every `gate_runs` row in memory and commit the lot inside `finish()`, so an extension-host restart mid-run discarded all of it and left the stage reading `running` from a timestamp belonging to a run that no longer existed. `stage_runs` (v25) exists only to resolve that ambiguity: `workflow/gates/evidence.ts`'s `openGateRun` opens a row BEFORE the first gate starts, and `uat.ts`/`review.ts` append to it the instant each piece of evidence is produced — **one `gate_runs` row per GATE as that gate finishes, appended from `runGateList`'s `onGateComplete`, never batched to the end of a target; and findings per TARGET as each lane call returns (`findingsLane.ts`'s `persistFindings`), before any aggregation rule reads them**. A host that dies mid-target-list or mid-lane keeps every gate that finished and every target that answered. `openStageRun` marks any still-`running` row of the same ticket+stage `stale` the moment it is SUPERSEDED — the driver single-flights per ticket, so a second open run can only mean the first one's host died — and the activation sweep (`reconcileStageRuns`, global like the server sweep) marks stale whatever a dead pid left behind; a row with NO pid, or one alive in another window, is left strictly alone. None of this loosens the VERDICT: it is still all-or-nothing, committed only by `commitGateOutcome`'s single transaction, and a throw there still leaves the ticket exactly where it was — only the EVIDENCE stopped being lost.
+
+## Gate output is a LIVE stream and a post-run artifact, and the artifact stays the record
+
+A running gate is observable WHILE it runs: `runProcess`'s `onOutput` hands each decoded stdout/stderr chunk to `runGateList`'s `onGateOutput` (tagged with the gate's name), `uat.ts`/`review.ts` forward it, and `driveTicket.ts` tags it with the STAGE before the host's `GateConsole` (`workflow/gates/gateConsole.ts`) sanitizes it — the same `sanitizeAgentOutput` the agent lanes use, so untrusted CLI prose can never move the cursor, clear the screen or retitle the console — and posts it to an OPEN panel as `stage-output`. This mirrors the agent lanes (`AgentConsole`, the Tester and findings-lane consoles) with ONE deliberate difference: **`GateConsole` persists nothing.** The stage artifact, written by the existing recording path, remains the durable record, and the post-run console keeps reading exactly it through `stage-log` — the live stream only mirrors bytes that are still arriving. A stage console opened mid-run is therefore REFUSED by `stage-log` (no artifact is recorded yet) and the webview replaces that refusal with a live terminal the moment the first `stage-output` chunk lands; a chunk that races the answer is buffered, never written above the tail it belongs under.
 
 ## A gate may be switched off for ONE ticket, and that is a filter over resolution's OUTPUT, never a change to resolution
 

@@ -1561,3 +1561,38 @@ describe('runUat — Tester and verifier (Task 8)', () => {
     expect(rows[0]).toMatchObject({ severity: 'critical', repo: '/api' });
   });
 });
+
+describe('runUat live gate output', () => {
+  it('threads its onGateOutput hook into the gate runner', async () => {
+    const store = openStore(':memory:');
+    const id = createTicketFlow(store, { key: 'T-live', title: 't' }).id;
+    transition(store, id, 'scope', { kind: 'passed' });
+    transition(store, id, 'impl', { kind: 'passed' });
+    const artifactDir = mkdtempSync(join(tmpdir(), 'karst-uat-live-'));
+    const seen: { gate: string; text: string }[] = [];
+    await runUat(
+      store,
+      {
+        ticketId: id,
+        cwd: '/wt/web',
+        artifactDir,
+        onGateOutput: (gate, chunk) => seen.push({ gate, text: chunk.text }),
+      },
+      deps({
+        runGates: async (gates, _cwd, opts) => {
+          for (const [i, g] of gates.entries()) {
+            opts?.onGateOutput?.(g.name, { stream: 'stdout', text: `${g.name}-chatter` });
+            opts?.onGateComplete?.(g.name, 0, now(), now(), i);
+          }
+          return {
+            kind: 'ran',
+            results: gates.map((g) => ({ name: g.name, exitCode: 0, output: 'ok', startedAt: now(), endedAt: now() })),
+          };
+        },
+      }),
+    );
+    expect(seen.map((s) => s.text)).toEqual(['test-chatter', 'e2e-chatter']);
+    store.close();
+    rmSync(artifactDir, { recursive: true, force: true });
+  });
+});

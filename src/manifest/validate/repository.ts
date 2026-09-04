@@ -27,7 +27,15 @@ import {
 } from './primitives.js';
 
 /** Runtime fields that belong under `service:` and nowhere else. */
-const RUNTIME_FIELDS = ['start', 'health', 'ports', 'dependsOn', 'portRange', 'docker'] as const;
+const RUNTIME_FIELDS = [
+  'start',
+  'health',
+  'healthIdentity',
+  'ports',
+  'dependsOn',
+  'portRange',
+  'docker',
+] as const;
 
 /**
  * A string that is required when `strict` (the repository is enabled), and
@@ -170,6 +178,9 @@ function validateService(raw: unknown, repo: string, strict: boolean): ServiceDe
   // it, and reporting "must be a non-empty string" for a field that is not
   // required would send the author looking for a value they never owed.
   const health = optionalString(raw.health, `${where}.health`);
+  // Opt-in, and only ever a boolean: a truthy string here would silently arm a
+  // contract the service does not keep, and nothing would ever become healthy.
+  const healthIdentity = optionalBoolean(raw.healthIdentity, `${where}.healthIdentity`);
 
   const portsRaw = strictArray(raw.ports, `${where}.ports`, strict);
   if (strict && portsRaw.length === 0) {
@@ -195,10 +206,18 @@ function validateService(raw: unknown, repo: string, strict: boolean): ServiceDe
     start,
     ...(docker ? { docker } : {}),
     health,
+    healthIdentity,
     ports,
     portRange,
     dependsOn: dependsOnRaw.map((d, i) => validateDependsOn(d, repo, i, strict)),
   };
+}
+
+/** An optional boolean field: absent → undefined; a non-boolean throws. */
+function optionalBoolean(raw: unknown, where: string): boolean | undefined {
+  if (raw === undefined) return undefined;
+  if (typeof raw !== 'boolean') throw new ManifestError(`${where} must be a boolean`);
+  return raw;
 }
 
 /**

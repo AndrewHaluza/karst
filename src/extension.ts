@@ -284,6 +284,7 @@ import { retryGateStage, retryGateState } from './workflow/retryGate.js';
 import { buildConflictBrief } from './workflow/conflictSession.js';
 import { stopServer, stopTicketServers } from './runtime/supervisor.js';
 import { reapStaleServers, describeReap } from './runtime/worktreeServers.js';
+import { reapOrphanedPorts, describeOrphanReap } from './runtime/orphanPorts.js';
 import { systemAsyncProcessFacts } from './runtime/serverIdentity.js';
 import { listBaseBranchCandidates } from './runtime/branchList.js';
 import {
@@ -347,6 +348,7 @@ import type {
 } from './manifest/types.js';
 import { instrumentAdapter } from './agent/instrumentedAdapter.js';
 import { AgentConsole } from './agent/agentConsole.js';
+import { GateConsole } from './workflow/gates/gateConsole.js';
 import { recordTokenUsage, listRecentlyUsedModels } from './store/tokenUsage.js';
 import { UsagePanelManager, type UsagePanel, type UsagePanelHost } from './ui/usage/panel.js';
 import {
@@ -364,7 +366,7 @@ import {
 } from './approaches/pkg.js';
 import { readAgentFile, writeAgentFile, removeAgentFile } from './agents/pkg.js';
 import { buildAgentPool, type PoolAgent } from './agents/pool.js';
-import { spinTicket, SpinCancelledError } from './runtime/spin.js';
+import { spinTicket, SpinCancelledError, allocationRanges, hotRepoPaths } from './runtime/spin.js';
 import { confirmScope } from './workflow/stages/scope.js';
 import { transition } from './workflow/machine.js';
 import { driveTicket as driveTicketRun } from './workflow/driveTicket.js';
@@ -3069,6 +3071,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     debug: (message) => logger.debug(message),
   });
 
+  // The DETERMINISTIC gate lane's console sink: each chunk of a running gate's
+  // output is sanitized here and pushed to an OPEN dashboard panel's stage
+  // console, so gate execution is visible while it runs. Not a persister — the
+  // stage artifact stays the durable record the post-run console reads.
+  const gateConsole = new GateConsole({
+    onOutput: (ticketId, stage, text) => dashboard.postStageOutput(ticketId, stage, text),
+    debug: (message) => logger.debug(message),
+  });
+
   // Auto-run the deterministic uat/review gates for a ticket after the
   // impl/fix marker (or a prior gate) leaves it at a gate boundary. Single-flight
   // via `driver.begin`/`end`; never authors a transition itself — `runUat`/
@@ -3078,6 +3089,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   async function driveTicket(ticketId: number): Promise<void> {
     if (!driver.begin(ticketId)) return; // a run is already in flight
     logger.info(`stage driver: begin ticket ${ticketId}`);
+    // A new run's first gate re-announces itself in the console, rather than
+    // continuing under the previous run's last gate header.
+    gateConsole.reset(ticketId, 'uat');
+    gateConsole.reset(ticketId, 'review');
     try {
       await driveTicketRun(
         {
@@ -3103,6 +3118,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           // chunk pushed to an OPEN panel's terminal view in real time. The
           // console tail is readable after the run through the same sink.
           onAgentOutput: (id, processId, chunk) => agentConsole.append(id, processId, chunk),
+          // Live output from the deterministic gates of the uat/review stages:
+          // sanitized by the GateConsole and pushed to an OPEN panel's stage
+          // console as it arrives.
+          onGateOutput: (id, stage, gateName, chunk) =>
+            gateConsole.append(id, stage, gateName, chunk),
           shouldContinue: () => driver.shouldContinue(ticketId),
           // Stop, as a signal rather than a between-stages poll: `requestStop`
           // aborts this, and the abort reaches the gate child already running.
@@ -5323,6 +5343,36 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
     }
   };
+  // Orphaned-port sweep: the leak class no row-based reap can see. A server
+  // karst started keeps its port and its memory when its `servers` row leaves
+  // with the ticket (archived, deleted, or written before `servers.cwd`
+  // existed) — reparented to init, serving a worktree nobody will spin again.
+  // Two such processes had held ports of karst's own range for 13 hours and two
+  // days; each one permanently costs the range a slot, and a range of 100 ports
+  // is 50 concurrent worktrees.
+  //
+  // Evidence is the PROCESS, never a recollection: karst asks who listens on
+  // its own ranges and where that process runs, and signals only one whose live
+  // cwd is inside a `.karst/worktrees/` directory of a repository this manifest
+  // declares — a path only karst creates. A cwd the OS will not report, a
+  // listener anywhere else, or a pid a running row still claims is left alone.
+  // Reported, never silent, and stated as the outcome (see `describeOrphanReap`).
+  void (async () => {
+    const manifest = currentManifest();
+    if (!manifest) return; // no manifest, no ranges to sweep and no repos to scope by
+    try {
+      const reaped = await reapOrphanedPorts(localStore, {
+        host: manifest.host,
+        ranges: allocationRanges(manifest, Object.keys(manifest.repositories)),
+        repoPaths: hotRepoPaths(manifest, Object.keys(manifest.repositories)),
+        debug: (message) => logger.debug(message),
+      });
+      for (const s of reaped) logger.info(describeOrphanReap(s));
+    } catch (err) {
+      logError('karst: orphaned-port sweep failed', err);
+    }
+  })();
+
   void runPrSync();
   const prSyncTimer = setInterval(() => void runPrSync(), PR_SYNC_INTERVAL_MS);
   context.subscriptions.push({ dispose: () => clearInterval(prSyncTimer) });

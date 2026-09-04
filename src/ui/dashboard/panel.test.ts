@@ -1538,6 +1538,14 @@ describe('DashboardManager', () => {
       expect(posts(999)).toEqual([]);
     });
 
+    it('posts a live stage-output chunk only to an OPEN panel', () => {
+      const { manager, posts } = makeHarness({});
+      manager.postStageOutput(7, 'uat', 'gate chatter');
+      expect(posts(7)).toContainEqual({ type: 'stage-output', stage: 'uat', text: 'gate chatter' });
+      expect(() => manager.postStageOutput(999, 'uat', 'x')).not.toThrow();
+      expect(posts(999)).toEqual([]);
+    });
+
     it('posts a reader error result verbatim (UI-R13: the answer is the outcome)', () => {
       const { manager, posts } = makeHarness({
         stageLogReader: () => ({ kind: 'error', message: 'The recorded log file is no longer available.' }),

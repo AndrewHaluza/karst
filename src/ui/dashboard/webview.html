@@ -2029,6 +2029,11 @@
   // the terminal right after that answer, so a chunk racing the answer is never
   // silently dropped from the open view.
   let termPending = '';
+  // True while the console shows a refusal blurb INSTEAD of a terminal. A
+  // mid-run stage console is refused (no artifact is recorded until the stage
+  // finishes), so live gate output arriving afterwards must rebuild the
+  // terminal rather than write into a host that is no longer on the page.
+  let termBlurbed = false;
   // The console action is webview-LOCAL: it opens the terminal surface and
   // posts `stage-log-request`; it never reaches the host, so it has no
   // `routeAction` case. The literal is declared ONCE here and interpolated at
@@ -4155,6 +4160,7 @@
     termView = stage;
     termProcess = processId || null;
     termLoading = true;
+    termBlurbed = false;
     renderTermView();
     if (processId) post({ type: 'agent-log-request', processId });
     else post({ type: 'stage-log-request', stage });
@@ -4168,6 +4174,19 @@
     termProcess = null;
     termLoading = false;
     termPending = '';
+    termBlurbed = false;
+    renderTermView();
+  }
+
+  // Replace a refusal blurb with a live terminal: the console was refused (no
+  // recorded artifact yet) and output has since started arriving. Rebuilds the
+  // view's host and a fresh Terminal; the refused answer's text is gone
+  // because it described a record that did not exist.
+  function restoreTerminal() {
+    if (term) { try { term.dispose(); } catch (e) { /* renderer teardown */ } term = null; }
+    termFit = null;
+    if (termResize) { termResize.disconnect(); termResize = null; }
+    termBlurbed = false;
     renderTermView();
   }
 
@@ -4985,6 +5004,13 @@
         if (status) status.textContent = '';
         const host = el('termHost');
         if (host) host.innerHTML = `<div class="blurb">${esc(msg.result.message)}</div>`;
+        termBlurbed = true;
+      }
+      // Flush live gate chunks that raced this answer (buffered below), so the
+      // open console never skips output that arrived while it was in flight.
+      if (termPending && term) {
+        term.write(termPending);
+        termPending = '';
       }
       return;
     }
@@ -5020,6 +5046,17 @@
     if (msg.type === 'agent-output') {
       if (!termView || !termProcess || termProcess !== msg.processId) return;
       if (termLoading) { termPending += msg.text; return; }
+      if (term) term.write(msg.text);
+      return;
+    }
+    // A live chunk of the open STAGE console's deterministic gate output:
+    // appended ONLY while that stage's own console is the open surface (never
+    // while a process console is), and buffered while the stage-log answer is
+    // still in flight — same contract as agent-output. Sanitized host-side.
+    if (msg.type === 'stage-output') {
+      if (!termView || termProcess || termView !== msg.stage) return;
+      if (termLoading) { termPending += msg.text; return; }
+      if (termBlurbed) restoreTerminal();
       if (term) term.write(msg.text);
       return;
     }

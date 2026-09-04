@@ -120,6 +120,7 @@ export function writeManifest(path: string, manifest: Manifest): void {
             start: repo.service.docker ? undefined : repo.service.start,
             docker: repo.service.docker,
             health: repo.service.health,
+            healthIdentity: repo.service.healthIdentity,
             ports: repo.service.ports,
             // Written when set, dropped (undefined → omitted by the dumper)
             // when cleared, so the service falls back to the global range.

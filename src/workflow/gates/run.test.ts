@@ -305,3 +305,19 @@ describe('relative gate commands', () => {
     }
   });
 });
+
+describe('runProcess live output', () => {
+  it('streams stdout and stderr chunks as they arrive, before the process closes', async () => {
+    const chunks: { stream: string; text: string }[] = [];
+    const outcome = await runProcess(
+      'node',
+      ['-e', 'process.stdout.write("live-out\\n");process.stderr.write("live-err\\n")'],
+      process.cwd(),
+      { onOutput: (chunk) => chunks.push(chunk) },
+    );
+    expect(outcome.kind).toBe('completed');
+    expect(chunks.map((c) => c.stream).sort()).toEqual(['stderr', 'stdout']);
+    expect(chunks.map((c) => c.text).join('')).toContain('live-out');
+    expect(chunks.map((c) => c.text).join('')).toContain('live-err');
+  });
+});

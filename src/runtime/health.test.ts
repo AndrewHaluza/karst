@@ -18,6 +18,43 @@ describe('waitForHealth', () => {
     ).rejects.toBeInstanceOf(HealthTimeoutError);
   });
 
+  describe('instance identity', () => {
+    /** A 200 whose identity header is `token` (omitted when null). */
+    const answering = (token: string | null) =>
+      vi.fn(async () => ({
+        ok: true,
+        headers: new Headers(token === null ? {} : { 'x-karst-instance': token }),
+      }));
+
+    it('passes when the response echoes the expected instance token', async () => {
+      vi.stubGlobal('fetch', answering('tok-123'));
+      await expect(
+        waitForHealth(DEAD_URL, { timeoutMs: 500, requireInstance: 'tok-123' }),
+      ).resolves.toBeUndefined();
+    });
+
+    it('keeps waiting on a 200 from a DIFFERENT instance, then reports the mismatch', async () => {
+      // The wrong-pass this exists to close: another worktree's service
+      // answering 200 on a port that has since been handed to this one.
+      vi.stubGlobal('fetch', answering('someone-else'));
+      await expect(
+        waitForHealth(DEAD_URL, { timeoutMs: 300, intervalMs: 50, requireInstance: 'tok-123' }),
+      ).rejects.toThrow(/another instance|identity/i);
+    });
+
+    it('treats a missing identity header as not-yet-mine, never as a pass', async () => {
+      vi.stubGlobal('fetch', answering(null));
+      await expect(
+        waitForHealth(DEAD_URL, { timeoutMs: 300, intervalMs: 50, requireInstance: 'tok-123' }),
+      ).rejects.toBeInstanceOf(HealthTimeoutError);
+    });
+
+    it('ignores identity entirely when no token is required', async () => {
+      vi.stubGlobal('fetch', answering('whoever'));
+      await expect(waitForHealth(DEAD_URL, { timeoutMs: 500 })).resolves.toBeUndefined();
+    });
+  });
+
   it('rejects promptly with HealthAbortedError when the signal fires', async () => {
     const ctrl = new AbortController();
     // Abort well before the 10s timeout would elapse.

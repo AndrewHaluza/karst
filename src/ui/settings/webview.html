@@ -2927,6 +2927,7 @@
     const dockerArgsId = safeId('f-svc-docker-args', name);
     const dockerImageErrId = safeId('err', name + '.docker.image');
     const healthId = safeId('f-svc-health', name);
+    const healthIdentityId = safeId('f-svc-health-identity', name);
     const repoPathErrId = safeId('err', name + '.repoPath');
     const startErrId = safeId('err', name + '.start');
     const healthErrId = safeId('err', name + '.health');
@@ -3022,6 +3023,11 @@
           + `<label for="${healthId}">Health check</label>`
           + `<input type="text" id="${healthId}" placeholder="http://{host}:{port}/health" data-svc-field="health" data-svc="${esc(name)}" data-touch-key="${esc(name)}.health" aria-describedby="${healthErrId}" value="${esc(svc.health || '')}"/>`
           + `<div class="field-error hidden" id="${healthErrId}" role="alert" data-field-error="${esc(name)}.health"></div>`
+          + `<div class="toggle" style="margin-top:10px">`
+          + `<input type="checkbox" id="${healthIdentityId}" data-svc-field="healthIdentity" data-svc="${esc(name)}" ${svc.healthIdentity ? 'checked' : ''} aria-describedby="${healthIdentityId}-hint"/>`
+          + `<label style="margin:0" for="${healthIdentityId}">Verify instance identity</label>`
+          + `</div>`
+          + `<div class="field-hint" id="${healthIdentityId}-hint">The service must echo KARST_INSTANCE_TOKEN back in the X-Karst-Instance header. Without it any 200 on the port counts as healthy — including another worktree's service.</div>`
           + `<h2 style="margin-top:16px">Ports</h2>`
           + `<label id="${portMinId}">Port range <span class="field-hint">(blank inherits global)</span></label>`
           + `<div class="row" role="group" aria-labelledby="${portMinId}">`
@@ -3411,7 +3417,7 @@
     if (!t.dataset) return;
     if (t.dataset.svcField) {
       const svc = t.dataset.svc, field = t.dataset.svcField;
-      if (field === 'hasMigrations') return; // handled by change
+      if (field === 'hasMigrations' || field === 'healthIdentity') return; // handled by change
       if (field === 'repoPath') {
         draft.repositories[svc].repoPath = t.value; // repository-level
       } else if (field === 'baselineBranch') {
@@ -3507,6 +3513,16 @@
     }
     if (t.dataset.svcField === 'hasMigrations') {
       draft.repositories[t.dataset.svc].hasMigrations = t.checked;
+      markDirty();
+      return;
+    }
+    if (t.dataset.svcField === 'healthIdentity') {
+      const svcDef = draft.repositories[t.dataset.svc].service;
+      if (!svcDef) return;
+      // Absent, not `false`: the manifest writer omits an undefined field, so an
+      // untouched service keeps a clean yml instead of gaining a default line.
+      if (t.checked) svcDef.healthIdentity = true;
+      else delete svcDef.healthIdentity;
       markDirty();
       return;
     }

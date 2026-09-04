@@ -249,3 +249,16 @@ describe('onGateStart', () => {
     expect(seen[0]![1]).toContain('which package.json does not define');
   });
 });
+
+describe('runGateList live output', () => {
+  it('forwards each gate\'s live output chunks tagged with the gate name', async () => {
+    const seen: { gate: string; text: string }[] = [];
+    await runGateList(
+      [{ name: 'unit', command: 'node', args: ['-e', 'process.stdout.write("tick")'], script: null, required: true }],
+      process.cwd(),
+      { now: () => '2026-07-30T10:00:00.000Z', onGateOutput: (gate, chunk) => seen.push({ gate, text: chunk.text }) },
+    );
+    expect(seen.map((s) => s.gate)).toEqual(['unit']);
+    expect(seen.map((s) => s.text).join('')).toContain('tick');
+  });
+});

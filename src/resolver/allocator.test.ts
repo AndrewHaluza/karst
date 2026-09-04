@@ -122,4 +122,41 @@ describe('makePortAllocator', () => {
     expect(ports.http).toBe(5000);
     expect(ports.debug).toBe(5001);
   });
+
+  describe('busy ports (live listeners the registry cannot see)', () => {
+    it('skips a port something is already listening on', () => {
+      const probed = makePortAllocator(store, [4000, 4010], { busy: new Set([4000]) });
+      expect(probed.allocate(1, 'backend', ['http']).http).toBe(4001);
+    });
+
+    it('keeps a contiguous block clear of a busy port in the middle', () => {
+      const probed = makePortAllocator(store, [4000, 4010], { busy: new Set([4001]) });
+      const ports = probed.allocate(1, 'backend', ['http', 'debug']);
+      expect(ports.http).toBe(4002);
+      expect(ports.debug).toBe(4003);
+    });
+
+    it('still records only what it handed out, never the busy ports', () => {
+      const probed = makePortAllocator(store, [4000, 4010], { busy: new Set([4000]) });
+      probed.allocate(1, 'backend', ['http']);
+      const rows = store.db.prepare('SELECT port FROM port_allocations').all() as {
+        port: number;
+      }[];
+      expect(rows.map((r) => r.port)).toEqual([4001]);
+    });
+
+    it('reports exhaustion when every port in the window is listening', () => {
+      const probed = makePortAllocator(store, [4000, 4001], {
+        busy: new Set([4000, 4001]),
+      });
+      expect(() => probed.allocate(1, 'backend', ['http'])).toThrow(
+        /no free contiguous block of 1 port\(s\) in range \[4000, 4001\]/,
+      );
+    });
+
+    it('applies the busy set to a per-call range override too', () => {
+      const probed = makePortAllocator(store, [4000, 4010], { busy: new Set([5000]) });
+      expect(probed.allocate(1, 'backend', ['http'], [5000, 5010]).http).toBe(5001);
+    });
+  });
 });

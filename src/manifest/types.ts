@@ -69,6 +69,20 @@ export interface ServiceDef {
   /** Run this image instead of `start`. See `DockerDef`. */
   docker?: DockerDef;
   health?: string;
+  /**
+   * Require the health response to prove it is THIS start, by echoing karst's
+   * per-start token (`KARST_INSTANCE_TOKEN` in the spawn env) back in the
+   * `X-Karst-Instance` header. Default false, because it is a contract the
+   * service has to keep: a service that does not echo the header never becomes
+   * healthy once this is on.
+   *
+   * Worth keeping for anything several worktrees run at once. Without it,
+   * readiness is reachability — any 200 on the port passes, including one from
+   * a DIFFERENT worktree's service that holds the port (a leaked process, a
+   * default-port fallback). That is a wrong PASS: the stack comes up green
+   * while wired to another branch's process.
+   */
+  healthIdentity?: boolean;
   ports: PortSlot[]; // validated non-empty — a service without a port cannot be addressed
   /**
    * Optional per-service allocation window. When present, ticket-hot ports for

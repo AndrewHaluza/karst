@@ -4,6 +4,7 @@ import type { Manifest } from '../manifest/types.js';
 import type { DriveProcessBundle } from '../agent/processAssignment.js';
 import type { TesterGateRunner } from './uat/testerVerifier.js';
 import type { HeadlessOutputChunk } from '../agent/headlessSpawn.js';
+import type { GateOutputChunk } from './gates/run.js';
 import type { InsideProgressEvent } from '../model/inside/progress.js';
 import { getTicket } from '../store/tickets.js';
 import {
@@ -176,6 +177,19 @@ export interface DriveTicketDeps {
    * settled output still lands in the process run/observations as before.
    */
   onAgentOutput?: (ticketId: number, processId: 'tester' | 'review', chunk: HeadlessOutputChunk) => void;
+  /**
+   * Live output from the DETERMINISTIC gate lane of a gate stage, chunk by
+   * chunk, tagged with the stage and the gate that produced it. The host sink
+   * (`GateConsole`) sanitizes it and pushes it to an OPEN stage console, so a
+   * running gate is visible while it runs rather than only once its artifact
+   * is written. RAW untrusted CLI prose at this seam.
+   */
+  onGateOutput?: (
+    ticketId: number,
+    stage: 'uat' | 'review',
+    gateName: string,
+    chunk: GateOutputChunk,
+  ) => void;
 }
 
 /**
@@ -252,6 +266,7 @@ export async function driveTicket(
               manifest: deps.manifest(),
               signal: controller.signal,
               debug: deps.debug,
+              onGateOutput: (name, chunk) => deps.onGateOutput?.(id, 'uat', name, chunk),
               onGateStart: (name) =>
                 deps.onInsideProgress?.({
                   kind: 'active',
@@ -335,6 +350,7 @@ export async function driveTicket(
               manifest: deps.manifest(),
               signal: controller.signal,
               debug: deps.debug,
+              onGateOutput: (name, chunk) => deps.onGateOutput?.(id, 'review', name, chunk),
               onGateStart: (name) =>
                 deps.onInsideProgress?.({
                   kind: 'active',
