@@ -23,6 +23,16 @@ const assets = [
   'model/icons/agent/codex.svg',
   'model/icons/agent/antigravity-cli.svg',
   'model/icons/agent/opencode.svg',
+  // Webview CSS/JS that lives as a real sibling source file (see
+  // agentPicker.ts/designComponents.ts/designRuntime.ts/tablerIcons.ts) rather
+  // than a TS template-literal string; read at runtime via `readFileSync(join(HERE, …))`
+  // exactly like the webview.html documents above.
+  'model/agentPicker.webview.css',
+  'model/agentPicker.webview.js',
+  'model/designComponents.webview.css',
+  'model/designRuntime.webview.js',
+  'model/tablerIcons.webview.css',
+  'model/tablerIcons.webview.js',
 ]; // sourced from src/
 // Sourced from the repo root. The setup runbook travels the same way the
 // manifest template does: it is written into the TARGET project at scaffold
