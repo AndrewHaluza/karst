@@ -214,26 +214,31 @@ export interface AbandonInputs {
  *  - `wait` — undecided, poll again.
  *  - `abandoned` — nothing can ever answer; fail now instead of at the deadline.
  *
- * A listener settles it whatever else is true. An `empty` group is PROOF that
- * nothing is left, so it abandons immediately — that fast failure is the point.
- * An `unknown` group is not proof of anything, so it must wait the grace out
- * first, and only then conclude; a group still `alive` past the grace is a slow
- * starter, which health, not this, is there to time out.
+ * A listener settles it whatever else is true. Everything else waits the grace
+ * out first — an `empty` group included: a launcher that DETACHES its daemon
+ * (`spawn(..., { detached: true }).unref()`, `docker compose up -d`) leaves an
+ * empty group of its own the instant it exits, while the process it left
+ * behind — in a group of its own — is still binding the port. Abandoning on
+ * that alone failed exactly the daemonising start the grace exists for, on any
+ * machine slow enough that the daemon needed more than one poll. Past the
+ * grace, an `empty` or `unknown` group means nothing is left that could ever
+ * answer; a group still `alive` is a slow starter, which health, not this, is
+ * there to time out.
  */
 export function abandonVerdict(inputs: AbandonInputs): 'serving' | 'wait' | 'abandoned' {
   if (inputs.portOpen) return 'serving';
-  if (inputs.group === 'empty') return 'abandoned';
   if (!inputs.graceElapsed) return 'wait';
   return inputs.group === 'alive' ? 'serving' : 'abandoned';
 }
 
 /**
- * Reject as soon as a start is ABANDONED: the launcher has exited, its process
- * group is empty, and nothing is listening on the port. Each of those alone is
- * legal — a daemonising launcher exits 0, a slow build has not bound yet — but
- * together they mean there is no process left that could ever answer the health
- * URL, so waiting out the deadline only delays the same failure by 30 seconds
- * and then blames it on the health check.
+ * Reject as soon as a start is ABANDONED: the launcher has exited, the
+ * daemonise grace has elapsed with its process group still empty, and nothing
+ * is listening on the port. Each of those alone is legal — a daemonising
+ * launcher exits 0 and its own group empties at once, a slow build has not
+ * bound yet — but together, past the grace, they mean there is no process left
+ * that could ever answer the health URL, so waiting out the deadline only
+ * delays the same failure by 30 seconds and then blames the health check.
  *
  * Never resolves: it is raced against the health wait and only ever rejects.
  */

@@ -175,10 +175,15 @@ describe('abandonVerdict', () => {
     }
   });
 
-  it('abandons at once when the group is provably empty (POSIX)', () => {
-    // Nothing is left that could ever bind the port: waiting only delays the
-    // same failure, which is the whole reason this check exists.
-    expect(abandonVerdict({ portOpen: false, group: 'empty', graceElapsed: false })).toBe(
+  it('gives an empty group the daemonise grace before abandoning', () => {
+    // An empty group is NOT proof that nothing was left behind: a launcher
+    // that detaches its daemon (`spawn(..., { detached: true }).unref()`,
+    // `docker compose up -d`) leaves an empty group of its own while the
+    // daemon — in another group entirely — is still binding the port. Inside
+    // the grace the answer is "wait"; the fast failure lands the moment it
+    // elapses, which still beats the health deadline by 28 seconds.
+    expect(abandonVerdict({ portOpen: false, group: 'empty', graceElapsed: false })).toBe('wait');
+    expect(abandonVerdict({ portOpen: false, group: 'empty', graceElapsed: true })).toBe(
       'abandoned',
     );
   });

@@ -160,6 +160,17 @@ describe('uatProcesses', () => {
     expect(views.map((p) => p.id)).toEqual(['gates', 'services', 'tester']);
   });
 
+  it('flags the Tester console while the run is still open, and never without a run', () => {
+    const none = uatProcesses(qualityInput({ processRuns: [] }));
+    expect(none.find((p) => p.id === 'tester')?.console).toBeFalsy();
+    const running = uatProcesses(
+      qualityInput({
+        processRuns: [processRun({ status: 'running', resultKind: null, endedAt: null })],
+      }),
+    );
+    expect(running.find((p) => p.id === 'tester')?.console).toBe(true);
+  });
+
   it('inserts the fix process immediately after gates for a gate-triggered round', () => {
     const views = uatProcesses(qualityInput({ rounds: [round()] }));
     expect(views.map((p) => p.id)).toEqual(['gates', 'fix', 'services', 'tester']);

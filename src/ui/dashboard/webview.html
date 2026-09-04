@@ -1662,6 +1662,7 @@
   .artmeta{display:grid;grid-template-columns:auto 1fr;gap:var(--k-space-2) var(--k-space-5);
     font-size:var(--k-text-sm)}
   .artmeta .am-key{color:var(--k-text-faint)}
+  .artmeta .am-origin{display:inline-flex;align-items:center;gap:var(--k-space-3)}
   .artfiles{list-style:none;margin:0;padding:0}
   .artfiles li{display:flex;align-items:center;gap:var(--k-space-4);
     padding:var(--k-space-3) var(--k-space-4);border:var(--k-border-w) solid var(--k-border);
@@ -2852,7 +2853,7 @@
   // operability comes from the element, never a handler (UI-R09). One with
   // nothing behind it is the prototype's `.op-static` — a row that states its
   // fact and offers no disclosure it cannot honour.
-  function processRowHtml(p, key, open, consoleStage) {
+  function processRowHtml(p, key, open, consoleStage, stageKey) {
     const ai = p.execution || p.configuredExecution ? '<span class="ai-mark">AI</span>' : '';
     // No status WORD in the tail: the prototype's row carries its state on the
     // glyph (which keeps the word as its accessible name) and in the detail's
@@ -2879,10 +2880,14 @@
     // A gate-lane AI process (tester/review) offers the same console from its
     // OWN description area when the host flags `p.console` (a run happened and
     // a tail exists) — that button carries `data-console-proc` so the click
-    // posts an agent-log-request instead of a stage-log-request.
-    const consoleBtn = consoleStage && (p.id === 'gates' || p.console)
+    // posts an agent-log-request instead of a stage-log-request. That flag is
+    // the process's OWN availability and does not depend on the stage's:
+    // a running tester streams before the stage artifact exists, and gating
+    // the row on `consoleStage` hid the live output for the whole run.
+    const consoleOwner = p.id === 'gates' ? consoleStage : (p.console ? (stageKey || consoleStage) : null);
+    const consoleBtn = consoleOwner
       ? `<button type="button" class="k-iconbtn ib t-open" data-act="${CONSOLE_ACT}"`
-        + ` data-console="${esc(consoleStage)}"`
+        + ` data-console="${esc(consoleOwner)}"`
         + (p.id !== 'gates' ? ` data-console-proc="${esc(p.id)}"` : '')
         + ` aria-label="View this ${p.id === 'gates' ? "stage's" : "process's"} console output in the dashboard"`
         + ` title="View this ${p.id === 'gates' ? "stage's" : "process's"} console output in the dashboard">${svgIcon('terminal-2')}</button>`
@@ -3020,7 +3025,7 @@
     // handler posts exactly the stage whose log is available.
     const consoleStage = view.console ? view.stageKey : null;
     const body = attemptNoteHtml(view) + (procs.length
-      ? `<div class="ledger">${procs.map((p) => processRowHtml(p, `${view.stageKey}:${p.id}`, processOpen(p, `${view.stageKey}:${p.id}`), consoleStage)).join('')}</div>`
+      ? `<div class="ledger">${procs.map((p) => processRowHtml(p, `${view.stageKey}:${p.id}`, processOpen(p, `${view.stageKey}:${p.id}`), consoleStage, view.stageKey)).join('')}</div>`
       : `<div class="blurb">${esc(view.blurb)}</div>`);
 
     // The prototype's block: viewing bar, then the three-cell header (stage
@@ -4105,6 +4110,21 @@
     return `<section class="artsection" aria-label="Plan tasks"><div class="artheading">Tasks</div>${rows}</section>`;
   }
 
+  // The AI process's console entry on a report: the same terminal button the
+  // inside ledger's Tester/Review row carries, beside the provenance that
+  // names who produced the report. Availability is HOST-DERIVED — rendered
+  // only from `a.agentConsole` (UI-R31), which names the process whose tail
+  // the host can serve, and never guessed from the stage.
+  const AGENT_CONSOLE_LABEL = { tester: 'Tester', review: 'Reviewer' };
+  function agentConsoleBtnHtml(a) {
+    const proc = a.agentConsole;
+    if (!proc || (a.stage !== 'uat' && a.stage !== 'review')) return '';
+    const label = `View the ${AGENT_CONSOLE_LABEL[proc] || proc}'s console output in the dashboard`;
+    return `<button type="button" class="k-iconbtn ib t-open" data-act="${CONSOLE_ACT}"`
+      + ` data-console="${esc(a.stage)}" data-console-proc="${esc(proc)}"`
+      + ` aria-label="${esc(label)}" title="${esc(label)}">${svgIcon('terminal-2')}</button>`;
+  }
+
   // Detail is SEMANTIC-FIRST, files LAST (spec §11): the result, the metrics,
   // artifact-specific content, then provenance, then the raw files with their
   // explicit "Open in editor" escape into VS Code (spec §12). Opening is a
@@ -4139,7 +4159,7 @@
       + artifactCommitsHtml(a)
       + `<section class="artsection" aria-label="Details"><div class="artheading">Details</div><div class="artmeta">`
       + `<span class="am-key">Stage</span><span>${esc(ART_STAGE_LABEL[a.stage] || a.stage)}</span>`
-      + `<span class="am-key">Produced by</span>${originChip(a.origin)}`
+      + `<span class="am-key">Produced by</span><span class="am-origin">${originChip(a.origin)}${agentConsoleBtnHtml(a)}</span>`
       + `<span class="am-key">Version</span><span>${esc(a.currentVersionLabel || '')} · ${a.freshness}</span>`
       + (a.createdAt
         ? `<span class="am-key">Created</span><span>${esc(new Date(a.createdAt).toLocaleString())}</span>` : '')
@@ -5365,6 +5385,10 @@
         if (status) status.textContent = '';
         const host = el('termHost');
         if (host) host.innerHTML = `<div class="blurb">${esc(msg.result.message)}</div>`;
+        // The refusal REPLACED the terminal, exactly as the stage console's
+        // does: recorded so a later live chunk can swap it back for a real
+        // terminal instead of writing into a host that is off the page.
+        termBlurbed = true;
       }
       // Flush chunks that raced the persisted tail (buffered above), so the
       // open console never silently skips live output that arrived while the
@@ -5383,6 +5407,11 @@
     if (msg.type === 'agent-output') {
       if (!termView || !termProcess || termProcess !== msg.processId) return;
       if (termLoading) { termPending += msg.text; return; }
+      // The console may be showing a refusal ("no recorded console output"):
+      // the process was running and had persisted nothing yet. Output has now
+      // started, so the blurb gives way to a live terminal — the same recovery
+      // the stage console does.
+      if (termBlurbed) restoreTerminal();
       if (term) term.write(msg.text);
       return;
     }
