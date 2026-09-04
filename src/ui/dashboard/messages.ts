@@ -171,7 +171,24 @@ export type WebviewMessage =
    * gate stages — validated host-side against the ticket's current stage and
    * status before anything is touched.
    */
-  | { type: 'rerun-gate'; stage: GateStage };
+  | { type: 'rerun-gate'; stage: GateStage }
+  /**
+   * Open the combined server logs view for this ticket. Payload-free: the panel
+   * closure already owns the ticket. The host reads all server log files and
+   * answers with `server-logs`; live chunks follow as `server-log-output`.
+   */
+  | { type: 'server-logs-request' }
+  /**
+   * Close the combined server logs view and stop streaming. Payload-free: the
+   * panel closure already owns the ticket. The host stops polling and clears
+   * the reader state.
+   */
+  | { type: 'server-logs-close' }
+  /**
+   * Switch the active tab in the combined logs view. Carries the service name
+   * of the server to focus, or 'merged' for the chronological interleaved view.
+   */
+  | { type: 'server-logs-tab'; tab: string };
 
 /**
  * Host → webview messages. `state` pushes drive the stepper + panels;
@@ -226,6 +243,18 @@ export type HostMessage =
    * stays the stage artifact the post-run `stage-log` answer reads.
    */
   | { type: 'stage-output'; stage: GateStage; text: string }
+  /**
+   * The answer to `server-logs-request`: all server log contents for this ticket.
+   * `servers` is the ordered list matching the dashboard's server rows. The
+   * webview renders the initial content immediately and starts the merged view.
+   */
+  | { type: 'server-logs'; servers: Array<{ service: string; content: string; truncated: boolean }> }
+  /**
+   * A live chunk of one server's log output, pushed while polling. The webview
+   * appends it to that server's log buffer and, if the merged view is active,
+   * interleaves it into the chronological view.
+   */
+  | { type: 'server-log-output'; service: string; text: string }
   | ActionResultMessage;
 
 /**
@@ -354,6 +383,10 @@ export interface DashboardActions {
    * or not, merge check cleared) so the toast is never a generic "done".
    */
   changeBaseRef: (repo: string, baseRef: string, rebase: boolean) => Promise<InsideActionResult>;
+  /** Open the combined server logs view. The `server-logs` message is the initial state. */
+  requestServerLogs: () => void | Promise<void>;
+  /** Close the combined server logs view and stop streaming. */
+  closeServerLogs: () => void | Promise<void>;
 }
 
 /**
@@ -579,6 +612,16 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
     }
     case 'rerun-gate':
       return isGateStage(m.stage) ? { type: 'rerun-gate', stage: m.stage } : null;
+    case 'server-logs-request':
+      return { type: 'server-logs-request' };
+    case 'server-logs-close':
+      return { type: 'server-logs-close' };
+    case 'server-logs-tab': {
+      const tab = typeof m.tab === 'string' ? m.tab : '';
+      return tab.length > 0 && tab.length <= MAX_GATE_NAME_CHARS
+        ? { type: 'server-logs-tab', tab }
+        : null;
+    }
     default:
       return null;
   }
@@ -715,5 +758,11 @@ export function routeAction(
       return actions.changeBaseRef(msg.repo, msg.baseRef, msg.rebase);
     case 'rerun-gate':
       return actions.rerunGate(msg.stage);
+    case 'server-logs-request':
+      return actions.requestServerLogs();
+    case 'server-logs-close':
+      return actions.closeServerLogs();
+    case 'server-logs-tab':
+      return;
   }
 }

@@ -1,0 +1,793 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Server Logs Button — 4 UI Variants</title>
+<style>
+  :root {
+    --k-bg: #1e1e1e;
+    --k-surface: #252526;
+    --k-surface-hover: #2a2d2e;
+    --k-surface-sunken: #1b1b1b;
+    --k-border: #3c3c3c;
+    --k-border-strong: #474747;
+    --k-text: #cccccc;
+    --k-text-dim: #969696;
+    --k-text-faint: #6e6e6e;
+    --k-link: #3794ff;
+    --k-passed: #4ec9b0;
+    --k-failed: #f14c4c;
+    --k-attention: #cca700;
+    --k-running: #3794ff;
+    --k-pending: #6e6e6e;
+    --k-focus: #007fd4;
+    --k-font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --k-font-mono: "SF Mono", "Menlo", "Monaco", monospace;
+    --k-text-base: 13px;
+    --k-text-sm: 12px;
+    --k-text-xs: 11px;
+    --k-text-2xs: 10px;
+    --k-space-1: 2px;
+    --k-space-2: 4px;
+    --k-space-3: 6px;
+    --k-space-4: 8px;
+    --k-space-5: 12px;
+    --k-space-6: 16px;
+    --k-space-7: 20px;
+    --k-space-8: 24px;
+    --k-space-9: 32px;
+    --k-border-w: 1px;
+    --k-radius-sm: 4px;
+    --k-radius-md: 6px;
+    --k-radius-lg: 8px;
+    --k-radius-circle: 50%;
+    --k-control-h-sm: 22px;
+    --k-control-h-lg: 30px;
+    --k-weight-semibold: 600;
+    --k-weight-medium: 500;
+    --k-elev-2: 0 4px 12px rgba(0,0,0,.35);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--k-bg);
+    color: var(--k-text);
+    font-family: var(--k-font-ui);
+    font-size: var(--k-text-base);
+    padding: 32px;
+    line-height: 1.5;
+  }
+  h1 { font-size: 20px; font-weight: 600; margin-bottom: 8px; }
+  .subtitle { color: var(--k-text-dim); font-size: 13px; margin-bottom: 32px; max-width: 680px; }
+  .variant {
+    border: 1px solid var(--k-border);
+    border-radius: var(--k-radius-lg);
+    background: var(--k-surface);
+    margin-bottom: 32px;
+    overflow: hidden;
+  }
+  .variant-head {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--k-border);
+    background: var(--k-surface-sunken);
+  }
+  .variant-num {
+    font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px;
+    color: var(--k-running); white-space: nowrap;
+  }
+  .variant-title { font-size: 14px; font-weight: 600; }
+  .variant-tag {
+    font-size: 10px; padding: 2px 6px; border-radius: 3px;
+    background: rgba(55,148,255,.15); color: var(--k-running);
+    margin-left: auto; white-space: nowrap;
+  }
+  .variant-body { padding: 16px; }
+  .variant-desc { color: var(--k-text-dim); font-size: 12px; margin-bottom: 16px; line-height: 1.5; }
+
+  /* ── Server panel (shared across variants) ── */
+  .svpanel {
+    border: 1px solid var(--k-border);
+    border-radius: var(--k-radius-lg);
+    background: var(--k-bg);
+    overflow: hidden;
+    max-width: 700px;
+  }
+  .phead {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--k-border);
+    font-weight: 600; font-size: 13px;
+  }
+  .phead .count {
+    font-size: 11px; color: var(--k-text-dim); font-weight: 400;
+    margin-left: 0;
+  }
+  .phead .pops {
+    margin-left: auto; display: flex; gap: 4px;
+  }
+  .pbody { padding: 0; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  thead th {
+    text-align: left; font-weight: 600; font-size: 10px; text-transform: uppercase;
+    letter-spacing: .6px; color: var(--k-text-faint);
+    padding: 8px 12px; border-bottom: 1px solid var(--k-border);
+    background: var(--k-surface);
+  }
+  tbody tr:hover { background: var(--k-surface-hover); }
+  td { padding: 6px 12px; vertical-align: middle; }
+  td.c-dot { width: 1%; padding-right: 0; line-height: 0; }
+  td.c-name { font-size: 13px; max-width: 0; width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  td.c-addr {
+    font-family: var(--k-font-mono); font-size: 12px; color: var(--k-text-dim);
+    white-space: nowrap; width: 1%; text-align: right; padding-right: 10px;
+  }
+  td.c-addrops { width: 1%; padding-left: 0; padding-right: 0; }
+  td.c-acts { text-align: right; white-space: nowrap; width: 1%; padding-left: 16px; }
+  td .g { display: inline-flex; gap: 3px; justify-content: flex-end; }
+
+  /* Status dots */
+  .glyph { display: inline-block; border-radius: 50%; }
+  .glyph.on { width: 8px; height: 8px; background: var(--k-passed); }
+  .glyph.off {
+    width: 9px; height: 9px; background: transparent;
+    border: 2px solid var(--k-pending);
+  }
+
+  /* Icon buttons */
+  .k-iconbtn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 24px; height: 24px; border: 1px solid transparent;
+    border-radius: var(--k-radius-sm); background: transparent;
+    cursor: pointer; color: var(--k-text-dim); padding: 0;
+    transition: background .12s, border-color .12s, color .12s;
+  }
+  .k-iconbtn:hover:not(:disabled) { background: var(--k-surface-hover); border-color: var(--k-border); }
+  .k-iconbtn:disabled { opacity: .35; cursor: default; }
+  .k-iconbtn svg { width: 15px; height: 15px; display: block; }
+  .k-iconbtn.t-open { color: var(--k-running); }
+  .k-iconbtn.t-copy { color: var(--k-text-dim); }
+  .k-iconbtn.t-restart { color: var(--k-attention); }
+  .k-iconbtn.t-stop { color: var(--k-failed); }
+  .k-iconbtn.t-start { color: var(--k-passed); }
+  .k-iconbtn.t-logs { color: var(--k-text-faint); }
+  .k-iconbtn.t-logs:hover:not(:disabled) { color: var(--k-running); }
+
+  /* Ghost button (for header) */
+  .k-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    height: 26px; padding: 0 10px; border: 1px solid transparent;
+    border-radius: var(--k-radius-sm); background: transparent;
+    color: var(--k-text-dim); font-size: 12px; cursor: pointer;
+  }
+  .k-btn:hover { background: var(--k-surface-hover); border-color: var(--k-border); color: var(--k-text); }
+  .k-btn svg { width: 14px; height: 14px; }
+
+  /* ── Variant 1: Terminal preview ── */
+  .term-preview {
+    margin-top: 12px; border: 1px solid var(--k-border); border-radius: var(--k-radius-md);
+    background: #1a1a1a; overflow: hidden;
+  }
+  .term-bar {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 10px; background: var(--k-surface); border-bottom: 1px solid var(--k-border);
+    font-size: 11px; color: var(--k-text-dim);
+  }
+  .term-bar .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--k-passed); }
+  .term-bar .name { font-weight: 600; color: var(--k-text); }
+  .term-content {
+    padding: 10px 12px; font-family: var(--k-font-mono); font-size: 12px;
+    line-height: 1.6; color: #d4d4d4; max-height: 160px; overflow-y: auto;
+    white-space: pre-wrap; word-break: break-all;
+  }
+  .term-content .ts { color: #6e6e6e; }
+  .term-content .lvl-info { color: var(--k-passed); }
+  .term-content .lvl-warn { color: var(--k-attention); }
+  .term-content .lvl-err { color: var(--k-failed); }
+
+  /* ── Variant 2: Inline console (xterm in dashboard) ── */
+  .inline-console {
+    margin-top: 12px; border: 1px solid var(--k-border); border-radius: var(--k-radius-lg);
+    background: var(--k-bg); overflow: hidden;
+  }
+  .ic-head {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 12px; border-bottom: 1px solid var(--k-border);
+  }
+  .ic-head .title { font-weight: 600; font-size: 13px; }
+  .ic-head .sp { margin-left: auto; }
+  .ic-status { font-size: 11px; color: var(--k-text-dim); padding: 4px 12px; }
+  .ic-terminal {
+    padding: 10px 12px; font-family: var(--k-font-mono); font-size: 12px;
+    line-height: 1.6; color: #d4d4d4; min-height: 120px;
+    background: #1a1a1a; white-space: pre-wrap;
+  }
+
+  /* ── Variant 3: Dedicated panel preview ── */
+  .dedicated-panel {
+    margin-top: 12px; border: 1px solid var(--k-border); border-radius: var(--k-radius-lg);
+    background: var(--k-bg); overflow: hidden;
+  }
+  .dp-head {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 14px; border-bottom: 1px solid var(--k-border);
+    background: var(--k-surface);
+  }
+  .dp-head .title { font-weight: 600; font-size: 14px; flex: 1; }
+  .dp-head .actions { display: flex; gap: 4px; }
+  .dp-toolbar {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 14px; border-bottom: 1px solid var(--k-border);
+    background: var(--k-surface-sunken);
+  }
+  .dp-search {
+    flex: 1; height: 26px; padding: 0 8px;
+    border: 1px solid var(--k-border); border-radius: var(--k-radius-sm);
+    background: var(--k-bg); color: var(--k-text); font-size: 12px;
+    font-family: var(--k-font-ui);
+  }
+  .dp-search::placeholder { color: var(--k-text-faint); }
+  .dp-content {
+    padding: 10px 14px; font-family: var(--k-font-mono); font-size: 12px;
+    line-height: 1.6; color: #d4d4d4; min-height: 140px;
+    white-space: pre-wrap; overflow-y: auto;
+  }
+  .dp-status {
+    display: flex; align-items: center; gap: 12px;
+    padding: 6px 14px; border-top: 1px solid var(--k-border);
+    font-size: 11px; color: var(--k-text-dim); background: var(--k-surface);
+  }
+  .dp-status .live { display: flex; align-items: center; gap: 4px; }
+  .dp-status .live .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--k-passed); animation: pulse 1.5s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .4; } }
+
+  /* ── Variant 4: Combined logs ── */
+  .combined-panel {
+    margin-top: 12px; border: 1px solid var(--k-border); border-radius: var(--k-radius-lg);
+    background: var(--k-bg); overflow: hidden;
+  }
+  .cp-head {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 14px; border-bottom: 1px solid var(--k-border);
+    background: var(--k-surface);
+  }
+  .cp-head .title { font-weight: 600; font-size: 14px; }
+  .cp-tabs {
+    display: flex; gap: 0; border-bottom: 1px solid var(--k-border);
+    background: var(--k-surface-sunken);
+  }
+  .cp-tab {
+    padding: 8px 14px; font-size: 12px; color: var(--k-text-dim);
+    cursor: pointer; border-bottom: 2px solid transparent;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .cp-tab:hover { color: var(--k-text); background: var(--k-surface-hover); }
+  .cp-tab.active { color: var(--k-text); border-bottom-color: var(--k-running); }
+  .cp-tab .cnt {
+    font-size: 10px; padding: 1px 5px; border-radius: 3px;
+    background: rgba(55,148,255,.15); color: var(--k-running);
+  }
+  .cp-tab.merged { font-weight: 600; }
+  .cp-content {
+    padding: 10px 14px; font-family: var(--k-font-mono); font-size: 12px;
+    line-height: 1.6; color: #d4d4d4; min-height: 140px;
+    white-space: pre-wrap; overflow-y: auto; max-height: 200px;
+  }
+  .cp-content .svc { color: var(--k-running); font-weight: 600; }
+  .cp-content .svc-api { color: #c586c0; font-weight: 600; }
+
+  /* ── Comparison table ── */
+  .compare {
+    margin-top: 40px; border: 1px solid var(--k-border); border-radius: var(--k-radius-lg);
+    overflow: hidden;
+  }
+  .compare table { width: 100%; border-collapse: collapse; }
+  .compare th {
+    text-align: left; padding: 10px 14px; font-size: 11px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: .5px; color: var(--k-text-faint);
+    background: var(--k-surface-sunken); border-bottom: 1px solid var(--k-border);
+  }
+  .compare td {
+    padding: 10px 14px; font-size: 12px; border-bottom: 1px solid var(--k-border);
+    vertical-align: top;
+  }
+  .compare tr:last-child td { border-bottom: none; }
+  .compare td:first-child { font-weight: 600; color: var(--k-text); white-space: nowrap; }
+  .check { color: var(--k-passed); }
+  .cross { color: var(--k-failed); }
+  .partial { color: var(--k-attention); }
+
+  /* ── Annotation callouts ── */
+  .anno {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 10px; padding: 2px 6px; border-radius: 3px;
+    background: rgba(204,167,0,.12); color: var(--k-attention);
+    margin-left: 6px; vertical-align: middle;
+  }
+</style>
+</head>
+<body>
+
+<h1>Server Logs Button — 4 UI Variants</h1>
+<p class="subtitle">Each variant adds a logs icon button per server row. Clicking it opens server logs in a different way. The button appears in the <code>c-acts</code> column (rightmost) for running servers, using the <code>terminal-2</code> icon.</p>
+
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<!-- VARIANT 1                                                          -->
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<div class="variant">
+  <div class="variant-head">
+    <span class="variant-num">Variant 1</span>
+    <span class="variant-title">Integrated Terminal</span>
+    <span class="variant-tag">~50 lines</span>
+  </div>
+  <div class="variant-body">
+    <p class="variant-desc">Click the logs button → opens a VS Code integrated terminal running <code>tail -f</code> on the server's log file. Native terminal with scrollback, search, selection. Each server gets its own terminal tab.</p>
+
+    <div class="svpanel">
+      <div class="phead">
+        Servers <span class="count">2</span>
+        <span class="pops">
+          <button class="k-btn" title="Start all services">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          </button>
+        </span>
+      </div>
+      <div class="pbody">
+        <table>
+          <thead><tr>
+            <th scope="col" style="width:1%"></th>
+            <th scope="col">Service</th>
+            <th scope="col" colspan="2">Address</th>
+            <th scope="col" style="text-align:right">Actions</th>
+          </tr></thead>
+          <tbody>
+            <tr>
+              <td class="c-dot"><span class="glyph on"></span></td>
+              <td class="c-name" title="web">web</td>
+              <td class="c-addr" title="localhost:5173"><span class="full">localhost:5173</span></td>
+              <td class="c-addrops">
+                <span class="g">
+                  <button class="k-iconbtn t-open" title="Open in browser"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></button>
+                  <button class="k-iconbtn t-copy" title="Copy URL"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+                </span>
+              </td>
+              <td class="c-acts">
+                <span class="g">
+                  <button class="k-iconbtn t-logs" title="View logs" style="color:var(--k-text-faint)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg></button>
+                  <button class="k-iconbtn t-restart" title="Restart"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></button>
+                  <button class="k-iconbtn t-stop" title="Stop"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="1"/></svg></button>
+                </span>
+              </td>
+            </tr>
+            <tr>
+              <td class="c-dot"><span class="glyph on"></span></td>
+              <td class="c-name" title="api">api</td>
+              <td class="c-addr" title="localhost:3000"><span class="full">localhost:3000</span></td>
+              <td class="c-addrops">
+                <span class="g">
+                  <button class="k-iconbtn t-open" title="Open in browser"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></button>
+                  <button class="k-iconbtn t-copy" title="Copy URL"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+                </span>
+              </td>
+              <td class="c-acts">
+                <span class="g">
+                  <button class="k-iconbtn t-logs" title="View logs" style="color:var(--k-text-faint)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg></button>
+                  <button class="k-iconbtn t-restart" title="Restart"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></button>
+                  <button class="k-iconbtn t-stop" title="Stop"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="1"/></svg></button>
+                </span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="term-preview">
+      <div class="term-bar">
+        <span class="dot"></span>
+        <span class="name">Karst: web</span>
+        <span style="color:var(--k-text-faint)">— tail -f .karst/logs/web.log</span>
+      </div>
+      <div class="term-content"><span class="ts">09:12:01</span> <span class="lvl-info">[vite]</span> starting dev server...
+<span class="ts">09:12:02</span> <span class="lvl-info">[vite]</span> VITE v5.4.2 ready in 342ms
+<span class="ts">09:12:02</span>   ➜  Local:   <span style="color:var(--k-link)">http://localhost:5173/</span>
+<span class="ts">09:12:05</span> <span class="lvl-info">[hmr]</span> /src/App.tsx  updated (full-reload)
+<span class="ts">09:12:18</span> <span class="lvl-warn">[plugin]</span> "react-refresh" module was not found
+<span class="ts">09:12:33</span> <span class="lvl-info">[vite]</span> page reload src/components/Dashboard.tsx</div>
+    </div>
+    <p style="margin-top:12px;font-size:11px;color:var(--k-text-faint)">
+      <span class="anno">NOTE</span> Uses <code>terminal-2</code> icon (same as session terminal). Opens native VS Code terminal. No filtering, no combined view.
+    </p>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<!-- VARIANT 2                                                          -->
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<div class="variant">
+  <div class="variant-head">
+    <span class="variant-num">Variant 2</span>
+    <span class="variant-title">Inline Console (xterm.js in dashboard)</span>
+    <span class="variant-tag">~150 lines</span>
+  </div>
+  <div class="variant-body">
+    <p class="variant-desc">Click the logs button → opens the existing console surface (full-body xterm.js terminal below the grid), same as stage/agent logs. Reuses the existing <code>openTerminal()</code> pattern with a new <code>server-log-request</code> message type.</p>
+
+    <div class="svpanel">
+      <div class="phead">
+        Servers <span class="count">2</span>
+        <span class="pops">
+          <button class="k-btn" title="Start all services">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          </button>
+        </span>
+      </div>
+      <div class="pbody">
+        <table>
+          <thead><tr>
+            <th scope="col" style="width:1%"></th>
+            <th scope="col">Service</th>
+            <th scope="col" colspan="2">Address</th>
+            <th scope="col" style="text-align:right">Actions</th>
+          </tr></thead>
+          <tbody>
+            <tr>
+              <td class="c-dot"><span class="glyph on"></span></td>
+              <td class="c-name" title="web">web</td>
+              <td class="c-addr" title="localhost:5173"><span class="full">localhost:5173</span></td>
+              <td class="c-addrops">
+                <span class="g">
+                  <button class="k-iconbtn t-open" title="Open in browser"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></button>
+                  <button class="k-iconbtn t-copy" title="Copy URL"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+                </span>
+              </td>
+              <td class="c-acts">
+                <span class="g">
+                  <button class="k-iconbtn t-logs" title="View logs" style="color:var(--k-text-faint)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg></button>
+                  <button class="k-iconbtn t-restart" title="Restart"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></button>
+                  <button class="k-iconbtn t-stop" title="Stop"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="1"/></svg></button>
+                </span>
+              </td>
+            </tr>
+            <tr>
+              <td class="c-dot"><span class="glyph on"></span></td>
+              <td class="c-name" title="api">api</td>
+              <td class="c-addr" title="localhost:3000"><span class="full">localhost:3000</span></td>
+              <td class="c-addrops">
+                <span class="g">
+                  <button class="k-iconbtn t-open" title="Open in browser"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></button>
+                  <button class="k-iconbtn t-copy" title="Copy URL"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+                </span>
+              </td>
+              <td class="c-acts">
+                <span class="g">
+                  <button class="k-iconbtn t-logs" title="View logs" style="color:var(--k-text-faint)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg></button>
+                  <button class="k-iconbtn t-restart" title="Restart"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></button>
+                  <button class="k-iconbtn t-stop" title="Stop"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="1"/></svg></button>
+                </span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="inline-console">
+      <div class="ic-head">
+        <span class="title">Console · web</span>
+        <span class="sp">
+          <button class="k-btn" style="font-size:12px">Close</button>
+        </span>
+      </div>
+      <div class="ic-status">Streaming logs from .karst/logs/web.log</div>
+      <div class="ic-terminal"><span style="color:#6e6e6e">09:12:01</span> <span style="color:#4ec9b0">[vite]</span> starting dev server...
+<span style="color:#6e6e6e">09:12:02</span> <span style="color:#4ec9b0">[vite]</span> VITE v5.4.2 ready in 342ms
+<span style="color:#6e6e6e">09:12:02</span>   ➜  Local:   <span style="color:#3794ff">http://localhost:5173/</span>
+<span style="color:#6e6e6e">09:12:05</span> <span style="color:#4ec9b0">[hmr]</span> /src/App.tsx  updated (full-reload)
+<span style="color:#6e6e6e">09:12:18</span> <span style="color:#cca700">[plugin]</span> "react-refresh" module was not found
+<span style="color:#6e6e6e">09:12:33</span> <span style="color:#4ec9b0">[vite]</span> page reload src/components/Dashboard.tsx
+<span style="color:#6e6e6e">09:13:01</span> <span style="color:#4ec9b0">[vite]</span> hmr update /src/hooks/useTickets.ts</div>
+    </div>
+    <p style="margin-top:12px;font-size:11px;color:var(--k-text-faint)">
+      <span class="anno">NOTE</span> Full-body swap — dashboard grid hides, console takes over (same as stage log view). One server at a time. Requires <code>fs.watch</code> streaming from extension host.
+    </p>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<!-- VARIANT 3                                                          -->
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<div class="variant">
+  <div class="variant-head">
+    <span class="variant-num">Variant 3</span>
+    <span class="variant-title">Dedicated Logs Panel (separate webview)</span>
+    <span class="variant-tag">~400 lines</span>
+  </div>
+  <div class="variant-body">
+    <p class="variant-desc">Click the logs button → opens a new webview panel (like Diffs or Usage) with a dedicated log viewer: search bar, ANSI color rendering, download button, auto-scroll toggle. Multiple panels can be open for different servers.</p>
+
+    <div class="svpanel">
+      <div class="phead">
+        Servers <span class="count">2</span>
+        <span class="pops">
+          <button class="k-btn" title="Start all services">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          </button>
+        </span>
+      </div>
+      <div class="pbody">
+        <table>
+          <thead><tr>
+            <th scope="col" style="width:1%"></th>
+            <th scope="col">Service</th>
+            <th scope="col" colspan="2">Address</th>
+            <th scope="col" style="text-align:right">Actions</th>
+          </tr></thead>
+          <tbody>
+            <tr>
+              <td class="c-dot"><span class="glyph on"></span></td>
+              <td class="c-name" title="web">web</td>
+              <td class="c-addr" title="localhost:5173"><span class="full">localhost:5173</span></td>
+              <td class="c-addrops">
+                <span class="g">
+                  <button class="k-iconbtn t-open" title="Open in browser"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></button>
+                  <button class="k-iconbtn t-copy" title="Copy URL"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+                </span>
+              </td>
+              <td class="c-acts">
+                <span class="g">
+                  <button class="k-iconbtn t-logs" title="View logs" style="color:var(--k-text-faint)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg></button>
+                  <button class="k-iconbtn t-restart" title="Restart"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></button>
+                  <button class="k-iconbtn t-stop" title="Stop"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="1"/></svg></button>
+                </span>
+              </td>
+            </tr>
+            <tr>
+              <td class="c-dot"><span class="glyph on"></span></td>
+              <td class="c-name" title="api">api</td>
+              <td class="c-addr" title="localhost:3000"><span class="full">localhost:3000</span></td>
+              <td class="c-addrops">
+                <span class="g">
+                  <button class="k-iconbtn t-open" title="Open in browser"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></button>
+                  <button class="k-iconbtn t-copy" title="Copy URL"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+                </span>
+              </td>
+              <td class="c-acts">
+                <span class="g">
+                  <button class="k-iconbtn t-logs" title="View logs" style="color:var(--k-text-faint)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg></button>
+                  <button class="k-iconbtn t-restart" title="Restart"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></button>
+                  <button class="k-iconbtn t-stop" title="Stop"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="1"/></svg></button>
+                </span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="dedicated-panel">
+      <div class="dp-head">
+        <span class="title">Server Logs · web</span>
+        <span class="actions">
+          <button class="k-iconbtn" title="Toggle auto-scroll" style="color:var(--k-passed)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M19 12l-7 7-7-7"/></svg></button>
+          <button class="k-iconbtn" title="Download log" style="color:var(--k-text-dim)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
+          <button class="k-iconbtn" title="Close" style="color:var(--k-text-dim)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+        </span>
+      </div>
+      <div class="dp-toolbar">
+        <input class="dp-search" type="search" placeholder="Filter logs…">
+      </div>
+      <div class="dp-content"><span style="color:#6e6e6e">09:12:01</span> <span style="color:#4ec9b0">[vite]</span> starting dev server...
+<span style="color:#6e6e6e">09:12:02</span> <span style="color:#4ec9b0">[vite]</span> VITE v5.4.2 ready in 342ms
+<span style="color:#6e6e6e">09:12:02</span>   ➜  Local:   <span style="color:#3794ff">http://localhost:5173/</span>
+<span style="color:#6e6e6e">09:12:05</span> <span style="color:#4ec9b0">[hmr]</span> /src/App.tsx  updated (full-reload)
+<span style="color:#6e6e6e">09:12:18</span> <span style="color:#cca700">[plugin]</span> "react-refresh" module was not found
+<span style="color:#6e6e6e">09:12:33</span> <span style="color:#4ec9b0">[vite]</span> page reload src/components/Dashboard.tsx
+<span style="color:#6e6e6e">09:13:01</span> <span style="color:#4ec9b0">[vite]</span> hmr update /src/hooks/useTickets.ts
+<span style="color:#6e6e6e">09:13:15</span> <span style="color:#f14c4c">[error]</span> Module not found: ./nonexistent.ts
+<span style="color:#6e6e6e">09:13:15</span> <span style="color:#f14c4c">[error]</span> Error in src/App.tsx:12</div>
+      <div class="dp-status">
+        <span class="live"><span class="dot"></span> Streaming</span>
+        <span>42 lines · 1.2 KB</span>
+        <span style="margin-left:auto">.karst/logs/web.log</span>
+      </div>
+    </div>
+    <p style="margin-top:12px;font-size:11px;color:var(--k-text-faint)">
+      <span class="anno">NOTE</span> Separate panel (like Diffs). Has search, download, auto-scroll. Most feature-rich but highest complexity. Multiple panels can be open.
+    </p>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<!-- VARIANT 4                                                          -->
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<div class="variant">
+  <div class="variant-head">
+    <span class="variant-num">Variant 4</span>
+    <span class="variant-title">Combined Logs View (all servers, tabbed)</span>
+    <span class="variant-tag">~500 lines</span>
+  </div>
+  <div class="variant-body">
+    <p class="variant-desc">Click "Show server logs" in the panel header → opens a combined view with tabs for each server + a "Merged" tab showing all servers interleaved by timestamp. Best for multi-service tickets.</p>
+
+    <div class="svpanel">
+      <div class="phead">
+        Servers <span class="count">2</span>
+        <span class="pops">
+          <button class="k-btn" title="Start all services">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          </button>
+          <button class="k-btn" title="Show server logs" style="color:var(--k-text-faint)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+            Logs
+          </button>
+        </span>
+      </div>
+      <div class="pbody">
+        <table>
+          <thead><tr>
+            <th scope="col" style="width:1%"></th>
+            <th scope="col">Service</th>
+            <th scope="col" colspan="2">Address</th>
+            <th scope="col" style="text-align:right">Actions</th>
+          </tr></thead>
+          <tbody>
+            <tr>
+              <td class="c-dot"><span class="glyph on"></span></td>
+              <td class="c-name" title="web">web</td>
+              <td class="c-addr" title="localhost:5173"><span class="full">localhost:5173</span></td>
+              <td class="c-addrops">
+                <span class="g">
+                  <button class="k-iconbtn t-open" title="Open in browser"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></button>
+                  <button class="k-iconbtn t-copy" title="Copy URL"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+                </span>
+              </td>
+              <td class="c-acts">
+                <span class="g">
+                  <button class="k-iconbtn t-restart" title="Restart"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></button>
+                  <button class="k-iconbtn t-stop" title="Stop"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="1"/></svg></button>
+                </span>
+              </td>
+            </tr>
+            <tr>
+              <td class="c-dot"><span class="glyph on"></span></td>
+              <td class="c-name" title="api">api</td>
+              <td class="c-addr" title="localhost:3000"><span class="full">localhost:3000</span></td>
+              <td class="c-addrops">
+                <span class="g">
+                  <button class="k-iconbtn t-open" title="Open in browser"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></button>
+                  <button class="k-iconbtn t-copy" title="Copy URL"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+                </span>
+              </td>
+              <td class="c-acts">
+                <span class="g">
+                  <button class="k-iconbtn t-restart" title="Restart"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></button>
+                  <button class="k-iconbtn t-stop" title="Stop"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="1"/></svg></button>
+                </span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="combined-panel">
+      <div class="cp-head">
+        <span class="title">Server Logs</span>
+        <span style="margin-left:auto">
+          <button class="k-iconbtn" title="Close" style="color:var(--k-text-dim)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+        </span>
+      </div>
+      <div class="cp-tabs">
+        <div class="cp-tab active merged">Merged <span class="cnt">2</span></div>
+        <div class="cp-tab">web</div>
+        <div class="cp-tab">api</div>
+      </div>
+      <div class="cp-content"><span style="color:#6e6e6e">09:12:01</span> <span class="svc">[web]</span> <span style="color:#4ec9b0">[vite]</span> starting dev server...
+<span style="color:#6e6e6e">09:12:01</span> <span class="svc-api">[api]</span> <span style="color:#4ec9b0">[express]</span> listening on :3000
+<span style="color:#6e6e6e">09:12:02</span> <span class="svc">[web]</span> <span style="color:#4ec9b0">[vite]</span> VITE v5.4.2 ready in 342ms
+<span style="color:#6e6e6e">09:12:02</span> <span class="svc">[web]</span>   ➜  Local:   <span style="color:#3794ff">http://localhost:5173/</span>
+<span style="color:#6e6e6e">09:12:03</span> <span class="svc-api">[api]</span> <span style="color:#4ec9b0">[db]</span> connected to postgres://localhost:5432/karst
+<span style="color:#6e6e6e">09:12:05</span> <span class="svc">[web]</span> <span style="color:#4ec9b0">[hmr]</span> /src/App.tsx updated
+<span style="color:#6e6e6e">09:12:10</span> <span class="svc-api">[api]</span> <span style="color:#cca700">[warn]</span> slow query: 1423ms SELECT * FROM tickets
+<span style="color:#6e6e6e">09:12:18</span> <span class="svc">[web]</span> <span style="color:#cca700">[plugin]</span> "react-refresh" module not found
+<span style="color:#6e6e6e">09:12:33</span> <span class="svc">[web]</span> <span style="color:#4ec9b0">[vite]</span> page reload src/components/Dashboard.tsx</div>
+      <div class="dp-status">
+        <span class="live"><span class="dot"></span> Streaming</span>
+        <span>2 servers · 9 lines</span>
+      </div>
+    </div>
+    <p style="margin-top:12px;font-size:11px;color:var(--k-text-faint)">
+      <span class="anno">NOTE</span> Panel header button (not per-row). Tabs for each server + merged view. Color-coded service prefixes. Highest effort but addresses the multi-server use case directly.
+    </p>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<!-- COMPARISON TABLE                                                   -->
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<div class="compare">
+  <table>
+    <thead>
+      <tr>
+        <th>Feature</th>
+        <th>V1: Terminal</th>
+        <th>V2: Inline Console</th>
+        <th>V3: Dedicated Panel</th>
+        <th>V4: Combined</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Implementation effort</td>
+        <td>~50 lines</td>
+        <td>~150 lines</td>
+        <td>~400 lines</td>
+        <td>~500 lines</td>
+      </tr>
+      <tr>
+        <td>Button location</td>
+        <td>Per-server row</td>
+        <td>Per-server row</td>
+        <td>Per-server row</td>
+        <td>Panel header</td>
+      </tr>
+      <tr>
+        <td>Live streaming</td>
+        <td><span class="cross">native tail -f</span></td>
+        <td><span class="check">fs.watch</span></td>
+        <td><span class="check">fs.watch</span></td>
+        <td><span class="check">fs.watch × N</span></td>
+      </tr>
+      <tr>
+        <td>ANSI color rendering</td>
+        <td><span class="check">terminal native</span></td>
+        <td><span class="check">xterm.js</span></td>
+        <td><span class="check">custom renderer</span></td>
+        <td><span class="check">custom renderer</span></td>
+      </tr>
+      <tr>
+        <td>Search / filter</td>
+        <td><span class="check">terminal native</span></td>
+        <td><span class="cross">no</span></td>
+        <td><span class="check">search bar</span></td>
+        <td><span class="partial">search bar</span></td>
+      </tr>
+      <tr>
+        <td>Combined multi-server view</td>
+        <td><span class="cross">no</span></td>
+        <td><span class="cross">no</span></td>
+        <td><span class="cross">no</span></td>
+        <td><span class="check">tabbed + merged</span></td>
+      </tr>
+      <tr>
+        <td>Reuses existing infra</td>
+        <td><span class="cross">new terminal</span></td>
+        <td><span class="check">console surface</span></td>
+        <td><span class="cross">new panel</span></td>
+        <td><span class="partial">new panel or extended console</span></td>
+      </tr>
+      <tr>
+        <td>Follows karst design system</td>
+        <td><span class="cross">native terminal</span></td>
+        <td><span class="check">xterm + karst theme</span></td>
+        <td><span class="check">custom karst UI</span></td>
+        <td><span class="check">custom karst UI</span></td>
+      </tr>
+      <tr>
+        <td>Extensible to V4 later</td>
+        <td><span class="cross">no</span></td>
+        <td><span class="partial">possible</span></td>
+        <td><span class="partial">possible</span></td>
+        <td>—</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<p style="margin-top:24px;font-size:12px;color:var(--k-text-dim);max-width:700px">
+  <strong>Recommendation:</strong> Start with <strong>Variant 2</strong> (Inline Console). It follows the established stage-log/agent-log pattern, reuses xterm.js infrastructure, and can be extended to Variant 4 later. The <code>terminal-2</code> icon is already mapped to "show logs" in <code>ICONS.md:75</code>.
+</p>
+
+</body>
+</html>
