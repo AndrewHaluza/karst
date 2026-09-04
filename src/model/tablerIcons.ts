@@ -42,10 +42,8 @@
  */
 
 import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-const HERE = dirname(fileURLToPath(import.meta.url));
+import { join } from 'node:path';
+import { RUNTIME_ASSETS_ROOT } from '../runtimeAssetsRoot.js';
 
 /**
  * Tabler Icons (https://tabler-icons.io/)
@@ -153,7 +151,7 @@ export const TABLER_ICON_SIZE = 16;
  * token-derived size) stays local, exactly like any other screen-local layout.
  */
 export function tablerIconsCss(): string {
-  return readFileSync(join(HERE, 'tablerIcons.webview.css'), 'utf8')
+  return readFileSync(join(RUNTIME_ASSETS_ROOT, 'model/tablerIcons.webview.css'), 'utf8')
     .replace('__TABLER_STROKE__', String(TABLER_STROKE))
     .trim();
 }
@@ -166,7 +164,7 @@ export function tablerIconsCss(): string {
  * time, same contract as `applyTransforms`).
  */
 export function tablerIconsJs(): string {
-  return readFileSync(join(HERE, 'tablerIcons.webview.js'), 'utf8')
+  return readFileSync(join(RUNTIME_ASSETS_ROOT, 'model/tablerIcons.webview.js'), 'utf8')
     .replace('__TABLER_ICONS_JSON__', JSON.stringify(TABLER_ICONS))
     .replace('__TABLER_ICON_SIZE__', String(TABLER_ICON_SIZE))
     .replaceAll('__TABLER_VIEWBOX__', String(TABLER_VIEWBOX))

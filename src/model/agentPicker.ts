@@ -50,23 +50,22 @@
  * CSS + JS live in the sibling `agentPicker.webview.css`/`agentPicker.webview.js`
  * source files — real CSS/JS a linter, formatter and editor can process,
  * instead of a TS template-literal string — and are read as plain text at
- * call time (same `readFileSync(join(HERE, …))` mechanism `extension.ts`
- * already uses for the `webview.html` documents; `scripts/copy-assets.mjs`
- * carries both files next to the compiled output), then swapped into each
- * webview's markers (`KARST_AGENT_PICKER_CSS` / `KARST_AGENT_PICKER_JS`)
- * before `injectCsp` nonces the document. `agentPicker.webview.js` is never run
- * through a bundler at webview-render time — the runtime text lands verbatim
- * in the document — and its correctness is held by evaluating THAT FILE'S TEXT
- * in `agentPicker.test.ts`, never a TypeScript twin.
+ * call time (same `readFileSync(join(RUNTIME_ASSETS_ROOT, …))` mechanism
+ * `extension.ts` already uses for the `webview.html` documents;
+ * `scripts/copy-assets.mjs` carries both files next to the compiled output),
+ * then swapped into each webview's markers (`KARST_AGENT_PICKER_CSS` /
+ * `KARST_AGENT_PICKER_JS`) before `injectCsp` nonces the document.
+ * `agentPicker.webview.js` is never run through a bundler at webview-render
+ * time — the runtime text lands verbatim in the document — and its
+ * correctness is held by evaluating THAT FILE'S TEXT in
+ * `agentPicker.test.ts`, never a TypeScript twin.
  */
 
 import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import type { AgentProvider } from '../manifest/types.js';
 import type { ModelOption } from '../agent/modelCatalog.js';
-
-const HERE = dirname(fileURLToPath(import.meta.url));
+import { RUNTIME_ASSETS_ROOT } from '../runtimeAssetsRoot.js';
 
 /** Placeholder swapped for the picker CSS; sits inside each webview's `<style>`. */
 export const AGENT_PICKER_CSS_MARKER = '/*KARST_AGENT_PICKER_CSS*/';
@@ -84,7 +83,7 @@ export type AgentPickerCatalog = Readonly<
  * does not need its own picker CSS; sized with design tokens (UI-R04/R05).
  */
 export function agentPickerCss(): string {
-  return readFileSync(join(HERE, 'agentPicker.webview.css'), 'utf8').trim();
+  return readFileSync(join(RUNTIME_ASSETS_ROOT, 'model/agentPicker.webview.css'), 'utf8').trim();
 }
 
 /**
@@ -93,7 +92,7 @@ export function agentPickerCss(): string {
  * by `injectCsp`'s nonce pass — the same contract as `agentIdentityJs`.
  */
 export function agentPickerJs(): string {
-  return readFileSync(join(HERE, 'agentPicker.webview.js'), 'utf8').trim();
+  return readFileSync(join(RUNTIME_ASSETS_ROOT, 'model/agentPicker.webview.js'), 'utf8').trim();
 }
 
 /** Replace the picker CSS/JS markers; no-op per marker if absent. */
