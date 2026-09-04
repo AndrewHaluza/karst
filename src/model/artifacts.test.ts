@@ -241,6 +241,50 @@ describe('buildTicketArtifacts', () => {
     expect(a.findings[0]).toMatchObject({ severity: 'info', title: 'Login flow renders', file: 'src/login.ts', line: 12 });
   });
 
+  it('names the gate-lane AI process whose console the report can open', () => {
+    const t = ticket({ stageCurrent: 'uat' });
+    stage(t.id, 'uat', 'running', '2026-08-01T09:00:00.000Z', null);
+    uatGates(t.id, [{ name: 'test', exitCode: 0 }]);
+    // No tester run yet: nothing produced a console, so the report names none.
+    expect(buildTicketArtifacts(store, t.id)[0]!.agentConsole).toBeNull();
+
+    openProcessRun(store, {
+      ticketId: t.id,
+      stageKey: 'uat',
+      processId: 'tester',
+      attempt: 0,
+      startedAt: '2026-08-01T09:05:00.000Z',
+    });
+    // A RUNNING tester already streams: the console is offered before the run
+    // finishes, which is the whole point of a live preview.
+    expect(buildTicketArtifacts(store, t.id)[0]!.agentConsole).toBe('tester');
+  });
+
+  it('names the review lane on the review report, and nothing on non-gate artifacts', () => {
+    const t = ticket({ stageCurrent: 'review' });
+    stage(t.id, 'review', 'running', '2026-08-01T09:00:00.000Z', null);
+    recordGateRun(store, {
+      ticketId: t.id,
+      stageKey: 'review',
+      attempt: 0,
+      runAt: '2026-08-01T09:10:00.000Z',
+      gates: [{ gateName: 'test', exitCode: 0, repo: '/wt/web' }],
+    });
+    openProcessRun(store, {
+      ticketId: t.id,
+      stageKey: 'review',
+      processId: 'review',
+      attempt: 0,
+      startedAt: '2026-08-01T09:05:00.000Z',
+    });
+    const all = buildTicketArtifacts(store, t.id);
+    const review = all.find((a) => a.id === 'review');
+    expect(review?.agentConsole).toBe('review');
+    for (const a of all) {
+      if (a.stage !== 'uat' && a.stage !== 'review') expect(a.agentConsole).toBeNull();
+    }
+  });
+
   it('attributes origin to the process identity snapshot, then session, then config', () => {
     const t = ticket({ stageCurrent: 'uat' });
     stage(t.id, 'uat', 'passed', '2026-08-01T09:00:00.000Z', '2026-08-01T10:00:00.000Z');

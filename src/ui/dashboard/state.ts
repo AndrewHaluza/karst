@@ -600,10 +600,14 @@ export function buildDashboardState(
     };
   };
 
-  // The console (terminal detailed mode) is offered for a gate stage that
-  // actually has a recorded artifact log — never for a stage that has not
-  // run, and never for non-gate stages (UI-R31: availability is host-derived).
-  const consoleFor = (key: GateStage): boolean => !!cellOf(key).artifactPath;
+  // The console (terminal detailed mode) is offered for a gate stage with
+  // something to show: a recorded artifact log, OR a run in flight — the gate
+  // lane streams live (`GateConsole`), and gating on the artifact alone hid
+  // the console for exactly the window the live preview exists to cover.
+  // Never for a stage that never ran, and never for non-gate stages (UI-R31:
+  // availability is host-derived).
+  const consoleFor = (key: GateStage): boolean =>
+    !!cellOf(key).artifactPath || displayStatus(cellOf(key)) === 'running';
 
   // The stage the six-stage presentation shows as CURRENT: `fix` projects onto
   // the stage its active recovery round is causally attached to.

@@ -4483,6 +4483,7 @@ function artifactFixtures(): ArtifactSummary[] {
       ],
       resources: [],
       detail: null,
+      agentConsole: null,
     },
     {
       id: 'uat-report',
@@ -4512,6 +4513,7 @@ function artifactFixtures(): ArtifactSummary[] {
       tasks: [],
       resources: [{ name: 'uat-ticket-1.log', path: '/data/karst/artifacts/1/uat-ticket-1.log' }],
       detail: null,
+      agentConsole: 'tester',
     },
     {
       id: 'review',
@@ -4544,6 +4546,7 @@ function artifactFixtures(): ArtifactSummary[] {
       tasks: [],
       resources: [],
       detail: null,
+      agentConsole: 'review',
     },
     {
       id: 'ship-summary',
@@ -4584,6 +4587,7 @@ function artifactFixtures(): ArtifactSummary[] {
       tasks: [],
       resources: [],
       detail: null,
+      agentConsole: null,
     },
   ];
 }
@@ -4664,9 +4668,12 @@ describe('artifacts render round trip (executed in a VM)', () => {
     // The gate log opens in the xterm console — the uat stage's console entry
     // rides the Gate runs heading.
     expect(detail).toMatch(/data-act="console"[\s\S]*data-console="uat"/);
-    // Provenance: produced-by carries the origin chip.
+    // Provenance: produced-by carries the origin chip, and — when the host
+    // flagged one — the AI process's own console entry beside it, so the
+    // Tester's streamed output is reachable from the report too.
     expect(detail).toContain('Produced by');
     expect(detail).toContain('Karst · Codex');
+    expect(detail).toMatch(/data-act="console" data-console="uat" data-console-proc="tester"/);
     // Files LAST, each with the explicit editor escape carrying id + index.
     const filesAt = detail.indexOf('Underlying files');
     const detailsAt = detail.indexOf('Details');
@@ -4713,6 +4720,17 @@ describe('artifacts render round trip (executed in a VM)', () => {
     expect(detail).toMatch(
       /<a class="obj-link file-link" href="#" data-act="inside-action" data-action-id="snapshot-1:action-8"[^>]*>src\/auth\.ts:12<\/a>/,
     );
+    // The reviewer's console rides the provenance line, the same way the UAT
+    // report offers the Tester's.
+    expect(detail).toMatch(/data-act="console" data-console="review" data-console-proc="review"/);
+  });
+
+  it('offers no agent console on an artifact the host did not flag', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: stateWithArtifacts() });
+    h.click('[data-art]', { art: 'index' });
+    h.click('[data-art-open]', { artOpen: 'ship-summary' });
+    expect(h.htmlOf('artView')).not.toContain('data-console-proc');
   });
 
   it('renders the plan detail with the task list as the tracking surface', () => {
@@ -4991,6 +5009,29 @@ describe('terminal console view (VM)', () => {
     expect(reviewInside).toMatch(/data-proc-id="review:review"[\s\S]*?data-act="console" data-console="review" data-console-proc="review"/);
   });
 
+  it('keeps the Tester console button when the STAGE log is not available yet', () => {
+    const h = bootPreviewHarness();
+    const state = renderStateFor('uat');
+    // Mid-run: the stage artifact does not exist yet, so `view.console` is
+    // false — but the Tester's own tail is a SEPARATE resource and must stay
+    // reachable while the process is running.
+    const noStageConsole = {
+      ...state,
+      insideViews: {
+        ...state.insideViews,
+        uat: { ...state.insideViews.uat, console: false },
+      },
+    };
+    h.receive({ type: 'state', state: noStageConsole });
+    const inside = h.htmlOf('inside');
+    expect(inside).toMatch(/data-proc-id="uat:tester"[\s\S]*?data-act="console" data-console="uat" data-console-proc="tester"/);
+    // The gates row's STAGE console still obeys the host flag — the only
+    // console button left is the Tester's (a stage button carries no
+    // `data-console-proc`).
+    expect(inside.match(/data-act="console"/g)).toHaveLength(1);
+    expect(inside).toContain('data-console-proc="tester"');
+  });
+
   it('opens the agent console and posts agent-log-request with the process', () => {
     const h = bootPreviewHarness();
     h.receive({ type: 'state', state: renderStateFor('uat') });
@@ -5007,6 +5048,28 @@ describe('terminal console view (VM)', () => {
     h.click('[data-act]', { act: 'console', console: 'uat', consoleProc: 'tester' });
     h.receive({ type: 'agent-log', processId: 'tester', result: { kind: 'ok', content: '\x1b[33mwarn\x1b[0m\n', truncated: false } });
     expect(h.terminals()[0]!.written).toBe('\x1b[33mwarn\x1b[0m\n');
+  });
+
+  it('replaces the agent console refusal with a live terminal when output starts', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: renderStateFor('uat') });
+    h.click('[data-act]', { act: 'console', console: 'uat', consoleProc: 'tester' });
+    // Mid-run first open: nothing is persisted yet, so the host refuses.
+    h.receive({
+      type: 'agent-log',
+      processId: 'tester',
+      result: { kind: 'error', message: 'This process has no recorded console output.' },
+    });
+    expect(h.htmlOf('termHost')).toContain('no recorded console output');
+    // The Tester then starts streaming: the blurb gives way to a terminal that
+    // carries the live text — a running process is never left saying nothing
+    // happened.
+    h.receive({ type: 'agent-output', processId: 'tester', text: 'first line\n' });
+    // A fresh Terminal replaced the refusal blurb (the harness's stub element
+    // keeps the old markup, so the terminal count is the evidence of the swap
+    // — the same check the stage console's recovery test makes).
+    expect(h.terminals().length).toBe(2);
+    expect(h.terminals().at(-1)!.written).toBe('first line\n');
   });
 
   it('drops an agent-log answer for a console showing a DIFFERENT process', () => {
@@ -5154,11 +5217,19 @@ describe('terminal console view (VM)', () => {
   it('renders no Console button for a stage the host did not flag', () => {
     const h = bootPreviewHarness();
     const state = renderStateFor('uat');
-    // Flip the flag off in the fixture: availability is HOST-derived, so the
-    // webview must render no button when the view does not carry it.
+    // Flip BOTH host flags off: availability is HOST-derived, so the webview
+    // must render no button when neither the stage nor a process carries one.
+    const view = state.insideViews.uat;
     const noConsole = {
       ...state,
-      insideViews: { ...state.insideViews, uat: { ...state.insideViews.uat, console: false } },
+      insideViews: {
+        ...state.insideViews,
+        uat: {
+          ...view,
+          console: false,
+          processes: view.processes.map((p) => ({ ...p, console: false })),
+        },
+      },
     };
     h.receive({ type: 'state', state: noConsole as DashboardState });
     expect(h.htmlOf('inside')).not.toContain('data-act="console"');

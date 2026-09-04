@@ -992,6 +992,13 @@ describe('buildDashboardState', () => {
     expect(state.insideViews.ship.console).toBeFalsy();
   });
 
+  it('flags console on a RUNNING gate stage before any artifactPath exists', () => {
+    const t = createTicket(store, { key: 'PROJ-4', title: 'thing' });
+    setStage(store, t.id, 'uat', { status: 'running', artifactPath: null });
+    const state = buildDashboardState(store, t.id);
+    expect(state.insideViews.uat.console).toBe(true);
+  });
+
   it('does not flag a gate stage that has no stage row at all', () => {
     const t = createTicket(store, { key: 'PROJ-3', title: 'thing' });
     const state = buildDashboardState(store, t.id);

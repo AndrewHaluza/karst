@@ -188,7 +188,18 @@ export interface ArtifactSummary {
   resources: ArtifactResource[];
   /** The stage verdict's reason when the artifact's stage failed; else null. */
   detail: string | null;
+  /**
+   * The gate-lane AI process whose console this report can open — 'tester' on
+   * the UAT report, 'review' on the review report — or null when no such
+   * process ran. HOST-DERIVED (UI-R31): the webview renders the console entry
+   * from this field only and never guesses that a report has one. A RUNNING
+   * process already counts: its output streams before the run finishes.
+   */
+  agentConsole: AgentConsoleProcessId | null;
 }
+
+/** The AI processes that own a console: the UAT Tester and the Review lane. */
+export type AgentConsoleProcessId = 'tester' | 'review';
 
 /** Everything the derivation reads — supplied so each snapshot reads ONCE. */
 export interface ArtifactInput {
@@ -504,6 +515,24 @@ function originFor(
   return { kind: 'karst', core };
 }
 
+/**
+ * The gate-lane AI process whose console a stage's report can open, or null
+ * when that process never ran. A run that is still OPEN counts: its output
+ * streams into the console while it runs, which is the whole point of the live
+ * preview — waiting for the run to finish would hide it exactly when it is
+ * worth watching. `stale` rows are ignored, the same way `originFor` does.
+ */
+function agentConsoleFor(
+  stage: 'uat' | 'review',
+  processRuns: readonly ProcessRun[],
+): AgentConsoleProcessId | null {
+  const processId: AgentConsoleProcessId = stage === 'uat' ? 'tester' : 'review';
+  const ran = processRuns.some(
+    (p) => p.stageKey === stage && p.processId === processId && p.status !== 'stale',
+  );
+  return ran ? processId : null;
+}
+
 function resourceFrom(path: string | null, out: ArtifactResource[]): void {
   if (!path) return;
   const name = path.split(/[\\/]/).filter(Boolean).pop() ?? path;
@@ -606,6 +635,7 @@ function uatReport(input: ArtifactInput): ArtifactSummary | null {
     resources,
     tasks: [],
     detail: failedStage ? (stage?.verdict ?? null) : null,
+    agentConsole: agentConsoleFor('uat', processRuns),
   };
 }
 
@@ -673,6 +703,7 @@ function reviewReport(input: ArtifactInput): ArtifactSummary | null {
     resources,
     tasks: [],
     detail: failedStage ? (stage?.verdict ?? null) : null,
+    agentConsole: agentConsoleFor('review', processRuns),
   };
 }
 
@@ -732,6 +763,7 @@ function shipSummary(input: ArtifactInput): ArtifactSummary | null {
     resources: [],
     tasks: [],
     detail: run.status === 'passed' ? null : 'Ship did not complete — retry ship to continue.',
+    agentConsole: null,
   };
 }
 
@@ -913,6 +945,7 @@ function graphPlanReport(input: ArtifactInput): ArtifactSummary | null {
     tasks: tasks.slice(0, MAX_DETAIL_TASKS),
     resources,
     detail: null,
+    agentConsole: null,
   };
 }
 
@@ -1000,5 +1033,6 @@ function sessionPlanReport(input: ArtifactInput): ArtifactSummary | null {
     tasks: tasks.slice(0, MAX_DETAIL_TASKS),
     resources: [],
     detail: null,
+    agentConsole: null,
   };
 }
