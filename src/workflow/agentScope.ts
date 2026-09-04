@@ -38,6 +38,15 @@
  * "nothing to test" — and tells the agent that an empty diff is evidence it
  * could not READ the changes, not that none exist.
  *
+ * The claim is the agent's BELIEF about where it is, and a weak core can get
+ * that wrong: one reported `develop` from a worktree provably on the ticket's
+ * branch, blocking the ticket over a diff it had in fact read. Because this one
+ * claim is a FACT the host holds both halves of, the review lane checks it
+ * (`review/checkoutClaim.ts`) and drops a claim git DISPROVES — before it is
+ * persisted, since a stored critical is handed to every later fix attempt. Only
+ * a proven match drops it: a real mismatch, or a probe that cannot answer,
+ * leaves the finding exactly where the agent put it.
+ *
  * So the block STATES those facts and forbids re-deriving them. It is
  * deliberately a prompt-level fix and nothing more: the stage ordering was
  * already gates-then-agent (`stages/uat.ts` runs the Tester only after the
