@@ -23,6 +23,7 @@ import { listPhaseMarks } from '../../store/phaseMarks.js';
 import { listMergeChecksByTicket } from '../../store/mergeChecks.js';
 import { listCurrentPrsByTicket } from '../../store/prs.js';
 import type { GateStage } from '../../store/ticketGates.js';
+import { getEnvOverrides, type TicketEnvOverrides } from '../../store/ticketEnvOverrides.js';
 import { mergeGateState } from '../../workflow/mergeGate.js';
 import { sendBackState, type SendBackState } from '../../workflow/sendBack.js';
 import { retryGateState, type RetryGateState } from '../../workflow/retryGate.js';
@@ -165,6 +166,17 @@ export interface DashboardState {
   servers: ServerView[];
   /** False when nothing in scope declares a service — nothing can ever start. */
   hasRunnableRepos: boolean;
+  /**
+   * The ticket's env overrides and the services they may be set for.
+   *
+   * `services` is the ticket's own runnable repositories, in scope order — the
+   * editor offers exactly the services this ticket can start, so a scope can
+   * never be typed for a repository the ticket does not have. `values` is what
+   * is saved today, keyed by that name or by `*` (every service). These are
+   * merged into a service's spawn env at the next spin; nothing here ever
+   * touches a repository's own `.env` on disk.
+   */
+  envOverrides: { services: string[]; values: TicketEnvOverrides };
   worktrees: DashboardWorktreeView[];
   /**
    * The pull requests, already worded: from-to branches, opened/merged stamps,
@@ -834,6 +846,10 @@ export function buildDashboardState(
     // non-runnable repositories can never have a server, so presenting a live
     // Start button there is a dead affordance dressed as an available action.
     hasRunnableRepos: ticket.selectedRepos.some((r) => isRepoRunnable(r)),
+    envOverrides: {
+      services: ticket.selectedRepos.filter((r) => isRepoRunnable(r)),
+      values: getEnvOverrides(store, ticketId),
+    },
     worktrees,
     prs: prRows,
     mergeChecks: buildMergeCheckPanelRows(mergeChecks, now),

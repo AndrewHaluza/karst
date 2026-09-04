@@ -1718,6 +1718,38 @@
   .logsview .loghost .ts{color:var(--k-text-dim)}
   .logsview .blurb{padding:var(--k-space-6);color:var(--k-text-dim)}
 
+  /* The env-override editor: the SAME full-body swap as the logs view
+     (body.env-nav hides the stepper and the grid), because it is the same kind
+     of surface — one thing, taking the whole panel, closed by an explicit
+     Close. Each scope is a `.env`-shaped textarea: the user types what they
+     would type in the file, and the host reads it with the file's own parser. */
+  body.env-nav .stepper,body.env-nav .grid{display:none}
+  .envview{position:fixed;inset:0;z-index:8;display:flex;flex-direction:column;
+    background:var(--k-bg);color:var(--k-text);overflow:auto}
+  .envview.hidden{display:none}
+  .envview .thead{display:flex;align-items:center;gap:var(--k-space-4);
+    padding:var(--k-space-3) var(--k-space-4);border-bottom:var(--k-border-w) solid var(--k-border);
+    position:sticky;top:0;background:var(--k-bg);z-index:1}
+  .envview .ttitle{font-weight:var(--k-weight-semibold)}
+  .envview .sp{margin-left:auto;display:flex;gap:var(--k-space-3)}
+  /* Full width, like the logs surface it mirrors: the sections are a form,
+     not prose, and every line is a short KEY=value. */
+  .envview .ebody{padding:var(--k-space-5) var(--k-space-6) var(--k-space-9)}
+  .envview .elead{font-size:var(--k-text-sm);color:var(--k-text-dim);margin-bottom:var(--k-space-6)}
+  .envscope{border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-lg);
+    background:var(--k-surface);margin-bottom:var(--k-space-6);overflow:hidden}
+  .envscope > header{display:flex;align-items:center;gap:var(--k-space-3);
+    padding:var(--k-space-3) var(--k-space-4);background:var(--k-surface-sunken)}
+  .envscope .ename{font-weight:var(--k-weight-semibold);font-family:var(--k-font-mono);font-size:var(--k-text-sm)}
+  .envscope .ecount{font-size:var(--k-text-2xs);color:var(--k-text-faint)}
+  .envscope .ehint{padding:0 var(--k-space-4);font-size:var(--k-text-2xs);color:var(--k-text-faint)}
+  .envscope textarea{display:block;width:100%;box-sizing:border-box;resize:vertical;
+    border:none;border-top:var(--k-border-w) solid var(--k-border);background:transparent;color:var(--k-text);
+    font-family:var(--k-font-mono);font-size:var(--k-text-xs);line-height:1.6;padding:var(--k-space-3) var(--k-space-4)}
+  .envscope footer{display:flex;align-items:center;gap:var(--k-space-3);
+    padding:var(--k-space-3) var(--k-space-4);border-top:var(--k-border-w) solid var(--k-border)}
+  .envscope footer .msg{font-size:var(--k-text-2xs);color:var(--k-text-dim);margin-left:auto}
+
   /* The ticket-data preview drawer (UI-R04: composed from tokens, no raw
      dimensions; width uses the same token step as the ticket form's drawer).
      `.k-scrim`/`.k-drawer` supply the surface, shadow and z-index; the open
@@ -1874,6 +1906,7 @@
 <div id="artView" class="artview hidden" tabindex="-1"></div>
 <div id="termView" class="termview hidden" tabindex="-1"></div>
 <div id="logsView" class="logsview hidden" tabindex="-1"></div>
+<div id="envView" class="envview hidden" tabindex="-1"></div>
 
 <script>
   /*KARST_DS_JS*/
@@ -2066,6 +2099,15 @@
 
   // Combined server logs state: tracks which tab is active, the server log
   // buffers, and the merged chronological view.
+  // The env-override editor's own state. `envDrafts` holds what the user has
+  // TYPED, per scope, so a state push (a live tick, a server change) re-renders
+  // the surface without discarding an unsaved edit — the same reason
+  // `openMergeRepos` and `baseFormRebase` live at module level. A scope is
+  // dropped from the drafts once the host's push carries the saved value.
+  let envView = null;
+  let envDrafts = {};
+  let envSaved = {};
+  let envSaveRequests = {};
   let logsView = null;
   let logsActiveTab = 'merged';
   let logsServerBuffers = {};
@@ -3190,6 +3232,7 @@
     refresh: 'restart',
     'player-stop': 'stop',
     'player-play': 'start',
+    settings: 'open',
   };
 
   /**
@@ -3251,7 +3294,12 @@
     return iact('spin-servers', null, 'Start all services', 'player-play', startWhy)
       + iact('restart-servers', null, 'Restart all services', 'refresh', restartWhy)
       + iact('stop-servers', null, 'Stop all services', 'player-stop', stopWhy)
-      + iact('server-logs-request', null, 'View server logs', 'terminal-2', none ? 'No services to show logs for' : null);
+      + iact('server-logs-request', null, 'View server logs', 'terminal-2', none ? 'No services to show logs for' : null)
+      // Env overrides are a property of the TICKET, not of a running process:
+      // they are set before anything starts and applied at the next spin, so
+      // this stays available when every row is offline and when there are no
+      // rows at all — the states where it is most likely to be wanted.
+      + iact('env-overrides-open', null, 'Configure environment variables', 'settings');
   }
 
   /**
@@ -4218,6 +4266,94 @@
     renderTermView();
   }
 
+  // ---------------------------------------------------------------------
+  // Env overrides: one editor for every service of the ticket
+  // ---------------------------------------------------------------------
+  // The all-services scope. Mirrors ALL_SERVICES in store/ticketEnvOverrides.ts
+  // — a mirrored constant is behavior (UI-INVARIANTS), so the two must move
+  // together: `*` cannot be a manifest repository name, which is what keeps a
+  // shared entry from ever colliding with a per-service one.
+  const ENV_ALL_SERVICES = '*';
+
+  function openEnvOverrides() {
+    if (envView) return;
+    envView = 'open';
+    envDrafts = {};
+    envSaved = {};
+    renderEnvView();
+  }
+
+  function closeEnvOverrides() {
+    envView = null;
+    envDrafts = {};
+    envSaved = {};
+    renderEnvView();
+  }
+
+  /** One scope's saved value, rendered back as the `.env` text it was typed as. */
+  function envTextFor(state, scope) {
+    const values = (state.envOverrides && state.envOverrides.values) || {};
+    const entries = values[scope] || {};
+    return Object.keys(entries).map((k) => k + '=' + entries[k]).join('\n');
+  }
+
+  function envScopeSection(state, scope, label, hint) {
+    const saved = envTextFor(state, scope);
+    const draft = envDrafts[scope];
+    const text = draft === undefined ? saved : draft;
+    const count = saved ? saved.split('\n').length : 0;
+    const dirty = draft !== undefined && draft !== saved;
+    const msg = dirty ? 'Unsaved changes' : (envSaved[scope] || '');
+    return `<section class="envscope"><header>`
+      + `<span class="ename">${esc(label)}</span>`
+      + `<span class="ecount">${count ? count + ' variable' + (count === 1 ? '' : 's') : 'none set'}</span>`
+      + `</header>`
+      + `<div class="ehint">${esc(hint)}</div>`
+      + `<label class="sr" for="env-ta-${esc(scope)}">Environment variables for ${esc(label)}</label>`
+      + `<textarea id="env-ta-${esc(scope)}" class="k-input" rows="5" spellcheck="false"`
+      + ` data-env-scope="${esc(scope)}" placeholder="APP_HISTORY_FEATURE=true">${esc(text)}</textarea>`
+      + `<footer>`
+      + `<button type="button" class="k-btn k-btn--primary k-btn--sm"`
+      + ` data-env-save="${esc(scope)}" title="Save these variables for this ticket">Save</button>`
+      + `<button type="button" class="k-btn k-btn--ghost k-btn--sm" data-env-revert="${esc(scope)}"`
+      + ` title="Discard unsaved edits to this section">Revert</button>`
+      + `<span class="msg" role="status">${esc(msg)}</span>`
+      + `</footer></section>`;
+  }
+
+  function renderEnvView() {
+    const box = el('envView');
+    if (!box) return;
+    if (!envView || !lastState) {
+      box.classList.add('hidden');
+      box.innerHTML = '';
+      document.body.classList.remove('env-nav');
+      return;
+    }
+    const state = lastState;
+    const services = (state.envOverrides && state.envOverrides.services) || [];
+    box.classList.remove('hidden');
+    document.body.classList.add('env-nav');
+    const sections = envScopeSection(
+      state,
+      ENV_ALL_SERVICES,
+      'All services',
+      'Applied to every service of this ticket. A service’s own section below wins where both name the same variable.',
+    ) + (services.length
+      ? services.map((name) => envScopeSection(state, name, name,
+          'Applied to ' + name + ' only.')).join('')
+      : `<div class="elead">This ticket scopes no runnable service, so only the shared`
+        + ` section above applies.</div>`);
+    box.innerHTML = `<div class="thead"><span class="ttitle">Environment variables</span>`
+      + `<span class="sp"><button type="button" class="k-btn k-btn--ghost k-btn--sm" data-env-close`
+      + ` title="Close the environment variables view">Close</button></span></div>`
+      + `<div class="ebody"><div class="elead">One <code>KEY=value</code> per line. These`
+      + ` extend each service’s own <code>.env</code> and override the keys they name —`
+      + ` for this ticket only. The repository’s <code>.env</code> file is never written.`
+      + ` Saved values apply the next time the services are started.</div>`
+      + sections + `</div>`;
+  }
+
   // Combined server logs surface: tabs per server + merged chronological view.
   function openServerLogs() {
     if (logsView) return;
@@ -4374,6 +4510,7 @@
     artSaveScroll();
     artView = 'index';
     renderArtView();
+    renderEnvView();
     artRestoreScroll();
     persist();
   }
@@ -4574,6 +4711,20 @@
   // Filtering is local and never round-trips to the host. Re-rendering replaces
   // the input element, so focus and caret are restored explicitly — otherwise
   // the field loses focus after the first keystroke and typing stops dead.
+  // Typing in the env editor is remembered per scope: a state push (a live
+  // tick, a server change) re-renders this surface, and a re-render that read
+  // only the SAVED value would silently discard an unsaved edit.
+  // Delegated from the document, not from `#envView`: the surface is rendered
+  // into an element that a partial-DOM host (the render harness) need not have,
+  // and a listener bound to a missing element would take the whole script down.
+  document.addEventListener('input', (e) => {
+    const ta = e.target.closest && e.target.closest('[data-env-scope]');
+    if (!ta) return;
+    envDrafts = { ...envDrafts, [ta.dataset.envScope]: ta.value };
+    // No re-render: the textarea IS the draft's live rendering, and repainting
+    // it under the cursor would move the caret.
+  });
+
   el('servers').addEventListener('input', (e) => {
     const box = e.target.closest('[data-filter]');
     if (!box) return;
@@ -4614,6 +4765,38 @@
     const termBtn = e.target.closest('[data-term]');
     if (termBtn) {
       if (termBtn.dataset.term === 'close') closeTerminal();
+      return;
+    }
+    const envClose = e.target.closest('[data-env-close]');
+    if (envClose) {
+      closeEnvOverrides();
+      return;
+    }
+    // Revert is purely local: drop the draft and let the saved value render.
+    const envRevert = e.target.closest('[data-env-revert]');
+    if (envRevert) {
+      const scope = envRevert.dataset.envRevert;
+      const next = { ...envDrafts };
+      delete next[scope];
+      envDrafts = next;
+      envSaved = { ...envSaved, [scope]: '' };
+      renderEnvView();
+      return;
+    }
+    // Save posts the scope and the textarea's body, and settles on the host's
+    // own `action-result` like every other mutating control (UI-R13). The draft
+    // is kept until the host's state push carries the saved value back, so a
+    // refusal never silently discards what the user typed.
+    const envSave = e.target.closest('[data-env-save]');
+    if (envSave) {
+      if (karstIsPending(envSave) || envSave.disabled) return;
+      const scope = envSave.dataset.envSave;
+      const ta = document.querySelector('[data-env-scope="' + CSS.escape(scope) + '"]');
+      const text = ta ? ta.value : '';
+      const requestId = karstRequestId();
+      karstBeginPending(envSave, requestId);
+      envSaveRequests = { ...envSaveRequests, [scope]: requestId };
+      post({ type: 'env-overrides-save', scope, text, requestId });
       return;
     }
     const logClose = e.target.closest('[data-log-close]');
@@ -4658,6 +4841,7 @@
     if (e.key === 'Escape' && stageMenuStage !== null) { stageMenuStage = null; render(lastState); return; }
     if (e.key === 'Escape' && termView) { closeTerminal(); return; }
     if (e.key === 'Escape' && logsView) { closeServerLogs(); return; }
+    if (e.key === 'Escape' && envView) { closeEnvOverrides(); return; }
     if (e.key === 'Escape' && artView) { artifactBack(); return; }
     // Base-form popover: close on Escape
     if (e.key === 'Escape') {
@@ -4885,6 +5069,14 @@
       const stage = btn.dataset.console;
       if (!stage) return;
       openTerminal(stage, btn.dataset.consoleProc);
+      return;
+    }
+
+    // The env-override editor is purely local until Save: the values already
+    // ride DashboardState, so opening it posts NOTHING — handled before the
+    // posting path, exactly like CONSOLE_ACT.
+    if (act === 'env-overrides-open') {
+      openEnvOverrides();
       return;
     }
 
@@ -5264,6 +5456,25 @@
           baseFormOpen = { ...baseFormOpen, [baseRepo]: false };
           delete baseFormDraft[baseRepo];
           if (lastState) renderWorktrees(lastState.worktrees || []);
+        }
+      }
+      // An env-override SAVE that succeeded drops its draft, so the section
+      // re-renders from what was actually STORED — keys the host's parser
+      // dropped included. A refusal keeps the draft: the reason lands via
+      // karstSettle's error toast, and nothing the user typed is discarded.
+      const envScope = Object.keys(envSaveRequests).find(
+        (scope) => envSaveRequests[scope] === msg.requestId,
+      );
+      if (envScope !== undefined) {
+        const rest = { ...envSaveRequests };
+        delete rest[envScope];
+        envSaveRequests = rest;
+        if (msg.ok === true) {
+          const drafts = { ...envDrafts };
+          delete drafts[envScope];
+          envDrafts = drafts;
+          envSaved = { ...envSaved, [envScope]: 'Saved — applies at the next start.' };
+          renderEnvView();
         }
       }
       karstSettle(msg.requestId, msg.ok, msg.message);

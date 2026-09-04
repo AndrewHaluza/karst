@@ -2221,10 +2221,13 @@ interface PreviewHarness {
   terminals(): Array<{ opts: Record<string, unknown>; opened: boolean; written: string; disposed: boolean }>;
   /** The number of `fit()` calls on each created terminal's FitAddon. */
   fits(): number[];
+  /** Type into the env editor's textarea for one scope (what Save then reads). */
+  typeEnv(scope: string, text: string): void;
 }
 
 function bootPreviewHarness(): PreviewHarness {
   const elements: Record<string, PreviewElement> = {};
+  const envTextareas: Record<string, string> = {};
   for (const id of [
     'servers',
     'inside',
@@ -2281,6 +2284,7 @@ function bootPreviewHarness(): PreviewHarness {
     'artView',
     'termView',
     'termHost',
+    'envView',
   ]) {
     elements[id] = previewElement(id, initialClasses(id));
   }
@@ -2323,7 +2327,14 @@ function bootPreviewHarness(): PreviewHarness {
       list.push(handler);
       docListeners.set(type, list);
     },
-    querySelector: (sel: string) => (sel === '.track' ? track : null),
+    // The env editor reads its textarea by `[data-env-scope="…"]`; the harness
+    // answers with a stub carrying whatever the test typed into that scope.
+    querySelector: (sel: string) => {
+      if (sel === '.track') return track;
+      const m = /^\[data-env-scope="(.*)"\]$/.exec(sel);
+      if (m) return { value: envTextareas[m[1]!] ?? '' };
+      return null;
+    },
     querySelectorAll: () => [],
     body: { classList: bodyClassList, dataset: bodyDataset, appendChild: () => {} },
     createElement: () => previewElement('__created'),
@@ -2388,6 +2399,9 @@ function bootPreviewHarness(): PreviewHarness {
     FitAddon: { FitAddon: FakeFitAddon },
     setTimeout: () => 1,
     clearTimeout: () => {},
+    // The env editor (like the base-change form) escapes a scope before
+    // querying for its control; the VM has no DOM globals of its own.
+    CSS: { escape: (v: string) => v },
   });
 
   const fireDocumentClick = (event: unknown) => {
@@ -2472,8 +2486,65 @@ function bootPreviewHarness(): PreviewHarness {
     posted,
     terminals: () => terminalInstances,
     fits: () => terminalInstances.map((t) => t.addon?.fitCalls ?? 0),
+    typeEnv: (scope: string, text: string) => {
+      envTextareas[scope] = text;
+    },
   };
 }
+
+describe('env overrides editor (executed in a VM)', () => {
+  const stateWith = (
+    envOverrides: DashboardState['envOverrides'],
+  ): DashboardState => ({ ...renderStateFor('scope'), hasRunnableRepos: true, envOverrides });
+
+  it('offers the gear beside the servers panel controls', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: stateWith({ services: ['api'], values: {} }) });
+    expect(h.htmlOf('srvOps')).toContain('data-act="env-overrides-open"');
+    expect(h.htmlOf('srvOps')).toContain('Configure environment variables');
+  });
+
+  it('opens a section per scope, showing what is saved for each', () => {
+    const h = bootPreviewHarness();
+    h.receive({
+      type: 'state',
+      state: stateWith({
+        services: ['api', 'web'],
+        values: { '*': { SHARED: 'yes' }, api: { APP_HISTORY_FEATURE: 'true' } },
+      }),
+    });
+    h.click('[data-act]', { act: 'env-overrides-open' });
+    const html = h.htmlOf('envView');
+    expect(h.bodyClasses).toContain('env-nav');
+    expect(html).toContain('SHARED=yes');
+    expect(html).toContain('APP_HISTORY_FEATURE=true');
+    expect(html).toContain('data-env-scope="web"'); // offered even with nothing saved
+    // Opening the editor asks the host for nothing: the values already ride state.
+    expect(h.posted).toEqual([]);
+  });
+
+  it('posts the scope and the typed body on Save', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: stateWith({ services: ['api'], values: {} }) });
+    h.click('[data-act]', { act: 'env-overrides-open' });
+    h.typeEnv('api', 'APP_HISTORY_FEATURE=true\nNEW=1');
+    h.click('[data-env-save]', { envSave: 'api' });
+    const posted = h.posted.at(-1) as { type: string; scope: string; text: string; requestId: string };
+    expect(posted.type).toBe('env-overrides-save');
+    expect(posted.scope).toBe('api');
+    expect(posted.text).toBe('APP_HISTORY_FEATURE=true\nNEW=1');
+    expect(posted.requestId).toBeTruthy(); // settles like every other mutating control
+  });
+
+  it('closes on Escape', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: stateWith({ services: [], values: {} }) });
+    h.click('[data-act]', { act: 'env-overrides-open' });
+    expect(h.bodyClasses).toContain('env-nav');
+    h.key('Escape');
+    expect(h.bodyClasses).not.toContain('env-nav');
+  });
+});
 
 describe('inside render round trip (executed in a VM)', () => {
   it('emits a disclosure key that matches the open-state key the renderer looks up', () => {

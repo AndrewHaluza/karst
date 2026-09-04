@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { buildSpawnEnv } from './env.js';
+import { buildSpawnEnv, shadowedOverrideKeys } from './env.js';
 
 function envFile(contents: string): { path: string; cleanup: () => void } {
   const dir = mkdtempSync(join(tmpdir(), 'karst-env-'));
@@ -81,6 +81,30 @@ describe('buildSpawnEnv', () => {
   it('returns only resolved vars when main .env is missing', () => {
     const env = buildSpawnEnv('/no/such/.env', { PORT: '4001' });
     expect(env.PORT).toBe('4001');
+  });
+
+  it('ticket overrides beat the main .env but never the resolved vars', () => {
+    const { path, cleanup } = envFile('PORT=3000\nAPP_HISTORY_FEATURE=false\nSECRET=abc\n');
+    try {
+      const env = buildSpawnEnv(
+        path,
+        { PORT: '4001' },
+        { APP_HISTORY_FEATURE: 'true', NEW_FLAG: 'on', PORT: '9999' },
+      );
+      expect(env.APP_HISTORY_FEATURE).toBe('true'); // overridden
+      expect(env.NEW_FLAG).toBe('on'); // extended
+      expect(env.SECRET).toBe('abc'); // untouched
+      expect(env.PORT).toBe('4001'); // karst's wiring still wins
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('names the override keys a resolved var shadowed', () => {
+    expect(
+      shadowedOverrideKeys({ PORT: '1', DB_URL: 'x', FEATURE: 'on' }, { PORT: '4001', DB_URL: 'y' }),
+    ).toEqual(['DB_URL', 'PORT']);
+    expect(shadowedOverrideKeys({ FEATURE: 'on' }, { PORT: '4001' })).toEqual([]);
   });
 
   it('is a fresh object, not a mutation of resolvedVars', () => {

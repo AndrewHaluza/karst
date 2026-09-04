@@ -858,6 +858,7 @@ export function renderStateFor(stage: InsideStageKey): DashboardState {
     key: null,
     title: null,
     parent: null,
+    envOverrides: { services: [], values: {} },
     paused: false,
     pausedAt: null,
     stageCurrent: stage,

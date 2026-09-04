@@ -188,7 +188,16 @@ export type WebviewMessage =
    * Switch the active tab in the combined logs view. Carries the service name
    * of the server to focus, or 'merged' for the chronological interleaved view.
    */
-  | { type: 'server-logs-tab'; tab: string };
+  | { type: 'server-logs-tab'; tab: string }
+  /**
+   * Save ONE scope of this ticket's env overrides. `scope` is a manifest
+   * repository name or `*` (every service); `text` is the `.env`-shaped body the
+   * editor holds, parsed host-side by the SAME parser that reads a repository's
+   * `.env` so the two can never disagree about quoting. Payload-free of a ticket
+   * id: the panel closure already owns it, and the host validates the scope
+   * against the ticket's own runnable repositories before writing.
+   */
+  | { type: 'env-overrides-save'; scope: string; text: string };
 
 /**
  * Host → webview messages. `state` pushes drive the stepper + panels;
@@ -355,6 +364,12 @@ export interface DashboardActions {
    * question to withdraw, never what to run.
    */
   setDisabledGate: (stage: GateStage, name: string, disabled: boolean) => void | Promise<void>;
+  /**
+   * Save one scope of this ticket's env overrides. Takes the scope and the
+   * `.env`-shaped body verbatim so the host can parse and validate both in one
+   * place, right against the manifest and the store it is about to write.
+   */
+  saveEnvOverrides: (scope: string, text: string) => void | Promise<void>;
   /**
    * Retry a gate stage by resetting it to pending so the driver re-runs it.
    * Takes the stage — narrowed to the two gate stages — so the webview can
@@ -622,6 +637,17 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
         ? { type: 'server-logs-tab', tab }
         : null;
     }
+    // The scope is a manifest repository name (or `*`) and the body is
+    // `.env`-shaped text, both bounded here. Neither is trimmed into meaning:
+    // an empty body is the legitimate way to CLEAR a scope, and the host still
+    // checks the scope against the ticket's own repositories before writing.
+    case 'env-overrides-save': {
+      const scope = typeof m.scope === 'string' ? m.scope : '';
+      const text = typeof m.text === 'string' ? m.text : '';
+      if (scope.length === 0 || scope.length > MAX_GATE_NAME_CHARS) return null;
+      if (text.length > MAX_ENV_TEXT_CHARS) return null;
+      return { type: 'env-overrides-save', scope, text };
+    }
     default:
       return null;
   }
@@ -641,6 +667,13 @@ function isGateStage(v: unknown): v is GateStage {
 
 /** Longest gate name accepted from a webview. Real names are short script keys. */
 const MAX_GATE_NAME_CHARS = 128;
+
+/**
+ * Longest env-override body accepted from a webview. A ticket override is a
+ * handful of flags, not a copy of a repository's `.env`; 16 KB is a bounded
+ * ceiling well above any honest use.
+ */
+const MAX_ENV_TEXT_CHARS = 16_384;
 
 /** Longest inside action id accepted from a webview. Ids are `snapshot-<n>:action-<n>`. */
 export const MAX_ACTION_ID_CHARS = 96;
@@ -764,5 +797,7 @@ export function routeAction(
       return actions.closeServerLogs();
     case 'server-logs-tab':
       return;
+    case 'env-overrides-save':
+      return actions.saveEnvOverrides(msg.scope, msg.text);
   }
 }

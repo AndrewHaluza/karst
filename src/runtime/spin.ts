@@ -5,7 +5,8 @@ import { resolvePlannedBaseRef } from '../workflow/baseRef.js';
 import { makePortAllocator, type PortAllocator } from '../resolver/allocator.js';
 import { resolve } from '../resolver/resolve.js';
 import { createWorktree, removeWorktree, type WorktreeRecord } from './worktree.js';
-import { buildSpawnEnv } from './env.js';
+import { buildSpawnEnv, shadowedOverrideKeys } from './env.js';
+import { getEnvOverrides, envOverridesForService } from '../store/ticketEnvOverrides.js';
 import { ensureBaseline, addBaselineRef } from './baseline.js';
 import {
   startHot,
@@ -294,6 +295,9 @@ export async function spinTicket(
     }
 
     // 3. start hot services in dependency-first order, health-gating each.
+    // Read once for the whole run so every service of this spin sees the same
+    // overrides, even if the panel saves a change mid-spin.
+    const envOverrides = getEnvOverrides(store, ticketId);
     for (const name of resolved.startOrder) {
       bail();
       const repo = manifest.repositories[name]!;
@@ -304,7 +308,19 @@ export async function spinTicket(
       const cwd = worktreePath[name]!;
       const resolvedSvc = resolved.services[name]!;
 
-      const spawnEnv = buildSpawnEnv(join(repo.repoPath, '.env'), resolvedSvc.env);
+      // The ticket's own env, layered between the repository's `.env` and
+      // karst's resolved wiring. Read per service so `*` and the service's own
+      // scope both apply; the origin `.env` is never written.
+      const overrides = envOverridesForService(envOverrides, name);
+      const overrideKeys = Object.keys(overrides);
+      if (overrideKeys.length > 0) {
+        const shadowed = shadowedOverrideKeys(overrides, resolvedSvc.env);
+        debug?.(
+          `[runtime] ticket ${ticketId}: ${name} applying ${overrideKeys.length} env override(s)` +
+            (shadowed.length > 0 ? ` — ignored (karst-owned): ${shadowed.join(', ')}` : ''),
+        );
+      }
+      const spawnEnv = buildSpawnEnv(join(repo.repoPath, '.env'), resolvedSvc.env, overrides);
       // Expand ${PORT}-style tokens against the resolved env so a manifest can
       // pin the port in the command (independent of the worktree's own config).
       const httpSlot = service.ports.find((p) => p.name === 'http') ?? service.ports[0]!;

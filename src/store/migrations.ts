@@ -19,7 +19,7 @@ export function readSchema(): string {
 }
 
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 54;
+export const SCHEMA_VERSION = 55;
 
 /** v2 ticket-field columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -2084,6 +2084,22 @@ export function migrate(db: Database): void {
     const serverCols54 = tableColumns(db, 'servers');
     if (serverCols54.size > 0 && !serverCols54.has('container')) {
       db.exec('ALTER TABLE servers ADD COLUMN container TEXT');
+    }
+  }
+
+  if (current < 55) {
+    // v55: `tickets.env_overrides` holds the per-ticket env the spin merges into
+    // its hot services' spawn env — JSON scope → {KEY: value}, where the scope
+    // is a manifest repository name or `*` for every service. NULL means
+    // "nothing overridden", the honest answer for every pre-v55 row, and the
+    // one nothing needs backfilling to reach.
+    //
+    // The guard reads the CURRENT columns, never the version, so a fresh DB
+    // (already carrying it via schema.sql) is a no-op and a re-open is
+    // idempotent.
+    const ticketCols55 = tableColumns(db, 'tickets');
+    if (ticketCols55.size > 0 && !ticketCols55.has('env_overrides')) {
+      db.exec('ALTER TABLE tickets ADD COLUMN env_overrides TEXT');
     }
   }
 

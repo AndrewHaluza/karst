@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openStore, type Store } from '../store/db.js';
 import { createTicket } from '../store/tickets.js';
+import { ALL_SERVICES, setServiceEnvOverrides } from '../store/ticketEnvOverrides.js';
 import { stopServer } from './supervisor.js';
 import { spinTicket, SpinCancelledError } from './spin.js';
 import { worktreeSlug } from './slug.js';
@@ -54,6 +55,26 @@ createServer(async (req, res) => {
     try { const r = await fetch(api + '/api/data'); const b = await r.json();
       res.writeHead(200,{'content-type':'application/json'}); res.end(JSON.stringify({proxied:b.value})); }
     catch(e){ res.writeHead(502); res.end(String(e)); }
+    return;
+  }
+  res.writeHead(404); res.end();
+}).listen(port);
+`;
+
+/** Echoes selected env vars, so a spin can be asserted on what the process SEES. */
+const ENV_ECHO_SRC = `
+import { createServer } from 'node:http';
+const port = Number(process.env.PORT);
+createServer((req, res) => {
+  if (req.url === '/health') { res.writeHead(200); res.end('ok'); return; }
+  if (req.url === '/env') {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({
+      APP_HISTORY_FEATURE: process.env.APP_HISTORY_FEATURE ?? null,
+      NEW_FLAG: process.env.NEW_FLAG ?? null,
+      SECRET: process.env.SECRET ?? null,
+      PORT: process.env.PORT ?? null,
+    }));
     return;
   }
   res.writeHead(404); res.end();
@@ -206,6 +227,40 @@ describe('spinTicket integration', () => {
     // baseline ref recorded
     const ref = store.db.prepare('SELECT repo FROM baseline_refs WHERE ticket_id = ?').get(ticket.id) as { repo: string };
     expect(ref.repo).toBe('backend');
+  });
+
+  it('(a5) ticket env overrides extend and override the origin .env, never karst\'s own vars', async () => {
+    const bePort = port();
+    const fePort = port();
+    const backend = makeRepo(root, 'backend', { 'server.mjs': BACKEND_SRC });
+    // The origin `.env` the repository already has: one flag the ticket
+    // overrides, one secret it never mentions.
+    const frontend = makeRepo(root, 'frontend', {
+      'server.mjs': ENV_ECHO_SRC,
+      '.env': 'APP_HISTORY_FEATURE=false\nSECRET=hunter2\n',
+    });
+    const envBefore = readFileSync(join(frontend, '.env'), 'utf8');
+
+    const manifest = feBeManifest({ backend, frontend, bePort, fePort });
+    const ticket = createTicket(store, { key: 'PROJ-5', title: 'env overrides' });
+    setServiceEnvOverrides(store, ticket.id, 'frontend', { APP_HISTORY_FEATURE: 'true' });
+    // The all-services scope reaches this service too, and PORT is karst's own
+    // wiring — an override of it must lose, or the health gate would never pass.
+    setServiceEnvOverrides(store, ticket.id, ALL_SERVICES, { NEW_FLAG: 'on', PORT: '1' });
+
+    const result = await spinTicket(store, manifest, ticket.id, ['frontend']);
+    const feServer = result.servers.find((s) => s.service === 'frontend')!;
+    expect(feServer.status).toBe('running');
+
+    const seen = await (await fetch(`http://127.0.0.1:${feServer.port}/env`)).json() as
+      Record<string, string | null>;
+    expect(seen.APP_HISTORY_FEATURE).toBe('true'); // overridden
+    expect(seen.NEW_FLAG).toBe('on'); // extended, from the all-services scope
+    expect(seen.SECRET).toBe('hunter2'); // untouched
+    expect(seen.PORT).toBe(String(feServer.port)); // karst's wiring still wins
+
+    // The origin `.env` is only ever READ.
+    expect(readFileSync(join(frontend, '.env'), 'utf8')).toBe(envBefore);
   });
 
   it('(a3) spins over a leftover branch from a prior aborted spin by attaching to it', async () => {
