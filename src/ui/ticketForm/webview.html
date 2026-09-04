@@ -1000,7 +1000,9 @@
       // A repository with no service is fully selectable — it gets a worktree so
       // the agent can edit it — but say that nothing will start, so an empty
       // server list later reads as expected rather than broken.
-      const hint = r.runnable === false ? 'no service — worktree only' : '';
+      const hint = r.runnable === false
+        ? 'no service — worktree only'
+        : (r.docker ? 'runs a Docker image' : '');
       const titleText = [r.score ? `classifier score: ${r.score}` : '', hint]
         .filter(Boolean).join(' · ');
       const title = titleText ? ` title="${esc(titleText)}"` : '';
@@ -1008,6 +1010,7 @@
         + `<span class="tick" aria-hidden="true">✓</span>`
         + `<span>${esc(r.service)}</span>`
         + (r.runnable === false ? `<span class="badge chip-badge">no service</span>` : '')
+        + (r.docker ? `<span class="badge chip-badge">docker</span>` : '')
         + `</button>`;
       const base = on ? renderBaseField(r.service, baseRowFor(r.service)) : '';
       return `<div class="repo-row">${chip}${base}</div>`;

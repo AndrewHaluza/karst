@@ -114,6 +114,41 @@ repositories:
             - env: VITE_API_URL
               template: http://{host}:{port}
 
+  # A repository whose service is a CONTAINER. `docker:` replaces `start:` — a
+  # service runs one process, so declaring both is rejected. karst runs the image
+  # attached (never `-d`), so its output is the service log and its client is a
+  # normal child in its own process group, and it removes the container by name
+  # on stop, on teardown, and on the activation sweep — a container that outlived
+  # its client is the leak this shape exists to prevent.
+  db:
+    repoPath: /absolute/path/to/db
+    hasMigrations: true
+    signals: [db, database, migration, schema]
+    service:
+      docker:
+        image: postgres:16
+        # The port INSIDE the container. karst publishes the ticket's ALLOCATED
+        # host port onto it, so two tickets run two containers without either
+        # image having to move off its own fixed port.
+        containerPort: 5432
+        # `-e` variables. These win over the ones karst resolves (dependency
+        # bind vars, the allocated port), which are passed in as well.
+        env:
+          POSTGRES_PASSWORD: dev   # quote values YAML would read as numbers
+        # `-v` mounts. A relative source resolves against the ticket's WORKTREE,
+        # so each ticket keeps its own data; an absolute one is shared as written.
+        volumes:
+          - ./.karst/pgdata:/var/lib/postgresql/data
+        # Optional command override, one argument per entry. Omit to use the
+        # image's own CMD.
+        args: []
+      health: http://{host}:{port}/
+      ports:
+        - name: port
+          env: PGPORT
+          default: 5432
+      dependsOn: []
+
   # A repository with NO service: karst's own tooling repo, a docs tree, a
   # shared-config package. Scope it to a ticket and it gets a worktree like any
   # other; nothing is ever started for it, and it owns no port.

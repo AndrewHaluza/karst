@@ -1,5 +1,7 @@
 import { afterEach, describe, it, expect, vi } from 'vitest';
-import { waitForHealth, HealthTimeoutError, HealthAbortedError } from './health.js';
+import { createServer } from 'node:net';
+import type { AddressInfo } from 'node:net';
+import { waitForHealth, isServing, HealthTimeoutError, HealthAbortedError } from './health.js';
 
 /** A port nothing listens on — every probe connection-refuses. */
 const DEAD_URL = 'http://127.0.0.1:1/health';
@@ -132,5 +134,44 @@ describe('waitForHealth', () => {
     await expect(
       waitForHealth('http://delayed-healthy/health', options),
     ).resolves.toBeUndefined();
+  });
+});
+
+/**
+ * Not every service speaks HTTP — a container running a database answers
+ * nothing `fetch` can read, so the gate has to be able to ask the only question
+ * that has an answer there: does the port accept a connection?
+ */
+describe('waitForHealth — tcp:// targets', () => {
+  it('passes as soon as the port accepts a connection', async () => {
+    const server = createServer();
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    const { port } = server.address() as AddressInfo;
+    try {
+      await expect(
+        waitForHealth(`tcp://127.0.0.1:${port}`, { timeoutMs: 2_000 }),
+      ).resolves.toBeUndefined();
+    } finally {
+      server.close();
+    }
+  });
+
+  it('times out when nothing ever listens', async () => {
+    // Port 1 is privileged and unbound in every environment this runs in.
+    await expect(waitForHealth('tcp://127.0.0.1:1', { timeoutMs: 300 })).rejects.toThrow(
+      /did not pass/,
+    );
+  });
+
+  it('isServing answers for a tcp target without a fetch', async () => {
+    const server = createServer();
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    const { port } = server.address() as AddressInfo;
+    try {
+      expect(await isServing(`tcp://127.0.0.1:${port}`)).toBe(true);
+    } finally {
+      server.close();
+    }
+    expect(await isServing('tcp://127.0.0.1:1')).toBe(false);
   });
 });

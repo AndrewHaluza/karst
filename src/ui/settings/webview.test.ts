@@ -3239,3 +3239,49 @@ describe('settings v7 responsive block', () => {
     expect(HTML).toContain('/*KARST_PALETTE*/');
   });
 });
+
+/**
+ * A container service is edited in the same card as a command service, and the
+ * two are mutually exclusive there for the same reason they are in the manifest:
+ * a service runs one process.
+ */
+describe('settings webview — docker services', () => {
+  it('offers a Docker mode switch with a labelled control', () => {
+    expect(HTML).toMatch(/data-docker-mode="\$\{esc\(name\)\}"/);
+    expect(HTML).toMatch(/<label style="margin:0" for="\$\{dockerModeId\}">Run a Docker image<\/label>/);
+  });
+
+  it('renders the image, container port, env, volumes and command-override fields', () => {
+    expect(HTML).toMatch(/<label for="\$\{dockerImageId\}">Image<\/label>/);
+    expect(HTML).toMatch(/data-docker-field="image"/);
+    expect(HTML).toMatch(/data-docker-field="containerPort"/);
+    expect(HTML).toMatch(/data-docker-field="env"/);
+    expect(HTML).toMatch(/data-docker-field="volumes"/);
+    expect(HTML).toMatch(/data-docker-field="args"/);
+  });
+
+  it('shows the start command ONLY when the service is not a container', () => {
+    // The two are alternatives in one ternary, so no card can ever show both —
+    // which is what keeps the draft from being written with both.
+    expect(HTML).toMatch(/\(svc\.docker[\s\S]{0,3000}?: `<label for="\$\{startId\}">Start command<\/label>`/);
+  });
+
+  it('drops the start command when the image is switched on', () => {
+    expect(HTML).toMatch(/svcDef\.docker = \{ image: '', containerPort: 0, env: \{\}, volumes: \[\], args: \[\] \};/);
+    expect(HTML).toMatch(/svcDef\.start = '';/);
+    expect(HTML).toMatch(/delete svcDef\.docker;/);
+  });
+
+  it('badges a container repository as docker in the roster row', () => {
+    expect(HTML).toMatch(/badge good">docker</);
+  });
+
+  it('parses the env textarea on the FIRST `=` only, dropping value-less lines', () => {
+    expect(HTML).toMatch(/const eq = trimmed\.indexOf\('='\);/);
+    expect(HTML).toMatch(/if \(eq <= 0\) continue;/);
+  });
+
+  it('routes a docker field error to the field that owns it', () => {
+    expect(HTML).toMatch(/service\\\.docker\\\.\(image\|containerPort\)/);
+  });
+});

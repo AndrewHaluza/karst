@@ -14,7 +14,6 @@ import {
   pruneOrphanServers,
   type ServerRecord,
 } from './supervisor.js';
-import { renderHealthUrl } from './healthUrl.js';
 import { serverLogPath } from './serverLog.js';
 import { preflightSpin } from './preflight.js';
 import { getTicket } from '../store/tickets.js';
@@ -222,7 +221,7 @@ export async function spinTicket(
       const ownPort = resolvedSvc.ports[httpSlot.name]!;
       // A command in the worktree or a container image — `serviceLaunch` is the
       // one place that difference is decided, so baseline cannot drift from it.
-      const { command, args, container } = serviceLaunch({
+      const { command, args, container, healthUrl } = serviceLaunch({
         service,
         name,
         ticketId,
@@ -231,10 +230,6 @@ export async function spinTicket(
         port: ownPort,
         cwd,
       });
-      const healthUrl = service.health
-        ? renderHealthUrl(service.health, manifest.host, ownPort)
-        : `http://${manifest.host}:${ownPort}/health`;
-
       debug?.(
         `[runtime] ticket ${ticketId}: starting ${name} (port ${ownPort}, cwd ${cwd}` +
           `${container ? `, container ${container}` : ''})`,

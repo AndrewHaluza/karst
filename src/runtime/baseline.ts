@@ -6,7 +6,6 @@ import type { Manifest } from '../manifest/types.js';
 import { resolveBaselineBranch } from '../manifest/baselineBranch.js';
 import { isRunnable } from '../manifest/runnable.js';
 import { startHot, type ServerRecord } from './supervisor.js';
-import { renderHealthUrl } from './healthUrl.js';
 import { serverLogPath } from './serverLog.js';
 import { serviceLaunch } from './serviceLaunch.js';
 
@@ -93,15 +92,11 @@ export async function ensureBaseline(
     service,
     resolveBaselineBranch(manifest, repo),
   );
-  const healthUrl = svc.health
-    ? renderHealthUrl(svc.health, manifest.host, port)
-    : `http://${manifest.host}:${port}/health`;
-
   const env = { [httpSlot.env]: String(port) };
   // A baseline runs whatever kind of service the manifest declares — a command
   // or a container — through the same derivation spin uses, so the singleton can
   // never end up started one way and reaped another.
-  const { command, args, container } = serviceLaunch({
+  const { command, args, container, healthUrl } = serviceLaunch({
     service: svc,
     name: service,
     ticketId: null,
