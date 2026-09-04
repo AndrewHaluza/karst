@@ -3,6 +3,7 @@ import { dirname } from 'node:path';
 import type { Store } from '../store/db.js';
 import { markServerStopped } from './supervisor.js';
 import { killTree } from './processTree.js';
+import { removeContainer } from './dockerContainer.js';
 import { isPathUnder } from './pathScope.js';
 import { attributeServer, systemProcessFacts, type ProcessFacts } from './serverIdentity.js';
 
@@ -25,6 +26,13 @@ export interface ReapedServer {
   pid: number | null;
   cwd: string;
   reason: 'worktree-removed' | 'directory-gone';
+  /**
+   * The docker container removed alongside the process, or null when the service
+   * was a plain command. Reported for the same reason the pid is: a container
+   * removal the user cannot see is indistinguishable from one that never
+   * happened.
+   */
+  container: string | null;
   outcome:
     /** The process group was signalled (or was already gone) and the row cleared. */
     | 'killed'
@@ -51,6 +59,7 @@ interface ServerRow {
   pid: number | null;
   cwd: string | null;
   started_at: string | null;
+  container: string | null;
 }
 
 /**
@@ -69,7 +78,7 @@ function runningWithCwd(store: Store, opts: { ticketOnly?: boolean } = {}): Serv
   const scope = opts.ticketOnly ? 'AND ticket_id IS NOT NULL' : '';
   return store.db
     .prepare(
-      `SELECT id, repo, pid, cwd, started_at FROM servers WHERE status = 'running' AND cwd IS NOT NULL ${scope}`,
+      `SELECT id, repo, pid, cwd, started_at, container FROM servers WHERE status = 'running' AND cwd IS NOT NULL ${scope}`,
     )
     .all() as ServerRow[];
 }
@@ -96,7 +105,18 @@ function reap(
   facts: ProcessFacts,
   debug?: (message: string) => void,
 ): ReapedServer {
-  const base = { id: row.id, repo: row.repo, pid: row.pid, cwd, reason };
+  const base = { id: row.id, repo: row.repo, pid: row.pid, cwd, reason, container: row.container };
+
+  // The container comes FIRST and is removed on every path, including the ones
+  // that deliberately signal nothing. A pid may have been reissued to a stranger
+  // — that is why attribution can refuse — but a container NAME karst chose is
+  // never reissued, so it stays a valid handle exactly when the pid stops being
+  // one. Skipping it there would leave the container running with its port bound
+  // and its memory held, invisible: the leak this whole module exists to close.
+  if (row.container) {
+    debug?.(`[runtime] reap '${row.repo}': removing container ${row.container}`);
+    removeContainer(row.container, { debug });
+  }
   const attribution = attributeServer(
     { pid: row.pid, cwd: row.cwd, startedAt: row.started_at },
     facts,
@@ -234,15 +254,18 @@ export function reapStaleServers(store: Store, opts: ReapOptions = {}): ReapedSe
 export function describeReap(s: ReapedServer): string {
   const pid = s.pid ?? 'unknown';
   const why = s.reason === 'directory-gone' ? 'its directory is gone' : 'its worktree was removed';
+  // Stated separately from the pid outcome, because it is a separate fact: the
+  // container is removed even when nothing was signalled.
+  const container = s.container ? ` Removed container '${s.container}'.` : '';
   switch (s.outcome) {
     case 'killed':
-      return `karst: stopped '${s.repo}' (pid ${pid}) — ${why}: ${s.cwd}`;
+      return `karst: stopped '${s.repo}' (pid ${pid}) — ${why}: ${s.cwd}.${container}`;
     case 'row-cleared':
       return (
         `karst: cleared the stale record for '${s.repo}' (pid ${pid}) — ${why}: ${s.cwd}. ` +
-        `Nothing was signalled: that pid can no longer be shown to be the server karst started.`
+        `Nothing was signalled: that pid can no longer be shown to be the server karst started.${container}`
       );
     case 'kill-failed':
-      return `karst: could NOT stop '${s.repo}' (pid ${pid}) — ${why}: ${s.cwd}. It is still running.`;
+      return `karst: could NOT stop '${s.repo}' (pid ${pid}) — ${why}: ${s.cwd}. It is still running.${container}`;
   }
 }

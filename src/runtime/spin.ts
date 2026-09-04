@@ -20,6 +20,10 @@ import { preflightSpin } from './preflight.js';
 import { getTicket } from '../store/tickets.js';
 import { ticketWorktreeNames } from './ticketBranch.js';
 import { isRunnable } from '../manifest/runnable.js';
+import { serviceLaunch } from './serviceLaunch.js';
+// Re-exported: the token expansion moved to `serviceLaunch.ts` (baseline needs
+// it too), and this is where its tests and callers have always found it.
+export { expandEnvTokens } from './serviceLaunch.js';
 
 export interface SpinResult {
   servers: ServerRecord[];
@@ -51,23 +55,6 @@ export class SpinCancelledError extends Error {
     super(`spin cancelled for #${ticketId}`);
     this.name = 'SpinCancelledError';
   }
-}
-
-/**
- * Expand `${VAR}` / `$VAR` tokens in a start command against the resolved env
- * BEFORE the whitespace split, so a manifest can write the allocated port into
- * the command itself — e.g. `npm run dev -- --port ${PORT} --strictPort`. This
- * makes port binding independent of the worktree's own config: a hot worktree
- * branched before an app-side config fix still binds its allocated port. An
- * unknown token expands to empty string (mirrors shell behaviour).
- */
-export function expandEnvTokens(start: string, env: Record<string, string>): string {
-  return start.replace(/\$\{(\w+)\}|\$(\w+)/g, (_m, braced, bare) => env[braced ?? bare] ?? '');
-}
-
-function splitCommand(start: string): { command: string; args: string[] } {
-  const parts = start.trim().split(/\s+/);
-  return { command: parts[0]!, args: parts.slice(1) };
 }
 
 /**
@@ -231,15 +218,26 @@ export async function spinTicket(
       const spawnEnv = buildSpawnEnv(join(repo.repoPath, '.env'), resolvedSvc.env);
       // Expand ${PORT}-style tokens against the resolved env so a manifest can
       // pin the port in the command (independent of the worktree's own config).
-      const { command, args } = splitCommand(expandEnvTokens(service.start, spawnEnv));
       const httpSlot = service.ports.find((p) => p.name === 'http') ?? service.ports[0]!;
       const ownPort = resolvedSvc.ports[httpSlot.name]!;
+      // A command in the worktree or a container image — `serviceLaunch` is the
+      // one place that difference is decided, so baseline cannot drift from it.
+      const { command, args, container } = serviceLaunch({
+        service,
+        name,
+        ticketId,
+        env: spawnEnv,
+        host: manifest.host,
+        port: ownPort,
+        cwd,
+      });
       const healthUrl = service.health
         ? renderHealthUrl(service.health, manifest.host, ownPort)
         : `http://${manifest.host}:${ownPort}/health`;
 
       debug?.(
-        `[runtime] ticket ${ticketId}: starting ${name} (port ${ownPort}, cwd ${cwd})`,
+        `[runtime] ticket ${ticketId}: starting ${name} (port ${ownPort}, cwd ${cwd}` +
+          `${container ? `, container ${container}` : ''})`,
       );
       const rec = await startHot(store, {
         ticketId,
@@ -253,6 +251,7 @@ export async function spinTicket(
         healthUrl,
         logPath: serverLogPath(cwd, name),
         repoPath: repo.repoPath,
+        container,
         signal,
         onReclaim: (pid) => reclaimedPids.push(pid),
         debug,
