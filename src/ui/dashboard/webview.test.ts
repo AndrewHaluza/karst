@@ -623,11 +623,14 @@ describe('dashboard webview.html', () => {
 
   it('keeps the status word on the bare dot, for pointer and screen reader', () => {
     // The row shows a 9px dot and no text, so aria-label + title are the ONLY
-    // things still carrying "running"/"offline". Shape (filled disc vs hollow
-    // ring) plus the "—" address keep it off colour alone.
-    expect(HTML).toMatch(/class="glyph \$\{on \? 'on' : 'off'\}" role="img"/);
+    // things still carrying "running"/"failed"/"offline". Shape (filled disc
+    // vs hollow ring) plus the "—" address keep it off colour alone. The ternary
+    // now includes the failed state (filled red like .on, not a hollow ring).
+    expect(HTML).toMatch(/class="glyph \$\{on \? 'on' : failed \? 'failed' : 'off'\}" role="img"/);
     expect(HTML).toMatch(/aria-label="\$\{status\}" title="\$\{status\}"/);
     expect(HTML).toMatch(/\.glyph\.off\{[^}]*border:calc\(var\(--k-border-w\) \* 2\) solid/);
+    // Failed glyph is filled red (a fault), not a hollow ring
+    expect(HTML).toMatch(/\.glyph\.failed\{[^}]*background:var\(--k-danger\)/);
   });
 
   it('names every icon-only action, since the icon is the whole label', () => {

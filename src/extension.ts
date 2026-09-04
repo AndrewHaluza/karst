@@ -6239,6 +6239,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
       } catch (err) {
         provider.refresh(); // partial state is real; surface it
+        dashboard.pushState(ticketId); // surface failed servers on the dashboard
         if (err instanceof SpinCancelledError) {
           // User-initiated: quiet info, not a red error toast.
           void vscode.window.showInformationMessage(`Spin cancelled for ${label}.`);

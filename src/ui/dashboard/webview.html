@@ -1478,6 +1478,10 @@
   .svpanel .glyph{flex:0 0 auto;display:inline-block;border-radius:var(--k-radius-circle)}
   .svpanel .glyph.on{width:var(--k-space-4);height:var(--k-space-4);background:var(--k-passed)}
   .svpanel .glyph.off{width:calc(var(--k-space-4) + var(--k-border-w));height:calc(var(--k-space-4) + var(--k-border-w));background:transparent;border:calc(var(--k-border-w) * 2) solid var(--k-pending)}
+  /* A failed start is a FAULT, not a neutral offline row — filled like `.on`
+     (not a hollow ring like `.off`) so it reads as urgent at a glance, red
+     like every other failure glyph in this file (`.mg-conflicted .mgdot`). */
+  .svpanel .glyph.failed{width:var(--k-space-4);height:var(--k-space-4);background:var(--k-danger)}
 
   .svpanel .filter{display:flex;align-items:center;gap:var(--k-space-4);padding:var(--k-space-4) var(--k-space-5);
     border-bottom:var(--k-border-w) solid var(--k-border)}
@@ -3273,22 +3277,27 @@
       + ` addresses here.</div></div></div>`;
   }
 
+  const isFailed = (s) => s.status === 'failed';
+
   function serverRow(s) {
     const on = isOnline(s);
-    const status = on ? 'running' : 'offline';
+    const failed = isFailed(s);
+    const status = on ? 'running' : failed ? 'failed' : 'offline';
     // role=img + aria-label is what keeps a bare dot from being invisible to a
     // screen reader now that the word is gone; title gives the pointer the same
     // word. Never colour alone: filled disc vs hollow ring still differ, and an
     // offline row reads "—" where an address would be.
-    const dot = `<span class="glyph ${on ? 'on' : 'off'}" role="img"`
+    const dot = `<span class="glyph ${on ? 'on' : failed ? 'failed' : 'off'}" role="img"`
       + ` aria-label="${status}" title="${status}"></span>`;
     const addr = on
       ? `<span class="full">${esc(addrOf(s))}</span><span class="short">:${esc(s.port)}</span>`
-      : '—';
+      : failed ? 'failed to start' : '—';
+    const addrTitle = on
+      ? esc(addrOf(s))
+      : failed ? 'failed to start — see log' : 'offline — no address';
     return `<tr><td class="c-dot">${dot}</td>`
       + `<td class="c-name" title="${esc(s.service)}">${esc(s.service)}</td>`
-      + `<td class="c-addr${on ? '' : ' off'}"`
-      + ` title="${on ? esc(addrOf(s)) : 'offline — no address'}">${addr}</td>`
+      + `<td class="c-addr${on ? '' : ' off'}" title="${addrTitle}">${addr}</td>`
       + `<td class="c-addrops"><span class="g">${addrActions(s)}</span></td>`
       + `<td class="c-acts"><span class="g">${lifeActions(s)}</span></td></tr>`;
   }

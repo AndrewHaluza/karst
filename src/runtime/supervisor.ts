@@ -29,10 +29,35 @@ export interface ServerRecord {
   host: string;
   port: number;
   pid: number;
-  status: 'running' | 'stopped';
+  status: 'running' | 'stopped' | 'failed';
   logPath: string;
   /** The docker container this service runs in, or null for a plain command. */
   container: string | null;
+}
+
+/**
+ * Record a service that FAILED to start, so the dashboard can show it (red,
+ * not merely absent) and its logs button can find `logPath`. Without this a
+ * spin that dies before the health-gated INSERT below leaves no row at all —
+ * the failure is real and explained in the thrown error, but nothing
+ * downstream (dashboard state, the servers panel, the logs viewer) can ever
+ * learn it happened. Same single-row-per-(ticket,service) replace as the
+ * success path, so a retry's failed row doesn't accumulate duplicates either.
+ */
+function recordFailedStart(
+  store: Store,
+  opts: Pick<StartHotOpts, 'ticketId' | 'service' | 'host' | 'port' | 'logPath' | 'cwd' | 'container'>,
+): void {
+  const spawnedAt = new Date().toISOString();
+  store.db
+    .prepare('DELETE FROM servers WHERE repo = ? AND ticket_id IS ?')
+    .run(opts.service, opts.ticketId);
+  store.db
+    .prepare(
+      `INSERT INTO servers (ticket_id, repo, host, port, pid, status, log_path, cwd, container, started_at)
+       VALUES (?, ?, ?, ?, NULL, 'failed', ?, ?, ?, ?)`,
+    )
+    .run(opts.ticketId, opts.service, opts.host, opts.port, opts.logPath, opts.cwd, opts.container ?? null, spawnedAt);
 }
 
 export interface StartHotOpts {
@@ -424,16 +449,26 @@ export async function startHot(store: Store, opts: StartHotOpts): Promise<Server
     // wait forever for an event that may not be coming. Both arms reject, so the
     // throw below is unreachable; it is what tells the compiler (and the next
     // reader) that this branch cannot fall through to a start with no process.
-    await Promise.race([
-      spawnFailed,
-      rejectAfter(2000, new Error(`could not start '${opts.service}': no pid`)),
-    ]);
-    opts.debug?.(`[runtime] ${opts.service}: spawned without a pid — reporting the spawn error`);
-    throw new Error(`could not start '${opts.service}': no pid`);
+    try {
+      await Promise.race([
+        spawnFailed,
+        rejectAfter(2000, new Error(`could not start '${opts.service}': no pid`)),
+      ]);
+    } catch (err) {
+      // ENOENT and friends land here — the spawn never produced a process at
+      // all, so this is the ONLY path that can name it. Record it the same as
+      // any other failed start, or a bad command in karst.yml renders as no
+      // server anywhere rather than a red row explaining why.
+      recordFailedStart(store, opts);
+      opts.debug?.(`[runtime] ${opts.service}: spawned without a pid — reporting the spawn error`);
+      throw err;
+    }
   }
-  opts.debug?.(`[runtime] ${opts.service}: spawned pid ${pid}; waiting on ${opts.healthUrl}`);
+  // If we reach here, pid is defined (the undefined branch throws)
+  const knownPid = pid!;
+  opts.debug?.(`[runtime] ${opts.service}: spawned pid ${knownPid}; waiting on ${opts.healthUrl}`);
 
-  const abandoned = abandonedStart(opts, pid, childExited);
+  const abandoned = abandonedStart(opts, knownPid, childExited);
   abandoned.catch(() => {});
 
   try {
@@ -454,7 +489,7 @@ export async function startHot(store: Store, opts: StartHotOpts): Promise<Server
     // Health failed or the start was cancelled — reap the whole tree, not just
     // the launcher, so no dev server is left running.
     opts.debug?.(
-      `[runtime] ${opts.service}: health gate failed (${err instanceof Error ? err.message : String(err)}) — killing pid ${pid}`,
+      `[runtime] ${opts.service}: health gate failed (${err instanceof Error ? err.message : String(err)}) — killing pid ${knownPid}`,
     );
     // A health TIMEOUT names only what karst watched, so add what the port
     // showed. Asked BEFORE the kill, deliberately: afterwards the port is free
@@ -462,14 +497,19 @@ export async function startHot(store: Store, opts: StartHotOpts): Promise<Server
     // instead of the fault. Every other failure already says what happened (the
     // process exited, the command is missing) and needs no port reading.
     const portState = err instanceof HealthTimeoutError ? await describePortState(opts) : '';
-    killTree(pid);
+    killTree(knownPid);
     // Killing the attached client leaves the CONTAINER running, and no `servers`
     // row exists yet — so nothing downstream will ever learn this name. Remove it
     // here or a timed-out, abandoned or cancelled start leaks a container holding
     // the port. Fire-and-forget: `docker rm -f` on an absent container is a no-op.
     if (opts.container) removeContainer(opts.container, { debug: opts.debug });
-    // A user cancellation is quiet — no log tail, no fault banner.
+    // A user cancellation is quiet — no log tail, no fault banner, and no
+    // failed row either: the user asked for this, it isn't a fault to show red.
     if (err instanceof HealthAbortedError) throw err;
+    // Record the failure so the dashboard shows it (red, not just missing) and
+    // its logs button can find `logPath` — the log the service just wrote is
+    // exactly the evidence that explains what went wrong.
+    recordFailedStart(store, opts);
     // Surface the service's own output so the failure explains itself: a missing
     // module, a wrong port in config, a compile error. Without this the user sees
     // only "exited with code 1" / "health did not pass" and must open the log.
@@ -515,7 +555,7 @@ export async function startHot(store: Store, opts: StartHotOpts): Promise<Server
     service: opts.service,
     host: opts.host,
     port: opts.port,
-    pid,
+    pid: knownPid,
     status: 'running',
     logPath: opts.logPath,
     container: opts.container ?? null,
