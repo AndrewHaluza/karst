@@ -4,13 +4,27 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runCommand, runProcess } from './run.js';
 
-function waitForPidFile(path: string): boolean {
+// Readiness is a pid the test can SIGNAL, never merely a path that exists: the
+// child creates the file and writes to it in two steps, so `existsSync` alone
+// returned true for an empty file and the read that followed parsed NaN (a
+// flake under the unit gate's parallel load). Polls for parseable content and
+// returns the pid it read, so no caller re-reads a file that may still be mid
+// write.
+function waitForPid(path: string): number | null {
   const readiness = new Int32Array(new SharedArrayBuffer(4));
   const deadline = process.hrtime.bigint() + 5_000_000_000n;
-  while (!existsSync(path) && process.hrtime.bigint() < deadline) {
+  for (;;) {
+    const pid = readPid(path);
+    if (pid !== null) return pid;
+    if (process.hrtime.bigint() >= deadline) return null;
     Atomics.wait(readiness, 0, 0, 10);
   }
-  return existsSync(path);
+}
+
+function readPid(path: string): number | null {
+  if (!existsSync(path)) return null;
+  const pid = Number.parseInt(readFileSync(path, 'utf8').trim(), 10);
+  return Number.isInteger(pid) ? pid : null;
 }
 
 async function expectProcessDead(pid: number): Promise<void> {
@@ -75,21 +89,19 @@ describe('runCommand', () => {
           process.cwd(),
           { timeoutMs: 10_000 },
         );
-        const ready = waitForPidFile(pidFile);
+        const ready = waitForPid(pidFile);
         await vi.advanceTimersByTimeAsync(10_000);
         const result = await pending;
-        expect(ready).toBe(true);
-        return result;
+        expect(ready).not.toBeNull();
+        return { result, childPid: ready };
       } finally {
         vi.useRealTimers();
       }
     })();
 
-    expect(r.exitCode).not.toBe(0);
-    expect(r.output).toContain('timed out after 10000ms');
-    const childPid = Number.parseInt(readFileSync(pidFile, 'utf8'), 10);
-    expect(Number.isInteger(childPid)).toBe(true);
-    expect(() => process.kill(childPid, 0)).toThrow();
+    expect(r.result.exitCode).not.toBe(0);
+    expect(r.result.output).toContain('timed out after 10000ms');
+    expect(() => process.kill(r.childPid!, 0)).toThrow();
     rmSync(dir, { recursive: true, force: true });
   });
 
@@ -111,20 +123,18 @@ describe('runCommand', () => {
           timeoutMs: 10_000,
           terminationGraceMs: 500,
         });
-        const ready = waitForPidFile(pidFile);
+        const ready = waitForPid(pidFile);
         await vi.advanceTimersByTimeAsync(10_000);
         const result = await pending;
-        expect(ready).toBe(true);
-        return result;
+        expect(ready).not.toBeNull();
+        return { result, grandchildPid: ready };
       } finally {
         vi.useRealTimers();
       }
     })();
-    const grandchildPid = Number.parseInt(readFileSync(pidFile, 'utf8'), 10);
 
-    expect(r.exitCode).toBe(1);
-    expect(Number.isInteger(grandchildPid)).toBe(true);
-    await expectProcessDead(grandchildPid);
+    expect(r.result.exitCode).toBe(1);
+    await expectProcessDead(r.grandchildPid!);
     rmSync(dir, { recursive: true, force: true });
   });
 
