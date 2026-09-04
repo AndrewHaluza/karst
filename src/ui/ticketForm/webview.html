@@ -1160,6 +1160,9 @@
       catalog: lastModelCatalog,
       recent: lastRecentModels,
       value: { core: sel || defaultProvider || 'claude', model, effort },
+      // The model/effort inherit rows belong to the settings default core —
+      // suppressed by the shared picker once another core is picked.
+      inheritCore: defaultProvider || '',
       inherit: {
         core: 'Inherit (settings: ' + esc(coreLabel) + ')',
         model: defaultModel ? 'Inherit (settings: ' + esc(defaultModel) + ')' : 'Inherit (settings default)',

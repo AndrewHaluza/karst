@@ -235,6 +235,35 @@ describe('applyAgentSwitchSelection', () => {
     expect(order).not.toContain('dispose');
   });
 
+  it('keeps an effort staged against an INHERITED model (model = null)', async () => {
+    // The picker offers the effort of the model the launch will actually use —
+    // the inherited default when the ticket sets none. Cross-checking the
+    // effort against `null` dropped every such pick (IMROVEMENTS-IN-AGENT-PICKER).
+    const persisted: { effort: string | null }[] = [];
+    const { deps } = flow({
+      read: () => ({
+        stageCurrent: 'impl', provider: 'claude', ticketModel: null, defaultModel: 'claude-x',
+        ticketEffort: null, defaultEffort: null,
+      }),
+      persist: (selection) => { persisted.push({ effort: selection.effort }); },
+    });
+    await applyAgentSwitchSelection(deps, CATALOG, { provider: 'claude', model: null, effort: 'high' });
+    expect(persisted).toEqual([{ effort: 'high' }]);
+  });
+
+  it('drops an effort the inherited model does not advertise', async () => {
+    const persisted: { effort: string | null }[] = [];
+    const { deps } = flow({
+      read: () => ({
+        stageCurrent: 'impl', provider: 'claude', ticketModel: null, defaultModel: 'claude-x',
+        ticketEffort: null, defaultEffort: null,
+      }),
+      persist: (selection) => { persisted.push({ effort: selection.effort }); },
+    });
+    await applyAgentSwitchSelection(deps, CATALOG, { provider: 'claude', model: null, effort: 'ultracode' });
+    expect(persisted).toEqual([{ effort: null }]);
+  });
+
   it('keeps the new selection and reports a retryable launch failure', async () => {
     const { deps, order } = flow({ launch: async () => { order.push('launch'); throw new Error('spawn'); } });
     const outcome = await applyAgentSwitchSelection(deps, CATALOG, { provider: 'codex', model: 'codex-x', effort: null });

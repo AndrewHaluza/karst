@@ -165,11 +165,46 @@ function apCoreTriggerLabel(provider, modelLabel) {
   return apEsc(provider || '');
 }
 
-/** A core switch never carries provider-specific model/effort state across. */
-function apCoreSelection(current, core) {
+/**
+ * A core switch never carries provider-specific model/effort state across: the
+ * new core starts from ITS OWN last used model (the newest recent id still in
+ * the catalog), and no effort — an effort belongs to the model that advertises
+ * it. With no usable recent model the pick stays empty (inherit / agent picks).
+ */
+function apCoreSelection(current, core, recentIds, catalog) {
   var nextCore = core || '';
   if (nextCore === current.core) return current;
-  return { core: nextCore, model: '', effort: '' };
+  return { core: nextCore, model: apLastUsedModel(catalog, nextCore, recentIds), effort: '' };
+}
+
+/** The newest recently used model of a core that is still cataloged; '' if none. */
+function apLastUsedModel(catalog, provider, recentIds) {
+  var list = (catalog && catalog[provider]) || [];
+  var recent = recentIds || [];
+  for (var r = 0; r < recent.length; r++) {
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].id === recent[r]) return list[i].id;
+    }
+  }
+  return '';
+}
+
+/**
+ * The inherit labels that apply to the CURRENT core. A model/effort inherited
+ * from settings belongs to the core that was configured there — offering
+ * "Inherit (settings: Sonnet 5)" under a different core would inherit a value
+ * that core can never use. The core row's own inherit label always stands; the
+ * model/effort ones are dropped once an explicitly picked core differs from the
+ * inherited one. A host that declares no `inheritCore` keeps every label.
+ */
+function apInheritLabels(inherit, inheritCore, core) {
+  var i = inherit || {};
+  var mismatch = !!inheritCore && !!core && inheritCore !== core;
+  return {
+    core: i.core || '',
+    model: mismatch ? '' : (i.model || ''),
+    effort: mismatch ? '' : (i.effort || ''),
+  };
 }
 
 /** Render the whole picker into the given root. Returns the live value object. */
@@ -189,6 +224,10 @@ function mountAgentPicker(root, opts) {
   var recent = o.recent || {};
   var value = o.value || {};
   var inherit = o.inherit || {};
+  // The core the inherit labels came from (settings / the parent level). The
+  // model + effort inherit rows are offered only while the picked core is that
+  // core — see apInheritLabels.
+  var inheritCore = o.inheritCore || '';
   var showEffort = o.showEffort !== false;
   var disabled = !!o.disabled;
   var onChange = o.onChange;
@@ -223,9 +262,12 @@ function mountAgentPicker(root, opts) {
 
   var $ = function (sel) { return root.querySelector(sel); };
 
+  /** The inherit labels legal for the CURRENTLY selected core. */
+  function labels() { return apInheritLabels(inherit, inheritCore, state.core); }
+
   function render() {
     var coreMenu = $('[data-ap-menu="core"]');
-    coreMenu.innerHTML = apCoreOptionsHtml(cores, state.core, inherit.core || '');
+    coreMenu.innerHTML = apCoreOptionsHtml(cores, state.core, labels().core);
     renderModel();
   }
 
@@ -244,7 +286,7 @@ function mountAgentPicker(root, opts) {
       + ' aria-label="Search models" data-ap-search /></div>'
       + '<div class="ap-scroll" data-ap-list="model"></div>';
     $('[data-ap-list="model"]').innerHTML = apModelOptionsHtml(
-      catalog, state.core, state.model, inherit.model || '', recent[state.core],
+      catalog, state.core, state.model, labels().model, recent[state.core],
     );
     var coreLabel = modelLabel();
     $('[data-ap-trigger="core"]').innerHTML =
@@ -252,7 +294,7 @@ function mountAgentPicker(root, opts) {
       + '<span class="chev" aria-hidden="true"></span>';
     modelTrigger.innerHTML = coreLabel
       ? '<span class="ap-trigger-label">' + apEsc(coreLabel) + '</span><span class="chev" aria-hidden="true"></span>'
-      : '<span class="ap-trigger-label">' + apEsc(inherit.model || 'No model (agent picks)') + '</span>'
+      : '<span class="ap-trigger-label">' + apEsc(labels().model || 'No model (agent picks)') + '</span>'
         + '<span class="chev" aria-hidden="true"></span>';
     renderEffort();
   }
@@ -265,11 +307,12 @@ function mountAgentPicker(root, opts) {
     if (show || state.effort) {
       field.hidden = false;
       var sel = $('[data-ap-effort]');
-      var built = apEffortOptions(catalog, state.core, state.model, state.effort, inherit.effort || '');
-      sel.innerHTML = built.html || '<option value="" selected>' + apEsc(inherit.effort || 'No effort (agent picks)') + '</option>';
+      var effortInherit = labels().effort;
+      var built = apEffortOptions(catalog, state.core, state.model, state.effort, effortInherit);
+      sel.innerHTML = built.html || '<option value="" selected>' + apEsc(effortInherit || 'No effort (agent picks)') + '</option>';
       if (built.efforts === null && !state.effort) {
         // No advertised efforts and nothing saved — keep a single none row.
-        sel.innerHTML = '<option value="" selected>' + apEsc(inherit.effort || 'No effort (agent picks)') + '</option>';
+        sel.innerHTML = '<option value="" selected>' + apEsc(effortInherit || 'No effort (agent picks)') + '</option>';
       }
     } else {
       field.hidden = true;
@@ -330,7 +373,8 @@ function mountAgentPicker(root, opts) {
     var t = e.target;
     var coreOpt = t.closest ? t.closest('[data-ap-core]') : null;
     if (coreOpt) {
-      state = apCoreSelection(state, coreOpt.getAttribute('data-ap-core'));
+      var nextCore = coreOpt.getAttribute('data-ap-core') || '';
+      state = apCoreSelection(state, nextCore, recent[nextCore], catalog);
       var shell = $('[data-ap-shell="core"]');
       closeMenu(shell, false);
       render();
@@ -377,7 +421,7 @@ function mountAgentPicker(root, opts) {
     var q = (e.target.value || '').trim().toLowerCase();
     var listEl = $('[data-ap-list="model"]');
     if (!listEl) return;
-    if (!q) { listEl.innerHTML = apModelOptionsHtml(catalog, state.core, state.model, inherit.model || '', recent[state.core]); return; }
+    if (!q) { listEl.innerHTML = apModelOptionsHtml(catalog, state.core, state.model, labels().model, recent[state.core]); return; }
     var list = (catalog && catalog[state.core]) || [];
     var out = '';
     for (var i = 0; i < list.length; i++) {
@@ -423,6 +467,7 @@ function mountAgentPicker(root, opts) {
       catalog = (next && next.catalog) || {};
       recent = (next && next.recent) || {};
       inherit = (next && next.inherit) || {};
+      inheritCore = (next && next.inheritCore) || '';
       showEffort = next ? next.showEffort !== false : true;
       disabled = !!(next && next.disabled);
       onChange = next && next.onChange;
