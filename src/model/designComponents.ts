@@ -23,8 +23,8 @@
  */
 
 import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
+import { RUNTIME_ASSETS_ROOT } from '../runtimeAssetsRoot.js';
 
 /** Primitive class names, in the order the design system documents them. */
 export const PRIMITIVES = [
@@ -51,7 +51,6 @@ export const PRIMITIVES = [
  * `aria-label` on icon-only controls) is markup, enforced by UI-R19–R22.
  */
 
-
 /**
  * The state selectors every interactive primitive must carry.
  *
@@ -73,8 +72,6 @@ export const STATE_MATRIX = [
 /** Placeholder swapped for the primitives; sits at the TOP of each webview's `<style>`. */
 export const DS_CSS_MARKER = '/*KARST_DS_CSS*/';
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-
 /**
  * The primitive stylesheet. Lives as a real sibling `.css` file
  * (`designComponents.webview.css`) — a linter, formatter and editor can
@@ -83,5 +80,5 @@ const HERE = dirname(fileURLToPath(import.meta.url));
  * (`scripts/copy-assets.mjs` carries it next to the compiled output).
  */
 export function componentsCss(): string {
-  return readFileSync(join(HERE, 'designComponents.webview.css'), 'utf8').trim();
+  return readFileSync(join(RUNTIME_ASSETS_ROOT, 'model/designComponents.webview.css'), 'utf8').trim();
 }

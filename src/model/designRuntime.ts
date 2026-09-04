@@ -40,8 +40,8 @@
  */
 
 import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
+import { RUNTIME_ASSETS_ROOT } from '../runtimeAssetsRoot.js';
 
 /**
  * How long a control may stay pending before the runtime gives up on the host.
@@ -62,8 +62,6 @@ const MAX_TOAST_CHARS = 240;
 /** Placeholder swapped for the runtime; sits as the first statement in each webview's `<script>`. */
 export const DS_JS_MARKER = '/*KARST_DS_JS*/';
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-
 /**
  * The runtime source. Lives as a real sibling `.js` file
  * (`designRuntime.webview.js`) rather than a TS template-literal string — a
@@ -75,7 +73,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
  * for the markers themselves.
  */
 export function designRuntimeJs(): string {
-  return readFileSync(join(HERE, 'designRuntime.webview.js'), 'utf8')
+  return readFileSync(join(RUNTIME_ASSETS_ROOT, 'model/designRuntime.webview.js'), 'utf8')
     .replace('__KARST_WATCHDOG_MS__', String(PENDING_WATCHDOG_MS))
     .replace('__KARST_FLASH_DONE_MS__', String(FLASH_DONE_MS))
     .replace('__KARST_TOAST_SUCCESS_MS__', String(TOAST_SUCCESS_MS))
