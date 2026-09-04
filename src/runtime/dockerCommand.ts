@@ -22,6 +22,7 @@
  *    which is exactly the leak this feature must not introduce.
  */
 
+import { homedir } from 'node:os';
 import { isAbsolute, resolve as resolvePath } from 'node:path';
 import type { DockerDef } from '../manifest/types.js';
 
@@ -73,7 +74,13 @@ function resolveVolume(entry: string, cwd: string): string {
   // A named volume (no path separator, e.g. `pgdata:/var/lib/x`) is docker's own
   // storage and must NOT be turned into a directory path.
   const isPath = src.startsWith('.') || src.startsWith('/') || src.startsWith('~');
-  const source = isPath && !isAbsolute(src) ? resolvePath(cwd, src) : src;
+  // `~` is the SHELL's expansion and docker never runs one, so it has to happen
+  // here — resolving it against the worktree would hand docker a literal `~`
+  // directory that does not exist instead of the user's home.
+  // `src.slice(2)` (not `slice(1)`): the remainder must stay RELATIVE, or
+  // `resolve` would read the leading `/` as absolute and drop the home prefix.
+  const expanded = src === '~' ? homedir() : src.startsWith('~/') ? resolvePath(homedir(), src.slice(2)) : src;
+  const source = isPath && !isAbsolute(expanded) ? resolvePath(cwd, expanded) : expanded;
   return `${source}:${rest}`;
 }
 

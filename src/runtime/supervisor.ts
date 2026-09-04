@@ -463,6 +463,11 @@ export async function startHot(store: Store, opts: StartHotOpts): Promise<Server
     // process exited, the command is missing) and needs no port reading.
     const portState = err instanceof HealthTimeoutError ? await describePortState(opts) : '';
     killTree(pid);
+    // Killing the attached client leaves the CONTAINER running, and no `servers`
+    // row exists yet — so nothing downstream will ever learn this name. Remove it
+    // here or a timed-out, abandoned or cancelled start leaks a container holding
+    // the port. Fire-and-forget: `docker rm -f` on an absent container is a no-op.
+    if (opts.container) removeContainer(opts.container, { debug: opts.debug });
     // A user cancellation is quiet — no log tail, no fault banner.
     if (err instanceof HealthAbortedError) throw err;
     // Surface the service's own output so the failure explains itself: a missing

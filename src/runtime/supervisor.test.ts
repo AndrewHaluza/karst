@@ -1204,6 +1204,32 @@ describe('supervisor — container services', () => {
     expect(removeContainerMock).toHaveBeenCalledWith('karst-t1-db');
   });
 
+  it('removes the container when the start never becomes healthy', async () => {
+    const port = nextPort();
+    await expect(
+      startHot(store, {
+        ticketId: 1,
+        service: 'db',
+        command: process.execPath,
+        args: [join(dir, 'server.mjs')],
+        cwd: dir,
+        repoPath: dir,
+        // Never serves /health 200 within the timeout.
+        env: { PORT: String(port), READY_AFTER_MS: '60000' },
+        host: '127.0.0.1',
+        port,
+        healthUrl: `http://127.0.0.1:${port}/health`,
+        logPath: join(dir, 'db.log'),
+        container: 'karst-t1-db',
+        healthTimeoutMs: 700,
+      }),
+    ).rejects.toThrow();
+    // No `servers` row was inserted, so no stop or reap path will ever learn
+    // this container's name: if the failing start does not remove it here, the
+    // container keeps running with the port bound and nothing pointing at it.
+    expect(removeContainerMock).toHaveBeenCalledWith('karst-t1-db', expect.anything());
+  });
+
   it('removes nothing for a plain command service', async () => {
     const port = nextPort();
     const rec = await startHot(store, {

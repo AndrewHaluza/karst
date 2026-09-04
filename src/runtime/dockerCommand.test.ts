@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { homedir } from 'node:os';
 import type { DockerDef } from '../manifest/types.js';
 import { containerName, renderDockerRun } from './dockerCommand.js';
 
@@ -74,6 +75,15 @@ describe('renderDockerRun', () => {
       docker: { ...IMAGE, volumes: ['/srv/data:/data:ro'] },
     });
     expect(args).toContain('/srv/data:/data:ro');
+  });
+
+  it('expands a `~` volume source to the home directory', () => {
+    const { args } = renderDockerRun({
+      ...base,
+      docker: { ...IMAGE, volumes: ['~/data:/data'] },
+    });
+    expect(args).toContain(`${homedir()}/data:/data`);
+    expect(args.some((a) => a.includes('/wt/ticket/~'))).toBe(false);
   });
 
   it('puts the image last when there is no command override', () => {
