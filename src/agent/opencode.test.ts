@@ -1108,6 +1108,45 @@ describe('OpencodeAdapter approach materialization', () => {
     expect(result.ownedPaths).toEqual([skillDir]);
   });
 
+  // A relaunch re-renders the generated workflow command with the CURRENT
+  // stage marker. Skipping the write because the file existed left the stale
+  // body, whose closing step names a stage the CLI now refuses.
+  it('re-renders an existing generated workflow command with the current stage marker', () => {
+    const worktree = makeWorktree();
+    const baseDir = makeBasePackage('rpi', []);
+    const pkg = { id: 'rpi', label: 'RPI', workflow: [{ name: 'research' }] };
+    const adapter = new OpencodeAdapter();
+    adapter.materializeApproach!({
+      baseDir, sessionDir: worktree, pkg,
+      cliStagePrefix: 'node "/ext/cli.js" stage impl pass',
+    });
+    adapter.materializeApproach!({
+      baseDir, sessionDir: worktree, pkg,
+      cliStagePrefix: 'node "/ext/cli.js" stage fix pass',
+    });
+
+    const body = readFileSync(join(worktree, '.opencode/commands/rpi.md'), 'utf8');
+    expect(body).toContain('stage fix pass');
+    expect(body).not.toContain('stage impl pass');
+  });
+
+  // The bare `<id>` command name can collide with a command the repository
+  // checked in — that file belongs to the repository, never to this terminal.
+  it('never overwrites a workflow command karst did not generate', () => {
+    const worktree = makeWorktree();
+    const cmdPath = join(worktree, '.opencode/commands/rpi.md');
+    mkdirSync(dirname(cmdPath), { recursive: true });
+    writeFileSync(cmdPath, 'checked into the repo');
+
+    new OpencodeAdapter().materializeApproach!({
+      baseDir: makeBasePackage('rpi', []),
+      sessionDir: worktree,
+      pkg: { id: 'rpi', label: 'RPI', workflow: [{ name: 'research' }] },
+    });
+
+    expect(readFileSync(cmdPath, 'utf8')).toBe('checked into the repo');
+  });
+
   it('slugs a non-kebab artifact basename and solo agent name', () => {
     const worktree = makeWorktree();
     new OpencodeAdapter().materializeApproach!({

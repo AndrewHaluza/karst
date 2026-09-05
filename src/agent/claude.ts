@@ -12,6 +12,7 @@ import type {
   HeadlessResult,
 } from './adapter.js';
 import { renderWorkflowCommand, KARST_PLUGIN_NAME, orchestratorCommandBasename } from './workflowCommand.js';
+import { withStamp, writeGeneratedArtifact } from './generatedArtifact.js';
 import { writeHookSettings } from './settings.js';
 import { describeHeadlessFailure } from './cliFailure.js';
 import { spawnHeadlessCli, headlessPreview, type HeadlessSpawnOptions } from './headlessSpawn.js';
@@ -275,16 +276,27 @@ export class ClaudeAdapter implements AgentAdapter {
       // it registers as `/karst:<id>` (not `/<id>:karst`). Native commands stay
       // in the <id> plugin as `/<id>:<name>`.
       const karstDir = join(opts.sessionDir, '.karst-plugin', KARST_PLUGIN_NAME);
+      // The dir is SHARED: it is named for the plugin, not the approach, so a
+      // worktree first launched under one approach already holds it when the
+      // ticket is re-launched under another. Skipping the whole dir on that
+      // second launch wrote no command for the new approach while the seed
+      // still invoked it — "Unknown command: /karst:<id>" (UNKNOWN-COMMAND-ISSUE).
+      // Ownership is still claimed only when karst created the dir, and the
+      // per-FILE guard (`writeGeneratedArtifact`) keeps a repository's own
+      // checked-in command safe.
       const ownsKarst = !existsSync(karstDir);
-      if (ownsKarst) {
+      {
         const karstMeta = join(karstDir, '.claude-plugin');
         const karstCommands = join(karstDir, 'commands');
         mkdirSync(karstMeta, { recursive: true });
         mkdirSync(karstCommands, { recursive: true });
-        writeFileSync(
-          join(karstMeta, 'plugin.json'),
-          JSON.stringify({ name: KARST_PLUGIN_NAME, version: '0.0.0' }, null, 2),
-        );
+        const pluginJson = join(karstMeta, 'plugin.json');
+        if (!existsSync(pluginJson)) {
+          writeFileSync(
+            pluginJson,
+            JSON.stringify({ name: KARST_PLUGIN_NAME, version: '0.0.0' }, null, 2),
+          );
+        }
         const body = renderWorkflowCommand({
           id: opts.pkg.id,
           label: opts.pkg.label,
@@ -294,8 +306,11 @@ export class ClaudeAdapter implements AgentAdapter {
           ...(opts.cliPhasePrefix ? { phaseCommand: opts.cliPhasePrefix } : {}),
           ...(opts.cliGuidePrefix ? { guideCommand: opts.cliGuidePrefix } : {}),
         });
-        writeFileSync(join(karstCommands, `${orchestratorCommandBasename(opts.pkg.id)}.md`), body);
-        owned.push(karstDir);
+        writeGeneratedArtifact(
+          join(karstCommands, `${orchestratorCommandBasename(opts.pkg.id)}.md`),
+          withStamp(body),
+        );
+        if (ownsKarst) owned.push(karstDir);
       }
       pluginDirs.push(karstDir);
     }

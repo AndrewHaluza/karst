@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 import { mkdtempSync, rmSync, existsSync, readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { EventEmitter } from 'node:events';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 import { ClaudeAdapter, makeDefaultSpawn, type SpawnHeadless, type SpawnImpl } from './claude.js';
 
 /** A fake headless spawner returning canned stdout/exit for runHeadless tests. */
@@ -576,6 +576,83 @@ describe('ClaudeAdapter.materializeApproach', () => {
     expect(existsSync(cmdPath)).toBe(true);
     const body = readFileSync(cmdPath, 'utf8');
     expect(body).toContain('# Write a plan first');
+  });
+
+  // The `karst` plugin dir is SHARED by every approach a worktree is ever
+  // launched under: it is named for the plugin, not the approach. Skipping the
+  // whole dir when it already existed meant a worktree first launched under
+  // `rpi` and then re-launched under another approach never got the second
+  // approach's command file written — while the seed still invoked it, so the
+  // session opened with "Unknown command: /karst:<id>" (UNKNOWN-COMMAND-ISSUE,
+  // observed AFTER the slug fix).
+  it('writes the orchestrator into a karst plugin dir another approach already created', () => {
+    const baseDir = makeDir();
+    const sessionDir = makeDir();
+
+    adapter.materializeApproach!({
+      baseDir,
+      sessionDir,
+      pkg: { id: 'rpi', label: 'RPI', workflow: [{ name: 'research' }] },
+    });
+    const result = adapter.materializeApproach!({
+      baseDir,
+      sessionDir,
+      pkg: {
+        id: 'superpowers:writing-plans',
+        label: 'Write a plan first',
+        workflow: [{ name: 'plan' }],
+      },
+    });
+
+    expect(result.invocation).toBe('/karst:superpowers-writing-plans');
+    const cmdPath = join(
+      sessionDir, '.karst-plugin', 'karst', 'commands', 'superpowers-writing-plans.md',
+    );
+    expect(readFileSync(cmdPath, 'utf8')).toContain('# Write a plan first');
+    // the first approach's command is left in place — both are registered
+    expect(existsSync(join(sessionDir, '.karst-plugin', 'karst', 'commands', 'rpi.md'))).toBe(true);
+  });
+
+  // A relaunch at a later stage re-renders the same command with a different
+  // marker step. The stale body named the stage the CLI would now refuse.
+  it('re-renders an existing generated orchestrator with the current stage marker', () => {
+    const baseDir = makeDir();
+    const sessionDir = makeDir();
+    const pkg = { id: 'rpi', label: 'RPI', workflow: [{ name: 'research' }] };
+
+    adapter.materializeApproach!({
+      baseDir, sessionDir, pkg,
+      cliStagePrefix: 'node "/ext/cli.js" stage impl pass',
+    });
+    adapter.materializeApproach!({
+      baseDir, sessionDir, pkg,
+      cliStagePrefix: 'node "/ext/cli.js" stage fix pass',
+    });
+
+    const body = readFileSync(
+      join(sessionDir, '.karst-plugin', 'karst', 'commands', 'rpi.md'),
+      'utf8',
+    );
+    expect(body).toContain('stage fix pass');
+    expect(body).not.toContain('stage impl pass');
+  });
+
+  // The property the old dir-level guard was protecting: a file the repository
+  // checked in at the same path belongs to the repository, not this terminal.
+  it('never overwrites a command file karst did not generate', () => {
+    const baseDir = makeDir();
+    const sessionDir = makeDir();
+    const cmdPath = join(sessionDir, '.karst-plugin', 'karst', 'commands', 'rpi.md');
+    mkdirSync(dirname(cmdPath), { recursive: true });
+    writeFileSync(cmdPath, 'checked into the repo');
+
+    adapter.materializeApproach!({
+      baseDir,
+      sessionDir,
+      pkg: { id: 'rpi', label: 'RPI', workflow: [{ name: 'research' }] },
+    });
+
+    expect(readFileSync(cmdPath, 'utf8')).toBe('checked into the repo');
   });
 });
 

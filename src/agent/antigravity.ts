@@ -19,6 +19,7 @@ import type {
   HeadlessResult,
 } from './adapter.js';
 import { renderWorkflowCommand, KARST_PLUGIN_NAME, slugCommandName } from './workflowCommand.js';
+import { withStamp, writeGeneratedArtifact } from './generatedArtifact.js';
 import { SUPPORTED, unsupported, type AdapterSurfaces } from './surfaces.js';
 import { describeHeadlessFailure } from './cliFailure.js';
 import { spawnHeadlessCli, headlessPreview, type HeadlessSpawnOptions } from './headlessSpawn.js';
@@ -210,20 +211,24 @@ export class AntigravityAdapter implements AgentAdapter {
     let ownedKarstDir: string | undefined;
     if (hasWorkflow) {
       const karstDir = join(opts.sessionDir, '.agents', 'plugins', KARST_PLUGIN_NAME);
-      // Same rule as the <id> plugin: a checked-in `karst` plugin is the
-      // repository's, so leave it alone rather than rewriting its skills.
-      if (!existsSync(karstDir)) {
-        ownedKarstDir = karstDir;
+      // The dir is SHARED across approaches (it is named for the plugin), so a
+      // re-launch under a second approach must still get ITS skill written —
+      // skipping the whole dir left the seed invoking a skill that was never
+      // generated (UNKNOWN-COMMAND-ISSUE). Ownership is claimed only when karst
+      // created the dir; the per-FILE guard below keeps a repository's own
+      // checked-in skill safe.
+      {
+        if (!existsSync(karstDir)) ownedKarstDir = karstDir;
         // The approach id is legal as a manifest/package id, but a `:` (or other
         // non-word punctuation) would break the generated skill name, its dir,
         // and its `$`-invocation on agy — slug it into kebab (UNKNOWN-COMMAND-ISSUE).
         const idSlug = slugCommandName(opts.pkg.id);
         const skillDir = join(karstDir, 'skills', idSlug);
         mkdirSync(skillDir, { recursive: true });
-        writeFileSync(
-          join(karstDir, 'plugin.json'),
-          JSON.stringify({ name: KARST_PLUGIN_NAME }, null, 2),
-        );
+        const pluginJson = join(karstDir, 'plugin.json');
+        if (!existsSync(pluginJson)) {
+          writeFileSync(pluginJson, JSON.stringify({ name: KARST_PLUGIN_NAME }, null, 2));
+        }
         const body = renderWorkflowCommand({
           id: opts.pkg.id,
           label: opts.pkg.label,
@@ -239,9 +244,9 @@ export class AntigravityAdapter implements AgentAdapter {
           `description: Run the ${opts.pkg.label} workflow for a Karst ticket.`,
           '---',
           '',
-          body,
+          withStamp(body),
         ].join('\n');
-        writeFileSync(join(skillDir, 'SKILL.md'), skill);
+        writeGeneratedArtifact(join(skillDir, 'SKILL.md'), skill);
       }
     }
 
