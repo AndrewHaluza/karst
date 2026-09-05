@@ -14,6 +14,7 @@ const pr = (over: Partial<PrView> = {}): PrView => ({
   baseRef: 'develop',
   createdAt: '2026-07-23T08:55:00Z',
   mergedAt: null,
+  dismissedAt: null,
   comments: [],
   ...over,
 });
@@ -144,6 +145,24 @@ describe('buildPrPanelRows', () => {
     const noUrl = rows({ url: null })[0]!;
     expect(noUrl.canMerge).toBe(false);
     expect(noUrl.mergeBlockedReason).toMatch(/no pull request url/i);
+  });
+
+  // The stuck-ship escape hatch: a closed PR can never become merged, so the
+  // panel offers the one action that gives the merge gate an answer.
+  it('offers dismiss only for an unmerged, undismissed PR', () => {
+    const closed = rows({ status: 'closed' })[0]!;
+    expect(closed.canDismiss).toBe(true);
+    expect(closed.dismissed).toBe(false);
+
+    expect(rows({ status: 'merged' })[0]!.canDismiss).toBe(false);
+    expect(rows({ status: 'open' })[0]!.canDismiss).toBe(true);
+  });
+
+  it('reads a dismissed PR as dismissed and offers the undo instead', () => {
+    const row = rows({ status: 'closed', dismissedAt: '2026-07-24T00:00:00Z' })[0]!;
+    expect(row.dismissed).toBe(true);
+    expect(row.canDismiss).toBe(false);
+    expect(row.dismissedLabel).toMatch(/dismissed/i);
   });
 
   // 'unknown' means karst could not read the PR's state. Offering an irreversible

@@ -638,7 +638,14 @@ CREATE TABLE IF NOT EXISTS prs (
   base_ref      TEXT,                 -- v16: target branch (gh baseRefName)
   created_at    TEXT,                 -- v16: PR creation stamp, ISO-8601 from gh
   merged_at     TEXT,                 -- v16: merge stamp; NULL until actually merged
-  comments      TEXT                  -- v16: JSON array of {author,at,body}; see store/prComments.ts
+  comments      TEXT,                 -- v16: JSON array of {author,at,body}; see store/prComments.ts
+  -- v56: when a human declared this PR will never land — a PR closed because the
+  -- changes turned out to be unneeded. NOT a status (GitHub's answer stays
+  -- whatever gh says); an acknowledgement OURS, which is why it is a separate
+  -- column a re-probe can never overwrite. The merge gate stops waiting on a
+  -- dismissed PR; nothing else reads it as merged. NULL means "still expected to
+  -- land", the honest answer for every pre-v56 row.
+  dismissed_at  TEXT
 );
 
 -- v47: one row per (ticket, repo, url) — see recordShippedPr (store/prs.ts) and

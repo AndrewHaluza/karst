@@ -58,6 +58,19 @@ export interface PrPanelRow {
   canMerge: boolean;
   /** Why it is not offered — shown on the disabled control; '' when it is. */
   mergeBlockedReason: string;
+  /**
+   * Whether a human has declared this PR will never land, so the merge gate
+   * stops waiting on it (v56).
+   */
+  dismissed: boolean;
+  /** `dismissed <stamp>` for a dismissed PR, '' otherwise. */
+  dismissedLabel: string;
+  /**
+   * Whether the dismiss action is offered. A merged PR landed and a dismissed
+   * one already carries the acknowledgement, so neither is offered it; the undo
+   * (`dismissed === true`) is what the panel shows instead.
+   */
+  canDismiss: boolean;
 }
 
 /**
@@ -179,6 +192,8 @@ export function buildPrPanelRows(
   return prs.map((pr) => {
     const status = pr.status ?? 'unknown';
     const { canMerge, reason } = mergability(status, pr.url);
+    const dismissed = pr.dismissedAt !== null;
+    const dismissedStamp = formatPrStamp(pr.dismissedAt);
     const opened = stampView(pr.createdAt, now);
     const merged = stampView(pr.mergedAt, now);
     const count = pr.comments.length;
@@ -202,6 +217,13 @@ export function buildPrPanelRows(
       })),
       canMerge,
       mergeBlockedReason: reason,
+      dismissed,
+      dismissedLabel: dismissedStamp ? `dismissed ${dismissedStamp}` : dismissed ? 'dismissed' : '',
+      // Offered for anything that has not landed and has not already been
+      // acknowledged — including an 'open' PR, because the user closing it on
+      // GitHub and dismissing it here are one decision, and karst must not
+      // require a specific order for the two halves.
+      canDismiss: !dismissed && status !== 'merged',
     };
   });
 }

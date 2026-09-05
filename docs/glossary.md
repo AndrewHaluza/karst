@@ -352,6 +352,11 @@ agent states, hook events) are defined once in `src/model/types.ts` and
 - **`done` means merged** — done is reached only when every PR the ticket
   opened reads merged upstream (or nothing was opened). A ticket whose PRs are
   open parks at ship with an `awaiting-merge` block, reading *Needs you*.
+- **Dismissed PR** — a pull request a human declared will never land
+  (`prs.dismissed_at`, v56; `workflow/dismissPr.ts`). The escape hatch for a
+  PR CLOSED without merging, which can never satisfy "done means merged" and
+  would otherwise park the ticket at ship forever. Dropped from the merge
+  gate's read — never counted as merged — and reversible from the same PR row.
 
 ---
 

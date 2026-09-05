@@ -40,7 +40,7 @@ export function readSchema(): string {
 }
 
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 55;
+export const SCHEMA_VERSION = 56;
 
 /** v2 ticket-field columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -2120,6 +2120,25 @@ export function migrate(db: Database): void {
     const ticketCols55 = tableColumns(db, 'tickets');
     if (ticketCols55.size > 0 && !ticketCols55.has('env_overrides')) {
       db.exec('ALTER TABLE tickets ADD COLUMN env_overrides TEXT');
+    }
+  }
+
+
+  if (current < 56) {
+    // v56: `prs.dismissed_at` records that a human declared this PR will never
+    // land — the PR closed because the changes turned out to be unneeded. The
+    // merge gate stops waiting on a dismissed PR, which is what unsticks a
+    // multi-repo ticket parked at `ship` behind a closed PR that can never
+    // become 'merged'. It is deliberately NOT a status value: gh owns `status`
+    // and re-probes it, and an acknowledgement of ours must survive that.
+    // NULL means "still expected to land" — true of every pre-v56 row.
+    //
+    // The guard reads the CURRENT columns, never the version, so a fresh DB
+    // (already carrying it via schema.sql) is a no-op and a re-open is
+    // idempotent.
+    const prCols56 = tableColumns(db, 'prs');
+    if (prCols56.size > 0 && !prCols56.has('dismissed_at')) {
+      db.exec('ALTER TABLE prs ADD COLUMN dismissed_at TEXT');
     }
   }
 

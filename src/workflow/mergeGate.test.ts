@@ -7,6 +7,7 @@ import { stageBadge } from '../model/stageBadge.js';
 import { facetOf } from '../ui/sidebar/facets.js';
 import { transition } from './machine.js';
 import { setStage } from '../store/stages.js';
+import { dismissPr } from '../store/prs.js';
 import { mergeGateState, resolveShipLanding, settleShipGate, settleShipGates } from './mergeGate.js';
 
 // Wrapped rather than stubbed (`vi.fn(actual.x)`), so every OTHER test in this
@@ -81,9 +82,41 @@ describe('mergeGateState', () => {
 
   // A closed PR is not merged and never will be on its own. Treating it as
   // landed would mark the ticket done for work that was thrown away.
-  it('does not read a closed PR as landed', () => {
+  it('does not read a closed PR as landed, and names it as closed', () => {
     seedPr(store, id, 'api', 'closed');
+    expect(mergeGateState(store, id)).toEqual({ kind: 'closed', repos: ['api'], pending: [] });
+  });
+
+  // The stuck-ticket case this gate exists to unstick: a closed PR can never
+  // become 'merged', so without the dismissal there is no terminating answer.
+  it('stops waiting on a dismissed PR and lands the rest', () => {
+    seedPr(store, id, 'api', 'merged');
+    seedPr(store, id, 'web', 'closed', 13);
+    dismissPr(store, { ticketId: id, repo: 'web', at: '2026-09-06T10:00:00Z' });
+    expect(mergeGateState(store, id)).toEqual({ kind: 'merged', repos: ['api'] });
+  });
+
+  // Every PR abandoned is a ticket that delivered nothing — the same honest
+  // reading as a ticket whose work produced no diff at all.
+  it('reads a ticket whose only PR was dismissed as nothing to merge', () => {
+    seedPr(store, id, 'api', 'closed');
+    dismissPr(store, { ticketId: id, repo: 'api', at: '2026-09-06T10:00:00Z' });
+    expect(mergeGateState(store, id)).toEqual({ kind: 'nothing-to-merge' });
+  });
+
+  // A dismissal is an acknowledgement about THIS PR. A repo re-shipped after
+  // one carries a new current PR, which is nobody's business but its own.
+  it('does not carry a dismissal onto a repo re-shipped afterwards', () => {
+    seedPr(store, id, 'api', 'closed', 12);
+    dismissPr(store, { ticketId: id, repo: 'api', at: '2026-09-06T10:00:00Z' });
+    seedPr(store, id, 'api', 'open', 14);
     expect(mergeGateState(store, id)).toEqual({ kind: 'awaiting', repos: ['api'] });
+  });
+
+  it('names a closed PR ahead of the repos merely waiting', () => {
+    seedPr(store, id, 'api', 'closed');
+    seedPr(store, id, 'web', 'open', 13);
+    expect(mergeGateState(store, id)).toEqual({ kind: 'closed', repos: ['api'], pending: ['web'] });
   });
 
   // The lookup-failure case: a degraded probe (a failed `gh pr view`, or a PR
