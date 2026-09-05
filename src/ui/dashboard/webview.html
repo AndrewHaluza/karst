@@ -1705,6 +1705,14 @@
   .termview .tstatus{font-size:var(--k-text-xs);color:var(--k-text-dim);padding:var(--k-space-2) var(--k-space-4)}
   .termview .termhost{flex:1;min-height:0;overflow:hidden}
   .termview .blurb{padding:var(--k-space-6);color:var(--k-text-dim)}
+  /* xterm owns the scroll (its own .xterm-viewport, scrollback 10000). The
+     native scrollbar is near-invisible over the console background, so the
+     scrollback reads as unreachable — give the thumb a contrasting surface. */
+  .termview .xterm-viewport{scrollbar-width:thin;scrollbar-color:var(--k-border-strong) transparent}
+  .termview .xterm-viewport::-webkit-scrollbar{width:var(--k-space-5)}
+  .termview .xterm-viewport::-webkit-scrollbar-track{background:transparent}
+  .termview .xterm-viewport::-webkit-scrollbar-thumb{background:var(--k-border-strong);border-radius:var(--k-radius-sm)}
+  .termview .xterm-viewport::-webkit-scrollbar-thumb:hover{background:var(--k-text-dim)}
 
   /* Combined server logs surface: tabs per server + merged chronological view.
      body.log-nav hides .stepper and .grid, like body.art-nav and body.term-nav. */
@@ -1717,7 +1725,12 @@
   .logsview .tab{padding:var(--k-space-2) var(--k-space-3);font-size:var(--k-text-xs);font-family:var(--k-font-mono);color:var(--k-text-dim);background:transparent;border:none;border-radius:var(--k-radius-sm);cursor:pointer;white-space:nowrap}
   .logsview .tab:hover{color:var(--k-text);background:var(--k-bg-muted)}
   .logsview .tab.active{color:var(--k-text);background:var(--k-bg-muted);font-weight:var(--k-weight-semibold)}
-  .logsview .loghost{flex:1;min-height:0;overflow:hidden;font-size:var(--k-text-xs);line-height:1.5}
+  .logsview .loghost{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;font-size:var(--k-text-xs);line-height:1.5;
+    scrollbar-width:thin;scrollbar-color:var(--k-border-strong) transparent}
+  .logsview .loghost::-webkit-scrollbar{width:var(--k-space-5)}
+  .logsview .loghost::-webkit-scrollbar-track{background:transparent}
+  .logsview .loghost::-webkit-scrollbar-thumb{background:var(--k-border-strong);border-radius:var(--k-radius-sm)}
+  .logsview .loghost::-webkit-scrollbar-thumb:hover{background:var(--k-text-dim)}
   .logsview .loghost .merged{white-space:pre-wrap;word-break:break-all;padding:var(--k-space-3) var(--k-space-4)}
   .logsview .loghost .service-prefix{font-weight:var(--k-weight-semibold);color:var(--k-accent)}
   .logsview .loghost .ts{color:var(--k-text-dim)}
@@ -4438,6 +4451,9 @@
   function renderLogsContent() {
     const host = el('logsHost');
     if (!host) return;
+    // Only auto-scroll if the reader was already at (or near) the bottom —
+    // otherwise new output would yank them away from a line they scrolled up to read.
+    const wasAtBottom = host.scrollHeight - host.scrollTop - host.clientHeight < 32;
     if (logsActiveTab === 'merged') {
       if (logsMergedLines.length === 0) {
         host.innerHTML = `<div class="blurb">${logsLoading ? 'Loading…' : 'No log output available.'}</div>`;
@@ -4452,6 +4468,7 @@
         host.innerHTML = `<div class="merged">${buf.join('\n')}</div>`;
       }
     }
+    if (wasAtBottom) host.scrollTop = host.scrollHeight;
   }
 
   function handleServerLogsInitial(servers) {
@@ -4518,6 +4535,29 @@
       termResize = new ResizeObserver(() => termFit && termFit.fit());
       termResize.observe(host);
     }
+  }
+
+  // Console scrollback is only reachable by wheel otherwise: xterm takes no
+  // stdin here (disableStdin), so the keys are free to drive its viewport.
+  function scrollTermByKey(e) {
+    if (e.metaKey || e.ctrlKey || e.altKey) return false;
+    if (e.key === 'PageUp') { term.scrollPages(-1); return true; }
+    if (e.key === 'PageDown') { term.scrollPages(1); return true; }
+    if (e.key === 'Home') { term.scrollToTop(); return true; }
+    if (e.key === 'End') { term.scrollToBottom(); return true; }
+    return false;
+  }
+
+  function scrollLogsByKey(e) {
+    if (e.metaKey || e.ctrlKey || e.altKey) return false;
+    const host = el('logsHost');
+    if (!host) return false;
+    const page = Math.max(host.clientHeight - 40, 40);
+    if (e.key === 'PageUp') { host.scrollTop -= page; return true; }
+    if (e.key === 'PageDown') { host.scrollTop += page; return true; }
+    if (e.key === 'Home') { host.scrollTop = 0; return true; }
+    if (e.key === 'End') { host.scrollTop = host.scrollHeight; return true; }
+    return false;
   }
 
   // Scroll preservation (spec §9): each surface keeps its own position.
@@ -4874,6 +4914,8 @@
     if (e.key === 'Escape' && stageMenuStage !== null) { stageMenuStage = null; render(lastState); return; }
     if (e.key === 'Escape' && termView) { closeTerminal(); return; }
     if (e.key === 'Escape' && logsView) { closeServerLogs(); return; }
+    if (termView && term && scrollTermByKey(e)) { e.preventDefault(); return; }
+    if (logsView && scrollLogsByKey(e)) { e.preventDefault(); return; }
     if (e.key === 'Escape' && envView) { closeEnvOverrides(); return; }
     if (e.key === 'Escape' && artView) { artifactBack(); return; }
     // Base-form popover: close on Escape
