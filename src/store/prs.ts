@@ -153,6 +153,63 @@ export function updatePrDetail(store: Store, input: UpdatePrDetailInput): void {
     );
 }
 
+export interface DismissPrInput {
+  ticketId: number;
+  /** The repository whose CURRENT PR is being dismissed (a `prs.repo` value). */
+  repo: string;
+  /** The dismissal stamp — injected, never read from a clock in here. */
+  at: string;
+}
+
+/** The repo's CURRENT PR rowid + status, or undefined when it has none. */
+function currentPrRow(
+  store: Store,
+  ticketId: number,
+  repo: string,
+): { rowid: number; status: string | null } | undefined {
+  return store.db
+    .prepare(
+      `SELECT rowid, status FROM prs
+        WHERE ticket_id = ? AND repo = ? AND url IS NOT NULL
+        ORDER BY CASE WHEN status = 'open' THEN 0 ELSE 1 END, number DESC
+        LIMIT 1`,
+    )
+    .get(ticketId, repo) as { rowid: number; status: string | null } | undefined;
+}
+
+/**
+ * Record that a repo's PR will never land — the escape hatch for a ticket whose
+ * PR was CLOSED because the changes turned out to be unneeded.
+ *
+ * Without it such a ticket parks at `ship` forever: `mergeGateState` waits for a
+ * literal `'merged'`, and a closed PR can never reach it, so the gate has no
+ * terminating answer and no user action can supply one.
+ *
+ * Deliberately a column of ours rather than a status value: `status` is gh's
+ * answer and `prSync` overwrites it, so an acknowledgement stored there would be
+ * erased by the next probe. Refuses a merged PR — landing is the outcome, not
+ * abandonment — and returns false rather than throwing when the repo has no PR,
+ * because the repo name arrives from a webview a stale panel may have rendered.
+ */
+export function dismissPr(store: Store, input: DismissPrInput): boolean {
+  const row = currentPrRow(store, input.ticketId, input.repo);
+  if (row === undefined || row.status === 'merged') return false;
+  store.db.prepare('UPDATE prs SET dismissed_at = ? WHERE rowid = ?').run(input.at, row.rowid);
+  return true;
+}
+
+/**
+ * Undo a dismissal, so a PR reopened upstream (or dismissed by mistake) blocks
+ * the gate again. Same tolerance as `dismissPr`: an absent PR is false, not a
+ * throw.
+ */
+export function undismissPr(store: Store, input: { ticketId: number; repo: string }): boolean {
+  const row = currentPrRow(store, input.ticketId, input.repo);
+  if (row === undefined) return false;
+  store.db.prepare('UPDATE prs SET dismissed_at = NULL WHERE rowid = ?').run(row.rowid);
+  return true;
+}
+
 /**
  * Which of a repo's PR rows is the CURRENT one.
  *
@@ -171,6 +228,11 @@ export interface CurrentPr {
   number: number | null;
   url: string;
   status: string | null;
+  /**
+   * When a human declared this PR will never land (v56), else null. The merge
+   * gate stops waiting on a dismissed PR — see `dismissPr`.
+   */
+  dismissedAt: string | null;
 }
 
 /**
@@ -192,7 +254,7 @@ export interface CurrentPr {
 export function listCurrentPrsByTicket(store: Store, ticketId: number): CurrentPr[] {
   const rows = store.db
     .prepare(
-      `SELECT pr.repo, pr.number, pr.url, pr.status
+      `SELECT pr.repo, pr.number, pr.url, pr.status, pr.dismissed_at
          FROM prs pr
         WHERE pr.ticket_id = ?
           AND pr.url IS NOT NULL
@@ -210,8 +272,15 @@ export function listCurrentPrsByTicket(store: Store, ticketId: number): CurrentP
       number: number | null;
       url: string;
       status: string | null;
+      dismissed_at: string | null;
     }>;
-  return rows.map((r) => ({ repo: r.repo, number: r.number, url: r.url, status: r.status }));
+  return rows.map((r) => ({
+    repo: r.repo,
+    number: r.number,
+    url: r.url,
+    status: r.status,
+    dismissedAt: r.dismissed_at,
+  }));
 }
 
 /**
@@ -224,10 +293,17 @@ export function listCurrentPrsByTicket(store: Store, ticketId: number): CurrentP
 export function getPrById(store: Store, id: number): (CurrentPr & { ticketId: number }) | undefined {
   const row = store.db
     .prepare(
-      `SELECT ticket_id, repo, number, url, status FROM prs WHERE rowid = ? AND url IS NOT NULL`,
+      `SELECT ticket_id, repo, number, url, status, dismissed_at FROM prs WHERE rowid = ? AND url IS NOT NULL`,
     )
     .get(id) as
-    | { ticket_id: number; repo: string; number: number | null; url: string; status: string | null }
+    | {
+        ticket_id: number;
+        repo: string;
+        number: number | null;
+        url: string;
+        status: string | null;
+        dismissed_at: string | null;
+      }
     | undefined;
   if (row === undefined) return undefined;
   return {
@@ -236,6 +312,7 @@ export function getPrById(store: Store, id: number): (CurrentPr & { ticketId: nu
     number: row.number,
     url: row.url,
     status: row.status,
+    dismissedAt: row.dismissed_at,
   };
 }
 

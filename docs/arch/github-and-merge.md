@@ -8,6 +8,7 @@ Everything karst believes about a PR is re-probed state, never assumed. Related:
 - PR facts are re-probed state, never assumed
 - The merge action trusts the re-probe, not the exit code
 - A merged PR ends its repo's merge check
+- A closed PR is a dead end, and dismissal is the only answer the gate accepts
 - Ship paths go through repoDisplayPath
 
 ## A merge probe's file list is PARSED output, and the format is not what it looks like
@@ -25,6 +26,10 @@ Everything karst believes about a PR is re-probed state, never assumed. Related:
 ## A merged PR ends its repo's merge check, and that is enforced on READ
 
 `merge_checks` is current state, but `syncMergeChecks` refreshes through `listSyncablePrs`, which drops merged PRs on purpose — so the last pre-merge verdict freezes the moment it stops being true, and nothing can ever overwrite it. Both `getMergeCheck` and `listMergeChecksByTicket` therefore filter on `PR_NOT_MERGED` (`store/mergeChecks.ts`), which fixes all four consumers — panel, ship strip, `karst context`, and `buildConflictBrief`'s refusal — at one seam. Read-filtered, never deleted-on-transition: a delete only fires on the transition and would leave every row already stranded in a user's DB, while a read recomputes from `prs.status`, which is itself re-probed. Scoped to the repo's CURRENT PR (`CURRENT_PR_ORDER`, exported from `store/prs.ts` and shared with `findTicketPr`), because `ship` inserts a fresh PR row rather than reusing a terminal one. No PR row at all is NOT a merged repo: `ship` records a check per worktree even when opening the PR failed.
+
+## A closed PR is a dead end, and dismissal is the only answer the gate accepts
+
+The merge gate waits for a literal `'merged'` per repo, and a PR CLOSED without merging can never reach it — so a multi-repo ticket with two merges and one close parked at `ship` forever with no action able to move it. `mergeGateState` now names that case as its own state (`closed`, ahead of `conflicted` — a conflict is resolvable, a closed PR is not) and the block reason states the two ways out: reopen it upstream, or DISMISS it. Dismissal is `prs.dismissed_at` (v56) — a column of OURS, never a status value, because `prSync` overwrites `status` and would erase the acknowledgement. A dismissed PR is dropped from the gate's read rather than counted as merged, so nothing downstream can claim it landed, and a ticket whose every PR was dismissed reads `nothing-to-merge`. `workflow/dismissPr.ts` records it and re-settles the gate normally: it is a statement about one PR, NOT a force-advance — a ticket with other unmerged PRs stays as parked as it was. Reversible from the same row (`undismissTicketPr`), which is what a PR reopened upstream needs; the undo never un-lands a ticket that already reached `done` (that is `sendBack`'s business). Host-confirmed with a modal, and the webview posts only `{type:'dismiss-pr', repo}`, exactly like `merge-pr`.
 
 ## Ship paths go through `repoDisplayPath` + `PathContext`
 

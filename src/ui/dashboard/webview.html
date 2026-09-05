@@ -2021,6 +2021,12 @@
   // `finally` (success, refusal, cancel, or throw), so that push is guaranteed
   // to arrive and end the pending state; it is never left to a watchdog alone.
   let mergeRequests = {};
+  // Per-repo dismiss/undismiss request ids, keyed by repo path. Same shape and
+  // same reason as `mergeRequests`: the host answers a dismiss with a
+  // confirmation modal and then a state push (confirm, cancel, refusal or
+  // throw — always), so the pending flag has to survive the full-innerHTML
+  // redraw that push causes. Cleared wholesale on that push.
+  let dismissRequests = {};
   // Which merge-check disclosures (`.mgd`) are open, keyed by repo. Local view
   // state, exactly like `selectedStage`: render() replaces #prs wholesale on
   // every `state` push AND every inside-progress tick, so a disclosure that is
@@ -3557,6 +3563,33 @@
       + ` title="Merge PR${esc(num)} into ${esc(p.baseRef || 'its base')} — cannot be undone">Merge</button>`;
   }
 
+  // The dismiss control — the ONLY way out of a ship stage parked behind a pull
+  // request that was closed rather than merged (a closed PR can never become
+  // 'merged', so the merge gate has no terminating answer without this).
+  //
+  // `.k-btn--secondary` (UI-R10b): dismissing is consequential but reversible —
+  // the undo below puts the PR straight back in the gate's way — so it is not
+  // danger-coloured. The host still confirms it, and the pending state exists
+  // for the same reason merge's does: a click must never look inert while that
+  // dialog is up.
+  //
+  // Whether it is offered at all is the HOST's verdict (`canDismiss`), never
+  // this file's: a merged PR landed and a dismissed one already carries the
+  // acknowledgement.
+  function dismissButton(p) {
+    if (dismissRequests[p.repo]) {
+      return `<button type="button" class="k-btn k-btn--secondary k-btn--sm mgbtn" aria-busy="true" disabled`
+        + ` title="Confirm in the dialog">${p.dismissed ? 'Undo' : 'Dismiss'}</button>`;
+    }
+    if (p.dismissed) {
+      return `<button type="button" class="k-btn k-btn--secondary k-btn--sm mgbtn" data-act="undismiss-pr" data-repo="${esc(p.repo)}"`
+        + ` title="Wait on this pull request again">Undo dismiss</button>`;
+    }
+    if (!p.canDismiss) return '';
+    return `<button type="button" class="k-btn k-btn--secondary k-btn--sm mgbtn" data-act="dismiss-pr" data-repo="${esc(p.repo)}"`
+      + ` title="Stop waiting on this pull request — it will never land">Dismiss</button>`;
+  }
+
   // The metadata line under a PR: from-to, when it was opened, when it merged, and
   // how many comments it carries. Every part is a host-rendered string that is ''
   // when the fact is absent, so a PR karst has not fully probed simply shows less
@@ -3641,7 +3674,7 @@
       + `<span class="prepo"${repoTitle ? ` title="${esc(repoTitle)}"` : ''}>${esc(repoLabel)}</span>`
       + copy
       + num
-      + `<span class="pacts">${mergeButton(p)}</span></div>`
+      + `<span class="pacts">${p.dismissedLabel ? `<span class="pstamp">${esc(p.dismissedLabel)}</span>` : ''}${dismissButton(p)}${mergeButton(p)}</span></div>`
       + prMetaLine(p)
       + mergeLine(byRepo[p.repo])
       + prComments(p)
@@ -5079,6 +5112,19 @@
       post({ type: act, repo });
       return;
     }
+    // Dismissing (and its undo) is confirmed host-side and answered with a state
+    // push, exactly like merge-pr — same pending contract, same wire shape of
+    // `{type, repo}` with no requestId.
+    if (act === 'dismiss-pr' || act === 'undismiss-pr') {
+      const repo = btn.dataset.repo;
+      if (!repo || dismissRequests[repo]) return;
+      const requestId = karstRequestId();
+      karstBeginPending(btn, requestId);
+      dismissRequests = { ...dismissRequests, [repo]: requestId };
+      render(lastState);
+      post({ type: act, repo });
+      return;
+    }
     // Same reason as the two above: the work is a slow host round trip (gh
     // per PR, git fetch per repo), so show it landed and stop it repeating.
     if (act === 'refresh-prs') {
@@ -5352,6 +5398,22 @@
     mergeRequests = {};
   }
 
+  // Settle every outstanding dismiss/undismiss against the fresh PR list. The
+  // one outcome this file can verify is the PR's own `dismissed` flag having
+  // flipped; a cancelled confirmation settles `null` (unknown), never `false`,
+  // for the same reason a cancelled merge does — a dismissal the user thought
+  // better of is not a failure.
+  function resolveDismissOutcome(state) {
+    if (!Object.keys(dismissRequests).length) return;
+    const prByRepo = {};
+    for (const p of (state.prs || [])) prByRepo[p.repo] = p;
+    for (const [repo, requestId] of Object.entries(dismissRequests)) {
+      const row = prByRepo[repo];
+      karstSettle(requestId, row ? true : null, undefined);
+    }
+    dismissRequests = {};
+  }
+
   // Settle an in-flight "Send back to Implement" against the fresh snapshot.
   // The one outcome the webview can verify is the ticket actually moving to
   // impl (extension.ts confirms via modal, then always pushes). Anything else
@@ -5586,6 +5648,8 @@
         // Likewise merge — settle every outstanding request against the fresh
         // PR list before rendering, so pending state and toast land together.
         resolveMergeOutcome(msg.state);
+        // Likewise dismiss/undismiss — same post-modal push settles them.
+        resolveDismissOutcome(msg.state);
         // Likewise recovery — the post-modal snapshot settles the pending item.
         resolveSendBackOutcome(msg.state);
         // Likewise refresh: the host sends an action-settling snapshot when its

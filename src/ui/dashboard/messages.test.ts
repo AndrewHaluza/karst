@@ -39,6 +39,8 @@ function actions(): DashboardActions {
     openStageLog: vi.fn(),
     resolveConflicts: vi.fn(),
     mergePr: vi.fn(),
+    dismissPr: vi.fn(),
+    undismissPr: vi.fn(),
     refreshPrs: vi.fn(),
     toggleBind: vi.fn(),
     switchAgent: vi.fn(),
@@ -300,6 +302,26 @@ describe('routeAction', () => {
       type: 'merge-pr',
       repo: 'api',
     });
+  });
+
+  it('dispatches dismiss-pr and undismiss-pr with the repo they act on', () => {
+    const a = actions();
+    routeAction({ type: 'dismiss-pr', repo: '/repo/api' }, a);
+    routeAction({ type: 'undismiss-pr', repo: '/repo/api' }, a);
+    expect(a.dismissPr).toHaveBeenCalledWith('/repo/api');
+    expect(a.undismissPr).toHaveBeenCalledWith('/repo/api');
+  });
+
+  // Same narrowing as merge-pr: the repo is the whole payload, and the host
+  // resolves the PR from the store, so a crafted message cannot name one.
+  it('ignores a dismiss-pr with a missing or non-string repo', () => {
+    const a = actions();
+    routeAction({ type: 'dismiss-pr' }, a);
+    routeAction({ type: 'dismiss-pr', repo: 7 }, a);
+    routeAction({ type: 'dismiss-pr', repo: '' }, a);
+    routeAction({ type: 'undismiss-pr', repo: '' }, a);
+    expect(a.dismissPr).not.toHaveBeenCalled();
+    expect(a.undismissPr).not.toHaveBeenCalled();
   });
 
   it('parses change-base-ref', () => {

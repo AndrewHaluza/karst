@@ -275,6 +275,8 @@ import { defaultGhRunnerAsync } from './integrations/github.js';
 import { syncPrStatuses } from './workflow/prSync.js';
 import { syncMergeChecks } from './workflow/mergeSync.js';
 import { mergeTicketPr } from './workflow/mergePr.js';
+import { dismissTicketPr, undismissTicketPr } from './workflow/dismissPr.js';
+import { nowIso } from './model/time.js';
 import { settleShipGates } from './workflow/mergeGate.js';
 import { autoArchiveDoneTickets } from './store/doneArchive.js';
 import { capForGate, lastFailedGate, type GateStageKey } from './workflow/fixAttempts.js';
@@ -1173,7 +1175,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             reason: switchLaunch ? 'switch' : resume ? 'resume' : 'initial',
             sessionOrigin: resume ? 'resume' : 'new',
             recoveryRoundId: round.roundId,
-            at: new Date().toISOString(),
+            at: nowIso(),
           });
           return;
         }
@@ -8172,6 +8174,91 @@ function makeDashboardActions(
           afterServerChange();
         }
       })();
+    },
+    // Dismiss one repo's PR — "this one will never land" — from the ship stage.
+    //
+    // The escape hatch for the stuck ship stage: the merge gate waits for a
+    // literal 'merged' per repo, and a PR CLOSED because the changes turned out
+    // to be unneeded can never reach it, so a multi-repo ticket parks at `ship`
+    // with no action able to move it. This is the human statement the gate is
+    // missing — and it is a statement about a PR, not a force-advance: the gate
+    // is re-read normally afterwards, so a ticket with other unmerged PRs stays
+    // exactly as parked as it was.
+    //
+    // Confirmed with a modal (it changes when a ticket reads Done) but NOT
+    // danger-worded: it is reversible from the same row. The dashboard is
+    // refreshed on every exit, for the same pending-state reason `mergePr`
+    // documents.
+    dismissPr: (repo) => {
+      if (!guardCapability('ship')) return;
+      void (async () => {
+        try {
+          const pr = findTicketPr(store, ticketId, repo);
+          if (!pr) {
+            void vscode.window.showInformationMessage(
+              `No pull request is recorded for "${repo}" on this ticket — nothing to dismiss.`,
+            );
+            return;
+          }
+          const num = pr.number ? ` #${pr.number}` : '';
+          const choice = await vscode.window.showWarningMessage(
+            `Stop waiting on pull request${num}?`,
+            {
+              modal: true,
+              detail:
+                'karst will treat this pull request as one that will never land, so it no '
+                + 'longer holds the ticket at Ship. Nothing on GitHub changes, and you can '
+                + 'undo this from the same row.',
+            },
+            'Dismiss pull request',
+          );
+          if (!choice) return; // dismissed: nothing ran, and nothing is claimed
+
+          const result = dismissTicketPr(store, {
+            ticketId,
+            repo,
+            at: nowIso(),
+            debug,
+          });
+          if (!result.ok) {
+            void vscode.window.showErrorMessage(result.reason);
+            return;
+          }
+          void vscode.window.showInformationMessage(
+            result.completedTicket
+              ? `Dismissed pull request${num} — ticket done.`
+              : `Dismissed pull request${num}.`,
+          );
+          // Same rule as the merge that finishes a ticket: `done` is where the
+          // provider's status is pushed, and only the action that reached it
+          // does the pushing.
+          if (result.completedTicket) await onTicketCompleted();
+        } catch (e) {
+          logError('dismiss failed', e);
+          void vscode.window.showErrorMessage(
+            `Could not dismiss the pull request: ${e instanceof Error ? e.message : String(e)}`,
+          );
+        } finally {
+          afterServerChange();
+        }
+      })();
+    },
+    // Undo a dismissal. Not confirmed: it only puts a pull request back in the
+    // merge gate's way, which is the state the ticket was already in before the
+    // dismissal, and it can never move a ticket forward.
+    undismissPr: (repo) => {
+      if (!guardCapability('ship')) return;
+      try {
+        const result = undismissTicketPr(store, { ticketId, repo, debug });
+        if (!result.ok) void vscode.window.showInformationMessage(result.reason);
+      } catch (e) {
+        logError('undismiss failed', e);
+        void vscode.window.showErrorMessage(
+          `Could not undo the dismissal: ${e instanceof Error ? e.message : String(e)}`,
+        );
+      } finally {
+        afterServerChange();
+      }
     },
     // Re-probe PR status and mergeability on demand, from the panel's refresh
     // icon. The background sweep runs once a minute behind a five-minute

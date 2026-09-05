@@ -39,9 +39,18 @@ import { transition } from './machine.js';
  * one is "click Merge", the other is "resolve this first". Both park the ticket
  * and both read as needs-you; only the wording changes.
  */
+/**
+ * `closed` is separated for the same reason as `conflicted` — the user's next
+ * move differs — but it is the only one of the three that can NEVER resolve on
+ * its own: a closed PR does not become 'merged', so waiting on it is waiting
+ * forever. That is the stuck ship stage this state exists to name: the user
+ * either reopens the PR upstream or dismisses it (`store/prs.ts`'s `dismissPr`,
+ * driven by `workflow/dismissPr.ts`), and only then does the gate get an answer.
+ */
 export type MergeGateState =
   | { kind: 'nothing-to-merge' }
   | { kind: 'merged'; repos: readonly string[] }
+  | { kind: 'closed'; repos: readonly string[]; pending: readonly string[] }
   | { kind: 'conflicted'; repos: readonly string[]; pending: readonly string[] }
   | { kind: 'awaiting'; repos: readonly string[] };
 
@@ -59,7 +68,12 @@ export type MergeGateState =
  * PR, or a ticket could reach `done` while gh simply failed to say.
  */
 export function mergeGateState(store: Store, ticketId: number): MergeGateState {
-  const prs = listCurrentPrsByTicket(store, ticketId);
+  // A dismissed PR is one a human declared will never land. Dropping it here —
+  // rather than counting it as merged — keeps the two readings apart: nothing
+  // downstream may say a dismissed PR was merged, and a ticket whose every PR
+  // was dismissed reads `nothing-to-merge`, the same honest answer as a ticket
+  // whose work produced no diff.
+  const prs = listCurrentPrsByTicket(store, ticketId).filter((p) => p.dismissedAt === null);
   if (prs.length === 0) return { kind: 'nothing-to-merge' };
 
   const unmerged = prs.filter((p) => p.status !== 'merged').map((p) => p.repo);
@@ -82,6 +96,17 @@ export function mergeGateState(store: Store, ticketId: number): MergeGateState {
   } catch {
     checks = [];
   }
+  // A closed PR is named before a conflict: a conflict is resolvable and a
+  // closed PR is not, so the closed one is the news that decides what the user
+  // has to do next.
+  const closed = prs
+    .filter((p) => p.status === 'closed')
+    .map((p) => p.repo)
+    .filter((repo) => unmerged.includes(repo));
+  if (closed.length > 0) {
+    return { kind: 'closed', repos: closed, pending: unmerged.filter((r) => !closed.includes(r)) };
+  }
+
   const conflicted = checks
     .filter((c) => c.state === 'conflicted')
     .map((c) => c.repo)
@@ -107,6 +132,7 @@ export function isLanded(state: MergeGateState): boolean {
 /** The repos this state is still waiting on, for naming in a block reason. */
 function unmergedRepos(state: MergeGateState): readonly string[] {
   switch (state.kind) {
+    case 'closed':
     case 'conflicted':
       return [...state.repos, ...state.pending];
     case 'awaiting':
@@ -129,6 +155,17 @@ function describeAwaitingMerge(state: MergeGateState): string {
     state.kind === 'conflicted'
       ? ` (${state.repos.length === 1 ? 'a conflict' : 'conflicts'} in ${state.repos.join(', ')})`
       : '';
+  if (state.kind === 'closed') {
+    // Named as a dead end with the way out, because it IS one: nothing karst or
+    // GitHub does on its own will move this PR to merged. The wording is the
+    // whole escape hatch a user parked here has — the dashboard's blocked banner
+    // and the rail print `stages.blocked_reason` verbatim.
+    const list = state.repos.join(', ');
+    const rest = state.pending.length > 0 ? ` Still waiting on ${state.pending.join(', ')}.` : '';
+    return state.repos.length === 1
+      ? `blocked: the pull request for "${list}" was closed without merging — reopen it, or dismiss it to finish the ticket without it.${rest}`
+      : `blocked: pull requests for ${list} were closed without merging — reopen them, or dismiss them to finish the ticket without them.${rest}`;
+  }
   return repos.length === 1
     ? `blocked: the pull request for "${list}" has changes and is not merged yet${conflictNote}.`
     : `blocked: pull requests for ${list} have changes and are not merged yet${conflictNote}.`;
@@ -147,6 +184,8 @@ function describeMergeState(state: MergeGateState): string {
       return 'nothing-to-merge (no PRs)';
     case 'merged':
       return `merged: ${state.repos.join(', ')}`;
+    case 'closed':
+      return `closed-without-merge: ${state.repos.join(', ')} (pending: ${state.pending.join(', ')})`;
     case 'conflicted':
       return `conflicted: ${state.repos.join(', ')} (pending: ${state.pending.join(', ')})`;
     case 'awaiting':

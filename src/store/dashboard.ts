@@ -54,6 +54,12 @@ export interface PrView {
   createdAt: string | null;
   /** When it was merged, ISO-8601; null while open, closed, or never probed. */
   mergedAt: string | null;
+  /**
+   * When a human declared this PR will never land (v56), ISO-8601; null while it
+   * is still expected to. An acknowledgement of ours, not gh's answer — see
+   * `store/prs.ts`'s `dismissPr`.
+   */
+  dismissedAt: string | null;
   /** Its comments, newest last. Empty for none AND for never probed. */
   comments: PrComment[];
 }
@@ -169,13 +175,14 @@ interface PrRow {
   base_ref: string | null;
   created_at: string | null;
   merged_at: string | null;
+  dismissed_at: string | null;
   comments: string | null;
 }
 
 export function listPrsByTicket(store: Store, ticketId: number): PrView[] {
   const rows = store.db
     .prepare(
-      `SELECT rowid AS id, ticket_id, repo, number, url, status, head_ref, base_ref, created_at, merged_at, comments
+      `SELECT rowid AS id, ticket_id, repo, number, url, status, head_ref, base_ref, created_at, merged_at, dismissed_at, comments
          FROM prs WHERE ticket_id = ? ORDER BY number`,
     )
     .all(ticketId) as PrRow[];
@@ -191,6 +198,7 @@ export function listPrsByTicket(store: Store, ticketId: number): PrView[] {
     baseRef: r.base_ref,
     createdAt: r.created_at,
     mergedAt: r.merged_at,
+    dismissedAt: r.dismissed_at,
     // A malformed column renders as no comments rather than faulting the panel —
     // this is a display cache, gh remains the source of truth.
     comments: parseComments(r.comments),

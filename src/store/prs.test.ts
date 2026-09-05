@@ -2,7 +2,16 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { openStore, type Store } from './db.js';
 import { createTicket } from './tickets.js';
 import { listPrsByTicket } from './dashboard.js';
-import { updatePrStatus, updatePrDetail, findTicketPr, listSyncablePrs, recordShippedPr } from './prs.js';
+import {
+  updatePrStatus,
+  updatePrDetail,
+  findTicketPr,
+  listSyncablePrs,
+  recordShippedPr,
+  dismissPr,
+  undismissPr,
+  listCurrentPrsByTicket,
+} from './prs.js';
 
 function seedPr(
   store: Store,
@@ -339,5 +348,46 @@ describe('recordShippedPr', () => {
       url: 'https://github.com/o/r/pull/2',
     });
     expect(listPrsByTicket(store, a.id)).toHaveLength(2);
+  });
+});
+
+describe('dismissPr', () => {
+  let store: Store;
+  beforeEach(() => (store = openStore(':memory:')));
+  afterEach(() => store.close());
+
+  it('stamps the repo current PR as dismissed and reports it', () => {
+    const t = createTicket(store, { key: 'A', title: 'a' });
+    seedPr(store, t.id, 'api', 12, 'closed');
+
+    const ok = dismissPr(store, { ticketId: t.id, repo: 'api', at: '2026-09-06T10:00:00Z' });
+
+    expect(ok).toBe(true);
+    expect(listCurrentPrsByTicket(store, t.id)[0]!.dismissedAt).toBe('2026-09-06T10:00:00Z');
+  });
+
+  it('leaves other repos alone and reports false when the repo has no PR', () => {
+    const t = createTicket(store, { key: 'A', title: 'a' });
+    seedPr(store, t.id, 'api', 12, 'closed');
+
+    expect(dismissPr(store, { ticketId: t.id, repo: 'web', at: '2026-09-06T10:00:00Z' })).toBe(false);
+    expect(listCurrentPrsByTicket(store, t.id)[0]!.dismissedAt).toBeNull();
+  });
+
+  it('refuses to dismiss a merged PR — a landed PR is not abandoned work', () => {
+    const t = createTicket(store, { key: 'A', title: 'a' });
+    seedPr(store, t.id, 'api', 12, 'merged');
+
+    expect(dismissPr(store, { ticketId: t.id, repo: 'api', at: '2026-09-06T10:00:00Z' })).toBe(false);
+    expect(listCurrentPrsByTicket(store, t.id)[0]!.dismissedAt).toBeNull();
+  });
+
+  it('undismisses, so a PR reopened upstream can block the gate again', () => {
+    const t = createTicket(store, { key: 'A', title: 'a' });
+    seedPr(store, t.id, 'api', 12, 'closed');
+    dismissPr(store, { ticketId: t.id, repo: 'api', at: '2026-09-06T10:00:00Z' });
+
+    expect(undismissPr(store, { ticketId: t.id, repo: 'api' })).toBe(true);
+    expect(listCurrentPrsByTicket(store, t.id)[0]!.dismissedAt).toBeNull();
   });
 });

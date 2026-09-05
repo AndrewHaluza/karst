@@ -66,6 +66,21 @@ export type WebviewMessage =
    */
   | { type: 'merge-pr'; repo: string }
   /**
+   * Declare that one repo's pull request will never land, so the merge gate
+   * stops waiting on it — the escape hatch for a ticket parked at `ship` behind
+   * a PR closed because the changes turned out to be unneeded (a closed PR can
+   * never become 'merged', so the gate otherwise has no terminating answer).
+   *
+   * Carries the repo ONLY, exactly as `merge-pr` does: the host resolves the PR
+   * from the store and puts the confirmation in front of the user, so a crafted
+   * or stale message can neither name an arbitrary PR nor skip the confirm. It
+   * is not a force-advance — the gate is re-read normally afterwards, so a
+   * ticket with other unmerged PRs stays parked.
+   */
+  | { type: 'dismiss-pr'; repo: string }
+  /** Undo a dismissal, putting the PR back in the merge gate's way. */
+  | { type: 'undismiss-pr'; repo: string }
+  /**
    * Re-probe this ticket's PRs and their mergeability NOW, instead of waiting for
    * the background sweep. Payload-free: which ticket (and which project) is the
    * host's to know, so a message cannot aim the probe at anything else.
@@ -336,6 +351,14 @@ export interface DashboardActions {
    */
   mergePr: (repo: string) => void | Promise<void>;
   /**
+   * Dismiss one repo's PR — "this one will never land" — and re-settle the merge
+   * gate. Takes the repo for the same reason `mergePr` does: the host resolves
+   * the PR from the store and owns the confirmation.
+   */
+  dismissPr: (repo: string) => void | Promise<void>;
+  /** Undo a dismissal, putting the PR back in the gate's way. */
+  undismissPr: (repo: string) => void | Promise<void>;
+  /**
    * Re-probe this ticket's PR statuses and mergeability immediately, bypassing
    * the sweep's freshness floor, and push the result. Takes nothing: the closure
    * already owns the ticket, and the panel is asking for "again", not "this one".
@@ -510,6 +533,17 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
     case 'merge-pr':
       return typeof m.repo === 'string' && m.repo.length > 0
         ? { type: 'merge-pr', repo: m.repo }
+        : null;
+    // Narrowed exactly like `merge-pr`: the repo is the entire payload (typed,
+    // non-empty, never trimmed — a path is not free text), and everything else
+    // about the action is the host's to decide.
+    case 'dismiss-pr':
+      return typeof m.repo === 'string' && m.repo.length > 0
+        ? { type: 'dismiss-pr', repo: m.repo }
+        : null;
+    case 'undismiss-pr':
+      return typeof m.repo === 'string' && m.repo.length > 0
+        ? { type: 'undismiss-pr', repo: m.repo }
         : null;
     // Payload-free like the panel-level server controls: a companion `repo` or
     // ticket id is dropped, so the refresh can only ever re-probe the ticket the
@@ -763,6 +797,10 @@ export function routeAction(
       return actions.resolveConflicts(msg.repo);
     case 'merge-pr':
       return actions.mergePr(msg.repo);
+    case 'dismiss-pr':
+      return actions.dismissPr(msg.repo);
+    case 'undismiss-pr':
+      return actions.undismissPr(msg.repo);
     case 'refresh-prs':
       return actions.refreshPrs();
     case 'toggle-bind':
