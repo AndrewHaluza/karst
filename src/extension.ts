@@ -8,7 +8,6 @@ import {
   readlink as fsReadlink,
   realpath as fsRealpath,
 } from 'node:fs/promises';
-import { fileURLToPath } from 'node:url';
 import { basename, dirname, isAbsolute, join } from 'node:path';
 
 import { openStore, type Store } from './store/db.js';
@@ -441,6 +440,7 @@ import { injectCsp, newNonce } from './model/csp.js';
 import { injectProviderIdentity } from './model/providerIdentity.js';
 import { injectAgentIdentity } from './model/agentIdentity.js';
 import { injectAgentPicker } from './model/agentPicker.js';
+import { RUNTIME_ASSETS_ROOT } from './runtimeAssetsRoot.js';
 import { injectXterm, readXtermAssets } from './model/xtermAssets.js';
 import { buildTicketArtifacts } from './model/artifacts.js';
 import {
@@ -474,13 +474,11 @@ import { buildGettingStartedState } from './ui/gettingStarted/state.js';
  * managers, so the extension is a thin shell over covered code.
  */
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-
-/** The shipped karst mark. `HERE` is `dist/`, so the asset sits one level up. */
-const BRAND_SVG = join(HERE, '..', 'media', 'karst.svg');
+/** The shipped karst mark. The assets root is `dist/`, so media sits one level up. */
+const BRAND_SVG = join(RUNTIME_ASSETS_ROOT, '..', 'media', 'karst.svg');
 
 /** Monochrome silhouette of the same mark, tinted by the status glyph hue. */
-const MARK_SVG = join(HERE, '..', 'media', 'karst-mark.svg');
+const MARK_SVG = join(RUNTIME_ASSETS_ROOT, '..', 'media', 'karst-mark.svg');
 
 /**
  * The status-free karst mark for every panel tab, materialized once per window.
@@ -7009,12 +7007,12 @@ function dashboardWebviewHtml(warn: (message: string) => void): string {
   let html = injectAgentPicker(injectAgentIdentity(
     injectProviderIdentity(
       injectPalette(
-        injectDesignSystem(readFileSync(join(HERE, 'ui', 'dashboard', 'webview.html'), 'utf8')),
+        injectDesignSystem(readFileSync(join(RUNTIME_ASSETS_ROOT, 'ui', 'dashboard', 'webview.html'), 'utf8')),
       ),
     ),
   ));
   try {
-    html = injectXterm(html, readXtermAssets(join(HERE, 'vendor', 'xterm')));
+    html = injectXterm(html, readXtermAssets(join(RUNTIME_ASSETS_ROOT, 'vendor', 'xterm')));
   } catch (e) {
     warn(`xterm vendor assets unavailable — console view disabled (${(e as Error).message})`);
   }
@@ -7076,7 +7074,7 @@ function makeUsagePanelHost(
   brandIcon?: BrandIconPaths,
 ): UsagePanelHost {
   const html = injectPalette(
-    injectDesignSystem(readFileSync(join(HERE, 'ui', 'usage', 'webview.html'), 'utf8')),
+    injectDesignSystem(readFileSync(join(RUNTIME_ASSETS_ROOT, 'ui', 'usage', 'webview.html'), 'utf8')),
   );
   return {
     createPanel(title): UsagePanel {
@@ -7107,7 +7105,7 @@ function makeResourcesPanelHost(
   brandIcon?: BrandIconPaths,
 ): ResourcesPanelHost {
   const html = injectPalette(
-    injectDesignSystem(readFileSync(join(HERE, 'ui', 'resources', 'webview.html'), 'utf8')),
+    injectDesignSystem(readFileSync(join(RUNTIME_ASSETS_ROOT, 'ui', 'resources', 'webview.html'), 'utf8')),
   );
   return {
     createPanel(title): ResourcesPanel {
@@ -7137,7 +7135,7 @@ function makeChangesPanelHost(
   brandIcon?: BrandIconPaths,
 ): ChangesPanelHost {
   const html = injectPalette(
-    injectDesignSystem(readFileSync(join(HERE, 'ui', 'diffs', 'webview.html'), 'utf8')),
+    injectDesignSystem(readFileSync(join(RUNTIME_ASSETS_ROOT, 'ui', 'diffs', 'webview.html'), 'utf8')),
   );
   return {
     createPanel(title, _ticketId): ChangesPanel {

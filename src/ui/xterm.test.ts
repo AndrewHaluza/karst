@@ -63,13 +63,13 @@ describe('xterm host wiring', () => {
     // inside dashboardWebviewHtml and injectCsp is applied at panel creation,
     // so the nonce pass tags the vendored script (xterm.test.ts above pins the
     // resulting document's CSP compliance).
-    expect(EXTENSION).toMatch(/injectXterm\(html, readXtermAssets\(join\(HERE, 'vendor', 'xterm'\)\)\)/);
+    expect(EXTENSION).toMatch(/injectXterm\(html, readXtermAssets\(join\(RUNTIME_ASSETS_ROOT, 'vendor', 'xterm'\)\)\)/);
   });
 
   it('degrades to the marker comments when the vendor assets are missing', () => {
     // A packaging regression must not take the whole dashboard down: the read
     // is wrapped so a missing bundle leaves the markers in place, which the
     // webview already renders as a visible "console unavailable" refusal.
-    expect(EXTENSION).toMatch(/try \{[\s\S]{0,400}readXtermAssets\(join\(HERE, 'vendor', 'xterm'\)\)[\s\S]{0,200}catch/);
+    expect(EXTENSION).toMatch(/try \{[\s\S]{0,400}readXtermAssets\(join\(RUNTIME_ASSETS_ROOT, 'vendor', 'xterm'\)\)[\s\S]{0,200}catch/);
   });
 });

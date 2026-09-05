@@ -1,13 +1,13 @@
 import * as vscode from 'vscode';
 import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import type { GettingStartedPanel, GettingStartedPanelHost } from './panel.js';
 import { injectPalette } from '../../model/palette.js';
 import { injectDesignSystem } from '../../model/designSystem.js';
 import { injectCsp, newNonce } from '../../model/csp.js';
 import type { BrandIconPaths } from '../brandIcon.js';
 import { brandIconUri } from '../panelIcon.js';
+import { RUNTIME_ASSETS_ROOT } from '../../runtimeAssetsRoot.js';
 
 /**
  * Activation-layer adapter: real webview panels wrapped in the host-agnostic
@@ -16,13 +16,11 @@ import { brandIconUri } from '../panelIcon.js';
  * relative to the compiled module (copy-assets mirrors it into dist/).
  */
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-
 export function makeGettingStartedPanelHost(
   context: vscode.ExtensionContext,
   brandIcon?: BrandIconPaths,
 ): GettingStartedPanelHost {
-  const html = injectPalette(injectDesignSystem(readFileSync(join(HERE, 'ui', 'gettingStarted', 'webview.html'), 'utf8')));
+  const html = injectPalette(injectDesignSystem(readFileSync(join(RUNTIME_ASSETS_ROOT, 'ui', 'gettingStarted', 'webview.html'), 'utf8')));
   return {
     createPanel(title: string): GettingStartedPanel {
       const panel = vscode.window.createWebviewPanel(

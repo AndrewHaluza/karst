@@ -1,7 +1,6 @@
 import * as vscode from 'vscode';
 import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import type { SettingsPanel, SettingsPanelHost } from './panel.js';
 import { injectPalette } from '../../model/palette.js';
 import { injectDesignSystem } from '../../model/designSystem.js';
@@ -11,24 +10,24 @@ import { injectAgentPicker } from '../../model/agentPicker.js';
 import { injectCsp, newNonce } from '../../model/csp.js';
 import type { BrandIconPaths } from '../brandIcon.js';
 import { brandIconUri } from '../panelIcon.js';
+import { RUNTIME_ASSETS_ROOT } from '../../runtimeAssetsRoot.js';
 
 /**
  * Activation-layer adapter: real webview panels wrapped in the host-agnostic
  * `SettingsPanelHost` interface. This is the one place `vscode` webview APIs
  * bind to the settings manager; everything below it is tested with fakes.
  *
- * The HTML is located relative to the compiled module so it resolves the same
- * whether run from `dist/` (copy-assets mirrors it) or via ts-node in tests.
+ * The HTML is read from `RUNTIME_ASSETS_ROOT` — the one anchor that names the
+ * src tree unbundled and the compiled output inside `dist/extension.js`, where
+ * a module's own `import.meta.url` collapses to the bundle's location.
  */
-
-const HERE = dirname(fileURLToPath(import.meta.url));
 
 export function makeSettingsPanelHost(
   context: vscode.ExtensionContext,
   brandIcon?: BrandIconPaths,
 ): SettingsPanelHost {
   const html = injectAgentPicker(injectAgentIdentity(injectProviderIdentity(
-    injectPalette(injectDesignSystem(readFileSync(join(HERE, 'ui', 'settings', 'webview.html'), 'utf8'))),
+    injectPalette(injectDesignSystem(readFileSync(join(RUNTIME_ASSETS_ROOT, 'ui', 'settings', 'webview.html'), 'utf8'))),
   )));
   return {
     createPanel(title: string): SettingsPanel {

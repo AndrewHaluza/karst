@@ -1,9 +1,30 @@
 import type { Database } from 'better-sqlite3';
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { RUNTIME_ASSETS_ROOT } from '../runtimeAssetsRoot.js';
 
-const SCHEMA_PATH = join(dirname(fileURLToPath(import.meta.url)), 'schema.sql');
+/**
+ * Where `schema.sql` sits, resolved against the TWO compiled outputs that can
+ * contain this module — never against this module's own `import.meta.url`,
+ * which collapses to the enclosing bundle's directory and made the lookup
+ * `dist/schema.sql`, a path `scripts/copy-assets.mjs` never writes.
+ *
+ * `RUNTIME_ASSETS_ROOT` is `src/` unbundled and `dist/` inside
+ * `dist/extension.js`, so `store/schema.sql` under it is right in both. The
+ * agent-facing CLI is a SECOND esbuild bundle one level deeper
+ * (`dist/cli/main.js` — see docs/arch/cli.md) and it is the only caller of
+ * `readSchema`, so its root resolves to `dist/cli/`; the sibling candidate
+ * covers it. First existing path wins; the read itself reports a genuinely
+ * missing asset.
+ */
+const SCHEMA_CANDIDATES = [
+  join(RUNTIME_ASSETS_ROOT, 'store', 'schema.sql'),
+  join(RUNTIME_ASSETS_ROOT, '..', 'store', 'schema.sql'),
+] as const;
+
+function schemaPath(): string {
+  return SCHEMA_CANDIDATES.find((candidate) => existsSync(candidate)) ?? SCHEMA_CANDIDATES[0];
+}
 
 /**
  * The v1 base schema as text — what `migrate` runs for a fresh DB and what the
@@ -15,7 +36,7 @@ const SCHEMA_PATH = join(dirname(fileURLToPath(import.meta.url)), 'schema.sql');
  * reproduces exactly what `migrate()` produces on a brand-new registry.
  */
 export function readSchema(): string {
-  return readFileSync(SCHEMA_PATH, 'utf8');
+  return readFileSync(schemaPath(), 'utf8');
 }
 
 /** Bump when the schema changes; drives forward migrations. */
@@ -512,8 +533,7 @@ export function migrate(db: Database): void {
   const current = db.pragma('user_version', { simple: true }) as number;
 
   if (current < 1) {
-    const schema = readFileSync(SCHEMA_PATH, 'utf8');
-    db.exec(schema);
+    db.exec(readSchema());
   }
 
   if (current < 2) {

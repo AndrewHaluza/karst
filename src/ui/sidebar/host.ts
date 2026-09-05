@@ -1,13 +1,13 @@
 import * as vscode from 'vscode';
 import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import type { SidebarView, SidebarViewHost } from './panel.js';
 import { injectPalette } from '../../model/palette.js';
 import { injectDesignSystem } from '../../model/designSystem.js';
 import { injectAgentIdentity } from '../../model/agentIdentity.js';
 import { injectCsp, newNonce } from '../../model/csp.js';
 import { BadgeCache } from './badgeCache.js';
+import { RUNTIME_ASSETS_ROOT } from '../../runtimeAssetsRoot.js';
 
 /**
  * Activation-layer adapter: the real `vscode.WebviewViewProvider` for the sidebar
@@ -21,7 +21,6 @@ import { BadgeCache } from './badgeCache.js';
  * resolves from `dist/` (copy-assets mirrors it) the same as in tests.
  */
 
-const HERE = dirname(fileURLToPath(import.meta.url));
 
 /** The view id must match `contributes.views.karst[].id` in package.json. */
 export const SIDEBAR_VIEW_ID = 'karst.tickets';
@@ -35,7 +34,7 @@ export function makeSidebarViewHost(
   context: vscode.ExtensionContext,
 ): { host: SidebarViewHost; provider: vscode.WebviewViewProvider; badge: BadgeCache } {
   const html = injectPalette(
-    injectAgentIdentity(injectDesignSystem(readFileSync(join(HERE, 'ui', 'sidebar', 'webview.html'), 'utf8'))),
+    injectAgentIdentity(injectDesignSystem(readFileSync(join(RUNTIME_ASSETS_ROOT, 'ui', 'sidebar', 'webview.html'), 'utf8'))),
   );
   let onResolve: ((view: SidebarView) => void) | undefined;
   // The badge outlives any single resolve: VS Code re-resolves the view when it
