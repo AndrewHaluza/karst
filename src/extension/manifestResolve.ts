@@ -1,11 +1,11 @@
 import * as vscode from 'vscode';
 import { readFileSync, mkdirSync, existsSync, writeFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
 import { loadManifestWithDiagnostics, type Manifest } from '../manifest/load.js';
 import { DEFAULT_ARCHIVE_DONE_AFTER_DAYS } from '../manifest/schema.js';
 import { generateProjectSlug } from '../project/slug.js';
 import { SETUP_GUIDE_FILENAME, writeSetupGuide } from '../manifest/setupGuide.js';
+import { RUNTIME_ASSETS_ROOT } from '../runtimeAssetsRoot.js';
 
 /**
  * Manifest resolution for the activation layer (§7.1 wiring). Kept out of
@@ -13,11 +13,18 @@ import { SETUP_GUIDE_FILENAME, writeSetupGuide } from '../manifest/setupGuide.js
  * surfaces its own user-facing message, so callers just check for `undefined`.
  */
 
-// This module compiles to `dist/extension/`, and the bundled root assets are
-// copied to `dist/` — one level up from here.
-const HERE = dirname(fileURLToPath(import.meta.url));
-const EXAMPLE_YML = join(HERE, '..', 'karst.example.yml');
-const SETUP_GUIDE = join(HERE, '..', SETUP_GUIDE_FILENAME);
+// The scaffold assets (`karst.example.yml`, the UAT/review setup runbook) are
+// copied by `scripts/copy-assets.mjs` to the ROOT of the compiled output, which
+// is exactly what `RUNTIME_ASSETS_ROOT` names.
+//
+// NOT `join(dirname(import.meta.url), '..')`: the extension ships as one
+// esbuild bundle, so this module's own `import.meta.url` collapses to `dist/`
+// and `..` walks OUT of the compiled output to the extension root — a directory
+// whose copies of these two files exist only incidentally (the VSIX also ships
+// the repo-root originals), leaving the read one `.vscodeignore` edit away from
+// breaking. See runtimeAssetsRoot.ts for why this is the one correct anchor.
+const EXAMPLE_YML = join(RUNTIME_ASSETS_ROOT, 'karst.example.yml');
+const SETUP_GUIDE = join(RUNTIME_ASSETS_ROOT, SETUP_GUIDE_FILENAME);
 
 /** The resolved manifest path (config-pointed, workspace-relative), or throws. */
 export function manifestPathOrThrow(): string {

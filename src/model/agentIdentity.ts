@@ -12,8 +12,8 @@
  * codex.svg, antigravity-cli.svg, opencode.svg — see the package SOURCES.txt;
  * MIT, brand marks remain their owners'). They ship next to this module:
  * `src/model/icons/agent/` under vitest, `dist/model/icons/agent/` at runtime
- * (`scripts/copy-assets.mjs` mirrors them), read via `import.meta.url` so the
- * same loader works in both places. A missing asset (a packaging regression)
+ * (`scripts/copy-assets.mjs` mirrors them), read via `RUNTIME_ASSETS_ROOT` (the
+ * one anchor that is correct both unbundled and inside `dist/extension.js`). A missing asset (a packaging regression)
  * degrades to the label-only badge — an icon hole is never rendered.
  *
  * Theme support: every mark is authored `fill="currentColor"` — including the
@@ -27,9 +27,9 @@
  */
 
 import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import type { AgentProvider } from '../manifest/types.js';
+import { RUNTIME_ASSETS_ROOT } from '../runtimeAssetsRoot.js';
 
 /** One registered agent core: its canonical display name + icon asset. */
 export interface AgentCoreMeta {
@@ -57,7 +57,18 @@ export const AGENT_PROVIDER_LABELS: Readonly<Record<AgentProvider, string>> = Ob
   Object.entries(AGENT_PROVIDERS).map(([provider, meta]) => [provider, meta.label]),
 ) as Record<AgentProvider, string>;
 
-const ICONS_DIR = join(dirname(fileURLToPath(import.meta.url)), 'icons', 'agent');
+/**
+ * Where the canonical core SVGs are read from at runtime.
+ *
+ * Anchored on `RUNTIME_ASSETS_ROOT` + the FULL src-relative path, never on this
+ * module's own `import.meta.url`: the extension ships as one esbuild bundle, so
+ * inside `dist/extension.js` every module's `import.meta.url` collapses to
+ * `dist/` — `join(<this file>, 'icons', 'agent')` then points at
+ * `dist/icons/agent`, which does not exist (copy-assets mirrors the src tree to
+ * `dist/model/icons/agent`), and every core icon silently degrades to the
+ * label-only badge. See runtimeAssetsRoot.ts.
+ */
+export const AGENT_ICONS_DIR = join(RUNTIME_ASSETS_ROOT, 'model', 'icons', 'agent');
 
 /**
  * Strip the parts of a canonical asset that are wrong for inline injection:
@@ -84,7 +95,7 @@ function loadAgentIcons(): void {
   if (ICONS_LOADED) return;
   for (const [provider, meta] of Object.entries(AGENT_PROVIDERS)) {
     try {
-      ICON_CACHE[provider] = normalizeSvg(readFileSync(join(ICONS_DIR, meta.icon), 'utf8'));
+      ICON_CACHE[provider] = normalizeSvg(readFileSync(join(AGENT_ICONS_DIR, meta.icon), 'utf8'));
     } catch {
       // A missing asset degrades to the label-only badge — never a throw that
       // takes down the webview with it (same stance as the xterm vendor path).
