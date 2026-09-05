@@ -62,6 +62,19 @@ describe('dashboard webview.html', () => {
     expect(HTML).not.toMatch(/function renderNow\(/);
   });
 
+  it('gives both log surfaces a reachable scrollback: viewport, visible thumb, keys', () => {
+    // Server logs scroll their own host; the console's scrollback belongs to
+    // xterm's viewport. Both had an invisible thumb over the console ground.
+    expect(HTML).toMatch(/\.logsview \.loghost\{[^}]*overflow-y:auto/);
+    expect(HTML).toMatch(/\.logsview \.loghost::-webkit-scrollbar-thumb\{/);
+    expect(HTML).toMatch(/\.termview \.xterm-viewport::-webkit-scrollbar-thumb\{/);
+    // Auto-follow only from the bottom — never yank a reader mid-scroll.
+    expect(HTML).toMatch(/wasAtBottom[\s\S]*?host\.scrollTop = host\.scrollHeight/);
+    // PageUp/PageDown/Home/End drive both surfaces (xterm takes no stdin here).
+    expect(HTML).toMatch(/function scrollTermByKey\(e\)[\s\S]*?term\.scrollPages\(-1\)/);
+    expect(HTML).toMatch(/function scrollLogsByKey\(e\)[\s\S]*?host\.scrollTop -= page/);
+  });
+
   it('lets the hidden ATTRIBUTE actually hide a .k-btn/.k-iconbtn (PR #166)', () => {
     // `.k-btn`/`.k-iconbtn` set `display:inline-flex` in author CSS, which
     // overrides the UA `[hidden]{display:none}` regardless of specificity —
