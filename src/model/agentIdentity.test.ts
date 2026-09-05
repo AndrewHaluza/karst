@@ -12,7 +12,9 @@ import {
   agentIdentityCss,
   agentIdentityJs,
   injectAgentIdentity,
+  AGENT_ICONS_DIR,
 } from './agentIdentity.js';
+import { RUNTIME_ASSETS_ROOT } from '../runtimeAssetsRoot.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ICONS_DIR = join(HERE, 'icons', 'agent');
@@ -209,6 +211,26 @@ describe('asset bytes (canonical sources)', () => {
         .replace(/>\s+</g, '><')
         .trim();
       expect(agentIconSvg(provider), provider).toBe(normalized);
+    }
+  });
+});
+
+// The icon assets are read at RUNTIME from the bundle's own directory. The
+// extension ships as ONE esbuild bundle (`dist/extension.js`), so every module
+// inside it sees `import.meta.url` collapsed to `dist/` — a path derived from
+// THIS module's own `import.meta.url` resolves to `src/model/` unbundled but
+// `dist/` bundled, which is where the agent-core icons silently vanished from
+// every picker. The one correct anchor is `RUNTIME_ASSETS_ROOT` joined with the
+// full src-relative path (see runtimeAssetsRoot.ts).
+describe('agent icon asset root (bundled-runtime correctness)', () => {
+  it('resolves the icons dir from RUNTIME_ASSETS_ROOT, not this module dir', () => {
+    expect(AGENT_ICONS_DIR).toBe(join(RUNTIME_ASSETS_ROOT, 'model', 'icons', 'agent'));
+  });
+
+  it('reads every registered icon from that dir', () => {
+    for (const [provider, meta] of Object.entries(AGENT_PROVIDERS)) {
+      expect(existsSync(join(AGENT_ICONS_DIR, meta.icon)), provider).toBe(true);
+      expect(agentIconSvg(provider), provider).toContain('<svg');
     }
   });
 });

@@ -87,7 +87,10 @@
   .popover{display:none;position:absolute;z-index:50;top:calc(100% + var(--k-space-3));right:0;border:var(--k-border-w) solid var(--k-border-strong);border-radius:var(--k-radius-lg);background:var(--k-surface);box-shadow:var(--k-elev-2)}
   .popover.hidden{display:none}
   .popover.open{display:block}
-  .agentPopover{width:calc(var(--k-control-h-lg) * 20);max-width:calc(100vw - var(--k-space-8));padding:0}
+  /* 26 control-heights: model ids are long, and at 20 every model row
+     ellipsised. Still composed from control tokens (UI-R04), still clamped to
+     the viewport so a narrow editor column never overflows. */
+  .agentPopover{width:calc(var(--k-control-h-lg) * 26);max-width:calc(100vw - var(--k-space-8));padding:0}
   .menuPopover{width:calc(var(--k-control-h-lg) * 12);padding:var(--k-space-4)}
   .agentForm{display:grid;grid-template-columns:minmax(0,1fr);gap:var(--k-space-3);padding:var(--k-space-4)}
   /* The label column is max-content, never a fixed step: "Agent core" is wider

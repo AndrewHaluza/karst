@@ -1240,6 +1240,15 @@ describe('dashboard webview.html', () => {
     expect(HTML).toContain('id="agentButton"');
   });
 
+  // Model ids are long ("claude-opus-4-1-20250805", "anthropic/claude-sonnet-4"):
+  // at 20 control-heights the model rows ellipsised almost immediately and the
+  // popover read as a narrow column. The width is still composed from control
+  // tokens (UI-R04) and still clamped to the viewport.
+  it('gives the agent popover room for long model ids', () => {
+    expect(HTML).toContain('.agentPopover{width:calc(var(--k-control-h-lg) * 26)');
+    expect(HTML).toContain('max-width:calc(100vw - var(--k-space-8))');
+  });
+
   it('stages the agent switch in a popover that does nothing until Switch agent is clicked', () => {
     expect(HTML).toContain('id="agentPopover"');
     expect(HTML).toContain('id="agentSwitchPicker"');   // the UNIFIED picker
