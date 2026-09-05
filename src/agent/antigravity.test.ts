@@ -396,5 +396,72 @@ describe('AntigravityAdapter', () => {
       const body = readFileSync(join(skillDir, 'SKILL.md'), 'utf8');
       expect(body).toContain('name: superpowers-writing-plans');
     });
+
+    // The `karst` plugin dir is shared by every approach a worktree is ever
+    // launched under. Skipping it wholesale when it existed left a re-launch
+    // under a second approach with no skill for the invocation the seed named
+    // (UNKNOWN-COMMAND-ISSUE, observed after the slug fix).
+    it('writes the workflow skill into a karst plugin dir another approach already created', () => {
+      const dir = getTmp();
+      const adapter = new AntigravityAdapter();
+      adapter.materializeApproach({
+        pkg: { id: 'rpi', label: 'RPI', workflow: [{ name: 'research' }] },
+        baseDir: '/base',
+        sessionDir: dir,
+      });
+      const res = adapter.materializeApproach({
+        pkg: {
+          id: 'superpowers:writing-plans',
+          label: 'Write a plan first',
+          workflow: [{ name: 'plan' }],
+        },
+        baseDir: '/base',
+        sessionDir: dir,
+      });
+
+      expect(res.invocation).toBe('$superpowers-writing-plans');
+      const skillPath = join(
+        dir, '.agents', 'plugins', 'karst', 'skills', 'superpowers-writing-plans', 'SKILL.md',
+      );
+      expect(readFileSync(skillPath, 'utf8')).toContain('# Write a plan first');
+      const first = join(dir, '.agents', 'plugins', 'karst', 'skills', 'rpi', 'SKILL.md');
+      expect(existsSync(first)).toBe(true);
+    });
+
+    it('re-renders an existing generated workflow skill with the current stage marker', () => {
+      const dir = getTmp();
+      const adapter = new AntigravityAdapter();
+      const pkg = { id: 'rpi', label: 'RPI', workflow: [{ name: 'research' }] };
+      adapter.materializeApproach({
+        pkg, baseDir: '/base', sessionDir: dir,
+        cliStagePrefix: 'node "/ext/cli.js" stage impl pass',
+      });
+      adapter.materializeApproach({
+        pkg, baseDir: '/base', sessionDir: dir,
+        cliStagePrefix: 'node "/ext/cli.js" stage fix pass',
+      });
+
+      const body = readFileSync(
+        join(dir, '.agents', 'plugins', 'karst', 'skills', 'rpi', 'SKILL.md'),
+        'utf8',
+      );
+      expect(body).toContain('stage fix pass');
+      expect(body).not.toContain('stage impl pass');
+    });
+
+    it('never overwrites a workflow skill karst did not generate', () => {
+      const dir = getTmp();
+      const skillPath = join(dir, '.agents', 'plugins', 'karst', 'skills', 'rpi', 'SKILL.md');
+      mkdirSync(join(dir, '.agents', 'plugins', 'karst', 'skills', 'rpi'), { recursive: true });
+      writeFileSync(skillPath, 'checked into the repo');
+
+      new AntigravityAdapter().materializeApproach({
+        pkg: { id: 'rpi', label: 'RPI', workflow: [{ name: 'research' }] },
+        baseDir: '/base',
+        sessionDir: dir,
+      });
+
+      expect(readFileSync(skillPath, 'utf8')).toBe('checked into the repo');
+    });
   });
 });

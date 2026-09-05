@@ -24,6 +24,7 @@ import { spawnHeadlessCli, headlessPreview, type HeadlessSpawnOptions } from './
 import { attachUsage } from './tokenUsage.js';
 import type { TokenUsage } from './tokenUsage.js';
 import { KARST_PLUGIN_NAME, renderWorkflowCommand } from './workflowCommand.js';
+import { withStamp, writeGeneratedArtifact } from './generatedArtifact.js';
 import { SUPPORTED, unsupported, type AdapterSurfaces } from './surfaces.js';
 import { currentEndpointPath } from './hookFailureLog.js';
 
@@ -917,20 +918,21 @@ export class OpencodeAdapter implements AgentAdapter {
         'commands',
         `${idName}.md`,
       );
-      if (!existsSync(destination)) {
-        mkdirSync(dirname(destination), { recursive: true });
-        writeFileSync(
-          destination,
-          [
-            '---',
-            `description: Run the ${opts.pkg.label} workflow for a Karst ticket.`,
-            'agent: build',
-            '---',
-            '',
-            body,
-          ].join('\n'),
-        );
-      }
+      // Rewritten on every launch when karst generated it: the marker step and
+      // phases are re-rendered from the CURRENT stage, so a stale body would
+      // name a stage the CLI now refuses. A file the repository checked in at
+      // this bare name is left alone by the stamp check.
+      writeGeneratedArtifact(
+        destination,
+        [
+          '---',
+          `description: Run the ${opts.pkg.label} workflow for a Karst ticket.`,
+          'agent: build',
+          '---',
+          '',
+          withStamp(body),
+        ].join('\n'),
+      );
     }
 
     return {

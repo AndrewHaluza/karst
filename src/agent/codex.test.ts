@@ -1538,4 +1538,42 @@ describe('CodexAdapter approach materialization', () => {
     const body = readFileSync(join(skillDir, 'SKILL.md'), 'utf8');
     expect(body).toContain('name: karst-superpowers-writing-plans');
   });
+
+  // A relaunch re-renders the generated workflow skill with the CURRENT stage
+  // marker. Skipping the write because the dir existed left the stale body —
+  // whose closing step names a stage the CLI now refuses (UNKNOWN-COMMAND-ISSUE
+  // sibling: the artifact karst generates must never outlive its inputs).
+  it('re-renders an existing generated workflow skill with the current stage marker', () => {
+    const worktree = makeWorktree();
+    const baseDir = makeBasePackage('rpi', []);
+    const pkg = { id: 'rpi', label: 'RPI', workflow: [{ name: 'research' }] };
+    const adapter = new CodexAdapter();
+    adapter.materializeApproach!({
+      baseDir, sessionDir: worktree, pkg,
+      cliStagePrefix: 'node "/ext/cli.js" stage impl pass',
+    });
+    adapter.materializeApproach!({
+      baseDir, sessionDir: worktree, pkg,
+      cliStagePrefix: 'node "/ext/cli.js" stage fix pass',
+    });
+
+    const body = readFileSync(join(worktree, '.agents/skills/karst-rpi/SKILL.md'), 'utf8');
+    expect(body).toContain('stage fix pass');
+    expect(body).not.toContain('stage impl pass');
+  });
+
+  it('never overwrites a workflow skill karst did not generate', () => {
+    const worktree = makeWorktree();
+    const skillPath = join(worktree, '.agents/skills/karst-rpi/SKILL.md');
+    mkdirSync(dirname(skillPath), { recursive: true });
+    writeFileSync(skillPath, 'checked into the repo');
+
+    new CodexAdapter().materializeApproach!({
+      baseDir: makeBasePackage('rpi', []),
+      sessionDir: worktree,
+      pkg: { id: 'rpi', label: 'RPI', workflow: [{ name: 'research' }] },
+    });
+
+    expect(readFileSync(skillPath, 'utf8')).toBe('checked into the repo');
+  });
 });

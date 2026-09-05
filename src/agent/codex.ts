@@ -27,6 +27,7 @@ import type {
   RunHeadlessOpts,
 } from './adapter.js';
 import { renderWorkflowCommand, slugCommandName } from './workflowCommand.js';
+import { withStamp, writeGeneratedArtifact } from './generatedArtifact.js';
 import { describeHeadlessFailure } from './cliFailure.js';
 import { renderConsoleStream } from './consoleFormat.js';
 import { spawnHeadlessCli, headlessPreview, type HeadlessSpawnOptions } from './headlessSpawn.js';
@@ -744,13 +745,26 @@ export class CodexAdapter implements AgentAdapter {
           ? { guideCommand: opts.cliGuidePrefix }
           : {}),
       });
-      const destination = writeSkill(
-        opts.sessionDir,
-        prefix,
-        `Run the ${opts.pkg.label} workflow for a Karst ticket.`,
-        body,
+      // NOT `writeSkill`: its "path exists → leave it" rule is right for a
+      // copied artifact (the repository may have checked one in) but wrong for
+      // the skill karst GENERATES — its inputs (stage marker, phases, label)
+      // change between launches, so a stale body outliving them names a stage
+      // the CLI now refuses. The per-file stamp separates "karst wrote this
+      // earlier" (replace) from "the repository owns this" (leave alone).
+      assertSafeName('skill name', prefix);
+      const destination = join(opts.sessionDir, '.agents', 'skills', prefix);
+      // Ownership stays "created by THIS call" (the conformance rule): a dir a
+      // previous launch left behind is re-rendered, not re-claimed.
+      const isNew = !existsSync(destination);
+      const wrote = writeGeneratedArtifact(
+        join(destination, 'SKILL.md'),
+        skillDocument(
+          prefix,
+          `Run the ${opts.pkg.label} workflow for a Karst ticket.`,
+          withStamp(body),
+        ),
       );
-      if (destination) owned.add(destination);
+      if (wrote && isNew) owned.add(destination);
     }
 
     return {
