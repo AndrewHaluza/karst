@@ -304,9 +304,27 @@ function claimPlannerLaunch(
 
 /** Close a planner claim once its session exists: `launching → running`. A
  *  lost CAS means another window already moved the row, so this launch is not
- *  reported as one (the node path reads the same way). */
+ *  reported as one (the node path reads the same way).
+ *
+ *  `started_at` is stamped on the SAME transaction as the CAS, and only when
+ *  the row still has none: a planner re-prompted by the compile repair
+ *  (`blocked → launching → running`) keeps the wall-clock its FIRST session
+ *  began at, so the Inside panel's age answers "how long has this planner been
+ *  the run's open question", not "how long since its latest re-prompt". Without
+ *  this column every planner row read as timeless and a session dead for a day
+ *  was indistinguishable from one launched a second ago. */
 function markPlannerRunning(deps: GraphDriverDeps, plannerRunId: number): boolean {
-  return deps.transaction(() => transitionPlannerRun(deps.db, plannerRunId, 'launching', 'running'));
+  return deps.transaction(() => {
+    const moved = transitionPlannerRun(deps.db, plannerRunId, 'launching', 'running');
+    if (moved) {
+      deps.db
+        .prepare(
+          'UPDATE approach_planner_runs SET started_at = ? WHERE id = ? AND started_at IS NULL',
+        )
+        .run(deps.now(), plannerRunId);
+    }
+    return moved;
+  });
 }
 
 /**

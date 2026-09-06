@@ -41,6 +41,7 @@ import type {
   TypedInsideAction,
 } from './types.js';
 import { bounded } from './bounds.js';
+import { durationBetween, relativeAge, runAge } from './age.js';
 import { NODE_OVERRIDE_EDITABLE_STATUSES } from '../../store/graph/nodeRuns.js';
 import { LIVE_PLANNER_STATUSES } from '../../store/graph/plannerRuns.js';
 
@@ -71,6 +72,13 @@ export interface GraphPlannerRunView {
   status: string;
   compileAttempt: number;
   reason: string | null;
+  /** When the planner's session was proven to exist (`launching → running`),
+   *  preserved across a compile-repair re-prompt of the same run. */
+  startedAt?: string | null;
+  /** When its document reached the store — the boundary between "the planner
+   *  is thinking" and "the compiler owes an answer". */
+  submittedAt?: string | null;
+  endedAt?: string | null;
 }
 
 export interface GraphRevisionView {
@@ -108,6 +116,8 @@ export interface GraphNodeRunView {
   effort: string | null;
   profile: string | null;
   launchAttempt: number;
+  startedAt?: string | null;
+  endedAt?: string | null;
 }
 
 /** One existing per-node override (Slice 4 Task 6), READ-ONLY here. The
@@ -548,14 +558,57 @@ function overrideKindsFor(
 
 /** One structured node-list row (Slice 6 T4). Every untrusted string is
  *  escaped and bounded; `group`/`status`/`displayStatus` are closed keys. */
+/** The node-run statuses in which something is still expected to move the
+ *  row. A row in one of these with no `started_at` is proof its session never
+ *  existed, which is why `runAge` renders `never started` only for these — the
+ *  planner half of the same question is `LIVE_PLANNER_STATUSES`, already the
+ *  store's one definition. */
+const LIVE_NODE_DISPLAY_STATUSES: readonly string[] = [
+  'ready',
+  'waiting-resource',
+  'launching',
+  'running',
+  'completing',
+  'integrating',
+];
+
+/**
+ * A planner row's age fragment. `submitted` is its own phase — the planner
+ * finished and the COMPILER owes the answer — so a submitted row reports how
+ * long the run has been waiting on that answer rather than how long the
+ * session ran, which is the number that distinguishes a compile in flight from
+ * a run stranded behind one.
+ */
+function plannerAge(planner: GraphPlannerRunView, now: string): string | null {
+  if (!planner.endedAt && planner.submittedAt) {
+    const waited = durationBetween(planner.submittedAt, now);
+    return waited === null ? null : `submitted ${waited} ago`;
+  }
+  return runAge(
+    { startedAt: planner.startedAt, endedAt: planner.endedAt },
+    now,
+    { live: (LIVE_PLANNER_STATUSES as readonly string[]).includes(planner.status) },
+  );
+}
+
 function nodeListView(
   node: GraphNodeRunView,
   execution: GraphExecutionView,
   overrides: GraphNodeOverrideView[],
   action: TypedInsideAction | undefined,
+  now: string,
 ): GraphNodeListRow {
   const kinds = overrideKindsFor(overrides, node.revisionId, node.nodeId);
+  // A node run's `started_at` is stamped when the RUN ROW is created (at
+  // `ready`), not at spawn — `createNodeRun` is the writer. So the age answers
+  // "how long has this node been the run's concern", which is exactly the
+  // number a node stuck at `waiting-resource` or `launching` needs, and it is
+  // never later than the spawn it precedes.
+  const age = runAge({ startedAt: node.startedAt, endedAt: node.endedAt }, now, {
+    live: LIVE_NODE_DISPLAY_STATUSES.includes(node.status),
+  });
   return {
+    ...(age ? { age: sanitizeGraphText(age) } : {}),
     nodeRunId: node.nodeRunId,
     nodeId: sanitizeGraphText(node.nodeId),
     nodeKind: sanitizeGraphText(node.nodeKind),
@@ -592,7 +645,10 @@ export function graphInsideProcess(
   rows.push({
     label: 'graph',
     detail: sanitizeGraphText(
-      `run ${input.graphRun.runNumber} · ${graphRunStatusCopy(input.graphRun.status)} · ${input.graphRun.approachId}`,
+      `run ${input.graphRun.runNumber} · ${graphRunStatusCopy(input.graphRun.status)} · ${input.graphRun.approachId}` +
+        (relativeAge(input.graphRun.createdAt, input.now)
+          ? ` · started ${relativeAge(input.graphRun.createdAt, input.now)}`
+          : ''),
     ),
     status: graphRunStatus(input.graphRun.status),
     ...(input.attach && input.graphRun.status === 'blocked'
@@ -624,10 +680,16 @@ export function graphInsideProcess(
   }
 
   for (const planner of input.plannerRuns) {
+    // A planner row's age is the answer to "is this session still working, or
+    // did it die three hours ago and nothing noticed" — a `submitted` planner
+    // that has owed the compiler an answer since yesterday is the exact shape
+    // of a stuck run, and it is indistinguishable from a fresh one without it.
+    const age = plannerAge(planner, input.now);
     rows.push({
       label: `planner ${planner.plannerRunNumber}`,
       detail: sanitizeGraphText(
-        `${planner.kind} · ${planner.status} · compile attempt ${planner.compileAttempt}`,
+        `${planner.kind} · ${planner.status} · compile attempt ${planner.compileAttempt}` +
+          (age ? ` · ${age}` : ''),
       ),
       status: plannerStatus(planner.status, input.graphRun.status),
     });
@@ -640,7 +702,9 @@ export function graphInsideProcess(
   // single control (open / discard / edit-override) rides the structured row.
   const nodes = [...input.nodeRuns]
     .sort(byGroup)
-    .map((node) => nodeListView(node, input.execution, input.overrides, nodeRowAction(input, node)));
+    .map((node) =>
+      nodeListView(node, input.execution, input.overrides, nodeRowAction(input, node), input.now),
+    );
 
   // A ready node under maxParallel 1 is serialized BY POLICY — the explicit
   // reason row keeps deliberate serialization from reading as a scheduler
@@ -664,12 +728,10 @@ export function graphInsideProcess(
   // clock — display only, never a decision.
   const deferrals = bounded(input.deferrals, MAX_DEFERRAL_ROWS);
   for (const deferral of deferrals.shown) {
-    const waited = Math.max(0, Date.parse(input.now) - Date.parse(deferral.waitSince));
+    const waited = durationBetween(deferral.waitSince, input.now) ?? '0s';
     rows.push({
       label: `deferred ${sanitizeGraphText(deferral.nodeId)}`,
-      detail: sanitizeGraphText(
-        `${deferral.reason} · waiting ${Math.floor(waited / 1000)}s`,
-      ),
+      detail: sanitizeGraphText(`${deferral.reason} · waiting ${waited}`),
       status: 'wait',
     });
   }

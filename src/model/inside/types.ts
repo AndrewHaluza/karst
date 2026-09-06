@@ -643,6 +643,14 @@ export interface GraphNodeListRow {
    * control is the separate `action`.
    */
   override?: string;
+  /**
+   * Host-formatted age — `running 12m`, `ran 3m`, `never started`. Absent when
+   * the run carries no usable instant. It answers the one question a stuck
+   * node raises that no other field on the row can: whether this row is new or
+   * stale. Formatted host-side against the projection's injected clock, so
+   * every row of one pass reads against the SAME now.
+   */
+  age?: string;
   outcome?: string;
   reason?: string;
   /** The node row's single control (open/discard/edit-override), if any. */
