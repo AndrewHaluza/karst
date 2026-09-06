@@ -235,9 +235,13 @@ Graph-level budgets cap spend:
 - `maxExpertRuns` — the arithmetic rule the compiler enforces:
   `spentPlannerRuns + permittedReplans + (bootstrap unspent ? 1 : 0) +
   Σ maxVisits over agent nodes whose profile resolves to "expert"` must not
-  exceed `maxExpertRuns`. If your graph routes an agent node to the `expert`
-  profile, add its `maxVisits` to the term and raise `maxExpertRuns`
-  accordingly.
+  exceed `maxExpertRuns`. `permittedReplans` is the `maxReplans` **this
+  document declares** (never a project number you cannot see), and
+  `spentPlannerRuns` is 1 once the bootstrap planner has run — so a bootstrap
+  plan needs `maxExpertRuns >= 1 + maxReplans + Σ expert maxVisits`. If your
+  graph routes an agent node to the `expert` profile, add its `maxVisits` to
+  the term and raise `maxExpertRuns` accordingly. A rejection quotes the exact
+  minimum: declare that number rather than resubmitting the same budgets.
 - `maxReplans` — replan generations permitted.
 
 Every node needs a finite `maxVisits`; loops must be bounded by a finite visit
@@ -304,9 +308,13 @@ Substitute real repository and profile names from the ticket context for
   "edges": [
     { "id": "implement-complete", "from": "implement", "on": "complete", "to": "END" }
   ],
-  "budgets": { "maxNodeRuns": 5, "maxExpertRuns": 1, "maxReplans": 1 }
+  "budgets": { "maxNodeRuns": 5, "maxExpertRuns": 2, "maxReplans": 1 }
 }
 ```
+
+The budget arithmetic for this example: 1 spent bootstrap planner run + 1
+declared replan + 0 expert node visits (`implement` is a `worker`) = 2, which
+is what `maxExpertRuns` declares.
 
 `entries` names the real node id `"implement"` — never `"$entry"`. Both
 artifacts are `$planner`-produced, so their files (`PLAN.md`, the task brief)

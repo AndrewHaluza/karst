@@ -26,6 +26,7 @@ import {
   launchReplanPlanner,
   relaunchBootstrapPlanner,
   readPlannerDiagnostics,
+  diagnosticsPathFor,
   sha256Hex,
   nodeWorkspaceDirective,
 } from './driver.js';
@@ -1760,6 +1761,41 @@ describe('relaunchBootstrapPlanner', () => {
     expect(
       (h.starts[0] as { interactive: { initialPrompt: string } }).interactive.initialPrompt,
     ).toContain('node "$KARST_GRAPH_CLI" graph submit');
+  });
+
+  it('carries the prior planner run\'s compile diagnostics into the relaunch prompt', async () => {
+    // A Resume out of `graph-plan-invalid` lands here. Without the rejection
+    // the new planner replans from scratch and re-submits the same rejected
+    // budgets — the loop the user sees as "resume repeats the same issue".
+    const h = harness();
+    const graphRunId = createGraphRun(h.db, {
+      ticketId: h.ticketId,
+      stageAttempt: 0,
+      approachId: 'karst-graph-engineering',
+      now: NOW,
+    });
+    const priorPlannerRunId = Number(
+      h.db
+        .prepare(
+          `INSERT INTO approach_planner_runs (graph_run_id, planner_run_number, kind, status)
+           VALUES (?, 1, 'bootstrap', 'blocked')`,
+        )
+        .run(graphRunId).lastInsertRowid,
+    );
+    h.deps.writeSnapshot(
+      graphRunId,
+      diagnosticsPathFor(priorPlannerRunId),
+      new TextEncoder().encode(
+        JSON.stringify(['expert-budget-exceeded: budgets.maxExpertRuns: expert budget 3 exceeds declared maxExpertRuns 1']),
+      ),
+    );
+
+    const result = await relaunchBootstrapPlanner(h.deps, { graphRunId });
+    expect(result.kind).toBe('launched');
+    const prompt = (h.starts[0] as { interactive: { initialPrompt: string } }).interactive
+      .initialPrompt;
+    expect(prompt).toContain('REJECTED');
+    expect(prompt).toContain('expert-budget-exceeded');
   });
 
   it('leaves a relaunched planner whose spawn threw at launching with its nonce', async () => {

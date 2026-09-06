@@ -65,6 +65,10 @@ export interface CompileContext {
    *  is a compile error, re-checked at replan compile against these. */
   expertSpend: {
     spentPlannerRuns: number;
+    /** Replans the RUN still permits. The reserve actually charged is this
+     *  capped by the document's own `budgets.maxReplans`: a planner cannot see
+     *  the project maximum, so charging it would make a document declaring
+     *  fewer replans impossible to satisfy. */
     permittedReplans: number;
     bootstrapUnspent: boolean;
   };
@@ -987,16 +991,31 @@ export function compileGraphDocument(
       expertVisits += node.budget.maxVisits;
     }
   }
+  // The replan reserve is what THIS document permits, never the project
+  // maximum: a planner cannot see `limits.maxReplans`, so charging the project
+  // number leaves a document declaring fewer replans permanently unsatisfiable
+  // and the planner resubmitting identical budgets until its attempts run out.
+  // The run's remaining permitted replans still cap it, so a replan compile
+  // never reserves more than the run can still spend.
+  const replanReserve = Math.min(
+    context.expertSpend.permittedReplans,
+    document.budgets.maxReplans,
+  );
+  const bootstrapReserve = context.expertSpend.bootstrapUnspent ? 1 : 0;
   const expertTotal =
-    context.expertSpend.spentPlannerRuns +
-    context.expertSpend.permittedReplans +
-    (context.expertSpend.bootstrapUnspent ? 1 : 0) +
-    expertVisits;
+    context.expertSpend.spentPlannerRuns + replanReserve + bootstrapReserve + expertVisits;
   if (expertTotal > document.budgets.maxExpertRuns) {
+    // The breakdown IS the repair instruction: the planner's next attempt can
+    // only converge if the message names the minimum it must declare and the
+    // terms it can change (maxReplans, expert node visits).
     error(
       'expert-budget-exceeded',
       'budgets.maxExpertRuns',
-      `expert budget ${expertTotal} exceeds declared maxExpertRuns ${document.budgets.maxExpertRuns}`,
+      `expert budget ${expertTotal} exceeds declared maxExpertRuns ${document.budgets.maxExpertRuns}` +
+        ` — declare maxExpertRuns at least ${expertTotal}, or lower the terms:` +
+        ` ${context.expertSpend.spentPlannerRuns} planner run(s) already spent` +
+        ` + ${replanReserve} replan reserve (maxReplans ${document.budgets.maxReplans})` +
+        ` + ${bootstrapReserve} bootstrap + ${expertVisits} expert node visit(s)`,
     );
   }
 

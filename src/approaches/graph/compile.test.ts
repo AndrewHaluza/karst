@@ -593,6 +593,41 @@ describe('compileGraphDocument — budgets', () => {
     );
   });
 
+  it('charges the replan reserve the document declares, not the project maximum', () => {
+    // A planner cannot see the project's `limits.maxReplans`, so charging the
+    // project number makes a document that declares fewer replans impossible
+    // to satisfy — the planner resubmits the same budgets forever. The reserve
+    // is what THIS document permits, capped by what the run still has left.
+    const ctx = context({
+      expertSpend: { spentPlannerRuns: 1, permittedReplans: 2, bootstrapUnspent: false },
+    });
+    const result = compile(
+      ref((d) => {
+        (d['budgets'] as Record<string, unknown>)['maxReplans'] = 0;
+        (d['budgets'] as Record<string, unknown>)['maxExpertRuns'] = 1;
+      }),
+      ctx,
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  it('names the minimum the document must declare when the expert budget fails', () => {
+    const diag = expectError(
+      ref((d) => {
+        (d['budgets'] as Record<string, unknown>)['maxReplans'] = 2;
+        (d['budgets'] as Record<string, unknown>)['maxExpertRuns'] = 1;
+      }),
+      'expert-budget-exceeded',
+      'budgets.maxExpertRuns',
+      context({
+        expertSpend: { spentPlannerRuns: 1, permittedReplans: 5, bootstrapUnspent: false },
+      }),
+    );
+    // 1 spent + 2 declared replans + 0 bootstrap + 0 expert visits = 3.
+    expect(diag.message).toContain('at least 3');
+    expect(diag.message).toContain('maxReplans 2');
+  });
+
   it('rejects a declared budget above the project maximum', () => {
     const ctx = context({ projectMaxima: { maxNodeRuns: 3, maxExpertRuns: 10, maxReplans: 5 } });
     expectError(ref(), 'budget-exceeds-project-maximum', 'budgets.maxNodeRuns', ctx);

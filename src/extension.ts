@@ -231,6 +231,7 @@ import {
   plannerVocabularyFor,
   relaunchBootstrapPlanner,
   readPlannerDiagnostics,
+  compileDiagnosticsSection,
   resolveProfileFor,
   PLANNER_SUBMIT_INSTRUCTION,
   type GraphDriverDeps,
@@ -4584,13 +4585,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     for (const id of candidates) {
       const diagnostics = readPlannerDiagnostics(deps, graphRunId, id);
       if (diagnostics.length === 0) continue;
-      return [
-        'The compiler REJECTED the previous `graph.json` with these diagnostics.',
-        'Each line is `code: where: message` from the karst graph compiler — fix every one of them; do not resubmit the same document.',
-        '```',
-        ...diagnostics.slice(0, 50).map((d) => String(d).slice(0, 500)),
-        '```',
-      ].join('\n');
+      return compileDiagnosticsSection(diagnostics);
     }
     return undefined;
   };

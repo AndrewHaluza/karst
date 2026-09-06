@@ -544,10 +544,15 @@ export async function relaunchBootstrapPlanner(
     capability,
     artifactRoot,
   });
+  // A relaunch after a rejected bootstrap plan (the Resume out of
+  // `graph-plan-invalid`) MUST carry what the compiler rejected: without it the
+  // fresh planner run replans from scratch and resubmits the same rejection.
+  const rejection = compileDiagnosticsSection(latestPlannerDiagnostics(deps, input.graphRunId));
   const prompt = [
     new TextDecoder().decode(promptBytes),
     deps.ticketContextOf(run.ticket_id),
     plannerVocabularyFor(() => deps.compileContextOf(input.graphRunId), deps.debug),
+    ...(rejection ? [rejection] : []),
     PLANNER_SUBMIT_INSTRUCTION,
   ]
     .filter((part) => part !== '')
@@ -1018,6 +1023,39 @@ export function readPlannerDiagnostics(
   } catch {
     return [];
   }
+}
+
+/** The prompt section that quotes a rejection back to a planner. ONE renderer,
+ *  shared by every path that re-prompts a planner (repair, replan, and the
+ *  bootstrap relaunch a Resume out of `graph-plan-invalid` takes) — a path that
+ *  re-prompts without it asks the planner to guess what was wrong, and the
+ *  planner resubmits the same document. */
+export function compileDiagnosticsSection(diagnostics: readonly string[]): string | undefined {
+  if (diagnostics.length === 0) return undefined;
+  return [
+    'The compiler REJECTED the previous `graph.json` with these diagnostics.',
+    'Each line is `code: where: message` from the karst graph compiler — fix every one of them; do not resubmit the same document.',
+    '```',
+    ...diagnostics.slice(0, 50).map((d) => String(d).slice(0, 500)),
+    '```',
+  ].join('\n');
+}
+
+/** The newest planner run of this graph run that left persisted diagnostics.
+ *  A relaunch allocates a NEW planner run, so the rejection it must answer for
+ *  always belongs to a PRIOR run. */
+export function latestPlannerDiagnostics(
+  deps: Pick<GraphDriverDeps, 'readBytes' | 'db'>,
+  graphRunId: number,
+): string[] {
+  const rows = deps.db
+    .prepare('SELECT id FROM approach_planner_runs WHERE graph_run_id = ? ORDER BY id DESC')
+    .all(graphRunId) as { id: number }[];
+  for (const row of rows) {
+    const diagnostics = readPlannerDiagnostics(deps, graphRunId, row.id);
+    if (diagnostics.length > 0) return diagnostics;
+  }
+  return [];
 }
 
 /**
