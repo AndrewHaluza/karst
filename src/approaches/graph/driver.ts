@@ -629,7 +629,20 @@ export type AcceptPlanResult =
  */
 export function acceptSubmittedPlan(deps: GraphDriverDeps, graphRunId: number): AcceptPlanResult {
   const run = graphRunById(deps.db, graphRunId);
-  if (!run || run.status !== 'planning') return { kind: 'no-op' };
+  if (!run || run.status !== 'planning') {
+    // The silent drop that matters most: a bootstrap planner CAN submit into a
+    // run that has since left `planning` (a Resume parked it `blocked`, a Stop
+    // drained it), and the document is then read by nobody while the planner
+    // row stays `submitted` forever with no `ended_at`. From the panel it
+    // looks like a planner that finished and a run that ignored it, and until
+    // this line there was no record of it happening at all.
+    deps.debug?.(
+      `[graph] run ${graphRunId}: bootstrap submission not accepted — ${
+        run ? `run is ${run.status}, not planning` : 'run not found'
+      }`,
+    );
+    return { kind: 'no-op' };
+  }
 
   // Idempotency: a run that already holds an active revision has ALREADY
   // accepted its bootstrap plan — a prior accept committed its revision while
@@ -662,7 +675,14 @@ export function acceptSubmittedPlan(deps: GraphDriverDeps, graphRunId: number): 
     .get(graphRunId) as
     | { id: number; status: string; graph_snapshot_id: string | null }
     | undefined;
-  if (!planner || !planner.graph_snapshot_id) return { kind: 'no-op' };
+  if (!planner || !planner.graph_snapshot_id) {
+    deps.debug?.(
+      `[graph] run ${graphRunId}: nothing to accept — ${
+        planner ? `planner ${planner.id} submitted no graph snapshot` : 'no submitted bootstrap planner'
+      }`,
+    );
+    return { kind: 'no-op' };
+  }
 
   // G1b: a plan is never judged against an unresolved manifest. The run stays
   // `planning` and the next tick judges it against a manifest that resolved.
@@ -838,7 +858,14 @@ export function acceptSubmittedReplan(
     .get(graphRunId) as
     | { id: number; status: string; graph_snapshot_id: string | null }
     | undefined;
-  if (!planner || !planner.graph_snapshot_id) return { kind: 'no-op' };
+  if (!planner || !planner.graph_snapshot_id) {
+    deps.debug?.(
+      `[graph] run ${graphRunId}: nothing to accept — ${
+        planner ? `planner ${planner.id} submitted no graph snapshot` : 'no submitted bootstrap planner'
+      }`,
+    );
+    return { kind: 'no-op' };
+  }
 
   // G1b: a replan is never judged against an unresolved manifest either — the
   // same empty repository map that turns every valid claim into
