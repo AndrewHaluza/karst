@@ -176,6 +176,29 @@ describe('uatProcesses', () => {
     expect(views.map((p) => p.id)).toEqual(['gates', 'fix', 'services', 'tester']);
   });
 
+  it('scopes the fix row to the attempt that opened the round', () => {
+    // Attempt 1 failed and opened round 1; its fix completed and handed the
+    // ticket back, so attempt 2 is re-testing right now and has failed nothing.
+    const gateRuns = [
+      run('uat', 'test', 1, { stageRunId: 1, runAt: '2026-07-20T12:00:00.000Z' }),
+      run('uat', 'test', null, { stageRunId: 2, runAt: '2026-07-20T12:20:00.000Z' }),
+    ];
+    const rounds = [round({ sourceStageRunId: 1, status: 'revalidating' })];
+    const input = qualityInput({
+      cell: cell('uat', 'running', { startedAt: '2026-07-20T12:20:00.000Z' }),
+      gateRuns,
+      rounds,
+    });
+
+    const live = uatProcesses({ ...input, selectedAttempt: attemptKey(2, '') });
+    expect(live.map((p) => p.id)).not.toContain('fix');
+
+    const first = uatProcesses({ ...input, selectedAttempt: attemptKey(1, '') });
+    const fix = first.find((p) => p.id === 'fix');
+    expect(fix?.status).toBe('pass');
+    expect(fix?.detail).toBe('Fix completed; UAT revalidation is running');
+  });
+
   it('inserts the fix process after the tester process for a verifier-triggered round', () => {
     const views = uatProcesses(
       qualityInput({

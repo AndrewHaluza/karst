@@ -37,18 +37,20 @@ const TRIGGER_DETAIL_MAX = 200;
 /**
  * How one round's state reads. `interrupted` is a crash, not a verdict.
  *
- * `revalidating` is ACTIVE work, not a wait: the `stage fix pass` marker moved
- * the ticket back to the gate stage and the driver is re-running its gates
- * right now (the copy below even says "revalidation is running"). It renders
- * the same spinner as `fixing` — an amber pause ("needs you", UI-R28b) beside
- * running gates is the exact contradiction this mapping must never draw.
+ * `revalidating` is the FIX's own completion: the `stage fix pass` marker moved
+ * the ticket back to the gate stage, so the work THIS row reports is over and
+ * the re-run belongs to the gate row of the attempt now running. It reads
+ * `pass`, never a spinner — the spinner claimed a fix was still working on the
+ * very attempt that had already finished it — and never an amber pause ("needs
+ * you", UI-R28b) beside running gates, the other contradiction this mapping
+ * must not draw.
  */
 function roundStatus(round: RecoveryRound): InsideStatus {
   switch (round.status) {
     case 'pending':
     case 'fixing':
-    case 'revalidating':
       return 'run';
+    case 'revalidating':
     case 'passed':
       return 'pass';
     case 'interrupted':
@@ -154,19 +156,21 @@ export function recoveryProcess(
   // The COLLAPSED fix row is never silent (handoff §11 + §3.8): every state
   // names what is happening, the exhausted one states what to do.
   const detail =
-    status === 'pass' && latest.status !== 'passed'
-      ? `${STAGE_TITLES[latest.sourceStage]} passed on a later attempt — this round's own failure is history`
-      : latest.status === 'exhausted'
-        ? `Recovery exhausted after ${latest.maxRounds} ${latest.maxRounds === 1 ? 'round' : 'rounds'}. Resolve the remaining failure manually.`
-        : latest.status === 'failed'
-          ? 'the fix did not hold — the next round names the new cause'
-          : latest.status === 'pending' || latest.status === 'fixing'
-            ? `Fix started after ${triggerProse(latest)} · round ${latest.round} of ${latest.maxRounds}`
-            : latest.status === 'revalidating'
-              ? `Fix completed; ${STAGE_TITLES[latest.sourceStage]} revalidation is running`
-              : latest.status === 'interrupted'
-                ? 'the fix session ended before it was done — it can be resumed'
-                : undefined;
+    // `revalidating` reads `pass` too, but it has its own copy — the stale-pass
+    // wording below is for a round the STAGE overrode, not one that completed.
+    latest.status === 'revalidating'
+      ? `Fix completed; ${STAGE_TITLES[latest.sourceStage]} revalidation is running`
+      : status === 'pass' && latest.status !== 'passed'
+        ? `${STAGE_TITLES[latest.sourceStage]} passed on a later attempt — this round's own failure is history`
+          : latest.status === 'exhausted'
+            ? `Recovery exhausted after ${latest.maxRounds} ${latest.maxRounds === 1 ? 'round' : 'rounds'}. Resolve the remaining failure manually.`
+            : latest.status === 'failed'
+              ? 'the fix did not hold — the next round names the new cause'
+              : latest.status === 'pending' || latest.status === 'fixing'
+                ? `Fix started after ${triggerProse(latest)} · round ${latest.round} of ${latest.maxRounds}`
+                : latest.status === 'interrupted'
+                  ? 'the fix session ended before it was done — it can be resumed'
+                  : undefined;
 
   return {
     triggerProcessId: latest.sourceProcessId,
