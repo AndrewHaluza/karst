@@ -61,6 +61,7 @@ import {
 } from './ui/session.js';
 import {
   forgetSessionTerminal,
+  forgetSessionTerminalPid,
   identifyTerminal,
   parseSessionTerminalRecords,
   pruneSessionTerminals,
@@ -238,7 +239,7 @@ import {
   type GraphDriverDeps,
 } from './approaches/graph/driver.js';
 import { runGraphCommand } from './cli/graph.js';
-import { buildGraphSessionEnv } from './approaches/graph/transport/env.js';
+import { buildGraphSessionEnv, isGraphSessionEnv } from './approaches/graph/transport/env.js';
 import { createNodeWorkspace } from './approaches/graph/workspace/provider.js';
 import type {
   CommandDefinition,
@@ -6782,7 +6783,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // record must not outlive it.
     vscode.window.onDidCloseTerminal((terminal) => {
       const named = terminalIdentity.identify(terminal);
-      if (named) terminalIdentity.forget(named.ticketId);
+      if (!named) return;
+      // One graph terminal closing says nothing about the ticket's others —
+      // forget just this pid. A session terminal is the ticket's only one.
+      if (named.graph) terminalIdentity.forgetTerminal(terminal);
+      else terminalIdentity.forget(named.ticketId);
     }),
   );
 
@@ -7324,6 +7329,9 @@ interface TerminalIdentityRegistry {
   ): void;
   /** Release a ticket's record — its terminal closed, freeing the pid. */
   forget(ticketId: number): void;
+  /** Release ONE closed terminal's record. A graphing ticket has several live
+   *  terminals at once, so the ticket is not an address for them; the pid is. */
+  forgetTerminal(terminal: vscode.Terminal): void;
   /** Drop records for tickets this window can no longer act on. */
   prune(knownTicketIds: readonly number[]): void;
 }
@@ -7389,6 +7397,10 @@ function makeTerminalIdentityRegistry(
       const ticketId = ticketIdFromTerminalEnv(env);
       if (ticketId === undefined) return;
       const launchId = env[KARST_LAUNCH_ENV];
+      // Graph ownership is recorded at launch because the reload that strips
+      // the env is exactly when it is needed: without it a revived node
+      // terminal reads as the ticket's session terminal.
+      const graph = isGraphSessionEnv(env);
       void resolve(terminal).then(() => {
         const pid = pidByTerminal.get(terminal);
         if (pid === undefined) return;
@@ -7398,11 +7410,22 @@ function makeTerminalIdentityRegistry(
             pid,
             ...(launchId ? { launchId } : {}),
             ...(sessionIdentity ? { identity: sessionIdentity } : {}),
+            ...(graph ? { graph: true as const } : {}),
           }),
         );
+        // The live-pid registry (the resource monitor) is keyed by ticket and a
+        // graphing ticket has many pids, so a graph terminal never claims that
+        // per-ticket slot — it would evict the session terminal's disposer.
+        if (graph) return;
         const dispose = onSessionTerminal?.(pid, ticketId);
         if (dispose) sessionDisposers.set(ticketId, dispose);
       });
+    },
+    forgetTerminal: (terminal) => {
+      const pid = pidByTerminal.get(terminal);
+      if (pid === undefined) return;
+      const next = forgetSessionTerminalPid(records, pid);
+      if (next.length !== records.length) write(next);
     },
     forget: (ticketId) => {
       const next = forgetSessionTerminal(records, ticketId);
@@ -7430,6 +7453,15 @@ function restoredSessionOf(
 ): RestoredSession | undefined {
   const named = identity.identify(terminal);
   if (!named) return undefined;
+  // A graph node/planner terminal is NOT a ticket session. It carries
+  // `KARST_TICKET_ID` like every karst terminal, so the session recovery used
+  // to see the second terminal of a graphing ticket as a duplicate restored
+  // session and CLOSE it — killing an agent node milliseconds after the graph
+  // driver launched it, which the reconcile sweep then reported as
+  // "process (pid N) is gone (dead at reconcile)" and blocked the whole run
+  // (869eg9k2p). The graph transport owns these terminals; `reattachGraphSessions`
+  // is their re-attach path.
+  if (named.graph) return undefined;
   return {
     ticketId: named.ticketId,
     ...(named.launchId ? { launchId: named.launchId } : {}),

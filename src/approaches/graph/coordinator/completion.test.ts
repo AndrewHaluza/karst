@@ -14,6 +14,7 @@
 import { describe, it, expect } from 'vitest';
 import { openStore } from '../../../store/db.js';
 import {
+  faultNodeRunReason,
   completeActivation,
   flipOnEndQuiescence,
   type CompletionDeps,
@@ -415,5 +416,38 @@ describe('flipOnEndQuiescence', () => {
     endReached(ctx);
     ctx.db.prepare('UPDATE approach_graph_runs SET status = ? WHERE id = ?').run('blocked', ctx.graphRunId);
     expect(quiescent(ctx)).toBe(false);
+  });
+});
+
+/**
+ * The node's own reason is already a classifiable sentence, and the parkers
+ * that write it (`reconcile.ts`) prefix it with the very class this renders —
+ * so re-wrapping produced the doubled "node-blocked: node 11 (node-blocked:
+ * node 11 process (pid …) is gone …)" the user was shown (869eg9k2p).
+ */
+describe('faultNodeRunReason', () => {
+  it('does not repeat a prefix the node reason already carries', () => {
+    expect(
+      faultNodeRunReason({
+        id: 11,
+        status: 'stale',
+        reason:
+          'node-blocked: node 11 process (pid 11961) is gone (dead at reconcile) — Resume to relaunch the reserved visit',
+      }),
+    ).toBe(
+      'node-blocked: node 11 process (pid 11961) is gone (dead at reconcile) — Resume to relaunch the reserved visit',
+    );
+  });
+
+  it('wraps a reason that states no class of its own', () => {
+    expect(faultNodeRunReason({ id: 4, status: 'blocked', reason: 'the agent gave up' })).toBe(
+      'node-blocked: node 4 (the agent gave up)',
+    );
+  });
+
+  it('falls back to the status when the node states no reason', () => {
+    expect(faultNodeRunReason({ id: 4, status: 'artifact-unsafe', reason: null })).toBe(
+      'artifact-unsafe: node 4 (artifact-unsafe)',
+    );
   });
 });

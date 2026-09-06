@@ -134,9 +134,17 @@ const NODE_FAULT_PREFIX: Readonly<Record<string, string>> = {
   'artifact-unsafe': 'artifact-unsafe',
 };
 
-/** Render a faulted node run as the blocked reason a recovery category maps. */
+/** Render a faulted node run as the blocked reason a recovery category maps.
+ *  The parkers (`reconcile.ts`, `parkLaunchFailure`) already write the node's
+ *  reason as a classifiable sentence carrying this very prefix, so wrapping one
+ *  again produced the doubled "node-blocked: node 11 (node-blocked: node 11
+ *  …)" the dashboard rendered. `recoveryCategoryFor` reads the prefix either
+ *  way; the reader gets one sentence. */
 export function faultNodeRunReason(node: FaultNodeRunRow): string {
-  return `${NODE_FAULT_PREFIX[node.status] ?? 'node-blocked'}: node ${node.id} (${node.reason ?? node.status})`;
+  const prefix = NODE_FAULT_PREFIX[node.status] ?? 'node-blocked';
+  const reason = node.reason ?? node.status;
+  if (reason.startsWith(`${prefix}:`)) return reason;
+  return `${prefix}: node ${node.id} (${reason})`;
 }
 
 interface NodeRunRow {
