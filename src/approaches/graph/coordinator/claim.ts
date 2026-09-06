@@ -59,6 +59,11 @@ export interface ClaimDeps {
    *  extension host this is a zero-busy-timeout immediate transaction. */
   transaction: <T>(fn: () => T) => T;
   now: () => string;
+  /** Injected debug sink (never a global logger — this module is vscode-free).
+   *  Claim refusals are logged OUTSIDE the transaction, after it returns: a
+   *  line written inside a unit that then rolls back would describe a state
+   *  the database never held. */
+  debug?: (message: string) => void;
 }
 
 export type ClaimResult =
@@ -194,6 +199,31 @@ function allArrivalsClaimable(db: GraphDb, tokenIds: readonly number[]): GraphTo
  * or already claimed — a raced second window never throws and never mutates.
  */
 export function claimActivation(deps: ClaimDeps, input: ClaimActivationInput): ClaimResult {
+  deps.debug?.(
+    `[graph] claim: token ${input.tokenId} (${input.nodeKind}${input.profileIsExpert ? ', expert' : ''})`,
+  );
+  // A lease refusal and a full parallel slot are thrown, not returned — the
+  // whole claim must roll back — so the throw is the outcome the log has to
+  // name. Without this branch the two commonest "nothing is running and
+  // nothing says why" refusals leave no trace at all.
+  let result: ClaimResult;
+  try {
+    result = claimActivationTransaction(deps, input);
+  } catch (err) {
+    deps.debug?.(`[graph] claim: token ${input.tokenId} rolled back — ${String(err)}`);
+    throw err;
+  }
+  deps.debug?.(
+    result.claimed
+      ? `[graph] claim: token ${input.tokenId} → node run ${result.nodeRunId} visit ${result.visitNumber}`
+      : `[graph] claim: token ${input.tokenId} refused — ${result.reason}${
+          result.refusal ? ` (${result.refusal.reason})` : ''
+        }`,
+  );
+  return result;
+}
+
+function claimActivationTransaction(deps: ClaimDeps, input: ClaimActivationInput): ClaimResult {
   return deps.transaction(() => {
     const db = deps.db;
     const token = graphTokenById(db, input.tokenId);

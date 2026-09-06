@@ -300,7 +300,7 @@ function retryReservedVisits(
   // walks straight back into the same fault, which is what the permanent
   // refusal was protecting against. A still-faulted artifact refuses the whole
   // Resume: the graph is blocked by that fault too and cannot proceed past it.
-  const recheck = recheckArtifactFaults(db, input.graphRunId, deps.artifactRoot);
+  const recheck = recheckArtifactFaults(db, input.graphRunId, deps.artifactRoot, deps.debug);
   if (!recheck.ok) {
     emitGraphDiagnostic({ db, debug: deps.debug }, {
       category: 'recovery',
@@ -646,13 +646,30 @@ export function recoverGraphRun(
   input: { ticketId: number; graphRunId: number; mode?: GraphRecoveryMode },
 ): RecoveryResult {
   const { store } = deps;
+  deps.debug?.(
+    `[graph] recovery: run ${input.graphRunId} requested (mode ${input.mode ?? 'resume'})`,
+  );
   const ticket = getTicket(store, input.ticketId);
-  if (ticket.stageCurrent !== 'impl') return { kind: 'no-op' };
+  // Both no-ops below are the shape of "I clicked Resume and nothing
+  // happened": the recovery returns silently and the panel re-renders
+  // unchanged. Naming the precondition that failed is the whole difference
+  // between a diagnosable refusal and an inert button.
+  if (ticket.stageCurrent !== 'impl') {
+    deps.debug?.(
+      `[graph] recovery: run ${input.graphRunId} no-op — ticket is at ${ticket.stageCurrent}, not impl`,
+    );
+    return { kind: 'no-op' };
+  }
 
   const run = store.db
     .prepare('SELECT id, status, blocked_reason FROM approach_graph_runs WHERE id = ?')
     .get(input.graphRunId) as BlockedRunRow | undefined;
-  if (!run || run.status !== 'blocked') return { kind: 'no-op' };
+  if (!run || run.status !== 'blocked') {
+    deps.debug?.(
+      `[graph] recovery: run ${input.graphRunId} no-op — ${run ? `status is ${run.status}, not blocked` : 'run not found'}`,
+    );
+    return { kind: 'no-op' };
+  }
 
   // Replan is the explicit human alternative to category-aware Resume. It
   // deliberately enters the existing election path, which owns the budget,
@@ -660,6 +677,9 @@ export function recoverGraphRun(
   if (input.mode === 'replan') return replanRecovery(deps, input);
 
   const category = recoveryCategoryFor(run.blocked_reason);
+  deps.debug?.(
+    `[graph] recovery: run ${input.graphRunId} blocked_reason "${run.blocked_reason ?? 'none'}" → category ${category}`,
+  );
   switch (category) {
     case 'launch-retry':
     case 'prompt-resnapshot':

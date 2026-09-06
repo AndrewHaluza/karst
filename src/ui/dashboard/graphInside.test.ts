@@ -139,6 +139,9 @@ describe('buildGraphInsideInput', () => {
         status: 'submitted',
         compileAttempt: 2,
         reason: 'fixed a node',
+        startedAt: null,
+        submittedAt: null,
+        endedAt: null,
       },
     ]);
     expect(input.nodeRuns).toEqual([
@@ -156,6 +159,8 @@ describe('buildGraphInsideInput', () => {
         effort: 'high',
         profile: 'default',
         launchAttempt: 2,
+        startedAt: null,
+        endedAt: null,
       },
     ]);
     expect(input.revision).toEqual({ revisionNumber: 1, status: 'active', fingerprint: 'fp' });

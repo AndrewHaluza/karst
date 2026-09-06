@@ -730,14 +730,14 @@ describe('graphInsideProcess', () => {
     expect(rows.filter((r) => r.label === 'deferred write-all')).toEqual([
       {
         label: 'deferred write-all',
-        detail: 'resource-conflict: physical domain dom-api is held write by another node run · waiting 1800s',
+        detail: 'resource-conflict: physical domain dom-api is held write by another node run · waiting 30m',
         status: 'wait',
       },
     ]);
     expect(rows.filter((r) => r.label === 'deferred lint')).toEqual([
       {
         label: 'deferred lint',
-        detail: 'parallel-slot-busy: active process ceiling reached (maxParallel 1) · waiting 3600s',
+        detail: 'parallel-slot-busy: active process ceiling reached (maxParallel 1) · waiting 1h',
         status: 'wait',
       },
     ]);
@@ -1097,5 +1097,106 @@ describe('graphInsideProcess', () => {
     // inert TEXT, never markup).
     expect(node.override).toContain('profile');
     expect(node.override).not.toMatch(/javascript:|data:/i);
+  });
+});
+
+/**
+ * Timestamps on the run rows. A durable row outlives the window reading it, so
+ * "is this process new or stale" is the first question a stuck graph raises —
+ * and until these ages existed, every row answered it identically.
+ */
+describe('graph run ages', () => {
+  it('ages the graph run row from its creation', () => {
+    const view = graphInsideProcess(input())!;
+    const row = view.evidence!.rows.find((r) => r.label === 'graph')!;
+    expect(row.detail).toContain('started 1h ago');
+  });
+
+  it('reports how long a submitted planner has owed the compiler an answer', () => {
+    const view = graphInsideProcess(
+      input({
+        plannerRuns: [
+          {
+            plannerRunNumber: 1,
+            kind: 'bootstrap',
+            status: 'submitted',
+            compileAttempt: 2,
+            reason: null,
+            startedAt: '2026-08-11T00:10:00.000Z',
+            submittedAt: '2026-08-11T00:30:00.000Z',
+            endedAt: null,
+          },
+        ],
+      }),
+    )!;
+    const row = view.evidence!.rows.find((r) => r.label === 'planner 1')!;
+    expect(row.detail).toContain('submitted 30m ago');
+  });
+
+  it('names a live planner that never recorded a start', () => {
+    const view = graphInsideProcess(
+      input({
+        plannerRuns: [
+          { plannerRunNumber: 1, kind: 'bootstrap', status: 'running', compileAttempt: 0, reason: null },
+        ],
+      }),
+    )!;
+    const row = view.evidence!.rows.find((r) => r.label === 'planner 1')!;
+    expect(row.detail).toContain('never started');
+  });
+
+  it('reports how long a running planner has been running', () => {
+    const view = graphInsideProcess(
+      input({
+        plannerRuns: [
+          {
+            plannerRunNumber: 1,
+            kind: 'replan',
+            status: 'running',
+            compileAttempt: 0,
+            reason: null,
+            startedAt: '2026-08-11T00:45:00.000Z',
+          },
+        ],
+      }),
+    )!;
+    const row = view.evidence!.rows.find((r) => r.label === 'planner 1')!;
+    expect(row.detail).toContain('running 15m');
+  });
+
+  it('ages a node run and reports how long a finished one took', () => {
+    const node = {
+      nodeRunId: 11,
+      nodeId: 'implement',
+      nodeKind: 'agent',
+      revisionId: 1,
+      visitNumber: 1,
+      outcome: null,
+      reason: null,
+      provider: null,
+      model: null,
+      effort: null,
+      profile: null,
+      launchAttempt: 0,
+    };
+    const view = graphInsideProcess(
+      input({
+        nodeRuns: [
+          { ...node, status: 'running', startedAt: '2026-08-11T00:50:00.000Z', endedAt: null },
+          {
+            ...node,
+            nodeRunId: 12,
+            nodeId: 'review',
+            status: 'completed',
+            startedAt: '2026-08-11T00:00:00.000Z',
+            endedAt: '2026-08-11T00:05:00.000Z',
+          },
+        ],
+      }),
+    )!;
+    if (view.evidence?.kind !== 'rows') throw new Error('expected graph rows evidence');
+    const nodes = view.evidence.nodes!;
+    expect(nodes.find((n) => n.nodeId === 'implement')!.age).toBe('running 10m');
+    expect(nodes.find((n) => n.nodeId === 'review')!.age).toBe('ran 5m');
   });
 });

@@ -153,6 +153,24 @@ export function completeActivation(
   deps: CompletionDeps,
   input: { nodeRunId: number; effectiveOutcome: string },
 ): CompletionResult {
+  deps.debug?.(
+    `[graph] completion: node run ${input.nodeRunId} → ${input.effectiveOutcome}`,
+  );
+  const result = completeActivationTransaction(deps, input);
+  // `consumed: 0` is the silent case that matters: a duplicate completion, or
+  // one whose run was cancelled since the snapshot. It emits no successor and
+  // otherwise leaves no trace, so a graph that stops routing here looks like a
+  // graph that simply stopped.
+  deps.debug?.(
+    `[graph] completion: node run ${input.nodeRunId} consumed ${result.consumed} token(s), emitted ${result.inserted} successor(s)`,
+  );
+  return result;
+}
+
+function completeActivationTransaction(
+  deps: CompletionDeps,
+  input: { nodeRunId: number; effectiveOutcome: string },
+): CompletionResult {
   return deps.transaction(() => {
     const db = deps.db;
     const run = db
@@ -310,6 +328,22 @@ export interface QuiescenceResult {
  * is a separate surface.
  */
 export function flipOnEndQuiescence(
+  deps: QuiescenceDeps,
+  input: { graphRunId: number },
+): QuiescenceResult {
+  const result = flipOnEndQuiescenceTransaction(deps, input);
+  // The one line that answers "the graph looks finished — why has it not
+  // closed": `blockedBy` names the exact remaining condition, and it was
+  // otherwise readable only by re-deriving `quiescenceBlockedBy` by hand.
+  deps.debug?.(
+    result.flipped
+      ? `[graph] run ${input.graphRunId}: quiesced → completed-awaiting-impl-marker`
+      : `[graph] run ${input.graphRunId}: not quiesced — ${result.blockedBy ?? 'unknown'}`,
+  );
+  return result;
+}
+
+function flipOnEndQuiescenceTransaction(
   deps: QuiescenceDeps,
   input: { graphRunId: number },
 ): QuiescenceResult {

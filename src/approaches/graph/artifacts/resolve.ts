@@ -219,6 +219,24 @@ export interface ValidateOutputsOpts {
 export function validateRequiredOutputs(
   db: GraphDb,
   opts: ValidateOutputsOpts,
+  debug?: (message: string) => void,
+): OutputValidationResult {
+  const result = validateOutputs(db, opts);
+  // A node parked `output-artifact-missing` / `artifact-unsafe` is one of the
+  // two node-level dead ends whose cause lives entirely outside the database:
+  // the file the agent was supposed to write. Naming the artifact is the
+  // difference between "the node parked" and "this artifact was not there".
+  debug?.(
+    result.ok
+      ? `[graph] outputs: node ${opts.nodeId} run ${opts.nodeRunId} validated ${result.instances.length} artifact(s)`
+      : `[graph] outputs: node ${opts.nodeId} run ${opts.nodeRunId} → ${result.code} for "${result.artifactId}" — ${result.reason}`,
+  );
+  return result;
+}
+
+function validateOutputs(
+  db: GraphDb,
+  opts: ValidateOutputsOpts,
 ): OutputValidationResult {
   if (Object.keys(opts.outputPaths).length === 0) {
     return { ok: true, instances: [], forkLineage: null };

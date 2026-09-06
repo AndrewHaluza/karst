@@ -894,6 +894,10 @@
   #inside .graph-node-identity{color:var(--p-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   #inside .graph-node-visit{color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs);white-space:nowrap}
   #inside .graph-node-override{color:var(--p-running);font-family:var(--p-mono);font-size:var(--p-xs);white-space:nowrap}
+  /* The node's age — the one fact that separates a live run from a stale one.
+     Same muted mono weight as the visit budget: a supporting fact, never a
+     verdict, and the host formats it (the webview never computes a duration). */
+  #inside .graph-node-age{color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs);white-space:nowrap}
   #inside .graph-node-fact{color:var(--p-muted2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   #inside .graph-node-reason{color:var(--p-attention);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
@@ -2610,6 +2614,7 @@
         + `<span class="graph-node-detail">`
         + (n.identity ? `<span class="graph-node-identity">${esc(n.identity)}</span>` : '')
         + `<span class="graph-node-visit">${esc(n.visit)}</span>`
+        + (n.age ? `<span class="graph-node-age">${esc(n.age)}</span>` : '')
         + (n.override ? `<span class="graph-node-override">${esc(n.override)}</span>` : '')
         + (n.outcome ? `<span class="graph-node-fact">${esc(n.outcome)}</span>` : '')
         + (n.reason ? `<span class="graph-node-reason">${esc(n.reason)}</span>` : '')

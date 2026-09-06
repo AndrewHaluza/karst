@@ -279,3 +279,90 @@ with no bound is a state no actor ever leaves either (H4).
 All four are fixed. Every terminal park is `blocked`, which is the one status
 the typed Resume reaches, and every reason a park writes maps to a recovery
 category (`recoveryCategoryFor` is total over the closed set).
+
+---
+
+# Third audit, 2026-09-06 — ticket 363, and the two things the log never said
+
+Field evidence, registry `karst.db`, ticket 363 (`Comperhancive testing with
+playwright`), graph run 5. The run has been `blocked` since 2026-08-16 and has
+**zero** revisions and **zero** node runs: it never planned once. Ten bootstrap
+planner runs exist for it.
+
+| planner | status | compile_attempt | submitted_at | ended_at |
+|---------|--------|-----------------|--------------|----------|
+| 1 | stale | 0 | — | — |
+| 2 | submitted | 10 | 2026-09-04T10:13 | 2026-09-06T10:42 |
+| 3–8, 10 | submitted | 0 | 2026-09-04 → 2026-09-06 | — |
+| 9 | running | 0 | — | — |
+
+The run's terminal reason is
+`graph-plan-invalid: reserved-identifier: edges[0].from: "$entry" is a reserved
+sentinel`.
+
+## What actually happened
+
+**The planner kept writing `$entry` as an edge source.** G5 of the first audit
+fixed the `entries[]` half of this in `skills/graph-planner/SKILL.md`, and the
+prompt now states the per-field rule explicitly ("Nowhere else may `$entry`
+appear — not in `entries`, not as an edge endpoint"). Run 5 died on the OTHER
+field, `edges[].from`, and kept dying on it across ten compile attempts.
+
+**A prompt fix cannot reach a planner run that already exists.** Prompt bytes
+are snapshotted into content-addressed storage at planner-run CREATION
+(`beginBootstrapPlannerRun`, Decision 14), and the launch reads only the
+snapshot, verifying the recorded hash. That is the right contract — edits take
+effect on the next run, never on a retry of an existing one — but it means the
+compile repair's re-prompt of the SAME planner run replays the SAME prompt
+bytes, diagnostics and all. Planner 2 carries the prompt as it read on
+2026-08-16. Ten attempts against a prompt that cannot change is a loop with no
+exit but exhaustion.
+
+**Eight submitted documents were read by nobody.** `acceptSubmittedPlan` opens
+with `if (!run || run.status !== 'planning') return { kind: 'no-op' }`. A
+bootstrap planner that submits into a run which has since left `planning` — a
+Resume parked it `blocked`, a Stop drained it — has its document dropped, and
+its row stays `submitted` forever: no `ended_at`, no `stale`, no reason. The
+registry shows seven such rows. From the Inside panel this reads as a planner
+that finished and a run that ignored it, and there was no record anywhere that
+it had happened. That is the shape of the user report behind this ticket:
+"tried to stop and replan", repeatedly, each attempt producing a document
+nothing would ever consume.
+
+## What this branch changes
+
+Neither of the two gaps above is fixed here — both need a decision (does a
+re-prompt re-snapshot? does a submission into a non-`planning` run mark the
+planner `stale`?), and this ticket's scope was to make the subsystem legible
+first. What is fixed:
+
+1. **Every graph row now carries an age** (`model/inside/age.ts`), and
+   `approach_planner_runs.started_at` is finally written — it was declared and
+   written by nothing, so all ten planner rows above carry NULL. A planner
+   `submitted` since 2026-09-04 now reads `submitted 2d ago` on the strip
+   instead of rendering identically to one submitted a second ago. This was the
+   first thing the ticket asked for and the first thing the table above needed.
+
+2. **The silent decisions log.** `acceptSubmittedPlan`'s two no-op exits, the
+   launch guard's three answers, the compile's rejection diagnostics (`code:
+   where`, so a repeated rejection on ONE field is visible as one), the compile
+   repair's per-attempt diagnostics, the claim's thrown rollbacks, the
+   scheduler's per-node refusal, the completion's consumed/emitted counts, the
+   quiescence `blockedBy`, the recovery's two silent no-ops and its
+   blocked_reason → category mapping, the artifact validation's named artifact,
+   the reconcile scope's project and run ids, and the liveness pid evidence.
+
+Every one of those was a decision the run loop made and told nobody about, and
+between them they cover the whole path from "the user clicked Start" to "the
+node parked".
+
+## Still open
+
+- **F1** — a compile re-prompt replays a frozen prompt snapshot, so a prompt
+  defect cannot be corrected within a planner run. Either the repair
+  re-snapshots (breaking Decision 14's immutability for the repair case only,
+  which is arguably what the repair IS), or an exhausted repair must say in its
+  block reason that the prompt is the suspect.
+- **F2** — a bootstrap submission into a non-`planning` run is dropped and its
+  planner row is left `submitted` forever. It should move `submitted → stale`
+  with a reason, which is the treatment a late replan submission already gets.

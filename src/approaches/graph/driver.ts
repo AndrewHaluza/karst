@@ -304,9 +304,27 @@ function claimPlannerLaunch(
 
 /** Close a planner claim once its session exists: `launching → running`. A
  *  lost CAS means another window already moved the row, so this launch is not
- *  reported as one (the node path reads the same way). */
+ *  reported as one (the node path reads the same way).
+ *
+ *  `started_at` is stamped on the SAME transaction as the CAS, and only when
+ *  the row still has none: a planner re-prompted by the compile repair
+ *  (`blocked → launching → running`) keeps the wall-clock its FIRST session
+ *  began at, so the Inside panel's age answers "how long has this planner been
+ *  the run's open question", not "how long since its latest re-prompt". Without
+ *  this column every planner row read as timeless and a session dead for a day
+ *  was indistinguishable from one launched a second ago. */
 function markPlannerRunning(deps: GraphDriverDeps, plannerRunId: number): boolean {
-  return deps.transaction(() => transitionPlannerRun(deps.db, plannerRunId, 'launching', 'running'));
+  return deps.transaction(() => {
+    const moved = transitionPlannerRun(deps.db, plannerRunId, 'launching', 'running');
+    if (moved) {
+      deps.db
+        .prepare(
+          'UPDATE approach_planner_runs SET started_at = ? WHERE id = ? AND started_at IS NULL',
+        )
+        .run(deps.now(), plannerRunId);
+    }
+    return moved;
+  });
 }
 
 /**
@@ -611,7 +629,20 @@ export type AcceptPlanResult =
  */
 export function acceptSubmittedPlan(deps: GraphDriverDeps, graphRunId: number): AcceptPlanResult {
   const run = graphRunById(deps.db, graphRunId);
-  if (!run || run.status !== 'planning') return { kind: 'no-op' };
+  if (!run || run.status !== 'planning') {
+    // The silent drop that matters most: a bootstrap planner CAN submit into a
+    // run that has since left `planning` (a Resume parked it `blocked`, a Stop
+    // drained it), and the document is then read by nobody while the planner
+    // row stays `submitted` forever with no `ended_at`. From the panel it
+    // looks like a planner that finished and a run that ignored it, and until
+    // this line there was no record of it happening at all.
+    deps.debug?.(
+      `[graph] run ${graphRunId}: bootstrap submission not accepted — ${
+        run ? `run is ${run.status}, not planning` : 'run not found'
+      }`,
+    );
+    return { kind: 'no-op' };
+  }
 
   // Idempotency: a run that already holds an active revision has ALREADY
   // accepted its bootstrap plan — a prior accept committed its revision while
@@ -644,7 +675,14 @@ export function acceptSubmittedPlan(deps: GraphDriverDeps, graphRunId: number): 
     .get(graphRunId) as
     | { id: number; status: string; graph_snapshot_id: string | null }
     | undefined;
-  if (!planner || !planner.graph_snapshot_id) return { kind: 'no-op' };
+  if (!planner || !planner.graph_snapshot_id) {
+    deps.debug?.(
+      `[graph] run ${graphRunId}: nothing to accept — ${
+        planner ? `planner ${planner.id} submitted no graph snapshot` : 'no submitted bootstrap planner'
+      }`,
+    );
+    return { kind: 'no-op' };
+  }
 
   // G1b: a plan is never judged against an unresolved manifest. The run stays
   // `planning` and the next tick judges it against a manifest that resolved.
@@ -672,7 +710,11 @@ export function acceptSubmittedPlan(deps: GraphDriverDeps, graphRunId: number): 
       parsed.diagnostics.map((d) => `${d.code}: ${d.where}: ${d.message}`),
     );
   }
-  const compiled = compileGraphDocument(parsed.document, deps.compileContextOf(graphRunId, parsed.document));
+  const compiled = compileGraphDocument(
+    parsed.document,
+    deps.compileContextOf(graphRunId, parsed.document),
+    deps.debug,
+  );
   if (!compiled.ok) {
     return rejectPlan(
       deps,
@@ -816,7 +858,14 @@ export function acceptSubmittedReplan(
     .get(graphRunId) as
     | { id: number; status: string; graph_snapshot_id: string | null }
     | undefined;
-  if (!planner || !planner.graph_snapshot_id) return { kind: 'no-op' };
+  if (!planner || !planner.graph_snapshot_id) {
+    deps.debug?.(
+      `[graph] run ${graphRunId}: nothing to accept — ${
+        planner ? `planner ${planner.id} submitted no graph snapshot` : 'no submitted bootstrap planner'
+      }`,
+    );
+    return { kind: 'no-op' };
+  }
 
   // G1b: a replan is never judged against an unresolved manifest either — the
   // same empty repository map that turns every valid claim into
@@ -846,7 +895,7 @@ export function acceptSubmittedReplan(
     );
   }
   const compileDocument = (document: GraphDocument): CompileResult =>
-    compileGraphDocument(document, deps.compileContextOf(graphRunId, document));
+    compileGraphDocument(document, deps.compileContextOf(graphRunId, document), deps.debug);
   const physicalDomainsOf = deps.physicalDomainsOf
     ? (nodeId: string): string[] => deps.physicalDomainsOf!(graphRunId, parsed.document, nodeId)
     : (): string[] => [];
@@ -1160,7 +1209,7 @@ async function executeReadyNode(
         .all(row.id) as { id: number }[]
     ).map((t) => t.id);
     const consumed = runJoinNode(
-      { db: deps.db, transaction: deps.transaction, now: deps.now },
+      { db: deps.db, transaction: deps.transaction, now: deps.now, debug: deps.debug },
       { nodeRunId: row.id, arrivalTokenIds: arrivals },
     );
     return consumed ? 'completed' : 'blocked';

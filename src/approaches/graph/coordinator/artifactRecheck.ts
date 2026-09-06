@@ -73,8 +73,10 @@ export function recheckArtifactFaults(
   db: GraphDb,
   graphRunId: number,
   artifactRoot?: (graphRunId: number) => string | undefined,
+  debug?: (message: string) => void,
 ): ArtifactRecheckOutcome {
   const faults = artifactFaultNodeRows(db, graphRunId);
+  debug?.(`[graph] recheck: run ${graphRunId} has ${faults.length} artifact-fault node run(s)`);
   if (faults.length === 0) return { ok: true, rechecked: [] };
   const root = artifactRoot?.(graphRunId);
   if (!root) {
@@ -88,7 +90,7 @@ export function recheckArtifactFaults(
       nodeRunId: fault.id,
       outputPaths: declaredOutputPaths(db, fault.revision_id, fault.node_id, root),
       snapshotDir: root,
-    });
+    }, debug);
     if (!validation.ok) {
       return {
         ok: false,

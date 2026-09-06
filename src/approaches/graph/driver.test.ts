@@ -240,6 +240,23 @@ describe('bootstrapAndLaunchPlanner', () => {
     ).toContain('node "$KARST_GRAPH_CLI" graph submit');
   });
 
+  it('stamps started_at when the planner reaches running, so a stale planner is visible as one', async () => {
+    const h = harness();
+    const result = await bootstrapAndLaunchPlanner(h.deps, {
+      ticketId: h.ticketId,
+      stageAttempt: 0,
+      approachId: 'karst-graph-engineering',
+      projectSlug: 'acme',
+    });
+    expect(result.kind).toBe('launched');
+    if (result.kind !== 'launched') return;
+    const planner = h.db
+      .prepare('SELECT status, started_at FROM approach_planner_runs WHERE id = ?')
+      .get(result.plannerRunId) as { status: string; started_at: string | null };
+    expect(planner.status).toBe('running');
+    expect(planner.started_at).toBe(h.deps.now());
+  });
+
   it('names the legal repository, profile and command values in the planner prompt', async () => {
     const h = harness();
     await bootstrapAndLaunchPlanner(h.deps, {

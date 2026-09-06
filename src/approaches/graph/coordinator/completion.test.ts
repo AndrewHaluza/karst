@@ -279,10 +279,13 @@ describe('completeActivation', () => {
 
     expect(result).toEqual({ consumed: 1, inserted: 0 });
     expect(tokenStatuses(ctx)).toEqual([{ edge_id: 'e-a-end', status: 'consumed', destination_end: 0 }]);
-    expect(debug).toHaveLength(1);
-    expect(debug[0]).toContain('[graph:completion-rejection]');
-    expect(debug[0]).toContain('canonical graph could not be parsed after consuming a token');
-    expect(debug[0]).not.toContain('{not valid JSON');
+    // The completion also emits its own entry/exit debug lines; the assertion
+    // is about the structured DIAGNOSTIC, so it filters for that prefix.
+    const diagnostics = debug.filter((line) => line.startsWith('[graph:'));
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0]).toContain('[graph:completion-rejection]');
+    expect(diagnostics[0]).toContain('canonical graph could not be parsed after consuming a token');
+    expect(diagnostics[0]).not.toContain('{not valid JSON');
   });
 
   it('diagnoses a node id absent from an otherwise parseable canonical graph', () => {
@@ -304,9 +307,12 @@ describe('completeActivation', () => {
     );
 
     expect(result).toEqual({ consumed: 1, inserted: 0 });
-    expect(debug).toHaveLength(1);
-    expect(debug[0]).toContain('[graph:completion-rejection]');
-    expect(debug[0]).toContain('node id absent from the canonical graph after consuming a token');
+    // The completion also emits its own entry/exit debug lines; the assertion
+    // is about the structured DIAGNOSTIC, so it filters for that prefix.
+    const diagnostics = debug.filter((line) => line.startsWith('[graph:'));
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0]).toContain('[graph:completion-rejection]');
+    expect(diagnostics[0]).toContain('node id absent from the canonical graph after consuming a token');
   });
 });
 

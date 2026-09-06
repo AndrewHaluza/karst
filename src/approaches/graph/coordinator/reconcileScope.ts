@@ -43,7 +43,11 @@ export interface ReconcilableGraphRunsScope {
  * tickets, filtered to non-terminal statuses, oldest first (stable order for
  * the pass's own transitions log).
  */
-export function reconcilableGraphRunIds(db: GraphDb, scope: ReconcilableGraphRunsScope): number[] {
+export function reconcilableGraphRunIds(
+  db: GraphDb,
+  scope: ReconcilableGraphRunsScope,
+  debug?: (message: string) => void,
+): number[] {
   const placeholders = NON_TERMINAL_GRAPH_RUN_STATUSES.map(() => '?').join(', ');
   const rows = db
     .prepare(
@@ -54,5 +58,13 @@ export function reconcilableGraphRunIds(db: GraphDb, scope: ReconcilableGraphRun
         ORDER BY r.id`,
     )
     .all(scope.projectId, ...NON_TERMINAL_GRAPH_RUN_STATUSES) as { id: number }[];
+  // The scope is where a project-scoping bug hides in plain sight: a tick that
+  // reconciles NOTHING and a tick whose window holds the wrong project read
+  // identically from the outside (G1 of the reliability audit was exactly
+  // this). Naming the project and the ids it produced makes them different.
+  debug?.(
+    `[graph] reconcile scope: project ${scope.projectId} → ${rows.length} non-terminal run(s)` +
+      (rows.length > 0 ? ` [${rows.map((r) => r.id).join(', ')}]` : ''),
+  );
   return rows.map((r) => r.id);
 }

@@ -88,7 +88,8 @@ export function buildGraphInsideInput(
 
   const plannerRuns = deps.store.db
     .prepare(
-      `SELECT planner_run_number, kind, status, compile_attempt, reason
+      `SELECT planner_run_number, kind, status, compile_attempt, reason,
+              started_at, submitted_at, ended_at
          FROM approach_planner_runs WHERE graph_run_id = ? ORDER BY planner_run_number`,
     )
     .all(run.id) as {
@@ -97,12 +98,15 @@ export function buildGraphInsideInput(
     status: string;
     compile_attempt: number;
     reason: string | null;
+    started_at: string | null;
+    submitted_at: string | null;
+    ended_at: string | null;
   }[];
 
   const nodeRuns = deps.store.db
     .prepare(
       `SELECT id, node_id, node_kind, revision_id, visit_number, status, outcome, reason,
-              provider, model, effort, profile, launch_attempt
+              provider, model, effort, profile, launch_attempt, started_at, ended_at
          FROM approach_node_runs WHERE graph_run_id = ? ORDER BY id`,
     )
     .all(run.id) as {
@@ -119,6 +123,8 @@ export function buildGraphInsideInput(
     effort: string | null;
     profile: string | null;
     launch_attempt: number;
+    started_at: string | null;
+    ended_at: string | null;
   }[];
 
   // Slice 6 Task 4: existing per-node overrides — a READ over the store's
@@ -220,6 +226,9 @@ export function buildGraphInsideInput(
       status: p.status,
       compileAttempt: p.compile_attempt,
       reason: p.reason,
+      startedAt: p.started_at,
+      submittedAt: p.submitted_at,
+      endedAt: p.ended_at,
     })),
     nodeRuns: nodeRuns.map((n) => ({
       nodeRunId: n.id,
@@ -235,6 +244,8 @@ export function buildGraphInsideInput(
       effort: n.effort,
       profile: n.profile,
       launchAttempt: n.launch_attempt,
+      startedAt: n.started_at,
+      endedAt: n.ended_at,
     })),
     overrides,
     deferrals: deferrals.map((d) => ({

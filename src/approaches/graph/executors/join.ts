@@ -24,6 +24,9 @@ export interface JoinRunDeps {
   /** BEGIN IMMEDIATE-wrapped, all-or-nothing; a throw rolls back. */
   transaction: <T>(fn: () => T) => T;
   now: () => string;
+  /** Injected debug sink; logged after the transaction returns, never inside
+   *  a unit that may still roll back. */
+  debug?: (message: string) => void;
 }
 
 /**
@@ -32,6 +35,19 @@ export interface JoinRunDeps {
  * Returns false when the run already moved (a raced completion).
  */
 export function runJoinNode(
+  deps: JoinRunDeps,
+  input: { nodeRunId: number; arrivalTokenIds: readonly number[] },
+): boolean {
+  const fired = runJoinTransaction(deps, input);
+  deps.debug?.(
+    fired
+      ? `[graph] join: node run ${input.nodeRunId} fired on ${input.arrivalTokenIds.length} arrival(s)`
+      : `[graph] join: node run ${input.nodeRunId} lost the race — another window already completed it`,
+  );
+  return fired;
+}
+
+function runJoinTransaction(
   deps: JoinRunDeps,
   input: { nodeRunId: number; arrivalTokenIds: readonly number[] },
 ): boolean {

@@ -290,7 +290,7 @@ export async function stopActiveGraph(
       refused += 1;
     }
   }
-  if (sessions.length === 0 && (await graphRunHasLiveNodeProcess(deps.db, deps.facts, input.graphRunId))) {
+  if (sessions.length === 0 && (await graphRunHasLiveNodeProcess(deps.db, deps.facts, input.graphRunId, deps.debug))) {
     deps.debug?.(
       `[graph] stop: run ${input.graphRunId} has a live node process this window cannot reach — not drained`,
     );

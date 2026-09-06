@@ -93,4 +93,22 @@ describe('graphLaunchDecision', () => {
     });
     expect(graphLaunchDecision(store.db, ticketId, 0)).toEqual({ kind: 'launch' });
   });
+
+  it('names each of its three answers through the injected debug sink', () => {
+    const lines: string[] = [];
+    const debug = (line: string): void => void lines.push(line);
+
+    expect(graphLaunchDecision(store.db, ticketId, 0, debug)).toEqual({ kind: 'launch' });
+    expect(lines.some((l) => l.includes('no run stands in the way'))).toBe(true);
+
+    lines.length = 0;
+    const live = run('running', 0);
+    expect(graphLaunchDecision(store.db, ticketId, 0, debug).kind).toBe('owned');
+    expect(lines.some((l) => l.includes(`run ${live} is live (running)`))).toBe(true);
+
+    lines.length = 0;
+    store.db.prepare("UPDATE approach_graph_runs SET status = 'closed' WHERE id = ?").run(live);
+    expect(graphLaunchDecision(store.db, ticketId, 0, debug).kind).toBe('attempt-consumed');
+    expect(lines.some((l) => l.includes('already consumed attempt 0'))).toBe(true);
+  });
 });
