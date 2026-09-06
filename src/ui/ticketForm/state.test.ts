@@ -218,7 +218,7 @@ describe('buildTicketFormState — create mode', () => {
     const s = buildTicketFormState(store, m, () => [], () => []);
     expect(s.approaches.map((a) => a.id)).toEqual(['karst-graph-engineering']);
     expect(s.selectedApproach).toBe('karst-graph-engineering');
-    const disabled = { ...MANIFEST, approaches: [{ id: 'karst-graph-engineering', label: 'Graph Engineering', enabled: false }] };
+    const disabled = { ...MANIFEST, approaches: [{ id: 'karst-graph-engineering', label: 'Dynamic Graph', enabled: false }] };
     const s2 = buildTicketFormState(store, disabled, () => [], () => []);
     expect(s2.approaches).toEqual([]);
     expect(s2.selectedApproach).toBeNull();

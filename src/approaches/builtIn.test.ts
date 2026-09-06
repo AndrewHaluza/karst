@@ -15,7 +15,7 @@ describe('built-in approach package definition', () => {
   it('ships exactly one built-in: karst-graph-engineering', () => {
     expect(BUILT_IN_APPROACHES).toHaveLength(1);
     expect(BUILT_IN_APPROACHES[0]!.id).toBe('karst-graph-engineering');
-    expect(BUILT_IN_APPROACHES[0]!.label).toBe('Graph Engineering');
+    expect(BUILT_IN_APPROACHES[0]!.label).toBe('Dynamic Graph');
   });
 
   it('ships enabled (Slice 3 flip), not recommended, sourceless, and commandless', () => {

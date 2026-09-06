@@ -79,7 +79,7 @@ function harness(overrides: Partial<SettingsActionsDeps> = {}) {
     listAgentRows: () => [],
     listApproachCommands: () => ({}),
     readApproachCommandBody: () => '',
-    makeProvider: () => ({ async updateStatus() {}, async listStatuses() { return []; } }),
+    makeProvider: () => ({ async updateStatus() { }, async listStatuses() { return []; } }),
     modelCatalog: () => REMOTE_MODELS,
     browseForFolder: async () => undefined,
     openManifest: () => { order.push('openManifest'); },
@@ -281,14 +281,14 @@ describe('settings actions — section-scoped save', () => {
       ...VALID,
       approaches: [
         ...BUILT_IN_APPROACHES, // packaged body, as the state push seeded it
-        { id: 'karst-graph-engineering', label: 'Graph Engineering', enabled: true },
+        { id: 'karst-graph-engineering', label: 'Dynamic Graph', enabled: true },
       ],
     };
     await actions.save(overlaid, 'approaches');
 
     expect(writes).toHaveLength(1);
     expect(writes[0]!.approaches).toEqual([
-      { id: 'karst-graph-engineering', label: 'Graph Engineering', enabled: true },
+      { id: 'karst-graph-engineering', label: 'Dynamic Graph', enabled: true },
     ]);
   });
 
@@ -300,7 +300,7 @@ describe('settings actions — section-scoped save', () => {
     // definition or drop the enable.
     const onDisk: Manifest = {
       ...VALID,
-      approaches: [{ id: 'karst-graph-engineering', label: 'Graph Engineering', enabled: true }],
+      approaches: [{ id: 'karst-graph-engineering', label: 'Dynamic Graph', enabled: true }],
     };
     const { writes, harness: h } = writeSpy();
     const { actions } = h(onDisk);
@@ -308,14 +308,14 @@ describe('settings actions — section-scoped save', () => {
       ...VALID,
       approaches: [
         ...BUILT_IN_APPROACHES,
-        { id: 'karst-graph-engineering', label: 'Graph Engineering', enabled: true },
+        { id: 'karst-graph-engineering', label: 'Dynamic Graph', enabled: true },
       ],
     };
     await actions.save(staleDraft, 'approaches');
 
     expect(writes).toHaveLength(1);
     expect(writes[0]!.approaches).toEqual([
-      { id: 'karst-graph-engineering', label: 'Graph Engineering', enabled: true },
+      { id: 'karst-graph-engineering', label: 'Dynamic Graph', enabled: true },
     ]);
   });
 });
@@ -357,7 +357,7 @@ describe('settings actions — graph configuration saves (Slice-1 T6)', () => {
     expect(writes[0]!.approaches).toEqual([
       {
         id: 'karst-graph-engineering',
-        label: 'Graph Engineering',
+        label: 'Dynamic Graph',
         enabled: true,
         graph: {
           limits: { ...(BUILT_IN_APPROACHES[0]!.graph?.limits ?? {}), maxAgentWallSeconds: 28800 },
@@ -381,7 +381,7 @@ describe('settings actions — graph configuration saves (Slice-1 T6)', () => {
     expect(writes[0]!.approaches).toEqual([
       {
         id: 'karst-graph-engineering',
-        label: 'Graph Engineering',
+        label: 'Dynamic Graph',
         enabled: true,
         graph: { limits: { ...(BUILT_IN_APPROACHES[0]!.graph?.limits ?? {}), maxParallel: 2 } },
       },
@@ -469,7 +469,7 @@ describe('settings actions — built-in enable/disable', () => {
 
     expect(writes).toHaveLength(1);
     expect(writes[0]!.approaches).toEqual([
-      { id: 'karst-graph-engineering', label: 'Graph Engineering', enabled: true },
+      { id: 'karst-graph-engineering', label: 'Dynamic Graph', enabled: true },
     ]);
     expect(posted.some((m) => m.type === 'state')).toBe(true);
   });
@@ -480,7 +480,7 @@ describe('settings actions — built-in enable/disable', () => {
     await actions.setApproachEnabled('karst-graph-engineering', false);
 
     expect(writes[0]!.approaches).toEqual([
-      { id: 'karst-graph-engineering', label: 'Graph Engineering', enabled: false },
+      { id: 'karst-graph-engineering', label: 'Dynamic Graph', enabled: false },
     ]);
   });
 
@@ -1025,7 +1025,7 @@ describe('settings actions — clearToken', () => {
   /** Same draft-preservation rule as setToken. */
   it('does NOT push manifest state, so an unsaved draft survives', async () => {
     const { actions, posted } = harness({
-      clearToken: async () => {},
+      clearToken: async () => { },
       hasToken: async () => false,
     });
     await actions.clearToken();
@@ -1066,7 +1066,7 @@ describe('fetchTicketStatuses', () => {
   it('posts the provider status names', async () => {
     const { actions, posted } = harness({
       makeProvider: () => ({
-        async updateStatus() {},
+        async updateStatus() { },
         async listStatuses() {
           return ['to do', 'in review'];
         },
@@ -1086,7 +1086,7 @@ describe('fetchTicketStatuses', () => {
     const { actions } = harness({
       makeProvider: (config: TicketingConfig): TicketingProvider => {
         seen.push(config);
-        return { async updateStatus() {}, async listStatuses() { return []; } };
+        return { async updateStatus() { }, async listStatuses() { return []; } };
       },
     });
 
@@ -1098,7 +1098,7 @@ describe('fetchTicketStatuses', () => {
   it('posts a status-scoped error, not a panel-level one, when the fetch fails', async () => {
     const { actions, posted } = harness({
       makeProvider: () => ({
-        async updateStatus() {},
+        async updateStatus() { },
         async listStatuses(): Promise<string[]> {
           throw new Error('ClickUp: GET /list/42 returned 401');
         },
@@ -1116,7 +1116,7 @@ describe('fetchTicketStatuses', () => {
 
   it('reports a provider that cannot list statuses', async () => {
     const { actions, posted } = harness({
-      makeProvider: () => ({ async updateStatus() {} }),
+      makeProvider: () => ({ async updateStatus() { } }),
     });
 
     await actions.fetchTicketStatuses('42');
@@ -1132,7 +1132,7 @@ describe('fetchTicketLists', () => {
   it('posts the fetched lists', async () => {
     const { actions, posted } = harness({
       makeProvider: () => ({
-        async updateStatus() {},
+        async updateStatus() { },
         async listLists() { return [{ id: '101', name: 'Backlog', space: 'Eng' }]; },
       }),
     });
@@ -1142,7 +1142,7 @@ describe('fetchTicketLists', () => {
   it('posts a list-scoped error on failure, not a panel error', async () => {
     const { actions, posted } = harness({
       makeProvider: () => ({
-        async updateStatus() {},
+        async updateStatus() { },
         async listLists(): Promise<never> { throw new Error('ClickUp: GET /team/9001/space returned 401'); },
       }),
     });
@@ -1151,7 +1151,7 @@ describe('fetchTicketLists', () => {
     expect(posted.some((m) => m.type === 'error')).toBe(false);
   });
   it('reports a provider that cannot list lists', async () => {
-    const { actions, posted } = harness({ makeProvider: () => ({ async updateStatus() {} }) });
+    const { actions, posted } = harness({ makeProvider: () => ({ async updateStatus() { } }) });
     await actions.fetchTicketLists('9001');
     expect(posted).toContainEqual({ type: 'ticket-lists-error', message: 'This provider cannot list lists.' });
   });
