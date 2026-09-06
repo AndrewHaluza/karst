@@ -30,10 +30,12 @@ import { blockedGraphRunFor, type StageResumeResult } from './graphMarkerGuard.j
  *   recognize this ticket as theirs to settle.
  *
  * An `approach-graph-failed` block returns the typed `graph-recovery` action
- * instead of clearing: the graph needs graph-aware recovery, and clearing the
- * block would strand the graph's stage signal (Slice-3 Task 9). This module
- * holds NO graph logic — it only recognizes the blocker kind it may not
- * clear and returns the typed action defined by `graphMarkerGuard`.
+ * instead of clearing WHILE its run is still blocked: the graph needs
+ * graph-aware recovery, and clearing the block would strand the graph's stage
+ * signal (Slice-3 Task 9). Once no blocked run stands behind it the block is
+ * stale evidence and clears like any other. This module holds NO graph logic —
+ * it only recognizes the blocker kind and asks `graphMarkerGuard` whether a
+ * recoverable run still exists.
  */
 export function resumeBlockedStage(
   store: Store,
@@ -54,7 +56,16 @@ export function resumeBlockedStage(
   if (block.kind === 'awaiting-impl-marker') return { kind: 'refused' };
   if (block.kind === 'approach-graph-failed') {
     const graphRunId = blockedGraphRunFor(store, panelTicketId);
-    if (graphRunId === undefined) return { kind: 'refused' };
+    // No blocked run behind the block means its evidence is STALE: the run it
+    // describes was stopped, cancelled or swept, so graph-aware recovery has
+    // nothing to recover and every recovery exit is gone. Refusing here left
+    // the banner on the stage forever with no control able to close it (the
+    // reported dead end after a Stop). A stale block is exactly what Resume's
+    // "karst could not ask the question, retry it" clear is for.
+    if (graphRunId === undefined) {
+      clearStageBlock(store, panelTicketId, stageKey);
+      return { kind: 'cleared' };
+    }
     return { kind: 'graph-recovery', ticketId: panelTicketId, graphRunId };
   }
   clearStageBlock(store, panelTicketId, stageKey);

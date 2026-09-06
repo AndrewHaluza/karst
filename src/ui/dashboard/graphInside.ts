@@ -20,6 +20,7 @@ import type { Manifest } from '../../manifest/types.js';
 import type { GraphInsideInput } from '../../model/inside/graph.js';
 import type { SupervisedAgentSession } from '../../approaches/graph/transport/agentTransport.js';
 import { NODE_OVERRIDE_KINDS } from '../../store/graph/nodeRuns.js';
+import { graphRunOrdinal as runOrdinal } from '../../store/graph/graphRuns.js';
 
 export interface GraphInsideDeps {
   store: Store;
@@ -53,12 +54,11 @@ export function latestGraphRunFor(
 
 /** The 1-based ordinal of `runId` among the ticket's OWN graph runs — the
  *  display number, never the global row id. A fresh ticket's first run reads
- *  `run 1`, whatever `approach_graph_runs.id` the registry has reached. */
+ *  `run 1`, whatever `approach_graph_runs.id` the registry has reached. The
+ *  query is the store's one definition (`store/graph/graphRuns.ts`); this
+ *  re-export keeps the existing dashboard import path. */
 export function graphRunOrdinal(store: Store, ticketId: number, runId: number): number {
-  const row = store.db
-    .prepare('SELECT COUNT(*) AS n FROM approach_graph_runs WHERE ticket_id = ? AND id <= ?')
-    .get(ticketId, runId) as { n: number };
-  return row.n;
+  return runOrdinal(store.db, ticketId, runId);
 }
 
 /** Which run table a session's row id lives in — `node`, `planner`, or

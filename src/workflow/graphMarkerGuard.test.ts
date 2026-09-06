@@ -505,6 +505,33 @@ describe('blockGraphStage', () => {
     expect(block?.reason).toContain('resource-claim-violated: b.ts');
   });
 
+  it('names the per-ticket run ordinal, the same number the panel shows, never the global row id', () => {
+    // The reported confusion: the impl banner read "(graph run 5)" beside an
+    // Inside strip reading "run 1" — the banner was printing the registry row
+    // id while every other surface prints the ticket's own ordinal.
+    const other = createTicket(store, { key: 'BG-ORD-0', title: 'other' }).id;
+    store.db
+      .prepare(
+        `INSERT INTO approach_graph_runs (ticket_id, stage_key, stage_attempt, approach_id, status, created_at)
+         VALUES (?, 'impl', 0, 'x', 'cancelled', '2026-08-12T00:00:00.000Z')`,
+      )
+      .run(other);
+    const ticketId = createTicket(store, { key: 'BG-ORD-1', title: 'thing' }).id;
+    store.db.prepare("UPDATE tickets SET stage_current = 'impl' WHERE id = ?").run(ticketId);
+    const graphRunId = Number(
+      store.db
+        .prepare(
+          `INSERT INTO approach_graph_runs (ticket_id, stage_key, stage_attempt, approach_id, status, blocked_reason, created_at)
+           VALUES (?, 'impl', 0, 'x', 'blocked', 'graph-plan-invalid', '2026-08-12T00:00:00.000Z')`,
+        )
+        .run(ticketId)
+        .lastInsertRowid,
+    );
+    expect(graphRunId).toBeGreaterThan(1);
+    blockGraphStage(store, ticketId, graphRunId, () => '2026-08-12T00:00:00.000Z');
+    expect(stageBlock(store, ticketId, 'impl')?.reason).toContain('graph run 1)');
+  });
+
   it('names the EARLIEST fault by durable event order among concurrent node faults (Slice 5 T6)', () => {
     const ticketId = createTicket(store, { key: 'BG-3', title: 'thing' }).id;
     store.db.prepare("UPDATE tickets SET stage_current = 'impl' WHERE id = ?").run(ticketId);

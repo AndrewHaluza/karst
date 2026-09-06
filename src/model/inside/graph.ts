@@ -310,23 +310,40 @@ function graphRunStatus(status: string): InsideStatus {
   }
 }
 
-/** `closed`/`cancelled`/`stale`: the run itself will never mutate again. */
-const TERMINAL_GRAPH_RUN_STATUSES: ReadonlySet<string> = new Set(['closed', 'cancelled', 'stale']);
+/**
+ * The graph-run statuses in which SOMETHING is still scheduled to advance the
+ * run's planner and revision rows. Outside these the run is at rest: no
+ * planner session is live, and the recovery exits (Resume, Replan) open NEW
+ * planner runs rather than moving the existing ones.
+ */
+const ADVANCING_GRAPH_RUN_STATUSES: ReadonlySet<string> = new Set([
+  'planning',
+  'awaiting-confirmation',
+  'running',
+  'draining',
+]);
 
 /**
  * A planner/revision row's OWN status is a durable historical fact — "the
  * bootstrap planner was submitted", "this is the active revision" — and never
- * gets rewritten once the parent run is terminal, because there is nothing
+ * gets rewritten once the parent run stops advancing, because there is nothing
  * left to advance it to. Rendered blind to the parent, `submitted`/`active`
- * read `'run'` (a spinner) forever, even next to a `closed` graph run: #352
- * showed a bootstrap planner and revision still spinning beside a graph the
- * marker had already closed. Terminal-run rows clamp any 'run' reading to the
- * run's own outcome — `pass` for `closed` (the row's work is what the closed
- * run delivered), `note` otherwise (`cancelled`/`stale` never confirms it).
+ * read `'run'` (a spinner) forever: #352 showed a bootstrap planner and
+ * revision still spinning beside a graph the marker had already closed, and
+ * the same blindness showed eleven `submitted` planners "processing" beside a
+ * `blocked` run whose sessions were all gone.
+ *
+ * A row under a non-advancing run clamps any 'run' reading to what the run
+ * itself reads — `pass` for `closed` (the row's work is what the closed run
+ * delivered), `note` for `cancelled`/`stale` (neither ever confirms it), and
+ * `wait` for a run at rest that a human still has to answer (`blocked`,
+ * `completed-awaiting-impl-marker`), which is the run row's own status.
  */
 function clampToRunOutcome(status: InsideStatus, runStatus: string): InsideStatus {
-  if (status !== 'run' || !TERMINAL_GRAPH_RUN_STATUSES.has(runStatus)) return status;
-  return runStatus === 'closed' ? 'pass' : 'note';
+  if (status !== 'run' || ADVANCING_GRAPH_RUN_STATUSES.has(runStatus)) return status;
+  if (runStatus === 'closed') return 'pass';
+  if (runStatus === 'cancelled' || runStatus === 'stale') return 'note';
+  return 'wait';
 }
 
 function plannerStatus(status: string, runStatus: string): InsideStatus {

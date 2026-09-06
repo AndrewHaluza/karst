@@ -80,8 +80,26 @@ describe('resumeBlockedStage', () => {
     expect(stageBlock(store, id, 'impl')?.kind).toBe('approach-graph-failed');
   });
 
-  it('a graph-failed block with no blocked graph run refuses (stale)', () => {
+  it('clears a graph-failed block whose run is no longer blocked — the stale banner is dismissible', () => {
+    // The reported dead end: the user stops a blocked graph (blocked →
+    // cancelled), and the impl banner it wrote outlives it. Recovery needs a
+    // blocked run, so Resume refused forever and nothing could close the
+    // banner. A block whose run cannot be recovered is stale evidence, and
+    // Resume is exactly the "retry the question" control for it.
     const id = blockedTicket('RB-7', 'impl', 'approach-graph-failed');
-    expect(resumeBlockedStage(store, id, id, 'impl')).toEqual({ kind: 'refused' });
+    store.db
+      .prepare(
+        `INSERT INTO approach_graph_runs (ticket_id, stage_key, stage_attempt, approach_id, status, created_at)
+         VALUES (?, 'impl', 0, 'x', 'cancelled', '2026-08-12T00:00:00.000Z')`,
+      )
+      .run(id);
+    expect(resumeBlockedStage(store, id, id, 'impl')).toEqual({ kind: 'cleared' });
+    expect(stageBlock(store, id, 'impl')).toBeNull();
+  });
+
+  it('clears a graph-failed block when the ticket has no graph run at all', () => {
+    const id = blockedTicket('RB-8', 'impl', 'approach-graph-failed');
+    expect(resumeBlockedStage(store, id, id, 'impl')).toEqual({ kind: 'cleared' });
+    expect(stageBlock(store, id, 'impl')).toBeNull();
   });
 });
