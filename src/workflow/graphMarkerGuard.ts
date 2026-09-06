@@ -33,6 +33,7 @@ import { transition } from './machine.js';
 import { parkGateStage, stageBlock, clearStageBlock } from '../store/stageBlocks.js';
 import { stageAttempt } from '../store/stages.js';
 import { casStatus, GRAPH_RUN_TRANSITIONS } from '../store/graph/transitions.js';
+import { graphRunOrdinal } from '../store/graph/graphRuns.js';
 import { quiescenceBlockedBy, earliestFaultNodeRun, faultNodeRunReason } from '../approaches/graph/coordinator/completion.js';
 import { GRAPH_FAILED_BLOCKER } from '../approaches/graph/coordinator/recovery.js';
 import { BUILT_IN_PACKAGE_ID } from '../approaches/builtInId.js';
@@ -70,15 +71,16 @@ const TERMINAL_GRAPH_RUN_STATUSES: ReadonlySet<string> = new Set(['closed', 'can
  * names the only way past impl instead of leaving the reader hunting for a
  * fix that does not exist. A blocked run carries its durable blocker.
  */
-function graphRunNotMarkerReadyMessage(run: GraphRunRow): string {
+function graphRunNotMarkerReadyMessage(store: Store, ticketId: number, run: GraphRunRow): string {
+  const ordinal = graphRunOrdinal(store.db, ticketId, run.id);
   if (TERMINAL_GRAPH_RUN_STATUSES.has(run.status)) {
     return (
-      `graph run ${run.id} is ${run.status} — a terminal state, so it will never become ` +
+      `graph run ${ordinal} is ${run.status} — a terminal state, so it will never become ` +
       `marker-ready; the only way past impl is a new graph run for this ticket`
     );
   }
   const blocked = run.blocked_reason !== null ? ` — ${run.blocked_reason}` : '';
-  return `graph run ${run.id} is ${run.status}, not marker-ready${blocked}`;
+  return `graph run ${ordinal} is ${run.status}, not marker-ready${blocked}`;
 }
 
 /** The ticket's graph run for a (ticket, stage attempt) pair, if any. */
@@ -134,13 +136,15 @@ export function graphImplMarkerGuard(store: Store, ticketId: number): GraphMarke
         throw new Error(`no graph run for ticket ${ticketId} attempt ${attempt}`);
       }
       if (run.status !== 'completed-awaiting-impl-marker') {
-        throw new Error(graphRunNotMarkerReadyMessage(run));
+        throw new Error(graphRunNotMarkerReadyMessage(store, ticketId, run));
       }
       // 2. Quiescence is re-read INSIDE the transaction: a completion that
       //    landed between the outside check and here blocks the marker.
       const blockedBy = quiescenceBlockedBy(store.db, run.id);
       if (blockedBy) {
-        throw new Error(`graph run ${run.id} is not quiescent (${blockedBy})`);
+        throw new Error(
+          `graph run ${graphRunOrdinal(store.db, ticketId, run.id)} is not quiescent (${blockedBy})`,
+        );
       }
       // 3. Close the run in the same transaction as the stage advance.
       if (
@@ -153,7 +157,9 @@ export function graphImplMarkerGuard(store: Store, ticketId: number): GraphMarke
           'closed',
         )
       ) {
-        throw new Error(`graph run ${run.id} already closed`);
+        throw new Error(
+          `graph run ${graphRunOrdinal(store.db, ticketId, run.id)} already closed`,
+        );
       }
       closedGraphRunId = run.id;
       // 4. The marker just answered the wait — clear it, same as recovery.ts
@@ -237,7 +243,7 @@ export function blockGraphStage(
     ticketId,
     stageKey: 'impl',
     kind: GRAPH_FAILED_BLOCKER,
-    reason: `${GRAPH_FAILED_BLOCKER}: ${reason} (graph run ${run.id})`,
+    reason: `${GRAPH_FAILED_BLOCKER}: ${reason} (graph run ${graphRunOrdinal(store.db, ticketId, run.id)})`,
     runAt: now(),
     gates: [],
   });
@@ -266,7 +272,9 @@ export function markGraphAwaitingImplMarker(
     ticketId,
     stageKey: 'impl',
     kind: GRAPH_MARKER_WAIT_BLOCKER,
-    reason: `${GRAPH_MARKER_WAIT_BLOCKER}: graph run ${run.id} completed, waiting for the impl marker`,
+    reason:
+      `${GRAPH_MARKER_WAIT_BLOCKER}: graph run ${graphRunOrdinal(store.db, ticketId, run.id)} ` +
+      'completed, waiting for the impl marker',
     runAt: now(),
     gates: [],
   });

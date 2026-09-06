@@ -175,6 +175,28 @@ describe('graphInsideProcess', () => {
     expect(cancelled.evidence.rows.find((r) => r.label === 'revision')!.status).toBe('note');
   });
 
+  it('clamps a still-submitted planner to a wait once the run is blocked', () => {
+    // A blocked run has no live planner session: every `submitted` planner row
+    // is owed an answer nobody will ever give on THIS attempt (Resume/Replan
+    // opens new planner runs). Rendered blind to the run they spin forever —
+    // the report was eleven planner rows all "processing" beside a Blocked run.
+    const blocked = graphInsideProcess(
+      input({
+        graphRun: {
+          id: 7,
+          runNumber: 1,
+          status: 'blocked',
+          approachId: 'g',
+          stageAttempt: 0,
+          createdAt: '2026-08-11T00:00:00.000Z',
+        },
+      }),
+    )!;
+    if (blocked.evidence?.kind !== 'rows') return;
+    expect(blocked.evidence.rows.find((r) => r.label === 'planner 1')!.status).toBe('wait');
+    expect(blocked.evidence.rows.find((r) => r.label === 'revision')!.status).toBe('wait');
+  });
+
   it('shows the node identity, visit count and budget, and its live session action', () => {
     const process = graphInsideProcess(input())!;
     if (process.evidence?.kind !== 'rows') return;

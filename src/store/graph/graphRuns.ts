@@ -41,6 +41,20 @@ export function graphRunById(db: GraphDb, id: number): GraphRunRow | undefined {
     .get(id) as GraphRunRow | undefined;
 }
 
+/**
+ * The 1-based ordinal of `runId` among the ticket's OWN graph runs — the ONE
+ * definition of the number every surface displays. `approach_graph_runs.id` is
+ * a registry-wide row id shared by every ticket in the project; printing it
+ * anywhere a human reads makes two surfaces of the same run disagree (the
+ * report: a stage block reading `graph run 5` beside a panel reading `run 1`).
+ */
+export function graphRunOrdinal(db: GraphDb, ticketId: number, runId: number): number {
+  const row = db
+    .prepare('SELECT COUNT(*) AS n FROM approach_graph_runs WHERE ticket_id = ? AND id <= ?')
+    .get(ticketId, runId) as { n: number };
+  return row.n;
+}
+
 /** The active graph run for a ticket/stage attempt, or undefined. */
 export function graphRunForTicket(
   db: GraphDb,
