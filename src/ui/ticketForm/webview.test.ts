@@ -25,11 +25,14 @@ function loadFunction(
   name: string,
   sandbox: Record<string, unknown> = {},
 ): (...args: unknown[]) => unknown {
-  return runInNewContext(`(${functionSource(name)})`, {
-    esc: (s: unknown) => String(s ?? '').replace(/[&<>"]/g, (c) =>
-      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] ?? c),
-    ...sandbox,
-  }) as (...args: unknown[]) => unknown;
+  // Ensure sandbox has esc (add if not present); runInNewContext mutates the
+  // sandbox object it is given, so any modifications (including adding esc)
+  // are reflected in that same object. Callers should pass a fresh object literal.
+  if (!sandbox.esc) {
+    sandbox.esc = (s: unknown) => String(s ?? '').replace(/[&<>"]/g, (c) =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] ?? c);
+  }
+  return runInNewContext(`(${functionSource(name)})`, sandbox) as (...args: unknown[]) => unknown;
 }
 
 /** The page's own copy of a `const NAME = <number>;` declaration. */
@@ -218,6 +221,69 @@ describe('ticket-form webview.html', () => {
 
   it("posts set-base-ref when a repo's base-branch input changes (§ per-repo base branch)", () => {
     expect(HTML).toContain("post({ type: 'set-base-ref', repo, baseRef: value });");
+  });
+
+  // The reported bug (SELECTED-AGENT-AND-MODEL-IGNORED): a draft saved with an
+  // explicit core/model reopened in edit mode showed the right pick, but submit
+  // sent null for it (the picker only writes `draft` on an explicit change),
+  // and the host's persistDraft turned that null into '' — clearing the column.
+  // The render caches what the host pushed so the payload can fall back to it,
+  // exactly like `approach` does through lastSelectedApproach.
+  it('caches the host-pushed identity, and an explicit Inherit pick is "" not null', () => {
+    const sandbox: Record<string, unknown> = {
+      lastSelectedAgentProvider: undefined,
+      lastSelectedModel: undefined,
+      lastSelectedEffort: undefined,
+      lastDefaultProvider: 'claude',
+      lastModelCatalog: { claude: [], codex: [], antigravity: [], opencode: [] },
+      lastRecentModels: {},
+      draft: { selectedAgentProvider: null, selectedModel: null, selectedEffort: null },
+      AGENT_PROVIDER_LABELS: { claude: 'Claude' },
+      post: () => {},
+      mountAgentPicker: (_root: unknown, opts: { onChange: (v: unknown) => void }) => {
+        (sandbox as { capturedOnChange?: (v: unknown) => void }).capturedOnChange = opts.onChange;
+        return { setDisabled: () => {} };
+      },
+      el: (id: string) =>
+        id === 'agentIdentityPicker'
+          ? {}
+          : { classList: { toggle: () => {} } },
+    };
+    const render = loadFunction('renderAgentIdentityPicker', sandbox);
+    render(['claude'], 'claude', 'claude', 'opus', 'sonnet', null, null, false);
+
+    // What the host pushed is cached, so an untouched submit can fall back to it.
+    expect(sandbox.lastSelectedAgentProvider).toBe('claude');
+    expect(sandbox.lastSelectedModel).toBe('opus');
+    expect(sandbox.lastSelectedEffort).toBe(null);
+
+    // An explicit "Inherit" pick writes '' — falsy for the payload, but NOT
+    // null, so it out-ranks the cache instead of being mistaken for untouched.
+    const onChange = (sandbox as { capturedOnChange: (v: unknown) => void }).capturedOnChange;
+    onChange({ core: '', model: '', effort: '' });
+    const draft = sandbox.draft as Record<string, unknown>;
+    expect(draft.selectedAgentProvider).toBe('');
+    expect(draft.selectedModel).toBe('');
+    expect(draft.selectedEffort).toBe('');
+  });
+
+  // Both persist paths must fall back to the host-pushed identity when the
+  // picker was never touched, or reopening a saved draft and pressing
+  // "Create & run" clears the saved core/model/effort (persistDraft writes ''
+  // for a null). `?? cache` then `|| null` keeps an explicit '' pick as null.
+  it('falls back to the cached identity on submit and save when the picker is untouched', () => {
+    for (const [kind, re] of [
+      ['submit', /const model = \(draft\.selectedModel \?\? lastSelectedModel\) \|\| null;/],
+      ['effort', /const effort = \(draft\.selectedEffort \?\? lastSelectedEffort\) \|\| null;/],
+      [
+        'provider',
+        /const agentProvider = \(draft\.selectedAgentProvider \?\? lastSelectedAgentProvider\) \|\| null;/,
+      ],
+    ] as const) {
+      const hits = HTML.match(new RegExp(re.source, 'g')) ?? [];
+      // One occurrence in the submit handler, one in the save handler.
+      expect(hits.length, `${kind} fallback should appear in both submit and save`).toBe(2);
+    }
   });
 
   it('carries baseRefs on submit and save', () => {
@@ -902,9 +968,9 @@ describe('ticket-form webview.html — selects, buttons, positioning fixes', () 
     // the shared module's suite). The surface pins the local draft write that
     // keeps create-mode picks authoritative for submit.
     expect(HTML).toContain('mountAgentPicker(root, {');
-    expect(HTML).toMatch(/draft\.selectedAgentProvider = core \|\| null/);
-    expect(HTML).toMatch(/draft\.selectedModel = m \|\| null/);
-    expect(HTML).toMatch(/draft\.selectedEffort = e \|\| null/);
+    expect(HTML).toMatch(/draft\.selectedAgentProvider = core \|\| ''/);
+    expect(HTML).toMatch(/draft\.selectedModel = m \|\| ''/);
+    expect(HTML).toMatch(/draft\.selectedEffort = e \|\| ''/);
     // The settings default core owns the model/effort inherit rows; the shared
     // picker drops them once another core is picked.
     expect(HTML).toContain("inheritCore: defaultProvider || ''");
