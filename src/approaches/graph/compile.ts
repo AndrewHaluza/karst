@@ -762,7 +762,13 @@ function toPlainDocument(document: GraphDocument): Record<string, unknown> {
 export function compileGraphDocument(
   document: GraphDocument,
   context: CompileContext,
+  debug?: (message: string) => void,
 ): CompileResult {
+  debug?.(
+    `[graph] compile: ${document.nodes.length} node(s), ${document.edges.length} edge(s), ` +
+      `${document.entries.length} entr(ies), ${document.artifacts.length} artifact(s) against ` +
+      `${context.repositories.size} repositor(ies)`,
+  );
   const diags: CompileDiagnostic[] = [];
   const error = (code: CompileDiagnosticCode, where: string, message: string): void => {
     diags.push({ code, where, message, severity: 'error' });
@@ -1049,6 +1055,14 @@ export function compileGraphDocument(
   }
 
   if (diags.length > 0) {
+    // The compile is the single largest producer of terminal blocks, and its
+    // rejection reasons were readable only from the diagnostics FILE. Naming
+    // the first two here is what makes a planner rejected three times on the
+    // SAME field legible as a prompt defect rather than a flaky planner.
+    debug?.(
+      `[graph] compile: rejected with ${diags.length} diagnostic(s) — ` +
+        diags.slice(0, 2).map((d) => `${d.code}: ${d.where}`).join('; '),
+    );
     return { ok: false, diagnostics: diags };
   }
 
@@ -1067,6 +1081,10 @@ export function compileGraphDocument(
   }
 
   const canonical = canonicalJson(toPlainDocument(document));
+  debug?.(
+    `[graph] compile: accepted — fingerprint ${canonicalFingerprint(canonical).slice(0, 12)}, ` +
+      `${overlaps.length} write overlap(s), ${warnings.length} warning(s)`,
+  );
   return {
     ok: true,
     compiled: {

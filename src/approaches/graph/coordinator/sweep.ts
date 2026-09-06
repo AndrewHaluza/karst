@@ -427,6 +427,15 @@ export function runCoordinatorTick(
       maxParallel: workingState.ceiling,
     };
     const decision = schedulerReady([scheduler], schedulerState)[0]!;
+    // Per-node scheduler verdict. A run that "looks healthy but runs nothing"
+    // is a stream of refusals with no other trace until a deferral is
+    // persisted, and a `dependency-waiting` join persists none at all.
+    deps.debug?.(
+      decision.admitted
+        ? `[graph] run ${opts.graphRunId}: scheduler admitted ${group.destination} (${node.kind})`
+        : `[graph] run ${opts.graphRunId}: scheduler refused ${group.destination} (${node.kind}) — ` +
+          `${decision.refused?.reason}: ${decision.refused?.detail}`,
+    );
 
     if (node.kind === 'join') {
       if (decision.admitted === false) {

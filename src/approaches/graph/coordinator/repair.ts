@@ -98,6 +98,17 @@ function recordAttempt(deps: CompileRepairDeps, plannerRunId: number, attempt: n
   deps.transaction(() => recordCompileAttempt(deps, plannerRunId, attempt));
 }
 
+/** The first two diagnostics as `code: where` — bounded on purpose: the
+ *  diagnostics FILE is the full record, this is the line that says which
+ *  rejection keeps repeating. */
+export function describeDiagnostics(diagnostics: CompileDiagnostic[]): string {
+  if (diagnostics.length === 0) return 'no diagnostics';
+  return diagnostics
+    .slice(0, 2)
+    .map((d) => `${d.code}: ${d.where}`)
+    .join('; ');
+}
+
 export function compileWithRepair(
   plannerRunId: number,
   deps: CompileRepairDeps,
@@ -134,9 +145,14 @@ export function compileWithRepair(
     }
     diagnostics = outcome.diagnostics;
     deps.writeDiagnostics(plannerRunId, attempt, diagnostics);
-    emit(`attempt ${attempt} rejected (${diagnostics.length} diagnostics)`);
+    // Naming the FIRST diagnostic is what makes a repeat rejection legible: a
+    // planner re-prompted three times on the same `reserved-identifier` at the
+    // same field is a prompt defect, and a count alone hides that completely.
+    emit(`attempt ${attempt} rejected (${diagnostics.length} diagnostics): ${describeDiagnostics(diagnostics)}`);
   }
-  emit(`graph-plan-invalid after ${MAX_COMPILE_ATTEMPTS} attempts`);
+  emit(
+    `graph-plan-invalid after ${MAX_COMPILE_ATTEMPTS} attempts: ${describeDiagnostics(diagnostics)}`,
+  );
   return {
     ok: false,
     code: 'graph-plan-invalid',

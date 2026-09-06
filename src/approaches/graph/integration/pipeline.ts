@@ -494,7 +494,7 @@ export async function runCompletionPipeline(
     nodeRunId: input.nodeRunId,
     outputPaths: declaredOutputPaths(deps.db, node.revision_id, node.node_id, artifactRoot),
     snapshotDir: artifactRoot,
-  });
+  }, deps.debug);
   if (!validation.ok) {
     const reason = `${validation.code}: artifact "${validation.artifactId}" ${validation.code === 'output-artifact-missing' ? 'produced nothing' : `failed validation: ${validation.reason}`}`;
     graphDiag('completion-rejection', reason);

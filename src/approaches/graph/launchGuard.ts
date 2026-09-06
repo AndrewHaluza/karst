@@ -24,7 +24,11 @@
  * re-entry) is what opens the next one. A terminal run at an OLDER attempt is
  * simply history, and must not stand in the way.
  *
- * Host-agnostic: a db handle and the two ticket facts, no vscode.
+ * Host-agnostic: a db handle and the two ticket facts, no vscode. The optional
+ * `debug` callback follows the same injected-callback rule every other
+ * vscode-free module here does — the guard is the first thing a "why will my
+ * ticket not start a graph" investigation asks about, and its three answers are
+ * otherwise invisible.
  */
 
 import type { GraphDb } from '../../store/graph/transitions.js';
@@ -50,7 +54,9 @@ export function graphLaunchDecision(
   db: GraphDb,
   ticketId: number,
   currentAttempt: number,
+  debug?: (message: string) => void,
 ): GraphLaunchDecision {
+  debug?.(`[graph] launch guard: ticket ${ticketId} at impl attempt ${currentAttempt}`);
   const live = db
     .prepare(
       `SELECT id, status FROM approach_graph_runs
@@ -58,7 +64,10 @@ export function graphLaunchDecision(
        ORDER BY id DESC LIMIT 1`,
     )
     .get(ticketId, ...TERMINAL_RUN_STATUSES) as { id: number; status: string } | undefined;
-  if (live) return { kind: 'owned', graphRunId: live.id, status: live.status };
+  if (live) {
+    debug?.(`[graph] launch guard: run ${live.id} is live (${live.status}) — the coordinator owns it`);
+    return { kind: 'owned', graphRunId: live.id, status: live.status };
+  }
 
   const consumed = db
     .prepare(
@@ -66,6 +75,9 @@ export function graphLaunchDecision(
     )
     .get(ticketId, currentAttempt) as { id: number; status: string } | undefined;
   if (consumed) {
+    debug?.(
+      `[graph] launch guard: run ${consumed.id} (${consumed.status}) already consumed attempt ${currentAttempt}`,
+    );
     return {
       kind: 'attempt-consumed',
       graphRunId: consumed.id,
@@ -73,5 +85,6 @@ export function graphLaunchDecision(
       stageAttempt: currentAttempt,
     };
   }
+  debug?.(`[graph] launch guard: no run stands in the way — launching`);
   return { kind: 'launch' };
 }

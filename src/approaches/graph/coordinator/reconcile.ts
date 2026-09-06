@@ -290,7 +290,7 @@ async function runHasLiveProcess(deps: ReconcileGraphRunDeps, graphRunId: number
   }
   // The durable half is shared with Stop (`coordinator/liveness.ts`) — both
   // callers must answer "is anything still alive" the same way.
-  return await graphRunHasLiveNodeProcess(deps.db, deps.facts, graphRunId);
+  return await graphRunHasLiveNodeProcess(deps.db, deps.facts, graphRunId, deps.debug);
 }
 
 /**

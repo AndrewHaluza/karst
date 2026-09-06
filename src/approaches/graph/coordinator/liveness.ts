@@ -34,6 +34,7 @@ export async function graphRunHasLiveNodeProcess(
   db: GraphDb,
   facts: ProcessFactsSource,
   graphRunId: number,
+  debug?: (message: string) => void,
 ): Promise<boolean> {
   const rows = db
     .prepare(
@@ -46,7 +47,13 @@ export async function graphRunHasLiveNodeProcess(
     .all(graphRunId) as NodeProcessRow[];
   for (const row of rows) {
     if (row.pid === null) continue;
-    if (await facts.isAlive(row.pid)) return true;
+    if (await facts.isAlive(row.pid)) {
+      debug?.(`[graph] liveness: run ${graphRunId} node run ${row.id} pid ${row.pid} is alive`);
+      return true;
+    }
   }
+  debug?.(
+    `[graph] liveness: run ${graphRunId} has no live node process (${rows.length} row(s) with a recorded pid)`,
+  );
   return false;
 }

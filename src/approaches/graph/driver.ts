@@ -690,7 +690,11 @@ export function acceptSubmittedPlan(deps: GraphDriverDeps, graphRunId: number): 
       parsed.diagnostics.map((d) => `${d.code}: ${d.where}: ${d.message}`),
     );
   }
-  const compiled = compileGraphDocument(parsed.document, deps.compileContextOf(graphRunId, parsed.document));
+  const compiled = compileGraphDocument(
+    parsed.document,
+    deps.compileContextOf(graphRunId, parsed.document),
+    deps.debug,
+  );
   if (!compiled.ok) {
     return rejectPlan(
       deps,
@@ -864,7 +868,7 @@ export function acceptSubmittedReplan(
     );
   }
   const compileDocument = (document: GraphDocument): CompileResult =>
-    compileGraphDocument(document, deps.compileContextOf(graphRunId, document));
+    compileGraphDocument(document, deps.compileContextOf(graphRunId, document), deps.debug);
   const physicalDomainsOf = deps.physicalDomainsOf
     ? (nodeId: string): string[] => deps.physicalDomainsOf!(graphRunId, parsed.document, nodeId)
     : (): string[] => [];
@@ -1178,7 +1182,7 @@ async function executeReadyNode(
         .all(row.id) as { id: number }[]
     ).map((t) => t.id);
     const consumed = runJoinNode(
-      { db: deps.db, transaction: deps.transaction, now: deps.now },
+      { db: deps.db, transaction: deps.transaction, now: deps.now, debug: deps.debug },
       { nodeRunId: row.id, arrivalTokenIds: arrivals },
     );
     return consumed ? 'completed' : 'blocked';

@@ -4950,7 +4950,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const project = graphSweepProject();
     if (!gs || !project) return;
     try {
-      const runIds = reconcilableGraphRunIds(gs.db, { projectId: project.id });
+      const runIds = reconcilableGraphRunIds(gs.db, { projectId: project.id }, (m) => logger.debug(m));
       for (const graphRunId of runIds) {
         const result = await reconcileGraphRun(graphReconcileDeps(), { graphRunId });
         if (
@@ -5933,7 +5933,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // one case a launch genuinely cannot serve: a terminal run already
         // holding the CURRENT impl attempt (see its doc comment).
         const decision = graphCoordinatorStore
-          ? graphLaunchDecision(graphCoordinatorStore.db, ticketId, implAttemptOf(ticketId))
+          ? graphLaunchDecision(graphCoordinatorStore.db, ticketId, implAttemptOf(ticketId), (m) => logger.debug(m))
           : ({ kind: 'launch' } as const);
         if (decision.kind === 'owned') {
           const live = graphTransport?.sessions().find((s) => s.ticketId === ticketId);

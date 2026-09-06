@@ -238,7 +238,7 @@ describe('extension activation', () => {
     // filtered to non-terminal statuses (G1b) — the registry is shared by
     // every IDE window, and a `closed` run has nothing left to reconcile.
     expect(source).toContain(
-      'reconcilableGraphRunIds(gs.db, { projectId: project.id })',
+      'reconcilableGraphRunIds(gs.db, { projectId: project.id }, (m) => logger.debug(m))',
     );
     expect(source).not.toContain("SELECT id FROM approach_graph_runs ORDER BY id");
     // …with the seam present BEFORE the running-run tick loop.
