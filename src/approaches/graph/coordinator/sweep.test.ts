@@ -501,6 +501,80 @@ describe('scheduler admission, deferrals and the process ceiling (Slice 5 Task 3
     expect(deferralRow(ctx.db, 'a')).toBeUndefined();
   });
 
+  it('H4: a deferral older than the ceiling blocks the run instead of waiting forever', () => {
+    const ctx = harness(doc([agent('a')], [
+      { id: 'a-end', from: 'a', on: 'complete', to: 'END' },
+    ], ['a']));
+    ctx.db
+      .prepare(
+        `INSERT INTO approach_node_runs
+           (id, graph_run_id, revision_id, node_id, node_kind, visit_number, status)
+         VALUES (900, ?, ?, 'foreign', 'agent', 1, 'running')`,
+      )
+      .run(ctx.graphRunId, ctx.revisionId);
+    acquireLease(ctx.db, {
+      graphRunId: ctx.graphRunId,
+      ownerNodeRunId: 900,
+      physicalDomain: 'dom-api',
+      accessMode: 'write',
+      claimedPaths: null,
+      now: ctx.now,
+    });
+    entryFor(ctx, 'entry-a', 'a', ctx.now);
+    // The node has been deferred against a lease held by a node that will
+    // never finish — the aging policy would just keep promoting it forever.
+    ctx.db
+      .prepare(
+        `INSERT INTO approach_node_deferrals (graph_run_id, revision_id, node_id, reason, wait_since, updated_at)
+         VALUES (?, ?, 'a', 'resource-conflict: dom-api', ?, ?)`,
+      )
+      .run(ctx.graphRunId, ctx.revisionId, '2026-08-11T00:00:00.000Z', '2026-08-11T00:00:00.000Z');
+
+    const result = runCoordinatorTick(ctx.makeDeps({
+      now: () => '2026-08-11T02:00:00.000Z',
+      domainsForActivation: () => [{ physicalDomain: 'dom-api', accessMode: 'write', paths: [] }],
+    }), { graphRunId: ctx.graphRunId });
+    expect(result.claimed).toBe(0);
+    const run = ctx.db
+      .prepare('SELECT status, blocked_reason FROM approach_graph_runs WHERE id = ?')
+      .get(ctx.graphRunId) as { status: string; blocked_reason: string | null };
+    expect(run.status).toBe('blocked');
+    expect(run.blocked_reason).toMatch(/^graph-deferral-timeout/);
+    expect(run.blocked_reason).toContain('a');
+    expect(run.blocked_reason).toContain('dom-api');
+  });
+
+  it('H4: a deferral inside the ceiling keeps waiting — the run is untouched', () => {
+    const ctx = harness(doc([agent('a')], [
+      { id: 'a-end', from: 'a', on: 'complete', to: 'END' },
+    ], ['a']));
+    ctx.db
+      .prepare(
+        `INSERT INTO approach_node_runs
+           (id, graph_run_id, revision_id, node_id, node_kind, visit_number, status)
+         VALUES (900, ?, ?, 'foreign', 'agent', 1, 'running')`,
+      )
+      .run(ctx.graphRunId, ctx.revisionId);
+    acquireLease(ctx.db, {
+      graphRunId: ctx.graphRunId,
+      ownerNodeRunId: 900,
+      physicalDomain: 'dom-api',
+      accessMode: 'write',
+      claimedPaths: null,
+      now: ctx.now,
+    });
+    entryFor(ctx, 'entry-a', 'a', ctx.now);
+    const result = runCoordinatorTick(ctx.makeDeps({
+      domainsForActivation: () => [{ physicalDomain: 'dom-api', accessMode: 'write', paths: [] }],
+    }), { graphRunId: ctx.graphRunId });
+    expect(result.claimed).toBe(0);
+    const run = ctx.db
+      .prepare('SELECT status FROM approach_graph_runs WHERE id = ?')
+      .get(ctx.graphRunId) as { status: string };
+    expect(run.status).toBe('running');
+    expect(deferralRow(ctx.db, 'a')).toBeDefined();
+  });
+
   it('a dependency-waiting join is never reported as resource-blocked — a stale deferral is cleared instead', () => {
     const ctx = harness(doc(
       [agent('f'), join('j', ['b1', 'b2']), agent('b')],

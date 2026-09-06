@@ -197,6 +197,7 @@ import {
   stopActiveGraph,
   restartStoppedGraph,
 } from './approaches/graph/entryPoints.js';
+import { graphLaunchDecision } from './approaches/graph/launchGuard.js';
 import { reattachableSessionIdentity } from './approaches/graph/coordinator/reattach.js';
 import { runCompletionPipeline, type CompletionPipelineDeps } from './approaches/graph/integration/pipeline.js';
 import { artifactRootDir } from './approaches/graph/artifacts/snapshot.js';
@@ -4447,6 +4448,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   };
 
+  /** The ticket's current impl stage attempt — the attempt a new graph run is
+   *  created with, and the one `karst node` measures a completion against
+   *  (`cli/node.ts`'s `wrong-attempt`). ONE reader, so the launch guard and
+   *  the launch itself can never disagree about which attempt is at stake. */
+  const implAttemptOf = (ticketId: number): number =>
+    (localStore.db
+      .prepare("SELECT MAX(attempt) AS attempt FROM stages WHERE ticket_id = ? AND stage_key = 'impl'")
+      .get(ticketId) as { attempt: number | null }).attempt ?? 0;
+
   /** Bootstrap a graph-approach ticket's first impl launch: create the run,
    *  launch the planner session, and retain terminal close as a submission
    *  fallback for older or interrupted planner prompts. */
@@ -4455,10 +4465,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (!gs) return;
     const t = getTicket(localStore, ticketId);
     if (!t.approach || t.stageCurrent !== 'impl') return;
-    const attempt =
-      (localStore.db
-        .prepare("SELECT MAX(attempt) AS attempt FROM stages WHERE ticket_id = ? AND stage_key = 'impl'")
-        .get(ticketId) as { attempt: number | null }).attempt ?? 0;
+    const attempt = implAttemptOf(ticketId);
     const result = await bootstrapAndLaunchPlanner(graphDriverDeps(), {
       ticketId,
       stageAttempt: attempt,
@@ -5918,18 +5925,31 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         .approaches?.find((a) => a.id === t.approach)?.graph;
       if (graphApproachDef && t.stageCurrent === 'impl') {
         if (options.recovery) return; // recovery never launches a second run
-        const existing = graphCoordinatorStore?.db
-          .prepare('SELECT id, status FROM approach_graph_runs WHERE ticket_id = ? ORDER BY id DESC LIMIT 1')
-          .get(ticketId) as { id: number; status: string } | undefined;
-        if (existing) {
+        // H3: the predicate is "is a run still LIVE", not "does a row exist".
+        // A closed/cancelled/stale run is owned by nobody, and routing it to
+        // the Inside panel — which offers a control for `blocked` and a
+        // stopped drain, never for a terminal run — locked the ticket out of
+        // the graph approach permanently. `graphLaunchDecision` also names the
+        // one case a launch genuinely cannot serve: a terminal run already
+        // holding the CURRENT impl attempt (see its doc comment).
+        const decision = graphCoordinatorStore
+          ? graphLaunchDecision(graphCoordinatorStore.db, ticketId, implAttemptOf(ticketId))
+          : ({ kind: 'launch' } as const);
+        if (decision.kind === 'owned') {
           const live = graphTransport?.sessions().find((s) => s.ticketId === ticketId);
           if (live) {
             live.terminal?.show();
           } else {
             void vscode.window.showInformationMessage(
-              `Ticket #${ticketId} is owned by graph run ${existing.id} (${existing.status}) — the coordinator owns continuation; use the Inside panel.`,
+              `Ticket #${ticketId} is owned by graph run ${decision.graphRunId} (${decision.status}) — the coordinator owns continuation; use the Inside panel.`,
             );
           }
+          return;
+        }
+        if (decision.kind === 'attempt-consumed') {
+          void vscode.window.showWarningMessage(
+            `Ticket #${ticketId}: impl attempt ${decision.stageAttempt} already ran graph run ${decision.graphRunId} (${decision.status}), and an attempt hosts one run. Fail this impl stage to open the next attempt, then start the graph again.`,
+          );
           return;
         }
         await launchGraphRun(ticketId);

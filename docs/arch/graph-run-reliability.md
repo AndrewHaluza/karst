@@ -221,7 +221,7 @@ dispatch guard and the coordinator function) — that run is mid-replan and the
 coordinator owns its exit. Nothing here is automatic: a Stop is a deliberate
 halt, so its exit is a deliberate click.
 
-## H3 — a non-`closed` run permanently blocks its ticket from starting another
+## H3 — a non-`closed` run permanently blocked its ticket from starting another (fixed)
 
 `extension.ts:5857` refuses a new graph launch when ANY graph run row exists
 for the ticket, in ANY status, and hands the user to the Inside panel — which
@@ -231,7 +231,19 @@ entirely: Start says "the coordinator owns continuation", and the coordinator
 owns nothing. The guard's intent is "never two live runs"; its predicate is
 "never a second run".
 
-## H4 — a deferral ages but never times out
+**Fixed.** `graphLaunchDecision` (`approaches/graph/launchGuard.ts`) is the
+predicate now, and it asks whether a run is still LIVE. Two schema facts bound
+what it may allow: `UNIQUE (ticket_id, stage_attempt)` admits one graph run per
+impl attempt, and `karst node` rejects a completion whose run attempt is not
+the ticket's current one (`wrong-attempt`) — so a run's attempt is a stage
+fact, never the launcher's to allocate. The decision is therefore three-valued:
+a live run defers to the coordinator as before; a terminal run at an OLDER
+attempt is history and no longer blocks anything (the case that locked a ticket
+out after uat failed it back to impl); a terminal run holding the CURRENT
+attempt is named as exactly that, with the real remedy — fail the impl stage to
+open the next attempt — instead of a false claim that the coordinator owns it.
+
+## H4 — a deferral aged but never timed out (fixed)
 
 `recordDeferral`/`agingPriority` (`sweep.ts:314`) raise a waiting node's
 priority the longer it waits, which is the right anti-starvation policy
@@ -244,14 +256,26 @@ says "this node has waited 40 minutes". A bounded max-deferral-age that parks
 the run `blocked` with the refusal reason would make it recoverable, which is
 the discipline every other failure here already follows.
 
-## Still open
-
-H3 (the launch guard's any-status predicate) and H4 (deferrals with no
-ceiling) are unfixed.
+**Fixed.** `MAX_DEFERRAL_WAIT_MS` (30 minutes, rationale at the constant) is
+that bound. `defer` now answers whether the node's wait has run out, and on
+expiry the run parks `blocked` with `graph-deferral-timeout: node <id> waited
+<n>m — <refusal>` — the same CAS-from-`running`, reason, diagnostic shape
+`handleBudgetRefusal` uses — and the tick stops scheduling. A
+`dependency-waiting` join is exempt: it waits on its own branches, not on a
+resource, and its wait ends when they do. `recoveryCategoryFor` maps the reason
+to `replan`: a claim the plan cannot satisfy needs a new revision, never a
+retry of the same claim.
 
 ## The invariant these four share
 
 A graph run's non-terminal statuses must each have at least one exit that some
 actor — a sweep, a reconcile branch, or a user action the panel actually
-offers — can always produce. `draining` has one exit and one producer, and
-three separate paths reach `draining` without that producer.
+offers — can always produce. `draining` had one exit and one producer, and
+three separate paths reached `draining` without that producer (H1, H2). The
+same rule read from the other side covers the rest: a run that will never
+mutate again must never be treated as one that owns something (H3), and a wait
+with no bound is a state no actor ever leaves either (H4).
+
+All four are fixed. Every terminal park is `blocked`, which is the one status
+the typed Resume reaches, and every reason a park writes maps to a recovery
+category (`recoveryCategoryFor` is total over the closed set).
