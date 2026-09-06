@@ -104,6 +104,15 @@ export interface ScopeBlockOpts {
    * branch-based range, exactly as before.
    */
   snapshotRef?: string | null;
+  /**
+   * The absolute worktree root this run is scoped to, when the host knows it.
+   * Named in the orientation because a launch `cwd` is NOT enough: opencode
+   * 1.18.18 resolves a nested linked worktree back to its parent checkout even
+   * with `--dir`, so the agent's own shell can start on the base branch. With
+   * the path in the prompt the agent can move itself into the worktree — the
+   * wrong-checkout stop then means a checkout that is wrong even from there.
+   */
+  worktreePath?: string | null;
 }
 
 /**
@@ -172,9 +181,17 @@ export function buildScopeBlock(intent: ScopeIntent, opts: ScopeBlockOpts = {}):
   // `origin/<branch>` so it resolves against the remote state (a stale local
   // ref never produces an empty diff); the rev-parse is only to confirm where
   // the agent is.
+  const worktreePath = opts.worktreePath?.trim() || null;
+  // The recovery line comes FIRST: an agent that can put itself in the right
+  // checkout must do that instead of reporting the harness. Only a checkout
+  // still wrong from there is the hard stop below.
+  const checkLine =
+    worktreePath !== null
+      ? `Run every command in \`${worktreePath}\` — that directory IS this ticket's worktree; \`cd\` there first if your shell started somewhere else. Check with \`git -C ${worktreePath} rev-parse --abbrev-ref HEAD\`: it MUST print \`${branch}\`.`
+      : `Run \`git rev-parse --abbrev-ref HEAD\`: it MUST print \`${branch}\`.`;
   const orientation =
     branch !== null
-      ? `- This ticket's branch is \`${branch}\`. Run \`git rev-parse --abbrev-ref HEAD\`: it MUST print \`${branch}\`. If it prints anything else, you are in the WRONG checkout — the ticket's changes cannot be read reliably from here, because the local \`${branch}\` ref may be a stale snapshot of the base. STOP: do NOT \`git diff\`, do NOT conclude there are no changes, do NOT output \`[]\`. Report exactly one observation — severity "critical", title "wrong checkout", detail naming the ticket branch and the branch you are actually on — then output \`[]\`.`
+      ? `- This ticket's branch is \`${branch}\`. ${checkLine} If it prints anything else, you are in the WRONG checkout — the ticket's changes cannot be read reliably from here, because the local \`${branch}\` ref may be a stale snapshot of the base. STOP: do NOT \`git diff\`, do NOT conclude there are no changes, do NOT output \`[]\`. Report exactly one observation — severity "critical", title "wrong checkout", detail naming the ticket branch and the branch you are actually on — then output \`[]\`.`
       : `- Your working directory IS this ticket's worktree, already checked out on the correct branch.`;
   // The empty-diff guard. Only relevant when a branch is named: with a branch,
   // the fallback range resolves the LOCAL `<branch>` ref when the remote ref is

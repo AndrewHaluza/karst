@@ -59,6 +59,43 @@ describe('buildScopeBlock', () => {
     expect(text).not.toContain('already checked out on the correct branch');
   });
 
+  // The wrong-checkout stop is correct, but it was also the ONLY exit: a core
+  // that resolves a linked worktree to its parent checkout (opencode 1.18.18
+  // does, even with `--dir`) landed on `develop` and spent the whole run
+  // reporting a critical about the harness rather than testing the ticket.
+  // Naming the worktree path gives the agent the one recovery it can perform
+  // itself, and keeps the stop for the case where even that fails.
+  it('names the worktree path as the recovery before the wrong-checkout stop', () => {
+    const text = buildScopeBlock('test', {
+      baseRef: 'develop',
+      branch: 'karst/x',
+      worktreePath: '/repo/.karst/worktrees/x',
+      openChanges: true,
+    }).join('\n');
+    expect(text).toContain('/repo/.karst/worktrees/x');
+    // The recovery is named BEFORE the agent is allowed to report the stop.
+    expect(text.indexOf('/repo/.karst/worktrees/x')).toBeLessThan(
+      text.indexOf('you are in the WRONG checkout'),
+    );
+    expect(text).toContain('git -C /repo/.karst/worktrees/x rev-parse --abbrev-ref HEAD');
+    // The hard stop survives — it is now the answer for a checkout that is
+    // still wrong AFTER the agent moved into the worktree.
+    expect(text).toContain('severity "critical"');
+    for (const line of buildScopeBlock('test', {
+      baseRef: 'develop',
+      branch: 'karst/x',
+      worktreePath: '/repo/.karst/worktrees/x',
+    })) {
+      expect((line.match(/`/g) ?? []).length % 2).toBe(0);
+    }
+  });
+
+  it('keeps the plain wrong-checkout stop when no worktree path is known', () => {
+    const text = buildScopeBlock('test', { baseRef: 'develop', branch: 'karst/x' }).join('\n');
+    expect(text).toContain('Run `git rev-parse --abbrev-ref HEAD`');
+    expect(text).toContain('you are in the WRONG checkout');
+  });
+
   it('never claims a wrong checkout or empty-diff guard when no branch is known', () => {
     const text = buildScopeBlock('review', { baseRef: 'develop' }).join('\n');
     expect(text).not.toContain('WRONG checkout');

@@ -350,6 +350,54 @@ describe('runUatTester', () => {
     expect(listUatFindings(store, ticketId)).toEqual([]);
   });
 
+  // The host verified the checkout BEFORE the call and git said the worktree
+  // IS on the ticket branch. An agent that then claims "wrong checkout" is
+  // reporting its core's own cwd mis-resolution (opencode resolves a linked
+  // worktree back to the parent checkout), not a fact about this ticket — and
+  // at a blocking severity it fails the stage over a diff nobody read. Review's
+  // lane already drops the claim it can disprove; UAT now does the same.
+  it('drops an agent "wrong checkout" claim the host has disproven', async () => {
+    const { adapter } = rawAdapter(
+      JSON.stringify([
+        { severity: 'critical', title: 'wrong checkout', detail: 'expected karst/x, got develop' },
+        { severity: 'high', title: 'login is broken', detail: '…' },
+      ]),
+    );
+    const warnings: string[] = [];
+    const res = await runUatTester(
+      store,
+      opts({
+        adapter,
+        git: fakeGit('karst/x'),
+        targets: [{ repo: '/web', worktreePath: '/wt/web', branch: 'karst/x' }],
+        warn: (m: string) => warnings.push(m),
+      }),
+      { now },
+    );
+    expect(res.kind).toBe('observed');
+    const titles = listUatFindings(store, ticketId).map((f) => f.title);
+    expect(titles).toEqual(['login is broken']);
+    // Never silent: a dropped critical the user cannot see is indistinguishable
+    // from an observation karst lost.
+    expect(warnings.some((w) => w.includes('wrong checkout'))).toBe(true);
+  });
+
+  it('keeps a "wrong checkout" claim when git could not answer', async () => {
+    const { adapter } = rawAdapter(
+      JSON.stringify([{ severity: 'critical', title: 'wrong checkout', detail: '…' }]),
+    );
+    await runUatTester(
+      store,
+      opts({
+        adapter,
+        // No branch known → nothing verified → nothing may be dropped.
+        targets: [{ repo: '/web', worktreePath: '/wt/web' }],
+      }),
+      { now },
+    );
+    expect(listUatFindings(store, ticketId).map((f) => f.title)).toEqual(['wrong checkout']);
+  });
+
   it('does not verify a target with no known branch — the call runs as before', async () => {
     const runHeadless = vi.fn(async () => ({ sessionId: '', verdict: null, raw: '[]' }));
     await runUatTester(
