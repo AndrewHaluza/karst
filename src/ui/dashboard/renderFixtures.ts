@@ -197,7 +197,6 @@ function scopeView(n: RenderRepoCount): InsideStageView {
         kind: 'hot-set',
         label: 'Hot set',
         status: 'pending',
-        count: String(n),
         detail: `${n} services to validate against the manifest`,
         // The hot set's evidence is WHICH services it names — the reducer
         // ships one row per selected repository, so the fixture does too or

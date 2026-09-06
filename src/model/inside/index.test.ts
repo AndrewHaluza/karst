@@ -111,7 +111,6 @@ describe('scopeProcesses', () => {
     const hotSet = processes[0]!;
     expect(hotSet.id).toBe('hot-set');
     expect(hotSet.status).toBe('pass');
-    expect(hotSet.count).toBe('3');
     expect(hotSet.detail).toContain('3');
     expect(hotSet.detail).toContain('validated');
   });
@@ -154,7 +153,6 @@ describe('scopeProcesses', () => {
     const hotSet = processes[0]!;
     const worktrees = processes[1]!;
     expect(hotSet.status).toBe('pending');
-    expect(hotSet.count).toBe('2');
     expect(hotSet.detail).toContain('to validate');
     expect(worktrees.status).toBe('pending');
     const evidence = worktrees.evidence as { kind: 'rows'; rows: readonly EvidenceRow[] };
@@ -207,7 +205,6 @@ describe('scopeProcesses', () => {
       NOW,
     )[1]!;
     expect(ran.detail).toBe('2 worktrees created');
-    expect(ran.count).toBe('2');
 
     const pending = scopeProcesses(scopeCell('pending'), ['api'], [], NOW)[1]!;
     expect(pending.detail).toBe('not created yet');

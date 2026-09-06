@@ -1708,6 +1708,17 @@ describe('dashboard webview.html', () => {
     expect(detail).not.toContain('overflow-x');
   });
 
+  it('positions evidence row glyphs on the left, not the right', () => {
+    // The ev-state span is display:inline-flex with justify-content, which
+    // controls where the glyph sits inside the span. The default (flex-start)
+    // puts the glyph on the left; flex-end pushes it right.
+    // The fix adds a dedicated .ev-state rule with flex-start; verify it exists.
+    expect(HTML).toMatch(/#inside \.ev-state\{[^}]*justify-content:flex-start/);
+    // Gate rows keep flex-end — their glyph position is already correct.
+    // The combined .gate-state rule should still have flex-end.
+    expect(HTML).toMatch(/#inside \.gate-state\{[^}]*justify-content:flex-end/);
+  });
+
   it('makes the inside block its own query container (B7)', () => {
     // The responsive rules are CONTAINER queries on #inside itself, so they
     // follow the panel's real width (the old preview's width frame targeted
@@ -1741,6 +1752,9 @@ describe('dashboard webview.html', () => {
     expect(wide).toMatch(/#inside \.op summary,#inside \.op-static\{grid-template-columns:20px minmax\(68px,86px\)/);
     expect(wide).toMatch(/#inside \.finding-title,#inside \.ev-detail,#inside \.done-copy,#inside \.op-detail\{/);
     expect(wide).toMatch(/#inside \.gate-row\{grid-template-columns:58px 70px minmax\(0,1fr\)\}/);
+    // Evidence rows keep three columns (label, detail, status) at 430px so the
+    // status glyph stays on its own line instead of collapsing into the detail.
+    expect(wide).toMatch(/#inside \.evidence-row\{grid-template-columns:minmax\(60px,80px\) minmax\(0,1fr\) auto\}/);
     // The timeline keeps node/edge alignment (§10): its spine and time column
     // re-lock onto one line where the generic evidence detail now wraps.
     expect(wide).toMatch(

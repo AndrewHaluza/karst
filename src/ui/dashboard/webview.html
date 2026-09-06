@@ -851,7 +851,8 @@
   #inside .ev-state.wait,#inside .gate-state.wait{color:var(--p-attention)}
   #inside .ev-state.fail,#inside .gate-state.fail{color:var(--p-failed)}
   #inside .ev-state.skip,#inside .gate-state.skip{color:var(--p-skip)}
-  #inside .ev-state,#inside .gate-state{gap:var(--p-s2)}
+  #inside .ev-state{justify-content:flex-start;gap:var(--p-s2)}
+  #inside .gate-state{gap:var(--p-s2)}
   #inside .ev-dur{color:var(--p-muted2)}
   #inside .ev-time{color:var(--p-muted2)}
   #inside .ev-tail{display:inline-flex;align-items:center;gap:var(--p-s2);justify-content:flex-end}
@@ -1193,8 +1194,8 @@
     #inside .gate-repo{display:none}
     #inside .gates.no-repo .gate-row{grid-template-columns:58px 70px minmax(0,1fr)}
     #inside .gate-state{grid-column:3}
-    #inside .evidence-row{grid-template-columns:70px minmax(0,1fr)}
-    #inside .ev-state{grid-column:2}
+    #inside .evidence-row{grid-template-columns:minmax(60px,80px) minmax(0,1fr) auto}
+    #inside .ev-state{grid-column:3}
     #inside .finding{grid-template-columns:56px minmax(0,1fr)}
     #inside .finding-loc{grid-column:2}
     #inside .finding-time{display:none}
