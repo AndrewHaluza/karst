@@ -699,6 +699,29 @@ describe('reviewProcesses', () => {
     endedAt: '2026-07-20T12:02:00.000Z',
   };
 
+  it('scopes the fix row to the attempt that opened the round, same as uat', () => {
+    const gateRuns = [
+      run('review', 'lint', 1, { stageRunId: 11, runAt: '2026-07-20T12:00:00.000Z' }),
+      run('review', 'lint', null, { stageRunId: 12, runAt: '2026-07-20T12:20:00.000Z' }),
+    ];
+    const rounds = [
+      round({ sourceStage: 'review', sourceStageRunId: 11, status: 'revalidating' }),
+    ];
+    const input = qualityInput({
+      cell: cell('review', 'running', { startedAt: '2026-07-20T12:20:00.000Z' }),
+      gateRuns,
+      rounds,
+    });
+
+    const live = reviewProcesses({ ...input, selectedAttempt: attemptKey(12, '') });
+    expect(live.map((p) => p.id)).not.toContain('fix');
+
+    const first = reviewProcesses({ ...input, selectedAttempt: attemptKey(11, '') });
+    const fix = first.find((p) => p.id === 'fix');
+    expect(fix?.status).toBe('pass');
+    expect(fix?.detail).toBe('Fix completed; Review revalidation is running');
+  });
+
   it('emits gates, services, review in registry order when nothing triggered recovery', () => {
     const views = reviewProcesses(
       qualityInput({
