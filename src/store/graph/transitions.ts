@@ -34,7 +34,13 @@ export const GRAPH_RUN_TRANSITIONS: Readonly<Record<string, readonly string[]>> 
   planning: ['awaiting-confirmation', 'running', 'blocked', 'cancelled', 'stale'],
   'awaiting-confirmation': ['running', 'cancelled', 'stale'],
   running: ['draining', 'blocked', 'completed-awaiting-impl-marker', 'cancelled', 'stale'],
-  draining: ['running', 'completed-awaiting-impl-marker', 'cancelled', 'stale'],
+  // `draining → blocked` is the replan compile-repair's exhausted exit (H1).
+  // `draining` is entered so a replan planner can compile revision N+1, and an
+  // accepted submission was its ONLY productive exit — a document the compiler
+  // rejects on every attempt left the run drained with no actor able to move
+  // it, and Resume only reaches `blocked`. Parking at `blocked` with
+  // `graph-plan-invalid` is the same park every other compile failure takes.
+  draining: ['running', 'blocked', 'completed-awaiting-impl-marker', 'cancelled', 'stale'],
   // `blocked → planning` is the bootstrap-relaunch recovery exit: a bootstrap
   // planner that died before ever submitting (no active revision yet) blocks
   // the run at `planning`, and the typed recovery re-opens the run to

@@ -163,6 +163,7 @@ function host(calls: string[]): InsideActionHost {
       void calls.push(`graph-open:${ticketId}:${session.kind}:${session.runId}`),
     graphStop: (ticketId, graphRunId) => void calls.push(`graph-stop:${ticketId}:${graphRunId}`),
     graphResume: (ticketId, graphRunId) => void calls.push(`graph-resume:${ticketId}:${graphRunId}`),
+    graphRestart: (ticketId, graphRunId) => void calls.push(`graph-restart:${ticketId}:${graphRunId}`),
     graphReplan: (ticketId, graphRunId) => void calls.push(`graph-replan:${ticketId}:${graphRunId}`),
     graphConfirm: (ticketId, graphRunId) =>
       void calls.push(`graph-confirm:${ticketId}:${graphRunId}`),
@@ -714,6 +715,42 @@ describe('dispatchInsideAction', () => {
     expect(dispatchInsideAction(store, stale, 'snapshot-8:action-0', deps([]))).toEqual({
       outcome: 'rejected',
       reason: 'graph is not blocked',
+    });
+  });
+
+  it('H2: dispatches graph-restart only for a run drained with no live replan planner', () => {
+    seedGraph({ ticketId: 1, runId: 1, status: 'draining' });
+    const calls: string[] = [];
+    const actions = registry(7);
+    actions.register({ kind: 'graph-restart', ticketId: 1, graphRunId: 1 });
+    expect(dispatchInsideAction(store, actions, 'snapshot-7:action-0', deps(calls))).toEqual({
+      outcome: 'dispatched',
+    });
+    expect(calls).toEqual(['graph-restart:1:1']);
+
+    // A run draining FOR a replan planner is mid-replan: the coordinator owns
+    // its exit, and a restart would race the submission it is waiting for.
+    store.db
+      .prepare(
+        `INSERT INTO approach_planner_runs (graph_run_id, planner_run_number, kind, status)
+         VALUES (1, 2, 'replan', 'running')`,
+      )
+      .run();
+    const mid = registry(8);
+    mid.register({ kind: 'graph-restart', ticketId: 1, graphRunId: 1 });
+    expect(dispatchInsideAction(store, mid, 'snapshot-8:action-0', deps([]))).toEqual({
+      outcome: 'rejected',
+      reason: 'graph is not a stopped drain',
+    });
+
+    // A running run is not a drain at all.
+    store.db.prepare("UPDATE approach_planner_runs SET status = 'stale' WHERE kind = 'replan'").run();
+    store.db.prepare("UPDATE approach_graph_runs SET status = 'running' WHERE id = 1").run();
+    const stale = registry(9);
+    stale.register({ kind: 'graph-restart', ticketId: 1, graphRunId: 1 });
+    expect(dispatchInsideAction(store, stale, 'snapshot-9:action-0', deps([]))).toEqual({
+      outcome: 'rejected',
+      reason: 'graph is not a stopped drain',
     });
   });
 

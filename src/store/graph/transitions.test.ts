@@ -50,6 +50,11 @@ describe('graph-run transition map', () => {
       'awaiting-confirmation → running',
       'running → draining',
       'draining → running',
+      // H1: the replan compile-repair's exhausted exit. `draining` had ONE
+      // productive exit (an accepted replan submission), so a document the
+      // compiler rejects every attempt left the run with no actor able to
+      // move it and no Resume able to reach it.
+      'draining → blocked',
       'running → blocked',
       'blocked → running',
       // The bootstrap-relaunch recovery exit: a dead bootstrap planner blocks

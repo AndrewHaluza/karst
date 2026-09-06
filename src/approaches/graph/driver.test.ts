@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { openStore } from '../../store/db.js';
@@ -1527,6 +1527,94 @@ describe('acceptSubmittedReplan', () => {
     expect(run.status).toBe('draining');
     // The very same replan IS judged once the manifest resolves.
     expect(acceptSubmittedReplan(h.deps, graphRunId).kind).toBe('accepted');
+  });
+
+  /** A draining run whose replan planner submitted `json`. */
+  function submittedReplan(h: Harness, json: string): number {
+    const graphRunId = createGraphRun(h.db, {
+      ticketId: h.ticketId,
+      stageAttempt: 0,
+      approachId: 'karst-graph-engineering',
+      now: NOW,
+    });
+    createRevision(h.db, {
+      graphRunId,
+      revisionNumber: 1,
+      canonicalGraph: '{}',
+      fingerprint: 'old',
+      status: 'draining',
+      now: NOW,
+    });
+    h.db.prepare("UPDATE approach_graph_runs SET status = 'draining' WHERE id = ?").run(graphRunId);
+    h.db
+      .prepare(
+        `INSERT INTO approach_planner_runs (graph_run_id, planner_run_number, kind, status, graph_snapshot_id, submitted_at)
+         VALUES (?, 2, 'replan', 'submitted', 'rpl', ?)`,
+      )
+      .run(graphRunId, NOW);
+    const snapshotDir = join(h.root, String(graphRunId), 'snapshots');
+    mkdirSync(snapshotDir, { recursive: true });
+    writeFileSync(join(snapshotDir, 'rpl.json'), json);
+    return graphRunId;
+  }
+
+  const INVALID_REPLAN = JSON.stringify({ version: 1, title: 'Bad', entries: [] });
+
+  it('H1: a rejected replan re-prompts the SAME replan planner instead of stranding the drain', () => {
+    const h = harness();
+    const graphRunId = submittedReplan(h, INVALID_REPLAN);
+    const plannerRunId = plannerRunIdFor(h.db, graphRunId);
+
+    const result = acceptSubmittedReplan(h.deps, graphRunId);
+    expect(result.kind).toBe('repair-requested');
+    if (result.kind !== 'repair-requested') return;
+    expect(result.plannerRunId).toBe(plannerRunId);
+    expect(result.attempt).toBe(1);
+    expect(result.diagnostics.length).toBeGreaterThan(0);
+    // The run stays draining for the re-prompt; the planner is re-promptable.
+    const run = h.db
+      .prepare('SELECT status FROM approach_graph_runs WHERE id = ?')
+      .get(graphRunId) as { status: string };
+    expect(run.status).toBe('draining');
+    const planner = h.db
+      .prepare('SELECT status, compile_attempt FROM approach_planner_runs WHERE id = ?')
+      .get(plannerRunId) as { status: string; compile_attempt: number };
+    expect(planner.status).toBe('blocked');
+    expect(planner.compile_attempt).toBe(1);
+    // The diagnostics land where the re-prompt reads them.
+    expect(readPlannerDiagnostics(h.deps, graphRunId, plannerRunId).length).toBeGreaterThan(0);
+  });
+
+  it('H1: an exhausted replan repair blocks the run instead of draining forever', () => {
+    const h = harness();
+    const graphRunId = submittedReplan(h, INVALID_REPLAN);
+    const plannerRunId = plannerRunIdFor(h.db, graphRunId);
+    h.db.prepare('UPDATE approach_planner_runs SET compile_attempt = 2 WHERE id = ?').run(plannerRunId);
+
+    const result = acceptSubmittedReplan(h.deps, graphRunId);
+    expect(result.kind).toBe('rejected');
+    const run = h.db
+      .prepare('SELECT status, blocked_reason FROM approach_graph_runs WHERE id = ?')
+      .get(graphRunId) as { status: string; blocked_reason: string | null };
+    expect(run.status).toBe('blocked');
+    expect(run.blocked_reason).toContain('graph-plan-invalid');
+    const planner = h.db
+      .prepare('SELECT compile_attempt FROM approach_planner_runs WHERE id = ?')
+      .get(plannerRunId) as { compile_attempt: number };
+    expect(planner.compile_attempt).toBe(3);
+  });
+
+  it('H1: an unreadable replan snapshot enters the same repair loop, never a silent no-op', () => {
+    const h = harness();
+    const graphRunId = submittedReplan(h, INVALID_REPLAN);
+    rmSync(join(h.root, String(graphRunId), 'snapshots', 'rpl.json'));
+
+    const result = acceptSubmittedReplan(h.deps, graphRunId);
+    expect(result.kind).toBe('repair-requested');
+    const planner = h.db
+      .prepare("SELECT status FROM approach_planner_runs WHERE graph_run_id = ? AND kind = 'replan'")
+      .get(graphRunId) as { status: string };
+    expect(planner.status).toBe('blocked');
   });
 });
 

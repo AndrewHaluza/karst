@@ -242,6 +242,7 @@ export type InsideActionKind =
   | 'graph-confirm'
   | 'graph-stop'
   | 'graph-resume'
+  | 'graph-restart'
   | 'graph-replan'
   | 'graph-mark-impl'
   | 'graph-discard-node'

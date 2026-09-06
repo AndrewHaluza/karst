@@ -668,6 +668,21 @@ describe('reconcileGraphRun — reload and crash matrix', () => {
       expect(result.transitions).toBe(0);
     });
 
+    it('H1: a DRAINING run whose replan planner is blocked awaiting its re-prompt is handed the same relaunch', async () => {
+      toDraining(ctx);
+      insertPlannerRun(ctx, 230, 'blocked', { kind: 'replan', plannerRunNumber: 2 });
+      ctx.db.prepare('UPDATE approach_planner_runs SET compile_attempt = 1 WHERE id = ?').run(230);
+      const relaunched: { graphRunId: number; plannerRunId: number; attempt: number }[] = [];
+      const deps = ctx.makeDeps({
+        relaunchCompileRepair: (graphRunId, plannerRunId, attempt) =>
+          relaunched.push({ graphRunId, plannerRunId, attempt }),
+      });
+      const result = await reconcileGraphRun(deps, { graphRunId: ctx.graphRunId });
+      expect(relaunched).toEqual([{ graphRunId: ctx.graphRunId, plannerRunId: 230, attempt: 1 }]);
+      expect(runRow(ctx).status).toBe('draining');
+      expect(result.transitions).toBe(0);
+    });
+
     it('a blocked planner already exhausted (compile_attempt >= MAX) is never re-prompted', async () => {
       toPlanning(ctx);
       insertPlannerRun(ctx, 221, 'blocked');
@@ -711,12 +726,13 @@ describe('reconcileGraphRun — reload and crash matrix', () => {
       expect(result.transitions).toBe(0);
     });
 
-    it('a blocked replan planner is never judged by the compile-repair path (replan is not fire-once)', async () => {
+    it('H1: an EXHAUSTED blocked replan planner is never re-prompted either', async () => {
       toDraining(ctx);
       insertPlannerRun(ctx, 224, 'blocked', { kind: 'replan' });
+      ctx.db.prepare('UPDATE approach_planner_runs SET compile_attempt = 3 WHERE id = ?').run(224);
       const deps = ctx.makeDeps({
         relaunchCompileRepair: () => {
-          throw new Error('must not relaunch a replan planner via compile-repair');
+          throw new Error('must not relaunch an exhausted replan planner');
         },
       });
       const result = await reconcileGraphRun(deps, { graphRunId: ctx.graphRunId });

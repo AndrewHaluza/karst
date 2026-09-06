@@ -1180,6 +1180,7 @@ const NOOP_INSIDE_HOST: InsideActionHost = {
   graphOpenSession: () => undefined,
   graphStop: () => undefined,
   graphResume: () => undefined,
+  graphRestart: () => undefined,
   graphReplan: () => undefined,
   graphConfirm: () => undefined,
   graphMarkImpl: () => undefined,
@@ -1201,6 +1202,8 @@ function toRegisteredGraphTarget(
       return { kind: 'graph-stop', ticketId, graphRunId: target.graphRunId };
     case 'graph-resume':
       return { kind: 'graph-resume', ticketId, graphRunId: target.graphRunId };
+    case 'graph-restart':
+      return { kind: 'graph-restart', ticketId, graphRunId: target.graphRunId };
     case 'graph-replan':
       return { kind: 'graph-replan', ticketId, graphRunId: target.graphRunId };
     case 'graph-confirm':

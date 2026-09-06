@@ -150,6 +150,12 @@ export type GraphActionTarget =
   | { kind: 'graph-confirm'; graphRunId: number }
   | { kind: 'graph-stop'; graphRunId: number }
   | { kind: 'graph-resume'; graphRunId: number }
+  // H2: restart a run a Stop drained. `draining` is entered for two very
+  // different reasons — a replan planner is compiling revision N+1, or Stop
+  // halted the run — and only the first has an actor that leaves it. The
+  // second is a deliberate halt, so the exit is a deliberate click, never an
+  // automatic resume that restarts agents the user just stopped.
+  | { kind: 'graph-restart'; graphRunId: number }
   | { kind: 'graph-replan'; graphRunId: number }
   | { kind: 'graph-mark-impl'; graphRunId: number }
   | { kind: 'graph-discard-node'; nodeRunId: number }
@@ -379,6 +385,32 @@ function nodeRunStatus(status: string): InsideStatus {
  * process the user needs to terminate; Stop leaves that blocked state intact,
  * never reading as a reset or stage transition.
  */
+/** The replan-planner statuses that still owe the drain a submission. While
+ *  one of these exists the coordinator itself will leave `draining` — the run
+ *  is mid-replan, not stranded. */
+const LIVE_PLANNER_STATUSES: readonly string[] = [
+  'ready',
+  'launching',
+  'running',
+  'submitted',
+  'blocked',
+] as const;
+
+/**
+ * H2: a run Stop drained, as opposed to one draining for a replan. `draining`
+ * has exactly one productive exit — an accepted replan submission — so a run
+ * that entered it without a replan planner (Stop CASes `running → draining`
+ * and elects nothing) has no actor that can ever move it. The revision is
+ * still `active` in that case, so restarting is a plain `draining → running`:
+ * nothing needs recompiling.
+ */
+function isStopDrained(input: GraphInsideInput): boolean {
+  if (input.graphRun?.status !== 'draining') return false;
+  return !input.plannerRuns.some(
+    (planner) => planner.kind === 'replan' && LIVE_PLANNER_STATUSES.includes(planner.status),
+  );
+}
+
 const STOPPABLE_RUN_STATUSES: readonly string[] = [
   'planning',
   'awaiting-confirmation',
@@ -575,9 +607,11 @@ export function graphInsideProcess(
         ? { action: input.attach({ kind: 'graph-confirm', graphRunId: input.graphRun.id }) }
         : input.attach && input.graphRun.status === 'completed-awaiting-impl-marker'
           ? { action: input.attach({ kind: 'graph-mark-impl', graphRunId: input.graphRun.id }) }
-          : STOPPABLE_RUN_STATUSES.includes(input.graphRun.status) && input.attach
-            ? { action: input.attach({ kind: 'graph-stop', graphRunId: input.graphRun.id }) }
-            : {}),
+          : input.attach && isStopDrained(input)
+            ? { action: input.attach({ kind: 'graph-restart', graphRunId: input.graphRun.id }) }
+            : STOPPABLE_RUN_STATUSES.includes(input.graphRun.status) && input.attach
+              ? { action: input.attach({ kind: 'graph-stop', graphRunId: input.graphRun.id }) }
+              : {}),
   });
 
   if (input.attach && input.graphRun.status === 'blocked') {

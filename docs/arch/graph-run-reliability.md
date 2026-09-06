@@ -147,3 +147,111 @@ branch, and `draining` is the one status nothing else leaves.
 3. **G4** — give the graph sweep its own tick, independent of `gh`.
 4. **G5** — per-field sentinel rules in the planner prompt.
 5. **G6** — a graph section in the diagnostic report.
+
+---
+
+# Second audit, 2026-09-06 — the remaining stuck-gaps
+
+G1/G3/G4/G5/G8 are fixed on this branch (project-scoped `activeGraphRunIds`
+and `reconcilableGraphRunIds`, `manifestResolvedFor` guards on BOTH accept
+paths, the graph sweep's own tick, `rejectPlan`'s compile-repair budget with
+reconcile's re-prompt fallback). What follows is what a fresh read of the run
+loop still finds. Every item is the same shape: **a run status whose only
+declared exit is produced by an event that will never happen.**
+
+## H1 — a rejected REPLAN document stranded the run in `draining`, forever (fixed)
+
+`acceptSubmittedReplan` (`driver.ts:766`) has no counterpart to the bootstrap
+path's `rejectPlan`. Three of its four failure exits return
+`{kind:'rejected'}` and change NOTHING:
+
+- unreadable snapshot (`driver.ts:796`),
+- unparseable document (`driver.ts:798`),
+- `submitReplanDocument` → `invalid-document` (`replan.ts:534`) — which returns
+  from inside its transaction before any write.
+
+The replan planner run stays `submitted`; the graph run stays `draining`. The
+next reconcile tick reads the SAME snapshot, re-parses it, re-rejects it. No
+attempt counter, no diagnostics file, no reason on the row, no block.
+`extension.ts:4398` only acts on `kind === 'accepted'`, so the rejection is not
+even logged. `reconcilePlannerRun`'s repair branch is bootstrap-only by
+construction (`reconcile.ts:490`), and `submitted` is not a live-session-loss,
+so reconcile is a no-op too. `draining → blocked` is not a declared edge.
+
+The run is unreachable by Resume (`recoverGraphRun` requires `blocked`),
+invisible to the coordinator sweep (`activeGraphRunIds` selects `running`
+only), and shows as "Draining" with no action in the Inside panel. This is
+run 4 of the first audit's table reappearing through a different door.
+
+**The bootstrap path's repair contract must be the replan path's too.**
+
+**Fixed.** `acceptSubmittedReplan`'s three rejection exits now route through
+`rejectReplan` → the same `rejectPlan` the bootstrap path uses, parameterised
+by the run status the repair holds (`planning` for a bootstrap plan,
+`draining` for a replan). So a rejected replan re-prompts the SAME replan
+planner run with the diagnostics (`submitted → blocked`, attempt recorded,
+`diagnostics/planner-<id>.json` written), the run stays `draining` between
+attempts, and `reconcilePlannerRun`'s blocked-planner branch — bootstrap-only
+before — recovers a re-prompt that never fired for either kind. An exhausted
+repair parks the run at `blocked` through the new `draining → blocked` edge,
+where the typed Resume reaches it. `extension.ts`'s draining branch now acts
+on all three outcomes instead of `accepted` alone.
+
+## H2 — Stop drained a run that nothing would ever undrain (fixed)
+
+`stopActiveGraph` (`entryPoints.ts:242`) CASes `running → draining`
+deliberately — "a stop is a deliberate halt, not a fault the Resume would
+retry" (`extension.ts:5010`). But it elects no replan and creates no replan
+planner run, and the ONLY declared productive exit from `draining` is an
+accepted replan submission. Reconcile 2.6 dispatches a draining run to
+`reconcilePlannerRun(…, 'replan')`, which returns a no-op the moment no replan
+planner row exists (`reconcile.ts:475`).
+
+So every Stop permanently strands its ticket's graph. Note the revision is
+still `active` (Stop never touches it), so `draining → running` is both legal
+and correct here — nothing needs to be recompiled. What is missing is the
+actor: no sweep, no reconcile branch, and no Inside action produces it.
+
+**Fixed.** `restartStoppedGraph` (`entryPoints.ts`) is that actor, reached by a
+new `graph-restart` Inside control minted only on a `draining` run with no
+replan planner still owing it a submission. It CASes `draining → running` on
+the still-active revision and the host tick claims its entry tokens
+immediately. A run draining FOR a replan is refused at BOTH layers (the
+dispatch guard and the coordinator function) — that run is mid-replan and the
+coordinator owns its exit. Nothing here is automatic: a Stop is a deliberate
+halt, so its exit is a deliberate click.
+
+## H3 — a non-`closed` run permanently blocks its ticket from starting another
+
+`extension.ts:5857` refuses a new graph launch when ANY graph run row exists
+for the ticket, in ANY status, and hands the user to the Inside panel — which
+offers a typed Resume for `blocked` only. A run left `cancelled`, `stale`, or
+`draining` (H1, H2) therefore locks the ticket out of the graph approach
+entirely: Start says "the coordinator owns continuation", and the coordinator
+owns nothing. The guard's intent is "never two live runs"; its predicate is
+"never a second run".
+
+## H4 — a deferral ages but never times out
+
+`recordDeferral`/`agingPriority` (`sweep.ts:314`) raise a waiting node's
+priority the longer it waits, which is the right anti-starvation policy
+between *competing* nodes. There is no ceiling: a deferral whose refusal can
+never clear (a `resource-conflict` against a lease held by a node that is
+itself parked, a `parallel-slot-busy` against a slot nothing releases) simply
+defers on every tick forever. The run stays `running` and looks healthy — no
+block, no diagnostic after the first `fresh` one, nothing in the panel that
+says "this node has waited 40 minutes". A bounded max-deferral-age that parks
+the run `blocked` with the refusal reason would make it recoverable, which is
+the discipline every other failure here already follows.
+
+## Still open
+
+H3 (the launch guard's any-status predicate) and H4 (deferrals with no
+ceiling) are unfixed.
+
+## The invariant these four share
+
+A graph run's non-terminal statuses must each have at least one exit that some
+actor — a sweep, a reconcile branch, or a user action the panel actually
+offers — can always produce. `draining` has one exit and one producer, and
+three separate paths reach `draining` without that producer.
