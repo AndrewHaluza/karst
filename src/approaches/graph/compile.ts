@@ -903,7 +903,10 @@ export function compileGraphDocument(
       error(
         'planner-artifact-missing',
         artifact.id,
-        `planner-produced artifact "${artifact.id}" has no file at compile time`,
+        `planner-produced artifact "${artifact.id}" has no file at compile time — ` +
+          `karst looked for "${artifact.path}" under the artifact root ` +
+          `($KARST_GRAPH_ARTIFACT_ROOT); declared paths are relative to that root, ` +
+          `never to a repository workspace`,
       );
     }
   }

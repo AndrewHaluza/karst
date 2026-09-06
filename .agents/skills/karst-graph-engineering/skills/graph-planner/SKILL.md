@@ -13,11 +13,18 @@ does not exist fails at runtime.
 
 ## Deliverables
 
-Write to the artifact root assigned to you by karst:
+**Write every deliverable under `$KARST_GRAPH_ARTIFACT_ROOT`, an absolute
+directory set in your process environment — NOT under a repository worktree.**
+Every `artifacts[].path` you declare is resolved relative to that root, so a
+declared `plan/PLAN.md` must exist at `$KARST_GRAPH_ARTIFACT_ROOT/plan/PLAN.md`.
+The root directory is itself named `artifacts`, so do NOT prefix declared paths
+with `artifacts/` — that resolves to `.../artifacts/artifacts/...` and the
+compiler rejects the document with `planner-artifact-missing`.
 
-- `PLAN.md` — the implementation plan (why, what, order, risks).
+- `plan/PLAN.md` — the implementation plan (why, what, order, risks).
 - One task brief per implementation work item (see `artifacts` below).
-- `graph.json` — the executable topology, exactly per the schema below.
+- `graph.json` — the executable topology, exactly per the schema below, at the
+  root itself (`$KARST_GRAPH_ARTIFACT_ROOT/graph.json`).
 
 ## graph.json schema
 
@@ -90,7 +97,7 @@ it is required:
 ```json
 {
   "id": "implementation-plan",
-  "path": "artifacts/plan/PLAN.md",
+  "path": "plan/PLAN.md",
   "producer": "$planner",
   "consumers": ["implement-api"],
   "mediaType": "text/markdown",
@@ -271,7 +278,7 @@ Substitute real repository and profile names from the ticket context for
   "artifacts": [
     {
       "id": "plan-rationale",
-      "path": "artifacts/plan/PLAN.md",
+      "path": "plan/PLAN.md",
       "producer": "$planner",
       "consumers": ["implement"],
       "mediaType": "text/markdown",
@@ -280,7 +287,7 @@ Substitute real repository and profile names from the ticket context for
     },
     {
       "id": "task-brief",
-      "path": "artifacts/tasks/implement.md",
+      "path": "tasks/implement.md",
       "producer": "$planner",
       "consumers": ["implement"],
       "mediaType": "text/markdown",

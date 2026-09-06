@@ -436,6 +436,16 @@ describe('compileGraphDocument — artifacts', () => {
     const ctx = context({ artifactFileExists: (id) => id !== 'task' });
     expectError(ref(), 'planner-artifact-missing', 'task', ctx);
   });
+
+  it('names the declared path in the planner-artifact-missing message', () => {
+    // The path is the whole diagnosis: a planner that wrote the file under a
+    // different prefix (a doubled `artifacts/`, or the repo workspace) can
+    // only self-correct on replan if the diagnostic says where karst looked.
+    const ctx = context({ artifactFileExists: (id) => id !== 'task' });
+    const diagnostic = expectError(ref(), 'planner-artifact-missing', 'task', ctx);
+    expect(diagnostic.message).toContain('artifacts/plan/task.md');
+    expect(diagnostic.message).toContain('artifact root');
+  });
 });
 
 describe('compileGraphDocument — profiles, commands, repositories', () => {
