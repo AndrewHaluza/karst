@@ -13,6 +13,7 @@ import {
   batchForAttempt,
   latestAttemptKey,
   processRunForAttempt,
+  roundsForAttempt,
   type AttemptKey,
 } from './rounds.js';
 import type { InsideEvidenceTarget, TypedInsideAction } from './types.js';
@@ -735,6 +736,32 @@ function reviewProcess(input: QualityProcessesInput): InsideProcessView {
   };
 }
 
+/**
+ * The Fix row for ONE attempt of a gate stage.
+ *
+ * The rounds are scoped to the selected attempt (`roundsForAttempt`), so the
+ * row reports the recovery THAT attempt opened and a live attempt that has
+ * failed nothing yet gets no Fix row at all. The stage's own current verdict
+ * only overrides an older round's failure on the LATEST attempt: on an earlier
+ * tab the attempt's own round is the fact being read, and a later pass must not
+ * rewrite it.
+ */
+function stageRecovery(
+  input: QualityProcessesInput,
+  stageKey: 'uat' | 'review',
+): ReturnType<typeof recoveryProcess> {
+  const selected = input.selectedAttempt ?? null;
+  const latest = latestAttemptKey(input.gateRuns, stageKey);
+  const isLatest = selected === null || selected === latest;
+  return recoveryProcess(
+    roundsForAttempt(input.rounds, stageKey, selected, latest),
+    input.processRuns,
+    input.now,
+    input.configured,
+    isLatest && displayStatus(input.cell) === 'passed',
+  );
+}
+
 /** The uat stage's processes: gates, services, tester — plus a causal fix. */
 export function uatProcesses(input: QualityProcessesInput): InsideProcessView[] {
   const processes = [
@@ -751,17 +778,7 @@ export function uatProcesses(input: QualityProcessesInput): InsideProcessView[] 
     servicesProcess(input.cell, input.services),
     testerProcess(input),
   ];
-  const stageRounds = input.rounds.filter((r) => r.sourceStage === 'uat');
-  return insertCausalFix(
-    processes,
-    recoveryProcess(
-      stageRounds,
-      input.processRuns,
-      input.now,
-      input.configured,
-      displayStatus(input.cell) === 'passed',
-    ),
-  );
+  return insertCausalFix(processes, stageRecovery(input, 'uat'));
 }
 
 /** The review stage's processes: gates, services, review — plus a causal fix. */
@@ -780,15 +797,5 @@ export function reviewProcesses(input: QualityProcessesInput): InsideProcessView
     servicesProcess(input.cell, input.services),
     reviewProcess(input),
   ];
-  const stageRounds = input.rounds.filter((r) => r.sourceStage === 'review');
-  return insertCausalFix(
-    processes,
-    recoveryProcess(
-      stageRounds,
-      input.processRuns,
-      input.now,
-      input.configured,
-      displayStatus(input.cell) === 'passed',
-    ),
-  );
+  return insertCausalFix(processes, stageRecovery(input, 'review'));
 }

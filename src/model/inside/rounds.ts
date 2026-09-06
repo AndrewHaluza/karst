@@ -197,6 +197,40 @@ export function listGateAttempts(input: ListGateAttemptsInput): GateAttemptView[
 }
 
 /**
+ * The rounds ONE attempt opened — what the attempt's Fix row may report.
+ *
+ * The Fix process is drawn per attempt, so it must read that attempt's own
+ * recovery, never the stage's whole history: the newest round rendered on every
+ * tab made a completed round keep spinning on the attempt that had finished it,
+ * and put a Fix row on a live attempt that had not failed anything yet.
+ *
+ * `selected === null` (the default path) is scoped to `latest` for the same
+ * reason — the default view IS the latest attempt, and a round an earlier
+ * attempt opened is that earlier attempt's evidence.
+ *
+ * A legacy round with no `sourceStageRunId` cannot be attributed to an attempt,
+ * so it rides with the latest one rather than disappearing — the same
+ * "unattributable rows keep their pre-v25 home" rule `batchForAttempt` follows.
+ * A stage with no attempt key at all (no gate row recorded yet) keeps every
+ * round: there is nothing to scope against.
+ */
+export function roundsForAttempt(
+  rounds: readonly RecoveryRound[],
+  stageKey: StageKey,
+  selected: AttemptKey | null,
+  latest: AttemptKey | null,
+): RecoveryRound[] {
+  const mine = rounds.filter((r) => r.sourceStage === stageKey);
+  const effective = selected ?? latest;
+  if (effective === null) return mine;
+  return mine.filter((r) =>
+    r.sourceStageRunId === null
+      ? effective === latest
+      : attemptKey(r.sourceStageRunId, '') === effective,
+  );
+}
+
+/**
  * The most recent invocation's rows for a stage — duplicated from
  * `latestBatch` (gates.ts) rather than imported: importing gates.ts from here
  * would close a cycle once T3 makes gates.ts import THIS module's selectors.

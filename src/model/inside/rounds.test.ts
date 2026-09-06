@@ -10,6 +10,7 @@ import {
   latestAttemptKey,
   listGateAttempts,
   processRunForAttempt,
+  roundsForAttempt,
 } from './rounds.js';
 
 let nextGateId = 1;
@@ -349,5 +350,41 @@ describe('review fixes — the latest attempt is the default path', () => {
     const b = gate('uat', 'test', 0, { stageRunId: 2, runAt: '2026-07-20T13:00:00.000Z' });
     const key = latestAttemptKey([a, b], 'uat');
     expect(batchForAttempt([a, b], 'uat', key)).toEqual(batchForAttempt([a, b], 'uat', null));
+  });
+});
+
+describe('roundsForAttempt', () => {
+  it('keeps only the rounds the selected attempt opened', () => {
+    const first = round({ sourceStageRunId: 1, round: 1, status: 'passed' });
+    const second = round({ sourceStageRunId: 2, round: 2, status: 'fixing' });
+    expect(roundsForAttempt([first, second], 'uat', 'sr:1', 'sr:3')).toEqual([first]);
+  });
+
+  it('gives a live attempt that has opened no round nothing at all', () => {
+    const first = round({ sourceStageRunId: 1, round: 1, status: 'revalidating' });
+    expect(roundsForAttempt([first], 'uat', 'sr:2', 'sr:2')).toEqual([]);
+  });
+
+  it('scopes the default selection to the latest attempt', () => {
+    const first = round({ sourceStageRunId: 1, round: 1, status: 'revalidating' });
+    expect(roundsForAttempt([first], 'uat', null, 'sr:2')).toEqual([]);
+    expect(roundsForAttempt([first], 'uat', null, 'sr:1')).toEqual([first]);
+  });
+
+  it('ignores rounds another stage opened', () => {
+    const mine = round({ sourceStage: 'uat', sourceStageRunId: 1 });
+    const other = round({ sourceStage: 'review', sourceStageRunId: 1 });
+    expect(roundsForAttempt([mine, other], 'uat', 'sr:1', 'sr:1')).toEqual([mine]);
+  });
+
+  it('keeps a legacy round with no stage run id on the latest attempt only', () => {
+    const legacy = round({ sourceStageRunId: null });
+    expect(roundsForAttempt([legacy], 'uat', 'sr:2', 'sr:2')).toEqual([legacy]);
+    expect(roundsForAttempt([legacy], 'uat', 'sr:1', 'sr:2')).toEqual([]);
+  });
+
+  it('keeps every stage round when the stage recorded no attempt to key by', () => {
+    const legacy = round({ sourceStageRunId: null });
+    expect(roundsForAttempt([legacy], 'uat', null, null)).toEqual([legacy]);
   });
 });

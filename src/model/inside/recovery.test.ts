@@ -186,11 +186,12 @@ describe('recoveryProcess', () => {
     expect(pending.process.status).toBe('run');
     const fixing = recoveryProcess([round({ status: 'fixing' })], [], NOW)!;
     expect(fixing.process.status).toBe('run');
-    // `revalidating` is ACTIVE work — the ticket is back at the gate and its
-    // gates are re-running — so it draws the same spinner as `fixing`, never an
-    // amber pause that would read as "needs you" while the gates run.
+    // `revalidating` means the FIX itself finished — the ticket is back at the
+    // gate and the gate row reports that re-run. A spinner here claimed the fix
+    // was still working long after it had handed the ticket back, on the very
+    // attempt whose fix had already completed.
     const revalidating = recoveryProcess([round({ status: 'revalidating' })], [], NOW)!;
-    expect(revalidating.process.status).toBe('run');
+    expect(revalidating.process.status).toBe('pass');
     const passed = recoveryProcess([round({ status: 'passed' })], [], NOW)!;
     expect(passed.process.status).toBe('pass');
     const failed = recoveryProcess([round({ status: 'failed' })], [], NOW)!;
