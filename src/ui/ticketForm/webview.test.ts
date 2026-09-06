@@ -267,6 +267,25 @@ describe('ticket-form webview.html', () => {
     expect(draft.selectedEffort).toBe('');
   });
 
+  // Both persist paths must fall back to the host-pushed identity when the
+  // picker was never touched, or reopening a saved draft and pressing
+  // "Create & run" clears the saved core/model/effort (persistDraft writes ''
+  // for a null). `?? cache` then `|| null` keeps an explicit '' pick as null.
+  it('falls back to the cached identity on submit and save when the picker is untouched', () => {
+    for (const [kind, re] of [
+      ['submit', /const model = \(draft\.selectedModel \?\? lastSelectedModel\) \|\| null;/],
+      ['effort', /const effort = \(draft\.selectedEffort \?\? lastSelectedEffort\) \|\| null;/],
+      [
+        'provider',
+        /const agentProvider = \(draft\.selectedAgentProvider \?\? lastSelectedAgentProvider\) \|\| null;/,
+      ],
+    ] as const) {
+      const hits = HTML.match(new RegExp(re.source, 'g')) ?? [];
+      // One occurrence in the submit handler, one in the save handler.
+      expect(hits.length, `${kind} fallback should appear in both submit and save`).toBe(2);
+    }
+  });
+
   it('carries baseRefs on submit and save', () => {
     const submit = HTML.match(/post\(\{ type: 'submit',([^\n]+)\);/);
     expect(submit, 'submit post not found').toBeTruthy();
