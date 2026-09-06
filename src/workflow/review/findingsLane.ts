@@ -170,6 +170,9 @@ export function buildFindingsPrompt(
   instructions?: string,
   openChanges?: boolean,
   snapshotRef?: string | null,
+  /** The worktree root the call runs in — named so an agent whose core
+   *  mis-resolved the launch cwd can move itself there (see `agentScope.ts`). */
+  worktreePath?: string | null,
 ): string {
   const baseClause = baseRef
     ? `against its base branch, \`${baseRef}\` (compare against \`origin/${baseRef}\` when available, otherwise the local \`${baseRef}\`).`
@@ -199,7 +202,7 @@ export function buildFindingsPrompt(
     ...strategy,
     // Never replaced by `instructions`: an author overriding the strategy is
     // choosing WHAT to look for, not licensing a repo-wide sweep before it.
-    ...buildScopeBlock('review', { baseRef, branch, openChanges, snapshotRef }),
+    ...buildScopeBlock('review', { baseRef, branch, openChanges, snapshotRef, worktreePath }),
     ``,
     `Output rules (strict):`,
     `- Output ONLY a JSON array, nothing else: no preamble, no markdown fence, no commentary.`,
@@ -330,6 +333,7 @@ export async function runFindingsLane(opts: RunFindingsLaneOpts): Promise<Findin
             opts.process?.assignment.instructions,
             opts.openChanges,
             snapshotRef,
+            target.worktreePath,
           ),
           cwd: target.worktreePath,
           model: opts.process?.assignment.model,

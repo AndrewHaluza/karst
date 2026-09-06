@@ -42,6 +42,7 @@ import { openProcessRun, finishProcessRun } from '../../store/processRuns.js';
 import { stageAttempt } from '../../store/stages.js';
 import { recordUatFindings, type UatFindingInput } from '../../store/uatFindings.js';
 import { parseFindingsResult, type FindingsParseShape, type WarnFn } from '../review/findings.js';
+import { isWrongCheckoutClaim } from '../review/checkoutClaim.js';
 import { buildScopeBlock } from '../agentScope.js';
 import { createReviewSnapshot, deleteReviewSnapshot } from '../reviewSnapshot.js';
 import { collapseDiagnostic } from '../../model/diagnosticText.js';
@@ -299,6 +300,7 @@ export function buildTesterPrompt(
     ...buildScopeBlock('test', {
       baseRef: target.baseRef,
       branch: target.branch,
+      worktreePath: target.worktreePath,
       gatesPassed,
       snapshotRef,
     }),
@@ -443,7 +445,28 @@ export async function runUatTester(
         opts.warn,
       );
       shapes.push(parseResult.shape);
-      const parsed = parseResult.findings.map((f) => ({
+      // The host ALREADY proved this checkout above (`observed === expected`,
+      // or the loop would have skipped the call). An agent claiming "wrong
+      // checkout" anyway is reporting its own core's cwd mis-resolution, not a
+      // fact about this ticket — and at a blocking severity it fails the stage
+      // over changes nobody read. Only a PROVEN match drops it, and the drop is
+      // reported: review's lane made exactly this trade (`checkoutClaim.ts`).
+      const verifiedCheckout = observed !== null && observed === expectedBranch;
+      const kept = verifiedCheckout
+        ? parseResult.findings.filter((f) => !isWrongCheckoutClaim(f))
+        : parseResult.findings;
+      if (kept.length !== parseResult.findings.length) {
+        opts.warn?.(
+          `uat tester: ${target.repo} — dropped a "wrong checkout" observation. The agent reported ` +
+            `it, but this worktree is on '${expectedBranch}', which is the ticket's branch; the ` +
+            `claim is false and would have blocked the ticket over changes the agent did read.`,
+        );
+        debug?.(
+          `[gate] uat tester ticket ${opts.ticketId}: target ${target.repo} — dropped ` +
+            `${parseResult.findings.length - kept.length} disproven wrong-checkout claim(s)`,
+        );
+      }
+      const parsed = kept.map((f) => ({
         severity: f.severity,
         repo: f.repo,
         file: f.file,
