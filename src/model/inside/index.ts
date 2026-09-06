@@ -166,7 +166,6 @@ export function scopeProcesses(
     kind: 'hot-set',
     label: 'Hot set',
     status: stageProcessStatus(cell),
-    count: String(count),
     detail:
       count === 1
         ? `1 service ${ran ? 'validated' : 'to validate'} against the manifest`
@@ -241,7 +240,6 @@ export function scopeProcesses(
               worktrees.length === 1
                 ? '1 worktree created'
                 : `${worktrees.length} worktrees created`,
-            count: String(worktrees.length),
           }
         : ran
           ? { detail: 'no worktrees created' }
