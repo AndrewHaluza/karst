@@ -261,6 +261,61 @@ describe('graphInsideProcess', () => {
     expect(closed.status).toBe('pass');
   });
 
+  it('H2: a Stop-drained run (no replan planner) carries the restart control', () => {
+    const targets: GraphActionTarget[] = [];
+    const view = graphInsideProcess(
+      input({
+        graphRun: {
+          id: 7,
+          runNumber: 7,
+          status: 'draining',
+          approachId: 'g',
+          stageAttempt: 0,
+          createdAt: '2026-08-11T00:00:00.000Z',
+        },
+        // A Stop drains the run without electing a replan: the bootstrap
+        // planner has long since submitted, and no replan planner exists.
+        plannerRuns: [
+          { plannerRunNumber: 1, kind: 'bootstrap', status: 'submitted', compileAttempt: 0, reason: null },
+        ],
+        attach: (target) => {
+          targets.push(target);
+          return { actionId: 'snapshot-1:action-1', kind: target.kind };
+        },
+      }),
+    )!;
+    if (view.evidence?.kind !== 'rows') return;
+    expect(view.evidence.rows[0]!.action).toMatchObject({ kind: 'graph-restart' });
+    expect(targets).toContainEqual({ kind: 'graph-restart', graphRunId: 7 });
+  });
+
+  it('H2: a run draining for a LIVE replan planner carries no restart control', () => {
+    const targets: GraphActionTarget[] = [];
+    const view = graphInsideProcess(
+      input({
+        graphRun: {
+          id: 7,
+          runNumber: 7,
+          status: 'draining',
+          approachId: 'g',
+          stageAttempt: 0,
+          createdAt: '2026-08-11T00:00:00.000Z',
+        },
+        plannerRuns: [
+          { plannerRunNumber: 1, kind: 'bootstrap', status: 'submitted', compileAttempt: 0, reason: null },
+          { plannerRunNumber: 2, kind: 'replan', status: 'running', compileAttempt: 0, reason: null },
+        ],
+        attach: (target) => {
+          targets.push(target);
+          return { actionId: 'snapshot-1:action-1', kind: target.kind };
+        },
+      }),
+    )!;
+    if (view.evidence?.kind !== 'rows') return;
+    expect(view.evidence.rows[0]!.action).toBeUndefined();
+    expect(targets).not.toContainEqual({ kind: 'graph-restart', graphRunId: 7 });
+  });
+
   it('attaches the stop action to a running or blocked graph run and none once it is closed', () => {
     const runningTargets: GraphActionTarget[] = [];
     const running = graphInsideProcess(

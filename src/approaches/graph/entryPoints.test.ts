@@ -14,6 +14,7 @@ import {
   ACTIVE_GRAPH_STATUSES,
   activeGraphRunFor,
   stoppableGraphRunFor,
+  restartStoppedGraph,
   graphTicketSurface,
   nudgeSurface,
   shouldDriveGraphTicket,
@@ -292,6 +293,54 @@ describe('stop (coordinator-level controller)', () => {
       .prepare('SELECT status FROM approach_graph_runs WHERE id = ?')
       .get(ctx.graphRunId) as { status: string };
     expect(run.status).toBe('draining');
+  });
+
+  it('H2: restarts a Stop-drained run — draining → running on its still-active revision', () => {
+    const ctx = harness('running');
+    const stopped = ctx.db
+      .prepare("UPDATE approach_graph_runs SET status = 'draining' WHERE id = ?")
+      .run(ctx.graphRunId);
+    expect(stopped.changes).toBe(1);
+
+    const result = restartStoppedGraph(ctx.makeDeps(), {
+      ticketId: ctx.ticketId,
+      graphRunId: ctx.graphRunId,
+    });
+    expect(result).toEqual({ graphRunId: ctx.graphRunId, restarted: true, outcome: 'restarted' });
+    const run = ctx.db
+      .prepare('SELECT status FROM approach_graph_runs WHERE id = ?')
+      .get(ctx.graphRunId) as { status: string };
+    expect(run.status).toBe('running');
+  });
+
+  it('H2: refuses to restart a run that is draining FOR a replan planner', () => {
+    const ctx = harness('running');
+    ctx.db.prepare("UPDATE approach_graph_runs SET status = 'draining' WHERE id = ?").run(ctx.graphRunId);
+    ctx.db
+      .prepare(
+        `INSERT INTO approach_planner_runs (graph_run_id, planner_run_number, kind, status)
+         VALUES (?, 2, 'replan', 'running')`,
+      )
+      .run(ctx.graphRunId);
+
+    const result = restartStoppedGraph(ctx.makeDeps(), {
+      ticketId: ctx.ticketId,
+      graphRunId: ctx.graphRunId,
+    });
+    expect(result).toMatchObject({ restarted: false, outcome: 'replan-in-flight' });
+    const run = ctx.db
+      .prepare('SELECT status FROM approach_graph_runs WHERE id = ?')
+      .get(ctx.graphRunId) as { status: string };
+    expect(run.status).toBe('draining');
+  });
+
+  it('H2: refuses to restart a run that is not draining at all', () => {
+    const ctx = harness('running');
+    const result = restartStoppedGraph(ctx.makeDeps(), {
+      ticketId: ctx.ticketId,
+      graphRunId: ctx.graphRunId,
+    });
+    expect(result).toMatchObject({ restarted: false, outcome: 'not-draining' });
   });
 
   it('drains only from running; a non-running graph is not moved', async () => {

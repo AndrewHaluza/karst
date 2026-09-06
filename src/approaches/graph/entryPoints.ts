@@ -33,6 +33,7 @@ import { GRAPH_RUN_TRANSITIONS, casStatus } from '../../store/graph/transitions.
 import type { AgentTransport, SupervisedAgentSession } from './transport/supervisedCliTransport.js';
 import type { ProcessFactsSource } from '../../runtime/serverIdentity.js';
 import { graphRunHasLiveNodeProcess } from './coordinator/liveness.js';
+import { hasLiveReplanPlanner } from '../../store/graph/plannerRuns.js';
 
 /** Graph run statuses in which the coordinator owns the ticket's surface. */
 export const ACTIVE_GRAPH_STATUSES: ReadonlySet<string> = new Set([
@@ -204,6 +205,68 @@ export interface StopActiveGraphResult {
  * reach it; nothing alive → there is no work left to strand and the drain is
  * honest.
  */
+export type RestartOutcome = 'restarted' | 'not-draining' | 'replan-in-flight' | 'raced';
+
+export interface RestartStoppedGraphResult {
+  graphRunId: number;
+  restarted: boolean;
+  outcome: RestartOutcome;
+}
+
+/**
+ * H2 — the exit Stop never had. `draining` has exactly ONE productive exit, an
+ * accepted replan submission, and Stop enters it without electing a replan: no
+ * sweep, no reconcile branch and no user action could move the run again, so
+ * every Stop permanently stranded its ticket's graph.
+ *
+ * The restart is a plain `draining → running`: Stop leaves the revision
+ * `active` (it never touches it), so the plan the run was executing is intact
+ * and nothing needs recompiling. It is REFUSED for a run draining because a
+ * replan planner still owes it a submission — that run is mid-replan, the
+ * coordinator owns its exit, and restarting would race the submission it is
+ * waiting for.
+ *
+ * Deliberate by construction: the caller is a click. A Stop is a considered
+ * halt, and nothing here ever fires from a sweep.
+ */
+export function restartStoppedGraph(
+  deps: Pick<StopActiveGraphDeps, 'db' | 'transaction' | 'debug'>,
+  input: { ticketId: number; graphRunId: number },
+): RestartStoppedGraphResult {
+  const run = deps.db
+    .prepare('SELECT status FROM approach_graph_runs WHERE id = ? AND ticket_id = ?')
+    .get(input.graphRunId, input.ticketId) as { status: string } | undefined;
+  if (run?.status !== 'draining') {
+    return { graphRunId: input.graphRunId, restarted: false, outcome: 'not-draining' };
+  }
+  if (hasLiveReplanPlanner(deps.db, input.graphRunId)) {
+    deps.debug?.(
+      `[graph] restart: run ${input.graphRunId} is draining for a replan planner — refused`,
+    );
+    return { graphRunId: input.graphRunId, restarted: false, outcome: 'replan-in-flight' };
+  }
+  const restarted = deps.transaction(() =>
+    casStatus(
+      deps.db,
+      'approach_graph_runs',
+      GRAPH_RUN_TRANSITIONS,
+      input.graphRunId,
+      'draining',
+      'running',
+    ),
+  );
+  deps.debug?.(
+    restarted
+      ? `[graph] restart: run ${input.graphRunId} draining → running (stopped drain resumed on its active revision)`
+      : `[graph] restart: run ${input.graphRunId} left draining under us — no-op`,
+  );
+  return {
+    graphRunId: input.graphRunId,
+    restarted,
+    outcome: restarted ? 'restarted' : 'raced',
+  };
+}
+
 export async function stopActiveGraph(
   deps: StopActiveGraphDeps,
   input: { ticketId: number; graphRunId: number },

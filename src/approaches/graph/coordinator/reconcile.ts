@@ -484,10 +484,12 @@ async function reconcilePlannerRun(
   // process is a re-prompt that never happened, or died in flight. Judged with
   // the SAME evidence discipline as every other row here: a live attributable
   // process (another window already relaunching it) is left strictly alone.
-  // The `submitted → blocked` transition NEVER exists for a replan planner
-  // (only `acceptSubmittedPlan`'s bootstrap path calls `rejectPlan`), so this
-  // is bootstrap-only by construction.
-  if (kind === 'bootstrap' && planner.status === 'blocked') {
+  // H1: both kinds reach this branch now — `acceptSubmittedReplan` routes a
+  // rejected replan through the SAME bounded repair, so a replan planner sits
+  // `blocked` at `draining` exactly as a bootstrap planner does at `planning`,
+  // and the run status each is judged in is the one its re-prompt submits
+  // back into.
+  if (planner.status === 'blocked') {
     if (proc !== null) {
       const attribution = await attributeOf(deps.facts, proc);
       if (attribution === 'attributable') return planningResult(deps, run, 0);

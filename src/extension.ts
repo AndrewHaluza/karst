@@ -195,7 +195,9 @@ import {
   shouldDriveGraphTicket,
   stoppableGraphRunFor,
   stopActiveGraph,
+  restartStoppedGraph,
 } from './approaches/graph/entryPoints.js';
+import { graphLaunchDecision } from './approaches/graph/launchGuard.js';
 import { reattachableSessionIdentity } from './approaches/graph/coordinator/reattach.js';
 import { runCompletionPipeline, type CompletionPipelineDeps } from './approaches/graph/integration/pipeline.js';
 import { artifactRootDir } from './approaches/graph/artifacts/snapshot.js';
@@ -2585,6 +2587,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // is created later in activate; the Inside Stop action reads it only after
   // activation has fully run, like `runPrSync` and `maybeDrive`.
   let stopGraphRun: ((ticketId: number, graphRunId: number) => Promise<void>) | undefined;
+  let restartGraphRun: ((ticketId: number, graphRunId: number) => Promise<void>) | undefined;
   let confirmGraphRunForTicket: ((ticketId: number, graphRunId: number) => void) | undefined;
 
   const dashboard = new DashboardManager(
@@ -2739,6 +2742,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // `runPrSync`): bound later in activate, read only once a panel is open.
       graphStop: (ticketId, graphRunId) => {
         const handler = stopGraphRun;
+        if (handler) void handler(ticketId, graphRunId);
+      },
+      // H2: the deliberate exit from a Stop-drained run — the same deferred
+      // binding shape as Stop, because it is the same coordinator seam.
+      graphRestart: (ticketId, graphRunId) => {
+        const handler = restartGraphRun;
         if (handler) void handler(ticketId, graphRunId);
       },
       graphConfirm: (ticketId, graphRunId) => confirmGraphRunForTicket?.(ticketId, graphRunId),
@@ -4402,6 +4411,26 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           provider.refresh();
           dashboard.pushState(graphRunTicketId(graphRunId));
           void runGraphCoordinatorTick(graphRunId);
+          return;
+        }
+        if (accepted.kind === 'repair-requested') {
+          // H1: the rejected replan gets its next compile attempt on the SAME
+          // planner run, re-prompted with the diagnostics — the identical
+          // repair the bootstrap path takes, on the identical host seam.
+          await launchPlannerRepairHost(graphRunId, accepted.plannerRunId, accepted.attempt);
+          return;
+        }
+        if (accepted.kind === 'rejected') {
+          // The repair is exhausted (or the submission was late): the run is
+          // parked `blocked` by the driver, which is the one status the typed
+          // Resume reaches. Write its stage block and surface it — a silent
+          // rejection here was what left run 4 draining since 2026-08-16.
+          logger.warn(
+            `[graph] run ${graphRunId}: replan rejected — ${accepted.reason}`,
+          );
+          settleGraphRun(gs.db, graphRunId);
+          provider.refresh();
+          dashboard.pushState(graphRunTicketId(graphRunId));
         }
         return;
       }
@@ -4419,6 +4448,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   };
 
+  /** The ticket's current impl stage attempt — the attempt a new graph run is
+   *  created with, and the one `karst node` measures a completion against
+   *  (`cli/node.ts`'s `wrong-attempt`). ONE reader, so the launch guard and
+   *  the launch itself can never disagree about which attempt is at stake. */
+  const implAttemptOf = (ticketId: number): number =>
+    (localStore.db
+      .prepare("SELECT MAX(attempt) AS attempt FROM stages WHERE ticket_id = ? AND stage_key = 'impl'")
+      .get(ticketId) as { attempt: number | null }).attempt ?? 0;
+
   /** Bootstrap a graph-approach ticket's first impl launch: create the run,
    *  launch the planner session, and retain terminal close as a submission
    *  fallback for older or interrupted planner prompts. */
@@ -4427,10 +4465,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (!gs) return;
     const t = getTicket(localStore, ticketId);
     if (!t.approach || t.stageCurrent !== 'impl') return;
-    const attempt =
-      (localStore.db
-        .prepare("SELECT MAX(attempt) AS attempt FROM stages WHERE ticket_id = ? AND stage_key = 'impl'")
-        .get(ticketId) as { attempt: number | null }).attempt ?? 0;
+    const attempt = implAttemptOf(ticketId);
     const result = await bootstrapAndLaunchPlanner(graphDriverDeps(), {
       ticketId,
       stageAttempt: attempt,
@@ -5058,6 +5093,42 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       dashboard.pushState(ticketId);
     } catch (err) {
       logError(`karst: graph stop failed for ticket ${ticketId}`, err);
+    }
+  };
+
+  // H2: the deliberate restart of a Stop-drained run. `draining` is the one
+  // status nothing else leaves, and a Stop enters it with no replan planner to
+  // leave it — so without this the halt was permanent. Never automatic: the
+  // user stopped these agents, so only a click starts them again.
+  restartGraphRun = async (ticketId: number, graphRunId: number): Promise<void> => {
+    const gs = graphCoordinatorStore;
+    if (!gs) return;
+    try {
+      const result = restartStoppedGraph(
+        {
+          db: gs.db,
+          transaction: <T>(fn: () => T): T => runImmediateTransaction(gs.db, fn),
+          debug: (message) => logger.debug(message),
+        },
+        { ticketId, graphRunId },
+      );
+      logger.info(`[graph] restart: run ${result.graphRunId} outcome=${result.outcome}`);
+      if (!result.restarted) {
+        void vscode.window.showWarningMessage(
+          result.outcome === 'replan-in-flight'
+            ? `Ticket #${ticketId}: the graph is compiling a new plan — it will resume on its own when that plan lands.`
+            : `Ticket #${ticketId}: the graph run could not be restarted (${result.outcome}).`,
+        );
+        return;
+      }
+      provider.refresh();
+      dashboard.pushState(ticketId);
+      // The restart's own continuation: the entry/pending tokens of the still
+      // active revision are claimed and its ready nodes launched on this tick,
+      // never only at the next 15s sweep.
+      void runGraphCoordinatorTick(graphRunId);
+    } catch (err) {
+      logError(`karst: graph restart failed for ticket ${ticketId}`, err);
     }
   };
 
@@ -5854,18 +5925,31 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         .approaches?.find((a) => a.id === t.approach)?.graph;
       if (graphApproachDef && t.stageCurrent === 'impl') {
         if (options.recovery) return; // recovery never launches a second run
-        const existing = graphCoordinatorStore?.db
-          .prepare('SELECT id, status FROM approach_graph_runs WHERE ticket_id = ? ORDER BY id DESC LIMIT 1')
-          .get(ticketId) as { id: number; status: string } | undefined;
-        if (existing) {
+        // H3: the predicate is "is a run still LIVE", not "does a row exist".
+        // A closed/cancelled/stale run is owned by nobody, and routing it to
+        // the Inside panel — which offers a control for `blocked` and a
+        // stopped drain, never for a terminal run — locked the ticket out of
+        // the graph approach permanently. `graphLaunchDecision` also names the
+        // one case a launch genuinely cannot serve: a terminal run already
+        // holding the CURRENT impl attempt (see its doc comment).
+        const decision = graphCoordinatorStore
+          ? graphLaunchDecision(graphCoordinatorStore.db, ticketId, implAttemptOf(ticketId))
+          : ({ kind: 'launch' } as const);
+        if (decision.kind === 'owned') {
           const live = graphTransport?.sessions().find((s) => s.ticketId === ticketId);
           if (live) {
             live.terminal?.show();
           } else {
             void vscode.window.showInformationMessage(
-              `Ticket #${ticketId} is owned by graph run ${existing.id} (${existing.status}) — the coordinator owns continuation; use the Inside panel.`,
+              `Ticket #${ticketId} is owned by graph run ${decision.graphRunId} (${decision.status}) — the coordinator owns continuation; use the Inside panel.`,
             );
           }
+          return;
+        }
+        if (decision.kind === 'attempt-consumed') {
+          void vscode.window.showWarningMessage(
+            `Ticket #${ticketId}: impl attempt ${decision.stageAttempt} already ran graph run ${decision.graphRunId} (${decision.status}), and an attempt hosts one run. Fail this impl stage to open the next attempt, then start the graph again.`,
+          );
           return;
         }
         await launchGraphRun(ticketId);
@@ -7469,6 +7553,7 @@ function makeInsideActionHost(
       session: { kind: 'planner' | 'node'; runId: number },
     ) => void;
     graphStop: (ticketId: number, graphRunId: number) => void | Promise<void>;
+    graphRestart: (ticketId: number, graphRunId: number) => void | Promise<void>;
     graphConfirm: (ticketId: number, graphRunId: number) => void | Promise<void>;
     graphMarkImpl: (ticketId: number, graphRunId: number) => void | Promise<void>;
     graphDiscardNode: (ticketId: number, nodeRunId: number) => void | Promise<void>;
@@ -7642,6 +7727,7 @@ function makeInsideActionHost(
     openSession: (ticketId) => revealSession(ticketId),
     graphOpenSession: (ticketId, session) => graphHost.graphOpenSession(ticketId, session),
     graphStop: (ticketId, graphRunId) => graphHost.graphStop(ticketId, graphRunId),
+    graphRestart: (ticketId, graphRunId) => graphHost.graphRestart(ticketId, graphRunId),
     graphResume: (ticketId, graphRunId) => recoverBlockedGraph(ticketId, graphRunId, 'resume'),
     graphReplan: (ticketId, graphRunId) => recoverBlockedGraph(ticketId, graphRunId, 'replan'),
     graphConfirm: (ticketId, graphRunId) => graphHost.graphConfirm(ticketId, graphRunId),

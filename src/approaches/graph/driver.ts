@@ -754,7 +754,45 @@ export type AcceptReplanResult =
   | { kind: 'accepted'; revisionId: number; revisionNumber: number }
   | { kind: 'no-op' }
   | { kind: 'undecidable'; reason: string }
+  | {
+      /** H1: the replan document was rejected and an attempt remains — the
+       *  SAME replan planner run is re-prompted with the diagnostics, exactly
+       *  as the bootstrap path does, and the run stays `draining` until the
+       *  host fulfils the re-prompt. */
+      kind: 'repair-requested';
+      plannerRunId: number;
+      attempt: number;
+      diagnostics: string[];
+    }
   | { kind: 'rejected'; reason: string };
+
+/** H1: route a rejected REPLAN document through the same bounded compile
+ *  repair the bootstrap path uses, and translate its result into the replan
+ *  vocabulary. Before this, every rejection here returned `rejected` and wrote
+ *  NOTHING: the planner run stayed `submitted`, the run stayed `draining`, and
+ *  the next tick re-read the same snapshot forever — `draining`'s only
+ *  productive exit is an accepted submission, so the ticket was stranded. */
+function rejectReplan(
+  deps: GraphDriverDeps,
+  graphRunId: number,
+  plannerRunId: number,
+  diagnostics: string[],
+): AcceptReplanResult {
+  const result = rejectPlan(deps, graphRunId, plannerRunId, diagnostics, 'draining');
+  switch (result.kind) {
+    case 'repair-requested':
+      return {
+        kind: 'repair-requested',
+        plannerRunId: result.plannerRunId,
+        attempt: result.attempt,
+        diagnostics: result.diagnostics,
+      };
+    case 'undecidable':
+      return { kind: 'undecidable', reason: result.reason };
+    default:
+      return { kind: 'rejected', reason: diagnostics[0] ?? 'invalid document' };
+  }
+}
 
 /**
  * Accept a submitted REPLAN: a `draining` run whose replan planner submitted
@@ -793,10 +831,19 @@ export function acceptSubmittedReplan(
   }
 
   const bytes = deps.readBytes(graphRunId, join('snapshots', `${planner.graph_snapshot_id}.json`));
-  if (bytes === undefined) return { kind: 'rejected', reason: 'submitted replan snapshot is unreadable' };
+  if (bytes === undefined) {
+    return rejectReplan(deps, graphRunId, planner.id, [
+      'planner-no-output: submitted replan snapshot is unreadable',
+    ]);
+  }
   const parsed = parseGraphDocument(new TextDecoder().decode(bytes));
   if (!parsed.ok) {
-    return { kind: 'rejected', reason: parsed.diagnostics[0]?.message ?? 'invalid document' };
+    return rejectReplan(
+      deps,
+      graphRunId,
+      planner.id,
+      parsed.diagnostics.map((d) => `${d.code}: ${d.where}: ${d.message}`),
+    );
   }
   const compileDocument = (document: GraphDocument): CompileResult =>
     compileGraphDocument(document, deps.compileContextOf(graphRunId, document));
@@ -814,7 +861,22 @@ export function acceptSubmittedReplan(
     },
     { plannerRunId: planner.id, document: parsed.document, rationale: 'replan accepted by recovery' },
   );
-  if (!result.ok) return { kind: 'rejected', reason: result.reason };
+  if (!result.ok) {
+    // A document the COMPILER rejected is repairable (H1); every other refusal
+    // (`not-found`, `not-draining` — a late submission a concurrent replan
+    // already superseded) is the idempotent no-op the submit path already
+    // recorded, and re-prompting a planner for it would be wrong.
+    if (result.reason !== 'invalid-document') return { kind: 'rejected', reason: result.reason };
+    const recompiled = compileDocument(parsed.document);
+    return rejectReplan(
+      deps,
+      graphRunId,
+      planner.id,
+      recompiled.ok
+        ? ['invalid-document: the replan was rejected by the compiler']
+        : recompiled.diagnostics.map((d) => `${d.code}: ${d.where}: ${d.message}`),
+    );
+  }
   deps.debug?.(
     `[graph] run ${graphRunId}: replan accepted — revision ${result.revisionId} (#${result.revisionNumber}), ${result.deferredNodeIds.length} deferred node(s)`,
   );
@@ -859,6 +921,12 @@ function recordPlannerArtifacts(
     });
   }
 }
+
+/** The two run statuses a compile repair runs in: a bootstrap plan is judged
+ *  while the run is `planning`, a replan while it is `draining`. Both hold the
+ *  run where it is between attempts, and both park it at `blocked` when the
+ *  attempts run out. */
+type RepairRunStatus = 'planning' | 'draining';
 
 /** The one place the compile diagnostics are persisted: `diagnostics/planner-
  *  <id>.json` under the run's artifact root, where the repair re-prompt and
@@ -917,10 +985,15 @@ function rejectPlan(
   graphRunId: number,
   plannerRunId: number,
   diagnostics: string[],
+  /** The run status the repair holds the run in, and the CAS source an
+   *  exhausted repair blocks from: `planning` for a bootstrap plan,
+   *  `draining` for a replan (H1 — both park at `blocked`, the one status
+   *  Resume reaches). */
+  runStatus: RepairRunStatus = 'planning',
 ): AcceptPlanResult {
   const decision = nextCompileAttempt(deps.db, plannerRunId);
   if (decision.exhausted) {
-    return blockInvalidPlan(deps, graphRunId, plannerRunId, diagnostics, decision.attempt);
+    return blockInvalidPlan(deps, graphRunId, plannerRunId, diagnostics, decision.attempt, runStatus);
   }
   const reprompted = deps.transaction(() => {
     // The CAS is attempted FIRST: a lost race (another window already moved
@@ -945,7 +1018,7 @@ function rejectPlan(
   }
   writeDiagnosticsFile(deps, graphRunId, plannerRunId, diagnostics);
   deps.debug?.(
-    `[graph] run ${graphRunId}: bootstrap plan rejected on compile attempt ${decision.attempt}/${MAX_COMPILE_ATTEMPTS} — re-prompting planner ${plannerRunId} with ${diagnostics.length} diagnostic(s)`,
+    `[graph] run ${graphRunId}: ${runStatus === 'draining' ? 'replan' : 'bootstrap'} plan rejected on compile attempt ${decision.attempt}/${MAX_COMPILE_ATTEMPTS} — re-prompting planner ${plannerRunId} with ${diagnostics.length} diagnostic(s)`,
   );
   return { kind: 'repair-requested', plannerRunId, attempt: decision.attempt, diagnostics };
 }
@@ -959,6 +1032,7 @@ function blockInvalidPlan(
   plannerRunId: number,
   diagnostics: string[],
   attempt?: number,
+  runStatus: RepairRunStatus = 'planning',
 ): AcceptPlanResult {
   const reason = `graph-plan-invalid: ${diagnostics[0] ?? 'planner produced an invalid document'}`;
   const blocked = deps.transaction(() => {
@@ -966,7 +1040,7 @@ function blockInvalidPlan(
     deps.db
       .prepare('UPDATE approach_planner_runs SET reason = ?, ended_at = ? WHERE id = ?')
       .run(reason.slice(0, 2000), deps.now(), plannerRunId);
-    if (!casStatus(deps.db, 'approach_graph_runs', GRAPH_RUN_TRANSITIONS, graphRunId, 'planning', 'blocked')) {
+    if (!casStatus(deps.db, 'approach_graph_runs', GRAPH_RUN_TRANSITIONS, graphRunId, runStatus, 'blocked')) {
       return false;
     }
     deps.db

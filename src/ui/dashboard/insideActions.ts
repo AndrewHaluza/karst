@@ -8,6 +8,7 @@ import { getUatFindingById } from '../../store/uatFindings.js';
 import { getTicket } from '../../store/tickets.js';
 import { liveImplementationRun } from '../../store/implementationRuns.js';
 import { canonicalPath, isPathUnder } from '../../runtime/pathScope.js';
+import { hasLiveReplanPlanner } from '../../store/graph/plannerRuns.js';
 import type { StageKey } from '../../model/types.js';
 import type {
   EvidenceRow,
@@ -70,6 +71,7 @@ export type InsideActionTarget =
       session: { kind: 'planner' | 'node'; runId: number };
     }
   | { kind: 'graph-stop'; ticketId: number; graphRunId: number }
+  | { kind: 'graph-restart'; ticketId: number; graphRunId: number }
   | { kind: 'graph-resume'; ticketId: number; graphRunId: number }
   | { kind: 'graph-replan'; ticketId: number; graphRunId: number }
   // Slice 7: fire the impl marker for a run that finished all its node work
@@ -197,6 +199,12 @@ export interface InsideActionHost {
   graphStop(ticketId: number, graphRunId: number): void | Promise<void>;
   /** Retry a blocked graph through its category-specific recovery path. */
   graphResume(ticketId: number, graphRunId: number): void | Promise<void>;
+  /**
+   * Restart a run a Stop drained (H2): `draining → running` on the revision
+   * that is still active. Never automatic — Stop was deliberate, so the
+   * restart is a deliberate click.
+   */
+  graphRestart(ticketId: number, graphRunId: number): void | Promise<void>;
   /** Elect a new graph revision from a blocked run's recorded evidence. */
   graphReplan(ticketId: number, graphRunId: number): void | Promise<void>;
   /** Confirm a compiled graph plan that is durably awaiting the user. */
@@ -434,6 +442,20 @@ export function dispatchInsideAction(
         return { outcome: 'rejected', reason: 'graph run is not stoppable' };
       }
       void deps.host.graphStop(target.ticketId, target.graphRunId);
+      return { outcome: 'dispatched' };
+    }
+    case 'graph-restart': {
+      // H2: legal only for the shape that has no other exit — a `draining`
+      // run with no replan planner still owing it a submission. A run
+      // draining FOR a replan is mid-replan and the coordinator owns its
+      // exit; restarting it would race the submission it is waiting for.
+      const row = store.db
+        .prepare('SELECT status FROM approach_graph_runs WHERE id = ? AND ticket_id = ?')
+        .get(target.graphRunId, target.ticketId) as { status: string } | undefined;
+      if (row?.status !== 'draining' || hasLiveReplanPlanner(store.db, target.graphRunId)) {
+        return { outcome: 'rejected', reason: 'graph is not a stopped drain' };
+      }
+      void deps.host.graphRestart(target.ticketId, target.graphRunId);
       return { outcome: 'dispatched' };
     }
     case 'graph-resume':

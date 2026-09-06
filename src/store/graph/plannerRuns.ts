@@ -79,3 +79,43 @@ export function nextPlannerRunNumber(db: GraphDb, graphRunId: number): number {
 export function transitionPlannerRun(db: GraphDb, id: number, from: string, to: string): boolean {
   return casStatus(db, 'approach_planner_runs', PLANNER_RUN_TRANSITIONS, id, from, to);
 }
+
+/**
+ * The planner-run statuses that still owe their graph run a submission — a
+ * planner in one of these is working, waiting to be launched, or waiting to be
+ * re-prompted, and something will still move it.
+ *
+ * ONE definition, because three call sites ask the same question about a
+ * `draining` run and must never disagree: the Inside projection decides
+ * whether to mint the H2 Restart control, the action dispatch re-checks it
+ * before routing the click, and `restartStoppedGraph` re-checks it again
+ * inside the coordinator. A status added to `PLANNER_RUN_TRANSITIONS` is
+ * added here once, or those three drift into disagreeing about whether a
+ * Restart is legal.
+ */
+export const LIVE_PLANNER_STATUSES = [
+  'ready',
+  'launching',
+  'running',
+  'submitted',
+  'blocked',
+] as const;
+
+/**
+ * Whether a replan planner still owes this graph run a submission. `draining`
+ * is entered for two unrelated reasons — a replan planner is compiling
+ * revision N+1, or Stop halted the run — and this is what tells them apart:
+ * true means the coordinator owns the run's exit, false means the run was
+ * stopped and only a deliberate Restart (H2) will move it.
+ */
+export function hasLiveReplanPlanner(db: GraphDb, graphRunId: number): boolean {
+  const row = db
+    .prepare(
+      `SELECT 1 AS live FROM approach_planner_runs
+       WHERE graph_run_id = ? AND kind = 'replan'
+         AND status IN (${LIVE_PLANNER_STATUSES.map(() => '?').join(',')})
+       LIMIT 1`,
+    )
+    .get(graphRunId, ...LIVE_PLANNER_STATUSES) as { live: number } | undefined;
+  return row !== undefined;
+}

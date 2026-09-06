@@ -764,6 +764,9 @@ describe('recoveryCategoryFor — the total function over the closed category se
       ['integration-conflict: git add refused in web', 'explicit-resolution'],
       ['graph-topology-deadlock', 'explicit-resolution'],
       ['graph-plan-invalid: planner produced an invalid document', 'replan'],
+      // H4: a wait that never ends is a claim the PLAN cannot satisfy — the
+      // new revision is the answer, never a retry of the same claim.
+      ['graph-deferral-timeout: node a waited 41m — resource-conflict: dom-api', 'replan'],
       ['planner-artifact-missing: graph snapshot gone', 'replan'],
       ['instructions-missing: cannot read the graph planner prompt', 'replan'],
       ['planner-stale: bootstrap planner 7 process (pid 42) is gone', 'planner-relaunch'],

@@ -47,6 +47,26 @@ import { emitGraphDiagnostic, type GraphDiagnosticCategory, type GraphDiagnostic
 /** The per-tick bound: ≤ 100 state transitions (design, "Coordinator sweep"). */
 export const MAX_SWEEP_TRANSITIONS = 100;
 
+/**
+ * H4 — the deferral ceiling. Bounded aging (`agingPriority`) is the right
+ * policy between COMPETING nodes: the longer a node waits, the earlier it is
+ * offered. It has no answer for a refusal that can never clear — a
+ * `resource-conflict` against a lease held by a node that is itself parked, a
+ * `parallel-slot-busy` against a slot nothing will release. Such a node was
+ * simply re-deferred on every tick, forever, while the run stayed `running`
+ * and looked healthy: no block, no diagnostic after the first, and nothing in
+ * the panel saying the node had waited an hour.
+ *
+ * 30 minutes: far longer than any legitimate serialization behind a real node
+ * (an agent node that runs that long is still making progress and its lease
+ * releases when it finishes), and short enough that an unattended graph does
+ * not sit dead for a working day. On expiry the run parks `blocked` with the
+ * refusal that would not clear, which is recoverable — the reason maps to the
+ * `replan` recovery category, and a plan whose resource claims cannot be
+ * satisfied is exactly what a new revision is for.
+ */
+export const MAX_DEFERRAL_WAIT_MS = 30 * 60_000;
+
 export interface SweepDeps {
   db: GraphDb;
   /** BEGIN IMMEDIATE-wrapped, all-or-nothing; a throw rolls back. */
@@ -311,19 +331,27 @@ export function runCoordinatorTick(
     ]),
   );
 
-  const defer = (nodeId: string, refusal: SchedulerRefusal): void => {
+  // H4: set once a deferral timed out and parked the run. The tick stops
+  // scheduling from wherever it noticed — including the inner token loop,
+  // whose `break` only leaves that group.
+  let blockedByDeferral = false;
+
+  /** Record the deferral, and answer whether this node's wait has run out
+   *  (H4) — the caller then stops scheduling, because the run is blocked. */
+  const defer = (nodeId: string, refusal: SchedulerRefusal): boolean => {
     const reason =
       refusal.reason === 'resource-conflict'
         ? `resource-conflict: ${refusal.detail}`
         : refusal.reason === 'parallel-slot-busy'
           ? `parallel-slot-busy: ${refusal.detail}`
           : `dependency-waiting: ${refusal.detail}`;
+    const now = deps.now();
     const recorded = recordDeferral(db, {
       graphRunId: opts.graphRunId,
       revisionId: revision.id,
       nodeId,
       reason,
-      now: deps.now(),
+      now,
     });
     if (recorded.fresh) {
       graphDiag('defer', {
@@ -331,10 +359,63 @@ export function runCoordinatorTick(
         detail: `node ${nodeId} deferred (${refusal.reason}) — waiting since ${recorded.waitSince}`,
       });
     }
+    // A dependency-waiting join is waiting on its OWN graph's arrivals, not on
+    // a resource — its wait ends when its branches do, and timing it out would
+    // block a run that is progressing normally.
+    if (refusal.reason === 'dependency-waiting') return false;
+    const waited = Date.parse(now) - Date.parse(recorded.waitSince);
+    if (!Number.isFinite(waited) || waited < MAX_DEFERRAL_WAIT_MS) return false;
+    return blockOnDeferralTimeout(nodeId, reason, waited);
+  };
+
+  /** Park the run on a wait that will not end. Mirrors `handleBudgetRefusal`'s
+   *  block: CAS from `running` only, reason recorded, diagnostic emitted. A
+   *  raced run (already moved) is a no-op, and the tick still stops. */
+  const blockOnDeferralTimeout = (nodeId: string, reason: string, waitedMs: number): boolean => {
+    const minutes = Math.floor(waitedMs / 60_000);
+    const blockedReason = `graph-deferral-timeout: node ${nodeId} waited ${minutes}m — ${reason}`;
+    const blocked = deps.transaction(() => {
+      if (
+        !casStatus(db, 'approach_graph_runs', GRAPH_RUN_TRANSITIONS, opts.graphRunId, 'running', 'blocked')
+      ) {
+        return false;
+      }
+      db.prepare('UPDATE approach_graph_runs SET blocked_reason = ?, updated_at = ? WHERE id = ?').run(
+        blockedReason.slice(0, 2000),
+        deps.now(),
+        opts.graphRunId,
+      );
+      return true;
+    });
+    if (blocked) {
+      graphDiag('block', {
+        revisionId: revision.id,
+        detail: blockedReason,
+      });
+      deps.debug?.(`[graph] run ${opts.graphRunId}: ${blockedReason}`);
+      blockedByDeferral = true;
+      return true;
+    }
+    // The CAS lost: another window moved the run while this tick worked. That
+    // is only a reason to stop if the run actually left `running` — a run this
+    // tick is still allowed to schedule for must not lose its remaining
+    // transitions to a block nobody performed.
+    const after = db
+      .prepare('SELECT status FROM approach_graph_runs WHERE id = ?')
+      .get(opts.graphRunId) as { status: string } | undefined;
+    if (after?.status === 'running') {
+      deps.debug?.(
+        `[graph] run ${opts.graphRunId}: deferral timeout for node ${nodeId} lost its CAS but the run is still running — scheduling continues`,
+      );
+      return false;
+    }
+    blockedByDeferral = true;
+    return true;
   };
 
   for (const scheduler of ordered) {
     if (result.transitions >= maxTransitions) break;
+    if (blockedByDeferral) break; // the run is no longer running
     const entry = entryByGroupKey.get(
       joinCorrelationKey(scheduler.destination, scheduler.forkLineage, scheduler.forkInstance),
     );
@@ -355,7 +436,7 @@ export function runCoordinatorTick(
           clearDeferral(db, revision.id, group.destination);
           continue;
         }
-        defer(group.destination, decision.refused!);
+        if (defer(group.destination, decision.refused!)) break;
         continue;
       }
       const outgoing = joinOutgoing.get(node.id);
@@ -411,10 +492,7 @@ export function runCoordinatorTick(
         }
       } catch (err) {
         if (err instanceof GraphClaimError) {
-          defer(group.destination, {
-            reason: 'resource-conflict',
-            detail: err.message,
-          });
+          if (defer(group.destination, { reason: 'resource-conflict', detail: err.message })) break;
         } else {
           throw err;
         }
@@ -423,7 +501,7 @@ export function runCoordinatorTick(
     }
 
     if (!decision.admitted) {
-      defer(group.destination, decision.refused!);
+      if (defer(group.destination, decision.refused!)) break;
       continue;
     }
     for (const token of group.tokens) {

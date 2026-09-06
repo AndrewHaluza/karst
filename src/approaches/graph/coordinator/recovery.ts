@@ -207,6 +207,10 @@ export function recoveryCategoryFor(reason: string | null): RecoveryCategory {
   if (reason.startsWith('node-blocked')) return 'launch-retry';
   if (reason.startsWith('failed-to-launch')) return 'launch-retry';
   if (reason.startsWith('graph-plan-invalid')) return 'replan';
+  // H4: a deferral that outlived the ceiling — the node's resource claim (or
+  // the parallel slot it needs) was never going to free up under this plan, so
+  // the recoverable answer is a new revision, not a retry of the same claim.
+  if (reason.startsWith('graph-deferral-timeout')) return 'replan';
   if (reason.startsWith('planner-artifact-missing')) return 'replan';
   // A bootstrap planner that died before ever submitting (its process gone, no
   // revision ever produced) re-opens to `planning` and relaunches a fresh
