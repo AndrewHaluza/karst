@@ -4695,7 +4695,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // The skill calls the legal-values block authoritative, so a replanner
       // must get it too — this is the path where a plan is rewritten after a
       // failure, exactly where guessing an id costs another cycle.
-      plannerVocabularyFor(() => graphCompileContext(launch.graphRunId), (m) => logger.debug(m)),
+      plannerVocabularyFor(
+        () => graphCompileContext(launch.graphRunId),
+        graphArtifactRoot(launch.graphRunId),
+        (m) => logger.debug(m),
+      ),
       `Replan the graph (superseding revision ${launch.priorRevisionNumber}). The replan reasons and prior plan evidence are under the artifact root: ${launch.reasonsSnapshotPath}.`,
       ...(diagnostics ? [diagnostics] : []),
       PLANNER_SUBMIT_INSTRUCTION,
@@ -4749,7 +4753,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const prompt = [
       base === undefined ? '# Graph Planner' : new TextDecoder().decode(base),
       launch.ticketContext,
-      plannerVocabularyFor(() => graphCompileContext(launch.graphRunId), (m) => logger.debug(m)),
+      plannerVocabularyFor(
+        () => graphCompileContext(launch.graphRunId),
+        graphArtifactRoot(launch.graphRunId),
+        (m) => logger.debug(m),
+      ),
       PLANNER_SUBMIT_INSTRUCTION,
     ]
       .filter((part) => part !== '')

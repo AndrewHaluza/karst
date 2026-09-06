@@ -98,7 +98,7 @@ export const PLANNER_SUBMIT_INSTRUCTION =
  * canonical form a document must carry, so a plan written in good faith
  * compiles.
  */
-export function plannerVocabulary(context: CompileContext): string {
+export function plannerVocabulary(context: CompileContext, artifactRoot = ''): string {
   const list = (values: Iterable<string>): string[] => [...values].sort();
   const fmt = (values: string[]): string => values.map((v) => `\`${v}\``).join(', ');
   const repositories = list(context.repositories.keys());
@@ -116,6 +116,15 @@ export function plannerVocabulary(context: CompileContext): string {
     `- commands: ${
       commands.length ? fmt(commands) : 'none — this run cannot use `command` nodes'
     }`,
+    ...(artifactRoot
+      ? [
+          `- artifact root: \`${artifactRoot}\` — every \`artifacts[].path\` resolves`,
+          '  under it, so write the files there, not into a repository worktree. The',
+          '  root directory is itself named `artifacts`: do not prefix declared paths',
+          '  with `artifacts/`, or they resolve one level too deep and compile to',
+          '  `planner-artifact-missing`.',
+        ]
+      : []),
   ].join('\n');
 }
 
@@ -130,10 +139,11 @@ export function plannerVocabulary(context: CompileContext): string {
  */
 export function plannerVocabularyFor(
   contextOf: () => CompileContext,
+  artifactRoot = '',
   onDebug?: (message: string) => void,
 ): string {
   try {
-    return plannerVocabulary(contextOf());
+    return plannerVocabulary(contextOf(), artifactRoot);
   } catch (err) {
     onDebug?.(`[driver] planner vocabulary unavailable: ${String(err)}`);
     return '';
@@ -406,7 +416,7 @@ export async function bootstrapAndLaunchPlanner(
   const prompt = [
     new TextDecoder().decode(promptBytes),
     deps.ticketContextOf(input.ticketId),
-    plannerVocabularyFor(() => deps.compileContextOf(graphRunId), deps.debug),
+    plannerVocabularyFor(() => deps.compileContextOf(graphRunId), artifactRoot, deps.debug),
     PLANNER_SUBMIT_INSTRUCTION,
   ]
     .filter((part) => part !== '')
@@ -551,7 +561,7 @@ export async function relaunchBootstrapPlanner(
   const prompt = [
     new TextDecoder().decode(promptBytes),
     deps.ticketContextOf(run.ticket_id),
-    plannerVocabularyFor(() => deps.compileContextOf(input.graphRunId), deps.debug),
+    plannerVocabularyFor(() => deps.compileContextOf(input.graphRunId), artifactRoot, deps.debug),
     ...(rejection ? [rejection] : []),
     PLANNER_SUBMIT_INSTRUCTION,
   ]
