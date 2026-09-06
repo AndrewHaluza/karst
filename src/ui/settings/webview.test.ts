@@ -115,9 +115,9 @@ describe('settings model picker', () => {
       // tab — this sandbox is on General, so the post must not fire.
       currentSection: 'general',
       saveCandidate: () => ({}),
-      post: () => {},
-      renderGeneral: () => {},
-      renderApproaches: () => {},
+      post: () => { },
+      renderGeneral: () => { },
+      renderApproaches: () => { },
       vscode: {
         getState: () => currentState,
         setState: (value: unknown) => { persisted = value; },
@@ -298,7 +298,7 @@ describe('settings section navigation', () => {
       document: {
         querySelectorAll: (sel: string) => (sel === '.section' ? nodes : []),
       },
-      console: { error: () => {} },
+      console: { error: () => { } },
     }) as (target: unknown) => unknown;
   }
 
@@ -906,7 +906,7 @@ describe('settings graph configuration surface (Slice-1 T6)', () => {
       {
         portRange: [4000, 4999],
         approaches: [
-          { id: 'karst-graph-engineering', label: 'Dynamic Graphs', graph: { ...packagedGraph, limits } },
+          { id: 'karst-graph-engineering', label: 'Dynamic Graph', graph: { ...packagedGraph, limits } },
         ],
         agents: {},
         worktreePathDisplay: 'relative',
@@ -1073,7 +1073,7 @@ function gateHarness(init: {
       textContent: '',
       title: '',
       disabled: false,
-      focus: () => {},
+      focus: () => { },
       addEventListener: (type: string, fn: () => void) => {
         if (!handlers.has(id)) handlers.set(id, new Map());
         handlers.get(id)!.set(type, fn);
@@ -1122,10 +1122,10 @@ function gateHarness(init: {
     openCards: new Set<string>(),
     el,
     post: (m: Record<string, unknown>) => posted.push(m),
-    renderAll: () => {},
+    renderAll: () => { },
     console,
     setTimeout: () => 1,
-    clearTimeout: () => {},
+    clearTimeout: () => { },
     document: {
       querySelectorAll: (sel: string) =>
         (sel === '.nav-btn' ? navButtons : sel === '.section' ? sections : []),
@@ -1701,7 +1701,7 @@ describe('settings quality tab (UAT + review scalars)', () => {
     return { id, value: '' as unknown, checked: false, innerHTML: '' };
   }
 
-function runRenderQuality(draft: Record<string, unknown>): Record<string, { value: unknown; checked: unknown }> {
+  function runRenderQuality(draft: Record<string, unknown>): Record<string, { value: unknown; checked: unknown }> {
     const elements = new Map<string, ReturnType<typeof fakeEl>>();
     const el = (id: string) => {
       if (!elements.has(id)) elements.set(id, fakeEl(id));
@@ -2036,7 +2036,7 @@ describe('settings quality tab — per-repository gate overrides', () => {
   }
 
   function overrideSandbox(draft: Record<string, unknown>): Record<string, unknown> {
-    const sandbox: Record<string, unknown> = { draft, markDirty: () => {}, renderQuality: () => {} };
+    const sandbox: Record<string, unknown> = { draft, markDirty: () => { }, renderQuality: () => { } };
     const source = `
       function clone(v) { return JSON.parse(JSON.stringify(v)); }
       ${functionSource('updateUat')}
@@ -2131,10 +2131,14 @@ describe('settings quality tab — per-repository gate overrides', () => {
       repositories: { api: {} },
       review: {
         gates: [],
-        repositories: { api: { gates: [
-          { name: 'lint', kind: 'script', script: 'lint' },
-          { name: 'govet', kind: 'script', script: 'govet' },
-        ] } },
+        repositories: {
+          api: {
+            gates: [
+              { name: 'lint', kind: 'script', script: 'lint' },
+              { name: 'govet', kind: 'script', script: 'govet' },
+            ]
+          }
+        },
       },
     };
     const sandbox = overrideSandbox(draft);
@@ -2188,7 +2192,7 @@ describe('settings quality tab — per-repository gate overrides', () => {
           repositories: { api: { gates: [{ name: 'lint', kind: 'script', script: 'lint' }] } },
         },
       },
-      markDirty: () => {},
+      markDirty: () => { },
     };
     const source = `
       ${functionSource('updateUat')}
@@ -2299,7 +2303,7 @@ describe('settings quality tab — draft updaters preserve inert manifest keys',
   ): Manifest {
     const sandbox: Record<string, unknown> = {
       draft: JSON.parse(JSON.stringify(onDisk)),
-      markDirty: () => {},
+      markDirty: () => { },
     };
     const calls: string[] = [];
     if (edits.uatMaxFixAttempts !== undefined) {
@@ -2368,7 +2372,7 @@ describe('settings quality tab — draft updaters preserve inert manifest keys',
   it('updateFindings deep-merges over REVIEW_DEFAULTS.findings, never dropping a sibling key', () => {
     const sandbox: Record<string, unknown> = {
       draft: { review: { findings: { enabled: false, blockingSeverity: 'critical', maxFindings: 5 } } },
-      markDirty: () => {},
+      markDirty: () => { },
     };
     const source = `
       const REVIEW_DEFAULTS = {
@@ -2448,8 +2452,8 @@ describe('settings agents tab — process assignments', () => {
   it('writes and clears the instructions field through updateProcessAssignment', () => {
     const sandbox: Record<string, unknown> = {
       draft: { processes: { uatTester: { provider: 'codex' } } },
-      markDirty: () => {},
-      renderProcessAssignments: () => {},
+      markDirty: () => { },
+      renderProcessAssignments: () => { },
     };
     const source = `
       ${functionSource('updateProcessAssignment')}
@@ -2463,8 +2467,8 @@ describe('settings agents tab — process assignments', () => {
 
     const cleared: Record<string, unknown> = {
       draft: { processes: { uatTester: { provider: 'codex', instructions: 'Focus on API.' } } },
-      markDirty: () => {},
-      renderProcessAssignments: () => {},
+      markDirty: () => { },
+      renderProcessAssignments: () => { },
     };
     const clearSource = `
       ${functionSource('updateProcessAssignment')}
@@ -2797,7 +2801,7 @@ describe('settings agents tab — process assignments', () => {
       saveCandidate: (s: string) => ({ s }),
       post: (m: unknown) => { posted.push(m); },
       setTimeout: (fn: () => void) => { fn(); return 1; },
-      clearTimeout: () => {},
+      clearTimeout: () => { },
     };
     const source = `${functionSource('scheduleValidate')} scheduleValidate();`;
     runInNewContext(source, sandbox);
@@ -2817,7 +2821,7 @@ describe('settings agents tab — process assignments', () => {
       saveCandidate: (s: string) => ({ s }),
       post: (m: unknown) => { posted.push(m); },
       setTimeout: (fn: () => void) => { fn(); return 1; },
-      clearTimeout: () => {},
+      clearTimeout: () => { },
     });
     expect(posted.filter((m) => (m as { type?: string }).type === 'validate-process-assignments')).toEqual([]);
   });
@@ -2853,8 +2857,8 @@ describe('settings agents tab — process assignments', () => {
     };
     const sandbox: Record<string, unknown> = {
       draft: JSON.parse(JSON.stringify(onDisk)),
-      markDirty: () => {},
-      renderProcessAssignments: () => {},
+      markDirty: () => { },
+      renderProcessAssignments: () => { },
     };
     const source = `
       ${functionSource('updateProcessAssignment')}
@@ -2874,8 +2878,8 @@ describe('settings agents tab — process assignments', () => {
   it('clearing every field of a row removes the entry rather than saving an empty mapping', () => {
     const sandbox: Record<string, unknown> = {
       draft: { processes: { review: { agentName: 'X', provider: 'codex' } } },
-      markDirty: () => {},
-      renderProcessAssignments: () => {},
+      markDirty: () => { },
+      renderProcessAssignments: () => { },
     };
     const source = `
       ${functionSource('updateProcessAssignment')}

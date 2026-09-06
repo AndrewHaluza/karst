@@ -43,7 +43,7 @@ const PACKAGED_GRAPH: GraphApproachConfig = {
 export const BUILT_IN_APPROACHES: readonly ApproachDef[] = [
   {
     id: BUILT_IN_PACKAGE_ID,
-    label: 'Dynamic Graphs',
+    label: 'Dynamic Graph',
     recommended: false,
     enabled: true,
     graph: PACKAGED_GRAPH,

@@ -809,7 +809,7 @@ describe('approaches', () => {
   it('parses approaches with a recommended flag', () => {
     const yaml = withApproaches(
       '  - { id: rpi, label: "Research → Plan → Implement", recommended: true }\n' +
-        '  - { id: tdd, label: "TDD" }\n',
+      '  - { id: tdd, label: "TDD" }\n',
     );
     const { path, cleanup } = fixture(yaml);
     try {
@@ -852,7 +852,7 @@ describe('approaches', () => {
   it('throws when more than one approach is recommended', () => {
     const yaml = withApproaches(
       '  - { id: a, label: A, recommended: true }\n' +
-        '  - { id: b, label: B, recommended: true }\n',
+      '  - { id: b, label: B, recommended: true }\n',
     );
     const { path, cleanup } = fixture(yaml);
     try {
@@ -896,12 +896,12 @@ describe('approaches', () => {
   it('parses a valid git source', () => {
     const yaml = withApproaches(
       '  - id: rpi\n' +
-        '    label: RPI\n' +
-        '    source:\n' +
-        '      type: git\n' +
-        '      repo: "https://github.com/example/approach.git"\n' +
-        '      ref: main\n' +
-        '      include: ["prompts/", "approach.yml"]\n',
+      '    label: RPI\n' +
+      '    source:\n' +
+      '      type: git\n' +
+      '      repo: "https://github.com/example/approach.git"\n' +
+      '      ref: main\n' +
+      '      include: ["prompts/", "approach.yml"]\n',
     );
     const { path, cleanup } = fixture(yaml);
     try {
@@ -920,12 +920,12 @@ describe('approaches', () => {
   it('parses a valid npm source', () => {
     const yaml = withApproaches(
       '  - id: rpi\n' +
-        '    label: RPI\n' +
-        '    source:\n' +
-        '      type: npm\n' +
-        '      package: "@example/approach"\n' +
-        '      command: "npm install @example/approach"\n' +
-        '      collect: ["dist/prompts/"]\n',
+      '    label: RPI\n' +
+      '    source:\n' +
+      '      type: npm\n' +
+      '      package: "@example/approach"\n' +
+      '      command: "npm install @example/approach"\n' +
+      '      collect: ["dist/prompts/"]\n',
     );
     const { path, cleanup } = fixture(yaml);
     try {
@@ -944,10 +944,10 @@ describe('approaches', () => {
   it('throws on an unknown source type', () => {
     const yaml = withApproaches(
       '  - id: rpi\n' +
-        '    label: RPI\n' +
-        '    source:\n' +
-        '      type: svn\n' +
-        '      repo: whatever\n',
+      '    label: RPI\n' +
+      '    source:\n' +
+      '      type: svn\n' +
+      '      repo: whatever\n',
     );
     const { path, cleanup } = fixture(yaml);
     try {
@@ -960,11 +960,11 @@ describe('approaches', () => {
   it('throws when a git source is missing include', () => {
     const yaml = withApproaches(
       '  - id: rpi\n' +
-        '    label: RPI\n' +
-        '    source:\n' +
-        '      type: git\n' +
-        '      repo: "https://github.com/example/approach.git"\n' +
-        '      ref: main\n',
+      '    label: RPI\n' +
+      '    source:\n' +
+      '      type: git\n' +
+      '      repo: "https://github.com/example/approach.git"\n' +
+      '      ref: main\n',
     );
     const { path, cleanup } = fixture(yaml);
     try {
@@ -977,10 +977,10 @@ describe('approaches', () => {
   it('parses a workflow phase list', () => {
     const yaml = withApproaches(
       '  - id: rpi\n' +
-        '    label: RPI\n' +
-        '    workflow:\n' +
-        '      - { name: research, command: "/rpi:research" }\n' +
-        '      - { name: implement, description: "code it up" }\n',
+      '    label: RPI\n' +
+      '    workflow:\n' +
+      '      - { name: research, command: "/rpi:research" }\n' +
+      '      - { name: implement, description: "code it up" }\n',
     );
     const { path, cleanup } = fixture(yaml);
     try {
@@ -1007,9 +1007,9 @@ describe('approaches', () => {
   it('throws when a workflow phase is missing name', () => {
     const yaml = withApproaches(
       '  - id: rpi\n' +
-        '    label: RPI\n' +
-        '    workflow:\n' +
-        '      - { command: "/rpi:research" }\n',
+      '    label: RPI\n' +
+      '    workflow:\n' +
+      '      - { command: "/rpi:research" }\n',
     );
     const { path, cleanup } = fixture(yaml);
     try {
@@ -1042,20 +1042,20 @@ describe('approaches', () => {
   it('parses a nested graph: block with defaults applied', () => {
     const yaml = withApproaches(
       '  - id: karst-graph-engineering\n' +
-        '    label: Dynamic Graphs\n' +
-        '    enabled: false\n' +
-        '    graph:\n' +
-        '      planner: { profile: expert, prompt: { artifact: skills/graph-planner/SKILL.md } }\n' +
-        '      profiles:\n' +
-        '        expert: { provider: claude, model: claude-opus-5, effort: high }\n' +
-        '        worker: { provider: claude, model: claude-sonnet-5, effort: low }\n' +
-        '      commands:\n' +
-        '        test: { command: npm, args: [test], cwd: repository, access: write, timeoutSeconds: 1800 }\n' +
-        '      limits:\n' +
-        '        maxParallel: 1\n' +
-        '        maxNodeRuns: 40\n' +
-        '        maxExpertRuns: 5\n' +
-        '        maxReplans: 2\n',
+      '    label: Dynamic Graph\n' +
+      '    enabled: false\n' +
+      '    graph:\n' +
+      '      planner: { profile: expert, prompt: { artifact: skills/graph-planner/SKILL.md } }\n' +
+      '      profiles:\n' +
+      '        expert: { provider: claude, model: claude-opus-5, effort: high }\n' +
+      '        worker: { provider: claude, model: claude-sonnet-5, effort: low }\n' +
+      '      commands:\n' +
+      '        test: { command: npm, args: [test], cwd: repository, access: write, timeoutSeconds: 1800 }\n' +
+      '      limits:\n' +
+      '        maxParallel: 1\n' +
+      '        maxNodeRuns: 40\n' +
+      '        maxExpertRuns: 5\n' +
+      '        maxReplans: 2\n',
     );
     const { path, cleanup } = fixture(yaml);
     try {
@@ -1098,9 +1098,9 @@ describe('approaches', () => {
   it('a graph: block on a non-built-in approach id validates and is inert', () => {
     const yaml = withApproaches(
       '  - id: my-custom-graph\n' +
-        '    label: Custom Graph\n' +
-        '    graph:\n' +
-        '      limits: { maxParallel: 2 }\n',
+      '    label: Custom Graph\n' +
+      '    graph:\n' +
+      '      limits: { maxParallel: 2 }\n',
     );
     const { path, cleanup } = fixture(yaml);
     try {
@@ -1114,10 +1114,10 @@ describe('approaches', () => {
   it('refuses a file carrying both the flat shape and the nested graph: block', () => {
     const yaml = withApproaches(
       '  - id: karst-graph-engineering\n' +
-        '    label: Dynamic Graphs\n' +
-        '    planner: { profile: expert }\n' +
-        '    graph:\n' +
-        '      limits: { maxParallel: 1 }\n',
+      '    label: Dynamic Graph\n' +
+      '    planner: { profile: expert }\n' +
+      '    graph:\n' +
+      '      limits: { maxParallel: 1 }\n',
     );
     const { path, cleanup } = fixture(yaml);
     try {
@@ -1130,9 +1130,9 @@ describe('approaches', () => {
   it('rejects an out-of-range graph limit at load, naming the field', () => {
     const yaml = withApproaches(
       '  - id: karst-graph-engineering\n' +
-        '    label: Dynamic Graphs\n' +
-        '    graph:\n' +
-        '      limits: { maxParallel: 9 }\n',
+      '    label: Dynamic Graph\n' +
+      '    graph:\n' +
+      '      limits: { maxParallel: 9 }\n',
     );
     const { path, cleanup } = fixture(yaml);
     try {
@@ -2225,11 +2225,11 @@ describe('placeholder transforms in manifest templates', () => {
   it('accepts a valid transform in every template field', () => {
     const { path, cleanup } = fixture(
       `${VALID}\nticketLabelTemplate: "{key|slice:-4} — {title|truncate:40}"\n` +
-        `terminalNameTemplate: "Karst: {key|slice:-4}"\n` +
-        `conventions:\n  branchName: "karst/{type}/{key|slice:-4}"\n` +
-        `  commitMessage: "{type}({scope}): {title} [{key|slice:-4}]"\n` +
-        `  pullRequestTitle: "{title|truncate:60}"\n` +
-        `  pullRequestDescription: "{description|default:No summary.}"\n`,
+      `terminalNameTemplate: "Karst: {key|slice:-4}"\n` +
+      `conventions:\n  branchName: "karst/{type}/{key|slice:-4}"\n` +
+      `  commitMessage: "{type}({scope}): {title} [{key|slice:-4}]"\n` +
+      `  pullRequestTitle: "{title|truncate:60}"\n` +
+      `  pullRequestDescription: "{description|default:No summary.}"\n`,
     );
     try {
       const manifest = loadManifest(path);
