@@ -1752,6 +1752,9 @@ describe('dashboard webview.html', () => {
     expect(wide).toMatch(/#inside \.op summary,#inside \.op-static\{grid-template-columns:20px minmax\(68px,86px\)/);
     expect(wide).toMatch(/#inside \.finding-title,#inside \.ev-detail,#inside \.done-copy,#inside \.op-detail\{/);
     expect(wide).toMatch(/#inside \.gate-row\{grid-template-columns:58px 70px minmax\(0,1fr\)\}/);
+    // Evidence rows keep three columns (label, detail, status) at 430px so the
+    // status glyph stays on its own line instead of collapsing into the detail.
+    expect(wide).toMatch(/#inside \.evidence-row\{grid-template-columns:minmax\(60px,80px\) minmax\(0,1fr\) auto\}/);
     // The timeline keeps node/edge alignment (§10): its spine and time column
     // re-lock onto one line where the generic evidence detail now wraps.
     expect(wide).toMatch(
