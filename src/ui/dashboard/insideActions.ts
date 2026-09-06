@@ -8,6 +8,7 @@ import { getUatFindingById } from '../../store/uatFindings.js';
 import { getTicket } from '../../store/tickets.js';
 import { liveImplementationRun } from '../../store/implementationRuns.js';
 import { canonicalPath, isPathUnder } from '../../runtime/pathScope.js';
+import { hasLiveReplanPlanner } from '../../store/graph/plannerRuns.js';
 import type { StageKey } from '../../model/types.js';
 import type {
   EvidenceRow,
@@ -451,15 +452,7 @@ export function dispatchInsideAction(
       const row = store.db
         .prepare('SELECT status FROM approach_graph_runs WHERE id = ? AND ticket_id = ?')
         .get(target.graphRunId, target.ticketId) as { status: string } | undefined;
-      const liveReplan = store.db
-        .prepare(
-          `SELECT 1 AS live FROM approach_planner_runs
-           WHERE graph_run_id = ? AND kind = 'replan'
-             AND status IN ('ready','launching','running','submitted','blocked')
-           LIMIT 1`,
-        )
-        .get(target.graphRunId) as { live: number } | undefined;
-      if (row?.status !== 'draining' || liveReplan !== undefined) {
+      if (row?.status !== 'draining' || hasLiveReplanPlanner(store.db, target.graphRunId)) {
         return { outcome: 'rejected', reason: 'graph is not a stopped drain' };
       }
       void deps.host.graphRestart(target.ticketId, target.graphRunId);

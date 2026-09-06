@@ -387,14 +387,29 @@ export function runCoordinatorTick(
       );
       return true;
     });
-    blockedByDeferral = true;
     if (blocked) {
       graphDiag('block', {
         revisionId: revision.id,
         detail: blockedReason,
       });
       deps.debug?.(`[graph] run ${opts.graphRunId}: ${blockedReason}`);
+      blockedByDeferral = true;
+      return true;
     }
+    // The CAS lost: another window moved the run while this tick worked. That
+    // is only a reason to stop if the run actually left `running` — a run this
+    // tick is still allowed to schedule for must not lose its remaining
+    // transitions to a block nobody performed.
+    const after = db
+      .prepare('SELECT status FROM approach_graph_runs WHERE id = ?')
+      .get(opts.graphRunId) as { status: string } | undefined;
+    if (after?.status === 'running') {
+      deps.debug?.(
+        `[graph] run ${opts.graphRunId}: deferral timeout for node ${nodeId} lost its CAS but the run is still running — scheduling continues`,
+      );
+      return false;
+    }
+    blockedByDeferral = true;
     return true;
   };
 

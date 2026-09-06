@@ -33,6 +33,7 @@ import { GRAPH_RUN_TRANSITIONS, casStatus } from '../../store/graph/transitions.
 import type { AgentTransport, SupervisedAgentSession } from './transport/supervisedCliTransport.js';
 import type { ProcessFactsSource } from '../../runtime/serverIdentity.js';
 import { graphRunHasLiveNodeProcess } from './coordinator/liveness.js';
+import { hasLiveReplanPlanner } from '../../store/graph/plannerRuns.js';
 
 /** Graph run statuses in which the coordinator owns the ticket's surface. */
 export const ACTIVE_GRAPH_STATUSES: ReadonlySet<string> = new Set([
@@ -238,15 +239,7 @@ export function restartStoppedGraph(
   if (run?.status !== 'draining') {
     return { graphRunId: input.graphRunId, restarted: false, outcome: 'not-draining' };
   }
-  const liveReplan = deps.db
-    .prepare(
-      `SELECT 1 AS live FROM approach_planner_runs
-       WHERE graph_run_id = ? AND kind = 'replan'
-         AND status IN ('ready','launching','running','submitted','blocked')
-       LIMIT 1`,
-    )
-    .get(input.graphRunId) as { live: number } | undefined;
-  if (liveReplan !== undefined) {
+  if (hasLiveReplanPlanner(deps.db, input.graphRunId)) {
     deps.debug?.(
       `[graph] restart: run ${input.graphRunId} is draining for a replan planner — refused`,
     );

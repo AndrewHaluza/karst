@@ -42,6 +42,7 @@ import type {
 } from './types.js';
 import { bounded } from './bounds.js';
 import { NODE_OVERRIDE_EDITABLE_STATUSES } from '../../store/graph/nodeRuns.js';
+import { LIVE_PLANNER_STATUSES } from '../../store/graph/plannerRuns.js';
 
 /** Cap for graph-derived text after sanitization. */
 export const GRAPH_TEXT_MAX = 200;
@@ -385,17 +386,6 @@ function nodeRunStatus(status: string): InsideStatus {
  * process the user needs to terminate; Stop leaves that blocked state intact,
  * never reading as a reset or stage transition.
  */
-/** The replan-planner statuses that still owe the drain a submission. While
- *  one of these exists the coordinator itself will leave `draining` — the run
- *  is mid-replan, not stranded. */
-const LIVE_PLANNER_STATUSES: readonly string[] = [
-  'ready',
-  'launching',
-  'running',
-  'submitted',
-  'blocked',
-] as const;
-
 /**
  * H2: a run Stop drained, as opposed to one draining for a replan. `draining`
  * has exactly one productive exit — an accepted replan submission — so a run
@@ -406,8 +396,12 @@ const LIVE_PLANNER_STATUSES: readonly string[] = [
  */
 function isStopDrained(input: GraphInsideInput): boolean {
   if (input.graphRun?.status !== 'draining') return false;
+  // The same closed status set `hasLiveReplanPlanner` reads in SQL — this
+  // projection answers it from the rows it was handed, never a second list.
   return !input.plannerRuns.some(
-    (planner) => planner.kind === 'replan' && LIVE_PLANNER_STATUSES.includes(planner.status),
+    (planner) =>
+      planner.kind === 'replan' &&
+      (LIVE_PLANNER_STATUSES as readonly string[]).includes(planner.status),
   );
 }
 
