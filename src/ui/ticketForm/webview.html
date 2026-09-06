@@ -1124,6 +1124,16 @@
   // locally in create mode (the host no-ops set-provider there — no state push
   // follows). The adapter is baked into the terminal at spawn, same as the model.
   let lastDefaultProvider = 'claude';
+  // Last identity the HOST pushed for this ticket (state.selectedAgentProvider /
+  // selectedModel / selectedEffort), mirroring lastSelectedApproach. A reopened
+  // saved draft renders its persisted core/model/effort but leaves `draft.*`
+  // null until the user actually touches the picker; without this cache the
+  // submit payload would send null and persistDraft would clear the column —
+  // the ticket would start on the settings default instead of the saved pick
+  // (SELECTED-AGENT-AND-MODEL-IGNORED).
+  let lastSelectedAgentProvider = null;
+  let lastSelectedModel = null;
+  let lastSelectedEffort = null;
   // Last pushed model catalog + defaults, so a provider pick can re-render the
   // Model select locally for the picked core (same reason as the trigger
   // repaint above — create mode has no state push to answer with). Mirrors the
@@ -1150,6 +1160,9 @@
       return;
     }
     lastDefaultProvider = defaultProvider || 'claude';
+    lastSelectedAgentProvider = selectedProvider ?? null;
+    lastSelectedModel = selectedModel ?? null;
+    lastSelectedEffort = selectedEffort ?? null;
     const sel = draft.selectedAgentProvider ?? selectedProvider ?? '';
     const coreLabel = AGENT_PROVIDER_LABELS[defaultProvider] || defaultProvider || 'claude';
     const model = draft.selectedModel ?? selectedModel ?? '';
@@ -1171,9 +1184,13 @@
       showEffort: true,
       disabled: !!sessionOpen,
       onChange: ({ core, model: m, effort: e }) => {
-        draft.selectedAgentProvider = core || null;
-        draft.selectedModel = m || null;
-        draft.selectedEffort = e || null;
+        // '' (not null) is the EXPLICIT "Inherit" pick: null means "the user
+        // never touched this picker", and the submit payload falls back to the
+        // host-pushed cache for that case. Collapsing both to null is what made
+        // a reopened draft lose its saved core/model.
+        draft.selectedAgentProvider = core || '';
+        draft.selectedModel = m || '';
+        draft.selectedEffort = e || '';
         // Create mode has no ticket, so the host no-ops set-provider; keep the
         // draft authoritative for submit. Edit mode posts the change through
         // the existing seams (which also re-filter the model picker host-side).
