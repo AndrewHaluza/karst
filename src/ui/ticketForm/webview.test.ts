@@ -25,9 +25,9 @@ function loadFunction(
   name: string,
   sandbox: Record<string, unknown> = {},
 ): (...args: unknown[]) => unknown {
-  // Ensure sandbox has esc (add if not present) so mutations to sandbox
-  // are reflected when functions are called later. Using spread ({...sandbox})
-  // would create a new context object, breaking mutation tracking.
+  // Ensure sandbox has esc (add if not present); runInNewContext mutates the
+  // sandbox object it is given, so any modifications (including adding esc)
+  // are reflected in that same object. Callers should pass a fresh object literal.
   if (!sandbox.esc) {
     sandbox.esc = (s: unknown) => String(s ?? '').replace(/[&<>"]/g, (c) =>
       ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] ?? c);
