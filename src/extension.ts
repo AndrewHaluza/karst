@@ -175,6 +175,7 @@ import {
 import { startHookEndpoint, type HookEndpoint } from './hooks/endpoint.js';
 import { startGraphWakeupEndpoint, type GraphWakeupEndpoint } from './hooks/graphEndpoint.js';
 import { runCoordinatorTick, activeGraphRunIds } from './approaches/graph/coordinator/sweep.js';
+import { ticketsAwaitingGraphDrive } from './approaches/graph/coordinator/handoff.js';
 import { reconcilableGraphRunIds } from './approaches/graph/coordinator/reconcileScope.js';
 import {
   reconcileGraphRun,
@@ -2763,6 +2764,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           void vscode.window.showInformationMessage(
             `Ticket #${ticketId}: the implementation marker fired (graph run ${graphRunId}) — advancing to uat.`,
           );
+          // The ticket is the stage driver's again the moment the marker
+          // lands. Nothing else kicks it here — the graph node fires no hook
+          // — so without this the uat gates wait for the graph sweep's next
+          // handoff tick (declared below, same deferred-reference pattern as
+          // `runPrSync`).
+          maybeDrive(ticketId, 'graph-impl-marker');
         } else {
           void vscode.window.showWarningMessage(
             `Ticket #${ticketId}: could not fire the implementation marker (${result.reason}).`,
@@ -5020,6 +5027,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
         for (const graphRunId of graphRuns) {
           void runGraphCoordinatorTick(graphRunId);
+        }
+        // The handoff back to the stage driver. A graph ticket's impl marker
+        // advances it to `uat`, and from that instant the driver owns it — but
+        // the marker is fired by the `karst` CLI in another process or by the
+        // Inside button, so no hook, session close, unpause or activation
+        // kicks `maybeDrive` and the ticket sits at a gate that never starts.
+        // This sweep is the one place that sees a run leave graph ownership,
+        // so it is where the kick belongs; `driveTicket`'s single-flight guard
+        // makes the repeat on the next tick a no-op.
+        try {
+          for (const ticketId of ticketsAwaitingGraphDrive(gs.db, { projectId: project.id })) {
+            maybeDrive(ticketId, 'graph-handoff');
+          }
+        } catch (e) {
+          logError('karst: graph handoff selection failed', e);
         }
       }
     } catch (err) {
