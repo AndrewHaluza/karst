@@ -3,6 +3,7 @@ import { KARST_LAUNCH_ENV, KARST_TICKET_ENV } from './session.js';
 import {
   MAX_SESSION_TERMINAL_RECORDS,
   forgetSessionTerminal,
+  forgetSessionTerminalPid,
   identifyTerminal,
   parseSessionTerminalRecords,
   pruneSessionTerminals,
@@ -202,5 +203,112 @@ describe('parseSessionTerminalRecords', () => {
   it('returns an empty list for anything that is not an array', () => {
     expect(parseSessionTerminalRecords(undefined)).toEqual([]);
     expect(parseSessionTerminalRecords({})).toEqual([]);
+  });
+});
+
+/**
+ * Graph-owned terminals (869eg9k2p): a graph node/planner terminal carries
+ * `KARST_TICKET_ID` like every karst terminal, but it belongs to the graph
+ * transport — NOT to the SessionManager, which holds one session per ticket and
+ * closes any second terminal for that ticket as a duplicate. A ticket that is
+ * running a graph has many legitimate terminals at once (the planner plus every
+ * admitted node), so the graph flag is what keeps the per-ticket rules off them.
+ */
+describe('graph-owned terminals', () => {
+  const graphEnv = (ticketId: number, launchId: string, graphRunId = 12) => ({
+    ...env(ticketId, launchId),
+    KARST_GRAPH_RUN_ID: String(graphRunId),
+  });
+
+  it('marks a live graph terminal as graph-owned from its environment', () => {
+    expect(identifyTerminal({ env: graphEnv(427, '11') }, [])).toEqual({
+      ticketId: 427,
+      launchId: '11',
+      graph: true,
+    });
+  });
+
+  it('marks a reloaded graph terminal as graph-owned from its record', () => {
+    const records: SessionTerminalRecord[] = [
+      { ticketId: 427, launchId: '11', pid: 11961, graph: true },
+    ];
+    expect(identifyTerminal({ pid: 11961 }, records)).toEqual({
+      ticketId: 427,
+      launchId: '11',
+      graph: true,
+    });
+  });
+
+  it('leaves a plain session terminal unmarked', () => {
+    expect(identifyTerminal({ env: env(427, 'gen-1') }, [])).toEqual({
+      ticketId: 427,
+      launchId: 'gen-1',
+    });
+  });
+
+  it('keeps every graph terminal of one ticket — a node never evicts the planner', () => {
+    const planner: SessionTerminalRecord = {
+      ticketId: 427, launchId: '25', pid: 87218, graph: true,
+    };
+    const node: SessionTerminalRecord = {
+      ticketId: 427, launchId: '11', pid: 11961, graph: true,
+    };
+    expect(rememberSessionTerminal([planner], node)).toEqual([planner, node]);
+  });
+
+  it('replaces a graph record whose launch id or pid comes back', () => {
+    const first: SessionTerminalRecord = {
+      ticketId: 427, launchId: '11', pid: 11961, graph: true,
+    };
+    const relaunched: SessionTerminalRecord = {
+      ticketId: 427, launchId: '11', pid: 14403, graph: true,
+    };
+    expect(rememberSessionTerminal([first], relaunched)).toEqual([relaunched]);
+  });
+
+  it('does not let a graph terminal evict the ticket session terminal', () => {
+    const session: SessionTerminalRecord = { ticketId: 427, launchId: 'gen-1', pid: 500 };
+    const node: SessionTerminalRecord = {
+      ticketId: 427, launchId: '11', pid: 11961, graph: true,
+    };
+    expect(rememberSessionTerminal([session], node)).toEqual([session, node]);
+  });
+
+  it('does not let a session terminal evict the ticket graph terminals', () => {
+    const node: SessionTerminalRecord = {
+      ticketId: 427, launchId: '11', pid: 11961, graph: true,
+    };
+    const session: SessionTerminalRecord = { ticketId: 427, launchId: 'gen-1', pid: 500 };
+    expect(rememberSessionTerminal([node], session)).toEqual([node, session]);
+  });
+
+  it('forgets one graph terminal by pid, leaving the ticket\'s others alone', () => {
+    const planner: SessionTerminalRecord = {
+      ticketId: 427, launchId: '25', pid: 87218, graph: true,
+    };
+    const node: SessionTerminalRecord = {
+      ticketId: 427, launchId: '11', pid: 11961, graph: true,
+    };
+    expect(forgetSessionTerminalPid([planner, node], 11961)).toEqual([planner]);
+  });
+
+  it('keeps a ticket\'s graph terminals when its session terminal is forgotten', () => {
+    const node: SessionTerminalRecord = {
+      ticketId: 427, launchId: '11', pid: 11961, graph: true,
+    };
+    const session: SessionTerminalRecord = { ticketId: 427, pid: 500 };
+    expect(forgetSessionTerminal([node, session], 427)).toEqual([node]);
+  });
+
+  it('round-trips the graph flag through persisted state', () => {
+    expect(
+      parseSessionTerminalRecords([
+        { ticketId: 427, pid: 11961, launchId: '11', graph: true },
+        { ticketId: 428, pid: 12, graph: 'yes' },
+      ]),
+    ).toEqual([
+      { ticketId: 427, pid: 11961, launchId: '11', graph: true },
+      { ticketId: 428, pid: 12 },
+    ]);
   });
 });

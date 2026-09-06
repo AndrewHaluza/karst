@@ -1,3 +1,4 @@
+import { isGraphSessionEnv } from '../approaches/graph/transport/env.js';
 import {
   KARST_LAUNCH_ENV,
   ticketIdFromTerminalEnv,
@@ -36,6 +37,14 @@ export interface SessionTerminalRecord {
   readonly pid: number;
   /** The exact provider/model snapshot supplied to the terminal launch. */
   readonly identity?: SessionIdentity;
+  /**
+   * A GRAPH-owned terminal (a node or planner session), not a ticket session.
+   * The graph transport keys its sessions by run id and a graphing ticket has
+   * many terminals alive at once, so the per-ticket rules the SessionManager
+   * relies on — one session per ticket, a second one is a duplicate to close —
+   * must never be applied to these.
+   */
+  readonly graph?: true;
 }
 
 /** What a terminal proves about itself — the ticket and its hook generation. */
@@ -43,6 +52,8 @@ export interface TerminalIdentity {
   readonly ticketId: number;
   readonly launchId?: string;
   readonly identity?: SessionIdentity;
+  /** Graph-owned (see `SessionTerminalRecord.graph`). */
+  readonly graph?: true;
 }
 
 /** Everything observable about a terminal that can name its ticket. */
@@ -81,11 +92,13 @@ function identity(
   ticketId: number,
   launchId?: string,
   sessionIdentity?: SessionIdentity,
+  graph?: boolean,
 ): TerminalIdentity {
   return {
     ticketId,
     ...(launchId ? { launchId } : {}),
     ...(sessionIdentity ? { identity: sessionIdentity } : {}),
+    ...(graph ? { graph: true as const } : {}),
   };
 }
 
@@ -103,12 +116,18 @@ export function identifyTerminal(
   const record = probe.pid === undefined ? undefined : records.find((r) => r.pid === probe.pid);
   if (fromEnv !== undefined) {
     const launchId = launchIdFrom(probe.env);
+    // The launch's own statement of graph ownership — the same discriminator
+    // `approaches/graph/transport/env.ts` mandates every id-resolving consumer
+    // check first. A record's flag stands in for it once the reload has
+    // stripped the env.
+    const graph = isGraphSessionEnv(probe.env) || record?.graph === true;
     return identity(
       fromEnv,
       launchId,
       record?.ticketId === fromEnv && record.identity
         ? record.identity
         : durableIdentity(fromEnv, launchId, lookupIdentity),
+      graph,
     );
   }
   if (probe.pid === undefined) return undefined;
@@ -117,6 +136,7 @@ export function identifyTerminal(
         record.ticketId,
         record.launchId,
         record.identity ?? durableIdentity(record.ticketId, record.launchId, lookupIdentity),
+        record.graph,
       )
     : undefined;
 }
@@ -142,27 +162,49 @@ function durableIdentity(
 }
 
 /**
- * Record a launched terminal. Both the ticket and the pid are unique among live
- * terminals, so an earlier record matching either is stale by construction —
- * keeping it would let a dead session's pid claim a terminal the OS has since
- * given to a different process.
+ * Record a launched terminal. A pid is unique among live terminals, so an
+ * earlier record carrying it is stale by construction — keeping it would let a
+ * dead session's pid claim a terminal the OS has since given to a different
+ * process.
+ *
+ * The TICKET is unique only among SESSION terminals: one ticket runs one agent
+ * session, but a graphing ticket owns a planner terminal plus one per admitted
+ * node, all alive at once. So a graph record supersedes only the graph record
+ * of the same launch (a relaunched node run), and the two kinds never evict
+ * each other — a node launch that dropped the planner's record would leave the
+ * planner un-reattachable after a reload.
  */
 export function rememberSessionTerminal(
   records: readonly SessionTerminalRecord[],
   record: SessionTerminalRecord,
 ): SessionTerminalRecord[] {
-  const kept = records.filter(
-    (r) => r.ticketId !== record.ticketId && r.pid !== record.pid,
-  );
+  const supersedes = (r: SessionTerminalRecord): boolean => {
+    if (r.graph !== record.graph) return false;
+    return record.graph === true
+      ? r.launchId === record.launchId && r.ticketId === record.ticketId
+      : r.ticketId === record.ticketId;
+  };
+  const kept = records.filter((r) => !supersedes(r) && r.pid !== record.pid);
   return [...kept, record].slice(-MAX_SESSION_TERMINAL_RECORDS);
 }
 
-/** Drop a ticket's record — its terminal closed, so the pid is free again. */
+/** Drop a ticket's SESSION record — its terminal closed, so the pid is free
+ *  again. The ticket's graph terminals are addressed by pid
+ *  (`forgetSessionTerminalPid`): they close one at a time, and the others of
+ *  the same ticket are still live. */
 export function forgetSessionTerminal(
   records: readonly SessionTerminalRecord[],
   ticketId: number,
 ): SessionTerminalRecord[] {
-  return records.filter((r) => r.ticketId !== ticketId);
+  return records.filter((r) => r.ticketId !== ticketId || r.graph === true);
+}
+
+/** Drop the record of one closed terminal, whichever ticket it belonged to. */
+export function forgetSessionTerminalPid(
+  records: readonly SessionTerminalRecord[],
+  pid: number,
+): SessionTerminalRecord[] {
+  return records.filter((r) => r.pid !== pid);
 }
 
 /**
@@ -192,7 +234,13 @@ export function parseSessionTerminalRecords(raw: unknown): SessionTerminalRecord
   const out: SessionTerminalRecord[] = [];
   for (const entry of raw) {
     if (typeof entry !== 'object' || entry === null) continue;
-    const { ticketId, pid, launchId, identity: rawIdentity } = entry as Record<string, unknown>;
+    const {
+      ticketId,
+      pid,
+      launchId,
+      identity: rawIdentity,
+      graph,
+    } = entry as Record<string, unknown>;
     if (!isPositiveInt(ticketId) || !isPositiveInt(pid)) continue;
     if (launchId !== undefined && typeof launchId !== 'string') continue;
     const sessionIdentity = parseSessionIdentity(rawIdentity);
@@ -201,6 +249,9 @@ export function parseSessionTerminalRecords(raw: unknown): SessionTerminalRecord
       pid,
       ...(typeof launchId === 'string' && launchId.length > 0 ? { launchId } : {}),
       ...(sessionIdentity ? { identity: sessionIdentity } : {}),
+      // Anything but a literal `true` is not a graph record: a coerced value
+      // would exempt a plain session terminal from the per-ticket rules.
+      ...(graph === true ? { graph: true as const } : {}),
     });
   }
   return out;
