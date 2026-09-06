@@ -1042,7 +1042,7 @@ describe('approaches', () => {
   it('parses a nested graph: block with defaults applied', () => {
     const yaml = withApproaches(
       '  - id: karst-graph-engineering\n' +
-        '    label: Graph Engineering\n' +
+        '    label: Dynamic Graphs\n' +
         '    enabled: false\n' +
         '    graph:\n' +
         '      planner: { profile: expert, prompt: { artifact: skills/graph-planner/SKILL.md } }\n' +
@@ -1114,7 +1114,7 @@ describe('approaches', () => {
   it('refuses a file carrying both the flat shape and the nested graph: block', () => {
     const yaml = withApproaches(
       '  - id: karst-graph-engineering\n' +
-        '    label: Graph Engineering\n' +
+        '    label: Dynamic Graphs\n' +
         '    planner: { profile: expert }\n' +
         '    graph:\n' +
         '      limits: { maxParallel: 1 }\n',
@@ -1130,7 +1130,7 @@ describe('approaches', () => {
   it('rejects an out-of-range graph limit at load, naming the field', () => {
     const yaml = withApproaches(
       '  - id: karst-graph-engineering\n' +
-        '    label: Graph Engineering\n' +
+        '    label: Dynamic Graphs\n' +
         '    graph:\n' +
         '      limits: { maxParallel: 9 }\n',
     );

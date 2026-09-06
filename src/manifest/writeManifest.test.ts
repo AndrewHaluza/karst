@@ -195,7 +195,7 @@ describe('writeManifest', () => {
           },
           {
             id: 'karst-graph-engineering',
-            label: 'Graph Engineering',
+            label: 'Dynamic Graphs',
             enabled: false,
             graph: {
               planner: { profile: 'expert', prompt: { artifact: 'skills/graph-planner/SKILL.md' } },
@@ -716,7 +716,7 @@ processes:
     const { path, cleanup } = fixture(`${RAW}
 approaches:
   - id: karst-graph-engineering
-    label: Graph Engineering
+    label: Dynamic Graphs
     enabled: false
     graph:
       planner: { profile: expert, prompt: { artifact: skills/graph-planner/SKILL.md } }

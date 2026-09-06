@@ -181,7 +181,7 @@ export function graphApproachConfig(over: Partial<GraphApproachConfig> = {}): Gr
 export function graphApproach(over: Partial<ApproachDef> = {}): ApproachDef {
   return {
     id: 'karst-graph-engineering',
-    label: 'Graph Engineering',
+    label: 'Dynamic Graphs',
     enabled: false,
     graph: graphApproachConfig(),
     ...over,

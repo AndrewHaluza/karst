@@ -906,7 +906,7 @@ describe('settings graph configuration surface (Slice-1 T6)', () => {
       {
         portRange: [4000, 4999],
         approaches: [
-          { id: 'karst-graph-engineering', label: 'Graph Engineering', graph: { ...packagedGraph, limits } },
+          { id: 'karst-graph-engineering', label: 'Dynamic Graphs', graph: { ...packagedGraph, limits } },
         ],
         agents: {},
         worktreePathDisplay: 'relative',

@@ -102,7 +102,7 @@ describe('withBuiltInApproaches', () => {
     // `other-id` stays itself; the built-in is resolved by id, not by position.
     expect(effective.approaches![0]).toEqual({ id: 'other-id', label: 'Other' });
     const entry = effective.approaches!.find((a) => a.id === builtInId)!;
-    expect(entry.label).toBe('Graph Engineering');
+    expect(entry.label).toBe('Dynamic Graphs');
   });
 
   it('packaged upgrade changes defaults without touching explicit project fields', () => {
@@ -127,7 +127,7 @@ describe('withBuiltInApproaches', () => {
 
   it('tombstone round-trips: {id, label, enabled:false} disables and omits the id from listInstalledIds', () => {
     const tombstone = builtInEnableEntry(builtInId, false, undefined);
-    expect(tombstone).toEqual({ id: builtInId, label: 'Graph Engineering', enabled: false });
+    expect(tombstone).toEqual({ id: builtInId, label: 'Dynamic Graphs', enabled: false });
     // The overlay applies the tombstone: disabled.
     const effective = withBuiltInApproaches(baseManifest([tombstone]));
     expect(effective.approaches!.find((a) => a.id === builtInId)!.enabled).toBe(false);
@@ -180,7 +180,7 @@ describe('approachDelta (Settings Save serializes the delta, never the merged ob
     // enabled default. Only a DIFFERING flag (the disable tombstone above) or
     // a differing field reaches the file.
     const enable = builtInEnableEntry(builtInId, true, undefined);
-    expect(enable).toEqual({ id: builtInId, label: 'Graph Engineering', enabled: true });
+    expect(enable).toEqual({ id: builtInId, label: 'Dynamic Graphs', enabled: true });
     const effective = withBuiltInApproaches(baseManifest([enable]));
     expect(approachDelta(effective.approaches!)).toEqual([]);
   });
@@ -198,7 +198,7 @@ describe('approachDelta (Settings Save serializes the delta, never the merged ob
   it('keeps only the differing graph sub-blocks, never the whole packaged body', () => {
     const project: ApproachDef = {
       id: builtInId,
-      label: 'Graph Engineering',
+      label: 'Dynamic Graphs',
       enabled: false,
       graph: { limits: { ...graphApproachConfig().limits, maxParallel: 2 } } as ApproachDef['graph'],
     };
@@ -221,7 +221,7 @@ describe('approachDelta (Settings Save serializes the delta, never the merged ob
 
   it('the overlay can never create a second recommended entry (packaged ships false)', () => {
     // A project entry may mark the built-in recommended…
-    const project = { id: builtInId, label: 'Graph Engineering', recommended: true };
+    const project = { id: builtInId, label: 'Dynamic Graphs', recommended: true };
     const effective = withBuiltInApproaches(baseManifest([project]));
     // …and the packaged definition carries recommended: false, so the merged
     // list still has exactly one recommended entry. validateApproaches throws

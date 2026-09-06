@@ -281,14 +281,14 @@ describe('settings actions — section-scoped save', () => {
       ...VALID,
       approaches: [
         ...BUILT_IN_APPROACHES, // packaged body, as the state push seeded it
-        { id: 'karst-graph-engineering', label: 'Graph Engineering', enabled: true },
+        { id: 'karst-graph-engineering', label: 'Dynamic Graphs', enabled: true },
       ],
     };
     await actions.save(overlaid, 'approaches');
 
     expect(writes).toHaveLength(1);
     expect(writes[0]!.approaches).toEqual([
-      { id: 'karst-graph-engineering', label: 'Graph Engineering', enabled: true },
+      { id: 'karst-graph-engineering', label: 'Dynamic Graphs', enabled: true },
     ]);
   });
 
@@ -300,7 +300,7 @@ describe('settings actions — section-scoped save', () => {
     // definition or drop the enable.
     const onDisk: Manifest = {
       ...VALID,
-      approaches: [{ id: 'karst-graph-engineering', label: 'Graph Engineering', enabled: true }],
+      approaches: [{ id: 'karst-graph-engineering', label: 'Dynamic Graphs', enabled: true }],
     };
     const { writes, harness: h } = writeSpy();
     const { actions } = h(onDisk);
@@ -308,14 +308,14 @@ describe('settings actions — section-scoped save', () => {
       ...VALID,
       approaches: [
         ...BUILT_IN_APPROACHES,
-        { id: 'karst-graph-engineering', label: 'Graph Engineering', enabled: true },
+        { id: 'karst-graph-engineering', label: 'Dynamic Graphs', enabled: true },
       ],
     };
     await actions.save(staleDraft, 'approaches');
 
     expect(writes).toHaveLength(1);
     expect(writes[0]!.approaches).toEqual([
-      { id: 'karst-graph-engineering', label: 'Graph Engineering', enabled: true },
+      { id: 'karst-graph-engineering', label: 'Dynamic Graphs', enabled: true },
     ]);
   });
 });
@@ -357,7 +357,7 @@ describe('settings actions — graph configuration saves (Slice-1 T6)', () => {
     expect(writes[0]!.approaches).toEqual([
       {
         id: 'karst-graph-engineering',
-        label: 'Graph Engineering',
+        label: 'Dynamic Graphs',
         enabled: true,
         graph: {
           limits: { ...(BUILT_IN_APPROACHES[0]!.graph?.limits ?? {}), maxAgentWallSeconds: 28800 },
@@ -381,7 +381,7 @@ describe('settings actions — graph configuration saves (Slice-1 T6)', () => {
     expect(writes[0]!.approaches).toEqual([
       {
         id: 'karst-graph-engineering',
-        label: 'Graph Engineering',
+        label: 'Dynamic Graphs',
         enabled: true,
         graph: { limits: { ...(BUILT_IN_APPROACHES[0]!.graph?.limits ?? {}), maxParallel: 2 } },
       },
@@ -469,7 +469,7 @@ describe('settings actions — built-in enable/disable', () => {
 
     expect(writes).toHaveLength(1);
     expect(writes[0]!.approaches).toEqual([
-      { id: 'karst-graph-engineering', label: 'Graph Engineering', enabled: true },
+      { id: 'karst-graph-engineering', label: 'Dynamic Graphs', enabled: true },
     ]);
     expect(posted.some((m) => m.type === 'state')).toBe(true);
   });
@@ -480,7 +480,7 @@ describe('settings actions — built-in enable/disable', () => {
     await actions.setApproachEnabled('karst-graph-engineering', false);
 
     expect(writes[0]!.approaches).toEqual([
-      { id: 'karst-graph-engineering', label: 'Graph Engineering', enabled: false },
+      { id: 'karst-graph-engineering', label: 'Dynamic Graphs', enabled: false },
     ]);
   });
 
