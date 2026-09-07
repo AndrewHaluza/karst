@@ -1093,6 +1093,7 @@ describe('ship process rows: descriptions and identity (Task 869egdr2u)', () => 
             status: 'passed',
             resultKind: null,
             artifactPath: null,
+            promptTelemetry: null,
             startedAt: NOW,
             endedAt: NOW,
           },

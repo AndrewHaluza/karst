@@ -9,6 +9,8 @@ import {
   listProcessRuns,
   reconcileProcessRuns,
   describeStaleProcessRun,
+  getProcessRunById,
+  setProcessRunPromptTelemetry,
   type ProcessRun,
   type ProcessRunStatus,
 } from './processRuns.js';
@@ -283,6 +285,50 @@ describe('process_runs', () => {
         status: 'passed',
         resultKind: 'validated',
       });
+    });
+  });
+
+  describe('prompt_telemetry (v57)', () => {
+    it('records promptTelemetry at open and reads it back', () => {
+      const run = open({
+        promptTelemetry: { seedChars: 4210, guidePointer: true },
+      });
+      expect(run.promptTelemetry).toEqual({ seedChars: 4210, guidePointer: true });
+    });
+
+    it('NULL telemetry reads back as null (never an empty object invented)', () => {
+      const run = open();
+      expect(run.promptTelemetry).toBeNull();
+    });
+
+    it('setProcessRunPromptTelemetry merges without clobbering existing keys', () => {
+      const run = open({ promptTelemetry: { seedChars: 100 } });
+      setProcessRunPromptTelemetry(store, run.id, { parseTier: 'fenced' });
+      expect(getProcessRunById(store, run.id)!.promptTelemetry).toEqual({
+        seedChars: 100,
+        parseTier: 'fenced',
+      });
+    });
+
+    it('setProcessRunPromptTelemetry on a NULL run starts the object', () => {
+      const run = open();
+      setProcessRunPromptTelemetry(store, run.id, { silenceNudges: 1 });
+      expect(getProcessRunById(store, run.id)!.promptTelemetry).toEqual({ silenceNudges: 1 });
+    });
+
+    it('setProcessRunPromptTelemetry never touches status or result_kind', () => {
+      const run = open();
+      finishProcessRun(store, run.id, 'passed', '2026-08-08T10:01:00.000Z', 'validated');
+      setProcessRunPromptTelemetry(store, run.id, { guidePull: true });
+      const after = getProcessRunById(store, run.id)!;
+      expect(after.status).toBe('passed');
+      expect(after.resultKind).toBe('validated');
+      expect(after.promptTelemetry).toEqual({ guidePull: true });
+    });
+
+    it('setProcessRunPromptTelemetry on a missing run is a no-op (never invents a row)', () => {
+      setProcessRunPromptTelemetry(store, 999999, { seedChars: 1 });
+      expect(listProcessRuns(store, ticketId)).toHaveLength(0);
     });
   });
 });

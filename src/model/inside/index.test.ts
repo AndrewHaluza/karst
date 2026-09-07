@@ -33,6 +33,7 @@ function prefillRun(over: Partial<import('../../store/processRuns.js').ProcessRu
     status: 'passed' as const,
     resultKind: null,
     artifactPath: null,
+    promptTelemetry: null,
     startedAt: '2026-07-20T11:30:00.000Z',
     endedAt: '2026-07-20T11:31:00.000Z',
     ...over,
