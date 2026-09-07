@@ -1708,15 +1708,64 @@ describe('dashboard webview.html', () => {
     expect(detail).not.toContain('overflow-x');
   });
 
-  it('positions evidence row glyphs on the left, not the right', () => {
-    // The ev-state span is display:inline-flex with justify-content, which
-    // controls where the glyph sits inside the span. The default (flex-start)
-    // puts the glyph on the left; flex-end pushes it right.
-    // The fix adds a dedicated .ev-state rule with flex-start; verify it exists.
-    expect(HTML).toMatch(/#inside \.ev-state\{[^}]*justify-content:flex-start/);
-    // Gate rows keep flex-end — their glyph position is already correct.
-    // The combined .gate-state rule should still have flex-end.
+  it('positions the row status glyph in its own leading cell, not the tail', () => {
+    // The glyph is no longer aligned INSIDE a trailing cell — it is its own
+    // first grid item, and the trailing cell holds only time and duration.
+    expect(HTML).toMatch(/#inside \.ev-glyph\{[^}]*justify-content:center/);
+    expect(HTML).toMatch(/#inside \.ev-state\{[^}]*justify-content:flex-end/);
     expect(HTML).toMatch(/#inside \.gate-state\{[^}]*justify-content:flex-end/);
+  });
+
+  it('renders the status glyph and the timing as two separate cells', () => {
+    // The glyph cell is the row's FIRST grid item and carries no timing; the
+    // timing cell is the row's LAST and carries no glyph. One function each,
+    // so no renderer can accidentally re-bundle them (UI-R28b).
+    expect(HTML).toContain('function evGlyphHtml(r) {');
+    expect(HTML).toContain('function evTimingHtml(r, cls) {');
+    expect(HTML).not.toContain('function evStateHtml(');
+    const glyphFn = HTML.slice(HTML.indexOf('function evGlyphHtml(r) {'),
+      HTML.indexOf('function evTimingHtml(r, cls) {'));
+    expect(glyphFn).toContain('class="ev-glyph"');
+    expect(glyphFn).not.toContain('ev-dur');
+    expect(glyphFn).not.toContain('ev-time');
+    const timingFn = HTML.slice(HTML.indexOf('function evTimingHtml(r, cls) {'),
+      HTML.indexOf('function evTimingHtml(r, cls) {') + 700);
+    expect(timingFn).toContain('ev-time');
+    expect(timingFn).toContain('ev-dur');
+    expect(timingFn).not.toContain('class="glyph');
+  });
+
+  it('leads every gate row with its status glyph (UI-R28b)', () => {
+    const fn = HTML.slice(HTML.indexOf('function evidenceGatesHtml(ev) {'),
+      HTML.indexOf('function evidenceGatesHtml(ev) {') + 900);
+    // The glyph cell is emitted before the repo, the name and the detail.
+    expect(fn.indexOf('evGlyphHtml(r)')).toBeGreaterThan(-1);
+    expect(fn.indexOf('evGlyphHtml(r)')).toBeLessThan(fn.indexOf('gate-repo'));
+    expect(fn.indexOf('evGlyphHtml(r)')).toBeLessThan(fn.indexOf('gate-name'));
+    expect(fn.indexOf('gate-detail')).toBeLessThan(fn.indexOf("evTimingHtml(r, 'gate-state')"));
+    // The grid gains a leading fixed track for that glyph, in both the
+    // repo-bearing and the repo-less shapes.
+    expect(HTML).toMatch(/#inside \.gate-row\{display:grid;grid-template-columns:18px minmax\(74px,90px\) minmax\(110px,150px\) minmax\(0,1fr\) auto;/);
+    expect(HTML).toMatch(/#inside \.gates\.no-repo \.gate-row\{grid-template-columns:18px minmax\(110px,150px\) minmax\(0,1fr\) auto\}/);
+  });
+
+  it('leads every generic evidence row with its status glyph (UI-R28b)', () => {
+    const fn = HTML.slice(HTML.indexOf('function evidenceRowsHtml(ev) {'),
+      HTML.indexOf('function evidenceRowsHtml(ev) {') + 700);
+    expect(fn.indexOf('evGlyphHtml(r)')).toBeGreaterThan(-1);
+    expect(fn.indexOf('evGlyphHtml(r)')).toBeLessThan(fn.indexOf('ev-key'));
+    expect(fn.indexOf('ev-detail')).toBeLessThan(fn.indexOf("evTimingHtml(r, 'ev-state')"));
+    expect(HTML).toMatch(/#inside \.evidence-row\{display:grid;grid-template-columns:18px minmax\(74px,100px\) minmax\(0,1fr\) auto;/);
+  });
+
+  it('leads every recovery round with its status glyph (UI-R28b)', () => {
+    const fn = HTML.slice(HTML.indexOf('function evidenceRecoveryHtml(ev) {'),
+      HTML.indexOf('function evidenceRecoveryHtml(ev) {') + 800);
+    expect(fn.indexOf('evGlyphHtml(')).toBeGreaterThan(-1);
+    expect(fn.indexOf('evGlyphHtml(')).toBeLessThan(fn.indexOf('recovery-num'));
+    // The trailing status cell is gone; the timing is the row's last item.
+    expect(fn).not.toContain('recovery-result');
+    expect(HTML).toMatch(/#inside \.recovery-round\{display:grid;grid-template-columns:18px 56px minmax\(0,1fr\) auto;/);
   });
 
   it('makes the inside block its own query container (B7)', () => {
@@ -1751,10 +1800,19 @@ describe('dashboard webview.html', () => {
     const wide = blockFor('430px');
     expect(wide).toMatch(/#inside \.op summary,#inside \.op-static\{grid-template-columns:20px minmax\(68px,86px\)/);
     expect(wide).toMatch(/#inside \.finding-title,#inside \.ev-detail,#inside \.done-copy,#inside \.op-detail\{/);
-    expect(wide).toMatch(/#inside \.gate-row\{grid-template-columns:58px 70px minmax\(0,1fr\)\}/);
-    // Evidence rows keep three columns (label, detail, status) at 430px so the
-    // status glyph stays on its own line instead of collapsing into the detail.
-    expect(wide).toMatch(/#inside \.evidence-row\{grid-template-columns:minmax\(60px,80px\) minmax\(0,1fr\) auto\}/);
+    // The glyph track leads even at 430px — the status is never the cell that
+    // gets dropped (UI-R04/R05); the repo column is. Four rendered children
+    // (glyph, name, detail, state) need four named tracks — three tracks for
+    // four items wraps the detail into an implicit second row.
+    expect(wide).toMatch(/#inside \.gate-row\{grid-template-columns:18px 70px minmax\(0,1fr\) auto\}/);
+    // Same shape for generic evidence rows: glyph, label, detail, state — four
+    // items, four tracks, natural DOM-order auto-placement, no grid-column pin.
+    expect(wide).toMatch(/#inside \.evidence-row\{grid-template-columns:18px minmax\(60px,80px\) minmax\(0,1fr\) auto\}/);
+    // A track count that stops matching the rendered child count is exactly
+    // how the row silently wraps to two lines — guard against the pins that
+    // used to (wrongly) paper over a missing fourth track ever coming back.
+    expect(wide).not.toMatch(/#inside \.gate-state\{grid-column/);
+    expect(wide).not.toMatch(/#inside \.ev-state\{grid-column/);
     // The timeline keeps node/edge alignment (§10): its spine and time column
     // re-lock onto one line where the generic evidence detail now wraps.
     expect(wide).toMatch(
@@ -3001,7 +3059,9 @@ describe('inside render round trip (executed in a VM)', () => {
     expect(html).toContain('class="evidence-row"');
     expect(html).toMatch(/<span class="ev-key">worktree<\/span>/);
     // The row's status is the glyph, whose accessible name is the word.
-    expect(html).toMatch(/<span class="ev-state [a-z]+">(?:<span class="ev-dur">[^<]*<\/span>)?<span class="glyph [a-z]+" aria-label="(?:pending|passed)"><\/span><\/span>/);
+    // The timing cell holds time and duration and no glyph; the glyph cell
+    // arrives when the renderers are reordered.
+    expect(html).toMatch(/<span class="ev-state [a-z]+">(?:<span class="ev-dur">[^<]*<\/span>)?<\/span>/);
   });
 
   it('renders gates evidence with a per-row status glyph (B2)', () => {
@@ -3011,7 +3071,12 @@ describe('inside render round trip (executed in a VM)', () => {
     // repository, so the body drops the repo column (`no-repo`).
     const html = openEvidence('uat', 'gates');
     expect(html).toContain('class="gates no-repo"');
-    expect(html).toContain('<span class="glyph pass" aria-label="passed"></span>');
+    // Scoped to the gate row itself — an unscoped substring match would still
+    // pass even if the gate row carried no glyph at all (the glyph could be
+    // rendered anywhere else in the document). Matched via regex so this
+    // doesn't depend on the fixture's first gate row carrying `pass` status
+    // specifically — whatever status the row carries, the glyph must lead.
+    expect(html).toMatch(/<div class="gate-row(?: active)?"><span class="ev-glyph"><span class="glyph [a-z]+"/);
     expect(html).toContain('<span class="gate-name">lint</span>');
   });
 
@@ -3594,8 +3659,10 @@ describe('inside render round trip (executed in a VM)', () => {
     h.clickChevron('uat:fix');
     const html = h.htmlOf('inside');
     // The status WORD is gone from the rendered row; it survives only as the
-    // glyph's accessible name — the same trade `evStateHtml` documents.
-    expect(html).not.toContain('<span class="recovery-result run">running</span>');
+    // glyph's accessible name — the same trade `evGlyphHtml` documents.
+    // No status WORD anywhere in the round (UI-R28b) — the glyph carries it.
+    expect(html).not.toContain('recovery-result');
+    expect(html).toContain('<span class="ev-glyph"><span class="glyph run"');
     expect(html).toContain('<span class="glyph run" aria-label="running"></span>');
     expect(html).toContain('<span class="glyph pass" aria-label="passed"></span>');
   });
@@ -3643,7 +3710,7 @@ describe('inside render round trip (executed in a VM)', () => {
     expect(html).toContain('11:45:27 PM');
     expect(html).toContain('<span class="ev-dur" title="75.000s">1m 15s</span>');
     expect(html).toContain('<span class="ev-dur" title="31.900s">31.9s</span>');
-    // The glyph is still in the separate .recovery-result cell.
+    // The glyph is the round's leading `.ev-glyph` cell.
     expect(html).toContain('<span class="glyph fail" aria-label="failed"></span>');
     expect(html).toContain('<span class="glyph run" aria-label="running"></span>');
   });
@@ -3745,14 +3812,19 @@ describe('inside render round trip (executed in a VM)', () => {
   });
 
   it('keeps the recovery round word on the glyph only, never rendered text (source)', () => {
+    // The round's status word no longer renders inline here at all —
+    // `evidenceRecoveryHtml` delegates the glyph cell to the shared
+    // `evGlyphHtml`, which is the row shapes' ONE place `statusWord(...)`
+    // feeds an accessible name (pinned by ROLE, not by expression text).
     const fn = /function evidenceRecoveryHtml[\s\S]*?\n  \}/.exec(HYDRATED)?.[0];
     expect(fn).toBeTruthy();
-    // The word is used exactly once, and that one use is the glyph's
-    // accessible name — pinned by ROLE rather than by the expression's text,
-    // so the status fallback can match the class's without this failing.
-    expect(fn!.match(/statusWord\(/g)).toHaveLength(1);
-    expect(fn!).toMatch(/aria-label="\$\{esc\(statusWord\(/);
+    expect(fn!).toMatch(/evGlyphHtml\(\{ \.\.\.r, status: r\.status \|\| 'note' \}\)/);
+    expect(fn!).not.toContain('statusWord(');
     expect(fn!).not.toContain('esc(r.duration || statusWord(r.status))');
+    const glyphFn = /function evGlyphHtml[\s\S]*?\n  \}/.exec(HYDRATED)?.[0];
+    expect(glyphFn).toBeTruthy();
+    expect(glyphFn!.match(/statusWord\(/g)).toHaveLength(1);
+    expect(glyphFn!).toMatch(/aria-label="\$\{esc\(statusWord\(/);
   });
 });
 

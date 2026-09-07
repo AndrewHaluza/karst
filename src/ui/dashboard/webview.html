@@ -837,7 +837,7 @@
     padding:var(--p-s2) 0 var(--p-s2) var(--p-s3)}
 
   /* Generic evidence rows */
-  #inside .evidence-row{display:grid;grid-template-columns:minmax(74px,100px) minmax(0,1fr) auto;
+  #inside .evidence-row{display:grid;grid-template-columns:18px minmax(74px,100px) minmax(0,1fr) auto;
     gap:var(--p-s2);align-items:center;min-height:26px;padding:0 var(--p-s2)}
   #inside .ev-key{color:var(--p-text);font-family:var(--p-mono);font-size:var(--p-xs);
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -851,11 +851,19 @@
   #inside .ev-state.wait,#inside .gate-state.wait{color:var(--p-attention)}
   #inside .ev-state.fail,#inside .gate-state.fail{color:var(--p-failed)}
   #inside .ev-state.skip,#inside .gate-state.skip{color:var(--p-skip)}
-  #inside .ev-state{justify-content:flex-start;gap:var(--p-s2)}
+  /* The timing cell is now the row's LAST item — the glyph it used to hold
+     moved to the leading `.ev-glyph` cell — so it aligns to the row's right
+     edge like every other trailing fact. */
+  #inside .ev-state{justify-content:flex-end;gap:var(--p-s2)}
   #inside .gate-state{gap:var(--p-s2)}
   #inside .ev-dur{color:var(--p-muted2)}
   #inside .ev-time{color:var(--p-muted2)}
   #inside .ev-tail{display:inline-flex;align-items:center;gap:var(--p-s2);justify-content:flex-end}
+  /* The status cell now LEADS the row (869e-status-first): a fixed, never
+     shrinking track so every row's glyph lands on the same vertical line
+     whatever the row's prose does. */
+  #inside .ev-glyph{display:inline-flex;align-items:center;justify-content:center;
+    min-height:18px;width:18px}
 
   /* Slice 6 T4 — the graph's status-grouped node list. A LOCAL composition
      (UI-R07/R08): only the list geometry is local; the status glyph and the
@@ -905,14 +913,14 @@
   /* Gates */
   #inside .gates{border:var(--k-border-w) solid var(--p-border);border-radius:var(--p-r1);
     overflow:hidden;background:var(--p-surface)}
-  #inside .gate-row{display:grid;grid-template-columns:minmax(74px,90px) minmax(110px,150px) minmax(0,1fr) auto;
+  #inside .gate-row{display:grid;grid-template-columns:18px minmax(74px,90px) minmax(110px,150px) minmax(0,1fr) auto;
     gap:var(--p-s2);align-items:center;min-height:28px;padding:0 var(--p-s2);
     border-bottom:var(--k-border-w) solid var(--p-border)}
   #inside .gate-row:last-child{border-bottom:0}
   /* A gates body whose rows name no repository (pre-v21 rows) drops the column
      rather than drawing an empty one — a blank cell reads as a repo with no
      name instead of a row that names none. */
-  #inside .gates.no-repo .gate-row{grid-template-columns:minmax(110px,150px) minmax(0,1fr) auto}
+  #inside .gates.no-repo .gate-row{grid-template-columns:18px minmax(110px,150px) minmax(0,1fr) auto}
   #inside .gate-row.active{background:var(--p-tint-run);box-shadow:inset 2px 0 0 var(--p-running)}
   #inside .gate-repo,#inside .gate-name{font-family:var(--p-mono);font-size:var(--p-xs);
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -1024,7 +1032,7 @@
   #inside .recovery-pill.exhausted{border-color:var(--p-failed);color:var(--p-failed)}
   #inside .recovery-history{margin-bottom:var(--p-s2);border:var(--k-border-w) solid var(--p-border);
     border-radius:var(--p-r1);overflow:hidden;background:var(--p-surface)}
-  #inside .recovery-round{display:grid;grid-template-columns:56px minmax(0,1fr) auto auto;gap:var(--p-s2);
+  #inside .recovery-round{display:grid;grid-template-columns:18px 56px minmax(0,1fr) auto;gap:var(--p-s2);
     align-items:center;min-height:27px;padding:0 var(--p-s2);border-bottom:var(--k-border-w) solid var(--p-border)}
   #inside .recovery-round:last-child{border-bottom:0}
   #inside .recovery-num{color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs)}
@@ -1032,11 +1040,6 @@
     color:var(--p-text);font-size:var(--p-sm)}
   #inside .recovery-timing{display:flex;align-items:center;gap:var(--p-s2);color:var(--p-muted2);
     font-family:var(--p-mono);font-size:var(--p-xs);white-space:nowrap}
-  #inside .recovery-result{display:inline-flex;align-items:center;justify-content:flex-end;gap:var(--p-s2);
-    color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs);white-space:nowrap}
-  #inside .recovery-result.run{color:var(--p-running)}
-  #inside .recovery-result.fail{color:var(--p-failed)}
-  #inside .recovery-result.pass{color:var(--p-passed)}
 
   /* Done: the compact delivery receipt */
   #inside .done-receipt{padding:0 0 var(--p-s2)}
@@ -1190,12 +1193,14 @@
     #inside .duration,#inside .op-time{display:none}
     #inside .op-tail .agent-model{display:none}
     #inside .op-body{margin-left:20px}
-    #inside .gate-row{grid-template-columns:58px 70px minmax(0,1fr)}
+    /* Four rendered children at this width — glyph, name, detail, state —
+       get four named tracks, not three: an item left to auto-place wraps to
+       an implicit new row instead of sharing one (UI-R04/R05). The repo is
+       the cell that drops, never the status. */
+    #inside .gate-row{grid-template-columns:18px 70px minmax(0,1fr) auto}
     #inside .gate-repo{display:none}
-    #inside .gates.no-repo .gate-row{grid-template-columns:58px 70px minmax(0,1fr)}
-    #inside .gate-state{grid-column:3}
-    #inside .evidence-row{grid-template-columns:minmax(60px,80px) minmax(0,1fr) auto}
-    #inside .ev-state{grid-column:3}
+    #inside .gates.no-repo .gate-row{grid-template-columns:18px 70px minmax(0,1fr) auto}
+    #inside .evidence-row{grid-template-columns:18px minmax(60px,80px) minmax(0,1fr) auto}
     #inside .finding{grid-template-columns:56px minmax(0,1fr)}
     #inside .finding-loc{grid-column:2}
     #inside .finding-time{display:none}
@@ -1219,9 +1224,8 @@
     #inside .phase-time,#inside .timeline-tail{display:none}
     #inside .session-foot{flex-wrap:wrap}
     #inside .session-foot .session-rule{margin-left:0;width:100%}
-    #inside .recovery-round{grid-template-columns:48px minmax(0,1fr)}
+    #inside .recovery-round{grid-template-columns:18px 48px minmax(0,1fr)}
     #inside .recovery-timing{display:none}
-    #inside .recovery-result{grid-column:2}
     /* The node list's control stays in its own `auto` track and the meta
        column (kind · status) drops rather than crushing the control's track
        toward zero width — the crushed-and-escaped control at narrow panel
@@ -2551,9 +2555,20 @@
   // An evidence row's status is the GLYPH, not a word: the word repeated what
   // the row's own detail already said ("selected … passed") on every row of
   // every expanded body. The word survives as the glyph's accessible name, so
-  // nothing that cannot see colour loses the status. A recorded duration is a
-  // fact of its own and still renders beside it.
-  function evStateHtml(r, cls) {
+  // nothing that cannot see colour loses the status (UI-R28b).
+  //
+  // The glyph LEADS the row and the timing TRAILS it, in two separate cells:
+  // a verdict read after the prose is a verdict read last, and the check that
+  // sat at the row's right edge was the thing the eye had to hunt for. Two
+  // functions rather than one bundled cell, so no renderer can re-pair them.
+  // Both always emit exactly ONE grid item, empty when the row has no status,
+  // so a statusless row keeps the grid's column alignment.
+  function evGlyphHtml(r) {
+    if (!r.status) return `<span class="ev-glyph"></span>`;
+    return `<span class="ev-glyph"><span class="glyph ${esc(r.status)}"`
+      + ` aria-label="${esc(statusWord(r.status))}"></span></span>`;
+  }
+  function evTimingHtml(r, cls) {
     if (!r.status) return `<span class="${cls}"></span>`;
     const time = r.time
       ? `<span class="ev-time" title="started ${esc(r.time)}">${esc(r.time)}</span>`
@@ -2561,8 +2576,7 @@
     const dur = r.duration
       ? `<span class="ev-dur"${r.durationExact ? ` title="${esc(r.durationExact)}"` : ''}>${esc(r.duration)}</span>`
       : '';
-    return `<span class="${cls} ${esc(r.status)}">${time}${dur}`
-      + `<span class="glyph ${esc(r.status)}" aria-label="${esc(statusWord(r.status))}"></span></span>`;
+    return `<span class="${cls} ${esc(r.status)}">${time}${dur}</span>`;
   }
   function evActionHtml(r) {
     return r.action ? `<span class="ev-tail">${insideActionBtnHtml(r.action)}</span>` : '';
@@ -2628,11 +2642,12 @@
   function evidenceRowsHtml(ev) {
     const nodes = ev.nodes && ev.nodes.length ? graphNodeListHtml(ev.nodes) : '';
     return nodes + ev.rows.map((r) => `<div class="evidence-row">`
+      + evGlyphHtml(r)
       + `<span class="ev-key">${esc(r.label)}</span>`
       + `<span class="ev-detail">${esc(r.detail || '')}`
       + (r.prState ? `<span class="pr-status ${esc(r.prState)}">${esc(r.prState)}</span>` : '')
       + `</span>`
-      + (r.action ? evActionHtml(r) : evStateHtml(r, 'ev-state'))
+      + (r.action ? evActionHtml(r) : evTimingHtml(r, 'ev-state'))
       + `</div>`).join('');
   }
   // The recorded repository is its own column. A body whose rows name none
@@ -2641,10 +2656,11 @@
   function evidenceGatesHtml(ev) {
     const hasRepo = ev.rows.some((r) => !!r.repo);
     return `<div class="gates${hasRepo ? '' : ' no-repo'}">${ev.rows.map((r) => `<div class="gate-row${r.status === 'run' ? ' active' : ''}">`
+      + evGlyphHtml(r)
       + (hasRepo ? `<span class="gate-repo">${esc(r.repo || '')}</span>` : '')
       + `<span class="gate-name">${esc(r.label)}</span>`
       + `<span class="gate-detail">${esc(r.detail || '')}</span>`
-      + evStateHtml(r, 'gate-state')
+      + evTimingHtml(r, 'gate-state')
       + `</div>`).join('')}</div>`;
   }
   // Findings — ONE blueprint for both the Review findings and the UAT
@@ -2785,16 +2801,17 @@
       : '';
     return `<div class="done-receipt">${hero}${blocks}${timing}${details}</div>`;
   }
+  // A round with no recorded status still shows a glyph: `note` is the neutral
+  // outcome the history has always drawn for an unresolved round, so the row
+  // is normalised (never mutated) before the shared glyph cell renders it.
   function evidenceRecoveryHtml(ev) {
     return `<div class="recovery-history">${ev.rows.map((r) => `<div class="recovery-round">`
+      + evGlyphHtml({ ...r, status: r.status || 'note' })
       + `<span class="recovery-num">${esc(r.label)}</span>`
       + `<span class="recovery-cause">${esc(r.detail || '')}</span>`
       + `<span class="recovery-timing">`
       + (r.time ? `<span title="started ${esc(r.time)}">${esc(r.time)}</span>` : '')
       + (r.duration ? `<span class="ev-dur"${r.durationExact ? ` title="${esc(r.durationExact)}"` : ''}>${esc(r.duration)}</span>` : '')
-      + `</span>`
-      + `<span class="recovery-result ${esc(r.status || '')}">`
-      + `<span class="glyph ${esc(r.status || 'note')}" aria-label="${esc(statusWord(r.status || 'note'))}"></span>`
       + `</span>`
       + `</div>`).join('')}</div>`;
   }
