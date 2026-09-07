@@ -38,7 +38,7 @@ import type { HeadlessOutputChunk } from '../../agent/headlessSpawn.js';
 import type { Severity } from '../../manifest/types.js';
 import { GATE_LANE_HEADLESS_TIMEOUT_MS } from '../../agent/headlessSpawn.js';
 import { defaultGitRunner, type GitRunner } from '../../integrations/git.js';
-import { openProcessRun, finishProcessRun } from '../../store/processRuns.js';
+import { openProcessRun, finishProcessRun, setProcessRunPromptTelemetry } from '../../store/processRuns.js';
 import { stageAttempt } from '../../store/stages.js';
 import { recordUatFindings, type UatFindingInput } from '../../store/uatFindings.js';
 import { parseFindingsResult, type FindingsParseShape, type WarnFn } from '../review/findings.js';
@@ -364,6 +364,10 @@ export async function runUatTester(
   // One shape per target actually ASKED — the deterministic wrong-checkout
   // `continue` below pushes nothing here, since it never asked the core.
   const shapes: FindingsParseShape[] = [];
+  // v57 prompt metrics: how many targets answered NOTHING and were re-asked once.
+  // The tester's OWN run carries it (it opened that run), mirroring how the review
+  // lane records its parse tiers — never a verdict input, never a second row.
+  let silenceNudges = 0;
   const debug = opts.debug;
   const git = opts.git ?? defaultGitRunner;
   const snapshotted: { repo: string; worktreePath: string }[] = [];
@@ -452,6 +456,7 @@ export async function runUatTester(
       // re-asked: the core answered, it just answered the wrong shape, and
       // asking the same question again buys a second helping of prose.
       if (result.raw.trim() === '' && !opts.signal?.aborted) {
+        silenceNudges += 1;
         debug?.(
           `[gate] uat tester ticket ${opts.ticketId}: target ${target.repo} answered nothing — re-asking once`,
         );
@@ -512,6 +517,11 @@ export async function runUatTester(
       });
       collected.push(...parsed);
     }
+    // Record how many targets needed the silence nudge (v57 prompt metrics) onto
+    // the run the tester opened — a late fact written before every close path, so
+    // a Stop mid-loop still records what fired. The re-ask RATE is the
+    // output-contract-compliance signal prompt-metrics.md reads.
+    setProcessRunPromptTelemetry(store, run.id, { silenceNudges });
     if (opts.signal?.aborted) {
       debug?.(`[gate] uat tester ticket ${opts.ticketId}: stopped — interrupted`);
       close('interrupted', 'interrupted');

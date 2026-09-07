@@ -939,3 +939,42 @@ describe('buildTesterPrompt', () => {
     expect(blank).toContain('Try to BREAK');
   });
 });
+
+describe('runUatTester — silence-nudge telemetry (v57)', () => {
+  let store: Store;
+  let ticketId: number;
+  beforeEach(() => {
+    store = openStore(':memory:');
+    ticketId = createTicketFlow(store, { key: 'T-1', title: 't' }).id;
+    transition(store, ticketId, 'scope', { kind: 'passed' });
+    transition(store, ticketId, 'impl', { kind: 'passed' });
+  });
+  afterEach(() => store.close());
+
+  const opts = (over: Partial<RunUatTesterOpts> = {}): RunUatTesterOpts => ({
+    ticketId,
+    targets: TARGETS,
+    assignment: ASSIGNMENT,
+    adapter: rawAdapter('[]').adapter,
+    git: neverGit,
+    ...over,
+  });
+
+  it('records a nudge fire count when a silent target is re-asked', async () => {
+    let n = 0;
+    const { adapter } = fakeAdapter(async () => {
+      n += 1;
+      // Empty first (triggers the ONE re-ask), an answer second.
+      return { sessionId: '', verdict: null, raw: n === 1 ? '' : '[]' };
+    });
+    await runUatTester(store, opts({ adapter }), { now });
+    const run = listProcessRuns(store, ticketId)[0]!;
+    expect(run.promptTelemetry).toMatchObject({ silenceNudges: 1 });
+  });
+
+  it('records zero when no target was ever silent', async () => {
+    await runUatTester(store, opts(), { now });
+    const run = listProcessRuns(store, ticketId)[0]!;
+    expect(run.promptTelemetry).toMatchObject({ silenceNudges: 0 });
+  });
+});
