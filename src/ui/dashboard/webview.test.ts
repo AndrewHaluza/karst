@@ -1801,13 +1801,18 @@ describe('dashboard webview.html', () => {
     expect(wide).toMatch(/#inside \.op summary,#inside \.op-static\{grid-template-columns:20px minmax\(68px,86px\)/);
     expect(wide).toMatch(/#inside \.finding-title,#inside \.ev-detail,#inside \.done-copy,#inside \.op-detail\{/);
     // The glyph track leads even at 430px — the status is never the cell that
-    // gets dropped (UI-R04/R05); the repo column is.
-    expect(wide).toMatch(/#inside \.gate-row\{grid-template-columns:18px 70px minmax\(0,1fr\)\}/);
-    // Evidence rows keep three columns (label, detail, status) at 430px so the
-    // status glyph stays on its own line instead of collapsing into the detail.
-    // Glyph, label, detail at 430px — the status track leads and the timing
-    // re-areas onto the detail's track (never display:none — UI-R04/R05).
-    expect(wide).toMatch(/#inside \.evidence-row\{grid-template-columns:18px minmax\(60px,80px\) minmax\(0,1fr\)\}/);
+    // gets dropped (UI-R04/R05); the repo column is. Four rendered children
+    // (glyph, name, detail, state) need four named tracks — three tracks for
+    // four items wraps the detail into an implicit second row.
+    expect(wide).toMatch(/#inside \.gate-row\{grid-template-columns:18px 70px minmax\(0,1fr\) auto\}/);
+    // Same shape for generic evidence rows: glyph, label, detail, state — four
+    // items, four tracks, natural DOM-order auto-placement, no grid-column pin.
+    expect(wide).toMatch(/#inside \.evidence-row\{grid-template-columns:18px minmax\(60px,80px\) minmax\(0,1fr\) auto\}/);
+    // A track count that stops matching the rendered child count is exactly
+    // how the row silently wraps to two lines — guard against the pins that
+    // used to (wrongly) paper over a missing fourth track ever coming back.
+    expect(wide).not.toMatch(/#inside \.gate-state\{grid-column/);
+    expect(wide).not.toMatch(/#inside \.ev-state\{grid-column/);
     // The timeline keeps node/edge alignment (§10): its spine and time column
     // re-lock onto one line where the generic evidence detail now wraps.
     expect(wide).toMatch(

@@ -1193,12 +1193,14 @@
     #inside .duration,#inside .op-time{display:none}
     #inside .op-tail .agent-model{display:none}
     #inside .op-body{margin-left:20px}
-    #inside .gate-row{grid-template-columns:18px 70px minmax(0,1fr)}
+    /* Four rendered children at this width — glyph, name, detail, state —
+       get four named tracks, not three: an item left to auto-place wraps to
+       an implicit new row instead of sharing one (UI-R04/R05). The repo is
+       the cell that drops, never the status. */
+    #inside .gate-row{grid-template-columns:18px 70px minmax(0,1fr) auto}
     #inside .gate-repo{display:none}
-    #inside .gates.no-repo .gate-row{grid-template-columns:18px 70px minmax(0,1fr)}
-    #inside .gate-state{grid-column:3}
-    #inside .evidence-row{grid-template-columns:18px minmax(60px,80px) minmax(0,1fr)}
-    #inside .ev-state{grid-column:3}
+    #inside .gates.no-repo .gate-row{grid-template-columns:18px 70px minmax(0,1fr) auto}
+    #inside .evidence-row{grid-template-columns:18px minmax(60px,80px) minmax(0,1fr) auto}
     #inside .finding{grid-template-columns:56px minmax(0,1fr)}
     #inside .finding-loc{grid-column:2}
     #inside .finding-time{display:none}
