@@ -10,6 +10,7 @@ import { runPhaseCommand } from './phase.js';
 import { runGraphCommand } from './graph.js';
 import { runNodeCommand } from './node.js';
 import { runGuideCommand } from './guide.js';
+import { readGuideAttribution, recordGuidePull } from './guideTelemetry.js';
 import { runCompactCommand } from './compact.js';
 import { resolveTicketByKey } from './resolveTicket.js';
 import { runTestCommand, parseTestArgs } from './test/main.js';
@@ -244,10 +245,28 @@ export function runCli(argv: string[]): string {
     }
   }
 
-  // The guide is static karst-authored content: no DB, no manifest, no ticket.
-  // Read-only by construction (it never opens the store at all).
+  // The guide is static karst-authored content: its TEXT is argv-only and never
+  // reads the DB. Attribution is a SEPARATE, best-effort side effect after the
+  // text is produced — a `guide-pull` process run recorded only when the launch
+  // env points at a registry and ticket (an agent inside a session). A bare
+  // `karst guide` from a shell still returns the manual and touches no store.
   if (subcommand === 'guide') {
-    return runGuideCommand(rest);
+    const guide = runGuideCommand(rest);
+    const a = readGuideAttribution(process.env);
+    if (a.dbPath && a.ticketId !== null) {
+      try {
+        const store = openWritableStore(a.dbPath);
+        try {
+          recordGuidePull(store, a, () => new Date().toISOString());
+        } finally {
+          store.close();
+        }
+      } catch {
+        // Attribution is telemetry, never authoritative: a store/migration fault
+        // here must not corrupt or block the guide the agent came to read.
+      }
+    }
+    return guide;
   }
 
   // Compact archived worktrees and sweep orphan branches/refs.

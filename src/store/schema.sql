@@ -191,6 +191,7 @@ CREATE TABLE IF NOT EXISTS process_runs (
   status        TEXT NOT NULL CHECK (status IN ('running','passed','failed','interrupted','stale')),
   result_kind   TEXT,                 -- the outcome's verdict kind, when the process has one
   artifact_path TEXT,                 -- path of the artifact the process produced, if any
+  prompt_telemetry TEXT,              -- v57: JSON blob of prompt-effectiveness facts for this run
   started_at    TEXT NOT NULL,
   ended_at      TEXT                  -- NULL while running AND on a stale run
 );

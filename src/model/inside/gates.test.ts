@@ -80,6 +80,7 @@ function processRun(extra: Partial<ProcessRun> = {}): ProcessRun {
     status: 'passed',
     resultKind: 'observed',
     artifactPath: null,
+    promptTelemetry: null,
     startedAt: '2026-07-20T12:00:00.000Z',
     endedAt: '2026-07-20T12:01:00.000Z',
     ...extra,

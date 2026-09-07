@@ -1094,7 +1094,7 @@ describe('SessionManager', () => {
 
     mgr.openSession(adapter, 7, '/wt/a');
 
-    expect(prepared).toEqual([{ ticketId: 7, launchId, resume: false, switchLaunch: false }]);
+    expect(prepared).toEqual([{ ticketId: 7, launchId, resume: false, switchLaunch: false, seedTelemetry: { seedChars: 0, guidePointer: false } }]);
   });
 
   it('an ordinary resume launch records resume: true', () => {
@@ -1108,7 +1108,7 @@ describe('SessionManager', () => {
 
     mgr.openSession(adapter, 7, '/wt/a', undefined, 'seed', undefined, undefined, 'sess-7');
 
-    expect(prepared).toEqual([{ ticketId: 7, launchId, resume: true, switchLaunch: false }]);
+    expect(prepared).toEqual([{ ticketId: 7, launchId, resume: true, switchLaunch: false, seedTelemetry: { seedChars: 4, guidePointer: false } }]);
   });
 
   it('an agent switch launch records switchLaunch: true', () => {
@@ -1123,7 +1123,7 @@ describe('SessionManager', () => {
     mgr.openSession(adapter, 7, '/wt/a', undefined, undefined, undefined, undefined, undefined,
       undefined, [], { allowResume: false, providerReady: true });
 
-    expect(prepared).toEqual([{ ticketId: 7, launchId, resume: false, switchLaunch: true }]);
+    expect(prepared).toEqual([{ ticketId: 7, launchId, resume: false, switchLaunch: true, seedTelemetry: { seedChars: 0, guidePointer: false } }]);
   });
 
   it('focusing an existing terminal invokes no launch callback', () => {
@@ -1162,6 +1162,7 @@ describe('SessionManager', () => {
       resume: false,
       switchLaunch: false,
       assignment: { agentName: 'UAT Fix Agent', provider: 'codex', model: 'sol' },
+      seedTelemetry: { seedChars: 0, guidePointer: false },
     }]);
   });
 
@@ -1176,7 +1177,7 @@ describe('SessionManager', () => {
 
     mgr.openSession(adapter, 7, '/wt/a');
 
-    expect(prepared).toEqual([{ ticketId: 7, launchId, resume: false, switchLaunch: false }]);
+    expect(prepared).toEqual([{ ticketId: 7, launchId, resume: false, switchLaunch: false, seedTelemetry: { seedChars: 0, guidePointer: false } }]);
   });
 
   it('records the session identity snapshot and returns it on demand', () => {

@@ -22,6 +22,12 @@ export type ProcessRunStatus = 'running' | 'passed' | 'failed' | 'interrupted' |
 /** The statuses a run can be CLOSED with. `stale` is never chosen, only found. */
 export type ProcessRunFinishStatus = 'passed' | 'failed' | 'interrupted';
 
+/** A single prompt-effectiveness fact value (v57). Scalars only — no nested objects. */
+export type PromptTelemetryValue = number | string | boolean | null;
+
+/** The decoded `prompt_telemetry` blob — an open key/value map, never a fixed shape. */
+export type PromptTelemetry = Record<string, PromptTelemetryValue>;
+
 export interface ProcessRun {
   id: number;
   ticketId: number;
@@ -50,6 +56,12 @@ export interface ProcessRun {
   resultKind: string | null;
   /** Path of the artifact the process produced, if any. Never backfilled. */
   artifactPath: string | null;
+  /**
+   * v57: prompt-effectiveness facts for this run, decoded from the `prompt_telemetry`
+   * JSON blob. NULL = nothing recorded (every pre-v57 row). Read, never invented —
+   * the codec below degrades an unparseable blob to NULL rather than guessing keys.
+   */
+  promptTelemetry: PromptTelemetry | null;
   startedAt: string;
   /**
    * NULL while running AND on a stale run. When a killed run stopped is
@@ -73,11 +85,40 @@ interface ProcessRunRow {
   status: string;
   result_kind: string | null;
   artifact_path: string | null;
+  prompt_telemetry: string | null;
   started_at: string;
   ended_at: string | null;
 }
 
 const STATUSES: readonly string[] = ['running', 'passed', 'failed', 'interrupted', 'stale'];
+
+/**
+ * Decode the v57 `prompt_telemetry` blob. NULL → NULL; a non-object (an array or
+ * a bare scalar written by a foreign tool) also degrades to NULL rather than
+ * carrying a shape no consumer reads. A read boundary never invents keys.
+ */
+function decodePromptTelemetry(raw: string | null): PromptTelemetry | null {
+  if (raw === null) return null;
+  try {
+    const v = JSON.parse(raw) as unknown;
+    return v && typeof v === 'object' && !Array.isArray(v) ? (v as PromptTelemetry) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Merge `patch` into an existing telemetry blob (v57). Pure so it is unit-testable
+ * without a store; the stored column is a flat map, so `patch` keys overwrite their
+ * namesakes and no existing key is ever dropped.
+ */
+export function mergePromptTelemetry(
+  existing: string | null,
+  patch: PromptTelemetry,
+): string {
+  const base = decodePromptTelemetry(existing) ?? {};
+  return JSON.stringify({ ...base, ...patch });
+}
 
 function rowToProcessRun(r: ProcessRunRow): ProcessRun {
   return {
@@ -97,6 +138,7 @@ function rowToProcessRun(r: ProcessRunRow): ProcessRun {
     status: (STATUSES.includes(r.status) ? r.status : 'stale') as ProcessRunStatus,
     resultKind: r.result_kind,
     artifactPath: r.artifact_path,
+    promptTelemetry: decodePromptTelemetry(r.prompt_telemetry),
     startedAt: r.started_at,
     endedAt: r.ended_at,
   };
@@ -105,7 +147,7 @@ function rowToProcessRun(r: ProcessRunRow): ProcessRun {
 const SELECT =
   `SELECT id, ticket_id, stage_key, process_id, attempt, stage_run_id,
           agent_name, provider, model, pid, status, result_kind, artifact_path,
-          started_at, ended_at
+          prompt_telemetry, started_at, ended_at
      FROM process_runs`;
 
 export interface OpenProcessRunInput {
@@ -120,6 +162,8 @@ export interface OpenProcessRunInput {
   pid?: number | null;
   resultKind?: string | null;
   artifactPath?: string | null;
+  /** v57: prompt-effectiveness facts recorded at open (seed length, guide pointer). */
+  promptTelemetry?: PromptTelemetry | null;
   startedAt: string;
 }
 
@@ -147,28 +191,29 @@ export function openProcessRun(store: Store, input: OpenProcessRunInput): Proces
           WHERE ticket_id = ? AND stage_key = ? AND process_id = ? AND status = 'running'`,
       )
       .run(input.ticketId, input.stageKey, input.processId);
-    const info = store.db
-      .prepare(
-        `INSERT INTO process_runs
-           (ticket_id, stage_key, process_id, attempt, stage_run_id,
-            agent_name, provider, model, pid, status, result_kind, artifact_path,
-            started_at, ended_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', ?, ?, ?, NULL)`,
-      )
-      .run(
-        input.ticketId,
-        input.stageKey,
-        input.processId,
-        input.attempt,
-        input.stageRunId ?? null,
-        input.agentName ?? null,
-        input.provider ?? null,
-        input.model ?? null,
-        input.pid ?? null,
-        input.resultKind ?? null,
-        input.artifactPath ?? null,
-        input.startedAt,
-      );
+     const info = store.db
+       .prepare(
+         `INSERT INTO process_runs
+            (ticket_id, stage_key, process_id, attempt, stage_run_id,
+             agent_name, provider, model, pid, status, result_kind, artifact_path,
+             prompt_telemetry, started_at, ended_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', ?, ?, ?, ?, NULL)`,
+       )
+       .run(
+         input.ticketId,
+         input.stageKey,
+         input.processId,
+         input.attempt,
+         input.stageRunId ?? null,
+         input.agentName ?? null,
+         input.provider ?? null,
+         input.model ?? null,
+         input.pid ?? null,
+         input.resultKind ?? null,
+         input.artifactPath ?? null,
+         input.promptTelemetry ? JSON.stringify(input.promptTelemetry) : null,
+         input.startedAt,
+       );
     insertedId = Number(info.lastInsertRowid);
   });
   apply();
@@ -240,6 +285,29 @@ export function reopenProcessRun(store: Store, id: number): boolean {
  */
 export function setProcessRunResultKind(store: Store, runId: number, resultKind: string): void {
   store.db.prepare('UPDATE process_runs SET result_kind = ? WHERE id = ?').run(resultKind, runId);
+}
+
+/**
+ * The v57 prompt-effectiveness late fact a run gains AFTER its outcome is known —
+ * the same single-late-fact allowance as `setProcessRunResultKind`: the findings
+ * extraction tier and the tester silence-nudge count are only knowable once their
+ * calls finish, so they merge onto the run's `prompt_telemetry` in place of opening
+ * a second row. Only `prompt_telemetry` is written (existing keys preserved); status,
+ * result_kind, and the identity snapshot are untouched. A missing run is a no-op:
+ * absence of evidence is never answered by inventing a row to hold a metric.
+ */
+export function setProcessRunPromptTelemetry(
+  store: Store,
+  runId: number,
+  telemetry: PromptTelemetry,
+): void {
+  const row = store.db
+    .prepare('SELECT prompt_telemetry FROM process_runs WHERE id = ?')
+    .get(runId) as { prompt_telemetry: string | null } | undefined;
+  if (row === undefined) return;
+  store.db
+    .prepare('UPDATE process_runs SET prompt_telemetry = ? WHERE id = ?')
+    .run(mergePromptTelemetry(row.prompt_telemetry, telemetry), runId);
 }
 
 /** Every run recorded for a ticket, oldest first (insertion order is run order). */

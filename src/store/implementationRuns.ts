@@ -1,5 +1,5 @@
 import type { Store } from './db.js';
-import { openProcessRun, finishProcessRun } from './processRuns.js';
+import { openProcessRun, finishProcessRun, type PromptTelemetry } from './processRuns.js';
 
 /**
  * The STABLE implementation run and its provider segments (v28).
@@ -162,6 +162,8 @@ export interface OpenImplementationRunInput {
   provider: string;
   model?: string | null;
   startedAt: string;
+  /** v57: prompt-effectiveness facts recorded at open (seed length, guide pointer). */
+  promptTelemetry?: PromptTelemetry | null;
 }
 
 /**
@@ -182,6 +184,7 @@ export function openImplementationRun(store: Store, input: OpenImplementationRun
     attempt: input.attempt,
     provider: input.provider,
     model: input.model ?? null,
+    promptTelemetry: input.promptTelemetry ?? null,
     startedAt: input.startedAt,
   });
   const info = store.db

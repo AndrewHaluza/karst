@@ -47,6 +47,7 @@ function fixRun(extra: Partial<ProcessRun> = {}): ProcessRun {
     status: 'passed',
     resultKind: null,
     artifactPath: null,
+    promptTelemetry: null,
     startedAt: '2026-07-20T12:05:00.000Z',
     endedAt: '2026-07-20T12:06:00.000Z',
     ...extra,

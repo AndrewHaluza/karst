@@ -14,6 +14,8 @@
  * reused by the `karst context` CLI; this module only composes the sections.
  */
 
+import { seedCharLength, seedHasGuide } from './promptTelemetry.js';
+
 /**
  * Compose the session seed from pre-rendered parts. Returns `undefined` only
  * when there is genuinely nothing to say (no invocation, no context, no method)
@@ -47,4 +49,24 @@ export function buildSessionSeed(
   if (marker) sections.push(marker);
   if (sections.length === 0) return undefined;
   return sections.join('\n\n');
+}
+
+/** The seed seam's own effectiveness telemetry: composed length + guide-pointer presence. */
+export interface SeedTelemetry {
+  seedChars: number;
+  guidePointer: boolean;
+}
+
+/**
+ * Measure a composed seed at the seam that produced it. `buildSessionSeed` hands
+ * back a plain string; this reads back the two prompt-effectiveness facts the
+ * launch records onto its `process_runs` row (docs/arch/prompt-metrics.md): how
+ * many characters of resident context the agent opened with, and whether the
+ * guide pointer was among them. It changes nothing about the seed.
+ */
+export function measureSeed(seed: string | undefined, guideMarker?: string): SeedTelemetry {
+  return {
+    seedChars: seedCharLength(seed),
+    guidePointer: seedHasGuide(seed, guideMarker),
+  };
 }

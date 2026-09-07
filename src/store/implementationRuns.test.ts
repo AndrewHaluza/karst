@@ -53,6 +53,21 @@ describe('implementation runs and segments', () => {
     expect(processRuns[0]!.attempt).toBe(0);
   });
 
+  it('records seed promptTelemetry onto the session process run at open', () => {
+    const run = openImplementationRun(store, {
+      ticketId,
+      attempt: 0,
+      provider: 'claude',
+      startedAt: '2026-08-01T10:00:00.000Z',
+      promptTelemetry: { seedChars: 512, guidePointer: true, core: 'claude' },
+    });
+    expect(getProcessRunById(store, run.processRunId)!.promptTelemetry).toEqual({
+      seedChars: 512,
+      guidePointer: true,
+      core: 'claude',
+    });
+  });
+
   it('an ordinary first launch creates the first segment without any switch intent', () => {
     recordSessionLaunchIntent(store, {
       ticketId, launchId: 'l1', purpose: 'implementation', provider: 'claude', model: 'opus',

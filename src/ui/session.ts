@@ -1,6 +1,7 @@
 import type { AgentAdapter, HookChannel } from '../agent/adapter.js';
 import { cleanupOwnedPaths } from '../agent/materializedCleanup.js';
 import type { ProcessAssignmentSnapshot } from '../agent/processAssignment.js';
+import { measureSeed, type SeedTelemetry } from '../agent/seed.js';
 
 /**
  * The subset of a `vscode.Terminal` the manager touches. Modeling it as an
@@ -30,6 +31,10 @@ export interface SessionTerminal {
 export const KARST_TICKET_ENV = 'KARST_TICKET_ID';
 /** Environment key that preserves the terminal's provider-neutral generation. */
 export const KARST_LAUNCH_ENV = 'KARST_LAUNCH_ID';
+/** Env key pointing the agent at the registry so a `karst guide` pull is attributable. */
+export const KARST_DB_ENV = 'KARST_DB';
+/** Env key naming the core so a `karst guide` pull is attributed per core. */
+export const KARST_PROVIDER_ENV = 'KARST_PROVIDER';
 
 /**
  * The ticket a terminal was launched for, read back out of its environment.
@@ -116,6 +121,12 @@ export interface OpenSessionOptions {
    * CONFIGURED identity. Host-internal: never accepted from a webview message.
    */
   assignment?: ProcessAssignmentSnapshot;
+  /**
+   * v57 prompt-metrics: the registry file path this session's agent should be
+   * able to attribute a `karst guide` pull to. Threaded onto the terminal env as
+   * `KARST_DB`. Host-internal — never accepted from a webview message.
+   */
+  dbPath?: string | null;
 }
 
 /**
@@ -213,6 +224,13 @@ export interface LaunchPreparedInfo {
    * with the CONFIGURED snapshot, never re-resolve it later.
    */
   assignment?: ProcessAssignmentSnapshot;
+  /**
+   * v57 prompt-metrics: the composed seed's measured length + whether the guide
+   * pointer rode it, so the host records them onto the launch's process run. A
+   * resume/switch seed carries no pointer — the asymmetry is the denominator this
+   * metric needs, so it is measured, never assumed.
+   */
+  seedTelemetry?: SeedTelemetry;
 }
 export type OnLaunchPrepared = (info: LaunchPreparedInfo) => void;
 /** A terminal creation failed synchronously for the named launch. */
@@ -442,6 +460,7 @@ export class SessionManager {
         resume: Boolean(resume),
         switchLaunch: options.allowResume === false && options.providerReady === true,
         ...(options.assignment ? { assignment: options.assignment } : {}),
+        seedTelemetry: measureSeed(initialPrompt),
       });
     }
 
@@ -457,6 +476,8 @@ export class SessionManager {
           ...cmd.env,
           [KARST_TICKET_ENV]: String(ticketId),
           ...(launchId ? { [KARST_LAUNCH_ENV]: launchId } : {}),
+          ...(options.dbPath ? { [KARST_DB_ENV]: options.dbPath } : {}),
+          ...(identity?.provider ? { [KARST_PROVIDER_ENV]: identity.provider } : {}),
         },
         ...(identity ? { identity } : {}),
         ...(options.reveal === false ? { hideFromUser: true } : {}),

@@ -153,7 +153,11 @@ export function parseGuideArgs(argv: string[]): void {
 
 /**
  * Run the `guide` verb: validate argv and return the manual. Throws on
- * malformed argv; the content itself never fails.
+ * malformed argv; the content itself never fails. PURE by contract — it reads
+ * only argv and returns text, never the DB or a store. Guide-PULL attribution
+ * (prompt-metrics.md) is recorded separately at the `cli/main.ts` dispatch
+ * boundary, best-effort, AFTER this returns; it is not this function's concern
+ * and never blocks or corrupts what the agent reads.
  */
 export function runGuideCommand(argv: string[]): string {
   parseGuideArgs(argv);

@@ -40,7 +40,7 @@ export function readSchema(): string {
 }
 
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 56;
+export const SCHEMA_VERSION = 57;
 
 /** v2 ticket-field columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -2139,6 +2139,24 @@ export function migrate(db: Database): void {
     const prCols56 = tableColumns(db, 'prs');
     if (prCols56.size > 0 && !prCols56.has('dismissed_at')) {
       db.exec('ALTER TABLE prs ADD COLUMN dismissed_at TEXT');
+    }
+  }
+
+  if (current < 57) {
+    // v57: `process_runs.prompt_telemetry` — a JSON blob of prompt-effectiveness
+    // facts recorded at the agent seams (seed length + guide-pointer presence on
+    // the launch's `session` run; the findings extraction tier on the review run;
+    // the tester's silence-nudge count; a `guide-pull` attribution row). A single
+    // nullable JSON column rather than one column per metric on purpose: these
+    // facts are read together as one telemetry rollup, never filtered per-metric
+    // in SQL, and a JSON blob is the only shape that lets the ONE append-only
+    // writer carry all of them without a new table (docs/arch/prompt-metrics.md).
+    // NULL means "never recorded" — true of every pre-v57 row — and is NEVER
+    // backfilled: a prompt-effectiveness baseline read out of invented numbers is
+    // the exact mistake this ticket exists to stop.
+    const prCols57 = tableColumns(db, 'process_runs');
+    if (prCols57.size > 0 && !prCols57.has('prompt_telemetry')) {
+      db.exec('ALTER TABLE process_runs ADD COLUMN prompt_telemetry TEXT');
     }
   }
 
