@@ -137,27 +137,58 @@ export function renderWorkflowCommand(input: {
   guideCommand?: string;
 }): string {
   const { id, label, phases, contextCommand, stageCommand, phaseCommand, guideCommand } = input;
+  // Every CLI command this body inlines shares the same `node "<cli>"` head. Emit
+  // that shared invocation ONCE as the `KARST` alias at the top of the body, then
+  // write the informational steps (context load, guide, phase-enter markers) as
+  // `$KARST <tail>` — the same command the agent runs, without the repeated
+  // absolute path. Only the steps that USE the alias (`context`/`guide`/`phase`)
+  // drive it; the done-marker is never aliased (see the closing note below).
+  const aliasCommands = [
+    contextCommand,
+    guideCommand,
+    ...(phaseCommand ? phases.map((p) => phaseCommand(p.name)) : []),
+  ].filter((c): c is string => typeof c === 'string');
+  let karstAlias: string | undefined;
+  let expand = (cmd: string): string => cmd;
+  if (aliasCommands.length > 0) {
+    // The shared head `node "<cli>"`. Guarded: an unexpected first command that
+    // is not a `node` invocation simply disables the alias instead of crashing.
+    const head = /^node ("[^"]+"|[^\s]+)/.exec(aliasCommands[0]!)?.[0];
+    if (head) {
+      karstAlias = head;
+      expand = (cmd) => `$KARST ${cmd.slice(head.length).trim()}`;
+    }
+  }
+  const karstBlock = karstAlias
+    ? [
+        '`$KARST` is the CLI invocation defined once here — expand it in place when you run a command:',
+        '',
+        `KARST = ${karstAlias}`,
+        '',
+      ]
+    : [];
   const loadInstruction = contextCommand
     ? 'This command receives a ticket key as its argument, available in `$ARGUMENTS`. ' +
-      `First, load the ticket's full context by running \`${contextCommand} $ARGUMENTS\` ` +
+      `First, load the ticket's full context by running \`${expand(contextCommand)} $ARGUMENTS\` ` +
       'and read the result — re-run it any time you need to refresh live worktree, ' +
       'branch, service, or PR state.'
     : 'This command receives a ticket key as its argument, available in `$ARGUMENTS`. ' +
       'First, read and describe the ticket identified by `$ARGUMENTS` so you understand ' +
       'what is being asked before proceeding.';
   const guideClause = guideCommand
-    ? ` ${GUIDE_POINTER_INTRO}, run \`${guideCommand}\`.`
+    ? ` ${GUIDE_POINTER_INTRO}, run \`${expand(guideCommand)}\`.`
     : '';
   const lines: string[] = [
     `# ${label}`,
     '',
+    ...karstBlock,
     loadInstruction + guideClause,
     '',
     ...(phaseCommand
       ? [
           'Phase marker commands write Karst state outside the worktree. If the workspace ' +
-            'sandbox denies one, request approval to run that exact marker command outside ' +
-            'the workspace sandbox.',
+            'sandbox denies one, request approval to run that exact phase marker command — ' +
+            'with `$KARST` expanded to its full invocation — outside the workspace sandbox.',
           '',
         ]
       : []),
@@ -178,12 +209,20 @@ export function renderWorkflowCommand(input: {
     // (§8, command-line noise). "Report entering" — a mark says the agent said
     // it was starting this phase, never that it completed one.
     if (phaseCommand) {
-      parts.push(`First run \`${phaseCommand(phase.name)} $ARGUMENTS\` to report entering it.`);
+      parts.push(
+        `First run \`${expand(phaseCommand(phase.name))} $ARGUMENTS\` to report entering it.`,
+      );
     }
     if (phase.command !== undefined) parts.push(`Run the \`${phase.command}\` slash command.`);
     else parts.push('Handle this step manually (no native slash command for this phase).');
     lines.push(`${step}. ${parts.join(' — ')}`);
   });
+  // The done-marker is the ONE command that MUST run: firing it is what advances
+  // the ticket, and the same instruction is seeded verbatim (where no alias is
+  // defined). It is therefore rendered as a fully-expanded invocation a shell can
+  // execute as written — a documented alias is not in scope for the fresh shell a
+  // marker is run in. The phase-enter markers above are informational and may use
+  // `$KARST`; this closing instruction never does.
   if (stageCommand) {
     lines.push('', renderDoneMarkerInstruction(stageCommand, '$ARGUMENTS'));
   }

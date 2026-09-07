@@ -536,8 +536,8 @@ describe('ClaudeAdapter.materializeApproach', () => {
       join(sessionDir, '.karst-plugin', 'karst', 'commands', 'rpi.md'),
       'utf8',
     );
-    expect(body).toContain('node "/ext/cli.js" phase research --db "/x.db" --ticket $ARGUMENTS');
-    expect(body).toContain('node "/ext/cli.js" phase plan --db "/x.db" --ticket $ARGUMENTS');
+    expect(body).toContain('$KARST phase research --db "/x.db" --ticket $ARGUMENTS');
+    expect(body).toContain('$KARST phase plan --db "/x.db" --ticket $ARGUMENTS');
   });
 
   it('leaves the orchestrator free of phase markers when no cliPhasePrefix is given', () => {
