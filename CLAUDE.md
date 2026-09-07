@@ -35,6 +35,8 @@ On VS Code upgrade that changes ABI: update the `darwin-arm64-<N>` folder name +
 - **GitHub and merge** — merge-tree output parsing, PR facts as re-probed state, the merge action's trust rule, the merged-PR read filter → `docs/arch/github-and-merge.md`
 - **Manifest and Settings** — repository-primary/service-optional, tab-scoped Save, process-assignment profiles as prompts, the new-field checklist → `docs/arch/manifest-and-settings.md`
 - **Diagnostics** — reporting observes and never reaches back, the two halves of a hook failure, the finalized-snapshot prefill → `docs/arch/diagnostics.md`
+- **Prompt-effectiveness metrics** — the metric set, the one `prompt_telemetry` blob (v57) and its late-fact setter, the per-core guide-pull rate that gates ticket 12, and the committed baseline → `docs/arch/prompt-metrics.md`
+- **Prompt-effectiveness metrics** — the metric set, the one `prompt_telemetry` blob (v57) and its late-fact setter, the per-core guide-pull rate that gates ticket 12, and the committed baseline → `docs/arch/prompt-metrics.md`
 - **UI invariants** — the karst-specific rationale behind the UI rules, plus the title-key and Getting-Started surface rules → `docs/ui/UI-INVARIANTS.md`
 - **Native ABI, approach packages** — `docs/arch/ABI.md`, `docs/arch/approaches.md`
 
