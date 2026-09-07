@@ -1032,7 +1032,7 @@
   #inside .recovery-pill.exhausted{border-color:var(--p-failed);color:var(--p-failed)}
   #inside .recovery-history{margin-bottom:var(--p-s2);border:var(--k-border-w) solid var(--p-border);
     border-radius:var(--p-r1);overflow:hidden;background:var(--p-surface)}
-  #inside .recovery-round{display:grid;grid-template-columns:56px minmax(0,1fr) auto auto;gap:var(--p-s2);
+  #inside .recovery-round{display:grid;grid-template-columns:18px 56px minmax(0,1fr) auto;gap:var(--p-s2);
     align-items:center;min-height:27px;padding:0 var(--p-s2);border-bottom:var(--k-border-w) solid var(--p-border)}
   #inside .recovery-round:last-child{border-bottom:0}
   #inside .recovery-num{color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs)}
@@ -1040,11 +1040,6 @@
     color:var(--p-text);font-size:var(--p-sm)}
   #inside .recovery-timing{display:flex;align-items:center;gap:var(--p-s2);color:var(--p-muted2);
     font-family:var(--p-mono);font-size:var(--p-xs);white-space:nowrap}
-  #inside .recovery-result{display:inline-flex;align-items:center;justify-content:flex-end;gap:var(--p-s2);
-    color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs);white-space:nowrap}
-  #inside .recovery-result.run{color:var(--p-running)}
-  #inside .recovery-result.fail{color:var(--p-failed)}
-  #inside .recovery-result.pass{color:var(--p-passed)}
 
   /* Done: the compact delivery receipt */
   #inside .done-receipt{padding:0 0 var(--p-s2)}
@@ -1227,9 +1222,8 @@
     #inside .phase-time,#inside .timeline-tail{display:none}
     #inside .session-foot{flex-wrap:wrap}
     #inside .session-foot .session-rule{margin-left:0;width:100%}
-    #inside .recovery-round{grid-template-columns:48px minmax(0,1fr)}
+    #inside .recovery-round{grid-template-columns:18px 48px minmax(0,1fr)}
     #inside .recovery-timing{display:none}
-    #inside .recovery-result{grid-column:2}
     /* The node list's control stays in its own `auto` track and the meta
        column (kind · status) drops rather than crushing the control's track
        toward zero width — the crushed-and-escaped control at narrow panel
@@ -2805,16 +2799,17 @@
       : '';
     return `<div class="done-receipt">${hero}${blocks}${timing}${details}</div>`;
   }
+  // A round with no recorded status still shows a glyph: `note` is the neutral
+  // outcome the history has always drawn for an unresolved round, so the row
+  // is normalised (never mutated) before the shared glyph cell renders it.
   function evidenceRecoveryHtml(ev) {
     return `<div class="recovery-history">${ev.rows.map((r) => `<div class="recovery-round">`
+      + evGlyphHtml({ ...r, status: r.status || 'note' })
       + `<span class="recovery-num">${esc(r.label)}</span>`
       + `<span class="recovery-cause">${esc(r.detail || '')}</span>`
       + `<span class="recovery-timing">`
       + (r.time ? `<span title="started ${esc(r.time)}">${esc(r.time)}</span>` : '')
       + (r.duration ? `<span class="ev-dur"${r.durationExact ? ` title="${esc(r.durationExact)}"` : ''}>${esc(r.duration)}</span>` : '')
-      + `</span>`
-      + `<span class="recovery-result ${esc(r.status || '')}">`
-      + `<span class="glyph ${esc(r.status || 'note')}" aria-label="${esc(statusWord(r.status || 'note'))}"></span>`
       + `</span>`
       + `</div>`).join('')}</div>`;
   }

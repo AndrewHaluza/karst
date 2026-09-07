@@ -1758,6 +1758,16 @@ describe('dashboard webview.html', () => {
     expect(HTML).toMatch(/#inside \.evidence-row\{display:grid;grid-template-columns:18px minmax\(74px,100px\) minmax\(0,1fr\) auto;/);
   });
 
+  it('leads every recovery round with its status glyph (UI-R28b)', () => {
+    const fn = HTML.slice(HTML.indexOf('function evidenceRecoveryHtml(ev) {'),
+      HTML.indexOf('function evidenceRecoveryHtml(ev) {') + 800);
+    expect(fn.indexOf('evGlyphHtml(')).toBeGreaterThan(-1);
+    expect(fn.indexOf('evGlyphHtml(')).toBeLessThan(fn.indexOf('recovery-num'));
+    // The trailing status cell is gone; the timing is the row's last item.
+    expect(fn).not.toContain('recovery-result');
+    expect(HTML).toMatch(/#inside \.recovery-round\{display:grid;grid-template-columns:18px 56px minmax\(0,1fr\) auto;/);
+  });
+
   it('makes the inside block its own query container (B7)', () => {
     // The responsive rules are CONTAINER queries on #inside itself, so they
     // follow the panel's real width (the old preview's width frame targeted
@@ -3643,7 +3653,9 @@ describe('inside render round trip (executed in a VM)', () => {
     const html = h.htmlOf('inside');
     // The status WORD is gone from the rendered row; it survives only as the
     // glyph's accessible name — the same trade `evGlyphHtml` documents.
-    expect(html).not.toContain('<span class="recovery-result run">running</span>');
+    // No status WORD anywhere in the round (UI-R28b) — the glyph carries it.
+    expect(html).not.toContain('recovery-result');
+    expect(html).toContain('<span class="ev-glyph"><span class="glyph run"');
     expect(html).toContain('<span class="glyph run" aria-label="running"></span>');
     expect(html).toContain('<span class="glyph pass" aria-label="passed"></span>');
   });
@@ -3691,7 +3703,7 @@ describe('inside render round trip (executed in a VM)', () => {
     expect(html).toContain('11:45:27 PM');
     expect(html).toContain('<span class="ev-dur" title="75.000s">1m 15s</span>');
     expect(html).toContain('<span class="ev-dur" title="31.900s">31.9s</span>');
-    // The glyph is still in the separate .recovery-result cell.
+    // The glyph is the round's leading `.ev-glyph` cell.
     expect(html).toContain('<span class="glyph fail" aria-label="failed"></span>');
     expect(html).toContain('<span class="glyph run" aria-label="running"></span>');
   });
@@ -3793,14 +3805,19 @@ describe('inside render round trip (executed in a VM)', () => {
   });
 
   it('keeps the recovery round word on the glyph only, never rendered text (source)', () => {
+    // The round's status word no longer renders inline here at all —
+    // `evidenceRecoveryHtml` delegates the glyph cell to the shared
+    // `evGlyphHtml`, which is the row shapes' ONE place `statusWord(...)`
+    // feeds an accessible name (pinned by ROLE, not by expression text).
     const fn = /function evidenceRecoveryHtml[\s\S]*?\n  \}/.exec(HYDRATED)?.[0];
     expect(fn).toBeTruthy();
-    // The word is used exactly once, and that one use is the glyph's
-    // accessible name — pinned by ROLE rather than by the expression's text,
-    // so the status fallback can match the class's without this failing.
-    expect(fn!.match(/statusWord\(/g)).toHaveLength(1);
-    expect(fn!).toMatch(/aria-label="\$\{esc\(statusWord\(/);
+    expect(fn!).toMatch(/evGlyphHtml\(\{ \.\.\.r, status: r\.status \|\| 'note' \}\)/);
+    expect(fn!).not.toContain('statusWord(');
     expect(fn!).not.toContain('esc(r.duration || statusWord(r.status))');
+    const glyphFn = /function evGlyphHtml[\s\S]*?\n  \}/.exec(HYDRATED)?.[0];
+    expect(glyphFn).toBeTruthy();
+    expect(glyphFn!.match(/statusWord\(/g)).toHaveLength(1);
+    expect(glyphFn!).toMatch(/aria-label="\$\{esc\(statusWord\(/);
   });
 });
 
