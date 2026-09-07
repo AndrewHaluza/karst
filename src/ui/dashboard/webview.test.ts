@@ -1708,14 +1708,11 @@ describe('dashboard webview.html', () => {
     expect(detail).not.toContain('overflow-x');
   });
 
-  it('positions evidence row glyphs on the left, not the right', () => {
-    // The ev-state span is display:inline-flex with justify-content, which
-    // controls where the glyph sits inside the span. The default (flex-start)
-    // puts the glyph on the left; flex-end pushes it right.
-    // The fix adds a dedicated .ev-state rule with flex-start; verify it exists.
-    expect(HTML).toMatch(/#inside \.ev-state\{[^}]*justify-content:flex-start/);
-    // Gate rows keep flex-end — their glyph position is already correct.
-    // The combined .gate-state rule should still have flex-end.
+  it('positions the row status glyph in its own leading cell, not the tail', () => {
+    // The glyph is no longer aligned INSIDE a trailing cell — it is its own
+    // first grid item, and the trailing cell holds only time and duration.
+    expect(HTML).toMatch(/#inside \.ev-glyph\{[^}]*justify-content:center/);
+    expect(HTML).toMatch(/#inside \.ev-state\{[^}]*justify-content:flex-end/);
     expect(HTML).toMatch(/#inside \.gate-state\{[^}]*justify-content:flex-end/);
   });
 
@@ -1750,6 +1747,15 @@ describe('dashboard webview.html', () => {
     // repo-bearing and the repo-less shapes.
     expect(HTML).toMatch(/#inside \.gate-row\{display:grid;grid-template-columns:18px minmax\(74px,90px\) minmax\(110px,150px\) minmax\(0,1fr\) auto;/);
     expect(HTML).toMatch(/#inside \.gates\.no-repo \.gate-row\{grid-template-columns:18px minmax\(110px,150px\) minmax\(0,1fr\) auto\}/);
+  });
+
+  it('leads every generic evidence row with its status glyph (UI-R28b)', () => {
+    const fn = HTML.slice(HTML.indexOf('function evidenceRowsHtml(ev) {'),
+      HTML.indexOf('function evidenceRowsHtml(ev) {') + 700);
+    expect(fn.indexOf('evGlyphHtml(r)')).toBeGreaterThan(-1);
+    expect(fn.indexOf('evGlyphHtml(r)')).toBeLessThan(fn.indexOf('ev-key'));
+    expect(fn.indexOf('ev-detail')).toBeLessThan(fn.indexOf("evTimingHtml(r, 'ev-state')"));
+    expect(HTML).toMatch(/#inside \.evidence-row\{display:grid;grid-template-columns:18px minmax\(74px,100px\) minmax\(0,1fr\) auto;/);
   });
 
   it('makes the inside block its own query container (B7)', () => {
@@ -1789,7 +1795,9 @@ describe('dashboard webview.html', () => {
     expect(wide).toMatch(/#inside \.gate-row\{grid-template-columns:18px 70px minmax\(0,1fr\)\}/);
     // Evidence rows keep three columns (label, detail, status) at 430px so the
     // status glyph stays on its own line instead of collapsing into the detail.
-    expect(wide).toMatch(/#inside \.evidence-row\{grid-template-columns:minmax\(60px,80px\) minmax\(0,1fr\) auto\}/);
+    // Glyph, label, detail at 430px — the status track leads and the timing
+    // re-areas onto the detail's track (never display:none — UI-R04/R05).
+    expect(wide).toMatch(/#inside \.evidence-row\{grid-template-columns:18px minmax\(60px,80px\) minmax\(0,1fr\)\}/);
     // The timeline keeps node/edge alignment (§10): its spine and time column
     // re-lock onto one line where the generic evidence detail now wraps.
     expect(wide).toMatch(

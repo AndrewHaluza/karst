@@ -837,7 +837,7 @@
     padding:var(--p-s2) 0 var(--p-s2) var(--p-s3)}
 
   /* Generic evidence rows */
-  #inside .evidence-row{display:grid;grid-template-columns:minmax(74px,100px) minmax(0,1fr) auto;
+  #inside .evidence-row{display:grid;grid-template-columns:18px minmax(74px,100px) minmax(0,1fr) auto;
     gap:var(--p-s2);align-items:center;min-height:26px;padding:0 var(--p-s2)}
   #inside .ev-key{color:var(--p-text);font-family:var(--p-mono);font-size:var(--p-xs);
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -851,7 +851,10 @@
   #inside .ev-state.wait,#inside .gate-state.wait{color:var(--p-attention)}
   #inside .ev-state.fail,#inside .gate-state.fail{color:var(--p-failed)}
   #inside .ev-state.skip,#inside .gate-state.skip{color:var(--p-skip)}
-  #inside .ev-state{justify-content:flex-start;gap:var(--p-s2)}
+  /* The timing cell is now the row's LAST item — the glyph it used to hold
+     moved to the leading `.ev-glyph` cell — so it aligns to the row's right
+     edge like every other trailing fact. */
+  #inside .ev-state{justify-content:flex-end;gap:var(--p-s2)}
   #inside .gate-state{gap:var(--p-s2)}
   #inside .ev-dur{color:var(--p-muted2)}
   #inside .ev-time{color:var(--p-muted2)}
@@ -1199,7 +1202,7 @@
     #inside .gate-repo{display:none}
     #inside .gates.no-repo .gate-row{grid-template-columns:18px 70px minmax(0,1fr)}
     #inside .gate-state{grid-column:3}
-    #inside .evidence-row{grid-template-columns:minmax(60px,80px) minmax(0,1fr) auto}
+    #inside .evidence-row{grid-template-columns:18px minmax(60px,80px) minmax(0,1fr)}
     #inside .ev-state{grid-column:3}
     #inside .finding{grid-template-columns:56px minmax(0,1fr)}
     #inside .finding-loc{grid-column:2}
@@ -2643,6 +2646,7 @@
   function evidenceRowsHtml(ev) {
     const nodes = ev.nodes && ev.nodes.length ? graphNodeListHtml(ev.nodes) : '';
     return nodes + ev.rows.map((r) => `<div class="evidence-row">`
+      + evGlyphHtml(r)
       + `<span class="ev-key">${esc(r.label)}</span>`
       + `<span class="ev-detail">${esc(r.detail || '')}`
       + (r.prState ? `<span class="pr-status ${esc(r.prState)}">${esc(r.prState)}</span>` : '')
