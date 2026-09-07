@@ -1,4 +1,5 @@
 import type { WorkflowPhase } from '../manifest/types.js';
+import { MARKER_REFUSED, GATE_DECIDED_BY_EXIT_CODES, GUIDE_POINTER_INTRO } from './promptText.js';
 
 /**
  * Name of the karst-authored plugin that hosts every generated orchestrator
@@ -62,9 +63,9 @@ export function renderDoneMarkerInstruction(stageCommand: string, ticketArg: str
     "When you have finished this stage's work — whether that is code, research, or a " +
     `confirmation — run \`${stageCommand} ${ticketArg}\` to record the done marker and ` +
     'advance the ticket to its next stage. A session ending does not advance the ticket ' +
-    'on its own — you must fire this marker explicitly. Do NOT fire it while you are ' +
+    `on its own — you must fire this marker explicitly. Do NOT fire it while you are ` +
     'waiting for the user to answer a question: a stage whose agent is waiting on the ' +
-    'user is not complete, and the marker will be refused. If access to the Karst registry ' +
+    `user is not complete, and the ${MARKER_REFUSED}. If access to the Karst registry ` +
     'is denied, request approval to run this exact marker command outside the workspace sandbox.'
   );
 }
@@ -79,7 +80,7 @@ export function renderDoneMarkerInstruction(stageCommand: string, ticketArg: str
  */
 export function renderGateOnlyInstruction(): string {
   return (
-    "This stage is decided by its gate exit codes, not by anything you report — " +
+    `This stage is ${GATE_DECIDED_BY_EXIT_CODES}, not by anything you report — ` +
     'there is no marker command to run here. Your job is to make the gates pass: ' +
     'do the work the gate is checking for, and Karst will detect the result and ' +
     'advance the ticket on its own once the checks are green.'
@@ -145,7 +146,7 @@ export function renderWorkflowCommand(input: {
       'First, read and describe the ticket identified by `$ARGUMENTS` so you understand ' +
       'what is being asked before proceeding.';
   const guideClause = guideCommand
-    ? ` To understand how Karst works and what this CLI can do, run \`${guideCommand}\`.`
+    ? ` ${GUIDE_POINTER_INTRO}, run \`${guideCommand}\`.`
     : '';
   const lines: string[] = [
     `# ${label}`,

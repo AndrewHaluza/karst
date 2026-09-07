@@ -44,6 +44,7 @@ import { recordUatFindings, type UatFindingInput } from '../../store/uatFindings
 import { parseFindingsResult, type FindingsParseShape, type WarnFn } from '../review/findings.js';
 import { isWrongCheckoutClaim } from '../review/checkoutClaim.js';
 import { buildScopeBlock } from '../agentScope.js';
+import { OUTPUT_RULES_HEADING, OUTPUT_RULES_BASE } from '../../agent/promptText.js';
 import { createReviewSnapshot, deleteReviewSnapshot } from '../reviewSnapshot.js';
 import { collapseDiagnostic } from '../../model/diagnosticText.js';
 import { nowIso } from '../../model/time.js';
@@ -316,11 +317,8 @@ export function buildTesterPrompt(
       snapshotRef,
     }),
     ``,
-    `Output rules (strict):`,
-    `- Output ONLY a JSON array, nothing else: no preamble, no markdown fence, no commentary.`,
-    `- Each element: {"severity": "critical"|"high"|"medium"|"low"|"info", "title": string, "detail": string, "file"?: string, "line"?: number}.`,
-    `- "file" must be a path RELATIVE to this worktree's root — never absolute, never outside it.`,
-    `- "title" is one short sentence; "detail" carries the explanation.`,
+    OUTPUT_RULES_HEADING,
+    ...OUTPUT_RULES_BASE,
     `- No observations worth reporting → output exactly [].`,
     `- These are OBSERVATIONS, not verdicts: you cannot pass or fail the ticket; you report what you found.`,
   ].join('\n');

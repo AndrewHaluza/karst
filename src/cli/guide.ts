@@ -12,7 +12,13 @@
  * source of truth, and `guide.test.ts` pins it to the real CLI so a new verb
  * or a changed stage set fails `npm test` until the guide mentions it — the
  * ticket's "kept updated always" requirement, enforced rather than promised.
+ *
+ * Reused sentences (the marker refusal, the guide pointer) are imported from
+ * `agent/promptText.ts` — the ONE source — so the guide can never drift from
+ * the workflow command and the ticket-context note.
  */
+
+import { MARKER_REFUSED, GUIDE_POINTER_INTRO } from '../agent/promptText.js';
 
 /**
  * The agent-facing manual. Karst-authored, trusted content — it may be
@@ -104,7 +110,7 @@ ticket would park with no way out.
    it is current state, not history.
 3. Fire the done marker ONLY when the stage's work is actually complete —
    code, research, or a confirmation all count; a half-done stage does not.
-   The marker is REFUSED while the agent is waiting for user input: if the
+   The ${MARKER_REFUSED} while the agent is waiting for user input: if the
    session is blocked on a question to the user, the stage is not done.
    On the dynamic graph approach, \`stage impl pass\` is also REFUSED for a
    ticket with no graph run at all — done means the graph work happened.
@@ -131,7 +137,7 @@ export function composeGuideCommand(cliEntry: string): string {
  */
 export function renderGuideInstruction(guideCommand: string): string {
   return (
-    'To understand how Karst works and what this CLI can do, run ' +
+    `${GUIDE_POINTER_INTRO}, run ` +
     `\`${guideCommand}\` and read its output.`
   );
 }
