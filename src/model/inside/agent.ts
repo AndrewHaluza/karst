@@ -164,6 +164,21 @@ export interface SegmentTokensInput {
   cacheRead?: number;
 }
 
+/** The phase name karst derives for the work that follows the last reported one. */
+const DERIVED_IMPLEMENT_PHASE = 'implement';
+
+/**
+ * The status of a phase nothing has superseded — read from the RUN, which is
+ * the only record entitled to say the work concluded. `passed` is the done
+ * marker; `running` is a live session; an interrupted run concluded nothing,
+ * so its open phase stays a bare note rather than borrowing a verdict.
+ */
+function openPhaseStatus(run: ImplementationTimeline['run']): InsideStatus {
+  if (run.status === 'passed') return 'pass';
+  if (run.status === 'running') return 'run';
+  return 'note';
+}
+
 function timelineEvents(
   timeline: ImplementationTimeline,
   marks: readonly PhaseMark[],
@@ -241,19 +256,51 @@ function timelineEvents(
     });
   }
 
-  for (const mark of marks) {
-    if (mark.stageKey !== 'impl') continue;
-    if (mark.implementationRunId !== null && mark.implementationRunId !== run.id) continue;
+  // The phase log, in the order the marks were filed. A mark is an ENTRY
+  // event, so ordering is what says a phase finished: a phase another entry
+  // superseded is over. That is a structural reading of the log — the same
+  // class of fact as the run's own status — not a guess about what the agent
+  // was doing between two marks.
+  const mine = marks.filter(
+    (m) =>
+      m.stageKey === 'impl' &&
+      (m.implementationRunId === null || m.implementationRunId === run.id),
+  );
+  const lastMark = mine.at(-1);
+  for (const mark of mine) {
     events.push({
       at: mark.markedAt,
       row: {
-        status: 'note',
+        status: mark === lastMark ? openPhaseStatus(run) : 'pass',
         label: mark.phaseName,
         // The prototype's acceptance copy: the phase name first, the report
         // stamp second. Ships pre-worded so the webview renders it verbatim.
         detail: `reported · ${formatTime(mark.markedAt)}`,
         // The design's short HH:MM in the timeline's own time cell.
         time: formatShortTime(mark.markedAt),
+        role: 'phase',
+      },
+    });
+  }
+
+  // The implementation itself, for a run whose approach declared phases but
+  // never filed one for the work that follows them. The done marker is what
+  // closes it — the SAME completion authority the `done` row states — so this
+  // row is a second reading of a recorded fact, never a report the agent made.
+  // It is worded `derived · …` for exactly that reason, and it is skipped both
+  // when the agent filed the phase itself and when the run reported no phases
+  // at all: the derivation extends an existing log, it does not invent one.
+  if (lastMark !== undefined && !mine.some((m) => m.phaseName === DERIVED_IMPLEMENT_PHASE)) {
+    const status = openPhaseStatus(run);
+    events.push({
+      at: lastMark.markedAt,
+      row: {
+        status,
+        label: DERIVED_IMPLEMENT_PHASE,
+        detail:
+          status === 'pass'
+            ? 'derived · closed by the done marker'
+            : 'derived · after the last reported phase',
         role: 'phase',
       },
     });

@@ -4,7 +4,11 @@ import { createTicket, getTicket } from '../store/tickets.js';
 import { dispatchHook, parseHookPayload } from './dispatch.js';
 import { createHookChannelRecorder } from '../diagnostics/hookChannel.js';
 import { recordSessionLaunchIntent } from '../store/sessionLaunchIntents.js';
-import { listImplementationTimeline } from '../store/implementationRuns.js';
+import {
+  completeImplementationRun,
+  listImplementationTimeline,
+  openImplementationRun,
+} from '../store/implementationRuns.js';
 import { listProcessRuns } from '../store/processRuns.js';
 import { listTokenUsage } from '../store/tokenUsage.js';
 import { lastInteractiveUsageSample } from '../store/interactiveUsageSamples.js';
@@ -197,6 +201,50 @@ describe('dispatchHook', () => {
     const before = getTicket(store, id).stageCurrent;
     dispatchHook(store, { hook_event_name: 'Stop', cwd: WT });
     expect(getTicket(store, id).stageCurrent).toBe(before);
+  });
+
+  describe('a turn that ends without the done marker is needs-you', () => {
+    function runningImplRun(id: number): void {
+      openImplementationRun(store, {
+        ticketId: id,
+        attempt: 0,
+        provider: 'claude',
+        startedAt: '2026-09-07T01:18:00.000Z',
+      });
+    }
+
+    it('Stop while an implementation run is still open reads waiting, not idle', () => {
+      // The agent ended its turn with a question in plain prose — no
+      // Notification kind describes that, so `Stop` is the only signal karst
+      // gets. A stage whose done marker has not fired is not finished, so the
+      // ticket needs the user, not a blue "in progress".
+      const id = ticketAt();
+      runningImplRun(id);
+      dispatchHook(store, { hook_event_name: 'Stop', cwd: WT });
+      expect(getTicket(store, id).agentState).toBe('waiting');
+    });
+
+    it('opencode session.idle follows the same rule', () => {
+      const id = ticketAt();
+      runningImplRun(id);
+      dispatchHook(store, { hook_event_name: 'session.idle', cwd: WT, session_id: 'ses_1' });
+      expect(getTicket(store, id).agentState).toBe('waiting');
+    });
+
+    it('Stop after the done marker fired reads idle', () => {
+      const id = ticketAt();
+      runningImplRun(id);
+      completeImplementationRun(store, id, '2026-09-07T01:40:00.000Z');
+      dispatchHook(store, { hook_event_name: 'Stop', cwd: WT });
+      expect(getTicket(store, id).agentState).toBe('idle');
+    });
+
+    it('SessionEnd stays idle — a closed terminal asks the user nothing', () => {
+      const id = ticketAt();
+      runningImplRun(id);
+      dispatchHook(store, { hook_event_name: 'SessionEnd', cwd: WT });
+      expect(getTicket(store, id).agentState).toBe('idle');
+    });
   });
 
   it('treats opencode session.idle as Stop and permission.asked as waiting', () => {
