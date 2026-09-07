@@ -246,6 +246,21 @@
     .status-modified { color: var(--k-warning); }
     .status-deleted { color: var(--k-danger); }
     .status-renamed { color: var(--k-pending); }
+    /* File row actions — small icon buttons shown on hover like the commit
+       copy-hash button. Full-width grid so the actions sit at the end. */
+    .file-actions {
+      display: flex;
+      gap: var(--k-space-1);
+      opacity: 0;
+    }
+    .file-row:hover .file-actions,
+    .file-actions:focus-within { opacity: 1; }
+    .file-actions button {
+      padding: 0;
+      min-width: auto;
+      font-size: var(--k-text-md);
+      line-height: 1;
+    }
     /* Directory rows (tree mode): a native <details>/<summary> disclosure
        (UI-R09), so aria-expanded and keyboard operation come from the browser.
        Indentation is recursive — every nesting level adds one --k-space-5 to
@@ -418,13 +433,21 @@
     const STATUS_LABEL = { added: 'Added', modified: 'Modified', deleted: 'Deleted', renamed: 'Renamed' };
     const CHEV = '<span class="chev" aria-hidden="true">›</span>';
 
-    function fileRow(file) {
+    function fileRow(file, isStaged) {
       const shown = file.oldPath ? `${file.oldPath} → ${file.path}` : file.path;
       const label = STATUS_LABEL[file.status] || 'Modified';
-      return `<button type="button" class="k-btn k-btn--ghost k-btn--row file" data-change-id="${esc(file.changeId)}">`
+      const actions = `<span class="file-actions">`
+        + `<button type="button" class="k-iconbtn" data-open-file="${esc(file.absolutePath)}" aria-label="Open file" title="Open file">↗</button>`
+        + `<button type="button" class="k-iconbtn" data-discard="${esc(file.changeId)}" aria-label="Discard changes" title="Discard changes">↩</button>`
+        + (isStaged ? `<button type="button" class="k-iconbtn" data-unstage="${esc(file.changeId)}" aria-label="Unstage" title="Unstage">⊖</button>` : '')
+        + `</span>`;
+      return `<div class="file-row">`
+        + `<button type="button" class="k-btn k-btn--ghost k-btn--row file" data-change-id="${esc(file.changeId)}">`
         + `<span class="file-path">${esc(shown)}</span>`
         + `<span class="status status-${esc(file.status)}" role="img" aria-label="${esc(label)}">${STATUS[file.status] || 'M'}</span>`
-        + `</button>`;
+        + `</button>`
+        + actions
+        + `</div>`;
     }
 
     function compareNames(a, b) {
@@ -439,7 +462,7 @@
       return dir.files.length + childTotal;
     }
 
-    function dirHtml(dir, groupKey, parentPath) {
+    function dirHtml(dir, groupKey, parentPath, isStaged) {
       const path = parentPath ? `${parentPath}/${dir.name}` : dir.name;
       const key = `${groupKey}:${path}`;
       const open = !collapsedDirs.has(key);
@@ -450,12 +473,12 @@
         + `<summary>${CHEV}<span class="dir-name">${esc(dir.name)}</span>`
         + `<span class="dir-count">${count}</span></summary>`
         + `<div class="dir-body">`
-        + subdirs.map((child) => dirHtml(child, groupKey, path)).join('')
-        + files.map(fileRow).join('')
+        + subdirs.map((child) => dirHtml(child, groupKey, path, isStaged)).join('')
+        + files.map((f) => fileRow(f, isStaged)).join('')
         + `</div></details>`;
     }
 
-    function treeHtml(files, groupKey) {
+    function treeHtml(files, groupKey, isStaged) {
       const root = { name: '', children: new Map(), files: [] };
       for (const file of files) {
         const parts = file.path.split('/');
@@ -476,18 +499,19 @@
       }
       const subdirs = [...root.children.values()].sort((a, b) => compareNames(a.name, b.name));
       const filesAtRoot = [...root.files].sort((a, b) => compareNames(a.path, b.path));
-      return subdirs.map((dir) => dirHtml(dir, groupKey, '')).join('') + filesAtRoot.map(fileRow).join('');
+      return subdirs.map((dir) => dirHtml(dir, groupKey, '', isStaged)).join('')
+        + filesAtRoot.map((f) => fileRow(f, isStaged)).join('');
     }
 
-    function filesList(files, groupKey) {
-      if (viewMode !== 'tree' || activeNeedle) return files.map(fileRow).join('');
-      return treeHtml(files, groupKey);
+    function filesList(files, groupKey, isStaged) {
+      if (viewMode !== 'tree' || activeNeedle) return files.map((f) => fileRow(f, isStaged)).join('');
+      return treeHtml(files, groupKey, isStaged);
     }
 
-    function pendingGroup(label, files, key) {
+    function pendingGroup(label, files, key, isStaged) {
       if (!files.length) return '';
       return `<details class="group" open><summary>${CHEV}${esc(label)}`
-        + `<span>${files.length}</span></summary>${filesList(files, key || label)}</details>`;
+        + `<span>${files.length}</span></summary>${filesList(files, key || label, isStaged)}</details>`;
     }
 
     const COPY_GLYPH = '⧉';
@@ -523,9 +547,9 @@
           ? `<details class="group" open><summary>${CHEV}COMMITS<span>${worktree.commits.length}</span></summary>`
             + `${worktree.commits.map(commitRow).join('')}</details>`
           : ''}`
-        + pendingGroup('STAGED CHANGES', worktree.staged, 'staged')
-        + pendingGroup('CHANGES', worktree.unstaged, 'unstaged')
-        + pendingGroup('UNTRACKED FILES', worktree.untracked, 'untracked')
+        + pendingGroup('STAGED CHANGES', worktree.staged, 'staged', true)
+        + pendingGroup('CHANGES', worktree.unstaged, 'unstaged', false)
+        + pendingGroup('UNTRACKED FILES', worktree.untracked, 'untracked', false)
         + `</details>`;
     }
 
@@ -623,6 +647,24 @@
         event.preventDefault();
         vscode.postMessage({ type: 'copy-hash', hash: copy.dataset.copyHash });
         flashCopied(copy);
+        return;
+      }
+      const openFileBtn = event.target.closest('[data-open-file]');
+      if (openFileBtn) {
+        event.preventDefault();
+        vscode.postMessage({ type: 'open-file', absolutePath: openFileBtn.dataset.openFile });
+        return;
+      }
+      const discardBtn = event.target.closest('[data-discard]');
+      if (discardBtn) {
+        event.preventDefault();
+        vscode.postMessage({ type: 'discard', changeId: discardBtn.dataset.discard });
+        return;
+      }
+      const unstageBtn = event.target.closest('[data-unstage]');
+      if (unstageBtn) {
+        event.preventDefault();
+        vscode.postMessage({ type: 'unstage', changeId: unstageBtn.dataset.unstage });
         return;
       }
       // A drag that ends on the hash is a selection, not a click on the

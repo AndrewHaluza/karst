@@ -23,75 +23,87 @@ export interface ScmGroupModel {
   resources: ScmResourceModel[];
 }
 
+export type ScmCategory = 'staged' | 'unstaged' | 'untracked' | 'commits' | 'error';
+
+const CATEGORY_ORDER: readonly ScmCategory[] = ['staged', 'unstaged', 'untracked', 'commits', 'error'];
+
+function toResources(
+  files: readonly { changeId: string; path: string; status: FileChangeStatus; oldPath: string | null }[],
+  repoPath: string,
+): ScmResourceModel[] {
+  return files.map((file) => ({
+    changeId: file.changeId,
+    path: file.path,
+    absolutePath: join(repoPath, file.path),
+    status: file.status,
+    oldPath: file.oldPath,
+  }));
+}
+
 export function buildScmGroups(
   snapshot: TicketChangesSnapshot,
   worktrees: readonly WorktreeSpec[],
 ): ScmGroupModel[] {
-  const groups: ScmGroupModel[] = [];
+  const categories = new Map<ScmCategory, ScmGroupModel[]>();
+  for (const cat of CATEGORY_ORDER) {
+    if (cat !== 'error') categories.set(cat, []);
+  }
+  const errorGroups: ScmGroupModel[] = [];
 
   for (let i = 0; i < snapshot.state.worktrees.length; i++) {
     const view = snapshot.state.worktrees[i];
     const spec = worktrees[i];
     if (!view || !spec) continue;
-    if (view.error) continue;
+
+    if (view.error) {
+      errorGroups.push({
+        id: `error-${view.label}`,
+        label: `Error — ${view.label}: ${view.error}`,
+        resources: [],
+      });
+      continue;
+    }
 
     if (view.staged.length > 0) {
-      groups.push({
-        id: `w${i}-staged`,
-        label: `${view.label} — Staged`,
-        resources: view.staged.map((file) => ({
-          changeId: file.changeId,
-          path: file.path,
-          absolutePath: join(spec.path, file.path),
-          status: file.status,
-          oldPath: file.oldPath,
-        })),
+      categories.get('staged')!.push({
+        id: `staged-${view.label}`,
+        label: `Staged — ${view.label}`,
+        resources: toResources(view.staged, spec.path),
       });
     }
 
     if (view.unstaged.length > 0) {
-      groups.push({
-        id: `w${i}-unstaged`,
-        label: `${view.label} — Unstaged`,
-        resources: view.unstaged.map((file) => ({
-          changeId: file.changeId,
-          path: file.path,
-          absolutePath: join(spec.path, file.path),
-          status: file.status,
-          oldPath: file.oldPath,
-        })),
+      categories.get('unstaged')!.push({
+        id: `unstaged-${view.label}`,
+        label: `Unstaged — ${view.label}`,
+        resources: toResources(view.unstaged, spec.path),
       });
     }
 
     if (view.untracked.length > 0) {
-      groups.push({
-        id: `w${i}-untracked`,
-        label: `${view.label} — Untracked`,
-        resources: view.untracked.map((file) => ({
-          changeId: file.changeId,
-          path: file.path,
-          absolutePath: join(spec.path, file.path),
-          status: file.status,
-          oldPath: file.oldPath,
-        })),
+      categories.get('untracked')!.push({
+        id: `untracked-${view.label}`,
+        label: `Untracked — ${view.label}`,
+        resources: toResources(view.untracked, spec.path),
       });
     }
 
-    for (let j = 0; j < view.commits.length; j++) {
-      const commit = view.commits[j];
-      if (!commit) continue;
+    for (const commit of view.commits) {
       if (commit.files.length === 0) continue;
-      groups.push({
-        id: `w${i}-c${j}`,
-        label: `${view.label} — ${commit.shortHash} ${commit.subject}`,
-        resources: commit.files.map((file) => ({
-          changeId: file.changeId,
-          path: file.path,
-          absolutePath: join(spec.path, file.path),
-          status: file.status,
-          oldPath: file.oldPath,
-        })),
+      categories.get('commits')!.push({
+        id: `commits-${view.label}`,
+        label: `Commits — ${view.label}`,
+        resources: toResources(commit.files, spec.path),
       });
+    }
+  }
+
+  const groups: ScmGroupModel[] = [];
+  for (const cat of CATEGORY_ORDER) {
+    if (cat === 'error') {
+      groups.push(...errorGroups);
+    } else {
+      groups.push(...categories.get(cat)!);
     }
   }
 

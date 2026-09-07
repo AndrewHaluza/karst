@@ -60,7 +60,7 @@ function snapshot(ticketId: number, changeId: string, diffTarget: DiffTarget): T
       branch: 'ticket/changes',
       baseRef: 'main',
       commits: [],
-      staged: [{ changeId, status: 'modified', path: diffTarget.displayPath, oldPath: null }],
+      staged: [{ changeId, status: 'modified', path: diffTarget.displayPath, oldPath: null, absolutePath: `/worktrees/repository/${diffTarget.displayPath}` }],
       unstaged: [],
       untracked: [],
       error: null,
@@ -852,6 +852,59 @@ describe('TicketChangesManager', () => {
       await settle();
       panels[0]!.emitViewState(true);
       panels[0]!.emitViewState(false);
+    });
+  });
+
+  describe('git actions', () => {
+    it('openFile calls the injected openFile with the absolute path', async () => {
+      const loaded = snapshot(41, 'current:1', target('src/current.ts'));
+      const { host, panels } = makeHost();
+      const openFile = vi.fn();
+      const manager = new TicketChangesManager(
+        host, (id) => `Changes ${id}`, async () => loaded, async () => {}, () => {},
+        () => {}, () => {}, undefined, openFile,
+      );
+
+      manager.open(41);
+      await settle();
+      panels[0]!.emit({ type: 'open-file', absolutePath: '/repo/src/current.ts' });
+      await settle();
+
+      expect(openFile).toHaveBeenCalledWith('/repo/src/current.ts');
+    });
+
+    it('discard calls the injected discardChanges with the changeId', async () => {
+      const loaded = snapshot(41, 'current:1', target('src/current.ts'));
+      const { host, panels } = makeHost();
+      const discardChanges = vi.fn();
+      const manager = new TicketChangesManager(
+        host, (id) => `Changes ${id}`, async () => loaded, async () => {}, () => {},
+        () => {}, () => {}, undefined, () => {}, discardChanges,
+      );
+
+      manager.open(41);
+      await settle();
+      panels[0]!.emit({ type: 'discard', changeId: 'current:1' });
+      await settle();
+
+      expect(discardChanges).toHaveBeenCalledWith('current:1');
+    });
+
+    it('unstage calls the injected unstageFile with the changeId', async () => {
+      const loaded = snapshot(41, 'current:1', target('src/current.ts'));
+      const { host, panels } = makeHost();
+      const unstageFile = vi.fn();
+      const manager = new TicketChangesManager(
+        host, (id) => `Changes ${id}`, async () => loaded, async () => {}, () => {},
+        () => {}, () => {}, undefined, () => {}, () => {}, unstageFile,
+      );
+
+      manager.open(41);
+      await settle();
+      panels[0]!.emit({ type: 'unstage', changeId: 'current:1' });
+      await settle();
+
+      expect(unstageFile).toHaveBeenCalledWith('current:1');
     });
   });
 });

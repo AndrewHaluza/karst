@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { join } from 'node:path';
 import { defaultGitRunner } from '../../integrations/git.js';
 import {
   inspectWorktree,
@@ -14,6 +15,7 @@ export interface ChangedFileView {
   status: FileChangeStatus;
   path: string;
   oldPath: string | null;
+  absolutePath: string;
 }
 
 export interface CommitView {
@@ -101,12 +103,6 @@ export async function buildTicketChangesSnapshot(
   const prefix = makePrefix();
   let counter = 0;
 
-  const changedFile = (file: InspectedFile): ChangedFileView => {
-    const changeId = `${prefix}:${++counter}`;
-    targets.set(changeId, file.target);
-    return { changeId, status: file.status, path: file.path, oldPath: file.oldPath };
-  };
-
   const views = settled.map(({ spec, inspected, error }): WorktreeChangesView => {
     if (!inspected) {
       return {
@@ -120,6 +116,18 @@ export async function buildTicketChangesSnapshot(
         error,
       };
     }
+
+    const changedFile = (file: InspectedFile): ChangedFileView => {
+      const changeId = `${prefix}:${++counter}`;
+      targets.set(changeId, file.target);
+      return {
+        changeId,
+        status: file.status,
+        path: file.path,
+        oldPath: file.oldPath,
+        absolutePath: join(spec.path, file.path),
+      };
+    };
 
     return {
       label: spec.label,

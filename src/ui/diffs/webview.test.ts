@@ -330,7 +330,7 @@ function boot(restored?: { state?: unknown; loading?: boolean; viewMode?: unknow
 }
 
 function fileView(overrides: Partial<ChangedFileView> = {}): ChangedFileView {
-  return { changeId: 'ch-1', status: 'modified', path: 'src/app.ts', oldPath: null, ...overrides };
+  return { changeId: 'ch-1', status: 'modified', path: 'src/app.ts', oldPath: null, absolutePath: '/repo/src/app.ts', ...overrides };
 }
 
 function commitView(overrides: Partial<CommitView> = {}): CommitView {

@@ -40,8 +40,9 @@ import {
   type DiffTarget,
   type PreparedDiffResource,
 } from './ui/diffs/git.js';
-import { buildTicketChangesSnapshot } from './ui/diffs/snapshot.js';
+import { buildTicketChangesSnapshot, type TicketChangesSnapshot } from './ui/diffs/snapshot.js';
 import { TicketScmController, type ScmHost } from './ui/diffs/scmController.js';
+import { discardChanges as gitDiscard, unstageFile as gitUnstage } from './ui/diffs/gitActions.js';
 import {
   DisposableBag,
   type VirtualDocumentAttempt,
@@ -2276,18 +2277,73 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return { snapshot, worktrees };
   };
 
+  let lastLoadedWorktrees: readonly { path: string; label: string }[] = [];
+  let lastLoadedSnapshot: TicketChangesSnapshot | null = null;
+  const wrapLoadForChanges = async (ticketId: number, signal?: AbortSignal) => {
+    const result = await loadTicketChanges(ticketId, signal);
+    lastLoadedWorktrees = result.worktrees;
+    lastLoadedSnapshot = result.snapshot;
+    return result.snapshot;
+  };
+  const handleOpenFile = (absolutePath: string): void => {
+    void vscode.commands.executeCommand('vscode.open', vscode.Uri.file(absolutePath));
+  };
+  const handleDiscard = async (changeId: string): Promise<void> => {
+    if (!lastLoadedSnapshot) return;
+    // Find the file in the snapshot to get its path and status
+    for (const [targetId, target] of lastLoadedSnapshot.targets) {
+      if (targetId !== changeId) continue;
+      const worktreePath = lastLoadedWorktrees.find((w) => target.displayPath && lastLoadedSnapshot!.targets.has(changeId))?.path;
+      // Look up worktree from the snapshot's worktree views
+      for (const view of lastLoadedSnapshot.state.worktrees) {
+        for (const file of [...view.staged, ...view.unstaged, ...view.untracked]) {
+          if (file.changeId === changeId) {
+            const wtPath = lastLoadedWorktrees.find((w) => w.label === view.label)?.path;
+            if (wtPath) {
+              const result = await gitDiscard(defaultGitRunner, wtPath, file.path, file.status);
+              if (!result.ok) {
+                void vscode.window.showWarningMessage(`Could not discard changes: ${result.error ?? 'unknown error'}`);
+              }
+              return;
+            }
+          }
+        }
+      }
+    }
+  };
+  const handleUnstage = async (changeId: string): Promise<void> => {
+    if (!lastLoadedSnapshot) return;
+    for (const view of lastLoadedSnapshot.state.worktrees) {
+      for (const file of view.staged) {
+        if (file.changeId === changeId) {
+          const wtPath = lastLoadedWorktrees.find((w) => w.label === view.label)?.path;
+          if (wtPath) {
+            const result = await gitUnstage(defaultGitRunner, wtPath, file.path);
+            if (!result.ok) {
+              void vscode.window.showWarningMessage(`Could not unstage file: ${result.error ?? 'unknown error'}`);
+            }
+            return;
+          }
+        }
+      }
+    }
+  };
+
   const changes = new TicketChangesManager(
     makeChangesPanelHost(context, brandIcon),
     (ticketId) => {
       const t = getTicket(localStore, ticketId);
       return `${compactTicketLabel(t, ticketLabel(t))} — Changes`;
     },
-    async (ticketId, signal) => (await loadTicketChanges(ticketId, signal)).snapshot,
+    wrapLoadForChanges,
     openTicketDiff,
     (message) => void vscode.window.showWarningMessage(message),
     logError,
     (text) => void vscode.env.clipboard.writeText(text),
     (ticketId, active) => activeTicket.set(ticketId, active),
+    handleOpenFile,
+    handleDiscard,
+    handleUnstage,
   );
   shutdownTicketChanges = () => changes.dispose();
   context.subscriptions.push(changes);
@@ -2301,9 +2357,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         setTitle: (next) => {
           (sc as any).label = next;
         },
+        viewColumn: () => {
+          // The SCM view lives in the sidebar; VS Code resolves it to column 1.
+          return 1;
+        },
         createGroup: (groupId, label) => {
           const group = sc.createResourceGroup(groupId, label);
-          group.hideWhenEmpty = true;
+          group.hideWhenEmpty = false;
           return {
             setResources: (resources) => {
               group.resourceStates = resources.map((resource) => ({
@@ -2334,7 +2394,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const ticketScm = new TicketScmController({
     host: scmHost,
     load: loadTicketChanges,
-    openDiff: (target) => openTicketDiff(target, undefined),
+    openDiff: (target, viewColumn) => openTicketDiff(target, viewColumn),
     logError,
     titleFor: (ticketId) => {
       const t = getTicket(localStore, ticketId);
