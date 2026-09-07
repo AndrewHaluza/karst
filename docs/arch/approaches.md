@@ -25,3 +25,15 @@ A reinstall must land the source's current contents and nothing else. Overlaying
 ## Untrusted-source hardening
 
 `sanitizeFrontmatter` (`approaches/sanitize.ts`) strips dangerous permission frontmatter (`permissionMode: bypassPermissions`, `allowed-tools`, `dangerously-*`) from EVERY fetched body at install (in `assembleAndWrite`) so materialization can't silently grant bypass — karst's own `--settings` stays the sole permission authority.
+## An approach body may NEVER block on the user inside a driven stage
+An approach body executes as the instructions of a karst-driven stage. The marker contract
+(`renderDoneMarkerInstruction`, AGENT_GUIDE rule 3) refuses the done marker while the agent is
+waiting on the user — and an agent-advanced stage such as `impl` has no gate that can fail it.
+So a body carrying a "stop and wait for user approval" directive deadlocks: the agent correctly
+withholds the marker, nothing else moves the stage, and the ticket parks forever.
+
+**The gates are the approval.** A phase-validation step is self-validated against its checklist
+and recorded (see `karst-rpi-implement` Step 5); anything genuinely undecidable is recorded as an
+open question and left to fail a gate, where the block is visible in karst. Enforced by
+`src/agents/skillBlockingDirective.test.ts`, which scans every packaged skill body for
+stop-and-wait-for-user directives.
