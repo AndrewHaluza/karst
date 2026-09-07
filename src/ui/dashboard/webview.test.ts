@@ -3073,8 +3073,10 @@ describe('inside render round trip (executed in a VM)', () => {
     expect(html).toContain('class="gates no-repo"');
     // Scoped to the gate row itself — an unscoped substring match would still
     // pass even if the gate row carried no glyph at all (the glyph could be
-    // rendered anywhere else in the document).
-    expect(html).toContain('<div class="gate-row"><span class="ev-glyph"><span class="glyph pass"');
+    // rendered anywhere else in the document). Matched via regex so this
+    // doesn't depend on the fixture's first gate row carrying `pass` status
+    // specifically — whatever status the row carries, the glyph must lead.
+    expect(html).toMatch(/<div class="gate-row(?: active)?"><span class="ev-glyph"><span class="glyph [a-z]+"/);
     expect(html).toContain('<span class="gate-name">lint</span>');
   });
 
