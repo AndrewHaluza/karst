@@ -902,15 +902,16 @@ describe('renderTicketContext', () => {
     // Empty-string key is a real case (`key: ''`, § the "omits empty sections"
     // test above): `??` does not catch it, and the old fallback used the
     // ticket TITLE, which can contain spaces/punctuation and produce an
-    // unrunnable shell command. 'this ticket' matches the fallback already
-    // used at the `buildSessionSeed` seam (`src/agent/seed.ts`), so the two
-    // modules agree.
+    // unrunnable shell command. A literal placeholder like 'this ticket' is
+    // shell-safe but still not runnable — it resolves nothing. `id` is always
+    // present and `karst context <id>` accepts a bare numeric id (§
+    // resolveTicketByKey), so it is the fallback that actually works.
     it('falls back to a runnable pointer for a keyless ticket, never the title', () => {
       const t = createTicket(store, { key: '', title: 'My Ticket With Spaces' });
       updateTicketFields(store, t.id, { description: 'q'.repeat(10_000) });
       const ctx = buildTicketContext(store, undefined, t.id);
       const md = renderTicketContext(ctx);
-      expect(md).toContain('truncated -- run `karst context this ticket` for the full state.');
+      expect(md).toContain(`truncated -- run \`karst context ${t.id}\` for the full state.`);
       expect(md).not.toContain('My Ticket With Spaces` for the full state');
     });
 

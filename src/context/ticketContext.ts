@@ -203,6 +203,13 @@ export interface TicketContextRepo {
 
 /** Everything a session needs about a ticket, JSON-serializable for the CLI. */
 export interface TicketContext {
+  /**
+   * The ticket's row id — always present and always resolvable via
+   * `karst context <id>` (the CLI accepts a bare numeric id, § resolveTicketByKey),
+   * unlike `key` which can be empty. Used as the runnable fallback for any
+   * stated truncation pointer when the ticket has no key.
+   */
+  id: number;
   key: string | null;
   title: string | null;
   /** The user's authored instruction (the `description` column). */
@@ -377,6 +384,7 @@ export function buildTicketContext(
     : null;
 
   return {
+    id: ticketId,
     key: t.key,
     title: t.title,
     prompt: t.description,
@@ -448,7 +456,11 @@ export function renderTicketContext(
 ): string {
   const bounded = opts?.bounded ?? true;
   const parts: string[] = [`# Ticket: ${ticketHeading(ctx)}`];
-  const key = ctx.key?.trim() || 'this ticket';
+  // A ticket's key can be empty (never blank the pointer's command target on
+  // that account) — `id` is always present and `karst context <id>` resolves
+  // a bare numeric id (§ resolveTicketByKey), so it is a genuinely runnable
+  // fallback, unlike the placeholder string 'this ticket' would be.
+  const key = ctx.key?.trim() || String(ctx.id);
 
   const promptRaw = ctx.prompt?.trim();
   if (promptRaw) {
