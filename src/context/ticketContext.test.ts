@@ -898,5 +898,37 @@ describe('renderTicketContext', () => {
       expect(md).not.toContain('truncated --');
       expect(seen).toEqual([]);
     });
+
+    // Empty-string key is a real case (`key: ''`, § the "omits empty sections"
+    // test above): `??` does not catch it, and the old fallback used the
+    // ticket TITLE, which can contain spaces/punctuation and produce an
+    // unrunnable shell command. 'this ticket' matches the fallback already
+    // used at the `buildSessionSeed` seam (`src/agent/seed.ts`), so the two
+    // modules agree.
+    it('falls back to a runnable pointer for a keyless ticket, never the title', () => {
+      const t = createTicket(store, { key: '', title: 'My Ticket With Spaces' });
+      updateTicketFields(store, t.id, { description: 'q'.repeat(10_000) });
+      const ctx = buildTicketContext(store, undefined, t.id);
+      const md = renderTicketContext(ctx);
+      expect(md).toContain('truncated -- run `karst context this ticket` for the full state.');
+      expect(md).not.toContain('My Ticket With Spaces` for the full state');
+    });
+
+    // The CLI's `--md` path (`src/cli/context.ts`) is meant to be the full-state
+    // escape hatch the truncation pointer sends the agent to. Before this, it
+    // rendered the SAME bounded text — a dead end. `bounded: false` skips every
+    // truncation call and renders the raw text, with no truncation pointer.
+    it('renders unbounded, with no truncation pointer, when bounded is false', () => {
+      const t = createTicket(store, { key: 'PROJ-9', title: 'Big' });
+      const hugePrompt = 'q'.repeat(10_000);
+      updateTicketFields(store, t.id, { description: hugePrompt });
+      const ctx = buildTicketContext(store, undefined, t.id);
+      const seen: string[] = [];
+      const md = renderTicketContext(ctx, (m) => seen.push(m), { bounded: false });
+      expect(md).toContain(hugePrompt);
+      expect(md.match(/q/g)!.length).toBe(10_000);
+      expect(md).not.toContain('truncated --');
+      expect(seen).toEqual([]);
+    });
   });
 });

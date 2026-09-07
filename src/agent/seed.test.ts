@@ -210,6 +210,12 @@ describe('oversized ticket end-to-end budget (PROMPT-08 acceptance)', () => {
     // (a) fits: total seed stays well under the design ceiling of ~20,200 chars
     // (docs/superpowers/plans/2026-09-07-seed-budget.md, "Budget derivation")
     // — invocation + pre-shaped context + truncated method + marker + guide
+    // Note: `hugeContext` here is a hand-built literal standing in for
+    // `renderTicketContext`'s output. In production `contextMarkdown` always
+    // arrives PRE-BOUNDED by `renderTicketContext` upstream — this test only
+    // proves `buildSessionSeed`'s own approach-method cap; the full-pipeline
+    // guarantee (ticket fields → bounded context) is proven by the
+    // `buildTicketContext`/`renderTicketContext` integration test below.
     expect(seed!.length).toBeLessThan(20_200);
     // (b) the marker instruction survives verbatim.
     expect(seed).toContain(marker);

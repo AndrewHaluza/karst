@@ -45,7 +45,7 @@ export function buildSessionSeed(
   const guide = guideInstruction?.trim();
 
   if (method) {
-    const key = ticketKey ?? 'this ticket';
+    const key = ticketKey?.trim() || 'this ticket';
     const { text, truncated } = truncateToBudget(method, SEED_BUDGETS.approachMethod, key);
     if (truncated) debug?.(`[seed] truncated approach method to ${SEED_BUDGETS.approachMethod} chars`);
     method = text;

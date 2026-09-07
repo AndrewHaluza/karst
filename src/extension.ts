@@ -3333,7 +3333,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       `A gate failed for ticket ${label}. Re-run the checks, fix what they report, and confirm they pass.`;
     const marker = renderDoneMarkerInstruction(
       buildCliStagePrefix(context, dbPath, 'fix'),
-      t.key ?? String(ticketId),
+      t.key || String(ticketId),
     );
     // Task 3: the Fix execution carries the CONFIGURED identity — the bundle's
     // assignment snapshot resolved once at the driver boundary — never the
@@ -6139,7 +6139,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           ? renderGateOnlyInstruction()
           : renderDoneMarkerInstruction(
               buildCliStagePrefix(context, dbPath, markerStage),
-              t.key ?? String(ticketId),
+              t.key || String(ticketId),
             );
       const initialPrompt = buildSessionSeed(
         ticketContextMd,
@@ -6150,7 +6150,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // (869edmcme): it costs ~40 tokens and saves the agent from reading the
         // extension's dist/ to learn how Karst works and what the CLI can do.
         renderGuideInstruction(buildCliGuidePrefix(context)),
-        t.key ?? String(ticketId),
+        t.key || String(ticketId),
         (msg) => logger.debug(msg),
       );
 
@@ -6239,7 +6239,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           invocation,
           markerInstruction,
           renderGuideInstruction(buildCliGuidePrefix(context)),
-          t.key ?? String(ticketId),
+          t.key || String(ticketId),
           (msg) => logger.debug(msg),
         );
       }

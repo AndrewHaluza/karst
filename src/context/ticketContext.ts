@@ -441,21 +441,36 @@ function ticketHeading(ctx: TicketContext): string {
  * empty headings (mirrors the prior seed behavior, now enriched with
  * worktrees/branches, repositories, and PRs).
  */
-export function renderTicketContext(ctx: TicketContext, debug?: (msg: string) => void): string {
+export function renderTicketContext(
+  ctx: TicketContext,
+  debug?: (msg: string) => void,
+  opts?: { bounded?: boolean },
+): string {
+  const bounded = opts?.bounded ?? true;
   const parts: string[] = [`# Ticket: ${ticketHeading(ctx)}`];
-  const key = ctx.key ?? `#${ticketHeading(ctx)}`;
+  const key = ctx.key?.trim() || 'this ticket';
 
   const promptRaw = ctx.prompt?.trim();
   if (promptRaw) {
-    const { text: prompt, truncated } = truncateToBudget(promptRaw, SEED_BUDGETS.ticketPrompt, key);
-    if (truncated) debug?.(`[seed] truncated ticket prompt to ${SEED_BUDGETS.ticketPrompt} chars`);
+    const prompt = bounded
+      ? (() => {
+          const { text, truncated } = truncateToBudget(promptRaw, SEED_BUDGETS.ticketPrompt, key);
+          if (truncated) debug?.(`[seed] truncated ticket prompt to ${SEED_BUDGETS.ticketPrompt} chars`);
+          return text;
+        })()
+      : promptRaw;
     parts.push(`## Prompt\n${prompt}`);
   }
 
   const briefRaw = ctx.brief?.trim();
   if (briefRaw) {
-    const { text: brief, truncated } = truncateToBudget(briefRaw, SEED_BUDGETS.brief, key);
-    if (truncated) debug?.(`[seed] truncated context brief to ${SEED_BUDGETS.brief} chars`);
+    const brief = bounded
+      ? (() => {
+          const { text, truncated } = truncateToBudget(briefRaw, SEED_BUDGETS.brief, key);
+          if (truncated) debug?.(`[seed] truncated context brief to ${SEED_BUDGETS.brief} chars`);
+          return text;
+        })()
+      : briefRaw;
     parts.push(`## Context brief\n${brief}`);
   }
 
@@ -502,8 +517,13 @@ export function renderTicketContext(ctx: TicketContext, debug?: (msg: string) =>
         // (file, line, rule)" the verdict string cannot carry, surfaced so a
         // session never has to open the artifact log just to learn what broke.
         if (g.summary) {
-          const { text: summary, truncated } = truncateToBudget(g.summary, SEED_BUDGETS.gateSummary, key);
-          if (truncated) debug?.(`[seed] truncated gate summary for ${g.name} to ${SEED_BUDGETS.gateSummary} chars`);
+          const summary = bounded
+            ? (() => {
+                const { text, truncated } = truncateToBudget(g.summary!, SEED_BUDGETS.gateSummary, key);
+                if (truncated) debug?.(`[seed] truncated gate summary for ${g.name} to ${SEED_BUDGETS.gateSummary} chars`);
+                return text;
+              })()
+            : g.summary;
           for (const line of summary.split('\n')) lines.push(`      ${line}`);
         }
       }
@@ -515,9 +535,14 @@ export function renderTicketContext(ctx: TicketContext, debug?: (msg: string) =>
           return `  - [${f.severity}] ${f.title}${loc}`;
         })
         .join('\n');
-      const { text: bounded, truncated } = truncateToBudget(findingsBlock, SEED_BUDGETS.findings, key);
-      if (truncated) debug?.(`[seed] truncated findings list to ${SEED_BUDGETS.findings} chars`);
-      lines.push('- findings:', bounded);
+      const findingsText = bounded
+        ? (() => {
+            const { text, truncated } = truncateToBudget(findingsBlock, SEED_BUDGETS.findings, key);
+            if (truncated) debug?.(`[seed] truncated findings list to ${SEED_BUDGETS.findings} chars`);
+            return text;
+          })()
+        : findingsBlock;
+      lines.push('- findings:', findingsText);
     }
     if (
       !s.agentCanAdvance &&
@@ -556,9 +581,14 @@ export function renderTicketContext(ctx: TicketContext, debug?: (msg: string) =>
         return `- ${a.kind}: ${a.path} — "${a.name}"${note}`;
       })
       .join('\n');
-    const { text: bounded, truncated } = truncateToBudget(rowsBlock, SEED_BUDGETS.attachments, key);
-    if (truncated) debug?.(`[seed] truncated attachments list to ${SEED_BUDGETS.attachments} chars`);
-    parts.push(`## Attachments\n${bounded}`);
+    const attachmentsText = bounded
+      ? (() => {
+          const { text, truncated } = truncateToBudget(rowsBlock, SEED_BUDGETS.attachments, key);
+          if (truncated) debug?.(`[seed] truncated attachments list to ${SEED_BUDGETS.attachments} chars`);
+          return text;
+        })()
+      : rowsBlock;
+    parts.push(`## Attachments\n${attachmentsText}`);
   }
 
   // One section, not two. The old render emitted a bare name list AND a richer
