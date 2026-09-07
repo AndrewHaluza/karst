@@ -200,6 +200,44 @@ describe('runUatTester', () => {
     expect(run.status).toBe('failed');
   });
 
+  // 869ekt: a core that exits clean having said NOTHING (opencode ending its
+  // turn on a tool call) used to reach here as an adapter crash. It is an empty
+  // answer: the target is re-asked ONCE with a nudge before it is written off.
+  it('re-asks a target once when the core answered nothing at all', async () => {
+    let call = 0;
+    const { adapter, calls } = fakeAdapter(async () => {
+      call += 1;
+      return {
+        sessionId: '',
+        verdict: null,
+        raw: call === 1 ? '' : '[{"severity":"high","title":"button does nothing"}]',
+      };
+    });
+    const res = await runUatTester(store, opts({ adapter }), { now });
+    expect(res).toMatchObject({ kind: 'observed' });
+    expect(calls).toHaveLength(2);
+    // The nudge is appended to the SAME prompt — the target context and the
+    // strict output rules must not be dropped on the retry.
+    expect(calls[1]!.prompt.startsWith(calls[0]!.prompt)).toBe(true);
+    expect(calls[1]!.prompt).not.toBe(calls[0]!.prompt);
+    expect(listUatFindings(store, ticketId)).toHaveLength(1);
+  });
+
+  it('gives up after ONE re-ask and closes as unreadable-output', async () => {
+    const { adapter, calls } = rawAdapter('');
+    const res = await runUatTester(store, opts({ adapter }), { now });
+    expect(res).toEqual({ kind: 'unreadable-output' });
+    expect(calls).toHaveLength(2);
+    const run = listProcessRuns(store, ticketId).at(-1)!;
+    expect(run.resultKind).toBe('unreadable-output');
+  });
+
+  it('does not re-ask a target that answered unreadable PROSE — only silence is re-asked', async () => {
+    const { adapter, calls } = rawAdapter('I ran the tests and everything looked fine.');
+    await runUatTester(store, opts({ adapter }), { now });
+    expect(calls).toHaveLength(1);
+  });
+
   it('still closes as observed when every target answered an empty array', async () => {
     const { adapter } = rawAdapter('[]');
     const res = await runUatTester(store, opts({ adapter }), { now });

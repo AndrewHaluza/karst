@@ -197,6 +197,17 @@ export type TesterRunResult =
 export const DEFAULT_MAX_TESTER_OBSERVATIONS = 100;
 
 /**
+ * Appended to the prompt for the ONE re-ask a silent target gets. It restates
+ * the only thing the first answer was missing — the written result — and
+ * nothing else: the strategy, the target context and the output rules are
+ * already above it in the same prompt.
+ */
+export const TESTER_SILENCE_NUDGE =
+  'Your previous answer was empty. Whatever you have observed so far, write it ' +
+  'down NOW as the JSON array described above — output exactly [] if there is ' +
+  'nothing worth reporting. Output the array and nothing else.';
+
+/**
  * The branch the checkout at `cwd` is currently on, or null when it cannot be
  * determined (git refused to answer, or the checkout is empty). A detached
  * HEAD answers the literal `HEAD` — which never matches a ticket branch, so
@@ -410,25 +421,42 @@ export async function runUatTester(
       debug?.(
         `[gate] uat tester ${target.repo}: snapshot ${snapshotRef ?? 'unavailable — using the branch range'}`,
       );
-      const result = await opts.adapter.runHeadless({
-        prompt: buildTesterPrompt(
-          target,
-          opts.assignment.instructions,
-          opts.gatesPassed,
-          snapshotRef,
-        ),
-        cwd: target.worktreePath,
-        model: opts.assignment.model,
-        effort: opts.assignment.effort,
-        signal: opts.signal,
-        timeoutMs: opts.timeoutMs ?? GATE_LANE_HEADLESS_TIMEOUT_MS,
-        onOutput: opts.onOutput,
-        tracking: {
-          callSite: 'uat-tester',
-          ticketId: opts.ticketId,
-          processRunId: run.id,
-        },
-      });
+      const prompt = buildTesterPrompt(
+        target,
+        opts.assignment.instructions,
+        opts.gatesPassed,
+        snapshotRef,
+      );
+      const ask = (text: string): Promise<{ raw: string }> =>
+        opts.adapter.runHeadless({
+          prompt: text,
+          cwd: target.worktreePath,
+          model: opts.assignment.model,
+          effort: opts.assignment.effort,
+          signal: opts.signal,
+          timeoutMs: opts.timeoutMs ?? GATE_LANE_HEADLESS_TIMEOUT_MS,
+          onOutput: opts.onOutput,
+          tracking: {
+            callSite: 'uat-tester',
+            ticketId: opts.ticketId,
+            processRunId: run.id,
+          },
+        });
+      let result = await ask(prompt);
+      // SILENCE is re-asked ONCE (869ekt). A core that exits clean having said
+      // nothing at all — opencode ending its turn on a tool call after minutes
+      // of real testing — did the work and never wrote the answer down. The
+      // nudge APPENDS to the same prompt, so the target context and the strict
+      // output rules still stand, and the re-ask costs a call only on a run
+      // that would otherwise have recorded nothing. Unreadable PROSE is NOT
+      // re-asked: the core answered, it just answered the wrong shape, and
+      // asking the same question again buys a second helping of prose.
+      if (result.raw.trim() === '' && !opts.signal?.aborted) {
+        debug?.(
+          `[gate] uat tester ticket ${opts.ticketId}: target ${target.repo} answered nothing — re-asking once`,
+        );
+        result = await ask(`${prompt}\n${TESTER_SILENCE_NUDGE}`);
+      }
       if (opts.signal?.aborted) break;
       // Parse at most the execution cap from this one response — a single
       // target can never blow memory past the cap, whatever it returns.

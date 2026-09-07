@@ -1214,6 +1214,17 @@ describe('parseCodexJsonl', () => {
   ])('rejects %s', (_label, stdout) => {
     expect(() => parseCodexJsonl(stdout)).toThrow();
   });
+
+  // Same seam rule as opencode: a turn that completed without an agent message
+  // is an empty answer, not an execution failure.
+  it('reads a completed turn with no agent message as an empty answer', () => {
+    const nd = [
+      JSON.stringify({ type: 'thread.started', thread_id: 't' }),
+      JSON.stringify({ type: 'item.completed', item: { type: 'command_execution', command: 'ls' } }),
+      JSON.stringify({ type: 'turn.completed' }),
+    ].join('\n');
+    expect(parseCodexJsonl(nd)).toEqual({ sessionId: 't', raw: '' });
+  });
 });
 
 describe('CodexAdapter headless execution', () => {

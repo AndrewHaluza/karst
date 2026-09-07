@@ -533,11 +533,10 @@ export function parseCodexJsonl(
     }
   }
   if (!sessionId) throw new Error('codex JSONL did not contain thread.started');
-  if (!raw) {
-    throw new Error(
-      'codex JSONL did not contain a completed agent message',
-    );
-  }
+  // A turn that completed without an `agent_message` is an EMPTY ANSWER, not a
+  // failure — the same seam rule opencode carries (869ekt): claude and agy
+  // already answer '' for a silent run, and the caller decides what silence
+  // means. A stream with no `thread.started` is still a broken stream.
   return { sessionId, raw };
 }
 
@@ -845,6 +844,11 @@ export class CodexAdapter implements AgentAdapter {
         `[agent:codex] unparseable output — first 500 chars: ${headlessPreview(result.stdout)}`,
       );
       throw error;
+    }
+    if (parsed.raw === '') {
+      opts.debug?.(
+        `[agent:codex] clean exit with no agent message — empty answer (${result.stdout.length} byte(s) of events)`,
+      );
     }
     const usage = extractTokenUsage(result.stdout);
     return { ...parsed, verdict: null, ...(usage ? { usage } : {}) };
