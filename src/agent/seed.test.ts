@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildSessionSeed } from './seed.js';
+import { buildSessionSeed, measureSeed } from './seed.js';
 import { markerStageFor } from './markerStage.js';
 import { renderGateOnlyInstruction, renderDoneMarkerInstruction } from './workflowCommand.js';
 
@@ -123,3 +123,28 @@ describe('buildSessionSeed', () => {
     expect(seed!.toLowerCase()).not.toContain('done marker');
   });
 });
+
+describe('measureSeed', () => {
+  it('reports composed length and guide-pointer presence for a full seed', () => {
+    const seed = buildSessionSeed(
+      CONTEXT,
+      '# Method',
+      '/karst:rpi PROJ-9',
+      'fire the marker',
+      'To understand how Karst works and what this CLI can do, run `g`',
+    )!;
+    const m = measureSeed(seed);
+    expect(m.seedChars).toBe(seed.length);
+    expect(m.guidePointer).toBe(true);
+  });
+
+  it('reports guidePointer false when the seed carries no pointer', () => {
+    const seed = buildSessionSeed(CONTEXT, undefined)!;
+    expect(measureSeed(seed).guidePointer).toBe(false);
+  });
+
+  it('reports zero length for a bare launch (undefined seed)', () => {
+    expect(measureSeed(undefined)).toEqual({ seedChars: 0, guidePointer: false });
+  });
+});
+
