@@ -24,6 +24,16 @@ coverage
 # Materialized at launch by ClaudeAdapter.materializeApproach — a build product
 # of the approach package, never a source.
 .karst-plugin/
+# The `karst-rpi` workflow skill CodexAdapter materializes from
+# renderWorkflowCommand. karst is developed in the repo it also drives, so every
+# launch here rewrites it with THIS machine's extension dir, globalStorage
+# karst.db and checkout root — and a committed copy is worse than stale: it
+# predates GENERATED_STAMP, so writeGeneratedArtifact refuses to clobber it and
+# another machine's dead commands survive forever (see agentsTreeGuard.test.ts).
+# Named exactly, NOT as `karst-*`: `.agents/skills/karst-graph-engineering/` is
+# shipped in the VSIX (BUILT_IN_PACKAGE_PATH) and `.agents/skills/karst-rpi-*/`
+# is hand-maintained — both are source.
+/.agents/skills/karst-rpi/
 *.vsix
 .karst-cache
 # macOS Finder metadata — binary, per-directory, and rewritten by merely opening
