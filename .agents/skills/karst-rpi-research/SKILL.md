@@ -1,9 +1,5 @@
 ---
 name: karst-rpi-research
-description: Run the research command from Research → Plan → Implement.
----
-
----
 description: Research and analyze feature viability - GO/NO-GO decision gate
 argument-hint: "<feature-slug>"
 ---
