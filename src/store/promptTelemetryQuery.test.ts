@@ -4,7 +4,6 @@ import { createTicketFlow } from '../workflow/stages/create.js';
 import { transition } from '../workflow/machine.js';
 import { openImplementationRun } from './implementationRuns.js';
 import { openProcessRun, finishProcessRun, setProcessRunPromptTelemetry } from './processRuns.js';
-import { openStageRun, closeStageRun } from './stageRuns.js';
 import { recordGuidePull } from '../cli/guideTelemetry.js';
 import { queryPromptMetrics } from './promptTelemetryQuery.js';
 
@@ -51,15 +50,16 @@ describe('queryPromptMetrics', () => {
     }
   });
 
-  it('reads marker compliance from stage_runs outcomes', () => {
+  it('reads marker compliance from session process-run closure', () => {
     const store = openStore(':memory:');
     try {
       const t = createTicketFlow(store, { key: 'T-1', title: 't' }).id;
       transition(store, t, 'scope', { kind: 'passed' });
-      const r1 = openStageRun(store, { ticketId: t, stageKey: 'impl', attempt: 0, runAt: '2026-09-07T00:00:00.000Z', startedAt: '2026-09-07T00:00:00.000Z' });
-      closeStageRun(store, r1, 'advanced', '2026-09-07T00:01:00.000Z');
-      const r2 = openStageRun(store, { ticketId: t, stageKey: 'impl', attempt: 0, runAt: '2026-09-07T01:00:00.000Z', startedAt: '2026-09-07T01:00:00.000Z' });
-      closeStageRun(store, r2, 'stopped', '2026-09-07T01:01:00.000Z');
+      // one marker-fired session (passed) and one that ended without the marker
+      const passed = openProcessRun(store, { ticketId: t, stageKey: 'impl', processId: 'session', attempt: 0, provider: 'claude', startedAt: '2026-09-07T00:00:00.000Z' });
+      finishProcessRun(store, passed.id, 'passed', '2026-09-07T00:01:00.000Z', 'done');
+      const silent = openProcessRun(store, { ticketId: t, stageKey: 'impl', processId: 'session', attempt: 0, provider: 'claude', startedAt: '2026-09-07T01:00:00.000Z' });
+      finishProcessRun(store, silent.id, 'interrupted', '2026-09-07T01:01:00.000Z', 'ended');
       const m = queryPromptMetrics(store, null).markerCompliance;
       expect(m).toMatchObject({ advanced: 1, stopped: 1, finished: 2 });
       expect(m.rate).toBeCloseTo(0.5, 5);

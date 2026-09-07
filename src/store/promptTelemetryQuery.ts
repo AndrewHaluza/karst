@@ -96,25 +96,29 @@ function rateOrNull(numerator: number, denominator: number): number | null {
 }
 
 function queryMarkerCompliance(store: Store, projectId: number | null): MarkerCompliance {
-  const s = scope(projectId, 'sr');
+  const s = scope(projectId);
+  // A marker-fired session closes its `session`/`fix` process run `passed`; one
+  // that ended without the marker is `interrupted` (a clean SessionEnd) or `stale`
+  // (the host died mid-session). This is the session/process-run closure, NOT
+  // `stage_runs` — impl/fix are explicit-marker stages that never emit a gate
+  // stage-run, which is exactly why reading compliance off stage_runs is empty.
   const rows = store.db
     .prepare(
-      `SELECT sr.outcome AS outcome, COUNT(*) AS n
-         FROM stage_runs sr ${s.join}
-        WHERE sr.stage_key IN ('impl','fix') AND sr.status = 'finished' ${s.clause}
-        GROUP BY sr.outcome`,
+      `SELECT pr.status AS status, COUNT(*) AS n
+         FROM process_runs pr ${s.join}
+        WHERE pr.process_id IN ('session','fix') ${s.clause}
+        GROUP BY pr.status`,
     )
-    .all(...s.params) as { outcome: string | null; n: number }[];
+    .all(...s.params) as { status: string; n: number }[];
   let advanced = 0;
-  let blocked = 0;
-  let stopped = 0;
+  let silent = 0;
   for (const r of rows) {
-    if (r.outcome === 'advanced') advanced = r.n;
-    else if (r.outcome === 'blocked') blocked = r.n;
-    else if (r.outcome === 'stopped') stopped = r.n;
+    if (r.status === 'passed') advanced = r.n;
+    else if (r.status === 'interrupted' || r.status === 'stale') silent += r.n;
   }
-  const finished = advanced + blocked + stopped;
-  return { advanced, blocked, stopped, finished, rate: rateOrNull(advanced, finished) };
+  // `blocked` is unused for the session-closure definition; kept for shape parity.
+  const finished = advanced + silent;
+  return { advanced, blocked: 0, stopped: silent, finished, rate: rateOrNull(advanced, finished) };
 }
 
 /** Nearest-rank percentile over an ASC-sorted numeric array; null on empty. */
