@@ -57,6 +57,25 @@ describe('writeGeneratedArtifact', () => {
   });
 });
 
+describe('a checked-in artifact predating GENERATED_STAMP', () => {
+  it('blocks its own regeneration, which is why the committed copy had to be removed from git', () => {
+    // The concrete incident: `.agents/skills/karst-rpi/SKILL.md` was committed
+    // BEFORE GENERATED_STAMP existed. Every later launch on every other machine
+    // hit this branch, left the file alone, and ran an orchestrator command
+    // pointing at one laptop's extension dir. Removing it from git is the fix;
+    // this is the assertion that says why it must stay removed.
+    const dir = makeDir();
+    const path = join(dir, 'SKILL.md');
+    const committed = 'node "/Users/nd/.cursor/extensions/karst.karst-1.0.0/dist/cli/main.js" guide';
+    writeFileSync(path, committed);
+
+    const wrote = writeGeneratedArtifact(path, withStamp('# regenerated'));
+
+    expect(wrote).toBe(false);
+    expect(readFileSync(path, 'utf8')).toBe(committed);
+  });
+});
+
 describe('isGeneratedArtifact', () => {
   it('is false for a missing path', () => {
     expect(isGeneratedArtifact(join(makeDir(), 'nope.md'))).toBe(false);
