@@ -748,4 +748,37 @@ describe('renderTicketContext', () => {
     expect(md).not.toContain('## Prompt');
     expect(md).not.toContain('## Worktrees');
   });
+
+  describe('seed budget truncation', () => {
+    it('truncates an oversized prompt with the stated pointer, and reports it via debug', () => {
+      const t = createTicket(store, { key: 'PROJ-9', title: 'Big' });
+      // 'q' is absent from the truncation pointer text itself (which contains a
+      // literal "x" in "context"), so counting it isolates the truncated content.
+      updateTicketFields(store, t.id, { description: 'q'.repeat(10_000) });
+      const ctx = buildTicketContext(store, undefined, t.id);
+      const seen: string[] = [];
+      const md = renderTicketContext(ctx, (m) => seen.push(m));
+      expect(md).toContain('truncated -- run `karst context PROJ-9` for the full state.');
+      expect(md.match(/q/g)!.length).toBe(4000);
+      expect(seen.some((m) => m.includes('prompt'))).toBe(true);
+    });
+
+    it('truncates an oversized brief with the stated pointer', () => {
+      const t = createTicket(store, { key: 'PROJ-9', title: 'Big' });
+      updateTicketFields(store, t.id, { brief: 'y'.repeat(10_000) });
+      const ctx = buildTicketContext(store, undefined, t.id);
+      const md = renderTicketContext(ctx);
+      expect(md).toContain('truncated -- run `karst context PROJ-9` for the full state.');
+      expect(md.match(/y/g)!.length).toBe(3000);
+    });
+
+    it('does not truncate a prompt under budget', () => {
+      const t = createTicket(store, { key: 'PROJ-1', title: 'Small' });
+      updateTicketFields(store, t.id, { description: 'short prompt' });
+      const ctx = buildTicketContext(store, undefined, t.id);
+      const md = renderTicketContext(ctx);
+      expect(md).not.toContain('truncated --');
+      expect(md).toContain('short prompt');
+    });
+  });
 });

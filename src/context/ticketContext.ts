@@ -28,6 +28,7 @@ import { summarizeMergeCheck, type MergeCheckView } from '../model/mergeCheckVie
 import { listGateRuns } from '../store/gateRuns.js';
 import { latestFindingBatch } from '../store/reviewFindings.js';
 import { latestBatch } from '../model/inside/gates.js';
+import { truncateToBudget, SEED_BUDGETS } from '../agent/seedBudget.js';
 import { latestStageRun, previousStageRun } from '../store/stageRuns.js';
 import { isMarkerStage } from '../agent/markerStage.js';
 import { MARKER_REFUSED, GATE_DECIDED_BY_EXIT_CODES } from '../agent/promptText.js';
@@ -440,14 +441,23 @@ function ticketHeading(ctx: TicketContext): string {
  * empty headings (mirrors the prior seed behavior, now enriched with
  * worktrees/branches, repositories, and PRs).
  */
-export function renderTicketContext(ctx: TicketContext): string {
+export function renderTicketContext(ctx: TicketContext, debug?: (msg: string) => void): string {
   const parts: string[] = [`# Ticket: ${ticketHeading(ctx)}`];
+  const key = ctx.key ?? `#${ticketHeading(ctx)}`;
 
-  const prompt = ctx.prompt?.trim();
-  if (prompt) parts.push(`## Prompt\n${prompt}`);
+  const promptRaw = ctx.prompt?.trim();
+  if (promptRaw) {
+    const { text: prompt, truncated } = truncateToBudget(promptRaw, SEED_BUDGETS.ticketPrompt, key);
+    if (truncated) debug?.(`[seed] truncated ticket prompt to ${SEED_BUDGETS.ticketPrompt} chars`);
+    parts.push(`## Prompt\n${prompt}`);
+  }
 
-  const brief = ctx.brief?.trim();
-  if (brief) parts.push(`## Context brief\n${brief}`);
+  const briefRaw = ctx.brief?.trim();
+  if (briefRaw) {
+    const { text: brief, truncated } = truncateToBudget(briefRaw, SEED_BUDGETS.brief, key);
+    if (truncated) debug?.(`[seed] truncated context brief to ${SEED_BUDGETS.brief} chars`);
+    parts.push(`## Context brief\n${brief}`);
+  }
 
   if (ctx.stage) {
     const s = ctx.stage;
@@ -492,18 +502,22 @@ export function renderTicketContext(ctx: TicketContext): string {
         // (file, line, rule)" the verdict string cannot carry, surfaced so a
         // session never has to open the artifact log just to learn what broke.
         if (g.summary) {
-          for (const line of g.summary.split('\n')) lines.push(`      ${line}`);
+          const { text: summary, truncated } = truncateToBudget(g.summary, SEED_BUDGETS.gateSummary, key);
+          if (truncated) debug?.(`[seed] truncated gate summary for ${g.name} to ${SEED_BUDGETS.gateSummary} chars`);
+          for (const line of summary.split('\n')) lines.push(`      ${line}`);
         }
       }
     }
     if (s.findings.length > 0) {
-      lines.push(
-        '- findings:',
-        ...s.findings.map((f) => {
+      const findingsBlock = s.findings
+        .map((f) => {
           const loc = f.file ? ` (${f.file}${f.line ? `:${f.line}` : ''})` : '';
           return `  - [${f.severity}] ${f.title}${loc}`;
-        }),
-      );
+        })
+        .join('\n');
+      const { text: bounded, truncated } = truncateToBudget(findingsBlock, SEED_BUDGETS.findings, key);
+      if (truncated) debug?.(`[seed] truncated findings list to ${SEED_BUDGETS.findings} chars`);
+      lines.push('- findings:', bounded);
     }
     if (
       !s.agentCanAdvance &&
@@ -533,14 +547,18 @@ export function renderTicketContext(ctx: TicketContext): string {
   }
 
   if (ctx.attachments.length > 0) {
-    const rows = ctx.attachments.map((a) => {
-      // Video is stated as unreadable rather than omitted. Omitting it would let
-      // an agent conclude nothing was attached; listing it bare would let one
-      // report on footage it never opened.
-      const note = a.kind === 'video' ? ' (not agent-readable)' : '';
-      return `- ${a.kind}: ${a.path} — "${a.name}"${note}`;
-    });
-    parts.push(`## Attachments\n${rows.join('\n')}`);
+    const rowsBlock = ctx.attachments
+      .map((a) => {
+        // Video is stated as unreadable rather than omitted. Omitting it would let
+        // an agent conclude nothing was attached; listing it bare would let one
+        // report on footage it never opened.
+        const note = a.kind === 'video' ? ' (not agent-readable)' : '';
+        return `- ${a.kind}: ${a.path} — "${a.name}"${note}`;
+      })
+      .join('\n');
+    const { text: bounded, truncated } = truncateToBudget(rowsBlock, SEED_BUDGETS.attachments, key);
+    if (truncated) debug?.(`[seed] truncated attachments list to ${SEED_BUDGETS.attachments} chars`);
+    parts.push(`## Attachments\n${bounded}`);
   }
 
   // One section, not two. The old render emitted a bare name list AND a richer
