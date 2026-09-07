@@ -120,10 +120,10 @@ For each phase in PLAN.md:
 │  4. Code Review (code-reviewer Agent)                           │
 │     └─→ Security, correctness, maintainability                  │
 │                                                                  │
-│  5. User Validation Gate                                        │
-│     └─→ STOP and request user approval                          │
-│         ├─→ PASS: Proceed to next phase                         │
-│         ├─→ CONDITIONAL PASS: Note issues, proceed              │
+│  5. Validation Gate (self-validated, recorded)                  │
+│     └─→ Check deliverables against PLAN.md criteria             │
+│         ├─→ PASS: Record verdict, proceed to next phase         │
+│         ├─→ CONDITIONAL PASS: Record issues, proceed            │
 │         └─→ FAIL: Fix issues, re-validate                       │
 │                                                                  │
 │  6. Documentation Update                                        │
@@ -298,26 +298,31 @@ Provide review using standard output format.
 ```
 
 **Review Verdicts**:
-- **APPROVED**: Proceed to user validation
+- **APPROVED**: Proceed to the validation gate
 - **APPROVED WITH SUGGESTIONS**: Note suggestions, proceed
 - **NEEDS REVISION**: Fix issues, re-review
 
 ---
 
-## Step 5: User Validation Gate
+## Step 5: Validation Gate
 
-**CRITICAL**: This step REQUIRES user interaction. DO NOT proceed automatically.
+**CRITICAL**: This step is self-validated and never blocks on a human. This
+body runs inside a karst-driven stage; a stage whose agent is waiting on the
+user is not complete, its done marker is refused, and an agent-advanced stage
+such as `impl` has no gate that can fail it — so waiting parks the ticket
+forever. **The karst gates are the approval.** Decide the verdict yourself
+against the checklist, record it, and continue.
 
 **Process**:
-1. Present phase deliverables checklist
-2. Show what was implemented (files changed, features added)
-3. Present validation criteria from PLAN.md
-4. Show code review results
-5. **STOP and wait for user decision**
+1. Assemble the phase deliverables checklist
+2. State what was implemented (files changed, features added)
+3. Check each validation criterion from PLAN.md and mark it
+4. Fold in the code review results
+5. **Decide the verdict from the checklist and record it in IMPLEMENT.md**
 
-**Validation Request Format**:
+**Validation Record Format**:
 ```
-## Phase N Validation Request
+## Phase N Validation Record
 
 ### Deliverables Completed
 - [x] [Deliverable 1] - [implementation summary]
@@ -345,16 +350,21 @@ Provide review using standard output format.
 
 ---
 
-**Please validate Phase N:**
-- **PASS**: Phase complete, proceed to Phase N+1
-- **CONDITIONAL PASS**: Note issues below, proceed with caution
-- **FAIL**: Specify issues to fix before proceeding
+**Verdict (decided from the checklist above):**
+- **PASS**: every criterion met and review APPROVED
+- **CONDITIONAL PASS**: criteria met, review left non-blocking suggestions
+- **FAIL**: any criterion unmet, any test red, or review NEEDS REVISION
 ```
 
-**User Decisions**:
-- **PASS**: Proceed to next phase
-- **CONDITIONAL PASS**: Document issues, proceed to next phase
-- **FAIL**: Fix issues, re-run Steps 2-5
+**Verdict Handling**:
+- **PASS**: record it, proceed to next phase
+- **CONDITIONAL PASS**: record the issues, proceed to next phase
+- **FAIL**: fix the issues, re-run Steps 2-5
+
+Never ask the user to approve a phase from inside a driven stage. If something
+is genuinely undecidable without a human, record it as an open question in
+IMPLEMENT.md and let the stage's gates fail the work — the block is visible in
+karst; a silent wait is not.
 
 ---
 
