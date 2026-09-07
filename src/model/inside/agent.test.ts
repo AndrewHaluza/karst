@@ -225,6 +225,8 @@ describe('implementationSessionProcess', () => {
       'plan',
       'switch',
       'research',
+      // The derived row follows the last reported phase.
+      'implement',
     ]);
     expect(timeline[1]!.detail).toBe(`reported · ${formatTime(runAt('12:10'))}`);
     expect(timeline[2]!.detail).toBe(`reported · ${formatTime(runAt('12:20'))}`);
@@ -444,7 +446,9 @@ describe('implementationSessionProcess', () => {
       undefined,
       NOW,
     );
-    expect(rows(process).map((r) => r.label)).toEqual(['started', 'research']);
+    // The derived implement row follows the last reported phase — a legacy
+    // mark is still this run's phase log.
+    expect(rows(process).map((r) => r.label)).toEqual(['started', 'research', 'implement']);
   });
 
   it('names the full-evidence continuation with the exact reveal count (B9)', () => {
@@ -466,14 +470,15 @@ describe('implementationSessionProcess', () => {
       NOW,
       attach,
     );
-    // 25 marks + the started row = 26 events; TIMELINE_LIMIT is 20. The
+    // 25 marks + the started row + the derived implement row = 27 events;
+    // TIMELINE_LIMIT is 20. The
     // continuation lives on the "more" note row, not the process row's own
     // `action` — that slot is claimed by the session-reveal control whenever
     // there is a session to reveal (this run's status is the default
     // 'running'), and the two must never compete for the one slot.
     const moreRow = rows(process).find((r) => r.label === 'more');
     expect(moreRow?.action).toMatchObject({ kind: 'open-full-evidence' });
-    expect(label).toBe('Show 6 more');
+    expect(label).toBe('Show 7 more');
     expect(process.action).toMatchObject({ kind: 'open-session' });
   });
 
@@ -517,11 +522,12 @@ describe('implementationSessionProcess', () => {
       NOW,
     );
     const timeline = rows(process);
-    // 25 phase events + the start row, capped at the timeline limit: 20 shown
-    // plus the one remainder row naming the 6 withheld.
+    // 25 phase events + the start row + the derived implement row, capped at
+    // the timeline limit: 20 shown plus the one remainder row naming the 7
+    // withheld.
     expect(timeline.length).toBe(21);
     expect(timeline.at(-1)).toMatchObject({ label: 'more', status: 'note' });
-    expect(timeline.at(-1)!.detail).toContain('6');
+    expect(timeline.at(-1)!.detail).toContain('7');
   });
 
   it('closes the timeline with the recorded implementation marker', () => {
@@ -555,6 +561,119 @@ describe('implementationSessionProcess', () => {
     const markRow = rows(process).find((r) => r.label === 'research')!;
     expect(markRow.time).toBe(formatShortTime(runAt('12:10')));
     expect(markRow.detail).toBe(`reported · ${formatTime(runAt('12:10'))}`);
+  });
+
+  describe('phase lifecycle', () => {
+    // A phase mark is an ENTRY event, so a phase that a later entry superseded
+    // is finished — that is a structural reading of the log, not a guess about
+    // what the agent did. The newest phase on a live run is the one being
+    // worked; on a run the marker closed, everything reported is finished.
+    it('renders a superseded phase as complete and the newest as in progress', () => {
+      const process = implementationSessionProcess(
+        cell('impl', 'running'),
+        tl([segment({ id: 1 })], { endedAt: null, status: 'running' }),
+        [
+          mark('research', runAt('12:10'), { implementationRunId: 1 }),
+          mark('plan', runAt('12:20'), { implementationRunId: 1 }),
+        ],
+        undefined,
+        undefined,
+        NOW,
+      );
+      const timeline = rows(process);
+      expect(timeline.find((r) => r.label === 'research')!.status).toBe('pass');
+      expect(timeline.find((r) => r.label === 'plan')!.status).toBe('run');
+    });
+
+    it('completes the newest phase once the done marker fired', () => {
+      const process = implementationSessionProcess(
+        cell('impl', 'passed'),
+        tl([segment({ id: 1 })], { endedAt: runAt('13:00'), status: 'passed' }),
+        [mark('plan', runAt('12:20'), { implementationRunId: 1 })],
+        undefined,
+        undefined,
+        NOW,
+      );
+      expect(rows(process).find((r) => r.label === 'plan')!.status).toBe('pass');
+    });
+
+    it('leaves the newest phase unconcluded when the run was interrupted', () => {
+      const process = implementationSessionProcess(
+        cell('impl', 'running'),
+        tl([segment({ id: 1 })], { endedAt: runAt('13:00'), status: 'interrupted' }),
+        [mark('plan', runAt('12:20'), { implementationRunId: 1 })],
+        undefined,
+        undefined,
+        NOW,
+      );
+      // Nothing closed it and nothing superseded it: the log states absence by
+      // saying nothing, never by inventing a verdict.
+      expect(rows(process).find((r) => r.label === 'plan')!.status).toBe('note');
+    });
+
+    it('derives the implement phase the done marker closed', () => {
+      const process = implementationSessionProcess(
+        cell('impl', 'passed'),
+        tl([segment({ id: 1 })], { endedAt: runAt('13:00'), status: 'passed' }),
+        [mark('plan', runAt('12:20'), { implementationRunId: 1 })],
+        undefined,
+        undefined,
+        NOW,
+      );
+      const timeline = rows(process);
+      expect(timeline.map((r) => r.label)).toEqual(['started', 'plan', 'implement', 'done']);
+      const implement = timeline.find((r) => r.label === 'implement')!;
+      expect(implement).toMatchObject({ status: 'pass', role: 'phase' });
+      // Worded as a derivation, never as a report the agent filed.
+      expect(implement.detail).toBe('derived · closed by the done marker');
+    });
+
+    it('shows the derived implement phase in progress on a live run', () => {
+      const process = implementationSessionProcess(
+        cell('impl', 'running'),
+        tl([segment({ id: 1 })], { endedAt: null, status: 'running' }),
+        [mark('plan', runAt('12:20'), { implementationRunId: 1 })],
+        undefined,
+        undefined,
+        NOW,
+      );
+      const implement = rows(process).find((r) => r.label === 'implement')!;
+      expect(implement.status).toBe('run');
+      expect(implement.detail).toBe('derived · after the last reported phase');
+    });
+
+    it('never derives an implement phase the agent reported itself', () => {
+      const process = implementationSessionProcess(
+        cell('impl', 'passed'),
+        tl([segment({ id: 1 })], { endedAt: runAt('13:00'), status: 'passed' }),
+        [
+          mark('plan', runAt('12:20'), { implementationRunId: 1 }),
+          mark('implement', runAt('12:30'), { implementationRunId: 1 }),
+        ],
+        undefined,
+        undefined,
+        NOW,
+      );
+      const timeline = rows(process);
+      expect(timeline.filter((r) => r.label === 'implement')).toHaveLength(1);
+      expect(timeline.find((r) => r.label === 'implement')!.detail).toBe(
+        `reported · ${formatTime(runAt('12:30'))}`,
+      );
+    });
+
+    it('derives nothing for a run that reported no phases at all', () => {
+      // A ticket whose approach declares no phases states no phases: the
+      // derivation extends a log that exists, it does not invent one.
+      const process = implementationSessionProcess(
+        cell('impl', 'passed'),
+        tl([segment({ id: 1 })], { endedAt: runAt('13:00'), status: 'passed' }),
+        [],
+        undefined,
+        undefined,
+        NOW,
+      );
+      expect(rows(process).map((r) => r.label)).toEqual(['started', 'done']);
+    });
   });
 
   describe('open-session control', () => {
@@ -684,10 +803,13 @@ describe('implementationSessionProcess', () => {
     expect(timeline.some((r) => r.label === 'done')).toBe(false);
   });
 
-  it('keeps a phase mark a note, never a verdict', () => {
+  it('never lets a phase mark claim a verdict the run did not record', () => {
+    // A phase row's status is read from the RUN — superseded, or the run's own
+    // outcome. It is never a verdict ON the phase: karst has no signal saying a
+    // phase succeeded or failed, and a `fail` here would be pure invention.
     const process = implementationSessionProcess(
-      cell('impl', 'passed'),
-      tl([segment({ id: 1 })], { endedAt: runAt('13:00'), status: 'passed' }),
+      cell('impl', 'failed'),
+      tl([segment({ id: 1 })], { endedAt: runAt('13:00'), status: 'interrupted' }),
       [mark('research', runAt('12:10'), { implementationRunId: 1 })],
       undefined,
       undefined,
@@ -695,7 +817,7 @@ describe('implementationSessionProcess', () => {
     );
     const timeline = rows(process);
     expect(timeline.find((r) => r.label === 'research')!.status).toBe('note');
-    expect(timeline.at(-1)).toMatchObject({ label: 'done', status: 'pass' });
+    expect(timeline.every((r) => r.status !== 'fail')).toBe(true);
   });
 
   it('reads a passed impl cell as pass on the session process row (Task 6.2)', () => {
@@ -748,6 +870,8 @@ describe('implementationSessionProcess', () => {
       expect(timeline.map((r) => r.role)).toEqual([
         'identity',
         'phase',
+        // The derived implement row sits with the phase it follows.
+        'phase',
         'identity',
         'identity',
       ]);
@@ -758,12 +882,14 @@ describe('implementationSessionProcess', () => {
       expect(timeline[0]!.provider).toBeUndefined();
       // Switch/resume rows carry their OWN provider key for the injected core
       // icon — the row's identity, never the process's latest segment.
-      expect(timeline[2]).toMatchObject({
+      // Looked up by label, not position: a row added elsewhere in the log
+      // must not silently re-point these assertions at a different row.
+      expect(timeline.find((r) => r.label === 'switch')).toMatchObject({
         role: 'identity',
         connector: 'switch',
         provider: 'codex',
       });
-      expect(timeline[3]).toMatchObject({
+      expect(timeline.find((r) => r.label === 'resumed')).toMatchObject({
         role: 'identity',
         connector: 'resume',
         provider: 'claude',
@@ -783,7 +909,8 @@ describe('implementationSessionProcess', () => {
         NOW,
       );
       const timeline = rows(process);
-      expect(timeline[1]).toMatchObject({ role: 'phase', label: 'research', status: 'note' });
+      // `research` was superseded by `plan`, so the log reads it as finished.
+      expect(timeline[1]).toMatchObject({ role: 'phase', label: 'research', status: 'pass' });
       // The prototype's acceptance copy: the phase name first, the report
       // stamp second — `reported · <time>` ships from the reducer verbatim
       // (the webview renders it, never composes it).

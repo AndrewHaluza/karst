@@ -8,8 +8,15 @@ import {
   confirmSessionLaunchIntent,
   getSessionLaunchIntent,
 } from '../store/sessionLaunchIntents.js';
-import { confirmFixLaunch, interruptActiveFixExecution } from '../store/recoveryRounds.js';
-import { interruptImplementationRun } from '../store/implementationRuns.js';
+import {
+  confirmFixLaunch,
+  hasFixingRound,
+  interruptActiveFixExecution,
+} from '../store/recoveryRounds.js';
+import {
+  currentImplementationRun,
+  interruptImplementationRun,
+} from '../store/implementationRuns.js';
 import { appendInteractiveUsageSample } from '../store/interactiveUsageSamples.js';
 import { normalizeInteractiveUsage } from '../agent/interactiveUsage.js';
 import { isKnownProvider } from '../agent/provider.js';
@@ -100,6 +107,21 @@ export function parseHookPayload(raw: unknown): HookPayload | null {
 }
 
 /**
+ * Whether the ticket is inside agent work whose done marker has NOT fired.
+ *
+ * The two agent lanes each own the fact: an implementation run stays `running`
+ * until `completeImplementationRun` (the `stage impl pass` marker) closes it,
+ * and a recovery round reads `fixing` until its Fix execution completes. Both
+ * are READS of the marker's own record — never an inference about what the
+ * agent is doing — so a turn ending against either one is a turn that ended
+ * without the completion karst was told to wait for.
+ */
+function doneMarkerPending(store: Store, ticketId: number): boolean {
+  if (currentImplementationRun(store, ticketId)?.status === 'running') return true;
+  return hasFixingRound(store, ticketId);
+}
+
+/**
  * The Notification kinds that mean "blocked on the user" — the amber signal.
  * A permission dialog, a 60s idle prompt, an agent/MCP input request. Kinds that
  * report a completed action (`auth_success`, `agent_completed`,
@@ -118,17 +140,25 @@ const WAITING_NOTIFICATION_TYPES: ReadonlySet<string> = new Set([
  * — a stage transition is NEVER inferred from a hook (the no-inference
  * guarantee, §5.4). `Stop` in particular leaves `stage_current` untouched.
  */
-function nextAgentState(payload: HookPayload): AgentState | null {
+function nextAgentState(payload: HookPayload, markerPending: boolean): AgentState | null {
   switch (payload.hook_event_name) {
     case 'SessionStart':
       return 'running';
     case 'SessionEnd':
+      // The terminal is gone. A closed session asks the user nothing, so it
+      // never claims the amber signal — resuming is the board's job, not a
+      // question waiting for an answer.
+      return 'idle';
     case 'Stop':
-      return 'idle';
     case 'session.idle':
-      // opencode's normalized idle event (generated plugin, Task 7) — Stop
-      // semantics: the session finished a turn.
-      return 'idle';
+      // The turn ended (`session.idle` is opencode's normalized equivalent).
+      // A turn that ends while the stage's done marker is still pending ended
+      // ON the user: the agent asked something in plain prose, which no
+      // Notification kind describes, and the session is sitting at its prompt
+      // waiting to be answered. Blue "in progress" claimed work was happening
+      // when nothing was. A stage whose marker already fired is genuinely
+      // finished and stays idle.
+      return markerPending ? 'waiting' : 'idle';
     case 'permission.asked':
       // opencode's normalized permission prompt (generated plugin) — the amber
       // "Needs you" signal, equivalent to Claude's Notification/permission_prompt.
@@ -343,7 +373,10 @@ export function dispatchHook(
     interruptActiveFixExecution(store, ticketId, nowIso());
   }
 
-  const state = nextAgentState(payload);
+  // Read the marker BEFORE the SessionEnd branch above has a chance to matter:
+  // `SessionEnd` never claims the amber signal anyway, and every other event
+  // leaves the run untouched, so one read here serves the whole dispatch.
+  const state = nextAgentState(payload, doneMarkerPending(store, ticketId));
   if (state === null) {
     observe('no-signal');
     return;

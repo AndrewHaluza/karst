@@ -993,9 +993,20 @@ function sessionPlanReport(input: ArtifactInput): ArtifactSummary | null {
   const latestReported = reported[reported.length - 1] ?? null;
   const running = implCell?.status === 'running';
 
-  const tasks: ArtifactPlanTask[] = names.map((name) => {
+  // The done marker is the completion authority for everything AFTER the last
+  // phase the agent reported: a stage the marker closed did that work, whether
+  // or not a phase mark named it. The same reading the session timeline's
+  // derived implement row uses — without it the stage read done and green while
+  // the plan still showed its trailing phases grey, as if they never ran. A
+  // declared phase the agent SKIPPED (one before the latest report) is not
+  // covered: nothing claims it happened, so it stays to-do.
+  const passed = implCell?.status === 'passed';
+  const latestIndex = latestReported === null ? -1 : names.indexOf(latestReported);
+
+  const tasks: ArtifactPlanTask[] = names.map((name, index) => {
     let status: ArtifactPlanTaskStatus = 'todo';
     if (reportedSet.has(name)) status = 'done';
+    else if (passed && index > latestIndex) status = 'done';
     if (running && name === latestReported) status = 'doing';
     return { id: name, label: name, kind: 'phase', status, visits: null };
   });

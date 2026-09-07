@@ -888,6 +888,35 @@ describe('plan artifact (session phases, non-graph)', () => {
     expect(a.tasks.find((task) => task.label === 'plan')).toMatchObject({ status: 'todo' });
   });
 
+  it('the done marker closes the declared phases that follow the last reported one', () => {
+    // The reported contradiction: the impl stage read done and green, while the
+    // plan artifact still showed `implement` grey as if it had never run. The
+    // done marker is the completion authority for the work AFTER the last
+    // phase the agent reported — the same reading the session timeline's
+    // derived implement row uses — so those phases are done, not to-do.
+    const t = ticket('impl', {
+      status: 'passed',
+      startedAt: '2026-08-01T08:00:00.000Z',
+      endedAt: '2026-08-01T09:00:00.000Z',
+    });
+    phase(t.id, 'plan', '2026-08-01T08:20:00.000Z');
+    const [a] = buildTicketArtifacts(store, t.id, ['plan', 'implement']) as [ArtifactSummary];
+    expect(a.summary).toBe('2 tasks · 2 done');
+    expect(a.tasks).toEqual([
+      { id: 'plan', label: 'plan', kind: 'phase', status: 'done', visits: null },
+      { id: 'implement', label: 'implement', kind: 'phase', status: 'done', visits: null },
+    ]);
+  });
+
+  it('leaves the trailing phases to-do while the session is still running', () => {
+    // Only the done marker closes them. A live session says nothing about work
+    // it has not reached.
+    const t = ticket('impl');
+    phase(t.id, 'plan', '2026-08-01T08:20:00.000Z');
+    const [a] = buildTicketArtifacts(store, t.id, ['plan', 'implement']) as [ArtifactSummary];
+    expect(a.tasks.find((task) => task.label === 'implement')).toMatchObject({ status: 'todo' });
+  });
+
   it('the graph plan wins when the graph approach drove the ticket', () => {
     const t = ticket('impl');
     seedGraphPlan(store, t.id, { nodeStatuses: [{ nodeId: 'verify', status: 'running' }] });
