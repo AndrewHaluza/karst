@@ -856,6 +856,11 @@
   #inside .ev-dur{color:var(--p-muted2)}
   #inside .ev-time{color:var(--p-muted2)}
   #inside .ev-tail{display:inline-flex;align-items:center;gap:var(--p-s2);justify-content:flex-end}
+  /* The status cell now LEADS the row (869e-status-first): a fixed, never
+     shrinking track so every row's glyph lands on the same vertical line
+     whatever the row's prose does. */
+  #inside .ev-glyph{display:inline-flex;align-items:center;justify-content:center;
+    min-height:18px;width:18px;flex:none}
 
   /* Slice 6 T4 — the graph's status-grouped node list. A LOCAL composition
      (UI-R07/R08): only the list geometry is local; the status glyph and the
@@ -905,14 +910,14 @@
   /* Gates */
   #inside .gates{border:var(--k-border-w) solid var(--p-border);border-radius:var(--p-r1);
     overflow:hidden;background:var(--p-surface)}
-  #inside .gate-row{display:grid;grid-template-columns:minmax(74px,90px) minmax(110px,150px) minmax(0,1fr) auto;
+  #inside .gate-row{display:grid;grid-template-columns:18px minmax(74px,90px) minmax(110px,150px) minmax(0,1fr) auto;
     gap:var(--p-s2);align-items:center;min-height:28px;padding:0 var(--p-s2);
     border-bottom:var(--k-border-w) solid var(--p-border)}
   #inside .gate-row:last-child{border-bottom:0}
   /* A gates body whose rows name no repository (pre-v21 rows) drops the column
      rather than drawing an empty one — a blank cell reads as a repo with no
      name instead of a row that names none. */
-  #inside .gates.no-repo .gate-row{grid-template-columns:minmax(110px,150px) minmax(0,1fr) auto}
+  #inside .gates.no-repo .gate-row{grid-template-columns:18px minmax(110px,150px) minmax(0,1fr) auto}
   #inside .gate-row.active{background:var(--p-tint-run);box-shadow:inset 2px 0 0 var(--p-running)}
   #inside .gate-repo,#inside .gate-name{font-family:var(--p-mono);font-size:var(--p-xs);
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -1190,9 +1195,9 @@
     #inside .duration,#inside .op-time{display:none}
     #inside .op-tail .agent-model{display:none}
     #inside .op-body{margin-left:20px}
-    #inside .gate-row{grid-template-columns:58px 70px minmax(0,1fr)}
+    #inside .gate-row{grid-template-columns:18px 70px minmax(0,1fr)}
     #inside .gate-repo{display:none}
-    #inside .gates.no-repo .gate-row{grid-template-columns:58px 70px minmax(0,1fr)}
+    #inside .gates.no-repo .gate-row{grid-template-columns:18px 70px minmax(0,1fr)}
     #inside .gate-state{grid-column:3}
     #inside .evidence-row{grid-template-columns:minmax(60px,80px) minmax(0,1fr) auto}
     #inside .ev-state{grid-column:3}
@@ -2651,6 +2656,7 @@
   function evidenceGatesHtml(ev) {
     const hasRepo = ev.rows.some((r) => !!r.repo);
     return `<div class="gates${hasRepo ? '' : ' no-repo'}">${ev.rows.map((r) => `<div class="gate-row${r.status === 'run' ? ' active' : ''}">`
+      + evGlyphHtml(r)
       + (hasRepo ? `<span class="gate-repo">${esc(r.repo || '')}</span>` : '')
       + `<span class="gate-name">${esc(r.label)}</span>`
       + `<span class="gate-detail">${esc(r.detail || '')}</span>`

@@ -1738,6 +1738,20 @@ describe('dashboard webview.html', () => {
     expect(timingFn).not.toContain('class="glyph');
   });
 
+  it('leads every gate row with its status glyph (UI-R28b)', () => {
+    const fn = HTML.slice(HTML.indexOf('function evidenceGatesHtml(ev) {'),
+      HTML.indexOf('function evidenceGatesHtml(ev) {') + 900);
+    // The glyph cell is emitted before the repo, the name and the detail.
+    expect(fn.indexOf('evGlyphHtml(r)')).toBeGreaterThan(-1);
+    expect(fn.indexOf('evGlyphHtml(r)')).toBeLessThan(fn.indexOf('gate-repo'));
+    expect(fn.indexOf('evGlyphHtml(r)')).toBeLessThan(fn.indexOf('gate-name'));
+    expect(fn.indexOf('gate-detail')).toBeLessThan(fn.indexOf("evTimingHtml(r, 'gate-state')"));
+    // The grid gains a leading fixed track for that glyph, in both the
+    // repo-bearing and the repo-less shapes.
+    expect(HTML).toMatch(/#inside \.gate-row\{display:grid;grid-template-columns:18px minmax\(74px,90px\) minmax\(110px,150px\) minmax\(0,1fr\) auto;/);
+    expect(HTML).toMatch(/#inside \.gates\.no-repo \.gate-row\{grid-template-columns:18px minmax\(110px,150px\) minmax\(0,1fr\) auto\}/);
+  });
+
   it('makes the inside block its own query container (B7)', () => {
     // The responsive rules are CONTAINER queries on #inside itself, so they
     // follow the panel's real width (the old preview's width frame targeted
@@ -1770,7 +1784,9 @@ describe('dashboard webview.html', () => {
     const wide = blockFor('430px');
     expect(wide).toMatch(/#inside \.op summary,#inside \.op-static\{grid-template-columns:20px minmax\(68px,86px\)/);
     expect(wide).toMatch(/#inside \.finding-title,#inside \.ev-detail,#inside \.done-copy,#inside \.op-detail\{/);
-    expect(wide).toMatch(/#inside \.gate-row\{grid-template-columns:58px 70px minmax\(0,1fr\)\}/);
+    // The glyph track leads even at 430px — the status is never the cell that
+    // gets dropped (UI-R04/R05); the repo column is.
+    expect(wide).toMatch(/#inside \.gate-row\{grid-template-columns:18px 70px minmax\(0,1fr\)\}/);
     // Evidence rows keep three columns (label, detail, status) at 430px so the
     // status glyph stays on its own line instead of collapsing into the detail.
     expect(wide).toMatch(/#inside \.evidence-row\{grid-template-columns:minmax\(60px,80px\) minmax\(0,1fr\) auto\}/);
@@ -3032,7 +3048,10 @@ describe('inside render round trip (executed in a VM)', () => {
     // repository, so the body drops the repo column (`no-repo`).
     const html = openEvidence('uat', 'gates');
     expect(html).toContain('class="gates no-repo"');
-    expect(html).toContain('<span class="glyph pass" aria-label="passed"></span>');
+    // Scoped to the gate row itself — an unscoped substring match would still
+    // pass even if the gate row carried no glyph at all (the glyph could be
+    // rendered anywhere else in the document).
+    expect(html).toContain('<div class="gate-row"><span class="ev-glyph"><span class="glyph pass"');
     expect(html).toContain('<span class="gate-name">lint</span>');
   });
 
