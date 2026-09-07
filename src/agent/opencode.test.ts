@@ -1062,9 +1062,9 @@ describe('OpencodeAdapter approach materialization', () => {
     });
     expect(result.invocation).toBe('/rpi');
     const body = readFileSync(join(worktree, '.opencode/commands/rpi.md'), 'utf8');
-    expect(body).toContain('node cli.js context --ticket $ARGUMENTS');
-    expect(body).toContain('node cli.js phase research --ticket $ARGUMENTS');
-    expect(body).toContain('node cli.js stage impl pass --ticket $ARGUMENTS');
+    expect(body).toContain('$KARST context --ticket $ARGUMENTS');
+    expect(body).toContain('$KARST phase research --ticket $ARGUMENTS');
+    expect(body).toContain('$KARST stage impl pass --ticket $ARGUMENTS');
   });
 
   it('materializes a solo agent into .opencode/agents/', () => {

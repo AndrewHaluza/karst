@@ -137,27 +137,76 @@ export function renderWorkflowCommand(input: {
   guideCommand?: string;
 }): string {
   const { id, label, phases, contextCommand, stageCommand, phaseCommand, guideCommand } = input;
+  // Every CLI command this body inlines shares the same `node "<cli>"` head and
+  // the same `--db`/`--manifest` flags (the guide skips the latter two). Emit
+  // that shared invocation ONCE as the `KARST` shell alias at the top of the
+  // body, then write each step as `$KARST <verb> <args>` — the same command the
+  // agent runs, without the ~240 chars of boilerplate repeated per phase.
+  const commands = [
+    contextCommand,
+    stageCommand,
+    guideCommand,
+    ...(phaseCommand ? phases.map((p) => phaseCommand(p.name)) : []),
+  ].filter((c): c is string => typeof c === 'string');
+  // A command tail is a full CLI invocation with the shared head and flags
+  // stripped, so the renderer can write it as `$KARST <tail>`. When there is no
+  // CLI command at all, `expand` is the identity and no alias is emitted.
+  let karstAlias: string | undefined;
+  let expand = (cmd: string): string => cmd;
+  if (commands.length > 0) {
+    const head = /^node ("[^"]+"|[^\s]+)/.exec(commands[0]!)![0];
+    const findFlag = (flag: string): string => {
+      for (const c of commands) {
+        const m = new RegExp(`${flag} ("[^"]+"|[^\\s]+)`).exec(c);
+        if (m) return `${flag} ${m[1]}`;
+      }
+      return '';
+    };
+    const dbFlag = findFlag('--db');
+    const manifestFlag = findFlag('--manifest');
+    karstAlias = [head, dbFlag, manifestFlag].filter(Boolean).join(' ');
+    const strip = (cmd: string): string => {
+      let s = cmd;
+      if (head) s = s.split(head).join('');
+      if (dbFlag) s = s.split(dbFlag).join('');
+      if (manifestFlag) s = s.split(manifestFlag).join('');
+      return s.replace(/\s+/g, ' ').trim();
+    };
+    expand = (cmd) => `$KARST ${strip(cmd)}`;
+  }
+  const karstBlock = karstAlias
+    ? [
+        'Every Karst CLI command below is written through the `KARST` alias defined here — ' +
+          'expand `$KARST` to its value when you run one:',
+        '',
+        '```sh',
+        `KARST='${karstAlias}'`,
+        '```',
+        '',
+      ]
+    : [];
   const loadInstruction = contextCommand
     ? 'This command receives a ticket key as its argument, available in `$ARGUMENTS`. ' +
-      `First, load the ticket's full context by running \`${contextCommand} $ARGUMENTS\` ` +
+      `First, load the ticket's full context by running \`${expand(contextCommand)} $ARGUMENTS\` ` +
       'and read the result — re-run it any time you need to refresh live worktree, ' +
       'branch, service, or PR state.'
     : 'This command receives a ticket key as its argument, available in `$ARGUMENTS`. ' +
       'First, read and describe the ticket identified by `$ARGUMENTS` so you understand ' +
       'what is being asked before proceeding.';
   const guideClause = guideCommand
-    ? ` ${GUIDE_POINTER_INTRO}, run \`${guideCommand}\`.`
+    ? ` ${GUIDE_POINTER_INTRO}, run \`${expand(guideCommand)}\`.`
     : '';
   const lines: string[] = [
     `# ${label}`,
     '',
+    ...karstBlock,
     loadInstruction + guideClause,
     '',
     ...(phaseCommand
       ? [
           'Phase marker commands write Karst state outside the worktree. If the workspace ' +
-            'sandbox denies one, request approval to run that exact marker command outside ' +
-            'the workspace sandbox.',
+            'sandbox denies one, request approval to run that exact phase marker command — ' +
+            'with `$KARST` expanded to its full invocation — outside the workspace sandbox.',
           '',
         ]
       : []),
@@ -178,14 +227,16 @@ export function renderWorkflowCommand(input: {
     // (§8, command-line noise). "Report entering" — a mark says the agent said
     // it was starting this phase, never that it completed one.
     if (phaseCommand) {
-      parts.push(`First run \`${phaseCommand(phase.name)} $ARGUMENTS\` to report entering it.`);
+      parts.push(
+        `First run \`${expand(phaseCommand(phase.name))} $ARGUMENTS\` to report entering it.`,
+      );
     }
     if (phase.command !== undefined) parts.push(`Run the \`${phase.command}\` slash command.`);
     else parts.push('Handle this step manually (no native slash command for this phase).');
     lines.push(`${step}. ${parts.join(' — ')}`);
   });
   if (stageCommand) {
-    lines.push('', renderDoneMarkerInstruction(stageCommand, '$ARGUMENTS'));
+    lines.push('', renderDoneMarkerInstruction(expand(stageCommand), '$ARGUMENTS'));
   }
   return lines.join('\n');
 }
