@@ -8,6 +8,7 @@ Everything that is true of every agent core, and the places a core-specific fix 
 - Per-ticket launch model
 - A missing optional provider CLI is a normal state
 - A failed headless CLI run is described in ONE place
+- A SILENT run is an empty answer, never a failure
 - A FIX TO ONE AGENT CORE IS A FIX TO THE SEAM
 - A headless agent run is BOUNDED
 - Token spend is measured ONCE, at the agent seam
@@ -31,6 +32,10 @@ The model catalog resolves per provider through cli→feed→cache→bundled, an
 ## A failed headless CLI run is described in ONE place for every agent core
 
 `agent/cliFailure.ts` (`describeHeadlessFailure`/`isUsageLimitFailure`) is what each adapter's `runHeadless` throws. It unwraps whole-document JSON AND JSONL (the interesting codex event is never line 1), names a usage limit from a 429 status / limit phrasing, and keeps raw text ONLY when nothing structured parsed — an unrecognized failure must stay debuggable. Every diagnostic is untrusted CLI prose (it can be model output), so it is collapsed to one line and capped before reaching a verdict, a log, or a toast. The bare-429 match uses lookarounds on purpose: `src/foo.ts:429:12` must not send the user to a billing page.
+
+## A SILENT run is an empty answer, never a failure
+
+A core that exits 0 having emitted no assistant text answered EMPTY — `runHeadless` returns `raw: ''` and every adapter agrees on that. opencode and codex used to THROW here (`did not contain agent text` / `did not contain a completed agent message`) while claude and agy already returned `''`, so the same silence was a crash on two cores and an empty answer on the other two. It is a real shape, not a broken stream: opencode routinely ends a turn on a tool call, and a three-minute UAT run that did the whole job and never wrote the answer down reached `uat/tester.ts` as `execution-failed` — which abandoned every remaining target, recorded ZERO observations, and left UAT to pass on its gates with nothing but a debug line to say the Tester never ran. A stream missing its SESSION ID (`thread.started`, opencode's `sessionID`) stays a hard failure — that is a broken stream, not a quiet model. **The caller decides what silence means**: the UAT Tester re-asks the target ONCE with `TESTER_SILENCE_NUDGE` appended to the same prompt (context and output rules intact) and then records `unreadable-output`; unreadable PROSE is never re-asked, because the core did answer and a second ask buys a second helping of prose. Every other headless call site already tolerates an empty answer through its own parse fallback.
 
 ## A FIX TO ONE AGENT CORE IS A FIX TO THE SEAM — all four adapters in the same commit, or a declared reason
 

@@ -884,9 +884,23 @@ describe('parseOpencodeJsonl', () => {
   it.each([
     ['error event', JSON.stringify({ type: 'error', timestamp: 1, sessionID: 'ses_e', error: { name: 'UnknownError', data: { message: 'boom' } } })],
     ['missing session', JSON.stringify({ type: 'step_start', timestamp: 1, part: { type: 'step-start' } })],
-    ['no text', [JSON.stringify({ type: 'step_start', timestamp: 1, sessionID: 's', part: { type: 'step-start' } }), JSON.stringify({ type: 'step_finish', timestamp: 2, sessionID: 's', part: { type: 'step-finish', tokens: { total: 0, input: 0, output: 0, reasoning: 0, cache: { write: 0, read: 0 } } } })].join('\n')],
   ])('rejects %s', (_label, stdout) => {
     expect(() => parseOpencodeJsonl(stdout)).toThrow();
+  });
+
+  // A clean exit that ended on a tool call is an EMPTY ANSWER, not a crash: the
+  // core did the work and said nothing. Throwing here turned a silent UAT run
+  // into an adapter execution failure that lost every target's observations.
+  it('reads a clean run that emitted no text as an empty answer', () => {
+    const nd = [
+      JSON.stringify({ type: 'step_start', timestamp: 1, sessionID: 's', part: { type: 'step-start' } }),
+      JSON.stringify({ type: 'tool_use', timestamp: 2, sessionID: 's', part: { type: 'tool', tool: 'bash' } }),
+      JSON.stringify({ type: 'step_finish', timestamp: 3, sessionID: 's', part: { type: 'step-finish', tokens: { total: 8, input: 6, output: 2, reasoning: 0, cache: { write: 0, read: 0 } } } }),
+    ].join('\n');
+    const parsed = parseOpencodeJsonl(nd);
+    expect(parsed.raw).toBe('');
+    expect(parsed.sessionId).toBe('s');
+    expect(parsed.usage?.totalTokens).toBe(8);
   });
 
   it('skips unparseable trailing lines without failing', () => {

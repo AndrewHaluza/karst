@@ -225,7 +225,15 @@ export function parseOpencodeJsonl(
   }
 
   if (!sessionId) throw new Error('opencode JSONL did not contain a session id');
-  if (!raw) throw new Error('opencode JSONL did not contain agent text');
+  // NO text part is an EMPTY ANSWER, never a parse failure (869ekt). opencode
+  // ends a turn on a tool call often enough that a clean 3-minute UAT run can
+  // stream nothing but `tool_use`; throwing here reached the UAT Tester as an
+  // adapter crash, which abandoned every remaining target and recorded zero
+  // observations. Claude and agy already answer '' for the same shape, so the
+  // seam agrees: an empty `raw` is what a silent core returns, and the CALLER
+  // decides what an empty answer means (the Tester re-asks once, then records
+  // `unreadable-output`). A stream with no session id stays a hard failure —
+  // that one is a broken stream, not a quiet model.
   return { sessionId, raw, ...(usage ? { usage } : {}) };
 }
 
@@ -1020,6 +1028,11 @@ export class OpencodeAdapter implements AgentAdapter {
         `[agent:opencode] unparseable output — first 500 chars: ${headlessPreview(result.stdout)}`,
       );
       throw error;
+    }
+    if (parsed.raw === '') {
+      opts.debug?.(
+        `[agent:opencode] clean exit with no agent text — empty answer (${result.stdout.length} byte(s) of events)`,
+      );
     }
     return {
       sessionId: parsed.sessionId,
