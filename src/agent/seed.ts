@@ -15,7 +15,7 @@
  */
 
 import { seedCharLength, seedHasGuide } from './promptTelemetry.js';
-import { truncateToBudget, SEED_BUDGETS } from './seedBudget.js';
+import { truncateToBudget, SEED_BUDGETS, approachTruncationPointer } from './seedBudget.js';
 
 /**
  * Compose the session seed from pre-rendered parts. Returns `undefined` only
@@ -45,8 +45,16 @@ export function buildSessionSeed(
   const guide = guideInstruction?.trim();
 
   if (method) {
-    const key = ticketKey?.trim() || 'this ticket';
-    const { text, truncated } = truncateToBudget(method, SEED_BUDGETS.approachMethod, key);
+    // `karst context <key>` cannot recover the approach body — it renders
+    // TicketContext, which has no field for it — so this truncation states a
+    // different, honest pointer instead of the ticket-key one every other
+    // section uses (`approachTruncationPointer`, never `truncationPointer`).
+    const { text, truncated } = truncateToBudget(
+      method,
+      SEED_BUDGETS.approachMethod,
+      ticketKey ?? '',
+      approachTruncationPointer(),
+    );
     if (truncated) debug?.(`[seed] truncated approach method to ${SEED_BUDGETS.approachMethod} chars`);
     method = text;
   }

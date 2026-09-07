@@ -3852,6 +3852,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                 graphRunTicketId(graphRunId),
                 context.globalStorageUri.fsPath,
               ),
+              undefined,
+              // PROMPT-08 bounds the interactive-session launch seed only; the
+              // graph-planner prompt is a different surface this ticket never
+              // touched, so it keeps its pre-ticket unbounded behavior.
+              { bounded: false },
             )
           : undefined,
     };
@@ -4204,9 +4209,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           return undefined;
         }
       },
+      // PROMPT-08 bounds the interactive-session launch seed only — this
+      // graph surface is out of that ticket's scope, so it stays unbounded.
       ticketContextOf: (ticketId) =>
         renderTicketContext(
           buildTicketContext(localStore, currentManifest(), ticketId, context.globalStorageUri.fsPath),
+          undefined,
+          { bounded: false },
         ),
       compileContextOf: (graphRunId, document) => graphCompileContext(graphRunId, document),
       manifestResolvedFor: (graphRunId) => graphManifestResolution(graphRunId),
@@ -4710,6 +4719,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           graphRunTicketId(graphRunId),
           context.globalStorageUri.fsPath,
         ),
+        undefined,
+        // PROMPT-08 bounds the interactive-session launch seed only; this
+        // graph-planner retry prompt is out of that ticket's scope.
+        { bounded: false },
       ),
       diagnostics ?? 'The compiler rejected the previous `graph.json`.',
       `This is compile attempt ${attempt + 1}: write a corrected \`graph.json\` and submit it again.`,

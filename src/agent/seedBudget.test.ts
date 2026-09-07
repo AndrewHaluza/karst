@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { truncateToBudget, truncationPointer, SEED_BUDGETS } from './seedBudget.js';
+import {
+  truncateToBudget,
+  truncationPointer,
+  approachTruncationPointer,
+  SEED_BUDGETS,
+} from './seedBudget.js';
 
 describe('truncateToBudget', () => {
   it('returns text unchanged when under budget', () => {
@@ -24,6 +29,29 @@ describe('truncateToBudget', () => {
     expect(truncationPointer('PROJ-9')).toBe(
       ' ... truncated -- run `karst context PROJ-9` for the full state.',
     );
+  });
+
+  it('accepts a pointer override for the one section karst context cannot recover', () => {
+    const text = 'x'.repeat(20);
+    const override = ' ... truncated -- see the approach package on disk.';
+    const result = truncateToBudget(text, 10, 'PROJ-1', override);
+    expect(result.truncated).toBe(true);
+    expect(result.text).toBe('x'.repeat(10) + override);
+    expect(result.text).not.toContain('karst context');
+  });
+
+  it('falls back to the default ticket-key pointer when no override is given', () => {
+    const text = 'x'.repeat(20);
+    const result = truncateToBudget(text, 10, 'PROJ-1');
+    expect(result.text).toBe('x'.repeat(10) + truncationPointer('PROJ-1'));
+  });
+
+  it('approachTruncationPointer never tells the agent to run karst context for the approach body', () => {
+    const pointer = approachTruncationPointer();
+    // It's allowed to NAME `karst context` while explaining that command
+    // can't help here — what it must never do is tell the agent to RUN it.
+    expect(pointer).not.toContain('run `karst context');
+    expect(pointer).toContain('approach method is longer than fits here');
   });
 
   it('exposes the derived per-section budgets', () => {

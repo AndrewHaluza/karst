@@ -158,12 +158,18 @@ describe('measureSeed', () => {
 
 describe('buildSessionSeed budget', () => {
   it('truncates an oversized approach method with the stated pointer', () => {
-    const bigMethod = '# Big approach\n' + 'z'.repeat(20_000);
+    // Filler is 'q', not 'z' — the honest approach pointer's own wording
+    // ("materialized") contains a 'z', which would corrupt a 'z'-based count.
+    const bigMethod = '# Big approach\n' + 'q'.repeat(20_000);
     const seed = buildSessionSeed(CONTEXT, bigMethod, undefined, undefined, undefined, 'PROJ-9');
-    expect(seed).toContain('truncated -- run `karst context PROJ-9` for the full state.');
+    // The approach-method pointer is NOT `karst context <key>` — that command
+    // renders TicketContext, which never carries the approach body, so it
+    // would be a stated pointer to nothing. This is the honest one instead.
+    expect(seed).toContain("the approach method is longer than fits here");
+    expect(seed).not.toContain('karst context PROJ-9');
     // 8000-char budget applies to the whole method text, including the 15-char
-    // "# Big approach\n" heading, so 8000 - 15 = 7985 'z' characters survive.
-    expect(seed!.match(/z/g)!.length).toBe(7985);
+    // "# Big approach\n" heading, so 8000 - 15 = 7985 'q' characters survive.
+    expect(seed!.match(/q/g)!.length).toBe(7985);
   });
 
   it('never truncates the marker instruction, even with a huge context and method', () => {
@@ -220,8 +226,10 @@ describe('oversized ticket end-to-end budget (PROMPT-08 acceptance)', () => {
     // (b) the marker instruction survives verbatim.
     expect(seed).toContain(marker);
     // (c) the truncation pointer is present (context wasn't bounded by
-    // buildSessionSeed itself in this fixture, but the approach method was).
-    expect(seed).toContain('truncated -- run `karst context PROJ-9` for the full state.');
+    // buildSessionSeed itself in this fixture, but the approach method was) —
+    // the honest approach-body pointer, not `karst context <key>` (that
+    // command cannot recover the approach body).
+    expect(seed).toContain('the approach method is longer than fits here');
   });
 
   describe('real end-to-end pipeline with maxed-out context fields', () => {
@@ -309,8 +317,9 @@ describe('oversized ticket end-to-end budget (PROMPT-08 acceptance)', () => {
       // (b) the marker instruction survives verbatim
       expect(seed).toContain(marker);
       // (c) at least one truncation pointer is present
-      // (the approach method was truncated since it's 50k chars)
-      expect(seed).toContain('truncated -- run `karst context PROJ-9` for the full state.');
+      // (the approach method was truncated since it's 50k chars) — the
+      // honest approach-body pointer, not `karst context <key>`.
+      expect(seed).toContain('the approach method is longer than fits here');
     });
   });
 });
