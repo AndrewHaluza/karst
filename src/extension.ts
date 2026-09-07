@@ -1139,7 +1139,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // switch flow persists the selection BEFORE its launch, and this callback
     // fires synchronously inside that launch. Best-effort: a bookkeeping
     // failure must never fail the terminal launch itself.
-    ({ ticketId, launchId, resume, switchLaunch, assignment }) => {
+    ({ ticketId, launchId, resume, switchLaunch, assignment, seedTelemetry }) => {
       try {
         const ticket = getTicket(localStore, ticketId);
         const purpose =
@@ -1194,6 +1194,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           reason: switchLaunch ? 'switch' : resume ? 'resume' : 'initial',
           sessionOrigin: resume ? 'resume' : 'new',
           at: new Date().toISOString(),
+          // v57 prompt-metrics: fold the measured seed onto the launch's session
+          // process run — the guide-pull denominator (guidePointer) and the seed
+          // budget baseline (seedChars). Absent only when the seam did not measure
+          // it (a legacy caller); never invented.
+          promptTelemetry:
+            seedTelemetry !== undefined
+              ? { ...seedTelemetry, core: provider }
+              : undefined,
         });
       } catch (error) {
         logError(`karst: could not record session launch intent for ticket ${ticketId}`, error);
@@ -6308,7 +6316,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           resumeId,
           naming,
           materialized.ownedPaths,
-          { ...options, ...(effort ? { effort } : {}) },
+          { ...options, ...(effort ? { effort } : {}), dbPath },
           // Record the session manager's active provider/model snapshot, so a
           // later fix recovery reads the identity that ACTUALLY launched this
           // session — not the one a manifest edit resolves today. A host-only

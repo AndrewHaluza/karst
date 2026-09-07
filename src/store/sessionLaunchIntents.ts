@@ -144,6 +144,13 @@ export interface RecordSessionLaunchIntentInput {
    * owner before its process run exists. Absent for an implementation launch.
    */
   recoveryRoundId?: number | null;
+  /**
+   * v57 prompt-metrics: seed telemetry (length + guide-pointer presence + core)
+   * recorded onto the implementation launch's `session` process run when this
+   * intent opens it. Absent on a fix launch and on a run that is reused rather
+   * than freshly opened.
+   */
+  promptTelemetry?: import('./processRuns.js').PromptTelemetry | null;
 }
 
 /**
@@ -179,6 +186,7 @@ export function recordSessionLaunchIntent(
           attempt: stageAttempt(store, input.ticketId, 'impl'),
           provider: input.provider,
           model: input.model ?? null,
+          promptTelemetry: input.promptTelemetry ?? null,
           startedAt: input.at,
         });
         implementationRunId = run.id;
