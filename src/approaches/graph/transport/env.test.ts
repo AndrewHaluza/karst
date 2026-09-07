@@ -92,6 +92,24 @@ describe('graph seed contract', () => {
     // The graph environment itself carries no marker surface either.
     expect(Object.keys(GRAPH_ENV).some((k) => k.includes('STAGE') || k.includes('MARKER'))).toBe(false);
   });
+
+  it('a node launch prompt carries no session-seed guide pointer', () => {
+    // A graph node session is composed from its own layers (node base prompt,
+    // ticket context, instructions, inputs) and does NOT pass through
+    // buildSessionSeed, so the seed's `renderGuideInstruction` pointer must not
+    // appear in the node prompt (prompt-04 layering pin). Reading state stays
+    // PERMITTED by the node prompt itself; the seed nudge is simply absent.
+    const seed = composeNodePrompt(
+      '# karst-graph-node',
+      '# ticket context',
+      '# instructions',
+      ['# input artifact'],
+    );
+    expect(seed).toContain('# karst-graph-node');
+    expect(seed).not.toContain('To understand how Karst works');
+    expect(seed).not.toContain('guide');
+    expect(seed).not.toMatch(/stage\s+(impl|fix)\s+pass/);
+  });
 });
 
 describe('terminalIdentity unchanged', () => {
