@@ -179,3 +179,34 @@ describe('buildSessionSeed budget', () => {
   });
 });
 
+describe('oversized ticket end-to-end budget (PROMPT-08 acceptance)', () => {
+  it('a ticket with a huge prompt, brief, and approach method still produces a bounded, marker-intact seed', () => {
+    // Context is pre-shaped (realistic ~5k chars), mimicking renderTicketContext output
+    const hugeContext =
+      `# Ticket: PROJ-9 — Oversized\n\n## Prompt\n${'p'.repeat(2_500)}\n\n` +
+      `## Context brief\n${'b'.repeat(2_000)}`;
+    // Approach method is genuinely huge (50k), will be truncated to 8000-char budget
+    const hugeMethod = '# rpi-implement\n' + 'm'.repeat(50_000);
+    const marker = 'Run `karst stage impl pass --ticket PROJ-9` when done.';
+
+    const seed = buildSessionSeed(
+      hugeContext,
+      hugeMethod,
+      '/karst:rpi PROJ-9',
+      marker,
+      'Run `karst guide` to learn the CLI.',
+      'PROJ-9',
+    );
+
+    expect(seed).toBeDefined();
+    // (a) fits: total seed stays well under 15k tokens (~60k chars at ~4 chars/token)
+    // — invocation + pre-shaped context + truncated method + marker + guide
+    expect(seed!.length).toBeLessThan(20_000);
+    // (b) the marker instruction survives verbatim.
+    expect(seed).toContain(marker);
+    // (c) the truncation pointer is present (context wasn't bounded by
+    // buildSessionSeed itself in this fixture, but the approach method was).
+    expect(seed).toContain('truncated -- run `karst context PROJ-9` for the full state.');
+  });
+});
+
