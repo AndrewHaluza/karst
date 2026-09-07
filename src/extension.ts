@@ -6117,6 +6117,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           ticketId,
           context.globalStorageUri.fsPath,
         ),
+        (msg) => logger.debug(msg),
       );
       // The done marker (§5.4) rides every seed, not just the approach path:
       // `materializeApproach` only runs for an installed package or a solo agent,
@@ -6149,6 +6150,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // (869edmcme): it costs ~40 tokens and saves the agent from reading the
         // extension's dist/ to learn how Karst works and what the CLI can do.
         renderGuideInstruction(buildCliGuidePrefix(context)),
+        t.key ?? String(ticketId),
+        (msg) => logger.debug(msg),
       );
 
       // Resume the captured session when continuing interactive work, so the
@@ -6236,6 +6239,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           invocation,
           markerInstruction,
           renderGuideInstruction(buildCliGuidePrefix(context)),
+          t.key ?? String(ticketId),
+          (msg) => logger.debug(msg),
         );
       }
       // A caller with one specific job for this session (the merge brief behind
