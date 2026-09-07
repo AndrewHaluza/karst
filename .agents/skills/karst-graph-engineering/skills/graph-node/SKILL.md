@@ -63,9 +63,12 @@ until a human or a replan resolves the block.
 - Do not modify anything outside the declared resource claims.
 - Do not run git operations that rewrite history or force anything; karst
   owns integration.
-- Do not call the stage marker CLI or any other karst CLI verb — you are one
-  node in a run, not a ticket's driver. The graph's guarded IMPL pass is
-  handled by the run itself.
+- Do not fire the ticket-driving verbs — `stage`, `phase`, `graph submit` — or
+  any other transition you do not own: you are one node in a run, not a
+  ticket's driver. The graph's guarded IMPL pass and every ticket transition
+  are handled by the run itself.
+- You MAY run the read verbs — `context`, `guide` — to read the ticket's live
+  state. Reading does not make you the driver; only driving the ticket does.
 - Keep your reason text factual and bounded; it is carried as evidence, not
   as routing input.
 

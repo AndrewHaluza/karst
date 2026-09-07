@@ -81,6 +81,30 @@ describe('built-in package VSIX parity', () => {
     }
   });
 
+  it('the node prompt narrows the CLI prohibition to driving verbs and permits read verbs', () => {
+    const body = readFileSync(
+      join(packageRoot, 'skills', 'graph-node', 'SKILL.md'),
+      'utf8',
+    );
+    // The read/write split (prompt-04): a node may not fire the ticket-DRIVING
+    // verbs because it is not the ticket's driver; that reason does NOT extend to
+    // reading state, so the read verbs are explicitly permitted. The blanket "or
+    // any other karst CLI verb" wording must never come back.
+    expect(body).not.toContain('any other karst CLI verb');
+    const driving = body
+      .split('\n')
+      .find((l) => l.toLowerCase().includes('ticket-driving'));
+    expect(driving, 'a ticket-driving prohibition line').toBeTruthy();
+    for (const verb of ['stage', 'phase', 'graph submit']) {
+      expect(driving!.toLowerCase()).toContain(verb);
+    }
+    expect(driving!.toLowerCase()).toMatch(/\b(not|never|may not|do not)\b/);
+    const reading = body.split('\n').find((l) => /read verbs?/i.test(l));
+    expect(reading, 'a read-verb permission line').toBeTruthy();
+    expect(reading!.toLowerCase()).toContain('context');
+    expect(reading!.toLowerCase()).toContain('guide');
+  });
+
   it('no tracked path matches the retired karst-two-phase package', () => {
     const offenders = [...tracked].filter((p) => p.includes('karst-two-phase'));
     expect(offenders, 'karst-two-phase must be fully retired from the tree').toEqual([]);
