@@ -148,3 +148,34 @@ describe('measureSeed', () => {
   });
 });
 
+describe('buildSessionSeed budget', () => {
+  it('truncates an oversized approach method with the stated pointer', () => {
+    const bigMethod = '# Big approach\n' + 'z'.repeat(20_000);
+    const seed = buildSessionSeed(CONTEXT, bigMethod, undefined, undefined, undefined, 'PROJ-9');
+    expect(seed).toContain('truncated -- run `karst context PROJ-9` for the full state.');
+    // 8000-char budget applies to the whole method text, including the 15-char
+    // "# Big approach\n" heading, so 8000 - 15 = 7985 'z' characters survive.
+    expect(seed!.match(/z/g)!.length).toBe(7985);
+  });
+
+  it('never truncates the marker instruction, even with a huge context and method', () => {
+    const bigContext = 'c'.repeat(50_000);
+    const bigMethod = 'm'.repeat(50_000);
+    const marker = 'FIRE THE MARKER: run `karst stage impl pass`';
+    const seed = buildSessionSeed(bigContext, bigMethod, undefined, marker, undefined, 'PROJ-9');
+    expect(seed).toContain(marker);
+  });
+
+  it('reports truncation via the injected debug callback', () => {
+    const bigMethod = 'z'.repeat(20_000);
+    const seen: string[] = [];
+    buildSessionSeed(CONTEXT, bigMethod, undefined, undefined, undefined, 'PROJ-9', (m) => seen.push(m));
+    expect(seen.some((m) => m.includes('approach method'))).toBe(true);
+  });
+
+  it('does not truncate a method body under budget', () => {
+    const seed = buildSessionSeed(CONTEXT, '# Small\nGo look.', undefined, undefined, undefined, 'PROJ-9');
+    expect(seed).not.toContain('truncated --');
+  });
+});
+
