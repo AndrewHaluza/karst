@@ -2551,9 +2551,20 @@
   // An evidence row's status is the GLYPH, not a word: the word repeated what
   // the row's own detail already said ("selected … passed") on every row of
   // every expanded body. The word survives as the glyph's accessible name, so
-  // nothing that cannot see colour loses the status. A recorded duration is a
-  // fact of its own and still renders beside it.
-  function evStateHtml(r, cls) {
+  // nothing that cannot see colour loses the status (UI-R28b).
+  //
+  // The glyph LEADS the row and the timing TRAILS it, in two separate cells:
+  // a verdict read after the prose is a verdict read last, and the check that
+  // sat at the row's right edge was the thing the eye had to hunt for. Two
+  // functions rather than one bundled cell, so no renderer can re-pair them.
+  // Both always emit exactly ONE grid item, empty when the row has no status,
+  // so a statusless row keeps the grid's column alignment.
+  function evGlyphHtml(r) {
+    if (!r.status) return `<span class="ev-glyph"></span>`;
+    return `<span class="ev-glyph"><span class="glyph ${esc(r.status)}"`
+      + ` aria-label="${esc(statusWord(r.status))}"></span></span>`;
+  }
+  function evTimingHtml(r, cls) {
     if (!r.status) return `<span class="${cls}"></span>`;
     const time = r.time
       ? `<span class="ev-time" title="started ${esc(r.time)}">${esc(r.time)}</span>`
@@ -2561,8 +2572,7 @@
     const dur = r.duration
       ? `<span class="ev-dur"${r.durationExact ? ` title="${esc(r.durationExact)}"` : ''}>${esc(r.duration)}</span>`
       : '';
-    return `<span class="${cls} ${esc(r.status)}">${time}${dur}`
-      + `<span class="glyph ${esc(r.status)}" aria-label="${esc(statusWord(r.status))}"></span></span>`;
+    return `<span class="${cls} ${esc(r.status)}">${time}${dur}</span>`;
   }
   function evActionHtml(r) {
     return r.action ? `<span class="ev-tail">${insideActionBtnHtml(r.action)}</span>` : '';
@@ -2632,7 +2642,7 @@
       + `<span class="ev-detail">${esc(r.detail || '')}`
       + (r.prState ? `<span class="pr-status ${esc(r.prState)}">${esc(r.prState)}</span>` : '')
       + `</span>`
-      + (r.action ? evActionHtml(r) : evStateHtml(r, 'ev-state'))
+      + (r.action ? evActionHtml(r) : evTimingHtml(r, 'ev-state'))
       + `</div>`).join('');
   }
   // The recorded repository is its own column. A body whose rows name none
@@ -2644,7 +2654,7 @@
       + (hasRepo ? `<span class="gate-repo">${esc(r.repo || '')}</span>` : '')
       + `<span class="gate-name">${esc(r.label)}</span>`
       + `<span class="gate-detail">${esc(r.detail || '')}</span>`
-      + evStateHtml(r, 'gate-state')
+      + evTimingHtml(r, 'gate-state')
       + `</div>`).join('')}</div>`;
   }
   // Findings — ONE blueprint for both the Review findings and the UAT

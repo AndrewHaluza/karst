@@ -1719,6 +1719,25 @@ describe('dashboard webview.html', () => {
     expect(HTML).toMatch(/#inside \.gate-state\{[^}]*justify-content:flex-end/);
   });
 
+  it('renders the status glyph and the timing as two separate cells', () => {
+    // The glyph cell is the row's FIRST grid item and carries no timing; the
+    // timing cell is the row's LAST and carries no glyph. One function each,
+    // so no renderer can accidentally re-bundle them (UI-R28b).
+    expect(HTML).toContain('function evGlyphHtml(r) {');
+    expect(HTML).toContain('function evTimingHtml(r, cls) {');
+    expect(HTML).not.toContain('function evStateHtml(');
+    const glyphFn = HTML.slice(HTML.indexOf('function evGlyphHtml(r) {'),
+      HTML.indexOf('function evTimingHtml(r, cls) {'));
+    expect(glyphFn).toContain('class="ev-glyph"');
+    expect(glyphFn).not.toContain('ev-dur');
+    expect(glyphFn).not.toContain('ev-time');
+    const timingFn = HTML.slice(HTML.indexOf('function evTimingHtml(r, cls) {'),
+      HTML.indexOf('function evTimingHtml(r, cls) {') + 700);
+    expect(timingFn).toContain('ev-time');
+    expect(timingFn).toContain('ev-dur');
+    expect(timingFn).not.toContain('class="glyph');
+  });
+
   it('makes the inside block its own query container (B7)', () => {
     // The responsive rules are CONTAINER queries on #inside itself, so they
     // follow the panel's real width (the old preview's width frame targeted
@@ -3001,7 +3020,9 @@ describe('inside render round trip (executed in a VM)', () => {
     expect(html).toContain('class="evidence-row"');
     expect(html).toMatch(/<span class="ev-key">worktree<\/span>/);
     // The row's status is the glyph, whose accessible name is the word.
-    expect(html).toMatch(/<span class="ev-state [a-z]+">(?:<span class="ev-dur">[^<]*<\/span>)?<span class="glyph [a-z]+" aria-label="(?:pending|passed)"><\/span><\/span>/);
+    // The timing cell holds time and duration and no glyph; the glyph cell
+    // arrives when the renderers are reordered.
+    expect(html).toMatch(/<span class="ev-state [a-z]+">(?:<span class="ev-dur">[^<]*<\/span>)?<\/span>/);
   });
 
   it('renders gates evidence with a per-row status glyph (B2)', () => {
@@ -3594,7 +3615,7 @@ describe('inside render round trip (executed in a VM)', () => {
     h.clickChevron('uat:fix');
     const html = h.htmlOf('inside');
     // The status WORD is gone from the rendered row; it survives only as the
-    // glyph's accessible name — the same trade `evStateHtml` documents.
+    // glyph's accessible name — the same trade `evGlyphHtml` documents.
     expect(html).not.toContain('<span class="recovery-result run">running</span>');
     expect(html).toContain('<span class="glyph run" aria-label="running"></span>');
     expect(html).toContain('<span class="glyph pass" aria-label="passed"></span>');
