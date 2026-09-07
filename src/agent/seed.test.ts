@@ -253,7 +253,7 @@ describe('oversized ticket end-to-end budget (PROMPT-08 acceptance)', () => {
       const findings = [];
       for (let i = 0; i < 20; i++) {
         findings.push({
-          severity: 'warning' as const,
+          severity: 'medium' as const,
           repo: '/repo',
           file: 'src/file.ts',
           line: i * 10,
