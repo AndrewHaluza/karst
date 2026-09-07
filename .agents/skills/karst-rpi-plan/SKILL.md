@@ -1,9 +1,5 @@
 ---
 name: karst-rpi-plan
-description: Run the plan command from Research → Plan → Implement.
----
-
----
 description: Create comprehensive planning documentation for a feature
 argument-hint: "<feature-slug>"
 ---
