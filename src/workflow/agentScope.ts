@@ -64,6 +64,8 @@
  * not licensing a repo-wide sweep.
  */
 
+import { SCOPE_ORIENTATION_HEADING, SCOPE_RULES_HEADING } from '../agent/promptText.js';
+
 /** What the agent is being pointed at — the two lanes word this differently. */
 export type ScopeIntent = 'review' | 'test';
 
@@ -212,13 +214,13 @@ export function buildScopeBlock(intent: ScopeIntent, opts: ScopeBlockOpts = {}):
           : `- The diff range above shows COMMITTED changes only. If it comes back EMPTY, there are no committed changes to ${subject} — report exactly one observation (severity "info", title "no changes to ${subject}") rather than silently outputting \`[]\`. Do NOT run \`git status\` or look for uncommitted work; this review is scoped to committed changes only.`
         : null;
   return [
-    `Orientation (already established — do NOT re-derive it):`,
+    SCOPE_ORIENTATION_HEADING,
     orientation,
     diffLine(subject, opts.baseRef, branch, opts.openChanges, snapshotRef),
     ...(emptyDiffGuard !== null ? [emptyDiffGuard] : []),
     ...gateLine,
     ``,
-    `Scope rules (strict):`,
+    SCOPE_RULES_HEADING,
     `- Start by reading that diff. Do not survey the repository first.`,
     `- Do NOT run repository-wide reconnaissance: no \`git worktree list\`, no branch/remote mapping, ` +
       `no \`git log\` over history outside the diff range, no querying the orchestration tool that ` +

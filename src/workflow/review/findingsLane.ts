@@ -23,6 +23,7 @@ import { collapseDiagnostic } from '../../model/diagnosticText.js';
 import { nowIso } from '../../model/time.js';
 import { parseFindingsResult, type FindingsExtractionTier, type WarnFn } from './findings.js';
 import { buildScopeBlock } from '../agentScope.js';
+import { OUTPUT_RULES_HEADING, OUTPUT_RULES_BASE } from '../../agent/promptText.js';
 import { createReviewSnapshot, deleteReviewSnapshot } from '../reviewSnapshot.js';
 import { dropDisprovenCheckoutClaims, isWrongCheckoutClaim, verifyCheckout } from './checkoutClaim.js';
 import {
@@ -204,11 +205,8 @@ export function buildFindingsPrompt(
     // choosing WHAT to look for, not licensing a repo-wide sweep before it.
     ...buildScopeBlock('review', { baseRef, branch, openChanges, snapshotRef, worktreePath }),
     ``,
-    `Output rules (strict):`,
-    `- Output ONLY a JSON array, nothing else: no preamble, no markdown fence, no commentary.`,
-    `- Each element: {"severity": "critical"|"high"|"medium"|"low"|"info", "title": string, "detail": string, "file"?: string, "line"?: number}.`,
-    `- "file" must be a path RELATIVE to this worktree's root — never absolute, never outside it.`,
-    `- "title" is one short sentence; "detail" carries the explanation.`,
+    OUTPUT_RULES_HEADING,
+    ...OUTPUT_RULES_BASE,
     `- No changes worth reporting → output exactly [].`,
     `- Use "critical" only for something that will break in production (data loss, security, crash); "high" for a real bug or a clear regression; "medium"/"low"/"info" for style, maintainability, or a suggestion.`,
   ].join('\n');

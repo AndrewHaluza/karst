@@ -30,6 +30,7 @@ import { latestFindingBatch } from '../store/reviewFindings.js';
 import { latestBatch } from '../model/inside/gates.js';
 import { latestStageRun, previousStageRun } from '../store/stageRuns.js';
 import { isMarkerStage } from '../agent/markerStage.js';
+import { MARKER_REFUSED, GATE_DECIDED_BY_EXIT_CODES } from '../agent/promptText.js';
 import type { Manifest } from '../manifest/types.js';
 import { isRunnable } from '../manifest/runnable.js';
 
@@ -520,11 +521,11 @@ export function renderTicketContext(ctx: TicketContext): string {
       // `scope` and `done` are excluded deliberately: no session exists at the
       // first and nothing follows the last, so the line would be pure noise.
       const why = (GATE_STAGES as readonly string[]).includes(ctx.stageCurrent)
-        ? 'its verdict comes from gate exit codes'
+        ? `${GATE_DECIDED_BY_EXIT_CODES}`
         : 'karst advances it, not the agent';
       lines.push(
-        `- note: \`${s.stageKey}\` is not an agent-advanced stage — ${why}, and the done ` +
-          'marker (`stage impl pass` / `stage fix pass`) is refused here. Nothing you run ' +
+        `- note: \`${s.stageKey}\` is not an agent-advanced stage — ${why}, and the ` +
+          `${MARKER_REFUSED} here. Nothing you run ` +
           'advances this stage.',
       );
     }
