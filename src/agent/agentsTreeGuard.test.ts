@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { listTrackedFiles, findAbsoluteHostPaths } from './agentsTree.js';
@@ -26,6 +26,13 @@ describe('the .agents tree', () => {
   it('contains no absolute path from the machine that wrote it', () => {
     const offenders: string[] = [];
     for (const file of listTrackedFiles(REPO_ROOT, '.agents')) {
+      // `git ls-files` lists INDEX entries: a file deleted from the working
+      // tree but not yet staged as a delete is still listed here, and reading
+      // it would throw ENOENT — an opaque failure unrelated to what this
+      // guard checks. Skip files that aren't actually on disk.
+      if (!existsSync(file)) {
+        continue;
+      }
       const hits = findAbsoluteHostPaths(readFileSync(file, 'utf8'));
       if (hits.length > 0) {
         offenders.push(`${relative(REPO_ROOT, file)}: ${hits.join(', ')}`);

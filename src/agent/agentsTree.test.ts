@@ -63,7 +63,16 @@ describe('listTrackedFiles', () => {
     expect(listTrackedFiles(root, 'sub')).toEqual([join(root, 'sub', 'tracked.md')]);
   });
 
-  it('returns an empty list for a subdir git does not know', () => {
+  it('returns an empty list for a subdir with no tracked files (empty ls-files output, not a throw)', () => {
     expect(listTrackedFiles(root, 'nope')).toEqual([]);
+  });
+
+  it('returns an empty list rather than throwing when repoRoot is not a git checkout', () => {
+    const nonRepo = mkdtempSync(join(tmpdir(), 'agents-tree-non-repo-'));
+    try {
+      expect(listTrackedFiles(nonRepo, 'sub')).toEqual([]);
+    } finally {
+      rmSync(nonRepo, { recursive: true, force: true });
+    }
   });
 });
