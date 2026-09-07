@@ -302,19 +302,28 @@ function balancedSpans(text: string): string[] {
  * (`extractedJsonValues`), because "something parsed" is NOT the same question
  * as "a findings-shaped container was found".
  */
-function primaryJsonValues(text: string): unknown[] {
+function primaryJsonValues(
+  text: string,
+  noteTier: (tier: FindingsExtractionTier) => void,
+): unknown[] {
   const trimmed = text.trim();
   if (trimmed === '') return [];
 
   const whole = tryParseJson(trimmed);
-  if (whole !== undefined) return [whole];
+  if (whole !== undefined) {
+    noteTier('whole-doc');
+    return [whole];
+  }
 
   const values: unknown[] = [];
   for (const line of trimmed.split(/\r?\n/)) {
     const lineTrimmed = line.trim();
     if (lineTrimmed === '') continue;
     const value = tryParseJson(lineTrimmed);
-    if (value !== undefined) values.push(value);
+    if (value !== undefined) {
+      if (values.length === 0) noteTier('jsonl');
+      values.push(value);
+    }
   }
   return values;
 }
@@ -374,8 +383,11 @@ const FENCE_LOOKBACK_CHARS = 200;
  * drops nothing — a repeat contributes no information — and it also keeps the
  * `SCAN_MAX_CANDIDATES` budget spent on distinct values.
  */
-function extractedJsonValues(sources: readonly string[]): unknown[] {
+function extractedJsonValues(
+  sources: readonly string[],
+): { extracted: unknown[]; extractedTiers: FindingsExtractionTier[] } {
   const extracted: unknown[] = [];
+  const extractedTiers: FindingsExtractionTier[] = [];
   const seen = new Set<string>();
   for (const source of sources) {
     const trimmed = source.trim();
@@ -387,17 +399,26 @@ function extractedJsonValues(sources: readonly string[]): unknown[] {
       if (nearestFence >= lookbackFloor) cutAt = nearestFence;
     }
     const scanned = trimmed.slice(cutAt);
-    for (const candidate of [...fencedBlocks(scanned), ...balancedSpans(scanned)]) {
+    // Fence bodies first, then balanced spans — the exact salvage order, now
+    // each candidate tagged with the tier that yielded it. A value found in
+    // both (a fence body that is also a balanced span) keeps the FENCED tier:
+    // the `seen` dedupe accepts the first iterator, and fences run first.
+    const tagged: Array<[FindingsExtractionTier, string]> = [
+      ...fencedBlocks(scanned).map((b): [FindingsExtractionTier, string] => ['fenced', b]),
+      ...balancedSpans(scanned).map((b): [FindingsExtractionTier, string] => ['balanced', b]),
+    ];
+    for (const [tier, candidate] of tagged) {
       const value = tryParseJson(candidate.trim());
       if (value === undefined) continue;
       const key = JSON.stringify(value) ?? 'undefined';
       if (seen.has(key)) continue;
       seen.add(key);
       extracted.push(value);
-      if (extracted.length >= SCAN_MAX_CANDIDATES) return extracted;
+      extractedTiers.push(tier);
+      if (extracted.length >= SCAN_MAX_CANDIDATES) return { extracted, extractedTiers };
     }
   }
-  return extracted;
+  return { extracted, extractedTiers };
 }
 
 /** One parsed JSON value's contribution: candidates, and whether a findings-shaped container was recognized at all (independent of whether it was empty). */
@@ -562,6 +583,16 @@ function bySeverityStable(findings: readonly Finding[]): Finding[] {
 export type FindingsParseShape = 'parsed' | 'empty' | 'unreadable';
 
 /**
+ * The extraction tier that yielded the findings-shaped container (v57 prompt
+ * metrics, `docs/arch/prompt-metrics.md`): the salvage ladder, from the cheap
+ * whole-document read down to the last-resort balanced scan. `'none'` means no
+ * container was recognized at all. The distribution of these values is the
+ * "how often did the parser fall back, and how far" signal — read WITHOUT ever
+ * changing a verdict: it is telemetry on a boundary whose output is unchanged.
+ */
+export type FindingsExtractionTier = 'whole-doc' | 'jsonl' | 'fenced' | 'balanced' | 'none';
+
+/**
  * A parse's findings, plus the shape that produced them. `'unreadable'`
  * means the boundary could not make sense of the output at all (no JSON, or
  * JSON that never carried a findings-shaped container) — that is distinct
@@ -574,6 +605,8 @@ export type FindingsParseShape = 'parsed' | 'empty' | 'unreadable';
 export interface FindingsParseResult {
   findings: Finding[];
   shape: FindingsParseShape;
+  /** The extraction tier that produced the recognized container (v57 telemetry). */
+  tier: FindingsExtractionTier;
 }
 
 /**
@@ -587,6 +620,7 @@ export function parseFindingsResult(
   raw: string,
   ctx: ParseFindingsContext,
   warn: WarnFn = defaultWarn,
+  onTier?: (tier: FindingsExtractionTier) => void,
 ): FindingsParseResult {
   // The extraction fallback is gated on "no findings-shaped container was
   // recognized", NOT on "nothing parsed at all". A single narration line that
@@ -596,16 +630,44 @@ export function parseFindingsResult(
   // `high` finding into a silent zero-findings pass. `findingCandidatesFrom` is
   // the single notion of "findings-shaped"; this reuses it rather than
   // inventing a second one.
-  const primary = primaryJsonValues(raw);
-  const events = primary.some((value) => findingCandidatesFrom(value).recognized)
-    ? primary
-    : [...primary, ...extractedJsonValues([raw, ...leafSources(primary)])];
+  //
+  // The tier each value came from is tracked alongside it so the winning
+  // extraction tier can be reported (v57 prompt metrics) WITHOUT changing which
+  // values are accepted — the salvage ladder itself is unchanged.
+  let primaryTier: FindingsExtractionTier = 'none';
+  const primary = primaryJsonValues(raw, (t) => {
+    if (primaryTier === 'none') primaryTier = t;
+  });
+  const primaryRecognized = primary.some((value) => findingCandidatesFrom(value).recognized);
+  let events: unknown[];
+  let eventTiers: FindingsExtractionTier[];
+  if (primaryRecognized) {
+    events = primary;
+    eventTiers = primary.map(() => primaryTier);
+  } else {
+    const extraction = extractedJsonValues([raw, ...leafSources(primary)]);
+    events = [...primary, ...extraction.extracted];
+    eventTiers = [...primary.map(() => primaryTier), ...extraction.extractedTiers];
+  }
+
+  // The winning tier = the tier of the first event that is findings-shaped at
+  // all (recognized container), independent of whether it held findings. A
+  // container that recognized-but-was-empty still counts as that tier — the
+  // parser reached it; that is the fallback signal the metric measures.
+  let tier: FindingsExtractionTier = 'none';
+  for (let i = 0; i < events.length; i += 1) {
+    if (findingCandidatesFrom(events[i]!).recognized) {
+      tier = eventTiers[i] ?? 'none';
+      break;
+    }
+  }
+  onTier?.(tier);
 
   if (events.length === 0) {
     warn(
       `review findings: ${ctx.repo}'s review output was not recognizable JSON or JSONL — treated as zero findings, not as an error.`,
     );
-    return { findings: [], shape: 'unreadable' };
+    return { findings: [], shape: 'unreadable', tier: 'none' };
   }
 
   const eventCandidates = events.map((event) => findingCandidatesFrom(event));
@@ -640,10 +702,10 @@ export function parseFindingsResult(
     warn(
       `review findings: ${ctx.repo} reported ${parsed.length} findings, above the max of ${max} — dropped ${dropped}, kept the first ${max} by severity.`,
     );
-    return { findings: bySeverityStable(parsed).slice(0, max), shape };
+    return { findings: bySeverityStable(parsed).slice(0, max), shape, tier };
   }
 
-  return { findings: parsed, shape };
+  return { findings: parsed, shape, tier };
 }
 
 /**
@@ -654,6 +716,7 @@ export function parseFindings(
   raw: string,
   ctx: ParseFindingsContext,
   warn: WarnFn = defaultWarn,
+  onTier?: (tier: FindingsExtractionTier) => void,
 ): Finding[] {
-  return parseFindingsResult(raw, ctx, warn).findings;
+  return parseFindingsResult(raw, ctx, warn, onTier).findings;
 }

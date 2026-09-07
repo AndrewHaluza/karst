@@ -17,11 +17,11 @@ import type { GitRunner } from '../../integrations/git.js';
 import type { ReviewFindingsConfig, Severity } from '../../manifest/types.js';
 import type { FindingInput } from '../../store/reviewFindings.js';
 import { GATE_LANE_HEADLESS_TIMEOUT_MS } from '../../agent/headlessSpawn.js';
-import { openProcessRun, type ProcessRun } from '../../store/processRuns.js';
+import { openProcessRun, setProcessRunPromptTelemetry, type ProcessRun } from '../../store/processRuns.js';
 import { stageAttempt } from '../../store/stages.js';
 import { collapseDiagnostic } from '../../model/diagnosticText.js';
 import { nowIso } from '../../model/time.js';
-import { parseFindingsResult, type WarnFn } from './findings.js';
+import { parseFindingsResult, type FindingsExtractionTier, type WarnFn } from './findings.js';
 import { buildScopeBlock } from '../agentScope.js';
 import { createReviewSnapshot, deleteReviewSnapshot } from '../reviewSnapshot.js';
 import { dropDisprovenCheckoutClaims, isWrongCheckoutClaim, verifyCheckout } from './checkoutClaim.js';
@@ -292,6 +292,7 @@ export async function runFindingsLane(opts: RunFindingsLaneOpts): Promise<Findin
   // "the agent looked and found nothing" vs "the agent could not be asked"
   // distinction (Task 8). Never the raw message: it is untrusted CLI prose.
   const crashes: string[] = [];
+  const parseTiers: FindingsExtractionTier[] = [];
   // Repos whose call returned output no findings-shaped container could be
   // read out of (`shape: 'unreadable'`) — distinct from a target that
   // answered cleanly with nothing to report.
@@ -351,11 +352,12 @@ export async function runFindingsLane(opts: RunFindingsLaneOpts): Promise<Findin
           debug?.(`[gate] review findings ticket ${opts.ticketId}: stopped during a call`);
           return stopped();
         }
-        const { findings: rawFindings, shape } = parseFindingsResult(
+        const { findings: rawFindings, shape, tier } = parseFindingsResult(
           result.raw,
           { repo: target.repo, worktreePath: target.worktreePath, max: opts.config.maxFindings },
           opts.warn,
         );
+        if (tier !== undefined) parseTiers.push(tier);
         if (shape === 'unreadable') unreadable.push(target.repo);
         // The ONE claim the host can check for itself (`checkoutClaim.ts`).
         // Checked BEFORE persisting: a disproven critical that reaches the
@@ -419,6 +421,17 @@ export async function runFindingsLane(opts: RunFindingsLaneOpts): Promise<Findin
     if (crashes.length > 0) ran.crashes = crashes;
     if (unreadable.length > 0) ran.unreadable = unreadable;
     if (processRun !== null) ran.processRunId = processRun.id;
+    // v57 prompt metrics: the salvage-fallback distribution is folded onto the
+    // lane's OWN run as a late fact (the tester records its nudge count the same
+    // way). It never touches the verdict — the caller still closes `result_kind`
+    // from the deterministic crash/blocking shape. Written only when a run exists.
+    if (opts.store && processRun !== null && parseTiers.length > 0) {
+      const histogram: Record<string, number> = {};
+      for (const t of parseTiers) histogram[t] = (histogram[t] ?? 0) + 1;
+      setProcessRunPromptTelemetry(opts.store, processRun.id, {
+        parseTiers: JSON.stringify(histogram),
+      });
+    }
     return ran;
   } finally {
     if (opts.openChanges && opts.git) {

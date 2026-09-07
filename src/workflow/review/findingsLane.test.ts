@@ -611,6 +611,36 @@ describe('runFindingsLane — process run (Task 8)', () => {
     }
   });
 
+  it('folds the winning extraction tier onto the review run as a histogram', async () => {
+    const store = openStore(':memory:');
+    const ticketId = createTicketFlow(store, { key: 'T-1', title: 't' }).id;
+    const fencedRaw =
+      'I ran the diff. Findings:\n```json\n' +
+      JSON.stringify([{ severity: 'low', title: 'x', detail: 'y' }], null, 2) +
+      '\n```';
+    try {
+      await planAndRunFindingsLane({
+        entries: [entry(0)],
+        targets: [TARGET],
+        findingsConfig: CONFIG,
+        store,
+        process: {
+          assignment: { provider: 'claude' },
+          adapter: adapter(fencedRaw),
+          stageRunId: null,
+          attempt: 0,
+          startedAt: '2026-08-08T10:00:00.000Z',
+        },
+        ticketId,
+      });
+      const run = listProcessRuns(store, ticketId)[0]!;
+      const histogram = JSON.parse(String(run.promptTelemetry!.parseTiers)) as Record<string, number>;
+      expect(histogram).toMatchObject({ fenced: 1 });
+    } finally {
+      store.close();
+    }
+  });
+
   it('threads the process run id into the adapter call, so spend lands on the process', async () => {
     const store = openStore(':memory:');
     const ticketId = createTicketFlow(store, { key: 'T-1', title: 't' }).id;
