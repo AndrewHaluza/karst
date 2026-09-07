@@ -40,8 +40,8 @@ describe('renderWorkflowCommand', () => {
       phases: rpiPhases,
       contextCommand: 'node "/ext/dist/cli/main.js" context --db "/x.db" --manifest "/k.yml"',
     });
-    expect(body).toContain('$KARST context $ARGUMENTS');
-    expect(body).toContain(`KARST='node "/ext/dist/cli/main.js" --db "/x.db" --manifest "/k.yml"'`);
+    expect(body).toContain('$KARST context --db "/x.db" --manifest "/k.yml" $ARGUMENTS');
+    expect(body).toContain('KARST = node "/ext/dist/cli/main.js"');
     expect(body).toContain('refresh');
   });
   it('falls back to the generic read instruction without a contextCommand', () => {
@@ -56,7 +56,9 @@ describe('renderWorkflowCommand', () => {
       phases: rpiPhases,
       stageCommand: 'node "/ext/dist/cli/main.js" stage impl pass --db "/x.db" --ticket',
     });
-    expect(body).toContain('$KARST stage impl pass --ticket $ARGUMENTS');
+    // The done-marker is the ONE command that must actually run, so it is never
+    // routed through the `KARST` alias — it stays a directly-executable command.
+    expect(body).toContain('node "/ext/dist/cli/main.js" stage impl pass --db "/x.db" --ticket $ARGUMENTS');
     expect(body).toContain('done marker');
   });
   it('omits the marker step without a stageCommand', () => {
@@ -79,11 +81,14 @@ describe('renderWorkflowCommand', () => {
     expect(body).not.toContain('To understand how Karst works');
   });
 
-  it('emits the absolute CLI path at most once, as a single KARST alias, across every command', () => {
+  it('emits the absolute CLI path once, not inlined into every step', () => {
     // The whole point of the prefix-once refactor: the CLI invocation must not be
-    // inlined into the loader, every phase marker, the closing marker AND the
-    // guide. Each step instead references the `KARST` alias defined once at the
-    // top of the body — so the ~240-char boilerplate appears exactly once.
+    // inlined into the loader, every phase marker, and the guide. Those steps
+    // reference the `KARST` alias defined once at the top. The one exception is
+    // the done-marker instruction, which is deliberately a fully-expanded,
+    // directly-executable command (a documented alias is not in scope for the
+    // fresh shell a marker is run in) — so the path appears exactly twice: the
+    // alias definition and the done-marker.
     const phaseCommand = (name: string): string =>
       `node "/ext/dist/cli/main.js" phase ${name} --db "/x.db" --manifest "/k.yml" --ticket`;
     const body = renderWorkflowCommand({
@@ -95,9 +100,16 @@ describe('renderWorkflowCommand', () => {
       guideCommand: 'node "/ext/dist/cli/main.js" guide',
       phaseCommand,
     });
+    // informational steps carry the alias, not the path
+    expect(body).toContain('$KARST context --db "/x.db" --manifest "/k.yml" $ARGUMENTS');
+    expect(body).toContain('$KARST phase research --db "/x.db" --manifest "/k.yml" --ticket $ARGUMENTS');
+    expect(body).toContain('$KARST guide');
+    // the done-marker is directly executable
+    expect(body).toContain('node "/ext/dist/cli/main.js" stage impl pass --db "/x.db" --ticket $ARGUMENTS');
+    // the path appears only in the alias definition and the done-marker
     const occurrences = body.split('node "/ext/dist/cli/main.js"').length - 1;
-    expect(occurrences).toBeLessThanOrEqual(1);
-    expect(body).toContain(`KARST='node "/ext/dist/cli/main.js" --db "/x.db" --manifest "/k.yml"'`);
+    expect(occurrences).toBe(2);
+    expect(body).toContain('KARST = node "/ext/dist/cli/main.js"');
   });
 
   describe('phase markers', () => {
@@ -109,7 +121,7 @@ describe('renderWorkflowCommand', () => {
       expect(body).toContain('request approval');
       expect(body).toContain('outside the workspace sandbox');
       for (const p of rpiPhases) {
-        expect(body).toContain(`$KARST phase ${p.name} --ticket $ARGUMENTS`);
+        expect(body).toContain(`$KARST phase ${p.name} --db "/x.db" --manifest "/k.yml" --ticket $ARGUMENTS`);
       }
     });
 
@@ -125,7 +137,7 @@ describe('renderWorkflowCommand', () => {
       expect(steps).toHaveLength(4);
       steps.forEach((line, i) => {
         expect(line).toContain(`**${rpiPhases[i]!.name}**`);
-        expect(line).toContain(`phase ${rpiPhases[i]!.name} --ticket`);
+        expect(line).toContain(`phase ${rpiPhases[i]!.name} --db`);
       });
     });
 
@@ -218,15 +230,14 @@ describe('renderDoneMarkerInstruction', () => {
     expect(s.toLowerCase()).not.toContain('implementation');
   });
 
-  it('reuses the done-marker wording in the workflow command body, via the KARST alias', () => {
-    // The body's closing marker references the shared `KARST` alias instead of
-    // inlining the full invocation, but it still embeds the SAME done-marker
-    // wording (the one shared with the seed) — just with `$KARST <tail>` as the
-    // command. The full-command form must NOT also appear, or the prefix is back.
+  it('embeds the shared done-marker wording verbatim (a directly-executable command)', () => {
+    // The body's closing marker embeds the SAME done-marker wording as the seed
+    // (renderDoneMarkerInstruction is the single source), with the full command
+    // — it is the one instruction that must be runnable as written, so it is
+    // never routed through the `KARST` alias.
     const cmd = 'node "/ext/dist/cli/main.js" stage impl pass --db "/x.db" --ticket';
     const body = renderWorkflowCommand({ id: 'rpi', label: 'RPI', phases: rpiPhases, stageCommand: cmd });
-    expect(body).toContain(renderDoneMarkerInstruction('$KARST stage impl pass --ticket', '$ARGUMENTS'));
-    expect(body).not.toContain(renderDoneMarkerInstruction(cmd, '$ARGUMENTS'));
+    expect(body).toContain(renderDoneMarkerInstruction(cmd, '$ARGUMENTS'));
   });
 });
 

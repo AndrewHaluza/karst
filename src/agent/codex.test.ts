@@ -1511,7 +1511,7 @@ describe('CodexAdapter approach materialization', () => {
     expect(body).toContain('name: karst-rpi');
     expect(body).toContain('$KARST context --ticket $ARGUMENTS');
     expect(body).toContain('$KARST phase research --ticket $ARGUMENTS');
-    expect(body).toContain('$KARST stage impl pass --ticket $ARGUMENTS');
+    expect(body).toContain('node cli.js stage impl pass --ticket $ARGUMENTS');
   });
 
   it.each(['../escape', '/absolute', 'karst', 'a/b'])(

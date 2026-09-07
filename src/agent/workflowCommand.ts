@@ -137,51 +137,33 @@ export function renderWorkflowCommand(input: {
   guideCommand?: string;
 }): string {
   const { id, label, phases, contextCommand, stageCommand, phaseCommand, guideCommand } = input;
-  // Every CLI command this body inlines shares the same `node "<cli>"` head and
-  // the same `--db`/`--manifest` flags (the guide skips the latter two). Emit
-  // that shared invocation ONCE as the `KARST` shell alias at the top of the
-  // body, then write each step as `$KARST <verb> <args>` — the same command the
-  // agent runs, without the ~240 chars of boilerplate repeated per phase.
-  const commands = [
+  // Every CLI command this body inlines shares the same `node "<cli>"` head. Emit
+  // that shared invocation ONCE as the `KARST` alias at the top of the body, then
+  // write the informational steps (context load, guide, phase-enter markers) as
+  // `$KARST <tail>` — the same command the agent runs, without the repeated
+  // absolute path. Only the steps that USE the alias (`context`/`guide`/`phase`)
+  // drive it; the done-marker is never aliased (see the closing note below).
+  const aliasCommands = [
     contextCommand,
-    stageCommand,
     guideCommand,
     ...(phaseCommand ? phases.map((p) => phaseCommand(p.name)) : []),
   ].filter((c): c is string => typeof c === 'string');
-  // A command tail is a full CLI invocation with the shared head and flags
-  // stripped, so the renderer can write it as `$KARST <tail>`. When there is no
-  // CLI command at all, `expand` is the identity and no alias is emitted.
   let karstAlias: string | undefined;
   let expand = (cmd: string): string => cmd;
-  if (commands.length > 0) {
-    const head = /^node ("[^"]+"|[^\s]+)/.exec(commands[0]!)![0];
-    const findFlag = (flag: string): string => {
-      for (const c of commands) {
-        const m = new RegExp(`${flag} ("[^"]+"|[^\\s]+)`).exec(c);
-        if (m) return `${flag} ${m[1]}`;
-      }
-      return '';
-    };
-    const dbFlag = findFlag('--db');
-    const manifestFlag = findFlag('--manifest');
-    karstAlias = [head, dbFlag, manifestFlag].filter(Boolean).join(' ');
-    const strip = (cmd: string): string => {
-      let s = cmd;
-      if (head) s = s.split(head).join('');
-      if (dbFlag) s = s.split(dbFlag).join('');
-      if (manifestFlag) s = s.split(manifestFlag).join('');
-      return s.replace(/\s+/g, ' ').trim();
-    };
-    expand = (cmd) => `$KARST ${strip(cmd)}`;
+  if (aliasCommands.length > 0) {
+    // The shared head `node "<cli>"`. Guarded: an unexpected first command that
+    // is not a `node` invocation simply disables the alias instead of crashing.
+    const head = /^node ("[^"]+"|[^\s]+)/.exec(aliasCommands[0]!)?.[0];
+    if (head) {
+      karstAlias = head;
+      expand = (cmd) => `$KARST ${cmd.slice(head.length).trim()}`;
+    }
   }
   const karstBlock = karstAlias
     ? [
-        'Every Karst CLI command below is written through the `KARST` alias defined here — ' +
-          'expand `$KARST` to its value when you run one:',
+        '`$KARST` is the CLI invocation defined once here — expand it in place when you run a command:',
         '',
-        '```sh',
-        `KARST='${karstAlias}'`,
-        '```',
+        `KARST = ${karstAlias}`,
         '',
       ]
     : [];
@@ -235,8 +217,14 @@ export function renderWorkflowCommand(input: {
     else parts.push('Handle this step manually (no native slash command for this phase).');
     lines.push(`${step}. ${parts.join(' — ')}`);
   });
+  // The done-marker is the ONE command that MUST run: firing it is what advances
+  // the ticket, and the same instruction is seeded verbatim (where no alias is
+  // defined). It is therefore rendered as a fully-expanded invocation a shell can
+  // execute as written — a documented alias is not in scope for the fresh shell a
+  // marker is run in. The phase-enter markers above are informational and may use
+  // `$KARST`; this closing instruction never does.
   if (stageCommand) {
-    lines.push('', renderDoneMarkerInstruction(expand(stageCommand), '$ARGUMENTS'));
+    lines.push('', renderDoneMarkerInstruction(stageCommand, '$ARGUMENTS'));
   }
   return lines.join('\n');
 }
