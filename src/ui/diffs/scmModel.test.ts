@@ -23,6 +23,7 @@ function makeChangedFileView(overrides: { changeId: string; status: FileChangeSt
     status: overrides.status,
     path: overrides.path,
     oldPath: overrides.oldPath ?? null,
+    absolutePath: `/wt/repo/${overrides.path}`,
   };
 }
 
@@ -44,7 +45,7 @@ function makeSpec(path: string): { label: string; path: string; branch: string |
 }
 
 describe('buildScmGroups', () => {
-  it('emits groups in correct order for two worktrees', () => {
+  it('emits category-first groups with repos nested under each category', () => {
     const views = [
       makeWorktreeChangesView({
         label: 'backend',
@@ -74,20 +75,20 @@ describe('buildScmGroups', () => {
     const groups = buildScmGroups(makeSnapshot(views), specs);
 
     expect(groups.map((g) => g.id)).toEqual([
-      'w0-staged',
-      'w0-untracked',
-      'w0-c0',
-      'w1-unstaged',
+      'staged-backend',
+      'unstaged-frontend',
+      'untracked-backend',
+      'commits-backend',
     ]);
     expect(groups.map((g) => g.label)).toEqual([
-      'backend — Staged',
-      'backend — Untracked',
-      'backend — abc123 feat: add feature',
-      'frontend — Unstaged',
+      'Staged — backend',
+      'Unstaged — frontend',
+      'Untracked — backend',
+      'Commits — backend',
     ]);
   });
 
-  it('skips worktree with error', () => {
+  it('renders errored worktree as error group and good worktree in category-first order', () => {
     const views = [
       makeWorktreeChangesView({ label: 'bad', error: 'boom', staged: [makeChangedFileView({ changeId: '1', status: 'added', path: 'src/a.ts' })] }),
       makeWorktreeChangesView({ label: 'good', staged: [makeChangedFileView({ changeId: '2', status: 'added', path: 'src/b.ts' })] }),
@@ -95,8 +96,8 @@ describe('buildScmGroups', () => {
     const specs = [makeSpec('/wt/bad'), makeSpec('/wt/good')];
     const groups = buildScmGroups(makeSnapshot(views), specs);
 
-    expect(groups.map((g) => g.id)).toEqual(['w1-staged']);
-    expect(groups.map((g) => g.label)).toEqual(['good — Staged']);
+    expect(groups.map((g) => g.id)).toEqual(['staged-good', 'error-bad']);
+    expect(groups.map((g) => g.label)).toEqual(['Staged — good', 'Error — bad: boom']);
   });
 
   it('omits empty categories', () => {
@@ -118,8 +119,8 @@ describe('buildScmGroups', () => {
     const specs = [makeSpec('/wt/repo')];
     const groups = buildScmGroups(makeSnapshot(views), specs);
 
-    expect(groups.map((g) => g.id)).toEqual(['w0-c0']);
-    expect(groups.map((g) => g.label)).toEqual(['repo — abc123 feat: add']);
+    expect(groups.map((g) => g.id)).toEqual(['commits-repo']);
+    expect(groups.map((g) => g.label)).toEqual(['Commits — repo']);
   });
 
   it('computes absolutePath correctly for nested paths', () => {
@@ -162,7 +163,7 @@ describe('buildScmGroups', () => {
     const specs = [makeSpec('/wt/repo')];
     const groups = buildScmGroups(makeSnapshot(views), specs);
 
-    expect(groups.map((g) => g.id)).toEqual(['w0-c1']);
+    expect(groups.map((g) => g.id)).toEqual(['commits-repo']);
   });
 
   it('skips views beyond specs length', () => {
@@ -174,6 +175,85 @@ describe('buildScmGroups', () => {
     const specs = [makeSpec('/wt/repo1'), makeSpec('/wt/repo2')];
     const groups = buildScmGroups(makeSnapshot(views), specs);
 
-    expect(groups.map((g) => g.id)).toEqual(['w0-staged', 'w1-staged']);
+    expect(groups.map((g) => g.id)).toEqual(['staged-repo1', 'staged-repo2']);
+  });
+
+  it('categories are ordered: staged, unstaged, untracked, commits', () => {
+    const views = [
+      makeWorktreeChangesView({
+        label: 'repo',
+        staged: [makeChangedFileView({ changeId: 's', status: 'added', path: 's.ts' })],
+        unstaged: [makeChangedFileView({ changeId: 'u', status: 'modified', path: 'u.ts' })],
+        untracked: [makeChangedFileView({ changeId: 'n', status: 'added', path: 'n.ts' })],
+        commits: [
+          {
+            hash: 'aaa111',
+            shortHash: 'aaa111',
+            subject: 'feat: commit',
+            author: 'author',
+            authoredAt: '2024-01-01T00:00:00Z',
+            files: [makeChangedFileView({ changeId: 'c', status: 'modified', path: 'c.ts' })],
+          },
+        ],
+      }),
+    ];
+    const specs = [makeSpec('/wt/repo')];
+    const groups = buildScmGroups(makeSnapshot(views), specs);
+
+    expect(groups.map((g) => g.id)).toEqual([
+      'staged-repo',
+      'unstaged-repo',
+      'untracked-repo',
+      'commits-repo',
+    ]);
+  });
+
+  it('error groups appear after all other categories', () => {
+    const views = [
+      makeWorktreeChangesView({
+        label: 'good',
+        staged: [makeChangedFileView({ changeId: '1', status: 'added', path: 'a.ts' })],
+      }),
+      makeWorktreeChangesView({
+        label: 'bad',
+        error: 'inspection failed',
+      }),
+    ];
+    const specs = [makeSpec('/wt/good'), makeSpec('/wt/bad')];
+    const groups = buildScmGroups(makeSnapshot(views), specs);
+
+    expect(groups.map((g) => g.id)).toEqual(['staged-good', 'error-bad']);
+    expect(groups.map((g) => g.label)).toEqual(['Staged — good', 'Error — bad: inspection failed']);
+    expect(groups[1]!.resources).toEqual([]);
+  });
+
+  it('multiple repos under same category are grouped together', () => {
+    const views = [
+      makeWorktreeChangesView({
+        label: 'backend',
+        unstaged: [makeChangedFileView({ changeId: 'b1', status: 'modified', path: 'src/api.ts' })],
+      }),
+      makeWorktreeChangesView({
+        label: 'frontend',
+        unstaged: [makeChangedFileView({ changeId: 'f1', status: 'modified', path: 'src/app.ts' })],
+      }),
+      makeWorktreeChangesView({
+        label: 'infra',
+        unstaged: [makeChangedFileView({ changeId: 'i1', status: 'modified', path: 'main.tf' })],
+      }),
+    ];
+    const specs = [makeSpec('/wt/backend'), makeSpec('/wt/frontend'), makeSpec('/wt/infra')];
+    const groups = buildScmGroups(makeSnapshot(views), specs);
+
+    expect(groups.map((g) => g.id)).toEqual([
+      'unstaged-backend',
+      'unstaged-frontend',
+      'unstaged-infra',
+    ]);
+  });
+
+  it('empty snapshot returns no groups', () => {
+    const groups = buildScmGroups(makeSnapshot([]), []);
+    expect(groups).toEqual([]);
   });
 });

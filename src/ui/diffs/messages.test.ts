@@ -42,7 +42,7 @@ describe('parseChangesMessage', () => {
     const refresh = vi.fn();
     const openDiff = vi.fn();
     const copyHash = vi.fn();
-    const actions = { refresh, openDiff, copyHash };
+    const actions = { refresh, openDiff, copyHash, openFile: vi.fn(), discard: vi.fn(), unstage: vi.fn() };
 
     for (const raw of [
       { type: 'refresh', revision: 'forged' },
@@ -70,6 +70,9 @@ describe('routeChangesAction', () => {
       refresh: vi.fn(),
       openDiff: vi.fn(),
       copyHash: vi.fn(),
+      openFile: vi.fn(),
+      discard: vi.fn(),
+      unstage: vi.fn(),
     };
     routeChangesAction({ type: 'refresh' }, actions);
     routeChangesAction({ type: 'open-diff', changeId: 'g1:4' }, actions);
@@ -88,6 +91,9 @@ describe('routeChangesAction', () => {
       refresh: vi.fn(),
       openDiff: vi.fn(() => pending),
       copyHash: vi.fn(),
+      openFile: vi.fn(),
+      discard: vi.fn(),
+      unstage: vi.fn(),
     };
     expect(routeChangesAction({ type: 'open-diff', changeId: 'g1:4' }, actions)).toBe(pending);
     await pending;

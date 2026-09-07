@@ -23,6 +23,7 @@ function makeChangedFileView(overrides: { changeId: string; status: FileChangeSt
     status: overrides.status,
     path: overrides.path,
     oldPath: overrides.oldPath ?? null,
+    absolutePath: `/wt/repo/${overrides.path}`,
   };
 }
 
@@ -66,6 +67,7 @@ function createFakeHost(): ScmHost & { _testOnly: { view: ScmViewHandle & { crea
   });
   const view: ScmViewHandle & { createGroup: MockedFunction<(id: string, label: string) => ScmGroupHandle> } = {
     setTitle: vi.fn(),
+    viewColumn: vi.fn(() => 1),
     createGroup: createGroupMock,
     dispose: vi.fn(),
   };
@@ -123,9 +125,9 @@ describe('TicketScmController', () => {
     expect(createdView.createGroup).toHaveBeenCalledTimes(3); // staged, unstaged, commit
 
     const groups = (createdView.createGroup as MockedFunction<typeof createdView.createGroup>).mock.calls;
-    expect(groups[0]).toEqual(['w0-staged', 'backend — Staged']);
-    expect(groups[1]).toEqual(['w0-unstaged', 'backend — Unstaged']);
-    expect(groups[2]).toEqual(['w0-c0', 'backend — abc123 feat: add']);
+    expect(groups[0]).toEqual(['staged-backend', 'Staged — backend']);
+    expect(groups[1]).toEqual(['unstaged-backend', 'Unstaged — backend']);
+    expect(groups[2]).toEqual(['commits-backend', 'Commits — backend']);
 
     const setResourcesCalls = host._testOnly.createdGroups.map((g: typeof host._testOnly.createdGroups[number]) => (g.setResources as MockedFunction<typeof g.setResources>).mock.calls!);
     expect(setResourcesCalls[0]![0]![0][0]).toMatchObject({
@@ -262,7 +264,7 @@ describe('TicketScmController', () => {
     await controller.openChange('1');
 
     expect(openDiff).toHaveBeenCalledTimes(1);
-    expect(openDiff).toHaveBeenCalledWith(target);
+    expect(openDiff).toHaveBeenCalledWith(target, 2);
   });
 
   it('openChange with unknown id warns and does not call openDiff', async () => {
@@ -354,6 +356,66 @@ describe('TicketScmController', () => {
     // Only the second show should reach the host
     expect(host.createView).toHaveBeenCalledTimes(1);
     expect(host.createView).toHaveBeenCalledWith('karst', 'Karst — TEST-2 — title');
+  });
+
+  it('empty snapshot creates view with no groups', async () => {
+    const host = createFakeHost();
+    const views: WorktreeChangesView[] = [];
+    const specs: WorktreeSpec[] = [];
+    const load = vi.fn().mockResolvedValue({ snapshot: makeSnapshot(views), worktrees: specs });
+    const openDiff = vi.fn().mockResolvedValue(undefined);
+    const logError = vi.fn();
+    const titleFor = vi.fn(() => 'Karst — TEST-1 — title');
+
+    const controller = new TicketScmController({
+      host,
+      load,
+      openDiff,
+      logError,
+      titleFor,
+    });
+
+    await controller.show(1);
+
+    expect(host.createView).toHaveBeenCalledTimes(1);
+    const createdView = host._testOnly.view;
+    expect(createdView.createGroup).toHaveBeenCalledTimes(0);
+    expect(host.focus).toHaveBeenCalledTimes(1);
+  });
+
+  it('error worktree produces error group with empty resources', async () => {
+    const host = createFakeHost();
+    const views = [
+      makeWorktreeChangesView({ label: 'bad', error: 'inspection failed' }),
+      makeWorktreeChangesView({ label: 'good', staged: [makeChangedFileView({ changeId: '1', status: 'added', path: 'a.ts' })] }),
+    ];
+    const specs = [makeSpec('/wt/bad'), makeSpec('/wt/good')];
+    const load = vi.fn().mockResolvedValue({ snapshot: makeSnapshot(views), worktrees: specs });
+    const openDiff = vi.fn().mockResolvedValue(undefined);
+    const logError = vi.fn();
+    const titleFor = vi.fn(() => 'Karst — TEST-1 — title');
+
+    const controller = new TicketScmController({
+      host,
+      load,
+      openDiff,
+      logError,
+      titleFor,
+    });
+
+    await controller.show(1);
+
+    const createdView = host._testOnly.view;
+    const groups = (createdView.createGroup as MockedFunction<typeof createdView.createGroup>).mock.calls;
+    expect(groups).toHaveLength(2);
+    // staged-good first (category order), then error-bad
+    expect(groups[0]).toEqual(['staged-good', 'Staged — good']);
+    expect(groups[1]).toEqual(['error-bad', 'Error — bad: inspection failed']);
+
+    // error group has no resources
+    const setResourcesCalls = host._testOnly.createdGroups.map((g: typeof host._testOnly.createdGroups[number]) => (g.setResources as MockedFunction<typeof g.setResources>).mock.calls!);
+    expect(setResourcesCalls[0]![0]![0]).toHaveLength(1); // staged-good has 1 resource
+    expect(setResourcesCalls[1]![0]![0]).toHaveLength(0); // error-bad has 0 resources
   });
 
   it('dispose twice does not double-dispose handles', async () => {

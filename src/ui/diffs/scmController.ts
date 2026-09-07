@@ -1,3 +1,4 @@
+import { diffViewColumn } from './diffColumn.js';
 import type { DiffTarget, WorktreeSpec } from './git.js';
 import type { TicketChangesSnapshot } from './snapshot.js';
 import { buildScmGroups, type ScmGroupModel } from './scmModel.js';
@@ -20,6 +21,8 @@ export interface ScmResourceHandleInput {
 /** One materialized Source Control object. */
 export interface ScmViewHandle {
   setTitle(title: string): void;
+  /** The editor group the SCM view is in, or `undefined` if indeterminate. */
+  viewColumn(): number | undefined;
   createGroup(id: string, label: string): ScmGroupHandle;
   dispose(): void;
 }
@@ -40,7 +43,7 @@ export interface TicketScmControllerDeps {
     snapshot: TicketChangesSnapshot;
     worktrees: readonly WorktreeSpec[];
   }>;
-  openDiff: (target: DiffTarget) => Promise<void>;
+  openDiff: (target: DiffTarget, viewColumn: number | undefined) => Promise<void>;
   logError: (message: string, error: unknown) => void;
   titleFor: (ticketId: number) => string;
   debug?: (message: string) => void;
@@ -122,8 +125,10 @@ export class TicketScmController {
       return;
     }
 
+    const column = this.view ? diffViewColumn(this.view.viewColumn()) : undefined;
+
     try {
-      await this.deps.openDiff(target);
+      await this.deps.openDiff(target, column);
     } catch (error) {
       this.deps.logError('karst: opening diff from Source Control failed', error);
       const message = error instanceof Error ? error.message : String(error);

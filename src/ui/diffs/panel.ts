@@ -1,4 +1,5 @@
 import type { LogError } from '../../logging/logger.js';
+import type { FileChangeStatus } from './gitParsers.js';
 import { readRequestId, reportAction } from '../../model/actionResult.js';
 import { diffViewColumn } from './diffColumn.js';
 import { StaleDiffTargetError, type DiffTarget } from './git.js';
@@ -78,6 +79,9 @@ export class TicketChangesManager {
      * highlight). Absent → no report.
      */
     private readonly onViewActivated?: (ticketId: number, active: boolean) => void,
+    private readonly openFile: (absolutePath: string) => void | Promise<void> = () => {},
+    private readonly discardChanges: (changeId: string) => void | Promise<void> = () => {},
+    private readonly unstageFile: (changeId: string) => void | Promise<void> = () => {},
   ) {}
 
   open(ticketId: number): void {
@@ -117,6 +121,9 @@ export class TicketChangesManager {
       const actions: ChangesActions = {
         refresh: () => this.refresh(ticketId, session),
         openDiff: (changeId) => this.openTarget(ticketId, session, changeId),
+        openFile: (absolutePath) => this.openFile(absolutePath),
+        discard: (changeId) => this.discardChanges(changeId),
+        unstage: (changeId) => this.unstageFile(changeId),
         copyHash: (hash) => this.copyHash(hash),
       };
       void reportAction(requestId, (m) => panel.postMessage(m), () => this.runAction(msg, actions));

@@ -5,6 +5,9 @@ import type { TicketChangesState } from './snapshot.js';
 export type ChangesWebviewMessage =
   | { type: 'refresh' }
   | { type: 'open-diff'; changeId: string }
+  | { type: 'open-file'; absolutePath: string }
+  | { type: 'discard'; changeId: string }
+  | { type: 'unstage'; changeId: string }
   | { type: 'copy-hash'; hash: string };
 
 /**
@@ -40,6 +43,9 @@ export type ChangesHostMessage =
 export interface ChangesActions {
   refresh(): void | Promise<void>;
   openDiff(changeId: string): void | Promise<void>;
+  openFile(absolutePath: string): void | Promise<void>;
+  discard(changeId: string): void | Promise<void>;
+  unstage(changeId: string): void | Promise<void>;
   copyHash(hash: string): void | Promise<void>;
 }
 
@@ -54,6 +60,18 @@ export function parseChangesMessage(raw: unknown): ChangesWebviewMessage | null 
     case 'open-diff':
       return typeof message.changeId === 'string' && message.changeId.length > 0
         ? { type: 'open-diff', changeId: message.changeId }
+        : null;
+    case 'open-file':
+      return typeof message.absolutePath === 'string' && message.absolutePath.length > 0
+        ? { type: 'open-file', absolutePath: message.absolutePath }
+        : null;
+    case 'discard':
+      return typeof message.changeId === 'string' && message.changeId.length > 0
+        ? { type: 'discard', changeId: message.changeId }
+        : null;
+    case 'unstage':
+      return typeof message.changeId === 'string' && message.changeId.length > 0
+        ? { type: 'unstage', changeId: message.changeId }
         : null;
     case 'copy-hash':
       return typeof message.hash === 'string' && HASH.test(message.hash)
@@ -77,6 +95,12 @@ export function routeChangesAction(msg: ChangesWebviewMessage, actions: ChangesA
       return actions.refresh();
     case 'open-diff':
       return actions.openDiff(msg.changeId);
+    case 'open-file':
+      return actions.openFile(msg.absolutePath);
+    case 'discard':
+      return actions.discard(msg.changeId);
+    case 'unstage':
+      return actions.unstage(msg.changeId);
     case 'copy-hash':
       return actions.copyHash(msg.hash);
   }
