@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { readFileSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { readFileSync, existsSync } from 'node:fs';
+import { relative } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { listTrackedFiles } from '../agent/agentsTree.js';
 
-const SKILLS_ROOT = join(__dirname, '..', '..', '.agents', 'skills');
+const REPO_ROOT = fileURLToPath(new URL('../..', import.meta.url));
 
 /**
  * An approach body runs inside a karst-driven stage. A stage whose agent is
@@ -13,6 +15,12 @@ const SKILLS_ROOT = join(__dirname, '..', '..', '.agents', 'skills');
  *
  * The gates are the approval: no packaged skill body may contain a
  * stop-and-wait-for-user directive.
+ *
+ * The guard scans GIT-TRACKED files, not the on-disk tree: an approach
+ * package installed into `.agents/skills/` by a user is excluded from git
+ * (`karstExcludes.ts` / `.git/info/exclude`) and is not a body this
+ * repository packages. A disk-walking guard turns another author's skill
+ * into this repo's red suite — exactly backwards.
  */
 const BLOCKING_DIRECTIVES = [
   /STOP and wait/i,
@@ -21,23 +29,17 @@ const BLOCKING_DIRECTIVES = [
   /DO NOT proceed automatically/i,
 ];
 
-function findSkillFiles(root: string): string[] {
-  return readdirSync(root, { withFileTypes: true, recursive: true })
-    .filter((entry) => entry.isFile() && entry.name.endsWith('.md'))
-    .map((entry) =>
-      join(entry.parentPath ?? (entry as unknown as { path: string }).path, entry.name),
-    );
-}
-
 describe('packaged skill bodies never block on the user', () => {
-  const files = findSkillFiles(SKILLS_ROOT);
+  const files = listTrackedFiles(REPO_ROOT, '.agents/skills').filter(
+    (file) => file.endsWith('.md') && existsSync(file),
+  );
 
   it('finds skill files to check', () => {
     expect(files.length).toBeGreaterThan(0);
   });
 
   for (const file of files) {
-    const rel = file.slice(SKILLS_ROOT.length + 1);
+    const rel = relative(REPO_ROOT, file);
     it(`${rel} contains no stop-and-wait-for-user directive`, () => {
       const lines = readFileSync(file, 'utf-8').split('\n');
       const offenders = lines
