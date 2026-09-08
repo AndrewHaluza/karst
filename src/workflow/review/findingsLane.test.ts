@@ -8,6 +8,7 @@ import type { AggregateEntry } from './aggregate.js';
 import { buildFindingsPrompt, planAndRunFindingsLane, runFindingsLane } from './findingsLane.js';
 import { GATE_LANE_HEADLESS_TIMEOUT_MS } from '../../agent/headlessSpawn.js';
 import type { GitRunner } from '../../integrations/git.js';
+import * as reviewSnapshot from '../reviewSnapshot.js';
 
 function adapter(raw: string | (() => Promise<string>)): AgentAdapter {
   return {
@@ -825,6 +826,128 @@ describe('buildFindingsPrompt', () => {
 
 
 /**
+ * The review lane reviews a worktree SNAPSHOT whenever a git runner is
+ * available — committed and uncommitted work as one tree — regardless of
+ * `review.openChanges`. The default (absent key → OFF) must NOT blind the lane
+ * to work that ship has not yet committed; `openChanges` now only gates the
+ * fallback wording (no snapshot) and the stage's diff view.
+ */
+describe('runFindingsLane — worktree snapshot', () => {
+  const SNAP = 'refs/karst/snapshot/1/abc123abc123abcd';
+  const gitStub = (): GitRunner => vi.fn() as unknown as GitRunner;
+
+  it('creates a snapshot whenever a git runner is available, even with openChanges absent (default OFF)', async () => {
+    const create = vi.spyOn(reviewSnapshot, 'createReviewSnapshot').mockResolvedValue(SNAP);
+    const cleanup = vi.spyOn(reviewSnapshot, 'deleteReviewSnapshot').mockResolvedValue();
+    const { adapter, calls } = capturingAdapter('[]');
+    try {
+      await runFindingsLane({
+        config: CONFIG,
+        adapter,
+        targets: [{ repo: '/web', worktreePath: '/wt/web', baseRef: 'develop', branch: 'karst/x' }],
+        ticketId: 1,
+        git: gitStub(),
+      });
+      expect(create).toHaveBeenCalledTimes(1);
+      // The prompt carries the snapshot range, never the committed-only branch range.
+      expect(calls[0]!.prompt).toContain('refs/karst/snapshot/');
+      expect(calls[0]!.prompt).not.toContain('committed changes (the diff against the base branch');
+      expect(calls[0]!.prompt).not.toContain('committed changes only');
+    } finally {
+      create.mockRestore();
+      cleanup.mockRestore();
+    }
+  });
+
+  it('creates a snapshot even when openChanges is explicitly false', async () => {
+    const create = vi.spyOn(reviewSnapshot, 'createReviewSnapshot').mockResolvedValue(SNAP);
+    const cleanup = vi.spyOn(reviewSnapshot, 'deleteReviewSnapshot').mockResolvedValue();
+    try {
+      await runFindingsLane({
+        config: CONFIG,
+        adapter: capturingAdapter('[]').adapter,
+        targets: [TARGET],
+        ticketId: 1,
+        git: gitStub(),
+        openChanges: false,
+      });
+      expect(create).toHaveBeenCalledTimes(1);
+    } finally {
+      create.mockRestore();
+      cleanup.mockRestore();
+    }
+  });
+
+  it('the prompt built with a snapshotRef agrees with the scope block and omits the committed-only sentence', () => {
+    const prompt = buildFindingsPrompt('/web', 'develop', 'karst/x', undefined, undefined, SNAP, '/wt/web');
+    expect(prompt).not.toContain('committed changes (the diff against the base branch');
+    expect(prompt).not.toContain('committed changes only');
+    expect(prompt).toMatch(/uncommitted/i);
+    expect(prompt).toContain(`git diff origin/develop...${SNAP}`);
+  });
+
+  it('cleans up the snapshot for every snapshotted target, even with openChanges absent', async () => {
+    const create = vi.spyOn(reviewSnapshot, 'createReviewSnapshot').mockResolvedValue(SNAP);
+    const cleanup = vi.spyOn(reviewSnapshot, 'deleteReviewSnapshot').mockResolvedValue();
+    try {
+      await runFindingsLane({
+        config: CONFIG,
+        adapter: capturingAdapter('[]').adapter,
+        targets: [
+          { repo: '/web', worktreePath: '/wt/web' },
+          { repo: '/api', worktreePath: '/wt/api' },
+        ],
+        ticketId: 1,
+        git: gitStub(),
+      });
+      expect(create).toHaveBeenCalledTimes(2);
+      expect(cleanup).toHaveBeenCalledTimes(2);
+    } finally {
+      create.mockRestore();
+      cleanup.mockRestore();
+    }
+  });
+
+  it('with no git runner, the lane still runs and falls back to the openChanges-driven branch range', async () => {
+    const create = vi.spyOn(reviewSnapshot, 'createReviewSnapshot');
+    const { adapter, calls } = capturingAdapter('[]');
+    try {
+      await runFindingsLane({
+        config: CONFIG,
+        adapter,
+        targets: [{ repo: '/web', worktreePath: '/wt/web', baseRef: 'develop', branch: 'karst/x' }],
+        ticketId: 1,
+        openChanges: true,
+      });
+      expect(create).not.toHaveBeenCalled();
+      expect(calls[0]!.prompt).toContain('git diff origin/develop...origin/karst/x');
+      expect(calls[0]!.prompt).not.toContain('refs/karst/snapshot/');
+    } finally {
+      create.mockRestore();
+    }
+  });
+
+  it('does not clean up when no snapshot was created (failed snapshot falls back to the branch range)', async () => {
+    const create = vi.spyOn(reviewSnapshot, 'createReviewSnapshot').mockResolvedValue(null);
+    const cleanup = vi.spyOn(reviewSnapshot, 'deleteReviewSnapshot').mockResolvedValue();
+    try {
+      await runFindingsLane({
+        config: CONFIG,
+        adapter: capturingAdapter('[]').adapter,
+        targets: [TARGET],
+        ticketId: 1,
+        git: gitStub(),
+      });
+      expect(cleanup).not.toHaveBeenCalled();
+    } finally {
+      create.mockRestore();
+      cleanup.mockRestore();
+    }
+  });
+});
+
+
+/**
  * The wrong-checkout guard. A weak reviewer model reported this against a
  * worktree provably on the ticket's branch, blocking a ticket over a diff it
  * had actually read — and because the finding was PERSISTED, every later fix
@@ -888,17 +1011,25 @@ describe('runFindingsLane — disproven wrong-checkout claims', () => {
     expect(outcome.kind === 'ran' && outcome.findings).toHaveLength(1);
   });
 
-  it('does not probe git when no such claim was made', async () => {
+  it('does not probe git for a wrong-checkout claim when no such claim was made', async () => {
+    // Snapshot creation is stubbed so the passed `git` runner is only ever
+    // touched by the wrong-checkout probe under test — the always-on snapshot
+    // no longer lets a bare git call fall through to it.
+    const create = vi.spyOn(reviewSnapshot, 'createReviewSnapshot').mockResolvedValue(null);
     const git = gitOn('karst/x');
-    await runFindingsLane({
-      config: CONFIG,
-      adapter: adapter('[]'),
-      targets: [target],
-      ticketId: 1,
-      git,
-    });
-    // The normal path pays no git call.
-    expect(git).not.toHaveBeenCalled();
+    try {
+      await runFindingsLane({
+        config: CONFIG,
+        adapter: adapter('[]'),
+        targets: [target],
+        ticketId: 1,
+        git,
+      });
+      // The normal path pays no probe call (and none to verifyCheckout).
+      expect(git).not.toHaveBeenCalled();
+    } finally {
+      create.mockRestore();
+    }
   });
 
   it('leaves every other finding of the same call untouched', async () => {

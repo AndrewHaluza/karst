@@ -20,6 +20,8 @@ import type { Manifest } from '../../manifest/types.js';
 import { resolveProcessAssignment } from '../../agent/processAssignment.js';
 import { runReview, type OpenDiff, type ReviewDeps } from './review.js';
 import * as findingsLaneModule from '../review/findingsLane.js';
+import * as reviewSnapshotModule from '../reviewSnapshot.js';
+import type { GitRunner } from '../../integrations/git.js';
 import { runUat, type UatDeps } from './uat.js';
 import { setDisabledGates } from '../../store/ticketGates.js';
 
@@ -77,6 +79,12 @@ function deps(over: Partial<ReviewDeps> = {}): ReviewDeps {
       return { kind: 'ran', results };
     },
     findingsAdapter: findingsAgent(),
+    // Hermetic git: the findings lane ALWAYS attempts a worktree snapshot when
+    // a git runner is present, so without a stub these tests would shell out to
+    // real git against nonexistent worktree paths. A stub whose `rev-parse`
+    // resolves to nothing makes `createReviewSnapshot` fall back to the branch
+    // range — the prompt stays branch-based, exactly as before.
+    git: vi.fn(async () => ({ stdout: '', stderr: '', exitCode: 0 })) as unknown as GitRunner,
     ...over,
   };
 }
@@ -917,6 +925,43 @@ describe('runReview', () => {
     expect(openDiff).toHaveBeenCalledWith(id, '/wt/web');
     // Filed under the SAME pre-bump attempt as the gates that failed beside it.
     expect(listGateRuns(store, id).every((r) => r.attempt === 0)).toBe(true);
+  });
+
+  it('snapshots the worktree for the findings lane even when review.openChanges is off', async () => {
+    const create = vi
+      .spyOn(reviewSnapshotModule, 'createReviewSnapshot')
+      .mockResolvedValue('refs/karst/snapshot/1/abc123abc123abcd');
+    const cleanup = vi.spyOn(reviewSnapshotModule, 'deleteReviewSnapshot').mockResolvedValue();
+    let capturedPrompt = '';
+    const findingsAdapter: AgentAdapter = {
+      ...findingsAgent('[]'),
+      runHeadless: async (o) => {
+        capturedPrompt = o.prompt;
+        return { sessionId: '', verdict: null, raw: '[]' };
+      },
+    };
+    try {
+      await runReview(
+        store,
+        { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
+        deps({
+          planTargets: async () => ({
+            kind: 'targets',
+            targets: [{ repo: '/web', path: '/wt/web', names: ['web'] }],
+          unmapped: [],
+          }),
+          findingsAdapter,
+        }),
+      );
+      // `review.openChanges` is OFF (default) here, yet the lane is still asked
+      // about the worktree snapshot — the diff view (not the range) is the flag's
+      // surviving meaning.
+      expect(create).toHaveBeenCalled();
+      expect(capturedPrompt).toContain('refs/karst/snapshot/');
+    } finally {
+      create.mockRestore();
+      cleanup.mockRestore();
+    }
   });
 
   it('a gate failure commits a review-origin recovery round attributed to the gates source', async () => {
