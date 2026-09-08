@@ -145,7 +145,7 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
   const MCP_ISOLATION_FLAG: Record<AgentProvider, string | null> = {
     claude: '--strict-mcp-config',
     codex: 'mcp_servers={}',
-    opencode: '--pure',
+    opencode: null,
     antigravity: null,
   };
 
