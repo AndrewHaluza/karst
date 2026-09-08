@@ -759,6 +759,11 @@ export class OpencodeAdapter implements AgentAdapter {
     ),
     hookChannel: SUPPORTED,
     endpointRebind: SUPPORTED,
+    // `--pure` in runHeadless already suppresses config/global plugins
+    // unconditionally (869ef1e6x) — the same property this surface names for
+    // every core. No separate flag needed; declaring it here just states the
+    // fact that already holds.
+    mcpIsolationHeadless: SUPPORTED,
     toolActivity: unsupported(
       'opencode\'s plugin emits session.created/session.idle/permission.asked/session.status ' +
         'but no PostToolUse events; the running signal is session.status:busy/retry, ' +
