@@ -46,24 +46,28 @@ import { isWrongCheckoutClaim } from '../review/checkoutClaim.js';
 import { buildScopeBlock } from '../agentScope.js';
 import { OUTPUT_RULES_HEADING, OUTPUT_RULES_BASE, OUTPUT_RULES_UAT } from '../../agent/promptText.js';
 import { createReviewSnapshot, deleteReviewSnapshot } from '../reviewSnapshot.js';
-import { collapseDiagnostic, cap } from '../../model/diagnosticText.js';
+import { collapseDiagnostic } from '../../model/diagnosticText.js';
+import { truncateToBudget, SEED_BUDGETS } from '../../agent/seedBudget.js';
 import { nowIso } from '../../model/time.js';
 
 /**
  * Ceiling on the injected done-when criteria block (Prompt 17). The source is
- * `Ticket.description` — untrusted-length prose a ticket author wrote, never
- * bounded elsewhere before reaching a prompt. Matches the diagnostic-text
- * ceiling used for other untrusted prose reaching this same prompt.
+ * `Ticket.description` — untrusted-length prose a ticket author wrote. The
+ * budget lives in `SEED_BUDGETS.testerCriteria` (derived from the same
+ * prompt-metrics baseline as the other budgets). When it overflows the block
+ * carries a stated truncation pointer — the agent must know criteria are
+ * missing and be told how to recover them via `karst context <key>`.
  */
-export const MAX_CRITERIA_CHARS = 8_000;
+export const MAX_CRITERIA_CHARS = SEED_BUDGETS.testerCriteria;
 
 /** One line naming the ticket's done-when criteria as authoritative and bounding them. */
-function buildCriteriaBlock(criteria: string | null | undefined): string[] {
+function buildCriteriaBlock(criteria: string | null | undefined, ticketKey: string): string[] {
   const trimmed = criteria?.trim() ?? '';
   if (trimmed === '') return [];
+  const { text } = truncateToBudget(trimmed, MAX_CRITERIA_CHARS, ticketKey);
   return [
     `Done-when criteria for this ticket (authoritative — exercise each one against the running code):`,
-    cap(trimmed, MAX_CRITERIA_CHARS),
+    text,
     ``,
   ];
 }
@@ -414,7 +418,7 @@ export function buildTesterPrompt(
     // Placed between the strategy and the scope block, and NEVER displaced by
     // `instructions` (which only ever replaces the strategy lines above) —
     // the ticket's done-when criteria are authoritative for every Tester run.
-    ...buildCriteriaBlock(extra?.criteria),
+    ...buildCriteriaBlock(extra?.criteria, extra?.ticketKey ?? ''),
     // Named BEFORE the scope block so its ban exception (`agentScope.ts`) can
     // say "the command named above" and mean this line.
     ...buildContextPointerLine(extra?.contextCommand, extra?.ticketKey),

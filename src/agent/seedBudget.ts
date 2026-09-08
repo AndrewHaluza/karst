@@ -12,6 +12,16 @@ export const SEED_BUDGETS = {
   brief: 3000,
   attachments: 1500,
   approachMethod: 8000,
+  /** The UAT Tester's authoritative criteria block carries the same field
+   *  (Ticket.description) but at double the seed budget. The seed is
+   *  initial context the agent skims before starting work; the Tester
+   *  prompt's criteria block is AUTHORITATIVE — the agent must exercise
+   *  every criterion against the running code. A 2× headroom (p90 2,683
+   *  → 8,000) keeps the common case untruncated while the long tail
+   *  (max 1.17 MB) still gets the stated pointer. Derived from the same
+   *  prompt-metrics baseline as the other budgets — see
+   *  docs/superpowers/plans/2026-09-07-seed-budget.md. */
+  testerCriteria: 8_000,
 } as const;
 
 /**

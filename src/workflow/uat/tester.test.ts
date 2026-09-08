@@ -1038,6 +1038,31 @@ describe('buildTesterPrompt', () => {
     expect(prompt).toContain('Focus on API endpoint behavior.');
   });
 
+  // PROMPT-21: truncation of the criteria block must be stated, never silent —
+  // the agent must know criteria are missing and be told how to recover them.
+  it('yields a stated truncation pointer when the criteria exceed the budget', () => {
+    const overCap = 'x'.repeat(9_000);
+    const prompt = buildTesterPrompt(TARGETS[0]!, undefined, undefined, undefined, {
+      criteria: overCap,
+      ticketKey: 'PROMPT-21',
+      contextCommand: 'node "cli.js" context --db "db"',
+    });
+    expect(prompt).toContain('truncated -- run `karst context PROMPT-21` for the full state.');
+    // The raw criteria must NOT appear in full — only the budget-sized prefix.
+    expect(prompt).not.toContain(overCap);
+  });
+
+  it('leaves an under-cap criteria block unchanged', () => {
+    const underCap = 'The button must open the modal.';
+    const prompt = buildTesterPrompt(TARGETS[0]!, undefined, undefined, undefined, {
+      criteria: underCap,
+      ticketKey: 'PROMPT-21',
+      contextCommand: 'node "cli.js" context --db "db"',
+    });
+    expect(prompt).toContain(underCap);
+    expect(prompt).not.toContain('truncated --');
+  });
+
   it('names one command for pulling the rest of the ticket context, and only that command is permitted past the recon ban', () => {
     const prompt = buildTesterPrompt(TARGETS[0]!, undefined, undefined, undefined, {
       ticketKey: 'PROMPT-17',
