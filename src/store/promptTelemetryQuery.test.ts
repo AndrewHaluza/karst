@@ -105,6 +105,30 @@ describe('queryPromptMetrics', () => {
       expect(m.guidePullByCore).toEqual({});
       expect(m.seedSizeChars).toMatchObject({ count: 0, avg: null, max: null });
       expect(m.markerCompliance.rate).toBeNull();
+      expect(m.fixLoopDepth).toMatchObject({ tickets: 0, avg: null, max: null });
+    } finally {
+      store.close();
+    }
+  });
+
+  it('reads fix-loop depth from recovery_rounds.round, not stages.attempt', () => {
+    const store = openStore(':memory:');
+    try {
+      // Two tickets: T-1 had 3 recovery rounds, T-2 had 1.
+      const t1 = createTicketFlow(store, { key: 'T-1', title: 't1' }).id;
+      const t2 = createTicketFlow(store, { key: 'T-2', title: 't2' }).id;
+      const insertRR = store.db.prepare(
+        `INSERT INTO recovery_rounds
+           (ticket_id, source_stage, source_process_id, trigger_kind, trigger_detail,
+            episode, round, max_rounds, status, started_at)
+         VALUES (?, 'uat', 'gates', 'gate-failure', 'exit 1', 1, ?, 3, 'passed', '2026-09-07T00:00:00.000Z')`,
+      );
+      insertRR.run(t1, 1);
+      insertRR.run(t1, 2);
+      insertRR.run(t1, 3);
+      insertRR.run(t2, 1);
+      const d = queryPromptMetrics(store, null).fixLoopDepth;
+      expect(d).toMatchObject({ tickets: 2, avg: 2, max: 3 });
     } finally {
       store.close();
     }

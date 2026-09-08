@@ -392,11 +392,17 @@ describe('startHookEndpoint', () => {
     const secondClose = ep.close();
     await Promise.all([firstClose, secondClose]);
 
+    // After close resolves the server has stopped listening, but the OS port
+    // may briefly remain in a state that still accepts a TCP SYN. A short
+    // socket timeout prevents the probe from hanging if the kernel hasn't yet
+    // released the port — the connection is still "rejected" either way.
     await expect(
       new Promise<void>((resolve, reject) => {
         const socket = connect(port, '127.0.0.1');
+        socket.setTimeout(500);
         socket.on('connect', () => reject(new Error('endpoint still accepted a connection')));
         socket.on('error', () => resolve());
+        socket.on('timeout', () => { socket.destroy(); resolve(); });
       }),
     ).resolves.toBeUndefined();
   });

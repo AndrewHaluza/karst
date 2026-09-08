@@ -45,7 +45,7 @@ is never a metric input.
 | wrong-checkout stop rate | `uat_findings` where `title LIKE 'UAT skipped: checkout is on%'` | orientation-block effectiveness | read-only (pre-existing) |
 | **guide-pull rate, per core** | `process_runs('guide-pull')` pulls ÷ `process_runs('session')` seeded with the pointer | **gates ticket 12 — see below** | `cli/guideTelemetry.ts` + launch env |
 | seed size | `process_runs(prompt_telemetry).seedChars` on the `session` run | budget baseline for ticket 08 | `agent/seed.ts` (`measureSeed`) → launch intent |
-| fix-loop depth | `stages.attempt` on `fix` | did the fix brief actually work | read-only (pre-existing) |
+| fix-loop depth | `recovery_rounds.round` (max per ticket) | did the fix brief actually work — how many fix-loop rounds before the gate passed | read-only (redefined in METRICS-22 from `stages.attempt` on `fix`, which was always 0 by design) |
 | tokens per stage-pass | `token_usage` joined to passed `process_runs`, grouped by `provider` | cost per unit of progress, per core | read-only (pre-existing) |
 
 The guide pointer's PRESENCE (`guidePointer` true) is the guide-pull DENOMINATOR:
@@ -121,7 +121,7 @@ COMPOSED seed (context + approach method + guide + marker) and is distinct.
 | Metric | Baseline |
 |---|---|
 | marker compliance rate | **0.952** — 315 `session`/`fix` runs closed `passed` (marker fired) vs 16 `interrupted` (ended silent), 0 `stale`, 9 still running |
-| fix-loop depth (`stages.attempt` on `fix`) | **0** across all 444 fix stage rows — the fix stage never re-attempts (each fix is a fresh recovery round, not an attempt bump). Flagged: the attempt-based reading is uninformative on this registry; a later ticket must redefine depth over `recovery_rounds`/`fix` runs or retire the metric. |
+| fix-loop depth (`recovery_rounds.round`, max per ticket) | **Redefined** in METRICS-22 from `stages.attempt` on `fix` (always 0 by design: the machine bumps the stage that failed, and fix is only ever passed through). Now reads per-ticket max `recovery_rounds.round` — the causal fix-loop depth. Baseline pending on the live registry post-redefinition. |
 | wrong-checkout stop rate | **0** deterministic "UAT skipped: checkout is on" observations historically |
 | tokens per passed run — opencode | **990,216** avg over 788 passed runs |
 | tokens per passed run — codex | **3,053,096** avg over 15 |
