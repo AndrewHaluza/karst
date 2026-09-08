@@ -1004,6 +1004,37 @@ describe('buildTesterPrompt', () => {
     expect(prompt).toContain('`high` is reserved for a criterion you exercised and observed to be unmet');
   });
 
+  // PROMPT-10: the prompt-contract floor — every contract member must survive
+  // a strategy override. Construction order is NOT the enforcement mechanism;
+  // this test makes displacement a test failure.
+  it('keeps the full prompt-contract floor when instructions replace the strategy block', () => {
+    const prompt = buildTesterPrompt(
+      TARGETS[0]!,
+      'You are a documentation-improver. Rewrite using the project glossary.',
+      undefined,
+      undefined,
+      { criteria: 'The button opens the modal.', ticketKey: 'T-1', contextCommand: 'karst context' },
+    );
+    // The floor: contract members that a profile override cannot displace.
+    // (1) Output rules heading — the structured-output contract.
+    expect(prompt).toContain('Output rules (strict):');
+    // (2) Output rules base — JSON array shape, severity vocabulary.
+    expect(prompt).toContain('Output ONLY a JSON array');
+    expect(prompt).toContain('"severity": "critical"|"high"|"medium"|"low"|"info"');
+    // (3) Observations-not-verdicts — the Tester never decides.
+    expect(prompt).toContain('OBSERVATIONS, not verdicts');
+    // (4) Un-exercisable criterion severity rule — product invariant.
+    expect(prompt).toContain('A criterion you could NOT exercise is severity `info`, never `high`');
+    // (5) Scope block — repo-wide-recon ban.
+    expect(prompt).toContain('Do NOT run repository-wide reconnaissance');
+    // (6) Criteria block (when present) — authoritative done-when.
+    expect(prompt).toContain('Done-when criteria for this ticket (authoritative');
+    expect(prompt).toContain('The button opens the modal.');
+    // The strategy is replaced but all floor members are present.
+    expect(prompt).not.toContain('Act as the UAT tester');
+    expect(prompt).toContain('documentation-improver');
+  });
+
   it('carries the scope block so the Tester does not survey the repo first', () => {
     const prompt = buildTesterPrompt(TARGETS[0]!, undefined, ['test:unit (web)']);
     expect(prompt).toContain('Do NOT run repository-wide reconnaissance');
