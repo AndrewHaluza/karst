@@ -47,7 +47,7 @@ import { buildScopeBlock } from '../agentScope.js';
 import { OUTPUT_RULES_HEADING, OUTPUT_RULES_BASE, OUTPUT_RULES_UAT } from '../../agent/promptText.js';
 import { createReviewSnapshot, deleteReviewSnapshot } from '../reviewSnapshot.js';
 import { collapseDiagnostic } from '../../model/diagnosticText.js';
-import { truncateToBudget, SEED_BUDGETS } from '../../agent/seedBudget.js';
+import { truncateToBudget, keylessTruncationPointer, SEED_BUDGETS } from '../../agent/seedBudget.js';
 import { nowIso } from '../../model/time.js';
 
 /**
@@ -61,10 +61,18 @@ import { nowIso } from '../../model/time.js';
 export const MAX_CRITERIA_CHARS = SEED_BUDGETS.testerCriteria;
 
 /** One line naming the ticket's done-when criteria as authoritative and bounding them. */
-function buildCriteriaBlock(criteria: string | null | undefined, ticketKey: string): string[] {
+function buildCriteriaBlock(criteria: string | null | undefined, ticketKey: string | null | undefined): string[] {
   const trimmed = criteria?.trim() ?? '';
   if (trimmed === '') return [];
-  const { text } = truncateToBudget(trimmed, MAX_CRITERIA_CHARS, ticketKey);
+  // `buildContextPointerLine` guards on the same value — this must not be the
+  // one place that emits a command it cannot form.
+  const key = ticketKey?.trim() ?? '';
+  const { text } = truncateToBudget(
+    trimmed,
+    MAX_CRITERIA_CHARS,
+    key,
+    key === '' ? keylessTruncationPointer() : undefined,
+  );
   return [
     `Done-when criteria for this ticket (authoritative — exercise each one against the running code):`,
     text,
@@ -284,13 +292,18 @@ const REFORMAT_NUDGE_QUOTE_MAX = 4_000;
  * that finding instead of discarding it — a genuine defect, correctly
  * found, must not be lost to a formatting failure. The quoted prose is
  * bounded (`collapseDiagnostic`) before it re-enters the prompt: it is
- * untrusted agent output like any other. Fired at most once per target;
- * a still-unreadable second answer parks the stage (`stages/uat.ts`).
+ * untrusted agent output like any other. The fence delimiter is `"""`,
+ * so the sequence is replaced inside the payload — `collapseDiagnostic`
+ * bounds and one-lines the prose but escapes nothing, and a fence the
+ * payload can close puts the remainder of untrusted agent output where
+ * the instructions are. Fired at most once per target; a still-unreadable
+ * second answer parks the stage (`stages/uat.ts`).
  */
 function buildReformatNudge(raw: string): string {
+  const quoted = collapseDiagnostic(raw, REFORMAT_NUDGE_QUOTE_MAX).replaceAll('"""', "'''");
   return (
     'Your previous answer was not a valid JSON array of findings — it was:\n' +
-    `"""${collapseDiagnostic(raw, REFORMAT_NUDGE_QUOTE_MAX)}"""\n` +
+    `"""${quoted}"""\n` +
     'Do not observe or test anything new. Reformat exactly what you already ' +
     'reported above as the JSON array described earlier — output exactly [] ' +
     'if there was nothing worth reporting. Output the array and nothing else.'
@@ -418,7 +431,7 @@ export function buildTesterPrompt(
     // Placed between the strategy and the scope block, and NEVER displaced by
     // `instructions` (which only ever replaces the strategy lines above) —
     // the ticket's done-when criteria are authoritative for every Tester run.
-    ...buildCriteriaBlock(extra?.criteria, extra?.ticketKey ?? ''),
+    ...buildCriteriaBlock(extra?.criteria, extra?.ticketKey),
     // Named BEFORE the scope block so its ban exception (`agentScope.ts`) can
     // say "the command named above" and mean this line.
     ...buildContextPointerLine(extra?.contextCommand, extra?.ticketKey),

@@ -810,6 +810,18 @@ describe('buildFindingsPrompt', () => {
     expect(prompt).toContain('Review the committed changes');
   });
 
+  it('states which severity fails the ticket, rendered from the configured threshold', () => {
+    const prompt = buildFindingsPrompt('/web', 'develop', 'karst/x', undefined, undefined, null, '/wt/web', 'critical');
+    expect(prompt).toContain('severity `critical` or above FAILS this ticket');
+    expect(prompt).not.toContain('severity `high` or above FAILS');
+  });
+
+  it('a profile override (instructions) cannot displace the blocking-severity rule', () => {
+    const prompt = buildFindingsPrompt('/web', 'develop', 'karst/x', 'Focus on error handling.', undefined, null, '/wt/web', 'high');
+    expect(prompt).toContain('Focus on error handling.');
+    expect(prompt).toContain('severity `high` or above FAILS this ticket');
+  });
+
   it('keeps today\'s uncommitted prose when openChanges is on and git is absent', async () => {
     const { adapter: headless, calls } = capturingAdapter('[]');
     await runFindingsLane({

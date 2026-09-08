@@ -30,7 +30,7 @@ import { collapseDiagnostic } from '../../model/diagnosticText.js';
 import { nowIso } from '../../model/time.js';
 import { parseFindingsResult, type FindingsExtractionTier, type WarnFn } from './findings.js';
 import { buildScopeBlock } from '../agentScope.js';
-import { OUTPUT_RULES_HEADING, OUTPUT_RULES_BASE } from '../../agent/promptText.js';
+import { OUTPUT_RULES_HEADING, OUTPUT_RULES_BASE, reviewBlockingSeverityRule } from '../../agent/promptText.js';
 import { createReviewSnapshot, deleteReviewSnapshot } from '../reviewSnapshot.js';
 import { dropDisprovenCheckoutClaims, isWrongCheckoutClaim, verifyCheckout } from './checkoutClaim.js';
 import {
@@ -190,6 +190,11 @@ export function buildFindingsPrompt(
   /** The worktree root the call runs in — named so an agent whose core
    *  mis-resolved the launch cwd can move itself there (see `agentScope.ts`). */
   worktreePath?: string | null,
+  /** `review.findings.blockingSeverity` — the threshold at or above which a
+   *  finding fails the ticket. Rendered into the never-replaced output-rules
+   *  tail so the agent knows what it is spending when it picks a severity.
+   *  Omitted (rule not rendered) only when a caller does not know it. */
+  blockingSeverity?: Severity,
 ): string {
   const baseClause = baseRef
     ? `against its base branch, \`${baseRef}\` (compare against \`origin/${baseRef}\` when available, otherwise the local \`${baseRef}\`).`
@@ -228,6 +233,7 @@ export function buildFindingsPrompt(
     ...OUTPUT_RULES_BASE,
     `- No changes worth reporting → output exactly [].`,
     `- Use "critical" only for something that will break in production (data loss, security, crash); "high" for a real bug or a clear regression; "medium"/"low"/"info" for style, maintainability, or a suggestion.`,
+    ...(blockingSeverity ? [reviewBlockingSeverityRule(blockingSeverity)] : []),
   ].join('\n');
 }
 
@@ -351,6 +357,7 @@ export async function runFindingsLane(opts: RunFindingsLaneOpts): Promise<Findin
             opts.openChanges,
             snapshotRef,
             target.worktreePath,
+            opts.config.blockingSeverity === 'none' ? undefined : opts.config.blockingSeverity,
           ),
           cwd: target.worktreePath,
           model: opts.process?.assignment.model,
