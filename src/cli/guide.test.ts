@@ -14,10 +14,10 @@ import { GENERATED_STAMP } from '../agent/generatedArtifact.js';
 
 describe('karst guide — content', () => {
   it('documents every verb runCli accepts', () => {
-    // runCli accepts exactly: context, stage, phase, graph, node, test, guide (main.ts).
+    // runCli accepts exactly: context, stats, stage, phase, graph, node, test, guide (main.ts).
     // Verbs are named backtick-quoted (e.g. `phase <name>`), so match the
     // opening tick.
-    for (const verb of ['context', 'stage', 'phase', 'graph', 'node', 'test', 'guide']) {
+    for (const verb of ['context', 'stats', 'stage', 'phase', 'graph', 'node', 'test', 'guide']) {
       expect(AGENT_GUIDE).toContain(`\`${verb}`);
     }
   });
