@@ -2,12 +2,17 @@
  * Every path karst itself writes into a working tree, as `.git/info/exclude`
  * patterns.
  *
- * Ship commits whatever the worktree holds — `commitAllIfDirty` is a plain
- * `git add -A`, because a stage marker means the agent believes it is done, not
- * that it ran `git commit`. So anything karst leaves in the tree AND leaves
- * stageable is not inert: it becomes a commit, a push, and a PR whose entire
- * diff is karst's own scaffolding. `hasChangesFrom` cannot catch that — by the
- * time it runs, the scaffolding IS a real diff from the base.
+ * Ship commits whatever the worktree holds — `prepareCommitInQuarantine` runs a
+ * plain `git add -A`, because a stage marker means the agent believes it is
+ * done, not that it ran `git commit`. So anything karst leaves in the tree AND
+ * leaves stageable is not inert: it becomes a commit, a push, and a PR whose
+ * entire diff is karst's own scaffolding. `hasChangesFrom` cannot catch that —
+ * by the time it runs, the scaffolding IS a real diff from the base.
+ *
+ * These rules cover KARST's own output only. An untracked file the AGENT left
+ * behind is caught by a different mechanism — ship's deny scan
+ * (`src/workflow/shipDenyScan.ts`), which refuses the repo rather than publish a
+ * secret-shaped path.
  *
  * Session cleanup removes the adapter-materialized dirs (`cleanupOwnedPaths`),
  * but only when the session CLOSES, and ship commonly runs while it is still

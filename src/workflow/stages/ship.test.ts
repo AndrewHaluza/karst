@@ -382,18 +382,23 @@ setTimeout(() => {
       return { stdout: '', stderr: '', exitCode: 0 };
     };
 
-    await shipTicket(
-      store,
-      {
-        ticketId: id,
-        manifest: manifest({
-          frontend: repo({ repoPath: '/repo/frontend', baselineBranch: 'main' }),
-        }),
-      },
-      fakeGh().gh,
-      undefined,
-      git,
-    );
+    // Every target is unchanged from its base, so ship now refuses — but the
+    // provenance reads under test all happen before that, which is what this
+    // test is about.
+    await expect(
+      shipTicket(
+        store,
+        {
+          ticketId: id,
+          manifest: manifest({
+            frontend: repo({ repoPath: '/repo/frontend', baselineBranch: 'main' }),
+          }),
+        },
+        fakeGh().gh,
+        undefined,
+        git,
+      ),
+    ).rejects.toThrow(/ship produced nothing/);
 
     expect(calls).toContainEqual(['rev-list', '--reverse', 'develop..HEAD']);
     expect(calls).not.toContainEqual(['rev-list', '--reverse', 'main..HEAD']);
@@ -440,7 +445,7 @@ setTimeout(() => {
   });
 
   describe('when the branch has no effective changes from its target', () => {
-    it('succeeds without pushing or invoking PR creation and reports the no-op', async () => {
+    it('refuses the ship, and still neither pushes nor invokes PR creation', async () => {
       seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
       const calls: string[][] = [];
       const git: GitRunner = async (args) => {
@@ -455,16 +460,12 @@ setTimeout(() => {
       };
       const events: ShipStepEvent[] = [];
 
-      const result = await shipTicket(
-        store,
-        { ticketId: id },
-        gh,
-        fakeAdapter(),
-        git,
-        (event) => events.push(event),
-      );
+      await expect(
+        shipTicket(store, { ticketId: id }, gh, fakeAdapter(), git, (event) =>
+          events.push(event),
+        ),
+      ).rejects.toThrow(/ship produced nothing/);
 
-      expect(result.prs).toEqual([]);
       expect(ghCalls).toEqual([]);
       expect(calls.some((args) => args[0] === 'push')).toBe(false);
       expect(calls).toContainEqual(['fetch', 'origin', 'develop']);
@@ -478,7 +479,8 @@ setTimeout(() => {
         status: 'note',
         detail: 'no PR needed — no changes from develop',
       });
-      expect(getTicket(store, id).stageCurrent).toBe('done');
+      // Ship has no `failed` edge: the ticket parks at ship rather than reaching done.
+      expect(getTicket(store, id).stageCurrent).toBe('ship');
     });
 
     // fu1: a repo the ticket never touched is settled BEFORE the commit step —
@@ -494,9 +496,11 @@ setTimeout(() => {
       };
       const events: ShipStepEvent[] = [];
 
-      await shipTicket(store, { ticketId: id }, fakeGh().gh, fakeAdapter(), git, (e) =>
-        events.push(e),
-      );
+      await expect(
+        shipTicket(store, { ticketId: id }, fakeGh().gh, fakeAdapter(), git, (e) =>
+          events.push(e),
+        ),
+      ).rejects.toThrow(/ship produced nothing/);
 
       expect(events).toContainEqual({
         repo: '/repo/frontend',
@@ -505,6 +509,49 @@ setTimeout(() => {
         detail: 'no changes from develop — nothing to commit',
       });
       expect(calls.some((args) => args[0] === 'write-tree')).toBe(false);
+    });
+
+    // The defect this guards: an implementation run that committed somewhere
+    // other than the ticket's branch leaves every target at its base, and ship
+    // used to pass — which walked the ticket to `done` with nothing shipped.
+    it('fails the stage and records the reason when EVERY target is unchanged', async () => {
+      seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+      const git: GitRunner = async (args) => {
+        if (args[0] === 'diff') return { stdout: '', stderr: '', exitCode: 0 };
+        return { stdout: '', stderr: '', exitCode: 0 };
+      };
+
+      await expect(
+        shipTicket(store, { ticketId: id }, fakeGh().gh, undefined, git),
+      ).rejects.toThrow(/ship produced nothing: all 1 target\(s\)/);
+
+      const t = getTicket(store, id);
+      expect(t.stageCurrent).toBe('ship');
+      const ship = t.stages.find((s) => s.stageKey === 'ship');
+      expect(ship?.status).toBe('failed');
+      expect(ship?.verdict).toContain('/repo/frontend');
+    });
+
+    // A multi-repo ticket legitimately leaves most repos untouched: only ALL of
+    // them being untouched is the failure.
+    it('passes when at least one target changed, however many did not', async () => {
+      seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+      seedWorktree(store, id, '/repo/backend', join(dir, 'be'));
+      const git: GitRunner = async (args, cwd) => {
+        if (args[0] === 'diff') {
+          // The backend carries the change; the frontend is untouched.
+          return { stdout: '', stderr: '', exitCode: cwd === join(dir, 'be') ? 1 : 0 };
+        }
+        return { stdout: '', stderr: '', exitCode: 0 };
+      };
+
+      const result = await shipTicket(store, { ticketId: id }, fakeGh().gh, undefined, git);
+
+      // The backend shipped (PR opened); the frontend was a no-op.
+      expect(result.prs).toHaveLength(1);
+      // Ship did not throw — only an ALL-unchanged ticket would be refused.
+      const ship = getTicket(store, id).stages.find((s) => s.stageKey === 'ship');
+      expect(ship?.status).not.toBe('failed');
     });
 
     // fu1: the remote already carries this exact HEAD (an earlier attempt's push
@@ -570,6 +617,59 @@ setTimeout(() => {
         'gh pr view',
         'git fetch',
       ]);
+    });
+  });
+
+  describe('when the worktree carries a denied untracked file', () => {
+    it('refuses the repo instead of committing, pushing, or opening a PR', async () => {
+      const wtPath = join(dir, 'fe');
+      await initRealRepo(wtPath);
+      writeFileSync(join(wtPath, 'src.ts'), 'export const a = 1;\n');
+      writeFileSync(join(wtPath, '.env'), 'API_KEY=live_secret\n');
+      seedWorktree(store, id, '/repo/frontend', wtPath);
+
+      const calls: string[][] = [];
+      const git = dirtyRealRepo(calls);
+      const { gh, calls: ghCalls } = fakeGh();
+      const events: ShipStepEvent[] = [];
+
+      await expect(
+        shipTicket(store, { ticketId: id }, gh, undefined, git, (e) => events.push(e)),
+      ).rejects.toThrow(/deny list/);
+
+      // Nothing was published, and nothing was committed.
+      expect(ghCalls).toBe(0);
+      expect(calls.some((args) => args[0] === 'push')).toBe(false);
+      expect(calls.some((args) => args[0] === 'write-tree')).toBe(false);
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          repo: '/repo/frontend',
+          step: 'commit',
+          status: 'fail',
+        }),
+      );
+      // The ticket parks at ship with the reason on the stage row.
+      const t = getTicket(store, id);
+      expect(t.stageCurrent).toBe('ship');
+      const ship = t.stages.find((s) => s.stageKey === 'ship');
+      expect(ship?.verdict).toContain('.env');
+      expect(ship?.verdict).toContain('dotenv');
+    });
+
+    it('ships normally when the untracked files are ordinary source', async () => {
+      const wtPath = join(dir, 'fe');
+      await initRealRepo(wtPath);
+      writeFileSync(join(wtPath, 'src.ts'), 'export const a = 1;\n');
+      seedWorktree(store, id, '/repo/frontend', wtPath);
+
+      const calls: string[][] = [];
+      const git = dirtyRealRepo(calls);
+      const { gh } = fakeGh();
+
+      const result = await shipTicket(store, { ticketId: id }, gh, undefined, git);
+
+      expect(result.prs).toHaveLength(1);
+      expect(calls.some((args) => args[0] === 'push')).toBe(true);
     });
   });
 
@@ -665,13 +765,13 @@ setTimeout(() => {
 
     await expect(
       shipTicket(store, { ticketId: id }, gh, fakeAdapter(), git, (e) => events.push(e)),
-    ).rejects.toThrow(/git status --porcelain failed \(exit 128\)/);
+    ).rejects.toThrow(/git status --porcelain -uall failed \(exit 128\)/);
 
     // The verdict that parks the ticket is one collapsed line — the raw
     // multi-line stderr never reaches the stage row or any rendered surface.
     const ship = getTicket(store, id).stages.find((s) => s.stageKey === 'ship');
     expect(ship?.status).toBe('failed');
-    expect(ship?.verdict).toContain('git status --porcelain failed (exit 128)');
+    expect(ship?.verdict).toContain('git status --porcelain -uall failed (exit 128)');
     expect(ship?.verdict).not.toContain('\n');
     expect(getTicket(store, id).stageCurrent).toBe('ship');
     // No false "nothing to commit" note, no push, no PR, no provenance rows.
