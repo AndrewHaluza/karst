@@ -6,6 +6,7 @@ import {
   type NotifyTicket,
   type SessionProviderFor,
   type ShouldApplyHookState,
+  type TurnTracker,
 } from './dispatch.js';
 import { hookUrl } from '../agent/settings.js';
 import type { LogError } from '../logging/logger.js';
@@ -83,6 +84,14 @@ export interface HookEndpointOptions {
    * on the hook channel recorder — this is not a hook.
    */
   ticketApi?: TicketApiOptions;
+  /**
+   * PROMPT-15: per-ticket, per-turn tool activity tracker. When supplied,
+   * `PostToolUse` events are counted and the count is used to split the
+   * ambiguous "Stop + markerPending" case into question-at-stop vs
+   * no-marker-after-work. The tracker is module-scoped (one per activation)
+   * and never persists.
+   */
+  tracker?: TurnTracker;
 }
 
 /**
@@ -271,6 +280,7 @@ export function startHookEndpoint(
               sessionProviderFor,
               options.recorder,
               options.debug,
+              options.tracker,
             );
           } catch (err) {
             observe('dispatch-failed', payload.hook_event_name);

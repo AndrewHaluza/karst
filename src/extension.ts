@@ -177,6 +177,7 @@ import {
   orchestratorCommandBasename,
 } from './agent/workflowCommand.js';
 import { startHookEndpoint, type HookEndpoint } from './hooks/endpoint.js';
+import { TurnTracker } from './hooks/dispatch.js';
 import { startGraphWakeupEndpoint, type GraphWakeupEndpoint } from './hooks/graphEndpoint.js';
 import { runCoordinatorTick, activeGraphRunIds } from './approaches/graph/coordinator/sweep.js';
 import { ticketsAwaitingGraphDrive } from './approaches/graph/coordinator/handoff.js';
@@ -3493,6 +3494,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       currentManifest()?.agentProvider,
     );
   const rememberedPort = context.workspaceState.get<number>(HOOK_PORT_KEY) ?? 0;
+  const turnTracker = new TurnTracker();
   endpoint = await startHookEndpoint(
     localStore,
     rememberedPort,
@@ -3503,6 +3505,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     {
       recorder: hookChannelRecorder,
       debug: (message) => logger.debug(message),
+      tracker: turnTracker,
       ticketApi: {
         // Same getter pattern as the ticket form: the project binds at
         // activation, read it at call time.

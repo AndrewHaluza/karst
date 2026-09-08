@@ -363,6 +363,11 @@ describe('CodexAdapter interactive commands', () => {
         permission_mode: 'bypassPermissions',
         source: 'startup',
       },
+      expectedBody: {
+        hook_event_name: 'SessionStart',
+        cwd: '/wt',
+        session_id: 'thread-1',
+      },
     },
     {
       event: 'PostToolUse',
@@ -379,8 +384,14 @@ describe('CodexAdapter interactive commands', () => {
         tool_input: { command: 'git status --short' },
         tool_response: { output: '' },
       },
+      expectedBody: {
+        hook_event_name: 'PostToolUse',
+        cwd: '/wt',
+        session_id: 'thread-1',
+        tool_name: 'Bash',
+      },
     },
-  ])('delivers a Codex $event hook and exits successfully', async ({ event, input }) => {
+  ])('delivers a Codex $event hook and exits successfully', async ({ event, input, expectedBody }) => {
     const configDir = makeWorktree();
     const bridgePath = materializeBridge(configDir);
     const diagnosticsPath = join(configDir, 'codex', 'hook-failures.jsonl');
@@ -398,11 +409,7 @@ describe('CodexAdapter interactive commands', () => {
       ]);
 
       expect(result).toEqual({ exitCode: 0, stderr: '' });
-      expect(body).toEqual({
-        hook_event_name: event,
-        cwd: '/wt',
-        session_id: 'thread-1',
-      });
+      expect(body).toEqual(expectedBody);
       expect(existsSync(diagnosticsPath)).toBe(false);
     } finally {
       await receiver.close();

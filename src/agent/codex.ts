@@ -224,7 +224,14 @@ process.stdin.on('end', () => {
 
   const posts = [];
   if (mapped) {
-    posts.push({ ...mapped, cwd: raw.cwd, session_id: raw.session_id });
+    // PROMPT-15: forward tool_name on PostToolUse so the marker-miss split
+    // can count tool activity per turn. tool_name is a fixed-vocabulary
+    // string (never the response body), safe to pass through the bridge.
+    const toolName =
+      event === 'PostToolUse' && typeof raw.tool_name === 'string'
+        ? { tool_name: raw.tool_name }
+        : {};
+    posts.push({ ...mapped, ...toolName, cwd: raw.cwd, session_id: raw.session_id });
   }
   const usage = usagePayload(raw);
   if (usage) {
@@ -415,7 +422,12 @@ export function codexHookNormalizer(post: PostHook) {
           ? { hook_event_name: event }
           : null;
     if (mapped) {
-      await post({ ...mapped, cwd, session_id: sessionId });
+      // PROMPT-15: forward tool_name on PostToolUse (same as the JS bridge).
+      const toolName =
+        event === 'PostToolUse' && typeof input.tool_name === 'string'
+          ? { tool_name: input.tool_name }
+          : {};
+      await post({ ...mapped, ...toolName, cwd, session_id: sessionId });
     }
     const usage = usageFromInput(input);
     if (usage !== null) {
@@ -630,6 +642,7 @@ export class CodexAdapter implements AgentAdapter {
     structuredOutput: SUPPORTED,
     hookChannel: SUPPORTED,
     endpointRebind: SUPPORTED,
+    toolActivity: SUPPORTED,
     skillDiscovery: SUPPORTED,
   };
 

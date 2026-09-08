@@ -94,6 +94,16 @@ export interface AdapterSurfaces {
    */
   readonly endpointRebind: SurfaceSupport;
   /**
+   * PROMPT-15: `PostToolUse` events carry a `tool_name` that counts tool
+   * activity per turn. `supported` means the hook channel delivers
+   * `PostToolUse` with `tool_name`, enabling the marker-miss split
+   * (question-at-stop vs no-marker-after-work) and denied-marker detection.
+   * `unsupported` means the core's lifecycle path has no `PostToolUse`
+   * equivalent — tool activity is unobservable and the marker-miss telemetry
+   * degrades to nothing.
+   */
+  readonly toolActivity: SurfaceSupport;
+  /**
    * Whether the core can discover and auto-invoke skills by matching their
    * frontmatter `description` against the current task context. `supported`
    * means the core routes to a skill when its description matches, without

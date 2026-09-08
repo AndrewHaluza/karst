@@ -138,6 +138,7 @@ export class ClaudeAdapter implements AgentAdapter {
       'the channel is a --settings FILE read once by the CLI at launch, not a script ' +
         'karst controls; a rebound port needs a relaunch (see docs/agent-cores/HOOK-CONTRACT.md)',
     ),
+    toolActivity: SUPPORTED,
     skillDiscovery: SUPPORTED,
   };
 

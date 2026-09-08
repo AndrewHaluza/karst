@@ -93,6 +93,7 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
       'structuredOutput',
       'hookChannel',
       'endpointRebind',
+      'toolActivity',
       'skillDiscovery',
     ];
     for (const key of keys) {
