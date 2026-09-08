@@ -19,6 +19,8 @@ The stage machine, the evidence it writes, and the host seam that drives it. Rel
 - The stage driver's host seam
 - Pause: a ticket that starts nothing
 - Single-writer stage mutation
+- Ship refuses to publish an untracked secret-shaped file, and a tracked file is the escape hatch
+- A ship in which EVERY target is unchanged is a failure, not a pass
 
 ## Stage machine
 
@@ -120,3 +122,11 @@ Surfaces: `ticketGlyph`/`stageBadge` read it first (gray, "Paused" — a paused 
 ## Single-writer stage mutation
 
 All stage mutation via `setStage`; agent_state via `setAgentState` (single-writer).
+
+## Ship refuses to publish an untracked secret-shaped file, and a tracked file is the escape hatch
+
+Ship stages the entire worktree — `prepareCommitInQuarantine` runs `git add -A`, because a stage marker means the agent believes it is done, not that it committed. So a file an agent left behind becomes a commit, a push to `origin`, and a public PR with no human in the loop. Before the commit step, ship scans the `git status --porcelain -uall` output it already reads and refuses the repo when an **untracked** entry matches a deny list of secret-shaped paths — `.env`, `*.pem`/`*.key`/`id_rsa`, `credentials.json`/`.netrc`/`.npmrc`, anything under `.ssh`/`.aws`/`.gnupg`/`.docker`/`.kube`. Only untracked entries are scanned, because a file the repository already tracks is by definition already published; that is also the escape hatch, so a project needing a deliberate `.pem` fixture commits it once by hand and ship never looks at it again. The rules are path-shaped, never content-shaped: reading file bodies would cost a read per ship and produce false positives on the repository's own source. The refusal is per-repo — the other worktrees on the ticket still ship, and the aggregate verdict names the one that did not.
+
+## A ship in which EVERY target is unchanged is a failure, not a pass
+
+A multi-repo ticket legitimately leaves most of its repos untouched, so each repo's own "no changes from `<base>` — nothing to commit" note is correct and stays. What is not correct is passing when **every** target is unchanged: that ship produced no commit, no push and no PR at all, which is the shape a ticket takes when its work landed somewhere other than its branches — an implementation run that committed into the main checkout, or a stale worktree mapping. Left passing, it walked a ticket through UAT, review and ship to `done` fully green with nothing shipped. Ship now throws after its repo loop when the no-change count equals the worktree count, so the ticket parks at `ship` with the reason on the stage row. A repo skipped because it already carries a live PR is not counted (it shipped earlier), a repo with no persisted base is not counted (there is nothing to compare against), and a real per-repo failure is raised first, because it is more actionable than the symptom it causes.

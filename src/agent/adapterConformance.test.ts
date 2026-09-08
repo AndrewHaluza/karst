@@ -324,7 +324,7 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
       baseDir,
       sessionDir: root,
     });
-    // Ship's `commitAllIfDirty` is a plain `git add -A`: an unexcluded
+    // Ship's `prepareCommitInQuarantine` is a plain `git add -A`: an unexcluded
     // materialized path becomes a commit, a push, and a PR whose whole diff is
     // karst's own scaffolding (869eck3gv). Cleanup fires on session CLOSE and
     // ship usually runs before that, so exclusion is the invariant.

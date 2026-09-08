@@ -27,8 +27,8 @@ import {
   type OpenedPr,
 } from '../../integrations/github.js';
 import { updatePrDetail, recordShippedPr } from '../../store/prs.js';
+import { scanPorcelainForDenied, describeDenyHits } from '../shipDenyScan.js';
 import {
-  commitAllIfDirty,
   describeGitFailure,
   hasChangesFrom,
   pushBranch,
@@ -983,6 +983,11 @@ export async function shipTicket(
   // verdict. Repos that succeeded keep their persisted PR rows and ship-run
   // bookkeeping exactly as if nothing failed, so a retry skips them.
   const repoFailures: { repo: string; message: string }[] = [];
+  // Repos that exited via a no-change path (either probe). Per repo this is a
+  // correct no-op — a multi-repo ticket legitimately leaves most repos
+  // untouched — but EVERY target being untouched means the ticket's work never
+  // reached its branches, and that is checked once, after the loop.
+  const noChangeRepos: string[] = [];
   try {
     for (const wt of worktrees) {
       try {
@@ -1103,11 +1108,33 @@ export async function shipTicket(
         // work: the step reads `note`, never `pass`. A status that FAILED is
         // never a clean worktree — the agent's work may simply be unreadable, and
         // pushing an empty branch would open a PR that never carried it.
-        const dirtyCheck = await git(['status', '--porcelain'], wt.path);
+        // `-uall` (not the default collapsed form): the deny scan below needs
+        // every untracked FILE, and `--porcelain` alone reports an untracked
+        // directory as one `dir/` entry. One call serves both readers — the
+        // emptiness test and the scan — so ship gains no extra git invocation.
+        const dirtyCheck = await git(['status', '--porcelain', '-uall'], wt.path);
         if (dirtyCheck.exitCode !== 0) {
-          throw new Error(describeGitFailure('git status --porcelain', dirtyCheck));
+          throw new Error(describeGitFailure('git status --porcelain -uall', dirtyCheck));
         }
         const clean = dirtyCheck.stdout.trim() === '';
+
+        // Ship stages the WHOLE worktree — `git add -A`, inside
+        // `prepareCommitInQuarantine` — so a file an agent left behind becomes a
+        // commit, a push to origin, and a public PR with no human in the loop.
+        // Untracked entries are the entire risk surface: a file the repository
+        // already tracks is already published, which is also the escape hatch
+        // (commit a deliberate fixture once by hand and it is never scanned
+        // again). Refusing is per-repo — the loop's own catch records it and the
+        // repos after this one still ship.
+        if (!clean) {
+          const denied = scanPorcelainForDenied(dirtyCheck.stdout);
+          if (denied.length > 0) {
+            const detail = describeDenyHits(denied, wt.repo);
+            opts.debug?.(`[gate] ship ticket ${opts.ticketId}: deny scan hit ${denied.length} file(s) in ${wt.repo}`);
+            onProgress({ repo: wt.repo, step: 'commit', status: 'fail', detail });
+            throw new Error(detail);
+          }
+        }
 
         // fu1: a repo the ticket never touched is settled BEFORE the commit
         // machinery runs, not after it. A clean worktree whose branch carries no
@@ -1118,7 +1145,7 @@ export async function shipTicket(
         // what changes the answer, so its probe runs after the commit lands.
         const preCommitChanges =
           clean && base ? await hasChangesFrom(git, wt.path, base, wt.branch) : null;
-        if (base && preCommitChanges === false) {
+        if (provenanceBase !== undefined && base && preCommitChanges === false) {
           onProgress({
             repo: wt.repo,
             step: 'commit',
@@ -1126,6 +1153,8 @@ export async function shipTicket(
             detail: `no changes from ${base} — nothing to commit`,
           });
           noteNothingToShip(onProgress, wt.repo, base, adapter !== undefined);
+          opts.debug?.(`[gate] ship ticket ${opts.ticketId}: ${wt.repo} unchanged from ${base} (pre-commit)`);
+          noChangeRepos.push(wt.repo);
           continue;
         }
 
@@ -1239,8 +1268,10 @@ export async function shipTicket(
         // the remote a second time for the same fact.
         const changedFromBase =
           preCommitChanges ?? (base ? await hasChangesFrom(git, wt.path, base, wt.branch) : true);
-        if (base && !changedFromBase) {
+        if (provenanceBase !== undefined && base && !changedFromBase) {
           noteNothingToShip(onProgress, wt.repo, base, adapter !== undefined);
+          opts.debug?.(`[gate] ship ticket ${opts.ticketId}: ${wt.repo} unchanged from ${base} (post-commit)`);
+          noChangeRepos.push(wt.repo);
           continue;
         }
 
@@ -1676,6 +1707,22 @@ export async function shipTicket(
       throw new Error(
         `ship failed for ${repoFailures.length} repo(s): ` +
           repoFailures.map((f) => `${f.repo}: ${boundedFailure(f.message)}`).join('; '),
+      );
+    }
+    // Every target unchanged means the ship produced nothing at all: no commit,
+    // no push, no PR. Each repo's own note is right, but the aggregate is the
+    // shape a ticket takes when its work landed somewhere other than its branch
+    // (an agent that committed to the main checkout, a stale worktree mapping).
+    // Passing here is what lets that walk through to `done` fully green, so it
+    // is a ship failure — the ticket parks at ship, since ship has no `failed`
+    // edge. Placed AFTER the per-repo check: a real failure is more actionable
+    // than the "nothing shipped" symptom it causes.
+    if (worktrees.length > 0 && noChangeRepos.length === worktrees.length) {
+      opts.debug?.(`[gate] ship ticket ${opts.ticketId}: all ${worktrees.length} target(s) unchanged — refusing`);
+      throw new Error(
+        `ship produced nothing: all ${worktrees.length} target(s) have no changes ` +
+          `from their base branch (${noChangeRepos.join(', ')}) — ` +
+          `the ticket's work is not on its branch`,
       );
     }
   } catch (err) {
