@@ -1047,6 +1047,19 @@ describe('buildTesterPrompt', () => {
       'No querying the orchestration tool that launched you — its CLI or its state database.',
     );
   });
+
+  it('keeps the ban unqualified when contextCommand is set but ticketKey is absent', () => {
+    // The scope block must not grant an exception for "the command named above"
+    // when no command was named — the dangling-reference defect (fu1).
+    const prompt = buildTesterPrompt(TARGETS[0]!, undefined, undefined, undefined, {
+      contextCommand: 'node "cli.js" context --db "db"',
+    });
+    expect(prompt).not.toContain('Run exactly:');
+    expect(prompt).toContain(
+      'No querying the orchestration tool that launched you — its CLI or its state database.',
+    );
+    expect(prompt).not.toContain('The one exception is the command named above');
+  });
 });
 
 describe('runUatTester — silence-nudge telemetry (v57)', () => {

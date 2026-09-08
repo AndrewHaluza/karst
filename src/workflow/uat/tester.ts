@@ -401,6 +401,14 @@ export function buildTesterPrompt(
           `Act as the UAT tester for the changes in this worktree (repository: ${target.repo}) ${baseClause}`,
           `Try to BREAK the changes: run them, exercise the acceptance criteria, and report what you observe.${serviceClause}`,
         ];
+  // Compose the ONE command the agent may run past the recon ban — a single
+  // value shared by the pointer line and the scope block's ban exception so the
+  // two halves of the prompt always name the identical string, and the ban's
+  // carve-out is true by construction.
+  const composedContextCommand =
+    extra?.contextCommand && extra?.ticketKey
+      ? `${extra.contextCommand} ${extra.ticketKey} --md`
+      : undefined;
   return [
     ...strategy,
     // Placed between the strategy and the scope block, and NEVER displaced by
@@ -412,13 +420,15 @@ export function buildTesterPrompt(
     ...buildContextPointerLine(extra?.contextCommand, extra?.ticketKey),
     ``,
     // Never replaced by `instructions` — see `workflow/agentScope.ts`.
+    // `contextCommand` is the composed string (prefix + key + --md) so the ban
+    // exception names the exact same command the pointer line named.
     ...buildScopeBlock('test', {
       baseRef: target.baseRef,
       branch: target.branch,
       worktreePath: target.worktreePath,
       gatesPassed,
       snapshotRef,
-      contextCommand: extra?.contextCommand,
+      contextCommand: composedContextCommand,
     }),
     ``,
     OUTPUT_RULES_HEADING,

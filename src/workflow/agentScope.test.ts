@@ -221,6 +221,19 @@ describe('buildScopeBlock', () => {
     expect(text).toMatch(/Do NOT re-derive/i);
   });
 
+  it('grants the ban exception only when a composed context command is present', () => {
+    const withCmd = buildScopeBlock('test', {
+      baseRef: 'main',
+      contextCommand: 'karst context PROMPT-17 --md',
+    }).join('\n');
+    expect(withCmd).toContain('The one exception is the command named above');
+    expect(withCmd).not.toContain('No querying the orchestration tool that launched you');
+
+    const withoutCmd = buildScopeBlock('test', { baseRef: 'main' }).join('\n');
+    expect(withoutCmd).toContain('No querying the orchestration tool that launched you');
+    expect(withoutCmd).not.toContain('The one exception is the command named above');
+  });
+
   it('names the gates that already passed so the agent does not re-run them', () => {
     const text = buildScopeBlock('test', {
       baseRef: 'main',
