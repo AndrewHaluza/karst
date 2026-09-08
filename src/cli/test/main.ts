@@ -27,6 +27,25 @@ import { parseAssertArgs, runAssert } from './assert.js';
  * SQL where production seams exist, so the driver cannot drift from them.
  */
 
+/**
+ * Compose the `node <cli> test --db <db> [--manifest <yml>]` prefix the agent
+ * appends a subcommand and ticket key to. The prefix carries `--db` and
+ * `--manifest` so the skill body never asks the agent to compose those paths.
+ *
+ * Paths are double-quoted so spaces survive, matching the sibling compose
+ * helpers. Pure (no fs) so it is testable.
+ */
+export function composeTestCommand(
+  cliEntry: string,
+  dbPath: string,
+  manifestPath?: string,
+): string {
+  const q = (s: string): string => `"${s}"`;
+  const parts = ['node', q(cliEntry), 'test', '--db', q(dbPath)];
+  if (manifestPath) parts.push('--manifest', q(manifestPath));
+  return parts.join(' ');
+}
+
 const SUBCOMMANDS: readonly string[] = [
   'create-ticket',
   'set-stage',

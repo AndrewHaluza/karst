@@ -25,6 +25,7 @@ import { attachUsage } from './tokenUsage.js';
 import type { TokenUsage } from './tokenUsage.js';
 import { KARST_PLUGIN_NAME, renderWorkflowCommand } from './workflowCommand.js';
 import { withStamp, writeGeneratedArtifact } from './generatedArtifact.js';
+import { renderTestSkill } from './testSkill.js';
 import { SUPPORTED, unsupported, type AdapterSurfaces } from './surfaces.js';
 import { currentEndpointPath } from './hookFailureLog.js';
 
@@ -758,6 +759,7 @@ export class OpencodeAdapter implements AgentAdapter {
     ),
     hookChannel: SUPPORTED,
     endpointRebind: SUPPORTED,
+    skillDiscovery: SUPPORTED,
   };
 
   constructor(private readonly spawnHeadless: SpawnHeadless = defaultSpawn) {}
@@ -946,6 +948,19 @@ export class OpencodeAdapter implements AgentAdapter {
           withStamp(body),
         ].join('\n'),
       );
+    }
+
+    // The test-family skill carries the resolved CLI prefix so the agent
+    // never composes the --db/--manifest boilerplate itself. Re-rendered on
+    // every launch (same as the workflow skill) so the prefix stays current.
+    if (opts.cliTestPrefix) {
+      const testSkillDir = join(opts.sessionDir, '.opencode', 'skills', 'karst-test');
+      const isNew = !existsSync(testSkillDir);
+      const wrote = writeGeneratedArtifact(
+        join(testSkillDir, 'SKILL.md'),
+        renderTestSkill(opts.cliTestPrefix),
+      );
+      if (wrote && isNew) owned.add(testSkillDir);
     }
 
     return {

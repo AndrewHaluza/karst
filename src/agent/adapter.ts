@@ -214,6 +214,14 @@ export interface MaterializeOpts {
    * at the guide (a host too old to serve it must not hand out a dead verb).
    */
   cliGuidePrefix?: string;
+  /**
+   * Shell command prefix for `karst test` subcommands, e.g.
+   * `node "<ext>/dist/cli/main.js" test --db "<db>" --manifest "<yml>"`.
+   * Embedded in the test-family skill body so the agent never composes the
+   * `--db`/`--manifest` boilerplate itself. Absent → the test skill is not
+   * injected (a host too old to serve it must not hand out a dead verb).
+   */
+  cliTestPrefix?: string;
 }
 
 /**

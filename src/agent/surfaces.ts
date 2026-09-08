@@ -93,4 +93,15 @@ export interface AdapterSurfaces {
    * forever. `unsupported` must name why the channel cannot re-read it.
    */
   readonly endpointRebind: SurfaceSupport;
+  /**
+   * Whether the core can discover and auto-invoke skills by matching their
+   * frontmatter `description` against the current task context. `supported`
+   * means the core routes to a skill when its description matches, without
+   * the agent having to remember to run it. `unsupported` means skill
+   * bodies load on demand but the core does not route to them automatically
+   * — the user or agent must invoke them explicitly. This is the compliance
+   * property that separates a skill from a guide: the harness does the
+   * routing instead of relying on agent initiative.
+   */
+  readonly skillDiscovery: SurfaceSupport;
 }
