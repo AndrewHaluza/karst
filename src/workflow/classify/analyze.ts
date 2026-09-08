@@ -75,7 +75,8 @@ export interface AnalyzeInput {
    * Ticket-analysis profile (`processes.ticketAnalysis.agent`), or the
    * author-declared `processes.ticketAnalysis.instructions` — resolved
    * host-side by `processFor`. REPLACES the built-in role/strategy block of
-   * the prompt — the input facts and the JSON output contract are never
+   * the prompt — the contract block (approach-agnostic and service-agnostic
+   * constraints), the input facts and the JSON output contract are never
    * replaced. Blank/absent → the built-in analyzer prompt.
    */
   instructions?: string;
@@ -105,38 +106,45 @@ function buildPrompt(input: AnalyzeInput): string {
   const prompt = input.prompt?.trim();
   const brief = input.brief.trim();
   // A selected single-subagent (or configured process instructions) REPLACES
-  // the built-in role/strategy block: the analysis then runs with the agent's
-  // own body as its strategy, not the generic analyzer persona. The input
-  // facts (approaches, services, author prompt, brief), the type
-  // classification and the JSON output contract below are never replaced.
+  // the built-in role/strategy block — the analysis then runs with the agent's
+  // own body as its strategy, not the generic analyzer persona. The contract
+  // block below is ALWAYS composed: it carries invariants that protect
+  // correctness beyond this call site (the prompt outlives the analysis).
   const instructionsText = input.instructions?.trim() ?? '';
-  const roleBlock =
+  const strategyBlock =
     instructionsText.length > 0
-      ? [instructionsText, ``]
+      ? [instructionsText]
       : [
           `You analyze a software ticket and produce THREE coupled decisions at once:`,
           `(1) a clear, implementation-ready prompt for the coding agent — synthesize`,
           `it from the ticket; do NOT merely copy the brief;`,
           `(2) the best-fit development approach for the scope of work;`,
           `(3) the services (repos) the work will touch.`,
-          ``,
-          `The three are decided together, but they are DELIVERED to the coding agent`,
-          `separately: the approach's own method and the selected services are already`,
-          `given to it from the ticket's stored state. The prompt outlives this`,
-          `analysis — the user may pick a different approach or different services`,
-          `afterwards, and the prompt is NOT regenerated. So the prompt must be`,
-          `approach-agnostic and service-agnostic: state WHAT to achieve and WHY`,
-          `(the problem, the goal, the constraints, the acceptance criteria).`,
-          `It must not prescribe HOW to work — no workflow, methodology, phases,`,
-          `stages, step ordering, research/plan/approve gates, or "do not implement`,
-          `until X" instructions; those come from the approach, whichever one is`,
-          `finally selected. It must not name repos, services, or paths; those come`,
-          `from the selected services. Put the approach rationale in "reason", never`,
-          `in "prompt".`,
-          ``,
         ];
+  // The contract block: always composed, never displaced by a profile override.
+  // These constraints protect correctness beyond this call site — the prompt is
+  // stored on the ticket and outlives the analysis; the user may re-pick
+  // approach and services afterwards and the prompt is NOT regenerated.
+  const contractBlock = [
+    ``,
+    `The three are decided together, but they are DELIVERED to the coding agent`,
+    `separately: the approach's own method and the selected services are already`,
+    `given to it from the ticket's stored state. The prompt outlives this`,
+    `analysis — the user may pick a different approach or different services`,
+    `afterwards, and the prompt is NOT regenerated. So the prompt must be`,
+    `approach-agnostic and service-agnostic: state WHAT to achieve and WHY`,
+    `(the problem, the goal, the constraints, the acceptance criteria).`,
+    `It must not prescribe HOW to work — no workflow, methodology, phases,`,
+    `stages, step ordering, research/plan/approve gates, or "do not implement`,
+    `until X" instructions; those come from the approach, whichever one is`,
+    `finally selected. It must not name repos, services, or paths; those come`,
+    `from the selected services. Put the approach rationale in "reason", never`,
+    `in "prompt".`,
+    ``,
+  ];
   return [
-    ...roleBlock,
+    ...strategyBlock,
+    ...contractBlock,
     `Available approaches:`,
     approachList,
     ``,

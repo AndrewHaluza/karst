@@ -263,6 +263,30 @@ describe('analyzeTicket', () => {
     expect(built).toMatch(/must not.*(repo|service)/is);
   });
 
+  // PROMPT-10: the prompt-contract floor — a profile override must not displace
+  // the contract invariants that protect correctness beyond this call site.
+  it('keeps the prompt-contract floor when instructions replace the strategy block', async () => {
+    const { adapter, prompts } = capturingAdapter(
+      '{"prompt":"p","approach":"gsd","repos":["frontend"],"reason":"r"}',
+    );
+    await analyzeTicket(adapter, {
+      brief: 'b',
+      services,
+      approaches,
+      instructions: 'You are a documentation-improver. Rewrite using the project glossary.',
+    });
+    const built = prompts[0]!;
+    // The floor: contract invariants that the strategy override cannot displace.
+    // (1) The prompt must be approach-agnostic — it outlives the analysis.
+    expect(built).toMatch(/approach-agnostic/i);
+    // (2) The prompt must be service-agnostic — no repos, services, or paths.
+    expect(built).toMatch(/must not.*(repo|service)/is);
+    // (3) WHAT/WHY, not HOW — no workflow, methodology, or phase instructions.
+    expect(built).toMatch(/must not.*(workflow|methodolog|phase)/is);
+    // (4) The JSON output contract — the agent must return structured data.
+    expect(built).toContain('Respond with ONLY a single JSON object');
+  });
+
   it('propagates an adapter rejection', async () => {
     await expect(
       analyzeTicket(rejectingAdapter(), { brief: 'b', services, approaches }),
