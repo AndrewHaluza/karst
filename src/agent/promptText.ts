@@ -61,3 +61,17 @@ export const OUTPUT_RULES_BASE: readonly string[] = [
 export const OUTPUT_RULES_UAT: readonly string[] = [
   '- A criterion you could NOT exercise is severity `info`, never `high` — name what blocked you. `high` is reserved for a criterion you exercised and observed to be unmet. Never infer that a criterion is unmet because you could not run it.',
 ];
+
+/** Review-only output rule: which severities actually FAIL the ticket. The
+ *  threshold is `review.findings.blockingSeverity` from the manifest, so the
+ *  rule is rendered from the live value rather than hardcoded — a repo that
+ *  configures `critical` must not be told `high` fails. This is a product
+ *  invariant that must ship with the extension: it cannot live in a
+ *  repo-level agent profile, which does not ship and cannot see the config. */
+export function reviewBlockingSeverityRule(blockingSeverity: string): string {
+  return (
+    `- A finding at severity \`${blockingSeverity}\` or above FAILS this ticket, so earn that severity: ` +
+    `state the input or state, and the wrong output, crash, or corrupted row that follows. ` +
+    `A finding you cannot walk to a failure is an opinion — drop it, or report it below \`${blockingSeverity}\`.`
+  );
+}
