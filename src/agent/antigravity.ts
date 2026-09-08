@@ -159,6 +159,10 @@ export class AntigravityAdapter implements AgentAdapter {
       'no hook channel to rebind — the conversation watch runs in the extension host and ' +
         'is re-established by activation itself',
     ),
+    toolActivity: unsupported(
+      'agy has no hook channel; lifecycle is READ from its conversation DB, ' +
+        'which has no PostToolUse equivalent — tool activity per turn is unobservable',
+    ),
     skillDiscovery: SUPPORTED,
   };
 

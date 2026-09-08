@@ -759,6 +759,11 @@ export class OpencodeAdapter implements AgentAdapter {
     ),
     hookChannel: SUPPORTED,
     endpointRebind: SUPPORTED,
+    toolActivity: unsupported(
+      'opencode\'s plugin emits session.created/session.idle/permission.asked/session.status ' +
+        'but no PostToolUse events; the running signal is session.status:busy/retry, ' +
+        'not a per-tool-use event, so tool activity per turn is unobservable',
+    ),
     skillDiscovery: SUPPORTED,
   };
 

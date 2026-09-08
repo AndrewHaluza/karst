@@ -24,6 +24,7 @@ import type {
   HookChannelRecorder,
   HookDispatchOutcome,
 } from '../diagnostics/hookChannel.js';
+import { setProcessRunPromptTelemetry } from '../store/processRuns.js';
 
 /**
  * Claude Code hook payload (M0/T0.2 §143): JSON with `session_id`, `cwd`
@@ -50,6 +51,12 @@ export interface HookPayload {
   usage?: unknown;
   /** Endpoint-derived launch generation; never trusted from the JSON body. */
   launchId?: string;
+  /**
+   * PROMPT-15: the tool name from a `PostToolUse` event (agent-authored,
+   * narrowed at the boundary — never the response body, which can be a
+   * megabyte). A count of tool uses per turn, not the content.
+   */
+  tool_name?: string;
 }
 
 /** Called after a mutation so views (sidebar + dashboard) can refresh (§14). */
@@ -81,7 +88,8 @@ export function parseHookPayload(raw: unknown): HookPayload | null {
     !optStr(o.cwd) ||
     !optStr(o.session_id) ||
     !optStr(o.message) ||
-    !optStr(o.notification_type)
+    !optStr(o.notification_type) ||
+    !optStr(o.tool_name)
   ) {
     return null;
   }
@@ -103,6 +111,7 @@ export function parseHookPayload(raw: unknown): HookPayload | null {
     message: o.message as string | undefined,
     notification_type: o.notification_type as string | undefined,
     ...(usage !== undefined ? { usage } : {}),
+    ...(o.tool_name !== undefined ? { tool_name: o.tool_name as string } : {}),
   };
 }
 
@@ -135,12 +144,71 @@ const WAITING_NOTIFICATION_TYPES: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * PROMPT-15: per-ticket, per-turn tool activity tracker.
+ *
+ * Counts `PostToolUse` events between `SessionStart` and `Stop`/`session.idle`
+ * for each ticket. The count at `Stop` time splits the ambiguous "Stop +
+ * markerPending" case: zero tool uses means the agent asked a question in
+ * prose (Case A — amber is correct); nonzero means the agent ran work and
+ * then stopped without firing the marker (Case B — the ticket is stalled,
+ * not waiting on the user).
+ *
+ * Also tracks the last tool name so a denied marker can be detected: if the
+ * last tool before Stop was Bash and the marker is still pending, the agent
+ * likely attempted the marker command and the sandbox blocked it.
+ *
+ * Module-scoped: one per activation, reset on SessionStart. Never persists
+ * across activations — tool activity is a turn-local fact.
+ */
+export class TurnTracker {
+  private readonly toolCounts = new Map<number, number>();
+  private readonly lastToolNames = new Map<number, string>();
+
+  /** A new turn begins — reset the counters for this ticket. */
+  reset(ticketId: number): void {
+    this.toolCounts.set(ticketId, 0);
+    this.lastToolNames.delete(ticketId);
+  }
+
+  /** Record a tool use during the current turn. */
+  recordToolUse(ticketId: number, toolName: string): void {
+    this.toolCounts.set(ticketId, (this.toolCounts.get(ticketId) ?? 0) + 1);
+    this.lastToolNames.set(ticketId, toolName);
+  }
+
+  /** The number of tool uses in the current turn. */
+  toolCount(ticketId: number): number {
+    return this.toolCounts.get(ticketId) ?? 0;
+  }
+
+  /** The name of the last tool used in the current turn. */
+  lastToolName(ticketId: number): string | undefined {
+    return this.lastToolNames.get(ticketId);
+  }
+
+  /** Whether any tool use was recorded for this ticket in the current turn. */
+  hasActivity(ticketId: number): boolean {
+    return (this.toolCounts.get(ticketId) ?? 0) > 0;
+  }
+}
+
+/**
  * Map a hook event to the ticket's next `agent_state`, or `null` for events
  * that carry no liveness signal. CRITICAL: this only ever touches `agent_state`
  * — a stage transition is NEVER inferred from a hook (the no-inference
  * guarantee, §5.4). `Stop` in particular leaves `stage_current` untouched.
+ *
+ * PROMPT-15: `Stop`/`session.idle` with a pending marker still returns
+ * `'waiting'` in both cases (the marker is still pending), but the caller
+ * records the `markerMissCase` telemetry — the split is observable via
+ * prompt_telemetry, not via agent_state, so no invariant is amended.
  */
-function nextAgentState(payload: HookPayload, markerPending: boolean): AgentState | null {
+function nextAgentState(
+  payload: HookPayload,
+  markerPending: boolean,
+  tracker?: TurnTracker,
+  ticketId?: number,
+): AgentState | null {
   switch (payload.hook_event_name) {
     case 'SessionStart':
       return 'running';
@@ -158,6 +226,13 @@ function nextAgentState(payload: HookPayload, markerPending: boolean): AgentStat
       // waiting to be answered. Blue "in progress" claimed work was happening
       // when nothing was. A stage whose marker already fired is genuinely
       // finished and stays idle.
+      //
+      // PROMPT-15: tool activity splits this into two cases that both return
+      // 'waiting' (the marker is still pending) but are recorded as distinct
+      // telemetry facts — `markerMissCase: 'question-at-stop'` (zero tool
+      // uses, Case A) vs `markerMissCase: 'no-marker-after-work'` (nonzero
+      // tool uses, Case B). The agent_state does NOT change; the split is
+      // observable via prompt_telemetry on the current process run.
       return markerPending ? 'waiting' : 'idle';
     case 'permission.asked':
       // opencode's normalized permission prompt (generated plugin) — the amber
@@ -256,6 +331,12 @@ function ingestUsageUpdate(
  * Apply a hook event to the store: resolve `cwd → ticket`, patch `agent_state`
  * only, and fan out via `notify`. Unknown worktrees and no-signal events are
  * silently ignored so a stray hook never mutates an unrelated ticket or throws.
+ *
+ * PROMPT-15: accepts an optional `TurnTracker` for tool activity tracking.
+ * When supplied, `PostToolUse` events increment the turn's tool count, and
+ * `Stop`/`session.idle` with a pending marker records the `markerMissCase`
+ * telemetry (question-at-stop vs no-marker-after-work) and denied-marker
+ * signal onto the current process run's prompt_telemetry blob.
  */
 export function dispatchHook(
   store: Store,
@@ -265,6 +346,7 @@ export function dispatchHook(
   sessionProviderFor?: SessionProviderFor,
   recorder?: HookChannelRecorder,
   debug?: (msg: string) => void,
+  tracker?: TurnTracker,
 ): void {
   // Observation only — a recorder defect may not change what a hook does.
   const observe = (outcome: HookDispatchOutcome): void => {
@@ -316,6 +398,11 @@ export function dispatchHook(
     launchIntent?.ticketId === ticketId && isKnownProvider(launchIntent.provider)
       ? launchIntent.provider
       : (sessionProviderFor?.(ticketId) ?? null);
+
+  // PROMPT-15: reset turn tool activity on SessionStart — a new turn begins.
+  if (payload.hook_event_name === 'SessionStart' && tracker) {
+    tracker.reset(ticketId);
+  }
 
   // Persist the session on its first event so resume (§5.3) has a target. Only
   // SessionStart carries the authoritative id for a fresh session; later events
@@ -376,7 +463,66 @@ export function dispatchHook(
   // Read the marker BEFORE the SessionEnd branch above has a chance to matter:
   // `SessionEnd` never claims the amber signal anyway, and every other event
   // leaves the run untouched, so one read here serves the whole dispatch.
-  const state = nextAgentState(payload, doneMarkerPending(store, ticketId));
+  const markerIsPending = doneMarkerPending(store, ticketId);
+
+  // PROMPT-15: track tool activity per turn and record marker-miss telemetry.
+  if (tracker) {
+    if (payload.hook_event_name === 'PostToolUse' && payload.tool_name) {
+      tracker.recordToolUse(ticketId, payload.tool_name);
+    }
+
+    // At Stop/session.idle with a pending marker: record the marker-miss case
+    // and denied-marker signal onto the current process run's prompt_telemetry.
+    // When tool activity is observable, the count splits Case A (question) from
+    // Case B (forgot marker). When the tracker has no activity (unsupported core
+    // or first Stop before any PostToolUse), the count is 0 and the case is
+    // 'question-at-stop' — a conservative default that the read layer can
+    // discount for cores whose toolActivity is unsupported.
+    if (
+      (payload.hook_event_name === 'Stop' || payload.hook_event_name === 'session.idle') &&
+      markerIsPending
+    ) {
+      const toolCount = tracker.toolCount(ticketId);
+      const markerMissCase = toolCount === 0 ? 'question-at-stop' : 'no-marker-after-work';
+      const lastTool = tracker.lastToolName(ticketId);
+      const deniedMarker = lastTool === 'Bash' && toolCount > 0;
+      // True when the tracker has seen at least one PostToolUse in this
+      // session — distinguishes 'unsupported core, no data' from 'supported
+      // core, genuinely zero tool uses in this turn'. The read layer uses
+      // this to discount unsupported cores' fabricated question-at-stop facts.
+      const toolActivityObserved = tracker.hasActivity(ticketId);
+
+      const runRow = store.db
+        .prepare(
+          `SELECT id FROM process_runs
+           WHERE ticket_id = ? AND status = 'running'
+             AND process_id IN ('session','fix')
+           LIMIT 1`,
+        )
+        .get(ticketId) as { id: number } | undefined;
+      if (runRow) {
+        setProcessRunPromptTelemetry(store, runRow.id, {
+          markerMissCase,
+          deniedMarker,
+          toolActivityObserved,
+        });
+        debug?.(`[marker-miss] ticket ${ticketId}: case=${markerMissCase}, denied=${deniedMarker}, tools=${toolCount}, observed=${toolActivityObserved}`);
+      }
+    }
+
+    // Reset tracker after Stop with pending marker — the next turn starts
+    // fresh. Without this, toolCount accumulates across the whole session
+    // and only the very first Stop (before any tools ran) can yield
+    // 'question-at-stop'.
+    if (
+      (payload.hook_event_name === 'Stop' || payload.hook_event_name === 'session.idle') &&
+      markerIsPending
+    ) {
+      tracker.reset(ticketId);
+    }
+  }
+
+  const state = nextAgentState(payload, markerIsPending, tracker, ticketId);
   if (state === null) {
     observe('no-signal');
     return;
