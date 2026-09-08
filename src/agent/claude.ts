@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, writeFileSync, copyFileSync, cpSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync, copyFileSync, cpSync, readFileSync, renameSync } from 'node:fs';
 import { join, dirname, isAbsolute } from 'node:path';
 import type {
   AgentAdapter,
@@ -18,6 +18,8 @@ import { writeHookSettings } from './settings.js';
 import { describeHeadlessFailure } from './cliFailure.js';
 import { spawnHeadlessCli, headlessPreview, type HeadlessSpawnOptions } from './headlessSpawn.js';
 import { sanitizeSessionName } from './sessionName.js';
+import { resolveNodeExecutable } from './nodeExecutable.js';
+import { HOOK_BRIDGE } from './codex.js';
 import { SUPPORTED, unsupported, type AdapterSurfaces } from './surfaces.js';
 import { attachUsage, extractTokenUsage } from './tokenUsage.js';
 import { claudeConsoleLine } from './consoleFormat.js';
@@ -134,10 +136,7 @@ export class ClaudeAdapter implements AgentAdapter {
     consoleStream: SUPPORTED,
     structuredOutput: SUPPORTED,
     hookChannel: SUPPORTED,
-    endpointRebind: unsupported(
-      'the channel is a --settings FILE read once by the CLI at launch, not a script ' +
-        'karst controls; a rebound port needs a relaunch (see docs/agent-cores/HOOK-CONTRACT.md)',
-    ),
+    endpointRebind: SUPPORTED,
     toolActivity: SUPPORTED,
     skillDiscovery: SUPPORTED,
   };
@@ -153,11 +152,27 @@ export class ClaudeAdapter implements AgentAdapter {
   buildInteractiveCommand(opts: InteractiveCommandOpts): InteractiveCommand {
     const args: string[] = [];
     if (opts.hookChannel) {
+      // Write the shared hook bridge to the claude provider dir so lifecycle
+      // events are routed through it (PROMPT-16). The bridge re-reads
+      // `current-endpoint` when the launch-time URL dies, logs failures to
+      // `hook-failures.jsonl`, and carries the generation onto every candidate.
+      const bridgeDir = join(opts.hookChannel.configDir, 'claude');
+      mkdirSync(bridgeDir, { recursive: true });
+      const bridgePath = join(bridgeDir, 'bridge.cjs');
+      const current = existsSync(bridgePath)
+        ? readFileSync(bridgePath, 'utf8')
+        : null;
+      if (current !== HOOK_BRIDGE) {
+        const temporaryPath = `${bridgePath}.${process.pid}.${Date.now()}.tmp`;
+        writeFileSync(temporaryPath, HOOK_BRIDGE);
+        renameSync(temporaryPath, bridgePath);
+      }
       args.push(
         '--settings',
         writeHookSettings(
           opts.hookChannel.endpointUrl,
           opts.hookChannel.configDir,
+          'claude',
         ),
       );
     }

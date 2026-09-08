@@ -27,14 +27,40 @@ name is agent-authored input.
 
 | | claude | codex | opencode | antigravity (agy) |
 |---|---|---|---|---|
-| channel | `--settings` file (`settings.ts`) | generated `bridge.cjs` | generated `.opencode/plugins/karst-bridge.js` | **none** — conversation-DB watch |
-| SessionStart | `type:command` curl bridge | native | `session.created` | synthesized per conversation |
+| channel | `--settings` file with shared bridge (`settings.ts`) | generated `bridge.cjs` | generated `.opencode/plugins/karst-bridge.js` | **none** — conversation-DB watch |
+| SessionStart | bridge (replaces old `type:command` curl) | native | `session.created` | synthesized per conversation |
 | permission asked | `Notification` | `Notification: permission_prompt` | `permission.asked` / `question.asked` (+ v2) | `steps.status = 9` |
 | ask resolved | `UserPromptSubmit` | `UserPromptSubmit` | `permission.replied` / `question.replied` | status 9 clearing |
-| running | `PostToolUse` | `PostToolUse` | `session.status: busy\|retry` | — |
+| running | `PostToolUse` (type:http) | `PostToolUse` | `session.status: busy\|retry` | — |
 | end | `Stop` / `SessionEnd` | `Stop` / `SessionEnd` | `session.idle` + terminal close | terminal close |
 | usage | session transcript (`claudeTranscriptWatch.ts`) | bridge `UsageUpdate` | bridge `UsageUpdate` | conversation DB (`agyUsageWatch.ts`) |
-| endpoint rebind after reload | ✗ (declared) | ✓ | ✓ | n/a (no channel) |
+| endpoint rebind after reload | ✓ (bridge re-reads `current-endpoint`) | ✓ | ✓ | n/a (no channel) |
+| hook failure logging | ✓ (`claude/hook-failures.jsonl`) | ✓ (`codex/hook-failures.jsonl`) | ✓ (`opencode/hook-failures.jsonl`) | n/a |
+
+### The SPLIT decision (PROMPT-16 measured)
+
+Not every claude event is bridged. The node bridge costs ~21 ms per invocation
+(~16 ms Node startup + ~4 ms logic); bridging a high-frequency event would add
+significant blocking time for a low-value signal. The split:
+
+| event | per session (typ.) | bridged cost | delivery |
+|---|---|---|---|
+| `Stop` | 1 per turn | ~21 ms/turn | **bridge** |
+| `UserPromptSubmit` | 1 per turn | ~21 ms/turn | **bridge** |
+| `SessionEnd` | 1 | ~21 ms | **bridge** |
+| `Notification` | occasional | ~21 ms | **bridge** |
+| `SessionStart` | 1 | ~21 ms | **bridge** (replaces 5 ms curl) |
+| `PostToolUse` | 1 per tool call | ~21 ms × every call | **type:http** (non-blocking) |
+
+Bridging `PostToolUse` would cost ~6 seconds per session (300 tool calls × 21 ms)
+for the least valuable signal — a liveness ping. A dropped `PostToolUse` costs
+nothing; the next event re-establishes state. Lifecycle events are where a
+stranded session actually costs something, and they are the low-frequency ones.
+
+**Consequence**: `PostToolUse` still cannot rebind and its failures still cannot
+be logged on claude. Coverage is partial **by decision, with the number
+attached** — not an oversight. This table IS the contract doc for which events
+rebind and which do not.
 
 A core that cannot deliver a signal **natively** may satisfy the contract by WATCHING its
 own state — agy proves this is a first-class option, not a degraded one. What is never
