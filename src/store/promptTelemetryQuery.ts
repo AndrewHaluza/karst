@@ -48,9 +48,11 @@ export interface SeedSizeChars {
 
 /** How deep the fix loop ran (the fix brief's effectiveness). */
 export interface FixLoopDepth {
-  /** Tickets that entered `fix` at least once. */
+  /** Tickets that entered the fix loop at least once (had a recovery round). */
   tickets: number;
+  /** Average of per-ticket max recovery round; NULL when no ticket entered the loop. */
   avg: number | null;
+  /** Global max recovery round across all tickets. */
   max: number | null;
 }
 
@@ -248,22 +250,26 @@ function queryWrongCheckout(store: Store, projectId: number | null): { observati
 }
 
 function queryFixLoopDepth(store: Store, projectId: number | null): FixLoopDepth {
-  const s = scope(projectId, 'st');
+  // Redefined over recovery_rounds (v30): the old `stages.attempt` on `fix` is
+  // always 0 by design (the machine bumps the stage that FAILED, and fix is only
+  // ever passed through). The `round` column in `recovery_rounds` is the
+  // per-ticket, per-source-stage, per-episode ordinal that tracks how deep the
+  // fix loop ran — the causal signal the metric was meant to capture.
+  const s = scope(projectId, 'rr');
   const rows = store.db
     .prepare(
-      `SELECT st.ticket_id AS ticket_id, MAX(st.attempt) AS a
-         FROM stages st ${s.join}
-        WHERE st.stage_key = 'fix' ${s.clause}
-        GROUP BY st.ticket_id`,
+      `SELECT rr.ticket_id AS ticket_id, MAX(rr.round) AS max_round
+         FROM recovery_rounds rr ${s.join}
+        GROUP BY rr.ticket_id`,
     )
-    .all(...s.params) as { ticket_id: number; a: number }[];
+    .all(...s.params) as { ticket_id: number; max_round: number }[];
   if (rows.length === 0) return { tickets: 0, avg: null, max: null };
-  const attempts = rows.map((r) => r.a);
-  const sum = attempts.reduce((x, y) => x + y, 0);
+  const rounds = rows.map((r) => r.max_round);
+  const sum = rounds.reduce((x, y) => x + y, 0);
   return {
     tickets: rows.length,
-    avg: Math.round((sum / attempts.length) * 100) / 100,
-    max: Math.max(...attempts),
+    avg: Math.round((sum / rounds.length) * 100) / 100,
+    max: Math.max(...rounds),
   };
 }
 
