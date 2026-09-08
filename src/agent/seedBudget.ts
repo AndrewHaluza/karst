@@ -48,6 +48,17 @@ export function approachTruncationPointer(): string {
 }
 
 /**
+ * Truncation pointer for text bounded without a ticket key in hand. The
+ * default pointer names `karst context <key>`; with no key it renders
+ * `karst context ` — a command that runs and shows nothing, which
+ * `approachTruncationPointer` already records as worse than no pointer at
+ * all. This states the truncation and names no command.
+ */
+export function keylessTruncationPointer(): string {
+  return ' ... truncated -- the full text is in this ticket\'s description.';
+}
+
+/**
  * Cut `text` to `maxChars` characters of original content and append the
  * stated pointer when it overflows; returns it unchanged otherwise. The cap
  * bounds the SOURCE text, not the final string (the pointer is additional).

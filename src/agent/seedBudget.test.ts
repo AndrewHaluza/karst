@@ -3,6 +3,7 @@ import {
   truncateToBudget,
   truncationPointer,
   approachTruncationPointer,
+  keylessTruncationPointer,
   SEED_BUDGETS,
 } from './seedBudget.js';
 
@@ -37,6 +38,14 @@ describe('truncateToBudget', () => {
     const result = truncateToBudget(text, 10, 'PROJ-1', override);
     expect(result.truncated).toBe(true);
     expect(result.text).toBe('x'.repeat(10) + override);
+    expect(result.text).not.toContain('karst context');
+  });
+
+  it('states truncation without naming a command when there is no ticket key', () => {
+    const text = 'x'.repeat(20);
+    const result = truncateToBudget(text, 10, '', keylessTruncationPointer());
+    expect(result.truncated).toBe(true);
+    expect(result.text).toBe('x'.repeat(10) + keylessTruncationPointer());
     expect(result.text).not.toContain('karst context');
   });
 

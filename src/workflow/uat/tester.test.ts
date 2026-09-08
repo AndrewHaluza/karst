@@ -1063,6 +1063,15 @@ describe('buildTesterPrompt', () => {
     expect(prompt).not.toContain('truncated --');
   });
 
+  it('never points at a karst context command it cannot name when the ticket key is missing', () => {
+    const overCap = 'c'.repeat(9_000);
+    const prompt = buildTesterPrompt(TARGETS[0]!, undefined, undefined, undefined, {
+      criteria: overCap,
+    });
+    expect(prompt).toContain('truncated');
+    expect(prompt).not.toContain('karst context ');
+  });
+
   it('names one command for pulling the rest of the ticket context, and only that command is permitted past the recon ban', () => {
     const prompt = buildTesterPrompt(TARGETS[0]!, undefined, undefined, undefined, {
       ticketKey: 'PROMPT-17',
