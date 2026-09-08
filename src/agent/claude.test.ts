@@ -788,8 +788,9 @@ describe('ClaudeAdapter.runHeadless', () => {
     const adapter = new ClaudeAdapter(spawn);
     await adapter.runHeadless({ prompt: 'go', cwd: '/wt/a' });
     expect(seen.args).toContain('--strict-mcp-config');
-    expect(seen.args).toContain('--mcp-config');
-    expect(seen.args[seen.args.indexOf('--mcp-config') + 1]).toBe('{}');
+    // `--mcp-config '{}'` is rejected by the CLI ("Invalid MCP configuration:
+    // mcpServers: Invalid input"), so the isolation flag must travel alone.
+    expect(seen.args).not.toContain('--mcp-config');
   });
 
   // SHIP-ADOPT-PR-WHEN-PUSH-NEVER §2: the reviewer prompt's leading `---` YAML

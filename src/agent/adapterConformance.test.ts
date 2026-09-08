@@ -149,6 +149,21 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
     antigravity: null,
   };
 
+  /**
+   * Arguments a core's CLI REJECTS, per provider. A presence-only assertion
+   * cannot catch an extra argument: claude's `--strict-mcp-config` shipped
+   * paired with `--mcp-config '{}'`, whose value fails the CLI's schema
+   * ("Invalid MCP configuration: mcpServers: Invalid input"), so every
+   * headless run exited before doing work while conformance stayed green.
+   * Exhaustive over AgentProvider — a fifth core is a compile error.
+   */
+  const FORBIDDEN_HEADLESS_ARGS: Record<AgentProvider, readonly string[]> = {
+    claude: ['--mcp-config'],
+    codex: [],
+    opencode: [],
+    antigravity: [],
+  };
+
   it('isolates a headless run from the operator\'s personal MCP/plugin config when declared supported', async () => {
     const surfaces = surfacesOf(provider);
     const adapter = resolveAdapter(provider);
@@ -161,6 +176,23 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
       expect(args, `${provider} headless argv`).toContain(flag);
     } else {
       expect(flag, `${provider} declared unsupported must map to null`).toBeNull();
+    }
+  });
+
+  it('never passes an argument the core\'s CLI rejects', async () => {
+    const adapter = resolveAdapter(provider);
+    const calls = withRecordedSpawn(adapter, { stdout: OK_STDOUT[provider], exitCode: 0 });
+    await adapter.runHeadless({
+      ...baseOpts(),
+      resume: 'ses_prev',
+      effort: 'high',
+      outputSchema: { type: 'array', items: { type: 'object' } },
+    });
+    const args = calls[0]!.args;
+    for (const forbidden of FORBIDDEN_HEADLESS_ARGS[provider]) {
+      expect(args, `${provider} headless argv must not contain ${forbidden}`).not.toContain(
+        forbidden,
+      );
     }
   });
 
