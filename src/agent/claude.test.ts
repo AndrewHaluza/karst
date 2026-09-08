@@ -4,7 +4,7 @@ import { EventEmitter } from 'node:events';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { ClaudeAdapter, makeDefaultSpawn, type SpawnHeadless, type SpawnImpl } from './claude.js';
-import { HOOK_BRIDGE } from './codex.js';
+import { HOOK_BRIDGE } from './hookBridge.js';
 
 /** A fake headless spawner returning canned stdout/exit for runHeadless tests. */
 function fakeSpawn(result: { stdout: string; exitCode: number; stderr?: string }): SpawnHeadless {

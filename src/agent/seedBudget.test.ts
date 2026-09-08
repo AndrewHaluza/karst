@@ -63,6 +63,33 @@ describe('truncateToBudget', () => {
     expect(pointer).toContain('approach method is longer than fits here');
   });
 
+  it('closes an unterminated code fence when the cut lands inside one', () => {
+    const text = 'line1\n```\ncode block content\nmore code\nrest of text after fence\n```\n';
+    const maxChars = text.indexOf('more code') + 5; // cut mid-fence
+    const result = truncateToBudget(text, maxChars, 'PROJ-1');
+    expect(result.truncated).toBe(true);
+    // The sliced text has an odd number of fences (1 opening, 0 closing).
+    // closeOpenFence appends a closing fence before the pointer.
+    // The result ends with: ...more \n```\n ... truncated ...
+    expect(result.text).toContain('\n```\n');
+    expect(result.text).toContain(truncationPointer('PROJ-1'));
+    // Pointer is outside the fence.
+    const pointerIdx = result.text.indexOf(truncationPointer('PROJ-1'));
+    const lastFenceIdx = result.text.lastIndexOf('```', pointerIdx - 1);
+    expect(lastFenceIdx).toBeLessThan(pointerIdx);
+  });
+
+  it('does not append a fence when the cut lands outside any fence', () => {
+    const text = 'line1\n```\ncode\n```\nline after fence\nmore text here\n';
+    const maxChars = text.indexOf('line after fence') + 5;
+    const result = truncateToBudget(text, maxChars, 'PROJ-1');
+    expect(result.truncated).toBe(true);
+    // Even number of fences in the slice — no fence appended.
+    const fences = result.text.split('```').length - 1;
+    expect(fences % 2).toBe(0);
+    expect(result.text).toContain(truncationPointer('PROJ-1'));
+  });
+
   it('exposes the derived per-section budgets', () => {
     expect(SEED_BUDGETS).toEqual({
       ticketPrompt: 4000,

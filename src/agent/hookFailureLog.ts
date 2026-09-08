@@ -34,7 +34,7 @@ export type BridgeProvider = (typeof BRIDGE_PROVIDERS)[number];
 /**
  * The bridge stops appending once the file reaches this size — a hook that fails
  * on every tool call must not grow without bound. Mirrored in the bridge source
- * (`CODEX_HOOK_BRIDGE`) because that script cannot import anything.
+ * (`HOOK_BRIDGE`) because that script cannot import anything.
  */
 export const HOOK_FAILURE_LOG_MAX_BYTES = 64 * 1024;
 

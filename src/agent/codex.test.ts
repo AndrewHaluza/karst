@@ -17,9 +17,9 @@ import { dirname, join } from 'node:path';
 import {
   CodexAdapter,
   parseCodexJsonl,
-  resolveNodeExecutable,
   type SpawnHeadless,
 } from './codex.js';
+import { resolveNodeExecutable } from './nodeExecutable.js';
 import { writeCurrentEndpoint, readCurrentEndpoint, currentEndpointPath } from './hookFailureLog.js';
 
 const okJsonl = [

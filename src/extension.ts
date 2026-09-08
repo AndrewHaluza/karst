@@ -1915,6 +1915,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // manifest getter (currentManifest) reflects the saved signals — the gate
       // clears and the repo row shows them on the next pushState.
       reloadManifest,
+      warn: (msg: string) => logger.warn(msg),
       listInstalledIds: listInstalledApproachIds,
       openUrl: (url: string) => void vscode.env.openExternal(vscode.Uri.parse(url)),
       storageDir: context.globalStorageUri.fsPath,
