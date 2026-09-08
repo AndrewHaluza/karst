@@ -388,13 +388,12 @@ export class ClaudeAdapter implements AgentAdapter {
     // Every headless call is ticket-driven automation, never an interactive
     // developer session: it must not depend on whatever MCP servers or
     // plugins happen to be enabled on the machine that launched it.
-    // `--strict-mcp-config` with no `--mcp-config` means zero MCP servers for
-    // this run only (869ekt1 — a locally-installed plugin's malformed tool
-    // schema made the API reject the whole tool list on every UAT Tester
-    // call). Unconditional, like opencode's `--pure` below in this file's
-    // sibling adapter — never threaded through an opts field, because no
+    // `--strict-mcp-config --mcp-config '{}'` is the documented way to run
+    // with zero MCP servers (869ekt1 — a locally-installed plugin's malformed
+    // tool schema made the API reject the whole tool list on every UAT Tester
+    // call). Unconditional — never threaded through an opts field, because no
     // headless caller should ever want this omitted.
-    const args = ['-p', '--output-format', 'json', '--strict-mcp-config'];
+    const args = ['-p', '--output-format', 'json', '--strict-mcp-config', '--mcp-config', '{}'];
     if (opts.resume) args.push('--resume', opts.resume);
     // A resolved launch model must pin the run: without `--model` the CLI falls
     // back to its own default (settings.json `"model"`, or the alias), which was
