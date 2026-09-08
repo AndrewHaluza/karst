@@ -62,6 +62,7 @@ describe('truncateToBudget', () => {
       brief: 3000,
       attachments: 1500,
       approachMethod: 8000,
+      testerCriteria: 8_000,
     });
   });
 });
