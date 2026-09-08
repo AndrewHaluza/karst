@@ -472,6 +472,12 @@ export interface ReviewConfig {
    * whenever the host wired `openDiff`, so a review could surface a stack of
    * panels the user never asked for. The host ALWAYS wires `openDiff`; this
    * flag is the user's control over whether anything opens at all.
+   *
+   * This flag does NOT control whether the findings lane reviews uncommitted
+   * work: the lane ALWAYS reviews a worktree snapshot (committed + uncommitted
+   * as one tree) when a git runner is available, so work left uncommitted until
+   * ship is in scope regardless of this setting. Its influence on the diff
+   * range ended; only the diff-view behavior (above) remains.
    */
   openChanges: boolean;
   gates?: GateDef[];

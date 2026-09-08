@@ -7,6 +7,13 @@
  * an AI call, and everything about that call — the prompt, the adapter
  * boundary, the failure handling — lives here so both of the other two stay
  * exactly what their doc comments already claim to be.
+ *
+ * The lane ALWAYS reviews a worktree snapshot when a git runner is available
+ * (`createReviewSnapshot`, `workflow/reviewSnapshot.ts`) — committed and
+ * uncommitted work as one tree — matching the UAT Tester. A ticket whose impl
+ * finishes uncommitted (ship owns committing) is therefore never reviewed as
+ * empty. `review.openChanges` no longer gates the snapshot; its surviving
+ * meaning is whether the stage opens the diff view (`stages/review.ts`).
  */
 
 import type { Store } from '../../store/db.js';
@@ -137,16 +144,20 @@ export interface RunFindingsLaneOpts {
    */
   debug?: (message: string) => void;
   /**
-   * Whether the agent should also read uncommitted working-tree changes
-   * (`review.openChanges`, default OFF). Threaded into `buildFindingsPrompt`
-   * so the prompt's instructions agree with the configured behavior — the
-   * three-way contradiction that caused review non-convergence (Issue #2).
+   * Selects the prompt's changes wording ON THE FALLBACK PATH ONLY — when no
+   * snapshot could be made, the lane falls back to the branch-based range and
+   * `openChanges` (manifest's `review.openChanges`, default OFF) decides whether
+   * that prompt says committed-only (OFF) or "uncommitted and committed" (ON).
+   * When a snapshot IS present the range already includes uncommitted work, so
+   * `openChanges` stops affecting the diff range entirely. Its surviving meaning
+   * is the stage's diff-view behavior in `stages/review.ts`.
    */
   openChanges?: boolean;
   /**
-   * Injected git runner for snapshot creation when `openChanges` is on
-   * (`workflow/reviewSnapshot.ts`). Absent → no snapshot, falls back to
-   * today's branch range + "plus any uncommitted work" prose.
+   * Injected git runner for snapshot creation (`workflow/reviewSnapshot.ts`).
+   * When present the lane ALWAYS attempts a worktree snapshot, regardless of
+   * `openChanges`; `createReviewSnapshot` returns `null` on failure and the lane
+   * falls back to the branch range. Absent → no snapshot, branch range always.
    */
   git?: GitRunner;
 }
@@ -163,6 +174,11 @@ export interface RunFindingsLaneOpts {
  * the ticket over a commit that was never part of its diff. `instructions`
  * (optional) replaces the review strategy lines with the author's own — the
  * target context and the strict output rules always remain.
+ *
+ * The changes phrase is selected by `snapshotRef` FIRST: with a snapshot the
+ * range already includes uncommitted and untracked work, so the phrase describes
+ * the snapshot range (never committed-only). Only without a snapshot does
+ * `openChanges` choose the wording.
  */
 export function buildFindingsPrompt(
   repo: string,
@@ -178,16 +194,19 @@ export function buildFindingsPrompt(
   const baseClause = baseRef
     ? `against its base branch, \`${baseRef}\` (compare against \`origin/${baseRef}\` when available, otherwise the local \`${baseRef}\`).`
     : `against its base branch.`;
-  // `openChanges` (default OFF) controls whether the agent reads uncommitted
-  // work. When OFF, the agent reviews committed changes ONLY — the three-way
-  // contradiction that caused review non-convergence (Issue #2) was one prompt
-  // saying "uncommitted and committed", another saying "read that diff" over a
-  // committed-only range, and a third saying "never output [] because a diff
-  // came back empty". Two reviewers obeyed different instructions; both were
-  // compliant. Now all three lines agree: OFF → committed only.
-  const changesPhrase = openChanges
-    ? 'uncommitted and committed changes'
-    : 'committed changes (the diff against the base branch — do NOT review uncommitted working-tree changes)';
+  // The changes phrase must AGREE with the scope block rendered directly
+  // below it — a contradiction between two lines of one prompt is precisely the
+  // non-convergence bug (Issue #2) the current wording was written to fix.
+  // With a snapshot present, the range already includes uncommitted work, so the
+  // phrase describes the snapshot range (committed and uncommitted as one tree)
+  // — never the committed-only sentence, which would contradict the scope block.
+  // Without a snapshot, `openChanges` (default OFF) selects the wording: OFF →
+  // committed only, ON → uncommitted and committed.
+  const changesPhrase = snapshotRef
+    ? 'the changes as captured in the review snapshot — uncommitted AND committed work together'
+    : openChanges
+      ? 'uncommitted and committed changes'
+      : 'committed changes (the diff against the base branch — do NOT review uncommitted working-tree changes)';
   // User instructions REPLACE the role/scope block; the target context line
   // and the output rules below are never replaced.
   const instructionsText = instructions?.trim() ?? '';
@@ -308,15 +327,14 @@ export async function runFindingsLane(opts: RunFindingsLaneOpts): Promise<Findin
       );
       opts.onTargetProgress?.({ repo: target.repo, status: 'active' });
       try {
-        const snapshotRef =
-          opts.openChanges && opts.git
-            ? await createReviewSnapshot(opts.git, {
-                ticketId: opts.ticketId,
-                repoPath: target.repo,
-                worktreePath: target.worktreePath,
-                debug: opts.debug,
-              })
-            : null;
+        const snapshotRef = opts.git
+          ? await createReviewSnapshot(opts.git, {
+              ticketId: opts.ticketId,
+              repoPath: target.repo,
+              worktreePath: target.worktreePath,
+              debug: opts.debug,
+            })
+          : null;
         if (snapshotRef !== null) {
           snapshotted.push({ repo: target.repo, worktreePath: target.worktreePath });
         }
@@ -432,7 +450,7 @@ export async function runFindingsLane(opts: RunFindingsLaneOpts): Promise<Findin
     }
     return ran;
   } finally {
-    if (opts.openChanges && opts.git) {
+    if (opts.git) {
       for (const s of snapshotted) {
         await deleteReviewSnapshot(opts.git, {
           ticketId: opts.ticketId,
@@ -473,7 +491,7 @@ export interface PlanAndRunFindingsLaneOpts {
   }) => void;
   /** Verbose decision-point logging (§ debug logging) — threaded into the lane it runs. */
   debug?: (message: string) => void;
-  /** Whether the agent reads uncommitted changes — see `RunFindingsLaneOpts.openChanges`. */
+  /** Fallback-path wording selector when no snapshot could be made — see `RunFindingsLaneOpts.openChanges`. It does NOT gate snapshot creation. */
   openChanges?: boolean;
 }
 

@@ -583,8 +583,10 @@ export async function runReview(
     // a host restart discard a whole run with nothing recorded anywhere.
     persistFindings: (findings, processRunId) =>
       evidence.appendFindings(findings, processRunId),
-    // Issue #2: thread `review.openChanges` so the findings prompt agrees with
-    // the configured behavior — OFF (default) → committed changes only.
+    // The lane always snapshots the worktree when `git` is present, so
+    // `review.openChanges` no longer gates the diff range; it now only selects
+    // the prompt's fallback wording (no snapshot) and the diff-view behavior
+    // above. Threaded through so the fallback path stays correct.
     openChanges: opts.manifest?.review?.openChanges,
     git,
   });
