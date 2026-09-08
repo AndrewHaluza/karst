@@ -4,6 +4,7 @@ import { EventEmitter } from 'node:events';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { ClaudeAdapter, makeDefaultSpawn, type SpawnHeadless, type SpawnImpl } from './claude.js';
+import { HOOK_BRIDGE } from './codex.js';
 
 /** A fake headless spawner returning canned stdout/exit for runHeadless tests. */
 function fakeSpawn(result: { stdout: string; exitCode: number; stderr?: string }): SpawnHeadless {
@@ -107,6 +108,80 @@ describe('ClaudeAdapter.buildInteractiveCommand', () => {
       expect(args[args.indexOf('--settings') + 1]).toBe(
         join(dir, 'karst-hooks.4567.settings.json'),
       );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('writes the shared bridge script to configDir/claude/bridge.cjs', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-claude-hooks-'));
+    try {
+      adapter.buildInteractiveCommand({
+        cwd: '/wt/a',
+        hookChannel: {
+          endpointUrl: 'http://127.0.0.1:4567/hooks',
+          configDir: dir,
+        },
+      });
+      const bridgePath = join(dir, 'claude', 'bridge.cjs');
+      expect(existsSync(bridgePath)).toBe(true);
+      expect(readFileSync(bridgePath, 'utf8')).toBe(HOOK_BRIDGE);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('does not replace the shared bridge when content is identical', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-claude-hooks-'));
+    try {
+      adapter.buildInteractiveCommand({
+        cwd: '/wt/a',
+        hookChannel: {
+          endpointUrl: 'http://127.0.0.1:4567/hooks',
+          configDir: dir,
+        },
+      });
+      const bridgePath = join(dir, 'claude', 'bridge.cjs');
+      const stat = require('node:fs').statSync(bridgePath);
+      const old = new Date('2020-01-01T00:00:00Z');
+      require('node:fs').utimesSync(bridgePath, old, old);
+
+      adapter.buildInteractiveCommand({
+        cwd: '/wt/a',
+        hookChannel: {
+          endpointUrl: 'http://127.0.0.1:4567/hooks',
+          configDir: dir,
+        },
+      });
+
+      expect(require('node:fs').statSync(bridgePath).mtimeMs).toBe(old.getTime());
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('emits bridge commands for lifecycle events in the settings JSON', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-claude-hooks-'));
+    try {
+      adapter.buildInteractiveCommand({
+        cwd: '/wt/a',
+        hookChannel: {
+          endpointUrl: 'http://127.0.0.1:4567/hooks',
+          configDir: dir,
+        },
+      });
+      const settingsPath = join(dir, 'karst-hooks.4567.settings.json');
+      const settings = JSON.parse(readFileSync(settingsPath, 'utf8'));
+      // Lifecycle events should be bridged (type:command, not type:http)
+      for (const event of ['Stop', 'Notification', 'SessionEnd', 'UserPromptSubmit', 'SessionStart']) {
+        const hook = settings.hooks[event][0].hooks[0];
+        expect(hook.type, `${event} type`).toBe('command');
+        expect(hook.command, `${event} command`).toContain('bridge.cjs');
+      }
+      // PostToolUse stays type:http
+      const postHook = settings.hooks.PostToolUse[0].hooks[0];
+      expect(postHook.type).toBe('http');
+      expect(postHook.url).toBe('http://127.0.0.1:4567/hooks');
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

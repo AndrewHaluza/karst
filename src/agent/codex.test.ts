@@ -75,9 +75,10 @@ function runBridge(
   endpointUrl: string | undefined,
   diagnosticsPath: string,
   input: string,
+  provider?: string,
 ): Promise<{ exitCode: number; stderr: string }> {
   return new Promise((resolve, reject) => {
-    const args = [bridgePath, endpointUrl ?? '', diagnosticsPath];
+    const args = [bridgePath, endpointUrl ?? '', diagnosticsPath, provider ?? 'codex'];
     const child = spawn(resolveNodeExecutable(), args, {
       stdio: ['pipe', 'ignore', 'pipe'],
     });
@@ -1023,6 +1024,121 @@ describe('hookFailureLog endpoint file', () => {
     mkdirSync(join(configDir, 'codex'), { recursive: true });
     writeFileSync(join(configDir, 'codex', 'current-endpoint'), '');
     expect(readCurrentEndpoint(configDir)).toBeUndefined();
+  });
+
+  it('writes current-endpoint for every BRIDGE_PROVIDERS entry (codex, opencode, claude)', () => {
+    const configDir = makeWorktree();
+    writeCurrentEndpoint(configDir, 'http://127.0.0.1:5051/hooks');
+    for (const provider of ['codex', 'opencode', 'claude'] as const) {
+      const target = currentEndpointPath(configDir, provider);
+      expect(existsSync(target), `${provider} endpoint file`).toBe(true);
+      expect(readFileSync(target, 'utf8')).toBe('http://127.0.0.1:5051/hooks');
+      expect(readCurrentEndpoint(configDir, provider)).toBe('http://127.0.0.1:5051/hooks');
+    }
+  });
+});
+
+describe('parameterized bridge provider', () => {
+  it('reads current-endpoint from configDir/<provider> when provider argv is given', async () => {
+    const configDir = makeWorktree();
+    const bridgePath = materializeBridge(configDir);
+    const diagnosticsPath = join(configDir, 'claude', 'hook-failures.jsonl');
+    const receiver = await receiveOneHook();
+
+    // Write the current endpoint to the claude provider dir (not codex).
+    mkdirSync(join(configDir, 'claude'), { recursive: true });
+    writeFileSync(join(configDir, 'claude', 'current-endpoint'), receiver.endpointUrl, { mode: 0o600 });
+
+    try {
+      const [result, body] = await Promise.all([
+        runBridge(
+          bridgePath,
+          'http://127.0.0.1:1/hooks', // stale argv endpoint — refused
+          diagnosticsPath,
+          JSON.stringify({
+            hook_event_name: 'Stop',
+            session_id: 'thread-1',
+            cwd: '/wt',
+          }),
+          'claude', // provider argv
+        ),
+        receiver.received,
+      ]);
+
+      expect(result).toEqual({ exitCode: 0, stderr: '' });
+      expect(body).toEqual({
+        hook_event_name: 'Stop',
+        cwd: '/wt',
+        session_id: 'thread-1',
+      });
+    } finally {
+      await receiver.close();
+    }
+  });
+
+  it('rejects a non-loopback fallback URL read from the provider endpoint file', async () => {
+    const configDir = makeWorktree();
+    const bridgePath = materializeBridge(configDir);
+    const diagnosticsPath = join(configDir, 'claude', 'hook-failures.jsonl');
+
+    mkdirSync(join(configDir, 'claude'), { recursive: true });
+    writeFileSync(
+      join(configDir, 'claude', 'current-endpoint'),
+      'http://evil.com/hooks',
+      { mode: 0o600 },
+    );
+
+    const result = await runBridge(
+      bridgePath,
+      'http://127.0.0.1:1/hooks',
+      diagnosticsPath,
+      JSON.stringify({
+        hook_event_name: 'Stop',
+        session_id: 'thread-1',
+        cwd: '/wt',
+      }),
+      'claude',
+    );
+
+    // The non-loopback URL is rejected; no valid fallback → request-error logged.
+    // Bridge exits 0 (documented: exit 0 means "ran", not "delivered").
+    expect(result.exitCode).toBe(0);
+    expect(existsSync(diagnosticsPath)).toBe(true);
+    expect(readFileSync(diagnosticsPath, 'utf8')).toContain('request-error');
+  });
+
+  it('forwards claude Notification events (permission/idle) through the bridge', async () => {
+    const configDir = makeWorktree();
+    const bridgePath = materializeBridge(configDir);
+    const diagnosticsPath = join(configDir, 'codex', 'hook-failures.jsonl');
+    const receiver = await receiveOneHook();
+
+    try {
+      const [result, body] = await Promise.all([
+        runBridge(
+          bridgePath,
+          receiver.endpointUrl,
+          diagnosticsPath,
+          JSON.stringify({
+            hook_event_name: 'Notification',
+            session_id: 'thread-1',
+            cwd: '/wt',
+            message: 'permission_prompt',
+          }),
+        ),
+        receiver.received,
+      ]);
+
+      expect(result).toEqual({ exitCode: 0, stderr: '' });
+      expect(body).toEqual({
+        hook_event_name: 'Notification',
+        cwd: '/wt',
+        session_id: 'thread-1',
+        message: 'permission_prompt',
+      });
+    } finally {
+      await receiver.close();
+    }
   });
 });
 

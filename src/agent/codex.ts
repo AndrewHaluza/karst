@@ -1,7 +1,5 @@
 import { spawn } from 'node:child_process';
 import {
-  accessSync,
-  constants,
   cpSync,
   existsSync,
   mkdirSync,
@@ -36,8 +34,11 @@ import { describeHeadlessFailure } from './cliFailure.js';
 import { renderConsoleStream } from './consoleFormat.js';
 import { spawnHeadlessCli, headlessPreview, type HeadlessSpawnOptions } from './headlessSpawn.js';
 import { hookFailureLogPath } from './hookFailureLog.js';
+import { resolveNodeExecutable } from './nodeExecutable.js';
 import { SUPPORTED, unsupported, type AdapterSurfaces } from './surfaces.js';
 import { attachUsage, extractTokenUsage } from './tokenUsage.js';
+
+export { resolveNodeExecutable } from './nodeExecutable.js';
 
 const CODEX_BIN = 'codex';
 const MAX_DIAGNOSTIC_CHARS = 8_000;
@@ -50,36 +51,29 @@ const CODEX_HOOK_EVENTS = [
   'SessionEnd',
 ] as const;
 
-export function resolveNodeExecutable(
-  pathValue = process.env.PATH ?? '',
-  platform: NodeJS.Platform = process.platform,
-): string {
-  const separator = platform === 'win32' ? ';' : ':';
-  const executable = platform === 'win32' ? 'node.exe' : 'node';
-  for (const directory of pathValue.split(separator)) {
-    if (!directory) continue;
-    const candidate = join(directory, executable);
-    if (!existsSync(candidate)) continue;
-    if (platform !== 'win32') {
-      try {
-        accessSync(candidate, constants.X_OK);
-      } catch {
-        continue;
-      }
-    }
-    return candidate;
-  }
-  throw new Error(
-    'karst: Codex hooks require a standalone Node.js executable on PATH',
-  );
-}
-
-const CODEX_HOOK_BRIDGE = String.raw`const fs = require('node:fs');
+/**
+ * The shared hook bridge script source. A standalone `.cjs` that:
+ *  - Reads argv[2] (launch-time URL) and argv[3] (diagnostics/failure-log path)
+ *  - Falls back to `<configDir>/<argv[4] || 'codex'>/current-endpoint` when
+ *    the launch URL dies (VS Code reload rebinds the ephemeral hook port)
+ *  - Re-validates every fallback candidate against loopback (hook payloads
+ *    carry session ids and worktree paths)
+ *  - Carries the launch generation onto every candidate so the endpoint's
+ *    generation barrier still admits the session after a rebind
+ *  - Logs bounded failures to the diagnostics path (64 KB cap)
+ *  - Normalizes provider-native events to karst's closed vocabulary
+ *
+ * Written once per activation (atomic temp+rename); the provider segment in
+ * the `current-endpoint` path is parameterized via argv[4] so one script
+ * serves codex, opencode, and claude.
+ */
+export const HOOK_BRIDGE = String.raw`const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
 
 let eventName = 'unknown';
 const diagnosticsPath = process.argv[3];
+const provider = process.argv[4] || 'codex';
 
 // The launch-time URL is this session's own window while that window lives.
 // A VS Code reload rebinds an ephemeral hook port, so the extension also
@@ -93,7 +87,7 @@ let fileEndpoint = null;
 try {
   if (diagnosticsPath) {
     const configDir = path.dirname(path.dirname(diagnosticsPath));
-    const endpointFile = path.join(configDir, 'codex', 'current-endpoint');
+    const endpointFile = path.join(configDir, provider, 'current-endpoint');
     const content = fs.readFileSync(endpointFile, 'utf8').trim();
     if (content.length > 0) fileEndpoint = content;
   }
@@ -218,8 +212,8 @@ process.stdin.on('end', () => {
           typeof raw.last_assistant_message === 'string' &&
           /\?\s*$/.test(raw.last_assistant_message)
         ? { hook_event_name: 'Notification', message: 'idle_prompt' }
-      : ['SessionStart', 'UserPromptSubmit', 'PostToolUse', 'Stop', 'SessionEnd'].includes(event)
-        ? { hook_event_name: event }
+      : ['SessionStart', 'UserPromptSubmit', 'PostToolUse', 'Stop', 'SessionEnd', 'Notification'].includes(event)
+        ? { hook_event_name: event, ...(typeof raw.message === 'string' ? { message: raw.message } : {}) }
         : null;
 
   const posts = [];
@@ -462,9 +456,9 @@ function appendHookArgs(
   const current = existsSync(bridgePath)
     ? readFileSync(bridgePath, 'utf8')
     : null;
-  if (current !== CODEX_HOOK_BRIDGE) {
+  if (current !== HOOK_BRIDGE) {
     const temporaryPath = `${bridgePath}.${process.pid}.${Date.now()}.tmp`;
-    writeFileSync(temporaryPath, CODEX_HOOK_BRIDGE);
+    writeFileSync(temporaryPath, HOOK_BRIDGE);
     renameSync(temporaryPath, bridgePath);
   }
   const command = [
