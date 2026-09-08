@@ -29,8 +29,8 @@ describe('buildScopeBlock', () => {
     // correct branch", and grants the ONE self-check that detects a wrong
     // checkout.
     expect(text).toContain('This ticket\'s branch is `karst/feat/planner-issue-planner-issue`');
-    expect(text).toContain('git rev-parse --abbrev-ref HEAD');
-    expect(text).not.toContain('already checked out on the correct branch');
+    expect(text).toContain('Check: `git rev-parse --abbrev-ref HEAD`');
+    expect(text).not.toContain('already on the correct branch');
     for (const line of buildScopeBlock('review', {
       baseRef: 'develop',
       branch: 'karst/feat/planner-issue-planner-issue',
@@ -49,14 +49,14 @@ describe('buildScopeBlock', () => {
   // tells the agent to verify with git status.
   it('treats a wrong checkout as a hard stop when the branch is known', () => {
     const text = buildScopeBlock('test', { baseRef: 'develop', branch: 'karst/x', openChanges: true }).join('\n');
-    expect(text).toContain('it MUST print `karst/x`');
-    expect(text).toContain('you are in the WRONG checkout');
-    expect(text).toMatch(/do NOT `git diff`, do NOT conclude there are no changes/);
-    expect(text).toContain('Report exactly one observation');
+    expect(text).toContain('MUST print `karst/x`');
+    expect(text).toContain('Wrong checkout → STOP');
     expect(text).toContain('severity "critical"');
+    expect(text).toContain('title "wrong checkout"');
+    expect(text).toContain('Do NOT `git diff` or conclude "no changes"');
     expect(text).toContain('An empty `git diff` is NOT proof of no changes');
     expect(text).toContain('never output `[]` because a diff came back empty');
-    expect(text).not.toContain('already checked out on the correct branch');
+    expect(text).not.toContain('already on the correct branch');
   });
 
   // The wrong-checkout stop is correct, but it was also the ONLY exit: a core
@@ -75,7 +75,7 @@ describe('buildScopeBlock', () => {
     expect(text).toContain('/repo/.karst/worktrees/x');
     // The recovery is named BEFORE the agent is allowed to report the stop.
     expect(text.indexOf('/repo/.karst/worktrees/x')).toBeLessThan(
-      text.indexOf('you are in the WRONG checkout'),
+      text.indexOf('Wrong checkout → STOP'),
     );
     expect(text).toContain('git -C /repo/.karst/worktrees/x rev-parse --abbrev-ref HEAD');
     // The hard stop survives — it is now the answer for a checkout that is
@@ -92,16 +92,16 @@ describe('buildScopeBlock', () => {
 
   it('keeps the plain wrong-checkout stop when no worktree path is known', () => {
     const text = buildScopeBlock('test', { baseRef: 'develop', branch: 'karst/x' }).join('\n');
-    expect(text).toContain('Run `git rev-parse --abbrev-ref HEAD`');
-    expect(text).toContain('you are in the WRONG checkout');
+    expect(text).toContain('Check: `git rev-parse --abbrev-ref HEAD`');
+    expect(text).toContain('Wrong checkout → STOP');
   });
 
   it('never claims a wrong checkout or empty-diff guard when no branch is known', () => {
     const text = buildScopeBlock('review', { baseRef: 'develop' }).join('\n');
-    expect(text).not.toContain('WRONG checkout');
+    expect(text).not.toContain('Wrong checkout');
     expect(text).not.toContain('NOT proof of no changes');
     expect(text).not.toContain('Report exactly one observation');
-    expect(text).toContain('already checked out on the correct branch');
+    expect(text).toContain('already on the correct branch');
   });
 
   it('still falls back to HEAD when no branch is known', () => {

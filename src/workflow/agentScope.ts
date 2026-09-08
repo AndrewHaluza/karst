@@ -198,12 +198,12 @@ export function buildScopeBlock(intent: ScopeIntent, opts: ScopeBlockOpts = {}):
   // still wrong from there is the hard stop below.
   const checkLine =
     worktreePath !== null
-      ? `Run every command in \`${worktreePath}\` — that directory IS this ticket's worktree; \`cd\` there first if your shell started somewhere else. Check with \`git -C ${worktreePath} rev-parse --abbrev-ref HEAD\`: it MUST print \`${branch}\`.`
-      : `Run \`git rev-parse --abbrev-ref HEAD\`: it MUST print \`${branch}\`.`;
+      ? `Run every command in \`${worktreePath}\`. Check: \`git -C ${worktreePath} rev-parse --abbrev-ref HEAD\` → MUST print \`${branch}\`.`
+      : `Check: \`git rev-parse --abbrev-ref HEAD\` → MUST print \`${branch}\`.`;
   const orientation =
     branch !== null
-      ? `- This ticket's branch is \`${branch}\`. ${checkLine} If it prints anything else, you are in the WRONG checkout — the ticket's changes cannot be read reliably from here, because the local \`${branch}\` ref may be a stale snapshot of the base. STOP: do NOT \`git diff\`, do NOT conclude there are no changes, do NOT output \`[]\`. Report exactly one observation — severity "critical", title "wrong checkout", detail naming the ticket branch and the branch you are actually on — then output \`[]\`.`
-      : `- Your working directory IS this ticket's worktree, already checked out on the correct branch.`;
+      ? `- This ticket's branch is \`${branch}\`. ${checkLine} Wrong checkout → STOP: report severity "critical", title "wrong checkout", naming the expected branch \`${branch}\` and the actual branch, then output \`[]\`. Do NOT \`git diff\` or conclude "no changes" from a stale ref.`
+      : `- Your working directory IS this ticket's worktree, already on the correct branch.`;
   // The empty-diff guard. Only relevant when a branch is named: with a branch,
   // the fallback range resolves the LOCAL `<branch>` ref when the remote ref is
   // absent, and a stale local ref that equals the base reads as "no changes"
