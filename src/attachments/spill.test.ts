@@ -70,14 +70,14 @@ describe('spill oversized evidence to the artifact shelf', () => {
   });
 
   describe('spillField', () => {
-    it('returns null for text under threshold (no spill)', async () => {
+    it('returns not-needed for text under threshold (no spill)', async () => {
       const ticket = createTicket(store, {
         key: 'T-1', title: 'short', description: 'short text',
       });
       const result = await spillField(
         store, ticket.id, 'description', 'short text', storageDir,
       );
-      expect(result).toBeNull();
+      expect(result).toEqual({ kind: 'not-needed' });
       const fresh = getTicket(store, ticket.id);
       expect(fresh.description).toBe('short text');
     });
@@ -85,14 +85,15 @@ describe('spill oversized evidence to the artifact shelf', () => {
     it('spills oversized description to the attachment shelf', async () => {
       const ticket = createTicket(store, { key: 'T-2', title: 'big' });
       const logContent = '2024-01-01 ERROR something\n'.repeat(50_000);
-      const attachment = await spillField(
+      const result = await spillField(
         store, ticket.id, 'description', logContent, storageDir,
       );
 
-      expect(attachment).not.toBeNull();
-      expect(attachment!.kind).toBe('file');
-      expect(attachment!.originalName).toMatch(/spilled-description/);
-      expect(attachment!.byteSize).toBeGreaterThan(0);
+      expect(result.kind).toBe('spilled');
+      if (result.kind !== 'spilled') return;
+      expect(result.input.kind).toBe('file');
+      expect(result.input.originalName).toMatch(/spilled-description/);
+      expect(result.input.byteSize).toBeGreaterThan(0);
 
       // Description replaced with pointer
       const fresh = getTicket(store, ticket.id);
@@ -104,13 +105,14 @@ describe('spill oversized evidence to the artifact shelf', () => {
     it('spills oversized brief to the attachment shelf', async () => {
       const ticket = createTicket(store, { key: 'T-3', title: 'big brief' });
       const briefContent = 'Brief content '.repeat(100_000);
-      const attachment = await spillField(
+      const result = await spillField(
         store, ticket.id, 'brief', briefContent, storageDir,
       );
 
-      expect(attachment).not.toBeNull();
-      expect(attachment!.kind).toBe('file');
-      expect(attachment!.originalName).toMatch(/spilled-brief/);
+      expect(result.kind).toBe('spilled');
+      if (result.kind !== 'spilled') return;
+      expect(result.input.kind).toBe('file');
+      expect(result.input.originalName).toMatch(/spilled-brief/);
 
       const fresh = getTicket(store, ticket.id);
       expect(fresh.brief!.length).toBeLessThan(200);
@@ -120,12 +122,13 @@ describe('spill oversized evidence to the artifact shelf', () => {
     it('original content is retrievable from the shelf', async () => {
       const ticket = createTicket(store, { key: 'T-4', title: 'retrieve' });
       const original = 'line1\nline2\n'.repeat(100_000);
-      const attachment = await spillField(
+      const result = await spillField(
         store, ticket.id, 'description', original, storageDir,
       );
 
-      expect(attachment).not.toBeNull();
-      const filePath = attachmentPath(storageDir, ticket.id, attachment!.storedName);
+      expect(result.kind).toBe('spilled');
+      if (result.kind !== 'spilled') return;
+      const filePath = attachmentPath(storageDir, ticket.id, result.input.storedName);
       const stored = readFileSync(filePath, 'utf8');
       expect(stored).toBe(original);
     });
@@ -166,10 +169,10 @@ describe('spill oversized evidence to the artifact shelf', () => {
     it('spill at create time replaces oversized description', async () => {
       const ticket = createTicket(store, { key: 'BIG-1', title: 'oversized' });
       const content = 'log '.repeat(500_000);
-      const attachment = await spillField(
+      const result = await spillField(
         store, ticket.id, 'description', content, storageDir,
       );
-      expect(attachment).not.toBeNull();
+      expect(result.kind).toBe('spilled');
 
       const fresh = getTicket(store, ticket.id);
       expect(fresh.description!.length).toBeLessThan(200);

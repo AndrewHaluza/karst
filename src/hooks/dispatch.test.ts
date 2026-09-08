@@ -1151,7 +1151,7 @@ describe('dispatchHook — marker-miss telemetry (PROMPT-15)', () => {
     const tracker = new TurnTracker();
     tracker.recordToolUse(id, 'Edit');
     tracker.recordToolUse(id, 'Bash');
-    dispatchHook(store, { hook_event_name: 'Stop', cwd: WT }, undefined, undefined, undefined, undefined, undefined, tracker);
+    dispatchHook(store, { hook_event_name: 'Stop', cwd: WT }, undefined, undefined, () => 'claude', undefined, undefined, tracker);
     const runs = listProcessRuns(store, id);
     expect(runs[0]!.promptTelemetry).toEqual({
       markerMissCase: 'no-marker-after-work',
@@ -1167,6 +1167,29 @@ describe('dispatchHook — marker-miss telemetry (PROMPT-15)', () => {
     tracker.recordToolUse(id, 'Bash');
     tracker.recordToolUse(id, 'Read');
     dispatchHook(store, { hook_event_name: 'Stop', cwd: WT }, undefined, undefined, undefined, undefined, undefined, tracker);
+    const runs = listProcessRuns(store, id);
+    expect(runs[0]!.promptTelemetry).toEqual({
+      markerMissCase: 'no-marker-after-work',
+      deniedMarker: false,
+      toolActivityObserved: true,
+    });
+  });
+
+  it('denied marker is false for codex provider even when last tool matches Bash', () => {
+    const id = ticketAt();
+    runningImplRun(id);
+    const tracker = new TurnTracker();
+    tracker.recordToolUse(id, 'Bash');
+    dispatchHook(
+      store,
+      { hook_event_name: 'Stop', cwd: WT },
+      undefined,
+      undefined,
+      () => 'codex',
+      undefined,
+      undefined,
+      tracker,
+    );
     const runs = listProcessRuns(store, id);
     expect(runs[0]!.promptTelemetry).toEqual({
       markerMissCase: 'no-marker-after-work',
@@ -1247,6 +1270,32 @@ describe('dispatchHook — marker-miss telemetry (PROMPT-15)', () => {
     // After Stop, tracker is reset — the next turn starts fresh.
     expect(tracker.toolCount(id)).toBe(0);
     expect(tracker.lastToolName(id)).toBeUndefined();
+  });
+
+  it('tracker is released on SessionEnd — subsequent Stop shows no activity', () => {
+    const id = ticketAt();
+    runningImplRun(id);
+    const tracker = new TurnTracker();
+    tracker.recordToolUse(id, 'Edit');
+    tracker.recordToolUse(id, 'Bash');
+    dispatchHook(store, { hook_event_name: 'SessionEnd', cwd: WT }, undefined, undefined, () => 'claude', undefined, undefined, tracker);
+    // After SessionEnd, tracker state is released (not just reset).
+    expect(tracker.toolCount(id)).toBe(0);
+    expect(tracker.lastToolName(id)).toBeUndefined();
+    // SessionEnd interrupts the run, so markerIsPending is now false.
+    // A new SessionStart + Stop sequence with a fresh pending marker shows
+    // no tool activity from the prior turn.
+    openImplementationRun(store, { ticketId: id, attempt: 1, provider: 'claude', startedAt: '2026-09-07T02:00:00.000Z' });
+    dispatchHook(store, { hook_event_name: 'Stop', cwd: WT }, undefined, undefined, () => 'claude', undefined, undefined, tracker);
+    const runs = listProcessRuns(store, id);
+    // The second run (attempt 1) has the telemetry — toolActivityObserved is
+    // false because forget cleared the prior turn's counts.
+    const secondRun = runs.find((r) => r.attempt === 1)!;
+    expect(secondRun.promptTelemetry).toEqual({
+      markerMissCase: 'question-at-stop',
+      deniedMarker: false,
+      toolActivityObserved: false,
+    });
   });
 
   it('second Stop after tools does not overwrite first Stop telemetry (hasActivity guard)', () => {

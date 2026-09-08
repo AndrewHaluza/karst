@@ -61,11 +61,11 @@ export function keylessTruncationPointer(): string {
 /**
  * Cut `text` to `maxChars` characters of original content and append the
  * stated pointer when it overflows; returns it unchanged otherwise. The cap
- * bounds the SOURCE text, not the final string (the pointer is additional).
- * `pointerOverride` swaps in a different stated pointer for a section where
- * the default `karst context <key>` claim would be false (see
- * `approachTruncationPointer`) — the default keeps every existing caller's
- * behavior unchanged.
+ * bounds the SOURCE text, not the final string (the pointer and any closing
+ * fence are additional). `pointerOverride` swaps in a different stated
+ * pointer for a section where the default `karst context <key>` claim would
+ * be false (see `approachTruncationPointer`) — the default keeps every
+ * existing caller's behavior unchanged.
  */
 export function truncateToBudget(
   text: string,
@@ -75,5 +75,19 @@ export function truncateToBudget(
 ): { text: string; truncated: boolean } {
   if (text.length <= maxChars) return { text, truncated: false };
   const pointer = pointerOverride ?? truncationPointer(ticketKey);
-  return { text: text.slice(0, maxChars) + pointer, truncated: true };
+  return { text: closeOpenFence(text.slice(0, maxChars)) + pointer, truncated: true };
+}
+
+/**
+ * Close a code fence the cut left open. Slicing at a raw character offset
+ * can land inside a fenced block, which swallows the truncation pointer —
+ * and every section rendered after it — into an unterminated fence. An odd
+ * number of ``` delimiters is exactly that condition; a parser is not
+ * needed to detect it. Counted on the SLICED text, so a fence the original
+ * text closed after the cut still counts as open here, which is correct.
+ */
+function closeOpenFence(sliced: string): string {
+  const fences = sliced.split('```').length - 1;
+  if (fences % 2 === 0) return sliced;
+  return sliced.endsWith('\n') ? `${sliced}\`\`\`\n` : `${sliced}\n\`\`\`\n`;
 }

@@ -129,6 +129,8 @@ export interface TicketFormActionsDeps {
    * still show the service as unclassified.
    */
   reloadManifest: () => void;
+  /** Non-fatal warnings (e.g. spill failures) surfaced to the output channel. */
+  warn?: (msg: string) => void;
   /**
    * List installed approach ids (real: bound to `listInstalled(approachesDir)`).
    * Gates SOURCED approaches (git/npm) to those installed on disk; built-in
@@ -587,16 +589,22 @@ export function buildTicketFormActions(
         const briefSpilled = await spillField(
           deps.store, ctx.ticketId!, 'brief', renderedBrief, deps.storageDir,
         );
+        if (briefSpilled.kind === 'failed') {
+          deps.warn?.(`spill failed for brief on ticket ${ctx.ticketId}: ${briefSpilled.reason}`);
+        }
         const descSpilled = brief.description
           ? await spillField(
               deps.store, ctx.ticketId!, 'description', brief.description, deps.storageDir,
             )
-          : null;
+          : { kind: 'not-needed' as const };
+        if (descSpilled.kind === 'failed') {
+          deps.warn?.(`spill failed for description on ticket ${ctx.ticketId}: ${descSpilled.reason}`);
+        }
         updateTicketFields(deps.store, ctx.ticketId!, {
           sourceRef: ref,
           sourceFetchedAt: new Date().toISOString(),
-          ...(briefSpilled ? {} : { brief: renderedBrief }),
-          ...(descSpilled ? {} : { description: brief.description }),
+          ...(briefSpilled.kind === 'spilled' ? {} : { brief: renderedBrief }),
+          ...(descSpilled.kind === 'spilled' ? {} : { description: brief.description }),
           selectedRepos: repos,
           // The provider-native priority label, populated from the brief. Absent
           // in the brief → '' clears it back to NULL: the fetch is the source of
@@ -887,8 +895,11 @@ export function buildTicketFormActions(
           const descSpilled = await spillField(
             deps.store, ctx.ticketId, 'description', analysis.prompt, deps.storageDir,
           );
+          if (descSpilled.kind === 'failed') {
+            deps.warn?.(`spill failed for description on ticket ${ctx.ticketId}: ${descSpilled.reason}`);
+          }
           updateTicketFields(deps.store, ctx.ticketId, {
-            ...(descSpilled ? {} : { description: analysis.prompt }),
+            ...(descSpilled.kind === 'spilled' ? {} : { description: analysis.prompt }),
             selectedRepos: analysis.repos,
             // Prefill the type only while the ticket has none: like the approach,
             // an explicit pick is the user's, and a re-run of the analyzer must
@@ -957,8 +968,10 @@ export function buildTicketFormActions(
       // Spill oversized descriptions to the attachment shelf at ingest so every
       // downstream read site (seed, tester, CLI context) sees bounded text.
       if (input.description) {
-        await spillField(deps.store, ticketId, 'description', input.description, deps.storageDir)
-          ?? undefined;
+        const spillResult = await spillField(deps.store, ticketId, 'description', input.description, deps.storageDir);
+        if (spillResult.kind === 'failed') {
+          deps.warn?.(`spill failed for description on ticket ${ticketId}: ${spillResult.reason}`);
+        }
       }
       if (input.createInProvider) {
         const bound = await bindProviderTask(ctx, deps, ticketId);
@@ -1008,8 +1021,10 @@ export function buildTicketFormActions(
         const ticketId = persistDraft(ctx, deps, input);
         // Spill oversized descriptions to the attachment shelf at ingest.
         if (input.description) {
-          await spillField(deps.store, ticketId, 'description', input.description, deps.storageDir)
-            ?? undefined;
+          const spillResult = await spillField(deps.store, ticketId, 'description', input.description, deps.storageDir);
+          if (spillResult.kind === 'failed') {
+            deps.warn?.(`spill failed for description on ticket ${ticketId}: ${spillResult.reason}`);
+          }
         }
         // Same checkbox contract as submit: persisting the ticket with the
         // checkbox on also mints + binds the provider task. A failure reports

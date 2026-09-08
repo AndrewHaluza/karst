@@ -116,6 +116,26 @@ export function parseHookPayload(raw: unknown): HookPayload | null {
 }
 
 /**
+ * The shell tool name each core reports on `PostToolUse`, for the ONE
+ * heuristic that reads it: a Stop with a pending marker whose last tool was
+ * the shell probably means the agent ran the marker command and the sandbox
+ * denied it. `null` means this repository has NOT verified that core's shell
+ * tool name — the bridge forwards each core's NATIVE `tool_name` verbatim
+ * (`HOOK_BRIDGE`), so comparing them all against claude's `'Bash'` would
+ * make the heuristic silently unfirable on those cores while
+ * `surfaces.toolActivity` still (correctly) reports the events arrive.
+ * A `null` here yields `deniedMarker: false`, which is exactly what the
+ * unconditional comparison already produced — stated instead of accidental.
+ * Closing an entry means verifying that core's real tool name, never guessing.
+ */
+const SHELL_TOOL_NAME: Record<AgentProvider, string | null> = {
+  claude: 'Bash',
+  codex: null,
+  opencode: null,
+  antigravity: null,
+};
+
+/**
  * Whether the ticket is inside agent work whose done marker has NOT fired.
  *
  * The two agent lanes each own the fact: an implementation run stays `running`
@@ -190,6 +210,14 @@ export class TurnTracker {
   hasActivity(ticketId: number): boolean {
     return (this.toolCounts.get(ticketId) ?? 0) > 0;
   }
+
+  /** Release this ticket's turn state — the session is over and the counts
+   *  cannot describe another turn. Without this the maps grow for the life
+   *  of the activation. */
+  forget(ticketId: number): void {
+    this.toolCounts.delete(ticketId);
+    this.lastToolNames.delete(ticketId);
+  }
 }
 
 /**
@@ -206,8 +234,6 @@ export class TurnTracker {
 function nextAgentState(
   payload: HookPayload,
   markerPending: boolean,
-  tracker?: TurnTracker,
-  ticketId?: number,
 ): AgentState | null {
   switch (payload.hook_event_name) {
     case 'SessionStart':
@@ -458,6 +484,9 @@ export function dispatchHook(
     // consumed.
     interruptImplementationRun(store, ticketId, nowIso());
     interruptActiveFixExecution(store, ticketId, nowIso());
+    // Release tracker state for this ticket — the session is over and the
+    // counts cannot describe another turn.
+    tracker?.forget(ticketId);
   }
 
   // Read the marker BEFORE the SessionEnd branch above has a chance to matter:
@@ -485,18 +514,22 @@ export function dispatchHook(
       const toolCount = tracker.toolCount(ticketId);
       const markerMissCase = toolCount === 0 ? 'question-at-stop' : 'no-marker-after-work';
       const lastTool = tracker.lastToolName(ticketId);
-      const deniedMarker = lastTool === 'Bash' && toolCount > 0;
+      const shellTool = lifecycleProvider ? SHELL_TOOL_NAME[lifecycleProvider] : null;
+      const deniedMarker = shellTool !== null && lastTool === shellTool && toolCount > 0;
       // True when the tracker has seen at least one PostToolUse in this
       // session — distinguishes 'unsupported core, no data' from 'supported
       // core, genuinely zero tool uses in this turn'. The read layer uses
       // this to discount unsupported cores' fabricated question-at-stop facts.
       const toolActivityObserved = tracker.hasActivity(ticketId);
 
+      // The most recently started running run owns the turn — a ticket carrying
+      // both a `session` and a `fix` run does not assign the telemetry arbitrarily.
       const runRow = store.db
         .prepare(
           `SELECT id FROM process_runs
            WHERE ticket_id = ? AND status = 'running'
              AND process_id IN ('session','fix')
+           ORDER BY started_at DESC, id DESC
            LIMIT 1`,
         )
         .get(ticketId) as { id: number } | undefined;
@@ -506,23 +539,18 @@ export function dispatchHook(
           deniedMarker,
           toolActivityObserved,
         });
-        debug?.(`[marker-miss] ticket ${ticketId}: case=${markerMissCase}, denied=${deniedMarker}, tools=${toolCount}, observed=${toolActivityObserved}`);
+        debug?.(`[marker-miss] ticket ${ticketId}: case=${markerMissCase}, denied=${deniedMarker}, tools=${toolCount}, observed=${toolActivityObserved}, provider=${lifecycleProvider ?? 'unknown'}`);
       }
-    }
 
-    // Reset tracker after Stop with pending marker — the next turn starts
-    // fresh. Without this, toolCount accumulates across the whole session
-    // and only the very first Stop (before any tools ran) can yield
-    // 'question-at-stop'.
-    if (
-      (payload.hook_event_name === 'Stop' || payload.hook_event_name === 'session.idle') &&
-      markerIsPending
-    ) {
+      // Reset tracker after Stop with pending marker — the next turn starts
+      // fresh. Without this, toolCount accumulates across the whole session
+      // and only the very first Stop (before any tools ran) can yield
+      // 'question-at-stop'.
       tracker.reset(ticketId);
     }
   }
 
-  const state = nextAgentState(payload, markerIsPending, tracker, ticketId);
+  const state = nextAgentState(payload, markerIsPending);
   if (state === null) {
     observe('no-signal');
     return;

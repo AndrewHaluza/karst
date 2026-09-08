@@ -23,6 +23,15 @@ import type { AttachmentInput } from '../store/attachments.js';
 import { insertAttachment } from '../store/attachments.js';
 import { getTicket } from '../store/tickets.js';
 import { ingestBytes } from './ingest.js';
+import { runImmediateTransaction } from '../store/transactions.js';
+
+/** What `spillField` did. `not-needed` and `failed` were both `null` before,
+ *  which made a filesystem failure indistinguishable from a short field and
+ *  left every ingest call site silently swallowing it. */
+export type SpillResult =
+  | { kind: 'not-needed' }
+  | { kind: 'spilled'; input: AttachmentInput }
+  | { kind: 'failed'; reason: string };
 
 /**
  * The character threshold above which a description or brief is spilled to
@@ -54,9 +63,9 @@ export function buildSpillPointer(ticketKey: string, field: 'description' | 'bri
 
 /**
  * Write the full text to the attachment shelf and replace the inline field
- * with a pointer.  Returns the `AttachmentInput` for the caller to index
- * in the DB (via `insertAttachment`), or `null` when the text is under the
- * threshold (no spill needed — the caller stores the original unchanged).
+ * with a pointer.  Returns a `SpillResult` discriminating "not needed" (text
+ * under threshold), "spilled" (success), or "failed" (filesystem error — the
+ * oversized text stays inline, non-fatal).
  *
  * The file is written with a `spilled-<field>.txt` original name so it is
  * visually distinguishable from user-picked attachments in every surface
@@ -68,8 +77,8 @@ export async function spillField(
   field: 'description' | 'brief',
   text: string,
   storageDir: string,
-): Promise<AttachmentInput | null> {
-  if (!shouldSpill(text)) return null;
+): Promise<SpillResult> {
+  if (!shouldSpill(text)) return { kind: 'not-needed' };
 
   const bytes = Buffer.from(text, 'utf8');
   const originalName = `spilled-${field}.txt`;
@@ -80,22 +89,27 @@ export async function spillField(
     // rather than being silently truncated.  The seed budget or the
     // tester cap will bound it at the read site — worse than a spill,
     // but not a crash.
-    return null;
+    return { kind: 'failed', reason: result.message || 'attachment ingest failed' };
   }
 
-  insertAttachment(store, result.input);
+  // The two database writes — inserting the attachment row and updating the
+  // ticket pointer — must be atomic so a crash between them leaves no orphan
+  // attachment or pointer-without-attachment.
+  runImmediateTransaction(store.db, () => {
+    insertAttachment(store, result.input);
 
-  // Replace the inline field with a one-line pointer so every read site
-  // (seed, tester, CLI context) sees the bounded text and knows where to
-  // find the rest — without any change to the render layer.
-  const ticket = getTicket(store, ticketId);
-  const pointer = buildSpillPointer(ticket.key ?? String(ticketId), field);
-  const column = field === 'description' ? 'description' : 'brief';
-  store.db
-    .prepare(`UPDATE tickets SET ${column} = ?, updated_at = datetime('now') WHERE id = ?`)
-    .run(pointer, ticketId);
+    // Replace the inline field with a one-line pointer so every read site
+    // (seed, tester, CLI context) sees the bounded text and knows where to
+    // find the rest — without any change to the render layer.
+    const ticket = getTicket(store, ticketId);
+    const pointer = buildSpillPointer(ticket.key ?? String(ticketId), field);
+    const column = field === 'description' ? 'description' : 'brief';
+    store.db
+      .prepare(`UPDATE tickets SET ${column} = ?, updated_at = datetime('now') WHERE id = ?`)
+      .run(pointer, ticketId);
+  });
 
-  return result.input;
+  return { kind: 'spilled', input: result.input };
 }
 
 /**
@@ -128,9 +142,9 @@ export async function backfillSpillOversized(
       const result = await spillField(
         store, row.id, 'description', row.description, storageDir,
       );
-      if (!result) {
+      if (result.kind === 'failed') {
         logger.warn(
-          `backfill: failed to spill description for ticket ${row.key ?? row.id}`,
+          `backfill: failed to spill description for ticket ${row.key ?? row.id}: ${result.reason}`,
         );
       }
     }
@@ -138,9 +152,9 @@ export async function backfillSpillOversized(
       const result = await spillField(
         store, row.id, 'brief', row.brief, storageDir,
       );
-      if (!result) {
+      if (result.kind === 'failed') {
         logger.warn(
-          `backfill: failed to spill brief for ticket ${row.key ?? row.id}`,
+          `backfill: failed to spill brief for ticket ${row.key ?? row.id}: ${result.reason}`,
         );
       }
     }
