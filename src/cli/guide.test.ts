@@ -1,7 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { AGENT_GUIDE, parseGuideArgs, runGuideCommand, composeGuideCommand, renderGuideInstruction } from './guide.js';
+import { composeTestCommand } from './test/main.js';
 import { runCli } from './main.js';
 import { MARKER_STAGES } from '../agent/markerStage.js';
+import { renderTestSkill, TEST_SKILL_NAME, TEST_SKILL_DESCRIPTION } from '../agent/testSkill.js';
+import { GENERATED_STAMP } from '../agent/generatedArtifact.js';
 
 /**
  * The guard that keeps the agent guide honest (869edmcme, Option A): a new CLI
@@ -96,5 +99,67 @@ describe('composeGuideCommand / renderGuideInstruction', () => {
     const instruction = renderGuideInstruction('node "/ext/cli.js" guide');
     expect(instruction).toContain('node "/ext/cli.js" guide');
     expect(instruction.split('\n').length).toBe(1);
+  });
+});
+
+describe('composeTestCommand', () => {
+  it('composes a double-quoted node command with --db', () => {
+    expect(composeTestCommand('/ext/dist/cli/main.js', '/db/path')).toBe(
+      'node "/ext/dist/cli/main.js" test --db "/db/path"',
+    );
+  });
+
+  it('includes --manifest when provided', () => {
+    expect(composeTestCommand('/ext/cli.js', '/db', '/manifest.yml')).toBe(
+      'node "/ext/cli.js" test --db "/db" --manifest "/manifest.yml"',
+    );
+  });
+
+  it('handles paths with spaces', () => {
+    expect(composeTestCommand('/a b/cli.js', '/a b/db')).toBe(
+      'node "/a b/cli.js" test --db "/a b/db"',
+    );
+  });
+});
+
+describe('test skill — anti-drift', () => {
+  const skill = renderTestSkill('node "/ext/cli.js" test --db "/db"');
+
+  it('starts with YAML frontmatter containing name and description', () => {
+    expect(skill).toMatch(/^---\nname: karst-test\n/);
+    expect(skill).toMatch(/description: /);
+  });
+
+  it('description matches the exported constant', () => {
+    expect(skill).toContain(TEST_SKILL_DESCRIPTION);
+    expect(TEST_SKILL_NAME).toBe('karst-test');
+  });
+
+  it('includes the generated stamp so writeGeneratedArtifact will overwrite on relaunch', () => {
+    expect(skill).toContain(GENERATED_STAMP);
+  });
+
+  it('documents every test subcommand the CLI accepts', () => {
+    for (const sub of [
+      'create-ticket', 'set-stage', 'advance', 'run-gate', 'simulate-hook',
+      'open-pr', 'merge-pr', 'get-state', 'get-stage', 'get-logs', 'get-hooks',
+      'assert', 'pause', 'unpause', 'reset',
+    ]) {
+      expect(skill).toContain(sub);
+    }
+  });
+
+  it('matches the guide description of the test driver', () => {
+    // The guide describes test as a DEVELOPMENT tool that bypasses gate verdicts
+    expect(skill).toMatch(/development tool/i);
+    expect(skill).toMatch(/bypasses gate verdicts/i);
+    // The guide warns that test advance can move a stage no real gate ran
+    expect(skill).toMatch(/test advance --verdict passed/);
+    // The guide warns that test reset wipes a registry
+    expect(skill).toMatch(/test reset/);
+  });
+
+  it('embeds the resolved CLI prefix', () => {
+    expect(skill).toContain('node "/ext/cli.js" test --db "/db"');
   });
 });

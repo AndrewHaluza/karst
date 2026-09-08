@@ -13,6 +13,7 @@ import type {
 } from './adapter.js';
 import { renderWorkflowCommand, KARST_PLUGIN_NAME, orchestratorCommandBasename } from './workflowCommand.js';
 import { withStamp, writeGeneratedArtifact } from './generatedArtifact.js';
+import { renderTestSkill } from './testSkill.js';
 import { writeHookSettings } from './settings.js';
 import { describeHeadlessFailure } from './cliFailure.js';
 import { spawnHeadlessCli, headlessPreview, type HeadlessSpawnOptions } from './headlessSpawn.js';
@@ -137,6 +138,7 @@ export class ClaudeAdapter implements AgentAdapter {
       'the channel is a --settings FILE read once by the CLI at launch, not a script ' +
         'karst controls; a rebound port needs a relaunch (see docs/agent-cores/HOOK-CONTRACT.md)',
     ),
+    skillDiscovery: SUPPORTED,
   };
 
   constructor(private readonly spawnHeadless: SpawnHeadless = defaultSpawn) {}
@@ -314,6 +316,34 @@ export class ClaudeAdapter implements AgentAdapter {
         if (ownsKarst) owned.push(karstDir);
       }
       pluginDirs.push(karstDir);
+    }
+
+    // The test-family skill carries the resolved CLI prefix so the agent
+    // never composes the --db/--manifest boilerplate itself. Written to the
+    // shared karst plugin so it is available regardless of whether the
+    // approach defines a workflow.
+    if (opts.cliTestPrefix) {
+      const karstDir = join(opts.sessionDir, '.karst-plugin', KARST_PLUGIN_NAME);
+      if (!existsSync(karstDir)) {
+        const karstMeta = join(karstDir, '.claude-plugin');
+        mkdirSync(karstMeta, { recursive: true });
+        const pluginJson = join(karstMeta, 'plugin.json');
+        if (!existsSync(pluginJson)) {
+          writeFileSync(
+            pluginJson,
+            JSON.stringify({ name: KARST_PLUGIN_NAME, version: '0.0.0' }, null, 2),
+          );
+        }
+        owned.push(karstDir);
+      }
+      // Always ensure the karst plugin dir is in pluginDirs so Claude discovers
+      // the test skill — even on re-launch when the dir already exists.
+      if (!pluginDirs.includes(karstDir)) pluginDirs.push(karstDir);
+      const testSkillDir = join(karstDir, 'skills', 'karst-test');
+      writeGeneratedArtifact(
+        join(testSkillDir, 'SKILL.md'),
+        renderTestSkill(opts.cliTestPrefix),
+      );
     }
 
     return {

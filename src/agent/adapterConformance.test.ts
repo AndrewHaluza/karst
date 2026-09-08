@@ -93,6 +93,7 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
       'structuredOutput',
       'hookChannel',
       'endpointRebind',
+      'skillDiscovery',
     ];
     for (const key of keys) {
       const support = surfaces[key];

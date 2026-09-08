@@ -167,6 +167,7 @@ import { composeContextCommand } from './cli/context.js';
 import { composeStageCommand } from './cli/stage.js';
 import { composePhaseCommand } from './cli/phaseCommand.js';
 import { composeGuideCommand, renderGuideInstruction } from './cli/guide.js';
+import { composeTestCommand } from './cli/test/main.js';
 import {
   buildWorkflowInvocation,
   renderWorkflowCommand,
@@ -6248,6 +6249,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                 : buildCliStagePrefix(context, dbPath, markerStage),
             cliPhasePrefix: buildCliPhasePrefix(context, dbPath),
             cliGuidePrefix: buildCliGuidePrefix(context),
+            cliTestPrefix: buildCliTestPrefix(context, dbPath),
           });
         }
       } catch (error) {
@@ -7199,6 +7201,22 @@ function buildCliPhasePrefix(
 function buildCliGuidePrefix(context: vscode.ExtensionContext): string {
   const cliEntry = join(context.extensionUri.fsPath, 'dist', 'cli', 'main.js');
   return composeGuideCommand(cliEntry);
+}
+
+/**
+ * Compose the `node <cli> test --db <db> --manifest <yml>` prefix the test-family
+ * skill embeds so the agent never composes the `--db`/`--manifest` boilerplate
+ * itself. Same CLI entry and best-effort manifest as the other prefixes.
+ */
+function buildCliTestPrefix(context: vscode.ExtensionContext, dbPath: string): string {
+  const cliEntry = join(context.extensionUri.fsPath, 'dist', 'cli', 'main.js');
+  let manifestPath: string | undefined;
+  try {
+    manifestPath = manifestPathOrThrow();
+  } catch {
+    manifestPath = undefined;
+  }
+  return composeTestCommand(cliEntry, dbPath, manifestPath);
 }
 
 /**

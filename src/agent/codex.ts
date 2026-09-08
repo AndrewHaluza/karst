@@ -31,6 +31,7 @@ import type {
 } from './adapter.js';
 import { renderWorkflowCommand, slugCommandName } from './workflowCommand.js';
 import { withStamp, writeGeneratedArtifact } from './generatedArtifact.js';
+import { renderTestSkill } from './testSkill.js';
 import { describeHeadlessFailure } from './cliFailure.js';
 import { renderConsoleStream } from './consoleFormat.js';
 import { spawnHeadlessCli, headlessPreview, type HeadlessSpawnOptions } from './headlessSpawn.js';
@@ -629,6 +630,7 @@ export class CodexAdapter implements AgentAdapter {
     structuredOutput: SUPPORTED,
     hookChannel: SUPPORTED,
     endpointRebind: SUPPORTED,
+    skillDiscovery: SUPPORTED,
   };
 
   constructor(private readonly spawnHeadless: SpawnHeadless = defaultSpawn) {}
@@ -768,6 +770,18 @@ export class CodexAdapter implements AgentAdapter {
         ),
       );
       if (wrote && isNew) owned.add(destination);
+    }
+
+    // The test-family skill carries the resolved CLI prefix so the agent
+    // never composes the --db/--manifest boilerplate itself.
+    if (opts.cliTestPrefix) {
+      const testSkillDir = join(opts.sessionDir, '.agents', 'skills', 'karst-test');
+      const isNew = !existsSync(testSkillDir);
+      const wrote = writeGeneratedArtifact(
+        join(testSkillDir, 'SKILL.md'),
+        renderTestSkill(opts.cliTestPrefix),
+      );
+      if (wrote && isNew) owned.add(testSkillDir);
     }
 
     return {

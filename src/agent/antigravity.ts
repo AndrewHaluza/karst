@@ -20,6 +20,7 @@ import type {
 } from './adapter.js';
 import { renderWorkflowCommand, KARST_PLUGIN_NAME, slugCommandName } from './workflowCommand.js';
 import { withStamp, writeGeneratedArtifact } from './generatedArtifact.js';
+import { renderTestSkill } from './testSkill.js';
 import { SUPPORTED, unsupported, type AdapterSurfaces } from './surfaces.js';
 import { describeHeadlessFailure } from './cliFailure.js';
 import { spawnHeadlessCli, headlessPreview, type HeadlessSpawnOptions } from './headlessSpawn.js';
@@ -158,6 +159,7 @@ export class AntigravityAdapter implements AgentAdapter {
       'no hook channel to rebind — the conversation watch runs in the extension host and ' +
         'is re-established by activation itself',
     ),
+    skillDiscovery: SUPPORTED,
   };
 
   constructor(private readonly spawnHeadless: SpawnHeadless = defaultSpawn) {}
@@ -252,6 +254,24 @@ export class AntigravityAdapter implements AgentAdapter {
         ].join('\n');
         writeGeneratedArtifact(join(skillDir, 'SKILL.md'), skill);
       }
+    }
+
+    // The test-family skill carries the resolved CLI prefix so the agent
+    // never composes the --db/--manifest boilerplate itself. Written to the
+    // shared karst plugin alongside the workflow skill.
+    if (opts.cliTestPrefix) {
+      const karstDir = join(opts.sessionDir, '.agents', 'plugins', KARST_PLUGIN_NAME);
+      if (!existsSync(karstDir)) {
+        mkdirSync(karstDir, { recursive: true });
+        writeFileSync(join(karstDir, 'plugin.json'), JSON.stringify({ name: KARST_PLUGIN_NAME }, null, 2));
+        if (!ownedKarstDir) ownedKarstDir = karstDir;
+      }
+      const testSkillDir = join(karstDir, 'skills', 'karst-test');
+      mkdirSync(testSkillDir, { recursive: true });
+      writeGeneratedArtifact(
+        join(testSkillDir, 'SKILL.md'),
+        renderTestSkill(opts.cliTestPrefix),
+      );
     }
 
     // Sessions launch with `cwd === sessionDir`, so Antigravity discovers this
