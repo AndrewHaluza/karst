@@ -45,6 +45,7 @@ import { parseFindingsResult, type FindingsParseShape, type WarnFn } from '../re
 import { isWrongCheckoutClaim } from '../review/checkoutClaim.js';
 import { buildScopeBlock } from '../agentScope.js';
 import { OUTPUT_RULES_HEADING, OUTPUT_RULES_BASE, OUTPUT_RULES_UAT } from '../../agent/promptText.js';
+import { TESTER_OUTPUT_SCHEMA } from '../../agent/outputContract.js';
 import { createReviewSnapshot, deleteReviewSnapshot } from '../reviewSnapshot.js';
 import { collapseDiagnostic } from '../../model/diagnosticText.js';
 import { truncateToBudget, keylessTruncationPointer, SEED_BUDGETS } from '../../agent/seedBudget.js';
@@ -572,6 +573,13 @@ export async function runUatTester(
         snapshotRef,
         { criteria: opts.criteria, ticketKey: opts.ticketKey, contextCommand: opts.contextCommand },
       );
+      // Prompt 09: when the core declares native structured output support, ask
+      // its CLI to ENFORCE the observation array shape (claude `--json-schema`,
+      // codex `--output-schema`) instead of relying on the prose output rules
+      // alone. Gate on the declared surface — never on the core's name — so the
+      // four-adapter seam rule holds. Unsupported cores get the schema-less
+      // prose prompt, unchanged.
+      const structured = opts.adapter.surfaces?.structuredOutput?.supported === true;
       const ask = (text: string): Promise<{ raw: string }> =>
         opts.adapter.runHeadless({
           prompt: text,
@@ -581,6 +589,7 @@ export async function runUatTester(
           signal: opts.signal,
           timeoutMs: opts.timeoutMs ?? GATE_LANE_HEADLESS_TIMEOUT_MS,
           onOutput: opts.onOutput,
+          ...(structured ? { outputSchema: TESTER_OUTPUT_SCHEMA } : {}),
           tracking: {
             callSite: 'uat-tester',
             ticketId: opts.ticketId,

@@ -751,6 +751,11 @@ export class OpencodeAdapter implements AgentAdapter {
     resume: SUPPORTED,
     sessionName: unsupported('the opencode TUI has no launch-time session-name flag'),
     consoleStream: SUPPORTED,
+    structuredOutput: unsupported(
+      '`opencode run --format json` emits raw JSON session EVENTS, never a '
+        + 'schema-constrained final document; there is no `--json-schema`-style '
+        + 'flag, so the prose output contract + salvage parse stay the only path',
+    ),
     hookChannel: SUPPORTED,
     endpointRebind: SUPPORTED,
   };

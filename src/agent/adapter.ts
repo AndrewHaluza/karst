@@ -13,6 +13,17 @@ import type { TokenUsage } from './tokenUsage.js';
 import type { AdapterSurfaces } from './surfaces.js';
 
 /**
+ * A JSON Schema document describing the shape a core's FINAL response is asked
+ * to conform to (draft-07 subset). Passed to `RunHeadlessOpts.outputSchema` and
+ * translated by each supporting adapter into its own structured-output flag
+ * (claude `--json-schema`, codex `--output-schema`). A scalar type union is all
+ * a builder here emits; adapters serialize it with `JSON.stringify`. `supported`
+ * is declared per adapter on `AdapterSurfaces.structuredOutput` — a caller
+ * requests it only when that surface says the core can enforce it.
+ */
+export type JsonSchemaDocument = Record<string, unknown>;
+
+/**
  * What a call site declares so its spend can be attributed (§ token consumption
  * stats). This is the ENTIRE cost of covering a new AI integration: the
  * recording happens in `instrumentedAdapter.ts`, never at the call site. Absent
@@ -98,7 +109,17 @@ export interface RunHeadlessOpts {
    * and sanitize it. Absent → no live chunks; the full output still arrives
    * in `HeadlessResult.raw` on settle, exactly as before.
    */
-  onOutput?: (chunk: HeadlessOutputChunk) => void;
+   onOutput?: (chunk: HeadlessOutputChunk) => void;
+  /**
+   * A JSON Schema the core's FINAL response should be made to conform to. Only
+   * meaningful on a core that declares `AdapterSurfaces.structuredOutput`
+   * supported — the findings/review and UAT-tester lanes request it only there,
+   * and the core's headless CLI enforces it so the salvage parse in
+   * `review/findings.ts` reads a clean whole-document JSON array instead of
+   * coaxing one out of prose. Absent → the call runs against the plain prose
+   * prompt, exactly as a non-structured core needs.
+   */
+  outputSchema?: JsonSchemaDocument;
 }
 
 export interface HeadlessResult {

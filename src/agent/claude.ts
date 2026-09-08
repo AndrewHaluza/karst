@@ -131,6 +131,7 @@ export class ClaudeAdapter implements AgentAdapter {
     resume: SUPPORTED,
     sessionName: SUPPORTED,
     consoleStream: SUPPORTED,
+    structuredOutput: SUPPORTED,
     hookChannel: SUPPORTED,
     endpointRebind: unsupported(
       'the channel is a --settings FILE read once by the CLI at launch, not a script ' +
@@ -348,6 +349,17 @@ export class ClaudeAdapter implements AgentAdapter {
     if (opts.permissionMode) args.push('--permission-mode', opts.permissionMode);
     if (opts.allowedTools && opts.allowedTools.length > 0) {
       args.push('--allowedTools', opts.allowedTools.join(','));
+    }
+    // Native structured output (Prompt 09): when a caller (the findings / UAT
+    // tester lane) supplies a JSON Schema, hand it to `--json-schema` so the CLI
+    // constrains its FINAL response to that shape — the salvage parser then
+    // reads a clean whole-document array instead of coaxing one out of prose.
+    // The JSON text is a single argv entry, never shell-interpolated.
+    if (opts.outputSchema) {
+      args.push('--json-schema', JSON.stringify(opts.outputSchema));
+      opts.debug?.(
+        `[agent:claude] structured output: enforcing the supplied JSON Schema on the final response`,
+      );
     }
     // `--` ends option parsing so the prompt is always a positional, even when
     // it starts with dashes (e.g. a reviewer prompt's `---` YAML frontmatter) —

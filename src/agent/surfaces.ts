@@ -69,6 +69,18 @@ export interface AdapterSurfaces {
    */
   readonly consoleStream: SurfaceSupport;
   /**
+   * `RunHeadlessOpts.outputSchema` → the core's native structured-output request:
+   * the CLI itself enforces that the FINAL response conforms to a JSON Schema,
+   * so karst does not have to coax the shape out of prose. `supported` means the
+   * core's headless CLI accepts a JSON Schema and returns a schema-conforming
+   * final document (claude `--json-schema`, codex `--output-schema`).
+   * `unsupported` means the CLI only ever returns the final assistant message as
+   * prose or an event envelope (opencode `--format json`, agy `-p`), so the
+   * prose output contract + `review/findings.ts`'s salvage parse stay the only
+   * path — see `promptText.ts`'s output rules.
+   */
+  readonly structuredOutput: SurfaceSupport;
+  /**
    * An executable hook channel the launch can install (a bridge script, a
    * settings file). `unsupported` means lifecycle signals are WATCHED instead
    * (agy's conversation DB) — see `docs/agent-cores/HOOK-CONTRACT.md`.

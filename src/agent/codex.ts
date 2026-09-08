@@ -5,8 +5,10 @@ import {
   cpSync,
   existsSync,
   mkdirSync,
+  mkdtempSync,
   readFileSync,
   renameSync,
+  rmSync,
   writeFileSync,
 } from 'node:fs';
 import {
@@ -16,6 +18,7 @@ import {
   isAbsolute,
   join,
 } from 'node:path';
+import { tmpdir } from 'node:os';
 import type {
   AgentAdapter,
   AgentCapabilities,
@@ -623,6 +626,7 @@ export class CodexAdapter implements AgentAdapter {
       'codex names sessions only after the fact (`codex archive <name>`) — no launch-time flag',
     ),
     consoleStream: SUPPORTED,
+    structuredOutput: SUPPORTED,
     hookChannel: SUPPORTED,
     endpointRebind: SUPPORTED,
   };
@@ -783,6 +787,22 @@ export class CodexAdapter implements AgentAdapter {
     if (opts.model) args.push('--model', opts.model);
     if (opts.effort) args.push('--config', `model_reasoning_effort=${opts.effort}`);
     appendPolicyArgs(args, opts.permissionMode);
+    // Native structured output (Prompt 09): codex reads its JSON Schema from a
+    // FILE (`--output-schema <FILE>`), so when a caller supplies one, materialize
+    // it to a temp dir this adapter created and clean it up the moment the run
+    // settles. The schema constrains the CLI's FINAL response to that shape, so
+    // the salvage parser reads a clean whole-document array from the last
+    // assistant message instead of coaxing one out of prose.
+    let schemaFile: string | undefined;
+    if (opts.outputSchema) {
+      const dir = mkdtempSync(join(tmpdir(), 'karst-schema-'));
+      schemaFile = join(dir, 'output-schema.json');
+      writeFileSync(schemaFile, JSON.stringify(opts.outputSchema));
+      args.push('--output-schema', schemaFile);
+      opts.debug?.(
+        `[agent:codex] structured output: enforcing --output-schema ${schemaFile} on the final response`,
+      );
+    }
     if (opts.resume) {
       args.push(opts.resume, opts.prompt);
     } else {
@@ -817,6 +837,10 @@ export class CodexAdapter implements AgentAdapter {
       });
     } finally {
       consoleStream?.flush();
+      // The schema file was only needed for the duration of the CLI run; remove
+      // it on every exit path (clean, abort, timeout) so no temp file outlives
+      // its call.
+      if (schemaFile) rmSync(dirname(schemaFile), { recursive: true, force: true });
     }
     if (result.exitCode !== 0) {
       opts.debug?.(
