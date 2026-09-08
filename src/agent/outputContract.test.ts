@@ -41,9 +41,14 @@ type ElementLike = {
   properties?: Record<string, unknown>;
 };
 
+/** The `findings` array node of a container schema. */
+function findingsArray(schema: unknown): { type?: unknown; items?: unknown } {
+  const props = (schema as { properties?: Record<string, unknown> }).properties ?? {};
+  return props.findings as { type?: unknown; items?: unknown };
+}
+
 function baseElement(schema: unknown): ElementLike {
-  const items = (schema as { items?: unknown }).items as ElementLike;
-  return items;
+  return findingsArray(schema).items as ElementLike;
 }
 
 describe('outputContract — prose and schema agree on the element shape', () => {
@@ -82,9 +87,21 @@ describe('outputContract — prose and schema agree on the element shape', () =>
     expect(tester.required).toEqual(review.required);
   });
 
-  it('is a top-level JSON array, matching the prose "Output ONLY a JSON array"', () => {
-    expect(REVIEW_OUTPUT_SCHEMA.type).toBe('array');
-    expect(TESTER_OUTPUT_SCHEMA.type).toBe('array');
+  // A structured-output flag becomes a custom tool whose `input_schema` is this
+  // document; the Anthropic API rejects any such schema whose `type` is not
+  // "object" ("tools.N.custom.input_schema.type: Input should be 'object'"),
+  // which killed every structured Tester/review call before the model ran.
+  it('is a top-level JSON object, not a bare array', () => {
+    for (const schema of [REVIEW_OUTPUT_SCHEMA, TESTER_OUTPUT_SCHEMA]) {
+      expect(schema.type).toBe('object');
+    }
+  });
+
+  it('carries the findings under a required `findings` array', () => {
+    for (const schema of [REVIEW_OUTPUT_SCHEMA, TESTER_OUTPUT_SCHEMA]) {
+      expect((schema as { required?: unknown[] }).required).toEqual(['findings']);
+      expect(findingsArray(schema).type).toBe('array');
+    }
   });
 
   it('adds a schema-only criterion field to the tester element only', () => {
@@ -93,6 +110,6 @@ describe('outputContract — prose and schema agree on the element shape', () =>
   });
 
   it('is what findingElementSchema builds, so a caller gets the canonical element', () => {
-    expect(REVIEW_OUTPUT_SCHEMA.items).toEqual(findingElementSchema());
+    expect(findingsArray(REVIEW_OUTPUT_SCHEMA).items).toEqual(findingElementSchema());
   });
 });

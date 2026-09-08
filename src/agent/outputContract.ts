@@ -59,18 +59,47 @@ export function findingElementSchema(opts: { criterion?: boolean } = {}): JsonSc
   };
 }
 
-/** The review findings lane's output schema: a top-level JSON array of the
- *  base finding element, matching the `OUTPUT_RULES_BASE` "Output ONLY a JSON
- *  array" instruction and the bare-array shape `parseFindings` accepts. */
-export const REVIEW_OUTPUT_SCHEMA: JsonSchemaDocument = {
-  type: 'array',
-  items: findingElementSchema(),
-};
+/**
+ * Wraps an element schema in the one container shape a structured-output flag
+ * can actually carry: an object with a single `findings` array.
+ *
+ * A top-level `{"type":"array"}` document is NOT usable here. Both CLIs
+ * implement their structured-output flag by declaring a custom tool whose
+ * `input_schema` is the supplied document verbatim, and the Anthropic API
+ * requires every `custom.input_schema.type` to be `"object"`. Passing an array
+ * document made the API reject the entire request before the model ran:
+ *
+ *   API Error: 400 tools.8.custom.input_schema.type: Input should be 'object'
+ *
+ * which surfaced as an opaque `adapter execution failed` on every UAT Tester
+ * and review-findings call on a structured core.
+ *
+ * The `{ findings: [...] }` container is one of the shapes `review/findings.ts`
+ * already recognizes at its cheapest parse tier (alongside the bare array the
+ * prose contract asks non-structured cores for), so no parser change is needed
+ * and both paths still produce identical findings.
+ */
+function findingsContainerSchema(element: JsonSchemaDocument): JsonSchemaDocument {
+  return {
+    type: 'object',
+    additionalProperties: false,
+    required: ['findings'],
+    properties: {
+      findings: { type: 'array', items: element },
+    },
+  };
+}
 
-/** The UAT Tester's output schema: a top-level array of the finding element
- *  plus an optional `criterion` key, so a structured Tester response can carry
+/** The review findings lane's output schema: an object carrying a `findings`
+ *  array of the base element — the container form of the `OUTPUT_RULES_BASE`
+ *  element line (see `findingsContainerSchema` for why it is not a bare array). */
+export const REVIEW_OUTPUT_SCHEMA: JsonSchemaDocument = findingsContainerSchema(
+  findingElementSchema(),
+);
+
+/** The UAT Tester's output schema: the same `findings` container, whose element
+ *  adds an optional `criterion` key so a structured Tester response can carry
  *  which done-when criterion each observation exercised (Prompt 17). */
-export const TESTER_OUTPUT_SCHEMA: JsonSchemaDocument = {
-  type: 'array',
-  items: findingElementSchema({ criterion: true }),
-};
+export const TESTER_OUTPUT_SCHEMA: JsonSchemaDocument = findingsContainerSchema(
+  findingElementSchema({ criterion: true }),
+);
