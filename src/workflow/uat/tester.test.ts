@@ -938,6 +938,55 @@ describe('buildTesterPrompt', () => {
     expect(blank).toContain('Act as the UAT tester');
     expect(blank).toContain('Try to BREAK');
   });
+
+  it('carries the ticket criteria as an authoritative block between the strategy and the scope block', () => {
+    const prompt = buildTesterPrompt(TARGETS[0]!, undefined, undefined, undefined, {
+      criteria: 'The button must open the modal.',
+    });
+    expect(prompt).toContain('Done-when criteria for this ticket (authoritative');
+    expect(prompt).toContain('The button must open the modal.');
+    const criteriaIdx = prompt.indexOf('Done-when criteria');
+    const scopeIdx = prompt.indexOf('Scope rules');
+    expect(criteriaIdx).toBeGreaterThan(-1);
+    expect(scopeIdx).toBeGreaterThan(criteriaIdx);
+  });
+
+  it('omits the criteria block when absent or blank', () => {
+    const absent = buildTesterPrompt(TARGETS[0]!);
+    expect(absent).not.toContain('Done-when criteria');
+    const blank = buildTesterPrompt(TARGETS[0]!, undefined, undefined, undefined, {
+      criteria: '   ',
+    });
+    expect(blank).not.toContain('Done-when criteria');
+  });
+
+  it('a profile override (instructions) cannot displace the criteria block', () => {
+    const prompt = buildTesterPrompt(TARGETS[0]!, 'Focus on API endpoint behavior.', undefined, undefined, {
+      criteria: 'The button must open the modal.',
+    });
+    expect(prompt).toContain('The button must open the modal.');
+    expect(prompt).toContain('Focus on API endpoint behavior.');
+  });
+
+  it('names one command for pulling the rest of the ticket context, and only that command is permitted past the recon ban', () => {
+    const prompt = buildTesterPrompt(TARGETS[0]!, undefined, undefined, undefined, {
+      ticketKey: 'PROMPT-17',
+      contextCommand: 'node "cli.js" context --db "db"',
+    });
+    expect(prompt).toContain(
+      'Run exactly: node "cli.js" context --db "db" PROMPT-17 --md',
+    );
+    expect(prompt).toContain('Nothing else about the orchestrator is in scope.');
+    expect(prompt).toContain('The one exception is the command named above');
+  });
+
+  it('omits the pointer line and keeps the ban unqualified when no context command is given', () => {
+    const prompt = buildTesterPrompt(TARGETS[0]!);
+    expect(prompt).not.toContain('Run exactly:');
+    expect(prompt).toContain(
+      'No querying the orchestration tool that launched you — its CLI or its state database.',
+    );
+  });
 });
 
 describe('runUatTester — silence-nudge telemetry (v57)', () => {

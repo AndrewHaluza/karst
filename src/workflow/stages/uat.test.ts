@@ -1444,6 +1444,47 @@ describe('runUat — Tester and verifier (Task 8)', () => {
     expect(capturedPrompt).toContain('origin/develop...origin/karst/x');
   });
 
+  // Prompt 17: the stage reads the ticket's `description` as its done-when
+  // criteria and threads the key + the host's composed context command into
+  // the Tester prompt, so the criteria block and the tier-1 pointer land
+  // without a new injected dependency.
+  it("carries the ticket's description as criteria and the composed context command into the Tester prompt", async () => {
+    const criteriaId = createTicketFlow(store, {
+      key: 'T-CRIT',
+      title: 't',
+      description: 'The button must open the modal.',
+    }).id;
+    transition(store, criteriaId, 'scope', { kind: 'passed' });
+    transition(store, criteriaId, 'impl', { kind: 'passed' });
+    let capturedPrompt: string | undefined;
+    const runHeadless = vi.fn(async (headlessOpts: { prompt: string }) => {
+      capturedPrompt = headlessOpts.prompt;
+      return { sessionId: '', verdict: null, raw: '[]' };
+    });
+    const adapter: AgentAdapter = { ...testerAgent('[]'), runHeadless };
+    const res = await runUat(
+      store,
+      {
+        ticketId: criteriaId,
+        cwd: '/wt/web',
+        artifactDir,
+        manifest: manifest({}),
+        contextCommand: 'node "cli.js" context --db "db"',
+      },
+      testerDeps({
+        tester: { assignment: { provider: 'claude' }, adapter },
+        planTargets: async () => ({
+          kind: 'targets',
+          targets: [{ repo: '/web', path: '/wt/web', names: ['web'] }],
+          unmapped: [],
+        }),
+      }),
+    );
+    expect(res).toEqual({ kind: 'advanced', next: 'review' });
+    expect(capturedPrompt).toContain('The button must open the modal.');
+    expect(capturedPrompt).toContain('Run exactly: node "cli.js" context --db "db" T-CRIT --md');
+  });
+
   // 869ej1nfb: "UAT tester xterm console shows no diffs if they're there". The
   // stage passes its git runner into the Tester, which verifies the checkout
   // is actually on the ticket branch BEFORE spending a token. A wrong checkout

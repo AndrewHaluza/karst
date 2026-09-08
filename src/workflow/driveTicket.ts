@@ -143,6 +143,14 @@ export interface DriveTicketDeps {
    * stage parks; absent with no verifier configured, it is unused.
    */
   runVerifier?: TesterGateRunner;
+  /**
+   * The composed `karst context` prefix (Prompt 17, § context loader) — the
+   * SAME opaque string `buildCliContextPrefix` composes for the generated
+   * `/karst:<id>` command's loader step. Threaded into the Tester's tier-1
+   * pointer line so both surfaces name the identical command. Absent → the
+   * Tester prompt carries no pointer line.
+   */
+  contextCommand?: string;
   log: (message: string) => void;
   /**
    * Verbose decision-point logging (§ debug logging), prefixed `[driver]`,
@@ -266,6 +274,7 @@ export async function driveTicket(
               manifest: deps.manifest(),
               signal: controller.signal,
               debug: deps.debug,
+              contextCommand: deps.contextCommand,
               onGateOutput: (name, chunk) => deps.onGateOutput?.(id, 'uat', name, chunk),
               onGateStart: (name) =>
                 deps.onInsideProgress?.({
