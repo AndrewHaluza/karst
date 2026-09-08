@@ -516,7 +516,7 @@ describe('SessionManager', () => {
 
     expect(terminals).toHaveLength(1);
     expect(terminals[0]!.shown).toBe(0);
-    expect(terminals[0]!.hideFromUser).toBe(true);
+    expect(terminals[0]!.hideFromUser).toBeUndefined();
   });
 
   it('keeps an automated re-open of an existing terminal in the background', () => {

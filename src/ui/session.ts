@@ -480,7 +480,6 @@ export class SessionManager {
           ...(identity?.provider ? { [KARST_PROVIDER_ENV]: identity.provider } : {}),
         },
         ...(identity ? { identity } : {}),
-        ...(options.reveal === false ? { hideFromUser: true } : {}),
         ...(naming?.iconPath ? { iconPath: naming.iconPath } : {}),
         ...(naming?.color ? { color: naming.color } : {}),
       });
