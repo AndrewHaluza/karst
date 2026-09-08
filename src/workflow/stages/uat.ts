@@ -645,10 +645,29 @@ export async function runUat(
     deps.warn?.(`uat tester: call failed, contributing no observations: ${testerResult.message}`);
   }
   if (testerResult?.kind === 'unreadable-output') {
-    // Advisory absence, handled exactly like `execution-failed`: an answer
-    // nothing could be read out of must not break the run's gates — it is
-    // reported, and the gates decide.
-    deps.warn?.('uat tester: every target answered unreadable output, contributing no observations');
+    // NOT the same event as `execution-failed`. The call SUCCEEDED and the
+    // agent answered — it just answered in a shape no findings could be read
+    // out of. That answer may carry blocking observations nobody parsed, so
+    // treating it as an advisory absence discards evidence rather than noting
+    // one. By the time this branch runs, `runUatTester` has already given
+    // every unreadable target ONE reformat nudge (quoting its own prose back,
+    // asking only for the shape) — this is reached only when that retry also
+    // came back unreadable. Park instead of passing: no `maxFixAttempts`
+    // attempt is consumed and no recovery round opens for what may be a
+    // formatting failure by the agent core rather than a defect in the ticket
+    // — the ticket stops and waits for a human instead of advancing on
+    // evidence nobody read. Mirrors review's own park for the identical
+    // situation (`review.ts` ~line 675).
+    //
+    // This is a real, UNMEASURED-rate decision (UAT-19): the reformat-nudge
+    // rate this park's trigger reads from is zero rows at ship time. If it
+    // later reads high for one core (or the reformat nudge itself rarely
+    // recovers a readable answer), the fallback is reverting this park to
+    // advisory for that core — never tuning the nudge's wording first. See
+    // `docs/arch/prompt-metrics.md` ("UAT-19's park rollback trigger").
+    const reason = 'uat tester: every target answered unreadable output — nothing could be read out of it';
+    sections.push(`# uat tester (unreadable output)\n${testerResult.preview}`);
+    return finish({ kind: 'blocked', blocker: 'capability-missing', reason }, [reason]);
   }
 
   const verifierGate = opts.manifest?.uat?.testerVerifier;

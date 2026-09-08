@@ -243,7 +243,16 @@ export type TesterRunResult =
    * as a clean one is what turned a `high` observation into "0 observations —
    * advisory". Advisory still: the ordinary UAT gates decide the stage.
    */
-  | { kind: 'unreadable-output' }
+  | {
+      kind: 'unreadable-output';
+      /**
+       * Every unreadable target's raw answer, bounded and sanitized
+       * (`collapseDiagnostic`) — the only record of what the Tester saw. For
+       * the stage's artifact log ONLY: never a verdict reason, never a debug
+       * line, never `uat_findings` (UAT-19).
+       */
+      preview: string;
+    }
   | { kind: 'interrupted' };
 
 export const DEFAULT_MAX_TESTER_OBSERVATIONS = 100;
@@ -258,6 +267,31 @@ export const TESTER_SILENCE_NUDGE =
   'Your previous answer was empty. Whatever you have observed so far, write it ' +
   'down NOW as the JSON array described above — output exactly [] if there is ' +
   'nothing worth reporting. Output the array and nothing else.';
+
+/** Bound on the quoted-back prose in {@link buildReformatNudge} — untrusted agent output re-entering the prompt. */
+const REFORMAT_NUDGE_QUOTE_MAX = 4_000;
+
+/**
+ * Appended for the ONE re-ask a target gets when its answer came back
+ * UNREADABLE (UAT-19) — distinct from {@link TESTER_SILENCE_NUDGE}, which
+ * re-asks a target that said NOTHING. Here the core answered and observed
+ * something real; the shape was wrong. Quoting the prose back and asking
+ * only for its reformatting (no new testing, no new observation) recovers
+ * that finding instead of discarding it — a genuine defect, correctly
+ * found, must not be lost to a formatting failure. The quoted prose is
+ * bounded (`collapseDiagnostic`) before it re-enters the prompt: it is
+ * untrusted agent output like any other. Fired at most once per target;
+ * a still-unreadable second answer parks the stage (`stages/uat.ts`).
+ */
+function buildReformatNudge(raw: string): string {
+  return (
+    'Your previous answer was not a valid JSON array of findings — it was:\n' +
+    `"""${collapseDiagnostic(raw, REFORMAT_NUDGE_QUOTE_MAX)}"""\n` +
+    'Do not observe or test anything new. Reformat exactly what you already ' +
+    'reported above as the JSON array described earlier — output exactly [] ' +
+    'if there was nothing worth reporting. Output the array and nothing else.'
+  );
+}
 
 /**
  * The branch the checkout at `cwd` is currently on, or null when it cannot be
@@ -432,10 +466,20 @@ export async function runUatTester(
   // One shape per target actually ASKED — the deterministic wrong-checkout
   // `continue` below pushes nothing here, since it never asked the core.
   const shapes: FindingsParseShape[] = [];
+  // The raw answer from every target that parsed as 'unreadable' — the only
+  // record of what the Tester saw, kept so the all-unreadable branch below
+  // can hand it to the stage as evidence instead of discarding it. Bounded
+  // and sanitized once, at the point it leaves this function (UAT-19).
+  const unreadableAnswers: { repo: string; raw: string }[] = [];
   // v57 prompt metrics: how many targets answered NOTHING and were re-asked once.
   // The tester's OWN run carries it (it opened that run), mirroring how the review
   // lane records its parse tiers — never a verdict input, never a second row.
   let silenceNudges = 0;
+  // v57 prompt metrics, kept SEPARATE from `silenceNudges`: a reformat nudge
+  // fires on a different failure mode (the core answered, in the wrong
+  // shape) than silence (the core answered nothing), and the two rates must
+  // stay distinguishable in the telemetry blob.
+  let reformatNudges = 0;
   const debug = opts.debug;
   const git = opts.git ?? defaultGitRunner;
   const snapshotted: { repo: string; worktreePath: string }[] = [];
@@ -521,9 +565,9 @@ export async function runUatTester(
       // of real testing — did the work and never wrote the answer down. The
       // nudge APPENDS to the same prompt, so the target context and the strict
       // output rules still stand, and the re-ask costs a call only on a run
-      // that would otherwise have recorded nothing. Unreadable PROSE is NOT
-      // re-asked: the core answered, it just answered the wrong shape, and
-      // asking the same question again buys a second helping of prose.
+      // that would otherwise have recorded nothing. UNREADABLE prose gets its
+      // own, separate re-ask below (UAT-19) — a reformat, never a second
+      // attempt at the same question.
       if (result.raw.trim() === '' && !opts.signal?.aborted) {
         silenceNudges += 1;
         debug?.(
@@ -537,7 +581,7 @@ export async function runUatTester(
       // Finding 13 follow-up: the budget is NOT a reason to skip a target;
       // every configured repository is asked, and the cap is applied once,
       // after collection.
-      const parseResult = parseFindingsResult(
+      let parseResult = parseFindingsResult(
         result.raw,
         {
           repo: target.repo,
@@ -546,7 +590,37 @@ export async function runUatTester(
         },
         opts.warn,
       );
+      // UNREADABLE prose is re-asked ONCE, for reformatting only (UAT-19) —
+      // the core already answered and may have found something real; only
+      // the shape is wrong. Quoting its own prose back and asking for
+      // nothing but the JSON array recovers that finding instead of losing
+      // it to a park. Fired on the same condition the park would otherwise
+      // fire on: still unreadable after this retry, and only then, the
+      // target contributes nothing.
+      if (parseResult.shape === 'unreadable' && !opts.signal?.aborted) {
+        reformatNudges += 1;
+        debug?.(
+          `[gate] uat tester ticket ${opts.ticketId}: target ${target.repo} answered unreadable output — re-asking once for reformatting`,
+        );
+        const reformatted = await ask(`${prompt}\n${buildReformatNudge(result.raw)}`);
+        if (!opts.signal?.aborted) {
+          result = reformatted;
+          parseResult = parseFindingsResult(
+            result.raw,
+            {
+              repo: target.repo,
+              worktreePath: target.worktreePath,
+              max: cap,
+            },
+            opts.warn,
+          );
+        }
+      }
+      if (opts.signal?.aborted) break;
       shapes.push(parseResult.shape);
+      if (parseResult.shape === 'unreadable') {
+        unreadableAnswers.push({ repo: target.repo, raw: result.raw });
+      }
       // The host ALREADY proved this checkout above (`observed === expected`,
       // or the loop would have skipped the call). An agent claiming "wrong
       // checkout" anyway is reporting its own core's cwd mis-resolution, not a
@@ -590,7 +664,7 @@ export async function runUatTester(
     // the run the tester opened — a late fact written before every close path, so
     // a Stop mid-loop still records what fired. The re-ask RATE is the
     // output-contract-compliance signal prompt-metrics.md reads.
-    setProcessRunPromptTelemetry(store, run.id, { silenceNudges });
+    setProcessRunPromptTelemetry(store, run.id, { silenceNudges, reformatNudges });
     if (opts.signal?.aborted) {
       debug?.(`[gate] uat tester ticket ${opts.ticketId}: stopped — interrupted`);
       close('interrupted', 'interrupted');
@@ -605,7 +679,14 @@ export async function runUatTester(
           `unreadable output — recorded no observations`,
       );
       close('failed', 'unreadable-output');
-      return { kind: 'unreadable-output' };
+      // Bounded and sanitized ONCE here — the same collapse-then-cap every
+      // other untrusted-prose field reaching a rendered surface uses — so the
+      // stage can write it into the artifact log as evidence without ever
+      // handing raw agent prose to a debug line or a verdict reason.
+      const preview = collapseDiagnostic(
+        unreadableAnswers.map((a) => `${a.repo}: ${a.raw}`).join('\n---\n'),
+      );
+      return { kind: 'unreadable-output', preview };
     }
     // The execution-wide cap is applied ONCE over everything every target
     // contributed, ranked by severity (critical first) and stable — ties keep

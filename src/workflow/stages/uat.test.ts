@@ -1172,7 +1172,10 @@ describe('runUat — Tester and verifier (Task 8)', () => {
     expect(listUatFindings(store, id)).toHaveLength(1);
   });
 
-  it('an unreadable Tester answer is advisory too: the stage does not fail, and the gates alone decide', async () => {
+  // UAT-19 (central RED case): an all-unreadable Tester answer PARKS the
+  // stage instead of passing it — the gates being green must not paper over
+  // evidence nobody could read.
+  it('an unreadable Tester answer parks the stage, consumes no attempt, and opens no recovery round', async () => {
     const res = await runUat(
       store,
       { ticketId: id, cwd: '/wt/web', artifactDir },
@@ -1183,14 +1186,80 @@ describe('runUat — Tester and verifier (Task 8)', () => {
         },
       }),
     );
-    expect(res).toEqual({ kind: 'advanced', next: 'review' });
+    expect(res).toMatchObject({ kind: 'blocked', blocker: 'capability-missing' });
+    // No agent prose in the blocked reason.
+    if (res.kind === 'blocked') {
+      expect(res.reason).not.toContain('everything looked fine');
+    }
     expect(listUatFindings(store, id)).toEqual([]);
     expect(listRecoveryRounds(store, id)).toEqual([]);
-    expect(getTicket(store, id).stageCurrent).toBe('review');
+    // The park does not advance the ticket, and consumes no fix attempt.
+    expect(getTicket(store, id).stageCurrent).toBe('uat');
+    expect(uatStage(store, id).attempt).toBe(0);
     expect(listProcessRuns(store, id)[0]).toMatchObject({
       processId: 'tester',
       resultKind: 'unreadable-output',
     });
+  });
+
+  // Regression guard: `execution-failed` (the call itself could not be made)
+  // must NOT change — it stays advisory and the gates alone decide.
+  it('an execution-failed Tester call still passes uat on green gates (unchanged)', async () => {
+    const res = await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      testerDeps({
+        tester: {
+          assignment: { agentName: 'UAT Agent', provider: 'claude' },
+          adapter: {
+            ...testerAgent('[]'),
+            runHeadless: async () => {
+              throw new Error('adapter crashed');
+            },
+          },
+        },
+      }),
+    );
+    expect(res).toEqual({ kind: 'advanced', next: 'review' });
+    expect(listRecoveryRounds(store, id)).toEqual([]);
+  });
+
+  // One target unreadable, another with observations: no park, observations
+  // flow exactly as today — the park is only for the all-unreadable case.
+  it('one unreadable target among others with observations does not park — observations still flow', async () => {
+    let call = 0;
+    const adapter: AgentAdapter = {
+      ...testerAgent('[]'),
+      runHeadless: async () => {
+        call += 1;
+        // call 1: target 1's initial ask (prose). call 2: target 1's reformat
+        // nudge (still prose — genuinely unreadable). call 3: target 2's
+        // initial ask (valid JSON, no reformat needed).
+        return call <= 2
+          ? { sessionId: '', verdict: null, raw: 'prose, not JSON' }
+          : { sessionId: '', verdict: null, raw: JSON.stringify([{ severity: 'high', title: 'x', detail: '' }]) };
+      },
+    };
+    const res = await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
+      testerDeps({
+        tester: {
+          assignment: { agentName: 'UAT Agent', provider: 'claude' },
+          adapter,
+        },
+        planTargets: async () => ({
+          kind: 'targets',
+          targets: [
+            { repo: '/wt/web', path: '/wt/web', names: [] },
+            { repo: '/wt/api', path: '/wt/api', names: [] },
+          ],
+          unmapped: [],
+        }),
+      }),
+    );
+    expect(res).toEqual({ kind: 'advanced', next: 'review' });
+    expect(listUatFindings(store, id)).toHaveLength(1);
   });
 
   it('does not reuse review AI-result reduction as authority: no blocking-review-findings round ever opens from uat', async () => {
