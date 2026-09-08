@@ -292,13 +292,18 @@ const REFORMAT_NUDGE_QUOTE_MAX = 4_000;
  * that finding instead of discarding it — a genuine defect, correctly
  * found, must not be lost to a formatting failure. The quoted prose is
  * bounded (`collapseDiagnostic`) before it re-enters the prompt: it is
- * untrusted agent output like any other. Fired at most once per target;
- * a still-unreadable second answer parks the stage (`stages/uat.ts`).
+ * untrusted agent output like any other. The fence delimiter is `"""`,
+ * so the sequence is replaced inside the payload — `collapseDiagnostic`
+ * bounds and one-lines the prose but escapes nothing, and a fence the
+ * payload can close puts the remainder of untrusted agent output where
+ * the instructions are. Fired at most once per target; a still-unreadable
+ * second answer parks the stage (`stages/uat.ts`).
  */
 function buildReformatNudge(raw: string): string {
+  const quoted = collapseDiagnostic(raw, REFORMAT_NUDGE_QUOTE_MAX).replaceAll('"""', "'''");
   return (
     'Your previous answer was not a valid JSON array of findings — it was:\n' +
-    `"""${collapseDiagnostic(raw, REFORMAT_NUDGE_QUOTE_MAX)}"""\n` +
+    `"""${quoted}"""\n` +
     'Do not observe or test anything new. Reformat exactly what you already ' +
     'reported above as the JSON array described earlier — output exactly [] ' +
     'if there was nothing worth reporting. Output the array and nothing else.'
