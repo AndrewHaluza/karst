@@ -62,6 +62,12 @@ machine-read JSON or markdown; diagnostics go to stderr and never corrupt it.
   brief, current stage and its verdict/blocking, gate runs, findings,
   worktrees, branches, running servers, pull requests, merge checks. Re-run it
   any time you need fresh state — it reflects the database, not a stale seed.
+- \`stats [--project <slug>] [--since <iso>] [--json]\` — **read** the
+  orchestration effectiveness report for a project: first-pass rate, rework
+  loops, gate kill distribution, cycle time, agent-active time, token spend by
+  call site, escaped defects, finding density, the agent-vs-human finding
+  split, merge friction, ship failures, graph efficiency, interruption rate.
+  Read-only; it names the metrics the schema cannot answer instead of guessing.
 - \`stage <impl|fix> pass\` — the done marker: the ONLY transition an agent
   can fire. It advances the ticket from \`impl\` or \`fix\` to the next stage.
   A session ending does NOT advance the ticket — you must fire this marker

@@ -5,6 +5,7 @@ import type { Manifest } from '../manifest/types.js';
 import { openReadonlyStore } from './readonlyStore.js';
 import { openGraphWritableStore, openWritableStore } from './writableStore.js';
 import { parseContextArgs, runContextCommand } from './context.js';
+import { parseStatsArgs, runStatsCommand } from './stats.js';
 import { runStageCommand } from './stage.js';
 import { runPhaseCommand } from './phase.js';
 import { runGraphCommand } from './graph.js';
@@ -52,6 +53,10 @@ function loadProjectSlug(manifestPath: string | undefined): string | undefined {
  *
  *   context:  `… context <key> --db <db> --manifest <yml> [--json|--md]`
  *             re-pull fresh ticket context on demand (read-only, node:sqlite).
+ *   stats:    `… stats --db <db> [--manifest <yml>] [--project <slug>] [--since <iso>] [--json]`
+ *             the orchestration effectiveness report (read-only, node:sqlite):
+ *             first-pass rate, rework loops, gate kills, cycle time, spend, and
+ *             what a human still had to catch (see stats.ts).
  *   stage:    `… stage <impl|fix> pass --db <db> --ticket <ticketKey>`
  *             the explicit marker an agent fires to advance a boundary that has
  *             no deterministic verdict of its own (§5.4). Gate keys are refused:
@@ -144,6 +149,22 @@ export function runCli(argv: string[]): string {
     const store = openReadonlyStore(db);
     try {
       return runContextCommand(store, manifest, parsed, db);
+    } finally {
+      store.close();
+    }
+  }
+
+  // `stats` is READ-ONLY, like `context`: it opens the read-only store, never
+  // resolves a ticket, and never touches the machine. `--project` scopes it;
+  // without one it falls back to the manifest's project so the default answer
+  // is about the board the caller is standing on, not every board in the file.
+  if (subcommand === 'stats') {
+    if (!db) throw new Error('missing --db <path>');
+    const parsed = parseStatsArgs(rest);
+    const fallbackSlug = loadProjectSlug(manifestPath);
+    const store = openReadonlyStore(db);
+    try {
+      return runStatsCommand(store, parsed, fallbackSlug);
     } finally {
       store.close();
     }
@@ -283,7 +304,7 @@ export function runCli(argv: string[]): string {
   }
 
   throw new Error(
-    `unknown command '${subcommand ?? ''}' (want 'context', 'stage', 'phase', 'graph', 'node', 'test', 'guide' or 'compact')`,
+    `unknown command '${subcommand ?? ''}' (want 'context', 'stats', 'stage', 'phase', 'graph', 'node', 'test', 'guide' or 'compact')`,
   );
 }
 
