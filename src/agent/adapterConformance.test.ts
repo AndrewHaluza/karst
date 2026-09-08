@@ -90,6 +90,7 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
       'resume',
       'sessionName',
       'consoleStream',
+      'structuredOutput',
       'hookChannel',
       'endpointRebind',
     ];
@@ -136,6 +137,32 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
     const calls = withRecordedSpawn(adapter, { stdout: OK_STDOUT[provider], exitCode: 0 });
     await adapter.runHeadless({ ...baseOpts(), resume: 'ses_prev' });
     expect(calls[0]!.args, `${provider} headless resume`).toContain('ses_prev');
+  });
+
+  it('translates an outputSchema into the core\'s structured-output flag when declared supported', async () => {
+    const surfaces = surfacesOf(provider);
+    const adapter = resolveAdapter(provider);
+    const schema = { type: 'array', items: { type: 'object' } };
+    const calls = withRecordedSpawn(adapter, { stdout: OK_STDOUT[provider], exitCode: 0 });
+    await adapter.runHeadless({ ...baseOpts(), outputSchema: schema });
+    const args = calls[0]!.args;
+    if (surfaces.structuredOutput.supported) {
+      // A supported core must actually hand the schema to its CLI — claude
+      // inlines it (`--json-schema <json>`), codex points at a materialized file
+      // (`--output-schema <file>`). The request must reach argv, never be
+      // dropped on the floor.
+      expect(
+        args.some((a) => a === '--json-schema' || a === '--output-schema'),
+        `${provider} structured-output flag`,
+      ).toBe(true);
+      // The serialized schema text (claude inline) or its file path (codex) must
+      // appear in argv so the CLI can actually read it.
+      expect(args.some((a) => a.includes('array') || a.includes('output-schema'))).toBe(true);
+    } else {
+      // An unsupported core must not fabricate a structured-output flag it cannot
+      // honor — the prose contract stays the only path.
+      expect(args.some((a) => a === '--json-schema' || a === '--output-schema')).toBe(false);
+    }
   });
 
   it('rejects a nonzero exit with a bounded, single-line diagnostic', async () => {

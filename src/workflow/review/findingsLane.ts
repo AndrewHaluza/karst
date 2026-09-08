@@ -31,6 +31,7 @@ import { nowIso } from '../../model/time.js';
 import { parseFindingsResult, type FindingsExtractionTier, type WarnFn } from './findings.js';
 import { buildScopeBlock } from '../agentScope.js';
 import { OUTPUT_RULES_HEADING, OUTPUT_RULES_BASE, reviewBlockingSeverityRule } from '../../agent/promptText.js';
+import { REVIEW_OUTPUT_SCHEMA } from '../../agent/outputContract.js';
 import { createReviewSnapshot, deleteReviewSnapshot } from '../reviewSnapshot.js';
 import { dropDisprovenCheckoutClaims, isWrongCheckoutClaim, verifyCheckout } from './checkoutClaim.js';
 import {
@@ -365,6 +366,14 @@ export async function runFindingsLane(opts: RunFindingsLaneOpts): Promise<Findin
           signal: opts.signal,
           timeoutMs: opts.timeoutMs ?? GATE_LANE_HEADLESS_TIMEOUT_MS,
           onOutput: opts.onOutput,
+          // Prompt 09: request the core's native structured output when it
+          // declares the surface supported (claude `--json-schema`, codex
+          // `--output-schema`) so the CLI enforces the findings array shape
+          // instead of relying on the prose output rules. Gated on the declared
+          // surface, never the core's name, so the four-adapter seam rule holds.
+          ...(adapter.surfaces?.structuredOutput?.supported === true
+            ? { outputSchema: REVIEW_OUTPUT_SCHEMA }
+            : {}),
           tracking: {
             callSite: 'review-findings',
             ticketId: opts.ticketId,

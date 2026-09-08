@@ -146,6 +146,10 @@ export class AntigravityAdapter implements AgentAdapter {
       'agy runs plain `-p`: its stdout is prose, not a line-per-event stream, so there ' +
         'is nothing for consoleFormat to render live',
     ),
+    structuredOutput: unsupported(
+      '`agy -p` returns the final answer as plain prose only; it exposes no JSON Schema ' +
+        'flag, so the prose output contract + salvage parse stay the only path',
+    ),
     hookChannel: unsupported(
       'agy loads hooks.json but never RUNS the hook commands in the CLI conversation ' +
         'path; lifecycle is READ from its conversation DB (agyConversationWatch.ts)',
