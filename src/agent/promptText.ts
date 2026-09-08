@@ -53,3 +53,11 @@ export const OUTPUT_RULES_BASE: readonly string[] = [
   '- "file" must be a path RELATIVE to this worktree\'s root — never absolute, never outside it.',
   '- "title" is one short sentence; "detail" carries the explanation.',
 ];
+
+/** UAT-only output rule: a criterion the Tester could NOT exercise is severity
+ *  `info`, never `high`. `high` is reserved for a criterion the Tester
+ *  exercised and observed to be unmet. This is a product invariant that must
+ *  ship with the extension — it cannot live in repo-level agent profiles. */
+export const OUTPUT_RULES_UAT: readonly string[] = [
+  '- A criterion you could NOT exercise is severity `info`, never `high` — name what blocked you. `high` is reserved for a criterion you exercised and observed to be unmet. Never infer that a criterion is unmet because you could not run it.',
+];

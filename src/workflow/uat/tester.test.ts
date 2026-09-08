@@ -969,6 +969,16 @@ describe('buildTesterPrompt', () => {
     expect(prompt).toContain('OBSERVATIONS, not verdicts');
   });
 
+  it('a profile override (instructions) cannot displace the un-exercisable-criterion severity rule', () => {
+    const prompt = buildTesterPrompt(
+      TARGETS[0]!,
+      'Focus on API endpoint behavior.',
+    );
+    // The severity floor is a product invariant in the never-replaced output-rules tail.
+    expect(prompt).toContain('A criterion you could NOT exercise is severity `info`, never `high`');
+    expect(prompt).toContain('`high` is reserved for a criterion you exercised and observed to be unmet');
+  });
+
   it('carries the scope block so the Tester does not survey the repo first', () => {
     const prompt = buildTesterPrompt(TARGETS[0]!, undefined, ['test:unit (web)']);
     expect(prompt).toContain('Do NOT run repository-wide reconnaissance');
