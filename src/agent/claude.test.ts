@@ -779,6 +779,19 @@ describe('ClaudeAdapter.runHeadless', () => {
     expect(seen.args[seen.args.indexOf('--output-format') + 1]).toBe('json');
   });
 
+  it('isolates the run from the operator\'s personal MCP/plugin config', async () => {
+    const seen: { args: string[] } = { args: [] };
+    const spawn: SpawnHeadless = async (_cmd, args) => {
+      seen.args = args;
+      return { stdout: JSON.stringify({ session_id: 's', result: 'x' }), stderr: '', exitCode: 0 };
+    };
+    const adapter = new ClaudeAdapter(spawn);
+    await adapter.runHeadless({ prompt: 'go', cwd: '/wt/a' });
+    expect(seen.args).toContain('--strict-mcp-config');
+    expect(seen.args).toContain('--mcp-config');
+    expect(seen.args[seen.args.indexOf('--mcp-config') + 1]).toBe('{}');
+  });
+
   // SHIP-ADOPT-PR-WHEN-PUSH-NEVER §2: the reviewer prompt's leading `---` YAML
   // frontmatter was passed as -p's immediate value, and the CLI read it as an
   // unknown option ("error: unknown option '--- name: reviewer ...'"). The

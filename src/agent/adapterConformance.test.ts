@@ -93,6 +93,7 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
       'structuredOutput',
       'hookChannel',
       'endpointRebind',
+      'mcpIsolationHeadless',
       'toolActivity',
       'skillDiscovery',
     ];
@@ -139,6 +140,28 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
     const calls = withRecordedSpawn(adapter, { stdout: OK_STDOUT[provider], exitCode: 0 });
     await adapter.runHeadless({ ...baseOpts(), resume: 'ses_prev' });
     expect(calls[0]!.args, `${provider} headless resume`).toContain('ses_prev');
+  });
+
+  const MCP_ISOLATION_FLAG: Record<AgentProvider, string | null> = {
+    claude: '--strict-mcp-config',
+    codex: 'mcp_servers={}',
+    opencode: null,
+    antigravity: null,
+  };
+
+  it('isolates a headless run from the operator\'s personal MCP/plugin config when declared supported', async () => {
+    const surfaces = surfacesOf(provider);
+    const adapter = resolveAdapter(provider);
+    const calls = withRecordedSpawn(adapter, { stdout: OK_STDOUT[provider], exitCode: 0 });
+    await adapter.runHeadless(baseOpts());
+    const args = calls[0]!.args;
+    const flag = MCP_ISOLATION_FLAG[provider];
+    if (surfaces.mcpIsolationHeadless.supported) {
+      expect(flag, `${provider} must have an isolation flag mapped when declared supported`).not.toBeNull();
+      expect(args, `${provider} headless argv`).toContain(flag);
+    } else {
+      expect(flag, `${provider} declared unsupported must map to null`).toBeNull();
+    }
   });
 
   it('translates an outputSchema into the core\'s structured-output flag when declared supported', async () => {

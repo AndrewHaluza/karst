@@ -94,6 +94,19 @@ export interface AdapterSurfaces {
    */
   readonly endpointRebind: SurfaceSupport;
   /**
+   * The core's headless CLI run is isolated from whatever MCP servers or
+   * plugins are configured on the machine that launches it — the operator's
+   * personal `~/.claude.json` servers, enabled plugins with their own MCP
+   * server, or an installed opencode/agy plugin. `supported` means karst's
+   * headless invocation cannot fail or behave differently because of state
+   * that has nothing to do with the ticket (869ekt1: a locally-installed
+   * plugin's malformed tool schema made the Anthropic API reject the whole
+   * tool list on every UAT Tester run, with no karst code at fault).
+   * `unsupported` means the core's CLI has no per-invocation flag to drop
+   * that state, so a headless run on that core still inherits it.
+   */
+  readonly mcpIsolationHeadless: SurfaceSupport;
+  /**
    * PROMPT-15: `PostToolUse` events carry a `tool_name` that counts tool
    * activity per turn. `supported` means the hook channel delivers
    * `PostToolUse` with `tool_name`, enabling the marker-miss split

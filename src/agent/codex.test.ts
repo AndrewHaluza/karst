@@ -1422,6 +1422,8 @@ describe('CodexAdapter headless execution', () => {
         'exec',
         '--json',
         '--skip-git-repo-check',
+        '--config',
+        'mcp_servers={}',
         '--model',
         'custom-model',
         '--ask-for-approval',
@@ -1441,6 +1443,15 @@ describe('CodexAdapter headless execution', () => {
     });
   });
 
+  it('isolates the run from the operator\'s configured MCP servers', async () => {
+    const spawn = vi.fn(fakeSpawn({ stdout: okJsonl, exitCode: 0 }));
+    await new CodexAdapter(spawn).runHeadless({ cwd: '/wt', prompt: '- inspect' });
+    const args = spawn.mock.calls[0]![1] as string[];
+    const idx = args.indexOf('--config');
+    expect(idx).toBeGreaterThanOrEqual(0);
+    expect(args[idx + 1]).toBe('mcp_servers={}');
+  });
+
   it('threads an effort into a headless run as --config model_reasoning_effort=<value>', async () => {
     const spawn = vi.fn(fakeSpawn({ stdout: okJsonl, exitCode: 0 }));
     await new CodexAdapter(spawn).runHeadless({
@@ -1455,6 +1466,8 @@ describe('CodexAdapter headless execution', () => {
         'exec',
         '--json',
         '--skip-git-repo-check',
+        '--config',
+        'mcp_servers={}',
         '--model',
         'custom-model',
         '--config',
@@ -1481,6 +1494,8 @@ describe('CodexAdapter headless execution', () => {
         'resume',
         '--json',
         '--skip-git-repo-check',
+        '--config',
+        'mcp_servers={}',
         'thread-7',
         'continue',
       ],

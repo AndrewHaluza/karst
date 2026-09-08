@@ -759,6 +759,11 @@ export class OpencodeAdapter implements AgentAdapter {
     ),
     hookChannel: SUPPORTED,
     endpointRebind: SUPPORTED,
+    mcpIsolationHeadless: unsupported(
+      'opencode `--pure` only suppresses external plugin loading, not MCP server ' +
+        'connections from the `mcp` section of opencode.json (opencode issue #20072); ' +
+        'there is no per-run flag to drop operator-configured MCP servers',
+    ),
     toolActivity: unsupported(
       'opencode\'s plugin emits session.created/session.idle/permission.asked/session.status ' +
         'but no PostToolUse events; the running signal is session.status:busy/retry, ' +
