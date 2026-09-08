@@ -11,6 +11,7 @@ import {
 import { basename, dirname, isAbsolute, join } from 'node:path';
 
 import { openStore, type Store } from './store/db.js';
+import { backfillSpillOversized } from './attachments/spill.js';
 import { runImmediateTransaction } from './store/transactions.js';
 import { describeStoreOpenFailure } from './extension/storeOpenFailure.js';
 import { watchExternalChanges } from './store/externalChanges.js';
@@ -661,6 +662,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const hookChannelRecorder = createHookChannelRecorder();
   const activatedAt = Date.now();
   logger.info('Karst activated');
+
+  // Backfill: spill any pre-existing oversized descriptions/briefs to the
+  // attachment shelf.  Idempotent (a pointer is under threshold and won't
+  // re-spill).  Runs once per activation after migration.
+  void backfillSpillOversized(localStore, storageDir, logger).catch(() => {
+    // backfillSpillOversized logs per-ticket warnings internally.
+  });
 
   // The karst mark every panel tab wears. Materialized once per window and
   // handed to each panel host — a tab that carries no ticket has no glyph to

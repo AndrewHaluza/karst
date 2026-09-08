@@ -36,6 +36,7 @@ import {
   type StagedAttachmentRemoval,
 } from '../../attachments/reap.js';
 import { attachmentPath } from '../../attachments/paths.js';
+import { spillField } from '../../attachments/spill.js';
 import {
   abortAttachmentWrite,
   attachmentWriteState,
@@ -579,11 +580,23 @@ export function buildTicketFormActions(
         }
 
         // Now bound (either pre-existing or the just-created draft).
+        // Spill oversized provider content to the attachment shelf at ingest
+        // so every downstream read site sees bounded text.  `spillField`
+        // writes the pointer directly; only pass fields it did NOT handle.
+        const renderedBrief = renderBrief(brief);
+        const briefSpilled = await spillField(
+          deps.store, ctx.ticketId!, 'brief', renderedBrief, deps.storageDir,
+        );
+        const descSpilled = brief.description
+          ? await spillField(
+              deps.store, ctx.ticketId!, 'description', brief.description, deps.storageDir,
+            )
+          : null;
         updateTicketFields(deps.store, ctx.ticketId!, {
           sourceRef: ref,
           sourceFetchedAt: new Date().toISOString(),
-          brief: renderBrief(brief),
-          description: brief.description,
+          ...(briefSpilled ? {} : { brief: renderedBrief }),
+          ...(descSpilled ? {} : { description: brief.description }),
           selectedRepos: repos,
           // The provider-native priority label, populated from the brief. Absent
           // in the brief → '' clears it back to NULL: the fetch is the source of
@@ -871,8 +884,11 @@ export function buildTicketFormActions(
           // here silently overwrote a chosen approach (ticket 869e889uh). It rides
           // the `analysis` post below for the page to surface; committing it needs
           // an explicit set-approach / save / submit.
+          const descSpilled = await spillField(
+            deps.store, ctx.ticketId, 'description', analysis.prompt, deps.storageDir,
+          );
           updateTicketFields(deps.store, ctx.ticketId, {
-            description: analysis.prompt,
+            ...(descSpilled ? {} : { description: analysis.prompt }),
             selectedRepos: analysis.repos,
             // Prefill the type only while the ticket has none: like the approach,
             // an explicit pick is the user's, and a re-run of the analyzer must
@@ -938,6 +954,12 @@ export function buildTicketFormActions(
       // provider task BEFORE the launch. The Karst ticket is already persisted
       // (persistDraft), so a provider failure reports inline and stays on the
       // page — the launch must not start a ticket whose board task failed.
+      // Spill oversized descriptions to the attachment shelf at ingest so every
+      // downstream read site (seed, tester, CLI context) sees bounded text.
+      if (input.description) {
+        await spillField(deps.store, ticketId, 'description', input.description, deps.storageDir)
+          ?? undefined;
+      }
       if (input.createInProvider) {
         const bound = await bindProviderTask(ctx, deps, ticketId);
         if (!bound) {
@@ -984,6 +1006,11 @@ export function buildTicketFormActions(
       ctx.post({ type: 'busy', what: 'save', on: true });
       try {
         const ticketId = persistDraft(ctx, deps, input);
+        // Spill oversized descriptions to the attachment shelf at ingest.
+        if (input.description) {
+          await spillField(deps.store, ticketId, 'description', input.description, deps.storageDir)
+            ?? undefined;
+        }
         // Same checkbox contract as submit: persisting the ticket with the
         // checkbox on also mints + binds the provider task. A failure reports
         // inline and the saved ticket stays — save never loses the draft.
