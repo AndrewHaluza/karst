@@ -44,7 +44,7 @@ import { recordUatFindings, type UatFindingInput } from '../../store/uatFindings
 import { parseFindingsResult, type FindingsParseShape, type WarnFn } from '../review/findings.js';
 import { isWrongCheckoutClaim } from '../review/checkoutClaim.js';
 import { buildScopeBlock } from '../agentScope.js';
-import { OUTPUT_RULES_HEADING, OUTPUT_RULES_BASE } from '../../agent/promptText.js';
+import { OUTPUT_RULES_HEADING, OUTPUT_RULES_BASE, OUTPUT_RULES_UAT } from '../../agent/promptText.js';
 import { createReviewSnapshot, deleteReviewSnapshot } from '../reviewSnapshot.js';
 import { collapseDiagnostic, cap } from '../../model/diagnosticText.js';
 import { nowIso } from '../../model/time.js';
@@ -433,6 +433,7 @@ export function buildTesterPrompt(
     ``,
     OUTPUT_RULES_HEADING,
     ...OUTPUT_RULES_BASE,
+    ...OUTPUT_RULES_UAT,
     `- No observations worth reporting → output exactly [].`,
     `- These are OBSERVATIONS, not verdicts: you cannot pass or fail the ticket; you report what you found.`,
   ].join('\n');
