@@ -15,6 +15,7 @@
  */
 
 import { seedCharLength, seedHasGuide } from './promptTelemetry.js';
+import { truncateToBudget, SEED_BUDGETS, approachTruncationPointer } from './seedBudget.js';
 
 /**
  * Compose the session seed from pre-rendered parts. Returns `undefined` only
@@ -27,8 +28,10 @@ export function buildSessionSeed(
   invocation?: string | null,
   markerInstruction?: string | null,
   guideInstruction?: string | null,
+  ticketKey?: string,
+  debug?: (msg: string) => void,
 ): string | undefined {
-  const method = approachPrompt?.trim();
+  let method = approachPrompt?.trim();
   const context = contextMarkdown?.trim();
   const inv = invocation?.trim();
   // The impl→uat marker (§5.4) is a WORKFLOW invariant, not an approach detail:
@@ -40,6 +43,21 @@ export function buildSessionSeed(
   // embedded here (869edmcme). Placed before the marker so reading order is
   // execution order: learn the tooling first, close the stage last.
   const guide = guideInstruction?.trim();
+
+  if (method) {
+    // `karst context <key>` cannot recover the approach body — it renders
+    // TicketContext, which has no field for it — so this truncation states a
+    // different, honest pointer instead of the ticket-key one every other
+    // section uses (`approachTruncationPointer`, never `truncationPointer`).
+    const { text, truncated } = truncateToBudget(
+      method,
+      SEED_BUDGETS.approachMethod,
+      ticketKey ?? '',
+      approachTruncationPointer(),
+    );
+    if (truncated) debug?.(`[seed] truncated approach method to ${SEED_BUDGETS.approachMethod} chars`);
+    method = text;
+  }
 
   const sections: string[] = [];
   if (inv) sections.push(inv);

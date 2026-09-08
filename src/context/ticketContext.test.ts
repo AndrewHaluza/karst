@@ -8,6 +8,7 @@ import { recordGateRun } from '../store/gateRuns.js';
 import { recordFindings } from '../store/reviewFindings.js';
 import { openStageRun, closeStageRun } from '../store/stageRuns.js';
 import { buildTicketContext, renderTicketContext } from './ticketContext.js';
+import { truncateToBudget, SEED_BUDGETS } from '../agent/seedBudget.js';
 import type { Manifest, RepositoryDef, ServiceDef } from '../manifest/types.js';
 import {
   manifest as buildManifest,
@@ -747,5 +748,188 @@ describe('renderTicketContext', () => {
     expect(md).toBe('# Ticket: Untitled ticket\n\n## Current stage\n- stage: scope (pending)');
     expect(md).not.toContain('## Prompt');
     expect(md).not.toContain('## Worktrees');
+  });
+
+  describe('seed budget truncation', () => {
+    it('truncates an oversized prompt with the stated pointer, and reports it via debug', () => {
+      const t = createTicket(store, { key: 'PROJ-9', title: 'Big' });
+      // 'q' is absent from the truncation pointer text itself (which contains a
+      // literal "x" in "context"), so counting it isolates the truncated content.
+      updateTicketFields(store, t.id, { description: 'q'.repeat(10_000) });
+      const ctx = buildTicketContext(store, undefined, t.id);
+      const seen: string[] = [];
+      const md = renderTicketContext(ctx, (m) => seen.push(m));
+      expect(md).toContain('truncated -- run `karst context PROJ-9` for the full state.');
+      expect(md.match(/q/g)!.length).toBe(4000);
+      expect(seen.some((m) => m.includes('prompt'))).toBe(true);
+    });
+
+    it('truncates an oversized brief with the stated pointer', () => {
+      const t = createTicket(store, { key: 'PROJ-9', title: 'Big' });
+      updateTicketFields(store, t.id, { brief: 'y'.repeat(10_000) });
+      const ctx = buildTicketContext(store, undefined, t.id);
+      const md = renderTicketContext(ctx);
+      expect(md).toContain('truncated -- run `karst context PROJ-9` for the full state.');
+      expect(md.match(/y/g)!.length).toBe(3000);
+    });
+
+    it('does not truncate a prompt under budget', () => {
+      const t = createTicket(store, { key: 'PROJ-1', title: 'Small' });
+      updateTicketFields(store, t.id, { description: 'short prompt' });
+      const ctx = buildTicketContext(store, undefined, t.id);
+      const md = renderTicketContext(ctx);
+      expect(md).not.toContain('truncated --');
+      expect(md).toContain('short prompt');
+    });
+
+    it('truncates an oversized gate summary excerpt with the stated pointer, and reports it via debug', () => {
+      const t = createTicket(store, { key: 'PROJ-9', title: 'Big' });
+      const summaryRaw = 'z'.repeat(5_000);
+      store.db.prepare('UPDATE tickets SET stage_current = ? WHERE id = ?').run('review', t.id);
+      setStage(store, t.id, 'review', { status: 'running' });
+      recordGateRun(store, {
+        ticketId: t.id,
+        stageKey: 'review',
+        attempt: 0,
+        runAt: '2026-08-01T10:00:00.000Z',
+        gates: [{ gateName: 'lint (web)', exitCode: 1, summary: summaryRaw }],
+      });
+
+      const ctx = buildTicketContext(store, undefined, t.id);
+      const seen: string[] = [];
+      const md = renderTicketContext(ctx, (m) => seen.push(m));
+      const { text: expected } = truncateToBudget(summaryRaw, SEED_BUDGETS.gateSummary, 'PROJ-9');
+      expect(md).toContain('truncated -- run `karst context PROJ-9` for the full state.');
+      expect(md).toContain(expected);
+      expect(md.match(/z/g)!.length).toBe(SEED_BUDGETS.gateSummary);
+      expect(seen.some((m) => m.includes('gate summary'))).toBe(true);
+    });
+
+    it('truncates an oversized findings list with the stated pointer, and reports it via debug', () => {
+      const t = createTicket(store, { key: 'PROJ-9', title: 'Big' });
+      store.db.prepare('UPDATE tickets SET stage_current = ? WHERE id = ?').run('review', t.id);
+      setStage(store, t.id, 'review', { status: 'running' });
+      recordFindings(store, {
+        ticketId: t.id,
+        attempt: 0,
+        runAt: '2026-08-01T10:00:00.000Z',
+        findings: [
+          {
+            severity: 'info',
+            repo: '/web',
+            file: null,
+            line: null,
+            title: 'w'.repeat(3_000),
+            detail: 'd',
+            source: 'agent',
+          },
+        ],
+      });
+
+      const ctx = buildTicketContext(store, undefined, t.id);
+      const seen: string[] = [];
+      const md = renderTicketContext(ctx, (m) => seen.push(m));
+      const findingsBlock = `  - [info] ${'w'.repeat(3_000)}`;
+      const { text: expected } = truncateToBudget(findingsBlock, SEED_BUDGETS.findings, 'PROJ-9');
+      expect(md).toContain('truncated -- run `karst context PROJ-9` for the full state.');
+      expect(md).toContain(expected);
+      expect(seen.some((m) => m.includes('findings'))).toBe(true);
+    });
+
+    it('truncates an oversized attachments block with the stated pointer, and reports it via debug', () => {
+      const t = createTicket(store, { key: 'PROJ-9', title: 'Big' });
+      for (let i = 0; i < 20; i++) {
+        insertAttachment(store, {
+          ticketId: t.id,
+          kind: 'file',
+          storedName: `f${i}.txt`,
+          originalName: 'v'.repeat(200),
+          byteSize: 1,
+        });
+      }
+
+      const ctx = buildTicketContext(store, undefined, t.id, '/storage');
+      const rowsBlock = ctx.attachments
+        .map((a) => {
+          const note = a.kind === 'video' ? ' (not agent-readable)' : '';
+          return `- ${a.kind}: ${a.path} — "${a.name}"${note}`;
+        })
+        .join('\n');
+      const seen: string[] = [];
+      const md = renderTicketContext(ctx, (m) => seen.push(m));
+      const { text: expected, truncated } = truncateToBudget(rowsBlock, SEED_BUDGETS.attachments, 'PROJ-9');
+      expect(truncated).toBe(true);
+      expect(md).toContain('truncated -- run `karst context PROJ-9` for the full state.');
+      expect(md).toContain(expected);
+      expect(seen.some((m) => m.includes('attachments'))).toBe(true);
+    });
+
+    it('does not call debug when nothing needs truncating', () => {
+      const t = createTicket(store, { key: 'PROJ-1', title: 'Small' });
+      updateTicketFields(store, t.id, { description: 'short prompt', brief: 'short brief' });
+      store.db.prepare('UPDATE tickets SET stage_current = ? WHERE id = ?').run('review', t.id);
+      setStage(store, t.id, 'review', { status: 'running' });
+      recordGateRun(store, {
+        ticketId: t.id,
+        stageKey: 'review',
+        attempt: 0,
+        runAt: '2026-08-01T10:00:00.000Z',
+        gates: [{ gateName: 'lint (web)', exitCode: 0, summary: 'short summary' }],
+      });
+      recordFindings(store, {
+        ticketId: t.id,
+        attempt: 0,
+        runAt: '2026-08-01T10:00:00.000Z',
+        findings: [
+          { severity: 'low', repo: '/web', file: null, line: null, title: 'minor nit', detail: 'd', source: 'agent' },
+        ],
+      });
+      insertAttachment(store, {
+        ticketId: t.id,
+        kind: 'file',
+        storedName: 'a.txt',
+        originalName: 'notes.txt',
+        byteSize: 1,
+      });
+
+      const ctx = buildTicketContext(store, undefined, t.id, '/storage');
+      const seen: string[] = [];
+      const md = renderTicketContext(ctx, (m) => seen.push(m));
+      expect(md).not.toContain('truncated --');
+      expect(seen).toEqual([]);
+    });
+
+    // Empty-string key is a real case (`key: ''`, § the "omits empty sections"
+    // test above): `??` does not catch it, and the old fallback used the
+    // ticket TITLE, which can contain spaces/punctuation and produce an
+    // unrunnable shell command. A literal placeholder like 'this ticket' is
+    // shell-safe but still not runnable — it resolves nothing. `id` is always
+    // present and `karst context <id>` accepts a bare numeric id (§
+    // resolveTicketByKey), so it is the fallback that actually works.
+    it('falls back to a runnable pointer for a keyless ticket, never the title', () => {
+      const t = createTicket(store, { key: '', title: 'My Ticket With Spaces' });
+      updateTicketFields(store, t.id, { description: 'q'.repeat(10_000) });
+      const ctx = buildTicketContext(store, undefined, t.id);
+      const md = renderTicketContext(ctx);
+      expect(md).toContain(`truncated -- run \`karst context ${t.id}\` for the full state.`);
+      expect(md).not.toContain('My Ticket With Spaces` for the full state');
+    });
+
+    // The CLI's `--md` path (`src/cli/context.ts`) is meant to be the full-state
+    // escape hatch the truncation pointer sends the agent to. Before this, it
+    // rendered the SAME bounded text — a dead end. `bounded: false` skips every
+    // truncation call and renders the raw text, with no truncation pointer.
+    it('renders unbounded, with no truncation pointer, when bounded is false', () => {
+      const t = createTicket(store, { key: 'PROJ-9', title: 'Big' });
+      const hugePrompt = 'q'.repeat(10_000);
+      updateTicketFields(store, t.id, { description: hugePrompt });
+      const ctx = buildTicketContext(store, undefined, t.id);
+      const seen: string[] = [];
+      const md = renderTicketContext(ctx, (m) => seen.push(m), { bounded: false });
+      expect(md).toContain(hugePrompt);
+      expect(md.match(/q/g)!.length).toBe(10_000);
+      expect(md).not.toContain('truncated --');
+      expect(seen).toEqual([]);
+    });
   });
 });

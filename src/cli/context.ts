@@ -79,5 +79,7 @@ export function runContextCommand(
   }
   const storageDir = dbPath === undefined ? undefined : resolve(dirname(dbPath));
   const ctx = buildTicketContext(store, manifest, ticket.id, storageDir);
-  return parsed.format === 'md' ? renderTicketContext(ctx) : JSON.stringify(ctx, null, 2);
+  return parsed.format === 'md'
+    ? renderTicketContext(ctx, undefined, { bounded: false })
+    : JSON.stringify(ctx, null, 2);
 }

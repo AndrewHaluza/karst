@@ -31,6 +31,7 @@ describe('direct approach launch path (integration)', () => {
 
       // 2. Seed from the ticket context — this is what was missing before the fix.
       const contextMarkdown = renderTicketContext({
+        id: 42,
         key: 'ACME-42',
         title: 'Add rate limiting to /login',
         prompt: 'Brute-force protection missing on the auth endpoint.',

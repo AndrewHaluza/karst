@@ -3333,7 +3333,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       `A gate failed for ticket ${label}. Re-run the checks, fix what they report, and confirm they pass.`;
     const marker = renderDoneMarkerInstruction(
       buildCliStagePrefix(context, dbPath, 'fix'),
-      t.key ?? String(ticketId),
+      t.key || String(ticketId),
     );
     // Task 3: the Fix execution carries the CONFIGURED identity — the bundle's
     // assignment snapshot resolved once at the driver boundary — never the
@@ -3852,6 +3852,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                 graphRunTicketId(graphRunId),
                 context.globalStorageUri.fsPath,
               ),
+              undefined,
+              // PROMPT-08 bounds the interactive-session launch seed only; the
+              // graph-planner prompt is a different surface this ticket never
+              // touched, so it keeps its pre-ticket unbounded behavior.
+              { bounded: false },
             )
           : undefined,
     };
@@ -4204,9 +4209,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           return undefined;
         }
       },
+      // PROMPT-08 bounds the interactive-session launch seed only — this
+      // graph surface is out of that ticket's scope, so it stays unbounded.
       ticketContextOf: (ticketId) =>
         renderTicketContext(
           buildTicketContext(localStore, currentManifest(), ticketId, context.globalStorageUri.fsPath),
+          undefined,
+          { bounded: false },
         ),
       compileContextOf: (graphRunId, document) => graphCompileContext(graphRunId, document),
       manifestResolvedFor: (graphRunId) => graphManifestResolution(graphRunId),
@@ -4710,6 +4719,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           graphRunTicketId(graphRunId),
           context.globalStorageUri.fsPath,
         ),
+        undefined,
+        // PROMPT-08 bounds the interactive-session launch seed only; this
+        // graph-planner retry prompt is out of that ticket's scope.
+        { bounded: false },
       ),
       diagnostics ?? 'The compiler rejected the previous `graph.json`.',
       `This is compile attempt ${attempt + 1}: write a corrected \`graph.json\` and submit it again.`,
@@ -6117,6 +6130,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           ticketId,
           context.globalStorageUri.fsPath,
         ),
+        (msg) => logger.debug(msg),
       );
       // The done marker (§5.4) rides every seed, not just the approach path:
       // `materializeApproach` only runs for an installed package or a solo agent,
@@ -6138,7 +6152,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           ? renderGateOnlyInstruction()
           : renderDoneMarkerInstruction(
               buildCliStagePrefix(context, dbPath, markerStage),
-              t.key ?? String(ticketId),
+              t.key || String(ticketId),
             );
       const initialPrompt = buildSessionSeed(
         ticketContextMd,
@@ -6149,6 +6163,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // (869edmcme): it costs ~40 tokens and saves the agent from reading the
         // extension's dist/ to learn how Karst works and what the CLI can do.
         renderGuideInstruction(buildCliGuidePrefix(context)),
+        t.key || String(ticketId),
+        (msg) => logger.debug(msg),
       );
 
       // Resume the captured session when continuing interactive work, so the
@@ -6236,6 +6252,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           invocation,
           markerInstruction,
           renderGuideInstruction(buildCliGuidePrefix(context)),
+          t.key || String(ticketId),
+          (msg) => logger.debug(msg),
         );
       }
       // A caller with one specific job for this session (the merge brief behind

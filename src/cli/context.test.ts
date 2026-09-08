@@ -144,6 +144,22 @@ describe('runContextCommand', () => {
     expect(out).toContain('## Prompt\nAudit the app');
   });
 
+  // The `--md` CLI path is the escape hatch a truncation pointer sends the
+  // agent to. Before this test's fix, `runContextCommand` routed `--md`
+  // through `renderTicketContext`'s DEFAULT bounded behavior, so an agent
+  // following the pointer got back the exact same truncated text — a dead
+  // end. It must render the full, untruncated prompt instead.
+  it('renders the full, untruncated prompt for --md, never the bounded seed text', () => {
+    const ticketId = createTicket(store, { key: 'PROJ-9', title: 'Do research' }).id;
+    const hugePrompt = 'q'.repeat(10_000);
+    updateTicketFields(store, ticketId, { description: hugePrompt });
+
+    const out = runContextCommand(store, MANIFEST, { key: 'PROJ-9', format: 'md' });
+    expect(out).toContain(hugePrompt);
+    expect(out.match(/q/g)!.length).toBe(10_000);
+    expect(out).not.toContain('truncated --');
+  });
+
   it('throws a clear error for an unknown key', () => {
     expect(() => runContextCommand(store, MANIFEST, { key: 'NOPE-1', format: 'json' })).toThrow(
       /NOPE-1/,

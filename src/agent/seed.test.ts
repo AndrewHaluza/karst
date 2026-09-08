@@ -1,7 +1,15 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { join } from 'node:path';
 import { buildSessionSeed, measureSeed } from './seed.js';
 import { markerStageFor } from './markerStage.js';
 import { renderGateOnlyInstruction, renderDoneMarkerInstruction } from './workflowCommand.js';
+import { openStore, type Store } from '../store/db.js';
+import { createTicket, updateTicketFields } from '../store/tickets.js';
+import { insertAttachment } from '../store/attachments.js';
+import { setStage } from '../store/stages.js';
+import { recordGateRun } from '../store/gateRuns.js';
+import { recordFindings } from '../store/reviewFindings.js';
+import { buildTicketContext, renderTicketContext } from '../context/ticketContext.js';
 
 // A representative pre-rendered ticket-context block (see ticketContext.test.ts
 // for the shaping coverage). buildSessionSeed only composes sections.
@@ -145,6 +153,174 @@ describe('measureSeed', () => {
 
   it('reports zero length for a bare launch (undefined seed)', () => {
     expect(measureSeed(undefined)).toEqual({ seedChars: 0, guidePointer: false });
+  });
+});
+
+describe('buildSessionSeed budget', () => {
+  it('truncates an oversized approach method with the stated pointer', () => {
+    // Filler is 'q', not 'z' — the honest approach pointer's own wording
+    // ("materialized") contains a 'z', which would corrupt a 'z'-based count.
+    const bigMethod = '# Big approach\n' + 'q'.repeat(20_000);
+    const seed = buildSessionSeed(CONTEXT, bigMethod, undefined, undefined, undefined, 'PROJ-9');
+    // The approach-method pointer is NOT `karst context <key>` — that command
+    // renders TicketContext, which never carries the approach body, so it
+    // would be a stated pointer to nothing. This is the honest one instead.
+    expect(seed).toContain("the approach method is longer than fits here");
+    expect(seed).not.toContain('karst context PROJ-9');
+    // 8000-char budget applies to the whole method text, including the 15-char
+    // "# Big approach\n" heading, so 8000 - 15 = 7985 'q' characters survive.
+    expect(seed!.match(/q/g)!.length).toBe(7985);
+  });
+
+  it('never truncates the marker instruction, even with a huge context and method', () => {
+    const bigContext = 'c'.repeat(50_000);
+    const bigMethod = 'm'.repeat(50_000);
+    const marker = 'FIRE THE MARKER: run `karst stage impl pass`';
+    const seed = buildSessionSeed(bigContext, bigMethod, undefined, marker, undefined, 'PROJ-9');
+    expect(seed).toContain(marker);
+  });
+
+  it('reports truncation via the injected debug callback', () => {
+    const bigMethod = 'z'.repeat(20_000);
+    const seen: string[] = [];
+    buildSessionSeed(CONTEXT, bigMethod, undefined, undefined, undefined, 'PROJ-9', (m) => seen.push(m));
+    expect(seen.some((m) => m.includes('approach method'))).toBe(true);
+  });
+
+  it('does not truncate a method body under budget', () => {
+    const seed = buildSessionSeed(CONTEXT, '# Small\nGo look.', undefined, undefined, undefined, 'PROJ-9');
+    expect(seed).not.toContain('truncated --');
+  });
+});
+
+describe('oversized ticket end-to-end budget (PROMPT-08 acceptance)', () => {
+  it('a ticket with a huge prompt, brief, and approach method still produces a bounded, marker-intact seed', () => {
+    // Context is pre-shaped (realistic ~10k+ chars), mimicking renderTicketContext output
+    const hugeContext =
+      `# Ticket: PROJ-9 — Oversized\n\n## Prompt\n${'p'.repeat(5_000)}\n\n` +
+      `## Context brief\n${'b'.repeat(4_500)}`;
+    // Approach method is genuinely huge (50k), will be truncated to 8000-char budget
+    const hugeMethod = '# rpi-implement\n' + 'm'.repeat(50_000);
+    const marker = 'Run `karst stage impl pass --ticket PROJ-9` when done.';
+
+    const seed = buildSessionSeed(
+      hugeContext,
+      hugeMethod,
+      '/karst:rpi PROJ-9',
+      marker,
+      'Run `karst guide` to learn the CLI.',
+      'PROJ-9',
+    );
+
+    expect(seed).toBeDefined();
+    // (a) fits: total seed stays well under the design ceiling of ~20,200 chars
+    // (docs/superpowers/plans/2026-09-07-seed-budget.md, "Budget derivation")
+    // — invocation + pre-shaped context + truncated method + marker + guide
+    // Note: `hugeContext` here is a hand-built literal standing in for
+    // `renderTicketContext`'s output. In production `contextMarkdown` always
+    // arrives PRE-BOUNDED by `renderTicketContext` upstream — this test only
+    // proves `buildSessionSeed`'s own approach-method cap; the full-pipeline
+    // guarantee (ticket fields → bounded context) is proven by the
+    // `buildTicketContext`/`renderTicketContext` integration test below.
+    expect(seed!.length).toBeLessThan(20_200);
+    // (b) the marker instruction survives verbatim.
+    expect(seed).toContain(marker);
+    // (c) the truncation pointer is present (context wasn't bounded by
+    // buildSessionSeed itself in this fixture, but the approach method was) —
+    // the honest approach-body pointer, not `karst context <key>` (that
+    // command cannot recover the approach body).
+    expect(seed).toContain('the approach method is longer than fits here');
+  });
+
+  describe('real end-to-end pipeline with maxed-out context fields', () => {
+    let store: Store;
+    beforeEach(() => (store = openStore(':memory:')));
+    afterEach(() => store.close());
+
+    it('maxes out multiple growable fields and still stays bounded with a huge method', () => {
+      // Create a ticket with multiple fields near their budgets
+      const t = createTicket(store, { key: 'PROJ-9', title: 'Oversized integration test' });
+
+      // Fill prompt near 4000-char budget, brief near 3000-char budget
+      updateTicketFields(store, t.id, {
+        description: 'Prompt: ' + 'p'.repeat(3900),
+        brief: 'Brief: ' + 'b'.repeat(2900),
+        approach: 'rpi',
+        selectedRepos: ['frontend'],
+      });
+
+      // Set stage and record gate runs with summaries totaling ~1000 chars
+      store.db.prepare('UPDATE tickets SET stage_current = ? WHERE id = ?').run('review', t.id);
+      setStage(store, t.id, 'review', { status: 'running' });
+      recordGateRun(store, {
+        ticketId: t.id,
+        stageKey: 'review',
+        attempt: 0,
+        runAt: '2026-08-01T10:00:00.000Z',
+        gates: [
+          { gateName: 'test-gate', exitCode: 1, summary: 's'.repeat(480) },
+          { gateName: 'lint-gate', exitCode: 1, summary: 's'.repeat(480) },
+        ],
+      });
+
+      // Findings list near 2000 chars
+      const findings = [];
+      for (let i = 0; i < 20; i++) {
+        findings.push({
+          severity: 'medium' as const,
+          repo: '/repo',
+          file: 'src/file.ts',
+          line: i * 10,
+          title: `Issue ${i}`,
+          detail: 'd'.repeat(50),
+          source: 'agent' as const,
+        });
+      }
+      recordFindings(store, {
+        ticketId: t.id,
+        attempt: 0,
+        runAt: '2026-08-01T10:00:00.000Z',
+        findings,
+      });
+
+      // Attachments list near 1500 chars
+      for (let i = 0; i < 5; i++) {
+        insertAttachment(store, {
+          ticketId: t.id,
+          kind: 'file' as const,
+          storedName: `a${i}.txt`,
+          originalName: `file${i}-with-long-descriptive-name-${'x'.repeat(80)}.txt`,
+          byteSize: 100,
+        });
+      }
+
+      // Build context and render it through the real pipeline
+      const ctx = buildTicketContext(store, undefined, t.id, '/storage');
+      const renderedContext = renderTicketContext(ctx);
+
+      // Huge approach method (50k chars, will be truncated to 8000-char budget)
+      const hugeMethod = '# rpi-implement\n' + 'm'.repeat(50_000);
+      const marker = 'Run `karst stage impl pass --ticket PROJ-9` when done.';
+      const seed = buildSessionSeed(
+        renderedContext,
+        hugeMethod,
+        '/karst:rpi PROJ-9',
+        marker,
+        'Run `karst guide` to learn the CLI.',
+        'PROJ-9',
+      );
+
+      expect(seed).toBeDefined();
+      // (a) fits: total seed stays under the design ceiling of ~20,200 chars
+      // despite maxing out multiple growable fields + huge method
+      expect(seed!.length).toBeLessThan(20_200);
+      // (b) the marker instruction survives verbatim
+      expect(seed).toContain(marker);
+      // (c) at least one truncation pointer is present
+      // (the approach method was truncated since it's 50k chars) — the
+      // honest approach-body pointer, not `karst context <key>`.
+      expect(seed).toContain('the approach method is longer than fits here');
+    });
   });
 });
 
