@@ -190,3 +190,49 @@ provides the data layer so 433 only wires argv and formats. Both the baseline an
 `--prompts` call `queryPromptMetrics(store, projectId)` — one read path, so the
 committed table and the live view can never drift apart. A metric with no rows
 renders as "pending", never as 0, from `queryPromptMetrics`' NULL discipline.
+
+## Resident/deferred decision rule (ticket 12)
+
+Content in an approach body or agent prompt is either **resident** (L0, always
+present) or **deferred** (L1/L2, pulled on demand). The rule is binary and
+directional — resident is the default; deferral requires meeting ALL criteria.
+
+### Resident (L0) — if ANY holds
+
+- Prevents an error the agent cannot self-detect (e.g. wrong-checkout guard,
+  marker rule, done-means-merged)
+- Names the stage's exit condition (the done-when criteria)
+- Needed on most runs
+- Under ~100 tokens (the round-trip costs more than inlining)
+
+### Deferred (L1/L2) — only if ALL hold
+
+- The agent can recognize when it needs it (has a felt need)
+- Minority of runs need it
+- Large enough to pay for the round-trip (~300+ tokens)
+- Has a stable, discoverable name
+- **A resident pointer names it** — the last clause is load-bearing. Hidden
+  content with no resident pointer is deleted content with extra steps.
+
+### What this rules out
+
+- **graph-planner's `graph.json` schema** (39% fenced): resident. The compiler
+  rejects unknown fields; the agent cannot know which field it is about to
+  invent.
+- **rpi-implement's subagent prompt templates** (44% fenced): deferred. Needed
+  only at dispatch time, dead weight on most phases. Textbook deferral.
+- **Scope-block orientation guard**: resident. Prevents wrong-checkout errors the
+  agent cannot self-detect.
+- **Marker rule, done-means-merged**: resident. The agent's default model of the
+  world is wrong in a specific way; the text corrects it before the mistake.
+
+### Generalized from ticket 17's landed pattern
+
+Ticket 17 (`bfc5ae54`) established the pattern for the UAT Tester: criteria are
+authoritative and always present; everything else is pulled with one named
+command (`karst context <key> --md`) and never as an opening move. This ticket
+generalizes that rule to approach bodies: approach content is NOT authoritative
+(done-when criteria are); it is pullable via a named command when the agent
+needs it. The approach body is truncated at `SEED_BUDGETS.approachMethod` (8000
+chars) with `approachTruncationPointer()` pointing to the materialized package
+on disk — not to `karst context`, which cannot render approach bodies.
