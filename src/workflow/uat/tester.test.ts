@@ -194,7 +194,10 @@ describe('runUatTester', () => {
   it('closes the run as unreadable-output when the core answered prose', async () => {
     const { adapter } = rawAdapter('I ran the tests and everything looked fine.');
     const res = await runUatTester(store, opts({ adapter }), { now });
-    expect(res).toEqual({ kind: 'unreadable-output' });
+    expect(res).toMatchObject({
+      kind: 'unreadable-output',
+      preview: expect.stringContaining('I ran the tests and everything looked fine.'),
+    });
     const run = listProcessRuns(store, ticketId).at(-1)!;
     expect(run.resultKind).toBe('unreadable-output');
     expect(run.status).toBe('failed');
@@ -223,19 +226,76 @@ describe('runUatTester', () => {
     expect(listUatFindings(store, ticketId)).toHaveLength(1);
   });
 
-  it('gives up after ONE re-ask and closes as unreadable-output', async () => {
+  it('gives up after the silence re-ask AND the reformat re-ask and closes as unreadable-output', async () => {
     const { adapter, calls } = rawAdapter('');
     const res = await runUatTester(store, opts({ adapter }), { now });
-    expect(res).toEqual({ kind: 'unreadable-output' });
-    expect(calls).toHaveLength(2);
+    expect(res).toMatchObject({ kind: 'unreadable-output' });
+    // 1: initial (empty) → silence nudge. 2: silence re-ask (still empty,
+    // which also parses unreadable) → reformat nudge. 3: reformat re-ask.
+    expect(calls).toHaveLength(3);
     const run = listProcessRuns(store, ticketId).at(-1)!;
     expect(run.resultKind).toBe('unreadable-output');
   });
 
-  it('does not re-ask a target that answered unreadable PROSE — only silence is re-asked', async () => {
+  // UAT-19 amendment: the reformat nudge recovers a genuine finding a core
+  // reported in prose instead of the required JSON shape.
+  it('recovers a finding via the reformat nudge when the first answer was prose', async () => {
+    let call = 0;
+    const { adapter, calls } = fakeAdapter(async () => {
+      call += 1;
+      return {
+        sessionId: '',
+        verdict: null,
+        raw:
+          call === 1
+            ? 'Found a dangling-reference bug: reported as medium.'
+            : JSON.stringify([{ severity: 'medium', title: 'dangling reference', detail: '' }]),
+      };
+    });
+    const res = await runUatTester(store, opts({ adapter }), { now });
+    expect(res).toMatchObject({ kind: 'observed' });
+    expect(calls).toHaveLength(2);
+    // The reformat nudge quotes the prose back, bounded, inside the same prompt.
+    expect(calls[1]!.prompt.startsWith(calls[0]!.prompt)).toBe(true);
+    expect(calls[1]!.prompt).toContain('Found a dangling-reference bug');
+    expect(listUatFindings(store, ticketId)).toHaveLength(1);
+    expect(listUatFindings(store, ticketId)[0]!.title).toBe('dangling reference');
+  });
+
+  it('parks (unreadable-output) only after the reformat nudge also fails, and fires it at most once per target', async () => {
+    const { adapter, calls } = rawAdapter('still prose, no matter how you ask');
+    const res = await runUatTester(store, opts({ adapter }), { now });
+    expect(res).toMatchObject({ kind: 'unreadable-output' });
+    expect(calls).toHaveLength(2);
+  });
+
+  it('counts the reformat nudge separately from silenceNudges in v57 telemetry', async () => {
+    const { adapter } = rawAdapter('prose, not json, twice');
+    await runUatTester(store, opts({ adapter }), { now });
+    const run = listProcessRuns(store, ticketId).at(-1)!;
+    expect(run.promptTelemetry).toMatchObject({ reformatNudges: 1, silenceNudges: 0 });
+  });
+
+  it('bounds the unreadable answer before handing it on, and never logs the full agent output to debug', async () => {
+    const longAnswer = 'x'.repeat(20_000);
+    const { adapter } = rawAdapter(longAnswer);
+    const debugLines: string[] = [];
+    const res = await runUatTester(store, opts({ adapter, debug: (m) => debugLines.push(m) }), { now });
+    expect(res.kind).toBe('unreadable-output');
+    if (res.kind === 'unreadable-output') {
+      expect(res.preview.length).toBeLessThan(longAnswer.length);
+    }
+    expect(debugLines.some((l) => l.includes(longAnswer))).toBe(false);
+  });
+
+  // Superseded by UAT-19's reformat nudge (see "recovers a finding via the
+  // reformat nudge..." and "parks (unreadable-output) only after the reformat
+  // nudge also fails" below): unreadable prose now DOES get one re-ask, a
+  // reformat rather than a repeat of the same question.
+  it('re-asks a target that answered unreadable prose exactly once, as a reformat', async () => {
     const { adapter, calls } = rawAdapter('I ran the tests and everything looked fine.');
     await runUatTester(store, opts({ adapter }), { now });
-    expect(calls).toHaveLength(1);
+    expect(calls).toHaveLength(2);
   });
 
   it('still closes as observed when every target answered an empty array', async () => {

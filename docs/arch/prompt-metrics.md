@@ -41,6 +41,7 @@ is never a metric input.
 | silent-turn rate | existing needs-you detection (#320/#321) | prompt failing to elicit any output | read-only (pre-existing) |
 | findings parse-failure rate | `process_runs(prompt_telemetry).parseTiers` on the `review` run | how often the salvage parser fell back, and to which tier (whole-doc → fenced → balanced) | `review/findings.ts` → `findingsLane.ts` |
 | tester re-ask rate | `process_runs(prompt_telemetry).silenceNudges` on the `tester` run | `TESTER_SILENCE_NUDGE` fire count — output-contract compliance | `uat/tester.ts` |
+| tester reformat-nudge rate | `process_runs(prompt_telemetry).reformatNudges` on the `tester` run | reformat-nudge fire count, kept SEPARATE from `silenceNudges` — how often a target answered in prose and needed a reshape (UAT-19); this is the rate the park's rollback trigger below reads | `uat/tester.ts` |
 | wrong-checkout stop rate | `uat_findings` where `title LIKE 'UAT skipped: checkout is on%'` | orientation-block effectiveness | read-only (pre-existing) |
 | **guide-pull rate, per core** | `process_runs('guide-pull')` pulls ÷ `process_runs('session')` seeded with the pointer | **gates ticket 12 — see below** | `cli/guideTelemetry.ts` + launch env |
 | seed size | `process_runs(prompt_telemetry).seedChars` on the `session` run | budget baseline for ticket 08 | `agent/seed.ts` (`measureSeed`) → launch intent |
@@ -137,6 +138,7 @@ The per-core cost spread (opencode ≈ 0.16× claude's tokens-per-pass) is the
 | seed size (`seedChars`) | **0 rows** — the `prompt_telemetry` column did not exist pre-v57. Begins at the first post-ship launch. |
 | findings parse-tier | **pending** — same reason. |
 | tester re-ask rate | **pending** — same reason. |
+| tester reformat-nudge rate | **pending** — same reason; also the UAT-19 park's rollback trigger, below. |
 | **guide-pull rate, per core** | **0 pulls ÷ 0 seeded = pending** — never recorded, and the denominator column is absent pre-v57. |
 
 Every newly-instrumented metric has **zero historical rows because it was never
@@ -144,6 +146,33 @@ measured** — that is the honest baseline, and it is exactly why this ticket ex
 The pre-instrumentation numbers (marker compliance, tokens-per-pass, ticket-text
 distribution) are real and committed above; the post-instrumentation ones become
 real the first session after this ships.
+
+## UAT-19's park rollback trigger
+
+UAT-19 turned the UAT stage's response to an all-unreadable Tester answer from a
+PASS into a PARK — a stop, across every core, on a single observed run (ticket 451)
+with the underlying rate genuinely **unmeasured**: `parseTiers` and `silenceNudges`
+both read zero rows at this baseline, and `reformatNudges` (added by UAT-19) starts
+at zero too. This is a real decision made without the rate that would normally
+justify it — recorded here so the reversal condition is legible later rather than
+re-litigated from scratch.
+
+**Read `reformatNudges` ÷ tester runs, per core (`queryPromptMetrics` /
+`karst stats --prompts`), after enough post-ship UAT runs to be a rate, not a
+handful of anecdotes.** A reading worth acting on: one core's tester answers
+unreadably (needs the reformat nudge) at a rate visibly higher than the others', OR
+the reformat nudge itself frequently fails to recover a reformattable answer (a
+second unreadable shape after the nudge, which the park then correctly catches, but
+at a rate suggesting the PROMPT is unclear rather than the core misbehaving).
+
+**Fallback: revert the park to advisory** (the pre-UAT-19 warn-and-continue in
+`workflow/stages/uat.ts`) for the affected core, or globally if the rate is
+uniformly high — never tune the reformat nudge's wording first per the baseline
+rule above (no ticket tunes prompt wording before reading the metric it would be
+tuning against). Do not ship a partial "P" fix — a probabilistic reformat-then-park
+half-measure — in place of one of those two: either the park stands because the
+rate shows it is catching genuine formatting failures rarely enough to be worth the
+stop, or it is reverted because the rate shows it is not.
 
 ## The guide-pull gate, restated for ticket 12
 
