@@ -3253,6 +3253,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           reviewProcess: (id) => processFor(id, 'review'),
           fixProcess,
           runVerifier: runProcess,
+          // Prompt 17: the SAME composed `karst context` prefix the generated
+          // `/karst:<id>` command's loader step runs, threaded into the UAT
+          // Tester's tier-1 pointer line — one command, named once.
+          contextCommand: buildCliContextPrefix(context, dbPath),
           log: (message) => logger.info(message),
           // Verbose decision-point lines (manifest `debug` flag): gated inside
           // the logger, so this binding is a no-op unless debug is on. Surfaces

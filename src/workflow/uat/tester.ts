@@ -46,8 +46,47 @@ import { isWrongCheckoutClaim } from '../review/checkoutClaim.js';
 import { buildScopeBlock } from '../agentScope.js';
 import { OUTPUT_RULES_HEADING, OUTPUT_RULES_BASE } from '../../agent/promptText.js';
 import { createReviewSnapshot, deleteReviewSnapshot } from '../reviewSnapshot.js';
-import { collapseDiagnostic } from '../../model/diagnosticText.js';
+import { collapseDiagnostic, cap } from '../../model/diagnosticText.js';
 import { nowIso } from '../../model/time.js';
+
+/**
+ * Ceiling on the injected done-when criteria block (Prompt 17). The source is
+ * `Ticket.description` — untrusted-length prose a ticket author wrote, never
+ * bounded elsewhere before reaching a prompt. Matches the diagnostic-text
+ * ceiling used for other untrusted prose reaching this same prompt.
+ */
+export const MAX_CRITERIA_CHARS = 8_000;
+
+/** One line naming the ticket's done-when criteria as authoritative and bounding them. */
+function buildCriteriaBlock(criteria: string | null | undefined): string[] {
+  const trimmed = criteria?.trim() ?? '';
+  if (trimmed === '') return [];
+  return [
+    `Done-when criteria for this ticket (authoritative — exercise each one against the running code):`,
+    cap(trimmed, MAX_CRITERIA_CHARS),
+    ``,
+  ];
+}
+
+/**
+ * The tier-1 context pointer (Prompt 17): the ONE command permitted past the
+ * scope block's repo-wide-recon ban, for pulling anything the criteria block
+ * above does not already carry — prior findings, gate output, attachments,
+ * running services. Named ONLY here and echoed into the scope block's ban
+ * exception (`agentScope.ts`) so both halves of the prompt name the identical
+ * command. Absent `contextCommand` or `ticketKey` → no line (nothing to run).
+ */
+function buildContextPointerLine(
+  contextCommand: string | undefined,
+  ticketKey: string | null | undefined,
+): string[] {
+  if (!contextCommand || !ticketKey) return [];
+  return [
+    `Need more than the criteria above (prior findings from the last round, gate output, ` +
+      `attachments, running services)? Run exactly: ${contextCommand} ${ticketKey} --md`,
+    `Nothing else about the orchestrator is in scope.`,
+  ];
+}
 
 /** One target the Tester asks about — the same shape UAT already plans. */
 export interface TesterTarget {
@@ -156,6 +195,18 @@ export interface RunUatTesterOpts {
    * reported, never acted on here: the UAT stage owns the verdict.
    */
   observationsBlockingSeverity?: Severity | 'none';
+  /** The ticket's done-when criteria (`Ticket.description`), read once by the stage. Absent/blank → no criteria block. */
+  criteria?: string | null;
+  /** The ticket's key, e.g. `PROMPT-17-UAT-CRITERIA`. Required (with `contextCommand`) for the tier-1 pointer line. */
+  ticketKey?: string | null;
+  /**
+   * The composed `karst context` prefix (§ context loader, `cliContextPrefix` /
+   * `composeContextCommand`) — an opaque already-assembled string, never the
+   * CLI entry/db/manifest paths threaded separately (host-agnostic invariant).
+   * Absent → no pointer line, and the scope block's anti-recon ban stays
+   * unqualified.
+   */
+  contextCommand?: string;
 }
 
 /**
@@ -278,11 +329,21 @@ export interface TesterDeps {
  * lines with the author's own — the target context and the strict output
  * rules always remain.
  */
+export interface TesterPromptExtra {
+  /** The ticket's done-when criteria (`Ticket.description`). Bounded, omitted when empty. */
+  criteria?: string | null;
+  /** The ticket's key, for the tier-1 context pointer line. */
+  ticketKey?: string | null;
+  /** The composed `karst context` prefix (§ context loader). Absent → no pointer line. */
+  contextCommand?: string;
+}
+
 export function buildTesterPrompt(
   target: TesterTarget,
   instructions?: string,
   gatesPassed?: readonly string[],
   snapshotRef?: string | null,
+  extra?: TesterPromptExtra,
 ): string {
   const baseClause = target.baseRef
     ? `against its base branch, \`${target.baseRef}\` (compare against \`origin/${target.baseRef}\` when available, otherwise the local \`${target.baseRef}\`).`
@@ -308,6 +369,14 @@ export function buildTesterPrompt(
         ];
   return [
     ...strategy,
+    // Placed between the strategy and the scope block, and NEVER displaced by
+    // `instructions` (which only ever replaces the strategy lines above) —
+    // the ticket's done-when criteria are authoritative for every Tester run.
+    ...buildCriteriaBlock(extra?.criteria),
+    // Named BEFORE the scope block so its ban exception (`agentScope.ts`) can
+    // say "the command named above" and mean this line.
+    ...buildContextPointerLine(extra?.contextCommand, extra?.ticketKey),
+    ``,
     // Never replaced by `instructions` — see `workflow/agentScope.ts`.
     ...buildScopeBlock('test', {
       baseRef: target.baseRef,
@@ -315,6 +384,7 @@ export function buildTesterPrompt(
       worktreePath: target.worktreePath,
       gatesPassed,
       snapshotRef,
+      contextCommand: extra?.contextCommand,
     }),
     ``,
     OUTPUT_RULES_HEADING,
@@ -428,6 +498,7 @@ export async function runUatTester(
         opts.assignment.instructions,
         opts.gatesPassed,
         snapshotRef,
+        { criteria: opts.criteria, ticketKey: opts.ticketKey, contextCommand: opts.contextCommand },
       );
       const ask = (text: string): Promise<{ raw: string }> =>
         opts.adapter.runHeadless({

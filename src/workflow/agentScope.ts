@@ -115,6 +115,15 @@ export interface ScopeBlockOpts {
    * wrong-checkout stop then means a checkout that is wrong even from there.
    */
   worktreePath?: string | null;
+  /**
+   * The ONE command permitted as an exception to the repo-wide-recon ban
+   * (Prompt 17) — the fully composed `karst context <key> --md` pull for THIS
+   * ticket, already stated to the agent elsewhere in the prompt (e.g. the
+   * Tester's own pointer line). Named here only so the ban line can carve out
+   * exactly that command instead of banning every orchestrator query outright.
+   * Absent → the ban is unqualified, exactly as before.
+   */
+  contextCommand?: string | null;
 }
 
 /**
@@ -223,8 +232,13 @@ export function buildScopeBlock(intent: ScopeIntent, opts: ScopeBlockOpts = {}):
     SCOPE_RULES_HEADING,
     `- Start by reading that diff. Do not survey the repository first.`,
     `- Do NOT run repository-wide reconnaissance: no \`git worktree list\`, no branch/remote mapping, ` +
-      `no \`git log\` over history outside the diff range, no querying the orchestration tool that ` +
-      `launched you (its CLI or its state database), no reading other worktrees or checkouts.`,
+      `no \`git log\` over history outside the diff range, no reading other worktrees or checkouts, ` +
+      `no querying the orchestration tool's graph.` +
+      (opts.contextCommand
+        ? ` The one exception is the command named above — it is scoped to THIS ticket and nothing ` +
+          `else: never run it (or any other orchestrator CLI/state-database query) for another ` +
+          `ticket, and never query the graph.`
+        : ` No querying the orchestration tool that launched you — its CLI or its state database.`),
     `- Widen beyond the diff only into a file the diff actually touches or directly calls, and only when a specific question requires it.`,
   ];
 }

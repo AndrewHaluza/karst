@@ -33,6 +33,7 @@ import {
 import type { WarnFn } from '../review/findings.js';
 import { getDisabledGates } from '../../store/ticketGates.js';
 import { capForGate } from '../fixAttempts.js';
+import { getTicket } from '../../store/tickets.js';
 import {
   aggregateUat,
   reviewIdentitiesFrom,
@@ -99,6 +100,14 @@ export interface RunUatOpts {
    * unless the manifest's `debug` flag is on).
    */
   debug?: (message: string) => void;
+  /**
+   * The composed `karst context` prefix (Prompt 17, § context loader) —
+   * threaded verbatim into the Tester's tier-1 pointer line. An opaque
+   * already-assembled string (never CLI entry/db/manifest paths threaded
+   * separately — host-agnostic invariant). Absent → the Tester prompt carries
+   * no pointer line.
+   */
+  contextCommand?: string;
 }
 
 export interface UatDeps {
@@ -576,6 +585,10 @@ export async function runUat(
   // `'none'` the observations are advisory and this gate verdict decides.
   let testerResult: TesterRunResult | null = null;
   if (deps.tester) {
+    // Source field: `Ticket.description` — the ticket's done-when criteria
+    // (Prompt 17). Read once, here, via the existing accessor: no new
+    // injected dependency, no `vscode` import (host-agnostic invariant intact).
+    const ticket = getTicket(store, opts.ticketId);
     testerResult = await runUatTester(
       store,
       {
@@ -589,6 +602,9 @@ export async function runUat(
         warn: deps.warn,
         debug: opts.debug,
         git,
+        criteria: ticket.description,
+        ticketKey: ticket.key,
+        contextCommand: opts.contextCommand,
         // The gates that actually RAN and passed (a null exit code is "no such
         // script", not a pass). Named in the prompt so the Tester does not
         // re-run the deterministic half the stage just finished.
