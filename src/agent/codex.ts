@@ -636,6 +636,7 @@ export class CodexAdapter implements AgentAdapter {
     structuredOutput: SUPPORTED,
     hookChannel: SUPPORTED,
     endpointRebind: SUPPORTED,
+    mcpIsolationHeadless: SUPPORTED,
     toolActivity: SUPPORTED,
     skillDiscovery: SUPPORTED,
   };
@@ -805,6 +806,16 @@ export class CodexAdapter implements AgentAdapter {
     // Karst creates and owns the selected worktree. Headless Codex still
     // requires this opt-out before it will consume the supplied prompt.
     args.push('--skip-git-repo-check');
+    // Every headless call is ticket-driven automation, never an interactive
+    // developer session: it must not depend on whatever MCP servers happen to
+    // be configured in ~/.codex/config.toml on the machine that launched it
+    // (869ekt1 — the claude-adapter twin of this fix; the concrete incident was
+    // a claude-side plugin, but the property this closes is per-core).
+    // `-c`/`--config` is documented repeatable (already used below for
+    // `--model` and, on an effort, `model_reasoning_effort`); this override
+    // replaces the WHOLE `mcp_servers` table with an empty TOML inline table
+    // for this invocation only — never writes the config file.
+    args.push('--config', 'mcp_servers={}');
     if (opts.model) args.push('--model', opts.model);
     if (opts.effort) args.push('--config', `model_reasoning_effort=${opts.effort}`);
     appendPolicyArgs(args, opts.permissionMode);
