@@ -105,6 +105,17 @@ All three compose the prompt from `promptBytesOf('karst-graph-planner')` plus `r
 | opencode | `.opencode/commands/karst-start-task.md` | `/karst-start-task` |
 | codex | `.agents/skills/karst-start-task/SKILL.md` | `/karst-start-task` |
 
+## Per-core orchestrator artifact and invocation
+
+| core | artifact | path | invocation |
+|---|---|---|---|
+| claude | command | `.karst-plugin/karst/commands/<basename>.md` | `/karst:<basename>` |
+| opencode | command | `.opencode/commands/karst-<basename>.md` | `/karst-<basename>` |
+| antigravity | skill | `.agents/plugins/karst/skills/<basename>/SKILL.md` | `$<basename>` |
+| codex | skill | `.agents/skills/karst-<basename>/SKILL.md` | `$karst-<basename>` |
+
+`AdapterSurfaces.entryOrchestrators` is the declaration a fifth core must answer.
+
 ## Fallback invariant: the seed is self-contained when no adapter reports startTaskInvocation
 
 The seed drops the inline marker (the `karst context` indirection) ONLY when the adapter reported `startTaskInvocation` — i.e. the adapter guarantees it will render a `/karst:start-task` command the human can click. Absent that report, the seed is self-contained exactly as before: every fact the agent needs is inline. A session must never have neither the inline content nor the adapter's command guarantee — that would be a silent data loss. The fallback check lives in the seed composer; the adapter's `startTaskInvocation` field (`agent/adapter.ts`) is the single source of truth for whether the guarantee exists.

@@ -125,10 +125,14 @@ import {
 } from './agent/modelCatalogLoader.js';
 import { makeMementoCatalogCache } from './agent/modelCatalogCache.js';
 import { buildSessionSeed, composeResumeSeed, composeConflictOverrideSeed } from './agent/seed.js';
+import {
+  launchSections,
+  composeResumeSeed as composeResumeSeedEntry,
+  composeConflictSeed,
+} from './agent/entrySeed.js';
 import { shouldResumeSession } from './agent/resumeDecision.js';
-import { MARKER_STAGES, markerStageFor, type MarkerStage } from './agent/markerStage.js';
+import { markerStageFor, type MarkerStage } from './agent/markerStage.js';
 import { renderFixBrief } from './agent/fixBrief.js';
-import { GATE_STAGES } from './workflow/graph.js';
 import {
   agyWatchTick,
   findConversationForWorktree,
@@ -494,16 +498,7 @@ const BRAND_SVG = join(RUNTIME_ASSETS_ROOT, '..', 'media', 'karst.svg');
 /** Monochrome silhouette of the same mark, tinted by the status glyph hue. */
 const MARK_SVG = join(RUNTIME_ASSETS_ROOT, '..', 'media', 'karst-mark.svg');
 
-/** Maximum number of per-ticket command aliases materialized per session. */
-const ALIAS_TICKETS_CAP = 12;
-
-/**
- * The status-free karst mark for every panel tab, materialized once per window.
- * A panel that also carries a ticket (dashboard, bound ticket form) repaints over
- * it with the status-tinted glyph; the rest keep this. An unreadable asset
- * degrades to "no icon", never a throw — an unbranded tab is not worth failing
- * activation over.
- */
+/** The shipped karst mark. The assets root is `dist/`, so media sits one level up. */
 function brandTabIcon(context: vscode.ExtensionContext): BrandIconPaths | undefined {
   try {
     return brandIconPaths({
@@ -6134,42 +6129,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         if (body) soloAgent = { name: t.agent, body };
       }
 
-      // ALWAYS seed the session with the ticket's own context (key, title,
-      // description, fetched brief, repos), then the approach method if any — so
-      // even a built-in "direct" approach opens with full context, not a dull
-      // empty session. A built-in single-subagent has no method prompt of its
-      // own, so a resolved solo agent contributes a delegation instruction
-      // instead. undefined only when there's genuinely nothing to say.
+      // Delegation instruction for a single-subagent ticket.
       const delegation = soloAgent
         ? `Delegate this ticket to the \`${soloAgent.name}\` subagent and oversee it to completion.`
         : null;
-      // Aggregate the ticket's full implementation context (prompt/brief/repos
-      // plus live worktrees/branches/services/PRs) into markdown and seed it —
-      // in-process, no CLI round-trip (the extension already holds the data).
-      const ticketContextMd = renderTicketContext(
-        buildTicketContext(
-          localStore,
-          currentManifest(),
-          ticketId,
-          context.globalStorageUri.fsPath,
-        ),
-        (msg) => logger.debug(msg),
-      );
-      // The done marker (§5.4) rides every seed, not just the approach path:
-      // `materializeApproach` only runs for an installed package or a solo agent,
-      // so a `direct` ticket would otherwise never be told to fire the marker and
-      // would strand at `impl`. The marker names the stage the session is actually
-      // working on — a resume at `fix` gets `stage fix pass`, not the impl marker.
-      // ONLY marker stages carry one: seeded at `uat`/`review`/`ship` the command
-      // names an earlier stage and the CLI refuses it, so an agent that trusted
-      // it would report the ticket advanced when it had not moved (869edna84).
-      // The concrete ticket key is the arg (the seed is plain text — no
-      // `$ARGUMENTS` substitution).
+
+      // Compute marker stage early — needed by both materialization and seed
+      // composition. The marker names the stage the session is actually working
+      // on; gate stages (uat/review/ship) carry no marker.
       const markerStage = markerStageFor(t.stageCurrent as StageKey | null);
-      // A null marker stage means the current stage is a gate — say what the
-      // agent should do instead of the marker rather than saying nothing at
-      // all (Issue #6): the stage is decided by its gate exit codes, and there
-      // is no command to run.
       const markerInstruction =
         markerStage === null
           ? renderGateOnlyInstruction()
@@ -6177,56 +6145,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
               buildCliStagePrefix(context, dbPath, markerStage),
               t.key || String(ticketId),
             );
-      const initialPrompt = buildSessionSeed(
-        ticketContextMd,
-        approachPrompt ?? delegation,
-        invocation,
-        markerInstruction,
-        // The one-line pointer to the agent manual rides every fresh seed
-        // (869edmcme): it costs ~40 tokens and saves the agent from reading the
-        // extension's dist/ to learn how Karst works and what the CLI can do.
-        renderGuideInstruction(buildCliGuidePrefix(context)),
-        t.key || String(ticketId),
-        (msg) => logger.debug(msg),
-      );
-
-      // Resume the captured session when continuing interactive work, so the
-      // agent keeps its context instead of re-deriving from a cold seed (§5.3).
-      // `stageCurrent` is stored loosely as `string | null` at the store layer
-      // (like `stages.ts`'s `stage_key as StageKey`); it is always one of
-      // STAGE_KEYS in practice. The marker rides the resume nudge too — a
-      // resumed impl/fix session still has to fire it when work is done.
-      // One resolution for the whole launch: the resume check below and the
-      // model pick further down must agree on which core is actually starting,
-      // or a ticket could be handed a session id the launching CLI cannot find.
-      // A host-only assignment override wins over ticket/manifest precedence.
-      const launchProvider =
-        options.assignment?.provider ??
-        resolveProvider(t.agentProvider, currentManifest()?.agentProvider);
-      const resumeId = shouldResumeSession({
-        sessionId: t.sessionId,
-        sessionProvider: t.sessionProvider,
-        stageCurrent: t.stageCurrent as StageKey,
-        provider: launchProvider,
-        allowResume: options.allowResume,
-      })
-        ? (t.sessionId ?? undefined)
-        : undefined;
-      // At `fix` the resume has a specific job — the gate that just failed wrote
-      // its reason and log, so point the agent at them instead of a vague
-      // "continue". `currentStage` carries both (state.ts → buildStepper).
-      const fixBrief =
-        t.stageCurrent === 'fix'
-          ? renderFixBrief(
-              t.key ?? `#${ticketId}`,
-              t.stages,
-              latestFindingBatch(localStore, ticketId),
-              listGateRuns(localStore, ticketId),
-            )
-          : null;
-      let seedPrompt = resumeId
-        ? `${fixBrief ?? `Continue the in-progress work on ticket ${t.key ?? `#${ticketId}`}. Re-read live state if needed.`}${markerInstruction ? `\n\n${markerInstruction}` : ''}`
-        : initialPrompt;
 
       // Materialize the ticket's approach package (and/or its chosen solo agent)
       // into agent-specific launch args (e.g. Claude's `--plugin-dir`) so its
@@ -6244,38 +6162,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             ? { id: t.approach!, label: t.approach! }
             : { id: t.approach ?? 'direct', label: t.approach ?? 'direct' });
         if (matPkg && adapter.materializeApproach) {
-          // Build the per-ticket alias list: tickets whose stage is in
-          // MARKER_STAGES or GATE_STAGES get alias files for the manual-recovery
-          // commands so the command picker fuzzy-matches on the ticket key.
-          const ALIAS_STAGE_SET: readonly string[] = [
-            ...MARKER_STAGES,
-            ...GATE_STAGES,
-          ];
-          const aliasTickets = listTickets(localStore, {
-            projectId: currentProject()?.id,
-          })
-            .filter(
-              (t) =>
-                t.key &&
-                t.stageCurrent !== null &&
-                (ALIAS_STAGE_SET as readonly string[]).includes(t.stageCurrent),
-            )
-            .slice(0, ALIAS_TICKETS_CAP)
-            .map((t) => ({ key: t.key!, stageCurrent: t.stageCurrent as StageKey }));
-
           materialized = adapter.materializeApproach({
             pkg: matPkg,
             baseDir: approachesDirOrThrow(),
             sessionDir: wt.path,
             soloAgent,
             cliContextPrefix: buildCliContextPrefix(context, dbPath),
-            // Same marker gating as the seed above: a materialized workflow
-            // command appends its done-marker step ONLY when a stage prefix is
-            // given, so a session opened at a non-marker stage (uat/review/
-            // ship) must not be handed a command whose closing step is the
-            // `stage impl pass` the CLI would refuse (869edna84). At `fix` this
-            // also corrects the default: the command's marker step names `fix`,
-            // not the `impl` the old unconditional call defaulted to.
             cliStagePrefix:
               markerStage === null
                 ? undefined
@@ -6285,83 +6177,116 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             cliTestPrefix: buildCliTestPrefix(context, dbPath),
             cliFixBriefPrefix: buildCliFixBriefPrefix(context, dbPath),
             cliConflictBriefPrefix: buildCliConflictBriefPrefix(context, dbPath),
-            ...(aliasTickets.length > 0 ? { aliasTickets } : {}),
           });
         }
       } catch (error) {
         logError(`approach materialization failed for ticket ${ticketId}`, error);
       }
+      // Re-derive invocation from the materialized result (may have been set
+      // from pkg above; materialization can refine it).
       invocation =
         materialized.invocation && pkg?.workflow?.length
           ? `${materialized.invocation} ${t.key ?? ''}`.trim()
           : null;
-      // Capture the start-task invocation from the materialized approach so the
-      // narrative-shaped seed can use it as the invocation instead of the
-      // workflow invocation. When set, the seed switches to the narrative context
-      // shape and omits the done marker — the start-task command owns the marker.
-      const startTaskInvocation = materialized.invocation ?? null;
-      const useStartTask = Boolean(startTaskInvocation);
-      if (!resumeId) {
-        // Absent `startTaskInvocation`, the seed is composed exactly as before,
-        // so a launch can never lose both the operational block and the marker.
-        const narrativeContextMd = useStartTask
-          ? renderTicketContext(
-              buildTicketContext(
-                localStore,
-                currentManifest(),
-                ticketId,
-                context.globalStorageUri.fsPath,
-              ),
-              (msg) => logger.debug(msg),
-              { sections: 'narrative' },
+      const primaryEntryInvocation = materialized.invocation ?? null;
+
+      // Resume the captured session when continuing interactive work, so the
+      // agent keeps its context instead of re-deriving from a cold seed (§5.3).
+      const launchProvider =
+        options.assignment?.provider ??
+        resolveProvider(t.agentProvider, currentManifest()?.agentProvider);
+      const resumeId = shouldResumeSession({
+        sessionId: t.sessionId,
+        sessionProvider: t.sessionProvider,
+        stageCurrent: t.stageCurrent as StageKey,
+        provider: launchProvider,
+        allowResume: options.allowResume,
+      })
+        ? (t.sessionId ?? undefined)
+        : undefined;
+      const fixBrief =
+        t.stageCurrent === 'fix'
+          ? renderFixBrief(
+              t.key ?? `#${ticketId}`,
+              t.stages,
+              latestFindingBatch(localStore, ticketId),
+              listGateRuns(localStore, ticketId),
             )
-          : ticketContextMd;
+          : null;
+
+      // Seed composition (materialization is complete — entryInvocations available).
+      // Aggregate the ticket's full implementation context into markdown.
+      const ticketContextMd = renderTicketContext(
+        buildTicketContext(
+          localStore,
+          currentManifest(),
+          ticketId,
+          context.globalStorageUri.fsPath,
+        ),
+        (msg) => logger.debug(msg),
+      );
+      const guideInstruction = renderGuideInstruction(buildCliGuidePrefix(context));
+      let seedPrompt: string | undefined;
+      if (resumeId) {
+        // Resume path: compose from the brief and materialized invocation.
+        seedPrompt = resumeId
+          ? `${fixBrief ?? `Continue the in-progress work on ticket ${t.key ?? `#${ticketId}`}. Re-read live state if needed.`}${markerInstruction ? `\n\n${markerInstruction}` : ''}`
+          : undefined;
+        // When a materialized start-task command exists, compose the resume/fix
+        // invocation as the first line (omitting the marker — the command
+        // carries it).
+        if (materialized.entryInvocations?.['start-task']) {
+          const resumeOrFixInvocation =
+            t.stageCurrent === 'fix' && materialized.entryInvocations?.['fix']
+              ? materialized.entryInvocations['fix']
+              : materialized.entryInvocations?.['resume'];
+          if (resumeOrFixInvocation) {
+            const brief =
+              fixBrief ?? `Continue the in-progress work on ticket ${t.key ?? `#${ticketId}`}. Re-read live state if needed.`;
+            seedPrompt = composeResumeSeedEntry({
+              ticketKey: t.key ?? `#${ticketId}`,
+              resumeBrief: brief,
+              invocation: resumeOrFixInvocation,
+            });
+          }
+        }
+      } else {
+        // Fresh launch: use narrative sections when a materialized invocation
+        // exists (omitting operational details); full context otherwise.
+        const sections = launchSections(!!primaryEntryInvocation);
+        const contextForSeed =
+          sections === 'narrative'
+            ? renderTicketContext(
+                buildTicketContext(
+                  localStore,
+                  currentManifest(),
+                  ticketId,
+                  context.globalStorageUri.fsPath,
+                ),
+                (msg) => logger.debug(msg),
+                { sections: 'narrative' },
+              )
+            : ticketContextMd;
         seedPrompt = buildSessionSeed(
-          narrativeContextMd,
+          contextForSeed,
           approachPrompt ?? delegation,
-          useStartTask
-            ? `${startTaskInvocation} ${t.key ?? ''}`.trim()
+          primaryEntryInvocation
+            ? `${primaryEntryInvocation} ${t.key ?? ''}`.trim()
             : invocation,
-          useStartTask ? null : markerInstruction,
-          renderGuideInstruction(buildCliGuidePrefix(context)),
+          markerInstruction,
+          guideInstruction,
           t.key || String(ticketId),
           (msg) => logger.debug(msg),
         );
       }
-      // Resume branch: when a materialized start-task command exists, compose
-      // the resume/fix invocation as the first line (omitting the marker — the
-      // command carries it). Choose the fix invocation when at fix stage and
-      // that command was materialized, else the resume invocation. When no
-      // command was materialized, leave the seedPrompt as-is (the legacy shape
-      // with the inline marker).
-      if (resumeId && materialized.startTaskInvocation) {
-        const resumeOrFixInvocation =
-          t.stageCurrent === 'fix' && materialized.fixInvocation
-            ? materialized.fixInvocation
-            : materialized.resumeInvocation;
-        if (resumeOrFixInvocation) {
-          const brief =
-            fixBrief ?? `Continue the in-progress work on ticket ${t.key ?? `#${ticketId}`}. Re-read live state if needed.`;
-          seedPrompt = composeResumeSeed(
-            t.key ?? `#${ticketId}`,
-            brief,
-            resumeOrFixInvocation,
-            undefined,
-          );
-        }
-      }
       // A caller with one specific job for this session (the merge brief behind
-      // "Resolve conflicts") wins over every composed seed above, resume line
-      // included: the ticket's own context would bury the one instruction the
-      // click was about. Set host-side only — never from a webview message.
-      // When a materialized resolve-conflict command exists, prepend its
-      // invocation line and a blank line to the brief rather than replacing it.
+      // "Resolve conflicts") wins over every composed seed above.
       if (options.seedPrompt) {
-        seedPrompt = composeConflictOverrideSeed(
-          t.key ?? `#${ticketId}`,
-          options.seedPrompt,
-          materialized.resolveConflictInvocation,
-        );
+        seedPrompt = composeConflictSeed({
+          ticketKey: t.key ?? `#${ticketId}`,
+          conflictBrief: options.seedPrompt,
+          invocation: materialized.entryInvocations?.['resolve-conflict'],
+        });
       }
       const extraArgs =
         materialized.extraArgs.length > 0

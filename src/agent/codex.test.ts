@@ -1722,7 +1722,7 @@ describe('CodexAdapter approach materialization', () => {
     expect(readFileSync(skillPath, 'utf8')).toBe('checked into the repo');
   });
 
-  it('bare direct + cliContextPrefix writes karst-start-task skill and returns startTaskInvocation', () => {
+  it('bare direct + cliContextPrefix writes karst-start-task skill and returns entryInvocations', () => {
     const worktree = makeWorktree();
     const result = new CodexAdapter().materializeApproach!({
       baseDir: makeBasePackage('bare', []),
@@ -1736,17 +1736,17 @@ describe('CodexAdapter approach materialization', () => {
     expect(body).toContain('name: karst-start-task');
     expect(body).toContain('---');
     expect(body).toContain('node "/ext/cli.js" context --db "/x.db"');
-    expect(result.startTaskInvocation).toBe('/karst-start-task');
+    expect(result.entryInvocations?.['start-task']).toBe('$karst-start-task');
   });
 
-  it('bare direct without cliContextPrefix returns no startTaskInvocation', () => {
+  it('bare direct without cliContextPrefix returns no entryInvocations', () => {
     const worktree = makeWorktree();
     const result = new CodexAdapter().materializeApproach!({
       baseDir: makeBasePackage('bare', []),
       sessionDir: worktree,
       pkg: { id: 'bare', label: 'Bare' },
     });
-    expect(result.startTaskInvocation).toBeUndefined();
+    expect(result.entryInvocations).toBeUndefined();
     expect(
       existsSync(join(worktree, '.agents', 'skills', 'karst-start-task')),
     ).toBe(false);
@@ -1766,7 +1766,7 @@ describe('CodexAdapter approach materialization', () => {
     },
   );
 
-  it('a workflow launch returns both invocation and startTaskInvocation', () => {
+  it('a workflow launch returns both invocation and entryInvocations', () => {
     const worktree = makeWorktree();
     const result = new CodexAdapter().materializeApproach!({
       baseDir: makeBasePackage('rpi', []),
@@ -1775,7 +1775,7 @@ describe('CodexAdapter approach materialization', () => {
       cliContextPrefix: 'node cli.js context --ticket',
     });
     expect(result.invocation).toBe('$karst-rpi');
-    expect(result.startTaskInvocation).toBe('/karst-start-task');
+    expect(result.entryInvocations?.['start-task']).toBe('$karst-start-task');
   });
 
   it('all four created files appear in ownedPaths on first creation only', () => {
@@ -1911,6 +1911,24 @@ describe('CodexAdapter approach materialization', () => {
     }
   });
 
+  it('(d2) all invocations are $-prefixed with no colon', () => {
+    const worktree = makeWorktree();
+    const result = new CodexAdapter().materializeApproach!({
+      baseDir: makeBasePackage('bare', []),
+      sessionDir: worktree,
+      pkg: { id: 'bare', label: 'Bare', workflow: [{ name: 'run' }] },
+      cliContextPrefix: 'node cli.js context --ticket',
+      cliFixBriefPrefix: 'node cli.js fix-brief',
+      cliConflictBriefPrefix: 'node cli.js conflict-brief',
+    });
+    expect(result.invocation).toMatch(/^\$/);
+    expect(result.invocation).not.toContain(':');
+    for (const value of Object.values(result.entryInvocations!)) {
+      expect(value).toMatch(/^\$/);
+      expect(value).not.toContain(':');
+    }
+  });
+
   it('(e) all four karst-prefixed skill dirs appear in ownedPaths on first creation only', () => {
     const worktree = makeWorktree();
     const result = new CodexAdapter().materializeApproach!({
@@ -1941,122 +1959,5 @@ describe('CodexAdapter approach materialization', () => {
     );
     const leadingFrontmatterMatches = body.match(/^---\n[\s\S]*?\n---\n/u);
     expect(leadingFrontmatterMatches).toHaveLength(1);
-  });
-
-  it('(alias-a) two alias tickets and all four prefixes yield six alias files plus four generic', () => {
-    const worktree = makeWorktree();
-
-    new CodexAdapter().materializeApproach!({
-      baseDir: makeBasePackage('bare', []),
-      sessionDir: worktree,
-      pkg: { id: 'bare', label: 'Bare' },
-      cliContextPrefix: 'node cli.js context --ticket',
-      cliFixBriefPrefix: 'node cli.js fix-brief',
-      cliConflictBriefPrefix: 'node cli.js conflict-brief',
-      aliasTickets: [
-        { key: 'PROJ-1', stageCurrent: 'impl' },
-        { key: 'PROJ-2', stageCurrent: 'uat' },
-      ],
-    });
-
-    const skillsDir = join(worktree, '.agents', 'skills');
-    // Generic four
-    for (const basename of ['karst-start-task', 'karst-resume', 'karst-fix', 'karst-resolve-conflict']) {
-      expect(existsSync(join(skillsDir, basename, 'SKILL.md')), `${basename}`).toBe(true);
-    }
-    // Alias six: 3 commands × 2 tickets
-    for (const key of ['PROJ-1', 'PROJ-2']) {
-      for (const basename of ['karst-resume', 'karst-fix', 'karst-resolve-conflict']) {
-        expect(existsSync(join(skillsDir, `${basename}-${key}`, 'SKILL.md')), `${basename}-${key}`).toBe(true);
-      }
-    }
-    // No start-task alias
-    for (const key of ['PROJ-1', 'PROJ-2']) {
-      expect(existsSync(join(skillsDir, `karst-start-task-${key}`))).toBe(false);
-    }
-  });
-
-  it('(alias-b) an alias body contains the literal ticket key and no $ARGUMENTS', () => {
-    const worktree = makeWorktree();
-
-    new CodexAdapter().materializeApproach!({
-      baseDir: makeBasePackage('bare', []),
-      sessionDir: worktree,
-      pkg: { id: 'bare', label: 'Bare' },
-      cliContextPrefix: 'node cli.js context --ticket',
-      aliasTickets: [{ key: 'PROJ-1', stageCurrent: 'impl' }],
-    });
-
-    const body = readFileSync(
-      join(worktree, '.agents', 'skills', 'karst-resume-PROJ-1', 'SKILL.md'),
-      'utf8',
-    );
-    expect(body).toContain('PROJ-1');
-    expect(body).not.toContain('$ARGUMENTS');
-    expect(body).toContain('This command is for ticket `PROJ-1`');
-  });
-
-  it('(alias-c) no start-task-<KEY> file is written', () => {
-    const worktree = makeWorktree();
-
-    new CodexAdapter().materializeApproach!({
-      baseDir: makeBasePackage('bare', []),
-      sessionDir: worktree,
-      pkg: { id: 'bare', label: 'Bare' },
-      cliContextPrefix: 'node cli.js context --ticket',
-      aliasTickets: [{ key: 'PROJ-1', stageCurrent: 'impl' }],
-    });
-
-    expect(existsSync(join(worktree, '.agents', 'skills', 'karst-start-task-PROJ-1'))).toBe(false);
-  });
-
-  it('(alias-d) all alias files appear in ownedPaths on first creation', () => {
-    const worktree = makeWorktree();
-
-    const result = new CodexAdapter().materializeApproach!({
-      baseDir: makeBasePackage('bare', []),
-      sessionDir: worktree,
-      pkg: { id: 'bare', label: 'Bare' },
-      cliContextPrefix: 'node cli.js context --ticket',
-      cliFixBriefPrefix: 'node cli.js fix-brief',
-      cliConflictBriefPrefix: 'node cli.js conflict-brief',
-      aliasTickets: [
-        { key: 'PROJ-1', stageCurrent: 'impl' },
-        { key: 'PROJ-2', stageCurrent: 'uat' },
-      ],
-    });
-
-    // Alias skill dirs are owned on first creation — each gets its own entry
-    const ownedBasenames = result.ownedPaths.map((p) => {
-      const parts = p.split('/');
-      return parts[parts.length - 1];
-    });
-    for (const key of ['proj-1', 'proj-2']) {
-      for (const base of ['karst-resume', 'karst-fix', 'karst-resolve-conflict']) {
-        expect(ownedBasenames).toContain(`${base}-${key}`);
-      }
-    }
-  });
-
-  it('(alias-e) an empty aliasTickets writes only the generic four', () => {
-    const worktree = makeWorktree();
-
-    new CodexAdapter().materializeApproach!({
-      baseDir: makeBasePackage('bare', []),
-      sessionDir: worktree,
-      pkg: { id: 'bare', label: 'Bare' },
-      cliContextPrefix: 'node cli.js context --ticket',
-      cliFixBriefPrefix: 'node cli.js fix-brief',
-      cliConflictBriefPrefix: 'node cli.js conflict-brief',
-      aliasTickets: [],
-    });
-
-    const skillsDir = join(worktree, '.agents', 'skills');
-    for (const basename of ['karst-start-task', 'karst-resume', 'karst-fix', 'karst-resolve-conflict']) {
-      expect(existsSync(join(skillsDir, basename, 'SKILL.md')), `${basename}`).toBe(true);
-    }
-    const { readdirSync } = require('node:fs');
-    const dirs = readdirSync(skillsDir) as string[];
-    expect(dirs.filter((d: string) => d.includes('PROJ'))).toHaveLength(0);
   });
 });

@@ -19,7 +19,6 @@ import {
   renderResolveConflictCommand,
   KARST_PLUGIN_NAME,
   orchestratorCommandBasename,
-  slugCommandName,
   START_TASK_BASENAME,
   START_TASK_DESCRIPTION,
   START_TASK_ARGUMENT_HINT,
@@ -161,6 +160,7 @@ export class ClaudeAdapter implements AgentAdapter {
     mcpIsolationHeadless: SUPPORTED,
     toolActivity: SUPPORTED,
     skillDiscovery: SUPPORTED,
+    entryOrchestrators: SUPPORTED,
   };
 
   constructor(private readonly spawnHeadless: SpawnHeadless = defaultSpawn) {}
@@ -388,10 +388,7 @@ export class ClaudeAdapter implements AgentAdapter {
       );
     }
 
-    let startTaskInvocation: string | undefined;
-    let resumeInvocation: string | undefined;
-    let fixInvocation: string | undefined;
-    let resolveConflictInvocation: string | undefined;
+    let entryInvocations: Partial<Record<import('./workflowCommand.js').EntryBasename, string>> | undefined;
     if (opts.cliContextPrefix) {
       const { dir } = ensureKarstPlugin();
       mkdirSync(join(dir, 'commands'), { recursive: true });
@@ -462,72 +459,15 @@ export class ClaudeAdapter implements AgentAdapter {
         writeGeneratedArtifact(filePath, withStamp(fullBody));
       }
 
-      // Per-ticket alias files for the manual-recovery commands (resume, fix,
-      // resolve-conflict). Each alias is a copy whose basename includes the
-      // ticket key so the command picker fuzzy-matches on it.
-      if (opts.aliasTickets && opts.aliasTickets.length > 0) {
-        const renderers: Record<string, (ticketKey: string) => string> = {
-          [RESUME_BASENAME]: (tk) =>
-            renderResumeCommand({
-              contextCommand: opts.cliContextPrefix!,
-              ...(opts.cliGuidePrefix ? { guideCommand: opts.cliGuidePrefix } : {}),
-              ticketKey: tk,
-            }),
-          ...(opts.cliFixBriefPrefix
-            ? {
-                [FIX_BASENAME]: (tk: string) =>
-                  renderFixCommand({
-                    contextCommand: opts.cliContextPrefix!,
-                    fixBriefCommand: opts.cliFixBriefPrefix!,
-                    ...(opts.cliGuidePrefix ? { guideCommand: opts.cliGuidePrefix } : {}),
-                    ticketKey: tk,
-                  }),
-              }
-            : {}),
-          ...(opts.cliConflictBriefPrefix
-            ? {
-                [RESOLVE_CONFLICT_BASENAME]: (tk: string) =>
-                  renderResolveConflictCommand({
-                    contextCommand: opts.cliContextPrefix!,
-                    conflictBriefCommand: opts.cliConflictBriefPrefix!,
-                    ...(opts.cliGuidePrefix ? { guideCommand: opts.cliGuidePrefix } : {}),
-                    ticketKey: tk,
-                  }),
-              }
-            : {}),
-        };
-        const descriptions: Record<string, string> = {
-          [RESUME_BASENAME]: RESUME_DESCRIPTION,
-          [FIX_BASENAME]: FIX_DESCRIPTION,
-          [RESOLVE_CONFLICT_BASENAME]: RESOLVE_CONFLICT_DESCRIPTION,
-        };
-        for (const ticket of opts.aliasTickets) {
-          const slug = slugCommandName(ticket.key);
-          if (!slug) continue;
-          for (const [basename, render] of Object.entries(renderers)) {
-            const aliasBasename = `${basename}-${slug}`;
-            const body = render(ticket.key);
-            const frontmatterLines = [
-              '---',
-              `description: ${descriptions[basename] ?? ''}`,
-            ];
-            frontmatterLines.push('---', '');
-            const fullBody = frontmatterLines.join('\n') + body;
-            writeGeneratedArtifact(
-              join(dir, 'commands', `${aliasBasename}.md`),
-              withStamp(fullBody),
-            );
-          }
-        }
-      }
-
-      startTaskInvocation = `/${KARST_PLUGIN_NAME}:${START_TASK_BASENAME}`;
-      resumeInvocation = `/${KARST_PLUGIN_NAME}:${RESUME_BASENAME}`;
+      entryInvocations = {
+        'start-task': `/${KARST_PLUGIN_NAME}:${START_TASK_BASENAME}`,
+        'resume': `/${KARST_PLUGIN_NAME}:${RESUME_BASENAME}`,
+      };
       if (opts.cliFixBriefPrefix) {
-        fixInvocation = `/${KARST_PLUGIN_NAME}:${FIX_BASENAME}`;
+        entryInvocations['fix'] = `/${KARST_PLUGIN_NAME}:${FIX_BASENAME}`;
       }
       if (opts.cliConflictBriefPrefix) {
-        resolveConflictInvocation = `/${KARST_PLUGIN_NAME}:${RESOLVE_CONFLICT_BASENAME}`;
+        entryInvocations['resolve-conflict'] = `/${KARST_PLUGIN_NAME}:${RESOLVE_CONFLICT_BASENAME}`;
       }
     }
 
@@ -541,10 +481,7 @@ export class ClaudeAdapter implements AgentAdapter {
             )}`,
           }
         : {}),
-      ...(startTaskInvocation ? { startTaskInvocation } : {}),
-      ...(resumeInvocation ? { resumeInvocation } : {}),
-      ...(fixInvocation ? { fixInvocation } : {}),
-      ...(resolveConflictInvocation ? { resolveConflictInvocation } : {}),
+      ...(entryInvocations ? { entryInvocations } : {}),
     };
   }
 

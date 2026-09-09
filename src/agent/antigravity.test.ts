@@ -464,7 +464,7 @@ describe('AntigravityAdapter', () => {
       expect(readFileSync(skillPath, 'utf8')).toBe('checked into the repo');
     });
 
-    it('bare direct + cliContextPrefix writes start-task.md and returns startTaskInvocation', () => {
+    it('bare direct + cliContextPrefix writes start-task as a skill and returns entryInvocations', () => {
       const dir = getTmp();
 
       const res = new AntigravityAdapter().materializeApproach({
@@ -474,17 +474,18 @@ describe('AntigravityAdapter', () => {
         cliContextPrefix: 'node "/ext/cli.js" context --db "/x.db"',
       });
 
-      const startTaskPath = join(dir, '.agents', 'plugins', 'karst', 'commands', 'start-task.md');
+      const startTaskPath = join(dir, '.agents', 'plugins', 'karst', 'skills', 'start-task', 'SKILL.md');
       expect(existsSync(startTaskPath)).toBe(true);
       const body = readFileSync(startTaskPath, 'utf8');
       expect(body).toContain('---');
       expect(body).toContain('description:');
       expect(body).toContain('argument-hint:');
       expect(body).toContain('node "/ext/cli.js" context --db "/x.db"');
-      expect(res.startTaskInvocation).toBe('/karst:start-task');
+      expect(existsSync(join(dir, '.agents', 'plugins', 'karst', 'commands'))).toBe(false);
+      expect(res.entryInvocations?.['start-task']).toBe('$start-task');
     });
 
-    it('bare direct without cliContextPrefix returns empty and no startTaskInvocation', () => {
+    it('bare direct without cliContextPrefix returns empty and no entryInvocations', () => {
       const adapter = new AntigravityAdapter();
       const res = adapter.materializeApproach({
         pkg: { id: 'bare', label: 'Bare' },
@@ -492,7 +493,7 @@ describe('AntigravityAdapter', () => {
         sessionDir: '/sess',
       });
       expect(res.extraArgs).toEqual([]);
-      expect(res.startTaskInvocation).toBeUndefined();
+      expect(res.entryInvocations).toBeUndefined();
     });
 
     it('an approach id colliding with any reserved basename throws', () => {
@@ -507,7 +508,7 @@ describe('AntigravityAdapter', () => {
       }).toThrow(/reserved.*start-task/);
     });
 
-    it('a workflow launch returns both invocation and startTaskInvocation', () => {
+    it('a workflow launch returns both invocation and entryInvocations', () => {
       const dir = getTmp();
 
       const res = new AntigravityAdapter().materializeApproach({
@@ -522,7 +523,48 @@ describe('AntigravityAdapter', () => {
       });
 
       expect(res.invocation).toBe('$rpi');
-      expect(res.startTaskInvocation).toBe('/karst:start-task');
+      expect(res.entryInvocations?.['start-task']).toBe('$start-task');
+      expect(res.entryInvocations?.['start-task']).toMatch(/^\$/);
+      expect(res.entryInvocations?.['start-task']).not.toContain(':');
+    });
+
+    it('entry invocations are all $-prefixed with no colon', () => {
+      const dir = getTmp();
+
+      const res = new AntigravityAdapter().materializeApproach({
+        pkg: { id: 'bare', label: 'Bare' },
+        baseDir: '/base',
+        sessionDir: dir,
+        cliContextPrefix: 'node "/ext/cli.js" context --db "/x.db"',
+        cliFixBriefPrefix: 'node "/ext/cli.js" fix-brief',
+        cliConflictBriefPrefix: 'node "/ext/cli.js" conflict-brief',
+      });
+
+      for (const key of ['start-task', 'resume', 'fix', 'resolve-conflict'] as const) {
+        const inv = res.entryInvocations?.[key];
+        expect(inv, `invocation for ${key}`).toBeDefined();
+        expect(inv).toMatch(/^\$/);
+        expect(inv).not.toContain(':');
+      }
+    });
+
+    it('each entry orchestrator artifact has exactly one frontmatter block', () => {
+      const dir = getTmp();
+
+      new AntigravityAdapter().materializeApproach({
+        pkg: { id: 'bare', label: 'Bare' },
+        baseDir: '/base',
+        sessionDir: dir,
+        cliContextPrefix: 'node "/ext/cli.js" context --db "/x.db"',
+      });
+
+      const skillsDir = join(dir, '.agents', 'plugins', 'karst', 'skills');
+      for (const basename of ['start-task', 'resume']) {
+        const filePath = join(skillsDir, basename, 'SKILL.md');
+        const body = readFileSync(filePath, 'utf8');
+        const matches = body.match(/---\n[\s\S]*?\n---\n/u);
+        expect(matches, `${basename} should have exactly one frontmatter block`).toHaveLength(1);
+      }
     });
 
     it('second materializeApproach call does not re-claim owned paths', () => {
@@ -556,7 +598,7 @@ describe('AntigravityAdapter', () => {
       expect(firstOwned.length).toBeGreaterThan(0);
     });
 
-    it('(a) with all four prefixes, four command files exist in karst/commands', () => {
+    it('(a) with all four prefixes, four skill files exist in karst/skills', () => {
       const dir = getTmp();
 
       new AntigravityAdapter().materializeApproach({
@@ -568,14 +610,14 @@ describe('AntigravityAdapter', () => {
         cliConflictBriefPrefix: 'node "/ext/cli.js" conflict-brief',
       });
 
-      const commandsDir = join(dir, '.agents', 'plugins', 'karst', 'commands');
+      const skillsDir = join(dir, '.agents', 'plugins', 'karst', 'skills');
       for (const basename of ['start-task', 'resume', 'fix', 'resolve-conflict']) {
-        const filePath = join(commandsDir, `${basename}.md`);
-        expect(existsSync(filePath), `${basename}.md should exist`).toBe(true);
+        const filePath = join(skillsDir, basename, 'SKILL.md');
+        expect(existsSync(filePath), `${basename}/SKILL.md should exist`).toBe(true);
       }
     });
 
-    it('(b) with only cliContextPrefix, exactly two command files exist and neither is fix nor resolve-conflict', () => {
+    it('(b) with only cliContextPrefix, exactly two skill files exist and neither is fix nor resolve-conflict', () => {
       const dir = getTmp();
 
       new AntigravityAdapter().materializeApproach({
@@ -585,11 +627,11 @@ describe('AntigravityAdapter', () => {
         cliContextPrefix: 'node "/ext/cli.js" context --db "/x.db"',
       });
 
-      const commandsDir = join(dir, '.agents', 'plugins', 'karst', 'commands');
-      expect(existsSync(join(commandsDir, 'start-task.md'))).toBe(true);
-      expect(existsSync(join(commandsDir, 'resume.md'))).toBe(true);
-      expect(existsSync(join(commandsDir, 'fix.md'))).toBe(false);
-      expect(existsSync(join(commandsDir, 'resolve-conflict.md'))).toBe(false);
+      const skillsDir = join(dir, '.agents', 'plugins', 'karst', 'skills');
+      expect(existsSync(join(skillsDir, 'start-task', 'SKILL.md'))).toBe(true);
+      expect(existsSync(join(skillsDir, 'resume', 'SKILL.md'))).toBe(true);
+      expect(existsSync(join(skillsDir, 'fix', 'SKILL.md'))).toBe(false);
+      expect(existsSync(join(skillsDir, 'resolve-conflict', 'SKILL.md'))).toBe(false);
     });
 
     it('(c) an approach id colliding with any reserved basename throws', () => {
@@ -605,7 +647,7 @@ describe('AntigravityAdapter', () => {
       }
     });
 
-    it('(d) the fix command body references the fix-brief prefix', () => {
+    it('(d) the fix skill body references the fix-brief prefix', () => {
       const dir = getTmp();
 
       new AntigravityAdapter().materializeApproach({
@@ -616,13 +658,13 @@ describe('AntigravityAdapter', () => {
         cliFixBriefPrefix: 'node "/ext/cli.js" fix-brief',
       });
 
-      const fixPath = join(dir, '.agents', 'plugins', 'karst', 'commands', 'fix.md');
+      const fixPath = join(dir, '.agents', 'plugins', 'karst', 'skills', 'fix', 'SKILL.md');
       expect(existsSync(fixPath)).toBe(true);
       const body = readFileSync(fixPath, 'utf8');
       expect(body).toContain('node "/ext/cli.js" fix-brief');
     });
 
-    it('(e) the resolve-conflict command body references the conflict-brief prefix', () => {
+    it('(e) the resolve-conflict skill body references the conflict-brief prefix', () => {
       const dir = getTmp();
 
       new AntigravityAdapter().materializeApproach({
@@ -633,117 +675,11 @@ describe('AntigravityAdapter', () => {
         cliConflictBriefPrefix: 'node "/ext/cli.js" conflict-brief',
       });
 
-      const resolvePath = join(dir, '.agents', 'plugins', 'karst', 'commands', 'resolve-conflict.md');
+      const resolvePath = join(dir, '.agents', 'plugins', 'karst', 'skills', 'resolve-conflict', 'SKILL.md');
       expect(existsSync(resolvePath)).toBe(true);
       const body = readFileSync(resolvePath, 'utf8');
       expect(body).toContain('node "/ext/cli.js" conflict-brief');
     });
 
-    it('(alias-a) two alias tickets and all four prefixes yield six alias files plus four generic', () => {
-      const dir = getTmp();
-
-      new AntigravityAdapter().materializeApproach({
-        pkg: { id: 'bare', label: 'Bare' },
-        baseDir: '/base',
-        sessionDir: dir,
-        cliContextPrefix: 'node "/ext/cli.js" context --db "/x.db"',
-        cliFixBriefPrefix: 'node "/ext/cli.js" fix-brief',
-        cliConflictBriefPrefix: 'node "/ext/cli.js" conflict-brief',
-        aliasTickets: [
-          { key: 'PROJ-1', stageCurrent: 'impl' },
-          { key: 'PROJ-2', stageCurrent: 'uat' },
-        ],
-      });
-
-      const commandsDir = join(dir, '.agents', 'plugins', 'karst', 'commands');
-      // Generic four
-      for (const basename of ['start-task', 'resume', 'fix', 'resolve-conflict']) {
-        expect(existsSync(join(commandsDir, `${basename}.md`)), `${basename}.md`).toBe(true);
-      }
-      // Alias six: 3 commands × 2 tickets
-      for (const key of ['PROJ-1', 'PROJ-2']) {
-        for (const basename of ['resume', 'fix', 'resolve-conflict']) {
-          expect(existsSync(join(commandsDir, `${basename}-${key}.md`)), `${basename}-${key}.md`).toBe(true);
-        }
-      }
-      // No start-task alias
-      for (const key of ['PROJ-1', 'PROJ-2']) {
-        expect(existsSync(join(commandsDir, `start-task-${key}.md`))).toBe(false);
-      }
-    });
-
-    it('(alias-b) an alias body contains the literal ticket key and no $ARGUMENTS', () => {
-      const dir = getTmp();
-
-      new AntigravityAdapter().materializeApproach({
-        pkg: { id: 'bare', label: 'Bare' },
-        baseDir: '/base',
-        sessionDir: dir,
-        cliContextPrefix: 'node "/ext/cli.js" context --db "/x.db"',
-        aliasTickets: [{ key: 'PROJ-1', stageCurrent: 'impl' }],
-      });
-
-      const body = readFileSync(
-        join(dir, '.agents', 'plugins', 'karst', 'commands', 'resume-PROJ-1.md'),
-        'utf8',
-      );
-      expect(body).toContain('PROJ-1');
-      expect(body).not.toContain('$ARGUMENTS');
-      expect(body).toContain('This command is for ticket `PROJ-1`');
-    });
-
-    it('(alias-c) no start-task-<KEY> file is written', () => {
-      const dir = getTmp();
-
-      new AntigravityAdapter().materializeApproach({
-        pkg: { id: 'bare', label: 'Bare' },
-        baseDir: '/base',
-        sessionDir: dir,
-        cliContextPrefix: 'node "/ext/cli.js" context --db "/x.db"',
-        aliasTickets: [{ key: 'PROJ-1', stageCurrent: 'impl' }],
-      });
-
-      expect(existsSync(join(dir, '.agents', 'plugins', 'karst', 'commands', 'start-task-PROJ-1.md'))).toBe(false);
-    });
-
-    it('(alias-d) alias files are owned on first creation', () => {
-      const dir = getTmp();
-
-      const result = new AntigravityAdapter().materializeApproach({
-        pkg: { id: 'bare', label: 'Bare' },
-        baseDir: '/base',
-        sessionDir: dir,
-        cliContextPrefix: 'node "/ext/cli.js" context --db "/x.db"',
-        aliasTickets: [
-          { key: 'PROJ-1', stageCurrent: 'impl' },
-          { key: 'PROJ-2', stageCurrent: 'uat' },
-        ],
-      });
-
-      // The karst plugin dir is in ownedPaths (created for the generic commands).
-      expect(result.ownedPaths).toContain(join(dir, '.agents', 'plugins', 'karst'));
-    });
-
-    it('(alias-e) an empty aliasTickets writes only the generic four', () => {
-      const dir = getTmp();
-
-      new AntigravityAdapter().materializeApproach({
-        pkg: { id: 'bare', label: 'Bare' },
-        baseDir: '/base',
-        sessionDir: dir,
-        cliContextPrefix: 'node "/ext/cli.js" context --db "/x.db"',
-        cliFixBriefPrefix: 'node "/ext/cli.js" fix-brief',
-        cliConflictBriefPrefix: 'node "/ext/cli.js" conflict-brief',
-        aliasTickets: [],
-      });
-
-      const commandsDir = join(dir, '.agents', 'plugins', 'karst', 'commands');
-      for (const basename of ['start-task', 'resume', 'fix', 'resolve-conflict']) {
-        expect(existsSync(join(commandsDir, `${basename}.md`)), `${basename}.md`).toBe(true);
-      }
-      const { readdirSync } = require('node:fs');
-      const files = readdirSync(commandsDir) as string[];
-      expect(files.filter((f: string) => f.includes('PROJ'))).toHaveLength(0);
-    });
   });
 });

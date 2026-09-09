@@ -366,6 +366,7 @@ export class CodexAdapter implements AgentAdapter {
     mcpIsolationHeadless: SUPPORTED,
     toolActivity: SUPPORTED,
     skillDiscovery: SUPPORTED,
+    entryOrchestrators: SUPPORTED,
   };
 
   constructor(private readonly spawnHeadless: SpawnHeadless = defaultSpawn) {}
@@ -528,10 +529,7 @@ export class CodexAdapter implements AgentAdapter {
       if (wrote && isNew) owned.add(testSkillDir);
     }
 
-    let startTaskInvocation: string | undefined;
-    let resumeInvocation: string | undefined;
-    let fixInvocation: string | undefined;
-    let resolveConflictInvocation: string | undefined;
+    let entryInvocations: Partial<Record<import('./workflowCommand.js').EntryBasename, string>> | undefined;
     if (opts.cliContextPrefix) {
       const commandEntries: {
         basename: string;
@@ -595,72 +593,15 @@ export class CodexAdapter implements AgentAdapter {
         if (wrote && isNew) owned.add(skillDir);
       }
 
-      // Per-ticket alias skills for the manual-recovery commands. Each alias
-      // gets a `<basename>-<KEY>` name so the command picker fuzzy-matches on it.
-      if (opts.aliasTickets && opts.aliasTickets.length > 0) {
-        const renderers: Record<string, (ticketKey: string) => string> = {
-          'karst-resume': (tk) =>
-            renderResumeCommand({
-              contextCommand: opts.cliContextPrefix!,
-              ...(opts.cliGuidePrefix ? { guideCommand: opts.cliGuidePrefix } : {}),
-              ticketKey: tk,
-            }),
-          ...(opts.cliFixBriefPrefix
-            ? {
-                'karst-fix': (tk: string) =>
-                  renderFixCommand({
-                    contextCommand: opts.cliContextPrefix!,
-                    fixBriefCommand: opts.cliFixBriefPrefix!,
-                    ...(opts.cliGuidePrefix ? { guideCommand: opts.cliGuidePrefix } : {}),
-                    ticketKey: tk,
-                  }),
-              }
-            : {}),
-          ...(opts.cliConflictBriefPrefix
-            ? {
-                'karst-resolve-conflict': (tk: string) =>
-                  renderResolveConflictCommand({
-                    contextCommand: opts.cliContextPrefix!,
-                    conflictBriefCommand: opts.cliConflictBriefPrefix!,
-                    ...(opts.cliGuidePrefix ? { guideCommand: opts.cliGuidePrefix } : {}),
-                    ticketKey: tk,
-                  }),
-              }
-            : {}),
-        };
-        const descriptions: Record<string, string> = {
-          'karst-resume': RESUME_DESCRIPTION,
-          'karst-fix': FIX_DESCRIPTION,
-          'karst-resolve-conflict': RESOLVE_CONFLICT_DESCRIPTION,
-        };
-        for (const ticket of opts.aliasTickets) {
-          const slug = slugCommandName(ticket.key);
-          if (!slug) continue;
-          for (const [basename, render] of Object.entries(renderers)) {
-            const aliasName = `${basename}-${slug}`;
-            assertSafeName('skill name', aliasName);
-            const skillDir = join(opts.sessionDir, '.agents', 'skills', aliasName);
-            const isNew = !existsSync(skillDir);
-            const wrote = writeGeneratedArtifact(
-              join(skillDir, 'SKILL.md'),
-              skillDocument(
-                aliasName,
-                descriptions[basename] ?? '',
-                withStamp(render(ticket.key)),
-              ),
-            );
-            if (wrote && isNew) owned.add(skillDir);
-          }
-        }
-      }
-
-      startTaskInvocation = '/karst-start-task';
-      resumeInvocation = '/karst-resume';
+      entryInvocations = {
+        'start-task': '$karst-start-task',
+        'resume': '$karst-resume',
+      };
       if (opts.cliFixBriefPrefix) {
-        fixInvocation = '/karst-fix';
+        entryInvocations['fix'] = '$karst-fix';
       }
       if (opts.cliConflictBriefPrefix) {
-        resolveConflictInvocation = '/karst-resolve-conflict';
+        entryInvocations['resolve-conflict'] = '$karst-resolve-conflict';
       }
     }
 
@@ -668,10 +609,7 @@ export class CodexAdapter implements AgentAdapter {
       extraArgs: [],
       ownedPaths: [...owned],
       ...(hasWorkflow ? { invocation: `$${prefix}` } : {}),
-      ...(startTaskInvocation ? { startTaskInvocation } : {}),
-      ...(resumeInvocation ? { resumeInvocation } : {}),
-      ...(fixInvocation ? { fixInvocation } : {}),
-      ...(resolveConflictInvocation ? { resolveConflictInvocation } : {}),
+      ...(entryInvocations ? { entryInvocations } : {}),
     };
   }
 

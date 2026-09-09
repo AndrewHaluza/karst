@@ -101,6 +101,14 @@ machine-read JSON or markdown; diagnostics go to stderr and never corrupt it.
    the DB but never appears on any board (every board query filters by
    \`project_id\`). A project-less create is only useful for throwaway
    fixtures, never for work you need to see or drive again.
+ - \`compact [--older-than-days <n>]\` — compact archived worktrees: prune
+   branches and archive refs that are no longer referenced. Administrative
+   verb; mutates git refs and the archive registry.
+ - \`fix-brief <key>\` — **read** a human-readable summary of the failing gates
+   for a ticket in \`fix\` stage. Print-only; it mutates nothing.
+ - \`conflict-brief <key> <repo>\` — **read** a human-readable summary of the
+   merge conflict for a ticket whose PR has a conflict. Print-only; it
+   mutates nothing.
  - \`guide\` — this document.
 
 The marker is deliberately narrow: \`stage\` accepts only \`impl\`/\`fix\` and

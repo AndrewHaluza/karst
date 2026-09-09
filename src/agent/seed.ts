@@ -81,7 +81,8 @@ export function composeResumeSeed(
   markerInstruction: string | undefined,
 ): string {
   if (resumeOrFixInvocation) {
-    return `${resumeOrFixInvocation} ${ticketKey}\n\n${brief}`.trim();
+    const markerSuffix = markerInstruction ? `\n\n${markerInstruction}` : '';
+    return `${resumeOrFixInvocation} ${ticketKey}\n\n${brief}${markerSuffix}`.trim();
   }
   return `${brief}${markerInstruction ? `\n\n${markerInstruction}` : ''}`;
 }

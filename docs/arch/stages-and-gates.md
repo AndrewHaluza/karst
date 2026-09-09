@@ -36,7 +36,7 @@ the user a question and is blocked on their input, so the stage is not done.
 `cli/stage.ts`'s `assertMarkerNotWhileWaiting` is the choke point: the CLI is the
 ONLY entry that ever fires a marker (impl and fix both), so the guard lives there.
 
-The concrete marker command is now also rendered by `karst context` under
+The concrete marker command is rendered by `karst context` under
 `## How this stage ends` (`cli/context.ts`'s `renderStageEnding`), resolved from
 `markerStageFor(stageCurrent)` at read time rather than at session launch. A
 session that moved impl→fix mid-run is told `stage fix pass` — the section
@@ -44,7 +44,8 @@ reflects the ticket's CURRENT stage, not the stage the session was launched
 under. At gate stages (`uat`, `review`, `ship`, `scope`, `done`) where
 `markerStageFor` returns null, the section is replaced by the gate-only
 instruction (`renderGateOnlyInstruction`), which tells the agent there is no
-marker to fire at that stage.
+marker to fire at that stage. This section is a re-read path — the seed's inline
+marker remains the primary carrier.
 
 ## DONE MEANS MERGED — an ENTRY CONDITION on `done`, never a stage of its own
 

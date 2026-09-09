@@ -190,6 +190,7 @@ export class AntigravityAdapter implements AgentAdapter {
         'which has no PostToolUse equivalent — tool activity per turn is unobservable',
     ),
     skillDiscovery: SUPPORTED,
+    entryOrchestrators: SUPPORTED,
   };
 
   constructor(private readonly spawnHeadless: SpawnHeadless = defaultSpawn) {}
@@ -310,10 +311,7 @@ export class AntigravityAdapter implements AgentAdapter {
       );
     }
 
-    let startTaskInvocation: string | undefined;
-    let resumeInvocation: string | undefined;
-    let fixInvocation: string | undefined;
-    let resolveConflictInvocation: string | undefined;
+    let entryInvocations: Partial<Record<import('./workflowCommand.js').EntryBasename, string>> | undefined;
     if (opts.cliContextPrefix) {
       const karstDir = join(opts.sessionDir, '.agents', 'plugins', KARST_PLUGIN_NAME);
       if (!existsSync(karstDir)) {
@@ -321,8 +319,6 @@ export class AntigravityAdapter implements AgentAdapter {
         writeFileSync(join(karstDir, 'plugin.json'), JSON.stringify({ name: KARST_PLUGIN_NAME }, null, 2));
         if (!ownedKarstDir) ownedKarstDir = karstDir;
       }
-      mkdirSync(join(karstDir, 'commands'), { recursive: true });
-
       const commandEntries: {
         basename: string;
         body: string;
@@ -376,9 +372,12 @@ export class AntigravityAdapter implements AgentAdapter {
       }
 
       for (const entry of commandEntries) {
-        const filePath = join(karstDir, 'commands', `${entry.basename}.md`);
+        const skillDir = join(karstDir, 'skills', entry.basename);
+        mkdirSync(skillDir, { recursive: true });
+        const filePath = join(skillDir, 'SKILL.md');
         const frontmatterLines = [
           '---',
+          `name: ${entry.basename}`,
           `description: ${entry.description}`,
         ];
         if (entry.argumentHint) {
@@ -389,69 +388,15 @@ export class AntigravityAdapter implements AgentAdapter {
         writeGeneratedArtifact(filePath, withStamp(fullBody));
       }
 
-      // Per-ticket alias files for the manual-recovery commands (resume, fix,
-      // resolve-conflict). Each alias is a copy whose basename includes the
-      // ticket key so the command picker fuzzy-matches on it.
-      if (opts.aliasTickets && opts.aliasTickets.length > 0) {
-        const renderers: Record<string, (ticketKey: string) => string> = {
-          [RESUME_BASENAME]: (tk) =>
-            renderResumeCommand({
-              contextCommand: opts.cliContextPrefix!,
-              ...(opts.cliGuidePrefix ? { guideCommand: opts.cliGuidePrefix } : {}),
-              ticketKey: tk,
-            }),
-          ...(opts.cliFixBriefPrefix
-            ? {
-                [FIX_BASENAME]: (tk: string) =>
-                  renderFixCommand({
-                    contextCommand: opts.cliContextPrefix!,
-                    fixBriefCommand: opts.cliFixBriefPrefix!,
-                    ...(opts.cliGuidePrefix ? { guideCommand: opts.cliGuidePrefix } : {}),
-                    ticketKey: tk,
-                  }),
-              }
-            : {}),
-          ...(opts.cliConflictBriefPrefix
-            ? {
-                [RESOLVE_CONFLICT_BASENAME]: (tk: string) =>
-                  renderResolveConflictCommand({
-                    contextCommand: opts.cliContextPrefix!,
-                    conflictBriefCommand: opts.cliConflictBriefPrefix!,
-                    ...(opts.cliGuidePrefix ? { guideCommand: opts.cliGuidePrefix } : {}),
-                    ticketKey: tk,
-                  }),
-              }
-            : {}),
-        };
-        const descriptions: Record<string, string> = {
-          [RESUME_BASENAME]: RESUME_DESCRIPTION,
-          [FIX_BASENAME]: FIX_DESCRIPTION,
-          [RESOLVE_CONFLICT_BASENAME]: RESOLVE_CONFLICT_DESCRIPTION,
-        };
-        for (const ticket of opts.aliasTickets) {
-          const slug = slugCommandName(ticket.key);
-          if (!slug) continue;
-          for (const [basename, render] of Object.entries(renderers)) {
-            const aliasBasename = `${basename}-${slug}`;
-            const filePath = join(karstDir, 'commands', `${aliasBasename}.md`);
-            const frontmatterLines = [
-              '---',
-              `description: ${descriptions[basename] ?? ''}`,
-            ];
-            frontmatterLines.push('---', '');
-            const fullBody = frontmatterLines.join('\n') + render(ticket.key);
-            writeGeneratedArtifact(filePath, withStamp(fullBody));
-          }
-        }
-      }
-
-      startTaskInvocation = `/${KARST_PLUGIN_NAME}:${START_TASK_BASENAME}`;
-      resumeInvocation = `/${KARST_PLUGIN_NAME}:${RESUME_BASENAME}`;
+      entryInvocations = {
+        'start-task': `$${START_TASK_BASENAME}`,
+        'resume': `$${RESUME_BASENAME}`,
+      };
       if (opts.cliFixBriefPrefix) {
-        fixInvocation = `/${KARST_PLUGIN_NAME}:${FIX_BASENAME}`;
+        entryInvocations['fix'] = `$${FIX_BASENAME}`;
       }
       if (opts.cliConflictBriefPrefix) {
-        resolveConflictInvocation = `/${KARST_PLUGIN_NAME}:${RESOLVE_CONFLICT_BASENAME}`;
+        entryInvocations['resolve-conflict'] = `$${RESOLVE_CONFLICT_BASENAME}`;
       }
     }
 
@@ -464,10 +409,7 @@ export class AntigravityAdapter implements AgentAdapter {
         ...(ownedKarstDir ? [ownedKarstDir] : []),
       ],
       ...(hasWorkflow ? { invocation: `$${slugCommandName(opts.pkg.id)}` } : {}),
-      ...(startTaskInvocation ? { startTaskInvocation } : {}),
-      ...(resumeInvocation ? { resumeInvocation } : {}),
-      ...(fixInvocation ? { fixInvocation } : {}),
-      ...(resolveConflictInvocation ? { resolveConflictInvocation } : {}),
+      ...(entryInvocations ? { entryInvocations } : {}),
     };
   }
 

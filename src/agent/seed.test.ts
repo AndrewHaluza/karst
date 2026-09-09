@@ -111,6 +111,52 @@ describe('buildSessionSeed', () => {
     );
   });
 
+  // Entry-point marker presence: with an invocation and a marker, the seed
+  // ALWAYS contains the marker text — materialization no longer suppresses it.
+  it('launch: invocation + marker → marker present', () => {
+    const seed = buildSessionSeed(
+      CONTEXT,
+      null,
+      '/karst:start-task PROJ-9',
+      'RUN THE MARKER',
+    );
+    expect(seed).toBeDefined();
+    expect(seed).toContain('RUN THE MARKER');
+    expect(seed).toContain('/karst:start-task PROJ-9');
+  });
+
+  it('resume: invocation + marker → marker present', () => {
+    const result = composeResumeSeed(
+      'PROJ-9',
+      'Continue the in-progress work.',
+      '/karst:resume',
+      'RUN THE MARKER',
+    );
+    expect(result).toContain('RUN THE MARKER');
+    expect(result).toContain('/karst:resume PROJ-9');
+  });
+
+  it('fix: invocation + marker → marker present', () => {
+    const result = composeResumeSeed(
+      'PROJ-9',
+      'Fix the failing gate.',
+      '/karst:fix',
+      'RUN THE MARKER',
+    );
+    expect(result).toContain('RUN THE MARKER');
+    expect(result).toContain('/karst:fix PROJ-9');
+  });
+
+  it('conflict: invocation + brief → invocation present (no separate marker arg)', () => {
+    const result = composeConflictOverrideSeed(
+      'PROJ-9',
+      'Resolve merge conflict in repo frontend.',
+      '/karst:resolve-conflict',
+    );
+    expect(result).toContain('/karst:resolve-conflict PROJ-9');
+    expect(result).toContain('Resolve merge conflict');
+  });
+
   // Issue #6: a ticket seeded at a gate stage (uat/review/ship) has no marker to
   // fire — markerStageFor returns null there — but the seed must still say
   // something about how the stage ends, per the same extension.ts wiring used
@@ -131,20 +177,18 @@ describe('buildSessionSeed', () => {
     expect(seed!.toLowerCase()).not.toContain('done marker');
   });
 
-  it('narrative shape: invocation present, no marker, guide pointer present', () => {
+  it('narrative shape: invocation present, marker present, guide pointer present', () => {
     const seed = buildSessionSeed(
       CONTEXT,
       null,
       '/karst:start-task PROJ-9',
-      null,
+      'RUN THE MARKER',
       'Run `karst guide` to learn the CLI.',
     );
     expect(seed).toBeDefined();
     expect(seed).toContain('/karst:start-task PROJ-9');
+    expect(seed).toContain('RUN THE MARKER');
     expect(seed).toContain('karst guide');
-    expect(seed).not.toContain('stage impl pass');
-    expect(seed).not.toContain('stage fix pass');
-    expect(seed).not.toContain('gate exit codes');
   });
 
   it('fallback shape: marker present, no invocation, unchanged from today', () => {
@@ -361,15 +405,25 @@ describe('composeResumeSeed', () => {
     expect(result).toBe('/karst:resume PROJ-9\n\nFix the failing gate.');
   });
 
-  it('omits the marker when an invocation is given', () => {
+  it('omits the marker when no marker argument is given', () => {
+    const result = composeResumeSeed(
+      'PROJ-9',
+      'Fix the failing gate.',
+      '/karst:resume',
+      undefined,
+    );
+    expect(result).toBe('/karst:resume PROJ-9\n\nFix the failing gate.');
+  });
+
+  it('includes the marker when an invocation is given', () => {
     const result = composeResumeSeed(
       'PROJ-9',
       'Fix the failing gate.',
       '/karst:resume',
       'RUN THE MARKER',
     );
-    expect(result).toBe('/karst:resume PROJ-9\n\nFix the failing gate.');
-    expect(result).not.toContain('RUN THE MARKER');
+    expect(result).toContain('RUN THE MARKER');
+    expect(result).toContain('/karst:resume PROJ-9');
   });
 
   it('returns today\'s string with marker when no invocation is given', () => {

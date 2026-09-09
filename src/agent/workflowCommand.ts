@@ -22,6 +22,9 @@ export const RESUME_BASENAME = 'resume';
 export const FIX_BASENAME = 'fix';
 export const RESOLVE_CONFLICT_BASENAME = 'resolve-conflict';
 
+/** The basenames of the four entry-point orchestrators. */
+export type EntryBasename = 'start-task' | 'resume' | 'fix' | 'resolve-conflict';
+
 /**
  * Every reserved basename — an approach id that slugs to any of these would
  * overwrite a generated file, so every adapter's guard checks this list.
@@ -185,22 +188,12 @@ export function renderStartTaskCommand(input: {
  * Render the markdown body for the generated resume command. The session is
  * resuming work already in progress — there is no brief to restate.
  * Returns BODY ONLY (no frontmatter).
- *
- * When `ticketKey` is given, the `$ARGUMENTS` grammar paragraph is replaced
- * with a sentence naming the concrete key, and `<key>` in the command lines
- * is substituted with the actual key — for per-ticket alias files.
  */
 export function renderResumeCommand(input: {
   contextCommand: string;
   guideCommand?: string;
-  ticketKey?: string;
 }): string {
-  const { contextCommand, guideCommand, ticketKey } = input;
-  if (ticketKey) {
-    const core = renderCommandCore(contextCommand, guideCommand)
-      .replace(/<key>/g, ticketKey);
-    return `This command is for ticket \`${ticketKey}\`.\n\n${core}`;
-  }
+  const { contextCommand, guideCommand } = input;
   const grammarParagraph =
     'The first whitespace-delimited token in `$ARGUMENTS` is the ticket key. ' +
     'This session is resuming work already in progress — there is no brief.';
@@ -211,24 +204,13 @@ export function renderResumeCommand(input: {
  * Render the markdown body for the generated fix command. The brief is produced
  * by running `fixBriefCommand <key>` FIRST; its output is the work.
  * Returns BODY ONLY (no frontmatter).
- *
- * When `ticketKey` is given, the `$ARGUMENTS` grammar paragraph is replaced
- * with a sentence naming the concrete key, and `<key>` in the command lines
- * is substituted with the actual key — for per-ticket alias files.
  */
 export function renderFixCommand(input: {
   contextCommand: string;
   fixBriefCommand: string;
   guideCommand?: string;
-  ticketKey?: string;
 }): string {
-  const { contextCommand, fixBriefCommand, guideCommand, ticketKey } = input;
-  if (ticketKey) {
-    const core = renderCommandCore(contextCommand, guideCommand)
-      .replace(/<key>/g, ticketKey);
-    const briefLine = `Run \`${fixBriefCommand} ${ticketKey}\` FIRST and treat its output as the work — the brief names the gate that failed and what it reported.`;
-    return `This command is for ticket \`${ticketKey}\`.\n\n${briefLine}\n\n${core}`;
-  }
+  const { contextCommand, fixBriefCommand, guideCommand } = input;
   const grammarParagraph =
     'The first whitespace-delimited token in `$ARGUMENTS` is the ticket key. ' +
     `Run \`${fixBriefCommand} <key>\` FIRST and treat its output as the work — the brief ` +
@@ -240,24 +222,13 @@ export function renderFixCommand(input: {
  * Render the markdown body for the generated resolve-conflict command. The
  * `$ARGUMENTS` grammar is `<key> <repo>`, the first two whitespace-delimited
  * tokens. Returns BODY ONLY (no frontmatter).
- *
- * When `ticketKey` is given, the `$ARGUMENTS` grammar paragraph is replaced
- * with a sentence naming the concrete key, and `<key>` in the command lines
- * is substituted with the actual key — for per-ticket alias files.
  */
 export function renderResolveConflictCommand(input: {
   contextCommand: string;
   conflictBriefCommand: string;
   guideCommand?: string;
-  ticketKey?: string;
 }): string {
-  const { contextCommand, conflictBriefCommand, guideCommand, ticketKey } = input;
-  if (ticketKey) {
-    const core = renderCommandCore(contextCommand, guideCommand)
-      .replace(/<key>/g, ticketKey);
-    const briefLine = `Run \`${conflictBriefCommand} ${ticketKey} <repo>\` FIRST — resolving the named conflict is the whole job and it must not drift into other work.`;
-    return `This command is for ticket \`${ticketKey}\`.\n\n${briefLine}\n\n${core}`;
-  }
+  const { contextCommand, conflictBriefCommand, guideCommand } = input;
   const grammarParagraph =
     'The first two whitespace-delimited tokens in `$ARGUMENTS` are `<key>` and `<repo>`. ' +
     `Run \`${conflictBriefCommand} <key> <repo>\` FIRST — resolving the named conflict is the ` +

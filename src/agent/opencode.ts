@@ -26,7 +26,6 @@ import type { TokenUsage } from './tokenUsage.js';
 import {
   KARST_PLUGIN_NAME,
   RESERVED_BASENAMES,
-  slugCommandName,
   START_TASK_BASENAME,
   START_TASK_DESCRIPTION,
   RESUME_BASENAME,
@@ -797,6 +796,7 @@ export class OpencodeAdapter implements AgentAdapter {
         'not a per-tool-use event, so tool activity per turn is unobservable',
     ),
     skillDiscovery: SUPPORTED,
+    entryOrchestrators: SUPPORTED,
   };
 
   constructor(private readonly spawnHeadless: SpawnHeadless = defaultSpawn) {}
@@ -1000,10 +1000,7 @@ export class OpencodeAdapter implements AgentAdapter {
       if (wrote && isNew) owned.add(testSkillDir);
     }
 
-    let startTaskInvocation: string | undefined;
-    let resumeInvocation: string | undefined;
-    let fixInvocation: string | undefined;
-    let resolveConflictInvocation: string | undefined;
+    let entryInvocations: Partial<Record<import('./workflowCommand.js').EntryBasename, string>> | undefined;
     if (opts.cliContextPrefix) {
       const commandEntries: {
         basename: string;
@@ -1073,79 +1070,15 @@ export class OpencodeAdapter implements AgentAdapter {
         if (wrote && isNew) owned.add(destination);
       }
 
-      // Per-ticket alias commands for the manual-recovery commands. Each alias
-      // gets a `karst-<basename>-<KEY>` filename so the command picker
-      // fuzzy-matches on it.
-      if (opts.aliasTickets && opts.aliasTickets.length > 0) {
-        const renderers: Record<string, (ticketKey: string) => string> = {
-          [RESUME_BASENAME]: (tk) =>
-            renderResumeCommand({
-              contextCommand: opts.cliContextPrefix!,
-              ...(opts.cliGuidePrefix ? { guideCommand: opts.cliGuidePrefix } : {}),
-              ticketKey: tk,
-            }),
-          ...(opts.cliFixBriefPrefix
-            ? {
-                [FIX_BASENAME]: (tk: string) =>
-                  renderFixCommand({
-                    contextCommand: opts.cliContextPrefix!,
-                    fixBriefCommand: opts.cliFixBriefPrefix!,
-                    ...(opts.cliGuidePrefix ? { guideCommand: opts.cliGuidePrefix } : {}),
-                    ticketKey: tk,
-                  }),
-              }
-            : {}),
-          ...(opts.cliConflictBriefPrefix
-            ? {
-                [RESOLVE_CONFLICT_BASENAME]: (tk: string) =>
-                  renderResolveConflictCommand({
-                    contextCommand: opts.cliContextPrefix!,
-                    conflictBriefCommand: opts.cliConflictBriefPrefix!,
-                    ...(opts.cliGuidePrefix ? { guideCommand: opts.cliGuidePrefix } : {}),
-                    ticketKey: tk,
-                  }),
-              }
-            : {}),
-        };
-        const descriptions: Record<string, string> = {
-          [RESUME_BASENAME]: RESUME_DESCRIPTION,
-          [FIX_BASENAME]: FIX_DESCRIPTION,
-          [RESOLVE_CONFLICT_BASENAME]: RESOLVE_CONFLICT_DESCRIPTION,
-        };
-        for (const ticket of opts.aliasTickets) {
-          const slug = slugCommandName(ticket.key);
-          if (!slug) continue;
-          for (const [basename, render] of Object.entries(renderers)) {
-            const aliasName = `karst-${basename}-${slug}`;
-            const destination = join(
-              opts.sessionDir,
-              '.opencode',
-              'commands',
-              `${aliasName}.md`,
-            );
-            const isNew = !existsSync(destination);
-            const wrote = writeGeneratedArtifact(
-              destination,
-              [
-                '---',
-                `description: ${descriptions[basename] ?? ''}`,
-                '---',
-                '',
-                withStamp(render(ticket.key)),
-              ].join('\n'),
-            );
-            if (wrote && isNew) owned.add(destination);
-          }
-        }
-      }
-
-      startTaskInvocation = '/karst-start-task';
-      resumeInvocation = '/karst-resume';
+      entryInvocations = {
+        'start-task': '/karst-start-task',
+        'resume': '/karst-resume',
+      };
       if (opts.cliFixBriefPrefix) {
-        fixInvocation = '/karst-fix';
+        entryInvocations['fix'] = '/karst-fix';
       }
       if (opts.cliConflictBriefPrefix) {
-        resolveConflictInvocation = '/karst-resolve-conflict';
+        entryInvocations['resolve-conflict'] = '/karst-resolve-conflict';
       }
     }
 
@@ -1153,10 +1086,7 @@ export class OpencodeAdapter implements AgentAdapter {
       extraArgs: [],
       ownedPaths: [...owned],
       ...(hasWorkflow ? { invocation: `/${idName}` } : {}),
-      ...(startTaskInvocation ? { startTaskInvocation } : {}),
-      ...(resumeInvocation ? { resumeInvocation } : {}),
-      ...(fixInvocation ? { fixInvocation } : {}),
-      ...(resolveConflictInvocation ? { resolveConflictInvocation } : {}),
+      ...(entryInvocations ? { entryInvocations } : {}),
     };
   }
 

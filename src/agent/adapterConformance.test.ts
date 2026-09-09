@@ -96,6 +96,7 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
       'mcpIsolationHeadless',
       'toolActivity',
       'skillDiscovery',
+      'entryOrchestrators',
     ];
     for (const key of keys) {
       const support = surfaces[key];

@@ -226,6 +226,9 @@ directional — resident is the default; deferral requires meeting ALL criteria.
 - **Marker rule, done-means-merged**: resident. The agent's default model of the
   world is wrong in a specific way; the text corrects it before the mistake.
 
+The entry orchestrators deliberately carry NO marker prose; the marker is inline
+in every seed regardless of materialization.
+
 ### Generalized from ticket 17's landed pattern
 
 Ticket 17 (`bfc5ae54`) established the pattern for the UAT Tester: criteria are

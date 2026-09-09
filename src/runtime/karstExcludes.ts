@@ -40,13 +40,16 @@ export const KARST_EXCLUDE_RULES: readonly string[] = [
   '/.codex/karst/',
   // OpencodeAdapter's generated skills/agents/commands/plugins. Only the
   // `karst-` prefixed children are karst's — a repository's own opencode
-  // skills and commands live beside them under `.opencode/`. The plugins rule
-  // carries NO trailing slash: it must match both `karst-<id>/` plugin dirs AND
-  // the generated `karst-bridge.js` FILE (a slash would match directories
-  // only, and the unexcluded file was staged by ship's `git add -A`, committed,
-  // and conflicted with every worktree's regenerated copy on every merge).
+  // skills and commands live beside them under `.opencode/`. The plugins AND
+  // commands rules carry NO trailing slash: they must match both
+  // `karst-<id>/` dirs AND the generated FILEs at those paths (a slash would
+  // match directories only, and the unexcluded file was staged by ship's
+  // `git add -A`, committed, and conflicted with every worktree's
+  // regenerated copy on every merge). Commands now follow the same convention
+  // because opencode writes generated command FILES (e.g. `karst-start-task.md`)
+  // that ship's `git add -A` would otherwise stage.
   '/.opencode/skills/karst-*/',
   '/.opencode/agents/karst-*/',
-  '/.opencode/commands/karst-*/',
+  '/.opencode/commands/karst-*',
   '/.opencode/plugins/karst-*',
 ];
