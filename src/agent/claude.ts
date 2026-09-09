@@ -11,7 +11,28 @@ import type {
   RunHeadlessOpts,
   HeadlessResult,
 } from './adapter.js';
-import { renderWorkflowCommand, KARST_PLUGIN_NAME, orchestratorCommandBasename } from './workflowCommand.js';
+import {
+  renderWorkflowCommand,
+  renderStartTaskCommand,
+  renderResumeCommand,
+  renderFixCommand,
+  renderResolveConflictCommand,
+  KARST_PLUGIN_NAME,
+  orchestratorCommandBasename,
+  START_TASK_BASENAME,
+  START_TASK_DESCRIPTION,
+  START_TASK_ARGUMENT_HINT,
+  RESUME_BASENAME,
+  RESUME_DESCRIPTION,
+  RESUME_ARGUMENT_HINT,
+  FIX_BASENAME,
+  FIX_DESCRIPTION,
+  FIX_ARGUMENT_HINT,
+  RESOLVE_CONFLICT_BASENAME,
+  RESOLVE_CONFLICT_DESCRIPTION,
+  RESOLVE_CONFLICT_ARGUMENT_HINT,
+  RESERVED_BASENAMES,
+} from './workflowCommand.js';
 import { withStamp, writeGeneratedArtifact } from './generatedArtifact.js';
 import { renderTestSkill } from './testSkill.js';
 import { writeHookSettings } from './settings.js';
@@ -139,6 +160,7 @@ export class ClaudeAdapter implements AgentAdapter {
     mcpIsolationHeadless: SUPPORTED,
     toolActivity: SUPPORTED,
     skillDiscovery: SUPPORTED,
+    entryOrchestrators: SUPPORTED,
   };
 
   constructor(private readonly spawnHeadless: SpawnHeadless = defaultSpawn) {}
@@ -230,83 +252,37 @@ export class ClaudeAdapter implements AgentAdapter {
     const hasWorkflow = (opts.pkg.workflow?.length ?? 0) > 0;
     const solo = opts.soloAgent;
     if (solo) assertSafeAgentName(solo.name);
-    if (artifacts.length === 0 && !hasWorkflow && !solo) {
+    if (artifacts.length === 0 && !hasWorkflow && !solo && !opts.cliContextPrefix) {
       return { extraArgs: [], ownedPaths: [] };
     }
     if (opts.pkg.id === KARST_PLUGIN_NAME) {
-      // `karst` is reserved for the generated orchestrator's sibling plugin
-      // (`.karst-plugin/karst/`, built below when `hasWorkflow`). An approach
-      // with this id would collide: `idPluginDir` and `karstDir` resolve to the
-      // SAME directory, so `extraArgs` would return two identical
-      // `--plugin-dir` entries and the launch would break.
       throw new Error(
         `materializeApproach: approach id "${KARST_PLUGIN_NAME}" is reserved — it collides ` +
           `with the generated orchestrator plugin (§ Design 2 — two plugins)`,
       );
     }
-
-    // The <id> plugin dir holds ONLY the approach's own artifacts + solo agent.
-    const idPluginDir = join(opts.sessionDir, '.karst-plugin', opts.pkg.id);
-    // A repository may check in its own plugin tree at this exact path (karst's
-    // own repo does). That directory belongs to the repository, not this
-    // terminal: writing into it corrupts tracked files, and claiming it would
-    // make session cleanup delete them. Launch against it, never own it.
-    const ownsIdPlugin = !existsSync(idPluginDir);
-    if (ownsIdPlugin) {
-      const metaDir = join(idPluginDir, '.claude-plugin');
-      mkdirSync(metaDir, { recursive: true });
-      const manifest = {
-        name: opts.pkg.id,
-        version: '0.0.0',
-        ...(opts.pkg.description !== undefined ? { description: opts.pkg.description } : {}),
-      };
-      writeFileSync(join(metaDir, 'plugin.json'), JSON.stringify(manifest, null, 2));
-
-      // Copy artifacts into the plugin, structure preserved. A skill IS its folder
-      // (SKILL.md + referenced siblings), so copy the whole `skills/<name>/` dir;
-      // agents/commands are single files.
-      for (const art of artifacts) {
-        const src = join(opts.baseDir, opts.pkg.id, art.relPath);
-        const dest = join(idPluginDir, art.relPath);
-        if (art.kind === 'skill') {
-          cpSync(dirname(src), dirname(dest), { recursive: true });
-        } else {
-          mkdirSync(dirname(dest), { recursive: true });
-          copyFileSync(src, dest);
-        }
-      }
-
-      // Materialize the chosen single-subagent (§ single-subagent launch) into
-      // the plugin's `agents/` dir. Its body was already sanitized when written
-      // to disk (agent file / approach artifact) — no second sanitize pass here
-      // keeps this seam free of the untrusted-source module.
-      if (solo) {
-        const agentsPluginDir = join(idPluginDir, 'agents');
-        mkdirSync(agentsPluginDir, { recursive: true });
-        writeFileSync(join(agentsPluginDir, `${solo.name}.md`), solo.body);
+    for (const reserved of RESERVED_BASENAMES) {
+      if (
+        orchestratorCommandBasename(opts.pkg.id) === reserved ||
+        opts.pkg.id === reserved
+      ) {
+        throw new Error(
+          `materializeApproach: approach id "${opts.pkg.id}" slugs to reserved ` +
+            `"${reserved}" — it collides with a generated file`,
+        );
       }
     }
 
-    const pluginDirs: string[] = [idPluginDir];
-    const owned: string[] = ownsIdPlugin ? [idPluginDir] : [];
+    const pluginDirs: string[] = [];
+    const owned: string[] = [];
 
-    if (hasWorkflow) {
-      // Design 2: the generated orchestrator lives in a SIBLING `karst` plugin so
-      // it registers as `/karst:<id>` (not `/<id>:karst`). Native commands stay
-      // in the <id> plugin as `/<id>:<name>`.
-      const karstDir = join(opts.sessionDir, '.karst-plugin', KARST_PLUGIN_NAME);
-      // The dir is SHARED: it is named for the plugin, not the approach, so a
-      // worktree first launched under one approach already holds it when the
-      // ticket is re-launched under another. Skipping the whole dir on that
-      // second launch wrote no command for the new approach while the seed
-      // still invoked it — "Unknown command: /karst:<id>" (UNKNOWN-COMMAND-ISSUE).
-      // Ownership is still claimed only when karst created the dir, and the
-      // per-FILE guard (`writeGeneratedArtifact`) keeps a repository's own
-      // checked-in command safe.
-      const ownsKarst = !existsSync(karstDir);
+    /** Ensure the shared karst plugin dir exists with plugin.json. */
+    const ensureKarstPlugin = (): { dir: string; created: boolean } => {
+      const dir = join(opts.sessionDir, '.karst-plugin', KARST_PLUGIN_NAME);
+      const created = !existsSync(dir);
       {
-        const karstMeta = join(karstDir, '.claude-plugin');
-        const karstCommands = join(karstDir, 'commands');
+        const karstMeta = join(dir, '.claude-plugin');
+        const karstCommands = join(dir, 'commands');
         mkdirSync(karstMeta, { recursive: true });
         mkdirSync(karstCommands, { recursive: true });
         const pluginJson = join(karstMeta, 'plugin.json');
@@ -316,6 +292,73 @@ export class ClaudeAdapter implements AgentAdapter {
             JSON.stringify({ name: KARST_PLUGIN_NAME, version: '0.0.0' }, null, 2),
           );
         }
+      }
+      if (created) owned.push(dir);
+      if (!pluginDirs.includes(dir)) pluginDirs.push(dir);
+      return { dir, created };
+    };
+
+    if (artifacts.length > 0 || hasWorkflow || solo) {
+      // The <id> plugin dir holds ONLY the approach's own artifacts + solo agent.
+      const idPluginDir = join(opts.sessionDir, '.karst-plugin', opts.pkg.id);
+      // A repository may check in its own plugin tree at this exact path (karst's
+      // own repo does). That directory belongs to the repository, not this
+      // terminal: writing into it corrupts tracked files, and claiming it would
+      // make session cleanup delete them. Launch against it, never own it.
+      const ownsIdPlugin = !existsSync(idPluginDir);
+      if (ownsIdPlugin) {
+        const metaDir = join(idPluginDir, '.claude-plugin');
+        mkdirSync(metaDir, { recursive: true });
+        const manifest = {
+          name: opts.pkg.id,
+          version: '0.0.0',
+          ...(opts.pkg.description !== undefined ? { description: opts.pkg.description } : {}),
+        };
+        writeFileSync(join(metaDir, 'plugin.json'), JSON.stringify(manifest, null, 2));
+
+        // Copy artifacts into the plugin, structure preserved. A skill IS its folder
+        // (SKILL.md + referenced siblings), so copy the whole `skills/<name>/` dir;
+        // agents/commands are single files.
+        for (const art of artifacts) {
+          const src = join(opts.baseDir, opts.pkg.id, art.relPath);
+          const dest = join(idPluginDir, art.relPath);
+          if (art.kind === 'skill') {
+            cpSync(dirname(src), dirname(dest), { recursive: true });
+          } else {
+            mkdirSync(dirname(dest), { recursive: true });
+            copyFileSync(src, dest);
+          }
+        }
+
+        // Materialize the chosen single-subagent (§ single-subagent launch) into
+        // the plugin's `agents/` dir. Its body was already sanitized when written
+        // to disk (agent file / approach artifact) — no second sanitize pass here
+        // keeps this seam free of the untrusted-source module.
+        if (solo) {
+          const agentsPluginDir = join(idPluginDir, 'agents');
+          mkdirSync(agentsPluginDir, { recursive: true });
+          writeFileSync(join(agentsPluginDir, `${solo.name}.md`), solo.body);
+        }
+      }
+
+      pluginDirs.push(idPluginDir);
+      if (ownsIdPlugin) owned.push(idPluginDir);
+    }
+
+    if (hasWorkflow) {
+      // Design 2: the generated orchestrator lives in a SIBLING `karst` plugin so
+      // it registers as `/karst:<id>` (not `/<id>:karst`). Native commands stay
+      // in the <id> plugin as `/<id>:<name>`.
+      const { dir: karstDir } = ensureKarstPlugin();
+      // The dir is SHARED: it is named for the plugin, not the approach, so a
+      // worktree first launched under one approach already holds it when the
+      // ticket is re-launched under another. Skipping the whole dir on that
+      // second launch wrote no command for the new approach while the seed
+      // still invoked it — "Unknown command: /karst:<id>" (UNKNOWN-COMMAND-ISSUE).
+      // Ownership is still claimed only when karst created the dir, and the
+      // per-FILE guard (`writeGeneratedArtifact`) keeps a repository's own
+      // checked-in command safe.
+      {
         const body = renderWorkflowCommand({
           id: opts.pkg.id,
           label: opts.pkg.label,
@@ -326,12 +369,10 @@ export class ClaudeAdapter implements AgentAdapter {
           ...(opts.cliGuidePrefix ? { guideCommand: opts.cliGuidePrefix } : {}),
         });
         writeGeneratedArtifact(
-          join(karstCommands, `${orchestratorCommandBasename(opts.pkg.id)}.md`),
+          join(karstDir, 'commands', `${orchestratorCommandBasename(opts.pkg.id)}.md`),
           withStamp(body),
         );
-        if (ownsKarst) owned.push(karstDir);
       }
-      pluginDirs.push(karstDir);
     }
 
     // The test-family skill carries the resolved CLI prefix so the agent
@@ -339,27 +380,95 @@ export class ClaudeAdapter implements AgentAdapter {
     // shared karst plugin so it is available regardless of whether the
     // approach defines a workflow.
     if (opts.cliTestPrefix) {
-      const karstDir = join(opts.sessionDir, '.karst-plugin', KARST_PLUGIN_NAME);
-      if (!existsSync(karstDir)) {
-        const karstMeta = join(karstDir, '.claude-plugin');
-        mkdirSync(karstMeta, { recursive: true });
-        const pluginJson = join(karstMeta, 'plugin.json');
-        if (!existsSync(pluginJson)) {
-          writeFileSync(
-            pluginJson,
-            JSON.stringify({ name: KARST_PLUGIN_NAME, version: '0.0.0' }, null, 2),
-          );
-        }
-        owned.push(karstDir);
-      }
-      // Always ensure the karst plugin dir is in pluginDirs so Claude discovers
-      // the test skill — even on re-launch when the dir already exists.
-      if (!pluginDirs.includes(karstDir)) pluginDirs.push(karstDir);
+      const { dir: karstDir } = ensureKarstPlugin();
       const testSkillDir = join(karstDir, 'skills', 'karst-test');
       writeGeneratedArtifact(
         join(testSkillDir, 'SKILL.md'),
         renderTestSkill(opts.cliTestPrefix),
       );
+    }
+
+    let entryInvocations: Partial<Record<import('./workflowCommand.js').EntryBasename, string>> | undefined;
+    if (opts.cliContextPrefix) {
+      const { dir } = ensureKarstPlugin();
+      mkdirSync(join(dir, 'commands'), { recursive: true });
+
+      const commandEntries: {
+        basename: string;
+        body: string;
+        description: string;
+        argumentHint?: string;
+      }[] = [
+        {
+          basename: START_TASK_BASENAME,
+          body: renderStartTaskCommand({
+            contextCommand: opts.cliContextPrefix,
+            ...(opts.cliGuidePrefix ? { guideCommand: opts.cliGuidePrefix } : {}),
+          }),
+          description: START_TASK_DESCRIPTION,
+          argumentHint: START_TASK_ARGUMENT_HINT,
+        },
+        {
+          basename: RESUME_BASENAME,
+          body: renderResumeCommand({
+            contextCommand: opts.cliContextPrefix,
+            ...(opts.cliGuidePrefix ? { guideCommand: opts.cliGuidePrefix } : {}),
+          }),
+          description: RESUME_DESCRIPTION,
+          argumentHint: RESUME_ARGUMENT_HINT,
+        },
+      ];
+
+      if (opts.cliFixBriefPrefix) {
+        commandEntries.push({
+          basename: FIX_BASENAME,
+          body: renderFixCommand({
+            contextCommand: opts.cliContextPrefix,
+            fixBriefCommand: opts.cliFixBriefPrefix,
+            ...(opts.cliGuidePrefix ? { guideCommand: opts.cliGuidePrefix } : {}),
+          }),
+          description: FIX_DESCRIPTION,
+          argumentHint: FIX_ARGUMENT_HINT,
+        });
+      }
+
+      if (opts.cliConflictBriefPrefix) {
+        commandEntries.push({
+          basename: RESOLVE_CONFLICT_BASENAME,
+          body: renderResolveConflictCommand({
+            contextCommand: opts.cliContextPrefix,
+            conflictBriefCommand: opts.cliConflictBriefPrefix,
+            ...(opts.cliGuidePrefix ? { guideCommand: opts.cliGuidePrefix } : {}),
+          }),
+          description: RESOLVE_CONFLICT_DESCRIPTION,
+          argumentHint: RESOLVE_CONFLICT_ARGUMENT_HINT,
+        });
+      }
+
+      for (const entry of commandEntries) {
+        const filePath = join(dir, 'commands', `${entry.basename}.md`);
+        const frontmatterLines = [
+          '---',
+          `description: ${entry.description}`,
+        ];
+        if (entry.argumentHint) {
+          frontmatterLines.push(`argument-hint: "${entry.argumentHint}"`);
+        }
+        frontmatterLines.push('---', '');
+        const fullBody = frontmatterLines.join('\n') + entry.body;
+        writeGeneratedArtifact(filePath, withStamp(fullBody));
+      }
+
+      entryInvocations = {
+        'start-task': `/${KARST_PLUGIN_NAME}:${START_TASK_BASENAME}`,
+        'resume': `/${KARST_PLUGIN_NAME}:${RESUME_BASENAME}`,
+      };
+      if (opts.cliFixBriefPrefix) {
+        entryInvocations['fix'] = `/${KARST_PLUGIN_NAME}:${FIX_BASENAME}`;
+      }
+      if (opts.cliConflictBriefPrefix) {
+        entryInvocations['resolve-conflict'] = `/${KARST_PLUGIN_NAME}:${RESOLVE_CONFLICT_BASENAME}`;
+      }
     }
 
     return {
@@ -372,6 +481,7 @@ export class ClaudeAdapter implements AgentAdapter {
             )}`,
           }
         : {}),
+      ...(entryInvocations ? { entryInvocations } : {}),
     };
   }
 

@@ -1721,4 +1721,243 @@ describe('CodexAdapter approach materialization', () => {
 
     expect(readFileSync(skillPath, 'utf8')).toBe('checked into the repo');
   });
+
+  it('bare direct + cliContextPrefix writes karst-start-task skill and returns entryInvocations', () => {
+    const worktree = makeWorktree();
+    const result = new CodexAdapter().materializeApproach!({
+      baseDir: makeBasePackage('bare', []),
+      sessionDir: worktree,
+      pkg: { id: 'bare', label: 'Bare' },
+      cliContextPrefix: 'node "/ext/cli.js" context --db "/x.db"',
+    });
+    const startTaskSkillDir = join(worktree, '.agents', 'skills', 'karst-start-task');
+    expect(existsSync(startTaskSkillDir)).toBe(true);
+    const body = readFileSync(join(startTaskSkillDir, 'SKILL.md'), 'utf8');
+    expect(body).toContain('name: karst-start-task');
+    expect(body).toContain('---');
+    expect(body).toContain('node "/ext/cli.js" context --db "/x.db"');
+    expect(result.entryInvocations?.['start-task']).toBe('$karst-start-task');
+  });
+
+  it('bare direct without cliContextPrefix returns no entryInvocations', () => {
+    const worktree = makeWorktree();
+    const result = new CodexAdapter().materializeApproach!({
+      baseDir: makeBasePackage('bare', []),
+      sessionDir: worktree,
+      pkg: { id: 'bare', label: 'Bare' },
+    });
+    expect(result.entryInvocations).toBeUndefined();
+    expect(
+      existsSync(join(worktree, '.agents', 'skills', 'karst-start-task')),
+    ).toBe(false);
+  });
+
+  it.each(['start-task', 'fix', 'resolve-conflict', 'resume'])(
+    'an approach id slugging to reserved name %s throws',
+    (id) => {
+      expect(() =>
+        new CodexAdapter().materializeApproach!({
+          baseDir: '/base',
+          sessionDir: makeWorktree(),
+          pkg: { id, label: id, workflow: [{ name: 'run' }] },
+          cliContextPrefix: 'node cli.js context',
+        }),
+      ).toThrow(/reserved|collides/);
+    },
+  );
+
+  it('a workflow launch returns both invocation and entryInvocations', () => {
+    const worktree = makeWorktree();
+    const result = new CodexAdapter().materializeApproach!({
+      baseDir: makeBasePackage('rpi', []),
+      sessionDir: worktree,
+      pkg: { id: 'rpi', label: 'RPI', workflow: [{ name: 'research' }] },
+      cliContextPrefix: 'node cli.js context --ticket',
+    });
+    expect(result.invocation).toBe('$karst-rpi');
+    expect(result.entryInvocations?.['start-task']).toBe('$karst-start-task');
+  });
+
+  it('all four created files appear in ownedPaths on first creation only', () => {
+    const worktree = makeWorktree();
+    const result = new CodexAdapter().materializeApproach!({
+      baseDir: makeBasePackage('rpi', [
+        ['skills/planning/SKILL.md', '---\nname: planning\ndescription: Plan.\n---\nPlan.'],
+        ['agents/researcher.md', '# Researcher'],
+      ]),
+      sessionDir: worktree,
+      pkg: {
+        id: 'rpi',
+        label: 'RPI',
+        artifacts: [
+          { kind: 'skill', relPath: 'skills/planning/SKILL.md' },
+          { kind: 'agent', relPath: 'agents/researcher.md' },
+        ],
+      },
+      cliContextPrefix: 'node cli.js context --ticket',
+      cliTestPrefix: 'node cli.js test',
+    });
+    expect(result.ownedPaths).toContain(
+      join(worktree, '.agents', 'skills', 'karst-rpi-planning'),
+    );
+    expect(result.ownedPaths).toContain(
+      join(worktree, '.agents', 'skills', 'karst-rpi-researcher'),
+    );
+    expect(result.ownedPaths).toContain(
+      join(worktree, '.agents', 'skills', 'karst-test'),
+    );
+    expect(result.ownedPaths).toContain(
+      join(worktree, '.agents', 'skills', 'karst-start-task'),
+    );
+    expect(result.ownedPaths).toContain(
+      join(worktree, '.agents', 'skills', 'karst-resume'),
+    );
+    expect(result.ownedPaths).toHaveLength(5);
+  });
+
+  it('second materializeApproach call does NOT add to ownedPaths', () => {
+    const worktree = makeWorktree();
+    const adapter = new CodexAdapter();
+    const first = adapter.materializeApproach!({
+      baseDir: makeBasePackage('rpi', [
+        ['skills/planning/SKILL.md', '---\nname: planning\ndescription: Plan.\n---\nPlan.'],
+      ]),
+      sessionDir: worktree,
+      pkg: {
+        id: 'rpi',
+        label: 'RPI',
+        artifacts: [{ kind: 'skill', relPath: 'skills/planning/SKILL.md' }],
+      },
+      cliContextPrefix: 'node cli.js context --ticket',
+      cliTestPrefix: 'node cli.js test',
+    });
+    expect(first.ownedPaths.length).toBeGreaterThan(0);
+    const second = adapter.materializeApproach!({
+      baseDir: makeBasePackage('rpi', []),
+      sessionDir: worktree,
+      pkg: { id: 'rpi', label: 'RPI' },
+      cliContextPrefix: 'node cli.js context --ticket',
+      cliTestPrefix: 'node cli.js test',
+    });
+    expect(second.ownedPaths).toEqual([]);
+  });
+
+  it('(a) with all four prefixes, four karst-prefixed skill dirs exist', () => {
+    const worktree = makeWorktree();
+
+    new CodexAdapter().materializeApproach!({
+      baseDir: makeBasePackage('bare', []),
+      sessionDir: worktree,
+      pkg: { id: 'bare', label: 'Bare' },
+      cliContextPrefix: 'node cli.js context --ticket',
+      cliFixBriefPrefix: 'node cli.js fix-brief',
+      cliConflictBriefPrefix: 'node cli.js conflict-brief',
+    });
+
+    const skillsDir = join(worktree, '.agents', 'skills');
+    for (const basename of ['karst-start-task', 'karst-resume', 'karst-fix', 'karst-resolve-conflict']) {
+      const skillPath = join(skillsDir, basename, 'SKILL.md');
+      expect(existsSync(skillPath), `${basename}/SKILL.md should exist`).toBe(true);
+    }
+  });
+
+  it('(b) with only cliContextPrefix, exactly two skill dirs exist and neither is fix nor resolve-conflict', () => {
+    const worktree = makeWorktree();
+
+    new CodexAdapter().materializeApproach!({
+      baseDir: makeBasePackage('bare', []),
+      sessionDir: worktree,
+      pkg: { id: 'bare', label: 'Bare' },
+      cliContextPrefix: 'node cli.js context --ticket',
+    });
+
+    const skillsDir = join(worktree, '.agents', 'skills');
+    expect(existsSync(join(skillsDir, 'karst-start-task', 'SKILL.md'))).toBe(true);
+    expect(existsSync(join(skillsDir, 'karst-resume', 'SKILL.md'))).toBe(true);
+    expect(existsSync(join(skillsDir, 'karst-fix', 'SKILL.md'))).toBe(false);
+    expect(existsSync(join(skillsDir, 'karst-resolve-conflict', 'SKILL.md'))).toBe(false);
+  });
+
+  it('(c) an approach id colliding with any reserved basename throws', () => {
+    for (const reserved of ['start-task', 'resume', 'fix', 'resolve-conflict']) {
+      expect(() =>
+        new CodexAdapter().materializeApproach!({
+          baseDir: '/base',
+          sessionDir: makeWorktree(),
+          pkg: { id: reserved, label: reserved },
+          cliContextPrefix: 'node cli.js context --ticket',
+        }),
+      ).toThrow(/reserved|collides/);
+    }
+  });
+
+  it('(d) each written SKILL.md has exactly one leading frontmatter block', () => {
+    const worktree = makeWorktree();
+
+    new CodexAdapter().materializeApproach!({
+      baseDir: makeBasePackage('bare', []),
+      sessionDir: worktree,
+      pkg: { id: 'bare', label: 'Bare' },
+      cliContextPrefix: 'node cli.js context --ticket',
+      cliFixBriefPrefix: 'node cli.js fix-brief',
+      cliConflictBriefPrefix: 'node cli.js conflict-brief',
+    });
+
+    const skillsDir = join(worktree, '.agents', 'skills');
+    for (const basename of ['karst-start-task', 'karst-resume', 'karst-fix', 'karst-resolve-conflict']) {
+      const body = readFileSync(join(skillsDir, basename, 'SKILL.md'), 'utf8');
+      const leadingFrontmatterMatches = body.match(/^---\n[\s\S]*?\n---\n/u);
+      expect(leadingFrontmatterMatches, `${basename} should have exactly one frontmatter block`).toHaveLength(1);
+    }
+  });
+
+  it('(d2) all invocations are $-prefixed with no colon', () => {
+    const worktree = makeWorktree();
+    const result = new CodexAdapter().materializeApproach!({
+      baseDir: makeBasePackage('bare', []),
+      sessionDir: worktree,
+      pkg: { id: 'bare', label: 'Bare', workflow: [{ name: 'run' }] },
+      cliContextPrefix: 'node cli.js context --ticket',
+      cliFixBriefPrefix: 'node cli.js fix-brief',
+      cliConflictBriefPrefix: 'node cli.js conflict-brief',
+    });
+    expect(result.invocation).toMatch(/^\$/);
+    expect(result.invocation).not.toContain(':');
+    for (const value of Object.values(result.entryInvocations!)) {
+      expect(value).toMatch(/^\$/);
+      expect(value).not.toContain(':');
+    }
+  });
+
+  it('(e) all four karst-prefixed skill dirs appear in ownedPaths on first creation only', () => {
+    const worktree = makeWorktree();
+    const result = new CodexAdapter().materializeApproach!({
+      baseDir: makeBasePackage('bare', []),
+      sessionDir: worktree,
+      pkg: { id: 'bare', label: 'Bare' },
+      cliContextPrefix: 'node cli.js context --ticket',
+      cliFixBriefPrefix: 'node cli.js fix-brief',
+      cliConflictBriefPrefix: 'node cli.js conflict-brief',
+    });
+    expect(result.ownedPaths).toContain(join(worktree, '.agents', 'skills', 'karst-start-task'));
+    expect(result.ownedPaths).toContain(join(worktree, '.agents', 'skills', 'karst-resume'));
+    expect(result.ownedPaths).toContain(join(worktree, '.agents', 'skills', 'karst-fix'));
+    expect(result.ownedPaths).toContain(join(worktree, '.agents', 'skills', 'karst-resolve-conflict'));
+  });
+
+  it('the written SKILL.md contains exactly ONE leading frontmatter block', () => {
+    const worktree = makeWorktree();
+    new CodexAdapter().materializeApproach!({
+      baseDir: makeBasePackage('bare', []),
+      sessionDir: worktree,
+      pkg: { id: 'bare', label: 'Bare' },
+      cliContextPrefix: 'node cli.js context --ticket',
+    });
+    const body = readFileSync(
+      join(worktree, '.agents', 'skills', 'karst-start-task', 'SKILL.md'),
+      'utf8',
+    );
+    const leadingFrontmatterMatches = body.match(/^---\n[\s\S]*?\n---\n/u);
+    expect(leadingFrontmatterMatches).toHaveLength(1);
+  });
 });

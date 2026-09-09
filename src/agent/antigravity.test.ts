@@ -463,5 +463,223 @@ describe('AntigravityAdapter', () => {
 
       expect(readFileSync(skillPath, 'utf8')).toBe('checked into the repo');
     });
+
+    it('bare direct + cliContextPrefix writes start-task as a skill and returns entryInvocations', () => {
+      const dir = getTmp();
+
+      const res = new AntigravityAdapter().materializeApproach({
+        pkg: { id: 'bare', label: 'Bare' },
+        baseDir: '/base',
+        sessionDir: dir,
+        cliContextPrefix: 'node "/ext/cli.js" context --db "/x.db"',
+      });
+
+      const startTaskPath = join(dir, '.agents', 'plugins', 'karst', 'skills', 'start-task', 'SKILL.md');
+      expect(existsSync(startTaskPath)).toBe(true);
+      const body = readFileSync(startTaskPath, 'utf8');
+      expect(body).toContain('---');
+      expect(body).toContain('description:');
+      expect(body).toContain('argument-hint:');
+      expect(body).toContain('node "/ext/cli.js" context --db "/x.db"');
+      expect(existsSync(join(dir, '.agents', 'plugins', 'karst', 'commands'))).toBe(false);
+      expect(res.entryInvocations?.['start-task']).toBe('$start-task');
+    });
+
+    it('bare direct without cliContextPrefix returns empty and no entryInvocations', () => {
+      const adapter = new AntigravityAdapter();
+      const res = adapter.materializeApproach({
+        pkg: { id: 'bare', label: 'Bare' },
+        baseDir: '/base',
+        sessionDir: '/sess',
+      });
+      expect(res.extraArgs).toEqual([]);
+      expect(res.entryInvocations).toBeUndefined();
+    });
+
+    it('an approach id colliding with any reserved basename throws', () => {
+      const adapter = new AntigravityAdapter();
+      expect(() => {
+        adapter.materializeApproach({
+          pkg: { id: 'start-task', label: 'Start Task' },
+          baseDir: '/base',
+          sessionDir: '/sess',
+          cliContextPrefix: 'node "/ext/cli.js" context --db "/x.db"',
+        });
+      }).toThrow(/reserved.*start-task/);
+    });
+
+    it('a workflow launch returns both invocation and entryInvocations', () => {
+      const dir = getTmp();
+
+      const res = new AntigravityAdapter().materializeApproach({
+        pkg: {
+          id: 'rpi',
+          label: 'RPI',
+          workflow: [{ name: 'research' }],
+        },
+        baseDir: '/base',
+        sessionDir: dir,
+        cliContextPrefix: 'node "/ext/cli.js" context --db "/x.db"',
+      });
+
+      expect(res.invocation).toBe('$rpi');
+      expect(res.entryInvocations?.['start-task']).toBe('$start-task');
+      expect(res.entryInvocations?.['start-task']).toMatch(/^\$/);
+      expect(res.entryInvocations?.['start-task']).not.toContain(':');
+    });
+
+    it('entry invocations are all $-prefixed with no colon', () => {
+      const dir = getTmp();
+
+      const res = new AntigravityAdapter().materializeApproach({
+        pkg: { id: 'bare', label: 'Bare' },
+        baseDir: '/base',
+        sessionDir: dir,
+        cliContextPrefix: 'node "/ext/cli.js" context --db "/x.db"',
+        cliFixBriefPrefix: 'node "/ext/cli.js" fix-brief',
+        cliConflictBriefPrefix: 'node "/ext/cli.js" conflict-brief',
+      });
+
+      for (const key of ['start-task', 'resume', 'fix', 'resolve-conflict'] as const) {
+        const inv = res.entryInvocations?.[key];
+        expect(inv, `invocation for ${key}`).toBeDefined();
+        expect(inv).toMatch(/^\$/);
+        expect(inv).not.toContain(':');
+      }
+    });
+
+    it('each entry orchestrator artifact has exactly one frontmatter block', () => {
+      const dir = getTmp();
+
+      new AntigravityAdapter().materializeApproach({
+        pkg: { id: 'bare', label: 'Bare' },
+        baseDir: '/base',
+        sessionDir: dir,
+        cliContextPrefix: 'node "/ext/cli.js" context --db "/x.db"',
+      });
+
+      const skillsDir = join(dir, '.agents', 'plugins', 'karst', 'skills');
+      for (const basename of ['start-task', 'resume']) {
+        const filePath = join(skillsDir, basename, 'SKILL.md');
+        const body = readFileSync(filePath, 'utf8');
+        const matches = body.match(/---\n[\s\S]*?\n---\n/u);
+        expect(matches, `${basename} should have exactly one frontmatter block`).toHaveLength(1);
+      }
+    });
+
+    it('second materializeApproach call does not re-claim owned paths', () => {
+      const dir = getTmp();
+      const adapter = new AntigravityAdapter();
+
+      const first = adapter.materializeApproach({
+        pkg: { id: 'rpi', label: 'RPI', workflow: [{ name: 'research' }] },
+        baseDir: '/base',
+        sessionDir: dir,
+        cliContextPrefix: 'node "/ext/cli.js" context --db "/x.db"',
+      });
+      const firstOwned = [...first.ownedPaths];
+
+      const second = adapter.materializeApproach({
+        pkg: {
+          id: 'superpowers:writing-plans',
+          label: 'Write a plan first',
+          workflow: [{ name: 'plan' }],
+        },
+        baseDir: '/base',
+        sessionDir: dir,
+      });
+
+      expect(second.ownedPaths).not.toContain(
+        join(dir, '.agents', 'plugins', 'karst'),
+      );
+      expect(second.ownedPaths).not.toContain(
+        join(dir, '.agents', 'plugins', 'rpi'),
+      );
+      expect(firstOwned.length).toBeGreaterThan(0);
+    });
+
+    it('(a) with all four prefixes, four skill files exist in karst/skills', () => {
+      const dir = getTmp();
+
+      new AntigravityAdapter().materializeApproach({
+        pkg: { id: 'bare', label: 'Bare' },
+        baseDir: '/base',
+        sessionDir: dir,
+        cliContextPrefix: 'node "/ext/cli.js" context --db "/x.db"',
+        cliFixBriefPrefix: 'node "/ext/cli.js" fix-brief',
+        cliConflictBriefPrefix: 'node "/ext/cli.js" conflict-brief',
+      });
+
+      const skillsDir = join(dir, '.agents', 'plugins', 'karst', 'skills');
+      for (const basename of ['start-task', 'resume', 'fix', 'resolve-conflict']) {
+        const filePath = join(skillsDir, basename, 'SKILL.md');
+        expect(existsSync(filePath), `${basename}/SKILL.md should exist`).toBe(true);
+      }
+    });
+
+    it('(b) with only cliContextPrefix, exactly two skill files exist and neither is fix nor resolve-conflict', () => {
+      const dir = getTmp();
+
+      new AntigravityAdapter().materializeApproach({
+        pkg: { id: 'bare', label: 'Bare' },
+        baseDir: '/base',
+        sessionDir: dir,
+        cliContextPrefix: 'node "/ext/cli.js" context --db "/x.db"',
+      });
+
+      const skillsDir = join(dir, '.agents', 'plugins', 'karst', 'skills');
+      expect(existsSync(join(skillsDir, 'start-task', 'SKILL.md'))).toBe(true);
+      expect(existsSync(join(skillsDir, 'resume', 'SKILL.md'))).toBe(true);
+      expect(existsSync(join(skillsDir, 'fix', 'SKILL.md'))).toBe(false);
+      expect(existsSync(join(skillsDir, 'resolve-conflict', 'SKILL.md'))).toBe(false);
+    });
+
+    it('(c) an approach id colliding with any reserved basename throws', () => {
+      for (const reserved of ['start-task', 'resume', 'fix', 'resolve-conflict']) {
+        expect(() =>
+          new AntigravityAdapter().materializeApproach({
+            pkg: { id: reserved, label: reserved },
+            baseDir: '/base',
+            sessionDir: getTmp(),
+            cliContextPrefix: 'node "/ext/cli.js" context --db "/x.db"',
+          }),
+        ).toThrow(/reserved|collides/);
+      }
+    });
+
+    it('(d) the fix skill body references the fix-brief prefix', () => {
+      const dir = getTmp();
+
+      new AntigravityAdapter().materializeApproach({
+        pkg: { id: 'bare', label: 'Bare' },
+        baseDir: '/base',
+        sessionDir: dir,
+        cliContextPrefix: 'node "/ext/cli.js" context --db "/x.db"',
+        cliFixBriefPrefix: 'node "/ext/cli.js" fix-brief',
+      });
+
+      const fixPath = join(dir, '.agents', 'plugins', 'karst', 'skills', 'fix', 'SKILL.md');
+      expect(existsSync(fixPath)).toBe(true);
+      const body = readFileSync(fixPath, 'utf8');
+      expect(body).toContain('node "/ext/cli.js" fix-brief');
+    });
+
+    it('(e) the resolve-conflict skill body references the conflict-brief prefix', () => {
+      const dir = getTmp();
+
+      new AntigravityAdapter().materializeApproach({
+        pkg: { id: 'bare', label: 'Bare' },
+        baseDir: '/base',
+        sessionDir: dir,
+        cliContextPrefix: 'node "/ext/cli.js" context --db "/x.db"',
+        cliConflictBriefPrefix: 'node "/ext/cli.js" conflict-brief',
+      });
+
+      const resolvePath = join(dir, '.agents', 'plugins', 'karst', 'skills', 'resolve-conflict', 'SKILL.md');
+      expect(existsSync(resolvePath)).toBe(true);
+      const body = readFileSync(resolvePath, 'utf8');
+      expect(body).toContain('node "/ext/cli.js" conflict-brief');
+    });
+
   });
 });

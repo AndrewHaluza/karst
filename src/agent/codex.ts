@@ -27,7 +27,19 @@ import type {
   Materialized,
   RunHeadlessOpts,
 } from './adapter.js';
-import { renderWorkflowCommand, slugCommandName } from './workflowCommand.js';
+import {
+  RESERVED_BASENAMES,
+  START_TASK_DESCRIPTION,
+  RESUME_DESCRIPTION,
+  FIX_DESCRIPTION,
+  RESOLVE_CONFLICT_DESCRIPTION,
+  renderStartTaskCommand,
+  renderResumeCommand,
+  renderFixCommand,
+  renderResolveConflictCommand,
+  renderWorkflowCommand,
+  slugCommandName,
+} from './workflowCommand.js';
 import { withStamp, writeGeneratedArtifact } from './generatedArtifact.js';
 import { renderTestSkill } from './testSkill.js';
 import { describeHeadlessFailure } from './cliFailure.js';
@@ -354,6 +366,7 @@ export class CodexAdapter implements AgentAdapter {
     mcpIsolationHeadless: SUPPORTED,
     toolActivity: SUPPORTED,
     skillDiscovery: SUPPORTED,
+    entryOrchestrators: SUPPORTED,
   };
 
   constructor(private readonly spawnHeadless: SpawnHeadless = defaultSpawn) {}
@@ -397,6 +410,15 @@ export class CodexAdapter implements AgentAdapter {
     // `$`-invocation on codex — slug it into kebab (UNKNOWN-COMMAND-ISSUE).
     const idSlug = slugCommandName(opts.pkg.id);
     const prefix = `karst-${idSlug}`;
+
+    for (const base of RESERVED_BASENAMES) {
+      if (idSlug === base || prefix === `karst-${base}`) {
+        throw new Error(
+          `materializeApproach: approach id "${opts.pkg.id}" slugs to reserved ` +
+            `"${base}" — it collides with the generated ${base} orchestrator`,
+        );
+      }
+    }
 
     for (const artifact of opts.pkg.artifacts ?? []) {
       const source = join(opts.baseDir, opts.pkg.id, artifact.relPath);
@@ -507,10 +529,87 @@ export class CodexAdapter implements AgentAdapter {
       if (wrote && isNew) owned.add(testSkillDir);
     }
 
+    let entryInvocations: Partial<Record<import('./workflowCommand.js').EntryBasename, string>> | undefined;
+    if (opts.cliContextPrefix) {
+      const commandEntries: {
+        basename: string;
+        body: string;
+        description: string;
+      }[] = [
+        {
+          basename: 'karst-start-task',
+          body: renderStartTaskCommand({
+            contextCommand: opts.cliContextPrefix,
+            ...(opts.cliGuidePrefix ? { guideCommand: opts.cliGuidePrefix } : {}),
+          }),
+          description: START_TASK_DESCRIPTION,
+        },
+        {
+          basename: 'karst-resume',
+          body: renderResumeCommand({
+            contextCommand: opts.cliContextPrefix,
+            ...(opts.cliGuidePrefix ? { guideCommand: opts.cliGuidePrefix } : {}),
+          }),
+          description: RESUME_DESCRIPTION,
+        },
+      ];
+
+      if (opts.cliFixBriefPrefix) {
+        commandEntries.push({
+          basename: 'karst-fix',
+          body: renderFixCommand({
+            contextCommand: opts.cliContextPrefix,
+            fixBriefCommand: opts.cliFixBriefPrefix,
+            ...(opts.cliGuidePrefix ? { guideCommand: opts.cliGuidePrefix } : {}),
+          }),
+          description: FIX_DESCRIPTION,
+        });
+      }
+
+      if (opts.cliConflictBriefPrefix) {
+        commandEntries.push({
+          basename: 'karst-resolve-conflict',
+          body: renderResolveConflictCommand({
+            contextCommand: opts.cliContextPrefix,
+            conflictBriefCommand: opts.cliConflictBriefPrefix,
+            ...(opts.cliGuidePrefix ? { guideCommand: opts.cliGuidePrefix } : {}),
+          }),
+          description: RESOLVE_CONFLICT_DESCRIPTION,
+        });
+      }
+
+      for (const entry of commandEntries) {
+        assertSafeName('skill name', entry.basename);
+        const skillDir = join(opts.sessionDir, '.agents', 'skills', entry.basename);
+        const isNew = !existsSync(skillDir);
+        const wrote = writeGeneratedArtifact(
+          join(skillDir, 'SKILL.md'),
+          skillDocument(
+            entry.basename,
+            entry.description,
+            withStamp(entry.body),
+          ),
+        );
+        if (wrote && isNew) owned.add(skillDir);
+      }
+
+      entryInvocations = {
+        'start-task': '$karst-start-task',
+        'resume': '$karst-resume',
+      };
+      if (opts.cliFixBriefPrefix) {
+        entryInvocations['fix'] = '$karst-fix';
+      }
+      if (opts.cliConflictBriefPrefix) {
+        entryInvocations['resolve-conflict'] = '$karst-resolve-conflict';
+      }
+    }
+
     return {
       extraArgs: [],
       ownedPaths: [...owned],
       ...(hasWorkflow ? { invocation: `$${prefix}` } : {}),
+      ...(entryInvocations ? { entryInvocations } : {}),
     };
   }
 

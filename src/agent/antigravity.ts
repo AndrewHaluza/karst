@@ -18,7 +18,28 @@ import type {
   RunHeadlessOpts,
   HeadlessResult,
 } from './adapter.js';
-import { renderWorkflowCommand, KARST_PLUGIN_NAME, slugCommandName } from './workflowCommand.js';
+import {
+  renderWorkflowCommand,
+  renderStartTaskCommand,
+  renderResumeCommand,
+  renderFixCommand,
+  renderResolveConflictCommand,
+  KARST_PLUGIN_NAME,
+  slugCommandName,
+  START_TASK_BASENAME,
+  START_TASK_DESCRIPTION,
+  START_TASK_ARGUMENT_HINT,
+  RESUME_BASENAME,
+  RESUME_DESCRIPTION,
+  RESUME_ARGUMENT_HINT,
+  FIX_BASENAME,
+  FIX_DESCRIPTION,
+  FIX_ARGUMENT_HINT,
+  RESOLVE_CONFLICT_BASENAME,
+  RESOLVE_CONFLICT_DESCRIPTION,
+  RESOLVE_CONFLICT_ARGUMENT_HINT,
+  RESERVED_BASENAMES,
+} from './workflowCommand.js';
 import { withStamp, writeGeneratedArtifact } from './generatedArtifact.js';
 import { renderTestSkill } from './testSkill.js';
 import { SUPPORTED, unsupported, type AdapterSurfaces } from './surfaces.js';
@@ -169,6 +190,7 @@ export class AntigravityAdapter implements AgentAdapter {
         'which has no PostToolUse equivalent — tool activity per turn is unobservable',
     ),
     skillDiscovery: SUPPORTED,
+    entryOrchestrators: SUPPORTED,
   };
 
   constructor(private readonly spawnHeadless: SpawnHeadless = defaultSpawn) {}
@@ -203,11 +225,17 @@ export class AntigravityAdapter implements AgentAdapter {
     const hasWorkflow = (opts.pkg.workflow?.length ?? 0) > 0;
     const solo = opts.soloAgent;
     if (solo) assertSafeAgentName(solo.name);
-    if (artifacts.length === 0 && !hasWorkflow && !solo) {
+    if (artifacts.length === 0 && !hasWorkflow && !solo && !opts.cliContextPrefix) {
       return { extraArgs: [], ownedPaths: [] };
     }
     if (opts.pkg.id === KARST_PLUGIN_NAME) {
       throw new Error(`materializeApproach: approach id "${KARST_PLUGIN_NAME}" is reserved`);
+    }
+    if (RESERVED_BASENAMES.includes(slugCommandName(opts.pkg.id) as typeof RESERVED_BASENAMES[number])) {
+      throw new Error(
+        `materializeApproach: approach id "${opts.pkg.id}" slugs to reserved ` +
+          `"${slugCommandName(opts.pkg.id)}" — it collides with a generated file`,
+      );
     }
 
     // Antigravity discovers workspace customizations below `.agents/`. Keep
@@ -283,6 +311,95 @@ export class AntigravityAdapter implements AgentAdapter {
       );
     }
 
+    let entryInvocations: Partial<Record<import('./workflowCommand.js').EntryBasename, string>> | undefined;
+    if (opts.cliContextPrefix) {
+      const karstDir = join(opts.sessionDir, '.agents', 'plugins', KARST_PLUGIN_NAME);
+      if (!existsSync(karstDir)) {
+        mkdirSync(karstDir, { recursive: true });
+        writeFileSync(join(karstDir, 'plugin.json'), JSON.stringify({ name: KARST_PLUGIN_NAME }, null, 2));
+        if (!ownedKarstDir) ownedKarstDir = karstDir;
+      }
+      const commandEntries: {
+        basename: string;
+        body: string;
+        description: string;
+        argumentHint?: string;
+      }[] = [
+        {
+          basename: START_TASK_BASENAME,
+          body: renderStartTaskCommand({
+            contextCommand: opts.cliContextPrefix,
+            ...(opts.cliGuidePrefix ? { guideCommand: opts.cliGuidePrefix } : {}),
+          }),
+          description: START_TASK_DESCRIPTION,
+          argumentHint: START_TASK_ARGUMENT_HINT,
+        },
+        {
+          basename: RESUME_BASENAME,
+          body: renderResumeCommand({
+            contextCommand: opts.cliContextPrefix,
+            ...(opts.cliGuidePrefix ? { guideCommand: opts.cliGuidePrefix } : {}),
+          }),
+          description: RESUME_DESCRIPTION,
+          argumentHint: RESUME_ARGUMENT_HINT,
+        },
+      ];
+
+      if (opts.cliFixBriefPrefix) {
+        commandEntries.push({
+          basename: FIX_BASENAME,
+          body: renderFixCommand({
+            contextCommand: opts.cliContextPrefix,
+            fixBriefCommand: opts.cliFixBriefPrefix,
+            ...(opts.cliGuidePrefix ? { guideCommand: opts.cliGuidePrefix } : {}),
+          }),
+          description: FIX_DESCRIPTION,
+          argumentHint: FIX_ARGUMENT_HINT,
+        });
+      }
+
+      if (opts.cliConflictBriefPrefix) {
+        commandEntries.push({
+          basename: RESOLVE_CONFLICT_BASENAME,
+          body: renderResolveConflictCommand({
+            contextCommand: opts.cliContextPrefix,
+            conflictBriefCommand: opts.cliConflictBriefPrefix,
+            ...(opts.cliGuidePrefix ? { guideCommand: opts.cliGuidePrefix } : {}),
+          }),
+          description: RESOLVE_CONFLICT_DESCRIPTION,
+          argumentHint: RESOLVE_CONFLICT_ARGUMENT_HINT,
+        });
+      }
+
+      for (const entry of commandEntries) {
+        const skillDir = join(karstDir, 'skills', entry.basename);
+        mkdirSync(skillDir, { recursive: true });
+        const filePath = join(skillDir, 'SKILL.md');
+        const frontmatterLines = [
+          '---',
+          `name: ${entry.basename}`,
+          `description: ${entry.description}`,
+        ];
+        if (entry.argumentHint) {
+          frontmatterLines.push(`argument-hint: "${entry.argumentHint}"`);
+        }
+        frontmatterLines.push('---', '');
+        const fullBody = frontmatterLines.join('\n') + entry.body;
+        writeGeneratedArtifact(filePath, withStamp(fullBody));
+      }
+
+      entryInvocations = {
+        'start-task': `$${START_TASK_BASENAME}`,
+        'resume': `$${RESUME_BASENAME}`,
+      };
+      if (opts.cliFixBriefPrefix) {
+        entryInvocations['fix'] = `$${FIX_BASENAME}`;
+      }
+      if (opts.cliConflictBriefPrefix) {
+        entryInvocations['resolve-conflict'] = `$${RESOLVE_CONFLICT_BASENAME}`;
+      }
+    }
+
     // Sessions launch with `cwd === sessionDir`, so Antigravity discovers this
     // workspace plugin without an additional `--add-dir`.
     return {
@@ -292,6 +409,7 @@ export class AntigravityAdapter implements AgentAdapter {
         ...(ownedKarstDir ? [ownedKarstDir] : []),
       ],
       ...(hasWorkflow ? { invocation: `$${slugCommandName(opts.pkg.id)}` } : {}),
+      ...(entryInvocations ? { entryInvocations } : {}),
     };
   }
 

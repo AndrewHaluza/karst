@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { join } from 'node:path';
-import { buildSessionSeed, measureSeed } from './seed.js';
+import { buildSessionSeed, measureSeed, composeResumeSeed, composeConflictOverrideSeed } from './seed.js';
 import { markerStageFor } from './markerStage.js';
 import { renderGateOnlyInstruction, renderDoneMarkerInstruction } from './workflowCommand.js';
 import { openStore, type Store } from '../store/db.js';
@@ -111,6 +111,52 @@ describe('buildSessionSeed', () => {
     );
   });
 
+  // Entry-point marker presence: with an invocation and a marker, the seed
+  // ALWAYS contains the marker text — materialization no longer suppresses it.
+  it('launch: invocation + marker → marker present', () => {
+    const seed = buildSessionSeed(
+      CONTEXT,
+      null,
+      '/karst:start-task PROJ-9',
+      'RUN THE MARKER',
+    );
+    expect(seed).toBeDefined();
+    expect(seed).toContain('RUN THE MARKER');
+    expect(seed).toContain('/karst:start-task PROJ-9');
+  });
+
+  it('resume: invocation + marker → marker present', () => {
+    const result = composeResumeSeed(
+      'PROJ-9',
+      'Continue the in-progress work.',
+      '/karst:resume',
+      'RUN THE MARKER',
+    );
+    expect(result).toContain('RUN THE MARKER');
+    expect(result).toContain('/karst:resume PROJ-9');
+  });
+
+  it('fix: invocation + marker → marker present', () => {
+    const result = composeResumeSeed(
+      'PROJ-9',
+      'Fix the failing gate.',
+      '/karst:fix',
+      'RUN THE MARKER',
+    );
+    expect(result).toContain('RUN THE MARKER');
+    expect(result).toContain('/karst:fix PROJ-9');
+  });
+
+  it('conflict: invocation + brief → invocation present (no separate marker arg)', () => {
+    const result = composeConflictOverrideSeed(
+      'PROJ-9',
+      'Resolve merge conflict in repo frontend.',
+      '/karst:resolve-conflict',
+    );
+    expect(result).toContain('/karst:resolve-conflict PROJ-9');
+    expect(result).toContain('Resolve merge conflict');
+  });
+
   // Issue #6: a ticket seeded at a gate stage (uat/review/ship) has no marker to
   // fire — markerStageFor returns null there — but the seed must still say
   // something about how the stage ends, per the same extension.ts wiring used
@@ -129,6 +175,30 @@ describe('buildSessionSeed', () => {
     expect(seed!.toLowerCase()).not.toContain('stage impl pass');
     expect(seed!.toLowerCase()).not.toContain('stage fix pass');
     expect(seed!.toLowerCase()).not.toContain('done marker');
+  });
+
+  it('narrative shape: invocation present, marker present, guide pointer present', () => {
+    const seed = buildSessionSeed(
+      CONTEXT,
+      null,
+      '/karst:start-task PROJ-9',
+      'RUN THE MARKER',
+      'Run `karst guide` to learn the CLI.',
+    );
+    expect(seed).toBeDefined();
+    expect(seed).toContain('/karst:start-task PROJ-9');
+    expect(seed).toContain('RUN THE MARKER');
+    expect(seed).toContain('karst guide');
+  });
+
+  it('fallback shape: marker present, no invocation, unchanged from today', () => {
+    const marker = 'Run `karst stage impl pass --ticket PROJ-9` when done.';
+    const seedWithMarker = buildSessionSeed(CONTEXT, null, undefined, marker);
+    const seedWithout = buildSessionSeed(CONTEXT, null, undefined);
+    expect(seedWithMarker).toBeDefined();
+    expect(seedWithMarker).toContain(marker);
+    expect(seedWithMarker).toBe(`${CONTEXT}\n\n${marker}`);
+    expect(seedWithout).toBe(CONTEXT);
   });
 });
 
@@ -321,6 +391,98 @@ describe('oversized ticket end-to-end budget (PROMPT-08 acceptance)', () => {
       // honest approach-body pointer, not `karst context <key>`.
       expect(seed).toContain('the approach method is longer than fits here');
     });
+  });
+});
+
+describe('composeResumeSeed', () => {
+  it('returns invocation-first string when given an invocation and no marker', () => {
+    const result = composeResumeSeed(
+      'PROJ-9',
+      'Fix the failing gate.',
+      '/karst:resume',
+      undefined,
+    );
+    expect(result).toBe('/karst:resume PROJ-9\n\nFix the failing gate.');
+  });
+
+  it('omits the marker when no marker argument is given', () => {
+    const result = composeResumeSeed(
+      'PROJ-9',
+      'Fix the failing gate.',
+      '/karst:resume',
+      undefined,
+    );
+    expect(result).toBe('/karst:resume PROJ-9\n\nFix the failing gate.');
+  });
+
+  it('includes the marker when an invocation is given', () => {
+    const result = composeResumeSeed(
+      'PROJ-9',
+      'Fix the failing gate.',
+      '/karst:resume',
+      'RUN THE MARKER',
+    );
+    expect(result).toContain('RUN THE MARKER');
+    expect(result).toContain('/karst:resume PROJ-9');
+  });
+
+  it('returns today\'s string with marker when no invocation is given', () => {
+    const result = composeResumeSeed(
+      'PROJ-9',
+      'Continue the in-progress work on ticket PROJ-9.',
+      undefined,
+      'RUN THE MARKER',
+    );
+    expect(result).toBe(
+      'Continue the in-progress work on ticket PROJ-9.\n\nRUN THE MARKER',
+    );
+  });
+
+  it('returns brief only when neither invocation nor marker is given', () => {
+    const result = composeResumeSeed(
+      'PROJ-9',
+      'Continue the in-progress work on ticket PROJ-9.',
+      undefined,
+      undefined,
+    );
+    expect(result).toBe('Continue the in-progress work on ticket PROJ-9.');
+  });
+
+  it('uses fix invocation when provided (stage fix)', () => {
+    const result = composeResumeSeed(
+      'PROJ-9',
+      'Gate X failed: ...',
+      '/karst:fix',
+      undefined,
+    );
+    expect(result).toBe('/karst:fix PROJ-9\n\nGate X failed: ...');
+  });
+});
+
+describe('composeConflictOverrideSeed', () => {
+  it('prepends exactly one invocation line and one blank line', () => {
+    const result = composeConflictOverrideSeed(
+      'PROJ-9',
+      'Resolve merge conflict in repo frontend.',
+      '/karst:resolve-conflict',
+    );
+    expect(result).toBe(
+      '/karst:resolve-conflict PROJ-9\n\nResolve merge conflict in repo frontend.',
+    );
+  });
+
+  it('returns the brief unchanged when no invocation is given', () => {
+    const brief = 'Resolve merge conflict in repo frontend.';
+    const result = composeConflictOverrideSeed('PROJ-9', brief, undefined);
+    expect(result).toBe(brief);
+  });
+
+  it('does not double-prepend when brief already starts with invocation', () => {
+    const brief = '/karst:resolve-conflict PROJ-9\n\nResolve merge conflict.';
+    const result = composeConflictOverrideSeed('PROJ-9', brief, '/karst:resolve-conflict');
+    expect(result).toBe(
+      '/karst:resolve-conflict PROJ-9\n\n/karst:resolve-conflict PROJ-9\n\nResolve merge conflict.',
+    );
   });
 });
 

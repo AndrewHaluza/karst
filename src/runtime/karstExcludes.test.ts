@@ -42,6 +42,18 @@ describe('karst exclude rules', () => {
     }
   });
 
+  it('excludes generated opencode command FILES', () => {
+    const file = `${sep}.opencode${sep}commands${sep}karst-start-task.md`;
+    const covered = KARST_EXCLUDE_RULES.some((rule) => file.startsWith(prefixOf(rule)));
+    expect(covered, `no exclude rule covers the generated command file ${file}`).toBe(true);
+  });
+
+  it('does not exclude a repository\'s own opencode commands', () => {
+    const file = `${sep}.opencode${sep}commands${sep}mine.md`;
+    const covered = KARST_EXCLUDE_RULES.some((rule) => file.startsWith(prefixOf(rule)));
+    expect(covered, `exclude rule should not cover a repo-owned command ${file}`).toBe(false);
+  });
+
   it('covers the FILE an adapter generates directly, not only directories', () => {
     // `/.opencode/plugins/karst-*/` (trailing slash) excludes DIRECTORIES only,
     // and OpencodeAdapter's karst-bridge is a FILE at that path — so it stayed

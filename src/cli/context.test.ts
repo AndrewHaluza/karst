@@ -4,11 +4,12 @@ import { openStore, type Store } from '../store/db.js';
 import { createTicket, updateTicketFields, pauseTicket } from '../store/tickets.js';
 import { insertAttachment } from '../store/attachments.js';
 import { upsertProject } from '../store/projects.js';
-import { parseContextArgs, runContextCommand, composeContextCommand } from './context.js';
+import { parseContextArgs, runContextCommand, composeContextCommand, renderStageEnding } from './context.js';
 import type { Manifest } from '../manifest/types.js';
 import { manifest as buildManifest, runnableRepo, slot } from '../manifest/fixtures.js';
 import { setStage } from '../store/stages.js';
 import { openStageRun, closeStageRun } from '../store/stageRuns.js';
+import { recordGateRun } from '../store/gateRuns.js';
 
 const MANIFEST: Manifest = buildManifest(
   {
@@ -260,5 +261,98 @@ describe('runContextCommand', () => {
       const out = runContextCommand(store, MANIFEST, { key: 'PROJ-9', format: 'json' });
       expect(JSON.parse(out).key).toBe('PROJ-9');
     });
+  });
+});
+
+describe('renderStageEnding', () => {
+  it('returns the gate-only instruction for a non-marker stage', () => {
+    const result = renderStageEnding('review', '/cli.js', '/db', '/manifest', 'PROJ-1');
+    expect(result).toContain('decided by its gate exit codes');
+    expect(result).not.toContain('stage impl pass');
+    expect(result).not.toContain('stage fix pass');
+  });
+
+  it('returns the done-marker instruction for impl', () => {
+    const result = renderStageEnding('impl', '/cli.js', '/db', '/manifest', 'PROJ-1');
+    expect(result).toContain('stage impl pass');
+    expect(result).toContain('PROJ-1');
+  });
+
+  it('returns the done-marker instruction for fix', () => {
+    const result = renderStageEnding('fix', '/cli.js', '/db', '/manifest', 'PROJ-1');
+    expect(result).toContain('stage fix pass');
+    expect(result).toContain('PROJ-1');
+  });
+
+  it('returns undefined when cliEntry is undefined', () => {
+    const result = renderStageEnding('impl', undefined, '/db', '/manifest', 'PROJ-1');
+    expect(result).toBeUndefined();
+  });
+
+  it('returns gate-only for null stage', () => {
+    const result = renderStageEnding(null, '/cli.js', '/db', '/manifest', 'PROJ-1');
+    expect(result).toContain('decided by its gate exit codes');
+  });
+
+  it('returns gate-only for scope', () => {
+    const result = renderStageEnding('scope', '/cli.js', '/db', '/manifest', 'PROJ-1');
+    expect(result).toContain('decided by its gate exit codes');
+  });
+});
+
+describe('runContextCommand — stage ending', () => {
+  let store: Store;
+  beforeEach(() => (store = openStore(':memory:')));
+  afterEach(() => store.close());
+
+  const CLI = '/node/cli/main.js';
+
+  function seed(stageCurrent: string = 'impl'): void {
+    const t = createTicket(store, { key: 'PROJ-9', title: 'Do research' });
+    updateTicketFields(store, t.id, { description: 'Audit the app' });
+    store.db.prepare('UPDATE tickets SET stage_current = ? WHERE id = ?').run(stageCurrent, t.id);
+  }
+
+  it('appends ## How this stage ends to --md output for an impl ticket', () => {
+    seed('impl');
+    const md = runContextCommand(store, MANIFEST, { key: 'PROJ-9', format: 'md' }, '/db', CLI);
+    expect(md).toContain('## How this stage ends');
+    expect(md).toContain('stage impl pass');
+    expect(md).toContain('PROJ-9');
+  });
+
+  it('appends ## How this stage ends with fix for a fix ticket', () => {
+    seed('fix');
+    const md = runContextCommand(store, MANIFEST, { key: 'PROJ-9', format: 'md' }, '/db', CLI);
+    expect(md).toContain('stage fix pass');
+  });
+
+  it('appends gate-only text for a review ticket, no stage ... pass', () => {
+    seed('review');
+    const md = runContextCommand(store, MANIFEST, { key: 'PROJ-9', format: 'md' }, '/db', CLI);
+    expect(md).toContain('## How this stage ends');
+    expect(md).toContain('decided by its gate exit codes');
+    expect(md).not.toContain('stage impl pass');
+    expect(md).not.toContain('stage fix pass');
+  });
+
+  it('includes stageEnding in --json output for an impl ticket', () => {
+    seed('impl');
+    const json = runContextCommand(store, MANIFEST, { key: 'PROJ-9', format: 'json' }, '/db', CLI);
+    const parsed = JSON.parse(json);
+    expect(parsed.stageEnding).toContain('stage impl pass');
+  });
+
+  it('omits ## How this stage ends when cliEntry is absent', () => {
+    seed('impl');
+    const md = runContextCommand(store, MANIFEST, { key: 'PROJ-9', format: 'md' }, '/db');
+    expect(md).not.toContain('## How this stage ends');
+  });
+
+  it('omits stageEnding from json when cliEntry is absent', () => {
+    seed('impl');
+    const json = runContextCommand(store, MANIFEST, { key: 'PROJ-9', format: 'json' }, '/db');
+    const parsed = JSON.parse(json);
+    expect(parsed).not.toHaveProperty('stageEnding');
   });
 });

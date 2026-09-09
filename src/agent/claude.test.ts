@@ -729,6 +729,201 @@ describe('ClaudeAdapter.materializeApproach', () => {
 
     expect(readFileSync(cmdPath, 'utf8')).toBe('checked into the repo');
   });
+
+  it('bare direct + cliContextPrefix writes start-task.md and returns entryInvocations', () => {
+    const baseDir = makeDir();
+    const sessionDir = makeDir();
+
+    const result = adapter.materializeApproach!({
+      baseDir,
+      sessionDir,
+      pkg: { id: 'bare', label: 'Bare' },
+      cliContextPrefix: 'node "/ext/cli.js" context --db "/x.db"',
+    });
+
+    const startTaskPath = join(sessionDir, '.karst-plugin', 'karst', 'commands', 'start-task.md');
+    expect(existsSync(startTaskPath)).toBe(true);
+    const body = readFileSync(startTaskPath, 'utf8');
+    expect(body).toContain('---');
+    expect(body).toContain('description:');
+    expect(body).toContain('argument-hint:');
+    expect(body).toContain('node "/ext/cli.js" context --db "/x.db"');
+    expect(result.entryInvocations?.['start-task']).toBe('/karst:start-task');
+    expect(result.extraArgs).toContain(join(sessionDir, '.karst-plugin', 'karst'));
+  });
+
+  it('bare direct without cliContextPrefix returns empty extraArgs and no entryInvocations', () => {
+    const baseDir = makeDir();
+    const sessionDir = makeDir();
+
+    const result = adapter.materializeApproach!({
+      baseDir,
+      sessionDir,
+      pkg: { id: 'bare', label: 'Bare' },
+    });
+
+    expect(result.extraArgs).toEqual([]);
+    expect(result.ownedPaths).toEqual([]);
+    expect(result.entryInvocations).toBeUndefined();
+  });
+
+  it('an approach id slugging to start-task throws', () => {
+    const baseDir = makeDir();
+    const sessionDir = makeDir();
+
+    expect(() =>
+      adapter.materializeApproach!({
+        baseDir,
+        sessionDir,
+        pkg: { id: 'start-task', label: 'Start Task' },
+        cliContextPrefix: 'node "/ext/cli.js" context --db "/x.db"',
+      }),
+    ).toThrow(/reserved.*start-task/);
+  });
+
+  it('a workflow launch returns both invocation and entryInvocations', () => {
+    const baseDir = makeDir();
+    const sessionDir = makeDir();
+
+    const result = adapter.materializeApproach!({
+      baseDir,
+      sessionDir,
+      pkg: {
+        id: 'rpi',
+        label: 'RPI',
+        workflow: [{ name: 'research', command: '/rpi:research' }],
+      },
+      cliContextPrefix: 'node "/ext/cli.js" context --db "/x.db"',
+    });
+
+    expect(result.invocation).toBe('/karst:rpi');
+    expect(result.entryInvocations?.['start-task']).toBe('/karst:start-task');
+    expect(result.extraArgs).toContain(join(sessionDir, '.karst-plugin', 'karst'));
+  });
+
+  it('a second materializeApproach call against the same sessionDir adds nothing to ownedPaths beyond its own idPluginDir', () => {
+    const baseDir = makeDir();
+    const sessionDir = makeDir();
+
+    const first = adapter.materializeApproach!({
+      baseDir,
+      sessionDir,
+      pkg: { id: 'rpi', label: 'RPI', workflow: [{ name: 'research' }] },
+    });
+    const firstOwned = [...first.ownedPaths];
+
+    const second = adapter.materializeApproach!({
+      baseDir,
+      sessionDir,
+      pkg: {
+        id: 'superpowers:writing-plans',
+        label: 'Write a plan first',
+        workflow: [{ name: 'plan' }],
+      },
+    });
+
+    // The karst plugin dir was already owned by the first call; the second
+    // call does not claim it again. The second call DOES create its own
+    // <id> plugin dir (superpowers-writing-plans) which it legitimately owns.
+    expect(second.ownedPaths).not.toContain(
+      join(sessionDir, '.karst-plugin', 'karst'),
+    );
+    expect(second.ownedPaths).not.toContain(
+      join(sessionDir, '.karst-plugin', 'rpi'),
+    );
+    // First call's ownership is unchanged.
+    expect(firstOwned.length).toBeGreaterThan(0);
+  });
+
+  it('(a) with all four prefixes, four command files exist in karst/commands', () => {
+    const baseDir = makeDir();
+    const sessionDir = makeDir();
+
+    adapter.materializeApproach!({
+      baseDir,
+      sessionDir,
+      pkg: { id: 'bare', label: 'Bare' },
+      cliContextPrefix: 'node "/ext/cli.js" context --db "/x.db"',
+      cliFixBriefPrefix: 'node "/ext/cli.js" fix-brief',
+      cliConflictBriefPrefix: 'node "/ext/cli.js" conflict-brief',
+    });
+
+    const commandsDir = join(sessionDir, '.karst-plugin', 'karst', 'commands');
+    for (const basename of ['start-task', 'resume', 'fix', 'resolve-conflict']) {
+      const filePath = join(commandsDir, `${basename}.md`);
+      expect(existsSync(filePath), `${basename}.md should exist`).toBe(true);
+    }
+  });
+
+  it('(b) with only cliContextPrefix, exactly two command files exist and neither is fix nor resolve-conflict', () => {
+    const baseDir = makeDir();
+    const sessionDir = makeDir();
+
+    adapter.materializeApproach!({
+      baseDir,
+      sessionDir,
+      pkg: { id: 'bare', label: 'Bare' },
+      cliContextPrefix: 'node "/ext/cli.js" context --db "/x.db"',
+    });
+
+    const commandsDir = join(sessionDir, '.karst-plugin', 'karst', 'commands');
+    expect(existsSync(join(commandsDir, 'start-task.md'))).toBe(true);
+    expect(existsSync(join(commandsDir, 'resume.md'))).toBe(true);
+    expect(existsSync(join(commandsDir, 'fix.md'))).toBe(false);
+    expect(existsSync(join(commandsDir, 'resolve-conflict.md'))).toBe(false);
+  });
+
+  it('(c) an approach id colliding with any reserved basename throws', () => {
+    const baseDir = makeDir();
+    const sessionDir = makeDir();
+
+    for (const reserved of ['start-task', 'resume', 'fix', 'resolve-conflict']) {
+      expect(() =>
+        adapter.materializeApproach!({
+          baseDir,
+          sessionDir,
+          pkg: { id: reserved, label: reserved },
+          cliContextPrefix: 'node "/ext/cli.js" context --db "/x.db"',
+        }),
+      ).toThrow(/reserved|collides/);
+    }
+  });
+
+  it('(d) the fix command body references the fix-brief prefix', () => {
+    const baseDir = makeDir();
+    const sessionDir = makeDir();
+
+    adapter.materializeApproach!({
+      baseDir,
+      sessionDir,
+      pkg: { id: 'bare', label: 'Bare' },
+      cliContextPrefix: 'node "/ext/cli.js" context --db "/x.db"',
+      cliFixBriefPrefix: 'node "/ext/cli.js" fix-brief',
+    });
+
+    const fixPath = join(sessionDir, '.karst-plugin', 'karst', 'commands', 'fix.md');
+    expect(existsSync(fixPath)).toBe(true);
+    const body = readFileSync(fixPath, 'utf8');
+    expect(body).toContain('node "/ext/cli.js" fix-brief');
+  });
+
+  it('(e) the resolve-conflict command body references the conflict-brief prefix', () => {
+    const baseDir = makeDir();
+    const sessionDir = makeDir();
+
+    adapter.materializeApproach!({
+      baseDir,
+      sessionDir,
+      pkg: { id: 'bare', label: 'Bare' },
+      cliContextPrefix: 'node "/ext/cli.js" context --db "/x.db"',
+      cliConflictBriefPrefix: 'node "/ext/cli.js" conflict-brief',
+    });
+
+    const resolvePath = join(sessionDir, '.karst-plugin', 'karst', 'commands', 'resolve-conflict.md');
+    expect(existsSync(resolvePath)).toBe(true);
+    const body = readFileSync(resolvePath, 'utf8');
+    expect(body).toContain('node "/ext/cli.js" conflict-brief');
+  });
 });
 
 describe('ClaudeAdapter.runHeadless', () => {

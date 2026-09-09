@@ -127,4 +127,7 @@ export interface AdapterSurfaces {
    * routing instead of relying on agent initiative.
    */
   readonly skillDiscovery: SurfaceSupport;
+  /** The adapter materializes the four entry-point orchestrators (start-task, resume,
+   *  fix, resolve-conflict) in its own artifact shape and reports their invocations. */
+  readonly entryOrchestrators: SurfaceSupport;
 }

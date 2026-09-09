@@ -11,6 +11,7 @@ import type { AiCallSite } from './aiCallSites.js';
 import type { HeadlessOutputChunk } from './headlessSpawn.js';
 import type { TokenUsage } from './tokenUsage.js';
 import type { AdapterSurfaces } from './surfaces.js';
+import type { EntryBasename } from './workflowCommand.js';
 
 /**
  * A JSON Schema document describing the shape a core's FINAL response is asked
@@ -222,6 +223,16 @@ export interface MaterializeOpts {
    * injected (a host too old to serve it must not hand out a dead verb).
    */
   cliTestPrefix?: string;
+  /**
+   * Shell command prefix for `karst fix-brief` (the ticket key is appended by
+   * the generated command). Absent → the `fix` command is not materialized.
+   */
+  cliFixBriefPrefix?: string;
+  /**
+   * Shell command prefix for `karst conflict-brief` (key and repo appended).
+   * Absent → the `resolve-conflict` command is not materialized.
+   */
+  cliConflictBriefPrefix?: string;
 }
 
 /**
@@ -245,6 +256,13 @@ export interface Materialized {
   extraArgs: string[];
   /** Native agent invocation for the generated workflow, when one exists. */
   invocation?: string;
+  /**
+   * The invocation each generated entry orchestrator registered, in this core's OWN
+   *  namespace — `/karst:<basename>` on claude, `/karst-<basename>` on opencode,
+   *  `$<slug>` on antigravity and codex. A basename is absent when that orchestrator
+   *  was not materialized. Absent entirely when the core declares
+   *  `entryOrchestrators` unsupported. */
+  readonly entryInvocations?: Readonly<Partial<Record<EntryBasename, string>>>;
   /** Exact runtime paths created by the adapter and safe to remove on close. */
   ownedPaths: string[];
 }
