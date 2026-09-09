@@ -3,10 +3,20 @@ import {
   renderGateOnlyInstruction,
   renderWorkflowCommand,
   renderDoneMarkerInstruction,
+  renderStartTaskCommand,
+  renderResumeCommand,
+  renderFixCommand,
+  renderResolveConflictCommand,
   buildWorkflowInvocation,
   orchestratorCommandBasename,
   KARST_PLUGIN_NAME,
+  RESERVED_BASENAMES,
+  START_TASK_BASENAME,
+  RESUME_BASENAME,
+  FIX_BASENAME,
+  RESOLVE_CONFLICT_BASENAME,
 } from './workflowCommand.js';
+import { MARKER_REFUSED, GUIDE_POINTER_INTRO } from './promptText.js';
 import type { WorkflowPhase } from '../manifest/types.js';
 
 const rpiPhases: WorkflowPhase[] = [
@@ -291,5 +301,155 @@ describe('orchestratorCommandBasename', () => {
     expect(buildWorkflowInvocation('superpowers:writing-plans', 'KEY-1')).toBe(
       '/karst:superpowers-writing-plans KEY-1',
     );
+  });
+});
+
+describe('renderStartTaskCommand', () => {
+  const contextCommand = 'node "/ext/dist/cli.js" context --db "/x.db" --manifest "/k.yml"';
+  const guideCommand = 'node "/ext/dist/cli.js" guide';
+
+  it('contains $ARGUMENTS and the first-token rule', () => {
+    const body = renderStartTaskCommand({ contextCommand });
+    expect(body).toContain('$ARGUMENTS');
+    expect(body).toContain('first whitespace-delimited token');
+    expect(body).toContain('ticket key');
+  });
+
+  it('contains the given contextCommand verbatim and --md', () => {
+    const body = renderStartTaskCommand({ contextCommand });
+    expect(body).toContain(contextCommand);
+    expect(body).toContain('--md');
+  });
+
+  it('contains MARKER_REFUSED text', () => {
+    const body = renderStartTaskCommand({ contextCommand });
+    expect(body).toContain(MARKER_REFUSED);
+  });
+
+  it('with no guideCommand, output does not contain GUIDE_POINTER_INTRO', () => {
+    const body = renderStartTaskCommand({ contextCommand });
+    expect(body).not.toContain(GUIDE_POINTER_INTRO);
+  });
+
+  it('two calls with identical input return identical strings', () => {
+    const a = renderStartTaskCommand({ contextCommand });
+    const b = renderStartTaskCommand({ contextCommand });
+    expect(a).toBe(b);
+  });
+
+  it('contains no stage impl pass or stage fix pass substring', () => {
+    const body = renderStartTaskCommand({ contextCommand });
+    expect(body).not.toContain('stage impl pass');
+    expect(body).not.toContain('stage fix pass');
+  });
+
+  it('does NOT start with --- and contains no frontmatter block', () => {
+    const body = renderStartTaskCommand({ contextCommand });
+    expect(body).not.toMatch(/^---/);
+    expect(body).not.toContain('---\n');
+  });
+
+  it('appends the guide pointer when guideCommand is given', () => {
+    const body = renderStartTaskCommand({ contextCommand, guideCommand });
+    expect(body).toContain(GUIDE_POINTER_INTRO);
+    expect(body).toContain(guideCommand);
+  });
+});
+
+describe('renderResumeCommand / renderFixCommand / renderResolveConflictCommand', () => {
+  const contextCommand = 'node "/ext/dist/cli.js" context --db "/x.db" --manifest "/k.yml"';
+  const fixBriefCommand = 'node "/ext/dist/cli.js" fix-brief --db "/x.db" --manifest "/k.yml"';
+  const conflictBriefCommand =
+    'node "/ext/dist/cli.js" conflict-brief --db "/x.db" --manifest "/k.yml"';
+
+  it('(a) all four renderers contain the contextCommand verbatim and --md', () => {
+    const start = renderStartTaskCommand({ contextCommand });
+    const resume = renderResumeCommand({ contextCommand });
+    const fix = renderFixCommand({ contextCommand, fixBriefCommand });
+    const conflict = renderResolveConflictCommand({ contextCommand, conflictBriefCommand });
+    for (const body of [start, resume, fix, conflict]) {
+      expect(body).toContain(contextCommand);
+      expect(body).toContain('--md');
+    }
+  });
+
+  it('(b) renderFixCommand contains the fixBriefCommand verbatim', () => {
+    const body = renderFixCommand({ contextCommand, fixBriefCommand });
+    expect(body).toContain(fixBriefCommand);
+  });
+
+  it('(c) renderResolveConflictCommand contains the conflictBriefCommand verbatim and states the two-token grammar', () => {
+    const body = renderResolveConflictCommand({ contextCommand, conflictBriefCommand });
+    expect(body).toContain(conflictBriefCommand);
+    expect(body).toContain('<key> <repo>');
+  });
+
+  it('(d) renderResumeCommand contains neither brief command', () => {
+    const body = renderResumeCommand({ contextCommand });
+    expect(body).not.toContain(fixBriefCommand);
+    expect(body).not.toContain(conflictBriefCommand);
+  });
+
+  it('(e) none of the four starts with ---', () => {
+    const start = renderStartTaskCommand({ contextCommand });
+    const resume = renderResumeCommand({ contextCommand });
+    const fix = renderFixCommand({ contextCommand, fixBriefCommand });
+    const conflict = renderResolveConflictCommand({ contextCommand, conflictBriefCommand });
+    for (const body of [start, resume, fix, conflict]) {
+      expect(body).not.toMatch(/^---/);
+    }
+  });
+
+  it('(f) RESERVED_BASENAMES has exactly the four values', () => {
+    expect(RESERVED_BASENAMES).toEqual([
+      START_TASK_BASENAME,
+      RESUME_BASENAME,
+      FIX_BASENAME,
+      RESOLVE_CONFLICT_BASENAME,
+    ]);
+    expect(RESERVED_BASENAMES).toHaveLength(4);
+  });
+});
+
+describe('renderResumeCommand / renderFixCommand / renderResolveConflictCommand with ticketKey', () => {
+  const contextCommand = 'node "/ext/dist/cli.js" context --db "/x.db" --manifest "/k.yml"';
+  const fixBriefCommand = 'node "/ext/dist/cli.js" fix-brief --db "/x.db" --manifest "/k.yml"';
+  const conflictBriefCommand =
+    'node "/ext/dist/cli.js" conflict-brief --db "/x.db" --manifest "/k.yml"';
+
+  it('renderResumeCommand with ticketKey drops $ARGUMENTS and names the ticket', () => {
+    const body = renderResumeCommand({ contextCommand, ticketKey: 'PROJ-42' });
+    expect(body).not.toContain('$ARGUMENTS');
+    expect(body).toContain('This command is for ticket `PROJ-42`');
+    expect(body).toContain('context --db "/x.db" --manifest "/k.yml" PROJ-42');
+  });
+
+  it('renderFixCommand with ticketKey drops $ARGUMENTS, names the ticket, and inlines the key', () => {
+    const body = renderFixCommand({ contextCommand, fixBriefCommand, ticketKey: 'PROJ-7' });
+    expect(body).not.toContain('$ARGUMENTS');
+    expect(body).toContain('This command is for ticket `PROJ-7`');
+    expect(body).toContain(`fix-brief --db "/x.db" --manifest "/k.yml" PROJ-7`);
+    expect(body).toContain('context --db "/x.db" --manifest "/k.yml" PROJ-7');
+  });
+
+  it('renderResolveConflictCommand with ticketKey drops $ARGUMENTS, names the ticket, and inlines the key', () => {
+    const body = renderResolveConflictCommand({
+      contextCommand,
+      conflictBriefCommand,
+      ticketKey: 'PROJ-99',
+    });
+    expect(body).not.toContain('$ARGUMENTS');
+    expect(body).toContain('This command is for ticket `PROJ-99`');
+    expect(body).toContain(`conflict-brief --db "/x.db" --manifest "/k.yml" PROJ-99 <repo>`);
+    expect(body).toContain('context --db "/x.db" --manifest "/k.yml" PROJ-99');
+  });
+
+  it('without ticketKey, all three renderers still contain $ARGUMENTS', () => {
+    const resume = renderResumeCommand({ contextCommand });
+    const fix = renderFixCommand({ contextCommand, fixBriefCommand });
+    const conflict = renderResolveConflictCommand({ contextCommand, conflictBriefCommand });
+    expect(resume).toContain('$ARGUMENTS');
+    expect(fix).toContain('$ARGUMENTS');
+    expect(conflict).toContain('$ARGUMENTS');
   });
 });

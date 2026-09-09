@@ -5,6 +5,8 @@ import type { Manifest } from '../manifest/types.js';
 import { openReadonlyStore } from './readonlyStore.js';
 import { openGraphWritableStore, openWritableStore } from './writableStore.js';
 import { parseContextArgs, runContextCommand } from './context.js';
+import { parseFixBriefArgs, runFixBriefCommand } from './fixBriefCommand.js';
+import { parseConflictBriefArgs, runConflictBriefCommand } from './conflictBriefCommand.js';
 import { parseStatsArgs, runStatsCommand } from './stats.js';
 import { runStageCommand } from './stage.js';
 import { runPhaseCommand } from './phase.js';
@@ -86,6 +88,12 @@ function loadProjectSlug(manifestPath: string | undefined): string | undefined {
  *   guide:    `… guide`
  *             the agent-facing manual (how Karst works, the flow, the verbs,
  *             the marker rules) — no flags, no ticket, no DB (see guide.ts).
+ *   fix-brief: `… fix-brief <key> --db <db>`
+ *             human-readable summary of the failing gate a fix session must
+ *             address — read-only, node:sqlite (see fixBriefCommand.ts).
+ *   conflict-brief: `… conflict-brief <key> <repo> --db <db>`
+ *             human-readable summary of the merge conflict a session must
+ *             resolve — read-only, node:sqlite (see conflictBriefCommand.ts).
  *
  * Self-contained: every path it needs is passed as a flag, so it does no
  * workspace discovery.
@@ -148,7 +156,7 @@ export function runCli(argv: string[]): string {
     }
     const store = openReadonlyStore(db);
     try {
-      return runContextCommand(store, manifest, parsed, db);
+      return runContextCommand(store, manifest, parsed, db, process.argv[1], manifestPath);
     } finally {
       store.close();
     }
@@ -303,8 +311,30 @@ export function runCli(argv: string[]): string {
     }
   }
 
+  if (subcommand === 'fix-brief') {
+    if (!db) throw new Error('missing --db <path>');
+    const parsed = parseFixBriefArgs(rest);
+    const store = openReadonlyStore(db);
+    try {
+      return runFixBriefCommand(store, parsed);
+    } finally {
+      store.close();
+    }
+  }
+
+  if (subcommand === 'conflict-brief') {
+    if (!db) throw new Error('missing --db <path>');
+    const parsed = parseConflictBriefArgs(rest);
+    const store = openReadonlyStore(db);
+    try {
+      return runConflictBriefCommand(store, parsed);
+    } finally {
+      store.close();
+    }
+  }
+
   throw new Error(
-    `unknown command '${subcommand ?? ''}' (want 'context', 'stats', 'stage', 'phase', 'graph', 'node', 'test', 'guide' or 'compact')`,
+    `unknown command '${subcommand ?? ''}' (want 'context', 'stats', 'stage', 'phase', 'graph', 'node', 'test', 'guide', 'compact', 'fix-brief' or 'conflict-brief')`,
   );
 }
 

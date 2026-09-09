@@ -11,6 +11,7 @@ import type { AiCallSite } from './aiCallSites.js';
 import type { HeadlessOutputChunk } from './headlessSpawn.js';
 import type { TokenUsage } from './tokenUsage.js';
 import type { AdapterSurfaces } from './surfaces.js';
+import type { StageKey } from '../model/types.js';
 
 /**
  * A JSON Schema document describing the shape a core's FINAL response is asked
@@ -222,6 +223,23 @@ export interface MaterializeOpts {
    * injected (a host too old to serve it must not hand out a dead verb).
    */
   cliTestPrefix?: string;
+  /**
+   * Shell command prefix for `karst fix-brief` (the ticket key is appended by
+   * the generated command). Absent → the `fix` command is not materialized.
+   */
+  cliFixBriefPrefix?: string;
+  /**
+   * Shell command prefix for `karst conflict-brief` (key and repo appended).
+   * Absent → the `resolve-conflict` command is not materialized.
+   */
+  cliConflictBriefPrefix?: string;
+  /**
+   * Tickets to emit per-ticket command aliases for — the manual-recovery commands
+   *  (`resume`, `fix`, `resolve-conflict`) get a `<basename>-<KEY>.md` copy whose NAME
+   *  completes in the core's command picker, the only mechanism that yields real fuzzy
+   *  matching on all four cores. Capped by the caller; absent or empty → no aliases.
+   */
+  aliasTickets?: readonly { key: string; stageCurrent: StageKey | null }[];
 }
 
 /**
@@ -245,6 +263,32 @@ export interface Materialized {
   extraArgs: string[];
   /** Native agent invocation for the generated workflow, when one exists. */
   invocation?: string;
+  /**
+   * The invocation this adapter registered for the generated start-task
+   * orchestrator, in this core's own namespace (`/karst:start-task` on claude
+   * and antigravity, `/karst-start-task` on codex and opencode). Present ONLY
+   * when the artifact was actually written. Its absence is what makes the
+   * launch seed fall back to the self-contained shape — a session must never
+   * end up with neither this command nor the inline marker.
+   */
+  startTaskInvocation?: string;
+  /**
+   * The invocation this adapter registered for the generated resume command,
+   * in this core's own namespace. Present ONLY when the artifact was written.
+   */
+  resumeInvocation?: string;
+  /**
+   * The invocation this adapter registered for the generated fix command,
+   * in this core's own namespace. Present ONLY when the fix-brief CLI prefix
+   * was provided and the artifact was written.
+   */
+  fixInvocation?: string;
+  /**
+   * The invocation this adapter registered for the generated resolve-conflict
+   * command, in this core's own namespace. Present ONLY when the conflict-brief
+   * CLI prefix was provided and the artifact was written.
+   */
+  resolveConflictInvocation?: string;
   /** Exact runtime paths created by the adapter and safe to remove on close. */
   ownedPaths: string[];
 }

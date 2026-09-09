@@ -124,10 +124,11 @@ import {
   loadModelCatalog,
 } from './agent/modelCatalogLoader.js';
 import { makeMementoCatalogCache } from './agent/modelCatalogCache.js';
-import { buildSessionSeed } from './agent/seed.js';
+import { buildSessionSeed, composeResumeSeed, composeConflictOverrideSeed } from './agent/seed.js';
 import { shouldResumeSession } from './agent/resumeDecision.js';
-import { markerStageFor, type MarkerStage } from './agent/markerStage.js';
+import { MARKER_STAGES, markerStageFor, type MarkerStage } from './agent/markerStage.js';
 import { renderFixBrief } from './agent/fixBrief.js';
+import { GATE_STAGES } from './workflow/graph.js';
 import {
   agyWatchTick,
   findConversationForWorktree,
@@ -168,6 +169,8 @@ import { composeStageCommand } from './cli/stage.js';
 import { composePhaseCommand } from './cli/phaseCommand.js';
 import { composeGuideCommand, renderGuideInstruction } from './cli/guide.js';
 import { composeTestCommand } from './cli/test/main.js';
+import { composeFixBriefCommand } from './cli/fixBriefCommand.js';
+import { composeConflictBriefCommand } from './cli/conflictBriefCommand.js';
 import {
   buildWorkflowInvocation,
   renderWorkflowCommand,
@@ -490,6 +493,9 @@ const BRAND_SVG = join(RUNTIME_ASSETS_ROOT, '..', 'media', 'karst.svg');
 
 /** Monochrome silhouette of the same mark, tinted by the status glyph hue. */
 const MARK_SVG = join(RUNTIME_ASSETS_ROOT, '..', 'media', 'karst-mark.svg');
+
+/** Maximum number of per-ticket command aliases materialized per session. */
+const ALIAS_TICKETS_CAP = 12;
 
 /**
  * The status-free karst mark for every panel tab, materialized once per window.
@@ -6232,8 +6238,31 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // valid session).
       let materialized: Materialized = { extraArgs: [], ownedPaths: [] };
       try {
-        const matPkg = pkg ?? (soloAgent ? { id: t.approach!, label: t.approach! } : null);
+        const matPkg =
+          pkg ??
+          (soloAgent
+            ? { id: t.approach!, label: t.approach! }
+            : { id: t.approach ?? 'direct', label: t.approach ?? 'direct' });
         if (matPkg && adapter.materializeApproach) {
+          // Build the per-ticket alias list: tickets whose stage is in
+          // MARKER_STAGES or GATE_STAGES get alias files for the manual-recovery
+          // commands so the command picker fuzzy-matches on the ticket key.
+          const ALIAS_STAGE_SET: readonly string[] = [
+            ...MARKER_STAGES,
+            ...GATE_STAGES,
+          ];
+          const aliasTickets = listTickets(localStore, {
+            projectId: currentProject()?.id,
+          })
+            .filter(
+              (t) =>
+                t.key &&
+                t.stageCurrent !== null &&
+                (ALIAS_STAGE_SET as readonly string[]).includes(t.stageCurrent),
+            )
+            .slice(0, ALIAS_TICKETS_CAP)
+            .map((t) => ({ key: t.key!, stageCurrent: t.stageCurrent as StageKey }));
+
           materialized = adapter.materializeApproach({
             pkg: matPkg,
             baseDir: approachesDirOrThrow(),
@@ -6254,6 +6283,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             cliPhasePrefix: buildCliPhasePrefix(context, dbPath),
             cliGuidePrefix: buildCliGuidePrefix(context),
             cliTestPrefix: buildCliTestPrefix(context, dbPath),
+            cliFixBriefPrefix: buildCliFixBriefPrefix(context, dbPath),
+            cliConflictBriefPrefix: buildCliConflictBriefPrefix(context, dbPath),
+            ...(aliasTickets.length > 0 ? { aliasTickets } : {}),
           });
         }
       } catch (error) {
@@ -6263,22 +6295,74 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         materialized.invocation && pkg?.workflow?.length
           ? `${materialized.invocation} ${t.key ?? ''}`.trim()
           : null;
+      // Capture the start-task invocation from the materialized approach so the
+      // narrative-shaped seed can use it as the invocation instead of the
+      // workflow invocation. When set, the seed switches to the narrative context
+      // shape and omits the done marker — the start-task command owns the marker.
+      const startTaskInvocation = materialized.invocation ?? null;
+      const useStartTask = Boolean(startTaskInvocation);
       if (!resumeId) {
+        // Absent `startTaskInvocation`, the seed is composed exactly as before,
+        // so a launch can never lose both the operational block and the marker.
+        const narrativeContextMd = useStartTask
+          ? renderTicketContext(
+              buildTicketContext(
+                localStore,
+                currentManifest(),
+                ticketId,
+                context.globalStorageUri.fsPath,
+              ),
+              (msg) => logger.debug(msg),
+              { sections: 'narrative' },
+            )
+          : ticketContextMd;
         seedPrompt = buildSessionSeed(
-          ticketContextMd,
+          narrativeContextMd,
           approachPrompt ?? delegation,
-          invocation,
-          markerInstruction,
+          useStartTask
+            ? `${startTaskInvocation} ${t.key ?? ''}`.trim()
+            : invocation,
+          useStartTask ? null : markerInstruction,
           renderGuideInstruction(buildCliGuidePrefix(context)),
           t.key || String(ticketId),
           (msg) => logger.debug(msg),
         );
       }
+      // Resume branch: when a materialized start-task command exists, compose
+      // the resume/fix invocation as the first line (omitting the marker — the
+      // command carries it). Choose the fix invocation when at fix stage and
+      // that command was materialized, else the resume invocation. When no
+      // command was materialized, leave the seedPrompt as-is (the legacy shape
+      // with the inline marker).
+      if (resumeId && materialized.startTaskInvocation) {
+        const resumeOrFixInvocation =
+          t.stageCurrent === 'fix' && materialized.fixInvocation
+            ? materialized.fixInvocation
+            : materialized.resumeInvocation;
+        if (resumeOrFixInvocation) {
+          const brief =
+            fixBrief ?? `Continue the in-progress work on ticket ${t.key ?? `#${ticketId}`}. Re-read live state if needed.`;
+          seedPrompt = composeResumeSeed(
+            t.key ?? `#${ticketId}`,
+            brief,
+            resumeOrFixInvocation,
+            undefined,
+          );
+        }
+      }
       // A caller with one specific job for this session (the merge brief behind
       // "Resolve conflicts") wins over every composed seed above, resume line
       // included: the ticket's own context would bury the one instruction the
       // click was about. Set host-side only — never from a webview message.
-      if (options.seedPrompt) seedPrompt = options.seedPrompt;
+      // When a materialized resolve-conflict command exists, prepend its
+      // invocation line and a blank line to the brief rather than replacing it.
+      if (options.seedPrompt) {
+        seedPrompt = composeConflictOverrideSeed(
+          t.key ?? `#${ticketId}`,
+          options.seedPrompt,
+          materialized.resolveConflictInvocation,
+        );
+      }
       const extraArgs =
         materialized.extraArgs.length > 0
           ? materialized.extraArgs
@@ -7221,6 +7305,40 @@ function buildCliTestPrefix(context: vscode.ExtensionContext, dbPath: string): s
     manifestPath = undefined;
   }
   return composeTestCommand(cliEntry, dbPath, manifestPath);
+}
+
+/**
+ * Compose the `node <cli> fix-brief --db <db> --manifest <yml>` prefix a
+ * session's generated fix command runs (ticket key appended) to pull the
+ * failing-gate brief. Same CLI entry and best-effort manifest as the other
+ * prefixes.
+ */
+function buildCliFixBriefPrefix(context: vscode.ExtensionContext, dbPath: string): string {
+  const cliEntry = join(context.extensionUri.fsPath, 'dist', 'cli', 'main.js');
+  let manifestPath: string | undefined;
+  try {
+    manifestPath = manifestPathOrThrow();
+  } catch {
+    manifestPath = undefined;
+  }
+  return composeFixBriefCommand(cliEntry, dbPath, manifestPath);
+}
+
+/**
+ * Compose the `node <cli> conflict-brief --db <db> --manifest <yml>` prefix a
+ * session's generated resolve-conflict command runs (ticket key and repo
+ * appended) to pull the merge-conflict brief. Same CLI entry and best-effort
+ * manifest as the other prefixes.
+ */
+function buildCliConflictBriefPrefix(context: vscode.ExtensionContext, dbPath: string): string {
+  const cliEntry = join(context.extensionUri.fsPath, 'dist', 'cli', 'main.js');
+  let manifestPath: string | undefined;
+  try {
+    manifestPath = manifestPathOrThrow();
+  } catch {
+    manifestPath = undefined;
+  }
+  return composeConflictBriefCommand(cliEntry, dbPath, manifestPath);
 }
 
 /**

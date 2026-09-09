@@ -69,6 +69,50 @@ Ownership (above) is a path rule; it was wrongly applied to CONTENT. The generat
 
 `agent/generatedArtifact.ts` splits the two cases by stamping what karst writes (`GENERATED_STAMP`, a markdown comment): `writeGeneratedArtifact` replaces a stamped file, refuses an unstamped one (the repository's), and reports the refusal. All four adapters use it for the generated workflow artifact and keep the plain `existsSync` guard for artifacts they COPY from the package. Ownership is unchanged — still only a path this call created — so a re-render never makes cleanup delete a dir karst did not create.
 
+## The seed-shape rule
+
+A seed is the prompt text karst composes for a headless agent session. Whether a block of content goes inline in that seed or behind a CLI indirection is decided once, by audience:
+
+- **A seed a HUMAN reads** (the interactive launch, its resume, its fix resume, the merge-conflict handoff) carries only narrative content inline and pulls operational facts through `/karst:start-task` → `karst context <key> --md`. The human must not be asked to scroll through worktree paths, branch names, service ports, or PR URLs to reach the sentence that tells them what to do next.
+- **A seed only a MACHINE consumes** (the three graph-planner prompts) keeps everything inline, because indirection there buys no readability and adds a failure mode — the machine does not scroll, and a missing `karst context` call is a silent data loss.
+
+The three standing counterexamples where inline is correct by this rule:
+1. `launchPlannerRepairHost` — the G2 compile-repair re-prompt (`extension.ts`'s planner-repair host binding).
+2. `launchReplanPlannerHost` — the replan planner launch (Slice-4 T5).
+3. `launchBootstrapRelaunchHost` — the bootstrap planner relaunch after `planner-relaunch` recovery.
+
+All three compose the prompt from `promptBytesOf('karst-graph-planner')` plus `renderTicketContext` directly, with `bounded: false` — the graph-planner prompt is a different surface from the interactive seed and never shares its bounds.
+
+## Entry-point commands
+
+| command | args | entry point it serves |
+|---|---|---|
+| `/karst:start-task` | `<key> <brief>` | fresh launch |
+| `/karst:resume` | `<key>` | session resume |
+| `/karst:fix` | `<key>` | resume at the `fix` stage |
+| `/karst:resolve-conflict` | `<key> <repo>` | the "Resolve conflicts" click |
+
+**Key Decision 8:** separate commands per entry point rather than one unified verb, chosen so each is manually runnable from the CLI or a terminal without hidden state.
+
+**Key Decision 9:** aliases only for the three cold-typed commands (resume, fix, resolve-conflict) — not for start-task, which takes a brief and is always composed by karst.
+
+## Per-core start-task surface
+
+| core | command file | command name |
+|---|---|---|
+| claude | `.karst-plugin/karst/commands/start-task.md` | `/karst:start-task` |
+| antigravity | `.agents/plugins/karst/commands/start-task.md` | `/karst:start-task` |
+| opencode | `.opencode/commands/karst-start-task.md` | `/karst-start-task` |
+| codex | `.agents/skills/karst-start-task/SKILL.md` | `/karst-start-task` |
+
+## Fallback invariant: the seed is self-contained when no adapter reports startTaskInvocation
+
+The seed drops the inline marker (the `karst context` indirection) ONLY when the adapter reported `startTaskInvocation` — i.e. the adapter guarantees it will render a `/karst:start-task` command the human can click. Absent that report, the seed is self-contained exactly as before: every fact the agent needs is inline. A session must never have neither the inline content nor the adapter's command guarantee — that would be a silent data loss. The fallback check lives in the seed composer; the adapter's `startTaskInvocation` field (`agent/adapter.ts`) is the single source of truth for whether the guarantee exists.
+
+## The guide pointer deliberately stays in the seed
+
+The guide-pointer sentence (`GUIDE_POINTER_MARKER` from `agent/promptTelemetry.ts`) remains in every human-facing seed — including the new `/karst:start-task` command's output — to preserve the `seedHasGuide` telemetry denominator and the committed baseline in `docs/arch/prompt-metrics.md`. Removing it would zero the guide-pull rate and invalidate the metric without a replacement.
+
 ## agy has no executable hook channel; its lifecycle signals are READ from the CLI's own conversation DB
 
 agy 1.1.11 loads `hooks.json` but never RUNS the hook commands in the CLI conversation path (verified empirically; the machinery targets the IDE surface), so a bridge script would be a silent fake signal. `agent/agyConversationWatch.ts` is the channel: a sweep in `extension.ts` finds the conversation DB by the worktree path stored in its `trajectory_metadata_blob`, and a `steps` row with `status = 9` is a pending permission ask (observed live: dialog open → 9, answered → 3). Events are normalized into the CLOSED hook vocabulary (`SessionStart` once per conversation, `permission.asked` on 9 appearing, `UserPromptSubmit` on it resolving) and posted through the SAME `dispatchHook` seam and closures as the HTTP endpoint, so session-id capture (`--conversation` resume), launch-intent confirmation, the generation barrier, the amber glyph and the Now line are shared. Session end → idle stays the terminal-close sweep's job. `interactiveUsage` stays false — no usage channel exists.

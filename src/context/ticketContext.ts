@@ -436,6 +436,16 @@ export function buildTicketContext(
   };
 }
 
+/**
+ * Which sections a render emits. `all` is every section (the CLI, the graph
+ * planner prompts, every pre-existing caller). `narrative` is the subset a
+ * HUMAN reads in a session transcript — the ticket's own prose, its
+ * attachments, and its parent's brief — with every operational fact
+ * (stage, repos, worktrees, servers, PRs) omitted because the session pulls
+ * those live via `karst context`.
+ */
+export type ContextSections = 'all' | 'narrative';
+
 function ticketHeading(ctx: TicketContext): string {
   const key = ctx.key?.trim();
   const title = ctx.title?.trim();
@@ -452,9 +462,10 @@ function ticketHeading(ctx: TicketContext): string {
 export function renderTicketContext(
   ctx: TicketContext,
   debug?: (msg: string) => void,
-  opts?: { bounded?: boolean },
+  opts?: { bounded?: boolean; sections?: ContextSections },
 ): string {
   const bounded = opts?.bounded ?? true;
+  const sections = opts?.sections ?? 'all';
   const parts: string[] = [`# Ticket: ${ticketHeading(ctx)}`];
   // A ticket's key can be empty (never blank the pointer's command target on
   // that account) — `id` is always present and `karst context <id>` resolves
@@ -486,7 +497,7 @@ export function renderTicketContext(
     parts.push(`## Context brief\n${brief}`);
   }
 
-  if (ctx.stage) {
+  if (sections === 'all' && ctx.stage) {
     const s = ctx.stage;
     const lines = [`- stage: ${s.stageKey} (${s.status})`];
     if (s.verdict) lines.push(`- verdict: ${s.verdict}`);
@@ -606,7 +617,7 @@ export function renderTicketContext(
   // One section, not two. The old render emitted a bare name list AND a richer
   // "## Services" list, so a repository appeared twice and a non-runnable one
   // appeared in the first with no hint it would never start.
-  if (ctx.repos.length > 0) {
+  if (sections === 'all' && ctx.repos.length > 0) {
     const rows = ctx.repos.map((r) => {
       if (r.unknown) return `- ${r.name}: (not in karst.yml)`;
       if (!r.start) return `- ${r.name}: ${r.repoPath} (no service — not runnable)`;
@@ -616,7 +627,7 @@ export function renderTicketContext(
     parts.push(`## Repositories in scope\n${rows.join('\n')}`);
   }
 
-  if (ctx.worktrees.length > 0) {
+  if (sections === 'all' && ctx.worktrees.length > 0) {
     const rows = ctx.worktrees.map((w) => {
       const branch = w.branch ?? '(no branch)';
       const base = w.baseRef ? ` (from ${w.baseRef})` : '';
@@ -625,14 +636,14 @@ export function renderTicketContext(
     parts.push(`## Worktrees & branches\n${rows.join('\n')}`);
   }
 
-  if (ctx.servers.length > 0) {
+  if (sections === 'all' && ctx.servers.length > 0) {
     const rows = ctx.servers.map(
       (s) => `- ${s.service}: ${s.host ?? '?'}:${s.port ?? '?'} (${s.status})`,
     );
     parts.push(`## Running servers\n${rows.join('\n')}`);
   }
 
-  if (ctx.prs.length > 0) {
+  if (sections === 'all' && ctx.prs.length > 0) {
     const rows = ctx.prs.map((p) => {
       const num = p.number !== null ? `#${p.number}` : '(no number)';
       const url = p.url ? ` — ${p.url}` : '';

@@ -69,6 +69,39 @@ export function buildSessionSeed(
   return sections.join('\n\n');
 }
 
+/**
+ * Compose the resume seed: an invocation-first string when a materialized
+ * command exists (omitting the marker — the command carries it), or today's
+ * inline-marker shape when no command was materialized.
+ */
+export function composeResumeSeed(
+  ticketKey: string,
+  brief: string,
+  resumeOrFixInvocation: string | undefined,
+  markerInstruction: string | undefined,
+): string {
+  if (resumeOrFixInvocation) {
+    return `${resumeOrFixInvocation} ${ticketKey}\n\n${brief}`.trim();
+  }
+  return `${brief}${markerInstruction ? `\n\n${markerInstruction}` : ''}`;
+}
+
+/**
+ * Compose the conflict-override seed: prepend the resolve-conflict invocation
+ * line and a blank line to the brief when a materialized command exists, or
+ * return the brief unchanged when no command was materialized.
+ */
+export function composeConflictOverrideSeed(
+  ticketKey: string,
+  brief: string,
+  resolveConflictInvocation: string | undefined,
+): string {
+  if (resolveConflictInvocation) {
+    return `${resolveConflictInvocation} ${ticketKey}\n\n${brief}`.trim();
+  }
+  return brief;
+}
+
 /** The seed seam's own effectiveness telemetry: composed length + guide-pointer presence. */
 export interface SeedTelemetry {
   seedChars: number;

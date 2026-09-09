@@ -23,7 +23,24 @@ import { renderConsoleStream } from './consoleFormat.js';
 import { spawnHeadlessCli, headlessPreview, type HeadlessSpawnOptions } from './headlessSpawn.js';
 import { attachUsage } from './tokenUsage.js';
 import type { TokenUsage } from './tokenUsage.js';
-import { KARST_PLUGIN_NAME, renderWorkflowCommand } from './workflowCommand.js';
+import {
+  KARST_PLUGIN_NAME,
+  RESERVED_BASENAMES,
+  slugCommandName,
+  START_TASK_BASENAME,
+  START_TASK_DESCRIPTION,
+  RESUME_BASENAME,
+  RESUME_DESCRIPTION,
+  FIX_BASENAME,
+  FIX_DESCRIPTION,
+  RESOLVE_CONFLICT_BASENAME,
+  RESOLVE_CONFLICT_DESCRIPTION,
+  renderStartTaskCommand,
+  renderResumeCommand,
+  renderFixCommand,
+  renderResolveConflictCommand,
+  renderWorkflowCommand,
+} from './workflowCommand.js';
 import { withStamp, writeGeneratedArtifact } from './generatedArtifact.js';
 import { renderTestSkill } from './testSkill.js';
 import { SUPPORTED, unsupported, type AdapterSurfaces } from './surfaces.js';
@@ -113,6 +130,16 @@ function opencodeName(kind: string, raw: string): string {
     .replace(/^-+|-+$/gu, '');
   if (slug === KARST_PLUGIN_NAME) {
     throw new Error(`materializeApproach: reserved name "${raw}" for ${kind}`);
+  }
+  if (
+    RESERVED_BASENAMES.includes(slug as (typeof RESERVED_BASENAMES)[number]) ||
+    (RESERVED_BASENAMES as readonly string[]).some(
+      (base) => slug === `${KARST_PLUGIN_NAME}-${base}`,
+    )
+  ) {
+    throw new Error(
+      `materializeApproach: approach id "${raw}" slugs to reserved "${slug}" — it collides with a generated file`,
+    );
   }
   if (slug.length === 0 || slug.length > MAX_OPENCODE_NAME || !OPENCODE_NAME.test(slug)) {
     throw new Error(`materializeApproach: invalid name "${raw}" for ${kind}`);
@@ -973,10 +1000,163 @@ export class OpencodeAdapter implements AgentAdapter {
       if (wrote && isNew) owned.add(testSkillDir);
     }
 
+    let startTaskInvocation: string | undefined;
+    let resumeInvocation: string | undefined;
+    let fixInvocation: string | undefined;
+    let resolveConflictInvocation: string | undefined;
+    if (opts.cliContextPrefix) {
+      const commandEntries: {
+        basename: string;
+        body: string;
+        description: string;
+      }[] = [
+        {
+          basename: START_TASK_BASENAME,
+          body: renderStartTaskCommand({
+            contextCommand: opts.cliContextPrefix,
+            ...(opts.cliGuidePrefix ? { guideCommand: opts.cliGuidePrefix } : {}),
+          }),
+          description: START_TASK_DESCRIPTION,
+        },
+        {
+          basename: RESUME_BASENAME,
+          body: renderResumeCommand({
+            contextCommand: opts.cliContextPrefix,
+            ...(opts.cliGuidePrefix ? { guideCommand: opts.cliGuidePrefix } : {}),
+          }),
+          description: RESUME_DESCRIPTION,
+        },
+      ];
+
+      if (opts.cliFixBriefPrefix) {
+        commandEntries.push({
+          basename: FIX_BASENAME,
+          body: renderFixCommand({
+            contextCommand: opts.cliContextPrefix,
+            fixBriefCommand: opts.cliFixBriefPrefix,
+            ...(opts.cliGuidePrefix ? { guideCommand: opts.cliGuidePrefix } : {}),
+          }),
+          description: FIX_DESCRIPTION,
+        });
+      }
+
+      if (opts.cliConflictBriefPrefix) {
+        commandEntries.push({
+          basename: RESOLVE_CONFLICT_BASENAME,
+          body: renderResolveConflictCommand({
+            contextCommand: opts.cliContextPrefix,
+            conflictBriefCommand: opts.cliConflictBriefPrefix,
+            ...(opts.cliGuidePrefix ? { guideCommand: opts.cliGuidePrefix } : {}),
+          }),
+          description: RESOLVE_CONFLICT_DESCRIPTION,
+        });
+      }
+
+      for (const entry of commandEntries) {
+        const destination = join(
+          opts.sessionDir,
+          '.opencode',
+          'commands',
+          `karst-${entry.basename}.md`,
+        );
+        const isNew = !existsSync(destination);
+        const wrote = writeGeneratedArtifact(
+          destination,
+          [
+            '---',
+            `description: ${entry.description}`,
+            '---',
+            '',
+            withStamp(entry.body),
+          ].join('\n'),
+        );
+        if (wrote && isNew) owned.add(destination);
+      }
+
+      // Per-ticket alias commands for the manual-recovery commands. Each alias
+      // gets a `karst-<basename>-<KEY>` filename so the command picker
+      // fuzzy-matches on it.
+      if (opts.aliasTickets && opts.aliasTickets.length > 0) {
+        const renderers: Record<string, (ticketKey: string) => string> = {
+          [RESUME_BASENAME]: (tk) =>
+            renderResumeCommand({
+              contextCommand: opts.cliContextPrefix!,
+              ...(opts.cliGuidePrefix ? { guideCommand: opts.cliGuidePrefix } : {}),
+              ticketKey: tk,
+            }),
+          ...(opts.cliFixBriefPrefix
+            ? {
+                [FIX_BASENAME]: (tk: string) =>
+                  renderFixCommand({
+                    contextCommand: opts.cliContextPrefix!,
+                    fixBriefCommand: opts.cliFixBriefPrefix!,
+                    ...(opts.cliGuidePrefix ? { guideCommand: opts.cliGuidePrefix } : {}),
+                    ticketKey: tk,
+                  }),
+              }
+            : {}),
+          ...(opts.cliConflictBriefPrefix
+            ? {
+                [RESOLVE_CONFLICT_BASENAME]: (tk: string) =>
+                  renderResolveConflictCommand({
+                    contextCommand: opts.cliContextPrefix!,
+                    conflictBriefCommand: opts.cliConflictBriefPrefix!,
+                    ...(opts.cliGuidePrefix ? { guideCommand: opts.cliGuidePrefix } : {}),
+                    ticketKey: tk,
+                  }),
+              }
+            : {}),
+        };
+        const descriptions: Record<string, string> = {
+          [RESUME_BASENAME]: RESUME_DESCRIPTION,
+          [FIX_BASENAME]: FIX_DESCRIPTION,
+          [RESOLVE_CONFLICT_BASENAME]: RESOLVE_CONFLICT_DESCRIPTION,
+        };
+        for (const ticket of opts.aliasTickets) {
+          const slug = slugCommandName(ticket.key);
+          if (!slug) continue;
+          for (const [basename, render] of Object.entries(renderers)) {
+            const aliasName = `karst-${basename}-${slug}`;
+            const destination = join(
+              opts.sessionDir,
+              '.opencode',
+              'commands',
+              `${aliasName}.md`,
+            );
+            const isNew = !existsSync(destination);
+            const wrote = writeGeneratedArtifact(
+              destination,
+              [
+                '---',
+                `description: ${descriptions[basename] ?? ''}`,
+                '---',
+                '',
+                withStamp(render(ticket.key)),
+              ].join('\n'),
+            );
+            if (wrote && isNew) owned.add(destination);
+          }
+        }
+      }
+
+      startTaskInvocation = '/karst-start-task';
+      resumeInvocation = '/karst-resume';
+      if (opts.cliFixBriefPrefix) {
+        fixInvocation = '/karst-fix';
+      }
+      if (opts.cliConflictBriefPrefix) {
+        resolveConflictInvocation = '/karst-resolve-conflict';
+      }
+    }
+
     return {
       extraArgs: [],
       ownedPaths: [...owned],
       ...(hasWorkflow ? { invocation: `/${idName}` } : {}),
+      ...(startTaskInvocation ? { startTaskInvocation } : {}),
+      ...(resumeInvocation ? { resumeInvocation } : {}),
+      ...(fixInvocation ? { fixInvocation } : {}),
+      ...(resolveConflictInvocation ? { resolveConflictInvocation } : {}),
     };
   }
 

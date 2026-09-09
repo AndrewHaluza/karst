@@ -750,6 +750,84 @@ describe('renderTicketContext', () => {
     expect(md).not.toContain('## Worktrees');
   });
 
+  describe('sections mode', () => {
+    function populate(): number {
+      const t = createTicket(store, { key: 'PROJ-9', title: 'Do research' });
+      updateTicketFields(store, t.id, {
+        description: 'Audit the app',
+        brief: 'A short brief',
+        selectedRepos: ['frontend'],
+      });
+      store.db
+        .prepare(
+          "INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref, deps_mode) VALUES (?, 'frontend', '/wt/frontend', 'feat/x', 'main', 'inherited')",
+        )
+        .run(t.id);
+      store.db
+        .prepare(
+          "INSERT INTO servers (ticket_id, repo, host, port, status) VALUES (?, 'frontend', '127.0.0.1', 3001, 'running')",
+        )
+        .run(t.id);
+      store.db
+        .prepare(
+          "INSERT INTO prs (ticket_id, repo, number, url, status) VALUES (?, 'frontend', 42, 'https://x/pr/42', 'open')",
+        )
+        .run(t.id);
+      store.db.prepare('UPDATE tickets SET stage_current = ? WHERE id = ?').run('review', t.id);
+      setStage(store, t.id, 'review', { status: 'running' });
+      recordGateRun(store, {
+        ticketId: t.id,
+        stageKey: 'review',
+        attempt: 0,
+        runAt: '2026-08-01T10:00:00.000Z',
+        gates: [{ gateName: 'lint', exitCode: 1 }],
+      });
+      return t.id;
+    }
+
+    it('omits all five operational headings for a fully populated fixture', () => {
+      const id = populate();
+      const ctx = buildTicketContext(store, manifest({ frontend: svc() }), id);
+      const md = renderTicketContext(ctx, undefined, { sections: 'narrative' });
+      expect(md).not.toContain('## Current stage');
+      expect(md).not.toContain('## Repositories in scope');
+      expect(md).not.toContain('## Worktrees & branches');
+      expect(md).not.toContain('## Running servers');
+      expect(md).not.toContain('## Pull requests');
+    });
+
+    it('keeps Prompt, Context brief, Attachments, and Continuing from in narrative mode', () => {
+      const parent = createTicket(store, { key: 'PROJ-1', title: 'Parent' });
+      updateTicketFields(store, parent.id, { brief: 'Built the thing.' });
+      store.db.prepare("UPDATE tickets SET stage_current = 'done' WHERE id = ?").run(parent.id);
+
+      const t = createTicket(store, { key: 'PROJ-2', title: 'Child', parentTicketId: parent.id });
+      updateTicketFields(store, t.id, { description: 'Do the work', brief: 'Some brief' });
+      insertAttachment(store, {
+        ticketId: t.id,
+        kind: 'image',
+        storedName: 'a.png',
+        originalName: 'img.png',
+        byteSize: 1,
+      });
+
+      const ctx = buildTicketContext(store, undefined, t.id, '/storage');
+      const md = renderTicketContext(ctx, undefined, { sections: 'narrative' });
+      expect(md).toContain('## Prompt');
+      expect(md).toContain('## Context brief');
+      expect(md).toContain('## Attachments');
+      expect(md).toContain('## Continuing from');
+    });
+
+    it('omitting sections produces output identical to sections: all', () => {
+      const id = populate();
+      const ctx = buildTicketContext(store, manifest({ frontend: svc() }), id);
+      const withoutOpt = renderTicketContext(ctx);
+      const withAll = renderTicketContext(ctx, undefined, { sections: 'all' });
+      expect(withoutOpt).toBe(withAll);
+    });
+  });
+
   describe('seed budget truncation', () => {
     it('truncates an oversized prompt with the stated pointer, and reports it via debug', () => {
       const t = createTicket(store, { key: 'PROJ-9', title: 'Big' });

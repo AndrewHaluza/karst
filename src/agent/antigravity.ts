@@ -18,7 +18,28 @@ import type {
   RunHeadlessOpts,
   HeadlessResult,
 } from './adapter.js';
-import { renderWorkflowCommand, KARST_PLUGIN_NAME, slugCommandName } from './workflowCommand.js';
+import {
+  renderWorkflowCommand,
+  renderStartTaskCommand,
+  renderResumeCommand,
+  renderFixCommand,
+  renderResolveConflictCommand,
+  KARST_PLUGIN_NAME,
+  slugCommandName,
+  START_TASK_BASENAME,
+  START_TASK_DESCRIPTION,
+  START_TASK_ARGUMENT_HINT,
+  RESUME_BASENAME,
+  RESUME_DESCRIPTION,
+  RESUME_ARGUMENT_HINT,
+  FIX_BASENAME,
+  FIX_DESCRIPTION,
+  FIX_ARGUMENT_HINT,
+  RESOLVE_CONFLICT_BASENAME,
+  RESOLVE_CONFLICT_DESCRIPTION,
+  RESOLVE_CONFLICT_ARGUMENT_HINT,
+  RESERVED_BASENAMES,
+} from './workflowCommand.js';
 import { withStamp, writeGeneratedArtifact } from './generatedArtifact.js';
 import { renderTestSkill } from './testSkill.js';
 import { SUPPORTED, unsupported, type AdapterSurfaces } from './surfaces.js';
@@ -203,11 +224,17 @@ export class AntigravityAdapter implements AgentAdapter {
     const hasWorkflow = (opts.pkg.workflow?.length ?? 0) > 0;
     const solo = opts.soloAgent;
     if (solo) assertSafeAgentName(solo.name);
-    if (artifacts.length === 0 && !hasWorkflow && !solo) {
+    if (artifacts.length === 0 && !hasWorkflow && !solo && !opts.cliContextPrefix) {
       return { extraArgs: [], ownedPaths: [] };
     }
     if (opts.pkg.id === KARST_PLUGIN_NAME) {
       throw new Error(`materializeApproach: approach id "${KARST_PLUGIN_NAME}" is reserved`);
+    }
+    if (RESERVED_BASENAMES.includes(slugCommandName(opts.pkg.id) as typeof RESERVED_BASENAMES[number])) {
+      throw new Error(
+        `materializeApproach: approach id "${opts.pkg.id}" slugs to reserved ` +
+          `"${slugCommandName(opts.pkg.id)}" — it collides with a generated file`,
+      );
     }
 
     // Antigravity discovers workspace customizations below `.agents/`. Keep
@@ -283,6 +310,151 @@ export class AntigravityAdapter implements AgentAdapter {
       );
     }
 
+    let startTaskInvocation: string | undefined;
+    let resumeInvocation: string | undefined;
+    let fixInvocation: string | undefined;
+    let resolveConflictInvocation: string | undefined;
+    if (opts.cliContextPrefix) {
+      const karstDir = join(opts.sessionDir, '.agents', 'plugins', KARST_PLUGIN_NAME);
+      if (!existsSync(karstDir)) {
+        mkdirSync(karstDir, { recursive: true });
+        writeFileSync(join(karstDir, 'plugin.json'), JSON.stringify({ name: KARST_PLUGIN_NAME }, null, 2));
+        if (!ownedKarstDir) ownedKarstDir = karstDir;
+      }
+      mkdirSync(join(karstDir, 'commands'), { recursive: true });
+
+      const commandEntries: {
+        basename: string;
+        body: string;
+        description: string;
+        argumentHint?: string;
+      }[] = [
+        {
+          basename: START_TASK_BASENAME,
+          body: renderStartTaskCommand({
+            contextCommand: opts.cliContextPrefix,
+            ...(opts.cliGuidePrefix ? { guideCommand: opts.cliGuidePrefix } : {}),
+          }),
+          description: START_TASK_DESCRIPTION,
+          argumentHint: START_TASK_ARGUMENT_HINT,
+        },
+        {
+          basename: RESUME_BASENAME,
+          body: renderResumeCommand({
+            contextCommand: opts.cliContextPrefix,
+            ...(opts.cliGuidePrefix ? { guideCommand: opts.cliGuidePrefix } : {}),
+          }),
+          description: RESUME_DESCRIPTION,
+          argumentHint: RESUME_ARGUMENT_HINT,
+        },
+      ];
+
+      if (opts.cliFixBriefPrefix) {
+        commandEntries.push({
+          basename: FIX_BASENAME,
+          body: renderFixCommand({
+            contextCommand: opts.cliContextPrefix,
+            fixBriefCommand: opts.cliFixBriefPrefix,
+            ...(opts.cliGuidePrefix ? { guideCommand: opts.cliGuidePrefix } : {}),
+          }),
+          description: FIX_DESCRIPTION,
+          argumentHint: FIX_ARGUMENT_HINT,
+        });
+      }
+
+      if (opts.cliConflictBriefPrefix) {
+        commandEntries.push({
+          basename: RESOLVE_CONFLICT_BASENAME,
+          body: renderResolveConflictCommand({
+            contextCommand: opts.cliContextPrefix,
+            conflictBriefCommand: opts.cliConflictBriefPrefix,
+            ...(opts.cliGuidePrefix ? { guideCommand: opts.cliGuidePrefix } : {}),
+          }),
+          description: RESOLVE_CONFLICT_DESCRIPTION,
+          argumentHint: RESOLVE_CONFLICT_ARGUMENT_HINT,
+        });
+      }
+
+      for (const entry of commandEntries) {
+        const filePath = join(karstDir, 'commands', `${entry.basename}.md`);
+        const frontmatterLines = [
+          '---',
+          `description: ${entry.description}`,
+        ];
+        if (entry.argumentHint) {
+          frontmatterLines.push(`argument-hint: "${entry.argumentHint}"`);
+        }
+        frontmatterLines.push('---', '');
+        const fullBody = frontmatterLines.join('\n') + entry.body;
+        writeGeneratedArtifact(filePath, withStamp(fullBody));
+      }
+
+      // Per-ticket alias files for the manual-recovery commands (resume, fix,
+      // resolve-conflict). Each alias is a copy whose basename includes the
+      // ticket key so the command picker fuzzy-matches on it.
+      if (opts.aliasTickets && opts.aliasTickets.length > 0) {
+        const renderers: Record<string, (ticketKey: string) => string> = {
+          [RESUME_BASENAME]: (tk) =>
+            renderResumeCommand({
+              contextCommand: opts.cliContextPrefix!,
+              ...(opts.cliGuidePrefix ? { guideCommand: opts.cliGuidePrefix } : {}),
+              ticketKey: tk,
+            }),
+          ...(opts.cliFixBriefPrefix
+            ? {
+                [FIX_BASENAME]: (tk: string) =>
+                  renderFixCommand({
+                    contextCommand: opts.cliContextPrefix!,
+                    fixBriefCommand: opts.cliFixBriefPrefix!,
+                    ...(opts.cliGuidePrefix ? { guideCommand: opts.cliGuidePrefix } : {}),
+                    ticketKey: tk,
+                  }),
+              }
+            : {}),
+          ...(opts.cliConflictBriefPrefix
+            ? {
+                [RESOLVE_CONFLICT_BASENAME]: (tk: string) =>
+                  renderResolveConflictCommand({
+                    contextCommand: opts.cliContextPrefix!,
+                    conflictBriefCommand: opts.cliConflictBriefPrefix!,
+                    ...(opts.cliGuidePrefix ? { guideCommand: opts.cliGuidePrefix } : {}),
+                    ticketKey: tk,
+                  }),
+              }
+            : {}),
+        };
+        const descriptions: Record<string, string> = {
+          [RESUME_BASENAME]: RESUME_DESCRIPTION,
+          [FIX_BASENAME]: FIX_DESCRIPTION,
+          [RESOLVE_CONFLICT_BASENAME]: RESOLVE_CONFLICT_DESCRIPTION,
+        };
+        for (const ticket of opts.aliasTickets) {
+          const slug = slugCommandName(ticket.key);
+          if (!slug) continue;
+          for (const [basename, render] of Object.entries(renderers)) {
+            const aliasBasename = `${basename}-${slug}`;
+            const filePath = join(karstDir, 'commands', `${aliasBasename}.md`);
+            const frontmatterLines = [
+              '---',
+              `description: ${descriptions[basename] ?? ''}`,
+            ];
+            frontmatterLines.push('---', '');
+            const fullBody = frontmatterLines.join('\n') + render(ticket.key);
+            writeGeneratedArtifact(filePath, withStamp(fullBody));
+          }
+        }
+      }
+
+      startTaskInvocation = `/${KARST_PLUGIN_NAME}:${START_TASK_BASENAME}`;
+      resumeInvocation = `/${KARST_PLUGIN_NAME}:${RESUME_BASENAME}`;
+      if (opts.cliFixBriefPrefix) {
+        fixInvocation = `/${KARST_PLUGIN_NAME}:${FIX_BASENAME}`;
+      }
+      if (opts.cliConflictBriefPrefix) {
+        resolveConflictInvocation = `/${KARST_PLUGIN_NAME}:${RESOLVE_CONFLICT_BASENAME}`;
+      }
+    }
+
     // Sessions launch with `cwd === sessionDir`, so Antigravity discovers this
     // workspace plugin without an additional `--add-dir`.
     return {
@@ -292,6 +464,10 @@ export class AntigravityAdapter implements AgentAdapter {
         ...(ownedKarstDir ? [ownedKarstDir] : []),
       ],
       ...(hasWorkflow ? { invocation: `$${slugCommandName(opts.pkg.id)}` } : {}),
+      ...(startTaskInvocation ? { startTaskInvocation } : {}),
+      ...(resumeInvocation ? { resumeInvocation } : {}),
+      ...(fixInvocation ? { fixInvocation } : {}),
+      ...(resolveConflictInvocation ? { resolveConflictInvocation } : {}),
     };
   }
 

@@ -12,6 +12,53 @@ import { MARKER_REFUSED, GATE_DECIDED_BY_EXIT_CODES, GUIDE_POINTER_INTRO } from 
 export const KARST_PLUGIN_NAME = 'karst';
 
 /**
+ * Basename of the generated start-task orchestrator — the human-facing
+ * launch's entry point. RESERVED: an approach id that slugs to this name
+ * would overwrite the generated file, so every adapter throws on it, exactly
+ * as they do for `KARST_PLUGIN_NAME`.
+ */
+export const START_TASK_BASENAME = 'start-task';
+export const RESUME_BASENAME = 'resume';
+export const FIX_BASENAME = 'fix';
+export const RESOLVE_CONFLICT_BASENAME = 'resolve-conflict';
+
+/**
+ * Every reserved basename — an approach id that slugs to any of these would
+ * overwrite a generated file, so every adapter's guard checks this list.
+ */
+export const RESERVED_BASENAMES = [
+  START_TASK_BASENAME,
+  RESUME_BASENAME,
+  FIX_BASENAME,
+  RESOLVE_CONFLICT_BASENAME,
+] as const;
+
+/**
+ * Display-only description rendered beside the command in claude's picker.
+ * Nothing parses or completes from it; codex, opencode and antigravity ignore
+ * the field.
+ */
+export const START_TASK_DESCRIPTION =
+  'Open a Karst ticket stage — load live operational context, work the brief, close the stage.';
+export const RESUME_DESCRIPTION =
+  'Resume work on a Karst ticket already in progress — reload live context and continue.';
+export const FIX_DESCRIPTION =
+  'Run the fix brief, load its output as the work, and close the failed stage.';
+export const RESOLVE_CONFLICT_DESCRIPTION =
+  'Resolve a named merge conflict for a Karst ticket and close the stage.';
+
+/**
+ * Display-only hint rendered beside the command in claude's picker (the
+ * convention already checked in at `.agents/skills/karst-rpi-plan/SKILL.md:4`).
+ * Nothing parses or completes from it; codex, opencode and antigravity ignore
+ * the field.
+ */
+export const START_TASK_ARGUMENT_HINT = '<ticket-key> <brief>';
+export const RESUME_ARGUMENT_HINT = '<ticket-key>';
+export const FIX_ARGUMENT_HINT = '<ticket-key>';
+export const RESOLVE_CONFLICT_ARGUMENT_HINT = '<ticket-key> <repo>';
+
+/**
  * Slug an approach id into a command/skill basename that is legal in every
  * agent's command namespace. An approach id like `superpowers:writing-plans` is
  * legal in the manifest and as a package directory, but the `:` (a namespace
@@ -85,6 +132,137 @@ export function renderGateOnlyInstruction(): string {
     'do the work the gate is checking for, and Karst will detect the result and ' +
     'advance the ticket on its own once the checks are green.'
   );
+}
+
+/**
+ * Shared core paragraphs emitted by all four human-facing command renderers.
+ * NOT exported — an implementation detail kept private so the four bodies
+ * share one copy of the context-pull, authoritative-output, re-run,
+ * worktree-prohibition, and session-ending prose.
+ */
+function renderCommandCore(contextCommand: string, guideCommand?: string): string {
+  const lines: string[] = [
+    `Load the ticket's full context by running:`,
+    '',
+    '```bash',
+    `${contextCommand} <key> --md`,
+    '```',
+    '',
+    'where `<key>` is that first token.',
+    '',
+    'The output is authoritative for the current stage, repositories in scope, worktrees and branches you must work inside, running servers, open pull requests, attachments, and how this stage ends — the `## How this stage ends` section names either the exact done-marker command to run or states that the stage is decided by gate exit codes.',
+    '',
+    'Re-run this command whenever those facts may have moved. Do not work outside the worktree it names.',
+    '',
+    `A session ending does not advance the ticket — you must fire the marker explicitly. Do NOT fire it while you are waiting for the user to answer a question: a stage whose agent is waiting on the user is not complete, and the ${MARKER_REFUSED}.`,
+  ];
+  if (guideCommand) {
+    lines.push('', `${GUIDE_POINTER_INTRO}, run \`${guideCommand}\`.`);
+  }
+  return lines.join('\n');
+}
+
+/**
+ * Render the markdown body for the generated start-task orchestrator — the
+ * ticket-independent entry point every adapter materializes. Returns BODY
+ * ONLY (no frontmatter): `skillDocument(name, description, body)` prepends
+ * the `---` block, so emitting frontmatter here would produce a second block.
+ *
+ * Pure: no fs, no date, no randomness — identical inputs yield identical bytes
+ * so `writeGeneratedArtifact` stamping stays meaningful.
+ */
+export function renderStartTaskCommand(input: {
+  contextCommand: string;
+  guideCommand?: string;
+}): string {
+  const { contextCommand, guideCommand } = input;
+  const grammarParagraph =
+    'The first whitespace-delimited token in `$ARGUMENTS` is the ticket key; everything after it is the brief the user wrote, and the brief is the work.';
+  return grammarParagraph + '\n\n' + renderCommandCore(contextCommand, guideCommand);
+}
+
+/**
+ * Render the markdown body for the generated resume command. The session is
+ * resuming work already in progress — there is no brief to restate.
+ * Returns BODY ONLY (no frontmatter).
+ *
+ * When `ticketKey` is given, the `$ARGUMENTS` grammar paragraph is replaced
+ * with a sentence naming the concrete key, and `<key>` in the command lines
+ * is substituted with the actual key — for per-ticket alias files.
+ */
+export function renderResumeCommand(input: {
+  contextCommand: string;
+  guideCommand?: string;
+  ticketKey?: string;
+}): string {
+  const { contextCommand, guideCommand, ticketKey } = input;
+  if (ticketKey) {
+    const core = renderCommandCore(contextCommand, guideCommand)
+      .replace(/<key>/g, ticketKey);
+    return `This command is for ticket \`${ticketKey}\`.\n\n${core}`;
+  }
+  const grammarParagraph =
+    'The first whitespace-delimited token in `$ARGUMENTS` is the ticket key. ' +
+    'This session is resuming work already in progress — there is no brief.';
+  return grammarParagraph + '\n\n' + renderCommandCore(contextCommand, guideCommand);
+}
+
+/**
+ * Render the markdown body for the generated fix command. The brief is produced
+ * by running `fixBriefCommand <key>` FIRST; its output is the work.
+ * Returns BODY ONLY (no frontmatter).
+ *
+ * When `ticketKey` is given, the `$ARGUMENTS` grammar paragraph is replaced
+ * with a sentence naming the concrete key, and `<key>` in the command lines
+ * is substituted with the actual key — for per-ticket alias files.
+ */
+export function renderFixCommand(input: {
+  contextCommand: string;
+  fixBriefCommand: string;
+  guideCommand?: string;
+  ticketKey?: string;
+}): string {
+  const { contextCommand, fixBriefCommand, guideCommand, ticketKey } = input;
+  if (ticketKey) {
+    const core = renderCommandCore(contextCommand, guideCommand)
+      .replace(/<key>/g, ticketKey);
+    const briefLine = `Run \`${fixBriefCommand} ${ticketKey}\` FIRST and treat its output as the work — the brief names the gate that failed and what it reported.`;
+    return `This command is for ticket \`${ticketKey}\`.\n\n${briefLine}\n\n${core}`;
+  }
+  const grammarParagraph =
+    'The first whitespace-delimited token in `$ARGUMENTS` is the ticket key. ' +
+    `Run \`${fixBriefCommand} <key>\` FIRST and treat its output as the work — the brief ` +
+    'names the gate that failed and what it reported.';
+  return grammarParagraph + '\n\n' + renderCommandCore(contextCommand, guideCommand);
+}
+
+/**
+ * Render the markdown body for the generated resolve-conflict command. The
+ * `$ARGUMENTS` grammar is `<key> <repo>`, the first two whitespace-delimited
+ * tokens. Returns BODY ONLY (no frontmatter).
+ *
+ * When `ticketKey` is given, the `$ARGUMENTS` grammar paragraph is replaced
+ * with a sentence naming the concrete key, and `<key>` in the command lines
+ * is substituted with the actual key — for per-ticket alias files.
+ */
+export function renderResolveConflictCommand(input: {
+  contextCommand: string;
+  conflictBriefCommand: string;
+  guideCommand?: string;
+  ticketKey?: string;
+}): string {
+  const { contextCommand, conflictBriefCommand, guideCommand, ticketKey } = input;
+  if (ticketKey) {
+    const core = renderCommandCore(contextCommand, guideCommand)
+      .replace(/<key>/g, ticketKey);
+    const briefLine = `Run \`${conflictBriefCommand} ${ticketKey} <repo>\` FIRST — resolving the named conflict is the whole job and it must not drift into other work.`;
+    return `This command is for ticket \`${ticketKey}\`.\n\n${briefLine}\n\n${core}`;
+  }
+  const grammarParagraph =
+    'The first two whitespace-delimited tokens in `$ARGUMENTS` are `<key>` and `<repo>`. ' +
+    `Run \`${conflictBriefCommand} <key> <repo>\` FIRST — resolving the named conflict is the ` +
+    'whole job and it must not drift into other work.';
+  return grammarParagraph + '\n\n' + renderCommandCore(contextCommand, guideCommand);
 }
 
 /**

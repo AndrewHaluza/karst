@@ -1189,6 +1189,313 @@ describe('OpencodeAdapter approach materialization', () => {
     expect(readFileSync(join(worktree, '.opencode/skills/karst-rpi-planning/SKILL.md'), 'utf8')).toBe('repo');
     expect(result.ownedPaths).toEqual([]);
   });
+
+  it('bare direct + cliContextPrefix writes karst-start-task.md and returns startTaskInvocation', () => {
+    const worktree = makeWorktree();
+    const result = new OpencodeAdapter().materializeApproach!({
+      baseDir: makeBasePackage('bare', []),
+      sessionDir: worktree,
+      pkg: { id: 'bare', label: 'Bare' },
+      cliContextPrefix: 'node "/ext/cli.js" context --db "/x.db"',
+    });
+    const startTaskPath = join(worktree, '.opencode', 'commands', 'karst-start-task.md');
+    expect(existsSync(startTaskPath)).toBe(true);
+    const body = readFileSync(startTaskPath, 'utf8');
+    expect(body).toContain('---');
+    expect(body).toContain('description:');
+    expect(body).toContain('node "/ext/cli.js" context --db "/x.db"');
+    expect(result.startTaskInvocation).toBe('/karst-start-task');
+  });
+
+  it('bare direct without cliContextPrefix returns no startTaskInvocation', () => {
+    const worktree = makeWorktree();
+    const result = new OpencodeAdapter().materializeApproach!({
+      baseDir: makeBasePackage('bare', []),
+      sessionDir: worktree,
+      pkg: { id: 'bare', label: 'Bare' },
+    });
+    expect(result.startTaskInvocation).toBeUndefined();
+    expect(existsSync(join(worktree, '.opencode', 'commands', 'karst-start-task.md'))).toBe(false);
+  });
+
+  it.each(['start-task', 'karst-start-task', 'fix', 'resolve-conflict'])(
+    'an approach id slugging to reserved name %s throws',
+    (id) => {
+      expect(() =>
+        new OpencodeAdapter().materializeApproach!({
+          baseDir: '/base',
+          sessionDir: makeWorktree(),
+          pkg: { id, label: id, workflow: [{ name: 'run' }] },
+          cliContextPrefix: 'node cli.js context',
+        }),
+      ).toThrow(/reserved|collides/);
+    },
+  );
+
+  it('a workflow launch returns both invocation and startTaskInvocation', () => {
+    const worktree = makeWorktree();
+    const result = new OpencodeAdapter().materializeApproach!({
+      baseDir: makeBasePackage('rpi', []),
+      sessionDir: worktree,
+      pkg: { id: 'rpi', label: 'RPI', workflow: [{ name: 'research' }] },
+      cliContextPrefix: 'node cli.js context --ticket',
+    });
+    expect(result.invocation).toBe('/rpi');
+    expect(result.startTaskInvocation).toBe('/karst-start-task');
+  });
+
+  it('all four created files appear in ownedPaths on first creation only', () => {
+    const worktree = makeWorktree();
+    const result = new OpencodeAdapter().materializeApproach!({
+      baseDir: makeBasePackage('rpi', [
+        ['skills/planning/SKILL.md', '---\nname: planning\ndescription: Plan.\n---\nPlan.'],
+        ['agents/researcher.md', '# Researcher'],
+      ]),
+      sessionDir: worktree,
+      pkg: {
+        id: 'rpi',
+        label: 'RPI',
+        artifacts: [
+          { kind: 'skill', relPath: 'skills/planning/SKILL.md' },
+          { kind: 'agent', relPath: 'agents/researcher.md' },
+        ],
+      },
+      cliContextPrefix: 'node cli.js context --ticket',
+      cliTestPrefix: 'node cli.js test',
+    });
+    expect(result.ownedPaths).toContain(join(worktree, '.opencode', 'skills', 'karst-rpi-planning'));
+    expect(result.ownedPaths).toContain(join(worktree, '.opencode', 'agents', 'karst-rpi-researcher.md'));
+    expect(result.ownedPaths).toContain(join(worktree, '.opencode', 'skills', 'karst-test'));
+    expect(result.ownedPaths).toContain(join(worktree, '.opencode', 'commands', 'karst-start-task.md'));
+    expect(result.ownedPaths).toContain(join(worktree, '.opencode', 'commands', 'karst-resume.md'));
+    expect(result.ownedPaths).toHaveLength(5);
+  });
+
+  it('second materializeApproach call does NOT add to ownedPaths', () => {
+    const worktree = makeWorktree();
+    const adapter = new OpencodeAdapter();
+    const first = adapter.materializeApproach!({
+      baseDir: makeBasePackage('rpi', [
+        ['skills/planning/SKILL.md', '---\nname: planning\ndescription: Plan.\n---\nPlan.'],
+      ]),
+      sessionDir: worktree,
+      pkg: {
+        id: 'rpi',
+        label: 'RPI',
+        artifacts: [{ kind: 'skill', relPath: 'skills/planning/SKILL.md' }],
+      },
+      cliContextPrefix: 'node cli.js context --ticket',
+      cliTestPrefix: 'node cli.js test',
+    });
+    expect(first.ownedPaths.length).toBeGreaterThan(0);
+    const second = adapter.materializeApproach!({
+      baseDir: makeBasePackage('rpi', []),
+      sessionDir: worktree,
+      pkg: { id: 'rpi', label: 'RPI' },
+      cliContextPrefix: 'node cli.js context --ticket',
+      cliTestPrefix: 'node cli.js test',
+    });
+    expect(second.ownedPaths).toEqual([]);
+  });
+
+  it('(a) with all four prefixes, four karst-prefixed command files exist', () => {
+    const worktree = makeWorktree();
+
+    new OpencodeAdapter().materializeApproach!({
+      baseDir: makeBasePackage('bare', []),
+      sessionDir: worktree,
+      pkg: { id: 'bare', label: 'Bare' },
+      cliContextPrefix: 'node cli.js context --ticket',
+      cliFixBriefPrefix: 'node cli.js fix-brief',
+      cliConflictBriefPrefix: 'node cli.js conflict-brief',
+    });
+
+    const commandsDir = join(worktree, '.opencode', 'commands');
+    for (const basename of ['start-task', 'resume', 'fix', 'resolve-conflict']) {
+      const filePath = join(commandsDir, `karst-${basename}.md`);
+      expect(existsSync(filePath), `karst-${basename}.md should exist`).toBe(true);
+    }
+  });
+
+  it('(b) with only cliContextPrefix, exactly two karst command files exist and neither is fix nor resolve-conflict', () => {
+    const worktree = makeWorktree();
+
+    new OpencodeAdapter().materializeApproach!({
+      baseDir: makeBasePackage('bare', []),
+      sessionDir: worktree,
+      pkg: { id: 'bare', label: 'Bare' },
+      cliContextPrefix: 'node cli.js context --ticket',
+    });
+
+    const commandsDir = join(worktree, '.opencode', 'commands');
+    expect(existsSync(join(commandsDir, 'karst-start-task.md'))).toBe(true);
+    expect(existsSync(join(commandsDir, 'karst-resume.md'))).toBe(true);
+    expect(existsSync(join(commandsDir, 'karst-fix.md'))).toBe(false);
+    expect(existsSync(join(commandsDir, 'karst-resolve-conflict.md'))).toBe(false);
+  });
+
+  it('(c) an approach id colliding with any reserved basename throws', () => {
+    for (const reserved of ['start-task', 'resume', 'fix', 'resolve-conflict']) {
+      expect(() =>
+        new OpencodeAdapter().materializeApproach!({
+          baseDir: '/base',
+          sessionDir: makeWorktree(),
+          pkg: { id: reserved, label: reserved },
+          cliContextPrefix: 'node cli.js context --ticket',
+        }),
+      ).toThrow(/reserved|collides/);
+    }
+  });
+
+  it('(d) the fix command body references the fix-brief prefix', () => {
+    const worktree = makeWorktree();
+
+    new OpencodeAdapter().materializeApproach!({
+      baseDir: makeBasePackage('bare', []),
+      sessionDir: worktree,
+      pkg: { id: 'bare', label: 'Bare' },
+      cliContextPrefix: 'node cli.js context --ticket',
+      cliFixBriefPrefix: 'node cli.js fix-brief',
+    });
+
+    const fixPath = join(worktree, '.opencode', 'commands', 'karst-fix.md');
+    expect(existsSync(fixPath)).toBe(true);
+    const body = readFileSync(fixPath, 'utf8');
+    expect(body).toContain('node cli.js fix-brief');
+  });
+
+  it('(e) all four karst-prefixed command files appear in ownedPaths on first creation only', () => {
+    const worktree = makeWorktree();
+    const result = new OpencodeAdapter().materializeApproach!({
+      baseDir: makeBasePackage('bare', []),
+      sessionDir: worktree,
+      pkg: { id: 'bare', label: 'Bare' },
+      cliContextPrefix: 'node cli.js context --ticket',
+      cliFixBriefPrefix: 'node cli.js fix-brief',
+      cliConflictBriefPrefix: 'node cli.js conflict-brief',
+    });
+    expect(result.ownedPaths).toContain(join(worktree, '.opencode', 'commands', 'karst-start-task.md'));
+    expect(result.ownedPaths).toContain(join(worktree, '.opencode', 'commands', 'karst-resume.md'));
+    expect(result.ownedPaths).toContain(join(worktree, '.opencode', 'commands', 'karst-fix.md'));
+    expect(result.ownedPaths).toContain(join(worktree, '.opencode', 'commands', 'karst-resolve-conflict.md'));
+  });
+
+  it('(alias-a) two alias tickets and all four prefixes yield six alias files plus four generic', () => {
+    const worktree = makeWorktree();
+
+    new OpencodeAdapter().materializeApproach!({
+      baseDir: makeBasePackage('bare', []),
+      sessionDir: worktree,
+      pkg: { id: 'bare', label: 'Bare' },
+      cliContextPrefix: 'node cli.js context --ticket',
+      cliFixBriefPrefix: 'node cli.js fix-brief',
+      cliConflictBriefPrefix: 'node cli.js conflict-brief',
+      aliasTickets: [
+        { key: 'PROJ-1', stageCurrent: 'impl' },
+        { key: 'PROJ-2', stageCurrent: 'uat' },
+      ],
+    });
+
+    const commandsDir = join(worktree, '.opencode', 'commands');
+    // Generic four
+    for (const basename of ['karst-start-task', 'karst-resume', 'karst-fix', 'karst-resolve-conflict']) {
+      expect(existsSync(join(commandsDir, `${basename}.md`)), `${basename}.md`).toBe(true);
+    }
+    // Alias six: 3 commands × 2 tickets
+    for (const key of ['PROJ-1', 'PROJ-2']) {
+      for (const basename of ['karst-resume', 'karst-fix', 'karst-resolve-conflict']) {
+        expect(existsSync(join(commandsDir, `${basename}-${key}.md`)), `${basename}-${key}.md`).toBe(true);
+      }
+    }
+    // No start-task alias
+    for (const key of ['PROJ-1', 'PROJ-2']) {
+      expect(existsSync(join(commandsDir, `karst-start-task-${key}.md`))).toBe(false);
+    }
+  });
+
+  it('(alias-b) an alias body contains the literal ticket key and no $ARGUMENTS', () => {
+    const worktree = makeWorktree();
+
+    new OpencodeAdapter().materializeApproach!({
+      baseDir: makeBasePackage('bare', []),
+      sessionDir: worktree,
+      pkg: { id: 'bare', label: 'Bare' },
+      cliContextPrefix: 'node cli.js context --ticket',
+      aliasTickets: [{ key: 'PROJ-1', stageCurrent: 'impl' }],
+    });
+
+    const body = readFileSync(
+      join(worktree, '.opencode', 'commands', 'karst-resume-PROJ-1.md'),
+      'utf8',
+    );
+    expect(body).toContain('PROJ-1');
+    expect(body).not.toContain('$ARGUMENTS');
+    expect(body).toContain('This command is for ticket `PROJ-1`');
+  });
+
+  it('(alias-c) no start-task-<KEY> file is written', () => {
+    const worktree = makeWorktree();
+
+    new OpencodeAdapter().materializeApproach!({
+      baseDir: makeBasePackage('bare', []),
+      sessionDir: worktree,
+      pkg: { id: 'bare', label: 'Bare' },
+      cliContextPrefix: 'node cli.js context --ticket',
+      aliasTickets: [{ key: 'PROJ-1', stageCurrent: 'impl' }],
+    });
+
+    expect(existsSync(join(worktree, '.opencode', 'commands', 'karst-start-task-PROJ-1.md'))).toBe(false);
+  });
+
+  it('(alias-d) all alias files appear in ownedPaths on first creation', () => {
+    const worktree = makeWorktree();
+
+    const result = new OpencodeAdapter().materializeApproach!({
+      baseDir: makeBasePackage('bare', []),
+      sessionDir: worktree,
+      pkg: { id: 'bare', label: 'Bare' },
+      cliContextPrefix: 'node cli.js context --ticket',
+      cliFixBriefPrefix: 'node cli.js fix-brief',
+      cliConflictBriefPrefix: 'node cli.js conflict-brief',
+      aliasTickets: [
+        { key: 'PROJ-1', stageCurrent: 'impl' },
+        { key: 'PROJ-2', stageCurrent: 'uat' },
+      ],
+    });
+
+    // Alias command files are owned on first creation
+    const ownedBasenames = result.ownedPaths.map((p) => {
+      const parts = p.split('/');
+      return parts[parts.length - 1];
+    });
+    for (const key of ['proj-1', 'proj-2']) {
+      for (const base of ['karst-resume', 'karst-fix', 'karst-resolve-conflict']) {
+        expect(ownedBasenames).toContain(`${base}-${key}.md`);
+      }
+    }
+  });
+
+  it('(alias-e) an empty aliasTickets writes only the generic four', () => {
+    const worktree = makeWorktree();
+
+    new OpencodeAdapter().materializeApproach!({
+      baseDir: makeBasePackage('bare', []),
+      sessionDir: worktree,
+      pkg: { id: 'bare', label: 'Bare' },
+      cliContextPrefix: 'node cli.js context --ticket',
+      cliFixBriefPrefix: 'node cli.js fix-brief',
+      cliConflictBriefPrefix: 'node cli.js conflict-brief',
+      aliasTickets: [],
+    });
+
+    const commandsDir = join(worktree, '.opencode', 'commands');
+    for (const basename of ['karst-start-task', 'karst-resume', 'karst-fix', 'karst-resolve-conflict']) {
+      expect(existsSync(join(commandsDir, `${basename}.md`)), `${basename}.md`).toBe(true);
+    }
+    const { readdirSync } = require('node:fs');
+    const files = readdirSync(commandsDir) as string[];
+    expect(files.filter((f: string) => f.includes('PROJ'))).toHaveLength(0);
+  });
 });
 
 describe('generated karst-bridge plugin — endpoint rebind (869ej1zpv G3)', () => {
