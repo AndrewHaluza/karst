@@ -29,4 +29,10 @@ describe('describeStoreOpenFailure', () => {
     expect(fault.message).toContain('boom');
     expect(fault.fixHint).toBeUndefined();
   });
+
+  it('an empty error message yields the detail-free sentence', () => {
+    const fault = describeStoreOpenFailure(new Error('   '));
+    expect(fault.message).toBe('Karst could not open its database.');
+    expect(fault.fixHint).toBeUndefined();
+  });
 });

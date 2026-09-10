@@ -96,6 +96,12 @@ describe('createFollowUpTicketOp', () => {
   it('success refreshes, reloads manifest, opens edit, and shows info', async () => {
     const d = makeDeps();
     await createFollowUpTicketOp(d, 1);
+    expect(createFollowUpTicket).toHaveBeenCalledWith(
+      d.store,
+      1,
+      { projectId: 1 },
+      expect.any(Function),
+    );
     expect(d.refresh).toHaveBeenCalled();
     expect(d.reloadManifest).toHaveBeenCalled();
     expect(d.openEdit).toHaveBeenCalledWith(2);

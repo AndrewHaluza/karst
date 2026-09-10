@@ -9,7 +9,7 @@
 - Single e2e: `npx vitest run --config vitest.e2e.config.ts src/path/to.e2e.test.ts`
 - F5 in VS Code runs `dev:extension` (build + `rebuild:electron`) then launches the Extension Dev Host
 - `npm run test:coverage` — vitest with v8 coverage; `pretest:coverage` rebuilds better-sqlite3 for Node ABI. **Never run `npx vitest run --coverage` directly — it skips the rebuild and produces thousands of false `openStore` failures.**
-- `npm run test:mutation` — Stryker over `src/extension/**`, breaks under 70.
+- `npm run test:mutation` — Stryker over `src/extension/**`, breaks under 85; `pretest:mutation` rebuilds better-sqlite3 for Node ABI.
 - `npm run inventory:extension` — regenerates `docs/arch/extension-inventory.md`.
 
 ## Native ABI split (better-sqlite3)

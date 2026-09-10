@@ -84,6 +84,20 @@ describe('archiveTicketOp', () => {
     ] as never);
     await archiveTicketOp(d, 1);
     expect(archiveWorktree).toHaveBeenCalledTimes(2);
+    expect(archiveWorktree).toHaveBeenNthCalledWith(1, d.git, d.store, {}, {
+      ticketId: 1,
+      repoPath: '/r1',
+      path: '/r1/w1',
+      branch: 'b1',
+      baseRef: 'b1',
+    });
+    expect(archiveWorktree).toHaveBeenNthCalledWith(2, d.git, d.store, {}, {
+      ticketId: 1,
+      repoPath: '/r2',
+      path: '/r2/w2',
+      branch: 'b2',
+      baseRef: 'base',
+    });
   });
 
   it('skips a worktree with no branch', async () => {
@@ -159,6 +173,19 @@ describe('archiveTicketOp', () => {
     expect(d.notify.warn).toHaveBeenCalled();
   });
 
+  it('a reap that succeeded is logged but does not warn', async () => {
+    const d = makeDeps();
+    vi.mocked(listWorktreesByTicket).mockReturnValue([
+      { repo: '/r1', path: '/r1/w1', branch: 'b1', baseRef: null },
+    ] as never);
+    vi.mocked(archiveWorktree).mockResolvedValue({
+      reapedServers: [{ outcome: 'killed', path: '/r1/w1', pid: 123 }],
+    } as never);
+    await archiveTicketOp(d, 1);
+    expect(d.log.info).toHaveBeenCalledWith('reaped /r1/w1');
+    expect(d.notify.warn).not.toHaveBeenCalled();
+  });
+
   it('manifest undefined skips worktree loop but still refreshes', async () => {
     const d = makeDeps({ manifest: vi.fn().mockReturnValue(undefined) });
     await archiveTicketOp(d, 1);
@@ -179,6 +206,10 @@ describe('unarchiveTicketOp', () => {
     ] as never);
     vi.mocked(restoreWorktree).mockResolvedValue({ outcome: 'skipped', reason: 'branch exists' } as never);
     await unarchiveTicketOp(d, 1);
+    expect(restoreWorktree).toHaveBeenCalledWith(d.git, d.store, {
+      ticketId: 1,
+      path: '/w1',
+    });
     expect(d.notify.warn).toHaveBeenCalledWith('Worktree not restored: branch exists');
     expect(unarchiveTicket).toHaveBeenCalledWith(d.store, 1);
     expect(d.refresh).toHaveBeenCalled();
@@ -205,5 +236,17 @@ describe('unarchiveTicketOp', () => {
     expect(d.notify.warn).toHaveBeenCalledWith('Worktree not restored: Error: git fail');
     expect(unarchiveTicket).toHaveBeenCalled();
     expect(d.refresh).toHaveBeenCalled();
+  });
+
+  it('a restored worktree does not warn', async () => {
+    const d = makeDeps();
+    vi.mocked(listArchives).mockReturnValue([
+      { id: 1, ticketId: 1, repo: '/r', path: '/w1', branch: 'b', baseRef: null, archiveRef: 'ar', method: 'manual', archivedAt: '' },
+    ] as never);
+    vi.mocked(restoreWorktree).mockResolvedValue({ outcome: 'restored' } as never);
+    await unarchiveTicketOp(d, 1);
+    expect(restoreWorktree).toHaveBeenCalledOnce();
+    expect(d.notify.warn).not.toHaveBeenCalled();
+    expect(unarchiveTicket).toHaveBeenCalledWith(d.store, 1);
   });
 });

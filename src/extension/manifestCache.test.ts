@@ -81,6 +81,17 @@ describe('makeManifestCache', () => {
     expect(cache.path()).toBe('/ws/karst.yml');
   });
 
+  it('path() returns the adopted path, not the workspace-resolved one', () => {
+    const pathOf = vi.fn().mockReturnValue('/ws/.karst/karst.yml');
+    const cache = makeManifestCache({
+      pathOf,
+      exists: vi.fn().mockReturnValue(true),
+      load: vi.fn().mockReturnValue({} as never),
+    });
+    cache.set({} as never, '/adopted/.karst/karst.yml');
+    expect(cache.path()).toBe('/adopted/.karst/karst.yml');
+  });
+
   it('path() is undefined when there is no workspace folder', () => {
     const cache = makeManifestCache({
       pathOf: () => {
