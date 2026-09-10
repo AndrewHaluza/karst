@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -104,10 +104,22 @@ describe('attributeServer', () => {
     // component (e.g. macOS /var -> /private/var, or a symlinked workspace
     // root on Linux) reads the SAME directory as a different one — and the
     // orphan this probe exists to catch would never match. Both sides must be
-    // canonicalized before comparing.
+    // canonicalized before comparing. A real temp symlink stands in for the
+    // platform's symlink so the assertion holds everywhere (macOS's fixed
+    // /var -> /private/var link is not present on Linux).
     it('matches through a symlinked component in the recorded cwd', () => {
-      const f = facts({ liveCwd: () => ({ path: '/private/var/w/abc', deleted: false }) });
-      expect(attributeServer({ ...row, cwd: '/var/w/abc' }, f)).toBe('attributable');
+      const dir = mkdtempSync(join(tmpdir(), 'karst-sid-'));
+      const real = join(dir, 'real', 'w', 'abc');
+      mkdirSync(real, { recursive: true });
+      try {
+        symlinkSync(join(dir, 'real'), join(dir, 'alias'));
+        const f = facts({ liveCwd: () => ({ path: real, deleted: false }) });
+        expect(attributeServer({ ...row, cwd: join(dir, 'alias', 'w', 'abc') }, f)).toBe(
+          'attributable',
+        );
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
     });
 
     // The probe answers before start time is ever consulted: a process whose
