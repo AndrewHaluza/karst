@@ -10,6 +10,7 @@
     "spikes",
     "**/*.test.ts",
     "src/**/fixtures.ts",
-    "src/**/fixtures/**"
+    "src/**/fixtures/**",
+    "src/ui/testing/**"
   ]
 }
