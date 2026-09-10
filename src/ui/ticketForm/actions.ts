@@ -1,3 +1,4 @@
+import { dirname } from 'node:path';
 import type { Store } from '../../store/db.js';
 import type { Manifest } from '../../manifest/types.js';
 import type { TicketingProvider, ContextBrief } from '../../integrations/ticketing.js';
@@ -19,6 +20,7 @@ import {
   analyzeTicket,
   type AnalyzeServiceInput,
 } from '../../workflow/classify/analyze.js';
+import { improveDescription } from '../../workflow/classify/improve.js';
 import type { TicketFormActions, TicketDraftFields } from './messages.js';
 import type { TicketFormActionsCtx, TicketFormActionsFactory } from './panel.js';
 import {
@@ -91,15 +93,16 @@ export interface TicketFormActionsDeps {
   provider: TicketingProvider;
   adapter: AgentAdapter;
   /**
-   * The ticket form's analyzer process (the `ticket-analysis` role of the
-   * `processes:` block): the identity snapshot its `prefill` run opens with
-   * AND the already-instrumented adapter the analysis runs through. Resolved
-   * at analyze time, after the draft is bound, so the ticket's own
+   * The ticket form's two-pass analysis process (the `ticket-analysis` role of
+   * the `processes:` block): the identity snapshot its `prefill` run opens with
+   * AND the already-instrumented adapter the two headless calls run through.
+   * Resolved at analyze time, after the draft is bound, so the ticket's own
    * provider/model picks participate as overrides — the same seam every other
-   * inside process resolves through (extension.ts's `processFor`). NULL is
-   * configured ABSENCE (`enabled: false`): the analyzer refuses rather than
-   * running on a guessed default. The plain `adapter` above stays the
-   * panel-wide default for the signal-word suggestion.
+   * inside process resolves through (extension.ts's `processFor`). The profile
+   * body drives the description-improve pass; the classify pass is always the
+   * built-in analyzer. NULL is configured ABSENCE (`enabled: false`): the
+   * analyzer refuses rather than running on a guessed default. The plain
+   * `adapter` above stays the panel-wide default for the signal-word suggestion.
    */
   resolveAnalysisProcess: (ticketId: number) => DriveProcessBundle | null;
   /** Notify the host to refresh sidebar/dashboard after a create/edit. */
@@ -853,34 +856,65 @@ export function buildTicketFormActions(
           model: process.assignment.model ?? null,
           startedAt,
         });
-        let analysis: Awaited<ReturnType<typeof analyzeTicket>>;
+        // (a) CLASSIFY — the built-in coupled analyzer. The Settings profile
+        // body is deliberately NOT passed: a prose rewriter contradicts the JSON
+        // classify contract. classify.prompt is kept only as a fallback
+        // description.
+        let classification: Awaited<ReturnType<typeof analyzeTicket>>;
         try {
-          analysis = await analyzeTicket(process.adapter, {
+          classification = await analyzeTicket(process.adapter, {
             brief,
             prompt,
             services,
             approaches,
             ticketId,
             processRunId: run.id,
-            // The configured Ticket-analysis assignment's instructions — the
-            // resolved Settings agent-profile body, or the author-declared
-            // inline text — replace the built-in analyzer role block, so the
-            // selected agent IS the difference in what the analyzer asks.
-            // Blank (no profile, no inline instructions) keeps the built-in
-            // analyzer prompt.
-            ...(process.assignment.instructions !== undefined
-              ? { instructions: process.assignment.instructions }
-              : {}),
             model: process.assignment.model ?? undefined,
             effort: process.assignment.effort ?? undefined,
           });
-          finishProcessRun(deps.store, run.id, 'passed', new Date().toISOString());
         } catch (error) {
           // The call's spend is already recorded (a 429 arrives after the input
           // was billed); the run closes as a failed execution, never as a pass.
           finishProcessRun(deps.store, run.id, 'failed', new Date().toISOString(), 'execution-failed');
           throw error;
         }
+        // (b) IMPROVE — repo-context description rewrite through the Settings
+        // profile body (the ticket-description agent). Soft-failure: degrade to
+        // the classify prompt and keep the run passed.
+        const combined = [prompt, brief].filter(Boolean).join('\n\n');
+        const repoEntries = Object.keys(deps.manifest.repositories ?? {});
+        const improveRepo =
+          classification.repos[0] ??
+          (repoEntries.length === 1 ? repoEntries[0] : undefined);
+        const repoPath = improveRepo
+          ? deps.manifest.repositories[improveRepo]?.repoPath
+          : undefined;
+        // cwd is the PROJECT ROOT, not the picked repo: the profile body greps
+        // `.karst/karst.yml`, `CLAUDE.md` and `docs/glossary.md`, which live
+        // beside `.karst/`, while `repoPath` is an absolute path to a source
+        // tree that may sit anywhere. The manifest is always
+        // `<projectRoot>/.karst/karst.yml`.
+        const cwd = dirname(dirname(deps.manifestPath));
+        const instructions = process.assignment.instructions ?? '';
+        let improved = '';
+        try {
+          improved = await improveDescription(process.adapter, {
+            instructions,
+            description: combined,
+            title: bound?.title ?? '',
+            cwd,
+            ...(repoPath ? { repoPath } : {}),
+            ticketId,
+            processRunId: run.id,
+            model: process.assignment.model ?? undefined,
+            effort: process.assignment.effort ?? undefined,
+          });
+        } catch (error) {
+          deps.warn?.(`description improve failed for ticket ${ctx.ticketId}: ${errorMessage(error)}`);
+          improved = '';
+        }
+        const descriptionOut = improved.trim() || classification.prompt;
+        finishProcessRun(deps.store, run.id, 'passed', new Date().toISOString());
         // Persist only when a ticket is bound (post-fetch / edit). Pure create
         // mode holds the draft in the webview until submit, so just return the
         // analysis and let the page apply it.
@@ -893,18 +927,18 @@ export function buildTicketFormActions(
           // the `analysis` post below for the page to surface; committing it needs
           // an explicit set-approach / save / submit.
           const descSpilled = await spillField(
-            deps.store, ctx.ticketId, 'description', analysis.prompt, deps.storageDir,
+            deps.store, ctx.ticketId, 'description', descriptionOut, deps.storageDir,
           );
           if (descSpilled.kind === 'failed') {
             deps.warn?.(`spill failed for description on ticket ${ctx.ticketId}: ${descSpilled.reason}`);
           }
           updateTicketFields(deps.store, ctx.ticketId, {
-            ...(descSpilled.kind === 'spilled' ? {} : { description: analysis.prompt }),
-            selectedRepos: analysis.repos,
+            ...(descSpilled.kind === 'spilled' ? {} : { description: descriptionOut }),
+            selectedRepos: classification.repos,
             // Prefill the type only while the ticket has none: like the approach,
             // an explicit pick is the user's, and a re-run of the analyzer must
             // not quietly overwrite it. Absent one, the suggestion IS the value.
-            ...(bound?.type ? {} : { type: analysis.type }),
+            ...(bound?.type ? {} : { type: classification.type }),
           });
           // The analyzer MAY apply its approach pick, but only while the user has
           // not touched the picker AND no choice is persisted yet (design,
@@ -912,17 +946,17 @@ export function buildTicketFormActions(
           // later analysis is recommendation-only, so the badge carries the
           // suggestion and commit stays an explicit set-approach / save / submit.
           if (!ctx.pickerTouched && !bound?.approach) {
-            setApproach(analysis.approachId);
+            setApproach(classification.approachId);
           }
           ctx.pushState();
         }
         ctx.post({
           type: 'analysis',
-          prompt: analysis.prompt,
-          approachId: analysis.approachId,
-          repos: analysis.repos,
-          reason: analysis.reason,
-          ticketType: bound?.type ?? analysis.type,
+          prompt: descriptionOut,
+          approachId: classification.approachId,
+          repos: classification.repos,
+          reason: classification.reason,
+          ticketType: bound?.type ?? classification.type,
         });
       } catch (e) {
         ctx.post({ type: 'error', message: errorMessage(e) });

@@ -893,12 +893,29 @@ describe('buildTicketFormActions', () => {
     return { ...fakeAdapter(), runHeadless: vi.fn(async () => ({ sessionId: 's', verdict: null, raw })) };
   }
 
+  /**
+   * An adapter that returns different results for the classify call (prompt
+   * contains 'conventional-commit type') vs. the improve call (anything else).
+   */
+  function branchAdapter(opts: { classifyRaw: string; improveProse: string }): AgentAdapter {
+    return {
+      ...fakeAdapter(),
+      runHeadless: vi.fn(async (input: { prompt: string }) => {
+        const raw = input.prompt.includes('conventional-commit type')
+          ? opts.classifyRaw
+          : opts.improveProse;
+        return { sessionId: 's', verdict: null, raw };
+      }),
+    };
+  }
+
   it('analyze posts busy on, persists the coupled result, and posts analysis, then busy off', async () => {
     const t = createTicket(store, { key: 'P-1', title: 't' });
     updateTicketFields(store, t.id, { brief: 'the brief text', selectedRepos: [] });
-    deps.adapter = analyzerAdapter(
-      '{"prompt":"Add an X button","approach":"rpi","repos":["fe"],"reason":"UI-only change"}',
-    );
+    deps.adapter = branchAdapter({
+      classifyRaw: '{"prompt":"Add an X button","approach":"rpi","repos":["fe"],"reason":"UI-only change"}',
+      improveProse: 'Add an X button to close the modal.',
+    });
     const posted: TicketFormHostMessage[] = [];
     let pushes = 0;
     const ctx: TicketFormActionsCtx = {
@@ -915,7 +932,7 @@ describe('buildTicketFormActions', () => {
     expect(posted[0]).toEqual({ type: 'busy', what: 'analyze', on: true });
     expect(posted.find((m) => m.type === 'analysis')).toEqual({
       type: 'analysis',
-      prompt: 'Add an X button',
+      prompt: 'Add an X button to close the modal.',
       approachId: 'rpi',
       repos: ['fe'],
       reason: 'UI-only change',
@@ -924,7 +941,7 @@ describe('buildTicketFormActions', () => {
     expect(posted[posted.length - 1]).toEqual({ type: 'busy', what: 'analyze', on: false });
     // prompt + repos are prefilled onto the ticket + re-pushed state…
     const reloaded = getTicket(store, t.id);
-    expect(reloaded.description).toBe('Add an X button');
+    expect(reloaded.description).toBe('Add an X button to close the modal.');
     expect(reloaded.selectedRepos).toEqual(['fe']);
     // …as is the conventional type, which the ticket did not have yet.
     expect(reloaded.type).toBe('feat');
@@ -1019,9 +1036,10 @@ describe('buildTicketFormActions', () => {
   });
 
   it('analyze in create mode binds a draft and records the prefill process run', async () => {
-    deps.adapter = analyzerAdapter(
-      '{"prompt":"Rename the button","approach":"rpi","repos":["fe"],"reason":"trivial"}',
-    );
+    deps.adapter = branchAdapter({
+      classifyRaw: '{"prompt":"Rename the button","approach":"rpi","repos":["fe"],"reason":"trivial"}',
+      improveProse: 'Rename the settings button.',
+    });
     const posted: TicketFormHostMessage[] = [];
     // Mirrors the real panel ctx: bindTicket flips the panel to edit mode, so
     // the post-ensureTicket persist block runs against the freshly minted draft.
@@ -1045,7 +1063,7 @@ describe('buildTicketFormActions', () => {
 
     // The analysis is the scope stage's prefill process, and a process run
     // needs a ticket to attach to — the draft is bound on Analyze now.
-    expect(posted.find((m) => m.type === 'analysis')).toMatchObject({ prompt: 'Rename the button' });
+    expect(posted.find((m) => m.type === 'analysis')).toMatchObject({ prompt: 'Rename the settings button.' });
     const tickets = listTickets(store);
     expect(tickets).toHaveLength(1);
     expect(bound).toBe(tickets[0]!.id);
@@ -1061,13 +1079,11 @@ describe('buildTicketFormActions', () => {
   });
 
   it('analyze runs through the configured ticket-analysis process and snapshots its identity', async () => {
-    const runHeadless = vi.fn(async (opts: { model?: string }) => {
-      void opts;
-      return {
-        sessionId: 's',
-        verdict: null,
-        raw: '{"prompt":"p","approach":"rpi","repos":["fe"],"reason":"r"}',
-      };
+    const classifyRaw = '{"prompt":"p","approach":"rpi","repos":["fe"],"reason":"r"}';
+    const runHeadless = vi.fn(async (opts: { prompt: string; model?: string }) => {
+      // Branch by classify marker: classify returns JSON, improve returns prose.
+      const raw = opts.prompt.includes('conventional-commit type') ? classifyRaw : 'Improved p';
+      return { sessionId: 's', verdict: null, raw };
     });
     const configured: AgentAdapter = { ...fakeAdapter(), runHeadless };
     const t = createTicket(store, { key: 'P-1', title: 't' });
@@ -1084,9 +1100,10 @@ describe('buildTicketFormActions', () => {
 
     await actions.analyze('a ticket prompt');
 
-    // The call went through the CONFIGURED adapter, with the configured model.
-    expect(runHeadless).toHaveBeenCalledTimes(1);
+    // Two headless calls: classify then improve, both with the configured model.
+    expect(runHeadless).toHaveBeenCalledTimes(2);
     expect(runHeadless.mock.calls[0]![0].model).toBe('gemini-2.5-pro');
+    expect(runHeadless.mock.calls[1]![0].model).toBe('gemini-2.5-pro');
     // The prefill run snapshots the identity that actually ran — the settings
     // pick, never the manifest default.
     const runs = listProcessRuns(store, t.id);
@@ -1104,17 +1121,13 @@ describe('buildTicketFormActions', () => {
 
   // The analysis runs through the configured Ticket-analysis assignment: the
   // resolver overlays the Settings profile's body (or inline `instructions`)
-  // as the assignment's `instructions`, and analyze must thread it into the
-  // headless prompt. Dropping it is the bug that made a well-instructed
-  // selected agent and an empty one produce identical analysis.
-  it('analyze threads the resolved assignment instructions into the prompt', async () => {
+  // as the assignment's `instructions`, and improve must receive it as its
+  // prompt while classify uses the built-in analyzer.
+  it('analyze threads the resolved assignment instructions into the improve call, not classify', async () => {
+    const classifyRaw = '{"prompt":"p","approach":"rpi","repos":["fe"],"reason":"r"}';
     const runHeadless = vi.fn(async (opts: { prompt: string }) => {
-      void opts;
-      return {
-        sessionId: 's',
-        verdict: null,
-        raw: '{"prompt":"p","approach":"rpi","repos":["fe"],"reason":"r"}',
-      };
+      const raw = opts.prompt.includes('conventional-commit type') ? classifyRaw : 'Improved p';
+      return { sessionId: 's', verdict: null, raw };
     });
     const configured: AgentAdapter = { ...fakeAdapter(), runHeadless };
     const t = createTicket(store, { key: 'P-1', title: 't' });
@@ -1135,13 +1148,14 @@ describe('buildTicketFormActions', () => {
 
     await actions.analyze('');
 
-    expect(runHeadless).toHaveBeenCalledTimes(1);
-    expect(runHeadless.mock.calls[0]![0].prompt).toContain('# description-improver');
-    expect(runHeadless.mock.calls[0]![0].prompt).toContain('Rewrite the description.');
-    // The JSON output contract survives under instructed analysis.
-    expect(runHeadless.mock.calls[0]![0].prompt).toContain(
-      'Respond with ONLY a single JSON object',
-    );
+    expect(runHeadless).toHaveBeenCalledTimes(2);
+    // Call[0] is classify — built-in analyzer, NO profile body.
+    expect(runHeadless.mock.calls[0]![0].prompt).toContain('conventional-commit type');
+    expect(runHeadless.mock.calls[0]![0].prompt).not.toContain('# description-improver');
+    // Call[1] is improve — profile body is the prompt, no JSON contract.
+    expect(runHeadless.mock.calls[1]![0].prompt).toContain('# description-improver');
+    expect(runHeadless.mock.calls[1]![0].prompt).toContain('Rewrite the description.');
+    expect(runHeadless.mock.calls[1]![0].prompt).not.toContain('Respond with ONLY a single JSON object');
   });
 
   it('analyze refuses with an inline error when the ticket-analysis process is disabled', async () => {
@@ -1241,6 +1255,123 @@ describe('buildTicketFormActions', () => {
       approachId: 'direct',
       reason: 'tiny change',
     });
+  });
+
+  it('improve failure degrades to the classify prompt and keeps the run passed', async () => {
+    const t = createTicket(store, { key: 'P-IMP-FAIL', title: 't' });
+    updateTicketFields(store, t.id, { brief: 'the brief text', selectedRepos: [] });
+    const classifyRaw = '{"prompt":"Fallback prompt","approach":"rpi","repos":["fe"],"reason":"r"}';
+    const runHeadless = vi.fn(async (opts: { prompt: string }) => {
+      if (opts.prompt.includes('conventional-commit type')) {
+        return { sessionId: 's', verdict: null, raw: classifyRaw };
+      }
+      throw new Error('improve crashed');
+    });
+    deps.adapter = { ...fakeAdapter(), runHeadless };
+    const posted: TicketFormHostMessage[] = [];
+    const warns: string[] = [];
+    deps.warn = (msg: string) => { warns.push(msg); };
+    const ctx: TicketFormActionsCtx = {
+      post: (m) => posted.push(m), pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, close: () => {},
+    };
+    const actions = buildTicketFormActions(deps)(ctx);
+
+    await actions.analyze('');
+
+    // The posted analysis uses the classify prompt as fallback.
+    expect(posted.find((m) => m.type === 'analysis')).toMatchObject({
+      prompt: 'Fallback prompt',
+    });
+    // The run stayed passed despite the improve failure.
+    const runs = listProcessRuns(store, t.id);
+    expect(runs).toHaveLength(1);
+    expect(runs[0]).toMatchObject({ status: 'passed' });
+    // A warning was emitted.
+    expect(warns.some((w) => w.includes('description improve failed'))).toBe(true);
+  });
+
+  it('improve runs at the project root, not in the picked repo', async () => {
+    const t = createTicket(store, { key: 'P-CWD', title: 't' });
+    updateTicketFields(store, t.id, { brief: 'the brief text', selectedRepos: [] });
+    deps.manifest = buildManifest(
+      { fe: svc({ signals: ['ui'], repoPath: '/elsewhere/fe' }), be: svc({ signals: ['api'] }) },
+      { portRange: [4000, 4100], approaches: [{ id: 'rpi', label: 'RPI', recommended: true, source: { type: 'git', repo: 'a/b', ref: 'main', include: ['.claude/agents'] } }] },
+    );
+    deps.manifestPath = '/proj/.karst/karst.yml';
+    const classifyRaw = '{"prompt":"p","approach":"rpi","repos":["fe"],"reason":"r"}';
+    const runHeadless = vi.fn(async (opts: { prompt: string; cwd: string }) => {
+      const raw = opts.prompt.includes('conventional-commit type') ? classifyRaw : 'Improved';
+      return { sessionId: 's', verdict: null, raw };
+    });
+    deps.adapter = { ...fakeAdapter(), runHeadless };
+    const t2 = createTicket(store, { key: 'P-CWD-2', title: 't2' });
+    updateTicketFields(store, t2.id, { brief: 'the brief text', selectedRepos: [] });
+    const posted: TicketFormHostMessage[] = [];
+    const ctx: TicketFormActionsCtx = {
+      post: (m) => posted.push(m), pushState: () => {}, mode: 'edit', ticketId: t2.id, bindTicket: () => {}, close: () => {},
+    };
+    const actions = buildTicketFormActions(deps)(ctx);
+
+    await actions.analyze('');
+
+    // The improve (2nd) call's cwd is the PROJECT ROOT (/proj), not the repo.
+    expect(runHeadless.mock.calls[1]![0].cwd).toBe('/proj');
+    // The improve prompt contains the picked repo as data.
+    expect(runHeadless.mock.calls[1]![0].prompt).toContain('Primary repository: /elsewhere/fe');
+  });
+
+  it('improve omits the repository line when classify yields no repo and the manifest is multi-repo', async () => {
+    const t = createTicket(store, { key: 'P-NO-REPO', title: 't' });
+    updateTicketFields(store, t.id, { brief: 'the brief text', selectedRepos: [] });
+    deps.manifest = buildManifest(
+      { fe: svc({ signals: ['ui'] }), be: svc({ signals: ['api'] }) },
+      { portRange: [4000, 4100], approaches: [{ id: 'rpi', label: 'RPI', recommended: true, source: { type: 'git', repo: 'a/b', ref: 'main', include: ['.claude/agents'] } }] },
+    );
+    deps.manifestPath = '/proj/.karst/karst.yml';
+    const classifyRaw = '{"prompt":"p","approach":"rpi","repos":[],"reason":"r"}';
+    const runHeadless = vi.fn(async (opts: { prompt: string; cwd: string }) => {
+      const raw = opts.prompt.includes('conventional-commit type') ? classifyRaw : 'Improved';
+      return { sessionId: 's', verdict: null, raw };
+    });
+    deps.adapter = { ...fakeAdapter(), runHeadless };
+    const posted: TicketFormHostMessage[] = [];
+    const ctx: TicketFormActionsCtx = {
+      post: (m) => posted.push(m), pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, close: () => {},
+    };
+    const actions = buildTicketFormActions(deps)(ctx);
+
+    await actions.analyze('');
+
+    // The improve call's cwd is still the project root.
+    expect(runHeadless.mock.calls[1]![0].cwd).toBe('/proj');
+    // No Primary repository: line.
+    expect(runHeadless.mock.calls[1]![0].prompt).not.toContain('Primary repository:');
+  });
+
+  it('improve names the sole repository when classify yields none', async () => {
+    const t = createTicket(store, { key: 'P-sole', title: 't' });
+    updateTicketFields(store, t.id, { brief: 'the brief text', selectedRepos: [] });
+    deps.manifest = buildManifest(
+      { fe: svc({ signals: ['ui'], repoPath: '/solo/fe' }) },
+      { portRange: [4000, 4100], approaches: [{ id: 'rpi', label: 'RPI', recommended: true, source: { type: 'git', repo: 'a/b', ref: 'main', include: ['.claude/agents'] } }] },
+    );
+    deps.manifestPath = '/proj/.karst/karst.yml';
+    const classifyRaw = '{"prompt":"p","approach":"rpi","repos":[],"reason":"r"}';
+    const runHeadless = vi.fn(async (opts: { prompt: string }) => {
+      const raw = opts.prompt.includes('conventional-commit type') ? classifyRaw : 'Improved';
+      return { sessionId: 's', verdict: null, raw };
+    });
+    deps.adapter = { ...fakeAdapter(), runHeadless };
+    const posted: TicketFormHostMessage[] = [];
+    const ctx: TicketFormActionsCtx = {
+      post: (m) => posted.push(m), pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, close: () => {},
+    };
+    const actions = buildTicketFormActions(deps)(ctx);
+
+    await actions.analyze('');
+
+    // The improve prompt contains the sole repo's path.
+    expect(runHeadless.mock.calls[1]![0].prompt).toContain('Primary repository: /solo/fe');
   });
 
   it('setApproach and setRepos persist onto an existing ticket', () => {
