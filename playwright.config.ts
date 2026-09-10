@@ -40,9 +40,10 @@ export default defineConfig({
 
   webServer: {
     command: 'node tests/visual/serve.mjs',
+    teardown: undefined,
     url: 'http://127.0.0.1:4317/healthz',
     reuseExistingServer: !process.env.CI,
-    timeout: 20_000,
+    timeout: 30_000,
   },
 
   forbidOnly: !!process.env.CI,

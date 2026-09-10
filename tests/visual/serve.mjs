@@ -1,23 +1,12 @@
 import { createServer } from 'node:http';
 import { readFileSync, existsSync, statSync } from 'node:fs';
-import { join, extname, resolve } from 'node:path';
+import { join, extname, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { execSync } from 'node:child_process';
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 const PORT = 4317;
-const HERE = new URL('./', import.meta.url).pathname;
-const ROOT = join(HERE, '.tmp');
-
-// Write fixtures before starting the server.
-try {
-  execSync(`npx tsx ${join(HERE, 'writeFixtures.ts')}`, {
-    cwd: HERE,
-    stdio: 'inherit',
-  });
-} catch {
-  console.error('Failed to write fixtures');
-  process.exit(1);
-}
+const ROOT = join(__dirname, '.tmp');
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -29,9 +18,7 @@ const MIME = {
 };
 
 function safePath(url) {
-  // Strip query string and decode.
   const pathname = decodeURIComponent(url.split('?')[0]);
-  // Resolve against ROOT and ensure it stays inside ROOT.
   const resolved = resolve(ROOT, '.' + pathname);
   if (!resolved.startsWith(ROOT)) return null;
   return resolved;
@@ -45,7 +32,10 @@ const server = createServer((req, res) => {
   }
 
   const filePath = safePath(req.url);
-  if (!filePath || !existsSync(filePath) || !statSync(filePath).isFile()) {
+  const exists = filePath ? existsSync(filePath) : false;
+  const isFile = filePath && exists ? statSync(filePath).isFile() : false;
+  if (!filePath || !exists || !isFile) {
+    console.error(`404: ${req.url} -> ${filePath} (exists=${exists}, isFile=${isFile})`);
     res.writeHead(404, { 'content-type': 'text/plain' });
     res.end('not found');
     return;
