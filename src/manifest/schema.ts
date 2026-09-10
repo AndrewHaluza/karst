@@ -9,6 +9,7 @@ import type {
   TicketingConfig,
   AgentProvider,
   ArtifactConventions,
+  ResilienceConfig,
 } from './types.js';
 import { ManifestError } from './error.js';
 import { repoIdCollisions } from '../runtime/repoId.js';
@@ -281,6 +282,68 @@ function validateDefaultEffort(raw: unknown): string | undefined {
   return raw.trim() === '' ? undefined : raw;
 }
 
+/** Defaults when `resilience` is absent (K8). */
+export const DEFAULT_RESILIENCE: ResilienceConfig = {
+  retries: 2,
+  backoffMs: 2_000,
+  fallbackModels: [],
+};
+
+/** Upper bounds: a typo must not turn one gate lane into an all-day loop. */
+const MAX_RETRIES = 5;
+const MAX_BACKOFF_MS = 60_000;
+const MAX_FALLBACK_MODELS = 5;
+
+function validateResilience(raw: unknown): ResilienceConfig {
+  if (raw === undefined) return DEFAULT_RESILIENCE;
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    throw new ManifestError('resilience must be a mapping');
+  }
+  const r = raw as Record<string, unknown>;
+
+  let retries = DEFAULT_RESILIENCE.retries;
+  if (r['retries'] !== undefined) {
+    if (typeof r['retries'] !== 'number' || !Number.isInteger(r['retries']) ||
+        r['retries'] < 0 || r['retries'] > MAX_RETRIES) {
+      throw new ManifestError(
+        `resilience.retries must be a whole number between 0 and ${MAX_RETRIES}`);
+    }
+    retries = r['retries'];
+  }
+
+  let backoffMs = DEFAULT_RESILIENCE.backoffMs;
+  if (r['backoffMs'] !== undefined) {
+    if (typeof r['backoffMs'] !== 'number' || !Number.isInteger(r['backoffMs']) ||
+        r['backoffMs'] < 0 || r['backoffMs'] > MAX_BACKOFF_MS) {
+      throw new ManifestError(
+        `resilience.backoffMs must be a whole number of milliseconds between 0 and ${MAX_BACKOFF_MS}`);
+    }
+    backoffMs = r['backoffMs'];
+  }
+
+  let fallbackModels: readonly string[] = DEFAULT_RESILIENCE.fallbackModels;
+  if (r['fallbackModels'] !== undefined) {
+    if (!Array.isArray(r['fallbackModels'])) {
+      throw new ManifestError('resilience.fallbackModels must be a list of model ids');
+    }
+    if (r['fallbackModels'].length > MAX_FALLBACK_MODELS) {
+      throw new ManifestError(
+        `resilience.fallbackModels accepts at most ${MAX_FALLBACK_MODELS} models`);
+    }
+    const ids: string[] = [];
+    for (const entry of r['fallbackModels']) {
+      if (typeof entry !== 'string') {
+        throw new ManifestError('resilience.fallbackModels entries must be strings');
+      }
+      const id = entry.trim();
+      if (id !== '') ids.push(id);
+    }
+    fallbackModels = ids;
+  }
+
+  return { retries, backoffMs, fallbackModels };
+}
+
 /** Default delay before a done ticket is auto-archived (§ auto-archiving). */
 export const DEFAULT_ARCHIVE_DONE_AFTER_DAYS = 3;
 
@@ -535,6 +598,7 @@ export function validateManifest(raw: unknown): Manifest {
     ticketing: validateTicketing(raw.ticketing),
     agentProvider: validateAgentProvider(raw.agentProvider),
     defaultModel: validateDefaultModel(raw.defaultModel),
+    resilience: validateResilience(raw.resilience),
     defaultEffort: validateDefaultEffort(raw.defaultEffort),
     archiveDoneAfterDays: validateArchiveDoneAfterDays(raw.archiveDoneAfterDays),
     debug: validateDebug(raw.debug),

@@ -11,6 +11,7 @@ Everything that is true of every agent core, and the places a core-specific fix 
 - A SILENT run is an empty answer, never a failure
 - A FIX TO ONE AGENT CORE IS A FIX TO THE SEAM
 - A headless agent run is BOUNDED
+- Retry and model fallback
 - Token spend is measured ONCE, at the agent seam
 - A terminal's ticket is carried by its ENV and its PID
 - nudge adopts a revived session
@@ -47,6 +48,27 @@ A change that is NOT a translation of one CLI's own flag vocabulary lands on eve
 ## A headless agent run is BOUNDED, and the bounds live in ONE spawner
 
 `agent/headlessSpawn.ts` (`spawnHeadlessCli`) is now THE spawner every adapter's `defaultSpawn`/`makeDefaultSpawn` delegates to: the child is spawned `detached` (its own group), an abort or the 15-minute `timeoutMs` backstop kills the WHOLE group via `killTree` (a killed run's `close` arrives a moment later and must never read as a clean exit — the `killReason` flag makes abort/timeout rejections win over it), and stdout/stderr drain into `BoundedOutput` (8 MB default) instead of unbounded string concat. An abort rejects with `name === 'AbortError'`; a timeout rejects naming the deadline. Adding a fifth core means routing its spawn through `spawnHeadlessCli`, never a third copy of the loop.
+
+## Retry and model fallback
+
+The seam carries TWO decorators and the order is load-bearing: `resilientAdapter(instrumentAdapter(adapter))` (K6). Each retried or fallback attempt passes through the meter on its own and lands its own `token_usage` row; the reverse order would report one row for N attempts and under-count a run that burned three of them.
+
+`resilientAdapter` (`agent/resilientAdapter.ts`) wraps `runHeadless` only, delegating every other adapter surface verbatim. It classifies each thrown failure into one of four classes via `classifyFailure` (`agent/failureClass.ts`), which judges by MESSAGE TEXT (K1) — anything it does not recognise is `fatal`, so an unrecognised failure behaves exactly as it does today:
+
+| class | source | behavior |
+|---|---|---|
+| `aborted` | `err.name === 'AbortError'` | rethrown at once — the user pressed Stop |
+| `transient` | 429, 5xx, network reset, "overloaded" | retried on the same model, `backoffMs` doubling, ±20% jitter, SILENT |
+| `model-rejected` | a 400/404 naming the model, "unknown model" | no retry — the chain advances immediately, and the user is WARNED |
+| `fatal` | 401/403, a timeout, anything unrecognized | rethrown at once |
+
+A TIMEOUT is deliberately not transient (K3): gate lanes run at `GATE_LANE_HEADLESS_TIMEOUT_MS` (60 minutes); retrying a timeout twice turns one lane into a three-hour lane.
+
+**A model hop is user-visible and a same-model retry is not** (K9). A hop runs a model the operator did not pick and would otherwise make the token-usage stats unexplainable; toasting every 429 would train the user to dismiss the toast. The decorator emits structured facts (`ModelFallbackEvent`); the host writes the sentence (K10).
+
+Interactive launches are NOT wrapped — only `runHeadless` carries the retry/fallback logic.
+
+The chain always LEADS with the resolved model — a fallback never substitutes for the operator's choice — and fallback is off by default (`resilience.fallbackModels: []`). The `resilience` manifest block enforces bounds: 0–5 retries, 0–60 000 ms backoff, at most 5 fallback models. `resolveModelChain` (`agent/models.ts`) builds the chain, deduplicating and filtering by provider compatibility.
 
 ## Token spend is measured ONCE, at the agent seam — never at a call site
 

@@ -537,6 +537,25 @@ export interface ProcessAssignmentsConfig {
   ticketAnalysis?: ProcessAssignmentConfig;
 }
 
+/**
+ * How an AI call recovers from a provider failure (§ retry and model
+ * fallback). Absent → two extra attempts on a transient failure, a 2s
+ * doubling backoff, and NO model fallback (an operator opts in to running a
+ * model they did not configure).
+ */
+export interface ResilienceConfig {
+  /** Extra attempts on the SAME model after a transient failure. 0 disables retry. */
+  retries: number;
+  /** Base backoff in ms; doubled per attempt, ±20% jitter. */
+  backoffMs: number;
+  /**
+   * Models tried in order after the resolved model is exhausted. Only
+   * entries compatible with the CALLING provider are used
+   * (`resolveModelChain`). Empty → no fallback.
+   */
+  fallbackModels: readonly string[];
+}
+
 export interface Manifest {
   /**
    * Stable project identity (§ projects / multi-window). Scopes tickets to a
@@ -598,6 +617,13 @@ export interface Manifest {
    * normalized to undefined at validation.
    */
   defaultModel?: string;
+  /**
+   * How an AI call recovers from a provider failure (§ retry and model
+   * fallback). Absent → two extra attempts on a transient failure, a 2s
+   * doubling backoff, and NO model fallback (an operator opts in to running a
+   * model they did not configure).
+   */
+  resilience?: ResilienceConfig;
   /**
    * Default effort/variant inherited by tickets that don't pick their own
    * (§ Execution policy resolution). Undefined → the agent CLI's own default.

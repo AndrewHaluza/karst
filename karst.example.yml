@@ -50,6 +50,34 @@ agentProvider: claude
 # number of days.
 archiveDoneAfterDays: 3
 
+# How an AI call recovers when the provider fails it (optional).
+#
+# A TRANSIENT failure — a 429, a 5xx, a dropped connection — is retried on
+# the SAME model, `retries` extra times, sleeping `backoffMs` doubled per
+# attempt with a little jitter. These retries are silent: nothing you chose
+# changed, and they are visible in the Karst output channel with `debug: true`.
+#
+# A provider that REFUSES THE MODEL ITSELF (a 400/404 naming the model id, a
+# decommissioned id) is not retried at all: karst moves straight to the next
+# entry in `fallbackModels`, re-runs the same call there, AND WARNS YOU —
+# a notification names the failed model, why it failed, and what is being
+# tried instead, so a model swap is never silent.
+#
+# An aborted run (you pressed Stop) and a timed-out run are never retried.
+#
+# Your configured model always goes FIRST; a fallback never replaces it. Only
+# fallbacks compatible with the provider making the call are used, and every
+# attempt is metered separately in the token-usage stats.
+#
+# Defaults when this block is absent: retries 2, backoffMs 2000, and NO
+# fallback models — karst never runs a model you did not configure.
+#
+# resilience:
+#   retries: 2            # 0-5, extra attempts on the same model
+#   backoffMs: 2000       # 0-60000, base delay, doubled per attempt
+#   fallbackModels:       # at most 5, tried in order
+#     - opencode-go/mimo-v2.5
+
 # When a ticket is archived, also close its agent terminals whose process has
 # already exited — the dead tabs VS Code keeps with a "Done" suffix (Settings →
 # General). A still-running session is NEVER touched: only exited terminals

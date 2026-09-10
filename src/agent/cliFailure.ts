@@ -31,10 +31,10 @@ const MAX_LIMIT_DETAIL_CHARS = 400;
  * false positive in CLI stderr, and mislabeling a parse error as "out of quota"
  * sends the user to a billing page for a bug.
  */
-const HTTP_429 = /(?<![\w.:])429(?![\w.:])/;
+export const HTTP_429 = /(?<![\w.:])429(?![\w.:])/;
 
 /** Phrases every provider uses for "you are out of allowance". */
-const LIMIT_PHRASES =
+export const LIMIT_PHRASES =
   /(rate[-_ ]?limit|usage limit|spend limit|limit reached|quota[-_ ]?exceeded|quota exceeded|resource[-_ ]?exhausted|too many requests|out of credits?|insufficient[_ ]quota)/i;
 
 export interface HeadlessFailure {

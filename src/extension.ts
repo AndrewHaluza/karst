@@ -159,7 +159,7 @@ import type { HookPayload } from './hooks/dispatch.js';
 import { dispatchHook } from './hooks/dispatch.js';
 import type { StageKey } from './model/types.js';
 import { buildTicketContext, renderTicketContext } from './context/ticketContext.js';
-import { resolveEffortForProvider, resolveModelForProvider } from './agent/models.js';
+import { resolveEffortForProvider, resolveModelChain, resolveModelForProvider } from './agent/models.js';
 import { terminalTicketName } from './store/ticketLabelTemplate.js';
 import { compactTicketLabel } from './model/followUp.js';
 import { ticketGlyph } from './model/ticketGlyph.js';
@@ -328,7 +328,7 @@ import {
   defaultGitRunner,
 } from './integrations/git.js';
 import { loadManifest, loadManifestWithDiagnostics, type Manifest } from './manifest/load.js';
-import { DEFAULT_ARCHIVE_DONE_AFTER_DAYS } from './manifest/schema.js';
+import { DEFAULT_ARCHIVE_DONE_AFTER_DAYS, DEFAULT_RESILIENCE } from './manifest/schema.js';
 import type { PathContext } from './ui/dashboard/state.js';
 import { repoDisplayPath } from './ui/worktreePath.js';
 import { writeRepoSignals } from './manifest/write.js';
@@ -368,6 +368,7 @@ import type {
   GraphCommandConfig,
 } from './manifest/types.js';
 import { instrumentAdapter } from './agent/instrumentedAdapter.js';
+import { resilientAdapter, type ModelFallbackEvent } from './agent/resilientAdapter.js';
 import { AgentConsole } from './agent/agentConsole.js';
 import { GateConsole } from './workflow/gates/gateConsole.js';
 import { recordTokenUsage, listRecentlyUsedModels } from './store/tokenUsage.js';
@@ -1256,17 +1257,45 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return manifest;
   };
   /**
+   * A model FALLBACK is user-visible (§ retry and model fallback): karst is
+   * about to run a model the operator did not pick for this call, and a silent
+   * swap would make the token-usage stats unexplainable. Same shape as
+   * `warnBaseNotPulled`: the output channel keeps the record, the toast makes
+   * sure it is seen. Same-model retries are NOT reported here — they change
+   * nothing the user chose and appear only in the debug log.
+   */
+  const warnModelFallback = (event: ModelFallbackEvent): void => {
+    const from = event.fromModel ?? 'the CLI default model';
+    const to = event.toModel ?? 'the CLI default model';
+    const why =
+      event.failureClass === 'model-rejected'
+        ? 'the provider rejected that model'
+        : 'the provider kept failing';
+    const where = aiCallSiteLabel(event.callSite);
+    const ticket = event.ticketId === null ? '' : ` for ticket #${event.ticketId}`;
+    const message =
+      `Karst: ${where}${ticket} could not run on ${from} — ${why}. ` +
+      `Retrying with ${to}.`;
+    logger.warn(message);
+    void vscode.window.showWarningMessage(message);
+  };
+
+  /**
    * Every agent adapter this window hands out is INSTRUMENTED (§ token
-   * consumption stats). Wrapping happens here, at the two places an adapter is
-   * resolved, so a new AI integration is measured the moment it is written —
-   * the alternative, a record call per call site, is the duplication the
-   * instrumentation exists to avoid.
+   * consumption stats) and RESILIENT (§ retry and model fallback). Wrapping
+   * happens here, at the two places an adapter is resolved, so a new AI
+   * integration is measured and protected the moment it is written.
+   *
+   * Resilience wraps OUTSIDE instrumentation on purpose: each retried or
+   * fallback attempt then passes through the meter on its own and lands its
+   * own token_usage row. The reverse order would report one row for N
+   * attempts and under-count a run that burned three of them.
    *
    * `projectId` is a getter: the DB is shared by every IDE window, so a spend
    * row that is not project-scoped shows up in another project's totals.
    */
-  const instrument = (adapter: AgentAdapter, provider: AgentProvider): AgentAdapter =>
-    instrumentAdapter(adapter, {
+  const instrument = (adapter: AgentAdapter, provider: AgentProvider): AgentAdapter => {
+    const metered = instrumentAdapter(adapter, {
       sink: { record: (entry) => recordTokenUsage(localStore, entry) },
       provider,
       projectId: () => currentProject()?.id ?? null,
@@ -1285,6 +1314,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           label: tracking ? aiCallSiteLabel(tracking.callSite) : null,
         }),
     });
+    const resilience = () => currentManifest()?.resilience ?? DEFAULT_RESILIENCE;
+    return resilientAdapter(metered, {
+      get retries() { return resilience().retries; },
+      get backoffMs() { return resilience().backoffMs; },
+      chain: (model) => resolveModelChain(provider, model, resilience().fallbackModels),
+      notify: warnModelFallback,
+      debug: (message) => logger.debug(message),
+    });
+  };
 
   const currentAgentAdapter = (ticketId?: number): AgentAdapter => {
     const ticketProvider =
