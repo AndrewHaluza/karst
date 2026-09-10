@@ -40,4 +40,8 @@ describe('secretStore token management', () => {
     await clearToken(secrets); // no throw on second call
     expect(await hasToken(secrets)).toBe(false);
   });
+
+  it('stores under the stable clickup key', () => {
+    expect(CLICKUP_TOKEN_KEY).toBe('karst.clickup.token');
+  });
 });

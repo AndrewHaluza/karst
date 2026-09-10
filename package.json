@@ -35,6 +35,7 @@
     "pretest:unit": "npm run rebuild:node",
     "dev:extension": "npm run build && npm run rebuild:electron",
     "inventory:extension": "node scripts/extension-inventory.mjs",
+    "pretest:mutation": "npm run rebuild:node",
     "test:mutation": "stryker run",
     "pretest:coverage": "npm run rebuild:node",
     "test:coverage": "vitest run --coverage"

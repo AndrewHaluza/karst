@@ -8,6 +8,6 @@
              "!src/extension/manifestResolve.ts"],
   "reporters": ["progress", "clear-text", "html"],
   "coverageAnalysis": "perTest",
-  "thresholds": { "high": 85, "low": 75, "break": 70 },
+  "thresholds": { "high": 85, "low": 75, "break": 85 },
   "timeoutMS": 60000
 }

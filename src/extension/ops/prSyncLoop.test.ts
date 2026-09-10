@@ -107,6 +107,31 @@ describe('makePrSyncLoop', () => {
     await vi.waitFor(() => expect(d.runOnce).toHaveBeenCalledTimes(2));
   });
 
+  it('the force queue is cleared, so a later forced call runs exactly once more', async () => {
+    const d = makeDeps();
+    const resolvers: Array<() => void> = [];
+    d.runOnce.mockImplementation(() => new Promise<void>((r) => { resolvers.push(r); }));
+    const loop = makePrSyncLoop(d);
+
+    // First run in flight, one forced call queued behind it.
+    const p1 = loop();
+    void loop(true);
+    resolvers[0]!();
+    await p1;
+    await vi.waitFor(() => expect(d.runOnce).toHaveBeenCalledTimes(2));
+
+    // Drain the queued run. If forceQueued were left set, draining it would
+    // re-enter the loop and the count would keep climbing past 2.
+    resolvers[1]!();
+    await vi.waitFor(() => expect(d.runOnce).toHaveBeenCalledTimes(2));
+
+    // A brand-new forced call must produce exactly one more run.
+    const p3 = loop(true);
+    resolvers[2]!();
+    await p3;
+    expect(d.runOnce).toHaveBeenCalledTimes(3);
+  });
+
   it('non-forced call while running does not queue', async () => {
     const d = makeDeps();
     let resolveRun!: () => void;
