@@ -57,6 +57,18 @@ STATIC+RUNTIME+VISUAL 2.
 3. **FOCUS_COUNT_RATCHET** (`focus.visual.ts`): Focusable-element counts per view. Shrink-only.
 4. **MINIMAL_RATCHET** (`corpora.ts`): Views still on MINIMAL state seed. Shrink-only.
 
+## Running the sweep
+
+**Baselines are container-authored.** `playwright.config.ts`'s `snapshotPathTemplate` carries no `{platform}` token, so the 82 PNGs under `tests/visual/__baselines__/` are valid for exactly one rendering environment: `mcr.microsoft.com/playwright:v1.63.0-noble`. macOS and Linux rasterize glyphs differently, so a bare `npm run test:visual` on macOS is a local smoke run and its diffs are not authoritative.
+
+**Update baselines only with `npm run test:visual:docker:update`.** Never `npm run test:visual:update` on a developer machine, and never hand-edit a PNG. The image tag must stay in lockstep with the pinned `@playwright/test` version — a different tag ships a different Chromium and invalidates every baseline at once.
+
+**CI runs the same image.** `.github/workflows/ci.yml`'s `visual` job is `continue-on-error: true` while the suite settles; it publishes its outcome to the run summary and uploads `tests/visual/.report/` as the `visual-report` artifact. Promote it to blocking — by deleting the `continue-on-error` line — once it has run green on `develop` for a week with no baseline churn attributable to the environment.
+
+**No karst UAT gate for `test:visual`.** The gate was intentionally omitted because `test:visual` always exits non-zero on macOS (container-authored baselines vs. macOS font rendering), and karst's gate system treats any non-zero exit as a failure — creating an unrecoverable loop. CI's `visual` job is the authoritative run.
+
+**Local stale-fixture hazard.** `tests/visual/serve.mjs` regenerates `tests/visual/.tmp/` only when that directory is absent or empty, so a `.tmp/` left from an earlier run is served as-is and the sweep can pass against outdated pages. Run `rm -rf tests/visual/.tmp` before a local sweep that must be trusted. CI is immune: `.tmp/` is git-ignored, so every checkout starts clean.
+
 ## How to update a baseline
 
 ```bash

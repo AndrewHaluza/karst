@@ -41,6 +41,10 @@
     "test:coverage": "vitest run --coverage",
     "test:visual": "playwright test",
     "test:visual:update": "playwright test --update-snapshots",
+    "test:visual:docker": "docker run --rm --init -v \"$PWD\":/work -w /work mcr.microsoft.com/playwright:v1.63.0-noble npm run test:visual:ci",
+    "test:visual:docker:update": "docker run --rm --init -v \"$PWD\":/work -w /work mcr.microsoft.com/playwright:v1.63.0-noble npm run test:visual:ci:update",
+    "test:visual:ci": "npm ci && npm run typecheck:visual && playwright test",
+    "test:visual:ci:update": "npm ci && playwright test --update-snapshots",
     "install:visual-browsers": "playwright install --with-deps chromium",
     "typecheck:visual": "tsc -p tsconfig.visual.json"
   },
