@@ -34,11 +34,8 @@ export type AttemptKey = string;
  * `stage_runs` invocation itself, shared by every row (gate, process run,
  * finding) that same invocation produced. A row written before v25 carries no
  * stage run id — it still belongs to SOME invocation, so it falls back to the
- * batch stamp (`runAt`) `latestBatch` already keys by. This is a duplicate of
- * the sort of reduction `latestBatch`/`latestFindingsBatch` in gates.ts apply
- * — kept here, not imported, for the same reason those two don't share a copy:
- * each module keeps its own rule simple enough that drift would be caught by
- * either side's own tests.
+ * batch stamp (`runAt`) the legacy branch of `scopeReviewFindings`
+ * (`model/findingScope.ts`) keys by.
  */
 export function attemptKey(stageRunId: number | null | undefined, runAt: string): AttemptKey {
   return stageRunId !== null && stageRunId !== undefined ? `sr:${stageRunId}` : `ra:${runAt}`;

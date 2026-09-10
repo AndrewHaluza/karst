@@ -932,6 +932,100 @@ describe('reviewProcesses', () => {
     expect(rows.at(-1)).toMatchObject({ status: 'note', label: 'more' });
     expect(rows.at(-1)!.detail).toContain('2');
   });
+
+  it('a running re-review renders none of the round it replaced', () => {
+    const views = reviewProcesses(
+      qualityInput({
+        cell: cell('review', 'running', { startedAt: '2026-07-20T12:20:00.000Z' }),
+        processRuns: [
+          processRun({ id: 1, stageKey: 'review', processId: 'review', status: 'failed', resultKind: 'blocking', endedAt: '2026-07-20T12:01:00.000Z' }),
+          processRun({ id: 2, stageKey: 'review', processId: 'review', status: 'running', resultKind: null, endedAt: null }),
+        ],
+        findings: [finding('high', { processRunId: 1, runAt: '2026-07-20T12:00:00.000Z' })],
+      }),
+    );
+    const review = views.find((p) => p.id === 'review')!;
+    const evidence = review.evidence as { kind: 'findings'; rows: readonly EvidenceRow[]; blocking: number };
+    expect(evidence.rows).toEqual([]);
+    expect(evidence.blocking).toBe(0);
+  });
+
+  it('a finished clean re-review clears the previous round\'s findings', () => {
+    const views = reviewProcesses(
+      qualityInput({
+        cell: cell('review', 'passed'),
+        processRuns: [
+          processRun({ id: 1, stageKey: 'review', processId: 'review', status: 'failed', resultKind: 'blocking' }),
+          processRun({ id: 2, stageKey: 'review', processId: 'review', status: 'passed', resultKind: 'validated' }),
+        ],
+        findings: [finding('high', { processRunId: 1, runAt: '2026-07-20T12:00:00.000Z' })],
+      }),
+    );
+    const review = views.find((p) => p.id === 'review')!;
+    const evidence = review.evidence as { kind: 'findings'; rows: readonly EvidenceRow[]; blocking: number };
+    expect(evidence.rows).toEqual([]);
+  });
+
+  it('the current run\'s findings render', () => {
+    const views = reviewProcesses(
+      qualityInput({
+        cell: cell('review', 'failed'),
+        processRuns: [
+          processRun({ id: 1, stageKey: 'review', processId: 'review', status: 'failed', resultKind: 'blocking' }),
+          processRun({ id: 2, stageKey: 'review', processId: 'review', status: 'failed', resultKind: 'blocking' }),
+        ],
+        findings: [
+          finding('high', { processRunId: 1, runAt: '2026-07-20T12:00:00.000Z', title: 'old finding' }),
+          finding('critical', { processRunId: 2, runAt: '2026-07-20T12:30:00.000Z', title: 'current critical' }),
+          finding('medium', { processRunId: 2, runAt: '2026-07-20T12:30:00.000Z', title: 'current medium' }),
+        ],
+      }),
+    );
+    const review = views.find((p) => p.id === 'review')!;
+    expect(rowsOf(review).map((r) => r.detail)).toEqual(['current critical', 'current medium']);
+    const evidence = review.evidence as { kind: 'findings'; rows: readonly EvidenceRow[]; blocking: number };
+    expect(evidence.blocking).toBe(1);
+  });
+
+  it('findings recorded before the run column keep rendering', () => {
+    const views = reviewProcesses(
+      qualityInput({
+        cell: cell('review', 'passed'),
+        processRuns: [
+          processRun({ id: 1, stageKey: 'review', processId: 'review', status: 'passed', resultKind: 'validated' }),
+        ],
+        findings: [
+          finding('high', { processRunId: null, runAt: '2026-07-20T11:00:00.000Z', title: 'older legacy' }),
+          finding('high', { processRunId: null, runAt: '2026-07-20T12:00:00.000Z', title: 'newer legacy' }),
+        ],
+      }),
+    );
+    const review = views.find((p) => p.id === 'review')!;
+    expect(rowsOf(review).map((r) => r.detail)).toEqual(['newer legacy']);
+  });
+
+  it('an explicitly selected round still shows that round\'s findings', () => {
+    const views = reviewProcesses(
+      qualityInput({
+        cell: cell('review', 'passed'),
+        gateRuns: [
+          run('review', 'lint (web)', 0, { runAt: '2026-07-20T11:00:00.000Z', stageRunId: 1 }),
+          run('review', 'lint (web)', 0, { runAt: NOW, stageRunId: 2 }),
+        ],
+        processRuns: [
+          processRun({ id: 1, stageKey: 'review', processId: 'review', stageRunId: 1, status: 'passed', resultKind: 'validated' }),
+          processRun({ id: 2, stageKey: 'review', processId: 'review', stageRunId: 2, status: 'passed', resultKind: 'validated' }),
+        ],
+        findings: [
+          finding('high', { processRunId: 1, title: 'round 1 finding' }),
+          finding('low', { processRunId: 2, title: 'latest finding' }),
+        ],
+        selectedAttempt: attemptKey(1, ''),
+      }),
+    );
+    const review = views.find((p) => p.id === 'review')!;
+    expect(rowsOf(review).map((r) => r.detail)).toEqual(['round 1 finding']);
+  });
 });
 
 // ── 869egdr2u-fu2: the quality stages share ONE blueprint ─────────────────

@@ -48,6 +48,8 @@ import type { Store } from '../store/db.js';
 import { formatSpanMs } from './inside/types.js';
 import type { InsideEvidenceTarget, TypedInsideAction } from './inside/types.js';
 import { sortBySeverityDesc } from './severityOrder.js';
+import { scopeReviewFindings, scopeUatFindings } from './findingScope.js';
+import { processRunForAttempt } from './inside/rounds.js';
 
 /** The semantic artifact kinds V1 derives. One artifact per kind per ticket. */
 export type ArtifactKind = 'plan' | 'uat-report' | 'review' | 'ship-summary';
@@ -576,8 +578,16 @@ function uatReport(input: ArtifactInput): ArtifactSummary | null {
   const entries = latestAttemptEntries(allEntries);
   if (allEntries.length === 0 && uatFindings.length === 0) return null;
 
+  // The card already labels itself `v<n>`; its observations must be that
+  // version's. `uat_findings.process_run_id` is NOT NULL, so a tester run that
+  // has recorded nothing yet renders nothing — never the round it replaced.
+  const scopedUat = scopeUatFindings(
+    uatFindings,
+    processRunForAttempt(processRuns, 'tester', null),
+  );
+
   const findings: ArtifactFinding[] = sortBySeverityDesc(
-    uatFindings.map((f) => ({
+    scopedUat.map((f) => ({
       severity: f.severity,
       title: f.title,
       detail: null,
@@ -646,14 +656,23 @@ function reviewReport(input: ArtifactInput): ArtifactSummary | null {
   const entries = latestAttemptEntries(allEntries);
   if (allEntries.length === 0 && findings.length === 0) return null;
 
-  const blocking = findings.filter((f) => f.severity === 'high' || f.severity === 'critical').length;
+  // Scoped for the same reason the inside Review row is: findings are
+  // append-only and a clean re-review writes no batch, so an unscoped list
+  // renders a fixed round's findings forever under a `v<n>` label that claims
+  // otherwise. `scopeReviewFindings` carries the pre-v27 fallback.
+  const scopedFindings = scopeReviewFindings(
+    findings,
+    processRunForAttempt(processRuns, 'review', null),
+  );
+
+  const blocking = scopedFindings.filter((f) => f.severity === 'high' || f.severity === 'critical').length;
   const createdAt = stage?.endedAt ?? stage?.startedAt ?? null;
   const attemptCount = versionAttempts(allEntries, processRuns, 'review');
   const failedStage = stage?.status === 'failed';
   const bySeverity = new Map<string, number>();
-  for (const f of findings) bySeverity.set(f.severity, (bySeverity.get(f.severity) ?? 0) + 1);
+  for (const f of scopedFindings) bySeverity.set(f.severity, (bySeverity.get(f.severity) ?? 0) + 1);
   const metrics =
-    findings.length > 0
+    scopedFindings.length > 0
       ? [...bySeverity.entries()].map(([label, value]) => ({ label, value: String(value) }))
       : gateMetrics(entries);
   const resources: ArtifactResource[] = [];
@@ -669,10 +688,10 @@ function reviewReport(input: ArtifactInput): ArtifactSummary | null {
     title: KINDS.review.title,
     scope: null,
     summary:
-      findings.length > 0
-        ? `${findings.length} finding${findings.length === 1 ? '' : 's'}`
+      scopedFindings.length > 0
+        ? `${scopedFindings.length} finding${scopedFindings.length === 1 ? '' : 's'}`
           + ` · ${blocking} need${blocking === 1 ? 's' : ''} attention`
-        : gateSummary(entries),    status: failedStage ? 'failed' : findings.length > 0 ? 'attention' : aggregatePassed(entries) ? 'passed' : 'info',
+        : gateSummary(entries),    status: failedStage ? 'failed' : scopedFindings.length > 0 ? 'attention' : aggregatePassed(entries) ? 'passed' : 'info',
     freshness: freshnessFor(ticket.stages, 'review', createdAt),
     origin: originFor('review', processRuns, ticket),
     versionCount: attemptCount || 1,
@@ -680,7 +699,7 @@ function reviewReport(input: ArtifactInput): ArtifactSummary | null {
     createdAt,
     metrics,
     gates: entries.map((g) => ({ name: g.gateName, exitCode: g.exitCode })),
-    findings: sortBySeverityDesc(findings).map((f) => ({
+    findings: sortBySeverityDesc(scopedFindings).map((f) => ({
       severity: f.severity,
       title: f.title,
       detail: f.detail || null,

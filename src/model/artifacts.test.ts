@@ -519,6 +519,127 @@ describe('buildTicketArtifacts', () => {
     const [a] = buildTicketArtifacts(store, t.id) as [ArtifactSummary];
     expect(a.resources).toEqual([{ name: 'uat-ticket-1.log', path: '/data/karst/artifacts/1/uat-ticket-1.log' }]);
   });
+
+  it('the UAT card renders no observations from the round a running tester replaced', () => {
+    const t = ticket({ stageCurrent: 'uat' });
+    stage(t.id, 'uat', 'running', '2026-08-01T09:00:00.000Z', null);
+    const runA = openProcessRun(store, {
+      ticketId: t.id,
+      stageKey: 'uat',
+      processId: 'tester',
+      attempt: 0,
+      startedAt: '2026-08-01T09:05:00.000Z',
+    });
+    finishProcessRun(store, runA.id, 'passed', '2026-08-01T09:55:00.000Z');
+    recordUatFindings(store, {
+      ticketId: t.id,
+      processRunId: runA.id,
+      createdAt: '2026-08-01T09:50:00.000Z',
+      findings: [{ severity: 'high', repo: '/wt/web', title: 'old issue' }],
+    });
+    openProcessRun(store, {
+      ticketId: t.id,
+      stageKey: 'uat',
+      processId: 'tester',
+      attempt: 0,
+      startedAt: '2026-08-01T10:00:00.000Z',
+    });
+    const all = buildTicketArtifacts(store, t.id);
+    const uat = all.find((a) => a.kind === 'uat-report');
+    expect(uat).toBeDefined();
+    expect(uat!.findings).toHaveLength(0);
+  });
+
+  it('the UAT card renders the current tester run\'s observations', () => {
+    const t = ticket({ stageCurrent: 'uat' });
+    stage(t.id, 'uat', 'running', '2026-08-01T09:00:00.000Z', null);
+    const runA = openProcessRun(store, {
+      ticketId: t.id,
+      stageKey: 'uat',
+      processId: 'tester',
+      attempt: 0,
+      startedAt: '2026-08-01T09:05:00.000Z',
+    });
+    finishProcessRun(store, runA.id, 'passed', '2026-08-01T09:55:00.000Z');
+    recordUatFindings(store, {
+      ticketId: t.id,
+      processRunId: runA.id,
+      createdAt: '2026-08-01T09:50:00.000Z',
+      findings: [{ severity: 'high', repo: '/wt/web', title: 'old issue' }],
+    });
+    const runB = openProcessRun(store, {
+      ticketId: t.id,
+      stageKey: 'uat',
+      processId: 'tester',
+      attempt: 0,
+      startedAt: '2026-08-01T10:00:00.000Z',
+    });
+    finishProcessRun(store, runB.id, 'passed', '2026-08-01T10:55:00.000Z');
+    recordUatFindings(store, {
+      ticketId: t.id,
+      processRunId: runB.id,
+      createdAt: '2026-08-01T10:50:00.000Z',
+      findings: [{ severity: 'info', repo: '/wt/web', title: 'current issue' }],
+    });
+    const all = buildTicketArtifacts(store, t.id);
+    const uat = all.find((a) => a.kind === 'uat-report');
+    expect(uat).toBeDefined();
+    expect(uat!.findings).toHaveLength(1);
+    expect(uat!.findings[0]).toMatchObject({ title: 'current issue' });
+  });
+
+  it('the Review card renders no findings from the round a running review replaced', () => {
+    const t = ticket({ stageCurrent: 'review' });
+    stage(t.id, 'review', 'running', '2026-08-01T09:00:00.000Z', null);
+    const runA = openProcessRun(store, {
+      ticketId: t.id,
+      stageKey: 'review',
+      processId: 'review',
+      attempt: 0,
+      startedAt: '2026-08-01T09:05:00.000Z',
+    });
+    finishProcessRun(store, runA.id, 'failed', '2026-08-01T09:55:00.000Z');
+    recordFindings(store, {
+      ticketId: t.id,
+      attempt: 0,
+      runAt: '2026-08-01T09:50:00.000Z',
+      processRunId: runA.id,
+      findings: [
+        { severity: 'high', repo: '/wt/web', file: 'src/a.ts', title: 'old finding', detail: '', source: 'agent' },
+      ],
+    });
+    openProcessRun(store, {
+      ticketId: t.id,
+      stageKey: 'review',
+      processId: 'review',
+      attempt: 0,
+      startedAt: '2026-08-01T10:00:00.000Z',
+    });
+    const all = buildTicketArtifacts(store, t.id);
+    const review = all.find((a) => a.kind === 'review');
+    expect(review).toBeDefined();
+    expect(review!.findings).toHaveLength(0);
+    expect(review!.status).not.toBe('attention');
+    expect(review!.metrics.some((m) => m.label === 'high')).toBe(false);
+  });
+
+  it('the Review card keeps rendering findings recorded before the run column', () => {
+    const t = ticket({ stageCurrent: 'review' });
+    stage(t.id, 'review', 'passed', '2026-08-01T09:00:00.000Z', '2026-08-01T10:00:00.000Z');
+    recordFindings(store, {
+      ticketId: t.id,
+      attempt: 0,
+      runAt: '2026-08-01T09:30:00.000Z',
+      findings: [
+        { severity: 'high', repo: '/wt/web', title: 'legacy finding', detail: '', source: 'agent' },
+      ],
+    });
+    const all = buildTicketArtifacts(store, t.id);
+    const review = all.find((a) => a.kind === 'review');
+    expect(review).toBeDefined();
+    expect(review!.findings).toHaveLength(1);
+    expect(review!.findings[0]).toMatchObject({ title: 'legacy finding' });
+  });
 });
 
 /** A minimal VALID canonical graph document — nodes carry the plan's labels. */
