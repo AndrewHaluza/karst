@@ -65,3 +65,7 @@ karst.db-wal
 # Stryker mutation testing output
 reports/
 .stryker-tmp/
+# Playwright visual sweep
+tests/visual/.report/
+tests/visual/.tmp/
+test-results/

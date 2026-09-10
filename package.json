@@ -38,7 +38,11 @@
     "pretest:mutation": "npm run rebuild:node",
     "test:mutation": "stryker run",
     "pretest:coverage": "npm run rebuild:node",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "test:visual": "playwright test",
+    "test:visual:update": "playwright test --update-snapshots",
+    "install:visual-browsers": "playwright install --with-deps chromium",
+    "typecheck:visual": "tsc -p tsconfig.visual.json"
   },
   "contributes": {
     "viewsContainers": {
@@ -246,6 +250,7 @@
   },
   "devDependencies": {
     "@electron/rebuild": "^4.2.0",
+    "@playwright/test": "1.63.0",
     "@stryker-mutator/core": "^10.0.0",
     "@stryker-mutator/vitest-runner": "^10.0.0",
     "@types/better-sqlite3": "^7.6.13",
