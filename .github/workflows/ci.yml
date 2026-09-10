@@ -103,3 +103,69 @@ jobs:
           path: reports/mutation/
           if-no-files-found: ignore
           retention-days: 14
+
+  visual:
+    name: Visual regression (advisory)
+    runs-on: ubuntu-latest
+    # The baselines under tests/visual/__baselines__/ carry no {platform} token
+    # (see playwright.config.ts's snapshotPathTemplate), so they are valid for
+    # exactly ONE rendering environment. This image is that environment, and its
+    # tag must stay in lockstep with the pinned @playwright/test version —
+    # a different tag ships a different Chromium and invalidates all 82 PNGs.
+    container: mcr.microsoft.com/playwright:v1.63.0-noble
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      # No actions/setup-node here on purpose: the Playwright image ships its
+      # own Node, and layering setup-node over a container image is a known
+      # source of PATH and npm-cache confusion. The image must satisfy .nvmrc.
+      - name: Report the container's Node version
+        run: |
+          node --version
+          echo "expected major: $(cat .nvmrc)"
+
+      # The image ships browsers, not this repository's node_modules. tsx (used
+      # by tests/visual/serve.mjs to generate fixture pages) and the TypeScript
+      # toolchain both come from here. install:visual-browsers is deliberately
+      # NOT run — the image already provides Chromium.
+      - run: npm ci
+
+      # tests/visual is excluded from the main tsconfig, so its type errors are
+      # only visible through this config — and they belong to this job, not to
+      # the blocking verify job.
+      - name: Typecheck the visual sweep
+        run: npm run typecheck:visual
+
+      # Advisory while the suite settles: a fresh screenshot suite surfaces
+      # environmental noise unrelated to the PR under review, and a blocking
+      # check that cries wolf gets ignored. The uploaded report makes every
+      # diff inspectable in the meantime.
+      - name: Run the visual sweep
+        id: visual
+        continue-on-error: true
+        run: npm run test:visual
+
+      - name: Publish the outcome to the run summary
+        if: always()
+        run: |
+          {
+            echo '## Visual regression'
+            echo
+            echo "Sweep step outcome: \`${{ steps.visual.outcome }}\`"
+            echo
+            if [ -d tests/visual/.report ]; then
+              echo 'See the uploaded `visual-report` artifact for the diff viewer.'
+            else
+              echo 'Playwright produced no HTML report.'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-report
+          path: tests/visual/.report/
+          if-no-files-found: ignore
+          retention-days: 14

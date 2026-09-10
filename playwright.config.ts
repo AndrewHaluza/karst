@@ -14,9 +14,14 @@ import { defineConfig, devices } from '@playwright/test';
  *   dark-reduced-motion        — dark + prefers-reduced-motion, status spec only (UI-R30)
  *   catalog                    — the standalone catalog page, dark only (D15)
  *
- * CI wiring (out of scope for this ticket — no .github/workflows/ exists yet):
- *   npm run install:visual-browsers   # one-time Chromium download
- *   npm run test:visual               # run the sweep (exits non-zero on diff)
+ * Baselines are CONTAINER-AUTHORED. `snapshotPathTemplate` carries no
+ * {platform} token, so one set serves every OS — and macOS and Linux rasterize
+ * glyphs differently. Author and update baselines only through
+ * `npm run test:visual:docker:update`, which runs the pinned
+ * mcr.microsoft.com/playwright:v1.63.0-noble image. A bare `npm run test:visual`
+ * on macOS is a local smoke run; its diffs are not authoritative.
+ *
+ * CI runs the same image in .github/workflows/ci.yml's `visual` job (advisory).
  */
 export default defineConfig({
   testDir: 'tests/visual',
