@@ -18,12 +18,12 @@ export default defineConfig({
     // Native addon errors (better-sqlite3) stay within one process under forks,
     // so the store layer matches on error `.code` rather than `instanceof
     // Error` — shipRuns.ts.
+    //
+    // jsdom render tests (*.render.test.ts) use `// @vitest-environment jsdom`
+    // per-file — that docblock works under forks (each file is its own process)
+    // but NOT under vmThreads (jsdom's transitive @exodus/bytes ships ESM in
+    // CJS and vmThreads cannot interop it).
     pool: 'forks',
-    // The unit gate runs real-git / real-service integration tests (quarantine
-    // commit primitives, the ship saga, spin) under full parallel load. Their
-    // individual runtimes blow the 5s vitest default whenever the machine is
-    // loaded — and which test crosses the line varies run to run, so per-test
-    // timeouts are a lottery. The e2e config applies the same 30s global.
     testTimeout: 30_000,
     coverage: {
       provider: 'v8',

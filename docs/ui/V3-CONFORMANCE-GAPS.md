@@ -90,3 +90,17 @@ makes the ordering load-bearing.
   (DESIGN-SYSTEM §3.5). Only the CSS alias is the defect (G2).
 - **Local composition geometry outside the spacing scale** (stage rails, graphs,
   timelines) is permitted by v3.0 and is not remediation work.
+
+---
+
+## Known RUNTIME violations
+
+Discovered by the jsdom render harness cross-view sweep
+(`src/ui/runtimeConformance.render.test.ts`).  Each is a ratchet — the count
+may only shrink.
+
+| View | Rule | Count | Note |
+|------|------|-------|------|
+| dashboard | UI-R10 | 1 | `k-agent-core` class used on `#agentCore` but no CSSOM rule — styled via `.agent-identity` rules instead; the class is a hook for future theming |
+
+All other views: **0** known unresolved `k-` class violations.

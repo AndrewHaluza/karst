@@ -7,6 +7,7 @@
 - `npm run build` — compile (`tsconfig.build.json`) + copy webview asset into `dist/`
 - Single test: `npx vitest run src/path/to.test.ts`
 - Single e2e: `npx vitest run --config vitest.e2e.config.ts src/path/to.e2e.test.ts`
+- Single render test: `npx vitest run src/path/to.render.test.ts` (jsdom, forks pool)
 - F5 in VS Code runs `dev:extension` (build + `rebuild:electron`) then launches the Extension Dev Host
 - `npm run test:coverage` — vitest with v8 coverage; `pretest:coverage` rebuilds better-sqlite3 for Node ABI. **Never run `npx vitest run --coverage` directly — it skips the rebuild and produces thousands of false `openStore` failures.**
 - `npm run test:mutation` — Stryker over `src/extension/**`, breaks under 85; `pretest:mutation` rebuilds better-sqlite3 for Node ABI.
@@ -49,7 +50,7 @@ Full detail — install (structure-preserving fetch, classify, entrypoint/contri
 
 ## UI/UX (binding — read `docs/ui/UI-RULES.md` before touching any webview)
 
-Every UI change is judged pass/fail against `docs/ui/UI-RULES.md` (v3.0) — numbered rules, each with a Check and a verification mode (STATIC / RUNTIME / VISUAL / REVIEW). Tokens in `docs/ui/DESIGN-SYSTEM.md`; naming and copy tone in `docs/ui/STYLE-GUIDE.md`; the rendered catalog is `docs/ui/KARST-UI-CATALOG.html`; the four known v3.0 gaps are `docs/ui/V3-CONFORMANCE-GAPS.md`. Cite the rule id in the commit when a change exists to satisfy one (UI-R35).
+Every UI change is judged pass/fail against `docs/ui/UI-RULES.md` (v3.0) — numbered rules, each with a Check and a verification mode (STATIC / RUNTIME / VISUAL / REVIEW). Tokens in `docs/ui/DESIGN-SYSTEM.md`; naming and copy tone in `docs/ui/STYLE-GUIDE.md`; the rendered catalog is `docs/ui/KARST-UI-CATALOG.html`; the four known v3.0 gaps are `docs/ui/V3-CONFORMANCE-GAPS.md`. Cite the rule id in the commit when a change exists to satisfy one (UI-R35). The jsdom render harness (`src/ui/testing/renderHarness.ts`) and cross-view RUNTIME sweep (`src/ui/runtimeConformance.render.test.ts`) cover UI-R09, R10, R25, R36 across all views; state-dependent rules are dashboard-only until FEAT-37.
 
 **The karst-specific rationale behind these rules — why pending state is set locally, why `.k-status` is icon-only, why a core is always its canonical identity, why mirrored TS→HTML constants are behavior — is `docs/ui/UI-INVARIANTS.md`. Read it with UI-RULES.md.**
 

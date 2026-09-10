@@ -2,8 +2,7 @@ import * as vscode from 'vscode';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { GettingStartedPanel, GettingStartedPanelHost } from './panel.js';
-import { injectPalette } from '../../model/palette.js';
-import { injectDesignSystem } from '../../model/designSystem.js';
+import { hydrateWebview } from '../../model/webviewChains.js';
 import { injectCsp, newNonce } from '../../model/csp.js';
 import type { BrandIconPaths } from '../brandIcon.js';
 import { brandIconUri } from '../panelIcon.js';
@@ -20,7 +19,7 @@ export function makeGettingStartedPanelHost(
   context: vscode.ExtensionContext,
   brandIcon?: BrandIconPaths,
 ): GettingStartedPanelHost {
-  const html = injectPalette(injectDesignSystem(readFileSync(join(RUNTIME_ASSETS_ROOT, 'ui', 'gettingStarted', 'webview.html'), 'utf8')));
+  const html = hydrateWebview('gettingStarted', readFileSync(join(RUNTIME_ASSETS_ROOT, 'ui', 'gettingStarted', 'webview.html'), 'utf8'));
   return {
     createPanel(title: string): GettingStartedPanel {
       const panel = vscode.window.createWebviewPanel(

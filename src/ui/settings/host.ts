@@ -2,11 +2,7 @@ import * as vscode from 'vscode';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { SettingsPanel, SettingsPanelHost } from './panel.js';
-import { injectPalette } from '../../model/palette.js';
-import { injectDesignSystem } from '../../model/designSystem.js';
-import { injectProviderIdentity } from '../../model/providerIdentity.js';
-import { injectAgentIdentity } from '../../model/agentIdentity.js';
-import { injectAgentPicker } from '../../model/agentPicker.js';
+import { hydrateWebview } from '../../model/webviewChains.js';
 import { injectCsp, newNonce } from '../../model/csp.js';
 import type { BrandIconPaths } from '../brandIcon.js';
 import { brandIconUri } from '../panelIcon.js';
@@ -26,9 +22,7 @@ export function makeSettingsPanelHost(
   context: vscode.ExtensionContext,
   brandIcon?: BrandIconPaths,
 ): SettingsPanelHost {
-  const html = injectAgentPicker(injectAgentIdentity(injectProviderIdentity(
-    injectPalette(injectDesignSystem(readFileSync(join(RUNTIME_ASSETS_ROOT, 'ui', 'settings', 'webview.html'), 'utf8'))),
-  )));
+  const html = hydrateWebview('settings', readFileSync(join(RUNTIME_ASSETS_ROOT, 'ui', 'settings', 'webview.html'), 'utf8'));
   return {
     createPanel(title: string): SettingsPanel {
       const panel = vscode.window.createWebviewPanel(
