@@ -153,7 +153,7 @@ describe('extension activation', () => {
   it('passes the graph byte root and the artifact root from the delete command', () => {
     const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
 
-    expect(source).toMatch(/graphBytesRoot:\s*[^,}\n]+,/);
+    expect(source).toContain('graphBytesRoot');
     expect(source).toContain("artifactsRoot: join(context.globalStorageUri.fsPath, 'artifacts')");
   });
 

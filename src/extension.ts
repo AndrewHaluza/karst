@@ -17,6 +17,7 @@ import { describeStoreOpenFailure } from './extension/storeOpenFailure.js';
 import { ticketIdArg } from './extension/ops/args.js';
 import type { Notify } from './extension/ops/notify.js';
 import { archiveTicketOp, unarchiveTicketOp, type ArchiveOpsDeps } from './extension/ops/archiveOps.js';
+import { deleteTicketOp, createFollowUpTicketOp, type LifecycleOpsDeps } from './extension/ops/lifecycleOps.js';
 import { watchExternalChanges } from './store/externalChanges.js';
 import { SidebarViewManager } from './ui/sidebar/panel.js';
 import { makeSidebarViewHost, SIDEBAR_VIEW_ID } from './ui/sidebar/host.js';
@@ -3218,6 +3219,29 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const graphBytesRootFor = (): string | undefined => {
     const project = currentProject();
     return project ? join(context.globalStorageUri.fsPath, 'graph', project.slug) : undefined;
+  };
+  const lifecycleDeps: LifecycleOpsDeps = {
+    store: localStore,
+    notify,
+    log: { debug: (m) => logger.debug(m), warn: (m) => logger.warn(m) },
+    confirm: async (message, confirmLabel) => {
+      const choice = await vscode.window.showWarningMessage(message, { modal: true }, confirmLabel);
+      return choice === confirmLabel;
+    },
+    deleteDeps: {
+      closePanel: (id) => ticketForm.closeTicket(id),
+      reap: (id) => reapAttachments(context.globalStorageUri.fsPath, id),
+      get graphBytesRoot() { return graphBytesRootFor(); },
+      artifactsRoot: join(context.globalStorageUri.fsPath, 'artifacts'),
+    },
+    openEdit: (id) => ticketForm.openEdit(id),
+    refresh: () => provider.refresh(),
+    reloadManifest: async () => {
+      const manifest = await resolveManifest(logger.info);
+      if (manifest) manifests.set(manifest, manifestPathOrThrow());
+    },
+    projectId: () => currentProject()?.id,
+    labelTemplate: () => currentManifest()?.ticketLabelTemplate,
   };
 
   // The gate-lane AI processes' console sink (Task 13): the UAT Tester and the
@@ -6610,23 +6634,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('karst.createFollowUpTicket', async (arg: unknown) => {
       const ticketId = ticketIdArg(arg);
       if (ticketId === undefined) return;
-      let child;
-      try {
-        child = createFollowUpTicket(localStore, ticketId, { projectId: currentProject()?.id },
-          (message) => logger.debug(message));
-      } catch (err) {
-        const message =
-          err instanceof TicketNotDoneError
-            ? err.message
-            : `Couldn't create a follow-up ticket: ${err instanceof Error ? err.message : String(err)}`;
-        void vscode.window.showErrorMessage(message);
-        return;
-      }
-      provider.refresh();
-      const manifest = await resolveManifest(logger.info);
-      if (manifest) manifests.set(manifest, manifestPathOrThrow());
-      ticketForm.openEdit(child.id);
-      void vscode.window.showInformationMessage(`Created follow-up ticket ${child.key}.`);
+      await createFollowUpTicketOp(lifecycleDeps, ticketId);
     }),
     vscode.commands.registerCommand('karst.openTicketScmDiff', async (arg: unknown) => {
       if (typeof arg !== 'string' || arg.length === 0) return;
@@ -6665,30 +6673,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('karst.deleteTicket', async (arg: unknown) => {
       const ticketId = ticketIdArg(arg);
       if (ticketId === undefined) return;
-      const label = ticketLabel(getTicket(localStore, ticketId), currentManifest()?.ticketLabelTemplate);
-      // Hard delete is irreversible — confirm with a modal before removing the
-      // ticket and all its child rows.
-      const choice = await vscode.window.showWarningMessage(
-        `Permanently delete "${label}"? This cannot be undone.`,
-        { modal: true },
-        'Delete',
-      );
-      if (choice !== 'Delete') return;
-      try {
-        await deleteTicketPermanently(localStore, ticketId, {
-          closePanel: (id) => ticketForm.closeTicket(id),
-          reap: (id) => reapAttachments(context.globalStorageUri.fsPath, id),
-          graphBytesRoot: graphBytesRootFor(),
-          artifactsRoot: join(context.globalStorageUri.fsPath, 'artifacts'),
-        });
-      } catch (err) {
-        const message =
-          `Karst could not finish permanently deleting "${label}". ` +
-          `Attachment cleanup may be incomplete: ${String(err)}`;
-        logger.warn(message);
-        await vscode.window.showErrorMessage(message);
-      }
-      provider.refresh();
+      await deleteTicketOp(lifecycleDeps, ticketId);
     }),
     vscode.commands.registerCommand('karst.archiveInactiveWorktrees', async () => {
       const manifest = currentManifest();
