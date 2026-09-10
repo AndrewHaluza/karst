@@ -5,6 +5,7 @@ import {
   modelsForProvider,
   resolveEffortForProvider,
   resolveModel,
+  resolveModelChain,
   resolveModelForProvider,
 } from './models.js';
 import type { ModelCatalog } from './modelCatalog.js';
@@ -225,5 +226,54 @@ describe('resolveEffortForProvider', () => {
 
   it('normalizes a blank effort to inherit', () => {
     expect(resolveEffortForProvider('claude', '  ', 'max', 'claude-opus-5', catalog)).toBe('max');
+  });
+});
+
+describe('resolveModelChain', () => {
+  it('returns the resolved model plus all compatible fallbacks', () => {
+    expect(resolveModelChain('opencode', 'a', ['b', 'c'])).toEqual(['a', 'b', 'c']);
+  });
+
+  it('deduplicates fallbacks that match the resolved model', () => {
+    expect(resolveModelChain('opencode', 'a', ['a', 'b'])).toEqual(['a', 'b']);
+  });
+
+  it('deduplicates identical fallback entries', () => {
+    expect(resolveModelChain('opencode', 'a', ['b', 'b'])).toEqual(['a', 'b']);
+  });
+
+  it('drops blank and whitespace-only fallback entries', () => {
+    expect(resolveModelChain('opencode', 'a', ['', '  ', 'b'])).toEqual(['a', 'b']);
+  });
+
+  it('drops a known cross-provider fallback', () => {
+    expect(resolveModelChain('claude', 'claude-opus-5', ['gpt-5.6-sol'])).toEqual([
+      'claude-opus-5',
+    ]);
+  });
+
+  it('keeps an unknown (preview/custom) fallback', () => {
+    expect(resolveModelChain('claude', 'claude-opus-5', ['some-preview-id'])).toEqual([
+      'claude-opus-5',
+      'some-preview-id',
+    ]);
+  });
+
+  it('leads with undefined when resolved is undefined', () => {
+    expect(resolveModelChain('opencode', undefined, ['b'])).toEqual([undefined, 'b']);
+  });
+
+  it('returns just the resolved model when fallbacks is undefined', () => {
+    expect(resolveModelChain('opencode', 'a', undefined)).toEqual(['a']);
+  });
+
+  it('the real configuration: deepseek first, mimo fallback', () => {
+    expect(
+      resolveModelChain(
+        'opencode',
+        'opencode-go/deepseek-v4-flash',
+        ['opencode-go/mimo-v2.5'],
+      ),
+    ).toEqual(['opencode-go/deepseek-v4-flash', 'opencode-go/mimo-v2.5']);
   });
 });

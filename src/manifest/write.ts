@@ -150,6 +150,7 @@ export function writeManifest(path: string, manifest: Manifest): void {
     defaultModel: manifest.defaultModel,
     // Optional: written when set, dropped (undefined → omitted by the dumper)
     // when cleared, so it falls back to "no default effort".
+    resilience: manifest.resilience,
     defaultEffort: manifest.defaultEffort,
     // Always written (validated manifests carry the default), like
     // `worktreePathDisplay` — without this line Save silently drops the key and

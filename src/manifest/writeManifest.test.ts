@@ -298,6 +298,7 @@ describe('writeManifest', () => {
         },
         agentProvider: 'codex',
         defaultModel: 'claude-opus-4-8',
+        resilience: { retries: 2, backoffMs: 2000, fallbackModels: [] },
         // Same reason: absent defaultEffort would round-trip regardless of the
         // overlay, so the populated manifest pins the explicit value.
         defaultEffort: 'high',

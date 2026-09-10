@@ -122,3 +122,34 @@ export function resolveEffortForProvider(
   }
   return undefined;
 }
+
+/**
+ * The ordered model chain one AI call may walk when the provider refuses a
+ * model (§ retry and model fallback). The resolved launch model is always
+ * FIRST — a fallback is a fallback, never a substitution. Each configured
+ * fallback is kept only when it is non-blank, compatible with the calling
+ * provider (`isModelCompatibleWithProvider`, which accepts ids the catalog
+ * does not know so a preview/custom id still works), and not already in the
+ * chain.
+ *
+ * `resolved === undefined` means "let the CLI pick its own default". The
+ * chain then LEADS with `undefined` and the fallbacks follow it, so a
+ * CLI-default call that the provider refuses can still recover.
+ */
+export function resolveModelChain(
+  provider: AgentProvider,
+  resolved: string | undefined,
+  fallbacks: readonly string[] | undefined,
+  catalog: ModelCatalog = bundledModelCatalog(),
+): readonly (string | undefined)[] {
+  const chain: (string | undefined)[] = [resolved];
+  const seen = new Set<string>(resolved !== undefined ? [resolved] : []);
+  for (const candidate of fallbacks ?? []) {
+    const id = candidate.trim();
+    if (id === '' || seen.has(id)) continue;
+    if (!isModelCompatibleWithProvider(provider, id, catalog)) continue;
+    seen.add(id);
+    chain.push(id);
+  }
+  return chain;
+}

@@ -2533,3 +2533,111 @@ repositories:
     }
   });
 });
+
+describe('resilience', () => {
+  it('defaults to retries 2, backoffMs 2000, empty fallbackModels when omitted', () => {
+    const { path, cleanup } = fixture(VALID);
+    try {
+      const m = loadManifest(path);
+      expect(m.resilience).toEqual({ retries: 2, backoffMs: 2000, fallbackModels: [] });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('accepts retries: 0 (meaning "no retry")', () => {
+    const { path, cleanup } = fixture(`${VALID}\nresilience:\n  retries: 0\n`);
+    try {
+      const m = loadManifest(path);
+      expect(m.resilience!.retries).toBe(0);
+      expect(m.resilience!.backoffMs).toBe(2000);
+      expect(m.resilience!.fallbackModels).toEqual([]);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('throws on retries: 6 (exceeds max)', () => {
+    const { path, cleanup } = fixture(`${VALID}\nresilience:\n  retries: 6\n`);
+    try {
+      expect(() => loadManifest(path)).toThrow(/resilience\.retries/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('throws on retries: 1.5 (fraction)', () => {
+    const { path, cleanup } = fixture(`${VALID}\nresilience:\n  retries: 1.5\n`);
+    try {
+      expect(() => loadManifest(path)).toThrow(/resilience\.retries/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('throws on retries: -1 (negative)', () => {
+    const { path, cleanup } = fixture(`${VALID}\nresilience:\n  retries: -1\n`);
+    try {
+      expect(() => loadManifest(path)).toThrow(/resilience\.retries/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('throws on backoffMs: 60001 (exceeds max)', () => {
+    const { path, cleanup } = fixture(`${VALID}\nresilience:\n  backoffMs: 60001\n`);
+    try {
+      expect(() => loadManifest(path)).toThrow(/resilience\.backoffMs/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('throws on fallbackModels: "a" (not a list)', () => {
+    const { path, cleanup } = fixture(`${VALID}\nresilience:\n  fallbackModels: a\n`);
+    try {
+      expect(() => loadManifest(path)).toThrow(/resilience\.fallbackModels must be a list/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('throws on fallbackModels: [1] (non-string entry)', () => {
+    const { path, cleanup } = fixture(`${VALID}\nresilience:\n  fallbackModels:\n    - 1\n`);
+    try {
+      expect(() => loadManifest(path)).toThrow(/resilience\.fallbackModels entries must be strings/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('drops blank entries from fallbackModels', () => {
+    const yaml = `${VALID}\nresilience:\n  fallbackModels:\n    - a\n    - ""\n    - "  "\n    - b\n`;
+    const { path, cleanup } = fixture(yaml);
+    try {
+      const m = loadManifest(path);
+      expect(m.resilience!.fallbackModels).toEqual(['a', 'b']);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('throws when resilience is an array (not a mapping)', () => {
+    const { path, cleanup } = fixture(`${VALID}\nresilience:\n  - a\n`);
+    try {
+      expect(() => loadManifest(path)).toThrow(/resilience must be a mapping/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('throws on six fallback models (exceeds max)', () => {
+    const yaml = `${VALID}\nresilience:\n  fallbackModels:\n    - a\n    - b\n    - c\n    - d\n    - e\n    - f\n`;
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(() => loadManifest(path)).toThrow(/resilience\.fallbackModels accepts at most 5/);
+    } finally {
+      cleanup();
+    }
+  });
+});
