@@ -14,6 +14,12 @@ import { openStore, type Store } from './store/db.js';
 import { backfillSpillOversized } from './attachments/spill.js';
 import { runImmediateTransaction } from './store/transactions.js';
 import { describeStoreOpenFailure } from './extension/storeOpenFailure.js';
+import { ticketIdArg } from './extension/ops/args.js';
+import type { Notify } from './extension/ops/notify.js';
+import { archiveTicketOp, unarchiveTicketOp, type ArchiveOpsDeps } from './extension/ops/archiveOps.js';
+import { deleteTicketOp, createFollowUpTicketOp, type LifecycleOpsDeps } from './extension/ops/lifecycleOps.js';
+import { attentionPicks, facetPicks, resolveFacetPicks } from './extension/ops/pickers.js';
+import { makePrSyncLoop } from './extension/ops/prSyncLoop.js';
 import { watchExternalChanges } from './store/externalChanges.js';
 import { SidebarViewManager } from './ui/sidebar/panel.js';
 import { makeSidebarViewHost, SIDEBAR_VIEW_ID } from './ui/sidebar/host.js';
@@ -662,6 +668,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const diagnosticLogBuffer = makeBoundedLogBuffer();
   const logger = makeLogger(channel, undefined, diagnosticLogBuffer);
   const logError: LogError = (m, e) => logger.error(m, e);
+  const notify: Notify = {
+    info: (m) => void vscode.window.showInformationMessage(m),
+    warn: (m) => void vscode.window.showWarningMessage(m),
+    error: async (m) => { await vscode.window.showErrorMessage(m); },
+  };
   // Hook-channel observation for the issue report. A failed agent-side hook says
   // only "exited with code 1"; these counters are the host's half of that.
   const hookChannelRecorder = createHookChannelRecorder();
@@ -1255,6 +1266,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const manifest = manifests.get();
     applyManifestDebug(manifest);
     return manifest;
+  };
+  const archiveDeps: ArchiveOpsDeps = {
+    store: localStore,
+    git: defaultGitRunner,
+    notify,
+    log: { info: (m) => logger.info(m), error: logError },
+    appendLine: (m) => channel.appendLine(m),
+    closeDoneTerminals: closeTicketDoneTerminals,
+    manifest: currentManifest,
+    refresh: () => provider.refresh(),
   };
   /**
    * A model FALLBACK is user-visible (§ retry and model fallback): karst is
@@ -3200,6 +3221,29 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const graphBytesRootFor = (): string | undefined => {
     const project = currentProject();
     return project ? join(context.globalStorageUri.fsPath, 'graph', project.slug) : undefined;
+  };
+  const lifecycleDeps: LifecycleOpsDeps = {
+    store: localStore,
+    notify,
+    log: { debug: (m) => logger.debug(m), warn: (m) => logger.warn(m) },
+    confirm: async (message, confirmLabel) => {
+      const choice = await vscode.window.showWarningMessage(message, { modal: true }, confirmLabel);
+      return choice === confirmLabel;
+    },
+    deleteDeps: {
+      closePanel: (id) => ticketForm.closeTicket(id),
+      reap: (id) => reapAttachments(context.globalStorageUri.fsPath, id),
+      get graphBytesRoot() { return graphBytesRootFor(); },
+      artifactsRoot: join(context.globalStorageUri.fsPath, 'artifacts'),
+    },
+    openEdit: (id) => ticketForm.openEdit(id),
+    refresh: () => provider.refresh(),
+    reloadManifest: async () => {
+      const manifest = await resolveManifest(logger.info);
+      if (manifest) manifests.set(manifest, manifestPathOrThrow());
+    },
+    projectId: () => currentProject()?.id,
+    labelTemplate: () => currentManifest()?.ticketLabelTemplate,
   };
 
   // The gate-lane AI processes' console sink (Task 13): the UAT Tester and the
@@ -5434,17 +5478,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // always has an end. A forced request that lands mid-sweep is not dropped like
   // a timer tick — it re-runs once the in-flight one finishes, because the answer
   // that sweep is producing may predate whatever the user just pushed.
-  let prSyncRunning = false;
-  let forceQueued = false;
-  const runPrSync = async (force = false): Promise<void> => {
-    const project = currentProject();
-    if (!project) return;
-    if (prSyncRunning) {
-      forceQueued ||= force;
-      return;
-    }
-    prSyncRunning = true;
-    try {
+  const runPrSync = makePrSyncLoop({
+    hasProject: () => currentProject() !== undefined,
+    onRefresh: () => { provider.refresh(); dashboard.pushAll(); },
+    onError: (e) => logError('karst: PR status sync failed', e),
+    runOnce: async (force) => {
+      const project = currentProject()!;
       const changed = await syncPrStatuses(localStore, defaultGhRunnerAsync, {
         projectId: project.id,
       });
@@ -5573,22 +5612,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           );
         }
       }
-      // A forced sweep pushes unconditionally: "nothing changed" is the answer
-      // the user asked for, and it is also what clears the panel's spinner.
-      if (force || changed > 0 || mergeChanged > 0 || landed.length > 0 || archived.length > 0 || worktreesSwept) {
-        provider.refresh();
-        dashboard.pushAll();
-      }
-    } catch (e) {
-      logError('karst: PR status sync failed', e);
-    } finally {
-      prSyncRunning = false;
-      if (forceQueued) {
-        forceQueued = false;
-        void runPrSync(true);
-      }
-    }
-  };
+      return { changed, mergeChanged, landed, archived, worktreesSwept };
+    },
+  });
   // Orphaned-port sweep: the leak class no row-based reap can see. A server
   // karst started keeps its port and its memory when its `servers` row leaves
   // with the ticket (archived, deleted, or written before `servers.cwd`
@@ -6592,23 +6618,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('karst.createFollowUpTicket', async (arg: unknown) => {
       const ticketId = ticketIdArg(arg);
       if (ticketId === undefined) return;
-      let child;
-      try {
-        child = createFollowUpTicket(localStore, ticketId, { projectId: currentProject()?.id },
-          (message) => logger.debug(message));
-      } catch (err) {
-        const message =
-          err instanceof TicketNotDoneError
-            ? err.message
-            : `Couldn't create a follow-up ticket: ${err instanceof Error ? err.message : String(err)}`;
-        void vscode.window.showErrorMessage(message);
-        return;
-      }
-      provider.refresh();
-      const manifest = await resolveManifest(logger.info);
-      if (manifest) manifests.set(manifest, manifestPathOrThrow());
-      ticketForm.openEdit(child.id);
-      void vscode.window.showInformationMessage(`Created follow-up ticket ${child.key}.`);
+      await createFollowUpTicketOp(lifecycleDeps, ticketId);
     }),
     vscode.commands.registerCommand('karst.openTicketScmDiff', async (arg: unknown) => {
       if (typeof arg !== 'string' || arg.length === 0) return;
@@ -6617,68 +6627,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('karst.archiveTicket', async (arg: unknown) => {
       const ticketId = ticketIdArg(arg);
       if (ticketId === undefined) return;
-      archiveTicket(localStore, ticketId);
-      // Setting-gated (`closeDoneTerminalsWithTicket`, OFF by default): the
-      // ticket is being closed, so its DONE terminals go with it — dead tabs
-      // whose process already exited, never a live session. A disposal failure
-      // must not fail the archive itself, so this is wrapped and reported.
-      if ((currentManifest() ?? emptyManifest()).closeDoneTerminalsWithTicket === true) {
-        try {
-          const closed = closeTicketDoneTerminals(ticketId);
-          if (closed > 0) {
-            logger.info(`karst: closed ${closed} done terminal(s) with ticket ${ticketId}`);
-          }
-        } catch (err) {
-          logError('karst: closing done terminals with ticket failed', err);
-        }
-      }
-      const manifest = currentManifest();
-      if (manifest) {
-        const allocator = makePortAllocator(localStore, manifest.portRange);
-        for (const w of listWorktreesByTicket(localStore, ticketId)) {
-          if (!w.branch) continue;
-          try {
-            const r = await archiveWorktree(defaultGitRunner, localStore, allocator, {
-              ticketId,
-              repoPath: w.repo,
-              path: w.path,
-              branch: w.branch,
-              baseRef: w.baseRef ?? w.branch,
-            });
-            // Archiving removes the tree out from under anything running in it,
-            // so whatever had to be stopped is named here. A kill that FAILED is
-            // a live server serving a deleted tree — the exact orphan this
-            // ticket exists to end — so it is a warning, not a log line.
-            for (const s of r.reapedServers) {
-              logger.info(describeReap(s));
-              if (s.outcome === 'kill-failed') {
-                void vscode.window.showWarningMessage(describeReap(s));
-              }
-            }
-          } catch (err) {
-            channel.appendLine(`archive worktree failed for ${w.path}: ${String(err)}`);
-            void vscode.window.showWarningMessage(`Worktree not archived: ${String(err)}`);
-          }
-        }
-      }
-      provider.refresh();
+      await archiveTicketOp(archiveDeps, ticketId);
     }),
     vscode.commands.registerCommand('karst.unarchiveTicket', async (arg: unknown) => {
       const ticketId = ticketIdArg(arg);
       if (ticketId === undefined) return;
-      for (const a of listArchives(localStore, ticketId)) {
-        try {
-          const r = await restoreWorktree(defaultGitRunner, localStore, { ticketId, path: a.path });
-          if (r.outcome === 'skipped') {
-            void vscode.window.showWarningMessage(`Worktree not restored: ${r.reason ?? 'unknown reason'}`);
-          }
-        } catch (err) {
-          channel.appendLine(`restore worktree failed for ${a.path}: ${String(err)}`);
-          void vscode.window.showWarningMessage(`Worktree not restored: ${String(err)}`);
-        }
-      }
-      unarchiveTicket(localStore, ticketId);
-      provider.refresh();
+      await unarchiveTicketOp(archiveDeps, ticketId);
     }),
     // Pause/unpause from the sidebar context menu. Same seam as the dashboard
     // action: the store flag is stamped BEFORE the running round is asked to
@@ -6703,30 +6657,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('karst.deleteTicket', async (arg: unknown) => {
       const ticketId = ticketIdArg(arg);
       if (ticketId === undefined) return;
-      const label = ticketLabel(getTicket(localStore, ticketId), currentManifest()?.ticketLabelTemplate);
-      // Hard delete is irreversible — confirm with a modal before removing the
-      // ticket and all its child rows.
-      const choice = await vscode.window.showWarningMessage(
-        `Permanently delete "${label}"? This cannot be undone.`,
-        { modal: true },
-        'Delete',
-      );
-      if (choice !== 'Delete') return;
-      try {
-        await deleteTicketPermanently(localStore, ticketId, {
-          closePanel: (id) => ticketForm.closeTicket(id),
-          reap: (id) => reapAttachments(context.globalStorageUri.fsPath, id),
-          graphBytesRoot: graphBytesRootFor(),
-          artifactsRoot: join(context.globalStorageUri.fsPath, 'artifacts'),
-        });
-      } catch (err) {
-        const message =
-          `Karst could not finish permanently deleting "${label}". ` +
-          `Attachment cleanup may be incomplete: ${String(err)}`;
-        logger.warn(message);
-        await vscode.window.showErrorMessage(message);
-      }
-      provider.refresh();
+      await deleteTicketOp(lifecycleDeps, ticketId);
     }),
     vscode.commands.registerCommand('karst.archiveInactiveWorktrees', async () => {
       const manifest = currentManifest();
@@ -6783,11 +6714,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return;
       }
       const picked = await vscode.window.showQuickPick(
-        items.map((i) => ({
-          label: `${i.kind === 'failed' ? '$(warning)' : '$(bell)'} ${i.key} · ${i.reason}`,
-          description: i.title,
-          ticketId: i.ticketId,
-        })),
+        attentionPicks(items),
         { placeHolder: 'Tickets needing you' },
       );
       if (picked) void vscode.commands.executeCommand('karst.openDashboard', picked.ticketId);
@@ -6811,16 +6738,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       );
       const active = new Set(provider.getFacets());
       const picks = await vscode.window.showQuickPick(
-        FACETS.map((f) => ({
-          label: f.label,
-          description: `${counts[f.key]}`,
-          facet: f.key,
-          picked: active.has(f.key),
-        })),
+        facetPicks(counts, FACETS, active),
         { placeHolder: 'Filter tickets by state (pick any)', canPickMany: true },
       );
       // `undefined` = dismissed (leave selection); an empty array = cleared → All.
-      if (picks) provider.setFacets(picks.map((p) => p.facet));
+      const facets = resolveFacetPicks(picks);
+      if (facets) provider.setFacets(facets);
     }),
     vscode.commands.registerCommand('karst.openSettings', () => {
       // Settings reads the manifest file DIRECTLY, not via resolveManifest — an
@@ -7170,20 +7093,6 @@ function worktreePathContext(
   const display = manifest.worktreePathDisplay ?? 'absolute';
   if (display !== 'relative') return undefined;
   return { display, projectRoot: folder.uri.fsPath };
-}
-
-/**
- * A ticket command arg is either a bare ticketId (webview row action posts a
- * number) or an object carrying `ticketId`. Normalize both to a ticket id, or
- * `undefined` if neither shape carries one.
- */
-function ticketIdArg(arg: unknown): number | undefined {
-  if (typeof arg === 'number') return arg;
-  if (arg && typeof arg === 'object' && 'ticketId' in arg) {
-    const id = (arg as { ticketId: unknown }).ticketId;
-    return typeof id === 'number' ? id : undefined;
-  }
-  return undefined;
 }
 
 /**

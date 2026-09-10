@@ -8,6 +8,9 @@
 - Single test: `npx vitest run src/path/to.test.ts`
 - Single e2e: `npx vitest run --config vitest.e2e.config.ts src/path/to.e2e.test.ts`
 - F5 in VS Code runs `dev:extension` (build + `rebuild:electron`) then launches the Extension Dev Host
+- `npm run test:coverage` — vitest with v8 coverage; `pretest:coverage` rebuilds better-sqlite3 for Node ABI. **Never run `npx vitest run --coverage` directly — it skips the rebuild and produces thousands of false `openStore` failures.**
+- `npm run test:mutation` — Stryker over `src/extension/**`, breaks under 70.
+- `npm run inventory:extension` — regenerates `docs/arch/extension-inventory.md`.
 
 ## Native ABI split (better-sqlite3)
 Native addon; ABI must match the runtime: **Electron** for F5, **Node** for tests.
@@ -59,6 +62,7 @@ Every UI change is judged pass/fail against `docs/ui/UI-RULES.md` (v3.0) — num
 - Strict TDD (RED→GREEN). Conventional commits. Keep files small (<400 lines typical).
 - Manifest validation tested via `loadManifest` in `manifest/load.test.ts` (no schema.test.ts).
 - `vscode`-importing modules don't load under vitest (no mock). Put testable logic in a vscode-free module (e.g. `secretStore.ts`), keep the `vscode` binding a thin wrapper (`secrets.ts`).
+- Command logic belongs in `src/extension/ops/` with a `Notify` seam. `extension.ts` handlers are bindings only. The ratchet test enforces both: line ceiling and no `vscode` under `ops/`.
 
 ## Debug Logging Rules
 - **The gate is `src/logging/logger.ts`**: `logger.debug()` is a NO-OP unless `setDebugEnabled(true)` was called (the manifest's `debug: true`, toggleable from Settings → General and re-applied on every manifest (re)load by `extension.ts`'s `applyManifestDebug`). When `debug` is off, a `debug()` call is a boolean check and a return — zero overhead; when on, entries go to the Karst output channel AND the diagnostic buffer (same sanitize/redaction pipeline as info/warn/error, so reports capture them; debug mode also raises the buffer's retention to 2000 entries / 1 MB via `setDebugRetention`).

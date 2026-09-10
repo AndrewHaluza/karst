@@ -33,7 +33,11 @@
     "rebuild:electron": "node scripts/rebuild-better-sqlite3.mjs electron",
     "rebuild:node": "node scripts/rebuild-better-sqlite3.mjs node",
     "pretest:unit": "npm run rebuild:node",
-    "dev:extension": "npm run build && npm run rebuild:electron"
+    "dev:extension": "npm run build && npm run rebuild:electron",
+    "inventory:extension": "node scripts/extension-inventory.mjs",
+    "test:mutation": "stryker run",
+    "pretest:coverage": "npm run rebuild:node",
+    "test:coverage": "vitest run --coverage"
   },
   "contributes": {
     "viewsContainers": {
@@ -241,6 +245,8 @@
   },
   "devDependencies": {
     "@electron/rebuild": "^4.2.0",
+    "@stryker-mutator/core": "^10.0.0",
+    "@stryker-mutator/vitest-runner": "^10.0.0",
     "@types/better-sqlite3": "^7.6.13",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^26.1.1",
@@ -250,7 +256,7 @@
     "@xterm/xterm": "^6.0.0",
     "esbuild": "^0.28.1",
     "tsx": "^4.23.0",
-    "typescript": "^7.0.2",
+    "typescript": "^5.8.3",
     "vitest": "^4.1.10"
   }
 }

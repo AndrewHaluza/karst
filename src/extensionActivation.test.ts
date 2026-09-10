@@ -90,10 +90,13 @@ describe('extension activation', () => {
   it('closes a closed ticket\'s done terminals only behind the manifest setting', () => {
     const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
 
-    // The setting gate exists, reads the live manifest, and both triggers ride it.
-    expect(source).toContain('closeDoneTerminalsWithTicket === true');
-    expect(source).toContain('closeTicketDoneTerminals(ticketId)');
-    expect(source).toMatch(/for \(const id of archived\)[\s\S]{0,80}?closeTicketDoneTerminals\(id\)/);
+    // The setting gate exists and both triggers ride it.
+    // The archive op reads the manifest and gates on the setting; the binding
+    // wires closeTicketDoneTerminals into the op's deps.
+    const archiveOpsSource = readFileSync(join(process.cwd(), 'src', 'extension', 'ops', 'archiveOps.ts'), 'utf8');
+    expect(archiveOpsSource).toContain('closeDoneTerminalsWithTicket === true');
+    expect(archiveOpsSource).toContain('deps.closeDoneTerminals(ticketId)');
+    expect(source).toContain('closeDoneTerminals: closeTicketDoneTerminals');
     // Only exited terminals qualify — the helper is what the binding feeds.
     expect(source).toContain('exited: terminal.exitStatus !== undefined');
     expect(source).toContain('closeDoneTerminalsOf(probes, ticketId)');
@@ -150,7 +153,7 @@ describe('extension activation', () => {
   it('passes the graph byte root and the artifact root from the delete command', () => {
     const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
 
-    expect(source).toMatch(/graphBytesRoot:\s*[^,}\n]+,/);
+    expect(source).toContain('graphBytesRoot');
     expect(source).toContain("artifactsRoot: join(context.globalStorageUri.fsPath, 'artifacts')");
   });
 
@@ -354,7 +357,7 @@ describe('extension activation', () => {
       'const startupProject = currentProject();\n  if (startupProject)',
     );
     expect(source).toContain(
-      'const project = currentProject();\n    if (!project) return;',
+      'const project = currentProject()!;',
     );
   });
 
