@@ -540,6 +540,47 @@ describe('select-gate-attempt', () => {
   });
 });
 
+describe('select-findings-repo', () => {
+  it('parses a valid string repo', () => {
+    expect(parseWebviewMessage({ type: 'select-findings-repo', stage: 'uat', repo: '/wt/web' }))
+      .toEqual({ type: 'select-findings-repo', stage: 'uat', repo: '/wt/web' });
+  });
+
+  it('parses null repo as "all"', () => {
+    expect(parseWebviewMessage({ type: 'select-findings-repo', stage: 'review', repo: null }))
+      .toEqual({ type: 'select-findings-repo', stage: 'review', repo: null });
+  });
+
+  it('drops a non-gate stage', () => {
+    for (const stage of ['ship', 'impl', 'merge', '', 'UAT']) {
+      expect(parseWebviewMessage({ type: 'select-findings-repo', stage, repo: '/a' }))
+        .toBeNull();
+    }
+  });
+
+  it('drops an empty repo string', () => {
+    expect(parseWebviewMessage({ type: 'select-findings-repo', stage: 'uat', repo: '' }))
+      .toBeNull();
+  });
+
+  it('drops a non-string non-null repo', () => {
+    expect(parseWebviewMessage({ type: 'select-findings-repo', stage: 'uat', repo: 42 }))
+      .toBeNull();
+  });
+
+  it('drops an over-long repo path', () => {
+    expect(parseWebviewMessage({
+      type: 'select-findings-repo', stage: 'review', repo: '/x'.repeat(600),
+    })).toBeNull();
+  });
+
+  it('accepts a repo at the 1024-char boundary', () => {
+    const repo = '/r' + 'e'.repeat(1022);
+    expect(parseWebviewMessage({ type: 'select-findings-repo', stage: 'uat', repo }))
+      .toEqual({ type: 'select-findings-repo', stage: 'uat', repo });
+  });
+});
+
 describe('inside-action', () => {
   it('parses the closed message: type + actionId only', () => {
     expect(parseWebviewMessage({ type: 'inside-action', actionId: 'snapshot-7:action-3' })).toEqual({

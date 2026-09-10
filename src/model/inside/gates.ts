@@ -4,6 +4,7 @@ import type { RecoveryRound } from '../../store/recoveryRounds.js';
 import type { Finding } from '../../store/reviewFindings.js';
 import type { UatFinding } from '../../store/uatFindings.js';
 import { collapseDiagnostic } from '../diagnosticText.js';
+import { sortBySeverityDesc } from '../severityOrder.js';
 import { displayStatus, type StepperCell } from '../stepper.js';
 import type { StageKey } from '../types.js';
 import { executionView, tokenView, type SessionConfiguredInput, type SessionTokensInput } from './agent.js';
@@ -272,6 +273,14 @@ export interface QualityProcessesInput {
    * the raw recorded value rather than rendering nothing.
    */
   repoNameFor?: (repo: string) => string | undefined;
+  /**
+   * The findings repo scope for this stage — a recorded repo value
+   * (`review_findings.repo` / `uat_findings.repo`, a repo PATH), or
+   * `null`/absent for every repository. A value naming a repo the current
+   * batch does not hold degrades to "all", the same way a stale attempt key
+   * degrades to latest: never an empty body, never a throw.
+   */
+  findingsRepo?: string | null;
 }
 
 /**
@@ -569,6 +578,26 @@ function servicesProcess(cell: StepperCell, services: readonly string[]): Inside
 }
 
 /**
+ * The repo scope control for a findings batch, plus the batch the control
+ * resolves to. Chips come from the UNFILTERED batch; a row naming no
+ * repository ('' or null) contributes no chip and shows only under "All".
+ */
+function scopeFindings<T extends { repo?: string | null }>(
+  batch: readonly T[],
+  requested: string | null | undefined,
+): { rows: readonly T[]; filter?: { repos: readonly string[]; selected: string | null } } {
+  const present: string[] = [];
+  for (const f of batch) {
+    const repo = f.repo ?? '';
+    if (repo.length > 0 && !present.includes(repo)) present.push(repo);
+  }
+  if (present.length < 2) return { rows: batch };
+  const selected = requested && present.includes(requested) ? requested : null;
+  const rows = selected === null ? batch : batch.filter((f) => (f.repo ?? '') === selected);
+  return { rows, filter: { repos: present, selected } };
+}
+
+/**
  * The Tester process (uat): the latest Tester run and ITS observations, by
  * process-run id — an observation from an older invocation is superseded
  * evidence, not this run's. Observations are advisory: they render as note
@@ -581,11 +610,13 @@ function testerProcess(input: QualityProcessesInput): InsideProcessView {
   const observations = run
     ? input.uatFindings.filter((f) => f.processRunId === run.id)
     : [];
+  const scoped = scopeFindings(observations, input.findingsRepo);
+  const ordered = sortBySeverityDesc(scoped.rows);
   const boundedRows = bounded(
     // Rendered by the SAME blueprint the Review findings use — severity key,
     // title, linked location — because a reader must not have to learn which
     // stage they are looking at to read a level or open a file.
-    observations.map((f): EvidenceRow => {
+    ordered.map((f): EvidenceRow => {
       const location = findingLocation(f.filePath, f.line);
       const title = collapseDiagnostic(f.title, FINDING_DETAIL_MAX);
       return {
@@ -600,6 +631,7 @@ function testerProcess(input: QualityProcessesInput): InsideProcessView {
               evidence: { source: 'uat-finding', id: f.id },
             })
           : {}),
+        ...(f.repo ? { repo: f.repo } : {}),
       };
     }),
     FINDINGS_EVIDENCE_LIMIT,
@@ -647,6 +679,7 @@ function testerProcess(input: QualityProcessesInput): InsideProcessView {
     // both stages' levels and locations, so `high` looks like `high` wherever
     // it is read. Observations are advisory, so nothing here blocks.
     evidence: { kind: 'findings', rows, blocking: 0 },
+    ...(scoped.filter ? { repoFilter: scoped.filter } : {}),
   };
 }
 
@@ -671,9 +704,13 @@ function reviewProcess(input: QualityProcessesInput): InsideProcessView {
       : run
         ? input.findings.filter((f) => f.processRunId === run.id)
         : [];
+  // blocking is the process's aggregate for the whole stage, not for the
+  // visible rows — computed from the UNFILTERED, UNBOUNDED batch.
   const blocking = batch.filter((f) => BLOCKING_STATUS_SEVERITIES.has(f.severity)).length;
+  const scoped = scopeFindings(batch, input.findingsRepo);
+  const ordered = sortBySeverityDesc(scoped.rows);
   const boundedRows = bounded(
-    batch.map((f): EvidenceRow => {
+    ordered.map((f): EvidenceRow => {
       const op = findingOp(f);
       return {
         status: op.status,
@@ -689,6 +726,7 @@ function reviewProcess(input: QualityProcessesInput): InsideProcessView {
               evidence: { source: 'review-finding', id: f.id },
             })
           : {}),
+        ...(f.repo ? { repo: f.repo } : {}),
       };
     }),
     FINDINGS_EVIDENCE_LIMIT,
@@ -733,6 +771,7 @@ function reviewProcess(input: QualityProcessesInput): InsideProcessView {
         ? { detail: NO_RUN_FOR_ATTEMPT_DETAIL }
         : {}),
     evidence: { kind: 'findings', rows, blocking },
+    ...(scoped.filter ? { repoFilter: scoped.filter } : {}),
   };
 }
 

@@ -301,6 +301,24 @@ They may intentionally use the same neutral visual treatment as another state
 when surrounding copy supplies the distinction, but must not be renamed merely
 to obtain a color.
 
+### Findings severity ramp
+
+The five-level findings severity ramp is defined once in `palette.ts` as
+`--k-sev-*` tokens, each referencing a status or text token. Both the inside
+block's evidence rows and the Artifacts panel's finding cards consume these
+tokens — a surface that maps a severity to a colour of its own is a defect.
+
+| Token | References | Meaning |
+|---|---|---|
+| `--k-sev-critical` | `var(--k-failed)` | critical — must be fixed |
+| `--k-sev-high` | `var(--k-attention)` | high — should be fixed |
+| `--k-sev-medium` | `var(--k-running)` | medium — worth fixing |
+| `--k-sev-low` | `var(--k-text-dim)` | low — minor improvement |
+| `--k-sev-info` | `var(--k-text-faint)` | info — FYI only |
+
+Findings colour comes from these tokens on every surface. A surface that maps
+a severity to a colour of its own is a defect.
+
 ---
 
 ## 3.5 Feedback

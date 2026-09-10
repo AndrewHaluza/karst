@@ -197,14 +197,14 @@ export type InsideStatus = 'pending' | 'run' | 'wait' | 'pass' | 'fail' | 'note'
 
 /**
  * A finding's level, as a CLOSED styling key. Review and UAT observations are
- * two different tables recording the same four-level vocabulary, and both
+ * two different tables recording the same five-level vocabulary, and both
  * render through one severity ramp — a reader must not have to learn which
  * stage they are looking at to know how bad "high" is.
  *
  * Anything a store hands over that is not one of these is dropped rather than
  * coerced: an unrecognised level is absence of a level, never `low`.
  */
-export type InsideSeverity = 'critical' | 'high' | 'medium' | 'low';
+export type InsideSeverity = 'critical' | 'high' | 'medium' | 'low' | 'info';
 
 /** The closed vocabulary, in one place — mirrors the union above. */
 export const INSIDE_SEVERITIES: readonly InsideSeverity[] = [
@@ -212,6 +212,7 @@ export const INSIDE_SEVERITIES: readonly InsideSeverity[] = [
   'high',
   'medium',
   'low',
+  'info',
 ] as const;
 
 /** Narrow a recorded severity to the closed styling vocabulary, or nothing. */
@@ -729,10 +730,19 @@ export interface InsideProcessView {
    * Whether this process offers the terminal console view (a gate-lane AI
    * process — the UAT Tester or the Review findings lane — that has a recorded
    * run, and therefore a persisted output tail). Host-derived: the webview
-   * renders the console button ONLY from this flag and never guesses
+   * renders the console button only from this flag and never guesses
    * availability (UI-R31). Absent → no console entry.
    */
   console?: boolean;
+  /**
+   * The repository scope control for a findings body: every repository the
+   * process's findings name (computed from the UNFILTERED batch, so the
+   * chip list never collapses to the one that is selected) and which one is
+   * showing. `selected: null` = all repositories. Absent when the batch
+   * names fewer than two distinct repositories — one chip beside "All" is
+   * a control with nothing to choose.
+   */
+  repoFilter?: { repos: readonly string[]; selected: string | null };
 }
 
 /**

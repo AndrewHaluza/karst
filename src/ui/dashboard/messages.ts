@@ -170,6 +170,15 @@ export type WebviewMessage =
    */
   | { type: 'select-gate-attempt'; stage: GateStage; key: string }
   /**
+   * Scope findings evidence to a single repository. `repo` is a recorded repo
+   * value (a path), typed and non-empty, matched the way `change-base-ref`
+   * matches its own repo — never trimmed, because a path is not free text. An
+   * explicit `null` is the "all repositories" reset and is the ONLY non-string
+   * this accepts. The host re-resolves the value against the batch it is about
+   * to render.
+   */
+  | { type: 'select-findings-repo'; stage: GateStage; repo: string | null }
+  /**
    * Change a spun ticket's base branch for one repository (§ per-repo base
    * branch — live change). `repo` is the WORKTREE's repoPath, never a
    * manifest entry name — base refs are per worktree. `rebase` defaults to ON
@@ -648,6 +657,20 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
         ? { type: 'select-gate-attempt', stage: m.stage, key }
         : null;
     }
+    // The stage is narrowed to GATE_STAGES. `repo` is a recorded repo value
+    // (a path), typed and non-empty, matched the way `change-base-ref` matches
+    // its own repo — never trimmed, because a path is not free text. An
+    // explicit `null` is the "all repositories" reset and is the ONLY
+    // non-string this accepts. The host re-resolves the value against the
+    // batch it is about to render.
+    case 'select-findings-repo': {
+      if (!isGateStage(m.stage)) return null;
+      if (m.repo === null) return { type: 'select-findings-repo', stage: m.stage, repo: null };
+      const repo = typeof m.repo === 'string' ? m.repo : '';
+      return repo.length > 0 && repo.length <= MAX_REPO_PATH_CHARS
+        ? { type: 'select-findings-repo', stage: m.stage, repo }
+        : null;
+    }
     // `repo` is the worktree's repoPath, matched like `resolve-conflicts`/
     // `merge-pr` (typed, non-empty, never trimmed — a path is not free text).
     // `baseRef` IS trimmed and must be non-blank: a blank base names nothing
@@ -720,6 +743,9 @@ const MAX_MODEL_ID_CHARS = 128;
 
 /** Longest gate attempt key accepted from a webview. Real keys are short round identifiers. */
 const MAX_GATE_ATTEMPT_KEY_CHARS = 64;
+
+/** Longest repo path accepted from a webview for findings scope. Real repo paths are moderate filesystem paths. */
+const MAX_REPO_PATH_CHARS = 1024;
 
 /**
  * Narrow an untrusted host→webview inside-progress payload to a closed

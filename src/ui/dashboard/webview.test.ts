@@ -491,12 +491,15 @@ describe('dashboard webview.html', () => {
     // its rebase switch are pure client-side draft state, answered in their
     // own branch before the posting path — only `change-base-ref` itself,
     // posted on submit, is a real host message.
+    // `artifact-findings-repo` (§ findings severity ramp) filters findings
+    // cards client-side in the Artifacts panel — no host round trip.
     const emitted = [...HTML.matchAll(/data-act="([^"$]+)"/g)]
       .map((m) => m[1]!)
       .filter(
         (act) => act !== 'preview-ticket-data'
           && act !== 'toggle-base-form'
-          && act !== 'toggle-rebase-switch',
+          && act !== 'toggle-rebase-switch'
+          && act !== 'artifact-findings-repo',
       );
     expect(emitted.length).toBeGreaterThan(0);
     for (const act of new Set(emitted)) {

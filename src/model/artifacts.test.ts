@@ -957,3 +957,98 @@ describe('pickArtifactPreviews', () => {
     expect(artifactPriority(a.kind, 'done')).toBeLessThan(artifactPriority(r.kind, 'done'));
   });
 });
+
+describe('findings sort order', () => {
+  let store: Store;
+  beforeEach(() => (store = openStore(':memory:')));
+  afterEach(() => store.close());
+
+  function stage(ticketId: number, key: string, status: string, startedAt: string | null, endedAt: string | null) {
+    setStage(store, ticketId, key as never, {
+      status: status as never,
+      startedAt,
+      endedAt,
+      attempt: 0,
+    });
+  }
+
+  function ticket(overrides: Record<string, unknown> = {}) {
+    const t = createTicket(store, { key: 'ART-SORT', title: 'sort' });
+    store.db
+      .prepare(
+        `UPDATE tickets SET stage_current = COALESCE(?, stage_current),
+                agent_provider = COALESCE(?, agent_provider),
+                session_provider = COALESCE(?, session_provider)
+         WHERE id = ?`,
+      )
+      .run(
+        (overrides.stageCurrent as string | null) ?? null,
+        (overrides.agentProvider as string | null) ?? null,
+        (overrides.sessionProvider as string | null) ?? null,
+        t.id,
+      );
+    return t;
+  }
+
+  function uatGates(ticketId: number, gates: { name: string; exitCode: number | null; skipped?: boolean }[], attempt = 0, repo = '/wt/web') {
+    recordGateRun(store, {
+      ticketId,
+      stageKey: 'uat',
+      attempt,
+      runAt: `2026-08-01T1${attempt}:00:00.000Z`,
+      gates: gates.map((g) => ({ gateName: g.name, exitCode: g.exitCode, repo, skipped: g.skipped })),
+    });
+  }
+
+  it('sorts review findings worst-first so a critical reported last appears first', () => {
+    const t = ticket({ stageCurrent: 'review' });
+    stage(t.id, 'review', 'passed', '2026-08-01T09:00:00.000Z', '2026-08-01T09:30:00.000Z');
+    recordGateRun(store, {
+      ticketId: t.id,
+      stageKey: 'review',
+      attempt: 0,
+      runAt: '2026-08-01T09:10:00.000Z',
+      gates: [{ gateName: 'lint', exitCode: 0, repo: '/wt/web' }],
+    });
+    recordFindings(store, {
+      ticketId: t.id,
+      attempt: 0,
+      runAt: '2026-08-01T09:10:00.000Z',
+      findings: [
+        { severity: 'info', repo: '/wt/web', title: 'info', detail: '', source: 'agent' },
+        { severity: 'critical', repo: '/wt/web', title: 'crit', detail: '', source: 'agent' },
+        { severity: 'low', repo: '/wt/web', title: 'low', detail: '', source: 'agent' },
+      ],
+    });
+    const [a] = buildTicketArtifacts(store, t.id) as [ArtifactSummary];
+    expect(a.findings[0]).toMatchObject({ severity: 'critical', title: 'crit' });
+    expect(a.findings[1]).toMatchObject({ severity: 'low', title: 'low' });
+    expect(a.findings[2]).toMatchObject({ severity: 'info', title: 'info' });
+  });
+
+  it('sorts UAT findings worst-first', () => {
+    const t = ticket({ stageCurrent: 'uat' });
+    stage(t.id, 'uat', 'passed', '2026-08-01T09:00:00.000Z', '2026-08-01T10:00:00.000Z');
+    uatGates(t.id, [{ name: 'test', exitCode: 0 }]);
+    const run = openProcessRun(store, {
+      ticketId: t.id,
+      stageKey: 'uat',
+      processId: 'tester',
+      attempt: 0,
+      startedAt: '2026-08-01T09:05:00.000Z',
+    });
+    finishProcessRun(store, run.id, 'passed', '2026-08-01T09:55:00.000Z');
+    recordUatFindings(store, {
+      ticketId: t.id,
+      processRunId: run.id,
+      createdAt: '2026-08-01T09:50:00.000Z',
+      findings: [
+        { severity: 'medium', title: 'med' },
+        { severity: 'critical', title: 'crit' },
+      ],
+    });
+    const [a] = buildTicketArtifacts(store, t.id) as [ArtifactSummary];
+    expect(a.findings[0]).toMatchObject({ severity: 'critical', title: 'crit' });
+    expect(a.findings[1]).toMatchObject({ severity: 'medium', title: 'med' });
+  });
+});

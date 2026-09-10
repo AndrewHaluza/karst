@@ -19,6 +19,13 @@ describe('paletteCss', () => {
     expect(css).not.toContain('#8b8b8b');
   });
 
+  it('defines the five findings-severity tokens as var(--k-*) references', () => {
+    const sevTokens = ['--k-sev-critical', '--k-sev-high', '--k-sev-medium', '--k-sev-low', '--k-sev-info'];
+    for (const tok of sevTokens) {
+      expect(css).toContain(`${tok}:var(--k-`);
+    }
+  });
+
   it('aliases the legacy --g-*/--st-* names to the unified tokens', () => {
     expect(css).toContain('--g-done:var(--k-passed)');
     expect(css).toContain('--st-done:var(--k-passed)');

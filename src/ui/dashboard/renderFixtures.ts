@@ -360,6 +360,7 @@ function reviewView(n: RenderRepoCount): InsideStageView {
   // The level rides its own closed `severity` key (the ramp's styling input)
   // and the location rides `location` (the row's link) — neither is parsed out
   // of the title, which is untrusted agent prose (869egdr2u-fu2).
+  // Five levels, two repos — covers the full severity ramp and the chip row.
   const findings: EvidenceRow[] = [
     {
       status: 'fail',
@@ -368,6 +369,7 @@ function reviewView(n: RenderRepoCount): InsideStageView {
       detail: HOSTILE_TITLE,
       location: LONG_PATH,
       action: fixtureAction('open-file', 1),
+      repo: '/wt/web',
     },
     {
       status: 'fail',
@@ -376,6 +378,7 @@ function reviewView(n: RenderRepoCount): InsideStageView {
       detail: 'SQL injection in query builder',
       location: 'src/db/query.ts:41',
       action: fixtureAction('open-file', 2),
+      repo: '/wt/web',
     },
     {
       status: 'note',
@@ -384,6 +387,22 @@ function reviewView(n: RenderRepoCount): InsideStageView {
       detail: 'N+1 query in ticket list',
       location: 'src/store/tickets.ts:88',
       action: fixtureAction('open-file', 3),
+      repo: '/wt/api',
+    },
+    {
+      status: 'note',
+      label: 'low',
+      severity: 'low',
+      detail: 'Unused import in helper',
+      location: 'src/util/helpers.ts:5',
+      repo: '/wt/api',
+    },
+    {
+      status: 'note',
+      label: 'info',
+      severity: 'info',
+      detail: 'Consider extracting to shared util',
+      repo: '/wt/web',
     },
   ];
   return {
@@ -426,6 +445,7 @@ function reviewView(n: RenderRepoCount): InsideStageView {
         // renders the review process's console button from this host flag.
         console: true,
         evidence: { kind: 'findings', rows: boundedRows(findings, FINDINGS_LIMIT), blocking: 2 },
+        repoFilter: { repos: ['/wt/web', '/wt/api'], selected: null },
       },
     ],
     blurb: STAGE_BLURBS.review,
