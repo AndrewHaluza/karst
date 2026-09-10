@@ -320,9 +320,15 @@ describe('defaultGitRunner', () => {
 
   it('leaves the event loop free while git runs', async () => {
     let ticks = 0;
-    const timer = setInterval(() => (ticks += 1), 10);
-    await runGit(['log', '--oneline', '-n', '200'], process.cwd());
+    const timer = setInterval(() => (ticks += 1), 5);
+    // A git command that takes a while — a shell alias that sleeps — so a
+    // blocking (spawnSync) runner would starve the interval while the async
+    // runner lets it keep ticking. Plain `git log` finishes in a few ms on a
+    // warm checkout, which is too fast to observe the free loop on a fast
+    // machine (ticks === 0) — the sleep makes the property actually testable.
+    const r = await runGit(['-c', 'alias.linger=!sleep 0.3', 'linger'], process.cwd());
     clearInterval(timer);
+    expect(r.exitCode).toBe(0);
     expect(ticks).toBeGreaterThan(0);
   });
 

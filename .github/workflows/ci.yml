@@ -1,0 +1,105 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main, develop]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Typecheck, build, unit, e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      # A fresh runner has no global git identity and no init.defaultBranch.
+      # Most test fixtures configure a repo-local identity themselves, but any
+      # that commit without one fail with "Author identity unknown", which is
+      # an opaque failure to diagnose from a CI log.
+      - name: Configure git for test fixtures
+        run: |
+          git config --global user.name "karst-ci"
+          git config --global user.email "ci@karst.invalid"
+          git config --global init.defaultBranch main
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      # `pretest:unit` rebuilds better-sqlite3 for the Node ABI. The e2e suite
+      # has no such hook of its own, so it MUST run after this step — see the
+      # note in the plan's Constraints.
+      - name: Unit tests
+        run: npm run test:unit
+
+      - name: E2E tests
+        run: npm run test:e2e
+
+  mutation:
+    name: Mutation score (advisory)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      # Stryker runs vitest, which loads better-sqlite3, and `test:mutation`
+      # has no pre-hook of its own. Rebuild explicitly.
+      - name: Rebuild better-sqlite3 for the Node ABI
+        run: npm run rebuild:node
+
+      # Advisory only: the score is global across src/extension/**, so a PR
+      # can drop it with debt it did not create. Never fail the check.
+      - name: Run Stryker
+        id: stryker
+        continue-on-error: true
+        run: npm run test:mutation
+
+      - name: Publish score to the run summary
+        if: always()
+        run: |
+          {
+            echo '## Mutation score'
+            echo
+            if [ -f reports/mutation/mutation.json ]; then
+              echo 'See the uploaded `mutation-report` artifact for the full HTML report.'
+            else
+              echo 'Stryker produced no JSON report.'
+            fi
+            echo
+            echo "Stryker step outcome: \`${{ steps.stryker.outcome }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the HTML report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-report
+          path: reports/mutation/
+          if-no-files-found: ignore
+          retention-days: 14
