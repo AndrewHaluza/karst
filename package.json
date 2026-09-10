@@ -33,7 +33,8 @@
     "rebuild:electron": "node scripts/rebuild-better-sqlite3.mjs electron",
     "rebuild:node": "node scripts/rebuild-better-sqlite3.mjs node",
     "pretest:unit": "npm run rebuild:node",
-    "dev:extension": "npm run build && npm run rebuild:electron"
+    "dev:extension": "npm run build && npm run rebuild:electron",
+    "inventory:extension": "node scripts/extension-inventory.mjs"
   },
   "contributes": {
     "viewsContainers": {
