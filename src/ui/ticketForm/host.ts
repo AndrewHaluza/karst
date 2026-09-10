@@ -2,11 +2,7 @@ import * as vscode from 'vscode';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { TicketFormPanel, TicketFormPanelHost } from './panel.js';
-import { injectPalette } from '../../model/palette.js';
-import { injectDesignSystem } from '../../model/designSystem.js';
-import { injectProviderIdentity } from '../../model/providerIdentity.js';
-import { injectAgentIdentity } from '../../model/agentIdentity.js';
-import { injectAgentPicker } from '../../model/agentPicker.js';
+import { hydrateWebview } from '../../model/webviewChains.js';
 import { injectCsp, newNonce } from '../../model/csp.js';
 import { attachmentsRoot } from '../../attachments/paths.js';
 import type { BrandIconPaths } from '../brandIcon.js';
@@ -27,9 +23,7 @@ export function makeTicketFormPanelHost(
   context: vscode.ExtensionContext,
   brandIcon?: BrandIconPaths,
 ): TicketFormPanelHost {
-  const html = injectAgentPicker(injectAgentIdentity(injectProviderIdentity(
-    injectPalette(injectDesignSystem(readFileSync(join(RUNTIME_ASSETS_ROOT, 'ui', 'ticketForm', 'webview.html'), 'utf8'))),
-  )));
+  const html = hydrateWebview('ticketForm', readFileSync(join(RUNTIME_ASSETS_ROOT, 'ui', 'ticketForm', 'webview.html'), 'utf8'));
   return {
     createPanel(title: string): TicketFormPanel {
       const panel = vscode.window.createWebviewPanel(

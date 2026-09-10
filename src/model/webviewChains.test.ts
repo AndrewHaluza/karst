@@ -181,3 +181,26 @@ describe.each(WEBVIEW_NAMES)('hydrateWebview — %s', (name) => {
     expect(result).toContain('--k-');
   });
 });
+
+describe('no inline composition', () => {
+  it('hosts do not directly call injectDesignSystem or injectPalette', () => {
+    const files = [
+      'src/extension.ts',
+      'src/ui/sidebar/host.ts',
+      'src/ui/settings/host.ts',
+      'src/ui/ticketForm/host.ts',
+      'src/ui/gettingStarted/host.ts',
+    ];
+    const violations: string[] = [];
+    for (const rel of files) {
+      const content = readFileSync(join(process.cwd(), rel), 'utf8');
+      if (/injectDesignSystem\(/.test(content) || /injectPalette\(/.test(content)) {
+        violations.push(rel);
+      }
+    }
+    expect(
+      violations,
+      `files with inline composition (add a chain to webviewChains.ts instead): ${violations.join(', ')}`,
+    ).toEqual([]);
+  });
+});

@@ -460,12 +460,8 @@ import {
   makeLogger,
   type LogError,
 } from './logging/logger.js';
-import { injectPalette } from './model/palette.js';
-import { injectDesignSystem } from './model/designSystem.js';
 import { injectCsp, newNonce } from './model/csp.js';
-import { injectProviderIdentity } from './model/providerIdentity.js';
-import { injectAgentIdentity } from './model/agentIdentity.js';
-import { injectAgentPicker } from './model/agentPicker.js';
+import { hydrateWebview } from './model/webviewChains.js';
 import { RUNTIME_ASSETS_ROOT } from './runtimeAssetsRoot.js';
 import { injectXterm, readXtermAssets } from './model/xtermAssets.js';
 import { buildTicketArtifacts } from './model/artifacts.js';
@@ -7244,13 +7240,7 @@ function buildCliConflictBriefPrefix(context: vscode.ExtensionContext, dbPath: s
  * failing to open at all.
  */
 function dashboardWebviewHtml(warn: (message: string) => void): string {
-  let html = injectAgentPicker(injectAgentIdentity(
-    injectProviderIdentity(
-      injectPalette(
-        injectDesignSystem(readFileSync(join(RUNTIME_ASSETS_ROOT, 'ui', 'dashboard', 'webview.html'), 'utf8')),
-      ),
-    ),
-  ));
+  let html = hydrateWebview('dashboard', readFileSync(join(RUNTIME_ASSETS_ROOT, 'ui', 'dashboard', 'webview.html'), 'utf8'));
   try {
     html = injectXterm(html, readXtermAssets(join(RUNTIME_ASSETS_ROOT, 'vendor', 'xterm')));
   } catch (e) {
@@ -7313,9 +7303,7 @@ function makeUsagePanelHost(
   context: vscode.ExtensionContext,
   brandIcon?: BrandIconPaths,
 ): UsagePanelHost {
-  const html = injectPalette(
-    injectDesignSystem(readFileSync(join(RUNTIME_ASSETS_ROOT, 'ui', 'usage', 'webview.html'), 'utf8')),
-  );
+  const html = hydrateWebview('usage', readFileSync(join(RUNTIME_ASSETS_ROOT, 'ui', 'usage', 'webview.html'), 'utf8'));
   return {
     createPanel(title): UsagePanel {
       const panel = vscode.window.createWebviewPanel(
@@ -7344,9 +7332,7 @@ function makeResourcesPanelHost(
   context: vscode.ExtensionContext,
   brandIcon?: BrandIconPaths,
 ): ResourcesPanelHost {
-  const html = injectPalette(
-    injectDesignSystem(readFileSync(join(RUNTIME_ASSETS_ROOT, 'ui', 'resources', 'webview.html'), 'utf8')),
-  );
+  const html = hydrateWebview('resources', readFileSync(join(RUNTIME_ASSETS_ROOT, 'ui', 'resources', 'webview.html'), 'utf8'));
   return {
     createPanel(title): ResourcesPanel {
       const panel = vscode.window.createWebviewPanel(
@@ -7374,9 +7360,7 @@ function makeChangesPanelHost(
   context: vscode.ExtensionContext,
   brandIcon?: BrandIconPaths,
 ): ChangesPanelHost {
-  const html = injectPalette(
-    injectDesignSystem(readFileSync(join(RUNTIME_ASSETS_ROOT, 'ui', 'diffs', 'webview.html'), 'utf8')),
-  );
+  const html = hydrateWebview('diffs', readFileSync(join(RUNTIME_ASSETS_ROOT, 'ui', 'diffs', 'webview.html'), 'utf8'));
   return {
     createPanel(title, _ticketId): ChangesPanel {
       const panel = vscode.window.createWebviewPanel(
