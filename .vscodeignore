@@ -3,6 +3,9 @@ src/**
 tsconfig.json
 tsconfig.build.json
 vitest.config.ts
+vitest.e2e.config.ts
+vitest.mutation.config.ts
+stryker.config.json
 
 # Tests + coverage
 **/*.test.ts
@@ -22,6 +25,24 @@ scripts/**
 # switches vsce OFF .gitignore entirely, so .karst being git-ignored is not
 # enough to keep it out of the package.
 .karst/**
+
+# Secrets and local env. A .vscodeignore switches vsce OFF .gitignore
+# entirely (see the .karst/** note above), so `.env.local` being git-ignored is
+# NOT enough to keep it out of the package — it shipped inside the vsix and
+# unpacked into the installed extension directory until this line existed.
+.env
+.env.*
+
+# opencode's own npm install: an entire second dependency tree that the
+# extension never loads. It was 3510 of the vsix's 4025 files (51MB of 21.67MB
+# packaged) and dominated `vsce package` wall time. Only `.opencode/commands/`
+# is tracked; the rest is untracked working state, same as .karst/**.
+.opencode/**
+
+# Generated reports: stryker mutation HTML/JSON (`npm run test:mutation`) and
+# any coverage output landing here. Git-ignored, and therefore — see above —
+# packaged unless named explicitly.
+reports/**
 
 # VCS / lockfile
 .git/**
