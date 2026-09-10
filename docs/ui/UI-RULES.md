@@ -30,7 +30,9 @@ A unit, fake-DOM, integration, or protocol test is required.
 ### VISUAL
 
 A real VS Code/webview review is required because source inspection cannot prove
-the rendered property.
+the rendered property.  The visual sweep covers 14 of 15 VISUAL rules — see
+[VISUAL-COVERAGE.md](VISUAL-COVERAGE.md) for the binding coverage table and
+how to update a baseline.
 
 ### REVIEW
 
