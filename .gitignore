@@ -59,3 +59,6 @@ docs/design/stages/_harness-shipped.html
 karst.db
 karst.db-shm
 karst.db-wal
+
+# Local, uncommitted config (e.g. KARST_REMOTE_HOST for scripts/package-remote.sh)
+.env.local
