@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /**
  * Drives the dashboard fixture corpus through the shared jsdom render harness.
  *

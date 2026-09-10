@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /**
  * Cross-view RUNTIME conformance sweep — the RUNTIME counterpart of
  * `conformance.test.ts`.

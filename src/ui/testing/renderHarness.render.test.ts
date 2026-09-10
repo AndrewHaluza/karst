@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /**
  * Proves the shared jsdom render harness on every webview and the dashboard
  * fixture corpus.

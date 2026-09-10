@@ -6,6 +6,13 @@
  * jsdom render harness both consume this table.  There is one table; there is
  * no second composition to keep in sync.
  *
+ * The existing `runInNewContext` VM harnesses (dashboard, diffs, settings
+ * webview.test.ts) still compose injectors inline for direct unit assertions
+ * on internal functions (esc, fileMatches, …) — a capability the jsdom
+ * harness deliberately does not have.  Migrating or deleting them is per-view
+ * work in FEAT-37; both harnesses are legitimate and answer different
+ * questions.
+ *
  * `injectCsp` is NOT part of the chain — it runs at panel-creation time with
  * a fresh nonce, not at hydration time.  `injectXterm` is likewise excluded:
  * it needs on-disk vendor assets and a `warn` seam that belong to the
