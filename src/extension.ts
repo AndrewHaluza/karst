@@ -1388,13 +1388,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   /**
    * Task 3: the configured ticket-analysis process for the ticket form
-   * (nullable). The analyzer runs through the SETTINGS Ticket-analysis
-   * assignment: `processFor` resolves the assigned profile's body as the
-   * analysis `instructions`,
-   * so changing the Settings → Agents → Inside process assignments →
-   * Ticket analysis profile changes what the form's Improve / auto-improve
-   * asks — the selected agent IS the difference. The ticket's own
-   * `single-subagent` pick drives the SESSION, never this headless analysis.
+   * (nullable). The two-pass Improve flow resolves the SETTINGS Ticket-analysis
+   * assignment: `processFor` resolves the assigned profile's body as
+   * `instructions`, which drives the description-improve sub-pass (the
+   * profile body is the improve prompt, not the classify strategy). The
+   * classify sub-pass is always the built-in analyzer. Changing the Settings
+   * → Agents → Inside process assignments → Ticket analysis profile changes
+   * what the form's Improve / auto-improve rewrites the description with.
+   * The ticket's own `single-subagent` pick drives the SESSION, never this
+   * headless analysis.
    */
   const analysisProcess = (ticketId: number): DriveProcessBundle | null =>
     processFor(ticketId, 'ticket-analysis');

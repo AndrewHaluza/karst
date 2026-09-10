@@ -71,13 +71,11 @@ export interface AnalyzeInput {
    */
   effort?: string;
   /**
-   * The effective analysis instructions: the resolved body of the SETTINGS
-   * Ticket-analysis profile (`processes.ticketAnalysis.agent`), or the
-   * author-declared `processes.ticketAnalysis.instructions` — resolved
-   * host-side by `processFor`. REPLACES the built-in role/strategy block of
-   * the prompt — the contract block (approach-agnostic and service-agnostic
-   * constraints), the input facts and the JSON output contract are never
-   * replaced. Blank/absent → the built-in analyzer prompt.
+   * Retained as a public parameter exercised by `analyze.test.ts`. In
+   * production the classify pass is ALWAYS the built-in analyzer — no caller
+   * passes `instructions`. The Settings profile body now drives the
+   * description-improve pass (`improveDescription`), not this function.
+   * Blank/absent → the built-in analyzer prompt.
    */
   instructions?: string;
 }

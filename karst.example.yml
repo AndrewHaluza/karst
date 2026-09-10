@@ -259,25 +259,27 @@ agents:
 #
 # `agent` names a profile from the agent POOL — a local file under agentsDir
 # (create one with Settings → Agents → "+ Add agent") or an approach-owned
-# agent. The profile's BODY IS the process's prompt: it is resolved at the
-# execution boundary and REPLACES the built-in role/strategy section, so the
-# assigned profile makes the difference in what the process asks — a custom
-# Ticket-analysis agent drives the ticket form's Improve/auto-improve, a custom
-# UAT/Review agent drives those gates' headless prompts. Pool membership is
-# checked in Settings (an unknown name shows "unknown profile" inline), not at
-# load, because the pool lives on the filesystem. `agentName` overrides only the
-# display snapshot; blanks keep the defaults. `provider`/`model` beat the
-# ticket and manifest defaults; `enabled: false` turns the assignment off.
-# There is no inline `instructions:` key — the profile body is the only prompt
-# source, so what Settings shows and what runs cannot disagree. A file that
-# still carries one keeps loading; karst reports it at load and drops it on the
-# next Settings save.
+# agent. The profile's body is the process's prompt for prompt-BEARING roles:
+# for Ticket analysis, the body drives the description-improve sub-pass (the
+# classify sub-pass is always the built-in analyzer); for uatTester and review,
+# the body drives the headless prompt. Pool membership is checked in Settings
+# (an unknown name shows "unknown profile" inline), not at load, because the
+# pool lives on the filesystem. `agentName` overrides only the display
+# snapshot; blanks keep the defaults. `provider`/`model` beat the ticket and
+# manifest defaults; `enabled: false` turns the assignment off. There is no
+# inline `instructions:` key — the profile body is the only prompt source, so
+# what Settings shows and what runs cannot disagree. A file that still carries
+# one keeps loading; karst reports it at load and drops it on the next
+# Settings save.
 #
-# Wiring notes: the profile body drives the PROMPT-BEARING roles — Ticket
-# analysis, uatTester, review (their headless calls run with the profile body).
-# The interactive Fix roles (uatFix / reviewFix) and prDescription consume only
-# the profile's provider/model/name snapshot today, not its body — their
-# prompts are fixed (pr-description) or the session's own (fix).
+# Wiring notes: the profile body drives the description-improve sub-pass of
+# Ticket analysis — the two-pass Improve flow runs classify (always the
+# built-in analyzer) then improve (the profile body as its prompt, with the
+# project root as cwd so reference lookups resolve). For uatTester and review,
+# the profile body drives those gates' headless prompts. The interactive Fix
+# roles (uatFix / reviewFix) and prDescription consume only the profile's
+# provider/model/name snapshot today, not its body — their prompts are fixed
+# (pr-description) or the session's own (fix).
 #
 # processes:
 #   uatTester:
@@ -292,6 +294,8 @@ agents:
 #   ticketAnalysis: { agent: description-improver, provider: codex, model: gpt-5.6-sol }
 #     # ^ the agent must EXIST in your pool (Settings shows "unknown profile"
 #     # otherwise and the analysis silently keeps the built-in prompt).
+#     # The profile body drives the description-improve pass; approach/repo/type
+#     # classification is always the built-in analyzer.
 
 # UAT gates. Step-by-step runbook for this block and `review:` below (which
 # stage a check belongs to, script vs command gates, the independent-signal
