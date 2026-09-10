@@ -11,6 +11,7 @@
 - `npm run test:coverage` — vitest with v8 coverage; `pretest:coverage` rebuilds better-sqlite3 for Node ABI. **Never run `npx vitest run --coverage` directly — it skips the rebuild and produces thousands of false `openStore` failures.**
 - `npm run test:mutation` — Stryker over `src/extension/**`, breaks under 70.
 - `npm run inventory:extension` — regenerates `docs/arch/extension-inventory.md`.
+- CI: `.github/workflows/ci.yml` runs typecheck + build + `test:unit` + `test:e2e` on every PR to `main`/`develop` (blocking), plus an advisory mutation-score job on PRs only that never fails the check.
 
 ## Native ABI split (better-sqlite3)
 Native addon; ABI must match the runtime: **Electron** for F5, **Node** for tests.
