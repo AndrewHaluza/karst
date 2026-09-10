@@ -16,6 +16,7 @@ import { runImmediateTransaction } from './store/transactions.js';
 import { describeStoreOpenFailure } from './extension/storeOpenFailure.js';
 import { ticketIdArg } from './extension/ops/args.js';
 import type { Notify } from './extension/ops/notify.js';
+import { archiveTicketOp, unarchiveTicketOp, type ArchiveOpsDeps } from './extension/ops/archiveOps.js';
 import { watchExternalChanges } from './store/externalChanges.js';
 import { SidebarViewManager } from './ui/sidebar/panel.js';
 import { makeSidebarViewHost, SIDEBAR_VIEW_ID } from './ui/sidebar/host.js';
@@ -1262,6 +1263,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const manifest = manifests.get();
     applyManifestDebug(manifest);
     return manifest;
+  };
+  const archiveDeps: ArchiveOpsDeps = {
+    store: localStore,
+    git: defaultGitRunner,
+    notify,
+    log: { info: (m) => logger.info(m), error: logError },
+    appendLine: (m) => channel.appendLine(m),
+    closeDoneTerminals: closeTicketDoneTerminals,
+    manifest: currentManifest,
+    refresh: () => provider.refresh(),
   };
   /**
    * A model FALLBACK is user-visible (§ retry and model fallback): karst is
@@ -6624,68 +6635,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('karst.archiveTicket', async (arg: unknown) => {
       const ticketId = ticketIdArg(arg);
       if (ticketId === undefined) return;
-      archiveTicket(localStore, ticketId);
-      // Setting-gated (`closeDoneTerminalsWithTicket`, OFF by default): the
-      // ticket is being closed, so its DONE terminals go with it — dead tabs
-      // whose process already exited, never a live session. A disposal failure
-      // must not fail the archive itself, so this is wrapped and reported.
-      if ((currentManifest() ?? emptyManifest()).closeDoneTerminalsWithTicket === true) {
-        try {
-          const closed = closeTicketDoneTerminals(ticketId);
-          if (closed > 0) {
-            logger.info(`karst: closed ${closed} done terminal(s) with ticket ${ticketId}`);
-          }
-        } catch (err) {
-          logError('karst: closing done terminals with ticket failed', err);
-        }
-      }
-      const manifest = currentManifest();
-      if (manifest) {
-        const allocator = makePortAllocator(localStore, manifest.portRange);
-        for (const w of listWorktreesByTicket(localStore, ticketId)) {
-          if (!w.branch) continue;
-          try {
-            const r = await archiveWorktree(defaultGitRunner, localStore, allocator, {
-              ticketId,
-              repoPath: w.repo,
-              path: w.path,
-              branch: w.branch,
-              baseRef: w.baseRef ?? w.branch,
-            });
-            // Archiving removes the tree out from under anything running in it,
-            // so whatever had to be stopped is named here. A kill that FAILED is
-            // a live server serving a deleted tree — the exact orphan this
-            // ticket exists to end — so it is a warning, not a log line.
-            for (const s of r.reapedServers) {
-              logger.info(describeReap(s));
-              if (s.outcome === 'kill-failed') {
-                void vscode.window.showWarningMessage(describeReap(s));
-              }
-            }
-          } catch (err) {
-            channel.appendLine(`archive worktree failed for ${w.path}: ${String(err)}`);
-            void vscode.window.showWarningMessage(`Worktree not archived: ${String(err)}`);
-          }
-        }
-      }
-      provider.refresh();
+      await archiveTicketOp(archiveDeps, ticketId);
     }),
     vscode.commands.registerCommand('karst.unarchiveTicket', async (arg: unknown) => {
       const ticketId = ticketIdArg(arg);
       if (ticketId === undefined) return;
-      for (const a of listArchives(localStore, ticketId)) {
-        try {
-          const r = await restoreWorktree(defaultGitRunner, localStore, { ticketId, path: a.path });
-          if (r.outcome === 'skipped') {
-            void vscode.window.showWarningMessage(`Worktree not restored: ${r.reason ?? 'unknown reason'}`);
-          }
-        } catch (err) {
-          channel.appendLine(`restore worktree failed for ${a.path}: ${String(err)}`);
-          void vscode.window.showWarningMessage(`Worktree not restored: ${String(err)}`);
-        }
-      }
-      unarchiveTicket(localStore, ticketId);
-      provider.refresh();
+      await unarchiveTicketOp(archiveDeps, ticketId);
     }),
     // Pause/unpause from the sidebar context menu. Same seam as the dashboard
     // action: the store flag is stamped BEFORE the running round is asked to
