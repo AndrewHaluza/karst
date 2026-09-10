@@ -18,6 +18,8 @@ import { ticketIdArg } from './extension/ops/args.js';
 import type { Notify } from './extension/ops/notify.js';
 import { archiveTicketOp, unarchiveTicketOp, type ArchiveOpsDeps } from './extension/ops/archiveOps.js';
 import { deleteTicketOp, createFollowUpTicketOp, type LifecycleOpsDeps } from './extension/ops/lifecycleOps.js';
+import { attentionPicks, facetPicks, resolveFacetPicks } from './extension/ops/pickers.js';
+import { makePrSyncLoop } from './extension/ops/prSyncLoop.js';
 import { watchExternalChanges } from './store/externalChanges.js';
 import { SidebarViewManager } from './ui/sidebar/panel.js';
 import { makeSidebarViewHost, SIDEBAR_VIEW_ID } from './ui/sidebar/host.js';
@@ -5476,17 +5478,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // always has an end. A forced request that lands mid-sweep is not dropped like
   // a timer tick — it re-runs once the in-flight one finishes, because the answer
   // that sweep is producing may predate whatever the user just pushed.
-  let prSyncRunning = false;
-  let forceQueued = false;
-  const runPrSync = async (force = false): Promise<void> => {
-    const project = currentProject();
-    if (!project) return;
-    if (prSyncRunning) {
-      forceQueued ||= force;
-      return;
-    }
-    prSyncRunning = true;
-    try {
+  const runPrSync = makePrSyncLoop({
+    hasProject: () => currentProject() !== undefined,
+    onRefresh: () => { provider.refresh(); dashboard.pushAll(); },
+    onError: (e) => logError('karst: PR status sync failed', e),
+    runOnce: async (force) => {
+      const project = currentProject()!;
       const changed = await syncPrStatuses(localStore, defaultGhRunnerAsync, {
         projectId: project.id,
       });
@@ -5615,22 +5612,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           );
         }
       }
-      // A forced sweep pushes unconditionally: "nothing changed" is the answer
-      // the user asked for, and it is also what clears the panel's spinner.
-      if (force || changed > 0 || mergeChanged > 0 || landed.length > 0 || archived.length > 0 || worktreesSwept) {
-        provider.refresh();
-        dashboard.pushAll();
-      }
-    } catch (e) {
-      logError('karst: PR status sync failed', e);
-    } finally {
-      prSyncRunning = false;
-      if (forceQueued) {
-        forceQueued = false;
-        void runPrSync(true);
-      }
-    }
-  };
+      return { changed, mergeChanged, landed, archived, worktreesSwept };
+    },
+  });
   // Orphaned-port sweep: the leak class no row-based reap can see. A server
   // karst started keeps its port and its memory when its `servers` row leaves
   // with the ticket (archived, deleted, or written before `servers.cwd`
@@ -6730,11 +6714,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return;
       }
       const picked = await vscode.window.showQuickPick(
-        items.map((i) => ({
-          label: `${i.kind === 'failed' ? '$(warning)' : '$(bell)'} ${i.key} · ${i.reason}`,
-          description: i.title,
-          ticketId: i.ticketId,
-        })),
+        attentionPicks(items),
         { placeHolder: 'Tickets needing you' },
       );
       if (picked) void vscode.commands.executeCommand('karst.openDashboard', picked.ticketId);
@@ -6758,16 +6738,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       );
       const active = new Set(provider.getFacets());
       const picks = await vscode.window.showQuickPick(
-        FACETS.map((f) => ({
-          label: f.label,
-          description: `${counts[f.key]}`,
-          facet: f.key,
-          picked: active.has(f.key),
-        })),
+        facetPicks(counts, FACETS, active),
         { placeHolder: 'Filter tickets by state (pick any)', canPickMany: true },
       );
       // `undefined` = dismissed (leave selection); an empty array = cleared → All.
-      if (picks) provider.setFacets(picks.map((p) => p.facet));
+      const facets = resolveFacetPicks(picks);
+      if (facets) provider.setFacets(facets);
     }),
     vscode.commands.registerCommand('karst.openSettings', () => {
       // Settings reads the manifest file DIRECTLY, not via resolveManifest — an

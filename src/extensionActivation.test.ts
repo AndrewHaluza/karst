@@ -357,7 +357,7 @@ describe('extension activation', () => {
       'const startupProject = currentProject();\n  if (startupProject)',
     );
     expect(source).toContain(
-      'const project = currentProject();\n    if (!project) return;',
+      'const project = currentProject()!;',
     );
   });
 
