@@ -13,6 +13,10 @@ import { defineConfig, devices } from '@playwright/test';
  *   dark-grayscale             — dark + CSS grayscale filter, status spec only (UI-R28)
  *   dark-reduced-motion        — dark + prefers-reduced-motion, status spec only (UI-R30)
  *   catalog                    — the standalone catalog page, dark only (D15)
+ *
+ * CI wiring (out of scope for this ticket — no .github/workflows/ exists yet):
+ *   npm run install:visual-browsers   # one-time Chromium download
+ *   npm run test:visual               # run the sweep (exits non-zero on diff)
  */
 export default defineConfig({
   testDir: 'tests/visual',

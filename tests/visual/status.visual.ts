@@ -1,8 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { test as karstTest } from './fixtures.js';
-import type { ThemeId } from './themes.js';
 
-const STATUS_PROJECTS: readonly string[] = ['dark', 'dark-grayscale', 'dark-reduced-motion'];
+const STATUS_PROJECTS = new Set(['dark', 'dark-grayscale', 'dark-reduced-motion']);
 
 /**
  * Status/state surface screenshots for UI-R28 (grayscale) and UI-R30
@@ -16,15 +15,22 @@ const STATUS_PROJECTS: readonly string[] = ['dark', 'dark-grayscale', 'dark-redu
  * `.k-dot` circles — that is the documented defect, not a sweep failure.
  */
 
-/** Selectors for the status/state primitives. */
-const STATUS_SELECTOR = '.k-dot, .k-status, [data-status], [data-state]';
-
 karstTest.describe('status/state screenshots', () => {
   karstTest('status primitives: full-page screenshot', async ({ gotoView, page }, testInfo) => {
-    if (!STATUS_PROJECTS.includes(testInfo.project.name)) {
+    if (!STATUS_PROJECTS.has(testInfo.project.name)) {
       testInfo.skip();
       return;
     }
+
+    // UI-R28: apply grayscale filter for the dark-grayscale project.
+    if (testInfo.project.name === 'dark-grayscale') {
+      await page.addInitScript(() => {
+        const style = document.createElement('style');
+        style.textContent = ':root { filter: grayscale(1); }';
+        document.documentElement.appendChild(style);
+      });
+    }
+
     // Navigate to the dashboard — status primitives are most visible there.
     await gotoView('dashboard', { scenario: 'running' });
     await expect(page).toHaveScreenshot('status-primitives.png', {

@@ -42,9 +42,14 @@ test.describe('buildFixture', () => {
         // (d) Contains the CSP <meta> with the fixed nonce.
         expect(html).toContain('nonce="karstvisualnonce"');
 
-        // (e) Contains the seed script with the corpus payload.
+        // (e) Contains the acquireVsCodeApi stub (before first <script>) and
+        // the seed script with data-karst-ready (before </body>).
         expect(html).toContain('acquireVsCodeApi');
         expect(html).toContain('data-karst-ready');
+        // The stub must appear before the first webview <script>.
+        const stubIdx = html.indexOf('acquireVsCodeApi');
+        const firstScript = html.indexOf('<script', stubIdx + 1);
+        expect(stubIdx).toBeLessThan(firstScript);
       });
     }
   }

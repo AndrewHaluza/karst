@@ -1,12 +1,29 @@
 import { createServer } from 'node:http';
-import { readFileSync, existsSync, statSync } from 'node:fs';
+import { readFileSync, existsSync, statSync, readdirSync } from 'node:fs';
 import { join, extname, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { execSync } from 'node:child_process';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const PORT = 4317;
 const ROOT = join(__dirname, '.tmp');
+
+// Ensure fixtures exist before serving.  On a clean checkout .tmp/ is absent
+// and every request would 404 without this step.
+if (!existsSync(ROOT) || readdirSync(ROOT).length === 0) {
+  console.log('Generating fixture pages...');
+  try {
+    execSync(`npx tsx ${join(__dirname, 'writeFixtures.ts')}`, {
+      cwd: __dirname,
+      stdio: 'inherit',
+      timeout: 60_000,
+    });
+  } catch (err) {
+    console.error('Failed to generate fixtures:', err);
+    process.exit(1);
+  }
+}
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',

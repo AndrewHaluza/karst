@@ -72,6 +72,16 @@ export function buildFixture(
     html = themeStyle + '\n' + html;
   }
 
+  // The acquireVsCodeApi stub MUST go before the first <script> tag because
+  // the webview's own script calls it immediately.  Insert it after <head>.
+  const vsApiStub = buildVsApiStub();
+  const firstScriptIdx = html.indexOf('<script');
+  if (firstScriptIdx !== -1) {
+    html = html.slice(0, firstScriptIdx) + vsApiStub + '\n' + html.slice(firstScriptIdx);
+  } else {
+    html += '\n' + vsApiStub;
+  }
+
   // Set body class for the theme.
   const bodyClassScript = `<script nonce="${FIXED_NONCE}">document.body.className=${JSON.stringify(themeData.bodyClass)};</script>`;
 
@@ -82,7 +92,7 @@ export function buildFixture(
     html = html.slice(0, insertPos) + '\n' + bodyClassScript + html.slice(insertPos);
   }
 
-  // Append the seed script before </body>.
+  // Append the message dispatch + readiness signal before </body>.
   const bodyClose = html.lastIndexOf('</body>');
   if (bodyClose !== -1) {
     html = html.slice(0, bodyClose) + seedScript + '\n' + html.slice(bodyClose);
@@ -94,8 +104,25 @@ export function buildFixture(
 }
 
 /**
- * Build the inline script that stubs the VS Code API and dispatches
- * the corpus messages to the webview's message handler.
+ * Build the acquireVsCodeApi stub — must run before the webview's own script.
+ */
+function buildVsApiStub(): string {
+  return `<script nonce="${FIXED_NONCE}">
+(function() {
+  window.acquireVsCodeApi = function() {
+    return {
+      postMessage: function() {},
+      getState: function() { return undefined; },
+      setState: function() {}
+    };
+  };
+})();
+</script>`;
+}
+
+/**
+ * Build the inline script that dispatches corpus messages and signals readiness.
+ * The acquireVsCodeApi stub is separate (buildVsApiStub) and runs earlier.
  */
 function buildSeedScript(
   view: ViewId,
@@ -105,14 +132,6 @@ function buildSeedScript(
 
   return `<script nonce="${FIXED_NONCE}">
 (function() {
-  // Stub acquireVsCodeApi — the page must never try to reach a real host.
-  window.acquireVsCodeApi = function() {
-    return {
-      postMessage: function() {},
-      getState: function() { return undefined; },
-      setState: function() {}
-    };
-  };
   // Dispatch each corpus message as a MessageEvent.
   var msgs = ${messagesJson};
   for (var i = 0; i < msgs.length; i++) {

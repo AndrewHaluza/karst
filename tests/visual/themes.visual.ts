@@ -28,13 +28,15 @@ test.describe('theme blocks', () => {
   }
 
   test('all three themes define the same key set', () => {
-    const keys = THEME_IDS.map((id) =>
-      Object.keys(THEMES[id]!.rootCss.replace(':root{', '').replace('}', ''))
-        .map((p) => p.split(':')[0]!.trim())
-        .sort(),
-    );
-    expect(keys[0]).toEqual(keys[1]);
-    expect(keys[0]).toEqual(keys[2]);
+    // Use REQUIRED_VARS (the authoritative variable list) rather than parsing
+    // the CSS string by character indices, which is fragile.
+    const expected = [...REQUIRED_VARS].sort();
+    for (const id of THEME_IDS) {
+      const theme = THEMES[id]!;
+      for (const v of expected) {
+        expect(theme.rootCss, `${id} missing ${v}`).toContain(v + ':');
+      }
+    }
   });
 
   test('bodyClass is set for each theme', () => {

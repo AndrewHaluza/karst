@@ -2,9 +2,13 @@ import { test, expect } from '@playwright/test';
 import { test as karstTest } from './fixtures.js';
 import { ALL_VIEWS } from './corpora.js';
 import type { ViewId } from './corpora.js';
-import type { ThemeId } from './themes.js';
 
-const PAGE_PROJECTS: readonly ThemeId[] = ['dark', 'light', 'hc'];
+/**
+ * Projects that take full-page screenshots (UI-R07 coverage).
+ * The dark-grayscale, dark-reduced-motion, and catalog projects have their
+ * own dedicated specs (status.visual.ts, catalog.visual.ts).
+ */
+const SCREENSHOT_PROJECTS = new Set(['dark', 'light', 'hc']);
 
 /**
  * Full-page screenshot baselines for all eight webviews in three themes.
@@ -30,8 +34,7 @@ karstTest.describe('full-page screenshots', () => {
       const scenarios = ['pending', 'running', 'passed', 'failed', 'waiting', 'exhausted'] as const;
       for (const scenario of scenarios) {
         karstTest(`dashboard-${scenario}: full-page screenshot`, async ({ gotoView, page }, testInfo) => {
-          const theme = testInfo.project.use.theme as ThemeId;
-          if (!PAGE_PROJECTS.includes(theme)) {
+          if (!SCREENSHOT_PROJECTS.has(testInfo.project.name)) {
             testInfo.skip();
             return;
           }
@@ -44,8 +47,7 @@ karstTest.describe('full-page screenshots', () => {
       }
     } else {
       karstTest(`${viewId}: full-page screenshot`, async ({ gotoView, page }, testInfo) => {
-        const theme = testInfo.project.use.theme as ThemeId;
-        if (!PAGE_PROJECTS.includes(theme)) {
+        if (!SCREENSHOT_PROJECTS.has(testInfo.project.name)) {
           testInfo.skip();
           return;
         }
