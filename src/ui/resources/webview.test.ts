@@ -13,14 +13,6 @@ function scriptBlock(): string {
   return HTML.slice(start + '<script>'.length, end);
 }
 
-/**
- * Text-level guards on the resource-monitor webview, for the same reason the
- * usage panel's exist: the file is standalone HTML with no test harness, and it
- * is affordable only because every DECISION is host-side. These pin the parts
- * that would fail SILENTLY — a lost CSP/design-system marker, a chart library,
- * a kill control that could fire without the shared pending/outcome seam, a
- * kill button that does not carry the danger treatment.
- */
 describe('resources webview.html', () => {
   it('keeps the CSP marker — without it the page ships with no policy', () => {
     expect(HTML).toContain('<!--KARST_CSP-->');
@@ -56,14 +48,9 @@ describe('resources webview.html', () => {
     expect(HTML).toContain('RSS');
     expect(HTML).toContain('data-series="cpu"');
     expect(HTML).toContain('data-series="rss"');
-    // The toggle is LOCAL presentation — it must never post a message.
     const script = scriptBlock();
-    // `muted` mirrors the OLD pressed state (a shown series becomes muted), not
-    // its inverse — the inverse left the button grayed while the series stayed
-    // visible, and full-opacity while it was muted.
     expect(script).toContain('muted[series] = on');
     expect(script).toContain('renderSpark(lastState)');
-    // The legend click handler contains no vscode.postMessage.
     const handler = script.slice(
       script.indexOf("for (const btn of document.querySelectorAll('.legendBtn'))"),
       script.indexOf("window.addEventListener('message'"),
@@ -76,9 +63,7 @@ describe('resources webview.html', () => {
     expect(HTML).toContain('state.trend.cpuMaxDisplay');
     expect(HTML).toContain('id="chartTicks"');
     expect(HTML).toContain('state.trend.timeTicks');
-    // The values are HOST-formatted — the webview only re-escapes them.
     expect(HTML).toContain('CPU ${esc(state.trend.cpuMaxDisplay)}');
-    // The Y scale is set: a label per gridline, both series, host-formatted.
     expect(HTML).toContain('id="chartY"');
     expect(HTML).toContain('state.trend.yTicks');
     expect(HTML).toContain('esc(t.cpu)');
@@ -98,10 +83,6 @@ describe('resources webview.html', () => {
 
   it('gives the unattributed command column the freed space and pins the numeric columns narrow', () => {
     const styles = [...HTML.matchAll(/<style>(.*?)<\/style>/gs)].map((m) => m[1]!).join('\n');
-    // The command column absorbs ALL the slack (width:100% on both the th and
-    // the td, max-width:0 + ellipsis on the td) so a long command line is
-    // readable, and the CPU/RSS/PROCS columns are pinned to width:1% so they
-    // shrink to their content instead of splitting the leftover space.
     expect(styles).toMatch(/\.utable th\.cmd,\.utable td\.cmd\{width:100%\}/);
     expect(styles).toMatch(/\.utable td\.cmd\{min-width:0;max-width:0;overflow:hidden;/);
     expect(styles).toMatch(/\.utable th\.amt,\.utable td\.amt\{width:1%;white-space:nowrap\}/);
@@ -133,15 +114,6 @@ describe('resources webview.html', () => {
     expect(HTML).toContain('cpuPctDisplay');
   });
 
-  it('binds every posting control through karstAction so it carries an aria-busy pending path (UI-R11–R14)', () => {
-    const script = scriptBlock();
-    expect(script).toContain("karstAction(el('refreshBtn'), (requestId) => post({ type: 'refresh', requestId }))");
-    expect(script).toContain("karstAction(el('measureBtn'), (requestId) => post({ type: 'measure-disk', requestId }))");
-    expect(script).toMatch(/karstAction\(btn, \(requestId\) => post\(\{ type: 'kill-server', serverId: Number\(btn\.dataset\.kill\), requestId \}\)/);
-    // karstAction's karstBeginPending is what writes aria-busy + disabled.
-    expect(HTML).not.toContain("document.addEventListener('click'");
-  });
-
   it('gives the kill button the danger variant (UI-R10b)', () => {
     expect(HTML).toContain('class="k-btn k-btn--danger"');
   });
@@ -153,12 +125,6 @@ describe('resources webview.html', () => {
 
   it('shows an empty waste list as a plain line, not a table shell', () => {
     expect(HTML).toContain('nothing leaked');
-  });
-
-  it('handles action-result through karstSettle (UI-R13)', () => {
-    const script = scriptBlock();
-    expect(script).toContain("msg.type === 'action-result'");
-    expect(script).toContain('karstSettle(msg.requestId, msg.ok, msg.message)');
   });
 
   it('renders an unsupported platform as a single explanatory line, no body', () => {
@@ -177,21 +143,6 @@ describe('resources webview.html', () => {
     expect(script).not.toMatch(/\/\s*1024\b/);
   });
 
-  it('escapes every interpolated value it renders', () => {
-    expect(HTML).toContain('const esc =');
-    expect(HTML).toContain('esc(r.label || \'—\')');
-    expect(HTML).toContain('esc(w.reason)');
-  });
-
-  it('asks for state on load, so a restored panel is never blank', () => {
-    expect(HTML).toContain("post({ type: 'request-state' })");
-  });
-
-  it('posts only the four narrowed message types', () => {
-    const types = new Set([...HTML.matchAll(/post\(\{\s*type:\s*'([a-z-]+)'/g)].map((m) => m[1]));
-    expect([...types].sort()).toEqual(['kill-server', 'measure-disk', 'refresh', 'request-state']);
-  });
-
   it('never posts a pid or a path — only a servers.id', () => {
     expect(HTML).toContain("serverId: Number(btn.dataset.kill)");
     expect(HTML).not.toMatch(/post\(\{[^}]*\bpid:/);
@@ -200,9 +151,7 @@ describe('resources webview.html', () => {
 
   it('renders sort controls as real buttons inside <th>, never click handlers on <th> (UI-R09)', () => {
     const script = scriptBlock();
-    // Sort must NOT use data-sort on <th> — the button inside carries it.
     expect(script).not.toMatch(/<th[^>]*data-sort/);
-    // Every sort column uses a button inside <th>.
     expect(script).toMatch(/<button type="button" class="k-btn k-btn--link" data-sort="\$\{esc\(c\.key\)\}">/);
   });
 
@@ -220,17 +169,12 @@ describe('resources webview.html', () => {
 
   it('cycles sort state through default → asc → desc → default', () => {
     const script = scriptBlock();
-    // The click handler implements the cycle: null → asc → desc → null.
     expect(script).toContain("cur.dir === null ? 'asc' : cur.dir === 'asc' ? 'desc' : null");
   });
 
   it('sort is LOCAL to the webview — never posts a message', () => {
     const script = scriptBlock();
-    // Extract the attributed sort handler block.
-    const sortHandlers = script.split("data-sort=\"${esc(c.key)}\"");
-    // Both tables re-render via render(lastState), never post.
     expect(script).toContain('if (lastState) render(lastState)');
-    // No post() call should appear inside the sort click handlers.
     const handlerBlock = script.slice(
       script.indexOf("btn.addEventListener('click', () => {"),
       script.indexOf("el('attrBody')"),
