@@ -71,7 +71,11 @@ const CONTRAST_RATCHET: Record<string, { ratio: number; gap?: string }> = {
 karstTest.describe('UI-R29 contrast (computed assertion)', () => {
   for (const viewId of ALL_VIEWS) {
     karstTest(`${viewId}: text contrast meets WCAG AA`, async ({ gotoView }, testInfo) => {
-      const theme = testInfo.project.use.theme as ThemeId;
+      const themeMap: Record<string, ThemeId> = {
+        dark: 'dark', light: 'light', hc: 'hc',
+        'dark-grayscale': 'dark', 'dark-reduced-motion': 'dark', catalog: 'dark',
+      };
+      const theme = (themeMap[testInfo.project.name] ?? 'dark') as ThemeId;
       const page = await gotoView(viewId);
 
       const failures: Array<{
@@ -97,7 +101,10 @@ karstTest.describe('UI-R29 contrast (computed assertion)', () => {
           return null;
         }
         function lum(r: number, g: number, b: number): number {
-          const [rs, gs, bs] = [r, g, b].map(c => { const s = c / 255; return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4); });
+          const vals = [r, g, b].map(c => { const s = c / 255; return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4); });
+          const rs = vals[0]!;
+          const gs = vals[1]!;
+          const bs = vals[2]!;
           return 0.2126 * rs + 0.7152 * gs + 0.0722 * bs;
         }
         function cr(l1: number, l2: number) { return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05); }
@@ -270,7 +277,7 @@ karstTest.describe('UI-R38 pinned controls', () => {
       }
 
       // Assert pinned controls didn't move more than 1px (subpixel rounding).
-      for (const move of result.moved) {
+      for (const move of result.moved ?? []) {
         expect(move.dx, 'UI-R38: horizontal movement').toBeLessThanOrEqual(1);
         expect(move.dy, 'UI-R38: vertical movement').toBeLessThanOrEqual(1);
       }

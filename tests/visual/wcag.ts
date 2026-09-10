@@ -86,10 +86,13 @@ export function parseCssColor(
 
 /** Relative luminance per WCAG 2.1 §1.4.3. */
 export function relativeLuminance(r: number, g: number, b: number): number {
-  const [rs, gs, bs] = [r, g, b].map((c) => {
+  const values = [r, g, b].map((c) => {
     const s = c / 255;
     return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
   });
+  const rs = values[0]!;
+  const gs = values[1]!;
+  const bs = values[2]!;
   return 0.2126 * rs + 0.7152 * gs + 0.0722 * bs;
 }
 

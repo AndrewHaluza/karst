@@ -40,7 +40,6 @@ export default defineConfig({
 
   webServer: {
     command: 'node tests/visual/serve.mjs',
-    teardown: undefined,
     url: 'http://127.0.0.1:4317/healthz',
     reuseExistingServer: !process.env.CI,
     timeout: 30_000,
@@ -57,60 +56,27 @@ export default defineConfig({
   projects: [
     {
       name: 'dark',
-      use: {
-        ...devices['Desktop Chrome'],
-        channel: undefined,
-        colorScheme: 'dark',
-        theme: 'dark',
-      },
+      use: { ...devices['Desktop Chrome'], channel: undefined, colorScheme: 'dark' },
     },
     {
       name: 'light',
-      use: {
-        ...devices['Desktop Chrome'],
-        channel: undefined,
-        colorScheme: 'light',
-        theme: 'light',
-      },
+      use: { ...devices['Desktop Chrome'], channel: undefined, colorScheme: 'light' },
     },
     {
       name: 'hc',
-      use: {
-        ...devices['Desktop Chrome'],
-        channel: undefined,
-        colorScheme: 'dark',
-        theme: 'hc',
-      },
+      use: { ...devices['Desktop Chrome'], channel: undefined, colorScheme: 'dark' },
     },
     {
       name: 'dark-grayscale',
-      use: {
-        ...devices['Desktop Chrome'],
-        channel: undefined,
-        colorScheme: 'dark',
-        theme: 'dark',
-        // Grayscale filter applied via page CSS, not Playwright option.
-        // This project is used only by the status spec (UI-R28).
-      },
+      use: { ...devices['Desktop Chrome'], channel: undefined, colorScheme: 'dark' },
     },
     {
       name: 'dark-reduced-motion',
-      use: {
-        ...devices['Desktop Chrome'],
-        channel: undefined,
-        colorScheme: 'dark',
-        theme: 'dark',
-        reducedMotion: 'reduce',
-      },
+      use: { ...devices['Desktop Chrome'], channel: undefined, colorScheme: 'dark', reducedMotion: 'reduce' },
     },
     {
       name: 'catalog',
-      use: {
-        ...devices['Desktop Chrome'],
-        channel: undefined,
-        colorScheme: 'dark',
-        theme: 'dark',
-      },
+      use: { ...devices['Desktop Chrome'], channel: undefined, colorScheme: 'dark' },
     },
   ],
 });

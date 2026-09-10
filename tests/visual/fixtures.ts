@@ -16,10 +16,21 @@ interface KarstFixtures {
 }
 
 export const test = base.extend<KarstFixtures>({
-  theme: [async ({}, use, testInfo) => {
-    const theme = (testInfo.project.use as Record<string, unknown>).theme as ThemeId;
-    await use(theme);
-  }, { scope: 'worker', option: true }],
+  theme: async ({}, use, testInfo) => {
+    // Theme is derived from the project name (e.g., 'dark', 'light', 'hc',
+    // 'dark-grayscale', 'dark-reduced-motion', 'catalog').
+    // The base theme is the first part before any hyphen.
+    const name = testInfo.project.name;
+    const themeMap: Record<string, ThemeId> = {
+      dark: 'dark',
+      light: 'light',
+      hc: 'hc',
+      'dark-grayscale': 'dark',
+      'dark-reduced-motion': 'dark',
+      catalog: 'dark',
+    };
+    await use((themeMap[name] ?? 'dark') as ThemeId);
+  },
 
   gotoView: async ({ page, theme }, use) => {
     const goto = async (view: ViewId, opts?: { scenario?: string }) => {
