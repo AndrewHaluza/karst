@@ -14,6 +14,8 @@ import { openStore, type Store } from './store/db.js';
 import { backfillSpillOversized } from './attachments/spill.js';
 import { runImmediateTransaction } from './store/transactions.js';
 import { describeStoreOpenFailure } from './extension/storeOpenFailure.js';
+import { ticketIdArg } from './extension/ops/args.js';
+import type { Notify } from './extension/ops/notify.js';
 import { watchExternalChanges } from './store/externalChanges.js';
 import { SidebarViewManager } from './ui/sidebar/panel.js';
 import { makeSidebarViewHost, SIDEBAR_VIEW_ID } from './ui/sidebar/host.js';
@@ -662,6 +664,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const diagnosticLogBuffer = makeBoundedLogBuffer();
   const logger = makeLogger(channel, undefined, diagnosticLogBuffer);
   const logError: LogError = (m, e) => logger.error(m, e);
+  const notify: Notify = {
+    info: (m) => void vscode.window.showInformationMessage(m),
+    warn: (m) => void vscode.window.showWarningMessage(m),
+    error: async (m) => { await vscode.window.showErrorMessage(m); },
+  };
   // Hook-channel observation for the issue report. A failed agent-side hook says
   // only "exited with code 1"; these counters are the host's half of that.
   const hookChannelRecorder = createHookChannelRecorder();
@@ -7170,20 +7177,6 @@ function worktreePathContext(
   const display = manifest.worktreePathDisplay ?? 'absolute';
   if (display !== 'relative') return undefined;
   return { display, projectRoot: folder.uri.fsPath };
-}
-
-/**
- * A ticket command arg is either a bare ticketId (webview row action posts a
- * number) or an object carrying `ticketId`. Normalize both to a ticket id, or
- * `undefined` if neither shape carries one.
- */
-function ticketIdArg(arg: unknown): number | undefined {
-  if (typeof arg === 'number') return arg;
-  if (arg && typeof arg === 'object' && 'ticketId' in arg) {
-    const id = (arg as { ticketId: unknown }).ticketId;
-    return typeof id === 'number' ? id : undefined;
-  }
-  return undefined;
 }
 
 /**
