@@ -124,8 +124,9 @@ import {
   loadModelCatalog,
 } from './agent/modelCatalogLoader.js';
 import { makeMementoCatalogCache } from './agent/modelCatalogCache.js';
-import { buildSessionSeed, composeResumeSeed, composeConflictOverrideSeed } from './agent/seed.js';
+import { buildSessionSeed } from './agent/seed.js';
 import {
+  launchInvocation,
   launchSections,
   composeResumeSeed as composeResumeSeedEntry,
   composeConflictSeed,
@@ -6190,7 +6191,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         materialized.invocation && pkg?.workflow?.length
           ? `${materialized.invocation} ${t.key ?? ''}`.trim()
           : null;
-      const primaryEntryInvocation = materialized.invocation ?? null;
+      // The command line a fresh launch opens with: the approach orchestrator when
+      // this ticket has one, else the generic `start-task` entry every adapter
+      // materializes for every ticket. Reading `materialized.invocation` alone here
+      // meant a `direct` ticket wrote `start-task.md` to disk and then seeded the
+      // fully inline prose form instead of pointing at it.
+      const entryLaunchInvocation = launchInvocation({
+        orchestratorInvocation:
+          materialized.invocation && pkg?.workflow?.length ? materialized.invocation : null,
+        entryInvocations: materialized.entryInvocations,
+      });
 
       // Resume the captured session when continuing interactive work, so the
       // agent keeps its context instead of re-deriving from a cold seed (§5.3).
@@ -6249,13 +6259,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
               ticketKey: t.key ?? `#${ticketId}`,
               resumeBrief: brief,
               invocation: resumeOrFixInvocation,
+              ...(markerInstruction ? { markerInstruction } : {}),
             });
           }
         }
       } else {
         // Fresh launch: use narrative sections when a materialized invocation
         // exists (omitting operational details); full context otherwise.
-        const sections = launchSections(!!primaryEntryInvocation);
+        const sections = launchSections(!!entryLaunchInvocation);
         const contextForSeed =
           sections === 'narrative'
             ? renderTicketContext(
@@ -6272,9 +6283,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         seedPrompt = buildSessionSeed(
           contextForSeed,
           approachPrompt ?? delegation,
-          primaryEntryInvocation
-            ? `${primaryEntryInvocation} ${t.key ?? ''}`.trim()
-            : invocation,
+          entryLaunchInvocation
+            ? `${entryLaunchInvocation} ${t.key ?? ''}`.trim()
+            : null,
           markerInstruction,
           guideInstruction,
           t.key || String(ticketId),
@@ -6288,6 +6299,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           ticketKey: t.key ?? `#${ticketId}`,
           conflictBrief: options.seedPrompt,
           invocation: materialized.entryInvocations?.['resolve-conflict'],
+          ...(markerInstruction ? { markerInstruction } : {}),
         });
       }
       const extraArgs =

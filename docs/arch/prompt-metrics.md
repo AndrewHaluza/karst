@@ -226,8 +226,11 @@ directional — resident is the default; deferral requires meeting ALL criteria.
 - **Marker rule, done-means-merged**: resident. The agent's default model of the
   world is wrong in a specific way; the text corrects it before the mistake.
 
-The entry orchestrators deliberately carry NO marker prose; the marker is inline
-in every seed regardless of materialization.
+The entry orchestrators carry marker GUIDANCE — that a session ending is not
+a verdict, and that `karst context <key> --md`'s `## How this stage ends`
+names the exact command — but never the concrete marker command itself. That
+command is inline in every seed regardless of materialization: fresh launch,
+resume, fix and resolve-conflict alike.
 
 ### Generalized from ticket 17's landed pattern
 

@@ -1,5 +1,73 @@
 import { describe, it, expect } from 'vitest';
-import { launchSections, composeResumeSeed, composeConflictSeed } from './entrySeed.js';
+import { launchInvocation, launchSections, composeResumeSeed, composeConflictSeed } from './entrySeed.js';
+
+describe('launchInvocation', () => {
+  it('returns the orchestrator when present and no entry invocations', () => {
+    expect(launchInvocation({ orchestratorInvocation: '/karst:rpi' })).toBe('/karst:rpi');
+  });
+
+  it('returns the orchestrator when both orchestrator and start-task are present', () => {
+    expect(
+      launchInvocation({
+        orchestratorInvocation: '/karst:rpi',
+        entryInvocations: { 'start-task': '/karst:start-task' },
+      }),
+    ).toBe('/karst:rpi');
+  });
+
+  it('returns start-task when no orchestrator and start-task is present', () => {
+    expect(
+      launchInvocation({ entryInvocations: { 'start-task': '/karst:start-task' } }),
+    ).toBe('/karst:start-task');
+  });
+
+  it('returns the correct start-task for all four cores', () => {
+    expect(
+      launchInvocation({ entryInvocations: { 'start-task': '/karst:start-task' } }),
+    ).toBe('/karst:start-task');
+    expect(
+      launchInvocation({ entryInvocations: { 'start-task': '/karst-start-task' } }),
+    ).toBe('/karst-start-task');
+    expect(
+      launchInvocation({ entryInvocations: { 'start-task': '$karst-start-task' } }),
+    ).toBe('$karst-start-task');
+    expect(
+      launchInvocation({ entryInvocations: { 'start-task': '$start-task' } }),
+    ).toBe('$start-task');
+  });
+
+  it('returns null when neither is present', () => {
+    expect(launchInvocation({})).toBeNull();
+  });
+
+  it('returns start-task when orchestrator is null', () => {
+    expect(
+      launchInvocation({
+        orchestratorInvocation: null,
+        entryInvocations: { 'start-task': '/karst:start-task' },
+      }),
+    ).toBe('/karst:start-task');
+  });
+
+  it('falls through to start-task when orchestrator is whitespace', () => {
+    expect(
+      launchInvocation({
+        orchestratorInvocation: '   ',
+        entryInvocations: { 'start-task': '/karst:start-task' },
+      }),
+    ).toBe('/karst:start-task');
+  });
+
+  it('returns null when entryInvocations has resume but no start-task', () => {
+    expect(
+      launchInvocation({ entryInvocations: { resume: '/karst:resume' } }),
+    ).toBeNull();
+  });
+
+  it('returns null when entryInvocations is undefined', () => {
+    expect(launchInvocation({ orchestratorInvocation: undefined })).toBeNull();
+  });
+});
 
 describe('launchSections', () => {
   it('returns narrative when an invocation is present', () => {
@@ -102,16 +170,33 @@ describe('composeConflictSeed', () => {
     expect(result).toBe(brief);
   });
 
-  it('ignores markerInstruction (conflict seeds have no separate marker)', () => {
+  it('appends marker when no invocation but marker is given', () => {
+    const result = composeConflictSeed({
+      ticketKey: 'PROJ-9',
+      conflictBrief: 'Resolve merge conflict.',
+      markerInstruction: 'RUN THE MARKER',
+    });
+    expect(result).toBe('Resolve merge conflict.\n\nRUN THE MARKER');
+  });
+
+  it('returns brief unchanged when neither invocation nor marker is given', () => {
+    const brief = 'Resolve merge conflict.';
+    const result = composeConflictSeed({
+      ticketKey: 'PROJ-9',
+      conflictBrief: brief,
+    });
+    expect(result).toBe(brief);
+  });
+
+  it('includes markerInstruction when given an invocation', () => {
     const result = composeConflictSeed({
       ticketKey: 'PROJ-9',
       conflictBrief: 'Resolve merge conflict.',
       invocation: '/karst:resolve-conflict',
       markerInstruction: 'RUN THE MARKER',
     });
-    expect(result).not.toContain('RUN THE MARKER');
-    expect(result).toBe(
-      '/karst:resolve-conflict PROJ-9\n\nResolve merge conflict.',
-    );
+    expect(result).toContain('RUN THE MARKER');
+    expect(result).toContain('/karst:resolve-conflict PROJ-9');
+    expect(result.endsWith('RUN THE MARKER')).toBe(true);
   });
 });

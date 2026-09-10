@@ -15,6 +15,7 @@ Everything that is true of every agent core, and the places a core-specific fix 
 - A terminal's ticket is carried by its ENV and its PID
 - nudge adopts a revived session
 - An adapter may only own a path it CREATED
+- Fallback invariant: the seed is self-contained when the adapter reports no entry invocation
 - agy has no executable hook channel
 
 ## Ticket-context shaping lives ONCE in `src/context/ticketContext.ts`
@@ -116,9 +117,9 @@ All three compose the prompt from `promptBytesOf('karst-graph-planner')` plus `r
 
 `AdapterSurfaces.entryOrchestrators` is the declaration a fifth core must answer.
 
-## Fallback invariant: the seed is self-contained when no adapter reports startTaskInvocation
+## Fallback invariant: the seed is self-contained when the adapter reports no entry invocation
 
-The seed drops the inline marker (the `karst context` indirection) ONLY when the adapter reported `startTaskInvocation` — i.e. the adapter guarantees it will render a `/karst:start-task` command the human can click. Absent that report, the seed is self-contained exactly as before: every fact the agent needs is inline. A session must never have neither the inline content nor the adapter's command guarantee — that would be a silent data loss. The fallback check lives in the seed composer; the adapter's `startTaskInvocation` field (`agent/adapter.ts`) is the single source of truth for whether the guarantee exists.
+The fresh-launch seed drops the operational sections (stage, repositories, worktrees and branches) ONLY when `launchInvocation` (in `agent/entrySeed.ts`) resolved a command line — the approach orchestrator (`Materialized.invocation`) when the ticket's approach carries a workflow, else `Materialized.entryInvocations['start-task']`. Absent both, the seed is self-contained inline exactly as before: every fact the agent needs is inline. `Materialized.entryInvocations` (`agent/adapter.ts`) is the single source of truth for whether a core guarantees a clickable entry command, and `AdapterSurfaces.entryOrchestrators` (`agent/surfaces.ts:132`) is the declaration a fifth core must answer. A session must never have neither the inline content nor the command guarantee — that is silent data loss.
 
 ## The guide pointer deliberately stays in the seed
 
