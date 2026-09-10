@@ -206,6 +206,13 @@ export class DashboardManager {
    */
   private readonly attemptSelections = new Map<number, ReadonlyMap<GateStage, string>>();
   /**
+   * The findings repo scope selection per ticket per gate stage — panel
+   * memory only, like `attemptSelections`. `null` means "all repositories";
+   * a string names the selected repo PATH. Absent from the map when the
+   * default (all) is in effect. Dies with the panel.
+   */
+  private readonly findingsRepoSelections = new Map<number, ReadonlyMap<GateStage, string | null>>();
+  /**
    * Base-branch candidates per repoPath (§ per-repo base branch — live
    * change), warmed lazily by `prefetchBranchCandidates` and shared across
    * every open ticket: a repoPath's git listing does not vary by ticket. A
@@ -384,6 +391,19 @@ export class DashboardManager {
         this.pushState(ticketId);
         return;
       }
+      if (parsed.type === 'select-findings-repo') {
+        // Pure read: the selection is panel memory only — same shape as the
+        // round switcher. A `null` repo DELETES the stage's entry rather
+        // than storing a sentinel.
+        const current = this.findingsRepoSelections.get(ticketId) ?? new Map<GateStage, string | null>();
+        const next = new Map(current);
+        if (parsed.repo === null) next.delete(parsed.stage);
+        else next.set(parsed.stage, parsed.repo);
+        if (next.size === 0) this.findingsRepoSelections.delete(ticketId);
+        else this.findingsRepoSelections.set(ticketId, next);
+        this.pushState(ticketId);
+        return;
+      }
       if (parsed.type === 'inside-action') {
         // An inside dispatch's outcome is known synchronously; the generic
         // seam's unconditional ack would report a rejected or stale dispatch
@@ -511,6 +531,9 @@ export class DashboardManager {
       // The round switcher's selection dies with the panel — a later open of
       // the same ticket id starts at the default (latest attempt) selection.
       this.attemptSelections.delete(ticketId);
+      // Same lifecycle as the round switcher: findings repo scope is panel
+      // memory that must not leak to a later ticket reusing the id.
+      this.findingsRepoSelections.delete(ticketId);
       // The panel's action capabilities die with it: a disposed panel's ids
       // must never dispatch against a later snapshot.
       this.registries.get(ticketId)?.dispose();
@@ -694,12 +717,16 @@ export class DashboardManager {
         const findings = this.manifest?.()?.review?.findings;
         return findings?.enabled === false ? 'none' : (findings?.blockingSeverity ?? 'none');
       })(),
+      // The findings repo scope selection per stage (§ findings severity ramp):
+      // panel memory, passed through to the quality reducers. Absent → "all".
+      this.findingsRepoSelectionFor(ticketId),
     );
     // A key the new snapshot no longer resolved to is dropped from panel
     // memory: `selectedAttempt` reports what the builder actually rendered,
     // so a mismatch means the requested key named no attempt this round —
     // there is nothing left worth remembering for the NEXT snapshot either.
     this.pruneStaleAttemptSelections(ticketId, state);
+    this.pruneStaleFindingsRepoSelections(ticketId, state);
     // `live` marks a REPAINT of data the panel already had, as opposed to a
     // push that reports something happening. The webview defers a live repaint
     // while the user is mid-interaction (an action in flight, a text selection
@@ -794,6 +821,13 @@ export class DashboardManager {
     return Object.fromEntries(this.attemptSelections.get(ticketId) ?? []);
   }
 
+  /** This ticket's findings repo selection, plain-object shaped for `buildDashboardState`. */
+  private findingsRepoSelectionFor(ticketId: number): Partial<Record<'uat' | 'review', string>> | undefined {
+    const map = this.findingsRepoSelections.get(ticketId);
+    if (!map || map.size === 0) return undefined;
+    return Object.fromEntries(map);
+  }
+
   /**
    * Drop any selection the snapshot just rendered did NOT resolve to — the
    * state builder falls back to latest for a key naming no recorded attempt
@@ -817,6 +851,39 @@ export class DashboardManager {
     if (!changed) return;
     if (next.size === 0) this.attemptSelections.delete(ticketId);
     else this.attemptSelections.set(ticketId, next);
+  }
+
+  /**
+   * Drop any findings repo selection the snapshot just rendered did NOT resolve
+   * to — when the batch names fewer than two repos, the reducer emits no
+   * `repoFilter`, and a selection that no longer applies should not keep being
+   * requested on every following push.
+   */
+  private pruneStaleFindingsRepoSelections(ticketId: number, state: DashboardState): void {
+    const current = this.findingsRepoSelections.get(ticketId);
+    if (!current || current.size === 0) return;
+    let changed = false;
+    const next = new Map(current);
+    for (const stage of ['uat', 'review'] as const) {
+      const requested = current.get(stage);
+      if (requested === undefined) continue;
+      const view = state.insideViews[stage];
+      const processes = view?.processes ?? [];
+      const filter = processes.find((p) => p.id === (stage === 'uat' ? 'tester' : 'review'))?.repoFilter;
+      // The selection is valid when the filter exists and names the selected
+      // repo, OR when the filter is absent because there are fewer than two
+      // repos (the selection degrades to "all" silently).
+      if (filter && requested !== null && !filter.repos.includes(requested)) {
+        next.delete(stage);
+        changed = true;
+      } else if (!filter && requested !== undefined) {
+        next.delete(stage);
+        changed = true;
+      }
+    }
+    if (!changed) return;
+    if (next.size === 0) this.findingsRepoSelections.delete(ticketId);
+    else this.findingsRepoSelections.set(ticketId, next);
   }
 
   /**

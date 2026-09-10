@@ -806,6 +806,19 @@ describe('reviewProcesses', () => {
     expect(evidence.blocking).toBe(2);
   });
 
+  it('preserves info severity on finding rows', () => {
+    const views = reviewProcesses(
+      qualityInput({
+        cell: reviewCell,
+        findings: [finding('info', { runAt: NOW, title: 'info-finding' })],
+      }),
+    );
+    const review = views.find((p) => p.id === 'review')!;
+    const evidence = review.evidence as { kind: 'findings'; rows: readonly EvidenceRow[] };
+    expect(evidence.rows).toHaveLength(1);
+    expect(evidence.rows[0]!.severity).toBe('info');
+  });
+
   it('reads a validated review as passed, distinct from blocking', () => {
     const views = reviewProcesses(
       qualityInput({
@@ -1251,5 +1264,160 @@ describe('round selection (T3): selectedAttempt resolves through the T1 selector
     const tester = views.find((p) => p.id === 'tester')!;
     expect(tester.execution).toBeUndefined();
     expect(tester.detail).toBe('no recorded run for this attempt');
+  });
+});
+
+describe('findings sort and repo scope', () => {
+  const reviewCell = {
+    stageKey: 'review' as const,
+    status: 'passed' as const,
+    startedAt: '2026-07-20T12:00:00.000Z',
+    endedAt: '2026-07-20T12:02:00.000Z',
+  };
+
+  it('sorts worst-first so a critical reported last survives the cap and appears first', () => {
+    const findings = [
+      finding('info', { runAt: NOW, repo: '/a' }),
+      finding('low', { runAt: NOW, repo: '/a' }),
+      finding('medium', { runAt: NOW, repo: '/a' }),
+      finding('high', { runAt: NOW, repo: '/a' }),
+      finding('critical', { runAt: NOW, repo: '/a' }),
+      finding('low', { runAt: NOW, repo: '/a' }),
+      finding('info', { runAt: NOW, repo: '/a' }),
+    ];
+    const views = reviewProcesses(
+      qualityInput({ cell: reviewCell, findings }),
+    );
+    const review = views.find((p) => p.id === 'review')!;
+    const evidence = review.evidence as { kind: 'findings'; rows: readonly EvidenceRow[] };
+    expect(evidence.rows[0]!.severity).toBe('critical');
+    expect(evidence.rows.length).toBeLessThanOrEqual(7); // 6 + possible overflow
+  });
+
+  it('overflow row is last and counts correctly after sorting', () => {
+    const findings = Array.from({ length: 7 }, (_, i) =>
+      finding('low' as Severity, { runAt: NOW, repo: '/a', title: `f${i}` }),
+    );
+    const views = reviewProcesses(
+      qualityInput({ cell: reviewCell, findings }),
+    );
+    const review = views.find((p) => p.id === 'review')!;
+    const evidence = review.evidence as { kind: 'findings'; rows: readonly EvidenceRow[] };
+    const last = evidence.rows[evidence.rows.length - 1]!;
+    expect(last.label).toBe('more');
+    expect(last.detail).toBe('+1 more');
+  });
+
+  it('carries repo on finding rows when the store recorded one', () => {
+    const views = reviewProcesses(
+      qualityInput({
+        cell: reviewCell,
+        findings: [finding('high', { runAt: NOW, repo: '/web' })],
+      }),
+    );
+    const review = views.find((p) => p.id === 'review')!;
+    const evidence = review.evidence as { kind: 'findings'; rows: readonly EvidenceRow[] };
+    expect(evidence.rows[0]!.repo).toBe('/web');
+  });
+
+  it('omits repo key when the store recorded empty string', () => {
+    const views = reviewProcesses(
+      qualityInput({
+        cell: reviewCell,
+        findings: [finding('high', { runAt: NOW, repo: '' })],
+      }),
+    );
+    const review = views.find((p) => p.id === 'review')!;
+    const evidence = review.evidence as { kind: 'findings'; rows: readonly EvidenceRow[] };
+    expect(evidence.rows[0]!.repo).toBeUndefined();
+  });
+
+  it('absent repoFilter when batch names 0 or 1 distinct repos', () => {
+    const views = reviewProcesses(
+      qualityInput({
+        cell: reviewCell,
+        findings: [finding('high', { runAt: NOW, repo: '/a' }), finding('low', { runAt: NOW, repo: '/a' })],
+      }),
+    );
+    const review = views.find((p) => p.id === 'review')!;
+    expect(review.repoFilter).toBeUndefined();
+  });
+
+  it('repoFilter lists both repos in first-seen order when batch names two', () => {
+    const views = reviewProcesses(
+      qualityInput({
+        cell: reviewCell,
+        findings: [finding('high', { runAt: NOW, repo: '/b' }), finding('low', { runAt: NOW, repo: '/a' })],
+      }),
+    );
+    const review = views.find((p) => p.id === 'review')!;
+    expect(review.repoFilter).toEqual({ repos: ['/b', '/a'], selected: null });
+  });
+
+  it('findingsRepo filters to that repo and sets selected', () => {
+    const views = reviewProcesses(
+      qualityInput({
+        cell: reviewCell,
+        findings: [
+          finding('high', { runAt: NOW, repo: '/a' }),
+          finding('low', { runAt: NOW, repo: '/b' }),
+        ],
+        findingsRepo: '/b',
+      }),
+    );
+    const review = views.find((p) => p.id === 'review')!;
+    const evidence = review.evidence as { kind: 'findings'; rows: readonly EvidenceRow[] };
+    expect(evidence.rows.every((r) => r.repo === '/b')).toBe(true);
+    expect(review.repoFilter?.selected).toBe('/b');
+  });
+
+  it('findingsRepo for an unknown repo degrades to all', () => {
+    const views = reviewProcesses(
+      qualityInput({
+        cell: reviewCell,
+        findings: [finding('high', { runAt: NOW, repo: '/a' })],
+        findingsRepo: '/never',
+      }),
+    );
+    const review = views.find((p) => p.id === 'review')!;
+    const evidence = review.evidence as { kind: 'findings'; rows: readonly EvidenceRow[] };
+    expect(evidence.rows).toHaveLength(1);
+    // Only one repo in the batch → no repoFilter emitted
+    expect(review.repoFilter).toBeUndefined();
+  });
+
+  it('filtered review batch leaves blocking counting the whole batch', () => {
+    const views = reviewProcesses(
+      qualityInput({
+        cell: reviewCell,
+        findings: [
+          finding('critical', { runAt: NOW, repo: '/a' }),
+          finding('low', { runAt: NOW, repo: '/b' }),
+        ],
+        findingsRepo: '/b',
+      }),
+    );
+    const review = views.find((p) => p.id === 'review')!;
+    const evidence = review.evidence as { kind: 'findings'; rows: readonly EvidenceRow[]; blocking: number };
+    expect(evidence.blocking).toBe(1);
+    expect(evidence.rows.every((r) => r.repo === '/b')).toBe(true);
+  });
+
+  it('testerProcess sorts findings and carries repo', () => {
+    const run1 = processRun({ status: 'passed', resultKind: 'observed' });
+    const views = uatProcesses(
+      qualityInput({
+        uatFindings: [
+          uatFinding('low', { processRunId: run1.id, repo: '/a' }),
+          uatFinding('critical', { processRunId: run1.id, repo: '/b' }),
+        ],
+        processRuns: [run1],
+      }),
+    );
+    const tester = views.find((p) => p.id === 'tester')!;
+    const evidence = tester.evidence as { kind: 'findings'; rows: readonly EvidenceRow[]; blocking: number };
+    expect(evidence.rows[0]!.severity).toBe('critical');
+    expect(evidence.rows[0]!.repo).toBe('/b');
+    expect(evidence.blocking).toBe(0);
   });
 });

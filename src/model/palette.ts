@@ -42,6 +42,18 @@ export function paletteCss(): string {
     `--k-attention:${t.attention};` +
     `--k-passed:${t.passed};` +
     `--k-failed:${t.failed};` +
+    // The findings severity ramp — ONE definition for the inside block's
+    // evidence rows and the Artifacts panel's finding cards. Before this the
+    // two surfaces mapped the same five levels differently (Artifacts drew
+    // `critical` and `high` in one red; the inside block drew `high` amber),
+    // so a reader had to know which surface they were on to read a level.
+    // Defined as references to the status tokens above, so the ramp tracks
+    // the user's theme through them and introduces no new hue.
+    '--k-sev-critical:var(--k-failed);' +
+    '--k-sev-high:var(--k-attention);' +
+    '--k-sev-medium:var(--k-running);' +
+    '--k-sev-low:var(--k-text-dim);' +
+    '--k-sev-info:var(--k-text-faint);' +
     // Legacy sidebar aliases (glyph classes).
     '--g-running:var(--k-running);--g-input:var(--k-attention);--g-failed:var(--k-failed);' +
     '--g-done:var(--k-passed);--g-gray:var(--k-pending);' +

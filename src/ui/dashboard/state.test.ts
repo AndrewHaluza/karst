@@ -1569,3 +1569,53 @@ describe('buildDashboardState — round switcher selection (Option B, T4)', () =
     expect(uat.attemptNote).toBeUndefined();
   });
 });
+
+describe('buildDashboardState — findings repo selection', () => {
+  let store: Store;
+  beforeEach(() => (store = openStore(':memory:')));
+  afterEach(() => store.close());
+
+  it('threads findingsRepoSelection to the quality reducers', () => {
+    const t = createTicket(store, { key: 'FR-1', title: 'findings repo' });
+    store.db.prepare("UPDATE tickets SET stage_current = 'review' WHERE id = ?").run(t.id);
+    setStage(store, t.id, 'review', { status: 'passed', startedAt: '2026-08-20T09:00:00.000Z', endedAt: '2026-08-20T09:30:00.000Z' });
+    recordGateRun(store, {
+      ticketId: t.id, stageKey: 'review', attempt: 0, runAt: '2026-08-20T09:10:00.000Z',
+      gates: [{ gateName: 'lint', exitCode: 0, repo: '/wt/web' }],
+    });
+    recordFindings(store, {
+      ticketId: t.id, attempt: 0, runAt: '2026-08-20T09:10:00.000Z',
+      findings: [
+        { severity: 'high', repo: '/wt/web', title: 'high', detail: '', source: 'agent' },
+        { severity: 'low', repo: '/wt/api', title: 'low', detail: '', source: 'agent' },
+      ],
+    });
+    // Without selection: both repos shown, filter emitted with selected: null
+    const all = buildDashboardState(store, t.id);
+    const reviewAll = all.insideViews.review.processes.find((p) => p.id === 'review')!;
+    expect(reviewAll.repoFilter).toEqual({ repos: ['/wt/web', '/wt/api'], selected: null });
+    // With selection: only that repo's rows
+    const scoped = buildDashboardState(store, t.id, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, { review: '/wt/api' });
+    const reviewScoped = scoped.insideViews.review.processes.find((p) => p.id === 'review')!;
+    expect(reviewScoped.repoFilter?.selected).toBe('/wt/api');
+    const evidence = reviewScoped.evidence as { kind: 'findings'; rows: readonly { repo?: string }[] };
+    expect(evidence.rows.every((r) => r.repo === '/wt/api')).toBe(true);
+  });
+
+  it('omitting findingsRepoSelection reproduces prior output', () => {
+    const t = createTicket(store, { key: 'FR-2', title: 'no selection' });
+    store.db.prepare("UPDATE tickets SET stage_current = 'review' WHERE id = ?").run(t.id);
+    setStage(store, t.id, 'review', { status: 'passed', startedAt: '2026-08-20T09:00:00.000Z', endedAt: '2026-08-20T09:30:00.000Z' });
+    recordGateRun(store, {
+      ticketId: t.id, stageKey: 'review', attempt: 0, runAt: '2026-08-20T09:10:00.000Z',
+      gates: [{ gateName: 'lint', exitCode: 0, repo: '/wt/web' }],
+    });
+    recordFindings(store, {
+      ticketId: t.id, attempt: 0, runAt: '2026-08-20T09:10:00.000Z',
+      findings: [{ severity: 'high', repo: '/wt/web', title: 'h', detail: '', source: 'agent' }],
+    });
+    const without = buildDashboardState(store, t.id);
+    const withUndef = buildDashboardState(store, t.id, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined);
+    expect(without.insideViews.review).toEqual(withUndef.insideViews.review);
+  });
+});

@@ -406,6 +406,16 @@ export function buildDashboardState(
    * every existing positional caller keeps its argument positions.
    */
   findingsBlockingSeverity: Severity | 'none' = 'none',
+  /**
+   * The findings repo scope for each gate stage (§ findings severity ramp).
+   * `findingsRepoSelection?.uat` / `findingsRepoSelection?.review` names a
+   * recorded repo PATH, or absent/undefined for "all repositories". A value
+   * naming a repo the current batch does not hold degrades to "all" inside
+   * the quality reducers — the same "absent degrades to no signal" policy
+   * every other injected selection follows. Appended LAST so every existing
+   * positional caller keeps its argument positions.
+   */
+  findingsRepoSelection?: Partial<Record<'uat' | 'review', string>>,
 ): DashboardState {
   const ticket = getTicket(store, ticketId); // throws on unknown id
   // The parent relationship for the dashboard's secondary metadata line. A
@@ -726,6 +736,7 @@ export function buildDashboardState(
         // path the evidence table keys by — the same injection ship uses.
         repoNameFor,
         selectedAttempt: uatSwitch.selectedKey,
+        findingsRepo: findingsRepoSelection?.uat ?? null,
       }),
       now,
       consoleFor('uat'),
@@ -749,6 +760,7 @@ export function buildDashboardState(
         resolvedGates: resolvedGates?.review ?? [],
         repoNameFor,
         selectedAttempt: reviewSwitch.selectedKey,
+        findingsRepo: findingsRepoSelection?.review ?? null,
       }),
       now,
       consoleFor('review'),

@@ -47,6 +47,7 @@ import { isKnownProvider } from '../agent/provider.js';
 import type { Store } from '../store/db.js';
 import { formatSpanMs } from './inside/types.js';
 import type { InsideEvidenceTarget, TypedInsideAction } from './inside/types.js';
+import { sortBySeverityDesc } from './severityOrder.js';
 
 /** The semantic artifact kinds V1 derives. One artifact per kind per ticket. */
 export type ArtifactKind = 'plan' | 'uat-report' | 'review' | 'ship-summary';
@@ -322,7 +323,6 @@ export function readPlanInput(store: Store, ticketId: number): ArtifactPlanInput
 const NON_GATE_RUNS = new Set(['changes']);
 
 /** Detail list caps: a display decision, never a verdict (see ArtifactSummary). */
-const MAX_DETAIL_FINDINGS = 50;
 const MAX_DETAIL_COMMITS = 20;
 const MAX_DETAIL_TASKS = 40;
 
@@ -576,9 +576,8 @@ function uatReport(input: ArtifactInput): ArtifactSummary | null {
   const entries = latestAttemptEntries(allEntries);
   if (allEntries.length === 0 && uatFindings.length === 0) return null;
 
-  const findings: ArtifactFinding[] = uatFindings
-    .slice(0, MAX_DETAIL_FINDINGS)
-    .map((f) => ({
+  const findings: ArtifactFinding[] = sortBySeverityDesc(
+    uatFindings.map((f) => ({
       severity: f.severity,
       title: f.title,
       detail: null,
@@ -595,7 +594,8 @@ function uatReport(input: ArtifactInput): ArtifactSummary | null {
             }),
           }
         : {}),
-    }));
+    })),
+  );
   const createdAt = stage?.endedAt ?? stage?.startedAt ?? null;
   const attemptCount = versionAttempts(allEntries, processRuns, 'uat');
   const failedStage = stage?.status === 'failed';
@@ -680,7 +680,7 @@ function reviewReport(input: ArtifactInput): ArtifactSummary | null {
     createdAt,
     metrics,
     gates: entries.map((g) => ({ name: g.gateName, exitCode: g.exitCode })),
-    findings: findings.slice(0, MAX_DETAIL_FINDINGS).map((f) => ({
+    findings: sortBySeverityDesc(findings).map((f) => ({
       severity: f.severity,
       title: f.title,
       detail: f.detail || null,
