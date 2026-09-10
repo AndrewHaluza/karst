@@ -21,6 +21,7 @@ The stage machine, the evidence it writes, and the host seam that drives it. Rel
 - Single-writer stage mutation
 - Ship refuses to publish an untracked secret-shaped file, and a tracked file is the escape hatch
 - A ship in which EVERY target is unchanged is a failure, not a pass
+- Findings are scoped to the run that produced them
 
 ## Stage machine
 
@@ -141,3 +142,9 @@ Ship stages the entire worktree — `prepareCommitInQuarantine` runs `git add -A
 ## A ship in which EVERY target is unchanged is a failure, not a pass
 
 A multi-repo ticket legitimately leaves most of its repos untouched, so each repo's own "no changes from `<base>` — nothing to commit" note is correct and stays. What is not correct is passing when **every** target is unchanged: that ship produced no commit, no push and no PR at all, which is the shape a ticket takes when its work landed somewhere other than its branches — an implementation run that committed into the main checkout, or a stale worktree mapping. Left passing, it walked a ticket through UAT, review and ship to `done` fully green with nothing shipped. Ship now throws after its repo loop when the no-change count equals the worktree count, so the ticket parks at `ship` with the reason on the stage row. A repo skipped because it already carries a live PR is not counted (it shipped earlier), a repo with no persisted base is not counted (there is nothing to compare against), and a real per-repo failure is raised first, because it is more actionable than the symptom it causes.
+
+## Findings are scoped to the run that produced them
+
+Findings are append-only and have no resolve path; a clean re-review records no batch at all (`workflow/gates/evidence.ts` returns early on zero findings). Therefore any greatest-`runAt` reduction over a whole ticket re-renders a fixed round's findings forever. Every RENDERED surface keys to the process run instead, through `scopeReviewFindings` / `scopeUatFindings` in `src/model/findingScope.ts`. A round in flight (`endedAt === null`) with nothing recorded renders nothing — not the round it replaced.
+
+`uat_findings.process_run_id` is `NOT NULL`, so UAT has no fallback; `review_findings.process_run_id` is nullable and never backfilled, so review falls back to the newest batch of unattributed rows only. Two deliberate non-consumers: the ship stage's findings row, which scopes by the review stage's `attempt` under its own ruling in `ui/dashboard/state.ts`, and the fix-brief readers (`extension.ts`, `context/ticketContext.ts`, `cli/fixBriefCommand.ts`), which want the batch being fixed.

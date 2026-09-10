@@ -397,6 +397,9 @@ CREATE INDEX IF NOT EXISTS idx_phase_marks_ticket ON phase_marks(ticket_id, stag
 -- pre-v27 row, or a batch whose caller named no process. Never backfilled.
 -- ON DELETE SET NULL: a deleted run never takes its findings with it — the
 -- finding stays, its execution attribution goes.
+-- Rendered surfaces key findings to this column (model/findingScope.ts); rows
+-- where it is NULL are reduced by run_at instead, which is the only thing a
+-- pre-v27 row supports.
 --
 -- No column can hold the diff itself, for the same reason `token_usage` has
 -- no text column: this table is read on the review panel's render path.

@@ -3,6 +3,7 @@ import type { ProcessRun } from '../../store/processRuns.js';
 import type { RecoveryRound } from '../../store/recoveryRounds.js';
 import type { Finding } from '../../store/reviewFindings.js';
 import type { UatFinding } from '../../store/uatFindings.js';
+import { scopeReviewFindings } from '../findingScope.js';
 import { collapseDiagnostic } from '../diagnosticText.js';
 import { sortBySeverityDesc } from '../severityOrder.js';
 import { displayStatus, type StepperCell } from '../stepper.js';
@@ -141,24 +142,6 @@ function gateOp(run: GateRun): StageOp & { repo: string | null; durationExact: s
  */
 function stripRepoDecoration(name: string): string {
   return name.replace(/\s+\([^)]*\)$/, '');
-}
-
-/**
- * The most recently recorded findings batch — the same greatest-`runAt`
- * reduction `latestBatch` (above) documents for `gate_runs`, applied to
- * `review_findings` rows. Duplicated rather than imported from
- * `store/reviewFindings.ts`'s own `latestFindingBatch` for the same reason
- * that function gives for not sharing this one: the store layer must not
- * depend on `model/`, so each side keeps its own copy of a selection rule
- * simple enough that drift between them would be caught by either module's
- * own tests.
- */
-function latestFindingsBatch(findings: readonly Finding[]): Finding[] {
-  const latest = findings.reduce<string | null>(
-    (max, f) => (max === null || f.runAt > max ? f.runAt : max),
-    null,
-  );
-  return latest === null ? [] : findings.filter((f) => f.runAt === latest);
 }
 
 /** Findings at or above this severity read as fail-styled — they are the ones that can fail the ticket. */
@@ -692,15 +675,17 @@ function testerProcess(input: QualityProcessesInput): InsideProcessView {
 function reviewProcess(input: QualityProcessesInput): InsideProcessView {
   const selectedAttempt = input.selectedAttempt ?? null;
   const run = processRunForAttempt(input.processRuns, 'review', selectedAttempt);
-  // The default/latest path (`selectedAttempt === null`) keeps the greatest-
-  // `runAt` reduction exactly as before — findings carry no stage run id of
-  // their own to key by. A selected run's findings are those THAT run
-  // recorded (`processRunId`), never a different attempt's batch: this is
-  // what stops a selection from mixing one attempt's gates with another's
-  // findings.
+  // Both paths key findings to the process run that recorded them. The default
+  // path used to reduce over the whole ticket by greatest `runAt`, on the (once
+  // true, now stale) premise that findings carry no run id — v27 added
+  // `review_findings.process_run_id` and `recordFindings` populates it. Because
+  // findings are append-only and a clean re-review writes NO batch, that
+  // reduction re-rendered a fixed round's findings under a running re-review,
+  // and counted them as blocking. `scopeReviewFindings` owns the rule,
+  // including the pre-v27 fallback; see `model/findingScope.ts`.
   const batch =
     selectedAttempt === null
-      ? latestFindingsBatch(input.findings)
+      ? scopeReviewFindings(input.findings, run)
       : run
         ? input.findings.filter((f) => f.processRunId === run.id)
         : [];
