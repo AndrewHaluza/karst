@@ -1,0 +1,1536 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`gettingStarted render > complete > snapshot (was: full document render) 1`] = `
+"
+    <div class="gs-head">
+      <svg aria-hidden="true" width="28" height="28" viewBox="0 0 215 215">
+        <defs>
+          <linearGradient id="gsLeft" x1="0.22" y1="0.12" x2="0.78" y2="0.92">
+            <stop offset="0%" stop-color="#7D48E9"></stop><stop offset="43%" stop-color="#7D3CEE"></stop><stop offset="100%" stop-color="#4A71D7"></stop>
+          </linearGradient>
+          <linearGradient id="gsRight" x1="0.18" y1="0.10" x2="0.82" y2="0.90">
+            <stop offset="0%" stop-color="#00B7C9"></stop><stop offset="55%" stop-color="#00AFC0"></stop><stop offset="100%" stop-color="#00B1C4"></stop>
+          </linearGradient>
+          <linearGradient id="gsCore" x1="0.20" y1="0.18" x2="0.82" y2="0.86">
+            <stop offset="0%" stop-color="#6647DE"></stop><stop offset="48%" stop-color="#5660D9"></stop><stop offset="100%" stop-color="#3586D6"></stop>
+          </linearGradient>
+        </defs>
+        <path d="M 96 20 L 25 67 L 25 156 L 98 203 L 98 180 L 44 145 L 44 78 L 97 44 Z" fill="url(#gsLeft)"></path>
+        <path d="M 151 42 L 138 58 L 170 78 L 170 144 L 138 165 L 150 180 L 188 156 L 188 67 Z" fill="url(#gsRight)"></path>
+        <circle cx="106.5" cy="111.5" r="26.5" fill="url(#gsCore)"></circle>
+      </svg>
+      <h1>Getting Started</h1>
+    </div>
+    <p class="lede">Orchestrate AI-agent ticket workflows across your repos. Finish setup below.</p>
+
+    <section>
+      <h2>Setup checklist</h2>
+      <ul id="checklist"><li><div class="item-head"><span class="k-dot k-dot--passed" role="img" aria-label="Done"></span><span>Setup step 1</span></div></li><li><div class="item-head"><span class="k-dot k-dot--passed" role="img" aria-label="Done"></span><span>Setup step 2</span></div></li><li><div class="item-head"><span class="k-dot k-dot--passed" role="img" aria-label="Done"></span><span>Setup step 3</span></div></li></ul>
+      <div class="toolbar">
+        <button type="button" class="k-btn k-btn--secondary" id="recheck" title="Re-run the setup checklist against disk and PATH">Re-check</button>
+      </div>
+    </section>
+
+    <section>
+      <h2>How Karst works</h2>
+      <ul class="steps" id="tutorial"><li><div class="step-body"><div>Configure repositories &amp; agent provider</div><div class="step-desc">Open Settings to point each repository at its path and pick your agent CLI.</div><button type="button" class="k-btn k-btn--secondary k-btn--sm step-action" title="Open the Karst settings panel">Open Settings</button></div></li><li><div class="step-body"><div>Create your first ticket</div><div class="step-desc">Describe the work; Karst fetches or drafts the context brief.</div><button type="button" class="k-btn k-btn--secondary k-btn--sm step-action" title="Open the create-ticket panel">Create Ticket</button></div></li><li><div class="step-body"><div>Pick repos + approach and launch the session</div><div class="step-desc">Choose which repositories are in scope and how the agent should work, then start.</div></div></li><li><div class="step-body"><div>Watch stage progress on the ticket dashboard</div><div class="step-desc">Open a ticket to follow it through scope → impl → uat as the agent runs.</div></div></li><li><div class="step-body"><div>Optional: install an approach package</div><div class="step-desc">Add a curated method (agents, commands, skills) from Settings → Approaches.</div><button type="button" class="k-btn k-btn--secondary k-btn--sm step-action" title="Open the Karst settings panel">Open Settings</button></div></li></ul>
+    </section>
+
+    <section>
+      <h2>Report an issue</h2>
+      <p class="section-desc">
+        Click this when Karst itself behaves unexpectedly — a ticket stuck at a stage, a gate
+        that will not run, a panel that goes blank. Karst collects its own diagnostics
+        (runtime versions, stage and gate state, effective configuration, bounded logs),
+        redacts secrets, paths and credentials, then opens the report for you to read
+        before anything leaves your machine. Approve it and Karst hands the redacted
+        summary to a prefilled GitHub issue in your browser; you still press Submit there.
+      </p>
+      <p class="section-desc">
+        Ticket descriptions and other prompt text are left out unless you opt in during the
+        review step. For work items in your own project, create a ticket instead.
+      </p>
+      <div class="toolbar">
+        <button type="button" class="k-btn k-btn--secondary" id="report-issue" title="Collect redacted Karst diagnostics and open a prefilled GitHub issue">Report an issue</button>
+      </div>
+    </section>
+
+    <footer>
+      <button type="button" class="k-btn k-btn--ghost" id="dismiss">Don't show this again</button>
+    </footer>
+
+    <script nonce="fixture-nonce-000000000000">
+  // ── Karst design system runtime (docs/ui/DESIGN-SYSTEM.md §5) ────────────────
+var KARST_WATCHDOG_MS = 45000;
+var KARST_FLASH_DONE_MS = 2400;
+var KARST_TOAST_SUCCESS_MS = 6000;
+var KARST_MAX_TOAST_CHARS = 240;
+
+/** requestId -> { el, timer, wasDisabled }. The single source of "what is in flight". */
+var karstPending = {};
+var karstReqSeq = 0;
+
+function karstRequestId() {
+  karstReqSeq = karstReqSeq + 1;
+  return 'k' + karstReqSeq + '-' + karstReqSeq.toString(36);
+}
+
+/** Untrusted prose (CLI output, model output, git stderr) collapsed to one capped line. */
+function karstOneLine(value) {
+  var s = String(value === null || value === undefined ? '' : value).replace(/\\s+/g, ' ').trim();
+  return s.length > KARST_MAX_TOAST_CHARS ? s.slice(0, KARST_MAX_TOAST_CHARS - 1) + '…' : s;
+}
+
+function karstIsPending(el) {
+  if (!el) return false;
+  for (var id in karstPending) {
+    if (Object.prototype.hasOwnProperty.call(karstPending, id) && karstPending[id].el === el) return true;
+  }
+  return false;
+}
+
+/**
+ * Enter pending. aria-busy is the accessible signal, \`disabled\` is the
+ * re-trigger guard, and the class is what [[designComponents]] hangs the spinner
+ * on. The label is deliberately untouched (UI-R18).
+ */
+function karstBeginPending(el, requestId) {
+  var wasDisabled = el ? !!el.disabled : false;
+  if (el) {
+    el.setAttribute('aria-busy', 'true');
+    el.disabled = true;
+    if (el.classList) el.classList.add('is-pending');
+  }
+  karstPending[requestId] = {
+    el: el,
+    wasDisabled: wasDisabled,
+    timer: setTimeout(function () {
+      // Unknown, not failed: the host may simply never reply.
+      karstSettle(requestId, null);
+    }, KARST_WATCHDOG_MS),
+  };
+}
+
+/**
+ * Terminal result for one request. \`ok\` is true (succeeded), false (failed), or
+ * null (unknown — the watchdog fired). A control disabled BEFORE the action
+ * stays disabled: settling must not turn "unavailable" into "available".
+ */
+function karstSettle(requestId, ok, message) {
+  var entry = karstPending[requestId];
+  if (!entry) return;
+  delete karstPending[requestId];
+  if (entry.timer !== undefined && entry.timer !== null) clearTimeout(entry.timer);
+
+  var el = entry.el;
+  if (el) {
+    el.removeAttribute('aria-busy');
+    el.disabled = entry.wasDisabled;
+    if (el.classList) el.classList.remove('is-pending');
+    if (ok === true && el.classList) {
+      el.classList.add('is-success');
+      setTimeout(function () {
+        if (el.classList) el.classList.remove('is-success');
+      }, KARST_FLASH_DONE_MS);
+    }
+  }
+
+  if (ok === false) {
+    karstToast('error', karstOneLine(message) || 'That action failed.');
+  } else if (ok === null) {
+    karstToast('warning', karstOneLine(message) || 'Still running — the result is unknown.');
+  } else if (message) {
+    karstToast('success', karstOneLine(message));
+  }
+}
+
+/**
+ * Bind a control to an async action. \`send\` receives the requestId and is
+ * responsible for posting it to the host; the host replies once with
+ * { type: 'action-result', requestId, ok, message } and the webview's message
+ * handler calls karstSettle.
+ */
+function karstAction(el, send, opts) {
+  if (!el) return;
+  var options = opts || {};
+  el.addEventListener('click', function (ev) {
+    if (karstIsPending(el)) {
+      // Dropped, not queued (UI-R12).
+      if (ev && ev.preventDefault) ev.preventDefault();
+      return;
+    }
+    if (el.disabled) return;
+    var requestId = karstRequestId();
+    karstBeginPending(el, requestId);
+    try {
+      send(requestId, ev);
+    } catch (err) {
+      karstSettle(requestId, false, err && err.message ? err.message : String(err));
+    }
+    if (options.settle === 'immediate') karstSettle(requestId, true);
+  });
+}
+
+/** The one polite live region per webview (UI-R27). Created on first use. */
+function karstToastRoot() {
+  var root = document.getElementById('k-toast-root');
+  if (root) return root;
+  root = document.createElement('div');
+  root.setAttribute('id', 'k-toast-root');
+  root.setAttribute('class', 'k-toast-root');
+  root.setAttribute('role', 'status');
+  root.setAttribute('aria-live', 'polite');
+  document.body.appendChild(root);
+  return root;
+}
+
+/**
+ * Surface a terminal outcome. Success and warning self-dismiss; an ERROR never
+ * does — a failure the user has not read yet is not a failure that has been
+ * reported.
+ */
+function karstToast(kind, message) {
+  var text = karstOneLine(message);
+  if (!text) return null;
+  var root = karstToastRoot();
+  var node = document.createElement('div');
+  node.classList.add('k-toast');
+  node.classList.add('k-toast--' + kind);
+  node.textContent = text;
+  root.appendChild(node);
+  if (kind !== 'error') {
+    setTimeout(function () {
+      try { root.removeChild(node); } catch (e) { /* already detached */ }
+    }, KARST_TOAST_SUCCESS_MS);
+  }
+  return node;
+}
+// ── Karst Tabler icon runtime (docs/ui/ICONS.md §3) ──────────────────────────
+var KARST_TABLER_ICONS = {"archive":"<path d=\\"M3 6a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2\\"/><path d=\\"M5 8v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-10\\"/><path d=\\"M10 12l4 0\\"/>","check":"<path d=\\"M5 12l5 5l10 -10\\"/>","chevron-down":"<path d=\\"M6 9l6 6l6 -6\\"/>","chevron-right":"<path d=\\"M9 6l6 6l-6 6\\"/>","circle-check":"<path d=\\"M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0\\"/><path d=\\"M9 12l2 2l4 -4\\"/>","circle-x":"<path d=\\"M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0\\"/><path d=\\"M10 10l4 4m0 -4l-4 4\\"/>","copy":"<path d=\\"M7 9.667a2.667 2.667 0 0 1 2.667 -2.667h8.666a2.667 2.667 0 0 1 2.667 2.667v8.666a2.667 2.667 0 0 1 -2.667 2.667h-8.666a2.667 2.667 0 0 1 -2.667 -2.667l0 -8.666\\"/><path d=\\"M4.012 16.737a2.005 2.005 0 0 1 -1.012 -1.737v-10c0 -1.1 .9 -2 2 -2h10c.75 0 1.158 .385 1.5 1\\"/>","corner-down-right":"<path d=\\"M6 6v6a3 3 0 0 0 3 3h10l-4 -4m0 8l4 -4\\"/>","dots":"<path d=\\"M5 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0\\"/><path d=\\"M12 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0\\"/><path d=\\"M19 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0\\"/>","external-link":"<path d=\\"M12 6h-6a2 2 0 0 0 -2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-6\\"/><path d=\\"M11 13l9 -9\\"/><path d=\\"M15 4h5v5\\"/>","file-text":"<path d=\\"M14 3v4a1 1 0 0 0 1 1h4\\"/><path d=\\"M17 21h-10a2 2 0 0 1 -2 -2v-14a2 2 0 0 1 2 -2h7l5 5v11a2 2 0 0 1 -2 2\\"/><path d=\\"M9 9l1 0\\"/><path d=\\"M9 13l6 0\\"/><path d=\\"M9 17l6 0\\"/>","folder":"<path d=\\"M5 4h4l3 3h7a2 2 0 0 1 2 2v8a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v-11a2 2 0 0 1 2 -2\\"/>","git-compare":"<path d=\\"M4 6a2 2 0 1 0 4 0a2 2 0 1 0 -4 0\\"/><path d=\\"M16 18a2 2 0 1 0 4 0a2 2 0 1 0 -4 0\\"/><path d=\\"M11 6h5a2 2 0 0 1 2 2v8\\"/><path d=\\"M14 9l-3 -3l3 -3\\"/><path d=\\"M13 18h-5a2 2 0 0 1 -2 -2v-8\\"/><path d=\\"M10 15l3 3l-3 3\\"/>","history":"<path d=\\"M12 8l0 4l2 2\\"/><path d=\\"M3.05 11a9 9 0 1 1 .5 4m-.5 5v-5h5\\"/>","layout-dashboard":"<path d=\\"M5 4h4a1 1 0 0 1 1 1v6a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-6a1 1 0 0 1 1 -1\\"/><path d=\\"M5 16h4a1 1 0 0 1 1 1v2a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-2a1 1 0 0 1 1 -1\\"/><path d=\\"M15 12h4a1 1 0 0 1 1 1v6a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-6a1 1 0 0 1 1 -1\\"/><path d=\\"M15 4h4a1 1 0 0 1 1 1v2a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-2a1 1 0 0 1 1 -1\\"/>","pencil":"<path d=\\"M4 20h4l10.5 -10.5a2.828 2.828 0 1 0 -4 -4l-10.5 10.5v4\\"/><path d=\\"M13.5 6.5l4 4\\"/>","bug":"<path d=\\"M9 9v-1a3 3 0 0 1 6 0v1\\"/><path d=\\"M8 9h8a6 6 0 0 1 1 3v3a5 5 0 0 1 -10 0v-3a6 6 0 0 1 1 -3\\"/><path d=\\"M3 13l4 0\\"/><path d=\\"M17 13l4 0\\"/><path d=\\"M12 20l0 -6\\"/><path d=\\"M4 19l3.35 -2\\"/><path d=\\"M20 19l-3.35 -2\\"/><path d=\\"M4 7l3.75 2.4\\"/><path d=\\"M20 7l-3.75 2.4\\"/>","play-bug":"<path d=\\"M3.5 18a2.5 3 0 1 0 5 0a2.5 3 0 1 0 -5 0\\"/><path d=\\"M2 18h1.5\\"/><path d=\\"M8.5 18h1.5\\"/><path d=\\"M9.5 14.5l-1.5 1.5\\"/><path d=\\"M2.5 14.5l1.5 1.5\\"/><path d=\\"M2.5 21.5l1.5 -1.5\\"/><path d=\\"M8 20l1.5 1.5\\"/><path d=\\"M13 16l8 -5l-13 -8v8\\"/>","player-pause":"<path d=\\"M6 5m0 1a1 1 0 0 1 1 -1h2a1 1 0 0 1 1 1v12a1 1 0 0 1 -1 1h-2a1 1 0 0 1 -1 -1z\\"/><path d=\\"M14 5m0 1a1 1 0 0 1 1 -1h2a1 1 0 0 1 1 1v12a1 1 0 0 1 -1 1h-2a1 1 0 0 1 -1 -1z\\"/>","player-play":"<path d=\\"M7 4v16l13 -8l-13 -8\\"/>","player-stop":"<path d=\\"M5 7a2 2 0 0 1 2 -2h10a2 2 0 0 1 2 2v10a2 2 0 0 1 -2 2h-10a2 2 0 0 1 -2 -2l0 -10\\"/>","plus":"<path d=\\"M12 5l0 14\\"/><path d=\\"M5 12l14 0\\"/>","refresh":"<path d=\\"M20 11a8.1 8.1 0 0 0 -15.5 -2m-.5 -4v4h4\\"/><path d=\\"M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4\\"/>","search":"<path d=\\"M3 10a7 7 0 1 0 14 0a7 7 0 1 0 -14 0\\"/><path d=\\"M21 21l-6 -6\\"/>","server-2":"<path d=\\"M3 7a3 3 0 0 1 3 -3h12a3 3 0 0 1 3 3v2a3 3 0 0 1 -3 3h-12a3 3 0 0 1 -3 -3v-2\\"/><path d=\\"M3 15a3 3 0 0 1 3 -3h12a3 3 0 0 1 3 3v2a3 3 0 0 1 -3 3h-12a3 3 0 0 1 -3 -3l0 -2\\"/><path d=\\"M7 8l0 .01\\"/><path d=\\"M7 16l0 .01\\"/><path d=\\"M11 8h6\\"/><path d=\\"M11 16h6\\"/>","settings":"<path d=\\"M10.325 4.317c.426 -1.756 2.924 -1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543 -.94 3.31 .826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756 .426 1.756 2.924 0 3.35a1.724 1.724 0 0 0 -1.066 2.573c.94 1.543 -.826 3.31 -2.37 2.37a1.724 1.724 0 0 0 -2.572 1.065c-.426 1.756 -2.924 1.756 -3.35 0a1.724 1.724 0 0 0 -2.573 -1.066c-1.543 .94 -3.31 -.826 -2.37 -2.37a1.724 1.724 0 0 0 -1.065 -2.572c-1.756 -.426 -1.756 -2.924 0 -3.35a1.724 1.724 0 0 0 1.066 -2.573c-.94 -1.543 .826 -3.31 2.37 -2.37c1 .608 2.296 .07 2.572 -1.065\\"/><path d=\\"M9 12a3 3 0 1 0 6 0a3 3 0 0 0 -6 0\\"/>","terminal-2":"<path d=\\"M8 9l3 3l-3 3\\"/><path d=\\"M13 15l3 0\\"/><path d=\\"M3 6a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2l0 -12\\"/>","trash":"<path d=\\"M4 7l16 0\\"/><path d=\\"M10 11l0 6\\"/><path d=\\"M14 11l0 6\\"/><path d=\\"M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2 -2l1 -12\\"/><path d=\\"M9 7v-3a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v3\\"/>"};
+
+/**
+ * Full inline svg for a catalog glyph. size is CSS px (default 16); cls is an
+ * optional extra class beside .k-icon. Unknown name → '' — never a throw.
+ */
+function karstIcon(name, size, cls) {
+  var paths = KARST_TABLER_ICONS[name];
+  if (!paths) return '';
+  size = size || 16;
+  var k = 'k-icon' + (cls ? ' ' + cls : '');
+  return '<svg class="' + k + '" width="' + size + '" height="' + size
+    + '" viewBox="0 0 24 24" aria-hidden="true" focusable="false">'
+    + paths + '</svg>';
+}
+
+      const vscode = acquireVsCodeApi();
+      const post = (type, requestId) => vscode.postMessage(requestId ? { type, requestId } : { type });
+
+      function renderChecklist(items) {
+        const ul = document.getElementById('checklist');
+        ul.innerHTML = '';
+        for (const it of items) {
+          const li = document.createElement('li');
+          const head = document.createElement('div');
+          head.className = 'item-head';
+          const dot = document.createElement('span');
+          dot.className = 'k-dot ' + (it.done ? 'k-dot--passed' : 'k-dot--failed');
+          dot.setAttribute('role', 'img');
+          dot.setAttribute('aria-label', it.done ? 'Done' : 'Not done');
+          const label = document.createElement('span');
+          label.textContent = it.label;
+          head.append(dot, label);
+          li.append(head);
+          if (it.detail) {
+            const d = document.createElement('div');
+            d.className = 'detail';
+            d.textContent = it.detail;
+            li.append(d);
+          }
+          if (it.id === 'manifest' && !it.done) {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'k-btn k-btn--primary item-action';
+            b.textContent = 'Create karst.yml';
+            b.title = 'Write a starter karst.yml to the workspace root';
+            karstAction(b, (requestId) => post('create-manifest', requestId));
+            li.append(b);
+          }
+          ul.append(li);
+        }
+      }
+
+      function renderTutorial(steps) {
+        const ul = document.getElementById('tutorial');
+        ul.innerHTML = '';
+        for (const s of steps) {
+          const li = document.createElement('li');
+          const body = document.createElement('div');
+          body.className = 'step-body';
+          const label = document.createElement('div');
+          label.textContent = s.label;
+          const desc = document.createElement('div');
+          desc.className = 'step-desc';
+          desc.textContent = s.description;
+          body.append(label, desc);
+          if (s.action === 'settings' || s.action === 'create-ticket') {
+            const isSettings = s.action === 'settings';
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'k-btn k-btn--secondary k-btn--sm step-action';
+            b.textContent = isSettings ? 'Open Settings' : 'Create Ticket';
+            b.title = isSettings ? 'Open the Karst settings panel' : 'Open the create-ticket panel';
+            karstAction(b, (requestId) => post(isSettings ? 'open-settings' : 'create-ticket', requestId));
+            body.append(b);
+          }
+          li.append(body);
+          ul.append(li);
+        }
+      }
+
+      window.addEventListener('message', (event) => {
+        const msg = event.data;
+        if (msg.type === 'state') {
+          renderChecklist(msg.state.checklist);
+          renderTutorial(msg.state.tutorial);
+        } else if (msg.type === 'action-result') {
+          karstSettle(msg.requestId, msg.ok, msg.message);
+        }
+      });
+
+      karstAction(document.getElementById('recheck'), (requestId) => post('recheck-deps', requestId));
+      karstAction(document.getElementById('report-issue'), (requestId) => post('report-issue', requestId));
+      karstAction(document.getElementById('dismiss'), (requestId) => post('dismiss', requestId));
+      post('request-state');
+    </script>
+  
+
+"
+`;
+
+exports[`gettingStarted render > empty > snapshot (was: full document render) 1`] = `
+"
+    <div class="gs-head">
+      <svg aria-hidden="true" width="28" height="28" viewBox="0 0 215 215">
+        <defs>
+          <linearGradient id="gsLeft" x1="0.22" y1="0.12" x2="0.78" y2="0.92">
+            <stop offset="0%" stop-color="#7D48E9"></stop><stop offset="43%" stop-color="#7D3CEE"></stop><stop offset="100%" stop-color="#4A71D7"></stop>
+          </linearGradient>
+          <linearGradient id="gsRight" x1="0.18" y1="0.10" x2="0.82" y2="0.90">
+            <stop offset="0%" stop-color="#00B7C9"></stop><stop offset="55%" stop-color="#00AFC0"></stop><stop offset="100%" stop-color="#00B1C4"></stop>
+          </linearGradient>
+          <linearGradient id="gsCore" x1="0.20" y1="0.18" x2="0.82" y2="0.86">
+            <stop offset="0%" stop-color="#6647DE"></stop><stop offset="48%" stop-color="#5660D9"></stop><stop offset="100%" stop-color="#3586D6"></stop>
+          </linearGradient>
+        </defs>
+        <path d="M 96 20 L 25 67 L 25 156 L 98 203 L 98 180 L 44 145 L 44 78 L 97 44 Z" fill="url(#gsLeft)"></path>
+        <path d="M 151 42 L 138 58 L 170 78 L 170 144 L 138 165 L 150 180 L 188 156 L 188 67 Z" fill="url(#gsRight)"></path>
+        <circle cx="106.5" cy="111.5" r="26.5" fill="url(#gsCore)"></circle>
+      </svg>
+      <h1>Getting Started</h1>
+    </div>
+    <p class="lede">Orchestrate AI-agent ticket workflows across your repos. Finish setup below.</p>
+
+    <section>
+      <h2>Setup checklist</h2>
+      <ul id="checklist"></ul>
+      <div class="toolbar">
+        <button type="button" class="k-btn k-btn--secondary" id="recheck" title="Re-run the setup checklist against disk and PATH">Re-check</button>
+      </div>
+    </section>
+
+    <section>
+      <h2>How Karst works</h2>
+      <ul class="steps" id="tutorial"><li><div class="step-body"><div>Configure repositories &amp; agent provider</div><div class="step-desc">Open Settings to point each repository at its path and pick your agent CLI.</div><button type="button" class="k-btn k-btn--secondary k-btn--sm step-action" title="Open the Karst settings panel">Open Settings</button></div></li><li><div class="step-body"><div>Create your first ticket</div><div class="step-desc">Describe the work; Karst fetches or drafts the context brief.</div><button type="button" class="k-btn k-btn--secondary k-btn--sm step-action" title="Open the create-ticket panel">Create Ticket</button></div></li><li><div class="step-body"><div>Pick repos + approach and launch the session</div><div class="step-desc">Choose which repositories are in scope and how the agent should work, then start.</div></div></li><li><div class="step-body"><div>Watch stage progress on the ticket dashboard</div><div class="step-desc">Open a ticket to follow it through scope → impl → uat as the agent runs.</div></div></li><li><div class="step-body"><div>Optional: install an approach package</div><div class="step-desc">Add a curated method (agents, commands, skills) from Settings → Approaches.</div><button type="button" class="k-btn k-btn--secondary k-btn--sm step-action" title="Open the Karst settings panel">Open Settings</button></div></li></ul>
+    </section>
+
+    <section>
+      <h2>Report an issue</h2>
+      <p class="section-desc">
+        Click this when Karst itself behaves unexpectedly — a ticket stuck at a stage, a gate
+        that will not run, a panel that goes blank. Karst collects its own diagnostics
+        (runtime versions, stage and gate state, effective configuration, bounded logs),
+        redacts secrets, paths and credentials, then opens the report for you to read
+        before anything leaves your machine. Approve it and Karst hands the redacted
+        summary to a prefilled GitHub issue in your browser; you still press Submit there.
+      </p>
+      <p class="section-desc">
+        Ticket descriptions and other prompt text are left out unless you opt in during the
+        review step. For work items in your own project, create a ticket instead.
+      </p>
+      <div class="toolbar">
+        <button type="button" class="k-btn k-btn--secondary" id="report-issue" title="Collect redacted Karst diagnostics and open a prefilled GitHub issue">Report an issue</button>
+      </div>
+    </section>
+
+    <footer>
+      <button type="button" class="k-btn k-btn--ghost" id="dismiss">Don't show this again</button>
+    </footer>
+
+    <script nonce="fixture-nonce-000000000000">
+  // ── Karst design system runtime (docs/ui/DESIGN-SYSTEM.md §5) ────────────────
+var KARST_WATCHDOG_MS = 45000;
+var KARST_FLASH_DONE_MS = 2400;
+var KARST_TOAST_SUCCESS_MS = 6000;
+var KARST_MAX_TOAST_CHARS = 240;
+
+/** requestId -> { el, timer, wasDisabled }. The single source of "what is in flight". */
+var karstPending = {};
+var karstReqSeq = 0;
+
+function karstRequestId() {
+  karstReqSeq = karstReqSeq + 1;
+  return 'k' + karstReqSeq + '-' + karstReqSeq.toString(36);
+}
+
+/** Untrusted prose (CLI output, model output, git stderr) collapsed to one capped line. */
+function karstOneLine(value) {
+  var s = String(value === null || value === undefined ? '' : value).replace(/\\s+/g, ' ').trim();
+  return s.length > KARST_MAX_TOAST_CHARS ? s.slice(0, KARST_MAX_TOAST_CHARS - 1) + '…' : s;
+}
+
+function karstIsPending(el) {
+  if (!el) return false;
+  for (var id in karstPending) {
+    if (Object.prototype.hasOwnProperty.call(karstPending, id) && karstPending[id].el === el) return true;
+  }
+  return false;
+}
+
+/**
+ * Enter pending. aria-busy is the accessible signal, \`disabled\` is the
+ * re-trigger guard, and the class is what [[designComponents]] hangs the spinner
+ * on. The label is deliberately untouched (UI-R18).
+ */
+function karstBeginPending(el, requestId) {
+  var wasDisabled = el ? !!el.disabled : false;
+  if (el) {
+    el.setAttribute('aria-busy', 'true');
+    el.disabled = true;
+    if (el.classList) el.classList.add('is-pending');
+  }
+  karstPending[requestId] = {
+    el: el,
+    wasDisabled: wasDisabled,
+    timer: setTimeout(function () {
+      // Unknown, not failed: the host may simply never reply.
+      karstSettle(requestId, null);
+    }, KARST_WATCHDOG_MS),
+  };
+}
+
+/**
+ * Terminal result for one request. \`ok\` is true (succeeded), false (failed), or
+ * null (unknown — the watchdog fired). A control disabled BEFORE the action
+ * stays disabled: settling must not turn "unavailable" into "available".
+ */
+function karstSettle(requestId, ok, message) {
+  var entry = karstPending[requestId];
+  if (!entry) return;
+  delete karstPending[requestId];
+  if (entry.timer !== undefined && entry.timer !== null) clearTimeout(entry.timer);
+
+  var el = entry.el;
+  if (el) {
+    el.removeAttribute('aria-busy');
+    el.disabled = entry.wasDisabled;
+    if (el.classList) el.classList.remove('is-pending');
+    if (ok === true && el.classList) {
+      el.classList.add('is-success');
+      setTimeout(function () {
+        if (el.classList) el.classList.remove('is-success');
+      }, KARST_FLASH_DONE_MS);
+    }
+  }
+
+  if (ok === false) {
+    karstToast('error', karstOneLine(message) || 'That action failed.');
+  } else if (ok === null) {
+    karstToast('warning', karstOneLine(message) || 'Still running — the result is unknown.');
+  } else if (message) {
+    karstToast('success', karstOneLine(message));
+  }
+}
+
+/**
+ * Bind a control to an async action. \`send\` receives the requestId and is
+ * responsible for posting it to the host; the host replies once with
+ * { type: 'action-result', requestId, ok, message } and the webview's message
+ * handler calls karstSettle.
+ */
+function karstAction(el, send, opts) {
+  if (!el) return;
+  var options = opts || {};
+  el.addEventListener('click', function (ev) {
+    if (karstIsPending(el)) {
+      // Dropped, not queued (UI-R12).
+      if (ev && ev.preventDefault) ev.preventDefault();
+      return;
+    }
+    if (el.disabled) return;
+    var requestId = karstRequestId();
+    karstBeginPending(el, requestId);
+    try {
+      send(requestId, ev);
+    } catch (err) {
+      karstSettle(requestId, false, err && err.message ? err.message : String(err));
+    }
+    if (options.settle === 'immediate') karstSettle(requestId, true);
+  });
+}
+
+/** The one polite live region per webview (UI-R27). Created on first use. */
+function karstToastRoot() {
+  var root = document.getElementById('k-toast-root');
+  if (root) return root;
+  root = document.createElement('div');
+  root.setAttribute('id', 'k-toast-root');
+  root.setAttribute('class', 'k-toast-root');
+  root.setAttribute('role', 'status');
+  root.setAttribute('aria-live', 'polite');
+  document.body.appendChild(root);
+  return root;
+}
+
+/**
+ * Surface a terminal outcome. Success and warning self-dismiss; an ERROR never
+ * does — a failure the user has not read yet is not a failure that has been
+ * reported.
+ */
+function karstToast(kind, message) {
+  var text = karstOneLine(message);
+  if (!text) return null;
+  var root = karstToastRoot();
+  var node = document.createElement('div');
+  node.classList.add('k-toast');
+  node.classList.add('k-toast--' + kind);
+  node.textContent = text;
+  root.appendChild(node);
+  if (kind !== 'error') {
+    setTimeout(function () {
+      try { root.removeChild(node); } catch (e) { /* already detached */ }
+    }, KARST_TOAST_SUCCESS_MS);
+  }
+  return node;
+}
+// ── Karst Tabler icon runtime (docs/ui/ICONS.md §3) ──────────────────────────
+var KARST_TABLER_ICONS = {"archive":"<path d=\\"M3 6a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2\\"/><path d=\\"M5 8v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-10\\"/><path d=\\"M10 12l4 0\\"/>","check":"<path d=\\"M5 12l5 5l10 -10\\"/>","chevron-down":"<path d=\\"M6 9l6 6l6 -6\\"/>","chevron-right":"<path d=\\"M9 6l6 6l-6 6\\"/>","circle-check":"<path d=\\"M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0\\"/><path d=\\"M9 12l2 2l4 -4\\"/>","circle-x":"<path d=\\"M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0\\"/><path d=\\"M10 10l4 4m0 -4l-4 4\\"/>","copy":"<path d=\\"M7 9.667a2.667 2.667 0 0 1 2.667 -2.667h8.666a2.667 2.667 0 0 1 2.667 2.667v8.666a2.667 2.667 0 0 1 -2.667 2.667h-8.666a2.667 2.667 0 0 1 -2.667 -2.667l0 -8.666\\"/><path d=\\"M4.012 16.737a2.005 2.005 0 0 1 -1.012 -1.737v-10c0 -1.1 .9 -2 2 -2h10c.75 0 1.158 .385 1.5 1\\"/>","corner-down-right":"<path d=\\"M6 6v6a3 3 0 0 0 3 3h10l-4 -4m0 8l4 -4\\"/>","dots":"<path d=\\"M5 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0\\"/><path d=\\"M12 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0\\"/><path d=\\"M19 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0\\"/>","external-link":"<path d=\\"M12 6h-6a2 2 0 0 0 -2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-6\\"/><path d=\\"M11 13l9 -9\\"/><path d=\\"M15 4h5v5\\"/>","file-text":"<path d=\\"M14 3v4a1 1 0 0 0 1 1h4\\"/><path d=\\"M17 21h-10a2 2 0 0 1 -2 -2v-14a2 2 0 0 1 2 -2h7l5 5v11a2 2 0 0 1 -2 2\\"/><path d=\\"M9 9l1 0\\"/><path d=\\"M9 13l6 0\\"/><path d=\\"M9 17l6 0\\"/>","folder":"<path d=\\"M5 4h4l3 3h7a2 2 0 0 1 2 2v8a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v-11a2 2 0 0 1 2 -2\\"/>","git-compare":"<path d=\\"M4 6a2 2 0 1 0 4 0a2 2 0 1 0 -4 0\\"/><path d=\\"M16 18a2 2 0 1 0 4 0a2 2 0 1 0 -4 0\\"/><path d=\\"M11 6h5a2 2 0 0 1 2 2v8\\"/><path d=\\"M14 9l-3 -3l3 -3\\"/><path d=\\"M13 18h-5a2 2 0 0 1 -2 -2v-8\\"/><path d=\\"M10 15l3 3l-3 3\\"/>","history":"<path d=\\"M12 8l0 4l2 2\\"/><path d=\\"M3.05 11a9 9 0 1 1 .5 4m-.5 5v-5h5\\"/>","layout-dashboard":"<path d=\\"M5 4h4a1 1 0 0 1 1 1v6a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-6a1 1 0 0 1 1 -1\\"/><path d=\\"M5 16h4a1 1 0 0 1 1 1v2a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-2a1 1 0 0 1 1 -1\\"/><path d=\\"M15 12h4a1 1 0 0 1 1 1v6a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-6a1 1 0 0 1 1 -1\\"/><path d=\\"M15 4h4a1 1 0 0 1 1 1v2a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-2a1 1 0 0 1 1 -1\\"/>","pencil":"<path d=\\"M4 20h4l10.5 -10.5a2.828 2.828 0 1 0 -4 -4l-10.5 10.5v4\\"/><path d=\\"M13.5 6.5l4 4\\"/>","bug":"<path d=\\"M9 9v-1a3 3 0 0 1 6 0v1\\"/><path d=\\"M8 9h8a6 6 0 0 1 1 3v3a5 5 0 0 1 -10 0v-3a6 6 0 0 1 1 -3\\"/><path d=\\"M3 13l4 0\\"/><path d=\\"M17 13l4 0\\"/><path d=\\"M12 20l0 -6\\"/><path d=\\"M4 19l3.35 -2\\"/><path d=\\"M20 19l-3.35 -2\\"/><path d=\\"M4 7l3.75 2.4\\"/><path d=\\"M20 7l-3.75 2.4\\"/>","play-bug":"<path d=\\"M3.5 18a2.5 3 0 1 0 5 0a2.5 3 0 1 0 -5 0\\"/><path d=\\"M2 18h1.5\\"/><path d=\\"M8.5 18h1.5\\"/><path d=\\"M9.5 14.5l-1.5 1.5\\"/><path d=\\"M2.5 14.5l1.5 1.5\\"/><path d=\\"M2.5 21.5l1.5 -1.5\\"/><path d=\\"M8 20l1.5 1.5\\"/><path d=\\"M13 16l8 -5l-13 -8v8\\"/>","player-pause":"<path d=\\"M6 5m0 1a1 1 0 0 1 1 -1h2a1 1 0 0 1 1 1v12a1 1 0 0 1 -1 1h-2a1 1 0 0 1 -1 -1z\\"/><path d=\\"M14 5m0 1a1 1 0 0 1 1 -1h2a1 1 0 0 1 1 1v12a1 1 0 0 1 -1 1h-2a1 1 0 0 1 -1 -1z\\"/>","player-play":"<path d=\\"M7 4v16l13 -8l-13 -8\\"/>","player-stop":"<path d=\\"M5 7a2 2 0 0 1 2 -2h10a2 2 0 0 1 2 2v10a2 2 0 0 1 -2 2h-10a2 2 0 0 1 -2 -2l0 -10\\"/>","plus":"<path d=\\"M12 5l0 14\\"/><path d=\\"M5 12l14 0\\"/>","refresh":"<path d=\\"M20 11a8.1 8.1 0 0 0 -15.5 -2m-.5 -4v4h4\\"/><path d=\\"M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4\\"/>","search":"<path d=\\"M3 10a7 7 0 1 0 14 0a7 7 0 1 0 -14 0\\"/><path d=\\"M21 21l-6 -6\\"/>","server-2":"<path d=\\"M3 7a3 3 0 0 1 3 -3h12a3 3 0 0 1 3 3v2a3 3 0 0 1 -3 3h-12a3 3 0 0 1 -3 -3v-2\\"/><path d=\\"M3 15a3 3 0 0 1 3 -3h12a3 3 0 0 1 3 3v2a3 3 0 0 1 -3 3h-12a3 3 0 0 1 -3 -3l0 -2\\"/><path d=\\"M7 8l0 .01\\"/><path d=\\"M7 16l0 .01\\"/><path d=\\"M11 8h6\\"/><path d=\\"M11 16h6\\"/>","settings":"<path d=\\"M10.325 4.317c.426 -1.756 2.924 -1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543 -.94 3.31 .826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756 .426 1.756 2.924 0 3.35a1.724 1.724 0 0 0 -1.066 2.573c.94 1.543 -.826 3.31 -2.37 2.37a1.724 1.724 0 0 0 -2.572 1.065c-.426 1.756 -2.924 1.756 -3.35 0a1.724 1.724 0 0 0 -2.573 -1.066c-1.543 .94 -3.31 -.826 -2.37 -2.37a1.724 1.724 0 0 0 -1.065 -2.572c-1.756 -.426 -1.756 -2.924 0 -3.35a1.724 1.724 0 0 0 1.066 -2.573c-.94 -1.543 .826 -3.31 2.37 -2.37c1 .608 2.296 .07 2.572 -1.065\\"/><path d=\\"M9 12a3 3 0 1 0 6 0a3 3 0 0 0 -6 0\\"/>","terminal-2":"<path d=\\"M8 9l3 3l-3 3\\"/><path d=\\"M13 15l3 0\\"/><path d=\\"M3 6a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2l0 -12\\"/>","trash":"<path d=\\"M4 7l16 0\\"/><path d=\\"M10 11l0 6\\"/><path d=\\"M14 11l0 6\\"/><path d=\\"M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2 -2l1 -12\\"/><path d=\\"M9 7v-3a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v3\\"/>"};
+
+/**
+ * Full inline svg for a catalog glyph. size is CSS px (default 16); cls is an
+ * optional extra class beside .k-icon. Unknown name → '' — never a throw.
+ */
+function karstIcon(name, size, cls) {
+  var paths = KARST_TABLER_ICONS[name];
+  if (!paths) return '';
+  size = size || 16;
+  var k = 'k-icon' + (cls ? ' ' + cls : '');
+  return '<svg class="' + k + '" width="' + size + '" height="' + size
+    + '" viewBox="0 0 24 24" aria-hidden="true" focusable="false">'
+    + paths + '</svg>';
+}
+
+      const vscode = acquireVsCodeApi();
+      const post = (type, requestId) => vscode.postMessage(requestId ? { type, requestId } : { type });
+
+      function renderChecklist(items) {
+        const ul = document.getElementById('checklist');
+        ul.innerHTML = '';
+        for (const it of items) {
+          const li = document.createElement('li');
+          const head = document.createElement('div');
+          head.className = 'item-head';
+          const dot = document.createElement('span');
+          dot.className = 'k-dot ' + (it.done ? 'k-dot--passed' : 'k-dot--failed');
+          dot.setAttribute('role', 'img');
+          dot.setAttribute('aria-label', it.done ? 'Done' : 'Not done');
+          const label = document.createElement('span');
+          label.textContent = it.label;
+          head.append(dot, label);
+          li.append(head);
+          if (it.detail) {
+            const d = document.createElement('div');
+            d.className = 'detail';
+            d.textContent = it.detail;
+            li.append(d);
+          }
+          if (it.id === 'manifest' && !it.done) {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'k-btn k-btn--primary item-action';
+            b.textContent = 'Create karst.yml';
+            b.title = 'Write a starter karst.yml to the workspace root';
+            karstAction(b, (requestId) => post('create-manifest', requestId));
+            li.append(b);
+          }
+          ul.append(li);
+        }
+      }
+
+      function renderTutorial(steps) {
+        const ul = document.getElementById('tutorial');
+        ul.innerHTML = '';
+        for (const s of steps) {
+          const li = document.createElement('li');
+          const body = document.createElement('div');
+          body.className = 'step-body';
+          const label = document.createElement('div');
+          label.textContent = s.label;
+          const desc = document.createElement('div');
+          desc.className = 'step-desc';
+          desc.textContent = s.description;
+          body.append(label, desc);
+          if (s.action === 'settings' || s.action === 'create-ticket') {
+            const isSettings = s.action === 'settings';
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'k-btn k-btn--secondary k-btn--sm step-action';
+            b.textContent = isSettings ? 'Open Settings' : 'Create Ticket';
+            b.title = isSettings ? 'Open the Karst settings panel' : 'Open the create-ticket panel';
+            karstAction(b, (requestId) => post(isSettings ? 'open-settings' : 'create-ticket', requestId));
+            body.append(b);
+          }
+          li.append(body);
+          ul.append(li);
+        }
+      }
+
+      window.addEventListener('message', (event) => {
+        const msg = event.data;
+        if (msg.type === 'state') {
+          renderChecklist(msg.state.checklist);
+          renderTutorial(msg.state.tutorial);
+        } else if (msg.type === 'action-result') {
+          karstSettle(msg.requestId, msg.ok, msg.message);
+        }
+      });
+
+      karstAction(document.getElementById('recheck'), (requestId) => post('recheck-deps', requestId));
+      karstAction(document.getElementById('report-issue'), (requestId) => post('report-issue', requestId));
+      karstAction(document.getElementById('dismiss'), (requestId) => post('dismiss', requestId));
+      post('request-state');
+    </script>
+  
+
+"
+`;
+
+exports[`gettingStarted render > fresh > snapshot (was: full document render) 1`] = `
+"
+    <div class="gs-head">
+      <svg aria-hidden="true" width="28" height="28" viewBox="0 0 215 215">
+        <defs>
+          <linearGradient id="gsLeft" x1="0.22" y1="0.12" x2="0.78" y2="0.92">
+            <stop offset="0%" stop-color="#7D48E9"></stop><stop offset="43%" stop-color="#7D3CEE"></stop><stop offset="100%" stop-color="#4A71D7"></stop>
+          </linearGradient>
+          <linearGradient id="gsRight" x1="0.18" y1="0.10" x2="0.82" y2="0.90">
+            <stop offset="0%" stop-color="#00B7C9"></stop><stop offset="55%" stop-color="#00AFC0"></stop><stop offset="100%" stop-color="#00B1C4"></stop>
+          </linearGradient>
+          <linearGradient id="gsCore" x1="0.20" y1="0.18" x2="0.82" y2="0.86">
+            <stop offset="0%" stop-color="#6647DE"></stop><stop offset="48%" stop-color="#5660D9"></stop><stop offset="100%" stop-color="#3586D6"></stop>
+          </linearGradient>
+        </defs>
+        <path d="M 96 20 L 25 67 L 25 156 L 98 203 L 98 180 L 44 145 L 44 78 L 97 44 Z" fill="url(#gsLeft)"></path>
+        <path d="M 151 42 L 138 58 L 170 78 L 170 144 L 138 165 L 150 180 L 188 156 L 188 67 Z" fill="url(#gsRight)"></path>
+        <circle cx="106.5" cy="111.5" r="26.5" fill="url(#gsCore)"></circle>
+      </svg>
+      <h1>Getting Started</h1>
+    </div>
+    <p class="lede">Orchestrate AI-agent ticket workflows across your repos. Finish setup below.</p>
+
+    <section>
+      <h2>Setup checklist</h2>
+      <ul id="checklist"><li><div class="item-head"><span class="k-dot k-dot--failed" role="img" aria-label="Not done"></span><span>Setup step 1</span></div><div class="detail">Detail for step 1</div></li><li><div class="item-head"><span class="k-dot k-dot--failed" role="img" aria-label="Not done"></span><span>Setup step 2</span></div><div class="detail">Detail for step 2</div></li><li><div class="item-head"><span class="k-dot k-dot--failed" role="img" aria-label="Not done"></span><span>Setup step 3</span></div><div class="detail">Detail for step 3</div></li></ul>
+      <div class="toolbar">
+        <button type="button" class="k-btn k-btn--secondary" id="recheck" title="Re-run the setup checklist against disk and PATH">Re-check</button>
+      </div>
+    </section>
+
+    <section>
+      <h2>How Karst works</h2>
+      <ul class="steps" id="tutorial"><li><div class="step-body"><div>Configure repositories &amp; agent provider</div><div class="step-desc">Open Settings to point each repository at its path and pick your agent CLI.</div><button type="button" class="k-btn k-btn--secondary k-btn--sm step-action" title="Open the Karst settings panel">Open Settings</button></div></li><li><div class="step-body"><div>Create your first ticket</div><div class="step-desc">Describe the work; Karst fetches or drafts the context brief.</div><button type="button" class="k-btn k-btn--secondary k-btn--sm step-action" title="Open the create-ticket panel">Create Ticket</button></div></li><li><div class="step-body"><div>Pick repos + approach and launch the session</div><div class="step-desc">Choose which repositories are in scope and how the agent should work, then start.</div></div></li><li><div class="step-body"><div>Watch stage progress on the ticket dashboard</div><div class="step-desc">Open a ticket to follow it through scope → impl → uat as the agent runs.</div></div></li><li><div class="step-body"><div>Optional: install an approach package</div><div class="step-desc">Add a curated method (agents, commands, skills) from Settings → Approaches.</div><button type="button" class="k-btn k-btn--secondary k-btn--sm step-action" title="Open the Karst settings panel">Open Settings</button></div></li></ul>
+    </section>
+
+    <section>
+      <h2>Report an issue</h2>
+      <p class="section-desc">
+        Click this when Karst itself behaves unexpectedly — a ticket stuck at a stage, a gate
+        that will not run, a panel that goes blank. Karst collects its own diagnostics
+        (runtime versions, stage and gate state, effective configuration, bounded logs),
+        redacts secrets, paths and credentials, then opens the report for you to read
+        before anything leaves your machine. Approve it and Karst hands the redacted
+        summary to a prefilled GitHub issue in your browser; you still press Submit there.
+      </p>
+      <p class="section-desc">
+        Ticket descriptions and other prompt text are left out unless you opt in during the
+        review step. For work items in your own project, create a ticket instead.
+      </p>
+      <div class="toolbar">
+        <button type="button" class="k-btn k-btn--secondary" id="report-issue" title="Collect redacted Karst diagnostics and open a prefilled GitHub issue">Report an issue</button>
+      </div>
+    </section>
+
+    <footer>
+      <button type="button" class="k-btn k-btn--ghost" id="dismiss">Don't show this again</button>
+    </footer>
+
+    <script nonce="fixture-nonce-000000000000">
+  // ── Karst design system runtime (docs/ui/DESIGN-SYSTEM.md §5) ────────────────
+var KARST_WATCHDOG_MS = 45000;
+var KARST_FLASH_DONE_MS = 2400;
+var KARST_TOAST_SUCCESS_MS = 6000;
+var KARST_MAX_TOAST_CHARS = 240;
+
+/** requestId -> { el, timer, wasDisabled }. The single source of "what is in flight". */
+var karstPending = {};
+var karstReqSeq = 0;
+
+function karstRequestId() {
+  karstReqSeq = karstReqSeq + 1;
+  return 'k' + karstReqSeq + '-' + karstReqSeq.toString(36);
+}
+
+/** Untrusted prose (CLI output, model output, git stderr) collapsed to one capped line. */
+function karstOneLine(value) {
+  var s = String(value === null || value === undefined ? '' : value).replace(/\\s+/g, ' ').trim();
+  return s.length > KARST_MAX_TOAST_CHARS ? s.slice(0, KARST_MAX_TOAST_CHARS - 1) + '…' : s;
+}
+
+function karstIsPending(el) {
+  if (!el) return false;
+  for (var id in karstPending) {
+    if (Object.prototype.hasOwnProperty.call(karstPending, id) && karstPending[id].el === el) return true;
+  }
+  return false;
+}
+
+/**
+ * Enter pending. aria-busy is the accessible signal, \`disabled\` is the
+ * re-trigger guard, and the class is what [[designComponents]] hangs the spinner
+ * on. The label is deliberately untouched (UI-R18).
+ */
+function karstBeginPending(el, requestId) {
+  var wasDisabled = el ? !!el.disabled : false;
+  if (el) {
+    el.setAttribute('aria-busy', 'true');
+    el.disabled = true;
+    if (el.classList) el.classList.add('is-pending');
+  }
+  karstPending[requestId] = {
+    el: el,
+    wasDisabled: wasDisabled,
+    timer: setTimeout(function () {
+      // Unknown, not failed: the host may simply never reply.
+      karstSettle(requestId, null);
+    }, KARST_WATCHDOG_MS),
+  };
+}
+
+/**
+ * Terminal result for one request. \`ok\` is true (succeeded), false (failed), or
+ * null (unknown — the watchdog fired). A control disabled BEFORE the action
+ * stays disabled: settling must not turn "unavailable" into "available".
+ */
+function karstSettle(requestId, ok, message) {
+  var entry = karstPending[requestId];
+  if (!entry) return;
+  delete karstPending[requestId];
+  if (entry.timer !== undefined && entry.timer !== null) clearTimeout(entry.timer);
+
+  var el = entry.el;
+  if (el) {
+    el.removeAttribute('aria-busy');
+    el.disabled = entry.wasDisabled;
+    if (el.classList) el.classList.remove('is-pending');
+    if (ok === true && el.classList) {
+      el.classList.add('is-success');
+      setTimeout(function () {
+        if (el.classList) el.classList.remove('is-success');
+      }, KARST_FLASH_DONE_MS);
+    }
+  }
+
+  if (ok === false) {
+    karstToast('error', karstOneLine(message) || 'That action failed.');
+  } else if (ok === null) {
+    karstToast('warning', karstOneLine(message) || 'Still running — the result is unknown.');
+  } else if (message) {
+    karstToast('success', karstOneLine(message));
+  }
+}
+
+/**
+ * Bind a control to an async action. \`send\` receives the requestId and is
+ * responsible for posting it to the host; the host replies once with
+ * { type: 'action-result', requestId, ok, message } and the webview's message
+ * handler calls karstSettle.
+ */
+function karstAction(el, send, opts) {
+  if (!el) return;
+  var options = opts || {};
+  el.addEventListener('click', function (ev) {
+    if (karstIsPending(el)) {
+      // Dropped, not queued (UI-R12).
+      if (ev && ev.preventDefault) ev.preventDefault();
+      return;
+    }
+    if (el.disabled) return;
+    var requestId = karstRequestId();
+    karstBeginPending(el, requestId);
+    try {
+      send(requestId, ev);
+    } catch (err) {
+      karstSettle(requestId, false, err && err.message ? err.message : String(err));
+    }
+    if (options.settle === 'immediate') karstSettle(requestId, true);
+  });
+}
+
+/** The one polite live region per webview (UI-R27). Created on first use. */
+function karstToastRoot() {
+  var root = document.getElementById('k-toast-root');
+  if (root) return root;
+  root = document.createElement('div');
+  root.setAttribute('id', 'k-toast-root');
+  root.setAttribute('class', 'k-toast-root');
+  root.setAttribute('role', 'status');
+  root.setAttribute('aria-live', 'polite');
+  document.body.appendChild(root);
+  return root;
+}
+
+/**
+ * Surface a terminal outcome. Success and warning self-dismiss; an ERROR never
+ * does — a failure the user has not read yet is not a failure that has been
+ * reported.
+ */
+function karstToast(kind, message) {
+  var text = karstOneLine(message);
+  if (!text) return null;
+  var root = karstToastRoot();
+  var node = document.createElement('div');
+  node.classList.add('k-toast');
+  node.classList.add('k-toast--' + kind);
+  node.textContent = text;
+  root.appendChild(node);
+  if (kind !== 'error') {
+    setTimeout(function () {
+      try { root.removeChild(node); } catch (e) { /* already detached */ }
+    }, KARST_TOAST_SUCCESS_MS);
+  }
+  return node;
+}
+// ── Karst Tabler icon runtime (docs/ui/ICONS.md §3) ──────────────────────────
+var KARST_TABLER_ICONS = {"archive":"<path d=\\"M3 6a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2\\"/><path d=\\"M5 8v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-10\\"/><path d=\\"M10 12l4 0\\"/>","check":"<path d=\\"M5 12l5 5l10 -10\\"/>","chevron-down":"<path d=\\"M6 9l6 6l6 -6\\"/>","chevron-right":"<path d=\\"M9 6l6 6l-6 6\\"/>","circle-check":"<path d=\\"M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0\\"/><path d=\\"M9 12l2 2l4 -4\\"/>","circle-x":"<path d=\\"M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0\\"/><path d=\\"M10 10l4 4m0 -4l-4 4\\"/>","copy":"<path d=\\"M7 9.667a2.667 2.667 0 0 1 2.667 -2.667h8.666a2.667 2.667 0 0 1 2.667 2.667v8.666a2.667 2.667 0 0 1 -2.667 2.667h-8.666a2.667 2.667 0 0 1 -2.667 -2.667l0 -8.666\\"/><path d=\\"M4.012 16.737a2.005 2.005 0 0 1 -1.012 -1.737v-10c0 -1.1 .9 -2 2 -2h10c.75 0 1.158 .385 1.5 1\\"/>","corner-down-right":"<path d=\\"M6 6v6a3 3 0 0 0 3 3h10l-4 -4m0 8l4 -4\\"/>","dots":"<path d=\\"M5 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0\\"/><path d=\\"M12 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0\\"/><path d=\\"M19 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0\\"/>","external-link":"<path d=\\"M12 6h-6a2 2 0 0 0 -2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-6\\"/><path d=\\"M11 13l9 -9\\"/><path d=\\"M15 4h5v5\\"/>","file-text":"<path d=\\"M14 3v4a1 1 0 0 0 1 1h4\\"/><path d=\\"M17 21h-10a2 2 0 0 1 -2 -2v-14a2 2 0 0 1 2 -2h7l5 5v11a2 2 0 0 1 -2 2\\"/><path d=\\"M9 9l1 0\\"/><path d=\\"M9 13l6 0\\"/><path d=\\"M9 17l6 0\\"/>","folder":"<path d=\\"M5 4h4l3 3h7a2 2 0 0 1 2 2v8a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v-11a2 2 0 0 1 2 -2\\"/>","git-compare":"<path d=\\"M4 6a2 2 0 1 0 4 0a2 2 0 1 0 -4 0\\"/><path d=\\"M16 18a2 2 0 1 0 4 0a2 2 0 1 0 -4 0\\"/><path d=\\"M11 6h5a2 2 0 0 1 2 2v8\\"/><path d=\\"M14 9l-3 -3l3 -3\\"/><path d=\\"M13 18h-5a2 2 0 0 1 -2 -2v-8\\"/><path d=\\"M10 15l3 3l-3 3\\"/>","history":"<path d=\\"M12 8l0 4l2 2\\"/><path d=\\"M3.05 11a9 9 0 1 1 .5 4m-.5 5v-5h5\\"/>","layout-dashboard":"<path d=\\"M5 4h4a1 1 0 0 1 1 1v6a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-6a1 1 0 0 1 1 -1\\"/><path d=\\"M5 16h4a1 1 0 0 1 1 1v2a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-2a1 1 0 0 1 1 -1\\"/><path d=\\"M15 12h4a1 1 0 0 1 1 1v6a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-6a1 1 0 0 1 1 -1\\"/><path d=\\"M15 4h4a1 1 0 0 1 1 1v2a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-2a1 1 0 0 1 1 -1\\"/>","pencil":"<path d=\\"M4 20h4l10.5 -10.5a2.828 2.828 0 1 0 -4 -4l-10.5 10.5v4\\"/><path d=\\"M13.5 6.5l4 4\\"/>","bug":"<path d=\\"M9 9v-1a3 3 0 0 1 6 0v1\\"/><path d=\\"M8 9h8a6 6 0 0 1 1 3v3a5 5 0 0 1 -10 0v-3a6 6 0 0 1 1 -3\\"/><path d=\\"M3 13l4 0\\"/><path d=\\"M17 13l4 0\\"/><path d=\\"M12 20l0 -6\\"/><path d=\\"M4 19l3.35 -2\\"/><path d=\\"M20 19l-3.35 -2\\"/><path d=\\"M4 7l3.75 2.4\\"/><path d=\\"M20 7l-3.75 2.4\\"/>","play-bug":"<path d=\\"M3.5 18a2.5 3 0 1 0 5 0a2.5 3 0 1 0 -5 0\\"/><path d=\\"M2 18h1.5\\"/><path d=\\"M8.5 18h1.5\\"/><path d=\\"M9.5 14.5l-1.5 1.5\\"/><path d=\\"M2.5 14.5l1.5 1.5\\"/><path d=\\"M2.5 21.5l1.5 -1.5\\"/><path d=\\"M8 20l1.5 1.5\\"/><path d=\\"M13 16l8 -5l-13 -8v8\\"/>","player-pause":"<path d=\\"M6 5m0 1a1 1 0 0 1 1 -1h2a1 1 0 0 1 1 1v12a1 1 0 0 1 -1 1h-2a1 1 0 0 1 -1 -1z\\"/><path d=\\"M14 5m0 1a1 1 0 0 1 1 -1h2a1 1 0 0 1 1 1v12a1 1 0 0 1 -1 1h-2a1 1 0 0 1 -1 -1z\\"/>","player-play":"<path d=\\"M7 4v16l13 -8l-13 -8\\"/>","player-stop":"<path d=\\"M5 7a2 2 0 0 1 2 -2h10a2 2 0 0 1 2 2v10a2 2 0 0 1 -2 2h-10a2 2 0 0 1 -2 -2l0 -10\\"/>","plus":"<path d=\\"M12 5l0 14\\"/><path d=\\"M5 12l14 0\\"/>","refresh":"<path d=\\"M20 11a8.1 8.1 0 0 0 -15.5 -2m-.5 -4v4h4\\"/><path d=\\"M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4\\"/>","search":"<path d=\\"M3 10a7 7 0 1 0 14 0a7 7 0 1 0 -14 0\\"/><path d=\\"M21 21l-6 -6\\"/>","server-2":"<path d=\\"M3 7a3 3 0 0 1 3 -3h12a3 3 0 0 1 3 3v2a3 3 0 0 1 -3 3h-12a3 3 0 0 1 -3 -3v-2\\"/><path d=\\"M3 15a3 3 0 0 1 3 -3h12a3 3 0 0 1 3 3v2a3 3 0 0 1 -3 3h-12a3 3 0 0 1 -3 -3l0 -2\\"/><path d=\\"M7 8l0 .01\\"/><path d=\\"M7 16l0 .01\\"/><path d=\\"M11 8h6\\"/><path d=\\"M11 16h6\\"/>","settings":"<path d=\\"M10.325 4.317c.426 -1.756 2.924 -1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543 -.94 3.31 .826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756 .426 1.756 2.924 0 3.35a1.724 1.724 0 0 0 -1.066 2.573c.94 1.543 -.826 3.31 -2.37 2.37a1.724 1.724 0 0 0 -2.572 1.065c-.426 1.756 -2.924 1.756 -3.35 0a1.724 1.724 0 0 0 -2.573 -1.066c-1.543 .94 -3.31 -.826 -2.37 -2.37a1.724 1.724 0 0 0 -1.065 -2.572c-1.756 -.426 -1.756 -2.924 0 -3.35a1.724 1.724 0 0 0 1.066 -2.573c-.94 -1.543 .826 -3.31 2.37 -2.37c1 .608 2.296 .07 2.572 -1.065\\"/><path d=\\"M9 12a3 3 0 1 0 6 0a3 3 0 0 0 -6 0\\"/>","terminal-2":"<path d=\\"M8 9l3 3l-3 3\\"/><path d=\\"M13 15l3 0\\"/><path d=\\"M3 6a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2l0 -12\\"/>","trash":"<path d=\\"M4 7l16 0\\"/><path d=\\"M10 11l0 6\\"/><path d=\\"M14 11l0 6\\"/><path d=\\"M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2 -2l1 -12\\"/><path d=\\"M9 7v-3a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v3\\"/>"};
+
+/**
+ * Full inline svg for a catalog glyph. size is CSS px (default 16); cls is an
+ * optional extra class beside .k-icon. Unknown name → '' — never a throw.
+ */
+function karstIcon(name, size, cls) {
+  var paths = KARST_TABLER_ICONS[name];
+  if (!paths) return '';
+  size = size || 16;
+  var k = 'k-icon' + (cls ? ' ' + cls : '');
+  return '<svg class="' + k + '" width="' + size + '" height="' + size
+    + '" viewBox="0 0 24 24" aria-hidden="true" focusable="false">'
+    + paths + '</svg>';
+}
+
+      const vscode = acquireVsCodeApi();
+      const post = (type, requestId) => vscode.postMessage(requestId ? { type, requestId } : { type });
+
+      function renderChecklist(items) {
+        const ul = document.getElementById('checklist');
+        ul.innerHTML = '';
+        for (const it of items) {
+          const li = document.createElement('li');
+          const head = document.createElement('div');
+          head.className = 'item-head';
+          const dot = document.createElement('span');
+          dot.className = 'k-dot ' + (it.done ? 'k-dot--passed' : 'k-dot--failed');
+          dot.setAttribute('role', 'img');
+          dot.setAttribute('aria-label', it.done ? 'Done' : 'Not done');
+          const label = document.createElement('span');
+          label.textContent = it.label;
+          head.append(dot, label);
+          li.append(head);
+          if (it.detail) {
+            const d = document.createElement('div');
+            d.className = 'detail';
+            d.textContent = it.detail;
+            li.append(d);
+          }
+          if (it.id === 'manifest' && !it.done) {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'k-btn k-btn--primary item-action';
+            b.textContent = 'Create karst.yml';
+            b.title = 'Write a starter karst.yml to the workspace root';
+            karstAction(b, (requestId) => post('create-manifest', requestId));
+            li.append(b);
+          }
+          ul.append(li);
+        }
+      }
+
+      function renderTutorial(steps) {
+        const ul = document.getElementById('tutorial');
+        ul.innerHTML = '';
+        for (const s of steps) {
+          const li = document.createElement('li');
+          const body = document.createElement('div');
+          body.className = 'step-body';
+          const label = document.createElement('div');
+          label.textContent = s.label;
+          const desc = document.createElement('div');
+          desc.className = 'step-desc';
+          desc.textContent = s.description;
+          body.append(label, desc);
+          if (s.action === 'settings' || s.action === 'create-ticket') {
+            const isSettings = s.action === 'settings';
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'k-btn k-btn--secondary k-btn--sm step-action';
+            b.textContent = isSettings ? 'Open Settings' : 'Create Ticket';
+            b.title = isSettings ? 'Open the Karst settings panel' : 'Open the create-ticket panel';
+            karstAction(b, (requestId) => post(isSettings ? 'open-settings' : 'create-ticket', requestId));
+            body.append(b);
+          }
+          li.append(body);
+          ul.append(li);
+        }
+      }
+
+      window.addEventListener('message', (event) => {
+        const msg = event.data;
+        if (msg.type === 'state') {
+          renderChecklist(msg.state.checklist);
+          renderTutorial(msg.state.tutorial);
+        } else if (msg.type === 'action-result') {
+          karstSettle(msg.requestId, msg.ok, msg.message);
+        }
+      });
+
+      karstAction(document.getElementById('recheck'), (requestId) => post('recheck-deps', requestId));
+      karstAction(document.getElementById('report-issue'), (requestId) => post('report-issue', requestId));
+      karstAction(document.getElementById('dismiss'), (requestId) => post('dismiss', requestId));
+      post('request-state');
+    </script>
+  
+
+"
+`;
+
+exports[`gettingStarted render > hostile > snapshot (was: full document render) 1`] = `
+"
+    <div class="gs-head">
+      <svg aria-hidden="true" width="28" height="28" viewBox="0 0 215 215">
+        <defs>
+          <linearGradient id="gsLeft" x1="0.22" y1="0.12" x2="0.78" y2="0.92">
+            <stop offset="0%" stop-color="#7D48E9"></stop><stop offset="43%" stop-color="#7D3CEE"></stop><stop offset="100%" stop-color="#4A71D7"></stop>
+          </linearGradient>
+          <linearGradient id="gsRight" x1="0.18" y1="0.10" x2="0.82" y2="0.90">
+            <stop offset="0%" stop-color="#00B7C9"></stop><stop offset="55%" stop-color="#00AFC0"></stop><stop offset="100%" stop-color="#00B1C4"></stop>
+          </linearGradient>
+          <linearGradient id="gsCore" x1="0.20" y1="0.18" x2="0.82" y2="0.86">
+            <stop offset="0%" stop-color="#6647DE"></stop><stop offset="48%" stop-color="#5660D9"></stop><stop offset="100%" stop-color="#3586D6"></stop>
+          </linearGradient>
+        </defs>
+        <path d="M 96 20 L 25 67 L 25 156 L 98 203 L 98 180 L 44 145 L 44 78 L 97 44 Z" fill="url(#gsLeft)"></path>
+        <path d="M 151 42 L 138 58 L 170 78 L 170 144 L 138 165 L 150 180 L 188 156 L 188 67 Z" fill="url(#gsRight)"></path>
+        <circle cx="106.5" cy="111.5" r="26.5" fill="url(#gsCore)"></circle>
+      </svg>
+      <h1>Getting Started</h1>
+    </div>
+    <p class="lede">Orchestrate AI-agent ticket workflows across your repos. Finish setup below.</p>
+
+    <section>
+      <h2>Setup checklist</h2>
+      <ul id="checklist"><li><div class="item-head"><span class="k-dot k-dot--passed" role="img" aria-label="Done"></span><span>&lt;script&gt;alert(1)&lt;/script&gt;</span></div><div class="detail">fixture:&lt;script&gt;&amp;src/main.ts</div></li><li><div class="item-head"><span class="k-dot k-dot--failed" role="img" aria-label="Not done"></span><span>A &amp; B "quoted" &lt;b&gt;</span></div></li><li><div class="item-head"><span class="k-dot k-dot--passed" role="img" aria-label="Done"></span><span>XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX</span></div></li></ul>
+      <div class="toolbar">
+        <button type="button" class="k-btn k-btn--secondary" id="recheck" title="Re-run the setup checklist against disk and PATH">Re-check</button>
+      </div>
+    </section>
+
+    <section>
+      <h2>How Karst works</h2>
+      <ul class="steps" id="tutorial"><li><div class="step-body"><div>&lt;script&gt;alert(1)&lt;/script&gt;</div><div class="step-desc">fixture:&lt;script&gt;&amp;src/main.ts</div><button type="button" class="k-btn k-btn--secondary k-btn--sm step-action" title="Open the Karst settings panel">Open Settings</button></div></li><li><div class="step-body"><div>A &amp; B "quoted" &lt;b&gt;</div><div class="step-desc">Describe the work; Karst fetches or drafts the context brief.</div><button type="button" class="k-btn k-btn--secondary k-btn--sm step-action" title="Open the create-ticket panel">Create Ticket</button></div></li><li><div class="step-body"><div>XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX</div><div class="step-desc">Choose which repositories are in scope and how the agent should work, then start.</div></div></li><li><div class="step-body"><div>&lt;script&gt;alert(1)&lt;/script&gt;</div><div class="step-desc">Open a ticket to follow it through scope → impl → uat as the agent runs.</div></div></li><li><div class="step-body"><div>A &amp; B "quoted" &lt;b&gt;</div><div class="step-desc">Add a curated method (agents, commands, skills) from Settings → Approaches.</div><button type="button" class="k-btn k-btn--secondary k-btn--sm step-action" title="Open the Karst settings panel">Open Settings</button></div></li></ul>
+    </section>
+
+    <section>
+      <h2>Report an issue</h2>
+      <p class="section-desc">
+        Click this when Karst itself behaves unexpectedly — a ticket stuck at a stage, a gate
+        that will not run, a panel that goes blank. Karst collects its own diagnostics
+        (runtime versions, stage and gate state, effective configuration, bounded logs),
+        redacts secrets, paths and credentials, then opens the report for you to read
+        before anything leaves your machine. Approve it and Karst hands the redacted
+        summary to a prefilled GitHub issue in your browser; you still press Submit there.
+      </p>
+      <p class="section-desc">
+        Ticket descriptions and other prompt text are left out unless you opt in during the
+        review step. For work items in your own project, create a ticket instead.
+      </p>
+      <div class="toolbar">
+        <button type="button" class="k-btn k-btn--secondary" id="report-issue" title="Collect redacted Karst diagnostics and open a prefilled GitHub issue">Report an issue</button>
+      </div>
+    </section>
+
+    <footer>
+      <button type="button" class="k-btn k-btn--ghost" id="dismiss">Don't show this again</button>
+    </footer>
+
+    <script nonce="fixture-nonce-000000000000">
+  // ── Karst design system runtime (docs/ui/DESIGN-SYSTEM.md §5) ────────────────
+var KARST_WATCHDOG_MS = 45000;
+var KARST_FLASH_DONE_MS = 2400;
+var KARST_TOAST_SUCCESS_MS = 6000;
+var KARST_MAX_TOAST_CHARS = 240;
+
+/** requestId -> { el, timer, wasDisabled }. The single source of "what is in flight". */
+var karstPending = {};
+var karstReqSeq = 0;
+
+function karstRequestId() {
+  karstReqSeq = karstReqSeq + 1;
+  return 'k' + karstReqSeq + '-' + karstReqSeq.toString(36);
+}
+
+/** Untrusted prose (CLI output, model output, git stderr) collapsed to one capped line. */
+function karstOneLine(value) {
+  var s = String(value === null || value === undefined ? '' : value).replace(/\\s+/g, ' ').trim();
+  return s.length > KARST_MAX_TOAST_CHARS ? s.slice(0, KARST_MAX_TOAST_CHARS - 1) + '…' : s;
+}
+
+function karstIsPending(el) {
+  if (!el) return false;
+  for (var id in karstPending) {
+    if (Object.prototype.hasOwnProperty.call(karstPending, id) && karstPending[id].el === el) return true;
+  }
+  return false;
+}
+
+/**
+ * Enter pending. aria-busy is the accessible signal, \`disabled\` is the
+ * re-trigger guard, and the class is what [[designComponents]] hangs the spinner
+ * on. The label is deliberately untouched (UI-R18).
+ */
+function karstBeginPending(el, requestId) {
+  var wasDisabled = el ? !!el.disabled : false;
+  if (el) {
+    el.setAttribute('aria-busy', 'true');
+    el.disabled = true;
+    if (el.classList) el.classList.add('is-pending');
+  }
+  karstPending[requestId] = {
+    el: el,
+    wasDisabled: wasDisabled,
+    timer: setTimeout(function () {
+      // Unknown, not failed: the host may simply never reply.
+      karstSettle(requestId, null);
+    }, KARST_WATCHDOG_MS),
+  };
+}
+
+/**
+ * Terminal result for one request. \`ok\` is true (succeeded), false (failed), or
+ * null (unknown — the watchdog fired). A control disabled BEFORE the action
+ * stays disabled: settling must not turn "unavailable" into "available".
+ */
+function karstSettle(requestId, ok, message) {
+  var entry = karstPending[requestId];
+  if (!entry) return;
+  delete karstPending[requestId];
+  if (entry.timer !== undefined && entry.timer !== null) clearTimeout(entry.timer);
+
+  var el = entry.el;
+  if (el) {
+    el.removeAttribute('aria-busy');
+    el.disabled = entry.wasDisabled;
+    if (el.classList) el.classList.remove('is-pending');
+    if (ok === true && el.classList) {
+      el.classList.add('is-success');
+      setTimeout(function () {
+        if (el.classList) el.classList.remove('is-success');
+      }, KARST_FLASH_DONE_MS);
+    }
+  }
+
+  if (ok === false) {
+    karstToast('error', karstOneLine(message) || 'That action failed.');
+  } else if (ok === null) {
+    karstToast('warning', karstOneLine(message) || 'Still running — the result is unknown.');
+  } else if (message) {
+    karstToast('success', karstOneLine(message));
+  }
+}
+
+/**
+ * Bind a control to an async action. \`send\` receives the requestId and is
+ * responsible for posting it to the host; the host replies once with
+ * { type: 'action-result', requestId, ok, message } and the webview's message
+ * handler calls karstSettle.
+ */
+function karstAction(el, send, opts) {
+  if (!el) return;
+  var options = opts || {};
+  el.addEventListener('click', function (ev) {
+    if (karstIsPending(el)) {
+      // Dropped, not queued (UI-R12).
+      if (ev && ev.preventDefault) ev.preventDefault();
+      return;
+    }
+    if (el.disabled) return;
+    var requestId = karstRequestId();
+    karstBeginPending(el, requestId);
+    try {
+      send(requestId, ev);
+    } catch (err) {
+      karstSettle(requestId, false, err && err.message ? err.message : String(err));
+    }
+    if (options.settle === 'immediate') karstSettle(requestId, true);
+  });
+}
+
+/** The one polite live region per webview (UI-R27). Created on first use. */
+function karstToastRoot() {
+  var root = document.getElementById('k-toast-root');
+  if (root) return root;
+  root = document.createElement('div');
+  root.setAttribute('id', 'k-toast-root');
+  root.setAttribute('class', 'k-toast-root');
+  root.setAttribute('role', 'status');
+  root.setAttribute('aria-live', 'polite');
+  document.body.appendChild(root);
+  return root;
+}
+
+/**
+ * Surface a terminal outcome. Success and warning self-dismiss; an ERROR never
+ * does — a failure the user has not read yet is not a failure that has been
+ * reported.
+ */
+function karstToast(kind, message) {
+  var text = karstOneLine(message);
+  if (!text) return null;
+  var root = karstToastRoot();
+  var node = document.createElement('div');
+  node.classList.add('k-toast');
+  node.classList.add('k-toast--' + kind);
+  node.textContent = text;
+  root.appendChild(node);
+  if (kind !== 'error') {
+    setTimeout(function () {
+      try { root.removeChild(node); } catch (e) { /* already detached */ }
+    }, KARST_TOAST_SUCCESS_MS);
+  }
+  return node;
+}
+// ── Karst Tabler icon runtime (docs/ui/ICONS.md §3) ──────────────────────────
+var KARST_TABLER_ICONS = {"archive":"<path d=\\"M3 6a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2\\"/><path d=\\"M5 8v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-10\\"/><path d=\\"M10 12l4 0\\"/>","check":"<path d=\\"M5 12l5 5l10 -10\\"/>","chevron-down":"<path d=\\"M6 9l6 6l6 -6\\"/>","chevron-right":"<path d=\\"M9 6l6 6l-6 6\\"/>","circle-check":"<path d=\\"M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0\\"/><path d=\\"M9 12l2 2l4 -4\\"/>","circle-x":"<path d=\\"M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0\\"/><path d=\\"M10 10l4 4m0 -4l-4 4\\"/>","copy":"<path d=\\"M7 9.667a2.667 2.667 0 0 1 2.667 -2.667h8.666a2.667 2.667 0 0 1 2.667 2.667v8.666a2.667 2.667 0 0 1 -2.667 2.667h-8.666a2.667 2.667 0 0 1 -2.667 -2.667l0 -8.666\\"/><path d=\\"M4.012 16.737a2.005 2.005 0 0 1 -1.012 -1.737v-10c0 -1.1 .9 -2 2 -2h10c.75 0 1.158 .385 1.5 1\\"/>","corner-down-right":"<path d=\\"M6 6v6a3 3 0 0 0 3 3h10l-4 -4m0 8l4 -4\\"/>","dots":"<path d=\\"M5 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0\\"/><path d=\\"M12 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0\\"/><path d=\\"M19 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0\\"/>","external-link":"<path d=\\"M12 6h-6a2 2 0 0 0 -2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-6\\"/><path d=\\"M11 13l9 -9\\"/><path d=\\"M15 4h5v5\\"/>","file-text":"<path d=\\"M14 3v4a1 1 0 0 0 1 1h4\\"/><path d=\\"M17 21h-10a2 2 0 0 1 -2 -2v-14a2 2 0 0 1 2 -2h7l5 5v11a2 2 0 0 1 -2 2\\"/><path d=\\"M9 9l1 0\\"/><path d=\\"M9 13l6 0\\"/><path d=\\"M9 17l6 0\\"/>","folder":"<path d=\\"M5 4h4l3 3h7a2 2 0 0 1 2 2v8a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v-11a2 2 0 0 1 2 -2\\"/>","git-compare":"<path d=\\"M4 6a2 2 0 1 0 4 0a2 2 0 1 0 -4 0\\"/><path d=\\"M16 18a2 2 0 1 0 4 0a2 2 0 1 0 -4 0\\"/><path d=\\"M11 6h5a2 2 0 0 1 2 2v8\\"/><path d=\\"M14 9l-3 -3l3 -3\\"/><path d=\\"M13 18h-5a2 2 0 0 1 -2 -2v-8\\"/><path d=\\"M10 15l3 3l-3 3\\"/>","history":"<path d=\\"M12 8l0 4l2 2\\"/><path d=\\"M3.05 11a9 9 0 1 1 .5 4m-.5 5v-5h5\\"/>","layout-dashboard":"<path d=\\"M5 4h4a1 1 0 0 1 1 1v6a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-6a1 1 0 0 1 1 -1\\"/><path d=\\"M5 16h4a1 1 0 0 1 1 1v2a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-2a1 1 0 0 1 1 -1\\"/><path d=\\"M15 12h4a1 1 0 0 1 1 1v6a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-6a1 1 0 0 1 1 -1\\"/><path d=\\"M15 4h4a1 1 0 0 1 1 1v2a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-2a1 1 0 0 1 1 -1\\"/>","pencil":"<path d=\\"M4 20h4l10.5 -10.5a2.828 2.828 0 1 0 -4 -4l-10.5 10.5v4\\"/><path d=\\"M13.5 6.5l4 4\\"/>","bug":"<path d=\\"M9 9v-1a3 3 0 0 1 6 0v1\\"/><path d=\\"M8 9h8a6 6 0 0 1 1 3v3a5 5 0 0 1 -10 0v-3a6 6 0 0 1 1 -3\\"/><path d=\\"M3 13l4 0\\"/><path d=\\"M17 13l4 0\\"/><path d=\\"M12 20l0 -6\\"/><path d=\\"M4 19l3.35 -2\\"/><path d=\\"M20 19l-3.35 -2\\"/><path d=\\"M4 7l3.75 2.4\\"/><path d=\\"M20 7l-3.75 2.4\\"/>","play-bug":"<path d=\\"M3.5 18a2.5 3 0 1 0 5 0a2.5 3 0 1 0 -5 0\\"/><path d=\\"M2 18h1.5\\"/><path d=\\"M8.5 18h1.5\\"/><path d=\\"M9.5 14.5l-1.5 1.5\\"/><path d=\\"M2.5 14.5l1.5 1.5\\"/><path d=\\"M2.5 21.5l1.5 -1.5\\"/><path d=\\"M8 20l1.5 1.5\\"/><path d=\\"M13 16l8 -5l-13 -8v8\\"/>","player-pause":"<path d=\\"M6 5m0 1a1 1 0 0 1 1 -1h2a1 1 0 0 1 1 1v12a1 1 0 0 1 -1 1h-2a1 1 0 0 1 -1 -1z\\"/><path d=\\"M14 5m0 1a1 1 0 0 1 1 -1h2a1 1 0 0 1 1 1v12a1 1 0 0 1 -1 1h-2a1 1 0 0 1 -1 -1z\\"/>","player-play":"<path d=\\"M7 4v16l13 -8l-13 -8\\"/>","player-stop":"<path d=\\"M5 7a2 2 0 0 1 2 -2h10a2 2 0 0 1 2 2v10a2 2 0 0 1 -2 2h-10a2 2 0 0 1 -2 -2l0 -10\\"/>","plus":"<path d=\\"M12 5l0 14\\"/><path d=\\"M5 12l14 0\\"/>","refresh":"<path d=\\"M20 11a8.1 8.1 0 0 0 -15.5 -2m-.5 -4v4h4\\"/><path d=\\"M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4\\"/>","search":"<path d=\\"M3 10a7 7 0 1 0 14 0a7 7 0 1 0 -14 0\\"/><path d=\\"M21 21l-6 -6\\"/>","server-2":"<path d=\\"M3 7a3 3 0 0 1 3 -3h12a3 3 0 0 1 3 3v2a3 3 0 0 1 -3 3h-12a3 3 0 0 1 -3 -3v-2\\"/><path d=\\"M3 15a3 3 0 0 1 3 -3h12a3 3 0 0 1 3 3v2a3 3 0 0 1 -3 3h-12a3 3 0 0 1 -3 -3l0 -2\\"/><path d=\\"M7 8l0 .01\\"/><path d=\\"M7 16l0 .01\\"/><path d=\\"M11 8h6\\"/><path d=\\"M11 16h6\\"/>","settings":"<path d=\\"M10.325 4.317c.426 -1.756 2.924 -1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543 -.94 3.31 .826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756 .426 1.756 2.924 0 3.35a1.724 1.724 0 0 0 -1.066 2.573c.94 1.543 -.826 3.31 -2.37 2.37a1.724 1.724 0 0 0 -2.572 1.065c-.426 1.756 -2.924 1.756 -3.35 0a1.724 1.724 0 0 0 -2.573 -1.066c-1.543 .94 -3.31 -.826 -2.37 -2.37a1.724 1.724 0 0 0 -1.065 -2.572c-1.756 -.426 -1.756 -2.924 0 -3.35a1.724 1.724 0 0 0 1.066 -2.573c-.94 -1.543 .826 -3.31 2.37 -2.37c1 .608 2.296 .07 2.572 -1.065\\"/><path d=\\"M9 12a3 3 0 1 0 6 0a3 3 0 0 0 -6 0\\"/>","terminal-2":"<path d=\\"M8 9l3 3l-3 3\\"/><path d=\\"M13 15l3 0\\"/><path d=\\"M3 6a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2l0 -12\\"/>","trash":"<path d=\\"M4 7l16 0\\"/><path d=\\"M10 11l0 6\\"/><path d=\\"M14 11l0 6\\"/><path d=\\"M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2 -2l1 -12\\"/><path d=\\"M9 7v-3a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v3\\"/>"};
+
+/**
+ * Full inline svg for a catalog glyph. size is CSS px (default 16); cls is an
+ * optional extra class beside .k-icon. Unknown name → '' — never a throw.
+ */
+function karstIcon(name, size, cls) {
+  var paths = KARST_TABLER_ICONS[name];
+  if (!paths) return '';
+  size = size || 16;
+  var k = 'k-icon' + (cls ? ' ' + cls : '');
+  return '<svg class="' + k + '" width="' + size + '" height="' + size
+    + '" viewBox="0 0 24 24" aria-hidden="true" focusable="false">'
+    + paths + '</svg>';
+}
+
+      const vscode = acquireVsCodeApi();
+      const post = (type, requestId) => vscode.postMessage(requestId ? { type, requestId } : { type });
+
+      function renderChecklist(items) {
+        const ul = document.getElementById('checklist');
+        ul.innerHTML = '';
+        for (const it of items) {
+          const li = document.createElement('li');
+          const head = document.createElement('div');
+          head.className = 'item-head';
+          const dot = document.createElement('span');
+          dot.className = 'k-dot ' + (it.done ? 'k-dot--passed' : 'k-dot--failed');
+          dot.setAttribute('role', 'img');
+          dot.setAttribute('aria-label', it.done ? 'Done' : 'Not done');
+          const label = document.createElement('span');
+          label.textContent = it.label;
+          head.append(dot, label);
+          li.append(head);
+          if (it.detail) {
+            const d = document.createElement('div');
+            d.className = 'detail';
+            d.textContent = it.detail;
+            li.append(d);
+          }
+          if (it.id === 'manifest' && !it.done) {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'k-btn k-btn--primary item-action';
+            b.textContent = 'Create karst.yml';
+            b.title = 'Write a starter karst.yml to the workspace root';
+            karstAction(b, (requestId) => post('create-manifest', requestId));
+            li.append(b);
+          }
+          ul.append(li);
+        }
+      }
+
+      function renderTutorial(steps) {
+        const ul = document.getElementById('tutorial');
+        ul.innerHTML = '';
+        for (const s of steps) {
+          const li = document.createElement('li');
+          const body = document.createElement('div');
+          body.className = 'step-body';
+          const label = document.createElement('div');
+          label.textContent = s.label;
+          const desc = document.createElement('div');
+          desc.className = 'step-desc';
+          desc.textContent = s.description;
+          body.append(label, desc);
+          if (s.action === 'settings' || s.action === 'create-ticket') {
+            const isSettings = s.action === 'settings';
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'k-btn k-btn--secondary k-btn--sm step-action';
+            b.textContent = isSettings ? 'Open Settings' : 'Create Ticket';
+            b.title = isSettings ? 'Open the Karst settings panel' : 'Open the create-ticket panel';
+            karstAction(b, (requestId) => post(isSettings ? 'open-settings' : 'create-ticket', requestId));
+            body.append(b);
+          }
+          li.append(body);
+          ul.append(li);
+        }
+      }
+
+      window.addEventListener('message', (event) => {
+        const msg = event.data;
+        if (msg.type === 'state') {
+          renderChecklist(msg.state.checklist);
+          renderTutorial(msg.state.tutorial);
+        } else if (msg.type === 'action-result') {
+          karstSettle(msg.requestId, msg.ok, msg.message);
+        }
+      });
+
+      karstAction(document.getElementById('recheck'), (requestId) => post('recheck-deps', requestId));
+      karstAction(document.getElementById('report-issue'), (requestId) => post('report-issue', requestId));
+      karstAction(document.getElementById('dismiss'), (requestId) => post('dismiss', requestId));
+      post('request-state');
+    </script>
+  
+
+"
+`;
+
+exports[`gettingStarted render > partial > snapshot (was: full document render) 1`] = `
+"
+    <div class="gs-head">
+      <svg aria-hidden="true" width="28" height="28" viewBox="0 0 215 215">
+        <defs>
+          <linearGradient id="gsLeft" x1="0.22" y1="0.12" x2="0.78" y2="0.92">
+            <stop offset="0%" stop-color="#7D48E9"></stop><stop offset="43%" stop-color="#7D3CEE"></stop><stop offset="100%" stop-color="#4A71D7"></stop>
+          </linearGradient>
+          <linearGradient id="gsRight" x1="0.18" y1="0.10" x2="0.82" y2="0.90">
+            <stop offset="0%" stop-color="#00B7C9"></stop><stop offset="55%" stop-color="#00AFC0"></stop><stop offset="100%" stop-color="#00B1C4"></stop>
+          </linearGradient>
+          <linearGradient id="gsCore" x1="0.20" y1="0.18" x2="0.82" y2="0.86">
+            <stop offset="0%" stop-color="#6647DE"></stop><stop offset="48%" stop-color="#5660D9"></stop><stop offset="100%" stop-color="#3586D6"></stop>
+          </linearGradient>
+        </defs>
+        <path d="M 96 20 L 25 67 L 25 156 L 98 203 L 98 180 L 44 145 L 44 78 L 97 44 Z" fill="url(#gsLeft)"></path>
+        <path d="M 151 42 L 138 58 L 170 78 L 170 144 L 138 165 L 150 180 L 188 156 L 188 67 Z" fill="url(#gsRight)"></path>
+        <circle cx="106.5" cy="111.5" r="26.5" fill="url(#gsCore)"></circle>
+      </svg>
+      <h1>Getting Started</h1>
+    </div>
+    <p class="lede">Orchestrate AI-agent ticket workflows across your repos. Finish setup below.</p>
+
+    <section>
+      <h2>Setup checklist</h2>
+      <ul id="checklist"><li><div class="item-head"><span class="k-dot k-dot--passed" role="img" aria-label="Done"></span><span>Setup step 1</span></div></li><li><div class="item-head"><span class="k-dot k-dot--failed" role="img" aria-label="Not done"></span><span>Setup step 2</span></div><div class="detail">Detail for step 2</div></li><li><div class="item-head"><span class="k-dot k-dot--passed" role="img" aria-label="Done"></span><span>Setup step 3</span></div></li><li><div class="item-head"><span class="k-dot k-dot--failed" role="img" aria-label="Not done"></span><span>Setup step 4</span></div><div class="detail">Detail for step 4</div></li></ul>
+      <div class="toolbar">
+        <button type="button" class="k-btn k-btn--secondary" id="recheck" title="Re-run the setup checklist against disk and PATH">Re-check</button>
+      </div>
+    </section>
+
+    <section>
+      <h2>How Karst works</h2>
+      <ul class="steps" id="tutorial"><li><div class="step-body"><div>Configure repositories &amp; agent provider</div><div class="step-desc">Open Settings to point each repository at its path and pick your agent CLI.</div><button type="button" class="k-btn k-btn--secondary k-btn--sm step-action" title="Open the Karst settings panel">Open Settings</button></div></li><li><div class="step-body"><div>Create your first ticket</div><div class="step-desc">Describe the work; Karst fetches or drafts the context brief.</div><button type="button" class="k-btn k-btn--secondary k-btn--sm step-action" title="Open the create-ticket panel">Create Ticket</button></div></li><li><div class="step-body"><div>Pick repos + approach and launch the session</div><div class="step-desc">Choose which repositories are in scope and how the agent should work, then start.</div></div></li><li><div class="step-body"><div>Watch stage progress on the ticket dashboard</div><div class="step-desc">Open a ticket to follow it through scope → impl → uat as the agent runs.</div></div></li><li><div class="step-body"><div>Optional: install an approach package</div><div class="step-desc">Add a curated method (agents, commands, skills) from Settings → Approaches.</div><button type="button" class="k-btn k-btn--secondary k-btn--sm step-action" title="Open the Karst settings panel">Open Settings</button></div></li></ul>
+    </section>
+
+    <section>
+      <h2>Report an issue</h2>
+      <p class="section-desc">
+        Click this when Karst itself behaves unexpectedly — a ticket stuck at a stage, a gate
+        that will not run, a panel that goes blank. Karst collects its own diagnostics
+        (runtime versions, stage and gate state, effective configuration, bounded logs),
+        redacts secrets, paths and credentials, then opens the report for you to read
+        before anything leaves your machine. Approve it and Karst hands the redacted
+        summary to a prefilled GitHub issue in your browser; you still press Submit there.
+      </p>
+      <p class="section-desc">
+        Ticket descriptions and other prompt text are left out unless you opt in during the
+        review step. For work items in your own project, create a ticket instead.
+      </p>
+      <div class="toolbar">
+        <button type="button" class="k-btn k-btn--secondary" id="report-issue" title="Collect redacted Karst diagnostics and open a prefilled GitHub issue">Report an issue</button>
+      </div>
+    </section>
+
+    <footer>
+      <button type="button" class="k-btn k-btn--ghost" id="dismiss">Don't show this again</button>
+    </footer>
+
+    <script nonce="fixture-nonce-000000000000">
+  // ── Karst design system runtime (docs/ui/DESIGN-SYSTEM.md §5) ────────────────
+var KARST_WATCHDOG_MS = 45000;
+var KARST_FLASH_DONE_MS = 2400;
+var KARST_TOAST_SUCCESS_MS = 6000;
+var KARST_MAX_TOAST_CHARS = 240;
+
+/** requestId -> { el, timer, wasDisabled }. The single source of "what is in flight". */
+var karstPending = {};
+var karstReqSeq = 0;
+
+function karstRequestId() {
+  karstReqSeq = karstReqSeq + 1;
+  return 'k' + karstReqSeq + '-' + karstReqSeq.toString(36);
+}
+
+/** Untrusted prose (CLI output, model output, git stderr) collapsed to one capped line. */
+function karstOneLine(value) {
+  var s = String(value === null || value === undefined ? '' : value).replace(/\\s+/g, ' ').trim();
+  return s.length > KARST_MAX_TOAST_CHARS ? s.slice(0, KARST_MAX_TOAST_CHARS - 1) + '…' : s;
+}
+
+function karstIsPending(el) {
+  if (!el) return false;
+  for (var id in karstPending) {
+    if (Object.prototype.hasOwnProperty.call(karstPending, id) && karstPending[id].el === el) return true;
+  }
+  return false;
+}
+
+/**
+ * Enter pending. aria-busy is the accessible signal, \`disabled\` is the
+ * re-trigger guard, and the class is what [[designComponents]] hangs the spinner
+ * on. The label is deliberately untouched (UI-R18).
+ */
+function karstBeginPending(el, requestId) {
+  var wasDisabled = el ? !!el.disabled : false;
+  if (el) {
+    el.setAttribute('aria-busy', 'true');
+    el.disabled = true;
+    if (el.classList) el.classList.add('is-pending');
+  }
+  karstPending[requestId] = {
+    el: el,
+    wasDisabled: wasDisabled,
+    timer: setTimeout(function () {
+      // Unknown, not failed: the host may simply never reply.
+      karstSettle(requestId, null);
+    }, KARST_WATCHDOG_MS),
+  };
+}
+
+/**
+ * Terminal result for one request. \`ok\` is true (succeeded), false (failed), or
+ * null (unknown — the watchdog fired). A control disabled BEFORE the action
+ * stays disabled: settling must not turn "unavailable" into "available".
+ */
+function karstSettle(requestId, ok, message) {
+  var entry = karstPending[requestId];
+  if (!entry) return;
+  delete karstPending[requestId];
+  if (entry.timer !== undefined && entry.timer !== null) clearTimeout(entry.timer);
+
+  var el = entry.el;
+  if (el) {
+    el.removeAttribute('aria-busy');
+    el.disabled = entry.wasDisabled;
+    if (el.classList) el.classList.remove('is-pending');
+    if (ok === true && el.classList) {
+      el.classList.add('is-success');
+      setTimeout(function () {
+        if (el.classList) el.classList.remove('is-success');
+      }, KARST_FLASH_DONE_MS);
+    }
+  }
+
+  if (ok === false) {
+    karstToast('error', karstOneLine(message) || 'That action failed.');
+  } else if (ok === null) {
+    karstToast('warning', karstOneLine(message) || 'Still running — the result is unknown.');
+  } else if (message) {
+    karstToast('success', karstOneLine(message));
+  }
+}
+
+/**
+ * Bind a control to an async action. \`send\` receives the requestId and is
+ * responsible for posting it to the host; the host replies once with
+ * { type: 'action-result', requestId, ok, message } and the webview's message
+ * handler calls karstSettle.
+ */
+function karstAction(el, send, opts) {
+  if (!el) return;
+  var options = opts || {};
+  el.addEventListener('click', function (ev) {
+    if (karstIsPending(el)) {
+      // Dropped, not queued (UI-R12).
+      if (ev && ev.preventDefault) ev.preventDefault();
+      return;
+    }
+    if (el.disabled) return;
+    var requestId = karstRequestId();
+    karstBeginPending(el, requestId);
+    try {
+      send(requestId, ev);
+    } catch (err) {
+      karstSettle(requestId, false, err && err.message ? err.message : String(err));
+    }
+    if (options.settle === 'immediate') karstSettle(requestId, true);
+  });
+}
+
+/** The one polite live region per webview (UI-R27). Created on first use. */
+function karstToastRoot() {
+  var root = document.getElementById('k-toast-root');
+  if (root) return root;
+  root = document.createElement('div');
+  root.setAttribute('id', 'k-toast-root');
+  root.setAttribute('class', 'k-toast-root');
+  root.setAttribute('role', 'status');
+  root.setAttribute('aria-live', 'polite');
+  document.body.appendChild(root);
+  return root;
+}
+
+/**
+ * Surface a terminal outcome. Success and warning self-dismiss; an ERROR never
+ * does — a failure the user has not read yet is not a failure that has been
+ * reported.
+ */
+function karstToast(kind, message) {
+  var text = karstOneLine(message);
+  if (!text) return null;
+  var root = karstToastRoot();
+  var node = document.createElement('div');
+  node.classList.add('k-toast');
+  node.classList.add('k-toast--' + kind);
+  node.textContent = text;
+  root.appendChild(node);
+  if (kind !== 'error') {
+    setTimeout(function () {
+      try { root.removeChild(node); } catch (e) { /* already detached */ }
+    }, KARST_TOAST_SUCCESS_MS);
+  }
+  return node;
+}
+// ── Karst Tabler icon runtime (docs/ui/ICONS.md §3) ──────────────────────────
+var KARST_TABLER_ICONS = {"archive":"<path d=\\"M3 6a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2\\"/><path d=\\"M5 8v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-10\\"/><path d=\\"M10 12l4 0\\"/>","check":"<path d=\\"M5 12l5 5l10 -10\\"/>","chevron-down":"<path d=\\"M6 9l6 6l6 -6\\"/>","chevron-right":"<path d=\\"M9 6l6 6l-6 6\\"/>","circle-check":"<path d=\\"M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0\\"/><path d=\\"M9 12l2 2l4 -4\\"/>","circle-x":"<path d=\\"M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0\\"/><path d=\\"M10 10l4 4m0 -4l-4 4\\"/>","copy":"<path d=\\"M7 9.667a2.667 2.667 0 0 1 2.667 -2.667h8.666a2.667 2.667 0 0 1 2.667 2.667v8.666a2.667 2.667 0 0 1 -2.667 2.667h-8.666a2.667 2.667 0 0 1 -2.667 -2.667l0 -8.666\\"/><path d=\\"M4.012 16.737a2.005 2.005 0 0 1 -1.012 -1.737v-10c0 -1.1 .9 -2 2 -2h10c.75 0 1.158 .385 1.5 1\\"/>","corner-down-right":"<path d=\\"M6 6v6a3 3 0 0 0 3 3h10l-4 -4m0 8l4 -4\\"/>","dots":"<path d=\\"M5 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0\\"/><path d=\\"M12 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0\\"/><path d=\\"M19 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0\\"/>","external-link":"<path d=\\"M12 6h-6a2 2 0 0 0 -2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-6\\"/><path d=\\"M11 13l9 -9\\"/><path d=\\"M15 4h5v5\\"/>","file-text":"<path d=\\"M14 3v4a1 1 0 0 0 1 1h4\\"/><path d=\\"M17 21h-10a2 2 0 0 1 -2 -2v-14a2 2 0 0 1 2 -2h7l5 5v11a2 2 0 0 1 -2 2\\"/><path d=\\"M9 9l1 0\\"/><path d=\\"M9 13l6 0\\"/><path d=\\"M9 17l6 0\\"/>","folder":"<path d=\\"M5 4h4l3 3h7a2 2 0 0 1 2 2v8a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v-11a2 2 0 0 1 2 -2\\"/>","git-compare":"<path d=\\"M4 6a2 2 0 1 0 4 0a2 2 0 1 0 -4 0\\"/><path d=\\"M16 18a2 2 0 1 0 4 0a2 2 0 1 0 -4 0\\"/><path d=\\"M11 6h5a2 2 0 0 1 2 2v8\\"/><path d=\\"M14 9l-3 -3l3 -3\\"/><path d=\\"M13 18h-5a2 2 0 0 1 -2 -2v-8\\"/><path d=\\"M10 15l3 3l-3 3\\"/>","history":"<path d=\\"M12 8l0 4l2 2\\"/><path d=\\"M3.05 11a9 9 0 1 1 .5 4m-.5 5v-5h5\\"/>","layout-dashboard":"<path d=\\"M5 4h4a1 1 0 0 1 1 1v6a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-6a1 1 0 0 1 1 -1\\"/><path d=\\"M5 16h4a1 1 0 0 1 1 1v2a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-2a1 1 0 0 1 1 -1\\"/><path d=\\"M15 12h4a1 1 0 0 1 1 1v6a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-6a1 1 0 0 1 1 -1\\"/><path d=\\"M15 4h4a1 1 0 0 1 1 1v2a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-2a1 1 0 0 1 1 -1\\"/>","pencil":"<path d=\\"M4 20h4l10.5 -10.5a2.828 2.828 0 1 0 -4 -4l-10.5 10.5v4\\"/><path d=\\"M13.5 6.5l4 4\\"/>","bug":"<path d=\\"M9 9v-1a3 3 0 0 1 6 0v1\\"/><path d=\\"M8 9h8a6 6 0 0 1 1 3v3a5 5 0 0 1 -10 0v-3a6 6 0 0 1 1 -3\\"/><path d=\\"M3 13l4 0\\"/><path d=\\"M17 13l4 0\\"/><path d=\\"M12 20l0 -6\\"/><path d=\\"M4 19l3.35 -2\\"/><path d=\\"M20 19l-3.35 -2\\"/><path d=\\"M4 7l3.75 2.4\\"/><path d=\\"M20 7l-3.75 2.4\\"/>","play-bug":"<path d=\\"M3.5 18a2.5 3 0 1 0 5 0a2.5 3 0 1 0 -5 0\\"/><path d=\\"M2 18h1.5\\"/><path d=\\"M8.5 18h1.5\\"/><path d=\\"M9.5 14.5l-1.5 1.5\\"/><path d=\\"M2.5 14.5l1.5 1.5\\"/><path d=\\"M2.5 21.5l1.5 -1.5\\"/><path d=\\"M8 20l1.5 1.5\\"/><path d=\\"M13 16l8 -5l-13 -8v8\\"/>","player-pause":"<path d=\\"M6 5m0 1a1 1 0 0 1 1 -1h2a1 1 0 0 1 1 1v12a1 1 0 0 1 -1 1h-2a1 1 0 0 1 -1 -1z\\"/><path d=\\"M14 5m0 1a1 1 0 0 1 1 -1h2a1 1 0 0 1 1 1v12a1 1 0 0 1 -1 1h-2a1 1 0 0 1 -1 -1z\\"/>","player-play":"<path d=\\"M7 4v16l13 -8l-13 -8\\"/>","player-stop":"<path d=\\"M5 7a2 2 0 0 1 2 -2h10a2 2 0 0 1 2 2v10a2 2 0 0 1 -2 2h-10a2 2 0 0 1 -2 -2l0 -10\\"/>","plus":"<path d=\\"M12 5l0 14\\"/><path d=\\"M5 12l14 0\\"/>","refresh":"<path d=\\"M20 11a8.1 8.1 0 0 0 -15.5 -2m-.5 -4v4h4\\"/><path d=\\"M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4\\"/>","search":"<path d=\\"M3 10a7 7 0 1 0 14 0a7 7 0 1 0 -14 0\\"/><path d=\\"M21 21l-6 -6\\"/>","server-2":"<path d=\\"M3 7a3 3 0 0 1 3 -3h12a3 3 0 0 1 3 3v2a3 3 0 0 1 -3 3h-12a3 3 0 0 1 -3 -3v-2\\"/><path d=\\"M3 15a3 3 0 0 1 3 -3h12a3 3 0 0 1 3 3v2a3 3 0 0 1 -3 3h-12a3 3 0 0 1 -3 -3l0 -2\\"/><path d=\\"M7 8l0 .01\\"/><path d=\\"M7 16l0 .01\\"/><path d=\\"M11 8h6\\"/><path d=\\"M11 16h6\\"/>","settings":"<path d=\\"M10.325 4.317c.426 -1.756 2.924 -1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543 -.94 3.31 .826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756 .426 1.756 2.924 0 3.35a1.724 1.724 0 0 0 -1.066 2.573c.94 1.543 -.826 3.31 -2.37 2.37a1.724 1.724 0 0 0 -2.572 1.065c-.426 1.756 -2.924 1.756 -3.35 0a1.724 1.724 0 0 0 -2.573 -1.066c-1.543 .94 -3.31 -.826 -2.37 -2.37a1.724 1.724 0 0 0 -1.065 -2.572c-1.756 -.426 -1.756 -2.924 0 -3.35a1.724 1.724 0 0 0 1.066 -2.573c-.94 -1.543 .826 -3.31 2.37 -2.37c1 .608 2.296 .07 2.572 -1.065\\"/><path d=\\"M9 12a3 3 0 1 0 6 0a3 3 0 0 0 -6 0\\"/>","terminal-2":"<path d=\\"M8 9l3 3l-3 3\\"/><path d=\\"M13 15l3 0\\"/><path d=\\"M3 6a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2l0 -12\\"/>","trash":"<path d=\\"M4 7l16 0\\"/><path d=\\"M10 11l0 6\\"/><path d=\\"M14 11l0 6\\"/><path d=\\"M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2 -2l1 -12\\"/><path d=\\"M9 7v-3a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v3\\"/>"};
+
+/**
+ * Full inline svg for a catalog glyph. size is CSS px (default 16); cls is an
+ * optional extra class beside .k-icon. Unknown name → '' — never a throw.
+ */
+function karstIcon(name, size, cls) {
+  var paths = KARST_TABLER_ICONS[name];
+  if (!paths) return '';
+  size = size || 16;
+  var k = 'k-icon' + (cls ? ' ' + cls : '');
+  return '<svg class="' + k + '" width="' + size + '" height="' + size
+    + '" viewBox="0 0 24 24" aria-hidden="true" focusable="false">'
+    + paths + '</svg>';
+}
+
+      const vscode = acquireVsCodeApi();
+      const post = (type, requestId) => vscode.postMessage(requestId ? { type, requestId } : { type });
+
+      function renderChecklist(items) {
+        const ul = document.getElementById('checklist');
+        ul.innerHTML = '';
+        for (const it of items) {
+          const li = document.createElement('li');
+          const head = document.createElement('div');
+          head.className = 'item-head';
+          const dot = document.createElement('span');
+          dot.className = 'k-dot ' + (it.done ? 'k-dot--passed' : 'k-dot--failed');
+          dot.setAttribute('role', 'img');
+          dot.setAttribute('aria-label', it.done ? 'Done' : 'Not done');
+          const label = document.createElement('span');
+          label.textContent = it.label;
+          head.append(dot, label);
+          li.append(head);
+          if (it.detail) {
+            const d = document.createElement('div');
+            d.className = 'detail';
+            d.textContent = it.detail;
+            li.append(d);
+          }
+          if (it.id === 'manifest' && !it.done) {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'k-btn k-btn--primary item-action';
+            b.textContent = 'Create karst.yml';
+            b.title = 'Write a starter karst.yml to the workspace root';
+            karstAction(b, (requestId) => post('create-manifest', requestId));
+            li.append(b);
+          }
+          ul.append(li);
+        }
+      }
+
+      function renderTutorial(steps) {
+        const ul = document.getElementById('tutorial');
+        ul.innerHTML = '';
+        for (const s of steps) {
+          const li = document.createElement('li');
+          const body = document.createElement('div');
+          body.className = 'step-body';
+          const label = document.createElement('div');
+          label.textContent = s.label;
+          const desc = document.createElement('div');
+          desc.className = 'step-desc';
+          desc.textContent = s.description;
+          body.append(label, desc);
+          if (s.action === 'settings' || s.action === 'create-ticket') {
+            const isSettings = s.action === 'settings';
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'k-btn k-btn--secondary k-btn--sm step-action';
+            b.textContent = isSettings ? 'Open Settings' : 'Create Ticket';
+            b.title = isSettings ? 'Open the Karst settings panel' : 'Open the create-ticket panel';
+            karstAction(b, (requestId) => post(isSettings ? 'open-settings' : 'create-ticket', requestId));
+            body.append(b);
+          }
+          li.append(body);
+          ul.append(li);
+        }
+      }
+
+      window.addEventListener('message', (event) => {
+        const msg = event.data;
+        if (msg.type === 'state') {
+          renderChecklist(msg.state.checklist);
+          renderTutorial(msg.state.tutorial);
+        } else if (msg.type === 'action-result') {
+          karstSettle(msg.requestId, msg.ok, msg.message);
+        }
+      });
+
+      karstAction(document.getElementById('recheck'), (requestId) => post('recheck-deps', requestId));
+      karstAction(document.getElementById('report-issue'), (requestId) => post('report-issue', requestId));
+      karstAction(document.getElementById('dismiss'), (requestId) => post('dismiss', requestId));
+      post('request-state');
+    </script>
+  
+
+"
+`;
