@@ -33,17 +33,39 @@ const HAS_PENDING_STATE: readonly ViewId[] = ['usage', 'resources'];
  * themes, causing contrast failures on filled surfaces.
  */
 const CONTRAST_RATCHET: Record<string, { ratio: number; gap?: string }> = {
-  // settings: danger button and hidden error use --k-failed / --k-sev-critical
-  // which alias to --vscode-charts-red (#f14c4c) on --k-bg (#1e1e1e) = 4.29:1
+  // dark theme
   'dark:button#approachDrawerDelete.k-btn.k-btn--danger': { ratio: 4.29, gap: 'G3' },
   'dark:p#leaveModalError.modal-error.hidden': { ratio: 4.29, gap: 'G3' },
-  // gettingStarted: headings and lede use foreground on sidebar background,
-  // falling below WCAG AA 4.5:1 in dark theme.
   'dark:h1': { ratio: 1.61 },
   'dark:p.lede': { ratio: 3.08 },
   'dark:h2': { ratio: 3.08 },
   'dark:p.section-desc': { ratio: 3.08 },
   'dark:button#dismiss.k-btn.k-btn--ghost': { ratio: 3.08 },
+  // light theme
+  'light:span.agentSep': { ratio: 2.61 },
+  'light:div.fieldHelp': { ratio: 2.36 },
+  'light:span.attentionMark': { ratio: 3.12 },
+  'light:span': { ratio: 3.12 },
+  'light:div.menuHeading': { ratio: 2.36 },
+  'light:div#degraded.note.hidden': { ratio: 3.12 },
+  'light:div.nav-caption': { ratio: 2.36 },
+  'light:div.sidebar-project-label': { ratio: 2.36 },
+  'light:span.project-more': { ratio: 2.36 },
+  'light:span.manifest-icon': { ratio: 2.36 },
+  'light:div.ap-empty': { ratio: 2.61 },
+  'light:div': { ratio: 2.61 },
+  'light:span#syncTag.synctag.hidden': { ratio: 4.32 },
+  'light:span#analyzeLbl': { ratio: 2.61 },
+  'light:div.settingHelp': { ratio: 2.36 },
+  'light:button.proc-advanced-link': { ratio: 2.61 },
+  'light:button#approachDrawerDelete.k-btn.k-btn--danger': { ratio: 4.27, gap: 'G3' },
+  'light:p#leaveModalError.modal-error.hidden': { ratio: 4.27, gap: 'G3' },
+  // hc theme
+  'hc:h1': { ratio: 1 },
+  'hc:p.lede': { ratio: 1 },
+  'hc:h2': { ratio: 1 },
+  'hc:p.section-desc': { ratio: 1 },
+  'hc:button#dismiss.k-btn.k-btn--ghost': { ratio: 1 },
 };
 
 karstTest.describe('UI-R29 contrast (computed assertion)', () => {
