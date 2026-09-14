@@ -13,6 +13,14 @@ export interface ScmResourceModel {
   status: FileChangeStatus;
   /** Rename source, or null. */
   oldPath: string | null;
+  /** The worktree's display label, e.g. `backend`. */
+  repoLabel: string;
+  /** Absolute path of the worktree the file lives in. */
+  repoPath: string;
+  /** Which category group this row was placed in. */
+  category: ScmCategory;
+  /** `karst-change:/<repoLabel>/<path>` — the row's synthetic URI. */
+  uri: string;
 }
 
 /** One collapsible group in the Source Control view. */
@@ -25,11 +33,21 @@ export interface ScmGroupModel {
 
 export type ScmCategory = 'staged' | 'unstaged' | 'untracked' | 'commits' | 'error';
 
-const CATEGORY_ORDER: readonly ScmCategory[] = ['staged', 'unstaged', 'untracked', 'commits', 'error'];
+/**
+ * The row's synthetic URI. VS Code derives an SCM row's label and description
+ * from `resourceUri` and offers no override, so the repository is encoded in
+ * the path to keep it legible in a flat, repo-spanning group.
+ */
+export function changeUri(repoLabel: string, path: string): string {
+  const segments = [repoLabel, ...path.split('/')].filter((segment) => segment.length > 0);
+  return `karst-change:/${segments.map(encodeURIComponent).join('/')}`;
+}
 
 function toResources(
   files: readonly { changeId: string; path: string; status: FileChangeStatus; oldPath: string | null }[],
   repoPath: string,
+  repoLabel: string,
+  category: ScmCategory,
 ): ScmResourceModel[] {
   return files.map((file) => ({
     changeId: file.changeId,
@@ -37,6 +55,10 @@ function toResources(
     absolutePath: join(repoPath, file.path),
     status: file.status,
     oldPath: file.oldPath,
+    repoLabel,
+    repoPath,
+    category,
+    uri: changeUri(repoLabel, file.path),
   }));
 }
 
@@ -44,10 +66,10 @@ export function buildScmGroups(
   snapshot: TicketChangesSnapshot,
   worktrees: readonly WorktreeSpec[],
 ): ScmGroupModel[] {
-  const categories = new Map<ScmCategory, ScmGroupModel[]>();
-  for (const cat of CATEGORY_ORDER) {
-    if (cat !== 'error') categories.set(cat, []);
-  }
+  const stagedRows: ScmResourceModel[] = [];
+  const unstagedRows: ScmResourceModel[] = [];
+  const untrackedRows: ScmResourceModel[] = [];
+  const commitGroups: ScmGroupModel[] = [];
   const errorGroups: ScmGroupModel[] = [];
 
   for (let i = 0; i < snapshot.state.worktrees.length; i++) {
@@ -64,48 +86,31 @@ export function buildScmGroups(
       continue;
     }
 
-    if (view.staged.length > 0) {
-      categories.get('staged')!.push({
-        id: `staged-${view.label}`,
-        label: `Staged — ${view.label}`,
-        resources: toResources(view.staged, spec.path),
-      });
-    }
-
-    if (view.unstaged.length > 0) {
-      categories.get('unstaged')!.push({
-        id: `unstaged-${view.label}`,
-        label: `Unstaged — ${view.label}`,
-        resources: toResources(view.unstaged, spec.path),
-      });
-    }
-
-    if (view.untracked.length > 0) {
-      categories.get('untracked')!.push({
-        id: `untracked-${view.label}`,
-        label: `Untracked — ${view.label}`,
-        resources: toResources(view.untracked, spec.path),
-      });
-    }
+    stagedRows.push(...toResources(view.staged, spec.path, view.label, 'staged'));
+    unstagedRows.push(...toResources(view.unstaged, spec.path, view.label, 'unstaged'));
+    untrackedRows.push(...toResources(view.untracked, spec.path, view.label, 'untracked'));
 
     for (const commit of view.commits) {
       if (commit.files.length === 0) continue;
-      categories.get('commits')!.push({
-        id: `commits-${view.label}`,
-        label: `Commits — ${view.label}`,
-        resources: toResources(commit.files, spec.path),
+      commitGroups.push({
+        id: `commit-${view.label}-${commit.shortHash}`,
+        label: `${commit.shortHash} — ${commit.subject} (${view.label})`,
+        resources: toResources(commit.files, spec.path, view.label, 'commits'),
       });
     }
   }
 
-  const groups: ScmGroupModel[] = [];
-  for (const cat of CATEGORY_ORDER) {
-    if (cat === 'error') {
-      groups.push(...errorGroups);
-    } else {
-      groups.push(...categories.get(cat)!);
-    }
-  }
+  const byRepoThenPath = (a: ScmResourceModel, b: ScmResourceModel): number =>
+    a.repoLabel.localeCompare(b.repoLabel) || a.path.localeCompare(b.path);
+  stagedRows.sort(byRepoThenPath);
+  unstagedRows.sort(byRepoThenPath);
+  untrackedRows.sort(byRepoThenPath);
 
+  const groups: ScmGroupModel[] = [];
+  if (stagedRows.length > 0) groups.push({ id: 'staged', label: 'Staged Changes', resources: stagedRows });
+  if (unstagedRows.length > 0) groups.push({ id: 'unstaged', label: 'Changes', resources: unstagedRows });
+  if (untrackedRows.length > 0) groups.push({ id: 'untracked', label: 'Untracked', resources: untrackedRows });
+  groups.push(...commitGroups);
+  groups.push(...errorGroups);
   return groups;
 }

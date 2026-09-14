@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { FileChangeStatus } from './git.js';
 import type { TicketChangesSnapshot, WorktreeChangesView } from './snapshot.js';
-import { buildScmGroups, type ScmGroupModel } from './scmModel.js';
+import { buildScmGroups, changeUri, type ScmGroupModel } from './scmModel.js';
 
 function makeWorktreeChangesView(overrides: Partial<WorktreeChangesView> = {}): WorktreeChangesView {
   return {
@@ -40,145 +40,25 @@ function makeSnapshot(views: WorktreeChangesView[]): TicketChangesSnapshot {
   };
 }
 
-function makeSpec(path: string): { label: string; path: string; branch: string | null; baseRef: string | null } {
-  return { label: 'repo', path, branch: 'main', baseRef: 'develop' };
+function makeSpec(path: string, label = 'repo'): { label: string; path: string; branch: string | null; baseRef: string | null } {
+  return { label, path, branch: 'main', baseRef: 'develop' };
 }
 
 describe('buildScmGroups', () => {
-  it('emits category-first groups with repos nested under each category', () => {
+  it('emits one group per category across repos', () => {
     const views = [
-      makeWorktreeChangesView({
-        label: 'backend',
-        staged: [makeChangedFileView({ changeId: '1', status: 'added', path: 'src/a.ts' })],
-        unstaged: [],
-        untracked: [makeChangedFileView({ changeId: '2', status: 'added', path: 'src/b.ts' })],
-        commits: [
-          {
-            hash: 'abc123',
-            shortHash: 'abc123',
-            subject: 'feat: add feature',
-            author: 'author',
-            authoredAt: '2024-01-01T00:00:00Z',
-            files: [makeChangedFileView({ changeId: '3', status: 'modified', path: 'src/c.ts' })],
-          },
-        ],
-      }),
-      makeWorktreeChangesView({
-        label: 'frontend',
-        staged: [],
-        unstaged: [makeChangedFileView({ changeId: '4', status: 'modified', path: 'src/d.ts' })],
-        untracked: [],
-        commits: [],
-      }),
+      makeWorktreeChangesView({ label: 'backend', unstaged: [makeChangedFileView({ changeId: '1', status: 'modified', path: 'src/a.ts' })] }),
+      makeWorktreeChangesView({ label: 'frontend', unstaged: [makeChangedFileView({ changeId: '2', status: 'modified', path: 'src/b.ts' })] }),
+      makeWorktreeChangesView({ label: 'infra', unstaged: [makeChangedFileView({ changeId: '3', status: 'modified', path: 'main.tf' })] }),
     ];
-    const specs = [makeSpec('/wt/backend'), makeSpec('/wt/frontend')];
+    const specs = [makeSpec('/wt/backend', 'backend'), makeSpec('/wt/frontend', 'frontend'), makeSpec('/wt/infra', 'infra')];
     const groups = buildScmGroups(makeSnapshot(views), specs);
 
-    expect(groups.map((g) => g.id)).toEqual([
-      'staged-backend',
-      'unstaged-frontend',
-      'untracked-backend',
-      'commits-backend',
-    ]);
-    expect(groups.map((g) => g.label)).toEqual([
-      'Staged — backend',
-      'Unstaged — frontend',
-      'Untracked — backend',
-      'Commits — backend',
-    ]);
+    expect(groups.map((g) => g.id)).toEqual(['unstaged']);
+    expect(groups[0]!.resources).toHaveLength(3);
   });
 
-  it('renders errored worktree as error group and good worktree in category-first order', () => {
-    const views = [
-      makeWorktreeChangesView({ label: 'bad', error: 'boom', staged: [makeChangedFileView({ changeId: '1', status: 'added', path: 'src/a.ts' })] }),
-      makeWorktreeChangesView({ label: 'good', staged: [makeChangedFileView({ changeId: '2', status: 'added', path: 'src/b.ts' })] }),
-    ];
-    const specs = [makeSpec('/wt/bad'), makeSpec('/wt/good')];
-    const groups = buildScmGroups(makeSnapshot(views), specs);
-
-    expect(groups.map((g) => g.id)).toEqual(['staged-good', 'error-bad']);
-    expect(groups.map((g) => g.label)).toEqual(['Staged — good', 'Error — bad: boom']);
-  });
-
-  it('omits empty categories', () => {
-    const views = [
-      makeWorktreeChangesView({
-        label: 'repo',
-        commits: [
-          {
-            hash: 'abc123',
-            shortHash: 'abc123',
-            subject: 'feat: add',
-            author: 'author',
-            authoredAt: '2024-01-01T00:00:00Z',
-            files: [makeChangedFileView({ changeId: '1', status: 'added', path: 'src/a.ts' })],
-          },
-        ],
-      }),
-    ];
-    const specs = [makeSpec('/wt/repo')];
-    const groups = buildScmGroups(makeSnapshot(views), specs);
-
-    expect(groups.map((g) => g.id)).toEqual(['commits-repo']);
-    expect(groups.map((g) => g.label)).toEqual(['Commits — repo']);
-  });
-
-  it('computes absolutePath correctly for nested paths', () => {
-    const views = [
-      makeWorktreeChangesView({
-        staged: [makeChangedFileView({ changeId: '1', status: 'added', path: 'src/a/b.ts' })],
-      }),
-    ];
-    const specs = [makeSpec('/wt/repo')];
-    const groups = buildScmGroups(makeSnapshot(views), specs);
-
-    expect(groups.length).toBeGreaterThan(0);
-    expect(groups[0]!.resources.length).toBeGreaterThan(0);
-    expect(groups[0]!.resources[0]!.absolutePath).toBe('/wt/repo/src/a/b.ts');
-  });
-
-  it('skips commit with zero files', () => {
-    const views = [
-      makeWorktreeChangesView({
-        commits: [
-          {
-            hash: 'abc123',
-            shortHash: 'abc123',
-            subject: 'empty commit',
-            author: 'author',
-            authoredAt: '2024-01-01T00:00:00Z',
-            files: [],
-          },
-          {
-            hash: 'def456',
-            shortHash: 'def456',
-            subject: 'with file',
-            author: 'author',
-            authoredAt: '2024-01-01T00:00:00Z',
-            files: [makeChangedFileView({ changeId: '1', status: 'added', path: 'src/a.ts' })],
-          },
-        ],
-      }),
-    ];
-    const specs = [makeSpec('/wt/repo')];
-    const groups = buildScmGroups(makeSnapshot(views), specs);
-
-    expect(groups.map((g) => g.id)).toEqual(['commits-repo']);
-  });
-
-  it('skips views beyond specs length', () => {
-    const views = [
-      makeWorktreeChangesView({ label: 'repo1', staged: [makeChangedFileView({ changeId: '1', status: 'added', path: 'a.ts' })] }),
-      makeWorktreeChangesView({ label: 'repo2', staged: [makeChangedFileView({ changeId: '2', status: 'added', path: 'b.ts' })] }),
-      makeWorktreeChangesView({ label: 'repo3', staged: [makeChangedFileView({ changeId: '3', status: 'added', path: 'c.ts' })] }),
-    ];
-    const specs = [makeSpec('/wt/repo1'), makeSpec('/wt/repo2')];
-    const groups = buildScmGroups(makeSnapshot(views), specs);
-
-    expect(groups.map((g) => g.id)).toEqual(['staged-repo1', 'staged-repo2']);
-  });
-
-  it('categories are ordered: staged, unstaged, untracked, commits', () => {
+  it('orders and labels the categories', () => {
     const views = [
       makeWorktreeChangesView({
         label: 'repo',
@@ -200,60 +80,152 @@ describe('buildScmGroups', () => {
     const specs = [makeSpec('/wt/repo')];
     const groups = buildScmGroups(makeSnapshot(views), specs);
 
-    expect(groups.map((g) => g.id)).toEqual([
-      'staged-repo',
-      'unstaged-repo',
-      'untracked-repo',
-      'commits-repo',
+    expect(groups.map((g) => g.id)).toEqual(['staged', 'unstaged', 'untracked', 'commit-repo-aaa111']);
+    expect(groups.map((g) => g.label)).toEqual(['Staged Changes', 'Changes', 'Untracked', 'aaa111 — feat: commit (repo)']);
+  });
+
+  it('sorts rows by repoLabel then path', () => {
+    const views = [
+      makeWorktreeChangesView({
+        label: 'zeta',
+        unstaged: [
+          makeChangedFileView({ changeId: '1', status: 'modified', path: 'src/b.ts' }),
+          makeChangedFileView({ changeId: '2', status: 'modified', path: 'src/a.ts' }),
+        ],
+      }),
+      makeWorktreeChangesView({
+        label: 'alpha',
+        unstaged: [makeChangedFileView({ changeId: '3', status: 'modified', path: 'm.ts' })],
+      }),
+    ];
+    const specs = [makeSpec('/wt/zeta', 'zeta'), makeSpec('/wt/alpha', 'alpha')];
+    const groups = buildScmGroups(makeSnapshot(views), specs);
+
+    const unstaged = groups.find((g) => g.id === 'unstaged')!;
+    expect(unstaged.resources.map((r) => `${r.repoLabel}/${r.path}`)).toEqual([
+      'alpha/m.ts',
+      'zeta/src/a.ts',
+      'zeta/src/b.ts',
     ]);
   });
 
-  it('error groups appear after all other categories', () => {
+  it('gives two commits in one repo distinct ids', () => {
+    const views = [
+      makeWorktreeChangesView({
+        label: 'repo',
+        commits: [
+          {
+            hash: 'aaa111xxxx',
+            shortHash: 'aaa111',
+            subject: 'first',
+            author: 'author',
+            authoredAt: '2024-01-01T00:00:00Z',
+            files: [makeChangedFileView({ changeId: '1', status: 'modified', path: 'a.ts' })],
+          },
+          {
+            hash: 'bbb222xxxx',
+            shortHash: 'bbb222',
+            subject: 'second',
+            author: 'author',
+            authoredAt: '2024-01-02T00:00:00Z',
+            files: [makeChangedFileView({ changeId: '2', status: 'modified', path: 'b.ts' })],
+          },
+        ],
+      }),
+    ];
+    const specs = [makeSpec('/wt/repo')];
+    const groups = buildScmGroups(makeSnapshot(views), specs);
+
+    expect(groups.map((g) => g.id)).toEqual(['commit-repo-aaa111', 'commit-repo-bbb222']);
+  });
+
+  it('skips a commit with no files', () => {
+    const views = [
+      makeWorktreeChangesView({
+        label: 'repo',
+        commits: [
+          {
+            hash: 'aaa111xxxx',
+            shortHash: 'aaa111',
+            subject: 'empty commit',
+            author: 'author',
+            authoredAt: '2024-01-01T00:00:00Z',
+            files: [],
+          },
+          {
+            hash: 'bbb222xxxx',
+            shortHash: 'bbb222',
+            subject: 'with file',
+            author: 'author',
+            authoredAt: '2024-01-02T00:00:00Z',
+            files: [makeChangedFileView({ changeId: '1', status: 'added', path: 'src/a.ts' })],
+          },
+        ],
+      }),
+    ];
+    const specs = [makeSpec('/wt/repo')];
+    const groups = buildScmGroups(makeSnapshot(views), specs);
+
+    expect(groups.map((g) => g.id)).toEqual(['commit-repo-bbb222']);
+  });
+
+  it('places error groups last', () => {
     const views = [
       makeWorktreeChangesView({
         label: 'good',
         staged: [makeChangedFileView({ changeId: '1', status: 'added', path: 'a.ts' })],
       }),
-      makeWorktreeChangesView({
-        label: 'bad',
-        error: 'inspection failed',
-      }),
+      makeWorktreeChangesView({ label: 'bad', error: 'inspection failed' }),
     ];
-    const specs = [makeSpec('/wt/good'), makeSpec('/wt/bad')];
+    const specs = [makeSpec('/wt/good', 'good'), makeSpec('/wt/bad', 'bad')];
     const groups = buildScmGroups(makeSnapshot(views), specs);
 
-    expect(groups.map((g) => g.id)).toEqual(['staged-good', 'error-bad']);
-    expect(groups.map((g) => g.label)).toEqual(['Staged — good', 'Error — bad: inspection failed']);
+    expect(groups.map((g) => g.id)).toEqual(['staged', 'error-bad']);
+    expect(groups.map((g) => g.label)).toEqual(['Staged Changes', 'Error — bad: inspection failed']);
     expect(groups[1]!.resources).toEqual([]);
   });
 
-  it('multiple repos under same category are grouped together', () => {
+  it('skips views beyond specs length', () => {
+    const views = [
+      makeWorktreeChangesView({ label: 'repo1', staged: [makeChangedFileView({ changeId: '1', status: 'added', path: 'a.ts' })] }),
+      makeWorktreeChangesView({ label: 'repo2', staged: [makeChangedFileView({ changeId: '2', status: 'added', path: 'b.ts' })] }),
+      makeWorktreeChangesView({ label: 'repo3', staged: [makeChangedFileView({ changeId: '3', status: 'added', path: 'c.ts' })] }),
+    ];
+    const specs = [makeSpec('/wt/repo1', 'repo1'), makeSpec('/wt/repo2', 'repo2')];
+    const groups = buildScmGroups(makeSnapshot(views), specs);
+
+    expect(groups.map((g) => g.id)).toEqual(['staged']);
+    expect(groups[0]!.resources.map((r) => `${r.repoLabel}/${r.path}`)).toEqual(['repo1/a.ts', 'repo2/b.ts']);
+  });
+
+  it('populates each row with its repository identity', () => {
     const views = [
       makeWorktreeChangesView({
         label: 'backend',
-        unstaged: [makeChangedFileView({ changeId: 'b1', status: 'modified', path: 'src/api.ts' })],
-      }),
-      makeWorktreeChangesView({
-        label: 'frontend',
-        unstaged: [makeChangedFileView({ changeId: 'f1', status: 'modified', path: 'src/app.ts' })],
-      }),
-      makeWorktreeChangesView({
-        label: 'infra',
-        unstaged: [makeChangedFileView({ changeId: 'i1', status: 'modified', path: 'main.tf' })],
+        staged: [makeChangedFileView({ changeId: '1', status: 'added', path: 'src/a/b.ts' })],
       }),
     ];
-    const specs = [makeSpec('/wt/backend'), makeSpec('/wt/frontend'), makeSpec('/wt/infra')];
+    const specs = [makeSpec('/wt/backend', 'backend')];
     const groups = buildScmGroups(makeSnapshot(views), specs);
 
-    expect(groups.map((g) => g.id)).toEqual([
-      'unstaged-backend',
-      'unstaged-frontend',
-      'unstaged-infra',
-    ]);
+    const resource = groups[0]!.resources[0]!;
+    expect(resource).toMatchObject({
+      absolutePath: '/wt/backend/src/a/b.ts',
+      repoLabel: 'backend',
+      repoPath: '/wt/backend',
+      category: 'staged',
+      uri: 'karst-change:/backend/src/a/b.ts',
+    });
   });
 
-  it('empty snapshot returns no groups', () => {
+  it('returns no groups for an empty snapshot', () => {
     const groups = buildScmGroups(makeSnapshot([]), []);
     expect(groups).toEqual([]);
+  });
+});
+
+describe('changeUri', () => {
+  it('encodes each segment', () => {
+    expect(changeUri('back end', 'src/a b.ts')).toBe('karst-change:/back%20end/src/a%20b.ts');
   });
 });
