@@ -40,8 +40,8 @@ function makeSnapshot(views: WorktreeChangesView[]): TicketChangesSnapshot {
   };
 }
 
-function makeSpec(path: string): WorktreeSpec {
-  return { label: 'repo', path, branch: 'main', baseRef: 'develop' };
+function makeSpec(path: string, label = 'repo'): WorktreeSpec {
+  return { label, path, branch: 'main', baseRef: 'develop' };
 }
 
 function makeTarget(): DiffTarget {
@@ -112,6 +112,10 @@ describe('TicketScmController', () => {
       openDiff,
       logError,
       titleFor,
+      openFile: vi.fn(),
+      discard: vi.fn().mockResolvedValue({ ok: true }),
+      unstage: vi.fn().mockResolvedValue({ ok: true }),
+      confirmDiscard: vi.fn().mockResolvedValue(true),
     });
 
     await controller.show(1);
@@ -125,9 +129,9 @@ describe('TicketScmController', () => {
     expect(createdView.createGroup).toHaveBeenCalledTimes(3); // staged, unstaged, commit
 
     const groups = (createdView.createGroup as MockedFunction<typeof createdView.createGroup>).mock.calls;
-    expect(groups[0]).toEqual(['staged-backend', 'Staged — backend']);
-    expect(groups[1]).toEqual(['unstaged-backend', 'Unstaged — backend']);
-    expect(groups[2]).toEqual(['commits-backend', 'Commits — backend']);
+    expect(groups[0]).toEqual(['staged', 'Staged Changes']);
+    expect(groups[1]).toEqual(['unstaged', 'Changes']);
+    expect(groups[2]).toEqual(['commit-backend-abc123', 'abc123 — feat: add (backend)']);
 
     const setResourcesCalls = host._testOnly.createdGroups.map((g: typeof host._testOnly.createdGroups[number]) => (g.setResources as MockedFunction<typeof g.setResources>).mock.calls!);
     expect(setResourcesCalls[0]![0]![0][0]).toMatchObject({
@@ -167,6 +171,10 @@ describe('TicketScmController', () => {
       openDiff,
       logError,
       titleFor,
+      openFile: vi.fn(),
+      discard: vi.fn().mockResolvedValue({ ok: true }),
+      unstage: vi.fn().mockResolvedValue({ ok: true }),
+      confirmDiscard: vi.fn().mockResolvedValue(true),
     });
 
     await controller.show(1);
@@ -203,6 +211,10 @@ describe('TicketScmController', () => {
       openDiff,
       logError,
       titleFor,
+      openFile: vi.fn(),
+      discard: vi.fn().mockResolvedValue({ ok: true }),
+      unstage: vi.fn().mockResolvedValue({ ok: true }),
+      confirmDiscard: vi.fn().mockResolvedValue(true),
     });
 
     await controller.show(1);
@@ -230,6 +242,10 @@ describe('TicketScmController', () => {
       openDiff,
       logError,
       titleFor,
+      openFile: vi.fn(),
+      discard: vi.fn().mockResolvedValue({ ok: true }),
+      unstage: vi.fn().mockResolvedValue({ ok: true }),
+      confirmDiscard: vi.fn().mockResolvedValue(true),
     });
 
     await controller.show(1);
@@ -258,6 +274,10 @@ describe('TicketScmController', () => {
       openDiff,
       logError,
       titleFor,
+      openFile: vi.fn(),
+      discard: vi.fn().mockResolvedValue({ ok: true }),
+      unstage: vi.fn().mockResolvedValue({ ok: true }),
+      confirmDiscard: vi.fn().mockResolvedValue(true),
     });
 
     await controller.show(1);
@@ -282,6 +302,10 @@ describe('TicketScmController', () => {
       openDiff,
       logError,
       titleFor,
+      openFile: vi.fn(),
+      discard: vi.fn().mockResolvedValue({ ok: true }),
+      unstage: vi.fn().mockResolvedValue({ ok: true }),
+      confirmDiscard: vi.fn().mockResolvedValue(true),
     });
 
     await controller.show(1);
@@ -310,6 +334,10 @@ describe('TicketScmController', () => {
       openDiff,
       logError,
       titleFor,
+      openFile: vi.fn(),
+      discard: vi.fn().mockResolvedValue({ ok: true }),
+      unstage: vi.fn().mockResolvedValue({ ok: true }),
+      confirmDiscard: vi.fn().mockResolvedValue(true),
     });
 
     await controller.show(1);
@@ -344,6 +372,10 @@ describe('TicketScmController', () => {
       openDiff,
       logError,
       titleFor,
+      openFile: vi.fn(),
+      discard: vi.fn().mockResolvedValue({ ok: true }),
+      unstage: vi.fn().mockResolvedValue({ ok: true }),
+      confirmDiscard: vi.fn().mockResolvedValue(true),
     });
 
     const show1 = controller.show(1);
@@ -373,6 +405,10 @@ describe('TicketScmController', () => {
       openDiff,
       logError,
       titleFor,
+      openFile: vi.fn(),
+      discard: vi.fn().mockResolvedValue({ ok: true }),
+      unstage: vi.fn().mockResolvedValue({ ok: true }),
+      confirmDiscard: vi.fn().mockResolvedValue(true),
     });
 
     await controller.show(1);
@@ -401,6 +437,10 @@ describe('TicketScmController', () => {
       openDiff,
       logError,
       titleFor,
+      openFile: vi.fn(),
+      discard: vi.fn().mockResolvedValue({ ok: true }),
+      unstage: vi.fn().mockResolvedValue({ ok: true }),
+      confirmDiscard: vi.fn().mockResolvedValue(true),
     });
 
     await controller.show(1);
@@ -409,7 +449,7 @@ describe('TicketScmController', () => {
     const groups = (createdView.createGroup as MockedFunction<typeof createdView.createGroup>).mock.calls;
     expect(groups).toHaveLength(2);
     // staged-good first (category order), then error-bad
-    expect(groups[0]).toEqual(['staged-good', 'Staged — good']);
+    expect(groups[0]).toEqual(['staged', 'Staged Changes']);
     expect(groups[1]).toEqual(['error-bad', 'Error — bad: inspection failed']);
 
     // error group has no resources
@@ -433,6 +473,10 @@ describe('TicketScmController', () => {
       openDiff,
       logError,
       titleFor,
+      openFile: vi.fn(),
+      discard: vi.fn().mockResolvedValue({ ok: true }),
+      unstage: vi.fn().mockResolvedValue({ ok: true }),
+      confirmDiscard: vi.fn().mockResolvedValue(true),
     });
 
     await controller.show(1);
@@ -442,5 +486,210 @@ describe('TicketScmController', () => {
     const results = (host.createView as MockedFunction<typeof host.createView>).mock!.results!;
     const view = results[0]!.value;
     expect((view.dispose as MockedFunction<typeof view.dispose>).mock.calls!).toHaveLength(1);
+  });
+
+  it('openFile with known id calls deps.openFile with the row absolutePath', async () => {
+    const host = createFakeHost();
+    const views = [
+      makeWorktreeChangesView({
+        label: 'backend',
+        unstaged: [makeChangedFileView({ changeId: 'b', status: 'modified', path: 'src/b.ts' })],
+      }),
+    ];
+    const specs = [makeSpec('/wt/backend', 'backend')];
+    const load = vi.fn().mockResolvedValue({ snapshot: makeSnapshot(views), worktrees: specs });
+    const openDiff = vi.fn().mockResolvedValue(undefined);
+    const logError = vi.fn();
+    const titleFor = vi.fn(() => 'Karst — TEST-1 — title');
+    const openFile = vi.fn();
+
+    const controller = new TicketScmController({
+      host,
+      load,
+      openDiff,
+      logError,
+      titleFor,
+      openFile,
+      discard: vi.fn().mockResolvedValue({ ok: true }),
+      unstage: vi.fn().mockResolvedValue({ ok: true }),
+      confirmDiscard: vi.fn().mockResolvedValue(true),
+    });
+
+    await controller.show(1);
+    controller.openFile('b');
+
+    expect(openFile).toHaveBeenCalledTimes(1);
+    expect(openFile).toHaveBeenCalledWith('/wt/backend/src/b.ts');
+  });
+
+  it('discard confirmed calls deps.discard and refreshes', async () => {
+    const host = createFakeHost();
+    const views = [
+      makeWorktreeChangesView({
+        label: 'backend',
+        unstaged: [makeChangedFileView({ changeId: 'b', status: 'modified', path: 'src/b.ts' })],
+      }),
+    ];
+    const specs = [makeSpec('/wt/backend', 'backend')];
+    const load = vi.fn().mockResolvedValue({ snapshot: makeSnapshot(views), worktrees: specs });
+    const openDiff = vi.fn().mockResolvedValue(undefined);
+    const logError = vi.fn();
+    const titleFor = vi.fn(() => 'Karst — TEST-1 — title');
+    const discard = vi.fn().mockResolvedValue({ ok: true });
+
+    const controller = new TicketScmController({
+      host,
+      load,
+      openDiff,
+      logError,
+      titleFor,
+      openFile: vi.fn(),
+      discard,
+      unstage: vi.fn().mockResolvedValue({ ok: true }),
+      confirmDiscard: vi.fn().mockResolvedValue(true),
+    });
+
+    await controller.show(1);
+    await controller.discard('b');
+
+    expect(discard).toHaveBeenCalledTimes(1);
+    expect(discard).toHaveBeenCalledWith('/wt/backend', 'src/b.ts', 'modified');
+    expect(load).toHaveBeenCalledTimes(2);
+  });
+
+  it('discard declined does not call deps.discard or refresh', async () => {
+    const host = createFakeHost();
+    const views = [
+      makeWorktreeChangesView({
+        label: 'backend',
+        unstaged: [makeChangedFileView({ changeId: 'b', status: 'modified', path: 'src/b.ts' })],
+      }),
+    ];
+    const specs = [makeSpec('/wt/backend', 'backend')];
+    const load = vi.fn().mockResolvedValue({ snapshot: makeSnapshot(views), worktrees: specs });
+    const openDiff = vi.fn().mockResolvedValue(undefined);
+    const logError = vi.fn();
+    const titleFor = vi.fn(() => 'Karst — TEST-1 — title');
+    const discard = vi.fn().mockResolvedValue({ ok: true });
+
+    const controller = new TicketScmController({
+      host,
+      load,
+      openDiff,
+      logError,
+      titleFor,
+      openFile: vi.fn(),
+      discard,
+      unstage: vi.fn().mockResolvedValue({ ok: true }),
+      confirmDiscard: vi.fn().mockResolvedValue(false),
+    });
+
+    await controller.show(1);
+    await controller.discard('b');
+
+    expect(discard).not.toHaveBeenCalled();
+    expect(load).toHaveBeenCalledTimes(1);
+  });
+
+  it('discard failure warns and does not refresh', async () => {
+    const host = createFakeHost();
+    const views = [
+      makeWorktreeChangesView({
+        label: 'backend',
+        unstaged: [makeChangedFileView({ changeId: 'b', status: 'modified', path: 'src/b.ts' })],
+      }),
+    ];
+    const specs = [makeSpec('/wt/backend', 'backend')];
+    const load = vi.fn().mockResolvedValue({ snapshot: makeSnapshot(views), worktrees: specs });
+    const openDiff = vi.fn().mockResolvedValue(undefined);
+    const logError = vi.fn();
+    const titleFor = vi.fn(() => 'Karst — TEST-1 — title');
+
+    const controller = new TicketScmController({
+      host,
+      load,
+      openDiff,
+      logError,
+      titleFor,
+      openFile: vi.fn(),
+      discard: vi.fn().mockResolvedValue({ ok: false, error: 'locked' }),
+      unstage: vi.fn().mockResolvedValue({ ok: true }),
+      confirmDiscard: vi.fn().mockResolvedValue(true),
+    });
+
+    await controller.show(1);
+    await controller.discard('b');
+
+    expect(host.warn).toHaveBeenCalledWith('Could not discard changes: locked');
+    expect(load).toHaveBeenCalledTimes(1);
+  });
+
+  it('unstage staged row calls deps.unstage and refreshes', async () => {
+    const host = createFakeHost();
+    const views = [
+      makeWorktreeChangesView({
+        label: 'backend',
+        staged: [makeChangedFileView({ changeId: 'a', status: 'added', path: 'src/a.ts' })],
+      }),
+    ];
+    const specs = [makeSpec('/wt/backend', 'backend')];
+    const load = vi.fn().mockResolvedValue({ snapshot: makeSnapshot(views), worktrees: specs });
+    const openDiff = vi.fn().mockResolvedValue(undefined);
+    const logError = vi.fn();
+    const titleFor = vi.fn(() => 'Karst — TEST-1 — title');
+    const unstage = vi.fn().mockResolvedValue({ ok: true });
+
+    const controller = new TicketScmController({
+      host,
+      load,
+      openDiff,
+      logError,
+      titleFor,
+      openFile: vi.fn(),
+      discard: vi.fn().mockResolvedValue({ ok: true }),
+      unstage,
+      confirmDiscard: vi.fn().mockResolvedValue(true),
+    });
+
+    await controller.show(1);
+    await controller.unstage('a');
+
+    expect(unstage).toHaveBeenCalledTimes(1);
+    expect(unstage).toHaveBeenCalledWith('/wt/backend', 'src/a.ts');
+    expect(load).toHaveBeenCalledTimes(2);
+  });
+
+  it('openFile with unknown id warns and does not call deps.openFile', async () => {
+    const host = createFakeHost();
+    const views = [
+      makeWorktreeChangesView({
+        label: 'backend',
+        unstaged: [makeChangedFileView({ changeId: 'b', status: 'modified', path: 'src/b.ts' })],
+      }),
+    ];
+    const specs = [makeSpec('/wt/backend', 'backend')];
+    const load = vi.fn().mockResolvedValue({ snapshot: makeSnapshot(views), worktrees: specs });
+    const openDiff = vi.fn().mockResolvedValue(undefined);
+    const logError = vi.fn();
+    const titleFor = vi.fn(() => 'Karst — TEST-1 — title');
+    const openFile = vi.fn();
+
+    const controller = new TicketScmController({
+      host,
+      load,
+      openDiff,
+      logError,
+      titleFor,
+      openFile,
+      discard: vi.fn().mockResolvedValue({ ok: true }),
+      unstage: vi.fn().mockResolvedValue({ ok: true }),
+      confirmDiscard: vi.fn().mockResolvedValue(true),
+    });
+
+    await controller.show(1);
+    controller.openFile('nope');
+
+    expect(host.warn).toHaveBeenCalledWith('That change is no longer available. Reopen changes for this ticket.');
+    expect(openFile).not.toHaveBeenCalled();
   });
 });

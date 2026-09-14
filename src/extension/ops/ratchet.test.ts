@@ -3,7 +3,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 // The number ratchets down as extractions land and is never raised.
-const MAX_EXTENSION_LINES = 8607;
+const MAX_EXTENSION_LINES = 8598;
 
 describe('extension.ts ratchet', () => {
   it('extension.ts does not exceed the recorded line count', () => {
