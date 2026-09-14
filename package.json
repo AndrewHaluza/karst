@@ -192,6 +192,25 @@
       {
         "command": "karst.reportIssue",
         "title": "Karst: Report Issue"
+      },
+      {
+        "command": "karst.openTicketScmDiff",
+        "title": "Karst: Open Changes"
+      },
+      {
+        "command": "karst.scmOpenFile",
+        "title": "Karst: Open File",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "karst.scmDiscard",
+        "title": "Karst: Discard Changes",
+        "icon": "$(discard)"
+      },
+      {
+        "command": "karst.scmUnstage",
+        "title": "Karst: Unstage Changes",
+        "icon": "$(remove)"
       }
     ],
     "menus": {
@@ -199,6 +218,54 @@
         {
           "command": "karst.launchWorktreeExtension",
           "when": "config.karst.launchWorktreeDev.enabled"
+        },
+        {
+          "command": "karst.openTicketScmDiff",
+          "when": "false"
+        },
+        {
+          "command": "karst.scmOpenFile",
+          "when": "false"
+        },
+        {
+          "command": "karst.scmDiscard",
+          "when": "false"
+        },
+        {
+          "command": "karst.scmUnstage",
+          "when": "false"
+        }
+      ],
+      "scm/resourceState/context": [
+        {
+          "command": "karst.scmOpenFile",
+          "when": "scmProvider == karst",
+          "group": "inline@1"
+        },
+        {
+          "command": "karst.scmUnstage",
+          "when": "scmProvider == karst && scmResourceState == karst.staged",
+          "group": "inline@2"
+        },
+        {
+          "command": "karst.scmDiscard",
+          "when": "scmProvider == karst && (scmResourceState == karst.unstaged || scmResourceState == karst.untracked)",
+          "group": "inline@2"
+        },
+        {
+          "command": "karst.scmOpenFile",
+          "when": "scmProvider == karst",
+          "group": "navigation@1"
+        },
+        {
+          "command": "karst.scmUnstage",
+          "when": "scmProvider == karst && scmResourceState == karst.staged",
+          "group": "navigation@2"
+        },
+        {
+          "command": "karst.scmDiscard",
+          "when": "scmProvider == karst && (scmResourceState == karst.unstaged || scmResourceState == karst.untracked)",
+          "group": "navigation@2"
         }
       ]
     },
