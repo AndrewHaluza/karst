@@ -45,10 +45,12 @@ import {
   inspectWorktree,
   prepareDiff,
   type DiffTarget,
+  type FileChangeStatus,
   type PreparedDiffResource,
 } from './ui/diffs/git.js';
 import { buildTicketChangesSnapshot, type TicketChangesSnapshot } from './ui/diffs/snapshot.js';
-import { TicketScmController, type ScmHost } from './ui/diffs/scmController.js';
+import { TicketScmController } from './ui/diffs/scmController.js';
+import { ChangeDecorationProvider, makeScmHost, scmChangeId } from './ui/diffs/scmHost.js';
 import { discardChanges as gitDiscard, unstageFile as gitUnstage } from './ui/diffs/gitActions.js';
 import {
   DisposableBag,
@@ -2427,49 +2429,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   shutdownTicketChanges = () => changes.dispose();
   context.subscriptions.push(changes);
 
-  const scmHost: ScmHost = {
-    createView: (id, title) => {
-      const sc = vscode.scm.createSourceControl(id, title);
-      // Karst's SCM view is read-only: no commit box, no staging.
-      sc.inputBox.visible = false;
-      return {
-        setTitle: (next) => {
-          (sc as any).label = next;
-        },
-        viewColumn: () => {
-          // The SCM view lives in the sidebar; VS Code resolves it to column 1.
-          return 1;
-        },
-        createGroup: (groupId, label) => {
-          const group = sc.createResourceGroup(groupId, label);
-          group.hideWhenEmpty = false;
-          return {
-            setResources: (resources) => {
-              group.resourceStates = resources.map((resource) => ({
-                resourceUri: vscode.Uri.file(resource.absolutePath),
-                command: {
-                  command: 'karst.openTicketScmDiff',
-                  title: 'Open Changes',
-                  arguments: [resource.changeId],
-                },
-                decorations: {
-                  tooltip: resource.oldPath
-                    ? `${resource.status} — ${resource.oldPath} → ${resource.path}`
-                    : `${resource.status} — ${resource.path}`,
-                },
-              }));
-            },
-            dispose: () => group.dispose(),
-          };
-        },
-        dispose: () => sc.dispose(),
-      };
-    },
-    focus: async () => {
-      await vscode.commands.executeCommand('workbench.view.scm');
-    },
-    warn: (message) => void vscode.window.showWarningMessage(message),
-  };
+  const changeDecorations = new ChangeDecorationProvider();
+  context.subscriptions.push(vscode.window.registerFileDecorationProvider(changeDecorations));
+  context.subscriptions.push(changeDecorations);
+  const scmHost = makeScmHost(changeDecorations);
   const ticketScm = new TicketScmController({
     host: scmHost,
     load: loadTicketChanges,
@@ -2480,6 +2443,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return `Karst — ${compactTicketLabel(t, ticketLabel(t))}`;
     },
     debug: logger.debug,
+    openFile: (absolutePath) => {
+      void vscode.commands.executeCommand('vscode.open', vscode.Uri.file(absolutePath));
+    },
+    discard: (repoPath, path, status) =>
+      gitDiscard(defaultGitRunner, repoPath, path, status as FileChangeStatus),
+    unstage: (repoPath, path) => gitUnstage(defaultGitRunner, repoPath, path),
+    confirmDiscard: async (path) => {
+      const choice = await vscode.window.showWarningMessage(
+        `Discard changes in ${path}? This cannot be undone.`,
+        { modal: true },
+        'Discard Changes',
+      );
+      return choice === 'Discard Changes';
+    },
   });
   context.subscriptions.push({ dispose: () => ticketScm.dispose() });
 
@@ -6632,6 +6609,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('karst.openTicketScmDiff', async (arg: unknown) => {
       if (typeof arg !== 'string' || arg.length === 0) return;
       await ticketScm.openChange(arg);
+    }),
+    vscode.commands.registerCommand('karst.scmOpenFile', (arg: unknown) => {
+      const changeId = scmChangeId(arg);
+      if (changeId === undefined) return;
+      ticketScm.openFile(changeId);
+    }),
+    vscode.commands.registerCommand('karst.scmDiscard', async (arg: unknown) => {
+      const changeId = scmChangeId(arg);
+      if (changeId === undefined) return;
+      await ticketScm.discard(changeId);
+    }),
+    vscode.commands.registerCommand('karst.scmUnstage', async (arg: unknown) => {
+      const changeId = scmChangeId(arg);
+      if (changeId === undefined) return;
+      await ticketScm.unstage(changeId);
     }),
     vscode.commands.registerCommand('karst.archiveTicket', async (arg: unknown) => {
       const ticketId = ticketIdArg(arg);
