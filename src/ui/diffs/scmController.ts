@@ -16,6 +16,11 @@ export interface ScmResourceHandleInput {
   path: string;
   status: string;
   oldPath: string | null;
+  repoLabel: string;
+  /** `karst-change:/<repoLabel>/<path>` — the row's synthetic URI. */
+  uri: string;
+  /** `staged` | `unstaged` | `untracked` | `commits` — drives the row's menu. */
+  category: string;
 }
 
 /** One materialized Source Control object. */
@@ -37,6 +42,15 @@ export interface ScmHost {
   _testOnly?: Record<string, unknown>;
 }
 
+/** What a row action needs in order to run git against the right repository. */
+export interface ScmRowAction {
+  repoPath: string;
+  path: string;
+  status: string;
+  category: string;
+  absolutePath: string;
+}
+
 export interface TicketScmControllerDeps {
   host: ScmHost;
   load: (ticketId: number, signal?: AbortSignal) => Promise<{
@@ -46,6 +60,10 @@ export interface TicketScmControllerDeps {
   openDiff: (target: DiffTarget, viewColumn: number | undefined) => Promise<void>;
   logError: (message: string, error: unknown) => void;
   titleFor: (ticketId: number) => string;
+  openFile: (absolutePath: string) => void;
+  discard: (repoPath: string, path: string, status: string) => Promise<{ ok: boolean; error?: string }>;
+  unstage: (repoPath: string, path: string) => Promise<{ ok: boolean; error?: string }>;
+  confirmDiscard: (path: string) => Promise<boolean>;
   debug?: (message: string) => void;
 }
 
@@ -54,6 +72,7 @@ export class TicketScmController {
   private viewTicketId: number | null = null;
   private groupHandles: ScmGroupHandle[] = [];
   private targetMap = new Map<string, DiffTarget>();
+  private rowActions = new Map<string, ScmRowAction>();
   private requestId = 0;
   private disposed = false;
 
@@ -78,6 +97,19 @@ export class TicketScmController {
     }
 
     const groups = buildScmGroups(result.snapshot, result.worktrees);
+
+    this.rowActions = new Map();
+    for (const group of groups) {
+      for (const resource of group.resources) {
+        this.rowActions.set(resource.changeId, {
+          repoPath: resource.repoPath,
+          path: resource.path,
+          status: resource.status,
+          category: resource.category,
+          absolutePath: resource.absolutePath,
+        });
+      }
+    }
 
     if (this.view && this.viewTicketId !== ticketId) {
       for (const handle of this.groupHandles) handle.dispose();
@@ -105,6 +137,9 @@ export class TicketScmController {
           path: resource.path,
           status: resource.status,
           oldPath: resource.oldPath,
+          repoLabel: resource.repoLabel,
+          uri: resource.uri,
+          category: resource.category,
         })),
       );
       this.groupHandles.push(groupHandle);
@@ -136,6 +171,55 @@ export class TicketScmController {
     }
   }
 
+  private row(changeId: string): ScmRowAction | null {
+    const row = this.rowActions.get(changeId);
+    if (!row) {
+      this.deps.host.warn('That change is no longer available. Reopen changes for this ticket.');
+      this.deps.debug?.('[diffs] scm row miss');
+      return null;
+    }
+    return row;
+  }
+
+  openFile(changeId: string): void {
+    const row = this.row(changeId);
+    if (!row) return;
+    this.deps.openFile(row.absolutePath);
+  }
+
+  async discard(changeId: string): Promise<void> {
+    const row = this.row(changeId);
+    if (!row) return;
+    if (!(await this.deps.confirmDiscard(row.path))) {
+      this.deps.debug?.('[diffs] scm discard declined');
+      return;
+    }
+    const result = await this.deps.discard(row.repoPath, row.path, row.status);
+    if (!result.ok) {
+      this.deps.host.warn(`Could not discard changes: ${result.error ?? 'unknown error'}`);
+      this.deps.debug?.('[diffs] scm discard failed');
+      return;
+    }
+    await this.refresh();
+  }
+
+  async unstage(changeId: string): Promise<void> {
+    const row = this.row(changeId);
+    if (!row) return;
+    const result = await this.deps.unstage(row.repoPath, row.path);
+    if (!result.ok) {
+      this.deps.host.warn(`Could not unstage file: ${result.error ?? 'unknown error'}`);
+      this.deps.debug?.('[diffs] scm unstage failed');
+      return;
+    }
+    await this.refresh();
+  }
+
+  private async refresh(): Promise<void> {
+    if (this.viewTicketId === null || this.disposed) return;
+    await this.show(this.viewTicketId);
+  }
+
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
@@ -159,6 +243,7 @@ export class TicketScmController {
     }
 
     this.targetMap.clear();
+    this.rowActions.clear();
     this.viewTicketId = null;
   }
 }
