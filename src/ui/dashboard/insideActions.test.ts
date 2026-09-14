@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { openStore, type Store } from '../../store/db.js';
 import { recordFindings } from '../../store/reviewFindings.js';
 import { recordUatFindings } from '../../store/uatFindings.js';
-import { openShipRun, recordShipCommit } from '../../store/shipRuns.js';
+import { openShipRun, openShipRepoStep, finishShipRepoStep, recordShipCommit } from '../../store/shipRuns.js';
 import { openProcessRun } from '../../store/processRuns.js';
 import { openImplementationRun, completeImplementationRun } from '../../store/implementationRuns.js';
 import { parkGateStage } from '../../store/stageBlocks.js';
@@ -173,6 +173,8 @@ function host(calls: string[]): InsideActionHost {
       void calls.push(`graph-discard:${ticketId}:${nodeRunId}`),
     graphEditOverride: (ticketId, nodeRunId) =>
       void calls.push(`graph-edit-override:${ticketId}:${nodeRunId}`),
+    retryShipRepo: (ticketId, repo) =>
+      void calls.push(`retry-ship-repo:${ticketId}:${repo}`),
   };
 }
 
@@ -852,6 +854,152 @@ describe('dispatchInsideAction', () => {
     expect(dispatchInsideAction(store, r3, 'snapshot-7:action-0', deps([]))).toEqual({
       outcome: 'rejected',
       reason: 'node run not found for this ticket',
+    });
+  });
+
+  it('dispatches retry-ship-repo only for a failed step on a ticket at ship', () => {
+    // Set ticket 1 to the ship stage.
+    store.db
+      .prepare(`UPDATE tickets SET stage_current = 'ship' WHERE id = 1`)
+      .run();
+    // Also seed a ship stage row so the ticket is consistent.
+    store.db
+      .prepare(
+        `INSERT INTO stages (ticket_id, stage_key, status) VALUES (1, 'ship', 'running')`,
+      )
+      .run();
+
+    const shipRun = openShipRun(store, {
+      ticketId: 1,
+      attempt: 1,
+      startedAt: '2026-08-08T10:00:00.000Z',
+    });
+    const step = openShipRepoStep(store, {
+      shipRunId: shipRun.id,
+      repo: '/web',
+      step: 'describe',
+      detail: 'running',
+      startedAt: '2026-08-08T10:00:00.000Z',
+    });
+    finishShipRepoStep(store, step.id, {
+      status: 'failed',
+      detail: 'agent crashed',
+      endedAt: '2026-08-08T10:01:00.000Z',
+    });
+
+    const r = registry(7);
+    r.register({ kind: 'retry-ship-repo', ticketId: 1, shipRepoStepId: step.id });
+    const calls: string[] = [];
+    expect(dispatchInsideAction(store, r, 'snapshot-7:action-0', deps(calls))).toEqual({
+      outcome: 'dispatched',
+    });
+    expect(calls).toEqual(['retry-ship-repo:1:/web']);
+  });
+
+  it('rejects retry-ship-repo for an unknown step id', () => {
+    const r = registry(7);
+    r.register({ kind: 'retry-ship-repo', ticketId: 1, shipRepoStepId: 999 });
+    expect(dispatchInsideAction(store, r, 'snapshot-7:action-0', deps([]))).toEqual({
+      outcome: 'rejected',
+      reason: 'ship repo step not found for this ticket',
+    });
+  });
+
+  it('rejects retry-ship-repo for a step belonging to another ticket', () => {
+    store.db
+      .prepare(`UPDATE tickets SET stage_current = 'ship' WHERE id = 2`)
+      .run();
+    store.db
+      .prepare(
+        `INSERT INTO stages (ticket_id, stage_key, status) VALUES (2, 'ship', 'running')`,
+      )
+      .run();
+
+    const shipRun = openShipRun(store, {
+      ticketId: 2,
+      attempt: 1,
+      startedAt: '2026-08-08T10:00:00.000Z',
+    });
+    const step = openShipRepoStep(store, {
+      shipRunId: shipRun.id,
+      repo: '/web',
+      step: 'describe',
+      detail: 'running',
+      startedAt: '2026-08-08T10:00:00.000Z',
+    });
+    finishShipRepoStep(store, step.id, {
+      status: 'failed',
+      detail: 'agent crashed',
+      endedAt: '2026-08-08T10:01:00.000Z',
+    });
+
+    // Ticket 1 tries to retry ticket 2's step — rejected.
+    const r = registry(7);
+    r.register({ kind: 'retry-ship-repo', ticketId: 1, shipRepoStepId: step.id });
+    expect(dispatchInsideAction(store, r, 'snapshot-7:action-0', deps([]))).toEqual({
+      outcome: 'rejected',
+      reason: 'ship repo step not found for this ticket',
+    });
+  });
+
+  it('rejects retry-ship-repo when the step is not failed', () => {
+    store.db
+      .prepare(
+        `INSERT INTO stages (ticket_id, stage_key, status) VALUES (1, 'ship', 'running')`,
+      )
+      .run();
+
+    const shipRun = openShipRun(store, {
+      ticketId: 1,
+      attempt: 1,
+      startedAt: '2026-08-08T10:00:00.000Z',
+    });
+    const step = openShipRepoStep(store, {
+      shipRunId: shipRun.id,
+      repo: '/web',
+      step: 'describe',
+      detail: 'running',
+      startedAt: '2026-08-08T10:00:00.000Z',
+    });
+    finishShipRepoStep(store, step.id, {
+      status: 'passed',
+      detail: 'done',
+      endedAt: '2026-08-08T10:01:00.000Z',
+    });
+
+    const r = registry(7);
+    r.register({ kind: 'retry-ship-repo', ticketId: 1, shipRepoStepId: step.id });
+    expect(dispatchInsideAction(store, r, 'snapshot-7:action-0', deps([]))).toEqual({
+      outcome: 'rejected',
+      reason: 'ship step is not failed',
+    });
+  });
+
+  it('rejects retry-ship-repo when the ticket is not at ship', () => {
+    // Ticket 1 has no 'ship' stage (only uat/review in beforeEach).
+    const shipRun = openShipRun(store, {
+      ticketId: 1,
+      attempt: 1,
+      startedAt: '2026-08-08T10:00:00.000Z',
+    });
+    const step = openShipRepoStep(store, {
+      shipRunId: shipRun.id,
+      repo: '/web',
+      step: 'describe',
+      detail: 'running',
+      startedAt: '2026-08-08T10:00:00.000Z',
+    });
+    finishShipRepoStep(store, step.id, {
+      status: 'failed',
+      detail: 'agent crashed',
+      endedAt: '2026-08-08T10:01:00.000Z',
+    });
+
+    const r = registry(7);
+    r.register({ kind: 'retry-ship-repo', ticketId: 1, shipRepoStepId: step.id });
+    expect(dispatchInsideAction(store, r, 'snapshot-7:action-0', deps([]))).toEqual({
+      outcome: 'rejected',
+      reason: 'ticket is not at ship',
     });
   });
 });

@@ -15,6 +15,7 @@ import {
   markShipOperationApplied,
   reconcileShipOperation,
   listShipEvidence,
+  getShipRepoStepById,
   countShipRuns,
   reconcileShipRuns,
   parseShipPreState,
@@ -458,7 +459,7 @@ describe('ship_runs', () => {
       expect(ev.repos.api!.intents.describe!.status).toBe('preparing');
     });
 
-    it('uses the LATEST ship run for the ticket, leaving earlier runs out', () => {
+    it('carries forward repos with commits from earlier runs', () => {
       const first = run({ attempt: 1 });
       recordShipCommit(store, {
         shipRunId: first.id,
@@ -479,7 +480,9 @@ describe('ship_runs', () => {
       const ev = listShipEvidence(store, ticketId);
       expect(ev.run!.id).toBe(second.id);
       expect(ev.run!.attempt).toBe(2);
-      expect(ev.repos.web).toBeUndefined();
+      // Repo web carried forward from run 1
+      expect(ev.repos.web!.commits).toHaveLength(1);
+      expect(ev.repos.web!.commits[0]!.sha).toBe('f'.repeat(40));
       expect(ev.repos.api!.commits).toHaveLength(1);
       expect(ev.repos.api!.commits[0]!.sha).toBe('g'.repeat(40));
     });
@@ -517,6 +520,135 @@ describe('ship_runs', () => {
       const ev = listShipEvidence(store, ticketId);
       expect(ev.run).toBeUndefined();
       expect(ev.repos).toEqual({});
+    });
+
+    it('single-run parity: one run with two repos produces identical output', () => {
+      const r = run();
+      step(r.id, { repo: 'web', step: 'commit' });
+      step(r.id, { repo: 'api', step: 'push' });
+      recordShipCommit(store, {
+        shipRunId: r.id,
+        repo: 'web',
+        sha: 'a'.repeat(40),
+        message: 'web commit',
+        origin: 'before-ship',
+      });
+      const ev = listShipEvidence(store, ticketId);
+      expect(ev.run!.id).toBe(r.id);
+      expect(Object.keys(ev.repos)).toEqual(expect.arrayContaining(['web', 'api']));
+      expect(ev.repos.web!.commit).toBeDefined();
+      expect(ev.repos.api!.push).toBeDefined();
+      expect(ev.repos.web!.commits).toHaveLength(1);
+    });
+
+    it('two-run per-repo carry-forward: run 1 touches a and b, run 2 touches only b', () => {
+      const r1 = run({ attempt: 1 });
+      step(r1.id, { repo: 'a', step: 'commit' });
+      step(r1.id, { repo: 'b', step: 'push' });
+      recordShipCommit(store, {
+        shipRunId: r1.id,
+        repo: 'a',
+        sha: 'a'.repeat(40),
+        message: 'a from run 1',
+        origin: 'before-ship',
+      });
+
+      const r2 = run({ attempt: 2, startedAt: '2026-08-08T12:00:00.000Z' });
+      step(r2.id, { repo: 'b', step: 'describe' });
+      recordShipCommit(store, {
+        shipRunId: r2.id,
+        repo: 'b',
+        sha: 'b'.repeat(40),
+        message: 'b from run 2',
+        origin: 'created-by-ship',
+      });
+
+      const ev = listShipEvidence(store, ticketId);
+      // run is the latest (run 2)
+      expect(ev.run!.id).toBe(r2.id);
+      // repo a comes from run 1
+      expect(ev.repos.a!.commit).toBeDefined();
+      expect(ev.repos.a!.commit!.shipRunId).toBe(r1.id);
+      expect(ev.repos.a!.commits[0]!.sha).toBe('a'.repeat(40));
+      // repo b comes from run 2
+      expect(ev.repos.b!.describe).toBeDefined();
+      expect(ev.repos.b!.describe!.shipRunId).toBe(r2.id);
+      expect(ev.repos.b!.commits[0]!.sha).toBe('b'.repeat(40));
+    });
+
+    it('same-repo-in-both-runs override: run 2 wins entirely for that repo', () => {
+      const r1 = run({ attempt: 1 });
+      step(r1.id, { repo: 'web', step: 'commit' });
+      recordShipCommit(store, {
+        shipRunId: r1.id,
+        repo: 'web',
+        sha: 'old'.repeat(14),
+        message: 'old commit',
+        origin: 'before-ship',
+      });
+
+      const r2 = run({ attempt: 2, startedAt: '2026-08-08T12:00:00.000Z' });
+      step(r2.id, { repo: 'web', step: 'push' });
+      recordShipCommit(store, {
+        shipRunId: r2.id,
+        repo: 'web',
+        sha: 'new'.repeat(14),
+        message: 'new commit',
+        origin: 'created-by-ship',
+      });
+
+      const ev = listShipEvidence(store, ticketId);
+      expect(ev.run!.id).toBe(r2.id);
+      // run 2's step wins
+      expect(ev.repos.web!.push).toBeDefined();
+      expect(ev.repos.web!.push!.shipRunId).toBe(r2.id);
+      // run 2's commits win
+      expect(ev.repos.web!.commits).toHaveLength(1);
+      expect(ev.repos.web!.commits[0]!.sha).toBe('new'.repeat(14));
+      expect(ev.repos.web!.commits[0]!.shipRunId).toBe(r2.id);
+    });
+
+    it('repos with only commits (no step rows) carry forward from the latest run that recorded them', () => {
+      const r1 = run({ attempt: 1 });
+      recordShipCommit(store, {
+        shipRunId: r1.id,
+        repo: 'infra',
+        sha: 'c'.repeat(40),
+        message: 'infra before ship',
+        origin: 'before-ship',
+      });
+
+      const r2 = run({ attempt: 2, startedAt: '2026-08-08T12:00:00.000Z' });
+      // run 2 touches only web, not infra
+      step(r2.id, { repo: 'web', step: 'commit' });
+
+      const ev = listShipEvidence(store, ticketId);
+      expect(ev.run!.id).toBe(r2.id);
+      // infra has only commits, no steps — carried from run 1
+      expect(ev.repos.infra).toBeDefined();
+      expect(ev.repos.infra!.commits).toHaveLength(1);
+      expect(ev.repos.infra!.commits[0]!.sha).toBe('c'.repeat(40));
+      // web has steps from run 2
+      expect(ev.repos.web!.commit).toBeDefined();
+      expect(ev.repos.web!.commit!.shipRunId).toBe(r2.id);
+    });
+  });
+
+  describe('getShipRepoStepById', () => {
+    it('returns the step row with its ticket id', () => {
+      const r = run();
+      const s = step(r.id, { step: 'push' });
+      const result = getShipRepoStepById(store, s.id);
+      expect(result).toBeDefined();
+      expect(result!.id).toBe(s.id);
+      expect(result!.shipRunId).toBe(r.id);
+      expect(result!.repo).toBe('web');
+      expect(result!.step).toBe('push');
+      expect(result!.ticketId).toBe(ticketId);
+    });
+
+    it('returns undefined for an unknown id', () => {
+      expect(getShipRepoStepById(store, 999999)).toBeUndefined();
     });
   });
 

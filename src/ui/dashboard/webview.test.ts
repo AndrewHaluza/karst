@@ -5458,3 +5458,13 @@ describe('PR panel row (Variant C, executed in a VM)', () => {
     expect(html).not.toContain('data-act="copy-pr-url"');
   });
 });
+
+describe('INSIDE_ACTION_LABEL and INSIDE_ACTION_TITLE cover retry-ship-repo', () => {
+  it('INSIDE_ACTION_LABEL contains retry-ship-repo', () => {
+    expect(HTML).toMatch(/'retry-ship-repo'\s*:\s*'Retry'/);
+  });
+
+  it('INSIDE_ACTION_TITLE contains retry-ship-repo', () => {
+    expect(HTML).toMatch(/'retry-ship-repo'\s*:\s*'Re-run ship for this repository only'/);
+  });
+});

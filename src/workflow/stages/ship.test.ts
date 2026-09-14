@@ -2609,4 +2609,183 @@ setTimeout(() => {
       expect(evidence.run?.status).toBe('failed');
     });
   });
+
+  describe('repo scope (repos option)', () => {
+    it('unscoped parity: ships all repos when repos is absent', async () => {
+      seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+      seedWorktree(store, id, '/repo/backend', join(dir, 'be'));
+      const { gh } = fakeGh();
+
+      const res = await shipTicket(store, { ticketId: id }, gh, fakeAdapter(), fakeGit().git);
+
+      expect(res.prs).toHaveLength(2);
+      expect(listPrsByTicket(store, id)).toHaveLength(2);
+    });
+
+    it('scope-filters-the-loop: repos: ["web"] ships only the matching worktree', async () => {
+      seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+      seedWorktree(store, id, '/repo/backend', join(dir, 'be'));
+      const { gh } = fakeGh();
+
+      const res = await shipTicket(
+        store,
+        { ticketId: id, repos: ['/repo/frontend'] },
+        gh,
+        fakeAdapter(),
+        fakeGit().git,
+      );
+
+      expect(res.prs).toHaveLength(1);
+      expect(res.prs[0]?.repo).toBe('/repo/frontend');
+      const evidence = listShipEvidence(store, id);
+      expect(evidence.repos['/repo/frontend']?.pr?.status).toBe('passed');
+      // Out-of-scope repo has no step rows from this run.
+      expect(evidence.repos['/repo/backend']).toBeUndefined();
+    });
+
+    it('empty-scope verdict: repos: ["nonexistent"] fails with "named no repository"', async () => {
+      seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+
+      await expect(
+        shipTicket(
+          store,
+          { ticketId: id, repos: ['nonexistent'] },
+          fakeGh().gh,
+          fakeAdapter(),
+          fakeGit().git,
+        ),
+      ).rejects.toThrow(/ship scope named no repository.*nonexistent/);
+
+      expect(getTicket(store, id).stageCurrent).toBe('ship');
+      expect(getTicket(store, id).stages.find((s) => s.stageKey === 'ship')?.status).toBe('failed');
+    });
+
+    it('out-of-scope-failed-blocks-pass: scoped repo succeeds but out-of-scope repo has a failed step and no live PR', async () => {
+      seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+      seedWorktree(store, id, '/repo/backend', join(dir, 'be'));
+      const { gh } = fakeGh();
+
+      // First: ship ALL repos, making the backend fail its push.
+      const failGit: GitRunner = async (args, cwd) => {
+        if (args[0] === 'diff') return { stdout: '', stderr: '', exitCode: 1 };
+        if (args[0] === 'push' && cwd === join(dir, 'be')) {
+          return { stdout: '', stderr: 'network error', exitCode: 128 };
+        }
+        return { stdout: '', stderr: '', exitCode: 0 };
+      };
+      await expect(
+        shipTicket(store, { ticketId: id }, gh, fakeAdapter(), failGit),
+      ).rejects.toThrow();
+      expect(listShipEvidence(store, id).repos['/repo/backend']?.push?.status).toBe('failed');
+
+      // Second: scoped retry — only frontend. The backend's failed step with
+      // no live PR must block the stage from passing.
+      await expect(
+        shipTicket(
+          store,
+          { ticketId: id, repos: ['/repo/frontend'] },
+          gh,
+          fakeAdapter(),
+          fakeGit().git,
+        ),
+      ).rejects.toThrow(/still unfinished.*not retried.*\/repo\/backend/);
+
+      expect(getTicket(store, id).stageCurrent).toBe('ship');
+      expect(getTicket(store, id).stages.find((s) => s.stageKey === 'ship')?.status).toBe('failed');
+
+      // Finding: a scoped retry must NOT relabel the out-of-scope repo's
+      // interrupted step ("worktree gone — needs a human") or flip its intent
+      // to `ambiguous`. It is not in this run's scope, so its recorded failure
+      // stays exactly as the run that failed it recorded it.
+      const backend = listShipEvidence(store, id).repos['/repo/backend'];
+      expect(backend?.push?.detail).not.toMatch(/worktree gone/);
+      expect(backend?.intents.push?.status).not.toBe('ambiguous');
+    });
+
+    it('out-of-scope-with-live-PR passes: scoped repo succeeds and out-of-scope repo has a failed step but HAS a live PR', async () => {
+      seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+      seedWorktree(store, id, '/repo/backend', join(dir, 'be'));
+      const { gh } = fakeGh();
+
+      // First: ship ALL repos, making the backend fail its push.
+      const failGit: GitRunner = async (args, cwd) => {
+        if (args[0] === 'diff') return { stdout: '', stderr: '', exitCode: 1 };
+        if (args[0] === 'push' && cwd === join(dir, 'be')) {
+          return { stdout: '', stderr: 'network error', exitCode: 128 };
+        }
+        return { stdout: '', stderr: '', exitCode: 0 };
+      };
+      await expect(
+        shipTicket(store, { ticketId: id }, gh, fakeAdapter(), failGit),
+      ).rejects.toThrow();
+
+      // Now inject a live PR for the backend (e.g. opened by hand).
+      store.db
+        .prepare("INSERT INTO prs (ticket_id, repo, number, url, status) VALUES (?, ?, 42, 'https://github.com/o/r/pull/42', 'open')")
+        .run(id, '/repo/backend');
+
+      // Second: scoped retry — only frontend. The backend has a failed step
+      // BUT a live PR → the guard does not block.
+      const res = await shipTicket(
+        store,
+        { ticketId: id, repos: ['/repo/frontend'] },
+        gh,
+        fakeAdapter(),
+        fakeGit().git,
+      );
+
+      expect(res.prs).toHaveLength(1);
+      expect(res.prs[0]?.repo).toBe('/repo/frontend');
+      expect(getTicket(store, id).stages.find((s) => s.stageKey === 'ship')?.status).not.toBe('failed');
+    });
+
+    it('out-of-scope-hand-opened-PR passes: gh reports a live PR the local prs table has never recorded', async () => {
+      seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+      seedWorktree(store, id, '/repo/backend', join(dir, 'be'));
+
+      // First: ship ALL repos, making the backend fail its push.
+      const failGit: GitRunner = async (args, cwd) => {
+        if (args[0] === 'diff') return { stdout: '', stderr: '', exitCode: 1 };
+        if (args[0] === 'push' && cwd === join(dir, 'be')) {
+          return { stdout: '', stderr: 'network error', exitCode: 128 };
+        }
+        return { stdout: '', stderr: '', exitCode: 0 };
+      };
+      await expect(
+        shipTicket(store, { ticketId: id }, fakeGh().gh, fakeAdapter(), failGit),
+      ).rejects.toThrow();
+      expect(listShipEvidence(store, id).repos['/repo/backend']?.push?.status).toBe('failed');
+
+      // The local prs table is EMPTY for the backend — a PR was opened by hand
+      // on GitHub AFTER this ticket shipped, so karst never recorded a row.
+      // The out-of-scope guard must re-probe GitHub and find the live PR rather
+      // than block on the stale local table. gh answers `pr view` with an OPEN
+      // PR for the BACKEND worktree only; the frontend (in scope) gets no PR so
+      // it ships a fresh one.
+      const gh: GhRunner = async (args, cwd) => {
+        if (args[1] === 'view') {
+          if (cwd === join(dir, 'be')) {
+            return {
+              stdout: JSON.stringify({ number: 9, url: 'https://github.com/o/r/pull/9', state: 'OPEN' }),
+              exitCode: 0,
+            };
+          }
+          return { stdout: '', stderr: 'no pull requests found', exitCode: 1 };
+        }
+        return { stdout: 'https://github.com/o/r/pull/10', exitCode: 0 };
+      };
+
+      const res = await shipTicket(
+        store,
+        { ticketId: id, repos: ['/repo/frontend'] },
+        gh,
+        fakeAdapter(),
+        fakeGit().git,
+      );
+
+      expect(res.prs).toHaveLength(1);
+      expect(res.prs[0]?.repo).toBe('/repo/frontend');
+      expect(getTicket(store, id).stages.find((s) => s.stageKey === 'ship')?.status).not.toBe('failed');
+    });
+  });
 });

@@ -180,6 +180,21 @@ function stepStatus(step: ShipRepoStepEvidence | undefined): InsideStatus {
 }
 
 /**
+ * The Retry control for a repository whose ship step is recorded FAILED.
+ *
+ * Only a literal `failed` step is retryable: a `running` step is in flight and
+ * a `note` (or a missing row) is absence, and neither is something a click can
+ * re-run. Undefined when the caller attaches no actions.
+ */
+function retryAction(
+  input: ShipProcessesInput,
+  step: ShipRepoStepEvidence | undefined,
+): TypedInsideAction | undefined {
+  if (!step || step.status !== 'failed') return undefined;
+  return input.attach?.({ kind: 'retry-ship-repo', shipRepoStepId: step.id });
+}
+
+/**
  * A repo's delivery is landed only when its CURRENT PR's status literally
  * reads `merged`. Any other reading — `open`, `unknown` (a degraded probe),
  * `closed`, a null status — is not landed, however well-stamped `mergedAt`
@@ -357,9 +372,11 @@ function commitProcess(input: ShipProcessesInput): InsideProcessView {
         created.length + before > 0
           ? `${created.length} created${before > 0 ? ` · ${before} before` : ''}`
           : step?.detail || 'no commits recorded';
-      const action = input.attach && created.length === 1
-        ? input.attach({ kind: 'open-commit', shipCommitId: created[0]!.id })
-        : undefined;
+      const action =
+        retryAction(input, step) ??
+        (input.attach && created.length === 1
+          ? input.attach({ kind: 'open-commit', shipCommitId: created[0]!.id })
+          : undefined);
       return {
         status: stepStatus(step),
         label: input.repoNameFor?.(repo) ?? repo,
@@ -473,10 +490,12 @@ function pushProcess(input: ShipProcessesInput): InsideProcessView {
   const recorded = repos.map(
     (repo): EvidenceRow => {
       const step = input.evidence.repos[repo]!.steps.push;
+      const action = retryAction(input, step);
       return {
         status: stepStatus(step),
         label: input.repoNameFor?.(repo) ?? repo,
         detail: pushRelation(input, repo) ?? (step?.detail || 'no push recorded'),
+        ...(action ? { action } : {}),
         ...(step?.startedAt
           ? {
               duration: formatDuration(step.startedAt, step.endedAt ?? input.now),
@@ -524,6 +543,7 @@ function prBranchView(
   const recordedNumber = step?.number ?? pr?.number ?? null;
   const number = recordedNumber === null ? '' : `#${recordedNumber}`;
   const prState = number && pr?.status ? pr.status : '';
+  const retry = retryAction(input, step) ?? retryAction(input, describe);
 
   const steps: PrStepView[] = [];
   if (describe) {
@@ -583,9 +603,13 @@ function prBranchView(
         : {}),
     // The number is the open-PR control: it carries the opaque capability the
     // host resolves through the CURRENT prs row it minted it from.
-    ...(number && pr?.id
-      ? { action: input.attach?.({ kind: 'open-pr', prId: pr.id }) }
-      : {}),
+    // Retry takes precedence: a failed step is retryable, and the retry
+    // re-runs the whole per-repo ship, superseding the open-PR link.
+    ...(retry
+      ? { action: retry }
+      : number && pr?.id
+        ? { action: input.attach?.({ kind: 'open-pr', prId: pr.id }) }
+        : {}),
   };
 }
 
@@ -612,10 +636,15 @@ function prProcess(input: ShipProcessesInput): InsideProcessView {
     (repo): EvidenceRow => {
       const step = input.evidence.repos[repo]!.steps.pr;
       if (!step) {
+        // The PR step was never reached (e.g. the description step failed
+        // first). The retry must still be reachable so the whole per-repo ship
+        // can be re-run — see `prBranchView` for the same describe fallback.
+        const retry = retryAction(input, input.evidence.repos[repo]!.steps.describe);
         return {
           status: 'note',
           label: input.repoNameFor?.(repo) ?? repo,
           detail: 'pr step not recorded',
+          ...(retry ? { action: retry } : {}),
         };
       }
       // A note step is ship's own "no PR needed" record (a repo with no
@@ -630,10 +659,13 @@ function prProcess(input: ShipProcessesInput): InsideProcessView {
       }
       const kind = step.existedBeforeShip === true ? 'adopted' : 'created';
       const number = step.number ? ` #${step.number}` : kind === 'created' ? ' — number pending' : '';
+      const action =
+        retryAction(input, step) ?? retryAction(input, input.evidence.repos[repo]!.steps.describe);
       return {
         status: stepStatus(step),
         label: input.repoNameFor?.(repo) ?? repo,
         detail: `${kind}${number}`,
+        ...(action ? { action } : {}),
         ...(step.startedAt
           ? {
               duration: formatDuration(step.startedAt, step.endedAt ?? input.now),
