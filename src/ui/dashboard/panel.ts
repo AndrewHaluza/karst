@@ -1253,6 +1253,7 @@ const NOOP_INSIDE_HOST: InsideActionHost = {
   graphMarkImpl: () => undefined,
   graphDiscardNode: () => undefined,
   graphEditOverride: () => undefined,
+  retryShipRepo: () => undefined,
 };
 
 /** The graph projection's ticket-less target, stamped with the registry's

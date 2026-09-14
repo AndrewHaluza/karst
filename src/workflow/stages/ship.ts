@@ -51,6 +51,7 @@ import {
   closeShipRun,
   finalizeShipOperationIntent,
   finishShipRepoStep,
+  listShipEvidence,
   markShipOperationApplied,
   openShipRepoStep,
   openShipRun,
@@ -121,6 +122,14 @@ export interface ShipOpts {
    * binds it to `Logger.debug` (a no-op unless the manifest's `debug` flag is on).
    */
   debug?: (message: string) => void;
+  /**
+   * Run for THESE repositories only (values are `worktrees.repo`, the same
+   * key `ship_repo_steps.repo` stores) — the per-repo Retry control in the
+   * Inside block. Absent → every worktree of the ticket, the whole-ticket
+   * ship. An entry naming no worktree of this ticket is ignored; a scope that
+   * matches nothing fails the stage rather than silently shipping nothing.
+   */
+  repos?: readonly string[];
 }
 
 export interface ShippedPr {
@@ -383,6 +392,7 @@ async function reconcilePriorShipOperations(
   worktrees: readonly WorktreeView[],
   git: GitRunner,
   gh: GhRunner,
+  scope: readonly WorktreeView[] = worktrees,
 ): Promise<void> {
   const prev = store.db
     .prepare(
@@ -404,8 +414,15 @@ async function reconcilePriorShipOperations(
     operation_intent_id: number | null;
   }[];
   const pathByRepo = new Map(worktrees.map((wt) => [wt.repo, wt.path]));
+  const scopeRepos = new Set(scope.map((wt) => wt.repo));
 
   for (const step of openSteps) {
+    // A scoped retry re-ships only the named repositories. An out-of-scope
+    // repo's interrupted step belongs to a run this retry is NOT continuing —
+    // leave its recorded evidence untouched (the out-of-scope guard decides
+    // whether it may pass). Marking it "worktree gone" here would both corrupt
+    // its recorded failure and flip its operation intent to `ambiguous`.
+    if (!scopeRepos.has(step.repo)) continue;
     if (step.operation_intent_id === null) continue;
     const intentRow = store.db
       .prepare(
@@ -910,6 +927,15 @@ export async function shipTicket(
 ): Promise<ShipResult> {
   const ticket = getTicket(store, opts.ticketId);
   const worktrees = listWorktreesByTicket(store, opts.ticketId);
+  const allWorktrees = worktrees;
+  const scoped = opts.repos
+    ? allWorktrees.filter((wt) => opts.repos!.includes(wt.repo))
+    : allWorktrees;
+  if (opts.repos) {
+    opts.debug?.(
+      `[gate] ship ticket ${opts.ticketId}: scoped to ${scoped.length}/${allWorktrees.length} repo(s)`,
+    );
+  }
   const title = ticket.title ?? ticket.key ?? `Ticket ${opts.ticketId}`;
   const key = ticket.key ?? String(opts.ticketId);
   const conventions = opts.conventions ?? opts.manifest?.conventions;
@@ -971,7 +997,10 @@ export async function shipTicket(
   // refute) exactly the effects it persisted, then the fresh loop below redoes
   // whatever never landed. Runs BEFORE any fresh work — the old run's verdicts
   // must not be decided by the run that replaced it.
-  await reconcilePriorShipOperations(store, opts.ticketId, run.id, worktrees, git, gh);
+  // Pass BOTH the full worktree list (so the path map knows every repo — an
+  // out-of-scope repo must not read as a missing worktree) and the scoped
+  // subset (so only the retried repos' interrupted steps are reconciled).
+  await reconcilePriorShipOperations(store, opts.ticketId, run.id, allWorktrees, git, gh, scoped);
 
   const prs: ShippedPr[] = [];
   // Per-repo failures (§Defect 1): a push/commit/PR failure in one worktree
@@ -989,7 +1018,12 @@ export async function shipTicket(
   // reached its branches, and that is checked once, after the loop.
   const noChangeRepos: string[] = [];
   try {
-    for (const wt of worktrees) {
+    if (opts.repos && scoped.length === 0) {
+      throw new Error(
+        `ship scope named no repository of this ticket (${opts.repos.join(', ')})`,
+      );
+    }
+    for (const wt of scoped) {
       try {
         const prior = existingLive.get(opts.ticketId, wt.repo) as
           | { repo: string; number: number | null; url: string }
@@ -1709,6 +1743,33 @@ export async function shipTicket(
           repoFailures.map((f) => `${f.repo}: ${boundedFailure(f.message)}`).join('; '),
       );
     }
+    if (opts.repos) {
+      const evidence = listShipEvidence(store, opts.ticketId);
+      // An out-of-scope repo that still has a recorded failed step is only
+      // genuinely unfinished if it has NO live PR. The local `prs` table is
+      // written by karst's own ship — a PR opened by hand on GitHub (a user
+      // finishing the retry manually) lives upstream only, so when the local
+      // table is silent we re-probe the repo's worktree for an open PR rather
+      // than assume it is still failing.
+      const outstanding: string[] = [];
+      for (const wt of allWorktrees) {
+        if (scoped.some((s) => s.repo === wt.repo)) continue;
+        const steps = evidence.repos[wt.repo]?.steps;
+        if (!steps) continue;
+        const failed = Object.values(steps).some((s) => s?.status === 'failed');
+        if (!failed) continue;
+        if (existingLive.get(opts.ticketId, wt.repo) !== undefined) continue;
+        const upstream = await findOpenPr(gh, wt.path).catch(() => null);
+        if (upstream) continue;
+        outstanding.push(wt.repo);
+      }
+      if (outstanding.length > 0) {
+        throw new Error(
+          `ship is still unfinished for ${outstanding.length} repo(s) not retried: ` +
+            `${outstanding.join(', ')}`,
+        );
+      }
+    }
     // Every target unchanged means the ship produced nothing at all: no commit,
     // no push, no PR. Each repo's own note is right, but the aggregate is the
     // shape a ticket takes when its work landed somewhere other than its branch
@@ -1717,10 +1778,10 @@ export async function shipTicket(
     // is a ship failure — the ticket parks at ship, since ship has no `failed`
     // edge. Placed AFTER the per-repo check: a real failure is more actionable
     // than the "nothing shipped" symptom it causes.
-    if (worktrees.length > 0 && noChangeRepos.length === worktrees.length) {
-      opts.debug?.(`[gate] ship ticket ${opts.ticketId}: all ${worktrees.length} target(s) unchanged — refusing`);
+    if (scoped.length > 0 && noChangeRepos.length === scoped.length) {
+      opts.debug?.(`[gate] ship ticket ${opts.ticketId}: all ${scoped.length} target(s) unchanged — refusing`);
       throw new Error(
-        `ship produced nothing: all ${worktrees.length} target(s) have no changes ` +
+        `ship produced nothing: all ${scoped.length} target(s) have no changes ` +
           `from their base branch (${noChangeRepos.join(', ')}) — ` +
           `the ticket's work is not on its branch`,
       );
@@ -1748,7 +1809,7 @@ export async function shipTicket(
   // Every branch is now pushed, so the merge probe measures what a reviewer would
   // actually see on the PR. Deliberately outside the try above: a failure here is
   // not a ship failure, and this must not reach the catch that parks the ticket.
-  await recordMergeChecks(store, opts.ticketId, worktrees, git, onProgress, opts.manifest);
+  await recordMergeChecks(store, opts.ticketId, allWorktrees, git, onProgress, opts.manifest);
   closeShipRun(store, run.id, 'passed', nowIso());
   onInsideProgress(shipFinishedEvent(opts.ticketId, 'pass'));
 

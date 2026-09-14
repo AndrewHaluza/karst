@@ -2985,6 +2985,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       dashboard.pushState(ticketId);
       void driveGraphRunContinuation(graphRunId);
     },
+    (ticketId, repo) => {
+      if (!guardCapability('ship')) return;
+      void runShipSaga(ticketId, true, { repos: [repo] }).catch((e) => {
+        logError('karst: per-repo ship retry failed', e);
+        provider.refresh();
+        dashboard.pushState(ticketId);
+      });
+    },
   ),
   // Live manifest getter, so the inside views resolve the REAL service names
   // and process assignments (panel.ts is manifest-free by contract).
@@ -5388,7 +5396,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // `warn` says whether a failed provider status push raises a toast: the
   // click asks for one (it owns the user's attention), the activation sweep
   // does not (its failures are logged like every other sweep's).
-  const runShipSaga = async (ticketId: number, warn = false): Promise<void> => {
+  const runShipSaga = async (
+    ticketId: number,
+    warn = false,
+    shipOpts: { repos?: readonly string[] } = {},
+  ): Promise<void> => {
     await runShipTicket(
       localStore,
       {
@@ -5398,6 +5410,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // adapter AND identity snapshot drive the description step; NULL
         // (enabled: false) skips the AI step for the deterministic fallback.
         prDescriptionProcess: prDescriptionProcess(ticketId),
+        ...(shipOpts.repos ? { repos: shipOpts.repos } : {}),
       },
       undefined,
       undefined,
@@ -7742,6 +7755,7 @@ function makeInsideActionHost(
   graphBootstrapRelaunch: (launch: BootstrapRelaunchRequest) => void,
   /** Refresh the graph surfaces and immediately continue recoverable work. */
   onGraphRecovered: (ticketId: number, graphRunId: number) => void,
+  retryShipRepo: (ticketId: number, repo: string) => void,
 ): InsideActionHost {
   /** Run either explicit graph recovery control. `recoverGraphRun` owns every
    * state transition; this host binding only launches the planner it elected
@@ -7899,6 +7913,7 @@ function makeInsideActionHost(
     graphMarkImpl: (ticketId, graphRunId) => graphHost.graphMarkImpl(ticketId, graphRunId),
     graphDiscardNode: (ticketId, nodeRunId) => graphHost.graphDiscardNode(ticketId, nodeRunId),
     graphEditOverride: (ticketId, nodeRunId) => graphHost.graphEditOverride(ticketId, nodeRunId),
+    retryShipRepo: (ticketId, repo) => retryShipRepo(ticketId, repo),
   };
 }
 

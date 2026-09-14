@@ -270,6 +270,12 @@ const STEP_SELECT =
           existed_before_ship, process_run_id, operation_intent_id,
           started_at, ended_at
      FROM ship_repo_steps`;
+const STEP_SELECT_WITH_TICKET =
+  `SELECT s.id, s.ship_run_id, s.repo, s.step, s.status, s.detail, s.pr_number,
+          s.existed_before_ship, s.process_run_id, s.operation_intent_id,
+          s.started_at, s.ended_at, r.ticket_id AS ticket_id
+     FROM ship_repo_steps s
+     JOIN ship_runs r ON r.id = s.ship_run_id`;
 const COMMIT_SELECT =
   'SELECT id, ship_run_id, repo, sha, message, origin FROM ship_commits';
 const INTENT_SELECT =
@@ -738,12 +744,38 @@ export function getShipCommitById(
     .get(id) as (ShipCommitRowShape & { ticket_id: number }) | undefined;
   if (row === undefined) return undefined;
   return { ...rowToShipCommit(row), ticketId: row.ticket_id };
-}/**
+}
+
+/**
+ * One ship repo step by its row id, whatever ticket it belongs to — the
+ * typed-action dispatch reloads the row by host-owned id and verifies the
+ * ticket itself (`insideActions.ts`). The owning ticket is carried via the
+ * step's ship run (steps have no ticket column of their own).
+ */
+export function getShipRepoStepById(
+  store: Store,
+  id: number,
+): (ShipRepoStep & { ticketId: number }) | undefined {
+  const row = store.db
+    .prepare(
+      `${STEP_SELECT_WITH_TICKET}
+        WHERE s.id = ?`,
+    )
+    .get(id) as (ShipRepoStepRowShape & { ticket_id: number }) | undefined;
+  if (row === undefined) return undefined;
+  return { ...rowToShipRepoStep(row), ticketId: row.ticket_id };
+}
+
+/**
  * The evidence view of the ticket's LATEST ship run, grouped per repository.
  *
- * The run is picked by greatest id — insertion order IS run order. Steps and
- * intents are keyed by step name (the saga walks each step at most once per
- * run per repo), commits keep insertion order.
+ * `run` is the greatest-id run for the ticket (insertion order IS run order).
+ * Each repository's evidence — steps, intents, and commits — comes from the
+ * greatest ship_run_id that recorded a `ship_repo_steps` row for that
+ * repository, so a retry that only touched some repos still carries the
+ * previous run's evidence for the untouched ones. Commits without a matching
+ * step row (before-ship commits on a repo that had no steps in any run) are
+ * gathered from the greatest run that recorded them.
  */
 export function listShipEvidence(store: Store, ticketId: number): ShipEvidence {
   const runRow = store.db
@@ -752,18 +784,68 @@ export function listShipEvidence(store: Store, ticketId: number): ShipEvidence {
   if (runRow === undefined) return { run: undefined, repos: {} };
   const run = rowToShipRun(runRow);
 
-  const steps = store.db
-    .prepare(`${STEP_SELECT} WHERE ship_run_id = ? ORDER BY id`)
-    .all(run.id)
-    .map((r) => rowToShipRepoStep(r as ShipRepoStepRowShape));
-  const commits = store.db
-    .prepare(`${COMMIT_SELECT} WHERE ship_run_id = ? ORDER BY id`)
-    .all(run.id)
-    .map((r) => rowToShipCommit(r as ShipCommitRowShape));
-  const intents = store.db
-    .prepare(`${INTENT_SELECT} WHERE ship_run_id = ? ORDER BY id`)
-    .all(run.id)
-    .map((r) => rowToShipOperationIntent(r as ShipOperationIntentRowShape));
+  // Per-repository owning run: the greatest ship_run_id that recorded a step
+  // row for that repository for this ticket.
+  const repoRunRows = store.db
+    .prepare(
+      `SELECT s.repo AS repo, MAX(s.ship_run_id) AS run_id
+         FROM ship_repo_steps s
+         JOIN ship_runs r ON r.id = s.ship_run_id
+        WHERE r.ticket_id = ?
+        GROUP BY s.repo`,
+    )
+    .all(ticketId) as { repo: string; run_id: number }[];
+
+  // Per-repository owning run for commits that have no matching step row:
+  // the greatest ship_run_id that recorded a ship_commits row for that repo.
+  const commitRepoRunRows = store.db
+    .prepare(
+      `SELECT c.repo AS repo, MAX(c.ship_run_id) AS run_id
+         FROM ship_commits c
+         JOIN ship_runs r ON r.id = c.ship_run_id
+        WHERE r.ticket_id = ?
+        GROUP BY c.repo`,
+    )
+    .all(ticketId) as { repo: string; run_id: number }[];
+
+  // Per-repository owning run for intents that have no matching step row:
+  // the greatest ship_run_id that recorded a ship_operation_intents row.
+  const intentRepoRunRows = store.db
+    .prepare(
+      `SELECT i.repo AS repo, MAX(i.ship_run_id) AS run_id
+         FROM ship_operation_intents i
+         JOIN ship_runs r ON r.id = i.ship_run_id
+        WHERE r.ticket_id = ?
+        GROUP BY i.repo`,
+    )
+    .all(ticketId) as { repo: string; run_id: number }[];
+
+  // Merge all three repo key sets so repos with only commits or only intents
+  // (no steps) are included.
+  const repoRunMap = new Map<number, Set<string>>();
+  const repoOwnership = new Map<string, number>(); // repo → run_id
+  for (const { repo, run_id } of repoRunRows) {
+    repoOwnership.set(repo, run_id);
+    let s = repoRunMap.get(run_id);
+    if (s === undefined) { s = new Set(); repoRunMap.set(run_id, s); }
+    s.add(repo);
+  }
+  for (const { repo, run_id } of commitRepoRunRows) {
+    if (!repoOwnership.has(repo)) {
+      repoOwnership.set(repo, run_id);
+      let s = repoRunMap.get(run_id);
+      if (s === undefined) { s = new Set(); repoRunMap.set(run_id, s); }
+      s.add(repo);
+    }
+  }
+  for (const { repo, run_id } of intentRepoRunRows) {
+    if (!repoOwnership.has(repo)) {
+      repoOwnership.set(repo, run_id);
+      let s = repoRunMap.get(run_id);
+      if (s === undefined) { s = new Set(); repoRunMap.set(run_id, s); }
+      s.add(repo);
+    }
+  }
 
   const repos: Record<string, ShipRepoEvidence> = {};
   const repoEv = (repo: string): ShipRepoEvidence => {
@@ -774,20 +856,45 @@ export function listShipEvidence(store: Store, ticketId: number): ShipEvidence {
     }
     return e;
   };
-  const intentKeys = new Set(intents.map((i) => `${i.shipRunId}:${i.repo}:${i.step}`));
-  for (const s of steps) {
-    const e = repoEv(s.repo);
-    const evidence: ShipRepoStepEvidence = {
-      ...s,
-      hasIntent: intentKeys.has(`${s.shipRunId}:${s.repo}:${s.step}`),
-      number: s.prNumber,
-    };
-    e.steps[s.step] = evidence;
-    // The same row also answers `repos.web.push` directly.
-    e[s.step] = evidence;
+
+  // Load steps, intents and commits per owning run, scoped to the owning repo.
+  for (const [runId, repoSet] of repoRunMap) {
+    const reposArr = [...repoSet];
+    const placeholders = reposArr.map(() => '?').join(',');
+
+    const steps = store.db
+      .prepare(
+        `${STEP_SELECT} WHERE ship_run_id = ? AND repo IN (${placeholders}) ORDER BY id`,
+      )
+      .all(runId, ...reposArr)
+      .map((r) => rowToShipRepoStep(r as ShipRepoStepRowShape));
+    const intents = store.db
+      .prepare(
+        `${INTENT_SELECT} WHERE ship_run_id = ? AND repo IN (${placeholders}) ORDER BY id`,
+      )
+      .all(runId, ...reposArr)
+      .map((r) => rowToShipOperationIntent(r as ShipOperationIntentRowShape));
+    const commits = store.db
+      .prepare(
+        `${COMMIT_SELECT} WHERE ship_run_id = ? AND repo IN (${placeholders}) ORDER BY id`,
+      )
+      .all(runId, ...reposArr)
+      .map((r) => rowToShipCommit(r as ShipCommitRowShape));
+
+    const intentKeys = new Set(intents.map((i) => `${i.repo}:${i.step}`));
+    for (const s of steps) {
+      const e = repoEv(s.repo);
+      const evidence: ShipRepoStepEvidence = {
+        ...s,
+        hasIntent: intentKeys.has(`${s.repo}:${s.step}`),
+        number: s.prNumber,
+      };
+      e.steps[s.step] = evidence;
+      e[s.step] = evidence;
+    }
+    for (const c of commits) repoEv(c.repo).commits.push(c);
+    for (const i of intents) repoEv(i.repo).intents[i.step] = i;
   }
-  for (const c of commits) repoEv(c.repo).commits.push(c);
-  for (const i of intents) repoEv(i.repo).intents[i.step] = i;
 
   return { run, repos };
 }

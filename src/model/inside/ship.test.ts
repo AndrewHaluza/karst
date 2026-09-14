@@ -1305,3 +1305,232 @@ describe('ship process rows carry their own span', () => {
     expect(views.map((v) => v.id)).toEqual(['commit', 'push', 'pr', 'merge']);
   });
 });
+
+describe('retry-ship-repo action', () => {
+  it('attaches retry to a failed commit row with the step id', () => {
+    const targets: InsideEvidenceTarget[] = [];
+    const views = shipProcesses(
+      shipInput({
+        evidence: evidence({
+          repos: {
+            '/web': repoEvidence('/web', {
+              steps: { commit: step('commit', { id: 42, status: 'failed' }) },
+            }),
+          },
+        }),
+        attach: (target) => {
+          targets.push(target);
+          return { actionId: 'snapshot-1:a1', kind: target.kind };
+        },
+      }),
+    );
+    const row = rowsOf(views[0]!)[0]!;
+    expect(row.action).toMatchObject({ kind: 'retry-ship-repo' });
+    expect(targets).toEqual([{ kind: 'retry-ship-repo', shipRepoStepId: 42 }]);
+  });
+
+  it('attaches retry to a failed push row with the step id', () => {
+    const targets: InsideEvidenceTarget[] = [];
+    const views = shipProcesses(
+      shipInput({
+        evidence: evidence({
+          repos: {
+            '/web': repoEvidence('/web', {
+              steps: { push: step('push', { id: 55, status: 'failed' }) },
+            }),
+          },
+        }),
+        attach: (target) => {
+          targets.push(target);
+          return { actionId: 'snapshot-1:a1', kind: target.kind };
+        },
+      }),
+    );
+    const row = rowsOf(views[1]!)[0]!;
+    expect(row.action).toMatchObject({ kind: 'retry-ship-repo' });
+    expect(targets).toEqual([{ kind: 'retry-ship-repo', shipRepoStepId: 55 }]);
+  });
+
+  it('attaches retry to a failed PR row with the step id', () => {
+    const targets: InsideEvidenceTarget[] = [];
+    const views = shipProcesses(
+      shipInput({
+        evidence: evidence({
+          repos: {
+            '/web': repoEvidence('/web', {
+              steps: { pr: step('pr', { id: 68, status: 'failed' }) },
+            }),
+          },
+        }),
+        attach: (target) => {
+          targets.push(target);
+          return { actionId: 'snapshot-1:a1', kind: target.kind };
+        },
+      }),
+    );
+    // Flat row
+    const flatRow = rowsOf(views[2]!)[0]!;
+    expect(flatRow.action).toMatchObject({ kind: 'retry-ship-repo' });
+    // Branch row
+    const ev = views[2]!.evidence as { kind: 'prs'; branches?: { action?: { kind: string } }[] };
+    expect(ev.branches?.[0]?.action?.kind).toBe('retry-ship-repo');
+    // Two retry targets: one from the flat row, one from the branch row
+    expect(targets.filter((t) => t.kind === 'retry-ship-repo')).toHaveLength(2);
+  });
+
+  it('attaches retry to the PR row when only the describe step failed', () => {
+    const targets: InsideEvidenceTarget[] = [];
+    const views = shipProcesses(
+      shipInput({
+        evidence: evidence({
+          repos: {
+            '/web': repoEvidence('/web', {
+              steps: { describe: step('describe', { id: 71, status: 'failed' }) },
+            }),
+          },
+        }),
+        attach: (target) => {
+          targets.push(target);
+          return { actionId: 'snapshot-1:a1', kind: target.kind };
+        },
+      }),
+    );
+    // The PR step was never recorded (describe failed first) — but the retry
+    // must still be reachable so the user can re-run the whole per-repo ship.
+    const flatRow = rowsOf(views[2]!)[0]!;
+    expect(flatRow.action).toMatchObject({ kind: 'retry-ship-repo' });
+    const ev = views[2]!.evidence as { kind: 'prs'; branches?: { action?: { kind: string } }[] };
+    expect(ev.branches?.[0]?.action?.kind).toBe('retry-ship-repo');
+    expect(targets.filter((t) => t.kind === 'retry-ship-repo')).toHaveLength(2);
+  });
+
+  it('carries no retry on a passed commit row', () => {
+    const views = shipProcesses(
+      shipInput({
+        evidence: evidence({
+          repos: {
+            '/web': repoEvidence('/web', {
+              steps: { commit: step('commit', { status: 'passed' }) },
+              commits: [shipCommit('created-by-ship')],
+            }),
+          },
+        }),
+        attach: (target) => ({ actionId: 'snapshot-1:a1', kind: target.kind }),
+      }),
+    );
+    const row = rowsOf(views[0]!)[0]!;
+    expect(row.action?.kind).not.toBe('retry-ship-repo');
+  });
+
+  it('carries no retry on a running push row', () => {
+    const views = shipProcesses(
+      shipInput({
+        evidence: evidence({
+          repos: {
+            '/web': repoEvidence('/web', {
+              steps: { push: step('push', { status: 'running' }) },
+            }),
+          },
+        }),
+        attach: (target) => ({ actionId: 'snapshot-1:a1', kind: target.kind }),
+      }),
+    );
+    const row = rowsOf(views[1]!)[0]!;
+    expect(row.action).toBeUndefined();
+  });
+
+  it('carries no action when attach is absent', () => {
+    const views = shipProcesses(
+      shipInput({
+        evidence: evidence({
+          repos: {
+            '/web': repoEvidence('/web', {
+              steps: { commit: step('commit', { status: 'failed' }) },
+            }),
+          },
+        }),
+      }),
+    );
+    const row = rowsOf(views[0]!)[0]!;
+    expect(row.action).toBeUndefined();
+  });
+
+  it('does not attach retry to merge rows', () => {
+    const targets: InsideEvidenceTarget[] = [];
+    const views = shipProcesses(
+      shipInput({
+        evidence: evidence({
+          repos: {
+            '/web': repoEvidence('/web', {
+              steps: {
+                commit: step('commit', { status: 'failed' }),
+                push: step('push', { status: 'failed' }),
+                pr: step('pr', { status: 'failed' }),
+              },
+            }),
+          },
+        }),
+        prs: [pr('/web', { number: 10, status: 'open' })],
+        attach: (target) => {
+          targets.push(target);
+          return { actionId: 'snapshot-1:a1', kind: target.kind };
+        },
+      }),
+    );
+    const mergeRows = rowsOf(views[3]!);
+    for (const row of mergeRows) {
+      expect(row.action?.kind).not.toBe('retry-ship-repo');
+    }
+    expect(targets.filter((t) => t.kind === 'retry-ship-repo')).toHaveLength(4);
+  });
+
+  it('prefers retry over open-commit when the commit step failed', () => {
+    const targets: InsideEvidenceTarget[] = [];
+    const views = shipProcesses(
+      shipInput({
+        evidence: evidence({
+          repos: {
+            '/web': repoEvidence('/web', {
+              steps: { commit: step('commit', { id: 99, status: 'failed' }) },
+              commits: [shipCommit('created-by-ship', { id: 77 })],
+            }),
+          },
+        }),
+        attach: (target) => {
+          targets.push(target);
+          return { actionId: 'snapshot-1:a1', kind: target.kind };
+        },
+      }),
+    );
+    const row = rowsOf(views[0]!)[0]!;
+    expect(row.action?.kind).toBe('retry-ship-repo');
+    // The rich commit body still carries open-commit per commit entry —
+    // that is per-commit, not per-repo, and is independent of the row action.
+    expect(targets.filter((t) => t.kind === 'retry-ship-repo')).toEqual([
+      { kind: 'retry-ship-repo', shipRepoStepId: 99 },
+    ]);
+  });
+
+  it('prefers retry over open-pr when the PR step failed', () => {
+    const targets: InsideEvidenceTarget[] = [];
+    const views = shipProcesses(
+      shipInput({
+        evidence: evidence({
+          repos: {
+            '/web': repoEvidence('/web', {
+              steps: { pr: step('pr', { id: 88, status: 'failed', number: 42 }) },
+            }),
+          },
+        }),
+        prs: [pr('/web', { id: 55, number: 42, status: 'open' })],
+        attach: (target) => {
+          targets.push(target);
+          return { actionId: 'snapshot-1:a1', kind: target.kind };
+        },
+      }),
+    );
+    const ev = views[2]!.evidence as { kind: 'prs'; branches?: { action?: { kind: string } }[] };
+    expect(ev.branches?.[0]?.action?.kind).toBe('retry-ship-repo');
+    expect(targets.filter((t) => t.kind === 'open-pr')).toHaveLength(0);
+  });
+});

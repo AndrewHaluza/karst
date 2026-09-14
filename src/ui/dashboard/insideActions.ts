@@ -2,7 +2,7 @@ import type { Store } from '../../store/db.js';
 import { getProcessRunById } from '../../store/processRuns.js';
 import { getPrById } from '../../store/prs.js';
 import { getFindingById } from '../../store/reviewFindings.js';
-import { getShipCommitById } from '../../store/shipRuns.js';
+import { getShipCommitById, getShipRepoStepById } from '../../store/shipRuns.js';
 import { stageBlock } from '../../store/stageBlocks.js';
 import { getUatFindingById } from '../../store/uatFindings.js';
 import { getTicket } from '../../store/tickets.js';
@@ -49,6 +49,7 @@ export type InsideActionTarget =
   | { kind: 'open-commit'; ticketId: number; shipCommitId: number }
   | { kind: 'open-stage-log'; ticketId: number; stageKey: StageKey }
   | { kind: 'resume-stage'; ticketId: number; stageKey: StageKey }
+  | { kind: 'retry-ship-repo'; ticketId: number; shipRepoStepId: number }
   | { kind: 'open-full-evidence'; ticketId: number; processRunId: number }
   | {
       kind: 'open-bounded-evidence';
@@ -233,6 +234,12 @@ export interface InsideActionHost {
    * authority, so this host callback never mutates anything itself.
    */
   graphEditOverride(ticketId: number, nodeRunId: number): void | Promise<void>;
+  /**
+   * Re-run ship for a single repository whose recorded step failed. The host
+   * re-loads the step row, proves ownership via the ticket-scoped join, and
+   * derives the repository path from it — never from the webview.
+   */
+  retryShipRepo(ticketId: number, repo: string): void | Promise<void>;
 }
 
 export type InsideDispatchOutcome =
@@ -396,6 +403,24 @@ export function dispatchInsideAction(
         return { outcome: 'rejected', reason: 'stage is not blocked' };
       }
       void deps.host.resumeStage(target.ticketId, target.stageKey);
+      return { outcome: 'dispatched' };
+    }
+    case 'retry-ship-repo': {
+      const row = owned(getShipRepoStepById(store, target.shipRepoStepId), target.ticketId);
+      if (row === null) return { outcome: 'rejected', reason: 'ship repo step not found for this ticket' };
+      if (row.status !== 'failed') {
+        return { outcome: 'rejected', reason: 'ship step is not failed' };
+      }
+      let stageCurrent: string | null;
+      try {
+        stageCurrent = getTicket(store, target.ticketId).stageCurrent;
+      } catch {
+        return { outcome: 'rejected', reason: 'ticket not found' };
+      }
+      if (stageCurrent !== 'ship') {
+        return { outcome: 'rejected', reason: 'ticket is not at ship' };
+      }
+      void deps.host.retryShipRepo(target.ticketId, row.repo);
       return { outcome: 'dispatched' };
     }
     case 'open-full-evidence': {

@@ -236,6 +236,7 @@ export type InsideActionKind =
   | 'open-file'
   | 'open-stage-log'
   | 'resume-stage'
+  | 'retry-ship-repo'
   | 'open-full-evidence'
   | 'open-bounded-evidence'
   | 'open-session'
@@ -279,6 +280,11 @@ export type InsideEvidenceTarget =
     }
   | { kind: 'open-pr'; prId: number }
   | { kind: 'open-commit'; shipCommitId: number }
+  // The per-repo ship Retry: re-run ship for THIS repository only. Carries the
+  // recorded `ship_repo_steps` row id — never the repository path or name —
+  // so the host re-loads the row, proves the ticket owns it and derives the
+  // repository itself (the same opaque-capability rule `open-commit` follows).
+  | { kind: 'retry-ship-repo'; shipRepoStepId: number }
   | { kind: 'open-full-evidence'; processRunId: number; label?: string }
   | {
       kind: 'open-bounded-evidence';
