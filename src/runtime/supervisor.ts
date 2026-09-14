@@ -10,8 +10,9 @@ import {
   INSTANCE_ENV,
 } from './health.js';
 import { killTree } from './processTree.js';
-import { isPortOpen, reclaimPort, listenerPids } from './portConflict.js';
+import { isPortOpen, reclaimPort, listenerPids, snapshotProcessFacts } from './portConflict.js';
 import { removeContainer, removeContainerAsync } from './dockerContainer.js';
+import { attributeServer, systemAsyncProcessFacts, type ProcessFactsSource } from './serverIdentity.js';
 export { killTree } from './processTree.js';
 
 /**
@@ -571,25 +572,55 @@ interface ServerRow {
   pid: number | null;
   status: string;
   container: string | null;
+  cwd: string | null;
+  started_at: string | null;
 }
 
 /**
  * Kill a server's process and RETAIN its row as `status='stopped'` (pid nulled).
- * Idempotent (no row → no-op; already-stopped → no re-kill). Retaining rather
- * than deleting lets a stopped server surface on the dashboard as offline so the
- * user can restart it, instead of silently vanishing. Duplicate accumulation is
- * prevented at the other end: `startHot` drops any prior row for the same
- * (ticket, repo) before inserting the fresh running one.
+ * Idempotent (no row → no-op; already-stopped → no re-kill).
+ *
+ * The pid is signalled only when `serverIdentity.ts` can still attribute it to
+ * the recorded server. A row karst can no longer prove is its own is retired
+ * without a signal — the same rule the background reap follows
+ * (`runtime/worktreeServers.ts`), for the same reason: `killTree` SIGKILLs a
+ * process GROUP, and the OS reissues pids. The row is marked stopped either way,
+ * because it is stale either way, and the container is removed either way,
+ * because a container name karst chose is never reissued.
+ *
+ * ASYNC because the attribution probes are: on macOS the live start time comes
+ * from `ps`, and this runs on the extension-host event loop (the dashboard's
+ * Stop/restart, `spinTicket`'s pre-spin stop), where a synchronous spawn would
+ * freeze every webview and the hook endpoint. The probes go through
+ * `systemAsyncProcessFacts` and are resolved before the synchronous
+ * `attributeServer` decides, exactly as `reclaimPort` does.
+ *
+ * Retaining rather than deleting lets a stopped server surface on the dashboard
+ * as offline so the user can restart it, instead of silently vanishing. Duplicate
+ * accumulation is prevented at the other end: `startHot` drops any prior row for
+ * the same (ticket, repo) before inserting the fresh running one.
  */
-export function stopServer(store: Store, id: number): void {
+export async function stopServer(
+  store: Store,
+  id: number,
+  opts: { facts?: ProcessFactsSource } = {},
+): Promise<void> {
   const row = store.db
-    .prepare('SELECT pid, status, container FROM servers WHERE id = ?')
+    .prepare('SELECT pid, status, container, cwd, started_at FROM servers WHERE id = ?')
     .get(id) as ServerRow | undefined;
   if (!row) return;
 
   if (row.status === 'running' && row.pid != null) {
-    // Group kill so a launcher's grandchildren (Vite etc.) die with it.
-    killTree(row.pid);
+    const facts = opts.facts ?? systemAsyncProcessFacts;
+    const resolved = await snapshotProcessFacts(facts, row.pid);
+    const attribution = attributeServer(
+      { pid: row.pid, cwd: row.cwd, startedAt: row.started_at },
+      resolved,
+    );
+    if (attribution === 'attributable') {
+      // Group kill so a launcher's grandchildren (Vite etc.) die with it.
+      killTree(row.pid);
+    }
   }
   // The client is not the container. `docker run` attached gives karst a pid it
   // can group-kill, but the container survives that kill — port still bound,
@@ -620,11 +651,11 @@ export function markServerStopped(store: Store, id: number): void {
  * retry that re-resolves the same port would otherwise spawn a second server
  * fighting the first for the port. Idempotent; each stop is isolated.
  */
-export function stopTicketServers(store: Store, ticketId: number): void {
+export async function stopTicketServers(store: Store, ticketId: number): Promise<void> {
   const rows = store.db
     .prepare("SELECT id FROM servers WHERE ticket_id = ? AND status = 'running'")
     .all(ticketId) as { id: number }[];
-  for (const { id } of rows) stopServer(store, id);
+  for (const { id } of rows) await stopServer(store, id);
 }
 
 /**

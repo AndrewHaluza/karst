@@ -85,19 +85,24 @@ export function parseStartedAt(value: string | null): number | null {
 /**
  * Decide whether `row`'s pid may be signalled.
  *
- * Two independent kinds of evidence, strongest first:
+ * Two independent kinds of evidence:
  *
- *  1. **The live process's own cwd** (Linux `/proc/<pid>/cwd`). If the OS will
- *     say where the process is running, that settles it outright — but both
- *     sides are canonicalized before comparing: `/proc/<pid>/cwd` resolves
- *     through the kernel's own dentry (symlinks resolved), while the recorded
- *     `cwd` is the raw path `startHot` was given, which may still contain a
- *     symlinked component (e.g. macOS `/var` → `/private/var`, or a workspace
- *     root reached through a symlink on Linux). Comparing the two RAW would read
- *     the same directory as a different one and let the orphan it was meant to
- *     catch survive. This is also the exact evidence the incident was diagnosed
- *     from — a cwd that resolves with the `(deleted)` suffix IS the orphan, and
- *     still matches after canonicalization strips only the suffix, not the path.
+ *  1. **The live process's own cwd** (Linux `/proc/<pid>/cwd`, macOS `lsof`).
+ *     The cwd must match — and, because a cwd belongs to a PROCESS while the OS
+ *     is free to reissue the pid, a match alone is not proof: a process launched
+ *     from the SAME worktree (a gate run, another service) can inherit the
+ *     recorded pid. So the match is CORROBORATED by the live process's own start
+ *     time whenever both it and the recorded one are usable; a disagreement is
+ *     `foreign`. Both sides of the path are canonicalized before comparing:
+ *     `/proc/<pid>/cwd` resolves through the kernel's own dentry (symlinks
+ *     resolved), while the recorded `cwd` is the raw path `startHot` was given,
+ *     which may still contain a symlinked component (e.g. macOS `/var` →
+ *     `/private/var`, or a workspace root reached through a symlink on Linux).
+ *     Comparing the two RAW would read the same directory as a different one and
+ *     let the orphan it was meant to catch survive. This is also the exact
+ *     evidence the incident was diagnosed from — a cwd that resolves with the
+ *     `(deleted)` suffix IS the orphan, and still matches after canonicalization
+ *     strips only the suffix, not the path.
  *  2. **The live process's own start time**, compared to the moment `startHot`
  *     recorded (`servers.started_at`), within `START_TIME_TOLERANCE_MS`. This
  *     is where a cwd probe is unavailable (Windows, a missing lsof) or
@@ -119,7 +124,21 @@ export function attributeServer(row: ServerIdentity, facts: ProcessFacts): Attri
 
   const live = facts.liveCwd(pid);
   if (live && row.cwd) {
-    return canonicalPath(live.path) === canonicalPath(row.cwd) ? 'attributable' : 'foreign';
+    if (canonicalPath(live.path) !== canonicalPath(row.cwd)) return 'foreign';
+    // The directory matches, but a cwd is per-PROCESS and the OS reissues pids,
+    // so a process launched from the SAME worktree can inherit the recorded pid.
+    // Corroborate the match with the live start time when both sides have one;
+    // a disagreement means the pid is no longer ours. When either side has no
+    // usable timestamp the cwd match stands on its own — that is the pre-v21
+    // case this probe exists for.
+    const liveStart = facts.processStartMs(pid);
+    const recordedStart = parseStartedAt(row.startedAt);
+    if (liveStart !== null && recordedStart !== null) {
+      return Math.abs(liveStart - recordedStart) <= START_TIME_TOLERANCE_MS
+        ? 'attributable'
+        : 'foreign';
+    }
+    return 'attributable';
   }
   // The OS answered the cwd probe, but the row never recorded a directory to
   // compare against (pre-v21 rows). A probe that cannot be COMPARED is not

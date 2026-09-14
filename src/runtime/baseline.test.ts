@@ -84,8 +84,8 @@ describe('baseline pool', () => {
     store = openStore(':memory:');
     repo = makeRepo();
   });
-  afterEach(() => {
-    for (const id of started.splice(0)) stopServer(store, id);
+  afterEach(async () => {
+    for (const id of started.splice(0)) await stopServer(store, id);
     store.close();
     // Retried: the baseline servers stopped just above ran with the baseline
     // worktree as cwd, which Windows keeps pinned briefly after they die.

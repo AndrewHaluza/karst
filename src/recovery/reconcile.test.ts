@@ -129,6 +129,55 @@ describe('reconcileOnStart', () => {
     expect(getTicket(store, id).stageCurrent).toBe('ship');
   });
 
+  // Another IDE window can be executing the same ticket's ship saga: it opens a
+  // `ship_runs` row and sets the stage `running` for the whole saga. This boot
+  // pass is GLOBAL, so it must not park a stage a run still owns — the pid on
+  // that run is what says whether the ship is live, and the run sweeps read it.
+  it('leaves a confirm stage a still-running run owns (another window mid-ship)', () => {
+    const id = createTicketFlow(store, { key: 'T', title: 't' }).id;
+    setStage(store, id, 'review', { status: 'passed', endedAt: '2026-07-16T10:00:00Z' });
+    setStage(store, id, 'ship', { status: 'running', startedAt: '2026-07-16T10:00:01Z' });
+    store.db
+      .prepare(
+        "INSERT INTO ship_runs (ticket_id, attempt, status, started_at, pid) VALUES (?, 0, 'running', ?, ?)",
+      )
+      .run(id, '2026-07-16T10:00:01Z', 12345);
+
+    reconcileOnStart(store, () => true);
+
+    const ship = getTicket(store, id).stages.find((s) => s.stageKey === 'ship')!;
+    expect(ship.status).toBe('running');
+    expect(getTicket(store, id).stageCurrent).toBe('ship');
+  });
+
+  it('leaves a confirm stage whose open run recorded no pid alone (absence of evidence is not death)', () => {
+    const id = createTicketFlow(store, { key: 'T', title: 't' }).id;
+    setStage(store, id, 'ship', { status: 'running', startedAt: '2026-07-16T10:00:01Z' });
+    store.db
+      .prepare(
+        "INSERT INTO ship_runs (ticket_id, attempt, status, started_at, pid) VALUES (?, 0, 'running', ?, NULL)",
+      )
+      .run(id, '2026-07-16T10:00:01Z');
+
+    reconcileOnStart(store, () => false);
+
+    expect(getTicket(store, id).stages.find((s) => s.stageKey === 'ship')!.status).toBe('running');
+  });
+
+  it('parks a confirm stage whose only run has already closed', () => {
+    const id = createTicketFlow(store, { key: 'T', title: 't' }).id;
+    setStage(store, id, 'ship', { status: 'running', startedAt: '2026-07-16T10:00:01Z' });
+    store.db
+      .prepare(
+        "INSERT INTO ship_runs (ticket_id, attempt, status, started_at, pid) VALUES (?, 0, 'passed', ?, 12345)",
+      )
+      .run(id, '2026-07-16T10:00:01Z');
+
+    reconcileOnStart(store, () => true);
+
+    expect(getTicket(store, id).stages.find((s) => s.stageKey === 'ship')!.status).toBe('pending');
+  });
+
   it('does not drag a ticket parked at ship back to the stage it came from', () => {
     // The trap: a parked ship is `pending`, and deriveStageCurrent used to skip
     // every pending stage — so boot re-derived `review` and the ticket silently

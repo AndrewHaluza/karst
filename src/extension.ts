@@ -20,6 +20,7 @@ import { archiveTicketOp, unarchiveTicketOp, type ArchiveOpsDeps } from './exten
 import { deleteTicketOp, createFollowUpTicketOp, type LifecycleOpsDeps } from './extension/ops/lifecycleOps.js';
 import { attentionPicks, facetPicks, resolveFacetPicks } from './extension/ops/pickers.js';
 import { makePrSyncLoop } from './extension/ops/prSyncLoop.js';
+import { runBootSweeps } from './extension/ops/bootSweeps.js';
 import { watchExternalChanges } from './store/externalChanges.js';
 import { SidebarViewManager } from './ui/sidebar/panel.js';
 import { makeSidebarViewHost, SIDEBAR_VIEW_ID } from './ui/sidebar/host.js';
@@ -114,8 +115,6 @@ import {
   recoveryDecision,
   listRecoveryRounds,
   interruptActiveFixExecution,
-  reconcileStrandedFixRounds,
-  describeStrandedFixRound,
   parkFixStage,
   hasFixingRound,
   FIX_PARKED_PROCESS_UNAVAILABLE,
@@ -234,9 +233,6 @@ import { activationDomainKeys, type AllowlistCommandAccess } from './approaches/
 import { parseGraphDocument } from './approaches/graph/parse.js';
 import { nodeOverrideFor, type BaseHead } from './store/graph/nodeRuns.js';
 import { cleanupTerminalNodeWorkspace } from './approaches/graph/workspace/cleanup.js';
-import { allGraphRunsClosed } from './store/graph/graphRuns.js';
-import { reapClosedGraphSubtrees, describeGraphReap } from './approaches/graph/retention.js';
-import { reapOrphanedArtifactDirs, describeArtifactReap } from './runtime/artifactOrphans.js';
 import {
   blockGraphStage,
   markGraphAwaitingImplMarker,
@@ -280,7 +276,6 @@ import { canonicalRepoId } from './runtime/repoId.js';
 import { casStatus, GRAPH_RUN_TRANSITIONS, type GraphDb } from './store/graph/transitions.js';
 import { canonicalPath } from './runtime/pathScope.js';
 import { createHookChannelRecorder } from './diagnostics/hookChannel.js';
-import { sweepHookSettings } from './agent/settingsSweep.js';
 import { writeCurrentEndpoint } from './agent/hookFailureLog.js';
 import { listWorktreesByTicket, listWorktreesByProject, serverAddress } from './store/dashboard.js';
 import {
@@ -312,7 +307,7 @@ import { sendBackState, sendBackToImplement } from './workflow/sendBack.js';
 import { retryGateStage, retryGateState } from './workflow/retryGate.js';
 import { buildConflictBrief } from './workflow/conflictSession.js';
 import { stopServer, stopTicketServers } from './runtime/supervisor.js';
-import { reapStaleServers, describeReap } from './runtime/worktreeServers.js';
+import { describeReap } from './runtime/worktreeServers.js';
 import { reapOrphanedPorts, describeOrphanReap } from './runtime/orphanPorts.js';
 import { systemAsyncProcessFacts } from './runtime/serverIdentity.js';
 import { listBaseBranchCandidates } from './runtime/branchList.js';
@@ -320,10 +315,7 @@ import {
   changeBaseRef as changeBaseRefWorkflow,
   type ChangeBaseRefResult,
 } from './workflow/changeBaseRef.js';
-import { reconcileStageRuns, describeStaleStageRun } from './store/stageRuns.js';
 import {
-  reconcileProcessRuns,
-  describeStaleProcessRun,
   openProcessRun,
   finishProcessRun,
 } from './store/processRuns.js';
@@ -410,8 +402,6 @@ import {
   getShipCommitById,
   listStrandedShipTickets,
   describeStrandedShip,
-  reconcileShipRuns,
-  describeStaleShipRun,
 } from './store/shipRuns.js';
 import { advanceTicketOnShip, statusPushSkipNote } from './workflow/stages/done.js';
 import { advanceTicketOnStart } from './workflow/stages/start.js';
@@ -431,7 +421,6 @@ import {
   unpauseTicket,
 } from './store/tickets.js';
 import type { Project } from './store/projects.js';
-import { getProjectBySlug } from './store/projects.js';
 import { bindProject } from './project/bind.js';
 import { resolveProjectSlug } from './project/slug.js';
 import { listTicketLifecycle } from './store/runningServers.js';
@@ -771,192 +760,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   );
 
   const settingsDir = context.globalStorageUri.fsPath;
-  // Each launch writes a hook-settings file named after this window's ephemeral
-  // port, so stale ones pile up. Best-effort, never fatal.
-  try {
-    const swept = sweepHookSettings(settingsDir);
-    if (swept > 0) logger.info(`karst: swept ${swept} stale hook-settings file(s)`);
-  } catch (err) {
-    logError('karst: hook-settings sweep failed', err);
-  }
-  // Stale-server sweep: a hot service whose working directory is gone cannot be
-  // serving anything valid, yet it keeps its port bound and its memory held —
-  // detached, reparented to init, unreachable by any hangup (869ed2n50).
-  // `removeWorktree` reaps the servers it removes the tree out from under, so
-  // this covers only what that cannot see: an already-leaked process from an
-  // older build, and a worktree removed by something other than karst (a hand-run
-  // `git worktree remove`, the IDE's git extension, an `rm -rf`). Reported, never
-  // silent — waste nothing surfaces is how two ~1 GB servers ran for three days.
-  //
-  // GLOBAL, not project-scoped, for the same reason `reconcileOnStart`'s server
-  // pass is: the registry is shared by every window, and a server serving a
-  // deleted tree is wrong in whichever project owns it — scoping the sweep would
-  // leave it running until that project's window happened to open, which for an
-  // abandoned project is never. What makes that safe is not the scope but the
-  // attribution: `serverIdentity.ts` requires evidence that the live pid is
-  // still the recorded server, so this can never signal another window's live
-  // process, let alone a stranger's. Rows it cannot attribute are cleared, not
-  // killed, and every line says which path it acted on.
-  try {
-    for (const s of reapStaleServers(localStore, {
-      debug: (message) => logger.debug(message),
-    })) logger.info(describeReap(s));
-  } catch (err) {
-    logError('karst: stale-server sweep failed', err);
-  }
-  // Stale gate-run sweep (F3). A gate run is now opened durably before its first
-  // gate starts, so a run whose extension host died mid-flight is still on
-  // record as `running` — a state nothing can leave on its own, since process
-  // death fires no abort signal and the `stopped` path therefore never ran.
-  // Marking it `stale` is what turns "a stage that has been running for 37
-  // minutes with nothing to show" into "the previous run was destroyed; this is
-  // a fresh one", with the destroyed run's partial gate rows still readable.
-  //
-  // GLOBAL for the same reason as the server pass above, and safe for the same
-  // reason: attribution, not scope. A run opened by ANOTHER LIVE window has a
-  // live pid and is left strictly alone; a run with no recorded pid is left
-  // alone too, because absence of evidence is not evidence that it died.
-  //
-  // Reported, never silent — an invisibly discarded run is the whole failure
-  // this closes, and a sweep that quietly corrected the data would repeat it.
-  try {
-    for (const s of reconcileStageRuns(localStore, pidAlive)) {
-      logger.info(describeStaleStageRun(s));
-    }
-  } catch (err) {
-    logError('karst: stale gate-run sweep failed', err);
-  }
-  // Stale process-run sweep (inside redesign). The inside view renders a stage
-  // as processes opened durably before they start, so a process whose
-  // extension host died mid-flight is still on record as `running` — a state
-  // nothing can leave on its own, since process death fires no abort signal.
-  // Marking it `stale` is what turns a process that will never finish into the
-  // record that it was destroyed, with its identity snapshot still readable.
-  //
-  // GLOBAL for the same reason as the gate-run pass above, and safe for the
-  // same reason: attribution, not scope. A run opened by ANOTHER LIVE window
-  // has a live pid and is left strictly alone; a run with no recorded pid is
-  // left alone too, because absence of evidence is not evidence that it died.
-  //
-  // Reported, never silent — an invisibly-discarded run is the whole failure
-  // this closes, and a sweep that quietly corrected the data would repeat it.
-  try {
-    for (const r of reconcileProcessRuns(localStore, pidAlive)) {
-      logger.info(describeStaleProcessRun(r));
-    }
-  } catch (err) {
-    logError('karst: stale process-run sweep failed', err);
-  }
-  // Stale ship-run sweep (869egdr2u-fu1 follow-up). A ship run killed by
-  // process death mid-saga — the host died between opening the run and closing
-  // it — is a state nothing can leave on its own: the saga's crash-and-retry
-  // reconciliation only runs at the start of the next `shipTicket` invocation,
-  // and a ticket at `ship` `running` with no block offers no retry anywhere
-  // (the Now line shows no button for a running ship, and the driver only
-  // auto-runs gates). Marking the dead run `interrupted` and parking the
-  // stage `failed` is what turns that stuck state into the one that already
-  // has a recovery path: the failed-ship surface's "Retry ship".
-  //
-  // GLOBAL for the same reason as the gate-run pass above, and safe for the
-  // same reason: attribution, not scope. A run opened by ANOTHER LIVE window
-  // has a live pid and is left strictly alone; a run with no recorded pid is
-  // left alone too, because absence of evidence is not evidence that it died.
-  //
-  // Reported, never silent — an invisibly-discarded run is the whole failure
-  // this closes, and a sweep that quietly corrected the data would repeat it.
-  try {
-    for (const s of reconcileShipRuns(localStore, pidAlive, new Date().toISOString())) {
-      logger.info(describeStaleShipRun(s));
-    }
-  } catch (err) {
-    logError('karst: stale ship-run sweep failed', err);
-  }
-  // Stranded fix-execution sweep. Runs AFTER the process-run pass above, which
-  // is what turns a destroyed Fix run into a non-`running` row this can read:
-  // a `fixing` recovery round whose execution is gone is a round nothing can
-  // ever leave, and the driver answers it with "already in flight; leaving it"
-  // on every trigger. Interrupting it puts the ticket back where a human can
-  // act on it instead of watching a fix elapse for hours.
-  //
-  // Tickets whose round this sweep just interrupted are collected for the
-  // activation-sweep drive below: the driver reopens the round within budget
-  // and resumes the fix instead of leaving the ticket parked at fix forever.
-  const strandedFixResumes = new Set<number>();
-  try {
-    for (const s of reconcileStrandedFixRounds(localStore, new Date().toISOString())) {
-      logger.info(describeStrandedFixRound(s));
-      if (s.kind === 'execution') strandedFixResumes.add(s.ticketId);
-    }
-  } catch (err) {
-    logError('karst: stranded fix-round sweep failed', err);
-  }
-  // Auto-compact: compact archived worktrees older than 7 days and sweep
-  // orphan branches/refs. Rides the activation sweep like autoArchiveDoneTickets
-  // — once per activation, no second interval to dispose. The compact function
-  // includes the orphan-ref sweep internally.
-  try {
-    const compactResult = await compactArchivedWorktrees(defaultGitRunner, localStore, 7 * 24 * 60 * 60 * 1000);
-    if (compactResult.compacted > 0 || compactResult.sweep.prunedBranches > 0 || compactResult.sweep.prunedArchiveRefs > 0) {
-      logger.info(
-        `karst: auto-compact compacted ${compactResult.compacted} archive(s), ` +
-          `swept ${compactResult.sweep.prunedBranches} orphan branch(es), ` +
-          `${compactResult.sweep.prunedArchiveRefs} orphan ref(s)`,
-      );
-    }
-  } catch (err) {
-    logError('karst: auto-compact failed', err);
-  }
-  // Graph byte-subtree and artifact-dir orphan sweeps. A ticket's graph
-  // subtree and gate console-log dir are removed on hard delete, but bytes can
-  // outlive the delete that should have removed them: a delete that predates
-  // this wiring, an unbound project at delete time, or a foreign removal. Both
-  // live in global storage OUTSIDE every worktree, so — like `reapStaleServers`
-  // and for the same reason — the net is an activation sweep, GLOBAL across
-  // projects, and its predicate is a READ over state the registry already
-  // keeps current. A subtree whose ticket is gone (or whose every graph run is
-  // `closed`) and a console dir whose ticket no longer exists are removed;
-  // anything whose ticket still exists is left strictly alone. Reported, never
-  // silent — unreported removal of evidence bytes is the failure this closes.
-  try {
-    for (const r of reapClosedGraphSubtrees(
-      join(context.globalStorageUri.fsPath, 'graph'),
-      {
-        ticketExists: (projectSlug, ticketId) => {
-          const project = getProjectBySlug(localStore, projectSlug);
-          if (!project) return false;
-          try {
-            return getTicket(localStore, ticketId).projectId === project.id;
-          } catch {
-            return false;
-          }
-        },
-        allGraphRunsClosed: (ticketId) => allGraphRunsClosed(localStore.db, ticketId),
-      },
-    ).removed) {
-      logger.info(describeGraphReap(r));
-    }
-  } catch (err) {
-    logError('karst: graph byte-subtree sweep failed', err);
-  }
-  try {
-    for (const ticketId of reapOrphanedArtifactDirs(
-      join(context.globalStorageUri.fsPath, 'artifacts'),
-      {
-        ticketExists: (ticketId) => {
-          try {
-            getTicket(localStore, ticketId);
-            return true;
-          } catch {
-            return false;
-          }
-        },
-      },
-    ).removed) {
-      logger.info(describeArtifactReap(ticketId));
-    }
-  } catch (err) {
-    logError('karst: artifact-dir orphan sweep failed', err);
-  }
+  const { strandedFixResumes } = await runBootSweeps({
+    store: localStore,
+    globalStorageRoot: settingsDir,
+    info: (message) => logger.info(message),
+    debug: (message) => logger.debug(message),
+    logError,
+  });
   // One adapter instance, shared by the session manager and the openSession
   // handler's approach materialization (the seam that turns a neutral package
   // into agent-specific launch args).
@@ -8036,12 +7846,12 @@ function makeDashboardActions(
   );
 
   return {
-    stopServer: (serverId) => {
-      stopServer(store, serverId);
+    stopServer: async (serverId) => {
+      await stopServer(store, serverId);
       afterServerChange();
     },
-    restartServer: (serverId) => {
-      stopServer(store, serverId);
+    restartServer: async (serverId) => {
+      await stopServer(store, serverId);
       afterServerChange();
       void vscode.window.showInformationMessage(
         `Stopped server — re-spin ticket #${ticketId} to restart it with fresh ports.`,
@@ -8076,8 +7886,8 @@ function makeDashboardActions(
     restartServers: () => void vscode.commands.executeCommand('karst.spinTicket', ticketId),
     // Stop-all is the one genuinely new effect: kill every running server on the
     // ticket, retaining the rows so they come back as offline and restartable.
-    stopServers: () => {
-      stopTicketServers(store, ticketId);
+    stopServers: async () => {
+      await stopTicketServers(store, ticketId);
       afterServerChange();
     },
     showChanges,

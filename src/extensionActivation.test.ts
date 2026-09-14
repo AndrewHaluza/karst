@@ -108,18 +108,18 @@ describe('extension activation', () => {
   // from a sweep, and an unreaped one is invisible: detached, reparented to
   // init, holding its port and ~1 GB while serving a deleted directory.
   it('sweeps servers whose directory is gone on activation, and says which it stopped', () => {
-    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+    const source = readFileSync(join(process.cwd(), 'src', 'extension', 'ops', 'bootSweeps.ts'), 'utf8');
 
-    // A source assertion, like every case in this file: `extension.ts` imports
-    // `vscode` and cannot load under vitest. It pins the WIRING only — that the
+    // A source assertion, like every case in this file: the sweep lives in the
+    // vscode-free `ops/bootSweeps.ts`, and this pins the WIRING only — that the
     // sweep is called at activation and its result reported — without pinning
     // exact formatting, so a reflow of the statement (line wrap, spacing) can't
     // break this for no behavioral reason. What the sweep decides, and what it
     // is allowed to signal, are behavioural and are pinned where they can
     // actually run: `worktreeServers.test.ts` (real detached processes) and
     // `serverIdentity.test.ts`.
-    expect(source).toMatch(/reapStaleServers\(localStore[,{]/);
-    expect(source).toMatch(/reapStaleServers\(localStore[,{][\s\S]{0,200}?logger\.info\(\s*describeReap\(/);
+    expect(source).toMatch(/reapStaleServers\(deps\.store[,{]/);
+    expect(source).toMatch(/reapStaleServers\(deps\.store[,{][\s\S]{0,200}?deps\.info\(\s*describeReap\(/);
   });
 
   // A ticket's graph byte subtree and gate console-log dir are removed on hard
@@ -131,19 +131,19 @@ describe('extension activation', () => {
   // the two sweeps run with the SAME store predicate, and every removed byte
   // names itself on the output channel.
   it('reaps orphaned graph byte subtrees and artifact console-log dirs on activation, and says which it removed', () => {
-    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+    const source = readFileSync(join(process.cwd(), 'src', 'extension', 'ops', 'bootSweeps.ts'), 'utf8');
 
     // The graph sweep resolves the ticket predicate from the shared store — a
     // subtree is removed when its ticket is gone from its project or its every
     // graph run is closed.
     expect(source).toContain('reapClosedGraphSubtrees(');
-    expect(source).toMatch(/getProjectBySlug\(localStore, projectSlug\)/);
-    expect(source).toMatch(/allGraphRunsClosed\(localStore\.db, ticketId\)/);
-    expect(source).toMatch(/logger\.info\(\s*describeGraphReap\(/);
+    expect(source).toMatch(/getProjectBySlug\(deps\.store, projectSlug\)/);
+    expect(source).toMatch(/allGraphRunsClosed\(deps\.store\.db, ticketId\)/);
+    expect(source).toMatch(/deps\.info\(\s*describeGraphReap\(/);
     // The artifact-dir sweep reuses the same liveness reading and reports each
     // removed dir on the output channel.
     expect(source).toContain('reapOrphanedArtifactDirs(');
-    expect(source).toMatch(/logger\.info\(\s*describeArtifactReap\(/);
+    expect(source).toMatch(/deps\.info\(\s*describeArtifactReap\(/);
   });
 
   // The delete command wires the byte halves of permanent delete through the
@@ -268,18 +268,18 @@ describe('extension activation', () => {
   // pinned here: without it a destroyed process reads `running` until the run
   // is superseded or the data is read by hand.
   it('sweeps process runs whose host died on activation, and says which it marked stale', () => {
-    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+    const source = readFileSync(join(process.cwd(), 'src', 'extension', 'ops', 'bootSweeps.ts'), 'utf8');
 
-    // A source assertion, like every case in this file: `extension.ts` imports
-    // `vscode` and cannot load under vitest. It pins the WIRING only — that the
+    // A source assertion, like every case in this file: the sweep lives in the
+    // vscode-free `ops/bootSweeps.ts`, and this pins the WIRING only — that the
     // sweep is called at activation with the same liveness probe as the
     // gate-run sweep and its result reported — without pinning exact
     // formatting. What the sweep decides, and what it is allowed to signal,
     // are behavioural and are pinned where they can actually run:
     // `processRuns.test.ts`.
-    expect(source).toMatch(/reconcileProcessRuns\(localStore, pidAlive\)/);
+    expect(source).toMatch(/reconcileProcessRuns\(deps\.store, pidAlive\)/);
     expect(source).toMatch(
-      /reconcileProcessRuns\(localStore, pidAlive\)[\s\S]{0,80}?logger\.info\(\s*describeStaleProcessRun\(/,
+      /reconcileProcessRuns\(deps\.store, pidAlive\)[\s\S]{0,80}?deps\.info\(\s*describeStaleProcessRun\(/,
     );
   });
 
@@ -312,15 +312,16 @@ describe('extension activation', () => {
   // activation sweep: without the wiring, a dead run would only ever be
   // recovered by the resume path — or by neither, if the block is dropped.
   it('parks ship runs whose host died on activation, and says which it closed', () => {
-    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+    const source = readFileSync(join(process.cwd(), 'src', 'extension', 'ops', 'bootSweeps.ts'), 'utf8');
+    const activationSource = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
 
     expect(source).toMatch(
-      /reconcileShipRuns\(localStore, pidAlive[\s\S]{0,80}?logger\.info\(\s*describeStaleShipRun\(/,
+      /reconcileShipRuns\(deps\.store, pidAlive[\s\S]{0,80}?deps\.info\(\s*describeStaleShipRun\(/,
     );
     // The park sweep must run before the stranded resume, or a dead run whose
     // stage was parked `failed` would read as a ticket that still needs one.
-    expect(source.indexOf('reconcileShipRuns(localStore, pidAlive')).toBeLessThan(
-      source.indexOf('listStrandedShipTickets('),
+    expect(activationSource.indexOf('runBootSweeps({')).toBeLessThan(
+      activationSource.indexOf('listStrandedShipTickets('),
     );
   });
 

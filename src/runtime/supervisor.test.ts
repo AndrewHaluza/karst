@@ -233,12 +233,12 @@ describe('server supervisor', () => {
     writeFileSync(join(dir, 'stuck.mjs'), STUCK_WITH_OUTPUT_SRC);
     writeFileSync(join(dir, 'exit-zero.mjs'), EXIT_ZERO_SRC);
   });
-  afterEach(() => {
+  afterEach(async () => {
     // Any server a case left running is a detached process that OUTLIVES vitest and
     // keeps its port — the next run then finds a foreign listener on a fixture port
     // and fails somewhere unrelated. Sweep, don't rely on each case to kill.
     for (const s of store.db.prepare("SELECT id FROM servers WHERE status='running'").all()) {
-      stopServer(store, (s as { id: number }).id);
+      await stopServer(store, (s as { id: number }).id);
     }
     store.close();
     // Retried: every server here is spawned with `cwd: dir`, and on Windows that
@@ -344,7 +344,7 @@ describe('server supervisor', () => {
     // Without it a removed worktree leaves a detached server running forever.
     expect(row.cwd).toBe(dir);
 
-    stopServer(store, rec.id);
+    await stopServer(store, rec.id);
   });
 
   it('stopServer kills the process and sets status=stopped', async () => {
@@ -363,7 +363,7 @@ describe('server supervisor', () => {
       logPath: join(dir, 'svc.log'),
     });
 
-    stopServer(store, rec.id);
+    await stopServer(store, rec.id);
 
     // Row RETAINED as offline (stopped, pid nulled) so the dashboard can show it
     // and offer a restart — not deleted.
@@ -393,7 +393,7 @@ describe('server supervisor', () => {
       healthUrl: `http://127.0.0.1:${port1}/health`,
       logPath: join(dir, 'svc.log'),
     });
-    stopServer(store, rec.id); // retained as offline
+    await stopServer(store, rec.id); // retained as offline
 
     const port2 = nextPort();
     const rec2 = await startHot(store, {
@@ -419,7 +419,7 @@ describe('server supervisor', () => {
     expect(rows[0]!.id).toBe(rec2.id);
     expect(rows[0]!.status).toBe('running');
 
-    stopServer(store, rec2.id);
+    await stopServer(store, rec2.id);
   });
 
   // The reported failure: a health gate that spends its whole deadline on a
@@ -566,7 +566,7 @@ createServer((_req, res) => {
         healthTimeoutMs: 8_000,
       });
       expect(rec.status).toBe('running');
-      stopServer(store, rec.id);
+      await stopServer(store, rec.id);
     });
 
     it('refuses a healthy 200 from a service that is not this start', async () => {
@@ -629,7 +629,7 @@ createServer((_req, res) => {
         healthTimeoutMs: 8_000,
       });
       expect(rec.status).toBe('running');
-      stopServer(store, rec.id);
+      await stopServer(store, rec.id);
     });
   });
 
@@ -1003,7 +1003,7 @@ createServer((_req, res) => {
     const b = await mk(7);
     const other = await mk(9);
 
-    stopTicketServers(store, 7);
+    await stopTicketServers(store, 7);
 
     const row = (id: number) =>
       store.db.prepare('SELECT status FROM servers WHERE id = ?').get(id) as
@@ -1018,7 +1018,7 @@ createServer((_req, res) => {
     expect(alive(b.pid)).toBe(false);
     expect(alive(other.pid)).toBe(true);
 
-    stopServer(store, other.id);
+    await stopServer(store, other.id);
   });
 
   it('writes stdout/stderr to the log file (tailLog reads it)', async () => {
@@ -1042,7 +1042,7 @@ createServer((_req, res) => {
     expect(readFileSync(logPath, 'utf8')).toMatch(/booting on/);
     expect(tailLog(rec)).toMatch(/booting on/);
 
-    stopServer(store, rec.id);
+    await stopServer(store, rec.id);
   });
 
   // Logs live in a subdirectory now (`<cwd>/.karst/logs/`, which git is told to
@@ -1070,7 +1070,7 @@ createServer((_req, res) => {
 
     expect(readFileSync(logPath, 'utf8')).toMatch(/booting on/);
 
-    stopServer(store, rec.id);
+    await stopServer(store, rec.id);
   });
 });
 
@@ -1137,6 +1137,130 @@ describe('pruneOrphanServers', () => {
   });
 });
 
+/**
+ * A recorded pid is a recollection, not a handle: the OS may have reissued it to
+ * an unrelated process. `stopServer` therefore signals only what
+ * `serverIdentity.ts` can still attribute to the recorded server — and retires
+ * the row and the container either way.
+ */
+describe('stopServer attribution', () => {
+  let store: Store;
+
+  beforeEach(() => {
+    store = openStore(':memory:');
+    removeContainerMock.mockClear();
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    store.close();
+  });
+
+  /** Insert one running row; only the identity columns vary per case. */
+  const rowId = (over: {
+    cwd?: string | null;
+    startedAt?: string | null;
+    container?: string | null;
+  } = {}): number => {
+    const info = store.db
+      .prepare(
+        `INSERT INTO servers (ticket_id, repo, host, port, pid, status, log_path, cwd, started_at, container)
+         VALUES (1, 'backend', '127.0.0.1', 3000, 4242, 'running', '/tmp/x.log', ?, ?, ?)`,
+      )
+      .run(
+        over.cwd ?? '/wt/a',
+        over.startedAt ?? '2026-08-03T07:00:00.000Z',
+        over.container ?? null,
+      );
+    return Number(info.lastInsertRowid);
+  };
+
+  const rowOf = (id: number): { status: string; pid: number | null } =>
+    store.db.prepare('SELECT status, pid FROM servers WHERE id = ?').get(id) as {
+      status: string;
+      pid: number | null;
+    };
+
+  it('signals the recorded pid when it is still attributable', async () => {
+    const signal = vi.spyOn(process, 'kill').mockImplementation(() => true);
+    const id = rowId();
+
+    await stopServer(store, id, {
+      facts: {
+        isAlive: () => true,
+        liveCwd: () => ({ path: '/wt/a', deleted: false }),
+        processStartMs: () => null,
+      },
+    });
+
+    expect(signal).toHaveBeenCalledWith(-4242, 'SIGKILL');
+  });
+
+  it('does not signal a foreign pid, but still marks the row stopped', async () => {
+    const signal = vi.spyOn(process, 'kill').mockImplementation(() => true);
+    const id = rowId();
+
+    await stopServer(store, id, {
+      facts: {
+        isAlive: () => true,
+        liveCwd: () => ({ path: '/somewhere/else', deleted: false }),
+        processStartMs: () => null,
+      },
+    });
+
+    expect(signal).not.toHaveBeenCalledWith(-4242, 'SIGKILL');
+    expect(rowOf(id)).toEqual({ status: 'stopped', pid: null });
+  });
+
+  it('does not signal a dead pid, but still marks the row stopped', async () => {
+    const signal = vi.spyOn(process, 'kill').mockImplementation(() => true);
+    const id = rowId();
+
+    await stopServer(store, id, {
+      facts: {
+        isAlive: () => false,
+        liveCwd: () => ({ path: '/wt/a', deleted: false }),
+        processStartMs: () => null,
+      },
+    });
+
+    expect(signal).not.toHaveBeenCalledWith(-4242, 'SIGKILL');
+    expect(rowOf(id)).toEqual({ status: 'stopped', pid: null });
+  });
+
+  it('does not signal an unprovable pid, but still marks the row stopped', async () => {
+    const signal = vi.spyOn(process, 'kill').mockImplementation(() => true);
+    const id = rowId();
+
+    await stopServer(store, id, {
+      facts: {
+        isAlive: () => true,
+        liveCwd: () => null,
+        processStartMs: () => null,
+      },
+    });
+
+    expect(signal).not.toHaveBeenCalledWith(-4242, 'SIGKILL');
+    expect(rowOf(id)).toEqual({ status: 'stopped', pid: null });
+  });
+
+  it('removes the container even when the pid is not attributable', async () => {
+    const id = rowId({ container: 'karst-x' });
+
+    await expect(
+      stopServer(store, id, {
+        facts: {
+          isAlive: () => false,
+          liveCwd: () => null,
+          processStartMs: () => null,
+        },
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(rowOf(id)).toEqual({ status: 'stopped', pid: null });
+    expect(removeContainerMock).toHaveBeenCalledWith('karst-x');
+  });
+});
+
 
 /**
  * A container service is spawned like any other — the `docker run` client is a
@@ -1188,7 +1312,7 @@ describe('supervisor — container services', () => {
     // docker refuses a second container under a name already taken, so a
     // container left by a crashed run would make every retry fail.
     expect(removeContainerAsyncMock).toHaveBeenCalledWith('karst-t1-db', expect.anything());
-    stopServer(store, id);
+    await stopServer(store, id);
   });
 
   it('records the container name on the row', async () => {
@@ -1197,12 +1321,12 @@ describe('supervisor — container services', () => {
       .prepare('SELECT container FROM servers WHERE id = ?')
       .get(id) as { container: string | null };
     expect(row.container).toBe('karst-t1-db');
-    stopServer(store, id);
+    await stopServer(store, id);
   });
 
   it('removes the container when the server is stopped', async () => {
     const { id } = await startContainerService();
-    stopServer(store, id);
+    await stopServer(store, id);
     // Killing the attached client does NOT stop the container: without this the
     // container keeps its port bound and its memory held, with nothing pointing
     // at it any more.
@@ -1251,7 +1375,7 @@ describe('supervisor — container services', () => {
       logPath: join(dir, 'backend.log'),
     });
     expect(rec.container).toBeNull();
-    stopServer(store, rec.id);
+    await stopServer(store, rec.id);
     expect(removeContainerMock).not.toHaveBeenCalled();
     expect(removeContainerAsyncMock).not.toHaveBeenCalled();
   });
