@@ -104,7 +104,7 @@ function harness(pid?: number): Harness {
     facts: {
       isAlive: () => true,
       liveCwd: () => ({ path: '/wt/n1', deleted: false }),
-      processStartMs: () => 1_700_000_000_000,
+      processStartMs: () => Date.parse('2026-08-12T00:00:00.000Z'),
     },
     now: () => '2026-08-12T00:00:00.000Z',
   };

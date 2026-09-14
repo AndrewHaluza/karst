@@ -48,7 +48,7 @@ function facts(): ProcessFactsSource & { liveCwd: ReturnType<typeof vi.fn> } {
   return {
     isAlive: vi.fn(() => true),
     liveCwd: vi.fn(() => ({ path: '/wt/x', deleted: false })),
-    processStartMs: vi.fn(() => 1_000),
+    processStartMs: vi.fn(() => Date.parse('2026-08-12T10:00:00.000Z')),
   };
 }
 

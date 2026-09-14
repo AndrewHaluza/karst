@@ -184,9 +184,9 @@ describe('spinTicket integration', () => {
     store = openStore(':memory:');
     root = mkdtempSync(join(tmpdir(), 'karst-spin-'));
   });
-  afterEach(() => {
+  afterEach(async () => {
     for (const s of store.db.prepare("SELECT id FROM servers WHERE status='running'").all()) {
-      stopServer(store, (s as { id: number }).id);
+      await stopServer(store, (s as { id: number }).id);
     }
     started.length = 0;
     store.close();
@@ -299,7 +299,7 @@ describe('spinTicket integration', () => {
     // wipe the ticket's transient rows, but LEAVE the worktree (git + DB row) —
     // exactly the drifted state that blocked ticket #2.
     for (const s of store.db.prepare("SELECT id FROM servers WHERE status='running'").all()) {
-      stopServer(store, (s as { id: number }).id);
+      await stopServer(store, (s as { id: number }).id);
     }
     store.db.prepare('DELETE FROM servers WHERE ticket_id = ?').run(ticket.id);
     store.db.prepare('DELETE FROM port_allocations WHERE ticket_id = ?').run(ticket.id);

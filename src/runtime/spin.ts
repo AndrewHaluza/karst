@@ -136,16 +136,16 @@ export function hotRepoPaths(manifest: Manifest, hot: readonly string[]): string
  * from a prior spin is left intact — and release the ticket's port allocations.
  * Best-effort: each teardown step is isolated so one failure can't strand the rest.
  */
-function teardownRun(
+async function teardownRun(
   store: Store,
   allocator: PortAllocator,
   ticketId: number,
   created: WorktreeRecord[],
   servers: ServerRecord[],
-): void {
+): Promise<void> {
   for (const s of servers) {
     try {
-      stopServer(store, s.id);
+      await stopServer(store, s.id);
     } catch {
       /* best-effort */
     }
@@ -222,7 +222,7 @@ export async function spinTicket(
   // the row, re-resolve re-picks the same port, and startHot spawns a second
   // server fighting the first — the "retry makes a duplicate on the same port"
   // bug. killTree reaps the whole tree (launcher + Vite grandchild).
-  stopTicketServers(store, ticketId);
+  await stopTicketServers(store, ticketId);
   // Then drop the rows whose repository the manifest no longer declares. A
   // rename re-keys the registry (servers are keyed by repository NAME), so the
   // pre-rename row is unreachable — no spin can start a manifest key that is
@@ -368,7 +368,7 @@ export async function spinTicket(
     // errors leave partial state as-is (the caller surfaces it; a retry resumes
     // via the adopt path) — only a user cancel triggers the full teardown.
     if (err instanceof SpinCancelledError || signal?.aborted) {
-      teardownRun(store, allocator, ticketId, created, servers);
+      await teardownRun(store, allocator, ticketId, created, servers);
       throw err instanceof SpinCancelledError ? err : new SpinCancelledError(ticketId);
     }
     throw err;

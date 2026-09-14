@@ -122,15 +122,25 @@ describe('attributeServer', () => {
       }
     });
 
-    // The probe answers before start time is ever consulted: a process whose
-    // start time would not match can still be attributed if the OS itself
-    // confirms it is running in the recorded directory.
-    it('outranks the start-time rule', () => {
+    // A cwd match is necessary but NOT sufficient: the cwd belongs to a
+    // PROCESS, while the pid can be reissued to another process launched from
+    // the SAME worktree (a gate run, another service). When both the live and
+    // the recorded start times are usable they must agree, or the pid is no
+    // longer ours — the wrong-kill this whole file exists to prevent.
+    it('refuses a cwd match whose live start time disagrees with the recorded one', () => {
       const f = facts({
         liveCwd: () => ({ path: '/w/abc', deleted: true }),
         processStartMs: () => RECORDED_START + 999_999,
       });
-      expect(attributeServer(row, f)).toBe('attributable');
+      expect(attributeServer(row, f)).toBe('foreign');
+    });
+
+    it('still attributes a cwd match when the row has no usable recorded start time', () => {
+      const f = facts({
+        liveCwd: () => ({ path: '/w/abc', deleted: false }),
+        processStartMs: () => RECORDED_START + 999_999,
+      });
+      expect(attributeServer({ ...row, startedAt: null }, f)).toBe('attributable');
     });
   });
 

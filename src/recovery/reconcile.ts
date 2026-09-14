@@ -74,6 +74,9 @@ export function deriveStageCurrent(stages: Stage[]): StageKey {
  * - Confirm: it cannot be mid-run across a restart, because the click that starts
  *   it is a live user action and the process that would have been shipping is
  *   gone. Park it so it reads as needs-you instead of claiming to be working.
+ *   But "a restart" is this window's own: a durable run still open for the stage
+ *   may belong to ANOTHER live window, so a confirm stage a run claims is left
+ *   for the pid-attributed run sweeps to settle (see `hasRunningRun`).
  *
  * Only 'running' rows are touched: a `failed` ship keeps its verdict and stays
  * blocked, which is a different (and already correct) answer.
@@ -91,6 +94,17 @@ function healEntryStages(store: Store, ticketId: number, stages: Stage[]): Stage
     }
 
     if (needsConfirm(s.stageKey)) {
+      // A confirm stage that a durable run owns is NOT "mid-run across a
+      // restart" — another IDE window is executing it. `ship.ts` opens a
+      // `ship_runs` row before the saga, and the pid on that row is what the
+      // pid-attributed sweeps beside this one read: `reconcileShipRuns` parks a
+      // DEAD run failed, while a live pid is a live window left strictly alone.
+      // Parking the stage here would rewrite a ship a live window is executing
+      // as needs-you and offer a second Confirm. So heal only a confirm stage no
+      // run claims — an older build that entered it `running` without ever
+      // opening a run. (This reconcile runs before those sweeps, so declining
+      // here is what leaves the stage for them to settle.)
+      if (hasRunningRun(store, ticketId, s.stageKey)) return s;
       const startedAt = s.startedAt ?? nowIso();
       setStage(store, ticketId, s.stageKey, { status: 'pending', startedAt, endedAt: null });
       return { ...s, status: 'pending', startedAt, endedAt: null };
@@ -98,6 +112,31 @@ function healEntryStages(store: Store, ticketId: number, stages: Stage[]): Stage
 
     return s;
   });
+}
+
+/**
+ * Whether a still-`running` run currently owns `stageKey` for `ticketId`.
+ *
+ * `ship` is recorded in `ship_runs` (there is no `stage_runs` row for it); a
+ * gate stage would be in `stage_runs`. Either way the run — not this heal — is
+ * the stage's owner while it is open, and a pid is what proves whether its
+ * process is alive.
+ */
+function hasRunningRun(store: Store, ticketId: number, stageKey: StageKey): boolean {
+  const stageRun = store.db
+    .prepare(
+      "SELECT 1 FROM stage_runs WHERE ticket_id = ? AND stage_key = ? AND status = 'running' LIMIT 1",
+    )
+    .get(ticketId, stageKey);
+  if (stageRun !== undefined) return true;
+  if (stageKey === 'ship') {
+    return (
+      store.db
+        .prepare("SELECT 1 FROM ship_runs WHERE ticket_id = ? AND status = 'running' LIMIT 1")
+        .get(ticketId) !== undefined
+    );
+  }
+  return false;
 }
 
 interface ServerRow {
