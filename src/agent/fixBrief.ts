@@ -2,14 +2,27 @@ import type { StageKey } from '../model/types.js';
 import type { StepperStageRow } from '../model/stepper.js';
 import type { Finding } from '../store/reviewFindings.js';
 import type { GateRun } from '../store/gateRuns.js';
+import type { PrFeedbackRow } from '../store/prFeedback.js';
 
 /** The deterministic gates whose failure is what a `fix` session must address. */
-const GATES: readonly StageKey[] = ['uat', 'review'] as const;
+const GATES: readonly StageKey[] = ['uat', 'review', 'ship'] as const;
 
 /** "src/db.ts:42" or "src/db.ts" or "" — never a bare ":42" with nothing to attach it to. */
 function findingLocation(f: Finding): string {
   if (!f.file) return '';
   return f.line ? ` (${f.file}:${f.line})` : ` (${f.file})`;
+}
+
+/**
+ * "src/a.ts:42", "src/a.ts", or "(general comment)" — never a bare ":42".
+ *
+ * Uses `originalLine`, NEVER `line`: `line` is recomputed against the current
+ * diff and goes null once the thread is outdated, so an agent reading it after
+ * its own push gets nothing; `originalLine` and `originalCommitId` survive.
+ */
+function prFeedbackLocation(f: PrFeedbackRow): string {
+  if (!f.path) return '(general comment)';
+  return f.originalLine ? `${f.path}:${f.originalLine}` : f.path;
 }
 
 /**
@@ -51,6 +64,11 @@ function latestFailingGates(stageKey: StageKey, runs: readonly GateRun[]): GateR
  * failed (file, line, rule)" a linter or test runner printed — so a fix
  * session is pointed at the defect, not just at the log that names it.
  *
+ * `prFeedback` (FEAT-40) is the opening set of unresolved human review threads
+ * the ship-sourced recovery round adopted; appended ONLY when the failing gate
+ * is `ship`, where there is no gate run to excerpt (FEAT-40's action is the only
+ * writer of a failed `ship` row that carries a round).
+ *
  * Pure (no store, no fs) so the wording is unit-tested.
  */
 export function renderFixBrief(
@@ -58,13 +76,28 @@ export function renderFixBrief(
   stages: readonly StepperStageRow[],
   findings: readonly Finding[] = [],
   gateRuns: readonly GateRun[] = [],
+  prFeedback: readonly PrFeedbackRow[] = [],
 ): string | null {
+  // `stages.find` returns the first match in array order, which is NOT a
+  // contract when both a `review` and a `ship` row failed. `lastFailedGate`
+  // (workflow/fixAttempts.ts) resolves that by `endedAt`; this function leaves
+  // its existing `find` alone, and the caller passes `prFeedback` only when a
+  // ship round is active, so the ship block cannot render under a
+  // review-sourced round.
   const gate = stages.find((s) => GATES.includes(s.stageKey) && s.status === 'failed');
   if (!gate) return null;
 
+  // The reviewer wording is only true when feedback is actually attached. A
+  // failed `ship` row with NO adopted feedback is a ship-saga failure (or a
+  // crash), not a review ask — "Address every point below" would name points
+  // that are not there, so it falls back to the generic gate wording.
+  const isPrFeedback = gate.stageKey === 'ship' && prFeedback.length > 0;
   const lines = [
-    `The ${gate.stageKey} gate failed for ticket ${ticketLabel}. Fix what it reported, ` +
-      'then re-run the checks yourself to confirm they pass.',
+    isPrFeedback
+      ? `Reviewers requested changes on the pull request for ticket ${ticketLabel}. ` +
+        'Address every point below, then stop.'
+      : `The ${gate.stageKey} gate failed for ticket ${ticketLabel}. Fix what it reported, ` +
+        'then re-run the checks yourself to confirm they pass.',
   ];
   if (gate.verdict) lines.push('', `It reported: ${gate.verdict}`);
   const failures = latestFailingGates(gate.stageKey, gateRuns);
@@ -85,6 +118,23 @@ export function renderFixBrief(
     for (const f of findings) {
       lines.push(`- [${f.severity}] ${f.title}${findingLocation(f)}`);
     }
+  }
+  if (isPrFeedback) {
+    lines.push('', 'The review team asked for these changes:');
+    for (const f of prFeedback) {
+      lines.push(`- ${f.repo} ${prFeedbackLocation(f)}`);
+      if (f.author.login !== '') {
+        lines.push(
+          `    asked by ${f.author.login}${f.author.association !== '' ? ` (${f.author.association})` : ''}`,
+        );
+      }
+      for (const line of f.body.split('\n')) lines.push(`    ${line}`);
+    }
+    lines.push(
+      '',
+      'The line numbers are as of the commit the reviewer commented on; the file may have moved since. ' +
+        'Do not resolve the conversations yourself — karst does not have permission to, and a human will.',
+    );
   }
   return lines.join('\n');
 }

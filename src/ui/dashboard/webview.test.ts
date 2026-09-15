@@ -4061,6 +4061,81 @@ describe('send back to implement (executed in a VM)', () => {
   });
 });
 
+describe('address pull request feedback (executed in a VM)', () => {
+  /** A ship snapshot whose host verdict offers the PR-feedback action. */
+  function shipWithPrFeedback(): DashboardState {
+    return {
+      ...renderStateFor('ship'),
+      stageCurrent: 'ship',
+      presentedStage: 'ship',
+      sendBack: { available: true, stage: 'ship' },
+      prFeedbackFix: { available: true, round: 1, items: 2 },
+    };
+  }
+
+  it('renders the menu option on the ship header when available', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: shipWithPrFeedback() });
+    // The item lives inside the closed menu — it appears once the menu opens.
+    expect(h.htmlOf('inside')).toMatch(/data-stage-menu="ship"/);
+    expect(h.htmlOf('inside')).not.toContain('Address PR feedback');
+    h.click('[data-stage-menu]', { 'stage-menu': 'ship' });
+    expect(h.htmlOf('inside')).toContain('Address PR feedback');
+  });
+
+  it('renders no PR-feedback option when the host withholds it', () => {
+    const state: DashboardState = {
+      ...renderStateFor('ship'),
+      stageCurrent: 'ship',
+      presentedStage: 'ship',
+      sendBack: { available: true, stage: 'ship' },
+    };
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state });
+    h.click('[data-stage-menu]', { 'stage-menu': 'ship' });
+    expect(h.htmlOf('inside')).toContain('Send back to Implement');
+    expect(h.htmlOf('inside')).not.toContain('Address PR feedback');
+  });
+
+  it('posts the payload-free message once and drops a duplicate while pending', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: shipWithPrFeedback() });
+    h.click('[data-stage-menu]', { 'stage-menu': 'ship' });
+    h.click('[data-act]', { act: 'address-pr-feedback' });
+    expect(h.posted).toEqual([{ type: 'address-pr-feedback' }]);
+    h.click('[data-act]', { act: 'address-pr-feedback' });
+    expect(h.posted).toEqual([{ type: 'address-pr-feedback' }]);
+  });
+
+  it('settles the pending item and hides the menu when the push shows fix', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: shipWithPrFeedback() });
+    h.click('[data-stage-menu]', { 'stage-menu': 'ship' });
+    h.click('[data-act]', { act: 'address-pr-feedback' });
+    const moved: DashboardState = {
+      ...shipWithPrFeedback(),
+      stageCurrent: 'fix',
+      sendBack: { available: false, reason: 'stage' },
+      prFeedbackFix: { available: false, reason: 'stage' },
+    };
+    h.receive({ type: 'state', state: moved });
+    expect(h.htmlOf('inside')).not.toContain('data-stage-menu');
+    expect(h.htmlOf('inside')).not.toContain('Address PR feedback');
+    h.receive({ type: 'state', state: moved });
+    expect(h.posted).toEqual([{ type: 'address-pr-feedback' }]);
+  });
+
+  it('ships the settled-outcome wiring: true on a move, never false on a dismissal', () => {
+    const fn = HYDRATED.match(/function resolvePrFeedbackOutcome[\s\S]*?\n  \}/)?.[0] ?? '';
+    expect(fn).toMatch(/moved \? true : null/);
+    expect(fn).not.toMatch(/karstSettle\([^)]*,\s*false/);
+  });
+
+  it('carries no requestId on the wire payload — it settles from state', () => {
+    expect(HYDRATED).toMatch(/if \(act === 'address-pr-feedback'\)[\s\S]*?post\(\{ type: act \}\)/);
+  });
+});
+
 describe('round switcher — attempt tabs (T6, executed in a VM)', () => {
   // Three attempts: R1 (the failing attempt that opened round 1), attempt 2
   // (an intermediate re-run the plan's ordinal labelling names by position),

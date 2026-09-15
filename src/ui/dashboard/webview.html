@@ -2099,6 +2099,10 @@
   // `finally` (confirm, dismiss, refusal, or throw), so that push is guaranteed
   // to arrive and settle the pending item (same contract as `mergeRequests`).
   let sendBackRequestId = null;
+  // The "Address pull request feedback" action's in-flight request (set on the
+  // click, settled by the post-modal state push), separate from send-back
+  // because it lands the ticket at `fix`, not `impl`.
+  let prFeedbackRequestId = null;
   // Transient inside-progress overlays (the inside redesign): the live header
   // for one running operation (`active`) and the process row that replaces the
   // snapshot's row when it completes (`completed`). Keyed by stage. The FULL
@@ -3137,10 +3141,14 @@
     // an in-flight run and a landed ship offer no menu at all.
     const sb = state.sendBack;
     const rg = state.rerunGate;
+    const pff = state.prFeedbackFix;
     const actions = sb && sb.available && view.stageKey === sb.stage;
     const retryActions = rg && rg.available && view.stageKey === rg.stage;
-    const menuOpen = (actions || retryActions) && stageMenuStage === view.stageKey;
-    const stageMenu = (actions || retryActions)
+    // The PR-feedback action is ship-only and host-gated; it rides the SAME
+    // header menu, so a ticket parked awaiting merge offers both recovery paths.
+    const prFeedbackActions = pff && pff.available && view.stageKey === 'ship';
+    const menuOpen = (actions || retryActions || prFeedbackActions) && stageMenuStage === view.stageKey;
+    const stageMenu = (actions || retryActions || prFeedbackActions)
       ? `<span class="stageMenuWrap">`
         + `<button type="button" class="k-iconbtn stageMenuBtn" data-stage-menu="${esc(view.stageKey)}"`
         + ` aria-label="Stage actions" aria-haspopup="menu"`
@@ -3153,6 +3161,11 @@
                 + ` title="Re-run this stage from scratch">`
                 + `${karstIcon('refresh', 16)}<span>Retry ${rg.stage === 'uat' ? 'UAT' : 'Review'}</span></button>`
               : '')
+            + (prFeedbackActions
+              ? `<button type="button" class="menuButton" role="menuitem" data-act="address-pr-feedback"`
+                + ` title="Address the review team's pull request feedback — UAT and Review will run again">`
+                + `${karstIcon('pencil', 16)}<span>Address PR feedback</span></button>`
+              : '')
             + (actions
               ? `<button type="button" class="menuButton" role="menuitem" data-act="send-back-to-implement"`
                 + ` title="Move this ticket back to Implement — UAT and Review will run again">`
@@ -3163,7 +3176,7 @@
         + `</span>`
       : '';
     el('inside').innerHTML = `<section class="inside${viewing ? ' viewing' : ''}" aria-labelledby="inside-title">${vbar}`
-      + `<div class="inside-head${actions ? ' has-actions' : ''}"${view.title ? ` title="${esc(view.title)}"` : ''}>`
+      + `<div class="inside-head${actions || prFeedbackActions ? ' has-actions' : ''}"${view.title ? ` title="${esc(view.title)}"` : ''}>`
       + `<span class="inside-title" id="inside-title">Inside ${esc(view.stageKey)}</span>`
       + `<span class="inside-live ${esc(lstatus)}">${alive}</span>`
       + `<span class="inside-meta">${esc(view.clock)}</span>`
@@ -5250,6 +5263,17 @@
       post({ type: act });
       return;
     }
+    // Address PR feedback: host-confirmed modal, then a state push — the same
+    // contract as send-back-to-implement, but the ticket lands at `fix`.
+    if (act === 'address-pr-feedback') {
+      if (prFeedbackRequestId) return;
+      stageMenuStage = null;
+      prFeedbackRequestId = karstRequestId();
+      karstBeginPending(btn, prFeedbackRequestId);
+      if (lastState) render(lastState);
+      post({ type: act });
+      return;
+    }
     // Retry gate: the host answers with a confirmation MODAL and then a state
     // push, same contract as send-back-to-implement.
     if (act === 'rerun-gate') {
@@ -5545,6 +5569,20 @@
     sendBackRequestId = null;
   }
 
+  // The PR-feedback action lands the ticket at `fix`; a push that shows `fix`
+  // clears the pending item. Anything else — dismissed or refused — settles
+  // `null` (unknown), the same reasoning as resolveSendBackOutcome.
+  function resolvePrFeedbackOutcome(state) {
+    if (!prFeedbackRequestId) return;
+    const moved = state.stageCurrent === 'fix';
+    karstSettle(
+      prFeedbackRequestId,
+      moved ? true : null,
+      moved ? 'Addressing pull request feedback.' : 'The ticket was not moved.',
+    );
+    prFeedbackRequestId = null;
+  }
+
   // Re-measure the track when the DOM did not change but its available width
   // did. `renderTrack` calls place() itself on the render path; these three cover
   // the rest — a panel drag, the document finishing, and web fonts settling. A
@@ -5764,6 +5802,7 @@
         resolveDismissOutcome(msg.state);
         // Likewise recovery — the post-modal snapshot settles the pending item.
         resolveSendBackOutcome(msg.state);
+        resolvePrFeedbackOutcome(msg.state);
         // Likewise refresh: the host sends an action-settling snapshot when its
         // sweep ends, including when nothing moved. Both outcomes are success.
         if (prRefreshId) {

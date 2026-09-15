@@ -56,6 +56,12 @@ export type WebviewMessage =
    * pending state.
    */
   | { type: 'send-back-to-implement' }
+  /**
+   * Enter a PR-feedback recovery round at Fix for the panel's ticket. Payload-
+   * free like send-back: availability is re-derived host-side inside the
+   * mutation's transaction, so the webview's claim is never trusted.
+   */
+  | { type: 'address-pr-feedback' }
   | { type: 'open-stage-log'; path: string }
   | { type: 'resolve-conflicts'; repo: string }
   /**
@@ -338,6 +344,8 @@ export interface DashboardActions {
   resumeTicket: () => void | Promise<void>;
   /** Move this ticket back to Implement — the unified recovery action (host-confirmed). */
   sendBackToImplement: () => void | Promise<void>;
+  /** Move this ticket into a PR-feedback recovery round at Fix (host-confirmed). */
+  addressPrFeedback: () => void | Promise<void>;
   /** Create a linked follow-up ticket from this (done) ticket. */
   createFollowUpTicket: () => void | Promise<void>;
   /** Open a stage's log (uat/review artifact) in an editor. */
@@ -529,6 +537,8 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
     // dropped, so the recovery can only ever move the ticket the panel owns.
     case 'send-back-to-implement':
       return { type: 'send-back-to-implement' };
+    case 'address-pr-feedback':
+      return { type: 'address-pr-feedback' };
     case 'create-follow-up-ticket':
       return { type: 'create-follow-up-ticket' };
     case 'open-stage-log':
@@ -815,6 +825,8 @@ export function routeAction(
       return actions.resumeTicket();
     case 'send-back-to-implement':
       return actions.sendBackToImplement();
+    case 'address-pr-feedback':
+      return actions.addressPrFeedback();
     case 'create-follow-up-ticket':
       return actions.createFollowUpTicket();
     case 'open-stage-log':

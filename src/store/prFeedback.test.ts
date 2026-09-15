@@ -8,6 +8,12 @@ import type {
   PrReviewThread,
 } from '../model/prReview.js';
 import { countOpenPrFeedback, listPrFeedback, reconcilePrFeedback } from './prFeedback.js';
+import {
+  adoptPrFeedbackIntoRound,
+  listPrFeedbackForRound,
+  listUnadoptedPrFeedback,
+} from './prFeedback.js';
+import { openRecoveryRound } from './recoveryRounds.js';
 
 const AUTHOR: PrReviewAuthor = { login: 'reviewer', typeName: 'User', association: 'MEMBER' };
 const PR_URL = 'https://github.com/acme/repo/pull/1';
@@ -240,5 +246,127 @@ describe('pr feedback reconcile', () => {
     expect(countOpenPrFeedback(store, t.id)).toBe(1);
     reconcile(t.id, snap(), T3);
     expect(countOpenPrFeedback(store, t.id)).toBe(0);
+  });
+});
+
+describe('pr feedback round linking', () => {
+  let store: Store;
+  beforeEach(() => (store = openStore(':memory:')));
+  afterEach(() => store.close());
+
+  const reconcile = (
+    ticketId: number,
+    snapshot: PrFeedbackSnapshot,
+    at: string,
+    repo = 'frontend',
+    prUrl = PR_URL,
+  ) => reconcilePrFeedback(store, { ticketId, repo, prUrl, snapshot, at });
+
+  function openRound(ticketId: number): number {
+    return openRecoveryRound(store, {
+      ticketId,
+      sourceStage: 'ship',
+      sourceProcessId: 'pr-review',
+      sourceStageRunId: null,
+      sourceProcessRunId: null,
+      triggerKind: 'upstream-changes-requested',
+      triggerDetail: 'reviewers asked',
+      maxRounds: 3,
+      startedAt: T1,
+    }).id;
+  }
+
+  it('adopts only live, unresolved, not-outdated, unadopted rows and returns the count', () => {
+    const t = createTicket(store, { key: 'A', title: 'a' });
+    reconcile(
+      t.id,
+      snap({
+        threads: [
+          thread({ upstreamKey: '1' }),
+          thread({ upstreamKey: '2', nodeId: 'PRRT_2', isResolved: true }),
+          thread({ upstreamKey: '3', nodeId: 'PRRT_3', isOutdated: true }),
+          thread({ upstreamKey: '4', nodeId: 'PRRT_4' }),
+        ],
+      }),
+      T1,
+    );
+    // Row 4 vanishes upstream, so the reconcile stamps it absent.
+    reconcile(t.id, snap({ threads: [thread({ upstreamKey: '1' })] }), T2);
+
+    const roundId = openRound(t.id);
+    expect(adoptPrFeedbackIntoRound(store, t.id, roundId)).toBe(1);
+    // Nothing left to adopt, and re-adoption is a no-op.
+    expect(adoptPrFeedbackIntoRound(store, t.id, roundId)).toBe(0);
+
+    expect(listPrFeedbackForRound(store, t.id, roundId).map((r) => r.upstreamKey)).toEqual(['1']);
+    expect(listUnadoptedPrFeedback(store, t.id)).toEqual([]);
+  });
+
+  it('never adopts a row a previous round already owns', () => {
+    const t = createTicket(store, { key: 'A', title: 'a' });
+    reconcile(t.id, snap({ threads: [thread({ upstreamKey: '1' })] }), T1);
+    const first = openRound(t.id);
+    const second = openRound(t.id);
+    expect(adoptPrFeedbackIntoRound(store, t.id, first)).toBe(1);
+    expect(adoptPrFeedbackIntoRound(store, t.id, second)).toBe(0);
+    expect(listPrFeedbackForRound(store, t.id, first)).toHaveLength(1);
+    expect(listPrFeedbackForRound(store, t.id, second)).toHaveLength(0);
+  });
+
+  it('orders a round’s rows by repo, path, then line with NULL lines last', () => {
+    const t = createTicket(store, { key: 'A', title: 'a' });
+    reconcile(
+      t.id,
+      snap({
+        threads: [
+          thread({ upstreamKey: 'a', path: 'src/a.ts', originalLine: 20 }),
+          thread({ upstreamKey: 'b', nodeId: 'PRRT_b', path: 'src/a.ts', originalLine: 5 }),
+          thread({ upstreamKey: 'c', nodeId: 'PRRT_c', path: 'src/a.ts', originalLine: null }),
+          thread({
+            upstreamKey: 'd',
+            nodeId: 'PRRT_d',
+            path: 'src/z.ts',
+            originalLine: 1,
+            line: 1,
+          }),
+        ],
+      }),
+      T1,
+    );
+    const roundId = openRound(t.id);
+    adoptPrFeedbackIntoRound(store, t.id, roundId);
+    expect(listPrFeedbackForRound(store, t.id, roundId).map((r) => [r.repo, r.path, r.originalLine])).toEqual([
+      ['frontend', 'src/a.ts', 5],
+      ['frontend', 'src/a.ts', 20],
+      ['frontend', 'src/a.ts', null],
+      ['frontend', 'src/z.ts', 1],
+    ]);
+  });
+
+  it('preserves recovery_round_id when the row is re-reconciled', () => {
+    const t = createTicket(store, { key: 'A', title: 'a' });
+    reconcile(t.id, snap({ threads: [thread({ upstreamKey: '1', body: 'first' })] }), T1);
+    const roundId = openRound(t.id);
+    adoptPrFeedbackIntoRound(store, t.id, roundId);
+
+    // A later sweep edits the thread: the reconcile UPDATE must not clear the
+    // adoption link it does not list.
+    const result = reconcile(
+      t.id,
+      snap({ threads: [thread({ upstreamKey: '1', body: 'second', updatedAt: T2 })] }),
+      T2,
+    );
+    expect(result.updated).toBe(1);
+    const row = listPrFeedback(store, t.id)[0]!;
+    expect(row.body).toBe('second');
+    expect(row.recoveryRoundId).toBe(roundId);
+  });
+
+  it('leaves recovery_round_id NULL for feedback nothing has adopted', () => {
+    const t = createTicket(store, { key: 'A', title: 'a' });
+    reconcile(t.id, snap({ threads: [thread({ upstreamKey: '1' })] }), T1);
+    const row = listPrFeedback(store, t.id)[0]!;
+    expect(row.recoveryRoundId).toBeNull();
+    expect(listUnadoptedPrFeedback(store, t.id).map((r) => r.upstreamKey)).toEqual(['1']);
   });
 });

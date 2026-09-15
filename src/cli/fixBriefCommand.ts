@@ -2,6 +2,8 @@ import type { Store } from '../store/db.js';
 import { getTicket } from '../store/tickets.js';
 import { latestFindingBatch } from '../store/reviewFindings.js';
 import { listGateRuns } from '../store/gateRuns.js';
+import { activeRecoverySeries } from '../store/recoveryRounds.js';
+import { listPrFeedbackForRound } from '../store/prFeedback.js';
 import { renderFixBrief } from '../agent/fixBrief.js';
 import { resolveTicketByKey } from './resolveTicket.js';
 
@@ -61,11 +63,15 @@ export function runFixBriefCommand(store: Store, parsed: ParsedFixBrief): string
     throw new Error(`no ticket found for key or id '${parsed.key}'`);
   }
   const t = getTicket(store, found.id);
+  // A PR-feedback round's brief carries the adopted threads; an ordinary fix
+  // (or a ship saga crash, which opens no round) passes nothing.
+  const shipRound = activeRecoverySeries(store, t.id, 'ship');
   const brief = renderFixBrief(
     t.key ?? `#${t.id}`,
     t.stages,
     latestFindingBatch(store, t.id),
     listGateRuns(store, t.id),
+    shipRound === null ? undefined : listPrFeedbackForRound(store, t.id, shipRound.id),
   );
   if (brief === null) {
     return 'No failed gate is recorded for this ticket — there is nothing to fix.';
