@@ -738,17 +738,20 @@ function sectionHelpers(): {
   SECTION_FIELDS: Record<string, string[]>;
   overlaySections: (base: unknown, source: unknown, sections: string[]) => Record<string, unknown>;
   dirtySectionsOf: (draft: unknown, base: unknown) => string[];
+  sectionsToKeep: (draft: unknown, base: unknown, savedSection: string | null) => string[];
   sectionForError: (msg: string | null) => string | null;
 } {
   return runInNewContext(`
     ${sectionMirrorSource()}
     ${functionSource('overlaySections')}
+    ${functionSource('deepEqual')}
     ${functionSource('sectionFieldsEqual')}
     ${functionSource('dirtySectionsOf')}
+    ${functionSource('sectionsToKeep')}
     ${functionSource('manifestFaultDetail')}
     ${functionSource('sectionForError')}
     ({ SETTINGS_SECTIONS, SECTION_LABELS, SECTION_FIELDS,
-       overlaySections, dirtySectionsOf, sectionForError })
+       overlaySections, dirtySectionsOf, sectionsToKeep, sectionForError })
   `, {}) as ReturnType<typeof sectionHelpers>;
 }
 
@@ -817,6 +820,44 @@ describe('settings tab-scoped save', () => {
     expect(dirtySectionsOf({ ...base, uat: { maxFixAttempts: 3 } }, base)).toEqual(['quality']);
     // The auto-archive delay is a General-tab field (869eck7my).
     expect(dirtySectionsOf({ ...base, archiveDoneAfterDays: 7 }, base)).toEqual(['general']);
+  });
+
+  // The manifest validator re-emits every nested block in its own canonical key
+  // order, so a draft that gained a previously-absent nested key (uat.testDir
+  // typed after uat.gates already existed) comes back from the file with the
+  // same VALUES in a different order. A key-order-sensitive comparison read that
+  // as an edit, so the tab stayed dirty forever after a successful Save — the
+  // marker, the nav dot and the leave-confirmation all kept firing.
+  it('ignores nested key order when deciding a tab is dirty', () => {
+    const { dirtySectionsOf } = sectionHelpers();
+    const base = {
+      host: 'localhost',
+      uat: { maxFixAttempts: 3, testDir: 'e2e', gates: [{ kind: 'command', run: 'x' }] },
+      processes: { implement: { agent: 'claude', model: 'opus' } },
+    };
+    const reordered = {
+      host: 'localhost',
+      uat: { maxFixAttempts: 3, gates: [{ run: 'x', kind: 'command' }], testDir: 'e2e' },
+      processes: { implement: { model: 'opus', agent: 'claude' } },
+    };
+    expect(dirtySectionsOf(reordered, base)).toEqual([]);
+    // A real value change is still a change.
+    expect(dirtySectionsOf({ ...reordered, uat: { ...reordered.uat, testDir: 'uat' } }, base))
+      .toEqual(['quality']);
+  });
+
+  // A Save's own `state` push carries the file as the validator re-emitted it.
+  // For the section being saved that is authoritative — keeping the raw draft
+  // instead left a tab that had created a block from nothing permanently dirty,
+  // because the file comes back with the validator's default keys filled in.
+  it('drops the section being saved from the drafts a state push keeps', () => {
+    const { sectionsToKeep } = sectionHelpers();
+    const base = { host: 'localhost', uat: { maxFixAttempts: 3 } };
+    const draft = { host: '0.0.0.0', uat: { maxFixAttempts: 5 } };
+    expect(sectionsToKeep(draft, base, null)).toEqual(['general', 'quality']);
+    expect(sectionsToKeep(draft, base, 'quality')).toEqual(['general']);
+    // A section that is not dirty is not kept whether or not it is being saved.
+    expect(sectionsToKeep(base, base, 'quality')).toEqual([]);
   });
 
   it('treats a cleared optional field as a change', () => {
@@ -1141,6 +1182,7 @@ function gateHarness(init: {
   const source = `
     ${sectionMirrorSource()}
     ${functionSource('overlaySections')}
+    ${functionSource('deepEqual')}
     ${functionSource('sectionFieldsEqual')}
     ${functionSource('dirtySectionsOf')}
     ${functionSource('manifestFaultDetail')}

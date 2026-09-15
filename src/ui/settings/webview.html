@@ -2262,12 +2262,35 @@
     return merged;
   }
 
+  // Order-INSENSITIVE deep equality. The comparison used to be
+  // JSON.stringify-based, which made it key-order sensitive — and the manifest
+  // validator re-emits every nested block in its own canonical key order, while
+  // the tab editors append a newly-set key at the end of the block they spread.
+  // So a tab whose edit ADDED a previously-absent nested key never matched the
+  // file again after Save, and stayed dirty forever: yellow marker, nav dot and
+  // leave-confirmation all kept firing on saved content. Values decide, not the
+  // order the file happens to serialize them in.
+  function deepEqual(a, b) {
+    if (a === b) return true;
+    if (Array.isArray(a) || Array.isArray(b)) {
+      if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+      return a.every((entry, i) => deepEqual(entry, b[i])); // arrays ARE ordered
+    }
+    if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
+    const ka = Object.keys(a);
+    const kb = Object.keys(b);
+    if (ka.length !== kb.length) return false;
+    return ka.every(
+      (k) => Object.prototype.hasOwnProperty.call(b, k) && deepEqual(a[k], b[k]),
+    );
+  }
+
   function sectionFieldsEqual(a, b, section) {
     for (const field of SECTION_FIELDS[section] || []) {
       const hasA = Object.prototype.hasOwnProperty.call(a, field);
       const hasB = Object.prototype.hasOwnProperty.call(b, field);
       if (hasA !== hasB) return false;
-      if (hasA && JSON.stringify(a[field]) !== JSON.stringify(b[field])) return false;
+      if (hasA && !deepEqual(a[field], b[field])) return false;
     }
     return true;
   }
@@ -2275,6 +2298,21 @@
   /** Which tabs the draft has uncommitted edits on, in nav order. */
   function dirtySectionsOf(draftManifest, baseManifest) {
     return SETTINGS_SECTIONS.filter((s) => !sectionFieldsEqual(draftManifest, baseManifest, s));
+  }
+
+  /**
+   * Which tabs' drafts survive an incoming `state` push.
+   *
+   * Every dirty tab is kept — a push arrives after each out-of-band write and
+   * replacing the whole draft would silently throw away edits parked elsewhere
+   * — EXCEPT the section a Save is currently writing. For that one the file is
+   * authoritative: its edits were just committed, and the validator re-emits
+   * the block with its own key order and default keys filled in, which a raw
+   * draft never equals again. Keeping it was what left a saved tab showing
+   * unsaved changes forever.
+   */
+  function sectionsToKeep(draftManifest, baseManifest, savedSection) {
+    return dirtySectionsOf(draftManifest, baseManifest).filter((s) => s !== savedSection);
   }
 
   // Which tab a validation error belongs to, for the nav marker and the banner
@@ -5465,6 +5503,16 @@
   // written one.
   let topbarSaveRequestId = null;
 
+  // The section a Save is currently writing. The `state` push that follows a
+  // successful save is the FILE as the validator re-emitted it, and for that one
+  // section it is authoritative — the user's edits there were just committed. So
+  // that section is NOT kept as a dirty draft across the push: keeping it left a
+  // tab that had created a block from nothing (`draft.uat || {}`) permanently
+  // dirty, because the file comes back with the validator's default keys filled
+  // in and the raw draft never equals it again. Cleared on the push it names and
+  // on a rejected save, so it can never suppress a LATER edit.
+  let pendingSaveSection = null;
+
   function saveCurrentSection() {
     if (!valid || !currentSectionDirty()) return;
     // Mirror the host's delta rule: the approaches roster ships the OVERLAID
@@ -5478,6 +5526,7 @@
     const manifest = currentSection === 'approaches'
       ? { ...draft, approaches: toApproachDeltas(draft.approaches, packagedApproaches) }
       : draft;
+    pendingSaveSection = currentSection;
     topbarSaveRequestId = postAction(el('saveBtn'), 'save', { manifest, section: currentSection });
   }
 
@@ -6032,7 +6081,8 @@
         // arrives after every out-of-band write (agent toggle, approach install),
         // and replacing the whole draft with the file silently threw those away.
         const incoming = clone(msg.state.manifest);
-        const keep = dirtySectionsOf(draft, lastSaved);
+        const keep = sectionsToKeep(draft, lastSaved, pendingSaveSection);
+        pendingSaveSection = null;
         draft = overlaySections(incoming, draft, keep);
         lastSaved = clone(incoming);
         dirtySections = dirtySectionsOf(draft, lastSaved);
@@ -6153,6 +6203,9 @@
         // A save that never landed must not release a leave that was waiting on
         // it — the user stays on the tab whose error they have to fix.
         navigateAfterSave = null;
+        // The save was rejected, so nothing was written and the tab's draft is
+        // still the only copy of the user's edits — it must stay dirty.
+        pendingSaveSection = null;
         showError(msg.message);
         const status = el('saveState');
         if (status) {
