@@ -123,6 +123,15 @@ function insertNodeRun(h: Harness, id: number, status: string): void {
     .run(id, h.graphRunId, h.revisionId, id, status);
 }
 
+/** Record a node run's claim-time base head for one physical domain — what the
+ *  real claim transaction writes (`recordBaseHeads`), and what the completion
+ *  pipeline diffs a workspace clone against. */
+function recordBaseHead(h: Harness, nodeRunId: number, domainKey: string, commit: string): void {
+  h.db
+    .prepare('UPDATE approach_node_runs SET base_heads = ? WHERE id = ?')
+    .run(JSON.stringify([{ domainKey, commit }]), nodeRunId);
+}
+
 function lease(h: Harness, nodeRunId: number, physicalDomain: string): void {
   acquireLease(h.db, {
     graphRunId: h.graphRunId,
@@ -795,6 +804,8 @@ describe('runCompletionPipeline — Slice 5 Task 5: deterministic integration un
 
     const domainA = domainKeyOf(canonicalPath(h.worktree), gitCommonDirOf2(h.worktree));
     const domainB = domainKeyOf(canonicalPath(repoB.dir), gitCommonDirOf2(repoB.dir));
+    recordBaseHead(h, 41, domainA, h.baseSha);
+    recordBaseHead(h, 42, domainB, repoB.baseSha);
     const deps = makeDeps(h, {
       domainsFor: () => [
         { repoName: 'repoA', worktreePath: h.worktree },
@@ -845,6 +856,8 @@ describe('runCompletionPipeline — Slice 5 Task 5: deterministic integration un
     lease(h, 51, domainD);
     const ws51 = makeWorkspaceClone(h.worktree, h.baseSha);
     const ws52 = makeWorkspaceClone(h.worktree, h.baseSha);
+    recordBaseHead(h, 51, domainD, h.baseSha);
+    recordBaseHead(h, 52, domainD, h.baseSha);
     writeFileSync(join(ws51, 'a.ts'), '51\n');
     writeFileSync(join(ws52, 'b.ts'), '52\n');
     const deps = makeDeps(h, {
@@ -894,6 +907,7 @@ describe('runCompletionPipeline — Slice 5 Task 5: deterministic integration un
     writeFileSync(join(ws61, 'a.ts'), 'ws-conflict\n');
     const headBefore = git(h.worktree, ['log', '--format=%H', '-1']);
     const domainD = domainKeyOf(canonicalPath(h.worktree), gitCommonDirOf2(h.worktree));
+    recordBaseHead(h, 61, domainD, h.baseSha);
     const deps = makeDeps(h, {
       declaredWritesOf: () => [{ domainKey: domainD, paths: ['a.ts'] }],
       workspaceCwdOf: (nodeRunId) => (nodeRunId === 61 ? ws61 : undefined),
@@ -956,5 +970,95 @@ describe('runCompletionPipeline — Slice 5 Task 5: deterministic integration un
     );
     expect(commandInFlight.kind).toBe('deferred');
     expect(nodeRow(h, 71).status).toBe('completing');
+  });
+
+  it('lands work the agent COMMITTED inside its workspace clone, never an empty change set', async () => {
+    // The production defect (ticket 490 / graph run 13 / node run 12): the node
+    // `git add`-ed and `git commit`-ed inside its detached clone, so `git diff
+    // HEAD` there was empty, the pipeline integrated nothing, the node
+    // completed, the stage advanced, and cleanup deleted the only copy.
+    const h = harness();
+    cleanups.push(h.close);
+    insertNodeRun(h, 71, 'completing');
+    const domain = domainKeyOf(canonicalPath(h.worktree), gitCommonDirOf2(h.worktree));
+    recordBaseHead(h, 71, domain, h.baseSha);
+    const ws = makeWorkspaceClone(h.worktree, h.baseSha);
+    writeFileSync(join(ws, 'a.ts'), 'committed-in-workspace\n');
+    git(ws, ['add', 'a.ts']);
+    git(ws, ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-m', 'agent commit']);
+    // The clone's own `git diff HEAD` is empty — that is the whole defect.
+    expect(git(ws, ['diff', '--name-only', 'HEAD'])).toBe('');
+    expect(git(h.worktree, ['status', '--porcelain'])).toBe('');
+
+    const deps = makeDeps(h, {
+      declaredWritesOf: () => [{ domainKey: domain, paths: ['a.ts'] }],
+      workspaceCwdOf: (nodeRunId) => (nodeRunId === 71 ? ws : undefined),
+    });
+    const result = await runCompletionPipeline(deps, { graphRunId: h.graphRunId, nodeRunId: 71 });
+
+    expect(result).toEqual({ kind: 'integrated', committed: true });
+    expect(readFileSync(join(h.worktree, 'a.ts'), 'utf8')).toBe('committed-in-workspace\n');
+    expect(git(h.worktree, ['status', '--porcelain'])).toBe('');
+    expect(git(h.worktree, ['log', '--format=%s', '-1'])).toBe(
+      `${INTEGRATION_COMMIT_PREFIX} ${h.graphRunId} node 71`,
+    );
+    expect(nodeRow(h, 71).status).toBe('completed');
+  });
+
+  it('lands committed and still-uncommitted workspace work together', async () => {
+    // An agent that commits part of its work and leaves the rest dirty must
+    // not have either half dropped: one diff against the recorded base covers
+    // committed, staged and unstaged alike.
+    const h = harness();
+    cleanups.push(h.close);
+    insertNodeRun(h, 72, 'completing');
+    const domain = domainKeyOf(canonicalPath(h.worktree), gitCommonDirOf2(h.worktree));
+    recordBaseHead(h, 72, domain, h.baseSha);
+    const ws = makeWorkspaceClone(h.worktree, h.baseSha);
+    writeFileSync(join(ws, 'a.ts'), 'first\n');
+    git(ws, ['add', 'a.ts']);
+    git(ws, ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-m', 'agent commit']);
+    writeFileSync(join(ws, 'a.ts'), 'first-then-dirty\n');
+
+    const deps = makeDeps(h, {
+      declaredWritesOf: () => [{ domainKey: domain, paths: ['a.ts'] }],
+      workspaceCwdOf: (nodeRunId) => (nodeRunId === 72 ? ws : undefined),
+    });
+    const result = await runCompletionPipeline(deps, { graphRunId: h.graphRunId, nodeRunId: 72 });
+
+    expect(result).toEqual({ kind: 'integrated', committed: true });
+    expect(readFileSync(join(h.worktree, 'a.ts'), 'utf8')).toBe('first-then-dirty\n');
+    expect(nodeRow(h, 72).status).toBe('completed');
+  });
+
+  it('refuses to integrate a workspace domain with no recorded base head, preserving the clone', async () => {
+    // Without a base head there is no trustworthy diff base, and falling back
+    // to HEAD is exactly how committed work went missing. Refuse loudly: the
+    // graph blocks, the node stays `integrating`, and the clone survives for
+    // diagnosis.
+    const h = harness();
+    cleanups.push(h.close);
+    insertNodeRun(h, 73, 'completing');
+    const domain = domainKeyOf(canonicalPath(h.worktree), gitCommonDirOf2(h.worktree));
+    // Deliberately NO recordBaseHead call.
+    const ws = makeWorkspaceClone(h.worktree, h.baseSha);
+    writeFileSync(join(ws, 'a.ts'), 'never-integrated\n');
+
+    const deps = makeDeps(h, {
+      declaredWritesOf: () => [{ domainKey: domain, paths: ['a.ts'] }],
+      workspaceCwdOf: (nodeRunId) => (nodeRunId === 73 ? ws : undefined),
+    });
+    const result = await runCompletionPipeline(deps, { graphRunId: h.graphRunId, nodeRunId: 73 });
+
+    expect(result).toEqual({ kind: 'integration-conflict', reason: 'change-set capture failed' });
+    // The node is NOT completed and the canonical worktree is untouched.
+    expect(nodeRow(h, 73).status).toBe('integrating');
+    expect(git(h.worktree, ['status', '--porcelain'])).toBe('');
+    // The clone is preserved with its work intact.
+    expect(readFileSync(join(ws, 'a.ts'), 'utf8')).toBe('never-integrated\n');
+    const graph = h.db
+      .prepare('SELECT status FROM approach_graph_runs WHERE id = ?')
+      .get(h.graphRunId) as { status: string };
+    expect(graph.status).toBe('blocked');
   });
 });

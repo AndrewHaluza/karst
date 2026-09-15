@@ -58,11 +58,13 @@
  * instance exists only for a production that actually completed — never for
  * a parked node.
  *
- * A node whose changes are entirely COMMITTED by the agent itself is the
- * known V1 scope of the canonical-worktree model: its commits are already in
- * the canonical history, and only the uncommitted remainder is validated.
- * Per-repository base digests and isolated workspaces — the design's shape
- * for that validation — arrive with parallel execution (Slice 5).
+ * A node whose changes are entirely COMMITTED by the agent itself is a
+ * first-class case, not an edge: its workspace clone is detached at the
+ * recorded base commit, so the capture and the landing both diff against THAT
+ * commit rather than `HEAD`, and committed, staged and unstaged work all ride
+ * the same patch. Diffing a clone against `HEAD` read empty the moment the
+ * agent committed, integrated nothing, completed the node, and let cleanup
+ * delete the only copy of the work.
  *
  * The graph run blocks with `resource-claim-violated` / `integration-conflict`
  * (its `blocked_reason` carries the category); recovery/replan is the
@@ -83,7 +85,7 @@ import {
 } from './changeSet.js';
 import { completeActivation } from '../coordinator/completion.js';
 import { acquireDomainLeases, releaseLeaseForNodeRun, type ActivationDomain } from '../coordinator/leases.js';
-import { releaseProcessSlot } from '../../../store/graph/nodeRuns.js';
+import { nodeRunBaseHeads, releaseProcessSlot } from '../../../store/graph/nodeRuns.js';
 import { recordArtifactInstance, validateRequiredOutputs } from '../artifacts/resolve.js';
 import { parseGraphDocument } from '../parse.js';
 import { emitGraphDiagnostic } from '../diagnostics.js';
@@ -311,8 +313,29 @@ function ensureIntegrationLeases(
 /** One domain's captured change set plus the workspace clones it came from. */
 interface DomainCapture {
   entries: ChangeSetEntry[];
-  /** The node's workspace clones for this domain; empty = canonical model. */
   workspaceCwds: string[];
+  /** The base the workspace diff was taken against; `null` for the canonical
+   *  fallback, which diffs `HEAD`. */
+  workspaceBaseRef: string | null;
+}
+
+/**
+ * The node's claim-time base commit for one physical domain — the commit the
+ * workspace provider checked the clone out at (`--detach`), read from the
+ * `base_heads` the claim transaction recorded. Empty string when the node has
+ * no recorded head for this domain.
+ *
+ * This is the diff base for a workspace clone. `HEAD` is NOT: an agent that
+ * commits its work inside the clone moves `HEAD` onto its own commit, so
+ * `git diff HEAD` reports an empty change set and the work is integrated
+ * nowhere and then deleted with the clone.
+ */
+function workspaceBaseCommit(
+  deps: CompletionPipelineDeps,
+  nodeRunId: number,
+  domainKey: string,
+): string {
+  return nodeRunBaseHeads(deps.db, nodeRunId).find((head) => head.domainKey === domainKey)?.commit ?? '';
 }
 
 /**
@@ -330,9 +353,25 @@ async function captureDomainChangeSet(
     .map((repoName) => deps.workspaceCwdOf(nodeRunId, repoName))
     .filter((cwd): cwd is string => cwd !== undefined);
   const sources = workspaceCwds.length > 0 ? workspaceCwds : [domain.canonicalWorktree];
+  // A workspace clone is checked out DETACHED at the node's recorded base
+  // commit, so that commit — never `HEAD` — is the only diff base that sees
+  // work the agent committed inside the clone. Without one there is no
+  // trustworthy base: refuse rather than report an empty change set, which is
+  // how a node's committed work was silently discarded.
+  let workspaceBaseRef: string | null = null;
+  if (workspaceCwds.length > 0) {
+    const baseCommit = workspaceBaseCommit(deps, nodeRunId, domain.key);
+    if (!baseCommit) {
+      throw new Error(
+        `node run ${nodeRunId} has no recorded base head for domain ${domain.key} — refusing to diff its workspace clone against HEAD`,
+      );
+    }
+    workspaceBaseRef = baseCommit;
+  }
+  const baseRef = workspaceBaseRef ?? 'HEAD';
   const merged = new Map<string, ChangeSetEntry>();
   for (const cwd of sources) {
-    const entries = await captureChangeSet(deps.git, { cwd, baseRef: 'HEAD' });
+    const entries = await captureChangeSet(deps.git, { cwd, baseRef });
     for (const entry of entries) {
       if (!merged.has(entry.path)) merged.set(entry.path, entry);
     }
@@ -341,22 +380,23 @@ async function captureDomainChangeSet(
     // entry, or an out-of-claim untracked file is silently dropped rather
     // than parking the node (the defect this closes). `--exclude-standard`
     // keeps karst's own excluded scaffolding (`.karst/`, `.karst-plugin/`,
-    // …) out of both validation and reporting.
+    // ...) out of both validation and reporting.
     const untracked = await captureUntrackedPaths(deps.git, cwd);
     for (const path of untracked) {
       if (!merged.has(path)) merged.set(path, { path, kind: 'added' });
     }
   }
-  return { entries: [...merged.values()], workspaceCwds };
+  return { entries: [...merged.values()], workspaceCwds, workspaceBaseRef };
 }
 
 type LandResult = { ok: true } | { ok: false; stderr: string; reason: string };
 
 /**
  * Land a workspace-captured change set into the CANONICAL worktree: apply the
- * workspace's `git diff HEAD` patch (tracked changes — renames, deletions and
- * content all ride the patch) and copy the workspace's untracked in-claim
- * files (new files `git diff` never lists, which `git add -A` used to pick
+ * workspace's `git diff <base>` patch, taken against the node's recorded base
+ * commit (tracked changes — renames, deletions and content all ride the
+ * patch) and copy the workspace's untracked in-claim files (new files
+ * `git diff` never lists, which `git add -A` used to pick
  * up under the V1 model). `git apply --check` runs first, so a patch that
  * cannot land — the canonical tree advanced under the node — touches NOTHING
  * and reports `integration-conflict`: both trees stay exactly as they are.
@@ -367,6 +407,7 @@ async function landWorkspaceChanges(
   paths: readonly string[],
   declaredClaims: readonly string[],
   workspaceCwds: readonly string[],
+  baseRef: string,
 ): Promise<LandResult> {
   const patchDir = mkdtempSync(join(tmpdir(), 'karst-int-'));
   try {
@@ -374,7 +415,7 @@ async function landWorkspaceChanges(
     const fragments: string[] = [];
     const untracked: { from: string; rel: string }[] = [];
     for (const cwd of workspaceCwds) {
-      const diff = await deps.git(['diff', '--binary', 'HEAD', '--', ...paths], cwd);
+      const diff = await deps.git(['diff', '--binary', baseRef, '--', ...paths], cwd);
       if (diff.exitCode !== 0) {
         return { ok: false, stderr: diff.stderr, reason: 'change-set diff failed' };
       }
@@ -580,6 +621,7 @@ export async function runCompletionPipeline(
         paths,
         declared.get(domain.key) ?? [],
         capture.workspaceCwds,
+        capture.workspaceBaseRef ?? 'HEAD',
       );
       if (!landed.ok) {
         const reason = `integration-conflict: ${landed.reason} in ${domain.repoNames.join('/')} (${boundedGitReason(landed.stderr)})`;
