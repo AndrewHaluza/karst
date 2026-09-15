@@ -35,7 +35,7 @@ createServer((req, res) => {
 }).listen(port);
 `;
 
-let portCounter = 48400;
+let portCounter = 28100;
 
 /** Build a `develop`-then-`feature` repo. `origin` null → a repo with NO remote. */
 function buildRepo(dir: string, origin: string | null): void {
@@ -142,10 +142,13 @@ describe('baseline pool', () => {
   const started: number[] = [];
 
   beforeAll(async () => {
-    // Ceiling keeps this probe inside the suite's own band [48400, 48600) so
-    // a blocked window THROWS loudly ("leaked servers") rather than sliding
-    // into supervisor's or spin.integration's band and drawing the same ports.
-    portCounter = await freePortWindow(20, portCounter, 48600);
+    // The suite owns the band [28100, 28200), deliberately BELOW Linux's
+    // ephemeral range (32768–60999): a fixture port inside that range can be
+    // stolen by an outbound socket — including a sibling suite's `listen(0)` on
+    // a parallel worker — and the service then dies of EADDRINUSE. The ceiling
+    // keeps a blocked window THROWING loudly ("leaked servers") rather than
+    // sliding into supervisor's, portConflict's or spin.integration's band.
+    portCounter = await freePortWindow(20, portCounter, 28200);
   });
   beforeEach(() => {
     store = openStore(':memory:');

@@ -40,11 +40,17 @@ export async function freePortWindow(
   stride = 20,
 ): Promise<number> {
   // Ceiling: stay under Windows' ephemeral range (49152+), where a window is free
-  // when probed and taken by an outbound socket a second later. Linux starts its
-  // range at 32768, so there is no range to escape there — hence `stride`, which
-  // is deliberately much smaller than `span`: stepping by a whole span would give
-  // a 140-port request only two candidate windows below the ceiling, and one
-  // outbound connection anywhere in either would fail the whole suite.
+  // when probed and taken by an outbound socket a second later. Linux' ephemeral
+  // range starts LOWER — 32768 by default — and that range is what made the
+  // server suites flaky in CI: a fixture band inside it (the old 48200–49000)
+  // could be grabbed by any outbound socket, including a sibling suite's
+  // `listen(0)`, between this probe and a child's bind. Callers therefore choose
+  // bands BELOW 32768 (see the `[28000, 29000)` block in the runtime suites), so
+  // the window is not in the ephemeral range at all. `stride` then only guards
+  // against a genuine leaked listener, deliberately much smaller than `span`:
+  // stepping by a whole span would give a 140-port request only two candidate
+  // windows below the ceiling, and one busy port anywhere in either would fail
+  // the whole suite.
   for (let base = from; base + span <= ceiling; base += stride) {
     let ok = true;
     for (let port = base; port < base + span; port++) {

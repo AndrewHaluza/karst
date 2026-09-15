@@ -9,14 +9,18 @@ import { killTree } from './processTree.js';
 
 vi.mock('./processTree.js', () => ({ killTree: vi.fn() }));
 
-let portCounter = 48400;
+let portCounter = 28200;
 function nextPort(): number {
   return portCounter++;
 }
 
 describe('isPortOpen', () => {
   beforeAll(async () => {
-    portCounter = await freePortWindow(40, portCounter);
+    // Band [28200, 28600), below Linux's ephemeral range (32768–60999) so a
+    // sibling suite's outbound socket cannot steal a fixture port mid-test, and
+    // with a ceiling so a blocked window throws rather than sliding into
+    // spin.integration's band.
+    portCounter = await freePortWindow(40, portCounter, 28600);
   });
 
   it('is false for a port nothing has bound', async () => {
@@ -55,7 +59,7 @@ describe('isPortOpen', () => {
 
 describe('listenerPids', () => {
   beforeAll(async () => {
-    portCounter = await freePortWindow(40, portCounter);
+    portCounter = await freePortWindow(40, portCounter, 28600);
   });
 
   it('discovers listeners asynchronously so the extension host stays responsive', async () => {
