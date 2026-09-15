@@ -120,4 +120,39 @@ describe('dashboard render — fixture corpus', () => {
     expect(h.errors).toEqual([]);
     h.close();
   });
+
+  it('renders the ship ⋯ menu when PR feedback is the only available recovery action', () => {
+    const h = renderWebview('dashboard');
+    const base = renderStateFor('ship');
+    h.receive({
+      type: 'state',
+      state: {
+        ...base,
+        stageCurrent: 'ship',
+        presentedStage: 'ship',
+        prFeedbackFix: { available: true, round: 1, items: 2 },
+        openPrFeedback: 2,
+      },
+    });
+    expect(h.query('[data-stage-menu="ship"]'), '⋯ menu not rendered').toBeTruthy();
+    expect(h.errors).toEqual([]);
+    h.close();
+  });
+
+  it('renders no ship ⋯ menu when the host withholds every recovery action', () => {
+    const h = renderWebview('dashboard');
+    const base = renderStateFor('ship');
+    h.receive({
+      type: 'state',
+      state: {
+        ...base,
+        stageCurrent: 'ship',
+        presentedStage: 'ship',
+        sendBack: { available: false, reason: 'stage' },
+        rerunGate: { available: false, reason: 'not-gate-stage' },
+      },
+    });
+    expect(h.query('[data-stage-menu]')).toBeNull();
+    h.close();
+  });
 });
