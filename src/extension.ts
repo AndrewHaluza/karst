@@ -390,7 +390,7 @@ import { confirmScope } from './workflow/stages/scope.js';
 import { transition } from './workflow/machine.js';
 import { driveTicket as driveTicketRun } from './workflow/driveTicket.js';
 import { DriverController, shouldStartDriver, ticketsToSweep } from './workflow/driverController.js';
-import { shipTicket as runShipTicket } from './workflow/stages/ship.js';
+import { shipTicket as runShipTicket, hasCompletedShipRun } from './workflow/stages/ship.js';
 import { shipClearedEvent, shipStepEvent, type InsideProgressEvent } from './model/inside/progress.js';
 import type { InsideActionHost } from './ui/dashboard/insideActions.js';
 import { buildGraphInsideInput } from './ui/dashboard/graphInside.js';
@@ -5186,6 +5186,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     warn = false,
     shipOpts: { repos?: readonly string[] } = {},
   ): Promise<void> => {
+    const deliverToOpenPr = hasCompletedShipRun(localStore, ticketId);
     await runShipTicket(
       localStore,
       {
@@ -5196,6 +5197,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // (enabled: false) skips the AI step for the deterministic fallback.
         prDescriptionProcess: prDescriptionProcess(ticketId),
         ...(shipOpts.repos ? { repos: shipOpts.repos } : {}),
+        ...(deliverToOpenPr ? { deliverToOpenPr: true } : {}),
       },
       undefined,
       undefined,
