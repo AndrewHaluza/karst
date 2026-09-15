@@ -18,6 +18,7 @@ import { attentionPicks, facetPicks, resolveFacetPicks } from './extension/ops/p
 import { makePrSyncLoop } from './extension/ops/prSyncLoop.js';
 import { makePrFeedbackDeps } from './extension/ops/prFeedbackSync.js';
 import { runBootSweeps } from './extension/ops/bootSweeps.js';
+import { resumeStrandedShips } from './extension/ops/strandedShip.js';
 import { watchExternalChanges } from './store/externalChanges.js';
 import { SidebarViewManager } from './ui/sidebar/panel.js';
 import { makeSidebarViewHost, SIDEBAR_VIEW_ID } from './ui/sidebar/host.js';
@@ -395,11 +396,7 @@ import { shipClearedEvent, shipStepEvent, type InsideProgressEvent } from './mod
 import type { InsideActionHost } from './ui/dashboard/insideActions.js';
 import { buildGraphInsideInput } from './ui/dashboard/graphInside.js';
 import { getPrById } from './store/prs.js';
-import {
-  getShipCommitById,
-  listStrandedShipTickets,
-  describeStrandedShip,
-} from './store/shipRuns.js';
+import { getShipCommitById } from './store/shipRuns.js';
 import { advanceTicketOnShip, statusPushSkipNote } from './workflow/stages/done.js';
 import { advanceTicketOnStart } from './workflow/stages/start.js';
 import { createFollowUpTicket, TicketNotDoneError } from './workflow/stages/followUp.js';
@@ -5222,42 +5219,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     dashboard.postInsideProgress(ticketId, shipClearedEvent(ticketId));
   };
 
-  // Stranded-ship recovery. A ship killed by a dead host leaves the ticket at
-  // `ship` reading `running` with a `running` ship_runs row and no way out:
-  // `settleShipGates` requires the awaiting-merge block the interrupted run
-  // never wrote, the drive sweep above covers only uat/review, and a `running`
-  // row offers no button in the dashboard — a freeze that survives every
-  // reload. The saga is built to be re-run (`reconcilePriorShipOperations`
-  // adopts or refutes the interrupted run's effects; commit/push skip what
-  // already landed), so RESUME it here: the describe step re-runs, the PR
-  // opens, and ship's tail parks awaiting-merge or walks the ticket to done.
-  // `listStrandedShipTickets` proves death from stored state — a run still
-  // carrying a LIVE pid is a ship another window is executing and is left
-  // strictly alone — so this never double-runs a live saga.
   if (startupProject) {
-    for (const stranded of listStrandedShipTickets(
-      localStore,
-      pidAlive,
-      { projectId: startupProject.id },
-    )) {
-      if (!guardCapability('ship')) continue;
-      // A paused ticket starts nothing on its own, and a ship saga is work:
-      // it describes with a model, pushes, and opens PRs. The stranded run
-      // stays stranded until the user unpauses — the same recovery then runs
-      // at the next activation.
-      if (getTicket(localStore, stranded.ticketId).pausedAt != null) {
-        logger.info(
-          `karst: stranded ship for ticket ${stranded.ticketId} left alone — the ticket is paused`,
-        );
-        continue;
-      }
-      logger.info(describeStrandedShip(stranded));
-      void runShipSaga(stranded.ticketId).catch((e) => {
-        logError('karst: stranded ship resume failed', e);
+    resumeStrandedShips({
+      store: localStore,
+      projectId: startupProject.id,
+      isAlive: pidAlive,
+      guardCapability,
+      runShip: (id) => runShipSaga(id),
+      info: (m) => logger.info(m),
+      logError,
+      onResumeFailed: (id) => {
         provider.refresh();
-        dashboard.pushState(stranded.ticketId);
-      });
-    }
+        dashboard.pushState(id);
+      },
+    });
   }
 
   // PR status sync: `ship` writes every PR as 'open' and nothing ever revised it,

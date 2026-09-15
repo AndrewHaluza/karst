@@ -292,15 +292,22 @@ describe('extension activation', () => {
   // confirm-ship click (one seam, never a second run body).
   it('resumes a stranded ship on activation, through the same seam as the click', () => {
     const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+    const sweep = readFileSync(
+      join(process.cwd(), 'src', 'extension', 'ops', 'strandedShip.ts'),
+      'utf8',
+    );
 
     // The READ that finds stranded ships, with the same liveness probe as the
-    // gate-run and process-run sweeps.
-    expect(source).toMatch(/listStrandedShipTickets\(\s*localStore,\s*pidAlive/);
-    expect(source).toMatch(/logger\.info\(\s*describeStrandedShip\(/);
+    // gate-run and process-run sweeps, and the resume live in the vscode-free
+    // `ops/strandedShip.ts`; the activation binding that calls them stays here.
+    expect(sweep).toMatch(/listStrandedShipTickets\(\s*deps\.store,\s*deps\.isAlive/);
+    expect(sweep).toMatch(/deps\.info\(\s*describeStrandedShip\(/);
     // Each stranded ship resumes the saga from the activation sweep…
-    expect(source).toMatch(/runShipSaga\(stranded\.ticketId\)/);
-    // …and the confirm-ship click runs the saga through the same seam, adding
-    // only the capability guard and the failure toast.
+    expect(sweep).toMatch(/void deps\.runShip\(stranded\.ticketId\)\.catch/);
+    // …and the activation binding passes the SAME saga seam in…
+    expect(source).toMatch(/runShip: \(id\) => runShipSaga\(id\)/);
+    // …which the confirm-ship click runs through too, adding only the
+    // capability guard and the failure toast.
     expect(source).toMatch(/void runShipSaga\(ticketId\)\.catch/);
     expect(source).not.toMatch(/void runShipTicket\(/);
   });
@@ -331,7 +338,7 @@ describe('extension activation', () => {
     // The park sweep must run before the stranded resume, or a dead run whose
     // stage was parked `failed` would read as a ticket that still needs one.
     expect(activationSource.indexOf('runBootSweeps({')).toBeLessThan(
-      activationSource.indexOf('listStrandedShipTickets('),
+      activationSource.indexOf('resumeStrandedShips({'),
     );
   });
 
