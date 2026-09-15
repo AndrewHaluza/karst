@@ -130,6 +130,22 @@ export interface ShipOpts {
    * matches nothing fails the stage rather than silently shipping nothing.
    */
   repos?: readonly string[];
+  /**
+   * Deliver new work into a pull request this ticket ALREADY opened, instead of
+   * skipping the repo.
+   *
+   * Default false — the crash-recovery behaviour this stage was built with: a
+   * re-run after a mid-ship crash must not redo a repo the previous run already
+   * pushed, so a live PR means "skip".
+   *
+   * True is the opposite situation: the ticket went back through fix and has NEW
+   * work for a PR that is already open. Setup, commit and push run; the whole PR
+   * region is skipped, because the PR and its body already exist. Commit is
+   * included deliberately — implementation may legitimately finish with changes
+   * still uncommitted in the worktree, because this stage is what materialises
+   * commits.
+   */
+  deliverToOpenPr?: boolean;
 }
 
 export interface ShippedPr {
@@ -916,6 +932,27 @@ function isStoreFailure(err: unknown): boolean {
   return typeof code === 'string' && code.startsWith('SQLITE_');
 }
 
+/**
+ * Whether this ticket has ever COMPLETED a ship — a `passed` `ship_runs` row.
+ *
+ * This is the production signal that the next ship is a RE-SHIP: a ticket's
+ * FIRST ship has no such run, while a ticket that already opened a PR, went
+ * back through fix, and reached `ship` again does. The host seam
+ * (`runShipSaga`) reads it to turn on `deliverToOpenPr`, so the new commits are
+ * committed and pushed onto the PR already open for a repo instead of being
+ * skipped as if the work had already been delivered (FIX-46).
+ *
+ * A crash-resume whose first ship never completed has no `passed` run, so it
+ * keeps the default skip; a retry after a FAILED ship likewise. That is
+ * deliberate — only a ship that genuinely completed once is a re-ship.
+ */
+export function hasCompletedShipRun(store: Store, ticketId: number): boolean {
+  const row = store.db
+    .prepare("SELECT 1 AS one FROM ship_runs WHERE ticket_id = ? AND status = 'passed' LIMIT 1")
+    .get(ticketId);
+  return row !== undefined;
+}
+
 export async function shipTicket(
   store: Store,
   opts: ShipOpts,
@@ -960,6 +997,20 @@ export async function shipTicket(
     `SELECT repo, number, url FROM prs
       WHERE ticket_id = ? AND repo = ?
         AND (status IS NULL OR status NOT IN ('closed', 'merged'))`,
+  );
+  // A repo whose PR has LANDED is FINISHED for a scoped retry: the out-of-scope
+  // completeness guard below must not count it as outstanding work just because
+  // it cannot re-probe it (`findOpenPr` rejects a non-OPEN PR).
+  //
+  // It does NOT skip the repo for THIS ship. A ticket that went through a fix
+  // cycle after its PR merged carries new commits that must reach GitHub as a
+  // fresh PR — the codebase already expects a repo re-shipped after a merge to
+  // hold both the merged row and a new open one (`CURRENT_PR_ORDER`). Skipping a
+  // merged repo strands those commits and lets the ticket read landed and walk to
+  // `done` without shipping them (FIX-46 review).
+  const mergedPr = store.db.prepare(
+    `SELECT repo, number, url FROM prs
+      WHERE ticket_id = ? AND repo = ? AND status = 'merged'`,
   );
 
   // A retry re-runs this stage: clear any reason the last attempt recorded, so a
@@ -1028,7 +1079,8 @@ export async function shipTicket(
         const prior = existingLive.get(opts.ticketId, wt.repo) as
           | { repo: string; number: number | null; url: string }
           | undefined;
-        if (prior) {
+        const deliveringToOpenPr = Boolean(prior && opts.deliverToOpenPr);
+        if (prior && !opts.deliverToOpenPr) {
           prs.push({ repo: prior.repo, number: prior.number, url: prior.url });
           // Nothing ran this time — say so for every step this repo skips,
           // rather than leaving commit/push looking like they are still "to
@@ -1052,6 +1104,19 @@ export async function shipTicket(
             });
           }
           continue;
+        }
+        if (deliveringToOpenPr && prior) {
+          // The PR exists but the work is new. Commit and push onto the SAME head
+          // branch, which updates the PR in place. The PR region below is skipped —
+          // the PR and its body already exist, and re-describing would either
+          // overwrite a human's edits or pay for prose nobody reads. The `pr`
+          // progress events are emitted AFTER the push lands (the guarded region's
+          // `else` below), so the live view shows the same run→pass the normal
+          // path does instead of a note that contradicts the recorded step.
+          prs.push({ repo: prior.repo, number: prior.number, url: prior.url });
+          opts.debug?.(
+            `[gate] ship ticket ${opts.ticketId}: repo ${wt.repo} delivering into existing PR ${prior.url}`,
+          );
         }
         // Push FIRST. `gh pr create` refuses a branch that exists only on this
         // machine ("you must first push the current branch to a remote"), and every
@@ -1398,7 +1463,9 @@ export async function shipTicket(
                   url: adopted.url,
                   detail: adoptedDetail,
                 });
-                prs.push({ repo: wt.repo, number: adopted.number, url: adopted.url });
+                if (!deliveringToOpenPr) {
+                  prs.push({ repo: wt.repo, number: adopted.number, url: adopted.url });
+                }
               }
             } catch {
               // Observability must not compound the push failure being thrown.
@@ -1418,307 +1485,332 @@ export async function shipTicket(
           onProgress({ repo: wt.repo, step: 'push', status: 'pass' });
         }
 
-        // The `prs` table only knows about PRs karst itself opened, so a PR opened
-        // by hand — or by a run whose row was lost — used to make ship fail with
-        // gh's "a pull request for branch … already exists", permanently: openPr
-        // threw before the insert below, so the local check above could never
-        // absorb the retry, and ship has no `failed` edge to advance out of. An
-        // open PR is what ship is FOR. Adopt it; the push above already gave it
-        // the new commits.
-        //
-        // Probing BEFORE the create rather than rescuing after it also keeps
-        // `describePr` from paying for prose describing a PR that already exists.
-        onProgress({ repo: wt.repo, step: 'pr', status: 'run' });
-        const existing = await findOpenPr(gh, wt.path);
-        // A manifest that declares no description template still gets the default
-        // one — that is how the metadata (provider/model/approach/session) ships
-        // by default. Clearing the field or replacing it is what turns it off.
-        const descriptionTemplate = conventions?.pullRequestDescription ?? DEFAULT_PR_DESCRIPTION_TEMPLATE;
+        if (!deliveringToOpenPr) {
+          // The `prs` table only knows about PRs karst itself opened, so a PR opened
+          // by hand — or by a run whose row was lost — used to make ship fail with
+          // gh's "a pull request for branch … already exists", permanently: openPr
+          // threw before the insert below, so the local check above could never
+          // absorb the retry, and ship has no `failed` edge to advance out of. An
+          // open PR is what ship is FOR. Adopt it; the push above already gave it
+          // the new commits.
+          //
+          // Probing BEFORE the create rather than rescuing after it also keeps
+          // `describePr` from paying for prose describing a PR that already exists.
+          onProgress({ repo: wt.repo, step: 'pr', status: 'run' });
+          const existing = await findOpenPr(gh, wt.path);
+          // A manifest that declares no description template still gets the default
+          // one — that is how the metadata (provider/model/approach/session) ships
+          // by default. Clearing the field or replacing it is what turns it off.
+          const descriptionTemplate = conventions?.pullRequestDescription ?? DEFAULT_PR_DESCRIPTION_TEMPLATE;
 
-        // RC5, stated in the public record: whether any gate stage's latest run
-        // answered a different question set than the one before it. Ticket-wide
-        // (the same for every repo), so computed once per worktree.
-        const gateSetChanged = gateSetChangedSincePreviousRun(store, opts.ticketId);
+          // RC5, stated in the public record: whether any gate stage's latest run
+          // answered a different question set than the one before it. Ticket-wide
+          // (the same for every repo), so computed once per worktree.
+          const gateSetChanged = gateSetChangedSincePreviousRun(store, opts.ticketId);
 
-        /**
-         * The PR body, rendered exactly the same way whether it is about to open a
-         * PR or to backfill one that was adopted — one description, one shape, so an
-         * adopted PR cannot end up with prose in a different format from a created
-         * one. The model call runs under its own durable describe step and
-         * `pr-description` process run (see `generateDescription`).
-         */
-        // The deterministic fallback body, rendered locally from bounded branch
-        // git facts (commit bullets + diffstat) — a ship with no AI process
-        // still carries what changed rather than just the title. A failed read
-        // degrades to a title-only body and never fails ship.
-        const deterministicDescription = (diffContext: PrDiffContext): string =>
-          renderPrDescription({
-            title: prTitle,
-            repo: wt.repo,
-            branch: wt.branch ?? undefined,
-            baseRef: base,
-            ...diffContext,
-            gateSetChanged,
-          });
-        const runDescriptionStep = async (
-          process: DriveProcessBundle | null | undefined,
-          ctx: PrDescriptionContext,
-        ): Promise<string> => {
-          if (process) {
-            // Task 3: the configured process bundle — its adapter AND its
-            // assignment snapshot. The assignment rides the run; the adapter is
-            // the same instrumented adapter the host resolved, so token usage
-            // attribution stays centralized.
+          /**
+           * The PR body, rendered exactly the same way whether it is about to open a
+           * PR or to backfill one that was adopted — one description, one shape, so an
+           * adopted PR cannot end up with prose in a different format from a created
+           * one. The model call runs under its own durable describe step and
+           * `pr-description` process run (see `generateDescription`).
+           */
+          // The deterministic fallback body, rendered locally from bounded branch
+          // git facts (commit bullets + diffstat) — a ship with no AI process
+          // still carries what changed rather than just the title. A failed read
+          // degrades to a title-only body and never fails ship.
+          const deterministicDescription = (diffContext: PrDiffContext): string =>
+            renderPrDescription({
+              title: prTitle,
+              repo: wt.repo,
+              branch: wt.branch ?? undefined,
+              baseRef: base,
+              ...diffContext,
+              gateSetChanged,
+            });
+          const runDescriptionStep = async (
+            process: DriveProcessBundle | null | undefined,
+            ctx: PrDescriptionContext,
+          ): Promise<string> => {
+            if (process) {
+              // Task 3: the configured process bundle — its adapter AND its
+              // assignment snapshot. The assignment rides the run; the adapter is
+              // the same instrumented adapter the host resolved, so token usage
+              // attribution stays centralized.
+              opts.debug?.(
+                `[ship] ticket ${opts.ticketId} ${wt.repo}: PR description via configured process ${process.assignment?.agentName ?? '?'}`,
+              );
+              return generateDescription(
+                store,
+                run,
+                wt.repo,
+                process.adapter,
+                wt.path,
+                ctx,
+                opts.ticketId,
+                onProgress,
+                onInsideProgress,
+                process.assignment,
+              );
+            }
+            if (process === null) {
+              // Configured ABSENCE (enabled: false): no model call, no process run —
+              // the deterministic branch-facts body is rendered locally instead,
+              // and no passed AI process is recorded for work nobody did.
+              opts.debug?.(
+                `[ship] ticket ${opts.ticketId} ${wt.repo}: PR description disabled — deterministic branch-facts body`,
+              );
+              return deterministicDescription(ctx);
+            }
+            // Legacy caller: no configured bundle, the positional adapter runs the
+            // step as before (no identity snapshot — pre-Task-3 behavior).
+            if (adapter) {
+              opts.debug?.(
+                `[ship] ticket ${opts.ticketId} ${wt.repo}: PR description via legacy positional adapter`,
+              );
+              return generateDescription(
+                store,
+                run,
+                wt.repo,
+                adapter,
+                wt.path,
+                ctx,
+                opts.ticketId,
+                onProgress,
+                onInsideProgress,
+                undefined,
+              );
+            }
             opts.debug?.(
-              `[ship] ticket ${opts.ticketId} ${wt.repo}: PR description via configured process ${process.assignment?.agentName ?? '?'}`,
-            );
-            return generateDescription(
-              store,
-              run,
-              wt.repo,
-              process.adapter,
-              wt.path,
-              ctx,
-              opts.ticketId,
-              onProgress,
-              onInsideProgress,
-              process.assignment,
-            );
-          }
-          if (process === null) {
-            // Configured ABSENCE (enabled: false): no model call, no process run —
-            // the deterministic branch-facts body is rendered locally instead,
-            // and no passed AI process is recorded for work nobody did.
-            opts.debug?.(
-              `[ship] ticket ${opts.ticketId} ${wt.repo}: PR description disabled — deterministic branch-facts body`,
+              `[ship] ticket ${opts.ticketId} ${wt.repo}: no description adapter — deterministic branch-facts body`,
             );
             return deterministicDescription(ctx);
-          }
-          // Legacy caller: no configured bundle, the positional adapter runs the
-          // step as before (no identity snapshot — pre-Task-3 behavior).
-          if (adapter) {
-            opts.debug?.(
-              `[ship] ticket ${opts.ticketId} ${wt.repo}: PR description via legacy positional adapter`,
-            );
-            return generateDescription(
-              store,
-              run,
-              wt.repo,
-              adapter,
-              wt.path,
-              ctx,
-              opts.ticketId,
-              onProgress,
-              onInsideProgress,
-              undefined,
-            );
-          }
-          opts.debug?.(
-            `[ship] ticket ${opts.ticketId} ${wt.repo}: no description adapter — deterministic branch-facts body`,
-          );
-          return deterministicDescription(ctx);
-        };
-        const buildBody = async (): Promise<string> => {
-          // A configured template that never asks for prose needs no model call
-          // and no branch reads.
-          if (descriptionTemplate && !usesDescription(descriptionTemplate)) {
-            opts.debug?.(
-              `[ship] ticket ${opts.ticketId} ${wt.repo}: description template needs no prose — no model call`,
-            );
-            return renderArtifactTemplate('pullRequestDescription', descriptionTemplate, {
-              ...templateContext,
-              description: prTitle,
-            });
-          }
-          // The branch material the description is written from, collected ONCE
-          // and shared by every path that renders a body — the deterministic
-          // fallback AND the model prompt. A model handed only a title goes
-          // exploring for the changes and can answer "where is the worktree?"
-          // instead of describing them (PR #117); with the facts in the prompt
-          // it needs no tools and no clarification. A failed read degrades to a
-          // title-only prompt — observability must never fail a ship.
-          let diffContext: PrDiffContext = {};
-          if (base) {
-            opts.debug?.(
-              `[ship] ticket ${opts.ticketId} ${wt.repo}: collecting branch facts for the PR description (base ${base})`,
-            );
-            try {
-              diffContext = await collectPrDiffContext(git, wt.path, base);
-            } catch {
-              diffContext = {};
-            }
-          }
-          const promptCtx: PrDescriptionContext = {
-            title: prTitle,
-            repo: wt.repo,
-            branch: wt.branch ?? undefined,
-            baseRef: base,
-            gateSetChanged,
-            ...diffContext,
           };
-          if (descriptionTemplate) {
-            const description = await runDescriptionStep(opts.prDescriptionProcess, promptCtx);
-            return renderArtifactTemplate('pullRequestDescription', descriptionTemplate, {
-              ...templateContext,
-              description,
-            });
-          }
-          return runDescriptionStep(opts.prDescriptionProcess, promptCtx);
-        };
+          const buildBody = async (): Promise<string> => {
+            // A configured template that never asks for prose needs no model call
+            // and no branch reads.
+            if (descriptionTemplate && !usesDescription(descriptionTemplate)) {
+              opts.debug?.(
+                `[ship] ticket ${opts.ticketId} ${wt.repo}: description template needs no prose — no model call`,
+              );
+              return renderArtifactTemplate('pullRequestDescription', descriptionTemplate, {
+                ...templateContext,
+                description: prTitle,
+              });
+            }
+            // The branch material the description is written from, collected ONCE
+            // and shared by every path that renders a body — the deterministic
+            // fallback AND the model prompt. A model handed only a title goes
+            // exploring for the changes and can answer "where is the worktree?"
+            // instead of describing them (PR #117); with the facts in the prompt
+            // it needs no tools and no clarification. A failed read degrades to a
+            // title-only prompt — observability must never fail a ship.
+            let diffContext: PrDiffContext = {};
+            if (base) {
+              opts.debug?.(
+                `[ship] ticket ${opts.ticketId} ${wt.repo}: collecting branch facts for the PR description (base ${base})`,
+              );
+              try {
+                diffContext = await collectPrDiffContext(git, wt.path, base);
+              } catch {
+                diffContext = {};
+              }
+            }
+            const promptCtx: PrDescriptionContext = {
+              title: prTitle,
+              repo: wt.repo,
+              branch: wt.branch ?? undefined,
+              baseRef: base,
+              gateSetChanged,
+              ...diffContext,
+            };
+            if (descriptionTemplate) {
+              const description = await runDescriptionStep(opts.prDescriptionProcess, promptCtx);
+              return renderArtifactTemplate('pullRequestDescription', descriptionTemplate, {
+                ...templateContext,
+                description,
+              });
+            }
+            return runDescriptionStep(opts.prDescriptionProcess, promptCtx);
+          };
 
-        let opened: OpenedPr;
-        if (existing) {
-          // Adopting used to skip the description wholesale, which is right for a PR
-          // that HAS one and wrong for the common case that produced this ticket: a
-          // PR opened by hand, with an empty body, that nothing would ever fill.
-          //
-          // Three-valued on purpose, because the destructive mistake is asymmetric —
-          // overwriting a description a human wrote is unrecoverable, leaving one
-          // empty is not. So only a body gh positively reported as empty is filled;
-          // "gh did not say" (null) is left alone, exactly like a degraded PR probe.
-          noteReusedPr(wt.repo, onProgress);
-          const prAt = nowIso();
-          const prOp = openStepWithPreparation(store, {
-            run,
-            repo: wt.repo,
-            step: 'pr',
-            operationKey: `${run.id}:${wt.repo}:pr`,
-            preState: {
-              step: 'pr',
-              head: wt.branch ?? 'HEAD',
-              base: base ?? null,
-              preExistingUrl: existing.url,
-            },
-            detail: `#${existing.number}`,
-            at: prAt,
-          });
-          finalizeShipOperationIntent(
-            store,
-            prOp.intentId,
-            {
-              step: 'pr',
-              head: wt.branch ?? 'HEAD',
-              base: base ?? null,
-              title: prTitle,
-              body: '',
-              preExistingUrl: existing.url,
-            },
-            prAt,
-          );
-          await backfillDescription(
-            gh,
-            wt.repo,
-            wt.path,
-            existing,
-            buildBody,
-            onProgress,
-            { store, run },
-          );
-          markShipOperationApplied(store, prOp.intentId, {
-            appliedAt: nowIso(),
-            resolvedAt: nowIso(),
-          });
-          reconcileShipOperation(store, prOp.intentId, 'reconciled', { resolvedAt: nowIso() });
-          finishShipRepoStep(store, prOp.stepId, {
-            status: 'passed',
-            detail: `adopted #${existing.number}`,
-            prNumber: existing.number,
-            existedBeforeShip: true,
-            endedAt: nowIso(),
-          });
-          opened = existing;
-        } else {
-          const body = await buildBody();
-          // Durable pr intent: pre-state BEFORE the external create, intent with
-          // the exact head/base/title/body about to be sent.
-          const prAt = nowIso();
-          const prOp = openStepWithPreparation(store, {
-            run,
-            repo: wt.repo,
-            step: 'pr',
-            operationKey: `${run.id}:${wt.repo}:pr`,
-            preState: {
-              step: 'pr',
-              head: wt.branch ?? 'HEAD',
-              base: base ?? null,
-              preExistingUrl: null,
-            },
-            detail: prTitle,
-            at: prAt,
-          });
-          finalizeShipOperationIntent(
-            store,
-            prOp.intentId,
-            {
-              step: 'pr',
-              head: wt.branch ?? 'HEAD',
-              base: base ?? null,
-              title: prTitle,
-              body,
-              preExistingUrl: null,
-            },
-            prAt,
-          );
-          const created = await openPr(gh, { cwd: wt.path, title: prTitle, body, base });
-          if (created.adopted) {
-            // The probe above answered null but a PR existed anyway — it is
-            // branch-inferred, so bad auth or an ambiguous base repo looks exactly
-            // like "no PR". gh named the PR when it refused, so nothing failed.
+          let opened: OpenedPr;
+          if (existing) {
+            // Adopting used to skip the description wholesale, which is right for a PR
+            // that HAS one and wrong for the common case that produced this ticket: a
+            // PR opened by hand, with an empty body, that nothing would ever fill.
             //
-            // The body just generated never reached GitHub. Re-probe by ref (the
-            // branch lookup is the thing that just proved unreliable) and apply the
-            // same rule as any adopted PR: fill an empty description, never
-            // overwrite a written one. No second model call — the prose exists.
+            // Three-valued on purpose, because the destructive mistake is asymmetric —
+            // overwriting a description a human wrote is unrecoverable, leaving one
+            // empty is not. So only a body gh positively reported as empty is filled;
+            // "gh did not say" (null) is left alone, exactly like a degraded PR probe.
             noteReusedPr(wt.repo, onProgress);
-            const current = await fetchPrBody(gh, created.url, wt.path);
+            const prAt = nowIso();
+            const prOp = openStepWithPreparation(store, {
+              run,
+              repo: wt.repo,
+              step: 'pr',
+              operationKey: `${run.id}:${wt.repo}:pr`,
+              preState: {
+                step: 'pr',
+                head: wt.branch ?? 'HEAD',
+                base: base ?? null,
+                preExistingUrl: existing.url,
+              },
+              detail: `#${existing.number}`,
+              at: prAt,
+            });
+            finalizeShipOperationIntent(
+              store,
+              prOp.intentId,
+              {
+                step: 'pr',
+                head: wt.branch ?? 'HEAD',
+                base: base ?? null,
+                title: prTitle,
+                body: '',
+                preExistingUrl: existing.url,
+              },
+              prAt,
+            );
             await backfillDescription(
               gh,
               wt.repo,
               wt.path,
-              { ...created, body: current },
-              async () => body,
+              existing,
+              buildBody,
               onProgress,
               { store, run },
             );
+            markShipOperationApplied(store, prOp.intentId, {
+              appliedAt: nowIso(),
+              resolvedAt: nowIso(),
+            });
+            reconcileShipOperation(store, prOp.intentId, 'reconciled', { resolvedAt: nowIso() });
+            finishShipRepoStep(store, prOp.stepId, {
+              status: 'passed',
+              detail: `adopted #${existing.number}`,
+              prNumber: existing.number,
+              existedBeforeShip: true,
+              endedAt: nowIso(),
+            });
+            opened = existing;
+          } else {
+            const body = await buildBody();
+            // Durable pr intent: pre-state BEFORE the external create, intent with
+            // the exact head/base/title/body about to be sent.
+            const prAt = nowIso();
+            const prOp = openStepWithPreparation(store, {
+              run,
+              repo: wt.repo,
+              step: 'pr',
+              operationKey: `${run.id}:${wt.repo}:pr`,
+              preState: {
+                step: 'pr',
+                head: wt.branch ?? 'HEAD',
+                base: base ?? null,
+                preExistingUrl: null,
+              },
+              detail: prTitle,
+              at: prAt,
+            });
+            finalizeShipOperationIntent(
+              store,
+              prOp.intentId,
+              {
+                step: 'pr',
+                head: wt.branch ?? 'HEAD',
+                base: base ?? null,
+                title: prTitle,
+                body,
+                preExistingUrl: null,
+              },
+              prAt,
+            );
+            const created = await openPr(gh, { cwd: wt.path, title: prTitle, body, base });
+            if (created.adopted) {
+              // The probe above answered null but a PR existed anyway — it is
+              // branch-inferred, so bad auth or an ambiguous base repo looks exactly
+              // like "no PR". gh named the PR when it refused, so nothing failed.
+              //
+              // The body just generated never reached GitHub. Re-probe by ref (the
+              // branch lookup is the thing that just proved unreliable) and apply the
+              // same rule as any adopted PR: fill an empty description, never
+              // overwrite a written one. No second model call — the prose exists.
+              noteReusedPr(wt.repo, onProgress);
+              const current = await fetchPrBody(gh, created.url, wt.path);
+              await backfillDescription(
+                gh,
+                wt.repo,
+                wt.path,
+                { ...created, body: current },
+                async () => body,
+                onProgress,
+                { store, run },
+              );
+            }
+            markShipOperationApplied(store, prOp.intentId, {
+              appliedAt: nowIso(),
+              resolvedAt: nowIso(),
+            });
+            reconcileShipOperation(store, prOp.intentId, 'reconciled', { resolvedAt: nowIso() });
+            finishShipRepoStep(store, prOp.stepId, {
+              status: 'passed',
+              detail: created.adopted ? `adopted #${created.number}` : `opened #${created.number}`,
+              prNumber: created.number,
+              existedBeforeShip: created.adopted,
+              endedAt: nowIso(),
+            });
+            opened = created;
           }
-          markShipOperationApplied(store, prOp.intentId, {
-            appliedAt: nowIso(),
-            resolvedAt: nowIso(),
+          onProgress({ repo: wt.repo, step: 'pr', status: 'pass' });
+          recordShippedPr(store, {
+            ticketId: opts.ticketId,
+            repo: wt.repo,
+            number: opened.number,
+            url: opened.url,
           });
-          reconcileShipOperation(store, prOp.intentId, 'reconciled', { resolvedAt: nowIso() });
-          finishShipRepoStep(store, prOp.stepId, {
+          // The from-to branches and the opened stamp are what the ship stage shows
+          // beside the PR it just made. Read them now, from the PR that exists, rather
+          // than leaving the row blank until the next background sweep ticks — the
+          // moment the user is looking at ship is the moment right after it ran.
+          //
+          // Never fatal: a failed probe leaves NULLs, which render as absent and are
+          // filled by `syncPrStatuses` later. Observability must not break the
+          // operation it observes, and the PR is already open — the irreversible part
+          // succeeded.
+          const detail = await fetchPrDetail(gh, opened.url, wt.path).catch(() => UNKNOWN_PR_DETAIL);
+          updatePrDetail(store, {
+            ticketId: opts.ticketId,
+            repo: wt.repo,
+            url: opened.url,
+            detail,
+          });
+          prs.push({ repo: wt.repo, number: opened.number, url: opened.url });
+        } else if (deliveringToOpenPr && prior) {
+          // Deliver mode pushed the new commits onto the existing PR's head but
+          // skipped the whole PR region, so no `pr` step was recorded — and the
+          // persisted evidence then read "pr step not recorded" for the very PR
+          // this run updated. Record the step the normal path would have written
+          // (FIX-46 review). No operation intent: no external PR mutation ran.
+          onProgress({ repo: wt.repo, step: 'pr', status: 'run' });
+          const landedNumber = prior.number;
+          const prStep = openShipRepoStep(store, {
+            shipRunId: run.id,
+            repo: wt.repo,
+            step: 'pr',
+            detail: landedNumber === null ? 'existing PR' : `#${landedNumber}`,
+            startedAt: nowIso(),
+          });
+          finishShipRepoStep(store, prStep.id, {
             status: 'passed',
-            detail: created.adopted ? `adopted #${created.number}` : `opened #${created.number}`,
-            prNumber: created.number,
-            existedBeforeShip: created.adopted,
+            detail: landedNumber === null ? 'delivered' : `delivered #${landedNumber}`,
+            prNumber: landedNumber,
+            existedBeforeShip: true,
             endedAt: nowIso(),
           });
-          opened = created;
+          onProgress({ repo: wt.repo, step: 'pr', status: 'pass' });
         }
-        onProgress({ repo: wt.repo, step: 'pr', status: 'pass' });
-        recordShippedPr(store, {
-          ticketId: opts.ticketId,
-          repo: wt.repo,
-          number: opened.number,
-          url: opened.url,
-        });
-        // The from-to branches and the opened stamp are what the ship stage shows
-        // beside the PR it just made. Read them now, from the PR that exists, rather
-        // than leaving the row blank until the next background sweep ticks — the
-        // moment the user is looking at ship is the moment right after it ran.
-        //
-        // Never fatal: a failed probe leaves NULLs, which render as absent and are
-        // filled by `syncPrStatuses` later. Observability must not break the
-        // operation it observes, and the PR is already open — the irreversible part
-        // succeeded.
-        const detail = await fetchPrDetail(gh, opened.url, wt.path).catch(() => UNKNOWN_PR_DETAIL);
-        updatePrDetail(store, {
-          ticketId: opts.ticketId,
-          repo: wt.repo,
-          url: opened.url,
-          detail,
-        });
-        prs.push({ repo: wt.repo, number: opened.number, url: opened.url });
       } catch (err) {
         // A STORE failure is not this repo's failure — it is the ground under
         // every repo giving way. SQLite is the source of truth: if writing the
@@ -1759,6 +1851,7 @@ export async function shipTicket(
         const failed = Object.values(steps).some((s) => s?.status === 'failed');
         if (!failed) continue;
         if (existingLive.get(opts.ticketId, wt.repo) !== undefined) continue;
+        if (mergedPr.get(opts.ticketId, wt.repo) !== undefined) continue;
         const upstream = await findOpenPr(gh, wt.path).catch(() => null);
         if (upstream) continue;
         outstanding.push(wt.repo);

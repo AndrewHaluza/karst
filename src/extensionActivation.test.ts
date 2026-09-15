@@ -305,6 +305,16 @@ describe('extension activation', () => {
     expect(source).not.toMatch(/void runShipTicket\(/);
   });
 
+  // FIX-46 (review): the deliver-into-open-PR capability is only reachable if a
+  // production caller turns it on. A ship the ticket already COMPLETED is the
+  // re-ship signal the host seam reads; without this wiring the flag is dead
+  // code and a re-ship still skips the PR the ticket already opened.
+  it('turns on deliverToOpenPr for a re-ship through the host seam', () => {
+    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+    expect(source).toMatch(/const deliverToOpenPr = hasCompletedShipRun\(localStore, ticketId\)/);
+    expect(source).toMatch(/\.\.\.\(deliverToOpenPr \? \{ deliverToOpenPr: true \} : \{\}\)/);
+  });
+
   // A dead ship run is ALSO recovered by parking, not just resume: the
   // reconcile sweep closes a run whose host died and parks the stage `failed`
   // (the "Retry ship" surface), which runs BEFORE the stranded resume above so

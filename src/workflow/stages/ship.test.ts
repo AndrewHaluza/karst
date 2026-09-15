@@ -7,10 +7,10 @@ import { createTicketFlow } from './create.js';
 import { getTicket, setSessionId, updateTicketFields } from '../../store/tickets.js';
 import { listPrsByTicket } from '../../store/dashboard.js';
 import { listMergeChecksByTicket } from '../../store/mergeChecks.js';
-import { listShipEvidence } from '../../store/shipRuns.js';
+import { listShipEvidence, openShipRun, closeShipRun } from '../../store/shipRuns.js';
 import { listProcessRuns } from '../../store/processRuns.js';
 import { transition } from '../machine.js';
-import { shipTicket, type ShipStepEvent } from './ship.js';
+import { shipTicket, hasCompletedShipRun, type ShipStepEvent } from './ship.js';
 import type { InsideProgressEvent } from '../../model/inside/progress.js';
 import type { GhRunner } from '../../integrations/github.js';
 import { defaultGitRunner, runGit, type GitRunner } from '../../integrations/git.js';
@@ -2295,6 +2295,89 @@ setTimeout(() => {
     expect(res.prs).toEqual([{ repo: '/repo/frontend', number: 3461, url: 'https://github.com/o/r/pull/3461' }]);
   });
 
+  // A repo whose PR has LANDED is NOT skipped. A ticket that went through a fix
+  // cycle after its PR merged carries new commits that must reach GitHub as a
+  // fresh PR — the codebase already expects a repo re-shipped after a merge to
+  // hold both the merged row and a new open one (`CURRENT_PR_ORDER`). Skipping a
+  // merged repo stranded those commits and let the ticket read landed and walk
+  // to `done` without shipping them (FIX-46 review, high).
+  describe('merged PR re-ship', () => {
+    function seedMerged(repo: string): void {
+      store.db
+        .prepare("INSERT INTO prs (ticket_id, repo, number, url, status) VALUES (?, ?, 1, 'u', 'merged')")
+        .run(id, repo);
+    }
+
+    it('re-ships a merged repo with new work instead of stranding it', async () => {
+      seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+      seedMerged('/repo/frontend');
+      const fake = fakeGh();
+      const { git, calls } = fakeGit();
+
+      const res = await shipTicket(store, { ticketId: id }, fake.gh, fakeAdapter(), git);
+
+      // The new commits reached a fresh PR; the merged row is kept beside it.
+      expect(fake.calls).toBe(1);
+      expect(mutating(calls)).not.toEqual([]);
+      expect(res.prs).toEqual([
+        { repo: '/repo/frontend', number: 1, url: 'https://github.com/o/r/pull/1' },
+      ]);
+      expect(listPrsByTicket(store, id)).toHaveLength(2);
+    });
+
+    it('does not report the ticket landed while a merged repo still had work to ship', async () => {
+      seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+      seedMerged('/repo/frontend');
+
+      await shipTicket(
+        store,
+        { ticketId: id },
+        fakeGh().gh,
+        fakeAdapter(),
+        gitWithMergeProbe({ exitCode: 0 }),
+      );
+
+      const t = getTicket(store, id);
+      expect(t.stageCurrent).toBe('ship');
+      expect(t.stages.find((s) => s.stageKey === 'ship')?.blockedKind).toBe('awaiting-merge');
+    });
+
+    it('ships a fresh PR for every repo when all previous PRs are merged', async () => {
+      seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+      seedWorktree(store, id, '/repo/backend', join(dir, 'be'));
+      seedMerged('/repo/frontend');
+      seedMerged('/repo/backend');
+      const fake = fakeGh();
+
+      const res = await shipTicket(store, { ticketId: id }, fake.gh, fakeAdapter(), fakeGit().git);
+
+      expect(fake.calls).toBe(2);
+      expect(res.prs).toHaveLength(2);
+    });
+
+    // A live row is the stronger (more current) fact: a repo carrying a stale
+    // merged row AND a genuinely newer open PR must not be dropped. The old
+    // "any merged row wins" ordering made a later live PR permanently
+    // unreachable by ship (UAT FIX-46, high).
+    it('prefers a live row over a stale merged row instead of dropping the live PR', async () => {
+      seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+      seedMerged('/repo/frontend');
+      store.db
+        .prepare("INSERT INTO prs (ticket_id, repo, number, url, status) VALUES (?, ?, 2, 'v', 'open')")
+        .run(id, '/repo/frontend');
+      const fake = fakeGh();
+      const { git, calls } = fakeGit();
+
+      const res = await shipTicket(store, { ticketId: id }, fake.gh, fakeAdapter(), git);
+
+      // Default mode skips the live PR (crash-recovery rule) but reports it, and
+      // must not emit merged-skip notes for a repo whose current PR is live.
+      expect(fake.calls).toBe(0);
+      expect(mutating(calls)).toEqual([]);
+      expect(res.prs).toEqual([{ repo: '/repo/frontend', number: 2, url: 'v' }]);
+    });
+  });
+
   // The guard on the tail transition (only advance when still AT ship) is not
   // enough on its own: the head `setStage(..., 'ship', {status:'running', ...})`
   // ran unconditionally, so a re-run past ship would leave the `ship` row stuck
@@ -2787,5 +2870,294 @@ setTimeout(() => {
       expect(res.prs[0]?.repo).toBe('/repo/frontend');
       expect(getTicket(store, id).stages.find((s) => s.stageKey === 'ship')?.status).not.toBe('failed');
     });
+  });
+
+  // FIX-46: deliver NEW work into a PR this ticket ALREADY opened. The default
+  // (flag absent) is the crash-recovery behaviour — a live PR means "skip". With
+  // `deliverToOpenPr: true` a live PR means "commit and push onto the same head
+  // branch"; the PR and its body already exist, so describe and `gh pr create`
+  // are skipped and the repo is reported exactly once.
+  describe('deliverToOpenPr', () => {
+    const LIVE_URL = 'https://github.com/o/r/pull/18';
+
+    function seedLivePr(repoName: string): void {
+      store.db
+        .prepare(
+          "INSERT INTO prs (ticket_id, repo, number, url, status) VALUES (?, ?, 18, ?, 'open')",
+        )
+        .run(id, repoName, LIVE_URL);
+    }
+
+    function seedMergedPr(repoName: string): void {
+      store.db
+        .prepare("INSERT INTO prs (ticket_id, repo, number, url, status) VALUES (?, ?, 1, 'u', 'merged')")
+        .run(id, repoName);
+    }
+
+    it('default (flag absent), live PR: records no commit and no push', async () => {
+      seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+      seedLivePr('/repo/frontend');
+      const { git, calls } = fakeGit();
+
+      await shipTicket(store, { ticketId: id }, fakeGh().gh, fakeAdapter(), git);
+
+      expect(mutating(calls)).toEqual([]);
+    });
+
+    it('deliverToOpenPr, live PR: commits and pushes onto the existing PR head', async () => {
+      const worktree = join(dir, 'fe');
+      seedWorktree(store, id, '/repo/frontend', worktree);
+      await initRealRepo(worktree);
+      writeFileSync(join(worktree, 'left.txt'), 'work');
+      seedLivePr('/repo/frontend');
+      const calls: string[][] = [];
+
+      await shipTicket(
+        store,
+        { ticketId: id, deliverToOpenPr: true },
+        fakeGh().gh,
+        fakeAdapter(),
+        dirtyRealRepo(calls),
+      );
+
+      const created = createdShipCommit(store, id, '/repo/frontend');
+      expect(created?.sha).toMatch(/^[0-9a-f]{40}$/);
+      expect(calls.some((args) => args[0] === 'push')).toBe(true);
+    });
+
+    it('deliverToOpenPr, live PR: never calls gh pr create', async () => {
+      seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+      seedLivePr('/repo/frontend');
+      const { gh, args } = ghWithExistingPr(LIVE_URL);
+
+      await shipTicket(
+        store,
+        { ticketId: id, deliverToOpenPr: true },
+        gh,
+        fakeAdapter(),
+        fakeGit().git,
+      );
+
+      expect(args.some((a) => a[1] === 'create')).toBe(false);
+    });
+
+    it('deliverToOpenPr, live PR: never invokes the description process', async () => {
+      seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+      seedLivePr('/repo/frontend');
+
+      await shipTicket(
+        store,
+        { ticketId: id, deliverToOpenPr: true },
+        fakeGh().gh,
+        fakeAdapter(),
+        fakeGit().git,
+      );
+
+      expect(listProcessRuns(store, id).filter((r) => r.processId === 'pr-description')).toHaveLength(0);
+    });
+
+    it('deliverToOpenPr, live PR: reports the PR exactly once', async () => {
+      seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+      seedLivePr('/repo/frontend');
+
+      const res = await shipTicket(
+        store,
+        { ticketId: id, deliverToOpenPr: true },
+        fakeGh().gh,
+        fakeAdapter(),
+        fakeGit().git,
+      );
+
+      expect(res.prs).toEqual([{ repo: '/repo/frontend', number: 18, url: LIVE_URL }]);
+    });
+
+    // FIX-46 (review, low): deliver mode skipped the PR region, so no `pr` step
+    // was recorded and the persisted evidence read "pr step not recorded" for
+    // the very PR the run updated. The step must describe the existing PR.
+    it('deliverToOpenPr, live PR: records the pr step instead of leaving it unrecorded', async () => {
+      const worktree = join(dir, 'fe');
+      seedWorktree(store, id, '/repo/frontend', worktree);
+      await initRealRepo(worktree);
+      writeFileSync(join(worktree, 'left.txt'), 'work');
+      seedLivePr('/repo/frontend');
+
+      await shipTicket(
+        store,
+        { ticketId: id, deliverToOpenPr: true },
+        fakeGh().gh,
+        fakeAdapter(),
+        dirtyRealRepo([]),
+      );
+
+      const step = listShipEvidence(store, id).repos['/repo/frontend']?.steps.pr;
+      expect(step?.status).toBe('passed');
+      expect(step?.number).toBe(18);
+      expect(step?.existedBeforeShip).toBe(true);
+    });
+
+    // The plan's literal case-6 wording ("the RETURNED prs list still contains it
+    // once when the push fails") is unreachable in this codebase: ANY push
+    // failure lands in `repoFailures` and `shipTicket` throws the aggregate
+    // immediately after the per-worktree loop — it cannot return a list. This is
+    // the closest faithful exercise of the same path: deliver mode + a live PR +
+    // a gh that WOULD adopt on `pr view` + a push that fails. The adoption push
+    // in the catch is guarded, so the PR is never recorded a second time; ship
+    // still rejects with the push error.
+    it('deliverToOpenPr, live PR, push fails: rejects and records no duplicate PR row', async () => {
+      const worktree = join(dir, 'fe');
+      seedWorktree(store, id, '/repo/frontend', worktree);
+      await initRealRepo(worktree);
+      writeFileSync(join(worktree, 'left.txt'), 'work');
+      seedLivePr('/repo/frontend');
+      const { gh } = ghWithExistingPr(LIVE_URL);
+      const recording = dirtyRealRepo([]);
+      const failingPush: GitRunner = async (args, cwd) => {
+        if (args[0] === 'push') {
+          return { stdout: '', stderr: 'fatal: unable to access remote', exitCode: 128 };
+        }
+        return recording(args, cwd);
+      };
+
+      await expect(
+        shipTicket(store, { ticketId: id, deliverToOpenPr: true }, gh, fakeAdapter(), failingPush),
+      ).rejects.toThrow(/unable to access remote/);
+
+      const prs = listPrsByTicket(store, id);
+      expect(prs).toHaveLength(1);
+      expect(prs[0]?.url).toBe(LIVE_URL);
+    });
+
+    it('deliverToOpenPr, no prior PR: runs the full fresh path — commit, push, pr create', async () => {
+      const worktree = join(dir, 'fe');
+      seedWorktree(store, id, '/repo/frontend', worktree);
+      await initRealRepo(worktree);
+      writeFileSync(join(worktree, 'left.txt'), 'work');
+      const calls: string[][] = [];
+      const fake = fakeGh();
+
+      const res = await shipTicket(
+        store,
+        { ticketId: id, deliverToOpenPr: true },
+        fake.gh,
+        fakeAdapter(),
+        dirtyRealRepo(calls),
+      );
+
+      expect(createdShipCommit(store, id, '/repo/frontend')).toBeDefined();
+      expect(calls.some((args) => args[0] === 'push')).toBe(true);
+      expect(fake.calls).toBe(1);
+      expect(res.prs).toHaveLength(1);
+    });
+
+    // UAT FIX-46 (high): a stale merged row must not shadow a genuinely new live
+    // PR. This is the exact scenario deliverToOpenPr exists for — the ticket
+    // cycled back through fix with new work for an already-open PR — and the
+    // old "any merged row wins" guard silently delivered nothing.
+    it('deliverToOpenPr, stale merged row + live PR: delivers to the live PR', async () => {
+      const worktree = join(dir, 'fe');
+      seedWorktree(store, id, '/repo/frontend', worktree);
+      await initRealRepo(worktree);
+      writeFileSync(join(worktree, 'left.txt'), 'work');
+      seedMergedPr('/repo/frontend');
+      store.db
+        .prepare("INSERT INTO prs (ticket_id, repo, number, url, status) VALUES (?, ?, 2, ?, 'open')")
+        .run(id, '/repo/frontend', LIVE_URL);
+      const calls: string[][] = [];
+
+      const res = await shipTicket(
+        store,
+        { ticketId: id, deliverToOpenPr: true },
+        fakeGh().gh,
+        fakeAdapter(),
+        dirtyRealRepo(calls),
+      );
+
+      expect(createdShipCommit(store, id, '/repo/frontend')).toBeDefined();
+      expect(calls.some((args) => args[0] === 'push')).toBe(true);
+      expect(res.prs).toEqual([{ repo: '/repo/frontend', number: 2, url: LIVE_URL }]);
+    });
+
+    it('deliverToOpenPr, MERGED PR: the fresh path runs — the new work gets its own PR', async () => {
+      seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+      seedMergedPr('/repo/frontend');
+      const fake = fakeGh();
+      const { git, calls } = fakeGit();
+
+      // No LIVE row, so deliver mode has nothing to deliver into; the merged row
+      // must not strand the work — a fresh PR is opened for the new commits.
+      const res = await shipTicket(
+        store,
+        { ticketId: id, deliverToOpenPr: true },
+        fake.gh,
+        fakeAdapter(),
+        git,
+      );
+
+      expect(fake.calls).toBe(1);
+      expect(mutating(calls)).not.toEqual([]);
+      expect(res.prs).toEqual([
+        { repo: '/repo/frontend', number: 1, url: 'https://github.com/o/r/pull/1' },
+      ]);
+      expect(listPrsByTicket(store, id)).toHaveLength(2);
+    });
+
+    it('deliverToOpenPr, live PR, no worktree changes: no push, and the repo is in the no-change accounting', async () => {
+      seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+      seedLivePr('/repo/frontend');
+      const calls: string[][] = [];
+      const events: ShipStepEvent[] = [];
+      const git: GitRunner = async (args) => {
+        calls.push(args);
+        if (args[0] === 'diff') return { stdout: '', stderr: '', exitCode: 0 };
+        return { stdout: '', stderr: '', exitCode: 0 };
+      };
+
+      await expect(
+        shipTicket(
+          store,
+          { ticketId: id, deliverToOpenPr: true },
+          fakeGh().gh,
+          fakeAdapter(),
+          git,
+          (e) => events.push(e),
+        ),
+      ).rejects.toThrow(/ship produced nothing.*\/repo\/frontend/);
+
+      expect(calls.some((args) => args[0] === 'push')).toBe(false);
+      expect(events).toContainEqual({
+        repo: '/repo/frontend',
+        step: 'pr',
+        status: 'note',
+        detail: 'no PR needed — no changes from develop',
+      });
+    });
+  });
+});
+
+// FIX-46 (review): the production re-ship signal. `runShipSaga` reads this to
+// turn on `deliverToOpenPr`; without it the flag is dead code and a re-ship
+// still skips the PR the ticket already opened.
+describe('hasCompletedShipRun', () => {
+  let store: Store;
+  let id: number;
+
+  beforeEach(() => {
+    store = openStore(':memory:');
+    id = createTicketFlow(store, { key: 'PROJ-2', title: 'reship' }).id;
+  });
+  afterEach(() => store.close());
+
+  it('is false for a ticket that has never shipped', () => {
+    expect(hasCompletedShipRun(store, id)).toBe(false);
+  });
+
+  it('is true once a ship COMPLETED, and stays false after only a failed run', () => {
+    const failed = openShipRun(store, { ticketId: id, attempt: 1, pid: 1, startedAt: 't0' });
+    closeShipRun(store, failed.id, 'failed', 't1');
+    expect(hasCompletedShipRun(store, id)).toBe(false);
+
+    const passed = openShipRun(store, { ticketId: id, attempt: 2, pid: 1, startedAt: 't2' });
+    closeShipRun(store, passed.id, 'passed', 't3');
+    expect(hasCompletedShipRun(store, id)).toBe(true);
   });
 });
