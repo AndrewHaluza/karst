@@ -27,6 +27,7 @@ import { getEnvOverrides, type TicketEnvOverrides } from '../../store/ticketEnvO
 import { mergeGateState } from '../../workflow/mergeGate.js';
 import { sendBackState, type SendBackState } from '../../workflow/sendBack.js';
 import { retryGateState, type RetryGateState } from '../../workflow/retryGate.js';
+import { prFeedbackFixState, type PrFeedbackFixState } from '../../workflow/prFeedbackFix.js';
 import { buildMergeCheckPanelRows, type MergeCheckPanelRow } from '../../model/mergeCheckPanel.js';
 import { graphInsideProcess, type GraphInsideInput } from '../../model/inside/graph.js';
 import { nowIso } from '../../model/time.js';
@@ -277,6 +278,13 @@ export interface DashboardState {
    * The webview renders the retry option in the stage menu when available.
    */
   rerunGate: RetryGateState;
+  /**
+   * The "Address pull request feedback" recovery action's availability for the
+   * ship stage, host-derived (`workflow/prFeedbackFix.ts`) in the same snapshot
+   * as sendBack. The webview renders the menu option when available, so the
+   * host's verdict and the control never disagree.
+   */
+  prFeedbackFix: PrFeedbackFixState;
 }
 
 /**
@@ -519,6 +527,10 @@ export function buildDashboardState(
   // host re-derives it before mutating anyway.
   const sendBack = sendBackState(store, ticketId);
   const rerunGate = retryGateState(store, ticketId);
+  // ONE read of the PR-feedback action's availability, for the same reason: the
+  // ship header's ⋯ menu and the host's confirm path must agree about whether
+  // "Address pull request feedback" exists at all.
+  const prFeedbackFix = prFeedbackFixState(store, ticketId);
   // ONE read of the marks, for the same reason — the Inside strip and the impl
   // segment's pips are two views of one set of facts.
   const marks = listPhaseMarks(store, ticketId);
@@ -627,15 +639,17 @@ export function buildDashboardState(
     !!cellOf(key).artifactPath || displayStatus(cellOf(key)) === 'running';
 
   // The stage the six-stage presentation shows as CURRENT: `fix` projects onto
-  // the stage its active recovery round is causally attached to.
-  const fixFallback: 'uat' | 'review' =
-    rounds.find(
-      (r) =>
-        r.status === 'pending' ||
-        r.status === 'fixing' ||
-        r.status === 'revalidating' ||
-        r.status === 'interrupted',
-    )?.sourceStage ?? 'uat';
+  // the stage its active recovery round is causally attached to. A ship-sourced
+  // round (FEAT-40) revalidates through uat first, so it projects onto uat
+  // exactly as a uat round does.
+  const activeRound = rounds.find(
+    (r) =>
+      r.status === 'pending' ||
+      r.status === 'fixing' ||
+      r.status === 'revalidating' ||
+      r.status === 'interrupted',
+  );
+  const fixFallback: 'uat' | 'review' = activeRound?.sourceStage === 'review' ? 'review' : 'uat';
   const presentedStage: InsideStageKey =
     ticket.stageCurrent === null || ticket.stageCurrent === 'fix'
       ? insideStageForRuntimeStage(
@@ -930,6 +944,7 @@ export function buildDashboardState(
     }),
     sendBack,
     rerunGate,
+    prFeedbackFix,
   };
 }
 

@@ -34,6 +34,12 @@ export interface PrFeedbackRow {
   firstSeenAt: string;
   lastSeenAt: string;
   absentAt: string | null;
+  /**
+   * v59: the recovery round that adopted this feedback, or null when nothing
+   * has picked it up yet. This — not GitHub's `isResolved` — is the local
+   * done-signal, because karst never writes to GitHub.
+   */
+  recoveryRoundId: number | null;
 }
 
 export interface ReconcilePrFeedbackOpts {
@@ -88,6 +94,7 @@ interface PrFeedbackDbRow {
   first_seen_at: string;
   last_seen_at: string;
   absent_at: string | null;
+  recovery_round_id: number | null;
 }
 
 /** One upstream item flattened to the columns the reconcile writes. */
@@ -235,6 +242,7 @@ function rowToFeedback(r: PrFeedbackDbRow): PrFeedbackRow {
     firstSeenAt: r.first_seen_at,
     lastSeenAt: r.last_seen_at,
     absentAt: r.absent_at,
+    recoveryRoundId: r.recovery_round_id,
   };
 }
 
@@ -391,4 +399,63 @@ export function countOpenPrFeedback(store: Store, ticketId: number): number {
     )
     .get(ticketId) as { n: number };
   return row.n;
+}
+
+/** Feedback nothing has adopted yet: live, unresolved, not outdated, no round. */
+export function listUnadoptedPrFeedback(store: Store, ticketId: number): PrFeedbackRow[] {
+  return store.db
+    .prepare(
+      `SELECT * FROM pr_feedback
+        WHERE ticket_id = ? AND absent_at IS NULL AND is_resolved = 0
+          AND is_outdated = 0 AND recovery_round_id IS NULL
+        ORDER BY id`,
+    )
+    .all(ticketId)
+    .map((r) => rowToFeedback(r as PrFeedbackDbRow));
+}
+
+/**
+ * The feedback one round is working on. Ordered repo, then path, then line —
+ * with `original_line` NULLs LAST (SQLite orders NULLs first by default, which
+ * would put every file-level comment above every line comment). Filters only on
+ * `absent_at`, so a round still reports what it was asked to do even after a
+ * reviewer resolves or edits the thread, and an upstream deletion drops the row
+ * out of the round's list without affecting the round.
+ *
+ * Positional `?` parameters and no transaction: this runs under the `karst` CLI
+ * (`node:sqlite`'s flat shim, `docs/arch/cli.md`).
+ */
+export function listPrFeedbackForRound(
+  store: Store,
+  ticketId: number,
+  roundId: number,
+): PrFeedbackRow[] {
+  return store.db
+    .prepare(
+      `SELECT * FROM pr_feedback
+        WHERE ticket_id = ? AND recovery_round_id = ? AND absent_at IS NULL
+        ORDER BY repo, path, original_line IS NULL, original_line`,
+    )
+    .all(ticketId, roundId)
+    .map((r) => rowToFeedback(r as PrFeedbackDbRow));
+}
+
+/**
+ * Adopt every unadopted row into `roundId`. Returns how many were adopted, so a
+ * caller can treat 0 as "do not open a round" — the rows were resolved between
+ * the availability check and this stamp.
+ */
+export function adoptPrFeedbackIntoRound(
+  store: Store,
+  ticketId: number,
+  roundId: number,
+): number {
+  const info = store.db
+    .prepare(
+      `UPDATE pr_feedback SET recovery_round_id = ?
+        WHERE ticket_id = ? AND absent_at IS NULL AND is_resolved = 0
+          AND is_outdated = 0 AND recovery_round_id IS NULL`,
+    )
+    .run(roundId, ticketId);
+  return info.changes;
 }

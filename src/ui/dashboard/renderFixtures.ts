@@ -914,5 +914,6 @@ export function renderStateFor(stage: InsideStageKey): DashboardState {
     artifacts: [],
     sendBack: { available: false, reason: 'stage' },
     rerunGate: { available: false, reason: 'not-gate-stage' },
+    prFeedbackFix: { available: false, reason: 'stage' },
   };
 }

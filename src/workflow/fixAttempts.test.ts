@@ -7,6 +7,8 @@ import {
   roundFixDecision,
   FIX_ATTEMPT_CAP,
 } from './fixAttempts.js';
+import { buildStepper, type StepperStageRow } from '../model/stepper.js';
+import { buildStageRail } from '../model/stageRail.js';
 
 describe('countFixAttempts', () => {
   it('counts one gate stage only', () => {
@@ -117,6 +119,59 @@ describe('roundFixDecision', () => {
       roundId: 9,
       attempts: FIX_ATTEMPT_CAP,
       cap: FIX_ATTEMPT_CAP,
+    });
+  });
+});
+
+describe('ship as a fix-budget gate', () => {
+  it('lastFailedGate names a failed ship row', () => {
+    expect(
+      lastFailedGate([
+        { stageKey: 'ship', status: 'failed', endedAt: '2026-07-30T10:00:00.000Z' },
+      ]),
+    ).toBe('ship');
+  });
+
+  it('picks the later of a failed review and a failed ship by endedAt', () => {
+    expect(
+      lastFailedGate([
+        { stageKey: 'review', status: 'failed', endedAt: '2026-07-30T09:00:00.000Z' },
+        { stageKey: 'ship', status: 'failed', endedAt: '2026-07-30T10:00:00.000Z' },
+      ]),
+    ).toBe('ship');
+    expect(
+      lastFailedGate([
+        { stageKey: 'ship', status: 'failed', endedAt: '2026-07-30T09:00:00.000Z' },
+        { stageKey: 'review', status: 'failed', endedAt: '2026-07-30T10:00:00.000Z' },
+      ]),
+    ).toBe('review');
+  });
+
+  it('prices ship at the default cap, ignoring both manifest values', () => {
+    expect(capForGate('ship', 9, 9)).toBe(FIX_ATTEMPT_CAP);
+    // The existing per-gate arms are untouched.
+    expect(capForGate('uat', 5, 9)).toBe(5);
+    expect(capForGate('review', 5, 9)).toBe(9);
+  });
+
+  // The rail is not edited, but widening `GateStageKey` makes the meter reach
+  // `ship` for free — and that is the intended outcome, so pin it. A later
+  // `'ship'` exclusion from the rail fails here loudly.
+  it('the stage rail draws a retry meter for a ship-sourced round', () => {
+    const stages: StepperStageRow[] = [
+      { stageKey: 'ship', status: 'failed', attempt: 1, endedAt: '2026-07-30T10:00:00.000Z' },
+    ];
+    const rail = buildStageRail(buildStepper(stages), stages, {
+      current: 'fix',
+      needsUser: false,
+      needs: null,
+    });
+    const ship = rail.main.find((s) => s.cell.stageKey === 'ship')!;
+    expect(ship.retry).toMatchObject({
+      gate: 'ship',
+      spent: 1,
+      cap: FIX_ATTEMPT_CAP,
+      returnsTo: 'uat',
     });
   });
 });

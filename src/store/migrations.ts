@@ -40,7 +40,7 @@ export function readSchema(): string {
 }
 
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 58;
+export const SCHEMA_VERSION = 59;
 
 /** v2 ticket-field columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -441,6 +441,55 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_recovery_round
 `;
 
 /**
+ * v59's `recovery_rounds` rebuild (FEAT-40). SQLite cannot ALTER a CHECK
+ * constraint, so accepting `source_stage = 'ship'` — a human team's unresolved
+ * PR review feedback opening a real recovery round, exactly as a failed gate
+ * does — requires the standard create → copy → drop → rename rebuild. This is
+ * byte-identical to `schema.sql`'s current `recovery_rounds` block with ONE
+ * change: the `source_stage` CHECK also admits `'ship'`. Every column, both
+ * revalidation slots, the status CHECK, `CHECK (round <= max_rounds)` and the
+ * unique index are carried through unchanged, and every existing row is copied
+ * with an explicit column list (no row needs repair: widening a CHECK only adds
+ * a legal value).
+ *
+ * Exported so the interruption-atomicity test can drive the REAL step DDL.
+ */
+export const RECOVERY_ROUNDS_SHIP_DDL = `
+CREATE TABLE recovery_rounds_ship (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ticket_id INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+  source_stage TEXT NOT NULL CHECK (source_stage IN ('uat','review','ship')),
+  source_process_id TEXT NOT NULL,
+  source_stage_run_id INTEGER REFERENCES stage_runs(id) ON DELETE SET NULL,
+  source_process_run_id INTEGER REFERENCES process_runs(id) ON DELETE SET NULL,
+  trigger_kind TEXT NOT NULL,
+  trigger_detail TEXT NOT NULL,
+  episode INTEGER NOT NULL DEFAULT 1,
+  round INTEGER NOT NULL,
+  max_rounds INTEGER NOT NULL,
+  fix_process_run_id INTEGER REFERENCES process_runs(id) ON DELETE SET NULL,
+  uat_revalidation_stage_run_id INTEGER REFERENCES stage_runs(id) ON DELETE SET NULL,
+  review_revalidation_stage_run_id INTEGER REFERENCES stage_runs(id) ON DELETE SET NULL,
+  status TEXT NOT NULL CHECK (status IN ('pending','fixing','revalidating','passed','failed','exhausted','interrupted','refused','reset')),
+  started_at TEXT NOT NULL,
+  ended_at TEXT,
+  interrupt_count INTEGER NOT NULL DEFAULT 0,
+  CHECK (round <= max_rounds)
+);
+INSERT INTO recovery_rounds_ship
+  SELECT id, ticket_id, source_stage, source_process_id, source_stage_run_id,
+         source_process_run_id, trigger_kind, trigger_detail, episode, round,
+         max_rounds, fix_process_run_id, uat_revalidation_stage_run_id,
+         review_revalidation_stage_run_id, status, started_at, ended_at,
+         interrupt_count
+  FROM recovery_rounds;
+DROP TABLE recovery_rounds;
+ALTER TABLE recovery_rounds_ship RENAME TO recovery_rounds;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_recovery_round
+  ON recovery_rounds(ticket_id, source_stage, episode, round);
+`;
+
+/**
  * v53's `stages` rebuild (Task 1A): SQLite cannot ALTER a CHECK constraint, so
  * adding `CHECK (ended_at IS NULL OR started_at IS NULL OR ended_at >=
  * started_at)` (Issue #4's root corruption class) requires the standard
@@ -565,7 +614,8 @@ CREATE TABLE IF NOT EXISTS pr_feedback (
   comments            TEXT,
   first_seen_at       TEXT NOT NULL,
   last_seen_at        TEXT NOT NULL,
-  absent_at           TEXT
+  absent_at           TEXT,
+  recovery_round_id   INTEGER REFERENCES recovery_rounds(id) ON DELETE SET NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_pr_feedback_key
   ON pr_feedback(ticket_id, repo, pr_url, upstream_key);
@@ -2215,6 +2265,52 @@ export function migrate(db: Database): void {
     // Nothing is backfilled and nothing can be: karst has never asked GitHub
     // for review threads, so no historical feedback exists to derive.
     db.exec(PR_FEEDBACK_DDL);
+  }
+
+  if (current < 59) {
+    // v59 (FEAT-40, PR-feedback fix round): `recovery_rounds.source_stage`
+    // gains 'ship', so a human team's unresolved PR review feedback can open a
+    // real recovery round — bounded, interruptible and parked by the SAME
+    // machinery a failed uat/review gate round already uses. SQLite cannot
+    // ALTER a CHECK, so the widening is the standard create → copy → drop →
+    // rename rebuild (see RECOVERY_ROUNDS_SHIP_DDL). The guard reads the
+    // CURRENT table SQL, so a fresh DB (schema.sql already carries the widened
+    // CHECK) skips the rebuild entirely and a re-open on an already-migrated DB
+    // is a no-op. Foreign-key enforcement is suspended for the swap (it cannot
+    // change inside a transaction) and the rename restores the name every FK
+    // clause references.
+    const roundsSql59 = (
+      db
+        .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'recovery_rounds'")
+        .get() as { sql: string } | undefined
+    )?.sql;
+    if (roundsSql59 !== undefined && !roundsSql59.includes("'ship'")) {
+      db.pragma('foreign_keys = OFF');
+      try {
+        db.exec('BEGIN IMMEDIATE');
+        try {
+          db.exec(RECOVERY_ROUNDS_SHIP_DDL);
+          db.exec('COMMIT');
+        } catch (e) {
+          db.exec('ROLLBACK');
+          throw e;
+        }
+      } finally {
+        db.pragma('foreign_keys = ON');
+      }
+    }
+
+    // v59 also links each feedback row to the recovery round that adopted it.
+    // This — not GitHub's `is_resolved` — is the local done-signal (karst never
+    // writes to GitHub), and the guard reads the CURRENT columns, so a fresh DB
+    // (schema.sql and PR_FEEDBACK_DDL already carry it) is a no-op and a re-open
+    // is idempotent. NULL means "nothing has picked it up yet".
+    const feedbackCols59 = tableColumns(db, 'pr_feedback');
+    if (feedbackCols59.size > 0 && !feedbackCols59.has('recovery_round_id')) {
+      db.exec(
+        'ALTER TABLE pr_feedback ADD COLUMN recovery_round_id INTEGER REFERENCES recovery_rounds(id) ON DELETE SET NULL',
+      );
+    }
   }
 
   db.pragma(`user_version = ${SCHEMA_VERSION}`);

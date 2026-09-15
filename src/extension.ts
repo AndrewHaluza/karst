@@ -19,6 +19,8 @@ import { makePrSyncLoop } from './extension/ops/prSyncLoop.js';
 import { makePrFeedbackDeps } from './extension/ops/prFeedbackSync.js';
 import { runBootSweeps } from './extension/ops/bootSweeps.js';
 import { resumeStrandedShips } from './extension/ops/strandedShip.js';
+import { addressPrFeedback } from './extension/ops/prFeedbackAction.js';
+import { fixBriefForTicket } from './extension/ops/fixBriefForTicket.js';
 import { watchExternalChanges } from './store/externalChanges.js';
 import { SidebarViewManager } from './ui/sidebar/panel.js';
 import { makeSidebarViewHost, SIDEBAR_VIEW_ID } from './ui/sidebar/host.js';
@@ -138,7 +140,6 @@ import {
 } from './agent/entrySeed.js';
 import { shouldResumeSession } from './agent/resumeDecision.js';
 import { markerStageFor, type MarkerStage } from './agent/markerStage.js';
-import { renderFixBrief } from './agent/fixBrief.js';
 import {
   agyWatchTick,
   findConversationForWorktree,
@@ -287,8 +288,6 @@ import { parseLaunchWorktreeConfig } from './commands/launchWorktreeConfig.js';
 import { getDisabledGates, setDisabledGates, type GateStage } from './store/ticketGates.js';
 import { ALL_SERVICES, setServiceEnvOverrides } from './store/ticketEnvOverrides.js';
 import { parseEnvText } from './runtime/env.js';
-import { latestFindingBatch } from './store/reviewFindings.js';
-import { listGateRuns } from './store/gateRuns.js';
 import { defaultGhRunnerAsync } from './integrations/github.js';
 import { syncPrStatuses } from './workflow/prSync.js';
 import { syncMergeChecks } from './workflow/mergeSync.js';
@@ -3211,12 +3210,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const t = getTicket(localStore, ticketId);
     const label = t.key ?? `#${ticketId}`;
     const brief =
-      renderFixBrief(
-        label,
-        t.stages,
-        latestFindingBatch(localStore, ticketId),
-        listGateRuns(localStore, ticketId),
-      ) ??
+      fixBriefForTicket(localStore, ticketId, label) ??
       `A gate failed for ticket ${label}. Re-run the checks, fix what they report, and confirm they pass.`;
     const marker = renderDoneMarkerInstruction(
       buildCliStagePrefix(context, dbPath, 'fix'),
@@ -6052,14 +6046,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         ? (t.sessionId ?? undefined)
         : undefined;
       const fixBrief =
-        t.stageCurrent === 'fix'
-          ? renderFixBrief(
-              t.key ?? `#${ticketId}`,
-              t.stages,
-              latestFindingBatch(localStore, ticketId),
-              listGateRuns(localStore, ticketId),
-            )
-          : null;
+        t.stageCurrent === 'fix' ? fixBriefForTicket(localStore, ticketId) : null;
 
       // Seed composition (materialization is complete — entryInvocations available).
       // Aggregate the ticket's full implementation context into markdown.
@@ -7979,6 +7966,21 @@ function makeDashboardActions(
         }
       })();
     },
+    // Move this ticket into a PR-feedback recovery round at Fix. The logic
+    // lives in `addressPrFeedback` (vscode-free, unit tested); this is the seam.
+    addressPrFeedback: () =>
+      addressPrFeedback({
+        store, ticketId, afterServerChange, logError, debug,
+        drive: () => driveAfterResume(ticketId),
+        info: (m) => void vscode.window.showInformationMessage(m),
+        error: (m) => void vscode.window.showErrorMessage(m),
+        confirm: async (detail) =>
+          (await vscode.window.showWarningMessage(
+            'Address pull request feedback?',
+            { modal: true, detail },
+            'Address feedback',
+          )) === 'Address feedback',
+      }),
     // Retry a gate stage (uat/review) by resetting it to pending so the driver
     // re-runs it. Lighter than "Send back to Implement": only the current gate
     // stage is touched, and the ticket stays where it is in the graph.

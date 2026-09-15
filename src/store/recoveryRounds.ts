@@ -47,8 +47,8 @@ import { setStage, stageAttempt } from './stages.js';
  * completion paths without nesting transactions).
  */
 
-export type RecoverySourceStage = 'uat' | 'review';
-export type RecoverySourceProcessId = 'gates' | 'tester' | 'review';
+export type RecoverySourceStage = 'uat' | 'review' | 'ship';
+export type RecoverySourceProcessId = 'gates' | 'tester' | 'review' | 'pr-review';
 export type RecoveryTriggerKind =
   | 'gate-failure'
   | 'tester-verifier-failure'
@@ -58,7 +58,13 @@ export type RecoveryTriggerKind =
    * `blocking-review-findings`.
    */
   | 'blocking-tester-observations'
-  | 'blocking-review-findings';
+  | 'blocking-review-findings'
+  /**
+   * A human team left unresolved review feedback on a pull request this ticket
+   * opened. The ship twin of `blocking-review-findings`: the findings come from
+   * people upstream rather than from karst's own review lane.
+   */
+  | 'upstream-changes-requested';
 export type RecoveryStatus =
   | 'pending'
   | 'fixing'
@@ -117,12 +123,13 @@ interface RecoveryRoundRow {
   interrupt_count: number;
 }
 
-const SOURCE_PROCESS_IDS: readonly string[] = ['gates', 'tester', 'review'];
+const SOURCE_PROCESS_IDS: readonly string[] = ['gates', 'tester', 'review', 'pr-review'];
 const TRIGGER_KINDS: readonly string[] = [
   'gate-failure',
   'tester-verifier-failure',
   'blocking-tester-observations',
   'blocking-review-findings',
+  'upstream-changes-requested',
 ];
 const STATUSES: readonly string[] = [
   'pending',
@@ -250,7 +257,11 @@ function roundById(store: Store, id: number): RecoveryRound | undefined {
  * ('passed','reset')) + 1` is both the count of ended episodes plus one and
  * the next episode number — the two are the same number.
  */
-function currentEpisode(store: Store, ticketId: number, sourceStage: RecoverySourceStage): number {
+export function currentEpisode(
+  store: Store,
+  ticketId: number,
+  sourceStage: RecoverySourceStage,
+): number {
   const row = store.db
     .prepare(
       `SELECT COUNT(DISTINCT episode) AS ended FROM recovery_rounds
@@ -415,7 +426,10 @@ export function openRecoveryRound(store: Store, input: OpenRecoveryRoundInput): 
           (revalidating.uatRevalidationStageRunId === null ||
             revalidating.uatRevalidationStageRunId === input.sourceStageRunId)) ||
         (input.sourceStage === 'review' &&
-          revalidating.sourceStage === 'review' &&
+          // A ship-sourced round revalidates through review as its terminal
+          // stage too, so a review failure fails it exactly as it fails a
+          // review-origin round (`completeRevalidation` mirrors this on pass).
+          (revalidating.sourceStage === 'review' || revalidating.sourceStage === 'ship') &&
           (revalidating.reviewRevalidationStageRunId === null ||
             revalidating.reviewRevalidationStageRunId === input.sourceStageRunId));
       if (revalidatesThisRound) {
@@ -503,10 +517,12 @@ export function completeRevalidation(
         )
         .run(input.endedAt, revalidating.id);
     }
-    // A Review-origin round is NOT passed by UAT: it awaits its own Review run.
+    // A Review- or Ship-origin round is NOT passed by UAT: it awaits its own
+    // Review run. (A ship-sourced round revalidates uat THEN review, exactly
+    // like a review round, so review is its terminal revalidation.)
   } else if (
     input.stageKey === 'review' &&
-    revalidating.sourceStage === 'review' &&
+    (revalidating.sourceStage === 'review' || revalidating.sourceStage === 'ship') &&
     revalidating.reviewRevalidationStageRunId === input.stageRunId
   ) {
     store.db
@@ -537,7 +553,10 @@ export function attachRevalidationStageRun(
     store.db
       .prepare('UPDATE recovery_rounds SET uat_revalidation_stage_run_id = ? WHERE id = ?')
       .run(runId, revalidating.id);
-  } else if (revalidating.sourceStage === 'review') {
+  } else if (revalidating.sourceStage === 'review' || revalidating.sourceStage === 'ship') {
+    // A uat-origin round is passed by its uat run, so review is never its
+    // revalidation; a review- or ship-origin round revalidates through review
+    // and this is its terminal slot.
     store.db
       .prepare('UPDATE recovery_rounds SET review_revalidation_stage_run_id = ? WHERE id = ?')
       .run(runId, revalidating.id);

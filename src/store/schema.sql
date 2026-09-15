@@ -291,14 +291,19 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_session_launch_pending
 -- writer, see below) and 'reset' (a human-cleared round; Task 2), and adds
 -- `CHECK (round <= max_rounds)` now that episode-scoped numbering (T1B) makes
 -- that inequality an invariant rather than a lifetime-count bug.
+--
+-- v59 adds a third `source_stage`: 'ship'. A human team's unresolved review
+-- feedback on a pull request this ticket opened opens a real recovery round
+-- (host-only, never a verdict edge and never reachable from the agent CLI),
+-- which then revalidates through uat and review like any other round.
 CREATE TABLE IF NOT EXISTS recovery_rounds (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   ticket_id INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
-  source_stage TEXT NOT NULL CHECK (source_stage IN ('uat','review')),
-  source_process_id TEXT NOT NULL,  -- 'gates' | 'tester' | 'review' (closed)
+  source_stage TEXT NOT NULL CHECK (source_stage IN ('uat','review','ship')),
+  source_process_id TEXT NOT NULL,  -- 'gates' | 'tester' | 'review' | 'pr-review' (closed)
   source_stage_run_id INTEGER REFERENCES stage_runs(id) ON DELETE SET NULL,
   source_process_run_id INTEGER REFERENCES process_runs(id) ON DELETE SET NULL,
-  trigger_kind TEXT NOT NULL,  -- 'gate-failure' | 'tester-verifier-failure' | 'blocking-tester-observations' | 'blocking-review-findings' (closed)
+  trigger_kind TEXT NOT NULL,  -- 'gate-failure' | 'tester-verifier-failure' | 'blocking-tester-observations' | 'blocking-review-findings' | 'upstream-changes-requested' (closed)
   trigger_detail TEXT NOT NULL, -- the causal detail captured at failure time
   episode INTEGER NOT NULL DEFAULT 1,
   round INTEGER NOT NULL,
@@ -663,6 +668,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_prs_ticket_repo_url ON prs(ticket_id, repo
 -- appended: upstream ids are stable across EDITS, so an id-only dedupe would
 -- treat a reviewer's clarification as already-seen. The unique index includes
 -- `pr_url` because the reconcile's existing-row SELECT is scoped by it.
+--
+-- v59 adds `recovery_round_id`: the recovery round that adopted this feedback,
+-- or NULL when nothing has picked it up yet. This — not GitHub's `is_resolved`
+-- — is the local done-signal, because karst never writes to GitHub and a
+-- reviewer very often never resolves a thread they consider addressed. Without
+-- it, an unresolved-but-fixed comment would be offered as "new feedback"
+-- forever.
 CREATE TABLE IF NOT EXISTS pr_feedback (
   id                  INTEGER PRIMARY KEY,
   ticket_id           INTEGER NOT NULL,
@@ -688,7 +700,8 @@ CREATE TABLE IF NOT EXISTS pr_feedback (
   comments            TEXT,
   first_seen_at       TEXT NOT NULL,
   last_seen_at        TEXT NOT NULL,
-  absent_at           TEXT
+  absent_at           TEXT,
+  recovery_round_id   INTEGER REFERENCES recovery_rounds(id) ON DELETE SET NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_pr_feedback_key
   ON pr_feedback(ticket_id, repo, pr_url, upstream_key);

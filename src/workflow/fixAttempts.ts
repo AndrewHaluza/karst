@@ -9,8 +9,14 @@
  */
 export const FIX_ATTEMPT_CAP = 3;
 
-/** The gate stages that carry their own fix budget. */
-const GATE_STAGE_KEYS = ['uat', 'review'] as const;
+/**
+ * The gate stages that carry their own fix budget. `ship` is here because a
+ * human team's unresolved PR review feedback opens a real recovery round
+ * (`src/workflow/prFeedbackFix.ts`), exactly as a failed gate does; that round's
+ * committed `max_rounds` is what bounds it. `graph.ts`'s `GATE_STAGES` is a
+ * different list with different consumers and is deliberately NOT widened.
+ */
+const GATE_STAGE_KEYS = ['uat', 'review', 'ship'] as const;
 export type GateStageKey = (typeof GATE_STAGE_KEYS)[number];
 
 /**
@@ -64,7 +70,12 @@ export function lastFailedGate(
  * how many retries are left, which is the one thing the meter exists to say.
  */
 export function capForGate(gate: GateStageKey, uatMax?: number, reviewMax?: number): number {
-  return gate === 'uat' ? (uatMax ?? FIX_ATTEMPT_CAP) : (reviewMax ?? FIX_ATTEMPT_CAP);
+  if (gate === 'uat') return uatMax ?? FIX_ATTEMPT_CAP;
+  if (gate === 'review') return reviewMax ?? FIX_ATTEMPT_CAP;
+  // `ship` is upstream review feedback. It has no manifest knob of its own —
+  // `review.maxFixAttempts` narrows karst's review lane and must not silently
+  // narrow a human team's — so it takes the default.
+  return FIX_ATTEMPT_CAP;
 }
 
 /**

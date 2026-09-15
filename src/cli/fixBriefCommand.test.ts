@@ -3,6 +3,8 @@ import { openStore, type Store } from '../store/db.js';
 import { createTicket, updateTicketFields } from '../store/tickets.js';
 import { setStage } from '../store/stages.js';
 import { recordGateRun } from '../store/gateRuns.js';
+import { reconcilePrFeedback, adoptPrFeedbackIntoRound } from '../store/prFeedback.js';
+import { openRecoveryRound } from '../store/recoveryRounds.js';
 import { parseFixBriefArgs, runFixBriefCommand } from './fixBriefCommand.js';
 
 describe('parseFixBriefArgs', () => {
@@ -65,5 +67,59 @@ describe('runFixBriefCommand', () => {
     expect(() => runFixBriefCommand(store, { key: 'NOPE-1' })).toThrow(
       /no ticket found for key or id 'NOPE-1'/,
     );
+  });
+
+  it('includes the adopted PR feedback when a ship-sourced round is active', () => {
+    const id = seedTicket();
+    setStage(store, id, 'ship', {
+      status: 'failed',
+      verdict: 'the review team requested changes on 1 open item(s)',
+    });
+    const round = openRecoveryRound(store, {
+      ticketId: id,
+      sourceStage: 'ship',
+      sourceProcessId: 'pr-review',
+      sourceStageRunId: null,
+      sourceProcessRunId: null,
+      triggerKind: 'upstream-changes-requested',
+      triggerDetail: '1 open PR review item(s) in frontend from alice',
+      maxRounds: 3,
+      startedAt: '2026-09-01T00:00:00Z',
+    });
+    reconcilePrFeedback(store, {
+      ticketId: id,
+      repo: 'frontend',
+      prUrl: 'https://github.com/acme/repo/pull/1',
+      at: '2026-09-01T00:00:00Z',
+      snapshot: {
+        decision: null,
+        reviews: [],
+        threads: [
+          {
+            nodeId: 'PRRT_1',
+            upstreamKey: '1',
+            isResolved: false,
+            isOutdated: false,
+            path: 'src/a.ts',
+            line: 12,
+            startLine: null,
+            originalLine: 10,
+            originalCommitId: 'abc',
+            subjectType: 'LINE',
+            author: { login: 'alice', typeName: 'User', association: 'MEMBER' },
+            body: 'please rename this',
+            comments: [],
+            updatedAt: '2026-09-01T00:00:00Z',
+          },
+        ],
+      },
+    });
+    adoptPrFeedbackIntoRound(store, id, round.id);
+
+    const out = runFixBriefCommand(store, { key: 'PROJ-1' });
+    expect(out).toContain('Reviewers requested changes on the pull request for ticket PROJ-1');
+    expect(out).toContain('frontend src/a.ts:10');
+    expect(out).toContain('asked by alice (MEMBER)');
+    expect(out).toContain('please rename this');
   });
 });

@@ -82,6 +82,26 @@ describe('recovery rounds — store', () => {
     ]);
   });
 
+  it('round-trips a ship source with pr-review and upstream-changes-requested', () => {
+    const opened = round({
+      sourceStage: 'ship',
+      sourceProcessId: 'pr-review',
+      triggerKind: 'upstream-changes-requested',
+      triggerDetail: '2 open items across api,web from @alice',
+    });
+    expect(opened.sourceStage).toBe('ship');
+    expect(opened.sourceProcessId).toBe('pr-review');
+    expect(opened.triggerKind).toBe('upstream-changes-requested');
+    expect(opened.round).toBe(1);
+    // A stored row reads back through `rowToRound` without falling back to the
+    // conservative defaults (a drift in `SOURCE_PROCESS_IDS`/`TRIGGER_KINDS`
+    // would silently rewrite these).
+    const readBack = activeRecoverySeries(store, ticketId, 'ship');
+    expect(readBack?.id).toBe(opened.id);
+    expect(readBack?.sourceProcessId).toBe('pr-review');
+    expect(readBack?.triggerKind).toBe('upstream-changes-requested');
+  });
+
   it('the active series and the decision read the COMMITTED max_rounds, never the live manifest', () => {
     // The review failure committed under a manifest that allowed 2 attempts.
     round({ sourceStage: 'review', maxRounds: 2, triggerDetail: 'gates failed: lint' });
@@ -474,6 +494,72 @@ describe('recovery rounds — store', () => {
     expect(listRecoveryRounds(store, ticketId)[0]!.status).toBe('revalidating');
     completeRevalidation(store, { ticketId, stageKey: 'review', stageRunId: reviewRunId, endedAt: T2 });
     expect(listRecoveryRounds(store, ticketId)[0]!.status).toBe('passed');
+  });
+
+  it('a ship-origin round revalidates uat then review and is completed ONLY by review', () => {
+    const r = round({
+      sourceStage: 'ship',
+      sourceProcessId: 'pr-review',
+      triggerKind: 'upstream-changes-requested',
+    });
+    store.db.prepare("UPDATE recovery_rounds SET status = 'revalidating' WHERE id = ?").run(r.id);
+
+    const uatRunId = openStageRun(store, {
+      ticketId,
+      stageKey: 'uat',
+      attempt: 1,
+      runAt: T1,
+      startedAt: T1,
+    });
+    attachRevalidationStageRun(store, ticketId, 'uat', uatRunId);
+    completeRevalidation(store, { ticketId, stageKey: 'uat', stageRunId: uatRunId, endedAt: T1 });
+    // UAT passed, but a ship round awaits its own review run.
+    expect(listRecoveryRounds(store, ticketId)[0]!.status).toBe('revalidating');
+
+    const reviewRunId = openStageRun(store, {
+      ticketId,
+      stageKey: 'review',
+      attempt: 1,
+      runAt: T1,
+      startedAt: T1,
+    });
+    attachRevalidationStageRun(store, ticketId, 'review', reviewRunId);
+    expect(listRecoveryRounds(store, ticketId)[0]!.reviewRevalidationStageRunId).toBe(reviewRunId);
+    completeRevalidation(store, { ticketId, stageKey: 'review', stageRunId: reviewRunId, endedAt: T2 });
+    expect(listRecoveryRounds(store, ticketId)[0]!.status).toBe('passed');
+    expect(listRecoveryRounds(store, ticketId)[0]!.endedAt).toBe(T2);
+  });
+
+  it('a failed review revalidation fails a ship-origin round, so it never sticks revalidating', () => {
+    const r = round({
+      sourceStage: 'ship',
+      sourceProcessId: 'pr-review',
+      triggerKind: 'upstream-changes-requested',
+    });
+    store.db.prepare("UPDATE recovery_rounds SET status = 'revalidating' WHERE id = ?").run(r.id);
+    const uatRunId = openStageRun(store, { ticketId, stageKey: 'uat', attempt: 1, runAt: T1, startedAt: T1 });
+    attachRevalidationStageRun(store, ticketId, 'uat', uatRunId);
+    completeRevalidation(store, { ticketId, stageKey: 'uat', stageRunId: uatRunId, endedAt: T1 });
+    const reviewRunId = openStageRun(store, { ticketId, stageKey: 'review', attempt: 1, runAt: T1, startedAt: T1 });
+    attachRevalidationStageRun(store, ticketId, 'review', reviewRunId);
+
+    const next = openRecoveryRound(store, {
+      ticketId,
+      sourceStage: 'review',
+      sourceProcessId: 'review',
+      sourceStageRunId: reviewRunId,
+      sourceProcessRunId: null,
+      triggerKind: 'blocking-review-findings',
+      triggerDetail: 'findings during revalidation',
+      maxRounds: 3,
+      startedAt: T2,
+    });
+
+    const [shipRound, reviewRound] = listRecoveryRounds(store, ticketId);
+    expect(shipRound).toMatchObject({ sourceStage: 'ship', status: 'failed' });
+    expect(shipRound!.reviewRevalidationStageRunId).toBe(reviewRunId);
+    expect(reviewRound!.id).toBe(next.id);
+    expect(reviewRound).toMatchObject({ sourceStage: 'review', status: 'pending' });
   });
 
   it('an intermediate uat failure fails the review-origin round so the new uat round names the cause', () => {

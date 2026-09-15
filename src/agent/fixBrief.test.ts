@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { Finding } from '../store/reviewFindings.js';
 import type { GateRun } from '../store/gateRuns.js';
+import type { PrFeedbackRow } from '../store/prFeedback.js';
 import { renderFixBrief } from './fixBrief.js';
 
 function finding(over: Partial<Finding> = {}): Finding {
@@ -39,6 +40,36 @@ function gate(over: Partial<GateRun> = {}): GateRun {
     skipped: false,
     stageRunId: null,
     summary: null,
+    ...over,
+  };
+}
+
+function feedback(over: Partial<PrFeedbackRow> = {}): PrFeedbackRow {
+  return {
+    id: 1,
+    ticketId: 1,
+    repo: 'frontend',
+    prUrl: 'https://github.com/acme/repo/pull/1',
+    kind: 'thread',
+    upstreamKey: '1',
+    threadNodeId: 'PRRT_1',
+    upstreamUpdatedAt: null,
+    state: null,
+    isResolved: false,
+    isOutdated: false,
+    path: 'src/a.ts',
+    line: null,
+    startLine: null,
+    originalLine: 10,
+    originalCommitId: 'abc',
+    subjectType: 'LINE',
+    author: { login: 'alice', typeName: 'User', association: 'MEMBER' },
+    body: 'please rename this',
+    comments: [],
+    firstSeenAt: '2026-08-01T10:00:00.000Z',
+    lastSeenAt: '2026-08-01T10:00:00.000Z',
+    absentAt: null,
+    recoveryRoundId: 1,
     ...over,
   };
 }
@@ -172,5 +203,71 @@ describe('renderFixBrief', () => {
       [gate({ gateName: 'lint (web)', exitCode: 1, summary: null })],
     );
     expect(brief).not.toContain('The failing gates reported:');
+  });
+
+  describe('ship-sourced PR feedback', () => {
+    const shipBrief = (label: string, prFeedback: PrFeedbackRow[]) =>
+      renderFixBrief(label, [{ stageKey: 'ship', status: 'failed' }], [], [], prFeedback);
+
+    it('addresses the reviewers, with repo, location, author and body', () => {
+      const brief = shipBrief('PROJ-14', [
+        feedback({ repo: 'frontend', path: 'src/a.ts', originalLine: 42, body: 'please rename this' }),
+      ]);
+      expect(brief).toContain('Reviewers requested changes on the pull request for ticket PROJ-14');
+      expect(brief).toContain('The review team asked for these changes:');
+      expect(brief).toContain('- frontend src/a.ts:42');
+      expect(brief).toContain('asked by alice (MEMBER)');
+      expect(brief).toContain('    please rename this');
+      expect(brief).toContain('Do not resolve the conversations yourself');
+    });
+
+    it('uses originalLine even when line holds a different value', () => {
+      const brief = shipBrief('PROJ-15', [feedback({ path: 'src/a.ts', line: 99, originalLine: 7 })]);
+      expect(brief).toContain('src/a.ts:7');
+      expect(brief).not.toContain('src/a.ts:99');
+    });
+
+    it('renders a general comment for a null path, never a bare colon', () => {
+      const brief = shipBrief('PROJ-16', [feedback({ path: null, originalLine: null })]);
+      expect(brief).toContain('- frontend (general comment)');
+    });
+
+    it('renders a file-level comment with the path only', () => {
+      const brief = shipBrief('PROJ-17', [feedback({ path: 'src/a.ts', originalLine: null })]);
+      expect(brief).toContain('- frontend src/a.ts');
+    });
+
+    it('indents a multi-line body line by line', () => {
+      const brief = shipBrief('PROJ-18', [feedback({ body: 'line one\nline two' })]);
+      expect(brief).toContain('    line one\n    line two');
+    });
+
+    it('omits the asked-by line when the author login is empty', () => {
+      const brief = shipBrief('PROJ-19', [
+        feedback({ author: { login: '', typeName: '', association: '' } }),
+      ]);
+      expect(brief).not.toContain('asked by');
+    });
+
+    it('falls back to the generic wording for a failed ship row with no feedback', () => {
+      // A ship-saga failure with no adopted feedback is not a review ask —
+      // "Address every point below" would name points that are not there.
+      const brief = renderFixBrief('PROJ-20', [{ stageKey: 'ship', status: 'failed' }]);
+      expect(brief).toContain('The ship gate failed');
+      expect(brief).not.toContain('Reviewers requested changes');
+      expect(brief).not.toContain('The review team asked for these changes:');
+    });
+
+    it('never renders the ship block for a uat or review failure', () => {
+      const brief = renderFixBrief(
+        'PROJ-21',
+        [{ stageKey: 'review', status: 'failed', verdict: 'gates failed: lint' }],
+        [],
+        [],
+        [feedback()],
+      );
+      expect(brief).not.toContain('The review team asked for these changes:');
+      expect(brief).not.toContain('Reviewers requested changes');
+    });
   });
 });
