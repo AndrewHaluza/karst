@@ -224,6 +224,38 @@ describe('reclaimPort', () => {
     expect(cwdCalls).toBe(1);
   });
 
+  it('reclaims a port from an ORPHANED baseline listener so the next start self-heals', async () => {
+    const port = nextPort();
+    const repoPath = '/repo/fe';
+    const srv = createServer();
+    await new Promise<void>((resolve, reject) => {
+      srv.once('error', reject);
+      srv.listen(port, '127.0.0.1', resolve);
+    });
+    // The retired row: launcher gone (`stopped`, pid NULL), grandchild still bound.
+    store.db
+      .prepare(
+        `INSERT INTO servers (ticket_id, repo, host, port, pid, status, log_path, cwd, started_at)
+         VALUES (NULL, 'api', '127.0.0.1', ?, NULL, 'stopped', '/tmp/api.log', ?, ?)`,
+      )
+      .run(port, join(repoPath, '.karst', 'baseline', 'api'), '2026-08-03T07:00:00.000Z');
+    vi.mocked(killTree).mockImplementation(() => {
+      srv.close();
+      return 'killed';
+    });
+    const facts: ProcessFactsSource = {
+      isAlive: async () => true,
+      liveCwd: async () => ({ path: join(repoPath, '.karst', 'baseline', 'api'), deleted: false }),
+      processStartMs: async () => null,
+    };
+
+    const outcome = await reclaimPort(store, '127.0.0.1', port, repoPath, facts);
+
+    expect(outcome.portFree).toBe(true);
+    expect(outcome.killedPids).toEqual([process.pid]);
+    expect(outcome.survivors).toEqual([]);
+  });
+
   it('refuses to reclaim a port held by a baseline server — the shared singleton survives', async () => {
     const port = nextPort();
     const repoPath = '/repo/fe';
@@ -364,5 +396,97 @@ describe('decideReclaim', () => {
     // OS reports here, so it is retired with the kill rather than left
     // phantom-running over a dead pid.
     expect(decideReclaim(store, 4242, repoPath, f)).toEqual({ kill: true, rowId: 1 });
+  });
+
+  it('RECLAIMS an orphaned baseline listener with no row — a crashed window left it', () => {
+    // A window killed between `startHot`'s spawn and its health-gated INSERT
+    // leaves NO row for the child that keeps the port. Nothing else reaps it
+    // (the panel lists running rows only; `reapStaleServers` excludes baselines;
+    // `reapOrphanedPorts` matches only `.karst/worktrees`), so a no-row listener
+    // under the baseline checkout must be reclaimable or it wedges every spin.
+    const f = facts({
+      liveCwd: () => ({ path: '/repo/.karst/baseline/api', deleted: false }),
+    });
+    expect(decideReclaim(store, 7777, '/repo', f)).toEqual({ kill: true });
+  });
+
+  it('reclaims it at a nested path under the baseline checkout too', () => {
+    const f = facts({
+      liveCwd: () => ({ path: '/repo/.karst/baseline/api/sub/dir', deleted: false }),
+    });
+    expect(decideReclaim(store, 7777, '/repo', f)).toEqual({ kill: true });
+  });
+
+  it('protects a LIVE baseline whose port is held by its child, not the recorded launcher', () => {
+    // `npm run dev` records the LAUNCHER pid, but the port is held by Vite, a
+    // different pid — so the pid row lookup above cannot see it. The `running`
+    // row found by checkout path is what keeps the shared singleton alive.
+    const checkout = join(repoPath, '.karst', 'baseline', 'api');
+    store.db
+      .prepare(
+        `INSERT INTO servers (ticket_id, repo, host, port, pid, status, log_path, cwd, started_at)
+         VALUES (NULL, 'api', '127.0.0.1', 3005, 4242, 'running', '/tmp/api.log', ?, ?)`,
+      )
+      .run(checkout, '2026-08-03T07:00:00.000Z');
+    const f = facts({ liveCwd: () => ({ path: checkout, deleted: false }) });
+    expect(decideReclaim(store, 7777, repoPath, f)).toEqual({ kill: false, baseline: true });
+  });
+
+  it('RECLAIMS an orphaned baseline listener whose launcher row is no longer running', () => {
+    // The leaked-grandchild case: `npm run dev` launched, its launcher died while
+    // the Vite child kept the port, and `findRunningBaseline` retired the row to
+    // `stopped`. Nothing else reaps it (the Resources panel lists only running
+    // rows and `reapStaleServers` excludes baselines), so an unconditional path
+    // guard would wedge every spin. The retired row is the evidence it is an
+    // orphan, not a mid-start singleton — fall through and kill it.
+    const checkout = join(repoPath, '.karst', 'baseline', 'api');
+    store.db
+      .prepare(
+        `INSERT INTO servers (ticket_id, repo, host, port, pid, status, log_path, cwd, started_at)
+         VALUES (NULL, 'api', '127.0.0.1', 3005, NULL, 'stopped', '/tmp/api.log', ?, ?)`,
+      )
+      .run(checkout, '2026-08-03T07:00:00.000Z');
+    const f = facts({ liveCwd: () => ({ path: checkout, deleted: false }) });
+    expect(decideReclaim(store, 7777, repoPath, f)).toEqual({ kill: true });
+  });
+
+  it('reclaims a nested orphan under a retired baseline row', () => {
+    const checkout = join(repoPath, '.karst', 'baseline', 'api');
+    store.db
+      .prepare(
+        `INSERT INTO servers (ticket_id, repo, host, port, pid, status, log_path, cwd, started_at)
+         VALUES (NULL, 'api', '127.0.0.1', 3005, NULL, 'failed', '/tmp/api.log', ?, ?)`,
+      )
+      .run(checkout, '2026-08-03T07:00:00.000Z');
+    const f = facts({
+      liveCwd: () => ({ path: join(checkout, 'node_modules', '.bin'), deleted: false }),
+    });
+    expect(decideReclaim(store, 7777, repoPath, f)).toEqual({ kill: true });
+  });
+
+  it('ignores a running baseline belonging to a DIFFERENT repo — this checkout has no row', () => {
+    // Only a row whose CHECKOUT is this listener's own checkout protects it. A
+    // running baseline of another repository must not be read as this listener's
+    // live row: this listener has none, so it is an orphan and is reclaimed.
+    store.db
+      .prepare(
+        `INSERT INTO servers (ticket_id, repo, host, port, pid, status, log_path, cwd, started_at)
+         VALUES (NULL, 'api', '127.0.0.1', 3005, 4242, 'running', '/tmp/api.log', ?, ?)`,
+      )
+      .run('/some/other/repo/.karst/baseline/api', '2026-08-03T07:00:00.000Z');
+    const f = facts({
+      liveCwd: () => ({ path: join(repoPath, '.karst', 'baseline', 'api'), deleted: false }),
+    });
+    expect(decideReclaim(store, 7777, repoPath, f)).toEqual({ kill: true });
+  });
+
+  it('still kills an ordinary dev server of the repo', () => {
+    const f = facts({ liveCwd: () => ({ path: '/repo/src', deleted: false }) });
+    expect(decideReclaim(store, 7777, '/repo', f)).toEqual({ kill: true });
+  });
+
+  it('still refuses a stranger', () => {
+    const f = facts({ liveCwd: () => ({ path: '/elsewhere', deleted: false }) });
+    expect(decideReclaim(store, 7777, '/repo', f)).toEqual({ kill: false });
   });
 });

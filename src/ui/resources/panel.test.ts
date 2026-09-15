@@ -290,6 +290,83 @@ describe('ResourcesPanelManager', () => {
     expect(state.rows[0]).toMatchObject({ ticketKey: 'K-7', ticketTitle: 'T-7' });
   });
 
+  it('confirms with the plain string when the row has no baseline dependents', async () => {
+    const m = fakeMonitor();
+    const p = fakePanel();
+    const confirm = vi.fn(async () => true);
+    const manager = new ResourcesPanelManager(hostFor(p.panel), {
+      monitor: m.monitor,
+      disk: fakeDisk().disk,
+      worktreePaths: () => [],
+      confirm,
+      baselineDependents: () => [],
+    });
+    manager.open();
+    p.receive({ type: 'kill-server', serverId: 1, requestId: 'k1-abc' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(confirm).toHaveBeenCalledWith('Stop this server process?');
+  });
+
+  it('confirms with a baseline message naming the dependent ticket KEYS', async () => {
+    const m = fakeMonitor();
+    const p = fakePanel();
+    const confirm = vi.fn(async (_message: string) => true);
+    const manager = new ResourcesPanelManager(hostFor(p.panel), {
+      monitor: m.monitor,
+      disk: fakeDisk().disk,
+      worktreePaths: () => [],
+      confirm,
+      baselineDependents: () => [7, 12],
+      ticketIdentity: (ids) => new Map(ids.map((id) => [id, { key: `PROJ-${id}`, title: null }])),
+    });
+    manager.open();
+    p.receive({ type: 'kill-server', serverId: 1, requestId: 'k1-abc' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const [message] = confirm.mock.calls[0]!;
+    expect(message).toContain('2 ticket(s)');
+    expect(message).toContain('PROJ-7');
+    expect(message).toContain('PROJ-12');
+    expect(message).not.toContain('#7');
+    expect(message).not.toContain('#12');
+  });
+
+  it('falls back to #id for a dependent with no resolvable key', async () => {
+    const m = fakeMonitor();
+    const p = fakePanel();
+    const confirm = vi.fn(async (_message: string) => true);
+    const manager = new ResourcesPanelManager(hostFor(p.panel), {
+      monitor: m.monitor,
+      disk: fakeDisk().disk,
+      worktreePaths: () => [],
+      confirm,
+      baselineDependents: () => [7],
+      ticketIdentity: () => new Map(),
+    });
+    manager.open();
+    p.receive({ type: 'kill-server', serverId: 1, requestId: 'k1-abc' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const [message] = confirm.mock.calls[0]!;
+    expect(message).toContain('#7');
+  });
+
+  it('declining a baseline stop still declines', async () => {
+    const m = fakeMonitor();
+    const p = fakePanel();
+    const confirm = vi.fn(async () => false);
+    const manager = new ResourcesPanelManager(hostFor(p.panel), {
+      monitor: m.monitor,
+      disk: fakeDisk().disk,
+      worktreePaths: () => [],
+      confirm,
+      baselineDependents: () => [7, 12],
+    });
+    manager.open();
+    p.receive({ type: 'kill-server', serverId: 1, requestId: 'k1-abc' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(m.kill).not.toHaveBeenCalled();
+  });
+
   it('carries the scope label into the pushed state', async () => {
     const m = fakeMonitor();
     const p = fakePanel();

@@ -108,6 +108,11 @@ function makeRepo(root: string, name: string, files: Record<string, string>): st
   git(repo, 'config', 'user.name', 't');
   git(repo, 'add', '.');
   git(repo, 'commit', '-q', '-m', 'init');
+  const origin = join(root, '.origins', `${name}.git`);
+  mkdirSync(origin, { recursive: true });
+  git(origin, 'init', '-q', '--bare');
+  git(repo, 'remote', 'add', 'origin', origin);
+  git(repo, 'push', '-q', '-u', 'origin', 'develop');
   return repo;
 }
 

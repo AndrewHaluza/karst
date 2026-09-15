@@ -64,6 +64,11 @@ export interface ResourcesPanelDeps {
    * `showWarningMessage` in `extension.ts`.
    */
   confirm?: (message: string) => Promise<boolean>;
+  /**
+   * Tickets depending on the baseline behind this server row, or `[]` when the
+   * row is not a baseline. Read from `baseline_refs` (`store/baselineRefs.ts`).
+   */
+  baselineDependents?: (serverId: number) => number[];
   logError?: LogError;
 }
 
@@ -127,7 +132,21 @@ export class ResourcesPanelManager {
       measureDisk: () => this.measureDisk(),
       killServer: async (serverId) => {
         if (this.deps.confirm) {
-          const ok = await this.deps.confirm('Stop this server process?');
+          const dependents = this.deps.baselineDependents?.(serverId) ?? [];
+          // Name the KEYS the user can match against their board, never the raw
+          // `tickets.id` (not a visible label). Resolved through the same
+          // identity dep the attributed rows use; `#<id>` is only a fallback for
+          // a dependent whose key is unavailable.
+          const identity =
+            this.deps.ticketIdentity?.(dependents) ?? new Map<number, TicketIdentity>();
+          const labels = dependents.map((id) => identity.get(id)?.key ?? `#${id}`);
+          const message =
+            labels.length === 0
+              ? 'Stop this server process?'
+              : `This is a baseline server shared by ${labels.length} ticket(s): ` +
+                `${labels.join(', ')}. Stopping it takes the ` +
+                `dependency out from under all of them. Stop it anyway?`;
+          const ok = await this.deps.confirm(message);
           if (!ok) return;
         }
         const outcome = await this.deps.monitor.kill(serverId);

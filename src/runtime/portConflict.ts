@@ -8,6 +8,7 @@ import {
   type ProcessFactsSource,
 } from './serverIdentity.js';
 import { isPathUnder } from './pathScope.js';
+import { baselineRoot } from './baselinePaths.js';
 import { killTree } from './processTree.js';
 import { commandOutput } from './asyncProcess.js';
 
@@ -183,6 +184,21 @@ export interface ReclaimDecision {
 }
 
 /**
+ * The `status` of every baseline (`ticket_id IS NULL`) row whose recorded
+ * checkout is the SAME checkout `listenerCwd` runs in. A baseline row records
+ * its checkout as `servers.cwd` (`<baselineRoot>/<service>`), so the path is what
+ * ties a row to a listener. Empty means no baseline has ever been recorded here.
+ */
+function baselineRowStatuses(store: Store, listenerCwd: string): string[] {
+  const rows = store.db
+    .prepare("SELECT cwd, status FROM servers WHERE ticket_id IS NULL AND cwd IS NOT NULL")
+    .all() as { cwd: string; status: string }[];
+  return rows
+    .filter((r) => isPathUnder(listenerCwd, r.cwd) || isPathUnder(r.cwd, listenerCwd))
+    .map((r) => r.status);
+}
+
+/**
  * May karst kill this listener? Two independent attribution rules, either of
  * which licenses the kill:
  *
@@ -197,7 +213,13 @@ export interface ReclaimDecision {
  * A non-attributable row is NOT a refusal by itself — the cwd rule is checked
  * after it, so a reissued pid whose new process happens to serve this repo
  * still dies (a dev server of the repo is the ticket's "conflicting process",
- * whatever its pid history). Everything else is a stranger: refused.
+ * whatever its pid history). A LIVE baseline is refused in BOTH rules: by the
+ * row rule when a `running` row marks its pid, and by the path rule when its
+ * live cwd sits under a baseline checkout with a `running` row (the child that
+ * actually holds the port). An ORPHANED baseline — a listener under a checkout
+ * with no `running` row — is NOT protected: its launcher is gone, nothing else
+ * reaps it, and the cwd rule reclaims it. Everything else is a stranger:
+ * refused.
  */
 export function decideReclaim(
   store: Store,
@@ -228,6 +250,26 @@ export function decideReclaim(
     return { kill: true, rowId: row.id };
   }
   const live = facts.liveCwd(pid);
+  if (live && isPathUnder(live.path, baselineRoot(repoPath))) {
+    // A live baseline's port is often held by a CHILD (`npm run dev` → Vite), so
+    // the pid lookup above missed it; the checkout path is the handle that
+    // exists from the spawn onward. Protect it when a `running` row for THIS
+    // checkout records the shared singleton.
+    //
+    // A listener with NO running row is an orphan and is reclaimed by the cwd
+    // rule below: its row was retired, or the window that spawned it died before
+    // writing one (a crash between `startHot`'s spawn and its health-gated
+    // INSERT). Nothing else reaps it — the row is `stopped` (the panel lists only
+    // running rows) and `reapStaleServers` excludes baselines — so leaving it
+    // protected would wedge every dependent spin until a human killed it.
+    //
+    // A competing START never reaches this guard: `ensureBaseline` serialises
+    // starts with a cross-process lock (`baselineStartLock.ts`), so no other
+    // window can be mid-start on this checkout while this runs.
+    if (baselineRowStatuses(store, live.path).includes('running')) {
+      return { kill: false, baseline: true };
+    }
+  }
   if (live && isPathUnder(live.path, repoPath)) {
     // The row's pid is the listener's, but the row did not attribute it (a
     // reissued pid, a stale recorded cwd) — the row cannot be about the
