@@ -2,8 +2,11 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
-// The number ratchets down as extractions land and is never raised.
-const MAX_EXTENSION_LINES = 8408;
+// The number ratchets down as extractions land and is never raised. The
+// value is the measured line count plus 20 lines of deliberate slack, sized
+// to the host bindings FEAT-39 (+1) and FEAT-40 (+16) will add; anything
+// larger than a thin binding belongs in `src/extension/ops/`.
+const MAX_EXTENSION_LINES = 8403;
 
 describe('extension.ts ratchet', () => {
   it('extension.ts does not exceed the recorded line count', () => {
