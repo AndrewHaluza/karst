@@ -3,6 +3,9 @@ import type { ProjectScope } from '../store/tickets.js';
 import { listSyncablePrs, updatePrDetail, type SyncablePr } from '../store/prs.js';
 import { fetchPrDetail, defaultGhRunnerAsync, type GhRunner, type PrDetail } from '../integrations/github.js';
 import { serializeComments } from '../model/prComments.js';
+import { nowIso } from '../model/time.js';
+import { parsePrRef, type PrRef, type PrFeedbackProbe } from '../integrations/githubReview.js';
+import { reconcilePrFeedback } from '../store/prFeedback.js';
 
 /**
  * Whether a probe actually moved anything on this row.
@@ -45,29 +48,82 @@ export function prDetailChanged(stored: SyncablePr, detail: PrDetail): boolean {
  * Returns how many rows changed, so the caller can skip a dashboard refresh when
  * nothing moved.
  */
+export interface SyncPrFeedbackDeps {
+  /** Absent = feedback is not refreshed at all. Injected so the sweep is testable without gh. */
+  fetchFeedback?: (ref: PrRef, cwd: string) => Promise<PrFeedbackProbe | null>;
+  now?: () => string;
+  /** '[merge]'-prefixed decision logging. */
+  debug?: (message: string) => void;
+}
+
 export async function syncPrStatuses(
   store: Store,
   gh: GhRunner = defaultGhRunnerAsync,
   scope: ProjectScope = {},
+  deps: SyncPrFeedbackDeps = {},
 ): Promise<number> {
   const prs = listSyncablePrs(store, scope);
   let changed = 0;
 
   for (const pr of prs) {
-    let detail: PrDetail;
+    let detail: PrDetail | null = null;
     try {
       detail = await fetchPrDetail(gh, pr.url, pr.cwd);
     } catch {
       // A single probe blowing up (a runner throwing, not gh exiting nonzero)
-      // must not abort the sweep — treat it exactly like the unknown detail.
-      continue;
+      // must not skip this PR's FEEDBACK too — the detail is simply unknown.
+      deps.debug?.(
+        `[merge] pr detail probe threw for ticket ${pr.ticketId} ${pr.repo} — detail left as stored`,
+      );
     }
     // A probe that stated nothing new — including the all-unknown detail of a
     // failed probe — writes nothing and counts as nothing.
-    if (!prDetailChanged(pr, detail)) continue;
+    if (detail && prDetailChanged(pr, detail)) {
+      updatePrDetail(store, { ticketId: pr.ticketId, repo: pr.repo, url: pr.url, detail });
+      changed += 1;
+    }
 
-    updatePrDetail(store, { ticketId: pr.ticketId, repo: pr.repo, url: pr.url, detail });
-    changed += 1;
+    if (deps.fetchFeedback) {
+      const ref = parsePrRef(pr.url);
+      if (ref) {
+        try {
+          const got = await deps.fetchFeedback(ref, pr.cwd);
+          if (got) {
+            // A truncated threads/reviews list is an INCOMPLETE set, so it must
+            // not be treated as authoritative for absence: rows it did not carry
+            // were unread, not withdrawn. Comment-list truncation does not drop a
+            // thread from the set, so only the two set-sized cuts gate this.
+            const authoritative = !(got.truncated.threads || got.truncated.reviews);
+            const r = reconcilePrFeedback(store, {
+              ticketId: pr.ticketId,
+              repo: pr.repo,
+              prUrl: pr.url,
+              snapshot: got.snapshot,
+              at: (deps.now ?? nowIso)(),
+              markAbsent: authoritative,
+              debug: deps.debug,
+            });
+            if (r.inserted || r.updated || r.markedAbsent || r.reappeared) changed += 1;
+            if (
+              got.truncated.threads ||
+              got.truncated.reviews ||
+              got.truncated.threadComments.length > 0
+            ) {
+              deps.debug?.(
+                `[merge] pr feedback for ticket ${pr.ticketId} ${pr.repo} was TRUNCATED ` +
+                  `(threads=${got.truncated.threads} reviews=${got.truncated.reviews} ` +
+                  `threadComments=${got.truncated.threadComments.length}) — some feedback was not read`,
+              );
+            }
+          }
+        } catch (e) {
+          deps.debug?.(
+            `[merge] pr feedback probe failed for ticket ${pr.ticketId} ${pr.repo}: ` +
+              `${e instanceof Error ? e.message : String(e)} — nothing written`,
+          );
+        }
+      }
+    }
   }
 
   return changed;

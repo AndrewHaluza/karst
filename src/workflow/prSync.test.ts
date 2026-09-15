@@ -2,7 +2,10 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { openStore, type Store } from '../store/db.js';
 import { createTicket } from '../store/tickets.js';
 import { listPrsByTicket } from '../store/dashboard.js';
+import { listPrFeedback } from '../store/prFeedback.js';
 import type { GhRunner } from '../integrations/github.js';
+import type { PrFeedbackProbe } from '../integrations/githubReview.js';
+import type { PrReviewThread } from '../model/prReview.js';
 import { syncPrStatuses } from './prSync.js';
 
 function seedPr(store: Store, ticketId: number, repo: string, number: number, status: string): void {
@@ -28,6 +31,33 @@ function ghReturning(byRef: Record<string, { state: string; isDraft?: boolean }>
 }
 
 const PR12 = 'https://github.com/o/r/pull/12';
+
+function thread(overrides: Partial<PrReviewThread> = {}): PrReviewThread {
+  return {
+    nodeId: 'PRRT_1',
+    upstreamKey: '1001',
+    isResolved: false,
+    isOutdated: false,
+    path: 'src/a.ts',
+    line: 10,
+    startLine: null,
+    originalLine: 10,
+    originalCommitId: 'abc',
+    subjectType: 'LINE',
+    author: { login: 'ada', typeName: 'User', association: 'MEMBER' },
+    body: 'please fix this',
+    comments: [],
+    updatedAt: '2026-09-01T00:00:00Z',
+    ...overrides,
+  };
+}
+
+function probe(threads: PrReviewThread[]): PrFeedbackProbe {
+  return {
+    snapshot: { decision: null, reviews: [], threads },
+    truncated: { threads: false, reviews: false, threadComments: [] },
+  };
+}
 
 describe('syncPrStatuses', () => {
   let store: Store;
@@ -189,5 +219,177 @@ describe('syncPrStatuses', () => {
     expect(pr.headRef).toBe('karst/feat/x');
     expect(pr.baseRef).toBe('develop');
     expect(pr.createdAt).toBe('2026-07-23T08:00:00Z');
+  });
+});
+
+describe('syncPrStatuses feedback refresh', () => {
+  let store: Store;
+  beforeEach(() => (store = openStore(':memory:')));
+  afterEach(() => store.close());
+
+  it('lands feedback rows when a fetcher is injected', async () => {
+    const a = createTicket(store, { key: 'A', title: 'a', projectId: 1 });
+    seedPr(store, a.id, 'api', 12, 'open');
+    seedWorktree(store, a.id, 'api', '/wt/api');
+
+    const changed = await syncPrStatuses(
+      store,
+      ghReturning({ [PR12]: { state: 'MERGED' } }),
+      { projectId: 1 },
+      { fetchFeedback: async () => probe([thread()]), now: () => '2026-09-15T00:00:00Z' },
+    );
+
+    expect(changed).toBe(2);
+    expect(listPrFeedback(store, a.id)).toHaveLength(1);
+    expect(listPrFeedback(store, a.id)[0]!.body).toBe('please fix this');
+  });
+
+  it('refreshes feedback even when the PR detail did not change', async () => {
+    const a = createTicket(store, { key: 'A', title: 'a', projectId: 1 });
+    seedPr(store, a.id, 'api', 12, 'open');
+    seedWorktree(store, a.id, 'api', '/wt/api');
+
+    const changed = await syncPrStatuses(
+      store,
+      ghReturning({ [PR12]: { state: 'OPEN' } }),
+      { projectId: 1 },
+      { fetchFeedback: async () => probe([thread()]), now: () => '2026-09-15T00:00:00Z' },
+    );
+
+    expect(changed).toBe(1);
+    expect(listPrFeedback(store, a.id)).toHaveLength(1);
+  });
+
+  it('refreshes feedback even when the detail probe threw', async () => {
+    const a = createTicket(store, { key: 'A', title: 'a', projectId: 1 });
+    seedPr(store, a.id, 'api', 12, 'open');
+    seedWorktree(store, a.id, 'api', '/wt/api');
+
+    const gh: GhRunner = async () => {
+      throw new Error('boom');
+    };
+    const changed = await syncPrStatuses(store, gh, { projectId: 1 }, {
+      fetchFeedback: async () => probe([thread()]),
+      now: () => '2026-09-15T00:00:00Z',
+    });
+
+    expect(changed).toBe(1);
+    expect(listPrFeedback(store, a.id)).toHaveLength(1);
+  });
+
+  it('writes nothing when the fetcher returns null', async () => {
+    const a = createTicket(store, { key: 'A', title: 'a', projectId: 1 });
+    seedPr(store, a.id, 'api', 12, 'open');
+    seedWorktree(store, a.id, 'api', '/wt/api');
+
+    const changed = await syncPrStatuses(
+      store,
+      ghReturning({ [PR12]: { state: 'OPEN' } }),
+      { projectId: 1 },
+      { fetchFeedback: async () => null, now: () => '2026-09-15T00:00:00Z' },
+    );
+
+    expect(changed).toBe(0);
+    expect(listPrFeedback(store, a.id)).toHaveLength(0);
+  });
+
+  it('keeps going when one fetcher throws', async () => {
+    const a = createTicket(store, { key: 'A', title: 'a', projectId: 1 });
+    seedPr(store, a.id, 'api', 12, 'open');
+    seedPr(store, a.id, 'web', 34, 'open');
+    seedWorktree(store, a.id, 'api', '/wt/api');
+    seedWorktree(store, a.id, 'web', '/wt/web');
+
+    const changed = await syncPrStatuses(
+      store,
+      ghReturning({ [PR12]: { state: 'OPEN' }, 'https://github.com/o/r/pull/34': { state: 'OPEN' } }),
+      { projectId: 1 },
+      {
+        fetchFeedback: async (ref) => {
+          if (ref.number === 12) throw new Error('boom');
+          return probe([thread({ upstreamKey: '2001', body: 'web ask' })]);
+        },
+        now: () => '2026-09-15T00:00:00Z',
+      },
+    );
+
+    expect(changed).toBe(1);
+    const rows = listPrFeedback(store, a.id);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.body).toBe('web ask');
+  });
+
+  it('skips an unparseable url without throwing or fetching', async () => {
+    const a = createTicket(store, { key: 'A', title: 'a', projectId: 1 });
+    store.db
+      .prepare('INSERT INTO prs (ticket_id, repo, number, url, status) VALUES (?, ?, ?, ?, ?)')
+      .run(a.id, 'api', 12, 'https://gitlab.com/o/r/merge_requests/12', 'open');
+    seedWorktree(store, a.id, 'api', '/wt/api');
+
+    const gh: GhRunner = async () => ({ stdout: JSON.stringify({ state: 'OPEN' }), exitCode: 0 });
+    let fetched = false;
+    const changed = await syncPrStatuses(store, gh, { projectId: 1 }, {
+      fetchFeedback: async () => {
+        fetched = true;
+        return probe([thread()]);
+      },
+    });
+
+    expect(changed).toBe(0);
+    expect(fetched).toBe(false);
+    expect(listPrFeedback(store, a.id)).toHaveLength(0);
+  });
+
+  it('logs one [merge] line when the probe was truncated', async () => {
+    const a = createTicket(store, { key: 'A', title: 'a', projectId: 1 });
+    seedPr(store, a.id, 'api', 12, 'open');
+    seedWorktree(store, a.id, 'api', '/wt/api');
+
+    const debugs: string[] = [];
+    await syncPrStatuses(
+      store,
+      ghReturning({ [PR12]: { state: 'OPEN' } }),
+      { projectId: 1 },
+      {
+        fetchFeedback: async () => ({
+          snapshot: { decision: null, reviews: [], threads: [thread()] },
+          truncated: { threads: true, reviews: false, threadComments: [] },
+        }),
+        now: () => '2026-09-15T00:00:00Z',
+        debug: (m) => debugs.push(m),
+      },
+    );
+
+    const truncation = debugs.filter((m) => m.includes('TRUNCATED'));
+    expect(truncation).toHaveLength(1);
+    expect(truncation[0]).toContain('[merge]');
+    expect(truncation[0]).toContain('api');
+  });
+
+  it('does not mark rows absent when the threads list was truncated', async () => {
+    // A truncated probe is an INCOMPLETE set: a row it did not carry was
+    // unread, not withdrawn, so it must not be stamped absent.
+    const a = createTicket(store, { key: 'A', title: 'a', projectId: 1 });
+    seedPr(store, a.id, 'api', 12, 'open');
+    seedWorktree(store, a.id, 'api', '/wt/api');
+
+    await syncPrStatuses(store, ghReturning({ [PR12]: { state: 'OPEN' } }), { projectId: 1 }, {
+      fetchFeedback: async () =>
+        probe([thread({ upstreamKey: '1' }), thread({ upstreamKey: '2', nodeId: 'PRRT_2' })]),
+      now: () => '2026-09-15T00:00:00Z',
+    });
+    expect(listPrFeedback(store, a.id)).toHaveLength(2);
+
+    await syncPrStatuses(store, ghReturning({ [PR12]: { state: 'OPEN' } }), { projectId: 1 }, {
+      fetchFeedback: async () => ({
+        snapshot: { decision: null, reviews: [], threads: [thread({ upstreamKey: '1' })] },
+        truncated: { threads: true, reviews: false, threadComments: [] },
+      }),
+      now: () => '2026-09-16T00:00:00Z',
+    });
+
+    const rows = listPrFeedback(store, a.id);
+    expect(rows).toHaveLength(2);
+    expect(rows.every((r) => r.absentAt === null)).toBe(true);
   });
 });

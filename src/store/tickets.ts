@@ -598,6 +598,7 @@ const TICKET_CHILD_TABLES = [
   'baseline_refs',
   'servers',
   'prs',
+  'pr_feedback',
   'ticket_attachments',
   'test_logs',
   'test_hooks',
