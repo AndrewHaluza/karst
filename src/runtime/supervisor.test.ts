@@ -158,7 +158,7 @@ function alive(pid: number): boolean {
   }
 }
 
-let portCounter = 48200;
+let portCounter = 28000;
 function nextPort(): number {
   return portCounter++;
 }
@@ -215,10 +215,14 @@ describe('server supervisor', () => {
   let dir: string;
 
   beforeAll(async () => {
-    // Ceiling keeps this probe inside the suite's own band [48200, 48400) so
-    // a blocked window THROWS loudly ("leaked servers") rather than sliding
-    // into baseline's or spin.integration's band and drawing the same ports.
-    portCounter = await freePortWindow(40, portCounter, 48400);
+    // The suite owns the band [28000, 28100), deliberately BELOW Linux's
+    // ephemeral range (32768–60999). A fixture port inside that range is fair
+    // game for any outbound socket — including a sibling suite's `listen(0)` on
+    // a parallel worker — and the service then dies of EADDRINUSE between the
+    // pre-spawn probe and the child's bind. The ceiling keeps a blocked window
+    // THROWING loudly ("leaked servers") rather than sliding into baseline's,
+    // portConflict's or spin.integration's band and drawing the same ports.
+    portCounter = await freePortWindow(40, portCounter, 28100);
   });
   beforeEach(() => {
     store = openStore(':memory:');

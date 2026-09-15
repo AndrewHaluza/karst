@@ -290,7 +290,7 @@ export async function spinTicket(
     for (const dep of baselineDeps) {
       bail();
       debug?.(`[runtime] ticket ${ticketId}: ensuring baseline dep ${dep}`);
-      await ensureBaseline(store, manifest, dep);
+      await ensureBaseline(store, manifest, dep, { debug });
       addBaselineRef(store, ticketId, dep);
     }
 

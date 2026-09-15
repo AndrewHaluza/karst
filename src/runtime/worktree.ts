@@ -7,6 +7,7 @@ import { prepareCommand } from './command.js';
 import { KARST_EXCLUDE_RULES } from './karstExcludes.js';
 import { canonicalPath } from './pathScope.js';
 import { stopServersUnder, type ReapedServer } from './worktreeServers.js';
+import { runGit } from '../integrations/git.js';
 
 // `canonicalPath` moved to the leaf `pathScope.ts` (this module now depends on
 // `worktreeServers.ts`, which needs it too — keeping it here would be a cycle).
@@ -74,6 +75,14 @@ function branchExists(repoPath: string, branch: string): boolean {
   return !r.error && r.status === 0;
 }
 
+/** Does `git worktree list --porcelain` output register exactly `path`? */
+function worktreeListHas(stdout: string, path: string): boolean {
+  const want = canonicalPath(path);
+  return stdout
+    .split('\n')
+    .some((line) => line.startsWith('worktree ') && canonicalPath(line.slice('worktree '.length)) === want);
+}
+
 /** True if git already has a linked worktree registered at exactly `path`. */
 export function worktreeRegisteredAt(repoPath: string, path: string): boolean {
   const r = spawnSync('git', ['worktree', 'list', '--porcelain'], {
@@ -81,10 +90,18 @@ export function worktreeRegisteredAt(repoPath: string, path: string): boolean {
     encoding: 'utf8',
   });
   if (r.error || r.status !== 0) return false;
-  const want = canonicalPath(path);
-  return r.stdout
-    .split('\n')
-    .some((line) => line.startsWith('worktree ') && canonicalPath(line.slice('worktree '.length)) === want);
+  return worktreeListHas(r.stdout, path);
+}
+
+/**
+ * Async `worktreeRegisteredAt` for the extension-host paths (Spin's baseline
+ * start). Identical decision through the bounded, non-blocking `runGit`, so the
+ * single event loop — every webview, the hook endpoint, every session — is never
+ * frozen by a synchronous `git worktree list`.
+ */
+export async function worktreeRegisteredAtAsync(repoPath: string, path: string): Promise<boolean> {
+  const r = await runGit(['worktree', 'list', '--porcelain'], repoPath);
+  return r.exitCode === 0 && worktreeListHas(r.stdout, path);
 }
 
 /**

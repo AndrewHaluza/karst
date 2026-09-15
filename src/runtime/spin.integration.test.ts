@@ -108,12 +108,17 @@ function makeRepo(root: string, name: string, files: Record<string, string>): st
   git(repo, 'config', 'user.name', 't');
   git(repo, 'add', '.');
   git(repo, 'commit', '-q', '-m', 'init');
+  const origin = join(root, '.origins', `${name}.git`);
+  mkdirSync(origin, { recursive: true });
+  git(origin, 'init', '-q', '--bare');
+  git(repo, 'remote', 'add', 'origin', origin);
+  git(repo, 'push', '-q', '-u', 'origin', 'develop');
   return repo;
 }
 
 // Rebased onto a window this machine has proven free (see freePortWindow): each
 // case draws default ports AND a 20-30 port allocator range from it.
-let portBase = 48600;
+let portBase = 28600;
 function port(): number {
   return portBase++;
 }
@@ -174,11 +179,17 @@ describe('spinTicket integration', () => {
   const started: number[] = [];
 
   beforeAll(async () => {
-    // Ceiling keeps this probe inside the suite's own band: supervisor and
-    // baseline own [48200, 48400) and [48400, 48600) respectively, so a window
-    // blocked by a leftover server THROWS loudly ("leaked servers") instead of
-    // sliding into a sibling suite's band and drawing the same ports it draws.
-    portBase = await freePortWindow(140, portBase, 49000);
+    // The suite owns the band [28600, 29000), deliberately BELOW Linux's
+    // ephemeral range (32768–60999). A fixture port inside that range is fair
+    // game for any outbound socket — including a sibling suite's `listen(0)` on
+    // a parallel worker — and the service then dies of EADDRINUSE between the
+    // pre-spawn probe and the child's bind. This suite is the most exposed
+    // because it runs longest and starts the most servers, and that is exactly
+    // the flake CI saw. supervisor, baseline and portConflict own [28000,
+    // 28100), [28100, 28200) and [28200, 28600); the ceiling keeps a window
+    // blocked by a leftover server THROWING loudly ("leaked servers") instead
+    // of sliding into a sibling suite's band and drawing the same ports.
+    portBase = await freePortWindow(140, portBase, 29000);
   });
   beforeEach(() => {
     store = openStore(':memory:');

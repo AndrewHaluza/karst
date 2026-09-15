@@ -2,15 +2,11 @@ import * as vscode from 'vscode';
 import { readFileSync, mkdirSync, existsSync, writeFileSync, statSync, appendFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
-import {
-  lstat as fsLstat,
-  readFile as fsReadFile,
-  readlink as fsReadlink,
-  realpath as fsRealpath,
-} from 'node:fs/promises';
+import { lstat as fsLstat, readFile as fsReadFile, readlink as fsReadlink, realpath as fsRealpath } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join } from 'node:path';
 
 import { openStore, type Store } from './store/db.js';
+import { baselineDependentsFor } from './store/baselineRefs.js';
 import { backfillSpillOversized } from './attachments/spill.js';
 import { runImmediateTransaction } from './store/transactions.js';
 import { describeStoreOpenFailure } from './extension/storeOpenFailure.js';
@@ -2370,6 +2366,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const choice = await vscode.window.showWarningMessage(message, { modal: true }, 'Stop process');
       return choice === 'Stop process';
     },
+    baselineDependents: (serverId) => baselineDependentsFor(localStore, serverId),
     logError,
   });
   context.subscriptions.push(
