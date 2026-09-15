@@ -289,10 +289,14 @@ function graphRunStatusCopy(status: string): string {
 function graphRunStatus(status: string): InsideStatus {
   switch (status) {
     case 'planning':
-    case 'awaiting-confirmation':
     case 'running':
     case 'draining':
       return 'run';
+    // A run parked on a human's confirmation is not working — it is holding a
+    // button. UI-R28b assigns "needs attention / paused" the amber pause
+    // glyph, which is `wait`; rendering it as `run` spun a graph that had
+    // already stopped and was waiting on a person.
+    case 'awaiting-confirmation':
     case 'blocked':
     case 'stale':
       // The graph's own work is done, but nothing advances until a human or
@@ -338,25 +342,42 @@ const ADVANCING_GRAPH_RUN_STATUSES: ReadonlySet<string> = new Set([
  * delivered), `note` for `cancelled`/`stale` (neither ever confirms it), and
  * `wait` for a run at rest that a human still has to answer (`blocked`,
  * `completed-awaiting-impl-marker`), which is the run row's own status.
+ *
+ * The clamp admits both `run` and `wait` readings, because a `submitted`
+ * planner waiting on an answer nobody will give under a run at rest is the
+ * same eternal-spinner defect in a quieter glyph. It deliberately does NOT
+ * clamp `note`: a cancelled planner must never be rewritten into a pass
+ * because the run it belonged to closed. A planner that never delivered
+ * (`blocked`, `launch-unknown`) never reaches this clamp at all — see
+ * `plannerStatus`.
  */
 function clampToRunOutcome(status: InsideStatus, runStatus: string): InsideStatus {
-  if (status !== 'run' || ADVANCING_GRAPH_RUN_STATUSES.has(runStatus)) return status;
+  if ((status !== 'run' && status !== 'wait') || ADVANCING_GRAPH_RUN_STATUSES.has(runStatus)) {
+    return status;
+  }
   if (runStatus === 'closed') return 'pass';
   if (runStatus === 'cancelled' || runStatus === 'stale') return 'note';
   return 'wait';
 }
 
 function plannerStatus(status: string, runStatus: string): InsideStatus {
+  // A planner that never delivered — `blocked`, or launched with no known
+  // result — must not inherit the run's outcome: under a `closed` run the
+  // clamp would confirm it with a `pass` for work it never produced. It has
+  // always read `wait` (it was never a spinner), and it keeps that reading.
+  if (status === 'blocked' || status === 'launch-unknown') return 'wait';
   const raw = ((): InsideStatus => {
     switch (status) {
       case 'ready':
         return 'pending';
       case 'launching':
       case 'running':
-      case 'submitted':
         return 'run';
-      case 'blocked':
-      case 'launch-unknown':
+      // `submitted` is the planner's own terminal phase: the session finished
+      // and the COMPILER owes the answer (see `plannerAge`, which reports how
+      // long the run has waited on that answer). Nothing is executing, so the
+      // row waits rather than spins.
+      case 'submitted':
         return 'wait';
       case 'cancelled':
       case 'stale':
@@ -371,8 +392,11 @@ function plannerStatus(status: string, runStatus: string): InsideStatus {
 function revisionStatus(status: string, runStatus: string): InsideStatus {
   const raw = ((): InsideStatus => {
     switch (status) {
+      // A revision is the compiled plan version the run executes under — a
+      // durable bookkeeping fact, never an actor. It has no outcome of its
+      // own, so `active` is a neutral marker and never a spinner or a pass.
       case 'active':
-        return 'run';
+        return 'note';
       case 'completed':
         return 'pass';
       default:
