@@ -28,6 +28,7 @@ import { mergeGateState } from '../../workflow/mergeGate.js';
 import { sendBackState, type SendBackState } from '../../workflow/sendBack.js';
 import { retryGateState, type RetryGateState } from '../../workflow/retryGate.js';
 import { prFeedbackFixState, type PrFeedbackFixState } from '../../workflow/prFeedbackFix.js';
+import { countOpenPrFeedback } from '../../store/prFeedback.js';
 import { buildMergeCheckPanelRows, type MergeCheckPanelRow } from '../../model/mergeCheckPanel.js';
 import { graphInsideProcess, type GraphInsideInput } from '../../model/inside/graph.js';
 import { nowIso } from '../../model/time.js';
@@ -285,6 +286,13 @@ export interface DashboardState {
    * host's verdict and the control never disagree.
    */
   prFeedbackFix: PrFeedbackFixState;
+  /**
+   * How many review items are open on this ticket's pull requests — live,
+   * unresolved, not withdrawn. Carried on the snapshot (the same read the menu
+   * gate uses) so the panel and the host cannot disagree about how "open" is
+   * defined; the `awaiting-merge` blocker line itself stays `mergeGate.ts`'s.
+   */
+  openPrFeedback: number;
 }
 
 /**
@@ -531,6 +539,7 @@ export function buildDashboardState(
   // ship header's ⋯ menu and the host's confirm path must agree about whether
   // "Address pull request feedback" exists at all.
   const prFeedbackFix = prFeedbackFixState(store, ticketId);
+  const openPrFeedback = countOpenPrFeedback(store, ticketId);
   // ONE read of the marks, for the same reason — the Inside strip and the impl
   // segment's pips are two views of one set of facts.
   const marks = listPhaseMarks(store, ticketId);
@@ -945,6 +954,7 @@ export function buildDashboardState(
     sendBack,
     rerunGate,
     prFeedbackFix,
+    openPrFeedback,
   };
 }
 

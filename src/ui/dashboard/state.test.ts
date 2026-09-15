@@ -12,6 +12,13 @@ import { openProcessRun } from '../../store/processRuns.js';
 import { openStageRun } from '../../store/stageRuns.js';
 import { parkGateStage } from '../../store/stageBlocks.js';
 import { openRecoveryRound } from '../../store/recoveryRounds.js';
+import { reconcilePrFeedback } from '../../store/prFeedback.js';
+import { FIX_ATTEMPT_CAP } from '../../workflow/fixAttempts.js';
+import type {
+  PrFeedbackSnapshot,
+  PrReviewAuthor,
+  PrReviewThread,
+} from '../../model/prReview.js';
 import { recordFindings } from '../../store/reviewFindings.js';
 import { MAX_DIAGNOSTIC_CHARS } from '../../model/diagnosticText.js';
 import { formatTime } from '../../model/inside/types.js';
@@ -1138,6 +1145,128 @@ describe('buildDashboardState — send back to implement', () => {
       const id = at(stage);
       expect(buildDashboardState(store, id).sendBack).toEqual({ available: false, reason: 'stage' });
     }
+  });
+});
+
+describe('buildDashboardState — PR feedback action', () => {
+  let store: Store;
+  let seq = 0;
+  const T0 = '2026-01-01T00:00:00.000Z';
+  const BLOCK_REASON = 'PR #412 is open and unmerged';
+  beforeEach(() => {
+    store = openStore(':memory:');
+    seq = 0;
+  });
+  afterEach(() => store.close());
+
+  const AUTHOR: PrReviewAuthor = { login: 'reviewer', typeName: 'User', association: 'MEMBER' };
+
+  function thread(upstreamKey: string): PrReviewThread {
+    return {
+      nodeId: `PRRT_${upstreamKey}`,
+      upstreamKey,
+      isResolved: false,
+      isOutdated: false,
+      path: 'src/app.ts',
+      line: 12,
+      startLine: null,
+      originalLine: 10,
+      originalCommitId: 'abc',
+      subjectType: 'LINE',
+      author: AUTHOR,
+      body: 'please fix',
+      comments: [],
+      updatedAt: T0,
+    };
+  }
+
+  function feedback(ticketId: number, keys: string[]): void {
+    const snapshot: PrFeedbackSnapshot = {
+      decision: null,
+      reviews: [],
+      threads: keys.map(thread),
+    };
+    reconcilePrFeedback(store, {
+      ticketId,
+      repo: 'frontend',
+      prUrl: 'https://github.com/acme/repo/pull/1',
+      snapshot,
+      at: T0,
+    });
+  }
+
+  /** A ticket parked at ship, awaiting merge. Returns its id. */
+  function shipTicket(): number {
+    seq += 1;
+    const t = createTicket(store, { key: `PF-${seq}`, title: 't' });
+    store.db.prepare("UPDATE tickets SET stage_current = 'ship' WHERE id = ?").run(t.id);
+    setStage(store, t.id, 'ship', {
+      status: 'passed',
+      startedAt: T0,
+      endedAt: T0,
+      blockedKind: 'awaiting-merge',
+      blockedReason: BLOCK_REASON,
+      blockedAt: T0,
+    });
+    return t.id;
+  }
+
+  it('offers the action and reports the open count with unadopted feedback', () => {
+    const id = shipTicket();
+    feedback(id, ['1', '2']);
+    const state = buildDashboardState(store, id);
+    expect(state.prFeedbackFix).toEqual({ available: true, round: 1, items: 2 });
+    expect(state.openPrFeedback).toBe(2);
+  });
+
+  it('withholds the action at impl with reason stage', () => {
+    seq += 1;
+    const t = createTicket(store, { key: `PF-${seq}`, title: 't' });
+    store.db.prepare("UPDATE tickets SET stage_current = 'impl' WHERE id = ?").run(t.id);
+    const state = buildDashboardState(store, t.id);
+    expect(state.prFeedbackFix).toEqual({ available: false, reason: 'stage' });
+    expect(state.openPrFeedback).toBe(0);
+  });
+
+  it('keeps the open count while a ship-sourced round is already active', () => {
+    const id = shipTicket();
+    feedback(id, ['1']);
+    const round = openRecoveryRound(store, {
+      ticketId: id,
+      sourceStage: 'ship',
+      sourceProcessId: 'pr-review',
+      sourceStageRunId: null,
+      sourceProcessRunId: null,
+      triggerKind: 'upstream-changes-requested',
+      triggerDetail: 'x',
+      maxRounds: FIX_ATTEMPT_CAP,
+      startedAt: T0,
+    });
+    store.db
+      .prepare("UPDATE recovery_rounds SET status = 'pending' WHERE id = ?")
+      .run(round.id);
+    const state = buildDashboardState(store, id);
+    expect(state.prFeedbackFix).toEqual({ available: false, reason: 'round-active' });
+    expect(state.openPrFeedback).toBe(1);
+  });
+
+  it('reports zero open feedback with no rows', () => {
+    const id = shipTicket();
+    expect(buildDashboardState(store, id).openPrFeedback).toBe(0);
+  });
+
+  it('leaves the awaiting-merge blocker reason byte-identical with and without feedback', () => {
+    // The reason is authored by mergeGate.ts at park time and is out of scope;
+    // this ticket adds state fields and nothing else.
+    const clean = shipTicket();
+    const cleanReason = buildDashboardState(store, clean).currentStage?.blocked?.reason;
+    expect(cleanReason).toBe(BLOCK_REASON);
+
+    const reviewed = shipTicket();
+    feedback(reviewed, ['1', '2']);
+    const reviewedReason = buildDashboardState(store, reviewed).currentStage?.blocked?.reason;
+    expect(reviewedReason).toBe(cleanReason);
+    expect(buildDashboardState(store, reviewed).openPrFeedback).toBe(2);
   });
 });
 

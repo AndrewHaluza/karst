@@ -4097,6 +4097,24 @@ describe('address pull request feedback (executed in a VM)', () => {
     expect(h.htmlOf('inside')).not.toContain('Address PR feedback');
   });
 
+  it('shows the ⋯ button when PR feedback is the only available action', () => {
+    // If the menu's own render condition omitted the term, the item would exist
+    // but be unreachable — the exact dead-surface class this ticket closes.
+    const state: DashboardState = {
+      ...renderStateFor('ship'),
+      stageCurrent: 'ship',
+      presentedStage: 'ship',
+      sendBack: { available: false, reason: 'stage' },
+      rerunGate: { available: false, reason: 'not-gate-stage' },
+      prFeedbackFix: { available: true, round: 1, items: 1 },
+    };
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state });
+    expect(h.htmlOf('inside')).toMatch(/data-stage-menu="ship"/);
+    h.click('[data-stage-menu]', { 'stage-menu': 'ship' });
+    expect(h.htmlOf('inside')).toContain('Address PR feedback');
+  });
+
   it('posts the payload-free message once and drops a duplicate while pending', () => {
     const h = bootPreviewHarness();
     h.receive({ type: 'state', state: shipWithPrFeedback() });
@@ -4129,6 +4147,12 @@ describe('address pull request feedback (executed in a VM)', () => {
     const fn = HYDRATED.match(/function resolvePrFeedbackOutcome[\s\S]*?\n  \}/)?.[0] ?? '';
     expect(fn).toMatch(/moved \? true : null/);
     expect(fn).not.toMatch(/karstSettle\([^)]*,\s*false/);
+  });
+
+  it('settles on fix, never on impl — a round lands the ticket at fix', () => {
+    const fn = HYDRATED.match(/function resolvePrFeedbackOutcome[\s\S]*?\n  \}/)?.[0] ?? '';
+    expect(fn).toMatch(/state\.stageCurrent === 'fix'/);
+    expect(fn).not.toMatch(/state\.stageCurrent === 'impl'/);
   });
 
   it('carries no requestId on the wire payload — it settles from state', () => {
