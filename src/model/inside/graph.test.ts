@@ -201,6 +201,32 @@ describe('graphInsideProcess', () => {
     expect(blocked.evidence.rows.find((r) => r.label === 'revision')!.status).toBe('note');
   });
 
+  it('never confirms a blocked or launch-unknown planner with the run it never delivered for', () => {
+    // A planner that never delivered has no outcome to inherit: rewriting it
+    // to a closed run's `pass` would confirm work that never happened. It
+    // keeps waiting — the same "asked nothing is never green" rule the run row
+    // itself follows.
+    for (const status of ['blocked', 'launch-unknown']) {
+      const closed = graphInsideProcess(
+        input({
+          graphRun: {
+            id: 7,
+            runNumber: 1,
+            status: 'closed',
+            approachId: 'g',
+            stageAttempt: 0,
+            createdAt: '2026-08-11T00:00:00.000Z',
+          },
+          plannerRuns: [
+            { plannerRunNumber: 1, kind: 'bootstrap', status, compileAttempt: 0, reason: null },
+          ],
+        }),
+      )!;
+      if (closed.evidence?.kind !== 'rows') return;
+      expect(closed.evidence.rows.find((r) => r.label === 'planner 1')!.status).toBe('wait');
+    }
+  });
+
   it('reads an awaiting-confirmation run as a wait, never as work in progress', () => {
     // A graph parked on a human's confirmation is holding a button, not
     // running: UI-R28b assigns "needs attention / paused" the amber pause
