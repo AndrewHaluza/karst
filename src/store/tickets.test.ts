@@ -536,6 +536,34 @@ describe('ticket + stage persistence', () => {
     }
   });
 
+  // `pr_feedback` is ticket-owned evidence keyed by `ticket_id` with no FK, so
+  // it belongs in the explicit deletion contract too: otherwise its rows survive
+  // a hard delete and, because SQLite reuses rowids, can attach to a later ticket
+  // that happens to get the same id.
+  it('deleteTicket removes pr_feedback rows so a reused ticket id cannot inherit them', () => {
+    const t = createTicket(store, { key: 'D-4', title: 'feedback' });
+    store.db
+      .prepare(
+        `INSERT INTO pr_feedback (ticket_id, repo, pr_url, kind, upstream_key, first_seen_at, last_seen_at)
+         VALUES (?, ?, ?, 'thread', ?, ?, ?)`,
+      )
+      .run(
+        t.id,
+        'api',
+        'https://github.com/o/r/pull/1',
+        '1001',
+        '2026-08-01T00:00:00Z',
+        '2026-08-01T00:00:00Z',
+      );
+
+    deleteTicket(store, t.id);
+
+    const n = store.db
+      .prepare('SELECT COUNT(*) AS n FROM pr_feedback WHERE ticket_id = ?')
+      .get(t.id) as { n: number };
+    expect(n.n).toBe(0);
+  });
+
   it('archive keeps append-only gate/phase evidence and merge checks', () => {
     const t = createTicket(store, { key: 'D-3', title: 'kept' });
     recordGateRun(store, {

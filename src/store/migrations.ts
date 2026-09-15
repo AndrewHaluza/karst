@@ -40,7 +40,7 @@ export function readSchema(): string {
 }
 
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 57;
+export const SCHEMA_VERSION = 58;
 
 /** v2 ticket-field columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -526,6 +526,51 @@ CREATE TABLE IF NOT EXISTS approach_node_deferrals (
   UNIQUE (revision_id, node_id)
 );
 CREATE INDEX IF NOT EXISTS idx_node_deferrals_run ON approach_node_deferrals(graph_run_id, id);
+`;
+
+/**
+ * v58's `pr_feedback` table — one row per review THREAD plus one per review body.
+ * Byte-identical in intent to the schema.sql block it mirrors; `db.test.ts` pins
+ * that with a `toContain`. A whole new table, so the migration step is the same
+ * IF NOT EXISTS DDL as schema.sql rather than an ALTER.
+ *
+ * The unique index includes `pr_url` because the reconcile's existing-row SELECT
+ * is scoped by it; an index narrower than the SELECT would throw inside the
+ * reconcile transaction the moment the same `upstream_key` appeared under a
+ * second url for one ticket+repo.
+ */
+export const PR_FEEDBACK_DDL = `
+CREATE TABLE IF NOT EXISTS pr_feedback (
+  id                  INTEGER PRIMARY KEY,
+  ticket_id           INTEGER NOT NULL,
+  repo                TEXT NOT NULL,
+  pr_url              TEXT NOT NULL,
+  kind                TEXT NOT NULL CHECK (kind IN ('thread','review')),
+  upstream_key        TEXT NOT NULL,
+  thread_node_id      TEXT,
+  upstream_updated_at TEXT,
+  state               TEXT,
+  is_resolved         INTEGER NOT NULL DEFAULT 0,
+  is_outdated         INTEGER NOT NULL DEFAULT 0,
+  path                TEXT,
+  line                INTEGER,
+  start_line          INTEGER,
+  original_line       INTEGER,
+  original_commit_id  TEXT,
+  subject_type        TEXT,
+  author_login        TEXT NOT NULL DEFAULT '',
+  author_type         TEXT NOT NULL DEFAULT '',
+  author_association  TEXT NOT NULL DEFAULT '',
+  body                TEXT NOT NULL DEFAULT '',
+  comments            TEXT,
+  first_seen_at       TEXT NOT NULL,
+  last_seen_at        TEXT NOT NULL,
+  absent_at           TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_pr_feedback_key
+  ON pr_feedback(ticket_id, repo, pr_url, upstream_key);
+CREATE INDEX IF NOT EXISTS idx_pr_feedback_ticket
+  ON pr_feedback(ticket_id, absent_at, is_resolved);
 `;
 
 
@@ -2158,6 +2203,18 @@ export function migrate(db: Database): void {
     if (prCols57.size > 0 && !prCols57.has('prompt_telemetry')) {
       db.exec('ALTER TABLE process_runs ADD COLUMN prompt_telemetry TEXT');
     }
+  }
+
+  if (current < 58) {
+    // v58 adds `pr_feedback` — the complete record of a PR's human review
+    // feedback. Unlike `prs.comments`, a deliberately lossy newest-20 display
+    // cache, this is meant to be ACTED ON. Reconciled, never appended: upstream
+    // ids are stable across EDITS, so an id-only dedupe would treat a
+    // reviewer's clarification as already-seen.
+    //
+    // Nothing is backfilled and nothing can be: karst has never asked GitHub
+    // for review threads, so no historical feedback exists to derive.
+    db.exec(PR_FEEDBACK_DDL);
   }
 
   db.pragma(`user_version = ${SCHEMA_VERSION}`);

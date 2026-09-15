@@ -657,6 +657,44 @@ CREATE TABLE IF NOT EXISTS prs (
 -- legacy DB gains this index.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_prs_ticket_repo_url ON prs(ticket_id, repo, url);
 
+-- v58: one row per review THREAD plus one per review body — the complete record
+-- of a PR's human review feedback. Unlike `prs.comments`, a deliberately lossy
+-- newest-20 display cache, this is meant to be ACTED ON. Reconciled, never
+-- appended: upstream ids are stable across EDITS, so an id-only dedupe would
+-- treat a reviewer's clarification as already-seen. The unique index includes
+-- `pr_url` because the reconcile's existing-row SELECT is scoped by it.
+CREATE TABLE IF NOT EXISTS pr_feedback (
+  id                  INTEGER PRIMARY KEY,
+  ticket_id           INTEGER NOT NULL,
+  repo                TEXT NOT NULL,
+  pr_url              TEXT NOT NULL,
+  kind                TEXT NOT NULL CHECK (kind IN ('thread','review')),
+  upstream_key        TEXT NOT NULL,
+  thread_node_id      TEXT,
+  upstream_updated_at TEXT,
+  state               TEXT,
+  is_resolved         INTEGER NOT NULL DEFAULT 0,
+  is_outdated         INTEGER NOT NULL DEFAULT 0,
+  path                TEXT,
+  line                INTEGER,
+  start_line          INTEGER,
+  original_line       INTEGER,
+  original_commit_id  TEXT,
+  subject_type        TEXT,
+  author_login        TEXT NOT NULL DEFAULT '',
+  author_type         TEXT NOT NULL DEFAULT '',
+  author_association  TEXT NOT NULL DEFAULT '',
+  body                TEXT NOT NULL DEFAULT '',
+  comments            TEXT,
+  first_seen_at       TEXT NOT NULL,
+  last_seen_at        TEXT NOT NULL,
+  absent_at           TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_pr_feedback_key
+  ON pr_feedback(ticket_id, repo, pr_url, upstream_key);
+CREATE INDEX IF NOT EXISTS idx_pr_feedback_ticket
+  ON pr_feedback(ticket_id, absent_at, is_resolved);
+
 -- Whether a ticket's branch still merges into its base, per repo, as of the last
 -- ship. NOT append-only, unlike gate_runs and phase_marks, and the difference is
 -- the point: those record that an event happened, this records what is true NOW.

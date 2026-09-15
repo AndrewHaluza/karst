@@ -16,6 +16,7 @@ import { archiveTicketOp, unarchiveTicketOp, type ArchiveOpsDeps } from './exten
 import { deleteTicketOp, createFollowUpTicketOp, type LifecycleOpsDeps } from './extension/ops/lifecycleOps.js';
 import { attentionPicks, facetPicks, resolveFacetPicks } from './extension/ops/pickers.js';
 import { makePrSyncLoop } from './extension/ops/prSyncLoop.js';
+import { makePrFeedbackDeps } from './extension/ops/prFeedbackSync.js';
 import { runBootSweeps } from './extension/ops/bootSweeps.js';
 import { watchExternalChanges } from './store/externalChanges.js';
 import { SidebarViewManager } from './ui/sidebar/panel.js';
@@ -5279,7 +5280,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const project = currentProject()!;
       const changed = await syncPrStatuses(localStore, defaultGhRunnerAsync, {
         projectId: project.id,
-      });
+      }, makePrFeedbackDeps((m) => logger.debug(m)));
       // Mergeability rides the same tick: ship's verdict describes the base as
       // it stood that minute, and the base keeps moving under an open PR. Same
       // baseline the ship itself measured against, so the two can't disagree
