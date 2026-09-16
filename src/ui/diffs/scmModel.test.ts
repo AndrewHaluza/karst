@@ -259,6 +259,38 @@ describe('changeUri', () => {
   it('is deterministic across calls', () => {
     expect(changeUri('be', '/a/be', 'src/app.ts')).toBe(changeUri('be', '/a/be', 'src/app.ts'));
   });
+
+  it('drops a traversal segment from a beside-the-root label', () => {
+    const uri = changeUri('../arcus', '/home/u/projects/arcus', 'database_gateway/src/server.py');
+
+    expect(uri).toMatch(/^karst-change:\/arcus~[0-9a-f]{8}\/database_gateway\/src\/server\.py$/);
+    expect(uri).not.toContain('%2F');
+    expect(uri).not.toContain('/..');
+  });
+
+  it('drops the leading dot from a root-repo label', () => {
+    expect(changeUri('./arcus', '/home/u/projects/arcus', 'a.ts')).toMatch(
+      /^karst-change:\/arcus~[0-9a-f]{8}\/a\.ts$/,
+    );
+  });
+
+  it('keeps a nested label legible as unescaped intermediate segments', () => {
+    expect(changeUri('./services/api', '/r/services/api', 'a.ts')).toMatch(
+      /^karst-change:\/services\/api~[0-9a-f]{8}\/a\.ts$/,
+    );
+  });
+
+  it('falls back to `repo` when the label reduces to nothing', () => {
+    expect(changeUri('', '/a/be', 'a.ts')).toMatch(/^karst-change:\/repo~[0-9a-f]{8}\/a\.ts$/);
+  });
+
+  it('falls back to `repo` when the label is only dot-segments', () => {
+    expect(changeUri('..', '/a/be', 'a.ts')).toMatch(/^karst-change:\/repo~[0-9a-f]{8}\/a\.ts$/);
+  });
+
+  it('drops a traversal segment from the file path', () => {
+    expect(changeUri('./be', '/a/be', 'a/../b.ts')).not.toContain('/../');
+  });
 });
 
 describe('disambiguateLabels', () => {

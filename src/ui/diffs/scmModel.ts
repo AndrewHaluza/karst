@@ -20,7 +20,7 @@ export interface ScmResourceModel {
   repoPath: string;
   /** Which category group this row was placed in. */
   category: ScmCategory;
-  /** `karst-change:/<repoLabel>~<hash>/<path>` — the row's synthetic URI. */
+  /** `karst-change:/<label segments>/<name>~<hash>/<path>` — the row's synthetic URI. */
   uri: string;
 }
 
@@ -43,18 +43,42 @@ function repoKey(repoPath: string): string {
 }
 
 /**
+ * Split a path-shaped string into URI-safe segments.
+ *
+ * Drops empties and dot-segments. `repoDisplayPath` renders a repository
+ * OUTSIDE the project root as `../<name>` and one under it as `./<sub>`
+ * (`src/ui/worktreePath.ts:29-30`), so a label is never a bare name — and a
+ * `.` or `..` segment in a `resourceUri` is a path traversal VS Code will not
+ * render as an ordinary Source Control row.
+ */
+function uriSegments(value: string): string[] {
+  return value
+    .split('/')
+    .filter((segment) => segment !== '' && segment !== '.' && segment !== '..');
+}
+
+/**
  * The row's synthetic URI. VS Code derives an SCM row's label and description
  * from `resourceUri` and offers no override, so the repository is encoded in
  * the path to keep it legible in a flat, repo-spanning group.
  *
- * The first segment carries the LABEL, which is what a reader sees. Two
- * worktrees can still share a label (two checkouts of one repo whose
- * directory names also match), so the segment is suffixed with a short hash
- * of the worktree's own `repoPath`, which is unique by definition.
+ * The URI shape is `karst-change:/<label segments>/<name>~<hash>/<path>`. The
+ * label's segments are what a reader sees, with the short hash of the
+ * worktree's own `repoPath` — unique by definition — attached to the LAST
+ * segment, the repository's own name. Two worktrees can share a label (two
+ * checkouts of one repo whose directory names also match), so that hash keeps
+ * them apart.
  */
 export function changeUri(repoLabel: string, repoPath: string, path: string): string {
-  const head = `${repoLabel}~${repoKey(repoPath)}`;
-  const segments = [head, ...path.split('/')].filter((segment) => segment.length > 0);
+  const labelParts = uriSegments(repoLabel);
+  // The hash rides the LAST label segment — the repository's own name, which
+  // is what identifies the row — so uniqueness survives dropping `..`.
+  const name = labelParts.pop() ?? 'repo';
+  const segments = [
+    ...labelParts,
+    `${name}~${repoKey(repoPath)}`,
+    ...uriSegments(path),
+  ];
   return `karst-change:/${segments.map(encodeURIComponent).join('/')}`;
 }
 

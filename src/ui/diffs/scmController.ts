@@ -17,7 +17,7 @@ export interface ScmResourceHandleInput {
   status: string;
   oldPath: string | null;
   repoLabel: string;
-  /** `karst-change:/<repoLabel>~<hash>/<path>` — the row's synthetic URI. */
+  /** `karst-change:/<label segments>/<name>~<hash>/<path>` — the row's synthetic URI. */
   uri: string;
   /** `staged` | `unstaged` | `untracked` | `commits` — drives the row's menu. */
   category: string;
