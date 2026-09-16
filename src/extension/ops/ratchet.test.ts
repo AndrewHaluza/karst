@@ -3,11 +3,13 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 // The number ratchets down as extractions land and is never raised. The
-// value is the measured line count (8393) plus 3 lines of deliberate slack.
-// The `parkUnavailable` extraction in `resumeFixSession` funded the fix-stall
-// watchdog wiring. Anything larger than a thin binding belongs in
-// `src/extension/ops/`.
-const MAX_EXTENSION_LINES = 8396;
+// value is the measured line count (8381) plus 3 lines of deliberate slack.
+// Both ratchets landed here: upstream's `makeSimplePanelHost` extraction and
+// the diffs-tree extraction that moved the view wiring into
+// `src/extension/diffsHost.ts`, plus this branch's fix-stall watchdog wiring,
+// whose `parkUnavailable` extraction in `resumeFixSession` pays for itself.
+// Anything larger than a thin binding belongs in `src/extension/ops/`.
+const MAX_EXTENSION_LINES = 8384;
 
 describe('extension.ts ratchet', () => {
   it('extension.ts does not exceed the recorded line count', () => {

@@ -65,6 +65,13 @@
           "name": "Tickets",
           "type": "webview"
         }
+      ],
+      "scm": [
+        {
+          "id": "karst.diffs",
+          "name": "Karst",
+          "contextualTitle": "Karst"
+        }
       ]
     },
     "commands": [
@@ -211,6 +218,16 @@
         "command": "karst.scmUnstage",
         "title": "Karst: Unstage Changes",
         "icon": "$(remove)"
+      },
+      {
+        "command": "karst.selectDiffsTicket",
+        "title": "Karst: Select Ticket for Changes",
+        "icon": "$(list-selection)"
+      },
+      {
+        "command": "karst.refreshDiffsTree",
+        "title": "Karst: Refresh Changes",
+        "icon": "$(refresh)"
       }
     ],
     "menus": {
@@ -234,37 +251,57 @@
         {
           "command": "karst.scmUnstage",
           "when": "false"
+        },
+        {
+          "command": "karst.selectDiffsTicket",
+          "when": "false"
+        },
+        {
+          "command": "karst.refreshDiffsTree",
+          "when": "false"
         }
       ],
-      "scm/resourceState/context": [
+      "view/title": [
+        {
+          "command": "karst.selectDiffsTicket",
+          "when": "view == karst.diffs",
+          "group": "navigation@1"
+        },
+        {
+          "command": "karst.refreshDiffsTree",
+          "when": "view == karst.diffs",
+          "group": "navigation@2"
+        }
+      ],
+      "view/item/context": [
         {
           "command": "karst.scmOpenFile",
-          "when": "scmProvider == karst",
+          "when": "view == karst.diffs && viewItem =~ /^karst\\.diffFile\\./",
           "group": "inline@1"
         },
         {
           "command": "karst.scmUnstage",
-          "when": "scmProvider == karst && scmResourceState == karst.staged",
+          "when": "view == karst.diffs && viewItem == karst.diffFile.staged",
           "group": "inline@2"
         },
         {
           "command": "karst.scmDiscard",
-          "when": "scmProvider == karst && (scmResourceState == karst.unstaged || scmResourceState == karst.untracked)",
+          "when": "view == karst.diffs && (viewItem == karst.diffFile.unstaged || viewItem == karst.diffFile.untracked)",
           "group": "inline@2"
         },
         {
           "command": "karst.scmOpenFile",
-          "when": "scmProvider == karst",
+          "when": "view == karst.diffs && viewItem =~ /^karst\\.diffFile\\./",
           "group": "navigation@1"
         },
         {
           "command": "karst.scmUnstage",
-          "when": "scmProvider == karst && scmResourceState == karst.staged",
+          "when": "view == karst.diffs && viewItem == karst.diffFile.staged",
           "group": "navigation@2"
         },
         {
           "command": "karst.scmDiscard",
-          "when": "scmProvider == karst && (scmResourceState == karst.unstaged || scmResourceState == karst.untracked)",
+          "when": "view == karst.diffs && (viewItem == karst.diffFile.unstaged || viewItem == karst.diffFile.untracked)",
           "group": "navigation@2"
         }
       ]

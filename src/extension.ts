@@ -52,8 +52,8 @@ import {
   type PreparedDiffResource,
 } from './ui/diffs/git.js';
 import { buildTicketChangesSnapshot, type TicketChangesSnapshot } from './ui/diffs/snapshot.js';
-import { TicketScmController } from './ui/diffs/scmController.js';
-import { ChangeDecorationProvider, makeScmHost, scmChangeId } from './ui/diffs/scmHost.js';
+import { diffNodeChangeId } from './ui/diffs/treeModel.js';
+import { wireDiffsTree } from './extension/diffsHost.js';
 import { discardChanges as gitDiscard, unstageFile as gitUnstage } from './ui/diffs/gitActions.js';
 import {
   DisposableBag,
@@ -2236,36 +2236,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   shutdownTicketChanges = () => changes.dispose();
   context.subscriptions.push(changes);
 
-  const changeDecorations = new ChangeDecorationProvider();
-  context.subscriptions.push(vscode.window.registerFileDecorationProvider(changeDecorations));
-  context.subscriptions.push(changeDecorations);
-  const scmHost = makeScmHost(changeDecorations);
-  const ticketScm = new TicketScmController({
-    host: scmHost,
+  const ticketScm = wireDiffsTree({
+    context,
     load: loadTicketChanges,
     openDiff: (target, viewColumn) => openTicketDiff(target, viewColumn),
     logError,
-    titleFor: (ticketId) => {
+    labelFor: (ticketId) => {
       const t = getTicket(localStore, ticketId);
-      return `Karst — ${compactTicketLabel(t, ticketLabel(t))}`;
+      return compactTicketLabel(t, ticketLabel(t));
     },
     debug: logger.debug,
-    openFile: (absolutePath) => {
-      void vscode.commands.executeCommand('vscode.open', vscode.Uri.file(absolutePath));
-    },
     discard: (repoPath, path, status) =>
       gitDiscard(defaultGitRunner, repoPath, path, status as FileChangeStatus),
     unstage: (repoPath, path) => gitUnstage(defaultGitRunner, repoPath, path),
-    confirmDiscard: async (path) => {
-      const choice = await vscode.window.showWarningMessage(
-        `Discard changes in ${path}? This cannot be undone.`,
-        { modal: true },
-        'Discard Changes',
-      );
-      return choice === 'Discard Changes';
-    },
+    store: localStore,
+    projectId: () => currentProject()?.id,
   });
-  context.subscriptions.push({ dispose: () => ticketScm.dispose() });
 
   /**
    * Push the configured post-delivery status to the ticketing provider, for a
@@ -6403,17 +6389,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await ticketScm.openChange(arg);
     }),
     vscode.commands.registerCommand('karst.scmOpenFile', (arg: unknown) => {
-      const changeId = scmChangeId(arg);
+      const changeId = diffNodeChangeId(arg);
       if (changeId === undefined) return;
       ticketScm.openFile(changeId);
     }),
     vscode.commands.registerCommand('karst.scmDiscard', async (arg: unknown) => {
-      const changeId = scmChangeId(arg);
+      const changeId = diffNodeChangeId(arg);
       if (changeId === undefined) return;
       await ticketScm.discard(changeId);
     }),
     vscode.commands.registerCommand('karst.scmUnstage', async (arg: unknown) => {
-      const changeId = scmChangeId(arg);
+      const changeId = diffNodeChangeId(arg);
       if (changeId === undefined) return;
       await ticketScm.unstage(changeId);
     }),
