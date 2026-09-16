@@ -51,6 +51,7 @@ import {
 } from './ui/diffs/git.js';
 import { buildTicketChangesSnapshot, type TicketChangesSnapshot } from './ui/diffs/snapshot.js';
 import { TicketScmController } from './ui/diffs/scmController.js';
+import { disambiguateLabels } from './ui/diffs/scmModel.js';
 import { ChangeDecorationProvider, makeScmHost, scmChangeId } from './ui/diffs/scmHost.js';
 import { discardChanges as gitDiscard, unstageFile as gitUnstage } from './ui/diffs/gitActions.js';
 import {
@@ -2144,12 +2145,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   const ticketWorktreeSpecs = (ticketId: number) => {
     const pathContext = worktreePathContext(currentManifest(), logger.warn, logger.info);
-    return listWorktreesByTicket(localStore, ticketId).map((worktree) => ({
-      label: repoDisplayPath(worktree.repo, pathContext),
-      path: worktree.path,
-      branch: worktree.branch,
-      baseRef: worktree.baseRef,
-    }));
+    return disambiguateLabels(
+      listWorktreesByTicket(localStore, ticketId).map((worktree) => ({
+        label: repoDisplayPath(worktree.repo, pathContext),
+        path: worktree.path,
+        branch: worktree.branch,
+        baseRef: worktree.baseRef,
+      })),
+    );
   };
   const loadTicketChanges = async (ticketId: number, signal?: AbortSignal) => {
     const worktrees = ticketWorktreeSpecs(ticketId);

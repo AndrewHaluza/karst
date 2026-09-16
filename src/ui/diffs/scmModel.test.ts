@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { FileChangeStatus } from './git.js';
 import type { TicketChangesSnapshot, WorktreeChangesView } from './snapshot.js';
-import { buildScmGroups, changeUri, type ScmGroupModel } from './scmModel.js';
+import { buildScmGroups, changeUri, disambiguateLabels, type ScmGroupModel } from './scmModel.js';
 
 function makeWorktreeChangesView(overrides: Partial<WorktreeChangesView> = {}): WorktreeChangesView {
   return {
@@ -139,6 +139,24 @@ describe('buildScmGroups', () => {
     expect(groups.map((g) => g.id)).toEqual(['commit-repo-aaa111', 'commit-repo-bbb222']);
   });
 
+  it('keeps group ids unique when two worktrees share a label and a directory name', () => {
+    const specs = disambiguateLabels([makeSpec('/a/wt', 'be'), makeSpec('/b/wt', 'be')]);
+    const commit = (label: string) => ({
+      hash: 'aaa111xxxx',
+      shortHash: 'aaa111',
+      subject: 'feat: same commit',
+      author: 'author',
+      authoredAt: '2024-01-01T00:00:00Z',
+      files: [makeChangedFileView({ changeId: label, status: 'modified' as const, path: 'src/app.ts' })],
+    });
+    const views = specs.map((spec) => makeWorktreeChangesView({ label: spec.label, commits: [commit(spec.label)] }));
+
+    const groups = buildScmGroups(makeSnapshot(views), specs);
+
+    const ids = groups.map((group) => group.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
   it('skips a commit with no files', () => {
     const views = [
       makeWorktreeChangesView({
@@ -214,7 +232,7 @@ describe('buildScmGroups', () => {
       repoLabel: 'backend',
       repoPath: '/wt/backend',
       category: 'staged',
-      uri: 'karst-change:/backend/src/a/b.ts',
+      uri: expect.stringMatching(/^karst-change:\/backend~[0-9a-f]{8}\/src\/a\/b\.ts$/),
     });
   });
 
@@ -226,6 +244,59 @@ describe('buildScmGroups', () => {
 
 describe('changeUri', () => {
   it('encodes each segment', () => {
-    expect(changeUri('back end', 'src/a b.ts')).toBe('karst-change:/back%20end/src/a%20b.ts');
+    expect(changeUri('back end', '/a/back end', 'src/a b.ts')).toMatch(
+      /^karst-change:\/back%20end~[0-9a-f]{8}\/src\/a%20b\.ts$/,
+    );
+  });
+
+  it('mints different URIs for two same-labelled worktrees at the same path', () => {
+    const first = changeUri('be', '/a/be', 'src/app.ts');
+    const second = changeUri('be', '/b/be', 'src/app.ts');
+
+    expect(first).not.toBe(second);
+  });
+
+  it('is deterministic across calls', () => {
+    expect(changeUri('be', '/a/be', 'src/app.ts')).toBe(changeUri('be', '/a/be', 'src/app.ts'));
+  });
+});
+
+describe('disambiguateLabels', () => {
+  it('suffixes every colliding label with its worktree directory name', () => {
+    const specs = [makeSpec('/a/wt-one', 'be'), makeSpec('/b/wt-two', 'be')];
+
+    const result = disambiguateLabels(specs);
+
+    expect(result.map((spec) => spec.label)).toEqual(['be (wt-one)', 'be (wt-two)']);
+    expect(result[0]).toMatchObject({ path: '/a/wt-one', branch: 'main', baseRef: 'develop' });
+    expect(result[1]).toMatchObject({ path: '/b/wt-two', branch: 'main', baseRef: 'develop' });
+  });
+
+  it('returns the same spec references when every label is already distinct', () => {
+    const specs = [makeSpec('/wt/fe', 'fe'), makeSpec('/wt/dbgw', 'dbgw'), makeSpec('/wt/be', 'be')];
+
+    const result = disambiguateLabels(specs);
+
+    expect(result.map((spec) => spec.label)).toEqual(['fe', 'dbgw', 'be']);
+    expect(result[0]).toBe(specs[0]);
+    expect(result[1]).toBe(specs[1]);
+    expect(result[2]).toBe(specs[2]);
+  });
+
+  it('does not mutate the input specs', () => {
+    const specs = [makeSpec('/a/wt-one', 'be'), makeSpec('/b/wt-two', 'be')];
+
+    disambiguateLabels(specs);
+
+    expect(specs.map((spec) => spec.label)).toEqual(['be', 'be']);
+  });
+
+  it('keeps labels unique when the repository label AND the directory name both collide', () => {
+    const specs = [makeSpec('/a/wt', 'be'), makeSpec('/b/wt', 'be')];
+
+    const result = disambiguateLabels(specs);
+
+    const labels = result.map((spec) => spec.label);
+    expect(new Set(labels).size).toBe(2);
   });
 });

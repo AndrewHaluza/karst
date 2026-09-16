@@ -1,4 +1,5 @@
-import { join } from 'node:path';
+import { createHash } from 'node:crypto';
+import { basename, join } from 'node:path';
 import type { FileChangeStatus, WorktreeSpec } from './git.js';
 import type { TicketChangesSnapshot } from './snapshot.js';
 
@@ -19,7 +20,7 @@ export interface ScmResourceModel {
   repoPath: string;
   /** Which category group this row was placed in. */
   category: ScmCategory;
-  /** `karst-change:/<repoLabel>/<path>` — the row's synthetic URI. */
+  /** `karst-change:/<repoLabel>~<hash>/<path>` — the row's synthetic URI. */
   uri: string;
 }
 
@@ -34,12 +35,26 @@ export interface ScmGroupModel {
 export type ScmCategory = 'staged' | 'unstaged' | 'untracked' | 'commits' | 'error';
 
 /**
+ * A short, stable discriminator for a worktree directory. Not a security
+ * hash — it exists only so two worktrees cannot mint the same row URI.
+ */
+function repoKey(repoPath: string): string {
+  return createHash('sha1').update(repoPath).digest('hex').slice(0, 8);
+}
+
+/**
  * The row's synthetic URI. VS Code derives an SCM row's label and description
  * from `resourceUri` and offers no override, so the repository is encoded in
  * the path to keep it legible in a flat, repo-spanning group.
+ *
+ * The first segment carries the LABEL, which is what a reader sees. Two
+ * worktrees can still share a label (two checkouts of one repo whose
+ * directory names also match), so the segment is suffixed with a short hash
+ * of the worktree's own `repoPath`, which is unique by definition.
  */
-export function changeUri(repoLabel: string, path: string): string {
-  const segments = [repoLabel, ...path.split('/')].filter((segment) => segment.length > 0);
+export function changeUri(repoLabel: string, repoPath: string, path: string): string {
+  const head = `${repoLabel}~${repoKey(repoPath)}`;
+  const segments = [head, ...path.split('/')].filter((segment) => segment.length > 0);
   return `karst-change:/${segments.map(encodeURIComponent).join('/')}`;
 }
 
@@ -58,8 +73,51 @@ function toResources(
     repoLabel,
     repoPath,
     category,
-    uri: changeUri(repoLabel, file.path),
+    uri: changeUri(repoLabel, repoPath, file.path),
   }));
+}
+
+/**
+ * Make every spec's label unique within one ticket.
+ *
+ * A ticket can hold two worktrees for the SAME repository (two checkouts, or
+ * a stale row beside a live one). `repoDisplayPath` is a pure function of
+ * `repo`, so both render identically — and `changeUri` keys a row's identity
+ * on that label, so two files at the same repo-relative path would mint the
+ * same URI. `path` is unique per worktree, so its basename always separates
+ * them.
+ *
+ * Two worktrees can agree on BOTH the repository label and the directory
+ * basename (two checkouts named `be` under different parents). The basename
+ * suffix then collides too, so a second pass falls back to a short stable
+ * hash of the worktree path — which is unique by definition — keeping the
+ * labels, and the group ids derived from them, collision-free.
+ *
+ * Only colliding labels are rewritten; a ticket whose labels are already
+ * distinct is returned with every label untouched.
+ */
+export function disambiguateLabels(
+  specs: readonly WorktreeSpec[],
+): WorktreeSpec[] {
+  const countsByLabel = (items: readonly WorktreeSpec[]): Map<string, number> => {
+    const counts = new Map<string, number>();
+    for (const spec of items) counts.set(spec.label, (counts.get(spec.label) ?? 0) + 1);
+    return counts;
+  };
+
+  const originalCounts = countsByLabel(specs);
+  const withBasename = specs.map((spec) =>
+    (originalCounts.get(spec.label) ?? 0) > 1
+      ? { ...spec, label: `${spec.label} (${basename(spec.path)})` }
+      : spec,
+  );
+
+  const basenameCounts = countsByLabel(withBasename);
+  return withBasename.map((spec) =>
+    (basenameCounts.get(spec.label) ?? 0) > 1
+      ? { ...spec, label: `${spec.label}~${repoKey(spec.path)}` }
+      : spec,
+  );
 }
 
 export function buildScmGroups(
