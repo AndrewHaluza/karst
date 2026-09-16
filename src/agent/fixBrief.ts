@@ -3,9 +3,7 @@ import type { StepperStageRow } from '../model/stepper.js';
 import type { Finding } from '../store/reviewFindings.js';
 import type { GateRun } from '../store/gateRuns.js';
 import type { PrFeedbackRow } from '../store/prFeedback.js';
-
-/** The deterministic gates whose failure is what a `fix` session must address. */
-const GATES: readonly StageKey[] = ['uat', 'review', 'ship'] as const;
+import { lastFailedGate } from '../workflow/fixAttempts.js';
 
 /** "src/db.ts:42" or "src/db.ts" or "" — never a bare ":42" with nothing to attach it to. */
 function findingLocation(f: Finding): string {
@@ -78,13 +76,17 @@ export function renderFixBrief(
   gateRuns: readonly GateRun[] = [],
   prFeedback: readonly PrFeedbackRow[] = [],
 ): string | null {
-  // `stages.find` returns the first match in array order, which is NOT a
-  // contract when both a `review` and a `ship` row failed. `lastFailedGate`
-  // (workflow/fixAttempts.ts) resolves that by `endedAt`; this function leaves
-  // its existing `find` alone, and the caller passes `prFeedback` only when a
-  // ship round is active, so the ship block cannot render under a
-  // review-sourced round.
-  const gate = stages.find((s) => GATES.includes(s.stageKey) && s.status === 'failed');
+  // Which gate sent this ticket to `fix` — by latest `endedAt`, never by array
+  // order. `StepperStageRow[]` carries no ordering contract, so with a `review`
+  // row and a `ship` row both failed, `find` would let array position decide the
+  // brief's header, its quoted verdict, its artifact path and whether the review
+  // findings block renders. `lastFailedGate` is the driver's and the rail's own
+  // resolver (workflow/fixAttempts.ts): one ranking rule, so the brief always
+  // names the gate whose budget the resume is about to spend.
+  const gateKey = lastFailedGate(stages);
+  const gate = gateKey
+    ? stages.find((s) => s.stageKey === gateKey && s.status === 'failed')
+    : undefined;
   if (!gate) return null;
 
   // The reviewer wording is only true when feedback is actually attached. A

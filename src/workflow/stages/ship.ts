@@ -938,7 +938,9 @@ function isStoreFailure(err: unknown): boolean {
  * This is the production signal that the next ship is a RE-SHIP: a ticket's
  * FIRST ship has no such run, while a ticket that already opened a PR, went
  * back through fix, and reached `ship` again does. The host seam
- * (`runShipSaga`) reads it to turn on `deliverToOpenPr`, so the new commits are
+ * (`runShipSaga`) reads it for a USER-INITIATED ship to turn on
+ * `deliverToOpenPr` — the unattended stranded resume asks
+ * `activeRecoverySeries` instead — so the new commits are
  * committed and pushed onto the PR already open for a repo instead of being
  * skipped as if the work had already been delivered (FIX-46).
  *
