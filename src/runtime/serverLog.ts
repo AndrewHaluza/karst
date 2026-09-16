@@ -24,3 +24,20 @@ export function serverLogDir(cwd: string): string {
 export function serverLogPath(cwd: string, name: string): string {
   return join(serverLogDir(cwd), `${name}.log`);
 }
+
+/**
+ * The prefix karst writes into a server log immediately before spawning the
+ * child. Logs are opened in APPEND mode (`supervisor.ts`), so without this a
+ * reader cannot tell this run's output from the previous five runs' output.
+ */
+export const RUN_MARKER_PREFIX = '=== karst run ';
+
+/** The full boundary line for one start of `service` at ISO time `at`. */
+export function runMarkerLine(service: string, at: string): string {
+  return `${RUN_MARKER_PREFIX}service=${service} started=${at} ===`;
+}
+
+/** Whether `line` is a boundary karst wrote (not output a server produced). */
+export function isRunMarker(line: string): boolean {
+  return line.startsWith(RUN_MARKER_PREFIX) && line.trimEnd().endsWith(' ===');
+}

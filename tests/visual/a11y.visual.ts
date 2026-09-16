@@ -31,6 +31,12 @@ const HAS_PENDING_STATE: readonly ViewId[] = ['usage', 'resources'];
  *
  * G3: --k-success-fg / --k-danger-fg resolve to page background in some
  * themes, causing contrast failures on filled surfaces.
+ *
+ * G6: the server-logs surface colours log text with VS Code's terminal ANSI
+ * palette (--vscode-terminal-ansi*), which is the user's own terminal theme.
+ * Those hues are below WCAG AA against the editor background by design — VS
+ * Code's built-in terminal has the same property — so a handful of ANSI
+ * foregrounds on the log lines are tolerated, never karst's own tokens.
  */
 const CONTRAST_RATCHET: Record<string, { ratio: number; gap?: string }> = {
   // dark theme
@@ -41,6 +47,7 @@ const CONTRAST_RATCHET: Record<string, { ratio: number; gap?: string }> = {
   'dark:h2': { ratio: 3.08 },
   'dark:p.section-desc': { ratio: 3.08 },
   'dark:button#dismiss.k-btn.k-btn--ghost': { ratio: 3.08 },
+  'dark:span.k-ansi-fg-red': { ratio: 3.24, gap: 'G6' },
   // light theme
   'light:span.agentSep': { ratio: 2.61 },
   'light:div.fieldHelp': { ratio: 2.36 },
@@ -60,12 +67,15 @@ const CONTRAST_RATCHET: Record<string, { ratio: number; gap?: string }> = {
   'light:button.proc-advanced-link': { ratio: 2.61 },
   'light:button#approachDrawerDelete.k-btn.k-btn--danger': { ratio: 4.27, gap: 'G3' },
   'light:p#leaveModalError.modal-error.hidden': { ratio: 4.27, gap: 'G3' },
+  'light:span.k-ansi-fg-green': { ratio: 2.56, gap: 'G6' },
+  'light:span.k-ansi-fg-yellow': { ratio: 3.11, gap: 'G6' },
   // hc theme
   'hc:h1': { ratio: 1 },
   'hc:p.lede': { ratio: 1 },
   'hc:h2': { ratio: 1 },
   'hc:p.section-desc': { ratio: 1 },
   'hc:button#dismiss.k-btn.k-btn--ghost': { ratio: 1 },
+  'hc:span.k-ansi-fg-red': { ratio: 3.6, gap: 'G6' },
 };
 
 karstTest.describe('UI-R29 contrast (computed assertion)', () => {

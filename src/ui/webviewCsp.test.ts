@@ -36,6 +36,7 @@ describe('webview discovery', () => {
       'diffs',
       'gettingStarted',
       'resources',
+      'serverLogs',
       'settings',
       'sidebar',
       'ticketForm',

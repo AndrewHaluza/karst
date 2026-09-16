@@ -1,0 +1,73 @@
+<!--
+  Karst standalone server-logs webview. One panel per ticket, opened from the
+  dashboard's "Open in Window" control, so the dashboard and that ticket's logs
+  can sit side by side.
+
+  It decides NOTHING: the surface itself (tabs, search, run scoping, clear and
+  ANSI rendering) is the shared `window.createServerLogsView` runtime injected
+  below and included by the dashboard too. This document owns only the shell
+  geometry the dashboard normally carries, the open/request handshake and the
+  two inbound log messages.
+
+  Styles are the shared design system's (docs/ui/DESIGN-SYSTEM.md): the `--k-*`
+  tokens and `.k-*` primitives, with the shared surface's control-strip rules
+  arriving through the server-logs-view marker.
+-->
+<!--KARST_CSP-->
+<style>
+  /*KARST_DS_CSS*/
+
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--k-bg);color:var(--k-text);font-family:var(--k-font-mono)}
+
+  /* Combined server logs surface: tabs per server + merged chronological view.
+     The same base rules the dashboard's own <style> carries; the dashboard-only
+     `body.log-nav .stepper/.grid` rule is deliberately absent here. */
+  .logsview{position:fixed;inset:0;z-index:8;display:flex;flex-direction:column;background:var(--k-bg);color:var(--k-text);font-family:var(--k-font-mono)}
+  .logsview.hidden{display:none}
+  .logsview .thead{display:flex;align-items:center;gap:var(--k-space-4);padding:var(--k-space-3) var(--k-space-4);border-bottom:var(--k-border-w) solid var(--k-border)}
+  .logsview .ttitle{font-weight:var(--k-weight-semibold)}
+  .logsview .tstatus{font-size:var(--k-text-xs);color:var(--k-text-dim);padding:var(--k-space-2) var(--k-space-4)}
+  .logsview .tabs{display:flex;gap:var(--k-space-2);padding:var(--k-space-2) var(--k-space-4);border-bottom:var(--k-border-w) solid var(--k-border);overflow-x:auto}
+  .logsview .tab{padding:var(--k-space-2) var(--k-space-3);font-size:var(--k-text-xs);font-family:var(--k-font-mono);color:var(--k-text-dim);background:transparent;border:none;border-radius:var(--k-radius-sm);cursor:pointer;white-space:nowrap}
+  .logsview .tab:hover{color:var(--k-text);background:var(--k-bg-muted)}
+  .logsview .tab.active{color:var(--k-text);background:var(--k-bg-muted);font-weight:var(--k-weight-semibold)}
+  .logsview .loghost{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;font-size:var(--k-text-xs);line-height:1.5;
+    scrollbar-width:thin;scrollbar-color:var(--k-border-strong) transparent}
+  .logsview .loghost::-webkit-scrollbar{width:var(--k-space-5)}
+  .logsview .loghost::-webkit-scrollbar-track{background:transparent}
+  .logsview .loghost::-webkit-scrollbar-thumb{background:var(--k-border-strong);border-radius:var(--k-radius-sm)}
+  .logsview .loghost::-webkit-scrollbar-thumb:hover{background:var(--k-text-dim)}
+  .logsview .loghost .merged{white-space:pre-wrap;word-break:break-all;padding:var(--k-space-3) var(--k-space-4)}
+  .logsview .loghost .service-prefix{font-weight:var(--k-weight-semibold);color:var(--k-accent)}
+  .logsview .loghost .ts{color:var(--k-text-dim)}
+  .logsview .blurb{padding:var(--k-space-6);color:var(--k-text-dim)}
+
+  /*KARST_SERVER_LOGS_VIEW_CSS*/
+</style>
+
+<div id="logsView" class="logsview hidden" tabindex="-1"></div>
+
+<script>
+  /*KARST_DS_JS*/
+
+  const vscode = acquireVsCodeApi();
+  const post = (msg) => vscode.postMessage(msg);
+  const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+
+  /*KARST_SERVER_LOGS_VIEW_JS*/
+
+  // The standalone panel has no second window to open: `detached: true` omits
+  // the "Open in Window" control, and `close()` posts `server-logs-close`
+  // itself (there is no dashboard open-flag to clear).
+  const view = window.createServerLogsView({ post, detached: true });
+  view.open();
+  post({ type: 'server-logs-request' });
+
+  window.addEventListener('message', (e) => {
+    const msg = e.data;
+    if (!msg) return;
+    if (msg.type === 'server-logs') view.handleInitial(msg.servers || []);
+    else if (msg.type === 'server-log-output') view.handleOutput(msg.service, msg.text);
+  });
+</script>

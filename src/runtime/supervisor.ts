@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { openSync, closeSync, readFileSync, existsSync, mkdirSync, statSync, readSync } from 'node:fs';
+import { openSync, closeSync, readFileSync, existsSync, mkdirSync, statSync, readSync, writeSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { Store } from '../store/db.js';
 import {
@@ -13,6 +13,7 @@ import { killTree } from './processTree.js';
 import { isPortOpen, reclaimPort, listenerPids, snapshotProcessFacts } from './portConflict.js';
 import { removeContainer, removeContainerAsync } from './dockerContainer.js';
 import { attributeServer, systemAsyncProcessFacts, type ProcessFactsSource } from './serverIdentity.js';
+import { runMarkerLine } from './serverLog.js';
 export { killTree } from './processTree.js';
 
 /**
@@ -378,6 +379,12 @@ export async function startHot(store: Store, opts: StartHotOpts): Promise<Server
   // as "the server failed to start", which is a lie about the server.
   mkdirSync(dirname(opts.logPath), { recursive: true });
   const logFd = openSync(opts.logPath, 'a');
+
+  // Written to the fd BEFORE the child is spawned, so its position in the file
+  // is deterministic: everything after it belongs to this run. The pid is
+  // deliberately absent — it is not known until `spawn` returns, and appending
+  // the marker afterwards would race the child's first stdout write.
+  writeSync(logFd, `${runMarkerLine(opts.service, new Date().toISOString())}\n`);
 
   // One token per START, not per service or per ticket: a restart must not be
   // satisfiable by the process the previous run left behind on the same port.

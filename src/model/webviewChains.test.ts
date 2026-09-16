@@ -13,6 +13,10 @@ import {
   AGENT_PICKER_CSS_MARKER,
   AGENT_PICKER_JS_MARKER,
 } from './agentPicker.js';
+import {
+  SERVER_LOGS_VIEW_CSS_MARKER,
+  SERVER_LOGS_VIEW_JS_MARKER,
+} from './serverLogsView.js';
 
 const MODEL_DIR = dirname(fileURLToPath(import.meta.url));
 const UI_DIR = join(MODEL_DIR, '..', 'ui');
@@ -35,6 +39,7 @@ const EXPECTED_NAMES = [
   'diffs',
   'gettingStarted',
   'resources',
+  'serverLogs',
   'settings',
   'sidebar',
   'ticketForm',
@@ -54,6 +59,7 @@ const PALETTE_MARKERS = [PALETTE_MARKER] as const;
 const AGENT_IDENTITY_MARKERS = [AGENT_CSS_MARKER, AGENT_JS_MARKER] as const;
 const PROVIDER_IDENTITY_MARKERS = [PROVIDER_CSS_MARKER, PROVIDER_JS_MARKER] as const;
 const AGENT_PICKER_MARKERS = [AGENT_PICKER_CSS_MARKER, AGENT_PICKER_JS_MARKER] as const;
+const SERVER_LOGS_VIEW_MARKERS = [SERVER_LOGS_VIEW_CSS_MARKER, SERVER_LOGS_VIEW_JS_MARKER] as const;
 
 /**
  * Per-view expected injector chains.
@@ -68,8 +74,8 @@ const CHAIN_EXPECTATIONS: Record<string, {
   readonly injectors: readonly (readonly string[])[];
 }> = {
   dashboard: {
-    // DesignSystem → Palette → ProviderIdentity → AgentIdentity → AgentPicker
-    injectors: [DESIGN_SYSTEM_MARKERS, PALETTE_MARKERS, PROVIDER_IDENTITY_MARKERS, AGENT_IDENTITY_MARKERS, AGENT_PICKER_MARKERS],
+    // DesignSystem → Palette → ProviderIdentity → AgentIdentity → AgentPicker → ServerLogsView
+    injectors: [DESIGN_SYSTEM_MARKERS, PALETTE_MARKERS, PROVIDER_IDENTITY_MARKERS, AGENT_IDENTITY_MARKERS, AGENT_PICKER_MARKERS, SERVER_LOGS_VIEW_MARKERS],
   },
   settings: {
     // DesignSystem → Palette → ProviderIdentity → AgentIdentity → AgentPicker
@@ -88,6 +94,10 @@ const CHAIN_EXPECTATIONS: Record<string, {
   },
   resources: {
     injectors: [DESIGN_SYSTEM_MARKERS, PALETTE_MARKERS],
+  },
+  serverLogs: {
+    // DesignSystem → Palette → ServerLogsView
+    injectors: [DESIGN_SYSTEM_MARKERS, PALETTE_MARKERS, SERVER_LOGS_VIEW_MARKERS],
   },
   diffs: {
     injectors: [DESIGN_SYSTEM_MARKERS, PALETTE_MARKERS],
@@ -152,6 +162,7 @@ describe.each(WEBVIEW_NAMES)('hydrateWebview — %s', (name) => {
       { markers: AGENT_IDENTITY_MARKERS, label: 'agentIdentity' },
       { markers: PROVIDER_IDENTITY_MARKERS, label: 'providerIdentity' },
       { markers: AGENT_PICKER_MARKERS, label: 'agentPicker' },
+      { markers: SERVER_LOGS_VIEW_MARKERS, label: 'serverLogsView' },
     ];
     for (const { markers, label } of allMarkers) {
       const inChain = expected.injectors.includes(markers);

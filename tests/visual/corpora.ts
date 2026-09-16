@@ -187,11 +187,48 @@ const MINIMAL_GETTING_STARTED = {
   tutorial: [],
 };
 
+/**
+ * The standalone server-logs panel does NOT speak the generic `state` message —
+ * it answers `server-logs-request` with a `server-logs` snapshot of its own.  So
+ * this is a real protocol corpus (not the MINIMAL seed), which is why the view
+ * is deliberately absent from MINIMAL_RATCHET below (that ratchet asserts its
+ * members are `state`-seeded).  The content carries a run marker, ISO
+ * timestamps and SGR runs so the baseline pins the decoder's rendering.
+ */
+const SERVER_LOGS_CORPUS: ViewCorpus = {
+  messages: [
+    {
+      type: 'server-logs',
+      servers: [
+        {
+          service: 'web',
+          logPath: '/tmp/web.log',
+          truncated: false,
+          content:
+            '=== karst run 2026-01-01T00:00:00.000Z ===\n' +
+            '2026-01-01T00:00:00.100Z \u001b[32mready\u001b[0m in 412ms\n' +
+            '2026-01-01T00:00:00.250Z GET /health \u001b[32m200\u001b[0m 3ms\n' +
+            '2026-01-01T00:00:01.400Z \u001b[33mwarn\u001b[0m slow query 812ms\n',
+        },
+        {
+          service: 'api',
+          logPath: '/tmp/api.log',
+          truncated: false,
+          content:
+            '2026-01-01T00:00:00.200Z connected to postgres\n' +
+            '2026-01-01T00:00:01.100Z \u001b[31merror\u001b[0m upstream timeout\n',
+        },
+      ],
+    },
+  ],
+};
+
 /** The per-view MINIMAL corpus. */
 const MINIMAL_CORPORA: Record<ViewId, ViewCorpus> = {
   dashboard: dashboardCorpus(),
   usage: { messages: [{ type: 'state', state: MINIMAL_USAGE }] },
   resources: { messages: [{ type: 'state', state: MINIMAL_RESOURCES }] },
+  serverLogs: SERVER_LOGS_CORPUS,
   sidebar: { messages: [{ type: 'state', state: MINIMAL_SIDEBAR }] },
   diffs: { messages: [{ type: 'state', state: MINIMAL_DIFFS }] },
   settings: { messages: [{ type: 'state', state: MINIMAL_SETTINGS }] },
@@ -208,7 +245,9 @@ export function getCorpus(view: ViewId): ViewCorpus {
  * a one-line edit when FEAT-37 delivers its corpus; adding a view is a
  * regression.
  *
- * Dashboard is excluded — its corpus exists today.
+ * Dashboard is excluded — its corpus exists today.  `serverLogs` is excluded
+ * too: it seeds through its own `server-logs` protocol rather than the generic
+ * `state` message this ratchet's members must speak.
  */
 export const MINIMAL_RATCHET: readonly ViewId[] = [
   'usage',
@@ -220,11 +259,12 @@ export const MINIMAL_RATCHET: readonly ViewId[] = [
   'gettingStarted',
 ];
 
-/** All eight view ids. */
+/** All nine view ids. */
 export const ALL_VIEWS: readonly ViewId[] = [
   'dashboard',
   'usage',
   'resources',
+  'serverLogs',
   'sidebar',
   'diffs',
   'settings',
