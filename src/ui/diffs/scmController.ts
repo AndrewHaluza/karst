@@ -17,7 +17,7 @@ export interface ScmResourceHandleInput {
   status: string;
   oldPath: string | null;
   repoLabel: string;
-  /** `karst-change:/<repoLabel>/<path>` — the row's synthetic URI. */
+  /** `karst-change:/<repoLabel>~<hash>/<path>` — the row's synthetic URI. */
   uri: string;
   /** `staged` | `unstaged` | `untracked` | `commits` — drives the row's menu. */
   category: string;
@@ -137,6 +137,12 @@ export class TicketScmController {
     this.viewTicketId = ticketId;
 
     for (const groupModel of groups) {
+      this.deps.debug?.(
+        '[diffs] scm group id=' + groupModel.id +
+          ' label=' + JSON.stringify(groupModel.label) +
+          ' rows=' + groupModel.resources.length +
+          (groupModel.resources[0] ? ' first=' + groupModel.resources[0].uri : ''),
+      );
       const groupHandle = this.view.createGroup(groupModel.id, groupModel.label);
       groupHandle.setResources(
         groupModel.resources.map((resource) => ({
@@ -157,7 +163,11 @@ export class TicketScmController {
 
     await this.deps.host.focus();
 
-    this.deps.debug?.('[diffs] scm rendered groups=' + groups.length);
+    this.deps.debug?.(
+      '[diffs] scm rendered groups=' + groups.length +
+        ' rows=' + groups.reduce((n, g) => n + g.resources.length, 0) +
+        ' worktrees=' + result.worktrees.length,
+    );
   }
 
   async openChange(changeId: string): Promise<void> {

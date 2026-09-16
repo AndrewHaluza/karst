@@ -150,6 +150,44 @@ describe('TicketScmController', () => {
     });
   });
 
+  it('logs each rendered group identity, row count and a render summary', async () => {
+    const host = createFakeHost();
+    const views = [
+      makeWorktreeChangesView({
+        label: 'backend',
+        unstaged: [
+          makeChangedFileView({ changeId: '1', status: 'modified', path: 'src/a.ts' }),
+          makeChangedFileView({ changeId: '2', status: 'modified', path: 'src/b.ts' }),
+        ],
+      }),
+    ];
+    const specs = [makeSpec('/wt/backend', 'backend')];
+    const load = vi.fn().mockResolvedValue({ snapshot: makeSnapshot(views), worktrees: specs });
+    const debug = vi.fn();
+
+    const controller = new TicketScmController({
+      host,
+      load,
+      openDiff: vi.fn().mockResolvedValue(undefined),
+      logError: vi.fn(),
+      titleFor: vi.fn(() => 'Karst — TEST-1 — title'),
+      openFile: vi.fn(),
+      discard: vi.fn().mockResolvedValue({ ok: true }),
+      unstage: vi.fn().mockResolvedValue({ ok: true }),
+      confirmDiscard: vi.fn().mockResolvedValue(true),
+      debug,
+    });
+
+    await controller.show(1);
+
+    const lines = debug.mock.calls.map((call) => call[0] as string);
+    const groupLine = lines.find((line) => line.includes('scm group'));
+    expect(groupLine).toMatch(/^\[diffs\] scm group id=unstaged label=/);
+    expect(groupLine).toContain(' rows=2 ');
+    expect(groupLine).toContain(' first=karst-change:/');
+    expect(lines.some((line) => line.includes('groups=1 rows=2 worktrees='))).toBe(true);
+  });
+
   it('reuses the view for the same ticket and disposes previous groups', async () => {
     const host = createFakeHost();
     const views = [
