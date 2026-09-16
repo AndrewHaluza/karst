@@ -6,6 +6,7 @@ import type { Glyph } from '../../model/glyph.js';
 import { sessionAction, type SessionAction } from '../../agent/sessionAction.js';
 import { resolveProvider } from '../../agent/registry.js';
 import type { AgentProvider } from '../../manifest/types.js';
+import type { SidebarPr } from './state.js';
 
 /**
  * The expanded body's blocker line — the ONE thing the collapsed row can't show.
@@ -140,6 +141,19 @@ export function filterTickets(
  */
 export function isDoneTicket(t: TicketWithStages): boolean {
   return t.stageCurrent === 'done';
+}
+
+/**
+ * A ticket is AWAITING REVIEW when it has reached the `ship` stage and opened
+ * at least one PR — the only remaining step is a team review on GitHub. A ship
+ * ticket with no open PRs (still shipping, conflicted, or parked) stays in the
+ * main Current list.
+ */
+export function isAwaitingReview(
+  t: TicketWithStages,
+  prs: readonly SidebarPr[],
+): boolean {
+  return t.stageCurrent === 'ship' && prs.some((p) => p.number !== null);
 }
 
 /**

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { buildTicketNodes, filterTickets, isDoneTicket, completedAt } from './items.js';
+import { buildTicketNodes, filterTickets, isDoneTicket, completedAt, isAwaitingReview } from './items.js';
 import type { TicketWithStages } from '../../store/tickets.js';
+import type { SidebarPr } from './state.js';
 
 function ticket(over: Partial<TicketWithStages> = {}): TicketWithStages {
   return {
@@ -263,6 +264,42 @@ describe('isDoneTicket', () => {
     expect(isDoneTicket(ticket({ stageCurrent: 'impl' }))).toBe(false);
     expect(isDoneTicket(ticket({ stageCurrent: 'ship' }))).toBe(false);
     expect(isDoneTicket(ticket({ stageCurrent: null }))).toBe(false);
+  });
+});
+
+describe('isAwaitingReview', () => {
+  const pr = (number: number | null): SidebarPr => ({
+    repo: 'backend',
+    number,
+    url: number !== null ? `https://github.com/x/pull/${number}` : null,
+    status: 'open',
+  });
+
+  it('is true when the ticket is at ship with at least one open PR', () => {
+    expect(isAwaitingReview(ticket({ stageCurrent: 'ship' }), [pr(1)])).toBe(true);
+  });
+
+  it('is true with multiple open PRs', () => {
+    expect(isAwaitingReview(ticket({ stageCurrent: 'ship' }), [pr(1), pr(2)])).toBe(true);
+  });
+
+  it('is false when at ship but all PRs have number === null', () => {
+    expect(isAwaitingReview(ticket({ stageCurrent: 'ship' }), [pr(null)])).toBe(false);
+  });
+
+  it('is false when at ship with an empty PR list', () => {
+    expect(isAwaitingReview(ticket({ stageCurrent: 'ship' }), [])).toBe(false);
+  });
+
+  it('is false for non-ship stages even with open PRs', () => {
+    expect(isAwaitingReview(ticket({ stageCurrent: 'impl' }), [pr(1)])).toBe(false);
+    expect(isAwaitingReview(ticket({ stageCurrent: 'review' }), [pr(1)])).toBe(false);
+    expect(isAwaitingReview(ticket({ stageCurrent: 'uat' }), [pr(1)])).toBe(false);
+    expect(isAwaitingReview(ticket({ stageCurrent: 'done' }), [pr(1)])).toBe(false);
+  });
+
+  it('is false when there is no current stage at all', () => {
+    expect(isAwaitingReview(ticket({ stageCurrent: null, stages: [] }), [pr(1)])).toBe(false);
   });
 });
 

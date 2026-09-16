@@ -12,6 +12,7 @@ import {
   buildTicketNodes,
   filterTickets,
   isDoneTicket,
+  isAwaitingReview,
   completedAt,
   type TicketNode,
 } from './items.js';
@@ -86,14 +87,16 @@ export interface TicketRow extends TicketNode {
 }
 
 /**
- * The three sections of the default All view. `current` preserves the canonical
- * ticket order verbatim — completing a ticket REMOVES it from this list and
- * must never reorder what remains; the two completed sections sort by
- * completion time, newest first, and are projections of the same ticket
- * source, never separate stores.
+ * The four sections of the default All view. `awaitingReview` holds ship-stage
+ * tickets with open PRs (waiting on team review); `current` holds every other
+ * non-done, non-archived ticket. Both preserve the canonical ticket order
+ * verbatim. The two completed sections sort by completion time, newest first,
+ * and are projections of the same ticket source, never separate stores.
  */
 export interface SidebarSections {
-  /** Every non-Done, non-Archived ticket, in canonical order. */
+  /** Ship-stage tickets with at least one open PR, in canonical order. */
+  awaitingReview: TicketRow[];
+  /** Every non-Done, non-Archived, non-awaiting-review ticket, in canonical order. */
   current: TicketRow[];
   /** The `RECENT_DONE_LIMIT` most recently completed tickets, newest first. */
   recentlyDone: TicketRow[];
@@ -249,10 +252,18 @@ export function buildSidebarState(
     const done = active.filter(isDoneTicket).sort(byCompletedAtDesc);
     const recent = done.slice(0, RECENT_DONE_LIMIT);
     const older = done.slice(RECENT_DONE_LIMIT);
+    const currentTickets = active.filter((t) => !isDoneTicket(t));
+    const awaiting = currentTickets.filter((t) =>
+      isAwaitingReview(t, listPrsByTicket(store, t.id)),
+    );
+    const rest = currentTickets.filter(
+      (t) => !isAwaitingReview(t, listPrsByTicket(store, t.id)),
+    );
     return {
       ...base,
       sections: {
-        current: enrich(filterTickets(active.filter((t) => !isDoneTicket(t)), query)),
+        awaitingReview: enrich(filterTickets(awaiting, query)),
+        current: enrich(filterTickets(rest, query)),
         recentlyDone: enrich(filterTickets(recent, query)),
         olderDone: enrich(filterTickets(older, query)),
       },
@@ -264,7 +275,7 @@ export function buildSidebarState(
   if (isDone) {
     return {
       ...base,
-      sections: { current: [], recentlyDone: [], olderDone: [] },
+      sections: { awaitingReview: [], current: [], recentlyDone: [], olderDone: [] },
       done: enrich(filterTickets(active.filter(isDoneTicket).sort(byCompletedAtDesc), query)),
       rows: [],
     };
@@ -273,7 +284,7 @@ export function buildSidebarState(
   const source = facets.includes('archived') ? archived : filterBySelection(active, facets);
   return {
     ...base,
-    sections: { current: [], recentlyDone: [], olderDone: [] },
+    sections: { awaitingReview: [], current: [], recentlyDone: [], olderDone: [] },
     done: [],
     rows: enrich(filterTickets(source, query)),
   };

@@ -370,7 +370,7 @@
   // Completed); the Done facet renders `done`; every other facet renders the
   // flat `rows`. A pre-upgrade snapshot has no `sections` — `renderAll` falls
   // back to `rows` until the fresh state lands.
-  let state = { facets:['all'], filter:'', counts:{}, sections:{current:[],recentlyDone:[],olderDone:[]}, done:[], rows:[] };
+  let state = { facets:['all'], filter:'', counts:{}, sections:{awaitingReview:[],current:[],recentlyDone:[],olderDone:[]}, done:[], rows:[] };
   const open = new Set();
   // The shared ticket-actions context window (Edit / Follow Up / Archive).
   // `menuTicket` is the ticket whose "⋯" is open — ONE shared fixed popup, so
@@ -726,9 +726,10 @@
   // headers render only where their section does.
   function renderAll(L) {
     const cur = (state.sections && state.sections.current) || state.rows || [];
+    const awaiting = (state.sections && state.sections.awaitingReview) || [];
     const recent = (state.sections && state.sections.recentlyDone) || [];
     const older = (state.sections && state.sections.olderDone) || [];
-    if (!cur.length && !recent.length && !older.length) {
+    if (!cur.length && !awaiting.length && !recent.length && !older.length) {
       L.innerHTML = emptyHtml('');
       return;
     }
@@ -741,6 +742,10 @@
     if (cur.length) {
       html.push(secHtml('Current', cur.length));
       html.push(cur.map((r) => rowHtml(r, {})).join(''));
+    }
+    if (awaiting.length) {
+      html.push(secHtml('Awaiting review', awaiting.length));
+      html.push(awaiting.map((r) => rowHtml(r, {})).join(''));
     }
     if (recent.length) {
       html.push(secHtml('Recently done', recent.length));
@@ -791,7 +796,7 @@
     for (const r of state.rows || []) if (r.ticketId === id) return r;
     for (const r of state.done || []) if (r.ticketId === id) return r;
     const secs = state.sections || {};
-    for (const list of [secs.current, secs.recentlyDone, secs.olderDone]) {
+    for (const list of [secs.awaitingReview, secs.current, secs.recentlyDone, secs.olderDone]) {
       for (const r of list || []) if (r.ticketId === id) return r;
     }
     return null;
@@ -883,7 +888,7 @@
       const ids = new Set((state.rows || []).map((r) => r.ticketId));
       for (const r of state.done || []) ids.add(r.ticketId);
       const secs = state.sections || {};
-      for (const list of [secs.current, secs.recentlyDone, secs.olderDone]) {
+      for (const list of [secs.awaitingReview, secs.current, secs.recentlyDone, secs.olderDone]) {
         for (const r of list || []) ids.add(r.ticketId);
       }
       for (const id of [...open]) if (!ids.has(id)) open.delete(id);

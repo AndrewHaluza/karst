@@ -36,7 +36,8 @@ describe('sidebar render', () => {
         try {
           h.receive({ type: 'state', state: fixture.state });
           const allRows = h.queryAll('[data-ticket], .row');
-          const populatedCount = fixture.state.sections.current.length
+          const populatedCount = fixture.state.sections.awaitingReview.length
+            + fixture.state.sections.current.length
             + fixture.state.sections.recentlyDone.length
             + fixture.state.sections.olderDone.length
             + fixture.state.done.length

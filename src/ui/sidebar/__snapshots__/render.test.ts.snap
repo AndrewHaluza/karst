@@ -11,8 +11,8 @@ exports[`sidebar render > all-sections > snapshot (was: full document render) 1`
   <svg class="search-icon k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 10a7 7 0 1 0 14 0a7 7 0 1 0 -14 0"></path><path d="M21 21l-6 -6"></path></svg>
   <input type="text" id="search" class="k-input search-input" aria-label="Search tickets" placeholder="Search tickets…">
 </div>
-<div class="facets" id="facets"><button type="button" class="k-chip" data-facet="all" aria-pressed="true">All <span class="n">5</span></button><button type="button" class="k-chip" data-facet="running" aria-pressed="false"><span class="k-dot k-dot--running" aria-hidden="true"></span>In progress <span class="n">2</span></button><button type="button" class="k-chip" data-facet="input" aria-pressed="false"><span class="k-dot k-dot--attention" aria-hidden="true"></span>Needs you <span class="n">1</span></button><button type="button" class="k-chip" data-facet="failed" aria-pressed="false"><span class="k-dot k-dot--failed" aria-hidden="true"></span>Blocked <span class="n">1</span></button><button type="button" class="k-chip" data-facet="done" aria-pressed="false"><span class="k-dot k-dot--passed" aria-hidden="true"></span>Done <span class="n">1</span></button><button type="button" class="k-chip" data-facet="archived" aria-pressed="false">Archived <span class="n">0</span></button></div>
-<div class="list" id="list"><div class="sec" role="presentation"><span class="sec-name">Current</span><span class="sec-n">· 3</span></div><div class="ticket" data-id="900001"><div class="row"><button type="button" class="k-iconbtn chev" data-toggle="900001" aria-expanded="false" aria-label="Expand ticket details" title="Expand ticket details"><svg class="k-icon" width="12" height="12" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 6l6 6l-6 6"></path></svg></button><button type="button" class="k-btn k-btn--link k-btn--row rowopen" data-open="900001" title="Open ticket dashboard"><span class="glyph g-blue" role="img" aria-label="Running" title="fixture:desc:0"><svg aria-hidden="true" width="13" height="13" viewBox="0 0 215 215" fill="currentColor"><path d="M 96 20 L 25 67 L 25 156 L 98 203 L 98 180 L 44 145 L 44 78 L 97 44 Z"></path><path d="M 151 42 L 138 58 L 170 78 L 170 144 L 138 165 L 150 180 L 188 156 L 188 67 Z"></path><circle cx="106.5" cy="111.5" r="26.5"></circle></svg><span class="sdot" aria-hidden="true"></span><span class="sdot-spin" aria-hidden="true"></span></span><span class="name">FEAT-100</span><span class="stage stg-impl" title="Implementing">impl</span></button><span class="rowacts"><button type="button" class="k-iconbtn" data-act="spin" data-id="900001" aria-label="Spin up worktree and dev servers" title="Spin up worktree and dev servers"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 4v16l13 -8l-13 -8"></path></svg></button><button type="button" class="k-iconbtn" data-act="open-session" data-id="900001" aria-label="Start session" title="Start session"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 9l3 3l-3 3"></path><path d="M13 15l3 0"></path><path d="M3 6a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2l0 -12"></path></svg></button><button type="button" class="k-iconbtn" data-menu="900001" aria-expanded="false" aria-haspopup="menu" aria-label="More ticket actions" title="More ticket actions"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"></path><path d="M12 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"></path><path d="M19 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"></path></svg></button></span></div><div class="body"><div class="peek"><div class="peek-head"><div class="peek-copy"><div class="peek-title">fixture:peek</div></div><div class="peek-tools"><button type="button" class="k-iconbtn" data-act="spin" data-id="900001" aria-label="Spin up worktree and dev servers" title="Spin up worktree and dev servers"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 4v16l13 -8l-13 -8"></path></svg></button><button type="button" class="k-iconbtn" data-act="open-session" data-id="900001" aria-label="Start session" title="Start session"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 9l3 3l-3 3"></path><path d="M13 15l3 0"></path><path d="M3 6a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2l0 -12"></path></svg></button><button type="button" class="k-iconbtn" data-act="open-dashboard" data-id="900001" aria-label="Open ticket dashboard" title="Open ticket dashboard"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 4h4a1 1 0 0 1 1 1v6a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-6a1 1 0 0 1 1 -1"></path><path d="M5 16h4a1 1 0 0 1 1 1v2a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-2a1 1 0 0 1 1 -1"></path><path d="M15 12h4a1 1 0 0 1 1 1v6a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-6a1 1 0 0 1 1 -1"></path><path d="M15 4h4a1 1 0 0 1 1 1v2a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-2a1 1 0 0 1 1 -1"></path></svg></button><button type="button" class="k-iconbtn" data-menu="900001" aria-expanded="false" aria-haspopup="menu" aria-label="More ticket actions" title="More ticket actions"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"></path><path d="M12 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"></path><path d="M19 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"></path></svg></button></div></div><div class="peek-sep"></div></div></div></div><div class="ticket" data-id="900002"><div class="row"><button type="button" class="k-iconbtn chev" data-toggle="900002" aria-expanded="false" aria-label="Expand ticket details" title="Expand ticket details"><svg class="k-icon" width="12" height="12" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 6l6 6l-6 6"></path></svg></button><button type="button" class="k-btn k-btn--link k-btn--row rowopen" data-open="900002" title="Open ticket dashboard"><span class="glyph g-amber" role="img" aria-label="Needs you" title="fixture:desc:1"><svg aria-hidden="true" width="13" height="13" viewBox="0 0 215 215" fill="currentColor"><path d="M 96 20 L 25 67 L 25 156 L 98 203 L 98 180 L 44 145 L 44 78 L 97 44 Z"></path><path d="M 151 42 L 138 58 L 170 78 L 170 144 L 138 165 L 150 180 L 188 156 L 188 67 Z"></path><circle cx="106.5" cy="111.5" r="26.5"></circle></svg><span class="sdot" aria-hidden="true"></span><span class="sdot-spin" aria-hidden="true"></span></span><span class="name">FEAT-101</span><span class="stage stg-impl" title="Implementing">impl</span></button><span class="rowacts"><button type="button" class="k-iconbtn" data-act="spin" data-id="900002" aria-label="Spin up worktree and dev servers" title="Spin up worktree and dev servers"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 4v16l13 -8l-13 -8"></path></svg></button><button type="button" class="k-iconbtn" data-act="open-session" data-id="900002" aria-label="Start session" title="Start session"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 9l3 3l-3 3"></path><path d="M13 15l3 0"></path><path d="M3 6a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2l0 -12"></path></svg></button><button type="button" class="k-iconbtn" data-menu="900002" aria-expanded="false" aria-haspopup="menu" aria-label="More ticket actions" title="More ticket actions"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"></path><path d="M12 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"></path><path d="M19 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"></path></svg></button></span></div><div class="body"><div class="peek"><div class="peek-head"><div class="peek-copy"><div class="peek-title">fixture:peek</div></div><div class="peek-tools"><button type="button" class="k-iconbtn" data-act="spin" data-id="900002" aria-label="Spin up worktree and dev servers" title="Spin up worktree and dev servers"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 4v16l13 -8l-13 -8"></path></svg></button><button type="button" class="k-iconbtn" data-act="open-session" data-id="900002" aria-label="Start session" title="Start session"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 9l3 3l-3 3"></path><path d="M13 15l3 0"></path><path d="M3 6a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2l0 -12"></path></svg></button><button type="button" class="k-iconbtn" data-act="open-dashboard" data-id="900002" aria-label="Open ticket dashboard" title="Open ticket dashboard"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 4h4a1 1 0 0 1 1 1v6a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-6a1 1 0 0 1 1 -1"></path><path d="M5 16h4a1 1 0 0 1 1 1v2a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-2a1 1 0 0 1 1 -1"></path><path d="M15 12h4a1 1 0 0 1 1 1v6a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-6a1 1 0 0 1 1 -1"></path><path d="M15 4h4a1 1 0 0 1 1 1v2a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-2a1 1 0 0 1 1 -1"></path></svg></button><button type="button" class="k-iconbtn" data-menu="900002" aria-expanded="false" aria-haspopup="menu" aria-label="More ticket actions" title="More ticket actions"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"></path><path d="M12 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"></path><path d="M19 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"></path></svg></button></div></div><div class="peek-sep"></div></div></div></div><div class="ticket" data-id="900003"><div class="row"><button type="button" class="k-iconbtn chev" data-toggle="900003" aria-expanded="false" aria-label="Expand ticket details" title="Expand ticket details"><svg class="k-icon" width="12" height="12" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 6l6 6l-6 6"></path></svg></button><button type="button" class="k-btn k-btn--link k-btn--row rowopen" data-open="900003" title="Open ticket dashboard"><span class="glyph g-red" role="img" aria-label="Failed" title="fixture:desc:2"><svg aria-hidden="true" width="13" height="13" viewBox="0 0 215 215" fill="currentColor"><path d="M 96 20 L 25 67 L 25 156 L 98 203 L 98 180 L 44 145 L 44 78 L 97 44 Z"></path><path d="M 151 42 L 138 58 L 170 78 L 170 144 L 138 165 L 150 180 L 188 156 L 188 67 Z"></path><circle cx="106.5" cy="111.5" r="26.5"></circle></svg><span class="sdot" aria-hidden="true"></span><span class="sdot-spin" aria-hidden="true"></span></span><span class="name">FEAT-102</span><span class="stage stg-impl" title="Implementing">impl</span></button><span class="rowacts"><button type="button" class="k-iconbtn" data-act="spin" data-id="900003" aria-label="Spin up worktree and dev servers" title="Spin up worktree and dev servers"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 4v16l13 -8l-13 -8"></path></svg></button><button type="button" class="k-iconbtn" data-act="open-session" data-id="900003" aria-label="Start session" title="Start session"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 9l3 3l-3 3"></path><path d="M13 15l3 0"></path><path d="M3 6a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2l0 -12"></path></svg></button><button type="button" class="k-iconbtn" data-menu="900003" aria-expanded="false" aria-haspopup="menu" aria-label="More ticket actions" title="More ticket actions"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"></path><path d="M12 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"></path><path d="M19 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"></path></svg></button></span></div><div class="body"><div class="nextact warn">⚠ gate failed<span class="att">attempt 2</span></div><div class="peek"><div class="peek-head"><div class="peek-copy"><div class="peek-title">fixture:peek</div></div><div class="peek-tools"><button type="button" class="k-iconbtn" data-act="spin" data-id="900003" aria-label="Spin up worktree and dev servers" title="Spin up worktree and dev servers"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 4v16l13 -8l-13 -8"></path></svg></button><button type="button" class="k-iconbtn" data-act="open-session" data-id="900003" aria-label="Start session" title="Start session"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 9l3 3l-3 3"></path><path d="M13 15l3 0"></path><path d="M3 6a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2l0 -12"></path></svg></button><button type="button" class="k-iconbtn" data-act="open-dashboard" data-id="900003" aria-label="Open ticket dashboard" title="Open ticket dashboard"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 4h4a1 1 0 0 1 1 1v6a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-6a1 1 0 0 1 1 -1"></path><path d="M5 16h4a1 1 0 0 1 1 1v2a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-2a1 1 0 0 1 1 -1"></path><path d="M15 12h4a1 1 0 0 1 1 1v6a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-6a1 1 0 0 1 1 -1"></path><path d="M15 4h4a1 1 0 0 1 1 1v2a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-2a1 1 0 0 1 1 -1"></path></svg></button><button type="button" class="k-iconbtn" data-menu="900003" aria-expanded="false" aria-haspopup="menu" aria-label="More ticket actions" title="More ticket actions"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"></path><path d="M12 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"></path><path d="M19 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"></path></svg></button></div></div><div class="peek-sep"></div></div></div></div><div class="sec" role="presentation"><span class="sec-name">Recently done</span><span class="sec-n">· 1</span></div><div class="ticket done" data-id="900004"><div class="row"><button type="button" class="k-iconbtn chev" data-toggle="900004" aria-expanded="false" aria-label="Expand ticket details" title="Expand ticket details"><svg class="k-icon" width="12" height="12" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 6l6 6l-6 6"></path></svg></button><button type="button" class="k-btn k-btn--link k-btn--row rowopen" data-open="900004" title="Open ticket dashboard"><span class="glyph chk g-green" aria-hidden="true"><svg class="k-icon" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0"></path><path d="M9 12l2 2l4 -4"></path></svg></span><span class="name">FEAT-103</span><span class="time"></span></button><span class="rowacts"><button type="button" class="k-iconbtn" data-act="spin" data-id="900004" aria-label="Spin up worktree and dev servers" title="Spin up worktree and dev servers"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 4v16l13 -8l-13 -8"></path></svg></button><button type="button" class="k-iconbtn" data-act="open-session" data-id="900004" aria-label="Start session" title="Start session"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 9l3 3l-3 3"></path><path d="M13 15l3 0"></path><path d="M3 6a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2l0 -12"></path></svg></button><button type="button" class="k-iconbtn" data-menu="900004" aria-expanded="false" aria-haspopup="menu" aria-label="More ticket actions" title="More ticket actions"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"></path><path d="M12 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"></path><path d="M19 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"></path></svg></button></span></div><div class="body"><div class="peek"><div class="peek-head"><div class="peek-copy"><div class="peek-title">fixture:peek</div></div><div class="peek-tools"><button type="button" class="k-iconbtn" data-act="spin" data-id="900004" aria-label="Spin up worktree and dev servers" title="Spin up worktree and dev servers"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 4v16l13 -8l-13 -8"></path></svg></button><button type="button" class="k-iconbtn" data-act="open-session" data-id="900004" aria-label="Start session" title="Start session"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 9l3 3l-3 3"></path><path d="M13 15l3 0"></path><path d="M3 6a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2l0 -12"></path></svg></button><button type="button" class="k-iconbtn" data-act="open-dashboard" data-id="900004" aria-label="Open ticket dashboard" title="Open ticket dashboard"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 4h4a1 1 0 0 1 1 1v6a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-6a1 1 0 0 1 1 -1"></path><path d="M5 16h4a1 1 0 0 1 1 1v2a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-2a1 1 0 0 1 1 -1"></path><path d="M15 12h4a1 1 0 0 1 1 1v6a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-6a1 1 0 0 1 1 -1"></path><path d="M15 4h4a1 1 0 0 1 1 1v2a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-2a1 1 0 0 1 1 -1"></path></svg></button><button type="button" class="k-iconbtn" data-menu="900004" aria-expanded="false" aria-haspopup="menu" aria-label="More ticket actions" title="More ticket actions"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"></path><path d="M12 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"></path><path d="M19 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"></path></svg></button></div></div><div class="peek-sep"></div></div></div></div><button type="button" class="k-btn k-btn--ghost hist" data-history="1" aria-expanded="false"><span class="hist-chev"><svg class="k-icon" width="12" height="12" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 6l6 6l-6 6"></path></svg></span><span>1 more completed</span></button></div>
+<div class="facets" id="facets"><button type="button" class="k-chip" data-facet="all" aria-pressed="true">All <span class="n">6</span></button><button type="button" class="k-chip" data-facet="running" aria-pressed="false"><span class="k-dot k-dot--running" aria-hidden="true"></span>In progress <span class="n">2</span></button><button type="button" class="k-chip" data-facet="input" aria-pressed="false"><span class="k-dot k-dot--attention" aria-hidden="true"></span>Needs you <span class="n">1</span></button><button type="button" class="k-chip" data-facet="failed" aria-pressed="false"><span class="k-dot k-dot--failed" aria-hidden="true"></span>Blocked <span class="n">1</span></button><button type="button" class="k-chip" data-facet="done" aria-pressed="false"><span class="k-dot k-dot--passed" aria-hidden="true"></span>Done <span class="n">1</span></button><button type="button" class="k-chip" data-facet="archived" aria-pressed="false">Archived <span class="n">0</span></button></div>
+<div class="list" id="list"><div class="sec" role="presentation"><span class="sec-name">Current</span><span class="sec-n">· 3</span></div><div class="ticket" data-id="900001"><div class="row"><button type="button" class="k-iconbtn chev" data-toggle="900001" aria-expanded="false" aria-label="Expand ticket details" title="Expand ticket details"><svg class="k-icon" width="12" height="12" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 6l6 6l-6 6"></path></svg></button><button type="button" class="k-btn k-btn--link k-btn--row rowopen" data-open="900001" title="Open ticket dashboard"><span class="glyph g-blue" role="img" aria-label="Running" title="fixture:desc:0"><svg aria-hidden="true" width="13" height="13" viewBox="0 0 215 215" fill="currentColor"><path d="M 96 20 L 25 67 L 25 156 L 98 203 L 98 180 L 44 145 L 44 78 L 97 44 Z"></path><path d="M 151 42 L 138 58 L 170 78 L 170 144 L 138 165 L 150 180 L 188 156 L 188 67 Z"></path><circle cx="106.5" cy="111.5" r="26.5"></circle></svg><span class="sdot" aria-hidden="true"></span><span class="sdot-spin" aria-hidden="true"></span></span><span class="name">FEAT-100</span><span class="stage stg-impl" title="Implementing">impl</span></button><span class="rowacts"><button type="button" class="k-iconbtn" data-act="spin" data-id="900001" aria-label="Spin up worktree and dev servers" title="Spin up worktree and dev servers"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 4v16l13 -8l-13 -8"></path></svg></button><button type="button" class="k-iconbtn" data-act="open-session" data-id="900001" aria-label="Start session" title="Start session"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 9l3 3l-3 3"></path><path d="M13 15l3 0"></path><path d="M3 6a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2l0 -12"></path></svg></button><button type="button" class="k-iconbtn" data-menu="900001" aria-expanded="false" aria-haspopup="menu" aria-label="More ticket actions" title="More ticket actions"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"></path><path d="M12 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"></path><path d="M19 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"></path></svg></button></span></div><div class="body"><div class="peek"><div class="peek-head"><div class="peek-copy"><div class="peek-title">fixture:peek</div></div><div class="peek-tools"><button type="button" class="k-iconbtn" data-act="spin" data-id="900001" aria-label="Spin up worktree and dev servers" title="Spin up worktree and dev servers"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 4v16l13 -8l-13 -8"></path></svg></button><button type="button" class="k-iconbtn" data-act="open-session" data-id="900001" aria-label="Start session" title="Start session"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 9l3 3l-3 3"></path><path d="M13 15l3 0"></path><path d="M3 6a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2l0 -12"></path></svg></button><button type="button" class="k-iconbtn" data-act="open-dashboard" data-id="900001" aria-label="Open ticket dashboard" title="Open ticket dashboard"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 4h4a1 1 0 0 1 1 1v6a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-6a1 1 0 0 1 1 -1"></path><path d="M5 16h4a1 1 0 0 1 1 1v2a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-2a1 1 0 0 1 1 -1"></path><path d="M15 12h4a1 1 0 0 1 1 1v6a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-6a1 1 0 0 1 1 -1"></path><path d="M15 4h4a1 1 0 0 1 1 1v2a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-2a1 1 0 0 1 1 -1"></path></svg></button><button type="button" class="k-iconbtn" data-menu="900001" aria-expanded="false" aria-haspopup="menu" aria-label="More ticket actions" title="More ticket actions"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"></path><path d="M12 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"></path><path d="M19 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"></path></svg></button></div></div><div class="peek-sep"></div></div></div></div><div class="ticket" data-id="900002"><div class="row"><button type="button" class="k-iconbtn chev" data-toggle="900002" aria-expanded="false" aria-label="Expand ticket details" title="Expand ticket details"><svg class="k-icon" width="12" height="12" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 6l6 6l-6 6"></path></svg></button><button type="button" class="k-btn k-btn--link k-btn--row rowopen" data-open="900002" title="Open ticket dashboard"><span class="glyph g-amber" role="img" aria-label="Needs you" title="fixture:desc:1"><svg aria-hidden="true" width="13" height="13" viewBox="0 0 215 215" fill="currentColor"><path d="M 96 20 L 25 67 L 25 156 L 98 203 L 98 180 L 44 145 L 44 78 L 97 44 Z"></path><path d="M 151 42 L 138 58 L 170 78 L 170 144 L 138 165 L 150 180 L 188 156 L 188 67 Z"></path><circle cx="106.5" cy="111.5" r="26.5"></circle></svg><span class="sdot" aria-hidden="true"></span><span class="sdot-spin" aria-hidden="true"></span></span><span class="name">FEAT-101</span><span class="stage stg-impl" title="Implementing">impl</span></button><span class="rowacts"><button type="button" class="k-iconbtn" data-act="spin" data-id="900002" aria-label="Spin up worktree and dev servers" title="Spin up worktree and dev servers"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 4v16l13 -8l-13 -8"></path></svg></button><button type="button" class="k-iconbtn" data-act="open-session" data-id="900002" aria-label="Start session" title="Start session"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 9l3 3l-3 3"></path><path d="M13 15l3 0"></path><path d="M3 6a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2l0 -12"></path></svg></button><button type="button" class="k-iconbtn" data-menu="900002" aria-expanded="false" aria-haspopup="menu" aria-label="More ticket actions" title="More ticket actions"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"></path><path d="M12 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"></path><path d="M19 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"></path></svg></button></span></div><div class="body"><div class="peek"><div class="peek-head"><div class="peek-copy"><div class="peek-title">fixture:peek</div></div><div class="peek-tools"><button type="button" class="k-iconbtn" data-act="spin" data-id="900002" aria-label="Spin up worktree and dev servers" title="Spin up worktree and dev servers"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 4v16l13 -8l-13 -8"></path></svg></button><button type="button" class="k-iconbtn" data-act="open-session" data-id="900002" aria-label="Start session" title="Start session"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 9l3 3l-3 3"></path><path d="M13 15l3 0"></path><path d="M3 6a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2l0 -12"></path></svg></button><button type="button" class="k-iconbtn" data-act="open-dashboard" data-id="900002" aria-label="Open ticket dashboard" title="Open ticket dashboard"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 4h4a1 1 0 0 1 1 1v6a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-6a1 1 0 0 1 1 -1"></path><path d="M5 16h4a1 1 0 0 1 1 1v2a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-2a1 1 0 0 1 1 -1"></path><path d="M15 12h4a1 1 0 0 1 1 1v6a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-6a1 1 0 0 1 1 -1"></path><path d="M15 4h4a1 1 0 0 1 1 1v2a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-2a1 1 0 0 1 1 -1"></path></svg></button><button type="button" class="k-iconbtn" data-menu="900002" aria-expanded="false" aria-haspopup="menu" aria-label="More ticket actions" title="More ticket actions"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"></path><path d="M12 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"></path><path d="M19 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"></path></svg></button></div></div><div class="peek-sep"></div></div></div></div><div class="ticket" data-id="900003"><div class="row"><button type="button" class="k-iconbtn chev" data-toggle="900003" aria-expanded="false" aria-label="Expand ticket details" title="Expand ticket details"><svg class="k-icon" width="12" height="12" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 6l6 6l-6 6"></path></svg></button><button type="button" class="k-btn k-btn--link k-btn--row rowopen" data-open="900003" title="Open ticket dashboard"><span class="glyph g-red" role="img" aria-label="Failed" title="fixture:desc:2"><svg aria-hidden="true" width="13" height="13" viewBox="0 0 215 215" fill="currentColor"><path d="M 96 20 L 25 67 L 25 156 L 98 203 L 98 180 L 44 145 L 44 78 L 97 44 Z"></path><path d="M 151 42 L 138 58 L 170 78 L 170 144 L 138 165 L 150 180 L 188 156 L 188 67 Z"></path><circle cx="106.5" cy="111.5" r="26.5"></circle></svg><span class="sdot" aria-hidden="true"></span><span class="sdot-spin" aria-hidden="true"></span></span><span class="name">FEAT-102</span><span class="stage stg-impl" title="Implementing">impl</span></button><span class="rowacts"><button type="button" class="k-iconbtn" data-act="spin" data-id="900003" aria-label="Spin up worktree and dev servers" title="Spin up worktree and dev servers"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 4v16l13 -8l-13 -8"></path></svg></button><button type="button" class="k-iconbtn" data-act="open-session" data-id="900003" aria-label="Start session" title="Start session"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 9l3 3l-3 3"></path><path d="M13 15l3 0"></path><path d="M3 6a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2l0 -12"></path></svg></button><button type="button" class="k-iconbtn" data-menu="900003" aria-expanded="false" aria-haspopup="menu" aria-label="More ticket actions" title="More ticket actions"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"></path><path d="M12 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"></path><path d="M19 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"></path></svg></button></span></div><div class="body"><div class="nextact warn">⚠ gate failed<span class="att">attempt 2</span></div><div class="peek"><div class="peek-head"><div class="peek-copy"><div class="peek-title">fixture:peek</div></div><div class="peek-tools"><button type="button" class="k-iconbtn" data-act="spin" data-id="900003" aria-label="Spin up worktree and dev servers" title="Spin up worktree and dev servers"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 4v16l13 -8l-13 -8"></path></svg></button><button type="button" class="k-iconbtn" data-act="open-session" data-id="900003" aria-label="Start session" title="Start session"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 9l3 3l-3 3"></path><path d="M13 15l3 0"></path><path d="M3 6a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2l0 -12"></path></svg></button><button type="button" class="k-iconbtn" data-act="open-dashboard" data-id="900003" aria-label="Open ticket dashboard" title="Open ticket dashboard"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 4h4a1 1 0 0 1 1 1v6a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-6a1 1 0 0 1 1 -1"></path><path d="M5 16h4a1 1 0 0 1 1 1v2a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-2a1 1 0 0 1 1 -1"></path><path d="M15 12h4a1 1 0 0 1 1 1v6a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-6a1 1 0 0 1 1 -1"></path><path d="M15 4h4a1 1 0 0 1 1 1v2a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-2a1 1 0 0 1 1 -1"></path></svg></button><button type="button" class="k-iconbtn" data-menu="900003" aria-expanded="false" aria-haspopup="menu" aria-label="More ticket actions" title="More ticket actions"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"></path><path d="M12 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"></path><path d="M19 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"></path></svg></button></div></div><div class="peek-sep"></div></div></div></div><div class="sec" role="presentation"><span class="sec-name">Awaiting review</span><span class="sec-n">· 1</span></div><div class="ticket" data-id="900006"><div class="row"><button type="button" class="k-iconbtn chev" data-toggle="900006" aria-expanded="false" aria-label="Expand ticket details" title="Expand ticket details"><svg class="k-icon" width="12" height="12" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 6l6 6l-6 6"></path></svg></button><button type="button" class="k-btn k-btn--link k-btn--row rowopen" data-open="900006" title="Open ticket dashboard"><span class="glyph g-amber" role="img" aria-label="Needs you" title="fixture:desc:5"><svg aria-hidden="true" width="13" height="13" viewBox="0 0 215 215" fill="currentColor"><path d="M 96 20 L 25 67 L 25 156 L 98 203 L 98 180 L 44 145 L 44 78 L 97 44 Z"></path><path d="M 151 42 L 138 58 L 170 78 L 170 144 L 138 165 L 150 180 L 188 156 L 188 67 Z"></path><circle cx="106.5" cy="111.5" r="26.5"></circle></svg><span class="sdot" aria-hidden="true"></span><span class="sdot-spin" aria-hidden="true"></span></span><span class="name">FEAT-105</span><span class="stage stg-ship" title="Ship">ship</span></button><span class="rowacts"><button type="button" class="k-iconbtn" data-act="spin" data-id="900006" aria-label="Spin up worktree and dev servers" title="Spin up worktree and dev servers"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 4v16l13 -8l-13 -8"></path></svg></button><button type="button" class="k-iconbtn" data-act="open-session" data-id="900006" aria-label="Start session" title="Start session"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 9l3 3l-3 3"></path><path d="M13 15l3 0"></path><path d="M3 6a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2l0 -12"></path></svg></button><button type="button" class="k-iconbtn" data-menu="900006" aria-expanded="false" aria-haspopup="menu" aria-label="More ticket actions" title="More ticket actions"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"></path><path d="M12 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"></path><path d="M19 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"></path></svg></button></span></div><div class="body"><div class="peek"><div class="peek-head"><div class="peek-copy"><div class="peek-title">fixture:peek</div></div><div class="peek-tools"><button type="button" class="k-iconbtn" data-act="spin" data-id="900006" aria-label="Spin up worktree and dev servers" title="Spin up worktree and dev servers"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 4v16l13 -8l-13 -8"></path></svg></button><button type="button" class="k-iconbtn" data-act="open-session" data-id="900006" aria-label="Start session" title="Start session"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 9l3 3l-3 3"></path><path d="M13 15l3 0"></path><path d="M3 6a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2l0 -12"></path></svg></button><button type="button" class="k-iconbtn" data-act="open-dashboard" data-id="900006" aria-label="Open ticket dashboard" title="Open ticket dashboard"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 4h4a1 1 0 0 1 1 1v6a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-6a1 1 0 0 1 1 -1"></path><path d="M5 16h4a1 1 0 0 1 1 1v2a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-2a1 1 0 0 1 1 -1"></path><path d="M15 12h4a1 1 0 0 1 1 1v6a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-6a1 1 0 0 1 1 -1"></path><path d="M15 4h4a1 1 0 0 1 1 1v2a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-2a1 1 0 0 1 1 -1"></path></svg></button><button type="button" class="k-iconbtn" data-menu="900006" aria-expanded="false" aria-haspopup="menu" aria-label="More ticket actions" title="More ticket actions"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"></path><path d="M12 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"></path><path d="M19 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"></path></svg></button></div></div><div class="peek-sep"></div><div class="meta">PR #1</div></div></div></div><div class="sec" role="presentation"><span class="sec-name">Recently done</span><span class="sec-n">· 1</span></div><div class="ticket done" data-id="900004"><div class="row"><button type="button" class="k-iconbtn chev" data-toggle="900004" aria-expanded="false" aria-label="Expand ticket details" title="Expand ticket details"><svg class="k-icon" width="12" height="12" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 6l6 6l-6 6"></path></svg></button><button type="button" class="k-btn k-btn--link k-btn--row rowopen" data-open="900004" title="Open ticket dashboard"><span class="glyph chk g-green" aria-hidden="true"><svg class="k-icon" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0"></path><path d="M9 12l2 2l4 -4"></path></svg></span><span class="name">FEAT-103</span><span class="time"></span></button><span class="rowacts"><button type="button" class="k-iconbtn" data-act="spin" data-id="900004" aria-label="Spin up worktree and dev servers" title="Spin up worktree and dev servers"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 4v16l13 -8l-13 -8"></path></svg></button><button type="button" class="k-iconbtn" data-act="open-session" data-id="900004" aria-label="Start session" title="Start session"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 9l3 3l-3 3"></path><path d="M13 15l3 0"></path><path d="M3 6a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2l0 -12"></path></svg></button><button type="button" class="k-iconbtn" data-menu="900004" aria-expanded="false" aria-haspopup="menu" aria-label="More ticket actions" title="More ticket actions"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"></path><path d="M12 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"></path><path d="M19 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"></path></svg></button></span></div><div class="body"><div class="peek"><div class="peek-head"><div class="peek-copy"><div class="peek-title">fixture:peek</div></div><div class="peek-tools"><button type="button" class="k-iconbtn" data-act="spin" data-id="900004" aria-label="Spin up worktree and dev servers" title="Spin up worktree and dev servers"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 4v16l13 -8l-13 -8"></path></svg></button><button type="button" class="k-iconbtn" data-act="open-session" data-id="900004" aria-label="Start session" title="Start session"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 9l3 3l-3 3"></path><path d="M13 15l3 0"></path><path d="M3 6a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2l0 -12"></path></svg></button><button type="button" class="k-iconbtn" data-act="open-dashboard" data-id="900004" aria-label="Open ticket dashboard" title="Open ticket dashboard"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 4h4a1 1 0 0 1 1 1v6a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-6a1 1 0 0 1 1 -1"></path><path d="M5 16h4a1 1 0 0 1 1 1v2a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-2a1 1 0 0 1 1 -1"></path><path d="M15 12h4a1 1 0 0 1 1 1v6a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-6a1 1 0 0 1 1 -1"></path><path d="M15 4h4a1 1 0 0 1 1 1v2a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-2a1 1 0 0 1 1 -1"></path></svg></button><button type="button" class="k-iconbtn" data-menu="900004" aria-expanded="false" aria-haspopup="menu" aria-label="More ticket actions" title="More ticket actions"><svg class="k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"></path><path d="M12 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"></path><path d="M19 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"></path></svg></button></div></div><div class="peek-sep"></div></div></div></div><button type="button" class="k-btn k-btn--ghost hist" data-history="1" aria-expanded="false"><span class="hist-chev"><svg class="k-icon" width="12" height="12" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 6l6 6l-6 6"></path></svg></span><span>1 more completed</span></button></div>
 <!-- The shared ticket-actions context window (Edit / Follow Up / Archive).
      One fixed popup, populated per open, positioned at its trigger — sibling of
      the scrolling list so it can never be clipped by it. -->
@@ -243,7 +243,7 @@ function agentIdentityHtml(provider, model, compact) {
   // Completed); the Done facet renders \`done\`; every other facet renders the
   // flat \`rows\`. A pre-upgrade snapshot has no \`sections\` — \`renderAll\` falls
   // back to \`rows\` until the fresh state lands.
-  let state = { facets:['all'], filter:'', counts:{}, sections:{current:[],recentlyDone:[],olderDone:[]}, done:[], rows:[] };
+  let state = { facets:['all'], filter:'', counts:{}, sections:{awaitingReview:[],current:[],recentlyDone:[],olderDone:[]}, done:[], rows:[] };
   const open = new Set();
   // The shared ticket-actions context window (Edit / Follow Up / Archive).
   // \`menuTicket\` is the ticket whose "⋯" is open — ONE shared fixed popup, so
@@ -599,9 +599,10 @@ function agentIdentityHtml(provider, model, compact) {
   // headers render only where their section does.
   function renderAll(L) {
     const cur = (state.sections && state.sections.current) || state.rows || [];
+    const awaiting = (state.sections && state.sections.awaitingReview) || [];
     const recent = (state.sections && state.sections.recentlyDone) || [];
     const older = (state.sections && state.sections.olderDone) || [];
-    if (!cur.length && !recent.length && !older.length) {
+    if (!cur.length && !awaiting.length && !recent.length && !older.length) {
       L.innerHTML = emptyHtml('');
       return;
     }
@@ -614,6 +615,10 @@ function agentIdentityHtml(provider, model, compact) {
     if (cur.length) {
       html.push(secHtml('Current', cur.length));
       html.push(cur.map((r) => rowHtml(r, {})).join(''));
+    }
+    if (awaiting.length) {
+      html.push(secHtml('Awaiting review', awaiting.length));
+      html.push(awaiting.map((r) => rowHtml(r, {})).join(''));
     }
     if (recent.length) {
       html.push(secHtml('Recently done', recent.length));
@@ -664,7 +669,7 @@ function agentIdentityHtml(provider, model, compact) {
     for (const r of state.rows || []) if (r.ticketId === id) return r;
     for (const r of state.done || []) if (r.ticketId === id) return r;
     const secs = state.sections || {};
-    for (const list of [secs.current, secs.recentlyDone, secs.olderDone]) {
+    for (const list of [secs.awaitingReview, secs.current, secs.recentlyDone, secs.olderDone]) {
       for (const r of list || []) if (r.ticketId === id) return r;
     }
     return null;
@@ -756,7 +761,7 @@ function agentIdentityHtml(provider, model, compact) {
       const ids = new Set((state.rows || []).map((r) => r.ticketId));
       for (const r of state.done || []) ids.add(r.ticketId);
       const secs = state.sections || {};
-      for (const list of [secs.current, secs.recentlyDone, secs.olderDone]) {
+      for (const list of [secs.awaitingReview, secs.current, secs.recentlyDone, secs.olderDone]) {
         for (const r of list || []) ids.add(r.ticketId);
       }
       for (const id of [...open]) if (!ids.has(id)) open.delete(id);
@@ -1026,7 +1031,7 @@ function agentIdentityHtml(provider, model, compact) {
   // Completed); the Done facet renders \`done\`; every other facet renders the
   // flat \`rows\`. A pre-upgrade snapshot has no \`sections\` — \`renderAll\` falls
   // back to \`rows\` until the fresh state lands.
-  let state = { facets:['all'], filter:'', counts:{}, sections:{current:[],recentlyDone:[],olderDone:[]}, done:[], rows:[] };
+  let state = { facets:['all'], filter:'', counts:{}, sections:{awaitingReview:[],current:[],recentlyDone:[],olderDone:[]}, done:[], rows:[] };
   const open = new Set();
   // The shared ticket-actions context window (Edit / Follow Up / Archive).
   // \`menuTicket\` is the ticket whose "⋯" is open — ONE shared fixed popup, so
@@ -1382,9 +1387,10 @@ function agentIdentityHtml(provider, model, compact) {
   // headers render only where their section does.
   function renderAll(L) {
     const cur = (state.sections && state.sections.current) || state.rows || [];
+    const awaiting = (state.sections && state.sections.awaitingReview) || [];
     const recent = (state.sections && state.sections.recentlyDone) || [];
     const older = (state.sections && state.sections.olderDone) || [];
-    if (!cur.length && !recent.length && !older.length) {
+    if (!cur.length && !awaiting.length && !recent.length && !older.length) {
       L.innerHTML = emptyHtml('');
       return;
     }
@@ -1397,6 +1403,10 @@ function agentIdentityHtml(provider, model, compact) {
     if (cur.length) {
       html.push(secHtml('Current', cur.length));
       html.push(cur.map((r) => rowHtml(r, {})).join(''));
+    }
+    if (awaiting.length) {
+      html.push(secHtml('Awaiting review', awaiting.length));
+      html.push(awaiting.map((r) => rowHtml(r, {})).join(''));
     }
     if (recent.length) {
       html.push(secHtml('Recently done', recent.length));
@@ -1447,7 +1457,7 @@ function agentIdentityHtml(provider, model, compact) {
     for (const r of state.rows || []) if (r.ticketId === id) return r;
     for (const r of state.done || []) if (r.ticketId === id) return r;
     const secs = state.sections || {};
-    for (const list of [secs.current, secs.recentlyDone, secs.olderDone]) {
+    for (const list of [secs.awaitingReview, secs.current, secs.recentlyDone, secs.olderDone]) {
       for (const r of list || []) if (r.ticketId === id) return r;
     }
     return null;
@@ -1539,7 +1549,7 @@ function agentIdentityHtml(provider, model, compact) {
       const ids = new Set((state.rows || []).map((r) => r.ticketId));
       for (const r of state.done || []) ids.add(r.ticketId);
       const secs = state.sections || {};
-      for (const list of [secs.current, secs.recentlyDone, secs.olderDone]) {
+      for (const list of [secs.awaitingReview, secs.current, secs.recentlyDone, secs.olderDone]) {
         for (const r of list || []) ids.add(r.ticketId);
       }
       for (const id of [...open]) if (!ids.has(id)) open.delete(id);
@@ -1809,7 +1819,7 @@ function agentIdentityHtml(provider, model, compact) {
   // Completed); the Done facet renders \`done\`; every other facet renders the
   // flat \`rows\`. A pre-upgrade snapshot has no \`sections\` — \`renderAll\` falls
   // back to \`rows\` until the fresh state lands.
-  let state = { facets:['all'], filter:'', counts:{}, sections:{current:[],recentlyDone:[],olderDone:[]}, done:[], rows:[] };
+  let state = { facets:['all'], filter:'', counts:{}, sections:{awaitingReview:[],current:[],recentlyDone:[],olderDone:[]}, done:[], rows:[] };
   const open = new Set();
   // The shared ticket-actions context window (Edit / Follow Up / Archive).
   // \`menuTicket\` is the ticket whose "⋯" is open — ONE shared fixed popup, so
@@ -2165,9 +2175,10 @@ function agentIdentityHtml(provider, model, compact) {
   // headers render only where their section does.
   function renderAll(L) {
     const cur = (state.sections && state.sections.current) || state.rows || [];
+    const awaiting = (state.sections && state.sections.awaitingReview) || [];
     const recent = (state.sections && state.sections.recentlyDone) || [];
     const older = (state.sections && state.sections.olderDone) || [];
-    if (!cur.length && !recent.length && !older.length) {
+    if (!cur.length && !awaiting.length && !recent.length && !older.length) {
       L.innerHTML = emptyHtml('');
       return;
     }
@@ -2180,6 +2191,10 @@ function agentIdentityHtml(provider, model, compact) {
     if (cur.length) {
       html.push(secHtml('Current', cur.length));
       html.push(cur.map((r) => rowHtml(r, {})).join(''));
+    }
+    if (awaiting.length) {
+      html.push(secHtml('Awaiting review', awaiting.length));
+      html.push(awaiting.map((r) => rowHtml(r, {})).join(''));
     }
     if (recent.length) {
       html.push(secHtml('Recently done', recent.length));
@@ -2230,7 +2245,7 @@ function agentIdentityHtml(provider, model, compact) {
     for (const r of state.rows || []) if (r.ticketId === id) return r;
     for (const r of state.done || []) if (r.ticketId === id) return r;
     const secs = state.sections || {};
-    for (const list of [secs.current, secs.recentlyDone, secs.olderDone]) {
+    for (const list of [secs.awaitingReview, secs.current, secs.recentlyDone, secs.olderDone]) {
       for (const r of list || []) if (r.ticketId === id) return r;
     }
     return null;
@@ -2322,7 +2337,7 @@ function agentIdentityHtml(provider, model, compact) {
       const ids = new Set((state.rows || []).map((r) => r.ticketId));
       for (const r of state.done || []) ids.add(r.ticketId);
       const secs = state.sections || {};
-      for (const list of [secs.current, secs.recentlyDone, secs.olderDone]) {
+      for (const list of [secs.awaitingReview, secs.current, secs.recentlyDone, secs.olderDone]) {
         for (const r of list || []) ids.add(r.ticketId);
       }
       for (const id of [...open]) if (!ids.has(id)) open.delete(id);
@@ -2592,7 +2607,7 @@ function agentIdentityHtml(provider, model, compact) {
   // Completed); the Done facet renders \`done\`; every other facet renders the
   // flat \`rows\`. A pre-upgrade snapshot has no \`sections\` — \`renderAll\` falls
   // back to \`rows\` until the fresh state lands.
-  let state = { facets:['all'], filter:'', counts:{}, sections:{current:[],recentlyDone:[],olderDone:[]}, done:[], rows:[] };
+  let state = { facets:['all'], filter:'', counts:{}, sections:{awaitingReview:[],current:[],recentlyDone:[],olderDone:[]}, done:[], rows:[] };
   const open = new Set();
   // The shared ticket-actions context window (Edit / Follow Up / Archive).
   // \`menuTicket\` is the ticket whose "⋯" is open — ONE shared fixed popup, so
@@ -2948,9 +2963,10 @@ function agentIdentityHtml(provider, model, compact) {
   // headers render only where their section does.
   function renderAll(L) {
     const cur = (state.sections && state.sections.current) || state.rows || [];
+    const awaiting = (state.sections && state.sections.awaitingReview) || [];
     const recent = (state.sections && state.sections.recentlyDone) || [];
     const older = (state.sections && state.sections.olderDone) || [];
-    if (!cur.length && !recent.length && !older.length) {
+    if (!cur.length && !awaiting.length && !recent.length && !older.length) {
       L.innerHTML = emptyHtml('');
       return;
     }
@@ -2963,6 +2979,10 @@ function agentIdentityHtml(provider, model, compact) {
     if (cur.length) {
       html.push(secHtml('Current', cur.length));
       html.push(cur.map((r) => rowHtml(r, {})).join(''));
+    }
+    if (awaiting.length) {
+      html.push(secHtml('Awaiting review', awaiting.length));
+      html.push(awaiting.map((r) => rowHtml(r, {})).join(''));
     }
     if (recent.length) {
       html.push(secHtml('Recently done', recent.length));
@@ -3013,7 +3033,7 @@ function agentIdentityHtml(provider, model, compact) {
     for (const r of state.rows || []) if (r.ticketId === id) return r;
     for (const r of state.done || []) if (r.ticketId === id) return r;
     const secs = state.sections || {};
-    for (const list of [secs.current, secs.recentlyDone, secs.olderDone]) {
+    for (const list of [secs.awaitingReview, secs.current, secs.recentlyDone, secs.olderDone]) {
       for (const r of list || []) if (r.ticketId === id) return r;
     }
     return null;
@@ -3105,7 +3125,7 @@ function agentIdentityHtml(provider, model, compact) {
       const ids = new Set((state.rows || []).map((r) => r.ticketId));
       for (const r of state.done || []) ids.add(r.ticketId);
       const secs = state.sections || {};
-      for (const list of [secs.current, secs.recentlyDone, secs.olderDone]) {
+      for (const list of [secs.awaitingReview, secs.current, secs.recentlyDone, secs.olderDone]) {
         for (const r of list || []) ids.add(r.ticketId);
       }
       for (const id of [...open]) if (!ids.has(id)) open.delete(id);
@@ -3375,7 +3395,7 @@ function agentIdentityHtml(provider, model, compact) {
   // Completed); the Done facet renders \`done\`; every other facet renders the
   // flat \`rows\`. A pre-upgrade snapshot has no \`sections\` — \`renderAll\` falls
   // back to \`rows\` until the fresh state lands.
-  let state = { facets:['all'], filter:'', counts:{}, sections:{current:[],recentlyDone:[],olderDone:[]}, done:[], rows:[] };
+  let state = { facets:['all'], filter:'', counts:{}, sections:{awaitingReview:[],current:[],recentlyDone:[],olderDone:[]}, done:[], rows:[] };
   const open = new Set();
   // The shared ticket-actions context window (Edit / Follow Up / Archive).
   // \`menuTicket\` is the ticket whose "⋯" is open — ONE shared fixed popup, so
@@ -3731,9 +3751,10 @@ function agentIdentityHtml(provider, model, compact) {
   // headers render only where their section does.
   function renderAll(L) {
     const cur = (state.sections && state.sections.current) || state.rows || [];
+    const awaiting = (state.sections && state.sections.awaitingReview) || [];
     const recent = (state.sections && state.sections.recentlyDone) || [];
     const older = (state.sections && state.sections.olderDone) || [];
-    if (!cur.length && !recent.length && !older.length) {
+    if (!cur.length && !awaiting.length && !recent.length && !older.length) {
       L.innerHTML = emptyHtml('');
       return;
     }
@@ -3746,6 +3767,10 @@ function agentIdentityHtml(provider, model, compact) {
     if (cur.length) {
       html.push(secHtml('Current', cur.length));
       html.push(cur.map((r) => rowHtml(r, {})).join(''));
+    }
+    if (awaiting.length) {
+      html.push(secHtml('Awaiting review', awaiting.length));
+      html.push(awaiting.map((r) => rowHtml(r, {})).join(''));
     }
     if (recent.length) {
       html.push(secHtml('Recently done', recent.length));
@@ -3796,7 +3821,7 @@ function agentIdentityHtml(provider, model, compact) {
     for (const r of state.rows || []) if (r.ticketId === id) return r;
     for (const r of state.done || []) if (r.ticketId === id) return r;
     const secs = state.sections || {};
-    for (const list of [secs.current, secs.recentlyDone, secs.olderDone]) {
+    for (const list of [secs.awaitingReview, secs.current, secs.recentlyDone, secs.olderDone]) {
       for (const r of list || []) if (r.ticketId === id) return r;
     }
     return null;
@@ -3888,7 +3913,7 @@ function agentIdentityHtml(provider, model, compact) {
       const ids = new Set((state.rows || []).map((r) => r.ticketId));
       for (const r of state.done || []) ids.add(r.ticketId);
       const secs = state.sections || {};
-      for (const list of [secs.current, secs.recentlyDone, secs.olderDone]) {
+      for (const list of [secs.awaitingReview, secs.current, secs.recentlyDone, secs.olderDone]) {
         for (const r of list || []) ids.add(r.ticketId);
       }
       for (const id of [...open]) if (!ids.has(id)) open.delete(id);
@@ -4158,7 +4183,7 @@ function agentIdentityHtml(provider, model, compact) {
   // Completed); the Done facet renders \`done\`; every other facet renders the
   // flat \`rows\`. A pre-upgrade snapshot has no \`sections\` — \`renderAll\` falls
   // back to \`rows\` until the fresh state lands.
-  let state = { facets:['all'], filter:'', counts:{}, sections:{current:[],recentlyDone:[],olderDone:[]}, done:[], rows:[] };
+  let state = { facets:['all'], filter:'', counts:{}, sections:{awaitingReview:[],current:[],recentlyDone:[],olderDone:[]}, done:[], rows:[] };
   const open = new Set();
   // The shared ticket-actions context window (Edit / Follow Up / Archive).
   // \`menuTicket\` is the ticket whose "⋯" is open — ONE shared fixed popup, so
@@ -4514,9 +4539,10 @@ function agentIdentityHtml(provider, model, compact) {
   // headers render only where their section does.
   function renderAll(L) {
     const cur = (state.sections && state.sections.current) || state.rows || [];
+    const awaiting = (state.sections && state.sections.awaitingReview) || [];
     const recent = (state.sections && state.sections.recentlyDone) || [];
     const older = (state.sections && state.sections.olderDone) || [];
-    if (!cur.length && !recent.length && !older.length) {
+    if (!cur.length && !awaiting.length && !recent.length && !older.length) {
       L.innerHTML = emptyHtml('');
       return;
     }
@@ -4529,6 +4555,10 @@ function agentIdentityHtml(provider, model, compact) {
     if (cur.length) {
       html.push(secHtml('Current', cur.length));
       html.push(cur.map((r) => rowHtml(r, {})).join(''));
+    }
+    if (awaiting.length) {
+      html.push(secHtml('Awaiting review', awaiting.length));
+      html.push(awaiting.map((r) => rowHtml(r, {})).join(''));
     }
     if (recent.length) {
       html.push(secHtml('Recently done', recent.length));
@@ -4579,7 +4609,7 @@ function agentIdentityHtml(provider, model, compact) {
     for (const r of state.rows || []) if (r.ticketId === id) return r;
     for (const r of state.done || []) if (r.ticketId === id) return r;
     const secs = state.sections || {};
-    for (const list of [secs.current, secs.recentlyDone, secs.olderDone]) {
+    for (const list of [secs.awaitingReview, secs.current, secs.recentlyDone, secs.olderDone]) {
       for (const r of list || []) if (r.ticketId === id) return r;
     }
     return null;
@@ -4671,7 +4701,7 @@ function agentIdentityHtml(provider, model, compact) {
       const ids = new Set((state.rows || []).map((r) => r.ticketId));
       for (const r of state.done || []) ids.add(r.ticketId);
       const secs = state.sections || {};
-      for (const list of [secs.current, secs.recentlyDone, secs.olderDone]) {
+      for (const list of [secs.awaitingReview, secs.current, secs.recentlyDone, secs.olderDone]) {
         for (const r of list || []) ids.add(r.ticketId);
       }
       for (const id of [...open]) if (!ids.has(id)) open.delete(id);
@@ -4941,7 +4971,7 @@ function agentIdentityHtml(provider, model, compact) {
   // Completed); the Done facet renders \`done\`; every other facet renders the
   // flat \`rows\`. A pre-upgrade snapshot has no \`sections\` — \`renderAll\` falls
   // back to \`rows\` until the fresh state lands.
-  let state = { facets:['all'], filter:'', counts:{}, sections:{current:[],recentlyDone:[],olderDone:[]}, done:[], rows:[] };
+  let state = { facets:['all'], filter:'', counts:{}, sections:{awaitingReview:[],current:[],recentlyDone:[],olderDone:[]}, done:[], rows:[] };
   const open = new Set();
   // The shared ticket-actions context window (Edit / Follow Up / Archive).
   // \`menuTicket\` is the ticket whose "⋯" is open — ONE shared fixed popup, so
@@ -5297,9 +5327,10 @@ function agentIdentityHtml(provider, model, compact) {
   // headers render only where their section does.
   function renderAll(L) {
     const cur = (state.sections && state.sections.current) || state.rows || [];
+    const awaiting = (state.sections && state.sections.awaitingReview) || [];
     const recent = (state.sections && state.sections.recentlyDone) || [];
     const older = (state.sections && state.sections.olderDone) || [];
-    if (!cur.length && !recent.length && !older.length) {
+    if (!cur.length && !awaiting.length && !recent.length && !older.length) {
       L.innerHTML = emptyHtml('');
       return;
     }
@@ -5312,6 +5343,10 @@ function agentIdentityHtml(provider, model, compact) {
     if (cur.length) {
       html.push(secHtml('Current', cur.length));
       html.push(cur.map((r) => rowHtml(r, {})).join(''));
+    }
+    if (awaiting.length) {
+      html.push(secHtml('Awaiting review', awaiting.length));
+      html.push(awaiting.map((r) => rowHtml(r, {})).join(''));
     }
     if (recent.length) {
       html.push(secHtml('Recently done', recent.length));
@@ -5362,7 +5397,7 @@ function agentIdentityHtml(provider, model, compact) {
     for (const r of state.rows || []) if (r.ticketId === id) return r;
     for (const r of state.done || []) if (r.ticketId === id) return r;
     const secs = state.sections || {};
-    for (const list of [secs.current, secs.recentlyDone, secs.olderDone]) {
+    for (const list of [secs.awaitingReview, secs.current, secs.recentlyDone, secs.olderDone]) {
       for (const r of list || []) if (r.ticketId === id) return r;
     }
     return null;
@@ -5454,7 +5489,7 @@ function agentIdentityHtml(provider, model, compact) {
       const ids = new Set((state.rows || []).map((r) => r.ticketId));
       for (const r of state.done || []) ids.add(r.ticketId);
       const secs = state.sections || {};
-      for (const list of [secs.current, secs.recentlyDone, secs.olderDone]) {
+      for (const list of [secs.awaitingReview, secs.current, secs.recentlyDone, secs.olderDone]) {
         for (const r of list || []) ids.add(r.ticketId);
       }
       for (const id of [...open]) if (!ids.has(id)) open.delete(id);

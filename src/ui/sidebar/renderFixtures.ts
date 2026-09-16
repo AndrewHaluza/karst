@@ -77,7 +77,7 @@ function emptyState(): SidebarState {
     facets: ['all'],
     filter: '',
     counts: fixtureCounts(),
-    sections: { current: [], recentlyDone: [], olderDone: [] },
+    sections: { awaitingReview: [], current: [], recentlyDone: [], olderDone: [] },
     done: [],
     rows: [],
   };
@@ -87,8 +87,9 @@ function allSectionsState(): SidebarState {
   return {
     facets: ['all'],
     filter: '',
-    counts: fixtureCounts({ all: 5, running: 2, input: 1, failed: 1, done: 1 }),
+    counts: fixtureCounts({ all: 6, running: 2, input: 1, failed: 1, done: 1 }),
     sections: {
+      awaitingReview: [fixtureRow(5, { glyph: 'amber', stageLabel: 'Ship', stageClass: 'stg-ship', stageChip: 'ship', prs: [{ repo: 'backend', number: 1, url: 'fixture:pr/1', status: 'open' }] })],
       current: [
         fixtureRow(0, { glyph: 'blue' }),
         fixtureRow(1, { glyph: 'amber' }),
@@ -111,7 +112,7 @@ function doneFacetState(): SidebarState {
     facets: ['done'],
     filter: '',
     counts: fixtureCounts({ all: 2, done: 2 }),
-    sections: { current: [], recentlyDone: [], olderDone: [] },
+    sections: { awaitingReview: [], current: [], recentlyDone: [], olderDone: [] },
     done: doneRows,
     rows: [],
   };
@@ -122,7 +123,7 @@ function archivedFacetState(): SidebarState {
     facets: ['archived'],
     filter: '',
     counts: fixtureCounts({ archived: 3 }),
-    sections: { current: [], recentlyDone: [], olderDone: [] },
+    sections: { awaitingReview: [], current: [], recentlyDone: [], olderDone: [] },
     done: [],
     rows: [
       fixtureRow(0, { label: 'DELETED-1', glyph: 'gray' }),
@@ -137,7 +138,7 @@ function multiFacetState(): SidebarState {
     facets: ['running', 'failed'],
     filter: '',
     counts: fixtureCounts({ all: 4, running: 2, failed: 2 }),
-    sections: { current: [], recentlyDone: [], olderDone: [] },
+    sections: { awaitingReview: [], current: [], recentlyDone: [], olderDone: [] },
     done: [],
     rows: [
       fixtureRow(0, { glyph: 'blue' }),
@@ -154,6 +155,7 @@ function filteredState(): SidebarState {
     filter: 'auth',
     counts: fixtureCounts({ all: 3, running: 1 }),
     sections: {
+      awaitingReview: [],
       current: [fixtureRow(0, { label: 'FEAT-auth-flow', glyph: 'blue' })],
       recentlyDone: [],
       olderDone: [],
@@ -169,6 +171,7 @@ function hostileState(): SidebarState {
     filter: '',
     counts: fixtureCounts({ all: 1 }),
     sections: {
+      awaitingReview: [],
       current: [
         fixtureRow(0, { label: HOSTILE_LABEL, description: HOSTILE_LONG, peek: fixturePeek({ title: HOSTILE_LABEL }) }),
       ],

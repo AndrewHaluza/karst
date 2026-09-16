@@ -358,7 +358,7 @@ describe('buildSidebarState', () => {
       .prepare('INSERT INTO prs (ticket_id, repo, number, url, status) VALUES (?,?,?,?,?)')
       .run(t.id, 'api', 1, 'https://github.com/x/pull/1', 'open');
 
-    const row = buildSidebarState(store, { facets: ['all'], filter: '' }).sections.current[0]!;
+    const row = buildSidebarState(store, { facets: ['all'], filter: '' }).sections.awaitingReview[0]!;
     expect(row.peek.title).toBe('1 pull request awaiting merge');
     expect(row.peek.detail).toBe('api');
     expect(row.peek.next).toBeNull();
@@ -383,9 +383,76 @@ describe('buildSidebarState', () => {
       checkedAt: '2026-08-12T10:00:00Z',
     });
 
-    const row = buildSidebarState(store, { facets: ['all'], filter: '' }).sections.current[0]!;
+    const row = buildSidebarState(store, { facets: ['all'], filter: '' }).sections.awaitingReview[0]!;
     expect(row.peek.title).toBe('1 merge conflict in api');
     expect(row.peek.next).toEqual({ kind: 'resolve-conflicts', label: 'Resolve conflicts', repo: 'api' });
+  });
+
+  it('a ship ticket with an open PR lands in awaitingReview, not current', () => {
+    const t = createTicket(store, { key: 'S-1', title: 'ship' });
+    store.db.prepare("UPDATE tickets SET stage_current = 'ship' WHERE id = ?").run(t.id);
+    store.db
+      .prepare('INSERT INTO prs (ticket_id, repo, number, url, status) VALUES (?,?,?,?,?)')
+      .run(t.id, 'api', 1, 'https://github.com/x/pull/1', 'open');
+
+    const state = buildSidebarState(store, { facets: ['all'], filter: '' });
+    expect(state.sections.awaitingReview.map((r) => r.ticketId)).toEqual([t.id]);
+    expect(state.sections.current.find((r) => r.ticketId === t.id)).toBeUndefined();
+  });
+
+  it('a ship ticket with no open PR stays in current', () => {
+    const t = createTicket(store, { key: 'S-1', title: 'ship' });
+    store.db.prepare("UPDATE tickets SET stage_current = 'ship' WHERE id = ?").run(t.id);
+
+    const state = buildSidebarState(store, { facets: ['all'], filter: '' });
+    expect(state.sections.awaitingReview).toEqual([]);
+    expect(state.sections.current.find((r) => r.ticketId === t.id)).toBeDefined();
+  });
+
+  it('a non-ship ticket stays in current', () => {
+    createTicket(store, { key: 'I-1', title: 'impl' });
+
+    const state = buildSidebarState(store, { facets: ['all'], filter: '' });
+    expect(state.sections.awaitingReview).toEqual([]);
+    expect(state.sections.current).toHaveLength(1);
+  });
+
+  it('canonical order is preserved within awaitingReview and current', () => {
+    const a = createTicket(store, { key: 'A-1', title: 'active' });
+    const s = createTicket(store, { key: 'S-1', title: 'ship' });
+    store.db.prepare("UPDATE tickets SET stage_current = 'ship' WHERE id = ?").run(s.id);
+    store.db
+      .prepare('INSERT INTO prs (ticket_id, repo, number, url, status) VALUES (?,?,?,?,?)')
+      .run(s.id, 'api', 1, 'https://github.com/x/pull/1', 'open');
+    const b = createTicket(store, { key: 'B-1', title: 'busy' });
+
+    const state = buildSidebarState(store, { facets: ['all'], filter: '' });
+    expect(state.sections.awaitingReview.map((r) => r.ticketId)).toEqual([s.id]);
+    expect(state.sections.current.map((r) => r.ticketId)).toEqual([b.id, a.id]);
+  });
+
+  it('search query filters awaitingReview the same way as current', () => {
+    const s = createTicket(store, { key: 'S-1', title: 'ship me' });
+    store.db.prepare("UPDATE tickets SET stage_current = 'ship' WHERE id = ?").run(s.id);
+    store.db
+      .prepare('INSERT INTO prs (ticket_id, repo, number, url, status) VALUES (?,?,?,?,?)')
+      .run(s.id, 'api', 1, 'https://github.com/x/pull/1', 'open');
+    createTicket(store, { key: 'I-1', title: 'impl work' });
+
+    const state = buildSidebarState(store, { facets: ['all'], filter: 'ship' });
+    expect(state.sections.awaitingReview).toHaveLength(1);
+    expect(state.sections.current).toHaveLength(0);
+  });
+
+  it('awaitingReview is empty for non-all facets', () => {
+    const t = createTicket(store, { key: 'S-1', title: 'ship' });
+    store.db.prepare("UPDATE tickets SET stage_current = 'ship' WHERE id = ?").run(t.id);
+    store.db
+      .prepare('INSERT INTO prs (ticket_id, repo, number, url, status) VALUES (?,?,?,?,?)')
+      .run(t.id, 'api', 1, 'https://github.com/x/pull/1', 'open');
+
+    const state = buildSidebarState(store, { facets: ['running'], filter: '' });
+    expect(state.sections.awaitingReview).toEqual([]);
   });
 
   it('a running uat ticket carries its gate progress in the peek', () => {
