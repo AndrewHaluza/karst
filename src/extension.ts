@@ -22,6 +22,7 @@ import { resumeStrandedShips } from './extension/ops/strandedShip.js';
 import { addressPrFeedback } from './extension/ops/prFeedbackAction.js';
 import { toWorktreeSpecs } from './extension/ops/worktreeSpecs.js';
 import { fixBriefForTicket } from './extension/ops/fixBriefForTicket.js';
+import { startFixWatchdog } from './extension/ops/fixWatchdog.js';
 import { watchExternalChanges } from './store/externalChanges.js';
 import { SidebarViewManager } from './ui/sidebar/panel.js';
 import { makeSidebarViewHost, SIDEBAR_VIEW_ID } from './ui/sidebar/host.js';
@@ -1313,6 +1314,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return undefined;
     }
   };
+  // Registered after `currentProject`; project-scoped, so this manifest's window never reaches another project's fix. Its immediate first tick covers activation.
+  context.subscriptions.push(startFixWatchdog(localStore, currentManifest, () => currentProject()?.id ?? null, logger.info, logError));
 
   const diagnosticDocuments = new DiagnosticDocumentProvider();
   context.subscriptions.push(
@@ -3201,6 +3204,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     roundId: number | null,
     process: DriveProcessBundle | null,
   ): void {
+    const parkUnavailable = (why: string): void => {
+      try {
+        if (parkFixStage(localStore, ticketId, FIX_PARKED_PROCESS_UNAVAILABLE, new Date().toISOString())) {
+          logger.info(`stage driver: ticket ${ticketId} fix parked — ${why}`);
+        }
+      } catch (err) {
+        logError(`karst: parking the fix stage for ticket ${ticketId} failed`, err);
+      }
+    };
     // Task 3: a configured-ABSENT Fix process (enabled: false) never reaches
     // the session manager — no launch, no nudge, no fabricated process
     // evidence. The pending recovery round is left for a human, exactly as the
@@ -3210,15 +3222,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       logger.info(
         `configured Fix process disabled — ticket ${ticketId} left at fix for a human (${gate} round ${roundId ?? 'untracked'})`,
       );
-      try {
-        if (parkFixStage(localStore, ticketId, FIX_PARKED_PROCESS_UNAVAILABLE, new Date().toISOString())) {
-          logger.info(
-            `stage driver: ticket ${ticketId} fix parked — the configured Fix process is disabled`,
-          );
-        }
-      } catch (err) {
-        logError(`karst: parking the fix stage for ticket ${ticketId} failed`, err);
-      }
+      parkUnavailable('the configured Fix process is disabled');
       return;
     }
     const t = getTicket(localStore, ticketId);
@@ -3275,15 +3279,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // The configured Fix core could not be proven ready (missing binary,
       // unprobeable CLI): nothing launched and nothing will — the ticket is
       // parked for a human, and the stage row must read that way.
-      try {
-        if (parkFixStage(localStore, ticketId, FIX_PARKED_PROCESS_UNAVAILABLE, new Date().toISOString())) {
-          logger.info(
-            `stage driver: ticket ${ticketId} fix parked — the configured Fix core is not available`,
-          );
-        }
-      } catch (err) {
-        logError(`karst: parking the fix stage for ticket ${ticketId} failed`, err);
-      }
+      parkUnavailable('the configured Fix core is not available');
       return;
     }
     logger.info(

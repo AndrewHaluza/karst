@@ -196,6 +196,11 @@ export async function runBootSweeps(deps: BootSweepDeps): Promise<BootSweepResul
   } catch (err) {
     deps.logError('karst: stranded fix-round sweep failed', err);
   }
+  // The fix-stall watchdog is NOT here: activation is covered by
+  // `startFixWatchdog`'s own first tick, which runs after the manifest and
+  // project are resolvable. A boot-sweep call could not honor the project's
+  // configured window (no manifest yet at this point) and would apply the
+  // default to every project's tickets. See `extension/ops/fixWatchdog.ts`.
   // Auto-compact: compact archived worktrees older than 7 days and sweep
   // orphan branches/refs. Rides the activation sweep like autoArchiveDoneTickets
   // — once per activation, no second interval to dispose. The compact function

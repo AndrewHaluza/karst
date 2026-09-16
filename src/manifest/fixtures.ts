@@ -15,6 +15,7 @@
  * Every builder returns a fresh object and never mutates its arguments.
  */
 
+import { DEFAULT_FIX_STALL_TIMEOUT_MINUTES } from './types.js';
 import type {
   ApproachDef,
   BindVar,
@@ -105,6 +106,7 @@ export function manifest(
 export function uat(over: Partial<UatConfig> = {}): UatConfig {
   return {
     maxFixAttempts: 3,
+    stallTimeoutMinutes: DEFAULT_FIX_STALL_TIMEOUT_MINUTES,
     env: {},
     secrets: [],
     passthrough: [],
@@ -118,6 +120,7 @@ export function uat(over: Partial<UatConfig> = {}): UatConfig {
 export function review(over: Partial<ReviewConfig> = {}): ReviewConfig {
   return {
     maxFixAttempts: 3,
+    stallTimeoutMinutes: DEFAULT_FIX_STALL_TIMEOUT_MINUTES,
     requireIndependentSignal: true,
     openChanges: false,
     findings: { enabled: true, blockingSeverity: 'high', maxFindings: 50 },

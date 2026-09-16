@@ -1,4 +1,5 @@
 import { ManifestError } from '../error.js';
+import { DEFAULT_FIX_STALL_TIMEOUT_MINUTES } from '../types.js';
 import type { GateDef, ReviewConfig, ReviewFindingsConfig, Severity } from '../types.js';
 import { isObject } from './primitives.js';
 import { validateGates } from './uat.js';
@@ -105,6 +106,18 @@ export function validateReview(
     maxFixAttempts = raw.maxFixAttempts;
   }
 
+  let stallTimeoutMinutes = DEFAULT_FIX_STALL_TIMEOUT_MINUTES;
+  if (raw.stallTimeoutMinutes !== undefined) {
+    if (
+      typeof raw.stallTimeoutMinutes !== 'number' ||
+      !Number.isInteger(raw.stallTimeoutMinutes) ||
+      raw.stallTimeoutMinutes < 1
+    ) {
+      throw new ManifestError('review.stallTimeoutMinutes must be a positive integer');
+    }
+    stallTimeoutMinutes = raw.stallTimeoutMinutes;
+  }
+
   let requireIndependentSignal = true;
   if (raw.requireIndependentSignal !== undefined) {
     if (typeof raw.requireIndependentSignal !== 'boolean') {
@@ -123,6 +136,7 @@ export function validateReview(
 
   const config: ReviewConfig = {
     maxFixAttempts,
+    stallTimeoutMinutes,
     requireIndependentSignal,
     openChanges,
     findings: validateFindings(raw.findings),

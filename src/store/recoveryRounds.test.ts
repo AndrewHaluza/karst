@@ -18,15 +18,18 @@ import {
   latestInterruptedRound,
   reopenInterruptedRound,
   reconcileStrandedFixRounds,
+  sweepStalledFixRounds,
   listRecoveryRounds,
   parkFixStage,
   hasFixingRound,
   FIX_PARKED_INTERRUPTED,
   FIX_PARKED_EXHAUSTED,
   FIX_PARKED_NO_EXECUTION,
+  FIX_PARKED_STALLED,
   type RecoveryRound,
 } from './recoveryRounds.js';
 import { getTicket } from './tickets.js';
+import { upsertProject } from './projects.js';
 import { listProcessRuns, openProcessRun } from './processRuns.js';
 import { openStageRun, listStageRuns } from './stageRuns.js';
 import {
@@ -850,6 +853,181 @@ describe('recovery rounds — store', () => {
     openProcessRun(store, { ticketId, stageKey: 'uat', processId: 'gates', attempt: 0, startedAt: T0 });
     expect(listRecoveryRounds(store, ticketId)).toEqual([]);
     expect(listStageRuns(store, ticketId)[0]!.status).toBe('running');
+  });
+
+  describe('sweepStalledFixRounds', () => {
+    let projectId: number;
+    beforeEach(() => {
+      // The sweep is project-scoped: bind a project and put the ticket in it.
+      projectId = upsertProject(store, { slug: 'sweep-proj' }).id;
+      store.db.prepare('UPDATE tickets SET project_id = ? WHERE id = ?').run(projectId, ticketId);
+    });
+
+    // The ticket must actually BE at fix for the park to land, exactly like the
+    // sibling sweep's park tests.
+    function toFix(): void {
+      transition(store, ticketId, 'uat', { kind: 'failed', reason: 'exit 1' }); // -> fix
+      store.db
+        .prepare("UPDATE stages SET started_at = ? WHERE ticket_id = ? AND stage_key = 'fix'")
+        .run(T0, ticketId);
+    }
+
+    it('parks a fixing round whose live run has shown no progress past the timeout', () => {
+      toFix();
+      const r = round();
+      const run = beginLiveFixExecution(store, { ticketId, roundId: r.id, startedAt: T0 });
+
+      const stalled = sweepStalledFixRounds(store, { at: T2, timeoutMs: 60 * 60_000, projectId });
+
+      expect(stalled).toEqual([
+        {
+          kind: 'stalled',
+          roundId: r.id,
+          ticketId,
+          sourceStage: 'uat',
+          round: 1,
+          fixProcessRunId: run.id,
+        },
+      ]);
+      expect(listRecoveryRounds(store, ticketId)[0]).toMatchObject({
+        status: 'interrupted',
+        endedAt: T2,
+      });
+      const fixRun = listProcessRuns(store, ticketId)[0]!;
+      // `stale` carries NO end stamp — a run we stopped believing in has no
+      // known stop time (the same contract every other stale transition keeps).
+      expect(fixRun.status).toBe('stale');
+      expect(fixRun.endedAt).toBeNull();
+      const fixStage = getTicket(store, ticketId).stages.find((s) => s.stageKey === 'fix')!;
+      expect(fixStage.status).toBe('failed');
+      expect(fixStage.verdict).toBe(FIX_PARKED_STALLED);
+      expect(fixStage.endedAt).toBe(T2);
+    });
+
+    it('leaves a fixing round alone while it is still inside the timeout', () => {
+      toFix();
+      const r = round();
+      beginLiveFixExecution(store, { ticketId, roundId: r.id, startedAt: T0 });
+
+      // Cutoff is T2 - 180m = 09:00; the run started at T0 (10:00) is newer.
+      expect(sweepStalledFixRounds(store, { at: T2, timeoutMs: 180 * 60_000, projectId })).toEqual([]);
+      expect(listRecoveryRounds(store, ticketId)[0]!.status).toBe('fixing');
+      expect(listProcessRuns(store, ticketId)[0]!.status).toBe('running');
+      expect(getTicket(store, ticketId).stages.find((s) => s.stageKey === 'fix')!.status).toBe(
+        'running',
+      );
+    });
+
+    it('leaves a round alone when a newer guide pull shows progress', () => {
+      toFix();
+      const r = round();
+      beginLiveFixExecution(store, { ticketId, roundId: r.id, startedAt: T0 });
+      // A working agent opens guide-pull rows: a NEWER pull by the ticket's
+      // session is progress.
+      openProcessRun(store, {
+        ticketId,
+        stageKey: 'impl',
+        processId: 'guide-pull',
+        attempt: 0,
+        startedAt: T2,
+      });
+
+      expect(sweepStalledFixRounds(store, { at: T2, timeoutMs: 60 * 60_000, projectId })).toEqual([]);
+      expect(listRecoveryRounds(store, ticketId)[0]!.status).toBe('fixing');
+    });
+
+    it('does not let an unrelated pipeline run reset the stall clock', () => {
+      toFix();
+      const r = round();
+      const run = beginLiveFixExecution(store, { ticketId, roundId: r.id, startedAt: T0 });
+      // A gate/tester/review run is PIPELINE activity, not the fix agent working
+      // — it must not mask a fix that has produced no progress for the window.
+      openProcessRun(store, {
+        ticketId,
+        stageKey: 'uat',
+        processId: 'gates',
+        attempt: 0,
+        startedAt: T2,
+      });
+
+      const stalled = sweepStalledFixRounds(store, { at: T2, timeoutMs: 60 * 60_000, projectId });
+
+      expect(stalled).toMatchObject([{ kind: 'stalled', ticketId, fixProcessRunId: run.id }]);
+      expect(listRecoveryRounds(store, ticketId)[0]!.status).toBe('interrupted');
+    });
+
+    it('is idempotent', () => {
+      toFix();
+      const r = round();
+      beginLiveFixExecution(store, { ticketId, roundId: r.id, startedAt: T0 });
+
+      expect(sweepStalledFixRounds(store, { at: T2, timeoutMs: 60 * 60_000, projectId })).toHaveLength(1);
+      expect(sweepStalledFixRounds(store, { at: T2, timeoutMs: 60 * 60_000, projectId })).toEqual([]);
+    });
+
+    it('ignores a round whose run is not running', () => {
+      toFix();
+      const r = round();
+      const run = beginLiveFixExecution(store, { ticketId, roundId: r.id, startedAt: T0 });
+      // This set belongs to reconcileStrandedFixRounds; the two sweeps never
+      // double-settle.
+      store.db.prepare("UPDATE process_runs SET status = 'passed' WHERE id = ?").run(run.id);
+
+      expect(sweepStalledFixRounds(store, { at: T2, timeoutMs: 60 * 60_000, projectId })).toEqual([]);
+      expect(listRecoveryRounds(store, ticketId)[0]!.status).toBe('fixing');
+    });
+
+    it("never settles another project's ticket with this project's window", () => {
+      toFix();
+      const r = round();
+      beginLiveFixExecution(store, { ticketId, roundId: r.id, startedAt: T0 });
+
+      const otherProject = upsertProject(store, { slug: 'other-proj' }).id;
+      const otherTicket = createTicketFlow(store, {
+        key: 'T-2',
+        title: 'other',
+        projectId: otherProject,
+      }).id;
+      transition(store, otherTicket, 'scope', { kind: 'passed' });
+      transition(store, otherTicket, 'impl', { kind: 'passed' });
+      transition(store, otherTicket, 'uat', { kind: 'failed', reason: 'exit 1' }); // -> fix
+      store.db
+        .prepare("UPDATE stages SET started_at = ? WHERE ticket_id = ? AND stage_key = 'fix'")
+        .run(T0, otherTicket);
+      const otherRound = openRecoveryRound(store, {
+        ticketId: otherTicket,
+        sourceStage: 'uat',
+        sourceProcessId: 'gates',
+        sourceStageRunId: null,
+        sourceProcessRunId: null,
+        triggerKind: 'gate-failure',
+        triggerDetail: 'exit 1',
+        maxRounds: 3,
+        startedAt: T0,
+      });
+      beginLiveFixExecution(store, {
+        ticketId: otherTicket,
+        roundId: otherRound.id,
+        startedAt: T0,
+      });
+
+      const stalled = sweepStalledFixRounds(store, { at: T2, timeoutMs: 60 * 60_000, projectId });
+
+      expect(stalled).toMatchObject([{ kind: 'stalled', ticketId }]);
+      // The other project's identical stall is left for ITS own window.
+      expect(listRecoveryRounds(store, otherTicket)[0]!.status).toBe('fixing');
+    });
+
+    it('settles nothing when no project is bound', () => {
+      toFix();
+      const r = round();
+      beginLiveFixExecution(store, { ticketId, roundId: r.id, startedAt: T0 });
+
+      expect(
+        sweepStalledFixRounds(store, { at: T2, timeoutMs: 60 * 60_000, projectId: null }),
+      ).toEqual([]);
+      expect(listRecoveryRounds(store, ticketId)[0]!.status).toBe('fixing');
+    });
   });
 });
 

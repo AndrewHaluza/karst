@@ -9,6 +9,7 @@ describe('validateUat', () => {
   it('defaults every collection and maxFixAttempts', () => {
     expect(validateUat({})).toEqual({
       maxFixAttempts: 3,
+      stallTimeoutMinutes: 60,
       env: {},
       secrets: [],
       passthrough: [],

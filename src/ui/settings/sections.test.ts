@@ -106,6 +106,7 @@ describe('settings sections — mergeSection', () => {
       id: 'karst',
       uat: {
         maxFixAttempts: 2,
+        stallTimeoutMinutes: 60,
         env: {},
         secrets: [],
         passthrough: [],
@@ -124,6 +125,7 @@ describe('settings sections — mergeSection', () => {
       ...BASE,
       uat: {
         maxFixAttempts: 9,
+        stallTimeoutMinutes: 60,
         env: {},
         secrets: [],
         passthrough: [],
@@ -145,6 +147,7 @@ describe('settings sections — mergeSection', () => {
       processes: { uatTester: { provider: 'codex', enabled: true } },
       uat: {
         maxFixAttempts: 9,
+        stallTimeoutMinutes: 60,
         env: {},
         secrets: [],
         passthrough: [],

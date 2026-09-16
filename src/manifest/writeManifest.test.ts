@@ -105,6 +105,7 @@ describe('writeManifest', () => {
         ...m,
         review: {
           maxFixAttempts: 4,
+          stallTimeoutMinutes: 90,
           requireIndependentSignal: false,
           openChanges: true,
           gates: [{ name: 'lint', kind: 'script', script: 'lint' }],
@@ -130,6 +131,7 @@ describe('writeManifest', () => {
         ...m,
         review: {
           maxFixAttempts: 4,
+          stallTimeoutMinutes: 90,
           requireIndependentSignal: false,
           openChanges: true,
           findings: { enabled: true, blockingSeverity: 'medium', maxFindings: 10 },
@@ -261,6 +263,7 @@ describe('writeManifest', () => {
         uat: {
           testDir: 'e2e/karst',
           maxFixAttempts: 2,
+          stallTimeoutMinutes: 45,
           gates: [
             { name: 'test', kind: 'script', script: 'test' },
             { name: 'gotest', kind: 'command', command: 'go', args: ['test', './...'], repo: 'backend' },
@@ -287,6 +290,7 @@ describe('writeManifest', () => {
         },
         review: {
           maxFixAttempts: 2,
+          stallTimeoutMinutes: 90,
           requireIndependentSignal: false,
           openChanges: true,
           gates: [
@@ -577,6 +581,7 @@ conventions:
         ...m,
         uat: {
           maxFixAttempts: 3,
+          stallTimeoutMinutes: 60,
           env: { A: 'b' },
           secrets: ['K'],
           passthrough: [],

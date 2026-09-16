@@ -390,9 +390,23 @@ export interface UatRepositoryOverride {
   gates?: UatGateDef[];
   testDir?: string;
 }
+/**
+ * How long a fix may show no progress before the watchdog parks it, in minutes.
+ * The ONE default: every reader imports this rather than repeating the literal.
+ */
+export const DEFAULT_FIX_STALL_TIMEOUT_MINUTES = 60;
+
 export interface UatConfig {
   testDir?: string;
   maxFixAttempts: number;
+  /**
+   * The stall window for the fix loop, in minutes — the watchdog parks a fix
+   * whose live-but-idle run shows no progress for this long. Configured per
+   * gate; the watchdog takes the LARGER of the two gates' values. Required on
+   * the type like `maxFixAttempts` (the validator defaults an absent key), so
+   * an existing manifest keeps working byte-identically.
+   */
+  stallTimeoutMinutes: number;
   gates?: UatGateDef[];
   /**
    * Task 8: an optional deterministic verification command for the UAT
@@ -465,6 +479,13 @@ export interface ReviewFindingsConfig {
  */
 export interface ReviewConfig {
   maxFixAttempts: number;
+  /**
+   * The stall window for the fix loop, in minutes — see
+   * `UatConfig.stallTimeoutMinutes`. The watchdog takes the LARGER of the two
+   * gates' values, so a project's longer review fixes are never parked on the
+   * shorter uat window.
+   */
+  stallTimeoutMinutes: number;
   requireIndependentSignal: boolean;
   /**
    * Whether review reveals the ticket's Changes panel when its gates finish.

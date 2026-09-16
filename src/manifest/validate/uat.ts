@@ -1,4 +1,5 @@
 import { ManifestError } from '../error.js';
+import { DEFAULT_FIX_STALL_TIMEOUT_MINUTES } from '../types.js';
 import type {
   GateKind,
   Severity,
@@ -225,8 +226,21 @@ export function validateUat(raw: unknown): UatConfig | undefined {
     maxFixAttempts = raw.maxFixAttempts;
   }
 
+  let stallTimeoutMinutes = DEFAULT_FIX_STALL_TIMEOUT_MINUTES;
+  if (raw.stallTimeoutMinutes !== undefined) {
+    if (
+      typeof raw.stallTimeoutMinutes !== 'number' ||
+      !Number.isInteger(raw.stallTimeoutMinutes) ||
+      raw.stallTimeoutMinutes < 1
+    ) {
+      throw new ManifestError('uat.stallTimeoutMinutes must be a positive integer');
+    }
+    stallTimeoutMinutes = raw.stallTimeoutMinutes;
+  }
+
   const config: UatConfig = {
     maxFixAttempts,
+    stallTimeoutMinutes,
     env: stringMap(raw.env, 'uat.env'),
     secrets: keyNameList(raw.secrets, 'uat.secrets'),
     passthrough: keyNameList(raw.passthrough, 'uat.passthrough'),
