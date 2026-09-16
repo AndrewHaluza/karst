@@ -66,7 +66,6 @@ function createFakeHost(): ScmHost & { _testOnly: { view: ScmViewHandle & { crea
     return group;
   });
   const view: ScmViewHandle & { createGroup: MockedFunction<(id: string, label: string) => ScmGroupHandle> } = {
-    setTitle: vi.fn(),
     viewColumn: vi.fn(() => 1),
     createGroup: createGroupMock,
     dispose: vi.fn(),
@@ -125,7 +124,7 @@ describe('TicketScmController', () => {
     expect(host.focus).toHaveBeenCalledTimes(1);
 
     const createdView = host._testOnly.view;
-    // First show: title is passed to createView, not setTitle
+    // First show: title is passed to createView
     expect(createdView.createGroup).toHaveBeenCalledTimes(3); // staged, unstaged, commit
 
     const groups = (createdView.createGroup as MockedFunction<typeof createdView.createGroup>).mock.calls;
@@ -182,10 +181,128 @@ describe('TicketScmController', () => {
 
     expect(host.createView).toHaveBeenCalledTimes(1);
     const view = host._testOnly.view;
-    // First show: title via createView, createGroup called once
-    // Second show (same ticket): setTitle called once, createGroup called again (old disposed, new created)
-    expect((view.setTitle as MockedFunction<typeof view.setTitle>).mock.calls!).toHaveLength(1);
+    // Same ticket, same title: the view is reused (not disposed) and its old groups are rebuilt
+    expect(view.dispose).not.toHaveBeenCalled();
     expect((view.createGroup as MockedFunction<typeof view.createGroup>).mock.calls!).toHaveLength(2);
+  });
+
+  it('same ticket, same title, re-show creates no view and disposes nothing', async () => {
+    const host = createFakeHost();
+    const views = [
+      makeWorktreeChangesView({
+        label: 'repo',
+        staged: [makeChangedFileView({ changeId: '1', status: 'added', path: 'src/a.ts' })],
+      }),
+    ];
+    const specs = [makeSpec('/wt/repo')];
+    const load = vi.fn().mockResolvedValue({ snapshot: makeSnapshot(views), worktrees: specs });
+    const openDiff = vi.fn().mockResolvedValue(undefined);
+    const logError = vi.fn();
+    const titleFor = vi.fn(() => 'Karst — TEST-1 — title');
+
+    const controller = new TicketScmController({
+      host,
+      load,
+      openDiff,
+      logError,
+      titleFor,
+      openFile: vi.fn(),
+      discard: vi.fn().mockResolvedValue({ ok: true }),
+      unstage: vi.fn().mockResolvedValue({ ok: true }),
+      confirmDiscard: vi.fn().mockResolvedValue(true),
+    });
+
+    await controller.show(1);
+    await controller.show(1);
+
+    expect(host.createView).toHaveBeenCalledTimes(1);
+    expect(host._testOnly.view.dispose).not.toHaveBeenCalled();
+  });
+
+  it('same ticket, changed title, recreates the view', async () => {
+    const host = createFakeHost();
+    const views = [
+      makeWorktreeChangesView({
+        label: 'repo',
+        staged: [makeChangedFileView({ changeId: '1', status: 'added', path: 'src/a.ts' })],
+      }),
+    ];
+    const specs = [makeSpec('/wt/repo')];
+    const load = vi.fn().mockResolvedValue({ snapshot: makeSnapshot(views), worktrees: specs });
+    const openDiff = vi.fn().mockResolvedValue(undefined);
+    const logError = vi.fn();
+    let title = 'Karst — TEST-1 — title';
+    const titleFor = vi.fn(() => title);
+
+    const controller = new TicketScmController({
+      host,
+      load,
+      openDiff,
+      logError,
+      titleFor,
+      openFile: vi.fn(),
+      discard: vi.fn().mockResolvedValue({ ok: true }),
+      unstage: vi.fn().mockResolvedValue({ ok: true }),
+      confirmDiscard: vi.fn().mockResolvedValue(true),
+    });
+
+    await controller.show(1);
+    const firstShowGroups = [...host._testOnly.createdGroups];
+    title = 'Karst — TEST-1 — renamed';
+    await controller.show(1);
+
+    expect(host.createView).toHaveBeenCalledTimes(2);
+    expect(host.createView).toHaveBeenNthCalledWith(2, 'karst', 'Karst — TEST-1 — renamed');
+
+    const firstView = (host.createView as MockedFunction<typeof host.createView>).mock.results[0]!.value;
+    expect((firstView.dispose as MockedFunction<typeof firstView.dispose>).mock.calls!).toHaveLength(1);
+
+    for (const group of firstShowGroups) {
+      expect(group.dispose.mock.calls!).toHaveLength(1);
+    }
+  });
+
+  it('same ticket, changed title, does not leak group handles', async () => {
+    const host = createFakeHost();
+    const views = [
+      makeWorktreeChangesView({
+        label: 'repo',
+        staged: [makeChangedFileView({ changeId: '1', status: 'added', path: 'src/a.ts' })],
+        unstaged: [makeChangedFileView({ changeId: '2', status: 'modified', path: 'src/b.ts' })],
+        untracked: [makeChangedFileView({ changeId: '3', status: 'added', path: 'src/c.ts' })],
+      }),
+    ];
+    const specs = [makeSpec('/wt/repo')];
+    const load = vi.fn().mockResolvedValue({ snapshot: makeSnapshot(views), worktrees: specs });
+    const openDiff = vi.fn().mockResolvedValue(undefined);
+    const logError = vi.fn();
+    let title = 'Karst — TEST-1 — title';
+    const titleFor = vi.fn(() => title);
+
+    const controller = new TicketScmController({
+      host,
+      load,
+      openDiff,
+      logError,
+      titleFor,
+      openFile: vi.fn(),
+      discard: vi.fn().mockResolvedValue({ ok: true }),
+      unstage: vi.fn().mockResolvedValue({ ok: true }),
+      confirmDiscard: vi.fn().mockResolvedValue(true),
+    });
+
+    await controller.show(1);
+    const firstShowGroups = [...host._testOnly.createdGroups];
+    expect(firstShowGroups).toHaveLength(3);
+    title = 'Karst — TEST-1 — renamed';
+    await controller.show(1);
+
+    expect(host.createView).toHaveBeenCalledTimes(2);
+    for (const group of firstShowGroups) {
+      expect(group.dispose.mock.calls!).toHaveLength(1);
+    }
+    // The second show's groups are fresh handles, not the disposed ones.
+    expect(host._testOnly.createdGroups).toHaveLength(6);
   });
 
   it('disposes previous view and creates new one for different ticket', async () => {

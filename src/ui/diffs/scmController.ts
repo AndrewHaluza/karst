@@ -25,7 +25,6 @@ export interface ScmResourceHandleInput {
 
 /** One materialized Source Control object. */
 export interface ScmViewHandle {
-  setTitle(title: string): void;
   /** The editor group the SCM view is in, or `undefined` if indeterminate. */
   viewColumn(): number | undefined;
   createGroup(id: string, label: string): ScmGroupHandle;
@@ -70,6 +69,13 @@ export interface TicketScmControllerDeps {
 export class TicketScmController {
   private view: ScmViewHandle | null = null;
   private viewTicketId: number | null = null;
+  /**
+   * The exact string last passed to `createView`. `SourceControl.label` is
+   * read-only and VS Code offers no rename, so a changed title can only be
+   * applied by disposing the view and creating a new one — this is what
+   * detects that a rename happened.
+   */
+  private viewTitle: string | null = null;
   private groupHandles: ScmGroupHandle[] = [];
   private targetMap = new Map<string, DiffTarget>();
   private rowActions = new Map<string, ScmRowAction>();
@@ -111,7 +117,9 @@ export class TicketScmController {
       }
     }
 
-    if (this.view && this.viewTicketId !== ticketId) {
+    const nextTitle = this.deps.titleFor(ticketId);
+
+    if (this.view && (this.viewTicketId !== ticketId || this.viewTitle !== nextTitle)) {
       for (const handle of this.groupHandles) handle.dispose();
       this.groupHandles = [];
       this.view.dispose();
@@ -119,9 +127,9 @@ export class TicketScmController {
     }
 
     if (!this.view) {
-      this.view = this.deps.host.createView('karst', this.deps.titleFor(ticketId));
+      this.view = this.deps.host.createView('karst', nextTitle);
+      this.viewTitle = nextTitle;
     } else {
-      this.view.setTitle(this.deps.titleFor(ticketId));
       for (const handle of this.groupHandles) handle.dispose();
       this.groupHandles = [];
     }
