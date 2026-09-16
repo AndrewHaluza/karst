@@ -139,6 +139,24 @@ describe('buildScmGroups', () => {
     expect(groups.map((g) => g.id)).toEqual(['commit-repo-aaa111', 'commit-repo-bbb222']);
   });
 
+  it('keeps group ids unique when two worktrees share a label and a directory name', () => {
+    const specs = disambiguateLabels([makeSpec('/a/wt', 'be'), makeSpec('/b/wt', 'be')]);
+    const commit = (label: string) => ({
+      hash: 'aaa111xxxx',
+      shortHash: 'aaa111',
+      subject: 'feat: same commit',
+      author: 'author',
+      authoredAt: '2024-01-01T00:00:00Z',
+      files: [makeChangedFileView({ changeId: label, status: 'modified' as const, path: 'src/app.ts' })],
+    });
+    const views = specs.map((spec) => makeWorktreeChangesView({ label: spec.label, commits: [commit(spec.label)] }));
+
+    const groups = buildScmGroups(makeSnapshot(views), specs);
+
+    const ids = groups.map((group) => group.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
   it('skips a commit with no files', () => {
     const views = [
       makeWorktreeChangesView({
@@ -271,5 +289,14 @@ describe('disambiguateLabels', () => {
     disambiguateLabels(specs);
 
     expect(specs.map((spec) => spec.label)).toEqual(['be', 'be']);
+  });
+
+  it('keeps labels unique when the repository label AND the directory name both collide', () => {
+    const specs = [makeSpec('/a/wt', 'be'), makeSpec('/b/wt', 'be')];
+
+    const result = disambiguateLabels(specs);
+
+    const labels = result.map((spec) => spec.label);
+    expect(new Set(labels).size).toBe(2);
   });
 });

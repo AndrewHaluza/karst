@@ -87,19 +87,35 @@ function toResources(
  * same URI. `path` is unique per worktree, so its basename always separates
  * them.
  *
+ * Two worktrees can agree on BOTH the repository label and the directory
+ * basename (two checkouts named `be` under different parents). The basename
+ * suffix then collides too, so a second pass falls back to a short stable
+ * hash of the worktree path — which is unique by definition — keeping the
+ * labels, and the group ids derived from them, collision-free.
+ *
  * Only colliding labels are rewritten; a ticket whose labels are already
  * distinct is returned with every label untouched.
  */
 export function disambiguateLabels(
   specs: readonly WorktreeSpec[],
 ): WorktreeSpec[] {
-  const counts = new Map<string, number>();
-  for (const spec of specs) {
-    counts.set(spec.label, (counts.get(spec.label) ?? 0) + 1);
-  }
-  return specs.map((spec) =>
-    (counts.get(spec.label) ?? 0) > 1
+  const countsByLabel = (items: readonly WorktreeSpec[]): Map<string, number> => {
+    const counts = new Map<string, number>();
+    for (const spec of items) counts.set(spec.label, (counts.get(spec.label) ?? 0) + 1);
+    return counts;
+  };
+
+  const originalCounts = countsByLabel(specs);
+  const withBasename = specs.map((spec) =>
+    (originalCounts.get(spec.label) ?? 0) > 1
       ? { ...spec, label: `${spec.label} (${basename(spec.path)})` }
+      : spec,
+  );
+
+  const basenameCounts = countsByLabel(withBasename);
+  return withBasename.map((spec) =>
+    (basenameCounts.get(spec.label) ?? 0) > 1
+      ? { ...spec, label: `${spec.label}~${repoKey(spec.path)}` }
       : spec,
   );
 }
