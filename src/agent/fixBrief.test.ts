@@ -270,4 +270,49 @@ describe('renderFixBrief', () => {
       expect(brief).not.toContain('Reviewers requested changes');
     });
   });
+
+  // Array position must not decide which gate the brief is about. `review` is
+  // FIRST here and `ship` failed LATER — the brief follows the clock.
+  it('names the gate that failed last, not the first in the array', () => {
+    const brief = renderFixBrief('PROJ-9', [
+      {
+        stageKey: 'review',
+        status: 'failed',
+        endedAt: '2026-01-01T00:00:00.000Z',
+        verdict: 'review says no',
+      },
+      {
+        stageKey: 'ship',
+        status: 'failed',
+        endedAt: '2026-01-02T00:00:00.000Z',
+        verdict: 'ship says no',
+      },
+    ]);
+    expect(brief).toContain('ship gate failed');
+    expect(brief).toContain('ship says no');
+    expect(brief).not.toContain('review gate failed');
+    expect(brief).not.toContain('review says no');
+  });
+
+  // The mirror image, with the array order reversed too: the answer tracks
+  // `endedAt` in both directions, not the position of either row.
+  it('names review when review is the gate that failed last', () => {
+    const brief = renderFixBrief('PROJ-10', [
+      {
+        stageKey: 'ship',
+        status: 'failed',
+        endedAt: '2026-01-01T00:00:00.000Z',
+        verdict: 'ship says no',
+      },
+      {
+        stageKey: 'review',
+        status: 'failed',
+        endedAt: '2026-01-02T00:00:00.000Z',
+        verdict: 'review says no',
+      },
+    ]);
+    expect(brief).toContain('review gate failed');
+    expect(brief).toContain('review says no');
+    expect(brief).not.toContain('ship gate failed');
+  });
 });

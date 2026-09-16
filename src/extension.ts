@@ -117,6 +117,7 @@ import {
   interruptActiveFixExecution,
   parkFixStage,
   hasFixingRound,
+  activeRecoverySeries,
   FIX_PARKED_PROCESS_UNAVAILABLE,
   FIX_PARKED_NO_EXECUTION,
 } from './store/recoveryRounds.js';
@@ -5175,9 +5176,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const runShipSaga = async (
     ticketId: number,
     warn = false,
-    shipOpts: { repos?: readonly string[] } = {},
+    shipOpts: { repos?: readonly string[]; unattended?: boolean } = {},
   ): Promise<void> => {
-    const deliverToOpenPr = hasCompletedShipRun(localStore, ticketId);
+    // WHO asked decides whether new work is delivered into a PR that is already
+    // open. A human re-shipping a ticket whose PR is live wants the new commits
+    // pushed onto it (FIX-46); an activation sweep resuming a ship whose host
+    // died does not get to make that call, because delivery COMMITS whatever is
+    // uncommitted in the worktree and pushes it to a branch under human review.
+    // So the sweep delivers only while a ship-sourced recovery round is live —
+    // the case where the new work is exactly what the round was opened to make.
+    const deliverToOpenPr = shipOpts.unattended
+      ? activeRecoverySeries(localStore, ticketId, 'ship') !== null
+      : hasCompletedShipRun(localStore, ticketId);
     await runShipTicket(
       localStore,
       {
@@ -5219,7 +5229,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       projectId: startupProject.id,
       isAlive: pidAlive,
       guardCapability,
-      runShip: (id) => runShipSaga(id),
+      // `unattended`: nobody clicked this. See the seam's own comment.
+      runShip: (id) => runShipSaga(id, false, { unattended: true }),
       info: (m) => logger.info(m),
       logError,
       onResumeFailed: (id) => {

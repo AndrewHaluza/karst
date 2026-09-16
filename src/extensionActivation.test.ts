@@ -304,22 +304,34 @@ describe('extension activation', () => {
     expect(sweep).toMatch(/deps\.info\(\s*describeStrandedShip\(/);
     // Each stranded ship resumes the saga from the activation sweep…
     expect(sweep).toMatch(/void deps\.runShip\(stranded\.ticketId\)\.catch/);
-    // …and the activation binding passes the SAME saga seam in…
-    expect(source).toMatch(/runShip: \(id\) => runShipSaga\(id\)/);
+    // …and the activation binding passes the SAME saga seam in, marked
+    // `unattended` so the sweep never delivers into an open PR on its own.
+    expect(source).toMatch(/runShip: \(id\) => runShipSaga\(id, false, \{ unattended: true \}\)/);
     // …which the confirm-ship click runs through too, adding only the
     // capability guard and the failure toast.
     expect(source).toMatch(/void runShipSaga\(ticketId\)\.catch/);
     expect(source).not.toMatch(/void runShipTicket\(/);
   });
 
-  // FIX-46 (review): the deliver-into-open-PR capability is only reachable if a
-  // production caller turns it on. A ship the ticket already COMPLETED is the
-  // re-ship signal the host seam reads; without this wiring the flag is dead
-  // code and a re-ship still skips the PR the ticket already opened.
-  it('turns on deliverToOpenPr for a re-ship through the host seam', () => {
+  // FIX-46 + FEAT-40 KD8: the deliver-into-open-PR capability is reachable only
+  // from a production caller, and WHICH caller decides the gate. A user-asked
+  // re-ship reads the completed-ship signal; the unattended stranded resume
+  // reads a LIVE ship-sourced round instead, so an activation sweep can never
+  // commit and push worktree changes onto a PR that is already under review.
+  it('gates deliverToOpenPr on who asked for the ship', () => {
     const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
-    expect(source).toMatch(/const deliverToOpenPr = hasCompletedShipRun\(localStore, ticketId\)/);
+    expect(source).toMatch(
+      /const deliverToOpenPr = shipOpts\.unattended\s*\n\s*\? activeRecoverySeries\(localStore, ticketId, 'ship'\) !== null\s*\n\s*: hasCompletedShipRun\(localStore, ticketId\);/,
+    );
     expect(source).toMatch(/\.\.\.\(deliverToOpenPr \? \{ deliverToOpenPr: true \} : \{\}\)/);
+  });
+
+  // The ONE unattended caller must be the one that opts in. If this regresses,
+  // the activation sweep silently regains the permissive gate.
+  it('marks only the stranded-ship resume as unattended', () => {
+    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+    expect(source).toMatch(/runShip: \(id\) => runShipSaga\(id, false, \{ unattended: true \}\)/);
+    expect(source.match(/unattended: true/g) ?? []).toHaveLength(1);
   });
 
   // A dead ship run is ALSO recovered by parking, not just resume: the
