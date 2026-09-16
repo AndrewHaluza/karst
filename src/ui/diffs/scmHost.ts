@@ -90,9 +90,6 @@ export function makeScmHost(decorationProvider: ChangeDecorationProvider): ScmHo
       // Karst's SCM view is read-only: no commit box, no staging.
       sc.inputBox.visible = false;
       return {
-        setTitle: (next) => {
-          (sc as any).label = next;
-        },
         viewColumn: () => {
           // The SCM view lives in the sidebar; VS Code resolves it to column 1.
           return 1;
