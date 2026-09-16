@@ -3,6 +3,7 @@
   "displayName": "Karst",
   "version": "1.0.0",
   "description": "Orchestrate AI-agent ticket workflows across a multi-repo stack.",
+  "icon": "media/karst-icon.png",
   "publisher": "karst",
   "repository": {
     "type": "git",
