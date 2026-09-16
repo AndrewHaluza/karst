@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { serverLogDir, serverLogPath } from './serverLog.js';
+import {
+  serverLogDir,
+  serverLogPath,
+  RUN_MARKER_PREFIX,
+  runMarkerLine,
+  isRunMarker,
+} from './serverLog.js';
 
 describe('serverLogPath', () => {
   // The bug this exists for: `<cwd>/<name>.log` put a supervised process's
@@ -24,5 +30,27 @@ describe('serverLogPath', () => {
   it('keeps one file per service name', () => {
     expect(serverLogPath('/wt/api', 'web')).not.toBe(serverLogPath('/wt/api', 'api'));
     expect(serverLogPath('/wt/api', 'api.baseline')).toBe('/wt/api/.karst/logs/api.baseline.log');
+  });
+});
+
+describe('run markers', () => {
+  it('renders a line starting with the marker prefix', () => {
+    const line = runMarkerLine('web', '2026-01-01T00:00:00.000Z');
+
+    expect(line.startsWith(RUN_MARKER_PREFIX)).toBe(true);
+    expect(line).toBe('=== karst run service=web started=2026-01-01T00:00:00.000Z ===');
+  });
+
+  it('recognizes a marker it rendered', () => {
+    expect(isRunMarker(runMarkerLine('web', '2026-01-01T00:00:00.000Z'))).toBe(true);
+  });
+
+  it('does not mistake server output for a marker', () => {
+    expect(isRunMarker('starting server')).toBe(false);
+    expect(isRunMarker(`${RUN_MARKER_PREFIX}but never closed`)).toBe(false);
+  });
+
+  it('treats a marker with trailing whitespace or newline as a marker', () => {
+    expect(isRunMarker(`${runMarkerLine('web', '2026-01-01T00:00:00.000Z')}\n`)).toBe(true);
   });
 });

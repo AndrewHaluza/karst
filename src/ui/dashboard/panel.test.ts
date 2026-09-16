@@ -1731,4 +1731,23 @@ describe('DashboardManager', () => {
       expect(lastState(panels[0]!).insideViews.uat.selectedAttempt).toBe(attemptKey(stageRunIds[2], ''));
     });
   });
+
+  it('routes server-logs-detach to the injected callback bound to its ticket', () => {
+    const t = createTicket(store, { key: 'A', title: 'a' });
+    const { host, panels } = fakeHost();
+    const detached: number[] = [];
+    const mgr = new DashboardManager(
+      store, host, () => ({}) as never,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined,
+      (ticketId) => detached.push(ticketId),
+    );
+
+    mgr.openDashboard(t.id);
+    panels[0]!.emit({ type: 'server-logs-detach' });
+
+    expect(detached).toEqual([t.id]);
+  });
 });

@@ -1,0 +1,77 @@
+/* ── Karst shared server-logs surface ────────────────────────────────────────
+   Control-strip styling and the ANSI decoder's classes for
+   `serverLogsView.webview.js`. Injected through the
+   `/*KARST_SERVER_LOGS_VIEW_CSS*\/` marker beside the other shared CSS, exactly
+   like the agent picker — a self-contained webview cannot import TS.
+
+   Every size/spacing/radius is a `--k-*` token (UI-R04). ANSI colours have no
+   design-system token, so they come from VS Code's terminal theme variables —
+   the same convention `palette.ts` uses for `--vscode-charts-*` — which keeps
+   the surface theme-native and introduces no raw hex (UI-R05). */
+
+.logsview .logcontrols{
+  display:flex;align-items:center;gap:var(--k-space-3);
+  flex:1;flex-wrap:wrap;min-width:0}
+.logsview #logsSearch{flex:1 1 auto;min-width:0}
+.logsview #logsMatches{
+  font-size:var(--k-text-2xs);color:var(--k-text-dim);white-space:nowrap}
+.logsview .logcheck{
+  display:inline-flex;align-items:center;gap:var(--k-space-2);
+  font-size:var(--k-text-xs);color:var(--k-text-dim);white-space:nowrap}
+
+/* One row per decoded line; the segments inside are the ANSI runs. */
+.logsview .logline{white-space:pre-wrap;word-break:break-all;padding:0 var(--k-space-4)}
+.logsview .logline:first-child{padding-top:var(--k-space-3)}
+.logsview .logline:last-child{padding-bottom:var(--k-space-3)}
+.logsview .logline .service-prefix{font-weight:var(--k-weight-semibold);color:var(--k-accent)}
+.logsview .logline .ts{color:var(--k-text-dim)}
+
+/* SGR attributes — font treatment only, never hue (the fg/bg classes own hue). */
+.logsview .k-ansi-bold{font-weight:var(--k-weight-semibold)}
+.logsview .k-ansi-dim{opacity:.6}
+.logsview .k-ansi-italic{font-style:italic}
+.logsview .k-ansi-underline{text-decoration:underline}
+
+/* Search hits, in and out of the current match. */
+.logsview .k-loghit{
+  background:var(--vscode-editor-findMatchHighlightBackground);
+  color:inherit;border-radius:var(--k-radius-xs)}
+.logsview .k-loghit--current{
+  background:var(--vscode-editor-findMatchBackground);
+  outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+
+/* Foregrounds: the eight standard colours then the eight bright variants. */
+.logsview .k-ansi-fg-black{color:var(--vscode-terminal-ansiBlack)}
+.logsview .k-ansi-fg-red{color:var(--vscode-terminal-ansiRed)}
+.logsview .k-ansi-fg-green{color:var(--vscode-terminal-ansiGreen)}
+.logsview .k-ansi-fg-yellow{color:var(--vscode-terminal-ansiYellow)}
+.logsview .k-ansi-fg-blue{color:var(--vscode-terminal-ansiBlue)}
+.logsview .k-ansi-fg-magenta{color:var(--vscode-terminal-ansiMagenta)}
+.logsview .k-ansi-fg-cyan{color:var(--vscode-terminal-ansiCyan)}
+.logsview .k-ansi-fg-white{color:var(--vscode-terminal-ansiWhite)}
+.logsview .k-ansi-fg-bright-black{color:var(--vscode-terminal-ansiBrightBlack)}
+.logsview .k-ansi-fg-bright-red{color:var(--vscode-terminal-ansiBrightRed)}
+.logsview .k-ansi-fg-bright-green{color:var(--vscode-terminal-ansiBrightGreen)}
+.logsview .k-ansi-fg-bright-yellow{color:var(--vscode-terminal-ansiBrightYellow)}
+.logsview .k-ansi-fg-bright-blue{color:var(--vscode-terminal-ansiBrightBlue)}
+.logsview .k-ansi-fg-bright-magenta{color:var(--vscode-terminal-ansiBrightMagenta)}
+.logsview .k-ansi-fg-bright-cyan{color:var(--vscode-terminal-ansiBrightCyan)}
+.logsview .k-ansi-fg-bright-white{color:var(--vscode-terminal-ansiBrightWhite)}
+
+/* Backgrounds, same order. */
+.logsview .k-ansi-bg-black{background:var(--vscode-terminal-ansiBlack)}
+.logsview .k-ansi-bg-red{background:var(--vscode-terminal-ansiRed)}
+.logsview .k-ansi-bg-green{background:var(--vscode-terminal-ansiGreen)}
+.logsview .k-ansi-bg-yellow{background:var(--vscode-terminal-ansiYellow)}
+.logsview .k-ansi-bg-blue{background:var(--vscode-terminal-ansiBlue)}
+.logsview .k-ansi-bg-magenta{background:var(--vscode-terminal-ansiMagenta)}
+.logsview .k-ansi-bg-cyan{background:var(--vscode-terminal-ansiCyan)}
+.logsview .k-ansi-bg-white{background:var(--vscode-terminal-ansiWhite)}
+.logsview .k-ansi-bg-bright-black{background:var(--vscode-terminal-ansiBrightBlack)}
+.logsview .k-ansi-bg-bright-red{background:var(--vscode-terminal-ansiBrightRed)}
+.logsview .k-ansi-bg-bright-green{background:var(--vscode-terminal-ansiBrightGreen)}
+.logsview .k-ansi-bg-bright-yellow{background:var(--vscode-terminal-ansiBrightYellow)}
+.logsview .k-ansi-bg-bright-blue{background:var(--vscode-terminal-ansiBrightBlue)}
+.logsview .k-ansi-bg-bright-magenta{background:var(--vscode-terminal-ansiBrightMagenta)}
+.logsview .k-ansi-bg-bright-cyan{background:var(--vscode-terminal-ansiBrightCyan)}
+.logsview .k-ansi-bg-bright-white{background:var(--vscode-terminal-ansiBrightWhite)}

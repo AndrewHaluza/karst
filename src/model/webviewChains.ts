@@ -26,12 +26,14 @@ import { injectPalette } from './palette.js';
 import { injectAgentIdentity } from './agentIdentity.js';
 import { injectProviderIdentity } from './providerIdentity.js';
 import { injectAgentPicker } from './agentPicker.js';
+import { injectServerLogsView } from './serverLogsView.js';
 
 export const WEBVIEW_NAMES = [
   'dashboard',
   'diffs',
   'gettingStarted',
   'resources',
+  'serverLogs',
   'settings',
   'sidebar',
   'ticketForm',
@@ -52,12 +54,19 @@ type Chain = (html: string) => string;
 const DS_PALETTE: Chain = (html) => injectPalette(injectDesignSystem(html));
 
 const DS_PALETTE_PROVIDER_AGENT_PICKER: Chain = (html) =>
-  injectAgentPicker(
-    injectAgentIdentity(injectProviderIdentity(injectPalette(injectDesignSystem(html)))),
+  injectServerLogsView(
+    injectAgentPicker(
+      injectAgentIdentity(injectProviderIdentity(injectPalette(injectDesignSystem(html)))),
+    ),
   );
 
 const DS_AGENT_PALETTE: Chain = (html) =>
   injectPalette(injectAgentIdentity(injectDesignSystem(html)));
+
+// Design system + palette, then the shared server-logs surface. The standalone
+// logs panel needs no agent picker or core identity — only the DS, the palette
+// and the shared control-strip runtime.
+const DS_PALETTE_SERVER_LOGS: Chain = (html) => injectServerLogsView(DS_PALETTE(html));
 
 export const WEBVIEW_CHAINS: Record<WebviewName, Chain> = {
   dashboard: DS_PALETTE_PROVIDER_AGENT_PICKER,
@@ -66,6 +75,7 @@ export const WEBVIEW_CHAINS: Record<WebviewName, Chain> = {
   sidebar: DS_AGENT_PALETTE,
   usage: DS_PALETTE,
   resources: DS_PALETTE,
+  serverLogs: DS_PALETTE_SERVER_LOGS,
   diffs: DS_PALETTE,
   gettingStarted: DS_PALETTE,
 };

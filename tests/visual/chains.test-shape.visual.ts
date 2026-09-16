@@ -12,6 +12,7 @@ const EXPECTED_VIEWS: readonly ViewId[] = [
   'diffs',
   'gettingStarted',
   'resources',
+  'serverLogs',
   'settings',
   'sidebar',
   'ticketForm',
@@ -30,7 +31,7 @@ const MARKERS = [
 ] as const;
 
 test.describe('visual sweep chain table shape', () => {
-  test('has exactly the eight expected view ids', () => {
+  test('has exactly the nine expected view ids', () => {
     const ids = Object.keys(CHAINS).sort();
     expect(ids).toEqual([...EXPECTED_VIEWS].sort());
   });

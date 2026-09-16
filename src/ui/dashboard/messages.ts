@@ -215,6 +215,13 @@ export type WebviewMessage =
    */
   | { type: 'server-logs-close' }
   /**
+   * Open this ticket's logs in the standalone server-logs editor panel. Sent
+   * from the shared surface's "Open in Window" control. Payload-free: the panel
+   * closure already owns the ticket, so a crafted message cannot aim the panel
+   * at another one. The dashboard keeps its own in-panel view open.
+   */
+  | { type: 'server-logs-detach' }
+  /**
    * Switch the active tab in the combined logs view. Carries the service name
    * of the server to focus, or 'merged' for the chronological interleaved view.
    */
@@ -228,6 +235,13 @@ export type WebviewMessage =
    * against the ticket's own runnable repositories before writing.
    */
   | { type: 'env-overrides-save'; scope: string; text: string };
+
+/**
+ * One server's log content as the logs surface receives it. The standalone
+ * server-logs panel imports this rather than redeclaring the shape, so the two
+ * hosts can never drift.
+ */
+export type ServerLogEntry = { service: string; content: string; truncated: boolean };
 
 /**
  * Host → webview messages. `state` pushes drive the stepper + panels;
@@ -287,7 +301,7 @@ export type HostMessage =
    * `servers` is the ordered list matching the dashboard's server rows. The
    * webview renders the initial content immediately and starts the merged view.
    */
-  | { type: 'server-logs'; servers: Array<{ service: string; content: string; truncated: boolean }> }
+  | { type: 'server-logs'; servers: ServerLogEntry[] }
   /**
    * A live chunk of one server's log output, pushed while polling. The webview
    * appends it to that server's log buffer and, if the merged view is active,
@@ -442,6 +456,12 @@ export interface DashboardActions {
   requestServerLogs: () => void | Promise<void>;
   /** Close the combined server logs view and stop streaming. */
   closeServerLogs: () => void | Promise<void>;
+  /**
+   * Open this ticket's logs in the standalone panel. Optional: absent, the
+   * "Open in Window" control is a no-op (the pre-feature panel). The panel
+   * binds the ticket id, so the webview names no target.
+   */
+  onServerLogsDetach?: () => void | Promise<void>;
 }
 
 /**
@@ -698,6 +718,8 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
       return { type: 'server-logs-request' };
     case 'server-logs-close':
       return { type: 'server-logs-close' };
+    case 'server-logs-detach':
+      return { type: 'server-logs-detach' };
     case 'server-logs-tab': {
       const tab = typeof m.tab === 'string' ? m.tab : '';
       return tab.length > 0 && tab.length <= MAX_GATE_NAME_CHARS
@@ -871,6 +893,8 @@ export function routeAction(
       return actions.requestServerLogs();
     case 'server-logs-close':
       return actions.closeServerLogs();
+    case 'server-logs-detach':
+      return actions.onServerLogsDetach?.();
     case 'server-logs-tab':
       return;
     case 'env-overrides-save':

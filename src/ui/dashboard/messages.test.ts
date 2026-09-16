@@ -791,6 +791,27 @@ describe('agent-log-request', () => {
   });
 });
 
+describe('server-logs-detach', () => {
+  it('accepts a payload-free detach and drops companion fields', () => {
+    expect(parseWebviewMessage({ type: 'server-logs-detach' })).toEqual({
+      type: 'server-logs-detach',
+    });
+    expect(parseWebviewMessage({ type: 'server-logs-detach', ticketId: 9 })).toEqual({
+      type: 'server-logs-detach',
+    });
+  });
+
+  it('routes to the optional onServerLogsDetach action', () => {
+    const detach = vi.fn();
+    routeAction({ type: 'server-logs-detach' }, { ...actions(), onServerLogsDetach: detach });
+    expect(detach).toHaveBeenCalledOnce();
+  });
+
+  it('is a no-op when no detach action is supplied (existing panels keep working)', () => {
+    expect(() => routeAction({ type: 'server-logs-detach' }, actions())).not.toThrow();
+  });
+});
+
 describe('legacy ship-progress retirement (Finding 12)', () => {
   it('no longer carries the legacy ship-progress host message or its step type', () => {
     // Ship progress flows exclusively through the generic inside-progress

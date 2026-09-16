@@ -277,7 +277,7 @@ import { casStatus, GRAPH_RUN_TRANSITIONS, type GraphDb } from './store/graph/tr
 import { canonicalPath } from './runtime/pathScope.js';
 import { createHookChannelRecorder } from './diagnostics/hookChannel.js';
 import { writeCurrentEndpoint } from './agent/hookFailureLog.js';
-import { listWorktreesByTicket, listWorktreesByProject, serverAddress } from './store/dashboard.js';
+import { listWorktreesByTicket, listWorktreesByProject, listServersByTicket, serverAddress } from './store/dashboard.js';
 import {
   LAUNCH_BUILD_SCRIPT,
   LAUNCH_BUILD_TIMEOUT_MS,
@@ -376,6 +376,7 @@ import {
   type ResourcesPanel,
   type ResourcesPanelHost,
 } from './ui/resources/panel.js';
+import { ServerLogsManager, type ServerLogsPanel, type ServerLogsPanelHost } from './ui/serverLogs/panel.js';
 import {
   listInstalled,
   readApproachPackage,
@@ -446,7 +447,7 @@ import {
   type LogError,
 } from './logging/logger.js';
 import { injectCsp, newNonce } from './model/csp.js';
-import { hydrateWebview } from './model/webviewChains.js';
+import { hydrateWebview, type WebviewName } from './model/webviewChains.js';
 import { RUNTIME_ASSETS_ROOT } from './runtimeAssetsRoot.js';
 import { injectXterm, readXtermAssets } from './model/xtermAssets.js';
 import { buildTicketArtifacts } from './model/artifacts.js';
@@ -2513,6 +2514,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   let restartGraphRun: ((ticketId: number, graphRunId: number) => Promise<void>) | undefined;
   let confirmGraphRunForTicket: ((ticketId: number, graphRunId: number) => void) | undefined;
 
+  const serverLogsManager = new ServerLogsManager(
+    makeServerLogsPanelHost(context, brandIcon),
+    new ServerLogsReader((m) => logger.debug(m)),
+    (ticketId) => {
+      const t = getTicket(localStore, ticketId);
+      return `Server Logs — ${compactTicketLabel(t, ticketLabel(t))}`;
+    },
+    (ticketId) => listServersByTicket(localStore, ticketId).map((s) => ({ service: s.service, logPath: s.logPath })),
+  );
+  context.subscriptions.push(serverLogsManager);
+
   const dashboard = new DashboardManager(
     localStore,
     makePanelHost(context, brandIcon, (m) => logger.warn(m)),
@@ -2817,6 +2829,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // The combined server logs reader: reads server log files from disk and
     // streams live updates via polling.
     new ServerLogsReader((m) => logger.debug(m)),
+    // "Open in Window": reveal or mint this ticket's standalone panel.
+    (ticketId) => serverLogsManager.open(ticketId),
   );
 
   // A karst.yml edit made OUTSIDE karst (hand edit in the editor, a teammate's
@@ -7086,61 +7100,51 @@ function makePanelHost(
   };
 }
 
-/** Real token-usage panel, with a fresh CSP nonce for every panel. */
-function makeUsagePanelHost(
-  context: vscode.ExtensionContext,
-  brandIcon?: BrandIconPaths,
-): UsagePanelHost {
-  const html = hydrateWebview('usage', readFileSync(join(RUNTIME_ASSETS_ROOT, 'ui', 'usage', 'webview.html'), 'utf8'));
+/**
+ * The panel shape both the usage and resources surfaces need: a single
+ * always-Active-column webview with the brand icon and a fresh CSP nonce per
+ * panel. Neither carries a ticket, so neither needs the view-column read or the
+ * activation reporting `makeChangesPanelHost` does.
+ */
+function makeSimplePanelHost<P>(
+  context: vscode.ExtensionContext, view: string, viewType: string, brandIcon?: BrandIconPaths,
+): { createPanel(title: string): P } {
+  const html = hydrateWebview(view as WebviewName, readFileSync(join(RUNTIME_ASSETS_ROOT, 'ui', view, 'webview.html'), 'utf8'));
   return {
-    createPanel(title): UsagePanel {
+    createPanel(title) {
       const panel = vscode.window.createWebviewPanel(
-        'karst.tokenUsage',
+        viewType,
         title,
         vscode.ViewColumn.Active,
         { enableScripts: true, retainContextWhenHidden: true },
       );
       context.subscriptions.push(panel);
-      // Spend across every ticket — no single ticket's status to carry.
       panel.iconPath = brandIconUri(brandIcon);
       panel.webview.html = injectCsp(html, newNonce());
       return {
-        reveal: (keepFocus) => panel.reveal(undefined, keepFocus),
-        postMessage: (message) => void panel.webview.postMessage(message),
-        onDidReceiveMessage: (handler) =>
+        reveal: (keepFocus: boolean | undefined) => panel.reveal(undefined, keepFocus),
+        postMessage: (message: unknown) => void panel.webview.postMessage(message),
+        onDidReceiveMessage: (handler: (message: unknown) => void) =>
           panel.webview.onDidReceiveMessage(handler, undefined, context.subscriptions),
-        onDidDispose: (handler) => panel.onDidDispose(handler, undefined, context.subscriptions),
-      };
+        onDidDispose: (handler: () => void) => panel.onDidDispose(handler, undefined, context.subscriptions),
+      } as P;
     },
   };
 }
 
+/** Real token-usage panel, with a fresh CSP nonce for every panel. */
+function makeUsagePanelHost(context: vscode.ExtensionContext, brandIcon?: BrandIconPaths): UsagePanelHost {
+  return makeSimplePanelHost<UsagePanel>(context, 'usage', 'karst.tokenUsage', brandIcon);
+}
+
 /** Real resources panel, with a fresh CSP nonce for every panel. */
-function makeResourcesPanelHost(
-  context: vscode.ExtensionContext,
-  brandIcon?: BrandIconPaths,
-): ResourcesPanelHost {
-  const html = hydrateWebview('resources', readFileSync(join(RUNTIME_ASSETS_ROOT, 'ui', 'resources', 'webview.html'), 'utf8'));
-  return {
-    createPanel(title): ResourcesPanel {
-      const panel = vscode.window.createWebviewPanel(
-        'karst.resources',
-        title,
-        vscode.ViewColumn.Active,
-        { enableScripts: true, retainContextWhenHidden: true },
-      );
-      context.subscriptions.push(panel);
-      panel.iconPath = brandIconUri(brandIcon);
-      panel.webview.html = injectCsp(html, newNonce());
-      return {
-        reveal: (keepFocus) => panel.reveal(undefined, keepFocus),
-        postMessage: (message) => void panel.webview.postMessage(message),
-        onDidReceiveMessage: (handler) =>
-          panel.webview.onDidReceiveMessage(handler, undefined, context.subscriptions),
-        onDidDispose: (handler) => panel.onDidDispose(handler, undefined, context.subscriptions),
-      };
-    },
-  };
+function makeResourcesPanelHost(context: vscode.ExtensionContext, brandIcon?: BrandIconPaths): ResourcesPanelHost {
+  return makeSimplePanelHost<ResourcesPanel>(context, 'resources', 'karst.resources', brandIcon);
+}
+
+/** Real standalone server-logs panels, one per ticket, with a fresh CSP nonce. */
+function makeServerLogsPanelHost(context: vscode.ExtensionContext, brandIcon?: BrandIconPaths): ServerLogsPanelHost {
+  return makeSimplePanelHost<ServerLogsPanel>(context, 'serverLogs', 'karst.serverLogs', brandIcon);
 }
 
 /** Real ticket-changes panels, with a fresh CSP nonce for every panel. */

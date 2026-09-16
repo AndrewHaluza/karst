@@ -10,6 +10,7 @@
   /*KARST_XTERM_CSS*/
   /*KARST_AGENT_CSS*/
   /*KARST_AGENT_PICKER_CSS*/
+  /*KARST_SERVER_LOGS_VIEW_CSS*/
 
   :root{
     /* Status colors come from the shared ramp (--k-pending|running|attention|
@@ -1982,6 +1983,11 @@
 
   /*KARST_AGENT_PICKER_JS*/
 
+  // The shared in-dashboard/standalone server-logs surface. Defines
+  // `window.createServerLogsView({ post, detached, onClose })` — the control
+  // strip, search, run scoping and ANSI rendering both hosts include.
+  /*KARST_SERVER_LOGS_VIEW_JS*/
+
   /*KARST_XTERM_JS*/
 
   const vscode = acquireVsCodeApi();
@@ -2166,8 +2172,12 @@
   // the pin would otherwise flag as unvalidated).
   const CONSOLE_ACT = 'console';
 
-  // Combined server logs state: tracks which tab is active, the server log
-  // buffers, and the merged chronological view.
+  // Combined server logs: `logsView` is the open/closed flag; the surface
+  // itself (state, controls, ANSI rendering) lives in the shared
+  // `window.createServerLogsView` runtime injected above, so the dashboard and
+  // the standalone panel cannot drift.
+  let logsView = null;
+  let logsViewInstance = null;
   // The env-override editor's own state. `envDrafts` holds what the user has
   // TYPED, per scope, so a state push (a live tick, a server change) re-renders
   // the surface without discarding an unsaved edit — the same reason
@@ -2177,11 +2187,6 @@
   let envDrafts = {};
   let envSaved = {};
   let envSaveRequests = {};
-  let logsView = null;
-  let logsActiveTab = 'merged';
-  let logsServerBuffers = {};
-  let logsMergedLines = [];
-  let logsLoading = false;
 
   // Under a rail node there is room for one number, not a sentence. The full
   // stamp belongs to the Inside header, which has a line to itself.
@@ -4550,106 +4555,30 @@
       + sections + `</div>`;
   }
 
-  // Combined server logs surface: tabs per server + merged chronological view.
+  // Combined server logs: the surface itself (tabs, search, run scoping and
+  // ANSI rendering) is the shared `window.createServerLogsView` runtime injected
+  // above, included by both this dashboard and the standalone logs panel. The
+  // dashboard owns only the open/closed flag and the host request; the view is
+  // created once and reused.
   function openServerLogs() {
     if (logsView) return;
     logsView = 'open';
-    logsActiveTab = 'merged';
-    logsServerBuffers = {};
-    logsMergedLines = [];
-    logsLoading = true;
-    renderLogsView();
+    if (!logsViewInstance && typeof window.createServerLogsView === 'function') {
+      logsViewInstance = window.createServerLogsView({
+        post,
+        onClose: () => { logsView = null; post({ type: 'server-logs-close' }); },
+      });
+    }
+    if (!logsViewInstance) { logsView = null; return; }
+    logsViewInstance.open();
     post({ type: 'server-logs-request' });
   }
 
   function closeServerLogs() {
-    logsView = null;
-    logsActiveTab = 'merged';
-    logsServerBuffers = {};
-    logsMergedLines = [];
-    logsLoading = false;
-    renderLogsView();
-    post({ type: 'server-logs-close' });
-  }
-
-  function renderLogsView() {
-    const box = el('logsView');
-    if (!box) return;
-    if (!logsView) {
-      box.classList.add('hidden');
-      box.innerHTML = '';
-      document.body.classList.remove('log-nav');
-      return;
-    }
-    box.classList.remove('hidden');
-    document.body.classList.add('log-nav');
-    const services = Object.keys(logsServerBuffers);
-    const tabs = services.length
-      ? `<div class="tabs"><button type="button" class="tab${logsActiveTab === 'merged' ? ' active' : ''}" data-log-tab="merged">Merged</button>`
-        + services.map((s) => `<button type="button" class="tab${logsActiveTab === s ? ' active' : ''}" data-log-tab="${esc(s)}">${esc(s)}</button>`).join('')
-        + `</div>`
-      : '';
-    box.innerHTML = `<div class="thead"><span class="ttitle">Server Logs</span>`
-      + `<span class="sp"><button type="button" class="k-btn k-btn--ghost k-btn--sm" data-log-close`
-      + ` title="Close the logs view">Close</button></span></div>`
-      + `<div class="tstatus" id="logsStatus" role="status">${esc(logsLoading ? 'Loading server logs…' : '')}</div>`
-      + tabs
-      + `<div id="logsHost" class="loghost"></div>`;
-    renderLogsContent();
-  }
-
-  function renderLogsContent() {
-    const host = el('logsHost');
-    if (!host) return;
-    // Only auto-scroll if the reader was already at (or near) the bottom —
-    // otherwise new output would yank them away from a line they scrolled up to read.
-    const wasAtBottom = host.scrollHeight - host.scrollTop - host.clientHeight < 32;
-    if (logsActiveTab === 'merged') {
-      if (logsMergedLines.length === 0) {
-        host.innerHTML = `<div class="blurb">${logsLoading ? 'Loading…' : 'No log output available.'}</div>`;
-      } else {
-        host.innerHTML = `<div class="merged">${logsMergedLines.map((l) => `<span class="service-prefix">[${esc(l.service)}]</span> <span class="ts">${esc(l.ts)}</span> ${esc(l.text)}`).join('\n')}</div>`;
-      }
+    if (logsViewInstance) {
+      logsViewInstance.close();
     } else {
-      const buf = logsServerBuffers[logsActiveTab];
-      if (!buf || buf.length === 0) {
-        host.innerHTML = `<div class="blurb">${logsLoading ? 'Loading…' : 'No log output for this service.'}</div>`;
-      } else {
-        host.innerHTML = `<div class="merged">${buf.join('\n')}</div>`;
-      }
-    }
-    if (wasAtBottom) host.scrollTop = host.scrollHeight;
-  }
-
-  function handleServerLogsInitial(servers) {
-    logsServerBuffers = {};
-    logsMergedLines = [];
-    for (const s of servers) {
-      const lines = s.content ? s.content.split('\n') : [];
-      logsServerBuffers[s.service] = lines;
-      const ts = new Date().toISOString().slice(11, 19);
-      for (const line of lines) {
-        if (line) logsMergedLines.push({ service: s.service, ts, text: line });
-      }
-    }
-    logsMergedLines.sort((a, b) => a.ts.localeCompare(b.ts));
-    logsLoading = false;
-    renderLogsView();
-  }
-
-  function handleServerLogOutput(service, text) {
-    const lines = text.split('\n');
-    if (!logsServerBuffers[service]) logsServerBuffers[service] = [];
-    const ts = new Date().toISOString().slice(11, 19);
-    for (const line of lines) {
-      if (line) {
-        logsServerBuffers[service].push(line);
-        logsMergedLines.push({ service, ts, text: line });
-      }
-    }
-    logsMergedLines.sort((a, b) => a.ts.localeCompare(b.ts));
-    if (logsActiveTab === service || logsActiveTab === 'merged') {
-      renderLogsContent();
+      logsView = null;
     }
   }
 
@@ -5020,17 +4949,6 @@
       karstBeginPending(envSave, requestId);
       envSaveRequests = { ...envSaveRequests, [scope]: requestId };
       post({ type: 'env-overrides-save', scope, text, requestId });
-      return;
-    }
-    const logClose = e.target.closest('[data-log-close]');
-    if (logClose) {
-      closeServerLogs();
-      return;
-    }
-    const logTab = e.target.closest('[data-log-tab]');
-    if (logTab) {
-      logsActiveTab = logTab.dataset.logTab;
-      renderLogsView();
       return;
     }
     // The current stage header's ⋯ menu: a purely local toggle. The button
@@ -5697,18 +5615,18 @@
       return;
     }
     // The combined server logs initial answer: all server log contents for this
-    // ticket. The webview renders the initial content and starts the merged view.
+    // ticket. The shared surface renders the initial content and starts the
+    // merged view; the host request and the open flag stay the dashboard's.
     if (msg.type === 'server-logs') {
-      if (!logsView) return;
-      handleServerLogsInitial(msg.servers || []);
+      if (!logsView || !logsViewInstance) return;
+      logsViewInstance.handleInitial(msg.servers || []);
       return;
     }
-    // A live chunk of one server's log output: appended to that server's log
-    // buffer and, if the merged view is active, interleaved into the
-    // chronological view.
+    // A live chunk of one server's log output: appended to that server's lines
+    // and, if the merged view is active, interleaved chronologically.
     if (msg.type === 'server-log-output') {
-      if (!logsView) return;
-      handleServerLogOutput(msg.service, msg.text);
+      if (!logsView || !logsViewInstance) return;
+      logsViewInstance.handleOutput(msg.service, msg.text);
       return;
     }
     // The window's terminal binding. Host-owned: it is one preference shared by

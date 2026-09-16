@@ -339,6 +339,11 @@ export class DashboardManager {
      * the webview receives a named refusal rather than content (UI-R13).
      */
     private readonly serverLogsReader?: ServerLogsReader,
+    /**
+     * Open this ticket's logs in the standalone server-logs panel, bound to the
+     * panel's own ticket id. Absent → the "Open in Window" control is a no-op.
+     */
+    private readonly onServerLogsDetach?: (ticketId: number) => void,
   ) {}
 
   /**
@@ -365,7 +370,12 @@ export class DashboardManager {
     );
     this.panels.set(ticketId, panel);
 
-    const actions = this.actionsFor(ticketId);
+    // The factory's actions plus the detach callback bound to THIS ticket: the
+    // webview's "Open in Window" message names no ticket, so the closure owns it.
+    const actions: DashboardActions = {
+      ...this.actionsFor(ticketId),
+      onServerLogsDetach: () => this.onServerLogsDetach?.(ticketId),
+    };
     // Message pump must never die on one bad message — routeAction validates,
     // and any downstream throw is contained so subsequent messages still flow.
     panel.onDidReceiveMessage((raw) => {

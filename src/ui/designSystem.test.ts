@@ -45,6 +45,7 @@ describe('design system webview discovery', () => {
       'diffs',
       'gettingStarted',
       'resources',
+      'serverLogs',
       'settings',
       'sidebar',
       'ticketForm',

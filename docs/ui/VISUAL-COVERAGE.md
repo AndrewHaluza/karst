@@ -48,18 +48,18 @@ STATIC+RUNTIME+VISUAL 2.
 - **xterm masked (D12)**: Dashboard terminal region is masked in screenshots. `injectXterm` needs `dist/vendor/xterm` and renders a canvas seeded by a live pty — nondeterministic by nature.
 - **Catalog is documentation-only (D15)**: `KARST-UI-CATALOG.html` has its own hard-coded palette and cannot be themed. Baselines prove what the catalog claims, not what ships.
 - **High-contrast-light excluded (C4)**: Not named by any rule; triples cost for no signal.
-- **Corpus ratchet outstanding (C8)**: Seven non-dashboard views use MINIMAL state. FEAT-37 shrinks the ratchet.
+- **Corpus ratchet outstanding (C8)**: Seven non-dashboard views use MINIMAL state. FEAT-37 shrinks the ratchet. The standalone `serverLogs` panel is not one of them: it seeds through its own `server-logs` protocol, not the generic `state` message.
 
 ## Open ratchets
 
-1. **CONTRAST_RATCHET** (`a11y.visual.ts`): Known contrast failures across dark/light/hc themes. Includes G3 danger buttons and gettingStarted headings. Shrink-only.
+1. **CONTRAST_RATCHET** (`a11y.visual.ts`): Known contrast failures across dark/light/hc themes. Includes G3 danger buttons and gettingStarted headings, plus **G6** — the server-logs surface colours log text with VS Code's terminal ANSI palette (`--vscode-terminal-ansi*`), whose hues are below WCAG AA against the editor background by design (VS Code's built-in terminal shares the property). Shrink-only.
 2. **TITLE_RATCHET** (`a11y.visual.ts`): Settings `span#dirtyDot` tooltip-only hint. Shrink-only.
 3. **FOCUS_COUNT_RATCHET** (`focus.visual.ts`): Focusable-element counts per view. Shrink-only.
 4. **MINIMAL_RATCHET** (`corpora.ts`): Views still on MINIMAL state seed. Shrink-only.
 
 ## Running the sweep
 
-**Baselines are container-authored.** `playwright.config.ts`'s `snapshotPathTemplate` carries no `{platform}` token, so the 82 PNGs under `tests/visual/__baselines__/` are valid for exactly one rendering environment: `mcr.microsoft.com/playwright:v1.63.0-noble`. macOS and Linux rasterize glyphs differently, so a bare `npm run test:visual` on macOS is a local smoke run and its diffs are not authoritative.
+**Baselines are container-authored.** `playwright.config.ts`'s `snapshotPathTemplate` carries no `{platform}` token, so the 85 PNGs under `tests/visual/__baselines__/` are valid for exactly one rendering environment: `mcr.microsoft.com/playwright:v1.63.0-noble`. macOS and Linux rasterize glyphs differently, so a bare `npm run test:visual` on macOS is a local smoke run and its diffs are not authoritative.
 
 **Update baselines only with `npm run test:visual:docker:update`.** Never `npm run test:visual:update` on a developer machine, and never hand-edit a PNG. The image tag must stay in lockstep with the pinned `@playwright/test` version — a different tag ships a different Chromium and invalidates every baseline at once.
 
@@ -85,3 +85,4 @@ The following were discovered during Task 8's baseline review and are reported, 
 2. **G3**: `--k-success-fg` / `--k-danger-fg` resolve to `var(--vscode-editor-background)`, causing contrast failures on filled surfaces in at least one theme.
 3. **gettingStarted contrast**: Headings and lede use foreground on sidebar background, falling below WCAG AA 4.5:1 in dark and hc themes.
 4. **settings contrast**: Nav captions and help text fall below WCAG AA in light theme.
+5. **G6**: The server-logs surface renders SGR-coloured log lines with VS Code's terminal ANSI palette; some hues (red on dark/hc, green and yellow on light) fall below WCAG AA against the editor background. Reported, not fixed — the palette belongs to the user's terminal theme.

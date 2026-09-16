@@ -18,6 +18,7 @@ const assets = [
   'ui/usage/webview.html',
   'ui/resources/webview.html',
   'ui/gettingStarted/webview.html',
+  'ui/serverLogs/webview.html',
   'store/schema.sql',
   'model/icons/agent/claude-code.svg',
   'model/icons/agent/codex.svg',
@@ -29,6 +30,8 @@ const assets = [
   // exactly like the webview.html documents above.
   'model/agentPicker.webview.css',
   'model/agentPicker.webview.js',
+  'model/serverLogsView.webview.css',
+  'model/serverLogsView.webview.js',
   'model/designComponents.webview.css',
   'model/designRuntime.webview.js',
   'model/tablerIcons.webview.css',

@@ -11,7 +11,7 @@ import type { ViewId } from './corpora.js';
 const SCREENSHOT_PROJECTS = new Set(['dark', 'light', 'hc']);
 
 /**
- * Full-page screenshot baselines for all eight webviews in three themes.
+ * Full-page screenshot baselines for all nine webviews in three themes.
  *
  * Masks:
  * - Dashboard terminal region (D12: xterm not injected)

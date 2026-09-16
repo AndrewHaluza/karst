@@ -16,6 +16,7 @@ import { freePortWindow, removeTempDir, waitUntilListening } from './fixtures.js
 import { listenerPids } from './portConflict.js';
 import { killTree } from './processTree.js';
 import { removeContainer, removeContainerAsync } from './dockerContainer.js';
+import { RUN_MARKER_PREFIX } from './serverLog.js';
 
 // Container removal really spawns `docker`; stub it so these cases assert the
 // contract (which name, and when) without a docker daemon on the machine.
@@ -1045,6 +1046,32 @@ createServer((_req, res) => {
     expect(existsSync(logPath)).toBe(true);
     expect(readFileSync(logPath, 'utf8')).toMatch(/booting on/);
     expect(tailLog(rec)).toMatch(/booting on/);
+
+    await stopServer(store, rec.id);
+  });
+
+  // Logs are APPENDED to across runs, so without a boundary a reader cannot tell
+  // this run's output from a previous run's. karst writes a marker to the fd
+  // before spawning, making the file self-describing: everything after the
+  // marker belongs to the run that wrote it.
+  it('writes a run marker as the first line before the child spawns', async () => {
+    const port = nextPort();
+    const logPath = join(dir, 'svc.log');
+    const rec = await startHot(store, {
+      ticketId: 1,
+      service: 'backend',
+      command: process.execPath,
+      args: [join(dir, 'server.mjs')],
+      cwd: dir,
+      repoPath: dir,
+      env: { PORT: String(port) },
+      host: '127.0.0.1',
+      port,
+      healthUrl: `http://127.0.0.1:${port}/health`,
+      logPath,
+    });
+
+    expect(readFileSync(logPath, 'utf8').split('\n')[0]!.startsWith(RUN_MARKER_PREFIX)).toBe(true);
 
     await stopServer(store, rec.id);
   });
