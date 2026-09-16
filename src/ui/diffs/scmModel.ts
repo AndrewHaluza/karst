@@ -20,8 +20,6 @@ export interface ScmResourceModel {
   repoPath: string;
   /** Which category group this row was placed in. */
   category: ScmCategory;
-  /** `karst-change:/<label segments>/<name>~<hash>/<path>` — the row's synthetic URI. */
-  uri: string;
 }
 
 /** One collapsible group in the Source Control view. */
@@ -33,54 +31,6 @@ export interface ScmGroupModel {
 }
 
 export type ScmCategory = 'staged' | 'unstaged' | 'untracked' | 'commits' | 'error';
-
-/**
- * A short, stable discriminator for a worktree directory. Not a security
- * hash — it exists only so two worktrees cannot mint the same row URI.
- */
-function repoKey(repoPath: string): string {
-  return createHash('sha1').update(repoPath).digest('hex').slice(0, 8);
-}
-
-/**
- * Split a path-shaped string into URI-safe segments.
- *
- * Drops empties and dot-segments. `repoDisplayPath` renders a repository
- * OUTSIDE the project root as `../<name>` and one under it as `./<sub>`
- * (`src/ui/worktreePath.ts:29-30`), so a label is never a bare name — and a
- * `.` or `..` segment in a `resourceUri` is a path traversal VS Code will not
- * render as an ordinary Source Control row.
- */
-function uriSegments(value: string): string[] {
-  return value
-    .split('/')
-    .filter((segment) => segment !== '' && segment !== '.' && segment !== '..');
-}
-
-/**
- * The row's synthetic URI. VS Code derives an SCM row's label and description
- * from `resourceUri` and offers no override, so the repository is encoded in
- * the path to keep it legible in a flat, repo-spanning group.
- *
- * The URI shape is `karst-change:/<label segments>/<name>~<hash>/<path>`. The
- * label's segments are what a reader sees, with the short hash of the
- * worktree's own `repoPath` — unique by definition — attached to the LAST
- * segment, the repository's own name. Two worktrees can share a label (two
- * checkouts of one repo whose directory names also match), so that hash keeps
- * them apart.
- */
-export function changeUri(repoLabel: string, repoPath: string, path: string): string {
-  const labelParts = uriSegments(repoLabel);
-  // The hash rides the LAST label segment — the repository's own name, which
-  // is what identifies the row — so uniqueness survives dropping `..`.
-  const name = labelParts.pop() ?? 'repo';
-  const segments = [
-    ...labelParts,
-    `${name}~${repoKey(repoPath)}`,
-    ...uriSegments(path),
-  ];
-  return `karst-change:/${segments.map(encodeURIComponent).join('/')}`;
-}
 
 function toResources(
   files: readonly { changeId: string; path: string; status: FileChangeStatus; oldPath: string | null }[],
@@ -97,7 +47,6 @@ function toResources(
     repoLabel,
     repoPath,
     category,
-    uri: changeUri(repoLabel, repoPath, file.path),
   }));
 }
 
@@ -106,10 +55,10 @@ function toResources(
  *
  * A ticket can hold two worktrees for the SAME repository (two checkouts, or
  * a stale row beside a live one). `repoDisplayPath` is a pure function of
- * `repo`, so both render identically — and `changeUri` keys a row's identity
- * on that label, so two files at the same repo-relative path would mint the
- * same URI. `path` is unique per worktree, so its basename always separates
- * them.
+ * `repo`, so both render identically — and a row's identity is keyed on that
+ * label, so two files at the same repo-relative path would be
+ * indistinguishable. `path` is unique per worktree, so its basename always
+ * separates them.
  *
  * Two worktrees can agree on BOTH the repository label and the directory
  * basename (two checkouts named `be` under different parents). The basename
@@ -139,7 +88,7 @@ export function disambiguateLabels(
   const basenameCounts = countsByLabel(withBasename);
   return withBasename.map((spec) =>
     (basenameCounts.get(spec.label) ?? 0) > 1
-      ? { ...spec, label: `${spec.label}~${repoKey(spec.path)}` }
+      ? { ...spec, label: `${spec.label}~${createHash('sha1').update(spec.path).digest('hex').slice(0, 8)}` }
       : spec,
   );
 }

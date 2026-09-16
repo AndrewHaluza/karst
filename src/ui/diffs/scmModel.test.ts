@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { FileChangeStatus } from './git.js';
 import type { TicketChangesSnapshot, WorktreeChangesView } from './snapshot.js';
-import { buildScmGroups, changeUri, disambiguateLabels, type ScmGroupModel } from './scmModel.js';
+import { buildScmGroups, disambiguateLabels, type ScmGroupModel } from './scmModel.js';
 
 function makeWorktreeChangesView(overrides: Partial<WorktreeChangesView> = {}): WorktreeChangesView {
   return {
@@ -232,64 +232,12 @@ describe('buildScmGroups', () => {
       repoLabel: 'backend',
       repoPath: '/wt/backend',
       category: 'staged',
-      uri: expect.stringMatching(/^karst-change:\/backend~[0-9a-f]{8}\/src\/a\/b\.ts$/),
     });
   });
 
   it('returns no groups for an empty snapshot', () => {
     const groups = buildScmGroups(makeSnapshot([]), []);
     expect(groups).toEqual([]);
-  });
-});
-
-describe('changeUri', () => {
-  it('encodes each segment', () => {
-    expect(changeUri('back end', '/a/back end', 'src/a b.ts')).toMatch(
-      /^karst-change:\/back%20end~[0-9a-f]{8}\/src\/a%20b\.ts$/,
-    );
-  });
-
-  it('mints different URIs for two same-labelled worktrees at the same path', () => {
-    const first = changeUri('be', '/a/be', 'src/app.ts');
-    const second = changeUri('be', '/b/be', 'src/app.ts');
-
-    expect(first).not.toBe(second);
-  });
-
-  it('is deterministic across calls', () => {
-    expect(changeUri('be', '/a/be', 'src/app.ts')).toBe(changeUri('be', '/a/be', 'src/app.ts'));
-  });
-
-  it('drops a traversal segment from a beside-the-root label', () => {
-    const uri = changeUri('../arcus', '/home/u/projects/arcus', 'database_gateway/src/server.py');
-
-    expect(uri).toMatch(/^karst-change:\/arcus~[0-9a-f]{8}\/database_gateway\/src\/server\.py$/);
-    expect(uri).not.toContain('%2F');
-    expect(uri).not.toContain('/..');
-  });
-
-  it('drops the leading dot from a root-repo label', () => {
-    expect(changeUri('./arcus', '/home/u/projects/arcus', 'a.ts')).toMatch(
-      /^karst-change:\/arcus~[0-9a-f]{8}\/a\.ts$/,
-    );
-  });
-
-  it('keeps a nested label legible as unescaped intermediate segments', () => {
-    expect(changeUri('./services/api', '/r/services/api', 'a.ts')).toMatch(
-      /^karst-change:\/services\/api~[0-9a-f]{8}\/a\.ts$/,
-    );
-  });
-
-  it('falls back to `repo` when the label reduces to nothing', () => {
-    expect(changeUri('', '/a/be', 'a.ts')).toMatch(/^karst-change:\/repo~[0-9a-f]{8}\/a\.ts$/);
-  });
-
-  it('falls back to `repo` when the label is only dot-segments', () => {
-    expect(changeUri('..', '/a/be', 'a.ts')).toMatch(/^karst-change:\/repo~[0-9a-f]{8}\/a\.ts$/);
-  });
-
-  it('drops a traversal segment from the file path', () => {
-    expect(changeUri('./be', '/a/be', 'a/../b.ts')).not.toContain('/../');
   });
 });
 
