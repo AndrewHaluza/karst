@@ -1473,6 +1473,7 @@ describe('review', () => {
     try {
       expect(loadManifest(path).review).toEqual({
         maxFixAttempts: 3,
+        stallTimeoutMinutes: 60,
         requireIndependentSignal: true,
         openChanges: false,
         findings: { enabled: true, blockingSeverity: 'high', maxFindings: 50 },
