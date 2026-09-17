@@ -1099,7 +1099,7 @@ describe('dashboard webview.html', () => {
   it('routes every OTHER mutating/handoff control through the pending runtime with a requestId', () => {
     // edit-ticket, create-follow-up-ticket, open-worktree-terminal,
     // open-worktree-folder, resolve-conflicts, resume-ticket, stop-server,
-    // restart-server, spin-servers (row + panel), open-server, open-pr,
+    // restart-server, start-server, spin-servers (panel), open-server, open-pr,
     // open-ticket-link, open-stage-log, switch-agent — all fall through the
     // generic branch of the delegated click handler, which begins pending and
     // attaches a requestId before posting.
@@ -1110,6 +1110,33 @@ describe('dashboard webview.html', () => {
     expect(generic).toMatch(/karstIsPending\(btn\)/);
     expect(generic).toMatch(/karstBeginPending\(btn, requestId\)/);
     expect(generic).toMatch(/requestId \}\)/);
+  });
+
+  it('starts one service from an offline row, while the header keeps whole-ticket Start', () => {
+    const h = bootPreviewHarness();
+    const state: DashboardState = {
+      ...renderStateFor('scope'),
+      hasRunnableRepos: true,
+      servers: [
+        {
+          id: 7,
+          ticketId: 1,
+          service: 'api',
+          host: 'localhost',
+          port: 5173,
+          status: 'stopped',
+          logPath: null,
+        },
+      ],
+    };
+    h.receive({ type: 'state', state });
+    const row = h.htmlOf('servers');
+    expect(row).toContain('data-act="start-server"');
+    expect(row).toContain('data-id="7"');
+    expect(row).not.toContain('data-act="spin-servers"');
+    const header = h.htmlOf('srvOps');
+    expect(header).toContain('data-act="spin-servers"');
+    expect(header).not.toMatch(/data-act="spin-servers"[^>]*data-id=/);
   });
 
   /**

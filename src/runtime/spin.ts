@@ -1,27 +1,23 @@
-import { join } from 'node:path';
 import type { Store } from '../store/db.js';
 import type { Manifest } from '../manifest/types.js';
 import { resolvePlannedBaseRef } from '../workflow/baseRef.js';
 import { makePortAllocator, type PortAllocator } from '../resolver/allocator.js';
 import { resolve } from '../resolver/resolve.js';
 import { createWorktree, removeWorktree, type WorktreeRecord } from './worktree.js';
-import { buildSpawnEnv, shadowedOverrideKeys } from './env.js';
-import { getEnvOverrides, envOverridesForService } from '../store/ticketEnvOverrides.js';
+import { getEnvOverrides } from '../store/ticketEnvOverrides.js';
 import { ensureBaseline, addBaselineRef } from './baseline.js';
 import {
-  startHot,
   stopServer,
   stopTicketServers,
   pruneOrphanServers,
   type ServerRecord,
 } from './supervisor.js';
-import { serverLogPath } from './serverLog.js';
 import { preflightSpin } from './preflight.js';
 import { portsToAvoid } from './portProbe.js';
 import { getTicket } from '../store/tickets.js';
 import { ticketWorktreeNames } from './ticketBranch.js';
 import { isRunnable } from '../manifest/runnable.js';
-import { serviceLaunch } from './serviceLaunch.js';
+import { startResolvedService } from './startService.js';
 // Re-exported: the token expansion moved to `serviceLaunch.ts` (baseline needs
 // it too), and this is where its tests and callers have always found it.
 export { expandEnvTokens } from './serviceLaunch.js';
@@ -301,62 +297,11 @@ export async function spinTicket(
     for (const name of resolved.startOrder) {
       bail();
       const repo = manifest.repositories[name]!;
-      // startOrder is built from runnable repos only, so this never fires; the
-      // guard is what lets the compiler drop the old `!` on start/ports.
       if (!isRunnable(repo)) continue;
-      const service = repo.service;
-      const cwd = worktreePath[name]!;
-      const resolvedSvc = resolved.services[name]!;
-
-      // The ticket's own env, layered between the repository's `.env` and
-      // karst's resolved wiring. Read per service so `*` and the service's own
-      // scope both apply; the origin `.env` is never written.
-      const overrides = envOverridesForService(envOverrides, name);
-      const overrideKeys = Object.keys(overrides);
-      if (overrideKeys.length > 0) {
-        const shadowed = shadowedOverrideKeys(overrides, resolvedSvc.env);
-        debug?.(
-          `[runtime] ticket ${ticketId}: ${name} applying ${overrideKeys.length} env override(s)` +
-            (shadowed.length > 0 ? ` — ignored (karst-owned): ${shadowed.join(', ')}` : ''),
-        );
-      }
-      const spawnEnv = buildSpawnEnv(join(repo.repoPath, '.env'), resolvedSvc.env, overrides);
-      // Expand ${PORT}-style tokens against the resolved env so a manifest can
-      // pin the port in the command (independent of the worktree's own config).
-      const httpSlot = service.ports.find((p) => p.name === 'http') ?? service.ports[0]!;
-      const ownPort = resolvedSvc.ports[httpSlot.name]!;
-      // A command in the worktree or a container image — `serviceLaunch` is the
-      // one place that difference is decided, so baseline cannot drift from it.
-      const { command, args, container, healthUrl } = serviceLaunch({
-        service,
-        name,
-        ticketId,
-        env: spawnEnv,
-        host: manifest.host,
-        port: ownPort,
-        cwd,
-      });
-      debug?.(
-        `[runtime] ticket ${ticketId}: starting ${name} (port ${ownPort}, cwd ${cwd}` +
-          `${container ? `, container ${container}` : ''})`,
-      );
-      const rec = await startHot(store, {
-        ticketId,
-        service: name,
-        command,
-        args,
-        cwd,
-        env: spawnEnv,
-        host: manifest.host,
-        port: ownPort,
-        healthUrl,
-        requireIdentity: service.healthIdentity === true,
-        logPath: serverLogPath(cwd, name),
-        repoPath: repo.repoPath,
-        container,
-        signal,
-        onReclaim: (pid) => reclaimedPids.push(pid),
-        debug,
+      const rec = await startResolvedService({
+        store, manifest, ticketId, name, resolved,
+        cwd: worktreePath[name]!, envOverrides, signal,
+        onReclaim: (pid) => reclaimedPids.push(pid), debug,
       });
       servers.push(rec);
       debug?.(`[runtime] ticket ${ticketId}: ${name} healthy (pid ${rec.pid})`);

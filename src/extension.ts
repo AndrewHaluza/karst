@@ -23,6 +23,11 @@ import { addressPrFeedback } from './extension/ops/prFeedbackAction.js';
 import { toWorktreeSpecs } from './extension/ops/worktreeSpecs.js';
 import { fixBriefForTicket } from './extension/ops/fixBriefForTicket.js';
 import { startFixWatchdog } from './extension/ops/fixWatchdog.js';
+import { createLivenessLoop } from './extension/ops/livenessLoop.js';
+import {
+  stopServerRow, startServerRow, restartServerRow, openServerRow, copyServerUrlRow,
+  type ServerOpsDeps,
+} from './extension/ops/serverOps.js';
 import { watchExternalChanges } from './store/externalChanges.js';
 import { SidebarViewManager } from './ui/sidebar/panel.js';
 import { makeSidebarViewHost, SIDEBAR_VIEW_ID } from './ui/sidebar/host.js';
@@ -279,7 +284,7 @@ import { casStatus, GRAPH_RUN_TRANSITIONS, type GraphDb } from './store/graph/tr
 import { canonicalPath } from './runtime/pathScope.js';
 import { createHookChannelRecorder } from './diagnostics/hookChannel.js';
 import { writeCurrentEndpoint } from './agent/hookFailureLog.js';
-import { listWorktreesByTicket, listWorktreesByProject, listServersByTicket, serverAddress } from './store/dashboard.js';
+import { listWorktreesByTicket, listWorktreesByProject, listServersByTicket } from './store/dashboard.js';
 import {
   LAUNCH_BUILD_SCRIPT,
   LAUNCH_BUILD_TIMEOUT_MS,
@@ -306,7 +311,7 @@ import { resumeBlockedStage } from './workflow/stageResume.js';
 import { sendBackState, sendBackToImplement } from './workflow/sendBack.js';
 import { retryGateStage, retryGateState } from './workflow/retryGate.js';
 import { buildConflictBrief } from './workflow/conflictSession.js';
-import { stopServer, stopTicketServers } from './runtime/supervisor.js';
+import { stopTicketServers } from './runtime/supervisor.js';
 import { describeReap } from './runtime/worktreeServers.js';
 import { reapOrphanedPorts, describeOrphanReap } from './runtime/orphanPorts.js';
 import { systemAsyncProcessFacts } from './runtime/serverIdentity.js';
@@ -2820,6 +2825,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // "Open in Window": reveal or mint this ticket's standalone panel.
     (ticketId) => serverLogsManager.open(ticketId),
   );
+  const liveness = createLivenessLoop({
+    store: localStore, openPanelCount: () => dashboard.openCount(),
+    refresh: () => { provider.refresh(); dashboard.pushAll(); }, logError,
+    info: (m) => logger.info(m), debug: (m) => logger.debug(m),
+  }); liveness.start();
+  context.subscriptions.push(liveness, vscode.window.onDidChangeWindowState((s) => { if (s.focused) void liveness.sweepNow(); }));
 
   // A karst.yml edit made OUTSIDE karst (hand edit in the editor, a teammate's
   // commit, `git checkout`) must reach an in-progress ticket without a session
@@ -7803,35 +7814,27 @@ function makeDashboardActions(
     logError,
   );
 
+  const serverDeps: ServerOpsDeps = {
+    store,
+    notify: {
+      info: (m) => void vscode.window.showInformationMessage(m),
+      warn: (m) => void vscode.window.showWarningMessage(m),
+      error: async (m) => { await vscode.window.showErrorMessage(m); },
+    },
+    afterServerChange,
+    loadManifest: async () => (await resolveManifest(debug)) ?? null,
+    openExternal: (url) => void vscode.env.openExternal(vscode.Uri.parse(url)),
+    copyText: (text) => void vscode.env.clipboard.writeText(text),
+    debug,
+  };
+
   return {
-    stopServer: async (serverId) => {
-      await stopServer(store, serverId);
-      afterServerChange();
-    },
-    restartServer: async (serverId) => {
-      await stopServer(store, serverId);
-      afterServerChange();
-      void vscode.window.showInformationMessage(
-        `Stopped server — re-spin ticket #${ticketId} to restart it with fresh ports.`,
-      );
-    },
-    openServer: (serverId) => {
-      const addr = serverAddress(store, serverId);
-      if (!addr) {
-        void vscode.window.showWarningMessage('That server is no longer running.');
-        return;
-      }
-      void vscode.env.openExternal(vscode.Uri.parse(`http://${addr.host}:${addr.port}`));
-    },
+    stopServer: (serverId) => stopServerRow(serverDeps, serverId),
+    restartServer: (serverId) => restartServerRow(serverDeps, serverId),
+    startServer: (serverId) => startServerRow(serverDeps, serverId),
+    openServer: (serverId) => openServerRow(serverDeps, serverId),
     // Copy the server URL to the clipboard (the webview flashes its own feedback).
-    copyServerUrl: (serverId) => {
-      const addr = serverAddress(store, serverId);
-      if (!addr) {
-        void vscode.window.showWarningMessage('That server is no longer running.');
-        return;
-      }
-      void vscode.env.clipboard.writeText(`http://${addr.host}:${addr.port}`);
-    },
+    copyServerUrl: (serverId) => copyServerUrlRow(serverDeps, serverId),
     // No servers yet → let the user spin them from the dashboard (the command
     // owns the service picker + progress; it refreshes the dashboard on success).
     spinServers: () => void vscode.commands.executeCommand('karst.spinTicket', ticketId),
