@@ -1493,13 +1493,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const outcome = await applyAgentSwitchSelection({
         read: () => {
           const ticket = getTicket(localStore, ticketId);
+          const defaults = resolveAgentDefaults(
+            currentManifest() ?? emptyManifest(),
+            ticket.agentPreset,
+          );
           return {
             stageCurrent: ticket.stageCurrent,
-            provider: resolveProvider(ticket.agentProvider, currentManifest()?.agentProvider),
+            provider: resolveProvider(ticket.agentProvider, defaults.provider),
             ticketModel: ticket.model,
-            defaultModel: currentManifest()?.defaultModel ?? null,
+            defaultModel: defaults.model ?? null,
             ticketEffort: ticket.effort,
-            defaultEffort: currentManifest()?.defaultEffort ?? null,
+            defaultEffort: defaults.effort ?? null,
             fixExecutionActive: listRecoveryRounds(localStore, ticketId)
               .some((round) => round.status === 'fixing'),
           };
@@ -3375,11 +3379,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Tag each captured session with the core that minted it, so a later switch
   // (this ticket's override OR the manifest default) is detectable instead of
   // surfacing as a failed `--resume` on the next Continue.
-  const sessionProviderFor = (ticketId: number): AgentProvider | null =>
-    resolveProvider(
-      getTicket(localStore, ticketId).agentProvider,
-      currentManifest()?.agentProvider,
+  const sessionProviderFor = (ticketId: number): AgentProvider | null => {
+    const ticket = getTicket(localStore, ticketId);
+    const defaults = resolveAgentDefaults(
+      currentManifest() ?? emptyManifest(),
+      ticket.agentPreset,
     );
+    return resolveProvider(ticket.agentProvider, defaults.provider);
+  };
   const rememberedPort = context.workspaceState.get<number>(HOOK_PORT_KEY) ?? 0;
   const turnTracker = new TurnTracker();
   endpoint = await startHookEndpoint(
@@ -6613,17 +6620,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // usual scoping/seed/materialization path is preserved.
   const toRecoveryCandidate = (
     ticket: ReturnType<typeof listTickets>[number],
-  ): RecoveryCandidate => ({
-    id: ticket.id,
-    agentState: ticket.agentState,
-    canResume: shouldResumeSession({
-      sessionId: ticket.sessionId,
-      sessionProvider: ticket.sessionProvider,
-      stageCurrent: ticket.stageCurrent as StageKey,
-      provider: resolveProvider(ticket.agentProvider, currentManifest()?.agentProvider),
-    }),
-    hasWorktree: listWorktreesByTicket(localStore, ticket.id).length > 0,
-  });
+  ): RecoveryCandidate => {
+    const defaults = resolveAgentDefaults(
+      currentManifest() ?? emptyManifest(),
+      ticket.agentPreset,
+    );
+    return {
+      id: ticket.id,
+      agentState: ticket.agentState,
+      canResume: shouldResumeSession({
+        sessionId: ticket.sessionId,
+        sessionProvider: ticket.sessionProvider,
+        stageCurrent: ticket.stageCurrent as StageKey,
+        provider: resolveProvider(ticket.agentProvider, defaults.provider),
+      }),
+      hasWorktree: listWorktreesByTicket(localStore, ticket.id).length > 0,
+    };
+  };
   const projectId = currentProject()?.id;
   const currentTickets =
     projectId === undefined ? [] : listTickets(localStore, { projectId });
