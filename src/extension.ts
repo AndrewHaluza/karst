@@ -1516,6 +1516,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           agentProvider: p,
           model: m ?? '',
           effort: e ?? '',
+          // The switch sets an explicit identity, so a preset left on the
+          // ticket would be inert (explicit fields win) and misleading.
+          agentPreset: '',
         }),
         dispose: () => sessions.disposeSession(ticketId),
         launch: async (options) => {

@@ -212,6 +212,54 @@ describe('openStore', () => {
     expect(reopened.db.pragma('user_version', { simple: true })).toBe(61);
   });
 
+  it('migrates a pre-v61 tickets table by adding agent_preset as NULL, idempotently', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, 'karst.db');
+    const legacy = new Database(path);
+    legacy.exec(
+      `CREATE TABLE tickets (
+         id INTEGER PRIMARY KEY, key TEXT, title TEXT NOT NULL,
+         model TEXT, agent_provider TEXT)`,
+    );
+    legacy
+      .prepare(
+        "INSERT INTO tickets (id, key, title, model, agent_provider) VALUES (1,'A-1','t','claude-sonnet-5','claude')",
+      )
+      .run();
+    legacy.pragma('user_version = 60');
+    legacy.close();
+
+    const migrated = openStore(path);
+    cleanups.push(() => migrated.close());
+    const cols = new Set(
+      (migrated.db.prepare("PRAGMA table_info('tickets')").all() as { name: string }[]).map(
+        (c) => c.name,
+      ),
+    );
+    expect(cols.has('agent_preset')).toBe(true);
+    expect(
+      (
+        migrated.db.prepare('SELECT agent_preset FROM tickets WHERE id = 1').get() as {
+          agent_preset: string | null;
+        }
+      ).agent_preset,
+    ).toBeNull();
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(61);
+
+    // A second open is a no-op: the guard reads the CURRENT columns, not the
+    // version.
+    const reopened = openStore(path);
+    cleanups.push(() => reopened.close());
+    const cols2 = new Set(
+      (reopened.db.prepare("PRAGMA table_info('tickets')").all() as { name: string }[]).map(
+        (c) => c.name,
+      ),
+    );
+    expect(cols2.has('agent_preset')).toBe(true);
+    expect(reopened.db.pragma('user_version', { simple: true })).toBe(61);
+  });
+
   it('migrates a v53 DB to v54, adding servers.container as NULL', () => {
     const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
     cleanups.push(() => rmSync(dir, { recursive: true, force: true }));

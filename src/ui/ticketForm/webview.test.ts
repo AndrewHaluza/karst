@@ -1121,6 +1121,7 @@ describe('ticket-form webview.html — agent preset picker', () => {
     const render = loadFunction('renderAgentPresetSelect', {
       draft,
       el: () => state,
+      lastSessionOpen: false,
     }) as (n: unknown, s: unknown, d: unknown) => void;
     render(names, selected, defaultName);
     return state.innerHTML;
@@ -1154,5 +1155,20 @@ describe('ticket-form webview.html — agent preset picker', () => {
     expect(block).toContain("draft.selectedAgentProvider = '';");
     // The identity picker clears the preset draft (a preset is a core+model pair).
     expect(HTML).toContain("draft.agentPreset = '';");
+  });
+
+  it('locks the preset select while a session is open, like the identity picker', () => {
+    const state = { innerHTML: '', disabled: false };
+    const render = loadFunction('renderAgentPresetSelect', {
+      draft: { agentPreset: null },
+      el: () => state,
+      lastSessionOpen: true,
+    }) as (n: unknown, s: unknown, d: unknown) => void;
+    render(['fast'], null, 'fast');
+    expect(state.disabled).toBe(true);
+    // The change handler refuses the change as well — a disabled control can
+    // still be driven programmatically.
+    const block = HTML.slice(HTML.indexOf("el('agentPresetSelect').addEventListener"));
+    expect(block).toContain('if (lastSessionOpen) return;');
   });
 });

@@ -1241,7 +1241,9 @@
   // Agent preset picker: "Inherit (settings: <default preset>)" plus every
   // preset the manifest defines. A saved preset the manifest no longer defines
   // stays visible, marked "(unknown)" — never silently dropped (UI-R34 mirror
-  // discipline: the host supplies the list, the page renders it).
+  // discipline: the host supplies the list, the page renders it). The picker IS
+  // the agent identity, so it locks with the identity picker while a session
+  // runs (the same lock the core/model/effort picker honors).
   function renderAgentPresetSelect(names, selected, defaultName) {
     const list = names || [];
     const sel = draft.agentPreset ?? selected ?? '';
@@ -1255,7 +1257,9 @@
     if (sel && list.indexOf(sel) === -1) {
       opts.push(`<option value="${esc(sel)}" selected>${esc(sel)} (unknown)</option>`);
     }
-    el('agentPresetSelect').innerHTML = opts.join('');
+    const select = el('agentPresetSelect');
+    select.innerHTML = opts.join('');
+    select.disabled = !!lastSessionOpen;
   }
 
   // Step rail state: repos done once ≥1 selected; approach active while
@@ -2027,6 +2031,9 @@
   // until submit.
   el('agentPresetSelect').addEventListener('change', (e) => {
     const select = e.target;
+    // The preset IS the agent identity: refuse the change while a session runs,
+    // exactly like the disabled core/model/effort picker (UI-R23 lock).
+    if (lastSessionOpen) return;
     const id = select.value;
     // Keep the RAW value: '' is the EXPLICIT "Inherit" pick and must survive as
     // a set draft value, so submit/save carry null instead of falling back to
