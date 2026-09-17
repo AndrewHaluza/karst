@@ -200,6 +200,18 @@ export interface GraphProfileConfig {
 }
 
 /**
+ * A named bundle of agent core + model (+ optional effort) that a ticket, a
+ * process role, or the manifest default may reference. Deliberately the same
+ * {provider, model, effort?} shape as `GraphProfileConfig`, but global: the
+ * graph profiles stay nested per-approach and are out of scope.
+ */
+export interface AgentPreset {
+  provider: AgentProvider;
+  model: string;
+  effort?: string;
+}
+
+/**
  * One trusted command definition a `CommandNode` may reference. `command` is
  * the executable name (resolved to an absolute host path at compile time),
  * `args` the fixed argv — never shell-interpolated. `cwd`/`access` use the
@@ -532,6 +544,14 @@ export interface ProcessAssignmentConfig {
    * value normalizes to inherit (the manifest `defaultEffort` at launch).
    */
   effort?: string;
+  /**
+   * Per-process agent-preset reference (§ agent presets). Names a key of the
+   * top-level `agentPresets` map; reference integrity is checked at manifest
+   * load (`assertAgentPresetReferences`). Beats the ticket preset and the
+   * manifest `defaultAgentPreset`, and is itself beaten by this block's
+   * explicit `provider`/`model`/`effort`.
+   */
+  preset?: string;
   // NOTE: there is deliberately no `instructions` field. A process's prompt is
   // the BODY of the profile named by `agent` — one place to write it, one place
   // to read it. The retired key is still reported at load (`inertKeys.ts`).
@@ -653,6 +673,21 @@ export interface Manifest {
    * error at Save, never silently discarded (see `agent/effort.ts`).
    */
   defaultEffort?: string;
+  /**
+   * Named agent core + model bundles (§ agent presets). A ticket's
+   * `agentPreset`, a process role's `preset`, or `defaultAgentPreset` may
+   * reference one by name. A preset supplies the manifest-level defaults; the
+   * existing per-ticket and per-process explicit fields still win over it.
+   * Absent → no presets, and resolution is byte-identical to the legacy
+   * agentProvider/defaultModel/defaultEffort behavior.
+   */
+  agentPresets?: Record<string, AgentPreset>;
+  /**
+   * Preset applied to every ticket that names none of its own. Must reference
+   * a key of `agentPresets` — an unknown name is refused at load, never
+   * silently ignored. Blank normalizes to undefined (no default preset).
+   */
+  defaultAgentPreset?: string;
   /**
    * How many days a ticket stays visible at `done` before the periodic sweep
    * archives it (§ auto-archiving done tickets). Defaults to 3 — a ticket is

@@ -17,6 +17,7 @@
 
 import { DEFAULT_FIX_STALL_TIMEOUT_MINUTES } from './types.js';
 import type {
+  AgentPreset,
   ApproachDef,
   BindVar,
   DependsOn,
@@ -98,6 +99,16 @@ export function manifest(
     portRange: [4000, 4999],
     baselineBranch: 'develop',
     repositories,
+    ...over,
+  };
+}
+
+/** An agentPresets block; one entry so a reference test has something to name. */
+export function agentPresets(
+  over: Record<string, AgentPreset> = {},
+): Record<string, AgentPreset> {
+  return {
+    fast: { provider: 'opencode', model: 'opencode-go/deepseek-v4-flash' },
     ...over,
   };
 }
