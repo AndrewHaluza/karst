@@ -4,6 +4,7 @@ import { stageBadge } from '../../model/stageBadge.js';
 import { stageColorClass } from '../../model/stagePalette.js';
 import type { Glyph } from '../../model/glyph.js';
 import { sessionAction, type SessionAction } from '../../agent/sessionAction.js';
+import { resolveProvider } from '../../agent/registry.js';
 import type { AgentProvider } from '../../manifest/types.js';
 import type { AgentDefaults } from '../../agent/agentPresets.js';
 
@@ -113,7 +114,9 @@ export function buildTicketNodes(
       stageClass: stageColorClass(badge.stage),
       stageChip: badge.stage ?? 'none',
       blocker,
-      sessionAction: sessionAction(t, defaultCore),
+      // `defaultCore` is already the effective core when `agentDefaults` is
+      // supplied; the resolve keeps an explicit ticket core when it is not.
+      sessionAction: sessionAction(t, resolveProvider(t.agentProvider, defaultCore)),
       lastActiveAt: current?.endedAt ?? current?.startedAt ?? null,
       model: t.model,
       archived: t.archivedAt !== null,
