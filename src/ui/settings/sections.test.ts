@@ -50,6 +50,7 @@ describe('settings sections — vocabulary', () => {
         'closeDoneTerminalsWithTicket',
         'conventions',
         'debug',
+        'defaultAgentPreset',
         'defaultEffort',
         'defaultModel',
         'diffsInSourceControl',
@@ -118,6 +119,20 @@ describe('settings sections — mergeSection', () => {
 
     expect(merged.id).toBe('karst');
     expect(merged.uat).toEqual(base.uat);
+  });
+
+  it('a general save preserves agentPresets from the base and carries defaultAgentPreset', () => {
+    const base: Manifest = {
+      ...BASE,
+      agentPresets: { fast: { provider: 'opencode', model: 'opencode-go/deepseek-v4-flash' } },
+      defaultAgentPreset: 'fast',
+    };
+    const merged = mergeSection(base, { ...base, host: '0.0.0.0' }, 'general');
+
+    // agentPresets is claimed by no section: a General Save must never drop it.
+    expect(merged.agentPresets).toEqual(base.agentPresets);
+    expect(merged.defaultAgentPreset).toBe('fast');
+    expect(merged.host).toBe('0.0.0.0');
   });
 
   it('a quality save leaves every other section untouched', () => {
