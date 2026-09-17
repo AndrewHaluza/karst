@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS tickets (
   project_id        INTEGER,              -- -> projects.id; NULL = unassigned (pre-v6 ticket)
   -- v12 agent_provider column (kept in sync with migrations.ts v12 ALTER):
   agent_provider    TEXT,                 -- per-ticket agent core override; NULL = inherit manifest default
-  -- v61 agent preset column (kept in sync with migrations.ts v61 ALTER):
+  -- v62 agent preset column (kept in sync with migrations.ts v62 ALTER):
   agent_preset      TEXT,                 -- per-ticket agent preset name; NULL = inherit defaultAgentPreset
   -- v13 session_provider column (kept in sync with migrations.ts v13 ALTER):
   session_provider  TEXT,                 -- agent core that minted session_id; NULL = unknown, never resume
@@ -566,6 +566,10 @@ CREATE TABLE IF NOT EXISTS worktrees (
   needs_force_push INTEGER,    -- set when a base change rebased this branch (§ per-repo base)
   created_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
+-- v61: one row per (ticket, path). The pair is the worktree's identity, and
+-- without this a re-cut of a checkout git had pruned INSERTed a second row that
+-- rendered as a duplicate dashboard card (see runtime/worktree.ts).
+CREATE UNIQUE INDEX IF NOT EXISTS idx_worktrees_ticket_path ON worktrees(ticket_id, path);
 
 CREATE TABLE IF NOT EXISTS worktree_archives (
   id              INTEGER PRIMARY KEY,

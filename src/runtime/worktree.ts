@@ -178,7 +178,8 @@ export function createWorktree(
       store.db
         .prepare(
           `INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref, deps_mode)
-           VALUES (?, ?, ?, ?, ?, 'inherited')`,
+           VALUES (?, ?, ?, ?, ?, 'inherited')
+           ON CONFLICT (ticket_id, path) DO NOTHING`,
         )
         .run(ticketId, repoPath, path, branch, baseRef);
     }
@@ -208,6 +209,13 @@ export function createWorktree(
     git(repoPath, ['worktree', 'add', '-q', '-b', branch, path, startPoint]);
   }
 
+  // UPSERT, not a plain INSERT: git listing no worktree at `path` does not mean
+  // the store has no row for it. A checkout pruned from git (deleted by hand, or
+  // reaped while the row survived) reaches here with its row still present, and
+  // a second INSERT would leave the ticket with two rows for one checkout — the
+  // duplicated dashboard worktree cards. The unique index (v61) makes that
+  // impossible; the checkout just cut is authoritative, so it refreshes the
+  // row's branch and base ref while `created_at` stays the original.
   const record: WorktreeRecord = {
     ticketId,
     repoPath,
@@ -222,7 +230,9 @@ export function createWorktree(
   store.db
     .prepare(
       `INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref, deps_mode)
-       VALUES (?, ?, ?, ?, ?, 'inherited')`,
+       VALUES (?, ?, ?, ?, ?, 'inherited')
+       ON CONFLICT (ticket_id, path) DO UPDATE SET
+         repo = excluded.repo, branch = excluded.branch, base_ref = excluded.base_ref`,
     )
     .run(ticketId, repoPath, path, branch, baseRef);
 

@@ -40,7 +40,7 @@ export function readSchema(): string {
 }
 
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 61;
+export const SCHEMA_VERSION = 62;
 
 /** v2 ticket-field columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -2330,13 +2330,41 @@ export function migrate(db: Database): void {
   }
 
   if (current < 61) {
-    // v61: `tickets.agent_preset` — the per-ticket agent-preset override. NULL
-    // is the honest "inherit manifest.defaultAgentPreset" for every pre-v61
+    // v61: `worktrees` gains the uniqueness it always assumed. `createWorktree`
+    // adopts an existing row when git still lists the checkout, but when the
+    // checkout was pruned from git while the row survived it took the create
+    // path and INSERTed a second row for the same (ticket, path) — once per
+    // re-spin, which is why the dashboard rendered four identical worktree
+    // cards. Collapse the existing duplicates (the earliest row wins: it
+    // carries the true `created_at`, and every later one describes the same
+    // checkout) before the index can be created, then create it. Guarded by
+    // the index's presence rather than the version, so a fresh DB (schema.sql
+    // already carries it) skips the step and a re-open is a no-op.
+    const wtIndex61 = db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?")
+      .get('idx_worktrees_ticket_path') as { name: string } | undefined;
+    if (!wtIndex61 && tableColumns(db, 'worktrees').size > 0) {
+      db.exec(
+        `DELETE FROM worktrees
+          WHERE rowid NOT IN (
+            SELECT MIN(rowid) FROM worktrees GROUP BY ticket_id, path
+          )`,
+      );
+      db.exec(
+        'CREATE UNIQUE INDEX IF NOT EXISTS idx_worktrees_ticket_path ON worktrees(ticket_id, path)',
+      );
+    }
+  }
+
+  if (current < 62) {
+    // v62: `tickets.agent_preset` — the per-ticket agent-preset override. NULL
+    // is the honest "inherit manifest.defaultAgentPreset" for every pre-v62
     // row: there was no preset concept to backfill. The guard reads the CURRENT
     // columns, so a fresh DB (schema.sql already carries it) is a no-op and a
-    // re-open is idempotent.
-    const cols61 = ticketColumns(db);
-    if (cols61.has('model') && !cols61.has('agent_preset')) {
+    // re-open is idempotent. (v61 went to the worktrees unique index on
+    // develop; this branch's migration keeps its own number after the merge.)
+    const cols62 = ticketColumns(db);
+    if (cols62.has('model') && !cols62.has('agent_preset')) {
       db.exec('ALTER TABLE tickets ADD COLUMN agent_preset TEXT');
     }
   }
