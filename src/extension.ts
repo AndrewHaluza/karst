@@ -11,6 +11,7 @@ import { backfillSpillOversized } from './attachments/spill.js';
 import { runImmediateTransaction } from './store/transactions.js';
 import { describeStoreOpenFailure } from './extension/storeOpenFailure.js';
 import { ticketIdArg } from './extension/ops/args.js';
+import { spinRepoPicks, servicesOnlyArg } from './extension/ops/spinPicks.js';
 import type { Notify } from './extension/ops/notify.js';
 import { archiveTicketOp, unarchiveTicketOp, type ArchiveOpsDeps } from './extension/ops/archiveOps.js';
 import { deleteTicketOp, createFollowUpTicketOp, type LifecycleOpsDeps } from './extension/ops/lifecycleOps.js';
@@ -337,7 +338,7 @@ import { DEFAULT_ARCHIVE_DONE_AFTER_DAYS, DEFAULT_RESILIENCE } from './manifest/
 import type { PathContext } from './ui/dashboard/state.js';
 import { repoDisplayPath } from './ui/worktreePath.js';
 import { writeRepoSignals } from './manifest/write.js';
-import { isRunnable, serviceOf } from './manifest/runnable.js';
+import { isRunnable } from './manifest/runnable.js';
 import { makeManifestCache } from './extension/manifestCache.js';
 import {
   createReportIssueHandler,
@@ -6255,27 +6256,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return;
       }
 
-      // Pre-select all repositories on first spin; on later spins default to the
-      // set the user last chose for THIS ticket (workspace-scoped memory). A
-      // repository removed from the manifest since then simply drops out.
-      //
-      // Repositories with no service are offered too — they get a worktree so the
-      // agent can edit them, they just never start a process. The description
-      // says so, rather than leaving the user to wonder why nothing came up.
-      const repoNames = Object.keys(manifest.repositories);
+      // Pre-select all repositories on first spin; later spins default to the set
+      // the user last chose for THIS ticket (workspace-scoped memory); a repo that
+      // left the manifest drops out. `servicesOnly` (the dashboard's server
+      // Start/Restart) narrows the list to runnable repos — see `spinPicks.ts`.
+      const servicesOnly = servicesOnlyArg(arg);
       const memKey = `karst.spin.services.${ticketId}`;
       const remembered = context.workspaceState.get<string[]>(memKey);
-      const items = repoNames.map((name) => ({
-        label: name,
-        description: serviceOf(manifest, name) !== undefined
-          ? undefined
-          : 'no service — worktree only',
-        picked: remembered ? remembered.includes(name) : true,
-      }));
+      const items = spinRepoPicks(manifest, remembered, { servicesOnly });
+      if (items.length === 0) {
+        void vscode.window.showInformationMessage('No repository declares a service to run.');
+        return;
+      }
 
       const picked = await vscode.window.showQuickPick(items, {
         canPickMany: true,
-        title: `Spin ${label} — select repositories`,
+        title: servicesOnly
+          ? `Start ${label} — select services`
+          : `Spin ${label} — select repositories`,
       });
       if (!picked || picked.length === 0) return; // cancelled or empty
       const hot = picked.map((i) => i.label);
@@ -7828,6 +7826,10 @@ function makeDashboardActions(
     debug,
   };
 
+  // Start/Restart mean "run the services" — `servicesOnly` drops serviceless repos.
+  const spinServices = () =>
+    void vscode.commands.executeCommand('karst.spinTicket', { ticketId, servicesOnly: true });
+
   return {
     stopServer: (serverId) => stopServerRow(serverDeps, serverId),
     restartServer: (serverId) => restartServerRow(serverDeps, serverId),
@@ -7835,16 +7837,14 @@ function makeDashboardActions(
     openServer: (serverId) => openServerRow(serverDeps, serverId),
     // Copy the server URL to the clipboard (the webview flashes its own feedback).
     copyServerUrl: (serverId) => copyServerUrlRow(serverDeps, serverId),
-    // No servers yet → let the user spin them from the dashboard (the command
-    // owns the service picker + progress; it refreshes the dashboard on success).
-    spinServers: () => void vscode.commands.executeCommand('karst.spinTicket', ticketId),
+    // No servers yet → spin from the dashboard (that command owns picker+progress).
+    spinServers: spinServices,
     // Restart-all IS a re-spin: `spinTicket` already calls `stopTicketServers`
-    // before starting, so this deliberately shares a command with `spinServers`
-    // rather than adding a second path that would drift from it. The two stay
-    // distinct by AVAILABILITY, not by implementation — the dashboard disables
-    // Start when nothing is offline and disables Restart when there is nothing
-    // to restart. Do not "deduplicate" these by deleting one button.
-    restartServers: () => void vscode.commands.executeCommand('karst.spinTicket', ticketId),
+    // before starting, so it shares one command with `spinServers` rather than
+    // drifting. The two stay distinct by AVAILABILITY, not implementation — the
+    // dashboard disables Start when nothing is offline and Restart when there is
+    // nothing to restart. Do not "deduplicate" by deleting one button.
+    restartServers: spinServices,
     // Stop-all is the one genuinely new effect: kill every running server on the
     // ticket, retaining the rows so they come back as offline and restartable.
     stopServers: async () => {
