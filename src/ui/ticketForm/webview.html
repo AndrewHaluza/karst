@@ -1143,9 +1143,11 @@
   let lastSelectedEffort = null;
   // Last identity the HOST pushed for the ticket's agent preset
   // (state.selectedAgentPreset), mirroring lastSelectedApproach — a reopened
-  // saved draft renders its persisted preset but leaves draft.agentPreset null
-  // until the user touches the select, so submit/save fall back to this cache
-  // rather than clearing the saved preset.
+  // saved draft renders its persisted preset but leaves draft.agentPreset
+  // UNDEFINED until the user touches the select, so submit/save fall back to
+  // this cache rather than clearing the saved preset. '' is the EXPLICIT
+  // "Inherit" pick (a real clear) and must NOT fall back — the same sentinel
+  // convention as draft.selectedAgentProvider.
   let lastSelectedAgentPreset = null;
   // Last pushed model catalog + defaults, so a provider pick can re-render the
   // Model select locally for the picked core (same reason as the trigger
@@ -1204,6 +1206,10 @@
         draft.selectedAgentProvider = core || '';
         draft.selectedModel = m || '';
         draft.selectedEffort = e || '';
+        // Picking an explicit identity clears the preset: a preset is a
+        // (core, model) pair, and the launch now ignores it. '' is the explicit
+        // clear so submit/save do not fall back to a cached preset.
+        draft.agentPreset = '';
         // Create mode has no ticket, so the host no-ops set-provider; keep the
         // draft authoritative for submit. Edit mode posts the change through
         // the existing seams (which also re-filter the model picker host-side).
@@ -2022,11 +2028,16 @@
   el('agentPresetSelect').addEventListener('change', (e) => {
     const select = e.target;
     const id = select.value;
-    draft.agentPreset = id || null;
+    // Keep the RAW value: '' is the EXPLICIT "Inherit" pick and must survive as
+    // a set draft value, so submit/save carry null instead of falling back to
+    // `lastSelectedAgentPreset` and resurrecting the cleared preset.
+    draft.agentPreset = id;
     if (id) {
-      draft.selectedAgentProvider = null;
-      draft.selectedModel = null;
-      draft.selectedEffort = null;
+      // Same sentinel: an explicit clear, never null (which would fall back to
+      // the cached identity and re-persist what the preset replaced).
+      draft.selectedAgentProvider = '';
+      draft.selectedModel = '';
+      draft.selectedEffort = '';
     }
     const requestId = karstRequestId();
     karstBeginPending(select, requestId);

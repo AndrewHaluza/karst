@@ -4689,6 +4689,7 @@
       + `<div class="proc-cell proc-agent-cell">`
       + `<label for="proc-${key}-preset">Agent preset</label>`
       + `<select id="proc-${key}-preset" class="proc-select" data-proc-field="preset" data-proc-key="${key}"${describedBy}${invalid('preset')}>${presetOpts}</select>`
+      + (v.presetHint ? `<span class="proc-hint">${esc(v.presetHint)}</span>` : '')
       + `<div class="ap" data-proc-picker="${key}" data-proc-key="${key}"${describedBy}${invalid('provider')}${invalid('model')}${invalid('effort')}></div>`
       + (v.coreHint || v.modelHint || v.effortHint
         ? `<span class="proc-hint">${[v.coreHint, v.modelHint, v.effortHint].filter(Boolean).map(esc).join(' · ')}</span>`

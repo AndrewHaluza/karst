@@ -26,6 +26,8 @@ import { attemptKey } from '../../model/inside/rounds.js';
 import { InsideActionRegistry } from './insideActions.js';
 import { buildDashboardState } from './state.js';
 import type { ArtifactSummary } from '../../model/artifacts.js';
+import { manifest, repo } from '../../manifest/fixtures.js';
+import { resolveAgentDefaults } from '../../agent/agentPresets.js';
 
 describe('buildDashboardState', () => {
   let store: Store;
@@ -311,6 +313,38 @@ describe('buildDashboardState', () => {
     expect(state.agentSwitch.cores.find((c) => c.id === 'codex')?.label).toBe('Codex');
     expect(Array.isArray(state.agentSwitch.models.codex)).toBe(true);
     expect(state.agentSwitch.models.codex!.some((m) => m.model === null)).toBe(true); // inherit choice
+  });
+
+  it('does not leak a preset model onto the other cores in the switch popover', () => {
+    const t = createTicket(store, { key: 'PRESET-SW', title: 'preset switch' });
+    updateTicketFields(store, t.id, { agentPreset: 'fast' });
+    const m = manifest({ extention: repo() }, {
+      agentPresets: {
+        fast: { provider: 'opencode', model: 'opencode-go/deepseek-v4-flash' },
+      },
+      defaultAgentPreset: 'fast',
+      defaultModel: 'claude-sonnet-5',
+    });
+    const state = buildDashboardState(
+      store,
+      t.id,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        defaultModel: 'claude-sonnet-5',
+        defaultsFor: (preset, provider) =>
+          resolveAgentDefaults(m, { ticketPreset: preset, explicitProvider: provider }),
+      },
+    );
+    // The preset's own core inherits it…
+    expect(state.agentSwitch.models.opencode![0]!.label).toContain('opencode-go/deepseek-v4-flash');
+    // …every other core inherits the legacy manifest default, never the preset's.
+    expect(state.agentSwitch.models.claude![0]!.label).toContain('Sonnet 5');
+    expect(state.agentSwitch.models.claude![0]!.label).not.toContain('opencode-go/deepseek-v4-flash');
+    expect(state.agentSwitch.models.codex![0]!.label).not.toContain('opencode-go/deepseek-v4-flash');
   });
 
   it('exposes the recently used models per core for the picker\'s "Last used" group', () => {

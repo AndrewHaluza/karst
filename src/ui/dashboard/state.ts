@@ -481,10 +481,14 @@ export function buildDashboardState(
   const recentByCore = listRecentlyUsedModels(store, ticket.projectId, 5);
   const switchModels: Record<string, { model: string | null; label: string }[]> = {};
   for (const id of IMPLEMENTED_PROVIDERS) {
+    // A preset is a (core, model) pair: its model is the default only for the
+    // preset's OWN core. Resolve per core so switching to another core does not
+    // inherit — and cannot prefill — the preset's model.
+    const coreDefaults = agentContext.defaultsFor?.(ticket.agentPreset, id) ?? defaults;
     switchModels[id] = agentSwitchModelChoices({
       provider: id,
       ticketModel: ticket.model,
-      defaultModel: defaults.model ?? null,
+      defaultModel: coreDefaults.model ?? null,
       catalog,
     }).map(({ model, label }) => ({ model, label }));
   }

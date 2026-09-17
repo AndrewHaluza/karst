@@ -2686,6 +2686,11 @@ describe('settings agents tab — process assignments', () => {
     expect(unknown).toContain('<option value="ghost" selected>ghost</option>');
     expect(unknown).toContain('aria-invalid="true"');
     expect(unknown).toContain('aria-describedby="proc-review-msg"');
+
+    const hinted = render('uatTester', {}, view('uatTester', 'UAT Tester', {
+      presetHint: 'Default: fast',
+    }));
+    expect(hinted).toContain('<span class="proc-hint">Default: fast</span>');
   });
 
   it('emits the unified picker mount point for each process row', () => {

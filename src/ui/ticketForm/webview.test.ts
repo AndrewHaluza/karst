@@ -1138,4 +1138,21 @@ describe('ticket-form webview.html — agent preset picker', () => {
     expect(html).toContain('value="gone"');
     expect(html).toContain('(unknown)');
   });
+
+  it('treats a cleared preset as an explicit clear, never a fallback', () => {
+    // '' (explicit Inherit) is a SET draft value: it wins over the host-cached
+    // selection, so the select shows Inherit and submit/save carry null.
+    const html = renderPreset({ agentPreset: '' }, ['fast', 'deep'], 'deep', 'fast');
+    expect(html).toMatch(/<option value="" selected>/);
+    expect(html).not.toMatch(/<option value="deep" selected>/);
+  });
+
+  it('keeps the raw preset value on change and clears the preset when a core is picked', () => {
+    expect(HTML).toContain('draft.agentPreset = id;');
+    expect(HTML).not.toContain('draft.agentPreset = id || null;');
+    const block = HTML.slice(HTML.indexOf("el('agentPresetSelect').addEventListener"));
+    expect(block).toContain("draft.selectedAgentProvider = '';");
+    // The identity picker clears the preset draft (a preset is a core+model pair).
+    expect(HTML).toContain("draft.agentPreset = '';");
+  });
 });
