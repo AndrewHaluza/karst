@@ -40,7 +40,7 @@ export function readSchema(): string {
 }
 
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 60;
+export const SCHEMA_VERSION = 61;
 
 /** v2 ticket-field columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -2326,6 +2326,18 @@ export function migrate(db: Database): void {
     }
     if (prCols60.size > 0 && !prCols60.has('merge_block')) {
       db.exec('ALTER TABLE prs ADD COLUMN merge_block TEXT');
+    }
+  }
+
+  if (current < 61) {
+    // v61: `tickets.agent_preset` — the per-ticket agent-preset override. NULL
+    // is the honest "inherit manifest.defaultAgentPreset" for every pre-v61
+    // row: there was no preset concept to backfill. The guard reads the CURRENT
+    // columns, so a fresh DB (schema.sql already carries it) is a no-op and a
+    // re-open is idempotent.
+    const cols61 = ticketColumns(db);
+    if (cols61.has('model') && !cols61.has('agent_preset')) {
+      db.exec('ALTER TABLE tickets ADD COLUMN agent_preset TEXT');
     }
   }
 

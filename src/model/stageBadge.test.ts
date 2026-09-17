@@ -30,6 +30,7 @@ function ticket(
     model: null,
     effort: null,
     agentProvider: null,
+    agentPreset: null,
     sessionProvider: null,
     type: null,
     projectId: null,
