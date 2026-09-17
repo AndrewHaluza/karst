@@ -21,7 +21,7 @@ const FOCUS_COUNT_RATCHET: Record<ViewId, number> = {
   usage: 3,
   resources: 4,
   serverLogs: 11,
-  sidebar: 10,
+  sidebar: 12,
   diffs: 4,
   settings: 180,
   ticketForm: 24,

@@ -54,6 +54,8 @@ path data inside a `.k-icon` svg — see §4.
 | Show ticket changes (diff view) | `git-compare` | worktrees panel header |
 | Session / terminal | `terminal-2` | sidebar session row + open-session actions |
 | Open dashboard | `layout-dashboard` | sidebar body action |
+| Open resource monitor | `dashboard` | sidebar toolbar |
+| Open token usage stats | `chart-bar` | sidebar toolbar |
 | Edit ticket | `pencil` | |
 | Archive ticket | `archive` | |
 | Restore / unarchive | `history` | matches the command palette's `$(history)` |

@@ -16,6 +16,8 @@ export type SidebarWebviewMessage =
   | { type: 'request-state' }
   | { type: 'create' }
   | { type: 'open-settings' }
+  | { type: 'open-resources' }
+  | { type: 'open-token-usage' }
   | { type: 'open-ticket'; ticketId: number }
   | { type: 'open-dashboard'; ticketId: number }
   | { type: 'spin'; ticketId: number }
@@ -50,6 +52,8 @@ export interface SidebarActions {
   requestState(): void | Promise<void>;
   create(): void | Promise<void>;
   openSettings(): void | Promise<void>;
+  openResources(): void | Promise<void>;
+  openTokenUsage(): void | Promise<void>;
   openTicket(ticketId: number): void | Promise<void>;
   openDashboard(ticketId: number): void | Promise<void>;
   spin(ticketId: number): void | Promise<void>;
@@ -79,6 +83,8 @@ export function parseSidebarMessage(raw: unknown): SidebarWebviewMessage | null 
     case 'request-state':
     case 'create':
     case 'open-settings':
+    case 'open-resources':
+    case 'open-token-usage':
       return { type: m.type };
     case 'toggle-facet':
       return typeof m.facet === 'string' && FACET_KEYS.has(m.facet)
@@ -127,6 +133,10 @@ export function routeSidebarAction(msg: SidebarWebviewMessage, actions: SidebarA
       return actions.create();
     case 'open-settings':
       return actions.openSettings();
+    case 'open-resources':
+      return actions.openResources();
+    case 'open-token-usage':
+      return actions.openTokenUsage();
     case 'open-ticket':
       return actions.openTicket(msg.ticketId);
     case 'open-dashboard':
