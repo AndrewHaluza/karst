@@ -344,6 +344,34 @@ describe('worktree lifecycle', () => {
       .get() as { deps_mode: string };
     expect(row.deps_mode).toBe('local');
   });
+
+  it('re-registers a pruned worktree without duplicating its row', () => {
+    const rec = createWorktree(store, {
+      ticketId: 1,
+      repoPath: repo.path,
+      slug: 'PROJ-142',
+      baseRef: 'develop',
+    });
+
+    // The drift this exists for: the checkout is gone from disk and git has
+    // pruned its registration, but the `worktrees` row survived. The next spin
+    // re-cuts the SAME path on the SAME branch and must adopt the row, not add
+    // a second one — a duplicated row renders as a duplicated dashboard card.
+    rmSync(rec.path, { recursive: true, force: true });
+    git(repo.path, 'worktree', 'prune');
+
+    createWorktree(store, {
+      ticketId: 1,
+      repoPath: repo.path,
+      slug: 'PROJ-142',
+      baseRef: 'develop',
+    });
+
+    const rows = store.db
+      .prepare('SELECT path FROM worktrees WHERE ticket_id = 1')
+      .all() as { path: string }[];
+    expect(rows).toEqual([{ path: rec.path }]);
+  });
 });
 
 describe('ticketIdForWorktreePath (symlink-invariant)', () => {

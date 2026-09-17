@@ -10,6 +10,7 @@ The registry is shared by every IDE window, so every rule here is about scoping 
 - The artifact shelf is a READ over existing evidence
 - The per-ticket base-branch columns
 - The per-ticket env overrides column
+- One worktrees row per (ticket, path)
 - New schema column checklist
 
 ## SQLite is source of truth
@@ -35,6 +36,10 @@ Global storage is shared by every window: anything written there needs a per-win
 ## The per-ticket env overrides column
 
 `tickets.env_overrides` (schema v55) is a JSON map of scope → `{KEY: value}`, where a scope is a manifest repository NAME or `*` (every service). It is merged into a hot service's spawn env between the repository's `.env` and karst's resolved vars — see `docs/arch/worktrees-and-servers.md`'s spawn-env section for the layering and why the resolved vars still win. NULL is the canonical "nothing overridden"; writes are per SCOPE (`setServiceEnvOverrides`), scoped like `setDisabledGates` so an editor that loaded before another service was touched cannot revert it.
+
+## One worktrees row per (ticket, path)
+
+`worktrees` carries a UNIQUE index on `(ticket_id, path)` (schema v61). The pair is the checkout's identity: `createWorktree` adopts the existing row when git still lists the checkout, but when the checkout was pruned from git while the row survived it took the create path and INSERTed a second row for the same path — once per re-spin, which rendered as duplicated dashboard worktree cards. Both inserts are now UPSERTs (the adopt path DO NOTHING; the freshly cut checkout refreshes `branch`/`base_ref`, keeping the original `created_at`), and the v61 migration collapses pre-existing duplicates, earliest row wins.
 
 ## New schema column checklist
 

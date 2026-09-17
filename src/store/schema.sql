@@ -564,6 +564,10 @@ CREATE TABLE IF NOT EXISTS worktrees (
   needs_force_push INTEGER,    -- set when a base change rebased this branch (§ per-repo base)
   created_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
+-- v61: one row per (ticket, path). The pair is the worktree's identity, and
+-- without this a re-cut of a checkout git had pruned INSERTed a second row that
+-- rendered as a duplicate dashboard card (see runtime/worktree.ts).
+CREATE UNIQUE INDEX IF NOT EXISTS idx_worktrees_ticket_path ON worktrees(ticket_id, path);
 
 CREATE TABLE IF NOT EXISTS worktree_archives (
   id              INTEGER PRIMARY KEY,
