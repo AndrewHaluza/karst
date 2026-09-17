@@ -5,6 +5,7 @@ import { runCli } from './main.js';
 import { MARKER_STAGES } from '../agent/markerStage.js';
 import { renderTestSkill, TEST_SKILL_NAME, TEST_SKILL_DESCRIPTION } from '../agent/testSkill.js';
 import { GENERATED_STAMP } from '../agent/generatedArtifact.js';
+import { SERVERS_VIA_CLI_RULE } from '../agent/promptText.js';
 
 /**
  * The guard that keeps the agent guide honest (869edmcme, Option A): a new CLI
@@ -15,10 +16,11 @@ import { GENERATED_STAMP } from '../agent/generatedArtifact.js';
 describe('karst guide — content', () => {
   it('documents every verb runCli accepts', () => {
     // runCli accepts exactly: context, stats, stage, phase, graph, node, test, guide,
-    // compact, fix-brief, conflict-brief (main.ts unknown-verb message).
+    // compact, fix-brief, conflict-brief (main.ts unknown-verb message); servers and env
+    // are intercepted by runCliAsync.
     // Verbs are named backtick-quoted (e.g. `phase <name>`), so match the
     // opening tick.
-    for (const verb of ['context', 'stats', 'stage', 'phase', 'graph', 'node', 'test', 'guide', 'compact', 'fix-brief', 'conflict-brief']) {
+    for (const verb of ['context', 'stats', 'stage', 'phase', 'graph', 'node', 'test', 'guide', 'compact', 'fix-brief', 'conflict-brief', 'servers', 'env']) {
       expect(AGENT_GUIDE).toContain(`\`${verb}`);
     }
   });
@@ -54,6 +56,10 @@ describe('karst guide — content', () => {
   it('explains create-ticket idempotency and project scoping', () => {
     expect(AGENT_GUIDE).toMatch(/idempotent/i);
     expect(AGENT_GUIDE).toMatch(/project/i);
+  });
+
+  it('binds the agent to the CLI for running services', () => {
+    expect(AGENT_GUIDE).toContain(SERVERS_VIA_CLI_RULE);
   });
 });
 
