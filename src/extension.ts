@@ -103,6 +103,7 @@ import {
   type RecoveryCandidate,
 } from './ui/sessionRecovery.js';
 import { resolveAdapter, resolveProvider } from './agent/registry.js';
+import { resolveAgentDefaults } from './agent/agentPresets.js';
 import {
   resolveProcessAssignment,
   type DriveProcessBundle,
@@ -989,16 +990,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // Task 3: a launch prepared under a host-only configured assignment
         // (the Fix path) records THAT snapshot — provider/model/agent name as
         // resolved once at resume time, never re-derived from live config.
+        const intentDefaults = resolveAgentDefaults(
+          currentManifest() ?? emptyManifest(),
+          ticket.agentPreset,
+        );
         const provider =
           assignment?.provider ??
-          resolveProvider(ticket.agentProvider, currentManifest()?.agentProvider);
+          resolveProvider(ticket.agentProvider, intentDefaults.provider);
         const model =
           assignment !== undefined
             ? (assignment.model ?? null)
             : resolveModelForProvider(
                 provider,
                 ticket.model,
-                currentManifest()?.defaultModel,
+                intentDefaults.model,
                 modelCatalog,
               );
         if (purpose === 'fix') {
@@ -1159,9 +1164,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
 
   const currentAgentAdapter = (ticketId?: number): AgentAdapter => {
-    const ticketProvider =
-      ticketId !== undefined ? getTicket(localStore, ticketId).agentProvider : undefined;
-    const provider = resolveProvider(ticketProvider, currentManifest()?.agentProvider);
+    const ticket = ticketId !== undefined ? getTicket(localStore, ticketId) : undefined;
+    const defaults = resolveAgentDefaults(
+      currentManifest() ?? emptyManifest(),
+      ticket?.agentPreset ?? null,
+    );
+    const provider = resolveProvider(ticket?.agentProvider, defaults.provider);
     return instrument(resolveAdapter(provider), provider);
   };
 
@@ -1198,6 +1206,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         provider: t.agentProvider ?? undefined,
         model: t.model || undefined,
         effort: t.effort || undefined,
+        preset: t.agentPreset ?? undefined,
       },
       modelCatalog,
     );
@@ -6053,9 +6062,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
       // Resume the captured session when continuing interactive work, so the
       // agent keeps its context instead of re-deriving from a cold seed (§5.3).
+      const launchDefaults = resolveAgentDefaults(
+        currentManifest() ?? emptyManifest(),
+        t.agentPreset,
+      );
       const launchProvider =
         options.assignment?.provider ??
-        resolveProvider(t.agentProvider, currentManifest()?.agentProvider);
+        resolveProvider(t.agentProvider, launchDefaults.provider);
       const resumeId = shouldResumeSession({
         sessionId: t.sessionId,
         sessionProvider: t.sessionProvider,
@@ -6177,7 +6190,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         : resolveModelForProvider(
             launchProvider,
             t.model,
-            currentManifest()?.defaultModel,
+            launchDefaults.model,
             modelCatalog,
           );
 
@@ -6190,7 +6203,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         : resolveEffortForProvider(
             launchProvider,
             t.effort,
-            currentManifest()?.defaultEffort,
+            launchDefaults.effort,
             model,
             modelCatalog,
           );

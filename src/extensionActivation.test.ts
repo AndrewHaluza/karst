@@ -430,7 +430,7 @@ describe('extension activation', () => {
     expect(source).toContain('runVerifier: runProcess');
     expect(source).toContain('resolveProcessAssignment(');
     expect(source).toContain('currentManifest() ?? emptyManifest(),');
-    expect(source).toMatch(/model: t\.model \|\| undefined,\s*effort: t\.effort \|\| undefined,\s*},\s*modelCatalog,\s*\)/);
+    expect(source).toMatch(/model: t\.model \|\| undefined,\s*effort: t\.effort \|\| undefined,\s*preset: t\.agentPreset \?\? undefined,\s*},\s*modelCatalog,\s*\)/);
     expect(source).toContain(
       'adapter: instrument(resolveAdapter(assignment.provider), assignment.provider)',
     );
