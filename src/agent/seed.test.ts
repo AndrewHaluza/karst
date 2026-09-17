@@ -170,6 +170,30 @@ describe('buildSessionSeed', () => {
   });
 });
 
+describe('buildSessionSeed servers instruction', () => {
+  it('places the servers section after the context and before the approach', () => {
+    const seed = buildSessionSeed('CTX', 'METHOD', null, null, null, 'K', undefined, '## Services\n\nRULE')!;
+    expect(seed.indexOf('CTX')).toBeLessThan(seed.indexOf('## Services'));
+    expect(seed.indexOf('## Services')).toBeLessThan(seed.indexOf('# Approach'));
+  });
+
+  it('is omitted when no servers instruction is given', () => {
+    const seed = buildSessionSeed('CTX', 'METHOD', null, null, null, 'K')!;
+    expect(seed).not.toContain('## Services');
+  });
+
+  it('is omitted when the instruction is blank', () => {
+    const seed = buildSessionSeed('CTX', 'METHOD', null, null, null, 'K', undefined, '   ')!;
+    expect(seed).not.toContain('## Services');
+  });
+
+  it('composes a seed that is only the servers section when nothing else exists', () => {
+    expect(buildSessionSeed(null, null, null, null, null, 'K', undefined, '## Services\n\nRULE')).toBe(
+      '## Services\n\nRULE',
+    );
+  });
+});
+
 describe('measureSeed', () => {
   it('reports composed length and guide-pointer presence for a full seed', () => {
     const seed = buildSessionSeed(

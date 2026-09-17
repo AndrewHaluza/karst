@@ -3,7 +3,15 @@ import { openStore, type Store } from '../store/db.js';
 import { createTicket } from '../store/tickets.js';
 import { listServersByTicket } from '../store/dashboard.js';
 import type { Manifest } from '../manifest/types.js';
-import { parseServersArgs, resolveHotRepos, runServersCommand, scrubKarstSessionEnv } from './serversCommand.js';
+import {
+  composeServersPrefix,
+  parseServersArgs,
+  renderServersInstruction,
+  resolveHotRepos,
+  runServersCommand,
+  scrubKarstSessionEnv,
+} from './serversCommand.js';
+import { SERVERS_VIA_CLI_RULE } from '../agent/promptText.js';
 
 const manifest = (repos: string[]): Manifest =>
   ({
@@ -118,6 +126,29 @@ describe('runServersCommand', () => {
     await expect(
       runServersCommand(store, undefined, id, ['servers', 'spin'], undefined),
     ).rejects.toThrow("karst servers: 'spin' needs --manifest <karst.yml>");
+  });
+});
+
+describe('composeServersPrefix', () => {
+  it('composes flags-first with every path quoted', () => {
+    expect(composeServersPrefix('/ext/dist/cli/main.js', '/App Support/karst.db', '/repo/.karst/karst.yml', 'FIX-1-X'))
+      .toBe('node "/ext/dist/cli/main.js" --db "/App Support/karst.db" --manifest "/repo/.karst/karst.yml" --ticket "FIX-1-X"');
+  });
+});
+
+describe('renderServersInstruction', () => {
+  it('states the shared rule verbatim and all four commands', () => {
+    const text = renderServersInstruction('node "cli" --db "db" --manifest "m" --ticket "K"');
+    expect(text).toContain(SERVERS_VIA_CLI_RULE);
+    expect(text.startsWith('## Services')).toBe(true);
+    for (const action of ['list', 'spin', 'restart', 'stop']) {
+      expect(text).toContain(`node "cli" --db "db" --manifest "m" --ticket "K" servers ${action}`);
+    }
+  });
+
+  it('never tells the session to run a service by hand', () => {
+    const text = renderServersInstruction('node "cli" --db "db" --manifest "m" --ticket "K"');
+    expect(text).toMatch(/Never start, restart or stop a ticket service by hand/);
   });
 });
 

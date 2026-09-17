@@ -149,6 +149,35 @@ describe('composeResumeSeed', () => {
   });
 });
 
+describe('composeResumeSeed servers instruction', () => {
+  it('places the servers section after the brief and before the marker', () => {
+    const seed = composeResumeSeed({
+      ticketKey: 'K-1',
+      resumeBrief: 'BRIEF',
+      invocation: '/karst:resume',
+      markerInstruction: 'MARKER',
+      serversInstruction: '## Services\n\nRULE',
+    });
+    expect(seed.indexOf('BRIEF')).toBeLessThan(seed.indexOf('## Services'));
+    expect(seed.indexOf('## Services')).toBeLessThan(seed.indexOf('MARKER'));
+  });
+
+  it('carries the servers section on the no-invocation branch too', () => {
+    const seed = composeResumeSeed({
+      ticketKey: 'K-1',
+      resumeBrief: 'BRIEF',
+      serversInstruction: '## Services\n\nRULE',
+    });
+    expect(seed).toBe('BRIEF\n\n## Services\n\nRULE');
+  });
+
+  it('is unchanged when no servers instruction is given', () => {
+    expect(composeResumeSeed({ ticketKey: 'K-1', resumeBrief: 'BRIEF', markerInstruction: 'MARKER' })).toBe(
+      'BRIEF\n\nMARKER',
+    );
+  });
+});
+
 describe('composeConflictSeed', () => {
   it('prepends exactly one invocation line and one blank line', () => {
     const result = composeConflictSeed({

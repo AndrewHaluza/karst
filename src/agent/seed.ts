@@ -5,10 +5,11 @@
  *   2. the ticket-context markdown (built by `renderTicketContext`, § context
  *      loader) — the ticket's own prompt/brief/repos plus its live
  *      worktrees/branches/services/PRs;
- *   3. the chosen approach's method prompt, when one resolved;
- *   4. a one-line pointer to the agent manual (`karst guide`), when one is
+ *   3. the servers instruction (`## Services`: the servers-via-CLI rule plus the resolved `karst servers` commands), when the ticket has a runnable repository;
+ *   4. the chosen approach's method prompt, when one resolved;
+ *   5. a one-line pointer to the agent manual (`karst guide`), when one is
  *      composed — the manual itself is pulled on demand, never embedded;
- *   5. the done-marker instruction, when the ticket sits at a marker stage.
+ *   6. the done-marker instruction, when the ticket sits at a marker stage.
  *
  * The ticket-context SHAPING lives in `src/context/ticketContext.ts` so it can be
  * reused by the `karst context` CLI; this module only composes the sections.
@@ -30,6 +31,15 @@ export function buildSessionSeed(
   guideInstruction?: string | null,
   ticketKey?: string,
   debug?: (msg: string) => void,
+  /**
+   * The `## Services` block (`renderServersInstruction`, `cli/serversCommand.ts`):
+   * the rule that services are started through karst plus the four resolved
+   * commands. Absent when the ticket scopes no runnable repository or the
+   * manifest path could not be resolved. LAST on purpose — appending leaves
+   * every existing positional call unchanged; the section's PLACE in the output
+   * is decided below, not by this position.
+   */
+  serversInstruction?: string | null,
 ): string | undefined {
   let method = approachPrompt?.trim();
   const context = contextMarkdown?.trim();
@@ -43,6 +53,12 @@ export function buildSessionSeed(
   // embedded here (869edmcme). Placed before the marker so reading order is
   // execution order: learn the tooling first, close the stage last.
   const guide = guideInstruction?.trim();
+  // Placed after the context and before the method: the context's
+  // "Repositories in scope" block lists each repository's raw `start:` command,
+  // and a session must have read the rule that governs those commands before it
+  // acts on them. A service started by hand writes no `servers` row, so the
+  // dashboard shows nothing while the session truthfully reports it started one.
+  const servers = serversInstruction?.trim();
 
   if (method) {
     // `karst context <key>` cannot recover the approach body — it renders
@@ -62,6 +78,7 @@ export function buildSessionSeed(
   const sections: string[] = [];
   if (inv) sections.push(inv);
   if (context) sections.push(context);
+  if (servers) sections.push(servers);
   if (method) sections.push(`# Approach\n\n${method}`);
   if (guide) sections.push(guide);
   if (marker) sections.push(marker);
