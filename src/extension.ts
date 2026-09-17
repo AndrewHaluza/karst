@@ -714,6 +714,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     requestState: () => mgr.refresh(),
     create: () => void vscode.commands.executeCommand('karst.openTicketForm'),
     openSettings: () => void vscode.commands.executeCommand('karst.openSettings'),
+    openResources: () => void vscode.commands.executeCommand('karst.openResources'),
+    openTokenUsage: () => void vscode.commands.executeCommand('karst.openTokenUsage'),
     openTicket: (id) => openTicketFromList(localStore, id, {
       edit: (ticketId) => vscode.commands.executeCommand('karst.editTicket', ticketId),
       openDashboard: (ticketId) =>

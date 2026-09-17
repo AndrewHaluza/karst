@@ -64,6 +64,13 @@ describe('sidebar webview.html', () => {
     expect(HTML).toContain('data-act="open-session"');
   });
 
+  it('keeps the toolbar monitor handoffs (resources + token usage) beside settings', () => {
+    expect(HTML).toContain('data-act="open-resources"');
+    expect(HTML).toContain('data-act="open-token-usage"');
+    expect(HTML).toContain('aria-label="Open resource monitor"');
+    expect(HTML).toContain('aria-label="Open token usage"');
+  });
+
   it('carries the three injection markers (UI-R03)', () => {
     expect(HTML).toContain('/*KARST_DS_CSS*/');
     expect(HTML).toContain('/*KARST_DS_JS*/');

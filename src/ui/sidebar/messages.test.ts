@@ -3,7 +3,7 @@ import { parseSidebarMessage, routeSidebarAction, type SidebarActions } from './
 
 describe('parseSidebarMessage', () => {
   it('accepts payload-free messages', () => {
-    for (const type of ['refresh', 'request-state', 'create', 'open-settings'] as const) {
+    for (const type of ['refresh', 'request-state', 'create', 'open-settings', 'open-resources', 'open-token-usage'] as const) {
       expect(parseSidebarMessage({ type })).toEqual({ type });
     }
   });
@@ -71,6 +71,8 @@ describe('routeSidebarAction', () => {
       requestState: vi.fn(),
       create: vi.fn(),
       openSettings: vi.fn(),
+      openResources: vi.fn(),
+      openTokenUsage: vi.fn(),
       openTicket: vi.fn(),
       openDashboard: vi.fn(),
       spin: vi.fn(),
@@ -94,6 +96,8 @@ describe('routeSidebarAction', () => {
     routeSidebarAction({ type: 'create' }, a);
     routeSidebarAction({ type: 'create-follow-up', ticketId: 12 }, a);
     routeSidebarAction({ type: 'resolve-conflicts', ticketId: 12, repo: 'api' }, a);
+    routeSidebarAction({ type: 'open-resources' }, a);
+    routeSidebarAction({ type: 'open-token-usage' }, a);
 
     expect(a.toggleFacet).toHaveBeenCalledWith('failed');
     expect(a.setFilter).toHaveBeenCalledWith('q');
@@ -103,6 +107,8 @@ describe('routeSidebarAction', () => {
     expect(a.create).toHaveBeenCalledOnce();
     expect(a.createFollowUp).toHaveBeenCalledWith(12);
     expect(a.resolveConflicts).toHaveBeenCalledWith(12, 'api');
+    expect(a.openResources).toHaveBeenCalledOnce();
+    expect(a.openTokenUsage).toHaveBeenCalledOnce();
   });
 
   it('returns whatever the action returns, so the dispatch seam can await a real outcome', async () => {

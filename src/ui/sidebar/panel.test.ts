@@ -43,6 +43,8 @@ function stubActions(over: Partial<SidebarActions> = {}): SidebarActions {
     requestState: vi.fn(),
     create: vi.fn(),
     openSettings: vi.fn(),
+    openResources: vi.fn(),
+    openTokenUsage: vi.fn(),
     openTicket: vi.fn(),
     openDashboard: vi.fn(),
     spin: vi.fn(),
@@ -224,6 +226,19 @@ describe('SidebarViewManager', () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(view.postedRaw).toContainEqual({ type: 'action-result', requestId: 'r3', ok: true });
+  });
+
+  it('acks the monitor handoffs (resources + token usage) synchronously', async () => {
+    const mgr = new SidebarViewManager(store, () => stubActions());
+    const { host, resolve } = fakeHost();
+    mgr.bind(host);
+    const view = resolve();
+    view.emit({ type: 'open-resources', requestId: 'r4' });
+    view.emit({ type: 'open-token-usage', requestId: 'r5' });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(view.postedRaw).toContainEqual({ type: 'action-result', requestId: 'r4', ok: true });
+    expect(view.postedRaw).toContainEqual({ type: 'action-result', requestId: 'r5', ok: true });
   });
 
   it('routes messages to actions and survives a bad message without throwing or reporting', () => {
