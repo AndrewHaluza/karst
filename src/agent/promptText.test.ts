@@ -4,7 +4,7 @@ import { createTicket } from '../store/tickets.js';
 import { buildTicketContext, renderTicketContext } from '../context/ticketContext.js';
 import { AGENT_GUIDE } from '../cli/guide.js';
 import { renderDoneMarkerInstruction } from './workflowCommand.js';
-import { MARKER_REFUSED } from './promptText.js';
+import { MARKER_REFUSED, SERVERS_VIA_CLI_RULE } from './promptText.js';
 
 /**
  * PROMPT-06 — single source of truth for reused agent prompt text.
@@ -48,5 +48,10 @@ describe('promptText — marker rule by identity', () => {
     // Guard the guard: the three surfaces must contain the exact exported
     // value, not merely any sentence that happens to include "refused".
     expect(MARKER_REFUSED).toMatch(/^done marker is refused$/);
+  });
+
+  it('binds a session to the CLI for running ticket services', () => {
+    expect(SERVERS_VIA_CLI_RULE).toContain('servers spin');
+    expect(SERVERS_VIA_CLI_RULE).toContain('npm run dev');
   });
 });

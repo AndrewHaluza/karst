@@ -1,28 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 215 215" width="215" height="215">
-  <defs>
-    <!-- Purple shell: sampled from the approved mark -->
-    <linearGradient id="leftGrad" x1="0.22" y1="0.12" x2="0.78" y2="0.92">
-      <stop offset="0%" stop-color="#7D48E9"/>
-      <stop offset="43%" stop-color="#7D3CEE"/>
-      <stop offset="100%" stop-color="#4A71D7"/>
-    </linearGradient>
-
-    <!-- Cyan shell -->
-    <linearGradient id="rightGrad" x1="0.18" y1="0.10" x2="0.82" y2="0.90">
-      <stop offset="0%" stop-color="#00B7C9"/>
-      <stop offset="55%" stop-color="#00AFC0"/>
-      <stop offset="100%" stop-color="#00B1C4"/>
-    </linearGradient>
-
-    <!-- Core -->
-    <linearGradient id="coreGrad" x1="0.20" y1="0.18" x2="0.82" y2="0.86">
-      <stop offset="0%" stop-color="#6647DE"/>
-      <stop offset="48%" stop-color="#5660D9"/>
-      <stop offset="100%" stop-color="#3586D6"/>
-    </linearGradient>
-  </defs>
-
-  <!-- Approved asymmetric left shell -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 215 215">
+  <!-- Left shell -->
   <path
     d="M 96 20
        L 25 67
@@ -33,9 +10,8 @@
        L 44 78
        L 97 44
        Z"
-    fill="url(#leftGrad)"/>
-
-  <!-- Approved shorter right shell -->
+    fill="currentColor"/>
+  <!-- Right shell -->
   <path
     d="M 151 42
        L 138 58
@@ -46,8 +22,7 @@
        L 188 156
        L 188 67
        Z"
-    fill="url(#rightGrad)"/>
-
-  <!-- Approved core size / position -->
-  <circle cx="106.5" cy="111.5" r="26.5" fill="url(#coreGrad)"/>
+    fill="currentColor"/>
+  <!-- Core -->
+  <circle cx="106.5" cy="111.5" r="26.5" fill="currentColor"/>
 </svg>

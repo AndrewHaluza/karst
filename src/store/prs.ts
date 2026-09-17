@@ -2,6 +2,7 @@ import type { Store } from './db.js';
 import type { ProjectScope } from './tickets.js';
 import type { PrDetail } from '../integrations/github.js';
 import { serializeComments } from '../model/prComments.js';
+import { serializeChecks } from '../model/prChecks.js';
 
 /**
  * PR-status persistence, split out from the read-only `listPrsByTicket` in
@@ -41,6 +42,9 @@ export interface SyncablePr {
   prCreatedAt: string | null;
   prMergedAt: string | null;
   prComments: string | null;
+  /** The v60 columns as STORED, compared as text — same cheap trick as prComments. */
+  prChecks: string | null;
+  prMergeBlock: string | null;
 }
 
 export interface UpdatePrStatusInput {
@@ -124,9 +128,14 @@ export interface UpdatePrDetailInput {
  *  - `mergedAt` cannot be un-set by a later probe. It is a fact about an event
  *    that happened; a probe that stops reporting it is a degraded probe, not an
  *    unmerge.
+ *  - `mergeBlock: 'unknown'` is dropped exactly like `status: 'unknown'`:
+ *    GitHub computes mergeability lazily and answers UNKNOWN at first, so writing
+ *    it would erase a real `blocked` whenever GitHub is mid-think. A NULL
+ *    `checks` ("gh did not say") keeps the stored rollup via COALESCE.
  */
 export function updatePrDetail(store: Store, input: UpdatePrDetailInput): void {
   const { detail } = input;
+  const mergeBlock = detail.mergeBlock === 'unknown' ? null : detail.mergeBlock;
   store.db
     .prepare(
       `UPDATE prs SET
@@ -135,7 +144,9 @@ export function updatePrDetail(store: Store, input: UpdatePrDetailInput): void {
          base_ref   = COALESCE(?, base_ref),
          created_at = COALESCE(?, created_at),
          merged_at  = COALESCE(?, merged_at),
-         comments   = COALESCE(?, comments)
+         comments   = COALESCE(?, comments),
+         checks      = COALESCE(?, checks),
+         merge_block = CASE WHEN ? IS NULL THEN merge_block ELSE ? END
        WHERE ticket_id = ? AND repo = ? AND url = ?`,
     )
     .run(
@@ -147,6 +158,9 @@ export function updatePrDetail(store: Store, input: UpdatePrDetailInput): void {
       detail.createdAt,
       detail.mergedAt,
       serializeComments(detail.comments),
+      serializeChecks(detail.checks),
+      mergeBlock,
+      mergeBlock,
       input.ticketId,
       input.repo,
       input.url,
@@ -384,6 +398,8 @@ interface SyncableRow {
   pr_created_at: string | null;
   pr_merged_at: string | null;
   pr_comments: string | null;
+  pr_checks: string | null;
+  pr_merge_block: string | null;
 }
 
 /**
@@ -408,7 +424,8 @@ export function listSyncablePrs(store: Store, scope: ProjectScope = {}): Syncabl
       `SELECT p.ticket_id, p.repo, p.number, p.url, p.status, w.path AS cwd, w.base_ref,
               p.head_ref AS pr_head_ref, p.base_ref AS pr_base_ref,
               p.created_at AS pr_created_at, p.merged_at AS pr_merged_at,
-              p.comments AS pr_comments
+              p.comments AS pr_comments, p.checks AS pr_checks,
+              p.merge_block AS pr_merge_block
          FROM prs p
          JOIN tickets t ON t.id = p.ticket_id
          JOIN worktrees w ON w.ticket_id = p.ticket_id AND w.repo = p.repo
@@ -433,5 +450,7 @@ export function listSyncablePrs(store: Store, scope: ProjectScope = {}): Syncabl
     prCreatedAt: r.pr_created_at,
     prMergedAt: r.pr_merged_at,
     prComments: r.pr_comments,
+    prChecks: r.pr_checks,
+    prMergeBlock: r.pr_merge_block,
   }));
 }

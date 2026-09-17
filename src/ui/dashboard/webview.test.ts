@@ -1004,6 +1004,8 @@ describe('dashboard webview.html', () => {
     // read a URL" floor at the panel's small-text scale, same class as `200px`.
     // `3px` is the copy glyph's hover slide-in offset — a motion nudge with no
     // token step at 3px.
+    // Two further `4px` entries are the v60 checks/block chips' uppercase
+    // tracking, the same `.4px` the status chip (`.pst`) already uses.
     // `380px` is the worktree row's narrow-layout @media breakpoint — an
     // @media condition cannot read a custom property, so it is literal by
     // construction, the same exemption class as `300px`/`360px`/`430px`.
@@ -1014,7 +1016,7 @@ describe('dashboard webview.html', () => {
       '2px', '2px', '2px', '2px',
       '1px', '1px', '1px',
       '12px', '12px', '12px', '12px',
-      '4px', '4px', '4px', '4px', '4px', '4px',
+      '4px', '4px', '4px', '4px', '4px', '4px', '4px', '4px',
       '150px', '3px',
       '380px',
       // `280px` is the worktree-base popover's fixed width — a `position:fixed`
@@ -5637,6 +5639,8 @@ describe('PR panel row (Variant C, executed in a VM)', () => {
     mergedTitle: '',
     commentsLabel: '',
     comments: [],
+    checks: { state: 'none', label: '', title: '', detailsLabel: '', failing: [] },
+    mergeBlockLabel: '',
     canMerge: true,
     mergeBlockedReason: '',
   });
@@ -5696,6 +5700,119 @@ describe('PR panel row (Variant C, executed in a VM)', () => {
     expect(html).toMatch(/<span class="pnum">#42<\/span>/);
     expect(html).not.toContain('data-act="open-pr"');
     expect(html).not.toContain('data-act="copy-pr-url"');
+  });
+
+  it('renders a passing checks chip from the host-worded label', () => {
+    const html = prsHtml([
+      {
+        ...openRow(),
+        checks: {
+          state: 'passing',
+          label: '3 passed',
+          title: '3 checks: 3 passed, 0 failed, 0 pending',
+          detailsLabel: '',
+          failing: [],
+        },
+      },
+    ]);
+    expect(html).toMatch(/<span class="k-chip pck pck-passing" title="3 checks: 3 passed, 0 failed, 0 pending">3 passed<\/span>/);
+    expect(html).not.toContain('<details class="pcks"');
+  });
+
+  it('opens a failing-check disclosure whose summary is the host’s detailsLabel', () => {
+    const html = prsHtml([
+      {
+        ...openRow(),
+        checks: {
+          state: 'failing',
+          label: '1 failing · 2 passed',
+          title: '3 checks: 2 passed, 1 failed, 0 pending',
+          detailsLabel: '1 failing check',
+          failing: [{ name: 'build', url: 'https://x.test/run/1' }],
+        },
+      },
+    ]);
+    expect(html).toContain('pck-failing');
+    expect(html).toContain('<details class="pcks"><summary>1 failing check</summary>');
+    // The failing check links through the SAME open-pr action, validated host-side.
+    expect(html).toContain('data-act="open-pr" data-url="https://x.test/run/1"');
+    expect(html).toMatch(/Open this check run">build<\/a>/);
+  });
+
+  it('renders a failing check with no url as plain text, not a dead link', () => {
+    const html = prsHtml([
+      {
+        ...openRow(),
+        checks: {
+          state: 'failing',
+          label: '1 failing',
+          title: '1 check: 0 passed, 1 failed, 0 pending',
+          detailsLabel: '1 failing check',
+          failing: [{ name: 'build', url: null }],
+        },
+      },
+    ]);
+    expect(html).toMatch(/<div class="pck-row"><span>build<\/span><\/div>/);
+    expect(html).not.toContain('data-act="open-pr" data-url="null"');
+  });
+
+  it('escapes an untrusted check name at render', () => {
+    const html = prsHtml([
+      {
+        ...openRow(),
+        checks: {
+          state: 'failing',
+          label: '1 failing',
+          title: '1 check: 0 passed, 1 failed, 0 pending',
+          detailsLabel: '1 failing check',
+          failing: [{ name: '<script>alert(1)</script>', url: null }],
+        },
+      },
+    ]);
+    expect(html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
+    expect(html).not.toContain('<script>alert(1)</script>');
+  });
+
+  it('renders the block chip and disables Merge with GitHub’s reason', () => {
+    const html = prsHtml([
+      {
+        ...openRow(),
+        canMerge: false,
+        mergeBlockLabel: 'blocked',
+        mergeBlockedReason: 'GitHub is blocking this merge — a required review or check has not passed.',
+      },
+    ]);
+    expect(html).toContain(
+      '<span class="k-chip pblock" title="GitHub is blocking this merge — a required review or check has not passed.">blocked</span>',
+    );
+    expect(html).not.toContain('data-act="merge-pr"');
+  });
+
+  it('renders neither chip nor the failing-check disclosure on a merged PR, even with a stale rollup', () => {
+    const html = prsHtml([
+      {
+        ...openRow(),
+        status: 'merged',
+        canMerge: false,
+        mergeBlockLabel: 'blocked',
+        mergeBlockedReason: 'stale',
+        checks: {
+          state: 'failing',
+          label: '1 failing',
+          title: '1 check: 0 passed, 1 failed, 0 pending',
+          detailsLabel: '1 failing check',
+          failing: [{ name: 'build', url: null }],
+        },
+      },
+    ]);
+    expect(html).not.toContain('class="k-chip pck');
+    expect(html).not.toContain('pblock');
+    expect(html).not.toContain('<details class="pcks"');
+  });
+
+  it('renders no checks chip when the host worded no label', () => {
+    const html = prsHtml([openRow()]);
+    expect(html).not.toContain('pck');
   });
 });
 

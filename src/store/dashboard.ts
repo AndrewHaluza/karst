@@ -1,5 +1,6 @@
 import type { Store } from './db.js';
 import { parseComments, type PrComment } from '../model/prComments.js';
+import { parseChecks, readMergeBlock, type PrChecks, type MergeBlock } from '../model/prChecks.js';
 
 /** Read models for the dashboard (§14 dashboard tier) — plain, serializable. */
 export interface ServerView {
@@ -62,6 +63,14 @@ export interface PrView {
   dismissedAt: string | null;
   /** Its comments, newest last. Empty for none AND for never probed. */
   comments: PrComment[];
+  /** The CI rollup as last probed, or null when never probed. */
+  checks: PrChecks | null;
+  /**
+   * GitHub's own verdict on whether the merge is allowed, or 'unknown' when it
+   * has not answered. Never a reason to hide the Merge button by itself — see
+   * model/prChecksView.ts.
+   */
+  mergeBlock: MergeBlock;
 }
 
 interface ServerRow {
@@ -177,12 +186,14 @@ interface PrRow {
   merged_at: string | null;
   dismissed_at: string | null;
   comments: string | null;
+  checks: string | null;
+  merge_block: string | null;
 }
 
 export function listPrsByTicket(store: Store, ticketId: number): PrView[] {
   const rows = store.db
     .prepare(
-      `SELECT rowid AS id, ticket_id, repo, number, url, status, head_ref, base_ref, created_at, merged_at, dismissed_at, comments
+      `SELECT rowid AS id, ticket_id, repo, number, url, status, head_ref, base_ref, created_at, merged_at, dismissed_at, comments, checks, merge_block
          FROM prs WHERE ticket_id = ? ORDER BY number`,
     )
     .all(ticketId) as PrRow[];
@@ -202,5 +213,7 @@ export function listPrsByTicket(store: Store, ticketId: number): PrView[] {
     // A malformed column renders as no comments rather than faulting the panel —
     // this is a display cache, gh remains the source of truth.
     comments: parseComments(r.comments),
+    checks: parseChecks(r.checks),
+    mergeBlock: readMergeBlock(r.merge_block),
   }));
 }

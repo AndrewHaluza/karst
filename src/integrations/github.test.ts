@@ -549,7 +549,7 @@ describe('fetchPrDetail', () => {
       'view',
       'https://github.com/o/r/pull/9',
       '--json',
-      'state,isDraft,headRefName,baseRefName,createdAt,mergedAt,comments',
+      'state,isDraft,headRefName,baseRefName,createdAt,mergedAt,comments,mergeable,mergeStateStatus,statusCheckRollup',
     ]);
     expect(calls[0]!.cwd).toBe('/wt/a');
     expect(detail).toEqual({
@@ -559,6 +559,8 @@ describe('fetchPrDetail', () => {
       createdAt: '2026-07-23T08:00:00Z',
       mergedAt: '2026-07-28T09:30:00Z',
       comments: [{ author: 'ada', at: '2026-07-24T10:00:00Z', body: 'lgtm' }],
+      checks: null,
+      mergeBlock: 'unknown',
     });
   });
 
@@ -606,7 +608,52 @@ describe('fetchPrDetail', () => {
       createdAt: null,
       mergedAt: null,
       comments: null,
+      checks: null,
+      mergeBlock: 'unknown',
     });
+  });
+
+  // The three fields join the SAME round trip: a second probe could disagree
+  // with the first (a PR merged between them would render as open with a
+  // passing rollup), which is exactly why fetchPrDetail is a superset.
+  it('normalizes the CI rollup and merge state from the same call', async () => {
+    const gh: GhRunner = async () => ({
+      stdout: viewJson({
+        state: 'OPEN',
+        isDraft: false,
+        mergeable: 'UNKNOWN',
+        mergeStateStatus: 'UNKNOWN',
+        statusCheckRollup: [
+          {
+            __typename: 'CheckRun',
+            name: 'Typecheck, build, unit, e2e',
+            status: 'COMPLETED',
+            conclusion: 'SUCCESS',
+            detailsUrl: 'https://github.com/AndrewHaluza/karst/actions/runs/35152829691/job/104985079741',
+            workflowName: 'CI',
+          },
+        ],
+      }),
+      exitCode: 0,
+    });
+    const detail = await fetchPrDetail(gh, '384', '/wt');
+    expect(detail.checks?.state).toBe('passing');
+    expect(detail.mergeBlock).toBe('unknown');
+  });
+
+  it('reads a BLOCKED merge state as blocked', async () => {
+    const gh: GhRunner = async () => ({
+      stdout: viewJson({ state: 'OPEN', isDraft: false, mergeable: 'MERGEABLE', mergeStateStatus: 'BLOCKED' }),
+      exitCode: 0,
+    });
+    expect((await fetchPrDetail(gh, '9', '/wt')).mergeBlock).toBe('blocked');
+  });
+
+  it('leaves the rollup null when an older gh returns no statusCheckRollup key', async () => {
+    // Not 'none': reporting "this PR has no CI" on a repo that has plenty is a
+    // worse lie than reporting nothing.
+    const gh: GhRunner = async () => ({ stdout: viewJson({ state: 'OPEN', isDraft: false }), exitCode: 0 });
+    expect((await fetchPrDetail(gh, '9', '/wt')).checks).toBeNull();
   });
 });
 

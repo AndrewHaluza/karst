@@ -18,7 +18,7 @@
  * the workflow command and the ticket-context note.
  */
 
-import { MARKER_REFUSED, GUIDE_POINTER_INTRO } from '../agent/promptText.js';
+import { MARKER_REFUSED, GUIDE_POINTER_INTRO, SERVERS_VIA_CLI_RULE } from '../agent/promptText.js';
 
 /**
  * The agent-facing manual. Karst-authored, trusted content — it may be
@@ -62,6 +62,20 @@ machine-read JSON or markdown; diagnostics go to stderr and never corrupt it.
   brief, current stage and its verdict/blocking, gate runs, findings,
   worktrees, branches, running servers, pull requests, merge checks. Re-run it
   any time you need fresh state — it reflects the database, not a stale seed.
+ - \`servers list|spin|restart|stop\` — run this ticket's services. \`spin\`
+   creates the worktrees if needed, allocates ports, starts each service in
+   dependency order and health-gates it; \`restart\` is a re-spin (it stops
+   first); \`stop\` stops every server of the ticket; \`list\` prints them with
+   their host, port and status. \`spin\`/\`restart\` take an optional
+   \`--repos a,b\`; without it the ticket's own worktrees decide, and failing
+   that every repository the manifest declares. \`list\`, \`spin\` and
+   \`restart\` need \`--manifest\`; \`stop\` does not.
+ - \`env list|set|unset [--service <repo>] [--values]\` — this ticket's env
+   overrides, merged into the spawn env of its services only. They never touch
+   a repository's \`.env\` on disk. \`--service\` scopes an entry to one
+   repository; without it the entry applies to every service. \`list\` prints
+   KEYS ONLY unless you pass \`--values\`. Changing an override does not
+   restart anything — run \`servers restart\` to pick it up.
 - \`stats [--project <slug>] [--since <iso>] [--json]\` — **read** the
   orchestration effectiveness report for a project: first-pass rate, rework
   loops, gate kill distribution, cycle time, agent-active time, token spend by
@@ -132,6 +146,7 @@ ticket would park with no way out.
    to run that exact command outside the sandbox — never improvise a variant.
 5. \`nothing-to-merge\` is a genuine pass: a ticket whose work produced no
    diff opens no PR and has delivered everything it had.
+6. ${SERVERS_VIA_CLI_RULE}
 `;
 
 /**

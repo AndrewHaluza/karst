@@ -40,7 +40,7 @@ export function readSchema(): string {
 }
 
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 59;
+export const SCHEMA_VERSION = 60;
 
 /** v2 ticket-field columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -2310,6 +2310,22 @@ export function migrate(db: Database): void {
       db.exec(
         'ALTER TABLE pr_feedback ADD COLUMN recovery_round_id INTEGER REFERENCES recovery_rounds(id) ON DELETE SET NULL',
       );
+    }
+  }
+
+  if (current < 60) {
+    // v60: `prs.checks` and `prs.merge_block` — GitHub's CI rollup and its own
+    // answer to whether the merge is allowed. Both are current state, re-probed
+    // by the PR sweep, so NULL on every pre-v60 row is the honest value: never
+    // probed. The guard reads the CURRENT columns rather than the version, so a
+    // fresh DB (already carrying them via schema.sql) is a no-op and a re-open
+    // is idempotent.
+    const prCols60 = tableColumns(db, 'prs');
+    if (prCols60.size > 0 && !prCols60.has('checks')) {
+      db.exec('ALTER TABLE prs ADD COLUMN checks TEXT');
+    }
+    if (prCols60.size > 0 && !prCols60.has('merge_block')) {
+      db.exec('ALTER TABLE prs ADD COLUMN merge_block TEXT');
     }
   }
 

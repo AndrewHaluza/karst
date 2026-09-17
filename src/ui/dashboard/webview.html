@@ -1361,6 +1361,15 @@
   .pr .pst-merged{background:var(--k-series-2);color:var(--k-success-fg)}
   .pr .pst-closed{background:var(--k-danger);color:var(--k-danger-fg)}
   .pr .pst-draft,.pr .pst-unknown{background:var(--k-text-faint);color:var(--k-success-fg)}
+  /* v60: the CI rollup and GitHub's refusal. Both are host-worded and host-
+     counted (`p.checks`, `p.mergeBlockLabel`); these rules only paint them, and
+     every fill pairs with the "text on a filled surface" token the vocabulary
+     above already uses (UI-R29). */
+  .pr .pck{font-family:var(--k-font-mono);font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.4px}
+  .pr .pck-passing{background:var(--k-success);color:var(--k-success-fg)}
+  .pr .pck-failing{background:var(--k-danger);color:var(--k-danger-fg)}
+  .pr .pck-pending{background:var(--k-text-faint);color:var(--k-success-fg)}
+  .pr .pblock{font-family:var(--k-font-mono);font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.4px;background:var(--k-attention);color:var(--k-success-fg)}
   /* The PR number IS the open control (UI-R09c): an underlined link-coloured
      anchor, keyboard-focusable, in the same visual language as the ship view's
      `pr-link`. With no recorded URL it degrades to plain text — a link that
@@ -1443,6 +1452,13 @@
   .pcm .pcmwho{font-weight:var(--k-weight-semibold);font-size:var(--k-text-xs)}
   .pcm .pcmwhen{margin-left:var(--k-space-3);font-size:var(--k-text-sm);color:var(--k-text-faint)}
   .pcm .pcmbody{white-space:pre-wrap;color:var(--k-text-dim);font-size:var(--k-text-sm);margin-top:var(--k-space-1)}
+  /* The failing checks: the count is what a reader scans for, the names and their
+     runs are what they open when it matters. Same collapse shape as the comments
+     above, so one panel uses one disclosure. */
+  .pcks{margin:0 0 var(--k-space-3) var(--k-space-6);padding:0 var(--k-space-3);font-size:var(--k-text-sm)}
+  .pcks summary{cursor:pointer;color:var(--k-link);width:fit-content}
+  .pcks summary:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+  .pck-row{margin:var(--k-space-3) 0 0;padding-left:var(--k-space-4);border-left:var(--k-space-1) solid var(--k-border)}
   /* The merge control is `.k-btn--primary` (consequential-primary, UI-R10b:
      "Merge is not automatically danger-colored merely because it is
      consequential"), built in markup — no bespoke color rule left here. */
@@ -3726,6 +3742,24 @@
     return `<details class="pcms"><summary>${esc(p.commentsLabel)}</summary>${rows}</details>`;
   }
 
+  // The failing checks: the count is what a reader scans for, the names and
+  // their runs are what they open when it matters. Each name links through the
+  // SAME `open-pr` action the PR number uses — the host validates the url with
+  // `isHttpUrl` before opening it, so no new message type is needed.
+  function prChecksDetails(p) {
+    // Suppressed on a merged PR for the same reason the chips are (`live` in
+    // `renderPrs`): it landed, and a stale rollup beside `merged` would state a
+    // question that is closed.
+    if (p.status === 'merged') return '';
+    if (!p.checks || !p.checks.detailsLabel) return '';
+    const rows = p.checks.failing.map((c) => (
+      `<div class="pck-row">` + (c.url
+        ? `<a href="#" data-act="open-pr" data-url="${esc(c.url)}" title="Open this check run">${esc(c.name)}</a>`
+        : `<span>${esc(c.name)}</span>`) + `</div>`
+    )).join('');
+    return `<details class="pcks"><summary>${esc(p.checks.detailsLabel)}</summary>${rows}</details>`;
+  }
+
   function renderPrs(prs, mergeChecks) {
     const byRepo = {};
     for (const m of (mergeChecks || [])) byRepo[m.repo] = m;
@@ -3763,7 +3797,21 @@
       // row's identity) rides in `title`, never shown beside the name again.
       const repoLabel = p.repoDisplay || p.repo;
       const repoTitle = repoLabel !== p.repo ? p.repo : '';
+      // The CI rollup and GitHub's refusal, both host-worded (`p.checks`,
+      // `p.mergeBlockLabel`) — this file never counts a check or decides that a
+      // merge is blocked. Each renders nothing at all when its fact is absent.
+      // Suppressed on a merged PR: it landed, and a stale rollup beside `merged`
+      // would state a question that is closed.
+      const live = p.status !== 'merged';
+      const ckChip = live && p.checks && p.checks.label
+        ? `<span class="k-chip pck pck-${esc(p.checks.state)}" title="${esc(p.checks.title)}">${esc(p.checks.label)}</span>`
+        : '';
+      const blockChip = live && p.mergeBlockLabel
+        ? `<span class="k-chip pblock" title="${esc(p.mergeBlockedReason)}">${esc(p.mergeBlockLabel)}</span>`
+        : '';
       return `<div class="prrow"><div class="pr"><span class="k-chip pst pst-${esc(p.status || 'unknown')}">${esc(p.status || '')}</span>`
+      + ckChip
+      + blockChip
       // The repo NAME (host-resolved from the manifest), never the path — the
       // same identity the inside ship rows show; the path rides in `title`.
       + `<span class="prepo"${repoTitle ? ` title="${esc(repoTitle)}"` : ''}>${esc(repoLabel)}</span>`
@@ -3771,6 +3819,7 @@
       + num
       + `<span class="pacts">${p.dismissedLabel ? `<span class="pstamp">${esc(p.dismissedLabel)}</span>` : ''}${dismissButton(p)}${mergeButton(p)}</span></div>`
       + prMetaLine(p)
+      + prChecksDetails(p)
       + mergeLine(byRepo[p.repo])
       + prComments(p)
       + `</div>`;
