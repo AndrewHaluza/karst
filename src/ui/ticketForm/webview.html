@@ -566,6 +566,11 @@
         <select class="k-input" id="typeSelect"></select>
         <div class="sub">Feeds {type} in the branch, commit and PR conventions (Settings → Git).</div>
       </div>
+      <div class="field">
+        <label for="agentPresetSelect">Agent preset</label>
+        <select class="k-input" id="agentPresetSelect"></select>
+        <div class="field-help">A named core + model defined in karst.yml. Picking one clears the explicit core, model and effort below.</div>
+      </div>
     </div>
 
     <!-- Step 3: Create -->
@@ -787,11 +792,13 @@
     lastRecentModels = state.recentModels || lastRecentModels;
     lastDefaultModel = state.defaultModel ?? null;
     lastDefaultEffort = state.defaultEffort ?? null;
+    lastSelectedAgentPreset = state.selectedAgentPreset ?? null;
     lastSessionOpen = state.sessionOpen === true;
     renderAgentIdentityPicker(state.agentProviders, state.selectedAgentProvider, state.defaultAgentProvider, state.selectedModel, state.defaultModel, state.selectedEffort, state.defaultEffort, state.sessionOpen);
     lastTicketTypes = state.ticketTypes || [];
     lastDefaultType = state.defaultType || 'feat';
     renderTypePicker(state.ticketTypes, state.selectedType, state.defaultType);
+    renderAgentPresetSelect(state.agentPresetNames, state.selectedAgentPreset, state.defaultAgentPreset);
     // Reveal Phase 2 iff the ticket is identified (edit mode: already true).
     syncPhase2();
     // Re-gate the Analyze button. NEVER auto-analyze on a plain state push /
@@ -1134,6 +1141,12 @@
   let lastSelectedAgentProvider = null;
   let lastSelectedModel = null;
   let lastSelectedEffort = null;
+  // Last identity the HOST pushed for the ticket's agent preset
+  // (state.selectedAgentPreset), mirroring lastSelectedApproach — a reopened
+  // saved draft renders its persisted preset but leaves draft.agentPreset null
+  // until the user touches the select, so submit/save fall back to this cache
+  // rather than clearing the saved preset.
+  let lastSelectedAgentPreset = null;
   // Last pushed model catalog + defaults, so a provider pick can re-render the
   // Model select locally for the picked core (same reason as the trigger
   // repaint above — create mode has no state push to answer with). Mirrors the
@@ -1217,6 +1230,26 @@
       opts.push(`<option value="${esc(t)}"${t === sel ? ' selected' : ''}>${esc(t)}</option>`);
     }
     el('typeSelect').innerHTML = opts.join('');
+  }
+
+  // Agent preset picker: "Inherit (settings: <default preset>)" plus every
+  // preset the manifest defines. A saved preset the manifest no longer defines
+  // stays visible, marked "(unknown)" — never silently dropped (UI-R34 mirror
+  // discipline: the host supplies the list, the page renders it).
+  function renderAgentPresetSelect(names, selected, defaultName) {
+    const list = names || [];
+    const sel = draft.agentPreset ?? selected ?? '';
+    const inheritLabel = defaultName
+      ? 'Inherit (settings: ' + esc(defaultName) + ')'
+      : 'Inherit (settings: none)';
+    const opts = [`<option value=""${sel ? '' : ' selected'}>${inheritLabel}</option>`];
+    for (const n of list) {
+      opts.push(`<option value="${esc(n)}"${n === sel ? ' selected' : ''}>${esc(n)}</option>`);
+    }
+    if (sel && list.indexOf(sel) === -1) {
+      opts.push(`<option value="${esc(sel)}" selected>${esc(sel)} (unknown)</option>`);
+    }
+    el('agentPresetSelect').innerHTML = opts.join('');
   }
 
   // Step rail state: repos done once ≥1 selected; approach active while
@@ -1470,12 +1503,13 @@
     const model = (draft.selectedModel ?? lastSelectedModel) || null;
     const effort = (draft.selectedEffort ?? lastSelectedEffort) || null;
     const agentProvider = (draft.selectedAgentProvider ?? lastSelectedAgentProvider) || null;
+    const agentPreset = (draft.agentPreset ?? lastSelectedAgentPreset) || null;
     const ticketType = (draft.ticketType ?? el('typeSelect').value ?? '') || null;
     // Enter pending LOCALLY, before the round trip (UI-R11) — the host's `busy`
     // message that follows only confirms/clears it.
     setSubmitBusy(true);
     const baseRefs = collectBaseRefs();
-    post({ type: 'submit', key, title, description: el('desc').value, repos, approach, agent, model, effort, agentProvider, ticketType, createInProvider: createInOn, keyAutoDerived: !refTouched, baseRefs, pullBase: pullBaseOn });
+    post({ type: 'submit', key, title, description: el('desc').value, repos, approach, agent, model, effort, agentProvider, agentPreset, ticketType, createInProvider: createInOn, keyAutoDerived: !refTouched, baseRefs, pullBase: pullBaseOn });
   });
 
   el('saveBtn').addEventListener('click', () => {
@@ -1502,10 +1536,11 @@
     const model = (draft.selectedModel ?? lastSelectedModel) || null;
     const effort = (draft.selectedEffort ?? lastSelectedEffort) || null;
     const agentProvider = (draft.selectedAgentProvider ?? lastSelectedAgentProvider) || null;
+    const agentPreset = (draft.agentPreset ?? lastSelectedAgentPreset) || null;
     const ticketType = (draft.ticketType ?? el('typeSelect').value ?? '') || null;
     setSaveBusy(true);
     const baseRefs = collectBaseRefs();
-    post({ type: 'save', key, title, description: el('desc').value, repos, approach, agent, model, effort, agentProvider, ticketType, createInProvider: createInOn, keyAutoDerived: !refTouched, baseRefs });
+    post({ type: 'save', key, title, description: el('desc').value, repos, approach, agent, model, effort, agentProvider, agentPreset, ticketType, createInProvider: createInOn, keyAutoDerived: !refTouched, baseRefs });
   });
 
   // Typing an identity in Phase 1 reveals (or re-hides) Phase 2 live. When the
@@ -1978,6 +2013,24 @@
     const requestId = karstRequestId();
     karstBeginPending(select, requestId);
     post({ type: 'set-type', id, requestId });
+  });
+
+  // Pick an agent preset (or "Inherit", value ''): record + post. A real preset
+  // governs — drop any explicit core/model/effort so the preset takes effect
+  // (explicit values win by precedence). Create mode holds it in the draft
+  // until submit.
+  el('agentPresetSelect').addEventListener('change', (e) => {
+    const select = e.target;
+    const id = select.value;
+    draft.agentPreset = id || null;
+    if (id) {
+      draft.selectedAgentProvider = null;
+      draft.selectedModel = null;
+      draft.selectedEffort = null;
+    }
+    const requestId = karstRequestId();
+    karstBeginPending(select, requestId);
+    post({ type: 'set-preset', id, requestId });
   });
 
   // Per-repo base-branch inputs are rebuilt on every renderRepos() call, so

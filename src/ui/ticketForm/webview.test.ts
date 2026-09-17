@@ -1110,3 +1110,32 @@ describe('legacy busy channel watchdog', () => {
     expect(HTML.slice(at, at + 600)).toContain('setBusy(what, false)');
   });
 });
+
+// The agent-preset picker: the host pushes the preset names + default + the
+// ticket's saved preset; the page renders the select. A saved preset the
+// manifest no longer defines must stay visible (UI-R34: the pick you saved is
+// never silently dropped).
+describe('ticket-form webview.html — agent preset picker', () => {
+  function renderPreset(draft: Record<string, unknown>, names: unknown, selected: unknown, defaultName: unknown): string {
+    const state = { innerHTML: '' };
+    const render = loadFunction('renderAgentPresetSelect', {
+      draft,
+      el: () => state,
+    }) as (n: unknown, s: unknown, d: unknown) => void;
+    render(names, selected, defaultName);
+    return state.innerHTML;
+  }
+
+  it('renders the agent preset select from pushed state', () => {
+    const html = renderPreset({ agentPreset: null }, ['fast', 'deep'], null, 'fast');
+    expect(html).toContain('value="fast"');
+    expect(html).toContain('value="deep"');
+    expect(html).toContain('Inherit (settings: fast)');
+  });
+
+  it('keeps a saved preset that is no longer defined', () => {
+    const html = renderPreset({ agentPreset: 'gone' }, ['fast'], 'gone', null);
+    expect(html).toContain('value="gone"');
+    expect(html).toContain('(unknown)');
+  });
+});
