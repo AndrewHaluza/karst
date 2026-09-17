@@ -19,6 +19,8 @@ import {
   reopenInterruptedRound,
   reconcileStrandedFixRounds,
   sweepStalledFixRounds,
+  sweepAbandonedFixLaunches,
+  describeStrandedFixRound,
   listRecoveryRounds,
   parkFixStage,
   hasFixingRound,
@@ -26,6 +28,7 @@ import {
   FIX_PARKED_EXHAUSTED,
   FIX_PARKED_NO_EXECUTION,
   FIX_PARKED_STALLED,
+  FIX_PARKED_LAUNCH_NEVER_STARTED,
   type RecoveryRound,
 } from './recoveryRounds.js';
 import { getTicket } from './tickets.js';
@@ -1027,6 +1030,291 @@ describe('recovery rounds — store', () => {
         sweepStalledFixRounds(store, { at: T2, timeoutMs: 60 * 60_000, projectId: null }),
       ).toEqual([]);
       expect(listRecoveryRounds(store, ticketId)[0]!.status).toBe('fixing');
+    });
+  });
+
+  describe('sweepAbandonedFixLaunches', () => {
+    let projectId: number;
+    beforeEach(() => {
+      // The sweep is project-scoped: bind a project and put the ticket in it.
+      projectId = upsertProject(store, { slug: 'sweep-proj' }).id;
+      store.db.prepare('UPDATE tickets SET project_id = ? WHERE id = ?').run(projectId, ticketId);
+    });
+
+    // The ticket must actually BE at fix for the park to land, exactly like the
+    // sibling sweep's park tests.
+    function toFix(): void {
+      transition(store, ticketId, 'uat', { kind: 'failed', reason: 'exit 1' }); // -> fix
+      store.db
+        .prepare("UPDATE stages SET started_at = ? WHERE ticket_id = ? AND stage_key = 'fix'")
+        .run(T0, ticketId);
+    }
+
+    it('parks a fix whose launch never confirmed past the timeout', () => {
+      toFix();
+      const r = round();
+      recordFixLaunchIntent(store, {
+        ticketId,
+        launchId: 'L-1',
+        provider: 'claude',
+        reason: 'resume',
+        sessionOrigin: 'resume',
+        recoveryRoundId: r.id,
+        at: T0,
+      });
+
+      const stranded = sweepAbandonedFixLaunches(store, {
+        at: T2,
+        timeoutMs: 60 * 60_000,
+        projectId,
+      });
+
+      expect(stranded).toEqual([
+        {
+          kind: 'launch',
+          roundId: r.id,
+          ticketId,
+          sourceStage: 'uat',
+          round: 1,
+          fixProcessRunId: null,
+        },
+      ]);
+      expect(getSessionLaunchIntent(store, 'L-1')).toMatchObject({
+        status: 'failed',
+        resolvedAt: T2,
+      });
+      expect(listRecoveryRounds(store, ticketId)[0]).toMatchObject({
+        status: 'interrupted',
+        endedAt: T2,
+        interruptCount: 1,
+      });
+      const fixStage = getTicket(store, ticketId).stages.find((s) => s.stageKey === 'fix')!;
+      expect(fixStage.status).toBe('failed');
+      expect(fixStage.verdict).toBe(FIX_PARKED_LAUNCH_NEVER_STARTED);
+      expect(fixStage.endedAt).toBe(T2);
+    });
+
+    it('leaves a launch alone while it is still inside the window', () => {
+      toFix();
+      const r = round();
+      recordFixLaunchIntent(store, {
+        ticketId,
+        launchId: 'L-1',
+        provider: 'claude',
+        reason: 'resume',
+        sessionOrigin: 'resume',
+        recoveryRoundId: r.id,
+        at: T0,
+      });
+
+      // Cutoff is T2 - 180m = 09:00; the intent was created at T0 (10:00).
+      expect(
+        sweepAbandonedFixLaunches(store, { at: T2, timeoutMs: 180 * 60_000, projectId }),
+      ).toEqual([]);
+      expect(getSessionLaunchIntent(store, 'L-1')!.status).toBe('pending');
+      expect(listRecoveryRounds(store, ticketId)[0]!.status).toBe('pending');
+      expect(getTicket(store, ticketId).stages.find((s) => s.stageKey === 'fix')!.status).toBe(
+        'running',
+      );
+    });
+
+    it('leaves a round that already reached fixing alone', () => {
+      toFix();
+      const r = round();
+      recordFixLaunchIntent(store, {
+        ticketId,
+        launchId: 'L-1',
+        provider: 'claude',
+        reason: 'resume',
+        sessionOrigin: 'resume',
+        recoveryRoundId: r.id,
+        at: T0,
+      });
+      confirmFixLaunch(store, 'L-1', {
+        ticketId,
+        provider: 'claude',
+        providerSessionId: 'sess-1',
+        at: T0,
+      });
+
+      expect(
+        sweepAbandonedFixLaunches(store, { at: T2, timeoutMs: 60 * 60_000, projectId }),
+      ).toEqual([]);
+      expect(listRecoveryRounds(store, ticketId)[0]!.status).toBe('fixing');
+    });
+
+    it("ignores another project's ticket", () => {
+      toFix();
+      const r = round();
+      const otherTicket = createTicketFlow(store, { key: 'T-2', title: 'other' }).id;
+      transition(store, otherTicket, 'scope', { kind: 'passed' });
+      transition(store, otherTicket, 'impl', { kind: 'passed' });
+      transition(store, otherTicket, 'uat', { kind: 'failed', reason: 'exit 1' }); // -> fix
+      store.db
+        .prepare("UPDATE stages SET started_at = ? WHERE ticket_id = ? AND stage_key = 'fix'")
+        .run(T0, otherTicket);
+      const otherRound = openRecoveryRound(store, {
+        ticketId: otherTicket,
+        sourceStage: 'uat',
+        sourceProcessId: 'gates',
+        sourceStageRunId: null,
+        sourceProcessRunId: null,
+        triggerKind: 'gate-failure',
+        triggerDetail: 'exit 1',
+        maxRounds: 3,
+        startedAt: T0,
+      });
+      recordFixLaunchIntent(store, {
+        ticketId: otherTicket,
+        launchId: 'L-2',
+        provider: 'claude',
+        reason: 'resume',
+        sessionOrigin: 'resume',
+        recoveryRoundId: otherRound.id,
+        at: T0,
+      });
+
+      expect(
+        sweepAbandonedFixLaunches(store, { at: T2, timeoutMs: 60 * 60_000, projectId }),
+      ).toEqual([]);
+      // The other project's identical abandoned launch is left for ITS own window.
+      expect(getSessionLaunchIntent(store, 'L-2')!.status).toBe('pending');
+    });
+
+    it('returns [] for an unbound project', () => {
+      toFix();
+      const r = round();
+      recordFixLaunchIntent(store, {
+        ticketId,
+        launchId: 'L-1',
+        provider: 'claude',
+        reason: 'resume',
+        sessionOrigin: 'resume',
+        recoveryRoundId: r.id,
+        at: T0,
+      });
+
+      expect(
+        sweepAbandonedFixLaunches(store, { at: T2, timeoutMs: 60 * 60_000, projectId: null }),
+      ).toEqual([]);
+      expect(getSessionLaunchIntent(store, 'L-1')!.status).toBe('pending');
+    });
+
+    it('fails the intent but reports no park when the ticket already left fix', () => {
+      toFix();
+      const r = round();
+      recordFixLaunchIntent(store, {
+        ticketId,
+        launchId: 'L-1',
+        provider: 'claude',
+        reason: 'resume',
+        sessionOrigin: 'resume',
+        recoveryRoundId: r.id,
+        at: T0,
+      });
+      store.db.prepare("UPDATE tickets SET stage_current = 'uat' WHERE id = ?").run(ticketId);
+
+      const stranded = sweepAbandonedFixLaunches(store, {
+        at: T2,
+        timeoutMs: 60 * 60_000,
+        projectId,
+      });
+
+      expect(stranded).toEqual([
+        {
+          kind: 'launch',
+          roundId: r.id,
+          ticketId,
+          sourceStage: 'uat',
+          round: 1,
+          fixProcessRunId: null,
+        },
+      ]);
+      expect(getSessionLaunchIntent(store, 'L-1')!.status).toBe('failed');
+      expect(getTicket(store, ticketId).stages.find((s) => s.stageKey === 'fix')!.status).toBe(
+        'running',
+      );
+    });
+
+    it("never interrupts a round owned by a different ticket than the intent", () => {
+      toFix();
+      const r = round();
+      const otherTicket = createTicketFlow(store, { key: 'T-2', title: 'other', projectId }).id;
+      recordFixLaunchIntent(store, {
+        ticketId,
+        launchId: 'L-bad',
+        provider: 'claude',
+        reason: 'resume',
+        sessionOrigin: 'resume',
+        recoveryRoundId: r.id,
+        at: T0,
+      });
+      // A malformed HISTORICAL row: the intent's ticket names `otherTicket`
+      // while its recovery round belongs to `ticketId` — the exact state
+      // `confirmFixLaunch` re-validates against. The sweep must not interrupt a
+      // round it does not own on the intent's word alone.
+      store.db
+        .prepare('UPDATE session_launch_intents SET ticket_id = ? WHERE launch_id = ?')
+        .run(otherTicket, 'L-bad');
+
+      expect(
+        sweepAbandonedFixLaunches(store, { at: T2, timeoutMs: 60 * 60_000, projectId }),
+      ).toEqual([]);
+      expect(listRecoveryRounds(store, ticketId)[0]!.status).toBe('pending');
+      expect(getSessionLaunchIntent(store, 'L-bad')!.status).toBe('pending');
+    });
+
+    it('does not park a round that left pending under the sweep', () => {
+      toFix();
+      const r = round();
+      recordFixLaunchIntent(store, {
+        ticketId,
+        launchId: 'L-1',
+        provider: 'claude',
+        reason: 'resume',
+        sessionOrigin: 'resume',
+        recoveryRoundId: r.id,
+        at: T0,
+      });
+      // Simulate the cross-window race the changed-row guard exists for: the
+      // snapshot below sees the round `pending`, but by the time the sweep's
+      // transaction runs the round has been claimed by a live fix. The trigger
+      // stands in for `beginLiveFixExecution` in the other window (which does
+      // NOT touch the intent, so the intent is still pending when it fires).
+      store.db
+        .prepare(
+          `CREATE TRIGGER claim_round_on_intent_fail
+             AFTER UPDATE OF status ON session_launch_intents
+             WHEN NEW.status = 'failed' AND OLD.status = 'pending'
+           BEGIN
+             UPDATE recovery_rounds SET status = 'fixing'
+              WHERE id = NEW.recovery_round_id;
+           END`,
+        )
+        .run();
+
+      expect(
+        sweepAbandonedFixLaunches(store, { at: T2, timeoutMs: 60 * 60_000, projectId }),
+      ).toEqual([]);
+      expect(getSessionLaunchIntent(store, 'L-1')!.status).toBe('failed');
+      expect(listRecoveryRounds(store, ticketId)[0]!.status).toBe('fixing');
+      // A live fix is never parked: the stage row is left running.
+      expect(getTicket(store, ticketId).stages.find((s) => s.stageKey === 'fix')!.status).toBe(
+        'running',
+      );
+    });
+
+    it('describes the launch kind', () => {
+      const line = describeStrandedFixRound({
+        kind: 'launch',
+        roundId: 1,
+        ticketId: 7,
+        sourceStage: 'uat',
+        round: 2,
+        fixProcessRunId: null,
+      });
+      expect(line).toContain('never started');
+      expect(line).toContain('parked for a human');
     });
   });
 });

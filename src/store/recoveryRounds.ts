@@ -3,6 +3,7 @@ import { openProcessRun, finishProcessRun, type ProcessRun } from './processRuns
 import {
   recordSessionLaunchIntent,
   confirmLaunchIntentRow,
+  failSessionLaunchIntent,
   getSessionLaunchIntent,
   type ConfirmSessionLaunchIntentInput,
   type SessionLaunchIntent,
@@ -158,6 +159,14 @@ export const FIX_PARKED_PROCESS_UNAVAILABLE = 'fix process not available — par
 export const FIX_PARKED_NO_EXECUTION = 'fix parked — no fix execution in flight';
 export const FIX_PARKED_STALLED =
   'fix stalled — no progress before the timeout; parked for a human';
+/**
+ * A fix launch was prepared but no SessionStart ever confirmed it, and the
+ * launch window elapsed. Distinct from FIX_PARKED_NO_EXECUTION (a session that
+ * opened and closed) and FIX_PARKED_STALLED (a live run that stopped making
+ * progress): here the provider session never started at all.
+ */
+export const FIX_PARKED_LAUNCH_NEVER_STARTED =
+  'fix launch never started — parked for a human';
 
 /**
  * Re-stamp a RUNNING fix stage row as parked (`failed` + a bounded verdict +
@@ -846,9 +855,11 @@ export function interruptActiveFixExecution(store: Store, ticketId: number, at: 
  * (round-based), `stage` is a fix stage row that read `running` with no
  * execution at all — parked, never interrupted, because there was no execution
  * to interrupt — and `stalled` is a live-but-idle run parked by the stall
- * watchdog once it showed no progress for the configured window.
+ * watchdog once it showed no progress for the configured window. `'launch'` is
+ * a prepared fix launch that no SessionStart ever confirmed before the window
+ * elapsed.
  */
-export type StrandedFixKind = 'execution' | 'stage' | 'stalled';
+export type StrandedFixKind = 'execution' | 'stage' | 'stalled' | 'launch';
 
 export interface StrandedFixRound {
   kind: StrandedFixKind;
@@ -1088,8 +1099,106 @@ export function sweepStalledFixRounds(
   return stalled;
 }
 
+/**
+ * Park every fix whose LAUNCH never started.
+ *
+ * `reconcileStrandedFixRounds`' PASS 2 deliberately exempts a ticket with a
+ * pending `purpose='fix'` launch intent: the intent is recorded before the
+ * terminal exists, and parking that window read a live agent as blocked
+ * (REVIEW-2ND-ROUND-FIX-STUCK-WITH). Nothing, however, ever aged a pending
+ * intent out, so an intent that never confirmed exempted its ticket from
+ * BOTH sweeps forever and the fix row claimed `running` with nothing behind
+ * it. This bounds that exemption with the project's own stall window.
+ *
+ * Strictly guarded: only a round still `pending` is settled. A round that has
+ * reached `fixing` (or beyond) has an execution the sibling sweeps own, and
+ * this sweep leaves its intent alone rather than risk accusing a live fix.
+ *
+ * PROJECT-SCOPED for the same reason as `sweepStalledFixRounds`: the window
+ * comes from ITS project's manifest and the registry is shared by every
+ * window.
+ */
+export function sweepAbandonedFixLaunches(
+  store: Store,
+  opts: SweepStalledFixOpts,
+): StrandedFixRound[] {
+  const nowMs = Date.parse(opts.at);
+  if (!Number.isFinite(nowMs)) return [];
+  if (!(opts.timeoutMs > 0)) return [];
+  if (opts.projectId === null) return [];
+  const cutoff = new Date(nowMs - opts.timeoutMs).toISOString();
+
+  const rows = store.db
+    .prepare(
+      `SELECT i.id AS intent_id, i.launch_id, i.ticket_id,
+              r.id AS round_id, r.round, r.source_stage
+         FROM session_launch_intents i
+         JOIN recovery_rounds r ON r.id = i.recovery_round_id
+        WHERE i.purpose = 'fix' AND i.status = 'pending'
+          AND r.status = 'pending'
+          AND r.ticket_id = i.ticket_id
+          AND i.created_at < ?
+          AND i.ticket_id IN (SELECT id FROM tickets WHERE project_id = ?)
+        ORDER BY i.id`,
+    )
+    .all(cutoff, opts.projectId) as {
+    intent_id: number;
+    launch_id: string;
+    ticket_id: number;
+    round_id: number;
+    round: number;
+    source_stage: string;
+  }[];
+
+  const stranded: StrandedFixRound[] = [];
+  for (const row of rows) {
+    const settle = store.db.transaction(() => {
+      if (!failSessionLaunchIntent(store, row.launch_id, opts.at)) return false;
+      // The round update is the guard for everything that follows: it is
+      // constrained to the intent's OWN ticket and to `pending`. A malformed
+      // row that names another ticket's round never interrupts it, and a round
+      // that left `pending` since the snapshot (a live fix attached in another
+      // window) is never parked. When it changes no row, the stale intent is
+      // still failed above — the settled fact — but nothing else is written and
+      // the row is not reported.
+      const interrupted =
+        store.db
+          .prepare(
+            `UPDATE recovery_rounds SET status = 'interrupted', ended_at = ?,
+               interrupt_count = interrupt_count + 1
+             WHERE id = ? AND ticket_id = ? AND status = 'pending'`,
+          )
+          .run(opts.at, row.round_id, row.ticket_id).changes === 1;
+      if (!interrupted) return false;
+      // The park is guarded by `parkFixStage` itself: a ticket that already
+      // left fix, or a row already parked, is a no-op — the intent transition
+      // above is still the settled fact this sweep reports.
+      parkFixStage(store, row.ticket_id, FIX_PARKED_LAUNCH_NEVER_STARTED, opts.at);
+      return true;
+    });
+    if (!settle()) continue;
+
+    stranded.push({
+      kind: 'launch',
+      roundId: row.round_id,
+      ticketId: row.ticket_id,
+      sourceStage: row.source_stage as RecoverySourceStage,
+      round: row.round,
+      fixProcessRunId: null,
+    });
+  }
+  return stranded;
+}
+
 /** One line naming a stranded fix this sweep settled, for the output channel. */
 export function describeStrandedFixRound(s: StrandedFixRound): string {
+  if (s.kind === 'launch') {
+    return (
+      `karst: ticket ${s.ticketId}: ${s.sourceStage} recovery round ${s.round} had a fix ` +
+      `launch that never started before the stall timeout — the launch was failed and the fix ` +
+      `is parked for a human if it was still at fix`
+    );
+  }
   if (s.kind === 'stalled') {
     return (
       `karst: ticket ${s.ticketId}: ${s.sourceStage} recovery round ${s.round} showed no progress ` +

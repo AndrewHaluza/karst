@@ -7,6 +7,8 @@ import {
   beginLiveFixExecution,
   listRecoveryRounds,
   FIX_PARKED_STALLED,
+  FIX_PARKED_LAUNCH_NEVER_STARTED,
+  recordFixLaunchIntent,
 } from '../../store/recoveryRounds.js';
 import { getTicket } from '../../store/tickets.js';
 import { upsertProject } from '../../store/projects.js';
@@ -87,6 +89,89 @@ describe('fixWatchdog', () => {
     expect(getTicket(store, ticketId).stages.find((s) => s.stageKey === 'fix')!.verdict).toBe(
       FIX_PARKED_STALLED,
     );
+  });
+
+  it('parks a fix whose launch never confirmed', () => {
+    toFix(ticketId);
+    const r = openRecoveryRound(store, {
+      ticketId,
+      sourceStage: 'uat',
+      sourceProcessId: 'gates',
+      sourceStageRunId: null,
+      sourceProcessRunId: null,
+      triggerKind: 'gate-failure',
+      triggerDetail: 'exit 1',
+      maxRounds: 3,
+      startedAt: T0,
+    });
+    recordFixLaunchIntent(store, {
+      ticketId,
+      launchId: 'L-1',
+      provider: 'claude',
+      reason: 'resume',
+      sessionOrigin: 'resume',
+      recoveryRoundId: r.id,
+      at: T0,
+    });
+    const log = vi.fn();
+
+    const settled = runFixWatchdog({
+      store,
+      timeoutMinutes: () => 60,
+      projectId: () => projectId,
+      now: () => T2,
+      log,
+    });
+
+    expect(settled).toBe(1);
+    expect(getTicket(store, ticketId).stages.find((s) => s.stageKey === 'fix')!.verdict).toBe(
+      FIX_PARKED_LAUNCH_NEVER_STARTED,
+    );
+    expect(listRecoveryRounds(store, ticketId)[0]!.status).toBe('interrupted');
+    expect(log).toHaveBeenCalledTimes(1);
+    expect(log.mock.calls[0]![0]).toContain('never started');
+  });
+
+  it('one tick settles both a stalled run and an abandoned launch', () => {
+    toFix(ticketId);
+    stalledFix(ticketId);
+
+    const other = createTicketFlow(store, { key: 'T-2', title: 't2', projectId }).id;
+    transition(store, other, 'scope', { kind: 'passed' });
+    transition(store, other, 'impl', { kind: 'passed' });
+    toFix(other);
+    const r = openRecoveryRound(store, {
+      ticketId: other,
+      sourceStage: 'uat',
+      sourceProcessId: 'gates',
+      sourceStageRunId: null,
+      sourceProcessRunId: null,
+      triggerKind: 'gate-failure',
+      triggerDetail: 'exit 1',
+      maxRounds: 3,
+      startedAt: T0,
+    });
+    recordFixLaunchIntent(store, {
+      ticketId: other,
+      launchId: 'L-2',
+      provider: 'claude',
+      reason: 'resume',
+      sessionOrigin: 'resume',
+      recoveryRoundId: r.id,
+      at: T0,
+    });
+
+    const log = vi.fn();
+    const settled = runFixWatchdog({
+      store,
+      timeoutMinutes: () => 60,
+      projectId: () => projectId,
+      now: () => T2,
+      log,
+    });
+
+    expect(settled).toBe(2);
+    expect(log).toHaveBeenCalledTimes(2);
   });
 
   it('returns 0 and sweeps nothing for a non-finite or non-positive timeout', () => {
