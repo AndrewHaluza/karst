@@ -75,3 +75,20 @@ export function reviewBlockingSeverityRule(blockingSeverity: string): string {
     `A finding you cannot walk to a failure is an opinion — drop it, or report it below \`${blockingSeverity}\`.`
   );
 }
+
+/**
+ * The rule that keeps a session from starting a service by hand. Karst owns
+ * port allocation, health gating, pid attribution and reaping for a ticket's
+ * services; a hand-started dev server binds a port the allocator believes is
+ * free, and the next spin dies of EADDRINUSE inside the child, where the only
+ * symptom is a health check that never passes. Consumed by the agent guide's
+ * rules section; a named export here so a seed can reuse the same words.
+ */
+export const SERVERS_VIA_CLI_RULE =
+  'Never start, restart or stop a ticket service by hand (no `npm run dev`, no ' +
+  '`docker compose up`). Use `servers spin`/`servers restart`/`servers stop`. ' +
+  'Karst owns port allocation, health gating and process reaping for this ' +
+  "ticket — a server it did not start holds a port it believes is free, and the " +
+  'next spin fails inside the child where the only symptom is a health check ' +
+  'that never passes. Run `servers list` (or `context`) to see what is already ' +
+  'running before you reach for anything else.';

@@ -15,6 +15,8 @@ import { runNodeCommand } from './node.js';
 import { runGuideCommand } from './guide.js';
 import { readGuideAttribution, recordGuidePull } from './guideTelemetry.js';
 import { runCompactCommand } from './compact.js';
+import { runEnvCommand } from './envCommand.js';
+import { runServersCommand } from './serversCommand.js';
 import { resolveTicketByKey } from './resolveTicket.js';
 import { runTestCommand, parseTestArgs } from './test/main.js';
 import { runReset } from './test/reset.js';
@@ -311,6 +313,21 @@ export function runCli(argv: string[]): string {
     }
   }
 
+  // Per-ticket env overrides (`tickets.env_overrides`). Store-only and
+  // synchronous, so it lives here rather than on the async servers path.
+  if (subcommand === 'env') {
+    if (!db) throw new Error('missing --db <path>');
+    if (!ticket) throw new Error('missing --ticket <key>');
+    const store = openWritableStore(db);
+    try {
+      const found = resolveTicketByKey(store, ticket, loadProjectSlug(manifestPath));
+      if (!found) throw new Error(`no ticket found for key or id '${ticket}'`);
+      return runEnvCommand(store, found.id, rest);
+    } finally {
+      store.close();
+    }
+  }
+
   if (subcommand === 'fix-brief') {
     if (!db) throw new Error('missing --db <path>');
     const parsed = parseFixBriefArgs(rest);
@@ -334,8 +351,36 @@ export function runCli(argv: string[]): string {
   }
 
   throw new Error(
-    `unknown command '${subcommand ?? ''}' (want 'context', 'stats', 'stage', 'phase', 'graph', 'node', 'test', 'guide', 'compact', 'fix-brief' or 'conflict-brief')`,
+    `unknown command '${subcommand ?? ''}' (want 'context', 'stats', 'stage', 'phase', 'graph', 'node', 'test', 'guide', 'compact', 'servers', 'env', 'fix-brief' or 'conflict-brief')`,
   );
+}
+
+/**
+ * The ASYNC CLI entry. `runCli` is synchronous and every existing verb and
+ * test depends on that, but `servers` drives `spinTicket`/`stopTicketServers`,
+ * which are async. So the one async verb is handled here and everything else
+ * delegates unchanged.
+ */
+export async function runCliAsync(argv: string[]): Promise<string> {
+  const { db, manifest: manifestPath, ticket, rest } = parseGlobalFlags(argv);
+  if (rest[0] !== 'servers') return runCli(argv);
+  if (!db) throw new Error('missing --db <path>');
+  if (!ticket) throw new Error('missing --ticket <key>');
+  let manifest: Manifest | undefined;
+  if (manifestPath) {
+    const loaded = loadManifestWithDiagnostics(manifestPath);
+    writeManifestDiagnostics(loaded.warnings);
+    if (loaded.manifest.debug === true) writeManifestDiagnostics(loaded.notices);
+    manifest = loaded.manifest;
+  }
+  const store = openWritableStore(db);
+  try {
+    const found = resolveTicketByKey(store, ticket, loadProjectSlug(manifestPath));
+    if (!found) throw new Error(`no ticket found for key or id '${ticket}'`);
+    return await runServersCommand(store, manifest, found.id, rest, manifestPath);
+  } finally {
+    store.close();
+  }
 }
 
 function fail(message: string): never {
@@ -350,9 +395,20 @@ if (invokedDirectly) {
   void (async () => {
     try {
       const argv = process.argv.slice(2);
-      const output = runCli(argv);
-      process.stdout.write(output + '\n');
+      const output = await runCliAsync(argv);
       const command = parseGlobalFlags(argv).rest[0];
+      if (command === 'servers') {
+        // `spinTicket` spawns its children `detached` but never `.unref()`s them
+        // (src/runtime/supervisor.ts:395-406), so their ChildProcess handles keep
+        // THIS process's event loop alive — a short-lived CLI invocation would
+        // hang until the dev servers exit, which is never. The children have
+        // their own process group and survive this exit, which is the point of
+        // the verb. Exit from the write callback so a piped stdout is flushed
+        // rather than truncated.
+        process.stdout.write(output + '\n', () => process.exit(0));
+        return;
+      }
+      process.stdout.write(output + '\n');
       if (command === 'graph' || command === 'node') {
         let committed = false;
         try {
