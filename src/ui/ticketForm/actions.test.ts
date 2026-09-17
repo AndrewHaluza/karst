@@ -1550,6 +1550,34 @@ describe('buildTicketFormActions', () => {
     expect(ctx.pushes).toBe(2);
   });
 
+  it('setPreset persists the preset and clears explicit core/model/effort', () => {
+    const t = createTicket(store, { key: 'P-PRESET', title: 't' });
+    const ctx = mkCtx(t.id);
+    const actions = buildTicketFormActions(deps)(ctx);
+
+    actions.setProvider('claude');
+    actions.setModel('claude-opus-5');
+    actions.setEffort('high');
+    actions.setPreset('fast');
+
+    const reloaded = getTicket(store, t.id);
+    expect(reloaded.agentPreset).toBe('fast');
+    expect(reloaded.agentProvider).toBeNull();
+    expect(reloaded.model).toBeNull();
+    expect(reloaded.effort).toBeNull();
+    expect(ctx.pushes).toBe(2); // setProvider re-pushed, then setPreset
+  });
+
+  it('picking an explicit core clears the ticket preset', () => {
+    const t = createTicket(store, { key: 'P-PRESET-2', title: 't' });
+    const ctx = mkCtx(t.id);
+    const actions = buildTicketFormActions(deps)(ctx);
+
+    actions.setPreset('fast');
+    actions.setProvider('claude');
+    expect(getTicket(store, t.id).agentPreset).toBeNull();
+  });
+
   describe('attachments', () => {
     it('persists a draft ticket on the first attach in create mode', async () => {
       const { actions, ctx, deps } = makeActions({ mode: 'create' });

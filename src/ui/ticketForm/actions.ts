@@ -293,6 +293,7 @@ function persistDraft(
     model: input.model ?? '',
     effort: input.effort ?? '',
     agentProvider: input.agentProvider ?? '',
+    agentPreset: input.agentPreset ?? '',
     type: input.ticketType ?? '',
     baseRefs: input.baseRefs ?? {},
   });
@@ -754,17 +755,20 @@ export function buildTicketFormActions(
 
     setModel(id: string): void {
       // An empty id is the "Inherit (settings)" choice — persisted as '' which
-      // the store maps to NULL (inherit the manifest default at launch).
+      // the store maps to NULL (inherit the manifest default at launch). An
+      // explicit pick also clears the ticket preset: the explicit field wins by
+      // precedence, so leaving the preset would make the pick look ignored.
       if (ctx.ticketId !== undefined) {
-        updateTicketFields(deps.store, ctx.ticketId, { model: id });
+        updateTicketFields(deps.store, ctx.ticketId, { model: id, agentPreset: '' });
       }
     },
 
     setEffort(id: string): void {
       // An empty id is the "Inherit (settings)" choice — persisted as '' which
       // the store maps to NULL (inherit the manifest default effort at launch).
+      // An explicit pick also clears the ticket preset (see setModel).
       if (ctx.ticketId !== undefined) {
-        updateTicketFields(deps.store, ctx.ticketId, { effort: id });
+        updateTicketFields(deps.store, ctx.ticketId, { effort: id, agentPreset: '' });
       }
     },
 
@@ -773,11 +777,28 @@ export function buildTicketFormActions(
       // the store maps to NULL (inherit manifest.agentProvider at launch).
       // Unlike setModel, this re-pushes state: a provider change also
       // re-filters the model picker (§ model/provider compatibility), and the
-      // next state push is what carries the re-filtered `models` list down.
+      // next state push is what carries the re-filtered `models` list down. An
+      // explicit pick also clears the ticket preset (see setModel).
       if (ctx.ticketId !== undefined) {
-        updateTicketFields(deps.store, ctx.ticketId, { agentProvider: id });
+        updateTicketFields(deps.store, ctx.ticketId, { agentProvider: id, agentPreset: '' });
         ctx.pushState();
       }
+    },
+
+    setPreset(id: string): void {
+      // An empty id is "Inherit (settings)" — persisted as '' which the store
+      // maps to NULL. A real preset GOVERNs, so explicit core/model/effort are
+      // cleared; otherwise they would win by precedence and the pick would look
+      // ignored. The next state push re-renders the picker onto the preset.
+      if (ctx.ticketId === undefined) return;
+      updateTicketFields(
+        deps.store,
+        ctx.ticketId,
+        id === ''
+          ? { agentPreset: '' }
+          : { agentPreset: id, agentProvider: '', model: '', effort: '' },
+      );
+      ctx.pushState();
     },
 
     setType(id: string): void {
