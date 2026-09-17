@@ -757,7 +757,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }), () => worktreePathContext(currentManifest(), logger.warn, logger.info), () => currentManifest()?.ticketLabelTemplate, logError,
     () => currentProject()?.id,
     () => currentManifest()?.agentProvider,
-    () => activeTicket.get());
+    () => activeTicket.get(),
+    () => currentManifest());
   const { host: sidebarHost, provider: sidebarProvider, badge: sidebarBadge } =
     makeSidebarViewHost(context);
   provider.bind(sidebarHost);

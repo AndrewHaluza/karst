@@ -1,5 +1,5 @@
 import type { Store } from '../../store/db.js';
-import type { AgentProvider } from '../../manifest/types.js';
+import type { AgentProvider, Manifest } from '../../manifest/types.js';
 import { listTickets, listArchivedTickets, type TicketWithStages } from '../../store/tickets.js';
 import {
   listServersByTicket,
@@ -27,6 +27,7 @@ import { buildPeek, type TicketPeek } from './peek.js';
 import { listGateRuns } from '../../store/gateRuns.js';
 import { mergeGateState } from '../../workflow/mergeGate.js';
 import { resolveProvider } from '../../agent/registry.js';
+import { resolveAgentDefaults } from '../../agent/agentPresets.js';
 
 /** A worktree row enriched with its display path (honors `worktreePathDisplay`). */
 export interface SidebarWorktree extends WorktreeView {
@@ -165,6 +166,11 @@ export function buildSidebarState(
     /** Manifest-level agent core; decides whether a captured session is resumable. */
     defaultProvider?: AgentProvider;
     /**
+     * Live manifest, so each row resolves the effective preset core a launch
+     * would use. Absent → the legacy `defaultProvider` only.
+     */
+    manifest?: Manifest;
+    /**
      * The window's project (§ projects / multi-window). Both lists are scoped to
      * it — including the counts, or the chip badges would advertise tickets the
      * user can't see. Undefined only before a project is bound.
@@ -195,7 +201,16 @@ export function buildSidebarState(
   }
 
   const enrich = (tickets: readonly TicketWithStages[]): TicketRow[] => {
-    const nodes = buildTicketNodes(tickets, opts.labelTemplate, opts.defaultProvider, parentKeys);
+    const agentDefaults = opts.manifest
+      ? (ticketPreset: string | null) => resolveAgentDefaults(opts.manifest!, ticketPreset)
+      : undefined;
+    const nodes = buildTicketNodes(
+      tickets,
+      opts.labelTemplate,
+      opts.defaultProvider,
+      parentKeys,
+      agentDefaults,
+    );
     return tickets.map((t, i) => {
       const node = nodes[i]!;
       const worktrees = listWorktreesByTicket(store, node.ticketId).map((w) => ({
@@ -228,7 +243,10 @@ export function buildSidebarState(
               ? listGateRuns(store, t.id)
               : [],
           mergeGate: t.stageCurrent === 'ship' ? mergeGateState(store, t.id) : null,
-          provider: resolveProvider(t.agentProvider, opts.defaultProvider),
+          provider: resolveProvider(
+            t.agentProvider,
+            agentDefaults?.(t.agentPreset)?.provider ?? opts.defaultProvider,
+          ),
           model: t.model,
           prs,
         }),

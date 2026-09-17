@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { bundledModelCatalog } from '../../agent/modelCatalog.js';
 import type { Manifest } from '../../manifest/types.js';
 import { manifest as buildManifest, runnableRepo, slot } from '../../manifest/fixtures.js';
-import { buildProcessAssignmentViews } from './processAssignmentViews.js';
+import { buildProcessAssignmentView, buildProcessAssignmentViews } from './processAssignmentViews.js';
 
 const BASE: Manifest = buildManifest(
   { api: runnableRepo({ ports: [slot('port', 'PORT', 3000)] }, { repoPath: '../api', signals: [] }) },
@@ -188,5 +188,34 @@ describe('buildProcessAssignmentViews (handoff §7)', () => {
     const v = row(m, 'uatTester');
     expect(v.state).toBe('valid');
     expect(v.stateMessage).toBe('');
+  });
+
+  it('reports the preset the row would inherit and honors a row preset', () => {
+    const m: Manifest = {
+      ...BASE,
+      agentPresets: {
+        fast: { provider: 'opencode', model: 'opencode-go/deepseek-v4-flash' },
+        deep: { provider: 'claude', model: 'claude-opus-5' },
+      },
+      defaultAgentPreset: 'fast',
+      processes: { review: { preset: 'deep' } },
+    };
+    const view = buildProcessAssignmentView('review', { preset: 'deep' }, m, []);
+    expect(view.presetOptions).toEqual(['deep', 'fast']);
+    expect(view.effectiveProvider).toBe('claude');
+    expect(view.effectiveModel).toBe('claude-opus-5');
+  });
+
+  it('an omitted row inherits the default preset', () => {
+    const m: Manifest = {
+      ...BASE,
+      agentPresets: { fast: { provider: 'opencode', model: 'opencode-go/deepseek-v4-flash' } },
+      defaultAgentPreset: 'fast',
+      processes: { review: {} },
+    };
+    const view = buildProcessAssignmentView('review', {}, m, []);
+    expect(view.presetHint).toBe('Default: fast');
+    expect(view.effectiveProvider).toBe('opencode');
+    expect(view.effectiveModel).toBe('opencode-go/deepseek-v4-flash');
   });
 });

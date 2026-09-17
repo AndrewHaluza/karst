@@ -6,6 +6,7 @@ import type { Glyph } from '../../model/glyph.js';
 import { sessionAction, type SessionAction } from '../../agent/sessionAction.js';
 import { resolveProvider } from '../../agent/registry.js';
 import type { AgentProvider } from '../../manifest/types.js';
+import type { AgentDefaults } from '../../agent/agentPresets.js';
 
 /**
  * The expanded body's blocker line — the ONE thing the collapsed row can't show.
@@ -88,6 +89,12 @@ export function buildTicketNodes(
   defaultProvider?: AgentProvider,
   /** id -> key, for every ticket in the project (not just the currently visible facet). */
   parentKeys: Map<number, string> = new Map(),
+  /**
+   * The effective defaults for a ticket's preset, so the session verb previews
+   * the core a launch would use. Appended so every existing positional caller
+   * keeps its argument positions. Absent → the legacy `defaultProvider`.
+   */
+  agentDefaults?: (ticketPreset: string | null) => AgentDefaults,
 ): TicketNode[] {
   return tickets.map((t) => {
     const badge = stageBadge(t);
@@ -96,6 +103,7 @@ export function buildTicketNodes(
     const blocker: Blocker | null = failed
       ? { reason: current?.verdict ?? null, attempt: current?.attempt ?? 0 }
       : null;
+    const defaultCore = agentDefaults?.(t.agentPreset)?.provider ?? defaultProvider;
     return {
       kind: 'ticket',
       ticketId: t.id,
@@ -106,7 +114,7 @@ export function buildTicketNodes(
       stageClass: stageColorClass(badge.stage),
       stageChip: badge.stage ?? 'none',
       blocker,
-      sessionAction: sessionAction(t, resolveProvider(t.agentProvider, defaultProvider)),
+      sessionAction: sessionAction(t, resolveProvider(t.agentProvider, defaultCore)),
       lastActiveAt: current?.endedAt ?? current?.startedAt ?? null,
       model: t.model,
       archived: t.archivedAt !== null,
