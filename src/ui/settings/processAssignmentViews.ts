@@ -149,13 +149,13 @@ export function buildProcessAssignmentView(
   // The approved defaults: the PR-description role's profile default is the
   // ticket-resolved adapter label (never a fixed agent name), the other roles'
   // are the approved role names. The core default follows the effective preset.
-  const defaults = resolveAgentDefaults(manifest, undefined, cfg.preset);
+  const presetDefaults = resolveAgentDefaults(manifest, { rolePreset: cfg.preset });
   const presetOptions = Object.keys(manifest.agentPresets ?? {}).sort();
   const presetHint =
     cfg.preset === undefined && manifest.defaultAgentPreset
       ? `Default: ${displayName(manifest.defaultAgentPreset)}`
       : '';
-  const manifestCore = defaults.provider;
+  const manifestCore = presetDefaults.provider;
   const role = PROCESS_ROLE_BY_KEY[key];
   const defaultProfile =
     role === 'pr-description' ? coreLabel(manifestCore) : DEFAULT_PROCESS_AGENT_NAMES[role];
@@ -171,6 +171,13 @@ export function buildProcessAssignmentView(
       : null;
   const coreHint =
     provider === undefined ? `Default: ${coreLabel(effectiveProvider as AgentProvider)}` : '';
+
+  // The effective defaults for THIS row: the preset supplies model/effort only
+  // when its own core is the one the row will actually run on.
+  const defaults = resolveAgentDefaults(manifest, {
+    rolePreset: cfg.preset,
+    explicitProvider: effectiveProvider,
+  });
 
   // The model that WOULD launch for this row: the manifest default, run through
   // the same provider-compatibility check the launch path applies.

@@ -82,6 +82,20 @@ describe('resolveLaunchIdentity', () => {
       resolveLaunchIdentity(m(), {}, { model: 'claude-opus-5' }, catalog),
     ).toEqual({ provider: 'opencode', model: 'claude-opus-5', effort: undefined });
   });
+
+  // A preset is a (core, model) PAIR: its model applies ONLY on its own core, so
+  // an explicit different core must not inherit it.
+  it('drops a preset model when the ticket explicitly picks a different provider', () => {
+    const identity = resolveLaunchIdentity(
+      m(),
+      { agentPreset: 'deep', agentProvider: 'codex' },
+      undefined,
+      catalog,
+    );
+    expect(identity.provider).toBe('codex');
+    expect(identity.model).toBe('gpt-5.6-sol');
+    expect(identity.model).not.toBe('claude-opus-5');
+  });
 });
 
 describe('resolveTicketProvider', () => {

@@ -104,4 +104,18 @@ describe('assertAgentPresetReferences', () => {
       /defaultAgentPreset "fast" names no agent preset/,
     );
   });
+
+  // `name in defined` walks the prototype chain, so an inherited Object member
+  // must never satisfy reference integrity.
+  it('refuses a default naming an inherited Object member', () => {
+    expect(() => assertAgentPresetReferences(undefined, 'toString', undefined)).toThrow(
+      /defaultAgentPreset "toString" names no agent preset/,
+    );
+  });
+
+  it('refuses a process preset naming an inherited Object member', () => {
+    expect(() =>
+      assertAgentPresetReferences(undefined, undefined, { review: { preset: 'constructor' } }),
+    ).toThrow(/processes\.review\.preset "constructor" names no agent preset/);
+  });
 });

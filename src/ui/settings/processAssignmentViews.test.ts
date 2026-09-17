@@ -218,4 +218,20 @@ describe('buildProcessAssignmentViews (handoff §7)', () => {
     expect(view.effectiveProvider).toBe('opencode');
     expect(view.effectiveModel).toBe('opencode-go/deepseek-v4-flash');
   });
+
+  // A preset is a (core, model) PAIR: a row that references a preset but
+  // explicitly picks a different core shows the explicit core and must not
+  // carry the preset's model.
+  it('shows the explicit core and drops the preset model when a row picks a different core', () => {
+    const m: Manifest = {
+      ...BASE,
+      agentPresets: { deep: { provider: 'claude', model: 'claude-opus-5' } },
+      defaultModel: 'gpt-5.6-sol',
+      processes: { review: { preset: 'deep', provider: 'codex' } },
+    };
+    const view = buildProcessAssignmentView('review', { preset: 'deep', provider: 'codex' }, m, []);
+    expect(view.effectiveProvider).toBe('codex');
+    expect(view.effectiveModel).toBe('gpt-5.6-sol');
+    expect(view.effectiveModel).not.toBe('claude-opus-5');
+  });
 });

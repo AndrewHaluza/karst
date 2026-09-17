@@ -11,7 +11,6 @@ import type { SessionConfiguredInput } from '../../model/inside/agent.js';
 import { listWorktreesByTicket, listServersByTicket, type WorktreeView } from '../../store/dashboard.js';
 import { resolveBaselineBranchForPath } from '../../manifest/baselineBranch.js';
 import { resolveProcessAssignment } from '../../agent/processAssignment.js';
-import { resolveProvider } from '../../agent/provider.js';
 import { resolveModelForProvider } from '../../agent/models.js';
 import { resolveAgentDefaults } from '../../agent/agentPresets.js';
 import { isRunnable } from '../../manifest/runnable.js';
@@ -937,7 +936,11 @@ export class DashboardManager {
     const ctx = this.agentContext?.() ?? {};
     const manifest = this.manifest?.();
     if (!manifest) return ctx;
-    return { ...ctx, defaultsFor: (ticketPreset) => resolveAgentDefaults(manifest, ticketPreset) };
+    return {
+      ...ctx,
+      defaultsFor: (ticketPreset, ticketProvider) =>
+        resolveAgentDefaults(manifest, { ticketPreset, explicitProvider: ticketProvider }),
+    };
   }
 
   /**
@@ -957,8 +960,11 @@ export class DashboardManager {
       // The implementation session has no process role: it is the ticket's own
       // agent, resolved by the launch precedence rule with the ticket's preset
       // supplying the manifest-level defaults.
-      const defaults = resolveAgentDefaults(manifest, ticket?.agentPreset);
-      const provider = resolveProvider(ticket?.agentProvider ?? undefined, defaults.provider);
+      const defaults = resolveAgentDefaults(manifest, {
+        ticketPreset: ticket?.agentPreset,
+        explicitProvider: ticket?.agentProvider ?? null,
+      });
+      const provider = defaults.provider;
       return { provider, model: resolveModelForProvider(provider, ticket?.model ?? null, defaults.model) ?? null };
     }
     const role = processId === 'tester' ? 'uat-tester' : 'review';

@@ -202,7 +202,8 @@ export function buildSidebarState(
 
   const enrich = (tickets: readonly TicketWithStages[]): TicketRow[] => {
     const agentDefaults = opts.manifest
-      ? (ticketPreset: string | null) => resolveAgentDefaults(opts.manifest!, ticketPreset)
+      ? (ticketPreset: string | null, ticketProvider: AgentProvider | null) =>
+          resolveAgentDefaults(opts.manifest!, { ticketPreset, explicitProvider: ticketProvider })
       : undefined;
     const nodes = buildTicketNodes(
       tickets,
@@ -245,7 +246,7 @@ export function buildSidebarState(
           mergeGate: t.stageCurrent === 'ship' ? mergeGateState(store, t.id) : null,
           provider: resolveProvider(
             t.agentProvider,
-            agentDefaults?.(t.agentPreset)?.provider ?? opts.defaultProvider,
+            agentDefaults?.(t.agentPreset, t.agentProvider)?.provider ?? opts.defaultProvider,
           ),
           model: t.model,
           prs,

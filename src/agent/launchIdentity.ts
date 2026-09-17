@@ -12,7 +12,6 @@
 
 import type { AgentProvider, Manifest } from '../manifest/types.js';
 import { resolveAgentDefaults } from './agentPresets.js';
-import { resolveProvider } from './provider.js';
 import { resolveModelForProvider, resolveEffortForProvider } from './models.js';
 import { bundledModelCatalog, type ModelCatalog } from './modelCatalog.js';
 
@@ -48,8 +47,11 @@ export function resolveLaunchIdentity(
   override?: LaunchOverride,
   catalog: ModelCatalog = bundledModelCatalog(),
 ): LaunchIdentity {
-  const defaults = resolveAgentDefaults(manifest, ticket.agentPreset);
-  const provider = override?.provider ?? resolveProvider(ticket.agentProvider, defaults.provider);
+  const defaults = resolveAgentDefaults(manifest, {
+    ticketPreset: ticket.agentPreset,
+    explicitProvider: override?.provider ?? ticket.agentProvider ?? null,
+  });
+  const provider = defaults.provider;
   const model =
     override !== undefined
       ? override.model
@@ -63,5 +65,8 @@ export function resolveLaunchIdentity(
 
 /** Just the provider a ticket resolves to (adapter selection, resume decisions). */
 export function resolveTicketProvider(manifest: Manifest, ticket: LaunchTicket): AgentProvider {
-  return resolveProvider(ticket.agentProvider, resolveAgentDefaults(manifest, ticket.agentPreset).provider);
+  return resolveAgentDefaults(manifest, {
+    ticketPreset: ticket.agentPreset,
+    explicitProvider: ticket.agentProvider ?? null,
+  }).provider;
 }

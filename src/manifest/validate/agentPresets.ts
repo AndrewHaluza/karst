@@ -92,7 +92,10 @@ export function assertAgentPresetReferences(
   processes: ProcessAssignmentsConfig | undefined,
 ): void {
   const defined = presets ?? {};
-  if (defaultAgentPreset !== undefined && !(defaultAgentPreset in defined)) {
+  if (
+    defaultAgentPreset !== undefined &&
+    !Object.prototype.hasOwnProperty.call(defined, defaultAgentPreset)
+  ) {
     throw new ManifestError(
       `defaultAgentPreset "${defaultAgentPreset}" names no agent preset — ` +
         'define it under agentPresets or remove the field',
@@ -100,7 +103,7 @@ export function assertAgentPresetReferences(
   }
   for (const [key, cfg] of Object.entries(processes ?? {})) {
     const name = cfg.preset;
-    if (name !== undefined && !(name in defined)) {
+    if (name !== undefined && !Object.prototype.hasOwnProperty.call(defined, name)) {
       throw new ManifestError(
         `processes.${key}.preset "${name}" names no agent preset — ` +
           'define it under agentPresets or remove the field',

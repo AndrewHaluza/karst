@@ -396,6 +396,19 @@ describe('resolveProcessAssignment', () => {
     expect(snap?.provider).toBe('codex');
     expect(snap?.model).toBe('gpt-5.6-sol');
   });
+
+  // A preset is a (core, model) PAIR: its model applies ONLY on its own core, so
+  // an explicit different core must not inherit it.
+  it('drops a preset model when the ticket explicitly picks a different provider', () => {
+    const manifest: Manifest = {
+      ...BASE,
+      agentPresets: { deep: { provider: 'claude', model: 'claude-opus-5' } },
+    };
+    const snap = resolveProcessAssignment(manifest, 'review', { preset: 'deep', provider: 'codex' });
+    expect(snap?.provider).toBe('codex');
+    expect(snap?.model).toBe('gpt-5.6-sol');
+    expect(snap?.model).not.toBe('claude-opus-5');
+  });
 });
 
 describe('process_runs snapshot immutability', () => {

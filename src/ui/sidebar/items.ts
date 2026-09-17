@@ -4,7 +4,6 @@ import { stageBadge } from '../../model/stageBadge.js';
 import { stageColorClass } from '../../model/stagePalette.js';
 import type { Glyph } from '../../model/glyph.js';
 import { sessionAction, type SessionAction } from '../../agent/sessionAction.js';
-import { resolveProvider } from '../../agent/registry.js';
 import type { AgentProvider } from '../../manifest/types.js';
 import type { AgentDefaults } from '../../agent/agentPresets.js';
 
@@ -94,7 +93,7 @@ export function buildTicketNodes(
    * the core a launch would use. Appended so every existing positional caller
    * keeps its argument positions. Absent → the legacy `defaultProvider`.
    */
-  agentDefaults?: (ticketPreset: string | null) => AgentDefaults,
+  agentDefaults?: (ticketPreset: string | null, ticketProvider: AgentProvider | null) => AgentDefaults,
 ): TicketNode[] {
   return tickets.map((t) => {
     const badge = stageBadge(t);
@@ -103,7 +102,7 @@ export function buildTicketNodes(
     const blocker: Blocker | null = failed
       ? { reason: current?.verdict ?? null, attempt: current?.attempt ?? 0 }
       : null;
-    const defaultCore = agentDefaults?.(t.agentPreset)?.provider ?? defaultProvider;
+    const defaultCore = agentDefaults?.(t.agentPreset, t.agentProvider)?.provider ?? defaultProvider;
     return {
       kind: 'ticket',
       ticketId: t.id,
@@ -114,7 +113,7 @@ export function buildTicketNodes(
       stageClass: stageColorClass(badge.stage),
       stageChip: badge.stage ?? 'none',
       blocker,
-      sessionAction: sessionAction(t, resolveProvider(t.agentProvider, defaultCore)),
+      sessionAction: sessionAction(t, defaultCore),
       lastActiveAt: current?.endedAt ?? current?.startedAt ?? null,
       model: t.model,
       archived: t.archivedAt !== null,

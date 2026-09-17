@@ -340,7 +340,7 @@ export function buildTicketFormState(
     }));
 
   if (ticketId === undefined) {
-    const createDefaults = resolveAgentDefaults(manifest, null);
+    const createDefaults = resolveAgentDefaults(manifest, {});
     return {
       mode: 'create',
       key: '',
@@ -383,7 +383,7 @@ export function buildTicketFormState(
   }
 
   const ticket = getTicket(store, ticketId); // throws on unknown id
-  const editDefaults = resolveAgentDefaults(manifest, ticket.agentPreset);
+  const editDefaults = resolveAgentDefaults(manifest, { ticketPreset: ticket.agentPreset });
   const selectedSet = new Set(ticket.selectedRepos);
   // Score against the ticket's persisted text so scored repos survive a webview
   // reload (the fetch action's in-memory scoring isn't re-run here).

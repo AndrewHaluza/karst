@@ -37,7 +37,6 @@ import {
   PROCESS_KEY_BY_ROLE,
   type ProcessRole,
 } from '../manifest/validate/processAssignments.js';
-import { resolveProvider } from './provider.js';
 import { resolveAgentDefaults } from './agentPresets.js';
 import { resolveModelForProvider, resolveEffortForProvider } from './models.js';
 import { bundledModelCatalog, type ModelCatalog } from './modelCatalog.js';
@@ -132,11 +131,15 @@ export function resolveProcessAssignment(
   // The preset LAYER: `processes.<key>.preset` beats the ticket preset beats
   // `manifest.defaultAgentPreset`. It supplies the manifest-level defaults;
   // every explicit field above still wins, so a preset never silently replaces
-  // an operator's pick.
-  const defaults = resolveAgentDefaults(manifest, ticketOverride.preset, config?.preset);
+  // an operator's pick. The explicit core is passed through so the preset's
+  // model/effort are dropped when a different core was chosen.
+  const defaults = resolveAgentDefaults(manifest, {
+    ticketPreset: ticketOverride.preset,
+    rolePreset: config?.preset,
+    explicitProvider: config?.provider ?? ticketOverride.provider ?? null,
+  });
 
-  const provider =
-    config?.provider ?? resolveProvider(ticketOverride.provider ?? null, defaults.provider);
+  const provider = defaults.provider;
 
   const model =
     config?.model ??

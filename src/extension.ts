@@ -102,7 +102,7 @@ import {
   shouldApplySessionHookState,
   type RecoveryCandidate,
 } from './ui/sessionRecovery.js';
-import { resolveAdapter, resolveProvider } from './agent/registry.js';
+import { resolveAdapter } from './agent/registry.js';
 import { resolveLaunchIdentity, resolveTicketProvider } from './agent/launchIdentity.js';
 import { resolveAgentDefaults } from './agent/agentPresets.js';
 import {
@@ -1441,11 +1441,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
 
   const guardCapability = (capability: Capability, ticketId?: number, silent = false): boolean => {
-    const ticketProvider =
-      ticketId === undefined ? undefined : getTicket(localStore, ticketId).agentProvider;
+    const ticket = ticketId === undefined ? undefined : getTicket(localStore, ticketId);
     return guardProviderCapability(
       capability,
-      resolveProvider(ticketProvider, currentManifest()?.agentProvider),
+      resolveTicketProvider(currentManifest() ?? emptyManifest(), ticket ?? {}),
       silent,
     );
   };
@@ -1483,7 +1482,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         read: () => {
           const ticket = getTicket(localStore, ticketId);
           const manifest = currentManifest() ?? emptyManifest();
-          const defaults = resolveAgentDefaults(manifest, ticket.agentPreset);
+          const defaults = resolveAgentDefaults(manifest, {
+            ticketPreset: ticket.agentPreset,
+            explicitProvider: ticket.agentProvider ?? null,
+          });
           return {
             stageCurrent: ticket.stageCurrent,
             provider: resolveTicketProvider(manifest, ticket),

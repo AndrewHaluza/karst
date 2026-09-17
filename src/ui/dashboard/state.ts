@@ -99,7 +99,7 @@ export interface DashboardAgentContext {
    * builder never reads the manifest. Absent → the legacy `defaultModel` /
    * `defaultEffort` above, which is exactly the pre-preset behavior.
    */
-  defaultsFor?: (ticketPreset: string | null) => AgentDefaults;
+  defaultsFor?: (ticketPreset: string | null, ticketProvider: AgentProvider | null) => AgentDefaults;
 }
 
 /**
@@ -455,11 +455,14 @@ export function buildDashboardState(
     }
   }
   const rounds = listRecoveryRounds(store, ticketId);
-  const defaults = agentContext.defaultsFor?.(ticket.agentPreset) ?? {
+  const defaults = agentContext.defaultsFor?.(ticket.agentPreset, ticket.agentProvider) ?? {
     provider: defaultProvider ?? 'claude',
     model: agentContext.defaultModel ?? undefined,
     effort: agentContext.defaultEffort ?? undefined,
   };
+  // `defaultsFor` already folds the ticket provider into `defaults.provider`;
+  // without it (no manifest) the ticket's own provider still wins over the
+  // manifest default, so the resolve stays here.
   const resolvedProvider = resolveProvider(ticket.agentProvider, defaults.provider);
   const agentSession = buildAgentSessionView({
     provider: resolvedProvider,
