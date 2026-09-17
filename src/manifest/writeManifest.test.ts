@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { load as yamlLoad } from 'js-yaml';
 import { writeManifest } from './write.js';
 import { loadManifest, loadManifestWithDiagnostics } from './load.js';
+import { validateManifest } from './schema.js';
 import { review as reviewFixture } from './fixtures.js';
 import type { Manifest } from './types.js';
 import { mergeSection } from '../ui/settings/sections.js';
@@ -302,6 +303,8 @@ describe('writeManifest', () => {
         },
         agentProvider: 'codex',
         defaultModel: 'claude-opus-4-8',
+        agentPresets: { fast: { provider: 'opencode', model: 'opencode-go/deepseek-v4-flash' } },
+        defaultAgentPreset: 'fast',
         resilience: { retries: 2, backoffMs: 2000, fallbackModels: [] },
         // Same reason: absent defaultEffort would round-trip regardless of the
         // overlay, so the populated manifest pins the explicit value.
@@ -708,6 +711,49 @@ processes:
         /processes\.uatTester\.provider must be one of/,
       );
       expect(readFileSync(path, 'utf8')).toBe(before); // untouched
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('round-trips agentPresets and defaultAgentPreset', () => {
+    const { path, cleanup } = fixture();
+    try {
+      writeManifest(
+        path,
+        validateManifest({
+          host: 'localhost',
+          portRange: [4000, 4999],
+          baselineBranch: 'develop',
+          repositories: { extention: { repoPath: '/repo', hasMigrations: false } },
+          agentPresets: { fast: { provider: 'opencode', model: 'opencode-go/deepseek-v4-flash' } },
+          defaultAgentPreset: 'fast',
+          processes: { review: { preset: 'fast' } },
+        }),
+      );
+      const reloaded = loadManifest(path);
+      expect(reloaded.agentPresets).toEqual({
+        fast: { provider: 'opencode', model: 'opencode-go/deepseek-v4-flash' },
+      });
+      expect(reloaded.defaultAgentPreset).toBe('fast');
+      expect(reloaded.processes?.review?.preset).toBe('fast');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('drops a cleared defaultAgentPreset on save', () => {
+    const { path, cleanup } = fixture(`${RAW}
+agentPresets:
+  fast:
+    provider: opencode
+    model: m
+defaultAgentPreset: fast
+`);
+    try {
+      const current = loadManifest(path);
+      writeManifest(path, validateManifest({ ...current, defaultAgentPreset: undefined }));
+      expect(loadManifest(path).defaultAgentPreset).toBeUndefined();
     } finally {
       cleanup();
     }

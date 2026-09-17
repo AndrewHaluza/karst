@@ -129,6 +129,12 @@ function validateProcessAssignment(
   const effort = optionalString(raw.effort, `${where}.effort`);
   if (effort !== undefined) config.effort = effort;
 
+  // The per-process preset reference. Reference integrity is checked once the
+  // whole manifest (presets + processes) is known — see
+  // `assertAgentPresetReferences` in validate/agentPresets.ts.
+  const preset = optionalString(raw.preset, `${where}.preset`);
+  if (preset !== undefined) config.preset = preset;
+
   // `instructions` is RETIRED and deliberately not parsed: the assigned
   // profile's body is the process's prompt. An existing file that still
   // declares one still LOADS (it is reported by `inertKeys.ts`, never an
