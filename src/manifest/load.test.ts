@@ -2642,3 +2642,45 @@ describe('resilience', () => {
     }
   });
 });
+
+describe('agentPresets', () => {
+  it('refuses a defaultAgentPreset that names nothing', () => {
+    const { path, cleanup } = fixture(`
+host: localhost
+portRange: [4000, 4999]
+baselineBranch: develop
+defaultAgentPreset: nope
+repositories:
+  extention:
+    repoPath: /repo
+    hasMigrations: false
+`);
+    try {
+      expect(() => loadManifest(path)).toThrow(/defaultAgentPreset "nope" names no agent preset/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('accepts a defaultAgentPreset that names a defined preset', () => {
+    const { path, cleanup } = fixture(`
+host: localhost
+portRange: [4000, 4999]
+baselineBranch: develop
+agentPresets:
+  fast:
+    provider: opencode
+    model: opencode-go/deepseek-v4-flash
+defaultAgentPreset: fast
+repositories:
+  extention:
+    repoPath: /repo
+    hasMigrations: false
+`);
+    try {
+      expect(loadManifest(path).defaultAgentPreset).toBe('fast');
+    } finally {
+      cleanup();
+    }
+  });
+});

@@ -115,6 +115,21 @@ describe('validateProcessAssignments', () => {
     expect(result?.reviewFix?.agent).toBe('reviewer');
   });
 
+  it('parses a preset reference and blank-normalizes it away', () => {
+    expect(validateProcessAssignments({ review: { preset: 'fast' } })).toEqual({
+      review: { enabled: true, preset: 'fast' },
+    });
+    expect(validateProcessAssignments({ review: { preset: '  ' } })).toEqual({
+      review: { enabled: true },
+    });
+  });
+
+  it('refuses a non-string preset', () => {
+    expect(() => validateProcessAssignments({ review: { preset: 1 } })).toThrow(
+      /processes\.review\.preset must be a string/,
+    );
+  });
+
   it('exposes the six closed vocabulary keys and their kebab roles in one place', () => {
     expect(PROCESS_KEYS).toEqual(['uatTester', 'uatFix', 'review', 'reviewFix', 'prDescription', 'ticketAnalysis']);
     expect(PROCESS_ROLES).toEqual(['uat-tester', 'uat-fix', 'review', 'review-fix', 'pr-description', 'ticket-analysis']);

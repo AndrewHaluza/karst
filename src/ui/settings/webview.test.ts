@@ -147,6 +147,17 @@ describe('settings model picker', () => {
       recentModels: {},
     });
   });
+
+  it('renders the General default agent preset select from the manifest names', () => {
+    expect(HTML).toContain('id="f-defaultAgentPreset"');
+    expect(HTML).toContain('aria-labelledby="defaultAgentPresetLabel"');
+    expect(HTML).toContain('function renderAgentPresetOptions()');
+    // The General render (re)builds it on every state push.
+    expect(functionSource('renderGeneral')).toContain('renderAgentPresetOptions()');
+    const src = functionSource('renderAgentPresetOptions');
+    expect(src).toContain('Object.keys(draft.agentPresets || {}).sort()');
+    expect(src).toContain('draft.defaultAgentPreset');
+  });
 });
 
 describe('settings artifact conventions', () => {
@@ -1573,6 +1584,7 @@ describe('debug logging toggle (General tab)', () => {
       }
       function mountAgentPicker() {}
       function renderPresetOptions() {}
+      function renderAgentPresetOptions() {}
       function renderDefaultTypeOptions() {}
       function renderLabelPreview() {}
       function renderConventions() {}
@@ -1622,6 +1634,7 @@ describe('close-done-terminals toggle (General tab)', () => {
       }
       function mountAgentPicker() {}
       function renderPresetOptions() {}
+      function renderAgentPresetOptions() {}
       function renderDefaultTypeOptions() {}
       function renderLabelPreview() {}
       function renderConventions() {}
@@ -2582,6 +2595,8 @@ describe('settings agents tab — process assignments', () => {
       stateMessage: '',
       invalidField: null,
       profileOptions: [],
+      presetOptions: [],
+      presetHint: '',
       effectiveProvider: 'claude',
       effectiveModel: undefined,
       profileHint: '',
@@ -2648,6 +2663,34 @@ describe('settings agents tab — process assignments', () => {
       profileOptions: ['uat-author'],
     }));
     expect(html).toContain('<option value="ghost" selected>ghost</option>');
+  });
+
+  it('renders the preset select from the host view and keeps an unknown saved preset visible', () => {
+    const render = loadProcessRowRenderer();
+    const html = render('uatTester', { preset: 'fast' }, view('uatTester', 'UAT Tester', {
+      presetOptions: ['fast', 'deep'],
+    }));
+    expect(html).toContain('<label for="proc-uatTester-preset">Agent preset</label>');
+    expect(html).toContain('data-proc-field="preset"');
+    expect(html).toContain('<option value="">Role default</option>');
+    expect(html).toContain('<option value="fast" selected>fast</option>');
+    expect(html).toContain('<option value="deep">deep</option>');
+
+    const unknown = render('review', { preset: 'ghost' }, view('review', 'Review', {
+      state: 'unknown-preset',
+      stateTone: 'error',
+      stateMessage: 'Agent preset "ghost" does not exist. Pick a preset or leave the role default.',
+      invalidField: 'preset',
+      presetOptions: ['fast'],
+    }));
+    expect(unknown).toContain('<option value="ghost" selected>ghost</option>');
+    expect(unknown).toContain('aria-invalid="true"');
+    expect(unknown).toContain('aria-describedby="proc-review-msg"');
+
+    const hinted = render('uatTester', {}, view('uatTester', 'UAT Tester', {
+      presetHint: 'Default: fast',
+    }));
+    expect(hinted).toContain('<span class="proc-hint">Default: fast</span>');
   });
 
   it('emits the unified picker mount point for each process row', () => {

@@ -1147,6 +1147,14 @@
             <div class="field-help" id="agentDefaultHelp">Used for normal implementation sessions. “No default” lets the provider choose. Effort / variant appears only for models that advertise it. Inside process assignments are configured on the Agents page.</div>
           </div>
         </div>
+
+        <div class="form-grid">
+          <div class="field-label" id="defaultAgentPresetLabel">Default agent preset</div>
+          <div class="field-control">
+            <select id="f-defaultAgentPreset" aria-labelledby="defaultAgentPresetLabel"></select>
+            <div class="field-help">Applies to every ticket that picks no preset of its own. A preset overrides the core + model above; a ticket or process can still override it.</div>
+          </div>
+        </div>
       </div>
 
       <div class="section-block">
@@ -2236,8 +2244,8 @@
     general: [
       'host', 'portRange', 'baselineBranch', 'worktreePathDisplay',
       'ticketLabelTemplate', 'terminalNameTemplate', 'agentProvider', 'defaultModel',
-      'defaultEffort', 'archiveDoneAfterDays', 'debug', 'closeDoneTerminalsWithTicket',
-      'diffsInSourceControl',
+      'defaultEffort', 'defaultAgentPreset', 'archiveDoneAfterDays', 'debug',
+      'closeDoneTerminalsWithTicket', 'diffsInSourceControl',
     ],
     git: ['conventions'],
     services: ['repositories'],
@@ -2660,6 +2668,7 @@
     // ship falls back to the same default.
     el('f-prDescriptionTemplate').value = conventions.pullRequestDescription || DEFAULT_PR_DESCRIPTION_TEMPLATE;
     renderPresetOptions();
+    renderAgentPresetOptions();
     renderDefaultTypeOptions(conventions.defaultType || '');
     renderLabelPreview();
     renderConventions();
@@ -2716,6 +2725,16 @@
     el('f-conventionPreset').innerHTML = CONVENTION_PRESETS.map(
       (p) => '<option value="' + esc(p.id) + '">' + esc(p.label) + '</option>',
     ).join('');
+  }
+
+  // Agent preset names for the default-preset select. Named distinctly from
+  // renderPresetOptions (the Git tab's conventional-commit presets).
+  function renderAgentPresetOptions() {
+    const names = Object.keys(draft.agentPresets || {}).sort();
+    const sel = draft.defaultAgentPreset || '';
+    el('f-defaultAgentPreset').innerHTML =
+      `<option value="">None (use the core + model above)</option>`
+      + names.map((n) => `<option value="${esc(n)}"${n === sel ? ' selected' : ''}>${esc(n)}</option>`).join('');
   }
 
   function renderDefaultTypeOptions(selected) {
@@ -2812,6 +2831,11 @@
     // Unchecking deletes the field entirely — absent IS the off default.
     if (el('f-diffsInSourceControl').checked) draft.diffsInSourceControl = true;
     else delete draft.diffsInSourceControl;
+    markDirty();
+  });
+  el('f-defaultAgentPreset').addEventListener('change', () => {
+    // '' clears it → the renderer falls back to the core + model above.
+    draft.defaultAgentPreset = el('f-defaultAgentPreset').value || undefined;
     markDirty();
   });
   el('f-labelTemplate').addEventListener('input', () => {
@@ -3604,6 +3628,16 @@
     // agentName typing is handled on `input` below WITHOUT a re-render so the
     // field never loses focus mid-keystroke.
     if (t.dataset.procField) {
+      // A real preset REPLACES the row's explicit core/model/effort — the
+      // preset becomes the source, so a stale pick from before cannot silently
+      // outrank it. updateProcessAssignment deletes '' keys, which is the
+      // manifest's absent-field removal.
+      if (t.dataset.procField === 'preset') {
+        updateProcessAssignment(t.dataset.procKey, t.value
+          ? { preset: t.value, provider: '', model: '', effort: '' }
+          : { preset: '' });
+        return;
+      }
       updateProcessAssignment(t.dataset.procKey, { [t.dataset.procField]: t.value });
       return;
     }
@@ -4615,6 +4649,17 @@
     if (agent && !(v.profileOptions || []).includes(agent)) {
       profileOpts += `<option value="${esc(agent)}" selected>${esc(agent)}</option>`;
     }
+    // Agent preset options: the host-supplied preset names, plus the saved
+    // value when the manifest no longer defines it — kept visible the same way
+    // the profile select keeps an out-of-pool agent, with the unknown-preset
+    // state message marking it.
+    let presetOpts = '<option value="">Role default</option>'
+      + (v.presetOptions || []).map((name) =>
+        `<option value="${esc(name)}"${name === cfg.preset ? ' selected' : ''}>${esc(name)}</option>`,
+      ).join('');
+    if (cfg.preset && !(v.presetOptions || []).includes(cfg.preset)) {
+      presetOpts += `<option value="${esc(cfg.preset)}" selected>${esc(cfg.preset)}</option>`;
+    }
     // The Agent cell is a MOUNT POINT for the UNIFIED agent identity picker
     // (agent core + model + effort/variant) — mountProcessAssignmentPickers()
     // calls mountAgentPicker into it right after the rows render, exactly like
@@ -4642,6 +4687,9 @@
         : `<span class="proc-hint">Identity only: this process keeps its built-in prompt, so the profile's instructions are not used.</span>`)
       + `</div>`
       + `<div class="proc-cell proc-agent-cell">`
+      + `<label for="proc-${key}-preset">Agent preset</label>`
+      + `<select id="proc-${key}-preset" class="proc-select" data-proc-field="preset" data-proc-key="${key}"${describedBy}${invalid('preset')}>${presetOpts}</select>`
+      + (v.presetHint ? `<span class="proc-hint">${esc(v.presetHint)}</span>` : '')
       + `<div class="ap" data-proc-picker="${key}" data-proc-key="${key}"${describedBy}${invalid('provider')}${invalid('model')}${invalid('effort')}></div>`
       + (v.coreHint || v.modelHint || v.effortHint
         ? `<span class="proc-hint">${[v.coreHint, v.modelHint, v.effortHint].filter(Boolean).map(esc).join(' · ')}</span>`

@@ -1,5 +1,5 @@
 import type { Store } from '../../store/db.js';
-import type { AgentProvider } from '../../manifest/types.js';
+import type { AgentProvider, Manifest } from '../../manifest/types.js';
 import type { LogError } from '../../logging/logger.js';
 import { buildSidebarState } from './state.js';
 import {
@@ -74,6 +74,11 @@ export class SidebarViewManager {
      * lives; the host re-pushes (`refresh`) on every change.
      */
     private readonly activeTicketId?: () => number | null,
+    /**
+     * Live manifest getter, so each row resolves the effective preset core a
+     * launch would use. Absent → the legacy `defaultProvider` only.
+     */
+    private readonly manifest?: () => Manifest | undefined,
   ) {}
 
   /** Bind the manager to a view host; wires resolve → initial push + routing. */
@@ -122,6 +127,7 @@ export class SidebarViewManager {
         filter: this.filter,
         labelTemplate: this.labelTemplate?.(),
         defaultProvider: this.defaultProvider?.(),
+        manifest: this.manifest?.(),
         activeTicketId: this.activeTicketId?.(),
         projectId: this.projectId?.(),
       },

@@ -50,6 +50,8 @@ export interface Ticket {
   effort: string | null;
   /** Per-ticket agent-core override (§ agent core selection); `null` = inherit `manifest.agentProvider`. */
   agentProvider: AgentProvider | null;
+  /** Per-ticket agent-preset override; `null` = inherit `manifest.defaultAgentPreset`. */
+  agentPreset: string | null;
   /**
    * Agent core that minted `sessionId` (§5.3). A session id is private to the
    * CLI that created it, so this is what makes a resume provably safe; `null`
@@ -105,6 +107,7 @@ interface TicketRow {
   updated_at: string | null;
   model: string | null;
   agent_provider: string | null;
+  agent_preset: string | null;
   session_provider: string | null;
   type: string | null;
   effort: string | null;
@@ -173,6 +176,7 @@ function rowToTicket(r: TicketRow): Ticket {
     model: r.model,
     effort: r.effort,
     agentProvider: isKnownProvider(r.agent_provider) ? r.agent_provider : null,
+    agentPreset: r.agent_preset,
     sessionProvider: isKnownProvider(r.session_provider) ? r.session_provider : null,
     // Narrow on read too: the column is plain TEXT, and a value that predates a
     // vocabulary change must degrade to "inherit the default", never render.
@@ -427,6 +431,8 @@ export interface TicketFieldsPatch {
   effort?: string;
   /** Per-ticket agent-core override; empty string clears it back to inherit. */
   agentProvider?: string;
+  /** Per-ticket agent-preset name; empty string clears it back to inherit. */
+  agentPreset?: string;
   /**
    * Conventional-commit type; empty string clears it back to inherit. Validated
    * against `TICKET_TYPES` here — the value reaches branch names and PR titles,
@@ -475,6 +481,9 @@ export function updateTicketFields(
   // ticket at a different core without any ticket row being written.
   if (patch.agentProvider !== undefined) {
     columns.agent_provider = patch.agentProvider === '' ? null : patch.agentProvider;
+  }
+  if (patch.agentPreset !== undefined) {
+    columns.agent_preset = patch.agentPreset === '' ? null : patch.agentPreset;
   }
   if (patch.type !== undefined) {
     if (patch.type !== '' && !isTicketType(patch.type)) {

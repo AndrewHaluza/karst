@@ -15,6 +15,7 @@ import { buildShipSlot, type ShipSlot } from '../../model/shipSlot.js';
 import { resolveProvider } from '../../agent/registry.js';
 import { IMPLEMENTED_PROVIDERS } from '../../agent/provider.js';
 import { resolveEffortForProvider } from '../../agent/models.js';
+import type { AgentDefaults } from '../../agent/agentPresets.js';
 import { AGENT_PROVIDER_LABELS } from '../../model/agentIdentity.js';
 import { buildStageRail, type StageRail } from '../../model/stageRail.js';
 import { listGateRuns } from '../../store/gateRuns.js';
@@ -92,6 +93,13 @@ export interface DashboardAgentContext {
   /** Manifest default effort/variant, for the switch popover's inherit row. */
   defaultEffort?: string | null;
   modelCatalog?: ModelCatalog;
+  /**
+   * Resolve the effective agent defaults for a ticket's preset, so the displayed
+   * session identity matches what a launch would use. Injected — the state
+   * builder never reads the manifest. Absent → the legacy `defaultModel` /
+   * `defaultEffort` above, which is exactly the pre-preset behavior.
+   */
+  defaultsFor?: (ticketPreset: string | null, ticketProvider: AgentProvider | null) => AgentDefaults;
 }
 
 /**
@@ -447,13 +455,21 @@ export function buildDashboardState(
     }
   }
   const rounds = listRecoveryRounds(store, ticketId);
-  const resolvedProvider = resolveProvider(ticket.agentProvider, defaultProvider);
+  const defaults = agentContext.defaultsFor?.(ticket.agentPreset, ticket.agentProvider) ?? {
+    provider: defaultProvider ?? 'claude',
+    model: agentContext.defaultModel ?? undefined,
+    effort: agentContext.defaultEffort ?? undefined,
+  };
+  // `defaultsFor` already folds the ticket provider into `defaults.provider`;
+  // without it (no manifest) the ticket's own provider still wins over the
+  // manifest default, so the resolve stays here.
+  const resolvedProvider = resolveProvider(ticket.agentProvider, defaults.provider);
   const agentSession = buildAgentSessionView({
     provider: resolvedProvider,
     ticketModel: ticket.model,
-    defaultModel: agentContext.defaultModel ?? null,
+    defaultModel: defaults.model ?? null,
     ticketEffort: ticket.effort,
-    defaultEffort: agentContext.defaultEffort ?? null,
+    defaultEffort: defaults.effort ?? null,
     catalog: agentContext.modelCatalog ?? bundledModelCatalog(),
     stageCurrent: ticket.stageCurrent,
     fixExecutionActive: rounds.some((round) => round.status === 'fixing'),
@@ -465,10 +481,14 @@ export function buildDashboardState(
   const recentByCore = listRecentlyUsedModels(store, ticket.projectId, 5);
   const switchModels: Record<string, { model: string | null; label: string }[]> = {};
   for (const id of IMPLEMENTED_PROVIDERS) {
+    // A preset is a (core, model) pair: its model is the default only for the
+    // preset's OWN core. Resolve per core so switching to another core does not
+    // inherit — and cannot prefill — the preset's model.
+    const coreDefaults = agentContext.defaultsFor?.(ticket.agentPreset, id) ?? defaults;
     switchModels[id] = agentSwitchModelChoices({
       provider: id,
       ticketModel: ticket.model,
-      defaultModel: agentContext.defaultModel ?? null,
+      defaultModel: coreDefaults.model ?? null,
       catalog,
     }).map(({ model, label }) => ({ model, label }));
   }
@@ -478,7 +498,7 @@ export function buildDashboardState(
   const inheritedEffort = resolveEffortForProvider(
     resolvedProvider,
     ticket.effort,
-    agentContext.defaultEffort ?? null,
+    defaults.effort ?? null,
     agentSession.modelId ?? undefined,
     catalog,
   );

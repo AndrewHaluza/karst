@@ -20,8 +20,9 @@
  *   Display name — `processes.<key>.agentName`, the snapshot display override.
  *
  * State precedence (first match wins):
- *   disabled → unknown-profile → unknown-provider → catalog-unavailable →
- *   incompatible-model → incompatible-effort → omitted → valid.
+ *   disabled → unknown-preset → unknown-profile → unknown-provider →
+ *   catalog-unavailable → incompatible-model → incompatible-effort → omitted →
+ *   valid.
  */
 import type {
   AgentProvider,
@@ -29,7 +30,8 @@ import type {
   ProcessAssignmentConfig,
 } from '../../manifest/types.js';
 import { PROCESS_KEYS, PROCESS_ROLE_BY_KEY, type ProcessKey } from '../../manifest/validate/processAssignments.js';
-import { IMPLEMENTED_PROVIDERS, resolveProvider } from '../../agent/provider.js';
+import { IMPLEMENTED_PROVIDERS } from '../../agent/provider.js';
+import { resolveAgentDefaults } from '../../agent/agentPresets.js';
 import {
   isModelCompatibleWithProvider,
   resolveModelForProvider,
@@ -45,6 +47,7 @@ export type ProcessAssignmentState =
   | 'valid'
   | 'omitted'
   | 'disabled'
+  | 'unknown-preset'
   | 'unknown-profile'
   | 'unknown-provider'
   | 'incompatible-model'
@@ -69,9 +72,13 @@ export interface SettingsProcessAssignmentView {
   /** The inline message; '' when the row needs none. */
   stateMessage: string;
   /** Which control the message is about (drives aria-invalid/describedby). */
-  invalidField: 'agent' | 'provider' | 'model' | 'effort' | null;
+  invalidField: 'agent' | 'provider' | 'model' | 'effort' | 'preset' | null;
   /** Agent pool names offered by the Agent profile select. */
   profileOptions: readonly string[];
+  /** Agent preset names offered by the row's preset select, sorted. */
+  presetOptions: readonly string[];
+  /** 'Default: fast' when the row names no preset and one is defaulted; '' otherwise. */
+  presetHint: string;
   /**
    * The core the model picker keys off — the row's own provider, else the
    * manifest default. NULL when the row's provider is unknown: no model picker
@@ -141,8 +148,14 @@ export function buildProcessAssignmentView(
 
   // The approved defaults: the PR-description role's profile default is the
   // ticket-resolved adapter label (never a fixed agent name), the other roles'
-  // are the approved role names. The core default follows the manifest.
-  const manifestCore = resolveProvider(undefined, manifest.agentProvider);
+  // are the approved role names. The core default follows the effective preset.
+  const presetDefaults = resolveAgentDefaults(manifest, { rolePreset: cfg.preset });
+  const presetOptions = Object.keys(manifest.agentPresets ?? {}).sort();
+  const presetHint =
+    cfg.preset === undefined && manifest.defaultAgentPreset
+      ? `Default: ${displayName(manifest.defaultAgentPreset)}`
+      : '';
+  const manifestCore = presetDefaults.provider;
   const role = PROCESS_ROLE_BY_KEY[key];
   const defaultProfile =
     role === 'pr-description' ? coreLabel(manifestCore) : DEFAULT_PROCESS_AGENT_NAMES[role];
@@ -159,6 +172,13 @@ export function buildProcessAssignmentView(
   const coreHint =
     provider === undefined ? `Default: ${coreLabel(effectiveProvider as AgentProvider)}` : '';
 
+  // The effective defaults for THIS row: the preset supplies model/effort only
+  // when its own core is the one the row will actually run on.
+  const defaults = resolveAgentDefaults(manifest, {
+    rolePreset: cfg.preset,
+    explicitProvider: effectiveProvider,
+  });
+
   // The model that WOULD launch for this row: the manifest default, run through
   // the same provider-compatibility check the launch path applies.
   let modelHint = '';
@@ -167,7 +187,7 @@ export function buildProcessAssignmentView(
     const resolved = resolveModelForProvider(
       effectiveProvider,
       cfg.model ?? null,
-      manifest.defaultModel,
+      defaults.model,
       catalog,
     );
     if (cfg.model === undefined && resolved !== undefined) {
@@ -185,7 +205,7 @@ export function buildProcessAssignmentView(
     const resolved = resolveEffortForProvider(
       effectiveProvider,
       null,
-      manifest.defaultEffort,
+      defaults.effort,
       effectiveModel,
       catalog,
     );
@@ -203,6 +223,16 @@ export function buildProcessAssignmentView(
     state = 'disabled';
     stateTone = 'note';
     stateMessage = `Disabled — ${roleLabel} is skipped. Selections are kept.`;
+  } else if (cfg.preset !== undefined && !presetOptions.includes(cfg.preset)) {
+    // The saved preset names nothing the manifest defines. Reference integrity
+    // is refused at manifest load for manifest-level roles, so this is a
+    // store/manifest drift the row must name rather than silently ignore.
+    state = 'unknown-preset';
+    stateTone = 'error';
+    stateMessage =
+      `Agent preset "${displayName(cfg.preset)}" does not exist. ` +
+      'Pick a preset or leave the role default.';
+    invalidField = 'preset';
   } else if (cfg.agent !== undefined && !profileOptions.includes(cfg.agent)) {
     // Handoff: "Unknown profile — Inline error naming the missing profile."
     state = 'unknown-profile';
@@ -277,6 +307,8 @@ export function buildProcessAssignmentView(
     stateMessage,
     invalidField,
     profileOptions,
+    presetOptions,
+    presetHint,
     effectiveProvider,
     effectiveModel,
     profileHint,

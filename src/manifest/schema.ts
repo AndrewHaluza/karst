@@ -25,6 +25,11 @@ import { validateGraph } from './validate/graph.js';
 import { validateUat } from './validate/uat.js';
 import { validateReview } from './validate/review.js';
 import { validateProcessAssignments } from './validate/processAssignments.js';
+import {
+  validateAgentPresets,
+  validateDefaultAgentPreset,
+  assertAgentPresetReferences,
+} from './validate/agentPresets.js';
 import { validateGraphConfig, assertNoHoistedGraphKeys } from './graphConfig.js';
 import {
   validateArtifactTemplate,
@@ -581,6 +586,9 @@ export function validateManifest(raw: unknown): Manifest {
 
   const agents = validateAgents(raw.agents);
   const processes = validateProcessAssignments(raw.processes);
+  const agentPresets = validateAgentPresets(raw.agentPresets);
+  const defaultAgentPreset = validateDefaultAgentPreset(raw.defaultAgentPreset);
+  assertAgentPresetReferences(agentPresets, defaultAgentPreset, processes);
 
   return {
     id: validateProjectId(raw.id),
@@ -600,6 +608,8 @@ export function validateManifest(raw: unknown): Manifest {
     defaultModel: validateDefaultModel(raw.defaultModel),
     resilience: validateResilience(raw.resilience),
     defaultEffort: validateDefaultEffort(raw.defaultEffort),
+    agentPresets,
+    defaultAgentPreset,
     archiveDoneAfterDays: validateArchiveDoneAfterDays(raw.archiveDoneAfterDays),
     debug: validateDebug(raw.debug),
     closeDoneTerminalsWithTicket: validateCloseDoneTerminalsWithTicket(

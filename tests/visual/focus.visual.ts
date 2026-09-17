@@ -15,6 +15,15 @@ const FOCUS_CAP = 12;
  * If a view adds focusable elements, the count grows and the test fails —
  * the developer must either reduce the count or update the ratchet with a
  * justification.
+ *
+ * Updated once, with justification, by the agent-presets feature (ticket 508):
+ * `ticketForm` gains ONE `#agentPresetSelect` (the per-ticket preset picker)
+ * and `settings` gains ONE General `#f-defaultAgentPreset` select plus SIX
+ * per-process `.proc-select` preset references (one per PROCESS_KEYS row).
+ * All seven are net-new interactive controls that satisfy the ticket's
+ * Done-when — a ticket can pick a preset and every AI process resolves its core
+ * and model from the effective preset — and there is no existing focusable
+ * element to fold them into.
  */
 const FOCUS_COUNT_RATCHET: Record<ViewId, number> = {
   dashboard: 16,
@@ -23,8 +32,8 @@ const FOCUS_COUNT_RATCHET: Record<ViewId, number> = {
   serverLogs: 11,
   sidebar: 12,
   diffs: 4,
-  settings: 180,
-  ticketForm: 24,
+  settings: 187,
+  ticketForm: 25,
   gettingStarted: 4,
 };
 

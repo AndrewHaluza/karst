@@ -43,6 +43,19 @@ worktreePathDisplay: relative
 # Agent CLI used for sessions: claude, codex, antigravity, or opencode.
 agentProvider: claude
 
+# Named agent core + model bundles. A ticket, a process role, or
+# `defaultAgentPreset` can reference one by name. Reference a preset in
+# `defaultAgentPreset` below, per process under `processes:`, or per ticket.
+# agentPresets:
+#   fast:
+#     provider: opencode
+#     model: opencode-go/deepseek-v4-flash
+#   deep:
+#     provider: claude
+#     model: claude-opus-5
+#     effort: high
+# defaultAgentPreset: fast
+
 # How long a ticket stays visible on the board after reaching `done` before
 # Karst archives it automatically (Settings → General). The sweep runs
 # periodically, so the delay is approximate, and a done ticket is never

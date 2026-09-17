@@ -187,6 +187,11 @@ export function writeManifest(path: string, manifest: Manifest): void {
     agents: manifest.agents ?? {},
     ticketing: manifest.ticketing ?? { provider: 'manual' },
     agentProvider: manifest.agentProvider ?? 'claude',
+    // Agent presets: written when set, dropped (undefined → omitted by the
+    // dumper) when cleared. Without this line Save silently drops the whole
+    // block — the failure mode the round-trip test exists to catch.
+    agentPresets: manifest.agentPresets,
+    defaultAgentPreset: manifest.defaultAgentPreset,
     // Without this line Save silently drops the whole block — the failure mode
     // the writeManifest round-trip test exists to catch.
     uat: manifest.uat,

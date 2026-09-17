@@ -34,6 +34,7 @@ function ticket(over: Partial<TicketWithStages> = {}): TicketWithStages {
     model: null,
     effort: null,
     agentProvider: null,
+    agentPreset: null,
     sessionProvider: null,
     type: null,
     projectId: null,

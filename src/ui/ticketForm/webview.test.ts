@@ -1110,3 +1110,65 @@ describe('legacy busy channel watchdog', () => {
     expect(HTML.slice(at, at + 600)).toContain('setBusy(what, false)');
   });
 });
+
+// The agent-preset picker: the host pushes the preset names + default + the
+// ticket's saved preset; the page renders the select. A saved preset the
+// manifest no longer defines must stay visible (UI-R34: the pick you saved is
+// never silently dropped).
+describe('ticket-form webview.html — agent preset picker', () => {
+  function renderPreset(draft: Record<string, unknown>, names: unknown, selected: unknown, defaultName: unknown): string {
+    const state = { innerHTML: '' };
+    const render = loadFunction('renderAgentPresetSelect', {
+      draft,
+      el: () => state,
+      lastSessionOpen: false,
+    }) as (n: unknown, s: unknown, d: unknown) => void;
+    render(names, selected, defaultName);
+    return state.innerHTML;
+  }
+
+  it('renders the agent preset select from pushed state', () => {
+    const html = renderPreset({ agentPreset: null }, ['fast', 'deep'], null, 'fast');
+    expect(html).toContain('value="fast"');
+    expect(html).toContain('value="deep"');
+    expect(html).toContain('Inherit (settings: fast)');
+  });
+
+  it('keeps a saved preset that is no longer defined', () => {
+    const html = renderPreset({ agentPreset: 'gone' }, ['fast'], 'gone', null);
+    expect(html).toContain('value="gone"');
+    expect(html).toContain('(unknown)');
+  });
+
+  it('treats a cleared preset as an explicit clear, never a fallback', () => {
+    // '' (explicit Inherit) is a SET draft value: it wins over the host-cached
+    // selection, so the select shows Inherit and submit/save carry null.
+    const html = renderPreset({ agentPreset: '' }, ['fast', 'deep'], 'deep', 'fast');
+    expect(html).toMatch(/<option value="" selected>/);
+    expect(html).not.toMatch(/<option value="deep" selected>/);
+  });
+
+  it('keeps the raw preset value on change and clears the preset when a core is picked', () => {
+    expect(HTML).toContain('draft.agentPreset = id;');
+    expect(HTML).not.toContain('draft.agentPreset = id || null;');
+    const block = HTML.slice(HTML.indexOf("el('agentPresetSelect').addEventListener"));
+    expect(block).toContain("draft.selectedAgentProvider = '';");
+    // The identity picker clears the preset draft (a preset is a core+model pair).
+    expect(HTML).toContain("draft.agentPreset = '';");
+  });
+
+  it('locks the preset select while a session is open, like the identity picker', () => {
+    const state = { innerHTML: '', disabled: false };
+    const render = loadFunction('renderAgentPresetSelect', {
+      draft: { agentPreset: null },
+      el: () => state,
+      lastSessionOpen: true,
+    }) as (n: unknown, s: unknown, d: unknown) => void;
+    render(['fast'], null, 'fast');
+    expect(state.disabled).toBe(true);
+    // The change handler refuses the change as well — a disabled control can
+    // still be driven programmatically.
+    const block = HTML.slice(HTML.indexOf("el('agentPresetSelect').addEventListener"));
+    expect(block).toContain('if (lastSessionOpen) return;');
+  });
+});

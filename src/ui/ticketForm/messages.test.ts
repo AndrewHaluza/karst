@@ -284,6 +284,28 @@ describe('parseTicketFormMessage', () => {
     expect(parseTicketFormMessage({ type: 'set-provider', id: 'evil' })).toBeNull();
   });
 
+  it('parses set-preset with a blank id (Inherit)', () => {
+    expect(parseTicketFormMessage({ type: 'set-preset', id: '' })).toEqual({
+      type: 'set-preset',
+      id: '',
+    });
+    expect(parseTicketFormMessage({ type: 'set-preset', id: 'fast' })).toEqual({
+      type: 'set-preset',
+      id: 'fast',
+    });
+  });
+
+  it('refuses set-preset with a non-string id', () => {
+    expect(parseTicketFormMessage({ type: 'set-preset', id: 1 })).toBeNull();
+    expect(parseTicketFormMessage({ type: 'set-preset' })).toBeNull();
+  });
+
+  it('parses agentPreset on submit and save', () => {
+    const draft = { key: 'A-1', title: 'T', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null, createInProvider: false, agentPreset: 'fast' };
+    expect(parseTicketFormMessage({ type: 'submit', ...draft, pullBase: true })).toMatchObject({ agentPreset: 'fast' });
+    expect(parseTicketFormMessage({ type: 'save', ...draft })).toMatchObject({ agentPreset: 'fast' });
+  });
+
   it('degrades an unrecognized agentProvider on submit/save to null rather than rejecting the whole message', () => {
     expect(
       parseTicketFormMessage({
@@ -331,7 +353,7 @@ describe('parseTicketFormMessage', () => {
       fetchSource: () => {}, searchTickets: () => {}, searchStatuses: () => {},
       suggestSignals: () => {}, saveSignals: () => {}, setRepos: () => {}, setBaseRef: () => {},
       setApproach: () => {}, setAgent: () => {}, setModel: () => {}, setEffort: () => {},
-      setProvider: () => {}, setType: () => {}, analyze: () => {}, attachPick: async () => {},
+      setProvider: () => {}, setPreset: () => {}, setType: () => {}, analyze: () => {}, attachPick: async () => {},
       attachBytes: async () => {}, detachAttachment: async () => {}, openAttachment: async () => {},
       openTicketLink: () => {}, createProviderTicket: () => {}, requestState: () => {},
       closeForm: () => {},
@@ -372,6 +394,7 @@ describe('routeTicketFormAction', () => {
       setEffort: vi.fn(),
       setType: vi.fn(),
       setProvider: vi.fn(),
+      setPreset: vi.fn(),
       analyze: vi.fn(),
       attachPick: vi.fn(),
       attachBytes: vi.fn(),
@@ -404,6 +427,7 @@ describe('routeTicketFormAction', () => {
     routeTicketFormAction({ type: 'set-agent', id: 'reviewer' }, actions);
     routeTicketFormAction({ type: 'set-model', id: 'claude-sonnet-5' }, actions);
     routeTicketFormAction({ type: 'set-provider', id: 'antigravity' }, actions);
+    routeTicketFormAction({ type: 'set-preset', id: 'fast' }, actions);
     routeTicketFormAction({ type: 'set-type', id: 'fix' }, actions);
     routeTicketFormAction({ type: 'open-ticket-link', url: 'https://app.clickup.com/t/CU-1' }, actions);
     routeTicketFormAction({ type: 'create-provider-ticket' }, actions);
@@ -420,6 +444,7 @@ describe('routeTicketFormAction', () => {
     expect(actions.setAgent).toHaveBeenCalledWith('reviewer');
     expect(actions.setModel).toHaveBeenCalledWith('claude-sonnet-5');
     expect(actions.setProvider).toHaveBeenCalledWith('antigravity');
+    expect(actions.setPreset).toHaveBeenCalledWith('fast');
     expect(actions.setType).toHaveBeenCalledWith('fix');
     expect(actions.openTicketLink).toHaveBeenCalledWith('https://app.clickup.com/t/CU-1');
     expect(actions.createProviderTicket).toHaveBeenCalled();
@@ -483,6 +508,7 @@ describe('attachment messages', () => {
       setEffort: vi.fn(),
       setType: vi.fn(),
       setProvider: vi.fn(),
+      setPreset: vi.fn(),
       analyze: vi.fn(),
       openTicketLink: vi.fn(),
       createProviderTicket: vi.fn(),

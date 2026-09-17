@@ -16,16 +16,17 @@
  * `resolveModelForProvider`'s launch conventions):
  *   agentName: config.agentName → config.agent (the referenced profile's
  *              name) → ticket override → role default
- *   provider:  config.provider → ticket override → manifest.agentProvider
- *              → 'claude'
+ *   provider:  config.provider → ticket override → effective preset
+ *              (processes.<key>.preset → ticket preset → defaultAgentPreset)
+ *              → manifest.agentProvider → 'claude'
  *   model:     config.model (verbatim — author-declared) → ticket model →
- *              manifest.defaultModel, both through the provider-compatibility
- *              check (a known model of another provider is dropped, never
- *              launched wrong)
+ *              effective preset model → manifest.defaultModel, the latter two
+ *              through the provider-compatibility check (a known model of
+ *              another provider is dropped, never launched wrong)
  *   effort:    config.effort (verbatim — author-declared) → ticket effort →
- *              manifest.defaultEffort, both dropped unless the RESOLVED model
- *              advertises the value (the same rule `resolveEffortForProvider`
- *              applies to every launch).
+ *              effective preset effort → manifest.defaultEffort, the latter
+ *              two dropped unless the RESOLVED model advertises the value (the
+ *              same rule `resolveEffortForProvider` applies to every launch).
  *   instructions: NOT resolved here — the host's execution boundary resolves
  *              the assigned profile's BODY (`agent`) into it. There is no
  *              manifest-declared prompt any more; the profile is the prompt.
@@ -36,7 +37,7 @@ import {
   PROCESS_KEY_BY_ROLE,
   type ProcessRole,
 } from '../manifest/validate/processAssignments.js';
-import { resolveProvider } from './provider.js';
+import { resolveAgentDefaults } from './agentPresets.js';
 import { resolveModelForProvider, resolveEffortForProvider } from './models.js';
 import { bundledModelCatalog, type ModelCatalog } from './modelCatalog.js';
 import { AGENT_PROVIDER_LABELS } from '../model/agentIdentity.js';
@@ -88,6 +89,8 @@ export interface ProcessTicketOverride {
   model?: string | null;
   effort?: string | null;
   agentName?: string | null;
+  /** Per-ticket agent-preset name; the process's own `preset` wins over it. */
+  preset?: string | null;
 }
 
 /**
@@ -125,12 +128,22 @@ export function resolveProcessAssignment(
   // adapter for the role and opens no process run.
   if (config?.enabled === false) return null;
 
-  const provider =
-    config?.provider ?? resolveProvider(ticketOverride.provider ?? null, manifest.agentProvider);
+  // The preset LAYER: `processes.<key>.preset` beats the ticket preset beats
+  // `manifest.defaultAgentPreset`. It supplies the manifest-level defaults;
+  // every explicit field above still wins, so a preset never silently replaces
+  // an operator's pick. The explicit core is passed through so the preset's
+  // model/effort are dropped when a different core was chosen.
+  const defaults = resolveAgentDefaults(manifest, {
+    ticketPreset: ticketOverride.preset,
+    rolePreset: config?.preset,
+    explicitProvider: config?.provider ?? ticketOverride.provider ?? null,
+  });
+
+  const provider = defaults.provider;
 
   const model =
     config?.model ??
-    resolveModelForProvider(provider, ticketOverride.model ?? null, manifest.defaultModel, catalog);
+    resolveModelForProvider(provider, ticketOverride.model ?? null, defaults.model, catalog);
 
   // Effort follows the model's precedence, but is only carried when the
   // RESOLVED model advertises it — an explicit value for a model with no
@@ -142,7 +155,7 @@ export function resolveProcessAssignment(
   const effort = resolveEffortForProvider(
     provider,
     config?.effort ?? ticketOverride.effort ?? null,
-    manifest.defaultEffort,
+    defaults.effort,
     model,
     catalog,
   );

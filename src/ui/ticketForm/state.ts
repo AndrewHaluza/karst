@@ -8,6 +8,7 @@ import { unclassifiedRepos, scoreRepos } from '../../workflow/classify/gate.js';
 import type { PoolAgent } from '../../agents/pool.js';
 import { modelsForProvider, type ModelOption } from '../../agent/models.js';
 import { IMPLEMENTED_PROVIDERS, resolveProvider } from '../../agent/registry.js';
+import { resolveAgentDefaults } from '../../agent/agentPresets.js';
 import { TICKET_TYPES } from '../../store/ticketTypes.js';
 import { resolveTicketType } from '../../workflow/conventionContext.js';
 import { buildStepper, type StepperCell } from '../../model/stepper.js';
@@ -179,6 +180,12 @@ export interface TicketFormState {
   selectedAgentProvider: AgentProvider | null;
   /** Manifest's resolved default provider, for the "Inherit (settings: …)" label. */
   defaultAgentProvider: AgentProvider;
+  /** Agent preset names defined in the manifest, sorted; offered by the preset select. */
+  agentPresetNames: string[];
+  /** Manifest default preset name, for the "Inherit (settings: …)" label; null = none. */
+  defaultAgentPreset: string | null;
+  /** Per-ticket preset override; null = inherit `manifest.defaultAgentPreset`. */
+  selectedAgentPreset: string | null;
   /** Conventional-commit types offered by the type picker. */
   ticketTypes: string[];
   /** Per-ticket type; null = inherit `conventions.defaultType`. */
@@ -288,7 +295,7 @@ export function buildTicketFormState(
   const agents = listAgents();
   const unclassified = unclassifiedRepos(manifest);
   const provider: TicketProvider = manifest.ticketing?.provider ?? 'manual';
-  const defaultAgentProvider = manifest.agentProvider ?? 'claude';
+  const agentPresetNames = Object.keys(manifest.agentPresets ?? {}).sort();
   // Search needs a provider that can search AND a list to search: the manifest
   // toggle defaults ON, but a clickup provider with no listId configured has
   // nothing to list. `manual` never qualifies.
@@ -333,6 +340,7 @@ export function buildTicketFormState(
     }));
 
   if (ticketId === undefined) {
+    const createDefaults = resolveAgentDefaults(manifest, {});
     return {
       mode: 'create',
       key: '',
@@ -352,16 +360,19 @@ export function buildTicketFormState(
       pickerTouched,
       agents,
       selectedAgent: null,
-      models: [...modelsForProvider(defaultAgentProvider, modelCatalog)],
+      models: [...modelsForProvider(createDefaults.provider, modelCatalog)],
       modelCatalog,
       recentModels,
       selectedModel: null,
-      defaultModel: manifest.defaultModel ?? null,
+      defaultModel: createDefaults.model ?? null,
       selectedEffort: null,
-      defaultEffort: manifest.defaultEffort ?? null,
+      defaultEffort: createDefaults.effort ?? null,
       agentProviders: [...IMPLEMENTED_PROVIDERS],
       selectedAgentProvider: null,
-      defaultAgentProvider,
+      defaultAgentProvider: createDefaults.provider,
+      agentPresetNames,
+      defaultAgentPreset: manifest.defaultAgentPreset ?? null,
+      selectedAgentPreset: null,
       ticketTypes: [...TICKET_TYPES],
       selectedType: null,
       defaultType: resolveTicketType({ type: null }, manifest.conventions),
@@ -372,6 +383,7 @@ export function buildTicketFormState(
   }
 
   const ticket = getTicket(store, ticketId); // throws on unknown id
+  const editDefaults = resolveAgentDefaults(manifest, { ticketPreset: ticket.agentPreset });
   const selectedSet = new Set(ticket.selectedRepos);
   // Score against the ticket's persisted text so scored repos survive a webview
   // reload (the fetch action's in-memory scoring isn't re-run here).
@@ -403,17 +415,20 @@ export function buildTicketFormState(
     agents,
     selectedAgent: ticket.agent ?? null,
     models: [
-      ...modelsForProvider(resolveProvider(ticket.agentProvider, manifest.agentProvider), modelCatalog),
+      ...modelsForProvider(resolveProvider(ticket.agentProvider, editDefaults.provider), modelCatalog),
     ],
     modelCatalog,
     recentModels,
     selectedModel: ticket.model ?? null,
-    defaultModel: manifest.defaultModel ?? null,
+    defaultModel: editDefaults.model ?? null,
     selectedEffort: ticket.effort ?? null,
-    defaultEffort: manifest.defaultEffort ?? null,
+    defaultEffort: editDefaults.effort ?? null,
     agentProviders: [...IMPLEMENTED_PROVIDERS],
     selectedAgentProvider: ticket.agentProvider ?? null,
-    defaultAgentProvider,
+    defaultAgentProvider: editDefaults.provider,
+    agentPresetNames,
+    defaultAgentPreset: manifest.defaultAgentPreset ?? null,
+    selectedAgentPreset: ticket.agentPreset ?? null,
     ticketTypes: [...TICKET_TYPES],
     selectedType: ticket.type ?? null,
     defaultType: resolveTicketType({ type: null }, manifest.conventions),

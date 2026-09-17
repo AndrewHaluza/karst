@@ -1,5 +1,5 @@
 import { resolveModelForProvider } from '../agent/models.js'
-import { resolveProvider } from '../agent/provider.js'
+import { resolveAgentDefaults } from '../agent/agentPresets.js'
 import type { LogBuffer, LogEntry } from '../logging/logger.js'
 import type { Manifest } from '../manifest/types.js'
 import type { Store } from '../store/db.js'
@@ -76,6 +76,7 @@ interface DiagnosticTicketRow {
   archived_at: string | null
   model: string | null
   agent_provider: 'claude' | 'codex' | 'antigravity' | 'opencode' | null
+  agent_preset: string | null
   session_provider: 'claude' | 'codex' | 'antigravity' | 'opencode' | null
 }
 
@@ -170,7 +171,7 @@ export async function collectMetadata(input: MetadataSources): Promise<Diagnosti
 
   const ticket = input.store.db.prepare(
     `SELECT id, key, source, stage_current, agent_state, session_id, approach, agent,
-            selected_repos, archived_at, model, agent_provider, session_provider
+            selected_repos, archived_at, model, agent_provider, agent_preset, session_provider
        FROM tickets
       WHERE id = ? AND project_id = ?`,
   ).get(input.ticketId, input.project.id) as DiagnosticTicketRow
@@ -178,8 +179,12 @@ export async function collectMetadata(input: MetadataSources): Promise<Diagnosti
   const safe = makeSafeText(redactions)
   const repositoryNames = selectedRepos(ticket.selected_repos)
   const repositories = createRepositoryAliases(input.manifest)
-  const provider = resolveProvider(ticket.agent_provider, input.manifest.agentProvider)
-  const model = resolveModelForProvider(provider, ticket.model, input.manifest.defaultModel)
+  const defaults = resolveAgentDefaults(input.manifest, {
+    ticketPreset: ticket.agent_preset,
+    explicitProvider: ticket.agent_provider,
+  })
+  const provider = defaults.provider
+  const model = resolveModelForProvider(provider, ticket.model, defaults.model)
   const mapRepositories = (values: readonly string[]): string[] =>
     values.map(repositories.byName)
 
@@ -296,6 +301,7 @@ export async function collectProjectMetadata(
   const safe = makeSafeText(redactions)
   const aliases = createRepositoryAliases(input.manifest)
   const repositories = Object.keys(input.manifest.repositories)
+  const projectDefaults = resolveAgentDefaults(input.manifest, {})
   return {
     reportId: input.reportId,
     generatedAt: input.generatedAt,
@@ -308,8 +314,8 @@ export async function collectProjectMetadata(
         projectIdentity: input.manifest.id ?? input.project.slug,
         selectedRepos: repositories,
         selectedApproach: null,
-        resolvedModel: input.manifest.defaultModel,
-        resolvedProvider: resolveProvider(undefined, input.manifest.agentProvider),
+        resolvedModel: projectDefaults.model,
+        resolvedProvider: projectDefaults.provider,
         aliases: input.aliases,
         repositoryAlias: aliases.byName,
       })),

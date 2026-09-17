@@ -11,8 +11,8 @@ import type { SessionConfiguredInput } from '../../model/inside/agent.js';
 import { listWorktreesByTicket, listServersByTicket, type WorktreeView } from '../../store/dashboard.js';
 import { resolveBaselineBranchForPath } from '../../manifest/baselineBranch.js';
 import { resolveProcessAssignment } from '../../agent/processAssignment.js';
-import { resolveProvider } from '../../agent/provider.js';
 import { resolveModelForProvider } from '../../agent/models.js';
+import { resolveAgentDefaults } from '../../agent/agentPresets.js';
 import { isRunnable } from '../../manifest/runnable.js';
 import {
   InsideActionRegistry,
@@ -690,7 +690,7 @@ export class DashboardManager {
       this.approachPhases,
       this.isRepoRunnable,
       this.defaultProvider?.(),
-      this.agentContext?.(),
+      this.agentContextFor(),
       this.fixCapFor,
       (id) => this.serviceNamesFor(id),
       (processId) => this.assignmentFor(ticketId, processId),
@@ -927,6 +927,23 @@ export class DashboardManager {
   }
 
   /**
+   * The dashboard's agent context, enriched with a resolver for a ticket's
+   * effective preset defaults. The manager is manifest-free by contract, so the
+   * resolver is built here from the injected manifest getter; without a manifest
+   * the state builder falls back to the legacy context defaults.
+   */
+  private agentContextFor(): DashboardAgentContext {
+    const ctx = this.agentContext?.() ?? {};
+    const manifest = this.manifest?.();
+    if (!manifest) return ctx;
+    return {
+      ...ctx,
+      defaultsFor: (ticketPreset, ticketProvider) =>
+        resolveAgentDefaults(manifest, { ticketPreset, explicitProvider: ticketProvider }),
+    };
+  }
+
+  /**
    * The provider/model karst is CONFIGURED to run for one inside process —
    * shown before any recorded segment exists. Never the recorded identity: a
    * process_runs snapshot is what actually ran and outranks this everywhere it
@@ -941,14 +958,20 @@ export class DashboardManager {
     const ticket = getTicket(this.store, ticketId);
     if (processId === 'session') {
       // The implementation session has no process role: it is the ticket's own
-      // agent, resolved by the launch precedence rule.
-      const provider = resolveProvider(ticket?.agentProvider ?? undefined, manifest.agentProvider);
-      return { provider, model: resolveModelForProvider(provider, ticket?.model ?? null, manifest.defaultModel) ?? null };
+      // agent, resolved by the launch precedence rule with the ticket's preset
+      // supplying the manifest-level defaults.
+      const defaults = resolveAgentDefaults(manifest, {
+        ticketPreset: ticket?.agentPreset,
+        explicitProvider: ticket?.agentProvider ?? null,
+      });
+      const provider = defaults.provider;
+      return { provider, model: resolveModelForProvider(provider, ticket?.model ?? null, defaults.model) ?? null };
     }
     const role = processId === 'tester' ? 'uat-tester' : 'review';
     const snapshot = resolveProcessAssignment(manifest, role, {
       provider: ticket?.agentProvider ?? undefined,
       model: ticket?.model ?? undefined,
+      preset: ticket?.agentPreset ?? undefined,
     });
     // NULL is configured ABSENCE (`enabled: false`), not "unknown" — the caller
     // renders it as a disabled process, never as a missing lookup.

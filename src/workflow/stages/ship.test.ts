@@ -1540,6 +1540,32 @@ setTimeout(() => {
 
       expect(creates[0]![creates[0]!.indexOf('--body') + 1]!).toBe('add search');
     });
+
+    it('resolves {model} through the ticket preset when the ticket has no explicit model', async () => {
+      seedWorktree(store, id, 'frontend', join(dir, 'fe'));
+      updateTicketFields(store, id, { agentPreset: 'fast' });
+      const { gh, creates } = recordingGh();
+
+      await shipTicket(
+        store,
+        {
+          ticketId: id,
+          manifest: manifest({ frontend: repo() }, {
+            agentPresets: {
+              fast: { provider: 'opencode', model: 'opencode-go/deepseek-v4-flash' },
+            },
+            defaultAgentPreset: 'fast',
+            defaultModel: 'claude-sonnet-5',
+          }),
+        },
+        gh,
+        undefined,
+        fakeGit().git,
+      );
+
+      const body = creates[0]![creates[0]!.indexOf('--body') + 1]!;
+      expect(body).toContain('Model: opencode-go/deepseek-v4-flash');
+    });
   });
 
   // The AI answer is public GitHub metadata the moment it is written, so the

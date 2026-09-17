@@ -102,7 +102,9 @@ import {
   shouldApplySessionHookState,
   type RecoveryCandidate,
 } from './ui/sessionRecovery.js';
-import { resolveAdapter, resolveProvider } from './agent/registry.js';
+import { resolveAdapter } from './agent/registry.js';
+import { resolveLaunchIdentity, resolveTicketProvider } from './agent/launchIdentity.js';
+import { resolveAgentDefaults } from './agent/agentPresets.js';
 import {
   resolveProcessAssignment,
   type DriveProcessBundle,
@@ -174,7 +176,7 @@ import type { HookPayload } from './hooks/dispatch.js';
 import { dispatchHook } from './hooks/dispatch.js';
 import type { StageKey } from './model/types.js';
 import { buildTicketContext, renderTicketContext } from './context/ticketContext.js';
-import { resolveEffortForProvider, resolveModelChain, resolveModelForProvider } from './agent/models.js';
+import { resolveModelChain } from './agent/models.js';
 import { terminalTicketName } from './store/ticketLabelTemplate.js';
 import { compactTicketLabel } from './model/followUp.js';
 import { ticketGlyph } from './model/ticketGlyph.js';
@@ -757,7 +759,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }), () => worktreePathContext(currentManifest(), logger.warn, logger.info), () => currentManifest()?.ticketLabelTemplate, logError,
     () => currentProject()?.id,
     () => currentManifest()?.agentProvider,
-    () => activeTicket.get());
+    () => activeTicket.get(),
+    () => currentManifest());
   const { host: sidebarHost, provider: sidebarProvider, badge: sidebarBadge } =
     makeSidebarViewHost(context);
   provider.bind(sidebarHost);
@@ -990,18 +993,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // Task 3: a launch prepared under a host-only configured assignment
         // (the Fix path) records THAT snapshot — provider/model/agent name as
         // resolved once at resume time, never re-derived from live config.
-        const provider =
-          assignment?.provider ??
-          resolveProvider(ticket.agentProvider, currentManifest()?.agentProvider);
-        const model =
-          assignment !== undefined
-            ? (assignment.model ?? null)
-            : resolveModelForProvider(
-                provider,
-                ticket.model,
-                currentManifest()?.defaultModel,
-                modelCatalog,
-              );
+        const identity = resolveLaunchIdentity(
+          currentManifest() ?? emptyManifest(),
+          ticket,
+          assignment,
+          modelCatalog,
+        );
+        const provider = identity.provider;
+        const model = identity.model ?? null;
         if (purpose === 'fix') {
           // v30: a fix launch belongs to the ticket's committed recovery round
           // (the gate that failed opened it atomically). Without one — a
@@ -1160,9 +1159,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
 
   const currentAgentAdapter = (ticketId?: number): AgentAdapter => {
-    const ticketProvider =
-      ticketId !== undefined ? getTicket(localStore, ticketId).agentProvider : undefined;
-    const provider = resolveProvider(ticketProvider, currentManifest()?.agentProvider);
+    const ticket = ticketId !== undefined ? getTicket(localStore, ticketId) : undefined;
+    const provider = resolveTicketProvider(currentManifest() ?? emptyManifest(), ticket ?? {});
     return instrument(resolveAdapter(provider), provider);
   };
 
@@ -1199,6 +1197,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         provider: t.agentProvider ?? undefined,
         model: t.model || undefined,
         effort: t.effort || undefined,
+        preset: t.agentPreset ?? undefined,
       },
       modelCatalog,
     );
@@ -1443,11 +1442,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
 
   const guardCapability = (capability: Capability, ticketId?: number, silent = false): boolean => {
-    const ticketProvider =
-      ticketId === undefined ? undefined : getTicket(localStore, ticketId).agentProvider;
+    const ticket = ticketId === undefined ? undefined : getTicket(localStore, ticketId);
     return guardProviderCapability(
       capability,
-      resolveProvider(ticketProvider, currentManifest()?.agentProvider),
+      resolveTicketProvider(currentManifest() ?? emptyManifest(), ticket ?? {}),
       silent,
     );
   };
@@ -1484,13 +1482,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const outcome = await applyAgentSwitchSelection({
         read: () => {
           const ticket = getTicket(localStore, ticketId);
+          const manifest = currentManifest() ?? emptyManifest();
+          const defaults = resolveAgentDefaults(manifest, {
+            ticketPreset: ticket.agentPreset,
+            explicitProvider: ticket.agentProvider ?? null,
+          });
           return {
             stageCurrent: ticket.stageCurrent,
-            provider: resolveProvider(ticket.agentProvider, currentManifest()?.agentProvider),
+            provider: resolveTicketProvider(manifest, ticket),
             ticketModel: ticket.model,
-            defaultModel: currentManifest()?.defaultModel ?? null,
+            defaultModel: defaults.model ?? null,
             ticketEffort: ticket.effort,
-            defaultEffort: currentManifest()?.defaultEffort ?? null,
+            defaultEffort: defaults.effort ?? null,
             fixExecutionActive: listRecoveryRounds(localStore, ticketId)
               .some((round) => round.status === 'fixing'),
           };
@@ -1514,6 +1517,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           agentProvider: p,
           model: m ?? '',
           effort: e ?? '',
+          // The switch sets an explicit identity, so a preset left on the
+          // ticket would be inert (explicit fields win) and misleading.
+          agentPreset: '',
         }),
         dispose: () => sessions.disposeSession(ticketId),
         launch: async (options) => {
@@ -3366,11 +3372,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Tag each captured session with the core that minted it, so a later switch
   // (this ticket's override OR the manifest default) is detectable instead of
   // surfacing as a failed `--resume` on the next Continue.
-  const sessionProviderFor = (ticketId: number): AgentProvider | null =>
-    resolveProvider(
-      getTicket(localStore, ticketId).agentProvider,
-      currentManifest()?.agentProvider,
-    );
+  const sessionProviderFor = (ticketId: number): AgentProvider | null => {
+    const ticket = getTicket(localStore, ticketId);
+    return resolveTicketProvider(currentManifest() ?? emptyManifest(), ticket);
+  };
   const rememberedPort = context.workspaceState.get<number>(HOOK_PORT_KEY) ?? 0;
   const turnTracker = new TurnTracker();
   endpoint = await startHookEndpoint(
@@ -6054,9 +6059,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
       // Resume the captured session when continuing interactive work, so the
       // agent keeps its context instead of re-deriving from a cold seed (§5.3).
-      const launchProvider =
-        options.assignment?.provider ??
-        resolveProvider(t.agentProvider, currentManifest()?.agentProvider);
+      const identity = resolveLaunchIdentity(
+        currentManifest() ?? emptyManifest(),
+        t,
+        options.assignment,
+        modelCatalog,
+      );
+      const launchProvider = identity.provider;
       const resumeId = shouldResumeSession({
         sessionId: t.sessionId,
         sessionProvider: t.sessionProvider,
@@ -6187,28 +6196,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // A host-only assignment override (the Fix path) supplies the model
       // VERBATIM: the assignment was already provider-checked and fully
       // resolved at the process boundary, so no precedence is re-applied here.
-      const model = options.assignment
-        ? (options.assignment.model ?? undefined)
-        : resolveModelForProvider(
-            launchProvider,
-            t.model,
-            currentManifest()?.defaultModel,
-            modelCatalog,
-          );
+      const model = identity.model;
 
       // Resolve the launch effort the same way: the ticket's own effort wins,
       // else the manifest default, else undefined (the agent CLI's default).
       // Only carried when the RESOLVED model advertises it (§ Execution policy
       // resolution). A host-only assignment override supplies it verbatim.
-      const effort = options.assignment
-        ? (options.assignment.effort ?? undefined)
-        : resolveEffortForProvider(
-            launchProvider,
-            t.effort,
-            currentManifest()?.defaultEffort,
-            model,
-            modelCatalog,
-          );
+      const effort = identity.effort;
 
       // Terminal name/icon/color are frozen at creation, so the tab carries the
       // status-free brand mark from the start — never a stage-at-launch glyph
@@ -6614,17 +6608,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // usual scoping/seed/materialization path is preserved.
   const toRecoveryCandidate = (
     ticket: ReturnType<typeof listTickets>[number],
-  ): RecoveryCandidate => ({
-    id: ticket.id,
-    agentState: ticket.agentState,
-    canResume: shouldResumeSession({
-      sessionId: ticket.sessionId,
-      sessionProvider: ticket.sessionProvider,
-      stageCurrent: ticket.stageCurrent as StageKey,
-      provider: resolveProvider(ticket.agentProvider, currentManifest()?.agentProvider),
-    }),
-    hasWorktree: listWorktreesByTicket(localStore, ticket.id).length > 0,
-  });
+  ): RecoveryCandidate => {
+    return {
+      id: ticket.id,
+      agentState: ticket.agentState,
+      canResume: shouldResumeSession({
+        sessionId: ticket.sessionId,
+        sessionProvider: ticket.sessionProvider,
+        stageCurrent: ticket.stageCurrent as StageKey,
+        provider: resolveTicketProvider(currentManifest() ?? emptyManifest(), ticket),
+      }),
+      hasWorktree: listWorktreesByTicket(localStore, ticket.id).length > 0,
+    };
+  };
   const projectId = currentProject()?.id;
   const currentTickets =
     projectId === undefined ? [] : listTickets(localStore, { projectId });

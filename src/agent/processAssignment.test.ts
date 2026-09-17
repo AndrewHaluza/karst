@@ -345,6 +345,70 @@ describe('resolveProcessAssignment', () => {
     });
     expect('instructions' in (resolveProcessAssignment(BASE, 'uat-tester') ?? {})).toBe(false);
   });
+
+  it('a process preset supplies the defaults and explicit fields still win', () => {
+    const manifest: Manifest = {
+      ...BASE,
+      agentPresets: {
+        fast: { provider: 'opencode', model: 'opencode-go/deepseek-v4-flash' },
+      },
+      processes: { review: { preset: 'fast', model: 'opencode-go/mimo-v2.5' } },
+    };
+    const snap = resolveProcessAssignment(manifest, 'review', {});
+    expect(snap?.provider).toBe('opencode');
+    expect(snap?.model).toBe('opencode-go/mimo-v2.5');
+  });
+
+  it('a ticket preset applies to every process role when the role names none', () => {
+    const manifest: Manifest = {
+      ...BASE,
+      agentPresets: { deep: { provider: 'claude', model: 'claude-opus-5' } },
+      processes: { review: {} },
+    };
+    const snap = resolveProcessAssignment(manifest, 'review', { preset: 'deep' });
+    expect(snap?.provider).toBe('claude');
+    expect(snap?.model).toBe('claude-opus-5');
+  });
+
+  it('the process preset beats the ticket preset', () => {
+    const manifest: Manifest = {
+      ...BASE,
+      agentPresets: {
+        fast: { provider: 'opencode', model: 'opencode-go/deepseek-v4-flash' },
+        deep: { provider: 'claude', model: 'claude-opus-5' },
+      },
+      processes: { review: { preset: 'fast' } },
+    };
+    const snap = resolveProcessAssignment(manifest, 'review', { preset: 'deep' });
+    expect(snap?.provider).toBe('opencode');
+  });
+
+  it('a ticket preset does not override an explicit ticket provider/model', () => {
+    const manifest: Manifest = {
+      ...BASE,
+      agentPresets: { deep: { provider: 'claude', model: 'claude-opus-5' } },
+    };
+    const snap = resolveProcessAssignment(manifest, 'review', {
+      preset: 'deep',
+      provider: 'codex',
+      model: 'gpt-5.6-sol',
+    });
+    expect(snap?.provider).toBe('codex');
+    expect(snap?.model).toBe('gpt-5.6-sol');
+  });
+
+  // A preset is a (core, model) PAIR: its model applies ONLY on its own core, so
+  // an explicit different core must not inherit it.
+  it('drops a preset model when the ticket explicitly picks a different provider', () => {
+    const manifest: Manifest = {
+      ...BASE,
+      agentPresets: { deep: { provider: 'claude', model: 'claude-opus-5' } },
+    };
+    const snap = resolveProcessAssignment(manifest, 'review', { preset: 'deep', provider: 'codex' });
+    expect(snap?.provider).toBe('codex');
+    expect(snap?.model).toBe('gpt-5.6-sol');
+    expect(snap?.model).not.toBe('claude-opus-5');
+  });
 });
 
 describe('process_runs snapshot immutability', () => {

@@ -24,6 +24,8 @@ export interface TicketDraftFields {
   effort?: string | null;
   /** Per-ticket agent-core override; null = inherit the manifest default. */
   agentProvider?: string | null;
+  /** Per-ticket agent-preset name; null = inherit the manifest default preset. */
+  agentPreset?: string | null;
   /**
    * Conventional-commit type for `{type}`. Named `ticketType`, not `type`,
    * because these fields are spread into messages whose own discriminant is
@@ -95,6 +97,8 @@ export type TicketFormMessage =
   | { type: 'set-effort'; id: string }
   // id may be '' — the "Inherit (settings)" choice, which clears the provider.
   | { type: 'set-provider'; id: string }
+  // id may be '' — the "Inherit (settings)" choice, which clears the preset.
+  | { type: 'set-preset'; id: string }
   // id may be '' — "Inherit (settings)", which clears the ticket's type.
   | { type: 'set-type'; id: string }
   | { type: 'analyze'; prompt: string }
@@ -199,6 +203,12 @@ export interface TicketFormActions {
   setModel: (id: string) => void | Promise<void>;
   setEffort: (id: string) => void | Promise<void>;
   setProvider: (id: string) => void | Promise<void>;
+  /**
+   * Persist (or clear) the per-ticket agent preset. A real preset governs, so
+   * the action also clears the explicit core/model/effort (they win by
+   * precedence); an empty id is "Inherit" and clears only the preset.
+   */
+  setPreset: (id: string) => void | Promise<void>;
   setType: (id: string) => void | Promise<void>;
   analyze: (prompt: string) => void | Promise<void>;
   attachPick: () => Promise<void>;
@@ -284,6 +294,10 @@ function parseDraftFields(m: Record<string, unknown>): TicketDraftFields | null 
   // crafted or stale value must never reach resolveAdapter's provider lookup.
   const agentProvider =
     typeof m.agentProvider === 'string' && isKnownProvider(m.agentProvider) ? m.agentProvider : null;
+  // A preset name is not a closed vocabulary here — the manifest owns the set,
+  // and a dangling name degrades to "no preset" at resolution. Only the type is
+  // checked; a malformed value is dropped like every other optional field.
+  const agentPreset = typeof m['agentPreset'] === 'string' ? m['agentPreset'] : undefined;
   const ticketType =
     typeof m.ticketType === 'string' && m.ticketType.length > 0 ? m.ticketType : null;
   // The create-in-provider checkbox. Only an explicit `true` opts in: absent
@@ -300,6 +314,7 @@ function parseDraftFields(m: Record<string, unknown>): TicketDraftFields | null 
     model,
     effort,
     agentProvider,
+    agentPreset,
     ticketType,
     createInProvider,
     keyAutoDerived: m.keyAutoDerived === true,
@@ -364,6 +379,10 @@ export function parseTicketFormMessage(raw: unknown): TicketFormMessage | null {
       return typeof m.id === 'string' && (m.id === '' || isKnownProvider(m.id))
         ? { type: 'set-provider', id: m.id }
         : null;
+    case 'set-preset':
+      // id may be '' ("Inherit"); require a string, not a non-empty one. The
+      // manifest owns the preset vocabulary, so no closed-set check here.
+      return typeof m.id === 'string' ? { type: 'set-preset', id: m.id } : null;
     case 'set-type':
       // id may be '' ("Inherit"); require a string, not a non-empty one. The
       // vocabulary itself is enforced by the store writer, the single authority.
@@ -466,6 +485,9 @@ export function routeTicketFormAction(
     case 'set-provider':
       actions.setProvider(msg.id);
       return;
+    case 'set-preset':
+      actions.setPreset(msg.id);
+      return;
     case 'set-type':
       actions.setType(msg.id);
       return;
@@ -499,6 +521,7 @@ export function routeTicketFormAction(
         agent: msg.agent,
         model: msg.model,
         agentProvider: msg.agentProvider,
+        agentPreset: msg.agentPreset,
         ticketType: msg.ticketType,
         createInProvider: msg.createInProvider,
         keyAutoDerived: msg.keyAutoDerived,
@@ -518,6 +541,7 @@ export function routeTicketFormAction(
         agent: msg.agent,
         model: msg.model,
         agentProvider: msg.agentProvider,
+        agentPreset: msg.agentPreset,
         ticketType: msg.ticketType,
         createInProvider: msg.createInProvider,
         keyAutoDerived: msg.keyAutoDerived,

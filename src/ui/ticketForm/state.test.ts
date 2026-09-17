@@ -23,6 +23,15 @@ const REMOTE_MODELS: ModelCatalog = {
   opencode: [],
 };
 
+// The bundled catalog ships an empty opencode section, so a preset targeting
+// opencode seeds its models from an injected catalog in these tests.
+const PRESET_MODELS: ModelCatalog = {
+  ...REMOTE_MODELS,
+  opencode: [
+    { id: 'opencode-go/deepseek-v4-flash', label: 'DeepSeek V4 Flash', providers: ['opencode'] },
+  ],
+};
+
 function svc(over: Partial<RepositoryDef> = {}): RepositoryDef {
   return runnableRepo({ ports: [slot('port', 'PORT', 3000)] }, over);
 }
@@ -549,5 +558,44 @@ describe('buildTicketFormState — agent core (provider) fields', () => {
     const s = buildTicketFormState(store, MANIFEST, () => [], () => [], t.id);
     expect(s.models.map((m) => m.id)).toContain('gemini-3.6-flash-high');
     expect(s.models.map((m) => m.id)).not.toContain('claude-opus-4-8');
+  });
+});
+
+describe('buildTicketFormState — agent presets', () => {
+  let store: Store;
+  beforeEach(() => (store = openStore(':memory:')));
+
+  it('create mode seeds the default preset and its core/model', () => {
+    const m: Manifest = {
+      ...MANIFEST,
+      agentPresets: { fast: { provider: 'opencode', model: 'opencode-go/deepseek-v4-flash' } },
+      defaultAgentPreset: 'fast',
+    };
+    const state = buildTicketFormState(
+      store, m, () => [], () => [], undefined, undefined, PRESET_MODELS,
+    );
+    expect(state.agentPresetNames).toEqual(['fast']);
+    expect(state.defaultAgentPreset).toBe('fast');
+    expect(state.selectedAgentPreset).toBeNull();
+    expect(state.defaultAgentProvider).toBe('opencode');
+    expect(state.defaultModel).toBe('opencode-go/deepseek-v4-flash');
+    expect(state.models.map((x) => x.id)).toContain('opencode-go/deepseek-v4-flash');
+  });
+
+  it('edit mode surfaces the ticket preset and resolves its core/model', () => {
+    const m: Manifest = {
+      ...MANIFEST,
+      agentPresets: {
+        fast: { provider: 'opencode', model: 'opencode-go/deepseek-v4-flash' },
+        deep: { provider: 'claude', model: 'claude-opus-5' },
+      },
+      defaultAgentPreset: 'fast',
+    };
+    const t = createTicket(store, { key: 'A-1', title: 'T' });
+    updateTicketFields(store, t.id, { agentPreset: 'deep' });
+    const state = buildTicketFormState(store, m, () => [], () => [], t.id);
+    expect(state.selectedAgentPreset).toBe('deep');
+    expect(state.defaultAgentProvider).toBe('claude');
+    expect(state.defaultModel).toBe('claude-opus-5');
   });
 });

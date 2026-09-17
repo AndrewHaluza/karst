@@ -97,6 +97,7 @@ function recordingFactory(
       setModel: () => {},
       setEffort: () => {},
       setProvider: () => {},
+      setPreset: () => {},
       setType: () => {},
       analyze: () => {},
       attachPick: async () => {},

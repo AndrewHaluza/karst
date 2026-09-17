@@ -1,6 +1,7 @@
 import type { Store } from '../../store/db.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
 import type { DriveProcessBundle, ProcessAssignmentSnapshot } from '../../agent/processAssignment.js';
+import { resolveAgentDefaults } from '../../agent/agentPresets.js';
 import {
   shipFinishedEvent,
   shipStartedEvent,
@@ -68,7 +69,7 @@ import { checkMergeable } from '../mergeCheck.js';
 import { setMergeCheck } from '../../store/mergeChecks.js';
 import { mergeOpStatus } from '../../model/mergeCheckView.js';
 import type { WorktreeView } from '../../store/dashboard.js';
-import type { ArtifactConventions, Manifest } from '../../manifest/types.js';
+import type { AgentProvider, ArtifactConventions, Manifest } from '../../manifest/types.js';
 import { resolveTicketBaseRef } from '../baseRef.js';
 import {
   renderArtifactTemplate,
@@ -205,15 +206,29 @@ async function gitIdentity(git: GitRunner, cwd: string): Promise<PersistedCommit
 
 /**
  * The `{model}` value for the PR description template, following the launch
- * precedence: the per-ticket model override, else the manifest default, else
- * nothing (the agent CLI picks its own default — rendered as `n/a` by the
+ * precedence: the per-ticket model override, else the manifest-level default,
+ * else nothing (the agent CLI picks its own default — rendered as `n/a` by the
  * default template). Blank at either level counts as "inherit".
+ *
+ * The manifest-level default is PRESET-AWARE: the effective preset supplies it
+ * only when the ticket's own core is the preset's core (a preset is a
+ * core+model pair), and the legacy `defaultModel` covers every other case.
  */
 function resolveTemplateModel(
-  ticket: { model: string | null },
+  ticket: {
+    model: string | null;
+    agentProvider?: AgentProvider | null;
+    agentPreset?: string | null;
+  },
   manifest?: Manifest,
 ): string | undefined {
-  for (const candidate of [ticket.model, manifest?.defaultModel]) {
+  const defaults = manifest
+    ? resolveAgentDefaults(manifest, {
+        ticketPreset: ticket.agentPreset ?? null,
+        explicitProvider: ticket.agentProvider ?? null,
+      })
+    : undefined;
+  for (const candidate of [ticket.model, defaults?.model ?? manifest?.defaultModel]) {
     if (typeof candidate === 'string' && candidate.trim() !== '') return candidate;
   }
   return undefined;

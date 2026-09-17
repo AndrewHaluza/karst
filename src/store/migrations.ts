@@ -40,7 +40,7 @@ export function readSchema(): string {
 }
 
 /** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 61;
+export const SCHEMA_VERSION = 62;
 
 /** v2 ticket-field columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [
@@ -2353,6 +2353,19 @@ export function migrate(db: Database): void {
       db.exec(
         'CREATE UNIQUE INDEX IF NOT EXISTS idx_worktrees_ticket_path ON worktrees(ticket_id, path)',
       );
+    }
+  }
+
+  if (current < 62) {
+    // v62: `tickets.agent_preset` — the per-ticket agent-preset override. NULL
+    // is the honest "inherit manifest.defaultAgentPreset" for every pre-v62
+    // row: there was no preset concept to backfill. The guard reads the CURRENT
+    // columns, so a fresh DB (schema.sql already carries it) is a no-op and a
+    // re-open is idempotent. (v61 went to the worktrees unique index on
+    // develop; this branch's migration keeps its own number after the merge.)
+    const cols62 = ticketColumns(db);
+    if (cols62.has('model') && !cols62.has('agent_preset')) {
+      db.exec('ALTER TABLE tickets ADD COLUMN agent_preset TEXT');
     }
   }
 
