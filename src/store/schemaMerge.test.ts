@@ -34,7 +34,7 @@ describe('merged schema migration', () => {
       .prepare("SELECT name FROM sqlite_master WHERE type='table'")
       .all()
       .map((r) => (r as { name: string }).name);
-    expect(version).toBe(60);
+    expect(version).toBe(61);
     expect(tables).toContain('approach_graph_runs');
     expect(tables).toContain('approach_graph_tokens');
     expect(tables).toContain('test_logs');
