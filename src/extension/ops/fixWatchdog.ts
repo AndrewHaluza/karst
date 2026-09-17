@@ -1,7 +1,11 @@
 import type { Store } from '../../store/db.js';
 import type { Manifest } from '../../manifest/types.js';
 import { DEFAULT_FIX_STALL_TIMEOUT_MINUTES } from '../../manifest/types.js';
-import { sweepStalledFixRounds, describeStrandedFixRound } from '../../store/recoveryRounds.js';
+import {
+  sweepStalledFixRounds,
+  sweepAbandonedFixLaunches,
+  describeStrandedFixRound,
+} from '../../store/recoveryRounds.js';
 
 export interface FixWatchdogDeps {
   store: Store;
@@ -36,17 +40,23 @@ export const FIX_WATCHDOG_INTERVAL_MS = 5 * 60_000;
 export function runFixWatchdog(deps: FixWatchdogDeps): number {
   const minutes = deps.timeoutMinutes();
   if (!Number.isFinite(minutes) || minutes <= 0) return 0;
-  const settled = sweepStalledFixRounds(deps.store, {
+  const opts = {
     at: deps.now(),
     timeoutMs: minutes * 60_000,
     projectId: deps.projectId(),
-  });
+  };
+  // Two holes, one window: a live fix run that stopped making progress, and a
+  // fix LAUNCH that never started at all (its pending intent otherwise exempts
+  // the ticket from the boot sweep's park forever).
+  const settled = [...sweepStalledFixRounds(deps.store, opts), ...sweepAbandonedFixLaunches(deps.store, opts)];
   for (const s of settled) deps.log(describeStrandedFixRound(s));
   return settled.length;
 }
 
 /**
- * Start the watchdog's timer. Returns a disposable the host pushes onto its subscriptions.
+ * Start the watchdog's timer. Returns a disposable the host pushes onto its subscriptions. Each
+ * tick runs both sweeps over one window: stalled fix runs, and abandoned fix launches that never
+ * started.
  *
  * The interval lives here rather than in `extension.ts` because that file is against its line
  * ratchet; the host's whole cost is one import and one positional `push(startFixWatchdog(...))`.
