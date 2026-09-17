@@ -47,19 +47,28 @@ export function launchSections(hasInvocation: boolean): 'all' | 'narrative' {
  * command exists, or the inline-marker shape when no command was materialized.
  * The `markerInstruction` is appended on both branches so the done-marker is
  * always inline in every seed (§ prompt-effectiveness metrics).
+ *
+ * `serversInstruction` (the `## Services` block from
+ * `cli/serversCommand.ts`'s `renderServersInstruction`) sits between the brief
+ * and the marker on both branches: a resumed session starts this ticket's
+ * services exactly as a fresh one does, and a service started by hand registers
+ * no `servers` row, so the dashboard shows nothing while the session truthfully
+ * reports it started one. Absent when the ticket scopes no runnable repository.
  */
 export function composeResumeSeed(input: {
   ticketKey: string;
   resumeBrief: string;
   invocation?: string;
   markerInstruction?: string;
+  serversInstruction?: string;
 }): string {
-  const { ticketKey, resumeBrief, invocation, markerInstruction } = input;
+  const { ticketKey, resumeBrief, invocation, markerInstruction, serversInstruction } = input;
+  const servers = serversInstruction?.trim();
+  const tail = `${servers ? `\n\n${servers}` : ''}${markerInstruction ? `\n\n${markerInstruction}` : ''}`;
   if (invocation) {
-    const markerSuffix = markerInstruction ? `\n\n${markerInstruction}` : '';
-    return `${invocation} ${ticketKey}\n\n${resumeBrief}${markerSuffix}`.trim();
+    return `${invocation} ${ticketKey}\n\n${resumeBrief}${tail}`.trim();
   }
-  return `${resumeBrief}${markerInstruction ? `\n\n${markerInstruction}` : ''}`;
+  return `${resumeBrief}${tail}`;
 }
 
 /**

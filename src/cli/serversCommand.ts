@@ -3,6 +3,7 @@ import type { Manifest } from '../manifest/types.js';
 import { spinTicket } from '../runtime/spin.js';
 import { stopTicketServers } from '../runtime/supervisor.js';
 import { listServersByTicket, listWorktreesByTicket } from '../store/dashboard.js';
+import { SERVERS_VIA_CLI_RULE } from '../agent/promptText.js';
 
 export type ServersAction = 'list' | 'spin' | 'restart' | 'stop';
 
@@ -145,4 +146,45 @@ export async function runServersCommand(
     })),
     reclaimedPids: result.reclaimedPids,
   });
+}
+
+/**
+ * Compose the flags-first `node <cli> --db … --manifest … --ticket …` prefix the
+ * four `servers` actions share. Flags-first because `parseGlobalFlags`
+ * (`cli/main.ts`) strips them from anywhere in argv, so ONE prefix serves
+ * `servers list`, `servers spin`, `servers restart` and `servers stop` rather
+ * than four separately-composed command lines. Every path is double-quoted so
+ * paths with spaces survive — the extension's DB lives under
+ * "Application Support". Pure (no fs, no store) so it is unit-testable.
+ */
+export function composeServersPrefix(
+  cliEntry: string,
+  dbPath: string,
+  manifestPath: string,
+  ticketKey: string,
+): string {
+  const q = (s: string): string => `"${s}"`;
+  return ['node', q(cliEntry), '--db', q(dbPath), '--manifest', q(manifestPath), '--ticket', q(ticketKey)].join(' ');
+}
+
+/**
+ * The seed's `## Services` section: the servers-via-CLI rule (the SAME words the
+ * agent guide's rule 6 carries — `SERVERS_VIA_CLI_RULE` is the single source)
+ * followed by the four ready-to-run commands.
+ *
+ * Inline in the seed rather than behind the guide pointer on purpose: the rule
+ * only works if it is read BEFORE the session acts on the raw `start:` commands
+ * the context's "Repositories in scope" section lists, and a guide pull is
+ * optional. A service started by hand registers no `servers` row, so the
+ * dashboard shows nothing while the session truthfully reports it started one.
+ */
+export function renderServersInstruction(serversPrefix: string): string {
+  return (
+    `## Services\n\n${SERVERS_VIA_CLI_RULE}\n\n` +
+    `Run them with:\n` +
+    `- list: \`${serversPrefix} servers list\`\n` +
+    `- start: \`${serversPrefix} servers spin\`\n` +
+    `- restart: \`${serversPrefix} servers restart\`\n` +
+    `- stop: \`${serversPrefix} servers stop\``
+  );
 }

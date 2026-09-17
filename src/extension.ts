@@ -191,6 +191,7 @@ import { composeGuideCommand, renderGuideInstruction } from './cli/guide.js';
 import { composeTestCommand } from './cli/test/main.js';
 import { composeFixBriefCommand } from './cli/fixBriefCommand.js';
 import { composeConflictBriefCommand } from './cli/conflictBriefCommand.js';
+import { composeServersPrefix, renderServersInstruction } from './cli/serversCommand.js';
 import {
   buildWorkflowInvocation,
   renderWorkflowCommand,
@@ -6080,6 +6081,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         (msg) => logger.debug(msg),
       );
       const guideInstruction = renderGuideInstruction(buildCliGuidePrefix(context));
+      // A ticket scoping only non-runnable repositories can never have a server,
+      // so the rule would be noise there — the same gate the dashboard's
+      // `hasRunnableRepos` applies (`ui/dashboard/state.ts`).
+      const serversTicketKey = t.key || String(ticketId);
+      const seedServersPrefix = (t.selectedRepos ?? []).some(
+        (r) => currentManifest()?.repositories?.[r]?.service !== undefined,
+      )
+        ? buildCliServersPrefix(context, dbPath, serversTicketKey)
+        : undefined;
+      const serversInstruction = seedServersPrefix
+        ? renderServersInstruction(seedServersPrefix)
+        : null;
       let seedPrompt: string | undefined;
       if (resumeId) {
         // Resume path: compose from the brief and materialized invocation.
@@ -6102,6 +6115,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
               resumeBrief: brief,
               invocation: resumeOrFixInvocation,
               ...(markerInstruction ? { markerInstruction } : {}),
+              ...(serversInstruction ? { serversInstruction } : {}),
             });
           }
         }
@@ -6132,6 +6146,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           guideInstruction,
           t.key || String(ticketId),
           (msg) => logger.debug(msg),
+          serversInstruction,
         );
       }
       // A caller with one specific job for this session (the merge brief behind
@@ -6886,19 +6901,32 @@ function worktreePathContext(
 }
 
 /**
- * Compose the `node <cli> context --db <db> --manifest <yml>` prefix the
- * generated `/karst:<id>` command runs to refresh live ticket context. The CLI
- * ships in `dist/cli/main.js`; the manifest path is best-effort (omitted when
- * unresolved — the CLI then renders without the services section).
+ * The two inputs every `buildCli*Prefix` needs: the CLI karst ships
+ * (`dist/cli/main.js` inside the extension) and the workspace manifest path.
+ * The manifest is BEST-EFFORT on purpose — unresolved means the CLI falls back
+ * to an unscoped key lookup rather than the command failing to compose.
  */
-function buildCliContextPrefix(context: vscode.ExtensionContext, dbPath: string): string {
-  const cliEntry = join(context.extensionUri.fsPath, 'dist', 'cli', 'main.js');
+function cliEntryAndManifest(context: vscode.ExtensionContext): {
+  cliEntry: string;
+  manifestPath: string | undefined;
+} {
   let manifestPath: string | undefined;
   try {
     manifestPath = manifestPathOrThrow();
   } catch {
     manifestPath = undefined;
   }
+  return { cliEntry: join(context.extensionUri.fsPath, 'dist', 'cli', 'main.js'), manifestPath };
+}
+
+/**
+ * Compose the `node <cli> context --db <db> --manifest <yml>` prefix the
+ * generated `/karst:<id>` command runs to refresh live ticket context. The CLI
+ * ships in `dist/cli/main.js`; the manifest path is best-effort (omitted when
+ * unresolved — the CLI then renders without the services section).
+ */
+function buildCliContextPrefix(context: vscode.ExtensionContext, dbPath: string): string {
+  const { cliEntry, manifestPath } = cliEntryAndManifest(context);
   return composeContextCommand(cliEntry, dbPath, manifestPath);
 }
 
@@ -6920,15 +6948,7 @@ function buildCliStagePrefix(
   dbPath: string,
   stage: MarkerStage = 'impl',
 ): string {
-  const cliEntry = join(context.extensionUri.fsPath, 'dist', 'cli', 'main.js');
-  // Best-effort, same as the context prefix: an unresolved manifest just means
-  // the CLI falls back to an unscoped key lookup.
-  let manifestPath: string | undefined;
-  try {
-    manifestPath = manifestPathOrThrow();
-  } catch {
-    manifestPath = undefined;
-  }
+  const { cliEntry, manifestPath } = cliEntryAndManifest(context);
   return composeStageCommand(cliEntry, dbPath, stage, manifestPath);
 }
 
@@ -6945,13 +6965,7 @@ function buildCliPhasePrefix(
   context: vscode.ExtensionContext,
   dbPath: string,
 ): (phaseName: string) => string {
-  const cliEntry = join(context.extensionUri.fsPath, 'dist', 'cli', 'main.js');
-  let manifestPath: string | undefined;
-  try {
-    manifestPath = manifestPathOrThrow();
-  } catch {
-    manifestPath = undefined;
-  }
+  const { cliEntry, manifestPath } = cliEntryAndManifest(context);
   return (phaseName: string): string =>
     composePhaseCommand(cliEntry, dbPath, phaseName, manifestPath);
 }
@@ -6963,8 +6977,24 @@ function buildCliPhasePrefix(
  * static karst-authored content.
  */
 function buildCliGuidePrefix(context: vscode.ExtensionContext): string {
-  const cliEntry = join(context.extensionUri.fsPath, 'dist', 'cli', 'main.js');
-  return composeGuideCommand(cliEntry);
+  return composeGuideCommand(cliEntryAndManifest(context).cliEntry);
+}
+
+/**
+ * Compose the `node <cli> --db <db> --manifest <yml> --ticket <key>` prefix the
+ * seed's `## Services` block appends each `servers` action to. Returns
+ * `undefined` when the manifest path cannot be resolved: `servers
+ * list|spin|restart` REFUSE without `--manifest`, so a prefix without it would
+ * hand the session commands that throw — no block is better than a broken one.
+ */
+function buildCliServersPrefix(
+  context: vscode.ExtensionContext,
+  dbPath: string,
+  ticketKey: string,
+): string | undefined {
+  const { cliEntry, manifestPath } = cliEntryAndManifest(context);
+  if (!manifestPath) return undefined;
+  return composeServersPrefix(cliEntry, dbPath, manifestPath, ticketKey);
 }
 
 /**
@@ -6973,13 +7003,7 @@ function buildCliGuidePrefix(context: vscode.ExtensionContext): string {
  * itself. Same CLI entry and best-effort manifest as the other prefixes.
  */
 function buildCliTestPrefix(context: vscode.ExtensionContext, dbPath: string): string {
-  const cliEntry = join(context.extensionUri.fsPath, 'dist', 'cli', 'main.js');
-  let manifestPath: string | undefined;
-  try {
-    manifestPath = manifestPathOrThrow();
-  } catch {
-    manifestPath = undefined;
-  }
+  const { cliEntry, manifestPath } = cliEntryAndManifest(context);
   return composeTestCommand(cliEntry, dbPath, manifestPath);
 }
 
@@ -6990,13 +7014,7 @@ function buildCliTestPrefix(context: vscode.ExtensionContext, dbPath: string): s
  * prefixes.
  */
 function buildCliFixBriefPrefix(context: vscode.ExtensionContext, dbPath: string): string {
-  const cliEntry = join(context.extensionUri.fsPath, 'dist', 'cli', 'main.js');
-  let manifestPath: string | undefined;
-  try {
-    manifestPath = manifestPathOrThrow();
-  } catch {
-    manifestPath = undefined;
-  }
+  const { cliEntry, manifestPath } = cliEntryAndManifest(context);
   return composeFixBriefCommand(cliEntry, dbPath, manifestPath);
 }
 
@@ -7007,13 +7025,7 @@ function buildCliFixBriefPrefix(context: vscode.ExtensionContext, dbPath: string
  * manifest as the other prefixes.
  */
 function buildCliConflictBriefPrefix(context: vscode.ExtensionContext, dbPath: string): string {
-  const cliEntry = join(context.extensionUri.fsPath, 'dist', 'cli', 'main.js');
-  let manifestPath: string | undefined;
-  try {
-    manifestPath = manifestPathOrThrow();
-  } catch {
-    manifestPath = undefined;
-  }
+  const { cliEntry, manifestPath } = cliEntryAndManifest(context);
   return composeConflictBriefCommand(cliEntry, dbPath, manifestPath);
 }
 
