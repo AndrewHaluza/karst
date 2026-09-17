@@ -137,6 +137,8 @@ describe('updatePrDetail', () => {
         createdAt: '2026-07-23T08:00:00Z',
         mergedAt: '2026-07-28T09:30:00Z',
         comments: [{ author: 'ada', at: '2026-07-24T10:00:00Z', body: 'lgtm' }],
+        checks: null,
+        mergeBlock: 'unknown',
       },
     });
 
@@ -170,6 +172,8 @@ describe('updatePrDetail', () => {
         createdAt: '2026-07-23T08:00:00Z',
         mergedAt: null,
         comments: [{ author: 'ada', at: null, body: 'lgtm' }],
+        checks: null,
+        mergeBlock: 'unknown',
       },
     });
 
@@ -184,6 +188,8 @@ describe('updatePrDetail', () => {
         createdAt: null,
         mergedAt: null,
         comments: null,
+        checks: null,
+        mergeBlock: 'unknown',
       },
     });
 
@@ -206,6 +212,8 @@ describe('updatePrDetail', () => {
       baseRef: null,
       createdAt: null,
       mergedAt: null,
+      checks: null,
+      mergeBlock: 'unknown' as const,
     };
     updatePrDetail(store, {
       ticketId: a.id,
@@ -236,12 +244,117 @@ describe('updatePrDetail', () => {
         createdAt: null,
         mergedAt: null,
         comments: null,
+        checks: null,
+        mergeBlock: 'unknown',
       },
     });
     const pr = listPrsByTicket(store, a.id)[0]!;
     expect(pr.status).toBe('open');
     // Metadata it could still state is not thrown away with the status.
     expect(pr.headRef).toBe('karst/feat/x');
+  });
+
+  const passing = {
+    state: 'passing' as const,
+    total: 3,
+    passed: 3,
+    failed: 0,
+    pending: 0,
+    failing: [],
+    failedShown: 0,
+  };
+
+  it('writes the CI rollup and reads it back as the serialized column', () => {
+    const a = createTicket(store, { key: 'A', title: 'a', projectId: 1 });
+    seedPr(store, a.id, 'api', 12, 'open');
+    seedWorktree(store, a.id, 'api', '/wt/api');
+    updatePrDetail(store, {
+      ticketId: a.id,
+      repo: 'api',
+      url: url(12),
+      detail: {
+        status: 'open',
+        headRef: null,
+        baseRef: null,
+        createdAt: null,
+        mergedAt: null,
+        comments: null,
+        checks: passing,
+        mergeBlock: 'clean',
+      },
+    });
+    const row = listSyncablePrs(store, { projectId: 1 })[0]!;
+    expect(row.prChecks).toBe(JSON.stringify(passing));
+    expect(row.prMergeBlock).toBe('clean');
+  });
+
+  it('keeps a stored rollup when a later probe reports no checks', () => {
+    const a = createTicket(store, { key: 'A', title: 'a' });
+    seedPr(store, a.id, 'api', 12, 'open');
+    const detail = {
+      status: 'open' as const,
+      headRef: null,
+      baseRef: null,
+      createdAt: null,
+      mergedAt: null,
+      comments: null,
+      checks: passing,
+      mergeBlock: 'clean' as const,
+    };
+    updatePrDetail(store, { ticketId: a.id, repo: 'api', url: url(12), detail });
+    updatePrDetail(store, {
+      ticketId: a.id,
+      repo: 'api',
+      url: url(12),
+      detail: { ...detail, checks: null },
+    });
+    expect(listPrsByTicket(store, a.id)[0]!.checks).toEqual(passing);
+  });
+
+  it('keeps a stored block when a later probe answers unknown', () => {
+    const a = createTicket(store, { key: 'A', title: 'a' });
+    seedPr(store, a.id, 'api', 12, 'open');
+    const detail = {
+      status: 'open' as const,
+      headRef: null,
+      baseRef: null,
+      createdAt: null,
+      mergedAt: null,
+      comments: null,
+      checks: null,
+      mergeBlock: 'blocked' as const,
+    };
+    updatePrDetail(store, { ticketId: a.id, repo: 'api', url: url(12), detail });
+    updatePrDetail(store, {
+      ticketId: a.id,
+      repo: 'api',
+      url: url(12),
+      detail: { ...detail, mergeBlock: 'unknown' },
+    });
+    expect(listPrsByTicket(store, a.id)[0]!.mergeBlock).toBe('blocked');
+  });
+
+  it('overwrites a stored block when GitHub says the merge is clean again', () => {
+    const a = createTicket(store, { key: 'A', title: 'a' });
+    seedPr(store, a.id, 'api', 12, 'open');
+    const detail = {
+      status: 'open' as const,
+      headRef: null,
+      baseRef: null,
+      createdAt: null,
+      mergedAt: null,
+      comments: null,
+      checks: null,
+      mergeBlock: 'blocked' as const,
+    };
+    updatePrDetail(store, { ticketId: a.id, repo: 'api', url: url(12), detail });
+    updatePrDetail(store, {
+      ticketId: a.id,
+      repo: 'api',
+      url: url(12),
+      detail: { ...detail, mergeBlock: 'clean' },
+    });
+    expect(listPrsByTicket(store, a.id)[0]!.mergeBlock).toBe('clean');
   });
 });
 

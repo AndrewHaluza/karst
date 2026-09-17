@@ -877,6 +877,93 @@ describe('buildDashboardState', () => {
     });
   });
 
+  it('will not act on a single waiting repo whose open PR GitHub is blocking', () => {
+    // The coupling regression: `mergeableRepos` is derived from the panel rows'
+    // `canMerge`, so GitHub's own refusal empties it and the rail declines to
+    // fire an irreversible merge the panel's own button refuses.
+    const t = createTicket(store, { key: 'N-11', title: 't' });
+    setStage(store, t.id, 'ship', {
+      status: 'passed',
+      endedAt: '2026-08-01T10:00:00.000Z',
+      blockedKind: 'awaiting-merge',
+      blockedReason: 'blocked: the pull request for "api" is not merged yet',
+      blockedAt: '2026-08-01T10:00:00.000Z',
+    });
+    store.db
+      .prepare("UPDATE tickets SET stage_current = 'ship', agent_state = 'idle' WHERE id = ?")
+      .run(t.id);
+    store.db
+      .prepare(
+        "INSERT INTO prs (ticket_id, repo, number, url, status, merge_block) VALUES (?, ?, ?, ?, ?, 'blocked')",
+      )
+      .run(t.id, 'api', 12, 'https://github.com/o/r/pull/12', 'open');
+
+    const state = buildDashboardState(store, t.id);
+    const ship = state.rail.main.find((s) => s.cell.stageKey === 'ship')!;
+    expect(ship.needs).toEqual({
+      detail: '1 repo to merge',
+      action: 'Merge',
+      cta: { kind: 'merge-panel' },
+    });
+  });
+
+  it('acts on the ONE waiting repo when GitHub says the merge is clean', () => {
+    const t = createTicket(store, { key: 'N-12', title: 't' });
+    setStage(store, t.id, 'ship', {
+      status: 'passed',
+      endedAt: '2026-08-01T10:00:00.000Z',
+      blockedKind: 'awaiting-merge',
+      blockedReason: 'blocked: the pull request for "api" is not merged yet',
+      blockedAt: '2026-08-01T10:00:00.000Z',
+    });
+    store.db
+      .prepare("UPDATE tickets SET stage_current = 'ship', agent_state = 'idle' WHERE id = ?")
+      .run(t.id);
+    store.db
+      .prepare(
+        "INSERT INTO prs (ticket_id, repo, number, url, status, merge_block) VALUES (?, ?, ?, ?, ?, 'clean')",
+      )
+      .run(t.id, 'api', 12, 'https://github.com/o/r/pull/12', 'open');
+
+    const state = buildDashboardState(store, t.id);
+    const ship = state.rail.main.find((s) => s.cell.stageKey === 'ship')!;
+    expect(ship.needs).toEqual({
+      detail: '1 repo to merge',
+      action: 'Merge',
+      cta: { kind: 'merge', repo: 'api' },
+    });
+  });
+
+  it('reads only a repo’s CURRENT PR, never an older mergeable row it still carries', () => {
+    // A re-shipped repo keeps both rows. The rail merges the repo's CURRENT PR
+    // (`CURRENT_PR_ORDER`: newest open), so an older OPEN row that happens to be
+    // mergeable must not licence a merge of the current one GitHub is blocking.
+    const t = createTicket(store, { key: 'N-13', title: 't' });
+    setStage(store, t.id, 'ship', {
+      status: 'passed',
+      endedAt: '2026-08-01T10:00:00.000Z',
+      blockedKind: 'awaiting-merge',
+      blockedReason: 'blocked: the pull request for "api" is not merged yet',
+      blockedAt: '2026-08-01T10:00:00.000Z',
+    });
+    store.db
+      .prepare("UPDATE tickets SET stage_current = 'ship', agent_state = 'idle' WHERE id = ?")
+      .run(t.id);
+    const ins = store.db.prepare(
+      "INSERT INTO prs (ticket_id, repo, number, url, status, merge_block) VALUES (?, ?, ?, ?, 'open', ?)",
+    );
+    ins.run(t.id, 'api', 13, 'https://github.com/o/r/pull/13', 'clean');
+    ins.run(t.id, 'api', 14, 'https://github.com/o/r/pull/14', 'blocked');
+
+    const state = buildDashboardState(store, t.id);
+    const ship = state.rail.main.find((s) => s.cell.stageKey === 'ship')!;
+    expect(ship.needs).toEqual({
+      detail: '1 repo to merge',
+      action: 'Merge',
+      cta: { kind: 'merge-panel' },
+    });
+  });
+
   it('draws the meter with the manifest’s narrowed uat budget', () => {
     // The meter must draw exactly the attempts the driver will spend, or it lies
     // about how many retries are left.

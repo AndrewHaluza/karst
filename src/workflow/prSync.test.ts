@@ -220,6 +220,82 @@ describe('syncPrStatuses', () => {
     expect(pr.baseRef).toBe('develop');
     expect(pr.createdAt).toBe('2026-07-23T08:00:00Z');
   });
+
+  // The regression v60 exists for: a rollup moves while status, branches and
+  // stamps all stay identical, so without the new change comparison the sweep
+  // would probe the truth and throw it away.
+  it('reports a change when only the CI rollup moved', async () => {
+    const a = createTicket(store, { key: 'A', title: 'a', projectId: 1 });
+    seedPr(store, a.id, 'api', 12, 'open');
+    seedWorktree(store, a.id, 'api', '/wt/api');
+
+    const withRollup = (status: string, conclusion: string | null): GhRunner => async () => ({
+      stdout: JSON.stringify({
+        state: 'OPEN',
+        isDraft: false,
+        headRefName: 'karst/feat/x',
+        baseRefName: 'develop',
+        createdAt: '2026-07-23T08:00:00Z',
+        mergedAt: null,
+        comments: [],
+        statusCheckRollup: [
+          { __typename: 'CheckRun', name: 'build', status, conclusion, detailsUrl: 'https://x.test/run/1' },
+        ],
+      }),
+      exitCode: 0,
+    });
+
+    expect(await syncPrStatuses(store, withRollup('IN_PROGRESS', null), { projectId: 1 })).toBe(1);
+    expect(await syncPrStatuses(store, withRollup('COMPLETED', 'FAILURE'), { projectId: 1 })).toBe(1);
+    expect(listPrsByTicket(store, a.id)[0]!.checks?.state).toBe('failing');
+  });
+
+  it('reports a change when only GitHub’s merge block moved', async () => {
+    const a = createTicket(store, { key: 'A', title: 'a', projectId: 1 });
+    seedPr(store, a.id, 'api', 12, 'open');
+    seedWorktree(store, a.id, 'api', '/wt/api');
+
+    const withBlock = (mergeStateStatus: string): GhRunner => async () => ({
+      stdout: JSON.stringify({
+        state: 'OPEN',
+        isDraft: false,
+        headRefName: 'karst/feat/x',
+        baseRefName: 'develop',
+        createdAt: '2026-07-23T08:00:00Z',
+        mergedAt: null,
+        comments: [],
+        mergeable: 'MERGEABLE',
+        mergeStateStatus,
+      }),
+      exitCode: 0,
+    });
+
+    expect(await syncPrStatuses(store, withBlock('CLEAN'), { projectId: 1 })).toBe(1);
+    expect(await syncPrStatuses(store, withBlock('BLOCKED'), { projectId: 1 })).toBe(1);
+    expect(listPrsByTicket(store, a.id)[0]!.mergeBlock).toBe('blocked');
+  });
+
+  it('counts no change when a later probe states neither a rollup nor a merge state', async () => {
+    const a = createTicket(store, { key: 'A', title: 'a', projectId: 1 });
+    seedPr(store, a.id, 'api', 12, 'open');
+    seedWorktree(store, a.id, 'api', '/wt/api');
+
+    const bare: GhRunner = async () => ({
+      stdout: JSON.stringify({
+        state: 'OPEN',
+        isDraft: false,
+        headRefName: 'karst/feat/x',
+        baseRefName: 'develop',
+        createdAt: '2026-07-23T08:00:00Z',
+        mergedAt: null,
+        comments: [],
+      }),
+      exitCode: 0,
+    });
+
+    await syncPrStatuses(store, bare, { projectId: 1 });
+    expect(await syncPrStatuses(store, bare, { projectId: 1 })).toBe(0);
+  });
 });
 
 describe('syncPrStatuses feedback refresh', () => {
