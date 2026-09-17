@@ -103,6 +103,7 @@ import {
   type RecoveryCandidate,
 } from './ui/sessionRecovery.js';
 import { resolveAdapter, resolveProvider } from './agent/registry.js';
+import { resolveLaunchIdentity, resolveTicketProvider } from './agent/launchIdentity.js';
 import { resolveAgentDefaults } from './agent/agentPresets.js';
 import {
   resolveProcessAssignment,
@@ -175,7 +176,7 @@ import type { HookPayload } from './hooks/dispatch.js';
 import { dispatchHook } from './hooks/dispatch.js';
 import type { StageKey } from './model/types.js';
 import { buildTicketContext, renderTicketContext } from './context/ticketContext.js';
-import { resolveEffortForProvider, resolveModelChain, resolveModelForProvider } from './agent/models.js';
+import { resolveModelChain } from './agent/models.js';
 import { terminalTicketName } from './store/ticketLabelTemplate.js';
 import { compactTicketLabel } from './model/followUp.js';
 import { ticketGlyph } from './model/ticketGlyph.js';
@@ -991,22 +992,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // Task 3: a launch prepared under a host-only configured assignment
         // (the Fix path) records THAT snapshot — provider/model/agent name as
         // resolved once at resume time, never re-derived from live config.
-        const intentDefaults = resolveAgentDefaults(
+        const identity = resolveLaunchIdentity(
           currentManifest() ?? emptyManifest(),
-          ticket.agentPreset,
+          ticket,
+          assignment,
+          modelCatalog,
         );
-        const provider =
-          assignment?.provider ??
-          resolveProvider(ticket.agentProvider, intentDefaults.provider);
-        const model =
-          assignment !== undefined
-            ? (assignment.model ?? null)
-            : resolveModelForProvider(
-                provider,
-                ticket.model,
-                intentDefaults.model,
-                modelCatalog,
-              );
+        const provider = identity.provider;
+        const model = identity.model ?? null;
         if (purpose === 'fix') {
           // v30: a fix launch belongs to the ticket's committed recovery round
           // (the gate that failed opened it atomically). Without one — a
@@ -1166,11 +1159,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   const currentAgentAdapter = (ticketId?: number): AgentAdapter => {
     const ticket = ticketId !== undefined ? getTicket(localStore, ticketId) : undefined;
-    const defaults = resolveAgentDefaults(
-      currentManifest() ?? emptyManifest(),
-      ticket?.agentPreset ?? null,
-    );
-    const provider = resolveProvider(ticket?.agentProvider, defaults.provider);
+    const provider = resolveTicketProvider(currentManifest() ?? emptyManifest(), ticket ?? {});
     return instrument(resolveAdapter(provider), provider);
   };
 
@@ -1493,13 +1482,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const outcome = await applyAgentSwitchSelection({
         read: () => {
           const ticket = getTicket(localStore, ticketId);
-          const defaults = resolveAgentDefaults(
-            currentManifest() ?? emptyManifest(),
-            ticket.agentPreset,
-          );
+          const manifest = currentManifest() ?? emptyManifest();
+          const defaults = resolveAgentDefaults(manifest, ticket.agentPreset);
           return {
             stageCurrent: ticket.stageCurrent,
-            provider: resolveProvider(ticket.agentProvider, defaults.provider),
+            provider: resolveTicketProvider(manifest, ticket),
             ticketModel: ticket.model,
             defaultModel: defaults.model ?? null,
             ticketEffort: ticket.effort,
@@ -3381,11 +3368,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // surfacing as a failed `--resume` on the next Continue.
   const sessionProviderFor = (ticketId: number): AgentProvider | null => {
     const ticket = getTicket(localStore, ticketId);
-    const defaults = resolveAgentDefaults(
-      currentManifest() ?? emptyManifest(),
-      ticket.agentPreset,
-    );
-    return resolveProvider(ticket.agentProvider, defaults.provider);
+    return resolveTicketProvider(currentManifest() ?? emptyManifest(), ticket);
   };
   const rememberedPort = context.workspaceState.get<number>(HOOK_PORT_KEY) ?? 0;
   const turnTracker = new TurnTracker();
@@ -6070,13 +6053,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
       // Resume the captured session when continuing interactive work, so the
       // agent keeps its context instead of re-deriving from a cold seed (§5.3).
-      const launchDefaults = resolveAgentDefaults(
+      const identity = resolveLaunchIdentity(
         currentManifest() ?? emptyManifest(),
-        t.agentPreset,
+        t,
+        options.assignment,
+        modelCatalog,
       );
-      const launchProvider =
-        options.assignment?.provider ??
-        resolveProvider(t.agentProvider, launchDefaults.provider);
+      const launchProvider = identity.provider;
       const resumeId = shouldResumeSession({
         sessionId: t.sessionId,
         sessionProvider: t.sessionProvider,
@@ -6193,28 +6176,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // A host-only assignment override (the Fix path) supplies the model
       // VERBATIM: the assignment was already provider-checked and fully
       // resolved at the process boundary, so no precedence is re-applied here.
-      const model = options.assignment
-        ? (options.assignment.model ?? undefined)
-        : resolveModelForProvider(
-            launchProvider,
-            t.model,
-            launchDefaults.model,
-            modelCatalog,
-          );
+      const model = identity.model;
 
       // Resolve the launch effort the same way: the ticket's own effort wins,
       // else the manifest default, else undefined (the agent CLI's default).
       // Only carried when the RESOLVED model advertises it (§ Execution policy
       // resolution). A host-only assignment override supplies it verbatim.
-      const effort = options.assignment
-        ? (options.assignment.effort ?? undefined)
-        : resolveEffortForProvider(
-            launchProvider,
-            t.effort,
-            launchDefaults.effort,
-            model,
-            modelCatalog,
-          );
+      const effort = identity.effort;
 
       // Terminal name/icon/color are frozen at creation, so the tab carries the
       // status-free brand mark from the start — never a stage-at-launch glyph
@@ -6621,10 +6589,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const toRecoveryCandidate = (
     ticket: ReturnType<typeof listTickets>[number],
   ): RecoveryCandidate => {
-    const defaults = resolveAgentDefaults(
-      currentManifest() ?? emptyManifest(),
-      ticket.agentPreset,
-    );
     return {
       id: ticket.id,
       agentState: ticket.agentState,
@@ -6632,7 +6596,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         sessionId: ticket.sessionId,
         sessionProvider: ticket.sessionProvider,
         stageCurrent: ticket.stageCurrent as StageKey,
-        provider: resolveProvider(ticket.agentProvider, defaults.provider),
+        provider: resolveTicketProvider(currentManifest() ?? emptyManifest(), ticket),
       }),
       hasWorktree: listWorktreesByTicket(localStore, ticket.id).length > 0,
     };
