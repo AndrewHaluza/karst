@@ -54,7 +54,7 @@ STATIC+RUNTIME+VISUAL 2.
 
 1. **CONTRAST_RATCHET** (`a11y.visual.ts`): Known contrast failures across dark/light/hc themes. Includes G3 danger buttons and gettingStarted headings, plus **G6** — the server-logs surface colours log text with VS Code's terminal ANSI palette (`--vscode-terminal-ansi*`), whose hues are below WCAG AA against the editor background by design (VS Code's built-in terminal shares the property). Shrink-only.
 2. **TITLE_RATCHET** (`a11y.visual.ts`): Settings `span#dirtyDot` tooltip-only hint. Shrink-only.
-3. **FOCUS_COUNT_RATCHET** (`focus.visual.ts`): Focusable-element counts per view. Shrink-only.
+3. **FOCUS_COUNT_RATCHET** (`focus.visual.ts`): Focusable-element counts per view. Shrink-only, save the one justified raise recorded in the constant's comment (agent-presets, ticket 508: `ticketForm` +1, `settings` +7 — seven net-new controls with no existing element to fold into).
 4. **MINIMAL_RATCHET** (`corpora.ts`): Views still on MINIMAL state seed. Shrink-only.
 
 ## Running the sweep
