@@ -1,76 +1,83 @@
-import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
-import { createServer } from 'node:net';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { createServer, type AddressInfo, type Server } from 'node:net';
 import { join } from 'node:path';
 import { openStore, type Store } from '../store/db.js';
 import { isPortOpen, listenerPids, decideReclaim, reclaimPort } from './portConflict.js';
-import { freePortWindow } from './fixtures.js';
 import type { ProcessFacts, ProcessFactsSource } from './serverIdentity.js';
 import { killTree } from './processTree.js';
 
 vi.mock('./processTree.js', () => ({ killTree: vi.fn() }));
 
-let portCounter = 28200;
-function nextPort(): number {
-  return portCounter++;
+/**
+ * Bind a probe server on an OS-assigned port and hand back the port it chose.
+ *
+ * These cases hold the listener themselves, so a reserved fixture band buys
+ * nothing and costs a race: two karst worktrees run `test:unit` concurrently (the
+ * product's whole point, and exactly how a leaked listener used to poison a fixed
+ * port), and both can probe the same `freePortWindow` band as free before either
+ * binds — the `EADDRINUSE` that flaked this suite. Binding port 0 lets the OS
+ * choose and hand back the port in one atomic step, so there is no gap between
+ * "this looks free" and "I hold it" for a sibling run to slip into.
+ */
+async function listen(
+  opts: { host?: string; ipv6Only?: boolean } = {},
+): Promise<{ srv: Server; port: number }> {
+  const srv = createServer();
+  await new Promise<void>((resolve, reject) => {
+    srv.once('error', reject);
+    if (opts.ipv6Only) srv.listen({ host: opts.host, port: 0, ipv6Only: true }, resolve);
+    else if (opts.host) srv.listen(0, opts.host, resolve);
+    else srv.listen(0, resolve);
+  });
+  return { srv, port: (srv.address() as AddressInfo).port };
+}
+
+/** Close a listener and wait for the release, so the next case sees it free. */
+function close(srv: Server): Promise<void> {
+  return new Promise((resolve) => srv.close(() => resolve()));
 }
 
 describe('isPortOpen', () => {
-  beforeAll(async () => {
-    // Band [28200, 28600), below Linux's ephemeral range (32768–60999) so a
-    // sibling suite's outbound socket cannot steal a fixture port mid-test, and
-    // with a ceiling so a blocked window throws rather than sliding into
-    // spin.integration's band.
-    portCounter = await freePortWindow(40, portCounter, 28600);
-  });
-
   it('is false for a port nothing has bound', async () => {
-    const port = nextPort();
+    const { srv, port } = await listen();
+    await close(srv);
     expect(await isPortOpen('127.0.0.1', port)).toBe(false);
   });
 
   it('is true when something accepts connections on the port — even if it answers nothing', async () => {
-    const port = nextPort();
-    const srv = createServer(); // answers nothing, the way a deaf squatter does
-    await new Promise<void>((r) => srv.listen(port, () => r()));
+    const { srv, port } = await listen(); // answers nothing, the way a deaf squatter does
     try {
       expect(await isPortOpen('127.0.0.1', port)).toBe(true);
       // A wildcard listener is reachable through both loopback families.
       expect(await isPortOpen('::1', port)).toBe(true);
     } finally {
-      await new Promise((r) => srv.close(r));
+      await close(srv);
     }
   });
 
   it('does not treat an IPv6-only listener as occupying the IPv4 service address', async () => {
-    const port = nextPort();
-    const srv = createServer();
-    await new Promise<void>((resolve, reject) => {
-      srv.once('error', reject);
-      srv.listen({ host: '::1', port, ipv6Only: true }, resolve);
-    });
+    const { srv, port } = await listen({ host: '::1', ipv6Only: true });
     try {
       expect(await isPortOpen('::1', port)).toBe(true);
       expect(await isPortOpen('127.0.0.1', port)).toBe(false);
     } finally {
-      await new Promise((r) => srv.close(r));
+      await close(srv);
     }
   });
 });
 
 describe('listenerPids', () => {
-  beforeAll(async () => {
-    portCounter = await freePortWindow(40, portCounter, 28600);
-  });
-
+  // `9` is the discard port: nothing binds it under test, and these two cases
+  // only exercise discovery's ASYNC shape, not a real listener.
   it('discovers listeners asynchronously so the extension host stays responsive', async () => {
-    const lookup = listenerPids('127.0.0.1', nextPort());
+    const lookup = listenerPids('127.0.0.1', 9);
     expect(lookup).toBeInstanceOf(Promise);
     await lookup;
   });
 
   it('returns within its deadline when hostname resolution stalls', async () => {
     const result = await Promise.race([
-      listenerPids('stalled.test', nextPort(), {
+      listenerPids('stalled.test', 9, {
         timeoutMs: 25,
         lookupHost: () => new Promise(() => {}),
       }),
@@ -81,46 +88,35 @@ describe('listenerPids', () => {
   });
 
   it('names the process LISTENING on the port, and nothing for a free one', async () => {
-    const port = nextPort();
-    const srv = createServer();
-    await new Promise<void>((r) => srv.listen(port, () => r()));
+    const { srv, port } = await listen();
     try {
       expect(await listenerPids('127.0.0.1', port)).toContain(process.pid);
     } finally {
-      await new Promise((r) => srv.close(r));
+      await close(srv);
     }
     expect(await listenerPids('127.0.0.1', port)).toEqual([]);
   });
 
   it('returns only listeners that occupy the requested address family', async () => {
-    const port = nextPort();
-    const srv = createServer();
-    await new Promise<void>((resolve, reject) => {
-      srv.once('error', reject);
-      srv.listen({ host: '::1', port, ipv6Only: true }, resolve);
-    });
+    const { srv, port } = await listen({ host: '::1', ipv6Only: true });
     try {
       expect(await listenerPids('::1', port)).toContain(process.pid);
       expect(await listenerPids('127.0.0.1', port)).not.toContain(process.pid);
     } finally {
-      await new Promise((r) => srv.close(r));
+      await close(srv);
     }
   });
 
   it('finds a dual-stack wildcard listener for a v4 service host — the Linux default bind', async () => {
-    const port = nextPort();
-    const srv = createServer();
-    await new Promise<void>((resolve, reject) => {
-      srv.once('error', reject);
-      // `listen(port)` binds `::` dual-stack; it BLOCKS a later 127.0.0.1 bind,
-      // so discovery must name it even though it is not a v4 socket (this is
-      // the squatter the incident reported: lsof -i4TCP misses it on Linux).
-      srv.listen(port, resolve);
-    });
+    const { srv, port } = await listen();
+    // `listen(0)` binds an OS-chosen port as `::` dual-stack; it BLOCKS a later
+    // 127.0.0.1 bind on that port, so discovery must name it even though it is
+    // not a v4 socket (this is the squatter the incident reported: lsof -i4TCP
+    // misses it on Linux).
     try {
       expect(await listenerPids('127.0.0.1', port)).toContain(process.pid);
     } finally {
-      await new Promise((r) => srv.close(r));
+      await close(srv);
     }
   });
 });
@@ -136,13 +132,8 @@ describe('reclaimPort', () => {
   });
 
   it('keeps a recorded server running when an asynchronous kill does not release its port', async () => {
-    const port = nextPort();
+    const { srv, port } = await listen({ host: '127.0.0.1' });
     const repoPath = '/repo/fe';
-    const srv = createServer();
-    await new Promise<void>((resolve, reject) => {
-      srv.once('error', reject);
-      srv.listen(port, '127.0.0.1', resolve);
-    });
     store.db
       .prepare(
         `INSERT INTO servers (ticket_id, repo, host, port, pid, status, log_path, cwd, started_at)
@@ -163,18 +154,13 @@ describe('reclaimPort', () => {
       expect(outcome.stoppedRows).toEqual([]);
       expect(outcome.survivors).toEqual([{ pid: process.pid }]);
     } finally {
-      await new Promise((r) => srv.close(r));
+      await close(srv);
     }
   });
 
   it('does not retire a live server when an uncertain kill merely releases its socket', async () => {
-    const port = nextPort();
+    const { srv, port } = await listen({ host: '127.0.0.1' });
     const repoPath = '/repo/fe';
-    const srv = createServer();
-    await new Promise<void>((resolve, reject) => {
-      srv.once('error', reject);
-      srv.listen(port, '127.0.0.1', resolve);
-    });
     store.db
       .prepare(
         `INSERT INTO servers (ticket_id, repo, host, port, pid, status, log_path, cwd, started_at)
@@ -197,16 +183,12 @@ describe('reclaimPort', () => {
     expect(outcome.killedPids).toEqual([]);
     expect(outcome.stoppedRows).toEqual([]);
     expect(outcome.survivors).toEqual([{ pid: process.pid }]);
+    await close(srv);
   });
 
   it('awaits and caches asynchronous process attribution facts for each listener', async () => {
-    const port = nextPort();
+    const { srv, port } = await listen({ host: '127.0.0.1' });
     const repoPath = '/repo/fe';
-    const srv = createServer();
-    await new Promise<void>((resolve, reject) => {
-      srv.once('error', reject);
-      srv.listen(port, '127.0.0.1', resolve);
-    });
     let cwdCalls = 0;
     const asyncFacts: ProcessFactsSource = {
       isAlive: async () => true,
@@ -226,16 +208,12 @@ describe('reclaimPort', () => {
     expect(outcome.portFree).toBe(true);
     expect(outcome.killedPids).toEqual([process.pid]);
     expect(cwdCalls).toBe(1);
+    await close(srv);
   });
 
   it('reclaims a port from an ORPHANED baseline listener so the next start self-heals', async () => {
-    const port = nextPort();
+    const { srv, port } = await listen({ host: '127.0.0.1' });
     const repoPath = '/repo/fe';
-    const srv = createServer();
-    await new Promise<void>((resolve, reject) => {
-      srv.once('error', reject);
-      srv.listen(port, '127.0.0.1', resolve);
-    });
     // The retired row: launcher gone (`stopped`, pid NULL), grandchild still bound.
     store.db
       .prepare(
@@ -258,16 +236,12 @@ describe('reclaimPort', () => {
     expect(outcome.portFree).toBe(true);
     expect(outcome.killedPids).toEqual([process.pid]);
     expect(outcome.survivors).toEqual([]);
+    await close(srv);
   });
 
   it('refuses to reclaim a port held by a baseline server — the shared singleton survives', async () => {
-    const port = nextPort();
+    const { srv, port } = await listen({ host: '127.0.0.1' });
     const repoPath = '/repo/fe';
-    const srv = createServer();
-    await new Promise<void>((resolve, reject) => {
-      srv.once('error', reject);
-      srv.listen(port, '127.0.0.1', resolve);
-    });
     store.db
       .prepare(
         `INSERT INTO servers (ticket_id, repo, host, port, pid, status, log_path, cwd, started_at)
@@ -284,7 +258,7 @@ describe('reclaimPort', () => {
       expect(outcome.survivors).toEqual([{ pid: process.pid, baseline: true }]);
       expect(vi.mocked(killTree)).not.toHaveBeenCalled();
     } finally {
-      await new Promise((r) => srv.close(r));
+      await close(srv);
     }
   });
 });

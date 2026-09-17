@@ -3,6 +3,7 @@ import type { ProjectScope } from '../store/tickets.js';
 import { listSyncablePrs, updatePrDetail, type SyncablePr } from '../store/prs.js';
 import { fetchPrDetail, defaultGhRunnerAsync, type GhRunner, type PrDetail } from '../integrations/github.js';
 import { serializeComments } from '../model/prComments.js';
+import { serializeChecks } from '../model/prChecks.js';
 import { nowIso } from '../model/time.js';
 import { parsePrRef, type PrRef, type PrFeedbackProbe } from '../integrations/githubReview.js';
 import { reconcilePrFeedback } from '../store/prFeedback.js';
@@ -14,6 +15,11 @@ import { reconcilePrFeedback } from '../store/prFeedback.js';
  * change (the store keeps the stored value), so a degraded gh cannot make the
  * sweep report churn. Comments compare as their serialized text — the same form
  * the column holds — which is cheaper than parsing to compare.
+ *
+ * The v60 rollup and merge state are compared for a non-optional reason: a
+ * rollup moves while status, branches and stamps all stay identical (a workflow
+ * finishes; the PR does not change), so without this the sweep probes the truth
+ * and discards it, and the dashboard never refreshes when CI finishes.
  */
 export function prDetailChanged(stored: SyncablePr, detail: PrDetail): boolean {
   if (detail.status !== 'unknown' && detail.status !== stored.status) return true;
@@ -21,6 +27,9 @@ export function prDetailChanged(stored: SyncablePr, detail: PrDetail): boolean {
   if (detail.baseRef !== null && detail.baseRef !== stored.prBaseRef) return true;
   if (detail.createdAt !== null && detail.createdAt !== stored.prCreatedAt) return true;
   if (detail.mergedAt !== null && detail.mergedAt !== stored.prMergedAt) return true;
+  const checks = serializeChecks(detail.checks);
+  if (checks !== null && checks !== stored.prChecks) return true;
+  if (detail.mergeBlock !== 'unknown' && detail.mergeBlock !== stored.prMergeBlock) return true;
   const comments = serializeComments(detail.comments);
   return comments !== null && comments !== stored.prComments;
 }

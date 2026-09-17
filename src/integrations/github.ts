@@ -3,6 +3,8 @@ import { GH_DEPENDENCY, renderMissingDependency } from '../runtime/deps.js';
 import { BoundedOutput } from '../runtime/boundedOutput.js';
 import { killTree } from '../runtime/processTree.js';
 import { normalizeComments, type PrComment } from '../model/prComments.js';
+import { normalizeChecks, normalizeMergeBlock } from './prChecks.js';
+import type { PrChecks, MergeBlock } from '../model/prChecks.js';
 
 /**
  * GitHub integration (§12, §15) — shells out to `gh`. The runner is injected so
@@ -379,6 +381,18 @@ export interface PrDetail {
   createdAt: string | null;
   mergedAt: string | null;
   comments: PrComment[] | null;
+  /**
+   * The CI rollup, or null when gh did not say — three-valued for the same
+   * reason `comments` is: a rollup of zero checks is a real answer ('none'),
+   * and null is the absence of one.
+   */
+  checks: PrChecks | null;
+  /**
+   * GitHub's own answer to whether the merge is allowed. 'unknown' is its
+   * lazily computed non-answer (a freshly opened PR really does answer
+   * UNKNOWN), so it is dropped on write exactly like `status: 'unknown'` is.
+   */
+  mergeBlock: MergeBlock;
 }
 
 /**
@@ -393,10 +407,13 @@ export const UNKNOWN_PR_DETAIL: PrDetail = {
   createdAt: null,
   mergedAt: null,
   comments: null,
+  checks: null,
+  mergeBlock: 'unknown',
 };
 
 /** The `--json` fields `fetchPrDetail` requests, in one round trip. */
-const PR_DETAIL_FIELDS = 'state,isDraft,headRefName,baseRefName,createdAt,mergedAt,comments';
+const PR_DETAIL_FIELDS =
+  'state,isDraft,headRefName,baseRefName,createdAt,mergedAt,comments,mergeable,mergeStateStatus,statusCheckRollup';
 
 /** A gh string field, or null for absent/empty/wrong-typed. */
 function text(value: unknown): string | null {
@@ -438,6 +455,8 @@ export async function fetchPrDetail(
     createdAt: text(view.createdAt),
     mergedAt: text(view.mergedAt),
     comments: normalizeComments(view.comments),
+    checks: normalizeChecks(view.statusCheckRollup),
+    mergeBlock: normalizeMergeBlock(view.mergeable, view.mergeStateStatus),
   };
 }
 

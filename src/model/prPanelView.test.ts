@@ -16,6 +16,8 @@ const pr = (over: Partial<PrView> = {}): PrView => ({
   mergedAt: null,
   dismissedAt: null,
   comments: [],
+  checks: null,
+  mergeBlock: 'unknown',
   ...over,
 });
 
@@ -175,5 +177,49 @@ describe('buildPrPanelRows', () => {
 
   it('renders the status label as-is and falls back to unknown for a missing one', () => {
     expect(rows({ status: null })[0]!.status).toBe('unknown');
+  });
+
+  // GitHub's OWN refusal may veto the merge, unlike the local merge-tree guess.
+  it('refuses merge when GitHub is blocking, and says why', () => {
+    const row = rows({ mergeBlock: 'blocked' })[0]!;
+    expect(row.canMerge).toBe(false);
+    expect(row.mergeBlockedReason).toMatch(/GitHub is blocking this merge/);
+    expect(row.mergeBlockLabel).toBe('blocked');
+  });
+
+  // BEHIND is out-of-date, not a refusal: GitHub merges it unless the repo
+  // requires up-to-date branches, which mergeStateStatus cannot tell us.
+  it('leaves merge enabled for an out-of-date PR and shows no block marker', () => {
+    const row = rows({ mergeBlock: 'behind' })[0]!;
+    expect(row.canMerge).toBe(true);
+    expect(row.mergeBlockLabel).toBe('');
+  });
+
+  // UNSTABLE means only NON-required checks are failing: GitHub will merge it.
+  it('leaves merge enabled for an unstable PR and shows no block marker', () => {
+    const row = rows({ mergeBlock: 'unstable' })[0]!;
+    expect(row.canMerge).toBe(true);
+    expect(row.mergeBlockLabel).toBe('');
+  });
+
+  // A freshly opened PR really does answer UNKNOWN while GitHub computes it.
+  it('never blocks on a non-answer', () => {
+    const row = rows({ mergeBlock: 'unknown' })[0]!;
+    expect(row.canMerge).toBe(true);
+    expect(row.mergeBlockedReason).toBe('');
+  });
+
+  it('reports the draft reason, not the block reason, when both apply', () => {
+    const row = rows({ status: 'draft', mergeBlock: 'blocked' })[0]!;
+    expect(row.canMerge).toBe(false);
+    expect(row.mergeBlockedReason).toMatch(/draft/i);
+  });
+
+  it('carries the already-worded checks view', () => {
+    const row = rows({
+      checks: { state: 'passing', total: 1, passed: 1, failed: 0, pending: 0, failing: [], failedShown: 0 },
+    })[0]!;
+    expect(row.checks.label).toBe('1 passed');
+    expect(row.checks.state).toBe('passing');
   });
 });

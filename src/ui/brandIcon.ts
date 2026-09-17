@@ -5,13 +5,12 @@ import { join } from 'node:path';
  * The karst mark for tabs that carry NO status — settings, usage, changes,
  * welcome, and a create-mode ticket form with no ticket bound yet. Those
  * panels have nothing for the status ramp to say, so the mark is rendered in
- * its approved full-color treatment rather than in a glyph hue: a Settings tab
+ * its approved brand treatment rather than in a glyph hue: a Settings tab
  * tinted `gray` would read as an idle ticket.
  *
  * One materialized file serves both entries of the `{light, dark}` pair that
- * `iconPath` takes: the approved #35 mark carries its own colors, chosen to
- * contrast on both themes, so no per-theme foreground is baked (the old
- * monochrome mark needed one).
+ * `iconPath` takes: the mark is authored `fill="currentColor"`, and VS Code
+ * tints it for the active theme, so no per-theme foreground is baked.
  */
 export interface BrandIconPaths {
   light: string;
@@ -19,9 +18,9 @@ export interface BrandIconPaths {
 }
 
 /**
- * Materialize the full-color karst mark into `<storageDir>/icons/` once and
- * return both theme paths (for `iconPath`). Idempotent — an existing file is
- * returned as-is, exactly like `glyphIconPath`.
+ * Materialize the karst mark into `<storageDir>/icons/` once and return both
+ * theme paths (for `iconPath`). Idempotent — an existing file is returned
+ * as-is, exactly like `glyphIconPath`.
  */
 export function brandIconPaths(opts: {
   storageDir: string;

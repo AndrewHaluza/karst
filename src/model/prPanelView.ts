@@ -1,4 +1,6 @@
 import type { PrView } from '../store/dashboard.js';
+import type { MergeBlock } from './prChecks.js';
+import { buildPrChecksView, mergeBlockNotice, type PrChecksView } from './prChecksView.js';
 
 /**
  * How one pull request reads in the ship stage: its metadata already worded, and
@@ -54,6 +56,10 @@ export interface PrPanelRow {
   /** `3 comments`, correctly singular, or '' when the thread is empty. */
   commentsLabel: string;
   comments: PrCommentRow[];
+  /** The CI rollup, already worded. Every string '' when there is none. */
+  checks: PrChecksView;
+  /** `blocked` / `conflicts`, or '' when GitHub is not refusing. */
+  mergeBlockLabel: string;
   /** Whether the merge action is offered for this PR. */
   canMerge: boolean;
   /** Why it is not offered — shown on the disabled control; '' when it is. */
@@ -104,12 +110,29 @@ function branchLine(headRef: string | null, baseRef: string | null): string {
  * A local merge-conflict check is deliberately NOT a refusal: it is a probe of two
  * moving refs, it can be stale, and GitHub is the authority on whether the merge
  * is allowed. The check is shown beside the PR; it does not veto the button.
+ *
+ * GitHub's OWN answer (`mergeStateStatus`, normalized to `mergeBlock`) is a
+ * different matter and MAY veto: it is the authority stating it will refuse, not
+ * a guess about two moving refs. 'unknown' is its lazily computed non-answer and
+ * never blocks — a freshly opened PR really does answer UNKNOWN.
  */
-function mergability(status: string, url: string | null): { canMerge: boolean; reason: string } {
+function mergability(
+  status: string,
+  url: string | null,
+  mergeBlock: MergeBlock,
+): { canMerge: boolean; reason: string } {
   if (!url) return { canMerge: false, reason: 'No pull request url is recorded to merge.' };
   switch (status) {
-    case 'open':
-      return { canMerge: true, reason: '' };
+    case 'open': {
+      // GitHub's OWN answer may veto, unlike the local merge-tree probe below —
+      // that one is a guess about two moving refs, this one is the authority
+      // stating it will refuse. 'unknown' is its lazily computed non-answer and
+      // never blocks (a freshly opened PR really does answer UNKNOWN).
+      const notice = mergeBlockNotice(mergeBlock);
+      return notice.blocks
+        ? { canMerge: false, reason: notice.reason }
+        : { canMerge: true, reason: '' };
+    }
     case 'merged':
       // Nothing to say: the state itself is the explanation, and it is already
       // rendered as the row's status.
@@ -191,7 +214,7 @@ export function buildPrPanelRows(
 ): PrPanelRow[] {
   return prs.map((pr) => {
     const status = pr.status ?? 'unknown';
-    const { canMerge, reason } = mergability(status, pr.url);
+    const { canMerge, reason } = mergability(status, pr.url, pr.mergeBlock);
     const dismissed = pr.dismissedAt !== null;
     const dismissedStamp = formatPrStamp(pr.dismissedAt);
     const opened = stampView(pr.createdAt, now);
@@ -215,6 +238,8 @@ export function buildPrPanelRows(
         when: formatPrStamp(c.at),
         body: c.body,
       })),
+      checks: buildPrChecksView(pr.checks),
+      mergeBlockLabel: mergeBlockNotice(pr.mergeBlock).label,
       canMerge,
       mergeBlockedReason: reason,
       dismissed,

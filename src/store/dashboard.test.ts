@@ -136,6 +136,43 @@ describe('dashboard store queries', () => {
     expect(prs[0]!.url).toBe('http://pr/42');
   });
 
+  it('listPrsByTicket parses the checks column and reads the merge_block token', () => {
+    const a = createTicket(store, { key: 'A', title: 'a' });
+    const checks = {
+      state: 'failing',
+      total: 3,
+      passed: 2,
+      failed: 1,
+      pending: 0,
+      failing: [{ name: 'build', url: 'https://x.test/run/1' }],
+      failedShown: 1,
+    };
+    store.db
+      .prepare(
+        `INSERT INTO prs (ticket_id, repo, number, url, status, checks, merge_block)
+         VALUES (?, 'app', 42, 'http://pr/42', 'open', ?, 'blocked')`,
+      )
+      .run(a.id, JSON.stringify(checks));
+
+    const pr = listPrsByTicket(store, a.id)[0]!;
+    expect(pr.checks).toEqual(checks);
+    expect(pr.mergeBlock).toBe('blocked');
+  });
+
+  it('reads a garbage checks column as null and an unknown token as unknown, never throwing', () => {
+    const a = createTicket(store, { key: 'A', title: 'a' });
+    store.db
+      .prepare(
+        `INSERT INTO prs (ticket_id, repo, number, url, status, checks, merge_block)
+         VALUES (?, 'app', 42, 'http://pr/42', 'open', '{not json', 'mergeable')`,
+      )
+      .run(a.id);
+
+    const pr = listPrsByTicket(store, a.id)[0]!;
+    expect(pr.checks).toBeNull();
+    expect(pr.mergeBlock).toBe('unknown');
+  });
+
   it('empty ticket returns empty arrays', () => {
     const a = createTicket(store, { key: 'A', title: 'a' });
     expect(listServersByTicket(store, a.id)).toEqual([]);

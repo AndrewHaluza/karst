@@ -21,10 +21,11 @@ describe('brand assets', () => {
     expect(full).toContain('<circle cx="106.5" cy="111.5" r="26.5"');
   });
 
-  it('karst.svg keeps the approved gradients verbatim', () => {
-    for (const hex of ['#7D48E9', '#7D3CEE', '#4A71D7', '#00B7C9', '#00AFC0', '#00B1C4', '#6647DE', '#5660D9', '#3586D6']) {
-      expect(full).toContain(hex);
-    }
+  // The activity-bar asset is monochrome: VS Code tints it per active/inactive
+  // state, so every fill is currentColor and no gradient may remain baked in.
+  it('karst.svg is a currentColor silhouette with no baked-in gradient', () => {
+    expect(full).not.toContain('linearGradient');
+    expect(full).toContain('currentColor');
   });
 
   it('the old three-node graph is gone from both assets', () => {

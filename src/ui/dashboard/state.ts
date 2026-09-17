@@ -516,18 +516,25 @@ export function buildDashboardState(
   // track's needs-you wording must not describe the same three-valued fact from
   // two different reads.
   const mergeGate = mergeGateState(store, ticketId);
-  // The repos whose CURRENT PR karst currently offers to merge, from the SAME
-  // current-PR read the gate uses. This is the rail's licence to ACT on a single
-  // waiting repo; without it the track-level Merge would fire an irreversible
-  // command the PR panel's own disabled button would refuse (draft/closed/
-  // unknown PRs). `status === 'open'` is exactly `canMerge` for a current PR
-  // (a recorded url is guaranteed by `listCurrentPrsByTicket`).
-  const mergeableRepos = listCurrentPrsByTicket(store, ticketId)
-    .filter((p) => p.status === 'open')
-    .map((p) => p.repo);
   // The dashboard's PR rows, host-worded and host-decided like every other
   // panel string. Hoisted so the rail and the panel share one mergeability read.
   const prRows = buildPrPanelRows(prs, now, repoNameFor);
+  // The repos whose CURRENT PR karst currently offers to merge. This is the rail's
+  // licence to ACT on a single waiting repo, so it must be scoped exactly like the
+  // Merge the rail would fire: to the repo's CURRENT PR (`listCurrentPrsByTicket`,
+  // the one `CURRENT_PR_ORDER` rule `findTicketPr` also applies), never to every
+  // historical row a re-shipped repo still carries. Within that scope the verdict
+  // is read off the panel rows' own `canMerge` — one answer to "may this repo be
+  // merged". Two would let the rail fire an irreversible merge the panel's own
+  // button refuses (GitHub reports it blocked, or an older open row lingers beside
+  // the draft the repo now means).
+  const currentPrKeys = new Set(
+    listCurrentPrsByTicket(store, ticketId).map((p) => `${p.repo}\u0000${p.url}`),
+  );
+  const mergeableRepos = prRows
+    .filter((p) => p.url !== null && currentPrKeys.has(`${p.repo}\u0000${p.url}`))
+    .filter((p) => p.canMerge)
+    .map((p) => p.repo);
   // ONE read of the recovery action's availability, for the same reason: the
   // stage header's ⋯ menu and the host's confirm path must agree about whether
   // "Send back to Implement" exists at all. Derived here rather than on click

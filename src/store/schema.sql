@@ -654,7 +654,14 @@ CREATE TABLE IF NOT EXISTS prs (
   -- column a re-probe can never overwrite. The merge gate stops waiting on a
   -- dismissed PR; nothing else reads it as merged. NULL means "still expected to
   -- land", the honest answer for every pre-v56 row.
-  dismissed_at  TEXT
+  dismissed_at  TEXT,
+  -- v60: GitHub's answers about landing this PR, both re-probed every sweep.
+  -- `checks` is the serialized status-check rollup (see model/prChecks.ts);
+  -- `merge_block` is mergeStateStatus normalized. Both NULL means "never
+  -- probed" — GitHub computes mergeability lazily and answers UNKNOWN at
+  -- first, and an unknown must never read as a verdict.
+  checks        TEXT,
+  merge_block   TEXT
 );
 
 -- v47: one row per (ticket, repo, url) — see recordShippedPr (store/prs.ts) and
