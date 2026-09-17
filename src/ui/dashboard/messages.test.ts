@@ -16,6 +16,7 @@ function actions(): DashboardActions {
     pauseExecution: vi.fn(),
     unpauseExecution: vi.fn(),
     restartServer: vi.fn(),
+    startServer: vi.fn(),
     openServer: vi.fn(),
     copyServerUrl: vi.fn(),
     spinServers: vi.fn(),
@@ -71,6 +72,26 @@ describe('routeAction', () => {
     routeAction({ type: 'open-server', serverId: 3 }, a);
     expect(a.restartServer).toHaveBeenCalledWith(3);
     expect(a.openServer).toHaveBeenCalledWith(3);
+  });
+
+  it('parses start-server with a numeric server id, rejecting a missing or non-numeric one', () => {
+    expect(parseWebviewMessage({ type: 'start-server', serverId: 7 })).toEqual({
+      type: 'start-server',
+      serverId: 7,
+    });
+    expect(parseWebviewMessage({ type: 'start-server' })).toBeNull();
+    expect(parseWebviewMessage({ type: 'start-server', serverId: '7' })).toBeNull();
+  });
+
+  it('dispatches start-server to the row-scoped start action, and nothing else', () => {
+    const a = actions();
+    routeAction({ type: 'start-server', serverId: 7 }, a);
+    expect(a.startServer).toHaveBeenCalledTimes(1);
+    expect(a.startServer).toHaveBeenCalledWith(7);
+    // Not the whole-ticket re-spin: that is `spin-servers`, and it must never
+    // be what a single row's Start resolves to.
+    expect(a.spinServers).not.toHaveBeenCalled();
+    expect(a.restartServer).not.toHaveBeenCalled();
   });
 
   it('dispatches ticket changes without trusting a companion path', () => {

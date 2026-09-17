@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
-import { createServer } from 'node:net';
+import { createServer, type AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { openStore, type Store } from '../store/db.js';
 import { isPortOpen, listenerPids, decideReclaim, reclaimPort } from './portConflict.js';
@@ -29,9 +29,11 @@ describe('isPortOpen', () => {
   });
 
   it('is true when something accepts connections on the port — even if it answers nothing', async () => {
-    const port = nextPort();
     const srv = createServer(); // answers nothing, the way a deaf squatter does
-    await new Promise<void>((r) => srv.listen(port, () => r()));
+    // Let the OS assign the port: it is bound in-process here, so there is no
+    // probe-to-bind window for a leaked listener to steal (unlike a child start).
+    await new Promise<void>((r) => srv.listen(0, () => r()));
+    const port = (srv.address() as AddressInfo).port;
     try {
       expect(await isPortOpen('127.0.0.1', port)).toBe(true);
       // A wildcard listener is reachable through both loopback families.
@@ -81,9 +83,9 @@ describe('listenerPids', () => {
   });
 
   it('names the process LISTENING on the port, and nothing for a free one', async () => {
-    const port = nextPort();
     const srv = createServer();
-    await new Promise<void>((r) => srv.listen(port, () => r()));
+    await new Promise<void>((r) => srv.listen(0, () => r()));
+    const port = (srv.address() as AddressInfo).port;
     try {
       expect(await listenerPids('127.0.0.1', port)).toContain(process.pid);
     } finally {
@@ -108,15 +110,17 @@ describe('listenerPids', () => {
   });
 
   it('finds a dual-stack wildcard listener for a v4 service host — the Linux default bind', async () => {
-    const port = nextPort();
     const srv = createServer();
+    // Port 0 so the OS hands out a port atomically: this test's subject is what
+    // `listenerPids` sees, not which fixture port the wildcard listener got.
     await new Promise<void>((resolve, reject) => {
       srv.once('error', reject);
-      // `listen(port)` binds `::` dual-stack; it BLOCKS a later 127.0.0.1 bind,
+      // `listen(0)` binds `::` dual-stack; it BLOCKS a later 127.0.0.1 bind,
       // so discovery must name it even though it is not a v4 socket (this is
       // the squatter the incident reported: lsof -i4TCP misses it on Linux).
-      srv.listen(port, resolve);
+      srv.listen(0, resolve);
     });
+    const port = (srv.address() as AddressInfo).port;
     try {
       expect(await listenerPids('127.0.0.1', port)).toContain(process.pid);
     } finally {

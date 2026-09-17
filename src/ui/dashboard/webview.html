@@ -3386,12 +3386,14 @@
   );
 
   // An offline row is retained, not deleted, so it can be started again. Open,
-  // Copy and Stop are all meaningless on it.
+  // Copy and Stop are all meaningless on it. Start is ROW-SCOPED: it starts
+  // THIS service in its existing worktree on its existing ports, and the
+  // header's Start is the whole-ticket re-spin.
   const lifeActions = (s) => (
     isOnline(s)
       ? iact('restart-server', s.id, 'Restart', 'refresh')
         + iact('stop-server', s.id, 'Stop', 'player-stop')
-      : iact('spin-servers', null, 'Start service', 'player-play')
+      : iact('start-server', s.id, 'Start service', 'player-play')
   );
 
   /**

@@ -16,6 +16,7 @@ import type { AgentProvider } from '../../manifest/types.js';
 export type WebviewMessage =
   | { type: 'stop-server'; serverId: number }
   | { type: 'restart-server'; serverId: number }
+  | { type: 'start-server'; serverId: number }
   | { type: 'open-server'; serverId: number }
   | { type: 'copy-server-url'; serverId: number }
   | { type: 'spin-servers' }
@@ -328,6 +329,7 @@ export type HostMessage =
 export interface DashboardActions {
   stopServer: (serverId: number) => void | Promise<void>;
   restartServer: (serverId: number) => void | Promise<void>;
+  startServer: (serverId: number) => void | Promise<void>;
   openServer: (serverId: number) => void | Promise<void>;
   copyServerUrl: (serverId: number) => void | Promise<void>;
   spinServers: () => void | Promise<void>;
@@ -513,6 +515,8 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
       return num ? { type: 'stop-server', serverId: m.serverId as number } : null;
     case 'restart-server':
       return num ? { type: 'restart-server', serverId: m.serverId as number } : null;
+    case 'start-server':
+      return num ? { type: 'start-server', serverId: m.serverId as number } : null;
     case 'open-server':
       return num ? { type: 'open-server', serverId: m.serverId as number } : null;
     case 'copy-server-url':
@@ -811,6 +815,8 @@ export function routeAction(
       return actions.stopServer(msg.serverId);
     case 'restart-server':
       return actions.restartServer(msg.serverId);
+    case 'start-server':
+      return actions.startServer(msg.serverId);
     case 'open-server':
       return actions.openServer(msg.serverId);
     case 'copy-server-url':

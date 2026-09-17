@@ -1221,6 +1221,8 @@ export class DashboardManager {
     for (const ticketId of this.panels.keys()) this.pushState(ticketId);
   }
 
+  openCount(): number { return this.panels.size; }
+
   /** Re-point the tab icon at the ticket's current status glyph. */
   private refreshIcon(ticketId: number, panel: DashboardPanel): void {
     const icon = this.iconFor?.(ticketId);
