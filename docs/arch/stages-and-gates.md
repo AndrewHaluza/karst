@@ -22,6 +22,7 @@ The stage machine, the evidence it writes, and the host seam that drives it. Rel
 - Ship refuses to publish an untracked secret-shaped file, and a tracked file is the escape hatch
 - A ship in which EVERY target is unchanged is a failure, not a pass
 - Findings are scoped to the run that produced them
+- Evidence is not the current state
 
 ## Stage machine
 
@@ -148,3 +149,27 @@ A multi-repo ticket legitimately leaves most of its repos untouched, so each rep
 Findings are append-only and have no resolve path; a clean re-review records no batch at all (`workflow/gates/evidence.ts` returns early on zero findings). Therefore any greatest-`runAt` reduction over a whole ticket re-renders a fixed round's findings forever. Every RENDERED surface keys to the process run instead, through `scopeReviewFindings` / `scopeUatFindings` in `src/model/findingScope.ts`. A round in flight (`endedAt === null`) with nothing recorded renders nothing — not the round it replaced.
 
 `uat_findings.process_run_id` is `NOT NULL`, so UAT has no fallback; `review_findings.process_run_id` is nullable and never backfilled, so review falls back to the newest batch of unattributed rows only. Two deliberate non-consumers: the ship stage's findings row, which scopes by the review stage's `attempt` under its own ruling in `ui/dashboard/state.ts`, and the fix-brief readers (`extension.ts`, `context/ticketContext.ts`, `cli/fixBriefCommand.ts`), which want the batch being fixed.
+
+## Evidence is not the current state
+
+Every evidence table — `gate_runs`, `process_runs`, `review_findings`,
+`uat_findings` — records that work FINISHED. None of them can say a stage is on
+a new invocation that has produced nothing yet, and reducing them to "the
+newest row" answers a re-entered stage with its PREVIOUS round's rows. That is
+what rendered a fixed round's red gates and blocking findings as round 2's live
+ledger.
+
+`stage_runs` (v25) is the one table written at stage ENTRY (`openStageRun`,
+before the first gate starts), so it is the only thing that can state the
+current invocation. Every surface that presents a gate stage's CURRENT state
+resolves it through `model/inside/currentAttempt.ts`:
+
+- **no `stage_runs` row for the stage** — pre-v25 or never ran: the
+  latest-by-`runAt` reduction stands, byte-for-byte;
+- **the stage row was re-entered after the newest run started** — the current
+  invocation has opened nothing: the ledger is EMPTY, and the predecessor's
+  rows are history reachable through the round switcher;
+- **otherwise** — that stage run's rows are the live picture.
+
+A reader's explicit round-switcher selection always wins over this: choosing a
+past tab is a deliberate request for a settled attempt.
