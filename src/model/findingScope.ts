@@ -16,6 +16,19 @@ import type { UatFinding } from '../store/uatFindings.js';
  * inside Review row, and the Artifacts UAT and Review cards); they disagreed
  * before precisely because each answered the question itself.
  *
+ * This is the findings-vs-RUN layer only. The layer above it — run-vs-
+ * INVOCATION, i.e. whether the process run this module scopes by even belongs
+ * to the stage's current entry — lives in `inside/currentAttempt.ts`; that
+ * module's `null` (the re-entry window) is a fact this one does not know
+ * about.
+ *
+ * The Artifacts UAT/Review cards read this module's scoping (by process run)
+ * but NOT `currentAttempt.ts`'s invocation layer, and that asymmetry is
+ * intentional: those cards are `v<n>`-labelled REPORTS of what a past run
+ * produced, not a live ledger, so continuing to show the previous round's
+ * findings during a re-entry window (before the new invocation's tester/review
+ * process run exists) is the correct reading, not staleness.
+ *
  * Deliberately NOT a consumer: the ship stage's findings row
  * (`ui/dashboard/state.ts`), which scopes by the review stage's `attempt` under
  * its own recorded ruling, and the fix-brief readers

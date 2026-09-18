@@ -109,6 +109,10 @@ function groupAttempts(runs: readonly GateRun[], stageKey: StageKey): AttemptGro
  * (every gate skipped, or every script missing) states no verdict.
  */
 function attemptStatus(runs: readonly GateRun[]): InsideStatus {
+  // A synthetic live group: the invocation is open and has recorded nothing.
+  // Absence, not a verdict — `listGateAttempts` overrides this with `run`
+  // while the stage is actually running.
+  if (runs.length === 0) return 'pending';
   const failed = runs.some((r) => !r.skipped && r.exitCode !== null && r.exitCode !== 0);
   if (failed) return 'fail';
   const answered = runs.some((r) => !r.skipped && r.exitCode !== null);
@@ -133,6 +137,28 @@ export interface ListGateAttemptsInput {
   stageKey: StageKey;
   /** Whether the stage is running right now — the newest attempt reads `live` instead of `latest`. */
   running: boolean;
+  /**
+   * The stage's CURRENT invocation (`currentAttempt.ts`), when the host knows
+   * it. An invocation that has recorded no gate row yet holds no group here —
+   * it is the fix cycle's fresh round, and without a synthetic tab for it the
+   * switcher vanishes exactly when the reader most needs to reach the round
+   * before it. `null`/absent adds nothing.
+   */
+  currentAttempt?: AttemptKey | null;
+  /**
+   * True when the host's `currentAttemptFor` returned an EXPLICIT `null` —
+   * the stage was re-entered after its newest recorded run started, so the
+   * current invocation has opened nothing yet (the re-entry window). This is
+   * NOT the same fact as `currentAttempt` being absent: an absent value means
+   * a legacy ticket with no `stage_runs` row at all, which must render byte-
+   * for-byte as if this field did not exist. Collapsing the two at the call
+   * site (`?? null`) is exactly what let a settled, FAILED attempt read as
+   * `live`/`run` during the re-entry window — the newest recorded group is
+   * still the array's last element and `running` is still true (the stage row
+   * was re-entered `running`), so nothing here told it that group was not the
+   * one actually in flight.
+   */
+  reentryPending?: boolean;
 }
 
 /**
@@ -146,6 +172,16 @@ export interface ListGateAttemptsInput {
  */
 export function listGateAttempts(input: ListGateAttemptsInput): GateAttemptView[] {
   const groups = groupAttempts(input.gateRuns, input.stageKey);
+  // The current invocation may have recorded nothing yet (the fix cycle's
+  // fresh round). It is still an attempt — and the NEWEST one — so it gets a
+  // tab, or the switcher disappears the moment a round reopens and the
+  // previous round's evidence becomes unreachable. Appended AFTER the sort:
+  // `groupAttempts` returns oldest→newest, and an invocation with no rows has
+  // no `runAt` to sort by.
+  const current = input.currentAttempt ?? null;
+  if (current !== null && !groups.some((g) => g.key === current)) {
+    groups.push({ key: current, runs: [], order: '' });
+  }
   if (groups.length < 2) return [];
 
   const roundByKey = new Map<AttemptKey, RecoveryRound>();
@@ -168,15 +204,22 @@ export function listGateAttempts(input: ListGateAttemptsInput): GateAttemptView[
     // still says which recovery it caused, and the `round` field below stays
     // the machine-readable fact the note is worded from.
     const position = `attempt ${index + 1}`;
+    // A `live`/`run` reading claims this group IS the current invocation. During
+    // the re-entry window it never is — the current invocation is `null` (has
+    // recorded nothing), and the newest RECORDED group here is the previous,
+    // already-settled attempt. `reentryPending` says so explicitly, so this
+    // group falls back to its own position and its own recorded status instead
+    // of borrowing the stage's `running` flag.
+    const isLiveNow = isLatest && input.running && !input.reentryPending;
     const label =
       round !== undefined
         ? `${position} · R${round.round}`
-        : isLatest
-          ? input.running
-            ? 'live'
-            : 'latest'
-          : position;
-    const status = isLatest && input.running ? 'run' : attemptStatus(group.runs);
+        : isLiveNow
+          ? 'live'
+          : isLatest && !input.reentryPending
+            ? 'latest'
+            : position;
+    const status = isLiveNow ? 'run' : attemptStatus(group.runs);
     const time = attemptEarliestStart(group.runs);
     return {
       key: group.key,

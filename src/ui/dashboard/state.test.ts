@@ -1763,15 +1763,51 @@ describe('buildDashboardState — round switcher selection (Option B, T4)', () =
     expect(uat.processes.find((p) => p.id === 'gates')!.status).toBe('pass');
   });
 
-  it('keeps the AI evidence of a run that carries no stage run id on the default view', () => {
-    // Review round 1, [high]: the latest tab used to select its OWN key, and a
-    // key restricts every read to rows carrying a `stage_run_id`. A
-    // `process_runs` row written before v25 carries none, so the Tester the
-    // panel had always shown vanished from the DEFAULT view the moment a
-    // ticket looped. The latest tab is the default path and selects nothing.
-    const { ticketId } = seedTwoRoundUatHistory();
-    store.db.prepare("UPDATE process_runs SET stage_run_id = NULL WHERE process_id = 'tester'").run();
-    const uat = buildDashboardState(store, ticketId).insideViews.uat;
+  it('keeps a genuinely pre-v25 Tester run (no stage_runs at all) on the default view', () => {
+    // Review round 1, [high], fix round 1 (Task 4 review): this test used to
+    // simulate its "no stage_run_id" case by seeding a FULL post-v25
+    // `stage_runs` history (`seedTwoRoundUatHistory`, 3 attempts) and then
+    // nulling `stage_run_id` on the live attempt's OWN Tester row — as if a
+    // ticket that HAS a knowable current invocation could still produce an
+    // unattributed process run for it. Traced every production writer of a
+    // `tester`/`review` process run at stageKey `uat`/`review`
+    // (`grep -rn "openProcessRun(" src --include='*.ts' | grep -v '\.test\.'`):
+    // only two call sites exist — `runUatTester` (`workflow/uat/tester.ts:474`)
+    // and `runFindingsLane` (`workflow/review/findingsLane.ts:283`) — and BOTH
+    // are invoked with `stageRunId: evidence.runId` from `workflow/stages/
+    // uat.ts:599` and `workflow/stages/review.ts:261,566`, where `evidence` is
+    // the SAME `GateRunEvidence` (`workflow/gates/evidence.ts`'s `openGateRun`)
+    // that just opened the CURRENT invocation's `stage_runs` row via
+    // `openStageRun` — a required, non-optional `number`, never null. Every
+    // other `openProcessRun` call site writes a different `stageKey` (`impl`,
+    // `ship`, `scope`, `fix`) or a different `processId` (`graph-node`,
+    // `graph-planner`, `prefill`, `guide-pull`, `pr-description`, `session`,
+    // `fix`), never `tester`/`review` at `uat`/`review`. So a post-v25 ticket
+    // whose `currentAttemptFor` names a real live key can never produce a
+    // Tester/Review run missing that same key — the scenario the old
+    // arrangement manufactured cannot occur in production, and asserting
+    // against it under that name overstated this test's coverage.
+    //
+    // What this test actually covers, and the only case that CAN occur: a
+    // ticket with NO `stage_runs` rows at all (pre-v25, or a stage that opened
+    // its process run through some future writer without ever calling
+    // `openGateRun`) — `currentAttemptFor` then answers `undefined`, and
+    // `effectiveAttempt` falls back to the untouched legacy
+    // latest-by-process-run-id reduction, which tolerates a `stage_run_id`-less
+    // row by construction (`processRunForAttempt`'s `key === null` branch).
+    const t = createTicket(store, { key: 'RS-LEGACY', title: 'legacy tester row' });
+    store.db.prepare("UPDATE tickets SET stage_current = 'uat' WHERE id = ?").run(t.id);
+    setStage(store, t.id, 'uat', { status: 'running', startedAt: '2026-08-20T09:00:00.000Z' });
+    recordGateRun(store, {
+      ticketId: t.id, stageKey: 'uat', attempt: 0, runAt: '2026-08-20T09:00:00.000Z',
+      gates: [{ gateName: 'test (web)', exitCode: 0, startedAt: '2026-08-20T09:00:00.000Z', endedAt: '2026-08-20T09:01:00.000Z' }],
+    });
+    openProcessRun(store, {
+      ticketId: t.id, stageKey: 'uat', processId: 'tester', attempt: 0,
+      provider: 'codex', startedAt: '2026-08-20T09:02:00.000Z',
+    });
+
+    const uat = buildDashboardState(store, t.id).insideViews.uat;
     const tester = uat.processes.find((p) => p.id === 'tester')!;
     expect(tester.detail).not.toBe('no recorded run for this attempt');
     expect(tester.execution).toBeDefined();
@@ -1867,5 +1903,301 @@ describe('buildDashboardState — findings repo selection', () => {
     const without = buildDashboardState(store, t.id);
     const withUndef = buildDashboardState(store, t.id, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined);
     expect(without.insideViews.review).toEqual(withUndef.insideViews.review);
+  });
+});
+
+describe('inside: a re-entered gate stage shows the current invocation', () => {
+  let store: Store;
+  beforeEach(() => (store = openStore(':memory:')));
+  afterEach(() => store.close());
+
+  it('renders no gate rows and no observations for a uat round 2 that has recorded nothing', () => {
+    // Arrange: round 1 ran and failed, the fix landed, uat was re-entered.
+    const t = createTicket(store, { key: 'PROJ-1', title: 'thing' });
+    const r1 = openStageRun(store, {
+      ticketId: t.id,
+      stageKey: 'uat',
+      attempt: 1,
+      runAt: '2026-09-18T10:00:00.000Z',
+      startedAt: '2026-09-18T10:00:00.000Z',
+    });
+    recordGateRun(store, {
+      ticketId: t.id,
+      stageKey: 'uat',
+      attempt: 1,
+      runAt: '2026-09-18T10:00:00.000Z',
+      stageRunId: r1,
+      gates: [{ gateName: 'test (web)', exitCode: 1, startedAt: '2026-09-18T10:00:00.000Z', endedAt: '2026-09-18T10:00:30.000Z', repo: '/wt/web' }],
+    });
+    // The fix landed and `entryPatch` re-entered uat — later than r1's start.
+    setStage(store, t.id, 'uat', { status: 'running', verdict: null, startedAt: '2026-09-18T13:00:00.000Z', endedAt: null });
+    // `stage_runs` is written at stage ENTRY (before the first gate starts),
+    // so a real re-entry opens round 2's stage run immediately — it is what
+    // lets `currentAttemptFor` name an invocation that has recorded nothing
+    // YET, distinct from "no invocation at all". Recording no gates for it
+    // is the whole point of this arrangement.
+    openStageRun(store, {
+      ticketId: t.id,
+      stageKey: 'uat',
+      attempt: 2,
+      runAt: '2026-09-18T13:00:00.000Z',
+      startedAt: '2026-09-18T13:00:00.000Z',
+    });
+
+    const state = buildDashboardState(store, t.id);
+    const uat = state.insideViews.uat;
+    const gates = uat.processes.find((p) => p.id === 'gates')!;
+
+    expect(gates.evidence).toMatchObject({ kind: 'gates', rows: [], failed: 0 });
+    expect(gates.status).toBe('run');
+    // Round 1 stays reachable, as the tab before the live one.
+    expect(uat.attempts?.map((a) => a.label)).toEqual(['attempt 1', 'live']);
+  });
+
+  it('renders the recorded batch once the current invocation records one', () => {
+    const t = createTicket(store, { key: 'PROJ-2', title: 'thing' });
+    const r1 = openStageRun(store, {
+      ticketId: t.id, stageKey: 'uat', attempt: 1,
+      runAt: '2026-09-18T10:00:00.000Z', startedAt: '2026-09-18T10:00:00.000Z',
+    });
+    recordGateRun(store, {
+      ticketId: t.id, stageKey: 'uat', attempt: 1, runAt: '2026-09-18T10:00:00.000Z', stageRunId: r1,
+      gates: [{ gateName: 'test (web)', exitCode: 1, startedAt: '2026-09-18T10:00:00.000Z', endedAt: '2026-09-18T10:00:30.000Z', repo: '/wt/web' }],
+    });
+    setStage(store, t.id, 'uat', { status: 'running', verdict: null, startedAt: '2026-09-18T13:00:00.000Z', endedAt: null });
+    const r2 = openStageRun(store, {
+      ticketId: t.id, stageKey: 'uat', attempt: 2,
+      runAt: '2026-09-18T13:01:00.000Z', startedAt: '2026-09-18T13:01:00.000Z',
+    });
+    recordGateRun(store, {
+      ticketId: t.id, stageKey: 'uat', attempt: 2, runAt: '2026-09-18T13:01:00.000Z', stageRunId: r2,
+      gates: [{ gateName: 'test (web)', exitCode: 0, startedAt: '2026-09-18T13:01:00.000Z', endedAt: '2026-09-18T13:01:30.000Z', repo: '/wt/web' }],
+    });
+
+    const state = buildDashboardState(store, t.id);
+    const gates = state.insideViews.uat.processes.find((p) => p.id === 'gates')!;
+    expect(gates.evidence).toMatchObject({ passed: 1, failed: 0 });
+  });
+
+  it('leaves a ticket with no stage_runs rows exactly as it was', () => {
+    const t = createTicket(store, { key: 'PROJ-3', title: 'thing' });
+    recordGateRun(store, {
+      ticketId: t.id, stageKey: 'uat', attempt: 0, runAt: '2026-09-18T10:00:00.000Z',
+      gates: [{ gateName: 'test (web)', exitCode: 1, startedAt: '2026-09-18T10:00:00.000Z', endedAt: '2026-09-18T10:00:30.000Z', repo: '/wt/web' }],
+    });
+    setStage(store, t.id, 'uat', { status: 'failed', startedAt: '2026-09-18T10:00:00.000Z', endedAt: '2026-09-18T10:01:00.000Z' });
+
+    const state = buildDashboardState(store, t.id);
+    const gates = state.insideViews.uat.processes.find((p) => p.id === 'gates')!;
+    expect(gates.evidence).toMatchObject({ failed: 1 });
+  });
+});
+
+describe('inside: a gate result superseded by an in-flight recovery round', () => {
+  let store: Store;
+  beforeEach(() => (store = openStore(':memory:')));
+  afterEach(() => store.close());
+
+  it('notes that the review result predates the fix now in flight', () => {
+    const t = createTicket(store, { key: 'SUP-1', title: 'thing' });
+    setStage(store, t.id, 'review', {
+      status: 'failed',
+      verdict: 'blocking findings',
+      startedAt: '2026-09-18T10:00:00.000Z',
+      endedAt: '2026-09-18T10:05:00.000Z',
+    });
+    openRecoveryRound(store, {
+      ticketId: t.id,
+      sourceStage: 'review',
+      sourceProcessId: 'review',
+      sourceStageRunId: null,
+      sourceProcessRunId: null,
+      triggerKind: 'gate-failure',
+      triggerDetail: 'blocking findings',
+      maxRounds: 3,
+      startedAt: '2026-09-18T10:06:00.000Z',
+    });
+    setStage(store, t.id, 'uat', { status: 'running', startedAt: '2026-09-18T13:00:00.000Z', endedAt: null });
+    store.db.prepare('UPDATE tickets SET stage_current = ? WHERE id = ?').run('uat', t.id);
+
+    const state = buildDashboardState(store, t.id);
+    expect(state.insideViews.review.attemptNote).toBe(
+      'round 1 is fixing — this result predates that fix, and this stage re-runs',
+    );
+  });
+
+  it('adds no note to the stage the ticket is currently on', () => {
+    const t = createTicket(store, { key: 'SUP-2', title: 'thing' });
+    setStage(store, t.id, 'review', {
+      status: 'failed',
+      verdict: 'blocking findings',
+      startedAt: '2026-09-18T10:00:00.000Z',
+      endedAt: '2026-09-18T10:05:00.000Z',
+    });
+    openRecoveryRound(store, {
+      ticketId: t.id,
+      sourceStage: 'review',
+      sourceProcessId: 'review',
+      sourceStageRunId: null,
+      sourceProcessRunId: null,
+      triggerKind: 'gate-failure',
+      triggerDetail: 'blocking findings',
+      maxRounds: 3,
+      startedAt: '2026-09-18T10:06:00.000Z',
+    });
+    store.db.prepare('UPDATE tickets SET stage_current = ? WHERE id = ?').run('review', t.id);
+
+    const state = buildDashboardState(store, t.id);
+    expect(state.insideViews.review.attemptNote).toBeUndefined();
+  });
+
+  it('adds no note when no recovery round is in flight', () => {
+    const t = createTicket(store, { key: 'SUP-3', title: 'thing' });
+    setStage(store, t.id, 'review', {
+      status: 'failed',
+      verdict: 'blocking findings',
+      startedAt: '2026-09-18T10:00:00.000Z',
+      endedAt: '2026-09-18T10:05:00.000Z',
+    });
+
+    const state = buildDashboardState(store, t.id);
+    expect(state.insideViews.review.attemptNote).toBeUndefined();
+  });
+
+  it('never replaces the historical-selection banner', () => {
+    // A reader who has explicitly selected a past tab is already told so; that
+    // note wins, because it describes what they did.
+    const t = createTicket(store, { key: 'SUP-4', title: 'thing' });
+
+    // Two recorded review attempts (round 1 fails, opens round 2's fix).
+    const sr1 = openStageRun(store, {
+      ticketId: t.id, stageKey: 'review', attempt: 0,
+      runAt: '2026-09-18T09:00:00.000Z', startedAt: '2026-09-18T09:00:00.000Z',
+    });
+    recordGateRun(store, {
+      ticketId: t.id, stageKey: 'review', attempt: 0, runAt: '2026-09-18T09:00:00.000Z', stageRunId: sr1,
+      gates: [{ gateName: 'review', exitCode: 1, startedAt: '2026-09-18T09:00:00.000Z', endedAt: '2026-09-18T09:00:30.000Z' }],
+    });
+    setStage(store, t.id, 'review', {
+      status: 'failed', verdict: 'blocking findings',
+      startedAt: '2026-09-18T09:00:00.000Z', endedAt: '2026-09-18T09:01:00.000Z',
+    });
+    openRecoveryRound(store, {
+      ticketId: t.id, sourceStage: 'review', sourceProcessId: 'review', sourceStageRunId: sr1,
+      sourceProcessRunId: null, triggerKind: 'gate-failure', triggerDetail: 'blocking findings',
+      maxRounds: 3, startedAt: '2026-09-18T09:01:00.000Z',
+    });
+
+    const sr2 = openStageRun(store, {
+      ticketId: t.id, stageKey: 'review', attempt: 1,
+      runAt: '2026-09-18T10:00:00.000Z', startedAt: '2026-09-18T10:00:00.000Z',
+    });
+    recordGateRun(store, {
+      ticketId: t.id, stageKey: 'review', attempt: 1, runAt: '2026-09-18T10:00:00.000Z', stageRunId: sr2,
+      gates: [{ gateName: 'review', exitCode: 1, startedAt: '2026-09-18T10:00:00.000Z', endedAt: '2026-09-18T10:00:30.000Z' }],
+    });
+    setStage(store, t.id, 'review', {
+      status: 'failed', verdict: 'blocking findings',
+      startedAt: '2026-09-18T10:00:00.000Z', endedAt: '2026-09-18T10:01:00.000Z',
+    });
+    openRecoveryRound(store, {
+      ticketId: t.id, sourceStage: 'review', sourceProcessId: 'review', sourceStageRunId: sr2,
+      sourceProcessRunId: null, triggerKind: 'gate-failure', triggerDetail: 'blocking findings again',
+      maxRounds: 3, startedAt: '2026-09-18T10:01:00.000Z',
+    });
+
+    // The ticket has since moved to (and is now current on) uat, with round 2
+    // still in flight — review holds two settled attempts, neither of them
+    // live, and is not the stage the ticket is on.
+    setStage(store, t.id, 'uat', { status: 'running', startedAt: '2026-09-18T13:00:00.000Z', endedAt: null });
+    store.db.prepare('UPDATE tickets SET stage_current = ? WHERE id = ?').run('uat', t.id);
+
+    const older = attemptKey(sr1, '');
+    const state = buildDashboardState(
+      store, t.id, undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      { review: older },
+    );
+    expect(state.insideViews.review.attemptNote).toContain('not the current result');
+  });
+});
+
+describe('inside: the re-entry window with two or more recorded attempts (Finding 1)', () => {
+  let store: Store;
+  beforeEach(() => (store = openStore(':memory:')));
+  afterEach(() => store.close());
+
+  /**
+   * Two SETTLED attempts, both recorded and finished, then the stage is
+   * re-entered STRICTLY AFTER the newest one's `startedAt` — the re-entry
+   * window `currentAttemptFor` answers `null` for (the new invocation's
+   * `stage_runs` row has not been opened yet, e.g. the ticket paused right
+   * after the fix marker fired). Deliberately no `recovery_rounds` row is
+   * opened for either attempt, so neither tab's label is decided by the
+   * `round !== undefined` branch — this isolates the `isLatest`/`running`
+   * fallback the bug lived in.
+   */
+  function seedReentryWindowWithTwoAttempts(): { ticketId: number; stageRunIds: [number, number] } {
+    const t = createTicket(store, { key: 'RE-1', title: 're-entry window' });
+    store.db.prepare("UPDATE tickets SET stage_current = 'uat' WHERE id = ?").run(t.id);
+    setStage(store, t.id, 'uat', { status: 'running', startedAt: '2026-09-18T09:00:00.000Z' });
+
+    const sr1 = openStageRun(store, {
+      ticketId: t.id, stageKey: 'uat', attempt: 0,
+      runAt: '2026-09-18T09:00:00.000Z', startedAt: '2026-09-18T09:00:00.000Z',
+    });
+    recordGateRun(store, {
+      ticketId: t.id, stageKey: 'uat', attempt: 0, runAt: '2026-09-18T09:00:00.000Z', stageRunId: sr1,
+      gates: [{ gateName: 'test (web)', exitCode: 1, startedAt: '2026-09-18T09:00:00.000Z', endedAt: '2026-09-18T09:01:00.000Z' }],
+    });
+
+    const sr2 = openStageRun(store, {
+      ticketId: t.id, stageKey: 'uat', attempt: 1,
+      runAt: '2026-09-18T10:00:00.000Z', startedAt: '2026-09-18T10:00:00.000Z',
+    });
+    recordGateRun(store, {
+      ticketId: t.id, stageKey: 'uat', attempt: 1, runAt: '2026-09-18T10:00:00.000Z', stageRunId: sr2,
+      gates: [{ gateName: 'test (web)', exitCode: 1, startedAt: '2026-09-18T10:00:00.000Z', endedAt: '2026-09-18T10:01:00.000Z' }],
+    });
+
+    // Re-entered strictly after sr2's `startedAt` — the new invocation's own
+    // `stage_runs` row has not landed yet (unlike `PROJ-1` above, where entry
+    // and the new run share an instant). `currentAttemptFor` reads this as
+    // `null`: an invocation exists but has recorded nothing.
+    setStage(store, t.id, 'uat', { status: 'running', verdict: null, startedAt: '2026-09-18T13:00:00.000Z', endedAt: null });
+
+    return { ticketId: t.id, stageRunIds: [sr1, sr2] };
+  }
+
+  it('does not label the newest SETTLED attempt live/run during the re-entry window (criterion 1)', () => {
+    const { ticketId } = seedReentryWindowWithTwoAttempts();
+    const uat = buildDashboardState(store, ticketId).insideViews.uat;
+    expect(uat.attempts).toHaveLength(2);
+    // Positional labels, own recorded status — never `live`/`latest`, never
+    // a `run` status borrowed from the stage's re-entered `running` cell.
+    expect(uat.attempts!.map((a) => a.label)).toEqual(['attempt 1', 'attempt 2']);
+    expect(uat.attempts!.map((a) => a.status)).toEqual(['fail', 'fail']);
+  });
+
+  it('makes the newest recorded attempt reachable by explicit selection (criterion 2)', () => {
+    const { ticketId, stageRunIds } = seedReentryWindowWithTwoAttempts();
+    const newest = attemptKey(stageRunIds[1], '');
+    const state = buildDashboardState(
+      store, ticketId, undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      { uat: newest },
+    );
+    const gates = state.insideViews.uat.processes.find((p) => p.id === 'gates')!;
+    // Reachable: the tab's own recorded (failing) batch renders, not an empty
+    // ledger — selecting it must not collapse to the same `null` the default
+    // (unclicked) view uses.
+    expect(gates.evidence).toMatchObject({ kind: 'gates', failed: 1 });
+  });
+
+  it('still renders an empty default ledger when nothing is selected (criterion 3)', () => {
+    const { ticketId } = seedReentryWindowWithTwoAttempts();
+    const state = buildDashboardState(store, ticketId);
+    const gates = state.insideViews.uat.processes.find((p) => p.id === 'gates')!;
+    expect(gates.evidence).toMatchObject({ kind: 'gates', rows: [], failed: 0 });
   });
 });

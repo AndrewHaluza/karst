@@ -1515,3 +1515,122 @@ describe('findings sort and repo scope', () => {
     expect(evidence.blocking).toBe(0);
   });
 });
+
+describe('the current attempt (round 2 staleness)', () => {
+  const R1 = '2026-09-18T10:00:00.000Z';
+  const NOW2 = '2026-09-18T13:05:00.000Z';
+
+  const runningCell = cell('uat', 'running', { startedAt: '2026-09-18T13:00:00.000Z' });
+
+  const base = {
+    cell: runningCell,
+    findings: [],
+    uatFindings: [],
+    rounds: [],
+    services: [],
+    now: NOW2,
+  };
+
+  it('renders no gate rows for a fresh invocation that has recorded nothing (currentAttempt null)', () => {
+    const processes = uatProcesses({
+      ...base,
+      gateRuns: [run('uat', 'test (web)', 1, { stageRunId: 1, runAt: R1 })],
+      processRuns: [processRun({ id: 10, stageRunId: 1, startedAt: R1, endedAt: R1 })],
+      currentAttempt: null,
+    });
+    const gates = processes.find((p) => p.id === 'gates')!;
+    expect(gates.evidence).toMatchObject({ kind: 'gates', rows: [], failed: 0, passed: 0 });
+    expect(gates.status).toBe('run');
+    expect(gates.detail).not.toContain('failed');
+  });
+
+  it('renders no Tester observations for a fresh invocation', () => {
+    const testerRun = processRun({ id: 10, stageRunId: 1, startedAt: R1, endedAt: R1 });
+    const processes = uatProcesses({
+      ...base,
+      gateRuns: [run('uat', 'test (web)', 1, { stageRunId: 1, runAt: R1 })],
+      processRuns: [testerRun],
+      uatFindings: [
+        uatFinding('high', {
+          processRunId: testerRun.id,
+          title: 'round 1 observation',
+          filePath: 'a.ts',
+          line: 3,
+          repo: '/wt/web',
+          createdAt: R1,
+        }),
+      ],
+      currentAttempt: null,
+    });
+    const tester = processes.find((p) => p.id === 'tester')!;
+    expect(tester.evidence).toMatchObject({ kind: 'findings', rows: [] });
+    expect(tester.status).not.toBe('fail');
+    expect(tester.detail).toBeUndefined();
+  });
+
+  it('renders no Review findings for a fresh invocation', () => {
+    const reviewRun = processRun({
+      id: 11,
+      processId: 'review',
+      resultKind: 'blocking',
+      stageRunId: 1,
+      startedAt: R1,
+      endedAt: R1,
+    });
+    const processes = reviewProcesses({
+      ...base,
+      cell: cell('review', 'running', { startedAt: '2026-09-18T13:00:00.000Z' }),
+      gateRuns: [run('review', 'test (web)', 1, { stageRunId: 1, runAt: R1 })],
+      processRuns: [reviewRun],
+      findings: [
+        finding('critical', {
+          processRunId: reviewRun.id,
+          title: 'round 1 blocker',
+          file: 'a.ts',
+          line: 3,
+          repo: '/wt/web',
+          runAt: R1,
+        }),
+      ],
+      currentAttempt: null,
+    });
+    const review = processes.find((p) => p.id === 'review')!;
+    expect(review.evidence).toMatchObject({ kind: 'findings', rows: [], blocking: 0 });
+    expect(review.aggregate).toBeUndefined();
+    expect(review.detail).toBeUndefined();
+  });
+
+  it('renders the named attempt when the current invocation HAS recorded rows', () => {
+    const processes = uatProcesses({
+      ...base,
+      gateRuns: [run('uat', 'test (web)', 1, { stageRunId: 1, runAt: R1 })],
+      processRuns: [processRun({ id: 10, stageRunId: 1, startedAt: R1, endedAt: R1 })],
+      currentAttempt: attemptKey(1, ''),
+    });
+    const gates = processes.find((p) => p.id === 'gates')!;
+    expect(gates.evidence).toMatchObject({ failed: 1 });
+    expect(gates.status).toBe('fail');
+  });
+
+  it('falls back to latest-by-runAt when no stage run is on record (currentAttempt undefined)', () => {
+    const processes = uatProcesses({
+      ...base,
+      gateRuns: [run('uat', 'test (web)', 1, { stageRunId: 1, runAt: R1 })],
+      processRuns: [processRun({ id: 10, stageRunId: 1, startedAt: R1, endedAt: R1 })],
+    });
+    const gates = processes.find((p) => p.id === 'gates')!;
+    expect(gates.evidence).toMatchObject({ failed: 1 });
+  });
+
+  it('an explicit historical selection still wins over the current attempt', () => {
+    const processes = uatProcesses({
+      ...base,
+      gateRuns: [run('uat', 'test (web)', 1, { stageRunId: 1, runAt: R1 })],
+      processRuns: [processRun({ id: 10, stageRunId: 1, startedAt: R1, endedAt: R1 })],
+      currentAttempt: null,
+      selectedAttempt: attemptKey(1, ''),
+    });
+    const gates = processes.find((p) => p.id === 'gates')!;
+    expect(gates.evidence).toMatchObject({ failed: 1 });
+  });
+});

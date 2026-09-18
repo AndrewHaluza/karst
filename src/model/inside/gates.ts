@@ -18,6 +18,7 @@ import {
   roundsForAttempt,
   type AttemptKey,
 } from './rounds.js';
+import type { CurrentAttempt } from './currentAttempt.js';
 import type { InsideEvidenceTarget, TypedInsideAction } from './types.js';
 import {
   formatDuration,
@@ -232,6 +233,24 @@ export interface QualityProcessesInput {
    * a mix of one attempt's gates with another's findings.
    */
   selectedAttempt?: AttemptKey | null;
+  /**
+   * Which invocation the stage is on RIGHT NOW (`currentAttempt.ts`), resolved
+   * host-side from `stage_runs`. This is what stops a re-entered stage
+   * rendering its PREVIOUS round's rows as the live ledger: every evidence
+   * table records that work finished, so the fix cycle's round 2 reduces to
+   * round 1 until new rows land.
+   *
+   *  - absent/`undefined` — no stage run on record (pre-v25, or never ran):
+   *    the latest-by-`runAt` reduction stands, byte-for-byte.
+   *  - `null` — the current invocation has recorded nothing yet: the ledger is
+   *    EMPTY, and the predecessor's rows are history reachable through the
+   *    round switcher, never the live picture.
+   *  - an `AttemptKey` — that stage run's rows ARE the live picture.
+   *
+   * `selectedAttempt` (the reader's explicit tab choice) always wins over this:
+   * choosing a historical tab is a deliberate request for a settled attempt.
+   */
+  currentAttempt?: CurrentAttempt;
   /** The configured AI assignment — shown only before a recorded execution. */
   configured?: SessionConfiguredInput | null;
   /** A RECORDED token summary for the stage's AI process; omitted when unmeasured. */
@@ -335,6 +354,35 @@ function actionFor(
 }
 
 /**
+ * Which attempt's rows back this render, and whether there are any.
+ *
+ * ONE resolution, shared by the gates row and both AI rows: two answers to
+ * "which attempt am I showing" is precisely how a batch of one attempt ends up
+ * beside another's findings.
+ *
+ * `stageRecovery`'s Fix row is the one process that does NOT read `eff.key` —
+ * see its own comment below for why that is deliberate, not a second instance
+ * of this same bug.
+ */
+interface EffectiveAttempt {
+  /** The key to select rows by — `null` keeps the latest-by-`runAt` reduction. */
+  key: AttemptKey | null;
+  /** The current invocation has recorded nothing yet: select NOTHING. */
+  empty: boolean;
+  /** The reader explicitly asked for a past attempt (never the live picture). */
+  historical: boolean;
+}
+
+function effectiveAttempt(input: QualityProcessesInput): EffectiveAttempt {
+  const selected = input.selectedAttempt ?? null;
+  if (selected !== null) return { key: selected, empty: false, historical: true };
+  const current = input.currentAttempt;
+  if (current === undefined) return { key: null, empty: false, historical: false };
+  if (current === null) return { key: null, empty: true, historical: false };
+  return { key: current, empty: false, historical: false };
+}
+
+/**
  * The gates process: the latest recorded batch, counted and bounded. Rows
  * keep the flat renderer's distinctions — `skip` for a gate the user disabled,
  * `note` for one the repo cannot answer — and the counts are the WHOLE batch,
@@ -348,21 +396,21 @@ function gatesProcess(
   resolved: readonly { name: string; disabled: boolean }[] = [],
   repoNameFor?: (repo: string) => string | undefined,
   processRuns: readonly ProcessRun[] = [],
-  selectedAttempt: AttemptKey | null = null,
+  eff: EffectiveAttempt = { key: null, empty: false, historical: false },
 ): InsideProcessView {
   // One mapping, used by BOTH the per-gate rows and the failure sentence: a
   // row that named the service while the summary above it named the path
   // would read as two different repositories.
   const repoLabel = (repo: string): string => repoNameFor?.(repo) ?? repo;
-  const batch = batchForAttempt(runs, stageKey, selectedAttempt).filter(
-    (r) => r.gateName !== CHANGES_GATE,
-  );
+  const batch = eff.empty
+    ? []
+    : batchForAttempt(runs, stageKey, eff.key).filter((r) => r.gateName !== CHANGES_GATE);
   // A SETTLED (non-latest, or unmatched) selection can never be running,
   // waiting or blocked, and never forecasts gates that "would run": a past
   // attempt already happened, in full, or it did not happen at all — there is
   // no "so far" for it. `selectedAttempt === null` (the default/latest path)
   // is never settled, which is what keeps that path byte-for-byte unchanged.
-  const settled = isSettledSelection(runs, stageKey, selectedAttempt);
+  const settled = isSettledSelection(runs, stageKey, eff.historical ? eff.key : null);
   let passed = 0;
   let failed = 0;
   let skipped = 0;
@@ -398,7 +446,7 @@ function gatesProcess(
   // the conservative answer: the gates are (still) running.
   const batchStageRunId = batch.length > 0 ? (batch[0]!.stageRunId ?? null) : null;
   const aiProcessId = stageKey === 'review' ? 'review' : 'tester';
-  const aiRun = processRunForAttempt(processRuns, aiProcessId, selectedAttempt);
+  const aiRun = eff.empty ? undefined : processRunForAttempt(processRuns, aiProcessId, eff.key);
   const gatesDone =
     settled ||
     (batchStageRunId !== null &&
@@ -588,8 +636,8 @@ function scopeFindings<T extends { repo?: string | null }>(
  * `resultKind` is what states the outcome.
  */
 function testerProcess(input: QualityProcessesInput): InsideProcessView {
-  const selectedAttempt = input.selectedAttempt ?? null;
-  const run = processRunForAttempt(input.processRuns, 'tester', selectedAttempt);
+  const eff = effectiveAttempt(input);
+  const run = eff.empty ? undefined : processRunForAttempt(input.processRuns, 'tester', eff.key);
   const observations = run
     ? input.uatFindings.filter((f) => f.processRunId === run.id)
     : [];
@@ -651,7 +699,7 @@ function testerProcess(input: QualityProcessesInput): InsideProcessView {
         // `stageRunId` can never match an explicit key. This is ABSENCE, not
         // "unknown": it must never fall back to a different attempt's run,
         // which would attribute one attempt's evidence to another.
-        selectedAttempt !== null
+        eff.historical
         ? { detail: NO_RUN_FOR_ATTEMPT_DETAIL }
         : {}),
     // The Tester's live output is console-observable whenever it has run: the
@@ -673,22 +721,19 @@ function testerProcess(input: QualityProcessesInput): InsideProcessView {
  * the recorded `resultKind` states whether they actually did.
  */
 function reviewProcess(input: QualityProcessesInput): InsideProcessView {
-  const selectedAttempt = input.selectedAttempt ?? null;
-  const run = processRunForAttempt(input.processRuns, 'review', selectedAttempt);
-  // Both paths key findings to the process run that recorded them. The default
-  // path used to reduce over the whole ticket by greatest `runAt`, on the (once
-  // true, now stale) premise that findings carry no run id — v27 added
-  // `review_findings.process_run_id` and `recordFindings` populates it. Because
-  // findings are append-only and a clean re-review writes NO batch, that
-  // reduction re-rendered a fixed round's findings under a running re-review,
-  // and counted them as blocking. `scopeReviewFindings` owns the rule,
-  // including the pre-v27 fallback; see `model/findingScope.ts`.
-  const batch =
-    selectedAttempt === null
-      ? scopeReviewFindings(input.findings, run)
-      : run
+  const eff = effectiveAttempt(input);
+  const run = eff.empty ? undefined : processRunForAttempt(input.processRuns, 'review', eff.key);
+  // A fresh invocation selects NOTHING. Otherwise: an explicit historical tab
+  // reads that run's own attributed rows, and the live picture goes through
+  // `scopeReviewFindings`, which owns the in-flight and pre-v27 rules (a clean
+  // re-review writes no batch, so a `runAt` reduction never supersedes).
+  const batch = eff.empty
+    ? []
+    : eff.historical
+      ? run
         ? input.findings.filter((f) => f.processRunId === run.id)
-        : [];
+        : []
+      : scopeReviewFindings(input.findings, run);
   // blocking is the process's aggregate for the whole stage, not for the
   // visible rows — computed from the UNFILTERED, UNBOUNDED batch.
   const blocking = batch.filter((f) => BLOCKING_STATUS_SEVERITIES.has(f.severity)).length;
@@ -752,7 +797,7 @@ function reviewProcess(input: QualityProcessesInput): InsideProcessView {
                     ? 'interrupted — no outcome'
                     : undefined,
         }
-      : selectedAttempt !== null
+      : eff.historical
         ? { detail: NO_RUN_FOR_ATTEMPT_DETAIL }
         : {}),
     evidence: { kind: 'findings', rows, blocking },
@@ -769,16 +814,29 @@ function reviewProcess(input: QualityProcessesInput): InsideProcessView {
  * only overrides an older round's failure on the LATEST attempt: on an earlier
  * tab the attempt's own round is the fact being read, and a later pass must not
  * rewrite it.
+ *
+ * Deliberately scoped by `selected`/`latest` (the GATE-RUN-derived attempt
+ * series `roundsForAttempt` and `latestAttemptKey` already use), never by
+ * `eff.key` (`currentAttempt.ts`'s `stage_runs`-derived invocation) — this is
+ * the one process in this file that reads a different attempt than the gates
+ * row and the AI row beside it. During the re-entry window (`eff.key` names a
+ * `stage_runs` row with no gate row yet, so it differs from `latest`) that is
+ * correct, not a gap: the round the Fix row must report is the one the
+ * REVALIDATED attempt opened, and that attempt is `latest` by gate-run
+ * history until the new invocation records its own gates. `eff.empty` alone
+ * gates it — an invocation that has recorded nothing yet gets no Fix row
+ * either, same as every other row here.
  */
 function stageRecovery(
   input: QualityProcessesInput,
   stageKey: 'uat' | 'review',
 ): ReturnType<typeof recoveryProcess> {
+  const eff = effectiveAttempt(input);
   const selected = input.selectedAttempt ?? null;
   const latest = latestAttemptKey(input.gateRuns, stageKey);
   const isLatest = selected === null || selected === latest;
   return recoveryProcess(
-    roundsForAttempt(input.rounds, stageKey, selected, latest),
+    eff.empty ? [] : roundsForAttempt(input.rounds, stageKey, selected, latest),
     input.processRuns,
     input.now,
     input.configured,
@@ -788,6 +846,7 @@ function stageRecovery(
 
 /** The uat stage's processes: gates, services, tester — plus a causal fix. */
 export function uatProcesses(input: QualityProcessesInput): InsideProcessView[] {
+  const eff = effectiveAttempt(input);
   const processes = [
     gatesProcess(
       input.cell,
@@ -797,7 +856,7 @@ export function uatProcesses(input: QualityProcessesInput): InsideProcessView[] 
       input.resolvedGates ?? [],
       input.repoNameFor,
       input.processRuns,
-      input.selectedAttempt ?? null,
+      eff,
     ),
     servicesProcess(input.cell, input.services),
     testerProcess(input),
@@ -807,6 +866,7 @@ export function uatProcesses(input: QualityProcessesInput): InsideProcessView[] 
 
 /** The review stage's processes: gates, services, review — plus a causal fix. */
 export function reviewProcesses(input: QualityProcessesInput): InsideProcessView[] {
+  const eff = effectiveAttempt(input);
   const processes = [
     gatesProcess(
       input.cell,
@@ -816,7 +876,7 @@ export function reviewProcesses(input: QualityProcessesInput): InsideProcessView
       input.resolvedGates ?? [],
       input.repoNameFor,
       input.processRuns,
-      input.selectedAttempt ?? null,
+      eff,
     ),
     servicesProcess(input.cell, input.services),
     reviewProcess(input),

@@ -47,6 +47,8 @@ import type { ModelCatalog } from '../../agent/modelCatalog.js';
 import { bundledModelCatalog } from '../../agent/modelCatalog.js';
 import { buildAgentSessionView, agentSwitchCoreChoices, agentSwitchModelChoices, type AgentSessionView } from '../../agent/sessionSwitch.js';
 import { listProcessRuns } from '../../store/processRuns.js';
+import { listStageRuns } from '../../store/stageRuns.js';
+import { currentAttemptFor } from '../../model/inside/currentAttempt.js';
 import { listRecoveryRounds } from '../../store/recoveryRounds.js';
 import { listUatFindings } from '../../store/uatFindings.js';
 import { listShipEvidence, countShipRuns } from '../../store/shipRuns.js';
@@ -578,6 +580,12 @@ export function buildDashboardState(
   const uatFindings = listUatFindings(store, ticketId);
   const shipEvidence = listShipEvidence(store, ticketId);
   const timeline = listImplementationTimeline(store, ticketId);
+  // ONE read of the invocation records, for the same reason as every other
+  // evidence read here. `stage_runs` is the only table written at stage ENTRY,
+  // so it is the only thing that can say a gate stage is on a NEW invocation
+  // that has recorded nothing yet — the fix cycle's round 2, which every
+  // finished-work table still answers with round 1's rows.
+  const stageRuns = listStageRuns(store, ticketId);
   // The needs-you derivation every other surface already honours. Consulted, not
   // re-derived: a second answer to "is this blocked on the user" is exactly the
   // bug the single derivation exists to prevent.
@@ -622,6 +630,15 @@ export function buildDashboardState(
   const cellOf = (key: StageKey): StepperCell =>
     stepper.find((c) => c.stageKey === key) ?? { stageKey: key, status: 'pending' };
 
+  // The gate stage's CURRENT invocation (`model/inside/currentAttempt.ts`),
+  // resolved once per stage and shared by the round switcher and the quality
+  // reducer below — two reads of `stage_runs` is how a tab and a ledger end
+  // up disagreeing about which attempt is showing.
+  const currentAttemptOf = (key: 'uat' | 'review') =>
+    currentAttemptFor(stageRuns, key, cellOf(key).startedAt);
+  const uatCurrent = currentAttemptOf('uat');
+  const reviewCurrent = currentAttemptOf('review');
+
   // The round switcher's effective selection for one gate stage (T4): the
   // requested key if some recorded attempt actually holds it, otherwise the
   // newest attempt. A stage with 0 or 1 attempt emits no tabs at all (T1's
@@ -630,6 +647,12 @@ export function buildDashboardState(
   const attemptSwitcherFor = (
     attempts: readonly GateAttemptView[],
     requested: string | undefined,
+    // True when the host's `currentAttemptFor` returned an explicit `null`
+    // for this stage (the re-entry window — see `rounds.ts`'s
+    // `reentryPending`). The tab flagged `latest` in that state is NOT the
+    // live invocation; it is the newest SETTLED attempt, kept flagged `latest`
+    // only so the default (unclicked) view still resolves to `null` below.
+    reentryPending: boolean,
   ): {
     selectedKey: AttemptKey | null;
     view?: { attempts: readonly GateAttemptView[]; selectedAttempt: AttemptKey; attemptNote?: string };
@@ -641,13 +664,24 @@ export function buildDashboardState(
     // Host-authored, worded from the reader's side: a settled historical
     // attempt is announced so a viewer never mistakes it for the live
     // picture (UI-R31 — the webview renders this verbatim and composes
-    // nothing). The newest attempt carries no note; there is nothing to warn
-    // about when the tab selected is the one already live.
-    const attemptNote = effective.latest
-      ? undefined
-      : effective.round !== undefined
-        ? `viewing round ${effective.round} — not the current result`
-        : `viewing ${effective.label} — not the current result`;
+    // nothing). The newest attempt carries no note when it is genuinely the
+    // live one; during the re-entry window the `latest`-flagged tab is not,
+    // so it gets the same "not the current result" note as any historical tab.
+    const attemptNote =
+      effective.latest && !reentryPending
+        ? undefined
+        : effective.round !== undefined
+          ? `viewing round ${effective.round} — not the current result`
+          : `viewing ${effective.label} — not the current result`;
+    // An EXPLICIT click on the re-entry window's `latest`-flagged tab must
+    // still reach that attempt's own recorded rows — it is a settled attempt,
+    // not the live one, and collapsing it to `null` here is exactly what made
+    // its evidence show as an empty ledger no matter which tab a reader
+    // picked (Finding 1). Only the UNCLICKED default keeps mapping to `null`,
+    // which is what lets the ledger stay empty absent a click (`effectiveAttempt`
+    // in gates.ts empties on a `null` selection while the current invocation
+    // has recorded nothing).
+    const reachThroughLatest = reentryPending && effective.latest && requestedMatch !== undefined;
     return {
       // The LATEST tab is the default path, so it selects `null` — not its own
       // key. A key restricts every downstream read to rows that carry a stage
@@ -656,7 +690,7 @@ export function buildDashboardState(
       // of exactly the view that renders by default. `null` is the read the
       // panel has always done, so the default view stays byte-for-byte itself
       // and only a HISTORICAL selection narrows anything.
-      selectedKey: effective.latest ? null : effective.key,
+      selectedKey: effective.latest && !reachThroughLatest ? null : effective.key,
       view: {
         attempts,
         selectedAttempt: effective.key,
@@ -686,6 +720,34 @@ export function buildDashboardState(
       r.status === 'interrupted',
   );
   const fixFallback: 'uat' | 'review' = activeRound?.sourceStage === 'review' ? 'review' : 'uat';
+
+  /**
+   * Host-authored banner for a gate stage whose recorded result is already
+   * being superseded (UI-R31 — the webview renders this verbatim).
+   *
+   * While a recovery round works elsewhere, the OTHER gate stage still holds
+   * its last verdict: red gates, blocking findings, and nothing on screen
+   * saying a fix has since landed and the stage re-runs. Nothing here invents
+   * a status — the result shown is the real last one — it states the fact that
+   * makes it readable.
+   *
+   * Never for the stage the ticket is on (its own ledger is live), never for a
+   * stage running right now, and never for a stage with no recorded end: there
+   * is no superseded result to caption.
+   */
+  const supersededNote = (key: 'uat' | 'review'): string | undefined => {
+    if (activeRound === undefined) return undefined;
+    if (ticket.stageCurrent === key) return undefined;
+    const cell = cellOf(key);
+    if (displayStatus(cell) === 'running' || displayStatus(cell) === 'blocked') return undefined;
+    const endedAt = cell.endedAt;
+    if (endedAt === undefined) return undefined;
+    // Only a result the round POSTDATES is superseded by it. A stage that ran
+    // after the round opened (uat revalidating a review-origin round) is
+    // reporting on the fixed tree already.
+    if (activeRound.startedAt < endedAt) return undefined;
+    return `round ${activeRound.round} is fixing — this result predates that fix, and this stage re-runs`;
+  };
   const presentedStage: InsideStageKey =
     ticket.stageCurrent === null || ticket.stageCurrent === 'fix'
       ? insideStageForRuntimeStage(
@@ -709,16 +771,48 @@ export function buildDashboardState(
     rounds,
     stageKey: 'uat',
     running: displayStatus(cellOf('uat')) === 'running',
+    currentAttempt: uatCurrent ?? null,
+    // `=== null` (not `?? null`) so a legacy ticket's `undefined` never reads
+    // as re-entry pending — only an explicit `null` from `currentAttemptFor`
+    // does.
+    reentryPending: uatCurrent === null,
   });
-  const uatSwitch = attemptSwitcherFor(uatAttempts, attemptSelection?.uat);
+  const uatSwitch = attemptSwitcherFor(uatAttempts, attemptSelection?.uat, uatCurrent === null);
   const reviewAttempts = listGateAttempts({
     gateRuns,
     processRuns,
     rounds,
     stageKey: 'review',
     running: displayStatus(cellOf('review')) === 'running',
+    currentAttempt: reviewCurrent ?? null,
+    reentryPending: reviewCurrent === null,
   });
-  const reviewSwitch = attemptSwitcherFor(reviewAttempts, attemptSelection?.review);
+  const reviewSwitch = attemptSwitcherFor(reviewAttempts, attemptSelection?.review, reviewCurrent === null);
+
+  // Hoisted once each — `supersededNote` is otherwise called twice per stage
+  // below (once to decide the merge, once to build the note-only fallback).
+  const uatNote = supersededNote('uat');
+  const reviewNote = supersededNote('review');
+
+  /**
+   * Merges a `supersededNote` fallback into an `attemptSwitcherFor` view for
+   * `stageView`'s `roundSwitcher` argument. An explicit HISTORICAL
+   * `attemptNote` (a reader looking at a settled round) always wins — it is
+   * the more specific fact, and a superseded-round banner must never paper
+   * over it. Absent a switcher view entirely, the superseded note stands
+   * alone as the note-only shape `stageView` also accepts.
+   */
+  const withNote = (
+    view: { attempts: readonly GateAttemptView[]; selectedAttempt: AttemptKey; attemptNote?: string } | undefined,
+    note: string | undefined,
+  ): { attempts: readonly GateAttemptView[]; selectedAttempt: AttemptKey; attemptNote?: string } | { attemptNote: string } | undefined =>
+    view
+      ? view.attemptNote
+        ? view
+        : { ...view, ...(note ? { attemptNote: note } : {}) }
+      : note
+        ? { attemptNote: note }
+        : undefined;
 
   const insideViews: Record<InsideStageKey, InsideStageView> = {
     scope: stageView(
@@ -786,11 +880,12 @@ export function buildDashboardState(
         // path the evidence table keys by — the same injection ship uses.
         repoNameFor,
         selectedAttempt: uatSwitch.selectedKey,
+        currentAttempt: uatCurrent,
         findingsRepo: findingsRepoSelection?.uat ?? null,
       }),
       now,
       consoleFor('uat'),
-      uatSwitch.view,
+      withNote(uatSwitch.view, uatNote),
     ),
     review: stageView(
       'review',
@@ -810,11 +905,12 @@ export function buildDashboardState(
         resolvedGates: resolvedGates?.review ?? [],
         repoNameFor,
         selectedAttempt: reviewSwitch.selectedKey,
+        currentAttempt: reviewCurrent,
         findingsRepo: findingsRepoSelection?.review ?? null,
       }),
       now,
       consoleFor('review'),
-      reviewSwitch.view,
+      withNote(reviewSwitch.view, reviewNote),
     ),
     ship: stageView(
       'ship',
@@ -1019,7 +1115,9 @@ function stageView(
    * no view in that case, so the control costs nothing on a ticket that never
    * looped.
    */
-  roundSwitcher?: { attempts: readonly GateAttemptView[]; selectedAttempt: AttemptKey; attemptNote?: string },
+  roundSwitcher?:
+    | { attempts: readonly GateAttemptView[]; selectedAttempt: AttemptKey; attemptNote?: string }
+    | { attemptNote: string },
 ): InsideStageView {
   const live = liveFor(processes);
   return {
