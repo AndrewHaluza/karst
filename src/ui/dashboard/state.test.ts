@@ -1992,3 +1992,132 @@ describe('inside: a re-entered gate stage shows the current invocation', () => {
     expect(gates.evidence).toMatchObject({ failed: 1 });
   });
 });
+
+describe('inside: a gate result superseded by an in-flight recovery round', () => {
+  let store: Store;
+  beforeEach(() => (store = openStore(':memory:')));
+  afterEach(() => store.close());
+
+  it('notes that the review result predates the fix now in flight', () => {
+    const t = createTicket(store, { key: 'SUP-1', title: 'thing' });
+    setStage(store, t.id, 'review', {
+      status: 'failed',
+      verdict: 'blocking findings',
+      startedAt: '2026-09-18T10:00:00.000Z',
+      endedAt: '2026-09-18T10:05:00.000Z',
+    });
+    openRecoveryRound(store, {
+      ticketId: t.id,
+      sourceStage: 'review',
+      sourceProcessId: 'review',
+      sourceStageRunId: null,
+      sourceProcessRunId: null,
+      triggerKind: 'gate-failure',
+      triggerDetail: 'blocking findings',
+      maxRounds: 3,
+      startedAt: '2026-09-18T10:06:00.000Z',
+    });
+    setStage(store, t.id, 'uat', { status: 'running', startedAt: '2026-09-18T13:00:00.000Z', endedAt: null });
+    store.db.prepare('UPDATE tickets SET stage_current = ? WHERE id = ?').run('uat', t.id);
+
+    const state = buildDashboardState(store, t.id);
+    expect(state.insideViews.review.attemptNote).toBe(
+      'round 1 is fixing — this result predates that fix, and this stage re-runs',
+    );
+  });
+
+  it('adds no note to the stage the ticket is currently on', () => {
+    const t = createTicket(store, { key: 'SUP-2', title: 'thing' });
+    setStage(store, t.id, 'review', {
+      status: 'failed',
+      verdict: 'blocking findings',
+      startedAt: '2026-09-18T10:00:00.000Z',
+      endedAt: '2026-09-18T10:05:00.000Z',
+    });
+    openRecoveryRound(store, {
+      ticketId: t.id,
+      sourceStage: 'review',
+      sourceProcessId: 'review',
+      sourceStageRunId: null,
+      sourceProcessRunId: null,
+      triggerKind: 'gate-failure',
+      triggerDetail: 'blocking findings',
+      maxRounds: 3,
+      startedAt: '2026-09-18T10:06:00.000Z',
+    });
+    store.db.prepare('UPDATE tickets SET stage_current = ? WHERE id = ?').run('review', t.id);
+
+    const state = buildDashboardState(store, t.id);
+    expect(state.insideViews.review.attemptNote).toBeUndefined();
+  });
+
+  it('adds no note when no recovery round is in flight', () => {
+    const t = createTicket(store, { key: 'SUP-3', title: 'thing' });
+    setStage(store, t.id, 'review', {
+      status: 'failed',
+      verdict: 'blocking findings',
+      startedAt: '2026-09-18T10:00:00.000Z',
+      endedAt: '2026-09-18T10:05:00.000Z',
+    });
+
+    const state = buildDashboardState(store, t.id);
+    expect(state.insideViews.review.attemptNote).toBeUndefined();
+  });
+
+  it('never replaces the historical-selection banner', () => {
+    // A reader who has explicitly selected a past tab is already told so; that
+    // note wins, because it describes what they did.
+    const t = createTicket(store, { key: 'SUP-4', title: 'thing' });
+
+    // Two recorded review attempts (round 1 fails, opens round 2's fix).
+    const sr1 = openStageRun(store, {
+      ticketId: t.id, stageKey: 'review', attempt: 0,
+      runAt: '2026-09-18T09:00:00.000Z', startedAt: '2026-09-18T09:00:00.000Z',
+    });
+    recordGateRun(store, {
+      ticketId: t.id, stageKey: 'review', attempt: 0, runAt: '2026-09-18T09:00:00.000Z', stageRunId: sr1,
+      gates: [{ gateName: 'review', exitCode: 1, startedAt: '2026-09-18T09:00:00.000Z', endedAt: '2026-09-18T09:00:30.000Z' }],
+    });
+    setStage(store, t.id, 'review', {
+      status: 'failed', verdict: 'blocking findings',
+      startedAt: '2026-09-18T09:00:00.000Z', endedAt: '2026-09-18T09:01:00.000Z',
+    });
+    openRecoveryRound(store, {
+      ticketId: t.id, sourceStage: 'review', sourceProcessId: 'review', sourceStageRunId: sr1,
+      sourceProcessRunId: null, triggerKind: 'gate-failure', triggerDetail: 'blocking findings',
+      maxRounds: 3, startedAt: '2026-09-18T09:01:00.000Z',
+    });
+
+    const sr2 = openStageRun(store, {
+      ticketId: t.id, stageKey: 'review', attempt: 1,
+      runAt: '2026-09-18T10:00:00.000Z', startedAt: '2026-09-18T10:00:00.000Z',
+    });
+    recordGateRun(store, {
+      ticketId: t.id, stageKey: 'review', attempt: 1, runAt: '2026-09-18T10:00:00.000Z', stageRunId: sr2,
+      gates: [{ gateName: 'review', exitCode: 1, startedAt: '2026-09-18T10:00:00.000Z', endedAt: '2026-09-18T10:00:30.000Z' }],
+    });
+    setStage(store, t.id, 'review', {
+      status: 'failed', verdict: 'blocking findings',
+      startedAt: '2026-09-18T10:00:00.000Z', endedAt: '2026-09-18T10:01:00.000Z',
+    });
+    openRecoveryRound(store, {
+      ticketId: t.id, sourceStage: 'review', sourceProcessId: 'review', sourceStageRunId: sr2,
+      sourceProcessRunId: null, triggerKind: 'gate-failure', triggerDetail: 'blocking findings again',
+      maxRounds: 3, startedAt: '2026-09-18T10:01:00.000Z',
+    });
+
+    // The ticket has since moved to (and is now current on) uat, with round 2
+    // still in flight — review holds two settled attempts, neither of them
+    // live, and is not the stage the ticket is on.
+    setStage(store, t.id, 'uat', { status: 'running', startedAt: '2026-09-18T13:00:00.000Z', endedAt: null });
+    store.db.prepare('UPDATE tickets SET stage_current = ? WHERE id = ?').run('uat', t.id);
+
+    const older = attemptKey(sr1, '');
+    const state = buildDashboardState(
+      store, t.id, undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      { review: older },
+    );
+    expect(state.insideViews.review.attemptNote).toContain('not the current result');
+  });
+});

@@ -703,6 +703,34 @@ export function buildDashboardState(
       r.status === 'interrupted',
   );
   const fixFallback: 'uat' | 'review' = activeRound?.sourceStage === 'review' ? 'review' : 'uat';
+
+  /**
+   * Host-authored banner for a gate stage whose recorded result is already
+   * being superseded (UI-R31 — the webview renders this verbatim).
+   *
+   * While a recovery round works elsewhere, the OTHER gate stage still holds
+   * its last verdict: red gates, blocking findings, and nothing on screen
+   * saying a fix has since landed and the stage re-runs. Nothing here invents
+   * a status — the result shown is the real last one — it states the fact that
+   * makes it readable.
+   *
+   * Never for the stage the ticket is on (its own ledger is live), never for a
+   * stage running right now, and never for a stage with no recorded end: there
+   * is no superseded result to caption.
+   */
+  const supersededNote = (key: 'uat' | 'review'): string | undefined => {
+    if (activeRound === undefined) return undefined;
+    if (ticket.stageCurrent === key) return undefined;
+    const cell = cellOf(key);
+    if (displayStatus(cell) === 'running' || displayStatus(cell) === 'blocked') return undefined;
+    const endedAt = cell.endedAt;
+    if (endedAt === undefined) return undefined;
+    // Only a result the round POSTDATES is superseded by it. A stage that ran
+    // after the round opened (uat revalidating a review-origin round) is
+    // reporting on the fixed tree already.
+    if (activeRound.startedAt < endedAt) return undefined;
+    return `round ${activeRound.round} is fixing — this result predates that fix, and this stage re-runs`;
+  };
   const presentedStage: InsideStageKey =
     ticket.stageCurrent === null || ticket.stageCurrent === 'fix'
       ? insideStageForRuntimeStage(
@@ -738,6 +766,11 @@ export function buildDashboardState(
     currentAttempt: reviewCurrent ?? null,
   });
   const reviewSwitch = attemptSwitcherFor(reviewAttempts, attemptSelection?.review);
+
+  // Hoisted once each — `supersededNote` is otherwise called twice per stage
+  // below (once to decide the merge, once to build the note-only fallback).
+  const uatNote = supersededNote('uat');
+  const reviewNote = supersededNote('review');
 
   const insideViews: Record<InsideStageKey, InsideStageView> = {
     scope: stageView(
@@ -810,7 +843,13 @@ export function buildDashboardState(
       }),
       now,
       consoleFor('uat'),
-      uatSwitch.view,
+      uatSwitch.view
+        ? uatSwitch.view.attemptNote
+          ? uatSwitch.view
+          : { ...uatSwitch.view, ...(uatNote ? { attemptNote: uatNote } : {}) }
+        : uatNote
+          ? { attemptNote: uatNote }
+          : undefined,
     ),
     review: stageView(
       'review',
@@ -835,7 +874,13 @@ export function buildDashboardState(
       }),
       now,
       consoleFor('review'),
-      reviewSwitch.view,
+      reviewSwitch.view
+        ? reviewSwitch.view.attemptNote
+          ? reviewSwitch.view
+          : { ...reviewSwitch.view, ...(reviewNote ? { attemptNote: reviewNote } : {}) }
+        : reviewNote
+          ? { attemptNote: reviewNote }
+          : undefined,
     ),
     ship: stageView(
       'ship',
@@ -1040,7 +1085,9 @@ function stageView(
    * no view in that case, so the control costs nothing on a ticket that never
    * looped.
    */
-  roundSwitcher?: { attempts: readonly GateAttemptView[]; selectedAttempt: AttemptKey; attemptNote?: string },
+  roundSwitcher?:
+    | { attempts: readonly GateAttemptView[]; selectedAttempt: AttemptKey; attemptNote?: string }
+    | { attemptNote: string },
 ): InsideStageView {
   const live = liveFor(processes);
   return {
