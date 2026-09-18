@@ -47,6 +47,8 @@ import type { ModelCatalog } from '../../agent/modelCatalog.js';
 import { bundledModelCatalog } from '../../agent/modelCatalog.js';
 import { buildAgentSessionView, agentSwitchCoreChoices, agentSwitchModelChoices, type AgentSessionView } from '../../agent/sessionSwitch.js';
 import { listProcessRuns } from '../../store/processRuns.js';
+import { listStageRuns } from '../../store/stageRuns.js';
+import { currentAttemptFor } from '../../model/inside/currentAttempt.js';
 import { listRecoveryRounds } from '../../store/recoveryRounds.js';
 import { listUatFindings } from '../../store/uatFindings.js';
 import { listShipEvidence, countShipRuns } from '../../store/shipRuns.js';
@@ -578,6 +580,12 @@ export function buildDashboardState(
   const uatFindings = listUatFindings(store, ticketId);
   const shipEvidence = listShipEvidence(store, ticketId);
   const timeline = listImplementationTimeline(store, ticketId);
+  // ONE read of the invocation records, for the same reason as every other
+  // evidence read here. `stage_runs` is the only table written at stage ENTRY,
+  // so it is the only thing that can say a gate stage is on a NEW invocation
+  // that has recorded nothing yet — the fix cycle's round 2, which every
+  // finished-work table still answers with round 1's rows.
+  const stageRuns = listStageRuns(store, ticketId);
   // The needs-you derivation every other surface already honours. Consulted, not
   // re-derived: a second answer to "is this blocked on the user" is exactly the
   // bug the single derivation exists to prevent.
@@ -621,6 +629,15 @@ export function buildDashboardState(
 
   const cellOf = (key: StageKey): StepperCell =>
     stepper.find((c) => c.stageKey === key) ?? { stageKey: key, status: 'pending' };
+
+  // The gate stage's CURRENT invocation (`model/inside/currentAttempt.ts`),
+  // resolved once per stage and shared by the round switcher and the quality
+  // reducer below — two reads of `stage_runs` is how a tab and a ledger end
+  // up disagreeing about which attempt is showing.
+  const currentAttemptOf = (key: 'uat' | 'review') =>
+    currentAttemptFor(stageRuns, key, cellOf(key).startedAt);
+  const uatCurrent = currentAttemptOf('uat');
+  const reviewCurrent = currentAttemptOf('review');
 
   // The round switcher's effective selection for one gate stage (T4): the
   // requested key if some recorded attempt actually holds it, otherwise the
@@ -709,6 +726,7 @@ export function buildDashboardState(
     rounds,
     stageKey: 'uat',
     running: displayStatus(cellOf('uat')) === 'running',
+    currentAttempt: uatCurrent ?? null,
   });
   const uatSwitch = attemptSwitcherFor(uatAttempts, attemptSelection?.uat);
   const reviewAttempts = listGateAttempts({
@@ -717,6 +735,7 @@ export function buildDashboardState(
     rounds,
     stageKey: 'review',
     running: displayStatus(cellOf('review')) === 'running',
+    currentAttempt: reviewCurrent ?? null,
   });
   const reviewSwitch = attemptSwitcherFor(reviewAttempts, attemptSelection?.review);
 
@@ -786,6 +805,7 @@ export function buildDashboardState(
         // path the evidence table keys by — the same injection ship uses.
         repoNameFor,
         selectedAttempt: uatSwitch.selectedKey,
+        currentAttempt: uatCurrent,
         findingsRepo: findingsRepoSelection?.uat ?? null,
       }),
       now,
@@ -810,6 +830,7 @@ export function buildDashboardState(
         resolvedGates: resolvedGates?.review ?? [],
         repoNameFor,
         selectedAttempt: reviewSwitch.selectedKey,
+        currentAttempt: reviewCurrent,
         findingsRepo: findingsRepoSelection?.review ?? null,
       }),
       now,
