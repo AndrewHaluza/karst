@@ -389,3 +389,58 @@ describe('roundsForAttempt', () => {
     expect(roundsForAttempt([legacy], 'uat', null, null)).toEqual([legacy]);
   });
 });
+
+describe('listGateAttempts: the live attempt with no recorded rows', () => {
+  it('adds a synthetic newest tab for a current attempt no group holds', () => {
+    const attempts = listGateAttempts({
+      gateRuns: [gate('uat', 'lint', 1, { stageRunId: 1, runAt: '2026-09-18T10:00:00.000Z' })],
+      processRuns: [],
+      rounds: [],
+      stageKey: 'uat',
+      running: true,
+      currentAttempt: 'sr:2',
+    });
+    expect(attempts).toHaveLength(2);
+    expect(attempts[0]).toMatchObject({ key: 'sr:1', status: 'fail', latest: false });
+    expect(attempts[1]).toMatchObject({ key: 'sr:2', label: 'live', status: 'run', latest: true });
+    expect(attempts[1]!.time).toBeUndefined();
+  });
+
+  it('reads the live tab as pending when the stage is not running', () => {
+    const attempts = listGateAttempts({
+      gateRuns: [gate('uat', 'lint', 1, { stageRunId: 1, runAt: '2026-09-18T10:00:00.000Z' })],
+      processRuns: [],
+      rounds: [],
+      stageKey: 'uat',
+      running: false,
+      currentAttempt: 'sr:2',
+    });
+    expect(attempts[1]).toMatchObject({ key: 'sr:2', label: 'latest', status: 'pending', statusLabel: 'pending' });
+  });
+
+  it('adds nothing when the current attempt already has recorded rows', () => {
+    const attempts = listGateAttempts({
+      gateRuns: [
+        gate('uat', 'lint', 1, { stageRunId: 1, runAt: '2026-09-18T10:00:00.000Z' }),
+        gate('uat', 'lint', 0, { stageRunId: 2, runAt: '2026-09-18T12:00:00.000Z' }),
+      ],
+      processRuns: [],
+      rounds: [],
+      stageKey: 'uat',
+      running: false,
+      currentAttempt: 'sr:2',
+    });
+    expect(attempts.map((a) => a.key)).toEqual(['sr:1', 'sr:2']);
+  });
+
+  it('emits no tabs for a single recorded attempt when no current attempt is given', () => {
+    const attempts = listGateAttempts({
+      gateRuns: [gate('uat', 'lint', 1, { stageRunId: 1, runAt: '2026-09-18T10:00:00.000Z' })],
+      processRuns: [],
+      rounds: [],
+      stageKey: 'uat',
+      running: false,
+    });
+    expect(attempts).toEqual([]);
+  });
+});
