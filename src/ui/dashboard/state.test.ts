@@ -2121,3 +2121,83 @@ describe('inside: a gate result superseded by an in-flight recovery round', () =
     expect(state.insideViews.review.attemptNote).toContain('not the current result');
   });
 });
+
+describe('inside: the re-entry window with two or more recorded attempts (Finding 1)', () => {
+  let store: Store;
+  beforeEach(() => (store = openStore(':memory:')));
+  afterEach(() => store.close());
+
+  /**
+   * Two SETTLED attempts, both recorded and finished, then the stage is
+   * re-entered STRICTLY AFTER the newest one's `startedAt` — the re-entry
+   * window `currentAttemptFor` answers `null` for (the new invocation's
+   * `stage_runs` row has not been opened yet, e.g. the ticket paused right
+   * after the fix marker fired). Deliberately no `recovery_rounds` row is
+   * opened for either attempt, so neither tab's label is decided by the
+   * `round !== undefined` branch — this isolates the `isLatest`/`running`
+   * fallback the bug lived in.
+   */
+  function seedReentryWindowWithTwoAttempts(): { ticketId: number; stageRunIds: [number, number] } {
+    const t = createTicket(store, { key: 'RE-1', title: 're-entry window' });
+    store.db.prepare("UPDATE tickets SET stage_current = 'uat' WHERE id = ?").run(t.id);
+    setStage(store, t.id, 'uat', { status: 'running', startedAt: '2026-09-18T09:00:00.000Z' });
+
+    const sr1 = openStageRun(store, {
+      ticketId: t.id, stageKey: 'uat', attempt: 0,
+      runAt: '2026-09-18T09:00:00.000Z', startedAt: '2026-09-18T09:00:00.000Z',
+    });
+    recordGateRun(store, {
+      ticketId: t.id, stageKey: 'uat', attempt: 0, runAt: '2026-09-18T09:00:00.000Z', stageRunId: sr1,
+      gates: [{ gateName: 'test (web)', exitCode: 1, startedAt: '2026-09-18T09:00:00.000Z', endedAt: '2026-09-18T09:01:00.000Z' }],
+    });
+
+    const sr2 = openStageRun(store, {
+      ticketId: t.id, stageKey: 'uat', attempt: 1,
+      runAt: '2026-09-18T10:00:00.000Z', startedAt: '2026-09-18T10:00:00.000Z',
+    });
+    recordGateRun(store, {
+      ticketId: t.id, stageKey: 'uat', attempt: 1, runAt: '2026-09-18T10:00:00.000Z', stageRunId: sr2,
+      gates: [{ gateName: 'test (web)', exitCode: 1, startedAt: '2026-09-18T10:00:00.000Z', endedAt: '2026-09-18T10:01:00.000Z' }],
+    });
+
+    // Re-entered strictly after sr2's `startedAt` — the new invocation's own
+    // `stage_runs` row has not landed yet (unlike `PROJ-1` above, where entry
+    // and the new run share an instant). `currentAttemptFor` reads this as
+    // `null`: an invocation exists but has recorded nothing.
+    setStage(store, t.id, 'uat', { status: 'running', verdict: null, startedAt: '2026-09-18T13:00:00.000Z', endedAt: null });
+
+    return { ticketId: t.id, stageRunIds: [sr1, sr2] };
+  }
+
+  it('does not label the newest SETTLED attempt live/run during the re-entry window (criterion 1)', () => {
+    const { ticketId } = seedReentryWindowWithTwoAttempts();
+    const uat = buildDashboardState(store, ticketId).insideViews.uat;
+    expect(uat.attempts).toHaveLength(2);
+    // Positional labels, own recorded status — never `live`/`latest`, never
+    // a `run` status borrowed from the stage's re-entered `running` cell.
+    expect(uat.attempts!.map((a) => a.label)).toEqual(['attempt 1', 'attempt 2']);
+    expect(uat.attempts!.map((a) => a.status)).toEqual(['fail', 'fail']);
+  });
+
+  it('makes the newest recorded attempt reachable by explicit selection (criterion 2)', () => {
+    const { ticketId, stageRunIds } = seedReentryWindowWithTwoAttempts();
+    const newest = attemptKey(stageRunIds[1], '');
+    const state = buildDashboardState(
+      store, ticketId, undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      { uat: newest },
+    );
+    const gates = state.insideViews.uat.processes.find((p) => p.id === 'gates')!;
+    // Reachable: the tab's own recorded (failing) batch renders, not an empty
+    // ledger — selecting it must not collapse to the same `null` the default
+    // (unclicked) view uses.
+    expect(gates.evidence).toMatchObject({ kind: 'gates', failed: 1 });
+  });
+
+  it('still renders an empty default ledger when nothing is selected (criterion 3)', () => {
+    const { ticketId } = seedReentryWindowWithTwoAttempts();
+    const state = buildDashboardState(store, ticketId);
+    const gates = state.insideViews.uat.processes.find((p) => p.id === 'gates')!;
+    expect(gates.evidence).toMatchObject({ kind: 'gates', rows: [], failed: 0 });
+  });
+});
