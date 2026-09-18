@@ -1763,24 +1763,38 @@ describe('buildDashboardState — round switcher selection (Option B, T4)', () =
     expect(uat.processes.find((p) => p.id === 'gates')!.status).toBe('pass');
   });
 
-  it('keeps the AI evidence of a run that carries no stage run id on the default view', () => {
-    // Review round 1, [high]: the latest tab used to select its OWN key, and a
-    // key restricts every read to rows carrying a `stage_run_id`. A
-    // `process_runs` row written before v25 carries none, so the Tester the
-    // panel had always shown vanished from the DEFAULT view the moment a
-    // ticket looped. The latest tab is the default path and selects nothing.
+  it('keeps a genuinely pre-v25 Tester run (no stage_runs at all) on the default view', () => {
+    // Review round 1, [high], fix round 1 (Task 4 review): this test used to
+    // simulate its "no stage_run_id" case by seeding a FULL post-v25
+    // `stage_runs` history (`seedTwoRoundUatHistory`, 3 attempts) and then
+    // nulling `stage_run_id` on the live attempt's OWN Tester row — as if a
+    // ticket that HAS a knowable current invocation could still produce an
+    // unattributed process run for it. Traced every production writer of a
+    // `tester`/`review` process run at stageKey `uat`/`review`
+    // (`grep -rn "openProcessRun(" src --include='*.ts' | grep -v '\.test\.'`):
+    // only two call sites exist — `runUatTester` (`workflow/uat/tester.ts:474`)
+    // and `runFindingsLane` (`workflow/review/findingsLane.ts:283`) — and BOTH
+    // are invoked with `stageRunId: evidence.runId` from `workflow/stages/
+    // uat.ts:599` and `workflow/stages/review.ts:261,566`, where `evidence` is
+    // the SAME `GateRunEvidence` (`workflow/gates/evidence.ts`'s `openGateRun`)
+    // that just opened the CURRENT invocation's `stage_runs` row via
+    // `openStageRun` — a required, non-optional `number`, never null. Every
+    // other `openProcessRun` call site writes a different `stageKey` (`impl`,
+    // `ship`, `scope`, `fix`) or a different `processId` (`graph-node`,
+    // `graph-planner`, `prefill`, `guide-pull`, `pr-description`, `session`,
+    // `fix`), never `tester`/`review` at `uat`/`review`. So a post-v25 ticket
+    // whose `currentAttemptFor` names a real live key can never produce a
+    // Tester/Review run missing that same key — the scenario the old
+    // arrangement manufactured cannot occur in production, and asserting
+    // against it under that name overstated this test's coverage.
     //
-    // Fix round 1 (Task 4, overriding this test's original arrangement):
-    // `seedTwoRoundUatHistory` seeds a full `stage_runs` history, so
-    // `currentAttemptFor` now names the live attempt by its REAL stage run id
-    // (sr3) — nulling `stage_run_id` on that SAME row no longer reproduces a
-    // pre-v25 ticket, it corrupts a post-v25 one, and the exact-match read this
-    // task adds correctly excludes it (the row can no longer be told apart
-    // from a different invocation's stray write). A genuinely pre-v25 ticket
-    // has NO `stage_runs` rows at all, so `currentAttemptFor` returns
-    // `undefined` and the legacy latest-by-id fallback stands untouched — that
-    // is the scenario this test is meant to guard, built directly here rather
-    // than through the (post-v25) shared fixture.
+    // What this test actually covers, and the only case that CAN occur: a
+    // ticket with NO `stage_runs` rows at all (pre-v25, or a stage that opened
+    // its process run through some future writer without ever calling
+    // `openGateRun`) — `currentAttemptFor` then answers `undefined`, and
+    // `effectiveAttempt` falls back to the untouched legacy
+    // latest-by-process-run-id reduction, which tolerates a `stage_run_id`-less
+    // row by construction (`processRunForAttempt`'s `key === null` branch).
     const t = createTicket(store, { key: 'RS-LEGACY', title: 'legacy tester row' });
     store.db.prepare("UPDATE tickets SET stage_current = 'uat' WHERE id = ?").run(t.id);
     setStage(store, t.id, 'uat', { status: 'running', startedAt: '2026-08-20T09:00:00.000Z' });
