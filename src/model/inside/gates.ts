@@ -359,6 +359,10 @@ function actionFor(
  * ONE resolution, shared by the gates row and both AI rows: two answers to
  * "which attempt am I showing" is precisely how a batch of one attempt ends up
  * beside another's findings.
+ *
+ * `stageRecovery`'s Fix row is the one process that does NOT read `eff.key` —
+ * see its own comment below for why that is deliberate, not a second instance
+ * of this same bug.
  */
 interface EffectiveAttempt {
   /** The key to select rows by — `null` keeps the latest-by-`runAt` reduction. */
@@ -810,6 +814,18 @@ function reviewProcess(input: QualityProcessesInput): InsideProcessView {
  * only overrides an older round's failure on the LATEST attempt: on an earlier
  * tab the attempt's own round is the fact being read, and a later pass must not
  * rewrite it.
+ *
+ * Deliberately scoped by `selected`/`latest` (the GATE-RUN-derived attempt
+ * series `roundsForAttempt` and `latestAttemptKey` already use), never by
+ * `eff.key` (`currentAttempt.ts`'s `stage_runs`-derived invocation) — this is
+ * the one process in this file that reads a different attempt than the gates
+ * row and the AI row beside it. During the re-entry window (`eff.key` names a
+ * `stage_runs` row with no gate row yet, so it differs from `latest`) that is
+ * correct, not a gap: the round the Fix row must report is the one the
+ * REVALIDATED attempt opened, and that attempt is `latest` by gate-run
+ * history until the new invocation records its own gates. `eff.empty` alone
+ * gates it — an invocation that has recorded nothing yet gets no Fix row
+ * either, same as every other row here.
  */
 function stageRecovery(
   input: QualityProcessesInput,

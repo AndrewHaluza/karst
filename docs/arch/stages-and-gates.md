@@ -173,3 +173,23 @@ resolves it through `model/inside/currentAttempt.ts`:
 
 A reader's explicit round-switcher selection always wins over this: choosing a
 past tab is a deliberate request for a settled attempt.
+
+**The re-entry window is not one driver tick — it spans a full out-of-process
+round trip, with two tails that are unbounded.** `fix` is a human boundary the
+driver itself never crosses (`workflow/driver.ts`'s `runOneStep` returns
+`blocked` for it); the fix→uat transition is authored OUT OF PROCESS by the
+`karst stage fix pass` CLI marker (`cli/stage.ts` → `markFixDone`), and
+re-entry into the driver after that depends on `maybeDrive` (`extension.ts`),
+which is hook/sweep-driven, returns immediately for a PAUSED ticket, and whose
+own comment acknowledges triggers can be missed ("an unreachable SessionEnd
+hook"). So a ticket can sit in the `null` state — re-entered, nothing recorded
+yet — for as long as it takes the next sweep or a window reload to notice: a
+ticket paused right after the fix marker fires, or one whose hook never
+landed, has no other clock pushing it forward. Once the driver does start,
+there is no further delay: `openGateRun` (which opens the `stage_runs` row) is
+the first statement of `runUat`/`runReview`.
+
+Rendering nothing during that window is therefore not a UI compromise to be
+tightened later — it is the correct answer for as long as the window lasts:
+absence over a predecessor's verdict, for however long "nothing recorded yet"
+remains true.

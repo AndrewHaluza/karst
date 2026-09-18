@@ -30,6 +30,13 @@ import { attemptKey, type AttemptKey } from './rounds.js';
  * The newest run is chosen by `id`, never by array position: `listStageRuns`
  * orders by id today, but no query contract obliges it to, and this module
  * refuses to trust ordering anywhere (the same rule `rounds.ts` documents).
+ *
+ * The key itself is built from `id` alone, too: `attemptKey`'s `runAt`
+ * argument only matters for its `ra:`-fallback branch (a pre-v25 row with no
+ * stage run id), and `current.id` below is always a non-null `number`, so the
+ * call always takes the `sr:` branch and the `runAt` it is given is dead. It
+ * is passed anyway because it is the shared helper's signature, not because
+ * this call reads it.
  */
 export type CurrentAttempt = AttemptKey | null | undefined;
 
