@@ -268,11 +268,11 @@ describe('isDoneTicket', () => {
 });
 
 describe('isAwaitingReview', () => {
-  const pr = (number: number | null): SidebarPr => ({
+  const pr = (number: number | null, status: string | null = 'open'): SidebarPr => ({
     repo: 'backend',
     number,
     url: number !== null ? `https://github.com/x/pull/${number}` : null,
-    status: 'open',
+    status,
   });
 
   it('is true when the ticket is at ship with at least one open PR', () => {
@@ -300,6 +300,27 @@ describe('isAwaitingReview', () => {
 
   it('is false when there is no current stage at all', () => {
     expect(isAwaitingReview(ticket({ stageCurrent: null, stages: [] }), [pr(1)])).toBe(false);
+  });
+
+  it('is false when the only PR is merged — a landed PR awaits no review', () => {
+    expect(isAwaitingReview(ticket({ stageCurrent: 'ship' }), [pr(1, 'merged')])).toBe(false);
+  });
+
+  it('is false when the only PR is closed — a closed PR awaits no review', () => {
+    expect(isAwaitingReview(ticket({ stageCurrent: 'ship' }), [pr(1, 'closed')])).toBe(false);
+  });
+
+  it('is true when one open PR remains beside a merged sibling', () => {
+    expect(isAwaitingReview(ticket({ stageCurrent: 'ship' }), [pr(1, 'merged'), pr(2)])).toBe(true);
+  });
+
+  it('is false when the only PR is a draft — a draft is not yet up for review', () => {
+    expect(isAwaitingReview(ticket({ stageCurrent: 'ship' }), [pr(1, 'draft')])).toBe(false);
+  });
+
+  it('is false when the only PR status is unknown — an unanswered probe is not review', () => {
+    expect(isAwaitingReview(ticket({ stageCurrent: 'ship' }), [pr(1, 'unknown')])).toBe(false);
+    expect(isAwaitingReview(ticket({ stageCurrent: 'ship' }), [pr(1, null)])).toBe(false);
   });
 });
 

@@ -409,6 +409,18 @@ describe('buildSidebarState', () => {
     expect(state.sections.current.find((r) => r.ticketId === t.id)).toBeDefined();
   });
 
+  it('a ship ticket whose only PR is merged stays in current', () => {
+    const t = createTicket(store, { key: 'S-1', title: 'ship' });
+    store.db.prepare("UPDATE tickets SET stage_current = 'ship' WHERE id = ?").run(t.id);
+    store.db
+      .prepare('INSERT INTO prs (ticket_id, repo, number, url, status) VALUES (?,?,?,?,?)')
+      .run(t.id, 'api', 1, 'https://github.com/x/pull/1', 'merged');
+
+    const state = buildSidebarState(store, { facets: ['all'], filter: '' });
+    expect(state.sections.awaitingReview).toEqual([]);
+    expect(state.sections.current.find((r) => r.ticketId === t.id)).toBeDefined();
+  });
+
   it('a non-ship ticket stays in current', () => {
     createTicket(store, { key: 'I-1', title: 'impl' });
 

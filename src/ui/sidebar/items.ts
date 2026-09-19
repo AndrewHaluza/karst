@@ -144,16 +144,20 @@ export function isDoneTicket(t: TicketWithStages): boolean {
 }
 
 /**
- * A ticket is AWAITING REVIEW when it has reached the `ship` stage and opened
- * at least one PR — the only remaining step is a team review on GitHub. A ship
- * ticket with no open PRs (still shipping, conflicted, or parked) stays in the
- * main Current list.
+ * A ticket is AWAITING REVIEW when it has reached the `ship` stage and has at
+ * least one OPEN PR — the only remaining step is a team review on GitHub.
+ *
+ * The PR must be a real, literally `open` PR: `merged` and `closed` are terminal
+ * (no review is coming), `draft` is not yet up for review, and `unknown`/null is
+ * the absence of an answer, never a claim that review has started. A row with no
+ * number is not an opened PR either. A ship ticket with no such PR (still
+ * shipping, conflicted, parked, or already landed) stays in the main Current list.
  */
 export function isAwaitingReview(
   t: TicketWithStages,
   prs: readonly SidebarPr[],
 ): boolean {
-  return t.stageCurrent === 'ship' && prs.some((p) => p.number !== null);
+  return t.stageCurrent === 'ship' && prs.some((p) => p.number !== null && p.status === 'open');
 }
 
 /**
