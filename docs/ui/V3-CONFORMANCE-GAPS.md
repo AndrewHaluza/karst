@@ -84,6 +84,51 @@ makes the ordering load-bearing.
 
 ---
 
+## ☐ G5 — Secondary/metadata text below AA on the dashboard, sidebar, usage and resources
+
+**Rule:** UI-R29, DESIGN-SYSTEM (`--k-text-dim` / `--k-text-faint` usage).
+
+**Shipped:** the visual sweep's corpora for these views used to seed
+MINIMAL/neutral state (empty panels, no stepper, no servers/worktrees/PRs —
+`renderStateFor`), which never rendered the secondary/metadata text these
+views actually carry in production. Once the corpora were switched to
+populated production fixtures (`populatedStateFor`, `sidebarRenderFixtures`,
+`usageRenderFixtures`, `resourcesRenderFixtures`),
+`tests/visual/a11y.visual.ts`'s UI-R29 contrast sweep found this text —
+labels, counts, timestamps, stage badges, step descriptions — sitting below
+WCAG AA against its surface in dark and light themes (ratios observed
+2.05–4.41; see `CONTRAST_RATCHET` entries tagged `gap: 'G5'`). This text was
+already this dim; the corpus change only gave the sweep something to measure
+it against for the first time. (gettingStarted's own G5 entries were a
+different, now-closed defect — a missing `body` background, not dim text —
+see below.)
+
+**To close:** raise the `--k-text-dim` / `--k-text-faint` values (or the
+specific component styles listed in the ratchet) until each pinned selector
+clears 4.5:1 (3:1 for large text), then shrink `CONTRAST_RATCHET`
+accordingly — the ratchet is shrink-only.
+
+---
+
+## ☑ gettingStarted is unreadable in the high-contrast theme (closed)
+
+`src/ui/gettingStarted/webview.html`'s `body` rule set `color: var(--k-text)`
+but, unlike every other webview, never set a `background` — so the page fell
+back to the browser default (white) while `--k-text`/`--k-text-dim` resolve
+to `#ffffff` under the harness's `hc` theme vars, collapsing body text to 1:1
+contrast (confirmed in the old `hc/gettingStarted.png` baseline: only the
+blue-linked controls, which source `--vscode-textLink-foreground`, stayed
+visible). It also read white-on-white in `dark`, just less severely.
+
+**Closed:** added `background: var(--k-bg)` to the `body` rule, matching
+every other webview (UI-R05). The `hc`/`dark` `CONTRAST_RATCHET` entries this
+caused (`h1`, `p.lede`, `h2`, `p.section-desc`, `button#dismiss`, and the
+generic `dark:span`/`dark:div` G5 catches that were really this view's own
+text) are removed from `tests/visual/a11y.visual.ts` now that the sweep
+passes without them.
+
+---
+
 ## Not gaps
 
 - **`--k-passed` and `--k-success` rendering the same green** is intended

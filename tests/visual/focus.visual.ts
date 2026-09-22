@@ -24,17 +24,34 @@ const FOCUS_CAP = 12;
  * Done-when — a ticket can pick a preset and every AI process resolves its core
  * and model from the effective preset — and there is no existing focusable
  * element to fold them into.
+ *
+ * Updated a second time when the dashboard/sidebar/usage/resources/
+ * gettingStarted visual corpora moved off MINIMAL/neutral seed state onto
+ * populated production fixtures (`populatedStateFor`, `*RenderFixtures`).
+ * The neutral seed's empty panels had no rows to carry links or buttons;
+ * the populated envelope's servers/worktrees/PR rows, sidebar ticket rows,
+ * usage/resources tables, and gettingStarted's step actions are all
+ * genuinely-interactive controls a real ticket of this shape would render,
+ * not new dead weight — the count grows because real content does.
+ *
+ * Updated a third time when `diffs` moved off its MINIMAL empty-worktrees
+ * seed onto `diffsRenderFixtures()`'s `populated` scenario: two repos with
+ * commits and staged/unstaged/untracked files. The empty seed rendered the
+ * "No ticket worktrees" placeholder with nothing to focus; the populated
+ * fixture's repo/commit/group `<details>` disclosure triggers, per-commit
+ * copy-hash buttons and file rows are all real controls a ticket with actual
+ * changes would render.
  */
 const FOCUS_COUNT_RATCHET: Record<ViewId, number> = {
-  dashboard: 16,
-  usage: 3,
-  resources: 4,
+  dashboard: 44,
+  usage: 11,
+  resources: 17,
   serverLogs: 11,
-  sidebar: 12,
-  diffs: 4,
+  sidebar: 48,
+  diffs: 35,
   settings: 187,
   ticketForm: 25,
-  gettingStarted: 4,
+  gettingStarted: 6,
 };
 
 karstTest.describe('UI-R23 keyboard focus presentation', () => {

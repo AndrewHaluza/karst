@@ -4,6 +4,8 @@ import {
   renderFixtures,
   RENDER_REPO_COUNTS,
   RENDER_SCENARIOS,
+  renderStateFor,
+  populatedStateFor,
   type InsideRenderFixture,
 } from './renderFixtures.js';
 import { EVIDENCE_KINDS } from '../../model/inside/types.js';
@@ -345,5 +347,42 @@ describe('render fixtures', () => {
         expect(r.action.kind).toBe('open-bounded-evidence');
       }
     }
+  });
+});
+
+describe('populatedStateFor (dashboard envelope)', () => {
+  /**
+   * `renderStateFor` is deliberately neutral — empty rail, no stepper, no
+   * servers — because the Inside render tests exercise one component. That
+   * neutrality is why the visual sweep's dashboard baselines rendered a
+   * header reading `#undefined (untitled)` over three empty panels.
+   *
+   * `populatedStateFor` fills the envelope AROUND the same inside view, so a
+   * dashboard baseline pins the whole surface rather than its middle third.
+   */
+  it('names the ticket, so the header is not "#undefined (untitled)"', () => {
+    const s = populatedStateFor('impl');
+    expect(s.key).toBeTruthy();
+    expect(s.title).toBeTruthy();
+  });
+
+  it('fills the three panels the neutral envelope leaves empty', () => {
+    const s = populatedStateFor('impl');
+    expect(s.servers.length).toBeGreaterThan(0);
+    expect(s.worktrees.length).toBeGreaterThan(0);
+    expect(s.prs.length).toBeGreaterThan(0);
+  });
+
+  it('carries a stepper and a rail for the requested stage', () => {
+    const s = populatedStateFor('impl');
+    expect(s.stepper.length).toBeGreaterThan(0);
+    expect(s.rail.main.length).toBeGreaterThan(0);
+    expect(s.stageCurrent).toBe('impl');
+  });
+
+  it('keeps the inside view the neutral builder would have produced', () => {
+    const neutral = renderStateFor('impl');
+    const populated = populatedStateFor('impl');
+    expect(populated.insideViews).toEqual(neutral.insideViews);
   });
 });

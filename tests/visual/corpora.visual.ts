@@ -40,13 +40,21 @@ test.describe('corpus adapter', () => {
   });
 
   test('MINIMAL_RATCHET size never grows (shrink-only ratchet)', () => {
-    // At plan time: 7 non-dashboard views on MINIMAL.
+    // At plan time: 7 non-dashboard views on MINIMAL.  Now 2: sidebar, usage,
+    // resources, gettingStarted and diffs each seed from the checked-in
+    // production render-fixture corpus their own render tests already use,
+    // so the visual sweep and the render tests pin the same states.
+    //
     // This assertion FORBIDS the ratchet from growing.  When FEAT-37
     // delivers a corpus for a view, it is removed from the ratchet and
     // this number decreases.  If someone adds a new webview, they must
     // either deliver a corpus or explicitly document why the ratchet
     // grew — and update this number with a justification.
-    expect(MINIMAL_RATCHET.length).toBeLessThanOrEqual(7);
+    //
+    // The two that remain — settings, ticketForm — have no renderFixtures
+    // module, so a corpus for them is authored data, not a reuse, and
+    // belongs to the rest of FEAT-37.
+    expect(MINIMAL_RATCHET.length).toBeLessThanOrEqual(2);
   });
 
   test('every MINIMAL_RATCHET view produces a non-empty message list', () => {

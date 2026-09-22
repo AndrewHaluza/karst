@@ -1,4 +1,4 @@
-import type { DashboardState } from './state.js';
+import type { DashboardState, DashboardWorktreeView } from './state.js';
 import type { ModelCatalog } from '../../agent/modelCatalog.js';
 import type {
   CommitRepoView,
@@ -15,6 +15,12 @@ import type {
 import { STAGE_BLURBS, STAGE_TITLES } from '../../model/inside/types.js';
 import { boundedEvidenceRows } from '../../model/inside/bounds.js';
 import { REPOSITORY_EVIDENCE_LIMIT } from '../../model/inside/ship.js';
+import { STAGE_KEYS, type StageKey, type StageStatus } from '../../model/types.js';
+import type { StepperCell } from '../../model/stepper.js';
+import { buildStageRail } from '../../model/stageRail.js';
+import { MAIN_LINE } from '../../workflow/graph.js';
+import type { ServerView } from '../../store/dashboard.js';
+import type { PrPanelRow } from '../../model/prPanelView.js';
 
 /**
  * The checked-in render fixture matrix for the dashboard webview's render
@@ -916,5 +922,151 @@ export function renderStateFor(stage: InsideStageKey): DashboardState {
     rerunGate: { available: false, reason: 'not-gate-stage' },
     prFeedbackFix: { available: false, reason: 'stage' },
     openPrFeedback: 0,
+  };
+}
+
+/** Fixture ticket identity, in the reserved numeric band (Key Decision 5). */
+const POPULATED_TICKET_ID = 942017;
+const POPULATED_KEY = 'FEAT-142';
+const POPULATED_TITLE = 'Add per-repo base branch override to the worktree picker';
+
+/**
+ * A stepper reading STAGE_KEYS order that would exist if `stage` were the
+ * ticket's actual current main-line stage: everything before it `passed`,
+ * `stage` itself `running`, everything after `pending`. `fix` is a branch
+ * stage off the main line (`workflow/graph.ts`'s `MAIN_LINE` excludes it) — a
+ * ticket that has never needed a recovery round leaves it `pending`, same as
+ * any stage that has not run.
+ */
+function populatedStepper(stage: InsideStageKey): StepperCell[] {
+  const mainIndex = MAIN_LINE.indexOf(stage as StageKey);
+  return STAGE_KEYS.map((stageKey): StepperCell => {
+    if (stageKey === 'fix') return { stageKey, status: 'pending' };
+    const rowIndex = MAIN_LINE.indexOf(stageKey);
+    const status: StageStatus = rowIndex < mainIndex ? 'passed' : rowIndex === mainIndex ? 'running' : 'pending';
+    return { stageKey, status };
+  });
+}
+
+/** Two runnable services, plausible ports, both up — a populated servers panel. */
+function populatedServers(): ServerView[] {
+  return [
+    {
+      id: 1,
+      ticketId: POPULATED_TICKET_ID,
+      service: 'web',
+      host: 'localhost',
+      port: 5173,
+      status: 'running',
+      logPath: 'fixture:logs/web.log',
+    },
+    {
+      id: 2,
+      ticketId: POPULATED_TICKET_ID,
+      service: 'api',
+      host: 'localhost',
+      port: 4000,
+      status: 'running',
+      logPath: 'fixture:logs/api.log',
+    },
+  ];
+}
+
+/** Two repositories worth of worktrees — enough to show the scope card is not empty. */
+function populatedWorktrees(): DashboardWorktreeView[] {
+  return [
+    {
+      ticketId: POPULATED_TICKET_ID,
+      repo: 'fixture:/repos/web',
+      repoDisplay: 'web',
+      path: 'fixture:/worktrees/FEAT-142/web',
+      branch: 'feat/FEAT-142-base-branch-override',
+      baseRef: 'main',
+      depsMode: 'inherit',
+      createdAt: '2026-08-11T14:02:00.000Z',
+      launchable: false,
+      baseDefault: 'main',
+      baseCandidates: ['main', 'origin/main', 'origin/develop'],
+      serviceName: 'web',
+    },
+    {
+      ticketId: POPULATED_TICKET_ID,
+      repo: 'fixture:/repos/api',
+      repoDisplay: 'api',
+      path: 'fixture:/worktrees/FEAT-142/api',
+      branch: 'feat/FEAT-142-base-branch-override',
+      baseRef: 'main',
+      depsMode: 'inherit',
+      createdAt: '2026-08-11T14:02:04.000Z',
+      launchable: false,
+      baseDefault: 'main',
+      baseCandidates: ['main', 'origin/main'],
+      serviceName: 'api',
+    },
+  ];
+}
+
+/** One open PR, already worded the way `model/prPanelView.ts` would word it. */
+function populatedPrs(): PrPanelRow[] {
+  return [
+    {
+      repo: 'fixture:/repos/web',
+      repoDisplay: 'web',
+      number: 421,
+      url: 'fixture:https://github.com/fixture-org/web/pull/421',
+      status: 'open',
+      branches: 'feat/FEAT-142-base-branch-override → main',
+      baseRef: 'main',
+      opened: 'opened 2 days ago',
+      openedTitle: 'opened Aug 11, 2026, 2:04 PM',
+      merged: '',
+      mergedTitle: '',
+      commentsLabel: '2 comments',
+      comments: [
+        { author: 'octoreviewer', when: '1 day ago', body: 'Looks right — one nit on the combobox label.' },
+        { author: 'fixture-author', when: '20 hours ago', body: 'Fixed, PTAL.' },
+      ],
+      checks: { state: 'none', label: '', title: '', detailsLabel: '', failing: [] },
+      mergeBlockLabel: '',
+      canMerge: false,
+      mergeBlockedReason: 'awaiting review',
+      dismissed: false,
+      dismissedLabel: '',
+      canDismiss: false,
+    },
+  ];
+}
+
+/**
+ * `renderStateFor(stage)` with the same `insideViews` but a filled-in
+ * envelope, so a dashboard screenshot pins the whole surface (header, rail,
+ * scope card, PR panel) instead of the neutral middle third. Only the
+ * envelope changes: `insideViews` is copied verbatim from `renderStateFor`
+ * so this can never disagree with what the Inside render tests already pin.
+ *
+ * Like every other fixture in this file: `fixture:`-prefixed paths and URLs,
+ * pure data, no store reads, no real worktrees — `ticketId` sits in the
+ * reserved fixture band 900001–999999 (Key Decision 5, `sidebar/renderFixtures.ts`).
+ */
+export function populatedStateFor(stage: InsideStageKey): DashboardState {
+  const neutral = renderStateFor(stage);
+  const stepper = populatedStepper(stage);
+  const rail = buildStageRail(stepper, stepper, {
+    current: stage,
+    needsUser: false,
+    needs: null,
+  });
+
+  return {
+    ...neutral,
+    ticketId: POPULATED_TICKET_ID,
+    key: POPULATED_KEY,
+    title: POPULATED_TITLE,
+    stepper,
+    rail,
+    servers: populatedServers(),
+    hasRunnableRepos: true,
+    worktrees: populatedWorktrees(),
+    prs: populatedPrs(),
   };
 }

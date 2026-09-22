@@ -52,6 +52,17 @@ describe('gettingStarted webview.html', () => {
     expect(offenders, JSON.stringify(offenders)).toBeNull();
   });
 
+  it('sets an explicit page background (UI-R05), like every other webview\'s body rule', () => {
+    // Without this the page falls back to the browser default (white),
+    // which reads correctly in light theme but leaves --k-text (near-white
+    // under dark/HC) painted on a white surface — unreadable. Every other
+    // webview (dashboard, usage, resources, sidebar) sets this on body.
+    const style = styleBlock();
+    const bodyRule = style.match(/body\s*\{[^}]*\}/);
+    expect(bodyRule, 'no body { } rule found').not.toBeNull();
+    expect(bodyRule![0]).toMatch(/background:\s*var\(--k-bg\)/);
+  });
+
   it('declares no local :root block — tokens come from the injected design system', () => {
     const style = styleBlock();
     expect(style).not.toContain(':root');

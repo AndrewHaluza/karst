@@ -76,4 +76,24 @@ test.describe('buildFixture', () => {
     const html = buildFixture('dashboard', 'light', [{ type: 'state', state: {} }]);
     expect(html).toContain('vscode-light');
   });
+
+  // A corpus containing a literal `</script>` substring (the XSS-probe
+  // fixtures do — e.g. sidebar's HOSTILE_LABEL, dashboard's review-findings
+  // title) must not be able to terminate the inline seed <script> early.
+  // JSON.stringify does not escape `</script>`, so raw interpolation lets it
+  // close the tag and the remainder of the JSON renders as page text.
+  test('corpus payloads containing "</script>" do not break out of the seed script', () => {
+    const messages = [
+      { type: 'state', state: { title: '<script>alert(1)</script>' } },
+    ];
+    const html = buildFixture('dashboard', 'dark', messages);
+
+    // The literal sequence must never appear unescaped inside the page —
+    // if it did, the browser would have closed the <script> tag there.
+    expect(html).not.toContain('</script>alert');
+
+    // The payload must still be present, just escaped so it stays inside
+    // the script's string literal (parses back to the same JS string).
+    expect(html).toContain('\\u003c/script>');
+  });
 });

@@ -37,17 +37,29 @@ const HAS_PENDING_STATE: readonly ViewId[] = ['usage', 'resources'];
  * Those hues are below WCAG AA against the editor background by design — VS
  * Code's built-in terminal has the same property — so a handful of ANSI
  * foregrounds on the log lines are tolerated, never karst's own tokens.
+ *
+ * G5: the dashboard/sidebar/usage/resources/gettingStarted visual corpora
+ * moved from MINIMAL/neutral seed state to populated production fixtures
+ * (`populatedStateFor`, `*RenderFixtures`), which renders secondary/metadata
+ * text (`--k-text-dim`, `--k-text-faint` family) that the MINIMAL seed never
+ * exercised because the elements were empty. That text was already below AA
+ * against its surface before today — the corpus change only made it visible
+ * to this sweep for the first time.
+ *
+ * gettingStarted's dark/hc entries (h1, p.lede, h2, p.section-desc,
+ * button#dismiss, and the generic dark:span/div G5 catches that were really
+ * this view's own text) are gone from this ratchet: the view had no
+ * `background` on its `body` rule, so its text rendered against the browser
+ * default white instead of `--k-bg`, collapsing to near-1:1 in dark and HC.
+ * Fixed in `src/ui/gettingStarted/webview.html` — see UI-R05.
  */
 const CONTRAST_RATCHET: Record<string, { ratio: number; gap?: string }> = {
   // dark theme
   'dark:button#approachDrawerDelete.k-btn.k-btn--danger': { ratio: 4.29, gap: 'G3' },
   'dark:p#leaveModalError.modal-error.hidden': { ratio: 4.29, gap: 'G3' },
-  'dark:h1': { ratio: 1.61 },
-  'dark:p.lede': { ratio: 3.08 },
-  'dark:h2': { ratio: 3.08 },
-  'dark:p.section-desc': { ratio: 3.08 },
-  'dark:button#dismiss.k-btn.k-btn--ghost': { ratio: 3.08 },
   'dark:span.k-ansi-fg-red': { ratio: 3.24, gap: 'G6' },
+  'dark:span.stage.stg-impl': { ratio: 4.41, gap: 'G5' },
+  'dark:div.nextact.warn': { ratio: 4.29, gap: 'G5' },
   // light theme
   'light:span.agentSep': { ratio: 2.61 },
   'light:div.fieldHelp': { ratio: 2.36 },
@@ -69,12 +81,32 @@ const CONTRAST_RATCHET: Record<string, { ratio: number; gap?: string }> = {
   'light:p#leaveModalError.modal-error.hidden': { ratio: 4.27, gap: 'G3' },
   'light:span.k-ansi-fg-green': { ratio: 2.56, gap: 'G6' },
   'light:span.k-ansi-fg-yellow': { ratio: 3.11, gap: 'G6' },
+  'light:span.full': { ratio: 2.05, gap: 'G5' },
+  'light:span.abbr': { ratio: 2.05, gap: 'G5' },
+  'light:span.g': { ratio: 2.61, gap: 'G5' },
+  'light:span.nm': { ratio: 2.61, gap: 'G5' },
+  'light:span.inside-meta': { ratio: 2.61, gap: 'G5' },
+  'light:span#srvCount.count': { ratio: 2.36, gap: 'G5' },
+  'light:span.sr': { ratio: 2.36, gap: 'G5' },
+  'light:th': { ratio: 2.36, gap: 'G5' },
+  'light:span.wbasebr': { ratio: 2.36, gap: 'G5' },
+  'light:span#prCount.count': { ratio: 2.36, gap: 'G5' },
+  'light:span.psep': { ratio: 2.36, gap: 'G5' },
+  'light:span.pcmwhen': { ratio: 2.36, gap: 'G5' },
+  'light:div.n': { ratio: 2.36, gap: 'G5' },
+  'light:span.pct': { ratio: 2.36, gap: 'G5' },
+  'light:div.meta': { ratio: 2.36, gap: 'G5' },
+  'light:div#live.live': { ratio: 2.61, gap: 'G5' },
+  'light:div#summaryMeta.summaryMeta': { ratio: 2.61, gap: 'G5' },
+  'light:span#scaleNote.scaleNote': { ratio: 2.36, gap: 'G5' },
+  'light:span.ttitle': { ratio: 2.36, gap: 'G5' },
+  'light:div#unknownNote.meta': { ratio: 2.36, gap: 'G5' },
+  'light:span#diskHint.meta': { ratio: 2.36, gap: 'G5' },
+  'light:span.sec-name': { ratio: 2.36, gap: 'G5' },
+  'light:span.sec-n': { ratio: 2.36, gap: 'G5' },
+  'light:span.stage.stg-impl': { ratio: 3.13, gap: 'G5' },
+  'light:div.nextact.warn': { ratio: 4.27, gap: 'G5' },
   // hc theme
-  'hc:h1': { ratio: 1 },
-  'hc:p.lede': { ratio: 1 },
-  'hc:h2': { ratio: 1 },
-  'hc:p.section-desc': { ratio: 1 },
-  'hc:button#dismiss.k-btn.k-btn--ghost': { ratio: 1 },
   'hc:span.k-ansi-fg-red': { ratio: 3.6, gap: 'G6' },
 };
 

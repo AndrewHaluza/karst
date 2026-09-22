@@ -83,7 +83,7 @@ export function buildFixture(
   }
 
   // Set body class for the theme.
-  const bodyClassScript = `<script nonce="${FIXED_NONCE}">document.body.className=${JSON.stringify(themeData.bodyClass)};</script>`;
+  const bodyClassScript = `<script nonce="${FIXED_NONCE}">document.body.className=${jsonForInlineScript(themeData.bodyClass)};</script>`;
 
   // Insert body class script right after <body> tag.
   const bodyMatch = html.match(/<body[^>]*>/i);
@@ -101,6 +101,26 @@ export function buildFixture(
   }
 
   return html;
+}
+
+/**
+ * Safely serialize a value for interpolation inside an inline `<script>`.
+ *
+ * Corpus fixtures deliberately include adversarial strings (XSS probes like
+ * `<script>alert(1)</script>` — see `HOSTILE_LABEL` in
+ * `src/ui/sidebar/renderFixtures.ts`) so the real views are exercised against
+ * hostile data. `JSON.stringify` does not escape `</script>`, so raw
+ * interpolation lets that substring close the tag early: the rest of the
+ * JSON — and the rest of the seed script after it — then renders as page
+ * text instead of executing (this is exactly what broke
+ * dashboard-failed/-waiting once the corpora switched to populated data).
+ *
+ * Escaping `<` as `<` is valid inside a JSON string literal (it survives
+ * `JSON.parse` unchanged) and can never form `</script`, `<!--`, or any other
+ * HTML construct the parser treats specially, so it's sufficient on its own.
+ */
+function jsonForInlineScript(value: unknown): string {
+  return JSON.stringify(value).replace(/</g, '\\u003c');
 }
 
 /**
@@ -128,7 +148,7 @@ function buildSeedScript(
   view: ViewId,
   corpusMessages: readonly unknown[],
 ): string {
-  const messagesJson = JSON.stringify(corpusMessages);
+  const messagesJson = jsonForInlineScript(corpusMessages);
 
   return `<script nonce="${FIXED_NONCE}">
 (function() {
