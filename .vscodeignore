@@ -44,6 +44,16 @@ scripts/**
 # packaged unless named explicitly.
 reports/**
 
+# Marketing media: the launch film, the short cut, the README lockup and the
+# screenshot gallery. The README references all of them by absolute
+# raw.githubusercontent URL (the Marketplace does not resolve relative paths),
+# so they are fetched over HTTPS and never read out of the package — shipping
+# them only repeats the vsix-bloat problem the .karst/** note above describes.
+# Only the two icons package.json actually points at are kept.
+media/**
+!media/karst-icon.png
+!media/karst.svg
+
 # VCS / lockfile
 .git/**
 .gitignore
@@ -69,4 +79,4 @@ node_modules/** !node_modules/better-sqlite3/** !node_modules/js-yaml/**
 # Keep: dist/**, node_modules/** (better-sqlite3 loaded at runtime),
 #       package.json, README.md, karst.example.yml,
 #       karst.uat-review-setup.md (both root assets are copied into dist/,
-#       which is what scaffolding reads), media/**
+#       which is what scaffolding reads), media/karst-icon.png, media/karst.svg

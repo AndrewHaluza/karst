@@ -1,13 +1,51 @@
-# Karst
+<!--
+  Images use absolute raw.githubusercontent URLs on purpose: the VS Code
+  Marketplace renders this same file and does NOT resolve relative paths.
+-->
+<h1 align="center">
+  <img src="https://raw.githubusercontent.com/AndrewHaluza/karst/main/media/karst-lockup.png"
+       alt="Karst" width="420">
+</h1>
 
-Orchestrate AI-agent ticket workflows across a multi-repo stack — a VS Code
-extension that drives a ticket from **scope → implement → UAT → review → ship →
-done**, spinning up the real services each ticket touches and gating every
-stage on a deterministic verdict.
+<p align="center">
+  <b>AI-agent ticket orchestration across a multi-repo stack.</b><br>
+  A VS Code extension that drives a ticket through six stages, spins up the real
+  services it touches, and advances only on a deterministic verdict.
+</p>
 
-[![CI](https://github.com/AndrewHaluza/karst/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/AndrewHaluza/karst/actions/workflows/ci.yml)
-[![Licence: BUSL-1.1](https://img.shields.io/badge/licence-BUSL--1.1-blue)](LICENSE)
-[![VS Code](https://img.shields.io/badge/VS%20Code-%5E1.105.1-brightgreen)](package.json)
+<p align="center">
+  <a href="https://github.com/AndrewHaluza/karst/actions/workflows/ci.yml"><img src="https://github.com/AndrewHaluza/karst/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/licence-BUSL--1.1-blue?style=flat-square" alt="Licence: BUSL-1.1"></a>
+  <a href="package.json"><img src="https://img.shields.io/badge/VS%20Code-%5E1.105.1-brightgreen?style=flat-square" alt="VS Code ^1.105.1"></a>
+  <img src="https://img.shields.io/badge/tests-10%2C115-success?style=flat-square" alt="10,115 tests">
+  <img src="https://img.shields.io/badge/coverage-83%25-success?style=flat-square" alt="83% line coverage">
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/SCOPE-4C566A?style=flat-square" alt="scope">
+  <b>→</b>
+  <img src="https://img.shields.io/badge/IMPL-6D5BD6?style=flat-square" alt="implement">
+  <b>→</b>
+  <img src="https://img.shields.io/badge/UAT-8A6D1F?style=flat-square" alt="UAT">
+  <b>→</b>
+  <img src="https://img.shields.io/badge/REVIEW-1F6F73?style=flat-square" alt="review">
+  <b>→</b>
+  <img src="https://img.shields.io/badge/SHIP-7D3F7D?style=flat-square" alt="ship">
+  <b>→</b>
+  <img src="https://img.shields.io/badge/DONE-2D6A34?style=flat-square" alt="done">
+</p>
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/AndrewHaluza/karst/main/media/karst-short.gif"
+       alt="The Karst ticket dashboard advancing through scope, implementation, UAT, review, ship and done. Each stage shows its own gate rows: UAT runs its gates and then the tester agent, review returns two blocking findings, ship waits on a merge conflict, and the ticket finishes delivered across 10 repositories."
+       width="900">
+</p>
+
+<p align="center">
+  <sub>One ticket through the pipeline. Gates fail, fixes retry, merge blocks — the rail <i>is</i> the state.</sub>
+  <br>
+  <sub>That's the rail. <a href="https://github.com/AndrewHaluza/karst/blob/main/media/karst-film.mp4">The full film</a> shows where the tickets, the agents and the stack come from.</sub>
+</p>
 
 > **Status:** measured at 1.0.0 — 10,115 unit tests across 541 suites, 36 e2e,
 > 774 visual regression checks over 85 baselines, 83% line coverage. The CI
@@ -71,7 +109,46 @@ The pipeline itself is the next section. These are the things that surround it:
 
 ---
 
+## The surfaces
+
+<table>
+  <tr valign="top">
+    <td width="50%" align="center">
+      <img src="https://raw.githubusercontent.com/AndrewHaluza/karst/main/media/screenshots/source-control.png" alt="The KARST source control provider in VS Code, with a ticket selector and the ticket's commits listed beneath it." width="300">
+      <br><sub><b>Source Control</b> — each ticket is a real SCM provider with its own selector, diffed against the recorded base, not HEAD.</sub>
+    </td>
+    <td width="50%" align="center">
+      <img src="https://raw.githubusercontent.com/AndrewHaluza/karst/main/media/screenshots/usage.png" alt="Token usage dashboard showing per-ticket and per-callsite spend with provider totals.">
+      <br><sub><b>Usage</b> — per-ticket, per-callsite token spend. No prompt or completion text is stored.</sub>
+    </td>
+  </tr>
+  <tr valign="top">
+    <td width="50%" align="center">
+      <img src="https://raw.githubusercontent.com/AndrewHaluza/karst/main/media/screenshots/serverLogs.png" alt="Server logs view showing the live output of services started for a ticket.">
+      <br><sub><b>Server logs</b> — the stack Karst spun for this ticket, live and addressable.</sub>
+    </td>
+    <td width="50%" align="center">
+      <img src="https://raw.githubusercontent.com/AndrewHaluza/karst/main/media/screenshots/settings.png" alt="Settings view with tab-scoped save, covering repositories, services, agents and ticketing.">
+      <br><sub><b>Settings</b> — the manifest as a form. Tab-scoped save; secrets go to the OS keychain.</sub>
+    </td>
+  </tr>
+</table>
+
+---
+
 ## How it works
+
+Six stages. Each one advances on a verdict Karst can prove, never on an agent's
+self-report:
+
+| Stage | What happens | What advances it |
+| --- | --- | --- |
+| **Scope** | Pick the hot repos; worktrees are cut off a freshly pulled base | Your confirm |
+| **Implement** | The agent session runs in a real terminal | An argv-narrowed done marker |
+| **UAT** | Static gates run, then the tester agent inspects | Exit codes + observations at your blocking severity |
+| **Review** | Static gates run, then the reviewer agent files findings | Exit codes + findings at your blocking severity |
+| **Ship** | PRs open; the merge gate holds on conflict | A merged PR |
+| **Done** | Worktrees and servers reaped | — |
 
 ### 0. Create the ticket
 
