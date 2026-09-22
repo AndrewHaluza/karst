@@ -5,11 +5,16 @@ extension that drives a ticket from **scope → implement → UAT → review →
 done**, spinning up the real services each ticket touches and gating every
 stage on a deterministic verdict.
 
-> **Status:** 10,115 unit tests across 541 suites, 36 e2e, 774 visual
-> regression checks over 85 baselines, 83% line coverage, typecheck-clean — and
-> in active use as the orchestrator behind its own development. You need an
-> agent CLI (`claude`, `codex`, `antigravity` or `opencode`) with your existing
-> login; nothing else to install.
+[![CI](https://github.com/AndrewHaluza/karst/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/AndrewHaluza/karst/actions/workflows/ci.yml)
+[![Licence: BUSL-1.1](https://img.shields.io/badge/licence-BUSL--1.1-blue)](LICENSE)
+[![VS Code](https://img.shields.io/badge/VS%20Code-%5E1.105.1-brightgreen)](package.json)
+
+> **Status:** measured at 1.0.0 — 10,115 unit tests across 541 suites, 36 e2e,
+> 774 visual regression checks over 85 baselines, 83% line coverage. The CI
+> badge above is the live one; these are a snapshot. In active use as the
+> orchestrator behind its own development. You need an agent CLI (`claude`,
+> `codex`, `antigravity` or `opencode`) with your existing login; nothing else
+> to install.
 
 ---
 
