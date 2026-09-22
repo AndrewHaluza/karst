@@ -68,5 +68,5 @@ permitted when you began it stays permitted.
 
 ---
 
-*Policy adopted 2026-09-22. First public use of the Karst mark in commerce: to
-be recorded here on first public release.*
+*Policy adopted 2026-09-22. First public use of the Karst mark in commerce:
+2026-09-22, the date this repository was made publicly available.*
