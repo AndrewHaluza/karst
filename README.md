@@ -586,3 +586,68 @@ Settings/ticket-form/Getting Started surfaces, and the diagnostics flow.
 **Deferred (post-open-source):** per-ticket DB isolation for migration-running
 backend tickets, cross-repo PR merge ordering, a concurrency scheduler for
 headless runs, and a full activity feed.
+
+---
+
+## Licence
+
+Karst is **source-available, not OSI-approved open source.** The distinction
+matters, so it is stated plainly rather than glossed.
+
+Karst is licensed under the [Business Source License 1.1](LICENSE), with an
+Additional Use Grant and an automatic conversion to Apache 2.0.
+
+**What you can do today, free, no permission needed:**
+
+- Read, fork, modify, and build the source
+- Run Karst for any internal purpose, **including commercial internal use** —
+  using it in your day job at a company is explicitly permitted
+- Run modified versions internally
+- Redistribute it under the same licence, notices intact
+
+**What needs a commercial licence from the Licensor:**
+
+- Offering Karst, or a derivative, to third parties as a hosted, managed, or
+  embedded service
+- Distributing Karst, or a derivative, as a product that provides AI coding
+  agent orchestration to third parties
+
+In short: **use it at work freely; don't resell it as a product or a service.**
+
+**It becomes Apache 2.0 automatically.** Each version converts to the
+[Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0) on its
+Change Date — four years after that version's release, at the latest. That is
+a term of the licence, not a promise: the conversion is written into the
+`LICENSE` file at the moment each version ships, and it cannot be revoked
+later.
+
+### Why this licence
+
+Karst is built by one person. BUSL keeps the source readable, forkable and
+usable at work — which is nearly everything people actually want from open
+source — while leaving room to fund the work if the project justifies it. The
+Change Date is there so that room is time-limited and stated up front, rather
+than being a licence change sprung on users after they have come to depend on
+it.
+
+If BUSL blocks something you want to do, [get in touch](TRADEMARK.md#requests).
+
+### Trademark
+
+The **Karst™** name and logo are covered separately by
+[TRADEMARK.md](TRADEMARK.md), not by the code licence. Referring to Karst,
+writing about it, and building things that work with it are all free and need
+no permission. Shipping your own product under the name is what is reserved.
+
+### Contributing
+
+Contributions are welcome and require a signed
+[Contributor License Agreement](CLA.md) — see [CONTRIBUTING.md](CONTRIBUTING.md).
+You keep your copyright; the CLA grants the project the right to license your
+contribution under the terms above, including the Apache 2.0 conversion.
+
+### Third-party software
+
+Licences for vendored and depended-upon third-party software are listed in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). All are permissive (MIT) and
+carry no obligations onto your use of Karst beyond their attribution notices.

@@ -351,8 +351,8 @@
     }
   },
   "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "author": "Andrii Haluza",
+  "license": "BUSL-1.1",
   "dependencies": {
     "better-sqlite3": "^12.11.1",
     "js-yaml": "^5.2.1"
