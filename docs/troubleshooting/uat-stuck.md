@@ -53,5 +53,12 @@ node "<ext>/dist/cli/main.js" --db "<db>" test set-stage \
 
 ## Paths
 
-- **Extension dist:** `~/.cursor/extensions/karst.karst-1.0.0/dist/cli/main.js`
-- **Database:** `~/Library/Application Support/Cursor/User/globalStorage/karst.karst/karst.db`
+- **Extension dist:** `~/.cursor/extensions/Karst.karst-1.0.0/dist/cli/main.js`
+- **Database:** `~/Library/Application Support/Cursor/User/globalStorage/Karst.karst/karst.db`
+
+Both paths carry the extension id, `<publisher>.<name>`, and the publisher is
+`Karst` with a capital K. An install made before that casing changed sits under
+`karst.karst-1.0.0` / `globalStorage/karst.karst/` instead, and the two
+directories do not share a database — an IDE that has seen both shows the newer
+one as empty rather than as an error. If tickets you expect are missing, look in
+the other directory before concluding anything was lost.
