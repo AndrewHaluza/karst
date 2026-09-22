@@ -93,7 +93,34 @@ produces thousands of spurious `openStore` failures. Use `npm run test:coverage`
   receive `debug` as an injected callback — never import the logger. Never log
   secrets, tokens, full prompts, or repository contents.
 
-## 6. Commits and pull requests
+## 6. The `karst` CLI while developing
+
+The agent-facing CLI (`dist/cli/main.js`, run with plain `node` so it never
+loads the Electron-ABI addon) carries verbs useful during development:
+`context`, `stats`, `guide`, `servers`, `env`, `compact`, `fix-brief` and
+`conflict-brief`, alongside the workflow verbs `stage`, `phase`, `graph` and
+`node`.
+
+`stage` is deliberately narrowed to `stage <impl|fix> pass` — `uat`, `review`
+and `ship` are refused. That narrowing is a security property, not an
+oversight: the agent reads ticket content it did not author, so prompt injection
+reaches argv, and each verb is parsed in a separate path so a forged
+`stage ship pass` cannot be constructed. **Do not widen it** without reading
+[`docs/arch/cli.md`](docs/arch/cli.md) first.
+
+### `karst test` — development only
+
+There is also a `karst test` driver that **bypasses gate verdicts entirely**. It
+can set a stage directly, inject a verdict, mark a PR merged, and reset the
+registry.
+
+It exists to drive the stage machine in development without waiting on real
+gates. It is not a user feature and is deliberately absent from the README.
+Using it against a registry you care about will produce ticket state that no
+gate ever justified — which is precisely the property the rest of the system
+exists to prevent. Point it at a scratch database.
+
+## 7. Commits and pull requests
 
 Conventional commits: `feat:`, `fix:`, `refactor:`, `docs:`, `test:`,
 `chore:`, `perf:`, `ci:`.
@@ -107,7 +134,7 @@ and never fails the check.
 
 Target `develop`, not `main`.
 
-## 7. Licensing of your contribution
+## 8. Licensing of your contribution
 
 Karst is distributed under the [Business Source License 1.1](LICENSE), which
 converts to Apache 2.0 on the Change Date. It is source-available, not
@@ -116,7 +143,7 @@ OSI-approved open source.
 Your contribution is licensed to the project under the terms of [CLA.md](CLA.md).
 Contributions are accepted only under those terms.
 
-## 8. Reporting security issues
+## 9. Reporting security issues
 
 Do not open a public issue for a security vulnerability. Use GitHub's private
 vulnerability reporting — see [SECURITY.md](SECURITY.md) for the process and
