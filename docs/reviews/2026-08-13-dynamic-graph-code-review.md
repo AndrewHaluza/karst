@@ -9,13 +9,13 @@
 
 Local worktree review — no PR open for this branch. Covered:
 
-- The two open findings in `FEATURE-REVIEW.md` (re-verified against current HEAD).
+- The two open findings in `2026-08-13-dynamic-graph-feature-review.md` (re-verified against current HEAD).
 - The last 10 commits: Slice-5 T6/T7 and Slice-6 T1–T4 (ACP transport, structured
   diagnostics, per-invocation usage rollup, graph node-list projection), plus the
   hooks injected-clock fix.
 
 **Not covered:** the full branch diff (297 commits, ~187k src insertions across
-761 files vs `main`). The earlier `FEATURE-REVIEW.md` pass used merge base
+761 files vs `main`). The earlier `2026-08-13-dynamic-graph-feature-review.md` pass used merge base
 `5b09050a`, which is no longer an ancestor of HEAD, so its scope could not be
 cleanly differenced.
 

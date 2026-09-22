@@ -1,0 +1,60 @@
+name: Feature request
+description: Propose a change in behaviour.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        If you intend to implement this yourself, open it here **first** and
+        wait for a reply. Karst has invariants that reject otherwise-good
+        code, and agreeing the approach here is cheaper than rewriting a
+        pull request.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: >
+        What are you trying to do that Karst makes hard or impossible?
+        Describe the situation, not the solution.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like instead
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you tried
+      description: >
+        Existing configuration, a different stage layout, a custom gate — and
+        why it fell short. This is often the most useful field.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Stages and gates
+        - Agent cores and adapters
+        - Worktrees, branches, servers
+        - GitHub and merge
+        - Manifest and settings
+        - Dashboard / UI
+        - The karst CLI
+        - Approach packages
+        - Other / not sure
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: contributing
+    attributes:
+      label: Implementation
+      options:
+        - label: I would like to implement this myself.

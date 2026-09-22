@@ -1,0 +1,95 @@
+name: Bug report
+description: Something in Karst behaves differently from how it is documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Do not report a security vulnerability here.** Use
+        [private vulnerability reporting](../../security/advisories/new) —
+        see [SECURITY.md](../../blob/main/SECURITY.md).
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you expected, and what you got instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: >
+        Smallest sequence that shows it. Name the ticket's stage when it
+        matters — a gate that misbehaves at `uat` often behaves at `impl`.
+      placeholder: |
+        1. Ticket at stage `impl`, one repository, one service
+        2. Run …
+        3. …
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Karst version
+      placeholder: "1.0.0"
+    validations:
+      required: true
+
+  - type: input
+    id: ide
+    attributes:
+      label: IDE and version
+      description: Help → About. Cursor and VS Code ship different Electron
+        versions, which changes the native addon ABI.
+      placeholder: "VS Code 1.126.0 / Cursor 3.19.2"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: core
+    attributes:
+      label: Agent core
+      options:
+        - claude
+        - codex
+        - opencode
+        - antigravity
+        - not agent-related
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: OS
+      placeholder: "macOS 15.6 arm64"
+    validations:
+      required: true
+
+  - type: textarea
+    id: manifest
+    attributes:
+      label: Relevant part of karst.yml
+      description: >
+        The block involved — the service, the gate, the convention. **Not the
+        whole file**, and redact anything private.
+      render: yaml
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Debug log
+      description: >
+        Set `debug: true` in `karst.yml` (or Settings → General), reproduce,
+        then copy the relevant lines from the **Karst** output channel. Lines
+        are prefixed `[driver]`, `[gate]`, `[agent:<name>]`, `[runtime]`,
+        `[merge]`, `[process]`.
+
+
+        Output is redacted for secrets before it is written, but read it
+        before you paste it.
+      render: shell

@@ -21,6 +21,21 @@ coverage
 # with every worktree's regenerated one. Rule carries no trailing slash for the
 # same reason (see src/runtime/karstExcludes.ts).
 .opencode/plugins/karst-*
+# Superpowers brainstorm sessions — a per-session local HTTP server's scratch:
+# `.last-token`/`.last-port` and each session's `state/` hold a live key, pid
+# and the absolute worktree path the server was launched from, and the
+# `content/*.html` beside them are that session's throwaway mockups. Session
+# directories are named `<pid>-<epoch>`, so a committed one is only ever one
+# machine's dead run. `sdd/` is NOT ignored: those are written task reports.
+.superpowers/brainstorm/
+# Opencode workflow commands, written per launch by OpencodeAdapter at the
+# approach's BARE id slug (`<id-slug>.md`, not `karst-*`) — so the name carries
+# no marker that separates a generated file from a source one, and nothing here
+# is source today. Each body embeds THIS machine's extension dir, globalStorage
+# karst.db and checkout root; a committed copy predates GENERATED_STAMP, so
+# writeGeneratedArtifact declines to rewrite it and another machine's dead
+# paths survive every launch. Same failure as the karst-rpi skill below.
+.opencode/commands/
 # Materialized at launch by ClaudeAdapter.materializeApproach — a build product
 # of the approach package, never a source.
 .karst-plugin/
