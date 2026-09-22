@@ -626,7 +626,7 @@ export interface Manifest {
   approaches?: ApproachDef[];
   /** Role-keyed configured agents; always set by `validateManifest` (`{}` default). */
   agents?: Record<string, AgentDef>;
-  /** Dashboard worktree-path rendering mode; always set (`'absolute'` default). */
+  /** Dashboard worktree-path rendering mode; always set (`'relative'` default). */
   worktreePathDisplay?: WorktreePathDisplay;
   /**
    * Ticket-label template with `{var}` tokens (key/title/id/status/stage/repos).
