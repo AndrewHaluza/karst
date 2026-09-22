@@ -247,6 +247,35 @@ approaches:
     entrypoint: gsd-next
     source: { type: git, repo: open-gsd/gsd-core, ref: main,
               include: [skills/gsd-next] }
+  # GitHub Spec Kit — spec-driven development. The upstream repo ships its phase
+  # prompts at `templates/commands/*.md`; the `commands` marker segment in that
+  # path classifies them as COMMANDS, so each `.md` lands at commands/<name>.md
+  # and becomes a real slash command `/speckit:<name>` at launch. `entrypoint`
+  # resolves to commands/specify.md.
+  #
+  # PREREQUISITE, and it is not optional: these prompts drive the `.specify/`
+  # scaffolding (scripts/, templates/, memory/constitution.md) that the spec-kit
+  # CLI writes into a repo. Karst fetches PROMPTS, never that scaffolding, and a
+  # ticket runs in a WORKTREE — so `.specify/` must be COMMITTED on the baseline
+  # branch of every repository this approach is used on, or the first phase fails
+  # looking for its scripts. Scaffold it once per repo with:
+  #   uvx --from git+https://github.com/github/spec-kit specify init --here \
+  #       --force --non-interactive --integration claude
+  # then commit `.specify/` (the `.claude/skills/speckit-*` it also writes are
+  # redundant here — karst supplies the prompts).
+  - id: speckit
+    label: Spec Kit
+    description: "Spec-driven: constitution → specify → clarify → plan → tasks → implement, each phase a durable artifact under specs/<feature>/."
+    entrypoint: specify
+    source: { type: git, repo: github/spec-kit, ref: main,
+              include: [templates/commands] }
+    workflow:
+      - { name: describe }
+      - { name: specify, command: /speckit:specify }
+      - { name: clarify, command: /speckit:clarify }
+      - { name: plan, command: /speckit:plan }
+      - { name: tasks, command: /speckit:tasks }
+      - { name: implement, command: /speckit:implement }
   - id: "superpowers:writing-plans"
     label: "Write a plan first"
     description: "Scope known but non-trivial — plan before executing."
