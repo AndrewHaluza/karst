@@ -18,6 +18,7 @@ import {
   type StartTicketOptions,
 } from './actions.js';
 import type { TicketFormActionsCtx } from './panel.js';
+import { routeTicketFormAction } from './messages.js';
 import type { TicketFormHostMessage } from './messages.js';
 import type { ContextBrief, TicketingProvider } from '../../integrations/ticketing.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
@@ -1995,6 +1996,47 @@ describe('buildTicketFormActions', () => {
       expect(getTicket(store, listTickets(store)[0]!.id).sourceRef).toBe('cu-new-1');
       expect(startTicket).not.toHaveBeenCalled();
       expect(ctx.posted).toContainEqual({ type: 'provider-ticket-created', ...CREATED });
+    });
+  });
+
+  describe('parser → router → persist pipeline', () => {
+    // Regression (P1-01, NDL-14): routeTicketFormAction rebuilt the submit/save
+    // action input field by field and omitted `effort`, so a picked effort was
+    // silently erased on Save and Create & run (the route expectations asserted
+    // the buggy object, so nothing caught it). The webview posts `effort` in
+    // both payloads; drive a raw message through the real parser, router, and
+    // actions into the store so the whole path is pinned, not just one layer.
+    it('keeps the picked effort on Create & run (submit)', async () => {
+      const ctx = mkCtx();
+      const actions = buildTicketFormActions(deps)(ctx);
+
+      routeTicketFormAction(
+        { type: 'submit', key: 'EFF-S', title: 'keep my effort', description: '', effort: 'high' },
+        actions,
+      );
+
+      await vi.waitFor(() => expect(ctx.boundTicketId).toBeDefined());
+      const id = ctx.boundTicketId!;
+      expect(getTicket(store, id).effort).toBe('high');
+      expect(startTicket).toHaveBeenCalledWith(id, { pullBase: true });
+    });
+
+    it('keeps the picked effort on Save, and an absent effort still clears to inherit', async () => {
+      const t = createTicket(store, { key: 'EFF-V', title: 't' });
+      updateTicketFields(store, t.id, { effort: 'high' });
+      const actions = buildTicketFormActions(deps)(mkCtx(t.id));
+
+      routeTicketFormAction(
+        { type: 'save', key: 'EFF-V', title: 't', description: '', effort: 'low' },
+        actions,
+      );
+      await vi.waitFor(() => expect(getTicket(store, t.id).effort).toBe('low'));
+      expect(startTicket).not.toHaveBeenCalled();
+
+      // "No effort in the message" must stay a clear-to-inherit, not a stale
+      // keep: blank/absent parses to null, which persistDraft writes as ''.
+      routeTicketFormAction({ type: 'save', key: 'EFF-V', title: 't', description: '' }, actions);
+      await vi.waitFor(() => expect(getTicket(store, t.id).effort).toBeNull());
     });
   });
 
