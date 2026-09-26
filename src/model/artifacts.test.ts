@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { openStore, type Store } from '../store/db.js';
+import { openStore, type NestableStore, type Store } from '../store/db.js';
 import { createTicket } from '../store/tickets.js';
 import { setStage } from '../store/stages.js';
 import { recordGateRun } from '../store/gateRuns.js';
@@ -27,7 +27,7 @@ import {
 } from './artifacts.js';
 
 describe('buildTicketArtifacts', () => {
-  let store: Store;
+  let store: NestableStore;
   beforeEach(() => (store = openStore(':memory:')));
   afterEach(() => store.close());
 
@@ -703,7 +703,7 @@ function seedGraphPlan(
 }
 
 describe('plan artifact (graph evidence)', () => {
-  let store: Store;
+  let store: NestableStore;
   beforeEach(() => (store = openStore(':memory:')));
   afterEach(() => store.close());
 
@@ -892,7 +892,7 @@ describe('plan artifact (graph evidence)', () => {
 });
 
 describe('plan artifact (session phases, non-graph)', () => {
-  let store: Store;
+  let store: NestableStore;
   beforeEach(() => (store = openStore(':memory:')));
   afterEach(() => store.close());
 
@@ -1049,7 +1049,7 @@ describe('plan artifact (session phases, non-graph)', () => {
 });
 
 describe('pickArtifactPreviews', () => {
-  let store: Store;
+  let store: NestableStore;
   beforeEach(() => (store = openStore(':memory:')));
   afterEach(() => store.close());
 
@@ -1080,7 +1080,7 @@ describe('pickArtifactPreviews', () => {
 });
 
 describe('findings sort order', () => {
-  let store: Store;
+  let store: NestableStore;
   beforeEach(() => (store = openStore(':memory:')));
   afterEach(() => store.close());
 

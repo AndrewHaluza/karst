@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from 'vite
 import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { openStore, type Store } from '../../store/db.js';
+import { openStore, type NestableStore, type Store } from '../../store/db.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
 import { createTicketFlow } from './create.js';
 import { getTicket } from '../../store/tickets.js';
@@ -100,7 +100,7 @@ function walkToReview(store: Store, id: number): void {
 }
 
 describe('runReview', () => {
-  let store: Store;
+  let store: NestableStore;
   let id: number;
   let artifactDir: string;
   let openDiff: Mock<OpenDiff>;
@@ -1180,7 +1180,7 @@ describe('runReview', () => {
 });
 
 describe('review findings lane (Lane B)', () => {
-  let store: Store;
+  let store: NestableStore;
   let id: number;
   let artifactDir: string;
 
@@ -1543,7 +1543,7 @@ describe('review findings lane (Lane B)', () => {
  * one.
  */
 describe('runReview — findings process run (Task 8)', () => {
-  let store: Store;
+  let store: NestableStore;
   let id: number;
   let artifactDir: string;
 
@@ -1890,7 +1890,7 @@ describe('runReview — findings process run (Task 8)', () => {
  * fail here even though it fails nowhere else in this file.
  */
 describe('runUat and runReview record identities R7 can actually compare (differential)', () => {
-  let store: Store;
+  let store: NestableStore;
   let id: number;
   let uatArtifactDir: string;
   let reviewArtifactDir: string;

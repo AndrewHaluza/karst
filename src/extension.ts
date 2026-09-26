@@ -5,7 +5,7 @@ import { spawn } from 'node:child_process';
 import { lstat as fsLstat, readFile as fsReadFile, readlink as fsReadlink, realpath as fsRealpath } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join } from 'node:path';
 
-import { openStore, type Store } from './store/db.js';
+import { openStore, type NestableStore, type Store } from './store/db.js';
 import { baselineDependentsFor } from './store/baselineRefs.js';
 import { backfillSpillOversized } from './attachments/spill.js';
 import { runImmediateTransaction } from './store/transactions.js';
@@ -608,10 +608,10 @@ const GRAPH_RECONCILE_INTERVAL_MS = 60_000;
  */
 const MERGE_SYNC_MIN_AGE_MS = 5 * 60_000;
 
-let store: Store | undefined;
+let store: NestableStore | undefined;
 let endpoint: HookEndpoint | undefined;
 let graphEndpoint: GraphWakeupEndpoint | undefined;
-let graphCoordinatorStore: Store | undefined;
+let graphCoordinatorStore: NestableStore | undefined;
 let graphTransport: SupervisedCliTransport | undefined;
 const pendingApproachInstalls = new Set<Promise<ApproachPackage>>();
 let flushSessionOwnership: (() => Promise<void>) | undefined;

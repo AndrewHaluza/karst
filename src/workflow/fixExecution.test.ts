@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { openStore, type Store } from '../store/db.js';
+import { openStore, type NestableStore, type Store } from '../store/db.js';
 import { createTicketFlow } from './stages/create.js';
 import { getTicket } from '../store/tickets.js';
 import { transition } from './machine.js';
@@ -25,7 +25,7 @@ const T1 = '2026-08-01T11:00:00.000Z';
 const T2 = '2026-08-01T12:00:00.000Z';
 
 /** Fail uat through the REAL commit seam so the recovery round is opened atomically. */
-function failUat(store: Store, id: number, reason = 'exit 1'): number {
+function failUat(store: NestableStore, id: number, reason = 'exit 1'): number {
   const runAt = now();
   const evidence = openGateRun(store, { ticketId: id, stageKey: 'uat', runAt });
   commitGateOutcome(store, {
@@ -50,7 +50,7 @@ function failUat(store: Store, id: number, reason = 'exit 1'): number {
 }
 
 describe('markFixDone — the stage fix pass marker', () => {
-  let store: Store;
+  let store: NestableStore;
   let id: number;
 
   beforeEach(() => {
@@ -122,7 +122,7 @@ describe('markFixDone — the stage fix pass marker', () => {
 });
 
 describe('resumeFixExecution — driver -> agent handoff', () => {
-  let store: Store;
+  let store: NestableStore;
   let id: number;
 
   beforeEach(() => {
@@ -276,7 +276,7 @@ describe('resumeFixExecution — driver -> agent handoff', () => {
 });
 
 describe('configured Fix session compatibility and readiness', () => {
-  let store: Store;
+  let store: NestableStore;
   let id: number;
 
   beforeEach(() => {
@@ -381,7 +381,7 @@ describe('configured Fix session compatibility and readiness', () => {
 });
 
 describe('production recovery never routes through runFix', () => {
-  let store: Store;
+  let store: NestableStore;
   let id: number;
 
   beforeEach(() => {

@@ -78,6 +78,28 @@ describe('openWritableStore', () => {
     check.close();
   });
 
+  it('refuses a nested store.db.transaction() with a named error instead of a bare SQLite parse failure (NDL-35)', () => {
+    const store = openWritableStore(dbPath);
+    try {
+      const outer = store.db.transaction(() => {
+        const inner = store.db.transaction(() => {
+          store.db.prepare('UPDATE tickets SET title = ? WHERE id = ?').run('mutated', 1);
+        });
+        inner();
+      });
+      // better-sqlite3 would nest this as a SAVEPOINT; this flat CLI shim cannot,
+      // and must say so rather than surface SQLite's generic parse error.
+      expect(() => outer()).toThrow(/nested store\.db\.transaction\(\) is not supported/);
+    } finally {
+      store.close();
+    }
+
+    const check = openStore(dbPath);
+    const row = check.db.prepare('SELECT title FROM tickets WHERE id = ?').get(1) as { title: string };
+    expect(row.title).toBe('demo'); // the outer transaction rolled back too
+    check.close();
+  });
+
   it('offers better-sqlite-compatible immediate transactions that lock before the body', () => {
     const store = openWritableStore(dbPath);
     let contenderWasBlocked = false;

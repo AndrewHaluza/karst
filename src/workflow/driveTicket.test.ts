@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { openStore, type Store } from '../store/db.js';
+import { openStore, type NestableStore, type Store } from '../store/db.js';
 import { getTicket, pauseTicket } from '../store/tickets.js';
 import { stageBlock } from '../store/stageBlocks.js';
 import { listProcessRuns } from '../store/processRuns.js';
@@ -98,7 +98,7 @@ describe('fixResumeDecision', () => {
 const cleanGit: GitRunner = async () => ({ exitCode: 0, stdout: '', stderr: '' });
 
 describe('driveTicket', () => {
-  let store: Store;
+  let store: NestableStore;
   let id: number;
   let workDir: string;
   let artifactDir: string;

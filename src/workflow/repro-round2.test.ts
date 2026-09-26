@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { openStore, type Store } from '../store/db.js';
+import { openStore, type NestableStore, type Store } from '../store/db.js';
 import { getTicket } from '../store/tickets.js';
 import { transition } from './machine.js';
 import { createTicketFlow } from './stages/create.js';
@@ -19,7 +19,7 @@ const now = () => '2026-08-01T10:00:00.000Z';
 const T1 = '2026-08-01T11:00:00.000Z';
 
 describe('REPRO: review-origin round 2 resume', () => {
-  let store: Store;
+  let store: NestableStore;
   let id: number;
   let artifactDir: string;
   let resumed: any[];

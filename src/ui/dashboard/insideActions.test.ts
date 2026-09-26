@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { openStore, type Store } from '../../store/db.js';
+import { openStore, type NestableStore, type Store } from '../../store/db.js';
 import { recordFindings } from '../../store/reviewFindings.js';
 import { recordUatFindings } from '../../store/uatFindings.js';
 import { openShipRun, openShipRepoStep, finishShipRepoStep, recordShipCommit } from '../../store/shipRuns.js';
@@ -15,7 +15,7 @@ import {
   type InsideActionHost,
 } from './insideActions.js';
 
-let store: Store;
+let store: NestableStore;
 
 beforeEach(() => {
   store = openStore(':memory:');

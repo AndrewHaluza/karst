@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { openStore, type Store } from '../../store/db.js';
+import { openStore, type NestableStore, type Store } from '../../store/db.js';
 import { createTicket, updateTicketFields } from '../../store/tickets.js';
 import { setStage } from '../../store/stages.js';
 import { transition } from '../../workflow/machine.js';
@@ -30,7 +30,7 @@ import { manifest, repo } from '../../manifest/fixtures.js';
 import { resolveAgentDefaults } from '../../agent/agentPresets.js';
 
 describe('buildDashboardState', () => {
-  let store: Store;
+  let store: NestableStore;
   beforeEach(() => (store = openStore(':memory:')));
   afterEach(() => store.close());
 
@@ -1149,7 +1149,7 @@ describe('buildDashboardState', () => {
 });
 
 describe('buildDashboardState — ship header slot', () => {
-  let store: Store;
+  let store: NestableStore;
   beforeEach(() => (store = openStore(':memory:')));
   afterEach(() => store.close());
 
@@ -1179,7 +1179,7 @@ describe('buildDashboardState — ship header slot', () => {
 });
 
 describe('buildDashboardState — send back to implement', () => {
-  let store: Store;
+  let store: NestableStore;
   let seq = 0;
   beforeEach(() => {
     store = openStore(':memory:');
@@ -1270,7 +1270,7 @@ describe('buildDashboardState — send back to implement', () => {
 });
 
 describe('buildDashboardState — PR feedback action', () => {
-  let store: Store;
+  let store: NestableStore;
   let seq = 0;
   const T0 = '2026-01-01T00:00:00.000Z';
   const BLOCK_REASON = 'PR #412 is open and unmerged';
@@ -1392,7 +1392,7 @@ describe('buildDashboardState — PR feedback action', () => {
 });
 
 describe('buildDashboardState — runnable scope', () => {
-  let store: Store;
+  let store: NestableStore;
   beforeEach(() => (store = openStore(':memory:')));
 
   function scoped(repos: string[]): number {
@@ -1426,7 +1426,7 @@ describe('buildDashboardState — runnable scope', () => {
 });
 
 describe('insideViews (the six-stage inside presentation)', () => {
-  let store: Store;
+  let store: NestableStore;
   beforeEach(() => (store = openStore(':memory:')));
   afterEach(() => store.close());
 
@@ -1653,7 +1653,7 @@ describe('insideViews (the six-stage inside presentation)', () => {
 });
 
 describe('buildDashboardState — graph inside projection (Slice-2 T10)', () => {
-  let store: Store;
+  let store: NestableStore;
   beforeEach(() => (store = openStore(':memory:')));
   afterEach(() => store.close());
 
@@ -1686,7 +1686,7 @@ describe('buildDashboardState — graph inside projection (Slice-2 T10)', () => 
 });
 
 describe('buildDashboardState — round switcher selection (Option B, T4)', () => {
-  let store: Store;
+  let store: NestableStore;
   beforeEach(() => (store = openStore(':memory:')));
   afterEach(() => store.close());
 
@@ -1857,7 +1857,7 @@ describe('buildDashboardState — round switcher selection (Option B, T4)', () =
 });
 
 describe('buildDashboardState — findings repo selection', () => {
-  let store: Store;
+  let store: NestableStore;
   beforeEach(() => (store = openStore(':memory:')));
   afterEach(() => store.close());
 
@@ -1907,7 +1907,7 @@ describe('buildDashboardState — findings repo selection', () => {
 });
 
 describe('inside: a re-entered gate stage shows the current invocation', () => {
-  let store: Store;
+  let store: NestableStore;
   beforeEach(() => (store = openStore(':memory:')));
   afterEach(() => store.close());
 
@@ -1994,7 +1994,7 @@ describe('inside: a re-entered gate stage shows the current invocation', () => {
 });
 
 describe('inside: a gate result superseded by an in-flight recovery round', () => {
-  let store: Store;
+  let store: NestableStore;
   beforeEach(() => (store = openStore(':memory:')));
   afterEach(() => store.close());
 
@@ -2123,7 +2123,7 @@ describe('inside: a gate result superseded by an in-flight recovery round', () =
 });
 
 describe('inside: the re-entry window with two or more recorded attempts (Finding 1)', () => {
-  let store: Store;
+  let store: NestableStore;
   beforeEach(() => (store = openStore(':memory:')));
   afterEach(() => store.close());
 
