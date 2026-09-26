@@ -629,9 +629,12 @@ export async function runUat(
   }
   // The run was opened by `runUatTester` under the driver's single-flight;
   // read the id back so the verifier trigger can name the exact Tester
-  // execution (a recovery round must never guess at its source process).
+  // execution (a recovery round must never guess at its source process). Scope
+  // to THIS attempt's stage run: `listProcessRuns` spans the ticket's whole
+  // history, so an attempt that ran no Tester would otherwise attribute its
+  // verifier failure to a stale tester run from an earlier attempt.
   for (const run of listProcessRuns(store, opts.ticketId).reverse()) {
-    if (run.processId === 'tester') {
+    if (run.processId === 'tester' && run.stageRunId === evidence.runId) {
       testerRunId = run.id;
       break;
     }

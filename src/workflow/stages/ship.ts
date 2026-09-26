@@ -595,7 +595,11 @@ async function reconcileStep(
     case 'push': {
       if (pre.step !== 'push' || intent.step !== 'push') return ambiguous('unreadable push ownership data');
       const now = await remoteRefSha(git, path, pre.remote, pre.ref);
-      if ((now ?? '') === intent.localHead) {
+      // Mirror the forward guard (`localHead !== '' && preRemoteHead === localHead`
+      // at the push step): an unreadable local head (`''`) is not a head, and an
+      // unreadable remote ref (`null`) is "nothing to compare" — never a match.
+      // Without this, `(null ?? '') === ''` adopted a push that never happened.
+      if (intent.localHead !== '' && now === intent.localHead) {
         adopted('adopted push');
         return;
       }

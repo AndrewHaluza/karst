@@ -1013,6 +1013,18 @@ function isStr(v: unknown): v is string {
   return typeof v === 'string' && v.length > 0;
 }
 
+/**
+ * A persisted head that may be ABSENT: the push path records `''` when
+ * `rev-parse HEAD` failed (`headCommit(...) ?? ''`), and that is a legitimate
+ * recorded state, not malformed data. Rejecting it made an interrupted push
+ * with an unreadable head read as `ambiguous` (needs a human) instead of
+ * `failed` (retry the push). Reconcile still refuses to ADOPT such an intent —
+ * see the `localHead !== ''` guard in `reconcileStep`.
+ */
+function isStrOrEmpty(v: unknown): v is string {
+  return typeof v === 'string';
+}
+
 function isStrOrNull(v: unknown): v is string | null {
   return v === null || isStr(v);
 }
@@ -1071,7 +1083,7 @@ export function parseShipPreState(
     }
     case 'push': {
       const { localHead, remote, ref, preRemoteHead } = parsed;
-      if (!isStr(localHead) || !isStr(remote) || !isStr(ref) || !isStrOrNull(preRemoteHead)) {
+      if (!isStrOrEmpty(localHead) || !isStr(remote) || !isStr(ref) || !isStrOrNull(preRemoteHead)) {
         return null;
       }
       return { step, localHead, remote, ref, preRemoteHead };
@@ -1118,7 +1130,7 @@ export function parseShipIntent(
     }
     case 'push': {
       const { localHead, remote, ref, preRemoteHead } = parsed;
-      if (!isStr(localHead) || !isStr(remote) || !isStr(ref) || !isStrOrNull(preRemoteHead)) {
+      if (!isStrOrEmpty(localHead) || !isStr(remote) || !isStr(ref) || !isStrOrNull(preRemoteHead)) {
         return null;
       }
       return { step, localHead, remote, ref, preRemoteHead };
