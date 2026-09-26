@@ -1317,7 +1317,6 @@
      button there would read as the panel's subject. */
   .phead .iconbtn{margin-left:auto}
   .pbody{padding:var(--k-space-3) var(--k-space-4) var(--k-space-5)}
-  .empty{padding:var(--k-space-7) var(--k-space-6);color:var(--k-text-faint);font-size:var(--k-text-md)}
 
   .wt,.pr{display:flex;align-items:center;gap:var(--k-space-5);padding:var(--k-space-4) var(--k-space-3);border-radius:var(--k-radius-md);min-width:0}
   /* Only the PR row wraps at narrow widths: the URL keeps a 150px floor and
@@ -3619,7 +3618,7 @@
           : '')
         + `</span></div>`;
       return `<div class="wtwrap" data-wtwrap="${esc(w.repo)}">${row}${renderBasePopover(w)}</div>`;
-    }).join('') : '<div class="empty">No worktrees.</div>';
+    }).join('') : '<div class="k-empty"><div class="k-empty-title">No worktrees.</div></div>';
   }
 
   // Mergeability under a PR row. Every string is the host's
@@ -3832,7 +3831,7 @@
       + mergeLine(byRepo[p.repo])
       + prComments(p)
       + `</div>`;
-    }).join('') : '<div class="empty">No pull requests.</div>';
+    }).join('') : '<div class="k-empty"><div class="k-empty-title">No pull requests.</div></div>';
   }
 
   // The header's ticket identity: provider mark + copy-key button + a SEPARATE

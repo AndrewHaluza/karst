@@ -311,12 +311,6 @@
       margin-inline: var(--k-space-5);
       color: var(--k-text-dim);
     }
-    .empty {
-      padding: var(--k-space-7);
-      color: var(--k-text-dim);
-      border: var(--k-border-w) dashed var(--k-border);
-      text-align: center;
-    }
     .clean-state {
       text-align: left;
       border-style: solid;
@@ -569,14 +563,14 @@
       const rows = visible.map(worktreeRow).join('');
       if (visible.length) {
         repos.innerHTML = (allClean
-          ? '<div class="empty clean-state">All ticket worktrees are clean. There are no commits or pending files to diff.</div>'
+          ? '<div class="k-empty clean-state"><div class="k-empty-title">All ticket worktrees are clean. There are no commits or pending files to diff.</div></div>'
           : '') + rows;
       } else if (needle) {
-        repos.innerHTML = '<div class="empty">No changes match this filter. Clear the filter to see all repositories.</div>';
+        repos.innerHTML = '<div class="k-empty"><div class="k-empty-title">No changes match this filter. Clear the filter to see all repositories.</div></div>';
       } else if (loading) {
-        repos.innerHTML = '<div class="empty">Loading ticket worktrees…</div>';
+        repos.innerHTML = '<div class="k-empty"><div class="k-empty-title">Loading ticket worktrees…</div></div>';
       } else {
-        repos.innerHTML = '<div class="empty">No ticket worktrees. Create or attach worktrees, then refresh.</div>';
+        repos.innerHTML = '<div class="k-empty"><div class="k-empty-title">No ticket worktrees. Create or attach worktrees, then refresh.</div></div>';
       }
       // No text swap (UI-R18): "Refresh" stays "Refresh"; aria-busy plus the
       // primitive's own spinner carries the pending meaning instead.

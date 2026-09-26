@@ -55,11 +55,13 @@
 
   .svc{display:flex;align-items:center;gap:var(--k-space-5);padding:var(--k-space-3) var(--k-space-2)}
   .svc input.signals{font-family:var(--k-font-mono);font-size:var(--k-text-md);flex:1;width:auto}
-  .badge{font-size:var(--k-text-2xs);padding:var(--k-space-1) var(--k-space-6);border-radius:var(--k-radius-lg);
-    background:var(--vscode-badge-background);color:var(--vscode-badge-foreground)}
-  .badge.ai{background:transparent;
+  /* "ai" marks an AI-sourced suggestion — a state the shared `.k-chip`
+     component has no vocabulary for (it isn't success/failure), so it stays a
+     small supplemental rule layered on top of `.k-chip`, the same way
+     `settings/webview.html`'s `.k-chip.generated` layers on top of `.k-chip`. */
+  .k-chip.ai{background:transparent;
     color:var(--k-link);
-    border:var(--k-border-w) solid var(--k-link);margin-right:var(--k-space-1)}
+    border-color:var(--k-link);margin-right:var(--k-space-1)}
   /* Layout-only modifier for a badge riding beside chip text — see the repo
      chip's "no service" badge (kept off the k-chip primitive's own rule). */
   .chip-badge{margin-left:var(--k-space-3)}
@@ -74,7 +76,6 @@
      (fetch/attach/host errors); "Title is required" ALSO marks the title
      field itself via aria-invalid/aria-describedby (§ DESIGN-SYSTEM 4.5). */
   .err{color:var(--k-danger);font-size:var(--k-text-md);margin-top:var(--k-space-4)}
-  .empty{opacity:.5;font-size:var(--k-text-md);padding:var(--k-space-3) var(--k-space-2)}
 
   .attachrow{display:flex;align-items:center;gap:var(--k-space-4);margin-top:var(--k-space-3)}
   /* Caption beside a control (the "or paste…" hint next to Attach…) — the
@@ -553,7 +554,7 @@
       <div id="agentPicker" class="hidden">
         <label for="agentSelect">Subagent</label>
         <select class="k-input" id="agentSelect"></select>
-        <div class="empty hidden" id="agentEmpty">No agents available — add them in Settings.</div>
+        <div class="k-empty hidden" id="agentEmpty"><div class="k-empty-title">No agents available — add them in Settings.</div></div>
       </div>
       <!-- The UNIFIED agent identity picker (agent core + model + effort/variant)
            — the same element Settings-general, the graph config and the
@@ -969,7 +970,7 @@
     if (!row) return '';
     const value = draft.baseRefs[repo] ?? row.value ?? '';
     // The "changed" affordance the design system already uses for an
-    // overridden default (`.badge`, §11.8 non-interactive compact
+    // overridden default (`.k-chip`, §11.8 non-interactive compact
     // information) — not a new component.
     const changed = value.trim() !== '' && value.trim() !== row.default;
     const listId = 'base-branches-' + esc(repo);
@@ -980,7 +981,7 @@
       + ` placeholder="${esc(row.default)}" value="${esc(value)}"`
       + ` data-base-input="${esc(repo)}" data-base-default="${esc(row.default)}"`
       + ` aria-label="Base branch for ${esc(repo)}">`
-      + `<span class="badge${changed ? '' : ' hidden'}" data-base-changed>changed</span>`
+      + `<span class="k-chip${changed ? '' : ' hidden'}" data-base-changed>changed</span>`
       + `<datalist id="${listId}">${options}</datalist>`
       + `</label>`;
   }
@@ -1015,8 +1016,8 @@
       const chip = `<button type="button" class="k-chip repochip" data-repo="${esc(r.service)}" aria-pressed="${on}"${title}>`
         + `<span class="tick" aria-hidden="true">✓</span>`
         + `<span>${esc(r.service)}</span>`
-        + (r.runnable === false ? `<span class="badge chip-badge">no service</span>` : '')
-        + (r.docker ? `<span class="badge chip-badge">docker</span>` : '')
+        + (r.runnable === false ? `<span class="k-chip chip-badge">no service</span>` : '')
+        + (r.docker ? `<span class="k-chip chip-badge">docker</span>` : '')
         + `</button>`;
       const base = on ? renderBaseField(r.service, baseRowFor(r.service)) : '';
       return `<div class="repo-row">${chip}${base}</div>`;
@@ -1073,10 +1074,10 @@
       `<button type="button" class="acard" role="radio" aria-checked="${a.id===sel}" data-approach="${esc(a.id)}">`
       + `<span class="radio" aria-hidden="true"></span>`
       + `<span class="amain">`
-      + `<span class="aname">${esc(a.label)}${a.recommended ? ' <span class="badge">Recommended</span>' : ''}</span>`
+      + `<span class="aname">${esc(a.label)}${a.recommended ? ' <span class="k-chip">Recommended</span>' : ''}</span>`
       + (a.description ? `<span class="adesc">${esc(a.description)}</span>` : '')
       + (aiSuggestion && aiSuggestion.id === a.id
-          ? `<span class="adesc"><span class="badge ai">Recommend</span>: ${esc(aiSuggestion.reason || 'best fit for this ticket')}</span>`
+          ? `<span class="adesc"><span class="k-chip ai">Recommend</span>: ${esc(aiSuggestion.reason || 'best fit for this ticket')}</span>`
           : '')
       + `</span>`
       + `</button>`
@@ -1637,7 +1638,7 @@
         '<div class="searchopt" role="option" tabindex="0" data-ref="' + esc(r.ref) + '" aria-selected="false">'
         + '<span class="search-ref">' + esc(r.ref) + '</span>'
         + '<span class="search-title" title="' + esc(r.title) + '">' + esc(r.title) + '</span>'
-        + (r.status ? '<span class="badge">' + esc(r.status) + '</span>' : '')
+        + (r.status ? '<span class="k-chip">' + esc(r.status) + '</span>' : '')
         + (r.priority ? '<span class="searchprio">' + esc(r.priority) + '</span>' : '')
         + '</div>'
       )).join('');
