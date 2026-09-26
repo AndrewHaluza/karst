@@ -696,6 +696,8 @@ Required mapping:
 - running → blue spinner;
 - needs attention / paused / blocked → amber pause icon;
 - failed → red cross;
+- bypassed (every gate disabled for the ticket) → neutral ⊘ marker, never the
+  green check (the stage advanced without proving a gate pass);
 - pending / not checked → neutral circle/dot.
 
 Every marker has an accessible name describing the actual state.

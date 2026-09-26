@@ -30,5 +30,8 @@ export function glyphFor(stageStatus: StageStatus, agentState: AgentState): Glyp
   if (stageStatus === 'failed') return 'red';
   if (stageStatus === 'running' || agentState === 'running') return 'blue';
   if (stageStatus === 'passed') return 'green';
-  return 'gray'; // pending / idle / skipped
+  // `bypassed` is NOT green: the user disabled every gate, so nothing was
+  // proven. It rides the neutral reading — the rail's distinct ⊘ glyph carries
+  // the bypass (UI-R28: colour is never the only carrier).
+  return 'gray'; // pending / idle / skipped / bypassed
 }

@@ -170,6 +170,10 @@ export function dotFor(cell: StepperCell): InsideDot {
       return 'fail';
     case 'skipped':
       return 'idle';
+    // Every gate disabled for this ticket: the stage advanced without gating,
+    // so it reads as an idle (not done/passed) header dot.
+    case 'bypassed':
+      return 'idle';
     default:
       return 'pend';
   }

@@ -63,6 +63,10 @@ function stageProcessStatus(cell: StepperCell): InsideStatus {
       return 'wait';
     case 'skipped':
       return 'skip';
+    // A stage whose every gate was disabled: the question was withdrawn for
+    // this ticket, so its process rows read `skip` — never `pass`.
+    case 'bypassed':
+      return 'skip';
     default:
       return 'pending';
   }

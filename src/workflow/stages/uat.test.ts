@@ -843,10 +843,14 @@ describe('runUat', () => {
     expect(result).toEqual({ kind: 'advanced', next: 'review' });
   });
 
-  it('advances when every uat gate is disabled — the user chose to skip all checks', async () => {
+  it('advances bypassed when every uat gate is disabled — the user chose to skip all checks', async () => {
     setDisabledGates(store, id, 'uat', ['test', 'e2e']);
     const result = await runUat(store, { ticketId: id, cwd: '/wt/web', artifactDir }, deps());
     expect(result).toEqual({ kind: 'advanced', next: 'review' });
+    // The pipeline continues, but the stage records `bypassed`, never `passed`:
+    // no gate outcome was proven (P2-18).
+    const uat = getTicket(store, id).stages.find((s) => s.stageKey === 'uat')!;
+    expect(uat.status).toBe('bypassed');
   });
 
   // v25: the run existing at all, and what it ended as, is what resolves

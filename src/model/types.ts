@@ -17,8 +17,16 @@ export type StageKey =
   | 'ship'
   | 'done';
 
-/** Per-stage lifecycle status (§6 stages.status). */
-export type StageStatus = 'pending' | 'running' | 'passed' | 'failed' | 'skipped';
+/**
+ * Per-stage lifecycle status (§6 stages.status).
+ *
+ * `bypassed` is the outcome of a gate stage (uat/review) whose every gate the
+ * user switched off for this ticket: the stage did not gate, so it is NOT
+ * `passed`, and it did not park either — the pipeline continues. It is a
+ * deliberate skip, distinct from `skipped` (a stage that never ran) and from a
+ * real gate pass: no gate outcome was proven, only that the user disabled them.
+ */
+export type StageStatus = 'pending' | 'running' | 'passed' | 'failed' | 'skipped' | 'bypassed';
 
 /**
  * Agent liveness, driven ONLY by hooks (§5.4, §5.6) — orthogonal to StageStatus.
@@ -30,10 +38,17 @@ export type AgentState = 'running' | 'waiting' | 'idle' | 'none';
  * The transition currency (§5.4). A transition REQUIRES a definite verdict;
  * `null` means "no verdict yet" and MUST NOT cause a transition
  * (the no-inference guarantee).
+ *
+ * `bypassed` is definite: every gate of a gate stage (uat/review) was
+ * deliberately disabled for this ticket, so the stage could not ask its
+ * question at all. It takes the same forward edge as `passed` — the pipeline
+ * continues — but the stage row records `bypassed`, never `passed`: the user
+ * chose to skip the check, so no gate outcome was proven.
  */
 export type Verdict =
   | { kind: 'passed' }
   | { kind: 'failed'; reason?: string }
+  | { kind: 'bypassed' }
   | null;
 
 /** The ordered set of MVP stages, for seeding a ticket's stage rows. */

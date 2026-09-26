@@ -425,6 +425,15 @@
   /* Skipped is the one status that leaves the stage ramp: a stage that never ran
      has no identity to assert, so it reads neutral. */
   .track .seg.skipped{background:color-mix(in srgb,var(--k-pending) 22%,transparent);color:var(--k-text-faint)}
+  /* Bypassed also leaves the stage ramp — every gate was disabled for this
+     ticket, so no gate outcome (and so no stage identity) was proven — but it is
+     NOT "never ran": it advanced. It carries a neutral hatch (the same geometry
+     as failed's, in the neutral pending token) plus the ⊘ glyph, distinct from
+     passed's stage wash and from skipped's flat neutral (UI-R28). */
+  .track .seg.bypassed{color:var(--k-text-faint);
+    background-image:repeating-linear-gradient(135deg,
+      color-mix(in srgb,var(--k-pending) 32%,transparent) 0 var(--k-space-3),
+      transparent var(--k-space-3) var(--k-space-6))}
   /* Needs-you OUTRANKS the stage: the stage is no longer the point, the human is.
      Amber wash + pause glyph + the reason in words + the action = four carriers. */
   .track .seg.needs{background:color-mix(in srgb,var(--k-attention) 30%,transparent);
@@ -2018,12 +2027,12 @@
   // segment's own rule sets no colour (so the stage palette can), which leaves an
   // untravelled segment wearing its stage hue at full strength unless something
   // says otherwise.
-  const SEG_CLASS = { passed: 'passed', running: 'running', failed: 'failed', pending: 'pending', skipped: 'skipped', blocked: 'blocked' };
+  const SEG_CLASS = { passed: 'passed', running: 'running', failed: 'failed', pending: 'pending', skipped: 'skipped', blocked: 'blocked', bypassed: 'bypassed' };
   // Running renders a spinner ELEMENT, not a character — see the .spin rule for
   // why every glyph candidate misread on a clickable node. A blocked stage is
   // NOT running: it carries the same pause a parked confirm stage does.
   const SPINNER = '<span class="spin" aria-hidden="true"></span>';
-  const SEG_GLYPH = { passed: '✓', running: SPINNER, failed: '✕', pending: '·', skipped: '–', blocked: '❚❚' };
+  const SEG_GLYPH = { passed: '✓', running: SPINNER, failed: '✕', pending: '·', skipped: '–', blocked: '❚❚', bypassed: '⊘' };
   // A parked confirm stage carries a pause; a conflicted merge carries a warning.
   // Two glyphs, ONE state — merge has no failed edge, so a conflict is a wording
   // difference and must never render as something a retry could clear.
