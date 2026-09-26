@@ -51,6 +51,32 @@ export interface TicketChangesSnapshot {
   targets: ReadonlyMap<string, DiffTarget>;
 }
 
+/**
+ * Resolve an opaque `changeId` to the file view the host itself built for it,
+ * or `null` when the id is stale or forged. This is the ONLY path from a
+ * webview's `open-file` request to an on-disk file: the webview never supplies
+ * a path, so a crafted message cannot aim `Uri.file` anywhere the snapshot did
+ * not already name.
+ */
+export function findChangedFile(
+  snapshot: TicketChangesSnapshot,
+  changeId: string,
+): ChangedFileView | null {
+  for (const worktree of snapshot.state.worktrees) {
+    for (const files of [
+      worktree.staged,
+      worktree.unstaged,
+      worktree.untracked,
+      ...worktree.commits.map((commit) => commit.files),
+    ]) {
+      for (const file of files) {
+        if (file.changeId === changeId) return file;
+      }
+    }
+  }
+  return null;
+}
+
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }

@@ -2,6 +2,8 @@ import { readFileSync } from 'node:fs';
 
 export const SERVER_LOG_READ_CAP_BYTES = 2 * 1024 * 1024;
 
+const TRUNCATION_MARKER = '\n[server log truncated]\n';
+
 export interface ServerLogsResult {
   servers: Array<{
     service: string;
@@ -9,6 +11,20 @@ export interface ServerLogsResult {
     content: string;
     truncated: boolean;
   }>;
+}
+
+/**
+ * The largest byte offset <= `limit` that does not split a UTF-8 character, so
+ * a byte slice taken there decodes without a replacement character. A byte in
+ * the continuation range at the cut means the character owning it began
+ * earlier, so step back to its lead byte. Logs are stored/compared in BYTES
+ * (see `lastSizes`), never character indices — mixing the two re-emits or skips
+ * a segment whenever the log carries any multi-byte character.
+ */
+function utf8SafeOffset(buf: Buffer, limit: number): number {
+  let end = Math.min(limit, buf.length);
+  while (end > 0 && end < buf.length && (buf[end]! & 0xc0) === 0x80) end--;
+  return end;
 }
 
 export class ServerLogsReader {
@@ -27,15 +43,20 @@ export class ServerLogsReader {
           return { service: s.service, logPath: s.logPath, content: '', truncated: false };
         }
         try {
-          const content = readFileSync(s.logPath, 'utf8');
-          const byteLen = Buffer.byteLength(content, 'utf8');
-          if (byteLen <= SERVER_LOG_READ_CAP_BYTES) {
-            return { service: s.service, logPath: s.logPath, content, truncated: false };
+          const bytes = readFileSync(s.logPath);
+          if (bytes.length <= SERVER_LOG_READ_CAP_BYTES) {
+            return {
+              service: s.service,
+              logPath: s.logPath,
+              content: bytes.toString('utf8'),
+              truncated: false,
+            };
           }
+          const end = utf8SafeOffset(bytes, SERVER_LOG_READ_CAP_BYTES);
           return {
             service: s.service,
             logPath: s.logPath,
-            content: `${content.slice(0, SERVER_LOG_READ_CAP_BYTES)}\n[server log truncated]\n`,
+            content: `${bytes.subarray(0, end).toString('utf8')}${TRUNCATION_MARKER}`,
             truncated: true,
           };
         } catch {
@@ -55,8 +76,7 @@ export class ServerLogsReader {
     for (const s of servers) {
       if (!s.logPath) continue;
       try {
-        const stat = readFileSync(s.logPath, 'utf8');
-        this.lastSizes.set(s.service, Buffer.byteLength(stat, 'utf8'));
+        this.lastSizes.set(s.service, readFileSync(s.logPath).length);
       } catch {
         this.lastSizes.set(s.service, 0);
       }
@@ -66,16 +86,16 @@ export class ServerLogsReader {
       for (const s of servers) {
         if (!s.logPath) continue;
         try {
-          const content = readFileSync(s.logPath, 'utf8');
-          const byteLen = Buffer.byteLength(content, 'utf8');
+          const bytes = readFileSync(s.logPath);
+          const byteLen = bytes.length;
           const prev = this.lastSizes.get(s.service) ?? 0;
           if (byteLen > prev) {
-            const chunk = content.slice(prev);
+            const start = utf8SafeOffset(bytes, prev);
             this.lastSizes.set(s.service, byteLen);
-            onOutput(ticketId, s.service, chunk);
+            onOutput(ticketId, s.service, bytes.subarray(start).toString('utf8'));
           } else if (byteLen < prev) {
             this.lastSizes.set(s.service, 0);
-            onOutput(ticketId, s.service, content);
+            onOutput(ticketId, s.service, bytes.toString('utf8'));
           }
         } catch {
           this.debug?.(`[server-logs] poll read failed: ${s.service}`);

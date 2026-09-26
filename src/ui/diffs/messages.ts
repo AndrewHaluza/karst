@@ -5,7 +5,14 @@ import type { TicketChangesState } from './snapshot.js';
 export type ChangesWebviewMessage =
   | { type: 'refresh' }
   | { type: 'open-diff'; changeId: string }
-  | { type: 'open-file'; absolutePath: string }
+  /**
+   * Open a changed file in an editor. Carries the opaque `changeId` ONLY: the
+   * host re-derives the on-disk path from the snapshot it loaded, exactly like
+   * `open-diff` and the SCM tree. A webview-supplied absolute path is never
+   * trusted at this boundary — a crafted message must not aim `Uri.file` at an
+   * arbitrary local file.
+   */
+  | { type: 'open-file'; changeId: string }
   | { type: 'discard'; changeId: string }
   | { type: 'unstage'; changeId: string }
   | { type: 'copy-hash'; hash: string };
@@ -43,7 +50,8 @@ export type ChangesHostMessage =
 export interface ChangesActions {
   refresh(): void | Promise<void>;
   openDiff(changeId: string): void | Promise<void>;
-  openFile(absolutePath: string): void | Promise<void>;
+  /** `changeId` is opaque; the implementation resolves the path host-side. */
+  openFile(changeId: string): void | Promise<void>;
   discard(changeId: string): void | Promise<void>;
   unstage(changeId: string): void | Promise<void>;
   copyHash(hash: string): void | Promise<void>;
@@ -62,8 +70,8 @@ export function parseChangesMessage(raw: unknown): ChangesWebviewMessage | null 
         ? { type: 'open-diff', changeId: message.changeId }
         : null;
     case 'open-file':
-      return typeof message.absolutePath === 'string' && message.absolutePath.length > 0
-        ? { type: 'open-file', absolutePath: message.absolutePath }
+      return typeof message.changeId === 'string' && message.changeId.length > 0
+        ? { type: 'open-file', changeId: message.changeId }
         : null;
     case 'discard':
       return typeof message.changeId === 'string' && message.changeId.length > 0
@@ -96,7 +104,7 @@ export function routeChangesAction(msg: ChangesWebviewMessage, actions: ChangesA
     case 'open-diff':
       return actions.openDiff(msg.changeId);
     case 'open-file':
-      return actions.openFile(msg.absolutePath);
+      return actions.openFile(msg.changeId);
     case 'discard':
       return actions.discard(msg.changeId);
     case 'unstage':

@@ -437,7 +437,7 @@
       const shown = file.oldPath ? `${file.oldPath} → ${file.path}` : file.path;
       const label = STATUS_LABEL[file.status] || 'Modified';
       const actions = `<span class="file-actions">`
-        + `<button type="button" class="k-iconbtn" data-open-file="${esc(file.absolutePath)}" aria-label="Open file" title="Open file">↗</button>`
+        + `<button type="button" class="k-iconbtn" data-open-file="${esc(file.changeId)}" aria-label="Open file" title="Open file">↗</button>`
         + `<button type="button" class="k-iconbtn" data-discard="${esc(file.changeId)}" aria-label="Discard changes" title="Discard changes">↩</button>`
         + (isStaged ? `<button type="button" class="k-iconbtn" data-unstage="${esc(file.changeId)}" aria-label="Unstage" title="Unstage">⊖</button>` : '')
         + `</span>`;
@@ -652,7 +652,7 @@
       const openFileBtn = event.target.closest('[data-open-file]');
       if (openFileBtn) {
         event.preventDefault();
-        vscode.postMessage({ type: 'open-file', absolutePath: openFileBtn.dataset.openFile });
+        vscode.postMessage({ type: 'open-file', changeId: openFileBtn.dataset.openFile });
         return;
       }
       const discardBtn = event.target.closest('[data-discard]');
