@@ -8,6 +8,8 @@
  */
 import { describe, it, expect } from 'vitest';
 import { renderWebview } from '../testing/renderHarness.js';
+import { buildStepper } from '../../model/stepper.js';
+import { buildStageRail } from '../../model/stageRail.js';
 import {
   renderFixtures,
   renderStateFor,
@@ -117,6 +119,35 @@ describe('dashboard render — fixture corpus', () => {
     const inside = h.query('#inside');
     expect(inside, '#inside not found').toBeTruthy();
     expect(inside!.innerHTML.length).toBeGreaterThan(0);
+    expect(h.errors).toEqual([]);
+    h.close();
+  });
+
+  it('renders a bypassed rail segment distinctly from passed (P2-18)', () => {
+    const h = renderWebview('dashboard');
+    const stages = [
+      { stageKey: 'scope', status: 'passed' },
+      { stageKey: 'impl', status: 'passed' },
+      { stageKey: 'uat', status: 'passed' },
+      { stageKey: 'review', status: 'bypassed' },
+      { stageKey: 'ship', status: 'pending' },
+    ] as const;
+    const rail = buildStageRail(buildStepper(stages), stages, {
+      current: 'ship',
+      needsUser: false,
+      needs: null,
+    });
+    h.receive({
+      type: 'state',
+      state: { ...renderStateFor('ship'), stageCurrent: 'ship', rail },
+    });
+    const seg = h.query('.track .seg.bypassed');
+    expect(seg, 'bypassed segment not rendered').toBeTruthy();
+    // The glyph is ⊘ — the rail's distinct bypass marker, never the passed ✓.
+    expect(seg!.querySelector('.g')!.textContent).toContain('⊘');
+    expect(seg!.querySelector('.g')!.textContent).not.toContain('✓');
+    expect(seg!.querySelector('.pick')!.getAttribute('aria-label')).toContain('bypassed');
+    expect(h.queryAll('.track .seg.passed').length).toBe(3);
     expect(h.errors).toEqual([]);
     h.close();
   });

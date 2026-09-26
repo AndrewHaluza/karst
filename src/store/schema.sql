@@ -64,7 +64,7 @@ CREATE INDEX IF NOT EXISTS idx_tickets_parent ON tickets(parent_ticket_id);
 CREATE TABLE IF NOT EXISTS stages (
   ticket_id     INTEGER NOT NULL,     -- -> tickets.id
   stage_key     TEXT NOT NULL,        -- StageKey (no `fetch` in MVP, C1)
-  status        TEXT NOT NULL,        -- pending | running | passed | failed | skipped
+  status        TEXT NOT NULL,        -- pending | running | passed | failed | skipped | bypassed
   attempt       INTEGER NOT NULL DEFAULT 0,  -- review/fix loop iteration
   verdict       TEXT,
   artifact_path TEXT,

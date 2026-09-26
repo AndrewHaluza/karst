@@ -38,6 +38,31 @@ describe('transition (stage machine core)', () => {
     expect(transition(store, ticketId, 'uat', { kind: 'passed' })).toBe('review');
   });
 
+  // P2-18: every gate disabled is a BYPASS, not a pass. The pipeline still
+  // continues (same forward edge as a pass), but the row records `bypassed` so
+  // no surface can read it as a proven green gate.
+  it('bypass at uat advances to review but records `bypassed`, not `passed`', () => {
+    transition(store, ticketId, 'scope', { kind: 'passed' });
+    transition(store, ticketId, 'impl', { kind: 'passed' }); // now at uat
+    expect(transition(store, ticketId, 'uat', { kind: 'bypassed' })).toBe('review');
+
+    const uat = stageOf(store, ticketId, 'uat');
+    expect(uat.status).toBe('bypassed');
+    expect(uat.verdict).toBeNull();
+    expect(uat.endedAt).not.toBeNull();
+    // It does NOT count as a gate pass anywhere else either.
+    expect(uat.status).not.toBe('passed');
+    expect(getTicket(store, ticketId).stageCurrent).toBe('review');
+  });
+
+  it('bypass at review advances to ship, and bypass is not a failure edge', () => {
+    transition(store, ticketId, 'scope', { kind: 'passed' });
+    transition(store, ticketId, 'impl', { kind: 'passed' });
+    transition(store, ticketId, 'uat', { kind: 'passed' }); // now at review
+    expect(transition(store, ticketId, 'review', { kind: 'bypassed' })).toBe('ship');
+    expect(stageOf(store, ticketId, 'review').status).toBe('bypassed');
+  });
+
   it('fail at uat routes to fix and increments the failing stage attempt', () => {
     transition(store, ticketId, 'scope', { kind: 'passed' });
     transition(store, ticketId, 'impl', { kind: 'passed' }); // now at uat

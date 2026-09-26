@@ -136,6 +136,14 @@ describe('stageBadge', () => {
     expect(stageBadge(ticket('impl', 'passed')).label).toBe('Implementation passed');
   });
 
+  // P2-18: every gate disabled is a bypass, not a pass — the label must say so
+  // and must not wear the green pass reading.
+  it('a bypassed stage names the bypass and is not green', () => {
+    const b = stageBadge(ticket('review', 'bypassed'));
+    expect(b.label).toBe('Review bypassed');
+    expect(b.glyph).not.toBe('green');
+  });
+
   it('a skipped stage says so', () => {
     expect(stageBadge(ticket('ship', 'skipped')).label).toBe('Ship skipped');
   });

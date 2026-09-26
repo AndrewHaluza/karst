@@ -116,9 +116,13 @@ agent states, hook events) are defined once in `src/model/types.ts` and
   `nothing-to-run · capability-missing · no-independent-signal · boot-failed ·
   lease-lost · awaiting-merge · unmapped-repository`. Members other than
   `awaiting-merge`/`unmapped-repository` mean "karst could not ask, retry it".
-- **Nothing-to-run** — every gate returned no question (or every gate was
-  disabled for this ticket). Parks, never passes — "asked nothing" is never
-  green — and the block's reason names the disable when that was the cause.
+- **Nothing-to-run** — every gate returned no question (and none was disabled):
+  karst could not ask. Parks, never passes — "asked nothing" is never green.
+- **Bypassed** — every gate on a stage (uat/review) was disabled for this one
+  ticket. The stage does not gate and the pipeline continues, but the outcome is
+  `bypassed` (`model/types.ts`), never `passed`: nothing was proven. Rendered
+  with its own `⊘` marker, distinct from a green pass; not a park, and not a
+  gate pass.
 - **Capability-missing** — a gate could not run: missing binary, permission/IO
   error, missing Playwright/auth digest.
 - **No-independent-signal** — review's R7: a review whose gates ask nothing UAT
@@ -172,7 +176,9 @@ agent states, hook events) are defined once in `src/model/types.ts` and
   `{uat:[...], review:[...]}`). Applied to resolution's *output* only; resolution
   itself never sees it. A disabled gate is still recorded: one `gate_runs` row
   with `skipped = 1` and no exit code — a different fact from `exit_code IS
-  NULL` ("the repo defines no such script"), and never folded into it.
+  NULL` ("the repo defines no such script"), and never folded into it. When
+  *every* gate of a stage is disabled the stage is **Bypassed** (see above):
+  the pipeline continues, but the stage records `bypassed`, not `passed`.
 - **Probe pipeline** — the default gate discovery: karst looks for known
   package.json scripts (`test` for UAT; `lint`/`typecheck`/`build`/`format` for
   review) and runs whichever exist. A repo that defines no such script is "no

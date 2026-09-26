@@ -306,6 +306,25 @@ describe('uatProcesses', () => {
     ]);
   });
 
+  // P2-18: a stage whose every gate was disabled advanced `bypassed`. Its gates
+  // row must state the skip plainly — never the green `pass` an all-skipped
+  // batch used to fall through to.
+  it('reads a bypassed stage as skip, never pass', () => {
+    const views = uatProcesses(
+      qualityInput({
+        cell: cell('uat', 'bypassed'),
+        gateRuns: [
+          run('uat', 'test (web)', null, { runAt: NOW, skipped: true }),
+          run('uat', 'e2e (web)', null, { runAt: NOW, skipped: true }),
+        ],
+      }),
+    );
+    const gates = views[0]!;
+    expect(gates.status).toBe('skip');
+    expect(gates.detail).toBe('2/2 gates disabled — stage bypassed');
+    expect(rowsOf(gates).map((r) => r.status)).toEqual(['skip', 'skip']);
+  });
+
   it('never lets a forecast outrank a recorded run', () => {
     // A recorded row is a fact; a resolved name is a prediction. Both supplied
     // → the recorded batch wins and the forecast appears nowhere.

@@ -20,7 +20,7 @@ import { parseFlags, requireFlag, type TestFlags } from './flags.js';
  * then land it.
  */
 
-const STATUS_VALUES: readonly StageStatus[] = ['pending', 'running', 'passed', 'failed', 'skipped'];
+const STATUS_VALUES: readonly StageStatus[] = ['pending', 'running', 'passed', 'failed', 'skipped', 'bypassed'];
 
 const BLOCK_KINDS: readonly BlockerKind[] = [
   'nothing-to-run',

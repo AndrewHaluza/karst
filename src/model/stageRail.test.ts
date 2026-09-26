@@ -179,6 +179,14 @@ describe('buildStageRail', () => {
     expect(seg(r, 'ship').status).toBe('passed');
   });
 
+  it('carries a bypassed stage through as its own segment status', () => {
+    // P2-18: every gate disabled is a bypass, not a pass — the segment must
+    // read `bypassed` so the webview can draw its distinct marker.
+    const r = rail([{ stageKey: 'review', status: 'bypassed', endedAt: AT }]);
+    expect(seg(r, 'review').status).toBe('bypassed');
+    expect(seg(r, 'review').status).not.toBe('passed');
+  });
+
   it('resolves every segment, blocked or not', () => {
     const r = rail([
       { stageKey: 'scope', status: 'passed' },

@@ -285,18 +285,21 @@ export function gatesOutcomeBeforeFindings(
   entries: readonly AggregateEntry[],
   /**
    * The gate names this ticket switched off (`AggregateReviewOpts.disabledGateNames`).
-   * When all gates are deliberately disabled, review passes: the user explicitly
-   * chose to skip every check, which is a valid configuration. When gates were
-   * never resolved (no entries, no disables), the stage blocks.
+   * When every gate is deliberately disabled, review is BYPASSED: the user
+   * explicitly chose to skip every check, so the stage does not gate and the
+   * pipeline continues — but the outcome is `bypassed`, never `passed`, because
+   * no gate outcome was proven (`model/types.ts` Verdict/docs/arch/stages-and-gates.md).
+   * When gates were never resolved (no entries, no disables), the stage blocks.
    */
   disabledNames: readonly string[] = [],
 ): AggregateOutcome | null {
   const ran = entries.filter((e) => e.result.exitCode !== null);
 
   if (ran.length === 0) {
-    // All gates deliberately disabled by the user — pass.
+    // All gates deliberately disabled by the user — bypassed, not passed: the
+    // stage did not gate, so it must not read as a proven green.
     if (entries.length === 0 && disabledNames.length > 0) {
-      return { kind: 'verdict', verdict: { kind: 'passed' }, warnings: [] };
+      return { kind: 'verdict', verdict: { kind: 'bypassed' }, warnings: [] };
     }
     // R3 — nothing answered. Not a pass: converting "asked nothing" into green
     // is the bug this design exists to close.

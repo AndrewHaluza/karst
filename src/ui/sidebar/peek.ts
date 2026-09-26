@@ -176,6 +176,18 @@ function gatePeek(input: PeekInput, stage: StageKey, status: Stage['status']): T
       next: null,
     };
   }
+  // Every gate disabled for this ticket: the stage advanced without gating, so
+  // the peek says bypassed — never "passed".
+  if (status === 'bypassed') {
+    return {
+      title: `${label} bypassed`,
+      detail:
+        runs.length > 0
+          ? `all ${runs.length} gates disabled for this ticket`
+          : 'all gates disabled for this ticket',
+      next: null,
+    };
+  }
   return { title: `Awaiting ${label}`, detail: null, next: null };
 }
 
