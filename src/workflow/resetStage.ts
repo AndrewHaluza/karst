@@ -1,6 +1,6 @@
 import type { Store } from '../store/db.js';
 import type { StageKey } from '../model/types.js';
-import { getTicket } from '../store/tickets.js';
+import { getTicket, setAgentState, setStageCurrent } from '../store/tickets.js';
 import { getStage, setStage } from '../store/stages.js';
 import { nowIso } from '../model/time.js';
 
@@ -179,9 +179,8 @@ export function resetGateStage(
       .run(at, ticketId, stage);
 
     // Move the ticket back to the gate stage.
-    store.db
-      .prepare('UPDATE tickets SET stage_current = ?, agent_state = ? WHERE id = ?')
-      .run(stage, 'idle', ticketId);
+    setStageCurrent(store, ticketId, stage);
+    setAgentState(store, ticketId, 'idle');
   });
   apply();
   return { stage };

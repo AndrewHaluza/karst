@@ -1,7 +1,7 @@
 import type { Store } from '../store/db.js';
 import type { StageKey, Verdict } from '../model/types.js';
 import { setStage, type StagePatch } from '../store/stages.js';
-import { getTicket } from '../store/tickets.js';
+import { getTicket, setStageCurrent } from '../store/tickets.js';
 import { STAGE_GRAPH, isTerminal, needsConfirm } from './graph.js';
 import { nowIso } from '../model/time.js';
 
@@ -132,9 +132,7 @@ export function transition(
     // see `entryPatch`. Only a stage that actually runs is entered as running.
     const at = nowIso();
     setStage(store, ticketId, next, entryPatch(next, at));
-    store.db
-      .prepare('UPDATE tickets SET stage_current = ? WHERE id = ?')
-      .run(next, ticketId);
+    setStageCurrent(store, ticketId, next);
   });
   apply();
 
