@@ -6,7 +6,7 @@ vi.mock('../../store/tickets.js', () => ({
   ticketLabel: vi.fn((_t: unknown, _tmpl?: string) => 'T-1: test ticket'),
 }));
 vi.mock('../../runtime/deleteTicket.js', () => ({
-  deleteTicketPermanently: vi.fn().mockResolvedValue(undefined),
+  deleteTicketPermanently: vi.fn().mockResolvedValue({ reapedServers: [], failedWorktrees: 0 }),
 }));
 vi.mock('../../workflow/stages/followUp.js', () => ({
   createFollowUpTicket: vi.fn().mockReturnValue({ id: 2, key: 'T-2' }),
@@ -31,6 +31,7 @@ function makeDeps(overrides: Partial<LifecycleOpsDeps> = {}): LifecycleOpsDeps {
     deleteDeps: {
       closePanel: vi.fn(),
       reap: vi.fn().mockResolvedValue(undefined),
+      allocator: { allocate: vi.fn(() => ({})), release: vi.fn() },
       graphBytesRoot: '/graph',
       artifactsRoot: '/artifacts',
     },
@@ -85,6 +86,60 @@ describe('deleteTicketOp', () => {
       'Permanently delete "T-1: test ticket"? This cannot be undone.',
       'Delete',
     );
+  });
+
+  // A delete takes the `servers` rows with it, so this is the last moment a
+  // server killed inside a removed worktree can be named. A kill that FAILED is
+  // a live server serving a deleted tree, and must surface as a warning.
+  it('reports a server killed inside a removed worktree', async () => {
+    const d = makeDeps();
+    vi.mocked(deleteTicketPermanently).mockResolvedValue({
+      reapedServers: [
+        {
+          id: 7,
+          repo: 'web',
+          pid: 42,
+          cwd: '/repo/.karst/worktrees/t-1',
+          reason: 'worktree-removed',
+          container: null,
+          outcome: 'killed',
+        },
+      ],
+      failedWorktrees: 0,
+    });
+    await deleteTicketOp(d, 1);
+    expect(d.log.debug).toHaveBeenCalledWith(expect.stringContaining("stopped 'web'"));
+    expect(d.notify.warn).not.toHaveBeenCalled();
+  });
+
+  it('warns when a server inside a removed worktree could not be killed', async () => {
+    const d = makeDeps();
+    vi.mocked(deleteTicketPermanently).mockResolvedValue({
+      reapedServers: [
+        {
+          id: 8,
+          repo: 'web',
+          pid: 43,
+          cwd: '/repo/.karst/worktrees/t-1',
+          reason: 'worktree-removed',
+          container: null,
+          outcome: 'kill-failed',
+        },
+      ],
+      failedWorktrees: 0,
+    });
+    await deleteTicketOp(d, 1);
+    expect(d.notify.warn).toHaveBeenCalledWith(expect.stringContaining("could NOT stop 'web'"));
+  });
+
+  it('warns when a worktree folder could not be removed', async () => {
+    const d = makeDeps();
+    vi.mocked(deleteTicketPermanently).mockResolvedValue({
+      reapedServers: [],
+      failedWorktrees: 2,
+    });
+    await deleteTicketOp(d, 1);
+    expect(d.notify.warn).toHaveBeenCalledWith(expect.stringContaining('2 worktree folder(s)'));
   });
 });
 
