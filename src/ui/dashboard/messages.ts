@@ -63,7 +63,13 @@ export type WebviewMessage =
    * mutation's transaction, so the webview's claim is never trusted.
    */
   | { type: 'address-pr-feedback' }
-  | { type: 'open-stage-log'; path: string }
+  /**
+   * Open a stage's recorded log (uat/review artifact) in an editor. Carries the
+   * stage key ONLY, never a path: the host re-derives the artifact path from
+   * the ticket it owns, so a crafted message cannot aim `Uri.file` at an
+   * arbitrary local file.
+   */
+  | { type: 'open-stage-log'; stageKey: StageKey }
   | { type: 'resolve-conflicts'; repo: string }
   /**
    * Merge one repo's PR from the ship stage. Carries the repo ONLY: the merge
@@ -364,8 +370,8 @@ export interface DashboardActions {
   addressPrFeedback: () => void | Promise<void>;
   /** Create a linked follow-up ticket from this (done) ticket. */
   createFollowUpTicket: () => void | Promise<void>;
-  /** Open a stage's log (uat/review artifact) in an editor. */
-  openStageLog: (path: string) => void | Promise<void>;
+  /** Open a stage's log (uat/review artifact) in an editor. Carries the stage key ONLY. */
+  openStageLog: (stageKey: StageKey) => void | Promise<void>;
   /** Push one gate stage's console log to the panel; the `stage-log` message is the outcome. */
   requestStageLog: (stage: GateStage) => void | Promise<void>;
   /** Push one gate-lane AI process's console tail to the panel; the `agent-log` message is the outcome. */
@@ -566,7 +572,7 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
     case 'create-follow-up-ticket':
       return { type: 'create-follow-up-ticket' };
     case 'open-stage-log':
-      return path ? { type: 'open-stage-log', path: m.path as string } : null;
+      return isStageKey(m.stageKey) ? { type: 'open-stage-log', stageKey: m.stageKey } : null;
     case 'resolve-conflicts':
       return typeof m.repo === 'string' && m.repo.length > 0
         ? { type: 'resolve-conflicts', repo: m.repo }
@@ -858,7 +864,7 @@ export function routeAction(
     case 'create-follow-up-ticket':
       return actions.createFollowUpTicket();
     case 'open-stage-log':
-      return actions.openStageLog(msg.path);
+      return actions.openStageLog(msg.stageKey);
     case 'resolve-conflicts':
       return actions.resolveConflicts(msg.repo);
     case 'merge-pr':

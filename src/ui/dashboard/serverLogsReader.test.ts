@@ -110,4 +110,51 @@ describe('ServerLogsReader', () => {
 
     expect(calls.length).toBe(countBefore);
   });
+
+  /**
+   * P2-06 regression: offsets are BYTE lengths, so the live tail must slice
+   * bytes, not characters. With a multi-byte prefix a character-index slice
+   * skips part of the appended line — here `content.slice(4)` yields `ter\n`,
+   * silently dropping the leading `a`.
+   */
+  it('tails a multi-byte log by byte offset without skipping or re-emitting', async () => {
+    dir = mkdtempSync(join(tmpdir(), 'karst-srvlog-'));
+    const logPath = join(dir, 'utf8.log');
+    writeFileSync(logPath, '\u20ac\n'); // "€\n": 4 bytes, 2 characters
+    reader = new ServerLogsReader();
+    const calls: string[] = [];
+
+    reader.startPolling(
+      [{ service: 'web', logPath }],
+      1,
+      (_tid, _svc, text) => calls.push(text),
+    );
+
+    await new Promise((r) => setTimeout(r, 1200));
+    writeFileSync(logPath, '\u20ac\nafter\n');
+    await new Promise((r) => setTimeout(r, 1200));
+
+    expect(calls).toEqual(['after\n']);
+  });
+
+  /**
+   * P2-06 regression: the 2 MiB cap is a BYTE cap. A character-index slice
+   * returned `CAP` multi-byte characters — up to 3x the cap in bytes — and could
+   * split a character, emitting a replacement character.
+   */
+  it('enforces the read cap in bytes for multi-byte content', () => {
+    dir = mkdtempSync(join(tmpdir(), 'karst-srvlog-'));
+    const logPath = join(dir, 'utf8-big.log');
+    writeFileSync(logPath, '\u20ac'.repeat(SERVER_LOG_READ_CAP_BYTES)); // 3x the cap in bytes
+    reader = new ServerLogsReader();
+
+    const result = reader.readLogs([{ service: 'web', logPath }]);
+    expect(result.servers[0]!.truncated).toBe(true);
+    const content = result.servers[0]!.content;
+    expect(Buffer.byteLength(content, 'utf8')).toBeLessThanOrEqual(
+      SERVER_LOG_READ_CAP_BYTES + 64,
+    );
+    expect(content).not.toContain('\uFFFD');
+    expect(content).toContain('[server log truncated]');
+  });
 });

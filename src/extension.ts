@@ -22,6 +22,7 @@ import { runBootSweeps } from './extension/ops/bootSweeps.js';
 import { resumeStrandedShips } from './extension/ops/strandedShip.js';
 import { addressPrFeedback } from './extension/ops/prFeedbackAction.js';
 import { toWorktreeSpecs } from './extension/ops/worktreeSpecs.js';
+import { resolveStageLogPath } from './extension/ops/stageLogArtifact.js';
 import { fixBriefForTicket } from './extension/ops/fixBriefForTicket.js';
 import { startFixWatchdog } from './extension/ops/fixWatchdog.js';
 import { createLivenessLoop } from './extension/ops/livenessLoop.js';
@@ -8095,16 +8096,21 @@ function makeDashboardActions(
     // repos/approach/agent/model from this ticket.
     createFollowUpTicket: () =>
       void vscode.commands.executeCommand('karst.createFollowUpTicket', ticketId),
-    // A failed gate's log, opened read-only in an editor — the "why" behind a red
-    // node, without sending the user to the dev-only output channel.
-    openStageLog: (path) => {
+    // The webview names ONLY the stage key; the path is re-derived from the
+    // store row this panel owns (never from the message) before `Uri.file`.
+    openStageLog: (stageKey) => {
+      const artifact = resolveStageLogPath((id) => getTicket(store, id), ticketId, stageKey);
+      if (artifact === null) {
+        void vscode.window.showWarningMessage('That stage has no log to open.');
+        return;
+      }
       void (async () => {
         try {
-          const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(path));
+          const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(artifact));
           await vscode.window.showTextDocument(doc, { preview: true });
         } catch (e) {
           // The gate wrote the path, but the file can be gone (worktree removed).
-          void vscode.window.showWarningMessage(`Cannot open the log at ${path}.`);
+          void vscode.window.showWarningMessage(`Cannot open the log at ${artifact}.`);
           logError('open stage log failed', e);
         }
       })();

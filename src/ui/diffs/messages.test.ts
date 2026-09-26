@@ -13,6 +13,19 @@ describe('parseChangesMessage', () => {
     expect(parseChangesMessage({ type: 'open-diff', changeId: '' })).toBeNull();
   });
 
+  /**
+   * P2-05: the open-file request carries an opaque `changeId` and NOTHING else.
+   * A webview-supplied absolute path is dropped at the boundary, so a crafted
+   * message can never aim the editor at an arbitrary local file.
+   */
+  it('accepts open-file by changeId and refuses a webview-supplied absolute path', () => {
+    expect(parseChangesMessage({ type: 'open-file', changeId: 'g1:4' }))
+      .toEqual({ type: 'open-file', changeId: 'g1:4' });
+    expect(parseChangesMessage({ type: 'open-file', absolutePath: '/etc/passwd' })).toBeNull();
+    expect(parseChangesMessage({ type: 'open-file', changeId: '' })).toBeNull();
+    expect(parseChangesMessage({ type: 'open-file' })).toBeNull();
+  });
+
   it('accepts a copy request for something that is actually a commit hash', () => {
     expect(parseChangesMessage({ type: 'copy-hash', hash: '9f1c2ab' }))
       .toEqual({ type: 'copy-hash', hash: '9f1c2ab' });
@@ -76,9 +89,11 @@ describe('routeChangesAction', () => {
     };
     routeChangesAction({ type: 'refresh' }, actions);
     routeChangesAction({ type: 'open-diff', changeId: 'g1:4' }, actions);
+    routeChangesAction({ type: 'open-file', changeId: 'g1:5' }, actions);
     routeChangesAction({ type: 'copy-hash', hash: '9f1c2ab' }, actions);
     expect(actions.refresh).toHaveBeenCalledOnce();
     expect(actions.openDiff).toHaveBeenCalledWith('g1:4');
+    expect(actions.openFile).toHaveBeenCalledWith('g1:5');
     expect(actions.copyHash).toHaveBeenCalledWith('9f1c2ab');
   });
 

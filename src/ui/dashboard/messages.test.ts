@@ -275,18 +275,26 @@ describe('routeAction', () => {
     expect(a.createFollowUpTicket).toHaveBeenCalledTimes(1);
   });
 
-  it('dispatches open-stage-log with the log path', () => {
+  it('dispatches open-stage-log with the stage key', () => {
     const a = actions();
-    routeAction({ type: 'open-stage-log', path: '/logs/review-ticket-1.log' }, a);
-    expect(a.openStageLog).toHaveBeenCalledWith('/logs/review-ticket-1.log');
+    routeAction({ type: 'open-stage-log', stageKey: 'review' }, a);
+    expect(a.openStageLog).toHaveBeenCalledWith('review');
   });
 
-  it('ignores an open-stage-log with a missing or non-string path', () => {
-    const a = actions();
-    routeAction({ type: 'open-stage-log' }, a);
-    routeAction({ type: 'open-stage-log', path: 42 }, a);
-    routeAction({ type: 'open-stage-log', path: '' }, a);
-    expect(a.openStageLog).not.toHaveBeenCalled();
+  /**
+   * P2-05 regression: the webview cannot name a path for a stage log. It may
+   * only name a stage key; the host re-derives the artifact path from the
+   * ticket it owns, so a crafted message cannot aim `Uri.file` at a local file.
+   */
+  it('refuses an open-stage-log that carries a path or an unknown stage', () => {
+    expect(parseWebviewMessage({ type: 'open-stage-log', path: '/etc/passwd' })).toBeNull();
+    expect(parseWebviewMessage({ type: 'open-stage-log', path: 42 })).toBeNull();
+    expect(parseWebviewMessage({ type: 'open-stage-log' })).toBeNull();
+    expect(parseWebviewMessage({ type: 'open-stage-log', stageKey: 'not-a-stage' })).toBeNull();
+    expect(parseWebviewMessage({ type: 'open-stage-log', stageKey: 'review' })).toEqual({
+      type: 'open-stage-log',
+      stageKey: 'review',
+    });
   });
 
   it('dispatches resolve-conflicts with the repo the conflict is in', () => {

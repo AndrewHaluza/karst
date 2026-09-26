@@ -11,6 +11,7 @@ import {
   type ChangesWebviewMessage,
 } from './messages.js';
 import type { TicketChangesSnapshot } from './snapshot.js';
+import { findChangedFile } from './snapshot.js';
 
 /** The subset of a webview panel used by the ticket changes manager. */
 export interface ChangesPanel {
@@ -121,7 +122,7 @@ export class TicketChangesManager {
       const actions: ChangesActions = {
         refresh: () => this.refresh(ticketId, session),
         openDiff: (changeId) => this.openTarget(ticketId, session, changeId),
-        openFile: (absolutePath) => this.openFile(absolutePath),
+        openFile: (changeId) => this.openChangedFile(ticketId, session, changeId),
         discard: (changeId) => this.discardChanges(changeId),
         unstage: (changeId) => this.unstageFile(changeId),
         copyHash: (hash) => this.copyHash(hash),
@@ -226,6 +227,27 @@ export class TicketChangesManager {
    * dispatch seam is a stale changeId / StaleDiffTargetError: those already
    * self-heal (warn + refresh), so they resolve rather than reject.
    */
+  /**
+   * Open one changed file from an opaque `changeId`. The on-disk path is
+   * resolved from the snapshot the HOST loaded — never from the message — so a
+   * crafted or stale id can only ever miss, leaving `Uri.file` unreachable
+   * from webview input (mirroring `openArtifactResource`/`openTarget`).
+   */
+  private openChangedFile(
+    ticketId: number,
+    session: PanelSession,
+    changeId: string,
+  ): void | Promise<void> {
+    if (!this.isLive(ticketId, session)) return;
+    const file = session.snapshot ? findChangedFile(session.snapshot, changeId) : null;
+    if (!file) {
+      this.warn('That file is stale. Refreshing ticket changes…');
+      this.refresh(ticketId, session);
+      return;
+    }
+    return this.openFile(file.absolutePath);
+  }
+
   private async openTarget(ticketId: number, session: PanelSession, changeId: string): Promise<void> {
     if (!this.isLive(ticketId, session)) return;
     const target = session.snapshot?.targets.get(changeId);
