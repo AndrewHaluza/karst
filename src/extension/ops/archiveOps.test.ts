@@ -1,8 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { archiveTicketOp, unarchiveTicketOp, type ArchiveOpsDeps } from './archiveOps.js';
+import {
+  archiveTicketOp,
+  unarchiveTicketOp,
+  archiveInactiveWorktreesOp,
+  type ArchiveOpsDeps,
+  type ArchiveInactiveDeps,
+} from './archiveOps.js';
 import type { Notify } from './notify.js';
 
 // Mock the directly-imported modules
+vi.mock('../../runtime/archiveBulk.js', () => ({
+  archiveInactiveWorktrees: vi.fn().mockResolvedValue({ archived: 0, skipped: 0, failed: 0, reapedServers: [] }),
+}));
 vi.mock('../../store/tickets.js', () => ({
   archiveTicket: vi.fn(),
   unarchiveTicket: vi.fn(),
@@ -32,6 +41,7 @@ import { listWorktreesByTicket } from '../../store/dashboard.js';
 import { listArchives } from '../../store/worktreeArchives.js';
 import { archiveWorktree, restoreWorktree } from '../../runtime/archive.js';
 import { describeReap } from '../../runtime/worktreeServers.js';
+import { archiveInactiveWorktrees } from '../../runtime/archiveBulk.js';
 
 function makeNotify(): Notify {
   return {
@@ -61,6 +71,12 @@ beforeEach(() => {
   vi.mocked(listArchives).mockReturnValue([]);
   vi.mocked(archiveWorktree).mockResolvedValue({ reapedServers: [] } as never);
   vi.mocked(restoreWorktree).mockResolvedValue({ outcome: 'restored' } as never);
+  vi.mocked(archiveInactiveWorktrees).mockResolvedValue({
+    archived: 0,
+    skipped: 0,
+    failed: 0,
+    reapedServers: [],
+  } as never);
 });
 
 // ---------------------------------------------------------------------------
@@ -191,6 +207,78 @@ describe('archiveTicketOp', () => {
     await archiveTicketOp(d, 1);
     expect(listWorktreesByTicket).not.toHaveBeenCalled();
     expect(d.refresh).toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// archiveInactiveWorktreesOp
+// ---------------------------------------------------------------------------
+
+function makeArchiveInactiveDeps(overrides: Partial<ArchiveInactiveDeps> = {}): ArchiveInactiveDeps {
+  return {
+    store: {} as ArchiveInactiveDeps['store'],
+    git: {} as ArchiveInactiveDeps['git'],
+    manifest: vi.fn().mockReturnValue({ portRange: {} }),
+    projectId: vi.fn().mockReturnValue(7),
+    notify: makeNotify(),
+    log: { info: vi.fn() },
+    refresh: vi.fn(),
+    ...overrides,
+  };
+}
+
+describe('archiveInactiveWorktreesOp', () => {
+  it('refuses when no manifest is loaded', async () => {
+    const d = makeArchiveInactiveDeps({ manifest: vi.fn().mockReturnValue(undefined) });
+    await archiveInactiveWorktreesOp(d);
+    expect(d.notify.warn).toHaveBeenCalledWith('Karst: no manifest loaded.');
+    expect(archiveInactiveWorktrees).not.toHaveBeenCalled();
+    expect(d.refresh).not.toHaveBeenCalled();
+  });
+
+  it('refuses an unbound project instead of degrading to all projects', async () => {
+    const d = makeArchiveInactiveDeps({ projectId: vi.fn().mockReturnValue(undefined) });
+    await archiveInactiveWorktreesOp(d);
+    expect(d.notify.warn).toHaveBeenCalledWith(
+      'Karst: no project bound — refusing to archive inactive worktrees.',
+    );
+    expect(archiveInactiveWorktrees).not.toHaveBeenCalled();
+    expect(d.refresh).not.toHaveBeenCalled();
+  });
+
+  it('archives with the bound project id and reports the summary', async () => {
+    const d = makeArchiveInactiveDeps();
+    vi.mocked(archiveInactiveWorktrees).mockResolvedValue({
+      archived: 3,
+      skipped: 1,
+      failed: 0,
+      reapedServers: [{ outcome: 'killed', path: '/w', pid: 9 }],
+    } as never);
+    await archiveInactiveWorktreesOp(d);
+    expect(archiveInactiveWorktrees).toHaveBeenCalledWith(d.git, d.store, {}, { projectId: 7 });
+    expect(d.log.info).toHaveBeenCalledWith('reaped /w');
+    expect(d.notify.info).toHaveBeenCalledWith(
+      'Karst: archived 3 worktree(s), skipped 1, failed 0, stopped 1 running server(s).',
+    );
+    expect(d.notify.warn).not.toHaveBeenCalled();
+    expect(d.refresh).toHaveBeenCalledOnce();
+  });
+
+  it('warns once about servers that could not be stopped', async () => {
+    const d = makeArchiveInactiveDeps();
+    vi.mocked(archiveInactiveWorktrees).mockResolvedValue({
+      archived: 1,
+      skipped: 0,
+      failed: 0,
+      reapedServers: [
+        { outcome: 'kill-failed', path: '/a', repo: 'r1', pid: 11 },
+        { outcome: 'kill-failed', path: '/b', repo: 'r2', pid: null },
+      ],
+    } as never);
+    await archiveInactiveWorktreesOp(d);
+    expect(d.notify.warn).toHaveBeenCalledWith(
+      "Karst: could not stop 2 server(s) still running in archived worktrees — 'r1' (pid 11), 'r2' (pid unknown).",
+    );
   });
 });
 

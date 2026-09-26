@@ -13,7 +13,7 @@ import { describeStoreOpenFailure } from './extension/storeOpenFailure.js';
 import { ticketIdArg } from './extension/ops/args.js';
 import { spinRepoPicks, servicesOnlyArg } from './extension/ops/spinPicks.js';
 import type { Notify } from './extension/ops/notify.js';
-import { archiveTicketOp, unarchiveTicketOp, type ArchiveOpsDeps } from './extension/ops/archiveOps.js';
+import { archiveTicketOp, unarchiveTicketOp, archiveInactiveWorktreesOp, type ArchiveOpsDeps } from './extension/ops/archiveOps.js';
 import { deleteTicketOp, createFollowUpTicketOp, type LifecycleOpsDeps } from './extension/ops/lifecycleOps.js';
 import { attentionPicks, facetPicks, resolveFacetPicks } from './extension/ops/pickers.js';
 import { makePrSyncLoop } from './extension/ops/prSyncLoop.js';
@@ -6471,44 +6471,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (ticketId === undefined) return;
       await deleteTicketOp(lifecycleDeps, ticketId);
     }),
-    vscode.commands.registerCommand('karst.archiveInactiveWorktrees', async () => {
-      const manifest = currentManifest();
-      if (!manifest) {
-        void vscode.window.showWarningMessage('Karst: no manifest loaded.');
-        return;
-      }
-      const allocator = makePortAllocator(localStore, manifest.portRange);
-      // Destructive: refuse when no project is bound (undefined = all projects).
-      const project = currentProject();
-      if (!project) {
-        void vscode.window.showWarningMessage('Karst: no project bound — refusing to archive inactive worktrees.');
-        return;
-      }
-      const summary = await archiveInactiveWorktrees(defaultGitRunner, localStore, allocator, {
-        projectId: project.id,
-      });
-      // Say what the sweep had to stop to remove those trees. An unattended
-      // bulk archive is the last place a killed — or unkillable — dev server may
-      // go unsaid; a kill that FAILED leaves a live server serving a deleted
-      // tree, the exact orphan this ticket exists to end, so it gets the same
-      // warning the single-ticket archive command raises for it, not just a log
-      // line. Aggregated into one message rather than one popup per row, since a
-      // sweep can touch many worktrees at once.
-      for (const s of summary.reapedServers) logger.info(describeReap(s));
-      const stopped = summary.reapedServers.filter((s) => s.outcome === 'killed').length;
-      const stillRunning = summary.reapedServers.filter((s) => s.outcome === 'kill-failed');
-      void vscode.window.showInformationMessage(
-        `Karst: archived ${summary.archived} worktree(s), skipped ${summary.skipped}, failed ${summary.failed}` +
-          (stopped > 0 ? `, stopped ${stopped} running server(s).` : '.'),
-      );
-      if (stillRunning.length > 0) {
-        void vscode.window.showWarningMessage(
-          `Karst: could not stop ${stillRunning.length} server(s) still running in archived ` +
-            `worktrees — ${stillRunning.map((s) => `'${s.repo}' (pid ${s.pid ?? 'unknown'})`).join(', ')}.`,
-        );
-      }
-      provider.refresh();
-    }),
+    vscode.commands.registerCommand('karst.archiveInactiveWorktrees', () =>
+      archiveInactiveWorktreesOp({
+        store: localStore,
+        git: defaultGitRunner,
+        manifest: currentManifest,
+        projectId: () => currentProject()?.id,
+        notify,
+        log: { info: (m) => logger.info(m) },
+        refresh: () => provider.refresh(),
+      }),
+    ),
     vscode.commands.registerCommand('karst.compactArchivedWorktrees', async () => {
       const manifest = currentManifest();
       if (!manifest) {
