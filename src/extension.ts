@@ -3044,6 +3044,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       reap: (id) => reapAttachments(context.globalStorageUri.fsPath, id),
       get graphBytesRoot() { return graphBytesRootFor(); },
       artifactsRoot: join(context.globalStorageUri.fsPath, 'artifacts'),
+      // Read the current manifest's range at delete time: a permanent delete
+      // tears down the ticket's worktrees through `removeWorktree`, which
+      // releases the ticket's ports.
+      get ports() { return makePortAllocator(localStore, (currentManifest() ?? emptyManifest()).portRange); },
+      debug: (m) => logger.debug(m),
     },
     openEdit: (id) => ticketForm.openEdit(id),
     refresh: () => provider.refresh(),

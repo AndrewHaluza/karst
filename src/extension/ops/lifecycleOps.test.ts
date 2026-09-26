@@ -6,7 +6,7 @@ vi.mock('../../store/tickets.js', () => ({
   ticketLabel: vi.fn((_t: unknown, _tmpl?: string) => 'T-1: test ticket'),
 }));
 vi.mock('../../runtime/deleteTicket.js', () => ({
-  deleteTicketPermanently: vi.fn().mockResolvedValue(undefined),
+  deleteTicketPermanently: vi.fn().mockResolvedValue([]),
 }));
 vi.mock('../../workflow/stages/followUp.js', () => ({
   createFollowUpTicket: vi.fn().mockReturnValue({ id: 2, key: 'T-2' }),
@@ -33,6 +33,7 @@ function makeDeps(overrides: Partial<LifecycleOpsDeps> = {}): LifecycleOpsDeps {
       reap: vi.fn().mockResolvedValue(undefined),
       graphBytesRoot: '/graph',
       artifactsRoot: '/artifacts',
+      ports: { allocate: vi.fn().mockReturnValue({}), release: vi.fn() },
     },
     openEdit: vi.fn(),
     refresh: vi.fn(),
@@ -76,6 +77,24 @@ describe('deleteTicketOp', () => {
     expect(d.log.warn).toHaveBeenCalled();
     expect(d.notify.error).toHaveBeenCalled();
     expect(d.refresh).toHaveBeenCalled();
+  });
+
+  it('names a reaped server and warns when the kill was refused', async () => {
+    const d = makeDeps();
+    vi.mocked(deleteTicketPermanently).mockResolvedValue([
+      {
+        id: 7,
+        repo: 'frontend',
+        pid: 4242,
+        cwd: '/w/abc',
+        reason: 'worktree-removed',
+        container: null,
+        outcome: 'kill-failed',
+      },
+    ]);
+    await deleteTicketOp(d, 1);
+    expect(d.log.debug).toHaveBeenCalledWith(expect.stringContaining("could NOT stop 'frontend'"));
+    expect(d.notify.warn).toHaveBeenCalledWith(expect.stringContaining("could NOT stop 'frontend'"));
   });
 
   it('confirmation message contains the ticket label', async () => {

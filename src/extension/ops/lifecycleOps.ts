@@ -1,7 +1,9 @@
 import type { Store } from '../../store/db.js';
 import type { Notify } from './notify.js';
+import type { PortAllocator } from '../../resolver/allocator.js';
 import { getTicket, ticketLabel } from '../../store/tickets.js';
 import { deleteTicketPermanently } from '../../runtime/deleteTicket.js';
+import { describeReap } from '../../runtime/worktreeServers.js';
 import { createFollowUpTicket, TicketNotDoneError } from '../../workflow/stages/followUp.js';
 
 export interface LifecycleOpsDeps {
@@ -14,6 +16,10 @@ export interface LifecycleOpsDeps {
     reap: (id: number) => Promise<void>;
     graphBytesRoot: string | undefined;
     artifactsRoot: string;
+    /** Frees the deleted ticket's port allocations during worktree teardown. */
+    ports: PortAllocator;
+    /** Debug seam for the worktree teardown (bound to the host's debug channel). */
+    debug?: (message: string) => void;
   };
   readonly openEdit: (id: number) => void;
   readonly refresh: () => void;
@@ -28,7 +34,15 @@ export async function deleteTicketOp(deps: LifecycleOpsDeps, ticketId: number): 
   // ticket and all its child rows.
   if (!(await deps.confirm(`Permanently delete "${label}"? This cannot be undone.`, 'Delete'))) return;
   try {
-    await deleteTicketPermanently(deps.store, ticketId, deps.deleteDeps);
+    const reaped = await deleteTicketPermanently(deps.store, ticketId, deps.deleteDeps);
+    // Deleting the ticket removes the worktree out from under anything running
+    // in it, so whatever had to be stopped is named here. A kill that FAILED is
+    // a live server serving a deleted tree — the exact orphan P1-03 is about —
+    // so it is a warning, not a debug line.
+    for (const s of reaped) {
+      deps.log.debug(describeReap(s));
+      if (s.outcome === 'kill-failed') deps.notify.warn(describeReap(s));
+    }
   } catch (err) {
     const message =
       `Karst could not finish permanently deleting "${label}". ` +

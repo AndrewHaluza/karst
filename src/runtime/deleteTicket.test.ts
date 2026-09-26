@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openStore } from '../store/db.js';
@@ -7,9 +8,39 @@ import { createTicket, getTicket } from '../store/tickets.js';
 import { openProcessRun, listProcessRuns } from '../store/processRuns.js';
 import { recordTokenUsage, listTokenUsage } from '../store/tokenUsage.js';
 import { recordFindings, listFindings } from '../store/reviewFindings.js';
+import { makePortAllocator } from '../resolver/allocator.js';
+import { createWorktree } from './worktree.js';
 import { deleteTicketPermanently } from './deleteTicket.js';
 
+/** A minimal real repo so `removeWorktree` can exercise git for real. */
+function makeRepo(): { path: string; cleanup: () => void } {
+  const dir = mkdtempSync(join(tmpdir(), 'karst-del-wt-'));
+  writeFileSync(join(dir, 'index.js'), 'console.log(1);\n');
+  const git = (cwd: string, ...args: string[]): void => {
+    const r = spawnSync('git', args, { cwd, encoding: 'utf8' });
+    if (r.status !== 0) throw new Error(`git ${args.join(' ')}: ${r.stderr}`);
+  };
+  git(dir, 'init', '-q', '-b', 'develop');
+  git(dir, 'config', 'user.email', 'test@karst.local');
+  git(dir, 'config', 'user.name', 'test');
+  git(dir, 'add', '.');
+  git(dir, 'commit', '-q', '-m', 'init');
+  return { path: dir, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+}
+
+const branchExists = (repo: string, branch: string): boolean =>
+  spawnSync('git', ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`], {
+    cwd: repo,
+    encoding: 'utf8',
+  }).status === 0;
+
+
 describe('deleteTicketPermanently', () => {
+  const noPorts = (): { allocate: () => Record<string, number>; release: () => void } => ({
+    allocate: () => ({}),
+    release: () => {},
+  });
+
   it('closes the bound panel, deletes rows, and waits for attachment cleanup', async () => {
     const store = openStore(':memory:');
     const ticket = createTicket(store, { key: 'DELETE-1', title: 'delete me' });
@@ -26,7 +57,7 @@ describe('deleteTicketPermanently', () => {
     });
     let settled = false;
 
-    const deleting = deleteTicketPermanently(store, ticket.id, { closePanel, reap })
+    const deleting = deleteTicketPermanently(store, ticket.id, { closePanel, reap, ports: noPorts() })
       .then(() => {
         settled = true;
       });
@@ -51,6 +82,7 @@ describe('deleteTicketPermanently', () => {
       reap: async () => {
         throw new Error('disk denied');
       },
+      ports: noPorts(),
     })).rejects.toThrow('disk denied');
 
     expect(() => getTicket(store, ticket.id)).toThrow();
@@ -105,6 +137,7 @@ describe('deleteTicketPermanently', () => {
     await deleteTicketPermanently(store, ticket.id, {
       closePanel: () => {},
       reap: async () => {},
+      ports: noPorts(),
     });
 
     expect(() => getTicket(store, ticket.id)).toThrow();
@@ -136,6 +169,7 @@ describe('deleteTicketPermanently', () => {
       await deleteTicketPermanently(store, ticket.id, {
         closePanel: () => {},
         reap: async () => {},
+        ports: noPorts(),
         graphBytesRoot,
         artifactsRoot,
       });
@@ -144,6 +178,56 @@ describe('deleteTicketPermanently', () => {
       expect(existsSync(join(artifactsRoot, String(ticket.id)))).toBe(false);
     } finally {
       rmSync(dir, { recursive: true, force: true });
+    }
+    store.close();
+  });
+
+  // P1-03 regression: a permanent delete must go through `removeWorktree` — the
+  // "single choke point for removal" — so the ticket's live servers, its
+  // worktree directory, its branch and its port allocation do not outlive the
+  // rows. The row-only delete this test guards left a detached server with no
+  // `servers` row any sweep could see, plus an orphan worktree + branch on disk.
+  it('stops servers and removes the worktree directory, branch and port allocation', async () => {
+    const store = openStore(':memory:');
+    const ticket = createTicket(store, { key: 'DELETE-5', title: 'leaky' });
+    const repo = makeRepo();
+    try {
+      const rec = createWorktree(store, {
+        ticketId: ticket.id,
+        repoPath: repo.path,
+        slug: 'DELETE-5-leaky',
+        baseRef: 'develop',
+      });
+      expect(existsSync(rec.path)).toBe(true);
+      expect(branchExists(repo.path, rec.branch)).toBe(true);
+
+      // A server running INSIDE the worktree, and its recorded port allocation.
+      store.db
+        .prepare(
+          `INSERT INTO servers (ticket_id, repo, host, port, pid, status, log_path, cwd, started_at, container)
+           VALUES (?, 'frontend', 'localhost', 4000, NULL, 'running', '/l', ?, '2026-08-01T10:00:00.000Z', NULL)`,
+        )
+        .run(ticket.id, rec.path);
+      const allocator = makePortAllocator(store, [4000, 4100]);
+      allocator.allocate(ticket.id, 'frontend', ['web']);
+      expect(store.db.prepare('SELECT COUNT(*) AS n FROM port_allocations WHERE ticket_id = ?').get(ticket.id)).toEqual({ n: 1 });
+
+      await deleteTicketPermanently(store, ticket.id, {
+        closePanel: () => {},
+        reap: async () => {},
+        ports: allocator,
+      });
+
+      // Rows gone.
+      expect(() => getTicket(store, ticket.id)).toThrow();
+      expect(store.db.prepare('SELECT COUNT(*) AS n FROM worktrees WHERE ticket_id = ?').get(ticket.id)).toEqual({ n: 0 });
+      expect(store.db.prepare('SELECT COUNT(*) AS n FROM servers WHERE ticket_id = ?').get(ticket.id)).toEqual({ n: 0 });
+      // Worktree directory, branch and port allocation gone.
+      expect(existsSync(rec.path)).toBe(false);
+      expect(branchExists(repo.path, rec.branch)).toBe(false);
+      expect(store.db.prepare('SELECT COUNT(*) AS n FROM port_allocations WHERE ticket_id = ?').get(ticket.id)).toEqual({ n: 0 });
+    } finally {
+      repo.cleanup();
     }
     store.close();
   });
