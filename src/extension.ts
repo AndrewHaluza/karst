@@ -3042,6 +3042,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     deleteDeps: {
       closePanel: (id) => ticketForm.closeTicket(id),
       reap: (id) => reapAttachments(context.globalStorageUri.fsPath, id),
+      // Removal releases each worktree's ports as it comes down; the range only
+      // feeds `allocate`, which permanent delete never calls, so the fallback
+      // manifest is a safe stand-in when no project manifest is loaded.
+      get allocator() {
+        return makePortAllocator(localStore, (currentManifest() ?? emptyManifest()).portRange);
+      },
       get graphBytesRoot() { return graphBytesRootFor(); },
       artifactsRoot: join(context.globalStorageUri.fsPath, 'artifacts'),
     },

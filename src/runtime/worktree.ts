@@ -30,6 +30,18 @@ export interface WorktreeRecord {
   adopted: boolean;
 }
 
+/**
+ * The fields `removeWorktree` actually acts on. A full `WorktreeRecord`
+ * satisfies it, but a caller that only holds the `worktrees` columns removal
+ * needs (permanent ticket delete, reading them back from `listWorktreesByTicket`)
+ * can pass just these — the slug and the branch/base bookkeeping are irrelevant
+ * to stopping the servers and taking the tree off disk.
+ */
+export interface RemovableWorktree {
+  ticketId: number;
+  repoPath: string;
+  path: string;
+}
 
 function git(cwd: string, args: string[]): void {
   const r = spawnSync('git', args, { cwd, encoding: 'utf8' });
@@ -261,7 +273,7 @@ export function createWorktree(
  */
 export function removeWorktree(
   store: Store,
-  record: WorktreeRecord,
+  record: RemovableWorktree,
   allocator: PortAllocator,
 ): ReapedServer[] {
   const reaped = stopServersUnder(store, record.path);

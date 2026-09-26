@@ -1,7 +1,9 @@
 import type { Store } from '../../store/db.js';
+import type { PortAllocator } from '../../resolver/allocator.js';
 import type { Notify } from './notify.js';
 import { getTicket, ticketLabel } from '../../store/tickets.js';
 import { deleteTicketPermanently } from '../../runtime/deleteTicket.js';
+import { describeReap } from '../../runtime/worktreeServers.js';
 import { createFollowUpTicket, TicketNotDoneError } from '../../workflow/stages/followUp.js';
 
 export interface LifecycleOpsDeps {
@@ -12,6 +14,7 @@ export interface LifecycleOpsDeps {
   readonly deleteDeps: {
     closePanel: (id: number) => void;
     reap: (id: number) => Promise<void>;
+    allocator: PortAllocator;
     graphBytesRoot: string | undefined;
     artifactsRoot: string;
   };
@@ -28,7 +31,21 @@ export async function deleteTicketOp(deps: LifecycleOpsDeps, ticketId: number): 
   // ticket and all its child rows.
   if (!(await deps.confirm(`Permanently delete "${label}"? This cannot be undone.`, 'Delete'))) return;
   try {
-    await deleteTicketPermanently(deps.store, ticketId, deps.deleteDeps);
+    const outcome = await deleteTicketPermanently(deps.store, ticketId, deps.deleteDeps);
+    // Deleting the ticket takes its `servers` rows with it, so this is the last
+    // moment anything running inside the worktrees can be named. A kill that
+    // FAILED is a live server serving a deleted tree — the exact orphan this
+    // route exists to end — so it is a warning, not a debug line.
+    for (const s of outcome.reapedServers) {
+      deps.log.debug(describeReap(s));
+      if (s.outcome === 'kill-failed') await deps.notify.warn(describeReap(s));
+    }
+    if (outcome.failedWorktrees > 0) {
+      await deps.notify.warn(
+        `Karst deleted "${label}" but could not remove ${outcome.failedWorktrees} worktree folder(s); ` +
+          `they may remain on disk.`,
+      );
+    }
   } catch (err) {
     const message =
       `Karst could not finish permanently deleting "${label}". ` +
