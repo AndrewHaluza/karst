@@ -6,8 +6,6 @@ All notable changes to Karst are recorded here. The format follows
 
 ## [Unreleased]
 
-## [1.0.0] - 2026-09-26
-
 First public release.
 
 ### Added
@@ -15,5 +13,4 @@ First public release.
 - Business Source License 1.1 (converts to Apache-2.0 on 2030-09-22), CLA,
   trademark and security policies.
 
-[Unreleased]: https://github.com/AndrewHaluza/karst/compare/v1.0.0...HEAD
-[1.0.0]: https://github.com/AndrewHaluza/karst/releases/tag/v1.0.0
+[Unreleased]: https://github.com/AndrewHaluza/karst/compare/main...HEAD
