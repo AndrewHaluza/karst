@@ -199,7 +199,9 @@ export async function reapOrphanedPorts(
       );
       let outcome: OrphanReap['outcome'];
       try {
-        outcome = kill(pid) === 'denied' ? 'kill-failed' : 'killed';
+        // Only a confirmed kill counts as a stop; 'denied' and 'unknown' both
+        // leave open the possibility that the orphan is still running.
+        outcome = kill(pid) === 'killed' ? 'killed' : 'kill-failed';
       } catch {
         outcome = 'kill-failed';
       }
