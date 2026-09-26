@@ -1434,19 +1434,24 @@ export async function shipTicket(
             { step: 'push', localHead, remote: 'origin', ref, preRemoteHead },
             pushAt,
           );
-          const lease =
-            takeForcePushLease(store, opts.ticketId, wt.repo) && preRemoteHead
-              ? { ref, expected: preRemoteHead }
-              : undefined;
+          // `took` is the fact that the flag was cleared; `preRemoteHead` only
+          // decides whether that lease is usable. An unreadable remote ref
+          // (`null`) still consumes the flag, so the push degrades to a plain
+          // one — never let that also erase the re-arm decision, or the ticket
+          // is stranded at ship forever.
+          const took = takeForcePushLease(store, opts.ticketId, wt.repo);
+          const lease = took && preRemoteHead ? { ref, expected: preRemoteHead } : undefined;
           try {
             await pushBranch(git, wt.path, { forceWithLease: lease });
           } catch (err) {
-            // The lease was taken (cleared) above, before this push ran. The
-            // push failing does not undo the rewrite it was guarding against —
-            // the branch is still rebased — so a lease taken for THIS attempt
-            // must be handed back, or every retry from here on is a plain push
-            // that a rewritten, already-published branch will always reject.
-            if (lease) {
+            // The lease was taken (cleared) above, before this push ran — even
+            // when it could not be turned into an actual `--force-with-lease`
+            // (no readable remote ref). The push failing does not undo the
+            // rewrite it was guarding against — the branch is still rebased —
+            // so a lease taken for THIS attempt must be handed back, or every
+            // retry from here on is a plain push that a rewritten,
+            // already-published branch will always reject.
+            if (took) {
               armForcePushLease(store, opts.ticketId, wt.repo);
             }
             const detail = err instanceof Error ? err.message : String(err);

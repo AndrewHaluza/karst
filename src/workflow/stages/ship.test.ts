@@ -873,6 +873,48 @@ setTimeout(() => {
     expect(row.needs_force_push).toBe(1);
   });
 
+  // The flag is consumed even when the probed remote ref is unreadable
+  // (`remoteRefSha` returns null): `takeForcePushLease` still clears it, the
+  // push just has no lease to carry and degrades to a plain one. If that plain
+  // push fails, the flag must come back — the branch is still rewritten, and a
+  // plain retry against an already-published branch is rejected forever, which
+  // parks the ticket at ship permanently.
+  it('re-arms the force-push flag when the remote ref is unreadable and the push fails', async () => {
+    const worktree = join(dir, 'fe');
+    seedWorktree(store, id, '/repo/frontend', worktree);
+    store.db
+      .prepare(`UPDATE worktrees SET needs_force_push = 1 WHERE ticket_id = ? AND repo = ?`)
+      .run(id, '/repo/frontend');
+    const localSha = 'b'.repeat(40);
+    const calls: string[][] = [];
+    const git: GitRunner = async (args) => {
+      calls.push(args);
+      if (args[0] === 'diff') return { stdout: '', stderr: '', exitCode: 1 };
+      if (args[0] === 'rev-parse' && args[1] === 'HEAD') {
+        return { stdout: localSha, stderr: '', exitCode: 0 };
+      }
+      if (args[0] === 'rev-parse' && args[2] === 'refs/remotes/origin/karst/x') {
+        return { stdout: '', stderr: '', exitCode: 1 };
+      }
+      if (args[0] === 'push') {
+        return { stdout: '', stderr: 'rejected (non-fast-forward)', exitCode: 1 };
+      }
+      return { stdout: '', stderr: '', exitCode: 0 };
+    };
+    const { gh } = fakeGh();
+
+    await expect(
+      shipTicket(store, { ticketId: id }, gh, fakeAdapter(), git),
+    ).rejects.toThrow();
+
+    // No usable lease → the push is a plain one, not a --force-with-lease.
+    expect(calls.filter((a) => a[0] === 'push')).toEqual([['push', '-u', 'origin', 'HEAD']]);
+    const row = store.db
+      .prepare(`SELECT needs_force_push FROM worktrees WHERE ticket_id = ? AND repo = ?`)
+      .get(id, '/repo/frontend') as { needs_force_push: number | null };
+    expect(row.needs_force_push).toBe(1);
+  });
+
   it('pushes ordinarily when the force-push flag is not armed', async () => {
     seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
     const { gh } = fakeGh();
