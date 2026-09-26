@@ -587,6 +587,33 @@ describe('runUat', () => {
     expect(getTicket(store, id).stageCurrent).toBe('uat');
   });
 
+  // The `continue` must hold for a target that is neither first nor last: a
+  // mixed-stack ticket whose scriptless repository sorts in the MIDDLE still
+  // has to ask the targets after it, or the order of the worktrees decides the
+  // outcome and the later half is silently never checked.
+  it('skips a scriptless target in the middle and still runs the ones after it', async () => {
+    const res = await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
+      deps({
+        planTargets: async () => ({
+          kind: 'targets',
+          targets: [
+            { repo: '/web', path: '/wt/web', names: ['web'] },
+            { repo: '/docs', path: '/wt/docs', names: ['docs'] },
+            { repo: '/api', path: '/wt/api', names: ['api'] },
+          ],
+          unmapped: [],
+        }),
+        probe: (cwd) =>
+          cwd === '/wt/docs' ? { kind: 'absent' } : { kind: 'ok', scripts: { test: 'vitest' } },
+      }),
+    );
+    expect(res).toEqual({ kind: 'advanced', next: 'review' });
+    expect(listGateRuns(store, id).map((r) => r.gateName)).toEqual(['test (web)', 'test (api)']);
+    expect(stageBlock(store, id, 'uat')).toBeNull();
+  });
+
   it('records the gate rows of a run that resolved to a block', async () => {
     // Every gate reported null: karst asked, and nothing answered. That is a park,
     // and the rows proving each gate said nothing must survive it.
