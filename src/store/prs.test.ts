@@ -112,6 +112,27 @@ describe('listSyncablePrs', () => {
     const rows = listSyncablePrs(store, { projectId: 1 });
     expect(rows).toHaveLength(0);
   });
+
+  // A repo can hold several worktrees (a re-spin cut a second checkout). The
+  // grouped column must name ONE of them deterministically — the newest — so gh
+  // never runs in a stale/pruned checkout and the PR keeps re-probing (P2-11).
+  it('chooses the newest worktree of a repo deterministically (P2-11)', () => {
+    const a = createTicket(store, { key: 'A', title: 'a', projectId: 1 });
+    seedPr(store, a.id, 'api', 12, 'open');
+    // The stale checkout is inserted FIRST (lower rowid) and sorts FIRST by
+    // path — the row the old bare grouped column resolved to under the plan
+    // (`SEARCH w USING INDEX idx_worktrees_ticket_path`).
+    store.db
+      .prepare('INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref) VALUES (?, ?, ?, ?, ?)')
+      .run(a.id, 'api', '/wt/aa-old', 'karst/api', 'release');
+    store.db
+      .prepare('INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref) VALUES (?, ?, ?, ?, ?)')
+      .run(a.id, 'api', '/wt/zz-new', 'karst/api', 'develop');
+
+    const rows = listSyncablePrs(store, { projectId: 1 });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ cwd: '/wt/zz-new', baseRef: 'develop' });
+  });
 });
 
 describe('updatePrDetail', () => {

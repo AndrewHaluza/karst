@@ -1,4 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { openStore, type Store } from './db.js';
 import { createTicket } from './tickets.js';
 import {
@@ -98,6 +101,43 @@ describe('ticket env overrides', () => {
     });
     expect(envOverridesForService(overrides, 'web')).toEqual({ SHARED: 'a', BOTH: 'shared' });
     expect(envOverridesForService({}, 'web')).toEqual({});
+  });
+
+  it('holds a write transaction across its read-modify-write, so a concurrent window cannot interleave (P2-03)', () => {
+    // Two connections on one file are two IDE windows on one shared registry.
+    const dir = mkdtempSync(join(tmpdir(), 'karst-env-'));
+    const path = join(dir, 'karst.db');
+    const a = openStore(path);
+    const b = openStore(path);
+    try {
+      b.db.pragma('busy_timeout = 0');
+      const id = createTicket(a, { key: 'T-1', title: 'env' }).id;
+      let refused: unknown;
+      const realPrepare = a.db.prepare.bind(a.db);
+      (a.db as unknown as { prepare: (sql: string) => unknown }).prepare = (sql: string) => {
+        if (sql.includes('UPDATE tickets SET env_overrides')) {
+          // The concurrent window commits exactly between A's read and A's
+          // write. With A's BEGIN IMMEDIATE held, it is refused; without the
+          // transaction it would win and A's stale write would erase it.
+          try {
+            setServiceEnvOverrides(b, id, 'web', { B: '2' });
+          } catch (err) {
+            refused = err;
+          }
+        }
+        return realPrepare(sql);
+      };
+
+      setServiceEnvOverrides(a, id, 'api', { A: '1' });
+
+      expect(refused).toBeDefined();
+      expect(String((refused as { code?: string }).code)).toContain('SQLITE_BUSY');
+      expect(getEnvOverrides(a, id)).toEqual({ api: { A: '1' } });
+    } finally {
+      a.close();
+      b.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('validates env key shape', () => {

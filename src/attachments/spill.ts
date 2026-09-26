@@ -21,7 +21,7 @@
 import type { Store } from '../store/db.js';
 import type { AttachmentInput } from '../store/attachments.js';
 import { insertAttachment } from '../store/attachments.js';
-import { getTicket } from '../store/tickets.js';
+import { getTicket, type ProjectScope } from '../store/tickets.js';
 import { ingestBytes } from './ingest.js';
 import { runImmediateTransaction } from '../store/transactions.js';
 
@@ -119,18 +119,32 @@ export async function spillField(
  *
  * Runs once at extension activation after migration.  Logs a warning per
  * ticket on filesystem failure rather than aborting the sweep.
+ *
+ * `scope` restricts the sweep to one project. It is not optional in practice:
+ * a window shares the registry with every other project, and an unscoped
+ * sweep would spill (and rewrite the description/brief of) other projects'
+ * tickets — the store's project-scoping invariant (P2-02). Callers pass the
+ * window's project; the default `{}` remains the every-project form for a
+ * caller that legitimately owns the whole DB (tests, a migration-like sweep).
  */
 export async function backfillSpillOversized(
   store: Store,
   storageDir: string,
   logger: { warn: (msg: string) => void },
+  scope: ProjectScope = {},
 ): Promise<void> {
+  const scoped = scope.projectId !== undefined;
   const rows = store.db
     .prepare(
       `SELECT id, key, description, brief FROM tickets
-       WHERE length(description) > ? OR length(brief) > ?`,
+       WHERE (length(description) > ? OR length(brief) > ?)
+         ${scoped ? 'AND project_id = ?' : ''}`,
     )
-    .all(SPILL_THRESHOLD_CHARS, SPILL_THRESHOLD_CHARS) as Array<{
+    .all(
+      ...(scoped
+        ? [SPILL_THRESHOLD_CHARS, SPILL_THRESHOLD_CHARS, scope.projectId!]
+        : [SPILL_THRESHOLD_CHARS, SPILL_THRESHOLD_CHARS]),
+    ) as Array<{
       id: number;
       key: string | null;
       description: string | null;

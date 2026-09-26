@@ -1,4 +1,5 @@
 import type { Store } from './db.js';
+import { runImmediateTransaction } from './transactions.js';
 
 /**
  * The scope key that applies to EVERY service of the ticket.
@@ -91,7 +92,14 @@ export function getEnvOverrides(store: Store, ticketId: number): TicketEnvOverri
  * scoped like `setDisabledGates`, and for the same reason: a whole-object write
  * from a view that loaded before another service was edited would silently
  * revert it. The current value is re-read here rather than trusted from the
- * caller. An empty map removes the scope.
+ * caller.
+ *
+ * The re-read and the write run in ONE `BEGIN IMMEDIATE` transaction. The
+ * per-scope merge only holds if no other window commits between the read and
+ * the write; without the transaction two IDE windows editing different scopes
+ * of the same ticket can lose each other's change (last writer reverts the
+ * other's scope). The transaction makes the read-modify-write atomic across
+ * processes, not just within one (P2-03). An empty map removes the scope.
  */
 export function setServiceEnvOverrides(
   store: Store,
@@ -99,16 +107,18 @@ export function setServiceEnvOverrides(
   scope: string,
   entries: Record<string, string>,
 ): void {
-  const current = getEnvOverrides(store, ticketId);
-  const next: TicketEnvOverrides = { ...current };
   const normalized = normalizeEntries(entries);
-  if (Object.keys(normalized).length === 0) delete next[scope];
-  else next[scope] = normalized;
-  // NULL rather than `{}` when nothing is overridden: the column's absent state
-  // and its empty state mean the same thing, and storing one canonical form
-  // keeps every reader from having to know both.
-  const empty = Object.keys(next).length === 0;
-  store.db
-    .prepare("UPDATE tickets SET env_overrides = ?, updated_at = datetime('now') WHERE id = ?")
-    .run(empty ? null : JSON.stringify(next), ticketId);
+  runImmediateTransaction(store.db, () => {
+    const current = getEnvOverrides(store, ticketId);
+    const next: TicketEnvOverrides = { ...current };
+    if (Object.keys(normalized).length === 0) delete next[scope];
+    else next[scope] = normalized;
+    // NULL rather than `{}` when nothing is overridden: the column's absent state
+    // and its empty state mean the same thing, and storing one canonical form
+    // keeps every reader from having to know both.
+    const empty = Object.keys(next).length === 0;
+    store.db
+      .prepare("UPDATE tickets SET env_overrides = ?, updated_at = datetime('now') WHERE id = ?")
+      .run(empty ? null : JSON.stringify(next), ticketId);
+  });
 }
