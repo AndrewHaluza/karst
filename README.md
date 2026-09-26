@@ -82,15 +82,17 @@ Three rules make it trustworthy:
 
 Karst is not a meta-agent org and doesn't integrate with one. It's a
 standalone VS Code extension for one engineer running agents against their
-own multi-repo checkout.
+own multi-repo checkout. The table below describes how Karst itself behaves;
+the right column is a generalization about hosted multi-agent orchestration
+tools as a category, not a claim about any specific named product.
 
-|                       | Karst                                            | Autonomous agent platforms                     |
+|                       | Karst                                            | Hosted multi-agent orchestration (typical)     |
 | --------------------- | ------------------------------------------------ | ----------------------------------------------- |
-| Who decides done      | Exit codes and merged PRs, not an agent's verdict | The agent (or a peer agent) judges completion   |
-| Real services         | Spins up the actual stack for the ticket          | Usually simulated, mocked, or none              |
-| Multi-repo state      | SQLite tracks stage/worktree/PR per ticket, per repo | Typically single-repo or ephemeral session state |
-| Where it runs         | Locally, in your VS Code, on your checkout        | Hosted orchestration, often multi-agent fleets  |
-| Human role            | Reviews gates and PRs at defined checkpoints      | Delegates and monitors; agents coordinate each other |
+| Who decides done      | Exit codes and merged PRs, not an agent's verdict | Often an agent (or a peer agent) judges completion |
+| Real services         | Spins up the actual stack for the ticket          | Often simulated, mocked, or skipped             |
+| Multi-repo state      | SQLite tracks stage/worktree/PR per ticket, per repo | Often single-repo or ephemeral session state |
+| Where it runs         | Locally, in your VS Code, on your checkout        | Often hosted, sometimes as multi-agent fleets   |
+| Human role            | Reviews gates and PRs at defined checkpoints      | Varies; ranges from close review to fleet-level delegation |
 
 If you want a fleet of agents managing agents, that's a different category of
 tool. Karst is for the one engineer who wants the agent to write the code and

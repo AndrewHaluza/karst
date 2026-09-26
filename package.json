@@ -355,7 +355,7 @@
   "license": "BUSL-1.1",
   "dependencies": {
     "better-sqlite3": "^12.11.1",
-    "js-yaml": "^5.4.2"
+    "js-yaml": "^5.2.2"
   },
   "devDependencies": {
     "@electron/rebuild": "^4.2.0",
