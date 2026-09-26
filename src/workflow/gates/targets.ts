@@ -1,5 +1,5 @@
 import type { Manifest } from '../../manifest/types.js';
-import type { GitRunner } from '../../integrations/git.js';
+import type { GitRunner, GitResult } from '../../integrations/git.js';
 import type { BlockerKind } from '../../model/types.js';
 import type { Store } from '../../store/db.js';
 import { resolveBaselineBranchForPath } from '../../manifest/baselineBranch.js';
@@ -95,6 +95,29 @@ type ChangeProbe =
  */
 const GIT_REMOTE_TIMEOUT_MS = 30_000;
 
+/**
+ * Race `work` against a timeout that resolves with `onTimeout`, always clearing
+ * the losing timer. A bare `Promise.race` leaves the `setTimeout` armed after
+ * `work` wins, so every probe pinned 1–2 live timers for the full timeout and
+ * kept the extension host awake during sweeps (the git process itself is still
+ * left to the OS TCP timeout — it is a child of the extension host).
+ */
+async function withFetchTimeout(
+  work: Promise<GitResult>,
+  timeoutMs: number,
+  onTimeout: GitResult,
+): Promise<GitResult> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<GitResult>((resolve) => {
+    timer = setTimeout(() => resolve(onTimeout), timeoutMs);
+  });
+  try {
+    return await Promise.race([work, timeout]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
 async function hasReviewChanges(
   git: GitRunner,
   cwd: string,
@@ -121,14 +144,11 @@ async function hasReviewChanges(
   // changed. The timeout prevents an unreachable remote from stalling the
   // entire gate stage indefinitely (the hanging process is left to the OS TCP
   // timeout — it is a child of the extension host and will be cleaned up).
-  const fetchTimeout = () =>
-    new Promise<{ exitCode: number; stdout: string; stderr: string }>((resolve) =>
-      setTimeout(
-        () => resolve({ exitCode: 1, stdout: '', stderr: 'git fetch timed out' }),
-        fetchTimeoutMs,
-      ),
-    );
-  const fetched = await Promise.race([git(['fetch', 'origin', base], cwd), fetchTimeout()]);
+  const fetched = await withFetchTimeout(git(['fetch', 'origin', base], cwd), fetchTimeoutMs, {
+    exitCode: 1,
+    stdout: '',
+    stderr: 'git fetch timed out',
+  });
   const compare = fetched.exitCode === 0 ? `origin/${base}` : base;
   // Also fetch the feature branch so the diff head resolves against the remote
   // state — a local branch ref that is behind the remote produces an empty diff
@@ -136,7 +156,11 @@ async function hasReviewChanges(
   // the local branch name when the fetch fails.
   const fetchedBranch =
     branch && branch.trim() !== ''
-      ? await Promise.race([git(['fetch', 'origin', branch], cwd), fetchTimeout()])
+      ? await withFetchTimeout(git(['fetch', 'origin', branch], cwd), fetchTimeoutMs, {
+          exitCode: 1,
+          stdout: '',
+          stderr: 'git fetch timed out',
+        })
       : null;
   // Diff against the ticket's branch BY NAME when it is known: a worktree
   // checked out on the base branch must still read as "changed" when the

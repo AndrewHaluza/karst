@@ -6465,8 +6465,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return;
       }
       const allocator = makePortAllocator(localStore, manifest.portRange);
+      // Destructive sweep: refuse when no project is bound instead of letting
+      // the scope degrade to `undefined`, which the store reads as ALL projects.
+      const project = currentProject();
+      if (!project) {
+        void vscode.window.showWarningMessage(
+          'Karst: no project bound — refusing to archive inactive worktrees.',
+        );
+        return;
+      }
       const summary = await archiveInactiveWorktrees(defaultGitRunner, localStore, allocator, {
-        projectId: currentProject()?.id,
+        projectId: project.id,
       });
       // Say what the sweep had to stop to remove those trees. An unattended
       // bulk archive is the last place a killed — or unkillable — dev server may
