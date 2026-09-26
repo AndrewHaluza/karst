@@ -12,10 +12,13 @@
  *
  * Successor insertion is IDEMPOTENT under a duplicated completion: the
  * uniqueness constraint `(source_node_run_id, edge_id, fork_instance)` stays
- * in the schema, but `createToken` inserts with `OR IGNORE` — a second insert
- * of the same successor is a no-op returning undefined, never an error and
- * never a second row, so a completion raced by two windows cannot throw
- * mid-transaction (Slice 3 Task 1).
+ * in the schema, and `createToken` inserts with `ON CONFLICT (…) DO NOTHING`
+ * scoped to exactly that triple — a second insert of the same successor is a
+ * no-op returning undefined, never an error and never a second row, so a
+ * completion raced by two windows cannot throw mid-transaction (Slice 3
+ * Task 1). The conflict clause NAMES the triple rather than using bare
+ * `OR IGNORE`, so every OTHER constraint failure (NOT NULL, CHECK, …) still
+ * raises instead of silently dropping a token.
  *
  * The transition map (`TOKEN_TRANSITIONS`) permits `pending → claimed →
  * consumed` and `→ cancelled`; there is deliberately NO `claimed → pending`
@@ -88,6 +91,10 @@ function lineageDepth(lineage: string | null): number {
  * already exists — a duplicated completion's second insert is deliberately
  * ignored. Entry tokens (null source) never collide: NULLs are distinct in
  * the UNIQUE index, so an entry edge may be re-seeded freely.
+ *
+ * The conflict target is that triple alone: any other constraint violation
+ * (a CHECK on `destination_end`/`status`, a NOT NULL) propagates instead of
+ * being swallowed as "duplicate", which `INSERT OR IGNORE` would have done.
  */
 export function createToken(db: GraphDb, input: CreateToken): number | undefined {
   if (input.sourceNodeRunId === null && input.isEntry !== 1) {
@@ -109,10 +116,11 @@ export function createToken(db: GraphDb, input: CreateToken): number | undefined
   }
   const res = db
     .prepare(
-      `INSERT OR IGNORE INTO approach_graph_tokens
+      `INSERT INTO approach_graph_tokens
         (revision_id, source_node_run_id, is_entry, edge_id, destination_node_id,
          destination_end, fork_instance, fork_lineage, fork_instance_id, status, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+       ON CONFLICT (source_node_run_id, edge_id, fork_instance) DO NOTHING`,
     )
     .run(
       input.revisionId,

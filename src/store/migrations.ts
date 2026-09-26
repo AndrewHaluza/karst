@@ -2126,6 +2126,20 @@ export function migrate(db: Database): void {
     db.exec('ALTER TABLE tickets ADD COLUMN paused_at TEXT');
   }
 
+  // review_findings.identity (v53) is additive (no CHECK to widen), so it takes
+  // a plain guarded ALTER — and it is guarded by the CURRENT COLUMN, not by
+  // `current < 53`. The v53 rebuild transaction below commits `user_version =
+  // 53`; if a crash landed between that COMMIT and this ALTER, a version-gated
+  // step would skip it FOREVER (the version already reads 53 while the column
+  // is absent). Reading the column instead makes the repair self-healing and
+  // idempotent on every open (P2-16). NULL for every pre-v53 row and any writer
+  // that predates the hash — not derivable after the fact, every reader
+  // degrades.
+  const findingsCols = tableColumns(db, 'review_findings');
+  if (findingsCols.size > 0 && !findingsCols.has('identity')) {
+    db.exec('ALTER TABLE review_findings ADD COLUMN identity TEXT');
+  }
+
   if (current < 53) {
     // v53 (Task 1A, recovery-round-exhaustion): six schema changes land as
     // ONE version bump — see RECOVERY_ROUNDS_V53_DDL / STAGES_V53_DDL above
@@ -2175,13 +2189,9 @@ export function migrate(db: Database): void {
       }
     }
 
-    // review_findings.identity: NULL for every pre-v53 row and any writer
-    // that predates the hash — not derivable after the fact, every reader
-    // must degrade.
-    const findingsCols53 = tableColumns(db, 'review_findings');
-    if (findingsCols53.size > 0 && !findingsCols53.has('identity')) {
-      db.exec('ALTER TABLE review_findings ADD COLUMN identity TEXT');
-    }
+    // review_findings.identity is repaired ABOVE, guarded by the current
+    // column rather than this version gate, so the v53 crash window cannot
+    // skip it (P2-16).
   }
 
   if (current < 54) {

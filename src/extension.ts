@@ -673,13 +673,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const activatedAt = Date.now();
   logger.info('Karst activated');
 
-  // Backfill: spill any pre-existing oversized descriptions/briefs to the
-  // attachment shelf.  Idempotent (a pointer is under threshold and won't
-  // re-spill).  Runs once per activation after migration.
-  void backfillSpillOversized(localStore, storageDir, logger).catch(() => {
-    // backfillSpillOversized logs per-ticket warnings internally.
-  });
-
   // The karst mark every panel tab wears. Materialized once per window and
   // handed to each panel host — a tab that carries no ticket has no glyph to
   // derive an icon from, and would otherwise be indistinguishable from a file.
@@ -1325,6 +1318,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
   // Registered after `currentProject`; project-scoped, so this manifest's window never reaches another project's fix. Its immediate first tick covers activation.
   context.subscriptions.push(startFixWatchdog(localStore, currentManifest, () => currentProject()?.id ?? null, logger.info, logError));
+
+  // Backfill: spill any pre-existing oversized descriptions/briefs to the
+  // attachment shelf.  Idempotent (a pointer is under threshold and won't
+  // re-spill).  Runs once per activation after migration, and ONLY for this
+  // window's project: the store is shared across IDE windows, so an unscoped
+  // sweep would spill another project's tickets (P2-02). With no bound project
+  // there is nothing this window owns, so it does not run.
+  const backfillProjectId = currentProject()?.id;
+  if (backfillProjectId !== undefined) {
+    void backfillSpillOversized(localStore, storageDir, logger, { projectId: backfillProjectId }).catch(() => {
+      // backfillSpillOversized logs per-ticket warnings internally.
+    });
+  }
 
   const diagnosticDocuments = new DiagnosticDocumentProvider();
   context.subscriptions.push(

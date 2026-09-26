@@ -129,38 +129,78 @@ export function nodeOverrideFor(
  * The claim CAS: the write FAILS once launch claiming has begun for the node
  * (any node run beyond the editable statuses) or the revision is unknown.
  * Otherwise the row is upserted on the natural key, bumping `row_version`.
+ *
+ * The claim check is FOLDED INTO the write statement (`INSERT … SELECT …
+ * WHERE NOT EXISTS (…)`) rather than run as a separate `nodeClaimingBegan()`
+ * read: with two statements a concurrent `BEGIN IMMEDIATE` claim could commit
+ * between the read and the write and the override would land on a frozen
+ * launch (P2-10). One statement makes the check and the write atomic under
+ * SQLite's statement-level atomicity, so no such window exists.
  */
 export function writeNodeOverride(db: GraphDb, input: WriteNodeOverrideInput): WriteNodeOverrideResult {
   const revision = db
     .prepare('SELECT graph_run_id FROM approach_graph_revisions WHERE id = ?')
     .get(input.revisionId) as { graph_run_id: number } | undefined;
   if (!revision) return { ok: false, reason: 'unknown-revision' };
-  if (nodeClaimingBegan(db, input.revisionId, input.nodeId)) return { ok: false, reason: 'claimed' };
-  db.prepare(
-    `INSERT INTO approach_node_overrides
-       (graph_run_id, revision_id, node_id, kind, value, row_version, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, 0, ?, ?)
-     ON CONFLICT(revision_id, node_id, kind) DO UPDATE SET
-       value = excluded.value,
-       row_version = row_version + 1,
-       updated_at = excluded.updated_at`,
-  ).run(revision.graph_run_id, input.revisionId, input.nodeId, input.kind, input.value, input.now, input.now);
-  return { ok: true };
+  const res = db
+    .prepare(
+      `INSERT INTO approach_node_overrides
+         (graph_run_id, revision_id, node_id, kind, value, row_version, created_at, updated_at)
+       SELECT ?, ?, ?, ?, ?, 0, ?, ?
+        WHERE NOT EXISTS (
+          SELECT 1 FROM approach_node_runs
+           WHERE revision_id = ? AND node_id = ?
+             AND status NOT IN (${NODE_OVERRIDE_EDITABLE_STATUSES.map(() => '?').join(',')})
+        )
+       ON CONFLICT(revision_id, node_id, kind) DO UPDATE SET
+         value = excluded.value,
+         row_version = row_version + 1,
+         updated_at = excluded.updated_at`,
+    )
+    .run(
+      revision.graph_run_id,
+      input.revisionId,
+      input.nodeId,
+      input.kind,
+      input.value,
+      input.now,
+      input.now,
+      input.revisionId,
+      input.nodeId,
+      ...NODE_OVERRIDE_EDITABLE_STATUSES,
+    );
+  // Zero rows means the SELECT produced nothing: claiming has begun. (A
+  // revision that vanished mid-write cannot happen — revisions are never
+  // deleted — so `claimed` is the only other outcome.)
+  return res.changes === 1 ? { ok: true } : { ok: false, reason: 'claimed' };
 }
 
 /** Clear a node override. Same claim gate as the write — a frozen launch's
- *  configuration is never mutated. Returns false when nothing was removed. */
+ *  configuration is never mutated. The gate is folded into the DELETE so a
+ *  concurrent claim cannot slip between the check and the write (P2-10).
+ *  Returns false when nothing was removed (no row, or claiming has begun). */
 export function clearNodeOverride(
   db: GraphDb,
   input: { revisionId: number; nodeId: string; kind: NodeOverrideKind },
 ): boolean {
-  if (nodeClaimingBegan(db, input.revisionId, input.nodeId)) return false;
   const res = db
     .prepare(
       `DELETE FROM approach_node_overrides
-       WHERE revision_id = ? AND node_id = ? AND kind = ?`,
+        WHERE revision_id = ? AND node_id = ? AND kind = ?
+          AND NOT EXISTS (
+            SELECT 1 FROM approach_node_runs
+             WHERE revision_id = ? AND node_id = ?
+               AND status NOT IN (${NODE_OVERRIDE_EDITABLE_STATUSES.map(() => '?').join(',')})
+          )`,
     )
-    .run(input.revisionId, input.nodeId, input.kind);
+    .run(
+      input.revisionId,
+      input.nodeId,
+      input.kind,
+      input.revisionId,
+      input.nodeId,
+      ...NODE_OVERRIDE_EDITABLE_STATUSES,
+    );
   return res.changes > 0;
 }
 

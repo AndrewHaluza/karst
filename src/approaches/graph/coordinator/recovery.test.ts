@@ -887,6 +887,54 @@ describe('node overrides (Slice 4 Task 6)', () => {
     expect(nodeOverrideFor(store.db, revisionId, 'n', 'provider')).toBeUndefined();
   });
 
+  it('a claim committed between the CAS check and the write still refuses the override (P2-10)', () => {
+    const { revisionId } = harness();
+    const runId = nodeRun(revisionId, 'n', 'ready');
+    // A second window commits the launch claim in the exact window the old
+    // separate `nodeClaimingBegan()` read left open: just before the override
+    // statement executes. Folding the check into the statement makes it atomic,
+    // so the committed claim is honored and nothing lands.
+    const realPrepare = store.db.prepare.bind(store.db);
+    (store.db as unknown as { prepare: (sql: string) => unknown }).prepare = (sql: string) => {
+      if (sql.includes('INSERT INTO approach_node_overrides')) {
+        realPrepare("UPDATE approach_node_runs SET status = 'launching' WHERE id = ?").run(runId);
+      }
+      return realPrepare(sql);
+    };
+    const write = writeNodeOverride(store.db, {
+      revisionId,
+      nodeId: 'n',
+      kind: 'provider',
+      value: '"codex"',
+      now: '2026-08-12T00:00:00.000Z',
+    });
+    expect(write).toEqual({ ok: false, reason: 'claimed' });
+    expect(nodeOverrideFor(store.db, revisionId, 'n', 'provider')).toBeUndefined();
+  });
+
+  it('a claim committed between the CAS check and a clear keeps the override (P2-10)', () => {
+    const { revisionId } = harness();
+    const runId = nodeRun(revisionId, 'n', 'ready');
+    expect(
+      writeNodeOverride(store.db, {
+        revisionId,
+        nodeId: 'n',
+        kind: 'effort',
+        value: '"high"',
+        now: '2026-08-12T00:00:00.000Z',
+      }),
+    ).toEqual({ ok: true });
+    const realPrepare = store.db.prepare.bind(store.db);
+    (store.db as unknown as { prepare: (sql: string) => unknown }).prepare = (sql: string) => {
+      if (sql.includes('DELETE FROM approach_node_overrides')) {
+        realPrepare("UPDATE approach_node_runs SET status = 'launching' WHERE id = ?").run(runId);
+      }
+      return realPrepare(sql);
+    };
+    expect(clearNodeOverride(store.db, { revisionId, nodeId: 'n', kind: 'effort' })).toBe(false);
+    expect(nodeOverrideFor(store.db, revisionId, 'n', 'effort')?.value).toBe('"high"');
+  });
+
   it('a completed visit also freezes the node (claiming has begun and ended)', () => {
     const { revisionId } = harness();
     nodeRun(revisionId, 'n', 'completed');

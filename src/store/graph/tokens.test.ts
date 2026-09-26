@@ -131,6 +131,30 @@ describe('insertGraphToken', () => {
     expect(all.n).toBe(1);
   });
 
+  it('does NOT swallow a non-duplicate constraint failure (P2-12)', () => {
+    const { db, revisionId, now } = harness();
+    // `destination_end` carries CHECK (destination_end IN (0,1)). A value
+    // outside the set is a real defect, but bare `INSERT OR IGNORE` resolved
+    // it as if it were a duplicate triple — silently dropping the token. The
+    // named conflict target lets the CHECK violate loudly.
+    expect(() =>
+      createToken(db, {
+        revisionId,
+        sourceNodeRunId: 7,
+        isEntry: 0,
+        edgeId: 'e1',
+        destinationNodeId: 'worker-a',
+        destinationEnd: 2 as unknown as 0 | 1,
+        forkInstance: 0,
+        forkLineage: 'root',
+        now,
+      }),
+    ).toThrow(/CHECK constraint failed/);
+    expect(
+      db.prepare('SELECT COUNT(*) AS n FROM approach_graph_tokens').get() as { n: number },
+    ).toEqual({ n: 0 });
+  });
+
   it('allows distinct activations of the same destination with different fork instances', () => {
     const { db, revisionId, now } = harness();
     const a = insertGraphToken(db, {

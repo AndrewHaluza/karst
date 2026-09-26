@@ -342,6 +342,32 @@ describe('openStore', () => {
     expect(migrated.db.pragma('user_version', { simple: true })).toBe(62);
   });
 
+  it('repairs review_findings.identity on a v53 DB left by the crash window (P2-16)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, 'karst.db');
+    const legacy = new Database(path);
+    // The exact post-crash state the old migration could leave: the v53
+    // rebuild COMMITted `user_version = 53`, then a crash struck before the
+    // out-of-transaction `ALTER TABLE review_findings ADD COLUMN identity`.
+    // A version-gated step would skip it forever on the next open.
+    legacy.exec(
+      'CREATE TABLE review_findings (id INTEGER PRIMARY KEY, ticket_id INTEGER NOT NULL)',
+    );
+    legacy.pragma('user_version = 53');
+    legacy.close();
+
+    const migrated = openStore(path);
+    cleanups.push(() => migrated.close());
+    const cols = new Set(
+      (migrated.db.prepare("PRAGMA table_info('review_findings')").all() as { name: string }[]).map(
+        (c) => c.name,
+      ),
+    );
+    expect(cols.has('identity')).toBe(true);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(62);
+  });
+
   it('migrates a v45 DB to v46, adding servers.kind defaulting to service', () => {
     const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
     cleanups.push(() => rmSync(dir, { recursive: true, force: true }));

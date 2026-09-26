@@ -1,4 +1,5 @@
 import type { Store } from './db.js';
+import { runImmediateTransaction } from './transactions.js';
 
 /**
  * The stages whose gate list a ticket may cut. Deliberately narrower than
@@ -73,6 +74,12 @@ export function getDisabledGates(store: Store, ticketId: number): DisabledGates 
  * whole-object write from a panel that loaded before the other stage was
  * touched would silently revert it. The current value is re-read here, inside
  * the same statement pair, rather than trusted from the caller.
+ *
+ * That re-read and the write run in ONE `BEGIN IMMEDIATE` transaction: the
+ * per-stage merge is only safe if no other window commits between them, so
+ * without it two IDE windows editing different stages of the same ticket can
+ * lose each other's list (last writer reverts). The transaction makes the
+ * read-modify-write atomic across processes, not just within one (P2-03).
  */
 export function setDisabledGates(
   store: Store,
@@ -80,13 +87,16 @@ export function setDisabledGates(
   stage: GateStage,
   names: readonly string[],
 ): void {
-  const current = getDisabledGates(store, ticketId);
-  const next: DisabledGates = { ...current, [stage]: normalizeNames(names) };
-  // NULL rather than `{"uat":[],"review":[]}` when nothing is disabled: the
-  // column's absent state and its empty state mean the same thing, and storing
-  // one canonical form keeps every reader from having to know both.
-  const empty = next.uat.length === 0 && next.review.length === 0;
-  store.db
-    .prepare("UPDATE tickets SET disabled_gates = ?, updated_at = datetime('now') WHERE id = ?")
-    .run(empty ? null : JSON.stringify({ uat: next.uat, review: next.review }), ticketId);
+  const normalized = normalizeNames(names);
+  runImmediateTransaction(store.db, () => {
+    const current = getDisabledGates(store, ticketId);
+    const next: DisabledGates = { ...current, [stage]: normalized };
+    // NULL rather than `{"uat":[],"review":[]}` when nothing is disabled: the
+    // column's absent state and its empty state mean the same thing, and storing
+    // one canonical form keeps every reader from having to know both.
+    const empty = next.uat.length === 0 && next.review.length === 0;
+    store.db
+      .prepare("UPDATE tickets SET disabled_gates = ?, updated_at = datetime('now') WHERE id = ?")
+      .run(empty ? null : JSON.stringify({ uat: next.uat, review: next.review }), ticketId);
+  });
 }

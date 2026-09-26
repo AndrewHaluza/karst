@@ -412,7 +412,10 @@ interface SyncableRow {
  * - `url IS NOT NULL`: no url, nothing to ask gh about.
  * - the worktree JOIN both supplies gh's cwd AND drops any PR whose worktree is
  *   gone (archived): with nowhere to run gh, it is unsyncable — a graceful skip,
- *   not an error.
+ *   not an error. A repo can hold several worktree rows; the join takes the
+ *   NEWEST one (highest rowid) so gh always runs in the freshest checkout and
+ *   the choice is deterministic — a bare grouped column used to pick whichever
+ *   row SQLite happened to scan first, which could be a pruned/stale checkout.
  * - project scope: a window must never sync another project's PRs (projects
  *   invariant). This is the only place the scope column is `t.project_id`, so the
  *   clause is inlined rather than borrowed from `scopeClause`.
@@ -428,11 +431,14 @@ export function listSyncablePrs(store: Store, scope: ProjectScope = {}): Syncabl
               p.merge_block AS pr_merge_block
          FROM prs p
          JOIN tickets t ON t.id = p.ticket_id
-         JOIN worktrees w ON w.ticket_id = p.ticket_id AND w.repo = p.repo
+         JOIN worktrees w ON w.rowid = (
+           SELECT w2.rowid FROM worktrees w2
+            WHERE w2.ticket_id = p.ticket_id AND w2.repo = p.repo
+            ORDER BY w2.rowid DESC LIMIT 1
+         )
         WHERE (p.status IS NULL OR p.status <> 'merged')
           AND p.url IS NOT NULL
           ${scoped ? 'AND t.project_id = ?' : ''}
-        GROUP BY p.ticket_id, p.repo, p.url
         ORDER BY p.ticket_id, p.repo`,
     )
     .all(...(scoped ? [scope.projectId!] : [])) as SyncableRow[];
