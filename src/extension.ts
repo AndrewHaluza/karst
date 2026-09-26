@@ -6465,13 +6465,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return;
       }
       const allocator = makePortAllocator(localStore, manifest.portRange);
-      // Destructive sweep: refuse when no project is bound instead of letting
-      // the scope degrade to `undefined`, which the store reads as ALL projects.
+      // Destructive: refuse when no project is bound (undefined = all projects).
       const project = currentProject();
       if (!project) {
-        void vscode.window.showWarningMessage(
-          'Karst: no project bound — refusing to archive inactive worktrees.',
-        );
+        void vscode.window.showWarningMessage('Karst: no project bound — refusing to archive inactive worktrees.');
         return;
       }
       const summary = await archiveInactiveWorktrees(defaultGitRunner, localStore, allocator, {
