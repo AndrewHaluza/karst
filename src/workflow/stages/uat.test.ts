@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { openStore, type Store } from '../../store/db.js';
+import { openStore, type NestableStore, type Store } from '../../store/db.js';
 import { createTicketFlow } from './create.js';
 import { getTicket } from '../../store/tickets.js';
 import { transition } from '../machine.js';
@@ -61,7 +61,7 @@ function uatStage(store: Store, id: number) {
 }
 
 describe('runUat', () => {
-  let store: Store;
+  let store: NestableStore;
   let id: number;
   let artifactDir: string;
 
@@ -1149,7 +1149,7 @@ describe('resolveTargetGates', () => {
  * nonzero exit is the only Tester shape that may open a recovery round.
  */
 describe('runUat — Tester and verifier (Task 8)', () => {
-  let store: Store;
+  let store: NestableStore;
   let id: number;
   let artifactDir: string;
 

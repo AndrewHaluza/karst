@@ -1,4 +1,4 @@
-import type { Store } from '../store/db.js';
+import type { NestableStore } from '../store/db.js';
 import { STAGE_KEYS, type StageKey } from '../model/types.js';
 import type { Manifest } from '../manifest/types.js';
 import type { DriveProcessBundle } from '../agent/processAssignment.js';
@@ -67,7 +67,7 @@ export function fixResumeDecision(
 }
 
 export interface DriveTicketDeps {
-  store: Store;
+  store: NestableStore;
   manifest: () => Manifest | undefined;
   artifactDirFor: (ticketId: number) => string;
   worktreeFor: (ticketId: number) => string | null;

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { openStore, type Store } from './db.js';
+import { openStore, type NestableStore, type Store } from './db.js';
 import { createTicket } from './tickets.js';
 import { setStage } from './stages.js';
 import { openProcessRun } from './processRuns.js';
@@ -11,7 +11,7 @@ import {
 } from './reviewFindings.js';
 
 describe('review findings evidence', () => {
-  let store: Store;
+  let store: NestableStore;
   beforeEach(() => (store = openStore(':memory:')));
   afterEach(() => store.close());
 
@@ -318,7 +318,7 @@ describe('review findings evidence', () => {
           };
         },
       }),
-    } as Store;
+    } as NestableStore;
 
     recordFindings(recordingStore, {
       ticketId: t.id,

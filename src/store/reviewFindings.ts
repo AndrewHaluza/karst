@@ -1,4 +1,4 @@
-import type { Store } from './db.js';
+import type { NestableStore, Store } from './db.js';
 import type { Severity } from '../manifest/types.js';
 
 /**
@@ -146,8 +146,14 @@ function rowToFinding(r: FindingRow): Finding {
  * invocation is written in this single call, at the same moment, so there is
  * no second timestamp to state independently of the batch stamp the schema
  * already carries for grouping.
+ *
+ * Takes `NestableStore`, not `Store` (NDL-35): `commit.ts`'s
+ * `recordFindingsIfAny` calls this from inside an outer `store.db.transaction`,
+ * relying on the SAVEPOINT nesting described above, which only a genuine
+ * better-sqlite3 connection provides — the CLI's node:sqlite store never
+ * reaches this function, and the type now says so.
  */
-export function recordFindings(store: Store, batch: FindingBatch): void {
+export function recordFindings(store: NestableStore, batch: FindingBatch): void {
   if (batch.findings.length === 0) return;
   const insert = store.db.prepare(
     `INSERT INTO review_findings

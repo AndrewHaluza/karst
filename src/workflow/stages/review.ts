@@ -1,6 +1,6 @@
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import type { Store } from '../../store/db.js';
+import type { NestableStore } from '../../store/db.js';
 import type { StageRunResult } from '../../model/types.js';
 import type { Manifest } from '../../manifest/types.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
@@ -160,7 +160,7 @@ export interface ReviewDeps {
 }
 
 export async function runReview(
-  store: Store,
+  store: NestableStore,
   opts: RunReviewOpts,
   deps: ReviewDeps = {},
 ): Promise<StageRunResult> {

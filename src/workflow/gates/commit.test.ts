@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { openStore, type Store } from '../../store/db.js';
+import { openStore, type NestableStore, type Store } from '../../store/db.js';
 import { createTicketFlow } from '../stages/create.js';
 import { getTicket } from '../../store/tickets.js';
 import { transition } from '../machine.js';
@@ -18,7 +18,7 @@ import { runUat } from '../stages/uat.js';
 const now = () => '2026-07-30T10:00:00.000Z';
 
 describe('commitGateOutcome — recovery trigger', () => {
-  let store: Store;
+  let store: NestableStore;
   let id: number;
   let artifactDir: string;
 

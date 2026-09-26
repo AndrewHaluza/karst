@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { openStore, type Store } from '../../store/db.js';
+import { openStore, type NestableStore, type Store } from '../../store/db.js';
 import { getTicket } from '../../store/tickets.js';
 import { transition } from '../../workflow/machine.js';
 import { createTicketFlow } from '../../workflow/stages/create.js';
@@ -32,7 +32,7 @@ import { buildDashboardState } from '../../ui/dashboard/state.js';
 const now = () => new Date().toISOString();
 
 describe('E2E: round-2 Inside ledger stays live, never stale', () => {
-  let store: Store;
+  let store: NestableStore;
   let id: number;
   let artifactDir: string;
 

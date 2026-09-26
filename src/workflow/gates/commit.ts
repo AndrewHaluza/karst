@@ -1,4 +1,4 @@
-import type { Store } from '../../store/db.js';
+import type { NestableStore } from '../../store/db.js';
 import type { BlockerKind, StageKey, StageRunResult, Verdict } from '../../model/types.js';
 import { setStage, stageAttempt } from '../../store/stages.js';
 import { recordGateRun, type GateRunInput } from '../../store/gateRuns.js';
@@ -107,7 +107,7 @@ export interface CommitGateOutcomeInput {
  * project's only append-only evidence table.
  */
 export function commitGateOutcome(
-  store: Store,
+  store: NestableStore,
   input: CommitGateOutcomeInput,
 ): StageRunResult {
   const { ticketId, stageKey, runAt, artifactPath, gates, outcome, findings, stageRunId } =

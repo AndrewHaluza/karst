@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { openStore, type Store } from '../store/db.js';
+import { openStore, type NestableStore, type Store } from '../store/db.js';
 import { getTicket, updateTicketFields } from '../store/tickets.js';
 import { createTicketFlow } from './stages/create.js';
 import { scopeTicket } from './stages/scope.js';
@@ -93,7 +93,7 @@ const gh: GhRunner = async (args) =>
     : { stdout: 'https://github.com/o/r/pull/1', exitCode: 0 };
 
 describe('MVP lifecycle (workflow spine)', () => {
-  let store: Store;
+  let store: NestableStore;
   let dir: string;
 
   beforeEach(() => {

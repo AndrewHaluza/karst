@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { buildSessionSeed, measureSeed } from './seed.js';
 import { markerStageFor } from './markerStage.js';
 import { renderGateOnlyInstruction, renderDoneMarkerInstruction } from './workflowCommand.js';
-import { openStore, type Store } from '../store/db.js';
+import { openStore, type NestableStore, type Store } from '../store/db.js';
 import { createTicket, updateTicketFields } from '../store/tickets.js';
 import { insertAttachment } from '../store/attachments.js';
 import { setStage } from '../store/stages.js';
@@ -295,7 +295,7 @@ describe('oversized ticket end-to-end budget (PROMPT-08 acceptance)', () => {
   });
 
   describe('real end-to-end pipeline with maxed-out context fields', () => {
-    let store: Store;
+    let store: NestableStore;
     beforeEach(() => (store = openStore(':memory:')));
     afterEach(() => store.close());
 

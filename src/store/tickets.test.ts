@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { openStore, type Store } from './db.js';
+import { openStore, type NestableStore, type Store } from './db.js';
 import { createGraphRun } from './graph/graphRuns.js';
 import { createPlannerRun } from './graph/plannerRuns.js';
 import { createRevision } from './graph/revisions.js';
@@ -84,7 +84,7 @@ describe('ticketLabel', () => {
 });
 
 describe('ticket + stage persistence', () => {
-  let store: Store;
+  let store: NestableStore;
   beforeEach(() => (store = openStore(':memory:')));
   afterEach(() => store.close());
 
@@ -781,7 +781,7 @@ describe('ticket + stage persistence', () => {
  * — and acts on — project B's tickets against the wrong manifest.
  */
 describe('project scoping', () => {
-  let store: Store;
+  let store: NestableStore;
   beforeEach(() => (store = openStore(':memory:')));
   afterEach(() => store.close());
 
@@ -849,7 +849,7 @@ describe('project scoping', () => {
  * not a display concern (869eckp0x).
  */
 describe('clearApproachFromTickets', () => {
-  let store: Store;
+  let store: NestableStore;
   beforeEach(() => (store = openStore(':memory:')));
   afterEach(() => store.close());
 
@@ -895,7 +895,7 @@ describe('clearApproachFromTickets', () => {
 });
 
 describe('deleteTicket — graph evidence (Slice-2 T8)', () => {
-  let store: Store;
+  let store: NestableStore;
   beforeEach(() => {
     store = openStore(':memory:');
   });

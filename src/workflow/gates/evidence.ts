@@ -1,4 +1,4 @@
-import type { Store } from '../../store/db.js';
+import type { NestableStore } from '../../store/db.js';
 import type { StageKey } from '../../model/types.js';
 import type { Manifest } from '../../manifest/types.js';
 import { recordGateRun, type GateRunInput } from '../../store/gateRuns.js';
@@ -69,7 +69,7 @@ export interface OpenGateRunInput {
   debug?: (message: string) => void;
 }
 
-export function openGateRun(store: Store, input: OpenGateRunInput): GateRunEvidence {
+export function openGateRun(store: NestableStore, input: OpenGateRunInput): GateRunEvidence {
   const { ticketId, stageKey, runAt } = input;
   const attempt = stageAttempt(store, ticketId, stageKey);
   input.debug?.(

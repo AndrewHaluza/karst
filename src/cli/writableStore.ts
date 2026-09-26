@@ -7,7 +7,21 @@ type BeginMode = 'BEGIN' | 'BEGIN IMMEDIATE' | 'BEGIN EXCLUSIVE';
 /** Bounded busy timeout for marker-verb writes (`karst stage ... pass/phase`, `env set`). */
 export const MARKER_BUSY_TIMEOUT_MS = 5000;
 
-/** node:sqlite implementation of better-sqlite3's transaction-family API. */
+/**
+ * node:sqlite implementation of better-sqlite3's transaction-family API.
+ *
+ * Unlike better-sqlite3's `db.transaction(fn)`, which auto-detects an
+ * already-open transaction and nests it as a SAVEPOINT, this is deliberately
+ * flat (NDL-35): a reentrant call would otherwise reach `db.exec('BEGIN')`
+ * while `isTransaction` is already true, which SQLite rejects with a bare
+ * "cannot start a transaction within a transaction". Checking `isTransaction`
+ * (a `node:sqlite`-only property `DatabaseSync` exposes) up front turns that
+ * into a message that names the actual limitation instead of a generic SQL
+ * error the caller has to trace back here. `recordFindings` — the one
+ * function whose correctness depends on the real SAVEPOINT nesting — is typed
+ * to require `NestableStore` (src/store/db.ts), which this shim's `Store`
+ * never satisfies, so this guard is a backstop, not the primary defense.
+ */
 function transactionFamily<A extends unknown[], R>(
   db: DatabaseSync,
   fn: (...args: A) => R,
@@ -19,6 +33,13 @@ function transactionFamily<A extends unknown[], R>(
   exclusive: (...args: A) => R;
 } {
   const runner = (mode: BeginMode) => (...args: A): R => {
+    if (db.isTransaction) {
+      throw new Error(
+        'openWritableStore: nested store.db.transaction() is not supported — ' +
+          "this CLI adapter's transactions are flat, unlike better-sqlite3's " +
+          'SAVEPOINT-nesting ones (NDL-35)',
+      );
+    }
     db.exec(mode);
     try {
       const result = fn(...args);
@@ -82,9 +103,15 @@ export function openWritableStore(dbPath: string): Store {
   };
 
   return {
-    // Boundary cast: node:sqlite's connection, wrapped with a transaction shim,
-    // is structurally compatible with the write surface the machine uses, but
-    // not nominally the better-sqlite3 type. Confined to this CLI-only adapter.
+    // Boundary cast: node:sqlite's connection, wrapped with a transaction
+    // shim, implements everything the store/workflow helpers actually call
+    // (`.prepare`, `.transaction`) but not the rest of better-sqlite3's
+    // surface (`.pragma`, `.backup`, …), which no CLI-reachable call site
+    // touches. What the cast does NOT paper over any more (NDL-35): this
+    // shim's transactions are flat, never SAVEPOINT-nested like
+    // better-sqlite3's — this function returns a plain `Store`, never a
+    // `NestableStore`, so a call site that needs real nesting
+    // (`recordFindings`) fails to compile instead of throwing at runtime.
     db: shim as unknown as Store['db'],
     close: () => db.close(),
   };
@@ -124,6 +151,9 @@ export function openGraphWritableStore(dbPath: string): Store {
   };
 
   return {
+    // Boundary cast: see `openWritableStore` above. This adapter's shim is
+    // likewise a plain `Store`, never `NestableStore` — its transactions are
+    // flat, not SAVEPOINT-nested (NDL-35).
     db: shim as unknown as Store['db'],
     close: () => db.close(),
   };

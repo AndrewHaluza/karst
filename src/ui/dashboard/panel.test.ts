@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { openStore, type Store } from '../../store/db.js';
+import { openStore, type NestableStore, type Store } from '../../store/db.js';
 import { createTicket, updateTicketFields } from '../../store/tickets.js';
 import { setStage } from '../../store/stages.js';
 import { manifest, processes, review, runnableRepo } from '../../manifest/fixtures.js';
@@ -75,7 +75,7 @@ function fakeHost(): { host: PanelHost; panels: FakePanel[] } {
 }
 
 describe('DashboardManager', () => {
-  let store: Store;
+  let store: NestableStore;
   beforeEach(() => (store = openStore(':memory:')));
   afterEach(() => store.close());
 

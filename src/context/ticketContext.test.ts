@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { join } from 'node:path';
-import { openStore, type Store } from '../store/db.js';
+import { openStore, type NestableStore, type Store } from '../store/db.js';
 import { createTicket, updateTicketFields } from '../store/tickets.js';
 import { insertAttachment } from '../store/attachments.js';
 import { setStage } from '../store/stages.js';
@@ -34,7 +34,7 @@ function manifest(repos: Record<string, RepositoryDef>): Manifest {
 }
 
 describe('buildTicketContext', () => {
-  let store: Store;
+  let store: NestableStore;
   beforeEach(() => (store = openStore(':memory:')));
   afterEach(() => store.close());
 
@@ -240,7 +240,7 @@ describe('buildTicketContext', () => {
 });
 
 describe('ticket context — stage/gate/finding state (closes G15)', () => {
-  let store: Store;
+  let store: NestableStore;
   beforeEach(() => (store = openStore(':memory:')));
   afterEach(() => store.close());
 
@@ -412,7 +412,7 @@ describe('ticket context — stage/gate/finding state (closes G15)', () => {
 });
 
 describe('ticket context — stage run state (v25, closes 869edna84)', () => {
-  let store: Store;
+  let store: NestableStore;
   beforeEach(() => (store = openStore(':memory:')));
   afterEach(() => store.close());
 
@@ -610,7 +610,7 @@ describe('ticket context — stage run state (v25, closes 869edna84)', () => {
 });
 
 describe('renderTicketContext', () => {
-  let store: Store;
+  let store: NestableStore;
   beforeEach(() => (store = openStore(':memory:')));
   afterEach(() => store.close());
 
