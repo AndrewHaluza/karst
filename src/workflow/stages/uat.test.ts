@@ -513,6 +513,80 @@ describe('runUat', () => {
     expect(listGateRuns(store, id)[0]!.attempt).toBe(0);
   });
 
+  // The zero-gate verdict is decided ACROSS every target, never per target. A
+  // repository that answers none of UAT's questions (a docs package, anything
+  // with no package.json) says nothing on its own — parking the whole run on it
+  // discards the green target beside it, depends on target order, and leaves a
+  // mixed-stack ticket stuck behind a block no retry can clear.
+  it('a target with nothing to run does not park a run another target answered', async () => {
+    const res = await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
+      deps({
+        planTargets: async () => ({
+          kind: 'targets',
+          targets: [
+            { repo: '/docs', path: '/wt/docs', names: ['docs'] },
+            { repo: '/web', path: '/wt/web', names: ['web'] },
+          ],
+          unmapped: [],
+        }),
+        probe: (cwd) =>
+          cwd === '/wt/web' ? { kind: 'ok', scripts: { test: 'vitest' } } : { kind: 'absent' },
+      }),
+    );
+    expect(res).toEqual({ kind: 'advanced', next: 'review' });
+    expect(listGateRuns(store, id).map((r) => r.gateName)).toEqual(['test (web)']);
+    // The repository that answered nothing is still named in the log — an
+    // absence a human cannot see is indistinguishable from one karst never met.
+    expect(readFileSync(uatStage(store, id).artifactPath!, 'utf8')).toContain('docs');
+    expect(stageBlock(store, id, 'uat')).toBeNull();
+  });
+
+  // ...and the order of that target must not change the outcome.
+  it('reaches the same verdict whichever way round the scriptless target sorts', async () => {
+    const probeOf = (cwd: string) =>
+      cwd === '/wt/web' ? ({ kind: 'ok', scripts: { test: 'vitest' } } as const) : ({ kind: 'absent' } as const);
+    const res = await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
+      deps({
+        planTargets: async () => ({
+          kind: 'targets',
+          targets: [
+            { repo: '/web', path: '/wt/web', names: ['web'] },
+            { repo: '/docs', path: '/wt/docs', names: ['docs'] },
+          ],
+          unmapped: [],
+        }),
+        probe: probeOf,
+      }),
+    );
+    expect(res).toEqual({ kind: 'advanced', next: 'review' });
+  });
+
+  // When EVERY target has nothing to run, the across-target block still stands:
+  // nothing was asked of anything, and that is never green.
+  it('blocks nothing-to-run when no target has a runnable gate', async () => {
+    const res = await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
+      deps({
+        planTargets: async () => ({
+          kind: 'targets',
+          targets: [
+            { repo: '/docs', path: '/wt/docs', names: ['docs'] },
+            { repo: '/web', path: '/wt/web', names: ['web'] },
+          ],
+          unmapped: [],
+        }),
+        probe: () => ({ kind: 'absent' }),
+      }),
+    );
+    expect(res).toMatchObject({ kind: 'blocked', blocker: 'nothing-to-run' });
+    expect(getTicket(store, id).stageCurrent).toBe('uat');
+  });
+
   it('records the gate rows of a run that resolved to a block', async () => {
     // Every gate reported null: karst asked, and nothing answered. That is a park,
     // and the rows proving each gate said nothing must survive it.
