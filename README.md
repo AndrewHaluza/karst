@@ -8,7 +8,7 @@
 </h1>
 
 <p align="center">
-  <b>AI-agent ticket orchestration across a multi-repo stack.</b><br>
+  <b>The deterministic rail for AI-agent tickets across your multi-repo stack.</b><br>
   A VS Code extension that drives a ticket through six stages, spins up the real
   services it touches, and advances only on a deterministic verdict.
 </p>
@@ -50,7 +50,7 @@
 > **Status:** measured at 1.0.0 — 10,115 unit tests across 541 suites, 36 e2e,
 > 774 visual regression checks over 85 baselines, 83% line coverage. The CI
 > badge above is the live one; these are a snapshot. In active use as the
-> orchestrator behind its own development. You need an agent CLI (`claude`,
+> rail running its own development. You need an agent CLI (`claude`,
 > `codex`, `antigravity` or `opencode`) with your existing login; nothing else
 > to install.
 
@@ -75,6 +75,26 @@ Three rules make it trustworthy:
   answers scoping questions, and produces review findings.
 - **State is a fact, not a guess.** SQLite is the single source of truth; every
   view re-renders from it, and a crash never loses a ticket's stage.
+
+---
+
+## Karst vs autonomous agent platforms
+
+Karst is not a meta-agent org and doesn't integrate with one. It's a
+standalone VS Code extension for one engineer running agents against their
+own multi-repo checkout.
+
+|                       | Karst                                            | Autonomous agent platforms                     |
+| --------------------- | ------------------------------------------------ | ----------------------------------------------- |
+| Who decides done      | Exit codes and merged PRs, not an agent's verdict | The agent (or a peer agent) judges completion   |
+| Real services         | Spins up the actual stack for the ticket          | Usually simulated, mocked, or none              |
+| Multi-repo state      | SQLite tracks stage/worktree/PR per ticket, per repo | Typically single-repo or ephemeral session state |
+| Where it runs         | Locally, in your VS Code, on your checkout        | Hosted orchestration, often multi-agent fleets  |
+| Human role            | Reviews gates and PRs at defined checkpoints      | Delegates and monitors; agents coordinate each other |
+
+If you want a fleet of agents managing agents, that's a different category of
+tool. Karst is for the one engineer who wants the agent to write the code and
+a script to decide everything else.
 
 ---
 
