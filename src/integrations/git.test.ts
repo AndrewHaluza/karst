@@ -165,9 +165,50 @@ describe('hasChangesFrom', () => {
     return { git, seen };
   }
 
-  it('diffs the remote base against the remote branch when both fetches succeed', async () => {
+  it('diffs the LOCAL branch first when both it and the remote ref exist', async () => {
     const { git, seen } = runner({ diff: { exitCode: 1 } });
     expect(await hasChangesFrom(git, '/wt/fe', 'develop', 'karst/x')).toBe(true);
+    expect(seen).toContainEqual(['diff', '--quiet', 'origin/develop...karst/x']);
+  });
+
+  // The regression this probe shipped with: a branch already merged into base
+  // via a merge commit has `origin/<branch>` as an ANCESTOR of base, so the
+  // remote diff reads empty. The local ref carries the ticket's new unpushed
+  // commits, and the deciding diff must be taken against IT.
+  it('reports changes from the local branch even when origin/<branch> is an ancestor of base', async () => {
+    const seen: string[][] = [];
+    const git: GitRunner = async (args) => {
+      seen.push(args);
+      if (args[0] === 'diff') {
+        const ref = args[args.length - 1]!;
+        // origin/karst/x is an ancestor of base after the merge → empty.
+        return { stdout: '', stderr: '', exitCode: ref.includes('origin/karst/x') ? 0 : 1 };
+      }
+      return { stdout: '', stderr: '', exitCode: 0 };
+    };
+    expect(await hasChangesFrom(git, '/wt/fe', 'develop', 'karst/x')).toBe(true);
+    expect(seen).toContainEqual(['diff', '--quiet', 'origin/develop...karst/x']);
+  });
+
+  it('falls back to origin/<branch> when there is no usable local ref', async () => {
+    const seen: string[][] = [];
+    const git: GitRunner = async (args) => {
+      seen.push(args);
+      if (args[0] === 'rev-parse') return { stdout: '', stderr: 'unknown revision', exitCode: 128 };
+      if (args[0] === 'diff') {
+        const ref = args[args.length - 1]!;
+        return { stdout: '', stderr: '', exitCode: ref.includes('origin/karst/x') ? 1 : 0 };
+      }
+      return { stdout: '', stderr: '', exitCode: 0 };
+    };
+    expect(await hasChangesFrom(git, '/wt/fe', 'develop', 'karst/x')).toBe(true);
+    expect(seen).toContainEqual(['diff', '--quiet', 'origin/develop...origin/karst/x']);
+  });
+
+  it('answers no changes only when the local and remote refs agree', async () => {
+    const { git, seen } = runner({ diff: { exitCode: 0 } });
+    expect(await hasChangesFrom(git, '/wt/fe', 'develop', 'karst/x')).toBe(false);
+    expect(seen).toContainEqual(['diff', '--quiet', 'origin/develop...karst/x']);
     expect(seen).toContainEqual(['diff', '--quiet', 'origin/develop...origin/karst/x']);
   });
 
