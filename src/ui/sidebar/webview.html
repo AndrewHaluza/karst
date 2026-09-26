@@ -347,8 +347,7 @@
   const vscode = acquireVsCodeApi();
   const post = (m) => vscode.postMessage(m);
   const el = (id) => document.getElementById(id);
-  const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) =>
-    ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+  const esc = karstEsc;
 
   // `dotVariant` names a `.k-dot--<variant>` suffix (model/designComponents),
   // not the facet's own key — "input" (needs you) maps to the shared
