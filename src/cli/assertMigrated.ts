@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
-import { SCHEMA_VERSION } from '../store/migrations.js';
+import { SCHEMA_VERSION } from '../store/schemaVersion.js';
 
 /**
  * Fail with an actionable message when the registry predates this CLI build.
