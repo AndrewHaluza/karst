@@ -81,6 +81,10 @@ A running gate is observable WHILE it runs: `runProcess`'s `onOutput` hands each
 
 A gate `command` carrying a path separator is resolved against the gate's `cwd` before the platform shim sees it (`runtime/commandCwd.ts`), so `.venv/bin/pytest` and `./gradlew` mean the worktree — a bare name stays a PATH lookup, because that is what `pytest` or `go` is asking for. On POSIX this only makes explicit what `execvp` already does after the child chdirs; on Windows it is load-bearing, since `resolveOnPath`'s existence check would otherwise run against the extension host's directory and fall through to an ENOENT.
 
+## A target with nothing to run is skipped, not a park — in BOTH gate stages
+
+`resolveGates`'s `nothing-to-run` (no declared gate, and the probe discovered none — a Go service, a docs package, anything with no `package.json`) is decided ACROSS every target, never per target: `stages/uat.ts` and `stages/review.ts` both `continue` past such a target, naming it in the artifact, and let the aggregate decide — parking `nothing-to-run` only when NO target contributed a gate. Parking the whole run on one such target would discard the green of a target beside it, make the outcome depend on target order, and leave every mixed-stack ticket permanently unprogressable behind a block no retry clears. An `io-error` resolution (`capability-missing`) is still a per-target park in both stages: karst could not READ the repository, which is environmental and a human must act on it. Guards: `stages/uat.test.ts` "a target with nothing to run does not park a run another target answered" / "reaches the same verdict whichever way round the scriptless target sorts", and review's equivalents.
+
 ## UAT Tester observations are advisory BY DEFAULT, and one knob makes them a verdict
 
 The AI UAT Tester (`workflow/uat/tester.ts`) records OBSERVATIONS. They are evidence: `aggregateUat` never sees them — the pure gate aggregate stays free of AI output, and that does not change — so by default an observation can never pass, fail, transition, or spend a recovery round. Two things, and only two, can make the Tester decide UAT:
