@@ -82,20 +82,33 @@ describe('extension activation', () => {
   // The manual bulk-archive command is DESTRUCTIVE and must never run unscoped:
   // `currentProject()?.id` degrades to `undefined` when no project is bound,
   // which the store reads as ALL projects, so a click in an unbound window would
-  // reap every other window's worktrees (P2-17). The command must bind first and
-  // refuse when it cannot.
+  // reap every other window's worktrees (P2-17). The binding hands the live
+  // project id to the extracted op, which must refuse when it cannot bind.
   it('refuses the manual inactive-worktree archive when no project is bound', () => {
     const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+    const opsSource = readFileSync(
+      join(process.cwd(), 'src', 'extension', 'ops', 'archiveOps.ts'),
+      'utf8',
+    );
 
     const block = source.slice(
       source.indexOf("registerCommand('karst.archiveInactiveWorktrees'"),
       source.indexOf("registerCommand('karst.compactArchivedWorktrees'"),
     );
-    expect(block).toContain('if (!project)');
-    expect(block).toContain('refusing to archive inactive worktrees');
-    expect(block).toContain('projectId: project.id');
-    // The old call degraded to `undefined` (= all projects) when unbound.
-    expect(block).not.toContain('currentProject()?.id');
+    // The handler is a binding only: it forwards the live project id (which can
+    // be `undefined`) into the op, where the guard lives.
+    expect(block).toContain('archiveInactiveWorktreesOp');
+    expect(block).toContain('projectId: () => currentProject()?.id');
+
+    const guard = opsSource.slice(
+      opsSource.indexOf('export async function archiveInactiveWorktreesOp'),
+    );
+    expect(guard).toContain('if (projectId === undefined)');
+    expect(guard).toContain('refusing to archive inactive worktrees');
+    expect(guard).toContain('{ projectId }');
+    // The old call degraded to `undefined` (= all projects) when unbound, so the
+    // guard must reject `undefined` explicitly rather than fall through.
+    expect(guard).toContain('projectId === undefined');
   });
 
   // Closing a ticket with its DONE terminals is a SETTING (`closeDoneTerminals
