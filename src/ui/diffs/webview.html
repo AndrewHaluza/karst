@@ -405,8 +405,7 @@
     // show in the same worktree row.
     let activeNeedle = '';
 
-    const ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
-    const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (ch) => ESCAPES[ch]);
+    const esc = karstEsc;
     const includes = (value, needle) => String(value ?? '').toLowerCase().includes(needle);
 
     function fileMatches(file, needle) {

@@ -2043,7 +2043,7 @@
   // a spinning arc), which is why its running state no longer renders the
   // rail's spinner element inside a row of text.
   const el = (id) => document.getElementById(id);
-  const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+  const esc = karstEsc;
   const STAGE_TITLE = { uat: 'UAT', review: 'Review', fix: 'Fix', scope: 'Scope', impl: 'Implementation', ship: 'Ship', done: 'Done' };
 
   // The last snapshot the host pushed, and which stage the user is looking at.
