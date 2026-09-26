@@ -605,6 +605,18 @@ describe('dashboard webview.html', () => {
     );
   });
 
+  // P2-18: a stage whose every gate was disabled is BYPASSED — the rail must
+  // render it distinctly from passed (a different class, a different glyph),
+  // never with the green ✓ a real gate pass wears.
+  it('renders a bypassed stage with its own class and glyph, distinct from passed', () => {
+    expect(HTML).toMatch(/bypassed: 'bypassed'/);
+    expect(HTML).toMatch(/bypassed: '⊘'/);
+    // The passed glyph is the checkmark; bypassed must not carry it.
+    expect(HTML).toMatch(/passed: '✓'/);
+    expect(HTML).not.toMatch(/bypassed: '✓'/);
+    expect(HTML).toMatch(/\.track \.seg\.bypassed\{/);
+  });
+
   it('scopes every track selector, so it cannot collide with the strip', () => {
     // The dashboard owns `.ph*` (panel headers) and the inside ledger owns the
     // `.p*` row classes (the activity strip `.act` was retired with the

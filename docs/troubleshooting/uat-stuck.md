@@ -13,7 +13,7 @@ The repo's gate scripts weren't found — typically because:
 - The repo is non-runnable (no `service:` block) and the worktree lacks `node_modules`
 - The manifest `repositories` entry doesn't match the ticket's selected repo
 
-**Note:** When all gates are deliberately **disabled** by the user, UAT now passes automatically (the user chose to skip every check). This is not a stuck state.
+**Note:** When all gates are deliberately **disabled** by the user, UAT advances **bypassed** (the user chose to skip every check): the stage records `bypassed`, not `passed`, because no gate outcome was proven — and the pipeline continues. This is not a stuck state.
 
 ## Fix: Reset to impl, then advance to UAT
 

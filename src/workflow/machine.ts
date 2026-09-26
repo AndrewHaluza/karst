@@ -51,10 +51,12 @@ function entryPatch(next: StageKey, at: string): StagePatch {
  *
  * Invariants:
  *  - **No inference (§5.4):** a `null` verdict never transitions — throws. Only a
- *    definite pass/fail moves a stage.
+ *    definite pass/fail/bypassed moves a stage.
  *  - **Deterministic edges:** the verdict kind selects the edge from `STAGE_GRAPH`.
- *    A stage with no edge for that kind (fail at `scope`, any verdict at `done`)
- *    throws rather than silently no-op.
+ *    A `bypassed` verdict takes the forward (`passed`) edge — the pipeline
+ *    continues — while the row records `bypassed`, never a gate pass. A stage
+ *    with no edge for that kind (fail at `scope`, any verdict at `done`) throws
+ *    rather than silently no-op.
  *  - **Attempt tracks loops:** a failing stage's `attempt` climbs on each fail,
  *    so the fix→revalidate loop is countable.
  */
@@ -77,7 +79,10 @@ export function transition(
   }
 
   const edges = STAGE_GRAPH[from];
-  const next = verdict.kind === 'passed' ? edges.passed : edges.failed;
+  // `bypassed` is a deliberate skip, not a failure: it takes the SAME forward
+  // edge as `passed` — the pipeline continues — while the row below records it
+  // as `bypassed`, never as a gate pass.
+  const next = verdict.kind === 'failed' ? edges.failed : edges.passed;
   if (!next) {
     throw new Error(
       `no ${verdict.kind} edge from stage '${from}' (ticket ${ticketId})`,
@@ -109,6 +114,11 @@ export function transition(
       // read as a contradiction. A stage that never entered through the machine
       // (a first attempt driven straight to a pass) is covered here too.
       setStage(store, ticketId, from, { status: 'passed', verdict: null, endedAt: nowIso() });
+    } else if (verdict.kind === 'bypassed') {
+      // Every gate was deliberately disabled: the stage did not gate and did
+      // not prove a pass, but it still advances. Recorded as its own status so
+      // no surface can mistake it for a green gate (the user's decision).
+      setStage(store, ticketId, from, { status: 'bypassed', verdict: null, endedAt: nowIso() });
     } else {
       setStage(store, ticketId, from, {
         status: 'failed',

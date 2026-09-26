@@ -416,7 +416,7 @@ describe('routeTicketFormAction', () => {
     routeTicketFormAction({ type: 'search-statuses' }, actions);
     routeTicketFormAction({ type: 'save-signals', service: 'be', signals: ['api'] }, actions);
     routeTicketFormAction(
-      { type: 'submit', key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex' },
+      { type: 'submit', key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', effort: 'high', agentProvider: 'codex' },
       actions,
     );
     routeTicketFormAction({ type: 'analyze', prompt: 'go' }, actions);
@@ -437,7 +437,7 @@ describe('routeTicketFormAction', () => {
     expect(actions.searchStatuses).toHaveBeenCalled();
     expect(actions.saveSignals).toHaveBeenCalledWith('be', ['api']);
     expect(actions.submit).toHaveBeenCalledWith({
-      key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex', ticketType: null, createInProvider: false, keyAutoDerived: false, baseRefs: {}, pullBase: true,
+      key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', effort: 'high', agentProvider: 'codex', ticketType: null, createInProvider: false, keyAutoDerived: false, baseRefs: {}, pullBase: true,
     });
     expect(actions.analyze).toHaveBeenCalledWith('go');
     expect(actions.analyze).toHaveBeenCalledWith('go again');
@@ -457,11 +457,11 @@ describe('routeTicketFormAction', () => {
   it('routes a valid save message to the save action', () => {
     const actions = spyActions();
     routeTicketFormAction(
-      { type: 'save', key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex' },
+      { type: 'save', key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', effort: 'low', agentProvider: 'codex' },
       actions,
     );
     expect(actions.save).toHaveBeenCalledWith({
-      key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', agentProvider: 'codex', ticketType: null, createInProvider: false, keyAutoDerived: false, baseRefs: {},
+      key: 'P-1', title: 't', description: 'd', repos: ['fe'], approach: 'rpi', agent: 'reviewer', model: 'claude-opus-4-8', effort: 'low', agentProvider: 'codex', ticketType: null, createInProvider: false, keyAutoDerived: false, baseRefs: {},
     });
   });
 

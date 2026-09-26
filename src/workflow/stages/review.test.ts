@@ -1168,10 +1168,14 @@ describe('runReview', () => {
     expect(result).toEqual({ kind: 'advanced', next: 'ship' });
   });
 
-  it('advances when every review gate is disabled — the user chose to skip all checks', async () => {
+  it('advances bypassed when every review gate is disabled — the user chose to skip all checks', async () => {
     setDisabledGates(store, id, 'review', ['lint', 'typecheck', 'build', 'format:check']);
     const result = await runReview(store, { ticketId: id, cwd: '/wt/web', artifactDir }, deps());
     expect(result).toEqual({ kind: 'advanced', next: 'ship' });
+    // The pipeline continues, but the stage records `bypassed`, never `passed`:
+    // no gate outcome was proven (P2-18).
+    const review = getTicket(store, id).stages.find((s) => s.stageKey === 'review')!;
+    expect(review.status).toBe('bypassed');
   });
 });
 

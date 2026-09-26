@@ -432,6 +432,10 @@ function gatesProcess(
   const finished = settled || shown === 'passed' || shown === 'failed';
   const running = !settled && shown === 'running';
   const blocked = !settled && shown === 'blocked';
+  // Every gate was deliberately disabled for this ticket: the stage advanced
+  // `bypassed`, so its gates did NOT pass — the batch is all-skipped and there
+  // is no gate outcome to count. Distinct from a parked stage and from green.
+  const bypassed = !settled && shown === 'bypassed';
   // Gates are only the stage's FIRST question. While the stage stays `running`
   // the gates process must not keep drawing a spinner after every gate has
   // answered: the stage is still running because its AI process (the Tester
@@ -514,6 +518,10 @@ function gatesProcess(
     // run rather than as a promise of more gates.
     detail = `${answered}/${batch.length} command gates passed so far`;
     count = `${answered}/${batch.length}`;
+  } else if (bypassed && batch.length > 0) {
+    // A bypassed stage is never green: every gate was withdrawn by the user, so
+    // the row states the skip plainly instead of the generic nothing-to-run.
+    detail = `${batch.length}/${batch.length} gates disabled — stage bypassed`;
   } else if (batch.length > 0 && answered === 0) {
     // Recorded and answered nothing (every gate's script is missing, or every
     // gate is disabled) — the n/m reading stays, never absence.
@@ -548,13 +556,17 @@ function gatesProcess(
               : 'pending'
         : failed > 0
           ? 'fail'
-          : running
-            ? // A green recorded batch is done work; only a batch with a gate
-              // still in flight (the AI has not begun) keeps the spinner.
-              gatesDone
-              ? 'pass'
-              : 'run'
-            : 'pass',
+          : bypassed
+            ? // Every gate was disabled by the user: the stage advanced without a
+              // gate outcome, so the row reads `skip` — never a green `pass`.
+              'skip'
+            : running
+              ? // A green recorded batch is done work; only a batch with a gate
+                // still in flight (the AI has not begun) keeps the spinner.
+                gatesDone
+                ? 'pass'
+                : 'run'
+              : 'pass',
     // The description IS the count, per state (design copy: "6 / 6 command
     // gates passed", "attempt 2 failed · web / test"). The verbose failure
     // sentence is retired with it — the failing gate's row keeps the terse

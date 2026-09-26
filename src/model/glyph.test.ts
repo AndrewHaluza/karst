@@ -5,7 +5,7 @@ import type { StageStatus, AgentState } from './types.js';
 describe('glyphFor', () => {
   // waiting wins over everything — needs-you is the highest-priority signal.
   it('returns amber whenever the agent is waiting, regardless of stage', () => {
-    const stages: StageStatus[] = ['pending', 'running', 'passed', 'failed', 'skipped'];
+    const stages: StageStatus[] = ['pending', 'running', 'passed', 'failed', 'skipped', 'bypassed'];
     for (const s of stages) {
       expect(glyphFor(s, 'waiting')).toBe('amber');
     }
@@ -21,6 +21,8 @@ describe('glyphFor', () => {
     ['pending', 'idle', 'gray'],
     ['pending', 'none', 'gray'],
     ['skipped', 'idle', 'gray'],
+    ['bypassed', 'idle', 'gray'], // P2-18: disabled gates are not a green pass
+    ['bypassed', 'none', 'gray'],
   ];
 
   it.each(cases)('stage=%s agent=%s → %s', (stage, agent, expected) => {

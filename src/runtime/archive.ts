@@ -426,20 +426,21 @@ export async function sweepOrphanRefs(
     }
   }
 
-  // Find and prune orphan archive refs.
-  const repoPath0 = [...repos][0];
-  if (repoPath0) {
+  // Find and prune orphan archive refs in EVERY repo that has worktrees or
+  // archives — branch pruning above already loops all repos, and sweeping only
+  // `[...repos][0]` left a multi-repo project's other repos' archive refs
+  // orphaned forever.
+  for (const repoPath of repos) {
     const listArchResult = await runner(
       ['for-each-ref', '--format=%(refname)', 'refs/karst/archive/'],
-      repoPath0,
+      repoPath,
     );
-    if (listArchResult.exitCode === 0) {
-      const refs = listArchResult.stdout.split('\n').filter(Boolean);
-      for (const ref of refs) {
-        if (usedArchiveRefs.has(ref)) continue;
-        const del = await runner(['update-ref', '-d', ref], repoPath0);
-        if (del.exitCode === 0) result.prunedArchiveRefs += 1;
-      }
+    if (listArchResult.exitCode !== 0) continue;
+    const refs = listArchResult.stdout.split('\n').filter(Boolean);
+    for (const ref of refs) {
+      if (usedArchiveRefs.has(ref)) continue;
+      const del = await runner(['update-ref', '-d', ref], repoPath);
+      if (del.exitCode === 0) result.prunedArchiveRefs += 1;
     }
   }
 

@@ -9,9 +9,15 @@ import { nowIso } from '../model/time.js';
  *
  * Refuses when:
  *  - the ticket is not at uat/review — only gate stages are retryable
- *  - the stage is in-flight (running) — must finish before retrying
+ *  - the stage is genuinely in-flight — must finish before retrying
  *  - the stage is not current (`stage_current`) — only the active stage can
  *    be retried
+ *
+ * A PARKED stage is not in-flight: `parkGateStage` records only the block and
+ * leaves `status = 'running'` (a park is not a transition), so a bare status
+ * check called every blocked gate in-flight and this control could never
+ * enable. The block itself is the authoritative "parked, not running"
+ * signal — only a running row WITHOUT one is genuinely mid-run.
  */
 export type RetryGateState =
   | { available: true; stage: StageKey }
@@ -21,6 +27,12 @@ export type RetryGateUnavailableReason = 'not-gate-stage' | 'in-flight' | 'not-c
 
 const GATE_STAGES: readonly StageKey[] = ['uat', 'review'];
 
+/** Whether a gate stage is mid-run rather than parked or resting. */
+function isInFlight(store: Store, ticketId: number, stageKey: StageKey): boolean {
+  return getStage(store, ticketId, stageKey)?.status === 'running'
+    && stageBlock(store, ticketId, stageKey) === null;
+}
+
 export function retryGateState(store: Store, ticketId: number): RetryGateState {
   const ticket = store.db
     .prepare('SELECT stage_current FROM tickets WHERE id = ?')
@@ -28,8 +40,7 @@ export function retryGateState(store: Store, ticketId: number): RetryGateState {
   if (!ticket) return { available: false, reason: 'not-gate-stage' };
   const current = ticket.stage_current as StageKey;
   if (!GATE_STAGES.includes(current)) return { available: false, reason: 'not-gate-stage' };
-  const stage = getStage(store, ticketId, current);
-  if (stage?.status === 'running') return { available: false, reason: 'in-flight' };
+  if (isInFlight(store, ticketId, current)) return { available: false, reason: 'in-flight' };
   return { available: true, stage: current };
 }
 
@@ -61,8 +72,7 @@ export function retryGateStage(
   if (ticket.stage_current !== stageKey) {
     return { ok: false, reason: 'stage is not current' };
   }
-  const stage = getStage(store, ticketId, stageKey);
-  if (stage?.status === 'running') {
+  if (isInFlight(store, ticketId, stageKey)) {
     return { ok: false, reason: 'stage is in-flight' };
   }
 

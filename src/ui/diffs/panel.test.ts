@@ -856,7 +856,12 @@ describe('TicketChangesManager', () => {
   });
 
   describe('git actions', () => {
-    it('openFile calls the injected openFile with the absolute path', async () => {
+    /**
+     * P2-05: the webview names a changeId and the HOST resolves the on-disk
+     * path from the snapshot it loaded. The path below is the snapshot's, not
+     * anything the message carried.
+     */
+    it('openFile resolves the changeId to the host-derived path before opening', async () => {
       const loaded = snapshot(41, 'current:1', target('src/current.ts'));
       const { host, panels } = makeHost();
       const openFile = vi.fn();
@@ -867,10 +872,50 @@ describe('TicketChangesManager', () => {
 
       manager.open(41);
       await settle();
-      panels[0]!.emit({ type: 'open-file', absolutePath: '/repo/src/current.ts' });
+      panels[0]!.emit({ type: 'open-file', changeId: 'current:1' });
       await settle();
 
-      expect(openFile).toHaveBeenCalledWith('/repo/src/current.ts');
+      expect(openFile).toHaveBeenCalledWith('/worktrees/repository/src/current.ts');
+    });
+
+    /**
+     * P2-05 regression: a crafted message that supplies a path (and no
+     * changeId) parses to nothing, so it can never reach `Uri.file`.
+     */
+    it('openFile ignores a webview-supplied absolute path', async () => {
+      const loaded = snapshot(41, 'current:1', target('src/current.ts'));
+      const { host, panels } = makeHost();
+      const openFile = vi.fn();
+      const manager = new TicketChangesManager(
+        host, (id) => `Changes ${id}`, async () => loaded, async () => {}, () => {},
+        () => {}, () => {}, undefined, openFile,
+      );
+
+      manager.open(41);
+      await settle();
+      panels[0]!.emit({ type: 'open-file', absolutePath: '/etc/passwd' });
+      await settle();
+
+      expect(openFile).not.toHaveBeenCalled();
+    });
+
+    it('openFile refuses a forged or stale changeId without opening anything', async () => {
+      const loaded = snapshot(41, 'current:1', target('src/current.ts'));
+      const { host, panels } = makeHost();
+      const openFile = vi.fn();
+      const warn = vi.fn();
+      const manager = new TicketChangesManager(
+        host, (id) => `Changes ${id}`, async () => loaded, async () => {}, warn,
+        () => {}, () => {}, undefined, openFile,
+      );
+
+      manager.open(41);
+      await settle();
+      panels[0]!.emit({ type: 'open-file', changeId: 'forged:99' });
+      await settle();
+
+      expect(openFile).not.toHaveBeenCalled();
+      expect(warn).toHaveBeenCalled();
     });
 
     it('discard calls the injected discardChanges with the changeId', async () => {

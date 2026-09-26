@@ -8,7 +8,7 @@ import { getTicket } from '../../store/tickets.js';
 import { transition } from '../machine.js';
 import { listStageRuns, openStageRun } from '../../store/stageRuns.js';
 import { listGateRuns, recordGateRun } from '../../store/gateRuns.js';
-import { listProcessRuns } from '../../store/processRuns.js';
+import { listProcessRuns, openProcessRun, finishProcessRun } from '../../store/processRuns.js';
 import { listUatFindings } from '../../store/uatFindings.js';
 import { stageBlock } from '../../store/stageBlocks.js';
 import { manifest, uat as uatConfig } from '../../manifest/fixtures.js';
@@ -513,6 +513,107 @@ describe('runUat', () => {
     expect(listGateRuns(store, id)[0]!.attempt).toBe(0);
   });
 
+  // The zero-gate verdict is decided ACROSS every target, never per target. A
+  // repository that answers none of UAT's questions (a docs package, anything
+  // with no package.json) says nothing on its own — parking the whole run on it
+  // discards the green target beside it, depends on target order, and leaves a
+  // mixed-stack ticket stuck behind a block no retry can clear.
+  it('a target with nothing to run does not park a run another target answered', async () => {
+    const res = await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
+      deps({
+        planTargets: async () => ({
+          kind: 'targets',
+          targets: [
+            { repo: '/docs', path: '/wt/docs', names: ['docs'] },
+            { repo: '/web', path: '/wt/web', names: ['web'] },
+          ],
+          unmapped: [],
+        }),
+        probe: (cwd) =>
+          cwd === '/wt/web' ? { kind: 'ok', scripts: { test: 'vitest' } } : { kind: 'absent' },
+      }),
+    );
+    expect(res).toEqual({ kind: 'advanced', next: 'review' });
+    expect(listGateRuns(store, id).map((r) => r.gateName)).toEqual(['test (web)']);
+    // The repository that answered nothing is still named in the log — an
+    // absence a human cannot see is indistinguishable from one karst never met.
+    expect(readFileSync(uatStage(store, id).artifactPath!, 'utf8')).toContain('docs');
+    expect(stageBlock(store, id, 'uat')).toBeNull();
+  });
+
+  // ...and the order of that target must not change the outcome.
+  it('reaches the same verdict whichever way round the scriptless target sorts', async () => {
+    const probeOf = (cwd: string) =>
+      cwd === '/wt/web' ? ({ kind: 'ok', scripts: { test: 'vitest' } } as const) : ({ kind: 'absent' } as const);
+    const res = await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
+      deps({
+        planTargets: async () => ({
+          kind: 'targets',
+          targets: [
+            { repo: '/web', path: '/wt/web', names: ['web'] },
+            { repo: '/docs', path: '/wt/docs', names: ['docs'] },
+          ],
+          unmapped: [],
+        }),
+        probe: probeOf,
+      }),
+    );
+    expect(res).toEqual({ kind: 'advanced', next: 'review' });
+  });
+
+  // When EVERY target has nothing to run, the across-target block still stands:
+  // nothing was asked of anything, and that is never green.
+  it('blocks nothing-to-run when no target has a runnable gate', async () => {
+    const res = await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
+      deps({
+        planTargets: async () => ({
+          kind: 'targets',
+          targets: [
+            { repo: '/docs', path: '/wt/docs', names: ['docs'] },
+            { repo: '/web', path: '/wt/web', names: ['web'] },
+          ],
+          unmapped: [],
+        }),
+        probe: () => ({ kind: 'absent' }),
+      }),
+    );
+    expect(res).toMatchObject({ kind: 'blocked', blocker: 'nothing-to-run' });
+    expect(getTicket(store, id).stageCurrent).toBe('uat');
+  });
+
+  // The `continue` must hold for a target that is neither first nor last: a
+  // mixed-stack ticket whose scriptless repository sorts in the MIDDLE still
+  // has to ask the targets after it, or the order of the worktrees decides the
+  // outcome and the later half is silently never checked.
+  it('skips a scriptless target in the middle and still runs the ones after it', async () => {
+    const res = await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}) },
+      deps({
+        planTargets: async () => ({
+          kind: 'targets',
+          targets: [
+            { repo: '/web', path: '/wt/web', names: ['web'] },
+            { repo: '/docs', path: '/wt/docs', names: ['docs'] },
+            { repo: '/api', path: '/wt/api', names: ['api'] },
+          ],
+          unmapped: [],
+        }),
+        probe: (cwd) =>
+          cwd === '/wt/docs' ? { kind: 'absent' } : { kind: 'ok', scripts: { test: 'vitest' } },
+      }),
+    );
+    expect(res).toEqual({ kind: 'advanced', next: 'review' });
+    expect(listGateRuns(store, id).map((r) => r.gateName)).toEqual(['test (web)', 'test (api)']);
+    expect(stageBlock(store, id, 'uat')).toBeNull();
+  });
+
   it('records the gate rows of a run that resolved to a block', async () => {
     // Every gate reported null: karst asked, and nothing answered. That is a park,
     // and the rows proving each gate said nothing must survive it.
@@ -843,10 +944,14 @@ describe('runUat', () => {
     expect(result).toEqual({ kind: 'advanced', next: 'review' });
   });
 
-  it('advances when every uat gate is disabled — the user chose to skip all checks', async () => {
+  it('advances bypassed when every uat gate is disabled — the user chose to skip all checks', async () => {
     setDisabledGates(store, id, 'uat', ['test', 'e2e']);
     const result = await runUat(store, { ticketId: id, cwd: '/wt/web', artifactDir }, deps());
     expect(result).toEqual({ kind: 'advanced', next: 'review' });
+    // The pipeline continues, but the stage records `bypassed`, never `passed`:
+    // no gate outcome was proven (P2-18).
+    const uat = getTicket(store, id).stages.find((s) => s.stageKey === 'uat')!;
+    expect(uat.status).toBe('bypassed');
   });
 
   // v25: the run existing at all, and what it ended as, is what resolves
@@ -1382,6 +1487,44 @@ describe('runUat — Tester and verifier (Task 8)', () => {
     expect(listProcessRuns(store, id)[0]).toMatchObject({ resultKind: 'verification-failed' });
     // The deterministic failure is the stage's verdict, named on the stage row.
     expect(uatStage(store, id).verdict).toContain('uat tester verifier failed: exit code 1');
+  });
+
+  // P2-14: the tester run the verifier failure is attributed to must belong to
+  // THIS attempt. A ticket that ran a Tester in an earlier attempt still has
+  // that run in `process_runs`; an attempt that ran no Tester (no `deps.tester`)
+  // must not name it.
+  it('does not attribute a verifier failure to a stale tester run from an earlier attempt', async () => {
+    const stale = openProcessRun(store, {
+      ticketId: id,
+      stageKey: 'uat',
+      processId: 'tester',
+      attempt: 0,
+      stageRunId: null,
+      startedAt: '2026-07-29T00:00:00.000Z',
+    });
+    finishProcessRun(store, stale.id, 'passed', '2026-07-29T00:00:01.000Z', 'observed');
+
+    const res = await runUat(
+      store,
+      {
+        ticketId: id,
+        cwd: '/wt/web',
+        artifactDir,
+        manifest: manifest({}, { uat: uatConfig({ testerVerifier: { name: 'verify', kind: 'command', command: 'verify.sh' } }) }),
+      },
+      // No `tester` in deps: this attempt runs no Tester at all.
+      deps({ runVerifier: verifierRun({ kind: 'completed', exitCode: 1, output: 'nope' }) }),
+    );
+    expect(res).toEqual({ kind: 'advanced', next: 'fix' });
+
+    const rounds = listRecoveryRounds(store, id);
+    expect(rounds).toHaveLength(1);
+    expect(rounds[0]).toMatchObject({
+      sourceProcessId: 'tester',
+      triggerKind: 'tester-verifier-failure',
+    });
+    // The stale run from the previous attempt must not be named.
+    expect(rounds[0]!.sourceProcessRunId).toBeNull();
   });
 
   it('verifier execution failure parks without a verdict, an attempt, or a recovery round', async () => {

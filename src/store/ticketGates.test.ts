@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { openStore } from './db.js';
 import { createTicket } from './tickets.js';
 import { getDisabledGates, setDisabledGates } from './ticketGates.js';
@@ -64,5 +67,40 @@ describe('ticketGates', () => {
     const store = openStore(':memory:');
     setDisabledGates(store, 9999, 'uat', ['e2e']);
     expect(getDisabledGates(store, 9999)).toEqual({ uat: [], review: [] });
+  });
+
+  it('holds a write transaction across its read-modify-write, so a concurrent window cannot interleave (P2-03)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-gates-'));
+    const path = join(dir, 'karst.db');
+    const a = openStore(path);
+    const b = openStore(path);
+    try {
+      b.db.pragma('busy_timeout = 0');
+      const id = createTicket(a, { key: 'K-1', title: 'A ticket' }).id;
+      let refused: unknown;
+      const realPrepare = a.db.prepare.bind(a.db);
+      (a.db as unknown as { prepare: (sql: string) => unknown }).prepare = (sql: string) => {
+        if (sql.includes('UPDATE tickets SET disabled_gates')) {
+          // The concurrent window commits exactly between A's read and A's
+          // write. With A's BEGIN IMMEDIATE held, it is refused.
+          try {
+            setDisabledGates(b, id, 'review', ['lint']);
+          } catch (err) {
+            refused = err;
+          }
+        }
+        return realPrepare(sql);
+      };
+
+      setDisabledGates(a, id, 'uat', ['e2e']);
+
+      expect(refused).toBeDefined();
+      expect(String((refused as { code?: string }).code)).toContain('SQLITE_BUSY');
+      expect(getDisabledGates(a, id)).toEqual({ uat: ['e2e'], review: [] });
+    } finally {
+      a.close();
+      b.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

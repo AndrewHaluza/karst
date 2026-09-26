@@ -6,6 +6,7 @@ import { archiveTicket, unarchiveTicket } from '../../store/tickets.js';
 import { listWorktreesByTicket } from '../../store/dashboard.js';
 import { listArchives } from '../../store/worktreeArchives.js';
 import { archiveWorktree, restoreWorktree } from '../../runtime/archive.js';
+import { archiveInactiveWorktrees } from '../../runtime/archiveBulk.js';
 import { makePortAllocator } from '../../resolver/allocator.js';
 import { describeReap } from '../../runtime/worktreeServers.js';
 import { emptyManifest } from '../../extension/manifestResolve.js';
@@ -65,6 +66,55 @@ export async function archiveTicketOp(deps: ArchiveOpsDeps, ticketId: number): P
         deps.notify.warn(`Worktree not archived: ${String(err)}`);
       }
     }
+  }
+  deps.refresh();
+}
+
+export interface ArchiveInactiveDeps {
+  readonly store: Store;
+  readonly git: GitRunner;
+  readonly manifest: () => Manifest | undefined;
+  readonly projectId: () => number | undefined;
+  readonly notify: Notify;
+  readonly log: { info(m: string): void };
+  readonly refresh: () => void;
+}
+
+/**
+ * Bulk-archive every inactive worktree for the bound project. Destructive, so an
+ * unbound window (no manifest, or no project) refuses instead of degrading to an
+ * all-projects sweep; whatever the sweep had to stop to remove a tree is reported
+ * too, because a kill that FAILED leaves a live server serving a deleted tree.
+ */
+export async function archiveInactiveWorktreesOp(deps: ArchiveInactiveDeps): Promise<void> {
+  const manifest = deps.manifest();
+  if (!manifest) {
+    deps.notify.warn('Karst: no manifest loaded.');
+    return;
+  }
+  const projectId = deps.projectId();
+  if (projectId === undefined) {
+    deps.notify.warn('Karst: no project bound — refusing to archive inactive worktrees.');
+    return;
+  }
+  const allocator = makePortAllocator(deps.store, manifest.portRange);
+  const summary = await archiveInactiveWorktrees(deps.git, deps.store, allocator, { projectId });
+  // Say what the sweep had to stop to remove those trees. An unattended bulk
+  // archive is the last place a killed — or unkillable — dev server may go
+  // unsaid; aggregated into one message rather than one popup per row, since a
+  // sweep can touch many worktrees at once.
+  for (const s of summary.reapedServers) deps.log.info(describeReap(s));
+  const stopped = summary.reapedServers.filter((s) => s.outcome === 'killed').length;
+  const stillRunning = summary.reapedServers.filter((s) => s.outcome === 'kill-failed');
+  deps.notify.info(
+    `Karst: archived ${summary.archived} worktree(s), skipped ${summary.skipped}, failed ${summary.failed}` +
+      (stopped > 0 ? `, stopped ${stopped} running server(s).` : '.'),
+  );
+  if (stillRunning.length > 0) {
+    deps.notify.warn(
+      `Karst: could not stop ${stillRunning.length} server(s) still running in archived ` +
+        `worktrees — ${stillRunning.map((s) => `'${s.repo}' (pid ${s.pid ?? 'unknown'})`).join(', ')}.`,
+    );
   }
   deps.refresh();
 }

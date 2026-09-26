@@ -23,21 +23,37 @@ export interface BulkSummary {
 }
 
 /**
+ * Scope for the destructive bulk archive. `projectId` is REQUIRED — this sweep
+ * removes worktree folders, and the store query falls back to ALL projects when
+ * no `project_id` is given, so an unbound call would reap every other IDE
+ * window's worktrees. Callers that cannot bind a project must refuse instead.
+ */
+export interface ArchiveInactiveOptions {
+  projectId: number;
+  /** See `ArchivableWorktreesOptions.onlyArchived`. */
+  onlyArchived?: boolean;
+}
+
+/**
  * Archive every inactive worktree (ticket archived or done, agent not running),
  * deduped by folder path so repository entries sharing a repoPath archive once.
  * Sequential and fault-isolated: one item's failure never aborts the rest.
  *
- * Scoped by project (default: unscoped/all-projects) — the DB is shared across
- * IDE windows, so a caller with a current project MUST pass it or this reaps
- * other windows' worktrees too.
+ * Scoped by project — the DB is shared across IDE windows, so this destructive
+ * sweep refuses an unbound scope rather than degrading to all-projects.
  */
 export async function archiveInactiveWorktrees(
   runner: GitRunner,
   store: Store,
   allocator: PortAllocator,
-  options: ArchivableWorktreesOptions = {},
+  options: ArchiveInactiveOptions,
 ): Promise<BulkSummary> {
-  const candidates = listArchivableWorktrees(store, options);
+  if (!Number.isFinite(options.projectId)) {
+    throw new Error(
+      'archiveInactiveWorktrees: refusing an unscoped sweep — bind a project first',
+    );
+  }
+  const candidates = listArchivableWorktrees(store, options satisfies ArchivableWorktreesOptions);
   const seen = new Set<string>();
   const summary: BulkSummary = { archived: 0, skipped: 0, failed: 0, reapedServers: [] };
 

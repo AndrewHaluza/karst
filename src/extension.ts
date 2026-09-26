@@ -13,7 +13,7 @@ import { describeStoreOpenFailure } from './extension/storeOpenFailure.js';
 import { ticketIdArg } from './extension/ops/args.js';
 import { spinRepoPicks, servicesOnlyArg } from './extension/ops/spinPicks.js';
 import type { Notify } from './extension/ops/notify.js';
-import { archiveTicketOp, unarchiveTicketOp, type ArchiveOpsDeps } from './extension/ops/archiveOps.js';
+import { archiveTicketOp, unarchiveTicketOp, archiveInactiveWorktreesOp, type ArchiveOpsDeps } from './extension/ops/archiveOps.js';
 import { deleteTicketOp, createFollowUpTicketOp, type LifecycleOpsDeps } from './extension/ops/lifecycleOps.js';
 import { attentionPicks, facetPicks, resolveFacetPicks } from './extension/ops/pickers.js';
 import { makePrSyncLoop } from './extension/ops/prSyncLoop.js';
@@ -22,6 +22,7 @@ import { runBootSweeps } from './extension/ops/bootSweeps.js';
 import { resumeStrandedShips } from './extension/ops/strandedShip.js';
 import { addressPrFeedback } from './extension/ops/prFeedbackAction.js';
 import { toWorktreeSpecs } from './extension/ops/worktreeSpecs.js';
+import { resolveStageLogPath } from './extension/ops/stageLogArtifact.js';
 import { fixBriefForTicket } from './extension/ops/fixBriefForTicket.js';
 import { startFixWatchdog } from './extension/ops/fixWatchdog.js';
 import { createLivenessLoop } from './extension/ops/livenessLoop.js';
@@ -672,13 +673,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const activatedAt = Date.now();
   logger.info('Karst activated');
 
-  // Backfill: spill any pre-existing oversized descriptions/briefs to the
-  // attachment shelf.  Idempotent (a pointer is under threshold and won't
-  // re-spill).  Runs once per activation after migration.
-  void backfillSpillOversized(localStore, storageDir, logger).catch(() => {
-    // backfillSpillOversized logs per-ticket warnings internally.
-  });
-
   // The karst mark every panel tab wears. Materialized once per window and
   // handed to each panel host — a tab that carries no ticket has no glyph to
   // derive an icon from, and would otherwise be indistinguishable from a file.
@@ -1324,6 +1318,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
   // Registered after `currentProject`; project-scoped, so this manifest's window never reaches another project's fix. Its immediate first tick covers activation.
   context.subscriptions.push(startFixWatchdog(localStore, currentManifest, () => currentProject()?.id ?? null, logger.info, logError));
+
+  // Backfill: spill any pre-existing oversized descriptions/briefs to the
+  // attachment shelf.  Idempotent (a pointer is under threshold and won't
+  // re-spill).  Runs once per activation after migration, and ONLY for this
+  // window's project: the store is shared across IDE windows, so an unscoped
+  // sweep would spill another project's tickets (P2-02). With no bound project
+  // there is nothing this window owns, so it does not run.
+  const backfillProjectId = currentProject()?.id;
+  if (backfillProjectId !== undefined) {
+    void backfillSpillOversized(localStore, storageDir, logger, { projectId: backfillProjectId }).catch(() => {
+      // backfillSpillOversized logs per-ticket warnings internally.
+    });
+  }
 
   const diagnosticDocuments = new DiagnosticDocumentProvider();
   context.subscriptions.push(
@@ -3042,6 +3049,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     deleteDeps: {
       closePanel: (id) => ticketForm.closeTicket(id),
       reap: (id) => reapAttachments(context.globalStorageUri.fsPath, id),
+      // Removal releases each worktree's ports as it comes down; the range only
+      // feeds `allocate`, which permanent delete never calls, so the fallback
+      // manifest is a safe stand-in when no project manifest is loaded.
+      get allocator() {
+        return makePortAllocator(localStore, (currentManifest() ?? emptyManifest()).portRange);
+      },
       get graphBytesRoot() { return graphBytesRootFor(); },
       artifactsRoot: join(context.globalStorageUri.fsPath, 'artifacts'),
     },
@@ -6458,38 +6471,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (ticketId === undefined) return;
       await deleteTicketOp(lifecycleDeps, ticketId);
     }),
-    vscode.commands.registerCommand('karst.archiveInactiveWorktrees', async () => {
-      const manifest = currentManifest();
-      if (!manifest) {
-        void vscode.window.showWarningMessage('Karst: no manifest loaded.');
-        return;
-      }
-      const allocator = makePortAllocator(localStore, manifest.portRange);
-      const summary = await archiveInactiveWorktrees(defaultGitRunner, localStore, allocator, {
-        projectId: currentProject()?.id,
-      });
-      // Say what the sweep had to stop to remove those trees. An unattended
-      // bulk archive is the last place a killed — or unkillable — dev server may
-      // go unsaid; a kill that FAILED leaves a live server serving a deleted
-      // tree, the exact orphan this ticket exists to end, so it gets the same
-      // warning the single-ticket archive command raises for it, not just a log
-      // line. Aggregated into one message rather than one popup per row, since a
-      // sweep can touch many worktrees at once.
-      for (const s of summary.reapedServers) logger.info(describeReap(s));
-      const stopped = summary.reapedServers.filter((s) => s.outcome === 'killed').length;
-      const stillRunning = summary.reapedServers.filter((s) => s.outcome === 'kill-failed');
-      void vscode.window.showInformationMessage(
-        `Karst: archived ${summary.archived} worktree(s), skipped ${summary.skipped}, failed ${summary.failed}` +
-          (stopped > 0 ? `, stopped ${stopped} running server(s).` : '.'),
-      );
-      if (stillRunning.length > 0) {
-        void vscode.window.showWarningMessage(
-          `Karst: could not stop ${stillRunning.length} server(s) still running in archived ` +
-            `worktrees — ${stillRunning.map((s) => `'${s.repo}' (pid ${s.pid ?? 'unknown'})`).join(', ')}.`,
-        );
-      }
-      provider.refresh();
-    }),
+    vscode.commands.registerCommand('karst.archiveInactiveWorktrees', () =>
+      archiveInactiveWorktreesOp({
+        store: localStore,
+        git: defaultGitRunner,
+        manifest: currentManifest,
+        projectId: () => currentProject()?.id,
+        notify,
+        log: { info: (m) => logger.info(m) },
+        refresh: () => provider.refresh(),
+      }),
+    ),
     vscode.commands.registerCommand('karst.compactArchivedWorktrees', async () => {
       const manifest = currentManifest();
       if (!manifest) {
@@ -8083,16 +8075,21 @@ function makeDashboardActions(
     // repos/approach/agent/model from this ticket.
     createFollowUpTicket: () =>
       void vscode.commands.executeCommand('karst.createFollowUpTicket', ticketId),
-    // A failed gate's log, opened read-only in an editor — the "why" behind a red
-    // node, without sending the user to the dev-only output channel.
-    openStageLog: (path) => {
+    // The webview names ONLY the stage key; the path is re-derived from the
+    // store row this panel owns (never from the message) before `Uri.file`.
+    openStageLog: (stageKey) => {
+      const artifact = resolveStageLogPath((id) => getTicket(store, id), ticketId, stageKey);
+      if (artifact === null) {
+        void vscode.window.showWarningMessage('That stage has no log to open.');
+        return;
+      }
       void (async () => {
         try {
-          const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(path));
+          const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(artifact));
           await vscode.window.showTextDocument(doc, { preview: true });
         } catch (e) {
           // The gate wrote the path, but the file can be gone (worktree removed).
-          void vscode.window.showWarningMessage(`Cannot open the log at ${path}.`);
+          void vscode.window.showWarningMessage(`Cannot open the log at ${artifact}.`);
           logError('open stage log failed', e);
         }
       })();

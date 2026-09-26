@@ -71,8 +71,9 @@ through it.
 Disabled gates removed here are reported separately (see Evidence) so the
 caller can tell "resolved to zero gates because nothing declared/discovered"
 (existing `unavailable`/`nothing-to-run`) apart from "resolved to zero gates
-because the user disabled all of them" (new: still a pass, not `unavailable`
-— the ticket asked for nothing and got nothing to fail).
+because the user disabled all of them" (the `bypassed` outcome, not
+`unavailable` and not `passed`: the ticket asked for nothing and got nothing to
+fail, so the stage advances bypassed — P2-18/NDL-29).
 
 ## Evidence
 

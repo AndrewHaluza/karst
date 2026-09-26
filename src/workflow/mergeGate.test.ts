@@ -8,6 +8,7 @@ import { facetOf } from '../ui/sidebar/facets.js';
 import { transition } from './machine.js';
 import { setStage } from '../store/stages.js';
 import { dismissPr } from '../store/prs.js';
+import { openShipRun, closeShipRun } from '../store/shipRuns.js';
 import { mergeGateState, resolveShipLanding, settleShipGate, settleShipGates } from './mergeGate.js';
 
 // Wrapped rather than stubbed (`vi.fn(actual.x)`), so every OTHER test in this
@@ -234,9 +235,9 @@ describe('resolveShipLanding', () => {
     });
 
     expect(() => resolveShipLanding(store, id)).not.toThrow();
-    // The swallow leaves the ticket at `ship` — not landed, not blocked — a
-    // transient miss the next `shipTicket` re-run repairs by calling
-    // resolveShipLanding again and re-establishing the block from scratch.
+    // The swallow leaves the ticket at `ship` — not landed, not blocked. The
+    // pass is not lost for good: the passed ship run lets `settleShipGate`
+    // repair the block (see its own describe below), and a re-ship heals it too.
     expect(getTicket(store, id).stageCurrent).toBe('ship');
   });
 
@@ -290,6 +291,45 @@ describe('settleShipGate', () => {
     const res = settleShipGate(store, id);
     expect(res.advanced).toBe(true);
     expect(getTicket(store, id).stageCurrent).toBe('done');
+  });
+
+  // P2-04: `resolveShipLanding`'s not-landed block write is swallowed, so a
+  // failure of it leaves the ship row `running` with NO block. The safari
+  // accepted that as "not a ship failure" but then `settleShipGate` refused the
+  // ticket forever — the later merge never settled it. The durable PASSED ship
+  // run is the proof it shipped; the sweep must repair the block from it.
+  it('recovers a shipped ticket whose awaiting-merge block write was lost', () => {
+    walkToShip(store, id);
+    seedPr(store, id, 'api', 'open');
+    // Ship ran (row stamped `running` at its start) and closed its run passed;
+    // the terminal block write then failed, recording neither pass nor block.
+    setStage(store, id, 'ship', { status: 'running' });
+    const run = openShipRun(store, { ticketId: id, attempt: 1, pid: 4242, startedAt: 't0' });
+    closeShipRun(store, run.id, 'passed', 't1');
+    expect(stageBlock(store, id, 'ship')).toBeNull();
+
+    // The sweep recognizes it and repairs the lost block rather than refusing…
+    expect(settleShipGate(store, id).advanced).toBe(false);
+    expect(stageBlock(store, id, 'ship')?.kind).toBe('awaiting-merge');
+
+    // …so the later merge can settle it to done.
+    store.db.prepare("UPDATE prs SET status = 'merged' WHERE ticket_id = ?").run(id);
+    expect(settleShipGate(store, id).advanced).toBe(true);
+    expect(getTicket(store, id).stageCurrent).toBe('done');
+  });
+
+  // The other half of the same guard: a ticket merely pending its first confirm
+  // has no completed ship run, so the recovery must never pull it forward.
+  it('does not treat a ticket with no completed ship run as a lost-block recovery', () => {
+    walkToShip(store, id);
+    setStage(store, id, 'ship', { status: 'running' });
+    // A ship whose run only FAILED is not a ship.
+    const failed = openShipRun(store, { ticketId: id, attempt: 1, pid: 4242, startedAt: 't0' });
+    closeShipRun(store, failed.id, 'failed', 't1');
+
+    expect(settleShipGate(store, id).advanced).toBe(false);
+    expect(stageBlock(store, id, 'ship')).toBeNull();
+    expect(getTicket(store, id).stageCurrent).toBe('ship');
   });
 
   it('is idempotent — a second call on a done ticket does nothing', () => {

@@ -77,6 +77,9 @@ export function stageBadge(t: TicketWithStages): StageBadge {
   if (status === 'failed') return { label: `${title} failed`, glyph, stage };
   if (status === 'running') return { label: STAGE_ACTIVITY[stage], glyph, stage };
   if (status === 'skipped') return { label: `${title} skipped`, glyph, stage };
+  // Every gate was disabled for this ticket: the stage did not gate, but the
+  // pipeline continued. Distinct from "passed" — no gate outcome was proven.
+  if (status === 'bypassed') return { label: `${title} bypassed`, glyph, stage };
   if (status === 'passed') {
     // Arriving at a terminal stage IS completing it (workflow/machine.ts), so
     // the exit reads as the outcome, not as another finished step.

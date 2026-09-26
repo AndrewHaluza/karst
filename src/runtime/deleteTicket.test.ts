@@ -1,13 +1,39 @@
 import { describe, expect, it, vi } from 'vitest';
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { openStore } from '../store/db.js';
+import { openStore, type Store } from '../store/db.js';
 import { createTicket, getTicket } from '../store/tickets.js';
 import { openProcessRun, listProcessRuns } from '../store/processRuns.js';
 import { recordTokenUsage, listTokenUsage } from '../store/tokenUsage.js';
 import { recordFindings, listFindings } from '../store/reviewFindings.js';
+import { makePortAllocator } from '../resolver/allocator.js';
+import { createWorktree } from './worktree.js';
 import { deleteTicketPermanently } from './deleteTicket.js';
+
+/** The lifecycle's allocator only ever has `release` called on the delete path. */
+function allocatorFor(store: Store) {
+  return makePortAllocator(store, [4000, 4999]);
+}
+
+function git(cwd: string, ...args: string[]): void {
+  const r = spawnSync('git', args, { cwd, encoding: 'utf8' });
+  if (r.status !== 0) throw new Error(`git ${args.join(' ')}: ${r.stderr}`);
+}
+
+/** A real repo with one commit on `develop`, so a linked worktree can be cut. */
+function makeRepo(): { path: string; cleanup: () => void } {
+  const dir = mkdtempSync(join(tmpdir(), 'karst-del-wt-'));
+  writeFileSync(join(dir, 'index.js'), 'console.log(1);\n');
+  writeFileSync(join(dir, '.gitignore'), 'node_modules/\n');
+  git(dir, 'init', '-q', '-b', 'develop');
+  git(dir, 'config', 'user.email', 'test@karst.local');
+  git(dir, 'config', 'user.name', 'test');
+  git(dir, 'add', '.');
+  git(dir, 'commit', '-q', '-m', 'init');
+  return { path: dir, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+}
 
 describe('deleteTicketPermanently', () => {
   it('closes the bound panel, deletes rows, and waits for attachment cleanup', async () => {
@@ -26,7 +52,11 @@ describe('deleteTicketPermanently', () => {
     });
     let settled = false;
 
-    const deleting = deleteTicketPermanently(store, ticket.id, { closePanel, reap })
+    const deleting = deleteTicketPermanently(store, ticket.id, {
+      closePanel,
+      reap,
+      allocator: allocatorFor(store),
+    })
       .then(() => {
         settled = true;
       });
@@ -42,6 +72,18 @@ describe('deleteTicketPermanently', () => {
     store.close();
   });
 
+  it('returns no reaps for a ticket with no worktrees', async () => {
+    const store = openStore(':memory:');
+    const ticket = createTicket(store, { key: 'DELETE-NOWT', title: 'no worktrees' });
+    const outcome = await deleteTicketPermanently(store, ticket.id, {
+      closePanel: () => {},
+      reap: async () => {},
+      allocator: allocatorFor(store),
+    });
+    expect(outcome).toEqual({ reapedServers: [], failedWorktrees: 0 });
+    store.close();
+  });
+
   it('propagates attachment cleanup failure after deleting the ticket', async () => {
     const store = openStore(':memory:');
     const ticket = createTicket(store, { key: 'DELETE-2', title: 'delete me too' });
@@ -51,6 +93,7 @@ describe('deleteTicketPermanently', () => {
       reap: async () => {
         throw new Error('disk denied');
       },
+      allocator: allocatorFor(store),
     })).rejects.toThrow('disk denied');
 
     expect(() => getTicket(store, ticket.id)).toThrow();
@@ -105,6 +148,7 @@ describe('deleteTicketPermanently', () => {
     await deleteTicketPermanently(store, ticket.id, {
       closePanel: () => {},
       reap: async () => {},
+      allocator: allocatorFor(store),
     });
 
     expect(() => getTicket(store, ticket.id)).toThrow();
@@ -116,6 +160,90 @@ describe('deleteTicketPermanently', () => {
     expect(surviving[0]!.ticketId).toBeNull();
     expect(surviving[0]!.processRunId).toBeNull();
     expect(surviving[0]!.totalTokens).toBe(80);
+    store.close();
+  });
+
+  // The leak this routing closes (869ed2n50): permanent delete used to remove
+  // only the `servers`/`worktrees` rows, leaving the dev server detached — no
+  // controlling tty, reparented to init, still holding its port and serving a
+  // directory that no longer exists once the ticket's rows (its only handle)
+  // were gone. Removal must stop the servers and take the tree off disk while
+  // both pid and path are still known, BEFORE the row transaction.
+  it('stops the servers inside the ticket worktrees and removes the trees before the rows', async () => {
+    const store = openStore(':memory:');
+    const repo = makeRepo();
+    try {
+      const ticket = createTicket(store, { key: 'DELETE-WT', title: 'worktree' });
+      const rec = createWorktree(store, {
+        ticketId: ticket.id,
+        repoPath: repo.path,
+        slug: 'DELETE-WT',
+        baseRef: 'develop',
+      });
+      expect(existsSync(rec.path)).toBe(true);
+      const allocator = makePortAllocator(store, [4000, 4999]);
+      allocator.allocate(ticket.id, 'frontend', ['http']);
+      store.db
+        .prepare(
+          `INSERT INTO servers (ticket_id, repo, host, port, pid, status, log_path, cwd)
+           VALUES (?, 'frontend', 'localhost', 3000, NULL, 'running', '/l', ?)`,
+        )
+        .run(ticket.id, join(rec.path, 'packages', 'web'));
+
+      const outcome = await deleteTicketPermanently(store, ticket.id, {
+        closePanel: () => {},
+        reap: async () => {},
+        allocator,
+      });
+
+      expect(existsSync(rec.path)).toBe(false);
+      expect(outcome.failedWorktrees).toBe(0);
+      // pid is NULL, so the row is cleared rather than a process signalled —
+      // the point is the server was dealt with before the tree came down.
+      expect(outcome.reapedServers.map((s) => [s.reason, s.outcome])).toEqual([
+        ['worktree-removed', 'row-cleared'],
+      ]);
+      expect(() => getTicket(store, ticket.id)).toThrow();
+      const wt = store.db
+        .prepare('SELECT COUNT(*) AS n FROM worktrees WHERE ticket_id = ?')
+        .get(ticket.id) as { n: number };
+      expect(wt.n).toBe(0);
+      const ports = store.db
+        .prepare('SELECT COUNT(*) AS n FROM port_allocations WHERE ticket_id = ?')
+        .get(ticket.id) as { n: number };
+      expect(ports.n).toBe(0);
+    } finally {
+      repo.cleanup();
+      store.close();
+    }
+  });
+
+  // Fault-isolated per row: cleanup must never strand a delete the user asked
+  // for. A worktree git refuses to remove is counted and reported, and the
+  // tombstone still lands.
+  it('still deletes the ticket when a worktree cannot be removed, reporting the failure', async () => {
+    const store = openStore(':memory:');
+    const ticket = createTicket(store, { key: 'DELETE-BADWT', title: 'bad worktree' });
+    store.db
+      .prepare(
+        `INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref, deps_mode)
+         VALUES (?, '/nonexistent/repo', '/nonexistent/worktree', 'b', 'develop', 'inherited')`,
+      )
+      .run(ticket.id);
+
+    const outcome = await deleteTicketPermanently(store, ticket.id, {
+      closePanel: () => {},
+      reap: async () => {},
+      allocator: allocatorFor(store),
+    });
+
+    expect(outcome.failedWorktrees).toBe(1);
+    expect(outcome.reapedServers).toEqual([]);
+    expect(() => getTicket(store, ticket.id)).toThrow();
+    const wt = store.db
+      .prepare('SELECT COUNT(*) AS n FROM worktrees WHERE ticket_id = ?')
+      .get(ticket.id) as { n: number };
+    expect(wt.n).toBe(0);
     store.close();
   });
 
@@ -136,6 +264,7 @@ describe('deleteTicketPermanently', () => {
       await deleteTicketPermanently(store, ticket.id, {
         closePanel: () => {},
         reap: async () => {},
+        allocator: allocatorFor(store),
         graphBytesRoot,
         artifactsRoot,
       });

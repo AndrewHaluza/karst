@@ -141,7 +141,10 @@ function reap(
   let outcome: ReapedServer['outcome'];
   try {
     // `attribution === 'attributable'` guarantees `row.pid` is a positive int.
-    outcome = killTree(row.pid!) === 'denied' ? 'kill-failed' : 'killed';
+    // Only a CONFIRMED kill may clear the row: 'denied' and 'unknown' both mean
+    // the process may still be running, and clearing it would erase the only
+    // record that it is (the Windows taskkill-unknown leak this closes).
+    outcome = killTree(row.pid!) === 'killed' ? 'killed' : 'kill-failed';
   } catch {
     outcome = 'kill-failed';
   }

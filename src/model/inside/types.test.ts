@@ -1,12 +1,19 @@
 import { describe, it, expect } from 'vitest';
 import type { StepperCell } from '../stepper.js';
-import { formatClock, formatExactDuration, formatTime } from './types.js';
+import { formatClock, formatExactDuration, formatTime, dotFor } from './types.js';
 
 const NOW = '2026-08-09T12:30:00.000Z';
 
 function cell(stageKey: StepperCell['stageKey'], over: Partial<StepperCell> = {}): StepperCell {
   return { stageKey, status: 'passed', ...over };
 }
+
+describe('dotFor', () => {
+  it('reads a bypassed stage as idle — it advanced without proving a gate pass', () => {
+    expect(dotFor(cell('review', { status: 'bypassed' }))).toBe('idle');
+    expect(dotFor(cell('uat', { status: 'bypassed' }))).not.toBe('done');
+  });
+});
 
 describe('formatExactDuration', () => {
   it('returns empty for a missing start or end', () => {

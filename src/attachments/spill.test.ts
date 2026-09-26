@@ -238,5 +238,24 @@ describe('spill oversized evidence to the artifact shelf', () => {
       const after = listAttachments(store, ticket.id);
       expect(after).toHaveLength(1);
     });
+
+    it('spills only the scoped project, leaving other projects untouched (P2-02)', async () => {
+      const mine = createTicket(store, {
+        key: 'MINE', title: 'mine', projectId: 1,
+        description: 'x'.repeat(SPILL_THRESHOLD_CHARS + 500),
+      });
+      const other = createTicket(store, {
+        key: 'OTHER', title: 'other', projectId: 2,
+        description: 'y'.repeat(SPILL_THRESHOLD_CHARS + 500),
+      });
+
+      await backfillSpillOversized(store, storageDir, { warn: () => {} }, { projectId: 1 });
+
+      expect(getTicket(store, mine.id).description).toContain('karst context');
+      // The other project's ticket keeps its full inline description — the
+      // sweep never reached across the project boundary.
+      expect(getTicket(store, other.id).description).toBe('y'.repeat(SPILL_THRESHOLD_CHARS + 500));
+      expect(listAttachments(store, other.id)).toHaveLength(0);
+    });
   });
 });

@@ -501,4 +501,26 @@ describe('sweepOrphanRefs', () => {
     // Active archive refs survive.
     expect(refResolves(repo.path, 'refs/karst/archive/K-2')).toBe(true);
   });
+
+  // P2-07: a multi-repo project kept orphan archive refs in every repo but the
+  // first, because the sweep only ever ran `for-each-ref` in `[...repos][0]`.
+  // Branch pruning already looped all repos; the archive-ref sweep must too.
+  it('sweeps orphan archive refs in every repo, not just the first', async () => {
+    const repoB = makeRepo();
+    try {
+      createWorktree(store, { ticketId: 1, repoPath: repo.path, slug: 'M-1', baseRef: 'develop' });
+      createWorktree(store, { ticketId: 2, repoPath: repoB.path, slug: 'M-2', baseRef: 'develop' });
+
+      // An archive ref no `worktree_archives` row backs is an orphan.
+      git(repo.path, 'update-ref', 'refs/karst/archive/orphan-a', 'HEAD');
+      git(repoB.path, 'update-ref', 'refs/karst/archive/orphan-b', 'HEAD');
+
+      const sr = await sweepOrphanRefs(defaultGitRunner, store);
+      expect(refResolves(repo.path, 'refs/karst/archive/orphan-a')).toBe(false);
+      expect(refResolves(repoB.path, 'refs/karst/archive/orphan-b')).toBe(false);
+      expect(sr.prunedArchiveRefs).toBe(2);
+    } finally {
+      repoB.cleanup();
+    }
+  });
 });

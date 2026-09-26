@@ -4,6 +4,8 @@ import { isPortOpen as tcpIsPortOpen, listenerPids as tcpListenerPids } from './
 import { killTree, type KillOutcome } from './processTree.js';
 import { portsIn } from './portProbe.js';
 import { isPathUnder } from './pathScope.js';
+import { readProcSnapshot, type ProcSnapshotResult } from './procSnapshot.js';
+import { collectTree } from './procTreeCost.js';
 import { systemAsyncProcessFacts, type ProcessFactsSource } from './serverIdentity.js';
 
 /**
@@ -22,8 +24,8 @@ import { systemAsyncProcessFacts, type ProcessFactsSource } from './serverIdenti
  * only on one whose live cwd is inside a `.karst/worktrees/` directory of a
  * repository this manifest declares. That is a path only karst creates, so a
  * process running there is a process karst started. Everything else — a cwd the
- * OS will not report, a listener anywhere else, a pid a running row still
- * claims — is left strictly alone.
+ * OS will not report, a listener anywhere else, a pid a running row or the
+ * process tree under it still claims — is left strictly alone.
  */
 
 export interface OrphanReap {
@@ -50,6 +52,12 @@ export interface OrphanReapOptions {
   listenerPids?: (host: string, port: number) => Promise<number[]>;
   /** OS probes; injected so tests never depend on this machine's processes. */
   facts?: ProcessFactsSource;
+  /**
+   * Injected for tests; default is one `ps` snapshot. Used to expand each
+   * running row's recorded pid into its full process tree (see `claimedTreePids`),
+   * because the socket holder is usually a descendant of the spawn leader.
+   */
+  readSnapshot?: () => Promise<ProcSnapshotResult>;
   /** Injected for tests; default sends SIGKILL to the process group. */
   kill?: (pid: number) => KillOutcome;
   /**
@@ -79,6 +87,42 @@ function claimedPids(store: Store): Set<number> {
 }
 
 /**
+ * The pids every running row accounts for — its recorded pid AND the whole
+ * process tree that pid leads.
+ *
+ * `servers.pid` is the spawn leader (the detached process-group leader, e.g.
+ * `npm`), while the process actually holding the socket is usually a descendant
+ * (`npm run dev` → shell → Vite/node). Matching only the leader is how this
+ * sweep came to SIGKILL the live listener of a healthy server on window reload:
+ * the descendant's cwd is inside the worktree — the sweep's positive proof — and
+ * no row named its pid. The leader's row is evidence for its descendants too, so
+ * one snapshot is walked from every recorded pid.
+ *
+ * The leaders themselves are ALWAYS claimed, even when the OS cannot answer
+ * (Windows, a missing `ps`, a probe that threw): a degraded probe must never
+ * spare less than the row explicitly claims.
+ */
+async function claimedTreePids(
+  store: Store,
+  readSnapshot: () => Promise<ProcSnapshotResult>,
+): Promise<Set<number>> {
+  const leaders = claimedPids(store);
+  if (leaders.size === 0) return leaders;
+  const claimed = new Set(leaders);
+  let snapshot: ProcSnapshotResult;
+  try {
+    snapshot = await readSnapshot();
+  } catch {
+    return claimed;
+  }
+  if (!snapshot.supported || snapshot.snapshot === null) return claimed;
+  for (const leader of leaders) {
+    for (const record of collectTree(snapshot.snapshot, leader)) claimed.add(record.pid);
+  }
+  return claimed;
+}
+
+/**
  * Kill every process holding a port of karst's ranges from inside a karst
  * worktree that no running row accounts for, and report each one.
  *
@@ -94,11 +138,12 @@ export async function reapOrphanedPorts(
   const isOpen = options.isPortOpen ?? ((h, p) => tcpIsPortOpen(h, p));
   const discover = options.listenerPids ?? ((h, p) => tcpListenerPids(h, p));
   const facts = options.facts ?? systemAsyncProcessFacts;
+  const readSnapshot = options.readSnapshot ?? (() => readProcSnapshot());
   const kill = options.kill ?? killTree;
   const roots = worktreeRootsOf(options.repoPaths);
   if (roots.length === 0) return [];
 
-  const claimed = claimedPids(store);
+  const claimed = await claimedTreePids(store, readSnapshot);
   // One verdict per pid: a leaked service typically holds a pair of ports (an
   // http and a grpc slot), and signalling its group twice is at best noise and
   // at worst a signal aimed at a pid the OS has already reissued.
@@ -154,7 +199,9 @@ export async function reapOrphanedPorts(
       );
       let outcome: OrphanReap['outcome'];
       try {
-        outcome = kill(pid) === 'denied' ? 'kill-failed' : 'killed';
+        // Only a confirmed kill counts as a stop; 'denied' and 'unknown' both
+        // leave open the possibility that the orphan is still running.
+        outcome = kill(pid) === 'killed' ? 'killed' : 'kill-failed';
       } catch {
         outcome = 'kill-failed';
       }

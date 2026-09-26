@@ -7,7 +7,7 @@ import { createTicketFlow } from './create.js';
 import { getTicket, setSessionId, updateTicketFields } from '../../store/tickets.js';
 import { listPrsByTicket } from '../../store/dashboard.js';
 import { listMergeChecksByTicket } from '../../store/mergeChecks.js';
-import { listShipEvidence, openShipRun, closeShipRun } from '../../store/shipRuns.js';
+import { listShipEvidence, openShipRun, closeShipRun, openShipRepoStep, beginShipOperationPreparation, finalizeShipOperationIntent } from '../../store/shipRuns.js';
 import { listProcessRuns } from '../../store/processRuns.js';
 import { transition } from '../machine.js';
 import { shipTicket, hasCompletedShipRun, type ShipStepEvent } from './ship.js';
@@ -867,6 +867,48 @@ setTimeout(() => {
       shipTicket(store, { ticketId: id }, gh, fakeAdapter(), git),
     ).rejects.toThrow();
 
+    const row = store.db
+      .prepare(`SELECT needs_force_push FROM worktrees WHERE ticket_id = ? AND repo = ?`)
+      .get(id, '/repo/frontend') as { needs_force_push: number | null };
+    expect(row.needs_force_push).toBe(1);
+  });
+
+  // The flag is consumed even when the probed remote ref is unreadable
+  // (`remoteRefSha` returns null): `takeForcePushLease` still clears it, the
+  // push just has no lease to carry and degrades to a plain one. If that plain
+  // push fails, the flag must come back — the branch is still rewritten, and a
+  // plain retry against an already-published branch is rejected forever, which
+  // parks the ticket at ship permanently.
+  it('re-arms the force-push flag when the remote ref is unreadable and the push fails', async () => {
+    const worktree = join(dir, 'fe');
+    seedWorktree(store, id, '/repo/frontend', worktree);
+    store.db
+      .prepare(`UPDATE worktrees SET needs_force_push = 1 WHERE ticket_id = ? AND repo = ?`)
+      .run(id, '/repo/frontend');
+    const localSha = 'b'.repeat(40);
+    const calls: string[][] = [];
+    const git: GitRunner = async (args) => {
+      calls.push(args);
+      if (args[0] === 'diff') return { stdout: '', stderr: '', exitCode: 1 };
+      if (args[0] === 'rev-parse' && args[1] === 'HEAD') {
+        return { stdout: localSha, stderr: '', exitCode: 0 };
+      }
+      if (args[0] === 'rev-parse' && args[2] === 'refs/remotes/origin/karst/x') {
+        return { stdout: '', stderr: '', exitCode: 1 };
+      }
+      if (args[0] === 'push') {
+        return { stdout: '', stderr: 'rejected (non-fast-forward)', exitCode: 1 };
+      }
+      return { stdout: '', stderr: '', exitCode: 0 };
+    };
+    const { gh } = fakeGh();
+
+    await expect(
+      shipTicket(store, { ticketId: id }, gh, fakeAdapter(), git),
+    ).rejects.toThrow();
+
+    // No usable lease → the push is a plain one, not a --force-with-lease.
+    expect(calls.filter((a) => a[0] === 'push')).toEqual([['push', '-u', 'origin', 'HEAD']]);
     const row = store.db
       .prepare(`SELECT needs_force_push FROM worktrees WHERE ticket_id = ? AND repo = ?`)
       .get(id, '/repo/frontend') as { needs_force_push: number | null };
@@ -3157,6 +3199,89 @@ setTimeout(() => {
         detail: 'no PR needed — no changes from develop',
       });
     });
+  });
+});
+
+/**
+ * P2-13: the crash-recovery reconcile for an interrupted `push` step. The
+ * forward push path guards `localHead !== '' && preRemoteHead === localHead`;
+ * the reconcile path did not, so `(null ?? '') === ''` adopted a push that
+ * never happened and marked its step landed.
+ */
+describe('ship reconcile: interrupted push adoption', () => {
+  let store: Store;
+  let id: number;
+  let dir: string;
+  beforeEach(() => {
+    store = openStore(':memory:');
+    id = createTicketFlow(store, { key: 'PROJ-PUSH', title: 'push reconcile' }).id;
+    dir = mkdtempSync(join(tmpdir(), 'karst-ship-push-'));
+    walkToShip(store, id);
+  });
+  afterEach(() => {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  /** Seed a previous ship run whose `push` step was interrupted mid-flight. */
+  function interruptedPush(localHead: string): { intentId: number } {
+    seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+    const prev = openShipRun(store, { ticketId: id, attempt: 1, pid: 4242, startedAt: 't0' });
+    const step = openShipRepoStep(store, {
+      shipRunId: prev.id,
+      repo: '/repo/frontend',
+      step: 'push',
+      detail: 'karst/x',
+      startedAt: 't0',
+    });
+    const preState = {
+      step: 'push' as const,
+      localHead,
+      remote: 'origin',
+      ref: 'karst/x',
+      preRemoteHead: null,
+    };
+    const intent = beginShipOperationPreparation(store, {
+      shipRunId: prev.id,
+      repo: '/repo/frontend',
+      step: 'push',
+      operationKey: `${prev.id}:/repo/frontend:push`,
+      preState,
+      createdAt: 't0',
+    });
+    finalizeShipOperationIntent(store, intent.id, preState, 't0');
+    store.db
+      .prepare('UPDATE ship_repo_steps SET operation_intent_id = ? WHERE id = ?')
+      .run(intent.id, step.id);
+    return { intentId: intent.id };
+  }
+
+  const intentStatus = (intentId: number): string =>
+    (store.db.prepare('SELECT status FROM ship_operation_intents WHERE id = ?').get(intentId) as { status: string }).status;
+
+  it('does not adopt a push whose own head was unreadable', async () => {
+    const { intentId } = interruptedPush('');
+    // `fakeGit` answers every `rev-parse` with exit 0 + empty stdout, so both
+    // the remote ref and the local head are unreadable — the lost-push case.
+    await shipTicket(store, { ticketId: id }, fakeGh().gh, fakeAdapter(), fakeGit().git);
+
+    expect(intentStatus(intentId)).toBe('failed');
+  });
+
+  it('still adopts a push whose remote ref carries the exact intended head', async () => {
+    const head = 'a'.repeat(40);
+    const { intentId } = interruptedPush(head);
+    const git: GitRunner = async (args) => {
+      if (args[0] === 'diff') return { stdout: '', stderr: '', exitCode: 1 };
+      if (args[0] === 'rev-parse' && args[2]?.startsWith('refs/remotes/')) {
+        return { stdout: `${head}\n`, stderr: '', exitCode: 0 };
+      }
+      return { stdout: '', stderr: '', exitCode: 0 };
+    };
+
+    await shipTicket(store, { ticketId: id }, fakeGh().gh, fakeAdapter(), git);
+
+    expect(intentStatus(intentId)).toBe('reconciled');
   });
 });
 

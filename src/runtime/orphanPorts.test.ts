@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { join } from 'node:path';
 import { openStore, type Store } from '../store/db.js';
+import { parseProcTable } from './procSnapshot.js';
 import { reapOrphanedPorts, describeOrphanReap, worktreeRootsOf } from './orphanPorts.js';
 
 const REPO = '/repos/arcus';
@@ -37,9 +38,20 @@ describe('reapOrphanedPorts', () => {
     isPortOpen: async () => true,
     listenerPids: async () => [4242],
     facts: facts(ORPHAN_CWD),
+    // No OS snapshot unless a test supplies one: the leaders stand alone.
+    readSnapshot: async () => ({ supported: false } as const),
     kill: vi.fn(() => 'killed' as const),
     ...over,
   });
+
+  /** A `servers` row that claims to be running under `pid` in the orphan worktree. */
+  const runningRow = (pid: number) =>
+    store.db
+      .prepare(
+        `INSERT INTO servers (ticket_id, repo, host, port, pid, status, log_path, cwd, started_at)
+         VALUES (1, 'dbgw', '127.0.0.1', 50050, ?, 'running', '/l', ?, ?)`,
+      )
+      .run(pid, ORPHAN_CWD, new Date().toISOString());
 
   it('kills a listener inside a karst worktree that no running row claims', async () => {
     const kill = vi.fn(() => 'killed' as const);
@@ -52,16 +64,51 @@ describe('reapOrphanedPorts', () => {
   });
 
   it('leaves a listener a running server row still claims', async () => {
-    store.db
-      .prepare(
-        `INSERT INTO servers (ticket_id, repo, host, port, pid, status, log_path, cwd, started_at)
-         VALUES (1, 'dbgw', '127.0.0.1', 50050, 4242, 'running', '/l', ?, ?)`,
-      )
-      .run(ORPHAN_CWD, new Date().toISOString());
+    runningRow(4242);
     const kill = vi.fn(() => 'killed' as const);
     const reaped = await reapOrphanedPorts(store, deps({ kill }));
     expect(kill).not.toHaveBeenCalled();
     expect(reaped).toEqual([]);
+  });
+
+  it('spares the listener when it is a grandchild of the running row pid', async () => {
+    // The P1-02 regression: `servers.pid` is the detached spawn leader
+    // (`npm`), while the socket is held by a grandchild (`npm` → `sh` → node).
+    // Only the leader is recorded, so the sweep must treat the leader's whole
+    // process tree as claimed — otherwise it kills the live listener.
+    runningRow(1000);
+    const snapshot = parseProcTable(
+      [
+        '1000 1 1024 00:01 Tue Aug 12 10:33:21 2026 npm',
+        '1001 1000 512 00:01 Tue Aug 12 10:33:21 2026 sh',
+        '4242 1001 800 00:02 Tue Aug 12 10:33:22 2026 node',
+      ].join('\n'),
+      0,
+    );
+    const kill = vi.fn(() => 'killed' as const);
+    const reaped = await reapOrphanedPorts(
+      store,
+      deps({ kill, readSnapshot: async () => ({ supported: true, snapshot }) }),
+    );
+    expect(kill).not.toHaveBeenCalled();
+    expect(reaped).toEqual([]);
+  });
+
+  it('still kills a listener that is no descendant of any running row pid', async () => {
+    // The tree expansion must be evidence, not a blanket amnesty: a listener
+    // outside the running row's tree is still an orphan.
+    runningRow(1000);
+    const snapshot = parseProcTable(
+      ['1000 1 1024 00:01 Tue Aug 12 10:33:21 2026 npm'].join('\n'),
+      0,
+    );
+    const kill = vi.fn(() => 'killed' as const);
+    const reaped = await reapOrphanedPorts(
+      store,
+      deps({ kill, readSnapshot: async () => ({ supported: true, snapshot }) }),
+    );
+    expect(kill).toHaveBeenCalledWith(4242);
+    expect(reaped[0]!.outcome).toBe('killed');
   });
 
   it('never touches a process outside every karst worktree root', async () => {

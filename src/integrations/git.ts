@@ -339,31 +339,43 @@ export async function hasChangesFrom(
     baseSpec = baseRef;
   }
 
-  // Also fetch the feature branch so the diff head resolves against the remote
-  // state — a local branch ref that is behind the remote produces an empty diff
-  // even though the remote branch holds the ticket's actual work.
-  let fetchedBranch: { exitCode: number } | null = null;
-  if (branch && branch.trim() !== '') {
-    fetchedBranch = await git(['fetch', 'origin', branch], cwd);
-  }
-
   // Diff against the ticket's branch BY NAME when it is known: a worktree
   // checked out on the base branch (or a session in the main checkout) must
   // still read as changed when the ticket branch holds work — `...HEAD` there
   // reads empty and ship would silently open no PR (fu1). Absent a branch,
   // fall back to the checkout's HEAD.
-  const head =
-    branch && branch.trim() !== ''
-      ? fetchedBranch && fetchedBranch.exitCode === 0
-        ? `origin/${branch}`
-        : branch
-      : 'HEAD';
-  const result = await git(['diff', '--quiet', `${baseSpec}...${head}`], cwd);
-  if (result.exitCode === 0) return false;
-  if (result.exitCode === 1) return true;
+  //
+  // The LOCAL ref comes first and is the verdict. It is what this worktree
+  // actually holds and what ship will push, including commits not pushed yet.
+  // `origin/<branch>` is only a fallback for a branch with no usable local ref
+  // (a probe in the main checkout after the worktree was removed) or a local
+  // ref that lags the remote. It must never be the primary head: once a branch
+  // has been merged into base with a merge commit, `origin/<branch>` is an
+  // ancestor of base, so `base...origin/<branch>` reads empty even while the
+  // local branch has moved on — that is exactly how ship came to report "no
+  // changes from base" for a branch with new unpushed commits.
+  const heads: string[] = [];
+  if (branch && branch.trim() !== '') {
+    const localRef = await git(['rev-parse', '--verify', `${branch}^{commit}`], cwd);
+    if (localRef.exitCode === 0) heads.push(branch);
+    const fetchedBranch = await git(['fetch', 'origin', branch], cwd);
+    if (fetchedBranch.exitCode === 0) heads.push(`origin/${branch}`);
+    // Neither ref resolves: keep the branch name so the diff reports the real
+    // git failure instead of hiding it behind a false "no changes".
+    if (heads.length === 0) heads.push(branch);
+  } else {
+    heads.push('HEAD');
+  }
 
-  const reason = result.stderr.trim() || result.stdout.trim() || `git exit ${result.exitCode}`;
-  throw new Error(`git diff failed in ${cwd}: ${reason}`);
+  for (const head of heads) {
+    const result = await git(['diff', '--quiet', `${baseSpec}...${head}`], cwd);
+    if (result.exitCode === 0) continue;
+    if (result.exitCode === 1) return true;
+
+    const reason = result.stderr.trim() || result.stdout.trim() || `git exit ${result.exitCode}`;
+    throw new Error(`git diff failed in ${cwd}: ${reason}`);
+  }
+  return false;
 }
 
 /** An exact compare-and-swap for a force push: overwrite ONLY this value. */

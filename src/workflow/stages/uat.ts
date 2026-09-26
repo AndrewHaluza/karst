@@ -408,13 +408,34 @@ export async function runUat(
     const scriptProbe = probe(target.path, opts.debug);
     const resolution = resolveTargetGates(scriptProbe, opts.manifest?.uat, target.names, disabledNames, opts.debug);
 
-    // Environmental: karst could not ask this repository anything. Park rather
-    // than reduce — a block is not a verdict about the ticket's code. Earlier
-    // targets already ran, so their rows go down with the park.
     if (resolution.kind === 'unavailable') {
+      // The zero-gate verdict is decided ACROSS every target, so "this
+      // repository answers none of UAT's questions" is not a park on its own —
+      // it is one target contributing no entry, and `aggregateUat` blocks
+      // `nothing-to-run` only if NO target contributed one. Returning here
+      // instead would discard the green of a target already run, never probe
+      // the ones after it, make the outcome depend on target order, and leave
+      // every mixed-stack ticket (a docs package beside a web package, anything
+      // without a package.json — `absent` resolves here too) permanently
+      // unprogressable. It is still recorded: an absence a human cannot see
+      // reads the same as a repository karst never met. Mirrors review's own
+      // `nothing-to-run → continue` branch (`stages/review.ts`).
+      if (resolution.blocker === 'nothing-to-run') {
+        opts.debug?.(
+          `[gate] uat ticket ${opts.ticketId}: target ${label} has nothing to run ` +
+            `(${resolution.reason})`,
+        );
+        sections.push(`# ${label} (nothing to run)\n${resolution.reason}`);
+        continue;
+      }
+
+      // Environmental: karst could not READ this repository. That is not a
+      // verdict about the ticket's code, a human has to act on it, and no other
+      // target's green answers it — so it parks, and the completed targets'
+      // rows go down with the park.
       const reason = `${label}: ${resolution.reason}`;
       opts.debug?.(
-        `[gate] uat ticket ${opts.ticketId}: target ${label} unavailable ` +
+        `[gate] uat ticket ${opts.ticketId}: target ${label} unreadable ` +
           `(${resolution.blocker}: ${resolution.reason})`,
       );
       return finish({ kind: 'blocked', blocker: resolution.blocker, reason }, [reason]);
@@ -629,9 +650,12 @@ export async function runUat(
   }
   // The run was opened by `runUatTester` under the driver's single-flight;
   // read the id back so the verifier trigger can name the exact Tester
-  // execution (a recovery round must never guess at its source process).
+  // execution (a recovery round must never guess at its source process). Scope
+  // to THIS attempt's stage run: `listProcessRuns` spans the ticket's whole
+  // history, so an attempt that ran no Tester would otherwise attribute its
+  // verifier failure to a stale tester run from an earlier attempt.
   for (const run of listProcessRuns(store, opts.ticketId).reverse()) {
-    if (run.processId === 'tester') {
+    if (run.processId === 'tester' && run.stageRunId === evidence.runId) {
       testerRunId = run.id;
       break;
     }
