@@ -8,7 +8,7 @@ import { getTicket } from '../../store/tickets.js';
 import { transition } from '../machine.js';
 import { listStageRuns, openStageRun } from '../../store/stageRuns.js';
 import { listGateRuns, recordGateRun } from '../../store/gateRuns.js';
-import { listProcessRuns } from '../../store/processRuns.js';
+import { listProcessRuns, openProcessRun, finishProcessRun } from '../../store/processRuns.js';
 import { listUatFindings } from '../../store/uatFindings.js';
 import { stageBlock } from '../../store/stageBlocks.js';
 import { manifest, uat as uatConfig } from '../../manifest/fixtures.js';
@@ -1382,6 +1382,44 @@ describe('runUat — Tester and verifier (Task 8)', () => {
     expect(listProcessRuns(store, id)[0]).toMatchObject({ resultKind: 'verification-failed' });
     // The deterministic failure is the stage's verdict, named on the stage row.
     expect(uatStage(store, id).verdict).toContain('uat tester verifier failed: exit code 1');
+  });
+
+  // P2-14: the tester run the verifier failure is attributed to must belong to
+  // THIS attempt. A ticket that ran a Tester in an earlier attempt still has
+  // that run in `process_runs`; an attempt that ran no Tester (no `deps.tester`)
+  // must not name it.
+  it('does not attribute a verifier failure to a stale tester run from an earlier attempt', async () => {
+    const stale = openProcessRun(store, {
+      ticketId: id,
+      stageKey: 'uat',
+      processId: 'tester',
+      attempt: 0,
+      stageRunId: null,
+      startedAt: '2026-07-29T00:00:00.000Z',
+    });
+    finishProcessRun(store, stale.id, 'passed', '2026-07-29T00:00:01.000Z', 'observed');
+
+    const res = await runUat(
+      store,
+      {
+        ticketId: id,
+        cwd: '/wt/web',
+        artifactDir,
+        manifest: manifest({}, { uat: uatConfig({ testerVerifier: { name: 'verify', kind: 'command', command: 'verify.sh' } }) }),
+      },
+      // No `tester` in deps: this attempt runs no Tester at all.
+      deps({ runVerifier: verifierRun({ kind: 'completed', exitCode: 1, output: 'nope' }) }),
+    );
+    expect(res).toEqual({ kind: 'advanced', next: 'fix' });
+
+    const rounds = listRecoveryRounds(store, id);
+    expect(rounds).toHaveLength(1);
+    expect(rounds[0]).toMatchObject({
+      sourceProcessId: 'tester',
+      triggerKind: 'tester-verifier-failure',
+    });
+    // The stale run from the previous attempt must not be named.
+    expect(rounds[0]!.sourceProcessRunId).toBeNull();
   });
 
   it('verifier execution failure parks without a verdict, an attempt, or a recovery round', async () => {

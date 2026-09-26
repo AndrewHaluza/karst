@@ -4,7 +4,7 @@ import { getTicket, listTickets } from '../store/tickets.js';
 import { listCurrentPrsByTicket } from '../store/prs.js';
 import { listMergeChecksByTicket } from '../store/mergeChecks.js';
 import { stageBlock, clearStageBlock } from '../store/stageBlocks.js';
-import { setStage } from '../store/stages.js';
+import { getStage, setStage } from '../store/stages.js';
 import { nowIso } from '../model/time.js';
 import { transition } from './machine.js';
 
@@ -171,6 +171,45 @@ function describeAwaitingMerge(state: MergeGateState): string {
     : `blocked: pull requests for ${list} have changes and are not merged yet${conflictNote}.`;
 }
 
+/**
+ * Stamp the parked-awaiting-merge state on the ship row: ship's own work is
+ * done (`passed`, with `endedAt`), only the landing is pending.
+ *
+ * `endedAt` alongside `status: 'passed'` — without it the row reads as still
+ * running to anything that derives a duration from `endedAt ?? startedAt` (or
+ * reads a null `endedAt` as "in flight").
+ */
+function parkAwaitingMerge(store: Store, ticketId: number, state: MergeGateState): void {
+  setStage(store, ticketId, 'ship', {
+    status: 'passed',
+    endedAt: nowIso(),
+    blockedKind: 'awaiting-merge',
+    blockedReason: describeAwaitingMerge(state),
+    blockedAt: nowIso(),
+  });
+}
+
+/**
+ * Whether a ticket at `ship` has PROVABLY shipped but lost its `awaiting-merge`
+ * block to a failed terminal write.
+ *
+ * The not-landed block write in `resolveShipLanding` is deliberately swallowed
+ * (the PRs are already open), which leaves the ship row at the `running` ship
+ * stamped when its saga started: the pass AND the block were one write, so a
+ * failure of that write records neither. The durable proof it shipped is the
+ * PASSED `ship_runs` row ship closes before its tail — a ticket merely pending
+ * its first confirm click has a `pending` stage row and no completed run, and a
+ * ship still executing (or crashed) has a `running` run. Both are excluded, so
+ * only the lost-block case matches.
+ */
+function shippedWithoutBlock(store: Store, ticketId: number): boolean {
+  if (getStage(store, ticketId, 'ship')?.status !== 'running') return false;
+  const rows = store.db
+    .prepare('SELECT status FROM ship_runs WHERE ticket_id = ?')
+    .all(ticketId) as { status: string }[];
+  return rows.some((r) => r.status === 'passed') && !rows.some((r) => r.status === 'running');
+}
+
 export interface ShipGateResult {
   /** True only when THIS call moved the ticket from `ship` to `done`. */
   advanced: boolean;
@@ -234,24 +273,13 @@ export function resolveShipLanding(
     // swallowed `try { settleMergeStage(...) } catch {}`.
     //
     // If this throws and is swallowed, the ticket is left at `ship` with NO
-    // block recorded — not "awaiting-merge", just unmarked. `settleShipGate`
-    // requires that exact block to recognize the ticket as its business, so
-    // the sweep will not pick this ticket up until it carries one. The next
-    // `shipTicket` run (a retry, or scope's own re-entry) calls
-    // `resolveShipLanding` again and re-establishes the block from scratch —
-    // this is a transient miss, not a stuck state, and re-shipping (the
-    // normal recovery path for a ship failure) heals it.
-    setStage(store, ticketId, 'ship', {
-      status: 'passed',
-      // `endedAt` alongside `status: 'passed'` — without it the row reads as
-      // still running to anything that derives a duration from
-      // `endedAt ?? startedAt` (or reads a null `endedAt` as "in flight"),
-      // even though ship's own work is done and only the landing is pending.
-      endedAt: nowIso(),
-      blockedKind: 'awaiting-merge',
-      blockedReason: describeAwaitingMerge(state),
-      blockedAt: nowIso(),
-    });
+    // block recorded — not "awaiting-merge", just unmarked, with the ship row
+    // still reading `running` from the saga's start. `settleShipGate` recovers
+    // exactly that state from the durable PASSED `ship_runs` row (see
+    // `shippedWithoutBlock`), repairing the block on its next sweep; a
+    // re-ship (the normal recovery path for a ship failure) re-establishes it
+    // too. So the swallow no longer strands the ticket.
+    parkAwaitingMerge(store, ticketId, state);
   } catch {
     // Swallowed deliberately — see comment above. The PRs are already open;
     // failing ship over a block-write failure would misreport a successful
@@ -266,8 +294,11 @@ export function resolveShipLanding(
  * (`settleShipGates`) both call this rather than `resolveShipLanding`, because
  * unlike ship's own runner they cannot otherwise tell a ticket that has never
  * shipped from one still waiting on a merge — both read `stageCurrent ===
- * 'ship'`. Only the recorded `awaiting-merge` block distinguishes the two, so a
+ * 'ship'`. The recorded `awaiting-merge` block is the normal proof, and a
  * ticket parked pending its first confirm click (no block set) is left alone.
+ * `shippedWithoutBlock` is the one exception: a shipped ticket whose terminal
+ * block write failed is recognized from its passed ship run and has the block
+ * repaired here rather than being refused forever.
  *
  * Idempotent and safe to call from anywhere: the landing can be observed from
  * three unrelated places (the merge click, the background PR sweep noticing a
@@ -286,7 +317,12 @@ export function settleShipGate(
     );
     return { advanced: false, state: mergeGateState(store, ticketId) };
   }
-  if (stageBlock(store, ticketId, 'ship')?.kind !== 'awaiting-merge') {
+  const awaiting = stageBlock(store, ticketId, 'ship')?.kind === 'awaiting-merge';
+  // The recovery case: ship completed (a passed ship run) but the terminal
+  // block write was lost, so there is no block to key on. Without this the
+  // sweep refused forever and the ticket never reached `done`.
+  const recover = !awaiting && shippedWithoutBlock(store, ticketId);
+  if (!awaiting && !recover) {
     debug?.(
       `[merge] ticket ${ticketId}: settle skipped — no awaiting-merge block (freshly parked at ship?)`,
     );
@@ -295,6 +331,14 @@ export function settleShipGate(
 
   const state = mergeGateState(store, ticketId);
   if (!isLanded(state)) {
+    if (recover) {
+      debug?.(
+        `[merge] ticket ${ticketId}: shipped without an awaiting-merge block — repairing the block`,
+      );
+      // Re-establish the lost block so the dashboard shows the waiting state
+      // and the ticket is the sweep's business from here on.
+      parkAwaitingMerge(store, ticketId, state);
+    }
     debug?.(
       `[merge] ticket ${ticketId}: settle sees ${describeMergeState(state)} — still waiting`,
     );
