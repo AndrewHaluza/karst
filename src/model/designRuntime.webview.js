@@ -19,6 +19,14 @@ function karstOneLine(value) {
   return s.length > KARST_MAX_TOAST_CHARS ? s.slice(0, KARST_MAX_TOAST_CHARS - 1) + '…' : s;
 }
 
+/** HTML-escape untrusted text before it lands in an innerHTML template literal. */
+var KARST_ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+function karstEsc(value) {
+  return String(value === null || value === undefined ? '' : value).replace(/[&<>"']/g, function (ch) {
+    return KARST_ESCAPES[ch];
+  });
+}
+
 function karstIsPending(el) {
   if (!el) return false;
   for (var id in karstPending) {

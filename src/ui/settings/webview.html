@@ -256,11 +256,6 @@
   table.sub input[type=text],table.sub input[type=number],table.sub select{width:100%}
 
   .chips{display:flex;flex-wrap:wrap;gap:var(--k-space-3);margin:var(--k-space-3) var(--k-space-0)}
-  .chip{
-    display:inline-flex;align-items:center;gap:var(--k-space-3);
-    background:var(--vscode-badge-background);color:var(--vscode-badge-foreground);
-    border-radius:var(--k-radius-lg);padding:var(--k-space-1) var(--k-space-4);font-size:var(--k-text-sm);
-  }
 
   .toggle{display:flex;align-items:center;gap:var(--k-space-4)}
   .toggle input{width:auto}
@@ -270,7 +265,6 @@
   }
 
   .footer-row{display:flex;justify-content:flex-end;margin-top:var(--k-space-3)}
-  .empty{opacity:.5;font-size:var(--k-text-md);padding:var(--k-space-3) var(--k-space-2)}
   .err-banner{
     color:var(--k-danger);font-size:var(--k-text-md);
     padding:var(--k-space-4) var(--k-space-6);margin-bottom:var(--k-space-7);border-radius:var(--k-radius-md);
@@ -307,7 +301,11 @@
   .confirm-actions{display:flex;gap:var(--k-space-3)}
 
   .is-disabled{opacity:.55}
-  .chip.generated{border:var(--k-border-w) solid var(--k-focus);background:transparent}
+  /* "generated" marks a karst-emitted entry command — an accent the shared
+     `.k-chip` component has no vocabulary for (it isn't success/failure), so
+     it stays a small supplemental rule layered on top of `.k-chip`, the same
+     way `diffs/webview.html`'s `.clean-state` layers on top of `.k-empty`. */
+  .k-chip.generated{border-color:var(--k-focus);background:transparent}
 
   /* ---- approaches roster (grouped Installed / Available / Built-in cards) ---- */
   .approach-group-header{
@@ -465,13 +463,9 @@
   .proc-row .proc-msg.is-note{color:var(--k-text-dim)}
 
   /* Command chips become clickable when they carry data-cmd (opens the drawer) —
-     rendered as a real <button class="chip"> (UI-R09) so Enter/Space/focus come
-     for free; the pill's own local styling is unchanged, only its semantics are.
-     `.chip` is a local (non-k-) component, so its own focus ring is declared
-     here — the injected FOUNDATION block only reaches `.k-*` selectors. */
-  button.chip[data-cmd]{font-family:inherit;cursor:pointer;border:var(--k-border-w) solid transparent}
-  button.chip[data-cmd]:hover{border-color:var(--k-focus)}
-  button.chip[data-cmd]:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+     rendered as a real <button class="k-chip"> (UI-R09) so Enter/Space/focus,
+     hover and the focus ring come from the shared primitive for free. */
+  button.k-chip[data-cmd]{font-family:inherit}
 
   /* ---- command-body drawer ---- */
   .drawer{
@@ -944,17 +938,6 @@
 
   /* Skeleton state: model picker trigger mirrors native select height. */
   .model-trigger{min-height:calc(var(--k-space-8) * 1.7)}
-
-  /* Badge: restrained (handoff §25). */
-  .badge{
-    display:inline-flex;align-items:center;gap:var(--k-space-2);
-    padding:var(--k-space-1) var(--k-space-3);border-radius:var(--k-radius-lg);
-    border:var(--k-border-w) solid var(--vscode-panel-border);font-size:var(--k-text-2xs);color:var(--k-text-dim);
-    white-space:nowrap;flex:0 0 auto;
-  }
-  .badge.good{color:var(--k-success);border-color:var(--k-success)}
-  .badge.warn{color:var(--k-attention);border-color:var(--k-attention)}
-  .badge.bad{color:var(--k-danger);border-color:var(--k-danger)}
 </style>
 
 <div class="app">
@@ -1742,7 +1725,7 @@
      via `approach-command-body`, rendered here as text (never HTML). -->
 <div class="drawer" id="cmdDrawer" role="dialog" aria-modal="true" aria-labelledby="cmdDrawerTitle">
   <div class="drawer-head">
-    <span class="chip generated" id="cmdDrawerTitle"></span>
+    <span class="k-chip generated" id="cmdDrawerTitle"></span>
     <span class="spacer"></span>
     <button class="k-iconbtn" id="cmdDrawerClose" aria-label="Close this panel" title="Close this panel">&times;</button>
   </div>
@@ -1883,8 +1866,7 @@
   const vscode = acquireVsCodeApi();
   const post = (m) => vscode.postMessage(m);
   const el = (id) => document.getElementById(id);
-  const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) =>
-    ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+  const esc = karstEsc;
   // A dynamic value (a repository/agent/approach name) used as an HTML `id`/
   // `for` target: names are arbitrary user text, not ID-safe by construction,
   // so every character outside [A-Za-z0-9_-] collapses to '-'. Collisions are
@@ -2942,7 +2924,7 @@
   function renderServices() {
     const names = serviceNames();
     if (!names.length) {
-      el('serviceCards').innerHTML = '<div class="empty">No repositories configured.</div>';
+      el('serviceCards').innerHTML = '<div class="k-empty"><div class="k-empty-title">No repositories configured.</div></div>';
       return;
     }
     // Roster head: Repository | Path | Baseline | Runtime | Actions (§10). The
@@ -3012,9 +2994,9 @@
     // on teardown, none of which a command service does.
     const runtimeBadge = svc
       ? (svc.docker
-        ? '<span class="badge good">docker</span>'
-        : '<span class="badge good">service</span>')
-      : '<span class="badge">worktree only</span>';
+        ? '<span class="k-chip is-success">docker</span>'
+        : '<span class="k-chip is-success">service</span>')
+      : '<span class="k-chip">worktree only</span>';
     return `<div class="card ${isOpen ? 'open is-selected' : ''}" data-card="${esc(name)}">`
       + `<div class="card-head roster-row repo-cols">`
       + `<button type="button" class="card-toggle" data-toggle="${esc(name)}"`
@@ -3026,7 +3008,7 @@
       + `<span class="cell-meta mono">${esc(repo.baselineBranch || draft.baselineBranch || 'main')}</span>`
       + `<span class="cell-meta">${runtimeBadge}</span>`
       + `<span class="cell-actions">`
-      + (repo.enabled === false ? `<span class="chip">Draft</span>` : '')
+      + (repo.enabled === false ? `<span class="k-chip">Draft</span>` : '')
       + (svc ? '' : `<span class="field-hint" style="margin:0 0 0 8px">no service</span>`)
       + `<button type="button" class="k-switch" role="switch" aria-checked="${isEnabled ? 'true' : 'false'}"`
       + ` data-repo-enabled="${esc(name)}"`
@@ -3125,7 +3107,7 @@
 
   function renderDependsOn(svcName, deps, otherNames) {
     if (!deps.length && !otherNames.length) {
-      return '<div class="empty">No other runnable repositories to depend on.</div>'
+      return '<div class="k-empty"><div class="k-empty-title">No other runnable repositories to depend on.</div></div>'
         + `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-add-dep="${esc(svcName)}" disabled title="No other runnable repositories to depend on">+ Add dependency</button>`;
     }
     const blocks = deps.map((d, i) => {
@@ -3160,7 +3142,7 @@
 
   function renderSignalChips(svcName, signals) {
     const chips = signals.map((s, i) => (
-      `<span class="chip">${esc(s)}`
+      `<span class="k-chip">${esc(s)}`
       + `<button type="button" class="k-iconbtn k-iconbtn--danger" data-remove-signal="${esc(svcName)}" data-idx="${i}"`
       + ` aria-label="Remove signal ${esc(s)}" title="Remove signal ${esc(s)}">&times;</button></span>`
     )).join('');
@@ -3778,7 +3760,7 @@
   function renderApproaches() {
     const list = draft.approaches || [];
     if (!list.length) {
-      el('approachList').innerHTML = '<div class="empty">No approaches configured.</div>';
+      el('approachList').innerHTML = '<div class="k-empty"><div class="k-empty-title">No approaches configured.</div></div>';
       return;
     }
 
@@ -4032,9 +4014,9 @@
       + esc((planner.prompt && planner.prompt.artifact) || 'graph-planner prompt') + '</a>'
       + '</div>'
       + '<div class="graph-subsection-title">Execution profiles</div>'
-      + (profileRows || '<div class="empty">No profiles configured.</div>')
+      + (profileRows || '<div class="k-empty"><div class="k-empty-title">No profiles configured.</div></div>')
       + '<div class="graph-subsection-title">Trusted commands</div>'
-      + (commandRows || '<div class="empty">No trusted commands — the planner may only emit CommandNodes for commands listed here.</div>')
+      + (commandRows || '<div class="k-empty"><div class="k-empty-title">No trusted commands — the planner may only emit CommandNodes for commands listed here.</div></div>')
       + '<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-gf-add-cmd="' + esc(a.id) + '">+ Add command</button>'
       + '<div class="graph-subsection-title">Budgets</div>'
       + budgetRows
@@ -4082,7 +4064,7 @@
   }
 
   // Command lines for one installed approach: `entry` — the karst-generated
-  // orchestrator (accented `.chip.generated`, `/karst:<id>`) — and `runs` —
+  // orchestrator (accented `.k-chip.generated`, `/karst:<id>`) — and `runs` —
   // the approach's native commands (plain chips). Every chip carries
   // data-approach/data-cmd so a click opens the command-body drawer.
   function renderApproachCommands(id) {
@@ -4090,7 +4072,7 @@
     if (!cmds.length) return '';
     const chip = (c) => {
       const isGenerated = c.startsWith('/karst:');
-      return `<button type="button" class="chip${isGenerated ? ' generated' : ''}"`
+      return `<button type="button" class="k-chip${isGenerated ? ' generated' : ''}"`
         + ` data-approach="${esc(id)}" data-cmd="${esc(c)}">${esc(c)}</button>`;
     };
     const entryCmds = cmds.filter((c) => c.startsWith('/karst:'));
@@ -4459,7 +4441,7 @@
     el('agentHero').innerHTML = total ? renderAgentHero(enabledCount, total) : '';
 
     if (!total) {
-      el('agentList').innerHTML = '<div class="empty">No agents yet. Add one to delegate tickets to a single subagent.</div>';
+      el('agentList').innerHTML = '<div class="k-empty"><div class="k-empty-title">No agents yet. Add one to delegate tickets to a single subagent.</div></div>';
       return;
     }
 
