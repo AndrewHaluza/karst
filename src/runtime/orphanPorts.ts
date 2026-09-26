@@ -5,6 +5,8 @@ import { killTree, type KillOutcome } from './processTree.js';
 import { portsIn } from './portProbe.js';
 import { isPathUnder } from './pathScope.js';
 import { systemAsyncProcessFacts, type ProcessFactsSource } from './serverIdentity.js';
+import { collectTree } from './procTreeCost.js';
+import { readProcSnapshot, type ProcSnapshot } from './procSnapshot.js';
 
 /**
  * The last orphan class nothing else can reach: a server karst started whose
@@ -24,6 +26,13 @@ import { systemAsyncProcessFacts, type ProcessFactsSource } from './serverIdenti
  * process running there is a process karst started. Everything else — a cwd the
  * OS will not report, a listener anywhere else, a pid a running row still
  * claims — is left strictly alone.
+ *
+ * "Claims" is the row's whole process TREE, not just its recorded pid: the
+ * recorded pid is the spawn LEADER, and the process holding the port is
+ * commonly a DESCENDANT of it (`npm run dev` → shell → Vite). Claiming only the
+ * leader made that descendant indistinguishable from an orphan, so the first
+ * sweep after a window reload SIGKILLed a healthy server's listener while its
+ * own row still said `running`.
  */
 
 export interface OrphanReap {
@@ -50,6 +59,14 @@ export interface OrphanReapOptions {
   listenerPids?: (host: string, port: number) => Promise<number[]>;
   /** OS probes; injected so tests never depend on this machine's processes. */
   facts?: ProcessFactsSource;
+  /**
+   * Injected for tests; default is one async `ps` snapshot (`readProcSnapshot`).
+   * Expands each running row's recorded pid — the spawn LEADER — into the whole
+   * process tree it heads, so the listener DESCENDANT that actually holds the
+   * port is claimed too. `null` means the OS did not answer (or cannot: Windows
+   * has no `ps`); the sweep then falls back to the rows' recorded directories.
+   */
+  processSnapshot?: () => Promise<ProcSnapshot | null>;
   /** Injected for tests; default sends SIGKILL to the process group. */
   kill?: (pid: number) => KillOutcome;
   /**
@@ -70,12 +87,60 @@ export function worktreeRootsOf(repoPaths: readonly string[]): string[] {
   return [...roots];
 }
 
-/** Pids of every server row that still claims to be running. */
-function claimedPids(store: Store): Set<number> {
+/** One async `ps` snapshot, or null where the OS did not answer or cannot. */
+async function systemProcessSnapshot(): Promise<ProcSnapshot | null> {
+  const result = await readProcSnapshot();
+  return result.supported ? result.snapshot : null;
+}
+
+/**
+ * Everything the running `servers` rows claim: each recorded pid AND the live
+ * descendants of each, plus the directories those rows were spawned in.
+ *
+ * The recorded pid is the spawn LEADER (`supervisor.ts` writes the pid `spawn`
+ * returned), while the process the user actually reaches — the one holding the
+ * allocated port — is commonly a DESCENDANT (`npm run dev` → shell → Vite).
+ * Claiming only the leader left that descendant looking exactly like an orphan:
+ * a karst worktree cwd, an allocated port, and no running pid that matched it.
+ * The tree is what a row really claims, so the tree is claimed here.
+ *
+ * A snapshot that did not arrive (or a platform that cannot take one) is not
+ * fatal: the recorded directories remain, and `reapOrphanedPorts` uses them as
+ * a subprocess-free fallback via the worktree-containment rule.
+ */
+interface RunningClaims {
+  /** Recorded leader pids, plus the live descendants of each. */
+  pids: Set<number>;
+  /** Directories the running rows were spawned in (`servers.cwd`). */
+  cwds: string[];
+}
+
+async function runningClaims(
+  store: Store,
+  snapshotOf: () => Promise<ProcSnapshot | null>,
+): Promise<RunningClaims> {
   const rows = store.db
-    .prepare("SELECT pid FROM servers WHERE status = 'running' AND pid IS NOT NULL")
-    .all() as { pid: number }[];
-  return new Set(rows.map((r) => r.pid));
+    .prepare("SELECT pid, cwd FROM servers WHERE status = 'running' AND pid IS NOT NULL")
+    .all() as { pid: number; cwd: string | null }[];
+  const pids = new Set(rows.map((r) => r.pid));
+  const cwds: string[] = [];
+  for (const row of rows) if (row.cwd) cwds.push(row.cwd);
+
+  let snapshot: ProcSnapshot | null = null;
+  try {
+    snapshot = await snapshotOf();
+  } catch {
+    snapshot = null; // "the OS did not answer" — never a reason to act
+  }
+  if (snapshot) {
+    for (const row of rows) {
+      // The recorded pid is usually still alive (a healthy server). When it is,
+      // its tree names the descendant that holds the port. When it is not, the
+      // tree is empty and the cwd fallback covers the row instead.
+      for (const rec of collectTree(snapshot, row.pid)) pids.add(rec.pid);
+    }
+  }
+  return { pids, cwds };
 }
 
 /**
@@ -98,7 +163,15 @@ export async function reapOrphanedPorts(
   const roots = worktreeRootsOf(options.repoPaths);
   if (roots.length === 0) return [];
 
-  const claimed = claimedPids(store);
+  const snapshotOf = options.processSnapshot ?? systemProcessSnapshot;
+  const claims = await runningClaims(store, snapshotOf);
+  // The directories that may vouch for a listener without a process snapshot:
+  // only a row spawned INSIDE a worktree. A baseline row records the repository
+  // checkout, which CONTAINS every worktree — letting it vouch by directory
+  // would spare every orphan beneath it.
+  const claimedWorktreeCwds = claims.cwds.filter((cwd) =>
+    roots.some((root) => isPathUnder(cwd, root)),
+  );
   // One verdict per pid: a leaked service typically holds a pair of ports (an
   // http and a grpc slot), and signalling its group twice is at best noise and
   // at worst a signal aimed at a pid the OS has already reissued.
@@ -124,7 +197,8 @@ export async function reapOrphanedPorts(
     }
 
     for (const pid of pids) {
-      if (claimed.has(pid)) continue; // a live, tracked server — not an orphan
+      // A live, tracked server — the recorded leader or any descendant of it.
+      if (claims.pids.has(pid)) continue;
 
       const known = verdict.get(pid);
       if (known === 'spared') continue;
@@ -145,6 +219,18 @@ export async function reapOrphanedPorts(
       // on positive proof that the process runs inside a karst worktree.
       if (!live || !roots.some((root) => isPathUnder(live.path, root))) {
         verdict.set(pid, 'spared');
+        continue;
+      }
+      // The fallback when no process snapshot named this pid: a running row
+      // spawned in the SAME worktree vouches for a descendant running one level
+      // deeper (`<worktree>` → `<worktree>/packages/app`). Scoped to worktree
+      // directories, so a repository-root row cannot vouch for all of them.
+      if (claimedWorktreeCwds.some((cwd) => isPathUnder(live.path, cwd))) {
+        verdict.set(pid, 'spared');
+        options.debug?.(
+          `[runtime] orphan sweep: pid ${pid} holds ${options.host}:${port} from ${live.path} ` +
+            `— inside a running row's worktree — sparing`,
+        );
         continue;
       }
 
