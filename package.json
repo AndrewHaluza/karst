@@ -2,7 +2,7 @@
   "name": "karst",
   "displayName": "Karst",
   "version": "1.0.0",
-  "description": "Orchestrate AI-agent ticket workflows across a multi-repo stack.",
+  "description": "The deterministic rail for AI-agent tickets: real services, multi-repo state, exit-code verdicts.",
   "icon": "media/karst-icon.png",
   "publisher": "Karst",
   "repository": {
