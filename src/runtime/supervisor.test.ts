@@ -1226,6 +1226,44 @@ describe('stopServer attribution', () => {
     expect(signal).toHaveBeenCalledWith(-4242, 'SIGKILL');
   });
 
+  it('leaves a running row untouched when the kill is refused (EPERM) — it is still running', async () => {
+    const eperm = Object.assign(new Error('Operation not permitted'), { code: 'EPERM' });
+    vi.spyOn(process, 'kill').mockImplementation(() => {
+      throw eperm;
+    });
+    const id = rowId();
+
+    await stopServer(store, id, {
+      facts: {
+        isAlive: () => true,
+        liveCwd: () => ({ path: '/wt/a', deleted: false }),
+        processStartMs: () => null,
+      },
+    });
+
+    // A refused kill must not erase the only record that the process is alive.
+    expect(rowOf(id)).toEqual({ status: 'running', pid: 4242 });
+  });
+
+  it('clears a container row even when the client kill is refused (removal stops it by name)', async () => {
+    const eperm = Object.assign(new Error('Operation not permitted'), { code: 'EPERM' });
+    vi.spyOn(process, 'kill').mockImplementation(() => {
+      throw eperm;
+    });
+    const id = rowId({ container: 'karst-x' });
+
+    await stopServer(store, id, {
+      facts: {
+        isAlive: () => true,
+        liveCwd: () => ({ path: '/wt/a', deleted: false }),
+        processStartMs: () => null,
+      },
+    });
+
+    expect(rowOf(id)).toEqual({ status: 'stopped', pid: null });
+    expect(removeContainerMock).toHaveBeenCalledWith('karst-x');
+  });
+
   it('does not signal a foreign pid, but still marks the row stopped', async () => {
     const signal = vi.spyOn(process, 'kill').mockImplementation(() => true);
     const id = rowId();

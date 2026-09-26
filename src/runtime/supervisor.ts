@@ -10,6 +10,8 @@ import {
   INSTANCE_ENV,
 } from './health.js';
 import { killTree } from './processTree.js';
+import { prepareCommand, type ShimEnv } from './command.js';
+import { resolveCommandCwd } from './commandCwd.js';
 import { isPortOpen, reclaimPort, listenerPids, snapshotProcessFacts } from './portConflict.js';
 import { removeContainer, removeContainerAsync } from './dockerContainer.js';
 import { attributeServer, systemAsyncProcessFacts, type ProcessFactsSource } from './serverIdentity.js';
@@ -111,6 +113,13 @@ export interface StartHotOpts {
    * server die?" mystery starts (the archive paths raise the same warning).
    */
   onReclaim?: (pid: number) => void;
+  /**
+   * The lookup environment `prepareCommand` resolves the spawn through. Only
+   * tests inject this — production leaves it undefined so the live machine's
+   * `realShimEnv()` is used. Exposed because the Windows `.cmd` translation is
+   * otherwise unobservable off Windows.
+   */
+  shimEnv?: ShimEnv;
   /**
    * Verbose decision-point logging (§ debug logging), prefixed `[runtime]`.
    * Absent → no debug lines; the host binds it to `Logger.debug` (a no-op
@@ -392,7 +401,18 @@ export async function startHot(store: Store, opts: StartHotOpts): Promise<Server
 
   let child;
   try {
-    child = spawn(opts.command, opts.args, {
+    // A service command is arbitrary manifest text, so it gets the same platform
+    // translation the gates and `deps.ts` give theirs: on Windows a bare `npm`
+    // is a `npm.cmd` batch shim Node refuses to spawn (ENOENT), and a relative
+    // `./scripts/dev.sh` must be anchored to the worktree, not the extension
+    // host. `prepareCommand` owns the shim rewrite; `resolveCommandCwd` owns the
+    // anchor. Spawning `opts.command` raw is the ENOENT this exists to prevent.
+    const prepared = prepareCommand(
+      resolveCommandCwd(opts.command, opts.cwd),
+      opts.args,
+      opts.shimEnv,
+    );
+    child = spawn(prepared.command, prepared.args, {
       cwd: opts.cwd,
       env: {
         ...process.env,
@@ -403,6 +423,7 @@ export async function startHot(store: Store, opts: StartHotOpts): Promise<Server
       // Own process group so killTree can reap grandchildren (e.g. `npm run dev`
       // → Vite). Without this a health-fail/cancel orphans the real server.
       detached: true,
+      windowsVerbatimArguments: prepared.windowsVerbatimArguments,
     });
   } finally {
     // The child holds its own duplicated fd via the stdio array; close the
@@ -595,6 +616,12 @@ interface ServerRow {
  * because it is stale either way, and the container is removed either way,
  * because a container name karst chose is never reissued.
  *
+ * The one exception is a REFUSED kill (`killTree` → `'denied'`, or a throw): the
+ * process is provably still running, so a plain command row keeps its `running`
+ * status rather than being erased and reported stopped. A container row is still
+ * cleared, because removing the container by name stops it regardless of whether
+ * the attached client could be signalled.
+ *
  * ASYNC because the attribution probes are: on macOS the live start time comes
  * from `ps`, and this runs on the extension-host event loop (the dashboard's
  * Stop/restart, `spinTicket`'s pre-spin stop), where a synchronous spawn would
@@ -617,6 +644,7 @@ export async function stopServer(
     .get(id) as ServerRow | undefined;
   if (!row) return;
 
+  let denied = false;
   if (row.status === 'running' && row.pid != null) {
     const facts = opts.facts ?? systemAsyncProcessFacts;
     const resolved = await snapshotProcessFacts(facts, row.pid);
@@ -626,7 +654,7 @@ export async function stopServer(
     );
     if (attribution === 'attributable') {
       // Group kill so a launcher's grandchildren (Vite etc.) die with it.
-      killTree(row.pid);
+      denied = killTree(row.pid) === 'denied';
     }
   }
   // The client is not the container. `docker run` attached gives karst a pid it
@@ -636,6 +664,10 @@ export async function stopServer(
   // container behind it (a kill that reached the client only), and `docker rm
   // -f` on a container that is gone is a no-op.
   if (row.container) removeContainer(row.container);
+  // A refused kill on a plain command leaves the process alive, so the row must
+  // keep saying so. With a container the removal above has stopped it (docker
+  // kills the process it runs), so the row may be cleared truthfully.
+  if (denied && !row.container) return;
   markServerStopped(store, id);
 }
 

@@ -334,8 +334,8 @@ async function recheckFree(host: string, port: number): Promise<boolean> {
  * every attributable one, and report the rest. The caller decides on the
  * survivors (the port is never free while one remains). `portFree` is settled
  * by a bounded re-probe, so a kill that did not land — a `denied` kill is
- * reported as a survivor, and a `killTree` `unknown` (Windows taskkill,
- * fire-and-forget) is arbitrated by the probe — still blocks the start.
+ * reported as a survivor, and any `killTree` `unknown` is arbitrated by the
+ * probe — still blocks the start.
  */
 export async function reclaimPort(
   store: Store,

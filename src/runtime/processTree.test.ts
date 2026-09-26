@@ -1,63 +1,82 @@
-import { EventEmitter } from 'node:events';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const spawnMock = vi.hoisted(() => vi.fn());
-vi.mock('node:child_process', () => ({ spawn: spawnMock }));
+const spawnSyncMock = vi.hoisted(() => vi.fn());
+vi.mock('node:child_process', () => ({ spawnSync: spawnSyncMock }));
 
 import { killTree } from './processTree.js';
 
+/** The Windows `taskkill` result shape, with only the fields killTree reads. */
+function taskkill(status: number | null, error?: Error): { status: number | null; error?: Error } {
+  return error ? { status, error } : { status };
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
-  spawnMock.mockReset();
+  spawnSyncMock.mockReset();
 });
 
 describe('killTree', () => {
-  it('uses Windows taskkill recursively without blocking', () => {
-    vi.spyOn(process, 'platform', 'get').mockReturnValue('win32');
-    const killer = new EventEmitter();
-    spawnMock.mockReturnValue(killer);
-    const signal = vi.spyOn(process, 'kill').mockImplementation(() => true);
+  // The Windows leak this ticket closes: the old implementation fired taskkill
+  // async and always returned 'unknown', so a caller that mapped "not denied"
+  // to "killed" erased the row while the process was still alive. taskkill is
+  // now synchronous, so the exit status is a real answer.
+  describe('Windows outcomes', () => {
+    it('reports killed when taskkill /T exits 0, without a redundant direct signal', () => {
+      vi.spyOn(process, 'platform', 'get').mockReturnValue('win32');
+      spawnSyncMock.mockReturnValue(taskkill(0));
+      const signal = vi.spyOn(process, 'kill').mockImplementation(() => true);
 
-    killTree(412);
+      expect(killTree(412)).toBe('killed');
 
-    expect(spawnMock).toHaveBeenCalledWith(
-      'taskkill',
-      ['/pid', '412', '/t', '/f'],
-      { stdio: 'ignore', windowsHide: true },
-    );
-    expect(signal).not.toHaveBeenCalled();
-  });
+      expect(spawnSyncMock).toHaveBeenCalledWith(
+        'taskkill',
+        ['/pid', '412', '/t', '/f'],
+        { stdio: 'ignore', windowsHide: true, timeout: 5_000 },
+      );
+      expect(signal).not.toHaveBeenCalled();
+    });
 
-  it('falls back to a direct kill when Windows taskkill exits nonzero', () => {
-    vi.spyOn(process, 'platform', 'get').mockReturnValue('win32');
-    const killer = new EventEmitter();
-    spawnMock.mockReturnValue(killer);
-    const signal = vi.spyOn(process, 'kill').mockImplementation(() => true);
+    it('reports killed when taskkill fails but the direct signal lands', () => {
+      vi.spyOn(process, 'platform', 'get').mockReturnValue('win32');
+      spawnSyncMock.mockReturnValue(taskkill(1));
+      const signal = vi.spyOn(process, 'kill').mockImplementation(() => true);
 
-    killTree(413);
-    killer.emit('close', 1);
+      expect(killTree(413)).toBe('killed');
+      expect(signal).toHaveBeenCalledWith(413, 'SIGKILL');
+    });
 
-    expect(signal).toHaveBeenCalledWith(413, 'SIGKILL');
-  });
+    it('reports denied when taskkill is refused and the direct signal is EPERM — still running', () => {
+      vi.spyOn(process, 'platform', 'get').mockReturnValue('win32');
+      spawnSyncMock.mockReturnValue(taskkill(1));
+      const eperm = Object.assign(new Error('Access is denied'), { code: 'EPERM' });
+      vi.spyOn(process, 'kill').mockImplementation(() => {
+        throw eperm;
+      });
 
-  it('falls back to a direct kill when Windows taskkill cannot spawn', () => {
-    vi.spyOn(process, 'platform', 'get').mockReturnValue('win32');
-    const killer = new EventEmitter();
-    spawnMock.mockReturnValue(killer);
-    const signal = vi.spyOn(process, 'kill').mockImplementation(() => true);
+      expect(killTree(414)).toBe('denied');
+    });
 
-    killTree(414);
-    killer.emit('error', new Error('ENOENT'));
+    it('reports denied when taskkill cannot spawn and the direct signal is EPERM', () => {
+      vi.spyOn(process, 'platform', 'get').mockReturnValue('win32');
+      spawnSyncMock.mockReturnValue(taskkill(null, new Error('ENOENT')));
+      const eperm = Object.assign(new Error('Access is denied'), { code: 'EPERM' });
+      vi.spyOn(process, 'kill').mockImplementation(() => {
+        throw eperm;
+      });
 
-    expect(signal).toHaveBeenCalledWith(414, 'SIGKILL');
-  });
+      expect(killTree(415)).toBe('denied');
+    });
 
-  it('reports Windows as unknown — taskkill is fired and forgotten', () => {
-    vi.spyOn(process, 'platform', 'get').mockReturnValue('win32');
-    spawnMock.mockReturnValue(new EventEmitter());
-    vi.spyOn(process, 'kill').mockImplementation(() => true);
+    it('reports killed when taskkill fails and the target is already gone (ESRCH)', () => {
+      vi.spyOn(process, 'platform', 'get').mockReturnValue('win32');
+      spawnSyncMock.mockReturnValue(taskkill(128));
+      const esrch = Object.assign(new Error('No such process'), { code: 'ESRCH' });
+      vi.spyOn(process, 'kill').mockImplementation(() => {
+        throw esrch;
+      });
 
-    expect(killTree(415)).toBe('unknown');
+      expect(killTree(416)).toBe('killed');
+    });
   });
 
   // The distinction this ticket exists to make: ESRCH means the goal (nothing
