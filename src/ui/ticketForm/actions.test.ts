@@ -1562,6 +1562,30 @@ describe('buildTicketFormActions', () => {
     await vi.waitFor(() => expect(getTicket(store, t.id).effort).toBe('high'));
   });
 
+  // The fix rebuilt BOTH the save and submit literals, and they are separate
+  // objects that can regress independently — the save path above does not pin
+  // the Create & run path. Route a raw submit through the real parser and
+  // actions and assert the started ticket kept the picked effort.
+  it('parser→router→persist: a routed Create & run keeps the posted effort', async () => {
+    const ctx = mkCtx();
+    const actions = buildTicketFormActions(deps)(ctx);
+
+    routeTicketFormAction(
+      {
+        type: 'submit', key: 'P-SUB', title: 't', description: 'd', repos: ['fe'],
+        approach: null, agent: null, model: null, effort: 'high',
+        agentProvider: null, agentPreset: null, ticketType: null,
+        createInProvider: false, keyAutoDerived: false, baseRefs: {},
+      },
+      actions,
+    );
+
+    await vi.waitFor(() => expect(ctx.boundTicketId).toBeDefined());
+    const id = ctx.boundTicketId!;
+    expect(getTicket(store, id).effort).toBe('high');
+    expect(startTicket).toHaveBeenCalledWith(id, { pullBase: true });
+  });
+
   it('setProvider persists onto an existing ticket, re-pushes state, and empty clears it to inherit', () => {
     const t = createTicket(store, { key: 'P-PR', title: 't' });
     const ctx = mkCtx(t.id);
