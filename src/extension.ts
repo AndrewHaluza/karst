@@ -37,6 +37,7 @@ import { ActiveTicketTracker } from './ui/activeTicket.js';
 import { FACETS, facetCounts } from './ui/sidebar/facets.js';
 import { openTicketFromList } from './ui/sidebar/navigation.js';
 import { DashboardManager, type DashboardPanel, type PanelHost } from './ui/dashboard/panel.js';
+import { makeDashboardPanelHost } from './ui/dashboard/host.js';
 import type { DashboardActions } from './ui/dashboard/messages.js';
 import type { AgentProcessId } from './ui/dashboard/messages.js';
 import { makeWorktreeActions } from './ui/dashboard/worktreeActions.js';
@@ -49,6 +50,7 @@ import {
   type ChangesPanel,
   type ChangesPanelHost,
 } from './ui/diffs/panel.js';
+import { makeChangesPanelHost } from './ui/diffs/host.js';
 import {
   StaleDiffTargetError,
   TextDiffUnavailableError,
@@ -63,7 +65,6 @@ import { diffNodeChangeId } from './ui/diffs/treeModel.js';
 import { wireDiffsTree } from './extension/diffsHost.js';
 import { discardChanges as gitDiscard, unstageFile as gitUnstage } from './ui/diffs/gitActions.js';
 import {
-  DisposableBag,
   type VirtualDocumentAttempt,
   VirtualDocumentRegistry,
 } from './ui/diffs/hostResources.js';
@@ -173,7 +174,6 @@ import { compactTicketLabel } from './model/followUp.js';
 import { ticketGlyph } from './model/ticketGlyph.js';
 import { glyphIconPath } from './ui/glyphIcon.js';
 import { brandIconPaths, type BrandIconPaths } from './ui/brandIcon.js';
-import { brandIconUri } from './ui/panelIcon.js';
 import { terminalNaming } from './ui/terminalNaming.js';
 import { StatusBarManager } from './ui/statusBar.js';
 import { attentionItems, AttentionManager, type AttentionItem } from './ui/attention.js';
@@ -373,12 +373,15 @@ import { AgentConsole } from './agent/agentConsole.js';
 import { GateConsole } from './workflow/gates/gateConsole.js';
 import { recordTokenUsage, listRecentlyUsedModels } from './store/tokenUsage.js';
 import { UsagePanelManager, type UsagePanel, type UsagePanelHost } from './ui/usage/panel.js';
+import { makeUsagePanelHost } from './ui/usage/host.js';
 import {
   ResourcesPanelManager,
   type ResourcesPanel,
   type ResourcesPanelHost,
 } from './ui/resources/panel.js';
+import { makeResourcesPanelHost } from './ui/resources/host.js';
 import { ServerLogsManager, type ServerLogsPanel, type ServerLogsPanelHost } from './ui/serverLogs/panel.js';
+import { makeServerLogsPanelHost } from './ui/serverLogs/host.js';
 import {
   listInstalled,
   readApproachPackage,
@@ -448,10 +451,7 @@ import {
   makeLogger,
   type LogError,
 } from './logging/logger.js';
-import { injectCsp, newNonce } from './model/csp.js';
-import { hydrateWebview, type WebviewName } from './model/webviewChains.js';
 import { RUNTIME_ASSETS_ROOT } from './runtimeAssetsRoot.js';
-import { injectXterm, readXtermAssets } from './model/xtermAssets.js';
 import { buildTicketArtifacts } from './model/artifacts.js';
 import {
   binaryExists,
@@ -2527,7 +2527,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   const dashboard = new DashboardManager(
     localStore,
-    makePanelHost(context, brandIcon, (m) => logger.warn(m)),
+    makeDashboardPanelHost(context, brandIcon, (m) => logger.warn(m)),
     (ticketId) =>
       makeDashboardActions(
         localStore,
@@ -6864,178 +6864,6 @@ function buildCliFixBriefPrefix(context: vscode.ExtensionContext, dbPath: string
 function buildCliConflictBriefPrefix(context: vscode.ExtensionContext, dbPath: string): string {
   const { cliEntry, manifestPath } = cliEntryAndManifest(context);
   return composeConflictBriefCommand(cliEntry, dbPath, manifestPath);
-}
-
-/**
- * The injected dashboard webview asset, built once per call: design system,
- * status palette, provider identity, agent-core identity, and the vendored
- * xterm bundles are all substituted host-side (CSP forbids a shared
- * stylesheet/script). Shared by the production dashboard panels and the
- * development-only Inside preview, so the preview renders the exact asset
- * production does (Finding 1). The agent identity injection is applied
- * outermost, in the same order the settings and ticket form hosts use it.
- *
- * xterm is injected HERE, before `injectCsp` runs at panel creation: the
- * vendored JS lands inside the document's own `<script>` block, so the nonce
- * pass tags it along with the dashboard script. A missing vendor asset (a
- * packaging regression) degrades to the marker comments the webview already
- * guards — the console view reports "unavailable" instead of the dashboard
- * failing to open at all.
- */
-function dashboardWebviewHtml(warn: (message: string) => void): string {
-  let html = hydrateWebview('dashboard', readFileSync(join(RUNTIME_ASSETS_ROOT, 'ui', 'dashboard', 'webview.html'), 'utf8'));
-  try {
-    html = injectXterm(html, readXtermAssets(join(RUNTIME_ASSETS_ROOT, 'vendor', 'xterm')));
-  } catch (e) {
-    warn(`xterm vendor assets unavailable — console view disabled (${(e as Error).message})`);
-  }
-  return html;
-}
-
-/** Real webview panels, wrapped in the `DashboardPanel` interface. */
-function makePanelHost(
-  context: vscode.ExtensionContext,
-  brandIcon?: BrandIconPaths,
-  warn: (message: string) => void = () => {},
-): PanelHost {
-  const html = dashboardWebviewHtml(warn);
-  return {
-    createPanel(title, _ticketId, preserveFocus): DashboardPanel {
-      const panel = vscode.window.createWebviewPanel(
-        'karst.dashboard',
-        title,
-        // A bound open rides on the user clicking the TERMINAL: the panel must
-        // appear beside it without taking the caret out of the shell.
-        { viewColumn: vscode.ViewColumn.Active, preserveFocus: preserveFocus === true },
-        { enableScripts: true, retainContextWhenHidden: true },
-      );
-      // The brand mark until the first state push repaints it with the ticket's
-      // status glyph — a dashboard tab is never unmarked, not even for a frame.
-      panel.iconPath = brandIconUri(brandIcon);
-      // Nonce per panel, not per host (the html above is built once and reused).
-      panel.webview.html = injectCsp(html, newNonce());
-      return {
-        reveal: (keepFocus) => panel.reveal(undefined, keepFocus),
-        postMessage: (message) => void panel.webview.postMessage(message),
-        onDidReceiveMessage: (handler) =>
-          panel.webview.onDidReceiveMessage(handler, undefined, context.subscriptions),
-        // `active` — not `visible`: a preserve-focus reveal makes the panel
-        // visible without the user being on it, and binding off that would fire
-        // on karst's own reveal rather than on a real click.
-        onDidChangeViewState: (handler) =>
-          panel.onDidChangeViewState(
-            (e) => handler(e.webviewPanel.active),
-            undefined,
-            context.subscriptions,
-          ),
-        onDidDispose: (handler) => panel.onDidDispose(handler, undefined, context.subscriptions),
-        // `visible` — the counterpart of `active` above: the live repaint asks
-        // "can anyone see this?", and a dashboard watched beside a terminal the
-        // user types in is visible and inactive.
-        isVisible: () => panel.visible,
-        setIcon: (p: string) => {
-          panel.iconPath = vscode.Uri.file(p);
-        },
-      };
-    },
-  };
-}
-
-/**
- * The panel shape both the usage and resources surfaces need: a single
- * always-Active-column webview with the brand icon and a fresh CSP nonce per
- * panel. Neither carries a ticket, so neither needs the view-column read or the
- * activation reporting `makeChangesPanelHost` does.
- */
-function makeSimplePanelHost<P>(
-  context: vscode.ExtensionContext, view: string, viewType: string, brandIcon?: BrandIconPaths,
-): { createPanel(title: string): P } {
-  const html = hydrateWebview(view as WebviewName, readFileSync(join(RUNTIME_ASSETS_ROOT, 'ui', view, 'webview.html'), 'utf8'));
-  return {
-    createPanel(title) {
-      const panel = vscode.window.createWebviewPanel(
-        viewType,
-        title,
-        vscode.ViewColumn.Active,
-        { enableScripts: true, retainContextWhenHidden: true },
-      );
-      context.subscriptions.push(panel);
-      panel.iconPath = brandIconUri(brandIcon);
-      panel.webview.html = injectCsp(html, newNonce());
-      return {
-        reveal: (keepFocus: boolean | undefined) => panel.reveal(undefined, keepFocus),
-        postMessage: (message: unknown) => void panel.webview.postMessage(message),
-        onDidReceiveMessage: (handler: (message: unknown) => void) =>
-          panel.webview.onDidReceiveMessage(handler, undefined, context.subscriptions),
-        onDidDispose: (handler: () => void) => panel.onDidDispose(handler, undefined, context.subscriptions),
-      } as P;
-    },
-  };
-}
-
-/** Real token-usage panel, with a fresh CSP nonce for every panel. */
-function makeUsagePanelHost(context: vscode.ExtensionContext, brandIcon?: BrandIconPaths): UsagePanelHost {
-  return makeSimplePanelHost<UsagePanel>(context, 'usage', 'karst.tokenUsage', brandIcon);
-}
-
-/** Real resources panel, with a fresh CSP nonce for every panel. */
-function makeResourcesPanelHost(context: vscode.ExtensionContext, brandIcon?: BrandIconPaths): ResourcesPanelHost {
-  return makeSimplePanelHost<ResourcesPanel>(context, 'resources', 'karst.resources', brandIcon);
-}
-
-/** Real standalone server-logs panels, one per ticket, with a fresh CSP nonce. */
-function makeServerLogsPanelHost(context: vscode.ExtensionContext, brandIcon?: BrandIconPaths): ServerLogsPanelHost {
-  return makeSimplePanelHost<ServerLogsPanel>(context, 'serverLogs', 'karst.serverLogs', brandIcon);
-}
-
-/** Real ticket-changes panels, with a fresh CSP nonce for every panel. */
-function makeChangesPanelHost(
-  context: vscode.ExtensionContext,
-  brandIcon?: BrandIconPaths,
-): ChangesPanelHost {
-  const html = hydrateWebview('diffs', readFileSync(join(RUNTIME_ASSETS_ROOT, 'ui', 'diffs', 'webview.html'), 'utf8'));
-  return {
-    createPanel(title, _ticketId): ChangesPanel {
-      const panel = vscode.window.createWebviewPanel(
-        'karst.changes',
-        title,
-        vscode.ViewColumn.Active,
-        { enableScripts: true, retainContextWhenHidden: true },
-      );
-      // The panel itself, not only its listeners: without this the webview
-      // outlives extension unload with no owner. VS Code tolerates a second
-      // dispose of an already-closed panel.
-      context.subscriptions.push(panel);
-      panel.iconPath = brandIconUri(brandIcon);
-      panel.webview.html = injectCsp(html, newNonce());
-      const listeners = new DisposableBag();
-      return {
-        reveal: () => panel.reveal(),
-        // Read per call, not captured: the user can drag the panel to another
-        // group, and the diff belongs beside wherever it is NOW.
-        viewColumn: () => panel.viewColumn,
-        postMessage: (message) => void panel.webview.postMessage(message),
-        onDidReceiveMessage: (handler) => {
-          listeners.add(panel.webview.onDidReceiveMessage(handler));
-        },
-        onDidChangeViewState: (handler) =>
-          panel.onDidChangeViewState(
-            (e) => handler(e.webviewPanel.active),
-            undefined,
-            context.subscriptions,
-          ),
-        onDidDispose: (handler) => {
-          listeners.add(panel.onDidDispose(() => {
-            try {
-              handler();
-            } finally {
-              listeners.dispose();
-            }
-          }));
-        },
-      };
-    },
-  };
 }
 
 /**

@@ -978,6 +978,26 @@ Do not use a grid of zeros as a synonym for no data.
 
 ---
 
+## 11.20 Gated-action pattern: native modal vs. inline reveal
+
+Two patterns exist in the codebase for gating an action behind a second step.
+Pick between them by what the gate is protecting, not by habit or by which
+screen you're on:
+
+| | Native VS Code modal confirm | Inline reveal (secondary controls appear in place) |
+| --- | --- | --- |
+| Use when | The action is a single, immediately-executed operation on one named/identified item, is not undoable once it runs, and the click that triggers it sits directly on the primary surface (no separate row-level affordance already gates it). | The action is triggered from a control already embedded in a list/row, and what the user needs before committing is *specific, variable context about this row* (e.g. the exact command about to run) rather than a yes/no on an already-obvious consequence. |
+| Example | `src/ui/resources/panel.ts` (`killServer`): stopping a server process is irreversible once it happens, so it is always confirmed host-side via `deps.confirm(...)`, with the message naming which tickets depend on it when that raises the stakes. | `src/ui/settings/webview.html` (`approachInstallAffordance`, `confirmInstallId`): installing an approach from an `npm` source reveals the exact `Runs: <command>` text plus Cancel/Run buttons inline in the row, because the thing the user needs to evaluate is the command itself, not a generic "are you sure?". |
+| Why | Blocks the whole window and cannot be dismissed by clicking past it — appropriate for a decision that must not happen by accident and has no undo. | Keeps the user in the flow of the list, shows the row-specific payload the decision actually depends on, and is cheap to back out of (Cancel simply collapses the row back to its prior state). |
+
+Rule of thumb: if the risk is "this permanently removes/stops something and the
+user must not click through it by accident," gate it with the native modal. If
+the risk is "the user should see exactly what is about to run/change for this
+specific item before it happens," reveal that information inline next to the
+control that triggered it.
+
+---
+
 # 12. Accessibility baseline
 
 ## 12.1 Native semantics

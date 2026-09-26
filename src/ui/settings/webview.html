@@ -1010,12 +1010,12 @@
         <span class="project-id" id="footProjectId">(unresolved)</span>
         <span class="project-version" id="footProjectVersion"></span>
       </span>
-      <span class="project-more" aria-hidden="true">&#8942;</span>
+      <span class="project-more" aria-hidden="true">⋮</span>
     </button>
     <button type="button" class="manifest-btn" id="footOpenManifest">
       <span class="manifest-icon" aria-hidden="true">Y</span>
       <span class="manifest-name" id="footManifestName">karst.yml</span>
-      <span class="manifest-open">Open &#8599;</span>
+      <span class="manifest-open">Open ↗</span>
     </button>
     <!-- The pop is closed by its own `display:none` rule — it must NOT carry the
          `hidden` class: `.hidden` is `display:none !important` and would defeat
@@ -3001,7 +3001,7 @@
       + `<div class="card-head roster-row repo-cols">`
       + `<button type="button" class="card-toggle" data-toggle="${esc(name)}"`
       + ` aria-expanded="${isOpen ? 'true' : 'false'}" aria-controls="${bodyId}">`
-      + `<span class="chevron" aria-hidden="true">&#9656;</span>`
+      + `<span class="chevron" aria-hidden="true">▸</span>`
       + `<span class="card-title">${esc(name)}</span>`
       + `</button>`
       + `<span class="cell-path" title="${esc(repo.repoPath || '')}">${esc(repo.repoPath || '—')}</span>`
@@ -4101,7 +4101,7 @@
     if (!a.id) return '';
     if (installedIds.includes(a.id)) {
       return `<button type="button" class="more-btn" data-more="approach" data-approach-id="${esc(a.id)}"`
-        + ` aria-label="More actions for ${esc(a.id)}" title="More actions">&#8943;</button>`;
+        + ` aria-label="More actions for ${esc(a.id)}" title="More actions">⋯</button>`;
     }
     if (!a.source) {
       return `<span class="approach-install builtin-tag">Built-in</span>`;
@@ -4497,12 +4497,12 @@
   function renderFileAgentRow(a) {
     const on = !!a.enabled;
     return `<div class="agent-roster-row${on ? ' on' : ''}${on ? '' : ' is-disabled'}">`
-      + `<span class="glyph" aria-hidden="true">&#9638;</span>`
+      + `<span class="glyph" aria-hidden="true">▦</span>`
       + `<span class="nm">${esc(a.name)}</span>`
       + `<span class="spacer"></span>`
       + agentToggle(a)
       + `<button type="button" class="more-btn" data-more="agent" data-agent-name="${esc(a.name)}"`
-      + ` aria-label="More actions for ${esc(a.name)}" title="More actions">&#8943;</button>`
+      + ` aria-label="More actions for ${esc(a.name)}" title="More actions">⋯</button>`
       + `</div>`
       + `<div class="agent-editor">`
       + `<textarea aria-label="${esc(a.name)} body" data-agent-body="${esc(a.name)}"></textarea>`
@@ -4523,7 +4523,7 @@
         html += `<div class="agent-appr-head">`
           + `<span class="appr-id">${esc(currentId)}</span>`
           + `<span class="spacer"></span>`
-          + `<button type="button" class="k-btn k-btn--link" data-manage-approach="${esc(currentId)}">manage in approach &#8599;</button>`
+          + `<button type="button" class="k-btn k-btn--link" data-manage-approach="${esc(currentId)}">manage in approach ↗</button>`
           + `</div>`;
       }
       html += renderApproachAgentRow(a);
@@ -4534,7 +4534,7 @@
   function renderApproachAgentRow(a) {
     const on = !!a.enabled;
     return `<div class="agent-roster-row${on ? ' on' : ''}${on ? '' : ' is-disabled'}">`
-      + `<span class="glyph" aria-hidden="true">&#9670;</span>`
+      + `<span class="glyph" aria-hidden="true">◆</span>`
       + `<span class="nm">${esc(a.name)}</span>`
       + `<span class="owner">${esc(a.approachId)}</span>`
       + `<span class="spacer"></span>`
