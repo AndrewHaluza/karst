@@ -18,6 +18,7 @@ import {
   type StartTicketOptions,
 } from './actions.js';
 import type { TicketFormActionsCtx } from './panel.js';
+import { routeTicketFormAction } from './messages.js';
 import type { TicketFormHostMessage } from './messages.js';
 import type { ContextBrief, TicketingProvider } from '../../integrations/ticketing.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
@@ -1535,6 +1536,30 @@ describe('buildTicketFormActions', () => {
     expect(getTicket(store, t.id).effort).toBe('high');
     actions.setEffort('');
     expect(getTicket(store, t.id).effort).toBeNull();
+  });
+
+  // The regression for NDL-8: the webview posts `effort`, but the router used
+  // to drop it while rebuilding the save/submit input, so the store cleared the
+  // pick to NULL on every Save / Create & run. This drives the whole path the
+  // bug crossed — raw webview message → parseTicketFormMessage → route → save
+  // action → store — so a future rebuild of the action input cannot silently
+  // drop the field again.
+  it('parser→router→persist: a routed save keeps the posted effort on the ticket', async () => {
+    const t = createTicket(store, { key: 'P-RTE', title: 't' });
+    const ctx = mkCtx(t.id);
+    const actions = buildTicketFormActions(deps)(ctx);
+
+    routeTicketFormAction(
+      {
+        type: 'save', key: 'P-RTE', title: 't', description: 'd', repos: [],
+        approach: null, agent: null, model: null, effort: 'high',
+        agentProvider: null, agentPreset: null, ticketType: null,
+        createInProvider: false, keyAutoDerived: false, baseRefs: {},
+      },
+      actions,
+    );
+
+    await vi.waitFor(() => expect(getTicket(store, t.id).effort).toBe('high'));
   });
 
   it('setProvider persists onto an existing ticket, re-pushes state, and empty clears it to inherit', () => {
