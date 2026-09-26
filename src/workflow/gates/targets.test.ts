@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { manifest, runnableRepo, dependsOn } from '../../manifest/fixtures.js';
 import { selectReviewTargets, type ReviewWorktree, type ReviewTarget } from './targets.js';
 import type { GitRunner } from '../../integrations/git.js';
@@ -155,6 +155,24 @@ describe('selectReviewTargets', () => {
     };
     await selectReviewTargets(project, worktrees, git);
     expect(diffs).toContainEqual(['diff', '--quiet', 'origin/develop...HEAD']);
+  });
+
+  // P2-09: the fetch races a timeout, but the losing timer must be cleared or
+  // every probe pins live timers and keeps the extension host awake during
+  // sweeps. With the timer leaked, `getTimerCount()` would be 1–2 here.
+  it('clears the fetch-timeout timers instead of leaking them', async () => {
+    vi.useFakeTimers();
+    try {
+      const git: GitRunner = async () => ({ stdout: '', stderr: '', exitCode: 0 });
+      await selectReviewTargets(
+        project,
+        [{ repo: '/repos/web', path: '/wt/web', baseRef: 'develop', branch: 'karst/x' }],
+        git,
+      );
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('reports the worktree row base, not the manifest default', async () => {

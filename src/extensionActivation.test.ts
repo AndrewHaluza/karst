@@ -79,6 +79,25 @@ describe('extension activation', () => {
     );
   });
 
+  // The manual bulk-archive command is DESTRUCTIVE and must never run unscoped:
+  // `currentProject()?.id` degrades to `undefined` when no project is bound,
+  // which the store reads as ALL projects, so a click in an unbound window would
+  // reap every other window's worktrees (P2-17). The command must bind first and
+  // refuse when it cannot.
+  it('refuses the manual inactive-worktree archive when no project is bound', () => {
+    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+
+    const block = source.slice(
+      source.indexOf("registerCommand('karst.archiveInactiveWorktrees'"),
+      source.indexOf("registerCommand('karst.compactArchivedWorktrees'"),
+    );
+    expect(block).toContain('if (!project)');
+    expect(block).toContain('refusing to archive inactive worktrees');
+    expect(block).toContain('projectId: project.id');
+    // The old call degraded to `undefined` (= all projects) when unbound.
+    expect(block).not.toContain('currentProject()?.id');
+  });
+
   // Closing a ticket with its DONE terminals is a SETTING (`closeDoneTerminals
   // WithTicket`), off by default — so the wiring has two halves, both pinned
   // here: the archive command and the auto-archive sweep must each consult the
