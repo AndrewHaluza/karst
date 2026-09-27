@@ -29,9 +29,11 @@ const CREATORS = walk(SRC)
 describe('webview panel host discovery', () => {
   it('finds every module that mints a webview panel today', () => {
     expect(CREATORS).toEqual([
-      'extension.ts',
+      'ui/dashboard/host.ts',
+      'ui/diffs/host.ts',
       'ui/gettingStarted/host.ts',
       'ui/settings/host.ts',
+      'ui/shared/simplePanelHost.ts',
       'ui/ticketForm/host.ts',
     ]);
   });

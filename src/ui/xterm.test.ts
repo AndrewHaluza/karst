@@ -54,7 +54,9 @@ describe('xterm markers', () => {
 
 describe('xterm host wiring', () => {
   const ROOT = join(HERE, '..', '..');
-  const EXTENSION = readFileSync(join(ROOT, 'src', 'extension.ts'), 'utf8');
+  // The dashboard host adapter owns the inject call (NDL-33 standardized
+  // every screen's activation-layer wiring into its own host.ts).
+  const DASHBOARD_HOST = readFileSync(join(ROOT, 'src', 'ui', 'dashboard', 'host.ts'), 'utf8');
 
   it('injects the vendored bundles into the dashboard asset before CSP runs', () => {
     // The one host-side inject call — the markers must not survive to the
@@ -63,13 +65,13 @@ describe('xterm host wiring', () => {
     // inside dashboardWebviewHtml and injectCsp is applied at panel creation,
     // so the nonce pass tags the vendored script (xterm.test.ts above pins the
     // resulting document's CSP compliance).
-    expect(EXTENSION).toMatch(/injectXterm\(html, readXtermAssets\(join\(RUNTIME_ASSETS_ROOT, 'vendor', 'xterm'\)\)\)/);
+    expect(DASHBOARD_HOST).toMatch(/injectXterm\(html, readXtermAssets\(join\(RUNTIME_ASSETS_ROOT, 'vendor', 'xterm'\)\)\)/);
   });
 
   it('degrades to the marker comments when the vendor assets are missing', () => {
     // A packaging regression must not take the whole dashboard down: the read
     // is wrapped so a missing bundle leaves the markers in place, which the
     // webview already renders as a visible "console unavailable" refusal.
-    expect(EXTENSION).toMatch(/try \{[\s\S]{0,400}readXtermAssets\(join\(RUNTIME_ASSETS_ROOT, 'vendor', 'xterm'\)\)[\s\S]{0,200}catch/);
+    expect(DASHBOARD_HOST).toMatch(/try \{[\s\S]{0,400}readXtermAssets\(join\(RUNTIME_ASSETS_ROOT, 'vendor', 'xterm'\)\)[\s\S]{0,200}catch/);
   });
 });
