@@ -1,5 +1,6 @@
 import type { Store } from '../store/db.js';
 import { setStage } from '../store/stages.js';
+import { setStageCurrent } from '../store/tickets.js';
 import {
   activeRecoverySeries,
   currentEpisode,
@@ -206,9 +207,7 @@ export function enterPrFeedbackFix(
       blockedReason: null,
       blockedAt: null,
     });
-    store.db
-      .prepare('UPDATE tickets SET stage_current = ? WHERE id = ?')
-      .run('fix', ticketId);
+    setStageCurrent(store, ticketId, 'fix');
 
     out = { roundId: round.id, round: round.round, items: adopted };
     opts?.debug?.(
