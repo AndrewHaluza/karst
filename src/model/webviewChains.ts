@@ -27,6 +27,7 @@ import { injectAgentIdentity } from './agentIdentity.js';
 import { injectProviderIdentity } from './providerIdentity.js';
 import { injectAgentPicker } from './agentPicker.js';
 import { injectServerLogsView } from './serverLogsView.js';
+import { injectWebviewMessages } from './webviewMessagesInjector.js';
 
 export const WEBVIEW_NAMES = [
   'dashboard',
@@ -60,6 +61,9 @@ const DS_PALETTE_PROVIDER_AGENT_PICKER: Chain = (html) =>
     ),
   );
 
+const injectDashboardMessages = (html: string) => injectWebviewMessages(html, 'dashboard');
+const injectSettingsMessages = (html: string) => injectWebviewMessages(html, 'settings');
+
 const DS_AGENT_PALETTE: Chain = (html) =>
   injectPalette(injectAgentIdentity(injectDesignSystem(html)));
 
@@ -69,8 +73,8 @@ const DS_AGENT_PALETTE: Chain = (html) =>
 const DS_PALETTE_SERVER_LOGS: Chain = (html) => injectServerLogsView(DS_PALETTE(html));
 
 export const WEBVIEW_CHAINS: Record<WebviewName, Chain> = {
-  dashboard: DS_PALETTE_PROVIDER_AGENT_PICKER,
-  settings: DS_PALETTE_PROVIDER_AGENT_PICKER,
+  dashboard: (html) => injectDashboardMessages(DS_PALETTE_PROVIDER_AGENT_PICKER(html)),
+  settings: (html) => injectSettingsMessages(DS_PALETTE_PROVIDER_AGENT_PICKER(html)),
   ticketForm: DS_PALETTE_PROVIDER_AGENT_PICKER,
   sidebar: DS_AGENT_PALETTE,
   usage: DS_PALETTE,

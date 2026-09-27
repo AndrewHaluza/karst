@@ -1863,6 +1863,10 @@
   // src/model/agentPicker.ts, injected here at load. Defines mountAgentPicker.
   /*KARST_AGENT_PICKER_JS*/
 
+  // Type-checked webview message posting (NDL-39): imports and uses WebviewMessage
+  // types so TypeScript's compiler catches field typos/renames at build time.
+  /*KARST_WEBVIEW_MESSAGES_SETTINGS*/
+
   const vscode = acquireVsCodeApi();
   const post = (m) => vscode.postMessage(m);
   const el = (id) => document.getElementById(id);

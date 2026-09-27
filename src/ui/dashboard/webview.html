@@ -2014,6 +2014,10 @@
 
   /*KARST_XTERM_JS*/
 
+  // Type-checked webview message posting (NDL-39): imports and uses WebviewMessage
+  // types so TypeScript's compiler catches field typos/renames at build time.
+  /*KARST_WEBVIEW_MESSAGES_DASHBOARD*/
+
   const vscode = acquireVsCodeApi();
   const post = (msg) => vscode.postMessage(msg);
 
