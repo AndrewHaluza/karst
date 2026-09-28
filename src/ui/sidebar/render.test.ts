@@ -70,4 +70,49 @@ describe('sidebar render', () => {
       });
     });
   }
+
+  // The collapse control (NDL-76): a row with sub-tasks can hide its whole
+  // descendant sub-tree and show it again. Both states are exercised here, not
+  // just the host-side predicate (items.test.ts covers that separately).
+  describe('collapsible sub-tasks', () => {
+    const fixture = sidebarRenderFixtures().find((f) => f.scenario === 'subtasks');
+    if (!fixture) throw new Error('subtasks fixture missing');
+    const subtaskState = fixture.state;
+
+    function render() {
+      const h = renderWebview('sidebar', { nonce: FIXTURE_NONCE });
+      h.receive({ type: 'state', state: subtaskState });
+      return h;
+    }
+
+    it('renders a collapse control only on rows that have sub-tasks', () => {
+      const h = render();
+      try {
+        const controls = h.queryAll('[data-collapse]');
+        // Two rows have children (FEAT-100 and FEAT-100-s1); the leaf and the
+        // unrelated root have none.
+        expect(controls.length).toBe(2);
+      } finally { h.close(); }
+    });
+
+    it('hides the whole descendant sub-tree when collapsed, and restores it', () => {
+      const h = render();
+      try {
+        expect(h.queryAll('.ticket').length).toBe(4);
+        const toggle = h.query('[data-collapse="900001"]') as HTMLElement;
+        expect(toggle).toBeTruthy();
+        expect(toggle.getAttribute('aria-expanded')).toBe('true');
+
+        toggle.click();
+        // FEAT-100-s1 and its child FEAT-100-s1-s1 are gone; FEAT-100 and
+        // FEAT-101 remain.
+        expect(h.queryAll('.ticket').length).toBe(2);
+        const collapsed = h.query('[data-collapse="900001"]') as HTMLElement;
+        expect(collapsed.getAttribute('aria-expanded')).toBe('false');
+
+        collapsed.click();
+        expect(h.queryAll('.ticket').length).toBe(4);
+      } finally { h.close(); }
+    });
+  });
 });

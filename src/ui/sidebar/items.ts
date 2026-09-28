@@ -7,6 +7,7 @@ import { sessionAction, type SessionAction } from '../../agent/sessionAction.js'
 import { resolveProvider } from '../../agent/registry.js';
 import type { AgentProvider } from '../../manifest/types.js';
 import type { AgentDefaults } from '../../agent/agentPresets.js';
+import { MAX_SUBTASK_DEPTH } from '../../workflow/stages/subtask.js';
 
 /**
  * The expanded body's blocker line — the ONE thing the collapsed row can't show.
@@ -78,6 +79,30 @@ export interface TicketNode {
   archived: boolean;
   /** The parent ticket's key, when this ticket was created via "create follow-up"; else null. */
   parentKey: string | null;
+  /**
+   * This ticket's sub-task parent id, when it is a sub-task; else null. The
+   * id lets `nestSubtasks` order and indent the row under its parent without a
+   * second lookup, and it is deliberately the SUB-TASK relation
+   * (`subtaskParentId`), never the follow-up one.
+   */
+  subtaskParentId: number | null;
+  /**
+   * The parent's key, when this ticket is a sub-task; else null. Rendered as
+   * `⊂ <parentKey>` — the sub-task relation marker (model/subtask.ts), which is
+   * deliberately distinct from the follow-up `↳ <parentKey>` in `parentKey`.
+   */
+  subtaskParentKey: string | null;
+  /**
+   * Visual nesting depth assigned by `nestSubtasks` (0 = top level). 0 until
+   * the list is nested, so a bare `buildTicketNodes` call needs no tree pass.
+   */
+  subtaskDepth: number;
+  /**
+   * How many DIRECT sub-tasks this row has, assigned by `nestSubtasks`. 0 for a
+   * leaf. Drives the collapse control (a row with 0 renders no control). The
+   * webview only hides/show its descendants — it never re-derives the tree.
+   */
+  subtaskChildCount: number;
   collapsible: true;
 }
 
@@ -121,9 +146,104 @@ export function buildTicketNodes(
       model: t.model,
       archived: t.archivedAt !== null,
       parentKey: t.parentTicketId !== null ? (parentKeys.get(t.parentTicketId) ?? null) : null,
+      subtaskParentId: t.subtaskParentId,
+      subtaskParentKey:
+        t.subtaskParentId !== null ? (parentKeys.get(t.subtaskParentId) ?? null) : null,
+      subtaskDepth: 0,
+      subtaskChildCount: 0,
       collapsible: true,
     };
   });
+}
+
+/**
+ * Re-order a flat list into a parent-then-children tree for the sidebar, and
+ * stamp each row's `subtaskDepth`. Sub-tasks directly follow their parent
+ * (recursively), siblings keep their source order, and a row whose sub-task
+ * parent is not in THIS list (a done parent in another section, a facet that
+ * filtered it out) stays a root so it is never hidden by its own nesting.
+ *
+ * Pure and defensive: a malformed cycle or an over-deep chain is emitted once
+ * as a root rather than recursing forever — the writer's depth cap and
+ * create-only-parent rule make both impossible, but a renderer must not hang
+ * on bad data.
+ */
+export function nestSubtasks<T extends TicketNode>(rows: readonly T[]): T[] {
+  const present = new Set(rows.map((r) => r.ticketId));
+  const childrenOf = new Map<number, T[]>();
+  const isChild = new Set<number>();
+  for (const r of rows) {
+    const parentId = r.subtaskParentId;
+    if (parentId === null || !present.has(parentId) || parentId === r.ticketId) continue;
+    const bucket = childrenOf.get(parentId);
+    if (bucket) bucket.push(r);
+    else childrenOf.set(parentId, [r]);
+    isChild.add(r.ticketId);
+  }
+  const out: T[] = [];
+  const emitted = new Set<number>();
+  const emit = (row: T, depth: number): void => {
+    if (emitted.has(row.ticketId)) return;
+    emitted.add(row.ticketId);
+    const children = childrenOf.get(row.ticketId);
+    out.push({ ...row, subtaskDepth: depth, subtaskChildCount: children ? children.length : 0 });
+    if (!children) return;
+    for (const child of children) emit(child, Math.min(depth + 1, MAX_SUBTASK_INDENT));
+  };
+  for (const row of rows) {
+    if (isChild.has(row.ticketId)) continue;
+    emit(row, 0);
+  }
+  // A pure cycle leaves no root; emit whatever remains so no row is dropped.
+  for (const row of rows) emit(row, 0);
+  return out;
+}
+
+/**
+ * The deepest indent the sidebar paints. Derived from the writer's own
+ * `MAX_SUBTASK_DEPTH` (`workflow/stages/subtask.ts`) so the two can never drift:
+ * depth counts `-s<n>` segments, so a root is depth 0 and the writer permits
+ * sub-tasks down to depth `MAX_SUBTASK_DEPTH` (e.g. `PROJ-1-s1-s1-s1-s1`). Every
+ * legal depth gets its own indent; only a deeper chain (impossible through the
+ * writer) is clamped. Clamping below a legal depth would merge a row into its
+ * parent's slot, which also breaks `visibleTicketRows` (collapsing the parent
+ * would not hide it).
+ */
+export const MAX_SUBTASK_INDENT = MAX_SUBTASK_DEPTH;
+
+/**
+ * The rows the sidebar should RENDER given which parent rows the user has
+ * collapsed. A row is hidden when ANY strict ancestor is collapsed, so
+ * collapsing a row hides its whole subtree, recursively. The collapsed row
+ * itself stays visible — it is the control that re-expands it.
+ *
+ * Pure and host-side so the "collapsible, recursive" contract is unit-tested,
+ * not just living in the webview's inline script. Input is `nestSubtasks`
+ * output, so `subtaskDepth` is already stamped; this walks the ordering once,
+ * tracking the ancestor in effect at each depth. That relies on every legal
+ * depth having its own slot (`MAX_SUBTASK_INDENT === MAX_SUBTASK_DEPTH`).
+ */
+export function visibleTicketRows<T extends TicketNode>(
+  rows: readonly T[],
+  collapsed: ReadonlySet<number>,
+): T[] {
+  if (collapsed.size === 0) return [...rows];
+  const out: T[] = [];
+  const ancestors: number[] = [];
+  for (const row of rows) {
+    ancestors.length = row.subtaskDepth;
+    ancestors[row.subtaskDepth] = row.ticketId;
+    let hidden = false;
+    for (let d = 0; d < row.subtaskDepth; d += 1) {
+      const id = ancestors[d];
+      if (id !== undefined && collapsed.has(id)) {
+        hidden = true;
+        break;
+      }
+    }
+    if (!hidden) out.push(row);
+  }
+  return out;
 }
 
 /** Case-insensitive substring filter over key + title; blank query = all. */

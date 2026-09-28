@@ -14,7 +14,7 @@ import { ticketIdArg } from './extension/ops/args.js';
 import { spinRepoPicks, servicesOnlyArg } from './extension/ops/spinPicks.js';
 import type { Notify } from './extension/ops/notify.js';
 import { archiveTicketOp, unarchiveTicketOp, archiveInactiveWorktreesOp, type ArchiveOpsDeps } from './extension/ops/archiveOps.js';
-import { deleteTicketOp, createFollowUpTicketOp, type LifecycleOpsDeps } from './extension/ops/lifecycleOps.js';
+import { deleteTicketOp, createFollowUpTicketOp, createSubtaskOp, type LifecycleOpsDeps } from './extension/ops/lifecycleOps.js';
 import { attentionPicks, facetPicks, resolveFacetPicks } from './extension/ops/pickers.js';
 import { makePrSyncLoop } from './extension/ops/prSyncLoop.js';
 import { makePrFeedbackDeps } from './extension/ops/prFeedbackSync.js';
@@ -6263,6 +6263,32 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (ticketId === undefined) return;
       await createFollowUpTicketOp(lifecycleDeps, ticketId);
     }),
+    // Sub-task (design NDL-70 §8): a parent that is not yet shipping spawns a
+    // linked child that stacks on its branch. The TITLE and the blocking flag
+    // are the only facts the writer needs; the sub-task's own description is
+    // its separate ask, typed in the edit form this op opens. Input is
+    // validated host-side — the webview only ever sends "create-subtask".
+    vscode.commands.registerCommand('karst.createSubtask', async (arg: unknown) => {
+      const ticketId = ticketIdArg(arg);
+      if (ticketId === undefined) return;
+      const title = await vscode.window.showInputBox({
+        title: 'Add sub-task',
+        prompt: 'What should this sub-task do?',
+        placeHolder: 'Extract the base-branch resolver',
+        ignoreFocusOut: true,
+        validateInput: (value) => (value.trim().length === 0 ? 'A title is required.' : undefined),
+      });
+      if (title === undefined) return;
+      const pick = await vscode.window.showQuickPick(
+        [
+          { label: 'Blocking', description: 'Hold the parent before it leaves implement', blocking: true },
+          { label: 'Non-blocking', description: 'Advisory — does not hold the parent', blocking: false },
+        ],
+        { title: 'Does this sub-task block the parent?', ignoreFocusOut: true },
+      );
+      if (pick === undefined) return;
+      await createSubtaskOp(lifecycleDeps, ticketId, { title: title.trim(), blocking: pick.blocking });
+    }),
     vscode.commands.registerCommand('karst.openTicketScmDiff', async (arg: unknown) => {
       if (typeof arg !== 'string' || arg.length === 0) return;
       await ticketScm.openChange(arg);
@@ -7749,6 +7775,9 @@ function makeDashboardActions(
     // repos/approach/agent/model from this ticket.
     createFollowUpTicket: () =>
       void vscode.commands.executeCommand('karst.createFollowUpTicket', ticketId),
+    // The webview sends no payload; the command prompts for the title and the
+    // blocking flag, then runs the one sub-task writer.
+    createSubtask: () => void vscode.commands.executeCommand('karst.createSubtask', ticketId),
     // The webview names ONLY the stage key; the path is re-derived from the
     // store row this panel owns (never from the message) before `Uri.file`.
     openStageLog: (stageKey) => {

@@ -38,6 +38,7 @@ function actions(): DashboardActions {
     addressPrFeedback: vi.fn(),
     rerunGate: vi.fn(),
     createFollowUpTicket: vi.fn(),
+    createSubtask: vi.fn(),
     openStageLog: vi.fn(),
     resolveConflicts: vi.fn(),
     mergePr: vi.fn(),
@@ -273,6 +274,13 @@ describe('routeAction', () => {
     const a = actions();
     routeAction({ type: 'create-follow-up-ticket' }, a);
     expect(a.createFollowUpTicket).toHaveBeenCalledTimes(1);
+  });
+
+  it('parses and dispatches create-subtask', () => {
+    expect(parseWebviewMessage({ type: 'create-subtask' })).toEqual({ type: 'create-subtask' });
+    const a = actions();
+    routeAction({ type: 'create-subtask' }, a);
+    expect(a.createSubtask).toHaveBeenCalledTimes(1);
   });
 
   it('dispatches open-stage-log with the stage key', () => {

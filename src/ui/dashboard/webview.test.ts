@@ -773,8 +773,39 @@ describe('dashboard webview.html', () => {
     // the title — never inside the primary title.
     const script = previewScriptSource();
     expect(HTML).toMatch(/id="parentRef"/);
-    expect(script).toMatch(/state\.parent\s*\?/);
+    expect(script).toMatch(/state\.subtaskParent/);
+    expect(script).toMatch(/state\.parent/);
     expect(script).toMatch(/Follow-up of '\s*\+ esc\(state\.parent\.key\)/);
+    expect(script).toMatch(/Sub-task of '\s*\+ esc\(state\.subtaskParent\.key\)/);
+  });
+
+  it('renders the Sub-tasks panel with progress, blocking badge and the Add action (NDL-76)', () => {
+    const script = previewScriptSource();
+    // The panel + its `n/m done` count and the ghost Add button.
+    expect(HTML).toContain('id="subtaskPanel"');
+    expect(HTML).toContain('id="subtaskCount"');
+    expect(HTML).toContain('data-act="create-subtask"');
+    expect(HTML).toContain('Add sub-task…');
+    // Progress is host-derived, rendered verbatim.
+    expect(script).toMatch(/progress\.done\}\/\$\{progress\.total\} done/);
+    // A blocking sub-task carries a TEXT badge — the meaning is never colour-only.
+    expect(script).toMatch(/class="subtaskBlock"[^>]*>Blocking</);
+    // The button is offered only while the host says the ticket can still gain
+    // a sub-task (hidden at ship/done), never re-derived in the webview.
+    expect(script).toMatch(/add\.classList\.toggle\('hidden', !canAdd\)/);
+    expect(script).toMatch(/panel\.classList\.toggle\('hidden', subs\.length === 0 && !canAdd\)/);
+  });
+
+  it('shows the awaiting-subtask block chip with the linked sub-task keys (NDL-76)', () => {
+    const script = previewScriptSource();
+    expect(HTML).toContain('id="subtaskWait"');
+    expect(HTML).toContain('id="subtaskWaitText"');
+    // Gated on the host's blocked kind, never a reason string.
+    expect(script).toMatch(/blocked\.kind === 'awaiting-subtask'/);
+    // The keys are the host's gate-accurate reason, never re-derived from the
+    // sub-task list (a non-blocking sub-task does not hold leave-impl).
+    expect(script).toMatch(/const reason = blocked\.reason \|\| ''/);
+    expect(script).not.toMatch(/keys\.map\(\(s\) => s\.key\)/);
   });
 
   /**
