@@ -80,9 +80,20 @@ export function buildGateOptionsLoader(deps: {
     const disabled = getDisabledGates(deps.store, ticketId);
     try {
       const worktrees = listWorktreesByTicket(deps.store, ticketId);
+      // Both plans receive the caller's signal: `pushGateOptions` aborts the
+      // previous probe's controller when a newer one starts, and that abort now
+      // cancels the in-flight fetches instead of being noticed only after both
+      // plans resolve (NDL-65).
       const [uatPlan, reviewPlan] = await Promise.all([
-        planUatTargets(manifest, worktrees, git, { store: deps.store, ticketId }),
-        planReviewTargets(manifest, worktrees, git, { store: deps.store, ticketId }),
+        planUatTargets(manifest, worktrees, git, { store: deps.store, ticketId }, undefined, signal),
+        planReviewTargets(
+          manifest,
+          worktrees,
+          git,
+          { store: deps.store, ticketId },
+          undefined,
+          signal,
+        ),
       ]);
       if (signal.aborted) return empty;
 

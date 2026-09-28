@@ -89,4 +89,50 @@ describe('buildGateOptionsLoader', () => {
     });
     expect(await load(ticketId, new AbortController().signal)).toEqual({ uat: [], review: [] });
   });
+
+  // NDL-65: `SupplementalLoaders.pushGateOptions` aborts the previous probe's
+  // controller every time a newer one starts, intending to cancel it. Before
+  // this, the signal only reached an `if (signal.aborted)` check AFTER both
+  // plans resolved, so the superseded probe's `git fetch` children kept running
+  // to their own budget and stacked. The loader must hand the caller's signal
+  // down so the abort actually cancels the fetch.
+  it('cancels in-flight fetches when the loader signal is superseded', async () => {
+    const store = openStore(':memory:');
+    const ticketId = seedScopedTicket(store, '/repo/api');
+    const captured: (AbortSignal | undefined)[] = [];
+    let started!: () => void;
+    const fetching = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const git: GitRunner = async (args, _cwd, options) => {
+      if (args[0] === 'status') return { exitCode: 0, stdout: '', stderr: '' };
+      if (args[0] === 'fetch') {
+        captured.push(options?.signal);
+        started();
+        return await new Promise((resolve) => {
+          const signal = options?.signal;
+          const abort = () => resolve({ exitCode: 1, stdout: '', stderr: 'aborted' });
+          if (signal?.aborted) return abort();
+          signal?.addEventListener('abort', abort, { once: true });
+        });
+      }
+      return { exitCode: 1, stdout: '', stderr: '' };
+    };
+    const load = buildGateOptionsLoader({
+      store,
+      manifest: () => manifest({ api: repo({ repoPath: '/repo/api', service: svc() }) }),
+      probe: () => ({ kind: 'ok', scripts: { test: 'vitest' } }),
+      git,
+    });
+
+    const controller = new AbortController();
+    const loading = load(ticketId, controller.signal);
+    await fetching;
+    controller.abort();
+
+    expect(await loading).toEqual({ uat: [], review: [] });
+    expect(captured.length).toBeGreaterThan(0);
+    expect(captured.every((signal) => signal?.aborted === true)).toBe(true);
+    store.close();
+  });
 });
