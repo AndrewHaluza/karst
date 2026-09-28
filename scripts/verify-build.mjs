@@ -8,7 +8,15 @@
 import { existsSync, statSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 
-const REQUIRED_ARTIFACTS = ['dist/extension.js', 'dist/cli/main.js'];
+const REQUIRED_ARTIFACTS = [
+  'dist/extension.js',
+  'dist/cli/main.js',
+  // The generated, type-checked webview message-sender bundles. A missing one
+  // means every control in that webview silently no-ops at runtime, so the
+  // shipped VSIX must never omit it.
+  'dist/ui/dashboard/webviewSend.webview.js',
+  'dist/ui/settings/webviewSend.webview.js',
+];
 
 function fail(message) {
   console.error(`verify-build: ${message}`);
@@ -43,4 +51,6 @@ if (!result.stdout || result.stdout.trim().length === 0) {
   fail('dist/cli/main.js guide produced no stdout');
 }
 
-console.log('verify-build: ok (dist/extension.js, dist/cli/main.js, guide smoke test)');
+console.log(
+  'verify-build: ok (dist/extension.js, dist/cli/main.js, webview sender bundles, guide smoke test)',
+);

@@ -2014,8 +2014,11 @@
 
   /*KARST_XTERM_JS*/
 
-  const vscode = acquireVsCodeApi();
-  const post = (msg) => vscode.postMessage(msg);
+  // Type-checked webview message senders (NDL-39). The bundle below is the ONE
+  // caller of the VS Code webview API and defines the `vscode` + `karstSend`
+  // globals; every control posts through a typed `karstSend.<name>(...)`
+  // sender, so a renamed message field is a tsc error instead of a silent drop.
+  /*KARST_WEBVIEW_SEND_DASHBOARD*/
 
   // Single source for the copy-confirmation toast text — two call sites show
   // it (a floating toast and an inline button label), and both must say the
@@ -4050,12 +4053,12 @@
     // No requestId: the popover closes and the host owns the outcome (confirm
     // modal + relaunch); a stale/cancelled switch surfaces as a host toast or
     // the next state push, never as an invented verdict (UI-R14/R31).
-    post({ type: 'switch-agent', provider: draftCore, model: draftModel || null, effort: draftEffort || null });
+    karstSend.switchAgent(draftCore, draftModel || null, draftEffort || null);
   });
   el('linkViews').addEventListener('change', () => {
     // Payload-free like the old bind button: the host owns the preference and
     // answers with the `bind` message, which is the terminal outcome (UI-R13).
-    post({ type: 'toggle-bind' });
+    karstSend.toggleBind();
   });
 
   // ---- ticket-data preview drawer ----
@@ -4503,8 +4506,8 @@
     termLoading = true;
     termBlurbed = false;
     renderTermView();
-    if (processId) post({ type: 'agent-log-request', processId });
-    else post({ type: 'stage-log-request', stage });
+    if (processId) karstSend.agentLogRequest(processId);
+    else karstSend.stageLogRequest(stage);
   }
 
   function closeTerminal() {
@@ -4624,18 +4627,28 @@
   // above, included by both this dashboard and the standalone logs panel. The
   // dashboard owns only the open/closed flag and the host request; the view is
   // created once and reused.
+  //
+  // The shared runtime posts through the `post` it is handed. Route its two
+  // messages to the typed senders rather than exposing a raw post: `onClose`
+  // carries the normal close, and detach asks the host to open the standalone
+  // logs panel.
+  function postLogsViewMessage(msg) {
+    if (msg && msg.type === 'server-logs-detach') karstSend.serverLogsDetach();
+    else if (msg && msg.type === 'server-logs-close') karstSend.serverLogsClose();
+  }
+
   function openServerLogs() {
     if (logsView) return;
     logsView = 'open';
     if (!logsViewInstance && typeof window.createServerLogsView === 'function') {
       logsViewInstance = window.createServerLogsView({
-        post,
-        onClose: () => { logsView = null; post({ type: 'server-logs-close' }); },
+        post: postLogsViewMessage,
+        onClose: () => { logsView = null; karstSend.serverLogsClose(); },
       });
     }
     if (!logsViewInstance) { logsView = null; return; }
     logsViewInstance.open();
-    post({ type: 'server-logs-request' });
+    karstSend.serverLogsRequest();
   }
 
   function closeServerLogs() {
@@ -5012,7 +5025,7 @@
       const requestId = karstRequestId();
       karstBeginPending(envSave, requestId);
       envSaveRequests = { ...envSaveRequests, [scope]: requestId };
-      post({ type: 'env-overrides-save', scope, text, requestId });
+      karstSend.envOverridesSave(scope, text, requestId);
       return;
     }
     // The current stage header's ⋯ menu: a purely local toggle. The button
@@ -5081,7 +5094,7 @@
         const nextKey = keys[nextIndex];
         if (nextKey !== undefined) {
           e.preventDefault();
-          post({ type: 'select-gate-attempt', stage: tab.dataset.stage, key: nextKey });
+          karstSend.selectGateAttempt(tab.dataset.stage, nextKey);
           // Focus follows selection immediately (the roving-tabindex pattern);
           // the next snapshot's re-render then carries the real aria-selected.
           const next = document.getElementById(`attempt-tab-${tab.dataset.stage}-${nextIndex}`);
@@ -5148,6 +5161,43 @@
     setTimeout(() => { btn.textContent = prev; btn.disabled = false; }, 1200);
   }
 
+  /**
+   * Typed senders for every action that reaches the generic [data-act] path.
+   * Each value posts through a named `karstSend.<name>` constructor from
+   * webviewSend.ts — the wire field names live THERE, checked against the host
+   * `WebviewMessage` union, so this HTML never spells a message field at all.
+   * The map is keyed by the exact `data-act` the renderer emitted.
+   */
+  const SEND_BY_ACT = {
+    'stop-server': (btn, requestId) => karstSend.stopServer(Number(btn.dataset.id), requestId),
+    'restart-server': (btn, requestId) => karstSend.restartServer(Number(btn.dataset.id), requestId),
+    'start-server': (btn, requestId) => karstSend.startServer(Number(btn.dataset.id), requestId),
+    'open-server': (btn, requestId) => karstSend.openServer(Number(btn.dataset.id), requestId),
+    'copy-server-url': (btn, requestId) => karstSend.copyServerUrl(Number(btn.dataset.id), requestId),
+    'spin-servers': (btn, requestId) => karstSend.spinServers(requestId),
+    'restart-servers': (btn, requestId) => karstSend.restartServers(requestId),
+    'stop-servers': (btn, requestId) => karstSend.stopServers(requestId),
+    'show-changes': (btn, requestId) => karstSend.showChanges(requestId),
+    'open-worktree-terminal': (btn, requestId) => karstSend.openWorktreeTerminal(btn.dataset.path, requestId),
+    'open-worktree-folder': (btn, requestId) => karstSend.openWorktreeFolder(btn.dataset.path, requestId),
+    'copy-worktree-branch': (btn, requestId) => karstSend.copyWorktreeBranch(btn.dataset.branch, requestId),
+    'launch-worktree-extension': (btn, requestId) => karstSend.launchWorktreeExtension(btn.dataset.path, requestId),
+    'open-pr': (btn, requestId) => karstSend.openPr(btn.dataset.url, requestId),
+    'copy-pr-url': (btn, requestId) => karstSend.copyPrUrl(btn.dataset.url, requestId),
+    'open-ticket-link': (btn, requestId) => karstSend.openTicketLink(btn.dataset.url, requestId),
+    'edit-ticket': (btn, requestId) => karstSend.editTicket(requestId),
+    'stop-driver': (btn, requestId) => karstSend.stopDriver(requestId),
+    'resume-ticket': (btn, requestId) => karstSend.resumeTicket(requestId),
+    'create-follow-up-ticket': (btn, requestId) => karstSend.createFollowUpTicket(requestId),
+    'copy-ticket-key': (btn, requestId) => karstSend.copyTicketKey(requestId),
+    'pause-execution': (btn, requestId) => karstSend.pauseExecution(requestId),
+    'unpause-execution': (btn, requestId) => karstSend.unpauseExecution(requestId),
+    'resolve-conflicts': (btn, requestId) => karstSend.resolveConflicts(btn.dataset.repo, requestId),
+    'stage-resume': (btn, requestId) => karstSend.stageResume(lastState.ticketId, btn.dataset.stagekey, requestId),
+    'inside-action': (btn, requestId) => karstSend.insideAction(btn.dataset.actionId, requestId),
+    'artifact-open-resource': (btn, requestId) => karstSend.artifactOpenResource(btn.dataset.artifactId, Number(btn.dataset.index), requestId),
+  };
+
   // Delegate clicks (buttons + the ticket-link anchor) → action messages
   // (messages.ts routeAction). A no-payload action (e.g. spin-servers) posts
   // just its type.
@@ -5192,7 +5242,7 @@
       shipRequestId = karstRequestId();
       karstBeginPending(btn, shipRequestId);
       render(lastState);
-      post({ type: act });
+      karstSend.shipTicket();
       return;
     }
     // Merging is irreversible and the host answers with a modal first, so the
@@ -5205,7 +5255,7 @@
       karstBeginPending(btn, requestId);
       mergeRequests = { ...mergeRequests, [repo]: requestId };
       render(lastState);
-      post({ type: act, repo });
+      karstSend.mergePr(repo);
       return;
     }
     // Dismissing (and its undo) is confirmed host-side and answered with a state
@@ -5218,7 +5268,8 @@
       karstBeginPending(btn, requestId);
       dismissRequests = { ...dismissRequests, [repo]: requestId };
       render(lastState);
-      post({ type: act, repo });
+      if (act === 'dismiss-pr') karstSend.dismissPr(repo);
+      else karstSend.undismissPr(repo);
       return;
     }
     // Same reason as the two above: the work is a slow host round trip (gh
@@ -5228,7 +5279,7 @@
       prRefreshId = karstRequestId();
       karstBeginPending(btn, prRefreshId);
       if (lastState) render(lastState);
-      post({ type: act });
+      karstSend.refreshPrs();
       return;
     }
     // Send back to Implement: the host answers with a confirmation MODAL and
@@ -5242,7 +5293,7 @@
       sendBackRequestId = karstRequestId();
       karstBeginPending(btn, sendBackRequestId);
       if (lastState) render(lastState);
-      post({ type: act });
+      karstSend.sendBackToImplement();
       return;
     }
     // Address PR feedback: host-confirmed modal, then a state push — the same
@@ -5253,7 +5304,7 @@
       prFeedbackRequestId = karstRequestId();
       karstBeginPending(btn, prFeedbackRequestId);
       if (lastState) render(lastState);
-      post({ type: act });
+      karstSend.addressPrFeedback();
       return;
     }
     // Retry gate: the host answers with a confirmation MODAL and then a state
@@ -5266,7 +5317,7 @@
       sendBackRequestId = karstRequestId();
       karstBeginPending(btn, sendBackRequestId);
       if (lastState) render(lastState);
-      post({ type: act, stage });
+      karstSend.rerunGate(stage);
       return;
     }
 
@@ -5278,13 +5329,12 @@
       if (karstIsPending(btn) || btn.disabled) return;
       const requestId = karstRequestId();
       karstBeginPending(btn, requestId);
-      post({
-        type: act,
-        stage: btn.dataset.stage,
-        name: btn.dataset.name,
-        disabled: btn.dataset.disabled !== '1',
+      karstSend.setDisabledGates(
+        btn.dataset.stage,
+        btn.dataset.name,
+        btn.dataset.disabled !== '1',
         requestId,
-      });
+      );
       return;
     }
 
@@ -5335,13 +5385,13 @@
       const stage = btn.dataset.stage;
       const key = btn.dataset.key;
       if (!stage || !key) return;
-      post({ type: act, stage, key });
+      karstSend.selectGateAttempt(stage, key);
       return;
     }
     if (act === 'select-findings-repo') {
       const stage = btn.dataset.stage;
       if (!stage) return;
-      post({ type: act, stage, repo: btn.dataset.repo || null });
+      karstSend.selectFindingsRepo(stage, btn.dataset.repo || null);
       return;
     }
     if (act === 'artifact-findings-repo') {
@@ -5408,7 +5458,7 @@
       const requestId = karstRequestId();
       karstBeginPending(btn, requestId);
       baseChangeRequests = { ...baseChangeRequests, [repo]: requestId };
-      post({ type: act, repo, baseRef, rebase, requestId });
+      karstSend.changeBaseRef(repo, baseRef, rebase, requestId);
       return;
     }
 
@@ -5418,38 +5468,12 @@
     if (karstIsPending(btn) || btn.disabled) return;
     const requestId = karstRequestId();
     karstBeginPending(btn, requestId);
-    if (btn.dataset.id) post({ type: act, serverId: Number(btn.dataset.id), requestId });
-    else if (btn.dataset.branch) post({ type: act, branch: btn.dataset.branch, requestId });
-    else if (btn.dataset.path) post({ type: act, path: btn.dataset.path, requestId });
-    else if (btn.dataset.url) post({ type: act, url: btn.dataset.url, requestId });
-    // The repo NAMES the conflict; the host resolves it to a worktree itself.
-    else if (btn.dataset.repo) post({ type: act, repo: btn.dataset.repo, requestId });
-    // stage-resume: the message carries ITS OWN ticketId/stageKey (the host
-    // validates both against the ticket it actually owns before touching the
-    // store — see messages.ts) rather than trusting the panel's notion of
-    // "current", which a stale render could have gotten wrong.
-    else if (btn.dataset.stagekey) {
-      post({ type: act, ticketId: lastState.ticketId, stageKey: btn.dataset.stagekey, requestId });
-    }
-    // inside-action: the message carries ONLY the opaque actionId (messages.ts
-    // drops any payload with a companion field) — never a path, URL, PR
-    // number, repo, or stage as authority. The host resolves the id against
-    // its snapshot-scoped allowlist.
-    else if (btn.dataset.actionId) {
-      post({ type: act, actionId: btn.dataset.actionId, requestId });
-    }
-    // artifact-open-resource: the artifact id + a resource INDEX — never a
-    // path. The host re-derives the artifacts and resolves both, so a crafted
-    // message cannot aim the editor at an arbitrary file (messages.ts).
-    else if (btn.dataset.artifactId && btn.dataset.index !== undefined) {
-      post({
-        type: act,
-        artifactId: btn.dataset.artifactId,
-        index: Number(btn.dataset.index),
-        requestId,
-      });
-    }
-    else post({ type: act, requestId });
+    // Every posting control on this generic path is one of SEND_BY_ACT's
+    // typed senders — the message shape (which fields, what types) is decided
+    // in webviewSend.ts, never here. An unmapped act posts nothing rather
+    // than a message the host could not parse anyway.
+    const send = SEND_BY_ACT[act];
+    if (send) send(btn, requestId);
     // Optimistic clipboard confirmation (UI-R15) rides ALONGSIDE the pending
     // state above, not instead of it — the button still reports whatever the
     // host's real ack says, same as every other control.

@@ -11,6 +11,7 @@
 // agent CLI verb).
 import { build, context } from 'esbuild';
 import { readFileSync, writeFileSync } from 'node:fs';
+import { buildWebviewSenders } from './build-webview-send.mjs';
 
 const prod = process.argv.includes('--production');
 const watch = process.argv.includes('--watch');
@@ -81,6 +82,11 @@ function dedupeShebang(outfile) {
     writeFileSync(outfile, contents.slice(shebang.length));
   }
 }
+
+// The webview message-sender bundles must exist before `copy-assets.mjs`
+// mirrors them into `dist/`, and before any webview is served. Built here (one
+// esbuild invocation) rather than a separate npm step so the two never drift.
+await buildWebviewSenders();
 
 if (watch) {
   const [extCtx, cliCtx] = await Promise.all([context(extensionOpts), context(cliOpts)]);

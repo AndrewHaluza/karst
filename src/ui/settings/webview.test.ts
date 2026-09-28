@@ -274,7 +274,7 @@ describe('settings artifact conventions', () => {
   it('keeps host manifest validation authoritative', () => {
     // Validates the tab-scoped candidate — what Save would actually write — but
     // still round-trips it to the host: nothing here decides validity locally.
-    expect(HTML).toContain("post({ type: 'validate', manifest: saveCandidate(currentSection) })");
+    expect(HTML).toContain('karstSend.validate(saveCandidate(currentSection))');
     expect(HTML).not.toContain('function validateArtifactTemplate');
     expect(HTML).not.toContain('function validateBranchTemplate');
     expect(HTML).toContain('function showConventionValidation(error)');
@@ -481,9 +481,9 @@ describe('settings approaches toggle — click target resolution', () => {
       HTML.indexOf('if (t.dataset.approachEnabled !== undefined)'),
       HTML.indexOf('if (t.dataset.agentEnabled !== undefined)'),
     );
-    expect(block).toContain('set-approach-enabled');
+    expect(block).toContain('setApproachEnabled');
     expect(block).toMatch(/next = t\.getAttribute\('aria-checked'\) !== 'true'/);
-    expect(block).toContain("postAction(t, 'set-approach-enabled'");
+    expect(block).toContain('karstSend.setApproachEnabled(id, next, requestId)');
   });
 });
 
@@ -972,7 +972,7 @@ describe('settings graph configuration surface (Slice-1 T6)', () => {
     // bare post() — so it shows pending, cannot re-trigger, and settles on the
     // host's action-result or the watchdog.
     expect(HTML).toMatch(/data-open-graph-prompt="karst-graph-planner"/);
-    expect(functionSource('openGraphPrompt')).toMatch(/postAction\(t, 'open-graph-prompt'/);
+    expect(functionSource('openGraphPrompt')).toMatch(/karstSend\.openGraphPrompt\(t\.dataset\.openGraphPrompt, requestId\)/);
   });
 });
 
@@ -1048,8 +1048,11 @@ describe('settings approaches topbar save — does not mutate the draft', () => 
       draft,
       packagedApproaches: BUILT_IN_APPROACHES as unknown[],
       toApproachDeltas: deltaMirror.toApproachDeltas,
-      postAction: (_el: unknown, type: string, payload: Record<string, unknown>) => {
-        posted.push({ type, ...payload });
+      postAction: (_el: unknown, send: (requestId: string) => void) => send('r-test'),
+      karstSend: {
+        save: (manifest: unknown, section: unknown, requestId: string) => {
+          posted.push({ type: 'save', manifest, section, requestId });
+        },
       },
       el: () => ({}),
       topbarSaveRequestId: null,
@@ -1088,11 +1091,12 @@ describe('settings unsaved-changes gate', () => {
     // All three go through `postAction`, not a bare `post()` — a save in
     // flight must be pending/non-re-triggerable (UI-R11–R12), so a raw
     // `post({type:'save',...})` call site here would be a regression.
-    // The drawer calls carry a multi-line delta-reduced manifest object, so
-    // count the `postAction(<el>, 'save', {` call sites, not one-line bodies.
-    const saves = HTML.match(/postAction\([^,]+, 'save', \{/g) ?? [];
+    // The drawer calls carry a multi-line delta-reduced manifest object, and
+    // each routes through the typed `karstSend.save` sender, so count the
+    // `postAction(<el>, (requestId) => karstSend.save(` call sites.
+    const saves = HTML.match(/postAction\([^,]+, \(requestId\) => karstSend\.save\(/g) ?? [];
     expect(saves.length).toBe(3); // topbar Save, approach drawer Save, approach drawer Delete
-    for (const call of saves) expect(call, call).toContain('save');
+    for (const call of saves) expect(call, call).toContain('karstSend.save');
   });
 });
 
@@ -1174,6 +1178,16 @@ function gateHarness(init: {
     openCards: new Set<string>(),
     el,
     post: (m: Record<string, unknown>) => posted.push(m),
+    // The real webview posts through the typed `karstSend` senders; mirror the
+    // three the extracted gate functions use so `posted` keeps the exact wire
+    // objects (a raw `post` no longer exists in the HTML).
+    karstSend: {
+      save: (manifest: unknown, section: unknown, requestId: string) =>
+        posted.push({ type: 'save', manifest, section, requestId }),
+      validate: (manifest: unknown) => posted.push({ type: 'validate', manifest }),
+      validateProcessAssignments: (manifest: unknown) =>
+        posted.push({ type: 'validate-process-assignments', manifest }),
+    },
     renderAll: () => { },
     console,
     setTimeout: () => 1,
@@ -1548,7 +1562,7 @@ describe('project facts (manifest path & resolved project id)', () => {
   });
 
   it('the sidebar Open karst.yml button posts through the pending action runtime (UI-R11)', () => {
-    expect(HTML).toMatch(/postAction\(footOpen,\s*'open-manifest'\)/);
+    expect(HTML).toMatch(/postAction\(footOpen,\s*\(requestId\) => karstSend\.openManifest\(requestId\)\)/);
   });
 });
 
@@ -2866,7 +2880,7 @@ describe('settings agents tab — process assignments', () => {
   it('adopts host views on every state push and re-renders rows from the reply', () => {
     expect(HTML).toContain('processAssignmentViews = indexProcessViews(msg.state.processAssignments || [])');
     expect(HTML).toContain("case 'process-assignment-views':");
-    expect(HTML).toContain('post({ type: \'validate-process-assignments\'');
+    expect(HTML).toContain("karstSend.validateProcessAssignments(saveCandidate('agents'))");
   });
 
   it('indexes host process-assignment views by process key', () => {
@@ -2884,6 +2898,11 @@ describe('settings agents tab — process assignments', () => {
       validateTimer: null,
       currentSection: 'agents',
       saveCandidate: (s: string) => ({ s }),
+      karstSend: {
+        validate: (manifest: unknown) => posted.push({ type: 'validate', manifest }),
+        validateProcessAssignments: (manifest: unknown) =>
+          posted.push({ type: 'validate-process-assignments', manifest }),
+      },
       post: (m: unknown) => { posted.push(m); },
       setTimeout: (fn: () => void) => { fn(); return 1; },
       clearTimeout: () => { },
@@ -2904,6 +2923,11 @@ describe('settings agents tab — process assignments', () => {
       validateTimer: null,
       currentSection: 'general',
       saveCandidate: (s: string) => ({ s }),
+      karstSend: {
+        validate: (manifest: unknown) => posted.push({ type: 'validate', manifest }),
+        validateProcessAssignments: (manifest: unknown) =>
+          posted.push({ type: 'validate-process-assignments', manifest }),
+      },
       post: (m: unknown) => { posted.push(m); },
       setTimeout: (fn: () => void) => { fn(); return 1; },
       clearTimeout: () => { },

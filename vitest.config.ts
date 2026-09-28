@@ -4,6 +4,10 @@ export default defineConfig({
   test: {
     include: ['src/**/*.test.ts'],
     environment: 'node',
+    // The webview message-sender bundles are generated esbuild output; build
+    // them once per run so jsdom/VM tests that hydrate dashboard or settings
+    // can read them from RUNTIME_ASSETS_ROOT (the src root here).
+    globalSetup: ['./scripts/vitest-global-setup.mjs'],
     // `forks` runs each test file in its own child process, which is what
     // guarantees real per-file isolation. `vmThreads` was tried here and is NOT
     // equivalent: it runs files in worker threads against a shared module
