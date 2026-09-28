@@ -1318,8 +1318,10 @@
   .phead .iconbtn{margin-left:auto}
   .pbody{padding:var(--k-space-3) var(--k-space-4) var(--k-space-5)}
   /* The Sub-tasks panel's "Add sub-task" action sits at the right edge, flat
-     (a ghost button), so it never reads as the panel's subject. */
-  .phead #addSubtask{margin-left:auto}
+     (a ghost button), so it never reads as the panel's subject. The selector is
+     attribute-based: an id selector for the button would look like a colour
+     literal to the stylesheet's hex audit. */
+  .phead [data-act="create-subtask"]{margin-left:auto}
   /* One sub-task row: status dot, key, title, optional blocking badge, stage
      pill. A layout container, not a control (STYLE-GUIDE §9.2). */
   .subtask{display:flex;align-items:center;gap:var(--k-space-5);padding:var(--k-space-4) var(--k-space-3);border-radius:var(--k-radius-md);min-width:0}
