@@ -5,6 +5,13 @@ on:
     branches: [main, develop]
   push:
     branches: [main, develop]
+  # Daily backstop for the branch-drift job. `push` only fires when main
+  # actually moves, so a promotion that silently drifts (or a reverted one)
+  # could otherwise go unchecked for days. Note the scheduled run checks out
+  # the repository default branch — which is why branch-drift compares the
+  # explicit `origin/main` and `origin/develop` refs instead of `HEAD`.
+  schedule:
+    - cron: '0 6 * * *'
 
 permissions:
   contents: read
@@ -16,6 +23,9 @@ concurrency:
 jobs:
   verify:
     name: Typecheck, build, unit, e2e
+    # The scheduled run exists only for branch-drift; the test suite must not
+    # run on a timer.
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -106,6 +116,8 @@ jobs:
 
   visual:
     name: Visual regression (advisory)
+    # Scheduled runs only carry branch-drift; skip the visual sweep on a timer.
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     # The baselines under tests/visual/__baselines__/ carry no {platform} token
     # (see playwright.config.ts's snapshotPathTemplate), so they are valid for
@@ -169,3 +181,60 @@ jobs:
           path: tests/visual/.report/
           if-no-files-found: ignore
           retention-days: 14
+
+  # Branch policy guard (NDL-52 phase 4.4): `main` is the release branch, so it
+  # must only advance by promoting `develop` or by a `hotfix/*` branch. Any
+  # other PR into main is redirected to develop before it can merge.
+  main-source-guard:
+    name: main-source-guard
+    if: github.event_name == 'pull_request' && github.base_ref == 'main'
+    runs-on: ubuntu-latest
+    steps:
+      # The head ref is author-controlled (anyone can name a branch), so it is
+      # handed to the step through `env:` and read as a shell variable. Splicing
+      # `${{ github.head_ref }}` directly into `run:` would interpolate the
+      # branch name into the script and allow command injection.
+      - name: Reject PRs into main from anything but develop or hotfix/*
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          PR_NUMBER: ${{ github.event.number }}
+        run: |
+          case "$HEAD_REF" in
+            develop|hotfix/*)
+              echo "OK: '$HEAD_REF' may target main."
+              ;;
+            *)
+              echo "::error::PRs into main must come from 'develop' (or a 'hotfix/*' branch), not '$HEAD_REF'. Retarget this PR: gh pr edit ${PR_NUMBER} --base develop"
+              exit 1
+              ;;
+          esac
+
+  # Invariant: main never carries a non-merge commit that develop lacks. If it
+  # does, a promotion was skipped or a hotfix was not back-merged, and the two
+  # branches keep re-diverging until a merge commit pulls main into develop.
+  branch-drift:
+    name: branch-drift
+    if: github.event_name == 'schedule' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    steps:
+      # fetch-depth 0 is required: the check walks the full history of both
+      # branches. actions/checkout only guarantees the triggering ref, so both
+      # branches are also fetched explicitly below.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fail if main has commits missing from develop
+        run: |
+          git fetch --no-tags origin main develop
+          # Compare origin/main against origin/develop, never HEAD. The default
+          # branch is develop, so a scheduled run checks out develop and HEAD
+          # would hide exactly the drift this job exists to catch.
+          drift="$(git rev-list --no-merges origin/main --not origin/develop)"
+          if [ -n "$drift" ]; then
+            echo "main has $(printf '%s\n' "$drift" | wc -l) non-merge commit(s) missing from develop:"
+            git log --oneline --no-merges origin/main --not origin/develop
+            echo "::error::main is ahead of develop. Open a main→develop back-merge PR (merge commit)."
+            exit 1
+          fi
+          echo "OK: develop contains every non-merge commit on main."
