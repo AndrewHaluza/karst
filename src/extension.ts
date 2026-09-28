@@ -152,19 +152,9 @@ import {
 } from './agent/entrySeed.js';
 import { shouldResumeSession } from './agent/resumeDecision.js';
 import { markerStageFor, type MarkerStage } from './agent/markerStage.js';
-import {
-  agyWatchTick,
-  findConversationForWorktree,
-  openAgyConversationDb,
-  resolveAgyAppDataDir,
-  type AgyConversationSnapshot,
-  type AgyWatchState,
-} from './agent/agyConversationWatch.js';
-import {
-  agyUsageTick,
-  type AgyConversationUsage,
-  type AgyUsageState,
-} from './agent/agyUsageWatch.js';
+import { type AgyWatchState } from './agent/agyConversationWatch.js';
+import { type AgyUsageState } from './agent/agyUsageWatch.js';
+import { createAgyWatchLoop, AGY_WATCH_INTERVAL_MS } from './extension/ops/agyWatchLoop.js';
 import {
   resolveClaudeProjectsDir,
   transcriptPathFor,
@@ -5453,170 +5443,29 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const prSyncTimer = setInterval(() => void runPrSync(), PR_SYNC_INTERVAL_MS);
   context.subscriptions.push({ dispose: () => clearInterval(prSyncTimer) });
 
-  // Antigravity conversation watch: agy 1.1.11 executes no hooks in the CLI
-  // (its hooks.json loads but never runs — see docs/guides/adding-agent-core.md
-  // § Antigravity), so its lifecycle signals are READ, not pushed — from the
-  // CLI's own conversation DB. A permission ask is a `steps` row with
-  // status = 9, observed while the approval dialog is on screen; answering
-  // resolves it to status = 3. The sweep locates the conversation by the
-  // worktree path stored in the DB's workspace blob, diffs the pending
-  // approval state per ticket, and posts the normalized events (SessionStart /
-  // permission.asked / UserPromptSubmit) through the SAME dispatchHook seam
-  // and closures as the hook endpoint, so session-id capture (--conversation
-  // resume), launch-intent confirmation, the generation barrier, the amber
-  // glyph, the Now line and the dashboard refresh are shared. Session end →
-  // idle is the terminal-close sweep's job, not this one's.
-  const AGY_WATCH_INTERVAL_MS = 10_000;
-  let agyWatchRunning = false;
-  const runAgyConversationWatch = (): void => {
-    if (agyWatchRunning) return;
-    agyWatchRunning = true;
-    try {
-      const appDataDir = resolveAgyAppDataDir();
-      const terminals = [...vscode.window.terminals];
-      logger.debug(`[agy] sweep tick: ${terminals.length} terminals`);
-      for (const terminal of terminals) {
-        const named = terminalIdentity.identify(terminal);
-        if (named?.identity?.provider !== 'antigravity') continue;
-        const worktree = listWorktreesByTicket(localStore, named.ticketId)[0];
-        if (!worktree) {
-          logger.debug(`[agy] ticket ${named.ticketId}: no worktree found`);
-          continue;
-        }
-        let snapshot: AgyConversationSnapshot | null = null;
-        let agyUsage: AgyConversationUsage | null = null;
-        try {
-          const found = findConversationForWorktree(appDataDir, worktree.path);
-          if (found) {
-            const db = openAgyConversationDb(found.dbPath);
-            try {
-              snapshot = {
-                dbPath: found.dbPath,
-                conversationId: found.conversationId,
-                pendingApproval: db.pendingApprovalCount() > 0,
-              };
-              // Read usage while the DB is open — the lifecycle watch
-              // doubles as the usage channel for antigravity sessions.
-              agyUsage = db.usage();
-            } finally {
-              db.close();
-            }
-          }
-        } catch (error) {
-          logError(`karst: agy conversation read failed for ticket ${named.ticketId}`, error);
-          continue;
-        }
-        logger.debug(`[agy] ticket ${named.ticketId}: conversation=${snapshot?.conversationId ?? 'none'}, usage=${agyUsage ? `${agyUsage.input}/${agyUsage.output}/${agyUsage.cacheRead}` : 'null'}, launchId=${named.launchId ?? 'none'}`);
-        const state =
-          agyWatchStates.get(named.ticketId) ?? { dbPath: null, started: false, awaiting: false };
-        const events = agyWatchTick(state, snapshot);
-        if (events.length === 0) {
-          // Lifecycle produced no events, but still dispatch any usage
-          // observation (the usage read is outside the lifecycle continue).
-          const usageState = agyUsageStates.get(named.ticketId) ?? { eventId: null };
-          const usageEvents = agyUsageTick(usageState, agyUsage);
-          agyUsageStates.set(named.ticketId, usageState);
-          for (const event of usageEvents) {
-            logger.debug(`[agy] ticket ${named.ticketId}: dispatching UsageUpdate event_id=${event.usage.event_id}`);
-            const usagePayload: HookPayload = {
-              hook_event_name: 'UsageUpdate',
-              cwd: worktree.path,
-              session_id: snapshot?.conversationId ?? '',
-              usage: event.usage,
-              ...(named.launchId ? { launchId: named.launchId } : {}),
-            };
-            try {
-              dispatchHook(
-                localStore,
-                usagePayload,
-                notifyHook,
-                shouldApplyHookState,
-                sessionProviderFor,
-                hookChannelRecorder,
-              );
-            } catch (error) {
-              logError(`karst: agy usage dispatch failed for ticket ${named.ticketId}`, error);
-            }
-          }
-          continue;
-        }
-        agyWatchStates.set(named.ticketId, state);
-        // The session id for non-SessionStart events is the CURRENT
-        // conversation's id — the same one SessionStart carried.
-        const conversationId = snapshot?.conversationId;
-        for (const event of events) {
-          const base = {
-            cwd: worktree.path,
-            session_id:
-              event.kind === 'SessionStart'
-                ? event.sessionId
-                : (conversationId ?? undefined),
-            ...(named.launchId ? { launchId: named.launchId } : {}),
-          };
-          const payload: HookPayload =
-            event.kind === 'SessionStart'
-              ? { hook_event_name: 'SessionStart', ...base }
-              : event.kind === 'permission.asked'
-                ? { hook_event_name: 'permission.asked', ...base }
-                : { hook_event_name: 'UserPromptSubmit', ...base };
-            try {
-              dispatchHook(
-                localStore,
-                payload,
-                notifyHook,
-                shouldApplyHookState,
-                sessionProviderFor,
-                hookChannelRecorder,
-                logger.debug,
-              );
-            } catch (error) {
-              logError(`karst: agy watch dispatch failed for ticket ${named.ticketId}`, error);
-            }
-        }
-        // Conversation-DB token usage: agy 1.1.12 persists per-call usage in
-        // this same DB (steps.metadata field-9 submessage — see agyUsageWatch.ts),
-        // so the lifecycle watch doubles as the usage channel. The cumulative
-        // sample rides the same UsageUpdate seam and closures as the
-        // codex/opencode bridges — attribution (impl segment vs fix), the
-        // generation barrier, and the store's cumulative-delta ledger are shared.
-        // A re-sweep of an unchanged DB emits nothing; the store dedupes on
-        // event id anyway.
-        {
-          const usageState = agyUsageStates.get(named.ticketId) ?? { eventId: null };
-          const usageEvents = agyUsageTick(usageState, agyUsage);
-          agyUsageStates.set(named.ticketId, usageState);
-          for (const event of usageEvents) {
-            const usagePayload: HookPayload = {
-              hook_event_name: 'UsageUpdate',
-              cwd: worktree.path,
-              session_id: snapshot?.conversationId ?? '',
-              usage: event.usage,
-              ...(named.launchId ? { launchId: named.launchId } : {}),
-            };
-            try {
-              dispatchHook(
-                localStore,
-                usagePayload,
-                notifyHook,
-                shouldApplyHookState,
-                sessionProviderFor,
-                hookChannelRecorder,
-                logger.debug,
-              );
-            } catch (error) {
-              logError(`karst: agy usage dispatch failed for ticket ${named.ticketId}`, error);
-            }
-          }
-        }
-      }
-    } catch (error) {
-      logError('karst: agy conversation watch failed', error);
-    } finally {
-      agyWatchRunning = false;
-    }
-  };
-  void runAgyConversationWatch();
-  const agyWatchTimer = setInterval(runAgyConversationWatch, AGY_WATCH_INTERVAL_MS);
+  // Antigravity conversation watch (see agyWatchLoop.ts for the full
+  // rationale): agy 1.1.11 executes no hooks in the CLI, so its lifecycle
+  // signals are READ, not pushed — from the CLI's own conversation DB. The
+  // sweep posts the normalized events through the SAME dispatchHook seam and
+  // closures as the hook endpoint, so session-id capture, launch-intent
+  // confirmation, the generation barrier, the amber glyph, the Now line and
+  // the dashboard refresh are shared. Session end → idle is the
+  // terminal-close sweep's job, not this one's.
+  const agyWatchLoop = createAgyWatchLoop({
+    store: localStore,
+    listTerminals: () => vscode.window.terminals,
+    identifyTerminal: (terminal) => terminalIdentity.identify(terminal as vscode.Terminal),
+    agyWatchStates,
+    agyUsageStates,
+    notifyHook,
+    shouldApplyHookState,
+    sessionProviderFor,
+    hookChannelRecorder,
+    debug: (message) => logger.debug(message),
+    logError,
+  });
+  agyWatchLoop.run();
+  const agyWatchTimer = setInterval(() => agyWatchLoop.run(), AGY_WATCH_INTERVAL_MS);
   context.subscriptions.push({ dispose: () => clearInterval(agyWatchTimer) });
 
   // Claude interactive usage watch: Claude's documented hooks carry no token

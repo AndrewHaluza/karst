@@ -262,7 +262,7 @@
   const vscode = acquireVsCodeApi();
   const post = (msg) => vscode.postMessage(msg);
   const el = (id) => document.getElementById(id);
-  const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+  const esc = karstEsc;
 
   let lastState = null;
   // Which chart series the user has muted — LOCAL presentation, never a post.

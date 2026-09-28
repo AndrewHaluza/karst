@@ -1,7 +1,7 @@
 import type { Store } from '../store/db.js';
 import type { StageKey } from '../model/types.js';
 import { STAGE_KEYS } from '../model/types.js';
-import { listTickets } from '../store/tickets.js';
+import { listTickets, setStageCurrent } from '../store/tickets.js';
 import { setStage, type Stage } from '../store/stages.js';
 import { isTerminal, needsConfirm } from '../workflow/graph.js';
 import { nowIso } from '../model/time.js';
@@ -160,9 +160,7 @@ export function reconcileOnStart(store: Store, isAlive: IsAlive): ReconcileResul
       const stages = healEntryStages(store, ticket.id, ticket.stages);
       const stage = deriveStageCurrent(stages);
       if (stage !== ticket.stageCurrent) {
-        store.db
-          .prepare('UPDATE tickets SET stage_current = ? WHERE id = ?')
-          .run(stage, ticket.id);
+        setStageCurrent(store, ticket.id, stage);
       }
     }
 
