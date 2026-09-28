@@ -624,7 +624,45 @@ CREATE INDEX IF NOT EXISTS idx_pr_feedback_ticket
 `;
 
 
+/**
+ * Bring a freshly opened DB up to SCHEMA_VERSION.
+ *
+ * Every schema-mutating step below runs inside ONE `BEGIN IMMEDIATE`
+ * transaction (NDL-36). Two VS Code windows reloading together after an
+ * update both call `migrate()`; without a shared write lock, both can read
+ * "column absent" before either writes it, and the loser's own ALTER then
+ * throws "duplicate column", failing that window's store open. Taking the
+ * IMMEDIATE lock as the very first statement — before `current` is even
+ * read — makes the second window BLOCK (via better-sqlite3's 5s default
+ * `busy_timeout`) until the first window's migration commits; it then reads
+ * `current` fresh, finds the DB already at `SCHEMA_VERSION`, and every guard
+ * below (version AND column/table-presence checks) is a no-op.
+ *
+ * The fast-path return below skips the lock entirely once a DB is already
+ * current, so N already-migrated windows opening together still don't
+ * serialize on each other for no reason.
+ *
+ * A crash mid-migration now rolls back the WHOLE transaction — nothing
+ * partial survives — rather than the old per-step autocommit design's
+ * "some earlier steps already committed" state. Every step here is
+ * idempotent against being re-run from an earlier `current`, so redoing the
+ * lot on the next open is safe, just less incremental.
+ */
 export function migrate(db: Database): void {
+  if ((db.pragma('user_version', { simple: true }) as number) >= SCHEMA_VERSION) {
+    return;
+  }
+
+  db.pragma('foreign_keys = OFF');
+  try {
+    db.transaction(() => migrateLocked(db)).immediate();
+  } finally {
+    db.pragma('foreign_keys = ON');
+  }
+}
+
+/** The actual migration steps, run inside `migrate`'s single write transaction. */
+function migrateLocked(db: Database): void {
   const current = db.pragma('user_version', { simple: true }) as number;
 
   if (current < 1) {
@@ -1652,43 +1690,31 @@ export function migrate(db: Database): void {
 
   if (current < 35 || tableColumns(db, 'approach_graph_runs').size === 0) {
     // v35 adds the eight graph tables plus the `token_usage` graph-detachment
-    // FKs (Slice 2, design "Persistence"). This is the ONE step wrapped in an
-    // outer transaction (Decision 21): every other step autocommits and relies
-    // on guards, but a graph migration interrupted midway must leave
-    // `user_version` at 34 so the next open re-runs the same guarded steps.
-    // `BEGIN IMMEDIATE` before the version read: the whole step — guarded DDL
-    // and the version bump — commits together, or rolls back together.
+    // FKs (Slice 2, design "Persistence"). `migrate`'s single outer
+    // transaction (NDL-36) covers this step's atomicity: the guarded DDL and
+    // the version bump commit together with every other step, or roll back
+    // together.
     //
-    // The outer guard is PRESENCE-based, not version-only: the graph tables
-    // landed at v35 on this branch, but develop's v35 (the agent test driver)
+    // The guard is PRESENCE-based, not version-only: the graph tables landed
+    // at v35 on this branch, but develop's v35 (the agent test driver)
     // shipped without them, so a registry migrated to v35 on develop must
     // still gain them here — `CREATE TABLE IF NOT EXISTS` makes the re-run a
     // no-op on a graph-shaped v35.
-    db.exec('BEGIN IMMEDIATE');
-    try {
-      const inside = db.pragma('user_version', { simple: true }) as number;
-      if (inside < 35 || tableColumns(db, 'approach_graph_runs').size === 0) {
-        db.exec(GRAPH_MIGRATION_DDL);
-        const tokenCols35 = tableColumns(db, 'token_usage');
-        if (tokenCols35.size > 0 && !tokenCols35.has('approach_planner_run_id')) {
-          db.exec(
-            'ALTER TABLE token_usage ADD COLUMN approach_planner_run_id INTEGER ' +
-              'REFERENCES approach_planner_runs(id) ON DELETE SET NULL',
-          );
-        }
-        if (tokenCols35.size > 0 && !tokenCols35.has('approach_node_run_id')) {
-          db.exec(
-            'ALTER TABLE token_usage ADD COLUMN approach_node_run_id INTEGER ' +
-              'REFERENCES approach_node_runs(id) ON DELETE SET NULL',
-          );
-        }
-        db.pragma('user_version = 35');
-      }
-      db.exec('COMMIT');
-    } catch (e) {
-      db.exec('ROLLBACK');
-      throw e;
+    db.exec(GRAPH_MIGRATION_DDL);
+    const tokenCols35 = tableColumns(db, 'token_usage');
+    if (tokenCols35.size > 0 && !tokenCols35.has('approach_planner_run_id')) {
+      db.exec(
+        'ALTER TABLE token_usage ADD COLUMN approach_planner_run_id INTEGER ' +
+          'REFERENCES approach_planner_runs(id) ON DELETE SET NULL',
+      );
     }
+    if (tokenCols35.size > 0 && !tokenCols35.has('approach_node_run_id')) {
+      db.exec(
+        'ALTER TABLE token_usage ADD COLUMN approach_node_run_id INTEGER ' +
+          'REFERENCES approach_node_runs(id) ON DELETE SET NULL',
+      );
+    }
+    db.pragma('user_version = 35');
   }
 
   if (current < 36) {
@@ -1711,14 +1737,15 @@ export function migrate(db: Database): void {
     // v37 widens the `approach_node_runs` status CHECK with the two
     // output-validation rest statuses (Slice 4 Task 2). SQLite cannot alter
     // a CHECK constraint, so the table is REBUILT (create → copy → drop →
-    // rename) inside one transaction, following v35's interruption-atomicity
-    // pattern: a poisoned step rolls back and user_version stays 36.
+    // rename); `migrate`'s single outer transaction (NDL-36) covers this
+    // step's atomicity, matching every other step.
     //
     // The guard reads the CURRENT table SQL — a fresh DB (schema.sql already
     // carries the widened CHECK) skips the rebuild entirely, and a re-run on
     // a migrated DB is a no-op. Foreign-key enforcement is suspended for the
-    // swap (it cannot change inside a transaction); the rename restores the
-    // name every FK clause references.
+    // whole migration by `migrate` (it cannot change inside a transaction,
+    // and this rebuild needs it off); the rename restores the name every FK
+    // clause references.
     const nodeRunsSql = (
       db
         .prepare(
@@ -1727,20 +1754,8 @@ export function migrate(db: Database): void {
         .get() as { sql: string } | undefined
     )?.sql;
     if (nodeRunsSql && !nodeRunsSql.includes('output-artifact-missing')) {
-      db.pragma('foreign_keys = OFF');
-      try {
-        db.exec('BEGIN IMMEDIATE');
-        try {
-          db.exec(NODE_RUN_STATUSES_V37_DDL);
-          db.pragma('user_version = 37');
-          db.exec('COMMIT');
-        } catch (e) {
-          db.exec('ROLLBACK');
-          throw e;
-        }
-      } finally {
-        db.pragma('foreign_keys = ON');
-      }
+      db.exec(NODE_RUN_STATUSES_V37_DDL);
+      db.pragma('user_version = 37');
     }
   }
 
@@ -2150,12 +2165,12 @@ export function migrate(db: Database): void {
     // Both rebuild guards read the CURRENT table SQL — a fresh DB
     // (schema.sql already carries the widened shape) skips the rebuild
     // entirely, and a re-open on an already-migrated DB is a no-op. The whole
-    // rebuild (both tables' DDL + the version bump) runs inside ONE
-    // transaction, mirroring v35/v37's interruption-atomicity pattern: a
-    // poisoned step rolls back the lot and user_version stays below 53, so
-    // the next open re-runs the same guarded steps. Foreign-key enforcement
-    // is suspended for the swap (it cannot change inside a transaction); the
-    // renames restore the names every FK clause references.
+    // rebuild (both tables' DDL + the version bump) shares `migrate`'s single
+    // outer transaction (NDL-36): a poisoned step rolls back the ENTIRE
+    // migration, so the next open re-runs every guarded step from its prior
+    // `current`. Foreign-key enforcement is suspended for the whole migration
+    // by `migrate` (it cannot change inside a transaction, and this rebuild
+    // needs it off); the renames restore the names every FK clause references.
     const roundsSql53 = (
       db
         .prepare(
@@ -2172,21 +2187,9 @@ export function migrate(db: Database): void {
     const needsStagesRebuild = !!stagesSql53 && !stagesSql53.includes('ended_at >= started_at');
 
     if (needsRoundsRebuild || needsStagesRebuild) {
-      db.pragma('foreign_keys = OFF');
-      try {
-        db.exec('BEGIN IMMEDIATE');
-        try {
-          if (needsRoundsRebuild) db.exec(RECOVERY_ROUNDS_V53_DDL);
-          if (needsStagesRebuild) db.exec(STAGES_V53_DDL);
-          db.pragma('user_version = 53');
-          db.exec('COMMIT');
-        } catch (e) {
-          db.exec('ROLLBACK');
-          throw e;
-        }
-      } finally {
-        db.pragma('foreign_keys = ON');
-      }
+      if (needsRoundsRebuild) db.exec(RECOVERY_ROUNDS_V53_DDL);
+      if (needsStagesRebuild) db.exec(STAGES_V53_DDL);
+      db.pragma('user_version = 53');
     }
 
     // review_findings.identity is repaired ABOVE, guarded by the current
@@ -2286,28 +2289,17 @@ export function migrate(db: Database): void {
     // rename rebuild (see RECOVERY_ROUNDS_SHIP_DDL). The guard reads the
     // CURRENT table SQL, so a fresh DB (schema.sql already carries the widened
     // CHECK) skips the rebuild entirely and a re-open on an already-migrated DB
-    // is a no-op. Foreign-key enforcement is suspended for the swap (it cannot
-    // change inside a transaction) and the rename restores the name every FK
-    // clause references.
+    // is a no-op. Foreign-key enforcement is suspended for the whole migration
+    // by `migrate` (it cannot change inside a transaction, and this rebuild
+    // needs it off) and the rename restores the name every FK clause
+    // references.
     const roundsSql59 = (
       db
         .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'recovery_rounds'")
         .get() as { sql: string } | undefined
     )?.sql;
     if (roundsSql59 !== undefined && !roundsSql59.includes("'ship'")) {
-      db.pragma('foreign_keys = OFF');
-      try {
-        db.exec('BEGIN IMMEDIATE');
-        try {
-          db.exec(RECOVERY_ROUNDS_SHIP_DDL);
-          db.exec('COMMIT');
-        } catch (e) {
-          db.exec('ROLLBACK');
-          throw e;
-        }
-      } finally {
-        db.pragma('foreign_keys = ON');
-      }
+      db.exec(RECOVERY_ROUNDS_SHIP_DDL);
     }
 
     // v59 also links each feedback row to the recovery round that adopted it.

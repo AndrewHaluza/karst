@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { spawn } from 'node:child_process';
 import Database from 'better-sqlite3';
 import { openStore, type Store } from './db.js';
 import { createTicket } from './tickets.js';
@@ -484,6 +485,52 @@ describe('openStore', () => {
     expect(b.db.pragma('user_version', { simple: true })).toBe(62);
     expect(tableNames(b)).toContain('approach_graph_runs');
   });
+
+  it('two windows opening a legacy DB concurrently do not race the migration (NDL-36)', async () => {
+    // The real bug: two SEPARATE processes (two VS Code windows reloading
+    // together after an update) both calling `openStore` on the same
+    // never-migrated file AT THE SAME TIME. A single Node process can't
+    // reproduce this — better-sqlite3 calls are synchronous, so nothing
+    // inside one process can race two check-then-ALTER dances against each
+    // other. Two real child processes can.
+    const dir = mkdtempSync(join(tmpdir(), 'karst-db-race-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, 'registry.db');
+    const legacy = new Database(path);
+    legacy.exec(v34SchemaText());
+    legacy.pragma('user_version = 34');
+    legacy.close();
+
+    const workerPath = join(dirname(fileURLToPath(import.meta.url)), 'migrationRaceWorker.ts');
+    const run = (): Promise<{ code: number | null; stderr: string }> =>
+      new Promise((resolve, reject) => {
+        const child = spawn(process.execPath, ['--import', 'tsx', workerPath, path], {
+          stdio: ['ignore', 'ignore', 'pipe'],
+        });
+        let stderr = '';
+        child.stderr.on('data', (chunk) => {
+          stderr += chunk.toString();
+        });
+        child.on('error', reject);
+        child.on('exit', (code) => resolve({ code, stderr }));
+      });
+
+    const [first, second] = await Promise.all([run(), run()]);
+
+    expect(first.stderr).toBe('');
+    expect(second.stderr).toBe('');
+    expect(first.code).toBe(0);
+    expect(second.code).toBe(0);
+
+    const migrated = new Database(path);
+    cleanups.push(() => migrated.close());
+    expect(migrated.pragma('user_version', { simple: true })).toBe(62);
+    const names = migrated
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
+      .all()
+      .map((r) => (r as { name: string }).name);
+    expect(names).toContain('approach_graph_runs');
+  }, 20000);
 
   it('a partial prior state (one graph table already present) re-runs cleanly', () => {
     const dir = mkdtempSync(join(tmpdir(), 'karst-db34-'));
