@@ -1,6 +1,11 @@
 import type { Store } from '../store/db.js';
 import type { Manifest } from '../manifest/types.js';
-import { resolvePlannedBaseRef } from '../workflow/baseRef.js';
+import {
+  assertSubtaskParentReady,
+  resolvePlannedBase,
+  subtaskParentBranch,
+  SubtaskParentNotStartedError,
+} from '../workflow/baseRef.js';
 import { makePortAllocator, type PortAllocator } from '../resolver/allocator.js';
 import { resolve } from '../resolver/resolve.js';
 import { createWorktree, removeWorktree, type WorktreeRecord } from './worktree.js';
@@ -12,7 +17,7 @@ import {
   pruneOrphanServers,
   type ServerRecord,
 } from './supervisor.js';
-import { preflightSpin } from './preflight.js';
+import { preflightSpin, SpinError } from './preflight.js';
 import { portsToAvoid } from './portProbe.js';
 import { getTicket } from '../store/tickets.js';
 import { ticketWorktreeNames } from './ticketBranch.js';
@@ -191,9 +196,21 @@ export async function spinTicket(
   const ticket = getTicket(store, ticketId);
   const { slug, branch } = ticketWorktreeNames(ticket, manifest);
 
+  // Sub-task precondition (design NDL-70 §4): a sub-task stacks on the parent's
+  // branch, so the parent must already have a worktree in each hot repo. Unlike
+  // `confirmScope` (which parks `scope`), spin runs after scope has passed, so
+  // this is a friendly `SpinError` — surfacing it as a scope block would point
+  // at a stage the ticket has already left.
+  try {
+    assertSubtaskParentReady(store, ticket, manifest, hot);
+  } catch (err) {
+    if (err instanceof SubtaskParentNotStartedError) throw new SpinError(err.message);
+    throw err;
+  }
+
   // Validate every hot repo (git repo + has baselineBranch) before any mutation,
   // so a bad branch/path fails fast with a friendly SpinError and nothing partial.
-  preflightSpin(manifest, slug, hot, branch, ticket);
+  preflightSpin(manifest, slug, hot, branch, ticket, store);
 
   // Ports something is LISTENING on cannot be allocated, whatever the registry
   // says: a leaked server from a worktree nobody will spin again, or a process
@@ -259,7 +276,12 @@ export async function spinTicket(
           repoPath: repo.repoPath,
           slug,
           branch,
-          baseRef: resolvePlannedBaseRef(ticket, manifest, name),
+          baseRef: resolvePlannedBase(
+            ticket,
+            manifest,
+            name,
+            subtaskParentBranch(store, ticket, manifest, name),
+          ).baseRef,
         });
         worktreeByRepo.set(repo.repoPath, wt);
         created.push(wt);

@@ -8,7 +8,11 @@ import type { Manifest } from '../../manifest/types.js';
 import { httpSlot, manifest as buildManifest, runnableRepo } from '../../manifest/fixtures.js';
 import { createTicketFlow } from './create.js';
 import { scopeTicket, confirmScope } from './scope.js';
+import { createSubtask } from './subtask.js';
 import { updateTicketFields } from '../../store/tickets.js';
+import { stageBlock } from '../../store/stageBlocks.js';
+import { SubtaskParentNotStartedError } from '../baseRef.js';
+import { ticketWorktreeNames } from '../../runtime/ticketBranch.js';
 
 function git(cwd: string, ...args: string[]): void {
   const r = spawnSync('git', args, { cwd, encoding: 'utf8' });
@@ -274,5 +278,98 @@ describe('confirmScope (pull the base before branching)', () => {
     // The ff refspec is refused (develop is checked out), so exactly one repo
     // costs the two fetch attempts of `pullBaseRef` — never four.
     expect(fetches).toBe(2);
+  });
+});
+
+/**
+ * Sub-task cuts (design NDL-70 §4): a sub-task stacks on its parent's branch.
+ * "Same lineage" means the start point is the parent's LOCAL head — the parent's
+ * commits that are not pushed yet must be visible in the sub-task worktree — and
+ * "no pull before the cut" means `origin/<parentBranch>` is never fetched.
+ */
+describe('confirmScope (sub-task stacks on the parent branch)', () => {
+  let store: Store;
+  let fe: { path: string; cleanup: () => void };
+  let manifest: Manifest;
+
+  beforeEach(() => {
+    store = openStore(':memory:');
+    fe = makeRepo();
+    manifest = manifestFor(fe.path, fe.path);
+  });
+  afterEach(() => {
+    store.close();
+    fe.cleanup();
+  });
+
+  async function startParent(key: string): Promise<number> {
+    const parent = createTicketFlow(store, { key, title: 'parent' });
+    updateTicketFields(store, parent.id, { selectedRepos: ['frontend'] });
+    await confirmScope(store, manifest, parent.id, ['frontend'], { pullBase: false });
+    return parent.id;
+  }
+
+  it('cuts from the parent local head, records the parent branch, and skips the pull', async () => {
+    const parentId = await startParent('SUB-1');
+    const parent = ticketWorktreeNames({ id: parentId, key: 'SUB-1', title: 'parent', type: null }, manifest);
+    // The parent has committed but NOT pushed work — the sub-task must see it.
+    const parentWt = join(fe.path, '.karst', 'worktrees', parent.slug);
+    writeFileSync(join(parentWt, 'unpushed.js'), 'parent work\n');
+    git(parentWt, 'add', '.');
+    git(parentWt, 'commit', '-q', '-m', 'unpushed parent work');
+
+    const child = createSubtask(store, parentId, { title: 'child', repos: ['frontend'] });
+
+    let fetches = 0;
+    const lines: string[] = [];
+    const records = await confirmScope(store, manifest, child.id, ['frontend'], {
+      git: async (args, cwd) => {
+        if (args[0] === 'fetch') fetches += 1;
+        const r = spawnSync('git', args, { cwd, encoding: 'utf8' });
+        return { stdout: r.stdout ?? '', stderr: r.stderr ?? '', exitCode: r.status ?? 1 };
+      },
+      debug: (m) => lines.push(m),
+    });
+
+    expect(records).toHaveLength(1);
+    expect(records[0]!.baseRef).toBe(parent.branch);
+    // The parent's unpushed commit is in the sub-task's worktree.
+    expect(existsSync(join(records[0]!.path, 'unpushed.js'))).toBe(true);
+    // No `git fetch` was attempted for the sub-task cut.
+    expect(fetches).toBe(0);
+    expect(lines.some((l) => l.includes('skipping pull'))).toBe(true);
+  });
+
+  it('parks scope with a reason when the parent has no worktree in the sub-task repo', async () => {
+    const parent = createTicketFlow(store, { key: 'SUB-2', title: 'parent' });
+    updateTicketFields(store, parent.id, { selectedRepos: ['frontend'] });
+    const child = createSubtask(store, parent.id, { title: 'child', repos: ['frontend'] });
+
+    await expect(confirmScope(store, manifest, child.id, ['frontend'])).rejects.toBeInstanceOf(
+      SubtaskParentNotStartedError,
+    );
+
+    const block = stageBlock(store, child.id, 'scope');
+    expect(block?.kind).toBe('nothing-to-run');
+    expect(block?.reason).toContain('SUB-2');
+    expect(block?.reason).toMatch(/start the parent first/);
+    // Nothing was cut for the parked sub-task.
+    expect(existsSync(join(fe.path, '.karst', 'worktrees'))).toBe(false);
+  });
+
+  it('clears the parked scope block once the parent has a worktree and the cut succeeds', async () => {
+    const parent = createTicketFlow(store, { key: 'SUB-3', title: 'parent' });
+    updateTicketFields(store, parent.id, { selectedRepos: ['frontend'] });
+    const child = createSubtask(store, parent.id, { title: 'child', repos: ['frontend'] });
+
+    await expect(confirmScope(store, manifest, child.id, ['frontend'])).rejects.toBeInstanceOf(
+      SubtaskParentNotStartedError,
+    );
+    expect(stageBlock(store, child.id, 'scope')).not.toBeNull();
+
+    // Start the parent, then retry the sub-task: the block clears.
+    await confirmScope(store, manifest, parent.id, ['frontend'], { pullBase: false });
+    await confirmScope(store, manifest, child.id, ['frontend'], { pullBase: false });
+    expect(stageBlock(store, child.id, 'scope')).toBeNull();
   });
 });
