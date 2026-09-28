@@ -34,6 +34,7 @@
 import { createHash } from 'node:crypto';
 import type { Store } from '../store/db.js';
 import { parseGraphDocument, type ApproachNode } from '../approaches/graph/parse.js';
+import type { NodeRunRow as FullNodeRunRow } from '../store/graph/nodeRuns.js';
 
 /** Evidence cap: reason text is bounded before it reaches any rendering. */
 export const MAX_REASON_CHARS = 2000;
@@ -158,15 +159,10 @@ export function readNodeCompletionEnv(
   };
 }
 
-interface NodeRunRow {
-  id: number;
-  graph_run_id: number;
-  revision_id: number;
-  node_id: string;
-  status: string;
-  generation: string | null;
-  capability_hash: string | null;
-}
+type NodeRunRow = Pick<
+  FullNodeRunRow,
+  'id' | 'graph_run_id' | 'revision_id' | 'node_id' | 'status' | 'generation' | 'capability_hash'
+>;
 
 /** The pinned node definition from the active revision, or undefined. */
 function pinnedNode(store: Store, nodeRun: NodeRunRow): ApproachNode | undefined {

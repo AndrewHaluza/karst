@@ -80,6 +80,104 @@ export function transitionPlannerRun(db: GraphDb, id: number, from: string, to: 
   return casStatus(db, 'approach_planner_runs', PLANNER_RUN_TRANSITIONS, id, from, to);
 }
 
+/* ------------------------------------------------------------------ */
+/* State writes — the ONLY place these columns are written (NDL-38).   */
+/* ------------------------------------------------------------------ */
+
+/** Record the content-addressed prompt hash and its artifact snapshot on a
+ *  freshly allocated planner run (bootstrap and replan both). */
+export function setPlannerRunPromptHashArtifact(
+  db: GraphDb,
+  id: number,
+  promptHash: string,
+  artifactSnapshotId: string,
+): boolean {
+  const res = db
+    .prepare('UPDATE approach_planner_runs SET prompt_hash = ?, artifact_snapshot_id = ? WHERE id = ?')
+    .run(promptHash, artifactSnapshotId, id);
+  return res.changes === 1;
+}
+
+/** Record the submitted graph snapshot on a planner run (used at replan begin
+ *  for the reasons file, and again on election). */
+export function setPlannerRunGraphSnapshot(db: GraphDb, id: number, graphSnapshotId: string): boolean {
+  const res = db
+    .prepare('UPDATE approach_planner_runs SET graph_snapshot_id = ? WHERE id = ?')
+    .run(graphSnapshotId, id);
+  return res.changes === 1;
+}
+
+/** Mark a planner run `submitted`: the accepted graph snapshot and the
+ *  submission time. */
+export function setPlannerRunSubmittedSnapshot(
+  db: GraphDb,
+  id: number,
+  graphSnapshotId: string,
+  submittedAt: string,
+): boolean {
+  const res = db
+    .prepare('UPDATE approach_planner_runs SET graph_snapshot_id = ?, submitted_at = ? WHERE id = ?')
+    .run(graphSnapshotId, submittedAt, id);
+  return res.changes === 1;
+}
+
+/** Stamp a planner run's end (`ended_at`). */
+export function setPlannerRunEndedAt(db: GraphDb, id: number, now: string): boolean {
+  const res = db.prepare('UPDATE approach_planner_runs SET ended_at = ? WHERE id = ?').run(now, id);
+  return res.changes === 1;
+}
+
+/** Record the reason a planner run carries (deferral, rejection, late submit). */
+export function setPlannerRunReason(db: GraphDb, id: number, reason: string): boolean {
+  const res = db.prepare('UPDATE approach_planner_runs SET reason = ? WHERE id = ?').run(reason, id);
+  return res.changes === 1;
+}
+
+/** Park a planner run: reason AND end in one write (compile-repair exhaustion
+ *  and a rejected plan). */
+export function setPlannerRunReasonEndedAt(
+  db: GraphDb,
+  id: number,
+  reason: string,
+  now: string,
+): boolean {
+  const res = db
+    .prepare('UPDATE approach_planner_runs SET reason = ?, ended_at = ? WHERE id = ?')
+    .run(reason, now, id);
+  return res.changes === 1;
+}
+
+/** Record the compile attempt a rejection consumed. */
+export function setPlannerRunCompileAttempt(db: GraphDb, id: number, attempt: number): boolean {
+  const res = db
+    .prepare('UPDATE approach_planner_runs SET compile_attempt = ? WHERE id = ?')
+    .run(attempt, id);
+  return res.changes === 1;
+}
+
+/** The launch identity a claim commits with the row. */
+export function setPlannerRunLaunchIdentity(
+  db: GraphDb,
+  id: number,
+  identity: { generation: string; capabilityHash: string; ownerNonce: string },
+): boolean {
+  const res = db
+    .prepare(
+      'UPDATE approach_planner_runs SET generation = ?, capability_hash = ?, owner_nonce = ? WHERE id = ?',
+    )
+    .run(identity.generation, identity.capabilityHash, identity.ownerNonce, id);
+  return res.changes === 1;
+}
+
+/** Stamp `started_at` only when the planner run still has none: a re-prompted
+ *  planner keeps the wall-clock its FIRST session began at. */
+export function markPlannerRunStarted(db: GraphDb, id: number, now: string): boolean {
+  const res = db
+    .prepare('UPDATE approach_planner_runs SET started_at = ? WHERE id = ? AND started_at IS NULL')
+    .run(now, id);
+  return res.changes === 1;
+}
+
 /**
  * The planner-run statuses that still owe their graph run a submission — a
  * planner in one of these is working, waiting to be launched, or waiting to be

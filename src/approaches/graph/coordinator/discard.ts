@@ -49,7 +49,12 @@ import type { GraphDb } from '../../../store/graph/transitions.js';
 import { casStatus, GRAPH_RUN_TRANSITIONS, NODE_RUN_TRANSITIONS } from '../../../store/graph/transitions.js';
 import { cancelGraphToken } from '../../../store/graph/tokens.js';
 import { releaseLeaseForNodeRun } from './leases.js';
-import { releaseProcessSlot } from '../../../store/graph/nodeRuns.js';
+import { releaseProcessSlot, setNodeRunEndedAt, type NodeRunRow as FullNodeRunRow } from '../../../store/graph/nodeRuns.js';
+import {
+  decrementExpertRunCount,
+  decrementNodeRunCount,
+  markGraphRunBlocked,
+} from '../../../store/graph/graphRuns.js';
 import { parseGraphDocument } from '../parse.js';
 
 /** The graph blocker reason a discard writes when the edge can no longer fire. */
@@ -103,14 +108,10 @@ export type DiscardResult =
       graphBlockedWith: 'graph-topology-deadlock' | null;
     };
 
-interface NodeRunRow {
-  id: number;
-  graph_run_id: number;
-  revision_id: number;
-  node_id: string;
-  node_kind: string;
-  status: string;
-}
+type NodeRunRow = Pick<
+  FullNodeRunRow,
+  'id' | 'graph_run_id' | 'revision_id' | 'node_id' | 'node_kind' | 'status'
+>;
 
 /** Whether the claim reserved the expert budget: exactly the sweep's
  *  `profileIsExpert` rule — an agent node whose PINNED declared profile is
@@ -203,20 +204,16 @@ export function discardUnknownProcess(deps: DiscardDeps, input: DiscardInput): D
     if (!casStatus(db, 'approach_node_runs', NODE_RUN_TRANSITIONS, node.id, node.status, 'cancelled')) {
       return { discarded: false, reason: 'not-ambiguous' };
     }
-    db.prepare('UPDATE approach_node_runs SET ended_at = ? WHERE id = ?').run(deps.now(), node.id);
+    setNodeRunEndedAt(db, node.id, deps.now());
 
     // 4. Release the reserved budget contributions: graph node_run_count
     //    always, expert_run_count when the claim reserved expert. Both guards
     //    are `> 0` — a count must never go negative. The run's visit_number is
     //    recorded evidence and is deliberately untouched.
     const expert = runReservedExpert(db, node);
-    db.prepare(
-      'UPDATE approach_graph_runs SET node_run_count = node_run_count - 1, updated_at = ? WHERE id = ? AND node_run_count > 0',
-    ).run(deps.now(), graphRunId);
+    decrementNodeRunCount(db, graphRunId, deps.now());
     if (expert) {
-      db.prepare(
-        'UPDATE approach_graph_runs SET expert_run_count = expert_run_count - 1, updated_at = ? WHERE id = ? AND expert_run_count > 0',
-      ).run(deps.now(), graphRunId);
+      decrementExpertRunCount(db, graphRunId, deps.now());
     }
 
     // 5. Release the run's leases — the ONLY path that releases a lease
@@ -236,11 +233,7 @@ export function discardUnknownProcess(deps: DiscardDeps, input: DiscardInput): D
     let graphBlockedWith: 'graph-topology-deadlock' | null = null;
     if (revisionIsTopologyDeadlocked(db, graphRunId)) {
       if (casStatus(db, 'approach_graph_runs', GRAPH_RUN_TRANSITIONS, graphRunId, 'running', 'blocked')) {
-        db.prepare('UPDATE approach_graph_runs SET blocked_reason = ?, updated_at = ? WHERE id = ?').run(
-          GRAPH_TOPOLOGY_DEADLOCK,
-          deps.now(),
-          graphRunId,
-        );
+        markGraphRunBlocked(db, graphRunId, GRAPH_TOPOLOGY_DEADLOCK, deps.now());
         graphBlockedWith = GRAPH_TOPOLOGY_DEADLOCK;
       }
     }

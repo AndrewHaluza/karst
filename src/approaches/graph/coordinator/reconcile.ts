@@ -43,8 +43,13 @@
 
 import type { GraphDb } from '../../../store/graph/transitions.js';
 import { casStatus, GRAPH_RUN_TRANSITIONS, NODE_RUN_TRANSITIONS } from '../../../store/graph/transitions.js';
+import { markGraphRunBlocked, touchGraphRun } from '../../../store/graph/graphRuns.js';
+import { setNodeRunReason } from '../../../store/graph/nodeRuns.js';
 import { cancelGraphToken } from '../../../store/graph/tokens.js';
 import { transitionPlannerRun } from '../../../store/graph/plannerRuns.js';
+import type { GraphRunRow as FullGraphRunRow } from '../../../store/graph/graphRuns.js';
+import type { NodeRunRow as FullNodeRunRow } from '../../../store/graph/nodeRuns.js';
+import type { PlannerRunRow as FullPlannerRunRow } from '../../../store/graph/plannerRuns.js';
 import { markLeaseAmbiguous } from './leases.js';
 import { graphRunHasLiveNodeProcess } from './liveness.js';
 import { MAX_COMPILE_ATTEMPTS } from './repair.js';
@@ -117,18 +122,9 @@ export interface ReconcileGraphRunResult {
   cancelledTokens: number;
 }
 
-interface GraphRunRow {
-  id: number;
-  ticket_id: number;
-  status: string;
-}
+type GraphRunRow = Pick<FullGraphRunRow, 'id' | 'ticket_id' | 'status'>;
 
-interface NodeRunRow {
-  id: number;
-  status: string;
-  owner_nonce: string | null;
-  process_run_id: number | null;
-}
+type NodeRunRow = Pick<FullNodeRunRow, 'id' | 'status' | 'owner_nonce' | 'process_run_id'>;
 
 interface ProcessRunRow {
   pid: number | null;
@@ -161,12 +157,7 @@ function processOf(db: GraphDb, node: NodeRunRow): { pid: number; startedAt: str
 /** The two planner kinds the crash matrix judges, each on its own run status. */
 type PlannerKind = 'bootstrap' | 'replan';
 
-interface PlannerRunRow {
-  id: number;
-  status: string;
-  owner_nonce: string | null;
-  process_run_id: number | null;
-}
+type PlannerRunRow = Pick<FullPlannerRunRow, 'id' | 'status' | 'owner_nonce' | 'process_run_id'>;
 
 /** The bootstrap planner run's process identity, resolved the SAME way node
  *  runs are (`processOf`): a null `process_run_id`, or a process_runs row
@@ -219,7 +210,7 @@ function parkNode(
   if (!casStatus(deps.db, 'approach_node_runs', NODE_RUN_TRANSITIONS, nodeRunId, from, to)) {
     return false;
   }
-  deps.db.prepare('UPDATE approach_node_runs SET reason = ? WHERE id = ?').run(reason, nodeRunId);
+  setNodeRunReason(deps.db, nodeRunId, reason);
   return true;
 }
 
@@ -236,9 +227,7 @@ function blockRun(deps: ReconcileGraphRunDeps, graphRunId: number, reason: strin
       'blocked',
     )
   ) {
-    deps.db
-      .prepare('UPDATE approach_graph_runs SET blocked_reason = ?, updated_at = ? WHERE id = ?')
-      .run(reason, deps.now(), graphRunId);
+    markGraphRunBlocked(deps.db, graphRunId, reason, deps.now());
     deps.debug?.(`[graph] reconcile: run ${graphRunId} blocked (${reason})`);
   }
 }
@@ -268,7 +257,7 @@ function cancelForLeftTicket(
     }
     if (CANCELLABLE_RUN_STATUSES.includes(run.status as (typeof CANCELLABLE_RUN_STATUSES)[number])) {
       casStatus(deps.db, 'approach_graph_runs', GRAPH_RUN_TRANSITIONS, run.id, run.status, 'cancelled');
-      deps.db.prepare('UPDATE approach_graph_runs SET updated_at = ? WHERE id = ?').run(deps.now(), run.id);
+      touchGraphRun(deps.db, run.id, deps.now());
     }
     deps.debug?.(
       `[graph] reconcile: run ${run.id} — ticket no longer at impl; cancelled ${cancelledTokens} pending token(s)`,
@@ -619,7 +608,7 @@ export async function reconcileGraphRun(
         if (!casStatus(db, 'approach_graph_runs', GRAPH_RUN_TRANSITIONS, run.id, run.status, 'stale')) {
           return false;
         }
-        db.prepare('UPDATE approach_graph_runs SET updated_at = ? WHERE id = ?').run(deps.now(), run.id);
+        touchGraphRun(db, run.id, deps.now());
         return true;
       });
       if (moved) {

@@ -19,6 +19,48 @@
 import type { GraphDb } from './transitions.js';
 import { NODE_RUN_TRANSITIONS, casStatus } from './transitions.js';
 
+/**
+ * The canonical `approach_node_runs` row shape — every column, so a call
+ * site that only needs a subset narrows with `Pick<NodeRunRow, ...>` instead
+ * of hand-declaring its own (drifting) interface (NDL-38).
+ */
+export interface NodeRunRow {
+  id: number;
+  graph_run_id: number;
+  revision_id: number;
+  node_id: string;
+  node_kind: string;
+  visit_number: number;
+  status: string;
+  outcome: string | null;
+  effective_outcome: string | null;
+  reason: string | null;
+  failure_category: string | null;
+  profile: string | null;
+  provider: string | null;
+  model: string | null;
+  effort: string | null;
+  prompt_hash: string | null;
+  launch_attempt: number;
+  generation: string | null;
+  process_run_id: number | null;
+  owner_nonce: string | null;
+  capability_hash: string | null;
+  instruction_artifact_id: number | null;
+  input_artifact_id: number | null;
+  output_artifact_id: number | null;
+  change_set_id: string | null;
+  started_at: string | null;
+  ended_at: string | null;
+  base_heads: string | null;
+}
+
+export function nodeRunById(db: GraphDb, id: number): NodeRunRow | undefined {
+  return db.prepare('SELECT * FROM approach_node_runs WHERE id = ?').get(id) as
+    | NodeRunRow
+    | undefined;
+}
+
 export interface CreateNodeRun {
   graphRunId: number;
   revisionId: number;
@@ -46,12 +88,176 @@ export function createNodeRun(db: GraphDb, input: CreateNodeRun): number {
   return Number(res.lastInsertRowid);
 }
 
+/** Reserve a node run at claim time WITHOUT `started_at` — the visit is
+ *  reserved `ready`, and its clock starts only when the launch claims it. The
+ *  claim path is the only caller. */
+export function insertReservedNodeRun(
+  db: GraphDb,
+  input: Omit<CreateNodeRun, 'now'>,
+): number {
+  const res = db
+    .prepare(
+      `INSERT INTO approach_node_runs
+         (graph_run_id, revision_id, node_id, node_kind, visit_number, status)
+       VALUES (?, ?, ?, ?, ?, 'ready')`,
+    )
+    .run(input.graphRunId, input.revisionId, input.nodeId, input.nodeKind, input.visitNumber);
+  return Number(res.lastInsertRowid);
+}
+
 /** Move one node run through the DECLARED node-run transition map. Recovery's
  *  retry is the live caller: `blocked` / `failed-to-launch` / `stale` and the
  *  two artifact faults (`output-artifact-missing`, `artifact-unsafe`) all
  *  declare `→ launching`, so a retry never needs a map widened for it. */
 export function transitionNodeRun(db: GraphDb, id: number, from: string, to: string): boolean {
   return casStatus(db, 'approach_node_runs', NODE_RUN_TRANSITIONS, id, from, to);
+}
+
+/* ------------------------------------------------------------------ */
+/* State writes — the ONLY place these columns are written (NDL-38).   */
+/* ------------------------------------------------------------------ */
+
+/** Record the reason a node run carries (a park, a discard, a retry). The
+ *  status transition is the caller's compare-and-set. */
+export function setNodeRunReason(db: GraphDb, id: number, reason: string): boolean {
+  const res = db.prepare('UPDATE approach_node_runs SET reason = ? WHERE id = ?').run(reason, id);
+  return res.changes === 1;
+}
+
+/** Stamp a node run's end (`ended_at`). */
+export function setNodeRunEndedAt(db: GraphDb, id: number, now: string): boolean {
+  const res = db.prepare('UPDATE approach_node_runs SET ended_at = ? WHERE id = ?').run(now, id);
+  return res.changes === 1;
+}
+
+/** Record a node run's re-snapshotted planner prompt hash (recovery retry). */
+export function setNodeRunPromptHash(db: GraphDb, id: number, promptHash: string): boolean {
+  const res = db
+    .prepare('UPDATE approach_node_runs SET prompt_hash = ? WHERE id = ?')
+    .run(promptHash, id);
+  return res.changes === 1;
+}
+
+/** The launch identity a claim commits with the row: generation, the
+ *  capability hash, and the owner nonce. Written INSIDE the claim
+ *  transaction so another window can never observe `launching` with no owner
+ *  (NDL-34's spawn double-claim window). */
+export function setNodeRunLaunchIdentity(
+  db: GraphDb,
+  id: number,
+  identity: { generation: string; capabilityHash: string; ownerNonce: string },
+): boolean {
+  const res = db
+    .prepare(
+      'UPDATE approach_node_runs SET generation = ?, capability_hash = ?, owner_nonce = ? WHERE id = ?',
+    )
+    .run(identity.generation, identity.capabilityHash, identity.ownerNonce, id);
+  return res.changes === 1;
+}
+
+/** Drop the identity of a launch that is over (owner nonce, process run,
+ *  generation). A retry MUST do this — see `clearLaunchIdentity` callers. */
+export function clearNodeRunLaunchIdentity(db: GraphDb, id: number): boolean {
+  const res = db
+    .prepare(
+      `UPDATE approach_node_runs
+       SET owner_nonce = NULL, process_run_id = NULL, generation = NULL
+       WHERE id = ?`,
+    )
+    .run(id);
+  return res.changes === 1;
+}
+
+/** A launch retry bumps the attempt counter on the reserved run; it never
+ *  creates another logical visit. */
+export function incrementNodeRunLaunchAttempt(db: GraphDb, id: number): boolean {
+  const res = db
+    .prepare('UPDATE approach_node_runs SET launch_attempt = launch_attempt + 1 WHERE id = ?')
+    .run(id);
+  return res.changes === 1;
+}
+
+/** Complete a deterministic node: record its effective outcome and end. */
+export function setNodeRunOutcome(db: GraphDb, id: number, outcome: string, now: string): boolean {
+  const res = db
+    .prepare('UPDATE approach_node_runs SET outcome = ?, ended_at = ? WHERE id = ?')
+    .run(outcome, now, id);
+  return res.changes === 1;
+}
+
+/** Park a node whose launch could not proceed: failure category, reason, end. */
+export function setNodeRunFailure(
+  db: GraphDb,
+  id: number,
+  fields: { failureCategory: string; reason: string; now: string },
+): boolean {
+  const res = db
+    .prepare('UPDATE approach_node_runs SET failure_category = ?, reason = ?, ended_at = ? WHERE id = ?')
+    .run(fields.failureCategory, fields.reason, fields.now, id);
+  return res.changes === 1;
+}
+
+/** The parking pipeline's terminal fields: outcome, failure category, reason.
+ *  Omitted fields are written NULL. */
+export function setNodeRunTerminalFields(
+  db: GraphDb,
+  id: number,
+  fields: { outcome?: string; failureCategory?: string; reason?: string },
+): boolean {
+  const res = db
+    .prepare(
+      `UPDATE approach_node_runs
+       SET outcome = ?, failure_category = ?, reason = ?
+       WHERE id = ?`,
+    )
+    .run(fields.outcome ?? null, fields.failureCategory ?? null, fields.reason ?? null, id);
+  return res.changes === 1;
+}
+
+/** The replan budget refusal: the requesting node's effective outcome parks at
+ *  `blocked`/`graph-budget-exhausted`, scoped to its own graph run. */
+export function setNodeRunBudgetBlock(
+  db: GraphDb,
+  id: number,
+  graphRunId: number,
+  reason: string,
+): boolean {
+  const res = db
+    .prepare(
+      `UPDATE approach_node_runs
+       SET effective_outcome = 'blocked', failure_category = ?, reason = ?
+       WHERE id = ? AND graph_run_id = ?`,
+    )
+    .run(reason, reason, id, graphRunId);
+  return res.changes === 1;
+}
+
+/** Claim `completing → integrating` as a bare status write (used where the
+ *  caller needs the affected-row count without the transition-map throw). */
+export function claimNodeRunIntegrating(db: GraphDb, id: number): boolean {
+  const res = db
+    .prepare(`UPDATE approach_node_runs SET status = 'integrating' WHERE id = ? AND status = 'completing'`)
+    .run(id);
+  return res.changes === 1;
+}
+
+/** Accept a node's integration: the terminal `complete` fields and the change
+ *  set id, in one write. */
+export function completeNodeRunIntegration(
+  db: GraphDb,
+  id: number,
+  changeSetId: string,
+  now: string,
+): boolean {
+  const res = db
+    .prepare(
+      `UPDATE approach_node_runs
+       SET outcome = 'complete', effective_outcome = 'complete',
+           change_set_id = ?, ended_at = ?
+       WHERE id = ?`,
+    )
+    .run(changeSetId, now, id);
+  return res.changes === 1;
 }
 
 /** The closed set of node-override kinds. */

@@ -13,6 +13,7 @@ import { isKnownProvider } from '../agent/provider.js';
 import { isTicketType, TICKET_TYPES, type TicketType } from './ticketTypes.js';
 import { slugifyTitleKey } from './titleKey.js';
 import { nowIso } from '../model/time.js';
+import { deleteGraphRunData, graphRunIdsForTicket } from './graph/graphRuns.js';
 
 export interface Ticket {
   id: number;
@@ -693,28 +694,10 @@ export function deleteTicket(
     // 4. Graph evidence, leaf-first per graph run (Slice 2 Task 8). No
     // `ON DELETE CASCADE` is added to any graph table's ticket reference;
     // correctness never depends on a cascade firing. token_usage rows already
-    // detached keep their spend and get their graph FKs SET NULL here.
-    const graphRunIds = (
-      store.db
-        .prepare('SELECT id FROM approach_graph_runs WHERE ticket_id = ?')
-        .all(ticketId) as Array<{ id: number }>
-    ).map((r) => r.id);
-    for (const graphRunId of graphRunIds) {
-      store.db
-        .prepare(
-          `DELETE FROM approach_graph_tokens
-           WHERE revision_id IN (SELECT id FROM approach_graph_revisions WHERE graph_run_id = ?)`,
-        )
-        .run(graphRunId);
-      store.db.prepare('DELETE FROM approach_node_overrides WHERE graph_run_id = ?').run(graphRunId);
-      store.db.prepare('DELETE FROM approach_resource_leases WHERE graph_run_id = ?').run(graphRunId);
-      store.db.prepare('DELETE FROM approach_node_deferrals WHERE graph_run_id = ?').run(graphRunId);
-      store.db.prepare('DELETE FROM approach_artifact_instances WHERE graph_run_id = ?').run(graphRunId);
-      store.db.prepare('DELETE FROM approach_graph_workspaces WHERE graph_run_id = ?').run(graphRunId);
-      store.db.prepare('DELETE FROM approach_node_runs WHERE graph_run_id = ?').run(graphRunId);
-      store.db.prepare('DELETE FROM approach_planner_runs WHERE graph_run_id = ?').run(graphRunId);
-      store.db.prepare('DELETE FROM approach_graph_revisions WHERE graph_run_id = ?').run(graphRunId);
-      store.db.prepare('DELETE FROM approach_graph_runs WHERE id = ?').run(graphRunId);
+    // detached keep their spend and get their graph FKs SET NULL here. The
+    // cascade lives in the graph store (NDL-38), not here.
+    for (const graphRunId of graphRunIdsForTicket(store.db, ticketId)) {
+      deleteGraphRunData(store.db, graphRunId);
     }
     for (const table of TICKET_CHILD_TABLES) {
       store.db.prepare(`DELETE FROM ${table} WHERE ticket_id = ?`).run(ticketId);

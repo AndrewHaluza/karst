@@ -34,6 +34,7 @@ import { parkGateStage, stageBlock, clearStageBlock } from '../store/stageBlocks
 import { stageAttempt } from '../store/stages.js';
 import { casStatus, GRAPH_RUN_TRANSITIONS } from '../store/graph/transitions.js';
 import { graphRunOrdinal } from '../store/graph/graphRuns.js';
+import type { GraphRunRow as FullGraphRunRow } from '../store/graph/graphRuns.js';
 import { quiescenceBlockedBy, earliestFaultNodeRun, faultNodeRunReason } from '../approaches/graph/coordinator/completion.js';
 import { GRAPH_FAILED_BLOCKER } from '../approaches/graph/coordinator/recovery.js';
 import { BUILT_IN_PACKAGE_ID } from '../approaches/builtInId.js';
@@ -56,11 +57,7 @@ export interface GraphMarkerGuardResult {
   reason?: string;
 }
 
-interface GraphRunRow {
-  id: number;
-  status: string;
-  blocked_reason: string | null;
-}
+type GraphRunRow = Pick<FullGraphRunRow, 'id' | 'status' | 'blocked_reason'>;
 
 /** Run states that will never become `completed-awaiting-impl-marker`. */
 const TERMINAL_GRAPH_RUN_STATUSES: ReadonlySet<string> = new Set(['closed', 'cancelled', 'stale']);

@@ -276,6 +276,7 @@ import {
 } from './approaches/graph/integration/domains.js';
 import { canonicalRepoId } from './runtime/repoId.js';
 import { casStatus, GRAPH_RUN_TRANSITIONS, type GraphDb } from './store/graph/transitions.js';
+import { markGraphRunBlocked } from './store/graph/graphRuns.js';
 import { canonicalPath } from './runtime/pathScope.js';
 import { createHookChannelRecorder } from './diagnostics/hookChannel.js';
 import { writeCurrentEndpoint } from './agent/hookFailureLog.js';
@@ -3610,11 +3611,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         ) {
           return false;
         }
-        db.prepare('UPDATE approach_graph_runs SET blocked_reason = ?, updated_at = ? WHERE id = ?').run(
-          reason,
-          new Date().toISOString(),
-          graphRunId,
-        );
+        markGraphRunBlocked(db, graphRunId, reason, new Date().toISOString());
       return true;
     });
   };

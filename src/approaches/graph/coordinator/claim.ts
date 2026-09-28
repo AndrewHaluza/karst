@@ -39,8 +39,13 @@ import {
 import {
   writeNodeRunBaseHeads,
   reserveProcessSlot,
+  clearNodeRunLaunchIdentity,
+  incrementNodeRunLaunchAttempt,
+  insertReservedNodeRun,
   type BaseHead,
+  type NodeRunRow as FullNodeRunRow,
 } from '../../../store/graph/nodeRuns.js';
+import { incrementExpertRunCount, incrementNodeRunCount } from '../../../store/graph/graphRuns.js';
 import { budgetRefusalFor, type BudgetRefusal } from './visits.js';
 import { acquireDomainLeases, type ActivationDomain } from './leases.js';
 
@@ -150,24 +155,19 @@ function createNodeRun(
   nodeKind: string,
   visitNumber: number,
 ): number {
-  const res = db
-    .prepare(
-      `INSERT INTO approach_node_runs
-         (graph_run_id, revision_id, node_id, node_kind, visit_number, status)
-       VALUES (?, ?, ?, ?, ?, 'ready')`,
-    )
-    .run(graphRunId, revisionId, nodeId, nodeKind, visitNumber);
-  return Number(res.lastInsertRowid);
+  return insertReservedNodeRun(db, {
+    graphRunId,
+    revisionId,
+    nodeId,
+    nodeKind,
+    visitNumber,
+  });
 }
 
 function reserveBudgets(db: GraphDb, graphRunId: number, now: string, expert: boolean): void {
-  db.prepare(
-    'UPDATE approach_graph_runs SET node_run_count = node_run_count + 1, updated_at = ? WHERE id = ?',
-  ).run(now, graphRunId);
+  incrementNodeRunCount(db, graphRunId, now);
   if (expert) {
-    db.prepare(
-      'UPDATE approach_graph_runs SET expert_run_count = expert_run_count + 1, updated_at = ? WHERE id = ?',
-    ).run(now, graphRunId);
+    incrementExpertRunCount(db, graphRunId, now);
   }
 }
 
@@ -328,18 +328,9 @@ export function claimJoinActivation(deps: ClaimDeps, input: ClaimJoinInput): Cla
   });
 }
 
-export interface NodeRunRow {
-  id: number;
-  graph_run_id: number;
-  revision_id: number;
-  node_id: string;
-  node_kind: string;
-  visit_number: number;
-  status: string;
-  launch_attempt: number;
-}
-
 /** The reserved run behind a claimed token — the retry's only handle. */
+export type NodeRunRow = FullNodeRunRow;
+
 export function claimedNodeRunForToken(db: GraphDb, tokenId: number): NodeRunRow | undefined {
   return db
     .prepare(
@@ -364,21 +355,11 @@ export function claimedNodeRunForToken(db: GraphDb, tokenId: number): NodeRunRow
  * shape as "retried, waiting to launch" rather than "mid-launch elsewhere".
  */
 export function clearLaunchIdentity(db: GraphDb, nodeRunId: number): boolean {
-  const res = db
-    .prepare(
-      `UPDATE approach_node_runs
-       SET owner_nonce = NULL, process_run_id = NULL, generation = NULL
-       WHERE id = ?`,
-    )
-    .run(nodeRunId);
-  return res.changes === 1;
+  return clearNodeRunLaunchIdentity(db, nodeRunId);
 }
 
 /** A launch retry bumps the attempt counter on the reserved run; it never
  *  creates another logical visit and never re-pends the token. */
 export function incrementLaunchAttempt(db: GraphDb, nodeRunId: number): boolean {
-  const res = db
-    .prepare('UPDATE approach_node_runs SET launch_attempt = launch_attempt + 1 WHERE id = ?')
-    .run(nodeRunId);
-  return res.changes === 1;
+  return incrementNodeRunLaunchAttempt(db, nodeRunId);
 }

@@ -41,12 +41,29 @@ import {
   NODE_RUN_TRANSITIONS,
   casStatus,
 } from '../../store/graph/transitions.js';
+import {
+  markGraphRunBlocked,
+  releaseCommandProcessSlot,
+  releaseGraphProcessSlot,
+} from '../../store/graph/graphRuns.js';
 import { graphRunById } from '../../store/graph/graphRuns.js';
 import { beginBootstrapPlannerRun, finishPlanning, relaunchBootstrapPlannerRun } from './coordinator/plannerRun.js';
-import { transitionPlannerRun } from '../../store/graph/plannerRuns.js';
+import {
+  markPlannerRunStarted,
+  plannerRunById,
+  setPlannerRunLaunchIdentity,
+  setPlannerRunReason,
+  setPlannerRunReasonEndedAt,
+  transitionPlannerRun,
+} from '../../store/graph/plannerRuns.js';
 import { activeRevision, createRevision } from '../../store/graph/revisions.js';
 import { insertEntryTokens } from '../../store/graph/tokens.js';
-import { decodeBaseHeads } from '../../store/graph/nodeRuns.js';
+import {
+  decodeBaseHeads,
+  setNodeRunFailure,
+  setNodeRunLaunchIdentity,
+  setNodeRunOutcome,
+} from '../../store/graph/nodeRuns.js';
 import { parseGraphDocument, type GraphDocument } from './parse.js';
 import {
   compileGraphDocument,
@@ -291,22 +308,15 @@ function claimPlannerLaunch(
   identity: { generation: string; capability: string; ownerNonce: string },
 ): boolean {
   return deps.transaction(() => {
-    deps.db
-      .prepare(
-        'UPDATE approach_planner_runs SET generation = ?, capability_hash = ?, owner_nonce = ? WHERE id = ?',
-      )
-      .run(
-        identity.generation,
-        sha256Hex(new TextEncoder().encode(identity.capability)),
-        identity.ownerNonce,
-        plannerRunId,
-      );
+    setPlannerRunLaunchIdentity(deps.db, plannerRunId, {
+      generation: identity.generation,
+      capabilityHash: sha256Hex(new TextEncoder().encode(identity.capability)),
+      ownerNonce: identity.ownerNonce,
+    });
     // `ready` is the ordinary claim; `blocked` is the compile-repair re-prompt
     // of the SAME planner run (its submitted document was rejected and an
     // attempt remains). Both are declared edges of PLANNER_RUN_TRANSITIONS.
-    const row = deps.db
-      .prepare('SELECT status FROM approach_planner_runs WHERE id = ?')
-      .get(plannerRunId) as { status: string } | undefined;
+    const row = plannerRunById(deps.db, plannerRunId);
     const from = row?.status === 'blocked' ? 'blocked' : 'ready';
     return transitionPlannerRun(deps.db, plannerRunId, from, 'launching');
   });
@@ -327,11 +337,7 @@ function markPlannerRunning(deps: GraphDriverDeps, plannerRunId: number): boolea
   return deps.transaction(() => {
     const moved = transitionPlannerRun(deps.db, plannerRunId, 'launching', 'running');
     if (moved) {
-      deps.db
-        .prepare(
-          'UPDATE approach_planner_runs SET started_at = ? WHERE id = ? AND started_at IS NULL',
-        )
-        .run(deps.now(), plannerRunId);
+      markPlannerRunStarted(deps.db, plannerRunId, deps.now());
     }
     return moved;
   });
@@ -1100,9 +1106,11 @@ function rejectPlan(
     // a lost race when this ran in the other order.
     if (!transitionPlannerRun(deps.db, plannerRunId, 'submitted', 'blocked')) return false;
     recordCompileAttempt(deps, plannerRunId, decision.attempt);
-    deps.db
-      .prepare('UPDATE approach_planner_runs SET reason = ? WHERE id = ?')
-      .run(`graph-plan-invalid: ${(diagnostics[0] ?? 'invalid document').slice(0, 2000)}`, plannerRunId);
+    setPlannerRunReason(
+      deps.db,
+      plannerRunId,
+      `graph-plan-invalid: ${(diagnostics[0] ?? 'invalid document').slice(0, 2000)}`,
+    );
     return true;
   });
   if (!reprompted) {
@@ -1134,15 +1142,11 @@ function blockInvalidPlan(
   const reason = `graph-plan-invalid: ${diagnostics[0] ?? 'planner produced an invalid document'}`;
   const blocked = deps.transaction(() => {
     if (attempt !== undefined) recordCompileAttempt(deps, plannerRunId, attempt);
-    deps.db
-      .prepare('UPDATE approach_planner_runs SET reason = ?, ended_at = ? WHERE id = ?')
-      .run(reason.slice(0, 2000), deps.now(), plannerRunId);
+    setPlannerRunReasonEndedAt(deps.db, plannerRunId, reason.slice(0, 2000), deps.now());
     if (!casStatus(deps.db, 'approach_graph_runs', GRAPH_RUN_TRANSITIONS, graphRunId, runStatus, 'blocked')) {
       return false;
     }
-    deps.db
-      .prepare('UPDATE approach_graph_runs SET blocked_reason = ?, updated_at = ? WHERE id = ?')
-      .run(reason, deps.now(), graphRunId);
+    markGraphRunBlocked(deps.db, graphRunId, reason, deps.now());
     return true;
   });
   if (blocked) {
@@ -1333,11 +1337,11 @@ async function executeReadyNode(
   // no-identity shape, which is what keeps that reading true.
   const nodeOwnerNonce = randomBytes(16).toString('hex');
   const claimed = deps.transaction(() => {
-    deps.db
-      .prepare(
-        'UPDATE approach_node_runs SET generation = ?, capability_hash = ?, owner_nonce = ? WHERE id = ?',
-      )
-      .run(nodeGeneration, sha256Hex(new TextEncoder().encode(nodeCapability)), nodeOwnerNonce, row.id);
+    setNodeRunLaunchIdentity(deps.db, row.id, {
+      generation: nodeGeneration,
+      capabilityHash: sha256Hex(new TextEncoder().encode(nodeCapability)),
+      ownerNonce: nodeOwnerNonce,
+    });
     if (row.status === 'launching') return true;
     return casStatus(deps.db, 'approach_node_runs', NODE_RUN_TRANSITIONS, row.id, 'ready', 'launching');
   });
@@ -1578,9 +1582,7 @@ function completeDeterministic(deps: GraphDriverDeps, nodeRunId: number, effecti
     if (!casStatus(deps.db, 'approach_node_runs', NODE_RUN_TRANSITIONS, nodeRunId, 'ready', 'completing')) {
       return;
     }
-    deps.db
-      .prepare('UPDATE approach_node_runs SET outcome = ?, ended_at = ? WHERE id = ?')
-      .run(effectiveOutcome, deps.now(), nodeRunId);
+    setNodeRunOutcome(deps.db, nodeRunId, effectiveOutcome, deps.now());
     casStatus(deps.db, 'approach_node_runs', NODE_RUN_TRANSITIONS, nodeRunId, 'completing', 'integrating');
     casStatus(deps.db, 'approach_node_runs', NODE_RUN_TRANSITIONS, nodeRunId, 'integrating', 'completed');
     completeActivation(
@@ -1589,14 +1591,7 @@ function completeDeterministic(deps: GraphDriverDeps, nodeRunId: number, effecti
     );
     // A command node reserved a process slot at claim; release it on its
     // deterministic completion. The guarded update touches only command runs.
-    deps.db
-      .prepare(
-        `UPDATE approach_graph_runs
-         SET active_processes = MAX(active_processes - 1, 0), updated_at = ?
-         WHERE id = (SELECT graph_run_id FROM approach_node_runs WHERE id = ?)
-           AND (SELECT node_kind FROM approach_node_runs WHERE id = ?) = 'command'`,
-      )
-      .run(deps.now(), nodeRunId, nodeRunId);
+    releaseCommandProcessSlot(deps.db, nodeRunId, deps.now());
   });
 }
 
@@ -1627,23 +1622,15 @@ function parkLaunchFailure(
     ) {
       return;
     }
-    deps.db
-      .prepare(
-        'UPDATE approach_node_runs SET failure_category = ?, reason = ?, ended_at = ? WHERE id = ?',
-      )
-      .run('failed-to-launch', reason, deps.now(), nodeRunId);
+    setNodeRunFailure(deps.db, nodeRunId, {
+      failureCategory: 'failed-to-launch',
+      reason,
+      now: deps.now(),
+    });
     if (casStatus(deps.db, 'approach_graph_runs', GRAPH_RUN_TRANSITIONS, graphRunId, 'running', 'blocked')) {
-      deps.db
-        .prepare('UPDATE approach_graph_runs SET blocked_reason = ?, updated_at = ? WHERE id = ?')
-        .run(`failed-to-launch: node run ${nodeRunId}`, deps.now(), graphRunId);
+      markGraphRunBlocked(deps.db, graphRunId, `failed-to-launch: node run ${nodeRunId}`, deps.now());
     }
-    deps.db
-      .prepare(
-        `UPDATE approach_graph_runs
-         SET active_processes = MAX(active_processes - 1, 0), updated_at = ?
-         WHERE id = ?`,
-      )
-      .run(deps.now(), graphRunId);
+    releaseGraphProcessSlot(deps.db, graphRunId, deps.now());
   });
 }
 
