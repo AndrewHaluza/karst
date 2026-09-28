@@ -2017,6 +2017,11 @@
   const vscode = acquireVsCodeApi();
   const post = (msg) => vscode.postMessage(msg);
 
+  // Single source for the copy-confirmation toast text — two call sites show
+  // it (a floating toast and an inline button label), and both must say the
+  // same thing.
+  const COPIED_TOAST_TEXT = 'Copied ✓';
+
   // Stage status -> segment CSS class. Needs-you is NOT here: it OUTRANKS the
   // stage status, and it is applied from the segment's own `needsUser`, which the
   // host derives once (model/ticketGlyph.needsUser) for every surface. The old
@@ -5111,7 +5116,7 @@
       const u = btn.querySelector('.u');
       if (!u) return;
       const prev = u.textContent;
-      u.textContent = 'Copied ✓';
+      u.textContent = COPIED_TOAST_TEXT;
       btn.classList.add('ok');
       setTimeout(() => {
         u.textContent = prev;
@@ -5138,7 +5143,7 @@
       return;
     }
     const prev = btn.textContent;
-    btn.textContent = 'Copied ✓';
+    btn.textContent = COPIED_TOAST_TEXT;
     btn.disabled = true;
     setTimeout(() => { btn.textContent = prev; btn.disabled = false; }, 1200);
   }
