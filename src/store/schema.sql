@@ -46,6 +46,9 @@ CREATE TABLE IF NOT EXISTS tickets (
   session_provider  TEXT,                 -- agent core that minted session_id; NULL = unknown, never resume
   -- v14 parent_ticket_id column (kept in sync with migrations.ts v14 ALTER):
   parent_ticket_id  INTEGER,              -- -> tickets.id; links a follow-up ticket to the parent it continues
+  -- v63 sub-task composition (kept in sync with migrations.ts v63 ALTERs):
+  subtask_parent_id INTEGER,              -- -> tickets.id; this ticket is PART OF that open ticket. NULL = top-level
+  blocks_parent     INTEGER,              -- 1 = parent may not leave impl/fix until this is done; NULL/0 = non-blocking
   -- v15 conventional-commit type (kept in sync with migrations.ts v15 ALTER):
   type              TEXT,                 -- feat | fix | … ; NULL = inherit conventions.defaultType
   -- v24 per-ticket gate disable (kept in sync with migrations.ts v24 ALTER):
@@ -60,6 +63,7 @@ CREATE TABLE IF NOT EXISTS tickets (
   updated_at        TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_tickets_parent ON tickets(parent_ticket_id);
+CREATE INDEX IF NOT EXISTS idx_tickets_subtask_parent ON tickets(subtask_parent_id);
 
 CREATE TABLE IF NOT EXISTS stages (
   ticket_id     INTEGER NOT NULL,     -- -> tickets.id

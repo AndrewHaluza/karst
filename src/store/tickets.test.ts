@@ -25,6 +25,8 @@ import {
   listArchivedTickets,
   setSessionId,
   clearApproachFromTickets,
+  listOpenSubtasks,
+  TicketHasOpenSubtasksError,
   type Ticket,
 } from './tickets.js';
 import { setStage } from './stages.js';
@@ -67,6 +69,8 @@ describe('ticketLabel', () => {
     sessionProvider: null,
     projectId: null,
     parentTicketId: null,
+    subtaskParentId: null,
+    blocksParent: false,
     priority: null,
   };
 
@@ -231,6 +235,56 @@ describe('ticket + stage persistence', () => {
     });
     expect(child.parentTicketId).toBe(parent.id);
     expect(getTicket(store, child.id).parentTicketId).toBe(parent.id);
+  });
+
+  it('a plain ticket is not a sub-task and does not block', () => {
+    const t = createTicket(store, { key: 'PROJ-1', title: 'root' });
+    expect(t.subtaskParentId).toBeNull();
+    expect(t.blocksParent).toBe(false);
+  });
+
+  it('createTicket persists subtaskParentId and blocksParent, readable via getTicket', () => {
+    const parent = createTicket(store, { key: 'PROJ-1', title: 'parent' });
+    const child = createTicket(store, {
+      key: 'PROJ-1-s1',
+      title: 'sub-task',
+      subtaskParentId: parent.id,
+      blocksParent: true,
+    });
+    expect(child.subtaskParentId).toBe(parent.id);
+    expect(child.blocksParent).toBe(true);
+    const full = getTicket(store, child.id);
+    expect(full.subtaskParentId).toBe(parent.id);
+    expect(full.blocksParent).toBe(true);
+  });
+
+  it('listOpenSubtasks returns only non-archived children, oldest first', () => {
+    const parent = createTicket(store, { key: 'PROJ-1', title: 'parent' });
+    const a = createTicket(store, { key: 'PROJ-1-s1', title: 'a', subtaskParentId: parent.id });
+    const b = createTicket(store, { key: 'PROJ-1-s2', title: 'b', subtaskParentId: parent.id });
+    archiveTicket(store, b.id);
+    expect(listOpenSubtasks(store, parent.id)).toEqual([{ id: a.id, key: 'PROJ-1-s1' }]);
+  });
+
+  it('archiveTicket refuses a parent with open sub-tasks and names them', () => {
+    const parent = createTicket(store, { key: 'PROJ-1', title: 'parent' });
+    createTicket(store, { key: 'PROJ-1-s1', title: 'a', subtaskParentId: parent.id });
+    let caught: unknown;
+    try {
+      archiveTicket(store, parent.id);
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(TicketHasOpenSubtasksError);
+    expect((caught as TicketHasOpenSubtasksError).subtaskKeys).toEqual(['PROJ-1-s1']);
+    expect(getTicket(store, parent.id).archivedAt).toBeNull();
+  });
+
+  it('deleteTicket refuses a parent with open sub-tasks', () => {
+    const parent = createTicket(store, { key: 'PROJ-1', title: 'parent' });
+    createTicket(store, { key: 'PROJ-1-s1', title: 'a', subtaskParentId: parent.id });
+    expect(() => deleteTicket(store, parent.id)).toThrow(TicketHasOpenSubtasksError);
+    expect(getTicket(store, parent.id)).toBeTruthy();
   });
 
   it('updateTicketCore changes key and title only', () => {

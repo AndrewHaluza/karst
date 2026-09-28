@@ -75,6 +75,19 @@ export interface Ticket {
    */
   parentTicketId: number | null;
   /**
+   * The OPEN ticket this one is PART OF (a sub-task, design §3); `null` for an
+   * ordinary top-level ticket. Deliberately distinct from `parentTicketId`,
+   * which keeps meaning "follow-up of" — the two relations are orthogonal.
+   * Set once, at creation; v1 has no re-parenting.
+   */
+  subtaskParentId: number | null;
+  /**
+   * Whether this sub-task blocks its parent from leaving `impl`/`fix` until it
+   * is done (`blocks_parent = 1`). `false` for an ordinary ticket or a
+   * non-blocking sub-task.
+   */
+  blocksParent: boolean;
+  /**
    * Provider-native priority label (e.g. 'urgent', 'high', 'normal'), populated
    * from the ticketing provider when the ticket is fetched; `null` when the
    * provider did not expose one (a manual ticket, or an unfetched one).
@@ -114,6 +127,8 @@ interface TicketRow {
   effort: string | null;
   project_id: number | null;
   parent_ticket_id: number | null;
+  subtask_parent_id: number | null;
+  blocks_parent: number | null;
   priority: string | null;
   paused_at: string | null;
 }
@@ -184,6 +199,8 @@ function rowToTicket(r: TicketRow): Ticket {
     type: isTicketType(r.type) ? r.type : null,
     projectId: r.project_id,
     parentTicketId: r.parent_ticket_id,
+    subtaskParentId: r.subtask_parent_id ?? null,
+    blocksParent: r.blocks_parent === 1,
     priority: r.priority,
     pausedAt: r.paused_at ?? null,
   };
@@ -205,13 +222,17 @@ export function createTicket(
     projectId?: number;
     /** Links a follow-up ticket to the completed parent it continues work from. */
     parentTicketId?: number;
+    /** Links a sub-task to the open parent it is PART OF (design §3). */
+    subtaskParentId?: number;
+    /** Whether the sub-task blocks its parent from leaving `impl`/`fix`. */
+    blocksParent?: boolean;
   },
 ): Ticket {
   const create = store.db.transaction((): Ticket => {
     const info = store.db
       .prepare(
-        `INSERT INTO tickets (key, title, source, description, project_id, parent_ticket_id, stage_current, agent_state)
-         VALUES (?, ?, ?, ?, ?, ?, 'scope', 'none')`,
+        `INSERT INTO tickets (key, title, source, description, project_id, parent_ticket_id, subtask_parent_id, blocks_parent, stage_current, agent_state)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'scope', 'none')`,
       )
       .run(
         input.key,
@@ -220,6 +241,8 @@ export function createTicket(
         input.description ?? null,
         input.projectId ?? null,
         input.parentTicketId ?? null,
+        input.subtaskParentId ?? null,
+        input.blocksParent ? 1 : null,
       );
     const id = Number(info.lastInsertRowid);
 
@@ -523,6 +546,51 @@ export function updateTicketFields(
 }
 
 /**
+ * A ticket that is the parent of one or more open (non-archived) sub-tasks
+ * cannot be archived or hard-deleted (design §3, "Delete and archive"). The
+ * sub-tasks are named so the caller can tell the user which ones to finish or
+ * archive first. An archived sub-task does NOT gate its parent.
+ */
+export class TicketHasOpenSubtasksError extends Error {
+  /** Keys of the open sub-tasks that blocked the operation, in id order. */
+  readonly subtaskKeys: string[];
+  constructor(ticketId: number, subtaskKeys: string[]) {
+    super(
+      `ticket #${ticketId} has open sub-tasks (${subtaskKeys.join(', ')}) — archive or delete them first`,
+    );
+    this.name = 'TicketHasOpenSubtasksError';
+    this.subtaskKeys = subtaskKeys;
+  }
+}
+
+/**
+ * The open (non-archived) direct sub-tasks of `ticketId`, oldest first. Keys
+ * fall back to `#<id>` at the call site so a message always names something
+ * actionable.
+ */
+export function listOpenSubtasks(
+  store: Store,
+  ticketId: number,
+): { id: number; key: string | null }[] {
+  return store.db
+    .prepare(
+      'SELECT id, key FROM tickets WHERE subtask_parent_id = ? AND archived_at IS NULL ORDER BY id',
+    )
+    .all(ticketId) as { id: number; key: string | null }[];
+}
+
+/** Throw when `ticketId` is the parent of any non-archived sub-task. */
+export function assertNoOpenSubtasks(store: Store, ticketId: number): void {
+  const open = listOpenSubtasks(store, ticketId);
+  if (open.length > 0) {
+    throw new TicketHasOpenSubtasksError(
+      ticketId,
+      open.map((t) => t.key ?? `#${t.id}`),
+    );
+  }
+}
+
+/**
  * Clear `approach` from every ticket bound to `approachId`, returning how many
  * rows were cleared.
  *
@@ -556,8 +624,14 @@ export function clearApproachFromTickets(
 /**
  * Archive a ticket (soft-delete): stamp `archived_at` now. Idempotent-ish — an
  * already-archived ticket gets a fresh timestamp. Single-writer discipline.
+ *
+ * Refused when the ticket is the parent of any non-archived sub-task (design
+ * §3): a parent whose work is still carved out cannot itself disappear. An
+ * archived sub-task does not gate its parent, so abandoning a sub-task is a
+ * legitimate way to unblock the parent.
  */
 export function archiveTicket(store: Store, ticketId: number): void {
+  assertNoOpenSubtasks(store, ticketId);
   store.db
     .prepare("UPDATE tickets SET archived_at = datetime('now'), updated_at = datetime('now') WHERE id = ?")
     .run(ticketId);
@@ -661,6 +735,7 @@ export function deleteTicket(
   graphBytesRoot?: string,
   artifactsRoot?: string,
 ): void {
+  assertNoOpenSubtasks(store, ticketId);
   const del = store.db.transaction((): void => {
     // 1. Detach the global accounting ledger. `token_usage` is shared global
     // spend, not ticket-owned evidence: its rows survive the ticket as

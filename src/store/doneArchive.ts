@@ -1,5 +1,5 @@
 import type { Store } from './db.js';
-import { archiveTicket, type ProjectScope } from './tickets.js';
+import { archiveTicket, TicketHasOpenSubtasksError, type ProjectScope } from './tickets.js';
 
 export interface DoneAutoArchiveInput {
   /**
@@ -62,9 +62,22 @@ export function autoArchiveDoneTickets(
   const ids = rows.map((r) => r.id);
   if (ids.length === 0) return [];
 
+  const archived: number[] = [];
   const apply = store.db.transaction(() => {
-    for (const id of ids) archiveTicket(store, id);
+    for (const id of ids) {
+      // A parent with an open sub-task is not auto-archivable (design §3): the
+      // sweep skips it rather than failing the whole tick, and it is NOT
+      // reported as archived. A non-blocking sub-task that was never started
+      // (and so never held the parent's ship) is the realistic case; the user
+      // archives or finishes it.
+      try {
+        archiveTicket(store, id);
+        archived.push(id);
+      } catch (err) {
+        if (!(err instanceof TicketHasOpenSubtasksError)) throw err;
+      }
+    }
   });
   apply();
-  return ids;
+  return archived;
 }

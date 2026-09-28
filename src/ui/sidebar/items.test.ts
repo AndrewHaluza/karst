@@ -30,6 +30,8 @@ function ticket(over: Partial<TicketWithStages> = {}): TicketWithStages {
     type: null,
     projectId: null,
     parentTicketId: null,
+    subtaskParentId: null,
+    blocksParent: false,
     priority: null,
     stages: [
       { ticketId: 1, stageKey: 'scope', status: 'passed', attempt: 0, verdict: 'passed', artifactPath: null, startedAt: null, endedAt: null, blockedKind: null, blockedReason: null, blockedAt: null },
