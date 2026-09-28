@@ -5279,6 +5279,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         landed = settleShipGates(
           localStore,
           { projectId: project.id },
+          undefined,
           (message) => logger.debug(message),
         );
         for (const id of landed) void pushDoneStatus(id, false);
