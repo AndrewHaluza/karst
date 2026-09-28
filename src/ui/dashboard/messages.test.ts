@@ -38,6 +38,7 @@ function actions(): DashboardActions {
     addressPrFeedback: vi.fn(),
     rerunGate: vi.fn(),
     createFollowUpTicket: vi.fn(),
+    createSubtask: vi.fn(),
     openStageLog: vi.fn(),
     resolveConflicts: vi.fn(),
     mergePr: vi.fn(),

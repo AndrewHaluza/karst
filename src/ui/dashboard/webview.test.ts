@@ -773,8 +773,10 @@ describe('dashboard webview.html', () => {
     // the title — never inside the primary title.
     const script = previewScriptSource();
     expect(HTML).toMatch(/id="parentRef"/);
-    expect(script).toMatch(/state\.parent\s*\?/);
+    expect(script).toMatch(/state\.subtaskParent/);
+    expect(script).toMatch(/state\.parent/);
     expect(script).toMatch(/Follow-up of '\s*\+ esc\(state\.parent\.key\)/);
+    expect(script).toMatch(/Sub-task of '\s*\+ esc\(state\.subtaskParent\.key\)/);
   });
 
   /**
