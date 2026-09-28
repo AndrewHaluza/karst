@@ -1,190 +1,72 @@
 import type { Store } from '../../store/db.js';
-import type { AgentProvider, Manifest } from '../../manifest/types.js';
+import type { AgentProvider, Manifest, TicketProvider } from '../../manifest/types.js';
 import { getTicket, ticketLabel } from '../../store/tickets.js';
-import type { TicketProvider } from '../../manifest/types.js';
 import type { LogError } from '../../logging/logger.js';
 import type { GateStageKey } from '../../workflow/fixAttempts.js';
 import type { GateStage } from '../../store/ticketGates.js';
-import { existsSync, realpathSync } from 'node:fs';
 import type { InsideProgressEvent } from '../../model/inside/progress.js';
-import type { SessionConfiguredInput } from '../../model/inside/agent.js';
-import { listWorktreesByTicket, listServersByTicket, type WorktreeView } from '../../store/dashboard.js';
 import { resolveBaselineBranchForPath } from '../../manifest/baselineBranch.js';
-import { resolveProcessAssignment } from '../../agent/processAssignment.js';
-import { resolveModelForProvider } from '../../agent/models.js';
-import { resolveAgentDefaults } from '../../agent/agentPresets.js';
-import { isRunnable } from '../../manifest/runnable.js';
-import {
-  InsideActionRegistry,
-  dispatchInsideAction,
-  type InsideActionHost,
-  type InsideActionTarget,
-} from './insideActions.js';
 import {
   buildDashboardState,
   type DashboardAgentContext,
   type DashboardState,
   type PathContext,
 } from './state.js';
-import { parseInsideProgress, parseWebviewMessage, routeAction, type DashboardActions } from './messages.js';
-import type { InsideActionResult, StageLogResult } from './messages.js';
-import type { AgentProcessId } from './messages.js';
+import type { AgentProcessId, DashboardActions, InsideActionResult } from './messages.js';
 import type { ServerLogsReader } from './serverLogsReader.js';
 import type { WorktreeStatsLoader } from './worktreeStats.js';
-import type { GateOptions, GateOptionsLoader } from './gateOptions.js';
-import type { GraphInsideInput, GraphActionTarget } from '../../model/inside/graph.js';
-import { readRequestId, reportAction } from '../../model/actionResult.js';
+import type { GateOptionsLoader } from './gateOptions.js';
+import type { GraphInsideInput } from '../../model/inside/graph.js';
 import { hasLiveWork, LIVE_TICK_MS } from './liveTick.js';
 import { compactTicketLabel } from '../../model/followUp.js';
+import type { InsideActionHost } from './insideActions.js';
+import {
+  NOOP_INSIDE_HOST,
+  SnapshotRegistry,
+  toRegisteredGraphTarget,
+} from './snapshotRegistry.js';
+import { DashboardSelections } from './selections.js';
+import { SupplementalLoaders, type SupplementalHost } from './supplementalLoaders.js';
+import { DashboardConsole } from './consoleOutput.js';
+import { attachMessagePump } from './messagePump.js';
+import { agentContextFor, assignmentFor, repoNameFor, serviceNamesFor } from './resolvers.js';
+import type {
+  ActionsFactory,
+  AgentLogReader,
+  BranchCandidatesLoader,
+  DashboardBinding,
+  DashboardPanel,
+  PanelHost,
+  StageLogReader,
+} from './panelTypes.js';
 
-/**
- * The subset of a `vscode.WebviewPanel` the manager touches. Modeling it as an
- * interface keeps `DashboardManager` host-agnostic and unit-testable without a
- * `vscode` module; the activation adapter supplies a real panel.
- */
-export interface DashboardPanel {
-  /**
-   * Bring the panel forward. `preserveFocus` leaves the keyboard where it is
-   * (real: `panel.reveal(column, preserveFocus)`) — what the terminal binding
-   * needs, and what keeps a bound reveal from re-activating the panel and
-   * bouncing the focus straight back.
-   */
-  reveal(preserveFocus?: boolean): void;
-  postMessage(message: unknown): void;
-  onDidReceiveMessage(handler: (message: unknown) => void): void;
-  /**
-   * The panel gained or lost activation (real: `onDidChangeViewState`, reading
-   * `e.webviewPanel.active`). `active` is true only when the user is actually
-   * on this panel — a preserve-focus reveal makes it visible, not active.
-   */
-  onDidChangeViewState(handler: (active: boolean) => void): void;
-  onDidDispose(handler: () => void): void;
-  /**
-   * Whether the panel's webview is on screen at all (real: `panel.visible`) —
-   * unlike `active`, which is true only when the user is ON it. A dashboard
-   * watched beside a terminal the user is typing in is VISIBLE and inactive,
-   * which is the live tick's main scenario, so visibility is what gates the
-   * repaint. Absent → assume visible, which is exactly the pre-tick behavior.
-   */
-  isVisible?(): boolean;
-  /** Update the tab icon (real: `panel.iconPath = Uri.file(path)`). */
-  setIcon(path: string): void;
-}
-
-/** Factory the manager uses to mint panels (real: `createWebviewPanel`). */
-export interface PanelHost {
-  createPanel(title: string, ticketId: number, preserveFocus?: boolean): DashboardPanel;
-}
-
-/** Test double surface — extends the panel with recorded state + an emitter. */
-export interface FakePanel extends DashboardPanel {
-  title: string;
-  revealed: number;
-  /** The `preserveFocus` the panel was CREATED with, if any. */
-  createdPreserveFocus?: boolean;
-  /** The `preserveFocus` argument of every `reveal`, in order. */
-  revealedPreserveFocus: Array<boolean | undefined>;
-  disposed: boolean;
-  /** Whether the fake reports itself on screen — drives `isVisible`. */
-  visible: boolean;
-  posted: unknown[];
-  /** Every `setIcon` path, in order — the live-tint assertion surface. */
-  icons: string[];
-  messageHandlers: Array<(m: unknown) => void>;
-  viewStateHandlers: Array<(active: boolean) => void>;
-  disposeHandler?: () => void;
-  dispose(): void;
-  emit(message: unknown): void;
-  emitViewState(active: boolean): void;
-}
-
-/**
- * The window's terminal↔dashboard binding, injected so the manager needs no
- * knowledge of the binder itself. `enabled` is read live (it flips at runtime);
- * `onDidActivate` reports raw panel activation — including LOSING it — and
- * leaves the interpretation to the binder.
- */
-export interface DashboardBinding {
-  enabled(): boolean;
-  onDidActivate(ticketId: number, active: boolean): void;
-}
-
-/** Resolve the daemon actions for a ticket (lets the host bind live services). */
-export type ActionsFactory = (ticketId: number) => DashboardActions;
-
-/** Resolve one gate stage's console log host-side (store + fs). */
-export type StageLogReader = (ticketId: number, stage: GateStage) => StageLogResult;
-
-/** Resolve one gate-lane AI process's console tail host-side (fs). */
-export type AgentLogReader = (ticketId: number, processId: AgentProcessId) => StageLogResult;
-
-/**
- * List the base-branch candidates for a worktree's repoPath, pre-bound by the
- * host to `listBaseBranchCandidates` (Task 4) with the git runner it needs.
- * Never throws (the underlying lister already swallows git failures to `[]`).
- */
-export type BranchCandidatesLoader = (repoPath: string) => Promise<string[]>;
-
-/**
- * How long a superseded snapshot's action ids stay dispatchable — the window a
- * click already in flight when a repaint landed has to survive. Sized for a
- * webview→host round trip, not for the repaint cadence.
- */
-export const ACTION_GRACE_MS = 5000;
-
-/** Memory bound on the grace list; the time window above is what actually decides. */
-const MAX_GRACE_DEPTH = 10;
-
-/** Content equality for `GateOptions` — a fresh resolution is a new object every time. */
-function sameGateOptions(a: GateOptions, b: GateOptions): boolean {
-  return sameOptions(a.uat, b.uat) && sameOptions(a.review, b.review);
-}
-
-function sameOptions(
-  a: readonly { name: string; disabled: boolean }[],
-  b: readonly { name: string; disabled: boolean }[],
-): boolean {
-  return (
-    a.length === b.length &&
-    a.every((x, i) => x.name === b[i]!.name && x.disabled === b[i]!.disabled)
-  );
-}
+export type {
+  ActionsFactory,
+  AgentLogReader,
+  BranchCandidatesLoader,
+  DashboardBinding,
+  DashboardPanel,
+  FakePanel,
+  PanelHost,
+  StageLogReader,
+} from './panelTypes.js';
+export { ACTION_GRACE_MS } from './snapshotRegistry.js';
 
 /**
  * One dashboard panel per ticket id (§14). `openDashboard` reveals an existing
  * panel rather than spawning a duplicate; disposal drops the panel so a later
  * open recreates it. State is pushed to the webview via `postMessage`.
+ *
+ * The manager composes the panel-scoped seams that used to live in one file:
+ * the snapshot-scoped action registry + grace window (`SnapshotRegistry`), the
+ * panel-only selection memory (`DashboardSelections`), the supplemental async
+ * loaders (`SupplementalLoaders`), the console/log forwarders
+ * (`DashboardConsole`), the webview message pump (`messagePump`) and the
+ * manifest/agent resolvers (`resolvers`). It owns the panels and the snapshot
+ * lifecycle; everything else is delegated.
  */
 export class DashboardManager {
   private readonly panels = new Map<number, DashboardPanel>();
-  private readonly statsRequests = new Map<number, number>();
-  private readonly statsControllers = new Map<number, AbortController>();
-  private readonly gateRequests = new Map<number, number>();
-  private readonly gateControllers = new Map<number, AbortController>();
-  /**
-   * The last resolved gate options per ticket, so `pushState` can render the
-   * would-run gate names as pending rows before the stage runs. Dies with the
-   * panel; a stale entry for a closed panel is a leak.
-   */
-  private readonly gateOptionsCache = new Map<number, GateOptions>();
-  /** The CURRENT snapshot-scoped action registry per ticket (host-only targets). */
-  private readonly registries = new Map<number, InsideActionRegistry>();
-  /**
-   * The registries of superseded snapshots, newest last, with the moment each
-   * was superseded — the grace window for a click already in flight when a
-   * repaint replaced the render it was posted from.
-   *
-   * Bounded by TIME (`ACTION_GRACE_MS`), not by a generation count: what the
-   * window has to cover is one webview→host round trip, and tying it to "the
-   * previous snapshot" made its real length the tick period — so a faster tick
-   * would silently shorten it and a slower one stretch it. `MAX_GRACE_DEPTH`
-   * is the memory bound only.
-   */
-  private readonly priorRegistries = new Map<
-    number,
-    Array<{ registry: InsideActionRegistry; supersededAt: number }>
-  >();
-  private readonly generations = new Map<number, number>();
   /**
    * The pending live-snapshot timer per ticket (§ liveTick.ts). A self-
    * rescheduling `setTimeout` rather than an interval: a push that finds
@@ -194,32 +76,22 @@ export class DashboardManager {
    * nobody is looking at.
    */
   private readonly liveTicks = new Map<number, ReturnType<typeof setTimeout>>();
-  /**
-   * The round switcher's current selection per ticket (Option B, T5) —
-   * host-held, like every other panel read: the webview posts a selection,
-   * the panel remembers it and re-renders through the normal state push. A
-   * ticket with no selection is absent from the map entirely, which is what
-   * keeps `buildDashboardState`'s `attemptSelection` argument (and therefore
-   * its output) unchanged for every ticket that never touched a tab. Dies
-   * with the panel (cleared on dispose) so a selection never leaks to a later
-   * ticket that happens to reuse the id.
-   */
-  private readonly attemptSelections = new Map<number, ReadonlyMap<GateStage, string>>();
-  /**
-   * The findings repo scope selection per ticket per gate stage — panel
-   * memory only, like `attemptSelections`. `null` means "all repositories";
-   * a string names the selected repo PATH. Absent from the map when the
-   * default (all) is in effect. Dies with the panel.
-   */
-  private readonly findingsRepoSelections = new Map<number, ReadonlyMap<GateStage, string | null>>();
-  /**
-   * Base-branch candidates per repoPath (§ per-repo base branch — live
-   * change), warmed lazily by `prefetchBranchCandidates` and shared across
-   * every open ticket: a repoPath's git listing does not vary by ticket. A
-   * repoPath absent from the map has not been fetched yet — `[]` in state
-   * until then, never a host round trip the webview waits on.
-   */
-  private readonly branchCandidates = new Map<string, string[]>();
+  /** Panel-only selection memory (round switcher + findings repo scope). */
+  private readonly selections = new DashboardSelections();
+  /** Per-snapshot action capabilities + the grace window for superseded ones. */
+  private readonly registry = new SnapshotRegistry();
+  /** Supplemental async loaders (worktree stats, gate options, base branches). */
+  private readonly loaders: SupplementalLoaders;
+  /** Console/log forwarding boundary (progress events, gate/AI/server logs). */
+  private readonly console: DashboardConsole;
+  /** The manager side of the loaders' contract (live-panel check + re-push). */
+  private readonly supplementalHost: SupplementalHost = {
+    isCurrentPanel: (ticketId, panel) => this.panels.get(ticketId) === panel,
+    repush: (ticketId, settlesActions) => {
+      if (settlesActions) this.pushState(ticketId);
+      else this.pushPassiveState(ticketId);
+    },
+  };
 
   /**
    * `pathContext` is a getter (optional) so worktree paths render per the current
@@ -344,7 +216,21 @@ export class DashboardManager {
      * panel's own ticket id. Absent → the "Open in Window" control is a no-op.
      */
     private readonly onServerLogsDetach?: (ticketId: number) => void,
-  ) {}
+  ) {
+    this.loaders = new SupplementalLoaders(
+      loadStats,
+      loadGateOptions,
+      loadBranchCandidates,
+      logError,
+    );
+    this.console = new DashboardConsole(
+      store,
+      (ticketId) => this.panels.get(ticketId),
+      stageLogReader,
+      agentLogReader,
+      serverLogsReader,
+    );
+  }
 
   /**
    * Open (or reveal) the dashboard for a ticket and push its initial state.
@@ -378,123 +264,13 @@ export class DashboardManager {
     };
     // Message pump must never die on one bad message — routeAction validates,
     // and any downstream throw is contained so subsequent messages still flow.
-    panel.onDidReceiveMessage((raw) => {
-      // Read the correlation id off the RAW message, before it is narrowed —
-      // `parseWebviewMessage` deliberately drops fields it does not model, and
-      // that dropping is the trust boundary (see readRequestId's own doc).
-      const requestId = readRequestId(raw);
-      // An unparsed message posts NOTHING (UI-R13): no action ran, so there is
-      // no terminal outcome to report, and reporting one anyway would ack a
-      // message the host never acted on.
-      const parsed = parseWebviewMessage(raw);
-      if (!parsed) return;
-      if (parsed.type === 'select-gate-attempt') {
-        // Pure read: the selection is panel memory only — it never touches
-        // the store, never mutates the ticket, and has no
-        // `DashboardActions` method (messages.ts's `routeAction` deliberately
-        // does not carry it). Recording it and re-rendering through the
-        // normal state push is the whole handling.
-        const current = this.attemptSelections.get(ticketId) ?? new Map<GateStage, string>();
-        const next = new Map(current);
-        next.set(parsed.stage, parsed.key);
-        this.attemptSelections.set(ticketId, next);
-        this.pushState(ticketId);
-        return;
-      }
-      if (parsed.type === 'select-findings-repo') {
-        // Pure read: the selection is panel memory only — same shape as the
-        // round switcher. A `null` repo DELETES the stage's entry rather
-        // than storing a sentinel.
-        const current = this.findingsRepoSelections.get(ticketId) ?? new Map<GateStage, string | null>();
-        const next = new Map(current);
-        if (parsed.repo === null) next.delete(parsed.stage);
-        else next.set(parsed.stage, parsed.repo);
-        if (next.size === 0) this.findingsRepoSelections.delete(ticketId);
-        else this.findingsRepoSelections.set(ticketId, next);
-        this.pushState(ticketId);
-        return;
-      }
-      if (parsed.type === 'inside-action') {
-        // An inside dispatch's outcome is known synchronously; the generic
-        // seam's unconditional ack would report a rejected or stale dispatch
-        // as success (UI-R13). Post the returned result for this request.
-        // (`inside-action` never resolves to `Promise<InsideActionResult>` —
-        // only `change-base-ref`, handled in its own branch below, does.)
-        const result = routeAction(raw, actions) as InsideActionResult | void | Promise<void>;
-        if (isInsideActionResult(result)) {
-          if (requestId) {
-            panel.postMessage({
-              type: 'action-result',
-              requestId,
-              ok: result.ok,
-              ...(result.message ? { message: result.message } : {}),
-            });
-          }
-          return;
-        }
-        // A void/promise-returning factory keeps its exact old semantics.
-        void reportAction(requestId, (message) => panel.postMessage(message), () => result);
-        return;
-      }
-      if (parsed.type === 'change-base-ref') {
-        // Refusal (dirty/conflict/base-missing/failed) must change NOTHING:
-        // a repaint here would risk showing a new base the change never
-        // actually reached. Success repaints so the scope card's `baseRef`
-        // reflects what git actually did — the ONE case (besides
-        // `select-gate-attempt`) this pump repaints outside a `state` push
-        // the caller already scheduled. Same isInsideActionResult contract as
-        // `inside-action`, just asynchronous: the outcome is a promise of one.
-        const result = routeAction(raw, actions) as Promise<InsideActionResult>;
-        void result.then(
-          (outcome) => {
-            if (outcome.ok) this.pushState(ticketId);
-            if (!requestId) return;
-            try {
-              panel.postMessage({
-                type: 'action-result',
-                requestId,
-                ok: outcome.ok,
-                ...(outcome.message ? { message: outcome.message } : {}),
-              });
-            } catch {
-              // A disposed panel. The change already ran (or was refused); losing
-              // the receipt is not a reason to surface an error nobody can act on.
-            }
-          },
-          (err: unknown) => {
-            this.logError('karst: change base ref failed', err);
-            if (!requestId) return;
-            try {
-              panel.postMessage({
-                type: 'action-result',
-                requestId,
-                ok: false,
-                message: 'Changing the base branch failed.',
-              });
-            } catch {
-              // A disposed panel.
-            }
-          },
-        );
-        return;
-      }
-      void reportAction(requestId, (message) => panel.postMessage(message), () => {
-        try {
-          const result = routeAction(raw, actions);
-          if (result && typeof (result as PromiseLike<void>).then === 'function') {
-            return (result as Promise<void>).catch((err: unknown) => {
-              this.logError('karst: dashboard action failed', err);
-              throw err;
-            });
-          }
-          // An InsideActionResult cannot reach this seam: `inside-action` is
-          // handled above, and no other case produces one.
-          return result as void | Promise<void>;
-        } catch (err) {
-          this.logError('karst: dashboard action failed', err);
-          throw err;
-        }
-      });
+    attachMessagePump(panel, {
+      ticketId,
+      actions,
+      selections: this.selections,
+      registry: this.registry,
+      pushState: (id) => this.pushState(id),
+      logError: this.logError,
     });
     panel.onDidChangeViewState((active) => {
       this.binding?.onDidActivate(ticketId, active);
@@ -527,30 +303,18 @@ export class DashboardManager {
       // The ACTIVE view can be closed while focused; the dispose is the only
       // signal that the focus is gone, so report it exactly like a deactivation.
       this.onViewActivated?.(ticketId, false);
-      this.statsControllers.get(ticketId)?.abort();
-      this.gateControllers.get(ticketId)?.abort();
       const tick = this.liveTicks.get(ticketId);
       if (tick) clearTimeout(tick);
       this.liveTicks.delete(ticketId);
       this.panels.delete(ticketId);
-      this.statsRequests.delete(ticketId);
-      this.statsControllers.delete(ticketId);
-      this.gateRequests.delete(ticketId);
-      this.gateControllers.delete(ticketId);
-      this.gateOptionsCache.delete(ticketId);
-      // The round switcher's selection dies with the panel — a later open of
-      // the same ticket id starts at the default (latest attempt) selection.
-      this.attemptSelections.delete(ticketId);
-      // Same lifecycle as the round switcher: findings repo scope is panel
-      // memory that must not leak to a later ticket reusing the id.
-      this.findingsRepoSelections.delete(ticketId);
-      // The panel's action capabilities die with it: a disposed panel's ids
-      // must never dispatch against a later snapshot.
-      this.registries.get(ticketId)?.dispose();
-      this.registries.delete(ticketId);
-      for (const entry of this.priorRegistries.get(ticketId) ?? []) entry.registry.dispose();
-      this.priorRegistries.delete(ticketId);
-      this.generations.delete(ticketId);
+      // The async loaders abort and drop their per-ticket state; the round
+      // switcher selection and findings repo scope die with the panel too (a
+      // later open of the same ticket id starts at the defaults), and the
+      // panel's action capabilities die with it: a disposed panel's ids must
+      // never dispatch against a later snapshot.
+      this.loaders.clear(ticketId);
+      this.selections.clear(ticketId);
+      this.registry.clear(ticketId);
     });
 
     this.refreshIcon(ticketId, panel);
@@ -650,28 +414,7 @@ export class DashboardManager {
     // and `register` memoizes by target so a re-mint of the same row is the
     // same id rather than unbounded growth. A real push (which re-renders the
     // webview with freshly minted ids) is what supersedes.
-    const existing = this.registries.get(ticketId);
-    let registry: InsideActionRegistry;
-    if (supplemental || !existing) {
-      const generation = (this.generations.get(ticketId) ?? 0) + 1;
-      this.generations.set(ticketId, generation);
-      registry = new InsideActionRegistry(generation, ticketId);
-      // The snapshot the user was LOOKING AT stays dispatchable for a short
-      // WALL-CLOCK window. A click is posted against the ids of the render on
-      // screen, and with a repaint every second that render can be superseded
-      // while the message is in flight — rejecting it would report "no longer
-      // available" for a button the user just pressed. Bounded and short: a
-      // capability must still die promptly.
-      if (existing) {
-        const grace = this.priorRegistries.get(ticketId) ?? [];
-        grace.push({ registry: existing, supersededAt: Date.now() });
-        this.priorRegistries.set(ticketId, grace);
-      }
-      this.pruneGrace(ticketId);
-      this.registries.set(ticketId, registry);
-    } else {
-      registry = existing;
-    }
+    const registry = this.registry.beginSnapshot(ticketId, supplemental);
     // The graph projection's controls (Slice 3 Task 11 / Slice 4 Task 4) ride
     // the SAME opaque typed-action seam: the projection is pure, so the host
     // injects the attach closure that mints ids in THIS snapshot's registry.
@@ -690,23 +433,29 @@ export class DashboardManager {
       this.approachPhases,
       this.isRepoRunnable,
       this.defaultProvider?.(),
-      this.agentContextFor(),
+      agentContextFor(this.agentContext?.(), this.manifest?.()),
       this.fixCapFor,
-      (id) => this.serviceNamesFor(id),
-      (processId) => this.assignmentFor(ticketId, processId),
+      (id) => {
+        const manifest = this.manifest?.();
+        return manifest ? serviceNamesFor(this.store, manifest, id) : [];
+      },
+      (processId) => assignmentFor(this.store, this.manifest?.(), ticketId, processId),
       registry,
-      this.gateOptionsCache.get(ticketId),
+      this.loaders.gateOptionsFor(ticketId),
       this.launchCheckout,
       // The inside ship rows name the repository, never the path the runtime
       // tables key by — the manifest's name for a recorded repoPath.
-      (repo) => this.repoNameFor(repo),
+      (repo) => {
+        const manifest = this.manifest?.();
+        return manifest ? repoNameFor(manifest, repo) : undefined;
+      },
       // The graph runtime's read-only projection (Slice 3 Task 11): built
       // host-side, null for a ticket with no graph run.
       graphInside,
       // The round switcher's current selection (Option B, T5): the state
       // builder resolves a stale/unknown key to that stage's latest attempt
       // itself, so the panel need not validate it against the snapshot.
-      this.attemptSelectionFor(ticketId),
+      this.selections.attemptSelectionFor(ticketId),
       // The manifest's resolved default base branch, for the scope card's
       // "changed" affordance (§ per-repo base branch — live change). Absent
       // manifest → `''`, which never marks a real branch as overridden.
@@ -714,9 +463,9 @@ export class DashboardManager {
         const manifest = this.manifest?.();
         return manifest ? resolveBaselineBranchForPath(manifest, repoPath) : '';
       },
-      // Cached candidates, warmed by `prefetchBranchCandidates` below — never
-      // fetched HERE, since this builder must stay synchronous.
-      (repoPath) => this.branchCandidates.get(repoPath) ?? [],
+      // Cached candidates, warmed by the loaders below — never fetched HERE,
+      // since this builder must stay synchronous.
+      (repoPath) => this.loaders.branchCandidatesFor(repoPath),
       // Task 4.1: the ship-stage warning row's threshold. Absent manifest, or
       // the findings lane switched off entirely (`enabled: false` — the
       // shipped example config's alternative to lowering blockingSeverity),
@@ -729,14 +478,14 @@ export class DashboardManager {
       })(),
       // The findings repo scope selection per stage (§ findings severity ramp):
       // panel memory, passed through to the quality reducers. Absent → "all".
-      this.findingsRepoSelectionFor(ticketId),
+      this.selections.findingsRepoSelectionFor(ticketId),
     );
     // A key the new snapshot no longer resolved to is dropped from panel
     // memory: `selectedAttempt` reports what the builder actually rendered,
     // so a mismatch means the requested key named no attempt this round —
     // there is nothing left worth remembering for the NEXT snapshot either.
-    this.pruneStaleAttemptSelections(ticketId, state);
-    this.pruneStaleFindingsRepoSelections(ticketId, state);
+    this.selections.pruneStaleAttempts(ticketId, state);
+    this.selections.pruneStaleFindingsRepos(ticketId, state);
     // `live` marks a REPAINT of data the panel already had, as opposed to a
     // push that reports something happening. The webview defers a live repaint
     // while the user is mid-interaction (an action in flight, a text selection
@@ -750,10 +499,10 @@ export class DashboardManager {
       ...(!settlesActions ? { settlesActions: false } : {}),
     });
     if (supplemental) {
-      this.pushWorktreeStats(ticketId, panel, state.worktrees);
-      this.prefetchBranchCandidates(ticketId, panel, state.worktrees);
+      this.loaders.pushWorktreeStats(ticketId, panel, state.worktrees, this.supplementalHost);
+      this.loaders.prefetchBranchCandidates(ticketId, panel, state.worktrees, this.supplementalHost);
       this.refreshIcon(ticketId, panel);
-      this.pushGateOptions(ticketId, panel, settlesActions);
+      this.loaders.pushGateOptions(ticketId, panel, settlesActions, this.supplementalHost);
     }
     this.scheduleLiveTick(ticketId, state);
   }
@@ -812,373 +561,52 @@ export class DashboardManager {
   }
 
   /**
-   * Drop every superseded registry past the grace window (or past the depth
-   * bound), disposing it — a capability that outlives its window is exactly
-   * what the snapshot scoping exists to prevent.
-   */
-  private pruneGrace(ticketId: number): void {
-    const grace = this.priorRegistries.get(ticketId);
-    if (!grace) return;
-    const cutoff = Date.now() - ACTION_GRACE_MS;
-    while (grace.length > 0 && (grace[0]!.supersededAt < cutoff || grace.length > MAX_GRACE_DEPTH)) {
-      grace.shift()!.registry.dispose();
-    }
-    if (grace.length === 0) this.priorRegistries.delete(ticketId);
-  }
-
-  /** This ticket's round switcher selection, plain-object shaped for `buildDashboardState`. */
-  private attemptSelectionFor(ticketId: number): Partial<Record<'uat' | 'review', string>> {
-    return Object.fromEntries(this.attemptSelections.get(ticketId) ?? []);
-  }
-
-  /** This ticket's findings repo selection, plain-object shaped for `buildDashboardState`. */
-  private findingsRepoSelectionFor(ticketId: number): Partial<Record<'uat' | 'review', string>> | undefined {
-    const map = this.findingsRepoSelections.get(ticketId);
-    if (!map || map.size === 0) return undefined;
-    return Object.fromEntries(map);
-  }
-
-  /**
-   * Drop any selection the snapshot just rendered did NOT resolve to — the
-   * state builder falls back to latest for a key naming no recorded attempt
-   * (a stale panel selection, or a ticket that has since re-run the stage),
-   * and a selection that has already stopped meaning anything should not
-   * keep being requested on every following push.
-   */
-  private pruneStaleAttemptSelections(ticketId: number, state: DashboardState): void {
-    const current = this.attemptSelections.get(ticketId);
-    if (!current || current.size === 0) return;
-    let changed = false;
-    const next = new Map(current);
-    for (const stage of ['uat', 'review'] as const) {
-      const requested = current.get(stage);
-      if (requested === undefined) continue;
-      if (state.insideViews[stage]?.selectedAttempt !== requested) {
-        next.delete(stage);
-        changed = true;
-      }
-    }
-    if (!changed) return;
-    if (next.size === 0) this.attemptSelections.delete(ticketId);
-    else this.attemptSelections.set(ticketId, next);
-  }
-
-  /**
-   * Drop any findings repo selection the snapshot just rendered did NOT resolve
-   * to — when the batch names fewer than two repos, the reducer emits no
-   * `repoFilter`, and a selection that no longer applies should not keep being
-   * requested on every following push.
-   */
-  private pruneStaleFindingsRepoSelections(ticketId: number, state: DashboardState): void {
-    const current = this.findingsRepoSelections.get(ticketId);
-    if (!current || current.size === 0) return;
-    let changed = false;
-    const next = new Map(current);
-    for (const stage of ['uat', 'review'] as const) {
-      const requested = current.get(stage);
-      if (requested === undefined) continue;
-      const view = state.insideViews[stage];
-      const processes = view?.processes ?? [];
-      const filter = processes.find((p) => p.id === (stage === 'uat' ? 'tester' : 'review'))?.repoFilter;
-      // The selection is valid when the filter exists and names the selected
-      // repo, OR when the filter is absent because there are fewer than two
-      // repos (the selection degrades to "all" silently).
-      if (filter && requested !== null && !filter.repos.includes(requested)) {
-        next.delete(stage);
-        changed = true;
-      } else if (!filter && requested !== undefined) {
-        next.delete(stage);
-        changed = true;
-      }
-    }
-    if (!changed) return;
-    if (next.size === 0) this.findingsRepoSelections.delete(ticketId);
-    else this.findingsRepoSelections.set(ticketId, next);
-  }
-
-  /**
-   * The runnable services in the ticket's scope, by repository NAME. Non-runnable
-   * repositories are absent by construction (isRunnable is the only gate) — a
-   * repo with no `service:` block has no process to name.
-   */
-  private serviceNamesFor(ticketId: number): string[] {
-    const manifest = this.manifest?.();
-    if (!manifest) return [];
-    const scoped = new Set(getTicket(this.store, ticketId)?.selectedRepos ?? []);
-    return Object.entries(manifest.repositories)
-      .filter(([name, repo]) => scoped.has(name) && isRunnable(repo))
-      .map(([name]) => name);
-  }
-
-  /**
-   * The manifest repository NAME for a recorded repo value — the runtime
-   * tables (`ship_repo_steps`, `prs`, `merge_checks`) key by repo PATH, and
-   * the inside rows must say "Karst-extention", never
-   * "/Users/nd/Work/projects/karst/". A path the manifest does not know
-   * (deleted repo, foreign row) falls back to the raw value.
-   */
-  private repoNameFor(repo: string): string | undefined {
-    const manifest = this.manifest?.();
-    if (!manifest) return undefined;
-    for (const [name, def] of Object.entries(manifest.repositories)) {
-      if (def.repoPath === repo) return name;
-    }
-    return undefined;
-  }
-
-  /**
-   * The dashboard's agent context, enriched with a resolver for a ticket's
-   * effective preset defaults. The manager is manifest-free by contract, so the
-   * resolver is built here from the injected manifest getter; without a manifest
-   * the state builder falls back to the legacy context defaults.
-   */
-  private agentContextFor(): DashboardAgentContext {
-    const ctx = this.agentContext?.() ?? {};
-    const manifest = this.manifest?.();
-    if (!manifest) return ctx;
-    return {
-      ...ctx,
-      defaultsFor: (ticketPreset, ticketProvider) =>
-        resolveAgentDefaults(manifest, { ticketPreset, explicitProvider: ticketProvider }),
-    };
-  }
-
-  /**
-   * The provider/model karst is CONFIGURED to run for one inside process —
-   * shown before any recorded segment exists. Never the recorded identity: a
-   * process_runs snapshot is what actually ran and outranks this everywhere it
-   * exists (model/inside/agent.ts).
-   */
-  private assignmentFor(
-    ticketId: number,
-    processId: 'session' | 'tester' | 'review',
-  ): SessionConfiguredInput | null {
-    const manifest = this.manifest?.();
-    if (!manifest) return null;
-    const ticket = getTicket(this.store, ticketId);
-    if (processId === 'session') {
-      // The implementation session has no process role: it is the ticket's own
-      // agent, resolved by the launch precedence rule with the ticket's preset
-      // supplying the manifest-level defaults.
-      const defaults = resolveAgentDefaults(manifest, {
-        ticketPreset: ticket?.agentPreset,
-        explicitProvider: ticket?.agentProvider ?? null,
-      });
-      const provider = defaults.provider;
-      return { provider, model: resolveModelForProvider(provider, ticket?.model ?? null, defaults.model) ?? null };
-    }
-    const role = processId === 'tester' ? 'uat-tester' : 'review';
-    const snapshot = resolveProcessAssignment(manifest, role, {
-      provider: ticket?.agentProvider ?? undefined,
-      model: ticket?.model ?? undefined,
-      preset: ticket?.agentPreset ?? undefined,
-    });
-    // NULL is configured ABSENCE (`enabled: false`), not "unknown" — the caller
-    // renders it as a disabled process, never as a missing lookup.
-    return snapshot ? { provider: snapshot.provider, model: snapshot.model ?? null } : null;
-  }
-
-  /**
-   * Warm `branchCandidates` for every worktree this snapshot rendered that
-   * has not been fetched yet (§ per-repo base branch — live change). Never
-   * refetches a repoPath already cached — the listing does not change while
-   * the panel is open, and a warm cache must not cost a git call on every
-   * tick. Once resolved, a passive repaint (never `pushState`: this is
-   * host-external news, not the response to any in-flight action) lets the
-   * scope card's combobox pick up the newly loaded options.
-   */
-  private prefetchBranchCandidates(
-    ticketId: number,
-    panel: DashboardPanel,
-    worktrees: readonly WorktreeView[],
-  ): void {
-    if (!this.loadBranchCandidates) return;
-    const missing = [...new Set(worktrees.map((w) => w.repo))].filter(
-      (repo) => !this.branchCandidates.has(repo),
-    );
-    if (missing.length === 0) return;
-    void Promise.all(
-      missing.map((repo) =>
-        this.loadBranchCandidates!(repo).then(
-          (names) => this.branchCandidates.set(repo, names),
-          () => this.branchCandidates.set(repo, []),
-        ),
-      ),
-    ).then(() => {
-      if (this.panels.get(ticketId) !== panel) return;
-      this.pushPassiveState(ticketId);
-    });
-  }
-
-  /**
-   * Load supplemental filesystem facts without making the store-backed state
-   * builder async. Only the latest request for the still-live panel may post.
-   */
-  private pushWorktreeStats(
-    ticketId: number,
-    panel: DashboardPanel,
-    worktrees: DashboardState['worktrees'],
-  ): void {
-    if (!this.loadStats) return;
-    this.statsControllers.get(ticketId)?.abort();
-    const controller = new AbortController();
-    this.statsControllers.set(ticketId, controller);
-    const request = (this.statsRequests.get(ticketId) ?? 0) + 1;
-    this.statsRequests.set(ticketId, request);
-    void this.loadStats(worktrees, controller.signal).then(
-      (stats) => {
-        if (this.panels.get(ticketId) !== panel) return;
-        if (this.statsRequests.get(ticketId) !== request) return;
-        this.statsControllers.delete(ticketId);
-        panel.postMessage({ type: 'worktree-stats', stats });
-      },
-      (error) => {
-        if (this.panels.get(ticketId) !== panel) return;
-        if (this.statsRequests.get(ticketId) !== request) return;
-        this.statsControllers.delete(ticketId);
-        this.logError('karst: dashboard worktree stats failed', error);
-      },
-    );
-  }
-
-  /**
-   * Resolve and push the ticket's gate options. Only the latest request for a
-   * still-live panel may post — a slower earlier probe must never overwrite a
-   * newer answer, the same guard `pushWorktreeStats` carries.
-   */
-  private pushGateOptions(
-    ticketId: number,
-    panel: DashboardPanel,
-    settlesActions: boolean,
-  ): void {
-    if (!this.loadGateOptions) return;
-    this.gateControllers.get(ticketId)?.abort();
-    const controller = new AbortController();
-    this.gateControllers.set(ticketId, controller);
-    const request = (this.gateRequests.get(ticketId) ?? 0) + 1;
-    this.gateRequests.set(ticketId, request);
-    void this.loadGateOptions(ticketId, controller.signal).then(
-      (options) => {
-        if (this.panels.get(ticketId) !== panel) return;
-        if (this.gateRequests.get(ticketId) !== request) return;
-        this.gateControllers.delete(ticketId);
-        // Remember the resolved names so the follow-up snapshot can render
-        // them as pending gate rows. Preserve the originating snapshot's
-        // action-settlement authority: an async supplement to passive news is
-        // still passive. Only a CHANGE re-pushes, or this would loop forever.
-        const previous = this.gateOptionsCache.get(ticketId);
-        this.gateOptionsCache.set(ticketId, options);
-        panel.postMessage({ type: 'gate-options', options });
-        if (!previous || !sameGateOptions(previous, options)) {
-          if (settlesActions) this.pushState(ticketId);
-          else this.pushPassiveState(ticketId);
-        }
-      },
-      (error) => {
-        if (this.panels.get(ticketId) !== panel) return;
-        if (this.gateRequests.get(ticketId) !== request) return;
-        this.gateControllers.delete(ticketId);
-        this.logError('karst: dashboard gate options failed', error);
-      },
-    );
-  }
-
-  /**
    * Push a transient inside-progress event to a ticket panel; no-op if not open.
-   * Validated at this boundary (`parseInsideProgress`) — the webview is a trust
-   * boundary in both directions, and a malformed event must never ship. Live
-   * Ship rides this same generic union (Finding 12); there is no ship-specific
-   * progress channel.
    */
   postInsideProgress(ticketId: number, event: InsideProgressEvent): void {
-    const panel = this.panels.get(ticketId);
-    if (!panel) return;
-    const validated = parseInsideProgress(event);
-    if (validated === null) return;
-    panel.postMessage({ type: 'inside-progress', event: validated });
+    this.console.postInsideProgress(ticketId, event);
   }
 
   /**
-   * Answer a `stage-log-request`: resolve the log via the injected reader and
-   * post the `stage-log` message. The answer IS the terminal outcome — always
-   * sent (ok or error), never left to a watchdog (UI-R13).
+   * Answer a `stage-log-request`. The answer IS the terminal outcome (UI-R13).
    */
   requestStageLog(ticketId: number, stage: GateStage): void {
-    const panel = this.panels.get(ticketId);
-    if (!panel) return;
-    const result = this.stageLogReader
-      ? this.stageLogReader(ticketId, stage)
-      : { kind: 'error', message: 'No console log source is configured.' };
-    panel.postMessage({ type: 'stage-log', stage, result });
+    this.console.requestStageLog(ticketId, stage);
   }
 
   /**
-   * Answer an `agent-log-request`: resolve the process's console tail via the
-   * injected reader and post the `agent-log` message. The answer IS the
-   * terminal outcome — always sent (ok or error), never left to a watchdog
-   * (UI-R13).
+   * Answer an `agent-log-request`. The answer IS the terminal outcome (UI-R13).
    */
   requestAgentLog(ticketId: number, processId: AgentProcessId): void {
-    const panel = this.panels.get(ticketId);
-    if (!panel) return;
-    const result = this.agentLogReader
-      ? this.agentLogReader(ticketId, processId)
-      : { kind: 'error', message: 'No console log source is configured.' };
-    panel.postMessage({ type: 'agent-log', processId, result });
+    this.console.requestAgentLog(ticketId, processId);
   }
 
   /**
    * Push one sanitized live chunk of a gate-lane AI process's output to the
-   * ticket's panel; no-op if the panel is not open. The text is already
-   * sanitized and bounded host-side (the `AgentConsole` sink); this boundary
-   * forwards it verbatim to the open terminal view.
+   * ticket's panel; no-op if the panel is not open.
    */
   postAgentOutput(ticketId: number, processId: AgentProcessId, text: string): void {
-    const panel = this.panels.get(ticketId);
-    if (!panel) return;
-    panel.postMessage({ type: 'agent-output', processId, text });
+    this.console.postAgentOutput(ticketId, processId, text);
   }
 
   /**
    * Push one sanitized live chunk of a gate stage's deterministic gate output
-   * to the ticket's panel; no-op if the panel is not open. Sanitized host-side
-   * (the `GateConsole` sink); this boundary forwards it verbatim to the open
-   * stage console.
+   * to the ticket's panel; no-op if the panel is not open.
    */
   postStageOutput(ticketId: number, stage: GateStage, text: string): void {
-    const panel = this.panels.get(ticketId);
-    if (!panel) return;
-    panel.postMessage({ type: 'stage-output', stage, text });
+    this.console.postStageOutput(ticketId, stage, text);
   }
 
   /**
-   * Answer a `server-logs-request`: read all server log files via the injected
-   * reader, start polling for live updates, and post the `server-logs` message.
-   * The answer IS the terminal outcome — always sent (ok or error), never left
-   * to a watchdog (UI-R13).
+   * Answer a `server-logs-request`; the answer IS the terminal outcome (UI-R13).
    */
   requestServerLogs(ticketId: number): void {
-    const panel = this.panels.get(ticketId);
-    if (!panel) return;
-    if (!this.serverLogsReader) {
-      panel.postMessage({ type: 'server-logs', servers: [] });
-      return;
-    }
-    const servers = listServersByTicket(this.store, ticketId);
-    const logServers = servers.map((s) => ({ service: s.service, logPath: s.logPath }));
-    const result = this.serverLogsReader.readLogs(logServers);
-    panel.postMessage({ type: 'server-logs', servers: result.servers });
-    this.serverLogsReader.startPolling(logServers, ticketId, (tid, service, text) =>
-      this.postServerLogOutput(tid, service, text),
-    );
+    this.console.requestServerLogs(ticketId);
   }
 
-  /**
-   * Answer a `server-logs-close`: stop polling for server log updates. No-op
-   * if the panel is not open or no reader is configured.
-   */
+  /** Answer a `server-logs-close`: stop polling for server log updates. */
   closeServerLogs(ticketId: number): void {
-    this.serverLogsReader?.stopPolling(ticketId);
+    this.console.closeServerLogs(ticketId);
   }
 
   /**
@@ -1186,53 +614,20 @@ export class DashboardManager {
    * panel; no-op if the panel is not open.
    */
   postServerLogOutput(ticketId: number, service: string, text: string): void {
-    const panel = this.panels.get(ticketId);
-    if (!panel) return;
-    panel.postMessage({ type: 'server-log-output', service, text });
+    this.console.postServerLogOutput(ticketId, service, text);
   }
 
   /**
    * Dispatch one opaque inside action id against the ticket's CURRENT action
-   * registry. Rejects (logged) when the target fails its checks; unknown ids
-   * are silently dropped — a stale or foreign id is not a fault to surface.
-   * Returns the terminal outcome so the message pump can report the REAL
-   * result to the webview (UI-R13): a rejected or stale dispatch is never
-   * acknowledged as success.
+   * registry. Returns the terminal outcome so the message pump can report the
+   * REAL result to the webview (UI-R13).
    */
   dispatchInsideAction(ticketId: number, actionId: string): InsideActionResult {
-    // Current snapshot first, then the ONE it superseded: an id only ever
-    // resolves against its own generation, so trying both is a grace window,
-    // not a widening of what a given id can reach.
-    const registry = this.registries.get(ticketId);
-    if (!registry) return { ok: false, message: 'This action is no longer available.' };
-    const dispatchAgainst = (target: InsideActionRegistry): ReturnType<typeof dispatchInsideAction> =>
-      dispatchInsideAction(this.store, target, actionId, {
-        host: this.insideHost ?? NOOP_INSIDE_HOST,
-        worktreeForRepo: (repo) =>
-          listWorktreesByTicket(this.store, ticketId).find((w) => w.repo === repo)?.path,
-        fs: { existsSync, realpathSync },
-      });
-    let outcome = dispatchAgainst(registry);
-    if (outcome.outcome === 'unknown') {
-      this.pruneGrace(ticketId);
-      // Newest first: an id resolves only against its own generation, so this
-      // is a grace window, never a widening of what a given id can reach.
-      const grace = this.priorRegistries.get(ticketId) ?? [];
-      for (let i = grace.length - 1; i >= 0 && outcome.outcome === 'unknown'; i -= 1) {
-        outcome = dispatchAgainst(grace[i]!.registry);
-      }
-    }
-    if (outcome.outcome === 'rejected') {
-      this.logError(`karst: inside action rejected: ${outcome.reason}`, undefined);
-      // The reason is host diagnostic prose and may name a path — never send it
-      // to the webview. The user-facing message is a fixed string.
-      return { ok: false, message: 'This action could not be run.' };
-    }
-    if (outcome.outcome === 'unknown') {
-      // A stale or foreign capability is not a success.
-      return { ok: false, message: 'This action is no longer available.' };
-    }
-    return { ok: true };
+    return this.registry.dispatch(ticketId, actionId, {
+      store: this.store,
+      host: this.insideHost ?? NOOP_INSIDE_HOST,
+      logError: this.logError,
+    });
   }
 
   /**
@@ -1260,62 +655,5 @@ export class DashboardManager {
   /** The tickets with a currently open panel, for the external-change watcher. */
   openTicketIds(): number[] {
     return [...this.panels.keys()];
-  }
-}
-
-/** Narrow a routed action's return to the synchronous inside outcome, if that is what it is. */
-function isInsideActionResult(
-  v: InsideActionResult | void | Promise<void>,
-): v is InsideActionResult {
-  return typeof v === 'object' && v !== null && typeof (v as { ok?: unknown }).ok === 'boolean';
-}
-
-/** An absent host resolves nothing: every dispatch is unknown/rejected, never acted on. */
-const NOOP_INSIDE_HOST: InsideActionHost = {
-  openFile: () => undefined,
-  openPr: () => undefined,
-  openCommit: () => undefined,
-  resumeStage: () => undefined,
-  openFullEvidence: () => undefined,
-  openBoundedEvidence: () => undefined,
-  openSession: () => undefined,
-  graphOpenSession: () => undefined,
-  graphStop: () => undefined,
-  graphResume: () => undefined,
-  graphRestart: () => undefined,
-  graphReplan: () => undefined,
-  graphConfirm: () => undefined,
-  graphMarkImpl: () => undefined,
-  graphDiscardNode: () => undefined,
-  graphEditOverride: () => undefined,
-  retryShipRepo: () => undefined,
-};
-
-/** The graph projection's ticket-less target, stamped with the registry's
- *  ticket — the ONLY place the projection's targets become dispatchable
- *  capabilities. Exhaustive over the closed `GraphActionTarget` union. */
-function toRegisteredGraphTarget(
-  target: GraphActionTarget,
-  ticketId: number,
-): InsideActionTarget {
-  switch (target.kind) {
-    case 'graph-open-session':
-      return { kind: 'graph-open-session', ticketId, session: target.session };
-    case 'graph-stop':
-      return { kind: 'graph-stop', ticketId, graphRunId: target.graphRunId };
-    case 'graph-resume':
-      return { kind: 'graph-resume', ticketId, graphRunId: target.graphRunId };
-    case 'graph-restart':
-      return { kind: 'graph-restart', ticketId, graphRunId: target.graphRunId };
-    case 'graph-replan':
-      return { kind: 'graph-replan', ticketId, graphRunId: target.graphRunId };
-    case 'graph-confirm':
-      return { kind: 'graph-confirm', ticketId, graphRunId: target.graphRunId };
-    case 'graph-mark-impl':
-      return { kind: 'graph-mark-impl', ticketId, graphRunId: target.graphRunId };
-    case 'graph-discard-node':
-      return { kind: 'graph-discard-node', ticketId, nodeRunId: target.nodeRunId };
-    case 'graph-edit-override':
-      return { kind: 'graph-edit-override', ticketId, nodeRunId: target.nodeRunId };
   }
 }
