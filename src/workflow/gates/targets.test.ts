@@ -175,6 +175,32 @@ describe('selectReviewTargets', () => {
     }
   });
 
+  // NDL-62: the timeout must abort the in-flight fetch so `runGitProcess` can
+  // `killTree` the child, instead of leaving it orphaned until its own 60s
+  // `GIT_TIMEOUT_MS`. Without the abort, `fetch` promises that ignore the race
+  // keep a live `git fetch` hammering the remote past the caller's budget.
+  it('aborts the in-flight fetch when the timeout fires', async () => {
+    const signals: (AbortSignal | undefined)[] = [];
+    const git: GitRunner = async (args, _cwd, options) => {
+      if (args[0] === 'status') return { stdout: '', stderr: '', exitCode: 0 };
+      if (args[0] === 'fetch') {
+        signals.push(options?.signal);
+        return new Promise<never>(() => {});
+      }
+      return { stdout: '', stderr: '', exitCode: 1 };
+    };
+
+    await selectReviewTargets(
+      project,
+      [{ repo: '/repos/web', path: '/wt/web', baseRef: 'develop', branch: 'karst/x' }],
+      git,
+      { gitFetchTimeoutMs: 20 },
+    );
+
+    expect(signals.length).toBeGreaterThan(0);
+    expect(signals.every((signal) => signal?.aborted === true)).toBe(true);
+  });
+
   it('reports the worktree row base, not the manifest default', async () => {
     const store = openStore(':memory:');
     const ticket = createTicket(store, { key: 'T-1', title: 't' });
