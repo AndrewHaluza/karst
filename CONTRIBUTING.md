@@ -134,6 +134,19 @@ and never fails the check.
 
 Target `develop`, not `main`.
 
+### Branch policy
+
+- **`develop` is the trunk.** Every feature, fix, and dependency PR targets it.
+- **`main` is the release branch.** It moves only by promotion from `develop`,
+  or by a `hotfix/*` PR that is back-merged into `develop` with `--merge` the
+  same day.
+- **Never squash or cherry-pick between the two branches.** Promotion and
+  back-merge use a merge commit so `main` stays an ancestor of `develop` and
+  the branches cannot silently re-diverge.
+- CI enforces this: `main-source-guard` rejects a PR into `main` whose head is
+  not `develop` or `hotfix/*`, and `branch-drift` fails whenever `main` carries
+  a non-merge commit that `develop` lacks.
+
 ## 8. Licensing of your contribution
 
 Karst is distributed under the [Business Source License 1.1](LICENSE), which
