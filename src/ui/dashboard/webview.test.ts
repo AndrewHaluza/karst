@@ -8,6 +8,7 @@ import { injectPalette } from '../../model/palette.js';
 import { injectProviderIdentity } from '../../model/providerIdentity.js';
 import { injectAgentIdentity } from '../../model/agentIdentity.js';
 import { injectServerLogsView } from '../../model/serverLogsView.js';
+import { injectWebviewSend } from '../../model/webviewSendInjector.js';
 import { decodeAnsi } from './logLine.js';
 import { implementationPrototypeFixture, renderFixtures, renderStateFor } from './renderFixtures.js';
 import type { RenderRepoCount } from './renderFixtures.js';
@@ -167,7 +168,7 @@ describe('dashboard webview.html', () => {
     expect(HTML).not.toMatch(/force-push (it |the branch )?yourself/i);
     // The submit posts the closed message shape messages.ts validates.
     expect(HTML).toContain("if (act === 'change-base-ref')");
-    expect(HTML).toMatch(/post\(\{ type: act, repo, baseRef, rebase, requestId \}\)/);
+    expect(HTML).toMatch(/karstSend\.changeBaseRef\(repo, baseRef, rebase, requestId\)/);
     // A refusal must change nothing: no repaint happens from this branch —
     // only the shared action-result channel (karstSettle) reports it, and a
     // success closes the form via the SAME channel rather than optimistically
@@ -854,7 +855,7 @@ describe('dashboard webview.html', () => {
     // Goes through the generic pending path (unlike merge-pr, resolve-conflicts
     // is not one of the three long-running actions that settle from a state
     // push), so it carries a requestId same as every other generic control.
-    expect(HTML).toMatch(/post\(\{ type: act, repo: btn\.dataset\.repo, requestId \}\)/);
+    expect(HTML).toMatch(/karstSend\.resolveConflicts\(btn\.dataset\.repo, requestId\)/);
   });
 
   /**
@@ -948,7 +949,7 @@ describe('dashboard webview.html', () => {
     // UI-R37: merge-pr keeps posting only {type:'merge-pr', repo}. Attaching
     // the generic requestId would make extension.ts's immediate (unawaited)
     // ack settle the button long before the real merge finishes.
-    expect(HTML).toMatch(/post\(\{ type: act, repo \}\);/);
+    expect(HTML).toMatch(/karstSend\.mergePr\(repo\);/);
   });
 
   it('never lets the webview choose the merge strategy', () => {
@@ -1121,7 +1122,10 @@ describe('dashboard webview.html', () => {
     );
     expect(generic).toMatch(/karstIsPending\(btn\)/);
     expect(generic).toMatch(/karstBeginPending\(btn, requestId\)/);
-    expect(generic).toMatch(/requestId \}\)/);
+    // The message shape is chosen by the typed SEND_BY_ACT map, whose values
+    // are karstSend.* senders from webviewSend.ts — never a raw post.
+    expect(generic).toMatch(/SEND_BY_ACT\[act\]/);
+    expect(generic).toMatch(/send\(btn, requestId\)/);
   });
 
   it('starts one service from an offline row, while the header keeps whole-ticket Start', () => {
@@ -1318,7 +1322,7 @@ describe('dashboard webview.html', () => {
     expect(HTML).toContain("inheritCore: lastState.agentSwitch.inheritCore || ''");
     expect(HTML).toMatch(/Closing this menu takes no action/);
     expect(HTML).toMatch(/draftCore !== s\.provider/); // changed-draft gate
-    expect(HTML).toMatch(/post\(\{ type: 'switch-agent', provider: draftCore, model: draftModel \|\| null, effort: draftEffort \|\| null \}\)/);
+    expect(HTML).toMatch(/karstSend\.switchAgent\(draftCore, draftModel \|\| null, draftEffort \|\| null\)/);
     expect(HTML).not.toMatch(/data-act="switch-agent"/);      // no longer a Now-line button
   });
 
@@ -1413,12 +1417,10 @@ describe('dashboard webview.html', () => {
   });
 
   it('posts stage-resume with the ticket id and the button\'s own stage key', () => {
-    const generic = HTML.slice(
-      HTML.indexOf('// Every other posting control settles'),
-      HTML.indexOf('window.addEventListener'),
-    );
-    expect(generic).toMatch(
-      /btn\.dataset\.stagekey[\s\S]{0,200}post\(\{ type: act, ticketId: lastState\.ticketId, stageKey: btn\.dataset\.stagekey, requestId \}\)/,
+    // The generic path routes through SEND_BY_ACT; stage-resume's entry carries
+    // ITS OWN ticketId/stageKey (the host re-validates both) via the typed sender.
+    expect(HTML).toMatch(
+      /karstSend\.stageResume\(lastState\.ticketId, btn\.dataset\.stagekey, requestId\)/,
     );
   });
 
@@ -1492,7 +1494,7 @@ describe('dashboard webview.html', () => {
     );
     expect(click).toContain('karstIsPending(btn)');
     expect(click).toContain('karstBeginPending(btn, requestId)');
-    expect(click).toContain("type: act");
+    expect(click).toContain('karstSend.setDisabledGates(');
   });
 
   // ── inside ledger (the inside redesign) ─────────────────────────────────
@@ -1572,7 +1574,7 @@ describe('dashboard webview.html', () => {
     // stage as authority (messages.ts drops any payload with a companion
     // field).
     expect(HTML).toMatch(/data-action-id="\$\{esc\(a\.actionId\)\}"/);
-    expect(HTML).toMatch(/btn\.dataset\.actionId\) \{\n\s*post\(\{ type: act, actionId: btn\.dataset\.actionId, requestId \}\)/);
+    expect(HTML).toMatch(/karstSend\.insideAction\(btn\.dataset\.actionId, requestId\)/);
   });
 
   it('renders the host-shipped continuation label, falling back to the static one (B9)', () => {
@@ -2284,8 +2286,11 @@ describe('shared server logs surface', () => {
  * src/ui/xterm.test.ts; the markers remaining here mean the console surface
  * takes the harness's fake-library path.
  */
-const HYDRATED = injectServerLogsView(
-  injectAgentIdentity(injectProviderIdentity(injectPalette(injectDesignSystem(HTML)))),
+const HYDRATED = injectWebviewSend(
+  injectServerLogsView(
+    injectAgentIdentity(injectProviderIdentity(injectPalette(injectDesignSystem(HTML)))),
+  ),
+  'dashboard',
 );
 
 function previewScriptSource(): string {
@@ -4212,7 +4217,7 @@ describe('send back to implement (executed in a VM)', () => {
   it('carries no requestId on the send-back wire payload — it settles from state', () => {
     // Same contract as merge-pr/refresh-prs: the host answers with a state push,
     // not an immediate ack, so the wire carries exactly the payload-free action.
-    expect(HYDRATED).toMatch(/if \(act === 'send-back-to-implement'\)[\s\S]*?post\(\{ type: act \}\)/);
+    expect(HYDRATED).toMatch(/if \(act === 'send-back-to-implement'\)[\s\S]*?karstSend\.sendBackToImplement\(\)/);
   });
 });
 
@@ -4311,7 +4316,7 @@ describe('address pull request feedback (executed in a VM)', () => {
   });
 
   it('carries no requestId on the wire payload — it settles from state', () => {
-    expect(HYDRATED).toMatch(/if \(act === 'address-pr-feedback'\)[\s\S]*?post\(\{ type: act \}\)/);
+    expect(HYDRATED).toMatch(/if \(act === 'address-pr-feedback'\)[\s\S]*?karstSend\.addressPrFeedback\(\)/);
   });
 });
 
@@ -4412,7 +4417,7 @@ describe('round switcher — attempt tabs (T6, executed in a VM)', () => {
     // Same delegated `document.addEventListener('click', ...)` every other
     // action posts through — never a bespoke listener bound to the tablist.
     expect(HYDRATED).toMatch(
-      /if \(act === 'select-gate-attempt'\)[\s\S]{0,300}post\(\{ type: act, stage[\s\S]{0,60}key[\s\S]{0,20}\}\)/,
+      /if \(act === 'select-gate-attempt'\)[\s\S]{0,300}karstSend\.selectGateAttempt\(stage, key\)/,
     );
   });
 

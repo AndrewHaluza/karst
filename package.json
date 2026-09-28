@@ -28,7 +28,7 @@
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
     "compile": "tsc -p tsconfig.build.json",
     "copy-assets": "node scripts/copy-assets.mjs",
-    "build": "npm run clean && node scripts/build-webview-scripts.mjs && node scripts/build-extension.mjs --production && npm run copy-assets && node scripts/verify-build.mjs",
+    "build": "npm run clean && node scripts/build-extension.mjs --production && npm run copy-assets && node scripts/verify-build.mjs",
     "vscode:prepublish": "npm run build",
     "rebuild:better-sqlite3": "node scripts/rebuild-better-sqlite3.mjs auto",
     "rebuild:electron": "node scripts/rebuild-better-sqlite3.mjs electron",

@@ -36,6 +36,13 @@ const assets = [
   'model/designRuntime.webview.js',
   'model/tablerIcons.webview.css',
   'model/tablerIcons.webview.js',
+  // Generated webview message-sender bundles (built from
+  // `src/ui/<view>/webviewSend.entry.ts` by scripts/build-webview-send.mjs,
+  // whose output lands in src/ next to the HTML so RUNTIME_ASSETS_ROOT resolves
+  // in both the test and shipped worlds). Gitignored build products, mirrored
+  // into dist/ like every other runtime asset.
+  'ui/dashboard/webviewSend.webview.js',
+  'ui/settings/webviewSend.webview.js',
 ]; // sourced from src/
 // Sourced from the repo root. The setup runbook travels the same way the
 // manifest template does: it is written into the TARGET project at scaffold

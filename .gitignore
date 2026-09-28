@@ -7,6 +7,14 @@
 node_modules
 dist
 coverage
+# Generated webview message-sender bundles — esbuild output of
+# `src/ui/<view>/webviewSend.entry.ts`, rebuilt by scripts/build-extension.mjs
+# (and the vitest globalSetup) before any consumer reads them. They land in
+# src/ so `readFileSync(join(RUNTIME_ASSETS_ROOT, …))` resolves in both the
+# unbundled test world and the shipped extension, then copy-assets mirrors them
+# into dist/. Never edit or commit them; edit webviewSend.ts instead.
+src/ui/dashboard/webviewSend.webview.js
+src/ui/settings/webviewSend.webview.js
 # karst config lives at .karst/karst.yml and is committed; only the generated
 # worktrees under it are ignored. (Note: worktree.ts excludes the whole .karst/
 # in each *service* repo via .git/info/exclude — that asymmetry is intentional:

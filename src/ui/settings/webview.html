@@ -1863,12 +1863,12 @@
   // src/model/agentPicker.ts, injected here at load. Defines mountAgentPicker.
   /*KARST_AGENT_PICKER_JS*/
 
-  // Type-checked webview message posting (NDL-39): imports and uses WebviewMessage
-  // types so TypeScript's compiler catches field typos/renames at build time.
-  /*KARST_WEBVIEW_MESSAGES_SETTINGS*/
+  // Type-checked webview message senders (NDL-39). The bundle below is the ONE
+  // caller of the VS Code webview API and defines the `vscode` + `karstSend`
+  // globals; every control posts through a typed `karstSend.<name>(...)`
+  // sender, so a renamed message field is a tsc error instead of a silent drop.
+  /*KARST_WEBVIEW_SEND_SETTINGS*/
 
-  const vscode = acquireVsCodeApi();
-  const post = (m) => vscode.postMessage(m);
   const el = (id) => document.getElementById(id);
   const esc = karstEsc;
   // A dynamic value (a repository/agent/approach name) used as an HTML `id`/
@@ -1889,12 +1889,16 @@
    * bound this way are recreated on every re-render, so this calls the
    * runtime's pieces directly rather than `karstAction` (which binds its own
    * listener once) — the delegated `click` handler already fires per click.
+   *
+   * `send` is a typed sender closure from webviewSend.ts, called with the
+   * requestId it must carry (e.g. `(rid) => karstSend.save(manifest, section, rid)`).
+   * The message shape is decided THERE, never in this HTML.
    */
-  function postAction(control, type, payload) {
+  function postAction(control, send) {
     if (!control || karstIsPending(control) || control.disabled) return;
     const requestId = karstRequestId();
     karstBeginPending(control, requestId);
-    post({ type, ...(payload || {}), requestId });
+    send(requestId);
   }
 
   const emptyManifest = () => ({
@@ -2348,13 +2352,13 @@
     validateTimer = setTimeout(() => {
       // Validate the CANDIDATE, not the whole draft: it is what Save would write,
       // so a half-finished edit parked on another tab can never block this one.
-      post({ type: 'validate', manifest: saveCandidate(currentSection) });
+      karstSend.validate(saveCandidate(currentSection));
       // The inside-process rows are live only on the Agents tab, and their
       // validation states are host-side facts computed from the same candidate
       // (the webview derives nothing) — ask for fresh views alongside the
       // validation the tab already posts.
       if (currentSection === 'agents') {
-        post({ type: 'validate-process-assignments', manifest: saveCandidate('agents') });
+        karstSend.validateProcessAssignments(saveCandidate('agents'));
       }
     }, 150);
   }
@@ -3212,7 +3216,7 @@
     if (!t.dataset) return;
 
     if (t.dataset.cmd !== undefined) {
-      postAction(t, 'get-approach-command-body', { approachId: t.dataset.approach, command: t.dataset.cmd });
+      postAction(t, (requestId) => karstSend.getApproachCommandBody(t.dataset.approach, t.dataset.cmd, requestId));
       return;
     }
     if (t.dataset.removeService) {
@@ -3223,7 +3227,7 @@
       return;
     }
     if (t.dataset.browseRepoPath) {
-      postAction(t, 'browse-repo-path', { name: t.dataset.browseRepoPath });
+      postAction(t, (requestId) => karstSend.browseRepoPath(t.dataset.browseRepoPath, requestId));
       return;
     }
     // Placed before the accordion fallback at the bottom: without the early
@@ -3370,11 +3374,11 @@
       return;
     }
     if (t.dataset.install) {
-      postAction(t, 'install-approach', { id: t.dataset.install });
+      postAction(t, (requestId) => karstSend.installApproach(t.dataset.install, requestId));
       return;
     }
     if (t.dataset.uninstall) {
-      postAction(t, 'uninstall-approach', { id: t.dataset.uninstall });
+      postAction(t, (requestId) => karstSend.uninstallApproach(t.dataset.uninstall, requestId));
       return;
     }
     if (t.dataset.confirmInstall) {
@@ -3390,17 +3394,17 @@
     if (t.dataset.runInstall) {
       const id = t.dataset.runInstall;
       confirmInstallId = null;
-      postAction(t, 'install-approach', { id });
+      postAction(t, (requestId) => karstSend.installApproach(id, requestId));
       return;
     }
     if (t.dataset.saveAgent !== undefined) {
       const name = t.dataset.saveAgent;
       const ta = document.querySelector('textarea[data-agent-body="' + CSS.escape(name) + '"]');
-      postAction(t, 'save-agent-file', { name, body: ta ? ta.value : '' });
+      postAction(t, (requestId) => karstSend.saveAgentFile(name, ta ? ta.value : '', requestId));
       return;
     }
     if (t.dataset.deleteAgent !== undefined) {
-      postAction(t, 'delete-agent', { name: t.dataset.deleteAgent });
+      postAction(t, (requestId) => karstSend.deleteAgent(t.dataset.deleteAgent, requestId));
       return;
     }
     if (t.dataset.manageApproach !== undefined) {
@@ -3416,14 +3420,14 @@
       const id = t.dataset.approachEnabled;
       const next = t.getAttribute('aria-checked') !== 'true';
       t.setAttribute('aria-checked', String(next));
-      postAction(t, 'set-approach-enabled', { id, enabled: next });
+      postAction(t, (requestId) => karstSend.setApproachEnabled(id, next, requestId));
       return;
     }
     if (t.dataset.agentEnabled !== undefined) {
       const name = t.dataset.agentEnabled;
       const next = t.getAttribute('aria-checked') !== 'true';
       t.setAttribute('aria-checked', String(next));
-      postAction(t, 'set-agent-enabled', { name, enabled: next });
+      postAction(t, (requestId) => karstSend.setAgentEnabled(name, next, requestId));
       return;
     }
     // Graph configuration surface: the prompt link posts the host action (the
@@ -3873,7 +3877,7 @@
   // the shared pending-action seam (UI-R11): pending on click, settled by the
   // host's action-result or the watchdog.
   function openGraphPrompt(t) {
-    postAction(t, 'open-graph-prompt', { identity: t.dataset.openGraphPrompt });
+    postAction(t, (requestId) => karstSend.openGraphPrompt(t.dataset.openGraphPrompt, requestId));
   }
 
   function graphEntryFor(target) {
@@ -4398,10 +4402,11 @@
     // (mirrored rule, UI-R34) — an entry the drawer left packaged-identical is
     // absent, and a built-in edit is an explicit override, never a resurrected
     // packaged body.
-    approachDrawerRequestId = postAction(el('approachDrawerSave'), 'save', {
-      manifest: { ...draft, approaches: toApproachDeltas(draft.approaches, packagedApproaches) },
-      section: 'approaches',
-    });
+    approachDrawerRequestId = postAction(el('approachDrawerSave'), (requestId) => karstSend.save(
+      { ...draft, approaches: toApproachDeltas(draft.approaches, packagedApproaches) },
+      'approaches',
+      requestId,
+    ));
   }
 
   // Blocked when the id is installed (an installed package would be orphaned)
@@ -4417,10 +4422,11 @@
     // open, Delete pending, until the ack (UI-R14b) — see the message handler.
     // Delta-reduced like the drawer save (UI-R34): deleting a built-in entry
     // posts the reduced list, never a draft carrying the packaged body.
-    approachDrawerRequestId = postAction(el('approachDrawerDelete'), 'save', {
-      manifest: { ...draft, approaches: toApproachDeltas(draft.approaches, packagedApproaches) },
-      section: 'approaches',
-    });
+    approachDrawerRequestId = postAction(el('approachDrawerDelete'), (requestId) => karstSend.save(
+      { ...draft, approaches: toApproachDeltas(draft.approaches, packagedApproaches) },
+      'approaches',
+      requestId,
+    ));
   }
 
   el('approachDrawerClose').addEventListener('click', closeApproachDrawer);
@@ -4558,7 +4564,7 @@
     const input = el('newAgentName');
     const name = (input.value || '').trim();
     if (!name) return;
-    postAction(el('addAgentBtn'), 'create-agent', { name });
+    postAction(el('addAgentBtn'), (requestId) => karstSend.createAgent(name, requestId));
     input.value = '';
   });
 
@@ -4825,7 +4831,7 @@
     listHintText = 'Loading lists…';
     renderLists();
     listsRequestId = beginFetch('refreshListsBtn', listsRequestId);
-    post({ type: 'fetch-ticket-lists', teamId: cfg.teamId });
+    karstSend.fetchTicketLists(cfg.teamId);
   }
 
   function renderLists() {
@@ -4884,7 +4890,7 @@
     // is on screen gets the spinner, and one request id settles it.
     statusesRequestId = beginFetch('refreshStatusesBtn', statusesRequestId)
       || beginFetch('refreshStartStatusesBtn', statusesRequestId);
-    post({ type: 'fetch-ticket-statuses', listId: cfg.listId, teamId: cfg.teamId });
+    karstSend.fetchTicketStatuses(cfg.listId, cfg.teamId);
   }
 
   function renderAdvance() {
@@ -5505,8 +5511,8 @@
     listsRequested = false;
     markDirty();
   });
-  el('setTokenBtn').addEventListener('click', () => post({ type: 'set-token' }));
-  el('clearTokenBtn').addEventListener('click', () => post({ type: 'clear-token' }));
+  el('setTokenBtn').addEventListener('click', () => karstSend.setToken());
+  el('clearTokenBtn').addEventListener('click', () => karstSend.clearToken());
 
   // The host's answer to set-token/clear-token. The token is keychain state, not
   // manifest state, so this NEVER touches `draft` — a full `state` push would
@@ -5561,7 +5567,7 @@
       ? { ...draft, approaches: toApproachDeltas(draft.approaches, packagedApproaches) }
       : draft;
     pendingSaveSection = currentSection;
-    topbarSaveRequestId = postAction(el('saveBtn'), 'save', { manifest, section: currentSection });
+    topbarSaveRequestId = postAction(el('saveBtn'), (requestId) => karstSend.save(manifest, currentSection, requestId));
   }
 
   el('discardBtn').addEventListener('click', () => discardSection(currentSection));
@@ -5588,7 +5594,7 @@
     // incompatible-model) — re-ask for host-computed views if the rows are on
     // screen.
     if (currentSection === 'agents') {
-      post({ type: 'validate-process-assignments', manifest: saveCandidate('agents') });
+      karstSend.validateProcessAssignments(saveCandidate('agents'));
     }
     const prev = vscode.getState();
     if (prev) {
@@ -6091,7 +6097,7 @@
     const mobile = el('mobileProjectBtn');
     if (mobile) mobile.addEventListener('click', () => toggleProjectPop(mobile));
     const footOpen = el('footOpenManifest');
-    if (footOpen) footOpen.addEventListener('click', () => postAction(footOpen, 'open-manifest'));
+    if (footOpen) footOpen.addEventListener('click', () => postAction(footOpen, (requestId) => karstSend.openManifest(requestId)));
     document.addEventListener('click', (e) => {
       if (e.target.closest && (e.target.closest('#projectInfoPop') || e.target.closest('#projectInfoBtn') || e.target.closest('#mobileProjectBtn'))) return;
       const pop = el('projectInfoPop');
@@ -6344,7 +6350,7 @@
   bindNameOverride();
   wireFocusTraps();
   bindProjectFooter();
-  post({ type: 'request-state' });
+  karstSend.requestState();
 </script>
 
 <style>
