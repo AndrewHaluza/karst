@@ -146,6 +146,45 @@ describe('ticketGlyph', () => {
     expect(ticketGlyph(t)).toBe('amber');
   });
 
+  it('an awaiting-subtask parent is NOT needs-you — the wait is on another ticket', () => {
+    // A parent held by its own sub-tasks (design NDL-70 §5). Even a quiet agent
+    // (`waiting`) must not read amber: the sub-tasks are the work, not the user.
+    const t = ticket({
+      stageCurrent: 'impl',
+      agentState: 'waiting',
+      stages: [
+        {
+          stageKey: 'impl',
+          status: 'passed',
+          blockedKind: 'awaiting-subtask',
+          blockedReason: 'waiting on KAR-1-s1 (impl)',
+          blockedAt: '2026-08-01T10:00:00.000Z',
+        } as never,
+      ],
+    });
+    expect(needsUser(t)).toBe(false);
+  });
+
+  it('a subtask-integration-conflict DOES read needs-you, amber', () => {
+    // Unlike `awaiting-subtask`, a conflict needs a human to resolve it
+    // (design NDL-70 §6).
+    const t = ticket({
+      stageCurrent: 'impl',
+      agentState: 'idle',
+      stages: [
+        {
+          stageKey: 'impl',
+          status: 'passed',
+          blockedKind: 'subtask-integration-conflict',
+          blockedReason: 'merge conflict in a.ts',
+          blockedAt: '2026-08-01T10:00:00.000Z',
+        } as never,
+      ],
+    });
+    expect(needsUser(t)).toBe(true);
+    expect(ticketGlyph(t)).toBe('amber');
+  });
+
   it('pending/idle → gray', () => {
     expect(
       ticketGlyph(

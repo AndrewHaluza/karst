@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { openStore, type Store } from '../../store/db.js';
 import { createTicketFlow } from './create.js';
 import { getTicket, setSessionId, updateTicketFields } from '../../store/tickets.js';
+import { stageBlock } from '../../store/stageBlocks.js';
 import { listPrsByTicket } from '../../store/dashboard.js';
 import { listMergeChecksByTicket } from '../../store/mergeChecks.js';
 import { listShipEvidence, openShipRun, closeShipRun, openShipRepoStep, beginShipOperationPreparation, finalizeShipOperationIntent } from '../../store/shipRuns.js';
@@ -243,6 +244,41 @@ setTimeout(() => {
     } finally {
       process.env.PATH = originalPath;
     }
+  });
+
+  it('parks ship with an awaiting-subtask block instead of committing while a stack is open', async () => {
+    const worktree = join(dir, 'fe');
+    mkdirSync(worktree);
+    // The parent's branch is `karst/x` (seedWorktree). A child whose worktree
+    // was cut from it is a started stack that holds the ship (NDL-70 §5).
+    seedWorktree(store, id, '/repo/frontend', worktree);
+    const child = store.db
+      .prepare(
+        `INSERT INTO tickets (key, title, subtask_parent_id, blocks_parent, stage_current, agent_state)
+         VALUES ('PROJ-1-s1', 'child', ?, 0, 'scope', 'none')`,
+      )
+      .run(id).lastInsertRowid;
+    store.db
+      .prepare(
+        `INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref, deps_mode)
+         VALUES (?, '/repo/frontend', ?, 'karst/child', 'karst/x', 'inherited')`,
+      )
+      .run(child, join(dir, 'child'));
+
+    let gitCalls = 0;
+    const git: GitRunner = async () => {
+      gitCalls++;
+      return { stdout: '', stderr: '', exitCode: 0 };
+    };
+
+    const result = await shipTicket(store, { ticketId: id }, fakeGh().gh, undefined, git);
+
+    // Nothing irreversible ran: no commit, no push, no PR.
+    expect(result.prs).toEqual([]);
+    expect(gitCalls).toBe(0);
+    const ship = getTicket(store, id).stages.find((s) => s.stageKey === 'ship');
+    expect(ship?.status).toBe('pending');
+    expect(stageBlock(store, id, 'ship')?.kind).toBe('awaiting-subtask');
   });
 
   // `gh pr create` refuses a branch that exists only locally: "you must first push

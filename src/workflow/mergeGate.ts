@@ -7,6 +7,7 @@ import { stageBlock, clearStageBlock } from '../store/stageBlocks.js';
 import { getStage, setStage } from '../store/stages.js';
 import { nowIso } from '../model/time.js';
 import { transition } from './machine.js';
+import { onSubtaskLanded } from './subtaskGate.js';
 
 /**
  * The gate between "the PRs are open" and "the work has landed" (§11) — an
@@ -216,6 +217,28 @@ export interface ShipGateResult {
   state: MergeGateState;
 }
 
+/**
+ * A ticket just reached `done`; if it is a sub-task, its landing may release
+ * the parent's `awaiting-subtask` gate (design NDL-70 §5). This covers all
+ * three landing paths at once — ship's own tail, the per-repo Merge click and
+ * the background PR sweep — because all three go through the two functions
+ * below. A throw is swallowed: the child has already landed, and failing the
+ * parent's bookkeeping must not unland it.
+ */
+function notifySubtaskLanded(store: Store, ticketId: number, debug?: (message: string) => void): void {
+  const parentId = getTicket(store, ticketId).subtaskParentId;
+  if (parentId === null) return;
+  try {
+    onSubtaskLanded(store, parentId, { debug });
+  } catch (err) {
+    debug?.(
+      `[merge] ticket ${ticketId}: sub-task landing hook failed: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
+}
+
 /** One line naming where the landing decision went, for `[merge]` debug logs. */
 function describeMergeState(state: MergeGateState): string {
   switch (state.kind) {
@@ -260,6 +283,7 @@ export function resolveShipLanding(
     transition(store, ticketId, 'ship', { kind: 'passed' }, () => {
       clearStageBlock(store, ticketId, 'ship');
     });
+    notifySubtaskLanded(store, ticketId, debug);
     return { advanced: true, state };
   }
   debug?.(
@@ -351,6 +375,7 @@ export function settleShipGate(
   transition(store, ticketId, 'ship', { kind: 'passed' }, () => {
     clearStageBlock(store, ticketId, 'ship');
   });
+  notifySubtaskLanded(store, ticketId, debug);
   return { advanced: true, state };
 }
 

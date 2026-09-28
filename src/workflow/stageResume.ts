@@ -3,6 +3,7 @@ import { getTicket } from '../store/tickets.js';
 import { clearStageBlock, stageBlock } from '../store/stageBlocks.js';
 import type { StageKey } from '../model/types.js';
 import { blockedGraphRunFor, type StageResumeResult } from './graphMarkerGuard.js';
+import { openGatingSubtasks } from './subtaskGate.js';
 
 /**
  * Validate and apply a dashboard `stage-resume` request (§ blocked state
@@ -54,6 +55,18 @@ export function resumeBlockedStage(
   // ticket the same way — `markGraphAwaitingImplMarker`'s own guard clears it
   // the moment the marker actually fires, which a generic Resume can't do.
   if (block.kind === 'awaiting-impl-marker') return { kind: 'refused' };
+  // Sub-task gating (design NDL-70 §5): a generic Resume may not clear the
+  // block while the predicate is still non-empty — the wait is on another
+  // ticket, and clearing would let the parent run past work that has not
+  // landed. Once every sub-task is done the block is a derived fact that has
+  // gone stale, so it clears like any other. `onSubtaskLanded` normally clears
+  // it first; this keeps a stale row from stranding the parent.
+  if (block.kind === 'awaiting-subtask') {
+    const gate = stageKey === 'ship' ? 'ship' : 'leave-impl';
+    if (openGatingSubtasks(store, panelTicketId, gate).length > 0) return { kind: 'refused' };
+    clearStageBlock(store, panelTicketId, stageKey);
+    return { kind: 'cleared' };
+  }
   if (block.kind === 'approach-graph-failed') {
     const graphRunId = blockedGraphRunFor(store, panelTicketId);
     // No blocked run behind the block means its evidence is STALE: the run it

@@ -4,6 +4,7 @@ import { STAGE_KEYS } from '../model/types.js';
 import { listTickets, setStageCurrent } from '../store/tickets.js';
 import { setStage, type Stage } from '../store/stages.js';
 import { isTerminal, needsConfirm } from '../workflow/graph.js';
+import { recoverAwaitingSubtasks } from '../workflow/subtaskGate.js';
 import { nowIso } from '../model/time.js';
 
 /**
@@ -163,6 +164,12 @@ export function reconcileOnStart(store: Store, isAlive: IsAlive): ReconcileResul
         setStageCurrent(store, ticket.id, stage);
       }
     }
+
+    // Sub-task gating is a DERIVED fact (design NDL-70 §5): re-evaluate every
+    // `awaiting-subtask` block now. A sub-task that landed while this window was
+    // closed has its parent's block cleared and the parent driven forward;
+    // while the predicate is still non-empty the block is left untouched.
+    recoverAwaitingSubtasks(store);
 
     const running = store.db
       .prepare("SELECT id, ticket_id, repo, pid, status FROM servers WHERE status = 'running'")
