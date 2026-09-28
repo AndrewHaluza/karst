@@ -48,6 +48,13 @@ export type WebviewMessage =
   | { type: 'resume-ticket' }
   | { type: 'create-follow-up-ticket' }
   /**
+   * Create a sub-task under this ticket (design NDL-70 §8). Payload-free like
+   * `create-follow-up-ticket`: the host owns the parent id, the title prompt and
+   * the writer's refusals. Never sent while the ticket ships or is done — the
+   * host hides the control then and the writer refuses it anyway.
+   */
+  | { type: 'create-subtask' }
+  /**
    * The ONE explicit recovery action: move this ticket back to Implement from
    * the current stage header's ⋯ menu. Payload-free exactly like `refresh-prs`:
    * the host derives availability and the current stage from the store it is
@@ -370,6 +377,8 @@ export interface DashboardActions {
   addressPrFeedback: () => void | Promise<void>;
   /** Create a linked follow-up ticket from this (done) ticket. */
   createFollowUpTicket: () => void | Promise<void>;
+  /** Create a sub-task under this ticket (host prompts for the title). */
+  createSubtask: () => void | Promise<void>;
   /** Open a stage's log (uat/review artifact) in an editor. Carries the stage key ONLY. */
   openStageLog: (stageKey: StageKey) => void | Promise<void>;
   /** Push one gate stage's console log to the panel; the `stage-log` message is the outcome. */
@@ -571,6 +580,8 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
       return { type: 'address-pr-feedback' };
     case 'create-follow-up-ticket':
       return { type: 'create-follow-up-ticket' };
+    case 'create-subtask':
+      return { type: 'create-subtask' };
     case 'open-stage-log':
       return isStageKey(m.stageKey) ? { type: 'open-stage-log', stageKey: m.stageKey } : null;
     case 'resolve-conflicts':
@@ -863,6 +874,8 @@ export function routeAction(
       return actions.addressPrFeedback();
     case 'create-follow-up-ticket':
       return actions.createFollowUpTicket();
+    case 'create-subtask':
+      return actions.createSubtask();
     case 'open-stage-log':
       return actions.openStageLog(msg.stageKey);
     case 'resolve-conflicts':

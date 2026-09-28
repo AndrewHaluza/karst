@@ -13,6 +13,7 @@ import {
   filterTickets,
   isDoneTicket,
   completedAt,
+  nestSubtasks,
   type TicketNode,
 } from './items.js';
 import {
@@ -212,7 +213,7 @@ export function buildSidebarState(
       parentKeys,
       agentDefaults,
     );
-    return tickets.map((t, i) => {
+    const rows = tickets.map((t, i) => {
       const node = nodes[i]!;
       const worktrees = listWorktreesByTicket(store, node.ticketId).map((w) => ({
         ...w,
@@ -253,6 +254,10 @@ export function buildSidebarState(
         }),
       };
     });
+    // Sub-tasks nest under their parent (recursive) within each section. The
+    // section split already ran, so a sub-task whose parent sits in another
+    // section (e.g. a done parent) stays a visible root there — never dropped.
+    return nestSubtasks(rows);
   };
 
   const counts = facetCounts(active, archived.length);

@@ -21,10 +21,11 @@ export type SidebarScenario =
   | 'archived-facet'
   | 'multi-facet'
   | 'filtered'
+  | 'subtasks'
   | 'hostile';
 
 export const SIDEBAR_SCENARIOS: readonly SidebarScenario[] = [
-  'empty', 'all-sections', 'done-facet', 'archived-facet', 'multi-facet', 'filtered', 'hostile',
+  'empty', 'all-sections', 'done-facet', 'archived-facet', 'multi-facet', 'filtered', 'subtasks', 'hostile',
 ];
 
 export interface SidebarRenderFixture {
@@ -62,6 +63,9 @@ function fixtureRow(index: number, overrides?: Partial<TicketRow>): TicketRow {
     model: null,
     archived: false,
     parentKey: null,
+    subtaskParentId: null,
+    subtaskParentKey: null,
+    subtaskDepth: 0,
     collapsible: true as const,
     servers: [],
     worktrees: [],
@@ -163,6 +167,40 @@ function filteredState(): SidebarState {
   };
 }
 
+function subtasksState(): SidebarState {
+  // Host output: rows already ordered parent-first with depths stamped
+  // (`nestSubtasks`), so the webview only paints indentation + the marker.
+  return {
+    facets: ['all'],
+    filter: '',
+    counts: fixtureCounts({ all: 4, running: 3 }),
+    sections: {
+      current: [
+        fixtureRow(0, { label: 'FEAT-100', glyph: 'blue' }),
+        fixtureRow(1, {
+          label: 'FEAT-100-s1',
+          glyph: 'blue',
+          subtaskParentId: 900001,
+          subtaskParentKey: 'FEAT-100',
+          subtaskDepth: 1,
+        }),
+        fixtureRow(2, {
+          label: 'FEAT-100-s1-s1',
+          glyph: 'amber',
+          subtaskParentId: 900002,
+          subtaskParentKey: 'FEAT-100-s1',
+          subtaskDepth: 2,
+        }),
+        fixtureRow(3, { label: 'FEAT-101', glyph: 'blue' }),
+      ],
+      recentlyDone: [],
+      olderDone: [],
+    },
+    done: [],
+    rows: [],
+  };
+}
+
 function hostileState(): SidebarState {
   return {
     facets: ['all'],
@@ -187,6 +225,7 @@ const BUILDERS: Readonly<Record<SidebarScenario, () => SidebarState>> = {
   'archived-facet': archivedFacetState,
   'multi-facet': multiFacetState,
   filtered: filteredState,
+  subtasks: subtasksState,
   hostile: hostileState,
 };
 

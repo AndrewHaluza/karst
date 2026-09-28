@@ -4,6 +4,9 @@ import {
   isSubtask,
   subtaskTextPrefix,
   compactSubtaskLabel,
+  subtaskParentRef,
+  subtaskProgress,
+  canAddSubtask,
 } from './subtask.js';
 import { FOLLOW_UP_TEXT_MARKER } from './followUp.js';
 
@@ -34,5 +37,40 @@ describe('sub-task identity', () => {
     expect(compactSubtaskLabel({ subtaskParentId: null }, 'PROJ-1 — ship it')).toBe(
       'PROJ-1 — ship it',
     );
+  });
+
+  it('subtaskParentRef renders the marker plus the parent key for a rich surface', () => {
+    expect(subtaskParentRef('PROJ-1')).toBe('⊂ PROJ-1');
+  });
+});
+
+describe('subtaskProgress', () => {
+  it('counts how many sub-tasks reached the terminal done stage', () => {
+    expect(subtaskProgress([])).toEqual({ done: 0, total: 0 });
+    expect(
+      subtaskProgress([
+        { stageCurrent: 'done' },
+        { stageCurrent: 'impl' },
+        { stageCurrent: 'done' },
+        { stageCurrent: null },
+      ]),
+    ).toEqual({ done: 2, total: 4 });
+  });
+});
+
+describe('canAddSubtask', () => {
+  it('allows a sub-task any time the parent is not shipping, done, or archived', () => {
+    expect(canAddSubtask({ stageCurrent: 'impl', archivedAt: null })).toBe(true);
+    expect(canAddSubtask({ stageCurrent: 'uat', archivedAt: null })).toBe(true);
+    expect(canAddSubtask({ stageCurrent: null, archivedAt: null })).toBe(true);
+  });
+
+  it('refuses while the parent ships or is done, matching the writer', () => {
+    expect(canAddSubtask({ stageCurrent: 'ship', archivedAt: null })).toBe(false);
+    expect(canAddSubtask({ stageCurrent: 'done', archivedAt: null })).toBe(false);
+  });
+
+  it('refuses an archived parent', () => {
+    expect(canAddSubtask({ stageCurrent: 'impl', archivedAt: '2026-01-01T00:00:00Z' })).toBe(false);
   });
 });

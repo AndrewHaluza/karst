@@ -883,6 +883,10 @@ export function renderStateFor(stage: InsideStageKey): DashboardState {
     key: null,
     title: null,
     parent: null,
+    subtaskParent: null,
+    subtasks: [],
+    subtaskProgress: { done: 0, total: 0 },
+    canAddSubtask: false,
     envOverrides: { services: [], values: {} },
     paused: false,
     pausedAt: null,
@@ -1068,5 +1072,33 @@ export function populatedStateFor(stage: InsideStageKey): DashboardState {
     hasRunnableRepos: true,
     worktrees: populatedWorktrees(),
     prs: populatedPrs(),
+    // The Sub-tasks section: one landed, one blocking + in flight, so the
+    // render pins the glyph/badge/progress copy. The fixture is also a sub-task
+    // itself (`subtaskParent`), so both relation lines render.
+    subtaskParent: { key: 'FEAT-100', title: 'Parent ticket' },
+    subtasks: [
+      {
+        id: 942018,
+        key: 'FEAT-142-s1',
+        title: 'Extract the base-branch resolver',
+        stage: 'done',
+        glyph: 'green',
+        stageClass: 'stg-done',
+        blocking: false,
+        done: true,
+      },
+      {
+        id: 942019,
+        key: 'FEAT-142-s2',
+        title: 'Add per-repo override to the picker',
+        stage: 'impl',
+        glyph: 'blue',
+        stageClass: 'stg-impl',
+        blocking: true,
+        done: false,
+      },
+    ],
+    subtaskProgress: { done: 1, total: 2 },
+    canAddSubtask: true,
   };
 }

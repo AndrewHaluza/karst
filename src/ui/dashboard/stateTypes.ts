@@ -15,6 +15,8 @@ import type { SendBackState } from '../../workflow/sendBack.js';
 import type { RetryGateState } from '../../workflow/retryGate.js';
 import type { PrFeedbackFixState } from '../../workflow/prFeedbackFix.js';
 import type { PathContext } from '../worktreePath.js';
+import type { Glyph } from '../../model/glyph.js';
+import type { SubtaskProgress } from '../../model/subtask.js';
 
 export type { PathContext } from '../worktreePath.js';
 export type { StepperCell } from '../../model/stepper.js';
@@ -54,6 +56,25 @@ export interface DashboardWorktreeView extends WorktreeView {
   serviceName: string | undefined;
 }
 
+/** One direct sub-task, as the parent dashboard's "Sub-tasks" section renders it. */
+export interface DashboardSubtaskRow {
+  /** Ticket id — the row's identity and what an "open" would target. */
+  id: number;
+  /** The sub-task key (`<parentKey>-s<n>`), always present for a created row. */
+  key: string;
+  title: string | null;
+  /** The stored current stage key, or null before the sub-task is scoped. */
+  stage: string | null;
+  /** Status glyph for the row's dot — the same `model/glyph` the sidebar paints with. */
+  glyph: Glyph;
+  /** `stg-<stage>` colour class (model/stagePalette); falls back to `stg-unknown`. */
+  stageClass: string;
+  /** True when this sub-task holds the parent before it leaves impl/fix. */
+  blocking: boolean;
+  /** True once the sub-task reaches the terminal `done` stage. */
+  done: boolean;
+}
+
 /** Fully serializable dashboard state pushed to the webview via postMessage. */
 export interface DashboardState {
   ticketId: number;
@@ -65,6 +86,33 @@ export interface DashboardState {
    * — never part of the title (model/followUp.ts).
    */
   parent: { key: string; title: string | null } | null;
+  /**
+   * The parent ticket's key + title, when this ticket is a SUB-TASK; null
+   * otherwise. Orthogonal to `parent` above: `parent` is the follow-up relation
+   * ("continues after"), this is the composition relation ("is part of"),
+   * carried on `tickets.subtask_parent_id` (design NDL-70 §3). Relationship
+   * metadata, never part of the title; the dashboard words it as
+   * `Sub-task of <key>` beside the follow-up line.
+   */
+  subtaskParent: { key: string; title: string | null } | null;
+  /**
+   * The ticket's direct, non-archived sub-tasks, oldest first — the "Sub-tasks"
+   * section. Empty renders NO section (absence, never an empty card), unless
+   * the ticket can still gain one (`canAddSubtask`), in which case the section
+   * still offers the action.
+   */
+  subtasks: DashboardSubtaskRow[];
+  /**
+   * `n/m done` over `subtasks`, by their stored `stage_current` (design §8).
+   * `0/0` when there are none — rendered as absence, not "0".
+   */
+  subtaskProgress: SubtaskProgress;
+  /**
+   * Whether "Add sub-task" is offered — host-derived from the same rule the
+   * writer enforces (`model/subtask.ts` `canAddSubtask`): absent only while the
+   * ticket ships or is done. The webview never re-derives it.
+   */
+  canAddSubtask: boolean;
   stageCurrent: string | null;
   agentState: string | null;
   paused: boolean;

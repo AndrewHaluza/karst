@@ -5,6 +5,7 @@ import { getTicket, ticketLabel } from '../../store/tickets.js';
 import { deleteTicketPermanently } from '../../runtime/deleteTicket.js';
 import { describeReap } from '../../runtime/worktreeServers.js';
 import { createFollowUpTicket, TicketNotDoneError } from '../../workflow/stages/followUp.js';
+import { createSubtask } from '../../workflow/stages/subtask.js';
 
 export interface LifecycleOpsDeps {
   readonly store: Store;
@@ -73,4 +74,44 @@ export async function createFollowUpTicketOp(deps: LifecycleOpsDeps, ticketId: n
   await deps.reloadManifest();
   deps.openEdit(child.id);
   await deps.notify.info(`Created follow-up ticket ${child.key}.`);
+}
+
+/** The user-supplied facts a "Add sub-task" gathers before the writer runs. */
+export interface CreateSubtaskInput {
+  title: string;
+  description?: string;
+  /** Holds the parent before it leaves impl/fix (design NDL-70 §5). */
+  blocking?: boolean;
+  /** Repos the sub-task touches; defaults to every parent repo. */
+  repos?: string[];
+}
+
+/**
+ * Create a sub-task under `parentId` through the single writer, so every §3
+ * rule (parent open, depth, repo subset) is enforced host-side. The title and
+ * the blocking choice are collected by the command binding — this op stays
+ * vscode-free like its follow-up sibling. On success it opens the new sub-task
+ * in its edit form, which is where its description is filled in.
+ */
+export async function createSubtaskOp(
+  deps: LifecycleOpsDeps,
+  parentId: number,
+  input: CreateSubtaskInput,
+): Promise<void> {
+  let child;
+  try {
+    child = createSubtask(deps.store, parentId, input, { projectId: deps.projectId() },
+      (message) => deps.log.debug(message));
+  } catch (err) {
+    // Every Subtask*Error message is user-ready (it names the rule and the
+    // remedy), so it passes through unchanged.
+    const message =
+      err instanceof Error ? err.message : `Couldn't create a sub-task: ${String(err)}`;
+    await deps.notify.error(message);
+    return;
+  }
+  deps.refresh();
+  await deps.reloadManifest();
+  deps.openEdit(child.id);
+  await deps.notify.info(`Created sub-task ${child.key}.`);
 }

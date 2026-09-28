@@ -1317,6 +1317,24 @@
      button there would read as the panel's subject. */
   .phead .iconbtn{margin-left:auto}
   .pbody{padding:var(--k-space-3) var(--k-space-4) var(--k-space-5)}
+  /* The Sub-tasks panel's "Add sub-task" action sits at the right edge, flat
+     (a ghost button), so it never reads as the panel's subject. */
+  .phead #addSubtask{margin-left:auto}
+  /* One sub-task row: status dot, key, title, optional blocking badge, stage
+     pill. A layout container, not a control (STYLE-GUIDE §9.2). */
+  .subtask{display:flex;align-items:center;gap:var(--k-space-5);padding:var(--k-space-4) var(--k-space-3);border-radius:var(--k-radius-md);min-width:0}
+  .subtask:hover{background:var(--k-surface-hover)}
+  .subtask .subtask-key{font-family:var(--k-font-mono);font-size:var(--k-text-sm);color:var(--k-text-dim);flex:0 0 auto}
+  .subtask .subtask-title{font-size:var(--k-text-md);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
+  /* An informational badge, locally composed: the shipped `.k-badge` is still a
+     documented gap (UI-INVARIANTS G1), so this is product composition
+     (UI-R08), not a new primitive. Attention ink + a text label, never colour
+     alone (UI-R28). */
+  .subtask .subtaskBlock{flex:0 0 auto;font-size:var(--k-text-2xs);font-weight:var(--k-weight-semibold);
+    color:var(--k-attention);border:var(--k-border-w) solid currentColor;border-radius:var(--k-radius-pill);
+    padding:0 var(--k-space-3);text-transform:uppercase;letter-spacing:.06em}
+  .subtask .stage{margin-left:auto;flex:0 0 auto}
+  .subtask-empty{color:var(--k-text-faint);font-size:var(--k-text-md);padding:var(--k-space-4) var(--k-space-3)}
 
   .wt,.pr{display:flex;align-items:center;gap:var(--k-space-5);padding:var(--k-space-4) var(--k-space-3);border-radius:var(--k-radius-md);min-width:0}
   /* Only the PR row wraps at narrow widths: the URL keeps a 150px floor and
@@ -1890,6 +1908,10 @@
     <span id="toast" class="toast" aria-live="polite"></span>
     <button id="confirmShip" type="button" class="k-btn k-btn--primary k-btn--sm shipAction" data-act="ship-ticket" title="Ship this ticket — commit, push, and open pull requests" hidden>Confirm ship</button>
     <span id="shipWait" class="shipWait hidden" role="status"><span class="attentionMark" aria-hidden="true">❚❚</span><span>Waiting to merge</span></span>
+    <!-- The sub-task block chip: the parent is parked awaiting-subtask. Shows
+         the linked sub-task keys (design NDL-70 §8). Like shipWait it is a
+         genuine wait, not a fault, so the fault banner stays silent. -->
+    <span id="subtaskWait" class="shipWait hidden" role="status"><span class="attentionMark" aria-hidden="true">❚❚</span><span id="subtaskWaitText">Waiting on sub-tasks</span></span>
     <span id="pauseWait" class="shipWait hidden" role="status"><span class="attentionMark" aria-hidden="true">❚❚</span><span>Execution paused</span><button type="button" class="k-btn k-btn--secondary k-btn--sm" data-act="unpause-execution" style="margin-left:var(--k-space-2)">Resume</button></span>
     <div class="menuWrap">
       <button id="moreBtn" type="button" class="k-iconbtn" aria-expanded="false" aria-haspopup="menu" aria-label="Ticket controls" title="Ticket controls">
@@ -1945,6 +1967,16 @@
 </div>
 
 <div class="grid">
+  <!-- The sub-tasks this ticket delegated (design NDL-70 §8). Rendered only
+       while it has sub-tasks OR can still gain one (host-derived
+       `canAddSubtask`); the button hides exactly when the writer would refuse
+       (ship/done). Absence, never an empty card. -->
+  <div class="panel span hidden" id="subtaskPanel">
+    <div class="phead">Sub-tasks<span class="count" id="subtaskCount"></span>
+      <button id="addSubtask" type="button" class="k-btn k-btn--ghost k-btn--sm hidden" data-act="create-subtask" title="Create a sub-task under this ticket">Add sub-task…</button>
+    </div>
+    <div class="pbody" id="subtasks"></div>
+  </div>
   <div class="panel svpanel"><div class="phead">Servers<span class="count" id="srvCount"></span><span class="pops" id="srvOps"></span></div><div class="pbody" id="servers"></div></div>
   <!-- The count is a direct child of .phead, like every other panel's: nested in
        a wrapper its `margin-left:auto` had nothing to push against, so it read
@@ -3883,13 +3915,83 @@
   }
 
   // The roomy dashboard keeps the plain title as primary content; the parent
-  // relationship renders as separate secondary metadata when the ticket is a
-  // follow-up (model/followUp.ts). Absence renders nothing, never a placeholder.
+  // relationships render as separate secondary metadata. Two ORTHOGONAL
+  // relations can coexist (model/subtask.ts / model/followUp.ts): a sub-task
+  // is "part of" a parent (`⊂`, the composition relation), a follow-up
+  // "continues after" one (`↳`). Both name their key; absence renders nothing.
   function renderParentRef(state) {
     const ref = el('parentRef');
     if (!ref) return;
-    ref.hidden = !state.parent;
-    ref.innerHTML = state.parent ? 'Follow-up of ' + esc(state.parent.key) : '';
+    const parts = [];
+    if (state.subtaskParent) parts.push('Sub-task of ' + esc(state.subtaskParent.key));
+    if (state.parent) parts.push('Follow-up of ' + esc(state.parent.key));
+    ref.hidden = parts.length === 0;
+    ref.innerHTML = parts.join(' · ');
+  }
+
+  // The status glyph a sub-task row paints: the shipped `.k-dot` primitive
+  // (UI-INVARIANTS G1), recoloured per state — never a new dot. `gray` (no
+  // signal yet) keeps the ringless default.
+  const SUBTASK_DOT = { blue: 'k-dot--running', amber: 'k-dot--attention', green: 'k-dot--passed', red: 'k-dot--failed' };
+
+  function subtaskRowHtml(s) {
+    const stage = s.stage || 'none';
+    const dot = SUBTASK_DOT[s.glyph] || '';
+    const word = s.done ? 'done' : stage;
+    const block = s.blocking
+      ? '<span class="subtaskBlock" title="Holds the parent before it leaves implement">Blocking</span>'
+      : '';
+    return `<div class="subtask" data-id="${s.id}">`
+      + `<span class="k-dot ${dot}" role="img" aria-label="${esc(word)}"></span>`
+      + `<span class="subtask-key">${esc(s.key)}</span>`
+      + `<span class="subtask-title">${esc(s.title || '(untitled)')}</span>`
+      + block
+      + `<span class="stage ${esc(s.stageClass)}" title="${esc(stage)}">${esc(stage)}</span>`
+      + `</div>`;
+  }
+
+  // The parent's Sub-tasks section, and the awaiting-subtask block chip. The
+  // section renders while the ticket HAS sub-tasks or can still gain one
+  // (`canAddSubtask`, host-derived); the "Add sub-task" button hides exactly
+  // when the writer would refuse it (ship/done).
+  function renderSubtasks(state) {
+    const panel = el('subtaskPanel');
+    const list = el('subtasks');
+    if (!panel || !list) return;
+    const subs = state.subtasks || [];
+    const canAdd = !!state.canAddSubtask;
+    panel.classList.toggle('hidden', subs.length === 0 && !canAdd);
+    const add = el('addSubtask');
+    if (add) add.classList.toggle('hidden', !canAdd);
+    const progress = state.subtaskProgress || { done: 0, total: 0 };
+    const count = el('subtaskCount');
+    if (count) count.textContent = progress.total ? `${progress.done}/${progress.total} done` : '';
+    list.innerHTML = subs.length
+      ? subs.map(subtaskRowHtml).join('')
+      : '<div class="subtask-empty">No sub-tasks yet. Add one to split off unfinished work.</div>';
+    renderSubtaskBlock(state);
+  }
+
+  // The header block chip for a parent parked `awaiting-subtask`: it lists the
+  // linked sub-task keys the parent is waiting on. `awaiting-subtask` is a
+  // genuine wait (not a fault — model/stepper.ts marks it non-resumable like
+  // awaiting-merge), so this chip, not the fault banner, is its surface.
+  function renderSubtaskBlock(state) {
+    const chip = el('subtaskWait');
+    if (!chip) return;
+    const blocked = state.currentStage && state.currentStage.blocked;
+    const isWait = !!blocked && blocked.kind === 'awaiting-subtask';
+    chip.classList.toggle('hidden', !isWait);
+    if (!isWait) return;
+    const open = (state.subtasks || []).filter((s) => !s.done);
+    const keys = open.length ? open : (state.subtasks || []);
+    const text = el('subtaskWaitText');
+    if (text) {
+      text.textContent = keys.length
+        ? 'Waiting on ' + keys.map((s) => s.key).join(', ')
+        : 'Waiting on sub-tasks';
+    }
+    chip.title = 'This parent resumes when its sub-tasks are done.';
   }
 
   function renderAgentHeader(state) {
@@ -4850,6 +4952,7 @@
     renderTrack(state.rail, state.approach, sel);
     renderInside(state, sel);
     renderBlocked(state);
+    renderSubtasks(state);
     renderShip(state);
     renderServers(state);
     renderWorktrees(state.worktrees);
@@ -5189,6 +5292,7 @@
     'stop-driver': (btn, requestId) => karstSend.stopDriver(requestId),
     'resume-ticket': (btn, requestId) => karstSend.resumeTicket(requestId),
     'create-follow-up-ticket': (btn, requestId) => karstSend.createFollowUpTicket(requestId),
+    'create-subtask': (btn, requestId) => karstSend.createSubtask(requestId),
     'copy-ticket-key': (btn, requestId) => karstSend.copyTicketKey(requestId),
     'pause-execution': (btn, requestId) => karstSend.pauseExecution(requestId),
     'unpause-execution': (btn, requestId) => karstSend.unpauseExecution(requestId),
