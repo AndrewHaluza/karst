@@ -13,6 +13,7 @@ import { listWorktreesByTicket } from '../../store/dashboard.js';
 import { takeForcePushLease, armForcePushLease } from '../../store/worktrees.js';
 import { getTicket } from '../../store/tickets.js';
 import { resolveShipLanding } from '../mergeGate.js';
+import { settleSubtaskGate } from '../subtaskGate.js';
 import { setStage } from '../../store/stages.js';
 import { nowIso } from '../../model/time.js';
 import {
@@ -1006,6 +1007,17 @@ export async function shipTicket(
   // guard, since the old unconditional tail transition used to repair it back
   // to `passed` on every call.
   const atShip = ticket.stageCurrent === 'ship';
+
+  // Sub-task gating (design NDL-70 §5): a parent whose stacked sub-tasks have
+  // not landed does not ship. This runs on ENTRY, before any commit, push or
+  // PR is opened, and parks `ship` with an `awaiting-subtask` block instead —
+  // nothing irreversible happens. The block clears (design §5) when the last
+  // stacked sub-task lands, returning ship to its confirm click. Only stacked
+  // children count: a non-blocking sub-task that was never started does not
+  // hold the ship.
+  if (atShip && settleSubtaskGate(store, opts.ticketId, 'ship', opts.debug).blocked) {
+    return { prs: [] };
+  }
 
   // Idempotency (§5.3): a re-run after a crash mid-ship must not re-open a PR for
   // a repo already shipped. Skip any worktree with an existing LIVE PR row —

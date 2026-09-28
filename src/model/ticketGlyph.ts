@@ -46,6 +46,19 @@ function waitingWhileShipRuns(t: TicketWithStages): boolean {
  */
 export function needsUser(t: TicketWithStages): boolean {
   if (t.pausedAt != null) return false;
+
+  // A parent held by its own sub-tasks is NOT parked on the user: the wait is
+  // on a machine or another ticket (design NDL-70 §5). This has to be checked
+  // before the agent-state branches, because a parent session that went quiet
+  // (`waiting`) while its sub-tasks finish is exactly the state this block
+  // describes — and it must never read as "Needs you". A `subtask-integration-
+  // conflict`, by contrast, DOES need a human and keeps the amber reading below.
+  const currentStage = STAGE_KEYS.find((k) => k === t.stageCurrent);
+  if (currentStage !== undefined) {
+    const row = t.stages.find((s) => s.stageKey === currentStage);
+    if (row?.blockedKind === 'awaiting-subtask') return false;
+  }
+
   // A RUNNING agent is actively working the ticket — the session the
   // "Resolve conflicts" button opens is exactly this — so the ticket is in
   // progress, not parked on the user, whatever the stage's block says. The
@@ -79,7 +92,12 @@ export function needsUser(t: TicketWithStages): boolean {
     // `running`, so this blockedKind is the only place that wait is visible.
     // Same shape as `awaiting-merge`: the question was asked (the graph
     // completed), just not yet answered.
-    current?.blockedKind === 'awaiting-impl-marker'
+    current?.blockedKind === 'awaiting-impl-marker' ||
+    // A sub-task's landed work could not be merged into the parent's branch
+    // automatically (design NDL-70 §6). Unlike `awaiting-subtask` — whose wait
+    // is on a machine or another ticket — this one needs a human to resolve the
+    // conflict, so it reads amber like `awaiting-merge`.
+    current?.blockedKind === 'subtask-integration-conflict'
   );
 }
 

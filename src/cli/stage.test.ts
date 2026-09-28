@@ -8,6 +8,8 @@ import {
 import type { Store } from '../store/db.js';
 import { openStore } from '../store/db.js';
 import { createTicketFlow } from '../workflow/stages/create.js';
+import { createSubtask } from '../workflow/stages/subtask.js';
+import { stageBlock } from '../store/stageBlocks.js';
 import { transition } from '../workflow/machine.js';
 import {
   recordSessionLaunchIntent,
@@ -215,6 +217,23 @@ describe('runStageCommand', () => {
       expect(after.segments[0]!.endedAt).not.toBeNull();
       expect(listProcessRuns(store, id)[0]!.status).toBe('passed');
       expect(listProcessRuns(store, id)[0]!.endedAt).not.toBeNull();
+    } finally {
+      store.close();
+    }
+  });
+
+  it('parks the parent at impl instead of advancing when a blocking sub-task is open', () => {
+    const store = openStore(':memory:');
+    try {
+      const id = createTicketFlow(store, { key: 'T-1', title: 't' }).id;
+      transition(store, id, 'scope', { kind: 'passed' });
+      createSubtask(store, id, { title: 'still working', blocking: true });
+
+      const next = runStageCommand(store, id, ['stage', 'impl', 'pass']);
+
+      expect(next).toBe('impl');
+      expect(getTicket(store, id).stageCurrent).toBe('impl');
+      expect(stageBlock(store, id, 'impl')?.kind).toBe('awaiting-subtask');
     } finally {
       store.close();
     }

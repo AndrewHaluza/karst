@@ -8,6 +8,7 @@ import { getTicket } from '../store/tickets.js';
 import { markImplementDone } from '../workflow/stages/implement.js';
 import { markFixDone } from '../workflow/fixExecution.js';
 import { assertMarkerNotWhileWaiting } from '../workflow/markerGuard.js';
+import { settleSubtaskGate } from '../workflow/subtaskGate.js';
 
 export { assertMarkerNotWhileWaiting };
 
@@ -198,6 +199,17 @@ export function runStageCommand(
   const current = currentStageOf(store, ticketId, ticket);
   if (current !== null && current !== stage) {
     throw new Error(markerRefusalMessage(ticketId, stage, current));
+  }
+  // Sub-task gating (design NDL-70 §5): a parent with unfinished BLOCKING
+  // sub-tasks does not leave impl/fix. The marker is accepted (the agent's own
+  // work is done) but the parent is parked on its SOURCE stage with an
+  // `awaiting-subtask` block instead of advancing to uat; `onSubtaskLanded`
+  // clears it and drives the parent once every blocking sub-task is done. The
+  // test seam may stub the store without `db` — gating then does not apply.
+  if (store.db && (stage === 'impl' || stage === 'fix')) {
+    if (settleSubtaskGate(store, ticketId, stage).blocked) {
+      return stage;
+    }
   }
   // A graph ticket's impl marker routes through the graph marker guard (the
   // ONLY graph/stage boundary, Slice-3 T9): the graph run closes and the

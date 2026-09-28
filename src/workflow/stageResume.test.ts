@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { openStore, type Store } from '../store/db.js';
-import { createTicket } from '../store/tickets.js';
+import { createTicket, setStageCurrent } from '../store/tickets.js';
 import { setStage } from '../store/stages.js';
 import { stageBlock } from '../store/stageBlocks.js';
+import { createSubtask } from './stages/subtask.js';
 import { resumeBlockedStage } from './stageResume.js';
 
 /**
@@ -99,6 +100,22 @@ describe('resumeBlockedStage', () => {
 
   it('clears a graph-failed block when the ticket has no graph run at all', () => {
     const id = blockedTicket('RB-8', 'impl', 'approach-graph-failed');
+    expect(resumeBlockedStage(store, id, id, 'impl')).toEqual({ kind: 'cleared' });
+    expect(stageBlock(store, id, 'impl')).toBeNull();
+  });
+
+  it('refuses to clear an awaiting-subtask block while a blocking sub-task is open', () => {
+    const id = blockedTicket('RB-9', 'impl', 'awaiting-subtask');
+    createSubtask(store, id, { title: 'still working', blocking: true });
+    const result = resumeBlockedStage(store, id, id, 'impl');
+    expect(result).toEqual({ kind: 'refused' });
+    expect(stageBlock(store, id, 'impl')?.kind).toBe('awaiting-subtask');
+  });
+
+  it('clears an awaiting-subtask block once every blocking sub-task is done', () => {
+    const id = blockedTicket('RB-10', 'impl', 'awaiting-subtask');
+    const child = createSubtask(store, id, { title: 'finished', blocking: true });
+    setStageCurrent(store, child.id, 'done');
     expect(resumeBlockedStage(store, id, id, 'impl')).toEqual({ kind: 'cleared' });
     expect(stageBlock(store, id, 'impl')).toBeNull();
   });
