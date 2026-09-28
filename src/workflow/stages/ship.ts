@@ -1415,6 +1415,38 @@ export async function shipTicket(
         const ref = wt.branch ?? 'HEAD';
         const preRemoteHead = await remoteRefSha(git, wt.path, 'origin', ref);
 
+        // Sub-task remote divergence check (NDL-85): before pushing, verify that
+        // the parent's branch hasn't been updated by another sibling sub-task.
+        if (ticket.subtaskParentId !== null && localHead !== '') {
+          const parent = getTicket(store, ticket.subtaskParentId);
+          const parentWorktrees = listWorktreesByTicket(store, parent.id);
+          const parentWt = parentWorktrees.find((w) => w.repo === wt.repo);
+          if (parentWt && parentWt.branch) {
+            await git(['fetch', 'origin', parentWt.branch], wt.path);
+            const remoteParentHead = await remoteRefSha(git, wt.path, 'origin', parentWt.branch);
+            if (remoteParentHead && remoteParentHead !== '') {
+              const mergeBaseResult = await git(
+                ['merge-base', '--is-ancestor', remoteParentHead, 'HEAD'],
+                wt.path,
+              );
+              if (mergeBaseResult.exitCode !== 0) {
+                setStage(store, opts.ticketId, 'ship', {
+                  status: 'pending',
+                  verdict: null,
+                  endedAt: null,
+                  blockedKind: 'awaiting-subtask',
+                  blockedReason: 'parent branch must integrate another sub-task first',
+                  blockedAt: nowIso(),
+                });
+                opts.debug?.(
+                  `[gate] ship ticket ${opts.ticketId}: parent branch has diverged — parking with awaiting-subtask`,
+                );
+                return { prs: [] };
+              }
+            }
+          }
+        }
+
         // fu1: the remote already carries this exact HEAD — an earlier attempt's
         // push landed and only its result write was lost. Re-pushing publishes
         // nothing, and against a slow or unreachable remote it spends the whole
