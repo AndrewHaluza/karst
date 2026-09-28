@@ -2,6 +2,9 @@ import type { Database } from 'better-sqlite3';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { RUNTIME_ASSETS_ROOT } from '../runtimeAssetsRoot.js';
+import { SCHEMA_VERSION } from './schemaVersion.js';
+
+export { SCHEMA_VERSION } from './schemaVersion.js';
 
 /**
  * Where `schema.sql` sits, resolved against the TWO compiled outputs that can
@@ -38,9 +41,6 @@ function schemaPath(): string {
 export function readSchema(): string {
   return readFileSync(schemaPath(), 'utf8');
 }
-
-/** Bump when the schema changes; drives forward migrations. */
-export const SCHEMA_VERSION = 62;
 
 /** v2 ticket-field columns added to `tickets`; mirror schema.sql for fresh DBs. */
 const V2_TICKET_COLUMNS = [

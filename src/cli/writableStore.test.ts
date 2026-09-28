@@ -7,7 +7,7 @@ import { openStore, type Store } from '../store/db.js';
 import { createTicket, getTicket } from '../store/tickets.js';
 import { transition } from '../workflow/machine.js';
 import { insertAttachment } from '../store/attachments.js';
-import { openWritableStore } from './writableStore.js';
+import { openWritableStore, MARKER_BUSY_TIMEOUT_MS } from './writableStore.js';
 
 /**
  * The writable node:sqlite adapter must satisfy the exact `store.db` surface the
@@ -30,6 +30,16 @@ describe('openWritableStore', () => {
   });
 
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  it('sets a non-zero busy_timeout so a marker write waits out a lock instead of failing instantly', () => {
+    const store = openWritableStore(dbPath);
+    try {
+      const row = store.db.prepare('PRAGMA busy_timeout').get() as { timeout: number };
+      expect(row.timeout).toBe(MARKER_BUSY_TIMEOUT_MS);
+    } finally {
+      store.close();
+    }
+  });
 
   it('drives the machine transition(impl, passed) end-to-end', () => {
     const store = openWritableStore(dbPath);

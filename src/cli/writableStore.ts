@@ -4,6 +4,9 @@ import { assertExactSchema, assertMigratedSchema } from './assertMigrated.js';
 
 type BeginMode = 'BEGIN' | 'BEGIN IMMEDIATE' | 'BEGIN EXCLUSIVE';
 
+/** Bounded busy timeout for marker-verb writes (`karst stage ... pass/phase`, `env set`). */
+export const MARKER_BUSY_TIMEOUT_MS = 5000;
+
 /** node:sqlite implementation of better-sqlite3's transaction-family API. */
 function transactionFamily<A extends unknown[], R>(
   db: DatabaseSync,
@@ -61,6 +64,11 @@ export function openWritableStore(dbPath: string): Store {
     throw e;
   }
   db.exec('PRAGMA foreign_keys = ON');
+  // node:sqlite defaults busy_timeout to 0ms (vs. better-sqlite3's 5s default
+  // in the extension host), so a marker write here would previously fail
+  // immediately with SQLITE_BUSY whenever an extension window held the write
+  // lock, instead of waiting like the extension's own writes do.
+  db.exec(`PRAGMA busy_timeout = ${MARKER_BUSY_TIMEOUT_MS}`);
 
   const shim = {
     prepare: (sql: string) => db.prepare(sql),

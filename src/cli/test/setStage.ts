@@ -2,6 +2,7 @@ import type { Store } from '../../store/db.js';
 import type { BlockerKind, StageKey, StageStatus } from '../../model/types.js';
 import { STAGE_KEYS } from '../../model/types.js';
 import { setStage } from '../../store/stages.js';
+import { setStageCurrent } from '../../store/tickets.js';
 import { nowIso } from '../../model/time.js';
 import { parseFlags, requireFlag, type TestFlags } from './flags.js';
 
@@ -96,9 +97,7 @@ export function runSetStage(store: Store, ticketId: number, parsed: ParsedSetSta
         }
       : {}),
   });
-  store.db
-    .prepare('UPDATE tickets SET stage_current = ? WHERE id = ?')
-    .run(parsed.stage, ticketId);
+  setStageCurrent(store, ticketId, parsed.stage);
   return JSON.stringify({
     stageKey: parsed.stage,
     status: parsed.status,

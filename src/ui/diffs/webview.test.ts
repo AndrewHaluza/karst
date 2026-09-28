@@ -670,7 +670,7 @@ describe('ticket changes webview empty states', () => {
     harness.render(stateOf([worktreeView()], { commitCount: 0, pendingCount: 0 }), false);
     harness.filterBy('zzz-absent');
     expect(harness.repos.innerHTML).toBe(
-      '<div class="empty">No changes match this filter. Clear the filter to see all repositories.</div>',
+      '<div class="k-empty"><div class="k-empty-title">No changes match this filter. Clear the filter to see all repositories.</div></div>',
     );
   });
 

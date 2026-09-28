@@ -1,6 +1,6 @@
 import type { Store } from '../store/db.js';
 import type { StageKey } from '../model/types.js';
-import { getTicket } from '../store/tickets.js';
+import { getTicket, setStageCurrent } from '../store/tickets.js';
 import { getStage, setStage } from '../store/stages.js';
 import { latestStageRun } from '../store/stageRuns.js';
 import { listCurrentPrsByTicket } from '../store/prs.js';
@@ -160,9 +160,7 @@ export function sendBackToImplement(
         blockedAt: null,
       });
     }
-    store.db
-      .prepare('UPDATE tickets SET stage_current = ? WHERE id = ?')
-      .run('impl', ticketId);
+    setStageCurrent(store, ticketId, 'impl');
   });
   apply();
   return { from };

@@ -53,7 +53,7 @@
 
   const vscode = acquireVsCodeApi();
   const post = (msg) => vscode.postMessage(msg);
-  const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+  const esc = karstEsc;
 
   /*KARST_SERVER_LOGS_VIEW_JS*/
 

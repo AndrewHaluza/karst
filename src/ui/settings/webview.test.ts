@@ -3362,7 +3362,7 @@ describe('settings webview — docker services', () => {
   });
 
   it('badges a container repository as docker in the roster row', () => {
-    expect(HTML).toMatch(/badge good">docker</);
+    expect(HTML).toMatch(/k-chip is-success">docker</);
   });
 
   it('parses the env textarea on the FIRST `=` only, dropping value-less lines', () => {

@@ -41,22 +41,26 @@ const FORBIDDEN_BARE = [
 const FORBIDDEN_LOCAL = [
   'src/workflow/',
   'src/hooks/',
-  'src/gh/',
   'src/agent/claude.ts',
   'src/agent/codex.ts',
   'src/agent/antigravity.ts',
+  'src/agent/opencode.ts',
   'src/agent/settings.ts',
   'src/manifest/write.ts',
   'src/context/ticketContext.ts',
 ]
 
 const IMPORT = /(?:^|\n)\s*(?:import|export)\s+(type\s+)?[^;'"]*?from\s+['"]([^'"]+)['"]/g
+const DYNAMIC_IMPORT = /\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g
 
 function importsOf(source: string): string[] {
   const found: string[] = []
   for (const match of source.matchAll(IMPORT)) {
     if (match[1]) continue // `import type` is erased at runtime
     if (match[2]) found.push(match[2])
+  }
+  for (const match of source.matchAll(DYNAMIC_IMPORT)) {
+    if (match[1]) found.push(match[1])
   }
   return found
 }
@@ -105,6 +109,20 @@ describe('issue reporting non-interference', () => {
     expect(importsOf("import { spawn } from 'node:child_process'\n"))
       .toEqual(['node:child_process'])
     expect(importsOf("import type { Store } from '../store/db.js'\n")).toEqual([])
+    // Dynamic `import()` grants the same reach as a static import and must
+    // count as an edge too.
+    expect(importsOf("const { spawn } = await import('node:child_process')\n"))
+      .toEqual(['node:child_process'])
+  })
+
+  it('never reaches the migrator module itself', () => {
+    // `store/migrations.ts` carries real write SQL (schema DDL, data
+    // rewrites). Diagnostics code only ever needs `SCHEMA_VERSION`, which
+    // lives in the dependency-free `store/schemaVersion.ts` for exactly this
+    // reason — pulling in the migrator by value for a constant would put its
+    // write SQL in the reachable graph and outside the write-SQL scan below
+    // (which only walks `diagnostics/`/`extension/reportIssue` files).
+    expect([...graph.files]).not.toContain('src/store/migrations.ts')
   })
 
   it('cannot reach process, network, or workflow-mutating modules', () => {
