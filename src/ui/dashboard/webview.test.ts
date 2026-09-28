@@ -802,7 +802,10 @@ describe('dashboard webview.html', () => {
     expect(HTML).toContain('id="subtaskWaitText"');
     // Gated on the host's blocked kind, never a reason string.
     expect(script).toMatch(/blocked\.kind === 'awaiting-subtask'/);
-    expect(script).toMatch(/'Waiting on ' \+ keys\.map\(\(s\) => s\.key\)\.join\(', '\)/);
+    // The keys are the host's gate-accurate reason, never re-derived from the
+    // sub-task list (a non-blocking sub-task does not hold leave-impl).
+    expect(script).toMatch(/const reason = blocked\.reason \|\| ''/);
+    expect(script).not.toMatch(/keys\.map\(\(s\) => s\.key\)/);
   });
 
   /**

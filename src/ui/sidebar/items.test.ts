@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildTicketNodes, filterTickets, isDoneTicket, completedAt, nestSubtasks } from './items.js';
+import { buildTicketNodes, filterTickets, isDoneTicket, completedAt, nestSubtasks, MAX_SUBTASK_NEST } from './items.js';
 import type { TicketNode } from './items.js';
 import type { TicketWithStages } from '../../store/tickets.js';
 
@@ -399,5 +399,17 @@ describe('nestSubtasks', () => {
     // Root 1 first (its source position is where the tree begins), then its
     // children in source order.
     expect(out.map((r) => r.ticketId)).toEqual([1, 2, 4, 3]);
+  });
+
+  it('indents every level the writer allows (4 below a root) and clamps beyond it', () => {
+    // A chain 1 ⊃ 2 ⊃ 3 ⊃ 4 ⊃ 5 ⊃ 6: 5 is the writer's deepest legal sub-task
+    // (MAX_SUBTASK_DEPTH = 4), so it must NOT share its parent's indent; 6 is
+    // bad data and is clamped rather than indenting off-screen.
+    const rows = [1, 2, 3, 4, 5, 6].map((id) =>
+      node({ ticketId: id, subtaskParentId: id === 1 ? null : id - 1 }),
+    );
+    const out = nestSubtasks(rows);
+    expect(out.map((r) => r.subtaskDepth)).toEqual([0, 1, 2, 3, MAX_SUBTASK_NEST, MAX_SUBTASK_NEST]);
+    expect(MAX_SUBTASK_NEST).toBe(4);
   });
 });

@@ -161,6 +161,7 @@
   .ticket.nest1>.row{padding-left:var(--k-space-6)}
   .ticket.nest2>.row{padding-left:var(--k-space-8)}
   .ticket.nest3>.row{padding-left:var(--k-space-9)}
+  .ticket.nest4>.row{padding-left:calc(var(--k-space-9) + var(--k-space-3))}
   /* The stage pill carries the shared stg-<stage> token (model/stagePalette),
      so its text IS the stage color and its fill is that color washed out — the
      same token the dashboard rail paints with. The fill prefers the stage's
@@ -690,7 +691,7 @@
       ? `<span class="rowopen">${rowContent}</span>`
       : `<button type="button" class="k-btn k-btn--link k-btn--row rowopen" data-open="${row.ticketId}" title="Open ticket dashboard">${rowContent}</button>`;
 
-    const nestClass = row.subtaskDepth ? ` nest${Math.min(row.subtaskDepth, 3)}` : '';
+    const nestClass = row.subtaskDepth ? ` nest${Math.min(row.subtaskDepth, 4)}` : '';
     return `<div class="ticket${isOpen ? ' open' : ''}${row.archived ? ' arch' : ''}${row.isActive ? ' active' : ''}${compact ? ' done' : ''}${opts.older ? ' older' : ''}${nestClass}" data-id="${row.ticketId}">`
       + `<div class="row">`
       + `<button type="button" class="k-iconbtn chev" data-toggle="${row.ticketId}" aria-expanded="${isOpen}" aria-label="${toggleLabel}" title="${toggleLabel}">${chev}</button>`

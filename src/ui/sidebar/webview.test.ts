@@ -109,9 +109,11 @@ describe('sidebar webview.html', () => {
   it('indents nested sub-task rows by depth via token-spaced nest classes (NDL-76)', () => {
     // Depth comes from the host (`nestSubtasks`); the view only paints it. Each
     // step uses a shared spacing token — no raw px literal (UI-R04).
-    expect(HTML).toContain('nest${Math.min(row.subtaskDepth, 3)}');
+    expect(HTML).toContain('nest${Math.min(row.subtaskDepth, 4)}');
     expect(HTML).toMatch(/\.ticket\.nest1>\.row\{padding-left:var\(--k-space-6\)\}/);
     expect(HTML).toMatch(/\.ticket\.nest2>\.row\{padding-left:var\(--k-space-8\)\}/);
     expect(HTML).toMatch(/\.ticket\.nest3>\.row\{padding-left:var\(--k-space-9\)\}/);
+    // The writer allows 4 levels below a root; the deepest one still indents.
+    expect(HTML).toContain('.ticket.nest4>.row{padding-left:calc(var(--k-space-9) + var(--k-space-3))}');
   });
 });

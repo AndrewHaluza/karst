@@ -180,7 +180,7 @@ export function nestSubtasks<T extends TicketNode>(rows: readonly T[]): T[] {
     out.push({ ...row, subtaskDepth: depth });
     const children = childrenOf.get(row.ticketId);
     if (!children) return;
-    for (const child of children) emit(child, Math.min(depth + 1, MAX_SUBTASK_DEPTH));
+    for (const child of children) emit(child, Math.min(depth + 1, MAX_SUBTASK_NEST));
   };
   for (const row of rows) {
     if (isChild.has(row.ticketId)) continue;
@@ -192,11 +192,13 @@ export function nestSubtasks<T extends TicketNode>(rows: readonly T[]): T[] {
 }
 
 /**
- * The deepest indent the sidebar paints. Matches the writer's
- * `MAX_SUBTASK_DEPTH` (4 `-s<n>` segments = 3 levels below a root); a deeper
- * chain than the writer permits is clamped rather than indenting off-screen.
+ * The deepest indent the sidebar paints. Equals the writer's
+ * `MAX_SUBTASK_DEPTH` in `workflow/stages/subtask.ts` (depth = number of
+ * `-s<n>` segments, so 4 levels below a root); a deeper chain than the writer
+ * permits is clamped rather than indenting off-screen. Kept as a UI-local
+ * constant so the sidebar does not import the store-bound writer module.
  */
-export const MAX_SUBTASK_DEPTH = 3;
+export const MAX_SUBTASK_NEST = 4;
 
 /** Case-insensitive substring filter over key + title; blank query = all. */
 export function filterTickets(

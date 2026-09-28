@@ -3985,12 +3985,15 @@
     const isWait = !!blocked && blocked.kind === 'awaiting-subtask';
     chip.classList.toggle('hidden', !isWait);
     if (!isWait) return;
-    const open = (state.subtasks || []).filter((s) => !s.done);
-    const keys = open.length ? open : (state.subtasks || []);
+    // The keys come from the host's block reason (`describeAwaitingSubtask`),
+    // never from `state.subtasks`: the gate holds only on BLOCKING sub-tasks
+    // at leave-impl and only on started stacks at ship, so re-deriving the
+    // list here would name sub-tasks the parent is not waiting on.
+    const reason = blocked.reason || '';
     const text = el('subtaskWaitText');
     if (text) {
-      text.textContent = keys.length
-        ? 'Waiting on ' + keys.map((s) => s.key).join(', ')
+      text.textContent = reason
+        ? reason.charAt(0).toUpperCase() + reason.slice(1)
         : 'Waiting on sub-tasks';
     }
     chip.title = 'This parent resumes when its sub-tasks are done.';
