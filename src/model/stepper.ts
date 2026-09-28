@@ -102,7 +102,14 @@ function blockedDetail(row?: StepperStageRow): Record<'blocked', StepperCell['bl
       // a Resume button here would always no-op. It is already surfaced by
       // the graph Inside view's own rows and the amber glyph, so the legacy
       // banner would just be a second, wrong-worded copy of that wait.
-      resumable: row.blockedKind !== 'awaiting-merge' && row.blockedKind !== 'awaiting-impl-marker',
+      // `awaiting-subtask` is a wait on OTHER tickets (design NDL-70 §5): it
+      // clears automatically when a sub-task lands, and `stageResume.ts`
+      // refuses to clear it while the predicate holds, so a Resume button
+      // would no-op too. Its surface is the header's sub-task block chip.
+      resumable:
+        row.blockedKind !== 'awaiting-merge' &&
+        row.blockedKind !== 'awaiting-impl-marker' &&
+        row.blockedKind !== 'awaiting-subtask',
     },
   };
 }

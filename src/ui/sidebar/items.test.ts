@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { buildTicketNodes, filterTickets, isDoneTicket, completedAt } from './items.js';
+import { buildTicketNodes, filterTickets, isDoneTicket, completedAt, nestSubtasks } from './items.js';
+import type { TicketNode } from './items.js';
 import type { TicketWithStages } from '../../store/tickets.js';
 
 function ticket(over: Partial<TicketWithStages> = {}): TicketWithStages {
@@ -313,5 +314,90 @@ describe('completedAt', () => {
 
   it('is null when no timestamp exists anywhere', () => {
     expect(completedAt(ticket({ stageCurrent: 'done', stages: [], updatedAt: null }))).toBeNull();
+  });
+});
+
+describe('sub-task identity on the sidebar node', () => {
+  it('carries no sub-task parent for an ordinary ticket', () => {
+    const [node] = buildTicketNodes([ticket({ subtaskParentId: null })]);
+    expect(node!.subtaskParentId).toBeNull();
+    expect(node!.subtaskParentKey).toBeNull();
+    expect(node!.subtaskDepth).toBe(0);
+  });
+
+  it('resolves the sub-task parent key from the lookup map, distinct from the follow-up key', () => {
+    const parentKeys = new Map([
+      [1, 'PROJ-1'],
+      [2, 'PROJ-1-fu1'],
+    ]);
+    const [node] = buildTicketNodes(
+      [ticket({ id: 3, key: 'PROJ-1-s1', subtaskParentId: 1, parentTicketId: 2 })],
+      undefined,
+      undefined,
+      parentKeys,
+    );
+    expect(node!.subtaskParentId).toBe(1);
+    expect(node!.subtaskParentKey).toBe('PROJ-1');
+    expect(node!.parentKey).toBe('PROJ-1-fu1');
+  });
+});
+
+describe('nestSubtasks', () => {
+  function node(over: Partial<TicketNode> & { ticketId: number }): TicketNode {
+    return {
+      kind: 'ticket',
+      label: `t${over.ticketId}`,
+      glyph: 'gray',
+      description: '',
+      stageLabel: '',
+      stageClass: '',
+      stageChip: '',
+      blocker: null,
+      sessionAction: { kind: 'start', label: 'Start', detail: '' },
+      lastActiveAt: null,
+      model: null,
+      archived: false,
+      parentKey: null,
+      subtaskParentId: null,
+      subtaskParentKey: null,
+      subtaskDepth: 0,
+      collapsible: true,
+      ...over,
+    };
+  }
+
+  it('puts a sub-task directly after its parent with depth 1, and nests recursively', () => {
+    const rows = [
+      node({ ticketId: 10 }),
+      node({ ticketId: 12, subtaskParentId: 11 }),
+      node({ ticketId: 11, subtaskParentId: 10 }),
+      node({ ticketId: 20 }),
+    ];
+    const out = nestSubtasks(rows);
+    expect(out.map((r) => [r.ticketId, r.subtaskDepth])).toEqual([
+      [10, 0],
+      [11, 1],
+      [12, 2],
+      [20, 0],
+    ]);
+  });
+
+  it('keeps a sub-task as a root when its parent is not in this list', () => {
+    const rows = [node({ ticketId: 12, subtaskParentId: 99 })];
+    const out = nestSubtasks(rows);
+    expect(out.map((r) => [r.ticketId, r.subtaskDepth])).toEqual([[12, 0]]);
+  });
+
+  it('preserves sibling and root order from the source list', () => {
+    const rows = [
+      node({ ticketId: 2, subtaskParentId: 1 }),
+      node({ ticketId: 1 }),
+      node({ ticketId: 4, subtaskParentId: 1 }),
+      node({ ticketId: 3, subtaskParentId: 1 }),
+    ];
+    const out = nestSubtasks(rows);
+    // Root 1 first (its source position is where the tree begins), then its
+    // children in source order.
+    expect(out.map((r) => r.ticketId)).toEqual([1, 2, 4, 3]);
   });
 });

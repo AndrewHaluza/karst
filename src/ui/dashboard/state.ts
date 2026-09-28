@@ -1,5 +1,5 @@
 import type { Store } from '../../store/db.js';
-import { getTicket } from '../../store/tickets.js';
+import { getTicket, listSubtasks } from '../../store/tickets.js';
 import { listServersByTicket } from '../../store/dashboard.js';
 import type { AgentProvider, Severity, TicketProvider } from '../../manifest/types.js';
 import { providerTicketUrl } from '../../integrations/ticketUrl.js';
@@ -19,6 +19,9 @@ import { nowIso } from '../../model/time.js';
 import type { StageKey } from '../../model/types.js';
 import { FIX_ATTEMPT_CAP, type GateStageKey } from '../../workflow/fixAttempts.js';
 import { needsUser } from '../../model/ticketGlyph.js';
+import { stageBadge } from '../../model/stageBadge.js';
+import { stageColorClass } from '../../model/stagePalette.js';
+import { subtaskProgress, canAddSubtask } from '../../model/subtask.js';
 import { railNeeds } from '../../model/railNeeds.js';
 import { reportedPhases } from '../../model/inside/agent.js';
 import { listProcessRuns } from '../../store/processRuns.js';
@@ -47,7 +50,7 @@ import { insideStageForRuntimeStage } from '../../model/inside/registry.js';
 import { listGateAttempts, type AttemptKey, type GateAttemptView } from '../../model/inside/rounds.js';
 import type { SessionConfiguredInput, SessionTokensInput } from '../../model/inside/agent.js';
 import { isKarstCheckout } from '../../commands/launchWorktree.js';
-import type { DashboardAgentContext, DashboardState, PathContext } from './stateTypes.js';
+import type { DashboardAgentContext, DashboardState, DashboardSubtaskRow, PathContext } from './stateTypes.js';
 import { buildAgentState } from './stateAgent.js';
 import { buildDashboardRows } from './stateRows.js';
 import { buildInsideViews, type AttemptSwitch, type RoundSwitcherArg } from './stateInside.js';
@@ -215,6 +218,38 @@ export function buildDashboardState(
       parent = null;
     }
   }
+  // The sub-task composition relation (design NDL-70 §3/§8) — orthogonal to the
+  // follow-up relation above: `subtask_parent_id` says "is part of", while
+  // `parent_ticket_id` says "continues after". A hard-deleted parent degrades
+  // to null, the same policy as the follow-up line.
+  let subtaskParent: { key: string; title: string | null } | null = null;
+  if (ticket.subtaskParentId !== null) {
+    try {
+      const p = getTicket(store, ticket.subtaskParentId);
+      subtaskParent = { key: p.key ?? `#${p.id}`, title: p.title };
+    } catch {
+      subtaskParent = null;
+    }
+  }
+  // Direct sub-tasks, oldest first, for the "Sub-tasks" section and its
+  // `n/m done` progress. One row read per child powers its status glyph; the
+  // sub-task count is small and bounded by the writer's depth/creation rules,
+  // and the alternative — a second stage-status derivation — would drift from
+  // the one `stageBadge` every other surface paints with.
+  const subtaskList = listSubtasks(store, ticketId);
+  const subtasks: DashboardSubtaskRow[] = subtaskList.map((s) => {
+    const badge = stageBadge(getTicket(store, s.id));
+    return {
+      id: s.id,
+      key: s.key ?? `#${s.id}`,
+      title: s.title,
+      stage: s.stageCurrent,
+      glyph: badge.glyph,
+      stageClass: stageColorClass(badge.stage),
+      blocking: s.blocksParent,
+      done: s.stageCurrent === 'done',
+    };
+  });
   const rounds = listRecoveryRounds(store, ticketId);
   const { agentSession, agentSwitch } = buildAgentState({
     ticket,
@@ -603,6 +638,10 @@ export function buildDashboardState(
     key: ticket.key,
     title: ticket.title,
     parent,
+    subtaskParent,
+    subtasks,
+    subtaskProgress: subtaskProgress(subtaskList),
+    canAddSubtask: canAddSubtask(ticket),
     stageCurrent: ticket.stageCurrent,
     agentState: ticket.agentState,
     paused: ticket.pausedAt !== null,

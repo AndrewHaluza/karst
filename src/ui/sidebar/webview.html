@@ -149,6 +149,18 @@
      title's flex:1 remainder to near zero. */
   .parentref{font-size:var(--k-text-2xs);color:var(--k-text-dim);flex:0 1 auto;max-width:40%;
     overflow:hidden;white-space:nowrap;text-overflow:ellipsis;margin-left:var(--k-space-2)}
+  /* Sub-task relation marker. Same slot as the follow-up ref but a DIFFERENT
+     relation (model/subtask.ts): `⊂` reads "is part of", `↳` reads "continues
+     after". Slightly stronger ink than the dim follow-up ref so the two are
+     distinguishable at a glance, never only by the glyph. */
+  .parentref.subtaskref{color:inherit;opacity:.75}
+  /* Sub-task nesting: the row indents by its depth (nestSubtasks) so a
+     sub-task reads as belonging to the row above it. Whole-row indent (the
+     expanded body and hover actions move with it), stepping through the
+     shared spacing tokens. */
+  .ticket.nest1>.row{padding-left:var(--k-space-6)}
+  .ticket.nest2>.row{padding-left:var(--k-space-8)}
+  .ticket.nest3>.row{padding-left:var(--k-space-9)}
   /* The stage pill carries the shared stg-<stage> token (model/stagePalette),
      so its text IS the stage color and its fill is that color washed out — the
      same token the dashboard rail paints with. The fill prefers the stage's
@@ -666,7 +678,9 @@
       : `<span class="glyph g-${esc(row.glyph)}" role="img" aria-label="${esc(glyphWord)}" title="${esc(row.description)}">${ic.mark}<span class="sdot" aria-hidden="true"></span><span class="sdot-spin" aria-hidden="true"></span></span>`;
     const rowContent = glyphHtml
       + `<span class="name">${esc(row.label)}</span>`
-      + (row.parentKey ? `<span class="parentref" title="Follow-up of ${esc(row.parentKey)}">↳ ${esc(row.parentKey)}</span>` : '')
+      + (row.subtaskParentKey
+        ? `<span class="parentref subtaskref" title="Sub-task of ${esc(row.subtaskParentKey)}">⊂ ${esc(row.subtaskParentKey)}</span>`
+        : (row.parentKey ? `<span class="parentref" title="Follow-up of ${esc(row.parentKey)}">↳ ${esc(row.parentKey)}</span>` : ''))
       + (compact
         ? (opts.time ? `<span class="time">${esc(relTime(row.lastActiveAt))}</span>` : '')
         : `<span class="stage ${esc(stageClass)}" title="${esc(stageText)}">${esc(stageChip)}</span>`);
@@ -676,7 +690,8 @@
       ? `<span class="rowopen">${rowContent}</span>`
       : `<button type="button" class="k-btn k-btn--link k-btn--row rowopen" data-open="${row.ticketId}" title="Open ticket dashboard">${rowContent}</button>`;
 
-    return `<div class="ticket${isOpen ? ' open' : ''}${row.archived ? ' arch' : ''}${row.isActive ? ' active' : ''}${compact ? ' done' : ''}${opts.older ? ' older' : ''}" data-id="${row.ticketId}">`
+    const nestClass = row.subtaskDepth ? ` nest${Math.min(row.subtaskDepth, 3)}` : '';
+    return `<div class="ticket${isOpen ? ' open' : ''}${row.archived ? ' arch' : ''}${row.isActive ? ' active' : ''}${compact ? ' done' : ''}${opts.older ? ' older' : ''}${nestClass}" data-id="${row.ticketId}">`
       + `<div class="row">`
       + `<button type="button" class="k-iconbtn chev" data-toggle="${row.ticketId}" aria-expanded="${isOpen}" aria-label="${toggleLabel}" title="${toggleLabel}">${chev}</button>`
       + openControl

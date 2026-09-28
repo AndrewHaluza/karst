@@ -78,6 +78,24 @@ export interface TicketNode {
   archived: boolean;
   /** The parent ticket's key, when this ticket was created via "create follow-up"; else null. */
   parentKey: string | null;
+  /**
+   * This ticket's sub-task parent id, when it is a sub-task; else null. The
+   * id lets `nestSubtasks` order and indent the row under its parent without a
+   * second lookup, and it is deliberately the SUB-TASK relation
+   * (`subtaskParentId`), never the follow-up one.
+   */
+  subtaskParentId: number | null;
+  /**
+   * The parent's key, when this ticket is a sub-task; else null. Rendered as
+   * `⊂ <parentKey>` — the sub-task relation marker (model/subtask.ts), which is
+   * deliberately distinct from the follow-up `↳ <parentKey>` in `parentKey`.
+   */
+  subtaskParentKey: string | null;
+  /**
+   * Visual nesting depth assigned by `nestSubtasks` (0 = top level). 0 until
+   * the list is nested, so a bare `buildTicketNodes` call needs no tree pass.
+   */
+  subtaskDepth: number;
   collapsible: true;
 }
 
@@ -121,10 +139,64 @@ export function buildTicketNodes(
       model: t.model,
       archived: t.archivedAt !== null,
       parentKey: t.parentTicketId !== null ? (parentKeys.get(t.parentTicketId) ?? null) : null,
+      subtaskParentId: t.subtaskParentId,
+      subtaskParentKey:
+        t.subtaskParentId !== null ? (parentKeys.get(t.subtaskParentId) ?? null) : null,
+      subtaskDepth: 0,
       collapsible: true,
     };
   });
 }
+
+/**
+ * Re-order a flat list into a parent-then-children tree for the sidebar, and
+ * stamp each row's `subtaskDepth`. Sub-tasks directly follow their parent
+ * (recursively), siblings keep their source order, and a row whose sub-task
+ * parent is not in THIS list (a done parent in another section, a facet that
+ * filtered it out) stays a root so it is never hidden by its own nesting.
+ *
+ * Pure and defensive: a malformed cycle or an over-deep chain is emitted once
+ * as a root rather than recursing forever — the writer's depth cap and
+ * create-only-parent rule make both impossible, but a renderer must not hang
+ * on bad data.
+ */
+export function nestSubtasks<T extends TicketNode>(rows: readonly T[]): T[] {
+  const present = new Set(rows.map((r) => r.ticketId));
+  const childrenOf = new Map<number, T[]>();
+  const isChild = new Set<number>();
+  for (const r of rows) {
+    const parentId = r.subtaskParentId;
+    if (parentId === null || !present.has(parentId) || parentId === r.ticketId) continue;
+    const bucket = childrenOf.get(parentId);
+    if (bucket) bucket.push(r);
+    else childrenOf.set(parentId, [r]);
+    isChild.add(r.ticketId);
+  }
+  const out: T[] = [];
+  const emitted = new Set<number>();
+  const emit = (row: T, depth: number): void => {
+    if (emitted.has(row.ticketId)) return;
+    emitted.add(row.ticketId);
+    out.push({ ...row, subtaskDepth: depth });
+    const children = childrenOf.get(row.ticketId);
+    if (!children) return;
+    for (const child of children) emit(child, Math.min(depth + 1, MAX_SUBTASK_DEPTH));
+  };
+  for (const row of rows) {
+    if (isChild.has(row.ticketId)) continue;
+    emit(row, 0);
+  }
+  // A pure cycle leaves no root; emit whatever remains so no row is dropped.
+  for (const row of rows) emit(row, 0);
+  return out;
+}
+
+/**
+ * The deepest indent the sidebar paints. Matches the writer's
+ * `MAX_SUBTASK_DEPTH` (4 `-s<n>` segments = 3 levels below a root); a deeper
+ * chain than the writer permits is clamped rather than indenting off-screen.
+ */
+export const MAX_SUBTASK_DEPTH = 3;
 
 /** Case-insensitive substring filter over key + title; blank query = all. */
 export function filterTickets(
