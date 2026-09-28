@@ -1,14 +1,13 @@
 import type { Store } from '../../store/db.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
-import type { DriveProcessBundle, ProcessAssignmentSnapshot } from '../../agent/processAssignment.js';
+import type { DriveProcessBundle } from '../../agent/processAssignment.js';
 import { resolveAgentDefaults } from '../../agent/agentPresets.js';
 import {
   shipFinishedEvent,
   shipStartedEvent,
   type InsideProgressEvent,
 } from '../../model/inside/progress.js';
-import { executionView } from '../../model/inside/agent.js';
-import { randomUUID, createHash } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { listWorktreesByTicket } from '../../store/dashboard.js';
 import { takeForcePushLease, armForcePushLease } from '../../store/worktrees.js';
 import { getTicket } from '../../store/tickets.js';
@@ -23,12 +22,24 @@ import {
   updatePrBody,
   defaultGhRunnerAsync,
   UNKNOWN_PR_DETAIL,
-  type ExistingPr,
   type GhRunner,
   type OpenedPr,
 } from '../../integrations/github.js';
 import { updatePrDetail, recordShippedPr } from '../../store/prs.js';
 import { scanPorcelainForDenied, describeDenyHits } from '../shipDenyScan.js';
+import {
+  countShipRuns,
+  findExistingLivePr,
+  findMergedPr,
+  findPriorShipRun,
+  getShipOperationIntentRow,
+  listUnfinishedShipRepoSteps,
+  openStepWithPreparation,
+  shipCommitRecorded,
+  type ShipProgress,
+  type ShipStep,
+} from './shipStore.js';
+import { backfillDescription, bodyHash, generateDescription, noteReusedPr } from './shipDescription.js';
 import {
   describeGitFailure,
   hasChangesFrom,
@@ -45,10 +56,8 @@ import {
   type GitRunner,
   type PersistedCommitIdentity,
 } from '../../integrations/git.js';
-import { openProcessRun, finishProcessRun } from '../../store/processRuns.js';
 import {
   adoptShipOperation,
-  beginShipOperationPreparation,
   closeShipRun,
   finalizeShipOperationIntent,
   finishShipRepoStep,
@@ -62,7 +71,6 @@ import {
   recordShipCommit,
   type ShipOperationIntent,
   type ShipOperationPreState,
-  type ShipRepoStep,
   type ShipRun,
 } from '../../store/shipRuns.js';
 import { checkMergeable } from '../mergeCheck.js';
@@ -159,40 +167,6 @@ export interface ShipResult {
   prs: ShippedPr[];
 }
 
-/**
- * Ask the agent (cheap model) for a PR description; falls back to the title.
- *
- * The answer is sanitized, not trusted: an agent asked a chat-shaped question
- * answers with chat-shaped scaffolding (a "no PR open yet … copy-paste ready"
- * status line, a preamble, the whole body inside a code fence), and this text
- * goes straight into public GitHub metadata. `prDescription.ts` owns both halves
- * — the prompt, which hands the model the branch facts and asks for a clean
- * body, and the filter that enforces it.
- */
-async function describePr(
-  adapter: AgentAdapter,
-  cwd: string,
-  ctx: PrDescriptionContext,
-  ticketId: number,
-  processRunId?: number | null,
-  model?: string,
-  effort?: string,
-): Promise<string> {
-  const r = await adapter.runHeadless({
-    prompt: buildPrDescriptionPrompt(ctx),
-    cwd,
-    model,
-    effort,
-    tracking: { callSite: 'pr-description', ticketId, processRunId: processRunId ?? undefined },
-  });
-  return sanitizePrDescription(r.raw, ctx.title);
-}
-
-/** Deterministic body fingerprint for describe-step reconciliation. */
-function bodyHash(body: string): string {
-  return createHash('sha256').update(body).digest('hex');
-}
-
 /** The identity the ship commit is authored/committed with, snapshotted before preparation. */
 async function gitIdentity(git: GitRunner, cwd: string): Promise<PersistedCommitIdentity> {
   const name = await git(['config', 'user.name'], cwd);
@@ -234,156 +208,8 @@ function resolveTemplateModel(
   return undefined;
 }
 
-/** Open the durable step row and its pre-state ownership row in ONE transaction. */
-function openStepWithPreparation(
-  store: Store,
-  input: {
-    run: ShipRun;
-    repo: string;
-    step: 'commit' | 'push' | 'describe' | 'pr';
-    operationKey: string;
-    preState: ShipOperationPreState;
-    detail: string;
-    processRunId?: number | null;
-    at: string;
-  },
-): { stepId: number; intentId: number } {
-  let stepId = 0;
-  let intentId = 0;
-  store.db.transaction(() => {
-    const step = openShipRepoStep(store, {
-      shipRunId: input.run.id,
-      repo: input.repo,
-      step: input.step,
-      detail: input.detail,
-      processRunId: input.processRunId ?? null,
-      startedAt: input.at,
-    });
-    const intent = beginShipOperationPreparation(store, {
-      shipRunId: input.run.id,
-      repo: input.repo,
-      step: input.step,
-      operationKey: input.operationKey,
-      preState: input.preState,
-      createdAt: input.at,
-    });
-    // The step's ownership link: reconciliation loads the intent through it.
-    // A running step without this link authorizes nothing.
-    store.db
-      .prepare('UPDATE ship_repo_steps SET operation_intent_id = ? WHERE id = ?')
-      .run(intent.id, step.id);
-    stepId = step.id;
-    intentId = intent.id;
-  })();
-  return { stepId, intentId };
-}
-
 /** A ShipRepoStep as stored — the four saga steps (merge stays a live event). */
 type SagaStep = 'commit' | 'push' | 'describe' | 'pr';
-
-/**
- * Run the description model call under a durable `describe` step and its
- * `pr-description` process run, so the AI execution has the same evidence every
- * other AI process carries.
- */
-async function generateDescription(
-  store: Store,
-  run: ShipRun,
-  repo: string,
-  adapter: AgentAdapter,
-  cwd: string,
-  ctx: PrDescriptionContext,
-  ticketId: number,
-  onProgress: ShipProgress,
-  onInsideProgress: (event: InsideProgressEvent) => void = () => {},
-  assignment?: ProcessAssignmentSnapshot,
-): Promise<string> {
-  onProgress({ repo, step: 'describe', status: 'run' });
-  onInsideProgress({
-    kind: 'active',
-    ticketId,
-    stage: 'ship',
-    processId: 'pr-description',
-    live: {
-      status: 'run',
-      label: 'Pull request description',
-      detail: repo,
-      // The chip a running headless AI step is entitled to show while it
-      // runs, not only in the completed row afterward (869e-confusing-ui).
-      ...(assignment
-        ? {
-            execution: executionView(
-              assignment.provider,
-              assignment.model ?? null,
-              assignment.agentName,
-            ),
-          }
-        : {}),
-    },
-  });
-  const at = nowIso();
-  const processRun = openProcessRun(store, {
-    ticketId,
-    stageKey: 'ship',
-    processId: 'pr-description',
-    attempt: run.attempt,
-    // Task 3: the configured assignment is snapshotted into the run the moment
-    // it opens — a later manifest edit never rewrites the identity that ran.
-    agentName: assignment?.agentName ?? null,
-    provider: assignment?.provider ?? null,
-    model: assignment?.model ?? null,
-    // v34: the host that owns the call, so `reconcileProcessRuns` can mark a
-    // describe run killed by process death stale like every other process.
-    pid: process.pid,
-    startedAt: at,
-  });
-  const step = openShipRepoStep(store, {
-    shipRunId: run.id,
-    repo,
-    step: 'describe',
-    detail: 'generate',
-    processRunId: processRun.id,
-    startedAt: at,
-  });
-  try {
-    const body = await describePr(
-      adapter,
-      cwd,
-      ctx,
-      ticketId,
-      processRun.id,
-      assignment?.model,
-      assignment?.effort,
-    );
-    finishProcessRun(store, processRun.id, 'passed', nowIso());
-    finishShipRepoStep(store, step.id, { status: 'passed', detail: 'generated', endedAt: nowIso() });
-    onProgress({ repo, step: 'describe', status: 'pass' });
-    // Retract the header, never `completed`: `pr-description` names no row
-    // in the ship ledger (the real "Pull request" row is `id: 'pr'`, opened
-    // by a LATER step), so a `completed` event here used to reuse that same
-    // `id` and overlayProcesses merged it onto the real row — a finished
-    // describe call briefly relabeled and passed the still-pending "Pull
-    // request" row until the next snapshot corrected it (869e-confusing-ui).
-    onInsideProgress({
-      kind: 'cleared',
-      ticketId,
-      stage: 'ship',
-      processId: 'pr-description',
-    });
-    return body;
-  } catch (err) {
-    const detail = err instanceof Error ? err.message : String(err);
-    finishProcessRun(store, processRun.id, 'failed', nowIso());
-    finishShipRepoStep(store, step.id, { status: 'failed', detail, endedAt: nowIso() });
-    onInsideProgress({
-      kind: 'cleared',
-      ticketId,
-      stage: 'ship',
-      processId: 'pr-description',
-    });
-    throw err;
-  }
-}
 
 /** Record a created-by-ship commit unless the run already recorded it (idempotent adoption). */
 function recordCreatedCommitIfAbsent(
@@ -393,10 +219,7 @@ function recordCreatedCommitIfAbsent(
   sha: string,
   message: string,
 ): void {
-  const exists = store.db
-    .prepare('SELECT id FROM ship_commits WHERE ship_run_id = ? AND repo = ? AND sha = ?')
-    .get(runId, repo, sha);
-  if (exists === undefined) {
+  if (!shipCommitRecorded(store, runId, repo, sha)) {
     recordShipCommit(store, { shipRunId: runId, repo, sha, message, origin: 'created-by-ship' });
   }
 }
@@ -425,25 +248,10 @@ async function reconcilePriorShipOperations(
   gh: GhRunner,
   scope: readonly WorktreeView[] = worktrees,
 ): Promise<void> {
-  const prev = store.db
-    .prepare(
-      'SELECT id, status FROM ship_runs WHERE ticket_id = ? AND id < ? ORDER BY id DESC LIMIT 1',
-    )
-    .get(ticketId, currentRunId) as { id: number; status: string } | undefined;
+  const prev = findPriorShipRun(store, ticketId, currentRunId);
   if (prev === undefined) return;
 
-  const openSteps = store.db
-    .prepare(
-      `SELECT id, repo, step, operation_intent_id
-         FROM ship_repo_steps
-        WHERE ship_run_id = ? AND status != 'passed'`,
-    )
-    .all(prev.id) as {
-    id: number;
-    repo: string;
-    step: string;
-    operation_intent_id: number | null;
-  }[];
+  const openSteps = listUnfinishedShipRepoSteps(store, prev.id);
   const pathByRepo = new Map(worktrees.map((wt) => [wt.repo, wt.path]));
   const scopeRepos = new Set(scope.map((wt) => wt.repo));
 
@@ -455,19 +263,7 @@ async function reconcilePriorShipOperations(
     // its recorded failure and flip its operation intent to `ambiguous`.
     if (!scopeRepos.has(step.repo)) continue;
     if (step.operation_intent_id === null) continue;
-    const intentRow = store.db
-      .prepare(
-        `SELECT id, status, pre_state_json, intent_json, repo, ship_run_id
-           FROM ship_operation_intents WHERE id = ?`,
-      )
-      .get(step.operation_intent_id) as {
-      id: number;
-      status: string;
-      pre_state_json: string;
-      intent_json: string | null;
-      repo: string;
-      ship_run_id: number;
-    } | undefined;
+    const intentRow = getShipOperationIntentRow(store, step.operation_intent_id);
     if (intentRow === undefined) continue;
     const at = nowIso();
     const stepKey = step.step as SagaStep;
@@ -660,19 +456,6 @@ async function reconcileStep(
 }
 
 /**
- * Say that the PR step found a PR rather than opening one, so the live view never
- * shows a plain `pass` for work that did not happen.
- */
-function noteReusedPr(repo: string, onProgress: ShipProgress): void {
-  onProgress({
-    repo,
-    step: 'pr',
-    status: 'note',
-    detail: 'a PR for this branch already existed — reused it',
-  });
-}
-
-/**
  * Say that a branch carrying no effective change from its base publishes,
  * describes and opens nothing — the whole remaining tail of a repo's ship.
  *
@@ -706,134 +489,6 @@ function noteNothingToShip(
     status: 'note',
     detail: `no PR needed — no changes from ${base}`,
   });
-}
-
-/**
- * Give an adopted PR a description if — and only if — it has none.
- *
- * The asymmetry is the whole point. A PR opened by hand commonly has an empty
- * body and nothing else will ever fill it, so skipping the describe step
- * wholesale (what adoption used to do) leaves a permanently blank PR. But
- * overwriting prose a human wrote is unrecoverable, so anything gh reports as
- * non-empty is kept verbatim, and a body gh did NOT report (null) is treated as
- * "unknown", not as "empty" — a degraded probe must never authorize a write.
- *
- * Never throws: the PR is already open, which means ship's irreversible part
- * already succeeded. A refused edit is a note on a working ship, and ship has no
- * `failed` edge to park at anyway.
- */
-async function backfillDescription(
-  gh: GhRunner,
-  repo: string,
-  cwd: string,
-  existing: ExistingPr,
-  buildBody: () => Promise<string>,
-  onProgress: ShipProgress,
-  saga?: { store: Store; run: ShipRun },
-): Promise<void> {
-  const note = (detail: string): void =>
-    onProgress({ repo, step: 'describe', status: 'note', detail });
-
-  if (existing.body === null) {
-    note('existing PR description could not be read — left unchanged');
-    return;
-  }
-  // Whitespace is not a description someone wrote — it is the same emptiness with
-  // invisible characters in it.
-  if (existing.body.trim() !== '') {
-    note('existing PR already has a description — kept');
-    return;
-  }
-
-  const body = await buildBody();
-
-  // Durable describe step + intent around the body UPDATE: the pre-state is
-  // the body as it was read, the intent is the exact prose about to be written,
-  // so a crash between update and result can be reconciled by body hash.
-  if (saga !== undefined) {
-    const at = nowIso();
-    const { stepId, intentId } = openStepWithPreparation(saga.store, {
-      run: saga.run,
-      repo,
-      step: 'describe',
-      operationKey: `${saga.run.id}:${repo}:describe`,
-      preState: { step: 'describe', prUrl: existing.url, preBodyHash: bodyHash(existing.body) },
-      detail: 'backfill',
-      at,
-    });
-    finalizeShipOperationIntent(saga.store, intentId, {
-      step: 'describe',
-      prUrl: existing.url,
-      preBodyHash: bodyHash(existing.body),
-      intendedBody: body,
-    }, at);
-    const attempt = await updatePrBody(gh, existing.url, cwd, body);
-    if (attempt.ok) {
-      // Adopt only the exact intended prose; a third body is a human edit.
-      const current = await fetchPrBody(gh, existing.url, cwd).catch(() => null);
-      if (current !== null && bodyHash(current) === bodyHash(body)) {
-        markShipOperationApplied(saga.store, intentId, { appliedAt: nowIso(), resolvedAt: nowIso() });
-        reconcileShipOperation(saga.store, intentId, 'reconciled', { resolvedAt: nowIso() });
-        finishShipRepoStep(saga.store, stepId, {
-          status: 'passed',
-          detail: 'existing PR had no description — filled in',
-          endedAt: nowIso(),
-        });
-      } else if (current !== null) {
-        markShipOperationApplied(saga.store, intentId, { appliedAt: nowIso() });
-        reconcileShipOperation(saga.store, intentId, 'ambiguous', {
-          resolvedAt: nowIso(),
-          detail: 'PR description updated, then edited — left as is',
-        });
-        finishShipRepoStep(saga.store, stepId, {
-          status: 'note',
-          detail: 'PR description updated, then edited — left as is',
-          endedAt: nowIso(),
-        });
-      } else {
-        markShipOperationApplied(saga.store, intentId, { appliedAt: nowIso() });
-        reconcileShipOperation(saga.store, intentId, 'ambiguous', {
-          resolvedAt: nowIso(),
-          detail: 'PR description updated but could not be verified — left as is',
-        });
-        finishShipRepoStep(saga.store, stepId, {
-          status: 'note',
-          detail: 'PR description updated but could not be verified — left as is',
-          endedAt: nowIso(),
-        });
-      }
-      onProgress({
-        repo,
-        step: 'describe',
-        status: 'pass',
-        detail: 'existing PR had no description — filled in',
-      });
-      return;
-    }
-    reconcileShipOperation(saga.store, intentId, 'failed', {
-      resolvedAt: nowIso(),
-      detail: attempt.reason,
-    });
-    finishShipRepoStep(saga.store, stepId, {
-      status: 'failed',
-      detail: `existing PR had no description — update failed: ${attempt.reason}`,
-      endedAt: nowIso(),
-    });
-    note(`existing PR had no description — update failed: ${attempt.reason}`);
-    return;
-  }
-
-  const attempt = await updatePrBody(gh, existing.url, cwd, body);
-  if (attempt.ok) {
-    onProgress({
-      repo,
-      step: 'describe',
-      status: 'pass',
-      detail: 'existing PR had no description — filled in',
-    });
-    return;
-  }
-  note(`existing PR had no description — update failed: ${attempt.reason}`);
 }
 
 /**
@@ -889,27 +544,10 @@ async function recordMergeChecks(
   }
 }
 
-/** One step of ship's per-repo work, in the order it happens. */
-export type ShipStep = 'commit' | 'push' | 'describe' | 'pr' | 'merge';
-
-/**
- * One structured progress event. `note` marks a step that was not (re-)run —
- * an idempotent retry adopting an already-open PR — so the live view never
- * claims work happened that didn't.
- */
-export interface ShipStepEvent {
-  repo: string;
-  step: ShipStep;
-  status: 'run' | 'pass' | 'fail' | 'note';
-  detail?: string;
-}
-
-/**
- * Structured progress emitted as the ship progresses. Deliberately
- * non-throwing at the call sites (the caller's UI is observing, not controlling)
- * — a broken observer must never sink a ship that otherwise works.
- */
-export type ShipProgress = (event: ShipStepEvent) => void;
+// `ShipStep`, `ShipStepEvent` and `ShipProgress` now live in `shipStore.ts`
+// (NDL-40) alongside the rest of ship's raw store access; re-exported here so
+// every existing import of them from `ship.js` keeps working unchanged.
+export type { ShipStep, ShipStepEvent, ShipProgress } from './shipStore.js';
 
 /**
  * Whether a thrown error came from SQLite rather than from the repo being
@@ -951,28 +589,9 @@ function isStoreFailure(err: unknown): boolean {
   return typeof code === 'string' && code.startsWith('SQLITE_');
 }
 
-/**
- * Whether this ticket has ever COMPLETED a ship — a `passed` `ship_runs` row.
- *
- * This is the production signal that the next ship is a RE-SHIP: a ticket's
- * FIRST ship has no such run, while a ticket that already opened a PR, went
- * back through fix, and reached `ship` again does. The host seam
- * (`runShipSaga`) reads it for a USER-INITIATED ship to turn on
- * `deliverToOpenPr` — the unattended stranded resume asks
- * `activeRecoverySeries` instead — so the new commits are
- * committed and pushed onto the PR already open for a repo instead of being
- * skipped as if the work had already been delivered (FIX-46).
- *
- * A crash-resume whose first ship never completed has no `passed` run, so it
- * keeps the default skip; a retry after a FAILED ship likewise. That is
- * deliberate — only a ship that genuinely completed once is a re-ship.
- */
-export function hasCompletedShipRun(store: Store, ticketId: number): boolean {
-  const row = store.db
-    .prepare("SELECT 1 AS one FROM ship_runs WHERE ticket_id = ? AND status = 'passed' LIMIT 1")
-    .get(ticketId);
-  return row !== undefined;
-}
+// `hasCompletedShipRun` now lives in `shipStore.ts` (NDL-40); re-exported here
+// so every existing `from './ship.js'` import keeps working unchanged.
+export { hasCompletedShipRun } from './shipStore.js';
 
 export async function shipTicket(
   store: Store,
@@ -1014,11 +633,7 @@ export async function shipTicket(
   // PR), so matching only 'open' misses it on the very next retry (Defect 3).
   // 'closed'/'merged' are the only terminal states; everything else — 'open',
   // 'draft', 'unknown', or NULL (never probed) — is still live and must skip.
-  const existingLive = store.db.prepare(
-    `SELECT repo, number, url FROM prs
-      WHERE ticket_id = ? AND repo = ?
-        AND (status IS NULL OR status NOT IN ('closed', 'merged'))`,
-  );
+  //
   // A repo whose PR has LANDED is FINISHED for a scoped retry: the out-of-scope
   // completeness guard below must not count it as outstanding work just because
   // it cannot re-probe it (`findOpenPr` rejects a non-OPEN PR).
@@ -1029,10 +644,6 @@ export async function shipTicket(
   // hold both the merged row and a new open one (`CURRENT_PR_ORDER`). Skipping a
   // merged repo strands those commits and lets the ticket read landed and walk to
   // `done` without shipping them (FIX-46 review).
-  const mergedPr = store.db.prepare(
-    `SELECT repo, number, url FROM prs
-      WHERE ticket_id = ? AND repo = ? AND status = 'merged'`,
-  );
 
   // A retry re-runs this stage: clear any reason the last attempt recorded, so a
   // stale failure can't outlive the run that fixed it. Only when the ticket is
@@ -1044,12 +655,9 @@ export async function shipTicket(
   // The durable saga run: one row per invocation, opened before any work, so a
   // crash leaves a `running` run the next invocation can reconcile.
   const startedAt = nowIso();
-  const runCount = store.db
-    .prepare('SELECT COUNT(*) AS n FROM ship_runs WHERE ticket_id = ?')
-    .get(opts.ticketId) as { n: number };
   const run = openShipRun(store, {
     ticketId: opts.ticketId,
-    attempt: runCount.n + 1,
+    attempt: countShipRuns(store, opts.ticketId) + 1,
     // The run is opened BY this host (v34): when the host dies, this pid is
     // what tells the activation sweep the run died with it — so it can tell a
     // ship killed by process death from one another LIVE window is still
@@ -1097,9 +705,7 @@ export async function shipTicket(
     }
     for (const wt of scoped) {
       try {
-        const prior = existingLive.get(opts.ticketId, wt.repo) as
-          | { repo: string; number: number | null; url: string }
-          | undefined;
+        const prior = findExistingLivePr(store, opts.ticketId, wt.repo);
         const deliveringToOpenPr = Boolean(prior && opts.deliverToOpenPr);
         if (prior && !opts.deliverToOpenPr) {
           prs.push({ repo: prior.repo, number: prior.number, url: prior.url });
@@ -1876,8 +1482,8 @@ export async function shipTicket(
         if (!steps) continue;
         const failed = Object.values(steps).some((s) => s?.status === 'failed');
         if (!failed) continue;
-        if (existingLive.get(opts.ticketId, wt.repo) !== undefined) continue;
-        if (mergedPr.get(opts.ticketId, wt.repo) !== undefined) continue;
+        if (findExistingLivePr(store, opts.ticketId, wt.repo) !== undefined) continue;
+        if (findMergedPr(store, opts.ticketId, wt.repo) !== undefined) continue;
         const upstream = await findOpenPr(gh, wt.path).catch(() => null);
         if (upstream) continue;
         outstanding.push(wt.repo);
