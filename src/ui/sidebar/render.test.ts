@@ -77,10 +77,11 @@ describe('sidebar render', () => {
   describe('collapsible sub-tasks', () => {
     const fixture = sidebarRenderFixtures().find((f) => f.scenario === 'subtasks');
     if (!fixture) throw new Error('subtasks fixture missing');
+    const subtaskState = fixture.state;
 
     function render() {
       const h = renderWebview('sidebar', { nonce: FIXTURE_NONCE });
-      h.receive({ type: 'state', state: fixture.state });
+      h.receive({ type: 'state', state: subtaskState });
       return h;
     }
 
