@@ -7,6 +7,7 @@ import { sessionAction, type SessionAction } from '../../agent/sessionAction.js'
 import { resolveProvider } from '../../agent/registry.js';
 import type { AgentProvider } from '../../manifest/types.js';
 import type { AgentDefaults } from '../../agent/agentPresets.js';
+import { MAX_SUBTASK_DEPTH } from '../../workflow/stages/subtask.js';
 
 /**
  * The expanded body's blocker line — the ONE thing the collapsed row can't show.
@@ -96,6 +97,12 @@ export interface TicketNode {
    * the list is nested, so a bare `buildTicketNodes` call needs no tree pass.
    */
   subtaskDepth: number;
+  /**
+   * How many DIRECT sub-tasks this row has, assigned by `nestSubtasks`. 0 for a
+   * leaf. Drives the collapse control (a row with 0 renders no control). The
+   * webview only hides/show its descendants — it never re-derives the tree.
+   */
+  subtaskChildCount: number;
   collapsible: true;
 }
 
@@ -143,6 +150,7 @@ export function buildTicketNodes(
       subtaskParentKey:
         t.subtaskParentId !== null ? (parentKeys.get(t.subtaskParentId) ?? null) : null,
       subtaskDepth: 0,
+      subtaskChildCount: 0,
       collapsible: true,
     };
   });
@@ -177,10 +185,10 @@ export function nestSubtasks<T extends TicketNode>(rows: readonly T[]): T[] {
   const emit = (row: T, depth: number): void => {
     if (emitted.has(row.ticketId)) return;
     emitted.add(row.ticketId);
-    out.push({ ...row, subtaskDepth: depth });
     const children = childrenOf.get(row.ticketId);
+    out.push({ ...row, subtaskDepth: depth, subtaskChildCount: children ? children.length : 0 });
     if (!children) return;
-    for (const child of children) emit(child, Math.min(depth + 1, MAX_SUBTASK_NEST));
+    for (const child of children) emit(child, Math.min(depth + 1, MAX_SUBTASK_INDENT));
   };
   for (const row of rows) {
     if (isChild.has(row.ticketId)) continue;
@@ -192,13 +200,49 @@ export function nestSubtasks<T extends TicketNode>(rows: readonly T[]): T[] {
 }
 
 /**
- * The deepest indent the sidebar paints. Equals the writer's
- * `MAX_SUBTASK_DEPTH` in `workflow/stages/subtask.ts` (depth = number of
- * `-s<n>` segments, so 4 levels below a root); a deeper chain than the writer
- * permits is clamped rather than indenting off-screen. Kept as a UI-local
- * constant so the sidebar does not import the store-bound writer module.
+ * The deepest indent the sidebar paints. Derived from the writer's own
+ * `MAX_SUBTASK_DEPTH` (`workflow/stages/subtask.ts`) so the two can never drift:
+ * a root is depth 0, so the deepest row the writer can create is depth
+ * `MAX_SUBTASK_DEPTH - 1`. A deeper chain (impossible through the writer) is
+ * clamped rather than indenting off-screen.
  */
-export const MAX_SUBTASK_NEST = 4;
+export const MAX_SUBTASK_INDENT = MAX_SUBTASK_DEPTH - 1;
+
+/**
+ * The rows the sidebar should RENDER given which parent rows the user has
+ * collapsed. A row is hidden when ANY strict ancestor is collapsed, so
+ * collapsing a row hides its whole subtree, recursively. The collapsed row
+ * itself stays visible — it is the control that re-expands it.
+ *
+ * Pure and host-side so the "collapsible, recursive" contract is unit-tested,
+ * not just living in the webview's inline script. Input is `nestSubtasks`
+ * output, so `subtaskDepth` is already stamped; this walks the ordering once,
+ * tracking the ancestor in effect at each depth. `depth` is clamped there, so a
+ * deep chain shares the last slot — correct, since a collapsed ancestor at a
+ * shallower depth already hid it.
+ */
+export function visibleTicketRows<T extends TicketNode>(
+  rows: readonly T[],
+  collapsed: ReadonlySet<number>,
+): T[] {
+  if (collapsed.size === 0) return [...rows];
+  const out: T[] = [];
+  const ancestors: number[] = [];
+  for (const row of rows) {
+    ancestors.length = row.subtaskDepth;
+    ancestors[row.subtaskDepth] = row.ticketId;
+    let hidden = false;
+    for (let d = 0; d < row.subtaskDepth; d += 1) {
+      const id = ancestors[d];
+      if (id !== undefined && collapsed.has(id)) {
+        hidden = true;
+        break;
+      }
+    }
+    if (!hidden) out.push(row);
+  }
+  return out;
+}
 
 /** Case-insensitive substring filter over key + title; blank query = all. */
 export function filterTickets(

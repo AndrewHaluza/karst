@@ -157,11 +157,18 @@
   /* Sub-task nesting: the row indents by its depth (nestSubtasks) so a
      sub-task reads as belonging to the row above it. Whole-row indent (the
      expanded body and hover actions move with it), stepping through the
-     shared spacing tokens. */
+     shared spacing tokens. The classes stop at MAX_SUBTASK_INDENT (3), which
+     `ui/sidebar/items.ts` derives from the writer's MAX_SUBTASK_DEPTH (4); the
+     host clamps `subtaskDepth` to it, so there is no nest4. */
   .ticket.nest1>.row{padding-left:var(--k-space-6)}
   .ticket.nest2>.row{padding-left:var(--k-space-8)}
   .ticket.nest3>.row{padding-left:var(--k-space-9)}
-  .ticket.nest4>.row{padding-left:calc(var(--k-space-9) + var(--k-space-3))}
+  /* The collapse control for a row that has sub-tasks. Sits at the row's right
+     edge (after the open control), a small chevron rotating with its state —
+     the same glyph language as the row's own expand chevron, but a SEPARATE
+     control (UI-R09: two independent disclosures are two buttons). */
+  .subchev{margin-left:auto;flex:0 0 auto;transition:transform var(--k-dur-fast) var(--k-ease-standard)}
+  .subchev[aria-expanded="false"]{transform:rotate(-90deg)}
   /* The stage pill carries the shared stg-<stage> token (model/stagePalette),
      so its text IS the stage color and its fill is that color washed out — the
      same token the dashboard rail paints with. The fill prefers the stage's
@@ -386,6 +393,16 @@
   // back to `rows` until the fresh state lands.
   let state = { facets:['all'], filter:'', counts:{}, sections:{current:[],recentlyDone:[],olderDone:[]}, done:[], rows:[] };
   const open = new Set();
+  // Rows whose sub-tree the user has COLLAPSED (the spec's "collapsible,
+  // recursive" sidebar). View state, like `open` — the host neither knows nor
+  // persists it, and it resets on reload. A collapsed row hides its whole
+  // descendant sub-tree; the row itself stays visible as the re-expand control.
+  const collapsedSubtrees = new Set();
+  // The deepest indent painted, mirroring `MAX_SUBTASK_INDENT` in
+  // `ui/sidebar/items.ts` (which derives it from the writer's
+  // `MAX_SUBTASK_DEPTH`). The host clamps `subtaskDepth` to this, so this
+  // constant only bounds the CSS class; keep the two in step.
+  const MAX_SUBTASK_INDENT = 3;
   // The shared ticket-actions context window (Edit / Follow Up / Archive).
   // `menuTicket` is the ticket whose "⋯" is open — ONE shared fixed popup, so
   // only one row's menu can be open at a time (unlike `open`, which allows
@@ -691,11 +708,24 @@
       ? `<span class="rowopen">${rowContent}</span>`
       : `<button type="button" class="k-btn k-btn--link k-btn--row rowopen" data-open="${row.ticketId}" title="Open ticket dashboard">${rowContent}</button>`;
 
-    const nestClass = row.subtaskDepth ? ` nest${Math.min(row.subtaskDepth, 4)}` : '';
+    const nestClass = row.subtaskDepth ? ` nest${Math.min(row.subtaskDepth, MAX_SUBTASK_INDENT)}` : '';
+    // The collapse control for a row that HAS direct sub-tasks: a real button
+    // (UI-R09) that hides the whole descendant sub-tree. Its own state is
+    // `aria-expanded` (UI-R09b), never a button press state on the row. A leaf
+    // (childCount 0) renders no control — there is nothing to collapse.
+    const canCollapse = (row.subtaskChildCount || 0) > 0;
+    const collapsed = collapsedSubtrees.has(row.ticketId);
+    const collapseLabel = collapsed
+      ? `Show ${row.subtaskChildCount} nested sub-task${row.subtaskChildCount === 1 ? '' : 's'}`
+      : `Hide ${row.subtaskChildCount} nested sub-task${row.subtaskChildCount === 1 ? '' : 's'}`;
+    const collapseControl = canCollapse
+      ? `<button type="button" class="k-iconbtn subchev" data-collapse="${row.ticketId}" aria-expanded="${!collapsed}" aria-label="${collapseLabel}" title="${collapseLabel}">${chev}</button>`
+      : '';
     return `<div class="ticket${isOpen ? ' open' : ''}${row.archived ? ' arch' : ''}${row.isActive ? ' active' : ''}${compact ? ' done' : ''}${opts.older ? ' older' : ''}${nestClass}" data-id="${row.ticketId}">`
       + `<div class="row">`
       + `<button type="button" class="k-iconbtn chev" data-toggle="${row.ticketId}" aria-expanded="${isOpen}" aria-label="${toggleLabel}" title="${toggleLabel}">${chev}</button>`
       + openControl
+      + collapseControl
       + hoverStrip
       + `</div>`
       + `<div class="body">`
@@ -736,15 +766,35 @@
       + '<div class="k-empty-hint"><button type="button" class="k-btn k-btn--link" data-act="create">Create ticket</button></div></div>';
   }
 
+  // Rows to RENDER given `collapsedSubtrees`: a row is dropped when a strict
+  // ancestor is collapsed. Mirrors `visibleTicketRows` in ui/sidebar/items.ts
+  // (the unit-tested spec) over the host-stamped `subtaskDepth`.
+  function visibleRows(rows) {
+    if (collapsedSubtrees.size === 0) return rows;
+    const out = [];
+    const ancestors = [];
+    for (const row of rows) {
+      const depth = row.subtaskDepth || 0;
+      ancestors.length = depth;
+      ancestors[depth] = row.ticketId;
+      let hidden = false;
+      for (let d = 0; d < depth; d += 1) {
+        if (ancestors[d] !== undefined && collapsedSubtrees.has(ancestors[d])) { hidden = true; break; }
+      }
+      if (!hidden) out.push(row);
+    }
+    return out;
+  }
+
   // The All view: Current (full treatment, canonical order) → Recently Done
   // (≤3, compact) → Older Completed behind the disclosure. Empty sections are
   // omitted entirely (a list with no Current tickets starts at Recently Done
   // rather than promoting history into primary weight), and the section
   // headers render only where their section does.
   function renderAll(L) {
-    const cur = (state.sections && state.sections.current) || state.rows || [];
-    const recent = (state.sections && state.sections.recentlyDone) || [];
-    const older = (state.sections && state.sections.olderDone) || [];
+    const cur = visibleRows((state.sections && state.sections.current) || state.rows || []);
+    const recent = visibleRows((state.sections && state.sections.recentlyDone) || []);
+    const older = visibleRows((state.sections && state.sections.olderDone) || []);
     if (!cur.length && !recent.length && !older.length) {
       L.innerHTML = emptyHtml('');
       return;
@@ -788,7 +838,7 @@
     if (sel.size === 1 && sel.has('all')) { renderAll(L); return; }
     if (sel.size === 1 && sel.has('done')) { renderDone(L); return; }
     // Archived facet + derived-status unions: the flat list, as before.
-    const rows = state.rows || [];
+    const rows = visibleRows(state.rows || []);
     if (!rows.length) { L.innerHTML = emptyHtml(sel.has('archived') ? 'archived' : ''); return; }
     L.innerHTML = rows.map((r) => rowHtml(r, {})).join('');
   }
@@ -823,7 +873,7 @@
   // and the watchdog (UI-R11–R14). `data-facet`/`data-toggle` stay immediate —
   // their "settlement" is simply the next `state` push, not a tracked request.
   document.addEventListener('click', (e) => {
-    const t = e.target.closest('[data-act],[data-open],[data-facet],[data-toggle],[data-history],[data-menu]');
+    const t = e.target.closest('[data-act],[data-open],[data-facet],[data-toggle],[data-collapse],[data-history],[data-menu]');
     if (!t) return;
     if (t.dataset.menu) {
       // The ⋯ trigger toggles the shared ticket context window. Pure view
@@ -872,6 +922,16 @@
       e.stopPropagation();
       const id = Number(t.dataset.toggle);
       if (open.has(id)) open.delete(id); else open.add(id);
+      closeCtxMenu(false);
+      renderList();
+      return;
+    }
+    if (t.dataset.collapse) {
+      // Collapse/expand a row's descendant sub-tree. Pure view state, like the
+      // row's own expand: settlement is the next render, not a tracked request.
+      e.stopPropagation();
+      const id = Number(t.dataset.collapse);
+      if (collapsedSubtrees.has(id)) collapsedSubtrees.delete(id); else collapsedSubtrees.add(id);
       closeCtxMenu(false);
       renderList();
     }

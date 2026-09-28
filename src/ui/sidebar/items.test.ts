@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { buildTicketNodes, filterTickets, isDoneTicket, completedAt, nestSubtasks, MAX_SUBTASK_NEST } from './items.js';
+import {
+  buildTicketNodes,
+  filterTickets,
+  isDoneTicket,
+  completedAt,
+  nestSubtasks,
+  visibleTicketRows,
+  MAX_SUBTASK_INDENT,
+} from './items.js';
 import type { TicketNode } from './items.js';
 import type { TicketWithStages } from '../../store/tickets.js';
 
@@ -361,6 +369,7 @@ describe('nestSubtasks', () => {
       subtaskParentId: null,
       subtaskParentKey: null,
       subtaskDepth: 0,
+      subtaskChildCount: 0,
       collapsible: true,
       ...over,
     };
@@ -382,6 +391,20 @@ describe('nestSubtasks', () => {
     ]);
   });
 
+  it('stamps the direct child count so a row knows it can collapse', () => {
+    const rows = [
+      node({ ticketId: 1 }),
+      node({ ticketId: 2, subtaskParentId: 1 }),
+      node({ ticketId: 3, subtaskParentId: 1 }),
+      node({ ticketId: 4, subtaskParentId: 2 }),
+    ];
+    const byId = new Map(nestSubtasks(rows).map((r) => [r.ticketId, r.subtaskChildCount]));
+    expect(byId.get(1)).toBe(2);
+    expect(byId.get(2)).toBe(1);
+    expect(byId.get(3)).toBe(0);
+    expect(byId.get(4)).toBe(0);
+  });
+
   it('keeps a sub-task as a root when its parent is not in this list', () => {
     const rows = [node({ ticketId: 12, subtaskParentId: 99 })];
     const out = nestSubtasks(rows);
@@ -401,15 +424,77 @@ describe('nestSubtasks', () => {
     expect(out.map((r) => r.ticketId)).toEqual([1, 2, 4, 3]);
   });
 
-  it('indents every level the writer allows (4 below a root) and clamps beyond it', () => {
-    // A chain 1 ⊃ 2 ⊃ 3 ⊃ 4 ⊃ 5 ⊃ 6: 5 is the writer's deepest legal sub-task
-    // (MAX_SUBTASK_DEPTH = 4), so it must NOT share its parent's indent; 6 is
-    // bad data and is clamped rather than indenting off-screen.
-    const rows = [1, 2, 3, 4, 5, 6].map((id) =>
+  it('indents to the writer\'s deepest legal sub-task and clamps bad data', () => {
+    // MAX_SUBTASK_INDENT is the writer's MAX_SUBTASK_DEPTH (4 `-s<n>` segments)
+    // minus 1, because a root is depth 0. So the deepest legal sub-task is
+    // depth 3 (e.g. PROJ-1-s2-s1-s1); depth 4 and beyond are bad data and are
+    // clamped rather than indenting off-screen.
+    const rows = [1, 2, 3, 4, 5].map((id) =>
       node({ ticketId: id, subtaskParentId: id === 1 ? null : id - 1 }),
     );
     const out = nestSubtasks(rows);
-    expect(out.map((r) => r.subtaskDepth)).toEqual([0, 1, 2, 3, MAX_SUBTASK_NEST, MAX_SUBTASK_NEST]);
-    expect(MAX_SUBTASK_NEST).toBe(4);
+    expect(out.map((r) => r.subtaskDepth)).toEqual([
+      0,
+      1,
+      2,
+      MAX_SUBTASK_INDENT,
+      MAX_SUBTASK_INDENT,
+    ]);
+    expect(MAX_SUBTASK_INDENT).toBe(3);
+  });
+});
+
+describe('visibleTicketRows', () => {
+  function node(over: Partial<TicketNode> & { ticketId: number }): TicketNode {
+    return {
+      kind: 'ticket',
+      label: `t${over.ticketId}`,
+      glyph: 'gray',
+      description: '',
+      stageLabel: '',
+      stageClass: '',
+      stageChip: '',
+      blocker: null,
+      sessionAction: { kind: 'start', label: 'Start', detail: '' },
+      lastActiveAt: null,
+      model: null,
+      archived: false,
+      parentKey: null,
+      subtaskParentId: null,
+      subtaskParentKey: null,
+      subtaskDepth: 0,
+      subtaskChildCount: 0,
+      collapsible: true,
+      ...over,
+    };
+  }
+
+  // 1 ⊃ 2 ⊃ 3, then a separate root 4.
+  const tree = () =>
+    nestSubtasks([
+      node({ ticketId: 1 }),
+      node({ ticketId: 2, subtaskParentId: 1 }),
+      node({ ticketId: 3, subtaskParentId: 2 }),
+      node({ ticketId: 4 }),
+    ]);
+
+  it('returns every row when nothing is collapsed', () => {
+    expect(visibleTicketRows(tree(), new Set()).map((r) => r.ticketId)).toEqual([1, 2, 3, 4]);
+  });
+
+  it('collapsing a row hides its whole descendant sub-tree, keeping the row itself', () => {
+    expect(visibleTicketRows(tree(), new Set([1])).map((r) => r.ticketId)).toEqual([1, 4]);
+    // Collapsing a mid-tree row hides only ITS descendants.
+    expect(visibleTicketRows(tree(), new Set([2])).map((r) => r.ticketId)).toEqual([1, 2, 4]);
+  });
+
+  it('a collapsed ancestor wins over a re-expanded descendant (recursive)', () => {
+    // Collapsing 1 hides 3 even though 2 (its parent) is not itself collapsed.
+    expect(visibleTicketRows(tree(), new Set([1])).map((r) => r.ticketId)).toEqual([1, 4]);
+  });
+
+  it('is a no-op on a flat list', () => {
+    const flat = [node({ ticketId: 7 }), node({ ticketId: 8 })];
+    expect(visibleTicketRows(flat, new Set([7])).map((r) => r.ticketId)).toEqual([7, 8]);
   });
 });

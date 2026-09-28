@@ -66,6 +66,7 @@ function fixtureRow(index: number, overrides?: Partial<TicketRow>): TicketRow {
     subtaskParentId: null,
     subtaskParentKey: null,
     subtaskDepth: 0,
+    subtaskChildCount: 0,
     collapsible: true as const,
     servers: [],
     worktrees: [],
@@ -169,20 +170,22 @@ function filteredState(): SidebarState {
 
 function subtasksState(): SidebarState {
   // Host output: rows already ordered parent-first with depths stamped
-  // (`nestSubtasks`), so the webview only paints indentation + the marker.
+  // (`nestSubtasks`), so the webview only paints indentation, the marker and
+  // the collapse control (a row with `subtaskChildCount > 0`).
   return {
     facets: ['all'],
     filter: '',
     counts: fixtureCounts({ all: 4, running: 3 }),
     sections: {
       current: [
-        fixtureRow(0, { label: 'FEAT-100', glyph: 'blue' }),
+        fixtureRow(0, { label: 'FEAT-100', glyph: 'blue', subtaskChildCount: 1 }),
         fixtureRow(1, {
           label: 'FEAT-100-s1',
           glyph: 'blue',
           subtaskParentId: 900001,
           subtaskParentKey: 'FEAT-100',
           subtaskDepth: 1,
+          subtaskChildCount: 1,
         }),
         fixtureRow(2, {
           label: 'FEAT-100-s1-s1',
