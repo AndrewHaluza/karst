@@ -92,4 +92,26 @@ describe('sidebar webview.html', () => {
       expect(block).not.toContain(':root');
     }
   });
+
+  it('renders the sub-task marker ⊂ <parentKey> distinctly from the follow-up ↳ (NDL-76)', () => {
+    // Two ORTHOGONAL relations, two markers: a sub-task row shows its
+    // composition parent (`⊂`), a follow-up its temporal parent (`↳`). The
+    // sub-task marker is preferred when a row somehow carries both, and its
+    // tooltip names the sub-task relation, never "Follow-up".
+    expect(HTML).toContain('class="parentref subtaskref"');
+    expect(HTML).toContain('Sub-task of ${esc(row.subtaskParentKey)}');
+    expect(HTML).toContain('⊂ ${esc(row.subtaskParentKey)}');
+    expect(HTML).toMatch(/row\.subtaskParentKey\s*\n?\s*\?\s*`<span class="parentref subtaskref"/);
+    expect(HTML).toContain('Follow-up of ${esc(row.parentKey)}');
+    expect(HTML).toContain('↳ ${esc(row.parentKey)}');
+  });
+
+  it('indents nested sub-task rows by depth via token-spaced nest classes (NDL-76)', () => {
+    // Depth comes from the host (`nestSubtasks`); the view only paints it. Each
+    // step uses a shared spacing token — no raw px literal (UI-R04).
+    expect(HTML).toContain('nest${Math.min(row.subtaskDepth, 3)}');
+    expect(HTML).toMatch(/\.ticket\.nest1>\.row\{padding-left:var\(--k-space-6\)\}/);
+    expect(HTML).toMatch(/\.ticket\.nest2>\.row\{padding-left:var\(--k-space-8\)\}/);
+    expect(HTML).toMatch(/\.ticket\.nest3>\.row\{padding-left:var\(--k-space-9\)\}/);
+  });
 });

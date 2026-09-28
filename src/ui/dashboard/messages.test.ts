@@ -276,6 +276,13 @@ describe('routeAction', () => {
     expect(a.createFollowUpTicket).toHaveBeenCalledTimes(1);
   });
 
+  it('parses and dispatches create-subtask', () => {
+    expect(parseWebviewMessage({ type: 'create-subtask' })).toEqual({ type: 'create-subtask' });
+    const a = actions();
+    routeAction({ type: 'create-subtask' }, a);
+    expect(a.createSubtask).toHaveBeenCalledTimes(1);
+  });
+
   it('dispatches open-stage-log with the stage key', () => {
     const a = actions();
     routeAction({ type: 'open-stage-log', stageKey: 'review' }, a);
