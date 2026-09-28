@@ -1,11 +1,17 @@
 import type { Store } from '../../store/db.js';
 import type { Manifest } from '../../manifest/types.js';
-import { resolvePlannedBaseRef } from '../baseRef.js';
+import {
+  assertSubtaskParentReady,
+  resolvePlannedBase,
+  subtaskParentBranch,
+  SubtaskParentNotStartedError,
+} from '../baseRef.js';
 import { createWorktree, type WorktreeRecord } from '../../runtime/worktree.js';
 import { pullBaseRef } from '../../runtime/pullBase.js';
 import { defaultGitRunner, type GitRunner } from '../../integrations/git.js';
 import { getTicket } from '../../store/tickets.js';
 import { ticketWorktreeNames } from '../../runtime/ticketBranch.js';
+import { clearStageBlock, parkGateStage, stageBlock } from '../../store/stageBlocks.js';
 
 /**
  * Scope stage (§T4.2, §17.1). The user selects which repos go *hot* for a
@@ -18,6 +24,11 @@ import { ticketWorktreeNames } from '../../runtime/ticketBranch.js';
  *    `hasMigrations` manifest field — deterministic, not a filesystem heuristic.
  *  - `confirmScope` — the side-effecting confirm: create worktrees *lazily*, one
  *    per hot repo, off the baseline branch. Nothing is created until confirm.
+ *
+ * A sub-task (design NDL-70 §4) cuts from the parent's branch instead: the
+ * precondition is that the parent already has a worktree in every repo the
+ * sub-task touches, and the base pull is skipped because the start point is the
+ * parent's LOCAL head, never `origin/<parentBranch>`.
  */
 
 export interface ScopeResult {
@@ -96,6 +107,31 @@ export async function confirmScope(
       `off '${branch}' (pull base ${pullBase ? 'on' : 'off'})`,
   );
 
+  // Sub-task precondition (design NDL-70 §4): the parent must already have a
+  // worktree in every repo the sub-task touches — the sub-task's branch stacks
+  // on the parent's branch. Park `scope` with the reason (nothing is cut) rather
+  // than let `createWorktree` fail on a missing base or, worse, silently root the
+  // sub-task on the manifest default. The parent is never auto-spun.
+  try {
+    assertSubtaskParentReady(store, ticket, manifest, hot);
+  } catch (err) {
+    if (err instanceof SubtaskParentNotStartedError) {
+      parkGateStage(store, {
+        ticketId,
+        stageKey: 'scope',
+        kind: 'nothing-to-run',
+        reason: err.message,
+        runAt: new Date().toISOString(),
+        gates: [],
+      });
+      opts.debug?.(`[runtime] scope ticket ${ticketId}: ${err.message} — parked scope`);
+    }
+    throw err;
+  }
+  // The precondition holds, so a block a previous parking left on `scope` is
+  // stale: clear it, or a sub-task that is now startable keeps a scope blocker.
+  if (stageBlock(store, ticketId, 'scope')) clearStageBlock(store, ticketId, 'scope');
+
   for (const name of hot) {
     const repo = manifest.repositories[name];
     if (!repo) {
@@ -110,9 +146,23 @@ export async function confirmScope(
     }
     seen.add(repo.repoPath);
 
-    const baseRef = resolvePlannedBaseRef(ticket, manifest, name);
+    const planned = resolvePlannedBase(
+      ticket,
+      manifest,
+      name,
+      subtaskParentBranch(store, ticket, manifest, name),
+    );
+    const baseRef = planned.baseRef;
     let startPoint = baseRef;
-    if (pullBase) {
+    if (planned.skipPull) {
+      // The sub-task base is the parent's LOCAL branch head. Pulling it would
+      // move the start point to `origin/<parentBranch>`, which may be BEHIND the
+      // parent's newest unpushed commits — exactly the work the sub-task stacks on.
+      opts.debug?.(
+        `[runtime] scope ticket ${ticketId}: '${repo.repoPath}' is a sub-task stack on parent ` +
+          `branch '${baseRef}' — skipping pull (start point is the parent's local head)`,
+      );
+    } else if (pullBase) {
       const pulled = await pullBaseRef(git, repo.repoPath, baseRef);
       startPoint = pulled.startPoint;
       if (!pulled.refreshed && pulled.reason) {

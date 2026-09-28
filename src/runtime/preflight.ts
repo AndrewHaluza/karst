@@ -1,7 +1,12 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import type { Manifest } from '../manifest/types.js';
-import { resolvePlannedBaseRef } from '../workflow/baseRef.js';
+import type { Store } from '../store/db.js';
+import {
+  resolvePlannedBaseRef,
+  subtaskParentBranch,
+  type PlannedBaseTicket,
+} from '../workflow/baseRef.js';
 import { worktreePaths, canonicalPath, worktreeRegisteredAt } from './worktree.js';
 
 /**
@@ -68,9 +73,12 @@ export function preflightSpin(
    * pass preflight for a repo whose worktree is about to be cut from a branch
    * this check never looked at — an override naming a branch absent from the
    * clone then fails later, mid `git worktree add`, breaking the "fails fast,
-   * nothing partial" contract this function exists for.
+   * nothing partial" contract this function exists for. For a sub-task the
+   * planned base is the parent's branch, so `store` is required to resolve it.
    */
-  ticket?: { baseRefs?: Record<string, string> },
+  ticket?: PlannedBaseTicket,
+  /** The store, when the caller can supply it — needed for the sub-task base. */
+  store?: Store,
 ): void {
   const problems: string[] = [];
   const seen = new Set<string>();
@@ -93,9 +101,15 @@ export function preflightSpin(
     }
 
     // The branch the worktree will ACTUALLY be cut from: the ticket's override
-    // when it has one, else the manifest default — same resolver `spinTicket`
-    // and `createWorktree` answer to (`workflow/baseRef.ts`).
-    const branch = resolvePlannedBaseRef(ticket ?? {}, manifest, name);
+    // when it has one, else the sub-task parent's branch, else the manifest
+    // default — same resolver `spinTicket` and `createWorktree` answer to
+    // (`workflow/baseRef.ts`).
+    const branch = resolvePlannedBaseRef(
+      ticket ?? {},
+      manifest,
+      name,
+      store ? subtaskParentBranch(store, ticket ?? {}, manifest, name) : null,
+    );
     if (!gitOk(repoPath, ['rev-parse', '--verify', '--quiet', `${branch}^{commit}`])) {
       problems.push(`branch '${branch}' not found in ${repoPath}`);
     }
