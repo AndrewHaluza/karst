@@ -384,3 +384,52 @@ describe('runCli — graph submit (Slice-2 T6)', () => {
     }
   });
 });
+
+describe('runCli — subtask create (design NDL-70 §7)', () => {
+  let dir: string;
+  let dbPath: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'karst-cli-subtask-'));
+    dbPath = join(dir, 'karst.db');
+    const seed = openStore(dbPath);
+    const parent = createTicket(seed, { key: 'K-1', title: 'demo' });
+    seed.db
+      .prepare("UPDATE tickets SET selected_repos = '[\"frontend\"]' WHERE id = ?")
+      .run(parent.id);
+    seed.close();
+  });
+
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  it('carves a sub-task out of the --ticket ticket and names the new key', () => {
+    const out = runCli([
+      'subtask',
+      'create',
+      '--title',
+      'Carve this out',
+      '--blocking',
+      '--db',
+      dbPath,
+      '--ticket',
+      'K-1',
+    ]);
+    const parsed = JSON.parse(out);
+    expect(parsed).toMatchObject({ ok: true, key: 'K-1-s1', parent: 'K-1', blocking: true });
+
+    const check = openStore(dbPath);
+    const child = getTicket(check, parsed.id);
+    expect(child.subtaskParentId).toBe(1);
+    expect(child.selectedRepos).toEqual(['frontend']);
+    check.close();
+  });
+
+  it('requires --ticket and --db', () => {
+    expect(() => runCli(['subtask', 'create', '--title', 'x', '--db', dbPath])).toThrow(/ticket/);
+    expect(() => runCli(['subtask', 'create', '--title', 'x', '--ticket', 'K-1'])).toThrow(/db/);
+  });
+
+  it('names the verb in the unknown-command message', () => {
+    expect(() => runCli(['bogus', '--db', dbPath])).toThrow(/subtask/);
+  });
+});

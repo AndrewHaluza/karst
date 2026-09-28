@@ -17,6 +17,7 @@ import { readGuideAttribution, recordGuidePull } from './guideTelemetry.js';
 import { runCompactCommand } from './compact.js';
 import { runEnvCommand } from './envCommand.js';
 import { runServersCommand } from './serversCommand.js';
+import { runSubtaskCommand } from './subtaskCommand.js';
 import { resolveTicketByKey } from './resolveTicket.js';
 import { runTestCommand, parseTestArgs } from './test/main.js';
 import { runReset } from './test/reset.js';
@@ -96,6 +97,11 @@ function loadProjectSlug(manifestPath: string | undefined): string | undefined {
  *   conflict-brief: `… conflict-brief <key> <repo> --db <db>`
  *             human-readable summary of the merge conflict a session must
  *             resolve — read-only, node:sqlite (see conflictBriefCommand.ts).
+ *   subtask:  `… subtask create --title <t> [--description <d>] [--blocking] [--repos a,b] --db <db> --ticket <key>`
+ *             the write verb that carves a NEW sub-task out of the session's
+ *             own ticket (design NDL-70 §7). The parent is the `--ticket`
+ *             ticket, resolved via `--manifest` like `stage`/`env`; writes
+ *             through the shared `createSubtask` writer (see subtaskCommand.ts).
  *
  * Self-contained: every path it needs is passed as a flag, so it does no
  * workspace discovery.
@@ -328,6 +334,24 @@ export function runCli(argv: string[]): string {
     }
   }
 
+  // `karst subtask create` (design NDL-70 §7) — a WRITE verb that carves a new
+  // sub-task out of the session's OWN ticket. The parent is resolved exactly
+  // like `env`/`stage` above (via `--ticket` + `--manifest`); the new ask is
+  // the only thing in argv. Writing through node:sqlite, subject to the same
+  // `assertMigrated` refusal as every other writable verb.
+  if (subcommand === 'subtask') {
+    if (!db) throw new Error('missing --db <path>');
+    if (!ticket) throw new Error('missing --ticket <key>');
+    const store = openWritableStore(db);
+    try {
+      const found = resolveTicketByKey(store, ticket, loadProjectSlug(manifestPath));
+      if (!found) throw new Error(`no ticket found for key or id '${ticket}'`);
+      return runSubtaskCommand(store, found.id, rest);
+    } finally {
+      store.close();
+    }
+  }
+
   if (subcommand === 'fix-brief') {
     if (!db) throw new Error('missing --db <path>');
     const parsed = parseFixBriefArgs(rest);
@@ -351,7 +375,7 @@ export function runCli(argv: string[]): string {
   }
 
   throw new Error(
-    `unknown command '${subcommand ?? ''}' (want 'context', 'stats', 'stage', 'phase', 'graph', 'node', 'test', 'guide', 'compact', 'servers', 'env', 'fix-brief' or 'conflict-brief')`,
+    `unknown command '${subcommand ?? ''}' (want 'context', 'stats', 'stage', 'phase', 'graph', 'node', 'test', 'guide', 'compact', 'servers', 'env', 'subtask', 'fix-brief' or 'conflict-brief')`,
   );
 }
 

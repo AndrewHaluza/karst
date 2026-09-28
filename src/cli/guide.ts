@@ -74,8 +74,17 @@ machine-read JSON or markdown; diagnostics go to stderr and never corrupt it.
    overrides, merged into the spawn env of its services only. They never touch
    a repository's \`.env\` on disk. \`--service\` scopes an entry to one
    repository; without it the entry applies to every service. \`list\` prints
-   KEYS ONLY unless you pass \`--values\`. Changing an override does not
-   restart anything — run \`servers restart\` to pick it up.
+    KEYS ONLY unless you pass \`--values\`. Changing an override does not
+    restart anything — run \`servers restart\` to pick it up.
+ - \`subtask create --title <title> [--description <desc>] [--blocking]
+    [--repos a,b]\` — carve a NEW sub-task out of YOUR OWN ticket when you
+    discover unfinished work that is its own piece of the job. The parent is the
+    ticket you are running on (the one \`--ticket\` names); \`--blocking\` makes
+    the sub-task hold the parent before it leaves \`impl\`/\`fix\`, and
+    \`--repos\` narrows it to a subset of the parent's repositories (the default
+    is all of them). A sub-task gets its own worktree and branch, cut from the
+    parent's branch, and its PR lands back into the parent's branch — not into
+    main.
 - \`stats [--project <slug>] [--since <iso>] [--json]\` — **read** the
   orchestration effectiveness report for a project: first-pass rate, rework
   loops, gate kill distribution, cycle time, agent-active time, token spend by

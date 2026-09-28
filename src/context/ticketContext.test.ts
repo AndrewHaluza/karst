@@ -143,6 +143,121 @@ describe('buildTicketContext', () => {
     expect(renderTicketContext(ctx)).not.toContain('## Continuing from');
   });
 
+  describe('sub-tasks (design NDL-70 §7)', () => {
+    it("gives a sub-task its parent's ask, brief and branch — and not its PRs", () => {
+      const parent = createTicket(store, { key: 'PROJ-1', title: 'Root work' });
+      updateTicketFields(store, parent.id, {
+        description: 'Build the whole thing',
+        brief: 'Half done.',
+      });
+      store.db
+        .prepare(
+          "INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref, deps_mode) VALUES (?, 'frontend', '/wt/parent', 'feat/root', 'main', 'inherited')",
+        )
+        .run(parent.id);
+      store.db
+        .prepare(
+          "INSERT INTO prs (ticket_id, repo, number, url, status) VALUES (?, 'frontend', 7, 'https://x/pr/7', 'open')",
+        )
+        .run(parent.id);
+
+      const child = createTicket(store, {
+        key: 'PROJ-1-s1',
+        title: 'Carved out piece',
+        subtaskParentId: parent.id,
+        blocksParent: true,
+      });
+
+      const ctx = buildTicketContext(store, undefined, child.id);
+      expect(ctx.subtaskParent).toEqual({
+        key: 'PROJ-1',
+        title: 'Root work',
+        prompt: 'Build the whole thing',
+        brief: 'Half done.',
+        branches: [{ repo: 'frontend', branch: 'feat/root' }],
+      });
+      // A sub-task must not inherit the follow-up's shipped-PR view.
+      expect(ctx.parent).toBeNull();
+
+      const md = renderTicketContext(ctx);
+      expect(md).toContain('## Parent task');
+      expect(md).toContain('PROJ-1: Root work');
+      expect(md).toContain('Build the whole thing');
+      expect(md).toContain('- frontend: `feat/root`');
+      expect(md).toMatch(/lands into the parent's branch, not into main/);
+      expect(md).not.toContain('https://x/pr/7');
+    });
+
+    it('renders no parent task section for an ordinary ticket', () => {
+      const t = createTicket(store, { key: 'PROJ-9', title: 'root' });
+      const ctx = buildTicketContext(store, undefined, t.id);
+      expect(ctx.subtaskParent).toBeNull();
+      expect(renderTicketContext(ctx)).not.toContain('## Parent task');
+    });
+
+    it("lists a parent ticket's direct sub-tasks with stage and blocking flag", () => {
+      const parent = createTicket(store, { key: 'PROJ-1', title: 'Root work' });
+      const blocker = createTicket(store, {
+        key: 'PROJ-1-s1',
+        title: 'Schema first',
+        subtaskParentId: parent.id,
+        blocksParent: true,
+      });
+      const extra = createTicket(store, {
+        key: 'PROJ-1-s2',
+        title: 'Docs polish',
+        subtaskParentId: parent.id,
+      });
+      store.db.prepare("UPDATE tickets SET stage_current = 'review' WHERE id = ?").run(blocker.id);
+      store.db.prepare("UPDATE tickets SET stage_current = 'impl' WHERE id = ?").run(extra.id);
+
+      const ctx = buildTicketContext(store, undefined, parent.id);
+      expect(ctx.subtasks).toEqual([
+        { id: blocker.id, key: 'PROJ-1-s1', title: 'Schema first', stageCurrent: 'review', blocksParent: true },
+        { id: extra.id, key: 'PROJ-1-s2', title: 'Docs polish', stageCurrent: 'impl', blocksParent: false },
+      ]);
+
+      const md = renderTicketContext(ctx);
+      expect(md).toContain('## Sub-tasks');
+      expect(md).toContain('- PROJ-1-s1: Schema first (stage: review) [blocking]');
+      expect(md).toContain('- PROJ-1-s2: Docs polish (stage: impl)');
+    });
+
+    it('omits the sub-tasks section when there are none, and ignores archived ones', () => {
+      const parent = createTicket(store, { key: 'PROJ-1', title: 'Root work' });
+      let ctx = buildTicketContext(store, undefined, parent.id);
+      expect(ctx.subtasks).toEqual([]);
+      expect(renderTicketContext(ctx)).not.toContain('## Sub-tasks');
+
+      const child = createTicket(store, {
+        key: 'PROJ-1-s1',
+        title: 'Abandoned',
+        subtaskParentId: parent.id,
+      });
+      store.db
+        .prepare("UPDATE tickets SET archived_at = datetime('now') WHERE id = ?")
+        .run(child.id);
+
+      ctx = buildTicketContext(store, undefined, parent.id);
+      expect(ctx.subtasks).toEqual([]);
+      expect(renderTicketContext(ctx)).not.toContain('## Sub-tasks');
+    });
+
+    it('degrades gracefully when the sub-task parent has been hard-deleted', () => {
+      const parent = createTicket(store, { key: 'PROJ-1', title: 'Root work' });
+      const child = createTicket(store, {
+        key: 'PROJ-1-s1',
+        title: 'Carved out piece',
+        subtaskParentId: parent.id,
+      });
+      store.db.prepare('DELETE FROM tickets WHERE id = ?').run(parent.id);
+
+      const ctx = buildTicketContext(store, undefined, child.id);
+      expect(ctx.subtaskParent).toBeNull();
+      expect(renderTicketContext(ctx)).not.toContain('## Parent task');
+    });
+  });
+
   describe('attachments', () => {
     it('omits the section when the ticket has none', () => {
       const ticketId = seed();

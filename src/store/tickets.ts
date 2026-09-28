@@ -579,6 +579,47 @@ export function listOpenSubtasks(
     .all(ticketId) as { id: number; key: string | null }[];
 }
 
+/**
+ * One direct sub-task, as the parent's `## Sub-tasks` context section reads it
+ * (design NDL-70 §7): identity plus the two facts a parent needs — where the
+ * delegated work stands and whether it holds the parent.
+ */
+export interface SubtaskListing {
+  id: number;
+  key: string | null;
+  title: string | null;
+  stageCurrent: string | null;
+  blocksParent: boolean;
+}
+
+/**
+ * The non-archived direct sub-tasks of `ticketId`, oldest first. Unlike
+ * `listOpenSubtasks` this also carries title/stage/blocking so the parent's
+ * context can list the delegated work without a row read per child. Archived
+ * sub-tasks are omitted: abandoning one is the sanctioned way to unblock a
+ * parent, so it is no longer work the parent is waiting on.
+ */
+export function listSubtasks(store: Store, ticketId: number): SubtaskListing[] {
+  const rows = store.db
+    .prepare(
+      'SELECT id, key, title, stage_current, blocks_parent FROM tickets WHERE subtask_parent_id = ? AND archived_at IS NULL ORDER BY id',
+    )
+    .all(ticketId) as {
+    id: number;
+    key: string | null;
+    title: string | null;
+    stage_current: string | null;
+    blocks_parent: number | null;
+  }[];
+  return rows.map((r) => ({
+    id: r.id,
+    key: r.key,
+    title: r.title,
+    stageCurrent: r.stage_current,
+    blocksParent: r.blocks_parent === 1,
+  }));
+}
+
 /** Throw when `ticketId` is the parent of any non-archived sub-task. */
 export function assertNoOpenSubtasks(store: Store, ticketId: number): void {
   const open = listOpenSubtasks(store, ticketId);
