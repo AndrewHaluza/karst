@@ -15,6 +15,7 @@
  */
 
 import type { GraphDb } from '../../../store/graph/transitions.js';
+import { setPlannerRunCompileAttempt } from '../../../store/graph/plannerRuns.js';
 import type { CompileDiagnostic, CompiledGraph } from '../compile.js';
 import { emitGraphDiagnostic } from '../diagnostics.js';
 
@@ -64,9 +65,7 @@ export function recordCompileAttempt(
   plannerRunId: number,
   attempt: number,
 ): void {
-  deps.db
-    .prepare('UPDATE approach_planner_runs SET compile_attempt = ? WHERE id = ?')
-    .run(attempt, plannerRunId);
+  setPlannerRunCompileAttempt(deps.db, plannerRunId, attempt);
 }
 
 export interface CompileAttemptDecision {

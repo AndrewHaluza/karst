@@ -61,7 +61,16 @@ import {
   REVISION_TRANSITIONS,
 } from '../../../store/graph/transitions.js';
 import { activeRevision, createRevision } from '../../../store/graph/revisions.js';
-import { transitionPlannerRun } from '../../../store/graph/plannerRuns.js';
+import {
+  setPlannerRunEndedAt,
+  setPlannerRunGraphSnapshot,
+  setPlannerRunPromptHashArtifact,
+  setPlannerRunReason,
+  setPlannerRunSubmittedSnapshot,
+  transitionPlannerRun,
+} from '../../../store/graph/plannerRuns.js';
+import { incrementReplanCount, markGraphRunBlocked } from '../../../store/graph/graphRuns.js';
+import { setNodeRunBudgetBlock } from '../../../store/graph/nodeRuns.js';
 import { cancelGraphToken, insertEntryTokens } from '../../../store/graph/tokens.js';
 import { nextPlannerIdentity, sha256Hex } from './plannerRun.js';
 import { ACTIVE_NODE_STATUSES } from './completion.js';
@@ -146,19 +155,17 @@ export function electReplan(deps: ReplanDeps, input: ElectReplanInput): ElectRep
     // isolation and leases are retained for inspection.
     if (run.replan_count >= parsed.document.budgets.maxReplans) {
       if (input.requestNodeRunId !== undefined) {
-        db.prepare(
-          `UPDATE approach_node_runs
-           SET effective_outcome = 'blocked', failure_category = 'graph-budget-exhausted',
-               reason = 'graph-budget-exhausted'
-           WHERE id = ? AND graph_run_id = ?`,
-        ).run(input.requestNodeRunId, input.graphRunId);
+        setNodeRunBudgetBlock(
+          db,
+          input.requestNodeRunId,
+          input.graphRunId,
+          'graph-budget-exhausted',
+        );
       }
       if (
         casStatus(db, 'approach_graph_runs', GRAPH_RUN_TRANSITIONS, input.graphRunId, 'running', 'blocked')
       ) {
-        db.prepare(
-          'UPDATE approach_graph_runs SET blocked_reason = ?, updated_at = ? WHERE id = ?',
-        ).run('graph-budget-exhausted', deps.now(), input.graphRunId);
+        markGraphRunBlocked(db, input.graphRunId, 'graph-budget-exhausted', deps.now());
       }
       deps.debug?.(
         `[graph] replan election: run ${input.graphRunId} replan budget exhausted — refused, blocked graph-budget-exhausted`,
@@ -183,9 +190,7 @@ export function electReplan(deps: ReplanDeps, input: ElectReplanInput): ElectRep
         `replan election: revision ${revision.id} not active while run ${input.graphRunId} was running`,
       );
     }
-    db.prepare(
-      'UPDATE approach_graph_runs SET replan_count = replan_count + 1, updated_at = ? WHERE id = ?',
-    ).run(deps.now(), input.graphRunId);
+    incrementReplanCount(db, input.graphRunId, deps.now());
     deps.debug?.(
       `[graph] replan election: run ${input.graphRunId} elected — draining revision ${revision.id} (accepted replans ${run.replan_count + 1})`,
     );
@@ -327,9 +332,7 @@ export function beginReplanPlannerRun(
     // Step 6: allocate exactly one replan PlannerRun with the next counter.
     const identity = nextPlannerIdentity(db, input.graphRunId);
     if (!identity) return { ok: false, reason: 'not-draining' };
-    db.prepare(
-      'UPDATE approach_planner_runs SET prompt_hash = ?, artifact_snapshot_id = ? WHERE id = ?',
-    ).run(promptHash, promptSnapshotPath, identity.plannerRunId);
+    setPlannerRunPromptHashArtifact(db, identity.plannerRunId, promptHash, promptSnapshotPath);
     deps.writeSnapshot(input.graphRunId, promptSnapshotPath, promptBytes);
 
     // Step 7: the elected + secondary replan reasons. The elected reason is
@@ -355,10 +358,7 @@ export function beginReplanPlannerRun(
     const reasonsBytes = new TextEncoder().encode(JSON.stringify(reasonsDoc));
     const reasonsSnapshotPath = `reasons/${sha256Hex(reasonsBytes)}.json`;
     deps.writeSnapshot(input.graphRunId, reasonsSnapshotPath, reasonsBytes);
-    db.prepare('UPDATE approach_planner_runs SET graph_snapshot_id = ? WHERE id = ?').run(
-      reasonsSnapshotPath,
-      identity.plannerRunId,
-    );
+    setPlannerRunGraphSnapshot(db, identity.plannerRunId, reasonsSnapshotPath);
 
     // Bounded launch-input facts read from durable evidence.
     const completedArtifacts = db
@@ -517,10 +517,7 @@ export function submitReplanDocument(
               : null;
       if (from) {
         transitionPlannerRun(db, input.plannerRunId, from, 'stale');
-        db.prepare('UPDATE approach_planner_runs SET ended_at = ? WHERE id = ?').run(
-          deps.now(),
-          input.plannerRunId,
-        );
+        setPlannerRunEndedAt(db, input.plannerRunId, deps.now());
       }
       deps.debug?.(
         `[graph] replan submit: planner run ${input.plannerRunId} is late (run ${graphRunId} is ${run?.status ?? 'gone'}) — marked stale, no revision`,
@@ -588,16 +585,15 @@ export function submitReplanDocument(
        WHERE id = ?`,
     ).run(graphSnapshotId, planner.graph_snapshot_id ?? null, newRevisionId);
     if (deferredNodeIds.length > 0) {
-      db.prepare('UPDATE approach_planner_runs SET reason = ? WHERE id = ?').run(
-        `deferred-on-held-leases: ${deferredNodeIds.slice(0, MAX_DEFERRED_IDS).join(',')}`,
+      setPlannerRunReason(
+        db,
         input.plannerRunId,
+        `deferred-on-held-leases: ${deferredNodeIds.slice(0, MAX_DEFERRED_IDS).join(',')}`,
       );
     }
     if (planner.status === 'running') {
       transitionPlannerRun(db, input.plannerRunId, 'running', 'submitted');
-      db.prepare(
-        'UPDATE approach_planner_runs SET graph_snapshot_id = ?, submitted_at = ? WHERE id = ?',
-      ).run(graphSnapshotId, deps.now(), input.plannerRunId);
+      setPlannerRunSubmittedSnapshot(db, input.plannerRunId, graphSnapshotId, deps.now());
     }
 
     // Step 10: create the new root fork/entry tokens and resume scheduling.

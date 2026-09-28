@@ -26,6 +26,7 @@ import {
   createPlannerRun,
   nextPlannerRunNumber,
   plannerRunById,
+  setPlannerRunPromptHashArtifact,
   transitionPlannerRun,
 } from '../../../store/graph/plannerRuns.js';
 
@@ -99,13 +100,7 @@ export function beginBootstrapPlannerRun(
       plannerRunNumber: 1,
       kind: 'bootstrap',
     });
-    deps.db
-      .prepare(
-        `UPDATE approach_planner_runs
-         SET prompt_hash = ?, artifact_snapshot_id = ?
-         WHERE id = ?`,
-      )
-      .run(promptHash, `prompts/${promptHash}`, plannerRunId);
+    setPlannerRunPromptHashArtifact(deps.db, plannerRunId, promptHash, `prompts/${promptHash}`);
     // Content-addressed snapshot write is part of the same all-or-nothing
     // unit: a throw here rolls the run creation back.
     promptSnapshotPath = `prompts/${promptHash}`;
@@ -173,13 +168,7 @@ export function relaunchBootstrapPlannerRun(
       plannerRunNumber,
       kind: 'bootstrap',
     });
-    deps.db
-      .prepare(
-        `UPDATE approach_planner_runs
-         SET prompt_hash = ?, artifact_snapshot_id = ?
-         WHERE id = ?`,
-      )
-      .run(promptHash, `prompts/${promptHash}`, plannerRunId);
+    setPlannerRunPromptHashArtifact(deps.db, plannerRunId, promptHash, `prompts/${promptHash}`);
     // Content-addressed snapshot write is part of the same all-or-nothing
     // unit: a throw here rolls the run creation back.
     promptSnapshotPath = `prompts/${promptHash}`;

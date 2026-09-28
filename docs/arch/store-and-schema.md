@@ -7,6 +7,7 @@ The registry is shared by every IDE window, so every rule here is about scoping 
 - SQLite is source of truth
 - Projects scope the board across IDE windows
 - Global storage is shared by every window
+- Graph-run state writes have one boundary
 - The artifact shelf is a READ over existing evidence
 - The per-ticket base-branch columns
 - The per-ticket env overrides column
@@ -24,6 +25,28 @@ The DB lives in *global* storage — every window shares it — so every ticket 
 ## Global storage is shared by every window
 
 Global storage is shared by every window: anything written there needs a per-window key. `writeHookSettings` names its file by the window's ephemeral hook port for exactly this reason (`agent/settingsSweep.ts` reaps old ones). Same trap in `globalState`: the remembered hook port lives in **`workspaceState`** — each window binds its own port, and a global key let the second window's EADDRINUSE fallback overwrite the first's, so the first could never reclaim the port its live sessions still post to.
+
+## Graph-run state writes have one boundary
+
+Every in-process write to `approach_graph_runs`, `approach_node_runs`, and
+`approach_planner_runs` goes through `src/store/graph/` (`graphRuns.ts`,
+`nodeRuns.ts`, `plannerRuns.ts`) — status transitions through
+`transitions.ts`'s `casStatus`, column writes through the named helpers next to
+them (`markGraphRunBlocked`, `setNodeRunFailure`,
+`setPlannerRunSubmittedSnapshot`, …), and the ticket-delete cascade through
+`deleteGraphRunData`. The graph runtime (`approaches/graph/**`),
+`extension.ts`, and `store/tickets.ts` contain no raw SQL against the three
+tables, so a new column or status is added to the store module and the schema,
+never to a scattered call site (NDL-38).
+
+Deliberate exception: the `karst` CLI's completion/submission UPDATEs
+(`src/cli/node.ts`, `src/cli/graph.ts`) stay beside their authenticated parse
+path — they fold ticket/project scoping, generation identity, and the
+wrong-attempt check into one conditional statement, and keeping that in the CLI
+is the security property `docs/arch/cli.md` describes. Reads are not yet fully
+centralized; reporting aggregates (`store/metrics/cost.ts`,
+`store/tokenUsage.ts`, `diagnostics/**`) and the graph runtime's own status
+reads remain follow-up work.
 
 ## The artifact shelf is a READ over existing evidence, never a new write surface
 

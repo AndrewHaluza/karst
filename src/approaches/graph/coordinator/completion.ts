@@ -23,11 +23,13 @@
 
 import type { GraphDb } from '../../../store/graph/transitions.js';
 import { casStatus, GRAPH_RUN_TRANSITIONS } from '../../../store/graph/transitions.js';
+import { setGraphRunCompletedAt } from '../../../store/graph/graphRuns.js';
 import {
   consumeGraphToken,
   insertGraphToken,
   type InsertGraphToken,
 } from '../../../store/graph/tokens.js';
+import type { NodeRunRow as FullNodeRunRow } from '../../../store/graph/nodeRuns.js';
 import { parseGraphDocument } from '../parse.js';
 import { uuidv7 } from './lineage.js';
 import { emitGraphDiagnostic } from '../diagnostics.js';
@@ -147,11 +149,7 @@ export function faultNodeRunReason(node: FaultNodeRunRow): string {
   return `${prefix}: node ${node.id} (${reason})`;
 }
 
-interface NodeRunRow {
-  revision_id: number;
-  node_id: string;
-  graph_run_id: number;
-}
+type NodeRunRow = Pick<FullNodeRunRow, 'revision_id' | 'node_id' | 'graph_run_id'>;
 
 /**
  * Consume a node run's claimed tokens and insert its outcome successors, in
@@ -375,10 +373,7 @@ function flipOnEndQuiescenceTransaction(
     ) {
       return { flipped: false, blockedBy: 'raced' };
     }
-    db.prepare('UPDATE approach_graph_runs SET completed_at = ? WHERE id = ?').run(
-      deps.now(),
-      input.graphRunId,
-    );
+    setGraphRunCompletedAt(db, input.graphRunId, deps.now());
     emitGraphDiagnostic({ db, debug: deps.debug }, {
       category: 'close',
       graphRunId: input.graphRunId,

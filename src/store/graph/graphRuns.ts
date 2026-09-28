@@ -7,6 +7,11 @@
 import type { GraphDb } from './transitions.js';
 import { GRAPH_RUN_TRANSITIONS, casStatus } from './transitions.js';
 
+/**
+ * The canonical `approach_graph_runs` row shape — every column, so a call
+ * site that only needs a subset narrows with `Pick<GraphRunRow, ...>` instead
+ * of hand-declaring its own (drifting) interface (NDL-38).
+ */
 export interface GraphRunRow {
   id: number;
   ticket_id: number;
@@ -14,7 +19,16 @@ export interface GraphRunRow {
   stage_attempt: number;
   approach_id: string;
   status: string;
+  planner_run_count: number;
+  expert_run_count: number;
+  node_run_count: number;
+  replan_count: number;
+  blocked_reason: string | null;
   created_at: string;
+  updated_at: string | null;
+  completed_at: string | null;
+  workspace_bytes: number;
+  active_processes: number;
 }
 
 export interface CreateGraphRun {
@@ -86,4 +100,142 @@ export function allGraphRunsClosed(db: GraphDb, ticketId: number): boolean {
     )
     .get(ticketId) as { open: number } | undefined;
   return row === undefined;
+}
+
+/** Every graph run id of a ticket, in creation order (evidence deletion). */
+export function graphRunIdsForTicket(db: GraphDb, ticketId: number): number[] {
+  const rows = db
+    .prepare('SELECT id FROM approach_graph_runs WHERE ticket_id = ?')
+    .all(ticketId) as Array<{ id: number }>;
+  return rows.map((r) => r.id);
+}
+
+/** Remove a graph run's planner/node run rows and the run itself (leaf-first). */
+export function deleteGraphRunData(db: GraphDb, graphRunId: number): void {
+  db.prepare('DELETE FROM approach_graph_tokens WHERE revision_id IN (SELECT id FROM approach_graph_revisions WHERE graph_run_id = ?)').run(graphRunId);
+  db.prepare('DELETE FROM approach_node_overrides WHERE graph_run_id = ?').run(graphRunId);
+  db.prepare('DELETE FROM approach_resource_leases WHERE graph_run_id = ?').run(graphRunId);
+  db.prepare('DELETE FROM approach_node_deferrals WHERE graph_run_id = ?').run(graphRunId);
+  db.prepare('DELETE FROM approach_artifact_instances WHERE graph_run_id = ?').run(graphRunId);
+  db.prepare('DELETE FROM approach_graph_workspaces WHERE graph_run_id = ?').run(graphRunId);
+  db.prepare('DELETE FROM approach_node_runs WHERE graph_run_id = ?').run(graphRunId);
+  db.prepare('DELETE FROM approach_planner_runs WHERE graph_run_id = ?').run(graphRunId);
+  db.prepare('DELETE FROM approach_graph_revisions WHERE graph_run_id = ?').run(graphRunId);
+  db.prepare('DELETE FROM approach_graph_runs WHERE id = ?').run(graphRunId);
+}
+
+/* ------------------------------------------------------------------ */
+/* State writes — the ONLY place these columns are written (NDL-38).   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Record the reason a graph run is blocked and stamp `updated_at`. The
+ * caller owns the status compare-and-set (`transitionGraphRun`); this write
+ * only fills the reason on the row it just won, so a raced caller never
+ * rewrites another window's block.
+ */
+export function markGraphRunBlocked(db: GraphDb, id: number, reason: string, now: string): boolean {
+  const res = db
+    .prepare('UPDATE approach_graph_runs SET blocked_reason = ?, updated_at = ? WHERE id = ?')
+    .run(reason, now, id);
+  return res.changes === 1;
+}
+
+/** Clear a graph run's blocked reason and stamp `updated_at` — the recovery
+ *  exits that re-open a parked run. */
+export function clearGraphRunBlocked(db: GraphDb, id: number, now: string): boolean {
+  const res = db
+    .prepare('UPDATE approach_graph_runs SET blocked_reason = NULL, updated_at = ? WHERE id = ?')
+    .run(now, id);
+  return res.changes === 1;
+}
+
+/** Stamp `updated_at` without changing status or reason — the "this run was
+ *  observed and deliberately left alone" write. */
+export function touchGraphRun(db: GraphDb, id: number, now: string): boolean {
+  const res = db
+    .prepare('UPDATE approach_graph_runs SET updated_at = ? WHERE id = ?')
+    .run(now, id);
+  return res.changes === 1;
+}
+
+/** Count one more accepted replan against the run's replan budget. */
+export function incrementReplanCount(db: GraphDb, id: number, now: string): boolean {
+  const res = db
+    .prepare('UPDATE approach_graph_runs SET replan_count = replan_count + 1, updated_at = ? WHERE id = ?')
+    .run(now, id);
+  return res.changes === 1;
+}
+
+/** Count one more reserved node run (the claim's budget reservation). */
+export function incrementNodeRunCount(db: GraphDb, id: number, now: string): boolean {
+  const res = db
+    .prepare(
+      'UPDATE approach_graph_runs SET node_run_count = node_run_count + 1, updated_at = ? WHERE id = ?',
+    )
+    .run(now, id);
+  return res.changes === 1;
+}
+
+/** Count one more reserved expert run (the claim's expert-budget reservation). */
+export function incrementExpertRunCount(db: GraphDb, id: number, now: string): boolean {
+  const res = db
+    .prepare(
+      'UPDATE approach_graph_runs SET expert_run_count = expert_run_count + 1, updated_at = ? WHERE id = ?',
+    )
+    .run(now, id);
+  return res.changes === 1;
+}
+
+/** Release one reserved node run. Never goes below zero (`node_run_count > 0`
+ *  is the write's own guard). */
+export function decrementNodeRunCount(db: GraphDb, id: number, now: string): boolean {
+  const res = db
+    .prepare(
+      'UPDATE approach_graph_runs SET node_run_count = node_run_count - 1, updated_at = ? WHERE id = ? AND node_run_count > 0',
+    )
+    .run(now, id);
+  return res.changes === 1;
+}
+
+/** Release one reserved expert run. Never goes below zero. */
+export function decrementExpertRunCount(db: GraphDb, id: number, now: string): boolean {
+  const res = db
+    .prepare(
+      'UPDATE approach_graph_runs SET expert_run_count = expert_run_count - 1, updated_at = ? WHERE id = ? AND expert_run_count > 0',
+    )
+    .run(now, id);
+  return res.changes === 1;
+}
+
+/** Stamp the run quiesced (`completed-awaiting-impl-marker`, Slice 2 Task 8). */
+export function setGraphRunCompletedAt(db: GraphDb, id: number, now: string): boolean {
+  const res = db
+    .prepare('UPDATE approach_graph_runs SET completed_at = ? WHERE id = ?')
+    .run(now, id);
+  return res.changes === 1;
+}
+
+/** Release one process slot for a command node's deterministic completion —
+ *  guarded to command runs (`active_processes` never below zero). */
+export function releaseCommandProcessSlot(db: GraphDb, nodeRunId: number, now: string): boolean {
+  const res = db
+    .prepare(
+      `UPDATE approach_graph_runs
+       SET active_processes = MAX(active_processes - 1, 0), updated_at = ?
+       WHERE id = (SELECT graph_run_id FROM approach_node_runs WHERE id = ?)
+         AND (SELECT node_kind FROM approach_node_runs WHERE id = ?) = 'command'`,
+    )
+    .run(now, nodeRunId, nodeRunId);
+  return res.changes === 1;
+}
+
+/** Release one process slot after a failed launch, stamping `updated_at`. */
+export function releaseGraphProcessSlot(db: GraphDb, id: number, now: string): boolean {
+  const res = db
+    .prepare(
+      'UPDATE approach_graph_runs SET active_processes = MAX(active_processes - 1, 0), updated_at = ? WHERE id = ?',
+    )
+    .run(now, id);
+  return res.changes === 1;
 }

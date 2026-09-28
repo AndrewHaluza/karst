@@ -20,6 +20,7 @@
 
 import type { GraphDb } from '../../../store/graph/transitions.js';
 import { GRAPH_RUN_TRANSITIONS, casStatus } from '../../../store/graph/transitions.js';
+import { markGraphRunBlocked } from '../../../store/graph/graphRuns.js';
 import { cancelGraphToken, insertGraphToken, type GraphTokenRow } from '../../../store/graph/tokens.js';
 import { parseGraphDocument } from '../parse.js';
 import { emitGraphDiagnostic } from '../diagnostics.js';
@@ -179,11 +180,7 @@ export function handleBudgetRefusal(
           'blocked',
         )
       ) {
-        db.prepare('UPDATE approach_graph_runs SET blocked_reason = ?, updated_at = ? WHERE id = ?').run(
-          'graph-budget-exhausted',
-          deps.now(),
-          input.graphRunId,
-        );
+        markGraphRunBlocked(db, input.graphRunId, 'graph-budget-exhausted', deps.now());
         emitGraphDiagnostic({ db, debug: deps.debug }, {
           category: 'block',
           graphRunId: input.graphRunId,

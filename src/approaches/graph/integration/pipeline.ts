@@ -85,7 +85,15 @@ import {
 } from './changeSet.js';
 import { completeActivation } from '../coordinator/completion.js';
 import { acquireDomainLeases, releaseLeaseForNodeRun, type ActivationDomain } from '../coordinator/leases.js';
-import { nodeRunBaseHeads, releaseProcessSlot } from '../../../store/graph/nodeRuns.js';
+import {
+  claimNodeRunIntegrating,
+  completeNodeRunIntegration,
+  nodeRunBaseHeads,
+  releaseProcessSlot,
+  setNodeRunTerminalFields,
+} from '../../../store/graph/nodeRuns.js';
+import type { NodeRunRow as FullNodeRunRow } from '../../../store/graph/nodeRuns.js';
+import { markGraphRunBlocked, type GraphRunRow as FullGraphRunRow } from '../../../store/graph/graphRuns.js';
 import { recordArtifactInstance, validateRequiredOutputs } from '../artifacts/resolve.js';
 import { parseGraphDocument } from '../parse.js';
 import { emitGraphDiagnostic } from '../diagnostics.js';
@@ -132,18 +140,12 @@ export type CompletionPipelineResult =
   | { kind: 'integration-conflict'; reason: string }
   | { kind: 'integrated'; committed: boolean };
 
-interface NodeRunRow {
-  id: number;
-  graph_run_id: number;
-  revision_id: number;
-  node_id: string;
-  status: string;
-}
+type NodeRunRow = Pick<
+  FullNodeRunRow,
+  'id' | 'graph_run_id' | 'revision_id' | 'node_id' | 'status'
+>;
 
-interface GraphRunRow {
-  id: number;
-  status: string;
-}
+type GraphRunRow = Pick<FullGraphRunRow, 'id' | 'status'>;
 
 function parkNode(
   deps: CompletionPipelineDeps,
@@ -161,13 +163,7 @@ function parkNode(
       return;
     }
     if (status !== 'termination-unknown') {
-      deps.db
-        .prepare(
-          `UPDATE approach_node_runs
-           SET outcome = ?, failure_category = ?, reason = ?
-           WHERE id = ?`,
-        )
-        .run(fields.outcome ?? null, fields.failureCategory ?? null, fields.reason ?? null, nodeRunId);
+      setNodeRunTerminalFields(deps.db, nodeRunId, fields);
     }
   });
 }
@@ -188,9 +184,7 @@ function blockGraphRun(
         'blocked',
       )
     ) {
-      deps.db
-        .prepare('UPDATE approach_graph_runs SET blocked_reason = ?, updated_at = ? WHERE id = ?')
-        .run(reason, deps.now(), graphRunId);
+      markGraphRunBlocked(deps.db, graphRunId, reason, deps.now());
     }
   });
 }
@@ -246,14 +240,7 @@ function claimIntegratingStatus(
   deps: CompletionPipelineDeps,
   nodeRunId: number,
 ): boolean {
-  const res = deps.db
-    .prepare(
-      `UPDATE approach_node_runs
-       SET status = 'integrating'
-       WHERE id = ? AND status = 'completing'`,
-    )
-    .run(nodeRunId);
-  return res.changes === 1;
+  return claimNodeRunIntegrating(deps.db, nodeRunId);
 }
 
 /**
@@ -669,14 +656,12 @@ export async function runCompletionPipeline(
     if (!casStatus(deps.db, 'approach_node_runs', NODE_RUN_TRANSITIONS, input.nodeRunId, 'integrating', 'completed')) {
       return;
     }
-    deps.db
-      .prepare(
-        `UPDATE approach_node_runs
-         SET outcome = 'complete', effective_outcome = 'complete',
-             change_set_id = ?, ended_at = ?
-         WHERE id = ?`,
-      )
-      .run(`cs:${input.graphRunId}:${input.nodeRunId}`, deps.now(), input.nodeRunId);
+    completeNodeRunIntegration(
+      deps.db,
+      input.nodeRunId,
+      `cs:${input.graphRunId}:${input.nodeRunId}`,
+      deps.now(),
+    );
     // Slice 4 Task 2: record the validated output instances in the SAME
     // transaction that accepts the effective complete — an instance exists
     // only for a production that actually completed. The lineage is the

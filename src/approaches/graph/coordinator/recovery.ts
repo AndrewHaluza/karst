@@ -63,10 +63,15 @@ import type { Store } from '../../../store/db.js';
 import { clearStageBlock, stageBlock } from '../../../store/stageBlocks.js';
 import { getTicket } from '../../../store/tickets.js';
 import { casStatus, GRAPH_RUN_TRANSITIONS } from '../../../store/graph/transitions.js';
-import { nodeOverrideFor, transitionNodeRun } from '../../../store/graph/nodeRuns.js';
+import { clearGraphRunBlocked } from '../../../store/graph/graphRuns.js';
+import {
+  nodeOverrideFor,
+  setNodeRunPromptHash,
+  transitionNodeRun,
+} from '../../../store/graph/nodeRuns.js';
 import { clearLaunchIdentity, incrementLaunchAttempt } from './claim.js';
 import { sha256Hex } from './plannerRun.js';
-import { createPlannerRun } from '../../../store/graph/plannerRuns.js';
+import { createPlannerRun, setPlannerRunPromptHashArtifact } from '../../../store/graph/plannerRuns.js';
 import {
   beginReplanPlannerRun,
   electReplan,
@@ -335,14 +340,11 @@ function retryReservedVisits(
     ) {
       return false; // a racing window claimed it
     }
-    db.prepare('UPDATE approach_graph_runs SET blocked_reason = NULL, updated_at = ? WHERE id = ?').run(
-      deps.now(),
-      input.graphRunId,
-    );
+    clearGraphRunBlocked(db, input.graphRunId, deps.now());
     for (const node of nodes) {
       const hash = snapshots.get(node.id);
       if (hash !== undefined) {
-        db.prepare('UPDATE approach_node_runs SET prompt_hash = ? WHERE id = ?').run(hash, node.id);
+        setNodeRunPromptHash(db, node.id, hash);
         resnapshotted.push(node.id);
       }
       // The declared node-run transition, through the store helper that owns
@@ -414,10 +416,7 @@ function replanRecovery(
     ) {
       return false;
     }
-    db.prepare('UPDATE approach_graph_runs SET blocked_reason = NULL, updated_at = ? WHERE id = ?').run(
-      deps.now(),
-      input.graphRunId,
-    );
+    clearGraphRunBlocked(db, input.graphRunId, deps.now());
     return true;
   });
   if (!claimed) return { kind: 'no-op' };
@@ -540,10 +539,7 @@ function plannerRelaunchRecovery(
       ) {
         return false;
       }
-      db.prepare('UPDATE approach_graph_runs SET blocked_reason = NULL, updated_at = ? WHERE id = ?').run(
-        deps.now(),
-        input.graphRunId,
-      );
+      clearGraphRunBlocked(db, input.graphRunId, deps.now());
       const block = stageBlock(deps.store, input.ticketId, 'impl');
       if (block?.kind === GRAPH_FAILED_BLOCKER) clearStageBlock(deps.store, input.ticketId, 'impl');
       return true;
@@ -589,10 +585,7 @@ function plannerRelaunchRecovery(
     ) {
       return false; // a racing window already re-opened or cancelled the run
     }
-    db.prepare('UPDATE approach_graph_runs SET blocked_reason = NULL, updated_at = ? WHERE id = ?').run(
-      deps.now(),
-      input.graphRunId,
-    );
+    clearGraphRunBlocked(db, input.graphRunId, deps.now());
     const next = db
       .prepare(
         'SELECT COALESCE(MAX(planner_run_number), 0) + 1 AS next FROM approach_planner_runs WHERE graph_run_id = ?',
@@ -604,9 +597,7 @@ function plannerRelaunchRecovery(
       plannerRunNumber,
       kind: 'bootstrap',
     });
-    db.prepare(
-      'UPDATE approach_planner_runs SET prompt_hash = ?, artifact_snapshot_id = ? WHERE id = ?',
-    ).run(promptHash, promptSnapshotPath, plannerRunId);
+    setPlannerRunPromptHashArtifact(db, plannerRunId, promptHash, promptSnapshotPath);
     // The visible stage block clears only now, INSIDE the same transaction:
     // the relaunch has durably entered a recoverable state.
     const block = stageBlock(deps.store, input.ticketId, 'impl');

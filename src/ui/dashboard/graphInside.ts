@@ -21,6 +21,7 @@ import type { GraphInsideInput } from '../../model/inside/graph.js';
 import type { SupervisedAgentSession } from '../../approaches/graph/transport/agentTransport.js';
 import { NODE_OVERRIDE_KINDS } from '../../store/graph/nodeRuns.js';
 import { graphRunOrdinal as runOrdinal } from '../../store/graph/graphRuns.js';
+import type { GraphRunRow as FullGraphRunRow } from '../../store/graph/graphRuns.js';
 
 export interface GraphInsideDeps {
   store: Store;
@@ -31,13 +32,10 @@ export interface GraphInsideDeps {
   now: () => string;
 }
 
-interface GraphRunRow {
-  id: number;
-  stage_attempt: number;
-  approach_id: string;
-  status: string;
-  created_at: string;
-}
+type GraphRunRow = Pick<
+  FullGraphRunRow,
+  'id' | 'stage_attempt' | 'approach_id' | 'status' | 'created_at'
+>;
 
 /** The latest graph run of the ticket, or undefined. */
 export function latestGraphRunFor(

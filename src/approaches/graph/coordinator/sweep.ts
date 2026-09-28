@@ -21,6 +21,7 @@
 
 import type { GraphDb } from '../../../store/graph/transitions.js';
 import { casStatus, GRAPH_RUN_TRANSITIONS } from '../../../store/graph/transitions.js';
+import { markGraphRunBlocked } from '../../../store/graph/graphRuns.js';
 import { pendingTokensForRevision, type GraphTokenRow } from '../../../store/graph/tokens.js';
 import { heldLeasesForScheduler, type SchedulerLeaseRow } from '../../../store/graph/leases.js';
 import {
@@ -186,11 +187,7 @@ export function runCoordinatorTick(
       ) {
         return false; // a racing window already moved the run
       }
-      db.prepare('UPDATE approach_graph_runs SET blocked_reason = ?, updated_at = ? WHERE id = ?').run(
-        faultNodeRunReason(earliestFault),
-        deps.now(),
-        opts.graphRunId,
-      );
+      markGraphRunBlocked(db, opts.graphRunId, faultNodeRunReason(earliestFault), deps.now());
       return true;
     });
     graphDiag('block', {
@@ -380,11 +377,7 @@ export function runCoordinatorTick(
       ) {
         return false;
       }
-      db.prepare('UPDATE approach_graph_runs SET blocked_reason = ?, updated_at = ? WHERE id = ?').run(
-        blockedReason.slice(0, 2000),
-        deps.now(),
-        opts.graphRunId,
-      );
+      markGraphRunBlocked(db, opts.graphRunId, blockedReason.slice(0, 2000), deps.now());
       return true;
     });
     if (blocked) {

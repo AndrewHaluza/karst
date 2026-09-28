@@ -15,6 +15,7 @@
  */
 
 import type { GraphDb } from '../../../store/graph/transitions.js';
+import type { NodeRunRow as FullNodeRunRow } from '../../../store/graph/nodeRuns.js';
 import { parseGraphDocument } from '../parse.js';
 
 export interface ResolvedRepoEntry {
@@ -29,11 +30,7 @@ export interface DomainDeclaredWrites {
   paths: string[];
 }
 
-interface NodeRunRow {
-  node_id: string;
-  node_kind: string;
-  graph_run_id: number;
-}
+type NodeRunRow = Pick<FullNodeRunRow, 'node_id' | 'node_kind' | 'graph_run_id'>;
 
 /** The active revision's canonical graph for the run, or null when broken. */
 function canonicalGraphOf(db: GraphDb, graphRunId: number): string | null {
