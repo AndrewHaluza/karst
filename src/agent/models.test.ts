@@ -21,12 +21,23 @@ describe('KNOWN_MODELS', () => {
   it('offers the curated launch models with stable ids', () => {
     const ids = KNOWN_MODELS.map((m) => m.id);
     expect(ids).toEqual([
+      'claude-opus-5-5',
       'claude-opus-5',
       'claude-opus-4-8',
       'claude-sonnet-5',
-      'claude-haiku-4-5',
+      'claude-fable-5-1',
       'claude-fable-5',
+      'claude-haiku-4-5',
+      'gpt-5.6-terra',
+      'gpt-5.6-luna',
+      'gpt-5.5',
       'gpt-5.6-sol',
+      'gemini-3.8-flash-high',
+      'gemini-3.8-flash-medium',
+      'gemini-3.8-flash-low',
+      'gemini-3.7-flash-high',
+      'gemini-3.7-flash-medium',
+      'gemini-3.7-flash-low',
       'gemini-3.6-flash-high',
       'gemini-3.6-flash-medium',
       'gemini-3.6-flash-low',
@@ -49,11 +60,13 @@ describe('KNOWN_MODELS', () => {
 
   it('filters launch models by agent provider', () => {
     expect(modelsForProvider('claude').map((m) => m.id)).toEqual([
+      'claude-opus-5-5',
       'claude-opus-5',
       'claude-opus-4-8',
       'claude-sonnet-5',
-      'claude-haiku-4-5',
+      'claude-fable-5-1',
       'claude-fable-5',
+      'claude-haiku-4-5',
     ]);
     expect(modelsForProvider('antigravity').map((m) => m.id)).toContain(
       'gemini-3.6-flash-high',
@@ -65,11 +78,13 @@ describe('KNOWN_MODELS', () => {
     const claude = modelsForProvider('claude');
     const ids = claude.map((m) => m.id);
     // Current lineup (newest first) — a stale list is the bug this guards.
-    expect(ids).toContain('claude-opus-5');
+    expect(ids).toContain('claude-opus-5-5');
     expect(ids).toContain('claude-sonnet-5');
-    expect(ids).toContain('claude-fable-5');
+    expect(ids).toContain('claude-fable-5-1');
     // Previously offered ids keep resolving so stored selections stay valid.
+    expect(ids).toContain('claude-opus-5');
     expect(ids).toContain('claude-opus-4-8');
+    expect(ids).toContain('claude-fable-5');
     expect(ids).toContain('claude-haiku-4-5');
     for (const id of ids) {
       expect(isModelCompatibleWithProvider('claude', id)).toBe(true);
@@ -77,7 +92,12 @@ describe('KNOWN_MODELS', () => {
   });
 
   it('offers curated Codex models', () => {
-    expect(modelsForProvider('codex').map((m) => m.id)).toEqual(['gpt-5.6-sol']);
+    expect(modelsForProvider('codex').map((m) => m.id)).toEqual([
+      'gpt-5.6-terra',
+      'gpt-5.6-luna',
+      'gpt-5.5',
+      'gpt-5.6-sol',
+    ]);
   });
 
   it.each(['claude', 'codex', 'antigravity'] as const)(

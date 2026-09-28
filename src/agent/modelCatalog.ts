@@ -41,16 +41,27 @@ const EFFORT_VALUE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
 const BUNDLED_CATALOG: ModelCatalog = {
   claude: [
+    { id: 'claude-opus-5-5', label: 'Opus 5.5', providers: ['claude'], efforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'], tags: ['multimodal', 'vision'] },
     { id: 'claude-opus-5', label: 'Opus 5', providers: ['claude'], efforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'], tags: ['multimodal', 'vision'] },
     { id: 'claude-opus-4-8', label: 'Opus 4.8', providers: ['claude'], efforts: ['low', 'medium', 'high'], tags: ['multimodal', 'vision'] },
     { id: 'claude-sonnet-5', label: 'Sonnet 5', providers: ['claude'], efforts: ['low', 'medium', 'high'], tags: ['multimodal', 'vision'] },
-    { id: 'claude-haiku-4-5', label: 'Haiku 4.5', providers: ['claude'], efforts: ['low', 'medium', 'high'], tags: ['multimodal', 'vision'] },
+    { id: 'claude-fable-5-1', label: 'Fable 5.1', providers: ['claude'], efforts: ['low', 'medium', 'high'], tags: ['multimodal', 'vision'] },
     { id: 'claude-fable-5', label: 'Fable 5', providers: ['claude'], efforts: ['low', 'medium', 'high'], tags: ['multimodal', 'vision'] },
+    { id: 'claude-haiku-4-5', label: 'Haiku 4.5', providers: ['claude'], efforts: ['low', 'medium', 'high'], tags: ['multimodal', 'vision'] },
   ],
   codex: [
+    { id: 'gpt-5.6-terra', label: 'GPT-5.6 Terra', providers: ['codex'], efforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'], tags: ['multimodal', 'vision'] },
+    { id: 'gpt-5.6-luna', label: 'GPT-5.6 Luna', providers: ['codex'], efforts: ['low', 'medium', 'high', 'xhigh', 'max'], tags: ['multimodal', 'vision'] },
+    { id: 'gpt-5.5', label: 'GPT-5.5', providers: ['codex'], efforts: ['low', 'medium', 'high', 'xhigh'], tags: ['multimodal', 'vision'] },
     { id: 'gpt-5.6-sol', label: 'GPT-5.6 Sol', providers: ['codex'], efforts: ['minimal', 'low', 'medium', 'high'], tags: ['multimodal', 'vision'] },
   ],
   antigravity: [
+    { id: 'gemini-3.8-flash-high', label: 'Gemini 3.8 Flash (High)', providers: ['antigravity'], efforts: ['low', 'medium', 'high'], tags: ['multimodal', 'vision', 'audio'] },
+    { id: 'gemini-3.8-flash-medium', label: 'Gemini 3.8 Flash (Medium)', providers: ['antigravity'], efforts: ['low', 'medium', 'high'], tags: ['multimodal', 'vision', 'audio'] },
+    { id: 'gemini-3.8-flash-low', label: 'Gemini 3.8 Flash (Low)', providers: ['antigravity'], efforts: ['low', 'medium', 'high'], tags: ['multimodal', 'vision', 'audio'] },
+    { id: 'gemini-3.7-flash-high', label: 'Gemini 3.7 Flash (High)', providers: ['antigravity'], efforts: ['low', 'medium', 'high'], tags: ['multimodal', 'vision', 'audio'] },
+    { id: 'gemini-3.7-flash-medium', label: 'Gemini 3.7 Flash (Medium)', providers: ['antigravity'], efforts: ['low', 'medium', 'high'], tags: ['multimodal', 'vision', 'audio'] },
+    { id: 'gemini-3.7-flash-low', label: 'Gemini 3.7 Flash (Low)', providers: ['antigravity'], efforts: ['low', 'medium', 'high'], tags: ['multimodal', 'vision', 'audio'] },
     { id: 'gemini-3.6-flash-high', label: 'Gemini 3.6 Flash (High)', providers: ['antigravity'], efforts: ['low', 'medium', 'high'], tags: ['multimodal', 'vision', 'audio'] },
     { id: 'gemini-3.6-flash-medium', label: 'Gemini 3.6 Flash (Medium)', providers: ['antigravity'], efforts: ['low', 'medium', 'high'], tags: ['multimodal', 'vision', 'audio'] },
     { id: 'gemini-3.6-flash-low', label: 'Gemini 3.6 Flash (Low)', providers: ['antigravity'], efforts: ['low', 'medium', 'high'], tags: ['multimodal', 'vision', 'audio'] },
