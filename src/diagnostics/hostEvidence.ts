@@ -1,4 +1,4 @@
-import { SCHEMA_VERSION } from '../store/migrations.js'
+import { SCHEMA_VERSION } from '../store/schemaVersion.js'
 import type { Store } from '../store/db.js'
 import type { HookChannelSnapshot } from './hookChannel.js'
 import { readHookFailureLog, type ReadTextFile } from './hookEvidence.js'

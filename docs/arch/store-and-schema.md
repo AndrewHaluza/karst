@@ -1,6 +1,6 @@
 # The store: SQLite, projects, and schema changes
 
-The registry is shared by every IDE window, so every rule here is about scoping and about changing the schema without stranding a row. Related: `docs/arch/cli.md` (the CLI asserts the version but cannot migrate), `docs/arch/stages-and-gates.md` (the evidence tables).
+The registry is shared by every IDE window, so every rule here is about scoping and about changing the schema without stranding a row. Related: `docs/arch/cli.md` (the CLI asserts the version but cannot migrate), `docs/arch/stages-and-gates.md` (the evidence tables), `docs/arch/model-store-workflow-layering.md` (why `model/artifacts.ts` below is allowed to call live `store` reads).
 
 ## Contents
 

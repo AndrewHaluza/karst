@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { rmSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Store } from './db.js';
-import { STAGE_KEYS } from '../model/types.js';
+import { STAGE_KEYS, type StageKey } from '../model/types.js';
 import { rowToStage, setStage, type Stage } from './stages.js';
 import { renderTicketLabel } from './ticketLabelTemplate.js';
 import type { AgentProvider } from '../manifest/types.js';
@@ -363,6 +363,21 @@ export function setAgentState(
   store.db
     .prepare('UPDATE tickets SET agent_state = ? WHERE id = ?')
     .run(agentState, ticketId);
+}
+
+/**
+ * Move a ticket's `stage_current` pointer — the ONLY writer of that column.
+ * Single-writer discipline (NDL-37): every caller that used to reach for a raw
+ * `UPDATE tickets SET stage_current` goes through here instead, so a future
+ * change to what moving a ticket means (validation, event emission, invariant
+ * checks) cannot be silently bypassed by a call site that skipped this
+ * function. Deliberately does not touch `stages` rows — pair this with
+ * `setStage` calls the same way the raw writers it replaces did.
+ */
+export function setStageCurrent(store: Store, ticketId: number, stage: StageKey): void {
+  store.db
+    .prepare('UPDATE tickets SET stage_current = ? WHERE id = ?')
+    .run(stage, ticketId);
 }
 
 /**
