@@ -202,11 +202,14 @@ export function nestSubtasks<T extends TicketNode>(rows: readonly T[]): T[] {
 /**
  * The deepest indent the sidebar paints. Derived from the writer's own
  * `MAX_SUBTASK_DEPTH` (`workflow/stages/subtask.ts`) so the two can never drift:
- * a root is depth 0, so the deepest row the writer can create is depth
- * `MAX_SUBTASK_DEPTH - 1`. A deeper chain (impossible through the writer) is
- * clamped rather than indenting off-screen.
+ * depth counts `-s<n>` segments, so a root is depth 0 and the writer permits
+ * sub-tasks down to depth `MAX_SUBTASK_DEPTH` (e.g. `PROJ-1-s1-s1-s1-s1`). Every
+ * legal depth gets its own indent; only a deeper chain (impossible through the
+ * writer) is clamped. Clamping below a legal depth would merge a row into its
+ * parent's slot, which also breaks `visibleTicketRows` (collapsing the parent
+ * would not hide it).
  */
-export const MAX_SUBTASK_INDENT = MAX_SUBTASK_DEPTH - 1;
+export const MAX_SUBTASK_INDENT = MAX_SUBTASK_DEPTH;
 
 /**
  * The rows the sidebar should RENDER given which parent rows the user has
@@ -217,9 +220,8 @@ export const MAX_SUBTASK_INDENT = MAX_SUBTASK_DEPTH - 1;
  * Pure and host-side so the "collapsible, recursive" contract is unit-tested,
  * not just living in the webview's inline script. Input is `nestSubtasks`
  * output, so `subtaskDepth` is already stamped; this walks the ordering once,
- * tracking the ancestor in effect at each depth. `depth` is clamped there, so a
- * deep chain shares the last slot — correct, since a collapsed ancestor at a
- * shallower depth already hid it.
+ * tracking the ancestor in effect at each depth. That relies on every legal
+ * depth having its own slot (`MAX_SUBTASK_INDENT === MAX_SUBTASK_DEPTH`).
  */
 export function visibleTicketRows<T extends TicketNode>(
   rows: readonly T[],

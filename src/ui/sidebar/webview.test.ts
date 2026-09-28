@@ -109,24 +109,26 @@ describe('sidebar webview.html', () => {
 
   it('indents nested sub-task rows by depth via token-spaced nest classes (NDL-76)', () => {
     // Depth comes from the host (`nestSubtasks`); the view only paints it, and
-    // clamps to MAX_SUBTASK_INDENT (derived from the writer's MAX_SUBTASK_DEPTH
-    // minus 1 in ui/sidebar/items.ts). Each step uses a shared spacing token.
+    // clamps to MAX_SUBTASK_INDENT (the writer's MAX_SUBTASK_DEPTH, via
+    // ui/sidebar/items.ts). Each step uses a shared spacing token.
     expect(HTML).toContain('nest${Math.min(row.subtaskDepth, MAX_SUBTASK_INDENT)}');
     expect(HTML).toMatch(/\.ticket\.nest1>\.row\{padding-left:var\(--k-space-6\)\}/);
     expect(HTML).toMatch(/\.ticket\.nest2>\.row\{padding-left:var\(--k-space-8\)\}/);
     expect(HTML).toMatch(/\.ticket\.nest3>\.row\{padding-left:var\(--k-space-9\)\}/);
-    // Exactly MAX_SUBTASK_INDENT (3) nest rules — a nest4 would be unreachable
+    // The writer allows 4 levels below a root; the deepest one still indents.
+    expect(HTML).toContain('.ticket.nest4>.row{padding-left:calc(var(--k-space-9) + var(--k-space-3))}');
+    // Exactly MAX_SUBTASK_INDENT (4) nest rules — a nest5 would be unreachable
     // and would mean the view and the writer's depth cap had drifted.
-    expect(HTML).not.toContain('.ticket.nest4');
+    expect(HTML).not.toContain('.ticket.nest5');
   });
 
   it('pins the webview indent constant to the writer depth (TS→HTML constant, UI-R34)', () => {
     // The inline script cannot import TS, so it mirrors MAX_SUBTASK_INDENT.
-    // Assert it equals the writer's MAX_SUBTASK_DEPTH - 1, so a later writer
+    // Assert it equals the writer's MAX_SUBTASK_DEPTH, so a later writer
     // change that forgets the webview is caught here, not in a broken tree.
     const m = HTML.match(/const MAX_SUBTASK_INDENT = (\d+);/);
     expect(m).not.toBeNull();
-    expect(Number(m![1])).toBe(MAX_SUBTASK_DEPTH - 1);
+    expect(Number(m![1])).toBe(MAX_SUBTASK_DEPTH);
   });
 
   it('offers a collapse control on rows that have sub-tasks, toggling a subtree (NDL-76)', () => {

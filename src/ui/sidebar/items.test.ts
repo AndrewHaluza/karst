@@ -10,6 +10,7 @@ import {
 } from './items.js';
 import type { TicketNode } from './items.js';
 import type { TicketWithStages } from '../../store/tickets.js';
+import { MAX_SUBTASK_DEPTH } from '../../workflow/stages/subtask.js';
 
 function ticket(over: Partial<TicketWithStages> = {}): TicketWithStages {
   return {
@@ -425,11 +426,11 @@ describe('nestSubtasks', () => {
   });
 
   it('indents to the writer\'s deepest legal sub-task and clamps bad data', () => {
-    // MAX_SUBTASK_INDENT is the writer's MAX_SUBTASK_DEPTH (4 `-s<n>` segments)
-    // minus 1, because a root is depth 0. So the deepest legal sub-task is
-    // depth 3 (e.g. PROJ-1-s2-s1-s1); depth 4 and beyond are bad data and are
-    // clamped rather than indenting off-screen.
-    const rows = [1, 2, 3, 4, 5].map((id) =>
+    // MAX_SUBTASK_INDENT is the writer's MAX_SUBTASK_DEPTH: depth counts
+    // `-s<n>` segments, so the deepest legal sub-task is depth 4
+    // (PROJ-1-s1-s1-s1-s1, pinned by the writer's own test). Depth 5+ is bad
+    // data and is clamped rather than indenting off-screen.
+    const rows = [1, 2, 3, 4, 5, 6].map((id) =>
       node({ ticketId: id, subtaskParentId: id === 1 ? null : id - 1 }),
     );
     const out = nestSubtasks(rows);
@@ -437,10 +438,11 @@ describe('nestSubtasks', () => {
       0,
       1,
       2,
+      3,
       MAX_SUBTASK_INDENT,
       MAX_SUBTASK_INDENT,
     ]);
-    expect(MAX_SUBTASK_INDENT).toBe(3);
+    expect(MAX_SUBTASK_INDENT).toBe(MAX_SUBTASK_DEPTH);
   });
 });
 
@@ -491,6 +493,21 @@ describe('visibleTicketRows', () => {
   it('a collapsed ancestor wins over a re-expanded descendant (recursive)', () => {
     // Collapsing 1 hides 3 even though 2 (its parent) is not itself collapsed.
     expect(visibleTicketRows(tree(), new Set([1])).map((r) => r.ticketId)).toEqual([1, 4]);
+  });
+
+  it('collapsing the parent of the deepest legal sub-task hides it', () => {
+    // Root + MAX_SUBTASK_DEPTH levels, exactly what the writer can create. The
+    // deepest row must not share its parent's depth slot, or collapsing the
+    // parent would leave it visible.
+    const chain = nestSubtasks(
+      Array.from({ length: MAX_SUBTASK_DEPTH + 1 }, (_, i) =>
+        node({ ticketId: i + 1, subtaskParentId: i === 0 ? null : i }),
+      ),
+    );
+    const parentOfDeepest = MAX_SUBTASK_DEPTH;
+    expect(
+      visibleTicketRows(chain, new Set([parentOfDeepest])).map((r) => r.ticketId),
+    ).toEqual(Array.from({ length: MAX_SUBTASK_DEPTH }, (_, i) => i + 1));
   });
 
   it('is a no-op on a flat list', () => {

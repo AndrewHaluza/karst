@@ -157,12 +157,13 @@
   /* Sub-task nesting: the row indents by its depth (nestSubtasks) so a
      sub-task reads as belonging to the row above it. Whole-row indent (the
      expanded body and hover actions move with it), stepping through the
-     shared spacing tokens. The classes stop at MAX_SUBTASK_INDENT (3), which
-     `ui/sidebar/items.ts` derives from the writer's MAX_SUBTASK_DEPTH (4); the
-     host clamps `subtaskDepth` to it, so there is no nest4. */
+     shared spacing tokens. The classes stop at MAX_SUBTASK_INDENT (4), which
+     `ui/sidebar/items.ts` sets to the writer's MAX_SUBTASK_DEPTH (4 levels
+     below a root); the host clamps `subtaskDepth` to it, so there is no nest5. */
   .ticket.nest1>.row{padding-left:var(--k-space-6)}
   .ticket.nest2>.row{padding-left:var(--k-space-8)}
   .ticket.nest3>.row{padding-left:var(--k-space-9)}
+  .ticket.nest4>.row{padding-left:calc(var(--k-space-9) + var(--k-space-3))}
   /* The collapse control for a row that has sub-tasks. Sits at the row's right
      edge (after the open control), a small chevron rotating with its state —
      the same glyph language as the row's own expand chevron, but a SEPARATE
@@ -399,10 +400,10 @@
   // descendant sub-tree; the row itself stays visible as the re-expand control.
   const collapsedSubtrees = new Set();
   // The deepest indent painted, mirroring `MAX_SUBTASK_INDENT` in
-  // `ui/sidebar/items.ts` (which derives it from the writer's
+  // `ui/sidebar/items.ts` (which sets it to the writer's
   // `MAX_SUBTASK_DEPTH`). The host clamps `subtaskDepth` to this, so this
   // constant only bounds the CSS class; keep the two in step.
-  const MAX_SUBTASK_INDENT = 3;
+  const MAX_SUBTASK_INDENT = 4;
   // The shared ticket-actions context window (Edit / Follow Up / Archive).
   // `menuTicket` is the ticket whose "⋯" is open — ONE shared fixed popup, so
   // only one row's menu can be open at a time (unlike `open`, which allows
