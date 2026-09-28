@@ -8,6 +8,8 @@ import { getStage, setStage } from '../store/stages.js';
 import { nowIso } from '../model/time.js';
 import { transition } from './machine.js';
 import { onSubtaskLanded } from './subtaskGate.js';
+import { integrateLandedSubtasks } from './subtaskIntegration.js';
+import type { GitRunner } from '../integrations/git.js';
 
 /**
  * The gate between "the PRs are open" and "the work has landed" (§11) — an
@@ -225,11 +227,17 @@ export interface ShipGateResult {
  * below. A throw is swallowed: the child has already landed, and failing the
  * parent's bookkeeping must not unland it.
  */
-function notifySubtaskLanded(store: Store, ticketId: number, debug?: (message: string) => void): void {
+function notifySubtaskLanded(
+  store: Store,
+  ticketId: number,
+  git?: GitRunner,
+  debug?: (message: string) => void,
+): void {
   const parentId = getTicket(store, ticketId).subtaskParentId;
   if (parentId === null) return;
   try {
-    onSubtaskLanded(store, parentId, { debug });
+    const integrate = git ? (id: number) => integrateLandedSubtasks(store, id, git, debug) : undefined;
+    onSubtaskLanded(store, parentId, { integrate, debug });
   } catch (err) {
     debug?.(
       `[merge] ticket ${ticketId}: sub-task landing hook failed: ${
@@ -267,6 +275,7 @@ function describeMergeState(state: MergeGateState): string {
 export function resolveShipLanding(
   store: Store,
   ticketId: number,
+  git?: GitRunner,
   debug?: (message: string) => void,
 ): ShipGateResult {
   const state = mergeGateState(store, ticketId);
@@ -283,7 +292,7 @@ export function resolveShipLanding(
     transition(store, ticketId, 'ship', { kind: 'passed' }, () => {
       clearStageBlock(store, ticketId, 'ship');
     });
-    notifySubtaskLanded(store, ticketId, debug);
+    notifySubtaskLanded(store, ticketId, git, debug);
     return { advanced: true, state };
   }
   debug?.(
@@ -332,6 +341,7 @@ export function resolveShipLanding(
 export function settleShipGate(
   store: Store,
   ticketId: number,
+  git?: GitRunner,
   debug?: (message: string) => void,
 ): ShipGateResult {
   const ticket = getTicket(store, ticketId);
@@ -375,7 +385,7 @@ export function settleShipGate(
   transition(store, ticketId, 'ship', { kind: 'passed' }, () => {
     clearStageBlock(store, ticketId, 'ship');
   });
-  notifySubtaskLanded(store, ticketId, debug);
+  notifySubtaskLanded(store, ticketId, git, debug);
   return { advanced: true, state };
 }
 
@@ -391,6 +401,7 @@ export function settleShipGate(
 export function settleShipGates(
   store: Store,
   scope: ProjectScope = {},
+  git?: GitRunner,
   debug?: (message: string) => void,
 ): number[] {
   const advanced: number[] = [];
@@ -398,7 +409,7 @@ export function settleShipGates(
     if (ticket.stageCurrent !== 'ship') continue;
     debug?.(`[merge] sweep: ticket ${ticket.id} is at 'ship' — settling`);
     try {
-      if (settleShipGate(store, ticket.id, debug).advanced) advanced.push(ticket.id);
+      if (settleShipGate(store, ticket.id, git, debug).advanced) advanced.push(ticket.id);
     } catch {
       continue;
     }

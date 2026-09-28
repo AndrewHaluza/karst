@@ -1956,7 +1956,7 @@ export async function shipTicket(
   // still AT ship is the one entitled to decide its landing (see
   // `resolveShipLanding`'s doc comment for why this guard matters).
   if (atShip) {
-    resolveShipLanding(store, opts.ticketId, opts.debug);
+    resolveShipLanding(store, opts.ticketId, git, opts.debug);
   }
 
   return { prs };

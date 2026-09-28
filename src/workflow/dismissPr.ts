@@ -105,7 +105,7 @@ export function undismissTicketPr(
  */
 function settle(store: Store, ticketId: number, debug?: (message: string) => void): boolean {
   try {
-    return settleShipGate(store, ticketId, debug).advanced;
+    return settleShipGate(store, ticketId, undefined, debug).advanced;
   } catch {
     return false;
   }
