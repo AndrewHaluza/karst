@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { openStore, type Store } from './db.js';
-import { createTicket, getTicket } from './tickets.js';
+import { archiveTicket, createTicket, getTicket } from './tickets.js';
 import { setStage } from './stages.js';
 import { transition } from '../workflow/machine.js';
 import { autoArchiveDoneTickets } from './doneArchive.js';
@@ -129,5 +129,25 @@ describe('autoArchiveDoneTickets', () => {
       }),
     ).toEqual([mine.id]);
     expect(getTicket(store, theirs.id).archivedAt).toBeNull();
+  });
+
+  it('skips a done parent with an open sub-task, then archives it once the sub-task is archived', () => {
+    const parent = createTicket(store, { key: 'J-1', title: 'parent' });
+    driveToDone(store, parent.id);
+    setStage(store, parent.id, 'done', { startedAt: OLD, endedAt: OLD });
+    const child = createTicket(store, { key: 'J-1-s1', title: 'sub' });
+    store.db
+      .prepare('UPDATE tickets SET subtask_parent_id = ? WHERE id = ?')
+      .run(parent.id, child.id);
+
+    // The open sub-task blocks the archive (design §3); the sweep skips it.
+    expect(autoArchiveDoneTickets(store, { afterDays: 3, now: new Date(NOW) })).toEqual([]);
+    expect(getTicket(store, parent.id).archivedAt).toBeNull();
+
+    // Abandoning the sub-task unblocks the parent for the next sweep.
+    archiveTicket(store, child.id);
+    expect(autoArchiveDoneTickets(store, { afterDays: 3, now: new Date(NOW) })).toEqual([
+      parent.id,
+    ]);
   });
 });

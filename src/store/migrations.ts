@@ -2371,5 +2371,29 @@ function migrateLocked(db: Database): void {
     }
   }
 
+  if (current < 63) {
+    // v63: sub-task composition (NDL-71, design §3). `subtask_parent_id` is this
+    // ticket's PART-OF parent — deliberately NOT `parent_ticket_id`, which keeps
+    // meaning "follow-up of". No FK, matching `parent_ticket_id` and the rest of
+    // the file, so readers tolerate a missing parent row. `blocks_parent` is 1
+    // for a blocking sub-task, NULL/0 otherwise. Both are honestly NULL for every
+    // pre-v63 row: no ticket was a sub-task before the column existed, so there
+    // is nothing to backfill. The guard reads the CURRENT columns, never the
+    // version, so a fresh DB (schema.sql already carries them) is a no-op and a
+    // re-open is idempotent.
+    const cols63 = ticketColumns(db);
+    if (cols63.size > 0) {
+      if (!cols63.has('subtask_parent_id')) {
+        db.exec('ALTER TABLE tickets ADD COLUMN subtask_parent_id INTEGER');
+      }
+      if (!cols63.has('blocks_parent')) {
+        db.exec('ALTER TABLE tickets ADD COLUMN blocks_parent INTEGER');
+      }
+      db.exec(
+        'CREATE INDEX IF NOT EXISTS idx_tickets_subtask_parent ON tickets(subtask_parent_id)',
+      );
+    }
+  }
+
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }

@@ -107,7 +107,20 @@ export type BlockerKind =
   // instead of the ticket silently reading as if nothing were happening.
   // Written by `workflow/graphMarkerGuard.ts`'s `markGraphAwaitingImplMarker`
   // the moment the graph flips quiescent, cleared the moment the marker fires.
-  | 'awaiting-impl-marker';
+  | 'awaiting-impl-marker'
+  // A parent held by its own sub-tasks (design NDL-70 §5, D5). Same shape as
+  // `awaiting-merge`: the question was asked and the answer was "not yet", so
+  // it is NOT "karst could not ask". `leave-impl` parks a parent whose blocking
+  // sub-tasks are not done; `ship` parks a parent whose started stacks have not
+  // landed. The reason lists the sub-task keys and stages. `needsUser` reads it
+  // as waiting, never amber — the wait is on a machine or another ticket.
+  | 'awaiting-subtask'
+  // A parent whose local branch could not absorb a landed sub-task's work
+  // (design NDL-70 §6). Unlike `awaiting-subtask`, this DOES need a human: the
+  // automatic `--no-edit` merge conflicted and was aborted, so the parent's
+  // worktree is untouched and its stage is parked. The reason names the
+  // sub-task and the conflicting files.
+  | 'subtask-integration-conflict';
 
 /**
  * What one stage run did. A runner no longer implies a transition by returning:
