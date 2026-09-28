@@ -16,13 +16,20 @@ import { SERVERS_VIA_CLI_RULE } from '../agent/promptText.js';
 describe('karst guide — content', () => {
   it('documents every verb runCli accepts', () => {
     // runCli accepts exactly: context, stats, stage, phase, graph, node, test, guide,
-    // compact, fix-brief, conflict-brief (main.ts unknown-verb message); servers and env
-    // are intercepted by runCliAsync.
+    // compact, subtask, fix-brief, conflict-brief (main.ts unknown-verb message); servers
+    // and env are intercepted by runCliAsync.
     // Verbs are named backtick-quoted (e.g. `phase <name>`), so match the
     // opening tick.
-    for (const verb of ['context', 'stats', 'stage', 'phase', 'graph', 'node', 'test', 'guide', 'compact', 'fix-brief', 'conflict-brief', 'servers', 'env']) {
+    for (const verb of ['context', 'stats', 'stage', 'phase', 'graph', 'node', 'test', 'guide', 'compact', 'subtask', 'fix-brief', 'conflict-brief', 'servers', 'env']) {
       expect(AGENT_GUIDE).toContain(`\`${verb}`);
     }
+  });
+
+  it('documents the subtask create flags', () => {
+    for (const flag of ['--title', '--description', '--blocking', '--repos']) {
+      expect(AGENT_GUIDE).toContain(flag);
+    }
+    expect(AGENT_GUIDE).toMatch(/sub-task/);
   });
 
   it('documents every marker stage', () => {

@@ -17,7 +17,7 @@ import type { Store } from '../store/db.js';
 import type { StageKey } from '../model/types.js';
 import type { Severity } from '../manifest/types.js';
 import { listAttachments } from '../store/attachments.js';
-import { getTicket, type TicketWithStages } from '../store/tickets.js';
+import { getTicket, listSubtasks, type TicketWithStages } from '../store/tickets.js';
 import {
   listWorktreesByTicket,
   listServersByTicket,
@@ -182,6 +182,37 @@ export interface TicketContextParent {
 }
 
 /**
+ * The OPEN ticket this one is PART OF (a sub-task, design NDL-70 §7), or null
+ * for an ordinary ticket.
+ *
+ * Deliberately NOT `TicketContextParent`: a follow-up continues a SHIPPED ticket
+ * and inherits its brief and PRs, while a sub-task is carved out of work still
+ * in flight. So this carries the parent's own ask (`prompt`) and brief, and the
+ * parent's branch per repo — the branch the sub-task's own branch is cut from
+ * and lands into. The parent's PRs are deliberately absent: they record shipped
+ * work, which a parent that is still open by definition does not have.
+ */
+export interface TicketContextSubtaskParent {
+  key: string | null;
+  title: string | null;
+  /** The parent's authored ask (its `description` column). */
+  prompt: string | null;
+  brief: string | null;
+  /** The parent's branch per repo, from its worktrees. Empty before the parent is cut. */
+  branches: { repo: string; branch: string }[];
+}
+
+/** One direct sub-task of this ticket, as the parent's context lists it (design NDL-70 §7). */
+export interface TicketContextSubtask {
+  id: number;
+  key: string | null;
+  title: string | null;
+  stageCurrent: string | null;
+  /** True when this sub-task holds the parent before it leaves `impl`/`fix`. */
+  blocksParent: boolean;
+}
+
+/**
  * One repository in the ticket's scope, as the agent sees it.
  *
  * `repoPath` is absent when the name is not in the manifest at all — that used
@@ -225,6 +256,10 @@ export interface TicketContext {
   attachments: TicketContextAttachment[];
   /** Set when this ticket was created via "create follow-up" from a completed parent. */
   parent: TicketContextParent | null;
+  /** Set when this ticket is a sub-task (part of an open parent, design NDL-70 §7). */
+  subtaskParent: TicketContextSubtaskParent | null;
+  /** Direct sub-tasks of this ticket, when it has any (design NDL-70 §7). */
+  subtasks: TicketContextSubtask[];
   repos: TicketContextRepo[];
   /**
    * The ticket's CURRENT stage key — the stage a session is actually sitting
@@ -326,6 +361,37 @@ export function buildTicketContext(
       })),
     };
   })();
+
+  // A sub-task is PART OF an open ticket (design NDL-70 §7). It gets the
+  // parent's ask and branch so it knows whose work it extends and where its own
+  // branch lands — but NOT the parent's PRs, which a still-open ticket has none
+  // of (that inheritance belongs to follow-ups, above).
+  const subtaskParent: TicketContextSubtaskParent | null = (() => {
+    if (t.subtaskParentId === null) return null;
+    let p;
+    try {
+      p = getTicket(store, t.subtaskParentId);
+    } catch {
+      return null; // parent hard-deleted; degrade rather than fail context building
+    }
+    return {
+      key: p.key,
+      title: p.title,
+      prompt: p.description,
+      brief: p.brief,
+      branches: listWorktreesByTicket(store, p.id)
+        .filter((w) => w.branch !== null && w.branch.trim() !== '')
+        .map((w) => ({ repo: w.repo, branch: w.branch! })),
+    };
+  })();
+
+  const subtasks: TicketContextSubtask[] = listSubtasks(store, ticketId).map((s) => ({
+    id: s.id,
+    key: s.key,
+    title: s.title,
+    stageCurrent: s.stageCurrent,
+    blocksParent: s.blocksParent,
+  }));
 
   const stageRow = relevantStageRow(t);
   const stageRun = stageRow ? latestStageRun(store, ticketId, stageRow.stageKey) : null;
@@ -431,6 +497,8 @@ export function buildTicketContext(
             name: a.originalName,
           })),
     parent,
+    subtaskParent,
+    subtasks,
     repos,
     stage,
   };
@@ -670,6 +738,47 @@ export function renderTicketContext(
       lines.push(`- ${pr.repo} ${num}${url}`);
     }
     parts.push(`## Continuing from ${heading}\n${lines.join('\n')}`);
+  }
+
+  // A sub-task's parent (design NDL-70 §7). Rendered in every section mode: a
+  // session must know its branch lands into the parent's branch — not main —
+  // whether it reads the seed or re-pulls `karst context`. The parent's PRs are
+  // deliberately not rendered (that is the follow-up section's job).
+  if (ctx.subtaskParent) {
+    const p = ctx.subtaskParent;
+    const heading =
+      p.key && p.title
+        ? `${p.key}: ${p.title}`
+        : p.key || p.title || 'the parent ticket';
+    const lines: string[] = [
+      `This ticket is a sub-task of ${heading} — its work is part of that open ticket, not standalone.`,
+    ];
+    const parentAsk = p.prompt?.trim();
+    if (parentAsk) lines.push(parentAsk);
+    const parentBrief = p.brief?.trim();
+    if (parentBrief) lines.push(parentBrief);
+    for (const b of p.branches) lines.push(`- ${b.repo}: \`${b.branch}\``);
+    lines.push(
+      "Your branch lands into the parent's branch, not into main — open your PR against " +
+        "the parent's branch, and expect it to stack on the parent's work.",
+    );
+    parts.push(`## Parent task\n${lines.join('\n')}`);
+  }
+
+  // The work this ticket delegated to sub-tasks (design NDL-70 §7), so the
+  // parent agent does not redo it. Rendered in every section mode for the same
+  // reason as the parent section above.
+  if (ctx.subtasks.length > 0) {
+    const rows = ctx.subtasks.map((s) => {
+      const key = s.key?.trim() || `#${s.id}`;
+      const title = s.title?.trim();
+      const named = title ? `: ${title}` : '';
+      const flag = s.blocksParent ? ' [blocking]' : '';
+      return `- ${key}${named} (stage: ${s.stageCurrent ?? 'unknown'})${flag}`;
+    });
+    parts.push(
+      `## Sub-tasks\nThis ticket's work is delegated to the following sub-tasks — do not redo them.\n${rows.join('\n')}`,
+    );
   }
 
   return parts.join('\n\n');
