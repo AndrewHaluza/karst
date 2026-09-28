@@ -117,6 +117,63 @@ describe('buildDashboardState', () => {
     expect(buildDashboardState(store, child.id).parent).toBeNull();
   });
 
+  it('carries the sub-task composition relation distinctly from the follow-up line (NDL-76)', () => {
+    const parent = createTicket(store, { key: 'PROJ-1', title: 'root work' });
+    const sub = createTicket(store, {
+      key: 'PROJ-1-s1',
+      title: 'part of it',
+      subtaskParentId: parent.id,
+    });
+    const subState = buildDashboardState(store, sub.id);
+    expect(subState.subtaskParent).toEqual({ key: 'PROJ-1', title: 'root work' });
+    // The two relations are orthogonal: a sub-task is not a follow-up.
+    expect(subState.parent).toBeNull();
+    expect(buildDashboardState(store, parent.id).subtaskParent).toBeNull();
+  });
+
+  it('lists direct sub-tasks with glyph, stage, blocking and n/m progress (NDL-76)', () => {
+    const parent = createTicket(store, { key: 'PROJ-1', title: 'root work' });
+    const first = createTicket(store, {
+      key: 'PROJ-1-s1',
+      title: 'first',
+      subtaskParentId: parent.id,
+    });
+    const blocking = createTicket(store, {
+      key: 'PROJ-1-s2',
+      title: 'second',
+      subtaskParentId: parent.id,
+      blocksParent: true,
+    });
+    // Move the first sub-task to the terminal stage so progress reads 1/2.
+    setStage(store, first.id, 'done', { status: 'passed', verdict: 'merged' });
+    store.db.prepare("UPDATE tickets SET stage_current = 'done' WHERE id = ?").run(first.id);
+
+    const state = buildDashboardState(store, parent.id);
+    expect(state.subtasks.map((s) => s.key)).toEqual(['PROJ-1-s1', 'PROJ-1-s2']);
+    expect(state.subtasks[0]!.done).toBe(true);
+    expect(state.subtasks[0]!.stageClass).toBe('stg-done');
+    expect(state.subtasks[1]!.blocking).toBe(true);
+    expect(state.subtasks[1]!.done).toBe(false);
+    expect(state.subtaskProgress).toEqual({ done: 1, total: 2 });
+    expect(state.subtasks[1]!.id).toBe(blocking.id);
+  });
+
+  it('offers Add sub-task only while the parent can still gain one (NDL-76)', () => {
+    const parent = createTicket(store, { key: 'PROJ-1', title: 'root work' });
+    expect(buildDashboardState(store, parent.id).canAddSubtask).toBe(true);
+    store.db.prepare("UPDATE tickets SET stage_current = 'ship' WHERE id = ?").run(parent.id);
+    expect(buildDashboardState(store, parent.id).canAddSubtask).toBe(false);
+    store.db.prepare("UPDATE tickets SET stage_current = 'done' WHERE id = ?").run(parent.id);
+    expect(buildDashboardState(store, parent.id).canAddSubtask).toBe(false);
+  });
+
+  it('reads 0/0 progress and no sub-tasks for a ticket with none (NDL-76)', () => {
+    const parent = createTicket(store, { key: 'PROJ-1', title: 'root work' });
+    const state = buildDashboardState(store, parent.id);
+    expect(state.subtasks).toEqual([]);
+    expect(state.subtaskProgress).toEqual({ done: 0, total: 0 });
+  });
+
   it('derives the artifacts shelf from the same evidence the inside view renders', () => {
     const t = createTicket(store, { key: 'ART-ST', title: 'artifacts' });
     store.db.prepare("UPDATE tickets SET stage_current = 'uat' WHERE id = ?").run(t.id);
