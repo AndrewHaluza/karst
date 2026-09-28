@@ -96,6 +96,40 @@ type ChangeProbe =
 const GIT_REMOTE_TIMEOUT_MS = 30_000;
 
 /**
+ * The process-wide ceiling on simultaneous network `git fetch` children the
+ * gate-planning path may open. A sweep across many repositories — or several
+ * concurrent probes across tickets and both plans — must never be able to open
+ * unbounded connections to the same remote; that stacking is what made NDL-61
+ * self-reinforcing. Four is small enough to bound connection/NAT pressure and
+ * still lets a handful of repositories fetch concurrently.
+ */
+export const MAX_CONCURRENT_GATE_FETCHES = 4;
+
+let activeFetches = 0;
+const fetchWaiters: Array<() => void> = [];
+
+/**
+ * Run `work` while holding one of `MAX_CONCURRENT_GATE_FETCHES` process-wide
+ * fetch slots. Excess callers queue. A finishing fetch hands its slot DIRECTLY
+ * to the next waiter — the ceiling is never momentarily exceeded by a
+ * decrement-then-increment gap.
+ */
+async function withFetchSlot<T>(work: () => Promise<T>): Promise<T> {
+  if (activeFetches >= MAX_CONCURRENT_GATE_FETCHES) {
+    await new Promise<void>((resolve) => fetchWaiters.push(resolve));
+  } else {
+    activeFetches++;
+  }
+  try {
+    return await work();
+  } finally {
+    const next = fetchWaiters.shift();
+    if (next) next();
+    else activeFetches--;
+  }
+}
+
+/**
  * Race `work` against a timeout that resolves with `onTimeout`, always clearing
  * the losing timer. A bare `Promise.race` leaves the `setTimeout` armed after
  * `work` wins, so every probe pinned 1–2 live timers for the full timeout and
@@ -107,14 +141,25 @@ const GIT_REMOTE_TIMEOUT_MS = 30_000;
  * an orphaned child for up to its own 60s `GIT_TIMEOUT_MS`, and a sweep of
  * unreachable remotes left a fleet of fetches hammering GitHub / exhausting NAT
  * ports (NDL-61).
+ *
+ * A `callerSignal` (the dashboard's superseded gate-options probe) is forwarded
+ * into the same controller, so aborting it cancels the fetch immediately
+ * instead of leaving the child to run to its own budget (NDL-65). The listener
+ * is removed when the race settles either way.
  */
 async function withFetchTimeout(
   work: (signal: AbortSignal) => Promise<GitResult>,
   timeoutMs: number,
   onTimeout: GitResult,
+  callerSignal?: AbortSignal,
 ): Promise<GitResult> {
   const controller = new AbortController();
+  const forwardAbort = (): void => controller.abort();
   let timer: ReturnType<typeof setTimeout> | undefined;
+  if (callerSignal) {
+    if (callerSignal.aborted) controller.abort();
+    else callerSignal.addEventListener('abort', forwardAbort, { once: true });
+  }
   const timeout = new Promise<GitResult>((resolve) => {
     timer = setTimeout(() => {
       controller.abort();
@@ -125,7 +170,35 @@ async function withFetchTimeout(
     return await Promise.race([work(controller.signal), timeout]);
   } finally {
     if (timer !== undefined) clearTimeout(timer);
+    callerSignal?.removeEventListener('abort', forwardAbort);
   }
+}
+
+/**
+ * One `git fetch origin <ref>` bounded by three things at once: the remote
+ * timeout, the caller's abort signal, and the process-wide concurrency cap.
+ * Both the timeout and a caller abort reach `runGitProcess` as the same
+ * `AbortSignal`, so the child is `killTree`d either way.
+ */
+function fetchRemote(
+  git: GitRunner,
+  cwd: string,
+  ref: string,
+  timeoutMs: number,
+  callerSignal?: AbortSignal,
+): Promise<GitResult> {
+  return withFetchSlot(() =>
+    withFetchTimeout(
+      (signal) => git(['fetch', 'origin', ref], cwd, { signal }),
+      timeoutMs,
+      {
+        exitCode: 1,
+        stdout: '',
+        stderr: 'git fetch timed out',
+      },
+      callerSignal,
+    ),
+  );
 }
 
 async function hasReviewChanges(
@@ -134,6 +207,7 @@ async function hasReviewChanges(
   base: string,
   branch?: string | null,
   fetchTimeoutMs: number = GIT_REMOTE_TIMEOUT_MS,
+  signal?: AbortSignal,
 ): Promise<ChangeProbe> {
   // Agents are allowed to leave implementation work uncommitted until ship.
   // Porcelain includes staged, unstaged, and untracked files, so review cannot
@@ -154,15 +228,7 @@ async function hasReviewChanges(
   // changed. The timeout prevents an unreachable remote from stalling the
   // entire gate stage indefinitely; on timeout the child is aborted so it is
   // killed immediately rather than lingering to its own 60s budget.
-  const fetched = await withFetchTimeout(
-    (signal) => git(['fetch', 'origin', base], cwd, { signal }),
-    fetchTimeoutMs,
-    {
-      exitCode: 1,
-      stdout: '',
-      stderr: 'git fetch timed out',
-    },
-  );
+  const fetched = await fetchRemote(git, cwd, base, fetchTimeoutMs, signal);
   const compare = fetched.exitCode === 0 ? `origin/${base}` : base;
   // Also fetch the feature branch so the diff head resolves against the remote
   // state — a local branch ref that is behind the remote produces an empty diff
@@ -170,15 +236,7 @@ async function hasReviewChanges(
   // the local branch name when the fetch fails.
   const fetchedBranch =
     branch && branch.trim() !== ''
-      ? await withFetchTimeout(
-          (signal) => git(['fetch', 'origin', branch], cwd, { signal }),
-          fetchTimeoutMs,
-          {
-            exitCode: 1,
-            stdout: '',
-            stderr: 'git fetch timed out',
-          },
-        )
+      ? await fetchRemote(git, cwd, branch, fetchTimeoutMs, signal)
       : null;
   // Diff against the ticket's branch BY NAME when it is known: a worktree
   // checked out on the base branch must still read as "changed" when the
@@ -208,6 +266,13 @@ export interface SelectReviewTargetsOptions {
    * pass a short value to avoid waiting for the real 30-second timeout.
    */
   gitFetchTimeoutMs?: number;
+  /**
+   * Cancel the planning pass. When it aborts, each in-flight `git fetch` is
+   * aborted too (the child is killed), so a superseded probe cannot keep
+   * hammering the remote while a newer one runs. Absent → the pass runs to
+   * completion, unchanged for the gate stages and any other caller.
+   */
+  signal?: AbortSignal;
   /**
    * The store and ticket this selection runs for. When both are supplied, the
    * base each worktree is diffed against is resolved `worktrees.base_ref`
@@ -270,6 +335,7 @@ export async function selectReviewTargets(
       base,
       worktree.branch,
       options?.gitFetchTimeoutMs,
+      options?.signal,
     );
     if (probe.kind === 'unavailable') {
       options?.debug?.(

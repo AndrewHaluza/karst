@@ -55,11 +55,17 @@ export async function planUatTargets(
    */
   ticket: { store: Store; ticketId: number },
   debug?: (message: string) => void,
+  /**
+   * Cancel planning. Forwarded to `selectReviewTargets` so an aborted caller
+   * cancels the in-flight fetches. Absent → unchanged (the gate stages).
+   */
+  signal?: AbortSignal,
 ): Promise<UatTargetSelection> {
   const selection = await selectReviewTargets(manifest, worktrees, git, {
     store: ticket.store,
     ticketId: ticket.ticketId,
     debug,
+    signal,
   });
   if (selection.kind === 'unavailable') {
     debug?.(

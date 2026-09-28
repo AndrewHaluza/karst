@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import { manifest, runnableRepo, dependsOn } from '../../manifest/fixtures.js';
-import { selectReviewTargets, type ReviewWorktree, type ReviewTarget } from './targets.js';
+import {
+  MAX_CONCURRENT_GATE_FETCHES,
+  selectReviewTargets,
+  type ReviewWorktree,
+  type ReviewTarget,
+} from './targets.js';
 import type { GitRunner } from '../../integrations/git.js';
 import { openStore } from '../../store/db.js';
 import { createTicket } from '../../store/tickets.js';
@@ -199,6 +204,73 @@ describe('selectReviewTargets', () => {
 
     expect(signals.length).toBeGreaterThan(0);
     expect(signals.every((signal) => signal?.aborted === true)).toBe(true);
+  });
+
+  // NDL-65: a superseding probe (the dashboard aborts the previous loader's
+  // controller) must CANCEL the in-flight fetch, not merely drop its result
+  // after both plans resolve. The caller's signal is threaded all the way into
+  // the `git` runner, so aborting it kills the child at once instead of letting
+  // it run to its own 30s budget and stack with the next probe.
+  it('aborts the in-flight fetch when the caller signal aborts', async () => {
+    const controller = new AbortController();
+    const signals: (AbortSignal | undefined)[] = [];
+    let started!: () => void;
+    const fetching = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const git: GitRunner = async (args, _cwd, options) => {
+      if (args[0] === 'status') return { stdout: '', stderr: '', exitCode: 0 };
+      if (args[0] === 'fetch') {
+        signals.push(options?.signal);
+        started();
+        return await new Promise((resolve) => {
+          const signal = options?.signal;
+          const abort = () => resolve({ stdout: '', stderr: 'aborted', exitCode: 1 });
+          if (signal?.aborted) return abort();
+          signal?.addEventListener('abort', abort, { once: true });
+        });
+      }
+      return { stdout: '', stderr: '', exitCode: 1 };
+    };
+
+    const selection = selectReviewTargets(
+      project,
+      [{ repo: '/repos/web', path: '/wt/web', baseRef: 'develop', branch: 'karst/x' }],
+      git,
+      { signal: controller.signal },
+    );
+    await fetching;
+    controller.abort();
+    await selection;
+
+    expect(signals.length).toBeGreaterThan(0);
+    expect(signals.every((signal) => signal?.aborted === true)).toBe(true);
+  });
+
+  // NDL-65: the gate-planning path must never open unbounded simultaneous
+  // connections to the same remote. Several concurrent probes (a sweep across
+  // tickets, uat + review planning in one panel refresh) each fetch their own
+  // repos; a process-wide cap bounds the in-flight count regardless.
+  it('caps simultaneous network fetches process-wide', async () => {
+    let inFlight = 0;
+    let peak = 0;
+    const git: GitRunner = async (args) => {
+      if (args[0] === 'status') return { stdout: '', stderr: '', exitCode: 0 };
+      if (args[0] === 'fetch') {
+        inFlight++;
+        peak = Math.max(peak, inFlight);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        inFlight--;
+        return { stdout: '', stderr: '', exitCode: 0 };
+      }
+      return { stdout: '', stderr: '', exitCode: 1 };
+    };
+
+    await Promise.all(
+      Array.from({ length: 10 }, () => selectReviewTargets(project, worktrees, git)),
+    );
+
+    expect(peak).toBeLessThanOrEqual(MAX_CONCURRENT_GATE_FETCHES);
   });
 
   it('reports the worktree row base, not the manifest default', async () => {
