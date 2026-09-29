@@ -54,6 +54,7 @@ export const SECTION_FIELDS: Record<SettingsSection, readonly (keyof Manifest)[]
     'defaultModel',
     'defaultEffort',
     'agentPresets',
+    'activeAgentPreset',
     'defaultAgentPreset',
     'archiveDoneAfterDays',
     'debug',

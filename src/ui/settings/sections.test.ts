@@ -42,6 +42,7 @@ describe('settings sections — vocabulary', () => {
     // would silently drop it.
     expect([...seen].sort()).toEqual(
       [
+        'activeAgentPreset',
         'agentPresets',
         'agentProvider',
         'agents',

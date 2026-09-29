@@ -716,7 +716,7 @@ processes:
     }
   });
 
-  it('round-trips agentPresets and defaultAgentPreset', () => {
+  it('round-trips agentPresets and defaultAgentPreset, dropping deprecated process.preset', () => {
     const { path, cleanup } = fixture();
     try {
       writeManifest(
@@ -736,7 +736,8 @@ processes:
         fast: fullPreset('opencode', 'opencode-go/deepseek-v4-flash'),
       });
       expect(reloaded.defaultAgentPreset).toBe('fast');
-      expect(reloaded.processes?.review?.preset).toBe('fast');
+      // Deprecated process.<key>.preset is dropped on write (§7.4)
+      expect(reloaded.processes?.review?.preset).toBeUndefined();
     } finally {
       cleanup();
     }

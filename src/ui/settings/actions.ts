@@ -179,13 +179,46 @@ export function buildSettingsActions(deps: SettingsActionsDeps): SettingsActions
      * manifest (the roster must render the built-in), so without this reduction
      * ANY write — an agent toggle, an install reconcile, a section save — would
      * resurrect the whole packaged built-in into the manifest (A7).
+     *
+     * On Presets-tab save (section==='general'): renames defaultAgentPreset →
+     * activeAgentPreset so the file carries the canonical spelling. On any
+     * tab-scoped save: drops the deprecated processes.<key>.preset field.
      */
-    function writeManifestDelta(next: Manifest): void {
-      deps.writeManifest(ctx.manifestPath, {
+    function writeManifestDelta(next: Manifest, section?: SettingsSection): void {
+      let toWrite = {
         ...next,
         approaches:
           next.approaches !== undefined ? approachDelta(next.approaches) : next.approaches,
-      });
+      };
+
+      if (section === 'general') {
+        // Rename defaultAgentPreset → activeAgentPreset on Presets-tab save
+        if (next.defaultAgentPreset !== undefined && next.activeAgentPreset === undefined) {
+          toWrite = {
+            ...toWrite,
+            activeAgentPreset: next.defaultAgentPreset,
+            defaultAgentPreset: undefined,
+          };
+        }
+      }
+
+      if (section !== undefined) {
+        // Drop deprecated processes.<key>.preset on any tab-scoped save
+        if (toWrite.processes !== undefined) {
+          toWrite = {
+            ...toWrite,
+            processes: Object.entries(toWrite.processes).reduce(
+              (acc, [key, config]) => ({
+                ...acc,
+                [key]: config !== undefined ? { ...config, preset: undefined } : config,
+              }),
+              {} as typeof toWrite.processes,
+            ),
+          };
+        }
+      }
+
+      deps.writeManifest(ctx.manifestPath, toWrite);
     }
 
     /**
@@ -355,7 +388,7 @@ export function buildSettingsActions(deps: SettingsActionsDeps): SettingsActions
           return;
         }
         try {
-          writeManifestDelta(next);
+          writeManifestDelta(next, section);
           deps.reloadManifest(); // refresh host's live copy BEFORE state push
           deps.onChange();
           await pushStateWithInstalled();
