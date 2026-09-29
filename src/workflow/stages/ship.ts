@@ -11,6 +11,7 @@ import { randomUUID } from 'node:crypto';
 import { listWorktreesByTicket } from '../../store/dashboard.js';
 import { takeForcePushLease, armForcePushLease } from '../../store/worktrees.js';
 import { getTicket } from '../../store/tickets.js';
+import { listLandedStackedSubtasks } from '../../store/subtasks.js';
 import { resolveShipLanding } from '../mergeGate.js';
 import { settleSubtaskGate } from '../subtaskGate.js';
 import { integrateAndReleaseParent } from '../subtaskIntegration.js';
@@ -55,6 +56,7 @@ import {
   promoteQuarantinedObjects,
   remoteRefSha,
   workingTreeSummary,
+  GIT_PUSH_TIMEOUT_MS,
   type GitRunner,
   type PersistedCommitIdentity,
 } from '../../integrations/git.js';
@@ -595,6 +597,143 @@ function isStoreFailure(err: unknown): boolean {
 // so every existing `from './ship.js'` import keeps working unchanged.
 export { hasCompletedShipRun } from './shipStore.js';
 
+/** The outcome of a sub-task's fork-point ship precondition (NDL-85). */
+export interface SubtaskForkPushOutcome {
+  /**
+   * True when `ship` was parked: either the remote parent branch diverged from
+   * the sub-task's fork point, or the fork point could not be resolved/verified.
+   * The caller must NOT push or open a PR — the park holds until integration.
+   */
+  diverged: boolean;
+}
+
+/** Park a `ship` stage on `awaiting-subtask`, mirroring the gate's own park shape. */
+function parkShipAwaitingSubtask(
+  store: Store,
+  ticketId: number,
+  reason: string,
+  debug?: (message: string) => void,
+): void {
+  debug?.(`[driver] ticket ${ticketId}: parking 'ship' — ${reason}`);
+  setStage(store, ticketId, 'ship', {
+    status: 'pending',
+    verdict: null,
+    endedAt: null,
+    blockedKind: 'awaiting-subtask',
+    blockedReason: reason,
+    blockedAt: nowIso(),
+  });
+}
+
+/** The remote's current sha for `refs/heads/<branch>`, or null when unreadable. */
+async function lsRemoteBranchSha(
+  git: GitRunner,
+  cwd: string,
+  branch: string,
+): Promise<string | null> {
+  const ls = await git(['ls-remote', 'origin', `refs/heads/${branch}`], cwd);
+  if (ls.exitCode !== 0) return null;
+  const sha = ls.stdout.trim().split(/\s+/)[0] ?? '';
+  return sha === '' ? null : sha;
+}
+
+/**
+ * Sub-task ship precondition (NDL-85, design NDL-70 §4/§6).
+ *
+ * A sub-task's PR targets its parent's branch, so `origin/<parentBranch>` must
+ * contain the sub-task's fork point — otherwise the PR diff would re-show the
+ * parent's own commits. Ensure it with a **non-force**, fast-forward-only push
+ * of the fork point: a plain push is inherently ff-only, and this one carries
+ * only the commits the sub-task was already built on. Never a force push.
+ *
+ * A rejected push means the remote moved: a sibling visited first and the parent
+ * has not integrated it yet. The rejection is read from git's EXIT STATE, and
+ * confirmed by comparing the remote ref against the fork point — never by
+ * parsing stderr prose. On divergence the sub-task's `ship` is parked
+ * `awaiting-subtask` ("parent branch must integrate <siblingKey> first"); parent
+ * integration (NDL-75) clears it, and no push or PR happens here.
+ *
+ * Every branch is logged through the injected `debug` with the `[driver]`
+ * prefix. Returns `{ diverged: false }` for anything that is not a stacked
+ * sub-task (no parent, or no parent branch worktree in this repo).
+ */
+export async function ensureSubtaskForkPointOnParentBranch(
+  store: Store,
+  ticketId: number,
+  repo: string,
+  cwd: string,
+  git: GitRunner,
+  debug?: (message: string) => void,
+): Promise<SubtaskForkPushOutcome> {
+  const parentId = getTicket(store, ticketId).subtaskParentId;
+  if (parentId === null) return { diverged: false };
+
+  const parentWt = listWorktreesByTicket(store, parentId).find(
+    (w) => w.repo === repo && w.branch !== null && w.branch !== '',
+  );
+  if (!parentWt?.branch) {
+    debug?.(
+      `[driver] ticket ${ticketId}: parent has no branch worktree in '${repo}' — ` +
+        'nothing to stack onto, skipping fork-point push',
+    );
+    return { diverged: false };
+  }
+  const parentBranch = parentWt.branch;
+
+  // The fork point is where the sub-task branched off the parent's branch. The
+  // parent's newest commits may not be pushed yet (the sub-task stacks on the
+  // parent's LOCAL head), so this is exactly what the remote must come to carry.
+  const forkRes = await git(['merge-base', 'HEAD', parentBranch], cwd);
+  const forkSha = forkRes.stdout.trim();
+  if (forkRes.exitCode !== 0 || forkSha === '') {
+    parkShipAwaitingSubtask(
+      store,
+      ticketId,
+      `sub-task ship precondition failed: cannot resolve the fork point of '${parentBranch}'`,
+      debug,
+    );
+    return { diverged: true };
+  }
+
+  debug?.(
+    `[driver] ticket ${ticketId}: ensuring origin/${parentBranch} contains fork point ` +
+      `${forkSha.slice(0, 7)}`,
+  );
+  const push = await git(['push', 'origin', `${forkSha}:refs/heads/${parentBranch}`], cwd, {
+    timeoutMs: GIT_PUSH_TIMEOUT_MS,
+  });
+  if (push.exitCode === 0) {
+    debug?.(`[driver] ticket ${ticketId}: origin/${parentBranch} already carries the fork point`);
+    return { diverged: false };
+  }
+
+  // Rejected. Confirm the ref actually moved before calling it divergence: a
+  // remote left exactly at the fork point means the failure was not a
+  // non-fast-forward, and mislabeling it would silently park real errors.
+  const remoteSha = await lsRemoteBranchSha(git, cwd, parentBranch);
+  if (remoteSha === null || remoteSha === forkSha) {
+    debug?.(
+      `[driver] ticket ${ticketId}: fork-point push to origin/${parentBranch} failed without ` +
+        'a ref change — surfacing the git failure instead of parking',
+    );
+    throw new Error(
+      describeGitFailure(`git push ${forkSha.slice(0, 7)}:refs/heads/${parentBranch}`, push),
+    );
+  }
+
+  // A sibling landed on the parent branch and the parent has not integrated it.
+  const siblings = listLandedStackedSubtasks(store, parentId, repo, parentBranch)
+    .filter((s) => s.id !== ticketId)
+    .map((s) => s.key);
+  const siblingKey = siblings.length > 0 ? siblings.join(', ') : 'another sub-task';
+  const reason = `parent branch must integrate ${siblingKey} first`;
+  debug?.(
+    `[driver] ticket ${ticketId}: origin/${parentBranch} diverged (${remoteSha.slice(0, 7)}) — ${reason}`,
+  );
+  parkShipAwaitingSubtask(store, ticketId, reason, debug);
+  return { diverged: true };
+}
+
 export async function shipTicket(
   store: Store,
   opts: ShipOpts,
@@ -1029,6 +1168,24 @@ export async function shipTicket(
         const localHead = (await headCommit(git, wt.path)) ?? '';
         const ref = wt.branch ?? 'HEAD';
         const preRemoteHead = await remoteRefSha(git, wt.path, 'origin', ref);
+
+        // Sub-task ship precondition (NDL-85, design NDL-70 §4/§6): a sub-task
+        // opens its PR INTO the parent branch, so `origin/<parentBranch>` must
+        // carry the fork point before the child branch is pushed. A plain,
+        // non-force push of the fork point proves it atomically; a rejection
+        // means a sibling landed first and the parent has not integrated it, so
+        // `ship` parks `awaiting-subtask` and nothing is pushed or PR'd.
+        if (ticket.subtaskParentId !== null) {
+          const precondition = await ensureSubtaskForkPointOnParentBranch(
+            store,
+            opts.ticketId,
+            wt.repo,
+            wt.path,
+            git,
+            opts.debug,
+          );
+          if (precondition.diverged) return { prs: [] };
+        }
 
         // fu1: the remote already carries this exact HEAD — an earlier attempt's
         // push landed and only its result write was lost. Re-pushing publishes
