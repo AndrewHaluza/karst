@@ -788,6 +788,20 @@
   .reload-btn.is-pending .reload-icon{animation-play-state:running}
   @keyframes reload-spin{to{transform:rotate(360deg)}}
 
+  /* Agent presets (General): a compact list of the manifest's preset map, then
+     the ONE form that adds/edits an entry. Same recipe as .roster — the
+     container owns the border and radius, rows are hairline-separated — but a
+     row is not a click target (it carries Edit/Delete), so it gets its own
+     names rather than borrowing .roster-row's selected/cursor treatment. */
+  .preset-list{display:flex;flex-direction:column;overflow:hidden;border-radius:var(--k-radius-lg);border:var(--k-border-w) solid var(--vscode-panel-border)}
+  .preset-row{display:flex;align-items:center;gap:var(--k-space-4);padding:var(--k-space-4) var(--k-space-5);border-top:var(--k-border-w) solid var(--vscode-panel-border)}
+  .preset-row:first-child{border-top:none}
+  .preset-row .preset-name{font-family:var(--k-font-mono);font-weight:600;font-size:var(--k-text-base);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .preset-row .preset-meta{font-size:var(--k-text-xs);color:var(--k-text-dim);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .preset-row .preset-row-actions{display:flex;gap:var(--k-space-3);margin-left:auto}
+  .preset-empty{font-size:var(--k-text-xs);color:var(--k-text-dim);margin-top:var(--k-space-3)}
+  .preset-actions{display:flex;justify-content:flex-end;gap:var(--k-space-4);margin-top:var(--k-space-4)}
+
   /* Compact object roster (handoff §6.5 / §10). */
   .roster{display:flex;flex-direction:column;overflow:hidden;border-radius:var(--k-radius-lg);border:var(--k-border-w) solid var(--vscode-panel-border)}
   .roster-head,.roster-row{display:grid;align-items:center;gap:var(--k-space-4);padding:var(--k-space-4) var(--k-space-5)}
@@ -1137,6 +1151,56 @@
             <select id="f-defaultAgentPreset" aria-labelledby="defaultAgentPresetLabel"></select>
             <div class="field-help">Applies to every ticket that picks no preset of its own. A preset overrides the core + model above; a ticket or process can still override it.</div>
           </div>
+        </div>
+      </div>
+
+      <!-- The preset MAP the select above picks from. It belongs to General
+           because that is where the default preset lives (SECTION_FIELDS); a
+           preset is only a name + core + model + optional effort bundle, so a
+           full Agents-style card would be a second editor for a four-field
+           record. Nothing here writes the file — the draft + Save contract. -->
+      <div class="section-block">
+        <div class="section-head">
+          <div>
+            <div class="section-title">Agent presets</div>
+            <div class="section-desc">Named core + model + effort bundles, offered wherever an agent is picked. Edit the default, a process assignment or a ticket to use one.</div>
+          </div>
+        </div>
+
+        <div id="agentPresetList"></div>
+        <div class="field-error hidden" id="presetListError" role="alert"></div>
+
+        <div class="form-grid">
+          <div class="field-label" id="presetNameLabel">Preset name</div>
+          <div class="field-control">
+            <input type="text" id="f-presetName" placeholder="fast"
+              aria-labelledby="presetNameLabel" aria-describedby="presetFormError" />
+          </div>
+
+          <div class="field-label" id="presetProviderLabel">Core</div>
+          <div class="field-control">
+            <select id="f-presetProvider" aria-labelledby="presetProviderLabel" aria-describedby="presetFormError"></select>
+          </div>
+
+          <div class="field-label" id="presetModelLabel">Model</div>
+          <div class="field-control">
+            <input type="text" id="f-presetModel" placeholder="claude-sonnet-5"
+              aria-labelledby="presetModelLabel" aria-describedby="presetFormError" />
+          </div>
+
+          <div class="field-label" id="presetEffortLabel">Effort / variant</div>
+          <div class="field-control">
+            <input type="text" id="f-presetEffort" placeholder="high"
+              aria-labelledby="presetEffortLabel" aria-describedby="presetFormError" />
+            <div class="field-help">Optional. Blank lets the model keep its own effort; an effort only applies when the preset's model is the one picked.</div>
+          </div>
+        </div>
+
+        <div class="field-error hidden" id="presetFormError" role="alert"></div>
+
+        <div class="preset-actions">
+          <button class="k-btn k-btn--secondary" id="cancelPresetBtn" type="button">Cancel</button>
+          <button class="k-btn k-btn--primary" id="savePresetBtn" type="button">+ Add preset</button>
         </div>
       </div>
 
@@ -2094,6 +2158,13 @@
   // union). Options not in `implementedProviders` render disabled + "(coming soon)".
   const KNOWN_AGENT_PROVIDERS = ['claude', 'codex', 'antigravity', 'opencode'];
 
+  // The agent-preset editor's two bounds — mirrors of
+  // src/manifest/validate/agentPresets.ts (UI-R34), because a typo must not
+  // turn one preset into an unbounded config block. webview.test.ts runs the
+  // editor's mirror against the host module's validator.
+  const AGENT_PRESET_MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/~-]{0,127}$/;
+  const MAX_AGENT_PRESETS = 50;
+
   // Graph configuration — mirrors of src/manifest/graphConfig.ts (UI-R34).
   // GRAPH_HARD_CEILINGS/GRAPH_COMMAND_TIMEOUT_CEILING are product constants a
   // project can never raise and DEFAULT_GRAPH_LIMITS is what every budget row
@@ -2234,7 +2305,7 @@
     general: [
       'host', 'portRange', 'baselineBranch', 'worktreePathDisplay',
       'ticketLabelTemplate', 'terminalNameTemplate', 'agentProvider', 'defaultModel',
-      'defaultEffort', 'defaultAgentPreset', 'archiveDoneAfterDays', 'debug',
+      'defaultEffort', 'agentPresets', 'defaultAgentPreset', 'archiveDoneAfterDays', 'debug',
       'closeDoneTerminalsWithTicket', 'diffsInSourceControl',
     ],
     git: ['conventions'],
@@ -2329,7 +2400,11 @@
     if (/\bapproach(es)?\b/.test(msg)) return 'approaches';
     if (/^agents?\b/.test(msg)) return 'agents';
     if (/^processes\b/.test(msg)) return 'agents';
-    if (/\b(host|portRange|baselineBranch|worktreePathDisplay|ticketLabelTemplate|terminalNameTemplate|agentProvider|defaultModel|archiveDoneAfterDays|debug|closeDoneTerminalsWithTicket|diffsInSourceControl)\b/.test(msg)) {
+    // `agentPresets`/`defaultAgentPreset`/`defaultEffort` sit on this list
+    // BECAUSE they start with "agent": ^agents? does not match them (no word
+    // boundary before the capital P), but naming them explicitly keeps that
+    // from being an accident of the next regex edit.
+    if (/\b(host|portRange|baselineBranch|worktreePathDisplay|ticketLabelTemplate|terminalNameTemplate|agentProvider|defaultModel|defaultEffort|defaultAgentPreset|agentPresets|archiveDoneAfterDays|debug|closeDoneTerminalsWithTicket|diffsInSourceControl)\b/.test(msg)) {
       return 'general';
     }
     return null;
@@ -2658,7 +2733,18 @@
     // ship falls back to the same default.
     el('f-prDescriptionTemplate').value = conventions.pullRequestDescription || DEFAULT_PR_DESCRIPTION_TEMPLATE;
     renderPresetOptions();
+    renderAgentPresetProviderOptions();
     renderAgentPresetOptions();
+    // A state push that took the preset being edited away (Discard, an
+    // out-of-band rewrite of the file) must not leave a form pointed at a
+    // record that no longer exists.
+    if (
+      editingPresetName !== null &&
+      !Object.prototype.hasOwnProperty.call(draft.agentPresets || {}, editingPresetName)
+    ) {
+      resetPresetForm();
+    }
+    renderAgentPresetList();
     renderDefaultTypeOptions(conventions.defaultType || '');
     renderLabelPreview();
     renderConventions();
@@ -2725,6 +2811,275 @@
     el('f-defaultAgentPreset').innerHTML =
       `<option value="">None (use the core + model above)</option>`
       + names.map((n) => `<option value="${esc(n)}"${n === sel ? ' selected' : ''}>${esc(n)}</option>`).join('');
+  }
+
+  // ---- Agent presets: the editor behind the list on General ----------------
+  // Same contract as every other General control: write draft.agentPresets,
+  // re-render its consumers, markDirty(). Save is the only thing that reaches
+  // karst.yml, and the host's validateManifest stays the authority on whether
+  // the result is writable — validateAgentPresetsDraft exists so an edit this
+  // form accepts cannot be refused there (webview.test.ts pins it against
+  // validateAgentPresets).
+
+  // The preset name the form is editing; null while it is in "add" mode.
+  let editingPresetName = null;
+
+  const PRESET_FORM_FIELDS = ['f-presetName', 'f-presetProvider', 'f-presetModel', 'f-presetEffort'];
+
+  // Mirrors src/manifest/validate/agentPresets.ts — same bounds, same
+  // vocabulary, same message text. Returns the fault, or null when the map
+  // would pass the host's validator.
+  function validateAgentPresetsDraft(presets) {
+    if (presets === undefined) return null;
+    if (typeof presets !== 'object' || presets === null || Array.isArray(presets)) {
+      return 'agentPresets must be a mapping';
+    }
+    const names = Object.keys(presets);
+    if (names.length > MAX_AGENT_PRESETS) {
+      return `agentPresets accepts at most ${MAX_AGENT_PRESETS} presets`;
+    }
+    for (const name of names) {
+      if (name.trim() === '') return 'agentPresets has an empty preset name';
+      const where = `agentPresets.${name}`;
+      const preset = presets[name];
+      if (typeof preset !== 'object' || preset === null || Array.isArray(preset)) {
+        return `${where} must be a mapping`;
+      }
+      for (const key of Object.keys(preset)) {
+        if (['provider', 'model', 'effort'].indexOf(key) === -1) {
+          return `${where} has unknown key "${key}"`;
+        }
+      }
+      const provider = preset.provider;
+      if (typeof provider !== 'string' || provider.trim() === '' || provider.length > 512) {
+        return `${where}.provider must be a non-empty string of at most 512 characters`;
+      }
+      if (KNOWN_AGENT_PROVIDERS.indexOf(provider) === -1) {
+        return `${where}.provider must be one of: ${KNOWN_AGENT_PROVIDERS.join(', ')}`;
+      }
+      const model = preset.model;
+      if (typeof model !== 'string' || model.trim() === '' || model.length > 512) {
+        return `${where}.model must be a non-empty string of at most 512 characters`;
+      }
+      if (!AGENT_PRESET_MODEL_ID.test(model)) return `${where}.model is not a valid model id`;
+      if (preset.effort !== undefined) {
+        const effort = preset.effort;
+        if (typeof effort !== 'string' || effort.trim() === '' || effort.length > 512) {
+          return `${where}.effort must be a non-empty string of at most 512 characters`;
+        }
+      }
+    }
+    return null;
+  }
+
+  // Every preset reference a Save could leave in the file, named as the surface
+  // an operator can actually change. A referenced preset is REFUSED a delete or
+  // rename rather than silently unlinked: `defaultAgentPreset` lives on this
+  // tab, but `processes.<key>.preset` belongs to the Agents tab and a
+  // tab-scoped Save writes only its own fields — clearing it here would never
+  // reach the file, so the Save would be refused anyway (the host checks
+  // reference integrity over the whole manifest). Naming the referrer is what
+  // the process rows do with a dangling profile: point at the place to change,
+  // never resolve it here.
+  function agentPresetReferences(name) {
+    const refs = [];
+    const add = (ref) => { if (refs.indexOf(ref) === -1) refs.push(ref); };
+    // This tab writes ITS OWN draft's defaultAgentPreset…
+    if (draft.defaultAgentPreset === name) add('the Default agent preset');
+    // …while a General Save writes the FILE's process rows (mergeSection starts
+    // from the baseline) and a later Agents Save writes the draft's. Either one
+    // keeps the reference alive, so both are checked.
+    for (const source of [draft, lastSaved]) {
+      for (const [key, cfg] of Object.entries((source && source.processes) || {})) {
+        if (cfg && cfg.preset === name) {
+          const view = processAssignmentViews[key];
+          add(`the "${(view && view.roleLabel) || key}" process assignment`);
+        }
+      }
+    }
+    return refs;
+  }
+
+  // "A, B and C" — a refusal names every referrer, and "A and B and C" reads
+  // like a run-on rather than a list.
+  function joinPresetRefs(refs) {
+    if (refs.length < 2) return refs.join('');
+    return `${refs.slice(0, -1).join(', ')} and ${refs[refs.length - 1]}`;
+  }
+
+  function showPresetListError(msg) {
+    const line = el('presetListError');
+    if (!line) return;
+    if (!msg) { line.textContent = ''; line.classList.add('hidden'); return; }
+    line.textContent = msg;
+    line.classList.remove('hidden');
+  }
+
+  // UI-R25: the fault is shown on its line AND flagged on the control it is
+  // about. The message carries the host's field path, so the control follows
+  // the same suffix.
+  function showPresetFormError(msg) {
+    const line = el('presetFormError');
+    for (const id of PRESET_FORM_FIELDS) {
+      const input = el(id);
+      if (input) input.removeAttribute('aria-invalid');
+    }
+    if (!line) return;
+    if (!msg) { line.textContent = ''; line.classList.add('hidden'); return; }
+    const at = msg.indexOf('.provider') !== -1 ? 'f-presetProvider'
+      : msg.indexOf('.model') !== -1 ? 'f-presetModel'
+      : msg.indexOf('.effort') !== -1 ? 'f-presetEffort'
+      : 'f-presetName';
+    const input = el(at);
+    if (input) input.setAttribute('aria-invalid', 'true');
+    line.textContent = msg;
+    line.classList.remove('hidden');
+  }
+
+  function renderAgentPresetList() {
+    const block = el('agentPresetList');
+    if (!block) return;
+    const presets = draft.agentPresets || {};
+    const names = Object.keys(presets).sort();
+    if (!names.length) {
+      block.innerHTML =
+        '<div class="preset-empty">No presets yet. Add one to offer it wherever an agent is picked.</div>';
+      return;
+    }
+    block.innerHTML = '<div class="preset-list">' + names.map((name) => {
+      const preset = presets[name] || {};
+      const meta = (AGENT_PROVIDER_LABELS[preset.provider] || preset.provider || '')
+        + (preset.model ? ` · ${preset.model}` : '')
+        + (preset.effort ? ` · ${preset.effort}` : '');
+      return `<div class="preset-row">`
+        + `<span class="preset-name">${esc(name)}</span>`
+        + `<span class="preset-meta">${esc(meta)}</span>`
+        + `<span class="preset-row-actions">`
+        + `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-edit-preset="${esc(name)}">Edit</button>`
+        + `<button type="button" class="k-btn k-btn--danger k-btn--sm" data-remove-preset="${esc(name)}">Delete</button>`
+        + `</span></div>`;
+    }).join('') + '</div>';
+  }
+
+  // The preset form's core vocabulary — the same KNOWN_AGENT_PROVIDERS the
+  // picker renders, so a preset can be defined for a core whose picker still
+  // shows "coming soon" (the manifest accepts all four). Built once, like
+  // renderPresetOptions, so a state push mid-edit cannot reset a pick.
+  function renderAgentPresetProviderOptions() {
+    const sel = el('f-presetProvider');
+    if (!sel || sel.options.length) return;
+    sel.innerHTML = KNOWN_AGENT_PROVIDERS.map(
+      (p) => `<option value="${p}">${esc(AGENT_PROVIDER_LABELS[p] || p)}</option>`,
+    ).join('');
+    sel.value = KNOWN_AGENT_PROVIDERS.indexOf(draft.agentProvider) === -1
+      ? KNOWN_AGENT_PROVIDERS[0]
+      : draft.agentProvider;
+  }
+
+  function resetPresetForm() {
+    editingPresetName = null;
+    el('f-presetName').value = '';
+    el('f-presetModel').value = '';
+    el('f-presetEffort').value = '';
+    el('f-presetProvider').value = KNOWN_AGENT_PROVIDERS.indexOf(draft.agentProvider) === -1
+      ? KNOWN_AGENT_PROVIDERS[0]
+      : draft.agentProvider;
+    el('savePresetBtn').textContent = '+ Add preset';
+    showPresetFormError(null);
+  }
+
+  function editAgentPreset(name) {
+    const preset = (draft.agentPresets || {})[name];
+    if (!preset) return;
+    editingPresetName = name;
+    el('f-presetName').value = name;
+    el('f-presetProvider').value = KNOWN_AGENT_PROVIDERS.indexOf(preset.provider) === -1
+      ? KNOWN_AGENT_PROVIDERS[0]
+      : preset.provider;
+    el('f-presetModel').value = preset.model || '';
+    el('f-presetEffort').value = preset.effort || '';
+    el('savePresetBtn').textContent = 'Save preset';
+    showPresetFormError(null);
+    showPresetListError(null);
+    const nameField = el('f-presetName');
+    if (nameField && typeof nameField.focus === 'function') nameField.focus();
+  }
+
+  // Commit the form into draft.agentPresets. The name is NOT trimmed: it is the
+  // manifest key and every reference compares against it exactly, so a stray
+  // space is a different preset, not this one with padding.
+  function saveAgentPreset() {
+    const name = el('f-presetName').value;
+    const provider = el('f-presetProvider').value;
+    const model = el('f-presetModel').value;
+    const effort = el('f-presetEffort').value;
+    const renaming = editingPresetName !== null && editingPresetName !== name;
+    const next = { ...(draft.agentPresets || {}) };
+
+    // The host bounds preset VALUES through requireString; a name is a KEY, so
+    // the bound is this editor's own (the form is the only thing that can
+    // produce a name the file did not already carry).
+    if (name.length > 512) {
+      return showPresetFormError('Preset name must be 512 characters or fewer.');
+    }
+    if (name !== editingPresetName && Object.prototype.hasOwnProperty.call(next, name)) {
+      return showPresetFormError(`A preset named "${name}" already exists.`);
+    }
+    if (renaming) {
+      const refs = agentPresetReferences(editingPresetName);
+      if (refs.length) {
+        return showPresetFormError(
+          `Cannot rename "${editingPresetName}" — still used by ${joinPresetRefs(refs)}. Change that first.`,
+        );
+      }
+      delete next[editingPresetName];
+    }
+    if (!Object.prototype.hasOwnProperty.call(next, name) && Object.keys(next).length >= MAX_AGENT_PRESETS) {
+      return showPresetFormError(`agentPresets accepts at most ${MAX_AGENT_PRESETS} presets`);
+    }
+    const entry = { provider, model };
+    if (effort !== '') entry.effort = effort;
+    next[name] = entry;
+    const fault = validateAgentPresetsDraft(next);
+    if (fault) return showPresetFormError(fault);
+    commitAgentPresets(next);
+    return undefined;
+  }
+
+  function deleteAgentPreset(name) {
+    const refs = agentPresetReferences(name);
+    if (refs.length) {
+      return showPresetListError(
+        `Cannot delete "${name}" — still used by ${joinPresetRefs(refs)}. Change that first.`,
+      );
+    }
+    const next = { ...(draft.agentPresets || {}) };
+    delete next[name];
+    commitAgentPresets(next);
+    return undefined;
+  }
+
+  // The one path every preset-map mutation leaves through. An empty map DELETES
+  // the key — absent IS "no presets", the same absent-field rule every other
+  // control follows (and writeManifest then omits the block).
+  function commitAgentPresets(next) {
+    if (Object.keys(next).length > 0) draft.agentPresets = next;
+    else delete draft.agentPresets;
+    if (
+      editingPresetName !== null &&
+      !Object.prototype.hasOwnProperty.call(next, editingPresetName)
+    ) {
+      resetPresetForm();
+    }
+    showPresetFormError(null);
+    showPresetListError(null);
+    markDirty();
+    renderAgentPresetList();
+    // The default-preset select reads the draft, so it follows immediately.
+    // The process rows' selects stay HOST-computed (the webview derives
+    // nothing): they pick the new preset up with the state push that follows
+    // this tab's Save, exactly like every other field.
+    renderAgentPresetOptions();
   }
 
   function renderDefaultTypeOptions(selected) {
@@ -2828,6 +3183,10 @@
     draft.defaultAgentPreset = el('f-defaultAgentPreset').value || undefined;
     markDirty();
   });
+  // The preset editor commits into the draft only — Save is what writes it.
+  el('savePresetBtn').addEventListener('click', saveAgentPreset);
+  el('cancelPresetBtn').addEventListener('click', resetPresetForm);
+  el('f-presetName').addEventListener('input', () => showPresetFormError(null));
   el('f-labelTemplate').addEventListener('input', () => {
     // Blank normalizes to undefined so a cleared field falls back to the default
     // (mirrors validateTicketLabelTemplate in schema.ts).
@@ -3214,6 +3573,18 @@
     // name-rename field keep their own target (they carry their own data).
     const t = e.target.closest && e.target.closest('button, a, input, select, textarea') || e.target;
     if (!t.dataset) return;
+
+    // Agent presets (General): Edit loads the record into the form, Delete
+    // drops it from the draft — both refuse while a reference still points at
+    // the preset (agentPresetReferences).
+    if (t.dataset.editPreset) {
+      editAgentPreset(t.dataset.editPreset);
+      return;
+    }
+    if (t.dataset.removePreset) {
+      deleteAgentPreset(t.dataset.removePreset);
+      return;
+    }
 
     if (t.dataset.cmd !== undefined) {
       postAction(t, (requestId) => karstSend.getApproachCommandBody(t.dataset.approach, t.dataset.cmd, requestId));

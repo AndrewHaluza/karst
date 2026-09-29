@@ -42,6 +42,7 @@ describe('settings sections — vocabulary', () => {
     // would silently drop it.
     expect([...seen].sort()).toEqual(
       [
+        'agentPresets',
         'agentProvider',
         'agents',
         'approaches',
@@ -121,18 +122,29 @@ describe('settings sections — mergeSection', () => {
     expect(merged.uat).toEqual(base.uat);
   });
 
-  it('a general save preserves agentPresets from the base and carries defaultAgentPreset', () => {
+  it('a general save takes the draft agentPresets and carries defaultAgentPreset', () => {
     const base: Manifest = {
       ...BASE,
       agentPresets: { fast: { provider: 'opencode', model: 'opencode-go/deepseek-v4-flash' } },
       defaultAgentPreset: 'fast',
     };
-    const merged = mergeSection(base, { ...base, host: '0.0.0.0' }, 'general');
+    const incoming: Manifest = {
+      ...base,
+      host: '0.0.0.0',
+      agentPresets: { deep: { provider: 'claude', model: 'claude-sonnet-5' } },
+    };
+    const merged = mergeSection(base, incoming, 'general');
 
-    // agentPresets is claimed by no section: a General Save must never drop it.
-    expect(merged.agentPresets).toEqual(base.agentPresets);
+    // agentPresets is CLAIMED by the general tab (the editor writes it), so a
+    // General Save writes the draft's map — not the baseline's.
+    expect(merged.agentPresets).toEqual(incoming.agentPresets);
     expect(merged.defaultAgentPreset).toBe('fast');
     expect(merged.host).toBe('0.0.0.0');
+
+    // The editor deletes the key when the last preset goes, and an absent field
+    // means "cleared" — the baseline's map must not be carried forward.
+    const { agentPresets: _cleared, ...without } = incoming;
+    expect(mergeSection(base, without as Manifest, 'general').agentPresets).toBeUndefined();
   });
 
   it('a quality save leaves every other section untouched', () => {

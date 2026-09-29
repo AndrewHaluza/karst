@@ -38,9 +38,15 @@ const FOCUS_CAP = 12;
  * seed onto `diffsRenderFixtures()`'s `populated` scenario: two repos with
  * commits and staged/unstaged/untracked files. The empty seed rendered the
  * "No ticket worktrees" placeholder with nothing to focus; the populated
- * fixture's repo/commit/group `<details>` disclosure triggers, per-commit
+ * fixture's repo/group `<details>` disclosure triggers, per-commit
  * copy-hash buttons and file rows are all real controls a ticket with actual
  * changes would render.
+ *
+ * Updated a fourth time by the agent-preset editor (NDL-106): `settings` +6 —
+ * the General tab's preset form (name, core, model, effort inputs plus Add and
+ * Cancel). The seed has no presets, so the list itself contributes no rows;
+ * six net-new controls on a form that could not fold into any existing field,
+ * since the preset map is a top-level manifest key this tab now owns.
  */
 const FOCUS_COUNT_RATCHET: Record<ViewId, number> = {
   dashboard: 44,
@@ -49,7 +55,7 @@ const FOCUS_COUNT_RATCHET: Record<ViewId, number> = {
   serverLogs: 11,
   sidebar: 48,
   diffs: 35,
-  settings: 187,
+  settings: 193,
   ticketForm: 25,
   gettingStarted: 6,
 };
