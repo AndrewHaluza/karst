@@ -148,6 +148,40 @@ describe('sub-task integration (real git)', () => {
     expect(git(s.parentWt, 'rev-parse', 'HEAD').trim()).toBe(integratedHead);
   });
 
+  it('does not park an already-integrated parent when the remote is unreachable', async () => {
+    const s = seed('E2E-OFFLINE');
+    const childSha = childShips(s, 'child.txt', 'child work\n');
+    const first = await integrateLandedSubtasks(store, s.parentId, defaultGitRunner);
+    expect(first.parked).toBe(false);
+    expect(git(s.parentWt, 'rev-parse', 'HEAD').trim()).toBe(childSha);
+
+    // Break the remote so every fetch fails. `origin/<parentBranch>` still holds
+    // the child's work locally (an ancestor of HEAD), so the fallback ancestor
+    // check must skip the branch — not park a parent that is already integrated.
+    git(s.repoPath, 'remote', 'set-url', 'origin', join(s.repoPath, 'nonexistent-origin'));
+
+    const second = await integrateLandedSubtasks(store, s.parentId, defaultGitRunner);
+
+    expect(second.parked).toBe(false);
+    expect(stageBlock(store, s.parentId, 'impl')).toBeNull();
+    expect(git(s.parentWt, 'rev-parse', 'HEAD').trim()).toBe(childSha);
+  });
+
+  it('parks when the remote is unreachable and a merge is genuinely unresolved', async () => {
+    const s = seed('E2E-OFFLINE-PARK');
+    childShips(s, 'child.txt', 'child work\n');
+    // Never fetched, so `origin/<parentBranch>` is unknown locally; breaking the
+    // remote leaves a merge we cannot confirm is resolved.
+    git(s.repoPath, 'remote', 'set-url', 'origin', join(s.repoPath, 'nonexistent-origin'));
+
+    const outcome = await integrateLandedSubtasks(store, s.parentId, defaultGitRunner);
+
+    expect(outcome.parked).toBe(true);
+    const block = stageBlock(store, s.parentId, 'impl');
+    expect(block?.kind).toBe('awaiting-subtask');
+    expect(block?.reason).toContain('git fetch failed');
+  });
+
   it('takes a real merge commit when the parent branch diverged (no rebase)', async () => {
     const s = seed('E2E-MERGE');
     childShips(s, 'child.txt', 'child work\n');

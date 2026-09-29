@@ -18,14 +18,19 @@ import { onSubtaskLanded, clearIntegrationParks } from './subtaskGate.js';
  * 1. Refuse on a dirty TRACKED tree — park `awaiting-subtask` naming the
  *    sub-task(s).
  * 2. Fetch `origin/<parentBranch>`.
- * 3. `git merge --ff-only origin/<parentBranch>`; on failure,
+ * 3. Skip if `origin/<parentBranch>` is already an ancestor of HEAD — a
+ *    landed-child row never leaves, so a re-drive must not re-refuse. THIS
+ *    CHECK ALSO RUNS WHEN THE FETCH FAILS: an unreachable remote must not park
+ *    a parent whose merge the local remote-tracking ref already resolves.
+ * 4. `git merge --ff-only origin/<parentBranch>`; on failure,
  *    `git merge --no-edit origin/<parentBranch>` (no rebase, shared history).
- * 4. A `MERGE_HEAD` state is a conflict: read the unmerged files from git
+ * 5. A `MERGE_HEAD` state is a conflict: read the unmerged files from git
  *    state, `merge --abort`, and park `subtask-integration-conflict` naming the
  *    sub-task and files. A failed abort parks too — the tree is mid-merge and
  *    needs manual cleanup.
  *
- * Every silent branch (status/fetch/merge failure) PARKS instead of advancing:
+ * Every silent branch (status/merge failure, or a fetch failure whose merge the
+ * local ref cannot confirm is resolved) PARKS instead of advancing:
  * `onSubtaskLanded` must never release the parent's gate without the child's
  * work. The whole step runs only while the parent is idle — karst never mutates
  * a tree under a live agent — and every branch logs via the injected `debug`
@@ -120,6 +125,27 @@ export async function integrateLandedSubtasks(
     // FETCH FIRST. The dirty check below must gate only a merge that is truly
     // needed, and `origin/<branch>` is the thing we merge.
     const fetch = await git(['fetch', 'origin', branch], wt.path);
+
+    // Already integrated? `origin/<branch>` being an ancestor of HEAD means the
+    // child's work is in — the landed-child row stays FOREVER, so without this
+    // every later call would re-run the dirty check and block ship's own commit
+    // step (the parent tree is normally uncommitted at ship entry).
+    //
+    // Check this EVEN WHEN THE FETCH FAILED. A fetch can fail only because the
+    // remote is unreachable; the local `origin/<branch>` remote-tracking ref may
+    // already hold the child's work, and an unreachable remote must not park a
+    // parent whose merge is already resolved. Only a fetch failure with a merge
+    // that is genuinely unresolved (the ref is absent, or not an ancestor) parks.
+    const ancestor = await git(['merge-base', '--is-ancestor', remote, 'HEAD'], wt.path);
+    if (ancestor.exitCode === 0) {
+      debug?.(
+        fetch.exitCode === 0
+          ? `[driver] ticket ${parentId}: ${remote} already integrated into HEAD — skipping`
+          : `[driver] ticket ${parentId}: git fetch failed but ${remote} is already integrated into HEAD — skipping`,
+      );
+      continue;
+    }
+
     if (fetch.exitCode !== 0) {
       return parkParent(
         store,
@@ -128,16 +154,6 @@ export async function integrateLandedSubtasks(
         `sub-task integration failed: git fetch failed integrating ${keys} — ${brief(fetch)}`,
         debug,
       );
-    }
-
-    // Already integrated? `origin/<branch>` being an ancestor of HEAD means the
-    // child's work is in — the landed-child row stays FOREVER, so without this
-    // every later call would re-run the dirty check and block ship's own commit
-    // step (the parent tree is normally uncommitted at ship entry).
-    const ancestor = await git(['merge-base', '--is-ancestor', remote, 'HEAD'], wt.path);
-    if (ancestor.exitCode === 0) {
-      debug?.(`[driver] ticket ${parentId}: ${remote} already integrated into HEAD — skipping`);
-      continue;
     }
 
     // A merge is needed: refuse a dirty TRACKED tree. Untracked files are not

@@ -159,9 +159,14 @@ describe('subtaskIntegration', () => {
     expect(block?.reason).toContain('git status failed');
   });
 
-  it('parks awaiting-subtask when the fetch fails', async () => {
+  it('parks awaiting-subtask when the fetch fails and a merge is still needed', async () => {
     const { parentId } = parentWithLandedChild(store, 'P-8');
-    const { runner } = runnerWith([['fetch', FAIL('unreachable')]]);
+    // Remote unreachable AND the local `origin/<branch>` is not an ancestor of
+    // HEAD → a merge is genuinely unresolved, so the parent must park.
+    const { runner } = runnerWith([
+      ['fetch', FAIL('unreachable')],
+      ['merge-base', MERGE_NEEDED],
+    ]);
 
     const outcome = await integrateLandedSubtasks(store, parentId, runner);
 
@@ -169,6 +174,25 @@ describe('subtaskIntegration', () => {
     const block = stageBlock(store, parentId, 'impl');
     expect(block?.kind).toBe('awaiting-subtask');
     expect(block?.reason).toContain('git fetch failed');
+  });
+
+  it('skips a fetch failure when the branch is already integrated locally', async () => {
+    const { parentId, parentBranch } = parentWithLandedChild(store, 'P-8b');
+    // Remote unreachable, but `origin/<branch>` is already an ancestor of HEAD:
+    // the child's work is in, so the fetch failure must not park the parent.
+    const { runner, calls } = runnerWith([
+      ['fetch', FAIL('unreachable')],
+      ['merge-base', OK],
+      ['status', { stdout: 'M file.ts\n', stderr: '', exitCode: 0 }],
+    ]);
+
+    const outcome = await integrateLandedSubtasks(store, parentId, runner);
+
+    expect(outcome.parked).toBe(false);
+    expect(stageBlock(store, parentId, 'impl')).toBeNull();
+    expect(calls).toContainEqual(['fetch', 'origin', parentBranch]);
+    expect(calls.some((c) => c[0] === 'status')).toBe(false);
+    expect(calls.some((c) => c[0] === 'merge')).toBe(false);
   });
 
   it('parks subtask-integration-conflict naming the files from git state', async () => {
